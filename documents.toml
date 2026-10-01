@@ -409,8 +409,8 @@ path = "docs/ARBITER_ARCHITECTURE.md"
 kind = "plan"
 status = "proposed"
 since = "2026-09-30"
-remains = "Every stage: the held-out enemy name labels, the baseline, assignment of enemy fragments to the living five, wiring with the enemy lane, the channel arbiters, ability owners and allies."
-waits_for = "The player's review of the plan, the AGENTS.md draft in its section 3, and the held-out label pass."
+remains = "Every stage: the held-out enemy name labels, the baseline, assignment of enemy fragments to the living five with reopening on surprise and its reopened-share prediction, wiring with the enemy lane, the channel arbiters, ability owners and allies. Its AGENTS.md rule change is applied (2026-09-30)."
+waits_for = "The held-out label pass, and the player's answers to the movement, activation-after-death and persistence questions on docs/ABILITY_MECHANICS_SHEET.md."
 
 [[document]]
 path = "docs/ENEMY_VISION_COUPLING.md"

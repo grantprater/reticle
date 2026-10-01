@@ -1562,3 +1562,29 @@ the duration is a belief, to be measured
 """
 see = ["minimap/reveal-draws-no-light", "abilities/pulse-scan-abilities",
        "abilities/ability-rules-are-unique"]
+
+[last-known-mark-under-enemy-icon-belief]
+claim = """
+An enemy icon drawn where another enemy's red "?" stands draws over the "?";
+it does not erase it. The player believes so and is not certain.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = """
+the player, 2026-09-30 (chat), asked whether a "?" vanishes when a different
+enemy appears at its place
+"""
+use = """
+a "?" hidden under a different enemy's icon is still that enemy's mark; it
+neither ends nor names the icon over it. Only the "?"'s own enemy returning
+ends it early [domain:minimap/last-known-mark-timing]
+"""
+exceptions = """
+unverified. Test: a "?" whose area a different enemy's icon overlaps, the
+two told apart by the killfeed, the roster or player labels. The belief
+holds if the "?" shows again when the icon leaves, within its measured life
+[domain:minimap/last-known-mark-timing]; it fails if the "?" is gone at the
+overlap's end with its fade not yet due
+"""
+see = ["minimap/last-known-mark", "minimap/last-known-mark-timing"]

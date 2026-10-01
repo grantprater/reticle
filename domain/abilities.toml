@@ -3215,10 +3215,13 @@ device placed before the death is no new cast, and whether it persists is a
 fact per ability [domain:abilities/ability-rules-are-unique]
 """
 exceptions = """
-unasked: whether a second press on a device placed while alive (ACTIVATE,
-REACTIVATE [domain:abilities/ability-description-verbs]) counts as a cast;
-whether a dead Clove can cast Meddle or Pick-me-up; whether a downed KAY/O
-or a Phoenix in Run It Back counts as dead here
+unknown to the player: whether a device placed while its owner lived can be
+activated by a second press (ACTIVATE, REUSE
+[domain:abilities/ability-description-verbs]) after the owner dies, as
+Vyse's Arc Rose placed and then flashed; asked per ability in
+docs/ABILITY_MECHANICS_SHEET.md. Unasked: whether a dead Clove can cast
+Meddle or Pick-me-up; whether a downed KAY/O or a Phoenix in Run It Back
+counts as dead here
 """
 see = ["abilities/clove-smokes-after-death", "rounds/resurrection-mechanics",
        "abilities/ability-rules-are-unique"]
@@ -3339,3 +3342,226 @@ the persisting set may be incomplete. The deactivated Nanoswarm's icon
 """
 see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
        "abilities/killjoy-nanoswarm-minimap-icon", "abilities/ability-rules-are-unique"]
+
+[cypher-trapwire-persists-after-death]
+claim = """
+Cypher's Trapwire persists after Cypher dies.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "cypher:trapwire"
+source = "the player, 2026-09-30 (chat)"
+use = """
+A Trapwire seen after Cypher's death is the same entity, never a new cast
+[domain:abilities/no-cast-while-dead]; it keeps its owner
+"""
+exceptions = """
+the player confirmed eight such abilities together; the persisting set may
+still be incomplete. Whether it persists deactivated, drawn dim
+[domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
+its minimap drawing after the death.
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/cypher-trapwire", "abilities/ability-rules-are-unique"]
+
+[cypher-spycam-persists-after-death]
+claim = """
+Cypher's Spycam persists after Cypher dies.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "cypher:spycam"
+source = "the player, 2026-09-30 (chat)"
+use = """
+A Spycam seen after Cypher's death is the same entity, never a new cast
+[domain:abilities/no-cast-while-dead]; it keeps its owner
+"""
+exceptions = """
+the player confirmed eight such abilities together; the persisting set may
+still be incomplete. Whether it persists deactivated, drawn dim
+[domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
+its minimap drawing after the death.
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/cypher-spycam-dart-reveal", "abilities/ability-rules-are-unique"]
+
+[deadlock-sonic-sensor-persists-after-death]
+claim = """
+Deadlock's Sonic Sensor persists after Deadlock dies.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "deadlock:sonic sensor"
+source = "the player, 2026-09-30 (chat)"
+use = """
+A Sonic Sensor seen after Deadlock's death is the same entity, never a new cast
+[domain:abilities/no-cast-while-dead]; it keeps its owner
+"""
+exceptions = """
+the player confirmed eight such abilities together; the persisting set may
+still be incomplete. Whether it persists deactivated, drawn dim
+[domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
+its minimap drawing after the death. Owner death is one measured cause of a Sonic Sensor's dimming
+[domain:minimap/device-dim-on-deactivation].
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/deadlock-sonic-sensor-minimap-white-area", "abilities/ability-rules-are-unique"]
+
+[vyse-razorvine-persists-after-death]
+claim = """
+Vyse's Razorvine persists after Vyse dies.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "vyse:razorvine"
+source = "the player, 2026-09-30 (chat)"
+use = """
+A Razorvine seen after Vyse's death is the same entity, never a new cast
+[domain:abilities/no-cast-while-dead]; it keeps its owner
+"""
+exceptions = """
+the player confirmed eight such abilities together; the persisting set may
+still be incomplete. Whether it persists deactivated, drawn dim
+[domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
+its minimap drawing after the death.
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/vyse-razorvine-minimap-icon", "abilities/ability-rules-are-unique"]
+
+[veto-chokehold-persists-after-death]
+claim = """
+Veto's Chokehold persists after Veto dies.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "veto:chokehold"
+source = "the player, 2026-09-30 (chat)"
+use = """
+A Chokehold seen after Veto's death is the same entity, never a new cast
+[domain:abilities/no-cast-while-dead]; it keeps its owner
+"""
+exceptions = """
+the player confirmed eight such abilities together; the persisting set may
+still be incomplete. Whether it persists deactivated, drawn dim
+[domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
+its minimap drawing after the death.
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/veto-chokehold-minimap-white-area", "abilities/ability-rules-are-unique"]
+
+[viper-poison-cloud-persists-after-death]
+claim = """
+Viper's Poison Cloud persists after Viper dies.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "viper:poison cloud"
+source = "the player, 2026-09-30 (chat)"
+use = """
+A Poison Cloud seen after Viper's death is the same entity, never a new cast
+[domain:abilities/no-cast-while-dead]; it keeps its owner
+"""
+exceptions = """
+the player confirmed eight such abilities together; the persisting set may
+still be incomplete. Whether it persists deactivated, drawn dim
+[domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
+its minimap drawing after the death.
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/viper-poison-cloud-toggle", "abilities/ability-rules-are-unique"]
+
+[viper-toxic-screen-persists-after-death]
+claim = """
+Viper's Toxic Screen persists after Viper dies.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "viper:toxic screen"
+source = "the player, 2026-09-30 (chat)"
+use = """
+A Toxic Screen seen after Viper's death is the same entity, never a new cast
+[domain:abilities/no-cast-while-dead]; it keeps its owner
+"""
+exceptions = """
+the player confirmed eight such abilities together; the persisting set may
+still be incomplete. Whether it persists deactivated, drawn dim
+[domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
+its minimap drawing after the death.
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/viper-toxic-screen", "abilities/ability-rules-are-unique"]
+
+[astra-placed-stars-persist-after-death]
+claim = """
+Astra's placed stars persist after Astra dies.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "astra:stars"
+source = "the player, 2026-09-30 (chat)"
+use = """
+A placed star seen after Astra's death is the same entity, never a new cast
+[domain:abilities/no-cast-while-dead]; it keeps its owner
+"""
+exceptions = """
+the player confirmed eight such abilities together; the persisting set may
+still be incomplete. Whether it persists deactivated, drawn dim
+[domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
+its minimap drawing after the death.
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/astra-star-placed-then-turned", "abilities/ability-rules-are-unique"]
+
+[yoru-fakeout-player-icon]
+claim = """
+Yoru's FAKEOUT draws an extra player icon on the minimap. It is the only
+ability that does.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-30"
+subject = "yoru:fakeout"
+source = """
+the player, 2026-09-30 (chat), asked whether any ability draws an extra
+player icon, such as a decoy, on the other team's minimap
+"""
+use = """
+with Yoru in the lineup, one player icon more than the side's living agents
+may be a FAKEOUT: an ability entity owned by Yoru, never a sixth enemy, and
+its glyph is no witness of Yoru's own place. Without Yoru, an extra icon is a
+detection fault or a surprise to store
+"""
+exceptions = """
+how the decoy draws (portrait, facing, cone, light) and on which team's
+minimap is unmeasured; "only" holds for the current game and agent pool.
+Whether GATECRASH's fake teleport draws anything is unasked
+"""
+see = ["abilities/ability-rules-are-unique", "rounds/agent-uniqueness"]
+
+[movement-abilities-are-dashes-and-teleports]
+claim = """
+The abilities that move an agent farther than running would are its dashes
+and teleports. The player believes the wiki holds the full list; no list is
+recorded here.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "abilities:movement"
+source = """
+the player, 2026-09-30 (chat), asked which abilities move their agent
+farther than running would
+"""
+use = """
+a reachability bar yields to a dash or a teleport of an agent in the
+lineup; the candidates in docs/ABILITY_MECHANICS_SHEET.md come from the
+catalogue's wiki function tags (Dash, Teleport, Mobility) and its
+descriptions, and each waits for the player's confirmation. `track` owns the
+licence (`reticle ownership teleport-licence`)
+"""
+exceptions = """
+the candidate list is derived, not answered. Whether speed boosts count is
+unasked. Abilities that move other agents (Gravity Well, Rolling Thunder,
+Annihilation, Bassquake) are outside this rule
+"""
+see = ["abilities/minimap-dash-or-teleport-trace", "abilities/ability-rules-are-unique"]

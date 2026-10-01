@@ -55,10 +55,14 @@ repeat the never-built graph solver of
 project` would break the premise that every consumer row is an owner's
 answer ([ENTITY_EVENTS.md](ENTITY_EVENTS.md), section 3).
 
-The strongest argument against: the arbiter grows past names into life and
-reachability, and one defect touches every name. The guard: it asks each
-constraint's owner and computes none, and each stage keeps its own stamp, so
-a fragment change never restamps death names.
+The strongest argument against: reopening one verdict at a time is a
+greedy repair, not a joint optimum. Two surprises that each need the
+other's revision can leave both verdicts wrong where a joint fit would
+settle them, and the arbiter grows past names into life and reachability,
+so one defect touches every name. The guards: a rerun that raises a new
+surprise is stored as an unresolved pair, never chased; the arbiter asks
+each constraint's owner and computes none; and each stage keeps its own
+stamp, so a fragment change never restamps death names.
 
 **Entity model.** Ten player entities per match, keyed by side and lineup
 slot (gap 1 of `docs/ENTITY_EVENTS.md`), each named by the side verdict;
@@ -66,8 +70,7 @@ per round, each player's life intervals and the fragments, deaths and
 abilities bound to it. Each ability entity has one owner slot or an honest
 unknown.
 
-**Stages,** each reading only earlier stages' stored verdicts; nothing
-iterates to a fixed point:
+**Stages,** each reading earlier stages' stored verdicts:
 
 1. *Lineup:* `assign_side` over top bar and scoreboard claims.
 2. *Deaths and life:* victim and killer names; each slot's life intervals,
@@ -76,6 +79,18 @@ iterates to a fixed point:
 3. *Fragments* to living slots (section 5).
 4. *Ability owners* (section 6).
 5. *Objects:* the spike carrier.
+
+**Reopening on surprise.** A surprise in a later stage reopens the one
+earlier verdict it contradicts, the general form of widening on surprise
+(`AGENTS.md`). That verdict reruns once with the new evidence; the original,
+the revision and the surprise are stored together. A verdict reopens at
+most once per surprise, the rerun reads the same stored witnesses plus that
+surprise, and nothing iterates to a fixed point or becomes a joint fit.
+*Prediction:* reopening is a very small minority of decisions. The metric
+is the reopened share of verdicts per session and stage
+(`arbiter_architecture/reopen`, `reopened_share`); it is falsified if it
+exceeds 5% on any of the three sessions of section 7, which would mean the
+stage order is wrong, not the rule.
 
 **Constraints.** One icon per agent per frame; no icon after the death mark
 [domain:minimap/death-icon-becomes-mark]; reachability from the last-known
@@ -91,23 +106,12 @@ agreements are counted, never scored.
 
 ## 3. The identity-arbiter rule
 
-The proposal keeps the rule, with the arbiter as the aggregator, and adds
-the channel clause. The draft replaces the bullet and adds a few lines
-to an `AGENTS.md` already over its budget. Not applied; the player
-decides.
-
-> - **Every agent name is decided by `adjudication.identity`**, the
->   aggregator over one arbiter per channel, per entity and per side. Each
->   channel pools its own readings and publishes `identity_claim`s through
->   its arbiter; from another channel it takes only a candidate set, a
->   window or a gate, never that channel's verdict on the same entity.
->   Owners that bind a death, track, row or ability to a witness supply the
->   entity key and ask the arbiter. A claim that rests on another entity's
->   verdict declares `depends_on`; an observation a prior placed declares
->   `rests_on`. An ownership entry whose output carries a name declares
->   `names_agents = true` and defers to `agent-identity`. OWNERSHIP makes an
->   undeclared name producer, or an identity event built outside the
->   arbiter, an ERROR, and the event validator rejects the event.
+The player approved the rule change, and `AGENTS.md` carries it since
+2026-09-30: the "Every agent name is decided by `adjudication.identity`"
+bullet names the aggregator over one arbiter per channel, the channel
+clause and `rests_on`, and "Continue the prior" names reopening as the
+general form of widening on surprise. The rule is applied; the plan stays
+proposed until its stages are built.
 
 ## 4. Ownership
 
@@ -142,18 +146,31 @@ Stage 3 walks each round's fragments in time order:
    those bound to a fragment in the same frame. A birth deep in old light
    beside a fragment that just ended, or at a "?" before it fades
    [domain:minimap/last-known-mark-timing], predicts that fragment's agent;
-   a birth at the frontier predicts an agent not now seen.
+   a birth at the frontier predicts an agent not now seen. A different
+   enemy's icon is believed to draw over a "?", not erase it
+   [domain:minimap/last-known-mark-under-enemy-icon-belief], so an overlap
+   keeps the "?" its own; section 7's stage 1 runs that belief's test.
 2. **Check cheaply.** The pooled glyph confirms the prediction when its
    margin clears the arbiter's gate. With one candidate left, elimination
    assigns it and `depends_on` the other four slots' bindings and deaths. A
    glyph that favours another candidate is a disagreement; the name is
    withheld.
 3. **Widen on surprise.** A glyph favouring a slot a constraint excludes is
-   a stored surprise naming the constraint, and it reopens the round's
-   assignments back to the last anchor (a bound death or a confirmed name).
-   Movement abilities can break reachability
-   [domain:abilities/minimap-dash-or-teleport-trace], so until they are
-   recorded an unreachable binding is a surprise, never a veto.
+   a stored surprise naming the constraint, and it reopens the verdict it
+   contradicts (section 2). Dashes and teleports break reachability
+   [domain:abilities/movement-abilities-are-dashes-and-teleports]. The
+   mechanics sheet holds a *candidate list*, derived from the catalogue's
+   wiki function tags and descriptions and not yet confirmed; it names Raze's
+   Blast Pack and Phoenix's Run It Back, which `track`'s movement classes
+   lack. Until
+   the player confirms it, an unreachable binding is a surprise, never a
+   veto.
+
+**Decoys.** Yoru's FAKEOUT draws an extra player icon
+[domain:abilities/yoru-fakeout-player-icon]. With Yoru in the lineup, an
+icon beyond the side's living agents is a candidate FAKEOUT, which stage 4
+owns as Yoru's ability entity; stage 3 never makes it a sixth enemy, and its
+glyph is no witness of Yoru's place.
 
 **Honest unknowns.** A fragment with several candidates and no margin
 survives as an `enemy` entity with `agent: null`, its candidates and its
@@ -197,10 +214,26 @@ persist deactivated [domain:abilities/chamber-rendezvous-persists-after-death]
 [domain:abilities/killjoy-turret-persists-after-death]
 [domain:abilities/killjoy-alarmbot-persists-after-death]
 [domain:abilities/killjoy-nanoswarm-persists-after-death], drawn dim
-[domain:minimap/device-dim-on-deactivation]; Omen's Dark Cover stays active
+[domain:minimap/device-dim-on-deactivation]. Cypher's Trapwire and Spycam,
+Deadlock's Sonic Sensor, Vyse's Razorvine, Veto's Chokehold, Viper's Poison
+Cloud and Toxic Screen and Astra's placed stars persist too
+[domain:abilities/cypher-trapwire-persists-after-death]
+[domain:abilities/cypher-spycam-persists-after-death]
+[domain:abilities/deadlock-sonic-sensor-persists-after-death]
+[domain:abilities/vyse-razorvine-persists-after-death]
+[domain:abilities/veto-chokehold-persists-after-death]
+[domain:abilities/viper-poison-cloud-persists-after-death]
+[domain:abilities/viper-toxic-screen-persists-after-death]
+[domain:abilities/astra-placed-stars-persist-after-death]; whether they
+dim is unasked. Omen's Dark Cover stays active
 [domain:abilities/omen-dark-cover]. The set may be incomplete. An ability
 seen after its owner's death with no fact is a stored surprise, neither a
 new cast nor a bar.
+
+**Activation after death.** Whether a device placed while its owner lived
+can be activated by a second press after the owner dies, as Vyse's Arc
+Rose placed and then flashed, is unknown; the mechanics sheet asks it per
+ability. Until answered, such an activation is a stored surprise.
 
 ## 7. Staging
 
@@ -227,7 +260,8 @@ fragments.
    Acceptance: the same command with `--score --record`. Evidence: on the
    held-out labels the right share rises over stage 0 and the wrong share's
    upper bound does not; elimination and continuity names scored apart;
-   every split and surprise viewed on a sheet before any claim.
+   every split and surprise viewed on a sheet before any claim; the
+   reopened share recorded against section 2's prediction, logged first.
 2. **Wire** into `adjudication.identity` and `round_entities` at new
    stamps, with the `enemy` lane. Acceptance: `.\.venv\Scripts\python.exe -m
    reticle project <session> --lane enemy` on the three sessions, then
@@ -262,20 +296,11 @@ folded into the player's next unified corpus run.
 
 ## 9. Questions for the player
 
-`domain/*.toml` answers none of these.
-
-1. When a different enemy appears at a red "?"'s place, does the "?"
-   vanish? [domain:minimap/last-known-mark-timing] measured the "?" ending
-   when an icon returns, not whose.
-2. Does any ability draw an extra player icon, such as a decoy, on the
-   other team's minimap?
-3. Per ability, does it move its agent farther than running would? A new
-   mechanics-sheet column.
-4. Does a second press on a device placed while alive count as a cast
-   [domain:abilities/no-cast-while-dead]?
-5. Do these persist after their owner's death: Cypher's Trapwire and
-   Spycam, Deadlock's Sonic Sensor, Vyse's Razorvine, Veto's Chokehold,
-   Viper's Poison Cloud and Toxic Screen, Astra's placed stars?
+The player answered this plan's five questions on 2026-09-30, and the
+answers stand as the facts cited in sections 5 and 6. What remains is per
+ability, on [ABILITY_MECHANICS_SHEET.md](ABILITY_MECHANICS_SHEET.md):
+which movement candidates to confirm or strike, which placed devices can be
+activated after their owner dies, and which other abilities persist.
 
 ## 10. What the existing documents become
 
