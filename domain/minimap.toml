@@ -1442,3 +1442,48 @@ unverified: no stored observation has tested it
 """
 see = ["minimap/enemy-lobe-translucent", "minimap/self-icon-shows-spectated"]
 phrases = ["stack order"]
+
+[ability-drawing-colour-by-side]
+claim = """
+Where an ability's minimap drawing changes colour, it changes by side: an
+enemy's cast differs from an ally's, and the player's own casts draw as an
+ally's. Some abilities take a red theme when an enemy casts them. A teammate's
+Hunter's Fury and Recon Bolt draw as the player's own do.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), answering ABILITY_DETECTION.md's questions"
+use = """
+an ability's colour key names a side, never the caster within a side; which
+abilities change colour, and to what, is recorded per ability, never by
+analogy [domain:abilities/ability-rules-are-unique]
+"""
+see = ["minimap/vision-gate", "abilities/reyna-leer-enemy-minimap-glyph"]
+phrases = ["red theme"]
+
+[ability-drawings-both-sides]
+claim = """
+Every ability that draws on the minimap draws for both sides, except smokes:
+an enemy's drawing shows inside the team's vision, and a few enemy-cast
+abilities show always, whatever the vision. Reyna's Leer and Fade's Haunt
+(the eyes) are always visible; Sova's Recon Bolt is believed to be. Every
+entity the player's team owns always shows.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), answering ABILITY_DETECTION.md's questions"
+use = """
+search for enemy ability drawings inside the team's vision, plus the
+always-visible ones everywhere; a team-owned entity that stops showing has
+ended, not left sight
+"""
+exceptions = """
+smokes: enemy smokes are never drawn [domain:abilities/enemy-smokes-not-on-minimap].
+Sova's Recon Bolt being always visible is a belief. [vision-gate]'s "a reveal
+shows players only" concerns reveals, not drawings inside vision
+"""
+see = ["minimap/vision-gate", "abilities/enemy-smokes-not-on-minimap",
+       "abilities/reyna-leer-enemy-minimap-glyph", "minimap/ability-drawing-colour-by-side"]
+phrases = ["always-visible enemy"]
