@@ -546,6 +546,36 @@ every ability on the minimap found and tracked, whatever its name?
 - **Specificity** is measured on the same frames: proposals that no label
   explains, per frame.
 
+**The frames, chosen 2026-09-30 before any ability pass ran on these
+sessions.** Each session is a match (capture over 15 minutes, by the
+manifest's `source.duration_ms`) with a minimap crop cache, so the pass
+reads the cache and decodes nothing. None of them holds paint, round-review
+or `labels/ability` rows. The 331 px sessions and 587c15b07779 hold 3, 5 and
+8 tray-object marks, which the icon benchmark scored and which sit just
+after the player's own casts. c62c2b06bcfb holds none, but has
+candidate-seeded `minimap_dynamic` answers that no benchmark reads. The
+fewest-labelled matches were preferred, so the truth stays independent. The Iso capture
+(4f207c0c4e39) stays out: its widget is a variant and is analysed apart.
+
+| Widget | Block | Session | Capture | Live 2 Hz samples | Frames |
+|---|---|---|---|---|---|
+| 331 px | 1 | 043bafca271a | `C:\Users\grant\Videos\2026-08-25 13-59-44.mp4` | 1988 | 100 |
+| 331 px | 2 | 59c70f1ef720 | `C:\Users\grant\Videos\2026-08-24 13-58-11.mp4` | 2912 | 146 |
+| 465 px | 1 | c62c2b06bcfb | `C:\Users\grant\Videos\2026-08-26 13-18-48.mp4` | 2228 | 112 |
+| 465 px | 2 | 587c15b07779 | `C:\Users\grant\Videos\2026-09-05 19-21-29.mp4` | 1999 | 100 |
+
+- **Rule.** `tools\ability_recall.py --select` builds the shape reader as
+  `reticle scan SID --only ability --from cache` builds it, takes that pass's
+  2 Hz grid over the cache's rounds, keeps the samples `gametime` puts in a
+  live phase, and takes every 20th from the first. It reads the cache index
+  and the stored rounds, never a pixel. The lists are in the store's
+  `labels/ability_recall_20260930/selection/`.
+- **Blocks.** The yield per frame is unknown, so each widget size is
+  labelled a whole session at a time: block 1, then block 2 only if block 1
+  holds fewer than 60 entities. Labelling stops at the end of a block, never
+  at a count. If both blocks hold fewer than 60, a third session is chosen
+  and recorded here before it is labelled.
+
 ## 11. The labelling loop
 
 The coverage numbers set the loop. Paint frames reach
@@ -695,6 +725,14 @@ Each stage commits when its evidence holds.
 4. **Recall pass.** The player labels section 10's frames. Acceptance:
    `.\.venv\Scripts\python.exe tools\ability_recall.py`, built in this
    stage over the recall labels. Evidence: entity recall and its lower bound, per widget size.
+   Built on 2026-09-30, unscored: the frames (section 10), the ability
+   pass on their four sessions, the labeller
+   (`.\.venv\Scripts\python.exe prototypes\label_ability_recall.py --block 1`
+   after `--prepare`) and the scorer with its tests on synthetic labels
+   (`tests/test_ability_recall.py`). No recall label exists yet. The pass
+   wrote `ability_gate`, `ability_shape_scan`, `ability_icon` and
+   `minimap_dark` for the four sessions from the crop cache; each
+   selection equals every 20th live row of its `ability_icon` stream.
 5. **Tracks and lifecycles.** `adjudication.ability` tracks and
    `adjudication.phases` rules per fact. Acceptance:
    `.\.venv\Scripts\python.exe -m reticle ability-entities SID` on the
