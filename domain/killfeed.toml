@@ -164,8 +164,11 @@ same category as the other revives". Stored rows keep the fields `killer` and
 """
 use = """
 the death owner must not count a revive entry as a death; the weapon-slot icon
-is one witness and the one-colour plates another (`killfeed.killer_is_ally`,
-`adjudication.death.plate_revive`), beside [domain:rounds/resurrection-mechanics]
+is one witness, its ring [domain:killfeed/revive-ring] another and the
+one-colour plates a third (`killfeed.killer_is_ally`,
+`adjudication.death.plate_revive`), weighed together by
+`adjudication.death.decide_entry_type`, beside
+[domain:rounds/resurrection-mechanics]
 """
 exceptions = """
 a Clove revive that expires draws its own entry, a death, with a broken
@@ -640,8 +643,9 @@ ability does (cover 0.80 or less, one box over a portrait 0.84)
 use = """
 `killfeed.weapon_icon_observations` publishes `ringed` (true, false, or null
 with `ring_reason`) and strips the ring from the descriptor grid on a confident
-fit; `ringed` is one revive witness beside the one-colour plates
-(`adjudication.death.plate_revive`), never the only one
+fit; `ringed` is one revive witness beside the icon's name and the one-colour
+plates, each its own claim, and `adjudication.death.decide_entry_type` refuses
+an entry where they disagree
 """
 exceptions = """
 at 4f207c0c4e39 790.5 s the KAY/O down entry draws the X-in-triangle badge

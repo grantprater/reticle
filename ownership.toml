@@ -1406,17 +1406,21 @@ question = "Which type is this killfeed entry -- a kill, a second-life death or 
 owner = "adjudication.death"
 role = ["adjudicate", "attribute"]
 status = "partial"
-produces = ["ENTRY_ROLES", "entry_type", "entry_actor", "narrow_entry_weapon"]
+produces = ["ENTRY_ROLES", "entry_type", "entry_actor", "narrow_entry_weapon", "entry_witnesses", "icon_witness", "ring_witness", "plate_revive", "revive_context", "decide_entry_type", "entry_type_claim", "type_round_entries", "REVIVE_MECHANISMS"]
 names_agents = true
 defers_to = ["agent-identity", "killfeed-weapon"]
 not_for = """
 Restating whether an entry is a revive or a second life: `entry_type` asks
 `revive_entry` and the death's second-life vote (`death-victim`). Naming the
 icon: the acting agent is a candidate set the weapon owner narrows by, never
-its verdict. Renaming the stored `killer` and `victim` fields: they hold the
-left and right names of every type.
+its verdict; the icon witness reads the weapon owner's name and never names
+an icon. Letting one revive witness decide against another: each is its own
+claim, and `decide_entry_type` refuses a disagreement with its reason. Using
+the context gate as a verdict: it closes a revive, never makes one. Renaming
+the stored `killer` and `victim` fields: they hold the left and right names
+of every type.
 """
-evidence = "tests/test_weapon_attribution.py"
+evidence = "tests/test_weapon_attribution.py, tests/test_entry_witnesses.py"
 
 [[entry]]
 id = "scoreboard-row-agent"

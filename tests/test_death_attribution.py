@@ -1129,37 +1129,44 @@ class ReviveEntryTest(unittest.TestCase):
     def test_a_one_colour_banner_whose_icon_names_nothing_is_a_revive(self):
         """bdfdcf009dba 1310.0 s: Sage revives Clove, the Resurrection icon goes
         unnamed on all six views, and the plates read one side."""
-        from reticle.adjudication.death import plate_revive, revive_entry
+        from reticle.adjudication.death import plate_revive, revive_entry, type_round_entries
         sides = self.LINEUP["sides"]
-        unnamed = {"side": "enemy", "same_side": True,
+        unnamed = {"t_ms": 5000.0, "t_first": 5000.0, "t_last": 6000.0, "slot": 0,
+                   "side": "enemy", "same_side": True, "plate_names": (False, None),
                    "weapon_evidence": {"status": "refused", "name": None}}
-        two = (False, None)
-        self.assertEqual(plate_revive(unnamed, sides, two), ("plates", None))
-        self.assertTrue(revive_entry(dict(unnamed, revive_witness="plates")))
-        # A named weapon vetoes the plates: an environmental death is one colour.
+        dead = {"t_ms": 3000.0, "t_first": 3000.0, "t_last": 4000.0, "slot": 0,
+                "side": "enemy", "same_side": False,
+                "weapon_evidence": {"status": "resolved", "name": "Vandal"}}
+        self.assertIs(plate_revive(unnamed, (False, None))["value"], True)
+        typed = type_round_entries([dead, unnamed], sides)
+        self.assertTrue(revive_entry(typed[1]))
+        self.assertEqual(typed[1]["entry_type"]["rule"], 3)
+        # A named weapon decides against the plates: an environmental death is one colour.
         fall = dict(unnamed, weapon_evidence={"status": "resolved", "name": "Environmental"})
-        self.assertEqual(plate_revive(fall, sides, two), (None, None))
-        # No reviver on the victim's side: the one-colour banner is something else.
-        self.assertEqual(plate_revive(unnamed, {"enemy": [{"agent": "Jett"}, {"agent": "Omen"}]},
-                                      two), (None, "no_reviver_fielded"))
-        # Two sides, an unread mask, or no weapon stream at all: no revive.
-        self.assertEqual(plate_revive(dict(unnamed, same_side=False), sides, two), (None, None))
-        self.assertEqual(plate_revive(dict(unnamed, same_side=None), sides, two), (None, None))
-        self.assertEqual(plate_revive(dict(unnamed, weapon_evidence=None), sides, two),
-                         (None, None))
+        self.assertFalse(revive_entry(type_round_entries([dead, fall], sides)[1]))
+        # No reviver on the victim's side: the context gate closes the revive.
+        none = {"enemy": [{"agent": a} for a in ("Jett", "Omen", "Iso", "Skye", "Fade")]}
+        d = type_round_entries([dead, unnamed], none)[1]["entry_type"]
+        self.assertEqual(d["reason"], "revive_against_context")
+        # Two sides: no revive. An unread mask, or no weapon stream at all: nothing witnessed.
+        self.assertFalse(revive_entry(type_round_entries([dead, dict(unnamed, same_side=False)],
+                                                         sides)[1]))
+        d = type_round_entries([dead, dict(unnamed, same_side=None, weapon_evidence=None)],
+                               sides)[1]["entry_type"]
+        self.assertEqual((d["status"], d["reason"]), ("refused", "no_revive_witness"))
 
     def test_a_one_colour_self_entry_is_not_a_revive(self):
         """59c70f1ef720 1849.5 s: a Clove revive's expiry, jesussavedme ->
         jesussavedme, one colour with its icon unnamed, is a death."""
         from reticle.adjudication.death import plate_revive
-        sides = self.LINEUP["sides"]
         unnamed = {"side": "enemy", "same_side": True,
                    "weapon_evidence": {"status": "refused", "name": None}}
-        self.assertEqual(plate_revive(unnamed, sides, (True, None)), (None, "self_entry"))
+        self.assertEqual(plate_revive(unnamed, (True, None))["reason"], "self_entry")
         # A name the reader could not cut leaves the question open: no revive.
-        self.assertEqual(plate_revive(unnamed, sides, (None, "victim:no_name_text")),
-                         (None, "victim:no_name_text"))
-        self.assertEqual(plate_revive(unnamed, sides), (None, "no_name_check"))
+        self.assertEqual(plate_revive(unnamed, (None, "victim:no_name_text"))["reason"],
+                         "victim:no_name_text")
+        self.assertEqual(plate_revive(unnamed)["reason"], "no_name_check")
+        self.assertIsNone(plate_revive(unnamed)["value"])
 
     def test_revive_deletes_no_entity(self):
         v = adjudicate_round_deaths("s", self.entries(), [], lineup=self.LINEUP)

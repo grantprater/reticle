@@ -22,8 +22,9 @@ name. Each witness becomes an `identity_claim` keyed by the death id, and
 `adjudication.identity` returns the victim; see that module for why.
 
 Owns [owns:death-victim]. Also owns [owns:killfeed-entry-type]: which of
-the three entry types an entry is (`entry_type`) and which agent acts in it
-(`entry_actor`).
+the three entry types an entry is (`entry_type`, which `decide_entry_type`
+decides over every revive witness's claim: the icon, the ring, the plates and
+the context gate) and which agent acts in it (`entry_actor`).
 """
 from __future__ import annotations
 
@@ -116,7 +117,14 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # 0.24.0 (2026-10-01): KAY/O's NULL/cmd in the weapon slot marks a revive
 # entry (`REVIVE_ICONS`), and its icon makes no caster claim on the reviver
 # (weapon-adjudication-0.8.0).
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.24.0"
+# 0.25.0 (2026-10-01): every revive witness is its own claim on the entry
+# (`entry_witnesses`): the icon the weapon owner names, the weapon-slot ring
+# (`ringed`, killfeed-weapon-0.5.0) and the one-colour plates, with a context
+# gate (`revive_context`: a reviver fielded, a prior death on the side, a
+# named Sage dead, KAY/O's named down). `decide_entry_type` publishes the type
+# with its alternatives; a disagreement refuses with its reason and is stored
+# (`entry_type`), where one witness ("icon" or "plates") decided before.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.25.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -228,10 +236,10 @@ def attach_stored_killfeed_portraits(
             end = min(start + 2000.0,
                       float(entries[i + 1]["t_ms"]) if i + 1 < len(entries) else float("inf"))
         side = entry.get("side")
-        # A one-colour banner's reviver sits on the victim's side (`plate_revive`).
-        # The portrait reader stores every killer view on the victim's opposite
+        # A revive's reviver sits on the revived's side (`revive_entry`). The
+        # portrait reader stores every killer view on the victim's opposite
         # side, so those views refuse until it reads the killer's plate itself.
-        killer_side = (side if entry.get("revive_witness") == "plates"
+        killer_side = (side if revive_entry(entry)
                        else {"ally": "enemy", "enemy": "ally"}.get(side))
         entry["claim"] = _portrait_channel(
             views, "victim", side, slot, start, end, lineup, gallery,
@@ -528,7 +536,9 @@ ENTRY_ROLES = {"kill": ("killer", "victim"), "second_life_death": ("killer", "vi
 def entry_type(entry: dict, is_second_life: bool | None = None) -> str:
     """`kill`, `second_life_death` or `revive`: a revive as `revive_entry`
     says, a second life as the death's own vote says (`is_second_life`, else
-    the entry's), a kill otherwise."""
+    the entry's), a kill otherwise. An entry whose type refused
+    (`decide_entry_type`) takes the roles of a death here, as the roster
+    counts it; its stored `entry_type` keeps the refusal."""
     if revive_entry(entry):
         return "revive"
     second = entry.get("is_second_life") if is_second_life is None else is_second_life
@@ -557,8 +567,9 @@ def entry_actor(entry: dict, killer_identity: dict | None,
 def narrow_entry_weapon(entry: dict, verdict: "DeathVerdict", weapon_observations: list[dict],
                         agents, sides: dict, session_id: str) -> dict:
     """The entry with its weapon named again by `entry_weapon` given its
-    acting agent (`entry_actor`); unchanged when no actor is named. Its
-    revive witness is asked again (`plate_revive`) when the name changed."""
+    acting agent (`entry_actor`); unchanged when no actor is named. Its icon
+    witness is asked again (`icon_witness`); the caller types the round again
+    (`type_round_entries`)."""
     actor = entry_actor(entry, verdict.metadata.get("killer_identity"), verdict.is_second_life)
     if actor is None:
         return entry
@@ -568,49 +579,308 @@ def narrow_entry_weapon(entry: dict, verdict: "DeathVerdict", weapon_observation
     e["weapon_evidence"] = ev
     if ev["status"] == "resolved":
         e["weapon"], e["death_cause"] = ev["name"], ev["category"]
-    if ev.get("name") != (entry.get("weapon_evidence") or {}).get("name"):
-        e["revive_witness"], e["plate_refusal"] = (
-            ("icon", None) if ev.get("name") in REVIVE_ICONS
-            else plate_revive(e, sides, entry.get("plate_names") or (None, "no_name_check")))
+    e["revive_witnesses"] = dict(entry.get("revive_witnesses") or {}, icon=icon_witness(e))
     return e
 
 
-def revive_entry(entry: dict) -> bool:
-    """Whether a killfeed entry is a revive rather than a death: its weapon,
-    named by `adjudication.weapon.entry_weapon`, is one of `REVIVE_ICONS`, or
-    `plate_revive` found its banner one colour (`revive_witness`)."""
-    return ((entry.get("weapon_evidence") or {}).get("name") in REVIVE_ICONS
-            or entry.get("revive_witness") == "plates")
+#: A ring witness needs this many of an entry's bound frames to give a
+#: confident `ringed` verdict, and the majority this share of them. One frame
+#: suffices: on the labelled entries the ring separates per frame (all 22
+#: revives cover 1.0, none of 115 other entries above 0.84;
+#: [domain:killfeed/revive-ring]), and the killfeed reader parses a
+#: one-colour revive banner on few frames (4f207c0c4e39 799.5 s: one row).
+RING_MIN_FRAMES = 1
+RING_MIN_SHARE = 0.8
+
+#: The revive mechanisms the context gate checks, by the agent the entry's
+#: side must field [domain:killfeed/entry-types]: Sage's Resurrection of a
+#: dead teammate, Clove's Not Dead Yet after her own death, a teammate's
+#: revive of KAY/O after his down [domain:killfeed/kayo-downed-entry].
+REVIVE_MECHANISMS = {"Sage": "Resurrection", "Clove": "Not Dead Yet", "KAY_O": "NULL/cmd"}
 
 
-def plate_revive(entry: dict, sides: dict,
-                 names: tuple[bool | None, str | None] = (None, "no_name_check"),
-                 ) -> tuple[str | None, str | None]:
-    """(witness, refusal): "plates" when an entry whose icon went unnamed is a
-    revive, else None with why the plates did not decide it.
+def _claim(witness: str, value, reason: str | None, evidence: dict) -> dict:
+    return {"witness": witness, "value": value, "reason": None if value is not None else reason,
+            "evidence": evidence}
 
-    A revive banner is one colour end to end [domain:killfeed/revive-entries],
-    so its killer and victim plates read one side (`session_entries`'
-    `same_side`, a majority of the entry's views). An environmental death or a
-    team kill is one colour too, so a named weapon vetoes the plates, and the
-    victim's side must field a reviver (`REVIVE_ICONS`). A self entry is one
-    colour too, so `names`, `killfeed_names.self_entry`'s answer
-    (`entry_names`), must read two names; an unread name refuses. Without that,
-    59c70f1ef720 1849.5 s, a Clove revive's expiry whose icon went unnamed, was
-    taken for a revive. Bdfdcf009dba 1310.0 s, a Sage revive whose
-    Resurrection icon went unnamed on all six views, was stored as a death
-    until this. The refusal is None where the plates never bore on the entry:
-    two sides, an unread mask, or a named icon."""
+
+def icon_witness(entry: dict) -> dict:
+    """The weapon-slot icon's claim: True when `adjudication.weapon` names a
+    revive icon (`REVIVE_ICONS`), False when it names any other icon, None
+    with its refusal reason otherwise. The name is the weapon owner's answer
+    (`entry_weapon`, stored as `weapon_evidence`); this reads it and never
+    names an icon. An answer that names only an unattributed ability says
+    nothing of a revive (`unattributed_ability`)."""
     ev = entry.get("weapon_evidence")
-    if not entry.get("same_side") or ev is None or ev.get("name") is not None:
-        return None, None
-    fielded = {r.get("agent") for r in sides.get(entry.get("side"), [])}
-    if not fielded & set(REVIVE_ICONS.values()):
-        return None, "no_reviver_fielded"
+    if ev is None:
+        return _claim("icon", None, "no_weapon_stream", {})
+    name = ev.get("name")
+    evidence = {"owner": "adjudication.weapon", "version": ev.get("version"),
+                "status": ev.get("status"), "name": name,
+                "observations": ev.get("observations"), "rests_on": ev.get("rests_on")}
+    if name in REVIVE_ICONS:
+        return _claim("icon", True, None, evidence)
+    if name is not None:
+        return _claim("icon", False, None, evidence)
+    if ev.get("status") == "resolved":
+        return _claim("icon", None, "unattributed_ability", evidence)
+    return _claim("icon", None, f"icon_{ev.get('reason') or 'unnamed'}", evidence)
+
+
+def ring_witness(entry: dict, weapon_observations: list[dict] | None) -> dict:
+    """The weapon-slot ring's claim [domain:killfeed/revive-ring]: the
+    majority of the confident `ringed` verdicts on the entry's frames, which
+    `adjudication.weapon.bind_entry` binds. True or False when RING_MIN_FRAMES
+    decide and the majority holds RING_MIN_SHARE of them; None with a reason
+    otherwise: no stream, a stream before the ring (`no_ring_field`), no bound
+    frame, too few confident frames (`ring_` and the commonest frame reason),
+    or frames that split (`ring_frames_disagree`)."""
+    from .weapon import bind_entry
+    if weapon_observations is None:
+        return _claim("ring", None, "no_weapon_stream", {})
+    bound = bind_entry(entry, weapon_observations)
+    frames = [[float(o["t_ms"]), o["slot"], o.get("ringed"),
+               (o.get("ring") or {}).get("cover")] for o in bound]
+    evidence = {"stream": "killfeed_weapon", "frames": frames}
+    if not bound:
+        return _claim("ring", None, "no_bound_frame", evidence)
+    if not any("ringed" in o for o in bound):
+        return _claim("ring", None, "no_ring_field", evidence)
+    votes = [o["ringed"] for o in bound if o.get("ringed") is not None]
+    evidence["votes"] = {"ringed": sum(votes), "unringed": len(votes) - sum(votes),
+                         "unread": len(bound) - len(votes)}
+    if len(votes) < RING_MIN_FRAMES:
+        why = Counter(o.get("ring_reason") or "unread" for o in bound).most_common(1)[0][0]
+        return _claim("ring", None, f"ring_{why}", evidence)
+    top = sum(votes) * 2 >= len(votes)
+    if votes.count(top) < RING_MIN_SHARE * len(votes):
+        return _claim("ring", None, "ring_frames_disagree", evidence)
+    return _claim("ring", bool(top), None, evidence)
+
+
+def plate_revive(entry: dict, names: tuple[bool | None, str | None] = (None, "no_name_check"),
+                 ) -> dict:
+    """The one-colour plates' claim [domain:killfeed/revive-entries]. A
+    revive banner is one colour end to end, so plates that read two colours
+    (`session_entries`' `same_side`, a majority of the entry's views) say
+    False. One colour says True, a weaker claim: an environmental death and
+    a team kill are one colour too, so `decide_entry_type` counts it for a
+    revive only where no weapon-slot witness speaks. A self entry is one
+    colour too, so `names`, `killfeed_names.self_entry`'s answer
+    (`entry_names`), must read two names: one name refuses (`self_entry`;
+    a Clove self-revive and its expiry both print one name), and an unread
+    name refuses with its reason. 59c70f1ef720 1849.5 s, a Clove revive's
+    expiry whose icon went unnamed, was taken for a revive before the name
+    check; bdfdcf009dba 1310.0 s, a Sage revive whose Resurrection icon went
+    unnamed on all six views, was stored as a death before the plates."""
+    same = entry.get("same_side")
+    evidence = {"stream": "hud", "same_side": same, "side": entry.get("side"),
+                "names": list(names)}
+    if same is None:
+        return _claim("plates", None, "plates_unread", evidence)
+    if not same:
+        return _claim("plates", False, None, evidence)
     one, why = names
     if one is None:
-        return None, why or "names_unread"
-    return (None, "self_entry") if one else ("plates", None)
+        return _claim("plates", None, why or "names_unread", evidence)
+    return _claim("plates", None, "self_entry", evidence) if one else _claim("plates", True, None,
+                                                                              evidence)
+
+
+def entry_witnesses(entry: dict, weapon_observations: list[dict] | None,
+                    names: tuple[bool | None, str | None] = (None, "no_name_check")) -> dict:
+    """Every revive witness of one entry, each its own claim: the icon
+    (`icon_witness`), the ring (`ring_witness`) and the plates
+    (`plate_revive`)."""
+    return {"icon": icon_witness(entry), "ring": ring_witness(entry, weapon_observations),
+            "plates": plate_revive(entry, names)}
+
+
+def revive_context(entry: dict, earlier: list[dict], sides: dict, *,
+                   lineup_version: str | None = None, mechanism: str | None = None,
+                   victims: dict | None = None) -> dict:
+    """The context gate on a revive [domain:killfeed/entry-types]: whether a
+    revive this entry could be is possible at all, never whether it is one.
+
+    `earlier` holds the round's entries before this one, each typed
+    (`entry_type`). A mechanism (`REVIVE_MECHANISMS`, narrowed to `mechanism`,
+    the agent the icon named, when given) is open when its agent is fielded on
+    the entry's side by the lineup, and the side has a non-revive entry
+    earlier in the round: a dead teammate for Sage, Clove's own death, KAY/O's
+    down. `victims`, {entry time: (victim agent, death id)} from the round's
+    verdicts, sharpens two checks: a Sage named dead earlier in the round and
+    not revived since cannot revive, and a KAY/O revive needs an earlier
+    entry whose victim is named KAY/O [domain:killfeed/kayo-downed-entry].
+
+    Value True when some mechanism is open, False when every one is closed,
+    None when none is closed but one cannot be checked (an unnamed lineup
+    slot, an unnamed earlier victim). Declares `rests_on` the lineup, a
+    prior the lineup owner placed, and `depends_on` each death whose victim
+    name it used."""
+    side = entry.get("side")
+    agents = {r.get("agent") for r in (sides or {}).get(side) or []}
+    unnamed_slot = None in agents or not agents
+    t = float(entry["t_ms"])
+    prior = [e for e in earlier
+             if e.get("side") == side and float(e["t_ms"]) < t and not revive_entry(e)]
+    revived = [e for e in earlier if e.get("side") == side and float(e["t_ms"]) < t
+               and revive_entry(e)]
+    depends: list[str] = []
+    checks: dict[str, dict] = {}
+    for agent in ([mechanism] if mechanism else REVIVE_MECHANISMS):
+        c = {"fielded": (True if agent in agents else None if unnamed_slot else False)}
+        c["prior_death"] = bool(prior)
+        if agent == "Sage" and victims is not None:
+            dead = [e for e in prior if (victims.get(float(e["t_ms"])) or (None,))[0] == "Sage"]
+            back = [e for e in revived if dead and float(e["t_ms"]) > float(dead[-1]["t_ms"])]
+            if dead:
+                depends.append(victims[float(dead[-1]["t_ms"])][1])
+            c["reviver_alive"] = not dead or bool(back)
+        if agent == "KAY_O":
+            named = [victims.get(float(e["t_ms"])) for e in prior] if victims is not None else []
+            if any(v and v[0] == "KAY_O" for v in named):
+                depends.extend(v[1] for v in named if v and v[0] == "KAY_O")
+                c["kayo_down"] = True
+            elif not prior or (victims is not None and named and all(v and v[0] for v in named)):
+                c["kayo_down"] = False
+            else:
+                c["kayo_down"] = None
+        vals = list(c.values())
+        c["open"] = False if False in vals else None if None in vals else True
+        checks[agent] = c
+    opens = [c["open"] for c in checks.values()]
+    value = True if True in opens else None if None in opens else False
+    closed = {a: [k for k, v in c.items() if v is False and k != "open"]
+              for a, c in checks.items() if c["open"] is False}
+    reason = None
+    if value is False:
+        reason = ";".join(f"{a}:{','.join(ks)}" for a, ks in closed.items())
+    elif value is None:
+        reason = "context_unchecked"
+    return {"witness": "context", "value": value, "reason": reason, "checks": checks,
+            "mechanism": mechanism,
+            "rests_on": [{"context": "lineup", "version": lineup_version}],
+            "depends_on": sorted(set(depends))}
+
+
+def decide_entry_type(witnesses: dict, context: dict | None,
+                      is_second_life: bool = False) -> dict:
+    """The entry's type from every revive witness at once.
+
+    Each witness is its own claim (`entry_witnesses`): True says a revive,
+    False says not a revive, None says nothing and carries why. The rule:
+
+    1. The weapon-slot witnesses, the icon and the ring, decide when they
+       speak. Both True, or one True and the other silent: a revive
+       candidate. Both False, or one False and the other silent: not a
+       revive. One True and one False: refused, `slot_witnesses_disagree`.
+    2. The plates bear on the slot's answer only as a contradiction: a
+       revive banner is one colour, so plates reading two colours against a
+       slot revive refuse (`plates_two_colours_against_slot`). One-colour
+       plates beside a slot's False are no disagreement: a team kill and an
+       environmental death are one colour too.
+    3. With the slot silent, one-colour plates make a revive candidate, two
+       colours make a non-revive, and silent plates refuse
+       (`no_revive_witness`): nothing witnessed the entry.
+    4. The context gate (`revive_context`) checks a revive candidate: a
+       closed gate refuses (`revive_against_context`), never turning the
+       entry into a kill; an unchecked gate lets the candidate stand and says
+       so (`context_unchecked`). It never makes a revive.
+    5. A non-revive is a `second_life_death` when the death's second-life
+       vote says so, a `kill` otherwise.
+
+    No witness decides alone against another that speaks. A refusal names
+    its reason, keeps both alternatives with the witnesses for and against
+    each, and stores the disagreement; nothing is averaged. A caller counts
+    a refused entry as a death for the roster, as before, and the stored
+    type stays None with the refusal.
+    """
+    vals = {k: (w or {}).get("value") for k, w in witnesses.items()}
+    slot = {k: vals.get(k) for k in ("icon", "ring") if vals.get(k) is not None}
+    plates = vals.get("plates")
+    death = "second_life_death" if is_second_life else "kill"
+    for_revive = sorted(k for k, v in vals.items() if v is True)
+    against = sorted(k for k, v in vals.items() if v is False)
+    disagreement, reason, revive, rule = None, None, None, None
+    if True in slot.values() and False in slot.values():
+        reason, rule = "slot_witnesses_disagree", 1
+    elif True in slot.values():
+        if plates is False:
+            reason, rule = "plates_two_colours_against_slot", 2
+        else:
+            revive, rule = True, 1
+    elif False in slot.values():
+        revive, rule = False, 1
+        # One-colour plates are consistent with a team kill: not counted against.
+        for_revive = [k for k in for_revive if k != "plates"]
+    elif plates is True:
+        revive, rule = True, 3
+    elif plates is False:
+        revive, rule = False, 3
+    else:
+        reason, rule = "no_revive_witness", 3
+    if reason in ("slot_witnesses_disagree", "plates_two_colours_against_slot"):
+        disagreement = {"revive": for_revive, "not_revive": against}
+    if revive and context is not None and context.get("value") is False:
+        revive, rule, reason = None, 4, "revive_against_context"
+        disagreement = {"revive": for_revive, "not_revive": against,
+                        "context": context.get("reason")}
+    alternatives = [{"type": "revive", "for": for_revive, "against": against},
+                    {"type": death, "for": against, "against": for_revive}]
+    out = {"status": "refused" if revive is None else "resolved",
+           "type": None if revive is None else "revive" if revive else death,
+           "reason": reason, "rule": rule, "alternatives": alternatives,
+           "disagreement": disagreement, "witnesses": witnesses, "context": context}
+    if revive and context is not None and context.get("value") is None:
+        out["context_unchecked"] = context.get("reason")
+    return out
+
+
+def entry_type_claim(entry: dict) -> dict:
+    """The entry's stored type decision (`type_round_entries`), or one
+    decided now from the witnesses the entry carries, without context."""
+    if entry.get("entry_type") is not None:
+        return entry["entry_type"]
+    w = dict(entry.get("revive_witnesses") or {})
+    w.setdefault("icon", icon_witness(entry))
+    w.setdefault("ring", _claim("ring", None, "not_bound", {}))
+    w.setdefault("plates", plate_revive(entry, tuple(entry.get("plate_names")
+                                                     or (None, "no_name_check"))))
+    return decide_entry_type(w, None, bool(entry.get("is_second_life")))
+
+
+def type_round_entries(entries: list[dict], sides: dict, *, lineup_version: str | None = None,
+                       victims: dict | None = None) -> list[dict]:
+    """The round's entries, in onset order, each carrying its `entry_type`
+    decision (`decide_entry_type`) over its `revive_witnesses` and the
+    context gate (`revive_context`) built from the entries typed before it.
+    `victims` ({entry time: (victim, death id)}) comes from the round's
+    verdicts when a caller has them."""
+    order = sorted(range(len(entries)), key=lambda i: float(entries[i]["t_ms"]))
+    out: list[dict | None] = [None] * len(entries)
+    done: list[dict] = []
+    for i in order:
+        e = {k: v for k, v in entries[i].items() if k != "entry_type"}
+        w = dict(e.get("revive_witnesses") or {})
+        w.setdefault("icon", icon_witness(e))
+        w.setdefault("ring", _claim("ring", None, "not_bound", {}))
+        w.setdefault("plates", plate_revive(e, tuple(e.get("plate_names")
+                                                     or (None, "no_name_check"))))
+        icon = w["icon"]
+        named = (icon.get("evidence") or {}).get("name") if icon.get("value") else None
+        mech = next((a for a, n in REVIVE_MECHANISMS.items() if n == named), None)
+        ctx = revive_context(e, done, sides, lineup_version=lineup_version, mechanism=mech,
+                             victims=victims)
+        e["entry_type"] = decide_entry_type(w, ctx, bool(e.get("is_second_life")))
+        done.append(e)
+        out[i] = e
+    return out
+
+
+def revive_entry(entry: dict) -> bool:
+    """Whether a killfeed entry is a revive rather than a death: its type
+    decision (`entry_type_claim`) resolved to `revive`."""
+    return entry_type_claim(entry).get("type") == "revive"
 
 
 def entry_names(entry: dict, portraits: list[dict], widths: dict,
@@ -2259,16 +2529,16 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
             names = (entry_names(e, kf_portraits, widths, name_observations, session_id)
                      if e.get("same_side") else (None, None))
             e["plate_names"] = names
-            e["revive_witness"], e["plate_refusal"] = (
-                ("icon", None) if ev.get("name") in REVIVE_ICONS
-                else plate_revive(e, lineup.get("sides") or {}, names))
+            e["revive_witnesses"] = entry_witnesses(e, weapon_observations, names)
     audit_board = board_alive_auditor(hud_table, roster_table)
     xm: dict = {r["round_no"]: [] for r in rounds}
     for b in xmarks or ():
         xm.setdefault(b.get("round_no"), []).append(b)
     ends = {r["t_end_ms"] for r in rounds}
-    base = [(r, in_round_window(entries, r["t_start_ms"], r["t_end_ms"],
-                                r.get("t_close_ms") or r["t_end_ms"], ends)) for r in rounds]
+    sides, lineup_version = lineup.get("sides") or {}, lineup.get("version")
+    base = [(r, type_round_entries(in_round_window(entries, r["t_start_ms"], r["t_end_ms"],
+                                                   r.get("t_close_ms") or r["t_end_ms"], ends),
+                                   sides, lineup_version=lineup_version)) for r in rounds]
     exemplars, keys, n = [], None, 0
     while True:
         results = []
@@ -2318,8 +2588,14 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
             entries = [narrow_entry_weapon(e, v, weapon_observations, agents,
                                            lineup.get("sides") or {}, session_id)
                        for e, v in zip(entries, first)]
-            first = adjudicate_round_deaths(session_id, entries, window,
-                                            player_agent=player_agent, xmarks=xm[r["round_no"]])
+        # Type the round again with its verdicts' victim names: a Sage named
+        # dead cannot revive, and a KAY/O revive needs his named down.
+        entries = type_round_entries(
+            entries, sides, lineup_version=lineup_version,
+            victims={float(e["t_ms"]): (v.victim, v.death_id)
+                     for e, v in zip(entries, first) if v.victim and not v.is_revive})
+        first = adjudicate_round_deaths(session_id, entries, window,
+                                        player_agent=player_agent, xmarks=xm[r["round_no"]])
         openings = scoreboard_openings([row for row in board_rows
                                         if a <= float(row.get("t_ms", -1)) <= z])
         board = scoreboard_death_claims(

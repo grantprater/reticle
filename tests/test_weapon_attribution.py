@@ -441,11 +441,16 @@ class KayoReviveIconTests(unittest.TestCase):
         self.assertEqual(caster_claim("death:s:0:1:killer", "Aftershock")["agent"], "Breach")
 
     def test_a_one_colour_banner_needs_kayo_fielded_for_his_revive(self):
-        from reticle.adjudication.death import plate_revive
-        unnamed = {"side": "enemy", "same_side": True,
-                   "weapon_evidence": {"status": "refused", "name": None}}
-        self.assertEqual(plate_revive(unnamed, {"enemy": [{"agent": "KAY_O"}]}, (False, None)),
-                         ("plates", None))
+        from reticle.adjudication.death import revive_context
+        down = {"t_ms": 1000.0, "side": "enemy", "entry_type": {"type": "kill"}}
+        e = {"t_ms": 5000.0, "side": "enemy"}
+        named = {1000.0: ("KAY_O", "death:s:1000:0")}
+        self.assertIs(revive_context(e, [down], {"enemy": [{"agent": "KAY_O"}]},
+                                     victims=named)["value"], True)
+        # His down unnamed: the gate cannot check it and stays open.
+        self.assertIsNone(revive_context(e, [down], {"enemy": [{"agent": "KAY_O"}]})["value"])
+        self.assertIs(revive_context(e, [down], {"enemy": [{"agent": "Jett"}]},
+                                     victims=named)["value"], False)
 
 
 class NewIconAspectGateTests(unittest.TestCase):
