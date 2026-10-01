@@ -104,10 +104,10 @@ draws a range circle round the Clove's death location
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Trapwire | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | placed; activates on enemy proximity (player 2026-09-26) [domain:abilities/placed-then-activated] | two anchor discs and a wire [domain:abilities/cypher-trapwire] | ? | ? | ? |
+| C | Trapwire | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | placed; activates on enemy proximity (player 2026-09-26) [domain:abilities/placed-then-activated] | two anchor discs and a wire [domain:abilities/cypher-trapwire] | ? | ? | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/cypher-trapwire-reveal-belief] |
 | Q | Cyber Cage | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); instant | ? | nothing (census 3) | ? | ? | ? |
-| E | Spycam | Placement (Setup) Possession (Post-setup) Missile (Dart) | 1 | 60 s (Destroyed); 15 s (Recalled) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | piloted; second press (RE-USE) | ? | nothing (census 3) | ? | ? | ? |
-| X | Neural Theft | Targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | nothing (census 3) | ? | ? | ? |
+| E | Spycam | Placement (Setup) Possession (Post-setup) Missile (Dart) | 1 | 60 s (Destroyed); 15 s (Recalled) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | piloted; second press (RE-USE) | ? | nothing (census 3) | ? | ? | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/cypher-spycam-dart-reveal] |
+| X | Neural Theft | Targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | nothing (census 3) | ? | ? | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/cypher-neural-theft-reveal] |
 
 ## Deadlock
 
@@ -125,7 +125,7 @@ draws a range circle round the Clove's death location
 | C | Prowler | Grounded Object | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE) | steered by the player: held, or piloted? [domain:abilities/fade-prowler-steered] | travelling icon [domain:abilities/fade-prowler-minimap-icon] | ? | ? | ? |
 | Q | Seize | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE) | ? | nothing (census 1) | ? | ? | ? |
 | E | Haunt | Class 2 Projectile | 1 | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE) | ? | a brief ring at the pulse [domain:abilities/pulse-scan-abilities] | ? | ? | a pulse scan, as Recon Bolt and the Stealth Drone [domain:abilities/pulse-scan-abilities] |
-| X | Nightfall | ? | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | triggers on enemies | ? | wall segments (census 1) | ? | ? | ? |
+| X | Nightfall | ? | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | triggers on enemies | ? | wall segments (census 1) | ? | ? | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/fade-nightfall-reveal] |
 
 ## Gekko
 
@@ -257,10 +257,10 @@ draws a range circle round the Clove's death location
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Owl Drone | ? | 1 [domain:abilities/sova-owl-drone-charges] | none within a round [domain:abilities/sova-owl-drone-charges] | piloted | piloted [domain:abilities/sova-owl-drone-piloted] | compact icon (census 2) | player: some; crop measured no hue shift [domain:hud/controlled-entity-view-tint] | ? | ? |
+| C | Owl Drone | ? | 1 [domain:abilities/sova-owl-drone-charges] | none within a round [domain:abilities/sova-owl-drone-charges] | piloted | piloted [domain:abilities/sova-owl-drone-piloted] | compact icon (census 2) | player: some; crop measured no hue shift [domain:hud/controlled-entity-view-tint] | ? | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/sova-owl-drone-dart-reveal] |
 | Q | Shock Bolt | ? | 2 [domain:abilities/sova-shock-bolt-charges] | none within a round [domain:abilities/sova-shock-bolt-charges] | charged (HOLD FIRE) | ? | nothing [domain:abilities/sova-shock-bolt-minimap-none] | ? | ? | charged, bounce toggled [domain:abilities/sova-bolt-charge-and-bounce] |
-| E | Recon Bolt | Class 2/3/4/5 Projectile (based on charge) | 1 [domain:abilities/sova-recon-bolt-charges] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | charged (HOLD FIRE); triggers on enemies | ? | icon with a teal ring of the reveal range, kept the whole time [domain:abilities/sova-recon-bolt-minimap-ring] | ? | ? | charged, bounce toggled [domain:abilities/sova-bolt-charge-and-bounce]; a pulse scan, 2 or 3 pulses over a few seconds [domain:abilities/pulse-scan-abilities] |
-| X | Hunter's Fury | Beam | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (RE-USED); triggers on enemies | ? | teal line from Sova [domain:abilities/sova-hunters-fury-minimap-beam] | ? | ? | ? |
+| E | Recon Bolt | Class 2/3/4/5 Projectile (based on charge) | 1 [domain:abilities/sova-recon-bolt-charges] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | charged (HOLD FIRE); triggers on enemies | ? | icon with a teal ring of the reveal range, kept the whole time [domain:abilities/sova-recon-bolt-minimap-ring] | ? | ? | charged, bounce toggled [domain:abilities/sova-bolt-charge-and-bounce]; a pulse scan, 2 pulses over a few seconds [domain:abilities/pulse-scan-abilities]; the revealed enemy shows as its icon, no light [domain:minimap/reveal-draws-no-light] |
+| X | Hunter's Fury | Beam | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (RE-USED); triggers on enemies | ? | teal line from Sova [domain:abilities/sova-hunters-fury-minimap-beam] | ? | ? | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/sova-hunters-fury-reveal] |
 
 ## Tejo
 

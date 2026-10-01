@@ -258,6 +258,8 @@ Each stage is scored on the player's labels before the next begins.
    pings and the spike; tracking from frame to frame with the audit.
 5. **The mesh**: the first cross-channel gate, the ult line narrowing the
    minimap's ability search, then killfeed deaths predicting X marks.
+   Enemy icons against the team's vision are one strand, proposed in
+   [`ENEMY_VISION_COUPLING.md`](ENEMY_VISION_COUPLING.md).
 
 ### Stage 1 results
 

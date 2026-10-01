@@ -16,7 +16,7 @@ entity stays drawn for a brief period AFTER leaving vision --
 [domain:minimap/vision-trailing-persistence]. So the gate is not concurrent
 and it is not exceptionless.
 """
-see = ["minimap/vision-trailing-persistence"]
+see = ["minimap/vision-trailing-persistence", "minimap/reveal-draws-no-light"]
 phrases = ["reveal shows players only", "a reveal shows PLAYERS ONLY"]
 
 [transparency]
@@ -742,7 +742,8 @@ claim = """
 A player's viewcone on the minimap spans a fixed angle about the direction the
 icon's teardrop points. Each ray stops exactly at the first wall or box edge it
 meets, corners included, with no reflection. A box edge the player stands at
-blocks the player's own sight.
+blocks the player's own sight. An enemy's body does not stop a teammate's
+ray: the light passes an enemy's place.
 """
 kind = "rule"
 known = "player"
@@ -753,13 +754,17 @@ the player's cone spec of 2026-09-02, from watching cones on a fresh clip
 (2026-09-07, cone.py); on 2026-09-28 the player confirmed a box edge the player
 stands at blocks the player's own sight, the ray stopping exactly at the edge
 or corner. The spec's origin, the teardrop point, was withdrawn on 2026-09-28
-(see minimap/cone-origin-near-centre)
+(see minimap/cone-origin-near-centre). The player, 2026-09-30 (chat), asked
+whether an enemy's body stops a teammate's drawn light: it does not
 """
 use = """
 cone.raycast stops at the first impassable pixel; whether an origin on a
-one-pixel line lies on the open side is a pose question, not a transparency one
+one-pixel line lies on the open side is a pose question, not a transparency one.
+An enemy icon on a light edge is not the edge's cause; ask the walls, the
+boxes and the caster's facing
 """
-see = ["minimap/vision-gate", "minimap/cone-origin-near-centre"]
+see = ["minimap/vision-gate", "minimap/cone-origin-near-centre",
+       "minimap/enemy-sighting-ends-in-kill-belief"]
 
 [cone-origin-near-centre]
 claim = """
@@ -1307,7 +1312,7 @@ kind = "rule"
 known = "player"
 since = "2026-09-29"
 source = """
-the player, 2026-09-29 (chat), after viewing a spike drop on Lotus session
+the player, 2026-09-29 (chat), after viewing a spike drop on Ascent session
 a06f04a0059f at about 183.3 s, and earlier the same day on the yellow "?";
 measured support below is an observation, not the player's claim
 """
@@ -1324,7 +1329,7 @@ observed on three events of one session (a06f04a0059f at 184 s, 413 s, 591 s):
 the glyph became "?" one frame (0.067-0.083 s) after the last glyph frame,
 began fading 1.8-2.5 s later and was gone 3.0-3.2 s later, which matches
 minimap/last-known-mark-timing. Images in the store's
-analysis/spike-question-mark/. One session, one map (Lotus); the "?" colour is
+analysis/spike-question-mark/. One session, one map (Ascent); the "?" colour is
 the only difference from the enemy's red one
 """
 see = ["minimap/last-known-mark", "minimap/last-known-mark-timing",
@@ -1487,3 +1492,73 @@ shows players only" concerns reveals, not drawings inside vision
 see = ["minimap/vision-gate", "abilities/enemy-smokes-not-on-minimap",
        "abilities/reyna-leer-enemy-minimap-glyph", "minimap/ability-drawing-colour-by-side"]
 phrases = ["always-visible enemy"]
+
+[enemy-sighting-ends-in-kill-belief]
+claim = """
+An enemy seen on the minimap usually stands at the edge of the team's light,
+not deep inside it, because a first sighting almost always ends in a kill of
+someone, enemy or teammate. A movement ability is probably the main way an
+enemy comes to stand deep inside a cone. The player expects this; it is a
+belief, unverified.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = """
+the player, 2026-09-30 (chat), told that the first count of
+docs/ENEMY_VISION_COUPLING.md found labelled enemies on a light edge far
+more often than inside; the player added that the labels come mostly from
+the moments just before kills
+"""
+use = """
+search for a new enemy at the light's frontier first; an enemy deep inside
+old light is a surprise to store, and a movement ability's trace
+[domain:abilities/minimap-dash-or-teleport-trace] is its first explanation.
+A label set drawn before kills over-represents first sightings, so it cannot
+measure where enemies stand in general
+"""
+exceptions = """
+unverified. Falsified on a06f04a0059f if most enemy tracks' first
+observations are followed by no death of either side (the stored `death`
+verdicts) before that track ends or its "?" fades; the kill outcome is the
+player's expectation, not a measurement
+"""
+see = ["minimap/cone-rays-stop-at-first-edge", "minimap/vision-gate",
+       "abilities/minimap-dash-or-teleport-trace"]
+
+[reveal-draws-no-light]
+claim = """
+A revealed enemy shows on the minimap as its icon; the reveal draws no light
+at the enemy's place.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), asked whether a revealed enemy's place is drawn as light"
+use = """
+an enemy icon on dark floor inside a reveal is consistent; never read a
+reveal as missing light, and never explain unexplained light by a reveal
+"""
+see = ["minimap/vision-gate", "abilities/pulse-scan-abilities",
+       "minimap/reveal-icon-duration-belief"]
+
+[reveal-icon-duration-belief]
+claim = """
+A revealed enemy stays drawn for a time that is unknown and may depend on the
+ability, probably about one second per pulse. Sova's Recon Bolt and Cypher's
+Neural Theft reveal in two pulses, Neural Theft's spaced further apart; every
+other reveal has one.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), asked how long a revealed enemy stays drawn after the pulse"
+use = """
+a reveal's window is a parameter to measure per ability, null until then;
+never end a revealed enemy's interval at an assumed second
+"""
+exceptions = """
+the duration is a belief, to be measured
+"""
+see = ["minimap/reveal-draws-no-light", "abilities/pulse-scan-abilities",
+       "abilities/ability-rules-are-unique"]

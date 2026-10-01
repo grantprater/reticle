@@ -648,7 +648,7 @@ use = "the ring prior of `ability_shapes`: search round the caster"
 claim = """
 Sova's Recon Bolt is drawn on the minimap as a teal ring centred where the bolt
 lands, with the bolt's icon at the centre, kept the whole time while the bolt
-pulses two or three times over a few seconds. The ring is the reveal range. On
+pulses twice over a few seconds. The ring is the reveal range. On
 each pulse the bolt reveals the enemies in its own line of sight, and the
 whole team then sees them, through walls.
 """
@@ -665,7 +665,8 @@ enemies are shown through walls to everyone on Sova's team. Observed
 instance: the player, 2026-09-30, named the large teal circle round the
 A-site stack at 223d636bf8d2 944.0 s
 (C:/Users/grant/Videos/2026-08-23 20-09-01.mp4) the ring round Sova's
-just-cast Recon Bolt dart.
+just-cast Recon Bolt dart. The player, 2026-09-30 (chat), gave the bolt two
+pulses, where 2026-09-26 said two or three.
 """
 use = """
 the free ring of `ability_shapes`: the bolt flies, so search the whole widget;
@@ -1666,7 +1667,7 @@ the same way with different ranges: the device pulses, reveals the enemies in
 its line of sight within its range, and the whole team sees them. The verb
 is scan. All three draw a ring of their range on the minimap: Haunt and the
 Stealth Drone a brief ring at the pulse, the Recon Bolt a ring kept the whole
-time while it pulses two or three times over a few seconds.
+time while it pulses twice over a few seconds.
 """
 kind = "rule"
 known = "player"
@@ -1675,7 +1676,9 @@ subject = "abilities:scans"
 source = """
 the player, 2026-09-26, twice: the class, then how each draws its ring. The
 three descriptions in the catalogue all say "reveal"; the Stealth Drone's
-says it fires a pulse
+says it fires a pulse. On 2026-09-30 (chat) the player gave the Recon Bolt
+two pulses, the only reveal with more than one, where 2026-09-26 said two
+or three
 """
 use = """
 one scan model, parametrised by range, for the three; a revealed enemy is
@@ -3076,3 +3079,120 @@ census verifies it with a targeted demo [domain:abilities/ability-rules-are-uniq
 """
 exceptions = "a belief from a search summary; Viper's own minimap line is observed [domain:abilities/viper-toxic-screen-minimap-growth]"
 see = ["minimap/ability-drawings-both-sides"]
+
+[cypher-trapwire-reveal-belief]
+claim = """
+An enemy that Cypher's Trapwire reveals shows on our minimap wherever the enemy is, for a fixed
+time that may depend on the ability, possibly cut short by the enemy's
+death. The player believes, unsure, that destroying the wire may
+cut the reveal short, and that an enemy who stays in the wire without
+destroying it likely keeps being revealed.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "cypher:trapwire"
+source = "the player, 2026-09-30 (chat), asked whether the enemies this ability reveals or marks show on the minimap, where, and for how long"
+use = """
+after this ability reveals or marks an enemy, search the whole widget for
+that enemy, outside the team's light too; the window is a parameter to
+measure for this ability alone [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "the duration is unmeasured and may differ from every other ability's; the effect of destroying the wire, and of staying in it, is a belief"
+see = ["minimap/vision-gate", "minimap/reveal-draws-no-light", "minimap/reveal-icon-duration-belief", "abilities/cypher-trapwire"]
+
+[sova-hunters-fury-reveal]
+claim = """
+An enemy that Sova's Hunter's Fury reveals shows on our minimap wherever the enemy is, for a fixed
+time that may depend on the ability, possibly cut short by the enemy's
+death.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "sova:hunters-fury"
+source = "the player, 2026-09-30 (chat), asked whether the enemies this ability reveals or marks show on the minimap, where, and for how long"
+use = """
+after this ability reveals or marks an enemy, search the whole widget for
+that enemy, outside the team's light too; the window is a parameter to
+measure for this ability alone [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "the duration is unmeasured and may differ from every other ability's"
+see = ["minimap/vision-gate", "minimap/reveal-draws-no-light", "minimap/reveal-icon-duration-belief", "abilities/sova-hunters-fury-minimap-beam"]
+
+[sova-owl-drone-dart-reveal]
+claim = """
+An enemy that the Owl Drone's dart marks shows on our minimap wherever the enemy is, for a fixed
+time that may depend on the ability, possibly cut short by the enemy's
+death.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "sova:owl drone"
+source = "the player, 2026-09-30 (chat), asked whether the enemies this ability reveals or marks show on the minimap, where, and for how long"
+use = """
+after this ability reveals or marks an enemy, search the whole widget for
+that enemy, outside the team's light too; the window is a parameter to
+measure for this ability alone [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "the duration is unmeasured and may differ from every other ability's"
+see = ["minimap/vision-gate", "minimap/reveal-draws-no-light", "minimap/reveal-icon-duration-belief", "abilities/sova-owl-drone-piloted"]
+
+[cypher-spycam-dart-reveal]
+claim = """
+An enemy that the Spycam's dart marks shows on our minimap wherever the enemy is, for a fixed
+time that may depend on the ability, possibly cut short by the enemy's
+death.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "cypher:spycam"
+source = "the player, 2026-09-30 (chat), asked whether the enemies this ability reveals or marks show on the minimap, where, and for how long"
+use = """
+after this ability reveals or marks an enemy, search the whole widget for
+that enemy, outside the team's light too; the window is a parameter to
+measure for this ability alone [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "the duration is unmeasured and may differ from every other ability's"
+see = ["minimap/vision-gate", "minimap/reveal-draws-no-light", "minimap/reveal-icon-duration-belief"]
+
+[fade-nightfall-reveal]
+claim = """
+An enemy that Fade's Nightfall marks shows on our minimap wherever the enemy is, for a fixed
+time that may depend on the ability, possibly cut short by the enemy's
+death.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "fade:nightfall"
+source = "the player, 2026-09-30 (chat), asked whether the enemies this ability reveals or marks show on the minimap, where, and for how long"
+use = """
+after this ability reveals or marks an enemy, search the whole widget for
+that enemy, outside the team's light too; the window is a parameter to
+measure for this ability alone [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "the duration is unmeasured and may differ from every other ability's"
+see = ["minimap/vision-gate", "minimap/reveal-draws-no-light", "minimap/reveal-icon-duration-belief"]
+
+[cypher-neural-theft-reveal]
+claim = """
+Cypher's Neural Theft is a global reveal: the enemies it reveals show on our
+minimap wherever they are, with no area limit, in two pulses spaced further
+apart than the Recon Bolt's. Each shows for a fixed time that may depend on
+the ability, possibly cut short by the enemy's death.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "cypher:neural-theft"
+source = "the player, 2026-09-30 (chat), asked whether the enemies this ability reveals or marks show on the minimap, where, and for how long; the global reach and the two pulses from the player the same day, after the catalogue's two reveals were raised"
+use = """
+after this ability reveals or marks an enemy, search the whole widget for
+that enemy, outside the team's light too; the window is a parameter to
+measure for this ability alone [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "the duration and the gap between the pulses are unmeasured and may differ from every other ability's"
+see = ["minimap/vision-gate", "minimap/reveal-draws-no-light", "minimap/reveal-icon-duration-belief"]
