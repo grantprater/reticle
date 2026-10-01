@@ -53,6 +53,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | The scene model: render-and-compare, all channels | [SCENE_MODEL.md](SCENE_MODEL.md) |
 | Events consumers read | [ENTITY_EVENTS.md](ENTITY_EVENTS.md) |
 | Ability entity inference and minimal capture plan | `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` |
+| Every caster's minimap abilities: the unified crop-cache pass, its cost, recall, stages | [ABILITY_DETECTION.md](ABILITY_DETECTION.md) |
 | What each demo cast draws on the minimap (census, player questions) | [DEMO_CAST_CENSUS.md](DEMO_CAST_CENSUS.md) |
 | Naming the player's casts from audio (demo bank, transfer) | [AUDIO_ABILITY_BANK.md](AUDIO_ABILITY_BANK.md) |
 | The audio gate: design, mined labels, formulations, predictions, results | [AUDIO_GATE.md](AUDIO_GATE.md) |

@@ -203,6 +203,14 @@ remains = "Every change: declared scopes, the four stored-row experiments, the a
 waits_for = "The player's choice of which experiments to run; he approved the belief-rule amendment on 2026-09-29."
 
 [[document]]
+path = "docs/ABILITY_DETECTION.md"
+kind = "plan"
+status = "proposed"
+since = "2026-09-30"
+remains = "Every stage: fast fits, the unified crop-cache pass with smokes identical, the icon proposer, the recall pass, tracks and lifecycles, the naming loop and gallery, identity, the ability lane and the viewer."
+waits_for = "The player's approval of the corpus run's cost and answers to section 17's questions."
+
+[[document]]
 path = "docs/SCENE_MODEL.md"
 kind = "plan"
 status = "proposed"
