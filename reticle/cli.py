@@ -3192,8 +3192,7 @@ def cmd_deaths(args) -> int:
                          "kf_player_death": e["kf_player_death"],
                          "weapon_evidence": e.get("weapon_evidence"),
                          "same_side": e.get("same_side"),
-                         "revive_witness": e.get("revive_witness"),
-                         "plate_refusal": e.get("plate_refusal"), **v.to_dict()})
+                         "entry_type": e.get("entry_type"), **v.to_dict()})
             events.extend(death_verdict_to_events(v, sid))
     collisions = [{**common, **c} for r in res["rounds"] for c in r.get("collisions", [])]
     status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
@@ -3205,9 +3204,17 @@ def cmd_deaths(args) -> int:
                                     for r in rows)),
             "revives": sum(bool(r.get("is_revive")) for r in rows),
             "collisions": len(collisions),
-            "revive_witnesses": dict(Counter(r["revive_witness"] for r in rows
-                                             if r.get("is_revive") and r.get("revive_witness"))),
-            "plate_refusals": dict(Counter(r["plate_refusal"] for r in rows if r.get("plate_refusal"))),
+            # Each entry's type (`decide_entry_type`): resolved types, and
+            # refusals by reason; which witnesses spoke for each revive.
+            "entry_types": dict(Counter(
+                (r.get("entry_type") or {}).get("type")
+                or f"refused:{(r.get('entry_type') or {}).get('reason')}" for r in rows)),
+            "revive_witnesses": dict(Counter(
+                "+".join(((r.get("entry_type") or {}).get("alternatives") or [{}])[0].get("for")
+                         or ["none"])
+                for r in rows if r.get("is_revive"))),
+            "entry_disagreements": sum(bool((r.get("entry_type") or {}).get("disagreement"))
+                                       for r in rows),
             "name_clusters": res.get("name_clusters"),
             "xmarks": dict(Counter(f"{r.get('side')}:{(r['metadata'].get('xmark') or {}).get('status', 'none')}"
                                    for r in rows)),
@@ -3238,7 +3245,8 @@ def cmd_deaths(args) -> int:
     print(f"{sid}: {len(rows) - head['revives']} deaths and {head['revives']} revives over "
           f"{len(rounds)} rounds in {res['passes']} passes; "
           f"victims {head['victims']}, killers {head['killers']}, "
-          f"{len(collisions)} board collisions -> {out}")
+          f"{len(collisions)} board collisions; entry types {head['entry_types']}, "
+          f"{head['entry_disagreements']} witness disagreements -> {out}")
     return 0
 
 
