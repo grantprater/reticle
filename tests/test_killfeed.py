@@ -404,6 +404,80 @@ class WeaponDescriptorTests(unittest.TestCase):
         self.assertAlmostEqual(a["centroid"][1], b["centroid"][1], places=3)
 
 
+class WeaponSlotPlacementTests(unittest.TestCase):
+    """K2: the slot is cut where the names place the entry, and a divider off
+    the band's plate runs refuses."""
+
+    ROI = killfeed.Roi("killfeed", 0.0, 0.0, 1.0, 1.0)
+    GREEN = np.array([100, 200, 70], np.uint8)
+
+    def _plates(self, h=80, w=120):
+        frame = np.tile(RED_PLATE, (h, w, 1))
+        frame[:, 60:] = self.GREEN
+        return frame
+
+    def test_the_names_move_the_cut_to_their_entry(self):
+        # The view band is rows 0..36, the names' baseline lies at band row 36,
+        # 13 below NAME_BASE_ROW: the entry stands at rows 13..49.
+        frame = self._plates()
+        for c0 in (10, 18, 90, 98):
+            frame[26:36, c0:c0 + 5] = 255
+        frame[22:42, 40:56] = 255                      # the icon, its lower half below row 36
+        view = killfeed.EntryView(0, 0, 36, 40, 56, killer_run=(10, 22),
+                                  victim_run=(90, 102), verdict="other")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 80, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
+        self.assertEqual(row["band_shift"], 13)
+        self.assertEqual((row["y0"], row["y1"]), (0, 36))      # the binding rows stay
+        self.assertEqual(row["slot_geom"]["box"][1::2], [13, 49])
+        self.assertIsNone(row["reason"])
+        # The whole icon: 20 rows inside the shifted band, 14 inside the view's.
+        patch, _known = killfeed.unpack_soft(row["soft"])
+        self.assertEqual(int((patch[:, 3:19] == 255).any(axis=1).sum()), 20)
+
+    def test_a_move_that_leaves_the_plate_is_refused(self):
+        # Two runs that are not names (portrait art, the headshot mark) agree
+        # 10 rows high; the move would put 10 rows of scenery in the band.
+        frame = np.tile(np.array([128, 128, 128], np.uint8), (80, 120, 1))
+        frame[40:74] = self._plates()[40:74]
+        for c0 in (10, 18, 90, 98):
+            frame[43:53, c0:c0 + 5] = 255
+        frame[50:66, 40:56] = 255
+        view = killfeed.EntryView(0, 40, 74, 40, 56, killer_run=(10, 22),
+                                  victim_run=(90, 102), verdict="other")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 80, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
+        self.assertEqual(row["band_shift"], 0)
+        self.assertIsNone(row["reason"])
+
+    def test_names_on_their_row_move_nothing(self):
+        frame = self._plates()
+        for c0 in (10, 18, 90, 98):
+            frame[13:23, c0:c0 + 5] = 255
+        frame[10:26, 40:56] = 255
+        view = killfeed.EntryView(0, 0, 34, 40, 56, killer_run=(10, 22),
+                                  victim_run=(90, 102), verdict="other")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 80, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
+        self.assertEqual(row["band_shift"], 0)
+        self.assertIsNone(row["reason"])
+
+    def test_a_divider_left_of_the_plate_runs_refuses(self):
+        # Plate colour touches the divider's columns only in a few rows (portrait
+        # art), so the columns pass the plate-behind test; no covered run
+        # reaches them: the entry's plate starts at column 60.
+        frame = np.tile(np.array([128, 128, 128], np.uint8), (34, 120, 1))
+        frame[:, 60:] = self.GREEN
+        frame[0:6, 0:40] = RED_PLATE
+        frame[10:26, 12:30] = 255
+        view = killfeed.EntryView(0, 0, 34, 12, 30, verdict="other")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
+        self.assertEqual(row["reason"], "off_plate_run")
+        self.assertIsNone(row["grid"])
+        self.assertIsNone(row["soft"])
+
+
 class VictimSideTests(unittest.TestCase):
     """The killer's colour behind the weapon icon decides the victim's side;
     a warm victim portrait past a green plate once read the victim as enemy."""

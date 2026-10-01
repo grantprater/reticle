@@ -402,7 +402,8 @@ SCALE_CHECK_TOL = 0.1
 def plate_height(green_band: np.ndarray, red_band: np.ndarray) -> int:
     """Rows of one entry band that its plate fills: rows whose plate share,
     across the band's plate-covered columns, reaches PLATE_ROW_FRAC. A
-    measurement of the capture, for `scale_check`; never a length to read by."""
+    measurement of the capture, for `scale_check` and for comparing two
+    placements of one band; never a length to read by."""
     plate = green_band | red_band
     cols = plate.any(axis=0)
     if not cols.any():
@@ -2014,7 +2015,10 @@ def detect_second_life_badge(
 # (`slot_geom`), whether the ring was stripped (`ring_stripped`) and the
 # icon's sub-pixel centroid (`centroid`); the coverage row carries the
 # scale and `scale_check`. Every 0.5.0 field is unchanged.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.6.0"
+# 0.7.0 (2026-10-01): the slot is cut from the rows the entry's names place
+# it at (`band_shift`, stored as `band_shift`), and a divider wholly outside
+# the band's plate runs refuses as `off_plate_run`.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.7.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -2356,17 +2360,50 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
     base px with the capture's scale; `ring_stripped`; and `centroid`, the
     icon's sub-pixel position (ROI column, band row). A row refused before its
     pieces are cut carries these fields as null.
+
+    The slot is cut from the rows the entry's names place it at
+    (`band_shift`, the portrait reader's rule): a wash that paints both plate
+    colours down from the ROI's top starts the plate run at row 0, and the
+    PITCH split then cuts the entry 13 rows high (4f207c0c4e39 460.0 s, the
+    rifle's lower half). `y0..y1` stay the view's rows, which consumers bind
+    by; `band_shift` says how far the cut moved. The move stands only when
+    the moved band holds at least the view band's plate rows (`plate_height`):
+    a portrait's art and the headshot mark can pass for two agreeing names.
+
+    The icon sits on the killer's plate, between the two names. A divider
+    wholly outside the span of the band's plate runs (`_plate_runs`) is
+    portrait art or scenery, and refuses as `off_plate_run`: the killer's
+    portrait and its agent badge left of an unread killer name
+    (4f207c0c4e39 892.5 s), or the wash's red art under a band the split made
+    from an entry's lower half (460.0 s, slot 1).
     """
     s = scale or KillfeedScale.for_capture(width, height)
-    x0, y0, x1, _ = roi.pixels(width, height)
+    x0, y0, x1, y1 = roi.pixels(width, height)
     out = []
     for v in views:
         if v.wx1 <= v.wx0 or v.y1 <= v.y0:
             continue
-        crop = frame[y0 + v.y0:y0 + v.y1, x0 + v.wx0:x0 + v.wx1]
+        band = frame[y0 + v.y0:y0 + v.y1, x0:x1]
+        green, red, white = _plate_masks(band, np.ones(band.shape[:2], bool))
+        dy = (band_shift(white > 0, v.killer_run, v.victim_run, s)
+              if v.killer_run and v.victim_run else 0)
+        if dy:
+            bh = v.y1 - v.y0
+            ry0 = min(max(0, v.y0 + dy), max(0, (y1 - y0) - bh))
+            moved = frame[y0 + ry0:y0 + ry0 + bh, x0:x1]
+            mg, mr, mw = _plate_masks(moved, np.ones(moved.shape[:2], bool))
+            # The plate checks the names: a move that loses plate rows left
+            # the entry, and the runs were not names (5822b6646448 1417.0 s,
+            # slot 2: portrait art and the headshot mark agreed 10 rows high).
+            if plate_height(mg, mr) >= plate_height(green, red):
+                dy = ry0 - v.y0
+                band, green, red, white = moved, mg, mr, mw
+            else:
+                dy = 0
+        crop = band[:, v.wx0:v.wx1]
         cut = icon_grid(icon_white_mask(crop, s), s)
         row = {"slot": v.slot, "y0": int(v.y0), "y1": int(v.y1), "wx0": int(v.wx0),
-               "wx1": int(v.wx1), "verdict": v.verdict}
+               "wx1": int(v.wx1), "verdict": v.verdict, "band_shift": int(dy)}
         # A divider piece too small to be an icon stays refused: its
         # neighbours are a portrait edge or a name, never the missing icon
         # (a06f04a0059f 1969.0 s, a portrait's edge, gained a grid otherwise).
@@ -2375,13 +2412,17 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
                         "aspect": None, "reason": "no_icon", "ringed": None,
                         "ring_reason": "no_icon", "ring": None, **NO_SOFT})
             continue
-        band = frame[y0 + v.y0:y0 + v.y1, x0:x1]
-        green, red, white = _plate_masks(band, np.ones(band.shape[:2], bool))
         behind = ((green | red)[:, v.wx0:v.wx1].sum(axis=0) >= s.px(PLATE_MIN_PX)).mean()
         if behind < PLATE_BEHIND_MIN:
             out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
                         "aspect": None, "reason": "no_plate", "ringed": None,
                         "ring_reason": "no_plate", "ring": None, **NO_SOFT})
+            continue
+        runs = _plate_runs(green, red, s)
+        if not runs or v.wx1 <= runs[0][1] or v.wx0 >= runs[-1][2]:
+            out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
+                        "aspect": None, "reason": "off_plate_run", "ringed": None,
+                        "ring_reason": "off_plate_run", "ring": None, **NO_SOFT})
             continue
         w, ok = plate_whiteness(band, green, red, s)
         icon = slot_white_mask(band, green, red, s, whiteness=(w, ok))
@@ -2413,7 +2454,7 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
                  "soft": soft_patch(w, ok, max(0, ix0 - m), min(band.shape[1], ix1 + m)),
                  "centroid": _centroid(w, piece),
                  "slot_geom": {"band_h": round((v.y1 - v.y0) / s.scale, 3),
-                               "box": [round(c / s.scale, 3) for c in (ix0, v.y0, ix1, v.y1)],
+                               "box": [round(c / s.scale, 3) for c in (ix0, v.y0 + dy, ix1, v.y1 + dy)],
                                "plate_h": round(plate_height(green, red) / s.scale, 3),
                                "scale": s.provenance()}}
         if cut is None:
