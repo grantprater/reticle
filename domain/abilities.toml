@@ -3744,7 +3744,17 @@ source = """
 the ring fit at the player's tray-object marks on 13 found panels (b7d24102a6f6
 Split, bdfdcf009dba Sunset, e37fdeca944f Lotus), divided by each key's
 `geometry.map_scale`; rim colour from pixels within 1 px of the fitted ring
-(branch ability-walls-20260930). The enemy ring's colour is not measured.
+that already had saturation 50 or more (branch ability-walls-20260930). The
+enemy ring's colour is not measured.
+"""
+exceptions = """
+the saturation floor depends on which pixels count as rim. Remeasured
+2026-10-01 on every pixel within 1 px of the fitted ring, unfiltered, on the
+12 panels the same fit finds today, the 10th percentile is 49-83 and the hue
+p5 falls to 10-82, because the 1 px annulus also holds the pixels where the
+rim crosses icons and floor. The values keep the filtered measure: the
+unfiltered floor leaves the candidate's found panels at 12 of 16 and lowers
+most scores, while a floor of 70 finds 14 (branch ability-walls-20260930)
 """
 use = "the Regrowth descriptor of `ability_candidates`: radius per map and the ally colour model"
 values = { base_radius = { split = 60.5, sunset = 59.9, lotus = 55.7 }, ally_rim_hue = [75, 83.5, 88], ally_rim_sat_p10 = [57, 96] }
