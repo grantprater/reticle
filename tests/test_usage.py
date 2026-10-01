@@ -305,22 +305,24 @@ class ContentionAndBackendTest(unittest.TestCase):
             def release(self):
                 pass
 
-        import cv2
-
-        class OpenCV(Cap, cv2.VideoCapture):
-            def __init__(self):
-                cv2.VideoCapture.__init__(self)
-                Cap.__init__(self)
+        # The stand-in replaces cv2.VideoCapture rather than subclassing it.
+        # OpenCV declares VideoCapture without GC support, and its dealloc
+        # frees a Python subclass's instance, which carries a GC header,
+        # at the wrong address: the heap corrupts and a later collection
+        # crashes the process.
+        class FakeVideoCapture(Cap):
+            pass
 
         class Nvdec(Cap, _NvdecCapture):
             def __init__(self):
                 Cap.__init__(self)
 
         ctx = SimpleNamespace(media="x.mp4", fps=2.0)
-        for cap, want in ((OpenCV, "opencv"), (Nvdec, "nvdec")):
+        for cap, want in ((FakeVideoCapture, "opencv"), (Nvdec, "nvdec")):
             with self.subTest(want):
                 usage = ScanUsage(self.manifest, "profile", [Reader()], "video")
-                with patch("reticle.decode.open_capture", lambda path: cap()):
+                with patch("reticle.decode.open_capture", lambda path: cap()), \
+                        patch("reticle.decode.cv2.VideoCapture", FakeVideoCapture):
                     run(ctx, [Reader()], usage=usage)
                 self.assertEqual(usage.record()["decode_backend"]["backend"], want)
 
