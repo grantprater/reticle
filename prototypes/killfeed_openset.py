@@ -185,6 +185,27 @@ the largest group holds
 [metric:killfeed_openset/warden_group@4f207c0c4e39#warden_share_largest=0.9694]
 of them; the Aftershock rows are in no group
 ([metric:killfeed_openset/warden_group@4f207c0c4e39#aftershock_rows_grouped=0]).
+
+Step 3 (the player's labels, 2026-10-01):
+
+    .\.venv\Scripts\python.exe prototypes\killfeed_openset.py faults <product> <labels>
+
+The player named [metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#rows=16] groups no icon ("Most of them were bad crops",
+"or not even on a killfeed entry at all"). `faults` draws each exemplar's box
+on the crop cache (`<store>/analysis/killfeed-openset-20261001/crop_faults/`)
+and reads causes by eye: [metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#cause_not_on_entry=4] boxes on no entry,
+[metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#cause_left_of_entry=2] left of the killer portrait,
+[metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#cause_spans_killer_name=3] spanning the killer's name and the gun,
+[metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#cause_truncated=4] cut pieces of an icon, [metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#cause_band_shifted=2] on a band
+placed above the entry, and [metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#cause_faint=1] fading in. The box is
+`killfeed._band_text`'s [owns:killfeed-weapon-descriptor]; no cross-reference
+gates it. Each row trips at least one channel the reader does not use
+([metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#caught_any=16]): every not-on-entry row has no killer name
+([metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#not_on_entry__killer_name_unread=4]) and most have no counted track
+([metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#not_on_entry__no_counted_track=3]); the band-shifted rows sit off the killer
+portrait's top ([metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#band_shifted__band_off_portrait=2]); every truncated row is
+its track's first or last frame ([metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#truncated__track_edge=4]). Only
+[metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#bound_to_entry=7] rows bind to an entry the owner names.
 """
 from __future__ import annotations
 
@@ -1029,6 +1050,174 @@ def check_groups(product: Path) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------- step 3
+
+STEP3 = "killfeed-openset-proto-0.3.0"
+CROP_FAULTS_DIR = OUT / "crop_faults"
+
+#: Why each group the player named `not_icon` (and g024, `other`) is not an
+#: icon, read by eye on 2026-10-01 from its box drawn on the crop cache's
+#: killfeed frames half a second before, at and after (`faults` draws them):
+#: `not_on_entry`, no killfeed entry under the box (scenery, a band of HUD);
+#: `left_of_entry`, an entry in the slot but the box left of its killer
+#: portrait (scenery, the assist panel); `spans_killer_name`, the box holds the
+#: killer's name and the gun as one blob; `truncated`, a cut piece of the
+#: icon; `band_shifted`, the band placed above the entry, cutting the icon's
+#: lower half; `faint`, the right box on an icon fading in.
+CROP_FAULT_CAUSES = {
+    "g008": "spans_killer_name", "g009": "spans_killer_name", "g010": "spans_killer_name",
+    "g011": "truncated", "g012": "truncated", "g013": "faint", "g015": "not_on_entry",
+    "g016": "truncated", "g017": "band_shifted", "g018": "band_shifted",
+    "g019": "not_on_entry", "g020": "not_on_entry", "g022": "not_on_entry",
+    "g023": "left_of_entry", "g024": "left_of_entry", "g025": "truncated"}
+
+#: The cross-references `faults` scores, each a channel other than the
+#: weapon reader's own box (`killfeed._band_text`, [owns:killfeed-weapon-descriptor]).
+FAULT_GATES = {
+    "killer_name_unread": "killfeed_name reads no killer name on the row's frame and slot",
+    "width_off_entry": "the box's width differs by more than ENTRY_BOX_TOL from the modal "
+                       "width of the overlapping boxes in the slot within 1 s",
+    "no_counted_track": "no counted entry track of 1 s or more (`session_entries`) covers "
+                        "the row's time within one slot",
+    "track_edge": "the row is the first or last frame of the track that covers it",
+    "band_off_portrait": "the box's top differs by more than 3 px from the killer "
+                         "portrait's (`killfeed_portrait`)"}
+
+
+def _fault_features(row: dict, sid: str, entries: list[dict], streams: dict) -> dict:
+    from reticle.adjudication.weapon import ENTRY_BOX_TOL
+    t, s = row["t_ms"], row["slot"]
+
+    def at(name, role):
+        return next((r for r in streams[name] if r.get("t_ms") == t and r.get("slot") == s
+                     and r.get("role") == role
+                     and str(r.get("kind", "")).endswith("_observation")), {})
+    kn, vn, kp = at("killfeed_name", "killer"), at("killfeed_name", "victim"), \
+        at("killfeed_portrait", "killer")
+    cover = sorted((e for e in entries if e["t_first"] <= t <= e["t_last"]
+                    and abs(e["slot"] - s) <= 1), key=lambda e: abs(e["slot"] - s))
+    track = cover[0] if cover else None
+    w = row["wx1"] - row["wx0"]
+    near = [r for r in streams["killfeed_weapon"] if r.get("kind") == "weapon_icon_observation"
+            and r["slot"] == s and 0 < abs(r["t_ms"] - t) <= 1000
+            and min(r["wx1"], row["wx1"]) > max(r["wx0"], row["wx0"])]
+    widths = Counter(r["wx1"] - r["wx0"] for r in near)
+    mode = widths.most_common(1)[0][0] if widths else None
+    unread = lambda r: (r.get("reason") or None) if r else "no_row"
+    f = {"group": row["group"], "session_id": sid, "t_ms": t, "slot": s,
+         "box": [row["wx0"], row["wx1"], row["y0"], row["y1"]], "width": w, "width_mode": mode,
+         "killer_name": unread(kn), "victim_name": unread(vn),
+         "killer_portrait": [kp.get("x0"), kp.get("x1"), kp.get("y0")] if kp else None,
+         "track": [track["slot"], track["t_first"], track["t_last"]] if track else None,
+         "death_id": row.get("death_id")}
+    f["gates"] = {
+        "killer_name_unread": f["killer_name"] is not None,
+        "width_off_entry": mode is not None and abs(w - mode) > ENTRY_BOX_TOL,
+        "no_counted_track": track is None or track["t_last"] - track["t_first"] < 1000,
+        "track_edge": track is not None and t in (track["t_first"], track["t_last"]),
+        "band_off_portrait": bool(kp) and kp.get("y0") is not None
+                             and abs(row["y0"] - kp["y0"]) > 3}
+    return f
+
+
+def _fault_sheet(rows: list[dict]) -> list[Path]:
+    """Each row's box drawn on its crop-cache killfeed frame, with the frames
+    half a second before and after; one PNG per group."""
+    from reticle.profiles import get_profile
+    from reticle.roi_cache import RoiCache
+    store, paths = Store(), []
+    CROP_FAULTS_DIR.mkdir(parents=True, exist_ok=True)
+    for sid in sorted({r["session_id"] for r in rows}):
+        man = store.read_manifest(sid)
+        cache, _ = RoiCache.load(store.root, man, get_profile(man.get("source_profile",
+                                                                       "valorant-16x9")))
+        if cache is None:
+            continue
+        x0, y0, x1, y1 = cache.rect_of("killfeed")
+        mine = [r for r in rows if r["session_id"] == sid]
+        ts = sorted({float(r["t_ms"] + d) for r in mine for d in (-500, 0, 500)})
+        frames = {smp.t_ms: smp.frame[y0:y1, x0:x1] for smp in cache.samples(ts, rois="killfeed")}
+        for r in mine:
+            tiles = []
+            for d in (-500, 0, 500):
+                f = frames.get(float(r["t_ms"] + d))
+                if f is None:
+                    continue
+                f = f.copy()
+                if d == 0:
+                    cv2.rectangle(f, (r["wx0"], r["y0"]), (r["wx1"] - 1, r["y1"] - 1),
+                                  (0, 0, 255), 1)
+                a = max(0, r["y0"] - 40)
+                band = np.zeros((120, f.shape[1], 3), np.uint8)
+                c = f[a:r["y1"] + 40][:120]
+                band[:c.shape[0]] = c
+                cv2.putText(band, f"{r['group']} {sid} {(r['t_ms'] + d) / 1000:.1f}s s{r['slot']}"
+                            + (" BOX" if d == 0 else ""), (2, 114), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.4, (0, 255, 255), 1)
+                tiles.append(band)
+            path = CROP_FAULTS_DIR / f"{r['group']}_{sid}_{int(r['t_ms'])}.png"
+            cv2.imwrite(str(path), np.vstack(tiles))
+            paths.append(path)
+    return paths
+
+
+def crop_faults(product: Path, labels: Path) -> dict:
+    """The groups the player said are no icon, as crop faults of the weapon
+    reader's box: each exemplar drawn on the crop cache (`_fault_sheet`), its
+    cause by eye (`CROP_FAULT_CAUSES`), and which cross-reference
+    (`FAULT_GATES`) would have caught it, from stored rows only."""
+    from reticle.adjudication.death import session_entries
+    from weapon_icons import _hud
+    body = json.loads(Path(product).read_text(encoding="utf-8"))
+    last = {}
+    for line in Path(labels).read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            r = json.loads(line)
+            last[r["group"]] = r
+    groups = {g["group"]: g for g in body["groups"]}
+    picked = sorted(k for k, r in last.items() if r.get("class") in ("not_icon", "other"))
+    rows = [dict(groups[k]["exemplar"], group=k) for k in picked]
+    feats, cache = [], {}
+    for r in rows:
+        sid = r["session_id"]
+        if sid not in cache:
+            cache[sid] = (session_entries(_hud(sid)),
+                          {k: Store().read_events(k, sid) for k in
+                           ("killfeed_name", "killfeed_portrait", "killfeed_weapon")})
+        f = _fault_features(r, sid, *cache[sid])
+        f["cause"] = CROP_FAULT_CAUSES.get(r["group"], "unread")
+        f["label"] = last[r["group"]].get("class")
+        feats.append(f)
+    sheets = _fault_sheet(rows)
+    causes = Counter(f["cause"] for f in feats)
+    by_cause = {}
+    for c in sorted(causes):
+        fs = [f for f in feats if f["cause"] == c]
+        by_cause[c] = {g: sum(f["gates"][g] for f in fs) for g in FAULT_GATES}
+        by_cause[c]["any"] = sum(any(f["gates"].values()) for f in fs)
+        by_cause[c]["rows"] = len(fs)
+    out = {"version": STEP3, "product": Path(product).name, "labels": Path(labels).name,
+           "rows": len(feats), "causes": dict(causes), "gates": FAULT_GATES,
+           "caught_by_cause": by_cause,
+           "caught_any": sum(any(f["gates"].values()) for f in feats),
+           "bound_to_entry": sum(f["death_id"] is not None for f in feats),
+           "rows_detail": feats, "sheets": [str(p) for p in sheets]}
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "crop_faults.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    if RECORD:
+        vals = {"rows": len(feats), "caught_any": out["caught_any"],
+                "bound_to_entry": out["bound_to_entry"]}
+        vals.update({f"cause_{c}": n for c, n in causes.items()})
+        for c, gs in by_cause.items():
+            vals.update({f"{c}__{g}": n for g, n in gs.items() if g != "rows"})
+        metrics.record("killfeed_openset", part="crop_faults", session="+".join(body["sessions"]),
+                       values=vals, deps={"product": Path(product).name,
+                                          "labels": Path(labels).name,
+                                          "code": metrics.fingerprint(crop_faults, _fault_features)},
+                       note=f"{TASK}: the player's not_icon groups as weapon-box crop faults")
+    return out
+
+
 def main() -> None:
     global RECORD
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1040,6 +1229,9 @@ def main() -> None:
     sub.add_parser("kitnull")
     sub.add_parser("tiered")
     sub.add_parser("check").add_argument("product")
+    f = sub.add_parser("faults")
+    f.add_argument("product")
+    f.add_argument("labels")
     for name in ("entries", "groups"):
         x = sub.add_parser(name)
         x.add_argument("sids", nargs="*", default=list(FAST + OUT_OF_GALLERY))
@@ -1047,6 +1239,11 @@ def main() -> None:
     RECORD = not a.dry
     if a.cmd == "groups":
         group_new_rows(a.sids)
+        return
+    if a.cmd == "faults":
+        out = crop_faults(Path(a.product), Path(a.labels))
+        print(json.dumps({k: v for k, v in out.items() if k not in ("rows_detail", "gates")},
+                         indent=1))
         return
     if a.cmd == "check":
         print(json.dumps(check_groups(Path(a.product)), indent=1))
