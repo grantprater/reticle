@@ -693,7 +693,7 @@ What stage 0 built, and where it differs from the text above:
   stage 1 adds the rest as it builds them. The standing translations per
   input stream come with the lanes in stage 1.
 
-**Stage 1: the first slice. Built 2026-09-30; not done: one acceptance item fails.** Lanes `round_entity`, `death` and `spike` for
+**Stage 1: the first slice. Built and accepted 2026-09-30.** Lanes `round_entity`, `death` and `spike` for
 `bfad2778a372` (`C:\Users\grant\Videos\2026-08-24 14-45-35.mp4`), and the
 round viewer reading them. `round_entity` is stale first: rerun
 `reticle lifetimes` from storage, which decodes nothing.
@@ -744,20 +744,24 @@ with resolved share
 [metric:entity_events/resolution/death@bfad2778a372#resolved_share=0.8482];
 the spike lane
 [metric:entity_events/resolution/spike@bfad2778a372#resolved_share=0.4444];
-the round_entity lane holds every row in the ledger
-[metric:entity_events/resolution/round_entity@bfad2778a372#resolved_share=0.0],
-most of them stale
-[metric:entity_events/resolution/round_entity@bfad2778a372#ledger_stale=48136],
-because `round_entity` rests on `ally_icon` rows at `ally-icon-0.4.0` under
-code at `ally-icon-0.6.0`. Round 1's self track `E0004` stays disputed,
+the first run held every round_entity row in the ledger, most of them
+stale, because `round_entity` rested on `ally_icon` rows at
+`ally-icon-0.4.0` under code at `ally-icon-0.6.0`. After the `ally_icon`
+reread from the crop cache, `reticle vision`, `reticle lifetimes` and
+`reticle project`, the lane holds
+[metric:entity_events/resolution/round_entity@bfad2778a372#consumer_rows=48490]
+consumer rows with resolved share
+[metric:entity_events/resolution/round_entity@bfad2778a372#resolved_share=0.8966];
+most of the ledger is disputed
+([metric:entity_events/resolution/round_entity@bfad2778a372#ledger_disputed=4810]
+rows). Round 1's self track `E0004` stays disputed,
 returned to `round-entity-session`: the track names Skye, and the death
 owner names the victim of `death:bfad2778a372:205000:0` Chamber. Ten other
 entities hold the same kind of dispute.
 
-The failing item: `plan bfad2778a372` names the round_entity lane held on
-`round_entity`, stale through `ally_icon`. It passes after the `ally_icon`
-reread from the crop cache (`reticle scan <sid> --only ally_icon`), then
-`reticle lifetimes` and `reticle project`. The other items pass.
+The item that failed at first, `plan bfad2778a372` holding the round_entity
+lane on `round_entity` stale through `ally_icon`, passes after that refresh:
+`plan` reports nothing stale on bfad. The other items passed on the first run.
 
 
 **Stage 2: players, bindings and the minimap lanes.** Gap 1, then lanes
