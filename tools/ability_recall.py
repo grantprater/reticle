@@ -21,7 +21,8 @@ the store's `labels/ability_recall_20260930/selection/<sid>.json`.
 **Score** (the default) reads the player's answers from
 `labels/ability_recall_20260930/<sid>.jsonl` (the last row for a time wins;
 `prototypes/label_ability_recall.py` writes them) and the stored
-`ability_icon` and `ability_shape_scan` streams. Per widget size it prints:
+`ability_icon`, `ability_fit`, `ability_wall` and `ability_shape_scan`
+streams. Per widget size it prints:
 
 - *Entity recall.* Each frame's marks are grouped first (`frame_entities`),
   by the player's convention: a ring is its centre icon, when there is one,
@@ -53,13 +54,18 @@ What counts. Smokes stay out of the recall target and keep their own lane
 proposals, so a proposer's hit on a smoke is not charged to specificity. A
 frame the player answered unsure is out of every count. A proposal is an
 icon candidate of `ability_icon` (every stored candidate: the proposer's
-output is the candidate set the tracker will read), or a ring or beam of
-`ability_shape_scan` whose owner accepted it (`--all-shapes` adds the
-rejected ones). Explaining (`explains`): an icon explains a mark within its
-radius plus TOL_PX of its centre; a ring, a mark within TOL_PX or a quarter
-of its radius of its centre, or within TOL_PX of its rim; a beam, a mark
-within TOL_PX of its segment. The player marks an icon, ring or area at its
-centre and a line anywhere along it.
+output is the candidate set the tracker will read), a candidate's ring or
+beam (`ability_fit`) or wall or curve (`ability_wall`) the owner found, or a
+ring or beam of the surprise path (`ability_shape_scan`) the owner accepted
+(`--all-shapes` adds the rejected ones and lone wall pieces). A hit is
+counted by type and path (`ring/candidate`, `ring/surprise`). Explaining
+(`explains`): an icon explains a mark within its radius plus TOL_PX of its
+centre; a ring, a mark within TOL_PX or a quarter of its radius of its
+centre, or within TOL_PX of its rim; a beam or wall, a mark within TOL_PX of
+its segment; a curve, a mark within TOL_PX of its fitted polyline. The
+player marks an icon, ring or area at its centre and a line anywhere along
+it. The surprise rate (gated samples where no ring or beam candidate was
+accepted) comes from the `ability_fit` head.
 
 Not for. Naming (pass 2), tracks (stage 5), or smokes (`tools/smoke_identity.py`).
 """
@@ -80,7 +86,7 @@ from pathlib import Path  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-TOOL = "ability-recall-0.2.0"
+TOOL = "ability-recall-0.3.0"
 SET = "ability_recall_20260930"
 #: Every CADENCE-th live 2 Hz sample is a frame (section 10, fixed in advance).
 CADENCE = 20
@@ -450,9 +456,16 @@ def entities(frames: list[dict], answers: dict[float, dict], scale: float = 1.0)
 
 # --- proposals ------------------------------------------------------------------
 
-def proposals(icon_row: dict | None, shape_row: dict | None, all_shapes: bool = False) -> list[dict]:
-    """The proposals stored for one sample: icon candidates, and the accepted
-    rings and beam (every ring and the beam with `all_shapes`)."""
+#: The proposal types, in the order they print.
+TYPES = ("icon", "ring", "beam", "wall", "curve")
+
+
+def proposals(icon_row: dict | None, shape_row: dict | None, all_shapes: bool = False,
+              fit_row: dict | None = None, wall_row: dict | None = None) -> list[dict]:
+    """The proposals stored for one sample: icon candidates; the candidate
+    fits (`ability_fit` rings and beams, `ability_wall` walls and curves)
+    the owner found; and the surprise path's accepted rings and beam
+    (`ability_shape_scan`). `all_shapes` adds every rejected fit and piece."""
     out = []
     for c in (icon_row or {}).get("candidates") or ():
         out.append({"type": "icon", "cx": float(c["cx"]), "cy": float(c["cy"]), "r": float(c["r"])})
@@ -460,11 +473,37 @@ def proposals(icon_row: dict | None, shape_row: dict | None, all_shapes: bool = 
         for g in shape_row.get("rings") or ():
             if all_shapes or g.get("accepted"):
                 out.append({"type": "ring", "cx": float(g["cx"]), "cy": float(g["cy"]),
-                            "r": float(g["r"])})
+                            "r": float(g["r"]), "path": "surprise"})
         b = shape_row.get("beam")
         if b and (all_shapes or b.get("accepted")):
-            out.append({"type": "beam", "x0": b["x0"], "y0": b["y0"], "x1": b["x1"], "y1": b["y1"]})
+            out.append({"type": "beam", "x0": b["x0"], "y0": b["y0"], "x1": b["x1"], "y1": b["y1"],
+                        "path": "surprise"})
+    for f in (fit_row or {}).get("fits") or ():
+        if not (all_shapes or f.get("found")):
+            continue
+        if f.get("shape") == "ring" and f.get("cx") is not None:
+            out.append({"type": "ring", "cx": float(f["cx"]), "cy": float(f["cy"]),
+                        "r": float(f["r"]), "path": "candidate", "descriptor": f["descriptor"]})
+        elif f.get("shape") == "beam" and f.get("x0") is not None:
+            out.append({"type": "beam", "x0": f["x0"], "y0": f["y0"], "x1": f["x1"], "y1": f["y1"],
+                        "path": "candidate", "descriptor": f["descriptor"]})
+    for f in (wall_row or {}).get("walls") or ():
+        if not (all_shapes or f.get("found")) or f.get("x0") is None:
+            continue
+        if f.get("shape") == "curve" and f.get("points"):
+            out.append({"type": "curve", "points": f["points"], "path": "candidate",
+                        "descriptor": f["descriptor"]})
+        else:
+            out.append({"type": "wall", "x0": f["x0"], "y0": f["y0"], "x1": f["x1"], "y1": f["y1"],
+                        "path": "candidate", "descriptor": f["descriptor"]})
     return out
+
+
+def _segment(x: float, y: float, ax: float, ay: float, bx: float, by: float) -> float:
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
+    return math.hypot(x - (ax + t * dx), y - (ay + t * dy))
 
 
 def distance(mark: dict, p: dict) -> float:
@@ -476,11 +515,10 @@ def distance(mark: dict, p: dict) -> float:
     if p["type"] == "ring":
         d = math.hypot(x - p["cx"], y - p["cy"])
         return min(d - max(0.0, 0.25 * p["r"] - TOL_PX), abs(d - p["r"]))
-    ax, ay, bx, by = p["x0"], p["y0"], p["x1"], p["y1"]
-    dx, dy = bx - ax, by - ay
-    L2 = dx * dx + dy * dy
-    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
-    return math.hypot(x - (ax + t * dx), y - (ay + t * dy))
+    if p["type"] == "curve":
+        q = p["points"]
+        return min(_segment(x, y, *q[i], *q[i + 1]) for i in range(len(q) - 1))
+    return _segment(x, y, p["x0"], p["y0"], p["x1"], p["y1"])
 
 
 def explains(mark: dict, p: dict) -> bool:
@@ -490,15 +528,20 @@ def explains(mark: dict, p: dict) -> bool:
 # --- scoring --------------------------------------------------------------------
 
 def score_session(sid: str, frames: list[dict], answers: dict[float, dict], icon_rows: dict,
-                  shape_rows: dict, scale: float, all_shapes: bool = False) -> dict:
+                  shape_rows: dict, scale: float, all_shapes: bool = False,
+                  fit_rows: dict | None = None, wall_rows: dict | None = None) -> dict:
     """Counts for one session, and its miss rows.
 
-    `icon_rows` and `shape_rows` map a stored sample time to its row; a
-    frame with no icon row has no proposals, and its misses say so."""
+    `icon_rows`, `shape_rows`, `fit_rows` and `wall_rows` map a stored sample
+    time to its row; a frame with no icon row has no proposals, and its
+    misses say so."""
+    fit_rows, wall_rows = fit_rows or {}, wall_rows or {}
     labelled = [f for f in frames if float(f["t_ms"]) in answers
                 and answers[float(f["t_ms"])].get("answer") in ("marks", "nothing")]
     props = {float(f["t_ms"]): proposals(icon_rows.get(float(f["t_ms"])),
-                                         shape_rows.get(float(f["t_ms"])), all_shapes)
+                                         shape_rows.get(float(f["t_ms"])), all_shapes,
+                                         fit_rows.get(float(f["t_ms"])),
+                                         wall_rows.get(float(f["t_ms"])))
              for f in labelled}
     ents = entities(labelled, answers, scale)
     index_of = {float(f["t_ms"]): f.get("index") for f in labelled}
@@ -515,7 +558,7 @@ def score_session(sid: str, frames: list[dict], answers: dict[float, dict], icon
                 mk_hit += p_ok is not None
                 if p_ok is not None:
                     ok_ins = True
-                    by = by or p_ok["type"]
+                    by = by or (p_ok["type"] + (f"/{p_ok['path']}" if p_ok.get("path") else ""))
             in_hit += ok_ins
             hit |= ok_ins
         found += hit
@@ -542,7 +585,7 @@ def score_session(sid: str, frames: list[dict], answers: dict[float, dict], icon
                                "stream_reason": ("no_row" if row is None else row.get("reason")),
                                "nearest": None if near is None else
                                {"px": round(near[0], 1), **props[t][near[1]]}})
-    unexplained = {"icon": 0, "ring": 0, "beam": 0}
+    unexplained = {t: 0 for t in TYPES}
     nothing_frames, nothing_unexplained = 0, 0
     for f in labelled:
         t = float(f["t_ms"])
@@ -571,7 +614,9 @@ def combine(parts: list[dict]) -> dict:
     k = sum(p["found"] for p in parts)
     mn, mh = sum(p["marks"] for p in parts), sum(p["marks_hit"] for p in parts)
     fr = sum(p["labelled"] for p in parts)
-    un = {t: sum(p["unexplained"][t] for p in parts) for t in ("icon", "ring", "beam")}
+    un = {t: sum(p["unexplained"][t] for p in parts) for t in TYPES}
+    gated = sum(p.get("gated") or 0 for p in parts)
+    surprise = sum(p.get("surprise") or 0 for p in parts)
     nf = sum(p["nothing_frames"] for p in parts)
     nu = sum(p["nothing_unexplained"] for p in parts)
     inn, inh = sum(p["instances"] for p in parts), sum(p["instances_hit"] for p in parts)
@@ -593,6 +638,8 @@ def combine(parts: list[dict]) -> dict:
             "unexplained_per_frame_all": (sum(un.values()) / fr) if fr else None,
             "nothing_frames": nf,
             "unexplained_per_nothing_frame": (nu / nf) if nf else None,
+            "gated": gated, "surprise": surprise,
+            "surprise_rate": (surprise / gated) if gated else None,
             "misses": sum(len(p["misses"]) for p in parts)}
 
 
@@ -790,6 +837,9 @@ def review_sheet(root: Path, out_dir: Path, per_page: int = 6) -> int:
                     if p["type"] in ("icon", "ring"):
                         cv2.circle(big, P(p["cx"], p["cy"]), max(2, int(round(p["r"] * z))), cyan,
                                    1, cv2.LINE_AA)
+                    elif p["type"] == "curve":
+                        for a, b in zip(p["points"], p["points"][1:]):
+                            cv2.line(big, P(*a), P(*b), cyan, 2, cv2.LINE_AA)
                     else:
                         cv2.line(big, P(p["x0"], p["y0"]), P(p["x1"], p["y1"]), cyan, 2,
                                  cv2.LINE_AA)
@@ -828,6 +878,8 @@ def main(argv=None) -> int:
     ap.add_argument("--block", type=int, default=1, help="with --groups, the block")
     ap.add_argument("--record", action="store_true", help="record each widget's numbers in "
                     "the metrics as ability_recall/block<N>@<sessions>")
+    ap.add_argument("--tag", help="with --record, append -TAG to the part, so a run of another "
+                    "pass version keeps its own series")
     ap.add_argument("--review", action="store_true",
                     help="draw --out's misses.jsonl on the raw crops (misses.png per session)")
     args = ap.parse_args(argv)
@@ -878,8 +930,13 @@ def main(argv=None) -> int:
                 print(f"{sid}: no ability_icon stream; run reticle scan {sid} --only ability "
                       f"--from cache; skipped")
                 continue
+            fit = store.read_events("ability_fit", sid)
+            wall = store.read_events("ability_wall", sid)
             part = score_session(sid, sel["frames"], answers, _by_t(icon), _by_t(shape),
-                                 scale=w / 465.0, all_shapes=args.all_shapes)
+                                 scale=w / 465.0, all_shapes=args.all_shapes,
+                                 fit_rows=_by_t(fit), wall_rows=_by_t(wall))
+            fh = next((r for r in fit if r.get("kind") == "coverage"), {})
+            part["gated"], part["surprise"] = fh.get("gated"), fh.get("surprise")
             part["block"] = blk
             parts.append(part)
             all_misses.extend(part["misses"])
@@ -905,6 +962,9 @@ def main(argv=None) -> int:
               + "  ".join(f"{t} {v:.2f}" for t, v in up.items() if v is not None)
               + (f"; per 'nothing' frame {s['unexplained_per_nothing_frame']:.2f}"
                  if s["unexplained_per_nothing_frame"] is not None else ""))
+        if s["surprise_rate"] is not None:
+            print(f"  surprise path on {s['surprise']}/{s['gated']} gated samples = "
+                  f"{s['surprise_rate']:.3f} (no ring or beam candidate accepted)")
         print(f"  misses {s['misses']} rows")
     if not summary:
         print("no labelled session to score")
@@ -936,16 +996,17 @@ def main(argv=None) -> int:
                     **{f"unexplained_{t}": r3(v) for t, v in s["unexplained_per_frame"].items()},
                     "unexplained_all": r3(s["unexplained_per_frame_all"]),
                     "unexplained_nothing": r3(s["unexplained_per_nothing_frame"]),
+                    "surprise_rate": r3(s["surprise_rate"]),
                     **{f"{k}_n": c["entities"] for k, c in s["by_kind"].items()},
                     **{f"{k}_found": c["found"] for k, c in s["by_kind"].items()}}
-            metrics.record("ability_recall", part="block" + "+".join(map(str, blocks)),
+            part = "block" + "+".join(map(str, blocks)) + (f"-{args.tag}" if args.tag else "")
+            metrics.record("ability_recall", part=part,
                            session="+".join(s["sessions"]), values=vals,
                            deps={"tool": TOOL, "tol_px": TOL_PX, "link_px": LINK_PX,
                                  "all_shapes": bool(args.all_shapes), "widget_px": int(w)},
                            context={"labels": str(lab), "out": str(out_dir)},
                            note="stage 4 recall of docs/ABILITY_DETECTION.md section 10")
-            print(f"recorded ability_recall/block{'+'.join(map(str, blocks))}@"
-                  f"{'+'.join(s['sessions'])}")
+            print(f"recorded ability_recall/{part}@{'+'.join(s['sessions'])}")
     return 0
 
 

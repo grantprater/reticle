@@ -823,6 +823,28 @@ def _live_phase_at(store, sid, date):
     return lambda t: gt.game_time_at(t).phase
 
 
+def _ability_supply(store, sid, date):
+    """The ability pass's candidate supply from storage, seeded from the
+    stored self track: (`ability_candidates.CandidateSupply`, None), or
+    (None, reason) where an input is missing."""
+    from . import ability_candidates, ability_shapes
+    import pyarrow.parquet as pq
+    seed_at = None
+    path = store.minimap_path(sid, date)
+    mm = pq.read_table(path) if path.is_file() else None
+    if mm is not None and mm.num_rows:
+        mt = np.asarray(mm.column("t_ms").to_pylist(), float)
+        sx, sy = mm.column("self_x").to_pylist(), mm.column("self_y").to_pylist()
+
+        def seed_at(t):
+            return ability_shapes.seed_from_track(mt, sx, sy, t)
+    return ability_candidates.for_session(sid, store, seed_at=seed_at)
+
+
+SHAPE_STREAMS = ("ability_gate", "ability_fit", "ability_wall", "ability_shape_scan",
+                 "ability_shape_audit")
+
+
 def _ability_stale(store, sid, streams=None) -> bool:
     """Whether any of `streams` (default every stream of the ability pass) is
     absent or behind its stamp."""
@@ -1078,10 +1100,10 @@ def cmd_scan(args) -> int:
         or store.events_version("minimap_dark", sid) != MINIMAP_DARK_VERSION)
     # The ability pass at 2 Hz over the same spans, every caster's drawings:
     # each stream by its own stamp (`ability_scan`).
-    # The shape reader writes `ability_gate` and `ability_shape_scan`; the
-    # icon reader writes `ability_icon`.
+    # The shape reader writes SHAPE_STREAMS; the icon reader writes
+    # `ability_icon`.
     want_shapes = 'ability' in channels and (
-        args.force or _ability_stale(store, sid, ("ability_gate", "ability_shape_scan")))
+        args.force or _ability_stale(store, sid, SHAPE_STREAMS))
     want_icons = 'ability' in channels and (
         args.force or _ability_stale(store, sid, ("ability_icon",)))
     want_ability = want_shapes or want_icons
@@ -1208,8 +1230,16 @@ def cmd_scan(args) -> int:
             floor = mp.floor if mp is not None else None
             sgray = mp.sgray if mp is not None else None
             if want_shapes:
+                from .ability_candidates import values_digest
                 from .ability_scan import shape_reader
-                bp = shape_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray)
+                # The candidate supply is built here from storage and passed
+                # as data: the reader imports no adjudicator.
+                supply, why = _ability_supply(store, sid, date)
+                if supply is None:
+                    print(f"ability candidates: none ({why}); every gated sample takes "
+                          f"the surprise path")
+                bp = shape_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray,
+                                  supply=supply, supply_reason=why, values=values_digest())
                 declare_set(bp, "minimap", profile, ctx.wh)
             if want_icons:
                 from .ability_icons import icon_reader
@@ -1414,10 +1444,24 @@ def cmd_scan(args) -> int:
             rows = bp.gate_events(sid, gkey)
             path = out.write_events("ability_gate", sid, rows)
             print(f"ability gate {rows[0]['frames']} samples {rows[0]['by_reason']} -> {path}")
+            rows = bp.fit_events(sid, gkey)
+            path = out.write_events("ability_fit", sid, rows)
+            print(f"ability fits {rows[0]['gated']} gated samples, found "
+                  f"{ {k: v['found'] for k, v in rows[0]['by_descriptor'].items()} }, "
+                  f"surprise rate {rows[0]['surprise_rate']} -> {path}")
+            rows = bp.wall_events(sid, gkey)
+            path = out.write_events("ability_wall", sid, rows)
+            print(f"ability walls {rows[0]['frames']} samples with a component "
+                  f"{rows[0]['by_descriptor']} -> {path}")
             rows = bp.shape_events(sid, gkey)
             path = out.write_events("ability_shape_scan", sid, rows)
-            print(f"ability shapes {rows[0]['frames']} gated samples, rings accepted on "
-                  f"{rows[0]['rings_accepted']}, beams on {rows[0]['beams_accepted']} -> {path}")
+            print(f"ability surprise {rows[0]['frames']} samples {rows[0]['by_reason']}, rings "
+                  f"accepted on {rows[0]['rings_accepted']}, beams on {rows[0]['beams_accepted']} "
+                  f"-> {path}")
+            rows = bp.audit_events(sid, gkey)
+            path = out.write_events("ability_shape_audit", sid, rows)
+            print(f"ability audit {rows[0]['frames']} samples (every {rows[0]['audit_every']}th "
+                  f"gated), candidate accepted on {rows[0]['candidate_accepted']} -> {path}")
         if R.ip is not None:
             rows = R.ip.events(sid, geometry.key_of(sid, store.root))
             path = out.write_events("ability_icon", sid, rows)

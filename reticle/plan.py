@@ -125,10 +125,31 @@ _HAND_CHECKED = ("death", "ult_cast", "tray_drop", "ability_shape", "scoreboard_
 def ability_streams() -> list[tuple[str, str, str]]:
     """(stream, stamp key, current stamp) of each stream the ability pass
     writes (`reticle scan <sid> --only ability`, `ability_scan`)."""
-    from .version import ABILITY_GATE_VERSION, ABILITY_ICON_VERSION, ABILITY_SHAPE_VERSION
+    from .version import (ABILITY_FIT_VERSION, ABILITY_GATE_VERSION, ABILITY_ICON_VERSION,
+                          ABILITY_SHAPE_VERSION, ABILITY_WALL_VERSION)
     return [("ability_gate", "ability_gate_version", ABILITY_GATE_VERSION),
+            ("ability_fit", "ability_fit_version", ABILITY_FIT_VERSION),
+            ("ability_wall", "ability_wall_version", ABILITY_WALL_VERSION),
             ("ability_shape_scan", "ability_shape_scan_version", ABILITY_SHAPE_VERSION),
+            ("ability_shape_audit", "ability_shape_audit_version", ABILITY_SHAPE_VERSION),
             ("ability_icon", "ability_icon_version", ABILITY_ICON_VERSION)]
+
+
+def _ability_inputs(stream: str) -> tuple[dict, tuple]:
+    """(fields, upstream) of one ability-pass stream: the gate's samples feed
+    every shape stream but the walls; the candidate streams also rest on the
+    candidate table, its facts' values and the stored deaths."""
+    from .ability_candidates import values_digest
+    from .version import ABILITY_CANDIDATES_VERSION, ABILITY_GATE_VERSION, ABILITY_SHAPE_VERSION
+    gate = {"ability_gate_version": ABILITY_GATE_VERSION}
+    cand = {"ability_shape_version": ABILITY_SHAPE_VERSION,
+            "ability_candidates_version": ABILITY_CANDIDATES_VERSION,
+            "appearance_values": values_digest()}
+    return {"ability_gate": ({}, ()), "ability_icon": ({}, ()),
+            "ability_shape_scan": (gate, ("ability_gate",)),
+            "ability_shape_audit": (gate, ("ability_gate",)),
+            "ability_fit": ({**gate, **cand}, ("ability_gate", "death")),
+            "ability_wall": (cand, ("death",))}[stream]
 
 
 def derived_streams() -> list[dict]:
@@ -220,15 +241,13 @@ def derived_streams() -> list[dict]:
          "upstream": ("minimap_object", "death", "rounds")},
     ]
     # The ability pass's streams reread the minimap crop cache, each under its
-    # own stamp; the shape scan reads the gate's samples, so it records the
-    # gate's stamp and follows it.
-    from .version import ABILITY_GATE_VERSION
+    # own stamp; a stream that reads the gate's samples records the gate's
+    # stamp and follows it (`_ability_inputs`).
     for stream, key, current in ability_streams():
+        fields, upstream = _ability_inputs(stream)
         rows.append({"stream": stream, "key": key, "current": current,
                      "command": "reticle scan {sid} --only ability", "how": "cache",
-                     "fields": ({"ability_gate_version": ABILITY_GATE_VERSION}
-                                if stream == "ability_shape_scan" else {}),
-                     "upstream": ("ability_gate",) if stream == "ability_shape_scan" else ()})
+                     "fields": fields, "upstream": upstream})
     for stream, parent, command, how in (
             ("death_identity", "death", "reticle deaths {sid}", "storage"),
             ("combat_report_identity", "combat_report_round", "reticle combat-report {sid}",
