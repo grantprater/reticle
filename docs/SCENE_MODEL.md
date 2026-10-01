@@ -1009,8 +1009,10 @@ sorter. `prototypes/line_classes.py` (line-classes-1.0.0) bakes a class per
 line pixel into each geometry npz: wall, box, ramp, other or unread, with its
 source. The player's answers override the sorter (Ascent and Lotus at
 465 px); the other ten keys carry the sorter's classes alone and are marked
-unvalidated. `reticle/occluders.py` 2.0.0 reads the classes. Walls and boxes
-stop light; ramp, heaven-edge and overhang-start lines do not. It also clears
+unvalidated. `reticle/occluders.py` 2.0.0 reads the classes. Walls stop light at
+every observer height and boxes by height class
+[domain:minimap/boxes-block-unless-raised]; ramp, heaven-edge and
+overhang-start lines never do. It also clears
 art-wall pixels beside a line that no longer occludes. On Ascent's 465 px
 key it opens
 [metric:geometry-lines/occluders-2.0.0@ascent__valorant-16x9-bigmap#opened=655]
@@ -1046,6 +1048,53 @@ back. The joint fit's loss to the teardrop is not an occluder gap. Haven's
 classes need the player's answers.
 
 The sheets are the store's `analysis/geometry-lines-20260930/occ_*.png`.
+
+### Stage 2, 0.6.1: the self role after the player's death
+
+After the player dies, the self icon shows a spectated teammate, and no
+self audio circle is drawn [domain:minimap/self-audio-circle]. 0.6.1 asks
+the tray gate's owners whether the player lives (`ability_timeline.kit_windows`
+over the stored killfeed deaths and kit changes, read per item through
+`adjudication.ability_state`'s context). Where the player is dead, the item is
+`spectating`: the audio circle is not sought, and the self role's boost
+eligibility comes from `tray_kit.spectated_agent`, or is `unknown`. The self
+role still casts light.
+
+The gate covers
+[metric:scene_stack_compare_v61/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#gated_n=57]
+of the 165 items. On them the teardrop flips
+[metric:scene_stack_compare_v61/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#gated_teardrop_flips=2],
+and the joint fit flips
+[metric:scene_stack_compare_v61/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#gated_061_flips=11]
+at 0.6.1, as at 0.6.0. The gate removed the audio circle from
+[metric:scene_stack_compare_v61/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#gated_audio_drawn_060=2]
+items and changed
+[metric:scene_stack_compare_v61/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#gated_joint_changed=0]
+joint readings. The pooled flips stay at
+[metric:scene_stack_compare_v61/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#061_flips=26].
+Refitted items outside the gate read exactly as at 0.6.0
+([metric:scene_stack_compare_v61/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#ungated_check_identical=15]
+of 15). Pass-without-boost surprises on gated items fall from
+[metric:scene_stack_compare_v61/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#gated_pass_without_boost_060=9]
+to
+[metric:scene_stack_compare_v61/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#gated_pass_without_boost_061=5].
+Five self jumps became `unknown`. At c40d950031bb 411.15 s the kit witness
+names the spectated Jett, so the ally set loses its only boost agent and one
+ally jump becomes a new surprise. Four of the six sessions have no stored
+`tray_kit` rows, so no spectated agent is named there.
+
+The joint fit therefore loses to the teardrop mostly after the player's
+death: 11 of its 26 flips fall on the gated items, against 2 of the
+teardrop's 13. Neither the audio circle nor boost eligibility causes this.
+Boost eligibility is a label written after the fit.
+
+At bfad2778a372 618.133 s, 0.6.1 reads
+[metric:scene_stack_compare_v61/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#bfad_618133_061_joint=15.0]
+degrees with a jump, as 0.6.0 does, against the teardrop's
+[metric:scene_stack_compare_v61/pooled@223d636bf8d2+5822b6646448+a06f04a0059f+bfad2778a372+c40d950031bb+e37fdeca944f+e78e75b2d191#bfad_618133_teardrop=-161.37].
+0.6.0 drew no audio circle there, so neither changed term drove the 15°.
+The player's account (Jett faced Ropes, then turned toward Deadlock) agrees
+with the teardrop.
 
 ## What this plan does not settle
 

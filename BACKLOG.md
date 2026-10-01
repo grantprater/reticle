@@ -22,6 +22,7 @@ In former order; each item's full text is in the [09-29 archive](docs/archive/BA
 
 - **Identity follow-ups** (2026-09-28): contested deaths waiting on an outside witness; three `223d636bf8d2` names; the Shooting Error box; the Iso spike carrier and self icon; `--from auto`; the `scoreboard_edges` fixture.
 - **Minimap follow-ups** (2026-09-29): `plan` tracks `team_vision`; `plan` staleness for never-read inputs (`c62c2b06bcfb`); re-measure the facing carry on the teardrop; rays crossing a wall the icon stands against, and cones ending inside the footprint; why teardrop cones with a high match score score lower; the portrait gate for enemy detection at 331 px; stacked icons; an enemy tint reader; the enemy spike "?" in the held tracker.
+- **Spectated self icon** (2026-09-30): `round_lifetimes` names the self family "you" after the player's death, when the icon is the spectated teammate; `scene_stack` 0.6.1 gates on `ability_state`'s context, `reticle/` does not.
 - **Killfeed attribution** (player, 2026-09-24): exemplar source mismatch; `agent-alive`; the branching banner reader; assist panels; `scoreboard_dim` names; plate revives.
 - **Ability identification on the demos** (2026-09-26): the Sova C refusals; census answers; the HUD the pipeline ignores (the ability timer bar dates casts for the audio references); the bank rebuild; the ult-ready scorer.
 - **Minimap identity, ally slice first** ([results](docs/ALLY_MINIMAP_IDENTITY.md)).
