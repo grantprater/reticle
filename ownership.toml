@@ -653,7 +653,7 @@ checked against the portrait fit and the drawn light, not against labels.
 `posed` is the one rule for combining a ring fit with a read; the enemy
 class has no consumer in `reticle/` yet.
 """
-consumers = ["team_vision", "minimap", "self_icon"]
+consumers = ["team_vision", "minimap", "self_icon", "minimap_objects"]
 evidence = "tests/test_teardrop.py, prototypes/icon_teardrop.py --centre-check, prototypes/icon_facing_eval.py, docs/STATISTICAL_ADJUDICATOR.md (E6)"
 
 [[entry]]
@@ -798,6 +798,65 @@ owners and stores what they answer.
 """
 defers_to = ["round-entity", "agent-identity"]
 evidence = "tests/test_round_entities.py"
+
+[[entry]]
+id = "enemy-icon"
+question = "Where are the enemy icons on one stored minimap frame, and which do the slab and the teardrop refuse?"
+owner = "minimap_objects"
+stored_consumers = ["enemy_tracks", "adjudication.death"]
+role = ["detect"]
+status = "partial"
+produces = ["read_frame", "read_times", "read_session", "session_context", "red_mask", "red_share", "minimap_object_version", "MINIMAP_OBJECT_BASE", "FIXES", "ENABLED"]
+not_for = """
+Fitting the icon or its facing (`icon-pose`: `teardrop.fit_icon`'s enemy
+class), drawing the X marks (`death-victim`: `minimap_x_marks`, read in the
+same pass), joining icons across frames (`enemy-track-session`) or naming
+them (`agent-identity`). It stores each enemy's portrait features for the
+arbiter and names nobody. Its two fixes, `teardrop_box` and `slab_gate`, are
+each switchable and part of the stamp.
+"""
+defers_to = ["icon-pose", "death-victim", "widget-drawn"]
+consumers = ["cli"]
+evidence = "tests/test_minimap_objects.py, prototypes/enemy_lane_bounds.py, prototypes/enemy_lane_score.py"
+
+[[entry]]
+id = "last-known-mark"
+question = "Which red marks on the minimap are an enemy's last-known '?', and which icon did each replace?"
+owner = "minimap_objects"
+stored_consumers = ["enemy_tracks", "entity_events"]
+role = ["detect"]
+status = "partial"
+produces = ["last_known", "Q_GONE_MS", "Q_SWAP_MS", "PLACE_PX", "GAP_FRAMES"]
+not_for = """
+Binding the mark to a track (`enemy-track-session`) or naming the enemy
+(`agent-identity`). The "?" is a red blob the X shape test rejects and no
+enemy icon covers, whose run begins where an enemy icon ended
+[domain:minimap/last-known-mark]; it is read from the stream's own earlier
+frames and decodes nothing.
+"""
+defers_to = ["enemy-icon", "death-victim"]
+consumers = ["cli"]
+evidence = "tests/test_minimap_objects.py, prototypes/minimap_objects_s2.py"
+
+[[entry]]
+id = "enemy-track-session"
+question = "Which enemy tracks did a session's rounds hold, how did each end, and which '?' marks its last place?"
+owner = "enemy_tracks"
+stored_consumers = ["entity_events"]
+role = ["lifecycle"]
+status = "partial"
+names_agents = true
+produces = ["build", "session_tracks", "track_claims", "ENEMY_TRACK_VERSION", "BIND_PX"]
+not_for = """
+Deciding continuity or names locally. `round_lifetimes` decides which enemy
+icons are one entity and `adjudication.identity` names each track from its
+icons' claims, re-keyed to the track with `depends_on` the lineup's enemy
+slots. The death owner places each death; this only binds a track's end to
+it, and unbinds it where the death's X or name disagrees.
+"""
+defers_to = ["round-entity", "agent-identity", "death-victim", "last-known-mark", "enemy-icon"]
+consumers = ["cli", "plan"]
+evidence = "tests/test_enemy_tracks.py"
 
 [[entry]]
 id = "entity-event"
@@ -1327,7 +1386,7 @@ owner = "adjudication.death"
 stored_consumers = ["entity_events"]
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "stored_second_life", "split_second_lives", "death_key", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry"]
+produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "stored_second_life", "split_second_lives", "death_key", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry", "x_shape", "minimap_x_marks", "xmark_births", "match_xmark", "stored_xmark_births"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """

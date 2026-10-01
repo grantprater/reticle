@@ -104,7 +104,9 @@ Module names above are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle capabilities
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID
 .\.venv\Scripts\python.exe -m reticle fidelity-check          # opens media
-.\.venv\Scripts\python.exe -m reticle project SESSION --lane round_entity --lane death --lane spike  # stored data only
+.\.venv\Scripts\python.exe -m reticle minimap-objects SESSION  # crop cache only; --no-teardrop-box / --no-slab-gate
+.\.venv\Scripts\python.exe -m reticle enemy-tracks SESSION     # stored data only
+.\.venv\Scripts\python.exe -m reticle project SESSION --lane round_entity --lane death --lane spike --lane enemy  # stored data only
 .\.venv\Scripts\python.exe -m reticle view SESSION --round N|--gaps  # stored events and lanes
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
 .\.venv\Scripts\python.exe tools\wipe_scout.py SESSION   # stored data only
