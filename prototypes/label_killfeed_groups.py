@@ -249,7 +249,7 @@ def label(product: Path, min_size: int = 1) -> int:
         sess = ", ".join(f"{s} x{n}" for s, n in g["sessions"].items())
         status.config(text=f"  {state['k'] + 1}/{len(order)}  {g['group']}: {g['size']} rows, "
                            f"{g['entries']} entries ({sess})   N name  O other  X not an icon  "
-                           f"U unsure  F flash  A back  Q quit  (X O U also work in an empty name box)")
+                           f"U unsure  F flash  A back  Q quit  (in the name box: Ctrl+X Ctrl+O Ctrl+U)")
         flash.config(text="")
         hint.config(text="")
         text.set("")
@@ -356,12 +356,10 @@ def label(product: Path, min_size: int = 1) -> int:
         # The letter keys act only outside the name box.
         return lambda e: None if root.focus_get() is entry else fn(e)
 
-    def empty_box(fn):
-        # X, O and U also act in the name box while it is empty; once a
-        # name is typed they are letters again.
+    def in_box(fn):
+        # Ctrl+X, Ctrl+O and Ctrl+U act inside the name box, where the plain
+        # letters must stay letters (Odin, Outlaw, Operator).
         def go(e):
-            if text.get():
-                return None
             fn(e)
             return "break"
         return go
@@ -383,7 +381,7 @@ def label(product: Path, min_size: int = 1) -> int:
         for k in (key, key.upper()):
             root.bind(k, hot(fn))
             if key in "oxu":
-                entry.bind(k, empty_box(fn))
+                entry.bind(f"<Control-{k}>", in_box(fn))
     root.bind("<Escape>", hot(finish))
     root.protocol("WM_DELETE_WINDOW", finish)
     show()
