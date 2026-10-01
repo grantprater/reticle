@@ -7,9 +7,10 @@ which enemy icons are one entity, round by round, over the `minimap_object`
 stream's enemies; nothing here decodes video or reads pixels.
 
 **Endings.** Each round finishes with the stored enemy death verdicts
-(`death`, side enemy, revives excluded). `RoundLifetimes.finish` binds them
-greedily, largest track first, to the nearest unclaimed death in time; the
-`admit` predicate passed to it refuses a death whose X places it farther than
+(`death`, side enemy, revives excluded). `RoundLifetimes.finish` binds each
+to the admitted track `round_lifetimes.death_rank` puts first: the track the
+arbiter named as the victim, then the nearest last sighting, then the nearest
+position to the X. The `admit` predicate passed to it refuses a death whose X places it farther than
 `round_lifetimes.BIND_PX` * scale from the track's last position, or whose
 victim is not the arbiter's resolved name for the track: the X and the name
 are two witnesses the binding must agree with. The rule is
@@ -52,7 +53,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes, death_refusal
+from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank, death_refusal
 
 ENEMY_TRACK_VERSION = "enemy-track-0.2.0"
 
@@ -231,10 +232,16 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
         return death_refusal(d, agent=v["agent"] if v else None,
                              last_xy=last_pos.get(eid), scale=scale)
 
+    def rank(ent: dict, d: dict) -> tuple:
+        """`death_rank` with the arbiter's stored name for the track."""
+        v = verdicts.get(ent["id"])
+        return death_rank(d, agent=v["agent"] if v else None,
+                          last_seen_ms=ent["last_seen_ms"], last_xy=last_pos.get(ent["id"]))
+
     rows = []
     unbound = Counter()
     for rec in records:
-        finished = rec["life"].finish(rec["z"], deaths=rec["deaths"], admit=admit)
+        finished = rec["life"].finish(rec["z"], deaths=rec["deaths"], admit=admit, rank=rank)
         marks = _marks(sid, rec["round_no"], rec["frames"], obs_entity, seen)
         mark_of = {m["entity_id"]: m["mark_id"] for m in marks if m["entity_id"]}
         for ent in finished:

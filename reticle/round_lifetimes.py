@@ -14,7 +14,13 @@ import math
 from .track import CLASSES, admits, association_tolerance, assign, refit_of
 from .minimap import REF_WIDGET_W
 
-ROUND_LIFETIME_VERSION = "round-lifetimes-0.9.0"
+# 0.10.0 (2026-10-01): `finish` binds each death in `death_rank` order -- the
+# entity named as the victim, then the nearest last sighting, then the nearest
+# position to the X -- not to the most observed entity first.
+# `seen_after_death` (2026-10-01) changes no output of this module: the ally
+# lane applies it and stamps round-entity-0.12.0, so the enemy lane, which
+# stamps this version too, is not restamped by a rule it does not use.
+ROUND_LIFETIME_VERSION = "round-lifetimes-0.10.0"
 MAX_ASSOCIATION_HISTORIES = 64
 
 #: Proximity thresholds for merged / occluded track states (widget px).
@@ -84,6 +90,76 @@ def death_refusal(death: dict, *, agent: str | None = None, last_xy=None,
     if agent and death.get("victim") and death["victim"] != agent:
         return "victim_is_another_agent"
     return None
+
+
+#: How long after its killfeed death a victim's icon may still be drawn: the
+#: icon goes at the death or very shortly after
+#: [domain:minimap/death-icon-becomes-mark]. Measured on stored rows as the
+#: last sighting of an ally piece the arbiter named as the victim minus the
+#: death's time, on deaths with one victim in the round, no revive entry and
+#: no second life: the longest was 667 ms
+#: [metric:dead_icon_linger/ally@5822b6646448+a06f04a0059f+e78e75b2d191#max_ms=666.7]
+#: over [metric:dead_icon_linger/ally@5822b6646448+a06f04a0059f+e78e75b2d191#n=131]
+#: deaths, none past 1 s; the lag is that longest linger rounded up to the
+#: killfeed's 500 ms sampling step
+#: [metric:dead_icon_linger/ally@5822b6646448+a06f04a0059f+e78e75b2d191#lag_ms=1000.0].
+#: The enemy lane does not apply it: a fit at the death's place is the icon or
+#: its X, one thing for reading, so an enemy track legitimately runs on into
+#: the X (a06f04a0059f 791.0 s: a stationary fit at the X 2.9 s on).
+DEAD_ICON_LAG_MS = 1000.0
+
+#: Agents whose icon outlives a killfeed death the death owner did not flag as
+#: a second life: a downed KAY/O stays drawn, red, until he is revived or dies
+#: [domain:minimap/red-portrait-states], and Phoenix returns from Run It Back
+#: [domain:rounds/resurrection-mechanics]. The down draws its own killfeed
+#: entry, marked by an X inside a downward triangle, and a teammate's revive
+#: draws the icon again [domain:killfeed/kayo-downed-entry]; the death owner
+#: reads neither icon (its badge reader fits a ring, on the player's entries
+#: only), so it stores the down as a death, and the revive as a death unless
+#: the one-colour plates call it one (`adjudication.death.plate_revive`). An unread second-life badge stays a death
+#: (`adjudication.death.second_life_death`), so the name is the only witness
+#: left.
+ICON_OUTLIVES_DEATH = ("KAY/O", "Phoenix")
+
+
+def seen_after_death(death: dict, *, last_seen_ms: float, deaths=(),
+                     lag_ms: float = DEAD_ICON_LAG_MS) -> str | None:
+    """"seen_after_death" when an entity last seen at `last_seen_ms` was
+    seen more than `lag_ms` after `death` and so is not its victim, or None.
+
+    Nearest-sighting ranking alone is symmetric: a Fade piece seen 1.25 s
+    after an unnamed death took it from the Chamber seen 2.2 s before, and
+    Fade's own death went unbound (bfad2778a372 1881.5 s). Exempt only what a
+    stored fact explains: a revive entry in `deaths` naming the victim between
+    the death and the sighting (Resurrection, Not Dead Yet), and a victim in
+    `ICON_OUTLIVES_DEATH`. A death with no time is not checked."""
+    t = death.get("t_ms")
+    if t is None or last_seen_ms - t <= lag_ms:
+        return None
+    victim = death.get("victim")
+    if victim in ICON_OUTLIVES_DEATH:
+        return None
+    if victim and any(r.get("is_revive") and r.get("victim") == victim
+                      and r.get("t_ms") is not None and t < r["t_ms"] <= last_seen_ms
+                      for r in deaths):
+        return None
+    return "seen_after_death"
+
+
+def death_rank(death: dict, *, last_seen_ms: float, agent: str | None = None,
+               last_xy=None) -> tuple:
+    """The order in which `finish` binds `death` among the entities
+    `death_refusal` admits, smallest first: an entity the arbiter named as
+    the victim, then the nearest last sighting to the death, then the nearest
+    last position to its X. Without it the entity with the most
+    observations bound first, and an unnamed piece last seen 2.3 s after
+    Omen's death took it from the Omen piece seen 0.1 s before
+    (5822b6646448 417.0 s)."""
+    named = bool(agent) and death.get("victim") == agent
+    loc = death.get("location")
+    far = (math.hypot(loc[0] - last_xy[0], loc[1] - last_xy[1])
+           if loc and last_xy else math.inf)
+    return (not named, abs(death.get("t_ms", 0.0) - last_seen_ms), far)
 
 
 def _intersect(a, b):
@@ -586,7 +662,7 @@ class RoundLifetimes:
         return {i for _, _, i in ranked[:capacity]}
 
     def finish(self, end_ms, *, deaths=None, roster_drops=None, admit=None,
-               admit_drop=None):
+               admit_drop=None, rank=None):
         """Right-censored or verified termination per entity lifetime.
 
         Categorises entity endings into three physical regimes:
@@ -597,12 +673,16 @@ class RoundLifetimes:
             mid-round tracking loss not corroborated by any death witness.
 
         `admit(entity, death) -> bool`, when given, refuses a death as a
-        candidate for an entity before the nearest one is taken, so a death
-        another witness rules out stays free for the next entity. This module
-        stays blind to names: the caller's predicate asks whatever owner it
-        needs; `death_refusal` is the shared rule. The default admits every
-        death. `admit_drop(entity, t_drop) -> bool` likewise refuses an
-        entity a roster drop; the default admits every drop.
+        candidate for an entity, so a death another witness rules out stays
+        free for the next entity. `rank(entity, death)` orders the admitted
+        pairs, and each death binds to the first entity it ranks with:
+        `death_rank`, which the caller gives the arbiter's name for the
+        entity; the default ranks by time and the X alone. This module stays
+        blind to names: the caller's predicates ask whatever owner they need;
+        `death_refusal` and `death_rank` are the shared rules. The default
+        admits every death. `admit_drop(entity, t_drop) -> bool` likewise
+        refuses an entity a roster drop; the default admits every drop. A drop
+        goes to the entities no death ended, the most observed first.
         """
         if deaths is None and roster_drops is None:
             return [{**{k: v for k, v in e.items() if k != "last_observation"},
@@ -614,71 +694,73 @@ class RoundLifetimes:
         claimed_deaths = set()
         claimed_drops = set()
         ent_endings = {}
+        if rank is None:
+            def rank(ent, d):
+                lo = ent.get("last_observation")
+                return death_rank(d, last_seen_ms=ent["last_seen_ms"],
+                                  last_xy=(lo["x"], lo["y"]) if lo else None)
+
+        # Every admitted (entity, death) pair inside the entity's window --
+        # 2.0 s for one active near the round's close, 2.5 s for one lost
+        # mid-round -- binds in `rank` order, each entity and death once.
+        pairs = []
+        for order, ent in enumerate(sorted_entities):
+            last_t = ent["last_seen_ms"]
+            window = 2000.0 if end_ms - last_t <= 2000.0 else 2500.0
+            for di, d in enumerate(deaths or ()):
+                if (abs(d.get("t_ms", 0.0) - last_t) <= window
+                        and (admit is None or admit(ent, d))):
+                    pairs.append((rank(ent, d), order, di, ent, d))
+        bound = {}
+        for *_, ent, d in sorted(pairs, key=lambda p: p[:3]):
+            if ent["id"] in bound or d.get("death_id") in claimed_deaths:
+                continue
+            claimed_deaths.add(d.get("death_id"))
+            bound[ent["id"]] = d
 
         for ent in sorted_entities:
             last_t = ent["last_seen_ms"]
-            # Case 1: Active near round end (within 2.0 s of round close)
-            if end_ms - last_t <= 2000.0:
-                death_candidates = [d for d in (deaths or [])
-                                    if d.get("death_id") not in claimed_deaths
-                                    and abs(d.get("t_ms", 0.0) - last_t) <= 2000.0
-                                    and (admit is None or admit(ent, d))]
-                if death_candidates:
-                    best_d = min(death_candidates, key=lambda d: abs(d.get("t_ms", 0.0) - last_t))
-                    claimed_deaths.add(best_d.get("death_id"))
+            best_d = bound.get(ent["id"])
+            if best_d is not None:
+                ent_endings[ent["id"]] = {
+                    "end_ms": best_d.get("t_ms"),
+                    "right_censored_at_ms": None,
+                    "end_reason": "death",
+                    "death_id": best_d.get("death_id"),
+                    "death_evidence": "killfeed_verdict"
+                }
+            elif end_ms - last_t <= 2000.0:
+                # Case 1: Active near round end (within 2.0 s of round close)
+                ent_endings[ent["id"]] = {
+                    "end_ms": None,
+                    "right_censored_at_ms": end_ms,
+                    "end_reason": "round_end",
+                    "death_id": None,
+                    "death_evidence": None
+                }
+            else:
+                # Case 2: Ceased being observed mid-round, and no death bound
+                drop_candidates = [t for t in (roster_drops or [])
+                                   if t not in claimed_drops and abs(t - last_t) <= 2500.0
+                                   and (admit_drop is None or admit_drop(ent, t))]
+                if drop_candidates:
+                    best_drop = min(drop_candidates, key=lambda t: abs(t - last_t))
+                    claimed_drops.add(best_drop)
                     ent_endings[ent["id"]] = {
-                        "end_ms": best_d.get("t_ms"),
+                        "end_ms": best_drop,
                         "right_censored_at_ms": None,
                         "end_reason": "death",
-                        "death_id": best_d.get("death_id"),
-                        "death_evidence": "killfeed_verdict"
+                        "death_id": None,
+                        "death_evidence": f"roster:alive_ally_drop:{best_drop}"
                     }
                 else:
                     ent_endings[ent["id"]] = {
                         "end_ms": None,
-                        "right_censored_at_ms": end_ms,
-                        "end_reason": "round_end",
+                        "right_censored_at_ms": last_t,
+                        "end_reason": "last observation does not establish destruction/death",
                         "death_id": None,
                         "death_evidence": None
                     }
-            else:
-                # Case 2: Ceased being observed mid-round
-                death_candidates = [d for d in (deaths or [])
-                                    if d.get("death_id") not in claimed_deaths
-                                    and abs(d.get("t_ms", 0.0) - last_t) <= 2500.0
-                                    and (admit is None or admit(ent, d))]
-                if death_candidates:
-                    best_d = min(death_candidates, key=lambda d: abs(d.get("t_ms", 0.0) - last_t))
-                    claimed_deaths.add(best_d.get("death_id"))
-                    ent_endings[ent["id"]] = {
-                        "end_ms": best_d.get("t_ms"),
-                        "right_censored_at_ms": None,
-                        "end_reason": "death",
-                        "death_id": best_d.get("death_id"),
-                        "death_evidence": "killfeed_verdict"
-                    }
-                else:
-                    drop_candidates = [t for t in (roster_drops or [])
-                                       if t not in claimed_drops and abs(t - last_t) <= 2500.0
-                                       and (admit_drop is None or admit_drop(ent, t))]
-                    if drop_candidates:
-                        best_drop = min(drop_candidates, key=lambda t: abs(t - last_t))
-                        claimed_drops.add(best_drop)
-                        ent_endings[ent["id"]] = {
-                            "end_ms": best_drop,
-                            "right_censored_at_ms": None,
-                            "end_reason": "death",
-                            "death_id": None,
-                            "death_evidence": f"roster:alive_ally_drop:{best_drop}"
-                        }
-                    else:
-                        ent_endings[ent["id"]] = {
-                            "end_ms": None,
-                            "right_censored_at_ms": last_t,
-                            "end_reason": "last observation does not establish destruction/death",
-                            "death_id": None,
-                            "death_evidence": None
-                        }
 
         out = []
         for e in self.entities.values():

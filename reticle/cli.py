@@ -840,6 +840,28 @@ def _live_phase_at(store, sid, date):
     return lambda t: gt.game_time_at(t).phase
 
 
+def _ability_supply(store, sid, date):
+    """The ability pass's candidate supply from storage, seeded from the
+    stored self track: (`ability_candidates.CandidateSupply`, None), or
+    (None, reason) where an input is missing."""
+    from . import ability_candidates, ability_shapes
+    import pyarrow.parquet as pq
+    seed_at = None
+    path = store.minimap_path(sid, date)
+    mm = pq.read_table(path) if path.is_file() else None
+    if mm is not None and mm.num_rows:
+        mt = np.asarray(mm.column("t_ms").to_pylist(), float)
+        sx, sy = mm.column("self_x").to_pylist(), mm.column("self_y").to_pylist()
+
+        def seed_at(t):
+            return ability_shapes.seed_from_track(mt, sx, sy, t)
+    return ability_candidates.for_session(sid, store, seed_at=seed_at)
+
+
+SHAPE_STREAMS = ("ability_gate", "ability_fit", "ability_wall", "ability_shape_scan",
+                 "ability_shape_audit")
+
+
 def _ability_stale(store, sid, streams=None) -> bool:
     """Whether any of `streams` (default every stream of the ability pass) is
     absent or behind its stamp."""
@@ -1095,10 +1117,10 @@ def cmd_scan(args) -> int:
         or store.events_version("minimap_dark", sid) != MINIMAP_DARK_VERSION)
     # The ability pass at 2 Hz over the same spans, every caster's drawings:
     # each stream by its own stamp (`ability_scan`).
-    # The shape reader writes `ability_gate` and `ability_shape_scan`; the
-    # icon reader writes `ability_icon`.
+    # The shape reader writes SHAPE_STREAMS; the icon reader writes
+    # `ability_icon`.
     want_shapes = 'ability' in channels and (
-        args.force or _ability_stale(store, sid, ("ability_gate", "ability_shape_scan")))
+        args.force or _ability_stale(store, sid, SHAPE_STREAMS))
     want_icons = 'ability' in channels and (
         args.force or _ability_stale(store, sid, ("ability_icon",)))
     want_ability = want_shapes or want_icons
@@ -1225,8 +1247,16 @@ def cmd_scan(args) -> int:
             floor = mp.floor if mp is not None else None
             sgray = mp.sgray if mp is not None else None
             if want_shapes:
+                from .ability_candidates import values_digest
                 from .ability_scan import shape_reader
-                bp = shape_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray)
+                # The candidate supply is built here from storage and passed
+                # as data: the reader imports no adjudicator.
+                supply, why = _ability_supply(store, sid, date)
+                if supply is None:
+                    print(f"ability candidates: none ({why}); every gated sample takes "
+                          f"the surprise path")
+                bp = shape_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray,
+                                  supply=supply, supply_reason=why, values=values_digest())
                 declare_set(bp, "minimap", profile, ctx.wh)
             if want_icons:
                 from .ability_icons import icon_reader
@@ -1433,11 +1463,25 @@ def cmd_scan(args) -> int:
             _record_inputs(store, sid, "ability_gate", rows[0])
             path = out.write_events("ability_gate", sid, rows)
             print(f"ability gate {rows[0]['frames']} samples {rows[0]['by_reason']} -> {path}")
+            rows = bp.fit_events(sid, gkey)
+            path = out.write_events("ability_fit", sid, rows)
+            print(f"ability fits {rows[0]['gated']} gated samples, found "
+                  f"{ {k: v['found'] for k, v in rows[0]['by_descriptor'].items()} }, "
+                  f"surprise rate {rows[0]['surprise_rate']} -> {path}")
+            rows = bp.wall_events(sid, gkey)
+            path = out.write_events("ability_wall", sid, rows)
+            print(f"ability walls {rows[0]['frames']} samples with a component "
+                  f"{rows[0]['by_descriptor']} -> {path}")
             rows = bp.shape_events(sid, gkey)
             _record_inputs(store, sid, "ability_shape_scan", rows[0])
             path = out.write_events("ability_shape_scan", sid, rows)
-            print(f"ability shapes {rows[0]['frames']} gated samples, rings accepted on "
-                  f"{rows[0]['rings_accepted']}, beams on {rows[0]['beams_accepted']} -> {path}")
+            print(f"ability surprise {rows[0]['frames']} samples {rows[0]['by_reason']}, rings "
+                  f"accepted on {rows[0]['rings_accepted']}, beams on {rows[0]['beams_accepted']} "
+                  f"-> {path}")
+            rows = bp.audit_events(sid, gkey)
+            path = out.write_events("ability_shape_audit", sid, rows)
+            print(f"ability audit {rows[0]['frames']} samples (every {rows[0]['audit_every']}th "
+                  f"gated), candidate accepted on {rows[0]['candidate_accepted']} -> {path}")
         if R.ip is not None:
             rows = R.ip.events(sid, geometry.key_of(sid, store.root))
             _record_inputs(store, sid, "ability_icon", rows[0])
@@ -4291,7 +4335,7 @@ def _ability_state_values(store, done) -> dict:
 def cmd_ability_shapes(args) -> int:
     """The drawn minimap shape after each of the player's casts of an ability
     with a known form, from stored crops (`ability_shapes`). Decodes no video."""
-    from . import ability_shapes
+    from . import ability_candidates, ability_shapes
     from .ability_timeline import player_tray_casts, stored_gate_inputs
     from .lineup import abilities_for, load_lineup
     from .adjudication.identity import player_identity
@@ -4325,13 +4369,17 @@ def cmd_ability_shapes(args) -> int:
                      second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                      report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
                      kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
-                 if d["player_cast"] and kit.get(d["slot"]) in ability_shapes.SHAPES]
+                 if d["player_cast"] and kit.get(d["slot"]) in ability_candidates.TABLE]
         cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
         if cache is None:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
             continue
         x0, y0, x1, y1 = cache.rect_of("minimap")
-        support = geometry.footprint(sid, store.root, dilate=ability_shapes.SUPPORT_DILATE,
+        ms = geometry.map_scale_of(sid, store.root)
+        if ms is None:
+            print(f"{sid}: no baked map scale for this key -- skipped")
+            continue
+        support = geometry.footprint(sid, store.root, dilate=ability_shapes.support_dilate(ms),
                                      shape=(y1 - y0, x1 - x0))
         if support is None:
             print(f"{sid}: no art footprint for this map -- no beam is checked against the map")
@@ -4346,16 +4394,21 @@ def cmd_ability_shapes(args) -> int:
         common = {"session_id": sid, "agent": agent, "tray_version": TRAY_VERSION,
                   "player_cast_version": PLAYER_CAST_VERSION,
                   "seed_source": "stored self position", "minimap_version": mm_version,
-                  "seed_tol_ms": ability_shapes.SEED_TOL_MS}
+                  "seed_tol_ms": ability_shapes.SEED_TOL_MS,
+                  "ability_candidates_version": ability_candidates.ABILITY_CANDIDATES_VERSION,
+                  "appearance_values": ability_candidates.values_digest()}
         rows, found = [], Counter()
         for c in casts:
             ability = kit[c["slot"]]
+            # The player's own cast is drawn on the ally side; the descriptor
+            # carries its sizes and colour, or refuses with the reason.
+            desc = ability_candidates.ability_descriptor(ability, "ally", ms)
             times = _cache_grid(cache.t_ms, c["t_ms"], c["t_ms"] + args.window * 1000.0, args.step)
             got = {float(smp.t_ms): smp.frame[y0:y1, x0:x1]
                    for smp in cache.samples(times, rois=["minimap"])}
             for t in times:
                 seed = seed_at(t)
-                row = ability_shapes.fit_shape(got.get(t), ability, seed, support)
+                row = ability_shapes.fit_shape(got.get(t), desc, seed, support, ms)
                 rows.append({**common, "kind": "shape", "cast_t_ms": c["t_ms"],
                              "slot": c["slot"], "t_ms": t, "seed": seed, **row})
                 found[(ability, row["found"])] += 1

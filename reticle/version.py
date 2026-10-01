@@ -355,16 +355,43 @@ ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
 # round each; the beam is swept over every angle at once; a ring's centre
 # must lie on the map's footprint. Promoted from prototypes/ability_shape_fast.py
 # (docs/ABILITY_DETECTION.md, stage 1).
-ABILITY_SHAPE_VERSION = "ability-shape-0.2.0"
+# 0.3.0 (2026-09-30): every pixel length is a base value times one transform,
+# widget scale x map zoom from baked geometry (`geometry.map_scale`). The
+# widened ring range now reaches the 465 px keys' rings; rows carry `map_scale`.
+# 0.4.0 (2026-09-30): the finders take a candidate's descriptor (shape, drawn
+# sizes, colour model, prior) from `ability_candidates`; the shared teal and
+# the whole radius range are the surprise path's. New finders: four segments
+# on a line (`fit_segments`) and a smooth curve (`fit_curve`).
+ABILITY_SHAPE_VERSION = "ability-shape-0.4.0"
+# The candidate set of `ability_candidates`: the appearance table, the lineup
+# and death inputs it reads, the exclusion rules. Bump when the table, an
+# input or a rule changes; a remeasured fact changes `values_digest` instead.
+# 0.2.0 (2026-10-01): Lockdown joins the table (the enemy ring only); an
+# unread lineup slot, refused or blind, opens every agent its side has not
+# named (`open_slot`), where 0.1.0 took a refused slot's best guess alone.
+ABILITY_CANDIDATES_VERSION = "ability-candidates-0.2.0"
+# The candidate fits of the ability pass: `ability_fit` (rings, beams) and
+# `ability_wall` (segments, curves) rows, one per candidate per gated sample,
+# and the `ability_shape_audit` cadence. Bump when the pass's use of the
+# candidates, the surprise rule or the audit cadence changes.
+# 0.2.0 (2026-10-01): a ring or beam candidate whose hue band misses the
+# teal gate's opens its own gate (its colour forms a component as wide as
+# the teal gate asks), so a yellow ring is fit where the teal gate stays
+# shut; only teal-gated candidates spare a sample the surprise path.
+ABILITY_FIT_VERSION = "ability-fit-0.2.0"
+ABILITY_WALL_VERSION = "ability-wall-0.1.0"
 # The teal-component opportunity gate of the ability pass (`ability_scan`,
 # `ability_gate` rows): which 2 Hz live samples the shape fits read. Bump when
 # its thresholds, its grid or its stored fields change.
-ABILITY_GATE_VERSION = "ability-gate-0.1.0"
+# 0.2.0 (2026-09-30): the component extent is a base value under the transform.
+ABILITY_GATE_VERSION = "ability-gate-0.2.0"
 # The dark-icon proposer and its pointwise verify (`ability_icons`,
 # `ability_icon` rows), ported from `prototypes/ability_shape_fast.py` with the
 # baked slab, radii at 1 px. Bump when a threshold, the radius step, the slab
 # or a stored field changes.
-ABILITY_ICON_VERSION = "icon-proposer-0.2.0"
+# 0.3.0 (2026-09-30): radii, rim, reach and verify window are base values under
+# the transform (`geometry.map_scale`), no longer shares of the crop's width.
+ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
 # The ability tray's charge drops, written as `tray_drop` rows by `reticle
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own
