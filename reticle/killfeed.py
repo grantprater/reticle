@@ -1142,6 +1142,11 @@ class EntryView:
     # `BAND_REFUSALS`, or a band-level reason when the band never reached
     # `_band_text` at all. Empty when nothing refused.
     reason: str = ""
+    # The whole weapon-slot icon's column bounds (`icon_extent`): wx0..wx1 is
+    # one piece, the divider; this spans every piece of the icon. Only the
+    # `killfeed_weapon` descriptor reads it. Zero when there is no icon.
+    ix0: int = 0
+    ix1: int = 0
 
 
 def victim_is_ally(green, red, a: int, z: int, wx1: int, wx0: int | None = None) -> bool | None:
@@ -1361,12 +1366,15 @@ def analyse_killfeed(
         else:
             # Only one side can be the player, so a tie is a parse failure.
             verdict = "tie"
+        ix0, ix1 = icon_extent(white[a:z] > 0, icon_white_mask(crop[a:z]) & mask[a:z], wx0, wx1,
+                               krun[1] + 1 if krun else 0, vrun[0] if vrun else w)
         views.append(EntryView(slot, int(a), int(z), int(wx0), int(wx1),
                                killer_run=krun, victim_run=vrun,
                                kill_score=k_score, death_score=d_score,
                                verdict=verdict,
                                victim_ally=victim_is_ally(green, red, a, z, wx1, wx0),
-                               killer_ally=killer_is_ally(green, red, a, z, wx0, wx1)))
+                               killer_ally=killer_is_ally(green, red, a, z, wx0, wx1),
+                               ix0=int(ix0), ix1=int(ix1)))
     return views
 
 
@@ -1830,7 +1838,9 @@ def detect_second_life_badge(
 # 0.2.0 (2026-09-25): the weapon-slot box finds ringed ult icons and the
 # Blade Storm knife [domain:killfeed/jett-blade-storm-icon] (`_band_text`).
 # 0.3.0 (2026-09-28): more bands read (`_join_split_runs`); see the portrait stamp.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.3.0"
+# 0.4.0 (2026-10-01): the descriptor is cut from the whole icon (`icon_extent`,
+# ix0..ix1) rather than the divider piece alone; wx0..wx1 are unchanged.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.4.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -1876,12 +1886,67 @@ def icon_grid(white_mask: np.ndarray) -> tuple[np.ndarray, float] | None:
     return grid, tight.shape[1] / tight.shape[0]
 
 
+#: Columns of background that may separate two pieces of one weapon-slot icon.
+#: Measured on 2191 parsed entries over 19 sessions (icon cut, pieces sharing a
+#: row with the divider piece): every piece of a weapon or ability icon that
+#: lies outside the divider piece overlaps it in x (a ringed ult's two arcs
+#: round the inner symbol; 31 entries), so the largest within-icon gap seen is
+#: 0; the nearest foreign piece is 6 px away (a ring's left arc to the
+#: killer's name) and the headshot icon at least 9 px
+#: [domain:killfeed/headshot-icon]. 3 is the midpoint of 0 and 6.
+ICON_PIECE_GAP = 3
+
+
+def icon_extent(white_band: np.ndarray, icon_band: np.ndarray, wx0: int, wx1: int,
+                lo: int, hi: int) -> tuple[int, int]:
+    """The whole weapon-slot icon's columns, grown from the divider piece.
+
+    `_band_text` divides the names at ONE connected component, so wx0..wx1 is
+    the largest piece of an icon drawn in several: a ringed ult's inner symbol
+    without the ring arcs, or a dimmed icon broken by a fade. The descriptor
+    needs the whole icon, the divider does not, so this is a separate box.
+
+    The rule is structural. Start from the divider piece (the `white_band`
+    component whose columns are wx0..wx1) and add every piece of the icon cut
+    (`icon_band`, `icon_white_mask`) that shares a row with the divider piece,
+    lies wholly within lo..hi (after the killer's name run, before the
+    victim's), and comes within ICON_PIECE_GAP columns of the box grown so far.
+    Sharing a row excludes the next entry's plate bleeding along the band's
+    edge; the gap excludes the headshot icon and the second-life / KAY/O-down
+    icon beside the victim's name, the names, the portraits and the killstreak
+    numeral, all of which sit further away. The plate-seam fallback (no icon,
+    wx0 == wx1) returns the seam unchanged.
+    """
+    if wx1 <= wx0:
+        return wx0, wx1
+    n, _lab, st, _ = cv2.connectedComponentsWithStats(white_band.astype(np.uint8), 8)
+    rows = [(int(st[i, 1]), int(st[i, 1] + st[i, 3])) for i in range(1, n)
+            if st[i, 0] == wx0 and st[i, 0] + st[i, 2] == wx1]
+    if not rows:
+        return wx0, wx1
+    r0, r1 = min(r[0] for r in rows), max(r[1] for r in rows)
+    n, _lab, st, _ = cv2.connectedComponentsWithStats(icon_band.astype(np.uint8), 8)
+    pieces = [(int(st[i, 0]), int(st[i, 0] + st[i, 2])) for i in range(1, n)
+              if st[i, 4] >= MIN_COMP_AREA and st[i, 0] >= lo and st[i, 0] + st[i, 2] <= hi
+              and min(int(st[i, 1] + st[i, 3]), r1) > max(int(st[i, 1]), r0)]
+    g0, g1 = wx0, wx1
+    grew = True
+    while grew:
+        grew = False
+        for p0, p1 in pieces:
+            if p0 <= g1 + ICON_PIECE_GAP and p1 >= g0 - ICON_PIECE_GAP and (p0 < g0 or p1 > g1):
+                g0, g1, grew = min(g0, p0), max(g1, p1), True
+    return g0, g1
+
+
 def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                              views: "list[EntryView]") -> list[dict]:
     """Each entry's weapon-slot descriptor: the packed grid and aspect, never a name.
 
     Naming the icon is `adjudication.weapon`'s; a consumer binds these rows to an
     entry by slot, time and divider column and asks the owner from storage.
+    The descriptor is cut from the whole icon's box, ix0..ix1 (`icon_extent`);
+    wx0..wx1 stays the divider piece, the column and width consumers bind by.
     """
     x0, y0, _, _ = roi.pixels(width, height)
     out = []
@@ -1890,8 +1955,15 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
             continue
         crop = frame[y0 + v.y0:y0 + v.y1, x0 + v.wx0:x0 + v.wx1]
         cut = icon_grid(icon_white_mask(crop))
+        # A divider piece too small to be an icon stays refused: its
+        # neighbours are a portrait edge or a name, never the missing icon
+        # (a06f04a0059f 1969.0 s, a portrait's edge, gained a grid otherwise).
+        ix0, ix1 = (v.ix0, v.ix1) if cut is not None and v.ix1 > v.ix0 else (v.wx0, v.wx1)
+        if (ix0, ix1) != (v.wx0, v.wx1):
+            crop = frame[y0 + v.y0:y0 + v.y1, x0 + ix0:x0 + ix1]
+            cut = icon_grid(icon_white_mask(crop))
         row = {"slot": v.slot, "y0": int(v.y0), "y1": int(v.y1), "wx0": int(v.wx0),
-               "wx1": int(v.wx1), "verdict": v.verdict}
+               "wx1": int(v.wx1), "ix0": int(ix0), "ix1": int(ix1), "verdict": v.verdict}
         if cut is None:
             out.append({**row, "grid": None, "aspect": None, "reason": "no_icon"})
         else:

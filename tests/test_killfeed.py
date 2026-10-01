@@ -192,6 +192,37 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class IconExtentTests(unittest.TestCase):
+    """`icon_extent` grows the divider piece to the whole weapon-slot icon."""
+
+    def _band(self):
+        white = np.zeros((20, 200), dtype=bool)
+        white[5:15, 80:100] = True            # the divider piece: wx0..wx1 = 80..100
+        return white, white.copy()
+
+    def test_a_multi_piece_icon_spans_every_piece(self):
+        white, icon = self._band()
+        icon[3:17, 75:78] = True              # a ring arc 2 px left of the divider piece
+        icon[3:17, 102:106] = True            # and one 2 px right
+        self.assertEqual(killfeed.icon_extent(white, icon, 80, 100, 20, 170), (75, 106))
+
+    def test_the_headshot_icon_stays_out(self):
+        white, icon = self._band()
+        icon[4:16, 109:111] = True            # a headshot cluster 9 px right of the icon
+        icon[9:11, 109:119] = True
+        self.assertEqual(killfeed.icon_extent(white, icon, 80, 100, 20, 170), (80, 100))
+
+    def test_plate_bleed_and_names_stay_out(self):
+        white, icon = self._band()
+        icon[17:20, 60:120] = True            # bleed along the band's edge shares no row
+        icon[5:15, 30:50] = True              # a name piece before the killer's run ends
+        self.assertEqual(killfeed.icon_extent(white, icon, 80, 100, 55, 170), (80, 100))
+
+    def test_the_plate_seam_fallback_is_unchanged(self):
+        white, icon = self._band()
+        self.assertEqual(killfeed.icon_extent(white, icon, 90, 90, 20, 170), (90, 90))
+
+
 class VictimSideTests(unittest.TestCase):
     """The killer's colour behind the weapon icon decides the victim's side;
     a warm victim portrait past a green plate once read the victim as enemy."""

@@ -554,3 +554,33 @@ white over any flat background; the plate colour is never an icon feature
 """
 phrases = ["killfeed icon is only the white", "icon background colour"]
 see = ["killfeed/ability-kill-icon"]
+
+[headshot-icon]
+claim = """
+A killfeed entry can carry a crosshair mark between the weapon-slot icon and
+the victim's name: four inward chevrons and four short bars round a point,
+23-24 px wide on the 34 px entry band, its right edge 18-20 px before the
+victim's name. It keeps its place before the victim's name, so its gap from
+the weapon-slot icon depends on the icon's width: 9-22 px (mostly 11-12 or
+19-20) after an icon wider than 30 px, 12-14 or 28-30 px after a narrower
+one. It draws in eight or more separate pieces, 1-4 px apart.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-10-01"
+source = """
+1012 of 1990 parsed entries sampled from the stored `killfeed_weapon` rows of
+19 sessions with a hud crop cache, read from the crop cache: the first cluster
+right of the weapon-slot icon whose pieces lie at most 4 px apart and that has
+three or more column runs. Widths 23 (342) and 24 (661) px; gap to the
+victim's name 18-20 px in 973. Seen by eye at a06f04a0059f 411.5 s and
+2203.5 s and 59c70f1ef720 2080.0 s. That the mark means a headshot is
+`killfeed._band_text`'s reading (c40d950031bb 6:34, a Classic headshot), not a
+player statement
+"""
+use = """
+`killfeed.icon_extent` must not take it into the weapon-slot box: its nearest
+piece sits at least 9 px from the icon, beyond ICON_PIECE_GAP
+"""
+phrases = ["headshot icon", "crosshair mark in the killfeed"]
+see = ["killfeed/kayo-downed-entry"]
