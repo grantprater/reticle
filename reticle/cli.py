@@ -2772,16 +2772,23 @@ def cmd_occluders(args) -> int:
         info = occluders.bake(k, store, write=not args.dry_run)
         kinds = {}
         for b in info["boxes"]:
-            kinds[b["drawn"]] = kinds.get(b["drawn"], 0) + 1
+            kind = b.get("drawn") or b.get("height", "?")
+            kinds[kind] = kinds.get(kind, 0) + 1
+        li = info.get("lines") or {}
         print(f"{k}: {info['wall_px']} wall px, {info['box_px']} box px in "
-              f"{len(info['boxes'])} boxes {kinds}"
+              f"{len(info['boxes'])} boxes {kinds}; lines {info['occ_lines'][:40]} "
+              f"({info['occ_validation']})"
+              + (f"; opened {li['opened_line_px']} line px, cleared {li['cleared_fill_px']} fill "
+                 f"and {li['cleared_ring_px']} ring px" if li else "")
               + (" (dry run)" if args.dry_run else f" -> {geometry.path(k, store)}"))
         if args.sheet:
             import cv2
             import numpy as np
             with np.load(geometry.path(k, store)) as z:
                 st, lab = z["static"].copy(), z["labels"].copy()
-            occ, _bid, _ = occluders.classify(st, lab)
+                occ = z["occ"].copy() if "occ" in z.files and not args.dry_run else None
+            if occ is None:
+                occ, _bid, _ = occluders.classify(st, lab)
             out = Path(args.sheet) / f"{k}_occluders.png"
             out.parent.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(str(out), occluders.render(st, lab, occ))

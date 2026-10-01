@@ -109,7 +109,8 @@ Module names above are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
 .\.venv\Scripts\python.exe tools\wipe_scout.py SESSION   # stored data only
 .\.venv\Scripts\python.exe prototypes\minimap_geometry.py --all
-.\.venv\Scripts\python.exe -m reticle occluders --all      # baked arrays only
+.\.venv\Scripts\python.exe prototypes\line_classes.py bake --all
+.\.venv\Scripts\python.exe -m reticle occluders --all
 ```
 
 Geometry is one npz per `<map>__<profile>`, never per session: resolve every
