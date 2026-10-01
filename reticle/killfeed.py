@@ -326,6 +326,104 @@ from . import appearance
 from .census import Census
 from .profiles import Profile, Roi, template_key
 
+#: The capture height every length constant in this module was measured at.
+BASE_HEIGHT = 1080
+
+
+class KillfeedScale:
+    """The one transform from a base length (ROI px at 1080p) to this
+    capture's ROI px: `scale` = capture height / BASE_HEIGHT. Readers write
+    `s.px(BASE)` (or `s.n` where an integer is required, `s.area` for pixel
+    counts), never a per-size constant; dimensionless ratios (plate shares,
+    whiteness cuts, PORTRAIT_ASPECT) stay as they are.
+
+    The killfeed has no size setting of its own; only the minimap scales apart
+    from resolution [domain:hud/hud-scales-with-resolution], so resolution is
+    the whole transform and no profile factor applies. The minimap's widget
+    scale (`geometry.MapScale`) was measured at 1080p only; whether it composes
+    with resolution is untested (the player expects it does).
+
+    The capture sets the scale, never a session's pixels: `scale_check`
+    compares a session's measured plate height against `px(ENTRY_H)` and
+    reports the disagreement; it never replaces the scale. At scale 1.0 every
+    length is the base value itself, so a 1080p capture reads exactly as
+    before the transform existed.
+    """
+
+    __slots__ = ("scale", "source")
+
+    def __init__(self, scale: float, source: str):
+        self.scale, self.source = float(scale), source
+
+    @classmethod
+    def for_capture(cls, width: int, height: int) -> "KillfeedScale":
+        """The transform for a capture of this size: its height over 1080."""
+        if int(height) == BASE_HEIGHT:
+            return UNIT_SCALE
+        return cls(int(height) / BASE_HEIGHT, "capture_height")
+
+    @classmethod
+    def at(cls, scale: float, source: str = "given") -> "KillfeedScale":
+        """A transform of a stated scale, for synthetic crops and tests."""
+        return cls(scale, source)
+
+    def px(self, base: float) -> float:
+        """A base length in this capture's px; exactly `base` at scale 1."""
+        return float(base) if self.scale == 1.0 else round(float(base) * self.scale, 6)
+
+    def n(self, base: float) -> int:
+        """A base length rounded to whole px, where a slice or kernel needs one."""
+        return int(round(self.px(base)))
+
+    def area(self, base: float) -> float:
+        """A base area or pixel count in this capture's px^2."""
+        return float(base) if self.scale == 1.0 else round(float(base) * self.scale ** 2, 6)
+
+    def base(self, px: float) -> int:
+        """A capture px length back to whole base px, for storage keyed in base px."""
+        return int(px) if self.scale == 1.0 else int(round(float(px) / self.scale))
+
+    def provenance(self) -> dict:
+        return {"scale": round(self.scale, 6), "source": self.source,
+                "base_height": BASE_HEIGHT}
+
+    def __repr__(self) -> str:
+        return f"KillfeedScale({self.provenance()})"
+
+
+#: Scale 1.0: a 1080p capture, and the default of every helper below.
+UNIT_SCALE = KillfeedScale(1.0, "capture_height")
+
+#: How far a session's median plate height may sit from `px(ENTRY_H)` before
+#: `scale_check` reports the scale and the capture disagreeing.
+SCALE_CHECK_TOL = 0.1
+
+
+def plate_height(green_band: np.ndarray, red_band: np.ndarray) -> int:
+    """Rows of one entry band that its plate fills: rows whose plate share,
+    across the band's plate-covered columns, reaches PLATE_ROW_FRAC. A
+    measurement of the capture, for `scale_check` and for comparing two
+    placements of one band; never a length to read by."""
+    plate = green_band | red_band
+    cols = plate.any(axis=0)
+    if not cols.any():
+        return 0
+    return int((plate[:, cols].mean(axis=1) >= PLATE_ROW_FRAC).sum())
+
+
+def scale_check(heights, s: "KillfeedScale") -> dict:
+    """A session's measured plate heights (`plate_height` of resting entries)
+    against the scale's `px(ENTRY_H)`. It reports; it never sets the scale."""
+    h = [int(v) for v in heights if v]
+    expected = s.px(ENTRY_H)
+    if not h:
+        return {"expected": expected, "measured_median": None, "n": 0,
+                "ratio": None, "agrees": None, "reason": "no_plate_rows"}
+    med = float(np.median(h))
+    ratio = round(med / expected, 4)
+    return {"expected": expected, "measured_median": med, "n": len(h), "ratio": ratio,
+            "agrees": bool(abs(ratio - 1.0) <= SCALE_CHECK_TOL), "reason": None}
+
 # Entry geometry in ROI pixels at 1080p. Measured off the row profile across a
 # full session: band heights pile up hard at 34, at a PITCH of 40, with the
 # topmost entry starting at FIRST_Y.
@@ -353,6 +451,9 @@ ROW_COLOUR_FRAC = 0.01
 # Plate columns outside this percentile of a row are ignored when measuring how
 # wide that row's entry is, so one stray pixel cannot stretch the span.
 EXTENT_TRIM = 0.05
+
+# A band with fewer visible (unmasked) pixels than this is dropped as occluded.
+BAND_VISIBLE_MIN = 500
 
 # White HUD text.
 TEXT_V_MIN = 200
@@ -432,6 +533,8 @@ MIN_NAME_PARTS = 2
 
 # A pixel white in this share of sampled frames is an overlay, not an entry.
 PERSIST_FRAC = 0.85
+# How far (a square kernel's side, base px) the overlay mask grows.
+OVERLAY_GROW = 9
 # Reading the victim's team off the plate under their name. The margin is what
 # keeps a half-occluded band from being guessed at: the two colours have to be
 # decisively apart, not merely unequal.
@@ -498,6 +601,13 @@ class KillfeedRead:
     # are neither kills nor deaths *nor* confirmed non-player entries -- a
     # non-zero count here is a capture problem, not a code one.
     unattributed: int = 0
+    # The capture's `KillfeedScale`: rows are in this capture's px, the stored
+    # slot masks and divider columns in base px (`absolute_slot`, `divider_of_ys`).
+    scale: float = 1.0
+
+    @property
+    def _s(self) -> "KillfeedScale":
+        return UNIT_SCALE if self.scale == 1.0 else KillfeedScale.at(self.scale, "capture_height")
 
     @property
     def player_involved(self) -> bool:
@@ -511,16 +621,16 @@ class KillfeedRead:
         across frames: when an entry expires the whole stack shifts up by one,
         and only the full occupancy shows that happening. See `checks._count`.
         """
-        return mask_of_ys(self.entry_ys)
+        return mask_of_ys(self.entry_ys, self._s)
 
     @property
     def kill_mask(self) -> int:
         """Absolute-slot bitmask of the player's kill entries, for storage."""
-        return mask_of_ys(self.kill_ys)
+        return mask_of_ys(self.kill_ys, self._s)
 
     @property
     def death_mask(self) -> int:
-        return mask_of_ys(self.death_ys)
+        return mask_of_ys(self.death_ys, self._s)
 
     @property
     def ally_mask(self) -> int:
@@ -528,11 +638,11 @@ class KillfeedRead:
         turns the feed into both teams' alive counts. A slot in `entry_mask` but
         in neither is an entry whose plate could not be read -- rare, and left
         unresolved rather than assigned to a side."""
-        return mask_of_ys([y for y, al in zip(self.entry_ys, self.entry_ally) if al is True])
+        return mask_of_ys([y for y, al in zip(self.entry_ys, self.entry_ally) if al is True], self._s)
 
     @property
     def enemy_mask(self) -> int:
-        return mask_of_ys([y for y, al in zip(self.entry_ys, self.entry_ally) if al is False])
+        return mask_of_ys([y for y, al in zip(self.entry_ys, self.entry_ally) if al is False], self._s)
 
     @property
     def same_side_mask(self) -> int:
@@ -541,20 +651,20 @@ class KillfeedRead:
         A slot whose killer or victim plate went unread is not in it."""
         killers = self.entry_killer_ally or (None,) * len(self.entry_ys)
         return mask_of_ys([y for y, al, ka in zip(self.entry_ys, self.entry_ally, killers)
-                           if al is not None and ka is not None and al == ka])
+                           if al is not None and ka is not None and al == ka], self._s)
 
     @property
     def entry_dividers(self) -> int:
         """Slot-keyed divider columns for every entry, player or not."""
-        return divider_of_ys(self.entry_ys, self.entry_wxs)
+        return divider_of_ys(self.entry_ys, self.entry_wxs, self._s)
 
     @property
     def kill_dividers(self) -> int:
-        return divider_of_ys(self.kill_ys, self.kill_wxs)
+        return divider_of_ys(self.kill_ys, self.kill_wxs, self._s)
 
     @property
     def death_dividers(self) -> int:
-        return divider_of_ys(self.death_ys, self.death_wxs)
+        return divider_of_ys(self.death_ys, self.death_wxs, self._s)
 
     @staticmethod
     def slots_of(mask) -> tuple[int, ...]:
@@ -564,7 +674,7 @@ class KillfeedRead:
         return tuple(s for s in range(MAX_SLOTS) if int(mask) & (1 << s))
 
 
-def absolute_slot(y: int) -> int:
+def absolute_slot(y: int, s: "KillfeedScale" = UNIT_SCALE) -> int:
     """Which stack position a band at row `y` occupies.
 
     This is deliberately *not* the index of the band among those detected: that
@@ -572,17 +682,17 @@ def absolute_slot(y: int) -> int:
     attempt to follow one entry across frames. Quantising the row instead gives
     a position that means the same thing in every frame.
     """
-    return max(0, min(MAX_SLOTS - 1, int(round((y - FIRST_Y) / PITCH))))
+    return max(0, min(MAX_SLOTS - 1, int(round((y - s.px(FIRST_Y)) / s.px(PITCH)))))
 
 
-def mask_of_ys(ys) -> int:
+def mask_of_ys(ys, s: "KillfeedScale" = UNIT_SCALE) -> int:
     m = 0
     for y in ys:
-        m |= 1 << absolute_slot(y)
+        m |= 1 << absolute_slot(y, s)
     return m
 
 
-def divider_of_ys(ys, wxs) -> int:
+def divider_of_ys(ys, wxs, s: "KillfeedScale" = UNIT_SCALE) -> int:
     """Pack each entry's divider column into one integer, keyed by stack slot.
 
     Packed rather than listed so it reads like the masks beside it and needs no
@@ -603,10 +713,13 @@ def divider_of_ys(ys, wxs) -> int:
     revive can produce exactly that. So a difference proves two detections are
     different entries, while sameness proves nothing. `checks.track_entries`
     only ever uses the first direction.
+
+    Columns are stored in base px (`KillfeedScale.base`), so they mean the
+    same at every capture size and fit WX_BITS: a 1440p ROI is 652 px wide.
     """
     v = 0
     for y, wx in zip(ys, wxs):
-        v |= (min(int(wx), WX_MAX) & WX_MAX) << (WX_BITS * absolute_slot(y))
+        v |= (min(s.base(wx), WX_MAX) & WX_MAX) << (WX_BITS * absolute_slot(y, s))
     return v
 
 
@@ -645,7 +758,8 @@ def overlay_mask(
         return np.ones((y1 - y0, x1 - x0), dtype=bool)
     persistent = (acc / n) > PERSIST_FRAC
     # Grow it a little: these boxes have soft edges and drop shadows.
-    grown = cv2.dilate(persistent.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+    k = KillfeedScale.for_capture(width, height).n(OVERLAY_GROW)
+    grown = cv2.dilate(persistent.astype(np.uint8), np.ones((k, k), np.uint8)) > 0
     return ~grown
 
 
@@ -701,7 +815,8 @@ def _row_profile(
     return np.where(both, prof, 0.0)
 
 
-def _join_split_runs(runs: list[tuple[int, int]]) -> list[tuple[int, int]]:
+def _join_split_runs(runs: list[tuple[int, int]],
+                     s: "KillfeedScale" = UNIT_SCALE) -> list[tuple[int, int]]:
     """Rejoin one entry whose plate run broke in two at its text rows.
 
     The name glyphs and the weapon icon are white, so they punch the plate
@@ -724,11 +839,12 @@ def _join_split_runs(runs: list[tuple[int, int]]) -> list[tuple[int, int]]:
     with none is an empty band, not an entry.
     """
     out: list[tuple[int, int]] = []
+    lo, hi = s.px(MIN_BAND_H), s.px(MAX_BAND_H)
     for a, z in runs:
         if out:
             pa, pz = out[-1]
-            if (pz - pa < MIN_BAND_H and z - a < MIN_BAND_H and z - pa <= MAX_BAND_H
-                    and (pz - pa) + (z - a) >= MIN_BAND_H // 2):
+            if (pz - pa < lo and z - a < lo and z - pa <= hi
+                    and (pz - pa) + (z - a) >= s.n(MIN_BAND_H) // 2):
                 out[-1] = (pa, z)
                 continue
         out.append((a, z))
@@ -737,7 +853,7 @@ def _join_split_runs(runs: list[tuple[int, int]]) -> list[tuple[int, int]]:
 
 def _entry_bands(
     green: np.ndarray, red: np.ndarray, usable: np.ndarray | None = None,
-    usable_prefix: np.ndarray | None = None,
+    usable_prefix: np.ndarray | None = None, s: "KillfeedScale" = UNIT_SCALE,
 ) -> list[tuple[int, int]]:
     """Row spans holding one entry each, read off the plate row profile.
 
@@ -774,26 +890,27 @@ def _entry_bands(
             j += 1
         runs.append((i, j))
         i = j
-    runs = _join_split_runs(runs)
+    runs = _join_split_runs(runs, s)
 
     split: list[tuple[int, int]] = []
+    lo, hi = s.px(MIN_BAND_H), s.px(MAX_BAND_H)
     for (a, z) in runs:
         h = z - a
-        k = max(1, int(round(h / PITCH)))
+        k = max(1, int(round(h / s.px(PITCH))))
         if k == 1:
-            if MIN_BAND_H <= h <= MAX_BAND_H:
+            if lo <= h <= hi:
                 split.append((a, z))
         else:
             step = h / k
             for m in range(k):
                 a2 = a + int(round(m * step))
                 z2 = a + int(round((m + 1) * step))
-                if MIN_BAND_H <= z2 - a2 <= MAX_BAND_H:
+                if lo <= z2 - a2 <= hi:
                     split.append((a2, z2))
 
     bands: list[tuple[int, int]] = []
     for idx, (a, z) in enumerate(split):
-        short = ENTRY_H - (z - a)
+        short = s.n(ENTRY_H) - (z - a)
         if short > 0:
             up = short // 2
             floor = split[idx - 1][1] if idx else 0
@@ -840,15 +957,33 @@ def me_template(profile_name: str) -> np.ndarray | None:
     return _ME_CACHE[profile_name]
 
 
-def _ink_runs(region: np.ndarray) -> list[tuple[int, int]]:
+def scaled_me_template(tpl_info, s: "KillfeedScale" = UNIT_SCALE):
+    """The "Me" template resampled to this capture's scale. Mined at 1080p, so
+    at scale 1 it is returned untouched; elsewhere it is an area resample of
+    rendered text, an approximation (text rasterises nonlinearly)."""
+    if tpl_info is None or s.scale == 1.0:
+        return tpl_info
+    tpl, _t0, _t1 = tpl_info
+    h, w = tpl.shape
+    big = cv2.resize(tpl.astype(np.float32), (max(1, s.n(w)), max(1, s.n(h))),
+                     interpolation=cv2.INTER_AREA if s.scale < 1 else cv2.INTER_LINEAR)
+    out = (big >= 127.5).astype(np.uint8) * 255
+    cols = np.where(out.any(axis=0))[0]
+    if cols.size == 0:
+        return None
+    return out, int(cols.min()), int(cols.max())
+
+
+def _ink_runs(region: np.ndarray, s: "KillfeedScale" = UNIT_SCALE) -> list[tuple[int, int]]:
     """Column spans of text, split where NAME_GAP blank columns intervene."""
     xs = np.where((region > 0).any(axis=0))[0]
     if xs.size == 0:
         return []
     runs, start, prev = [], int(xs[0]), int(xs[0])
+    gap = s.px(NAME_GAP)
     for x in xs[1:]:
         x = int(x)
-        if x - prev > NAME_GAP:
+        if x - prev > gap:
             runs.append((start, prev))
             start = x
         prev = x
@@ -856,19 +991,21 @@ def _ink_runs(region: np.ndarray) -> list[tuple[int, int]]:
     return runs
 
 
-def name_run(region: np.ndarray, side: int) -> tuple[int, int] | None:
+def name_run(region: np.ndarray, side: int,
+             s: "KillfeedScale" = UNIT_SCALE) -> tuple[int, int] | None:
     """The text run holding this side's name: the one abutting the weapon icon.
 
     `side` is -1 for the killer's name, which ends at the icon, so the last run
     wins; +1 for the victim's, which begins after it, so the first does.
     """
-    runs = _ink_runs(region)
+    runs = _ink_runs(region, s)
     if not runs:
         return None
     return runs[-1] if side < 0 else runs[0]
 
 
-def _match_me(region: np.ndarray, tpl_info, side: int) -> tuple[int, float]:
+def _match_me(region: np.ndarray, tpl_info, side: int,
+              s: "KillfeedScale" = UNIT_SCALE) -> tuple[int, float]:
     """Best "Me" match among the text runs on this side, with that run's width.
 
     Not just the run nearest the weapon icon. Valorant draws extra marks between
@@ -889,7 +1026,7 @@ def _match_me(region: np.ndarray, tpl_info, side: int) -> tuple[int, float]:
     if tpl_info is None:
         return 0, 0.0
     tpl, t0, t1 = tpl_info
-    runs = _ink_runs(region)
+    runs = _ink_runs(region, s)
     if not runs:
         return 0, 0.0
     # Nearest the weapon icon first, then outward past any marks.
@@ -898,7 +1035,7 @@ def _match_me(region: np.ndarray, tpl_info, side: int) -> tuple[int, float]:
     best_w, best_s = first_w, 0.0
     for run in ordered[:MAX_NAME_RUNS]:
         width = run[1] - run[0] + 1
-        if not (ME_W[0] <= width <= ME_W[1]):
+        if not (s.px(ME_W[0]) <= width <= s.px(ME_W[1])):
             continue
         parts = cv2.connectedComponents(
             (region[:, run[0]:run[1] + 1] > 0).astype(np.uint8), 8)[0] - 1
@@ -950,7 +1087,8 @@ BAND_REFUSALS = ("no_ink", "no_icon", "no_glyphs", "no_divider", "no_baseline")
 EMPTY_BAND_REFUSALS = ("no_ink", "no_icon", "no_glyphs")
 
 
-def plate_seam(green_band: np.ndarray, red_band: np.ndarray) -> int | None:
+def plate_seam(green_band: np.ndarray, red_band: np.ndarray,
+               s: "KillfeedScale" = UNIT_SCALE) -> int | None:
     """The column where the killer's plate ends and the victim's begins.
 
     A divider that needs **no icon at all**, which is the whole point: it is the
@@ -980,7 +1118,7 @@ def plate_seam(green_band: np.ndarray, red_band: np.ndarray) -> int | None:
     Reuses `victim_is_ally`'s run finder verbatim rather than a second copy,
     which is also why the constants are shared: coverage, not mere colour.
     """
-    runs = _plate_runs(green_band, red_band)
+    runs = _plate_runs(green_band, red_band, s)
     seams = [b[1] for a, b in zip(runs, runs[1:])
              if a[0] != b[0] and a[2] == b[1]]
     return int(seams[0]) if len(seams) == 1 else None
@@ -994,7 +1132,7 @@ def _line_art(px: np.ndarray) -> bool:
 
 def _band_text(
     white: np.ndarray, usable: np.ndarray | None = None, plates=None,
-    value: np.ndarray | None = None,
+    value: np.ndarray | None = None, s: "KillfeedScale" = UNIT_SCALE,
 ):
     """Isolate the band's name text and locate the weapon icon dividing it.
 
@@ -1019,14 +1157,14 @@ def _band_text(
     """
     wb = white.astype(np.uint8)
     n, lab, st, _cen = cv2.connectedComponentsWithStats(wb, 8)
-    idx = [i for i in range(1, n) if st[i, 4] >= MIN_COMP_AREA]
+    idx = [i for i in range(1, n) if st[i, 4] >= s.area(MIN_COMP_AREA)]
     if not idx:
         return "no_ink"
-    big = [i for i in idx if st[i, 2] >= ICON_MIN_W and st[i, 3] >= ICON_MIN_H]
-    small = [i for i in idx if st[i, 4] >= ICON_MIN_AREA and i not in set(big)]
+    big = [i for i in idx if st[i, 2] >= s.px(ICON_MIN_W) and st[i, 3] >= s.px(ICON_MIN_H)]
+    small = [i for i in idx if st[i, 4] >= s.area(ICON_MIN_AREA) and i not in set(big)]
     tiers = [big, small]
-    tiny_pool = [i for i in idx if i not in set(big + small) and st[i, 4] >= KNIFE_MIN_AREA
-                 and st[i, 3] >= KNIFE_MIN_H]
+    tiny_pool = [i for i in idx if i not in set(big + small)
+                 and st[i, 4] >= s.area(KNIFE_MIN_AREA) and st[i, 3] >= s.px(KNIFE_MIN_H)]
     if value is not None:
         # Line art first (ICON_V_MED_MIN, ICON_S_MED_MAX; `value` is the band's
         # HSV), then the old
@@ -1038,9 +1176,10 @@ def _band_text(
         tiers.append([i for i in tiny_pool if i in art])
     if not big and not small:
         return "no_icon"
+    gw, gh = (s.px(GLYPH_W[0]), s.px(GLYPH_W[1])), (s.px(GLYPH_H[0]), s.px(GLYPH_H[1]))
     cand = [
         i for i in idx
-        if GLYPH_W[0] <= st[i, 2] <= GLYPH_W[1] and GLYPH_H[0] <= st[i, 3] <= GLYPH_H[1]
+        if gw[0] <= st[i, 2] <= gw[1] and gh[0] <= st[i, 3] <= gh[1]
     ]
     if not cand:
         return "no_glyphs"
@@ -1067,7 +1206,7 @@ def _band_text(
     # name too (043bafca271a 820.0 s).
     bottoms = np.array([st[i, 1] + st[i, 3] for i in cand])
     line = int(np.bincount(bottoms).argmax())
-    named = glyph_cols[np.abs(bottoms - line) <= BASELINE_TOL]
+    named = glyph_cols[np.abs(bottoms - line) <= s.px(BASELINE_TOL)]
     divides = lambda i, left, right: ((left < st[i, 0]).any()
                                       and (right > st[i, 0] + st[i, 2]).any())
     passes = ([([tiers[0], tiers[1], tiers[4]], named, glyph_cols)] if value is not None
@@ -1087,7 +1226,7 @@ def _band_text(
         # purpose: the seam is a *coarser* split than the icon (marks fall on
         # the killer's side of it), so it is only right to prefer it where
         # there is no icon to be had.
-        seam = plate_seam(*plates) if plates is not None else None
+        seam = plate_seam(*plates, s=s) if plates is not None else None
         if seam is None:
             return "no_divider"
         wx0 = wx1 = seam
@@ -1104,7 +1243,7 @@ def _band_text(
     base = int(np.bincount(np.array([st[i, 1] + st[i, 3] for i in cand])).argmax())
     keep = np.zeros(n, dtype=bool)
     for i in cand:
-        if abs(int(st[i, 1] + st[i, 3]) - base) <= BASELINE_TOL:
+        if abs(int(st[i, 1] + st[i, 3]) - base) <= s.px(BASELINE_TOL):
             keep[i] = True
     if not keep.any():
         return "no_baseline"
@@ -1151,7 +1290,8 @@ class EntryView:
     ix1: int = 0
 
 
-def victim_is_ally(green, red, a: int, z: int, wx1: int, wx0: int | None = None) -> bool | None:
+def victim_is_ally(green, red, a: int, z: int, wx1: int, wx0: int | None = None,
+                   s: "KillfeedScale" = UNIT_SCALE) -> bool | None:
     """Which team the victim was on, from the colour of the plate they sit on.
 
     Every killfeed entry is a death, so this is what turns the feed into alive
@@ -1191,9 +1331,9 @@ def victim_is_ally(green, red, a: int, z: int, wx1: int, wx0: int | None = None)
     answer for a band that is half occluded.
     """
     W = green.shape[1]
-    if wx1 >= W - MIN_PLATE_RUN:
+    if wx1 >= W - s.px(MIN_PLATE_RUN):
         return None
-    runs = _plate_runs(green[a:z, wx1:], red[a:z, wx1:])
+    runs = _plate_runs(green[a:z, wx1:], red[a:z, wx1:], s)
     if not runs:
         return None
     killer_ally = killer_is_ally(green, red, a, z, wx0, wx1) if wx0 is not None else None
@@ -1229,7 +1369,8 @@ def killer_is_ally(green, red, a: int, z: int, wx0: int, wx1: int) -> bool | Non
     return g > r
 
 
-def _plate_runs(green_band: np.ndarray, red_band: np.ndarray) -> list[tuple[int, int, int]]:
+def _plate_runs(green_band: np.ndarray, red_band: np.ndarray,
+                s: "KillfeedScale" = UNIT_SCALE) -> list[tuple[int, int, int]]:
     """Wide contiguous runs of one plate colour: `(+1 green | -1 red, x0, x1)`.
 
     A plate column is *covered*, not merely coloured. Past the entry's right
@@ -1250,7 +1391,7 @@ def _plate_runs(green_band: np.ndarray, red_band: np.ndarray) -> list[tuple[int,
         j = i
         while j < len(colour) and colour[j] == colour[i]:
             j += 1
-        if j - i >= MIN_PLATE_RUN:
+        if j - i >= s.px(MIN_PLATE_RUN):
             runs.append((int(colour[i]), i, j))
         i = j
     return runs
@@ -1283,6 +1424,7 @@ def analyse_killfeed(
     t_ms: float | None = None,
     *,
     mask_prefix: np.ndarray | None = None,
+    scale: "KillfeedScale | None" = None,
 ) -> list[EntryView]:
     """Per-entry detail for one frame. `read_killfeed` is a summary of this.
 
@@ -1296,7 +1438,8 @@ def analyse_killfeed(
     dropped band should have been a view is then a question with evidence
     behind it rather than a guess. See `reticle.census`.
     """
-    tpl = me_template(profile_name)
+    s = scale or KillfeedScale.for_capture(width, height)
+    tpl = scaled_me_template(me_template(profile_name), s)
     x0, y0, x1, y1 = roi.pixels(width, height)
     crop = frame[y0:y1, x0:x1]
     h, w = crop.shape[:2]
@@ -1306,12 +1449,12 @@ def analyse_killfeed(
     value = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)   # `_band_text` tests line art on it
 
     views: list[EntryView] = []
-    for (a, z) in _entry_bands(green, red, mask, mask_prefix):
-        slot = absolute_slot(a)
+    for (a, z) in _entry_bands(green, red, mask, mask_prefix, s):
+        slot = absolute_slot(a, s)
         where = (round(t_ms / 1000.0, 2) if t_ms is not None else None, slot)
         if census is not None:
             census.saw("bands")
-        if mask[a:z].sum() < 500:        # too much of this band is occluded
+        if mask[a:z].sum() < s.area(BAND_VISIBLE_MIN):   # too much of this band is occluded
             if census is not None:
                 census.drop("band_masked_out", where)
             continue
@@ -1320,7 +1463,7 @@ def analyse_killfeed(
             if census is not None:
                 census.drop("band_one_plate_colour", where)
             continue
-        parsed = _band_text(white[a:z] > 0, mask[a:z], (green[a:z], red[a:z]), value[a:z])
+        parsed = _band_text(white[a:z] > 0, mask[a:z], (green[a:z], red[a:z]), value[a:z], s)
         if isinstance(parsed, str):
             if census is not None:
                 census.drop(parsed, where)
@@ -1353,10 +1496,10 @@ def analyse_killfeed(
         # weapon icon and the victim's begins after it, so the side carrying the
         # match says which role the player had.
         left, right = band[:, :wx0], band[:, wx1:]
-        _kw, k_score = _match_me(left, tpl, -1)
-        _dw, d_score = _match_me(right, tpl, +1)
-        krun = name_run(left, -1)
-        vrun = name_run(right, +1)
+        _kw, k_score = _match_me(left, tpl, -1, s)
+        _dw, d_score = _match_me(right, tpl, +1, s)
+        krun = name_run(left, -1, s)
+        vrun = name_run(right, +1, s)
         if vrun is not None:
             vrun = (vrun[0] + wx1, vrun[1] + wx1)   # back to band coordinates
         if max(k_score, d_score) < ME_MATCH_MIN:
@@ -1369,13 +1512,13 @@ def analyse_killfeed(
             # Only one side can be the player, so a tie is a parse failure.
             verdict = "tie"
         ix0, ix1 = icon_extent(white[a:z] > 0,
-                               slot_white_mask(crop[a:z], green[a:z], red[a:z]) & mask[a:z], wx0, wx1,
-                               krun[1] + 1 if krun else 0, vrun[0] if vrun else w)
+                               slot_white_mask(crop[a:z], green[a:z], red[a:z], s) & mask[a:z],
+                               wx0, wx1, krun[1] + 1 if krun else 0, vrun[0] if vrun else w, s)
         views.append(EntryView(slot, int(a), int(z), int(wx0), int(wx1),
                                killer_run=krun, victim_run=vrun,
                                kill_score=k_score, death_score=d_score,
                                verdict=verdict,
-                               victim_ally=victim_is_ally(green, red, a, z, wx1, wx0),
+                               victim_ally=victim_is_ally(green, red, a, z, wx1, wx0, s),
                                killer_ally=killer_is_ally(green, red, a, z, wx0, wx1),
                                ix0=int(ix0), ix1=int(ix1)))
     return views
@@ -1408,6 +1551,11 @@ KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.9.0"
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
 PORTRAIT_MIN_RUN = 4
+#: Bands shorter than this hold no portrait to describe.
+PORTRAIT_MIN_BAND_H = 8
+#: The crop offsets (base px) whose compositions `shifts` stores, keyed by
+#: the base offset at every scale.
+PORTRAIT_SHIFTS = (-4, -2, 0, 2, 4)
 
 #: A column with this much white ink is text, and text sits ON the plate. Lower
 #: than `TEXT_V_MIN`'s per-pixel test because this one is per column.
@@ -1423,7 +1571,7 @@ def _entry_columns(green_band, red_band, white_band, bh: int) -> np.ndarray:
 
 
 def _portrait_edge(on: np.ndarray, start: int, step: int, w: int,
-                   max_walk: int | None = None) -> int | None:
+                   max_walk: int | None = None, s: "KillfeedScale" = UNIT_SCALE) -> int | None:
     """Walk out from a name to the first sustained gap in the entry's furniture.
 
     That gap is the portrait, and the walk stops there rather than continuing,
@@ -1442,7 +1590,7 @@ def _portrait_edge(on: np.ndarray, start: int, step: int, w: int,
         if max_walk is not None and steps > max_walk:
             return start
         if not on[x]:
-            ahead = [x + step * d for d in range(PORTRAIT_MIN_RUN)]
+            ahead = [x + step * d for d in range(s.n(PORTRAIT_MIN_RUN))]
             if all(0 <= p < w for p in ahead) and not any(on[p] for p in ahead):
                 return x
         x += step
@@ -1459,28 +1607,31 @@ NAME_BASE_TOL = 2
 PAIR_BRIDGE_PX = 2
 
 
-def _glyph_pair(lab: np.ndarray, st: np.ndarray, i: int) -> bool:
+def _glyph_pair(lab: np.ndarray, st: np.ndarray, i: int,
+                s: "KillfeedScale" = UNIT_SCALE) -> bool:
     """Is component `i` two kerned letters that touch -- the V and y of
     "Vyse", the K and A of "KAY/O" -- rather than portrait art? True when a
     column of at most `PAIR_BRIDGE_PX` ink splits it into two parts each a
     letter's width. A hidden name prints the agent's, so a touching pair
     recurs on every entry that agent's player makes."""
     x, y, w, h = (int(v) for v in st[i, :4])
-    if not GLYPH_W[1] < w <= 2 * GLYPH_W[1]:
+    g0, g1 = s.px(GLYPH_W[0]), s.px(GLYPH_W[1])
+    if not g1 < w <= 2 * g1:
         return False
     cols = (lab[y:y + h, x:x + w] == i).sum(axis=0)
-    return any(cols[c] <= PAIR_BRIDGE_PX and GLYPH_W[0] <= c <= GLYPH_W[1]
-               and GLYPH_W[0] <= w - c - 1 <= GLYPH_W[1] for c in range(1, w - 1))
+    return any(cols[c] <= s.px(PAIR_BRIDGE_PX) and g0 <= c <= g1
+               and g0 <= w - c - 1 <= g1 for c in range(1, w - 1))
 
 
-def _name_glyphs(white_band: np.ndarray, run: tuple[int, int] | None):
+def _name_glyphs(white_band: np.ndarray, run: tuple[int, int] | None,
+                 s: "KillfeedScale" = UNIT_SCALE):
     """The band's glyph-sized white components, and the baseline row of those
     inside `run` (None when the run holds none)."""
     wb = (white_band > 0).astype(np.uint8)
     n, lab, st, _ = cv2.connectedComponentsWithStats(wb, 8)
-    glyph = [i for i in range(1, n) if st[i, 4] >= MIN_COMP_AREA
-             and (GLYPH_W[0] <= st[i, 2] <= GLYPH_W[1] or _glyph_pair(lab, st, i))
-             and GLYPH_H[0] <= st[i, 3] <= GLYPH_H[1] + NAME_DESCENDER]
+    glyph = [i for i in range(1, n) if st[i, 4] >= s.area(MIN_COMP_AREA)
+             and (s.px(GLYPH_W[0]) <= st[i, 2] <= s.px(GLYPH_W[1]) or _glyph_pair(lab, st, i, s))
+             and s.px(GLYPH_H[0]) <= st[i, 3] <= s.px(GLYPH_H[1]) + s.px(NAME_DESCENDER)]
     inside = [i for i in glyph if run and st[i, 0] >= run[0] and st[i, 0] + st[i, 2] - 1 <= run[1]]
     base = int(np.median([st[i, 1] + st[i, 3] for i in inside])) if inside else None
     return st, glyph, base
@@ -1495,7 +1646,8 @@ BAND_SHIFT_MIN = 3
 BAND_SHIFT_AGREE = 1
 
 
-def band_shift(white_band: np.ndarray, killer_run, victim_run) -> int:
+def band_shift(white_band: np.ndarray, killer_run, victim_run,
+               s: "KillfeedScale" = UNIT_SCALE) -> int:
     """Rows to move an entry band so its names sit on `NAME_BASE_ROW`, or 0.
 
     `_entry_bands` pads a short plate run equally at both ends; when a slide or
@@ -1506,14 +1658,16 @@ def band_shift(white_band: np.ndarray, killer_run, victim_run) -> int:
     Clove whose killer run sat on her earrings read 14 against the victim's
     20) moves nothing.
     """
-    kb = _name_glyphs(white_band, killer_run)[2]
-    vb = _name_glyphs(white_band, victim_run)[2]
-    if kb is None or vb is None or abs(kb - vb) > BAND_SHIFT_AGREE:
+    kb = _name_glyphs(white_band, killer_run, s)[2]
+    vb = _name_glyphs(white_band, victim_run, s)[2]
+    if kb is None or vb is None or abs(kb - vb) > s.px(BAND_SHIFT_AGREE):
         return 0
-    return kb - NAME_BASE_ROW if abs(kb - NAME_BASE_ROW) >= BAND_SHIFT_MIN else 0
+    off = kb - s.n(NAME_BASE_ROW)
+    return off if abs(off) >= s.px(BAND_SHIFT_MIN) else 0
 
 
-def killer_name_start(white_band: np.ndarray, run: tuple[int, int]) -> int:
+def killer_name_start(white_band: np.ndarray, run: tuple[int, int],
+                      s: "KillfeedScale" = UNIT_SCALE) -> int:
     """The first column of the killer's name, which the killer's portrait abuts.
 
     `_band_text` keeps only glyphs on the name's baseline, so a descender (the
@@ -1529,21 +1683,22 @@ def killer_name_start(white_band: np.ndarray, run: tuple[int, int]) -> int:
     cut a hidden Vyse's face in half. The kill/death reading keeps the
     baseline run.
     """
-    st, glyph, base = _name_glyphs(white_band, run)
+    st, glyph, base = _name_glyphs(white_band, run, s)
     if base is None:
         return run[0]
+    tol, desc = s.px(NAME_BASE_TOL), s.px(NAME_DESCENDER)
     rows = [i for i in glyph
-            if base - NAME_BASE_TOL <= st[i, 1] + st[i, 3] <= base + NAME_DESCENDER]
+            if base - tol <= st[i, 1] + st[i, 3] <= base + desc]
     x = run[0]
     while True:
-        prev = [i for i in rows if st[i, 0] < x and x - (st[i, 0] + st[i, 2]) <= NAME_GAP]
+        prev = [i for i in rows if st[i, 0] < x and x - (st[i, 0] + st[i, 2]) <= s.px(NAME_GAP)]
         if not prev:
             return x
         x = min(int(st[i, 0]) for i in prev)
 
 
 def victim_name_end(white_band: np.ndarray, run: tuple[int, int],
-                    mark_end: int | None = None) -> int:
+                    mark_end: int | None = None, s: "KillfeedScale" = UNIT_SCALE) -> int:
     """The last column of the victim's name, which the victim's portrait
     follows across a stretch of bare plate.
 
@@ -1561,24 +1716,25 @@ def victim_name_end(white_band: np.ndarray, run: tuple[int, int],
     badge's emblem, and the name begins at the first glyph past the ring,
     within a band height of it (a06f04a0059f 1576.0 s, bfad2778a372 2394.0 s).
     """
-    st, glyph, base = _name_glyphs(white_band, run)
+    st, glyph, base = _name_glyphs(white_band, run, s)
     if base is None:
         return run[1]
     right = lambda i: int(st[i, 0] + st[i, 2] - 1)
     bottom = lambda i: int(st[i, 1] + st[i, 3])
-    rows = [i for i in glyph if base - NAME_BASE_TOL <= bottom(i) <= base + NAME_DESCENDER]
-    line = [i for i in rows if abs(bottom(i) - base) <= NAME_BASE_TOL]
-    text = [i for i in range(1, st.shape[0]) if st[i, 4] >= MIN_COMP_AREA
-            and GLYPH_H[0] <= st[i, 3] <= GLYPH_H[1] + NAME_DESCENDER
-            and base - NAME_BASE_TOL <= bottom(i) <= base + NAME_DESCENDER]
+    tol, desc = s.px(NAME_BASE_TOL), s.px(NAME_DESCENDER)
+    rows = [i for i in glyph if base - tol <= bottom(i) <= base + desc]
+    line = [i for i in rows if abs(bottom(i) - base) <= tol]
+    text = [i for i in range(1, st.shape[0]) if st[i, 4] >= s.area(MIN_COMP_AREA)
+            and s.px(GLYPH_H[0]) <= st[i, 3] <= s.px(GLYPH_H[1]) + desc
+            and base - tol <= bottom(i) <= base + desc]
     x = run[1]
     if mark_end is not None and mark_end >= x:
         past = [i for i in rows if mark_end < st[i, 0] <= mark_end + white_band.shape[0]]
         if past:
             x = right(min(past, key=lambda i: st[i, 0]))
     while True:
-        ends = ([right(i) for i in text if right(i) > x and st[i, 0] - x <= NAME_GAP]
-                + [right(i) for i in line if right(i) > x and st[i, 0] - x <= NAME_WORD_GAP])
+        ends = ([right(i) for i in text if right(i) > x and st[i, 0] - x <= s.px(NAME_GAP)]
+                + [right(i) for i in line if right(i) > x and st[i, 0] - x <= s.px(NAME_WORD_GAP)])
         if not ends:
             return x
         x = max(ends)
@@ -1607,7 +1763,8 @@ def own_ink(white_band: np.ndarray, x: int) -> np.ndarray:
 def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                           views: "list[EntryView] | None" = None,
                           mask: np.ndarray | None = None,
-                          profile_name: str = "valorant-16x9") -> list[dict]:
+                          profile_name: str = "valorant-16x9", *,
+                          scale: "KillfeedScale | None" = None) -> list[dict]:
     """Context-free appearance evidence for each entry's two agent portraits.
 
     **The killfeed draws the agent, and nothing has ever looked at it.** Every
@@ -1633,9 +1790,10 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
     routinely cut by a few pixels; a consumer weighing two claims should know
     which one saw a whole face.
     """
+    s = scale or KillfeedScale.for_capture(width, height)
     if views is None:
         views = analyse_killfeed(frame, roi, width, height, mask=mask,
-                                 profile_name=profile_name)
+                                 profile_name=profile_name, scale=s)
     x0, y0, x1, y1 = roi.pixels(width, height)
     crop = frame[y0:y1, x0:x1]
     h, w = crop.shape[:2]
@@ -1648,24 +1806,24 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
         if not (view.killer_run and view.victim_run):
             continue
         bh = view.y1 - view.y0
-        if bh < 8:
+        if bh < s.px(PORTRAIT_MIN_BAND_H):
             continue
         # The plate, and white ink that begins by the victim's name end
         # (`own_ink`); portrait art begins past it.
-        badge, fit = detect_second_life_badge(crop[view.y0:view.y1], view.victim_run[0])
+        badge, fit = detect_second_life_badge(crop[view.y0:view.y1], view.victim_run[0], s=s)
         name1 = victim_name_end(white[view.y0:view.y1], view.victim_run,
-                                int(fit["cx"] + fit["r"]) if badge else None)
+                                int(fit["cx"] + fit["r"]) if badge else None, s)
         on = _entry_columns(green[view.y0:view.y1], red[view.y0:view.y1],
                             own_ink(white[view.y0:view.y1], name1), bh)
         # The portraits are cut from the rows the names place the entry at
         # (`band_shift`); the columns stay read from the band as found.
-        dy = band_shift(white[view.y0:view.y1], view.killer_run, view.victim_run)
+        dy = band_shift(white[view.y0:view.y1], view.killer_run, view.victim_run, s)
         py0 = min(max(0, view.y0 + dy), max(0, h - bh))
         py1 = py0 + bh
         band = crop[py0:py1]
         furniture = green[py0:py1] | red[py0:py1] | (white[py0:py1] > 0)
         wide = int(round(PORTRAIT_ASPECT * bh))
-        name0 = killer_name_start(white[view.y0:view.y1], view.killer_run)
+        name0 = killer_name_start(white[view.y0:view.y1], view.killer_run, s)
         for role, start, step in (("killer", name0 - 1, -1),
                                   ("victim", name1 + 1, +1)):
             if role == "killer":
@@ -1674,7 +1832,7 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                 # steps into the portrait art itself (hair/shadows) or into assist icons.
                 edge = start
             else:
-                edge = _portrait_edge(on, start, step, w)
+                edge = _portrait_edge(on, start, step, w, s=s)
             if edge is None:
                 out.append({"slot": view.slot, "role": role,
                             "reason": "no gap past the name"})
@@ -1687,8 +1845,8 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
 
             # Sample bounded candidate offsets for spatial crop uncertainty search
             shifts = {}
-            for dx in (-4, -2, 0, 2, 4):
-                sx0 = max(0, min(w - wide, px0 + dx))
+            for dx in PORTRAIT_SHIFTS:
+                sx0 = max(0, min(w - wide, px0 + s.n(dx)))
                 sx1 = min(w, sx0 + wide)
                 art_s = band[:, sx0:sx1]
                 keep_s = ~furniture[:, sx0:sx1]
@@ -1730,6 +1888,9 @@ SECOND_LIFE_R_FRAC = (0.26, 0.42)
 SECOND_LIFE_CX_FRAC = 0.45
 SECOND_LIFE_N_THETA = 64
 SECOND_LIFE_RUN_MIN = 0.29
+#: Base px: a band shorter, or a search window narrower, holds no badge.
+SECOND_LIFE_MIN_BAND_H = 10
+SECOND_LIFE_MIN_W = 8
 
 
 def _white_mask(bgr: np.ndarray) -> np.ndarray:
@@ -1788,6 +1949,7 @@ def detect_second_life_badge(
     crop: np.ndarray,
     victim_x: float | None = None,
     run_min: float = SECOND_LIFE_RUN_MIN,
+    s: "KillfeedScale" = UNIT_SCALE,
 ) -> tuple[bool, dict]:
     """Detect a ring-shaped icon beside the victim's name on an entry crop.
 
@@ -1805,7 +1967,7 @@ def detect_second_life_badge(
     Returns:
         tuple (has_badge, metrics_dict) where metrics_dict contains coverage, run, cx, r.
     """
-    if crop is None or crop.size == 0 or crop.shape[0] < 10:
+    if crop is None or crop.size == 0 or crop.shape[0] < s.px(SECOND_LIFE_MIN_BAND_H):
         return False, {"coverage": 0.0, "run": 0.0, "cx": 0.0, "r": 0.0, "has_badge": False}
 
     bh = crop.shape[0]
@@ -1813,7 +1975,7 @@ def detect_second_life_badge(
         x0 = max(0, int(victim_x) - bh)
         x1 = min(crop.shape[1], int(victim_x) + bh)
         sub = crop[:, x0:x1]
-        if sub.shape[1] < 8:
+        if sub.shape[1] < s.px(SECOND_LIFE_MIN_W):
             return False, {"coverage": 0.0, "run": 0.0, "cx": 0.0, "r": 0.0, "has_badge": False}
         cx0 = float(int(victim_x) - x0)
         cov, run, cx, r = fit_arc(_white_mask(sub), cx0)
@@ -1847,7 +2009,16 @@ def detect_second_life_badge(
 # (`slot_white_mask`), the icon is the element the divider points at, split
 # from names and marks by measured spacing (ELEMENT_GAP), and a revive's ring
 # is fitted, stripped and published as `ringed` (`ring_fit`).
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.5.0"
+# 0.6.0 (2026-10-01): beside the unchanged grid, each row stores the soft
+# glyph at native size (`soft`: plate-relative whiteness of the slot box,
+# uint8, zlib), the slot geometry in base px with the capture's scale
+# (`slot_geom`), whether the ring was stripped (`ring_stripped`) and the
+# icon's sub-pixel centroid (`centroid`); the coverage row carries the
+# scale and `scale_check`. Every 0.5.0 field is unchanged.
+# 0.7.0 (2026-10-01): the slot is cut from the rows the entry's names place
+# it at (`band_shift`, stored as `band_shift`), and a divider wholly outside
+# the band's plate runs refuses as `off_plate_run`.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.7.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -1858,22 +2029,27 @@ ICON_WHITE_V_MIN = 220
 ICON_WHITE_S_MAX = 45
 ICON_GRID = (16, 64)          # h, w of a tight icon mask resized to one height
 ICON_MIN_TIGHT_W = 12         # narrower than any gun or ability icon
+ICON_MIN_PX = 10              # fewer white pixels than any icon
+#: The next entry's plate bleeding in along a crop's top or bottom edge: a run
+#: at most BLEED_MAX_H tall, looked for only in crops BLEED_MIN_H or taller.
+BLEED_MIN_H = 25
+BLEED_MAX_H = 3
 
 
-def icon_white_mask(crop: np.ndarray) -> np.ndarray:
+def icon_white_mask(crop: np.ndarray, s: "KillfeedScale" = UNIT_SCALE) -> np.ndarray:
     """The weapon slot's white line art, without the neighbouring slots' edges."""
     h = crop.shape[0]
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
     white = (hsv[:, :, 2] > ICON_WHITE_V_MIN) & (hsv[:, :, 1] < ICON_WHITE_S_MAX)
     # A thin run along the top or bottom edge is the next entry's plate bleeding in.
-    if h >= 25 and white.any():
+    if h >= s.px(BLEED_MIN_H) and white.any():
         n, labels, stats, _ = cv2.connectedComponentsWithStats(white.astype(np.uint8))
         if n > 2:
             max_area = stats[1:, cv2.CC_STAT_AREA].max()
             clean = np.zeros_like(white)
             for k in range(1, n):
                 top, ch = stats[k, cv2.CC_STAT_TOP], stats[k, cv2.CC_STAT_HEIGHT]
-                if ((top <= 1 or top + ch >= h - 1) and ch <= 3
+                if ((top <= s.px(1) or top + ch >= h - s.px(1)) and ch <= s.px(BLEED_MAX_H)
                         and stats[k, cv2.CC_STAT_AREA] < max_area * 0.4):
                     continue
                 clean[labels == k] = True
@@ -1882,11 +2058,12 @@ def icon_white_mask(crop: np.ndarray) -> np.ndarray:
     return white
 
 
-def icon_grid(white_mask: np.ndarray) -> tuple[np.ndarray, float] | None:
+def icon_grid(white_mask: np.ndarray,
+              s: "KillfeedScale" = UNIT_SCALE) -> tuple[np.ndarray, float] | None:
     """A white mask cut to its tight box and resized to ICON_GRID, with the box's
     aspect; None when too little is white to be an icon."""
     ys, xs = np.nonzero(white_mask)
-    if len(xs) < 10 or xs.max() - xs.min() + 1 < ICON_MIN_TIGHT_W:
+    if len(xs) < s.area(ICON_MIN_PX) or xs.max() - xs.min() + 1 < s.px(ICON_MIN_TIGHT_W):
         return None
     tight = white_mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
     grid = cv2.resize(tight.astype(np.uint8), ICON_GRID[::-1], interpolation=cv2.INTER_AREA)
@@ -1919,14 +2096,15 @@ PLATE_FILL = 12
 ELEMENT_GAP = 6
 
 
-def plate_colour(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarray):
+def plate_colour(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarray,
+                 s: "KillfeedScale" = UNIT_SCALE):
     """Per column, the plate colour behind a band (BGR float) and whether it is known."""
     plate = (green_band | red_band)[:, :, None]
     px = np.where(plate, band.astype(np.float32), np.nan)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         P = np.nanmedian(px, axis=0)
-    have = plate[:, :, 0].sum(axis=0) >= PLATE_MIN_PX
+    have = plate[:, :, 0].sum(axis=0) >= s.px(PLATE_MIN_PX)
     P[~have] = np.nan
     idx = np.nonzero(have)[0]
     if idx.size == 0:
@@ -1935,14 +2113,15 @@ def plate_colour(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarray)
     k = np.clip(np.searchsorted(idx, cols), 1, max(idx.size - 1, 1))
     left, right = idx[np.clip(k - 1, 0, idx.size - 1)], idx[np.clip(k, 0, idx.size - 1)]
     near = np.where(np.abs(cols - left) <= np.abs(right - cols), left, right)
-    ok = np.abs(near - cols) <= PLATE_FILL
+    ok = np.abs(near - cols) <= s.px(PLATE_FILL)
     return np.where(ok[:, None], P[near], np.nan), ok
 
 
-def plate_whiteness(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarray):
+def plate_whiteness(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarray,
+                    s: "KillfeedScale" = UNIT_SCALE):
     """(whiteness per pixel, columns with a known plate): the share of the way
     from the local plate colour to white, an estimate of the overlay's alpha."""
-    P, ok = plate_colour(band, green_band, red_band)
+    P, ok = plate_colour(band, green_band, red_band, s)
     d = 255.0 - P[None, :, :]
     v = band.astype(np.float32) - P[None, :, :]
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -1950,11 +2129,13 @@ def plate_whiteness(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarr
     return np.nan_to_num(w, nan=0.0), ok
 
 
-def slot_white_mask(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarray) -> np.ndarray:
+def slot_white_mask(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarray,
+                    s: "KillfeedScale" = UNIT_SCALE, whiteness=None) -> np.ndarray:
     """The band's white line art judged against its own plate (PLATE_WHITE_CUT);
-    the fixed `icon_white_mask` cut where no plate colour is known."""
-    w, ok = plate_whiteness(band, green_band, red_band)
-    return np.where(ok[None, :], w >= PLATE_WHITE_CUT, icon_white_mask(band))
+    the fixed `icon_white_mask` cut where no plate colour is known. `whiteness`
+    is `plate_whiteness`'s result when the caller already holds it."""
+    w, ok = whiteness if whiteness is not None else plate_whiteness(band, green_band, red_band, s)
+    return np.where(ok[None, :], w >= PLATE_WHITE_CUT, icon_white_mask(band, s))
 
 
 def _divider_rows(white_band: np.ndarray, wx0: int, wx1: int) -> tuple[int, int] | None:
@@ -1966,17 +2147,18 @@ def _divider_rows(white_band: np.ndarray, wx0: int, wx1: int) -> tuple[int, int]
     return min(r[0] for r in rows), max(r[1] for r in rows)
 
 
-def _slot_pieces(icon_band: np.ndarray, rows: tuple[int, int], lo: int, hi: int):
+def _slot_pieces(icon_band: np.ndarray, rows: tuple[int, int], lo: int, hi: int,
+                 s: "KillfeedScale" = UNIT_SCALE):
     r0, r1 = rows
     n, lab, st, _ = cv2.connectedComponentsWithStats(icon_band.astype(np.uint8), 8)
     keep = [i for i in range(1, n)
-            if st[i, 4] >= MIN_COMP_AREA and st[i, 0] >= lo and st[i, 0] + st[i, 2] <= hi
+            if st[i, 4] >= s.area(MIN_COMP_AREA) and st[i, 0] >= lo and st[i, 0] + st[i, 2] <= hi
             and min(int(st[i, 1] + st[i, 3]), r1) > max(int(st[i, 1]), r0)]
     return lab, st, keep
 
 
 def icon_extent(white_band: np.ndarray, icon_band: np.ndarray, wx0: int, wx1: int,
-                lo: int, hi: int) -> tuple[int, int]:
+                lo: int, hi: int, s: "KillfeedScale" = UNIT_SCALE) -> tuple[int, int]:
     """The weapon-slot icon's columns: the element the divider points at.
 
     `_band_text` divides the names at ONE connected component of the text cut,
@@ -1999,11 +2181,11 @@ def icon_extent(white_band: np.ndarray, icon_band: np.ndarray, wx0: int, wx1: in
     rows = _divider_rows(white_band, wx0, wx1)
     if rows is None:
         return wx0, wx1
-    _lab, st, keep = _slot_pieces(icon_band, rows, lo, hi)
+    _lab, st, keep = _slot_pieces(icon_band, rows, lo, hi, s)
     els: list[list] = []
     for i in sorted(keep, key=lambda i: st[i, 0]):
         p0, p1 = int(st[i, 0]), int(st[i, 0] + st[i, 2])
-        if els and p0 - els[-1][1] < ELEMENT_GAP:
+        if els and p0 - els[-1][1] < s.px(ELEMENT_GAP):
             els[-1][1] = max(els[-1][1], p1)
             els[-1][2] += int(st[i, 4])
         else:
@@ -2036,6 +2218,10 @@ RING_ABSENT_MAX = 0.8
 #: The glyph inside a ring lies within r - RING_STRIP: the middle of the
 #: annulus r-4..r-2 that every revive leaves empty.
 RING_STRIP = 3.0
+#: The annulus (r - 4 .. r - 2, base px) `inner_ink` measures, and how far
+#: from the band's middle row the ring's centre is searched.
+RING_INNER = (4.0, 2.0)
+RING_CY_SEARCH = 3.0
 #: An icon is drawn on the killer's plate, so at least this share of the
 #: divider's columns hold plate-coloured pixels (PLATE_MIN_PX or more). Measured
 #: on 463 parsed entries in 8 sessions: never below 0.56 (1st percentile 0.74);
@@ -2045,7 +2231,7 @@ PLATE_BEHIND_MIN = 0.5
 
 
 def ring_fit(icon_band: np.ndarray, cx0: float, height: int,
-             usable: np.ndarray | None = None) -> dict | None:
+             usable: np.ndarray | None = None, s: "KillfeedScale" = UNIT_SCALE) -> dict | None:
     """The circle round a weapon-slot icon that the most angles of ink lie on.
 
     A shape fit, not morphology: centre within half a band height of `cx0`
@@ -2062,11 +2248,12 @@ def ring_fit(icon_band: np.ndarray, cx0: float, height: int,
     th = np.radians(np.arange(RING_ANGLES) * 360 / RING_ANGLES + 180 / RING_ANGLES)
     radii = np.arange(RING_R[0] * height, RING_R[1] * height + 0.01, 0.5)
     best = None
-    for cy in np.arange(h / 2 - 3, h / 2 + 3.01, 1.0):
+    dy = s.px(RING_CY_SEARCH)
+    for cy in np.arange(h / 2 - dy, h / 2 + dy + 0.01, 1.0):
         for cx in np.arange(cx0 - height // 2, cx0 + height // 2 + 0.01, 1.0):
             d = np.hypot(xs - cx, ys - cy)
             a = ((np.arctan2(ys - cy, xs - cx) % (2 * np.pi)) / (2 * np.pi) * RING_ANGLES).astype(int) % RING_ANGLES
-            on = np.abs(d[None, :] - radii[:, None]) <= RING_TOL          # radii x points
+            on = np.abs(d[None, :] - radii[:, None]) <= s.px(RING_TOL)    # radii x points
             hit = np.zeros((len(radii), RING_ANGLES), bool)
             ri, pi = np.nonzero(on)
             hit[ri, a[pi]] = True
@@ -2089,7 +2276,7 @@ def ring_fit(icon_band: np.ndarray, cx0: float, height: int,
     best.pop("_score")
     YY, XX = np.mgrid[0:h, 0:w]
     D = np.hypot(XX - best["cx"], YY - best["cy"])
-    inner = (D >= best["r"] - 4.0) & (D < best["r"] - 2.0)
+    inner = (D >= best["r"] - s.px(RING_INNER[0])) & (D < best["r"] - s.px(RING_INNER[1]))
     best["inner_ink"] = float(icon_band[inner].mean()) if inner.any() else 1.0
     return best
 
@@ -2106,8 +2293,55 @@ def ring_verdict(fit: dict | None) -> tuple[bool | None, str | None]:
     return None, "uncertain_fit"
 
 
+#: Columns (base px) of the band kept either side of the slot box in `soft`,
+#: so a later variant can re-cut the box without a reread.
+SOFT_MARGIN = 3
+
+
+def soft_patch(w: np.ndarray, ok: np.ndarray, c0: int, c1: int) -> dict:
+    """A band's plate-relative whiteness over columns c0..c1 at native px:
+    clipped to 0..1, quantised to uint8 (`round(255 w)`), zlib-compressed and
+    base64-encoded, with the columns whose plate colour was known (packed
+    bits) and the patch's ROI column origin. `unpack_soft` inverts it."""
+    import base64
+    import zlib
+    patch = np.ascontiguousarray(np.round(np.clip(w[:, c0:c1], 0.0, 1.0) * 255).astype(np.uint8))
+    return {"x0": int(c0), "shape": [int(patch.shape[0]), int(patch.shape[1])],
+            "w": base64.b64encode(zlib.compress(patch.tobytes(), 9)).decode("ascii"),
+            "plate_known": np.packbits(ok[c0:c1].astype(bool)).tobytes().hex()}
+
+
+def unpack_soft(soft: dict) -> tuple[np.ndarray, np.ndarray]:
+    """A stored `soft` back to (whiteness uint8 h x w, plate-known columns)."""
+    import base64
+    import zlib
+    h, w = soft["shape"]
+    patch = np.frombuffer(zlib.decompress(base64.b64decode(soft["w"])), np.uint8).reshape(h, w)
+    known = np.unpackbits(np.frombuffer(bytes.fromhex(soft["plate_known"]), np.uint8))[:w].astype(bool)
+    return patch, known
+
+
+def _centroid(w: np.ndarray, piece: np.ndarray) -> list[float] | None:
+    """The whiteness-weighted centroid (x, y; band px) of the icon's pieces:
+    the icon's own sub-pixel position, which is fractional horizontally and
+    whole vertically [domain:killfeed/subpixel-placement]."""
+    if not piece.any():
+        return None
+    wt = np.where(piece, np.clip(w, 0.0, 1.0), 0.0)
+    tot = float(wt.sum())
+    if tot <= 0:
+        return None
+    ys, xs = np.mgrid[0:w.shape[0], 0:w.shape[1]]
+    return [round(float((wt * xs).sum() / tot), 3), round(float((wt * ys).sum() / tot), 3)]
+
+
+#: The 0.6.0 fields of a row refused before its slot pieces are cut.
+NO_SOFT = {"ring_stripped": None, "soft": None, "centroid": None, "slot_geom": None}
+
+
 def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
-                             views: "list[EntryView]") -> list[dict]:
+                             views: "list[EntryView]", *,
+                             scale: "KillfeedScale | None" = None) -> list[dict]:
     """Each entry's weapon-slot descriptor: the packed grid and aspect, never a name.
 
     Naming the icon is `adjudication.weapon`'s; a consumer binds these rows to an
@@ -2118,59 +2352,116 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
     (`ring_fit`, `ring_verdict`) is stripped and published as `ringed`, a
     witness of a revive entry [domain:killfeed/revive-ring] for the entry-type
     owner; the grid is then the glyph inside it.
+
+    Beside the grid each described row keeps what a later descriptor needs
+    without rereading the video: `soft`, the plate-relative whiteness of the
+    slot box at native px (`soft_patch`, SOFT_MARGIN columns either side);
+    `slot_geom`, the band height, the box and the measured plate height in
+    base px with the capture's scale; `ring_stripped`; and `centroid`, the
+    icon's sub-pixel position (ROI column, band row). A row refused before its
+    pieces are cut carries these fields as null.
+
+    The slot is cut from the rows the entry's names place it at
+    (`band_shift`, the portrait reader's rule): a wash that paints both plate
+    colours down from the ROI's top starts the plate run at row 0, and the
+    PITCH split then cuts the entry 13 rows high (4f207c0c4e39 460.0 s, the
+    rifle's lower half). `y0..y1` stay the view's rows, which consumers bind
+    by; `band_shift` says how far the cut moved. The move stands only when
+    the moved band holds at least the view band's plate rows (`plate_height`):
+    a portrait's art and the headshot mark can pass for two agreeing names.
+
+    The icon sits on the killer's plate, between the two names. A divider
+    wholly outside the span of the band's plate runs (`_plate_runs`) is
+    portrait art or scenery, and refuses as `off_plate_run`: the killer's
+    portrait and its agent badge left of an unread killer name
+    (4f207c0c4e39 892.5 s), or the wash's red art under a band the split made
+    from an entry's lower half (460.0 s, slot 1).
     """
-    x0, y0, x1, _ = roi.pixels(width, height)
+    s = scale or KillfeedScale.for_capture(width, height)
+    x0, y0, x1, y1 = roi.pixels(width, height)
     out = []
     for v in views:
         if v.wx1 <= v.wx0 or v.y1 <= v.y0:
             continue
-        crop = frame[y0 + v.y0:y0 + v.y1, x0 + v.wx0:x0 + v.wx1]
-        cut = icon_grid(icon_white_mask(crop))
+        band = frame[y0 + v.y0:y0 + v.y1, x0:x1]
+        green, red, white = _plate_masks(band, np.ones(band.shape[:2], bool))
+        dy = (band_shift(white > 0, v.killer_run, v.victim_run, s)
+              if v.killer_run and v.victim_run else 0)
+        if dy:
+            bh = v.y1 - v.y0
+            ry0 = min(max(0, v.y0 + dy), max(0, (y1 - y0) - bh))
+            moved = frame[y0 + ry0:y0 + ry0 + bh, x0:x1]
+            mg, mr, mw = _plate_masks(moved, np.ones(moved.shape[:2], bool))
+            # The plate checks the names: a move that loses plate rows left
+            # the entry, and the runs were not names (5822b6646448 1417.0 s,
+            # slot 2: portrait art and the headshot mark agreed 10 rows high).
+            if plate_height(mg, mr) >= plate_height(green, red):
+                dy = ry0 - v.y0
+                band, green, red, white = moved, mg, mr, mw
+            else:
+                dy = 0
+        crop = band[:, v.wx0:v.wx1]
+        cut = icon_grid(icon_white_mask(crop, s), s)
         row = {"slot": v.slot, "y0": int(v.y0), "y1": int(v.y1), "wx0": int(v.wx0),
-               "wx1": int(v.wx1), "verdict": v.verdict}
+               "wx1": int(v.wx1), "verdict": v.verdict, "band_shift": int(dy)}
         # A divider piece too small to be an icon stays refused: its
         # neighbours are a portrait edge or a name, never the missing icon
         # (a06f04a0059f 1969.0 s, a portrait's edge, gained a grid otherwise).
         if cut is None:
             out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
                         "aspect": None, "reason": "no_icon", "ringed": None,
-                        "ring_reason": "no_icon", "ring": None})
+                        "ring_reason": "no_icon", "ring": None, **NO_SOFT})
             continue
-        band = frame[y0 + v.y0:y0 + v.y1, x0:x1]
-        green, red, white = _plate_masks(band, np.ones(band.shape[:2], bool))
-        behind = ((green | red)[:, v.wx0:v.wx1].sum(axis=0) >= PLATE_MIN_PX).mean()
+        behind = ((green | red)[:, v.wx0:v.wx1].sum(axis=0) >= s.px(PLATE_MIN_PX)).mean()
         if behind < PLATE_BEHIND_MIN:
             out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
                         "aspect": None, "reason": "no_plate", "ringed": None,
-                        "ring_reason": "no_plate", "ring": None})
+                        "ring_reason": "no_plate", "ring": None, **NO_SOFT})
             continue
-        icon = slot_white_mask(band, green, red)
+        runs = _plate_runs(green, red, s)
+        if not runs or v.wx1 <= runs[0][1] or v.wx0 >= runs[-1][2]:
+            out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
+                        "aspect": None, "reason": "off_plate_run", "ringed": None,
+                        "ring_reason": "off_plate_run", "ring": None, **NO_SOFT})
+            continue
+        w, ok = plate_whiteness(band, green, red, s)
+        icon = slot_white_mask(band, green, red, s, whiteness=(w, ok))
         ix0, ix1 = (v.ix0, v.ix1) if v.ix1 > v.ix0 else (v.wx0, v.wx1)
         rows = _divider_rows(white > 0, v.wx0, v.wx1)
         piece = np.zeros_like(icon)
         if rows is not None:
-            lab, _st, keep = _slot_pieces(icon, rows, ix0, ix1)
+            lab, _st, keep = _slot_pieces(icon, rows, ix0, ix1, s)
             piece = np.isin(lab, keep)
-        fit = ring_fit(icon, (ix0 + ix1) / 2, v.y1 - v.y0)
+        fit = ring_fit(icon, (ix0 + ix1) / 2, v.y1 - v.y0, s=s)
         ringed, why = ring_verdict(fit)
+        stripped = False
         if ringed:
             YY, XX = np.mgrid[0:icon.shape[0], 0:icon.shape[1]]
-            glyph = icon & (np.hypot(XX - fit["cx"], YY - fit["cy"]) < fit["r"] - RING_STRIP)
+            glyph = icon & (np.hypot(XX - fit["cx"], YY - fit["cy"]) < fit["r"] - s.px(RING_STRIP))
             if glyph.any():
                 piece = glyph
+                stripped = True
         if piece.any():
             xs = np.nonzero(piece.any(axis=0))[0]
             ix0, ix1 = int(xs[0]), int(xs[-1]) + 1
-            cut = icon_grid(piece[:, ix0:ix1])
+            cut = icon_grid(piece[:, ix0:ix1], s)
         else:
             ix0, ix1 = v.wx0, v.wx1
         row.update({"ix0": int(ix0), "ix1": int(ix1), "ringed": ringed, "ring_reason": why,
                     "ring": ({k: round(val, 3) for k, val in fit.items()} if fit else None)})
+        m = s.n(SOFT_MARGIN)
+        extra = {"ring_stripped": stripped,
+                 "soft": soft_patch(w, ok, max(0, ix0 - m), min(band.shape[1], ix1 + m)),
+                 "centroid": _centroid(w, piece),
+                 "slot_geom": {"band_h": round((v.y1 - v.y0) / s.scale, 3),
+                               "box": [round(c / s.scale, 3) for c in (ix0, v.y0 + dy, ix1, v.y1 + dy)],
+                               "plate_h": round(plate_height(green, red) / s.scale, 3),
+                               "scale": s.provenance()}}
         if cut is None:
-            out.append({**row, "grid": None, "aspect": None, "reason": "no_icon"})
+            out.append({**row, "grid": None, "aspect": None, "reason": "no_icon", **extra})
         else:
             out.append({**row, "grid": np.packbits(cut[0].astype(bool)).tobytes().hex(),
-                        "aspect": round(float(cut[1]), 4), "reason": None})
+                        "aspect": round(float(cut[1]), 4), "reason": None, **extra})
     return out
 
 
@@ -2193,51 +2484,63 @@ NAME_MIN_W = 12
 #: Words of one name sit this close; `NAME_GAP` splits "A Whif and A Lot" into
 #: five groups, and the last word alone merged it with "Whiff A Lot".
 NAME_WORD_GAP = 12
+#: Base px: a text row holds at least NAME_ROW_MIN_PX white pixels; the text
+#: line is cut NAME_LINE_PAD rows above and below the killer's text rows; a
+#: group is at least NAME_GROUP_MIN_W wide and ends NAME_EDGE_CLEAR before the
+#: cut's far bound.
+NAME_ROW_MIN_PX = 2
+NAME_LINE_PAD = (2, 4)
+NAME_GROUP_MIN_W = 3
+NAME_EDGE_CLEAR = 2
 
 
-def _name_groups(cols: np.ndarray) -> list[tuple[int, int]]:
+def _name_groups(cols: np.ndarray, s: "KillfeedScale" = UNIT_SCALE) -> list[tuple[int, int]]:
     xs = np.where(cols)[0]
     if xs.size == 0:
         return []
     out, start = [], xs[0]
     for a, b in zip(xs[:-1], xs[1:]):
-        if b - a > NAME_GAP:
+        if b - a > s.px(NAME_GAP):
             out.append((int(start), int(a) + 1))
             start = b
     out.append((int(start), int(xs[-1]) + 1))
     return out
 
 
-def _name_text_rows(white: np.ndarray, a: int, z: int) -> tuple[int, int] | None:
+def _name_text_rows(white: np.ndarray, a: int, z: int,
+                    s: "KillfeedScale" = UNIT_SCALE) -> tuple[int, int] | None:
     """The rows the killer's name occupies: the band's text line."""
-    rows = np.where((white[:, max(a, 0):max(z, 0)] > 0).sum(axis=1) >= 2)[0]
+    rows = np.where((white[:, max(a, 0):max(z, 0)] > 0).sum(axis=1) >= s.px(NAME_ROW_MIN_PX))[0]
     return (int(rows[0]), int(rows[-1]) + 1) if rows.size else None
 
 
-def _name_cut(white: np.ndarray, a: int, z: int, rows) -> tuple[int, int] | None:
+def _name_cut(white: np.ndarray, a: int, z: int, rows,
+              s: "KillfeedScale" = UNIT_SCALE) -> tuple[int, int] | None:
     """The name's columns inside [a, z), band-relative: the last text group and
     the words before it (`NAME_WORD_GAP`), or None."""
     a, z = max(a, 0), max(z, 0)
     full = white[:, a:z] > 0
     line = np.zeros_like(full)
-    line[max(rows[0] - 2, 0):rows[1] + 4] = full[max(rows[0] - 2, 0):rows[1] + 4]
-    keep = [g for g in _name_groups(line.any(axis=0))
-            if g[1] - g[0] >= 3 and g[1] <= (z - a) - 2
-            and np.ptp(np.where(line[:, g[0]:g[1]].any(axis=1))[0]) < NAME_MAX_TEXT_H
+    r0, r1 = max(rows[0] - s.n(NAME_LINE_PAD[0]), 0), rows[1] + s.n(NAME_LINE_PAD[1])
+    line[r0:r1] = full[r0:r1]
+    keep = [g for g in _name_groups(line.any(axis=0), s)
+            if g[1] - g[0] >= s.px(NAME_GROUP_MIN_W) and g[1] <= (z - a) - s.px(NAME_EDGE_CLEAR)
+            and np.ptp(np.where(line[:, g[0]:g[1]].any(axis=1))[0]) < s.px(NAME_MAX_TEXT_H)
             and line[:, g[0]:g[1]].sum() >= NAME_TEXT_SHARE * max(1, full[:, g[0]:g[1]].sum())]
     if not keep:
         return None
     g0, g1 = keep[-1]
     for h0, h1 in reversed(keep[:-1]):
-        if g0 - h1 > NAME_WORD_GAP:
+        if g0 - h1 > s.px(NAME_WORD_GAP):
             break
         g0 = h0
-    return (a + g0, a + g1) if g1 - g0 >= NAME_MIN_W else None
+    return (a + g0, a + g1) if g1 - g0 >= s.px(NAME_MIN_W) else None
 
 
 def name_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                       views: "list[EntryView]", portraits: list[dict],
-                      mask: np.ndarray | None = None) -> list[dict]:
+                      mask: np.ndarray | None = None, *,
+                      scale: "KillfeedScale | None" = None) -> list[dict]:
     """Each entry role's player-name crop: a descriptor, never a player or agent.
 
     The killer's name runs from its portrait to the weapon icon, the victim's
@@ -2250,6 +2553,7 @@ def name_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
     """
     import base64
     import zlib
+    s = scale or KillfeedScale.for_capture(width, height)
     x0, y0, x1, y1 = roi.pixels(width, height)
     crop = frame[y0:y1, x0:x1]
     if mask is None:
@@ -2269,17 +2573,17 @@ def name_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
         if white is None:
             white = _plate_masks(crop, mask)[2]
         band = white[v.y0:v.y1]
-        rows = _name_text_rows(band, *v.killer_run)
+        rows = _name_text_rows(band, *v.killer_run, s)
         for role in ("killer", "victim"):
             row = {**base, "role": role, "me": me[role]}
             if rows is None:
                 out.append({**row, "gray": None, "reason": "no_text_line"})
                 continue
             if role == "killer":
-                cut = _name_cut(band, 0, v.wx0 - 1, rows)
+                cut = _name_cut(band, 0, v.wx0 - 1, rows, s)
             else:
                 z = bounds.get((v.slot, "victim"))
-                cut = _name_cut(band, v.wx1 + 1, band.shape[1] if z is None else z, rows)
+                cut = _name_cut(band, v.wx1 + 1, band.shape[1] if z is None else z, rows, s)
             if cut is None:
                 out.append({**row, "gray": None, "reason": "no_name_text"})
                 continue
@@ -2340,27 +2644,31 @@ class KillfeedPortraitReader:
         self.frames_offered += 1
         if self.roi is None:
             return
+        # One scale for the capture, handed to every reader of this frame.
+        s = KillfeedScale.for_capture(self.w, self.h)
         views = analyse_killfeed(
             smp.frame, self.roi, self.w, self.h, self.mask,
-            self.profile.name, mask_prefix=self.mask_prefix)
+            self.profile.name, mask_prefix=self.mask_prefix, scale=s)
         # The player's own deaths: does the entry carry the second-life badge?
         # Stored for every such entry, badge or not, so a consumer can tell a
         # Run It Back death from a death, and both from an entry never read.
         x0, y0, x1, y1 = self.roi.pixels(self.w, self.h)
         for view in views:
-            if view.verdict != "death" or not view.victim_run or view.y1 - view.y0 < 10:
+            if (view.verdict != "death" or not view.victim_run
+                    or view.y1 - view.y0 < s.px(SECOND_LIFE_MIN_BAND_H)):
                 continue
             band = smp.frame[y0 + view.y0:y0 + view.y1, x0:x1]
-            has_badge, metrics = detect_second_life_badge(band, view.victim_run[0])
+            has_badge, metrics = detect_second_life_badge(band, view.victim_run[0], s=s)
             self.badges.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms),
                                 "slot": view.slot, "y0": int(view.y0), "y1": int(view.y1),
                                 "victim_x": int(view.victim_run[0]),
                                 "has_badge": bool(has_badge), **metrics})
-        for row in weapon_icon_observations(smp.frame, self.roi, self.w, self.h, views):
+        for row in weapon_icon_observations(smp.frame, self.roi, self.w, self.h, views,
+                                            scale=s):
             self.weapons.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms), **row})
         portraits = portrait_observations(
             smp.frame, self.roi, self.w, self.h, views=views,
-            mask=self.mask, profile_name=self.profile.name)
+            mask=self.mask, profile_name=self.profile.name, scale=s)
         for observation in portraits:
             self.rows.append({
                 "frame_idx": int(smp.frame_idx),
@@ -2368,7 +2676,7 @@ class KillfeedPortraitReader:
                 **observation,
             })
         for row in name_observations(smp.frame, self.roi, self.w, self.h, views,
-                                     portraits, mask=self.mask):
+                                     portraits, mask=self.mask, scale=s):
             self.names.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms), **row})
 
     def events(self, session_id: str) -> list[dict]:
@@ -2427,11 +2735,16 @@ class KillfeedPortraitReader:
         common = {"session_id": session_id, "source": "killfeed",
                   "killfeed_weapon_version": KILLFEED_WEAPON_VERSION}
         refused = Counter(r["reason"] for r in self.weapons if r["reason"])
+        s = KillfeedScale.for_capture(self.w, self.h)
         coverage = {**common, "kind": "coverage", "frames_offered": self.frames_offered,
                     "frames_from": self.frames_from,
                     "observations": len(self.weapons),
                     "described": len(self.weapons) - sum(refused.values()),
-                    "refused_reasons": dict(sorted(refused.items()))}
+                    "refused_reasons": dict(sorted(refused.items())),
+                    "scale": s.provenance(),
+                    "scale_check": scale_check(
+                        [r["slot_geom"]["plate_h"] * s.scale for r in self.weapons
+                         if r.get("slot_geom")], s)}
         return [coverage] + [{**common, "kind": "weapon_icon_observation", **r}
                              for r in self.weapons]
 
@@ -2514,4 +2827,5 @@ def read_killfeed(
         unparsed=sum(1 for v in views if v.verdict == "unparsed"),
         unparsed_reason=next((v.reason for v in views
                               if v.verdict == "unparsed" and v.reason), None),
+        scale=KillfeedScale.for_capture(width, height).scale,
     )

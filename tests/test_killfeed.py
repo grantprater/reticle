@@ -342,7 +342,8 @@ class WeaponDescriptorTests(unittest.TestCase):
     def test_a_ringed_icon_is_stripped_to_its_glyph(self):
         frame = self._frame(_ring_band())
         view = killfeed.EntryView(0, 0, 34, 52, 68, verdict="kill")
-        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view])[0]
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
         self.assertIs(row["ringed"], True)
         self.assertIsNone(row["reason"])
         self.assertEqual((row["ix0"], row["ix1"]), (52, 68))
@@ -350,16 +351,131 @@ class WeaponDescriptorTests(unittest.TestCase):
     def test_an_unringed_icon_says_so(self):
         frame = self._frame(_ring_band(ring=False))
         view = killfeed.EntryView(0, 0, 34, 52, 68, verdict="kill")
-        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view])[0]
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
         self.assertIs(row["ringed"], False)
         self.assertIsNotNone(row["grid"])
 
     def test_a_box_off_the_plate_refuses(self):
         frame = self._frame(_ring_band(ring=False), plate=np.array([128, 128, 128], np.uint8))
         view = killfeed.EntryView(0, 0, 34, 52, 68, verdict="kill")
-        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view])[0]
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
         self.assertEqual((row["reason"], row["ringed"], row["ring_reason"]), ("no_plate", None, "no_plate"))
         self.assertIsNone(row["grid"])
+        self.assertIsNone(row["soft"])
+        self.assertIsNone(row["centroid"])
+
+    def test_the_soft_patch_round_trips_the_slot_whiteness(self):
+        frame = self._frame(_ring_band(ring=False))
+        view = killfeed.EntryView(0, 0, 34, 52, 68, verdict="kill")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
+        patch, known = killfeed.unpack_soft(row["soft"])
+        band = frame[0:34]
+        green, red, _w = killfeed._plate_masks(band, np.ones(band.shape[:2], bool))
+        w, ok = killfeed.plate_whiteness(band, green, red)
+        x0 = row["soft"]["x0"]
+        want = np.round(np.clip(w[:, x0:x0 + patch.shape[1]], 0, 1) * 255).astype(np.uint8)
+        np.testing.assert_array_equal(patch, want)
+        np.testing.assert_array_equal(known, ok[x0:x0 + patch.shape[1]])
+        # The patch spans the icon box and SOFT_MARGIN columns either side.
+        self.assertEqual(x0, row["ix0"] - killfeed.SOFT_MARGIN)
+        self.assertEqual(patch.shape, (34, row["ix1"] - row["ix0"] + 2 * killfeed.SOFT_MARGIN))
+        self.assertIs(row["ring_stripped"], False)
+        self.assertEqual(row["slot_geom"]["box"], [row["ix0"], 0, row["ix1"], 34])
+        self.assertEqual(row["slot_geom"]["scale"]["scale"], 1.0)
+
+    def test_the_centroid_follows_a_sub_pixel_shift(self):
+        # A white bar whose left edge column is half covered: the centroid moves
+        # by a fraction of a pixel, which the whole-pixel box cannot show.
+        def row_for(edge):
+            frame = np.tile(RED_PLATE, (34, 120, 1))
+            frame[10:24, 55:71] = 255
+            plate = RED_PLATE.astype(np.float32)
+            frame[10:24, 54] = np.round(plate + edge * (255 - plate)).astype(np.uint8)
+            view = killfeed.EntryView(0, 0, 34, 55, 71, verdict="kill", ix0=53, ix1=74)
+            return killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                     scale=killfeed.UNIT_SCALE)[0]
+        a, b = row_for(0.0), row_for(0.6)
+        self.assertIsNotNone(a["centroid"])
+        self.assertAlmostEqual(a["centroid"][0], 62.5, places=2)
+        self.assertLess(b["centroid"][0], a["centroid"][0])
+        self.assertAlmostEqual(a["centroid"][1], b["centroid"][1], places=3)
+
+
+class WeaponSlotPlacementTests(unittest.TestCase):
+    """K2: the slot is cut where the names place the entry, and a divider off
+    the band's plate runs refuses."""
+
+    ROI = killfeed.Roi("killfeed", 0.0, 0.0, 1.0, 1.0)
+    GREEN = np.array([100, 200, 70], np.uint8)
+
+    def _plates(self, h=80, w=120):
+        frame = np.tile(RED_PLATE, (h, w, 1))
+        frame[:, 60:] = self.GREEN
+        return frame
+
+    def test_the_names_move_the_cut_to_their_entry(self):
+        # The view band is rows 0..36, the names' baseline lies at band row 36,
+        # 13 below NAME_BASE_ROW: the entry stands at rows 13..49.
+        frame = self._plates()
+        for c0 in (10, 18, 90, 98):
+            frame[26:36, c0:c0 + 5] = 255
+        frame[22:42, 40:56] = 255                      # the icon, its lower half below row 36
+        view = killfeed.EntryView(0, 0, 36, 40, 56, killer_run=(10, 22),
+                                  victim_run=(90, 102), verdict="other")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 80, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
+        self.assertEqual(row["band_shift"], 13)
+        self.assertEqual((row["y0"], row["y1"]), (0, 36))      # the binding rows stay
+        self.assertEqual(row["slot_geom"]["box"][1::2], [13, 49])
+        self.assertIsNone(row["reason"])
+        # The whole icon: 20 rows inside the shifted band, 14 inside the view's.
+        patch, _known = killfeed.unpack_soft(row["soft"])
+        self.assertEqual(int((patch[:, 3:19] == 255).any(axis=1).sum()), 20)
+
+    def test_a_move_that_leaves_the_plate_is_refused(self):
+        # Two runs that are not names (portrait art, the headshot mark) agree
+        # 10 rows high; the move would put 10 rows of scenery in the band.
+        frame = np.tile(np.array([128, 128, 128], np.uint8), (80, 120, 1))
+        frame[40:74] = self._plates()[40:74]
+        for c0 in (10, 18, 90, 98):
+            frame[43:53, c0:c0 + 5] = 255
+        frame[50:66, 40:56] = 255
+        view = killfeed.EntryView(0, 40, 74, 40, 56, killer_run=(10, 22),
+                                  victim_run=(90, 102), verdict="other")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 80, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
+        self.assertEqual(row["band_shift"], 0)
+        self.assertIsNone(row["reason"])
+
+    def test_names_on_their_row_move_nothing(self):
+        frame = self._plates()
+        for c0 in (10, 18, 90, 98):
+            frame[13:23, c0:c0 + 5] = 255
+        frame[10:26, 40:56] = 255
+        view = killfeed.EntryView(0, 0, 34, 40, 56, killer_run=(10, 22),
+                                  victim_run=(90, 102), verdict="other")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 80, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
+        self.assertEqual(row["band_shift"], 0)
+        self.assertIsNone(row["reason"])
+
+    def test_a_divider_left_of_the_plate_runs_refuses(self):
+        # Plate colour touches the divider's columns only in a few rows (portrait
+        # art), so the columns pass the plate-behind test; no covered run
+        # reaches them: the entry's plate starts at column 60.
+        frame = np.tile(np.array([128, 128, 128], np.uint8), (34, 120, 1))
+        frame[:, 60:] = self.GREEN
+        frame[0:6, 0:40] = RED_PLATE
+        frame[10:26, 12:30] = 255
+        view = killfeed.EntryView(0, 0, 34, 12, 30, verdict="other")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
+        self.assertEqual(row["reason"], "off_plate_run")
+        self.assertIsNone(row["grid"])
+        self.assertIsNone(row["soft"])
 
 
 class VictimSideTests(unittest.TestCase):
