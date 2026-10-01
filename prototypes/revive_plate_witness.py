@@ -1,6 +1,7 @@
 r"""Whether the killer's plate colour marks a revive entry.
 
     .\.venv\Scripts\python.exe prototypes\revive_plate_witness.py
+    .\.venv\Scripts\python.exe prototypes\revive_plate_witness.py self [session]
 
 Question. A revive banner is one colour end to end, its chevron dividing a
 darker from a lighter shade of the reviving team's colour
@@ -133,7 +134,23 @@ def main() -> int:
     return 0
 
 
-def self_entries() -> int:
+def plates_typed_revive(v: dict) -> bool:
+    """Whether the plates typed a death row's entry a revive.
+
+    Rows before death-adjudication-0.25.0 say so as `revive_witness ==
+    "plates"`: the icon went unnamed, the victim's side fielded a reviver and
+    two names printed. From 0.25.0 the row carries `entry_type`
+    (`adjudication.death.decide_entry_type`); the plates type a revive under
+    its rule 3, with the icon and the ring both silent. No exact equivalent:
+    the ring, absent before, now speaks on some entries the plates alone
+    typed, and the context gate replaces the fielded-reviver check."""
+    et = v.get("entry_type")
+    if et is None:
+        return v.get("revive_witness") == "plates"
+    return et.get("type") == "revive" and et.get("rule") == 3
+
+
+def self_entries(only: str | None = None) -> int:
     """Whether a same-side entry's killer and victim print one name.
 
     A self entry (a Clove revive's expiry, a spike death, a self-kill) is one
@@ -145,7 +162,7 @@ def self_entries() -> int:
     from reticle.adjudication.killfeed_names import NCC_MIN, followed_views, ncc, role_crops
     store = Store(STORE)
     tally, rows = Counter(), []
-    for p in sorted((STORE / "events" / "death").glob("*.jsonl")):
+    for p in sorted((STORE / "events" / "death").glob(f"{only or '*'}.jsonl")):
         sid = p.stem
         names = store.read_events("killfeed_name", sid)
         for line in p.read_text(encoding="utf-8").splitlines():
@@ -164,7 +181,7 @@ def self_entries() -> int:
             score = None if k is None or g is None else ncc(k, g)
             read = ("unread" if score is None else "one" if score >= NCC_MIN else "two")
             kind = icon if icon in REVIVES or icon == "Environmental" else (
-                "plates" if v.get("revive_witness") == "plates" else f"same_side:{icon}")
+                "plates" if plates_typed_revive(v) else f"same_side:{icon}")
             tally[(kind, read)] += 1
             rows.append((sid, v["t_ms"] / 1000, kind, read, None if score is None else round(score, 3),
                          crops["killer"]["reason"], crops["victim"]["reason"]))
@@ -178,4 +195,4 @@ def self_entries() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(self_entries() if sys.argv[1:] == ["self"] else main())
+    raise SystemExit(self_entries(*sys.argv[2:3]) if sys.argv[1:2] == ["self"] else main())
