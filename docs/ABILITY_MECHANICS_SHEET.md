@@ -114,9 +114,13 @@ icon?
 | Viper | Viper's Pit | 'Decays' with no damage clause | "FIRE to spray a chemical cloud in all directions around Viper, creating a large cloud that Nearsights players and Decays the health of enemies inside of it." |
 | Viper | Toxic | 'Decay' with no damage clause | "Enemies that cross through Viper's Poison Cloud, Toxic Screen, or Viper's Pit are instantly inflicted with at least 30 Decay." |
 
-The mined weapon-slot gallery holds a Curveball group the player labelled,
-though the description names a flash and no damage: is that icon Curveball,
-and can a non-damaging ability draw a kill's weapon-slot icon?
+The mined weapon-slot gallery holds one exemplar the player labelled
+Curveball, though the description names a flash and no damage: b3b9defb6fd7
+at 1731.5 s, a Phoenix kill. Its stored box sits in the weapon slot, between
+the killer's name and the victim's, not in the assist panel
+(`<store>/analysis/killfeed-openset-20261001/curveball_boxes.png`); the icon
+is a flame. Is that icon Curveball or Hot Hands, and can a non-damaging
+ability draw a kill's weapon-slot icon?
 
 The assist list is not yet read by any owner. For each row: can the ability
 draw an assist icon? And can a damaging ability draw one?

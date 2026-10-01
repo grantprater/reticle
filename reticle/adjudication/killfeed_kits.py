@@ -53,7 +53,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-KILLFEED_KITS_VERSION = "killfeed-kits-0.1.0"
+# 0.2.0 (2026-10-01): agents keyed by the lineup's spelling (KAY_O).
+KILLFEED_KITS_VERSION = "killfeed-kits-0.2.0"
 
 DATA = Path(__file__).resolve().parent.parent / "templates" / "killfeed_kits.json"
 REFERENCE = "reference/abilities.json"
@@ -157,11 +158,16 @@ def assist_decision(description: str) -> dict:
 def derive(reference: dict, reference_sha: Optional[str] = None) -> dict:
     """The stored derivation from the parsed reference: every ability's two
     decisions, then per agent the kit, the damage questions, the assist icons
-    and the assist questions."""
+    and the assist questions. Agents are keyed by the lineup's and the
+    arbiter's spelling, the asset stem (`lineup.ASSET_TO_AGENT` inverted:
+    KAY_O where the reference says KAY/O)."""
+    from ..lineup import ASSET_TO_AGENT
+    to_stem = {v: k for k, v in ASSET_TO_AGENT.items()}
     abilities, kits, opened, assists, assist_open = [], {}, {}, {}, {}
-    for agent in sorted(reference["agents"]):
+    for ref_agent in sorted(reference["agents"]):
+        agent = to_stem.get(ref_agent, ref_agent)
         kits[agent], assists[agent] = [], []
-        for ab in reference["agents"][agent]["abilities"]:
+        for ab in reference["agents"][ref_agent]["abilities"]:
             name, desc = ab["name"], ab.get("description") or ""
             dmg = damage_decision(name, desc, ab.get("functions"))
             ast = assist_decision(desc)

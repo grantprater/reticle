@@ -65,6 +65,18 @@ class DerivationTests(unittest.TestCase):
         a = out["abilities"][0]["damage"]
         self.assertEqual((a["by"], a["excerpt"]), ("rule:does-damage", "The burst does heavy damage to anyone."))
 
+    def test_kits_spell_agents_as_ability_agent_does(self):
+        """Every kit name's caster, as `weapon.ability_agent` spells it (the
+        lineup's KAY_O), is the agent the kit is keyed by."""
+        from reticle.adjudication.weapon import ability_agent
+        kits = kk.kill_kits()
+        self.assertIn("KAY_O", kits)
+        self.assertNotIn("KAY/O", kits)
+        for agent, names in kits.items():
+            for n in names:
+                if ability_agent(n) is not None:
+                    self.assertEqual(ability_agent(n), agent, n)
+
     def test_stored_derivation_matches_the_reference(self):
         from reticle.store import DEFAULT_STORE
         ref = DEFAULT_STORE / kk.REFERENCE
