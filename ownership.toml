@@ -1418,7 +1418,7 @@ question = "Where is the drawn minimap shape of a cast whose ability draws a kno
 owner = "ability_shapes"
 role = ["detect"]
 status = "partial"
-produces = ["fit_shape", "fit_ring", "fit_beam", "longest_segment", "on_map"]
+produces = ["fit_shape", "fit_ring", "fit_beam", "longest_segment", "on_map", "ring_candidates", "beam_sweep"]
 not_for = """
 Finding abilities of unknown kind (`ability-detection` proposes those); naming
 the caster (`ability-owner`); an onset or expiry, since each call reads one

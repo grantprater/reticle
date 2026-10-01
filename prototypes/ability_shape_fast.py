@@ -289,32 +289,9 @@ def component_rings(tl, mask, R, seed=0):
 
 # ------------------------------------------------------------------ beam
 
-def beam_sweep(tl, mask, ox, oy, R, step=STEP_DEG):
-    """The `fit_beam` strip-minus-collar score at every angle on a `step` grid."""
-    ys, xs = np.nonzero(mask)
-    vx, vy = xs - ox, ys - oy
-    rho = np.hypot(vx, vy)
-    sel = (rho >= S_.BEAM_NEAR_PX) & (rho <= S_.BEAM_REACH * R)
-    rho, phi = rho[sel], np.degrees(np.arctan2(vy[sel], vx[sel])) % 360.0
-    t = tl[ys[sel], xs[sel]].astype(np.float64)
-    hw, col = S_.BEAM_HALF * R, S_.BEAM_COLLAR * R
-    nb = int(round(360.0 / step))
-
-    def interval(alpha, wts):
-        lo = np.ceil((phi - alpha) / step - 1e-9).astype(int) + nb
-        hi = np.floor((phi + alpha) / step + 1e-9).astype(int) + nb + 1
-        d = np.bincount(lo, wts, 3 * nb + 2) - np.bincount(hi, wts, 3 * nb + 2)
-        c = np.cumsum(d)[:3 * nb]
-        return c[:nb] + c[nb:2 * nb] + c[2 * nb:]
-
-    a1 = np.degrees(np.arcsin(np.clip(hw / rho, 0, 1)))
-    a2 = np.degrees(np.arcsin(np.clip((hw + col) / rho, 0, 1)))
-    one = np.ones_like(t)
-    s1, n1 = interval(a1, t), interval(a1, one)
-    s2, n2 = interval(a2, t) - s1, interval(a2, one) - n1
-    with np.errstate(invalid="ignore", divide="ignore"):
-        sc = np.where((n1 >= 20) & (n2 >= 20), s1 / n1 - s2 / n2, -1.0)
-    return np.arange(nb) * step, sc
+#: Promoted into `reticle.ability_shapes` (ability-shape-0.2.0); re-exported so
+#: this record scores what ships.
+beam_sweep = S_.beam_sweep
 
 
 def fast_fit_beam(tl, mask, ox, oy, R, around=None):

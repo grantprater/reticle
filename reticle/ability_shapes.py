@@ -73,6 +73,27 @@ the nearest within SEED_TOL_MS of the crop. The
 marks are a centre and angle truth, not a radius truth: the player traced the
 ring's inner edge, 0-15 px inside it.
 
+The fast search (0.2.0). The scores above are unchanged; only their search
+is. 0.1.0 scored every third ring centre exactly (about 1.6 s a 331 px
+crop). Now a coarse FFT surface of the same score (`RingSurface`, the teal
+weight averaged 2x2) proposes its REFINE_K best centres, and the exact score
+is maximised on a 7x7 window round each. The beam is swept over every angle
+at once (`beam_sweep`). A ring's centre must lie on the map's footprint,
+which removes the false rings centred over the void that a whole-match scan
+found. `prototypes/ability_shape_eval.py` on 2026-09-30 still finds
+[metric:ability_shapes/marks-020@tray-object-marks#fury_found=21] of 21
+blasts, [metric:ability_shapes/marks-020@tray-object-marks#regrowth_found=14]
+of 16 Regrowth and
+[metric:ability_shapes/marks-020@tray-object-marks#recon_found=8] of 8 Recon
+Bolt panels, and [metric:ability_shapes/marks-020@tray-object-marks#pre_found=0]
+pre-cast panels. Its null ring maximum is
+[metric:ability_shapes/null-020@sova-skye-null#ring_max=0.182], and fit_shape
+takes a median [metric:ability_shapes/marks-020@tray-object-marks#s_median=0.052]
+s and at most [metric:ability_shapes/marks-020@tray-object-marks#s_max=0.138] s
+per crop (`docs/ABILITY_DETECTION.md`, stage 1).
+`ring_candidates` is the whole-widget ring search that `ability_scan` stores
+for every caster.
+
 On every session the stored rows at the marks reproduce these counts. The Fury
 line shows on [metric:ability_shapes/production@all-sessions#fury_found=233]
 of [metric:ability_shapes/production@all-sessions#fury_crops=234] crops after the ult's drop, turning between crops, so a found beam dates
@@ -161,6 +182,24 @@ def widget(shape) -> tuple[float, np.ndarray]:
 
 # ------------------------------------------------------------------- ring
 
+#: The coarse surface's scale, how many of its peaks are rescored, and the
+#: exact window round each, in px (`prototypes/ability_shape_fast.py`'s
+#: coarse-to-fine variant, measured there against the exhaustive search).
+COARSE_SCALE, REFINE_K, REFINE_HALF = 0.5, 5, 3
+
+
+def _smooth_len(n: int) -> int:
+    """The smallest 5-smooth integer >= n (pocketfft is fastest on those)."""
+    while True:
+        m = n
+        for p in (2, 3, 5):
+            while m % p == 0:
+                m //= p
+        if m == 1:
+            return n
+        n += 1
+
+
 class _Radial:
     """Half-pixel radial sums round any centre of one crop, padded once."""
 
@@ -193,34 +232,199 @@ class _Radial:
         return np.where(np.isnan(out), -1.0, out)
 
 
-def fit_ring(tl: np.ndarray, mask: np.ndarray, R: float,
-             centre: tuple[float, float] | None = None, half: float | None = None,
-             step: int = 1, _radial: _Radial | None = None) -> dict:
-    """The best ring, searched round `centre` (within `half`) or everywhere:
-    the score is mean teal on the annulus [r-1.5, r+1.5) minus the brighter of
-    [r-6, r-3) and [r+3, r+6)."""
-    h, w = tl.shape
-    rad = _radial or _Radial(tl, mask, np.arange(RING_R[0] * R, RING_R[1] * R + 0.01, 0.5))
-    if centre is None:
-        xs, ys = range(0, w, step), range(0, h, step)
-    else:
-        xs = range(max(0, int(centre[0] - half)), min(w, int(centre[0] + half) + 1), step)
-        ys = range(max(0, int(centre[1] - half)), min(h, int(centre[1] + half) + 1), step)
+def ring_radii(R: float) -> np.ndarray:
+    """The searched ring radii: RING_R of the widget radius, in half pixels."""
+    return np.arange(RING_R[0] * R, RING_R[1] * R + 0.01, 0.5)
+
+
+class _Kernels:
+    """Disc-kernel FFTs and the widget's band counts for one crop size and
+    scale. They depend on the size alone, so they are built once a size."""
+
+    _cache: dict = {}
+
+    @classmethod
+    def of(cls, shape, R: float, scale: float) -> "_Kernels":
+        key = (tuple(shape), round(R, 3), scale)
+        if key not in cls._cache:
+            cls._cache[key] = cls(tuple(shape), R, scale)
+        return cls._cache[key]
+
+    def __init__(self, shape, R: float, scale: float):
+        h, w = shape
+        full = ring_radii(R)
+        self.radii = full if scale == 1.0 else full[::2]
+        r, s = self.radii * scale, scale
+        i = [np.clip(np.round(a * 2).astype(int), 0, None)
+             for a in (r - 1.5 * s, r - 6 * s, r + 3 * s)]
+        j = [np.clip(np.round(b * 2).astype(int), 0, None)
+             for b in (r + 1.5 * s, r - 3 * s, r + 6 * s)]
+        self.ks = np.unique(np.concatenate(i + j))
+        pos = {int(k): n for n, k in enumerate(self.ks)}
+        self.jn = [np.array([pos[int(k)] for k in a]) for a in j]
+        self.im = [np.array([pos[int(k)] for k in a]) for a in i]
+        W = int(np.ceil(r.max() + 7 * s))
+        self.P = (_smooth_len(h + W + 1), _smooth_len(w + W + 1))
+        yy, xx = np.mgrid[-W:W + 1, -W:W + 1]
+        d2 = np.floor(np.hypot(xx, yy) * 2).astype(int)
+        self.KF = np.empty((len(self.ks), self.P[0], self.P[1] // 2 + 1), np.complex64)
+        for n, k in enumerate(self.ks):
+            kp = np.zeros(self.P, np.float32)
+            kp[yy % self.P[0], xx % self.P[1]] = (d2 < k).astype(np.float32)
+            self.KF[n] = np.fft.rfft2(kp)
+        _, self.mask = widget(shape)
+        self.M = np.rint(self.conv(self.mask.astype(np.float32), shape))
+
+    def conv(self, img: np.ndarray, shape) -> np.ndarray:
+        """`img`'s sum over every disc kernel, at every centre."""
+        h, w = shape
+        F = np.fft.rfft2(img, s=self.P).astype(np.complex64)
+        out = np.empty((len(self.ks), h, w), np.float32)
+        for n in range(len(self.ks)):
+            out[n] = np.fft.irfft2(F * self.KF[n], s=self.P)[:h, :w]
+        return out
+
+
+class RingSurface:
+    """The `fit_ring` score's best radius at every centre of one crop at once.
+
+    A band sum round a centre is a disc sum at its outer edge minus one at
+    its inner edge, and a disc sum at every centre is a convolution of the
+    teal weight with that disc: one FFT of the crop and one inverse FFT per
+    half-pixel radius give every band. At `scale` < 1 the teal weight is
+    averaged first, and the surface only proposes centres for the exact
+    rescoring in `fit_ring`."""
+
+    def __init__(self, tl: np.ndarray, R: float, scale: float = COARSE_SCALE):
+        self.scale = scale
+        small = (tl if scale == 1.0 else
+                 cv2.resize(tl, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA))
+        K = self.K = _Kernels.of(small.shape, R, scale)
+        T, M = K.conv((small * K.mask).astype(np.float32), small.shape), K.M
+        best = np.full(small.shape, -2.0, np.float32)
+        arg = np.zeros(small.shape, np.int32)
+        for q in range(len(K.radii)):
+            vals = []
+            for b in range(3):
+                jn, im = K.jn[b][q], K.im[b][q]
+                cnt = M[jn] - M[im]
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    vals.append(np.where(cnt >= 8, (T[jn] - T[im]) / np.maximum(cnt, 1), np.nan))
+            out = vals[0] - np.fmax(vals[1], vals[2])
+            out = np.where(np.isnan(out), -1.0, out).astype(np.float32)
+            better = out > best
+            best[better] = out[better]
+            arg[better] = q
+        best[~K.mask] = -2.0
+        self.best, self.arg = best, arg
+
+    def peaks(self, R: float, k: int = REFINE_K, sep_frac: float = 0.1,
+              centre=None, half=None, allowed: np.ndarray | None = None) -> list:
+        """The `k` best local maxima at least `sep_frac` R apart, as (score,
+        x, y) in full-resolution pixels: inside the window round `centre`
+        when given, and on `allowed` (a full-resolution mask) when given."""
+        s = self.scale
+        b = self.best.copy()
+        if centre is not None:
+            m = np.full(b.shape, -2.0, np.float32)
+            x0 = max(0, int((centre[0] - half) * s))
+            x1 = min(b.shape[1], int((centre[0] + half) * s) + 1)
+            y0 = max(0, int((centre[1] - half) * s))
+            y1 = min(b.shape[0], int((centre[1] + half) * s) + 1)
+            m[y0:y1, x0:x1] = b[y0:y1, x0:x1]
+            b = m
+        if allowed is not None:
+            h, w = allowed.shape
+            yy, xx = np.mgrid[0:b.shape[0], 0:b.shape[1]]
+            ok = allowed[np.clip(np.round(yy / s).astype(int), 0, h - 1),
+                         np.clip(np.round(xx / s).astype(int), 0, w - 1)]
+            b[~ok] = -2.0
+        sep = max(1, int(round(sep_frac * R * s)))
+        out = []
+        for _ in range(k):
+            yi, xi = np.unravel_index(int(np.argmax(b)), b.shape)
+            if b[yi, xi] <= -1.0:
+                break
+            out.append((float(b[yi, xi]), xi / s, yi / s))
+            b[max(0, yi - sep):yi + sep + 1, max(0, xi - sep):xi + sep + 1] = -2.0
+        return out
+
+
+def _ring_window(rad: _Radial, mask: np.ndarray, centre, half: float,
+                 allowed: np.ndarray | None = None) -> tuple:
+    """The exact score's best (score, x, y, r) over every centre within `half`."""
+    h, w = mask.shape
     best = (-2.0, None, None, None)
-    for x in xs:
-        for y in ys:
-            if not mask[y, x]:
+    for x in range(max(0, int(centre[0] - half)), min(w, int(centre[0] + half) + 1)):
+        for y in range(max(0, int(centre[1] - half)), min(h, int(centre[1] + half) + 1)):
+            if not mask[y, x] or (allowed is not None and not allowed[y, x]):
                 continue
             sc = rad.scores(x, y)
             k = int(np.argmax(sc))
             if sc[k] > best[0]:
                 best = (float(sc[k]), x, y, float(rad.radii[k]))
-    if step > 1 and best[1] is not None:
-        return fit_ring(tl, mask, R, (best[1], best[2]), step, 1, rad)
+    return best
+
+
+def fit_ring(tl: np.ndarray, mask: np.ndarray, R: float,
+             centre: tuple[float, float] | None = None, half: float | None = None,
+             step: int | None = None, _radial: _Radial | None = None,
+             support: np.ndarray | None = None,
+             _surface: RingSurface | None = None) -> dict:
+    """The best ring, searched round `centre` (within `half`) or everywhere:
+    the score is mean teal on the annulus [r-1.5, r+1.5) minus the brighter of
+    [r-6, r-3) and [r+3, r+6).
+
+    Coarse to fine (0.2.0): the coarse `RingSurface` proposes its REFINE_K
+    best centres, and the exact score is maximised on a window of
+    REFINE_HALF px round each. With `support`, a centre must lie on it (the
+    centre-on-footprint gate): a ring centred over the void is a false ring,
+    while teal still counts wherever it is drawn. `step` was 0.1.0's stride
+    and is no longer read.
+    """
+    rad = _radial or _Radial(tl, mask, ring_radii(R))
+    surf = _surface or RingSurface(tl, R)
+    allowed = None if support is None else (support & mask)
+    cands = surf.peaks(R, centre=centre, half=half, allowed=allowed)
+    if centre is not None:
+        # The seeded window stays the prior's own.
+        cands = [c for c in cands if abs(c[1] - centre[0]) <= half + 1
+                 and abs(c[2] - centre[1]) <= half + 1] or [(0.0, centre[0], centre[1])]
+    best = (-2.0, None, None, None)
+    for c in cands:
+        got = _ring_window(rad, mask, (c[1], c[2]), REFINE_HALF, allowed)
+        if got[0] > best[0]:
+            best = got
     return {"score": best[0], "cx": best[1], "cy": best[2], "r": best[3]}
 
 
+def ring_candidates(tl: np.ndarray, mask: np.ndarray, R: float,
+                    support: np.ndarray | None = None, min_coarse: float = 0.10,
+                    _surface: RingSurface | None = None) -> list[dict]:
+    """The whole-widget ring search a scan of every caster stores: each
+    coarse peak scoring at least `min_coarse`, refined as `fit_ring` refines
+    its best, best first. `accepted` is ACCEPT's verdict on each."""
+    rad = _Radial(tl, mask, ring_radii(R))
+    surf = _surface or RingSurface(tl, R)
+    allowed = None if support is None else (support & mask)
+    out = []
+    for c in surf.peaks(R, allowed=allowed):
+        if c[0] < min_coarse:
+            continue
+        s, x, y, r = _ring_window(rad, mask, (c[1], c[2]), REFINE_HALF, allowed)
+        if x is None:
+            continue
+        out.append({"score": s, "cx": x, "cy": y, "r": r, "coarse": c[0],
+                    "accepted": s >= ACCEPT["ring"]})
+    return sorted(out, key=lambda f: -f["score"])
+
+
 # ------------------------------------------------------------------- beam
+
+#: The swept beam's angle grid and the window round a widened segment's own
+#: angle, in degrees.
+BEAM_STEP_DEG, BEAM_AROUND_DEG = 0.2, 8.0
+
 
 def _beam(tl, mask, vx, vy, th, R):
     c, s = np.cos(np.radians(th)), np.sin(np.radians(th))
@@ -233,22 +437,55 @@ def _beam(tl, mask, vx, vy, th, R):
     return float(tl[strip].mean() - tl[collar].mean()), lp, strip
 
 
+def beam_sweep(tl: np.ndarray, mask: np.ndarray, ox: float, oy: float, R: float,
+               step: float = BEAM_STEP_DEG) -> tuple[np.ndarray, np.ndarray]:
+    """The beam score (strip minus collar) at every angle of a `step` grid.
+
+    A pixel at distance rho and bearing phi from the origin lies in the
+    strip of angle theta when |theta - phi| <= asin(half / rho), so each
+    pixel adds its teal to one interval of the angle grid, and a difference
+    array sums every interval in one pass."""
+    ys, xs = np.nonzero(mask)
+    vx, vy = xs - ox, ys - oy
+    rho = np.hypot(vx, vy)
+    sel = (rho >= BEAM_NEAR_PX) & (rho <= BEAM_REACH * R)
+    rho, phi = rho[sel], np.degrees(np.arctan2(vy[sel], vx[sel])) % 360.0
+    t = tl[ys[sel], xs[sel]].astype(np.float64)
+    hw, col = BEAM_HALF * R, BEAM_COLLAR * R
+    nb = int(round(360.0 / step))
+
+    def interval(alpha, wts):
+        lo = np.ceil((phi - alpha) / step - 1e-9).astype(int) + nb
+        hi = np.floor((phi + alpha) / step + 1e-9).astype(int) + nb + 1
+        d = np.bincount(lo, wts, 3 * nb + 2) - np.bincount(hi, wts, 3 * nb + 2)
+        c = np.cumsum(d)[:3 * nb]
+        return c[:nb] + c[nb:2 * nb] + c[2 * nb:]
+
+    a1 = np.degrees(np.arcsin(np.clip(hw / rho, 0, 1)))
+    a2 = np.degrees(np.arcsin(np.clip((hw + col) / rho, 0, 1)))
+    one = np.ones_like(t)
+    s1, n1 = interval(a1, t), interval(a1, one)
+    s2, n2 = interval(a2, t) - s1, interval(a2, one) - n1
+    with np.errstate(invalid="ignore", divide="ignore"):
+        sc = np.where((n1 >= 20) & (n2 >= 20), s1 / n1 - s2 / n2, -1.0)
+    return np.arange(nb) * step, sc
+
+
 def fit_beam(tl: np.ndarray, mask: np.ndarray, ox: float, oy: float, R: float,
              around: float | None = None) -> dict:
-    """The best beam from (ox, oy): a 2 deg sweep (or 1 deg within 6 deg of
-    `around`), refined in 0.2 deg steps. The score is mean teal in the strip
-    minus mean teal in the collars either side."""
+    """The best beam from (ox, oy), swept over every angle at BEAM_STEP_DEG
+    (0.2.0), or within BEAM_AROUND_DEG of `around`. The score is mean teal in
+    the strip minus mean teal in the collars either side; the beam ends where
+    the strip's teal falls below half its peak."""
+    th, sc = beam_sweep(tl, mask, ox, oy, R)
+    if around is not None:
+        d = np.abs((th - around + 180) % 360 - 180)
+        sc = np.where(d <= BEAM_AROUND_DEG, sc, -2.0)
+    k = int(np.argmax(sc))
+    best, thb = float(sc[k]), float(th[k])
     h, w = tl.shape
     yy, xx = np.mgrid[0:h, 0:w]
-    vx, vy = xx - ox, yy - oy
-    grid = (np.arange(0, 360, 2.0) if around is None
-            else np.arange(around - 6, around + 6.1, 1.0))
-    sc, th = max((_beam(tl, mask, vx, vy, t, R)[0], t) for t in grid)
-    for t in np.arange(th - 2.0, th + 2.05, 0.2):
-        s2 = _beam(tl, mask, vx, vy, t, R)[0]
-        if s2 > sc:
-            sc, th = s2, t
-    _, lp, strip = _beam(tl, mask, vx, vy, th, R)
+    _, lp, strip = _beam(tl, mask, xx - ox, yy - oy, thb, R)
     bins = np.floor(lp[strip] / 2.0).astype(int)
     prof = np.bincount(bins, weights=tl[strip]) / np.maximum(np.bincount(bins), 1)
     l0 = l1 = BEAM_NEAR_PX
@@ -263,8 +500,8 @@ def fit_beam(tl: np.ndarray, mask: np.ndarray, ox: float, oy: float, R: float,
             else:
                 break
         l0, l1 = run[0] * 2.0, run[-1] * 2.0 + 2.0
-    c, s = np.cos(np.radians(th)), np.sin(np.radians(th))
-    return {"score": sc, "theta_deg": float(th % 360),
+    c, s = np.cos(np.radians(thb)), np.sin(np.radians(thb))
+    return {"score": best, "theta_deg": float(thb % 360),
             "x0": float(ox + l0 * c), "y0": float(oy + l0 * s),
             "x1": float(ox + l1 * c), "y1": float(oy + l1 * s), "length": l1 - l0}
 
@@ -303,8 +540,9 @@ def fit_shape(crop: np.ndarray | None, ability: str,
     `seed` is where the caster is believed to be (widget pixels), or None.
     `support` is the map's footprint (`geometry.footprint` at SUPPORT_DILATE).
     Teal counts over the whole widget, because the shapes are drawn over the
-    void too; the support only places a beam, which must lie BEAM_ON_MAP on
-    the map. Without it no beam is placed, and the row's `support` is None.
+    void too; the support only places a shape: a ring's centre lies on it
+    (0.2.0) and a beam lies BEAM_ON_MAP on it. Without it nothing is placed,
+    and the row's `support` is None.
     The row always carries `found` and `reason`; an unread shape has
     `found=None` and says why.
     """
@@ -334,14 +572,19 @@ def fit_shape(crop: np.ndarray | None, ability: str,
         return "off_map" if f["score"] >= ACCEPT[shape] else "below_accept"
 
     out = None
+    # One coarse surface and one exact scorer serve the seeded and the
+    # widened ring.
+    surf = RingSurface(tl, R) if shape == "ring" else None
+    rad = _Radial(tl, mask, ring_radii(R)) if shape == "ring" else None
     if prior == "caster" and seed is not None:
-        out = placed(dict(fit_ring(tl, mask, R, seed, RING_SEED_HALF * R) if shape == "ring"
+        out = placed(dict(fit_ring(tl, mask, R, seed, RING_SEED_HALF * R, _radial=rad,
+                                   support=support, _surface=surf) if shape == "ring"
                           else fit_beam(tl, mask, seed[0], seed[1], R), path="seeded"))
         if clears(out):
             return {**base, **out, "found": True, "reason": None}
     prior_fit = out
     if shape == "ring":
-        out = dict(fit_ring(tl, mask, R, step=3),
+        out = dict(fit_ring(tl, mask, R, _radial=rad, support=support, _surface=surf),
                    path="free" if prior == "free" else "widened")
     else:
         seg = longest_segment(tl, mask, R, support)

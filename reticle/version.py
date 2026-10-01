@@ -348,7 +348,12 @@ ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
 # One observation of an ability's drawn minimap shape (a ring or a beam), fitted
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
 # a prior, an acceptance or the stored fields change.
-ABILITY_SHAPE_VERSION = "ability-shape-0.1.0"
+# 0.2.0 (2026-09-30): the same ring and beam scores, searched fast. A coarse
+# FFT ring surface proposes five centres and the exact score is maximised
+# round each; the beam is swept over every angle at once; a ring's centre
+# must lie on the map's footprint. Promoted from prototypes/ability_shape_fast.py
+# (docs/ABILITY_DETECTION.md, stage 1).
+ABILITY_SHAPE_VERSION = "ability-shape-0.2.0"
 # The ability tray's charge drops, written as `tray_drop` rows by `reticle
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own

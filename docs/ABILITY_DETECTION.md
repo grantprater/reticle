@@ -456,13 +456,39 @@ fact states. Everything else waits on the mechanics sheet
 | Shock Bolt | nothing | -- | [domain:abilities/sova-shock-bolt-minimap-none] |
 | Aim previews | the player's own band or line | not an object; gone at the cast | [domain:abilities/minimap-aim-preview] |
 
-Enemy smokes are not drawn [domain:abilities/enemy-smokes-not-on-minimap].
-Other enemy entities appear only in team vision [domain:minimap/vision-gate].
-Most facts describe the caster's own minimap. Whether a teammate's or an
-enemy's ring, line or icon is drawn on the player's minimap is a question
-(section 17). The one observation so far is the
-[metric:ability_shape_fast/scan@223d636bf8d2#regrowth_at_skye=4] teal rings
-at the ally Skye on `223d636bf8d2`.
+**Whose drawings the player's minimap shows (the player, 2026-09-30).**
+
+- Every drawing in the table draws for both sides except smokes
+  [domain:minimap/ability-drawings-both-sides]. Enemy smokes are not drawn
+  [domain:abilities/enemy-smokes-not-on-minimap].
+- Colour follows the side, never self against ally
+  [domain:minimap/ability-drawing-colour-by-side]. A teammate's ring, line or
+  icon is therefore the player's own model, and the
+  [metric:ability_shape_fast/scan@223d636bf8d2#regrowth_at_skye=4] teal rings
+  at the ally Skye on `223d636bf8d2` are what it predicts.
+- An enemy's drawing shows inside team vision [domain:minimap/vision-gate].
+  Some take a red theme; which ones, and their red models, are per ability
+  [domain:abilities/ability-rules-are-unique], so no teal model is recoloured
+  by analogy.
+- A few enemy casts show whatever the vision. The always-visible set:
+  - certain: Leer [domain:abilities/reyna-leer-global-minimap] and Haunt
+    [domain:abilities/fade-haunt-global-minimap];
+  - believed, unverified: Recon Bolt
+    [domain:minimap/ability-drawings-both-sides], Lockdown
+    [domain:abilities/killjoy-lockdown-global-minimap], Thrash
+    [domain:abilities/gekko-thrash-global-minimap], Barrier Orb
+    [domain:abilities/sage-barrier-orb-global-minimap], Barrier Mesh
+    [domain:abilities/deadlock-barrier-mesh-global-minimap], Hunter's Fury
+    [domain:abilities/sova-hunters-fury-global-minimap], Orbital Strike
+    [domain:abilities/brimstone-orbital-strike-global-minimap], Cosmic Divide
+    [domain:abilities/astra-cosmic-divide-global-minimap] and Toxic Screen
+    [domain:abilities/viper-toxic-screen-global-minimap].
+
+So enemy shapes and icons are in scope. The reader searches the whole widget
+on every gated sample whichever side cast, and stores what it finds. The
+side and the vision test belong to the owners downstream (section 14). Stages
+1-3 build no per-ability detector for the always-visible set. Each one's
+drawing waits on its own fact or a targeted demo.
 
 ## 9. Pure computer vision: the recommendation and its obstacles
 
@@ -484,8 +510,9 @@ detectors.
   - Pale regions and white areas are not dark discs. The proposer cannot see
     them, so they need their own parametric fits, one per fact.
   - Seekers' recall is the lowest of the labelled abilities (section 3).
-  - Enemy icons are red-rimmed and drawn only in team vision. Their rim is
-    faint at 331 px [domain:minimap/enemy-rim-faint-at-small-widget].
+  - Enemy drawings show inside team vision, and the always-visible set of
+    section 8 outside it. A red rim is faint at 331 px
+    [domain:minimap/enemy-rim-faint-at-small-widget].
   - Icons may be exactly coincident [domain:minimap/coincident-icons].
   - The proposer's null rate (about 6 candidates per crop) is mostly dark
     floor discs that come and go. Tracking and the classifier, not the
@@ -581,11 +608,23 @@ full catalogue is the surprise path and must be justified.
 
 - **Claims.** Each `ability_track` publishes an `identity_claim` to
   `adjudication.identity`, per entity and side.
-- **Side** comes from the rim colour: teal for the player's side, red for
-  the enemy's [domain:abilities/skye-trailblazer-enemy-minimap-glyph]. An
-  enemy entity is drawn only in team vision [domain:minimap/vision-gate].
+- **Side** comes from the drawing's colour, which changes by side and never
+  self against ally [domain:minimap/ability-drawing-colour-by-side]: teal for
+  the player's side, red for the enemy's where the ability takes a red theme
+  [domain:abilities/skye-trailblazer-enemy-minimap-glyph]. A drawing whose
+  ability keeps one colour for both sides gets its side from other evidence
+  (a birth at a teammate's icon, the vision test below) or stays `unknown`.
+- **The vision test.** An enemy track outside team vision is a surprise
+  unless its ability is in the always-visible set of section 8
+  [domain:minimap/ability-drawings-both-sides]
+  [domain:abilities/reyna-leer-global-minimap]
+  [domain:abilities/fade-haunt-global-minimap]. The surprise is stored with
+  the track, never dropped. The set's believed members carry their facts'
+  `known` level into the claim, so a track resting on an unverified belief
+  says so.
 - **Candidates** are the side's agents from the lineup whose kit has the
-  track's class. The claim declares `depends_on` the lineup slots, so the
+  track's class: the player's side's five for a teal track, the enemy's five
+  for a red one. The claim declares `depends_on` the lineup slots, so the
   lineup is never counted again as a witness.
 - **The caster** comes from a birth at a teammate's icon
   [domain:abilities/minimap-thrown-ability-icon], which is a witness that
@@ -650,19 +689,28 @@ then tracks, then naming, then identity and viewer. The corpus run (section
 ## 17. Questions for the player
 
 These were checked against `domain/*.toml` and the private domain notes
-first; none is answered there.
+first. The player answered the first four on 2026-09-30; the answers are
+facts, cited here rather than restated.
 
-1. Does your minimap draw a **teammate's** Recon Bolt ring, Hunter's Fury
-   line or Regrowth ring, and in teal? `223d636bf8d2` shows
-   [metric:ability_shape_fast/scan@223d636bf8d2#regrowth_at_skye=4] teal rings
-   centred on the ally Skye.
-2. Does it ever draw an **enemy's** Recon ring or Fury line, and in red?
-3. Do teammates' thrown icons (Guiding Light, Prowler, Leer) show on your
-   minimap as they do on the caster's?
-4. Should smokes count among the unnamed ability entities for recall, or
-   stay their own lane?
+1. *A teammate's Recon Bolt ring, Hunter's Fury line or Regrowth ring.*
+   Answered: a teammate's drawing is the player's own, because colour changes
+   by side and never self against ally
+   [domain:minimap/ability-drawing-colour-by-side].
+2. *An enemy's Recon ring or Fury line.* Answered: every drawing but smokes
+   draws for both sides, an enemy's inside team vision, and a few always
+   [domain:minimap/ability-drawings-both-sides]. Hunter's Fury is believed to
+   be among those [domain:abilities/sova-hunters-fury-global-minimap]; section
+   8 lists the always-visible set.
+3. *Teammates' thrown icons.* Answered by the same fact: every team-owned
+   entity always shows [domain:minimap/ability-drawings-both-sides].
+4. *Smokes and recall.* Answered: smokes stay out of the recall target and
+   keep their own lane (`minimap_dark`, `adjudication.smokes`).
 5. The bfad review marks include a pale-halo icon with a target glyph. Name
    it, and the others, through the labelling tool in pass 2, not in chat.
+   Open.
+
+The stack belief [domain:minimap/icon-stack-order-is-stable] stands as
+section 13 uses it; its cheap test is still unrun.
 
 ## 18. Not measured
 
