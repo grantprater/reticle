@@ -442,6 +442,11 @@ Smokes must come out identical to the current reader on `a06f04a0059f` and
 
    Each exception is listed by track, not averaged.
 
+A per-map smoke placement prior [domain:abilities/smoke-placement-prior-per-map]
+would plug into `adjudication.smokes` as a weight on a track's place,
+learned from stored tracks across sessions, never into `minimap_dark`'s
+reading and never as a filter; unbuilt.
+
 ## 8. Per-ability candidates, from facts only
 
 Each ability's minimap drawing, lifecycle and inputs are its own
@@ -575,6 +580,32 @@ fewest-labelled matches were preferred, so the truth stays independent. The Iso 
   holds fewer than 60 entities. Labelling stops at the end of a block, never
   at a count. If both blocks hold fewer than 60, a third session is chosen
   and recorded here before it is labelled.
+- **Grouping.** `ability-recall-0.2.0` groups each frame's marks as the
+  player labelled them: a ring is its centre icon, when there is one, and
+  two or more kind-2 points on its rim; an area is one cluster of kind-4
+  fill points; a line is kind-3 points along one smooth curve, so a broken
+  Sage wall [domain:abilities/sage-barrier-orb-segments] stays one; a lone
+  icon is its own entity. `tools\ability_recall.py --groups` prints and
+  draws it; block 1 frames 137 (the broken wall) and 170 (a Bassquake wedge
+  [domain:abilities/miks-bassquake-minimap-wedge]) each group as one entity.
+
+**Block 1, scored 2026-09-30** (`tools\ability_recall.py --record`; accepted
+shapes only; the detectors untouched):
+
+| Widget | Entities found | Recall, lower bound | Frame recall | Unexplained per frame |
+|---|---|---|---|---|
+| 331 px | [metric:ability_recall/block1@043bafca271a#found=35] of [metric:ability_recall/block1@043bafca271a#entities=43] | [metric:ability_recall/block1@043bafca271a#entity_recall=0.814], [metric:ability_recall/block1@043bafca271a#lower95=0.689] | [metric:ability_recall/block1@043bafca271a#frame_recall=0.766] | [metric:ability_recall/block1@043bafca271a#unexplained_all=5.65] |
+| 465 px | [metric:ability_recall/block1@c62c2b06bcfb#found=21] of [metric:ability_recall/block1@c62c2b06bcfb#entities=53] | [metric:ability_recall/block1@c62c2b06bcfb#entity_recall=0.396], [metric:ability_recall/block1@c62c2b06bcfb#lower95=0.283] | [metric:ability_recall/block1@c62c2b06bcfb#frame_recall=0.262] | [metric:ability_recall/block1@c62c2b06bcfb#unexplained_all=3.839] |
+
+Neither size meets the target. At 465 px the walls are the misses: lines
+[metric:ability_recall/block1@c62c2b06bcfb#line_found=1] of
+[metric:ability_recall/block1@c62c2b06bcfb#line_n=20], rings
+[metric:ability_recall/block1@c62c2b06bcfb#ring_found=0] of
+[metric:ability_recall/block1@c62c2b06bcfb#ring_n=3]; no accepted ring or
+beam explains a mark there. Both sizes hold fewer than 60 entities, so
+block 2 is labelled at both. The misses, drawn on the raw crops with the
+nearest proposal, are the store's
+`analysis/ability-recall-20260930/misses_<sid>_p<n>.png`.
 
 ## 11. The labelling loop
 
@@ -620,6 +651,10 @@ full catalogue is the surprise path and must be justified.
   Guiding Light gone by 4 s, Nanoswarm placed and staying. An ability with no
   fact keeps the generic states (observed, lost, censored) and never borrows
   a sibling's rule [domain:abilities/ability-rules-are-unique].
+  A Sage wall's segments break one by one or all at expiry
+  [domain:abilities/sage-barrier-orb-segments], and a wall first seen with a
+  gap is a stored surprise against
+  [domain:abilities/sage-barrier-orb-whole-before-break].
 - **Stacks.**
   - A stack is a stable draw order plus each icon's occlusion state: fully
     visible, partly visible, or mostly or completely obscured
@@ -729,7 +764,9 @@ Each stage commits when its evidence holds.
    pass on their four sessions, the labeller
    (`.\.venv\Scripts\python.exe prototypes\label_ability_recall.py --block 1`
    after `--prepare`) and the scorer with its tests on synthetic labels
-   (`tests/test_ability_recall.py`). No recall label exists yet. The pass
+   (`tests/test_ability_recall.py`). Block 1 was labelled and scored on
+   2026-09-30 (section 10): neither widget size meets the target, and
+   block 2 is due at both. The pass
    wrote `ability_gate`, `ability_shape_scan`, `ability_icon` and
    `minimap_dark` for the four sessions from the crop cache; each
    selection equals every 20th live row of its `ability_icon` stream.

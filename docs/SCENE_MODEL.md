@@ -1119,3 +1119,7 @@ with the teardrop.
   there. The cost of unexplained light is one rate per widget, not per
   place, and the cone's reach is uncapped inside the window.
 - No audio-video offset is measured, and no chat reader exists.
+- A standing Sage wall stops team vision like a box
+  [domain:abilities/sage-barrier-orb-occludes-team-vision], but the raycast
+  reads only the baked occluders; adding the wall as a dynamic occluder is
+  open and unbuilt.

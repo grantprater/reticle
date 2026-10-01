@@ -1,7 +1,7 @@
 r"""Recall of unnamed ability entities, scored against the player's exhaustive labels.
 
     .\.venv\Scripts\python.exe tools\ability_recall.py --select
-    .\.venv\Scripts\python.exe tools\ability_recall.py [--out DIR]
+    .\.venv\Scripts\python.exe tools\ability_recall.py [--out DIR] [--record]
     .\.venv\Scripts\python.exe tools\ability_recall.py --groups 137,170 [--out DIR]
     .\.venv\Scripts\python.exe tools\ability_recall.py --review --out DIR
 
@@ -27,7 +27,8 @@ the store's `labels/ability_recall_20260930/selection/<sid>.json`.
   by the player's convention: a ring is its centre icon, when there is one,
   and two or more kind-2 points on its perimeter; an area is many kind-4
   points filling it; a line or beam is kind-3 points along one smooth curve
-  (a broken wall stays one); an icon with no ring is its own entity. The
+  (a broken wall stays one [domain:abilities/sage-barrier-orb-segments]);
+  an icon with no ring is its own entity. The
   instances are then linked across frames (`entities`): on consecutive
   selected frames of one round when `same_entity` holds (centre icons within
   LINK_PX, one circle, one curve, touching areas), or by the same free-text
@@ -825,6 +826,8 @@ def main(argv=None) -> int:
     ap.add_argument("--groups", help="the grouping sheet, no stream read: comma-separated frame "
                     "numbers in block order (1-based), or 'all' for counts only")
     ap.add_argument("--block", type=int, default=1, help="with --groups, the block")
+    ap.add_argument("--record", action="store_true", help="record each widget's numbers in "
+                    "the metrics as ability_recall/block<N>@<sessions>")
     ap.add_argument("--review", action="store_true",
                     help="draw --out's misses.jsonl on the raw crops (misses.png per session)")
     args = ap.parse_args(argv)
@@ -918,6 +921,31 @@ def main(argv=None) -> int:
                       "area_gap_px": AREA_GAP_PX, "at_widget_px": WIDGET_REF},
          "all_shapes": bool(args.all_shapes), "by_widget": summary}, indent=1), encoding="utf-8")
     print(f"misses and summary -> {out_dir}")
+    if args.record:
+        from reticle import metrics
+        for w, s in summary.items():
+            blocks = sorted({blk for ww, sid, blk in sessions
+                             if str(ww) == w and sid in s["sessions"]})
+            r3 = lambda v: None if v is None else round(v, 3)  # noqa: E731
+            vals = {"frames": s["frames_labelled"], "entities": s["entities"],
+                    "found": s["found"], "entity_recall": r3(s["entity_recall"]),
+                    "lower95": r3(s["entity_recall_lower95"]),
+                    "instances": s["instances"], "instances_hit": s["instances_hit"],
+                    "frame_recall": r3(s["frame_recall"]),
+                    "marks": s["marks"], "marks_hit": s["marks_hit"],
+                    **{f"unexplained_{t}": r3(v) for t, v in s["unexplained_per_frame"].items()},
+                    "unexplained_all": r3(s["unexplained_per_frame_all"]),
+                    "unexplained_nothing": r3(s["unexplained_per_nothing_frame"]),
+                    **{f"{k}_n": c["entities"] for k, c in s["by_kind"].items()},
+                    **{f"{k}_found": c["found"] for k, c in s["by_kind"].items()}}
+            metrics.record("ability_recall", part="block" + "+".join(map(str, blocks)),
+                           session="+".join(s["sessions"]), values=vals,
+                           deps={"tool": TOOL, "tol_px": TOL_PX, "link_px": LINK_PX,
+                                 "all_shapes": bool(args.all_shapes), "widget_px": int(w)},
+                           context={"labels": str(lab), "out": str(out_dir)},
+                           note="stage 4 recall of docs/ABILITY_DETECTION.md section 10")
+            print(f"recorded ability_recall/block{'+'.join(map(str, blocks))}@"
+                  f"{'+'.join(s['sessions'])}")
     return 0
 
 
