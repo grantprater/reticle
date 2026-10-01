@@ -531,6 +531,41 @@ def longest_segment(tl: np.ndarray, mask: np.ndarray, R: float,
     return (float(x0), float(y0)), (float(x1), float(y1))
 
 
+def widened_beam(tl: np.ndarray, mask: np.ndarray, R: float,
+                 support: np.ndarray | None = None,
+                 seed: tuple[float, float] | None = None) -> dict | None:
+    """The beam along the longest straight teal segment on the map, or None
+    where there is none: the widened search of `fit_shape`, and the whole
+    beam search of a scan of every caster (no seed).
+
+    The end nearer `seed` is the caster's, and the row says `oriented`;
+    without a seed the end is unknown. The caster's icon sits before the
+    drawn blast, as in the seeded geometry, so the origin goes BEAM_NEAR_PX
+    behind the segment's end."""
+    seg = longest_segment(tl, mask, R, support)
+    if seg is None:
+        return None
+    (ax, ay), (bx, by) = seg
+    if seed is not None and (np.hypot(bx - seed[0], by - seed[1])
+                             < np.hypot(ax - seed[0], ay - seed[1])):
+        (ax, ay), (bx, by) = (bx, by), (ax, ay)
+    th = float(np.degrees(np.arctan2(by - ay, bx - ax)))
+    ox = ax - BEAM_NEAR_PX * np.cos(np.radians(th))
+    oy = ay - BEAM_NEAR_PX * np.sin(np.radians(th))
+    out = dict(fit_beam(tl, mask, ox, oy, R, around=th), path="widened",
+               oriented=seed is not None)
+    if support is not None:
+        out["on_map"] = on_map(out, support)
+    return out
+
+
+def beam_accepted(f: dict | None) -> bool:
+    """ACCEPT's verdict on a beam: its score, and BEAM_ON_MAP of its run on
+    the map where a support placed it."""
+    return (f is not None and f["score"] >= ACCEPT["beam"]
+            and f.get("on_map", 1.0) >= BEAM_ON_MAP)
+
+
 # ------------------------------------------------------------------- fit
 
 def fit_shape(crop: np.ndarray | None, ability: str,
@@ -587,22 +622,7 @@ def fit_shape(crop: np.ndarray | None, ability: str,
         out = dict(fit_ring(tl, mask, R, _radial=rad, support=support, _surface=surf),
                    path="free" if prior == "free" else "widened")
     else:
-        seg = longest_segment(tl, mask, R, support)
-        if seg is None:
-            out = None
-        else:
-            (ax, ay), (bx, by) = seg
-            # The end nearer the seed is the caster's; without one it is unknown.
-            if seed is not None and (np.hypot(bx - seed[0], by - seed[1])
-                                     < np.hypot(ax - seed[0], ay - seed[1])):
-                (ax, ay), (bx, by) = (bx, by), (ax, ay)
-            # The caster's icon sits before the drawn blast, as in the seeded
-            # geometry, so the origin goes BEAM_NEAR_PX behind the segment's end.
-            th = float(np.degrees(np.arctan2(by - ay, bx - ax)))
-            ox = ax - BEAM_NEAR_PX * np.cos(np.radians(th))
-            oy = ay - BEAM_NEAR_PX * np.sin(np.radians(th))
-            out = placed(dict(fit_beam(tl, mask, ox, oy, R, around=th),
-                              path="widened", oriented=seed is not None))
+        out = widened_beam(tl, mask, R, support, seed)
     if clears(out):
         seeded = None if prior_fit is None else {"score": prior_fit["score"]}
         return {**base, **out, "seeded": seeded, "found": True, "reason": None}

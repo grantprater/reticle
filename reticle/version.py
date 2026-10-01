@@ -354,6 +354,10 @@ ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
 # must lie on the map's footprint. Promoted from prototypes/ability_shape_fast.py
 # (docs/ABILITY_DETECTION.md, stage 1).
 ABILITY_SHAPE_VERSION = "ability-shape-0.2.0"
+# The teal-component opportunity gate of the ability pass (`ability_scan`,
+# `ability_gate` rows): which 2 Hz live samples the shape fits read. Bump when
+# its thresholds, its grid or its stored fields change.
+ABILITY_GATE_VERSION = "ability-gate-0.1.0"
 # The ability tray's charge drops, written as `tray_drop` rows by `reticle
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own

@@ -122,6 +122,14 @@ _HAND_CHECKED = ("death", "ult_cast", "tray_drop", "ability_shape", "scoreboard_
                  "scoreboard_presence", "ability_state", "self_icon")
 
 
+def ability_streams() -> list[tuple[str, str, str]]:
+    """(stream, stamp key, current stamp) of each stream the ability pass
+    writes (`reticle scan <sid> --only ability`, `ability_scan`)."""
+    from .version import ABILITY_GATE_VERSION, ABILITY_SHAPE_VERSION
+    return [("ability_gate", "ability_gate_version", ABILITY_GATE_VERSION),
+            ("ability_shape_scan", "ability_shape_scan_version", ABILITY_SHAPE_VERSION)]
+
+
 def derived_streams() -> list[dict]:
     """Every stored adjudication and derived stream `stale` does not check by
     hand, in the order their inputs are built.
@@ -193,6 +201,16 @@ def derived_streams() -> list[dict]:
          "current": ABILITY_LIGHT_VERSION, "command": "reticle ability-light {sid}",
          "how": "decode", "fields": {"lighting_version": LIGHTING_VERSION}, "upstream": ()},
     ]
+    # The ability pass's streams reread the minimap crop cache, each under its
+    # own stamp; the shape scan reads the gate's samples, so it records the
+    # gate's stamp and follows it.
+    from .version import ABILITY_GATE_VERSION
+    for stream, key, current in ability_streams():
+        rows.append({"stream": stream, "key": key, "current": current,
+                     "command": "reticle scan {sid} --only ability", "how": "cache",
+                     "fields": ({} if stream == "ability_gate"
+                                else {"ability_gate_version": ABILITY_GATE_VERSION}),
+                     "upstream": () if stream == "ability_gate" else ("ability_gate",)})
     for stream, parent, command, how in (
             ("death_identity", "death", "reticle deaths {sid}", "storage"),
             ("combat_report_identity", "combat_report_round", "reticle combat-report {sid}",

@@ -265,7 +265,7 @@ question = "Which minimap floor pixels does something grey and opaque cover this
 owner = "minimap_dark"
 role = ["detect"]
 status = "partial"
-produces = ["grey_dark", "occluded", "DarkRegionReader"]
+produces = ["grey_dark", "occluded", "DarkRegionReader", "dark_reader"]
 not_for = """
 Deciding what covers the floor or how long it lasts; that is
 `adjudication.smokes`. Enemy smokes, which are not drawn
@@ -1418,7 +1418,7 @@ question = "Where is the drawn minimap shape of a cast whose ability draws a kno
 owner = "ability_shapes"
 role = ["detect"]
 status = "partial"
-produces = ["fit_shape", "fit_ring", "fit_beam", "longest_segment", "on_map", "ring_candidates", "beam_sweep"]
+produces = ["fit_shape", "fit_ring", "fit_beam", "longest_segment", "on_map", "ring_candidates", "beam_sweep", "widened_beam", "beam_accepted"]
 not_for = """
 Finding abilities of unknown kind (`ability-detection` proposes those); naming
 the caster (`ability-owner`); an onset or expiry, since each call reads one
@@ -1429,6 +1429,22 @@ void too.
 """
 consumers = ["cli"]
 evidence = "tests/test_ability_shapes.py, prototypes/ability_shape_eval.py"
+
+[[entry]]
+id = "ability-gate"
+question = "Which sampled minimap crops of a match hold teal that an ability drawing may form, and so get the shape fits?"
+owner = "ability_scan"
+role = ["detect"]
+status = "partial"
+produces = ["teal_gate", "AbilityShapeReader", "shape_reader"]
+not_for = """
+Fitting the shapes, which `ability-shape` owns (`ring_candidates`,
+`widened_beam`); naming the ability, its side or its caster (`ability-owner`,
+`agent-identity`); smokes (`minimap-dark`). The gate is an opportunity gate:
+it says where a fit could find something, never what is there.
+"""
+consumers = ["cli"]
+evidence = "tests/test_ability_scan.py, tools/smoke_identity.py"
 
 
 [[entry]]

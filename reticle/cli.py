@@ -810,6 +810,26 @@ def _live_round_spans(store, sid, date) -> list[tuple[float, float]]:
             for i, s in enumerate(sch)]
 
 
+def _live_phase_at(store, sid, date):
+    """`gametime`'s phase at a time, for the ability pass's live-sample gate,
+    or None where the session has no stored rounds or HUD (every sample is
+    then read)."""
+    from . import stalls
+    rs, hud = store.read_rounds(sid, date), store.read_hud(sid, date)
+    if rs is None or hud is None:
+        return None
+    gt = gametime.build_session_gametime(sid, hud, rs.to_pylist(),
+                                         stall_list=stalls.for_session(store, sid, date))
+    return lambda t: gt.game_time_at(t).phase
+
+
+def _ability_stale(store, sid) -> bool:
+    """Whether any stream of the ability pass is absent or behind its stamp."""
+    from .plan import ability_streams
+    return any(store.events_version(stream, sid) != current
+               for stream, _key, current in ability_streams())
+
+
 def cmd_usage(args) -> int:
     """Show scan cost records, completed and failed, with source and reader time."""
     from .usage import load, format_usage
@@ -1010,13 +1030,17 @@ def cmd_scan(args) -> int:
         args.force = True
     channels = set(args.only or ('hud', 'minimap', 'ping', 'roster', 'scoreboard',
                                  'ally_icon', 'minimap_dark', 'combat_report'))
+    if 'ability' in channels:
+        # The ability pass carries `minimap_dark` (docs/ABILITY_DETECTION.md,
+        # section 4); its own stamp decides whether it rereads.
+        channels.add('minimap_dark')
     # IDENTITY RIDES EVERY SCAN. The top bar is drawn on every frame, so naming
     # the ten agents costs no decode of its own -- it joins the pass at 0.1 Hz.
     # A scan narrowed with `--only` is testing one specific thing and is left
     # alone; anything else reads the lineup unless `--no-lineup` says not to.
     want_lineup = args.lineup and not args.only
     spans = (_active_spans(store, sid, date)
-             if channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark'} else [])
+             if channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark', 'ability'} else [])
     fps = float(src["fps"])
 
     want_hud = 'hud' in channels and (args.force or not store.has_hud(sid, date))
@@ -1044,8 +1068,15 @@ def cmd_scan(args) -> int:
     # Grey dark floor at 4 Hz over active spans: the smoke observation.
     # Versioned by its own stamp, so `reticle smokes` can re-adjudicate
     # without a re-read.
+    # `--force` rereads it only when it was asked for by name (or by default):
+    # the ability pass carries it, but never overwrites its stored rows.
+    dark_named = not args.only or 'minimap_dark' in args.only
     want_dark = 'minimap_dark' in channels and (
-        args.force or store.events_version("minimap_dark", sid) != MINIMAP_DARK_VERSION)
+        (args.force and dark_named)
+        or store.events_version("minimap_dark", sid) != MINIMAP_DARK_VERSION)
+    # The ability pass at 2 Hz over the same spans, every caster's drawings:
+    # each stream by its own stamp (`ability_scan`).
+    want_ability = 'ability' in channels and (args.force or _ability_stale(store, sid))
     # The combat report over the whole capture at 1 Hz: a header correlation
     # per frame, rows only where a panel may be up.
     want_report = 'combat_report' in channels and (
@@ -1071,7 +1102,8 @@ def cmd_scan(args) -> int:
         raise SystemExit("--check: no stored killfeed mask, and the HUD readers would "
                          "decode the capture to measure one")
     if not (want_hud or want_portraits or want_mm or want_ping or want_roster
-            or want_scoreboard or want_ally or want_dark or want_report or want_cache):
+            or want_scoreboard or want_ally or want_dark or want_ability or want_report
+            or want_cache):
         print(f"cache hit  session {sid}: requested channels are current or disabled; "
               "--force to re-read")
         return 0
@@ -1089,6 +1121,7 @@ def cmd_scan(args) -> int:
         + ([f"scoreboard {args.hz:g} Hz, whole capture"] if want_scoreboard else [])
         + ([f"ally icons {args.ally_hz:g} Hz, active spans"] if want_ally else [])
         + ([f"minimap dark {args.dark_hz:g} Hz, active spans"] if want_dark else [])
+        + (["ability 2 Hz, live samples of the active spans"] if want_ability else [])
         + ([f"combat report {args.report_hz:g} Hz, whole capture"] if want_report else [])))
 
     def build_readers():
@@ -1146,22 +1179,27 @@ def cmd_scan(args) -> int:
             declare_set(ap, "minimap", profile, ctx.wh)
         dp = None
         if want_dark:
-            from .minimap_dark import DarkRegionReader
-            geo = geometry.path_of(sid, store.root)
-            with np.load(geo) as z:
-                dark_ref = lighting.reference(z)
-            if dark_ref is None:
+            from .minimap_dark import dark_reader
+            dp = dark_reader(ctx, spans, hz=args.dark_hz,
+                             floor=mp.floor if mp is not None else None,
+                             sgray=mp.sgray if mp is not None else None)
+            if dp is None:
                 print("minimap dark skipped: geometry has no lighting reference")
             else:
-                dp = DarkRegionReader(
-                    floor=mp.floor if mp is not None else ctx.floor(),
-                    sgray=mp.sgray if mp is not None else ctx.sgray(),
-                    static=ctx.map_reference(), ref=dark_ref,
-                    box=minimap_roi_px(profile, *ctx.wh), hz=args.dark_hz, spans=spans)
                 from .roi_cache import declare_set
                 # It reads `frame[box]` alone, so the minimap cache feeds it on
                 # its own grid (`cache_resample`).
                 declare_set(dp, "minimap", profile, ctx.wh)
+        bp = None
+        if want_ability:
+            # The ability pass's readers ride the same pass, each under its own
+            # stamp; `minimap_dark` joins only where it is itself stale.
+            from .ability_scan import shape_reader
+            from .roi_cache import declare_set
+            bp = shape_reader(ctx, spans, phase_at=_live_phase_at(store, sid, date),
+                              floor=mp.floor if mp is not None else None,
+                              sgray=mp.sgray if mp is not None else None)
+            declare_set(bp, "minimap", profile, ctx.wh)
         cp = None
         if want_report:
             from .combat_report import CombatReportReader
@@ -1174,9 +1212,9 @@ def cmd_scan(args) -> int:
                                     spans=cache_spans, gate=cache_gate)
             except ValueError as exc:
                 raise SystemExit(f"--cache-roi {args.cache_roi}: {exc}")
-        readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, cp, xp) if r is not None]
+        readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, bp, cp, xp) if r is not None]
         return SimpleNamespace(hp=hp, kp=kp, mp=mp, pp=pp, rp=rp, sp=sp, lp=lp, ap=ap,
-                               dp=dp, cp=cp, xp=xp, ctx=ctx, readers=readers)
+                               dp=dp, bp=bp, cp=cp, xp=xp, ctx=ctx, readers=readers)
 
     def live_rounds():
         try:
@@ -1355,6 +1393,17 @@ def cmd_scan(args) -> int:
             path = out.write_events("minimap_dark", sid, rows)
             print(f"minimap dark {rows[0]['frames']} frames, {rows[0]['unobserved']} unobserved -> {path}")
 
+        bp = R.bp
+        if bp is not None:
+            gkey = geometry.key_of(sid, store.root)
+            rows = bp.gate_events(sid, gkey)
+            path = out.write_events("ability_gate", sid, rows)
+            print(f"ability gate {rows[0]['frames']} samples {rows[0]['by_reason']} -> {path}")
+            rows = bp.shape_events(sid, gkey)
+            path = out.write_events("ability_shape_scan", sid, rows)
+            print(f"ability shapes {rows[0]['frames']} gated samples, rings accepted on "
+                  f"{rows[0]['rings_accepted']}, beams on {rows[0]['beams_accepted']} -> {path}")
+
         if pp is not None:
             pp.finish()
             path = out.write_events("ping", sid, pp.events(sid))
@@ -1452,7 +1501,7 @@ def _normalise_decoded(R, manifest, store) -> None:
     normalised by `RoiCache.samples`. A placement the frame cannot hold is
     refused by name, never read as an absent widget."""
     from . import widget_frame as wf
-    mine = {id(r) for r in (R.mp, R.pp, R.ap, R.dp) if r is not None}
+    mine = {id(r) for r in (R.mp, R.pp, R.ap, R.dp, R.bp) if r is not None}
     src = manifest["source"]
     frame = (wf.for_session(manifest, [0, 0, int(src["width"]), int(src["height"])], store.root)
              if mine else None)
@@ -4823,7 +4872,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "(docs/ALLY_ICON_RESAMPLE.md)")
     s.add_argument("--only", nargs="+",
                    choices=("hud", "minimap", "ping", "roster", "scoreboard",
-                            "ally_icon", "minimap_dark", "combat_report", "roi_cache"),
+                            "ally_icon", "minimap_dark", "ability", "combat_report", "roi_cache"),
                    help="run only these readers through the shared pass; roster-only needs no minimap geometry")
     s.add_argument("--report-hz", type=float, default=1.0,
                    help="combat report rate, whole capture (default 1)")

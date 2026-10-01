@@ -659,7 +659,17 @@ Each stage commits when its evidence holds.
    unchanged plus the gate and shape streams. Acceptance:
    `.\.venv\Scripts\python.exe tools\smoke_identity.py a06f04a0059f c40d950031bb`,
    built from this task's check. Evidence: section 7's two identities, and
-   no smoke restamp in `reticle plan`.
+   no smoke restamp in `reticle plan`. Held on 2026-09-30: rows and tracks
+   byte-identical, masks identical at
+   [metric:ability_scan/smoke-identity@a06f04a0059f#same=638] of
+   [metric:ability_scan/smoke-identity@a06f04a0059f#shared=638] and
+   [metric:ability_scan/smoke-identity@c40d950031bb#same=65] of
+   [metric:ability_scan/smoke-identity@c40d950031bb#shared=65] shared
+   instants, and
+   [metric:ability_scan/smoke-identity@a06f04a0059f#within_250=27] and
+   [metric:ability_scan/smoke-identity@c40d950031bb#within_250=16] tracks
+   within 250 ms; every exception lies at a stored instant the cache grid
+   lacks.
 3. **Icon proposer.** Add `ability_icon` with `icon-proposer-0.2.0` at
    radius step 1, a full search at 2 Hz, and verify rows. Acceptance: the
    proposer's label scoring as a `tools/` benchmark. Evidence: at least 123
