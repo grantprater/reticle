@@ -225,9 +225,8 @@ either side.
 
 ## 6. Questions for the player
 
-- **Q1.** The catalogue says Neural Theft reveals enemies twice; the
-  player gave every reveal but the Recon Bolt one pulse
-  [domain:abilities/cypher-neural-theft-reveal]. Which holds?
+None open. Neural Theft is a global reveal in two pulses
+[domain:abilities/cypher-neural-theft-reveal].
 
 W and each reveal's window are measured, not asked. Whether a drone's cone
 lights the floor is already asked on `docs/ABILITY_MECHANICS_SHEET.md`

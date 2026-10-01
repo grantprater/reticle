@@ -1545,8 +1545,9 @@ see = ["minimap/vision-gate", "abilities/pulse-scan-abilities",
 [reveal-icon-duration-belief]
 claim = """
 A revealed enemy stays drawn for a time that is unknown and may depend on the
-ability, probably about one second per pulse. Sova's Recon Bolt is the only
-reveal with two pulses; every other reveal has one.
+ability, probably about one second per pulse. Sova's Recon Bolt and Cypher's
+Neural Theft reveal in two pulses, Neural Theft's spaced further apart; every
+other reveal has one.
 """
 kind = "rule"
 known = "player"
@@ -1557,8 +1558,7 @@ a reveal's window is a parameter to measure per ability, null until then;
 never end a revealed enemy's interval at an assumed second
 """
 exceptions = """
-the duration is a belief, to be measured. The catalogue says Neural Theft
-reveals enemies twice, against the one pulse stated here; unresolved
+the duration is a belief, to be measured
 """
 see = ["minimap/reveal-draws-no-light", "abilities/pulse-scan-abilities",
        "abilities/ability-rules-are-unique"]

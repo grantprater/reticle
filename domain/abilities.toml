@@ -3179,19 +3179,20 @@ see = ["minimap/vision-gate", "minimap/reveal-draws-no-light", "minimap/reveal-i
 
 [cypher-neural-theft-reveal]
 claim = """
-An enemy that Cypher's Neural Theft reveals shows on our minimap wherever the enemy is, for a fixed
-time that may depend on the ability, possibly cut short by the enemy's
-death.
+Cypher's Neural Theft is a global reveal: the enemies it reveals show on our
+minimap wherever they are, with no area limit, in two pulses spaced further
+apart than the Recon Bolt's. Each shows for a fixed time that may depend on
+the ability, possibly cut short by the enemy's death.
 """
 kind = "rule"
 known = "player"
 since = "2026-09-30"
 subject = "cypher:neural-theft"
-source = "the player, 2026-09-30 (chat), asked whether the enemies this ability reveals or marks show on the minimap, where, and for how long"
+source = "the player, 2026-09-30 (chat), asked whether the enemies this ability reveals or marks show on the minimap, where, and for how long; the global reach and the two pulses from the player the same day, after the catalogue's two reveals were raised"
 use = """
 after this ability reveals or marks an enemy, search the whole widget for
 that enemy, outside the team's light too; the window is a parameter to
 measure for this ability alone [domain:abilities/ability-rules-are-unique]
 """
-exceptions = "the duration is unmeasured and may differ from every other ability's; the catalogue says the reveal happens twice, against the one pulse of minimap/reveal-icon-duration-belief; unresolved"
+exceptions = "the duration and the gap between the pulses are unmeasured and may differ from every other ability's"
 see = ["minimap/vision-gate", "minimap/reveal-draws-no-light", "minimap/reveal-icon-duration-belief"]
