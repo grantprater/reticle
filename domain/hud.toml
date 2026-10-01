@@ -344,3 +344,25 @@ line are unrecorded and must be read from a frame or the audio, not assumed
 exceptions = "the message's wording, position and duration are unmeasured"
 see = ["minimap/enemy-spike-ground-vision", "minimap/enemy-carrier-no-spike-overlay",
        "hud/chat-broadcasts-callouts"]
+
+[hud-scales-with-resolution]
+claim = """
+No HUD element but the minimap has a size setting of its own: the killfeed,
+the rosters, the scoreline and the rest of the HUD scale with the render
+resolution alone. Only the minimap's widget size and map scaling are separate
+settings [domain:capture/minimap-size-settings].
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+use = """
+a HUD reader's pixel lengths are base values at 1080p times one scale, the
+capture height over 1080 (`killfeed.KillfeedScale`); no per-profile HUD factor
+exists to apply
+"""
+exceptions = """
+every ingested capture is 1920x1080, so the transform has run only on resized
+crops; whether the minimap's widget scale composes with resolution is untested
+"""
+see = ["capture/minimap-size-settings"]
+phrases = ["killfeed scale", "hud scales with resolution"]

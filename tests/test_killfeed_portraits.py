@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from reticle import appearance, killfeed
-from reticle.killfeed import (KILLFEED_PORTRAIT_VERSION,
+from reticle.killfeed import (KILLFEED_PORTRAIT_VERSION, UNIT_SCALE,
                               PORTRAIT_ASPECT, EntryView,
                               KillfeedPortraitReader, _entry_columns,
                               _portrait_edge, portrait_observations)
@@ -123,7 +123,7 @@ class ObservationTests(unittest.TestCase):
         view = EntryView(0, y0, y1, 80, 100, killer_run=(60, 70),
                          victim_run=(120, 130), victim_ally=ally)
         return portrait_observations(frame, Roi("kf", 0.0, 0.0, 1.0, 1.0), w, h,
-                                     views=[view])
+                                     views=[view], scale=UNIT_SCALE)
 
     def test_both_portraits_are_found_and_neither_is_named(self):
         frame, y0, y1, _bh, _pw = band_frame()
@@ -180,7 +180,7 @@ class ObservationTests(unittest.TestCase):
         h, w = frame.shape[:2]
         view = EntryView(0, y0, y1, verdict="unparsed")
         self.assertEqual(portrait_observations(frame, Roi("kf", 0.0, 0.0, 1.0, 1.0),
-                                               w, h, views=[view]), [])
+                                               w, h, views=[view], scale=UNIT_SCALE), [])
 
 
 class CompositionTests(unittest.TestCase):

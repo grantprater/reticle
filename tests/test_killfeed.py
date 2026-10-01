@@ -342,7 +342,8 @@ class WeaponDescriptorTests(unittest.TestCase):
     def test_a_ringed_icon_is_stripped_to_its_glyph(self):
         frame = self._frame(_ring_band())
         view = killfeed.EntryView(0, 0, 34, 52, 68, verdict="kill")
-        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view])[0]
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
         self.assertIs(row["ringed"], True)
         self.assertIsNone(row["reason"])
         self.assertEqual((row["ix0"], row["ix1"]), (52, 68))
@@ -350,14 +351,16 @@ class WeaponDescriptorTests(unittest.TestCase):
     def test_an_unringed_icon_says_so(self):
         frame = self._frame(_ring_band(ring=False))
         view = killfeed.EntryView(0, 0, 34, 52, 68, verdict="kill")
-        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view])[0]
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
         self.assertIs(row["ringed"], False)
         self.assertIsNotNone(row["grid"])
 
     def test_a_box_off_the_plate_refuses(self):
         frame = self._frame(_ring_band(ring=False), plate=np.array([128, 128, 128], np.uint8))
         view = killfeed.EntryView(0, 0, 34, 52, 68, verdict="kill")
-        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view])[0]
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
         self.assertEqual((row["reason"], row["ringed"], row["ring_reason"]), ("no_plate", None, "no_plate"))
         self.assertIsNone(row["grid"])
 
