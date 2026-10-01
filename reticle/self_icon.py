@@ -218,6 +218,8 @@ def read_session(store, sid: str, gal: dict, references: dict | None = None,
     rt = table.column("t_ms").to_numpy()
     ra = [(-1 if a is None else int(a)) for a in table.column("alive_ally").to_pylist()]
     roster_version = (table.column("roster_version")[0].as_py() if table.num_rows else None)
+    from .input_stamps import geometry_stamp
+    gkey = geometry.key_of(sid, store.root)
     med = geometry.reference_static(sid, store.root)
     sd = geometry.stability(sid, store.root, med.shape[:2])
     ctx = {"floor": floor_mask(med, sd=sd), "slab": slab_mask(med, sd=sd), "static": med,
@@ -249,6 +251,8 @@ def read_session(store, sid: str, gal: dict, references: dict | None = None,
             "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION,
             "spike_version": SPIKE_VERSION, "teardrop_version": TEARDROP_VERSION,
             "reference_version": (references or {}).get("version"),
+            # The baked geometry the floor and slab masks came from.
+            "geometry_key": gkey, "geometry_built_by": geometry_stamp(store.root, gkey),
             "parameters": {"step_s": step_s, "MIN_PIXELS": MIN_PIXELS,
                            "ROSTER_GAP_MS": ROSTER_GAP_MS},
             "grid_frames": len(frames), "scored": sum(r["reason"] is None for r in frames),

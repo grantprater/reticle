@@ -54,14 +54,6 @@ def _table_stamp(path, key: str) -> str | None:
     return meta.get(key.encode(), b"").decode() or "unstamped"
 
 
-def _death_stamps(store, sid: str) -> str | None:
-    rows = store.read_events("death", sid)
-    if not rows:
-        return None
-    head = rows[0]
-    return (head.get("death_adjudication_version"), head.get("inputs") or {})
-
-
 def _round_stamps(store, manifest: dict) -> dict | None:
     """The stamps a stored round table was built from, or None where the
     session has no round table. A table written before the portrait stamp
@@ -246,20 +238,318 @@ def derived_streams() -> list[dict]:
 def _head(store, stream: str, sid: str, needle: bytes | None = None) -> dict | None:
     """The first row of a stored stream (with `needle`, the first row whose
     line holds it), without reading the rest."""
-    path_of = getattr(store, "events_path", None)
-    if path_of is None:     # a test store holding rows in memory
-        rows = store.read_events(stream, sid)
-        if needle is not None:
-            rows = [r for r in rows if needle.decode() in json.dumps(r, separators=(",", ":"))]
-        return rows[0] if rows else None
-    path = path_of(stream, sid)
-    if not path.is_file():
+    from .input_stamps import head_row
+    return head_row(store, stream, sid, needle)
+
+
+# ------------------------------------------------------------ stored inputs
+#
+# Each derived stream declares here, once, every stored input it reads: the
+# path in its first row where the writer records the input's stamp, and the
+# probe that reads the input's stamp as stored now (`input_head`). `stale`
+# compares the two for every stream (`inputs_moved`), and a writer records
+# through the same declaration (`record_inputs`), so what plan compares is
+# what the writer read. A stamp the code carries for a rule rather than for a
+# stored input (`lighting_version`, `player_cast`) stays a code field
+# (`derived_streams`' `fields`, or the hand checks in `stale`).
+
+def _in(path: str, probe: str, *, optional: bool = False, use_when: str | None = None) -> dict:
+    """One declared input. `optional`: rows that never read it (a cast pass
+    with no tray drops) leave its key out, and that is not `unrecorded`.
+    `use_when`: an older writer recorded None where the stored input was not
+    at this stamp and so went unread; it is stale once the input is."""
+    return {"path": path, "probe": probe, "optional": optional, "use_when": use_when}
+
+
+def _code(path: str, stamp: str, *, optional: bool = False) -> dict:
+    """A rule's stamp the stream records beside its inputs: compared with the
+    code's `stamp`, not with anything stored."""
+    return _in(path, "=" + stamp, optional=optional)
+
+
+#: Keys a stream's head records that are not stored-input stamps, and why
+#: plan does not compare them (`doctor` INPUTS reads this).
+NOT_INPUTS = {
+    "board_state": "folded into the lineup view, compared as `lineup`",
+    "tray_kit_reason": "why the kit witness went unused, not a stamp",
+    "geometry_key": "names the geometry; its `built_by` is compared as `geometry`",
+    "ally_icon_revision": "the ally_icon bytes `reticle lifetimes` keys its cache on; "
+                          "the stream's stamp is compared as `ally_icon`",
+    "inputs_revision": "the byte digest `reticle lifetimes` keys its cache on; its parts "
+                       "are compared one by one",
+    "events_version": "the event contract's stamp, written by `store.write_events`",
+    "stored_spike_version": "the spike stamp `spike_carrier` read, compared as `spike`",
+    "candidate_revision": "the ally_icon candidate batch, carried on the rows built from it",
+}
+
+
+def _gate(prefix: str = "inputs.", optional: bool = False) -> dict:
+    """The stored inputs of the player-cast gate (`ability_timeline.stored_gate_inputs`),
+    and the two rule stamps it records beside them."""
+    from .gametime import GAMETIME_VERSION
+    from .killfeed import KILLFEED_PORTRAIT_VERSION
+    from .version import PLAYER_CAST_VERSION
+    return {"player_cast": _code(prefix + "player_cast", PLAYER_CAST_VERSION, optional=optional),
+            "gametime": _code(prefix + "gametime", GAMETIME_VERSION, optional=optional),
+            "hud": _in(prefix + "hud", "hud", optional=optional),
+            "killfeed_portrait": _in(prefix + "killfeed_portrait", "killfeed_portrait",
+                                     optional=optional, use_when=KILLFEED_PORTRAIT_VERSION),
+            "death": _in(prefix + "death", "death#death_adjudication_version", optional=optional),
+            "combat_report_round": _in(prefix + "combat_report_round",
+                                       "combat_report_round#combat_report_round_version",
+                                       optional=optional),
+            "tray_kit": _in(prefix + "tray_kit", "tray_kit#tray_kit_version", optional=optional),
+            "menu_open": _in(prefix + "menu_open", "menu_open#menu_version", optional=optional)}
+
+
+def _lineup_inputs(prefix: str = "inputs.", file_path: str | None = None) -> dict:
+    """The lineup file's version and the view `load_lineup` folds over it."""
+    return {"lineup_file": _in(file_path or prefix + "lineup", "lineup_file"),
+            "lineup": _in(prefix + "lineup_view", "lineup")}
+
+
+def stream_inputs() -> dict[str, dict[str, dict]]:
+    """stream -> {input name: declared input}, for every stream that reads a
+    stored input. The name is what `plan` reports as moved."""
+    from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_WEAPON_VERSION
+    from .lighting import LIGHTING_VERSION
+    from .roi_cache import ROI_CACHE_VERSION
+    from .version import (ABILITY_SHAPE_VERSION, ICON_TEARDROP_VERSION, TEARDROP_VERSION,
+                          TRAY_VERSION)
+    geo ={"geometry": _in("geometry_built_by", "geometry")}
+    death = "death#death_adjudication_version"
+    return {
+        "death": {"hud": _in("inputs.hud", "hud"),
+                  "killfeed_portrait": _in("inputs.killfeed_portrait", "killfeed_portrait"),
+                  "killfeed_weapon": _in("inputs.killfeed_weapon", "killfeed_weapon",
+                                         use_when=KILLFEED_WEAPON_VERSION),
+                  "killfeed_name": _in("inputs.killfeed_name", "killfeed_name",
+                                       use_when=KILLFEED_NAME_VERSION),
+                  "scoreboard": _in("inputs.scoreboard", "scoreboard"),
+                  "round": _in("inputs.round", "rounds"),
+                  # The X marks are read only from current streams, and a table
+                  # built before them records neither (`reticle deaths` records
+                  # both, None where unread).
+                  "minimap_object": _in("inputs.minimap_object",
+                                        "minimap_object#minimap_object_version", optional=True),
+                  "ally_icon": _in("inputs.ally_icon", "ally_icon", optional=True),
+                  "roster": _in("inputs.roster", "roster"),
+                  "reliability_table": _in("inputs.reliability_table", "reliability"),
+                  **_lineup_inputs()},
+        "ult_cast": {"ult_line": _in("inputs.ult_line", "ult_line"),
+                     "round": _in("inputs.round", "rounds"),
+                     "agent_identity": _code("inputs.agent_identity", AGENT_IDENTITY_VERSION),
+                     "tray_drop": _in("inputs.tray_drop", "tray_drop#tray_version",
+                                      optional=True),
+                     **_gate(optional=True), **_lineup_inputs()},
+        "tray_drop": {"tray_kit": _in("tray_kit", "tray_kit#tray_kit_version"),
+                      "menu_open": _in("menu_open", "menu_open#menu_version"),
+                      **{k: v for k, v in _gate(optional=True).items()
+                         if k not in ("tray_kit", "menu_open")},
+                      "round": _in("inputs.round", "rounds"), **_lineup_inputs()},
+        # The shapes are fitted after the gate's casts, over the stored rounds
+        # and the arbiter's player agent, seeded from the minimap table.
+        "ability_shape": {"tray_drop": _in("tray_version", "tray_drop#tray_version"),
+                          "minimap": _in("minimap_version", "minimap"),
+                          "round": _in("inputs.round", "rounds"), **_gate(), **_lineup_inputs()},
+        "scoreboard_presence": {"scoreboard_strip": _in("scoreboard_strip_version",
+                                                        "scoreboard_strip#scoreboard_strip_version"),
+                                "scoreboard": _in("scoreboard_version", "scoreboard")},
+        "ability_state": {**_gate(), "tray_drop": _in("inputs.tray_drop", "tray_drop#tray_version"),
+                          "tray_drop_player_cast": _in("inputs.tray_drop_player_cast",
+                                                       "tray_drop#player_cast_version"),
+                          "round": _in("inputs.round", "rounds"),
+                          "catalogue": _in("inputs.catalogue", "catalogue"),
+                          "tray_fill": _code("inputs.tray_fill", TRAY_VERSION),
+                          "roi_cache": _code("inputs.roi_cache", ROI_CACHE_VERSION),
+                          "agent_identity": _code("inputs.agent_identity", AGENT_IDENTITY_VERSION),
+                          **_lineup_inputs()},
+        "self_icon": {"roster": _in("roster_version", "roster"),
+                      "portrait_refs": _in("reference_version", "portrait_refs"), **geo},
+        "spike_carrier": {"spike": _in("spike_version", "spike#spike_version"),
+                          "rounds": _in("inputs.rounds", "rounds"),
+                          "roster": _in("inputs.roster", "roster")},
+        "team_vision": geo,
+        "round_entity": {"menu_open": _in("menu_open", "menu_open#menu_version"),
+                         "hud": _in("inputs.hud", "hud"), "roster": _in("inputs.roster", "roster"),
+                         "ally_icon": _in("inputs.ally_icon", "ally_icon"),
+                         "death": _in("inputs.death", death),
+                         "scoreboard": _in("inputs.scoreboard", "scoreboard"),
+                         "portrait_refs": _in("ally_portrait_refs_version", "portrait_refs_fit"),
+                         "lineup": _in("inputs.lineup_view", "lineup")},
+        "smoke": {"minimap_dark": _in("minimap_dark_version", "minimap_dark"),
+                  "menu_open": _in("menu_open", "menu_open#menu_version"), **geo},
+        "smoke_owner": {"smoke": _in("smoke_version", "smoke#smoke_version"),
+                        "tray_drop": _in("inputs.tray_drop", "tray_drop#tray_version"),
+                        "round": _in("inputs.round", "rounds"),
+                        **_gate(optional=True), **_lineup_inputs()},
+        # The same command names the rows (`combat_report_identity`) over the
+        # deaths, the killfeed portraits, the scoreboard and the lineup.
+        "combat_report_round": {"combat_report": _in("combat_report_version", "combat_report"),
+                                "round": _in("inputs.round", "rounds"),
+                                "hud": _in("inputs.hud", "hud"),
+                                "death": _in("inputs.death", death),
+                                "killfeed_portrait": _in("inputs.killfeed_portrait",
+                                                         "killfeed_portrait"),
+                                "scoreboard": _in("inputs.scoreboard", "scoreboard"),
+                                **_lineup_inputs()},
+        "tray_kit": {"catalogue": _in("inputs.catalogue", "catalogue_icons"), **_lineup_inputs()},
+        "ability_light": geo,
+        "minimap_object": geo,
+        "minimap_dark": {"lighting": _code("lighting_version", LIGHTING_VERSION), **geo},
+        # The ally icons are read through the teardrop; heads before
+        # `ally-icon-0.6.0` do not record it.
+        "ally_icon": {"teardrop": _code("teardrop_version", TEARDROP_VERSION, optional=True),
+                      "icon_teardrop": _code("icon_teardrop_version", ICON_TEARDROP_VERSION,
+                                             optional=True)},
+        "ability_gate": geo, "ability_icon": geo,
+        "ability_shape_scan": {"shape_model": _code("ability_shape_version", ABILITY_SHAPE_VERSION),
+                               **geo},
+        "enemy_track": {"minimap_object": _in("minimap_object_version",
+                                              "minimap_object#minimap_object_version"),
+                        "death": _in("death_adjudication_version", death),
+                        "portrait_refs": _in("references_version", "portrait_refs"),
+                        **_lineup_inputs(file_path="lineup_version")},
+    }
+
+
+def _probe_stream(probe: str) -> str | None:
+    """The stored stream (or table) a probe reads, for staleness to follow."""
+    if probe.startswith("="):
         return None
-    with open(path, "rb") as f:
-        for ln in f:
-            if ln.strip() and (needle is None or needle in ln):
-                return json.loads(ln)
-    return None
+    if "#" in probe:
+        return probe.split("#", 1)[0]
+    if probe in ("geometry", "lineup_file", "reliability", "catalogue", "catalogue_icons",
+                 "portrait_refs", "portrait_refs_fit"):
+        return None
+    return probe
+
+
+def input_streams(stream: str) -> set[str]:
+    """The stored streams a stream's declared inputs read (`lineup` stands for
+    the view, which moves with `self_icon` and `scoreboard`)."""
+    return {s for d in stream_inputs().get(stream, {}).values()
+            if (s := _probe_stream(d["probe"])) is not None}
+
+
+_MISSING = object()
+
+
+def _dig_missing(row: dict, path: str):
+    for part in path.split("."):
+        if not isinstance(row, dict) or part not in row:
+            return _MISSING
+        row = row[part]
+    return row
+
+
+def input_head(store, manifest: dict, probe: str, head: dict | None = None,
+               memo: dict | None = None) -> str:
+    """The stamp the input `probe` carries as stored now, `no_rows` where it
+    holds none. `head` is the reading stream's first row (its `geometry_key`
+    names the geometry); `memo` caches across one session's checks."""
+    from . import input_stamps as ist
+    if probe.startswith("="):
+        return probe[1:]
+    key = (probe, (head or {}).get("geometry_key") if probe == "geometry" else None)
+    if memo is not None and key in memo:
+        return memo[key]
+    sid, date = manifest["session_id"], manifest["ingested_at"][:10]
+    root = getattr(store, "root", None)
+    if "#" in probe:
+        stream, field = probe.split("#", 1)
+        row = ist.head_row(store, stream, sid)
+        now = ist.NO_ROWS if row is None else (row.get(field) or "unstamped")
+    elif probe == "rounds":
+        now = ist.table_stamp(store.rounds_path(sid, date), "round_version")
+    elif probe == "geometry":
+        from . import geometry
+        gkey = (head or {}).get("geometry_key")
+        if gkey is None and root is not None:
+            gkey = geometry.key_of(sid, root)
+        now = ist.geometry_stamp(root, gkey)
+    elif probe == "lineup":
+        from .lineup import view_stamp
+        now = view_stamp(sid, root) if root is not None else ist.NO_ROWS
+    elif probe == "lineup_file":
+        f = root / "lineups" / f"{sid}.json" if root is not None else None
+        now = (json.loads(f.read_text(encoding="utf-8")).get("version") or "unstamped"
+               if f is not None and f.is_file() else ist.NO_ROWS)
+    elif probe == "reliability":
+        from .adjudication.reliability import table_path
+        now = (ist.file_sha16(table_path(root)) if root is not None else None) or ist.NO_ROWS
+    elif probe == "catalogue":
+        from .adjudication.ability_state import CATALOGUE_PATH
+        f = root / CATALOGUE_PATH if root is not None else None
+        now = (f"{CATALOGUE_PATH}@{json.loads(f.read_text(encoding='utf-8')).get('harvested')}"
+               if f is not None and f.is_file() else f"absent:{CATALOGUE_PATH}")
+    elif probe == "catalogue_icons":
+        f = root / "reference" / "abilities.json" if root is not None else None
+        if f is not None and f.is_file():
+            from .tray_icons import reference_key
+            now = f"reference/abilities.json#{reference_key(root)}"
+        else:
+            now = ist.NO_ROWS
+    elif probe in ("portrait_refs", "portrait_refs_fit"):
+        table = None
+        if root is not None:
+            from .adjudication.identity import load_ally_portrait_references
+            table = load_ally_portrait_references(root)
+        now = (table or {}).get("version") or ist.NO_ROWS
+        if probe == "portrait_refs_fit" and (table or {}).get("teammate_fit"):
+            now = f"{now}+{table['teammate_fit'].get('version')}"
+    else:
+        now = stored_stamp(store, manifest, probe) or ist.NO_ROWS
+    if memo is not None:
+        memo[key] = now
+    return now
+
+
+def inputs_moved(store, manifest: dict, stream: str, head: dict, memo: dict | None = None,
+                 accepted=None) -> tuple[list[str], list[str]]:
+    """(the declared inputs of `stream` whose stamp recorded in `head` no
+    longer matches the input as stored now, the declared inputs `head` does
+    not record). The one comparison of recorded inputs `stale` makes.
+
+    A recorded stamp moved when it differs from the stored head, and a
+    recorded `no_rows` once rows exist. A recorded None is an input the writer
+    did not read, except where an older writer recorded None for an input
+    that was not at the code's stamp (`use_when`) and now is. `accepted`
+    (`stale`'s waiver check) may accept a recorded stamp as the stored one."""
+    from .input_stamps import moved as stamp_moved, normalize
+    moved, unrecorded = [], []
+    for name, d in stream_inputs().get(stream, {}).items():
+        rec = _dig_missing(head, d["path"])
+        if rec is _MISSING:
+            if not d["optional"]:
+                unrecorded.append(name)
+            continue
+        now = input_head(store, manifest, d["probe"], head, memo)
+        if normalize(rec) is None:
+            if d["use_when"] is not None and normalize(now) == d["use_when"]:
+                moved.append(name)
+            continue
+        if stamp_moved(rec, now) and not (accepted is not None and accepted(
+                f"{stream} input {name}", normalize(rec), normalize(now))):
+            moved.append(name)
+    return moved, unrecorded
+
+
+def record_inputs(store, manifest: dict, stream: str, head: dict) -> dict:
+    """Record in `head`, a stream's first row about to be written, the stored
+    stamp of every declared input of `stream` the writer did not record
+    itself. An optional input is recorded only by the writer, where it read
+    it. Returns `head`."""
+    for d in stream_inputs().get(stream, {}).values():
+        if d["optional"] or _dig_missing(head, d["path"]) is not _MISSING:
+            continue
+        *parents, leaf = d["path"].split(".")
+        at = head
+        for part in parents:
+            at = at.setdefault(part, {})
+        at[leaf] = input_head(store, manifest, d["probe"], head)
+    return head
 
 
 def geometry_occluders(store, key: str | None) -> str | None:
@@ -305,26 +595,180 @@ def stored_stamp(store, manifest: dict, stream: str) -> str | None:
     return store.events_version(stream, sid)
 
 
+def upstream_names(stream: str, upstream, moving: set[str], head: dict | None) -> list[str]:
+    """The inputs of `stream` that are stale now, so it will move once they are
+    refreshed: each declared input (by its name) whose stream is in `moving`
+    and which `head` read, and each further stream named in `upstream`. The
+    lineup view moves with the `self_icon` rows and the scoreboard it folds in."""
+    from .input_stamps import normalize
+    moving = moving | ({"lineup"} if moving & {"self_icon", "scoreboard"} else set())
+    declared = stream_inputs().get(stream, {})
+    names, covered = [], set()
+    for name, d in declared.items():
+        s = _probe_stream(d["probe"])
+        if s is None:
+            continue
+        covered.add(s)
+        rec = _dig_missing(head or {}, d["path"])
+        # An input the head records as not read, or an optional one it does
+        # not record, is not followed.
+        if (rec is _MISSING and d["optional"]) or (rec is not _MISSING and normalize(rec) is None):
+            continue
+        if s in moving and name not in names:
+            names.append(name)
+    names += [u for u in upstream if u in moving and u not in covered and u not in names]
+    return sorted(names)
+
+
+def _hand_specs() -> dict[str, dict]:
+    """The key, current stamp, command and reads of each hand-checked stream,
+    for `_follow`."""
+    from .adjudication.death import DEATH_ADJUDICATION_VERSION
+    from .adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
+    from .version import (ABILITY_SHAPE_VERSION, ABILITY_STATE_VERSION, SCOREBOARD_STRIP_VERSION,
+                          SELF_ICON_VERSION, TRAY_VERSION, ULT_CAST_VERSION)
+    return {
+        "death": ("death_adjudication_version", DEATH_ADJUDICATION_VERSION, "reticle deaths {sid}"),
+        "ult_cast": ("ult_cast_version", ULT_CAST_VERSION, "reticle ult-cast {sid}"),
+        "tray_drop": ("tray_version", TRAY_VERSION, "reticle tray {sid}"),
+        "ability_shape": ("ability_shape_version", ABILITY_SHAPE_VERSION,
+                          "reticle ability-shapes {sid}"),
+        "scoreboard_strip": ("scoreboard_strip_version", SCOREBOARD_STRIP_VERSION,
+                             "reticle strip {sid}"),
+        "scoreboard_presence": ("scoreboard_presence_version", SCOREBOARD_AGENT_VERSION,
+                                "reticle openings {sid}"),
+        "ability_state": ("ability_state_version", ABILITY_STATE_VERSION,
+                          "reticle ability-state {sid}"),
+        "self_icon": ("self_icon_version", SELF_ICON_VERSION, "reticle self-icon {sid}"),
+    }
+
+
+def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
+    """stream -> {name: (head path, the code's stamp)}: the rule stamps each
+    hand-checked stream records beside its inputs, which `stale` compares with
+    the code rather than with anything stored."""
+    from .adjudication.death import DEATH_ADJUDICATION_VERSION
+    from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .adjudication.killfeed_names import KILLFEED_NAME_CLUSTER_VERSION
+    from .adjudication.reliability import RELIABILITY_VERSION
+    from .adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
+    from .adjudication.weapon import WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION
+    from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
+    from .minimap_objects import minimap_object_version
+    from .roi_cache import ROI_CACHE_VERSION
+    from .version import (ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
+                          COMBAT_REPORT_ROUND_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
+                          ROUND_VERSION, SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION,
+                          SPIKE_VERSION, TEARDROP_VERSION, TRAY_VERSION, ULT_LINE_VERSION)
+    gate = {"player_cast": ("player_cast_version", PLAYER_CAST_VERSION)}
+    tray = {"tray_drop": ("tray_version", TRAY_VERSION)}
+    roi = {"roi_cache": ("roi_cache_version", ROI_CACHE_VERSION)}
+    death = {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
+             "killfeed_weapon": KILLFEED_WEAPON_VERSION,
+             "killfeed_name": KILLFEED_NAME_VERSION, "round": ROUND_VERSION,
+             "scoreboard": SCOREBOARD_VERSION, "agent_identity": AGENT_IDENTITY_VERSION,
+             "minimap_object": minimap_object_version(), "ally_icon": ALLY_ICON_VERSION,
+             # The rules the verdicts pass through, recorded since 2026-09-30.
+             "weapon_adjudication": WEAPON_ADJUDICATION_VERSION,
+             "weapon_gallery": WEAPON_GALLERY_VERSION,
+             "killfeed_name_cluster": KILLFEED_NAME_CLUSTER_VERSION,
+             "scoreboard_agent": SCOREBOARD_AGENT_VERSION,
+             "reliability": RELIABILITY_VERSION}
+    ult = {"ult_line": ULT_LINE_VERSION, "round": ROUND_VERSION, "tray_drop": TRAY_VERSION,
+           "hud": HUD_VERSION, "player_cast": PLAYER_CAST_VERSION,
+           "death": DEATH_ADJUDICATION_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
+           "combat_report_round": COMBAT_REPORT_ROUND_VERSION}
+    return {
+        "death": {k: ("inputs." + k, v) for k, v in death.items()},
+        "ult_cast": {k: ("inputs." + k, v) for k, v in ult.items()},
+        "tray_drop": gate,
+        "ability_shape": {**gate, **tray},
+        "scoreboard_strip": roi,
+        "scoreboard_presence": {"scoreboard_strip": ("scoreboard_strip_version",
+                                                     SCOREBOARD_STRIP_VERSION),
+                                "scoreboard": ("scoreboard_version", SCOREBOARD_VERSION)},
+        "ability_state": {**gate, **tray},
+        # The self icon rereads the stored minimap crops over the roster's
+        # alive gate; a reread roster moves its gate.
+        "self_icon": {**roi, "portrait_features": ("portrait_features_version",
+                                                   ALLY_PORTRAIT_FEATURES_VERSION),
+                      "spike": ("spike_version", SPIKE_VERSION),
+                      "teardrop": ("teardrop_version", TEARDROP_VERSION)},
+    }
+
+
+def compared_paths() -> dict[str, set[str]]:
+    """stream -> every head path `stale` compares for it: its own stamp, its
+    declared inputs (`stream_inputs`), and the code stamps it records
+    (`hand_code_fields`, `derived_streams`' fields). `doctor` INPUTS reads it."""
+    out: dict[str, set[str]] = defaultdict(set)
+    for stream, *_ in reader_streams():
+        out[stream].add(f"{stream}_version")
+    for stream, (key, _, _) in _hand_specs().items():
+        out[stream].add(key)
+    for stream, fields in hand_code_fields().items():
+        out[stream] |= {path for path, _ in fields.values()}
+    for spec in derived_streams():
+        out[spec["stream"]] |= {spec["key"], *spec["fields"]}
+        if spec.get("occluders"):
+            out[spec["stream"]] |= {"occluders", spec["occluders"]}
+    for stream, declared in stream_inputs().items():
+        out[stream] |= {d["path"] for d in declared.values()}
+    return dict(out)
+
+
+def _follow(store, sid: str, derived: list[dict], moving: set[str]) -> None:
+    """Carry staleness along every declared input until nothing more moves.
+
+    The hand checks run before the declared streams, so `ability_state`
+    (checked by hand) once never saw that `tray_kit` (declared later) was
+    stale. Here each stream with a stale input is listed, or its listed entry
+    names the input, whatever order the checks ran in."""
+    hand = {s: {"key": k, "current": c, "command": cmd, "how": _CACHE_READERS.get(s, "storage"),
+                "upstream": ()} for s, (k, c, cmd) in _hand_specs().items()}
+    specs = {**hand, **{s["stream"]: s for s in derived_streams()}}
+    by_stream = {d["stream"]: d for d in derived}
+    heads: dict[str, dict | None] = {}
+    changed = True
+    while changed:
+        changed = False
+        for stream, spec in specs.items():
+            if stream not in heads:
+                heads[stream] = (_head(store, stream, sid, b'"event_kind":"identity_distribution"')
+                                 if spec.get("identity") else _head(store, stream, sid))
+            head = heads[stream]
+            if head is None:
+                continue
+            names = upstream_names(stream, spec.get("upstream", ()), moving, head)
+            if not names:
+                continue
+            entry = by_stream.get(stream)
+            if entry is not None:
+                entry["inputs_moved"] += [n for n in names if n not in entry["inputs_moved"]]
+                continue
+            entry = {"stream": stream, "stored": head.get(spec["key"]),
+                     "current": spec["current"], "inputs_moved": names, "how": spec["how"],
+                     "command": spec["command"].format(sid=sid)}
+            derived.append(entry)
+            by_stream[stream] = entry
+            moving.add(stream)
+            changed = True
+
+
 def stale(store, sessions: list[str]) -> dict:
     """Per session: stale reader streams (decode), stale adjudications
     (storage only), and absent streams."""
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
-    from .adjudication.identity import AGENT_IDENTITY_VERSION
-    from .adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
-    from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
-                           KILLFEED_WEAPON_VERSION)
+    from .input_stamps import NO_ROWS
+    from .killfeed import KILLFEED_PORTRAIT_VERSION
     from .minimap_objects import minimap_object_version
-    from .roi_cache import ROI_CACHE_VERSION
-    from .version import (ABILITY_SHAPE_VERSION, ABILITY_STATE_VERSION,
-                          ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
-                          COMBAT_REPORT_ROUND_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
-                          ROUND_VERSION, SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION,
-                          SELF_ICON_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
-                          ULT_LINE_VERSION)
+    from .version import HUD_VERSION, ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION
+    code_fields = hand_code_fields()
     out = {}
     for sid in sessions:
         man = store.read_manifest(sid)
-        decode, derived, absent, waived = [], [], [], []
+        decode, derived, absent, waived, unrecorded = [], [], [], [], []
+        memo: dict = {}
 
         def accepted(where: str, stored, current: str) -> bool:
             """True where a waiver accepts `stored` as `current`, and records it."""
@@ -334,6 +778,17 @@ def stale(store, sessions: list[str]) -> dict:
                                "why": why})
             return why is not None
 
+        def recorded_moved(stream: str, head: dict | None, moved: list[str]) -> list[str]:
+            """`moved` with every declared input of `stream` whose recorded
+            stamp no longer matches the stored input (`inputs_moved`); the
+            inputs `head` does not record go to `unrecorded`."""
+            if head is None:
+                return moved
+            got, missing = inputs_moved(store, man, stream, head, memo, accepted)
+            if missing:
+                unrecorded.append({"stream": stream, "inputs": missing})
+            return moved + [k for k in got if k not in moved]
+
         for stream, channel, now, trial in reader_streams():
             got = stored_stamp(store, man, stream)
             if got is None:
@@ -341,6 +796,13 @@ def stale(store, sessions: list[str]) -> dict:
             elif got != now and not accepted(stream, got, now):
                 decode.append({"stream": stream, "channel": channel, "stored": got,
                                "current": now, "trial": trial})
+            elif stream in stream_inputs():
+                # A reader that read a stored input (`minimap_dark`, the baked
+                # geometry) rereads when that input moved.
+                moved = recorded_moved(stream, _head(store, stream, sid), [])
+                if moved:
+                    decode.append({"stream": stream, "channel": channel, "stored": got,
+                                   "current": now, "trial": trial, "inputs_moved": moved})
         rescanned = {s["stream"] for s in decode}
         rounds_stale = False
         r = _round_stamps(store, man)
@@ -355,18 +817,14 @@ def stale(store, sessions: list[str]) -> dict:
                 rounds_stale = True
                 derived.append({"stream": "rounds", "stored": r["round"], "current": ROUND_VERSION,
                                 "inputs_moved": moved, "command": f"reticle rounds {sid}"})
-        d = _death_stamps(store, sid)
-        if d is not None:
-            version, inputs = d
+        dhead = _head(store, "death", sid)
+        if dhead is not None:
+            version, inputs = dhead.get("death_adjudication_version"), dhead.get("inputs") or {}
             # The scoreboard stream feeds `scoreboard_dim`, and the identity
             # rules name every role; a deaths table read from older ones is
             # stale although no killfeed stream moved.
-            want = {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
-                    "killfeed_weapon": KILLFEED_WEAPON_VERSION,
-                    "killfeed_name": KILLFEED_NAME_VERSION, "round": ROUND_VERSION,
-                    "scoreboard": SCOREBOARD_VERSION, "agent_identity": AGENT_IDENTITY_VERSION,
-                    "minimap_object": minimap_object_version(), "ally_icon": ALLY_ICON_VERSION}
-            moved = sorted(k for k, v in want.items() if inputs.get(k) not in (v, None)
+            want = {k: v for k, (_, v) in code_fields["death"].items()}
+            moved = sorted(k for k, v in want.items() if inputs.get(k) not in (v, None, NO_ROWS)
                            and not accepted(f"death input {k}", inputs.get(k), v))
             # The X marks place deaths only from a current `minimap_object`
             # stream; a table built without one is stale once one is stored.
@@ -379,24 +837,20 @@ def stale(store, sessions: list[str]) -> dict:
                             if s in want and s not in moved
                             # the X inputs only where the table read them
                             and (s not in ("ally_icon", "minimap_object") or inputs.get(s)))
+            moved = recorded_moved("death", dhead, moved)
             if version != DEATH_ADJUDICATION_VERSION or moved:
                 derived.append({"stream": "death", "stored": version,
                                 "current": DEATH_ADJUDICATION_VERSION, "inputs_moved": moved,
                                 "command": f"reticle deaths {sid}"})
         deaths_stale = any(x["stream"] == "death" for x in derived)
-        u = store.read_events("ult_cast", sid)
-        if u:
-            version, inputs = u[0].get("ult_cast_version"), u[0].get("inputs") or {}
-            moved = sorted(k for k, v in (("ult_line", ULT_LINE_VERSION), ("round", ROUND_VERSION),
-                                          ("tray_drop", TRAY_VERSION), ("hud", HUD_VERSION),
-                                          ("player_cast", PLAYER_CAST_VERSION),
-                                          ("death", DEATH_ADJUDICATION_VERSION),
-                                          ("killfeed_portrait", KILLFEED_PORTRAIT_VERSION),
-                                          ("combat_report_round", COMBAT_REPORT_ROUND_VERSION))
-                           if inputs.get(k) not in (v, None))
+        uhead = _head(store, "ult_cast", sid)
+        if uhead is not None:
+            version, inputs = uhead.get("ult_cast_version"), uhead.get("inputs") or {}
+            moved = sorted(k for k, (_, v) in code_fields["ult_cast"].items()
+                           if inputs.get(k) not in (v, None, NO_ROWS))
             # A tray binding stamped before the gate had a stamp of its own
             # was decided by the first gate.
-            if "tray_drop" in inputs and "player_cast" not in inputs:
+            if inputs.get("tray_drop") == TRAY_VERSION and "player_cast" not in inputs:
                 moved = sorted(moved + ["player_cast"])
             # The tray binding reads the HUD and the gate's inputs only where it
             # read tray drops.
@@ -407,6 +861,7 @@ def stale(store, sessions: list[str]) -> dict:
                                                 and "killfeed_portrait" in inputs),
                                                ("death", deaths_stale and "death" in inputs))
                             if again and k not in moved)
+            moved = recorded_moved("ult_cast", uhead, moved)
             if version != ULT_CAST_VERSION or moved:
                 derived.append({"stream": "ult_cast", "stored": version,
                                 "current": ULT_CAST_VERSION, "inputs_moved": moved,
@@ -418,41 +873,26 @@ def stale(store, sessions: list[str]) -> dict:
         # without the gate's stamp was decided by the first gate. The kit state
         # (`ability-state`) reads the drops, the gate and the deaths the gate
         # reads, so a rescan of the HUD or a moved rounds or death table stales it.
-        gate = {"player_cast": ("player_cast_version", PLAYER_CAST_VERSION)}
         # The round-history strip rereads the stored centre crops; the
         # openings rerun from the slab test's rows and the strip's.
-        strip = {"scoreboard_strip": ("scoreboard_strip_version", SCOREBOARD_STRIP_VERSION)}
-        for stream, stamp, current, command, want in (
-                ("tray_drop", "tray_version", TRAY_VERSION, "reticle tray", gate),
-                ("ability_shape", "ability_shape_version", ABILITY_SHAPE_VERSION,
-                 "reticle ability-shapes",
-                 {**gate, "tray_drop": ("tray_version", TRAY_VERSION)}),
-                ("scoreboard_strip", "scoreboard_strip_version", SCOREBOARD_STRIP_VERSION,
-                 "reticle strip", {"roi_cache": ("roi_cache_version", ROI_CACHE_VERSION)}),
-                ("scoreboard_presence", "scoreboard_presence_version", SCOREBOARD_AGENT_VERSION,
-                 "reticle openings",
-                 {**strip, "scoreboard": ("scoreboard_version", SCOREBOARD_VERSION)}),
-                ("ability_state", "ability_state_version", ABILITY_STATE_VERSION,
-                 "reticle ability-state",
-                 {**gate, "tray_drop": ("tray_version", TRAY_VERSION)}),
-                # The self icon rereads the stored minimap crops over the
-                # roster's alive gate; a reread roster moves its gate.
-                ("self_icon", "self_icon_version", SELF_ICON_VERSION, "reticle self-icon",
-                 {"roi_cache": ("roi_cache_version", ROI_CACHE_VERSION),
-                  "portrait_features": ("portrait_features_version",
-                                        ALLY_PORTRAIT_FEATURES_VERSION)})):
-            rows = store.read_events(stream, sid)
-            if not rows:
+        specs = _hand_specs()
+        for stream in ("tray_drop", "ability_shape", "scoreboard_strip", "scoreboard_presence",
+                       "ability_state", "self_icon"):
+            stamp, current, command = specs[stream]
+            command, want = command.replace(" {sid}", ""), code_fields[stream]
+            head = _head(store, stream, sid)
+            if head is None:
                 continue
-            version = rows[0].get(stamp)
-            moved = sorted(k for k, (field, v) in want.items() if rows[0].get(field) != v
-                           and not accepted(f"{stream} input {k}", rows[0].get(field), v))
+            version = head.get(stamp)
+            moved = sorted(k for k, (field, v) in want.items() if head.get(field) != v
+                           and not accepted(f"{stream} input {k}", head.get(field), v))
             if stream == "ability_state":
                 moved += sorted(k for k, again in (("round", rounds_stale),
                                                    ("hud", "hud" in rescanned),
                                                    ("death", deaths_stale)) if again)
             if stream == "self_icon" and "roster" in rescanned:
                 moved.append("roster")
+            moved = recorded_moved(stream, head, moved)
             if version != current or moved:
                 derived.append({"stream": stream, "stored": version, "current": current,
                                 "inputs_moved": moved, "command": f"{command} {sid}",
@@ -468,19 +908,24 @@ def stale(store, sessions: list[str]) -> dict:
             version = head.get(spec["key"])
             moved = sorted(k for k, v in spec["fields"].items() if _dig(head, k) not in (v, None)
                            and not accepted(f"{stream} input {k}", _dig(head, k), v))
+            moved = recorded_moved(stream, head, moved)
             if spec.get("occluders"):
                 # A stream cast over an older occluder table, or over none
                 # where the geometry now holds one, is stale.
                 now = geometry_occluders(store, head.get(spec["occluders"]))
                 if now is not None and head.get("occluders") != now:
                     moved.append("occluders")
-            moved += sorted(u for u in spec["upstream"] if u in moving and u not in moved)
+            moved += sorted(u for u in upstream_names(stream, spec["upstream"], moving, head)
+                            if u not in moved)
             behind = version != spec["current"] and not accepted(stream, version, spec["current"])
             if behind or moved:
                 derived.append({"stream": stream, "stored": version, "current": spec["current"],
                                 "inputs_moved": moved, "how": spec["how"],
                                 "command": spec["command"].format(sid=sid)})
                 moving.add(stream)
+        # A stream checked above before one of its inputs was found stale
+        # follows it now: staleness follows every declared input, in any order.
+        _follow(store, sid, derived, moving)
         # The entity lanes: the projection records each input's stamp.
         from .entity_events import lane_status
         lanes = lane_status(store, sid, moving)
@@ -491,7 +936,7 @@ def stale(store, sessions: list[str]) -> dict:
         unchecked = [{"stream": s, "why": UNSTAMPED.get(s, "undeclared: no check in plan")}
                      for s in stored_streams(store, sid) if s not in declared]
         out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived,
-                    "unchecked": unchecked, "held": lanes["held"]}
+                    "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded}
     return out
 
 
@@ -527,6 +972,15 @@ def render(plan: dict) -> str:
             unchecked[(u["stream"], u["why"])].append(sid)
     waived_lines += [f"unchecked {stream}: {why} on {len(sids)} sessions"
                      for (stream, why), sids in sorted(unchecked.items())]
+    # A declared input the stored head never recorded cannot be compared: the
+    # stream was written before it was recorded. Not stale, and not current.
+    unrec: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for sid, p in plan.items():
+        for u in p.get("unrecorded", []):
+            unrec[(u["stream"], ", ".join(u["inputs"]))].append(sid)
+    waived_lines += [f"unrecorded {stream}: inputs {inputs} not recorded, so not compared, on "
+                     f"{len(sids)} sessions; its next rerun records them"
+                     for (stream, inputs), sids in sorted(unrec.items())]
     # A lane current as projected over inputs that are themselves stale: its
     # rows wait in the ledger as `stale`, and rebuilding it now changes nothing.
     held: dict[tuple[str, str], list[str]] = defaultdict(list)
