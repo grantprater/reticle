@@ -251,7 +251,8 @@ phrases = ["new entries arrive at the top", "killfeed stack direction"]
 [kayo-downed-entry]
 claim = """
 When KAY/O is downed in his ultimate (NULL/cmd), the killfeed draws an entry at
-the down, marked by an icon like an X inside a downward-pointing triangle. When
+the down, marked by an icon like an X inside a downward-pointing triangle,
+drawn beside KAY/O's name as Phoenix's Run It Back badge is. When
 a teammate revives the downed KAY/O, the killfeed draws a revive entry laid out
 as a Sage Resurrection entry [domain:killfeed/revive-entries]: the reviver, any
 teammate, as killer, KAY/O always as the recipient, and the X-in-triangle icon
@@ -270,7 +271,9 @@ icon is shown with the teammate who revived if there was a revive"; and in a
 third: "The entry is basically the same as a sage res entry except the reviving
 teammate can be anyone, the recipient is always kay/o, and the icon is
 different"; and in a fourth: "And it has to be following kay/o being downed in
-his ult, with the same icon on the original death killfeed entry"
+his ult, with the same icon on the original death killfeed entry"; and, asked
+whether the down icon sits in the weapon slot or beside KAY/O's name: "It's
+beside his name yes"
 """
 use = """
 a KAY/O entry at a down is not yet his death; his minimap icon stays drawn, red
@@ -281,10 +284,10 @@ entry for KAY/O in the round, under his ultimate, is a misread
 """
 exceptions = """
 unobserved on any stored capture: no stored death row names KAY/O as killer or
-victim. Where the icon sits in the down entry, and whether a death after a down
-draws a second entry, are unknown. The circular second-life badge reader
-(`killfeed.detect_second_life_badge`) was built for a ring and reads only the
-player's own death entries
+victim. Whether a death after a down draws a second entry is unknown. The
+circular second-life badge reader (`killfeed.detect_second_life_badge`) looks
+where the down icon sits but fits a ring, which the X-in-triangle is not, and
+reads only the player's own death entries
 """
 see = ["rounds/resurrection-mechanics", "rounds/scoreboard-dim-is-dead",
        "minimap/red-portrait-states", "killfeed/revive-entries"]
