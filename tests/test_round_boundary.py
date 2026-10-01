@@ -122,6 +122,24 @@ class SessionEntries(unittest.TestCase):
                          [(0, "enemy", True, False), (1, "ally", False, True)])
         self.assertEqual(len({death_key("s", e["t_ms"], e["slot"]) for e in got}), 2)
 
+    def test_a_kill_joins_the_entry_whose_divider_agrees_at_its_onset(self):
+        """bdfdcf009dba 294.0 s: the player's kill entry (divider 233) expired,
+        and a later entry in its slot (227, then 223) ran on in its track; the
+        entry's last divider disagreed with the kill's and the kill went
+        unmarked."""
+        from reticle.adjudication.death import session_entries
+        t = [float(x) for x in range(0, 10001, 500)]
+        div = [233 if x <= 4500 else 0 if x < 6000 else 227 if x == 6000 else 223 for x in t]
+        on = [d > 0 for d in div]
+        hud = {"t_ms": t, "kf_entry_mask": [int(o) for o in on], "kf_entry_wx": div,
+               "kf_ally_mask": [0] * len(t), "kf_enemy_mask": [int(o) for o in on],
+               "kf_kill_mask": [int(x <= 4500) for x in t],
+               "kf_kill_wx": [233 if x <= 4500 else 0 for x in t],
+               "kf_death_mask": [0] * len(t)}
+        got = session_entries(hud)
+        self.assertEqual([(e["t_first"], e["t_last"], e["kf_player_kill"]) for e in got],
+                         [(0.0, 10000.0, True)])
+
 
 class SplitTracks(unittest.TestCase):
     def _tr(self, a, z, slot, sig):

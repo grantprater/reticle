@@ -440,6 +440,15 @@ def in_round_window(seq: list[dict], a: float, z: float, close: float,
             and not (e["t_first"] == a and a in ends and a != z)]
 
 
+def round_containing(t_ms: float, rounds: list[dict]) -> dict | None:
+    """The round of `rounds` (`build_rounds` rows, which carry `t_close_ms`)
+    an instant belongs to by `in_round_window`, or None outside every round."""
+    ends = {r["t_end_ms"] for r in rounds}
+    e = [{"t_first": t_ms}]
+    return next((r for r in rounds if in_round_window(
+        e, r["t_start_ms"], r["t_end_ms"], r["t_close_ms"], ends)), None)
+
+
 def round_closes(rounds: list[dict]) -> list[float]:
     """Each round's close: the next round's start, and for the last round one
     median post-round gap after its end (its own end where no gap is seen)."""

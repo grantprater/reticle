@@ -181,6 +181,22 @@ def load(store_root: Path) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
 
+def built_from(store_root: Path) -> str | None:
+    """The stored table's stamp as an input of `death`: this version and the
+    death rule its verdicts were read at, or None when it was never built.
+
+    The table is built from the death streams, and `death` reads it, so its
+    bytes move on every rerun of the deaths. Its consumers compare this stamp
+    instead, which moves only when the table is rebuilt over another death
+    rule; one rebuild after a death bump, and one rerun of the deaths, then
+    agree (`plan.FEEDBACK`)."""
+    path = table_path(store_root)
+    if not path.is_file():
+        return None
+    death = (json.loads(path.read_text(encoding="utf-8")).get("inputs") or {}).get("death")
+    return f"{RELIABILITY_VERSION}<-{death or 'unstamped'}"
+
+
 def table_path(store_root: Path) -> Path:
     return Path(store_root) / "reliability" / f"{RELIABILITY_VERSION}.json"
 

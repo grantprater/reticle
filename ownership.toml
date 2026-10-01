@@ -299,7 +299,8 @@ status = "partial"
 names_agents = true
 produces = ["adjudicate", "lifetime_verdict", "tray_verdict", "cast_groups",
             "tolerance_s", "window", "SMOKE_ABILITY", "NO_BULK", "LIFETIME_S",
-            "CAST_WINDOW_S", "NOT_A_PLAYER_CAST", "CHANNELS", "player_smoke_casts"]
+            "CAST_WINDOW_S", "NOT_A_PLAYER_CAST", "CHANNELS", "player_smoke_casts",
+            "smoke_entity_id"]
 not_for = """
 Finding or timing the smoke (`minimap-smoke`), enemy smokes (not drawn on the
 player's minimap), or deciding a name itself: each rule is a claim through
@@ -771,12 +772,14 @@ question = "Which observations across views are one physical entity this round?"
 owner = "round_lifetimes"
 role = ["track", "lifecycle", "adjudicate"]
 status = "partial"
-produces = ["RoundLifetimes", "ally_capacity", "readable_kind", "known_kind"]
+produces = ["RoundLifetimes", "ally_capacity", "readable_kind", "known_kind", "death_refusal", "BIND_PX"]
 not_for = """
 Agent identity. Names here are fixed at birth and deliberately English rather
 than agent names, which exposes fragmentation instead of pretending to know who
 it is; appearance-only reacquisition is vacuous past the widget diagonal over
-walking speed and must be refused or marked.
+walking speed and must be refused or marked. Placing a death or naming its
+victim: the death owner places it and the arbiter names the entity, and
+`death_refusal` is the one rule every lane binds a death to an entity's end by.
 """
 defers_to = ["track-continuation"]
 evidence = "tests/test_round_lifetimes.py"
@@ -789,7 +792,7 @@ stored_consumers = ["entity_events"]
 role = ["lifecycle"]
 status = "partial"
 names_agents = true
-produces = ["session_lifetimes", "ROUND_ENTITY_VERSION", "track_gaps", "GAP_MS"]
+produces = ["session_lifetimes", "ROUND_ENTITY_VERSION", "track_gaps", "GAP_MS", "death_binding_refusal", "drop_binding_refusal", "PLAYER_FAMILIES", "PLAYER_DROP_MS"]
 not_for = """
 Deciding continuity or names locally. `round_lifetimes` decides which
 observations are one entity and `adjudication.identity` names it; this maps
@@ -846,7 +849,7 @@ stored_consumers = ["entity_events"]
 role = ["lifecycle"]
 status = "partial"
 names_agents = true
-produces = ["build", "enemy_session_tracks", "track_claims", "ENEMY_TRACK_VERSION", "BIND_PX"]
+produces = ["build", "enemy_session_tracks", "track_claims", "ENEMY_TRACK_VERSION"]
 not_for = """
 Deciding continuity or names locally. `round_lifetimes` decides which enemy
 icons are one entity and `adjudication.identity` names each track from its
@@ -907,7 +910,7 @@ owner = "rounds"
 stored_consumers = ["entity_events"]
 role = ["lifecycle", "adjudicate"]
 status = "partial"
-produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events"]
+produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events", "in_round_window", "round_containing"]
 not_for = """
 Player identity. A side is a round state. About 20% of coaching events still sit
 near an uncertain boundary, and plant inference that reads a FUTURE clock gap is
@@ -945,7 +948,7 @@ not_for = """
 Choosing which channel is right. A check surfaces the disagreement; silently
 picking a winner destroys the evidence that something is wrong.
 """
-consumers = ["reconciliation", "rounds", "coaching", "fidelity", "status"]
+consumers = ["reconciliation", "rounds", "fidelity", "status"]
 
 [[entry]]
 id = "channel-disagreement"
@@ -1583,7 +1586,7 @@ modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
            "doctor", "status", "fidelity", "overlay", "review",
            "ability_capture", "ability_entities", "ability_gallery",
            "ability_phases", "events", "candidate_evidence",
-           "plan", "trial", "roi_cache", "pipeline", "documents", "tiers", "clipserve",
+           "plan", "input_stamps", "trial", "roi_cache", "pipeline", "documents", "tiers", "clipserve",
            "view_events", "round_view", "entity_contract"]
 
 [[entry]]

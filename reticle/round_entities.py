@@ -11,7 +11,10 @@ the arbiter). Killfeed deaths bind to segment ends, and since 0.8.0 they also
 bar a dead teammate from the pieces observed while it is dead
 (`ally_dead_intervals`), so they are no longer an independent check of the names;
 the player's labels and blind labels are. Named pieces carry persistent
-teammate keys.
+teammate keys. Since 0.10.0 `death_binding_refusal` decides which entity may
+take which death: only players die, the player's death ends only the self
+entity, and the X and name checks are the enemy lane's
+(`round_lifetimes.death_refusal`).
 
 Observation mapping, and why
 -----------------------------
@@ -33,7 +36,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes
+from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes, death_refusal
 
 # 0.8.0 (2026-09-26): `ally_dead_intervals` gives `identity.assign_ally_pieces`
 # each round's killfeed dead intervals, and the owner bars a dead teammate
@@ -46,7 +49,12 @@ from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes
 # art (`identity.teammate_fit_refusal`) is refused as not a teammate.
 # 0.9.0 (2026-09-28): a frame the stored menu witness finds covered steps the
 # lifetimes with no observation, as `source_state="menu_open"`.
-ROUND_ENTITY_VERSION = "round-entity-0.9.0"
+# 0.10.0 (2026-09-30): deaths bind through `death_binding_refusal` inside
+# `RoundLifetimes.finish`, not after it: no barrier takes a death or a roster
+# drop, the player's death (and a drop beside it) ends only the self entity,
+# a teammate's only an ally piece, revives and second lives end no one, and
+# the X and the arbiter's name must agree, as on the enemy lane.
+ROUND_ENTITY_VERSION = "round-entity-0.10.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
@@ -76,6 +84,63 @@ def track_gaps(times) -> list[tuple[float, float]]:
     """`(last observed, next observed)` for each gap in one entity's sorted
     observation times: the spans nothing observed it."""
     return [(a, b) for a, b in zip(times, times[1:]) if b - a > GAP_MS]
+
+
+#: The families that are players, and so the only ones a death or a roster
+#: drop may end. A barrier is furniture: it has no death.
+PLAYER_FAMILIES = ("ally", "self")
+#: A roster drop this close to the player's own death counts the player: the
+#: window `RoundLifetimes.finish` binds a drop within.
+PLAYER_DROP_MS = 2500.0
+
+
+def death_binding_refusal(ent: dict, death: dict, *, player_agent: str | None,
+                          agent: str | None, last_xy=None, scale: float = 1.0) -> str | None:
+    """Why the ally-side `death` may not end `ent`, or None when it may.
+
+    Only a player entity takes a death. The player's own death -- the
+    killfeed's player-death mask, or the player's agent as victim -- ends
+    only the self entity, and a teammate's death ends only an ally piece:
+    the self icon follows the spectated teammate after the player dies
+    [domain:minimap/self-icon-shows-spectated]. The rest is
+    `round_lifetimes.death_refusal`, the rule the enemy lane binds by: the
+    death owner's revive and second-life flags, the death's X against the
+    entity's last position, and the victim against `agent`, the arbiter's
+    name for the entity (the player's agent for the self entity)."""
+    fam = ent.get("family")
+    if fam not in PLAYER_FAMILIES:
+        return f"{fam}_is_not_a_player"
+    mine = _is_player_death(death, player_agent)
+    if fam == "self" and not mine:
+        return "victim_is_not_the_player"
+    if fam == "ally" and mine:
+        return "victim_is_the_player"
+    return death_refusal(death, agent=player_agent if fam == "self" else agent,
+                         last_xy=last_xy, scale=scale)
+
+
+def drop_binding_refusal(ent: dict, t_drop: float, player_deaths) -> str | None:
+    """Why a roster alive drop at `t_drop` may not end `ent`, or None.
+
+    A drop counts a player, so only a player entity takes one. A drop within
+    `PLAYER_DROP_MS` of the player's own death (`player_deaths`, their times)
+    counts the player and ends only the self entity; any other drop counts a
+    teammate and ends only an ally piece."""
+    fam = ent.get("family")
+    if fam not in PLAYER_FAMILIES:
+        return f"{fam}_is_not_a_player"
+    mine = any(abs(t_drop - t) <= PLAYER_DROP_MS for t in player_deaths)
+    if fam == "ally" and mine:
+        return "drop_is_the_player"
+    if fam == "self" and not mine:
+        return "drop_is_a_teammate"
+    return None
+
+
+def _is_player_death(death: dict, player_agent: str | None) -> bool:
+    """The death owner's player-death flag, or the player's agent as victim."""
+    return bool(death.get("kf_player_death")) or bool(
+        player_agent and death.get("victim") == player_agent)
 
 
 def _observation(icon: dict) -> dict:
@@ -211,43 +276,52 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
 
     # Death witnesses BIND a death to a segment's end; they never name it.
     # The killfeed stays the independent check of the portrait names.
-    teammate_deaths = [d for d in (deaths or [])
-                       if d.get("kind") == "death_verdict" and d.get("side") == "ally"
-                       and (not player_agent or d.get("victim") != player_agent)]
-    death_by_id = {d["death_id"]: d for d in teammate_deaths if d.get("death_id")}
-    death_by_rnd: dict[int, list[dict]] = {}
-    for d in teammate_deaths:
-        death_by_rnd.setdefault(d.get("round_no"), []).append(d)
+    death_by_id = {d["death_id"]: d for rec in round_records for d in rec["deaths"]
+                   if d.get("death_id")}
+    unbound = Counter()
 
     for rec in round_records:
-        finished = rec["life"].finish(rec["z"], deaths=rec["deaths"], roster_drops=rec["drops"])
+        last_xy = {eid: (e["last_observation"]["x"], e["last_observation"]["y"])
+                   for eid, e in rec["life"].entities.items() if e.get("last_observation")}
+
+        def refusal(ent, d, last_xy=last_xy):
+            return death_binding_refusal(ent, d, player_agent=player_agent,
+                                         agent=agent_of(ent["id"]),
+                                         last_xy=last_xy.get(ent["id"]), scale=scale)
+
+        mine = [d["t_ms"] for d in rec["deaths"] if d.get("t_ms") is not None
+                and _is_player_death(d, player_agent)
+                and death_refusal(d) not in ("revive", "second_life")]
+        finished = rec["life"].finish(
+            rec["z"], deaths=rec["deaths"], roster_drops=rec["drops"],
+            admit=lambda ent, d: refusal(ent, d) is None,
+            admit_drop=lambda ent, t, mine=mine: drop_binding_refusal(ent, t, mine) is None)
         rec["finished"] = finished
-        # A pairing whose segment carries another agent's name is undone.
+        # The same rule on the bound pairs; any disagreement is counted.
         for ent in finished:
-            did = ent.get("death_id")
-            if did in death_by_id:
-                vic, p_agent = death_by_id[did].get("victim"), agent_of(ent["id"])
-                if p_agent is not None and vic and p_agent != vic:
-                    ent["death_id"] = None
-                    ent["end_reason"] = "last observation does not establish destruction/death"
-                    ent["death_evidence"] = None
-                    ent["end_ms"] = None
-                    ent["right_censored_at_ms"] = ent["last_seen_ms"]
+            d = death_by_id.get(ent.get("death_id"))
+            why = None if d is None else refusal(ent, d)
+            if why:
+                unbound[why] += 1
+                ent.update(death_id=None, end_ms=None, death_evidence=None,
+                           end_reason="last observation does not establish destruction/death",
+                           right_censored_at_ms=ent["last_seen_ms"], death_unbound=why)
         # Pair any remaining unlinked deaths with a nearby segment end.
         claimed = {ent["death_id"] for ent in finished if ent.get("death_id")}
-        for d in sorted(death_by_rnd.get(rec["round_no"], []), key=lambda x: x.get("t_ms", 0)):
-            did, vic, t_d = d.get("death_id"), d.get("victim"), d.get("t_ms", 0)
+        for d in sorted(rec["deaths"], key=lambda x: x.get("t_ms", 0)):
+            did, t_d = d.get("death_id"), d.get("t_ms", 0)
             if did in claimed:
                 continue
             cands = [(abs(ent["last_seen_ms"] - t_d), ent) for ent in finished
                      if ent.get("family") == "ally" and not ent.get("death_id")
                      and abs(ent["last_seen_ms"] - t_d) <= 3000.0
-                     and agent_of(ent["id"]) in (vic, None)]
+                     and refusal(ent, d) is None]
             if cands:
                 best_ent = min(cands, key=lambda x: x[0])[1]
                 best_ent.update(death_id=did, end_ms=t_d, end_reason="death",
                                 death_evidence="killfeed_verdict")
                 claimed.add(did)
+    coverage["death_unbound"] = dict(unbound)
 
     rows: list[dict] = []
     piece_of = named.get("piece_of", {})

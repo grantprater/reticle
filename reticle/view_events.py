@@ -36,7 +36,10 @@ from pathlib import Path
 
 from . import entity_events as ee
 
-VIEW_EVENTS_VERSION = "view-events-0.3.0"
+VIEW_EVENTS_VERSION = "view-events-0.4.0"
+# 0.4.0 (2026-09-30): a smoke track's entity id comes from its `smoke_owner`
+# row; the viewer no longer builds the key, whose `int(first_ms)` missed 22
+# of the owner's 84 verdicts on four sessions.
 # 0.3.0 (2026-09-30): the enemy lane (enemy poses and their red "?"), and
 # each death the death lane places drawn as an X on the minimap.
 
@@ -50,7 +53,8 @@ LAYERS = (
     ("1", "round_entity", ee.lane_streams("round_entity")),
     ("2", "team_vision", ("team_vision",)),
     ("3", "death", ee.lane_streams("death")),
-    ("4", "ability", ("ability_state", "ability_shape", "smoke", "smoke_owner_identity",
+    ("4", "ability", ("ability_state", "ability_shape", "smoke", "smoke_owner",
+                      "smoke_owner_identity",
                       "ult_cast", "ult_cast_identity")),
     ("5", "spike", ee.lane_streams("spike")),
     ("6", "ping", ("ping",)),
@@ -180,16 +184,25 @@ STREAMS = {s.stream: s for s in (
     StreamSpec(
         "smoke", "minimap-smoke", "adjudication.smokes", ("track",),
         "track interval `first_ms..last_ms`",
-        "`track` index; the owner stream builds `<sid>:smoke:<first_ms>:<track>` itself",
+        "`track` index; the smoke_owner row for the track carries its entity_id",
         "owner in smoke_owner_identity",
         _f(version="smoke_version", t_ms="first_ms", t_end="last_ms", entity_id="track",
            position="cx|cy", state="end_status", uncertainty="r"),
         notes="one position per track; the row carries no entity_id string"),
     StreamSpec(
+        "smoke_owner", "smoke-owner", "adjudication.smoke_owner", ("smoke_owner",),
+        "the smoke track's `first_ms..last_ms`",
+        "`entity_id`, the owner's smoke key; `track` and `smoke_version` join the smoke row",
+        "`agent` when the arbiter resolved it; the distribution is in smoke_owner_identity",
+        _f(version="smoke_owner_version", t_ms="first_ms", t_end="last_ms",
+           entity_id="entity_id", identity="agent", identity_status="identity_status",
+           position="cx|cy", evidence="evidence"),
+        notes="one row per smoke track; the viewer reads the id here and builds none"),
+    StreamSpec(
         "smoke_owner_identity", "agent-identity", "adjudication.identity",
         ("identity_distribution",),
         "the smoke's first_ms",
-        "`subject_entity_id` `<sid>:smoke:<first_ms>:<track>`",
+        "`subject_entity_id`, the smoke_owner row's entity_id",
         "distribution over agents",
         _f(event_id="event_id", version="producer_version", t_ms="t_ms",
            entity_id="identity_distribution.subject_entity_id",
@@ -501,7 +514,12 @@ def _ability_shape(rows, t0, t1):
     return out
 
 
-def _smoke(rows, owners, sid, t0, t1):
+def _smoke(rows, owner_rows, owners, t0, t1):
+    """Smoke tracks, each with the owner's verdict. The `smoke_owner` row of
+    a track, at the track's `smoke_version`, carries the smoke's entity id;
+    the viewer reads it there and joins the identity event on it."""
+    ids = {(r.get("smoke_version"), r.get("track")): r.get("entity_id")
+           for _n, r in owner_rows or [] if r.get("kind") == "smoke_owner"}
     own = {}
     for _n, r in owners or []:
         d = r.get("identity_distribution") or {}
@@ -513,14 +531,17 @@ def _smoke(rows, owners, sid, t0, t1):
         a, z = r.get("first_ms"), r.get("last_ms")
         if a is None or z is None or z < t0 or a > t1:
             continue
-        key = f"{sid}:smoke:{int(a)}:{r.get('track')}"
-        o = own.get(key)
+        key = ids.get((r.get("smoke_version"), r.get("track")))
+        o = own.get(key) if key else None
         who = _dist_text((o or {}).get("identity_distribution", {}).get("distribution")) \
             if o else "no owner event"
         out.append(Item(
             "ability", "smoke", "track", a, z, "minimap", f"smoke {r.get('track')}: {who}",
-            "ok" if o else "uncertain", None if o else "no smoke_owner_identity row",
-            x=r.get("cx"), y=r.get("cy"), r=r.get("r"), event_id=key, id_source="line",
+            "ok" if o else "uncertain",
+            None if o else ("no smoke_owner row for this track" if key is None
+                            else "no smoke_owner_identity row"),
+            x=r.get("cx"), y=r.get("cy"), r=r.get("r"), event_id=key or f"smoke@{no}",
+            id_source="stored" if key else "line",
             version=r.get("smoke_version"), entity_id=key, colour="smoke",
             detail={"onset": r.get("onset_status"), "end": r.get("end_status"),
                     "owner_event": (o or {}).get("event_id")}))
@@ -911,7 +932,8 @@ def load(store, manifest: dict, t0: float, t1: float, round_row: dict | None = N
         "team_vision": _team_vision(raw["team_vision"] or [], a, z),
         "ability_state": _ability_state(raw["ability_state"] or [], a, z),
         "ability_shape": _ability_shape(raw["ability_shape"], a, z),
-        "smoke": _smoke(raw["smoke"], raw["smoke_owner_identity"], sid, a, z),
+        "smoke": _smoke(raw["smoke"], raw["smoke_owner"], raw["smoke_owner_identity"], a, z),
+        "smoke_owner": [],
         "smoke_owner_identity": [],
         "ult_cast": _ult(raw["ult_cast"], raw["ult_cast_identity"], a, z),
         "ult_cast_identity": [],

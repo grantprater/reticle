@@ -1190,6 +1190,154 @@ def check_uncalled(base: Path | None = None) -> list[tuple[str, str]]:
 
 
 
+#: Store methods that read a stored input, and the input `plan` names it by.
+_INPUT_READS = {"read_hud": {"hud"}, "read_roster": {"roster"}, "read_minimap": {"minimap"},
+                "rounds_path": {"rounds"}, "read_rounds": {"rounds"}, "load_lineup": {"lineup"},
+                # the player-cast gate's stored inputs (`ability_timeline`)
+                "stored_gate_inputs": {"hud", "killfeed_portrait", "death",
+                                       "combat_report_round", "tray_kit", "menu_open"}}
+
+#: `cli.py` helpers whose reads feed no stored stream, and why.
+_INPUT_READ_EXEMPT = {
+    "_tray_kit_values": "`tray-kit --record`'s quoted numbers, recorded to metrics, not the stream",
+}
+
+
+def _cli_reads_writes(path: Path) -> dict[str, tuple[set[str], set[str]]]:
+    """function -> (streams it writes, stored inputs it reads), for each
+    top-level function of `path`, with the reads of the module's own helpers
+    it calls folded in. Only literal stream names count."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    direct: dict[str, tuple[set[str], set[str], set[str]]] = {}
+    for fn in tree.body:
+        if not isinstance(fn, ast.FunctionDef):
+            continue
+        writes, reads, calls = set(), set(), set()
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+            lits = [a.value for a in node.args
+                    if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+            if name == "write_events" and lits:
+                writes.add(lits[0])
+            elif name in ("read_events", "events_version", "_head", "head_row") and lits:
+                reads.add(lits[0])
+            elif name in _INPUT_READS:
+                reads |= _INPUT_READS[name]
+            elif isinstance(f, ast.Name):
+                calls.add(f.id)
+        direct[fn.name] = (writes, reads, calls)
+
+    def reach(name, seen):
+        w, r, calls = direct[name]
+        r = set(r)
+        for c in calls:
+            if (c in direct and c not in seen and not direct[c][0]
+                    and c not in _INPUT_READ_EXEMPT):
+                seen.add(c)
+                r |= reach(c, seen)
+        return r
+
+    return {n: (w, reach(n, {n})) for n, (w, _, _) in direct.items()}
+
+
+def check_inputs(store: Path) -> list[tuple[str, str]]:
+    """A stream that read a stored input `plan` does not compare.
+
+    `plan` calls a stream stale when an input it recorded no longer matches
+    the input as stored (`plan.inputs_moved`), so an input a writer reads and
+    no declaration names is one whose change stales nothing: `death` stamped
+    the code's HUD version while it read the stored table, and the lifetimes
+    cache keyed on four of its inputs. Two halves:
+
+    - the code: a `reticle/cli.py` command that writes a declared stream and
+      reads, by a literal name, a stored stream or table none of the written
+      streams declares (`plan.stream_inputs`, a derived spec's `upstream`);
+    - the store: a stamp-like key (`*_version`, `inputs.*`, `geometry*`,
+      `menu_open`, `tray_kit`, `occluders`) in a stored first row that `plan`
+      does not compare (`plan.compared_paths`) and `plan.NOT_INPUTS` does not
+      excuse.
+
+    It also fails on a loop in the declared inputs (`plan.input_cycles`): the
+    death stream recorded the bytes of the reliability table built from the
+    deaths, so each rerun restaled the next. A loop runs only through a
+    declared `plan.FEEDBACK` edge, whose stamp runs once.
+
+    What it misses: a read inside a module the command calls (`self_icon`,
+    `minimap_objects`, `enemy_tracks` read through `read_session`), a stream
+    named by a variable, a file read outside the store's read methods (the
+    reliability table, the catalogue), and an input a writer reads and never
+    records -- the store half sees only what was recorded.
+    """
+    from reticle import plan
+    out: list[tuple[str, str]] = []
+    declared = plan.stream_inputs()
+    specs = {s["stream"]: s for s in plan.derived_streams()}
+    compared = plan.compared_paths()
+    # A reader decodes; what it reads from the store gates which frames it
+    # samples, and a moved gate is the scan's question, not plan's.
+    readers = {s for s, *_ in (*plan.reader_streams(), *plan.ability_streams())}
+    for fn, (writes, reads) in sorted(_cli_reads_writes(ROOT / "reticle" / "cli.py").items()):
+        mine = [w for w in writes if w in compared and w not in readers]
+        if not mine:
+            continue
+        allowed = set(writes)
+        for w in mine:
+            # An identity stream is rewritten by its parent's command, and
+            # follows the parent's inputs through it.
+            for x in (w, *(specs[w]["upstream"] if specs.get(w, {}).get("identity") else ())):
+                allowed |= plan.input_streams(x) | set(specs.get(x, {}).get("upstream", ()))
+                if any(d["probe"] in ("lineup", "lineup_file")
+                       for d in declared.get(x, {}).values()):
+                    allowed.add("lineup")
+        extra = sorted(reads - allowed)
+        if extra:
+            out.append((ERROR, f"cli.{fn} writes {', '.join(sorted(mine))} and reads "
+                               f"{', '.join(extra)}, which no declaration names -- declare "
+                               f"it in plan.stream_inputs so plan compares it"))
+    # A loop in the declared inputs restales its own streams on every rerun.
+    for cycle in plan.input_cycles():
+        out.append((ERROR, f"the declared inputs loop: {' <- '.join(cycle)} -- break it, or "
+                           f"declare the edge in plan.FEEDBACK with a stamp that runs once"))
+    for stream, name in sorted(plan.FEEDBACK):
+        if name not in declared.get(stream, {}):
+            out.append((ERROR, f"plan.FEEDBACK names {stream} input {name}, which "
+                               f"plan.stream_inputs does not declare"))
+    events = store / "events"
+    if not events.is_dir():
+        return out
+    stampy =re.compile(r"(_version$|^geometry|^menu_open$|^tray_kit$|^occluders$)")
+    undeclared: dict[tuple[str, str], int] = collections.Counter()
+    for stream, paths in sorted(compared.items()):
+        d = events / stream
+        if not d.is_dir():
+            continue
+        needle = b'"event_kind":"identity_distribution"' if specs.get(stream, {}).get("identity") else None
+        for f in sorted(d.glob("*.jsonl")):
+            head = None
+            with open(f, "rb") as fh:
+                for line in fh:
+                    if needle is None or needle in line:
+                        head = json.loads(line)
+                        break
+            if not isinstance(head, dict):
+                continue
+            keys = [k for k in head if stampy.search(k)]
+            if isinstance(head.get("inputs"), dict):
+                keys += [f"inputs.{k}" for k in head["inputs"]]
+            for k in keys:
+                if k in paths or k.rsplit(".", 1)[-1] in plan.NOT_INPUTS:
+                    continue
+                undeclared[(stream, k)] += 1
+    for (stream, k), n in sorted(undeclared.items()):
+        out.append((ERROR, f"{stream} records {k} on {n} sessions and plan does not compare "
+                           f"it -- declare it in plan.stream_inputs, or say why it is not an "
+                           f"input in plan.NOT_INPUTS"))
+    return out
+
+
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("HANDOFF", check_handoff), ("DOCS", check_documents),
               ("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
@@ -1207,7 +1355,8 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("COVERAGE", lambda: check_coverage(store)),
               ("MANIFEST", lambda: check_manifest(store)),
               ("FURNITURE", lambda: check_furniture(store)),
-              ("STALL", lambda: check_stalls(store)))
+              ("STALL", lambda: check_stalls(store)),
+              ("INPUTS", lambda: check_inputs(store)))
     out = []
     for name, fn in checks:
         for sev, msg in fn():

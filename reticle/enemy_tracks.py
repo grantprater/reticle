@@ -10,9 +10,10 @@ stream's enemies; nothing here decodes video or reads pixels.
 (`death`, side enemy, revives excluded). `RoundLifetimes.finish` binds them
 greedily, largest track first, to the nearest unclaimed death in time; the
 `admit` predicate passed to it refuses a death whose X places it farther than
-`BIND_PX` * scale from the track's last position, or whose victim is not the
-arbiter's resolved name for the track: the X and the name are two witnesses
-the binding must agree with. A refused death stays free for another track. A
+`round_lifetimes.BIND_PX` * scale from the track's last position, or whose
+victim is not the arbiter's resolved name for the track: the X and the name
+are two witnesses the binding must agree with. The rule is
+`round_lifetimes.death_refusal`, which the ally lane (`round_entities`) shares. A refused death stays free for another track. A
 track the arbiter left unnamed, or a death with no victim, is admitted on time
 and X alone. The same two checks still run on the bound pairs afterwards and
 count any disagreement in `death_unbound`, which should stay empty.
@@ -49,16 +50,11 @@ enemy five, refuses every claim with the reason.
 """
 from __future__ import annotations
 
-import math
 from collections import Counter, defaultdict
 
-from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes
+from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes, death_refusal
 
 ENEMY_TRACK_VERSION = "enemy-track-0.2.0"
-
-#: A death's X lies within this of its track's last position (px * scale):
-#: twice the icon radius `minimap_objects.ICON_PX`.
-BIND_PX = 20.0
 
 #: The identity channel the claims come from, and the binding's own name.
 CHANNEL = "minimap_portrait"
@@ -232,14 +228,8 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
 
     def _disagreement(eid: str, d: dict) -> str | None:
         v = verdicts.get(eid)
-        agent = v["agent"] if v else None
-        loc = d.get("location")
-        lp = last_pos.get(eid)
-        if loc and lp and math.hypot(loc[0] - lp[0], loc[1] - lp[1]) > BIND_PX * scale:
-            return "death_x_elsewhere"
-        if agent and d.get("victim") and d["victim"] != agent:
-            return "victim_is_another_agent"
-        return None
+        return death_refusal(d, agent=v["agent"] if v else None,
+                             last_xy=last_pos.get(eid), scale=scale)
 
     rows = []
     unbound = Counter()

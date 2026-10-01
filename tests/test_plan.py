@@ -9,7 +9,7 @@ import pyarrow.parquet as pq
 
 from reticle.adjudication.death import DEATH_ADJUDICATION_VERSION
 from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
-from reticle.plan import derived_streams, reader_streams, render, stale
+from reticle.plan import derived_streams, reader_streams, record_inputs, render, stale
 from reticle.version import (ABILITY_SHAPE_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
                             ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION)
 
@@ -65,11 +65,28 @@ def _current_store(root: Path) -> _Store:
                                    "inputs": {"hud": HUD_VERSION,
                                               "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
                                               "killfeed_weapon": KILLFEED_WEAPON_VERSION,
-                                              "round": ROUND_VERSION}}]
+                                              "round": ROUND_VERSION,
+                                              # no X marks read, as `reticle deaths` records
+                                              "minimap_object": None, "ally_icon": None}}]
     store.events["ult_cast:rows"] = [{"ult_cast_version": ULT_CAST_VERSION,
                                       "inputs": {"ult_line": ULT_LINE_VERSION,
                                                  "round": ROUND_VERSION}}]
+    from reticle.roi_cache import ROI_CACHE_VERSION
+    from reticle.version import MENU_VERSION
+    store.events["menu_open:rows"] = [{"menu_version": MENU_VERSION,
+                                       "roi_cache_version": ROI_CACHE_VERSION}]
+    # Each head records every stored input it declares, as its writer does.
+    for stream in ("death", "ult_cast"):
+        record_inputs(store, store.read_manifest("s"), stream, store.events[stream + ":rows"][0])
     return store
+
+
+def _tray_drops(store) -> None:
+    """Current tray drops, for a cast binding that read them."""
+    from reticle.version import MENU_VERSION
+    store.events["tray_drop:rows"] = [{"tray_version": TRAY_VERSION,
+                                       "player_cast_version": PLAYER_CAST_VERSION,
+                                       "tray_kit": "no_rows", "menu_open": MENU_VERSION}]
 
 
 class PlanTests(unittest.TestCase):
@@ -77,7 +94,7 @@ class PlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             plan = stale(_current_store(Path(d)), ["s"])
             self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": [], "waived": [],
-                                         "unchecked": [], "held": []})
+                                         "unchecked": [], "held": [], "unrecorded": []})
             self.assertEqual(render(plan), "nothing stale over 1 sessions")
 
     def test_unrecorded_portrait_stamp_stales_rounds_then_deaths(self):
@@ -156,6 +173,7 @@ class PlanTests(unittest.TestCase):
     def test_older_tray_drops_or_a_hud_rescan_stale_the_casts_bound_to_them(self):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
+            _tray_drops(store)
             store.events["ult_cast:rows"][0]["inputs"].update(tray_drop="tray-0.0.1",
                                                               hud=HUD_VERSION,
                                                               player_cast=PLAYER_CAST_VERSION)
@@ -165,12 +183,14 @@ class PlanTests(unittest.TestCase):
             store.events["ult_cast:rows"][0]["inputs"]["tray_drop"] = TRAY_VERSION
             store.table("hud", hud_version="hud-0.0.1")
             derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
-            self.assertEqual(derived["ult_cast"]["inputs_moved"], ["hud", "round"])
+            # The drops' gate read the HUD too, so the binding follows them.
+            self.assertEqual(derived["ult_cast"]["inputs_moved"], ["hud", "round", "tray_drop"])
 
 
     def test_casts_bound_before_the_gate_had_its_own_stamp_are_stale(self):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
+            _tray_drops(store)
             store.events["ult_cast:rows"][0]["inputs"].update(tray_drop=TRAY_VERSION,
                                                               hud=HUD_VERSION)
             derived = stale(store, ["s"])["s"]["derived"]
@@ -188,7 +208,8 @@ class PlanTests(unittest.TestCase):
             derived = stale(store, ["s"])["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"], x["command"]) for x in derived],
                              [("tray_drop", ["player_cast"], "reticle tray s"),
-                              ("ability_shape", ["player_cast"], "reticle ability-shapes s")])
+                              ("ability_shape", ["player_cast", "tray_drop"],
+                               "reticle ability-shapes s")])
             for stream in ("tray_drop", "ability_shape"):
                 store.events[stream + ":rows"][0]["player_cast_version"] = PLAYER_CAST_VERSION
             self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
@@ -211,9 +232,10 @@ class PlanTests(unittest.TestCase):
                                                    "player_cast_version": old}]
             derived = stale(store, ["s"])["s"]["derived"]
             self.assertEqual([(x["stream"], x["stored"], x["inputs_moved"]) for x in derived],
-                             [("ult_cast", ULT_CAST_VERSION, ["player_cast"]),
+                             [("ult_cast", ULT_CAST_VERSION, ["player_cast", "tray_drop"]),
                               ("tray_drop", TRAY_VERSION, ["player_cast"]),
-                              ("ability_shape", ABILITY_SHAPE_VERSION, ["player_cast"])])
+                              ("ability_shape", ABILITY_SHAPE_VERSION,
+                               ["player_cast", "tray_drop"])])
 
 
     def test_a_strip_or_board_change_stales_the_strip_then_the_openings(self):
@@ -234,7 +256,8 @@ class PlanTests(unittest.TestCase):
             derived = stale(store, ["s"])["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"], x["command"]) for x in derived],
                              [("scoreboard_strip", ["roi_cache"], "reticle strip s"),
-                              ("scoreboard_presence", ["scoreboard"], "reticle openings s")])
+                              ("scoreboard_presence", ["scoreboard", "scoreboard_strip"],
+                               "reticle openings s")])
 
     def test_the_waiver_accepts_scoreboard_0_12_0_and_names_it(self):
         """The player's 2026-09-29 waiver: a 0.12.0 board stream, and the
@@ -246,8 +269,11 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(SCOREBOARD_VERSION, "scoreboard-0.13.0")
         self.assertEqual([k for k in STAMP_WAIVERS if k[0].startswith("scoreboard-")],
                          [("scoreboard-0.13.0", "scoreboard-0.12.0")])
+        from reticle.roi_cache import ROI_CACHE_VERSION
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
+            store.events["scoreboard_strip:rows"] = [{"scoreboard_strip_version": SCOREBOARD_STRIP_VERSION,
+                                                      "roi_cache_version": ROI_CACHE_VERSION}]
             store.events["scoreboard_presence:rows"] = [
                 {"scoreboard_presence_version": SCOREBOARD_AGENT_VERSION,
                  "scoreboard_strip_version": SCOREBOARD_STRIP_VERSION}]
@@ -260,9 +286,11 @@ class PlanTests(unittest.TestCase):
                 p = plan["s"]
                 self.assertEqual([x["stream"] for x in p["decode"]],
                                  ["scoreboard"] if is_stale else [], old)
+                # The lineup view folds the board in, so its readers follow it.
                 self.assertEqual([(x["stream"], x["inputs_moved"]) for x in p["derived"]],
-                                 [("death", ["scoreboard"]),
-                                  ("scoreboard_presence", ["scoreboard"])] if is_stale else [],
+                                 [("death", ["scoreboard", "lineup"]),
+                                  ("scoreboard_presence", ["scoreboard"]),
+                                  ("ult_cast", ["lineup"])] if is_stale else [],
                                  old)
                 if is_stale:
                     self.assertEqual(p["waived"], [])
@@ -381,6 +409,61 @@ class EnemyLaneStaleTests(unittest.TestCase):
             self.assertEqual(derived["death"]["inputs_moved"], ["minimap_object"])
             store.events["minimap_object"] = [{"v": None}]       # none stored: current
             self.assertNotIn("death", {x["stream"] for x in stale(store, ["s"])["s"]["derived"]})
+
+
+class InputCycleTests(unittest.TestCase):
+    """The death stream recorded the bytes of the reliability table, which is
+    built from the deaths: each rerun of either restaled the other."""
+
+    def test_the_declared_inputs_hold_no_loop(self):
+        from reticle.plan import input_cycles
+        self.assertEqual(input_cycles(), [])
+
+    def test_the_one_loop_is_the_declared_feedback(self):
+        from reticle.plan import input_cycles, input_graph
+        self.assertEqual(input_cycles(input_graph(feedback=True)),
+                         [["death", "reliability", "death"]])
+
+    def test_a_loop_is_found(self):
+        from reticle.plan import input_cycles
+        self.assertEqual(input_cycles({"a": {"b"}, "b": {"c"}, "c": {"a", "d"}, "d": set()}),
+                         [["a", "b", "c", "a"]])
+
+    def test_deaths_and_reliability_rerun_to_a_clean_plan(self):
+        """Two rounds of `reticle deaths` then `reticle reliability`, the table
+        folding the death head's bytes as the real one folds its verdicts."""
+        import hashlib
+        import json
+        from reticle.adjudication.reliability import write as write_table
+
+        def deaths(store, table_rule):
+            head = {k: v for k, v in store.events["death:rows"][0].items() if k != "inputs"}
+            head["inputs"] = {k: v for k, v in store.events["death:rows"][0]["inputs"].items()
+                              if k != "reliability_table"}
+            head["read"] = table_rule
+            record_inputs(store, store.read_manifest("s"), "death", head)
+            store.events["death:rows"] = [head]
+
+        def reliability(store):
+            digest = hashlib.sha256(json.dumps(store.events["death:rows"][0],
+                                               sort_keys=True).encode()).hexdigest()
+            write_table(store.root, {"digest": digest}, {"death": DEATH_ADJUDICATION_VERSION})
+
+        def stale_streams(store):
+            return [x["stream"] for x in stale(store, ["s"])["s"]["derived"]]
+
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            # A table built over an older death rule: the deaths read it.
+            write_table(store.root, {"digest": "old"}, {"death": "death-adjudication-0.0.1"})
+            deaths(store, "old")
+            self.assertEqual(stale_streams(store), [])
+            reliability(store)                       # rebuilt over this rule
+            self.assertEqual(stale_streams(store), ["death"])
+            for _ in range(2):
+                deaths(store, "new")
+                reliability(store)                   # new bytes, the same rule
+                self.assertEqual(stale_streams(store), [])
 
 
 if __name__ == "__main__":
