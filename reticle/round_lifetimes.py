@@ -556,7 +556,7 @@ class RoundLifetimes:
         ranked.sort()
         return {i for _, _, i in ranked[:capacity]}
 
-    def finish(self, end_ms, *, deaths=None, roster_drops=None):
+    def finish(self, end_ms, *, deaths=None, roster_drops=None, admit=None):
         """Right-censored or verified termination per entity lifetime.
 
         Categorises entity endings into three physical regimes:
@@ -565,6 +565,12 @@ class RoundLifetimes:
             verdict or roster alive drop, carrying `death_id` or drop time;
         (3) `last observation does not establish destruction/death`:
             mid-round tracking loss not corroborated by any death witness.
+
+        `admit(entity, death) -> bool`, when given, refuses a death as a
+        candidate for an entity before the nearest one is taken, so a death
+        another witness rules out stays free for the next entity. This module
+        stays blind to names: the caller's predicate asks whatever owner it
+        needs. The default admits every death.
         """
         if deaths is None and roster_drops is None:
             return [{**{k: v for k, v in e.items() if k != "last_observation"},
@@ -583,7 +589,8 @@ class RoundLifetimes:
             if end_ms - last_t <= 2000.0:
                 death_candidates = [d for d in (deaths or [])
                                     if d.get("death_id") not in claimed_deaths
-                                    and abs(d.get("t_ms", 0.0) - last_t) <= 2000.0]
+                                    and abs(d.get("t_ms", 0.0) - last_t) <= 2000.0
+                                    and (admit is None or admit(ent, d))]
                 if death_candidates:
                     best_d = min(death_candidates, key=lambda d: abs(d.get("t_ms", 0.0) - last_t))
                     claimed_deaths.add(best_d.get("death_id"))
@@ -606,7 +613,8 @@ class RoundLifetimes:
                 # Case 2: Ceased being observed mid-round
                 death_candidates = [d for d in (deaths or [])
                                     if d.get("death_id") not in claimed_deaths
-                                    and abs(d.get("t_ms", 0.0) - last_t) <= 2500.0]
+                                    and abs(d.get("t_ms", 0.0) - last_t) <= 2500.0
+                                    and (admit is None or admit(ent, d))]
                 if death_candidates:
                     best_d = min(death_candidates, key=lambda d: abs(d.get("t_ms", 0.0) - last_t))
                     claimed_deaths.add(best_d.get("death_id"))

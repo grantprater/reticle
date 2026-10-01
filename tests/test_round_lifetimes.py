@@ -274,6 +274,31 @@ class TerminationTests(unittest.TestCase):
         self.assertIsNone(res[0]['end_ms'])
         self.assertEqual(res[0]['right_censored_at_ms'], 10000)
 
+    def _two_lives_two_deaths(self):
+        life = RoundLifetimes('R1', 0)
+        for t in range(0, 20001, 500):
+            life.step(t, [detection(10), detection(200)] if t <= 19000 else [detection(10)])
+        deaths = [{'kind': 'death_verdict', 'death_id': 'dA', 't_ms': 20100, 'side': 'ally'},
+                  {'kind': 'death_verdict', 'death_id': 'dB', 't_ms': 20900, 'side': 'ally'}]
+        return life, deaths
+
+    def test_the_default_admit_leaves_every_ending_unchanged(self):
+        life, deaths = self._two_lives_two_deaths()
+        base = life.finish(50000, deaths=deaths)
+        self.assertEqual(life.finish(50000, deaths=deaths, admit=None), base)
+        self.assertEqual(life.finish(50000, deaths=deaths, admit=lambda e, d: True), base)
+        self.assertEqual(sorted(r['death_id'] for r in base), ['dA', 'dB'])
+
+    def test_a_refused_death_stays_free_for_the_next_entity(self):
+        life, deaths = self._two_lives_two_deaths()
+        big = max(life.entities.values(), key=lambda e: e['observations'])['id']
+        greedy = {r['id']: r['death_id'] for r in life.finish(50000, deaths=deaths)}
+        self.assertEqual(greedy[big], 'dA')
+        refuse = lambda e, d: not (e['id'] == big and d['death_id'] == 'dA')
+        got = {r['id']: r['death_id'] for r in life.finish(50000, deaths=deaths, admit=refuse)}
+        self.assertEqual(got[big], 'dB')
+        self.assertEqual(sorted(v for v in got.values() if v), ['dA', 'dB'])
+
 
 
 class OcclusionAndStackingTests(unittest.TestCase):

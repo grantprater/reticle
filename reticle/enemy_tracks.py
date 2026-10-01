@@ -7,10 +7,30 @@ which enemy icons are one entity, round by round, over the `minimap_object`
 stream's enemies; nothing here decodes video or reads pixels.
 
 **Endings.** Each round finishes with the stored enemy death verdicts
-(`death`, side enemy, revives excluded). A track bound to a death is unbound
-again when the death's X places it farther than `BIND_PX` * scale from the
-track's last position, or when the track's adjudicated name is not the
-victim's: the X and the name are two witnesses the binding must agree with.
+(`death`, side enemy, revives excluded). `RoundLifetimes.finish` binds them
+greedily, largest track first, to the nearest unclaimed death in time; the
+`admit` predicate passed to it refuses a death whose X places it farther than
+`BIND_PX` * scale from the track's last position, or whose victim is not the
+arbiter's resolved name for the track: the X and the name are two witnesses
+the binding must agree with. A refused death stays free for another track. A
+track the arbiter left unnamed, or a death with no victim, is admitted on time
+and X alone. The same two checks still run on the bound pairs afterwards and
+count any disagreement in `death_unbound`, which should stay empty.
+
+At 0.1.0 the checks ran only after binding and freed the death for no one.
+Moving them into `admit` bound a06f04a0059f's deaths
+[metric:enemy_tracks/death-binding@a06f04a0059f#deaths_bound_before=57] ->
+[metric:enemy_tracks/death-binding@a06f04a0059f#deaths_bound=71], with the
+track's name the victim's on
+[metric:enemy_tracks/death-binding@a06f04a0059f#bound_name_is_victim=69];
+bfad2778a372
+[metric:enemy_tracks/death-binding@bfad2778a372#deaths_bound_before=42] ->
+[metric:enemy_tracks/death-binding@bfad2778a372#deaths_bound=52]; and
+5822b6646448
+[metric:enemy_tracks/death-binding@5822b6646448#deaths_bound_before=50] ->
+[metric:enemy_tracks/death-binding@5822b6646448#deaths_bound=62]. Each
+session's `victim_is_another_agent` count fell to 0 (a06f
+[metric:enemy_tracks/death-binding@a06f04a0059f#victim_is_another_agent_before=18]).
 
 **The "?".** The `minimap_object` stream's "?" detections each carry the
 observation key of the enemy icon they replaced. Detections of one key
@@ -34,7 +54,7 @@ from collections import Counter, defaultdict
 
 from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes
 
-ENEMY_TRACK_VERSION = "enemy-track-0.1.0"
+ENEMY_TRACK_VERSION = "enemy-track-0.2.0"
 
 #: A death's X lies within this of its track's last position (px * scale):
 #: twice the icon radius `minimap_objects.ICON_PX`.
@@ -205,24 +225,33 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
         if c.get("agent") is None:
             abstain_why[c["entity_id"]][str(c.get("reason") or "").split(":")[0]] += 1
     death_by_id = {d["death_id"]: d for d in enemy_deaths if d.get("death_id")}
+
+    def admit(ent: dict, d: dict) -> bool:
+        """The X and the arbiter's stored verdict both allow `d` to end `ent`."""
+        return _disagreement(ent["id"], d) is None
+
+    def _disagreement(eid: str, d: dict) -> str | None:
+        v = verdicts.get(eid)
+        agent = v["agent"] if v else None
+        loc = d.get("location")
+        lp = last_pos.get(eid)
+        if loc and lp and math.hypot(loc[0] - lp[0], loc[1] - lp[1]) > BIND_PX * scale:
+            return "death_x_elsewhere"
+        if agent and d.get("victim") and d["victim"] != agent:
+            return "victim_is_another_agent"
+        return None
+
     rows = []
     unbound = Counter()
     for rec in records:
-        finished = rec["life"].finish(rec["z"], deaths=rec["deaths"])
+        finished = rec["life"].finish(rec["z"], deaths=rec["deaths"], admit=admit)
         marks = _marks(sid, rec["round_no"], rec["frames"], obs_entity, seen)
         mark_of = {m["entity_id"]: m["mark_id"] for m in marks if m["entity_id"]}
         for ent in finished:
             v = verdicts.get(ent["id"])
             agent = v["agent"] if v else None
             d = death_by_id.get(ent.get("death_id"))
-            why = None
-            if d is not None:
-                loc = d.get("location")
-                lp = last_pos.get(ent["id"])
-                if loc and lp and math.hypot(loc[0] - lp[0], loc[1] - lp[1]) > BIND_PX * scale:
-                    why = "death_x_elsewhere"
-                elif agent and d.get("victim") and d["victim"] != agent:
-                    why = "victim_is_another_agent"
+            why = None if d is None else _disagreement(ent["id"], d)
             if why:
                 unbound[why] += 1
                 ent.update(death_id=None, end_ms=None, death_evidence=None,

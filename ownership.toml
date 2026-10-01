@@ -852,7 +852,8 @@ Deciding continuity or names locally. `round_lifetimes` decides which enemy
 icons are one entity and `adjudication.identity` names each track from its
 icons' claims, re-keyed to the track with `depends_on` the lineup's enemy
 slots. The death owner places each death; this only binds a track's end to
-it, and unbinds it where the death's X or name disagrees.
+it, refusing a death whose X or victim disagrees with the track's last place
+or the arbiter's name before `RoundLifetimes.finish` picks one.
 """
 defers_to = ["round-entity", "agent-identity"]
 consumers = ["cli", "plan"]

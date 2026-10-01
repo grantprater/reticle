@@ -75,13 +75,69 @@ class TrackTests(unittest.TestCase):
                          ("summary", et.ENEMY_TRACK_VERSION))
         self.assertEqual(head["coverage"]["absent_frames"], 1)
 
-    def test_a_death_whose_x_lies_elsewhere_is_unbound(self):
+    def test_a_death_whose_x_lies_elsewhere_is_never_bound(self):
         rows, last_t, _x = object_rows()
         got = et.build(SID, rows, ROUNDS, [death(last_t + 100.0, [400.0, 400.0])],
                        lineup(), None)
         e = next(r for r in got["rows"] if r["kind"] == "entity")
         self.assertIsNone(e["death_id"])
-        self.assertEqual(e["death_unbound"], "death_x_elsewhere")
+        self.assertNotEqual(e["end_reason"], "death")
+        # Refused before binding, so the post-hoc check has nothing to undo.
+        self.assertIsNone(e["death_unbound"])
+        self.assertEqual(got["rows"][0]["death_unbound"], {})
+
+    def test_a_greedy_swap_binds_each_death_to_its_named_track(self):
+        """Two tracks side by side, two deaths at their place. The larger track
+        is nearer in time to the other agent's death; the arbiter's names keep
+        each death for its own track instead of unbinding both."""
+        from reticle.adjudication.identity import identity_claim
+        rows = [{"kind": "coverage", "minimap_object_version": "mo", "scale": 1.0}]
+        t = 1000.0
+        while t <= 3000.0:
+            ens = [_enemy(100.0, 200.0)] + ([_enemy(100.0, 215.0)] if t <= 2800.0 else [])
+            rows.append({"kind": "frame", "t_ms": t, "frame_idx": int(t / 16.7),
+                         "reason": None, "enemies": ens, "questions": []})
+            last_a, t = t, t + 67.0
+        last_b = max(r["t_ms"] for r in rows[1:] if len(r["enemies"]) == 2)
+        name = {200.0: "Raze", 215.0: "Jett"}
+
+        def claims(sid, frames, obs_entity, *_a, **_k):
+            out = []
+            for f in frames:
+                for i, e in enumerate(f["enemies"]):
+                    eid = obs_entity.get(f"{f['t_ms']:.1f}:{i}")
+                    out.append(identity_claim(eid, name[e["y"]], channel=et.CHANNEL,
+                                              source_version="test", observed_at_ms=f["t_ms"]))
+            return out
+        deaths = [{"kind": "death_verdict", "death_id": "dRaze", "round_no": 1,
+                   "t_ms": last_a + 250.0, "side": "enemy", "victim": "Raze",
+                   "location": [100.0, 207.0], "is_revive": False},
+                  {"kind": "death_verdict", "death_id": "dJett", "round_no": 1,
+                   "t_ms": last_a + 50.0, "side": "enemy", "victim": "Jett",
+                   "location": [100.0, 207.0], "is_revive": False}]
+        self.assertLess(abs(deaths[1]["t_ms"] - last_a), abs(deaths[0]["t_ms"] - last_a))
+        self.assertLessEqual(abs(deaths[0]["t_ms"] - last_b), 2500.0)
+        real = et.track_claims
+        et.track_claims = claims
+        try:
+            got = et.build(SID, rows, ROUNDS, deaths, lineup(), None)
+        finally:
+            et.track_claims = real
+        ents = {r["agent"]: r for r in got["rows"] if r["kind"] == "entity"}
+        self.assertEqual(set(ents), {"Raze", "Jett"})
+        self.assertEqual(ents["Raze"]["observations"] > ents["Jett"]["observations"], True)
+        self.assertEqual((ents["Raze"]["death_id"], ents["Jett"]["death_id"]),
+                         ("dRaze", "dJett"))
+        self.assertEqual(got["rows"][0]["death_unbound"], {})
+        self.assertEqual(got["rows"][0]["deaths"], 2)
+
+    def test_an_unnamed_track_binds_on_time_and_x(self):
+        rows, last_t, last_x = object_rows()
+        got = et.build(SID, rows, ROUNDS, [death(last_t + 100.0, [last_x, 200.0], victim="Jett")],
+                       lineup(), None)
+        e = next(r for r in got["rows"] if r["kind"] == "entity")
+        self.assertIsNone(e["agent"])
+        self.assertEqual((e["end_reason"], e["death_id"]), ("death", "d1"))
 
     def test_claims_are_rekeyed_to_the_track_and_rest_on_the_lineup(self):
         rows, _t, _x = object_rows()
