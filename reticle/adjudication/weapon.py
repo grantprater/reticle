@@ -31,7 +31,15 @@ from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
 # but not the runner-up's margin is `ambiguous` (they were `no_close_exemplar`
 # and `tie`). An entry too thinly named takes the reason most of its frames
 # gave, and stores every frame's reason (`frame_reasons`).
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.6.0"
+# 0.7.0 (2026-10-01): context narrows the candidates by role, in tiers. Given
+# the acting role's agent (`actor`: the killer of a kill or a second-life
+# death, the reviver of a revive), a frame is first named against the guns and
+# that agent's own abilities, where an ability-shaped name of the kit needs
+# only NAME_KIT_MIN_IOU; then against the match's agents; then, when nothing
+# allowed clears the floor, against the full gallery, the surprise path. The
+# answer says what it `rests_on`, and a fixed one entry in AUDIT_EVERY also
+# stores the full search apart (`audit`).
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.7.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -408,6 +416,23 @@ NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons n
 REFUSE_NEW = "new"
 REFUSE_AMBIGUOUS = "ambiguous"
 
+#: The floor for an ability-shaped name of the acting agent's own kit. With
+#: the candidates narrowed to one agent's few abilities, the floor guards
+#: against an icon of another kit, not against the whole gallery: no gallery
+#: ability icon scores above
+#: [metric:killfeed_openset/kit_null@weapon-gallery-0.3.0#null_max_ability=0.513]
+#: against another agent's abilities (`prototypes/killfeed_openset.py kitnull`).
+#: A gun-shaped ability (Headhunter, Tour De Force, Boom Bot; exemplar aspect
+#: over ABILITY_MAX_ASPECT) keeps NAME_MIN_IOU, since a Sheriff scores up to
+#: [metric:killfeed_openset/kit_null@weapon-gallery-0.3.0#null_max_gun_shaped=0.82]
+#: against Headhunter [domain:killfeed/chamber-gun-shaped-abilities]. The
+#: null samples other agents' icons, not an agent's own unlabelled abilities.
+NAME_KIT_MIN_IOU = 0.52
+
+#: The audit of the narrowing: an entry whose key hashes to 0 modulo this also
+#: gets the full search, stored apart (`audit`) and never counted a surprise.
+AUDIT_EVERY = 10
+
 #: Player names in the mined gallery that are not guns, by what they are.
 #: Chamber's Headhunter and Tour De Force draw gun silhouettes
 #: [domain:killfeed/chamber-gun-shaped-abilities]; "Ability" is a group the
@@ -459,18 +484,27 @@ def ability_agent(name: Optional[str]) -> Optional[str]:
     return None
 
 
-def caster_claim(entity_id: str, name: Optional[str]) -> Optional[dict]:
+def caster_claim(entity_id: str, name: Optional[str],
+                 rests_on: Optional[list] = None) -> Optional[dict]:
     """An identity claim that the ability `name` was cast by its agent, for the
     killer entity `entity_id`; None for a gun or a name with no caster. The
     icon is other pixels than the killer's portrait, so the claim is a witness
-    the arbiter can weigh against it; the name is decided there."""
+    the arbiter can weigh against it; the name is decided there.
+
+    `rests_on` is the answer's own (`entry_weapon`). A name the actor's kit
+    shaped took its candidates from the acting entity's verdict, so the claim
+    `depends_on` that entity and is never counted as an independent witness
+    of it: the prior is weighed once."""
     from .identity import identity_claim
     agent = ability_agent(name)
     if agent is None:
         return None
+    on = sorted({r["entity_id"] for r in rests_on or ()
+                 if r.get("context") == "actor" and r.get("entity_id")})
     return identity_claim(entity_id, agent, channel="killfeed_weapon",
-                          source_version=WEAPON_ADJUDICATION_VERSION,
-                          evidence={"ability": name, "gallery": WEAPON_GALLERY_VERSION})
+                          source_version=WEAPON_ADJUDICATION_VERSION, depends_on=on or None,
+                          evidence={"ability": name, "gallery": WEAPON_GALLERY_VERSION,
+                                    "rests_on": [r.get("context") for r in rests_on or ()]})
 
 
 def restrict_gallery(gallery: dict, agents) -> tuple[dict, list[str]]:
@@ -505,7 +539,12 @@ def _icon_index(gallery: dict) -> dict:
             "perm": np.array(perm, dtype=np.intp), "starts": starts.astype(np.intp)}
 
 
-def _name_icon(grid: np.ndarray, aspect: float, index: dict) -> dict:
+def _name_icon(grid: np.ndarray, aspect: float, index: dict,
+               kit: frozenset = frozenset()) -> dict:
+    """The nearest exemplar per name. A name must clear its floor
+    (NAME_KIT_MIN_IOU for a name in `kit`, NAME_MIN_IOU otherwise) and beat
+    every other name by NAME_MARGIN: `new` when no name clears its floor,
+    `ambiguous` when the best name that does lacks the margin."""
     g = index["g"]
     q = grid.reshape(-1).astype(np.float32)
     inter = g @ q
@@ -521,9 +560,12 @@ def _name_icon(grid: np.ndarray, aspect: float, index: dict) -> dict:
     margin = score - (ranked[1][1] if len(ranked) > 1 else 0.0)
     out = {"best": top, "score": round(score, 3), "margin": round(margin, 3),
            "scores": dict(ranked[:5])}
-    if score < NAME_MIN_IOU:
+    cleared = [n for n, v in ranked if v >= (NAME_KIT_MIN_IOU if n in kit else NAME_MIN_IOU)]
+    if not cleared:
         return dict(out, name=None, reason=REFUSE_NEW)
-    if margin < NAME_MARGIN:
+    if cleared[0] != top or margin < NAME_MARGIN:
+        # A kit name that cleared its lower floor under a name that did not
+        # clear its own is as unresolved as a thin margin.
         return dict(out, name=None, reason=REFUSE_AMBIGUOUS)
     return dict(out, name=top)
 
@@ -588,8 +630,105 @@ def _thin_reason(reasons: dict[str, int], n_bound: int) -> str:
     return "too_few_named"
 
 
+def kit_names(gallery: dict, agent: Optional[str]) -> frozenset:
+    """The ability-shaped names of `agent`'s kit in `gallery`: the names
+    `ability_agent` gives to the agent whose exemplars' median aspect is at
+    most ABILITY_MAX_ASPECT. They take NAME_KIT_MIN_IOU in the kit tier."""
+    if not agent:
+        return frozenset()
+    names = np.array([str(n) for n in gallery["names"]])
+    return frozenset(n for n in set(names.tolist()) if ability_agent(n) == agent
+                     and float(np.median(gallery["aspects"][names == n])) <= ABILITY_MAX_ASPECT)
+
+
+def candidate_tiers(gallery: dict, agents=None, actor: Optional[dict] = None) -> list[dict]:
+    """The candidate sets `entry_weapon` tries, narrowest first: `kit` (the
+    guns and unattributed names, with only `actor`'s own abilities), `lineup`
+    (with the abilities of `agents`, the match's lineup) and `full`. A tier is
+    present only when its context is given; `full` always is."""
+    out = []
+    agent = (actor or {}).get("agent")
+    if agent:
+        g, dropped = restrict_gallery(gallery, {agent})
+        out.append({"tier": "kit", "index": _icon_index(g), "kit": kit_names(g, agent),
+                    "dropped": dropped})
+    if agents:
+        g, dropped = restrict_gallery(gallery, agents)
+        out.append({"tier": "lineup", "index": _icon_index(g), "kit": frozenset(),
+                    "dropped": dropped})
+    out.append({"tier": "full", "index": _icon_index(gallery), "kit": frozenset(),
+                "dropped": []})
+    return out
+
+
+def name_frame(grid: np.ndarray, aspect: float, tiers: list[dict]) -> dict:
+    """One icon named through `candidate_tiers`: the first tier where some
+    allowed name clears its floor decides (a name, or `ambiguous`, which a
+    wider set cannot cure); an icon no tier names is `new` at the widest."""
+    for t in tiers:
+        v = _name_icon(grid, aspect, t["index"], t["kit"])
+        if v.get("reason") != REFUSE_NEW:
+            return dict(v, tier=t["tier"])
+    return dict(v, tier=tiers[-1]["tier"])
+
+
+def _count(frames: list[dict], allowed: set) -> dict:
+    """An entry's verdict from its frames, counting only names reached at the
+    tiers in `allowed`; a frame named at another tier counts as new."""
+    names: dict[str, int] = {}
+    reasons: dict[str, int] = {}
+    tiers: dict[str, dict[str, int]] = {}
+    for f in frames:
+        if f["name"] is not None and f["tier"] in allowed:
+            names[f["name"]] = names.get(f["name"], 0) + 1
+            per = tiers.setdefault(f["name"], {})
+            per[f["tier"]] = per.get(f["tier"], 0) + 1
+        else:
+            why = f.get("reason") or REFUSE_NEW
+            reasons[why] = reasons.get(why, 0) + 1
+    out = {"named": sum(names.values()), "names": names, "frame_reasons": reasons,
+           "status": "refused", "name": None}
+    if out["named"] < ENTRY_MIN_NAMED:
+        return dict(out, reason=_thin_reason(reasons, len(frames)))
+    top = max(names, key=names.get)
+    if names[top] < ENTRY_MIN_SHARE * out["named"]:
+        return dict(out, reason="frames_disagree")
+    return dict(out, status="resolved", reason=None, name=top, tiers=tiers[top])
+
+
+def _decide(frames: list[dict], narrow: set) -> dict:
+    """Narrow first: the entry from the names its context (`narrow`, the
+    tiers below `full` that were tried) gave its frames. Only when those
+    leave it `new` do the full gallery's names count, and an answer reached
+    that way is a `surprise`. Names the surprise path gave frames of an entry
+    the context decided are kept apart (`surprise_frames`), never counted."""
+    if not narrow:
+        return dict(_count(frames, {"full"}), surprise=False)
+    v = _count(frames, narrow)
+    extra: dict[str, int] = {}
+    for f in frames:
+        if f["name"] is not None and f["tier"] == "full":
+            extra[f["name"]] = extra.get(f["name"], 0) + 1
+    if v["status"] != "resolved" and v["reason"] == REFUSE_NEW and extra:
+        w = _count(frames, narrow | {"full"})
+        if w["status"] == "resolved":
+            return dict(w, surprise=True, surprise_frames=extra)
+    return dict(v, surprise=False, **({"surprise_frames": extra} if extra else {}))
+
+
+def audit_entry(key: Optional[str]) -> bool:
+    """Whether the entry keyed `key` (its `death_key`) is in the audit sample:
+    the first eight hex digits of its SHA-1, read as a number, are 0 modulo
+    AUDIT_EVERY. The rule is fixed in advance and reads nothing the entry's
+    answer depends on."""
+    import hashlib
+    return key is not None and int(hashlib.sha1(key.encode()).hexdigest()[:8], 16) % AUDIT_EVERY == 0
+
+
 def entry_weapon(entry: dict, observations: list[dict],
-                 gallery: Optional[dict] = None, agents=None) -> dict:
+                 gallery: Optional[dict] = None, agents=None,
+                 actor: Optional[dict] = None, key: Optional[str] = None,
+                 frames: bool = False) -> dict:
     """The weapon or ability behind one killfeed entry, from stored descriptors.
 
     The entry's rows are those `bind_entry` follows. One frame is not an
@@ -597,9 +736,27 @@ def entry_weapon(entry: dict, observations: list[dict],
     the top name holds ENTRY_MIN_SHARE of them. A refusal keeps its cause:
     `new` or `ambiguous` when most frames refused that way (`_thin_reason`),
     `too_few_named` or `frames_disagree` otherwise, with every frame's reason
-    in `frame_reasons`. `agents`, the match's lineup
-    (both sides), drops the abilities no one there can cast before naming; the
-    names dropped are kept with the answer, which then rests on that lineup.
+    in `frame_reasons`.
+
+    Context narrows first (`candidate_tiers`, `name_frame`, `_decide`).
+    `actor` is the acting role's agent as `adjudication.death.entry_actor`
+    gives it from witnesses other than this icon: `{"agent", "entity_id",
+    "role", "channels"}`. `agents`, the match's lineup (both sides), drops the
+    abilities no one there can cast; the names dropped are kept
+    (`restricted_to_lineup`). An entry its context leaves `new` widens to the
+    full gallery, and a name found only there is a `surprise`.
+
+    The answer says what it `rests_on`: the actor when the answer without
+    the actor's kit differs (the kit shaped it), the lineup when names from
+    the lineup's set decided it, nothing for a surprise or with no context.
+    A caster claim from an answer resting on the actor depends on the
+    actor's entity (`caster_claim`).
+
+    `key`, the entry's `death_key`, puts one entry in AUDIT_EVERY into the
+    audit (`audit_entry`): the full search's answer is stored apart in
+    `audit`. `kit_floor_frames` counts the frames only the kit's lower floor
+    named; each rests on the actor. `frames=True` adds each bound row's own
+    answer (`frames`), with its `rests_on`.
     """
     from ..killfeed import unpack_icon_grid
 
@@ -609,28 +766,58 @@ def entry_weapon(entry: dict, observations: list[dict],
         gallery = load_mined_gallery()
     if gallery is None:
         return dict(out, reason="no_gallery")
-    if agents:
-        gallery, dropped = restrict_gallery(gallery, agents)
-        out["restricted_to_lineup"] = dropped
+    tiers = candidate_tiers(gallery, agents, actor)
+    by = {t["tier"]: t for t in tiers}
+    if "lineup" in by:
+        out["restricted_to_lineup"] = by["lineup"]["dropped"]
+    if "kit" in by:
+        out["actor"] = {k: actor.get(k) for k in ("agent", "entity_id", "role", "channels")}
     bound = bind_entry(entry, observations)
-    names: dict[str, int] = {}
-    reasons: dict[str, int] = {}
-    index = _icon_index(gallery) if bound else None
-    for o in bound:
-        v = _name_icon(unpack_icon_grid(o["grid"]), o["aspect"], index)
-        if v["name"] is not None:
-            names[v["name"]] = names.get(v["name"], 0) + 1
-        else:
-            reasons[v["reason"]] = reasons.get(v["reason"], 0) + 1
-    out.update(observations=len(bound), named=sum(names.values()), names=names,
-               frame_reasons=reasons)
+    out["observations"] = len(bound)
     if not bound:
-        return dict(out, reason="no_observation")
-    if out["named"] < ENTRY_MIN_NAMED:
-        return dict(out, reason=_thin_reason(reasons, len(bound)))
-    top = max(names, key=names.get)
-    if names[top] < ENTRY_MIN_SHARE * out["named"]:
-        return dict(out, reason="frames_disagree")
+        return dict(out, named=0, names={}, frame_reasons={}, reason="no_observation",
+                    rests_on=[], surprise=False)
+    grids = [(unpack_icon_grid(o["grid"]), o["aspect"]) for o in bound]
+    narrow = set(by) - {"full"}
+    rows = [name_frame(g, a, tiers) for g, a in grids]
+    v = _decide(rows, narrow)
+    rests_on: list[dict] = []
+    if v["status"] == "resolved" and not v["surprise"]:
+        kit_shaped = False
+        if "kit" in by:
+            plain = [t for t in tiers if t["tier"] != "kit"]
+            w = _decide([name_frame(g, a, plain) for g, a in grids], narrow - {"kit"})
+            kit_shaped = (w["status"], w["name"]) != (v["status"], v["name"])
+        if kit_shaped:
+            rests_on.append({"context": "actor", **out["actor"]})
+        if "lineup" in by and (not kit_shaped or v["tiers"].get("lineup")):
+            rests_on.append({"context": "lineup"})
+    out.update({k: v[k] for k in ("named", "names", "frame_reasons")})
+    # A frame its kit's lower floor named rests on the actor even when the
+    # entry's name stands without it (`kit_floor_frames`).
+    on_kit = [r["name"] is not None and r["tier"] == "kit" and r["score"] < NAME_MIN_IOU
+              for r in rows]
+    out.update(rests_on=rests_on, surprise=v["surprise"], kit_floor_frames=sum(on_kit))
+    if v.get("surprise_frames"):
+        out["surprise_frames"] = v["surprise_frames"]
+    if v["status"] == "resolved":
+        out["tiers"] = v["tiers"]
+    if audit_entry(key):
+        full = [by["full"]]
+        a = _count([name_frame(g, x, full) for g, x in grids], {"full"})
+        out["audit"] = {"rule": f"sha1(death_key)[:8] % {AUDIT_EVERY} == 0",
+                        "status": a["status"], "name": a["name"], "reason": a["reason"],
+                        "names": a["names"],
+                        "agrees": (a["status"], a["name"]) == (v["status"], v["name"])}
+    if frames:
+        out["frames"] = [{"t_ms": o["t_ms"], "slot": o["slot"], "name": r["name"],
+                          "reason": r.get("reason"), "tier": r["tier"], "best": r["best"],
+                          "score": r["score"], "margin": r["margin"],
+                          "rests_on": [{"context": "actor", **out["actor"]}] if k else []}
+                         for o, r, k in zip(bound, rows, on_kit)]
+    if v["status"] != "resolved":
+        return dict(out, reason=v["reason"])
+    top = v["name"]
     category = MINED_NOT_GUN.get(top, "gun")
     return dict(out, status="resolved", reason=None, category=category,
                 name=None if top == "Ability" else top)

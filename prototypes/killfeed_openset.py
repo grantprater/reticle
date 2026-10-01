@@ -1,13 +1,21 @@
-r"""Open-set killfeed icons, step 1: can the owner's score tell a new icon from a known one?
+r"""Open-set killfeed icons: can the owner tell a new icon from a known one, and narrow by role?
 
     .\.venv\Scripts\python.exe prototypes\killfeed_openset.py heldout
     .\.venv\Scripts\python.exe prototypes\killfeed_openset.py refusals [sid ...]
 
+Step 2 (role narrowing in the owner, groups of new rows):
+
+    .\.venv\Scripts\python.exe prototypes\killfeed_openset.py kitnull
+    .\.venv\Scripts\python.exe prototypes\killfeed_openset.py tiered
+    .\.venv\Scripts\python.exe prototypes\killfeed_openset.py entries [sid ...]
+    .\.venv\Scripts\python.exe prototypes\killfeed_openset.py groups [sid ...]
+    .\.venv\Scripts\python.exe prototypes\killfeed_openset.py check <product>
+
 `adjudication.weapon.name_icon` [owns:killfeed-weapon] scores an icon by its
 best aspect-gated IoU over the mined gallery and refuses below NAME_MIN_IOU
-(`no_close_exemplar`, `new` since
-weapon-adjudication-0.6.0) or under NAME_MARGIN (`tie`, now `ambiguous`). This prototype measures
-whether that score separates a NEW icon (its name absent from the gallery)
+(`no_close_exemplar`; `new` since weapon-adjudication-0.6.0) or under
+NAME_MARGIN (`tie`; now `ambiguous`). This prototype measures whether that
+score separates a NEW icon (its name absent from the gallery)
 from a KNOWN one, without changing the owner.
 
 `heldout` scores every exemplar of each name with at least MIN_ENTRIES
@@ -116,6 +124,67 @@ narrowed that way would accept it and declare that it `rests_on` the killer's
 identity. This step narrowed only by the match's agents, never by the
 killer's kit. Adding a Warden exemplar and fixing this miss belong to the
 labelling pass (step 2).
+
+Step 2, 2026-10-01 (weapon-adjudication-0.7.0)
+----------------------------------------------
+The owner now narrows by role [domain:killfeed/entry-types]: the acting
+agent's kit (`adjudication.death.entry_actor`, the arbiter over the left
+name's claims without the icon's), then the match's agents, then the full
+gallery as the surprise path. `kitnull` set the kit floor: no ability icon
+scores above
+[metric:killfeed_openset/kit_null@weapon-gallery-0.3.0#null_max_ability=0.513]
+against another agent's abilities, so an ability-shaped kit name needs 0.52;
+gun-shaped abilities keep 0.75, since a Sheriff reaches
+[metric:killfeed_openset/kit_null@weapon-gallery-0.3.0#null_max_gun_shaped=0.82]
+against Headhunter.
+
+`tiered` reruns the held-out test with each icon decided by the tiers (its
+caster as actor), scoring the best name's IoU minus that name's floor; the
+before column is the 0.75 floor alone, so it differs from step 1's raw
+score. On the unselected `death:` icons the AUROC stays
+[metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.3.0#auroc_after=0.9925]
+(before [metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.3.0#auroc_before=0.9925])
+and new-at-5% rises to
+[metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.3.0#new_flagged_after=1.0]
+(before [metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.3.0#new_flagged_before=0.9728]);
+known icons refused new fall from
+[metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.3.0#known_refused_new_before=0.0612]
+to [metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.3.0#known_refused_new_after=0.0272].
+Held-out ability names named as some known name stay
+[metric:killfeed_openset/tiered_ability_all@weapon-gallery-0.3.0#new_named_after=0.1111]
+over all exemplars, as before: Headhunter held out reads as a Sheriff, a
+gun-shaped confusion the kit floor does not touch.
+
+`entries` compares weapon-adjudication-0.5.0 with this owner on stored rows:
+no entry changes. a06f04a0059f names
+[metric:killfeed_openset/entries@a06f04a0059f#named_after=179] entries before
+and after, 5822b6646448
+[metric:killfeed_openset/entries@5822b6646448#named_after=170] and
+4f207c0c4e39 [metric:killfeed_openset/entries@4f207c0c4e39#named_after=159]
+(no stored death verdicts there, so no actor). No entry took the surprise
+path ([metric:killfeed_openset/entries@a06f04a0059f#surprise=0]), and every
+audited entry agrees with the full search
+([metric:killfeed_openset/entries@a06f04a0059f#audit_agrees=17],
+[metric:killfeed_openset/entries@5822b6646448#audit_agrees=13],
+[metric:killfeed_openset/entries@4f207c0c4e39#audit_agrees=24]). Breach's
+Aftershock at 284.5 s keeps its name; its
+[metric:killfeed_openset/entries@a06f04a0059f#kit_floor_frames=4] frames at
+287.0-288.5 s are now named Aftershock by the kit floor and rest on the
+killer, but the entry's name stood on six frames without the kit, so the
+entry rests on the lineup alone.
+
+`groups` writes the product the labeller reads
+(`<store>/candidates/killfeed_new_icon/`): of
+[metric:killfeed_openset/new_groups@a06f04a0059f+5822b6646448+4f207c0c4e39#rows_read=5174]
+rows, [metric:killfeed_openset/new_groups@a06f04a0059f+5822b6646448+4f207c0c4e39#rows_new=140]
+refuse new, in
+[metric:killfeed_openset/new_groups@a06f04a0059f+5822b6646448+4f207c0c4e39#groups=26]
+groups. Every row of the Warden entries refuses new
+([metric:killfeed_openset/warden_group@4f207c0c4e39#warden_refused_new=98]), and
+the largest group holds
+[metric:killfeed_openset/warden_group@4f207c0c4e39#warden_share_largest=0.9694]
+of them; the Aftershock rows are in no group
+([metric:killfeed_openset/warden_group@4f207c0c4e39#aftershock_rows_grouped=0]).
 """
 from __future__ import annotations
 
@@ -538,6 +607,428 @@ def contact_sheet(g: dict, rs: list[dict], gal: dict, per: int = 12) -> Path:
     return path
 
 
+# ---------------------------------------------------------------------- step 2
+
+STEP2 = "killfeed-openset-proto-0.2.0"
+#: The product `groups` writes and `label_killfeed_groups.py` reads.
+GROUPS_VERSION = "killfeed-new-icon-groups-0.1.0"
+GROUPS_DIR = Store().root / "candidates" / "killfeed_new_icon"
+BEFORE_COMMIT = "692b683"     # master before step 2: weapon-adjudication-0.5.0
+MEMBERS_KEPT = 24             # members a group's product row lists, spread by similarity
+
+
+def kitnull() -> dict:
+    """The kit floor's null: how high an icon of one agent's kit scores
+    against another agent's abilities alone.
+
+    `null_max_ability` (pre-registered) scores every ability-category gallery
+    icon against each other agent's ability exemplars. `null_max_gun_shaped`
+    and `null_max_ability_shaped` hold each name out of the gallery, narrow to
+    another agent's kit tier (guns, unattributed names and that agent's
+    abilities, `restrict_gallery`) and keep the cases where a kit ability
+    ranks first, split by whether that ability's exemplars are ability-shaped
+    (`kit_names`). `known_kit_*` scores each ability icon against its own
+    kit tier with its entry held out."""
+    from reticle.adjudication.weapon import ability_agent, kit_names
+    g = load_keyed_gallery()
+    names = g["names"]
+    agents = sorted({ability_agent(str(n)) for n in names if ability_agent(str(n))})
+    is_ab = np.array([ability_agent(str(n)) is not None for n in names])
+    alone = {a: _icon_index(subset(g, np.array([ability_agent(str(n)) == a for n in names])))
+             for a in agents}
+    pre = []
+    for i in np.nonzero([category(str(n)) == "ability" for n in names])[0]:
+        own = ability_agent(str(names[i]))
+        for a in agents:
+            if a != own:
+                pre.append(_name_icon(g["masks"][i], float(g["aspects"][i]), alone[a])["score"])
+    shaped = {a: kit_names(g, a) for a in agents}
+    held = {"gun_shaped": [], "ability_shaped": []}
+    for nm in sorted(set(names.tolist())):
+        own = ability_agent(nm)
+        for a in agents:
+            if a == own:
+                continue
+            keep = (names != nm) & (~is_ab | np.array([ability_agent(str(n)) == a for n in names]))
+            ix = _icon_index(subset(g, keep))
+            for i in np.nonzero(names == nm)[0]:
+                v = _name_icon(g["masks"][i], float(g["aspects"][i]), ix)
+                if ability_agent(v["best"]) == a:
+                    held["ability_shaped" if v["best"] in shaped[a] else "gun_shaped"].append(
+                        (v["score"], nm, v["best"], str(g["keys"][i])))
+    known = []
+    for i in np.nonzero(is_ab)[0]:
+        a, ent = ability_agent(str(names[i])), g["entry"][i]
+        keep = (g["entry"] != ent) & (~is_ab | np.array([ability_agent(str(n)) == a for n in names]))
+        v = _name_icon(g["masks"][i], float(g["aspects"][i]), _icon_index(subset(g, keep)),
+                       shaped[a])
+        known.append((v["score"], str(names[i]), v.get("name"), v.get("reason")))
+    from reticle.adjudication.weapon import NAME_KIT_MIN_IOU
+    out = {"version": STEP2, "gallery": WEAPON_GALLERY_VERSION, "kits": {
+               a: sorted({str(n) for n in names if ability_agent(str(n)) == a}) for a in agents},
+           "ability_shaped": {a: sorted(s) for a, s in shaped.items()},
+           "null_n_ability": len(pre), "null_max_ability": round(float(max(pre)), 3),
+           "null_q99_ability": round(float(np.quantile(pre, 0.99)), 3)}
+    for k, rows in held.items():
+        rows.sort(reverse=True)
+        out[f"null_n_{k}"] = len(rows)
+        out[f"null_max_{k}"] = rows[0][0] if rows else None
+        out[f"null_top_{k}"] = rows[:5]
+    ks = [s for s, n, _, _ in known if n in {x for a in shaped for x in shaped[a]}]
+    out["known_n_shaped"] = len(ks)
+    out["known_shaped_below_kit_floor"] = round(float(np.mean(np.array(ks) < NAME_KIT_MIN_IOU)), 4)
+    out["known_shaped_below_floor"] = round(float(np.mean(np.array(ks) < NAME_MIN_IOU)), 4)
+    out["known_named"] = dict(Counter(f"{n}->{got or why}" for _, n, got, why in known))
+    if RECORD:
+        metrics.record("killfeed_openset", part="kit_null", session=WEAPON_GALLERY_VERSION,
+                       values={k: out[k] for k in (
+                           "null_n_ability", "null_max_ability", "null_q99_ability",
+                           "null_n_gun_shaped", "null_max_gun_shaped", "null_n_ability_shaped",
+                           "null_max_ability_shaped", "known_n_shaped",
+                           "known_shaped_below_kit_floor", "known_shaped_below_floor")},
+                       deps={"gallery": WEAPON_GALLERY_VERSION,
+                             "code": metrics.fingerprint(kitnull)},
+                       note=f"{TASK}: the kit floor's null, pre-registered as S1")
+    return out
+
+
+def _floor_of(name: str, kit: frozenset) -> float:
+    from reticle.adjudication.weapon import NAME_KIT_MIN_IOU
+    return NAME_KIT_MIN_IOU if name in kit else NAME_MIN_IOU
+
+
+def _tiered_score(grid, aspect, tiers) -> dict:
+    """The owner's tiered answer for one icon, with its score over the floor of
+    the name it ranked first at the deciding tier (negative: refused new)."""
+    from reticle.adjudication.weapon import name_frame
+    v = name_frame(grid, aspect, tiers)
+    kit = next((t["kit"] for t in tiers if t["tier"] == v["tier"]), frozenset())
+    return dict(v, over=round(v["score"] - _floor_of(v["best"], kit), 4))
+
+
+def heldout_tiered() -> dict:
+    """Step 1's held-out experiment through the owner's tiers.
+
+    Before: the lineup tier alone at NAME_MIN_IOU (weapon-adjudication-0.6.0).
+    After: kit, lineup, then full (0.7.0), the actor being the ability's own
+    caster for an ability icon and the stored entry's icon-free actor
+    (`entry_actor`) for a labelled `death:` gun; a `kf:` gun has no actor.
+    Score: the deciding name's score minus its floor. Known = entry left
+    out; new = name left out."""
+    from reticle.adjudication.weapon import ability_agent, candidate_tiers
+    g = load_keyed_gallery()
+    entries = Counter(n for n, _ in set(zip(g["names"], g["entry"])))
+    scored = sorted(n for n, c in entries.items() if c >= MIN_ENTRIES)
+    agents = {sid: session_agents(sid) for sid in sorted(set(g["session"]))}
+    actors = {sid: stored_actors(sid) for sid in sorted(set(g["session"]))}
+    rows = []
+    for name in scored:
+        without = subset(g, g["names"] != name)
+        for i in np.nonzero(g["names"] == name)[0]:
+            grid, aspect, sid, ent = g["masks"][i], float(g["aspects"][i]), g["session"][i], g["entry"][i]
+            key = str(g["keys"][i])
+            caster = ability_agent(name)
+            if caster:
+                actor = {"agent": caster, "entity_id": "caster"}
+            else:
+                did = "death:" + key.split("#")[0].split(":", 1)[1] if key.startswith("death:") else None
+                actor = (actors[sid].get(did) or {}).get("actor") if did else None
+            r = {"name": name, "category": category(name), "key": key, "session": sid,
+                 "actor": (actor or {}).get("agent")}
+            known_g = subset(g, g["entry"] != ent)
+            for label, gal in (("known", known_g), ("new", without)):
+                before = name_frame_before(grid, aspect, gal, agents[sid])
+                after = _tiered_score(grid, aspect, candidate_tiers(gal, agents[sid] or None, actor))
+                r[f"{label}_before"], r[f"{label}_before_named"] = before["over"], before["name"]
+                r[f"{label}_after"], r[f"{label}_after_named"] = after["over"], after["name"]
+                r[f"{label}_after_tier"] = after["tier"]
+            rows.append(r)
+    out = {"version": STEP2, "gallery": WEAPON_GALLERY_VERSION, "owner": WEAPON_ADJUDICATION_VERSION,
+           "results": {}}
+    for cat in ("all", "gun", "ability"):
+        for subset_name, keep in (("all", lambda r: True),
+                                  ("unselected", lambda r: r["key"].startswith("death:"))):
+            rs = [r for r in rows if (cat == "all" or r["category"] == cat) and keep(r)]
+            if not rs:
+                continue
+            res = {}
+            for when in ("before", "after"):
+                s = separation(rs, f"known_{when}", f"new_{when}")
+                s["known_refused_new"] = round(float(np.mean([r[f"known_{when}"] < 0 for r in rs])), 4)
+                s["new_named"] = round(float(np.mean([r[f"new_{when}_named"] is not None
+                                                      for r in rs])), 4)
+                s["known_named_right"] = round(float(np.mean([r[f"known_{when}_named"] == r["name"]
+                                                              for r in rs])), 4)
+                res[when] = s
+            res["new_named_after_by_tier"] = dict(Counter(
+                r["new_after_tier"] for r in rs if r["new_after_named"] is not None))
+            out["results"][f"{cat}/{subset_name}"] = res
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "heldout_tiered_rows.json").write_text(json.dumps(rows, indent=0), encoding="utf-8")
+    (OUT / "heldout_tiered.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    if RECORD:
+        deps = {"gallery": WEAPON_GALLERY_VERSION, "owner": WEAPON_ADJUDICATION_VERSION,
+                "code": metrics.fingerprint(heldout_tiered, _tiered_score, separation)}
+        for k, res in out["results"].items():
+            vals = {"n": res["after"]["n"]}
+            for when in ("before", "after"):
+                for m in ("auroc", "new_flagged", "known_refused_new", "new_named",
+                          "known_named_right", "threshold"):
+                    vals[f"{m}_{when}"] = res[when][m]
+            metrics.record("killfeed_openset", part=f"tiered_{k.replace('/', '_')}",
+                           session=WEAPON_GALLERY_VERSION, values=vals, deps=deps,
+                           note=f"{TASK}: held-out icons through the owner's tiers, "
+                                f"score over the deciding name's floor")
+    return out
+
+
+def name_frame_before(grid, aspect, gallery, agents) -> dict:
+    """weapon-adjudication-0.6.0's answer: the lineup's set alone at NAME_MIN_IOU."""
+    g = restrict_gallery(gallery, agents)[0] if agents else gallery
+    v = _name_icon(grid, aspect, _icon_index(g))
+    return dict(v, over=round(v["score"] - NAME_MIN_IOU, 4))
+
+
+def stored_actors(sid: str) -> dict[str, dict]:
+    """{death id: {"actor", "row"}} from the session's stored death verdicts:
+    the acting agent `adjudication.death.entry_actor` names from each verdict's
+    stored killer claims without the icon's. Empty when no verdict is stored."""
+    from reticle.adjudication.death import entry_actor
+    out = {}
+    for row in Store().read_events("death", sid):
+        if row.get("kind") != "death_verdict":
+            continue
+        ki = (row.get("metadata") or {}).get("killer_identity")
+        out[row["death_id"]] = {"actor": entry_actor(row, ki, row.get("is_second_life")),
+                                "row": row}
+    return out
+
+
+def owner_before():
+    """`adjudication.weapon` as master held it before step 2 (BEFORE_COMMIT),
+    loaded beside the current one for the before/after comparison."""
+    import importlib.util
+    import subprocess
+    src = subprocess.run(["git", "show", f"{BEFORE_COMMIT}:reticle/adjudication/weapon.py"],
+                         capture_output=True, text=True, check=True,
+                         cwd=Path(__file__).resolve().parents[1]).stdout
+    spec = importlib.util.spec_from_loader("reticle.adjudication._weapon_before", loader=None)
+    mod = importlib.util.module_from_spec(spec)
+    mod.__package__ = "reticle.adjudication"
+    sys.modules[spec.name] = mod
+    exec(compile(src, f"{BEFORE_COMMIT}:weapon.py", "exec"), mod.__dict__)
+    return mod
+
+
+def compare_entries(sids: list[str]) -> dict:
+    """Each entry named before (BEFORE_COMMIT's owner, lineup only) and after
+    (this owner: kit, lineup, full; the actor from the stored verdicts), per
+    session; every change listed with both answers."""
+    from reticle.adjudication.death import death_key, session_entries
+    from reticle.adjudication.weapon import entry_weapon, load_mined_gallery
+    from weapon_icons import _hud
+    old = owner_before()
+    gal = load_mined_gallery()
+    out = {"version": STEP2, "before": old.WEAPON_ADJUDICATION_VERSION,
+           "after": WEAPON_ADJUDICATION_VERSION, "sessions": {}, "changes": []}
+    for sid in sids:
+        obs, agents, actors = _rows(sid), session_agents(sid), stored_actors(sid)
+        c = Counter()
+        for e in session_entries(_hud(sid)):
+            did = death_key(sid, e["t_ms"], e["slot"])
+            actor = (actors.get(did) or {}).get("actor")
+            b = old.entry_weapon(e, obs, gallery=gal, agents=agents or None)
+            a = entry_weapon(e, obs, gallery=gal, agents=agents or None, actor=actor, key=did)
+            c["entries"] += 1
+            c["stored_verdict"] += did in actors
+            c["actor"] += actor is not None
+            c["named_before"] += b["status"] == "resolved"
+            c["named_after"] += a["status"] == "resolved"
+            c[f"after_{a['status']}:{a['reason']}"] += 1
+            c["rests_on_actor"] += any(x["context"] == "actor" for x in a.get("rests_on", []))
+            c["kit_floor_entries"] += bool(a.get("kit_floor_frames"))
+            c["kit_floor_frames"] += a.get("kit_floor_frames", 0)
+            c["surprise"] += bool(a.get("surprise"))
+            c["surprise_frames_kept_apart"] += bool(a.get("surprise_frames")) and not a.get("surprise")
+            if "audit" in a:
+                c["audited"] += 1
+                c["audit_agrees"] += a["audit"]["agrees"]
+                if not a["audit"]["agrees"]:
+                    out.setdefault("audit_disagreements", []).append(
+                        {"death_id": did, "narrowed": [a["status"], a["name"], a["reason"]],
+                         "full": [a["audit"]["status"], a["audit"]["name"], a["audit"]["reason"]]})
+            if (b["status"], b["name"]) != (a["status"], a["name"]) or a.get("surprise"):
+                out["changes"].append({
+                    "death_id": did, "t_last": e["t_last"],
+                    "before": [b["status"], b["name"], b.get("reason"), b.get("names")],
+                    "after": [a["status"], a["name"], a.get("reason"), a.get("names")],
+                    "actor": (actor or {}).get("agent"), "rests_on": a.get("rests_on"),
+                    "tiers": a.get("tiers"), "surprise": a.get("surprise"),
+                    "lost": b["status"] == "resolved" and a["status"] != "resolved"})
+        out["sessions"][sid] = dict(c)
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "compare_entries.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    if RECORD:
+        deps = {"gallery": WEAPON_GALLERY_VERSION, "owner": WEAPON_ADJUDICATION_VERSION,
+                "before": out["before"], "code": metrics.fingerprint(compare_entries)}
+        for sid, c in out["sessions"].items():
+            metrics.record("killfeed_openset", part="entries", session=sid, deps=deps,
+                           values={k: c.get(k, 0) for k in (
+                               "entries", "stored_verdict", "actor", "named_before", "named_after",
+                               "rests_on_actor", "kit_floor_entries", "kit_floor_frames",
+                               "surprise", "audited", "audit_agrees")},
+                           note=f"{TASK}: entries named before and after role narrowing")
+    return out
+
+
+def group_new_rows(sids: list[str]) -> Path:
+    """The product `label_killfeed_groups.py` reads: every stored row of the
+    given sessions that the owner refuses as new, grouped across sessions.
+
+    A bound row takes its entry's context (`entry_weapon(..., frames=True)`,
+    the actor from the stored verdicts); a row bound to no counted entry is
+    named with the lineup and the full gallery only. Rows of an entry the
+    owner NAMED are left out even when one frame refused: the entry is known.
+
+    Similarity rule: `weapon_icons.cluster`, leader clustering over the
+    stored 16x64 grids, two icons joined at IoU >= SAME_ICON (0.75) with
+    |log aspect ratio| within ASPECT_TOL (0.12), the icon with most
+    neighbours leading each group. Each group lists its size, sessions,
+    times, an exemplar (the leader) and up to MEMBERS_KEPT members spread
+    over their similarity to the leader."""
+    import hashlib
+    from reticle.adjudication.death import death_key, session_entries
+    from reticle.adjudication.weapon import (REFUSE_NEW, candidate_tiers, entry_weapon,
+                                             load_mined_gallery, name_frame)
+    from weapon_icons import ASPECT_TOL, SAME_ICON, _hud, cluster
+    gal = load_mined_gallery()
+    new, seen = [], 0
+    for sid in sids:
+        obs, agents, actors = _rows(sid), session_agents(sid), stored_actors(sid)
+        by_key = {(o["t_ms"], o["slot"]): o for o in obs}
+        bound = set()
+        for e in session_entries(_hud(sid)):
+            did = death_key(sid, e["t_ms"], e["slot"])
+            v = entry_weapon(e, obs, gallery=gal, agents=agents or None,
+                             actor=(actors.get(did) or {}).get("actor"), key=did, frames=True)
+            for f in v.get("frames", []):
+                bound.add((f["t_ms"], f["slot"]))
+                if v["status"] != "resolved" and f["reason"] == REFUSE_NEW:
+                    o = by_key[(f["t_ms"], f["slot"])]
+                    new.append(dict(o, death_id=did, entry_status=v["status"],
+                                    entry_reason=v["reason"], best=f["best"],
+                                    score=f["score"]))
+        tiers = candidate_tiers(gal, agents or None)
+        for o in obs:
+            seen += 1
+            if (o["t_ms"], o["slot"]) in bound:
+                continue
+            f = name_frame(unpack_icon_grid(o["grid"]), o["aspect"], tiers)
+            if f.get("reason") == REFUSE_NEW:
+                new.append(dict(o, death_id=None, entry_status=None, entry_reason=None,
+                                best=f["best"], score=f["score"]))
+    bms = np.array([unpack_icon_grid(r["grid"]) for r in new]) if new else np.zeros((0, 16, 64))
+    for i, r in enumerate(new):
+        r["icon"] = i
+    have = cluster(new, bms) if new else []
+    groups = defaultdict(list)
+    for r in have:
+        groups[r["cluster"]].append(r)
+    keep = ("session_id", "t_ms", "slot", "frame_idx", "y0", "y1", "wx0", "wx1", "aspect",
+            "grid", "best", "score", "death_id", "entry_reason", "leader_iou")
+    rows = []
+    for k, (c, rs) in enumerate(sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))):
+        rs = sorted(rs, key=lambda r: -r["leader_iou"])
+        lead = next((r for r in rs if r.get("leader")), rs[0])
+        pick = [rs[int(j)] for j in np.unique(np.linspace(0, len(rs) - 1,
+                                                          min(MEMBERS_KEPT, len(rs))).astype(int))]
+        times = defaultdict(list)
+        for r in rs:
+            times[r["session_id"]].append(r["t_ms"])
+        rows.append({"group": f"g{k:03d}", "size": len(rs), "entries": _episodes(rs),
+                     "sessions": dict(Counter(r["session_id"] for r in rs)),
+                     "times": {s: sorted(t) for s, t in sorted(times.items())},
+                     "death_ids": sorted({r["death_id"] for r in rs if r["death_id"]}),
+                     "best": Counter(r["best"] for r in rs).most_common(3),
+                     "median_score": round(float(np.median([r["score"] for r in rs])), 3),
+                     "aspect_median": round(float(np.median([r["aspect"] for r in rs])), 2),
+                     "exemplar": {k2: lead.get(k2) for k2 in keep},
+                     "members": [{k2: r.get(k2) for k2 in keep} for r in pick]})
+    body = {"version": GROUPS_VERSION, "built_by": f"prototypes/killfeed_openset.py {STEP2}",
+            "owner": WEAPON_ADJUDICATION_VERSION, "gallery": WEAPON_GALLERY_VERSION,
+            "sessions": sids, "rows_read": seen, "rows_new": len(new),
+            "rule": {"cluster": "weapon_icons.cluster (leader)", "same_icon": SAME_ICON,
+                     "aspect_tol": ASPECT_TOL, "rows": "refused new by the owner's tiers; "
+                     "rows of a named entry left out"},
+            "groups": rows}
+    text = json.dumps(body, indent=1)
+    sha = hashlib.sha256(text.encode()).hexdigest()[:12]
+    GROUPS_DIR.mkdir(parents=True, exist_ok=True)
+    path = GROUPS_DIR / f"{GROUPS_VERSION}-{sha}.json"
+    path.write_text(text, encoding="utf-8")
+    sizes = [g["size"] for g in rows]
+    print(json.dumps({"product": str(path), "rows_new": len(new), "groups": len(rows),
+                      "sizes": sizes[:15], "singletons": sum(s == 1 for s in sizes)}))
+    if RECORD:
+        metrics.record("killfeed_openset", part="new_groups", session="+".join(sids),
+                       values={"rows_read": seen, "rows_new": len(new), "groups": len(rows),
+                               "largest": sizes[0] if sizes else 0,
+                               "singletons": sum(s == 1 for s in sizes)},
+                       deps={"owner": WEAPON_ADJUDICATION_VERSION, "gallery": WEAPON_GALLERY_VERSION,
+                             "product": GROUPS_VERSION, "code": metrics.fingerprint(group_new_rows)},
+                       context={"product": path.name},
+                       note=f"{TASK}: rows refused new, grouped across sessions")
+    return path
+
+
+#: The Warden entries of 4f207c0c4e39: step 1's group 0, which the player
+#: named the Warden [domain:killfeed/warden-icon], by the entry times the
+#: step 1 contact sheet showed.
+WARDEN_ENTRIES = ("286000:0", "286000:1", "433500:1", "458000:0", "794500:1", "834000:0",
+                  "1783000:1", "1937500:0", "2160000:2", "2187000:0", "2195000:0", "2196500:1")
+AFTERSHOCK_ROWS = ("a06f04a0059f", 287000.0, 288500.0)   # step 1's group 1
+
+
+def check_groups(product: Path) -> dict:
+    """S6 and the Aftershock fix on a group product: how many rows of the
+    Warden entries refuse new and how many the largest group holds; whether
+    any row of a06f04a0059f at 287.0-288.5 s is still in a group."""
+    from reticle.adjudication.death import death_key, session_entries
+    from reticle.adjudication.weapon import REFUSE_NEW, entry_weapon, load_mined_gallery
+    from weapon_icons import _hud
+    body = json.loads(Path(product).read_text(encoding="utf-8"))
+    sid = OUT_OF_GALLERY[0]
+    obs, agents, gal = _rows(sid), session_agents(sid), load_mined_gallery()
+    ents = {death_key(sid, e["t_ms"], e["slot"]): e for e in session_entries(_hud(sid))}
+    rows = []
+    for i in WARDEN_ENTRIES:
+        did = f"death:{sid}:{i}"
+        v = entry_weapon(ents[did], obs, gallery=gal, agents=agents or None, key=did, frames=True)
+        rows += [f for f in v["frames"]]
+    largest = Counter(body["groups"][0]["times"].get(sid, []))
+    s2, a, z = AFTERSHOCK_ROWS
+    out = {"product": Path(product).name, "warden_rows": len(rows),
+           "warden_refused_new": sum(f["reason"] == REFUSE_NEW for f in rows),
+           "warden_in_largest": sum(largest[f["t_ms"]] > 0 for f in rows),
+           "largest_size": body["groups"][0]["size"],
+           "largest_entries": body["groups"][0]["entries"],
+           "aftershock_rows_grouped": sum(a <= t <= z for g in body["groups"]
+                                          for t in g["times"].get(s2, []))}
+    out["warden_share_largest"] = round(out["warden_in_largest"] / max(out["warden_rows"], 1), 4)
+    out["strays"] = [(f["t_ms"], f["slot"], f["best"]) for f in rows if not largest[f["t_ms"]]]
+    if RECORD:
+        metrics.record("killfeed_openset", part="warden_group", session=sid,
+                       values={k: out[k] for k in ("warden_rows", "warden_refused_new",
+                                                   "warden_in_largest", "warden_share_largest",
+                                                   "largest_size", "largest_entries",
+                                                   "aftershock_rows_grouped")},
+                       deps={"owner": WEAPON_ADJUDICATION_VERSION, "gallery": WEAPON_GALLERY_VERSION,
+                             "product": GROUPS_VERSION, "code": metrics.fingerprint(check_groups)},
+                       context={"product": out["product"]},
+                       note=f"{TASK}: the Warden rows and the Aftershock rows in the group product")
+    return out
+
+
 def main() -> None:
     global RECORD
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -546,9 +1037,22 @@ def main() -> None:
     sub.add_parser("heldout")
     r = sub.add_parser("refusals")
     r.add_argument("sids", nargs="*", default=list(FAST + OUT_OF_GALLERY))
+    sub.add_parser("kitnull")
+    sub.add_parser("tiered")
+    sub.add_parser("check").add_argument("product")
+    for name in ("entries", "groups"):
+        x = sub.add_parser(name)
+        x.add_argument("sids", nargs="*", default=list(FAST + OUT_OF_GALLERY))
     a = ap.parse_args()
     RECORD = not a.dry
-    out = heldout() if a.cmd == "heldout" else split_refusals(a.sids)
+    if a.cmd == "groups":
+        group_new_rows(a.sids)
+        return
+    if a.cmd == "check":
+        print(json.dumps(check_groups(Path(a.product)), indent=1))
+        return
+    out = {"heldout": heldout, "kitnull": kitnull, "tiered": heldout_tiered}.get(a.cmd)
+    out = out() if out else compare_entries(a.sids) if a.cmd == "entries" else split_refusals(a.sids)
     print(json.dumps({k: v for k, v in out.items() if k not in ("per_name", "group_table")}, indent=1))
 
 

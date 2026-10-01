@@ -75,12 +75,16 @@ phrases = ["chamber abilities look like guns"]
 
 [revive-entries]
 claim = """
-A revive draws a killfeed entry that is not a death. Clove's Not Dead Yet draws
-Clove's player on both sides with the ult's round icon in the weapon slot; Sage's
-Resurrection draws the Sage as killer and the revived teammate as victim with the
-Resurrection icon. Both sit on the reviving team's plate colour. An ally
-Resurrection banner is green end to end, and its chevron divides a darker green
-from a lighter green, where a kill's chevron divides green from red.
+A revive draws a killfeed entry that is not a death. Its left name is the
+reviver and its right name the revived, both of one team. Sage's Resurrection
+draws the Sage as reviver and the revived teammate as revived, with the
+Resurrection icon; a revive of a downed KAY/O draws any teammate as reviver and
+KAY/O as revived [domain:killfeed/kayo-downed-entry]; Clove's Not Dead Yet is a
+self-revive, Clove's player as both reviver and revived, with the ult's round
+icon in the weapon slot. Every revive sits on the reviving team's plate colour.
+An ally Resurrection banner is green end to end, and its chevron divides a
+darker green from a lighter green, where a kill's chevron divides green from
+red.
 """
 kind = "appearance"
 known = "player"
@@ -91,7 +95,12 @@ the killfeed-icon labelling pass (<store>/labels/killfeed_icon/): the player nam
 Resurrection (59c70f1ef720 sneaks -> Jett at 961.0 s); death-adjudication-0.8.0
 stores all 20 as deaths. Frames since: e37fdeca944f 592.5 s shows Clove -> Clove
 with the Not Dead Yet icon a second after Reyna kills that Clove, and
-b7d24102a6f6 1014.0 s shows Sage -> Raze with Resurrection
+b7d24102a6f6 1014.0 s shows Sage -> Raze with Resurrection. The roles: the
+player, 2026-10-01 (chat), on calling the Sage the killer: "Maybe we should
+split the terms, or I guess have a separate term for teammate -> teammate
+entries (reviver and revivee?)"; and "clove is a self-revive, should be in the
+same category as the other revives". Stored rows keep the fields `killer` and
+`victim` for both roles [domain:killfeed/entry-types]
 """
 use = """
 the death owner must not count a revive entry as a death; the weapon-slot icon
@@ -105,7 +114,45 @@ Yet entry is the revive itself (7 of 16 come 1.0-2.0 s after a named Clove
 death, and the top bar never shows that death)
 """
 phrases = ["revive entry is not a death"]
-see = ["killfeed/kayo-downed-entry"]
+see = ["killfeed/kayo-downed-entry", "killfeed/entry-types"]
+
+[entry-types]
+claim = """
+A killfeed entry is one of three types, each with two roles. A kill: killer,
+victim. A second-life death, whose victim is not out of the round: Phoenix
+killed inside Run It Back, and KAY/O downed inside NULL/cmd
+[domain:killfeed/kayo-downed-entry], with the same layout as a kill (killer,
+victim). A revive: reviver, revived [domain:killfeed/revive-entries], which
+holds Sage's Resurrection, a teammate's revive of a downed KAY/O, and Clove's
+Not Dead Yet as a self-revive. An icon an entry can carry depends on its
+context: a Phoenix Run It Back badge only when the victim is Phoenix, alive in
+the round and inside his ultimate; a Sage revive entry only when a Sage is in
+the game and alive and a teammate on her side is dead; and the acting agent's
+kit (the killer's or the reviver's) bounds which ability icon the weapon slot
+can show.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat), on the proposed types (kill; Sage or KAY/O
+revive; KAY/O down; Not Dead Yet apart): "phoenix dead in ult would have the
+same structure as a kay/o down, and clove is a self-revive, should be in the
+same category as the other revives"; on Breach's 287 s Aftershock on
+a06f04a0059f: "considering breach is the killer in that killfeed entry that
+should also narrow it down"; and on reading icons: "If the victim is not
+phoenix or there is no phoenix in the game or alive there will not be a
+phoenix ult icon in the killfeed entry. Likewise if sage is not in the game or
+alive or no one on her team is dead there will not be a sage revive entry"
+"""
+use = """
+`adjudication.death.entry_type` names an entry's type and `ENTRY_ROLES` its
+roles; `entry_actor` names the acting role's agent, whose kit
+`adjudication.weapon.entry_weapon` tries first. Stored rows keep `killer` and
+`victim` for the left and right names of every type
+"""
+phrases = ["three entry types", "reviver and revived"]
+see = ["killfeed/revive-entries", "killfeed/kayo-downed-entry", "killfeed/ability-kill-icon"]
 
 [jett-blade-storm-icon]
 claim = """
