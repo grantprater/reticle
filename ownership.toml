@@ -418,7 +418,7 @@ question = "What does the icon in this killfeed entry's weapon slot look like?"
 owner = "killfeed"
 role = ["detect"]
 status = "partial"
-produces = ["KILLFEED_WEAPON_VERSION", "ICON_WHITE_V_MIN", "ICON_WHITE_S_MAX", "ICON_GRID", "icon_white_mask", "icon_grid", "weapon_icon_observations", "unpack_icon_grid", "icon_extent", "ICON_PIECE_GAP"]
+produces = ["KILLFEED_WEAPON_VERSION", "ICON_WHITE_V_MIN", "ICON_WHITE_S_MAX", "ICON_GRID", "icon_white_mask", "icon_grid", "weapon_icon_observations", "unpack_icon_grid", "icon_extent", "ELEMENT_GAP", "PLATE_WHITE_CUT", "PLATE_MIN_PX", "PLATE_FILL", "PLATE_BEHIND_MIN", "plate_colour", "plate_whiteness", "slot_white_mask", "RING_R", "RING_ANGLES", "RING_TOL", "RING_COVER_MIN", "RING_INNER_MAX", "RING_ABSENT_MAX", "RING_STRIP", "ring_fit", "ring_verdict"]
 not_for = """
 Naming the weapon or ability. The reader stores the white mask's normalised grid,
 its aspect and the slot's box, one row per entry per frame, in the
