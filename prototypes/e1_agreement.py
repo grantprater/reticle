@@ -293,6 +293,32 @@ def classify(kf: dict, rep: dict, sb: dict) -> dict:
     return {"kind": kind, "available": avail, "differ": differ}
 
 
+def plate_refusal(d: dict) -> str | None:
+    """Why the one-colour plates did not type a death row's entry, or None.
+
+    Rows before death-adjudication-0.25.0 store this as `plate_refusal`. From
+    0.25.0 the row carries `entry_type` (`adjudication.death.decide_entry_type`),
+    and the plates bear on the type only where the weapon slot's icon and ring
+    are both silent, as before only the unnamed icon let them bear. There the
+    refusal is the plates claim's own reason (`self_entry`, an unread name),
+    or the type's `revive_against_context` where the plates said revive and
+    the context gate closed. No exact equivalent: the old `no_reviver_fielded`
+    is one of the context gate's checks, so `revive_against_context` also
+    covers a side with no earlier death; an entry with no weapon stream, which
+    the old rule passed over, now reports the plates' reason; `plates_unread`
+    stays None, as an unread mask did."""
+    et = d.get("entry_type")
+    if et is None:
+        return d.get("plate_refusal")
+    w = et.get("witnesses") or {}
+    if any((w.get(k) or {}).get("value") is not None for k in ("icon", "ring")):
+        return None
+    plates = w.get("plates") or {}
+    if plates.get("value") is None:
+        return None if plates.get("reason") == "plates_unread" else plates.get("reason")
+    return et["reason"] if et.get("reason") == "revive_against_context" else None
+
+
 def round_context(no: int, death_rows: list[dict]) -> dict:
     """What the stored death rows say about a round, beside its counts."""
     mine = [d for d in death_rows if d.get("round_no") == no]
@@ -303,7 +329,7 @@ def round_context(no: int, death_rows: list[dict]) -> dict:
                                        if d.get("kf_player_death")),
             "victim_second_lives": sum(bool(d.get("is_second_life")) for d in player
                                        if d.get("kf_player_kill")),
-            "plate_refusals": sorted({d["plate_refusal"] for d in mine if d.get("plate_refusal")}),
+            "plate_refusals": sorted({r for r in map(plate_refusal, mine) if r}),
             "statuses": dict(Counter(d.get("status") for d in player)),
             "reasons": sorted({d["reason"] for d in player if d.get("reason")})}
 

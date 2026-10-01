@@ -623,9 +623,12 @@ see = ["killfeed/headshot-icon", "killfeed/weapon-slot-white-glyph"]
 
 [revive-ring]
 claim = """
-A revive entry draws its weapon-slot icon inside a thin white ring: Sage's
-Resurrection, Clove's Not Dead Yet and a teammate's revive of a downed KAY/O. A
-kill's weapon-slot icon has no ring.
+The thin white ring marks a revive-related ability, not an ultimate. A revive
+entry draws its weapon-slot icon inside the ring: Sage's Resurrection, Clove's
+Not Dead Yet and a teammate's revive of a downed KAY/O. A kill's weapon-slot
+icon has no ring, an ultimate's included: Jett's Blade Storm and Deadlock's
+Annihilation draw unringed. KAY/O's down draws its badge ringed beside the
+victim's name, and its weapon slot unringed.
 """
 kind = "appearance"
 known = "player"
@@ -638,7 +641,12 @@ same icon without one, citing 4f207c0c4e39 799.5 s (revive) and 790.5 s
 revive entries (<store>/labels/killfeed_icon, Not Dead Yet and Resurrection,
 and the 799.5 s KAY/O revive) draw a full ring (cover 1.0, ink inside the ring
 0.021 or less); none of 115 entries labelled with a gun or a non-revive
-ability does (cover 0.80 or less, one box over a portrait 0.84)
+ability does (cover 0.80 or less, one box over a portrait 0.84). Ultimates:
+Blade Storm draws unringed on every frame at
+a06f04a0059f 1780.0 s and 1781.0 s and at 5822b6646448 1734.5 s; Annihilation
+draws unringed at 5822b6646448 929.5 s. The player, 2026-10-01 (chat), took
+the unringed Jett and Deadlock ultimates as confirming that the ring marks
+revive-related abilities
 """
 use = """
 `killfeed.weapon_icon_observations` publishes `ringed` (true, false, or null
@@ -653,7 +661,8 @@ inside a ring too, but on the chevron beside the victim's name, not in the
 weapon slot; its weapon slot holds an unringed pistol. "Without one" holds for
 the down entry's weapon slot only. A ringed badge beside the name is not read
 by `ring_fit`, which searches the weapon slot; whether a Phoenix Run It Back
-badge is ringed is unmeasured
+badge is ringed is unmeasured. Raze's Showstopper is unobserved: no stored
+entry shows whether its kill icon draws a ring
 """
 phrases = ["revive ring", "ringed weapon-slot icon"]
 see = ["killfeed/revive-entries", "killfeed/kayo-downed-entry", "killfeed/entry-types"]
