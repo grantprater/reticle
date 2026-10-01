@@ -363,6 +363,45 @@ class WeaponDescriptorTests(unittest.TestCase):
                                                    scale=killfeed.UNIT_SCALE)[0]
         self.assertEqual((row["reason"], row["ringed"], row["ring_reason"]), ("no_plate", None, "no_plate"))
         self.assertIsNone(row["grid"])
+        self.assertIsNone(row["soft"])
+        self.assertIsNone(row["centroid"])
+
+    def test_the_soft_patch_round_trips_the_slot_whiteness(self):
+        frame = self._frame(_ring_band(ring=False))
+        view = killfeed.EntryView(0, 0, 34, 52, 68, verdict="kill")
+        row = killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                   scale=killfeed.UNIT_SCALE)[0]
+        patch, known = killfeed.unpack_soft(row["soft"])
+        band = frame[0:34]
+        green, red, _w = killfeed._plate_masks(band, np.ones(band.shape[:2], bool))
+        w, ok = killfeed.plate_whiteness(band, green, red)
+        x0 = row["soft"]["x0"]
+        want = np.round(np.clip(w[:, x0:x0 + patch.shape[1]], 0, 1) * 255).astype(np.uint8)
+        np.testing.assert_array_equal(patch, want)
+        np.testing.assert_array_equal(known, ok[x0:x0 + patch.shape[1]])
+        # The patch spans the icon box and SOFT_MARGIN columns either side.
+        self.assertEqual(x0, row["ix0"] - killfeed.SOFT_MARGIN)
+        self.assertEqual(patch.shape, (34, row["ix1"] - row["ix0"] + 2 * killfeed.SOFT_MARGIN))
+        self.assertIs(row["ring_stripped"], False)
+        self.assertEqual(row["slot_geom"]["box"], [row["ix0"], 0, row["ix1"], 34])
+        self.assertEqual(row["slot_geom"]["scale"]["scale"], 1.0)
+
+    def test_the_centroid_follows_a_sub_pixel_shift(self):
+        # A white bar whose left edge column is half covered: the centroid moves
+        # by a fraction of a pixel, which the whole-pixel box cannot show.
+        def row_for(edge):
+            frame = np.tile(RED_PLATE, (34, 120, 1))
+            frame[10:24, 55:71] = 255
+            plate = RED_PLATE.astype(np.float32)
+            frame[10:24, 54] = np.round(plate + edge * (255 - plate)).astype(np.uint8)
+            view = killfeed.EntryView(0, 0, 34, 55, 71, verdict="kill", ix0=53, ix1=74)
+            return killfeed.weapon_icon_observations(frame, self.ROI, 120, 34, [view],
+                                                     scale=killfeed.UNIT_SCALE)[0]
+        a, b = row_for(0.0), row_for(0.6)
+        self.assertIsNotNone(a["centroid"])
+        self.assertAlmostEqual(a["centroid"][0], 62.5, places=2)
+        self.assertLess(b["centroid"][0], a["centroid"][0])
+        self.assertAlmostEqual(a["centroid"][1], b["centroid"][1], places=3)
 
 
 class VictimSideTests(unittest.TestCase):

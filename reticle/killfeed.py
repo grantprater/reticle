@@ -2008,7 +2008,13 @@ def detect_second_life_badge(
 # (`slot_white_mask`), the icon is the element the divider points at, split
 # from names and marks by measured spacing (ELEMENT_GAP), and a revive's ring
 # is fitted, stripped and published as `ringed` (`ring_fit`).
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.5.0"
+# 0.6.0 (2026-10-01): beside the unchanged grid, each row stores the soft
+# glyph at native size (`soft`: plate-relative whiteness of the slot box,
+# uint8, zlib), the slot geometry in base px with the capture's scale
+# (`slot_geom`), whether the ring was stripped (`ring_stripped`) and the
+# icon's sub-pixel centroid (`centroid`); the coverage row carries the
+# scale and `scale_check`. Every 0.5.0 field is unchanged.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.6.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -2120,10 +2126,11 @@ def plate_whiteness(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarr
 
 
 def slot_white_mask(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarray,
-                    s: "KillfeedScale" = UNIT_SCALE) -> np.ndarray:
+                    s: "KillfeedScale" = UNIT_SCALE, whiteness=None) -> np.ndarray:
     """The band's white line art judged against its own plate (PLATE_WHITE_CUT);
-    the fixed `icon_white_mask` cut where no plate colour is known."""
-    w, ok = plate_whiteness(band, green_band, red_band, s)
+    the fixed `icon_white_mask` cut where no plate colour is known. `whiteness`
+    is `plate_whiteness`'s result when the caller already holds it."""
+    w, ok = whiteness if whiteness is not None else plate_whiteness(band, green_band, red_band, s)
     return np.where(ok[None, :], w >= PLATE_WHITE_CUT, icon_white_mask(band, s))
 
 
@@ -2282,6 +2289,52 @@ def ring_verdict(fit: dict | None) -> tuple[bool | None, str | None]:
     return None, "uncertain_fit"
 
 
+#: Columns (base px) of the band kept either side of the slot box in `soft`,
+#: so a later variant can re-cut the box without a reread.
+SOFT_MARGIN = 3
+
+
+def soft_patch(w: np.ndarray, ok: np.ndarray, c0: int, c1: int) -> dict:
+    """A band's plate-relative whiteness over columns c0..c1 at native px:
+    clipped to 0..1, quantised to uint8 (`round(255 w)`), zlib-compressed and
+    base64-encoded, with the columns whose plate colour was known (packed
+    bits) and the patch's ROI column origin. `unpack_soft` inverts it."""
+    import base64
+    import zlib
+    patch = np.ascontiguousarray(np.round(np.clip(w[:, c0:c1], 0.0, 1.0) * 255).astype(np.uint8))
+    return {"x0": int(c0), "shape": [int(patch.shape[0]), int(patch.shape[1])],
+            "w": base64.b64encode(zlib.compress(patch.tobytes(), 9)).decode("ascii"),
+            "plate_known": np.packbits(ok[c0:c1].astype(bool)).tobytes().hex()}
+
+
+def unpack_soft(soft: dict) -> tuple[np.ndarray, np.ndarray]:
+    """A stored `soft` back to (whiteness uint8 h x w, plate-known columns)."""
+    import base64
+    import zlib
+    h, w = soft["shape"]
+    patch = np.frombuffer(zlib.decompress(base64.b64decode(soft["w"])), np.uint8).reshape(h, w)
+    known = np.unpackbits(np.frombuffer(bytes.fromhex(soft["plate_known"]), np.uint8))[:w].astype(bool)
+    return patch, known
+
+
+def _centroid(w: np.ndarray, piece: np.ndarray) -> list[float] | None:
+    """The whiteness-weighted centroid (x, y; band px) of the icon's pieces:
+    the icon's own sub-pixel position, which is fractional horizontally and
+    whole vertically [domain:killfeed/subpixel-placement]."""
+    if not piece.any():
+        return None
+    wt = np.where(piece, np.clip(w, 0.0, 1.0), 0.0)
+    tot = float(wt.sum())
+    if tot <= 0:
+        return None
+    ys, xs = np.mgrid[0:w.shape[0], 0:w.shape[1]]
+    return [round(float((wt * xs).sum() / tot), 3), round(float((wt * ys).sum() / tot), 3)]
+
+
+#: The 0.6.0 fields of a row refused before its slot pieces are cut.
+NO_SOFT = {"ring_stripped": None, "soft": None, "centroid": None, "slot_geom": None}
+
+
 def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                              views: "list[EntryView]", *,
                              scale: "KillfeedScale | None" = None) -> list[dict]:
@@ -2295,6 +2348,14 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
     (`ring_fit`, `ring_verdict`) is stripped and published as `ringed`, a
     witness of a revive entry [domain:killfeed/revive-ring] for the entry-type
     owner; the grid is then the glyph inside it.
+
+    Beside the grid each described row keeps what a later descriptor needs
+    without rereading the video: `soft`, the plate-relative whiteness of the
+    slot box at native px (`soft_patch`, SOFT_MARGIN columns either side);
+    `slot_geom`, the band height, the box and the measured plate height in
+    base px with the capture's scale; `ring_stripped`; and `centroid`, the
+    icon's sub-pixel position (ROI column, band row). A row refused before its
+    pieces are cut carries these fields as null.
     """
     s = scale or KillfeedScale.for_capture(width, height)
     x0, y0, x1, _ = roi.pixels(width, height)
@@ -2312,7 +2373,7 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
         if cut is None:
             out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
                         "aspect": None, "reason": "no_icon", "ringed": None,
-                        "ring_reason": "no_icon", "ring": None})
+                        "ring_reason": "no_icon", "ring": None, **NO_SOFT})
             continue
         band = frame[y0 + v.y0:y0 + v.y1, x0:x1]
         green, red, white = _plate_masks(band, np.ones(band.shape[:2], bool))
@@ -2320,9 +2381,10 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
         if behind < PLATE_BEHIND_MIN:
             out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
                         "aspect": None, "reason": "no_plate", "ringed": None,
-                        "ring_reason": "no_plate", "ring": None})
+                        "ring_reason": "no_plate", "ring": None, **NO_SOFT})
             continue
-        icon = slot_white_mask(band, green, red, s)
+        w, ok = plate_whiteness(band, green, red, s)
+        icon = slot_white_mask(band, green, red, s, whiteness=(w, ok))
         ix0, ix1 = (v.ix0, v.ix1) if v.ix1 > v.ix0 else (v.wx0, v.wx1)
         rows = _divider_rows(white > 0, v.wx0, v.wx1)
         piece = np.zeros_like(icon)
@@ -2331,11 +2393,13 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
             piece = np.isin(lab, keep)
         fit = ring_fit(icon, (ix0 + ix1) / 2, v.y1 - v.y0, s=s)
         ringed, why = ring_verdict(fit)
+        stripped = False
         if ringed:
             YY, XX = np.mgrid[0:icon.shape[0], 0:icon.shape[1]]
             glyph = icon & (np.hypot(XX - fit["cx"], YY - fit["cy"]) < fit["r"] - s.px(RING_STRIP))
             if glyph.any():
                 piece = glyph
+                stripped = True
         if piece.any():
             xs = np.nonzero(piece.any(axis=0))[0]
             ix0, ix1 = int(xs[0]), int(xs[-1]) + 1
@@ -2344,11 +2408,19 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
             ix0, ix1 = v.wx0, v.wx1
         row.update({"ix0": int(ix0), "ix1": int(ix1), "ringed": ringed, "ring_reason": why,
                     "ring": ({k: round(val, 3) for k, val in fit.items()} if fit else None)})
+        m = s.n(SOFT_MARGIN)
+        extra = {"ring_stripped": stripped,
+                 "soft": soft_patch(w, ok, max(0, ix0 - m), min(band.shape[1], ix1 + m)),
+                 "centroid": _centroid(w, piece),
+                 "slot_geom": {"band_h": round((v.y1 - v.y0) / s.scale, 3),
+                               "box": [round(c / s.scale, 3) for c in (ix0, v.y0, ix1, v.y1)],
+                               "plate_h": round(plate_height(green, red) / s.scale, 3),
+                               "scale": s.provenance()}}
         if cut is None:
-            out.append({**row, "grid": None, "aspect": None, "reason": "no_icon"})
+            out.append({**row, "grid": None, "aspect": None, "reason": "no_icon", **extra})
         else:
             out.append({**row, "grid": np.packbits(cut[0].astype(bool)).tobytes().hex(),
-                        "aspect": round(float(cut[1]), 4), "reason": None})
+                        "aspect": round(float(cut[1]), 4), "reason": None, **extra})
     return out
 
 
@@ -2622,11 +2694,16 @@ class KillfeedPortraitReader:
         common = {"session_id": session_id, "source": "killfeed",
                   "killfeed_weapon_version": KILLFEED_WEAPON_VERSION}
         refused = Counter(r["reason"] for r in self.weapons if r["reason"])
+        s = KillfeedScale.for_capture(self.w, self.h)
         coverage = {**common, "kind": "coverage", "frames_offered": self.frames_offered,
                     "frames_from": self.frames_from,
                     "observations": len(self.weapons),
                     "described": len(self.weapons) - sum(refused.values()),
-                    "refused_reasons": dict(sorted(refused.items()))}
+                    "refused_reasons": dict(sorted(refused.items())),
+                    "scale": s.provenance(),
+                    "scale_check": scale_check(
+                        [r["slot_geom"]["plate_h"] * s.scale for r in self.weapons
+                         if r.get("slot_geom")], s)}
         return [coverage] + [{**common, "kind": "weapon_icon_observation", **r}
                              for r in self.weapons]
 
