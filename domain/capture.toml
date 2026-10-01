@@ -75,14 +75,17 @@ that the range recording does not cover
 use = """
 a confounder for the sound bank's gun classes (prototypes/sound_bank.py),
 recorded in the range with unskinned guns: a missed or wrong gun-equip or
-gun-shot match in a match may be a picked-up skinned gun, not a bank defect
+gun-shot match in a match may be a picked-up skinned gun, not a bank defect.
+The killfeed icon names the gun whatever skin it carries
+[domain:killfeed/weapon-skin-same-icon], so a skin confounds no killfeed icon
 """
 exceptions = """
 which matches, rounds or guns involved a picked-up skin is unknown. That skins
 change sounds is the player's agreement for equip and firing sounds only;
 nothing here claims how much, or for which skins
 """
-see = ["capture/game-audio-track-only", "minimap/self-audio-circle"]
+see = ["capture/game-audio-track-only", "minimap/self-audio-circle",
+       "killfeed/weapon-skin-same-icon"]
 
 [minimap-size-settings]
 claim = """

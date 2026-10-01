@@ -93,6 +93,28 @@ rows of one a06f04a0059f entry, is a 19 px teal square with a flame, an icon
 the gallery lacks, scoring
 [metric:killfeed_openset/groups@a06f04a0059f+5822b6646448+4f207c0c4e39#second_median_score=0.747]
 against Aftershock, just under the floor.
+
+The player's answers, 2026-10-01
+--------------------------------
+Group 0 is the Warden, a gun new to the game [domain:weapons/warden]
+[domain:killfeed/warden-icon]: the step flagged a genuinely new icon, rightly.
+A skin does not explain it, since a skin never changes the killfeed icon
+[domain:killfeed/weapon-skin-same-icon].
+
+Group 1 is Aftershock [domain:killfeed/ability-kill-icon], not Phoenix's Hot
+Hands: a known ability flagged new, a false new. Its four rows are the late
+frames (287.0-288.5 s, slot 1, after the stack rose) of death
+`death:a06f04a0059f:284500:2`, whose earlier slot-2 frames the owner named
+Aftershock; the stored entry verdict is Aftershock (6 of 10 frames named), so
+the false new is per row, not per entry. The stored killer of that entry is
+Breach (`identity:...:284500:2:killer`, from `killfeed_name_cluster` and
+`killfeed_weapon`; the second rests on this icon, so only the name cluster is
+independent of it). The gallery holds no other Breach ability, so narrowing to
+the killer's kit leaves Aftershock the only ability candidate; a decision
+narrowed that way would accept it and declare that it `rests_on` the killer's
+identity. This step narrowed only by the match's agents, never by the
+killer's kit. Adding a Warden exemplar and fixing this miss belong to the
+labelling pass (step 2).
 """
 from __future__ import annotations
 

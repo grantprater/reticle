@@ -14,7 +14,9 @@ source = """
 a06f04a0059f at 99.5 s: Seacow (Breach) kills Truewarrior, chxck and
 vanshrana with one Aftershock; three entries, each with the Aftershock icon.
 The owner's ability gallery named all three Aftershock (0.69-0.72, margin
-about 0.18) before the player confirmed
+about 0.18) before the player confirmed. On 2026-10-01 the player named a
+19 px teal square with a flame on a06f04a0059f at 287.0-288.5 s, the late frames
+of Breach's kill of Jett, "aftershock": it is not Phoenix's Hot Hands
 """
 use = """
 adjudication.weapon classifies the weapon slot as gun or ability; an ability
@@ -293,3 +295,47 @@ no stored session can test
 see = ["rounds/resurrection-mechanics", "rounds/scoreboard-dim-is-dead",
        "minimap/red-portrait-states", "killfeed/revive-entries"]
 phrases = ["kayo downed killfeed", "x in a triangle"]
+
+[warden-icon]
+claim = """
+A Warden [domain:weapons/warden] kill draws a long rifle silhouette with a
+thin dotted barrel in the weapon slot, 85-86 px wide on the 34 px entry band
+(aspect about 3.86).
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat), named the group of 114 refused
+`killfeed_weapon` rows, about 14 entries, on 4f207c0c4e39 "the warden"
+(contact sheet <store>/analysis/killfeed-openset-20261001/group_000_114rows.png);
+rows at 286.5, 438.0, 458.0, 795.0, 837.0, 1787.0, 1940.0, 1942.0, 2160.5,
+2189.0, 2191.0 and 2196.5 s. Widths read from the stored rows at 286.5,
+438.0, 837.0 and 2196.5 s
+"""
+use = """
+the weapon gallery holds no Warden exemplar; adding one is a labelling-pass
+step, and until then the owner refuses these rows as no close exemplar
+"""
+phrases = ["warden killfeed icon"]
+see = ["weapons/warden"]
+
+[weapon-skin-same-icon]
+claim = """
+A weapon skin does not change the gun's killfeed icon: the icon names the gun
+whatever skin it carries.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat): "the weapon skin does not change the killfeed
+icon"
+"""
+use = """
+one exemplar set per gun covers every skin; a picked-up skinned gun
+[domain:capture/weapon-skins-picked-up] needs no separate killfeed exemplar,
+and an unfamiliar gun icon is not explained by a skin
+"""
+phrases = ["skin changes the killfeed icon"]
+see = ["capture/weapon-skins-picked-up"]

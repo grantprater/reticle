@@ -55,6 +55,10 @@ WEAPON_TAXONOMY = {
         "Guardian",
         "Phantom",
         "Vandal",
+        # [domain:weapons/warden]: new in 2026-10, a long-range rifle. The
+        # gallery holds no exemplar yet, and its icon's aspect (about 3.86,
+        # [domain:killfeed/warden-icon]) lies outside CLASS_ASPECT_RANGES["rifle"].
+        "Warden",
     ],
     "sniper": [
         "Marshal",
