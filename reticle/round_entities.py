@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes, death_refusal
+from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank, death_refusal
 
 # 0.8.0 (2026-09-26): `ally_dead_intervals` gives `identity.assign_ally_pieces`
 # each round's killfeed dead intervals, and the owner bars a dead teammate
@@ -54,7 +54,11 @@ from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes, death_refus
 # drop, the player's death (and a drop beside it) ends only the self entity,
 # a teammate's only an ally piece, revives and second lives end no one, and
 # the X and the arbiter's name must agree, as on the enemy lane.
-ROUND_ENTITY_VERSION = "round-entity-0.10.0"
+# 0.11.0 (2026-10-01): a death binds to the admitted piece the arbiter named
+# as its victim first, then the nearest last sighting, then the nearest
+# position to its X (`round_lifetimes.death_rank`), in `finish` and in the
+# pairing of the deaths it left; the most observed piece no longer binds first.
+ROUND_ENTITY_VERSION = "round-entity-0.11.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
@@ -115,8 +119,14 @@ def death_binding_refusal(ent: dict, death: dict, *, player_agent: str | None,
         return "victim_is_not_the_player"
     if fam == "ally" and mine:
         return "victim_is_the_player"
-    return death_refusal(death, agent=player_agent if fam == "self" else agent,
+    return death_refusal(death, agent=binding_agent(ent, player_agent, agent),
                          last_xy=last_xy, scale=scale)
+
+
+def binding_agent(ent: dict, player_agent: str | None, agent: str | None) -> str | None:
+    """The name a death is checked and ranked against: the player's agent
+    for the self entity, the arbiter's name `agent` for any other."""
+    return player_agent if ent.get("family") == "self" else agent
 
 
 def drop_binding_refusal(ent: dict, t_drop: float, player_deaths) -> str | None:
@@ -289,12 +299,16 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                                          agent=agent_of(ent["id"]),
                                          last_xy=last_xy.get(ent["id"]), scale=scale)
 
+        def rank(ent, d, last_xy=last_xy):
+            return death_rank(d, agent=binding_agent(ent, player_agent, agent_of(ent["id"])),
+                              last_seen_ms=ent["last_seen_ms"], last_xy=last_xy.get(ent["id"]))
+
         mine = [d["t_ms"] for d in rec["deaths"] if d.get("t_ms") is not None
                 and _is_player_death(d, player_agent)
                 and death_refusal(d) not in ("revive", "second_life")]
         finished = rec["life"].finish(
             rec["z"], deaths=rec["deaths"], roster_drops=rec["drops"],
-            admit=lambda ent, d: refusal(ent, d) is None,
+            admit=lambda ent, d: refusal(ent, d) is None, rank=rank,
             admit_drop=lambda ent, t, mine=mine: drop_binding_refusal(ent, t, mine) is None)
         rec["finished"] = finished
         # The same rule on the bound pairs; any disagreement is counted.
@@ -312,7 +326,7 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
             did, t_d = d.get("death_id"), d.get("t_ms", 0)
             if did in claimed:
                 continue
-            cands = [(abs(ent["last_seen_ms"] - t_d), ent) for ent in finished
+            cands = [(rank(ent, d), ent) for ent in finished
                      if ent.get("family") == "ally" and not ent.get("death_id")
                      and abs(ent["last_seen_ms"] - t_d) <= 3000.0
                      and refusal(ent, d) is None]

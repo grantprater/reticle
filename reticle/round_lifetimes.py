@@ -14,7 +14,10 @@ import math
 from .track import CLASSES, admits, association_tolerance, assign, refit_of
 from .minimap import REF_WIDGET_W
 
-ROUND_LIFETIME_VERSION = "round-lifetimes-0.9.0"
+# 0.10.0 (2026-10-01): `finish` binds each death in `death_rank` order -- the
+# entity named as the victim, then the nearest last sighting, then the nearest
+# position to the X -- not to the most observed entity first.
+ROUND_LIFETIME_VERSION = "round-lifetimes-0.10.0"
 MAX_ASSOCIATION_HISTORIES = 64
 
 #: Proximity thresholds for merged / occluded track states (widget px).
@@ -84,6 +87,22 @@ def death_refusal(death: dict, *, agent: str | None = None, last_xy=None,
     if agent and death.get("victim") and death["victim"] != agent:
         return "victim_is_another_agent"
     return None
+
+
+def death_rank(death: dict, *, last_seen_ms: float, agent: str | None = None,
+               last_xy=None) -> tuple:
+    """The order in which `finish` binds `death` among the entities
+    `death_refusal` admits, smallest first: an entity the arbiter named as
+    the victim, then the nearest last sighting to the death, then the nearest
+    last position to its X. Without it the entity with the most
+    observations bound first, and an unnamed piece last seen 2.3 s after
+    Omen's death took it from the Omen piece seen 0.1 s before
+    (5822b6646448 417.0 s)."""
+    named = bool(agent) and death.get("victim") == agent
+    loc = death.get("location")
+    far = (math.hypot(loc[0] - last_xy[0], loc[1] - last_xy[1])
+           if loc and last_xy else math.inf)
+    return (not named, abs(death.get("t_ms", 0.0) - last_seen_ms), far)
 
 
 def _intersect(a, b):
@@ -586,7 +605,7 @@ class RoundLifetimes:
         return {i for _, _, i in ranked[:capacity]}
 
     def finish(self, end_ms, *, deaths=None, roster_drops=None, admit=None,
-               admit_drop=None):
+               admit_drop=None, rank=None):
         """Right-censored or verified termination per entity lifetime.
 
         Categorises entity endings into three physical regimes:
@@ -597,12 +616,16 @@ class RoundLifetimes:
             mid-round tracking loss not corroborated by any death witness.
 
         `admit(entity, death) -> bool`, when given, refuses a death as a
-        candidate for an entity before the nearest one is taken, so a death
-        another witness rules out stays free for the next entity. This module
-        stays blind to names: the caller's predicate asks whatever owner it
-        needs; `death_refusal` is the shared rule. The default admits every
-        death. `admit_drop(entity, t_drop) -> bool` likewise refuses an
-        entity a roster drop; the default admits every drop.
+        candidate for an entity, so a death another witness rules out stays
+        free for the next entity. `rank(entity, death)` orders the admitted
+        pairs, and each death binds to the first entity it ranks with:
+        `death_rank`, which the caller gives the arbiter's name for the
+        entity; the default ranks by time and the X alone. This module stays
+        blind to names: the caller's predicates ask whatever owner they need;
+        `death_refusal` and `death_rank` are the shared rules. The default
+        admits every death. `admit_drop(entity, t_drop) -> bool` likewise
+        refuses an entity a roster drop; the default admits every drop. A drop
+        goes to the entities no death ended, the most observed first.
         """
         if deaths is None and roster_drops is None:
             return [{**{k: v for k, v in e.items() if k != "last_observation"},
@@ -614,71 +637,73 @@ class RoundLifetimes:
         claimed_deaths = set()
         claimed_drops = set()
         ent_endings = {}
+        if rank is None:
+            def rank(ent, d):
+                lo = ent.get("last_observation")
+                return death_rank(d, last_seen_ms=ent["last_seen_ms"],
+                                  last_xy=(lo["x"], lo["y"]) if lo else None)
+
+        # Every admitted (entity, death) pair inside the entity's window --
+        # 2.0 s for one active near the round's close, 2.5 s for one lost
+        # mid-round -- binds in `rank` order, each entity and death once.
+        pairs = []
+        for order, ent in enumerate(sorted_entities):
+            last_t = ent["last_seen_ms"]
+            window = 2000.0 if end_ms - last_t <= 2000.0 else 2500.0
+            for di, d in enumerate(deaths or ()):
+                if (abs(d.get("t_ms", 0.0) - last_t) <= window
+                        and (admit is None or admit(ent, d))):
+                    pairs.append((rank(ent, d), order, di, ent, d))
+        bound = {}
+        for *_, ent, d in sorted(pairs, key=lambda p: p[:3]):
+            if ent["id"] in bound or d.get("death_id") in claimed_deaths:
+                continue
+            claimed_deaths.add(d.get("death_id"))
+            bound[ent["id"]] = d
 
         for ent in sorted_entities:
             last_t = ent["last_seen_ms"]
-            # Case 1: Active near round end (within 2.0 s of round close)
-            if end_ms - last_t <= 2000.0:
-                death_candidates = [d for d in (deaths or [])
-                                    if d.get("death_id") not in claimed_deaths
-                                    and abs(d.get("t_ms", 0.0) - last_t) <= 2000.0
-                                    and (admit is None or admit(ent, d))]
-                if death_candidates:
-                    best_d = min(death_candidates, key=lambda d: abs(d.get("t_ms", 0.0) - last_t))
-                    claimed_deaths.add(best_d.get("death_id"))
+            best_d = bound.get(ent["id"])
+            if best_d is not None:
+                ent_endings[ent["id"]] = {
+                    "end_ms": best_d.get("t_ms"),
+                    "right_censored_at_ms": None,
+                    "end_reason": "death",
+                    "death_id": best_d.get("death_id"),
+                    "death_evidence": "killfeed_verdict"
+                }
+            elif end_ms - last_t <= 2000.0:
+                # Case 1: Active near round end (within 2.0 s of round close)
+                ent_endings[ent["id"]] = {
+                    "end_ms": None,
+                    "right_censored_at_ms": end_ms,
+                    "end_reason": "round_end",
+                    "death_id": None,
+                    "death_evidence": None
+                }
+            else:
+                # Case 2: Ceased being observed mid-round, and no death bound
+                drop_candidates = [t for t in (roster_drops or [])
+                                   if t not in claimed_drops and abs(t - last_t) <= 2500.0
+                                   and (admit_drop is None or admit_drop(ent, t))]
+                if drop_candidates:
+                    best_drop = min(drop_candidates, key=lambda t: abs(t - last_t))
+                    claimed_drops.add(best_drop)
                     ent_endings[ent["id"]] = {
-                        "end_ms": best_d.get("t_ms"),
+                        "end_ms": best_drop,
                         "right_censored_at_ms": None,
                         "end_reason": "death",
-                        "death_id": best_d.get("death_id"),
-                        "death_evidence": "killfeed_verdict"
+                        "death_id": None,
+                        "death_evidence": f"roster:alive_ally_drop:{best_drop}"
                     }
                 else:
                     ent_endings[ent["id"]] = {
                         "end_ms": None,
-                        "right_censored_at_ms": end_ms,
-                        "end_reason": "round_end",
+                        "right_censored_at_ms": last_t,
+                        "end_reason": "last observation does not establish destruction/death",
                         "death_id": None,
                         "death_evidence": None
                     }
-            else:
-                # Case 2: Ceased being observed mid-round
-                death_candidates = [d for d in (deaths or [])
-                                    if d.get("death_id") not in claimed_deaths
-                                    and abs(d.get("t_ms", 0.0) - last_t) <= 2500.0
-                                    and (admit is None or admit(ent, d))]
-                if death_candidates:
-                    best_d = min(death_candidates, key=lambda d: abs(d.get("t_ms", 0.0) - last_t))
-                    claimed_deaths.add(best_d.get("death_id"))
-                    ent_endings[ent["id"]] = {
-                        "end_ms": best_d.get("t_ms"),
-                        "right_censored_at_ms": None,
-                        "end_reason": "death",
-                        "death_id": best_d.get("death_id"),
-                        "death_evidence": "killfeed_verdict"
-                    }
-                else:
-                    drop_candidates = [t for t in (roster_drops or [])
-                                       if t not in claimed_drops and abs(t - last_t) <= 2500.0
-                                       and (admit_drop is None or admit_drop(ent, t))]
-                    if drop_candidates:
-                        best_drop = min(drop_candidates, key=lambda t: abs(t - last_t))
-                        claimed_drops.add(best_drop)
-                        ent_endings[ent["id"]] = {
-                            "end_ms": best_drop,
-                            "right_censored_at_ms": None,
-                            "end_reason": "death",
-                            "death_id": None,
-                            "death_evidence": f"roster:alive_ally_drop:{best_drop}"
-                        }
-                    else:
-                        ent_endings[ent["id"]] = {
-                            "end_ms": None,
-                            "right_censored_at_ms": last_t,
-                            "end_reason": "last observation does not establish destruction/death",
-                            "death_id": None,
-                            "death_evidence": None
-                        }
 
         out = []
         for e in self.entities.values():
