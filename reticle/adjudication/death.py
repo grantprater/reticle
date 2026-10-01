@@ -587,7 +587,12 @@ SECOND_LIFE_SLACK_MS = 500.0
 
 def second_life_death(t_first: float, t_last: float, observations: list[dict]) -> bool | None:
     """Whether the player's killfeed death seen from `t_first` to `t_last` is a
-    second life (Run It Back, a downed KAY/O) rather than a death.
+    Run It Back second life rather than a death.
+
+    The vote runs over the ring detector's rows
+    (`killfeed.detect_second_life_badge`), so it cannot detect a downed
+    KAY/O, whose icon is an X inside a downward triangle
+    [domain:killfeed/kayo-downed-entry].
 
     A majority vote over the stored `second_life_observation` rows inside the
     track's lifetime. None when no observation falls there: unread, which a
