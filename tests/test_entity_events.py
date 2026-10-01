@@ -1,8 +1,8 @@
 """The entity-event projection over a small synthetic store (stage 1).
 
 Each test builds a store in a temp dir holding one session's rounds, deaths,
-death verdicts, round entities and spike carrier rows, projects the three
-built lanes, and reads them back through `EntityEvents`.
+death verdicts, round entities, spike carrier rows and enemy tracks, projects
+the built lanes, and reads them back through `EntityEvents`.
 """
 from __future__ import annotations
 
@@ -104,7 +104,46 @@ def build_store(root: Path) -> Store:
         {"kind": "carrier_lost", "t_ms": 20000.0, "slot": 2, "death": True,
          "dropped_glyph_seen": False, "last_marked_ms": 19500.0,
          "depends_on": "agent-from-slot"}])
+    _jsonl(store, "enemy_track", ENEMY_TRACK)
+    _jsonl(store, "enemy_track_identity", [
+        _verdict("identity:T1", "Raze", "resolved"),
+        {**_verdict("identity:T2", None, "abstained"),
+         "metadata": {"status": "abstained", "reason": "lineup_incomplete: 4 of 5"}}])
     return store
+
+
+def _enemy_obs(oid, eid, t_ms, x=200.0, y=100.0) -> dict:
+    return {"kind": "observation", "observation_id": oid, "entity_id": eid, "round_no": 1,
+            "t_ms": t_ms, "x": x, "y": y, "r": 9.5, "observation_key": f"{t_ms:.1f}:0",
+            "state": "continuation", "facing": 90.0, "facing_reason": None}
+
+
+def _enemy(eid, agent, status, reason=None, mark_id=None) -> dict:
+    return {"kind": "entity", "id": eid, "round_no": 1, "first_seen_ms": 2000.0,
+            "last_seen_ms": 2600.0, "observations": 3, "end_reason": "last observation "
+            "does not establish destruction/death", "end_ms": None, "death_id": None,
+            "right_censored_at_ms": 2600.0, "agent": agent, "identity_status": status,
+            "identity_reason": reason, "mark_id": mark_id}
+
+
+#: Two enemy tracks: T1 named Raze, seen at 2000, 2100 and 2600 ms (one gap no
+#: estimate owner fills) and then marked by a "?"; T2 unnamed. A second "?"
+#: no track holds, and one refused observation.
+ENEMY_TRACK = [
+    {"kind": "summary", "enemy_track_version": "enemy-track-test-1",
+     "minimap_object_version": "minimap-object-test-1", "agent_identity_version": ee.NAME_ARBITER},
+    _enemy("T1", "Raze", "resolved", mark_id="s1:R1:Q:2600.0:0"),
+    _enemy("T2", None, "abstained", "lineup_incomplete: 4 of 5"),
+    _enemy_obs("q1", "T1", 2000.0), _enemy_obs("q2", "T1", 2100.0), _enemy_obs("q3", "T1", 2600.0),
+    _enemy_obs("q4", "T2", 2100.0, x=300.0), _enemy_obs("q5", None, 2200.0, x=50.0),
+    {"kind": "mark", "round_no": 1, "mark_id": "s1:R1:Q:2600.0:0", "icon_key": "2600.0:0",
+     "entity_id": "T1", "x": 201.0, "y": 101.0, "first_ms": 2700.0, "last_ms": 5600.0,
+     "onset_ms": 2700.0, "icon_last_ms": 2600.0, "detections": 40, "binding_reason": None},
+    {"kind": "mark", "round_no": 1, "mark_id": "s1:R1:Q:3000.0:1", "icon_key": "3000.0:1",
+     "entity_id": None, "x": 80.0, "y": 90.0, "first_ms": 3100.0, "last_ms": 4000.0,
+     "onset_ms": 3100.0, "icon_last_ms": 3000.0, "detections": 12,
+     "binding_reason": "icon_not_tracked"},
+]
 
 
 def project_all(store: Store, stale: dict | None = None) -> dict:
@@ -210,7 +249,7 @@ class ProjectionTests(unittest.TestCase):
         _jsonl(self.store, "spike_carrier", rows)
         self.assertEqual({lane: ee.rebuild_reason(self.store, SID, lane)
                           for lane in ee.PROJECTED},
-                         {"round_entity": None, "death": None,
+                         {"round_entity": None, "death": None, "enemy": None,
                           "spike": "inputs moved: spike_carrier"})
         derived = ee.lane_status(self.store, SID, set())["derived"]
         self.assertEqual([(d["stream"], d["command"]) for d in derived],
@@ -218,13 +257,51 @@ class ProjectionTests(unittest.TestCase):
         with self.assertRaises(ee.StaleLanes) as cm:
             ee.EntityEvents(self.store, SID)
         self.assertEqual(set(cm.exception.lanes), {"spike"})
-        ee.EntityEvents(self.store, SID, lanes=("death", "round_entity"))
+        ee.EntityEvents(self.store, SID, lanes=("death", "round_entity", "enemy"))
 
     def test_a_lane_never_projected_is_missing_not_empty(self):
         ee.project_lane(self.store, SID, "death", stale={})
         ev = ee.EntityEvents(self.store, SID)
-        self.assertEqual(set(ev.missing), {"round_entity", "spike"})
+        self.assertEqual(set(ev.missing), {"round_entity", "spike", "enemy"})
         self.assertEqual(len(ev.rounds()), 2)
+
+
+class EnemyLaneTests(unittest.TestCase):
+    """The enemy lane: tracks, poses, the "?" as `last_known`, the marks no
+    track holds, and the gaps no estimate owner fills."""
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.store = build_store(Path(self._dir.name))
+
+    def tearDown(self):
+        self._dir.cleanup()
+
+    def test_tracks_poses_and_marks(self):
+        s = ee.project_lane(self.store, SID, "enemy", stale={})
+        ev = ee.EntityEvents(self.store, SID)
+        self.assertEqual(ev.entity("T1")["identity"]["agent"], "Raze")
+        self.assertEqual(ev.entity("T1")["side"], "enemy")
+        self.assertIsNone(ev.entity("T2")["identity"])
+        poses = ev.events(lane="enemy", kinds=("pose",))
+        self.assertEqual({p["event_id"] for p in poses}, {"pose:q1", "pose:q2", "pose:q3",
+                                                           "pose:q4"})
+        self.assertIsNone(poses[0]["orientation"])
+        self.assertTrue(poses[0]["orientation_reason"].startswith("not_read: "))
+        q = ev.events(lane="enemy", kinds=("last_known",))
+        self.assertEqual([(e["entity_id"], e["observed_ms"], e["observed_last_ms"]) for e in q],
+                         [("T1", 2700.0, 5600.0), ("s1:R1:Q:3000.0:1", 3100.0, 4000.0)])
+        mark = ev.entity("s1:R1:Q:3000.0:1")
+        self.assertEqual((mark["family"], mark["kind"]), ("mark", "last_known"))
+        self.assertEqual(s["estimate_debt_spans"], 1)              # T1: 2100 -> 2600 ms
+        led = {r["ledger_id"]: r for r in ev.ledger(lane="enemy")}
+        self.assertEqual(led["enemy:T2"]["standing"], "abstained")
+        self.assertEqual(led["enemy:pose:q5"]["standing"], "refused")
+
+    def test_a_stale_track_stream_holds_the_lane(self):
+        s = ee.project_lane(self.store, SID, "enemy", stale={"enemy_track": "inputs death"})
+        self.assertEqual(s["consumer_entities"], 0)
+        self.assertEqual(s["held_inputs"], ["enemy_track"])
 
 
 class DeclarationTests(unittest.TestCase):
@@ -233,7 +310,7 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(ee.NAME_ARBITER, AGENT_IDENTITY_VERSION)
 
     def test_every_projected_lane_is_declared(self):
-        self.assertEqual(set(ee.PROJECTED), {"round_entity", "death", "spike"})
+        self.assertEqual(set(ee.PROJECTED), {"round_entity", "death", "spike", "enemy"})
         for lane in ee.PROJECTED:
             self.assertIn(lane, ee.LANE)
 

@@ -105,8 +105,15 @@ session's `(map, profile)`: `widget_frame` resamples every session into it.
   `death:bfad2778a372:205000:0`, whose victim the death owner names
   Chamber. After 177,000 ms the self icon was a spectated teammate
   [domain:hud/tray-after-player-death].
-- **No stream holds enemy icons**, though enemies are drawn inside team
-  vision [domain:minimap/vision-gate].
+- **Enemy icons are stored in `minimap_object`** (`reticle/minimap_objects.py`),
+  read from the crop cache with the teardrop box and the baked-slab gate, both
+  on by default after a held-out check
+  ([metric:enemy_lane_score/fix-check@587c15b07779+a1a995e6b19b+96aa1ae9b96f+b3b9defb6fd7+75a55a296d3b#CK4_n=14]
+  icons boxed whole, the gate dropping
+  [metric:enemy_lane_score/fix-check@587c15b07779+a1a995e6b19b+96aa1ae9b96f+b3b9defb6fd7+75a55a296d3b#CK1_n=0]
+  player-named marks). Enemies are drawn only inside team vision
+  [domain:minimap/vision-gate]; `enemy_tracks` joins them per round and the
+  `enemy` lane projects them.
 - **Positions sit in the baked `(map, profile)` frame.** Every minimap
   coordinate is widget px of one profile; the ping row says `widget`, the
   ability row says `map`, and no owner publishes a transform into one
@@ -422,7 +429,7 @@ screen lanes come first, and audio lanes come last.
 | 2 | `players` | arbiter over every channel | the arbiter's stored side verdict (gap 1), `rounds` |
 | 2 | `smoke` | minimap | `smoke`, `smoke_owner`, `smoke_owner_identity`, `rounds` |
 | 2 | `ping` | minimap | `ping`, `rounds` |
-| 2 | `enemy` | minimap | an enemy icon owner and a last-known mark owner (gap 3) |
+| 2 | `enemy` | minimap | `enemy_track`, `enemy_track_identity`, `rounds`, `death`, `death_identity` |
 | 3 | `slot_state` | tray | `ability_state`, `tray_kit`, `tray_kit_identity` |
 | 4 | `ult_cast` | audio | `ult_cast`, `ult_cast_identity`, `rounds` |
 | 4 | audio casts | audio | the sound bank, once an owner wires it |

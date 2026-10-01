@@ -5,7 +5,7 @@ copies what each owner stored into the one schema `entity_contract` declares
 and writes each lane's consumer output and ledger through
 `store.write_events`; `EntityEvents` is the only door a consumer reads events
 through (`architecture.toml`, `[consumers]`). Stage 1 projects three lanes:
-`round_entity`, `death` and `spike`.
+`round_entity`, `death` and `spike`; the `enemy` lane follows them.
 
 It decides nothing. It invents no key, name, time or position; a threshold,
 a margin or a vote belongs to an owner, and two owners that disagree go to
@@ -88,7 +88,7 @@ ENTITY_LANES: tuple[dict, ...] = (
     {"lane": "ping", "order": 2, "channel": "minimap", "names": False,
      "inputs": ("ping", "rounds")},
     {"lane": "enemy", "order": 2, "channel": "minimap", "names": True,
-     "inputs": (), "waits_for": "an enemy icon owner and a last-known mark owner (gap 3)"},
+     "inputs": ("enemy_track", "enemy_track_identity", "rounds", "death", "death_identity")},
     {"lane": "slot_state", "order": 3, "channel": "tray", "names": True,
      "inputs": ("ability_state", "tray_kit", "tray_kit_identity")},
     {"lane": "ult_cast", "order": 4, "channel": "audio", "names": True,
@@ -103,9 +103,12 @@ LANE = {spec["lane"]: spec for spec in ENTITY_LANES}
 #: share it.
 LANE_VERSIONS = {
     "round_entity": "entity-round-entity-0.1.0",
-    "death": "entity-death-0.1.0",
+    "death": "entity-death-0.2.0",
     "spike": "entity-spike-0.1.0",
+    "enemy": "entity-enemy-0.1.0",
 }
+# entity-death-0.2.0 (2026-09-30): a death the death owner places by a
+# minimap X carries its position in the baked frame.
 PROJECTED = tuple(LANE_VERSIONS)
 
 #: An owner's identity status -> ledger standing (plan section 2, "The
@@ -125,12 +128,14 @@ WEAPON_STANDING = {"resolved": "resolved", "refused": "refused", "abstained": "a
 #: stream's stamp is its first verdict's `producer_version`.
 INPUT_STAMP_KEYS = {"round_entity": "round_entity_version",
                     "death": "death_adjudication_version",
-                    "spike_carrier": "spike_carrier_version"}
-IDENTITY_INPUTS = ("death_identity",)
+                    "spike_carrier": "spike_carrier_version",
+                    "enemy_track": "enemy_track_version"}
+IDENTITY_INPUTS = ("death_identity", "enemy_track_identity")
 
 #: The owners each lane's rows come from (ownership.toml ids).
 OWNER = {"round_entity": "round-entity-session", "death": "death-victim",
          "rounds": "round-bounds", "spike_carrier": "spike-carrier",
+         "enemy_track": "enemy-track-session", "last_known": "last-known-mark",
          "arbiter": "agent-identity"}
 
 PLAYER_REASON = "not_read: the players lane waits on the arbiter's side verdict (gap 1)"
@@ -352,6 +357,20 @@ def _frame_of(store, sid: str, manifest: dict) -> tuple[str | None, str | None]:
 
 # ------------------------------------------------------------ death verdicts
 
+def _identity_verdicts(store, sid: str, stream: str) -> tuple[dict, str | None]:
+    """identity ref -> (status, top agent) from a stored identity stream, and
+    its arbiter."""
+    verdicts, arbiter = {}, None
+    for r in store.read_events(stream, sid):
+        if r.get("event_kind") != "identity_distribution":
+            continue
+        arbiter = arbiter or r.get("producer_version")
+        dist = (r.get("identity_distribution") or {}).get("distribution") or {}
+        top = max(sorted(dist), key=lambda a: dist[a]) if dist else None
+        verdicts[r["entity_id"]] = ((r.get("metadata") or {}).get("status"), top)
+    return verdicts, arbiter
+
+
 def _death_verdicts(store, sid: str) -> tuple[dict, dict, str | None]:
     """death_id -> verdict row, identity ref -> (status, top agent), arbiter."""
     deaths = {r["death_id"]: r for r in store.read_events("death", sid)
@@ -559,6 +578,7 @@ def _death_lane(store, sid, L: _Lane, manifest) -> dict:
     deaths, verdicts, arbiter = _death_verdicts(store, sid)
     producer = _producer(OWNER["death"], version)
     rests_on = ("death", "death_identity", "rounds")
+    frame, frame_reason = _frame_of(store, sid, manifest)
     for did in sorted(deaths, key=lambda k: (deaths[k]["t_ms"], k)):
         d = deaths[did]
         eid = f"death:{did}"
@@ -567,8 +587,12 @@ def _death_lane(store, sid, L: _Lane, manifest) -> dict:
         _reasoned(ev, "observed_last_ms", d.get("t_last_ms"), "not_read: t_last_ms null")
         _reasoned(ev, "occurred", None, "not_read: no_owner_bound")
         loc = d.get("location")
+        xmark = (d.get("metadata") or {}).get("xmark") or {}
         pos = None
+        if loc is not None and xmark.get("frame") == "minimap_crop" and frame is not None:
+            pos = {"frame": frame, "x": loc[0], "y": loc[1]}
         _reasoned(ev, "position", pos, "not_read: location null" if loc is None else
+                  frame_reason if xmark.get("frame") == "minimap_crop" else
                   "not_read: the death owner's location has no declared frame")
         _reasoned(ev, "orientation", None, "not_applicable")
         fields = {}
@@ -742,7 +766,207 @@ def _spike_lane(store, sid, L: _Lane, manifest) -> dict:
     return {}
 
 
-_BUILD = {"round_entity": _round_entity_lane, "death": _death_lane, "spike": _spike_lane}
+def _enemy_lane(store, sid, L: _Lane, manifest) -> dict:
+    """Enemy tracks, their poses, their "?" marks, and the marks no track holds.
+
+    Between observations an enemy track shows no estimate (none has an
+    owner: `NO_ESTIMATE_OWNER` coverage, counted as debt) until its icon
+    becomes the red "?", which is a `last_known` event on the track; a mark
+    no track holds is a `mark`/`last_known` entity of its own. A track whose
+    end the track owner binds to a death ends there."""
+    from .round_entities import track_gaps
+
+    rows = store.read_events("enemy_track", sid)
+    head = rows[0] if rows else {}
+    version = head.get("enemy_track_version")
+    mo_version = head.get("minimap_object_version")
+    verdicts, arbiter = _identity_verdicts(store, sid, "enemy_track_identity")
+    arbiter = arbiter or head.get("agent_identity_version")
+    deaths, dverdicts, _darb = _death_verdicts(store, sid)
+    frame, frame_reason = _frame_of(store, sid, manifest)
+    producer = _producer(OWNER["enemy_track"], version)
+    rests_on = ("enemy_track", "enemy_track_identity", "rounds")
+    obs_by: dict[str, list[dict]] = {}
+    refused, marks = [], []
+    for r in rows:
+        if r.get("kind") == "observation":
+            (refused if r.get("entity_id") is None
+             else obs_by.setdefault(r["entity_id"], [])).append(r)
+        elif r.get("kind") == "mark":
+            marks.append(r)
+    mark_of = {m["entity_id"]: m for m in marks if m.get("entity_id")}
+
+    def position(x, y, r=None, why="not_read: the observation has no x, y"):
+        if frame is None or x is None or y is None:
+            return None, frame_reason or why
+        pos = {"frame": frame, "x": x, "y": y}
+        if isinstance(r, (int, float)):
+            pos["r"] = r
+        return pos, None
+
+    def pose(o, entity_id):
+        ev = {"row": "event", "event_id": f"pose:{o['observation_id']}",
+              "entity_id": entity_id, "kind": "pose", "round": o["round_no"],
+              "observed_ms": o["t_ms"]}
+        _reasoned(ev, "observed_last_ms", None, "not_applicable: one frame")
+        _reasoned(ev, "occurred", None, "not_applicable: observed")
+        pos, why = position(o.get("x"), o.get("y"), o.get("r"))
+        _reasoned(ev, "position", pos, why)
+        _reasoned(ev, "orientation", None,
+                  "not_read: the contract names no orientation convention"
+                  if o.get("facing") is not None else
+                  f"not_read: {o.get('facing_reason') or 'no facing read'}")
+        _reasoned(ev, "state", None, "not_applicable")
+        ev.update(evidence=[{"stream": "enemy_track", "id": o["observation_id"],
+                             "version": version},
+                            {"stream": "minimap_object", "id": o["observation_key"],
+                             "version": mo_version}],
+                  producer=producer, lane=L.lane, contract=ENTITY_CONTRACT_VERSION)
+        return ev
+
+    def last_known(m, entity_id):
+        ev = {"row": "event", "event_id": f"last_known:{m['mark_id']}",
+              "entity_id": entity_id, "kind": "last_known", "round": m["round_no"],
+              "observed_ms": m["first_ms"], "observed_last_ms": m["last_ms"]}
+        _reasoned(ev, "occurred", None, "not_applicable: observed")
+        pos, why = position(m.get("x"), m.get("y"))
+        _reasoned(ev, "position", pos, why)
+        _reasoned(ev, "orientation", None, "not_applicable")
+        _reasoned(ev, "state", None, "not_applicable")
+        ev.update(evidence=[{"stream": "enemy_track", "id": m["mark_id"], "version": version},
+                            {"stream": "minimap_object", "id": m["icon_key"],
+                             "version": mo_version}],
+                  producer=_producer(OWNER["last_known"], mo_version),
+                  lane=L.lane, contract=ENTITY_CONTRACT_VERSION)
+        return ev
+
+    def lifetime(first, last, ended, end_reason, censored):
+        life = {"first_observed_ms": first, "last_observed_ms": last}
+        _reasoned(life, "began", None, "not_observed: origin not independently observed")
+        _reasoned(life, "ended", ended, f"not_observed: {end_reason}")
+        _reasoned(life, "censored_at_ms", censored, "not_applicable: the track's end is stored")
+        return life
+
+    rounds_rows: dict[int, dict] = {}
+    for e in (r for r in rows if r.get("kind") == "entity"):
+        eid = e["id"]
+        row = {"row": "entity", "entity_id": eid, "family": "icon_track", "kind": "enemy",
+               "side": "enemy", "round": e["round_no"]}
+        ended = (None if e.get("end_ms") is None else
+                 {"lo_ms": e["end_ms"], "hi_ms": e["end_ms"],
+                  "basis": f"enemy_track end_ms: {e.get('end_reason')}"
+                           + (f" ({e['death_id']})" if e.get("death_id") else "")})
+        row["lifetime"] = lifetime(e.get("first_seen_ms"), e.get("last_seen_ms"), ended,
+                                   e.get("end_reason"), e.get("right_censored_at_ms"))
+        # Rule 2: the name, from the arbiter's verdict only.
+        ref = f"identity:{eid}"
+        status, top = verdicts.get(ref, (e.get("identity_status"), None))
+        L.verdicts[ref] = status or "abstained"
+        fields_withheld, identity, id_reason = {}, None, None
+        if status == "resolved" and e.get("agent") and top == e["agent"]:
+            identity = _name_block(e["agent"], ref, arbiter)
+        else:
+            id_reason = f"withheld: {L.ledger_id(eid)}"
+            fields_withheld["identity"] = {
+                "standing": IDENTITY_STANDING.get(status, "abstained"), "alternatives": []}
+        _reasoned(row, "identity", identity, id_reason or "")
+        _reasoned(row, "player", None, PLAYER_REASON)
+        row.update(producer=producer, lane=L.lane, contract=ENTITY_CONTRACT_VERSION)
+        subject = {"row": "entity", "entity_id": eid, "round": e["round_no"]}
+        obs = sorted(obs_by.get(eid, []), key=lambda o: (o["t_ms"], o["observation_id"]))
+        events = [pose(o, eid) for o in obs]
+        if eid in mark_of:
+            events.append(last_known(mark_of[eid], eid))
+        # Rule 3: one shared key, the death the track's end binds.
+        standing, reason, returns, extra = None, None, [], {}
+        if identity is not None and e.get("death_id") in deaths:
+            d = deaths[e["death_id"]]
+            victim, _vs = _named(dverdicts, f"identity:{e['death_id']}", d.get("victim"))
+            if victim is not None and victim != identity["agent"]:
+                standing = "disputed"
+                reason = (f"binding: enemy_track binds {e['death_id']} to a track named "
+                          f"{identity['agent']}; the death owner names its victim {victim}")
+                returns = [OWNER["enemy_track"]]
+                extra = {"identity": {"standing": "disputed", "alternatives": [
+                    {"value": identity["agent"], "owner": OWNER["enemy_track"],
+                     "evidence": [f"enemy_track:{eid}"]},
+                    {"value": victim, "owner": OWNER["death"], "evidence": [e["death_id"]]}]}}
+        # Rule 4.
+        if standing is None:
+            why = L.stale_reason(rests_on)
+            if why is not None:
+                standing, reason, returns = "stale", why, [OWNER["enemy_track"]]
+        if standing is not None:
+            L.withhold_row(eid, subject, standing, reason, row, OWNER["enemy_track"],
+                           [f"enemy_track:{eid}"], returns, {**fields_withheld, **extra})
+            for ev in events:
+                L.withhold_row(ev["event_id"], {"row": "event", "event_id": ev["event_id"],
+                                                "entity_id": eid, "round": e["round_no"],
+                                                "observed_ms": ev["observed_ms"]},
+                               standing, f"entity {eid} withheld: {standing}", ev,
+                               OWNER["enemy_track"], ev["evidence"], returns)
+            continue
+        if fields_withheld:
+            L.withhold(eid, subject, fields_withheld["identity"]["standing"],
+                       f"identity: {e.get('identity_reason') or status}", fields_withheld,
+                       [OWNER["arbiter"]])
+        L.rows.append(row)
+        L.rows.extend(events)
+        # Coverage: the observed runs, and the gaps no estimate owner fills.
+        times = [o["t_ms"] for o in obs]
+        cov = rounds_rows.setdefault(e["round_no"], {"observed": [], "unobserved": []})
+        cause = estimate_gap_reason("icon_track", "enemy") or "not_observed: between observations"
+        lo = times[0] if times else None
+        for a, b in track_gaps(times):
+            cov["observed"].append({"lo_ms": lo, "hi_ms": a, "entity_id": eid})
+            cov["unobserved"].append({"lo_ms": a, "hi_ms": b, "entity_id": eid, "cause": cause})
+            if cause == NO_ESTIMATE_OWNER:
+                L.debt["estimate_spans"] += 1
+                L.debt["estimate_ms"] += b - a
+            lo = b
+        if times:
+            cov["observed"].append({"lo_ms": lo, "hi_ms": times[-1], "entity_id": eid})
+
+    # A "?" no track holds is a mark of its own.
+    for m in marks:
+        if m.get("entity_id"):
+            continue
+        mid = m["mark_id"]
+        row = {"row": "entity", "entity_id": mid, "family": "mark", "kind": "last_known",
+               "side": "enemy", "round": m["round_no"],
+               "lifetime": lifetime(m["first_ms"], m["last_ms"], None,
+                                    "a mark is drawn until it is gone", m["last_ms"])}
+        _reasoned(row, "identity", None,
+                  f"not_read: the mark binds no enemy track ({m.get('binding_reason')})")
+        _reasoned(row, "player", None, PLAYER_REASON)
+        row.update(producer=_producer(OWNER["last_known"], mo_version), lane=L.lane,
+                   contract=ENTITY_CONTRACT_VERSION)
+        ev = last_known(m, mid)
+        why = L.stale_reason(rests_on)
+        if why is not None:
+            subject = {"row": "entity", "entity_id": mid, "round": m["round_no"]}
+            L.withhold_row(mid, subject, "stale", why, row, OWNER["last_known"],
+                           [f"enemy_track:{mid}"], [OWNER["enemy_track"]])
+            continue
+        L.rows += [row, ev]
+
+    for o in sorted(refused, key=lambda o: (o["t_ms"], o["observation_id"])):
+        ev = pose(o, None)
+        ev["entity_id_reason"] = f"not_read: {o.get('state')}"
+        L.withhold_row(ev["event_id"], {"row": "event", "event_id": ev["event_id"],
+                                        "round": o["round_no"], "observed_ms": o["t_ms"]},
+                       "refused", str(o.get("state")), ev, OWNER["enemy_track"],
+                       ev["evidence"], [OWNER["enemy_track"]])
+    for rn in sorted(rounds_rows):
+        cov = rounds_rows[rn]
+        L.rows.append({"row": "coverage", "lane": L.lane, "round": rn,
+                       "observed": cov["observed"], "unobserved": cov["unobserved"],
+                       "contract": ENTITY_CONTRACT_VERSION})
+    return {"arbiter": arbiter}
+
+
+_BUILD = {"round_entity": _round_entity_lane, "death": _death_lane, "spike": _spike_lane,
+          "enemy": _enemy_lane}
 
 
 # ------------------------------------------------------------- projection
