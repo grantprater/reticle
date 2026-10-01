@@ -23,6 +23,7 @@ adjudication.weapon classifies the weapon slot as gun or ability; an ability
 icon names the killer's agent, a witness for the lineup and the arbiter
 """
 phrases = ["ability icon in the weapon slot"]
+see = ["killfeed/damaging-ability-kill-icon"]
 
 [assist-panel]
 claim = """
@@ -50,6 +51,61 @@ limit. Whether a damage assist by a gun draws a gun icon, and how two assisters'
 portraits and icons are ordered, are not known
 """
 phrases = ["assist panel", "assist icon left of the killer"]
+see = ["killfeed/disabling-ability-assist-icon"]
+
+[damaging-ability-kill-icon]
+claim = """
+Any damaging ability can draw a kill's weapon-slot icon
+[domain:killfeed/ability-kill-icon]. Which abilities damage is read from the
+reference's ability descriptions, one ability at a time.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01: "As I've said before, any damaging ability, which I
+believe we have a reference for. And any disabling ability can appear in the
+assist sidecar, things like deadlock's gravnet, smokes, flashes, stuns". The
+reference is <store>/reference/abilities.json (valorant-api agents with the
+wiki harvest). No earlier wording of the rule was found in the private notes
+"""
+use = """
+`adjudication.killfeed_kits` derives each agent's kit from the descriptions
+and lists every ability its rule cannot decide as a question;
+`adjudication.weapon` lowers its kit floor only for an agent with no question
+"""
+exceptions = """
+the player said "can appear", not that no other ability draws a weapon-slot
+icon; revive icons [domain:killfeed/revive-entries] are not damage. Whether an
+ability that damages only on a condition, heals, or applies Decay counts is
+not known
+"""
+see = ["killfeed/ability-kill-icon", "abilities/ability-rules-are-unique"]
+
+[disabling-ability-assist-icon]
+claim = """
+Any disabling ability can draw an assist icon in the panel left of the killer
+[domain:killfeed/assist-panel]: Deadlock's GravNet, smokes, flashes and
+stuns, for example.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01, in the same answer as
+[domain:killfeed/damaging-ability-kill-icon]: "And any disabling ability can
+appear in the assist sidecar, things like deadlock's gravnet, smokes, flashes,
+stuns"
+"""
+use = """
+`adjudication.killfeed_kits` lists each agent's disabling abilities
+(`assist_icons`) from the descriptions; no reader uses the list yet
+"""
+exceptions = """
+whether a damaging ability, a Reveal or a movement barrier draws an assist
+icon is not known
+"""
+see = ["killfeed/assist-panel", "abilities/ability-rules-are-unique"]
 
 [chamber-gun-shaped-abilities]
 claim = """

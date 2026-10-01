@@ -1,0 +1,2286 @@
+{
+ "about": "Killfeed-capable abilities per agent, derived by reticle/adjudication/killfeed_kits.py from the reference's ability descriptions and the killfeed facts. `kits`: damaging abilities and fact-named icons (weapon slot); `open`: abilities the damage rule cannot decide; `assist_icons` and `assist_open`: the disabling rule, unused by the weapon owner.",
+ "version": "killfeed-kits-0.1.0",
+ "source": {
+  "reference": "reference/abilities.json",
+  "harvested": "2026-09-04",
+  "sha256": "b9711fa7f89f8dae",
+  "api": "https://valorant-api.com/v1/agents?isPlayableCharacter=true",
+  "wiki": "https://valorant.fandom.com/wiki/Abilities"
+ },
+ "rules": {
+  "damage_clauses": {
+   "deals-damage": "\\bdeal(?:s|ing)?\\b[^.]*?\\bdamage\\b",
+   "does-damage": "\\bdoes\\b[^.]*?\\bdamage\\b",
+   "damages-targets": "\\bdamag(?:es|ing)\\s+(?:\\w+\\s+){0,2}?(?:players|enemies|anyone|targets|swarm|explosions)\\b",
+   "for-damage": "\\bfor (?:\\w+ )?damage\\b",
+   "that-damages": "\\b(?:that|which)\\s+(?:\\w+\\s+and\\s+)?damages\\b",
+   "kills-an-enemy": "\\bwill kill an enemy\\b",
+   "will-die": "\\bwill die\\b",
+   "deadly": "\\bdeadly\\b"
+  },
+  "qualifiers": {
+   "heals": "\\bheal\\w*",
+   "conditional": "\\bdamage if\\b"
+  },
+  "not_harm": [
+   "[^.]*\\bevery two kills\\b[^.]*",
+   "\\b(?:does not )?recharge knives on a kill\\b",
+   "\\brefreshes with each kill\\b",
+   "\\bkills reset the duration[^.]*",
+   "\\bafter death\\b"
+  ],
+  "harm_words": "\\b(?:damag\\w*|kill\\w*|die|death|lethal|decay\\w*)\\b",
+  "attack_words": "\\b(?:fires? at|shoot\\w*|explod\\w*|explosive|detonat\\w*|blast\\w*|strikes?)\\b",
+  "status_terms": "\\b(?:blind\\w*|flash\\b|concuss\\w*|slow(?:s|ed|ing|ly)?\\b(?!-)|nearsight\\w*|suppress\\w*|detain\\w*|deafen\\w*|decay\\w*|vulnerable|hinder\\w*|knock\\w* (?:up|back)|pull\\w*|crouch|jamm\\w*|hold\\w* (?:nearby )?enemies in place|captures?|smoke\\w*|block\\w* vision|vision[- ]block\\w*)",
+  "assist_unclear": "\\b(?:reveal\\w*|marked by|terror trails|barriers?|blocks? (?:bullets|character movement)|wall (?:trap|of energy)|places a wall|wall bursts)\\b",
+  "fact_icons": {
+   "Aftershock": "killfeed/ability-kill-icon",
+   "Headhunter": "killfeed/chamber-gun-shaped-abilities",
+   "Tour De Force": "killfeed/chamber-gun-shaped-abilities",
+   "Blade Storm": "killfeed/jett-blade-storm-icon",
+   "Resurrection": "killfeed/revive-entries",
+   "Not Dead Yet": "killfeed/revive-entries",
+   "NULL/cmd": "killfeed/kayo-downed-entry"
+  }
+ },
+ "kits": {
+  "Astra": [],
+  "Breach": [
+   "Aftershock"
+  ],
+  "Brimstone": [
+   "Incendiary",
+   "Orbital Strike"
+  ],
+  "Chamber": [
+   "Headhunter",
+   "Tour De Force"
+  ],
+  "Clove": [
+   "Not Dead Yet"
+  ],
+  "Cypher": [],
+  "Deadlock": [
+   "Annihilation"
+  ],
+  "Fade": [],
+  "Gekko": [
+   "Mosh Pit"
+  ],
+  "Harbor": [],
+  "Iso": [],
+  "Jett": [
+   "Blade Storm"
+  ],
+  "KAY/O": [
+   "FRAG/ment",
+   "NULL/cmd"
+  ],
+  "Killjoy": [
+   "Nanoswarm"
+  ],
+  "Miks": [],
+  "Neon": [
+   "Overdrive"
+  ],
+  "Omen": [],
+  "Phoenix": [],
+  "Raze": [
+   "Paint Shells",
+   "Showstopper"
+  ],
+  "Reyna": [],
+  "Sage": [
+   "Resurrection"
+  ],
+  "Skye": [
+   "Trailblazer"
+  ],
+  "Sova": [
+   "Shock Bolt",
+   "Hunter's Fury"
+  ],
+  "Tejo": [
+   "Guided Salvo",
+   "Special Delivery",
+   "Armageddon"
+  ],
+  "Veto": [],
+  "Viper": [
+   "Snake Bite"
+  ],
+  "Vyse": [
+   "Razorvine"
+  ],
+  "Waylay": [],
+  "Yoru": []
+ },
+ "open": {
+  "Clove": [
+   "Pick-me-up",
+   "Meddle"
+  ],
+  "Cypher": [
+   "Spycam"
+  ],
+  "Fade": [
+   "Seize",
+   "Nightfall"
+  ],
+  "Iso": [
+   "Kill Contract",
+   "Double Tap"
+  ],
+  "Killjoy": [
+   "TURRET"
+  ],
+  "Phoenix": [
+   "Blaze",
+   "Hot Hands",
+   "Heating Up"
+  ],
+  "Raze": [
+   "Blast Pack",
+   "Boom Bot"
+  ],
+  "Reyna": [
+   "Devour"
+  ],
+  "Sage": [
+   "Healing Orb"
+  ],
+  "Sova": [
+   "Owl Drone"
+  ],
+  "Veto": [
+   "Chokehold"
+  ],
+  "Viper": [
+   "Poison Cloud",
+   "Toxic Screen",
+   "Viper's Pit",
+   "Toxic"
+  ]
+ },
+ "assist_icons": {
+  "Astra": [
+   "Nova Pulse",
+   "Nebula  / Dissipate",
+   "Gravity Well"
+  ],
+  "Breach": [
+   "Flashpoint",
+   "Fault Line",
+   "Rolling Thunder"
+  ],
+  "Brimstone": [
+   "Sky Smoke"
+  ],
+  "Chamber": [
+   "Trademark",
+   "Tour De Force"
+  ],
+  "Clove": [
+   "Ruse",
+   "Meddle"
+  ],
+  "Cypher": [
+   "Cyber Cage",
+   "Trapwire"
+  ],
+  "Deadlock": [
+   "Sonic Sensor",
+   "GravNet",
+   "Annihilation"
+  ],
+  "Fade": [
+   "Seize",
+   "Prowler",
+   "Nightfall"
+  ],
+  "Gekko": [
+   "Wingman",
+   "Dizzy",
+   "Thrash"
+  ],
+  "Harbor": [
+   "High Tide",
+   "Storm Surge",
+   "Cove",
+   "Reckoning"
+  ],
+  "Iso": [
+   "Undercut",
+   "Kill Contract"
+  ],
+  "Jett": [
+   "Cloudburst"
+  ],
+  "KAY/O": [
+   "FLASH/drive",
+   "ZERO/point",
+   "NULL/cmd"
+  ],
+  "Killjoy": [
+   "ALARMBOT",
+   "Lockdown"
+  ],
+  "Miks": [
+   "M-pulse",
+   "Waveform",
+   "Bassquake"
+  ],
+  "Neon": [
+   "Relay Bolt",
+   "Fast Lane"
+  ],
+  "Omen": [
+   "Paranoia",
+   "Dark Cover"
+  ],
+  "Phoenix": [
+   "Blaze",
+   "Curveball"
+  ],
+  "Raze": [],
+  "Reyna": [
+   "Leer"
+  ],
+  "Sage": [
+   "Slow Orb"
+  ],
+  "Skye": [
+   "Trailblazer",
+   "Guiding Light",
+   "Seekers"
+  ],
+  "Sova": [],
+  "Tejo": [
+   "Special Delivery",
+   "Stealth Drone"
+  ],
+  "Veto": [
+   "Chokehold"
+  ],
+  "Viper": [
+   "Poison Cloud",
+   "Toxic Screen",
+   "Snake Bite",
+   "Viper's Pit",
+   "Toxic"
+  ],
+  "Vyse": [
+   "Arc Rose",
+   "Razorvine",
+   "Steel Garden"
+  ],
+  "Waylay": [
+   "Saturate",
+   "Convergent Paths"
+  ],
+  "Yoru": [
+   "FAKEOUT",
+   "BLINDSIDE"
+  ]
+ },
+ "assist_open": {
+  "Astra": [
+   "Astral Form / Cosmic Divide"
+  ],
+  "Cypher": [
+   "Spycam",
+   "Neural Theft"
+  ],
+  "Deadlock": [
+   "Barrier Mesh"
+  ],
+  "Fade": [
+   "Haunt"
+  ],
+  "Iso": [
+   "Contingency"
+  ],
+  "Sage": [
+   "Barrier Orb"
+  ],
+  "Sova": [
+   "Recon Bolt",
+   "Owl Drone",
+   "Hunter's Fury"
+  ],
+  "Vyse": [
+   "Shear"
+  ]
+ },
+ "abilities": [
+  {
+   "agent": "Astra",
+   "key": "Q",
+   "name": "Nova Pulse",
+   "functions": null,
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "The Nova Pulse charges briefly then strikes, Concussing all players in its area."
+   }
+  },
+  {
+   "agent": "Astra",
+   "key": "E",
+   "name": "Nebula  / Dissipate",
+   "functions": null,
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "ACTIVATE a Star to transform it into a Nebula (smoke)."
+   }
+  },
+  {
+   "agent": "Astra",
+   "key": "C",
+   "name": "Gravity Well",
+   "functions": "Cripple Displacement",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "Players in the area are pulled toward the center before it explodes, making all players still trapped inside Vulnerable."
+   }
+  },
+  {
+   "agent": "Astra",
+   "key": "X",
+   "name": "Astral Form / Cosmic Divide",
+   "functions": null,
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "undecided",
+    "by": "rule:reveal-or-barrier",
+    "excerpt": "Cosmic Divide blocks bullets and sound.",
+    "question": "'blocks bullets' with no status effect"
+   }
+  },
+  {
+   "agent": "Astra",
+   "key": null,
+   "name": "Astral Form",
+   "functions": null,
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Breach",
+   "key": "Q",
+   "name": "Flashpoint",
+   "functions": "Flash",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "EQUIP a Blinding charge."
+   }
+  },
+  {
+   "agent": "Breach",
+   "key": "E",
+   "name": "Fault Line",
+   "functions": "Concuss",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "RELEASE to set off the quake, Concussing all players in its zone and in a line up to the zone."
+   }
+  },
+  {
+   "agent": "Breach",
+   "key": "C",
+   "name": "Aftershock",
+   "functions": "Deterrent",
+   "damage": {
+    "status": "kit_icon",
+    "by": "fact:killfeed/ability-kill-icon",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Breach",
+   "key": "X",
+   "name": "Rolling Thunder",
+   "functions": "Concuss Displacement",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "The quake Concusses and knocks up anyone caught in it."
+   }
+  },
+  {
+   "agent": "Brimstone",
+   "key": "C",
+   "name": "Stim Beacon",
+   "functions": "Empowerment",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Brimstone",
+   "key": "Q",
+   "name": "Incendiary",
+   "functions": "Molotov",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:damages-targets",
+    "excerpt": "FIRE to launch a grenade that detonates as it comes to a rest on the floor, creating a lingering fire zone that damages players within the zone."
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Brimstone",
+   "key": "E",
+   "name": "Sky Smoke",
+   "functions": "Smoke",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to set locations where Brimstone's smoke clouds will land."
+   }
+  },
+  {
+   "agent": "Brimstone",
+   "key": "X",
+   "name": "Orbital Strike",
+   "functions": "Deterrent",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:deals-damage",
+    "excerpt": "FIRE to launch a lingering orbital strike laser at the selected location, dealing high damage-over-time to players caught in the selected area."
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Chamber",
+   "key": "E",
+   "name": "Rendezvous",
+   "functions": "Teleport",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Chamber",
+   "key": "C",
+   "name": "Trademark",
+   "functions": "Autonomous Deployable Slow",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "When a visible enemy comes in range, the trap counts down and then destabilizes the terrain around them, creating a lingering field that Slows players caught inside of it."
+   }
+  },
+  {
+   "agent": "Chamber",
+   "key": "Q",
+   "name": "Headhunter",
+   "functions": "Weapon Equip",
+   "damage": {
+    "status": "kit_icon",
+    "by": "fact:killfeed/chamber-gun-shaped-abilities",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Chamber",
+   "key": "X",
+   "name": "Tour De Force",
+   "functions": "Slow Weapon Equip",
+   "damage": {
+    "status": "kit_icon",
+    "by": "fact:killfeed/chamber-gun-shaped-abilities",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "Killing an enemy creates a lingering field that Slows players caught inside of it."
+   }
+  },
+  {
+   "agent": "Clove",
+   "key": "C",
+   "name": "Pick-me-up",
+   "functions": "Empowerment Heal",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "ACTIVATE to absorb the life force of a fallen enemy that Clove damaged or killed, gaining haste and temporary health.",
+    "question": "'damaged' with no damage clause"
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Clove",
+   "key": "E",
+   "name": "Ruse",
+   "functions": "Smoke",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "ALT FIRE to confirm, launching clouds that block vision in the chosen areas."
+   }
+  },
+  {
+   "agent": "Clove",
+   "key": "X",
+   "name": "Not Dead Yet",
+   "functions": "Intangibility Revive",
+   "damage": {
+    "status": "kit_icon",
+    "by": "fact:killfeed/revive-entries",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Clove",
+   "key": "Q",
+   "name": "Meddle",
+   "functions": "Cripple",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "FIRE to throw the fragment, which upon landing on the floor, erupts after a short delay and temporarily Decays all targets caught inside.",
+    "question": "'Decays' with no damage clause"
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to throw the fragment, which upon landing on the floor, erupts after a short delay and temporarily Decays all targets caught inside."
+   }
+  },
+  {
+   "agent": "Cypher",
+   "key": "Q",
+   "name": "Cyber Cage",
+   "functions": "Vision Blocker",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "ACTIVATE to create a zone that blocks vision and plays an audio cue when enemies pass through it."
+   }
+  },
+  {
+   "agent": "Cypher",
+   "key": "E",
+   "name": "Spycam",
+   "functions": "Controlled Deployable",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:attack-no-effect",
+    "excerpt": "While in control of the camera, FIRE to shoot a marking dart.",
+    "question": "'shoot' with no stated damage or status"
+   },
+   "assist": {
+    "status": "undecided",
+    "by": "rule:reveal-or-barrier",
+    "excerpt": "This dart will Reveal the location of any player struck by the dart.",
+    "question": "'Reveal' with no status effect"
+   }
+  },
+  {
+   "agent": "Cypher",
+   "key": "C",
+   "name": "Trapwire",
+   "functions": "Autonomous Deployable Slow",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "Enemy players who cross a trapwire will be Slowed and Revealed after a short period if they do not destroy the device in time."
+   }
+  },
+  {
+   "agent": "Cypher",
+   "key": "X",
+   "name": "Neural Theft",
+   "functions": "Intel",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "undecided",
+    "by": "rule:reveal-or-barrier",
+    "excerpt": "After a brief delay, the location of all living enemy players will be Revealed twice.",
+    "question": "'Revealed' with no status effect"
+   }
+  },
+  {
+   "agent": "Deadlock",
+   "key": "Q",
+   "name": "Sonic Sensor",
+   "functions": "Autonomous Deployable Concuss",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "It concusses that area if footsteps, weapons fire, or significant noise are detected."
+   }
+  },
+  {
+   "agent": "Deadlock",
+   "key": "C",
+   "name": "Barrier Mesh",
+   "functions": "Barrier",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "undecided",
+    "by": "rule:reveal-or-barrier",
+    "excerpt": "EQUIP a Barrier Mesh disc.",
+    "question": "'Barrier' with no status effect"
+   }
+  },
+  {
+   "agent": "Deadlock",
+   "key": "E",
+   "name": "GravNet",
+   "functions": "Slow",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "The GravNet detonates upon landing, forcing any characters caught within to crouch and move slowly."
+   }
+  },
+  {
+   "agent": "Deadlock",
+   "key": "X",
+   "name": "Annihilation",
+   "functions": "Detain Displacement",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:will-die",
+    "excerpt": "The cocooned enemy is pulled along a nanowire path and will die unless they are freed."
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to unleash a pulse of nanowires that captures the first enemy contacted."
+   }
+  },
+  {
+   "agent": "Fade",
+   "key": "Q",
+   "name": "Seize",
+   "functions": "Cripple Tether",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "Held enemies are Deafened, and Decayed.",
+    "question": "'Decayed' with no damage clause"
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "The knot ruptures on impact, holding nearby enemies in place."
+   }
+  },
+  {
+   "agent": "Fade",
+   "key": "E",
+   "name": "Haunt",
+   "functions": "Intel",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "undecided",
+    "by": "rule:reveal-or-barrier",
+    "excerpt": "The watcher lashes out on impact, Revealing enemies in its line of sight and creating terror trails to them.",
+    "question": "'Revealing' with no status effect"
+   }
+  },
+  {
+   "agent": "Fade",
+   "key": "C",
+   "name": "Prowler",
+   "functions": "Autonomous Deployable Nearsight",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "The prowler will chase down the first enemy or terror trail it sees, and Nearsight the enemy on impact."
+   }
+  },
+  {
+   "agent": "Fade",
+   "key": "X",
+   "name": "Nightfall",
+   "functions": "Cripple Intel",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "Enemies caught in the wave are Marked by terror trails, Deafened, and Decayed.",
+    "question": "'Decayed' with no damage clause"
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "Enemies caught in the wave are Marked by terror trails, Deafened, and Decayed."
+   }
+  },
+  {
+   "agent": "Gekko",
+   "key": "Q",
+   "name": "Wingman",
+   "functions": "Autonomous Deployable Concuss",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "Wingman unleashes a concussive blast toward the first enemy he sees."
+   }
+  },
+  {
+   "agent": "Gekko",
+   "key": "E",
+   "name": "Dizzy",
+   "functions": "Autonomous Deployable Blind",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "Enemies hit by her plasma are Blinded."
+   }
+  },
+  {
+   "agent": "Gekko",
+   "key": "C",
+   "name": "Mosh Pit",
+   "functions": "Deterrent",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:deals-damage",
+    "excerpt": "Upon landing Mosh duplicates across a large area that deals a small amount of damage over time then after a short delay explodes."
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Gekko",
+   "key": "X",
+   "name": "Thrash",
+   "functions": "Controlled Deployable Detain",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "ACTIVATE to lunge forward and explode, Detaining any players in a small radius."
+   }
+  },
+  {
+   "agent": "Harbor",
+   "key": "Q",
+   "name": "High Tide",
+   "functions": "Slow Wall",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "HOLD FIRE to guide the water towards your crosshair spawning a vision blocking Screen along the path."
+   }
+  },
+  {
+   "agent": "Harbor",
+   "key": "C",
+   "name": "Storm Surge",
+   "functions": "Nearsight Slow Intel",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to throw, creating an explosive whirlpool that Slows and Nearsights players within it after a short duration."
+   }
+  },
+  {
+   "agent": "Harbor",
+   "key": "E",
+   "name": "Cove",
+   "functions": "Smoke",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "ACTIVATE to form a water Smoke in the select location."
+   }
+  },
+  {
+   "agent": "Harbor",
+   "key": "X",
+   "name": "Reckoning",
+   "functions": "Nearsight Slow Wall Intel",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to unleash the full power of your artifact, releasing a surge of water that barrels forward to Nearsight and Slow enemies that are hit."
+   }
+  },
+  {
+   "agent": "Iso",
+   "key": "Q",
+   "name": "Undercut",
+   "functions": "Cripple Limiter",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to throw it forward, briefly applying Vulnerable & Suppress to all players it touches."
+   }
+  },
+  {
+   "agent": "Iso",
+   "key": "X",
+   "name": "Kill Contract",
+   "functions": "Banish Limiter",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "FIRE to hurl a column of energy through the battlefield, pulling and healing both you and the first enemy hit into the arena to duel to the death.",
+    "question": "'death' with no damage clause"
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to hurl a column of energy through the battlefield, pulling and healing both you and the first enemy hit into the arena to duel to the death."
+   }
+  },
+  {
+   "agent": "Iso",
+   "key": "E",
+   "name": "Double Tap",
+   "functions": "Empowerment Invulnerability",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "Once focused: gain a shield which absorbs one instance of damage from any source, reload more quickly, and enter a flow state during which downed enemies you kill or damage spawn an energy orb.",
+    "question": "'damage' with no damage clause"
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Iso",
+   "key": "C",
+   "name": "Contingency",
+   "functions": "Wall",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "undecided",
+    "by": "rule:reveal-or-barrier",
+    "excerpt": "FIRE to push an indestructible wall of energy forward that blocks bullets.",
+    "question": "'wall of energy' with no status effect"
+   }
+  },
+  {
+   "agent": "Jett",
+   "key": "Q",
+   "name": "Updraft",
+   "functions": "Dash",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Jett",
+   "key": "E",
+   "name": "Tailwind",
+   "functions": "Dash",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Jett",
+   "key": "C",
+   "name": "Cloudburst",
+   "functions": "Smoke",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "INSTANTLY throw a projectile that expands into a brief vision-blocking cloud on impact with a surface."
+   }
+  },
+  {
+   "agent": "Jett",
+   "key": "X",
+   "name": "Blade Storm",
+   "functions": "Weapon Equip",
+   "damage": {
+    "status": "kit_icon",
+    "by": "fact:killfeed/jett-blade-storm-icon",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Jett",
+   "key": null,
+   "name": "Drift",
+   "functions": null,
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "KAY/O",
+   "key": "C",
+   "name": "FRAG/ment",
+   "functions": "Deterrent",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:deals-damage",
+    "excerpt": "The fragment sticks to the floor and explodes multiple times, dealing near lethal damage at the center with each explosion."
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "KAY/O",
+   "key": "Q",
+   "name": "FLASH/drive",
+   "functions": "Flash",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "EQUIP a flash grenade."
+   }
+  },
+  {
+   "agent": "KAY/O",
+   "key": "E",
+   "name": "ZERO/point",
+   "functions": "Intel Limiter",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "EQUIP a suppression blade."
+   }
+  },
+  {
+   "agent": "KAY/O",
+   "key": "X",
+   "name": "NULL/cmd",
+   "functions": "Empowerment Limiter Revive",
+   "damage": {
+    "status": "kit_icon",
+    "by": "fact:killfeed/kayo-downed-entry",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "Enemies hit with pulses are Suppressed for a short duration."
+   }
+  },
+  {
+   "agent": "Killjoy",
+   "key": "C",
+   "name": "Nanoswarm",
+   "functions": "Molotov",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:damages-targets",
+    "excerpt": "ACTIVATE the Nanoswarm to deploy a damaging swarm of nanobots."
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Killjoy",
+   "key": "Q",
+   "name": "ALARMBOT",
+   "functions": "Autonomous Deployable Cripple",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "After reaching its target, the bot explodes and applies Vulnerable to enemies in the area."
+   }
+  },
+  {
+   "agent": "Killjoy",
+   "key": "E",
+   "name": "TURRET",
+   "functions": "Autonomous Deployable",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:attack-no-effect",
+    "excerpt": "FIRE to deploy a turret that fires at enemies in a 100 degree cone.",
+    "question": "'fires at' with no stated damage or status"
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Killjoy",
+   "key": "X",
+   "name": "Lockdown",
+   "functions": "Detain",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "After a long windup, the device Detains all enemies caught in the radius."
+   }
+  },
+  {
+   "agent": "Miks",
+   "key": "C",
+   "name": "M-pulse",
+   "functions": "Concuss Heal",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "ALT-FIRE to toggle between Concuss and Healing outputs."
+   }
+  },
+  {
+   "agent": "Miks",
+   "key": "E",
+   "name": "Waveform",
+   "functions": "Smoke",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "ALT-FIRE to spawn Smokes at selected locations."
+   }
+  },
+  {
+   "agent": "Miks",
+   "key": "Q",
+   "name": "Harmonize",
+   "functions": "Empowerment",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Miks",
+   "key": "X",
+   "name": "Bassquake",
+   "functions": "Displacement Slow",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to build up and unleash Sonic Radiance forward, knocking back, Deafening, and Slowing players."
+   }
+  },
+  {
+   "agent": "Neon",
+   "key": "E",
+   "name": "High Gear",
+   "functions": "Dash",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Neon",
+   "key": "Q",
+   "name": "Relay Bolt",
+   "functions": "Concuss",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "Upon hitting each surface, the bolt electrifies the ground below with a Concussive blast."
+   }
+  },
+  {
+   "agent": "Neon",
+   "key": "C",
+   "name": "Fast Lane",
+   "functions": "Wall",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "The lines rise into walls of static electricity that block vision."
+   }
+  },
+  {
+   "agent": "Neon",
+   "key": "X",
+   "name": "Overdrive",
+   "functions": "Weapon Equip",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:deadly",
+    "excerpt": "FIRE to channel the power into a deadly lightning beam with high movement accuracy."
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Omen",
+   "key": "Q",
+   "name": "Paranoia",
+   "functions": "Nearsight",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "EQUIP a blinding orb."
+   }
+  },
+  {
+   "agent": "Omen",
+   "key": "E",
+   "name": "Dark Cover",
+   "functions": "Smoke",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "PRESS the ability key to throw the shadow orb to the marked location, creating a long-lasting shadow sphere that blocks vision."
+   }
+  },
+  {
+   "agent": "Omen",
+   "key": "C",
+   "name": "Shrouded Step",
+   "functions": "Teleport",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Omen",
+   "key": "X",
+   "name": "From the Shadows",
+   "functions": "Teleport",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Phoenix",
+   "key": "C",
+   "name": "Blaze",
+   "functions": "Wall",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:heals",
+    "excerpt": "The fire wall heals Phoenix instead of dealing damage.",
+    "question": "damage clause with heals"
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to create a line of flame that moves forward, passing through the world and creating a wall of fire that blocks vision and damages players passing through it."
+   }
+  },
+  {
+   "agent": "Phoenix",
+   "key": "Q",
+   "name": "Hot Hands",
+   "functions": "Molotov",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:heals",
+    "excerpt": "The fire zone heals Phoenix instead of dealing damage.",
+    "question": "damage clause with heals"
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Phoenix",
+   "key": "E",
+   "name": "Curveball",
+   "functions": "Flash",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to curve the flare orb to the left, detonating and Blinding any player who sees the orb."
+   }
+  },
+  {
+   "agent": "Phoenix",
+   "key": "X",
+   "name": "Run it Back",
+   "functions": "Revive",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Phoenix",
+   "key": null,
+   "name": "Heating Up",
+   "functions": null,
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "PASSIVELY Heal Phoenix instead of taking damage after standing in Phoenix's own fire",
+    "question": "'damage' with no damage clause"
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Raze",
+   "key": "Q",
+   "name": "Blast Pack",
+   "functions": "Dash Displacement",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:conditional",
+    "excerpt": "RE-USE the ability after deployment to detonate, moving anything hit and dealing damage if fully armed.",
+    "question": "damage clause with conditional"
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Raze",
+   "key": "E",
+   "name": "Paint Shells",
+   "functions": "Deterrent",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:does-damage",
+    "excerpt": "FIRE to throw the grenade, which does damage and creates sub-munitions, each doing damage to anyone in their range."
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Raze",
+   "key": "C",
+   "name": "Boom Bot",
+   "functions": "Autonomous Deployable",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:conditional",
+    "excerpt": "The Boom Bot will lock on to any enemies in its frontal cone and chase them, exploding for heavy damage if it reaches them.",
+    "question": "damage clause with conditional"
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Raze",
+   "key": "X",
+   "name": "Showstopper",
+   "functions": "Weapon Equip",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:does-damage",
+    "excerpt": "FIRE to shoot a rocket that does massive area damage on contact with anything."
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Reyna",
+   "key": "Q",
+   "name": "Devour",
+   "functions": "Heal",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "Soul Harvest: Enemies that die within 3 seconds of taking damage from Reyna leave behind Soul Orbs that last 3 seconds.",
+    "question": "'die' with no damage clause"
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Reyna",
+   "key": "E",
+   "name": "Dismiss",
+   "functions": null,
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Reyna",
+   "key": "C",
+   "name": "Leer",
+   "functions": "Nearsight",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "The eye will Nearsight all enemies who look at it."
+   }
+  },
+  {
+   "agent": "Reyna",
+   "key": "X",
+   "name": "Empress",
+   "functions": "Empowerment",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Sage",
+   "key": "Q",
+   "name": "Slow Orb",
+   "functions": "Slow",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "EQUIP a slowing orb."
+   }
+  },
+  {
+   "agent": "Sage",
+   "key": "E",
+   "name": "Healing Orb",
+   "functions": "Heal",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "FIRE with your crosshairs over a damaged ally to activate a Heal-Over-Time on them.",
+    "question": "'damaged' with no damage clause"
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Sage",
+   "key": "C",
+   "name": "Barrier Orb",
+   "functions": "Barrier Wall",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "undecided",
+    "by": "rule:reveal-or-barrier",
+    "excerpt": "EQUIP a barrier orb.",
+    "question": "'barrier' with no status effect"
+   }
+  },
+  {
+   "agent": "Sage",
+   "key": "X",
+   "name": "Resurrection",
+   "functions": "Revive",
+   "damage": {
+    "status": "kit_icon",
+    "by": "fact:killfeed/revive-entries",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Skye",
+   "key": "Q",
+   "name": "Trailblazer",
+   "functions": "Concuss Controlled Deployable",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:damages-targets",
+    "excerpt": "While in control, FIRE to leap forward, exploding in a Concussive blast on impact and damaging directly hit enemies."
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "While in control, FIRE to leap forward, exploding in a Concussive blast on impact and damaging directly hit enemies."
+   }
+  },
+  {
+   "agent": "Skye",
+   "key": "E",
+   "name": "Guiding Light",
+   "functions": "Controlled Deployable Flash",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "RE-USE while the hawk is in flight to transform it into a flash."
+   }
+  },
+  {
+   "agent": "Skye",
+   "key": "C",
+   "name": "Regrowth",
+   "functions": "Heal",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Skye",
+   "key": "X",
+   "name": "Seekers",
+   "functions": "Autonomous Deployable Nearsight Slow",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "If a Seeker reaches its target, it Nearsights and slows them."
+   }
+  },
+  {
+   "agent": "Sova",
+   "key": "Q",
+   "name": "Shock Bolt",
+   "functions": "Deterrent",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:damages-targets",
+    "excerpt": "FIRE to send the explosive bolt forward, detonating upon collision and damaging players nearby."
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Sova",
+   "key": "E",
+   "name": "Recon Bolt",
+   "functions": "Intel",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "undecided",
+    "by": "rule:reveal-or-barrier",
+    "excerpt": "FIRE to send the recon bolt forward, activating upon collision and Revealing the location of nearby enemies caught in the line of sight of the bolt.",
+    "question": "'Revealing' with no status effect"
+   }
+  },
+  {
+   "agent": "Sova",
+   "key": "C",
+   "name": "Owl Drone",
+   "functions": "Controlled Deployable",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:attack-no-effect",
+    "excerpt": "While in control of the drone, FIRE to shoot a marking dart.",
+    "question": "'shoot' with no stated damage or status"
+   },
+   "assist": {
+    "status": "undecided",
+    "by": "rule:reveal-or-barrier",
+    "excerpt": "This dart will Reveal the location of any player struck by the dart.",
+    "question": "'Reveal' with no status effect"
+   }
+  },
+  {
+   "agent": "Sova",
+   "key": "X",
+   "name": "Hunter's Fury",
+   "functions": "Weapon Equip",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:deals-damage",
+    "excerpt": "FIRE to release an energy blast in a line in front of Sova, dealing damage and Revealing the location of enemies caught in the line."
+   },
+   "assist": {
+    "status": "undecided",
+    "by": "rule:reveal-or-barrier",
+    "excerpt": "FIRE to release an energy blast in a line in front of Sova, dealing damage and Revealing the location of enemies caught in the line.",
+    "question": "'Revealing' with no status effect"
+   }
+  },
+  {
+   "agent": "Sova",
+   "key": null,
+   "name": "Uncanny Marksman",
+   "functions": null,
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Tejo",
+   "key": "E",
+   "name": "Guided Salvo",
+   "functions": "Deterrent",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:for-damage",
+    "excerpt": "ALT FIRE to launch missiles that autonomously navigate to target locations, detonating repeatedly for damage on arrival."
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Tejo",
+   "key": "Q",
+   "name": "Special Delivery",
+   "functions": "Concuss",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:deals-damage",
+    "excerpt": "The grenade sticks to the first surface it hits and explodes, Concussing and dealing damage to any targets caught in the blast."
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "The grenade sticks to the first surface it hits and explodes, Concussing and dealing damage to any targets caught in the blast."
+   }
+  },
+  {
+   "agent": "Tejo",
+   "key": "X",
+   "name": "Armageddon",
+   "functions": "Deterrent",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:damages-targets",
+    "excerpt": "FIRE again to set the end point and launch the attack, unleashing a wave of lethal damaging explosions along the strike path."
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Tejo",
+   "key": "C",
+   "name": "Stealth Drone",
+   "functions": "Controlled Deployable Limiter",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE again to trigger a pulse that Suppresses and Reveals enemies hit."
+   }
+  },
+  {
+   "agent": "Veto",
+   "key": "E",
+   "name": "Interceptor",
+   "functions": "Utility Defense",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Veto",
+   "key": "C",
+   "name": "Crosscut",
+   "functions": "Teleport",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Veto",
+   "key": "X",
+   "name": "Evolution",
+   "functions": "Empowerment Heal Immunity",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Veto",
+   "key": "Q",
+   "name": "Chokehold",
+   "functions": "Autonomous Deployable Cripple Tether",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "Held enemies are Deafened, and Decayed.",
+    "question": "'Decayed' with no damage clause"
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "The fragment deploys upon hitting the ground, creating a trap to hold enemies in place."
+   }
+  },
+  {
+   "agent": "Viper",
+   "key": "Q",
+   "name": "Poison Cloud",
+   "functions": "Cripple Smoke",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "RE-USE the ability to create a toxic gas cloud that Decays opponents inside it at the cost of fuel.",
+    "question": "'Decays' with no damage clause"
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "RE-USE the ability to create a toxic gas cloud that Decays opponents inside it at the cost of fuel."
+   }
+  },
+  {
+   "agent": "Viper",
+   "key": "E",
+   "name": "Toxic Screen",
+   "functions": "Cripple Wall",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "RE-USE the ability to create a tall wall of toxic gas that Decays opponents that cross it at the cost of fuel.",
+    "question": "'Decays' with no damage clause"
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "RE-USE the ability to create a tall wall of toxic gas that Decays opponents that cross it at the cost of fuel."
+   }
+  },
+  {
+   "agent": "Viper",
+   "key": "C",
+   "name": "Snake Bite",
+   "functions": "Cripple Molotov",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:that-damages",
+    "excerpt": "FIRE to launch a canister that shatters upon hitting the floor, creating a lingering chemical zone that damages and applies Vulnerable."
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to launch a canister that shatters upon hitting the floor, creating a lingering chemical zone that damages and applies Vulnerable."
+   }
+  },
+  {
+   "agent": "Viper",
+   "key": "X",
+   "name": "Viper's Pit",
+   "functions": "Cripple Vision Blocker",
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "FIRE to spray a chemical cloud in all directions around Viper, creating a large cloud that Nearsights players and Decays the health of enemies inside of it.",
+    "question": "'Decays' with no damage clause"
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to spray a chemical cloud in all directions around Viper, creating a large cloud that Nearsights players and Decays the health of enemies inside of it."
+   }
+  },
+  {
+   "agent": "Viper",
+   "key": null,
+   "name": "Toxic",
+   "functions": null,
+   "damage": {
+    "status": "undecided",
+    "by": "rule:harm-word",
+    "excerpt": "Enemies that cross through Viper's Poison Cloud, Toxic Screen, or Viper's Pit are instantly inflicted with at least 30 Decay.",
+    "question": "'Decay' with no damage clause"
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "Enemies that cross through Viper's Poison Cloud, Toxic Screen, or Viper's Pit are instantly inflicted with at least 30 Decay."
+   }
+  },
+  {
+   "agent": "Vyse",
+   "key": "Q",
+   "name": "Shear",
+   "functions": "Autonomous Deployable Barrier Wall",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "undecided",
+    "by": "rule:reveal-or-barrier",
+    "excerpt": "FIRE to place a hidden wall trap.",
+    "question": "'wall trap' with no status effect"
+   }
+  },
+  {
+   "agent": "Vyse",
+   "key": "E",
+   "name": "Arc Rose",
+   "functions": "Flash",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "REUSE to blind all players looking at it."
+   }
+  },
+  {
+   "agent": "Vyse",
+   "key": "C",
+   "name": "Razorvine",
+   "functions": "Slow",
+   "damage": {
+    "status": "damaging",
+    "by": "rule:damages-targets",
+    "excerpt": "When ACTIVATED, it sprawls out into a large razorvine nest which slows and damages all players who move through it."
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "When ACTIVATED, it sprawls out into a large razorvine nest which slows and damages all players who move through it."
+   }
+  },
+  {
+   "agent": "Vyse",
+   "key": "X",
+   "name": "Steel Garden",
+   "functions": "Limiter",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to send the metal erupting from you as a torrent of metal thorns, JAMMING enemy primary weapons after a brief windup."
+   }
+  },
+  {
+   "agent": "Waylay",
+   "key": "E",
+   "name": "Refract",
+   "functions": "Invulnerability Mobility",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Waylay",
+   "key": "C",
+   "name": "Saturate",
+   "functions": "Hinder",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to throw the cluster, which upon contact with the ground explodes, Hindering nearby players with a powerful movement and weapon slow."
+   }
+  },
+  {
+   "agent": "Waylay",
+   "key": "Q",
+   "name": "Lightspeed",
+   "functions": "Dash",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Waylay",
+   "key": "X",
+   "name": "Convergent Paths",
+   "functions": "Empowerment Hinder",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "After a brief delay, you gain a powerful speed boost and the beam expands, Hindering other players in the area."
+   }
+  },
+  {
+   "agent": "Yoru",
+   "key": "C",
+   "name": "FAKEOUT",
+   "functions": "Decoy Flash",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "Mirror images explode in a Blinding flash when destroyed by enemies."
+   }
+  },
+  {
+   "agent": "Yoru",
+   "key": "Q",
+   "name": "BLINDSIDE",
+   "functions": "Flash",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "disabling",
+    "by": "rule:status-term",
+    "excerpt": "FIRE to throw the fragment, activating a flash that winds up once it collides with a hard surface."
+   }
+  },
+  {
+   "agent": "Yoru",
+   "key": "E",
+   "name": "GATECRASH",
+   "functions": "Decoy Teleport",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  },
+  {
+   "agent": "Yoru",
+   "key": "X",
+   "name": "DIMENSIONAL DRIFT",
+   "functions": "Intangibility",
+   "damage": {
+    "status": "not_damaging",
+    "by": "rule:no-damage-wording",
+    "excerpt": null
+   },
+   "assist": {
+    "status": "not_disabling",
+    "by": "rule:no-status-term",
+    "excerpt": null
+   }
+  }
+ ]
+}

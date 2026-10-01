@@ -68,18 +68,72 @@ launch, and abilities that move other agents, are left out.
 
 ## Killfeed icons
 
-Which of an agent's abilities can draw an icon in a killfeed entry's weapon
-slot, and is that list complete? The weapon owner lowers its naming floor
-for the acting agent's abilities only when a fact lists every one
-(`adjudication.weapon.KILLFEED_KITS`, empty until answered). The facts so far
-name icons without closing any list: Breach's Aftershock
+Which of an agent's abilities can draw a killfeed icon? The player's rule:
+any damaging ability can draw a kill's weapon-slot icon
+[domain:killfeed/damaging-ability-kill-icon], and any disabling ability an
+assist icon [domain:killfeed/disabling-ability-assist-icon].
+`adjudication.killfeed_kits` applies the rule to each ability's reference
+description, beside the icons the facts name: Breach's Aftershock
 [domain:killfeed/ability-kill-icon]; Chamber's Headhunter and Tour De Force
 [domain:killfeed/chamber-gun-shaped-abilities]; Jett's Blade Storm
 [domain:killfeed/jett-blade-storm-icon]; Sage's Resurrection, Clove's Not
 Dead Yet and KAY/O's NULL/cmd in a revive [domain:killfeed/revive-entries]
-[domain:killfeed/kayo-downed-entry]. For each agent: which abilities can
-kill, down or revive and so draw an icon, and does any other ability draw
-one? An answer of "these and no other" for an agent closes its list.
+[domain:killfeed/kayo-downed-entry]. The weapon owner lowers its naming floor
+for an agent only when no ability of the agent stands in the first table
+(`adjudication.weapon.KILLFEED_OPEN`). Of
+[metric:killfeed_kits/derivation@reference#abilities=121] reference entries,
+the rule finds [metric:killfeed_kits/derivation@reference#damaging=17]
+damaging, the facts name
+[metric:killfeed_kits/derivation@reference#fact_icon=7], and
+[metric:killfeed_kits/derivation@reference#damage_undecided=21] stand below,
+across [metric:killfeed_kits/derivation@reference#agents_open=12] agents.
+For each row: does the ability deal damage, and can it draw a weapon-slot
+icon?
+
+| Agent | Ability | Why the rule cannot decide | Description excerpt |
+|---|---|---|---|
+| Clove | Pick-me-up | 'damaged' with no damage clause | "ACTIVATE to absorb the life force of a fallen enemy that Clove damaged or killed, gaining haste and temporary health." |
+| Clove | Meddle | 'Decays' with no damage clause | "FIRE to throw the fragment, which upon landing on the floor, erupts after a short delay and temporarily Decays all targets caught inside." |
+| Cypher | Spycam | 'shoot' with no stated damage or status | "While in control of the camera, FIRE to shoot a marking dart." |
+| Fade | Seize | 'Decayed' with no damage clause | "Held enemies are Deafened, and Decayed." |
+| Fade | Nightfall | 'Decayed' with no damage clause | "Enemies caught in the wave are Marked by terror trails, Deafened, and Decayed." |
+| Iso | Kill Contract | 'death' with no damage clause | "FIRE to hurl a column of energy through the battlefield, pulling and healing both you and the first enemy hit into the arena to duel to the death." |
+| Iso | Double Tap | 'damage' with no damage clause | "Once focused: gain a shield which absorbs one instance of damage from any source, reload more quickly, and enter a flow state during which downed enemies you kill or damage spawn an energy orb." |
+| Killjoy | TURRET | 'fires at' with no stated damage or status | "FIRE to deploy a turret that fires at enemies in a 100 degree cone." |
+| Phoenix | Blaze | damage clause with heals | "The fire wall heals Phoenix instead of dealing damage." |
+| Phoenix | Hot Hands | damage clause with heals | "The fire zone heals Phoenix instead of dealing damage." |
+| Phoenix | Heating Up | 'damage' with no damage clause | "PASSIVELY Heal Phoenix instead of taking damage after standing in Phoenix's own fire" |
+| Raze | Blast Pack | damage clause with conditional | "RE-USE the ability after deployment to detonate, moving anything hit and dealing damage if fully armed." |
+| Raze | Boom Bot | damage clause with conditional | "The Boom Bot will lock on to any enemies in its frontal cone and chase them, exploding for heavy damage if it reaches them." |
+| Reyna | Devour | 'die' with no damage clause | "Soul Harvest: Enemies that die within 3 seconds of taking damage from Reyna leave behind Soul Orbs that last 3 seconds." |
+| Sage | Healing Orb | 'damaged' with no damage clause | "FIRE with your crosshairs over a damaged ally to activate a Heal-Over-Time on them." |
+| Sova | Owl Drone | 'shoot' with no stated damage or status | "While in control of the drone, FIRE to shoot a marking dart." |
+| Veto | Chokehold | 'Decayed' with no damage clause | "Held enemies are Deafened, and Decayed." |
+| Viper | Poison Cloud | 'Decays' with no damage clause | "RE-USE the ability to create a toxic gas cloud that Decays opponents inside it at the cost of fuel." |
+| Viper | Toxic Screen | 'Decays' with no damage clause | "RE-USE the ability to create a tall wall of toxic gas that Decays opponents that cross it at the cost of fuel." |
+| Viper | Viper's Pit | 'Decays' with no damage clause | "FIRE to spray a chemical cloud in all directions around Viper, creating a large cloud that Nearsights players and Decays the health of enemies inside of it." |
+| Viper | Toxic | 'Decay' with no damage clause | "Enemies that cross through Viper's Poison Cloud, Toxic Screen, or Viper's Pit are instantly inflicted with at least 30 Decay." |
+
+The mined weapon-slot gallery holds a Curveball group the player labelled,
+though the description names a flash and no damage: is that icon Curveball,
+and can a non-damaging ability draw a kill's weapon-slot icon?
+
+The assist list is not yet read by any owner. For each row: can the ability
+draw an assist icon? And can a damaging ability draw one?
+
+| Agent | Ability | Why the rule cannot decide | Description excerpt |
+|---|---|---|---|
+| Astra | Astral Form / Cosmic Divide | 'blocks bullets' with no status effect | "Cosmic Divide blocks bullets and sound." |
+| Cypher | Spycam | 'Reveal' with no status effect | "This dart will Reveal the location of any player struck by the dart." |
+| Cypher | Neural Theft | 'Revealed' with no status effect | "After a brief delay, the location of all living enemy players will be Revealed twice." |
+| Deadlock | Barrier Mesh | 'Barrier' with no status effect | "EQUIP a Barrier Mesh disc." |
+| Fade | Haunt | 'Revealing' with no status effect | "The watcher lashes out on impact, Revealing enemies in its line of sight and creating terror trails to them." |
+| Iso | Contingency | 'wall of energy' with no status effect | "FIRE to push an indestructible wall of energy forward that blocks bullets." |
+| Sage | Barrier Orb | 'barrier' with no status effect | "EQUIP a barrier orb." |
+| Sova | Recon Bolt | 'Revealing' with no status effect | "FIRE to send the recon bolt forward, activating upon collision and Revealing the location of nearby enemies caught in the line of sight of the bolt." |
+| Sova | Owl Drone | 'Reveal' with no status effect | "This dart will Reveal the location of any player struck by the dart." |
+| Sova | Hunter's Fury | 'Revealing' with no status effect | "FIRE to release an energy blast in a line in front of Sova, dealing damage and Revealing the location of enemies caught in the line." |
+| Vyse | Shear | 'wall trap' with no status effect | "FIRE to place a hidden wall trap." |
 
 ## Astra
 

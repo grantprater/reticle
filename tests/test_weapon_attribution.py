@@ -321,17 +321,31 @@ class RoleNarrowingTests(unittest.TestCase):
     BREACH = {"agent": "Breach", "entity_id": "death:s:0:0:killer", "role": "killer",
               "channels": ["killfeed_name_cluster"]}
 
-    def test_an_unlisted_kit_does_not_lower_the_floor(self):
-        """With no fact listing Breach's killfeed kit, the faint icon stays new
-        even with Breach acting."""
-        from reticle.adjudication.weapon import KILLFEED_KITS, entry_weapon
-        self.assertNotIn("Breach", KILLFEED_KITS)
+    def test_breach_kit_is_aftershock_with_no_question(self):
+        """The derived kits list Breach's Aftershock alone and hold no question
+        of Breach, so the faint icon names Aftershock with Breach acting."""
+        from reticle.adjudication.weapon import KILLFEED_KITS, KILLFEED_OPEN, entry_weapon
+        self.assertEqual(KILLFEED_KITS["Breach"], frozenset({"Aftershock"}))
+        self.assertNotIn("Breach", KILLFEED_OPEN)
         ev = entry_weapon(self.ENTRY, self._obs(self._grid(12), 1.0), self._gallery(),
                           agents={"Breach", "Sova"}, actor=self.BREACH)
+        self.assertEqual((ev["status"], ev["name"], ev["kit_floor_frames"]),
+                         ("resolved", "Aftershock", 3))
+
+    def test_an_open_question_keeps_the_full_floor(self):
+        """An agent with an ability the rule cannot decide keeps NAME_MIN_IOU,
+        even with its listed kit in the gallery."""
+        from unittest import mock
+        from reticle.adjudication import weapon
+        with mock.patch.dict(weapon.KILLFEED_OPEN, {"Breach": frozenset({"Fault Line"})}):
+            self.assertEqual(weapon.kit_names(self._gallery(), "Breach"), frozenset())
+            ev = weapon.entry_weapon(self.ENTRY, self._obs(self._grid(12), 1.0), self._gallery(),
+                                     agents={"Breach", "Sova"}, actor=self.BREACH)
         self.assertEqual((ev["status"], ev["reason"], ev["kit_floor_frames"]), ("refused", "new", 0))
 
     def test_a_listed_kit_the_gallery_lacks_does_not_lower_the_floor(self):
-        """A listed kit lowers the floor only when the gallery holds all of it."""
+        """A listed kit lowers the floor only when the gallery holds all of it,
+        and only for the listed names."""
         from unittest import mock
         from reticle.adjudication import weapon
         with mock.patch.dict(weapon.KILLFEED_KITS,
@@ -339,6 +353,8 @@ class RoleNarrowingTests(unittest.TestCase):
             self.assertEqual(weapon.kit_names(self._gallery(), "Breach"), frozenset())
         with mock.patch.dict(weapon.KILLFEED_KITS, {"Breach": frozenset({"Aftershock"})}):
             self.assertEqual(weapon.kit_names(self._gallery(), "Breach"), frozenset({"Aftershock"}))
+        with mock.patch.dict(weapon.KILLFEED_KITS, {"Breach": frozenset({"Vandal"})}):
+            self.assertEqual(weapon.kit_names(self._gallery(), "Breach"), frozenset())
 
     def test_the_kit_floor_names_a_faint_ability_the_full_floor_refuses(self):
         """An icon at IoU 0.6 to Aftershock is new without context, Aftershock

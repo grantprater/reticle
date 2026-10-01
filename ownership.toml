@@ -1451,12 +1451,27 @@ consumers = ["cli"]
 evidence = "tests/test_scoreboard_presence.py, docs/SCOREBOARD_PRESENCE.md"
 
 [[entry]]
+id = "killfeed-kits"
+question = "Which of an agent's abilities can draw a killfeed weapon-slot or assist icon?"
+owner = "adjudication.killfeed_kits"
+role = ["adjudicate"]
+status = "partial"
+produces = ["KILLFEED_KITS_VERSION", "FACT_ICONS", "damage_decision", "assist_decision", "derive", "derive_from_store", "kill_kits", "open_questions"]
+not_for = """
+Naming an icon. The module decides from the reference's ability descriptions
+and the killfeed facts which abilities an agent's icons can be, and lists what
+its rule cannot decide; `adjudication.weapon` names the icon against a gallery.
+"""
+consumers = ["adjudication.weapon"]
+evidence = "tests/test_killfeed_kits.py"
+
+[[entry]]
 id = "killfeed-weapon"
 question = "Which weapon or ability caused this death?"
 owner = "adjudication.weapon"
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["WEAPON_ADJUDICATION_VERSION", "WEAPON_GALLERY_VERSION", "IconObservation", "WeaponVerdict", "WEAPON_TAXONOMY", "ABILITY_CANONICAL_NAMES", "MINED_NOT_GUN", "extract_icon_observation", "name_icon", "entry_weapon", "classify_killfeed_icon", "estimate_weapon_class", "load_ability_gallery", "load_weapon_gallery", "load_mined_gallery", "mined_gallery_path", "bind_entry", "ability_agent", "caster_claim", "restrict_gallery", "EXTRA_ABILITY_AGENTS", "REFUSE_NEW", "REFUSE_AMBIGUOUS", "NAME_KIT_MIN_IOU", "AUDIT_EVERY", "kit_names", "candidate_tiers", "name_frame", "audit_entry"]
+produces = ["WEAPON_ADJUDICATION_VERSION", "WEAPON_GALLERY_VERSION", "IconObservation", "WeaponVerdict", "WEAPON_TAXONOMY", "ABILITY_CANONICAL_NAMES", "MINED_NOT_GUN", "extract_icon_observation", "name_icon", "entry_weapon", "classify_killfeed_icon", "estimate_weapon_class", "load_ability_gallery", "load_weapon_gallery", "load_mined_gallery", "mined_gallery_path", "bind_entry", "ability_agent", "caster_claim", "restrict_gallery", "EXTRA_ABILITY_AGENTS", "REFUSE_NEW", "REFUSE_AMBIGUOUS", "NAME_KIT_MIN_IOU", "AUDIT_EVERY", "KILLFEED_KITS", "KILLFEED_OPEN", "kit_names", "candidate_tiers", "name_frame", "audit_entry"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """

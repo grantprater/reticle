@@ -23,6 +23,7 @@ import numpy as np
 # The icon's white mask and its normalised grid are measurements, so the reader
 # layer owns them; this module names what they describe.
 from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
+from .killfeed_kits import kill_kits, open_questions
 
 # 0.5.0 (2026-09-25): `entry_weapon` takes the match's agents and drops ability
 # exemplars no agent there can cast; `ability_agent` names an ability's caster.
@@ -45,7 +46,12 @@ from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
 # 0.9.0 (2026-10-01): the kit floor lowers only for an agent whose every
 # killfeed-capable ability a fact lists (`KILLFEED_KITS`) and the gallery
 # holds; no fact lists a whole kit, so no agent's floor lowers yet.
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.9.0"
+# 1.0.0 (2026-10-01): `KILLFEED_KITS` comes from `adjudication.killfeed_kits`,
+# the player's rule [domain:killfeed/damaging-ability-kill-icon] applied to the
+# reference's descriptions. An agent with an ability the rule leaves undecided
+# (`KILLFEED_OPEN`) keeps NAME_MIN_IOU, and the lowered floor covers only the
+# listed abilities.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.0.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -454,14 +460,13 @@ NAME_ASPECTS = {"Warden": 3.86}
 #: otherwise be named as the nearest listed one.
 NAME_KIT_MIN_IOU = 0.52
 
-#: Every ability of an agent that can draw a killfeed weapon-slot icon, per
-#: agent, only where a domain fact lists them all. The facts name some icons
-#: (Aftershock [domain:killfeed/ability-kill-icon], Headhunter and Tour De
-#: Force [domain:killfeed/chamber-gun-shaped-abilities], Blade Storm
-#: [domain:killfeed/jett-blade-storm-icon], the revive icons
-#: [domain:killfeed/revive-entries]) but none says an agent has no other; the
+#: Every ability of an agent that can draw a killfeed weapon-slot icon: its
+#: damaging abilities [domain:killfeed/damaging-ability-kill-icon] and the icons
+#: a killfeed fact names, as `adjudication.killfeed_kits` derives them.
+#: `KILLFEED_OPEN` holds, per agent, the abilities that rule cannot decide; the
 #: questions are in docs/ABILITY_MECHANICS_SHEET.md, "Killfeed icons".
-KILLFEED_KITS: dict[str, frozenset] = {}
+KILLFEED_KITS: dict[str, frozenset] = kill_kits()
+KILLFEED_OPEN: dict[str, frozenset] = open_questions()
 
 #: The audit of the narrowing: an entry whose key hashes to 0 modulo this also
 #: gets the full search, stored apart (`audit`) and never counted a surprise.
@@ -672,14 +677,15 @@ def _thin_reason(reasons: dict[str, int], n_bound: int) -> str:
 
 
 def kit_names(gallery: dict, agent: Optional[str]) -> frozenset:
-    """The names that take NAME_KIT_MIN_IOU in `agent`'s kit tier: its
-    `ability_shaped_names`, but only when `KILLFEED_KITS` lists the agent and
-    `gallery` holds every name listed; otherwise none, and the floor stays
-    NAME_MIN_IOU."""
+    """The names that take NAME_KIT_MIN_IOU in `agent`'s kit tier: its listed
+    `ability_shaped_names`, but only when `KILLFEED_KITS` lists the agent,
+    `KILLFEED_OPEN` holds no question of it, and `gallery` holds every name
+    listed; otherwise none, and the floor stays NAME_MIN_IOU."""
     listed = KILLFEED_KITS.get(agent or "")
-    if not listed or not listed <= {str(n) for n in gallery["names"]}:
+    if (not listed or KILLFEED_OPEN.get(agent or "")
+            or not listed <= {str(n) for n in gallery["names"]}):
         return frozenset()
-    return ability_shaped_names(gallery, agent)
+    return ability_shaped_names(gallery, agent) & listed
 
 
 def ability_shaped_names(gallery: dict, agent: Optional[str]) -> frozenset:
