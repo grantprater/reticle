@@ -95,7 +95,14 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # [domain:killfeed/stack-order]), where their dividers and victim sides agree;
 # the player's death at 043bafca271a 1506.5 s now runs to 1511.0 s and the
 # entry above it ends at 1505.0 s.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.20.0"
+# 0.21.0 (2026-09-30): a death takes its location from a stored minimap X
+# (`xmark_births` over the `minimap_object` stream): an X of the victim's
+# side's colour, shape-confirmed (`minimap_x_marks`), born at the killfeed
+# time where an icon of that side ended at its place
+# [domain:minimap/death-icon-becomes-mark]. Exactly one such birth places the
+# death; two or more leave it unplaced. The first matcher took any mark of
+# either colour inside `max_dt_ms`, and no caller passed one.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.21.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -773,6 +780,222 @@ def extract_minimap_death_marks(
     return blue_blobs, red_blobs
 
 
+# The minimap X: the colour blobs above, then a shape test. Stage 2 of the
+# minimap object classifier (prototypes/minimap_objects_s2.py,
+# minimap-objects-s2-0.1.0) measured it; the constants are its own.
+X_R = 9.0            # the patch half-size round a blob (px at scale 1)
+X_DIAG_PX = 1.6      # a pixel lies on a diagonal within this
+X_DIAG_MIN = 0.75    # share of the blob's pixels on the two diagonals
+X_ARM_MIN = 0.12     # each of the four arms' share of the arm pixels
+X_EXT = (3.5, 9.0)   # the 90th-percentile radius
+X_MIN_PX = 10.0      # the blob's least pixel count, * scale squared
+
+
+def _x_key(patch: np.ndarray, colour: str) -> np.ndarray:
+    c = patch.astype(np.float32)
+    b, g, r = c[..., 0], c[..., 1], c[..., 2]
+    if colour == "red":
+        return (r - np.maximum(b, g)) > 40
+    return ((b - r) > 50) & (b >= g - 10)
+
+
+def x_shape(crop: np.ndarray, colour: str, x: float, y: float, scale: float = 1.0) -> dict:
+    """Is the `colour` blob nearest (x, y) an X: its pixels on two crossing
+    diagonals, four arms, and an X's size? `x` is the verdict, `why` the
+    reason it is not, and `cx`, `cy` the blob's centre.
+
+    One test serves both colours. The colour blobs alone call every red
+    enemy icon and "?" an X; on the player's labels the shape test passes
+    [metric:minimap_objects_s2/x-labels@5822b6646448+a06f04a0059f+c62c2b06bcfb#minimap_enemy_x=5]
+    of the enemy icons (rejecting
+    [metric:minimap_objects_s2/x-labels@5822b6646448+a06f04a0059f+c62c2b06bcfb#minimap_enemy_not_x=281]),
+    no "?" (rejecting
+    [metric:minimap_objects_s2/x-labels@5822b6646448+a06f04a0059f+c62c2b06bcfb#minimap_question_not_x=83]),
+    and every labelled X mark
+    ([metric:minimap_objects_s2/x-labels@5822b6646448+a06f04a0059f+c62c2b06bcfb#dynamic_x_mark_x=3]).
+    It also passes
+    [metric:minimap_objects_s2/x-labels@5822b6646448+a06f04a0059f+c62c2b06bcfb#minimap_other_red_x=194]
+    of the player's unnamed other-red marks, whose truth the labels do not
+    give."""
+    import cv2
+
+    R = int(round(X_R * scale))
+    h, w = crop.shape[:2]
+    x0, y0 = max(0, int(round(x)) - R), max(0, int(round(y)) - R)
+    x1, y1 = min(w, int(round(x)) + R + 1), min(h, int(round(y)) + R + 1)
+    m = _x_key(crop[y0:y1, x0:x1], colour).astype(np.uint8)
+    n, lab = cv2.connectedComponents(m, connectivity=8)
+    if n <= 1:
+        return {"x": False, "why": "no_pixels"}
+    ys, xs = np.nonzero(lab)
+    k = np.argmin(np.hypot(xs + x0 - x, ys + y0 - y))
+    comp = lab == lab[ys[k], xs[k]]
+    py, px = np.nonzero(comp)
+    if len(px) < X_MIN_PX * scale * scale:
+        return {"x": False, "why": "small", "n": int(len(px))}
+    cx, cy = px.mean(), py.mean()
+    dx, dy = px - cx, py - cy
+    d = np.minimum(np.abs(dx - dy), np.abs(dx + dy)) / math.sqrt(2)
+    on = d <= X_DIAG_PX * scale
+    r = np.hypot(dx, dy)
+    ext = float(np.percentile(r, 90))
+    arm = on & (r >= 2.5 * scale)
+    na = max(1, int(arm.sum()))
+    q = [int((arm & ((dx > 0) == a) & ((dy > 0) == b)).sum()) / na
+         for a in (False, True) for b in (False, True)]
+    ok = (on.mean() >= X_DIAG_MIN and min(q) >= X_ARM_MIN
+          and X_EXT[0] * scale <= ext <= X_EXT[1] * scale)
+    return {"x": bool(ok), "frac": round(float(on.mean()), 3), "arms": round(min(q), 3),
+            "ext": round(ext, 2), "n": int(len(px)), "cx": round(float(cx + x0), 1),
+            "cy": round(float(cy + y0), 1), "why": None if ok else "shape"}
+
+
+def minimap_x_marks(crop: np.ndarray, floor: Optional[np.ndarray], scale: float = 1.0) -> dict:
+    """The death X marks of one minimap crop, both colours: the colour blobs
+    (`extract_minimap_death_marks`), then `x_shape`.
+
+    Returns `{"blue": [...], "red": [...], "red_other": [...]}`: each X is
+    `{"x", "y", "area", "frac", "arms"}`; `red_other` holds the red blobs the
+    shape test rejects, `(area, x, y)`, which a last-known mark or a ping may
+    be.
+    """
+    blue, red = extract_minimap_death_marks(crop, floor)
+    out: dict[str, list] = {"blue": [], "red": [], "red_other": []}
+    for colour, found in (("blue", blue), ("red", red)):
+        for a, bx, by in found:
+            t = x_shape(crop, colour, bx, by, scale)
+            if t["x"]:
+                out[colour].append({"x": t["cx"], "y": t["cy"], "area": int(a),
+                                    "frac": t["frac"], "arms": t["arms"]})
+            elif colour == "red":
+                out["red_other"].append((int(a), round(float(bx), 1), round(float(by), 1)))
+    return out
+
+
+#: An X bound to a death is born this near the killfeed time (ms).
+X_BORN_MS = (-2000.0, 1000.0)
+#: Detections of one X lie within this of each other (px * scale).
+X_CLUSTER_PX = 4.0
+#: The icon whose end makes the X lies within this of it (px * scale).
+X_ICON_PX = 10.0
+#: The icon's last frame lies in [first - X_ICON_BEFORE_MS, first + X_ORDER_TOL_MS];
+#: the tolerance is one cache frame, since the icon's last frame may share the X's first.
+X_ICON_BEFORE_MS = 1500.0
+X_ORDER_TOL_MS = 70.0
+#: An X holds its place [domain:minimap/death-mark-persistence]: seen on at
+#: least X_AFTER_MIN of the frames in the X_HOLD_MS after its first, and on at
+#: most X_BEFORE_MAX of those in the X_HOLD_MS ending 300 ms before it.
+X_HOLD_MS = 3000.0
+X_AFTER_MIN = 0.5
+X_BEFORE_MAX = 0.2
+
+
+def xmark_births(frames: list[dict], icons_at, *, rounds: list[dict],
+                 scale: float = 1.0) -> list[dict]:
+    """The X marks born in a session, per side, from stored frames only.
+
+    `frames` are the `minimap_object` frame rows in time order, each with
+    `x_marks` `{"blue": [...], "red": [...]}`, or a refusal `reason`;
+    `icons_at(side, t_ms)` returns the stored icon centres `(x, y)` of a side
+    at a frame time: the ally side reads `ally_icon` (ally and self fits), the
+    enemy side `minimap_object`'s enemies. X detections cluster per round and
+    colour; a cluster is born at its first frame and kept when it holds its
+    place after that and was not there before. `icon_last_ms` is the last
+    frame of a same-side icon at its place in the window before its birth
+    [domain:minimap/death-icon-becomes-mark]; a birth without one keeps
+    `icon_last_ms` None.
+    """
+    read = [f for f in frames if f.get("reason") is None and f.get("x_marks") is not None]
+    out = []
+    for rnd in rounds:
+        a = rnd["t_start_ms"]
+        z = rnd.get("t_close_ms") or rnd["t_end_ms"]
+        inside = [f for f in read if a <= f["t_ms"] <= z]
+        T = [f["t_ms"] for f in inside]
+        for side, colour in (("ally", "blue"), ("enemy", "red")):
+            clusters: list[dict] = []
+            for f in inside:
+                for q in f["x_marks"].get(colour, []):
+                    c = next((c for c in clusters if math.hypot(c["x"] - q["x"], c["y"] - q["y"])
+                              <= X_CLUSTER_PX * scale), None)
+                    if c is None:
+                        clusters.append({"x": q["x"], "y": q["y"], "seen": [f["t_ms"]]})
+                    else:
+                        c["seen"].append(f["t_ms"])
+            for c in clusters:
+                first = min(c["seen"])
+                seen = set(c["seen"])
+                after = [t for t in T if first <= t <= first + X_HOLD_MS]
+                before = [t for t in T if first - X_HOLD_MS <= t <= first - 300.0]
+                fa = sum(t in seen for t in after) / max(1, len(after))
+                fb = sum(t in seen for t in before) / len(before) if before else 0.0
+                if fa < X_AFTER_MIN or fb > X_BEFORE_MAX:
+                    continue
+                icon_last = None
+                for t in T:
+                    if first - X_ICON_BEFORE_MS <= t <= first + X_ORDER_TOL_MS and any(
+                            math.hypot(ix - c["x"], iy - c["y"]) <= X_ICON_PX * scale
+                            for ix, iy in icons_at(side, t)):
+                        icon_last = t
+                out.append({"side": side, "round_no": rnd["round_no"], "t_ms": first,
+                            "x": round(float(c["x"]), 1), "y": round(float(c["y"]), 1),
+                            "frames": len(seen), "frac_after": round(fa, 2),
+                            "icon_last_ms": icon_last})
+    return sorted(out, key=lambda b: (b["t_ms"], b["side"]))
+
+
+def match_xmark(births: list[dict], side: str, t_ms: float, used: set) -> tuple:
+    """The X birth that places a death of `side` at `t_ms`: `(birth, status)`.
+
+    `placed` where exactly one unused birth of the side, born within
+    `X_BORN_MS` of the death, follows an icon of the side at its place;
+    `ambiguous` where more than one does; `x_without_icon` where births lie
+    in the window and none follows an icon; `no_x_at_time` otherwise.
+    """
+    near = [b for b in births if b.get("side") == side and id(b) not in used
+            and X_BORN_MS[0] <= b["t_ms"] - t_ms <= X_BORN_MS[1]]
+    with_icon = [b for b in near if b.get("icon_last_ms") is not None]
+    if len(with_icon) == 1:
+        return with_icon[0], "placed"
+    return None, ("ambiguous" if with_icon else "x_without_icon" if near else "no_x_at_time")
+
+
+def stored_xmark_births(object_rows: list[dict], ally_rows: list[dict], rounds: list[dict],
+                        scale: float) -> list[dict]:
+    """`xmark_births` over stored streams: the `minimap_object` frames give the
+    X marks and the enemy icons; the `ally_icon` stream gives the ally and
+    self icons, taken from its frame nearest each X frame within
+    `X_ORDER_TOL_MS`."""
+    import bisect
+
+    frames = sorted((r for r in object_rows if r.get("kind") == "frame"),
+                    key=lambda r: r["t_ms"])
+    enemy = {f["t_ms"]: [(e["x"], e["y"]) for e in f.get("enemies") or ()] for f in frames}
+    ally: dict[int, list] = {}
+    at: dict[int, float] = {}
+    for r in ally_rows:
+        if r.get("kind") == "frame":
+            at[r["frame_idx"]] = r["t_ms"]
+            if r.get("self"):
+                ally.setdefault(r["frame_idx"], []).append((r["self"][0], r["self"][1]))
+        elif r.get("kind") == "icon":
+            ally.setdefault(r["frame_idx"], []).append((r["cx"], r["cy"]))
+    order = sorted((t, i) for i, t in at.items())
+    T = [t for t, _ in order]
+
+    def icons_at(side, t):
+        if side == "enemy":
+            return enemy.get(t, ())
+        k = bisect.bisect_left(T, t)
+        best = min((j for j in (k - 1, k) if 0 <= j < len(T)), key=lambda j: abs(T[j] - t),
+                   default=None)
+        if best is None or abs(T[best] - t) > X_ORDER_TOL_MS:
+            return ()
+        return ally.get(order[best][1], ())
+
+    return xmark_births(frames, icons_at, rounds=rounds, scale=scale)
+
+
 def extract_killer_location(
     killer_side: str,
     killer_agent: Optional[str] = None,
@@ -1276,6 +1499,7 @@ def adjudicate_round_deaths(
 
     verdicts = []
     used_shrinks = set()
+    used_xmarks: set[int] = set()
     death_ids = []
     for i, kf in enumerate(killfeed_entries):
         side_i = kf.get("side") or ("ally" if kf.get("victim_ally") is True else "enemy" if kf.get("victim_ally") is False else kf.get("victim_side", "enemy"))
@@ -1372,12 +1596,16 @@ def adjudicate_round_deaths(
                 break
 
         # Match candidate minimap death mark
+        # `xmarks` are `xmark_births`: one of the victim's side, born at its
+        # time after an icon of that side at its place, and no other.
         matched_xmark = kf.get("location")
-        if matched_xmark is None:
-            for xm in xmarks:
-                if abs(xm.get("t_ms", 0.0) - t_ms) <= max_dt_ms:
-                    matched_xmark = (float(xm["x"]), float(xm["y"]))
-                    break
+        xmark = None
+        if matched_xmark is None and xmarks and side in ("ally", "enemy") and not is_revive:
+            birth, xstatus = match_xmark(xmarks, side, t_ms, used_xmarks)
+            xmark = {"status": xstatus, "frame": "minimap_crop", "birth": birth}
+            if birth is not None:
+                used_xmarks.add(id(birth))
+                matched_xmark = (float(birth["x"]), float(birth["y"]))
 
         # Match candidate killer location
         matched_killer_loc = kf.get("killer_location")
@@ -1502,6 +1730,8 @@ def adjudicate_round_deaths(
             is_second_life=is_second_life,
             is_revive=is_revive,
         )
+        if xmark is not None:
+            verdict.metadata["xmark"] = xmark
 
         # Chronologically update living set for subsequent deaths: a revive
         # returns its victim, a second life removes no one.
@@ -1881,8 +2111,12 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                               second_life: list[dict] | None = None,
                               weapon_observations: list[dict] | None = None,
                               name_observations: list[dict] | None = None,
-                              reliability: dict | None = None) -> dict:
+                              reliability: dict | None = None,
+                              xmarks: list[dict] | None = None) -> dict:
     """Every round's deaths from stored data only; decodes no video.
+
+    `xmarks` are the session's `xmark_births`; each round's verdicts may take
+    a location from the births of that round only.
 
     Per round: the stored killfeed portraits against the official art, then the
     scoreboard's dimmed rows gated on the roster (`scoreboard_death_claims`).
@@ -1928,6 +2162,9 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                 ("icon", None) if ev.get("name") in REVIVE_ICONS
                 else plate_revive(e, lineup.get("sides") or {}, names))
     audit_board = board_alive_auditor(hud_table, roster_table)
+    xm: dict = {r["round_no"]: [] for r in rounds}
+    for b in xmarks or ():
+        xm.setdefault(b.get("round_no"), []).append(b)
     ends = {r["t_end_ms"] for r in rounds}
     base = [(r, in_round_window(entries, r["t_start_ms"], r["t_end_ms"],
                                 r.get("t_close_ms") or r["t_end_ms"], ends)) for r in rounds]
@@ -1942,7 +2179,7 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                                                        weapon_observations=weapon_observations)
             window = [row for row in roster if a <= row["t_ms"] <= z]
             first = adjudicate_round_deaths(session_id, entries, window,
-                                            player_agent=player_agent)
+                                            player_agent=player_agent, xmarks=xm[r["round_no"]])
             openings = scoreboard_openings([row for row in board_rows
                                             if a <= float(row.get("t_ms", -1)) <= z])
             board = scoreboard_death_claims(
@@ -1951,7 +2188,7 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                 contradicted_openings(audit_board(openings)), _named_by(first))
             verdicts = adjudicate_round_deaths(session_id, entries, window,
                                                player_agent=player_agent,
-                                               scoreboard_claims=board)
+                                               scoreboard_claims=board, xmarks=xm[r["round_no"]])
             results.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts,
                             "collisions": board_collisions(session_id, r["round_no"], board)})
         n += 1
@@ -1972,7 +2209,8 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                         killer_name_claim=claims.get(f"{v.death_id}:killer"))
                    for e, v in zip(x["entries"], x["verdicts"])]
         window = [row for row in roster if a <= row["t_ms"] <= z]
-        first = adjudicate_round_deaths(session_id, entries, window, player_agent=player_agent)
+        first = adjudicate_round_deaths(session_id, entries, window, player_agent=player_agent,
+                                        xmarks=xm[r["round_no"]])
         openings = scoreboard_openings([row for row in board_rows
                                         if a <= float(row.get("t_ms", -1)) <= z])
         board = scoreboard_death_claims(
@@ -1980,7 +2218,8 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
             {i for i, v in enumerate(first) if v.is_second_life},
             contradicted_openings(audit_board(openings)), _named_by(first))
         verdicts = adjudicate_round_deaths(session_id, entries, window,
-                                           player_agent=player_agent, scoreboard_claims=board)
+                                           player_agent=player_agent, scoreboard_claims=board,
+                                           xmarks=xm[r["round_no"]])
         final.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts,
                       "collisions": board_collisions(session_id, r["round_no"], board)})
     return {"rounds": final, "passes": n + 1, "name_clusters": summary}
