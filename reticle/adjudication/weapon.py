@@ -39,7 +39,10 @@ from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
 # allowed clears the floor, against the full gallery, the surprise path. The
 # answer says what it `rests_on`, and a fixed one entry in AUDIT_EVERY also
 # stores the full search apart (`audit`).
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.7.0"
+# 0.8.0 (2026-10-01): an icon whose caster is the revived, not the acting
+# role (`REVIVED_CASTER_ICONS`: KAY/O's NULL/cmd in a revive entry), makes no
+# caster claim on the actor.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.8.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -68,9 +71,8 @@ WEAPON_TAXONOMY = {
         "Guardian",
         "Phantom",
         "Vandal",
-        # [domain:weapons/warden]: new in 2026-10, a long-range rifle. The
-        # gallery holds no exemplar yet, and its icon's aspect (about 3.86,
-        # [domain:killfeed/warden-icon]) lies outside CLASS_ASPECT_RANGES["rifle"].
+        # [domain:weapons/warden]: new in 2026-10, a long-range rifle; its
+        # exemplars entered weapon-gallery-0.4.0 [domain:killfeed/warden-icon].
         "Warden",
     ],
     "sniper": [
@@ -90,7 +92,12 @@ WEAPON_TAXONOMY = {
     ],
 }
 
-#: Typical aspect ratio ranges (width / height) by weapon class.
+#: Typical aspect ratio ranges (width / height) by weapon class. No caller
+#: reads them, and they describe no measured icon: every gun name in
+#: weapon-gallery-0.3.0 has its exemplars' white-mask aspect outside its
+#: class's range (Vandal 3.30-3.62 against the rifle's 1.8-2.9). The gate
+#: that bounds an icon's aspect is NAME_ASPECT_TOL against each name's own
+#: exemplars; `NAME_ASPECTS` holds a name the gallery may lack.
 CLASS_ASPECT_RANGES = {
     "ability": (0.4, 1.25),
     "sidearm": (1.1, 1.9),
@@ -401,8 +408,14 @@ def estimate_weapon_class(width: int, aspect_ratio: float) -> str:
 #: provenance. 0.2.0 splits the group the player named only "Ability" into the
 #: abilities they named per entry, the revive icons among them. 0.3.0 adds
 #: the Blade Storm knife [domain:killfeed/jett-blade-storm-icon] once the
-#: locator boxed it, and Curveball and Annihilation.
-WEAPON_GALLERY_VERSION = "weapon-gallery-0.3.0"
+#: locator boxed it, and Curveball and Annihilation. 0.4.0 adds the members
+#: the player named in groups of icons the owner refused as new
+#: (`labels/killfeed_new_icon/`): the Warden [domain:killfeed/warden-icon] and
+#: KAY/O's NULL/cmd in a revive entry's weapon slot
+#: [domain:killfeed/kayo-downed-entry]; a member whose aspect lies beyond
+#: NAME_ASPECT_TOL of its name's (`weapon_icons.new_icon_entries`) is a crop
+#: fault and stays out.
+WEAPON_GALLERY_VERSION = "weapon-gallery-0.4.0"
 NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
 NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
 NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
@@ -415,6 +428,12 @@ NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons n
 #: for context.
 REFUSE_NEW = "new"
 REFUSE_AMBIGUOUS = "ambiguous"
+
+#: The white-mask aspect of a name the gallery may lack, from its fact: the
+#: reference a new exemplar of that name is checked against when the gallery
+#: holds none. The Warden draws 85-86 px on the 34 px band, aspect about 3.86
+#: [domain:killfeed/warden-icon].
+NAME_ASPECTS = {"Warden": 3.86}
 
 #: The floor for an ability-shaped name of the acting agent's own kit. With
 #: the candidates narrowed to one agent's few abilities, the floor guards
@@ -443,7 +462,13 @@ MINED_NOT_GUN = {"Melee": "melee", "Environmental": "environmental", "Other": "o
                  "Aftershock": "ability", "Orbital Strike": "ability", "Boom Bot": "ability",
                  "Not Dead Yet": "ability", "Resurrection": "ability",
                  "Blade Storm": "ability", "Curveball": "ability", "Annihilation": "ability",
-                 "Clove expiry": "ability"}
+                 "Clove expiry": "ability", "NULL/cmd": "ability"}
+
+#: Icons whose caster is the revived, not the acting role. A KAY/O revive
+#: entry draws NULL/cmd's icon in the weapon slot with any teammate as the
+#: reviver [domain:killfeed/kayo-downed-entry], so the icon names the revived
+#: KAY/O and says nothing of the left name.
+REVIVED_CASTER_ICONS = frozenset({"NULL/cmd"})
 
 
 _MINED_CACHE: dict[str, dict] = {}
@@ -494,10 +519,11 @@ def caster_claim(entity_id: str, name: Optional[str],
     `rests_on` is the answer's own (`entry_weapon`). A name the actor's kit
     shaped took its candidates from the acting entity's verdict, so the claim
     `depends_on` that entity and is never counted as an independent witness
-    of it: the prior is weighed once."""
+    of it: the prior is weighed once. An icon in REVIVED_CASTER_ICONS names
+    the revived, not the actor, so it makes no claim."""
     from .identity import identity_claim
     agent = ability_agent(name)
-    if agent is None:
+    if agent is None or name in REVIVED_CASTER_ICONS:
         return None
     on = sorted({r["entity_id"] for r in rests_on or ()
                  if r.get("context") == "actor" and r.get("entity_id")})

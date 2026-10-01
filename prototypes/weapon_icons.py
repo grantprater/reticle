@@ -501,7 +501,7 @@ NEW_LABELS = Store().root / "labels" / "killfeed_new_icon"
 NEW_PRODUCTS = Store().root / "candidates" / "killfeed_new_icon"
 
 
-def new_icon_entries() -> list[dict]:
+def new_icon_entries(refused: list | None = None) -> list[dict]:
     """Exemplars from the player's names for groups of icons the owner refused
     as new (`prototypes/label_killfeed_groups.py`, labels under
     `labels/killfeed_new_icon/`, last row per group key). Only a named group
@@ -510,9 +510,18 @@ def new_icon_entries() -> list[dict]:
     group -- becomes one entry keyed `new:<sid>:<t_ms>:<slot>` with that
     row's stored grid and aspect from the product the label names (its
     SHA-256 must match). A new name in the gallery needs a new
-    WEAPON_GALLERY_VERSION; `write_gallery` refuses to overwrite one."""
+    WEAPON_GALLERY_VERSION; `write_gallery` refuses to overwrite one.
+
+    The aspect gate (`aspect_fault`): a member whose aspect lies beyond
+    NAME_ASPECT_TOL of every aspect its name already has -- the name's
+    exemplars in the current gallery, else its fact (`NAME_ASPECTS`) -- is a
+    crop fault, a box spanning the killer's name or a faded, cut icon, and
+    stays out; the owner could match it only to another such fault. Its
+    group, member, aspect and reference go to `refused`. A name with neither
+    reference joins ungated."""
     import hashlib
     from reticle.killfeed import unpack_icon_grid
+    ref = _name_aspects()
     out = []
     for path in sorted(NEW_LABELS.glob("*.jsonl")):
         last: dict[str, dict] = {}
@@ -534,12 +543,51 @@ def new_icon_entries() -> list[dict]:
                        for m in groups[lab["group"]]["members"] + [groups[lab["group"]]["exemplar"]]}
             for sid, t, slot in lab["members"]:
                 m = members[(sid, t, slot)]
+                why = aspect_fault(lab["answer"], float(m["aspect"]), ref)
+                if why is not None:
+                    if refused is not None:
+                        refused.append({"group": lab["group"], "name": lab["answer"],
+                                        "member": [sid, t, slot], **why})
+                    continue
                 out.append({"key": f"new:{sid}:{int(t)}:{slot}", "session_id": sid,
                             "name": lab["answer"], "class": lab["class"], "bound": 1,
                             "on_ring": 1, "elsewhere": False,
                             "grids": [unpack_icon_grid(m["grid"])],
                             "aspects": [float(m["aspect"])]})
     return out
+
+
+def _name_aspects() -> dict[str, list[float]]:
+    """Each name's exemplar aspects in the gallery the owner loads now (the
+    version before the one being built), with `NAME_ASPECTS` for a name the
+    gallery lacks."""
+    import re
+    from reticle.adjudication.weapon import NAME_ASPECTS
+    ref: dict[str, list[float]] = defaultdict(list)
+    prior = sorted(mined_gallery_path().parent.glob("weapon-gallery-*.npz"),
+                   key=lambda p: [int(x) for x in re.findall(r"\d+", p.stem)])
+    prior = [p for p in prior if p != mined_gallery_path()]
+    if prior:
+        z = np.load(prior[-1])
+        for n, a in zip(z["names"], z["aspects"]):
+            ref[str(n)].append(float(a))
+    for n, a in NAME_ASPECTS.items():
+        ref.setdefault(n, [a])
+    return dict(ref)
+
+
+def aspect_fault(name: str, aspect: float, ref: dict[str, list[float]]) -> dict | None:
+    """Why a member named `name` is a crop fault, or None: its aspect lies
+    beyond NAME_ASPECT_TOL (|log| ratio) of every reference aspect of its name."""
+    from reticle.adjudication.weapon import NAME_ASPECT_TOL
+    have = ref.get(name)
+    if not have:
+        return None
+    d = min(abs(float(np.log(aspect / a))) for a in have)
+    if d <= NAME_ASPECT_TOL:
+        return None
+    return {"aspect": round(aspect, 3), "reference": [round(min(have), 3), round(max(have), 3)],
+            "log_ratio": round(d, 3), "reason": "aspect_beyond_name"}
 
 
 def revise_truth(have: list[dict], labels: dict[str, dict]) -> Counter:
@@ -625,8 +673,9 @@ def evaluate_entries(have: list[dict], bms: np.ndarray, entries: list[dict]) -> 
             "refused": [r for r in rows if r[4] == "refused"]}
 
 
-def write_gallery(gallery: dict, have: list[dict]) -> Path:
-    """The owner's mined gallery file, with what it was built from."""
+def write_gallery(gallery: dict, have: list[dict], refused: list | None = None) -> Path:
+    """The owner's mined gallery file, with what it was built from and the
+    named members the aspect gate kept out (`new_icon_entries`)."""
     import hashlib
     labels = sorted(LABELS.glob("*.jsonl")) + sorted(NEW_LABELS.glob("*.jsonl"))
     provenance = {
@@ -636,6 +685,7 @@ def write_gallery(gallery: dict, have: list[dict]) -> Path:
         "aspect_tol": ASPECT_TOL, "per_name": PER_NAME,
         "sessions": sorted({r["session_id"] for r in have}),
         "names": dict(Counter(str(n) for n in gallery["names"])),
+        "new_icon_refused": refused or [],
     }
     path = mined_gallery_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -828,9 +878,13 @@ def main() -> None:
         labels = entry_labels()
         print("truth revised:", dict(revise_truth(have, labels)))
         # The player's names for groups the owner refused as new join the
-        # per-entry names (`new_icon_entries`).
-        write_gallery(build_gallery(have, bms, set(),
-                                    labelled_entries(labels) + new_icon_entries()), have)
+        # per-entry names (`new_icon_entries`), less the crop faults.
+        refused: list[dict] = []
+        new = new_icon_entries(refused)
+        print("new-icon members kept:", dict(Counter(e["name"] for e in new)))
+        print("new-icon members refused:", json.dumps(refused))
+        write_gallery(build_gallery(have, bms, set(), labelled_entries(labels) + new), have,
+                      refused)
     elif args.cmd == "entries":
         rows, bms, _ = load_all()
         have = cluster(rows, bms)

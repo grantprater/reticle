@@ -305,7 +305,7 @@ drawn beside KAY/O's name as Phoenix's Run It Back badge is. When
 a teammate revives the downed KAY/O, the killfeed draws a revive entry laid out
 as a Sage Resurrection entry [domain:killfeed/revive-entries]: the reviver, any
 teammate, as killer, KAY/O always as the recipient, and the X-in-triangle icon
-in place of Resurrection's. A KAY/O revive entry always follows a down entry
+in place of Resurrection's, in the weapon slot between the two names. A KAY/O revive entry always follows a down entry
 for KAY/O in the same round, inside his ultimate, and both carry the same
 X-in-triangle icon.
 """
@@ -322,7 +322,14 @@ teammate can be anyone, the recipient is always kay/o, and the icon is
 different"; and in a fourth: "And it has to be following kay/o being downed in
 his ult, with the same icon on the original death killfeed entry"; and, asked
 whether the down icon sits in the weapon slot or beside KAY/O's name: "It's
-beside his name yes"
+beside his name yes". Shown the revive entry at 4f207c0c4e39 799.5 s (the
+icon ringed in the weapon slot, <store>/analysis/killfeed-openset-20261001/g021_context.png),
+which they had named NULL/cmd, they said: "Like the down icon, yes. Same as
+sage revive". The pair is on that capture
+(<store>/analysis/killfeed-openset-20261001/kayo_down_revive_4f207c0c4e39_781-800s.png):
+at 790.5 s aatrox (Reyna) downs usopp0936 (KAY/O) with a pistol, the icon
+beside usopp0936's name; at 799.0-800.5 s Rimuru (Reyna) revives
+usopp0936, both plates red, the icon in the weapon slot
 """
 use = """
 a KAY/O entry at a down is not yet his death; his minimap icon stays drawn, red
@@ -332,12 +339,13 @@ The pair is a consistency check: a KAY/O revive entry with no earlier down
 entry for KAY/O in the round, under his ultimate, is a misread
 """
 exceptions = """
-unobserved on any stored capture: no stored death row names KAY/O as killer or
-victim. Whether a death after a down draws a second entry is unknown. The
-second-life badge reader (`killfeed.detect_second_life_badge`) fits a ring
-where the down icon sits, on the player's own death entries only; the player
-expects it to fire on the KAY/O icon and on other icons beside the name, which
-no stored session can test
+4f207c0c4e39 fields KAY/O, and its one observed pair is above; no stored
+death row there names him, since that session has no death stream. Whether a
+death after a down draws a second entry is unknown. The second-life badge
+reader (`killfeed.detect_second_life_badge`) fits a ring where the down icon
+sits, on the player's own death entries only; the player expects it to fire
+on the KAY/O icon and on other icons beside the name, which no stored
+second-life row tests, since the down on 4f207c0c4e39 is not the player's
 """
 see = ["rounds/resurrection-mechanics", "rounds/scoreboard-dim-is-dead",
        "minimap/red-portrait-states", "killfeed/revive-entries"]
@@ -361,8 +369,9 @@ rows at 286.5, 438.0, 458.0, 795.0, 837.0, 1787.0, 1940.0, 1942.0, 2160.5,
 438.0, 837.0 and 2196.5 s
 """
 use = """
-the weapon gallery holds no Warden exemplar; adding one is a labelling-pass
-step, and until then the owner refuses these rows as no close exemplar
+weapon-gallery-0.4.0 holds Warden exemplars from the player's named group;
+`adjudication.weapon.NAME_ASPECTS` holds the aspect, the reference the
+gallery builder checks a new Warden member against
 """
 phrases = ["warden killfeed icon"]
 see = ["weapons/warden"]

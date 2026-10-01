@@ -386,6 +386,44 @@ class RoleNarrowingTests(unittest.TestCase):
                                                    k for k in keys if not audit_entry(k))))
 
 
+class KayoReviveIconTests(unittest.TestCase):
+    """weapon-gallery-0.4.0 holds NULL/cmd from a KAY/O revive entry's weapon
+    slot [domain:killfeed/kayo-downed-entry]: the icon marks a revive, names
+    the revived KAY/O and makes no claim on the reviver."""
+
+    def test_null_cmd_marks_a_revive_and_claims_no_caster(self):
+        from reticle.adjudication.death import revive_entry
+        from reticle.adjudication.weapon import MINED_NOT_GUN, caster_claim
+        self.assertEqual(MINED_NOT_GUN["NULL/cmd"], "ability")
+        self.assertTrue(revive_entry({"weapon_evidence": {"name": "NULL/cmd"}}))
+        self.assertIsNone(caster_claim("death:s:0:1:killer", "NULL/cmd"))
+        self.assertEqual(caster_claim("death:s:0:1:killer", "Aftershock")["agent"], "Breach")
+
+    def test_a_one_colour_banner_needs_kayo_fielded_for_his_revive(self):
+        from reticle.adjudication.death import plate_revive
+        unnamed = {"side": "enemy", "same_side": True,
+                   "weapon_evidence": {"status": "refused", "name": None}}
+        self.assertEqual(plate_revive(unnamed, {"enemy": [{"agent": "KAY_O"}]}, (False, None)),
+                         ("plates", None))
+
+
+class NewIconAspectGateTests(unittest.TestCase):
+    """`weapon_icons.new_icon_entries` keeps a named member out when its aspect
+    lies beyond NAME_ASPECT_TOL of every aspect its name already has."""
+
+    def test_the_gate(self):
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
+        from weapon_icons import aspect_fault
+        ref = {"Vandal": [3.30, 3.62], "Warden": [3.86]}
+        self.assertIsNone(aspect_fault("Vandal", 3.5, ref))
+        self.assertEqual(aspect_fault("Vandal", 4.887, ref)["reason"], "aspect_beyond_name")
+        self.assertIsNone(aspect_fault("Warden", 4.05, ref))
+        self.assertIsNotNone(aspect_fault("Warden", 3.227, ref))
+        self.assertIsNone(aspect_fault("NULL/cmd", 1.235, ref))   # no reference: ungated
+
+
 class EntryTypeTests(unittest.TestCase):
     """adjudication.death owns the entry type and its acting role."""
 

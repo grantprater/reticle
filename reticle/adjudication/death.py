@@ -113,7 +113,10 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # claims without the icon's) narrowing the candidates to that agent's kit
 # (`adjudication.weapon.entry_weapon`, weapon-adjudication-0.7.0). An ability
 # the kit shaped yields a caster claim that depends on the actor's entity.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.23.0"
+# 0.24.0 (2026-10-01): KAY/O's NULL/cmd in the weapon slot marks a revive
+# entry (`REVIVE_ICONS`), and its icon makes no caster claim on the reviver
+# (weapon-adjudication-0.8.0).
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.24.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -123,10 +126,13 @@ COLLISION_IMPLICATED = ("killfeed_portrait", "killfeed_name_cluster", "scoreboar
                         "roster_diff")
 
 #: Weapon-slot icons that mark a revive entry, which is not a death
-#: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
-#: the witness; the top bar is not one for Clove, whose death it never shows
-#: when Not Dead Yet follows within two seconds.
-REVIVE_ICONS = {"Not Dead Yet": "Clove", "Resurrection": "Sage"}
+#: [domain:killfeed/revive-entries]: by icon, the agent the entry's side must
+#: field, the reviver for Not Dead Yet and Resurrection and the revived KAY/O
+#: for NULL/cmd, whose revive entry any teammate makes
+#: [domain:killfeed/kayo-downed-entry]. The icon is the witness; the top bar
+#: is not one for Clove, whose death it never shows when Not Dead Yet follows
+#: within two seconds.
+REVIVE_ICONS = {"Not Dead Yet": "Clove", "Resurrection": "Sage", "NULL/cmd": "KAY_O"}
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 
@@ -657,8 +663,8 @@ def second_life_death(t_first: float, t_last: float, observations: list[dict]) -
     fits a ring beside the victim's name and names no icon. It is
     probably unspecific: the player expects it to fire on the KAY/O down icon
     [domain:killfeed/kayo-downed-entry] and on other icons beside the name.
-    Whether it fires on the KAY/O icon is unmeasured, since no stored session
-    fields KAY/O. A badge read is evidence of some icon beside the victim's
+    Whether it fires on the KAY/O icon is unmeasured: 4f207c0c4e39 fields
+    KAY/O, but its down is not the player's, so no second-life row reads it. A badge read is evidence of some icon beside the victim's
     name, not of Run It Back.
 
     A majority vote over the stored `second_life_observation` rows inside the
