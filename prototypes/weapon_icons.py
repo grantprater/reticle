@@ -23,7 +23,10 @@ Predictions are logged in the store's `notes/predictions.jsonl` under
 names (`labels/weapon_icon/`, propagated over the group) and the player's
 per-entry names (`labels/killfeed_icon/`), which override a group's name for
 that icon and add the entry's own stored descriptors (`killfeed_weapon`,
-bound by `adjudication.weapon.bind_entry`) as exemplars. A group named only
+bound by `adjudication.weapon.bind_entry`) as exemplars. The player's names
+for groups of icons the owner refused as new (`labels/killfeed_new_icon/`,
+from `prototypes/label_killfeed_groups.py`) add the members each label lists
+(`new_icon_entries`). A group named only
 "Ability" keeps no exemplar the player did not name. `entries` scores the
 per-entry names, leaving one session out at a time.
 """
@@ -494,6 +497,51 @@ def labelled_entries(labels: dict[str, dict]) -> list[dict]:
     return out
 
 
+NEW_LABELS = Store().root / "labels" / "killfeed_new_icon"
+NEW_PRODUCTS = Store().root / "candidates" / "killfeed_new_icon"
+
+
+def new_icon_entries() -> list[dict]:
+    """Exemplars from the player's names for groups of icons the owner refused
+    as new (`prototypes/label_killfeed_groups.py`, labels under
+    `labels/killfeed_new_icon/`, last row per group key). Only a named group
+    counts: unsure, `other` and `not_icon` rows name nothing. Each member the
+    row lists -- the members the player was shown, never the rest of the
+    group -- becomes one entry keyed `new:<sid>:<t_ms>:<slot>` with that
+    row's stored grid and aspect from the product the label names (its
+    SHA-256 must match). A new name in the gallery needs a new
+    WEAPON_GALLERY_VERSION; `write_gallery` refuses to overwrite one."""
+    import hashlib
+    from reticle.killfeed import unpack_icon_grid
+    out = []
+    for path in sorted(NEW_LABELS.glob("*.jsonl")):
+        last: dict[str, dict] = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                last[row["key"]] = row
+        named = [r for r in last.values() if r.get("answer") and not r.get("uncertain")
+                 and r.get("class") not in ("other", "not_icon")]
+        if not named:
+            continue
+        product = NEW_PRODUCTS / named[0]["product"]
+        raw = product.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != named[0]["product_sha256"]:
+            raise SystemExit(f"{product} changed since {path.name} was labelled")
+        groups = {g["group"]: g for g in json.loads(raw.decode("utf-8"))["groups"]}
+        for lab in named:
+            members = {(m["session_id"], m["t_ms"], m["slot"]): m
+                       for m in groups[lab["group"]]["members"] + [groups[lab["group"]]["exemplar"]]}
+            for sid, t, slot in lab["members"]:
+                m = members[(sid, t, slot)]
+                out.append({"key": f"new:{sid}:{int(t)}:{slot}", "session_id": sid,
+                            "name": lab["answer"], "class": lab["class"], "bound": 1,
+                            "on_ring": 1, "elsewhere": False,
+                            "grids": [unpack_icon_grid(m["grid"])],
+                            "aspects": [float(m["aspect"])]})
+    return out
+
+
 def revise_truth(have: list[dict], labels: dict[str, dict]) -> Counter:
     """A per-entry name overrides the group's for that icon when the mined box
     is as wide as the ring the player named; an icon left in a group named
@@ -580,7 +628,7 @@ def evaluate_entries(have: list[dict], bms: np.ndarray, entries: list[dict]) -> 
 def write_gallery(gallery: dict, have: list[dict]) -> Path:
     """The owner's mined gallery file, with what it was built from."""
     import hashlib
-    labels = sorted(LABELS.glob("*.jsonl"))
+    labels = sorted(LABELS.glob("*.jsonl")) + sorted(NEW_LABELS.glob("*.jsonl"))
     provenance = {
         "version": WEAPON_GALLERY_VERSION, "built_by": f"prototypes/weapon_icons.py {VERSION}",
         "labels": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in labels},
@@ -779,7 +827,10 @@ def main() -> None:
         player_names(have)
         labels = entry_labels()
         print("truth revised:", dict(revise_truth(have, labels)))
-        write_gallery(build_gallery(have, bms, set(), labelled_entries(labels)), have)
+        # The player's names for groups the owner refused as new join the
+        # per-entry names (`new_icon_entries`).
+        write_gallery(build_gallery(have, bms, set(),
+                                    labelled_entries(labels) + new_icon_entries()), have)
     elif args.cmd == "entries":
         rows, bms, _ = load_all()
         have = cluster(rows, bms)
