@@ -1704,8 +1704,13 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
 
 
 # --------------------------------------------------------------------------- second life
-# The circular badge a second-life death carries (Phoenix Run It Back, a downed
-# KAY/O) [domain:rounds/resurrection-mechanics]. Read here, in the reader
+# The second-life badge reader [domain:rounds/resurrection-mechanics]. It
+# fits a ring beside the victim's name and names no icon. It is
+# probably unspecific: the player expects it to fire on the KAY/O down icon
+# [domain:killfeed/kayo-downed-entry] and on other icons beside the name.
+# Whether it fires on the KAY/O icon is unmeasured, since no stored session
+# fields KAY/O. A badge read is evidence of some icon beside the victim's
+# name, not of Run It Back. Read here, in the reader
 # that already crops every entry; `adjudication.death` re-exports it.
 
 SECOND_LIFE_WHITE_V_MIN = 190
@@ -1773,7 +1778,14 @@ def detect_second_life_badge(
     victim_x: float | None = None,
     run_min: float = SECOND_LIFE_RUN_MIN,
 ) -> tuple[bool, dict]:
-    """Detect circular second-life badge (e.g. Phoenix Run It Back / KAY/O downed) on an entry crop.
+    """Detect a ring-shaped icon beside the victim's name on an entry crop.
+
+    The detector fits a ring beside the victim's name and names no icon. It is
+    probably unspecific: the player expects it to fire on the KAY/O down icon
+    [domain:killfeed/kayo-downed-entry] and on other icons beside the name.
+    Whether it fires on the KAY/O icon is unmeasured, since no stored session
+    fields KAY/O. A badge read is evidence of some icon beside the victim's
+    name, not of Run It Back.
 
     When `victim_x` is supplied, `crop` is the full entry band and the search
     window is centered on `victim_x` with a width equal to twice the band height.

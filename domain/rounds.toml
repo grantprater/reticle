@@ -106,9 +106,12 @@ lit again as a revive rather than a contradiction
 exceptions = """
 the player does not know the dimming bounds for Clove after death and before
 Not Dead Yet, nor how a downed-but-not-dead KAY/O row looks. Neither may be
-assumed; a count that disagrees stays a refusal
+assumed; a count that disagrees stays a refusal. The killfeed side of a down
+is known since 2026-10-01: the down and a revive each draw an entry
+[domain:killfeed/kayo-downed-entry]; the scoreboard and roster row stay unknown
 """
 phrases = ["dimmed means dead", "sage revive is not dimmed"]
+see = ["killfeed/kayo-downed-entry"]
 
 [post-round-period]
 claim = """

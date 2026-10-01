@@ -80,7 +80,11 @@ KNOWN = frozenset({"player", "measured", "observed", "inferred"})
 
 REQUIRED = ("claim", "kind", "known", "since")
 OPTIONAL = ("use", "exceptions", "source", "see", "phrases", "supersedes",
-            "depends_on", "subject", "given", "states")
+            "depends_on", "subject", "given", "states", "values")
+
+#: The kinds a fact may carry `values` on: numbers a reader consumes, such as
+#: an ability drawing's base radius. A rule's numbers stay in its claim.
+VALUE_KINDS = frozenset({"appearance", "measurement", "geometry"})
 
 #: A fact whose `known` is one of these is GIVEN: someone told us, or we watched
 #: it happen. It rests on nothing, so it may not declare `depends_on` -- that is
@@ -134,6 +138,10 @@ class Fact:
     #: A lifecycle fact's states, in order: the vocabulary `entity_contract`
     #: gives the ability object the fact's `subject` names.
     states: tuple[str, ...] = ()
+    #: Numbers a reader consumes (`VALUE_KINDS` only): a table of numbers,
+    #: lists of numbers, or tables of those, keyed by name. The claim states
+    #: them in words; a fact without `values` has none to read.
+    values: dict = field(default_factory=dict, compare=False, hash=False)
     unknown_keys: tuple[str, ...] = field(default=(), compare=False)
     missing_keys: tuple[str, ...] = field(default=(), compare=False)
 
@@ -212,11 +220,25 @@ def load(domain_dir: Path | None = None) -> dict[str, Fact]:
                 subject=str(body.get("subject", "")).strip(),
                 given=str(body.get("given", "")).strip(),
                 states=_str_tuple(body.get("states")),
+                values=dict(body.get("values") or {}),
                 unknown_keys=unknown,
                 missing_keys=missing,
             )
             facts[fact.key] = fact
     return facts
+
+
+def _numeric(v) -> bool:
+    """A number, a list of numbers, or a table of those (any depth)."""
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, (int, float)):
+        return True
+    if isinstance(v, list):
+        return bool(v) and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v)
+    if isinstance(v, dict):
+        return bool(v) and all(_numeric(x) for x in v.values())
+    return False
 
 
 def by_subject(facts: dict[str, Fact], subject: str) -> dict[str, Fact]:
@@ -349,6 +371,14 @@ def validate(facts: dict[str, Fact],
             out.append(("ERROR", f"{key} lists states and is not a lifecycle "
                                  f"fact with a subject -- a state vocabulary "
                                  f"belongs to one ability's lifecycle"))
+        if fact.values and fact.kind not in VALUE_KINDS:
+            out.append(("ERROR", f"{key} carries values and is a {fact.kind} -- "
+                                 f"values belong to {', '.join(sorted(VALUE_KINDS))} facts"))
+        if fact.values and not fact.source:
+            out.append(("ERROR", f"{key} carries values and names no source"))
+        if fact.values and not _numeric(fact.values):
+            out.append(("ERROR", f"{key} has a value that is not a number, a list "
+                                 f"of numbers or a table of those"))
         if fact.known == "measured" and not fact.source:
             out.append(("ERROR", f"{key} is measured and names no source -- add "
                                  f"source, so the measurement can be found"))

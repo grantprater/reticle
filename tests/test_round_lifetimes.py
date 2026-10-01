@@ -299,6 +299,47 @@ class TerminationTests(unittest.TestCase):
         self.assertEqual(got[big], 'dB')
         self.assertEqual(sorted(v for v in got.values() if v), ['dA', 'dB'])
 
+    def _big_late_and_small_early(self):
+        """A large entity last seen at 22.0 s and a small one at 20.0 s."""
+        life = RoundLifetimes('R1', 0)
+        for t in range(0, 22001, 500):
+            dets = [detection(10)]
+            if 19000 <= t <= 20000:
+                dets.append(detection(200))
+            life.step(t, dets)
+        big = max(life.entities.values(), key=lambda e: e['observations'])['id']
+        small = next(i for i in life.entities if i != big)
+        return life, big, small
+
+    def test_the_nearest_last_sighting_takes_the_death_not_the_largest_entity(self):
+        """bfad2778a372 R21: a Chamber track last seen 267 ms before
+        Chamber's death lost it to one last seen 1.8 s before."""
+        life, big, small = self._big_late_and_small_early()
+        deaths = [{'death_id': 'd', 't_ms': 20100, 'side': 'ally'}]
+        got = {r['id']: r['death_id'] for r in life.finish(50000, deaths=deaths)}
+        self.assertEqual((got[small], got[big]), ('d', None))
+
+    def test_the_entity_named_as_the_victim_takes_the_death(self):
+        """5822b6646448 R5: an unnamed piece took Omen's death from the Omen
+        piece. Here the named entity is the farther one in time."""
+        from reticle.round_lifetimes import death_rank
+        life, big, small = self._big_late_and_small_early()
+        deaths = [{'death_id': 'd', 't_ms': 20300, 'side': 'ally', 'victim': 'Omen'}]
+        names = {big: 'Omen'}
+        rank = lambda e, d: death_rank(d, agent=names.get(e['id']),
+                                       last_seen_ms=e['last_seen_ms'])
+        got = {r['id']: r['death_id'] for r in life.finish(50000, deaths=deaths, rank=rank)}
+        self.assertEqual((got[big], got[small]), ('d', None))
+
+    def test_the_x_breaks_a_tie_in_time(self):
+        from reticle.round_lifetimes import death_rank
+        d = {'t_ms': 1000.0, 'location': (50.0, 50.0)}
+        near = death_rank(d, last_seen_ms=900.0, last_xy=(52.0, 50.0))
+        far = death_rank(d, last_seen_ms=1100.0, last_xy=(70.0, 50.0))
+        unplaced = death_rank(d, last_seen_ms=1100.0)
+        self.assertLess(near, far)
+        self.assertLess(far, unplaced)
+
 
 
 class OcclusionAndStackingTests(unittest.TestCase):

@@ -103,6 +103,7 @@ Yet entry is the revive itself (7 of 16 come 1.0-2.0 s after a named Clove
 death, and the top bar never shows that death)
 """
 phrases = ["revive entry is not a death"]
+see = ["killfeed/kayo-downed-entry"]
 
 [jett-blade-storm-icon]
 claim = """
@@ -246,3 +247,49 @@ does not know whether such a maximum exists. If it does, it is greater than
 four, so a rise without an expiry would be rare
 """
 phrases = ["new entries arrive at the top", "killfeed stack direction"]
+
+[kayo-downed-entry]
+claim = """
+When KAY/O is downed in his ultimate (NULL/cmd), the killfeed draws an entry at
+the down, marked by an icon like an X inside a downward-pointing triangle,
+drawn beside KAY/O's name as Phoenix's Run It Back badge is. When
+a teammate revives the downed KAY/O, the killfeed draws a revive entry laid out
+as a Sage Resurrection entry [domain:killfeed/revive-entries]: the reviver, any
+teammate, as killer, KAY/O always as the recipient, and the X-in-triangle icon
+in place of Resurrection's. A KAY/O revive entry always follows a down entry
+for KAY/O in the same round, inside his ultimate, and both carry the same
+X-in-triangle icon.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat), asked whether a downed KAY/O shows a killfeed
+entry: "It does show an entry, it's with an icon that looks sort of like an x
+inside a triangle pointing downwards"; in a second answer: "then that same
+icon is shown with the teammate who revived if there was a revive"; and in a
+third: "The entry is basically the same as a sage res entry except the reviving
+teammate can be anyone, the recipient is always kay/o, and the icon is
+different"; and in a fourth: "And it has to be following kay/o being downed in
+his ult, with the same icon on the original death killfeed entry"; and, asked
+whether the down icon sits in the weapon slot or beside KAY/O's name: "It's
+beside his name yes"
+"""
+use = """
+a KAY/O entry at a down is not yet his death; his minimap icon stays drawn, red
+[domain:minimap/red-portrait-states], until a revive or his death. The icon is
+the witness that tells a down from a death, and the revive entry carries it too.
+The pair is a consistency check: a KAY/O revive entry with no earlier down
+entry for KAY/O in the round, under his ultimate, is a misread
+"""
+exceptions = """
+unobserved on any stored capture: no stored death row names KAY/O as killer or
+victim. Whether a death after a down draws a second entry is unknown. The
+second-life badge reader (`killfeed.detect_second_life_badge`) fits a ring
+where the down icon sits, on the player's own death entries only; the player
+expects it to fire on the KAY/O icon and on other icons beside the name, which
+no stored session can test
+"""
+see = ["rounds/resurrection-mechanics", "rounds/scoreboard-dim-is-dead",
+       "minimap/red-portrait-states", "killfeed/revive-entries"]
+phrases = ["kayo downed killfeed", "x in a triangle"]

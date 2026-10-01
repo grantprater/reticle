@@ -759,11 +759,11 @@ stale, because `round_entity` rested on `ally_icon` rows at
 `ally-icon-0.4.0` under code at `ally-icon-0.6.0`. After the `ally_icon`
 reread from the crop cache, `reticle vision`, `reticle lifetimes` and
 `reticle project`, the lane holds
-[metric:entity_events/resolution/round_entity@bfad2778a372#consumer_rows=48490]
+[metric:entity_events/resolution/round_entity@bfad2778a372~2026-09-30T20:23:51#consumer_rows=48490]
 consumer rows with resolved share
-[metric:entity_events/resolution/round_entity@bfad2778a372#resolved_share=0.8966];
+[metric:entity_events/resolution/round_entity@bfad2778a372~2026-09-30T20:23:51#resolved_share=0.8966];
 most of the ledger is disputed
-([metric:entity_events/resolution/round_entity@bfad2778a372#ledger_disputed=4810]
+([metric:entity_events/resolution/round_entity@bfad2778a372~2026-09-30T20:23:51#ledger_disputed=4810]
 rows). Round 1's self track `E0004` stays disputed,
 returned to `round-entity-session`: the track names Skye, and the death
 owner names the victim of `death:bfad2778a372:205000:0` Chamber. Ten other

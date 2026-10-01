@@ -92,7 +92,11 @@ def run_pass(store, sid, with_ability: bool, extra=None) -> dict:
     declare_set(dp, "minimap", profile, ctx.wh)
     readers = [dp]
     if with_ability:
-        bp = shape_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray)
+        from reticle.ability_candidates import values_digest
+        from reticle.cli import _ability_supply, _date_of
+        supply, why = _ability_supply(store, sid, _date_of(man))
+        bp = shape_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray,
+                          supply=supply, supply_reason=why, values=values_digest())
         declare_set(bp, "minimap", profile, ctx.wh)
         readers.append(bp)
         ip = icon_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray)
@@ -188,7 +192,10 @@ def check(store, sid, out_dir: Path) -> dict:
                          "tracks_stored": len(st_tr),
                          "within_250": len(st_tr) - len(exceptions), "exceptions": exceptions},
            "ability_rows": {"gate": len(uni["readers"][1].gate_rows),
-                            "gated": len(uni["readers"][1].shape_rows),
+                            "gated": uni["readers"][1].n_gated,
+                            "surprise": len(uni["readers"][1].shape_rows),
+                            "walls": len(uni["readers"][1].wall_rows),
+                            "supply": uni["readers"][1].supply_reason or "built",
                             "icon_samples": len(uni["readers"][2].rows),
                             "icon_read": sum(r["reason"] is None for r in uni["readers"][2].rows),
                             "icon_candidates": sum(len(r["candidates"] or ())

@@ -496,11 +496,30 @@ fact states. Everything else waits on the mechanics sheet
     [domain:abilities/astra-cosmic-divide-global-minimap] and Toxic Screen
     [domain:abilities/viper-toxic-screen-global-minimap].
 
-So enemy shapes and icons are in scope. The reader searches the whole widget
-on every gated sample whichever side cast, and stores what it finds. The
-side and the vision test belong to the owners downstream (section 14). Stages
-1-3 build no per-ability detector for the always-visible set. Each one's
-drawing waits on its own fact or a targeted demo.
+So enemy shapes and icons are in scope. The side and the vision test belong
+to the owners downstream (section 14). Each always-visible drawing waits on
+its own fact or a targeted demo.
+
+**The candidate supply (2026-09-30).** `reticle/ability_candidates.py` owns
+the appearance table: one row per ability whose drawing has a measured size
+and colour fact, its values as base pixels at `geometry.SCALE_REF_KEY`. The
+five today are Regrowth and Recon Bolt (rings, a radius per map), Hunter's
+Fury (a beam), Barrier Orb (four segments on a line, accepted only whole
+[domain:abilities/sage-barrier-orb-whole-before-break]) and Blaze (a curve
+[domain:abilities/phoenix-blaze]). Every fact measures the ally colour only,
+so every enemy descriptor refuses `no_enemy_colour`; the Barrier Orb's red
+enemy wall [domain:abilities/sage-barrier-orb-global-minimap] is unmeasured.
+At each sample the supply offers the abilities of the match's lineup on the
+side each fields, drops a channelled Regrowth whose Skye is dead
+[domain:abilities/skye-regrowth-channelled], keeps every other dead caster's
+candidate with `caster_alive: false` (persistence is unasked, and Clove casts
+while dead [domain:abilities/no-cast-while-dead]), and seeds the player's own
+caster-prior candidates from the stored self track. `scan` builds it from
+storage and passes it to the reader as data. The whole-widget search of
+0.3.0 is now the surprise path, run where no candidate is accepted and on a
+fixed audit cadence (`reticle/ability_scan.py`). Every unlisted drawing,
+including the yellow rings of section 10, has no descriptor and
+reaches storage only through the surprise path.
 
 ## 9. Pure computer vision: the recommendation and its obstacles
 
@@ -530,6 +549,28 @@ detectors.
     floor discs that come and go. Tracking and the classifier, not the
     proposer, must reject them.
   - The gallery's glyph classifier is scored only in-sample.
+
+**One transform (2026-09-30).** Every pixel length in `ability_shapes`,
+`ability_scan` and `ability_icons` is a base value times
+`geometry.map_scale(key).scale`: the widget's scale against the 465 px
+reference times the map zoom, both from the baked `shade_fit`, never from
+session pixels [domain:capture/minimap-size-settings]
+[domain:capture/session-pixels-are-not-the-map]. Base values are pixels at
+`SCALE_REF_KEY` (Ascent, bigmap), whose scale is 1. The 331 px keys read
+0.63-0.64: a widget scale of 0.712 times a map zoom near 0.89, so the old
+shares of the crop's radius were wrong at 465 px by that zoom. Sampling
+grids, colours, angles and acceptances are not lengths and do not scale.
+The world scale is unmodelled: Chamber's Trademark draws 13% larger on
+Split than on Ascent, and Regrowth and Recon Bolt rings differ by 7-8%
+between maps after the transform, so a ring's radius is a fact per map.
+Icons follow the same factor: the self icon's rim measured the zoom's ratio
+between Split's two keys, not the widget's
+[domain:minimap/icons-follow-map-zoom], so there is one factor, not one for
+icons. World drawings follow it by the player's rule
+[domain:minimap/world-drawings-follow-map-zoom]. Per-size constants outside
+the ability pass (`teardrop.SELF_FACING_GATES`, the fixed pixel radii in
+`minimap`, `minimap_dark`, `occluders`, `enemy_tracks.BIND_PX`) are
+unchanged.
 
 ## 10. Recall first
 
@@ -606,6 +647,70 @@ beam explains a mark there. Both sizes hold fewer than 60 entities, so
 block 2 is labelled at both. The misses, drawn on the raw crops with the
 nearest proposal, are the store's
 `analysis/ability-recall-20260930/misses_<sid>_p<n>.png`.
+
+**Block 1 again, after the transform and the candidates (2026-09-30).**
+Development recall, and optimistic: the walls' and curves' values and the
+wall band were measured on c62c2b06bcfb's block-1 frames, so block 2 is the
+test. The pass reran from the crop cache on both sessions with
+`ability-shape-0.4.0`, `ability-fit-0.1.0`, `ability-wall-0.1.0` and
+`icon-proposer-0.3.0` (`tools\ability_recall.py --record --tag cand040`;
+`ability-recall-0.3.0` reads `ability_fit` and `ability_wall` beside the
+surprise path):
+
+| Widget | Entities found | Recall, lower bound | Frame recall | Unexplained per frame | Surprise path |
+|---|---|---|---|---|---|
+| 331 px | [metric:ability_recall/block1-cand040@043bafca271a#found=35] of [metric:ability_recall/block1-cand040@043bafca271a#entities=43] | [metric:ability_recall/block1-cand040@043bafca271a#entity_recall=0.814], [metric:ability_recall/block1-cand040@043bafca271a#lower95=0.689] | [metric:ability_recall/block1-cand040@043bafca271a#frame_recall=0.766] | [metric:ability_recall/block1-cand040@043bafca271a#unexplained_all=5.65] | [metric:ability_recall/block1-cand040@043bafca271a#surprise_rate=0.521] |
+| 465 px | [metric:ability_recall/block1-cand040@c62c2b06bcfb#found=41] of [metric:ability_recall/block1-cand040@c62c2b06bcfb#entities=53] | [metric:ability_recall/block1-cand040@c62c2b06bcfb#entity_recall=0.774], [metric:ability_recall/block1-cand040@c62c2b06bcfb#lower95=0.659] | [metric:ability_recall/block1-cand040@c62c2b06bcfb#frame_recall=0.738] | [metric:ability_recall/block1-cand040@c62c2b06bcfb#unexplained_all=1.161] | [metric:ability_recall/block1-cand040@c62c2b06bcfb#surprise_rate=0.958] |
+
+- **Lines at 465 px**: [metric:ability_recall/block1-cand040@c62c2b06bcfb#line_found=19]
+  of [metric:ability_recall/block1-cand040@c62c2b06bcfb#line_n=20], twelve by a
+  whole Barrier Orb wall and six by a Blaze curve, which reads only its
+  orange band; no accepted wall or curve is unexplained. The 331 px session
+  is unchanged.
+- **Icons at 465 px** rise from 20 to 22 found and their unexplained rate
+  falls from 3.82 to 1.16 per frame: the proposer's radii under the transform,
+  not the candidates.
+- **Rings at 465 px** stay at [metric:ability_recall/block1-cand040@c62c2b06bcfb#ring_found=0]
+  of [metric:ability_recall/block1-cand040@c62c2b06bcfb#ring_n=3]. The stored
+  rows say why: all three are yellow (rim hue 26-30, OpenCV scale), 80-101 px
+  in radius from the player's marks, and no appearance fact describes a
+  yellow ring, so no descriptor exists. Two never open the teal gate
+  (`ability_gate` false); on the third a large teal component opens it and
+  the surprise path's teal search fits unrelated rings. Which ability draws
+  them is the player's question, not a radius to widen.
+- **The surprise rate** is high at 465 px because the session's Sage and
+  Phoenix drawings open the teal gate while no ring or beam candidate
+  (Regrowth alone) explains them; the walls answer those samples in
+  `ability_wall`.
+
+**Block 1 again, with the enemy Lockdown (2026-10-01).** The player named
+the three yellow rings as an enemy Killjoy's Lockdown
+[domain:abilities/killjoy-lockdown-global-minimap]; their drawing is measured
+in [domain:abilities/killjoy-lockdown-enemy-minimap-ring]. Lockdown joined
+the candidate table (`ability-candidates-0.2.0`, the enemy side only), and a
+candidate whose hue band misses the teal gate's now opens its own gate
+(`ability-fit-0.2.0`). The pass reran from the crop cache on both sessions
+(`tools\ability_recall.py --record --tag lockdown`):
+
+| Widget | Entities found | Recall, lower bound | Frame recall | Unexplained per frame |
+|---|---|---|---|---|
+| 331 px | [metric:ability_recall/block1-lockdown@043bafca271a#found=35] of [metric:ability_recall/block1-lockdown@043bafca271a#entities=43] | [metric:ability_recall/block1-lockdown@043bafca271a#entity_recall=0.814], [metric:ability_recall/block1-lockdown@043bafca271a#lower95=0.689] | [metric:ability_recall/block1-lockdown@043bafca271a#frame_recall=0.766] | [metric:ability_recall/block1-lockdown@043bafca271a#unexplained_all=5.65] |
+| 465 px | [metric:ability_recall/block1-lockdown@c62c2b06bcfb#found=44] of [metric:ability_recall/block1-lockdown@c62c2b06bcfb#entities=53] | [metric:ability_recall/block1-lockdown@c62c2b06bcfb#entity_recall=0.83], [metric:ability_recall/block1-lockdown@c62c2b06bcfb#lower95=0.722] | [metric:ability_recall/block1-lockdown@c62c2b06bcfb#frame_recall=0.774] | [metric:ability_recall/block1-lockdown@c62c2b06bcfb#unexplained_all=1.161] |
+
+- **Rings at 465 px**: [metric:ability_recall/block1-lockdown@c62c2b06bcfb#ring_found=3]
+  of [metric:ability_recall/block1-lockdown@c62c2b06bcfb#ring_n=3], each by
+  the Lockdown candidate, with
+  [metric:ability_recall/block1-lockdown@c62c2b06bcfb#unexplained_ring=0.0]
+  unexplained rings per frame. Over the whole match the candidate is found
+  only inside the three casts. On the null crops
+  [metric:ability_shapes/lockdown-null@null-crops#refused_no_radius=100] of
+  [metric:ability_shapes/lockdown-null@null-crops#n=120] refuse (no radius
+  is measured off Split) and it is found on
+  [metric:ability_shapes/lockdown-null@null-crops#found=0] of the rest.
+- **The 331 px session** is unchanged: Haven measures no Lockdown radius.
+  On a 331 px Split capture the one transform predicts
+  [metric:ability_models/lockdown-measure@c62c2b06bcfb#pred_331_split_px=73.0] px;
+  no such capture has been checked.
 
 ## 11. The labelling loop
 
@@ -773,6 +878,9 @@ Each stage commits when its evidence holds.
    wrote `ability_gate`, `ability_shape_scan`, `ability_icon` and
    `minimap_dark` for the four sessions from the crop cache; each
    selection equals every 20th live row of its `ability_icon` stream.
+   On 2026-09-30 the pass gained the candidate supply, the Barrier Orb and
+   Blaze finders and the transform; block 1 was rescored as development
+   recall (section 10). Block 2 stays the held-out test.
 5. **Tracks and lifecycles.** `adjudication.ability` tracks and
    `adjudication.phases` rules per fact. Acceptance:
    `.\.venv\Scripts\python.exe -m reticle ability-entities SID` on the

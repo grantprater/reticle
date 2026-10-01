@@ -587,7 +587,15 @@ SECOND_LIFE_SLACK_MS = 500.0
 
 def second_life_death(t_first: float, t_last: float, observations: list[dict]) -> bool | None:
     """Whether the player's killfeed death seen from `t_first` to `t_last` is a
-    second life (Run It Back, a downed KAY/O) rather than a death.
+    second life rather than a death, by the badge reader's vote.
+
+    The vote runs over the rows of `killfeed.detect_second_life_badge`, which
+    fits a ring beside the victim's name and names no icon. It is
+    probably unspecific: the player expects it to fire on the KAY/O down icon
+    [domain:killfeed/kayo-downed-entry] and on other icons beside the name.
+    Whether it fires on the KAY/O icon is unmeasured, since no stored session
+    fields KAY/O. A badge read is evidence of some icon beside the victim's
+    name, not of Run It Back.
 
     A majority vote over the stored `second_life_observation` rows inside the
     track's lifetime. None when no observation falls there: unread, which a

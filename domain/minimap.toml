@@ -904,17 +904,29 @@ see = ["minimap/enemy-death-mark", "minimap/ally-death-mark", "minimap/vision-ga
 [death-icon-becomes-mark]
 claim = """
 At a death the victim's icon turns into an X and stops lighting the floor,
-possibly with a little linger or a timing offset between channels. For
-reading, the icon and its X are one thing: the icon either vanishes as the X
-appears or covers the X until it goes.
+at the death or very shortly after. For reading, the icon and its X are one
+thing: the icon either vanishes as the X appears or covers the X until it
+goes. A downed KAY/O is not dead: his icon stays drawn, red, until a teammate
+revives him or he dies of damage or the revive timer.
 """
 kind = "appearance"
 known = "player"
-since = "2026-09-30"
+since = "2026-10-01"
 source = """
-the player, 2026-09-29 (chat), answering the minimap-objects questions; and
+the player, 2026-09-29 (chat), answering the minimap-objects questions;
 2026-09-30, adding that the icon turns into the X and stops lighting the
-floor, possibly with a little linger or offset between channels
+floor, possibly with a little linger or offset between channels; and
+2026-10-01, asked whether the icon goes the moment the agent dies and which
+exceptions exist beyond Sage, Phoenix and Clove: "if it isn't the moment, it
+is very shortly after. I told you kay/o's ult, while he is downed his icon
+turns red, then he is either brought back up by a teammate or downed again by
+damage or the revive timer expiring"
+"""
+exceptions = """
+the player gave the linger no number; `round_lifetimes.DEAD_ICON_LAG_MS`
+holds the measured one. Revivals [domain:rounds/resurrection-mechanics] and
+KAY/O's red downed state [domain:minimap/red-portrait-states] keep an icon
+drawn after a killfeed entry
 """
 use = """
 a fit at a death's place at the death's time is the victim's icon or its X,
@@ -925,7 +937,8 @@ the tray the death screen blanks; on the minimap that lead can mark a player
 dead while the icon is still drawn, so do not reuse it for icons or light
 """
 see = ["minimap/enemy-death-mark", "minimap/death-mark-persistence",
-       "minimap/ally-death-mark", "minimap/dead-teammate-light-belief"]
+       "minimap/ally-death-mark", "minimap/dead-teammate-light-belief",
+       "minimap/red-portrait-states", "rounds/resurrection-mechanics"]
 
 [danger-ping-pulses]
 claim = """
@@ -1588,3 +1601,55 @@ holds if the "?" shows again when the icon leaves, within its measured life
 overlap's end with its fade not yet due
 """
 see = ["minimap/last-known-mark", "minimap/last-known-mark-timing"]
+
+[world-drawings-follow-map-zoom]
+claim = """
+Minimap drawings placed in the world -- walls, ability ring radii, line
+lengths and areas -- scale with the map zoom, because they mark positions and
+extents in world space. Icons and glyphs carry no such restriction and may
+follow another transform; the player hopes there is one.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = """
+the player, 2026-09-30 (chat), on what follows the zoom. Checked: Skye's
+Regrowth ring measures 60.25 px on Split at 465 px (15 stored accepted rings
+round the self position, c62c2b06bcfb) and 38.43 px at 331 px (b7d24102a6f6),
+a ratio of 1.568 against the art fit's zoom ratio 1.569
+"""
+use = """
+`geometry.MapScale` (widget scale x map zoom) for every world-sized ability
+value; icons measured the same, so one factor serves both
+[domain:minimap/icons-follow-map-zoom]
+"""
+see = ["capture/minimap-size-settings"]
+
+[icons-follow-map-zoom]
+claim = """
+The minimap draws the self icon at a size that follows the map zoom, not the
+widget's width alone. On Split its outer rim measures 11.0 px on the 465 px
+widget at the largest map scaling and 7.1 px on the 331 px widget: a ratio of
+1.55 (95% 1.51-1.60), against 1.57 for the art fit's zoom and 1.405 for the
+widget width.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-30"
+source = """
+the self icon's yellow rim, outer edge, median over 72 rays round the stored
+self position, on 52 crop-cache samples of c62c2b06bcfb
+(split__valorant-16x9-bigmap, C:/Users/grant/Videos/2026-08-26 13-18-48.mp4)
+and 29 of b7d24102a6f6 (split__valorant-16x9,
+C:/Users/grant/Videos/2026-08-24 12-37-04.mp4), with no ally within 25 px
+(branch ability-walls-20260930). The player's prior was the zoom; the task's
+own first prediction (the widget width) failed. One map and one icon kind:
+glyph icons are unmeasured.
+"""
+use = """
+icons take the same factor as world drawings, `geometry.MapScale`; the
+player, 2026-09-30: "If they are the same we obviously would just want to use
+the one value". A module scaling icon sizes by `minimap.REF_WIDGET_W` alone
+errs by about 12% between the two profiles
+"""
+see = ["minimap/world-drawings-follow-map-zoom", "capture/minimap-size-settings"]

@@ -2977,8 +2977,51 @@ use = """
 search for it on the minimap for both sides, outside team vision too; a
 census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
 """
-exceptions = "a belief from a search summary; unverified"
-see = ["minimap/ability-drawings-both-sides"]
+exceptions = """
+the global drawing rests on a search summary and is unverified. The player
+named three enemy casts on c62c2b06bcfb on 2026-10-01: "309s is enemy killjoy
+(difference is the icon is red I believe) ult, so is 910 and 1778s". Those
+three are drawn as a yellow ring round a red device icon
+[domain:abilities/killjoy-lockdown-enemy-minimap-ring]; the ally's drawing is
+not observed, and the teal pre-drop ring of cast 137
+[domain:abilities/minimap-aim-preview] is a separate observation, not this one
+"""
+see = ["minimap/ability-drawings-both-sides", "abilities/killjoy-lockdown-enemy-minimap-ring"]
+
+[killjoy-lockdown-enemy-minimap-ring]
+claim = """
+An enemy Killjoy's Lockdown is drawn on the player's minimap as a yellow ring
+round the device: a rim of OpenCV hue 27-34 (median 30), saturation above
+80-138 on nine rim pixels in ten, a paler yellow tint inside (median hue 30,
+saturation 70), and a red icon at the centre (median hue 175, saturation 105)
+with a white glyph. The ring's radius holds within 1 px while it is drawn: in
+base pixels (`geometry.SCALE_REF_KEY`) 114.9 on Split. Each of the three casts
+stays drawn 11.5-13.9 s on the stored frames.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-01"
+subject = "killjoy:lockdown"
+source = """
+the three enemy casts the player named on c62c2b06bcfb (Split, 465 px widget,
+scale 0.99657), block-1 recall frames 19, 57 and 104 (309.57 s, 910.0 s,
+1778.0 s): a ring fit on a yellow weight (hue 18-38, saturation 60) seeded at
+the labelled centre icon, on every other minimap crop-cache frame from 30 s
+before to 20 s after each frame, no decode. 240 frames score at least 0.15
+(304.9-316.4 s, 901.1-915.0 s, 1772.3-1784.5 s), at radius 113.5-115.5 px
+(median 114.5) about one centre per cast; rim colour from the unfiltered
+pixels within 1 px of the fitted ring, icon colour within 6 px of the
+labelled centre (branch ability-walls-20260930). The player's word that the
+icon is red ("I believe") is the observed colour here. The ally's ring, its
+colour and any other map's radius are not measured
+"""
+use = """
+the enemy Lockdown descriptor of `ability_candidates`: radius per map and the
+enemy colour model. It says nothing of the ally's drawing
+[domain:abilities/ability-rules-are-unique]
+"""
+values = { base_radius = { split = 114.9 }, enemy_rim_hue = [27, 30, 34.3], enemy_rim_sat_p10 = [80, 138] }
+see = ["abilities/killjoy-lockdown-global-minimap"]
 
 [reyna-leer-global-minimap]
 claim = """
@@ -3683,3 +3726,125 @@ unasked. Abilities that move other agents (Gravity Well, Rolling Thunder,
 Annihilation, Bassquake) are outside this rule
 """
 see = ["abilities/minimap-dash-or-teleport-trace", "abilities/ability-rules-are-unique"]
+
+[skye-regrowth-minimap-ring-size]
+claim = """
+Regrowth's minimap ring is drawn at a radius fixed per map. In base pixels
+(the 465 px widget at the largest map scaling, `geometry.SCALE_REF_KEY`) it is
+60.5 on Split, 59.9 on Sunset and 55.7 on Lotus, within about 1 px on one map;
+the maps differ by 8% after the widget-size and map-scaling transform. The
+player's own ring's rim is teal: OpenCV hue 75-88 (median 83.5), saturation
+above 57-96 on nine rim pixels in ten.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-30"
+subject = "skye:regrowth"
+source = """
+the ring fit at the player's tray-object marks on 13 found panels (b7d24102a6f6
+Split, bdfdcf009dba Sunset, e37fdeca944f Lotus), divided by each key's
+`geometry.map_scale`; rim colour from pixels within 1 px of the fitted ring
+that already had saturation 50 or more (branch ability-walls-20260930). The
+enemy ring's colour is not measured.
+"""
+exceptions = """
+the saturation floor depends on which pixels count as rim. Remeasured
+2026-10-01 on every pixel within 1 px of the fitted ring, unfiltered, on the
+12 panels the same fit finds today, the 10th percentile is 49-83 and the hue
+p5 falls to 10-82, because the 1 px annulus also holds the pixels where the
+rim crosses icons and floor. The values keep the filtered measure: the
+unfiltered floor leaves the candidate's found panels at 12 of 16 and lowers
+most scores, while a floor of 70 finds 14 (branch ability-walls-20260930)
+"""
+use = "the Regrowth descriptor of `ability_candidates`: radius per map and the ally colour model"
+values = { base_radius = { split = 60.5, sunset = 59.9, lotus = 55.7 }, ally_rim_hue = [75, 83.5, 88], ally_rim_sat_p10 = [57, 96] }
+see = ["abilities/skye-regrowth-minimap-ring"]
+
+[sova-recon-bolt-minimap-ring-size]
+claim = """
+Recon Bolt's minimap ring is drawn at a radius fixed per map: in base pixels
+90.8 on Ascent and 97.4 on Haven; the two maps differ by 7% after the
+widget-size and map-scaling transform. The player's own ring's rim is teal:
+OpenCV hue 79-88 (median 84), saturation above 85-112 on nine rim pixels in
+ten.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-30"
+subject = "sova:recon-bolt"
+source = """
+the ring fit at the player's tray-object marks on 8 found panels (Ascent and
+Haven sessions; 59c70f1ef720 held out), and block-1 recall frame 54 of
+043bafca271a (Haven, radius 61.95 px at scale 0.636, base 97.4), divided by
+each key's `geometry.map_scale` (branch ability-walls-20260930). The enemy
+ring's colour is not measured.
+"""
+use = "the Recon Bolt descriptor of `ability_candidates`: radius per map and the ally colour model"
+values = { base_radius = { ascent = 90.8, haven = 97.4 }, ally_rim_hue = [79, 84, 88], ally_rim_sat_p10 = [85, 112] }
+see = ["abilities/sova-recon-bolt-minimap-ring"]
+
+[sova-hunters-fury-minimap-beam-size]
+claim = """
+Hunter's Fury's minimap line is drawn about 13.3 base pixels wide (12.4-14.2)
+and reaches at least 212 base pixels from Sova's icon. The player's own line is
+teal: OpenCV hue 80-89 (median 85.5), saturation above 91-103 on nine line
+pixels in ten.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-30"
+subject = "sova:hunters-fury"
+source = """
+teal pixels within 12 px of the seeded beam fit's axis per unit length, on 8
+found tray-object panels (Ascent, Haven) and the two block-1 recall lines of
+043bafca271a (Haven), divided by each key's `geometry.map_scale` (branch
+ability-walls-20260930). The enemy line's colour is not measured.
+"""
+use = "the Hunter's Fury descriptor of `ability_candidates`: line width, reach and the ally colour model"
+values = { base_width = 13.3, base_reach_min = 212.0, ally_hue = [80, 85.5, 89], ally_sat_p10 = [91, 103] }
+see = ["abilities/sova-hunters-fury-minimap-beam"]
+
+[sage-barrier-orb-minimap-size]
+claim = """
+A whole Barrier Orb wall is drawn on the minimap as a straight line 39.8 base
+pixels long (38.4-40.9) and 4.9 wide (3.9-6.0). A wall with broken segments
+leaves pieces of 12.3, 21.3 and 30.2 base pixels: one, two and three segments
+at a pitch of about 9. The ally wall is teal: OpenCV hue 76-81 (median 79),
+saturation above 74-125 on nine wall pixels in ten.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-30"
+subject = "sage:barrier-orb"
+source = """
+the teal components under the line marks of block-1 recall on c62c2b06bcfb
+(Split, 465 px, scale 0.9966), where Sage is the only ally whose kit draws a
+straight wall: 24 whole lines and 27 pieces, the player having named frame 36
+a broken Sage wall [domain:abilities/sage-barrier-orb-segments] (branch
+ability-walls-20260930). The enemy wall is red-themed
+[domain:abilities/sage-barrier-orb-global-minimap]; its colour is not
+measured.
+"""
+use = "the Barrier Orb descriptor of `ability_candidates`: length, piece lengths, width and the ally colour model"
+values = { base_length = 39.8, base_pieces = [12.3, 21.3, 30.2], base_width = 4.9, ally_hue = [76, 79, 81], ally_sat_p10 = [74, 125] }
+see = ["abilities/sage-barrier-orb-segments", "abilities/sage-barrier-orb-whole-before-break"]
+
+[phoenix-blaze-minimap-size]
+claim = """
+Phoenix's Blaze is drawn on the minimap as an orange curve 5.9 base pixels
+wide (5.5-7.5) and 42-85 base pixels long. The ally curve is orange: OpenCV
+hue 16-20 (median 18), saturation above 153-194 on nine curve pixels in ten.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-30"
+subject = "phoenix:blaze"
+source = """
+the orange components under six line marks of block-1 recall on c62c2b06bcfb
+(Split, 465 px, scale 0.9966), where Phoenix is an ally and no enemy is
+Phoenix (lineup-0.4.0) (branch ability-walls-20260930). The enemy curve's
+colour is not measured.
+"""
+use = "the Blaze descriptor of `ability_candidates`: width, length range and the ally colour model"
+values = { base_width = 5.9, base_length = [42.2, 84.8], ally_hue = [16, 18, 20], ally_sat_p10 = [153, 194] }
+see = ["abilities/phoenix-blaze"]
