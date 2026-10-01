@@ -411,5 +411,60 @@ class EnemyLaneStaleTests(unittest.TestCase):
             self.assertNotIn("death", {x["stream"] for x in stale(store, ["s"])["s"]["derived"]})
 
 
+class InputCycleTests(unittest.TestCase):
+    """The death stream recorded the bytes of the reliability table, which is
+    built from the deaths: each rerun of either restaled the other."""
+
+    def test_the_declared_inputs_hold_no_loop(self):
+        from reticle.plan import input_cycles
+        self.assertEqual(input_cycles(), [])
+
+    def test_the_one_loop_is_the_declared_feedback(self):
+        from reticle.plan import input_cycles, input_graph
+        self.assertEqual(input_cycles(input_graph(feedback=True)),
+                         [["death", "reliability", "death"]])
+
+    def test_a_loop_is_found(self):
+        from reticle.plan import input_cycles
+        self.assertEqual(input_cycles({"a": {"b"}, "b": {"c"}, "c": {"a", "d"}, "d": set()}),
+                         [["a", "b", "c", "a"]])
+
+    def test_deaths_and_reliability_rerun_to_a_clean_plan(self):
+        """Two rounds of `reticle deaths` then `reticle reliability`, the table
+        folding the death head's bytes as the real one folds its verdicts."""
+        import hashlib
+        import json
+        from reticle.adjudication.reliability import write as write_table
+
+        def deaths(store, table_rule):
+            head = {k: v for k, v in store.events["death:rows"][0].items() if k != "inputs"}
+            head["inputs"] = {k: v for k, v in store.events["death:rows"][0]["inputs"].items()
+                              if k != "reliability_table"}
+            head["read"] = table_rule
+            record_inputs(store, store.read_manifest("s"), "death", head)
+            store.events["death:rows"] = [head]
+
+        def reliability(store):
+            digest = hashlib.sha256(json.dumps(store.events["death:rows"][0],
+                                               sort_keys=True).encode()).hexdigest()
+            write_table(store.root, {"digest": digest}, {"death": DEATH_ADJUDICATION_VERSION})
+
+        def stale_streams(store):
+            return [x["stream"] for x in stale(store, ["s"])["s"]["derived"]]
+
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            # A table built over an older death rule: the deaths read it.
+            write_table(store.root, {"digest": "old"}, {"death": "death-adjudication-0.0.1"})
+            deaths(store, "old")
+            self.assertEqual(stale_streams(store), [])
+            reliability(store)                       # rebuilt over this rule
+            self.assertEqual(stale_streams(store), ["death"])
+            for _ in range(2):
+                deaths(store, "new")
+                reliability(store)                   # new bytes, the same rule
+                self.assertEqual(stale_streams(store), [])
+
+
 if __name__ == "__main__":
     unittest.main()

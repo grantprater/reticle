@@ -1260,6 +1260,11 @@ def check_inputs(store: Path) -> list[tuple[str, str]]:
       does not compare (`plan.compared_paths`) and `plan.NOT_INPUTS` does not
       excuse.
 
+    It also fails on a loop in the declared inputs (`plan.input_cycles`): the
+    death stream recorded the bytes of the reliability table built from the
+    deaths, so each rerun restaled the next. A loop runs only through a
+    declared `plan.FEEDBACK` edge, whose stamp runs once.
+
     What it misses: a read inside a module the command calls (`self_icon`,
     `minimap_objects`, `enemy_tracks` read through `read_session`), a stream
     named by a variable, a file read outside the store's read methods (the
@@ -1292,10 +1297,18 @@ def check_inputs(store: Path) -> list[tuple[str, str]]:
             out.append((ERROR, f"cli.{fn} writes {', '.join(sorted(mine))} and reads "
                                f"{', '.join(extra)}, which no declaration names -- declare "
                                f"it in plan.stream_inputs so plan compares it"))
+    # A loop in the declared inputs restales its own streams on every rerun.
+    for cycle in plan.input_cycles():
+        out.append((ERROR, f"the declared inputs loop: {' <- '.join(cycle)} -- break it, or "
+                           f"declare the edge in plan.FEEDBACK with a stamp that runs once"))
+    for stream, name in sorted(plan.FEEDBACK):
+        if name not in declared.get(stream, {}):
+            out.append((ERROR, f"plan.FEEDBACK names {stream} input {name}, which "
+                               f"plan.stream_inputs does not declare"))
     events = store / "events"
     if not events.is_dir():
         return out
-    stampy = re.compile(r"(_version$|^geometry|^menu_open$|^tray_kit$|^occluders$)")
+    stampy =re.compile(r"(_version$|^geometry|^menu_open$|^tray_kit$|^occluders$)")
     undeclared: dict[tuple[str, str], int] = collections.Counter()
     for stream, paths in sorted(compared.items()):
         d = events / stream

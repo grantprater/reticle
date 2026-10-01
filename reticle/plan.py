@@ -433,6 +433,73 @@ def input_streams(stream: str) -> set[str]:
             if (s := _probe_stream(d["probe"])) is not None}
 
 
+#: The stored tables a probe reads that are built from stored streams, and
+#: the streams (or tables) each folds. A table no entry names is built from
+#: no stored stream (geometry, the lineup file, the catalogue, the rendered
+#: portrait art).
+TABLE_SOURCES = {
+    "rounds": ("hud", "killfeed_portrait"),
+    "lineup": ("lineup_file", "self_icon", "scoreboard"),
+    "reliability": ("death",),
+    # `prototypes/ally_teammate_fit.py` fits the threshold on the deaths
+    # bound to the ally icons.
+    "portrait_refs_fit": ("portrait_refs", "hud", "roster", "death", "ally_icon", "lineup"),
+}
+
+#: (stream, input name) -> why the stream reads a table built from its own
+#: output. Each runs once: its probe stamps the table by the rule of the
+#: stream it was built over, never by its bytes, so one rebuild and one rerun
+#: agree. Every other loop in the input graph is an error (`input_cycles`).
+FEEDBACK = {
+    ("death", "reliability_table"): "the channel reliabilities are measured on the stored "
+                                    "deaths and weigh the name clusters; compared by the "
+                                    "death rule they were measured on "
+                                    "(`reliability.built_from`)",
+}
+
+
+def _probe_node(probe: str) -> str | None:
+    """The node a probe reads in the input graph: a stream or a table."""
+    return None if probe.startswith("=") else probe.split("#", 1)[0]
+
+
+def input_graph(feedback: bool = False) -> dict[str, set[str]]:
+    """node -> the nodes it is built from: each stream's declared inputs and
+    `upstream`, and each table's `TABLE_SOURCES`. The `FEEDBACK` edges are
+    left out unless `feedback`."""
+    graph: dict[str, set[str]] = {}
+    for stream, inputs in stream_inputs().items():
+        for name, d in inputs.items():
+            node = _probe_node(d["probe"])
+            if node is not None and (feedback or (stream, name) not in FEEDBACK):
+                graph.setdefault(stream, set()).add(node)
+    for spec in derived_streams():
+        graph.setdefault(spec["stream"], set()).update(spec.get("upstream", ()))
+    for table, sources in TABLE_SOURCES.items():
+        graph.setdefault(table, set()).update(sources)
+    return graph
+
+
+def input_cycles(graph: dict[str, set[str]] | None = None) -> list[list[str]]:
+    """Every simple cycle of `graph` (default `input_graph()`), each from its
+    least node and back to it. A cycle is a stream whose rerun moves its own
+    input, so `plan` never comes clean."""
+    graph = input_graph() if graph is None else graph
+    nodes = sorted(set(graph) | {m for v in graph.values() for m in v})
+    order = {n: i for i, n in enumerate(nodes)}
+    cycles = []
+    for start in nodes:
+        stack = [(start, [start])]
+        while stack:
+            at, path = stack.pop()
+            for nxt in sorted(graph.get(at, ()), reverse=True):
+                if nxt == start:
+                    cycles.append(path + [start])
+                elif order[nxt] > order[start] and nxt not in path:
+                    stack.append((nxt, path + [nxt]))
+    return cycles
+
+
 _MISSING = object()
 
 
@@ -477,8 +544,10 @@ def input_head(store, manifest: dict, probe: str, head: dict | None = None,
         now = (json.loads(f.read_text(encoding="utf-8")).get("version") or "unstamped"
                if f is not None and f.is_file() else ist.NO_ROWS)
     elif probe == "reliability":
-        from .adjudication.reliability import table_path
-        now = (ist.file_sha16(table_path(root)) if root is not None else None) or ist.NO_ROWS
+        # Built from the deaths that read it: compared by the death rule it
+        # was built over, not by its bytes (`FEEDBACK`).
+        from .adjudication.reliability import built_from
+        now = (built_from(root) if root is not None else None) or ist.NO_ROWS
     elif probe == "catalogue":
         from .adjudication.ability_state import CATALOGUE_PATH
         f = root / CATALOGUE_PATH if root is not None else None

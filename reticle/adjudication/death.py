@@ -102,7 +102,11 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # [domain:minimap/death-icon-becomes-mark]. Exactly one such birth places the
 # death; two or more leave it unplaced. The first matcher took any mark of
 # either colour inside `max_dt_ms`, and no caller passed one.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.21.0"
+# 0.22.0 (2026-10-01): a player kill or death track joins the entry whose
+# divider agrees at the track's onset, not at the entry track's last read
+# (`session_entries`); bdfdcf009dba 294.0 s and 3694746e4e54 1454.0 s become
+# the player's kills, their entry tracks having run on into a later entry.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.22.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -637,13 +641,27 @@ def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[di
     # A player track belongs to the entry on screen when it was first seen
     # whose divider agrees, the latest such onset first (the attribution can
     # come a sample after the plate), then the one that appeared in its slot.
+    # The dividers compared are the two read at the player track's onset: a
+    # track's `sig` is its last read, and an entry track that ran on into a
+    # later entry carries that entry's divider (bdfdcf009dba 294.0 s, 233 px
+    # at the kill, 223 px at its end; 3694746e4e54 1454.0 s, 184 against 177).
+    from ..killfeed import wx_at
+
+    def divider_at(track, column, t0):
+        reads = [(t, s) for t, s, _ in track.get("assigned") or () if t <= t0]
+        if not reads or not hud.get(column):
+            return track.get("sig")
+        t, s = reads[-1]
+        return wx_at(hud[column][at[t]], s)
+
     owner = {"kill": {}, "death": {}}
     for kind, seq in mine.items():
         for k in seq:
+            sig = divider_at(k, f"kf_{kind}_wx", k["t_first"])
             fits = [j for j, e in enumerate(tracks)
                     if e["t_first"] <= k["t_first"] <= e["t_last"]
-                    and (k.get("sig") is None or e.get("sig") is None
-                         or abs(k["sig"] - e["sig"]) <= KF_SIG_TOL)]
+                    and (sig is None or (d := divider_at(e, "kf_entry_wx", k["t_first"])) is None
+                         or abs(sig - d) <= KF_SIG_TOL)]
             if fits:
                 owner[kind].setdefault(max(fits, key=lambda j: (
                     tracks[j]["t_first"], tracks[j]["slot_first"] == k["slot_first"])), k)
