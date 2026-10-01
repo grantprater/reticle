@@ -806,7 +806,7 @@ owner = "minimap_objects"
 stored_consumers = ["enemy_tracks", "adjudication.death"]
 role = ["detect"]
 status = "partial"
-produces = ["read_frame", "read_times", "read_session", "session_context", "red_mask", "red_share", "minimap_object_version", "MINIMAP_OBJECT_BASE", "FIXES", "ENABLED"]
+produces = ["read_frame", "read_times", "read_session", "object_context", "enemy_red_mask", "slab_red_share", "minimap_object_version", "MINIMAP_OBJECT_BASE", "FIXES", "ENABLED"]
 not_for = """
 Fitting the icon or its facing (`icon-pose`: `teardrop.fit_icon`'s enemy
 class), drawing the X marks (`death-victim`: `minimap_x_marks`, read in the
@@ -834,7 +834,7 @@ enemy icon covers, whose run begins where an enemy icon ended
 [domain:minimap/last-known-mark]; it is read from the stream's own earlier
 frames and decodes nothing.
 """
-defers_to = ["enemy-icon", "death-victim"]
+defers_to = ["death-victim"]
 consumers = ["cli"]
 evidence = "tests/test_minimap_objects.py, prototypes/minimap_objects_s2.py"
 
@@ -846,7 +846,7 @@ stored_consumers = ["entity_events"]
 role = ["lifecycle"]
 status = "partial"
 names_agents = true
-produces = ["build", "session_tracks", "track_claims", "ENEMY_TRACK_VERSION", "BIND_PX"]
+produces = ["build", "enemy_session_tracks", "track_claims", "ENEMY_TRACK_VERSION", "BIND_PX"]
 not_for = """
 Deciding continuity or names locally. `round_lifetimes` decides which enemy
 icons are one entity and `adjudication.identity` names each track from its
@@ -854,7 +854,7 @@ icons' claims, re-keyed to the track with `depends_on` the lineup's enemy
 slots. The death owner places each death; this only binds a track's end to
 it, and unbinds it where the death's X or name disagrees.
 """
-defers_to = ["round-entity", "agent-identity", "death-victim", "last-known-mark", "enemy-icon"]
+defers_to = ["round-entity", "agent-identity"]
 consumers = ["cli", "plan"]
 evidence = "tests/test_enemy_tracks.py"
 

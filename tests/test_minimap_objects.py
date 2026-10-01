@@ -35,7 +35,7 @@ class GateTests(unittest.TestCase):
         self.assertEqual(mo._gate({"slab_gate": False}, red, slab, 42, 20, 1.0), (None, None))
         red[18:22, 10:14] = True
         self.assertEqual(mo._gate({"slab_gate": True}, red, slab, 12, 20, 1.0), (1.0, None))
-        self.assertEqual(mo.red_share(red, slab, 12, 50, 1.0), None)     # no red: abstain
+        self.assertEqual(mo.slab_red_share(red, slab, 12, 50, 1.0), None)     # no red: abstain
 
 
 def _frame(t, enemies=(), blobs=()):

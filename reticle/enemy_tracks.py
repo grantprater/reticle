@@ -52,7 +52,7 @@ def _observation(t: float, i: int, e: dict) -> dict:
             "view": "minimap", "label": "enemy", "observation_key": f"{t:.1f}:{i}"}
 
 
-def _icon(t: float, i: int, e: dict, features_version: str | None) -> dict:
+def _track_icon(t: float, i: int, e: dict, features_version: str | None) -> dict:
     """An enemy as `claims_from_ally_icons` reads it."""
     return {"frame_idx": int(round(t)), "t_ms": t, "index": i,
             "observation_key": f"{t:.1f}:{i}", "cx": e["x"], "cy": e["y"], "r": e["r"],
@@ -68,7 +68,7 @@ def track_claims(sid: str, frames: list[dict], obs_entity: dict, lineup: dict | 
     `features_version` is the portrait features' stamp the frames carry."""
     from .adjudication.identity import claims_from_ally_icons, identity_claim
 
-    icons = [_icon(f["t_ms"], i, e, features_version) for f in frames if f.get("reason") is None
+    icons = [_track_icon(f["t_ms"], i, e, features_version) for f in frames if f.get("reason") is None
              for i, e in enumerate(f.get("enemies") or ())]
     rows = ((lineup or {}).get("sides") or {}).get("enemy") or []
     slots = sorted(f"{sid}:enemy:slot:{r['slot']}" for r in rows if r.get("slot") is not None)
@@ -268,7 +268,7 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
     return {"rows": [summary] + rows, "identity": identity}
 
 
-def session_tracks(store, sid: str) -> dict:
+def enemy_session_tracks(store, sid: str) -> dict:
     """`build` over a session's stored streams, or `{"skipped": why}`."""
     from .adjudication.identity import load_ally_portrait_references
     from .lineup import load_lineup

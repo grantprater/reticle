@@ -81,7 +81,7 @@ def minimap_object_version(fixes: dict | None = None) -> str:
 
 
 # The enemy ring fit: the HSV key and gates stage 2 used
-# (prototypes/minimap_icons.red_mask, prototypes/minimap_ring_fit).
+# (prototypes/minimap_icons.enemy_red_mask, prototypes/minimap_ring_fit).
 HUE_LO, HUE_HI, SAT_MIN, VAL_MIN = 8, 168, 100, 90
 COV_MIN, INNER_RED_MAX = 0.30, 0.25
 RING = 11.0          # the fixed box radius with teardrop_box off, * scale
@@ -98,7 +98,7 @@ GAP_FRAMES = 2       # frames the red run may miss
 REFUSALS = ("widget_not_drawn", "widget_shape")
 
 
-def red_mask(crop: np.ndarray) -> np.ndarray:
+def enemy_red_mask(crop: np.ndarray) -> np.ndarray:
     """The enemy ring fit's key: saturated, bright red in HSV."""
     import cv2
 
@@ -107,7 +107,7 @@ def red_mask(crop: np.ndarray) -> np.ndarray:
     return ((h < HUE_LO) | (h > HUE_HI)) & (s > SAT_MIN) & (v > VAL_MIN)
 
 
-def red_share(red: np.ndarray, slab: np.ndarray, x: float, y: float, scale: float) -> float | None:
+def slab_red_share(red: np.ndarray, slab: np.ndarray, x: float, y: float, scale: float) -> float | None:
     """The share of the redness within ICON_PX * scale of (x, y) that lies on
     the slab; None where the disc holds no red."""
     r = ICON_PX * scale
@@ -129,13 +129,13 @@ def _gate(fixes, red, slab, x, y, scale) -> tuple[float | None, str | None]:
     """The slab gate's share and, where it drops the candidate, the reason."""
     if not fixes.get("slab_gate"):
         return None, None
-    share = red_share(red, slab, x, y, scale)
+    share = slab_red_share(red, slab, x, y, scale)
     if share is not None and share < RED_SHARE:
         return share, f"off_slab: red share {share:.2f} < {RED_SHARE}"
     return share, None
 
 
-def _r(v, n=2):
+def _rnd(v, n=2):
     return None if v is None else round(float(v), n)
 
 
@@ -158,11 +158,11 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
     # The X classifier owns every shape-confirmed X: a ring find the
     # teardrop does not read at an X is the X's, not a missed enemy.
     marks = minimap_x_marks(crop, floor, scale)
-    finds = minimap.icons(red_mask(crop), crop, floor, cov_min=COV_MIN,
+    finds = minimap.icons(enemy_red_mask(crop), crop, floor, cov_min=COV_MIN,
                           inner_max=INNER_RED_MAX, require_facing=False, support=slab,
                           seed="centroid")
     for d in finds:
-        ring = {"x": _r(d["cx"]), "y": _r(d["cy"]), "r": _r(d.get("r"))}
+        ring = {"x": _rnd(d["cx"]), "y": _rnd(d["cy"]), "r": _rnd(d.get("r"))}
         f = teardrop.fit_icon(None, "enemy", d["cx"], d["cy"], scale=scale, key=red)
         reason = None if f.get("read") else f.get("reason")
         position_only = (reason == "ambiguous_facing" and fixes.get("teardrop_box")
@@ -177,25 +177,25 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
                             "y": ring["y"],
                             "reason": ("owned_by_x_classifier: teardrop " if at_x
                                        else "teardrop: ") + str(reason),
-                            "ncc": _r(f.get("ncc"), 3)})
+                            "ncc": _rnd(f.get("ncc"), 3)})
             continue
         x, y = float(f["x"]), float(f["y"])
         tip_d = math.hypot(f["tip_x"] - x, f["tip_y"] - y)
         box = tip_d + TIP_PAD * scale if fixes.get("teardrop_box") else RING * scale
         share, drop = _gate(fixes, red, slab, x, y, scale)
         if drop:
-            refused.append({"cls": "enemy", "x": _r(x), "y": _r(y), "reason": drop})
+            refused.append({"cls": "enemy", "x": _rnd(x), "y": _rnd(y), "reason": drop})
             continue
         img = ally_portrait.align_icon(crop, x, y)
         if turn:
             img = np.ascontiguousarray(img[::-1, ::-1])
         feats = ally_portrait.stored(ally_portrait.portrait_features(img, minimap.portrait_key(img)))
         enemies.append({
-            "x": _r(x), "y": _r(y), "r": _r(box),
-            "facing": None if position_only else _r(float(f["deg"]) % 360.0, 1),
+            "x": _rnd(x), "y": _rnd(y), "r": _rnd(box),
+            "facing": None if position_only else _rnd(float(f["deg"]) % 360.0, 1),
             "facing_reason": "ambiguous_facing" if position_only else None,
-            "tip": [_r(f["tip_x"]), _r(f["tip_y"])], "ncc": _r(f.get("ncc"), 3),
-            "margin": _r(f.get("margin"), 3), "ring": ring, "red_share": _r(share, 3),
+            "tip": [_rnd(f["tip_x"]), _rnd(f["tip_y"])], "ncc": _rnd(f.get("ncc"), 3),
+            "margin": _rnd(f.get("margin"), 3), "ring": ring, "slab_red_share": _rnd(share, 3),
             "portrait_features": feats})
     xr = []
     for q in marks["red"]:
@@ -264,7 +264,7 @@ def last_known(frames: list[dict], scale: float) -> None:
         f.pop("red_blobs", None)
 
 
-def session_context(store, sid: str) -> tuple[dict | None, str | None]:
+def object_context(store, sid: str) -> tuple[dict | None, str | None]:
     """The crop cache and the baked masks one session's read needs, or None
     with the reason."""
     import cv2
@@ -322,7 +322,7 @@ def read_session(store, sid: str, fixes: dict | None = None) -> dict:
     from .roi_cache import ROI_CACHE_VERSION
 
     fixes = dict(ENABLED if fixes is None else fixes)
-    ctx, why = session_context(store, sid)
+    ctx, why = object_context(store, sid)
     if ctx is None:
         return {"skipped": why}
     times = ctx["cache"].holds()

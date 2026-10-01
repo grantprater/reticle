@@ -481,11 +481,14 @@ def render(frame: np.ndarray, t: float, loaded: ve.Loaded, geo: Geometry,
                 for s in next(st for _k, n, st in ve.LAYERS if n == layer)
                 for it in loaded.active(s, t) if it.space == "minimap"]
     inset = None
+    k = INSET_K
     if state.inset:
         crop = img[my0:my1, mx0:mx1]
-        inset = cv2.resize(crop, None, fx=INSET_K, fy=INSET_K, interpolation=cv2.INTER_LINEAR)
+        # A large widget (465 px) at INSET_K would not fit above the strip.
+        k = min(float(INSET_K), (H - 166) / max(1, crop.shape[0]), (W - 32) / max(1, crop.shape[1]))
+        inset = cv2.resize(crop, None, fx=k, fy=k, interpolation=cv2.INTER_LINEAR)
         for it in mm_items:
-            _draw_minimap_item(inset, it, 0, 0, INSET_K)
+            _draw_minimap_item(inset, it, 0, 0, k)
     for it in mm_items:
         _draw_minimap_item(img, it, mx0, my0, 1.0, labels=inset is None)
     if "killfeed" in on:
@@ -498,7 +501,7 @@ def render(frame: np.ndarray, t: float, loaded: ve.Loaded, geo: Geometry,
         ix, iy = W - iw - 16, H - ih - 150
         img[iy:iy + ih, ix:ix + iw] = inset
         cv2.rectangle(img, (ix - 1, iy - 1), (ix + iw, iy + ih), DIM, 1)
-        _text(img, f"minimap x{INSET_K} (Z hides)", (ix + 6, iy + 20), DIM, 0.5)
+        _text(img, f"minimap x{k:.2g} (Z hides)", (ix + 6, iy + 20), DIM, 0.5)
     if state.mark and state.mark.get("point"):
         px, py = map(int, state.mark["point"])
         cv2.drawMarker(img, (px, py), COLOURS["mark"], cv2.MARKER_CROSS, 28, 2)

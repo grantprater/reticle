@@ -3600,14 +3600,14 @@ def cmd_minimap_objects(args) -> int:
 
 def cmd_enemy_tracks(args) -> int:
     """Enemy tracks per round from the stored `minimap_object` rows
-    (`enemy_tracks.session_tracks`), named by the arbiter against the
+    (`enemy_tracks.enemy_session_tracks`), named by the arbiter against the
     lineup's enemy five. Writes `enemy_track` and `enemy_track_identity`.
     Decodes no video."""
-    from .enemy_tracks import session_tracks
+    from .enemy_tracks import enemy_session_tracks
 
     store = Store(args.store)
     for sid in _sessions_arg(store, args):
-        res = session_tracks(store, sid)
+        res = enemy_session_tracks(store, sid)
         if "skipped" in res:
             print(f"{sid}: {res['skipped']} -- skipped")
             continue
