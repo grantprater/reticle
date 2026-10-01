@@ -27,10 +27,13 @@ ability's value [domain:abilities/ability-rules-are-unique]:
 | Hunter's Fury | line from Sova | caster | width | [domain:abilities/sova-hunters-fury-minimap-beam-size] |
 | Barrier Orb | four segments on a line | free | length, pieces, width | [domain:abilities/sage-barrier-orb-minimap-size] |
 | Blaze | smooth curve | free | width, length range | [domain:abilities/phoenix-blaze-minimap-size] |
+| Lockdown | ring round the device | free | radius per map, enemy colour only | [domain:abilities/killjoy-lockdown-enemy-minimap-ring] |
 
 Colour follows the side [domain:minimap/ability-drawing-colour-by-side], and
 each side's model is measured per ability: every fact above measures the ally
-colour only, so every enemy descriptor refuses `no_enemy_colour`. The Barrier
+colour only but Lockdown's, which measures the enemy colour only, so the
+ally Lockdown refuses `no_ally_colour` and every other enemy descriptor
+`no_enemy_colour`. The Barrier
 Orb's enemy wall is red-themed [domain:abilities/sage-barrier-orb-global-minimap]
 and unmeasured. A radius measured on no map of this key refuses
 `no_radius_on_map`: the radii differ by 7-8% between maps after the transform,
@@ -45,9 +48,14 @@ The inputs, each asked of its owner:
 
 - the lineup: `lineup.load_lineup` (the arbiter's side verdicts, the board's
   constraint) and `adjudication.identity.side_candidates` per side. A named
-  slot and a refused slot's best guess are candidates; a blind slot (no
-  guess) makes that side's candidate set the whole table, the surprise set,
-  with the reason.
+  slot's agent is a candidate. An unread slot -- refused, with or without a
+  best guess -- is open: the witness that guessed refused the guess, so the
+  guess does not bound the slot (c62c2b06bcfb's raw enemy slot 4 guessed
+  Astra; the board names Killjoy). A team fields each agent once
+  [domain:rounds/agent-uniqueness], so an open slot allows every agent the
+  side has not named: that set is the surprise set, justified by the unread
+  slot, and each candidate it adds says so (`open_slot`) with the slots'
+  stored reasons.
 - who is alive: `adjudication.death.build_match_roster_timeline` over the stored
   `death` verdicts and the stored rounds. No ability is cast while its owner
   is dead, except Clove's [domain:abilities/no-cast-while-dead]; a drawing
@@ -102,6 +110,10 @@ TABLE = {
               "size": "abilities/phoenix-blaze-minimap-size",
               "draws": ("abilities/phoenix-blaze",),
               "persists_after_death": (None, "unasked")},
+    "Lockdown": {"agent": "Killjoy", "shape": "ring", "prior": "free",
+                 "size": "abilities/killjoy-lockdown-enemy-minimap-ring",
+                 "draws": ("abilities/killjoy-lockdown-global-minimap",),
+                 "persists_after_death": (None, "unasked")},
 }
 
 #: Icon descriptors from facts: glyph per side, whether the look changes with
@@ -271,16 +283,14 @@ class CandidateSupply:
         for side in ("ally", "enemy"):
             sc = self.sides.get(side) or {}
             named, rivals, blind = sc.get("named", []), sc.get("rivals", []), sc.get("blind", [])
-            allowed = set(named) | set(rivals)
+            n_open = len(rivals) + len(blind)
             for ability, t in TABLE.items():
                 agent = t["agent"]
-                if agent not in allowed and not blind:
+                if agent not in named and not n_open:
                     excluded.append({"ability": ability, "side": side, "agent": agent,
                                      "reason": "not_in_lineup"})
                     continue
-                why = ("blind_slot: the side's five are not all known, so the whole table "
-                       "is its set" if agent not in allowed else
-                       "rival_guess" if agent in rivals and agent not in named else "named")
+                why = "named" if agent in named else _open_why(sc, n_open, agent in rivals)
                 living = alive[side]
                 caster_alive = None if living is None or agent not in set(named) else agent in living
                 persists, pfact = t["persists_after_death"]
@@ -306,6 +316,24 @@ class CandidateSupply:
         return {"candidates": cands, "excluded": excluded}
 
 
+def _open_why(sc: dict, n_open: int, guessed: bool) -> str:
+    """Why an agent the side has not named is a candidate: an open slot."""
+    got = list(sc.get("open_reasons") or [])
+    if len(got) < n_open:
+        got.append(f"{n_open - len(got)} slot(s) with no stored row or reason")
+    reasons = "; ".join(got)
+    return (f"open_slot: {n_open} slot(s) unread ({reasons}); a team fields each agent "
+            f"once, so any agent the side has not named may hold one"
+            + ("; the refused best guess" if guessed else ""))
+
+
+def open_reasons(rows) -> list[str]:
+    """Each unread lineup slot's stored refusal, as `slot N: reason`."""
+    return [f"slot {r.get('slot')}: {r.get('reason') or 'no reason stored'}"
+            + (f" (best guess {r['best_guess']})" if r.get("best_guess") else "")
+            for r in rows if not r.get("agent")]
+
+
 def for_session(session_id: str, store, ms: MapScale | None = None, seed_at=None):
     """The session's `CandidateSupply`, or (None, reason) where an input is
     missing. Pure over stored data: the lineup, the death verdicts, the rounds
@@ -320,7 +348,8 @@ def for_session(session_id: str, store, ms: MapScale | None = None, seed_at=None
     lineup = load_lineup(session_id, store.root)
     if lineup is None:
         return None, "no_lineup"
-    sides = {side: side_candidates(rows) for side, rows in (lineup.get("sides") or {}).items()}
+    sides = {side: {**side_candidates(rows), "open_reasons": open_reasons(rows)}
+             for side, rows in (lineup.get("sides") or {}).items()}
     player = (lineup.get("player") or {}).get("agent")
     rows = store.read_events("death", session_id)
     if not rows:

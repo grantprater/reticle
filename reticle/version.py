@@ -366,12 +366,19 @@ ABILITY_SHAPE_VERSION = "ability-shape-0.4.0"
 # The candidate set of `ability_candidates`: the appearance table, the lineup
 # and death inputs it reads, the exclusion rules. Bump when the table, an
 # input or a rule changes; a remeasured fact changes `values_digest` instead.
-ABILITY_CANDIDATES_VERSION = "ability-candidates-0.1.0"
+# 0.2.0 (2026-10-01): Lockdown joins the table (the enemy ring only); an
+# unread lineup slot, refused or blind, opens every agent its side has not
+# named (`open_slot`), where 0.1.0 took a refused slot's best guess alone.
+ABILITY_CANDIDATES_VERSION = "ability-candidates-0.2.0"
 # The candidate fits of the ability pass: `ability_fit` (rings, beams) and
 # `ability_wall` (segments, curves) rows, one per candidate per gated sample,
 # and the `ability_shape_audit` cadence. Bump when the pass's use of the
 # candidates, the surprise rule or the audit cadence changes.
-ABILITY_FIT_VERSION = "ability-fit-0.1.0"
+# 0.2.0 (2026-10-01): a ring or beam candidate whose hue band misses the
+# teal gate's opens its own gate (its colour forms a component as wide as
+# the teal gate asks), so a yellow ring is fit where the teal gate stays
+# shut; only teal-gated candidates spare a sample the surprise path.
+ABILITY_FIT_VERSION = "ability-fit-0.2.0"
 ABILITY_WALL_VERSION = "ability-wall-0.1.0"
 # The teal-component opportunity gate of the ability pass (`ability_scan`,
 # `ability_gate` rows): which 2 Hz live samples the shape fits read. Bump when

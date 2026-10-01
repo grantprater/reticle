@@ -2977,8 +2977,51 @@ use = """
 search for it on the minimap for both sides, outside team vision too; a
 census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
 """
-exceptions = "a belief from a search summary; unverified"
-see = ["minimap/ability-drawings-both-sides"]
+exceptions = """
+the global drawing rests on a search summary and is unverified. The player
+named three enemy casts on c62c2b06bcfb on 2026-10-01: "309s is enemy killjoy
+(difference is the icon is red I believe) ult, so is 910 and 1778s". Those
+three are drawn as a yellow ring round a red device icon
+[domain:abilities/killjoy-lockdown-enemy-minimap-ring]; the ally's drawing is
+not observed, and the teal pre-drop ring of cast 137
+[domain:abilities/minimap-aim-preview] is a separate observation, not this one
+"""
+see = ["minimap/ability-drawings-both-sides", "abilities/killjoy-lockdown-enemy-minimap-ring"]
+
+[killjoy-lockdown-enemy-minimap-ring]
+claim = """
+An enemy Killjoy's Lockdown is drawn on the player's minimap as a yellow ring
+round the device: a rim of OpenCV hue 27-34 (median 30), saturation above
+80-138 on nine rim pixels in ten, a paler yellow tint inside (median hue 30,
+saturation 70), and a red icon at the centre (median hue 175, saturation 105)
+with a white glyph. The ring's radius holds within 1 px while it is drawn: in
+base pixels (`geometry.SCALE_REF_KEY`) 114.9 on Split. Each of the three casts
+stays drawn 11.5-13.9 s on the stored frames.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-01"
+subject = "killjoy:lockdown"
+source = """
+the three enemy casts the player named on c62c2b06bcfb (Split, 465 px widget,
+scale 0.99657), block-1 recall frames 19, 57 and 104 (309.57 s, 910.0 s,
+1778.0 s): a ring fit on a yellow weight (hue 18-38, saturation 60) seeded at
+the labelled centre icon, on every other minimap crop-cache frame from 30 s
+before to 20 s after each frame, no decode. 240 frames score at least 0.15
+(304.9-316.4 s, 901.1-915.0 s, 1772.3-1784.5 s), at radius 113.5-115.5 px
+(median 114.5) about one centre per cast; rim colour from the unfiltered
+pixels within 1 px of the fitted ring, icon colour within 6 px of the
+labelled centre (branch ability-walls-20260930). The player's word that the
+icon is red ("I believe") is the observed colour here. The ally's ring, its
+colour and any other map's radius are not measured
+"""
+use = """
+the enemy Lockdown descriptor of `ability_candidates`: radius per map and the
+enemy colour model. It says nothing of the ally's drawing
+[domain:abilities/ability-rules-are-unique]
+"""
+values = { base_radius = { split = 114.9 }, enemy_rim_hue = [27, 30, 34.3], enemy_rim_sat_p10 = [80, 138] }
+see = ["abilities/killjoy-lockdown-global-minimap"]
 
 [reyna-leer-global-minimap]
 claim = """

@@ -76,5 +76,52 @@ class SupplyTest(unittest.TestCase):
         self.assertEqual(reg["rests_on"], ["lineup"])
 
 
+class LockdownTest(unittest.TestCase):
+    def test_the_enemy_ring_takes_the_measured_radius_and_yellow(self):
+        d = C.ability_descriptor("Lockdown", "enemy", _ms(0.5))
+        f = C.facts()["abilities/killjoy-lockdown-enemy-minimap-ring"]
+        self.assertAlmostEqual(d["radius_px"], 0.5 * f.values["base_radius"]["split"], 5)
+        self.assertEqual((d["agent"], d["shape"], d["prior"]), ("Killjoy", "ring", "free"))
+        lo, hi = d["colour"]["hue"]
+        self.assertLess(hi, S.TEAL_H[0])
+
+    def test_the_ally_ring_refuses_rather_than_borrowing_the_enemys(self):
+        d = C.ability_descriptor("Lockdown", "ally", _ms())
+        self.assertTrue(d["refused"].startswith("no_ally_colour"))
+
+
+class OpenSlotTest(unittest.TestCase):
+    def _at(self, enemy_rows):
+        from reticle.adjudication.identity import side_candidates
+        sides = {"ally": {"named": [], "rivals": [], "blind": []},
+                 "enemy": {**side_candidates(enemy_rows),
+                           "open_reasons": C.open_reasons(enemy_rows)}}
+        snap = SimpleNamespace(t_ms=0.0, ally_agents=[], enemy_agents=[])
+        return C.CandidateSupply("s", _ms(), sides, None, [snap], [0.0]).at(5.0)
+
+    def test_a_refused_slot_opens_every_agent_the_side_has_not_named(self):
+        rows = [{"slot": i, "agent": a, "best_guess": a} for i, a in
+                enumerate(["Reyna", "Neon", "Miks"])]
+        rows += [{"slot": 3, "agent": None, "best_guess": "Skye",
+                  "reason": "margin 0.028 below 0.07 -- not separated from Breach"},
+                 {"slot": 4, "agent": None, "best_guess": "Astra",
+                  "reason": "margin 0.020 below 0.07 -- not separated from Raze"}]
+        got = self._at(rows)
+        lock = next(c for c in got["candidates"] if c["ability"] == "Lockdown")
+        self.assertTrue(lock["selected"].startswith("open_slot: 2 slot(s) unread"))
+        self.assertIn("slot 4: margin 0.020 below 0.07 -- not separated from Raze "
+                      "(best guess Astra)", lock["selected"])
+        self.assertNotIn("refused best guess", lock["selected"])
+
+    def test_a_fully_named_side_keeps_its_five(self):
+        rows = [{"slot": i, "agent": a} for i, a in
+                enumerate(["Reyna", "Neon", "Skye", "Miks", "Killjoy"])]
+        got = self._at(rows)
+        enemy = {c["ability"] for c in got["candidates"] if c["side"] == "enemy"}
+        self.assertEqual(enemy, {"Lockdown"})
+        why = {(e["ability"], e["side"]): e["reason"] for e in got["excluded"]}
+        self.assertEqual(why[("Blaze", "enemy")], "not_in_lineup")
+
+
 if __name__ == "__main__":
     unittest.main()

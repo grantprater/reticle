@@ -16,7 +16,7 @@ definition: each reader writes its own stream under its own stamp, and
 | Stream | Grid | Work | Stamp |
 |---|---|---|---|
 | `ability_gate` | 2 Hz, live samples | teal components | `ability_gate_version` |
-| `ability_fit` | gated samples | `ability_shapes.fit_shape` per ring and beam candidate | `ability_fit_version`, the shape, candidate and values stamps |
+| `ability_fit` | gated samples; live drawn samples an own-gate candidate opens | `ability_shapes.fit_shape` per ring and beam candidate | `ability_fit_version`, the shape, candidate and values stamps |
 | `ability_wall` | live drawn samples with a wall component | `fit_shape` per segments and curve candidate | `ability_wall_version`, the same |
 | `ability_shape_scan` | gated samples no candidate explains | `ring_candidates`, `widened_beam` (the surprise path) | `ability_shape_scan_version`, the `ability_shape_version`, over the gate's |
 | `ability_shape_audit` | every AUDIT_EVERY-th gated sample | the same full search | `ability_shape_audit_version`, the same |
@@ -45,7 +45,12 @@ rounds and self track) as data; this module imports no adjudicator. At each
 sample the supply names the descriptors its context allows and why it left
 the rest out. A gated sample fits every ring and beam candidate
 (`ability_fit`, one row per sample holding every fit with its descriptor id,
-score, alternatives and the candidate's `rests_on`); every live drawn sample
+score, alternatives and the candidate's `rests_on`). A ring or beam
+candidate whose hue band misses the teal gate's (`own_gate`; today the enemy
+Lockdown's yellow ring [domain:abilities/killjoy-lockdown-enemy-minimap-ring])
+is fit on every live drawn sample where its own colour forms a component the
+teal gate would accept, with `gate: "own_colour"`; it never spares a sample
+the surprise path, which searches teal. Every live drawn sample
 fits every wall candidate, because a wall need not be teal (`ability_wall`,
 stored only where a component of the drawn width exists). A fit names the
 descriptor it was scored against, never the caster: who drew it stays the
@@ -102,6 +107,14 @@ def teal_gate(tl: np.ndarray, mask: np.ndarray, ms: MapScale = shapes.SET_AT) ->
     keep = [[int(v) for v in st[i, :5]] for i in range(1, n)
             if max(st[i, cv2.CC_STAT_WIDTH], st[i, cv2.CC_STAT_HEIGHT]) >= ext]
     return sorted(keep, key=lambda c: -c[4])
+
+
+def own_gate(d: dict) -> bool:
+    """Whether a ring or beam candidate opens its own gate: its colour model's
+    hue band misses the teal gate's (`ability_shapes.TEAL_H`), so the teal
+    gate says nothing of whether it is drawn."""
+    lo, hi = d["colour"]["hue"]
+    return hi < shapes.TEAL_H[0] or lo > shapes.TEAL_H[1]
 
 
 def _rounded(v, n=4):
@@ -229,20 +242,27 @@ class AbilityShapeReader:
                  if f.get("reason") != "no_component"]
         if walls:
             self.wall_rows.append({**row, "walls": walls})
+        # Candidates the teal gate cannot see open their own gate.
+        own = [{**fit_row(shapes.fit_shape(crop, d, d.get("seed"), self.support, ms), d),
+                "gate": "own_colour"}
+               for d in cands if d["shape"] in FIT_SHAPES and own_gate(d)
+               and teal_gate(shapes.colour_weight(crop, d["colour"]), mask, ms)]
         comps = teal_gate(tl, mask, ms)
         self.gate_rows.append({**row, "gate": bool(comps), "reason": None,
                                "components": comps[:MAX_COMPONENTS]})
+        kept = [{k: e[k] for k in ("ability", "side", "reason")}
+                for e in excl if e["reason"] != "not_in_lineup"]
         if not comps:
+            if own:
+                self.fit_rows.append({**row, "teal_gate": False, "fits": own, "excluded": kept})
             return
         self.n_gated += 1
         fits = [fit_row(shapes.fit_shape(crop, d, d.get("seed"), self.support, ms), d)
-                for d in cands if d["shape"] in FIT_SHAPES]
+                for d in cands if d["shape"] in FIT_SHAPES and not own_gate(d)]
         if self.supply is not None:
             # Every exclusion but the constant `not_in_lineup` can change
             # within a match, so each gated sample keeps its own.
-            self.fit_rows.append({**row, "fits": fits,
-                                  "excluded": [{k: e[k] for k in ("ability", "side", "reason")}
-                                               for e in excl if e["reason"] != "not_in_lineup"]})
+            self.fit_rows.append({**row, "teal_gate": True, "fits": fits + own, "excluded": kept})
         accepted = any(f.get("found") for f in fits)
         audit = (self.n_gated - 1) % self.audit_every == 0
         if accepted and not audit:
@@ -339,6 +359,7 @@ class AbilityShapeReader:
                 "descriptors": {k: v for k, v in self.descriptors.items()
                                 if v.get("shape") in FIT_SHAPES},
                 "by_descriptor": found, "excluded": self.excluded,
+                "own_colour_rows": sum(r.get("teal_gate") is False for r in self.fit_rows),
                 "surprise": len(self.shape_rows), "surprise_rate": self._rate()}
         return [head] + [{**common, **r} for r in self.fit_rows]
 

@@ -168,5 +168,58 @@ class CandidateTest(unittest.TestCase):
         self.assertEqual(self.reader.wall_rows, [])
 
 
+YELLOW_BGR = (40, 220, 230)
+
+
+class OwnGateTest(unittest.TestCase):
+    """A candidate whose colour the teal gate cannot see opens its own gate."""
+
+    def setUp(self):
+        self.base = _base()
+        floor = np.zeros(self.base.shape[:2], bool)
+        floor[60:271, 60:271] = True
+        sgray = cv2.cvtColor(self.base, cv2.COLOR_BGR2GRAY).astype(np.float64)
+        self.yellow = {**_desc("ring", "Yellow", radius_px=45.0),
+                       "colour": {"hue": (20.0, 41.0), "s_min": 80.0}}
+        self.reader = A.AbilityShapeReader(
+            floor=floor, sgray=sgray, support=floor, box=(0, 0, 331, 331),
+            supply=FakeSupply([CandidateTest.RING, self.yellow]), audit_every=100)
+
+    def feed(self, img, t, idx):
+        self.reader.feed(SimpleNamespace(frame=img, t_ms=t, frame_idx=idx))
+
+    def test_own_gate_follows_the_hue_band(self):
+        self.assertTrue(A.own_gate(self.yellow))
+        self.assertFalse(A.own_gate(CandidateTest.RING))
+
+    def test_a_yellow_ring_is_fit_where_the_teal_gate_stays_shut(self):
+        img = self.base.copy()
+        cv2.circle(img, (150, 160), 45, YELLOW_BGR, 2)
+        self.feed(img, 0.0, 0)
+        self.feed(self.base, 500.0, 1)
+        self.assertEqual([r["gate"] for r in self.reader.gate_rows], [False, False])
+        self.assertEqual(len(self.reader.fit_rows), 1)
+        row = self.reader.fit_rows[0]
+        self.assertIs(row["teal_gate"], False)
+        f = row["fits"][0]
+        self.assertEqual((f["descriptor"], f["gate"]), ("Yellow:ally", "own_colour"))
+        self.assertTrue(f["found"])
+        self.assertLessEqual(np.hypot(f["cx"] - 150, f["cy"] - 160), 2)
+        self.assertEqual(self.reader.n_gated, 0)
+        self.assertEqual(self.reader.shape_rows, [])
+        self.assertEqual(self.reader.fit_events("s", "k")[0]["own_colour_rows"], 1)
+
+    def test_an_own_gate_find_never_spares_a_teal_surprise(self):
+        img = self.base.copy()
+        cv2.circle(img, (150, 160), 45, YELLOW_BGR, 2)
+        cv2.circle(img, (160, 150), 70, TEAL, 2)
+        self.feed(img, 0.0, 0)
+        row = self.reader.fit_rows[0]
+        self.assertIs(row["teal_gate"], True)
+        found = {f["descriptor"]: f["found"] for f in row["fits"]}
+        self.assertEqual(found, {"Ring:ally": False, "Yellow:ally": True})
+        self.assertEqual(self.reader.shape_rows[0]["surprise_reason"], "none_accepted")
+
+
 if __name__ == "__main__":
     unittest.main()

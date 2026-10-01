@@ -683,6 +683,35 @@ surprise path):
   (Regrowth alone) explains them; the walls answer those samples in
   `ability_wall`.
 
+**Block 1 again, with the enemy Lockdown (2026-10-01).** The player named
+the three yellow rings as an enemy Killjoy's Lockdown
+[domain:abilities/killjoy-lockdown-global-minimap]; their drawing is measured
+in [domain:abilities/killjoy-lockdown-enemy-minimap-ring]. Lockdown joined
+the candidate table (`ability-candidates-0.2.0`, the enemy side only), and a
+candidate whose hue band misses the teal gate's now opens its own gate
+(`ability-fit-0.2.0`). The pass reran from the crop cache on both sessions
+(`tools\ability_recall.py --record --tag lockdown`):
+
+| Widget | Entities found | Recall, lower bound | Frame recall | Unexplained per frame |
+|---|---|---|---|---|
+| 331 px | [metric:ability_recall/block1-lockdown@043bafca271a#found=35] of [metric:ability_recall/block1-lockdown@043bafca271a#entities=43] | [metric:ability_recall/block1-lockdown@043bafca271a#entity_recall=0.814], [metric:ability_recall/block1-lockdown@043bafca271a#lower95=0.689] | [metric:ability_recall/block1-lockdown@043bafca271a#frame_recall=0.766] | [metric:ability_recall/block1-lockdown@043bafca271a#unexplained_all=5.65] |
+| 465 px | [metric:ability_recall/block1-lockdown@c62c2b06bcfb#found=44] of [metric:ability_recall/block1-lockdown@c62c2b06bcfb#entities=53] | [metric:ability_recall/block1-lockdown@c62c2b06bcfb#entity_recall=0.83], [metric:ability_recall/block1-lockdown@c62c2b06bcfb#lower95=0.722] | [metric:ability_recall/block1-lockdown@c62c2b06bcfb#frame_recall=0.774] | [metric:ability_recall/block1-lockdown@c62c2b06bcfb#unexplained_all=1.161] |
+
+- **Rings at 465 px**: [metric:ability_recall/block1-lockdown@c62c2b06bcfb#ring_found=3]
+  of [metric:ability_recall/block1-lockdown@c62c2b06bcfb#ring_n=3], each by
+  the Lockdown candidate, with
+  [metric:ability_recall/block1-lockdown@c62c2b06bcfb#unexplained_ring=0.0]
+  unexplained rings per frame. Over the whole match the candidate is found
+  only inside the three casts. On the null crops
+  [metric:ability_shapes/lockdown-null@null-crops#refused_no_radius=100] of
+  [metric:ability_shapes/lockdown-null@null-crops#n=120] refuse (no radius
+  is measured off Split) and it is found on
+  [metric:ability_shapes/lockdown-null@null-crops#found=0] of the rest.
+- **The 331 px session** is unchanged: Haven measures no Lockdown radius.
+  On a 331 px Split capture the one transform predicts
+  [metric:ability_models/lockdown-measure@c62c2b06bcfb#pred_331_split_px=73.0] px;
+  no such capture has been checked.
+
 ## 11. The labelling loop
 
 The coverage numbers set the loop. Paint frames reach
