@@ -94,6 +94,23 @@ def _date_of(manifest: dict) -> str:
     return manifest["ingested_at"][:10]
 
 
+def _record_inputs(store: Store, sid: str, stream: str, head: dict) -> dict:
+    """Record in `head` the stored stamp of every input `plan` declares for
+    `stream` that the writer did not record itself (`plan.record_inputs`), so
+    `plan` compares what this write read."""
+    from .plan import record_inputs
+    return record_inputs(store, store.read_manifest(sid), stream, head)
+
+
+def _lifetimes_plan_entry(store, sid: str) -> dict | None:
+    """`plan`'s entry for `round_entity` on `sid`, or None when it lists none.
+    `reticle lifetimes` keeps its cache only where this is None, so the
+    command `plan` prints for the stream always recomputes."""
+    from .plan import stale
+    return next((d for d in stale(store, [sid])[sid]["derived"]
+                 if d["stream"] == "round_entity"), None)
+
+
 def _dividers(table, column: str):
     """The packed divider column, or None on a session stored without one.
 
@@ -1405,6 +1422,7 @@ def cmd_scan(args) -> int:
 
         if dp is not None:
             rows = dp.events(sid, geometry.key_of(sid, store.root))
+            _record_inputs(store, sid, "minimap_dark", rows[0])
             path = out.write_events("minimap_dark", sid, rows)
             print(f"minimap dark {rows[0]['frames']} frames, {rows[0]['unobserved']} unobserved -> {path}")
 
@@ -1412,14 +1430,17 @@ def cmd_scan(args) -> int:
         if bp is not None:
             gkey = geometry.key_of(sid, store.root)
             rows = bp.gate_events(sid, gkey)
+            _record_inputs(store, sid, "ability_gate", rows[0])
             path = out.write_events("ability_gate", sid, rows)
             print(f"ability gate {rows[0]['frames']} samples {rows[0]['by_reason']} -> {path}")
             rows = bp.shape_events(sid, gkey)
+            _record_inputs(store, sid, "ability_shape_scan", rows[0])
             path = out.write_events("ability_shape_scan", sid, rows)
             print(f"ability shapes {rows[0]['frames']} gated samples, rings accepted on "
                   f"{rows[0]['rings_accepted']}, beams on {rows[0]['beams_accepted']} -> {path}")
         if R.ip is not None:
             rows = R.ip.events(sid, geometry.key_of(sid, store.root))
+            _record_inputs(store, sid, "ability_icon", rows[0])
             path = out.write_events("ability_icon", sid, rows)
             print(f"ability icons {rows[0]['frames']} samples {rows[0]['by_reason']}, "
                   f"{rows[0]['candidates']} candidates, {rows[0]['verify_lost']} verifies lost "
@@ -2394,11 +2415,19 @@ def cmd_lifetimes(args) -> int:
         stamped = (first.get("round_entity_version"), first.get("round_lifetime_version"),
                    first.get("ally_icon_revision"), first.get("agent_identity_version"),
                    first.get("ally_portrait_refs_version"), first.get("inputs_revision"))
+    # The cache holds only where `plan` would not list this stream: its key
+    # is every input `plan` compares (the HUD the rounds are built from, the
+    # roster, the menu witness, the lineup view with its self-icon rows), so
+    # the command `plan` prints always recomputes.
     if stamped == (ROUND_ENTITY_VERSION, ROUND_LIFETIME_VERSION, source_revision,
                    AGENT_IDENTITY_VERSION, refs_version, inputs_revision) and not args.force:
-        print(f"cache hit  session {sid} already has round entities at "
-              f"{ROUND_ENTITY_VERSION} / {ROUND_LIFETIME_VERSION}; --force to recompute")
-        return 0
+        why = _lifetimes_plan_entry(store, sid)
+        if why is None:
+            print(f"cache hit  session {sid} already has round entities at "
+                  f"{ROUND_ENTITY_VERSION} / {ROUND_LIFETIME_VERSION}; --force to recompute")
+            return 0
+        print(f"cache miss session {sid}: plan lists round_entity "
+              f"(inputs {', '.join(why['inputs_moved']) or 'none'})")
     rounds = build_rounds(store.read_hud(sid, date))
     roster = None
     if store.has_roster(sid, date):
@@ -2426,6 +2455,7 @@ def cmd_lifetimes(args) -> int:
     rows[0]["agent_identity_version"] = AGENT_IDENTITY_VERSION
     rows[0]["ally_portrait_refs_version"] = refs_version
     rows[0]["inputs_revision"] = inputs_revision
+    _record_inputs(store, sid, "round_entity", rows[0])
     out = store.write_events("round_entity", sid, rows)
     cov = rows[0]
     ents = [r for r in rows if r["kind"] == "entity"]
@@ -2813,6 +2843,7 @@ def cmd_vision(args) -> int:
             coverage.update(mode="at_instants", instants=len(instants[sid]),
                             warmup_ms=warmup_ms)
         rows.insert(0, coverage)
+        _record_inputs(store, sid, "team_vision", coverage)
         out = store.write_events("team_vision", sid, rows)
         drawn = widget.get("drawn", 0)
         print(f"{sid}: {len(rows) - 1} frames, {drawn} drawn, "
@@ -2928,6 +2959,7 @@ def cmd_ability_light(args) -> int:
         cap.release()
         rows.insert(0, {**common, "kind": "coverage", "frames": len(rows),
                         "refused_reasons": dict(sorted(refused.items()))})
+        _record_inputs(store, sid, "ability_light", rows[0])
         out = store.write_events("ability_light", sid, rows)
         print(f"{sid}: {len(rows) - 1} frames, refused {dict(refused)} -> {out}")
     return 0
@@ -2953,6 +2985,7 @@ def cmd_combat_report(args) -> int:
         raise SystemExit(f"{sid}: no stored rounds -- run `reticle rounds {sid}` first")
     deaths = player_death_times(store.read_hud(sid, date))
     out_rows = report_events(sid, rows, rounds.to_pylist(), deaths)
+    _record_inputs(store, sid, "combat_report_round", out_rows[0])
     out = store.write_events("combat_report_round", sid, out_rows)
     head = out_rows[0]
     print(f"{sid}: {head['panels']} panels over {head['rounds_with_panel']}/{head['rounds']} rounds; "
@@ -3039,6 +3072,9 @@ def cmd_deaths(args) -> int:
     from .adjudication.death import (DEATH_ADJUDICATION_VERSION, adjudicate_session_deaths,
                                      death_verdict_to_events, stored_second_life)
     from .adjudication.identity import AGENT_IDENTITY_VERSION, load_identity_gallery
+    from .adjudication.killfeed_names import KILLFEED_NAME_CLUSTER_VERSION
+    from .adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
+    from .adjudication.weapon import WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION
     from .lineup import load_lineup
 
     store = Store(args.store)
@@ -3089,8 +3125,9 @@ def cmd_deaths(args) -> int:
     else:
         print(f"{sid}: no minimap_object stream at {minimap_object_version()}; no death is "
               f"placed by an X -- run `reticle minimap-objects {sid}`")
+    hud = store.read_hud(sid, date)
     res = adjudicate_session_deaths(
-        sid, rounds, store.read_hud(sid, date), store.read_roster(sid, date), portraits,
+        sid, rounds, hud, store.read_roster(sid, date), portraits,
         store.read_events("scoreboard", sid), lineup, load_identity_gallery(store.root),
         source_version=KILLFEED_PORTRAIT_VERSION,
         second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION),
@@ -3131,16 +3168,27 @@ def cmd_deaths(args) -> int:
             "xmarks": dict(Counter(f"{r.get('side')}:{(r['metadata'].get('xmark') or {}).get('status', 'none')}"
                                    for r in rows)),
             "xmark_births": None if births is None else len(births),
-            "inputs": {"hud": HUD_VERSION,
+            # The stored HUD table's own stamp, not the code's: the deaths
+            # read the table, whatever stamp it holds.
+            "inputs": {"hud": (hud.schema.metadata or {}).get(b"hud_version", b"").decode()
+                       or "unstamped",
+                       "weapon_adjudication": WEAPON_ADJUDICATION_VERSION,
+                       "weapon_gallery": WEAPON_GALLERY_VERSION,
+                       "killfeed_name_cluster": KILLFEED_NAME_CLUSTER_VERSION,
+                       "scoreboard_agent": SCOREBOARD_AGENT_VERSION,
                        "minimap_object": mo_version if births is not None else None,
                        "ally_icon": (store.events_version("ally_icon", sid)
                                      if births is not None else None), "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
-                       "killfeed_weapon": KILLFEED_WEAPON_VERSION if weapons is not None else None,
-                       "killfeed_name": KILLFEED_NAME_VERSION if names is not None else None,
+                       # The stored stamps, read or not: a stream rescanned
+                       # to the code's stamp makes these deaths stale.
+                       "killfeed_weapon": store.events_version("killfeed_weapon", sid) or "no_rows",
+                       "killfeed_name": store.events_version("killfeed_name", sid) or "no_rows",
                        "scoreboard": store.events_version("scoreboard", sid),
                        "round": rounds[0].get("round_version") if rounds else None,
                        "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION,
                        "reliability": RELIABILITY_VERSION if rel is not None else None}}
+    # The roster, the lineup view and the reliability table's bytes.
+    _record_inputs(store, sid, "death", head)
     out = store.write_events("death", sid, [head] + rows + collisions)
     store.write_events("death_identity", sid, events)
     print(f"{sid}: {len(rows) - head['revives']} deaths and {head['revives']} revives over "
@@ -3311,6 +3359,7 @@ def cmd_smokes(args) -> int:
     menu, menu_stamp = stored_menu(store, sid)
     out_rows = smoke_events(sid, rows, ref.known, menu.at if menu is not None else None,
                             menu_stamp)
+    _record_inputs(store, sid, "smoke", out_rows[0])
     out = store.write_events("smoke", sid, out_rows)
     head = out_rows[0]
     print(f"{sid}: {head['tracks']} smoke tracks, {head['observed_ends']} with an observed end -> {out}")
@@ -3343,6 +3392,7 @@ def _smoke_owners(store, sid: str, smoke_rows: list[dict], hz: float) -> dict:
     sides = lineup_sides(lineup, sid)
     team = set((sides or {}).get("ally", {}).get("named", [])) & set(SMOKE_ABILITY)
     casts, why = None, "player_not_a_team_smoke_agent"
+    stamps: dict = {}
     if player in team:
         drops = store.read_events("tray_drop", sid)
         if not drops:
@@ -3353,9 +3403,14 @@ def _smoke_owners(store, sid: str, smoke_rows: list[dict], hz: float) -> dict:
             man = store.read_manifest(sid)
             table = store.read_rounds(sid, _date_of(man))
             rounds = table.to_pylist() if table is not None else []
-            gate, _ = stored_gate_inputs(store, sid, _date_of(man), rounds, player)
+            gate, stamps = stored_gate_inputs(store, sid, _date_of(man), rounds, player)
             casts, why = player_smoke_casts(drops, rounds, **gate), None
     res = adjudicate(sid, smoke_rows, lineup, hz=hz, tray_casts=casts, tray_reason=why)
+    # The stored inputs the owners were named over: the gate's where it ran,
+    # then the drops, rounds and lineup view (`plan.stream_inputs`).
+    head = res["rows"][0]
+    head["inputs"] = {**(head.get("inputs") or {}), **stamps}
+    _record_inputs(store, sid, "smoke_owner", head)
     out = store.write_events("smoke_owner", sid, res["rows"])
     store.write_events("smoke_owner_identity", sid, res["events"])
     return {**res, "out": out}
@@ -3491,7 +3546,7 @@ def cmd_tray(args) -> int:
             menu_w, menu_stamp = stored_menu(store, sid)
             rows = player_tray_casts(drops, None, None, [],
                                      menu_at=menu_w.at if menu_w is not None else None)
-            stamps = {"tray_kit": "no_rounds", "menu_open": menu_stamp}
+            stamps = {"tray_kit": "no_rounds", "menu_open": menu_stamp, "round": "no_rows"}
         else:
             rounds = table.to_pylist()
             gate, stamps = stored_gate_inputs(store, sid, date, rounds,
@@ -3507,8 +3562,12 @@ def cmd_tray(args) -> int:
         out_rows = [{**common, "kind": "coverage", "samples": sum(real),
                      "spans": "rounds" if cache.record.get("spans") else "whole_capture",
                      "tray_kit": stamps["tray_kit"], "menu_open": stamps["menu_open"],
+                     # the gate's other stored inputs, where it read them
+                     "inputs": {k: v for k, v in stamps.items()
+                                if k not in ("tray_kit", "menu_open")},
                      "drops": len(rows), "player_casts": sum(r["player_cast"] for r in rows),
                      "refused_reasons": dict(sorted(why_not.items()))}]
+        _record_inputs(store, sid, "tray_drop", out_rows[0])
         out_rows += [{**common, "kind": "drop", **r} for r in rows]
         out = store.write_events("tray_drop", sid, out_rows)
         print(f"{sid}: {len(rows)} drops, {out_rows[0]['player_casts']} the player's casts; "
@@ -3659,6 +3718,7 @@ def cmd_minimap_objects(args) -> int:
                 for r in res["rows"]:
                     f.write(json.dumps(r, separators=(",", ":")) + "\n")
         else:
+            _record_inputs(store, sid, "minimap_object", head)
             out = store.write_events("minimap_object", sid, res["rows"])
         print(f"{sid}: {head['read']} of {head['frames']} frames read "
               f"({head['minimap_object_version']}); {head['enemies']} enemies "
@@ -3681,6 +3741,7 @@ def cmd_enemy_tracks(args) -> int:
         if "skipped" in res:
             print(f"{sid}: {res['skipped']} -- skipped")
             continue
+        _record_inputs(store, sid, "enemy_track", res["rows"][0])
         out = store.write_events("enemy_track", sid, res["rows"])
         store.write_events("enemy_track_identity", sid, res["identity"])
         head = res["rows"][0]
@@ -3835,6 +3896,7 @@ def cmd_spike(args) -> int:
         rs = store.read_rounds(sid, man["ingested_at"][:10])
         rt, ra = _stored_alive(store, sid, man)
         got = check(rows, None if rs is None else rs.to_pylist(), rt, ra)
+        _record_inputs(store, sid, "spike_carrier", got[0])
         out = store.write_events("spike_carrier", sid, got)
         c = got[0]
         print(f"{sid}: both read on {c['both_read']} frames, agree {c['agree']}; "
@@ -3910,6 +3972,7 @@ def cmd_tray_kit(args) -> int:
         cov = res["rows"][0]
         cov["checks"] = {"cache_read_s": round(t_read, 1),
                          "wall_s": round(time.perf_counter() - t0, 1)}
+        _record_inputs(store, sid, "tray_kit", cov)
         out = store.write_events("tray_kit", sid, res["rows"])
         store.write_events("tray_kit_identity", sid, res["events"])
         print(f"{sid}: player {cov['player_agent']}; {cov['named']} of {cov['samples']} samples "
@@ -4102,6 +4165,7 @@ def cmd_ability_state(args) -> int:
             agent=agent, params=slot_parameters(agent["agent"], kit, facts, catalogue=catalogue),
             inputs=inputs, checks=checks, spectated=spectated)
         rows[0]["checks"]["wall_s"] = round(time.perf_counter() - t0, 1)
+        _record_inputs(store, sid, "ability_state", rows[0])
         out = store.write_events("ability_state", sid, rows)
         c = rows[0]
         print(f"{sid}: {agent['agent']} ({agent['status']}); {c['readable_slot_samples']} of "
@@ -4254,7 +4318,7 @@ def cmd_ability_shapes(args) -> int:
             print(f"{sid}: no rounds table, so every tray drop is `no_rounds` -- skipped")
             continue
         rounds = table.to_pylist()
-        gate, _stamps = stored_gate_inputs(store, sid, _date_of(man), rounds, agent)
+        gate, stamps = stored_gate_inputs(store, sid, _date_of(man), rounds, agent)
         casts = [d for d in player_tray_casts(
                      [d for d in drops if d.get("kind") == "drop"],
                      gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
@@ -4298,7 +4362,9 @@ def cmd_ability_shapes(args) -> int:
         out_rows = [{**common, "kind": "coverage", "casts": len(casts),
                      "ability_shape_version": ability_shapes.ABILITY_SHAPE_VERSION,
                      "observations": len(rows),
-                     "found": {f"{a}:{f}": n for (a, f), n in sorted(found.items(), key=str)}}]
+                     "found": {f"{a}:{f}": n for (a, f), n in sorted(found.items(), key=str)},
+                     "inputs": stamps}]
+        _record_inputs(store, sid, "ability_shape", out_rows[0])
         out = store.write_events("ability_shape", sid, out_rows + rows)
         print(f"{sid}: {agent}, {len(casts)} casts with a shape model, {len(rows)} crops; "
               f"{out_rows[0]['found']} -> {out}")
@@ -4369,7 +4435,8 @@ def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict], agent: str |
 
     drops = store.read_events("tray_drop", sid)
     if not drops:
-        return None, "no_tray_drops", {}
+        # Read and empty: once drops are stored, the casts are stale.
+        return None, "no_tray_drops", {"tray_drop": "no_rows"}
     if drops[0].get("tray_version") != TRAY_VERSION:
         return None, "tray_drops_stale", {"tray_drop": drops[0].get("tray_version")}
     gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent)
@@ -4404,6 +4471,7 @@ def cmd_ult_cast(args) -> int:
             store, sid, _date_of(man), rounds, player_agent(lineup, sid))
         res = adjudicate(sid, peaks, lineup, rounds, round_version,
                          tray_drops=tray_drops, tray_reason=tray_reason, tray_inputs=tray_inputs)
+        _record_inputs(store, sid, "ult_cast", res["rows"][0])
         out = store.write_events("ult_cast", sid, res["rows"])
         store.write_events("ult_cast_identity", sid, res["events"])
         cov = res["rows"][0]

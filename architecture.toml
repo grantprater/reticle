@@ -38,7 +38,7 @@ modules = ["version", "profiles", "fingerprint", "metrics", "usage", "judgement"
 
 [source]
 claim = "identity, decode, persistence, and the baked (map, profile) geometry"
-modules = ["decode", "store", "geometry"]
+modules = ["decode", "store", "geometry", "input_stamps"]
 
 [primitives]
 claim = "per-frame primitives and the spans built from them"

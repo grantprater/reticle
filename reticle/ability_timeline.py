@@ -521,14 +521,19 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     inputs["kit_returns_ms"] = kit["kit_returns_ms"]
     menu, menu_stamp = stored_menu(store, session_id)
     inputs["menu_at"] = menu.at if menu is not None else None
-    head = lambda rows, key: rows[0].get(key) if rows else None
+    # Each stored input's own stamp, read from its first row (`no_rows` where
+    # none is stored), used or not: `plan` compares these with the stored
+    # heads, so a stream written after this read makes the result stale.
+    from .input_stamps import NO_ROWS, event_stamp
     stamps = {"player_cast": PLAYER_CAST_VERSION,
               "hud": (hud.schema.metadata or {}).get(b"hud_version", b"").decode() or "unstamped",
               "gametime": gametime.GAMETIME_VERSION,
-              "killfeed_portrait": KILLFEED_PORTRAIT_VERSION if badges is not None else None,
-              "death": head(verdicts, "death_adjudication_version"),
-              "combat_report_round": head(report, "combat_report_round_version"),
-              "tray_kit": kit["version"] if kit["reason"] is None else kit["reason"],
+              "killfeed_portrait": event_stamp(store, "killfeed_portrait", session_id,
+                                               "killfeed_portrait_version"),
+              "death": event_stamp(store, "death", session_id, "death_adjudication_version"),
+              "combat_report_round": event_stamp(store, "combat_report_round", session_id,
+                                                 "combat_report_round_version"),
+              "tray_kit": kit["version"] or NO_ROWS, "tray_kit_reason": kit["reason"],
               "menu_open": menu_stamp}
     return inputs, stamps
 

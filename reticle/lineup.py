@@ -168,6 +168,34 @@ def load_lineup(session: str, store) -> dict | None:
     return got
 
 
+def view_stamp(session: str, store) -> str:
+    """The stamp of what `load_lineup` returns now, for its consumers to
+    record: `<file version>@<digest>`, the digest over the lineup file's
+    bytes, the stored `self_icon` rows' bytes, the stored scoreboard stamp and
+    the arbiter's version, the four things the view folds together. `no_rows`
+    where no lineup file is stored. The scoreboard enters by stamp only: a
+    rescan at the same stamp is invisible here, as it is to `plan`."""
+    import hashlib
+    import json
+
+    from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .input_stamps import NO_ROWS, file_sha16
+    from .store import Store
+    f = Path(store) / "lineups" / f"{session}.json"
+    if not f.is_file():
+        return NO_ROWS
+    st = Store(store)
+    parts = {"file": file_sha16(f), "self_icon": file_sha16(st.events_path("self_icon", session)),
+             "scoreboard": st.events_version("scoreboard", session),
+             "agent_identity": AGENT_IDENTITY_VERSION}
+    try:
+        version = json.loads(f.read_text(encoding="utf-8")).get("version")
+    except ValueError:
+        version = "unparsed"
+    digest = hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]
+    return f"{version}@{digest}"
+
+
 def _version_key(stamp: str | None) -> tuple[int, ...] | None:
     """`scoreboard-0.13.0` as (0, 13, 0); None for anything else."""
     tail = (stamp or "").rpartition("-")[2]
