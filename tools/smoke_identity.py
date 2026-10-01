@@ -7,7 +7,8 @@ session it runs two passes over the minimap crop cache, decoding nothing and
 writing nothing into the store:
 
 1. the unified pass: `minimap_dark` beside the ability readers
-   (`ability_scan`), as `reticle scan SID --only ability` builds them;
+   (`ability_scan`, `ability_icons`), as `reticle scan SID --only ability`
+   builds them;
 2. `minimap_dark` alone, as `reticle scan SID --only minimap_dark --from
    cache` builds it.
 
@@ -82,6 +83,7 @@ def _context(store, sid):
 
 def run_pass(store, sid, with_ability: bool, extra=None) -> dict:
     """One cache-fed pass; its readers, frames and wall seconds."""
+    from reticle.ability_icons import icon_reader
     from reticle.ability_scan import shape_reader
     from reticle.minimap_dark import dark_reader
     ctx, man, profile, spans, phase_at, live_rounds = _context(store, sid)
@@ -93,6 +95,9 @@ def run_pass(store, sid, with_ability: bool, extra=None) -> dict:
         bp = shape_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray)
         declare_set(bp, "minimap", profile, ctx.wh)
         readers.append(bp)
+        ip = icon_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray)
+        declare_set(ip, "minimap", profile, ctx.wh)
+        readers.append(ip)
         for make in extra or ():
             r = make(ctx, spans, phase_at, floor)
             declare_set(r, "minimap", profile, ctx.wh)
@@ -183,7 +188,11 @@ def check(store, sid, out_dir: Path) -> dict:
                          "tracks_stored": len(st_tr),
                          "within_250": len(st_tr) - len(exceptions), "exceptions": exceptions},
            "ability_rows": {"gate": len(uni["readers"][1].gate_rows),
-                            "gated": len(uni["readers"][1].shape_rows)}}
+                            "gated": len(uni["readers"][1].shape_rows),
+                            "icon_samples": len(uni["readers"][2].rows),
+                            "icon_read": sum(r["reason"] is None for r in uni["readers"][2].rows),
+                            "icon_candidates": sum(len(r["candidates"] or ())
+                                                   for r in uni["readers"][2].rows)}}
     res["holds"] = bool(same_bytes and same_tracks and shared and same == shared
                         and len(u_tr) == len(st_tr)
                         and all(not (e.get("stored_first_in_cache_grid", False)

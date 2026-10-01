@@ -410,6 +410,13 @@ run therefore costs about 1 to 1.6 hours**, against about 20 minutes for
 smokes alone. The icon proposer is the largest part, the shape fits come
 next, and smokes are the smallest.
 
+**Measured after stage 3.** The unified pass with the full 2 Hz icon search
+took [metric:ability_scan/unified-pass@a06f04a0059f#unified_s=463.9] s on
+`a06f04a0059f`, against the estimate of
+[metric:ability_scan/unified-pass@a06f04a0059f#ref465_full_s=486] s, with
+other agents' jobs sharing the machine. One 465 px session confirms the
+model there; no 331 px session was timed.
+
 The first run should use the full 2 Hz icon search. It doubles as the
 tracking prior's audit: the tracked schedule can be replayed from its rows,
 and the miss rate counted, with no second pass.
@@ -674,7 +681,17 @@ Each stage commits when its evidence holds.
    radius step 1, a full search at 2 Hz, and verify rows. Acceptance: the
    proposer's label scoring as a `tools/` benchmark. Evidence: at least 123
    of 151 hits, at most 6 candidates per null crop, and cost within 20% of
-   section 5.
+   section 5. Held on 2026-09-30 (`reticle/ability_icons.py`,
+   `tools/ability_icon_benchmark.py`):
+   [metric:ability_icons/bench@player-labels#hits=123] of
+   [metric:ability_icons/bench@player-labels#targets=151] hits,
+   [metric:ability_icons/bench@player-labels#null_cands_mean=5.82]
+   candidates per null crop, and a full search of
+   [metric:ability_icons/bench@player-labels#full_ms_331=46.2] ms at 331 px
+   and [metric:ability_icons/bench@player-labels#full_ms_465=125.1] ms at
+   465 px. The benchmark reads the cost bound one-sided: a cheaper search
+   passes. Other agents' jobs shared the machine, unmeasured; an earlier
+   run of the same code was about a quarter faster.
 4. **Recall pass.** The player labels section 10's frames. Acceptance:
    `.\.venv\Scripts\python.exe tools\ability_recall.py`, built in this
    stage over the recall labels. Evidence: entity recall and its lower bound, per widget size.

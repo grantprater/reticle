@@ -125,9 +125,10 @@ _HAND_CHECKED = ("death", "ult_cast", "tray_drop", "ability_shape", "scoreboard_
 def ability_streams() -> list[tuple[str, str, str]]:
     """(stream, stamp key, current stamp) of each stream the ability pass
     writes (`reticle scan <sid> --only ability`, `ability_scan`)."""
-    from .version import ABILITY_GATE_VERSION, ABILITY_SHAPE_VERSION
+    from .version import ABILITY_GATE_VERSION, ABILITY_ICON_VERSION, ABILITY_SHAPE_VERSION
     return [("ability_gate", "ability_gate_version", ABILITY_GATE_VERSION),
-            ("ability_shape_scan", "ability_shape_scan_version", ABILITY_SHAPE_VERSION)]
+            ("ability_shape_scan", "ability_shape_scan_version", ABILITY_SHAPE_VERSION),
+            ("ability_icon", "ability_icon_version", ABILITY_ICON_VERSION)]
 
 
 def derived_streams() -> list[dict]:
@@ -208,9 +209,9 @@ def derived_streams() -> list[dict]:
     for stream, key, current in ability_streams():
         rows.append({"stream": stream, "key": key, "current": current,
                      "command": "reticle scan {sid} --only ability", "how": "cache",
-                     "fields": ({} if stream == "ability_gate"
-                                else {"ability_gate_version": ABILITY_GATE_VERSION}),
-                     "upstream": () if stream == "ability_gate" else ("ability_gate",)})
+                     "fields": ({"ability_gate_version": ABILITY_GATE_VERSION}
+                                if stream == "ability_shape_scan" else {}),
+                     "upstream": ("ability_gate",) if stream == "ability_shape_scan" else ()})
     for stream, parent, command, how in (
             ("death_identity", "death", "reticle deaths {sid}", "storage"),
             ("combat_report_identity", "combat_report_round", "reticle combat-report {sid}",

@@ -1446,6 +1446,22 @@ it says where a fit could find something, never what is there.
 consumers = ["cli"]
 evidence = "tests/test_ability_scan.py, tools/smoke_identity.py"
 
+[[entry]]
+id = "ability-icon"
+question = "Where on a sampled minimap crop are dark compact discs an ability icon may be, and does each one of the previous sample still score there?"
+owner = "ability_icons"
+role = ["detect"]
+status = "partial"
+produces = ["IconTerms", "propose_icons", "verify_icons", "AbilityIconReader", "icon_reader"]
+not_for = """
+Naming the ability, its kind, its side or its caster (`ability-owner`,
+`agent-identity`); tracks and lifecycles (`adjudication.ability`); teal rings
+and beams (`ability-shape`, `ability-gate`); smokes (`minimap-dark`). A
+candidate is a dark disc on the slab, not an ability: most come and go.
+"""
+consumers = ["cli"]
+evidence = "tests/test_ability_icons.py, tools/ability_icon_benchmark.py"
+
 
 [[entry]]
 id = "fact-subject"

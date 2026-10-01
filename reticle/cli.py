@@ -823,11 +823,13 @@ def _live_phase_at(store, sid, date):
     return lambda t: gt.game_time_at(t).phase
 
 
-def _ability_stale(store, sid) -> bool:
-    """Whether any stream of the ability pass is absent or behind its stamp."""
+def _ability_stale(store, sid, streams=None) -> bool:
+    """Whether any of `streams` (default every stream of the ability pass) is
+    absent or behind its stamp."""
     from .plan import ability_streams
     return any(store.events_version(stream, sid) != current
-               for stream, _key, current in ability_streams())
+               for stream, _key, current in ability_streams()
+               if streams is None or stream in streams)
 
 
 def cmd_usage(args) -> int:
@@ -1076,7 +1078,13 @@ def cmd_scan(args) -> int:
         or store.events_version("minimap_dark", sid) != MINIMAP_DARK_VERSION)
     # The ability pass at 2 Hz over the same spans, every caster's drawings:
     # each stream by its own stamp (`ability_scan`).
-    want_ability = 'ability' in channels and (args.force or _ability_stale(store, sid))
+    # The shape reader writes `ability_gate` and `ability_shape_scan`; the
+    # icon reader writes `ability_icon`.
+    want_shapes = 'ability' in channels and (
+        args.force or _ability_stale(store, sid, ("ability_gate", "ability_shape_scan")))
+    want_icons = 'ability' in channels and (
+        args.force or _ability_stale(store, sid, ("ability_icon",)))
+    want_ability = want_shapes or want_icons
     # The combat report over the whole capture at 1 Hz: a header correlation
     # per frame, rows only where a panel may be up.
     want_report = 'combat_report' in channels and (
@@ -1190,16 +1198,23 @@ def cmd_scan(args) -> int:
                 # It reads `frame[box]` alone, so the minimap cache feeds it on
                 # its own grid (`cache_resample`).
                 declare_set(dp, "minimap", profile, ctx.wh)
-        bp = None
+        bp = ip = None
         if want_ability:
             # The ability pass's readers ride the same pass, each under its own
-            # stamp; `minimap_dark` joins only where it is itself stale.
-            from .ability_scan import shape_reader
+            # stamp and only where it is stale; `minimap_dark` joins only where
+            # it is itself stale.
             from .roi_cache import declare_set
-            bp = shape_reader(ctx, spans, phase_at=_live_phase_at(store, sid, date),
-                              floor=mp.floor if mp is not None else None,
-                              sgray=mp.sgray if mp is not None else None)
-            declare_set(bp, "minimap", profile, ctx.wh)
+            phase_at = _live_phase_at(store, sid, date)
+            floor = mp.floor if mp is not None else None
+            sgray = mp.sgray if mp is not None else None
+            if want_shapes:
+                from .ability_scan import shape_reader
+                bp = shape_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray)
+                declare_set(bp, "minimap", profile, ctx.wh)
+            if want_icons:
+                from .ability_icons import icon_reader
+                ip = icon_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray)
+                declare_set(ip, "minimap", profile, ctx.wh)
         cp = None
         if want_report:
             from .combat_report import CombatReportReader
@@ -1212,9 +1227,9 @@ def cmd_scan(args) -> int:
                                     spans=cache_spans, gate=cache_gate)
             except ValueError as exc:
                 raise SystemExit(f"--cache-roi {args.cache_roi}: {exc}")
-        readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, bp, cp, xp) if r is not None]
+        readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, bp, ip, cp, xp) if r is not None]
         return SimpleNamespace(hp=hp, kp=kp, mp=mp, pp=pp, rp=rp, sp=sp, lp=lp, ap=ap,
-                               dp=dp, bp=bp, cp=cp, xp=xp, ctx=ctx, readers=readers)
+                               dp=dp, bp=bp, ip=ip, cp=cp, xp=xp, ctx=ctx, readers=readers)
 
     def live_rounds():
         try:
@@ -1403,6 +1418,12 @@ def cmd_scan(args) -> int:
             path = out.write_events("ability_shape_scan", sid, rows)
             print(f"ability shapes {rows[0]['frames']} gated samples, rings accepted on "
                   f"{rows[0]['rings_accepted']}, beams on {rows[0]['beams_accepted']} -> {path}")
+        if R.ip is not None:
+            rows = R.ip.events(sid, geometry.key_of(sid, store.root))
+            path = out.write_events("ability_icon", sid, rows)
+            print(f"ability icons {rows[0]['frames']} samples {rows[0]['by_reason']}, "
+                  f"{rows[0]['candidates']} candidates, {rows[0]['verify_lost']} verifies lost "
+                  f"-> {path}")
 
         if pp is not None:
             pp.finish()
@@ -1501,7 +1522,7 @@ def _normalise_decoded(R, manifest, store) -> None:
     normalised by `RoiCache.samples`. A placement the frame cannot hold is
     refused by name, never read as an absent widget."""
     from . import widget_frame as wf
-    mine = {id(r) for r in (R.mp, R.pp, R.ap, R.dp, R.bp) if r is not None}
+    mine = {id(r) for r in (R.mp, R.pp, R.ap, R.dp, R.bp, R.ip) if r is not None}
     src = manifest["source"]
     frame = (wf.for_session(manifest, [0, 0, int(src["width"]), int(src["height"])], store.root)
              if mine else None)
