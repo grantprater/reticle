@@ -54,14 +54,25 @@ this circle? At that frame Gekko's icon is drawn without its cone
 [domain:minimap/ally-icon-without-cone]. Why? A dead Clove's smoke menu
 draws a range circle round the Clove's death location
 [domain:abilities/clove-dead-smoke-range-circle]. What is its radius?
+No ability but Clove's is cast while its owner is dead
+[domain:abilities/no-cast-while-dead]. Thirteen placed abilities persist
+after their owner dies (their Duration cells); the list may be incomplete.
+Which others persist? Where a Notes cell asks whether a placed one can be
+activated after its owner dies, the question is a second press on a device
+placed while the owner lived, as Vyse's Arc Rose placed and then flashed.
+Dashes and teleports move an agent farther than running
+[domain:abilities/movement-abilities-are-dashes-and-teleports]; the Notes
+cells that ask it are candidates from the catalogue's wiki function tags
+and descriptions, for the player to confirm or strike. Grenades that
+launch, and abilities that move other agents, are left out.
 
 ## Astra
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Gravity Well | Targeted | shared stars [domain:abilities/astra-stars-shared] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | other (census 1) | ? | ? | ? |
-| Q | Nova Pulse | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | nothing (census 1) | ? | ? | ? |
-| E | Nebula  / Dissipate | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | dark disc [domain:abilities/astra-nebula-minimap-disc]; on a teammate's minimap the star's disc becomes a larger grey disc [domain:abilities/astra-star-ally-minimap-glyph] | ? | ? | global placement [domain:abilities/astra-nebula-global-placement] |
+| C | Gravity Well | Targeted | shared stars [domain:abilities/astra-stars-shared] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | other (census 1) | ? | the placed star persists after Astra dies [domain:abilities/astra-placed-stars-persist-after-death] | can a placed one be activated after its owner dies? |
+| Q | Nova Pulse | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | nothing (census 1) | ? | the placed star persists after Astra dies [domain:abilities/astra-placed-stars-persist-after-death] | can a placed one be activated after its owner dies? |
+| E | Nebula  / Dissipate | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | dark disc [domain:abilities/astra-nebula-minimap-disc]; on a teammate's minimap the star's disc becomes a larger grey disc [domain:abilities/astra-star-ally-minimap-glyph] | ? | the placed star persists after Astra dies [domain:abilities/astra-placed-stars-persist-after-death] | global placement [domain:abilities/astra-nebula-global-placement]; can a placed one be activated after its owner dies? |
 | X | Astral Form / Cosmic Divide | ? | ? | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
 
 ## Breach
@@ -86,9 +97,9 @@ draws a range circle round the Clove's death location
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Trademark | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | white-tinted area, mostly circular [domain:abilities/chamber-trademark-minimap-white-area]; compact icon (census 1) | ? | ? | the player's trip, confirmed as Trademark at Sunset e37fdeca944f 1795.08 s, top mid [domain:abilities/chamber-trademark-minimap-white-area]. The area's radius? |
+| C | Trademark | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | white-tinted area, mostly circular [domain:abilities/chamber-trademark-minimap-white-area]; compact icon (census 1) | ? | the round; persists deactivated after Chamber dies [domain:abilities/chamber-trademark-persists-after-death] | the player's trip, confirmed as Trademark at Sunset e37fdeca944f 1795.08 s, top mid [domain:abilities/chamber-trademark-minimap-white-area]. The area's radius? |
 | Q | Headhunter | Hitscan | 8 [domain:abilities/chamber-headhunter-charges] | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
-| E | Rendezvous | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); movement | ? | nothing (census 1) | ? | ? | ? |
+| E | Rendezvous | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); movement | ? | nothing (census 1) | ? | the round; persists deactivated after Chamber dies [domain:abilities/chamber-rendezvous-persists-after-death] | moves its agent farther than running? (candidate, wiki tag Teleport) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
 | X | Tour De Force | Hitscan | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
 
 ## Clove
@@ -104,9 +115,9 @@ draws a range circle round the Clove's death location
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Trapwire | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | placed; activates on enemy proximity (player 2026-09-26) [domain:abilities/placed-then-activated] | two anchor discs and a wire [domain:abilities/cypher-trapwire] | ? | ? | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/cypher-trapwire-reveal-belief] |
-| Q | Cyber Cage | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); instant | ? | nothing (census 3) | ? | ? | ? |
-| E | Spycam | Placement (Setup) Possession (Post-setup) Missile (Dart) | 1 | 60 s (Destroyed); 15 s (Recalled) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | piloted; second press (RE-USE) | ? | nothing (census 3) | ? | ? | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/cypher-spycam-dart-reveal] |
+| C | Trapwire | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | placed; activates on enemy proximity (player 2026-09-26) [domain:abilities/placed-then-activated] | two anchor discs and a wire [domain:abilities/cypher-trapwire] | ? | persists after Cypher dies [domain:abilities/cypher-trapwire-persists-after-death] | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/cypher-trapwire-reveal-belief] |
+| Q | Cyber Cage | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); instant | ? | nothing (census 3) | ? | ? | can a placed one be activated after its owner dies? |
+| E | Spycam | Placement (Setup) Possession (Post-setup) Missile (Dart) | 1 | 60 s (Destroyed); 15 s (Recalled) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | piloted; second press (RE-USE) | ? | nothing (census 3) | ? | persists after Cypher dies [domain:abilities/cypher-spycam-persists-after-death] | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/cypher-spycam-dart-reveal]; can a placed one be activated after its owner dies? |
 | X | Neural Theft | Targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | nothing (census 3) | ? | ? | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/cypher-neural-theft-reveal] |
 
 ## Deadlock
@@ -114,7 +125,7 @@ draws a range circle round the Clove's death location
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Barrier Mesh | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1) | ? | ? | ? |
-| Q | Sonic Sensor | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | white-tinted area, mostly circular [domain:abilities/deadlock-sonic-sensor-minimap-white-area]; split {'compact_icon': 1, 'nothing': 1} (census 2) | ? | ? | the area's radius? Does a dim sensor keep it? |
+| Q | Sonic Sensor | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | white-tinted area, mostly circular [domain:abilities/deadlock-sonic-sensor-minimap-white-area]; split {'compact_icon': 1, 'nothing': 1} (census 2) | ? | persists after Deadlock dies [domain:abilities/deadlock-sonic-sensor-persists-after-death] | the area's radius? Does a dim sensor keep it? |
 | E | GravNet | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | yellow disc under 0.3 s at detonation [domain:abilities/deadlock-gravnet-detonation-flash] | ? | ? | ? |
 | X | Annihilation | Beam | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | only on a hit, or a very brief flash? [domain:abilities/deadlock-annihilation-minimap] | ? | ? | X pips empty at equip [domain:abilities/deadlock-ult-tray-drop-at-equip] |
 
@@ -159,8 +170,8 @@ draws a range circle round the Clove's death location
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Cloudburst | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE); instant | ? | dark disc (census 2) | ? | see [domain:abilities/jett-cloudburst-duration] | ? |
-| Q | Updraft | Self-targeted | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant; movement | ? | nothing (census 1) | ? | ? | ? |
-| E | Tailwind | Self-targeted | 1 | 2 kills (1 in Escalation) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE, RE-USE); movement | ? | nothing (census 1) | ? | ? | ? |
+| Q | Updraft | Self-targeted | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant; movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Dash; upward) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| E | Tailwind | Self-targeted | 1 | 2 kills (1 in Escalation) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE, RE-USE); movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Dash) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
 | X | Blade Storm | ? | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 
 ## KAY/O
@@ -176,9 +187,9 @@ draws a range circle round the Clove's death location
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Nanoswarm | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | placed, then a second press activates (player 2026-09-26) [domain:abilities/placed-then-activated] | dark icon, white triangle [domain:abilities/killjoy-nanoswarm-minimap-icon] | ? | ? | ? |
-| Q | ALARMBOT | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; recallable | ? | dark disc with line art [domain:abilities/killjoy-alarmbot] | ? | ? | ? |
-| E | TURRET | Placement | 1 | 60 s (Destroyed); 20 s (Recalled) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; recallable | placed; activates on enemy proximity (player 2026-09-26) [domain:abilities/placed-then-activated] | nothing (census 1) | ? | ? | ? |
+| C | Nanoswarm | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | placed, then a second press activates (player 2026-09-26) [domain:abilities/placed-then-activated] | dark icon, white triangle [domain:abilities/killjoy-nanoswarm-minimap-icon] | ? | the round; persists deactivated after Killjoy dies [domain:abilities/killjoy-nanoswarm-persists-after-death] | can a placed one be activated after its owner dies? |
+| Q | ALARMBOT | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; recallable | ? | dark disc with line art [domain:abilities/killjoy-alarmbot] | ? | the round; persists deactivated after Killjoy dies [domain:abilities/killjoy-alarmbot-persists-after-death] | ? |
+| E | TURRET | Placement | 1 | 60 s (Destroyed); 20 s (Recalled) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; recallable | placed; activates on enemy proximity (player 2026-09-26) [domain:abilities/placed-then-activated] | nothing (census 1) | ? | the round; persists deactivated after Killjoy dies [domain:abilities/killjoy-turret-persists-after-death] | ? |
 | X | Lockdown | ? | 9 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | triggers on enemies | ? | compact icon (census 1) | ? | ? | ? |
 
 ## Miks
@@ -196,17 +207,17 @@ draws a range circle round the Clove's death location
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Fast Lane | Missile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | wall segments (census 1) | ? | ? | ? |
 | Q | Relay Bolt | Class 5 Projectile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant | ? | compact icon (census 1) | ? | ? | ? |
-| E | High Gear | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant; movement | ? | nothing (census 2) | an edge overlay, this or Overdrive? [domain:hud/neon-edge-overlay] | ? | ? |
-| X | Overdrive | Hitscan | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | movement | ? | nothing (census 1) | an edge overlay, this or High Gear? [domain:hud/neon-edge-overlay] | ? | ? |
+| E | High Gear | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant; movement | ? | nothing (census 2) | an edge overlay, this or Overdrive? [domain:hud/neon-edge-overlay] | ? | moves its agent farther than running? (candidate, wiki tag Dash) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| X | Overdrive | Hitscan | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | movement | ? | nothing (census 1) | an edge overlay, this or High Gear? [domain:hud/neon-edge-overlay] | ? | moves its agent farther than running? (candidate, possible; regains a slide charge) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
 
 ## Omen
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Shrouded Step | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 4, {'nothing': 3, 'unsure': 1}) | ? | ? | ? |
+| C | Shrouded Step | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 4, {'nothing': 3, 'unsure': 1}) | ? | ? | moves its agent farther than running? (candidate, wiki tag Teleport) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
 | Q | Paranoia | Missile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | travelling icon [domain:abilities/omen-paranoia-minimap-icon] | ? | ? | ? |
 | E | Dark Cover | Missile | 2 | 40 s after use [domain:abilities/omen-dark-cover-restock] | cast on FIRE | ? | dark disc in phases [domain:abilities/omen-dark-cover-minimap-phases] | ? | ? | global placement [domain:abilities/omen-dark-cover-global-placement] |
-| X | From the Shadows | Placement | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | movement | ? | other (census 2) | ? | ? | ? |
+| X | From the Shadows | Placement | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | movement | ? | other (census 2) | ? | ? | moves its agent farther than running? (candidate, wiki tag Teleport) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
 
 ## Phoenix
 
@@ -215,14 +226,14 @@ draws a range circle round the Clove's death location
 | C | Blaze | Missile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE) | ? | orange wall [domain:abilities/phoenix-blaze] | ? | 8 s, from the cast or the wall's completion? [domain:abilities/phoenix-blaze-duration] | ongoing sound [domain:abilities/ability-sound-phases] |
 | Q | Hot Hands | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 [domain:abilities/phoenix-hot-hands-charges] | none within a round [domain:abilities/phoenix-hot-hands-charges] | cast on FIRE | ? | nothing (census 2) | ? | ? | ongoing sound on the ground [domain:abilities/ability-sound-phases] |
 | E | Curveball | Missile | 2 [domain:abilities/phoenix-curveball-charges] | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing [domain:abilities/phoenix-minimap-objects] | ? | ? | ? |
-| X | Run it Back | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | nothing (census 1) | ? | about 10 s [domain:abilities/phoenix-run-it-back-expiry-flash] | X pips never fall; timer bar under the crosshair [domain:hud/ability-timer-bar] |
+| X | Run it Back | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | nothing (census 1) | ? | about 10 s [domain:abilities/phoenix-run-it-back-expiry-flash] | X pips never fall; timer bar under the crosshair [domain:hud/ability-timer-bar]; moves its agent farther than running? (candidate, possible; returns Phoenix to the marker) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
 
 ## Raze
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Boom Bot | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1) | ? | ? | ? |
-| Q | Blast Pack | Class 1 Projectile | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE); instant | ? | nothing (census 2) | ? | ? | ? |
+| Q | Blast Pack | Class 1 Projectile | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE); instant | ? | nothing (census 2) | ? | ? | moves its agent farther than running? (candidate, wiki tag Dash) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
 | E | Paint Shells | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 | X | Showstopper | Missile | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 
@@ -275,8 +286,8 @@ draws a range circle round the Clove's death location
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Crosscut | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | split {'nothing': 1, 'compact_icon': 1} (census 2) | ? | ? | ? |
-| Q | Chokehold | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | white-tinted area, mostly circular [domain:abilities/veto-chokehold-minimap-white-area]; compact icon (census 1) | ? | ? | the player's trip, confirmed as Chokehold [domain:abilities/veto-chokehold-minimap-white-area]. The area's radius? |
+| C | Crosscut | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | split {'nothing': 1, 'compact_icon': 1} (census 2) | ? | ? | moves its agent farther than running? (candidate, wiki tag Teleport) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| Q | Chokehold | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | white-tinted area, mostly circular [domain:abilities/veto-chokehold-minimap-white-area]; compact icon (census 1) | ? | persists after Veto dies [domain:abilities/veto-chokehold-persists-after-death] | the player's trip, confirmed as Chokehold [domain:abilities/veto-chokehold-minimap-white-area]. The area's radius? |
 | E | Interceptor | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE) | ? | nothing (census 1) | ? | ? | ? |
 | X | Evolution | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | ? | ? | ? | ? |
 
@@ -285,17 +296,17 @@ draws a range circle round the Clove's death location
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Snake Bite | Class 3 Projectile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 2) | ? | ? | ? |
-| Q | Poison Cloud | ? | 1 | fuel refills over time [domain:abilities/viper-fuel-bar-recharges] | toggle (RE-USE, RE-USED, fuel) | placed, toggled on and off [domain:abilities/viper-poison-cloud-toggle] | dark disc; emitter outline while off [domain:abilities/viper-poison-cloud-emitter-outline] | ? | ? | ? |
-| E | Toxic Screen | Class 6 Projectile | 1 | fuel refills over time [domain:abilities/viper-fuel-bar-recharges] | toggle (RE-USE, RE-USED, fuel) | ? | wall that grows [domain:abilities/viper-toxic-screen-minimap-growth] | ? | ? | ? |
+| Q | Poison Cloud | ? | 1 | fuel refills over time [domain:abilities/viper-fuel-bar-recharges] | toggle (RE-USE, RE-USED, fuel) | placed, toggled on and off [domain:abilities/viper-poison-cloud-toggle] | dark disc; emitter outline while off [domain:abilities/viper-poison-cloud-emitter-outline] | ? | persists after Viper dies [domain:abilities/viper-poison-cloud-persists-after-death] | can a placed one be activated after its owner dies? |
+| E | Toxic Screen | Class 6 Projectile | 1 | fuel refills over time [domain:abilities/viper-fuel-bar-recharges] | toggle (RE-USE, RE-USED, fuel) | ? | wall that grows [domain:abilities/viper-toxic-screen-minimap-growth] | ? | persists after Viper dies [domain:abilities/viper-toxic-screen-persists-after-death] | can a placed one be activated after its owner dies? |
 | X | Viper's Pit | Placement | 9 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | ends early on a press | ? | nothing (census 2) | green tint inside [domain:abilities/viper-pit-tint] | ? | ? |
 
 ## Vyse
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Razorvine | Class 3 Projectile | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATED) | placed, then a second press activates (player 2026-09-26) [domain:abilities/placed-then-activated] | dark icon near Vyse [domain:abilities/vyse-razorvine-minimap-icon] | ? | ? | ? |
+| C | Razorvine | Class 3 Projectile | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATED) | placed, then a second press activates (player 2026-09-26) [domain:abilities/placed-then-activated] | dark icon near Vyse [domain:abilities/vyse-razorvine-minimap-icon] | ? | persists after Vyse dies [domain:abilities/vyse-razorvine-persists-after-death] | can a placed one be activated after its owner dies? |
 | Q | Shear | Placement | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | placed; activates on enemy proximity (player 2026-09-26) [domain:abilities/placed-then-activated] | other (census 1) | ? | ? | ? |
-| E | Arc Rose | Placement | 1 | 20 s (per use or recalled); 60 s (destroyed) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REUSE) | placed, then a second press activates (player 2026-09-26) [domain:abilities/placed-then-activated] | teal ring (census 1) | ? | ? | ? |
+| E | Arc Rose | Placement | 1 | 20 s (per use or recalled); 60 s (destroyed) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REUSE) | placed, then a second press activates (player 2026-09-26) [domain:abilities/placed-then-activated] | teal ring (census 1) | ? | ? | can a placed one be activated after its owner dies? |
 | X | Steel Garden | Emission | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 
 ## Waylay
@@ -303,15 +314,15 @@ draws a range circle round the Clove's death location
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Saturate | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
-| Q | Lightspeed | Self-targeted | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 1) | ? | ? | ? |
-| E | Refract | Self-targeted | 1 | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); instant; movement | ? | nothing (census 1) | ? | ? | ? |
+| Q | Lightspeed | Self-targeted | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Dash) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| E | Refract | Self-targeted | 1 | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); instant; movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Mobility; speeds back to the beacon) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
 | X | Convergent Paths | Grounded AoE Self-targeted (Buff) | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | wall segments (census 1) | ? | ? | ? |
 
 ## Yoru
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | FAKEOUT | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1) | ? | ? | ? |
+| C | FAKEOUT | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1); an extra player icon [domain:abilities/yoru-fakeout-player-icon] | ? | ? | ? |
 | Q | BLINDSIDE | Class 3 Projectile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
-| E | GATECRASH | Grounded Object (Mobile tether) Placement (Stationary tether) | 2 | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | travelling icon [domain:abilities/yoru-gatecrash-minimap-icon] | ? | ? | ? |
-| X | DIMENSIONAL DRIFT | ? | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (REACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
+| E | GATECRASH | Grounded Object (Mobile tether) Placement (Stationary tether) | 2 | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | travelling icon [domain:abilities/yoru-gatecrash-minimap-icon] | ? | ? | moves its agent farther than running? (candidate, wiki tag Teleport) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| X | DIMENSIONAL DRIFT | ? | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (REACTIVATE) | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, possible; drifts unseen) [domain:abilities/movement-abilities-are-dashes-and-teleports] |

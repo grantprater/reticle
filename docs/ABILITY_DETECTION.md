@@ -668,6 +668,9 @@ full catalogue is the surprise path and must be justified.
   `depends_on` that icon's track identity. The `ability-owner` question gets
   its owner: a new `adjudication.ability_owner` that binds tracks to
   witnesses and asks the arbiter. It never names an agent itself.
+  [ARBITER_ARCHITECTURE.md](ARBITER_ARCHITECTURE.md) makes it the
+  aggregator's ability-owner stage, under the per-ability facts on casting
+  while dead and persisting after the owner's death.
 
 ## 15. Events and the viewer
 

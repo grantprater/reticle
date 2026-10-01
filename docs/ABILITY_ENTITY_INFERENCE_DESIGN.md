@@ -2,6 +2,8 @@
 
 Date: 2026-09-09. Status: milestones A-F implemented; annotation and new capture have
 not been run for this document. Extends [ADJUDICATION_DESIGN.md](ADJUDICATION_DESIGN.md).
+Owner attribution is extended by [ARBITER_ARCHITECTURE.md](ARBITER_ARCHITECTURE.md)
+(proposed 2026-09-30): the aggregator's ability-owner stage.
 
 ## Outcome
 

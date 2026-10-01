@@ -1,14 +1,13 @@
 # Reticle
 
 Vision-based mechanical analysis pipeline for Valorant. The complete project
-guide, including design rationale, measured findings, open defects, and
-historical conventions, is [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md). This file is
-the single root guidance for every agent; `CLAUDE.md` imports it.
+guide is [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md). This file is the single root
+guidance for every agent; `CLAUDE.md` imports it.
 
 ## Start here
 
 Use [`docs/WORKING_MAP.md`](docs/WORKING_MAP.md) for task routing. Read
-`NOTES.md` for the single current handoff, then the `BACKLOG.md` task, then the
+`NOTES.md` (the current handoff), then the `BACKLOG.md` task, then the
 owning module docstring and the relevant section of `PROJECT_GUIDE.md` before
 changing a subsystem. Minimap and prototype work
 also requires `prototypes/CLAUDE.md`; domain attribution and private quotes
@@ -32,9 +31,8 @@ Strunk governs replies, docstrings, commit messages and `NOTES.md` alike:
 - Put statements in positive form.
 - Use concrete language.
 
-The active voice is the load-bearing one. "The geometry rebuilt under me" hid
-an error that "I rebuilt the geometry while my own experiment was reading it"
-states plainly, and the player had to ask what the sentence meant.
+The active voice is the load-bearing one: "the geometry rebuilt under me" hid
+what "I rebuilt the geometry while my experiment read it" states.
 
 ## Global constraints
 
@@ -46,8 +44,8 @@ states plainly, and the player had to ask what the sentence meant.
   Stored timestamps are observation times, and source evidence must precede
   promotion of an inference.
 - Every independent detector/table has its own version stamp and provenance.
-  Recomputable rules use stored data and must not decode video; stale cached
-  geometry must be rebuilt before trusting derived measurements.
+  Recomputable rules use stored data and must not decode video; rebuild stale
+  cached geometry before trusting derived measurements.
 - Raw media is never copied; lossless crops of a fixed reader ROI
   (`roi_cache`) are not a copy (player, 2026-09-25). New readers join shared
   decode passes; gate dense sampling on opportunity rather than outcome. Never
@@ -64,8 +62,8 @@ states plainly, and the player had to ask what the sentence meant.
   field goes into the owning event, never into a recomputing consumer.
 - Run the least work that tests the change. `reticle plan` names the stale
   streams; adjudications rerun from storage; a reader change is checked first
-  with `reticle trial` (stored windows, crop cache, no decode), and a full scan
-  is the acceptance run.
+  with `reticle trial` (stored windows, crop cache, no decode); a full scan is
+  the acceptance run.
 - The HUD and minimap are semi-transparent over the void
   [domain:minimap/transparency]. Search inside the opaque structure; fit a shape
   rather than repairing it with a closing radius [domain:minimap/fit-not-repair];
@@ -76,44 +74,46 @@ states plainly, and the player had to ask what the sentence meant.
   lighting references, detector backgrounds, and all other static map values
   come exclusively from baked geometry keyed by `(map, profile)`. Never add a
   per-session static-map cache or capture median to a reader/prototype; `doctor`
-  enforces this. The only exceptions are the geometry builder itself and
-  `clip_preflight`, whose capture median is restricted to size/placement/orientation.
+  enforces this. The only exceptions are the geometry builder and
+  `clip_preflight`, whose capture median sets only size, placement and orientation.
 - Never use stored-data bounds or a model's own output as independent evidence.
   Keep unresolved and no-contact opportunities so coverage is not biased.
 - **READ THE REFUSAL REASON BEFORE CALLING ANYTHING A BLOCKER.** A count of
-  refusals is a symptom; the cause is usually stored beside it. Counting
-  `lineup`'s refused slots gave *3 of 5 named*, which read as a coverage fact;
-  each slot's `reason` said PAIRWISE TIE, and twelve of 79 refusals were ties a
-  constraint had already broken. Provenance can be perfect while attribution is
+  refusals is a symptom; the cause is usually stored beside it. `lineup`'s
+  refused slots read as *3 of 5 named*, a coverage fact; each slot's `reason`
+  said PAIRWISE TIE, and twelve of 79 refusals were ties a constraint had
+  already broken. Provenance can be perfect while attribution is
   wrong, and no citation check catches it.
-- **CROSS-REFERENCE BEFORE TUNING.** When a detection is wrong, first ask what
-  other channel already observes the same event, and gate one on the other.
+- **CROSS-REFERENCE BEFORE TUNING.** When a detection is wrong, first ask which
+  other channel already observes the event, and gate one on the other.
   Tuning a threshold, mask or morphology on the channel that produced the error
   is the second resort. The precedent is `ally_icons` scored against the
   roster: +0.99 phantom teammates per frame became -0.15 with no change to the
   detector. Agreement is consistency, not accuracy -- store the disagreements.
 - Measure a known baseline before structural edits, then rerun the real command
   and confirm a known result. A parse check alone is not verification.
-- Treat what you know about the system as beliefs held with uncertainty, and
-  update them on evidence. Before acting on an assumption about an owner, a
+- Hold what you know about the system as uncertain beliefs, and update them
+  on evidence. Before acting on an assumption about an owner, a
   detector or a mechanic, check it or state it with a falsifier. Spend effort
-  where uncertainty is largest and a cheap experiment can resolve it, as the
-  pipeline refines where uncertainty exceeds a question's tolerance. Observations
-  are uncertain too, and so are the tools that produce them: a result that
-  surprises may be a tool error, so check the instrument before revising the
-  system belief. A failed prediction revises the belief; record it and carry
+  where uncertainty is largest and a cheap experiment can resolve it,
+  refining only where uncertainty exceeds the question's tolerance.
+  Observations and the tools that produce them are uncertain too: a result
+  that surprises may be a tool error, so check the instrument before revising
+  the system belief. A failed prediction revises the belief; record it and carry
   it into the handoff.
 - **Continue the prior; widen the search only on surprise.** Context predicts
   most of what comes next: the last frame's state, the match's lineup, the
   banner's type, the adjudicated belief the last run left. Start every reading
-  and experiment from that prediction, check it cheaply, and widen the
-  search only where the observation surprises it. A killfeed entry is followed
-  where it was; a smoke is sought from the agents in the match, near where
-  their abilities land; a portrait tile is placed from its banner type's
-  anchor; an experiment revises the belief it tested rather than starting over.
-  Store the surprise, never average it away. A prior never checked is a
-  hidden assumption: the portrait channel assumed an entry keeps its first
-  slot, and lost every view taken after the stack rose. Audit a prior by a
+  and experiment from that prediction, check it cheaply, and widen only
+  where the observation surprises it. A killfeed entry is followed where it
+  was; a smoke is sought where the match's agents' abilities land; a
+  portrait tile is placed from its banner type's anchor; an experiment
+  revises the belief it tested rather than starting over. Store the
+  surprise, never average it away. A surprise may also reopen the earlier
+  verdict it contradicts, which reruns once with the new evidence; store the
+  original, the revision and the surprise. A prior never checked is a hidden
+  assumption: the portrait channel assumed an entry keeps its first slot, and
+  lost every view taken after the stack rose. Audit a prior by a
   full search on opportunity-gated samples at a cadence fixed in advance,
   stored apart, until its efficacy is statistically significant; after that,
   widening on surprise suffices (player, 2026-09-30). A surprise-triggered
@@ -122,22 +122,22 @@ states plainly, and the player had to ask what the sentence meant.
   context allows (the match's agents, the side's five, the slot's predicted
   agent) and why; the full set is the surprise path and must be justified, as
   the lineup reader's 29 agents are before any lineup exists. A prior is
-  evidence, weighed once: a result it shaped declares that it rests on it, so
-  the prior's information is never counted again as an independent witness.
+  evidence, weighed once: a result it shaped declares `rests_on`, so the
+  prior is never counted again as an independent witness.
 - **Ability mechanics are unique per ability** (player, 2026-09-26)
   [domain:abilities/ability-rules-are-unique]: the lifecycle, inputs, minimap
   drawing and screen overlay of one ability predict nothing about another.
   Record each from the player or an observation in `domain/abilities.toml`,
   never by analogy; the questions live in
   [`docs/ABILITY_MECHANICS_SHEET.md`](docs/ABILITY_MECHANICS_SHEET.md), and a
-  census verifies an answer with a targeted demo rather than discovering it.
+  census verifies an answer with a targeted demo, never discovers it.
 - Before a perceptual experiment, state falsifiable predictions and log them in
   the store's `notes/predictions.jsonl`; inspect source images before measuring.
   On the first failed perceptual approach, build the tool that asks the player.
 - Commit whenever a result is verified. `NOTES.md` and `BACKLOG.md` are
   bounded working documents, not logs: `NOTES.md` holds only the current
-  handoff, and `BACKLOG.md` holds open work plus the five latest completed
-  tasks. Rewrite them in place and move what they retire to a dated file under
+  handoff; `BACKLOG.md`, open work plus the five latest completed tasks.
+  Rewrite them in place and move what they retire to a dated file under
   `docs/archive/`. `doctor` HANDOFF checks the limits. An open `BACKLOG.md`
   item carries an `Acceptance:` command and an `Evidence:` standard inside its
   paragraph, and HANDOFF reports items without them.
@@ -146,8 +146,8 @@ states plainly, and the player had to ask what the sentence meant.
 
 ## Repository declarations
 
-`doctor` checks each of these. The arguments for them are in
-`PROJECT_GUIDE.md`, "Repository declarations and why they exist".
+`doctor` checks each of these; `PROJECT_GUIDE.md`, "Repository declarations
+and why they exist", argues for them.
 
 - **Wire or decline.** A prototype named in `notes/predictions.jsonl` is either
   used by `reticle/` or carries `"wire": "no"` with a `"wire_reason"` (PROMOTE).
@@ -170,14 +170,18 @@ states plainly, and the player had to ask what the sentence meant.
   anything, run `reticle ownership` for the question. If an owner exists, call
   it, even when its rule looks like three lines to copy. A restated rule
   compiles, passes its tests and drifts silently.
-- **Every agent name is decided by `adjudication.identity`**, per entity and
-  per side. Readers publish `identity_claim`s. Owners that bind a death, track,
-  row or ability to a witness supply the entity key and ask the arbiter. A
-  claim that rests on another entity's verdict declares `depends_on`. An
+- **Every agent name is decided by `adjudication.identity`**, the
+  aggregator over one arbiter per channel, per entity and side. Each
+  channel pools its own readings and publishes `identity_claim`s through its
+  arbiter; from another channel it takes only a candidate set, a window or a
+  gate, never that channel's verdict on the same entity. Owners that bind a
+  death, track, row or ability to a witness supply the entity key and ask the
+  arbiter. A claim that rests on another entity's verdict declares
+  `depends_on`; an observation a prior placed declares `rests_on`. An
   ownership entry whose output carries a name declares `names_agents = true`
-  and defers to `agent-identity`. OWNERSHIP makes an undeclared name producer,
-  or an identity event built outside the arbiter, an ERROR, and the event
-  validator rejects the event.
+  and defers to `agent-identity`. OWNERSHIP makes an undeclared name
+  producer or an identity event built outside the arbiter an ERROR, and the
+  event validator rejects such an event.
 - **Documents are declared** in `documents.toml`. Register each document, with
   its kind, status and date, in the commit that creates it. A plan becomes
   `implemented`, naming `implemented_by`, or `superseded`, naming
@@ -186,7 +190,6 @@ states plainly, and the player had to ask what the sentence meant.
   files point to them (DOCS).
 
 QUOTED skips `docs/archive/`; DOMAIN checks only citations there.
-`NOTES.md` and `BACKLOG.md` are checked like any other document.
 
 ## Running
 
@@ -200,8 +203,5 @@ At pickup, run `doctor` and inspect `status`.
 
 ## Guide routes
 
-`PROJECT_GUIDE.md` keeps the former guidance verbatim: detector/domain detail,
-pipeline status, north star and measurement rationale, open defects, the
-pre-ingest checklist, the reliability model, conventions and declarations.
-This file holds only the eager index and global constraints; keep historical
-measurements out.
+`PROJECT_GUIDE.md` keeps the former guidance verbatim. This file holds only
+the eager index and global constraints; keep historical measurements out.
