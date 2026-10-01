@@ -2,50 +2,47 @@
 
 ## Picking up
 
-**2026-09-29.** Every branch of the day that was meant to land is merged into master and pushed. The day moved the minimap's facing to the teardrop everywhere, started the scene model the player named as the end goal, and restarted the audio line from clean references. The player's answers of the day stand as facts in `domain/*.toml`, and their exact words are in `~/reticle-notes/DOMAIN.md` (no remote). Nothing is wired that was not scored on the player's labels. The [backlog](BACKLOG.md) holds three active items; the previous handoff is [archived](docs/archive/NOTES-through-2026-09-29.md).
+**2026-10-01.** Master stands at `b218bb3` and is pushed. On 2026-09-30 the entity-event layer landed: `reticle project` writes the death, spike, round-entity and enemy lanes, and `reticle view` draws a round from them alone ([ENTITY_EVENTS.md](docs/ENTITY_EVENTS.md)). The identity rule became one arbiter per channel under the `adjudication.identity` aggregator, and `plan` now compares every input stamp a stream recorded. On 2026-10-01 the killfeed weapon owner learned to refuse an icon it has never seen. The [backlog](BACKLOG.md) holds three active items: the corpus rerun, the killfeed crop faults and the missing killfeed readers. The previous handoff is [archived](docs/archive/NOTES-2026-09-29-to-10-01.md).
 
-`pytest` is now installed in the venv, and the suite passes on master (one expected failure).
+The player's answers stand as facts in `domain/*.toml`; their words stay in `~/reticle-notes/`.
 
-### The minimap facing
+### What `status` and `plan` say
 
-- **Teardrop everywhere.** Every consumer reads icon centre and facing from the teardrop, never the ring fit ([E10](docs/STATISTICAL_ADJUDICATOR.md#e10-the-teardrop-in-every-consumer)). The ring's lobe had been chosen by the same light that later scored it ([E11](docs/STATISTICAL_ADJUDICATOR.md#e11-the-light-chose-the-rings-lobe-then-scored-it)).
-- **331 px widget.** The player labelled self, ally and enemy facings blind at 331 px (`labels/*_facing_331_20260929.jsonl`). The self facing gate there is 0.55 (`teardrop-0.4.0`, `team-vision-0.6.0`); other scales keep 0.6 ([E13](docs/STATISTICAL_ADJUDICATOR.md#e13-the-331-px-self-and-enemy-labels)).
-- **Fusion.** `prototypes/facing_fusion.py` takes the teardrop and tip highlight as the prior and the drawn light as evidence ([E12](docs/STATISTICAL_ADJUDICATOR.md#e12-the-icon-and-the-light-as-two-witnesses-of-one-facing)); not wired.
-- **Icon facts.** The tip highlight is icon art; the enemy lobe is translucent and its rim faint at 331 px; the enemy's dropped spike shows only in team vision; an enemy carrier shows no spike overlay [domain:minimap/icon-tip-highlight] [domain:minimap/enemy-lobe-translucent].
+`reticle status`: 60 sessions ingested, 439 rounds derived; 13 of 17 exact against `checks.KNOWN_KD`; plants on 220 of 439 rounds; one ping session stale.
 
-### The scene model
+`reticle plan` names one crop-cache reread (`ally_icon` on 18 sessions) and storage reruns across nearly every match: `deaths` (`death-adjudication-0.20.0` -> `0.24.0` on 16 sessions), `lifetimes` (`round-entity-0.8.0` -> `0.13.0`), `ability-shapes` (`ability-shape-0.1.0` -> `0.4.0`), `self-icon` (-> `0.5.0`), `vision` (`team-vision-0.3.0` -> `0.6.0`), then `ult-cast`, `ability-state`, `combat-report`, `tray`, `smokes`, `enemy-tracks` and `project`. bfad2778a372's entity lanes are held until its deaths refresh.
 
-[SCENE_MODEL.md](docs/SCENE_MODEL.md) plans one joint render-and-compare detector for every entity on the minimap, then a mesh with the killfeed, chat, roster, tray and audio. Stage 1 ran three times in `prototypes/scene_stack.py`:
+### Landed on 2026-10-01
 
-- 0.1.0 compared class-colour scores and lost badly at 331 px.
-- 0.2.0 rendered RGB over a two-state floor; it matched the teardrop at 465 px and still lost at 331 px.
-- 0.3.0 lights the floor from each team icon's pose. Isolated 331 px self icons improve; stacks get worse, because a neighbour's light or a wall makes a reversed cone cheap ([results](docs/SCENE_MODEL.md#stages-1-and-2-together-030-the-light-from-the-pose)).
+- **Test crash.** `test_usage` stands in for `cv2.VideoCapture` instead of subclassing it; the subclass corrupted pymalloc under OpenCV 5.
+- **Death binding.** A death binds first to the piece the arbiter named its victim, then the nearest sighting (`round-entity-0.11.0`). A piece seen past the dead-icon lag is not the victim (0.12.0), and a death left unbound may end a piece before its segment's last (0.13.0, `seen_after_death`). A player kill joins the entry whose divider agrees at the kill's onset (`death-adjudication-0.22.0`); `plan` stamps the reliability table by its death rule.
+- **Ability candidates and walls.** `ability_candidates` supplies the abilities a lineup allows, each with a drawn size in base px times the map scale; the shape reader fits rings, beams, walls (Barrier Orb) and curves (Blaze). An enemy Killjoy's Lockdown is a yellow ring [domain:abilities/killjoy-lockdown-enemy-minimap-ring]; off Split it refuses as `no_radius_on_map`, since no radius is measured there.
+- **Open-set killfeed icons.** `adjudication.weapon` scores an icon by nearest-exemplar IoU and refuses as `new` (unlike every exemplar) or `ambiguous` (two names too close). It narrows by the actor's kit, then the match's agents, then the full gallery as the surprise path, and audits one entry in ten with the full search. `death-adjudication` owns the entry type: kill, second-life death or revive, with reviver and revived roles [domain:killfeed/entry-types] [domain:killfeed/revive-entries]. The Warden is a new rifle [domain:killfeed/warden-icon]; `weapon-gallery-0.4.0` names twelve Warden entries on 4f207c0c4e39 and changes no other name. `prototypes/label_killfeed_groups.py` lets the player name each group of refused icons.
+- **Ability names.** `ABILITY_CANONICAL_NAMES` had slots swapped for Phoenix, Brimstone, Deadlock and Harbor; it now follows `<store>/reference/abilities.json`, and `tests/test_ability_names.py` guards it. Phoenix's Ability1 is Hot Hands [domain:killfeed/phoenix-hot-hands-icon]. The fix moved one exemplar: `weapon-gallery-0.5.0`, `weapon-adjudication-1.2.0`.
 
-**Unexplained light.** Almost every labelled item shows lit floor no cone reaches. Lingering cones explain little of it and off-crop teammates none ([causes](docs/SCENE_MODEL.md#where-the-unexplained-light-comes-from)). The player named the sources: ability areas (Chamber's Trademark, Veto's Chokehold, Deadlock's Sonic Sensor), piloted drones' cones, the **self audio circle**, and a **dead Clove's smoke-range circle**. No teammate lights a circle round itself [domain:minimap/no-teammate-floor-circle].
+### What the killfeed numbers say
 
-- `prototypes/clove_circle.py` measured the Clove circle on one cast in `C:\Users\grant\Videos\2026-09-28 14-18-06.mp4` (not ingested): drawn only for a dead Clove, centred on the death point, from the cast to just after the smoke lands [domain:abilities/clove-dead-smoke-range-circle].
-- `prototypes/audio_circle.py` measured the self audio circle on `4f207c0c4e39` (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`): a fixed radius, about half a second per sound, extended by the next, not drawn while spectating [domain:minimap/self-audio-circle]. Its proposed fact updates wait on the player.
+Through the tiered search, known icons refused as `new` rose from [metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.3.0#known_refused_new_after=0.0272] at gallery 0.3.0 to [metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.4.0#known_refused_new_after=0.0338] at 0.4.0, for no measured cause. The player named [metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#rows=16] groups of refused rows no icon; most are boxes the weapon reader cut badly, and a channel the reader ignores catches each ([metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#caught_any=16]). A box can also crop an icon too tightly.
 
-### Audio
+### Open questions
 
-The agreed order: clean references, a common-sound bank, the audio-video offset, then fingerprinting.
-
-- **Range demo.** The player recorded and labelled a range clip (`C:\Users\grant\Videos\2026-09-29 18-50-03.mp4`, `labels/sound_demo_20260929.jsonl`) with `prototypes/sound_demo.py`.
-- **Footsteps** draw from a shuffled pool of samples per surface: every block of a pool's length holds each sample once [domain:abilities/footstep-surface-variants].
-- **Bank.** `prototypes/sound_bank.py` names most labelled range events leave-one-out.
-- **Match.** `prototypes/sound_match.py` ran it on the Iso match: knife equips transfer; gun equips and own shots do not. Stereo level difference separates own sounds from others'. The player may have picked up skinned guns [domain:capture/weapon-skins-picked-up].
-- **Circle vs audio.** Audio-circle onsets agree with the bank's own-sound detections only at chance. The orchestrator reads that as the bank's error in match audio (implausible runs of knife equips), not the circle's: use the circle to score the bank. Unresolved: two firing brackets on the Iso match with no circle, at 901.0-902.5 s and 1120.9-1122.9 s.
-
-### A lesson: read the caption at full size
-
-The orchestrator misread a sheet caption as 1497.58 s when it said 49.50 s, and then proposed an 8.5 s time-base offset. A single-frame check showed the crop cache, labels and streams hold true capture time (frame index / 60 fps); the offset hypothesis failed (images in the store's `analysis/timebase-20260929/`). Crop captions before quoting a time, and check the instrument before revising the belief.
+- Orange rings on 043bafca271a (`C:\Users\grant\Videos\2026-08-25 13-59-44.mp4`): whose ability?
+- Regrowth's saturation floor waits on a definition of a rim pixel; the stored floor was measured on pixels already cut at saturation 50, and the Regrowth benchmark fell from 14 to 12.
+- bfad2778a372 (`C:\Users\grant\Videos\2026-08-24 14-45-35.mp4`) shows a Chamber death twice, at 1017.0 s and 1018.5 s.
+- Hunter's Fury's angle is within 3 degrees on 17 of 19 casts, down from 19.
+- The icon benchmark runs 1.8 times slower than before, for no measured cause.
 
 ### Held and unmerged
 
-- `self-spike-tracker-20260929`: the death/spectate part (guard 6) can merge with bumped versions; the minimap tracker waits on on-spike labels, and its defence-side spike handling should become an enemy-style "?".
-- `wip-vision-lifecycle-wiring`: WIP, do not merge.
-- `decodes-20260929` has one unmerged commit (`f54aa93`, the before-rescan summaries); check it before deleting the branch.
+`git log master..<branch>` lists unmerged commits on:
 
-`reticle plan` names the `ally_icon` reread on 21 sessions (a crop-cache rescan; ask before starting) and a `self-icon` storage rerun to `self-icon-0.5.0`.
+- `self-spike-tracker-20260929` (4): the player-dead owner and guard 6 can merge with bumped versions; the minimap tracker waits on on-spike labels.
+- `wip-vision-lifecycle-wiring` (1): WIP, do not merge.
+- `enemy-fix-check-20260930` (1): a held-out check of the teardrop box and the baked-slab gate.
+- `worktree-agent-a18926290da85c09f` (6, local only): the protocol-demo census.
+- `worktree-agent-a3c32f26e36c27c4f` (5, local only): demo glyph mining and tray-drop checks.
+- `experiment/bootstrap-a` (1), `experiment/bootstrap-b` (1), `experiment/bootstrap-integration` (2), local only.
 
-The untracked `prototypes/mechanics_eval.py` belongs to the user and must remain untouched. The [working map](docs/WORKING_MAP.md) routes reading.
+`decodes-20260929` has no unmerged commit left; delete it when convenient.
+
+The untracked `prototypes/mechanics_eval.py` belongs to the user; leave it untouched. The [working map](docs/WORKING_MAP.md) routes reading.
