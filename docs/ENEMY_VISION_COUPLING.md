@@ -154,6 +154,9 @@ drawn with the light in its draw cannot score the light.
   disagreements stored, the form `docs/PRIOR_DRIVEN_READERS.md` gives a
   full-search reader. It is one strand of `docs/SCENE_MODEL.md`'s stage 5
   mesh and needs no stage 3 tint.
+- **Inside the minimap arbiter.** [ARBITER_ARCHITECTURE.md](ARBITER_ARCHITECTURE.md)
+  places this adjudicator in the minimap's channel arbiter and uses I2 and
+  I3 as priors for assigning enemy fragments to the living five.
 
 ## 5. First measurement
 

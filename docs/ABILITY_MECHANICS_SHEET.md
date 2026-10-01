@@ -54,6 +54,12 @@ this circle? At that frame Gekko's icon is drawn without its cone
 [domain:minimap/ally-icon-without-cone]. Why? A dead Clove's smoke menu
 draws a range circle round the Clove's death location
 [domain:abilities/clove-dead-smoke-range-circle]. What is its radius?
+No ability but Clove's is cast while its owner is dead
+[domain:abilities/no-cast-while-dead]. Five sentinel deployables persist,
+deactivated, after their owner dies (the Duration cells of Chamber's
+Trademark and Rendezvous and Killjoy's Nanoswarm, Alarmbot and Turret);
+the list may be incomplete. Which other placed abilities persist after
+their owner's death?
 
 ## Astra
 
@@ -86,9 +92,9 @@ draws a range circle round the Clove's death location
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Trademark | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | white-tinted area, mostly circular [domain:abilities/chamber-trademark-minimap-white-area]; compact icon (census 1) | ? | ? | the player's trip, confirmed as Trademark at Sunset e37fdeca944f 1795.08 s, top mid [domain:abilities/chamber-trademark-minimap-white-area]. The area's radius? |
+| C | Trademark | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | white-tinted area, mostly circular [domain:abilities/chamber-trademark-minimap-white-area]; compact icon (census 1) | ? | the round; persists deactivated after Chamber dies [domain:abilities/chamber-trademark-persists-after-death] | the player's trip, confirmed as Trademark at Sunset e37fdeca944f 1795.08 s, top mid [domain:abilities/chamber-trademark-minimap-white-area]. The area's radius? |
 | Q | Headhunter | Hitscan | 8 [domain:abilities/chamber-headhunter-charges] | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
-| E | Rendezvous | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); movement | ? | nothing (census 1) | ? | ? | ? |
+| E | Rendezvous | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); movement | ? | nothing (census 1) | ? | the round; persists deactivated after Chamber dies [domain:abilities/chamber-rendezvous-persists-after-death] | ? |
 | X | Tour De Force | Hitscan | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
 
 ## Clove
@@ -176,9 +182,9 @@ draws a range circle round the Clove's death location
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Nanoswarm | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | placed, then a second press activates (player 2026-09-26) [domain:abilities/placed-then-activated] | dark icon, white triangle [domain:abilities/killjoy-nanoswarm-minimap-icon] | ? | ? | ? |
-| Q | ALARMBOT | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; recallable | ? | dark disc with line art [domain:abilities/killjoy-alarmbot] | ? | ? | ? |
-| E | TURRET | Placement | 1 | 60 s (Destroyed); 20 s (Recalled) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; recallable | placed; activates on enemy proximity (player 2026-09-26) [domain:abilities/placed-then-activated] | nothing (census 1) | ? | ? | ? |
+| C | Nanoswarm | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | placed, then a second press activates (player 2026-09-26) [domain:abilities/placed-then-activated] | dark icon, white triangle [domain:abilities/killjoy-nanoswarm-minimap-icon] | ? | the round; persists deactivated after Killjoy dies [domain:abilities/killjoy-nanoswarm-persists-after-death] | ? |
+| Q | ALARMBOT | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; recallable | ? | dark disc with line art [domain:abilities/killjoy-alarmbot] | ? | the round; persists deactivated after Killjoy dies [domain:abilities/killjoy-alarmbot-persists-after-death] | ? |
+| E | TURRET | Placement | 1 | 60 s (Destroyed); 20 s (Recalled) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; recallable | placed; activates on enemy proximity (player 2026-09-26) [domain:abilities/placed-then-activated] | nothing (census 1) | ? | the round; persists deactivated after Killjoy dies [domain:abilities/killjoy-turret-persists-after-death] | ? |
 | X | Lockdown | ? | 9 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | triggers on enemies | ? | compact icon (census 1) | ? | ? | ? |
 
 ## Miks

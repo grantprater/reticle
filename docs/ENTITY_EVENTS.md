@@ -23,6 +23,9 @@ resolved, with no uncertainty field. The **ledger** holds everything
 withheld -- ambiguous, abstained, refused, not observed, stale or
 disputed -- with reasons, alternatives and the owner each question goes
 back to. Rules live in `AGENTS.md`; this plan cites them.
+[ARBITER_ARCHITECTURE.md](ARBITER_ARCHITECTURE.md) (proposed 2026-09-30)
+names the owners this projection copies: one arbiter per channel and
+`adjudication.identity` as the aggregator; the projection stays a copy.
 
 Values quoted from rows below are identifiers and row fields, not
 measurements; only stage 1's record in section 6 cites a measured run.

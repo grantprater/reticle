@@ -7,7 +7,10 @@ adjudicators (death, identity, scoreboard, combat report, killfeed names,
 smokes and others), each writing its own versioned events. The graph solver
 this design proposes -- the `schema`, `adapters`, `rules`, `factors/`,
 `graph`, `solve`, `project` and `requests` modules -- and `reticle adjudicate`
-were never built.
+were never built. [ARBITER_ARCHITECTURE.md](ARBITER_ARCHITECTURE.md) (proposed
+2026-09-30) replaces that solver with one arbiter per channel and a staged
+aggregator; this document's objective, contracts, invariants and validation
+stand.
 
 ## Objective
 

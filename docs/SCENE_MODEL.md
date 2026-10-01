@@ -260,6 +260,9 @@ Each stage is scored on the player's labels before the next begins.
    minimap's ability search, then killfeed deaths predicting X marks.
    Enemy icons against the team's vision are one strand, proposed in
    [`ENEMY_VISION_COUPLING.md`](ENEMY_VISION_COUPLING.md).
+   [`ARBITER_ARCHITECTURE.md`](ARBITER_ARCHITECTURE.md) (proposed
+   2026-09-30) would make this mesh, and section 1's state, the aggregator
+   over one arbiter per channel; stages 1-4 stay the minimap's reader.
 
 ### Stage 1 results
 

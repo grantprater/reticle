@@ -112,7 +112,7 @@ kind = "design"
 status = "partial"
 since = "2026-09-27"
 implemented_by = ["owns:position-belief", "cmd:belief"]
-remains = "The graph solver and `reticle adjudicate` were never built."
+remains = "The graph solver and `reticle adjudicate` were never built; docs/ARBITER_ARCHITECTURE.md proposes to replace them with channel arbiters and a staged aggregator."
 
 [[document]]
 path = "docs/BEHAVIOUR_MODEL_DESIGN.md"
@@ -215,7 +215,7 @@ path = "docs/SCENE_MODEL.md"
 kind = "plan"
 status = "proposed"
 since = "2026-09-29"
-remains = "Stages 1 and 2 ran as prototypes/scene_stack.py (0.1.0 keys, 0.2.0 RGB, 0.3.0 light from the pose), unwired: 0.3.0 beats the teardrop on isolated 331 px self icons and loses on stacks and 331 px allies; stages 3-5: the enemy tint, the whole widget, the cross-channel mesh."
+remains = "Stages 1 and 2 ran as prototypes/scene_stack.py (0.1.0 keys, 0.2.0 RGB, 0.3.0 light from the pose), unwired: 0.3.0 beats the teardrop on isolated 331 px self icons and loses on stacks and 331 px allies; stages 3-4: the enemy tint and the whole widget; stage 5's cross-channel mesh is proposed as the aggregator of docs/ARBITER_ARCHITECTURE.md."
 waits_for = "A stacked-icon label set to decide stage 1, and the player's review of the plan."
 
 [[document]]
@@ -403,6 +403,14 @@ path = "docs/EVENT_GAPS.md"
 kind = "findings"
 status = "recorded"
 since = "2026-09-30"
+
+[[document]]
+path = "docs/ARBITER_ARCHITECTURE.md"
+kind = "plan"
+status = "proposed"
+since = "2026-09-30"
+remains = "Every stage: the held-out enemy name labels, the baseline, assignment of enemy fragments to the living five, wiring with the enemy lane, the channel arbiters, ability owners and allies."
+waits_for = "The player's review of the plan, the AGENTS.md draft in its section 3, and the held-out label pass."
 
 [[document]]
 path = "docs/ENEMY_VISION_COUPLING.md"

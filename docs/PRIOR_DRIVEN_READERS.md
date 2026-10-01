@@ -7,7 +7,8 @@ prior; widen the search only on surprise") states the principle and its
 guards; this document audits how each reader uses context today, states the
 pattern for this repository, ranks where a prior would pay, and names the
 code that already follows it and the code that assumes a prior it never
-checks. It builds nothing.
+checks. It builds nothing. [ARBITER_ARCHITECTURE.md](ARBITER_ARCHITECTURE.md)
+(proposed 2026-09-30) applies guards 1 to 4 between channels.
 
 Every figure below comes from stored rows (no decode, no GPU), recorded as
 the run `prior-audit-20260929` under the series `prior_readers_audit/*`. The

@@ -3196,3 +3196,146 @@ measure for this ability alone [domain:abilities/ability-rules-are-unique]
 """
 exceptions = "the duration and the gap between the pulses are unmeasured and may differ from every other ability's"
 see = ["minimap/vision-gate", "minimap/reveal-draws-no-light", "minimap/reveal-icon-duration-belief"]
+
+[no-cast-while-dead]
+claim = """
+No ability can be cast while its owner is dead, except Clove's: a dead Clove
+places Ruse smokes [domain:abilities/clove-smokes-after-death], and Not Dead
+Yet is used in its post-death window [domain:rounds/resurrection-mechanics].
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "abilities:casting-while-dead"
+source = "the player, 2026-09-30 (chat)"
+use = """
+an ability entity born after its candidate owner's death belongs to someone
+else, unless the owner is Clove; bar a dead agent from owning a new cast. A
+device placed before the death is no new cast, and whether it persists is a
+fact per ability [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = """
+unasked: whether a second press on a device placed while alive (ACTIVATE,
+REACTIVATE [domain:abilities/ability-description-verbs]) counts as a cast;
+whether a dead Clove can cast Meddle or Pick-me-up; whether a downed KAY/O
+or a Phoenix in Run It Back counts as dead here
+"""
+see = ["abilities/clove-smokes-after-death", "rounds/resurrection-mechanics",
+       "abilities/ability-rules-are-unique"]
+
+[chamber-rendezvous-persists-after-death]
+claim = """
+Chamber's Rendezvous lasts the round once deployed and persists after
+Chamber dies, deactivated.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "chamber:rendezvous"
+source = "the player, 2026-09-30 (chat)"
+use = """
+a Rendezvous seen after Chamber's death is the same entity, deactivated
+[domain:minimap/device-dim-on-deactivation], never a new cast; it keeps its
+owner
+"""
+exceptions = """
+the player named five persisting abilities as mostly sentinel utility, so
+the persisting set may be incomplete. How the deactivated Rendezvous draws on
+the minimap is unmeasured; the radius is said to show also once deactivated
+[domain:abilities/chamber-rendezvous-minimap-white-radius]
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+       "abilities/chamber-rendezvous-minimap-white-radius", "abilities/ability-rules-are-unique"]
+
+[chamber-trademark-persists-after-death]
+claim = """
+Chamber's Trademark lasts the round once deployed and persists after Chamber
+dies, deactivated.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "chamber:trademark"
+source = "the player, 2026-09-30 (chat)"
+use = """
+a Trademark seen after Chamber's death is the same entity, deactivated
+[domain:minimap/device-dim-on-deactivation], never a new cast; it keeps its
+owner
+"""
+exceptions = """
+the player named five persisting abilities as mostly sentinel utility, so
+the persisting set may be incomplete. Whether the deactivated Trademark keeps
+its circle [domain:abilities/chamber-trademark-minimap-white-area] is
+unmeasured
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+       "abilities/chamber-trademark-minimap-white-area", "abilities/ability-rules-are-unique"]
+
+[killjoy-turret-persists-after-death]
+claim = """
+Killjoy's Turret lasts the round once deployed and persists after Killjoy
+dies, deactivated.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "killjoy:turret"
+source = "the player, 2026-09-30 (chat)"
+use = """
+a Turret seen after Killjoy's death is the same entity, deactivated
+[domain:minimap/device-dim-on-deactivation], never a new cast; it keeps its
+owner
+"""
+exceptions = """
+the player named five persisting abilities as mostly sentinel utility, so
+the persisting set may be incomplete. The deactivated Turret's minimap
+drawing is unmeasured
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+       "abilities/ability-rules-are-unique"]
+
+[killjoy-alarmbot-persists-after-death]
+claim = """
+Killjoy's Alarmbot lasts the round once deployed and persists after Killjoy
+dies, deactivated.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "killjoy:alarmbot"
+source = "the player, 2026-09-30 (chat)"
+use = """
+an Alarmbot seen after Killjoy's death is the same entity, deactivated
+[domain:minimap/device-dim-on-deactivation], never a new cast; it keeps its
+owner
+"""
+exceptions = """
+the player named five persisting abilities as mostly sentinel utility, so
+the persisting set may be incomplete. The deactivated Alarmbot's disc
+[domain:abilities/killjoy-alarmbot] is unmeasured
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+       "abilities/killjoy-alarmbot", "abilities/ability-rules-are-unique"]
+
+[killjoy-nanoswarm-persists-after-death]
+claim = """
+Killjoy's Nanoswarm lasts the round once deployed and persists after Killjoy
+dies, deactivated.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-09-30"
+subject = "killjoy:nanoswarm"
+source = "the player, 2026-09-30 (chat)"
+use = """
+a Nanoswarm seen after Killjoy's death is the same entity, deactivated
+[domain:minimap/device-dim-on-deactivation], never a new cast; it keeps its
+owner
+"""
+exceptions = """
+the player named five persisting abilities as mostly sentinel utility, so
+the persisting set may be incomplete. The deactivated Nanoswarm's icon
+[domain:abilities/killjoy-nanoswarm-minimap-icon] is unmeasured
+"""
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
+       "abilities/killjoy-nanoswarm-minimap-icon", "abilities/ability-rules-are-unique"]
