@@ -42,7 +42,10 @@ from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
 # 0.8.0 (2026-10-01): an icon whose caster is the revived, not the acting
 # role (`REVIVED_CASTER_ICONS`: KAY/O's NULL/cmd in a revive entry), makes no
 # caster claim on the actor.
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.8.0"
+# 0.9.0 (2026-10-01): the kit floor lowers only for an agent whose every
+# killfeed-capable ability a fact lists (`KILLFEED_KITS`) and the gallery
+# holds; no fact lists a whole kit, so no agent's floor lowers yet.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.9.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -445,8 +448,20 @@ NAME_ASPECTS = {"Warden": 3.86}
 #: over ABILITY_MAX_ASPECT) keeps NAME_MIN_IOU, since a Sheriff scores up to
 #: [metric:killfeed_openset/kit_null@weapon-gallery-0.3.0#null_max_gun_shaped=0.82]
 #: against Headhunter [domain:killfeed/chamber-gun-shaped-abilities]. The
-#: null samples other agents' icons, not an agent's own unlabelled abilities.
+#: null samples other agents' icons, not an agent's own unlabelled abilities,
+#: so the floor lowers only where the gallery holds the agent's whole
+#: killfeed kit (`KILLFEED_KITS`): an unlisted ability of the actor's would
+#: otherwise be named as the nearest listed one.
 NAME_KIT_MIN_IOU = 0.52
+
+#: Every ability of an agent that can draw a killfeed weapon-slot icon, per
+#: agent, only where a domain fact lists them all. The facts name some icons
+#: (Aftershock [domain:killfeed/ability-kill-icon], Headhunter and Tour De
+#: Force [domain:killfeed/chamber-gun-shaped-abilities], Blade Storm
+#: [domain:killfeed/jett-blade-storm-icon], the revive icons
+#: [domain:killfeed/revive-entries]) but none says an agent has no other; the
+#: questions are in docs/ABILITY_MECHANICS_SHEET.md, "Killfeed icons".
+KILLFEED_KITS: dict[str, frozenset] = {}
 
 #: The audit of the narrowing: an entry whose key hashes to 0 modulo this also
 #: gets the full search, stored apart (`audit`) and never counted a surprise.
@@ -657,9 +672,20 @@ def _thin_reason(reasons: dict[str, int], n_bound: int) -> str:
 
 
 def kit_names(gallery: dict, agent: Optional[str]) -> frozenset:
+    """The names that take NAME_KIT_MIN_IOU in `agent`'s kit tier: its
+    `ability_shaped_names`, but only when `KILLFEED_KITS` lists the agent and
+    `gallery` holds every name listed; otherwise none, and the floor stays
+    NAME_MIN_IOU."""
+    listed = KILLFEED_KITS.get(agent or "")
+    if not listed or not listed <= {str(n) for n in gallery["names"]}:
+        return frozenset()
+    return ability_shaped_names(gallery, agent)
+
+
+def ability_shaped_names(gallery: dict, agent: Optional[str]) -> frozenset:
     """The ability-shaped names of `agent`'s kit in `gallery`: the names
     `ability_agent` gives to the agent whose exemplars' median aspect is at
-    most ABILITY_MAX_ASPECT. They take NAME_KIT_MIN_IOU in the kit tier."""
+    most ABILITY_MAX_ASPECT."""
     if not agent:
         return frozenset()
     names = np.array([str(n) for n in gallery["names"]])

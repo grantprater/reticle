@@ -321,10 +321,35 @@ class RoleNarrowingTests(unittest.TestCase):
     BREACH = {"agent": "Breach", "entity_id": "death:s:0:0:killer", "role": "killer",
               "channels": ["killfeed_name_cluster"]}
 
+    def test_an_unlisted_kit_does_not_lower_the_floor(self):
+        """With no fact listing Breach's killfeed kit, the faint icon stays new
+        even with Breach acting."""
+        from reticle.adjudication.weapon import KILLFEED_KITS, entry_weapon
+        self.assertNotIn("Breach", KILLFEED_KITS)
+        ev = entry_weapon(self.ENTRY, self._obs(self._grid(12), 1.0), self._gallery(),
+                          agents={"Breach", "Sova"}, actor=self.BREACH)
+        self.assertEqual((ev["status"], ev["reason"], ev["kit_floor_frames"]), ("refused", "new", 0))
+
+    def test_a_listed_kit_the_gallery_lacks_does_not_lower_the_floor(self):
+        """A listed kit lowers the floor only when the gallery holds all of it."""
+        from unittest import mock
+        from reticle.adjudication import weapon
+        with mock.patch.dict(weapon.KILLFEED_KITS,
+                             {"Breach": frozenset({"Aftershock", "Rolling Thunder"})}):
+            self.assertEqual(weapon.kit_names(self._gallery(), "Breach"), frozenset())
+        with mock.patch.dict(weapon.KILLFEED_KITS, {"Breach": frozenset({"Aftershock"})}):
+            self.assertEqual(weapon.kit_names(self._gallery(), "Breach"), frozenset({"Aftershock"}))
+
     def test_the_kit_floor_names_a_faint_ability_the_full_floor_refuses(self):
         """An icon at IoU 0.6 to Aftershock is new without context, Aftershock
-        given Breach as the killer, and that answer rests on the killer."""
+        given Breach as the killer with Breach's kit listed whole, and that
+        answer rests on the killer."""
+        from unittest import mock
+        from reticle.adjudication import weapon
         from reticle.adjudication.weapon import entry_weapon
+        listed = mock.patch.dict(weapon.KILLFEED_KITS, {"Breach": frozenset({"Aftershock"})})
+        listed.start()
+        self.addCleanup(listed.stop)
         gal, rows = self._gallery(), self._obs(self._grid(12), 1.0)
         bare = entry_weapon(self.ENTRY, rows, gal)
         self.assertEqual((bare["status"], bare["reason"]), ("refused", "new"))

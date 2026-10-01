@@ -66,6 +66,21 @@ cells that ask it are candidates from the catalogue's wiki function tags
 and descriptions, for the player to confirm or strike. Grenades that
 launch, and abilities that move other agents, are left out.
 
+## Killfeed icons
+
+Which of an agent's abilities can draw an icon in a killfeed entry's weapon
+slot, and is that list complete? The weapon owner lowers its naming floor
+for the acting agent's abilities only when a fact lists every one
+(`adjudication.weapon.KILLFEED_KITS`, empty until answered). The facts so far
+name icons without closing any list: Breach's Aftershock
+[domain:killfeed/ability-kill-icon]; Chamber's Headhunter and Tour De Force
+[domain:killfeed/chamber-gun-shaped-abilities]; Jett's Blade Storm
+[domain:killfeed/jett-blade-storm-icon]; Sage's Resurrection, Clove's Not
+Dead Yet and KAY/O's NULL/cmd in a revive [domain:killfeed/revive-entries]
+[domain:killfeed/kayo-downed-entry]. For each agent: which abilities can
+kill, down or revive and so draw an icon, and does any other ability draw
+one? An answer of "these and no other" for an agent closes its list.
+
 ## Astra
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
