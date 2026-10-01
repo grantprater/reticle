@@ -343,5 +343,45 @@ class DeclaredStreamTests(unittest.TestCase):
                              ["occluders"])
 
 
+class EnemyLaneStaleTests(unittest.TestCase):
+    """The enemy lane: each fix is part of the `minimap_object` stamp, so a
+    stream read with a fix off is stale, and the tracks and deaths built on it
+    move with it."""
+
+    def _store(self, d):
+        from reticle.minimap_objects import minimap_object_version
+        store = _current_store(Path(d))
+        for stream in ("minimap_object", "enemy_track"):
+            store.events[stream + ":rows"] = [_declared_head(stream)]
+        store.events["minimap_object"] = [{"v": minimap_object_version()}]
+        store.events["death:rows"][0]["inputs"]["minimap_object"] = minimap_object_version()
+        return store
+
+    def test_a_fix_turned_off_stales_the_objects_the_tracks_and_the_deaths(self):
+        from reticle.minimap_objects import minimap_object_version
+        off = minimap_object_version({"teardrop_box": True, "slab_gate": False})
+        with tempfile.TemporaryDirectory() as d:
+            store = self._store(d)
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            store.events["minimap_object:rows"][0]["minimap_object_version"] = off
+            store.events["enemy_track:rows"][0]["minimap_object_version"] = off
+            store.events["minimap_object"] = [{"v": off}]
+            store.events["death:rows"][0]["inputs"]["minimap_object"] = off
+            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            self.assertEqual((derived["minimap_object"]["stored"],
+                              derived["minimap_object"]["how"]), (off, "cache"))
+            self.assertIn("minimap_object_version", derived["enemy_track"]["inputs_moved"])
+            self.assertEqual(derived["death"]["inputs_moved"], ["minimap_object"])
+
+    def test_deaths_built_before_the_x_marks_are_stale_once_they_are_stored(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._store(d)
+            del store.events["death:rows"][0]["inputs"]["minimap_object"]
+            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            self.assertEqual(derived["death"]["inputs_moved"], ["minimap_object"])
+            store.events["minimap_object"] = [{"v": None}]       # none stored: current
+            self.assertNotIn("death", {x["stream"] for x in stale(store, ["s"])["s"]["derived"]})
+
+
 if __name__ == "__main__":
     unittest.main()

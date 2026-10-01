@@ -23,9 +23,9 @@ Controls (the labelling-pass layout where it applies):
 
     space         play / pause           A / D     one frame back / forward
     left / right  1 s back / forward     up / down 5 s forward / back
-    home          round start            1-7       toggle a layer; 0 all on
+    home          round start            1-8       toggle a layer; 0 all on
     M             mark "wrong here": pauses, click to point (optional), then a
-                  layer key 1-7, or U when unsure which layer; Esc cancels
+                  layer key 1-8, or U when unsure which layer; Esc cancels
     right-click   retract the last mark  S         sound on / off
     P             save a screenshot      H         help
     Z             magnified minimap on / off
@@ -53,7 +53,8 @@ import numpy as np
 from . import view_events as ve
 from .profiles import get_profile
 
-ROUND_VIEW_VERSION = "round-view-0.2.0"
+ROUND_VIEW_VERSION = "round-view-0.3.0"
+# 0.3.0 (2026-09-30): draws the enemy lane and the death lane's placed X marks.
 
 # BGR, the overlay's palette where the meaning is the same.
 INK = (236, 233, 230)
@@ -65,10 +66,12 @@ COLOURS = {
     "cone": (235, 180, 80), "kill": (120, 220, 130), "death": (90, 95, 235),
     "ability": (230, 140, 220), "smoke": (200, 200, 200), "spike": (255, 160, 70),
     "ping": (255, 255, 120), "mark": (200, 90, 200),
+    "enemy": (80, 80, 245), "question": (40, 40, 255), "xmark": (245, 245, 245),
 }
 LAYER_COLOUR = {"round_entity": COLOURS["ally"], "team_vision": COLOURS["cone"],
                 "death": COLOURS["death"], "ability": COLOURS["ability"],
-                "spike": COLOURS["spike"], "ping": COLOURS["ping"], "killfeed": INK}
+                "spike": COLOURS["spike"], "ping": COLOURS["ping"], "killfeed": INK,
+                "enemy": COLOURS["enemy"]}
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 STRIP_H = 56
 BELOW_NORMAL = 0x00004000
@@ -329,6 +332,17 @@ def _draw_minimap_item(img, it: ve.Item, ox: float, oy: float, k: float = 1.0,
         return
     p = (int(round(ox + k * it.x)), int(round(oy + k * it.y)))
     c = _colour(it)
+    if it.row_kind == "xmark":
+        d = int(round(5 * k))
+        cv2.drawMarker(img, p, c, cv2.MARKER_TILTED_CROSS, 2 * d, 2, cv2.LINE_AA)
+        if labels:
+            _text(img, it.label, (p[0] + d + 2, p[1] + 4), c, 0.38)
+        return
+    if it.row_kind == "last_known":
+        _text(img, "?", (p[0] - int(4 * k), p[1] + int(5 * k)), c, 0.5 * max(1.0, k * 0.6), 2)
+        if labels:
+            _text(img, it.label, (p[0] + int(7 * k), p[1] - int(6 * k)), c, 0.38)
+        return
     if not labels:
         if it.stream in ("ability_shape", "smoke"):
             cv2.circle(img, p, int(round(k * (it.r or 8))), c, 1, cv2.LINE_AA)
@@ -344,6 +358,9 @@ def _draw_minimap_item(img, it: ve.Item, ox: float, oy: float, k: float = 1.0,
         else:
             _text(img, "?", (p[0] - 16, p[1] - 6), AMBER, 0.45)
         _text(img, it.label, (p[0] - 34, p[1] - 10), c, 0.38)
+    elif it.stream == "entity_enemy":
+        cv2.circle(img, p, int(round(k * (it.r or 8))), c, 2, cv2.LINE_AA)
+        _text(img, it.label, (p[0] + int(10 * k) + 2, p[1] + 14), c, 0.42)
     elif it.stream.endswith("_ledger"):
         # A withheld row, drawn apart: an amber square with its standing.
         d = int(8 * k)
@@ -419,6 +436,13 @@ def _panel_lines(loaded, state, t):
                     if it.reason:
                         txt += f"  -- {it.reason}"
                     lines.append((txt, _colour(it)))
+                elif s == "entity_enemy":
+                    txt = (f"{'? ' if it.row_kind == 'last_known' else ''}{it.label}  "
+                           f"{it.detail.get('identity_status')}  "
+                           f"{(it.entity_id or 'no entity').split(':')[-1]}")
+                    if it.reason:
+                        txt += f"  -- {it.reason}"
+                    lines.append((txt, _colour(it)))
                 elif s == "team_vision":
                     if it.row_kind == "frame" and it.mask is not None:
                         d = it.detail
@@ -451,16 +475,20 @@ def render(frame: np.ndarray, t: float, loaded: ve.Loaded, geo: Geometry,
     if "team_vision" in on:
         _draw_cones(img, geo, loaded.active("team_vision", t))
     mx0, my0, mx1, my1 = geo.minimap
-    mm_items = [it for layer in ("ability", "ping", "spike", "team_vision", "round_entity")
+    mm_items = [it for layer in ("ability", "ping", "spike", "team_vision", "round_entity",
+                                 "death", "enemy")
                 if layer in on
                 for s in next(st for _k, n, st in ve.LAYERS if n == layer)
                 for it in loaded.active(s, t) if it.space == "minimap"]
     inset = None
+    k = INSET_K
     if state.inset:
         crop = img[my0:my1, mx0:mx1]
-        inset = cv2.resize(crop, None, fx=INSET_K, fy=INSET_K, interpolation=cv2.INTER_LINEAR)
+        # A large widget (465 px) at INSET_K would not fit above the strip.
+        k = min(float(INSET_K), (H - 166) / max(1, crop.shape[0]), (W - 32) / max(1, crop.shape[1]))
+        inset = cv2.resize(crop, None, fx=k, fy=k, interpolation=cv2.INTER_LINEAR)
         for it in mm_items:
-            _draw_minimap_item(inset, it, 0, 0, INSET_K)
+            _draw_minimap_item(inset, it, 0, 0, k)
     for it in mm_items:
         _draw_minimap_item(img, it, mx0, my0, 1.0, labels=inset is None)
     if "killfeed" in on:
@@ -473,7 +501,7 @@ def render(frame: np.ndarray, t: float, loaded: ve.Loaded, geo: Geometry,
         ix, iy = W - iw - 16, H - ih - 150
         img[iy:iy + ih, ix:ix + iw] = inset
         cv2.rectangle(img, (ix - 1, iy - 1), (ix + iw, iy + ih), DIM, 1)
-        _text(img, f"minimap x{INSET_K} (Z hides)", (ix + 6, iy + 20), DIM, 0.5)
+        _text(img, f"minimap x{k:.2g} (Z hides)", (ix + 6, iy + 20), DIM, 0.5)
     if state.mark and state.mark.get("point"):
         px, py = map(int, state.mark["point"])
         cv2.drawMarker(img, (px, py), COLOURS["mark"], cv2.MARKER_CROSS, 28, 2)
@@ -509,7 +537,7 @@ def render(frame: np.ndarray, t: float, loaded: ve.Loaded, geo: Geometry,
     msg = state.message
     if state.mark:
         msg = (f"MARK at {ve._hms(state.mark['t'])}: click to point (optional), then a layer "
-               f"1-7, or U if unsure which; Esc cancels")
+               f"1-8, or U if unsure which; Esc cancels")
     if msg:
         (tw, _), _ = cv2.getTextSize(msg, FONT, 0.55, 1)
         _panel(img, W // 2 - tw // 2 - 10, 38, tw + 20, 28)

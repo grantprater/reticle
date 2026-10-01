@@ -3005,12 +3005,27 @@ def cmd_deaths(args) -> int:
     # clusters' assignment.
     from .adjudication.reliability import RELIABILITY_VERSION, load as load_reliability, name_probability
     rel = load_reliability(store.root)
+    # The X marks place deaths: the `minimap_object` stream at the code's
+    # stamp, with the `ally_icon` icons. A stale or missing stream places none.
+    from .adjudication.death import stored_xmark_births
+    from .minimap_objects import minimap_object_version
+    mo_version = store.events_version("minimap_object", sid)
+    births = None
+    if mo_version == minimap_object_version():
+        mo = store.read_events("minimap_object", sid)
+        scale = next((r.get("scale") for r in mo if r.get("kind") == "coverage"), 1.0)
+        births = stored_xmark_births(mo, store.read_events("ally_icon", sid) or [], rounds,
+                                     scale)
+    else:
+        print(f"{sid}: no minimap_object stream at {minimap_object_version()}; no death is "
+              f"placed by an X -- run `reticle minimap-objects {sid}`")
     res = adjudicate_session_deaths(
         sid, rounds, store.read_hud(sid, date), store.read_roster(sid, date), portraits,
         store.read_events("scoreboard", sid), lineup, load_identity_gallery(store.root),
         source_version=KILLFEED_PORTRAIT_VERSION,
         second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION),
-        weapon_observations=weapons, name_observations=names, reliability=rel)
+        weapon_observations=weapons, name_observations=names, reliability=rel,
+        xmarks=births)
     common = {"session_id": sid, "source": "death",
               "death_adjudication_version": DEATH_ADJUDICATION_VERSION}
     rows, events = [], []
@@ -3043,7 +3058,13 @@ def cmd_deaths(args) -> int:
                                              if r.get("is_revive") and r.get("revive_witness"))),
             "plate_refusals": dict(Counter(r["plate_refusal"] for r in rows if r.get("plate_refusal"))),
             "name_clusters": res.get("name_clusters"),
-            "inputs": {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
+            "xmarks": dict(Counter(f"{r.get('side')}:{(r['metadata'].get('xmark') or {}).get('status', 'none')}"
+                                   for r in rows)),
+            "xmark_births": None if births is None else len(births),
+            "inputs": {"hud": HUD_VERSION,
+                       "minimap_object": mo_version if births is not None else None,
+                       "ally_icon": (store.events_version("ally_icon", sid)
+                                     if births is not None else None), "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
                        "killfeed_weapon": KILLFEED_WEAPON_VERSION if weapons is not None else None,
                        "killfeed_name": KILLFEED_NAME_VERSION if names is not None else None,
                        "scoreboard": store.events_version("scoreboard", sid),
@@ -3083,7 +3104,15 @@ def cmd_project(args) -> int:
     lanes = args.lane or list(PROJECTED)
     stale = stale_inputs(store, sid)
     for lane in lanes:
-        s = project_lane(store, sid, lane, stale=stale)
+        try:
+            s = project_lane(store, sid, lane, stale=stale)
+        except ValueError as e:
+            # Every lane by default: one whose input is not stored is named
+            # and skipped; a lane asked for by name still fails.
+            if args.lane or "is not stored" not in str(e):
+                raise
+            print(f"{sid} {lane}: skipped -- {e}")
+            continue
         standings = " ".join(f"{k[len('ledger_'):]} {v}" for k, v in s.items()
                              if k.startswith("ledger_") and k != "ledger_rows")
         print(f"{sid} {lane}: {s['consumer_rows']} consumer rows ({s['consumer_entities']} "
@@ -3527,6 +3556,68 @@ def cmd_self_icon(args) -> int:
               f"({w.get('reference_source')})"
               f"{'' if w['frames'] else ' (' + w.get('reason', '') + ')'}; "
               f"{head['checks']['wall_s']} s -> {out}")
+    return 0
+
+
+def cmd_minimap_objects(args) -> int:
+    """Enemy icons, death X marks of both colours and red "?" marks on every
+    stored minimap crop (`minimap_objects.read_session`), stamped with the
+    fixes on. Decodes no video. `--out` writes the rows to a file instead of
+    the store, for scoring a fix turned off."""
+    import json
+    import time
+
+    from . import minimap_objects as mo
+
+    store = Store(args.store)
+    fixes = dict(mo.ENABLED)
+    if args.no_teardrop_box:
+        fixes["teardrop_box"] = False
+    if args.no_slab_gate:
+        fixes["slab_gate"] = False
+    for sid in _sessions_arg(store, args):
+        t0 = time.perf_counter()
+        res = mo.read_session(store, sid, fixes)
+        if "skipped" in res:
+            print(f"{sid}: {res['skipped']} -- skipped")
+            continue
+        head = res["rows"][0]
+        head["checks"] = {"wall_s": round(time.perf_counter() - t0, 1)}
+        if args.out:
+            out = Path(args.out)
+            with open(out, "w", encoding="utf-8") as f:
+                for r in res["rows"]:
+                    f.write(json.dumps(r, separators=(",", ":")) + "\n")
+        else:
+            out = store.write_events("minimap_object", sid, res["rows"])
+        print(f"{sid}: {head['read']} of {head['frames']} frames read "
+              f"({head['minimap_object_version']}); {head['enemies']} enemies "
+              f"({head['enemies_position_only']} position only), X {head['x_blue']} blue "
+              f"{head['x_red']} red, {head['questions']} '?', {head['candidates_refused']} "
+              f"candidates refused; {head['checks']['wall_s']} s -> {out}")
+    return 0
+
+
+def cmd_enemy_tracks(args) -> int:
+    """Enemy tracks per round from the stored `minimap_object` rows
+    (`enemy_tracks.enemy_session_tracks`), named by the arbiter against the
+    lineup's enemy five. Writes `enemy_track` and `enemy_track_identity`.
+    Decodes no video."""
+    from .enemy_tracks import enemy_session_tracks
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        res = enemy_session_tracks(store, sid)
+        if "skipped" in res:
+            print(f"{sid}: {res['skipped']} -- skipped")
+            continue
+        out = store.write_events("enemy_track", sid, res["rows"])
+        store.write_events("enemy_track_identity", sid, res["identity"])
+        head = res["rows"][0]
+        print(f"{sid}: {head['tracks']} enemy tracks over {head['rounds']} rounds; names "
+              f"{head['identity']}; {head['deaths']} end at a death "
+              f"(unbound {head['death_unbound']}); {head['marks']} '?' marks, "
+              f"{head['marks_bound']} on a track -> {out}")
     return 0
 
 
@@ -5029,7 +5120,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("project", help="project entity lanes from storage: a consumer file "
                                        "and a ledger per lane (no video)")
     s.add_argument("session")
-    s.add_argument("--lane", action="append", choices=("round_entity", "death", "spike"),
+    s.add_argument("--lane", action="append", choices=("round_entity", "death", "spike", "enemy"),
                    help="a lane to project; repeat for more (default: every built lane)")
     s.add_argument("--no-metric", action="store_true",
                    help="do not record entity_events/resolution")
@@ -5077,6 +5168,25 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--all", action="store_true", help="every session with a stored lineup")
     s.add_argument("--step", type=float, default=1.0, help="sampling interval (default 1.0 s)")
     s.set_defaults(func=cmd_self_icon)
+
+    s = sub.add_parser("minimap-objects",
+                       help="enemy icons, death X marks and red '?' marks from stored minimap "
+                            "crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--no-teardrop-box", action="store_true",
+                   help="turn the teardrop box off (the stamp records it)")
+    s.add_argument("--no-slab-gate", action="store_true",
+                   help="turn the baked-slab red-share gate off (the stamp records it)")
+    s.add_argument("--out", help="write the rows to this file instead of the store")
+    s.set_defaults(func=cmd_minimap_objects)
+
+    s = sub.add_parser("enemy-tracks",
+                       help="enemy tracks per round from stored minimap_object rows, named "
+                            "against the lineup's enemy five (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.set_defaults(func=cmd_enemy_tracks)
 
     s = sub.add_parser("spike",
                        help="the spike's minimap glyph and roster marker from stored crops, "

@@ -135,7 +135,10 @@ def derived_streams() -> list[dict]:
     written by `parent`'s command. `how` is what the command reads.
     """
     from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .enemy_tracks import ENEMY_TRACK_VERSION
     from .lighting import LIGHTING_VERSION
+    from .minimap_objects import minimap_object_version
+    from .version import ALLY_PORTRAIT_FEATURES_VERSION
     from .minimap_diagnostics import DIAGNOSTICS_VERSION
     from .minimap_lifecycle import LIFECYCLE_VERSION
     from .roi_cache import ROI_CACHE_VERSION
@@ -192,6 +195,20 @@ def derived_streams() -> list[dict]:
         {"stream": "ability_light", "key": "ability_light_version",
          "current": ABILITY_LIGHT_VERSION, "command": "reticle ability-light {sid}",
          "how": "decode", "fields": {"lighting_version": LIGHTING_VERSION}, "upstream": ()},
+        # The enemy lane: the minimap objects reread the crop cache, and each
+        # fix that is on is part of the stamp; the tracks rerun from storage.
+        {"stream": "minimap_object", "key": "minimap_object_version",
+         "current": minimap_object_version(), "command": "reticle minimap-objects {sid}",
+         "how": "cache",
+         "fields": {**roi, "teardrop_version": TEARDROP_VERSION,
+                    "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION},
+         "upstream": ()},
+        {"stream": "enemy_track", "key": "enemy_track_version", "current": ENEMY_TRACK_VERSION,
+         "command": "reticle enemy-tracks {sid}", "how": "storage",
+         "fields": {"minimap_object_version": minimap_object_version(),
+                    "round_lifetime_version": ROUND_LIFETIME_VERSION,
+                    "agent_identity_version": AGENT_IDENTITY_VERSION},
+         "upstream": ("minimap_object", "death", "rounds")},
     ]
     for stream, parent, command, how in (
             ("death_identity", "death", "reticle deaths {sid}", "storage"),
@@ -199,7 +216,8 @@ def derived_streams() -> list[dict]:
              "storage"),
             ("smoke_owner_identity", "smoke_owner", "reticle smokes {sid}", "storage"),
             ("tray_kit_identity", "tray_kit", "reticle tray-kit {sid}", "cache"),
-            ("ult_cast_identity", "ult_cast", "reticle ult-cast {sid}", "storage")):
+            ("ult_cast_identity", "ult_cast", "reticle ult-cast {sid}", "storage"),
+            ("enemy_track_identity", "enemy_track", "reticle enemy-tracks {sid}", "storage")):
         rows.append({"stream": stream, "key": "producer_version",
                      "current": AGENT_IDENTITY_VERSION, "command": command, "how": how,
                      "fields": {}, "upstream": (parent,), "identity": True})
@@ -276,9 +294,11 @@ def stale(store, sessions: list[str]) -> dict:
     from .adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
     from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
                            KILLFEED_WEAPON_VERSION)
+    from .minimap_objects import minimap_object_version
     from .roi_cache import ROI_CACHE_VERSION
     from .version import (ABILITY_SHAPE_VERSION, ABILITY_STATE_VERSION,
-                          ALLY_PORTRAIT_FEATURES_VERSION, COMBAT_REPORT_ROUND_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
+                          ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
+                          COMBAT_REPORT_ROUND_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
                           ROUND_VERSION, SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION,
                           SELF_ICON_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
                           ULT_LINE_VERSION)
@@ -325,13 +345,21 @@ def stale(store, sessions: list[str]) -> dict:
             want = {"hud": HUD_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
                     "killfeed_weapon": KILLFEED_WEAPON_VERSION,
                     "killfeed_name": KILLFEED_NAME_VERSION, "round": ROUND_VERSION,
-                    "scoreboard": SCOREBOARD_VERSION, "agent_identity": AGENT_IDENTITY_VERSION}
+                    "scoreboard": SCOREBOARD_VERSION, "agent_identity": AGENT_IDENTITY_VERSION,
+                    "minimap_object": minimap_object_version(), "ally_icon": ALLY_ICON_VERSION}
             moved = sorted(k for k, v in want.items() if inputs.get(k) not in (v, None)
                            and not accepted(f"death input {k}", inputs.get(k), v))
+            # The X marks place deaths only from a current `minimap_object`
+            # stream; a table built without one is stale once one is stored.
+            if (inputs.get("minimap_object") is None and "minimap_object" not in moved
+                    and store.events_version("minimap_object", sid) == minimap_object_version()):
+                moved.append("minimap_object")
             # An input the rescan or the round rebuild will rewrite moves too,
             # once it has run.
             moved += sorted(s for s in rescanned | ({"round"} if rounds_stale else set())
-                            if s in want and s not in moved)
+                            if s in want and s not in moved
+                            # the X inputs only where the table read them
+                            and (s not in ("ally_icon", "minimap_object") or inputs.get(s)))
             if version != DEATH_ADJUDICATION_VERSION or moved:
                 derived.append({"stream": "death", "stored": version,
                                 "current": DEATH_ADJUDICATION_VERSION, "inputs_moved": moved,

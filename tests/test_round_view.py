@@ -111,7 +111,7 @@ class Loader(unittest.TestCase):
         self.assertEqual((jett.label, jett.x, jett.y), ("Jett", 50.0, 60.0))
         self.assertIsNone(jett.facing)              # the lane stores no facing
         self.assertEqual(jett.version, "entity-round-entity-0.1.0")
-        self.assertEqual(L.versions["entity_death"], "entity-death-0.1.0")
+        self.assertEqual(L.versions["entity_death"], "entity-death-0.2.0")
         self.assertEqual([it.label for it in L.items["entity_spike"]],
                          ["R1 spike planted at 0:50.0"])
 
@@ -180,7 +180,7 @@ class Loader(unittest.TestCase):
                          ("pose:o1", "entity_round_entity_ledger"))
         row = marks.mark(30500.0, "death", L, geo)
         self.assertEqual(row["nearest"]["event_id"], "death:d1")
-        self.assertEqual(row["nearest"]["version"], "entity-death-0.1.0")
+        self.assertEqual(row["nearest"]["version"], "entity-death-0.2.0")
         marks.retract_last()
         self.assertEqual([r["layer"] for r in rv.Marks(path, SID).live()], ["round_entity"])
 

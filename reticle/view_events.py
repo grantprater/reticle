@@ -36,10 +36,13 @@ from pathlib import Path
 
 from . import entity_events as ee
 
-VIEW_EVENTS_VERSION = "view-events-0.2.0"
+VIEW_EVENTS_VERSION = "view-events-0.3.0"
+# 0.3.0 (2026-09-30): the enemy lane (enemy poses and their red "?"), and
+# each death the death lane places drawn as an X on the minimap.
 
 #: The layers drawn from a projected lane: layer name -> lane.
-LANE_LAYERS = {"round_entity": "round_entity", "death": "death", "spike": "spike"}
+LANE_LAYERS = {"round_entity": "round_entity", "death": "death", "spike": "spike",
+               "enemy": "enemy"}
 
 #: Layer key, layer name, and the streams drawn under it, in key order. A
 #: lane layer draws the lane's consumer stream and its ledger.
@@ -52,12 +55,14 @@ LAYERS = (
     ("5", "spike", ee.lane_streams("spike")),
     ("6", "ping", ("ping",)),
     ("7", "killfeed", ("killfeed_name", "killfeed_portrait", "killfeed_weapon")),
+    ("8", "enemy", ee.lane_streams("enemy")),
 )
 #: The gap census still measures the owners' own streams under the layer a
 #: lane now draws.
 LAYER_OF = {**{s: name for _k, name, streams in LAYERS for s in streams},
             "round_entity": "round_entity", "death": "death", "death_identity": "death",
-            "spike": "spike", "spike_carrier": "spike"}
+            "spike": "spike", "spike_carrier": "spike", "enemy_track": "enemy",
+            "enemy_track_identity": "enemy", "minimap_object": "enemy"}
 
 #: Item statuses drawn amber: a refusal, an abstention, an unread value, or a
 #: ledger standing (a withheld row), never a negative.
@@ -66,7 +71,8 @@ NOT_READ = ("refused", "abstained", "unread", "ambiguous", "not_observed", "disp
 
 #: A lane stream's display hold (ms) for its sampled items: a pose shows
 #: until the next, as `round_entity`'s observations did.
-LANE_HOLD = {"entity_round_entity": 200.0, "entity_round_entity_ledger": 200.0}
+LANE_HOLD = {"entity_round_entity": 200.0, "entity_round_entity_ledger": 200.0,
+             "entity_enemy": 200.0, "entity_enemy_ledger": 200.0}
 
 #: The fields a consumer needs from an event, in the architecture's words:
 #: time, location, orientation, entity-specific state, identity with its
@@ -693,9 +699,23 @@ def _lane_death(ev, t0, t1):
     hold = STREAMS["death"].hold_ms
     ledger = {r["ledger_id"]: r for r in ev.ledger(lane="death")}
     out = []
-    for d in ev.events(lane="death", kinds=("death",), t0_ms=t0 - hold, t1_ms=t1):
+    rounds = {r["round_no"]: r for r in ev.rounds()}
+    for d in ev.events(lane="death", kinds=("death",), t0_ms=None, t1_ms=t1):
         lrow = ledger.get(f"death:{d['entity_id']}")
         status = "ok" if lrow is None else lrow["standing"]
+        pos = d.get("position") or {}
+        rnd = rounds.get(d.get("round")) or {}
+        if pos.get("x") is not None and rnd and d["observed_ms"] <= t1:
+            # The X stays drawn until the round ends [domain:minimap/death-mark-persistence].
+            end = rnd.get("t_end_ms") or d["observed_ms"] + hold
+            if end >= t0:
+                out.append(Item(
+                    "death", consumer, "xmark", d["observed_ms"], end, "minimap",
+                    _agent(d.get("identity")) or "X", status, x=pos["x"], y=pos["y"],
+                    event_id=d["event_id"], version=version, entity_id=d.get("entity_id"),
+                    colour="xmark"))
+        if d["observed_ms"] < t0 - hold:
+            continue
         ident = d.get("identity")
         idtxt = (f"victim {_agent(ident)} by {ident.get('arbiter')}" if ident
                  else d.get("identity_reason") or "")
@@ -753,7 +773,56 @@ def _lane_spike(ev, t0, t1):
     return out
 
 
-_LANE_ITEMS = {"round_entity": _lane_round_entity, "death": _lane_death, "spike": _lane_spike}
+def _lane_enemy(ev, t0, t1):
+    """Enemy poses, each track's red "?" while it is drawn, and the marks no
+    track holds; ledger rows (withheld tracks and refused poses) drawn apart
+    in amber."""
+    consumer, ledger_stream = ee.lane_streams("enemy")
+    version = _lane_version(ev, "enemy")
+    ledger = {r["ledger_id"]: r for r in ev.ledger(lane="enemy")}
+    held_ent = {}
+    for r in ledger.values():
+        v = ee.ledger_value(r)
+        if isinstance(v, dict) and v.get("row") == "entity":
+            held_ent[v["entity_id"]] = (v, r)
+
+    def item(stream, e, ent, status, reason, lrow):
+        pos = e.get("position") or {}
+        agent = _agent((ent or {}).get("identity"))
+        q = e["kind"] == "last_known"
+        t_end = e.get("observed_last_ms") if q else e["observed_ms"]
+        return Item(
+            "enemy", stream, e["kind"], e["observed_ms"], t_end or e["observed_ms"],
+            "minimap", agent or "enemy", status, reason, x=pos.get("x"), y=pos.get("y"),
+            r=pos.get("r"), event_id=e["event_id"], version=version,
+            entity_id=e.get("entity_id"), colour="question" if q else "enemy",
+            detail={"identity_status": status, "ledger_id": (lrow or {}).get("ledger_id"),
+                    "family": (ent or {}).get("family")})
+
+    out = []
+    for e in ev.events(lane="enemy", kinds=("pose", "last_known"), t0_ms=None, t1_ms=t1):
+        t_end = e.get("observed_last_ms") or e["observed_ms"]
+        if t_end < t0:
+            continue
+        ent = ev.entity(e["entity_id"]) or {}
+        lrow = _withheld_by(ledger, ent, "identity")
+        status = "ok" if lrow is None else lrow["standing"]
+        out.append(item(consumer, e, ent, status, None if lrow is None else lrow["reason"],
+                        lrow))
+    for r in ledger.values():
+        v = ee.ledger_value(r)
+        if not (isinstance(v, dict) and v.get("row") == "event"
+                and v.get("kind") in ("pose", "last_known")):
+            continue
+        if not (t0 <= v["observed_ms"] <= t1):
+            continue
+        ent, erow = held_ent.get(v.get("entity_id"), (None, None))
+        out.append(item(ledger_stream, v, ent, r["standing"], (erow or r)["reason"], erow or r))
+    return out
+
+
+_LANE_ITEMS = {"round_entity": _lane_round_entity, "death": _lane_death, "spike": _lane_spike,
+               "enemy": _lane_enemy}
 
 
 def load_lanes(store, session_id: str, t0: float, t1: float):
