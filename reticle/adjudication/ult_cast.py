@@ -162,13 +162,9 @@ def template_class(agent: str, variant: str, sides: dict | None,
 def round_of(t_ms: float, rounds: list[dict]) -> int | None:
     """The round an instant belongs to, by `rounds.in_round_window`: the
     post-round period is the round's own."""
-    from ..rounds import in_round_window
-    ends = {r["t_end_ms"] for r in rounds}
-    e = [{"t_first": t_ms}]
-    for r in rounds:
-        if in_round_window(e, r["t_start_ms"], r["t_end_ms"], r["t_close_ms"], ends):
-            return int(r["round_no"])
-    return None
+    from ..rounds import round_containing as owner_round
+    r = owner_round(t_ms, rounds)
+    return None if r is None else int(r["round_no"])
 
 
 def cast_window(agent: str | None) -> tuple[float, float]:

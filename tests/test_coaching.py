@@ -80,15 +80,36 @@ class CoachingTests(unittest.TestCase):
             observed_states(h, v, rounds, 's')
 
     def test_tracks_clip_bounds_and_unresolved_round(self):
-        h = pa.table(dict(t_ms=[1000., 1500., 2000., 2500.],
-                          kf_kill_mask=[1, 1, 0, 0], kf_death_mask=[0, 0, 1, 0]))
+        deaths = [dict(kind='death_verdict', death_id='death:s:1000:0', t_ms=1000.,
+                       t_last_ms=1500., kf_player_kill=True, kf_player_death=False),
+                  dict(kind='death_verdict', death_id='death:s:2000:1', t_ms=2000.,
+                       kf_player_kill=False, kf_player_death=False),
+                  dict(kind='summary')]
         manifest = dict(session_id='s', source=dict(path='video.mp4', duration_ms=5000))
-        events = player_observations(h, [], manifest)
-        self.assertEqual(len(events), 1)  # one-frame death is not an event
+        events = player_observations(deaths, [], manifest)
+        self.assertEqual(len(events), 1)  # another player's death is not an event
+        self.assertEqual(events[0]['kind'], 'player_kill')
+        self.assertEqual(events[0]['death_id'], 'death:s:1000:0')
         self.assertEqual(events[0]['clip_start_ms'], 0)
         self.assertEqual(events[0]['clip_end_ms'], 5000)
         self.assertIsNone(events[0]['round_no'])
-        self.assertEqual(events, player_observations(h, [], manifest))
+        self.assertEqual(events, player_observations(deaths, [], manifest))
+
+    def test_the_round_is_the_owners_and_flags_are_honoured(self):
+        rounds = [dict(round_no=1, t_start_ms=0., t_end_ms=100000., t_close_ms=107000.,
+                       won=True),
+                  dict(round_no=2, t_start_ms=107000., t_end_ms=200000., t_close_ms=207000.,
+                       won=False)]
+        v = lambda t, **kw: dict(kind='death_verdict', death_id=f'death:s:{int(t)}:0',
+                                 t_ms=t, round_no=1, **kw)
+        deaths = [v(103000., kf_player_kill=True),            # post-round kill
+                  v(50000., kf_player_kill=True, is_revive=True),
+                  v(60000., kf_player_death=True, is_second_life=True)]
+        manifest = dict(session_id='s', source=dict(path='video.mp4'))
+        events = player_observations(deaths, rounds, manifest)
+        self.assertEqual([(e['kind'], e['round_no']) for e in events],
+                         [('player_second_life', 1), ('player_kill', 1)])
+        self.assertNotIn('death_event_round_differs', events[1]['quality_flags'])
 
     def test_event_delta_requires_close_states_from_same_round(self):
         event = dict(session_id='s', round_no=2, t_ms=5000, quality_flags=[])
@@ -229,7 +250,15 @@ class CoachingTests(unittest.TestCase):
             self.assertEqual(report['skipped'][0]['reason'], 'hud_identity_mismatch')
             write_hud_version(HUD_VERSION)
             report = run_coaching(store, [man], out)
+            self.assertEqual(report['skipped'][0]['reason'], 'missing_death')
+            store.write_events('death', 's', [
+                dict(kind='summary', death_adjudication_version='old'),
+                dict(kind='death_verdict', death_id='death:s:1000:0', t_ms=1000.,
+                     t_last_ms=1500., kf_player_kill=True, kf_player_death=False)])
+            report = run_coaching(store, [man], out)
             self.assertEqual(report['n_events'], 1)
+            event = json.loads((out / 'events.jsonl').read_text().splitlines()[0])
+            self.assertIn('death_stream_stale:old', event['quality_flags'])
             before = {p.name: p.read_bytes() for p in out.iterdir()}
             run_coaching(store, [man], out)
             self.assertEqual(before, {p.name: p.read_bytes() for p in out.iterdir()})

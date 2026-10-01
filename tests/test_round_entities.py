@@ -210,3 +210,70 @@ class DeadIntervalTests(unittest.TestCase):
                              [0.0, 1500.0, 6000.0], [5, 4, 5])
         self.assertEqual(out[1]["Clove"][0][:2], (1700.0, 5300.0))
         self.assertIn("roster rise", out[1]["Clove"][0][2])
+
+
+class DeathBindingTests(unittest.TestCase):
+    """`death_binding_refusal`: which ally-side death may end which entity."""
+
+    def _death(self, t, victim, **kw):
+        return {"kind": "death_verdict", "side": "ally", "round_no": 1, "t_ms": t,
+                "victim": victim, "death_id": f"death:s:{int(t)}:0", **kw}
+
+    def _rows(self, icons, deaths, roster=None):
+        events = []
+        for k, t in enumerate((0.0, 67.0, 134.0)):
+            events.append(_frame(k, t))
+            for x, why in icons:
+                icon = _icon(k, t, x, reason=why)
+                icon["observation_key"] = f"s:{k}:{x}"
+                events.append(icon)
+        rows = session_lifetimes("s", events, ROUNDS[:1], 1.0, roster, deaths=deaths)
+        return {r["family"]: r for r in rows if r["kind"] == "entity"}, rows[0]
+
+    def test_a_barrier_takes_no_death_and_no_roster_drop(self):
+        ents, _ = self._rows([(50.0, "interior_is_map")], [self._death(140.0, "Jett")],
+                             roster={"t_ms": [0.0, 150.0], "alive_ally": [5, 4]})
+        self.assertIsNone(ents["barrier"]["death_id"])
+        self.assertNotEqual(ents["barrier"]["end_reason"], "death")
+
+    def test_the_players_death_ends_the_self_entity_not_an_ally(self):
+        ents, cov = self._rows([(50.0, None)],
+                               [self._death(140.0, None, kf_player_death=True)])
+        self.assertEqual(ents["self"]["death_id"], "death:s:140:0")
+        self.assertIsNone(ents["ally"]["death_id"])
+        self.assertEqual(cov["death_unbound"], {})
+
+    def test_a_teammates_death_never_ends_the_self_entity(self):
+        ents, _ = self._rows([], [self._death(140.0, "Jett")])
+        self.assertIsNone(ents["self"]["death_id"])
+
+    def test_revives_and_second_lives_end_no_one(self):
+        from reticle.round_entities import death_binding_refusal
+        ally = {"family": "ally"}
+        self.assertEqual(death_binding_refusal(ally, self._death(0, "Sage", is_revive=True),
+                                               player_agent="Skye", agent=None), "revive")
+        me = {"family": "self"}
+        self.assertEqual(death_binding_refusal(
+            me, self._death(0, "Phoenix", kf_player_death=True, is_second_life=True),
+            player_agent="Phoenix", agent=None), "second_life")
+
+    def test_the_x_and_the_name_must_agree(self):
+        from reticle.round_entities import death_binding_refusal
+        ally = {"family": "ally"}
+        far = self._death(0, "Jett", location=[100.0, 100.0])
+        self.assertEqual(death_binding_refusal(ally, far, player_agent="Skye", agent=None,
+                                               last_xy=(10.0, 10.0)), "death_x_elsewhere")
+        self.assertEqual(death_binding_refusal(ally, self._death(0, "Jett"), player_agent="Skye",
+                                               agent="Fade"), "victim_is_another_agent")
+        self.assertIsNone(death_binding_refusal(ally, far, player_agent="Skye", agent="Jett",
+                                                last_xy=(95.0, 100.0)))
+
+    def test_a_drop_beside_the_players_death_ends_no_ally(self):
+        from reticle.round_entities import drop_binding_refusal
+        self.assertEqual(drop_binding_refusal({"family": "ally"}, 1000.0, [900.0]),
+                         "drop_is_the_player")
+        self.assertIsNone(drop_binding_refusal({"family": "self"}, 1000.0, [900.0]))
+        self.assertEqual(drop_binding_refusal({"family": "self"}, 1000.0, []),
+                         "drop_is_a_teammate")
+        self.assertEqual(drop_binding_refusal({"family": "barrier"}, 1000.0, []),
+                         "barrier_is_not_a_player")

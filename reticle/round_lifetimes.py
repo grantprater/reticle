@@ -56,6 +56,35 @@ UNNUMBERED = ("you", "tray")
 #: the correct links and admits 2.7% of the wrong ones.
 APPEARANCE_MARGIN = 0.15
 
+#: A death's X lies within this of the entity's last position (px * scale):
+#: twice the icon radius `minimap_objects.ICON_PX`.
+BIND_PX = 20.0
+
+
+def death_refusal(death: dict, *, agent: str | None = None, last_xy=None,
+                  scale: float = 1.0) -> str | None:
+    """Why `death` may not end an entity the arbiter named `agent` and last
+    saw at `last_xy`, or None when it may. Every caller of `finish` builds its
+    `admit` predicate on this, so the lanes bind deaths by one rule.
+
+    The death owner's flags come first: a revive entry ends no one, and a
+    second life (Run It Back, a downed KAY/O) is not a death
+    (`adjudication.death.second_life_death`). Then the two witnesses the
+    binding must agree with: the death's X, placed by the death owner, lies
+    within `BIND_PX` * scale of the entity's last position, and the victim is
+    the arbiter's name for the entity. An unnamed entity, a death with no
+    victim, or one with no X is checked on what remains."""
+    if death.get("is_revive"):
+        return "revive"
+    if death.get("is_second_life") or death.get("is_run_it_back"):
+        return "second_life"
+    loc = death.get("location")
+    if loc and last_xy and math.hypot(loc[0] - last_xy[0], loc[1] - last_xy[1]) > BIND_PX * scale:
+        return "death_x_elsewhere"
+    if agent and death.get("victim") and death["victim"] != agent:
+        return "victim_is_another_agent"
+    return None
+
 
 def _intersect(a, b):
     """Histogram intersection, the score `composition` vectors are compared by."""
@@ -556,7 +585,8 @@ class RoundLifetimes:
         ranked.sort()
         return {i for _, _, i in ranked[:capacity]}
 
-    def finish(self, end_ms, *, deaths=None, roster_drops=None, admit=None):
+    def finish(self, end_ms, *, deaths=None, roster_drops=None, admit=None,
+               admit_drop=None):
         """Right-censored or verified termination per entity lifetime.
 
         Categorises entity endings into three physical regimes:
@@ -570,7 +600,9 @@ class RoundLifetimes:
         candidate for an entity before the nearest one is taken, so a death
         another witness rules out stays free for the next entity. This module
         stays blind to names: the caller's predicate asks whatever owner it
-        needs. The default admits every death.
+        needs; `death_refusal` is the shared rule. The default admits every
+        death. `admit_drop(entity, t_drop) -> bool` likewise refuses an
+        entity a roster drop; the default admits every drop.
         """
         if deaths is None and roster_drops is None:
             return [{**{k: v for k, v in e.items() if k != "last_observation"},
@@ -627,7 +659,8 @@ class RoundLifetimes:
                     }
                 else:
                     drop_candidates = [t for t in (roster_drops or [])
-                                       if t not in claimed_drops and abs(t - last_t) <= 2500.0]
+                                       if t not in claimed_drops and abs(t - last_t) <= 2500.0
+                                       and (admit_drop is None or admit_drop(ent, t))]
                     if drop_candidates:
                         best_drop = min(drop_candidates, key=lambda t: abs(t - last_t))
                         claimed_drops.add(best_drop)
