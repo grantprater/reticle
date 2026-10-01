@@ -26,7 +26,12 @@ from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
 
 # 0.5.0 (2026-09-25): `entry_weapon` takes the match's agents and drops ability
 # exemplars no agent there can cast; `ability_agent` names an ability's caster.
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.5.0"
+# 0.6.0 (2026-10-01): a refusal says why. An icon scoring under the floor
+# against every allowed name is `new`; one whose best name clears the floor
+# but not the runner-up's margin is `ambiguous` (they were `no_close_exemplar`
+# and `tie`). An entry too thinly named takes the reason most of its frames
+# gave, and stores every frame's reason (`frame_reasons`).
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-0.6.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -394,6 +399,15 @@ NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
 NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
 NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
 
+#: Why `name_icon` refuses. `new`: no allowed name scores NAME_MIN_IOU, so the
+#: icon may be one the gallery lacks (a new gun such as the Warden
+#: [domain:killfeed/warden-icon], or a known icon drawn badly). `ambiguous`: a
+#: known name clears the floor but another lies within NAME_MARGIN of it. The
+#: two call for different remedies: a new icon for a label, an ambiguous one
+#: for context.
+REFUSE_NEW = "new"
+REFUSE_AMBIGUOUS = "ambiguous"
+
 #: Player names in the mined gallery that are not guns, by what they are.
 #: Chamber's Headhunter and Tour De Force draw gun silhouettes
 #: [domain:killfeed/chamber-gun-shaped-abilities]; "Ability" is a group the
@@ -508,9 +522,9 @@ def _name_icon(grid: np.ndarray, aspect: float, index: dict) -> dict:
     out = {"best": top, "score": round(score, 3), "margin": round(margin, 3),
            "scores": dict(ranked[:5])}
     if score < NAME_MIN_IOU:
-        return dict(out, name=None, reason="no_close_exemplar")
+        return dict(out, name=None, reason=REFUSE_NEW)
     if margin < NAME_MARGIN:
-        return dict(out, name=None, reason="tie")
+        return dict(out, name=None, reason=REFUSE_AMBIGUOUS)
     return dict(out, name=top)
 
 
@@ -564,13 +578,26 @@ def bind_entry(entry: dict, observations: list[dict]) -> list[dict]:
     return bound
 
 
+def _thin_reason(reasons: dict[str, int], n_bound: int) -> str:
+    """Why a thinly named entry refuses: `new` or `ambiguous` when more than
+    half its frames refused for that reason, else `too_few_named` (a short
+    entry whose few frames did name it)."""
+    for why in (REFUSE_NEW, REFUSE_AMBIGUOUS):
+        if 2 * reasons.get(why, 0) > n_bound:
+            return why
+    return "too_few_named"
+
+
 def entry_weapon(entry: dict, observations: list[dict],
                  gallery: Optional[dict] = None, agents=None) -> dict:
     """The weapon or ability behind one killfeed entry, from stored descriptors.
 
     The entry's rows are those `bind_entry` follows. One frame is not an
     answer: the entry is named only when ENTRY_MIN_NAMED frames name it and
-    the top name holds ENTRY_MIN_SHARE of them. `agents`, the match's lineup
+    the top name holds ENTRY_MIN_SHARE of them. A refusal keeps its cause:
+    `new` or `ambiguous` when most frames refused that way (`_thin_reason`),
+    `too_few_named` or `frames_disagree` otherwise, with every frame's reason
+    in `frame_reasons`. `agents`, the match's lineup
     (both sides), drops the abilities no one there can cast before naming; the
     names dropped are kept with the answer, which then rests on that lineup.
     """
@@ -587,16 +614,20 @@ def entry_weapon(entry: dict, observations: list[dict],
         out["restricted_to_lineup"] = dropped
     bound = bind_entry(entry, observations)
     names: dict[str, int] = {}
+    reasons: dict[str, int] = {}
     index = _icon_index(gallery) if bound else None
     for o in bound:
-        n = _name_icon(unpack_icon_grid(o["grid"]), o["aspect"], index)["name"]
-        if n is not None:
-            names[n] = names.get(n, 0) + 1
-    out.update(observations=len(bound), named=sum(names.values()), names=names)
+        v = _name_icon(unpack_icon_grid(o["grid"]), o["aspect"], index)
+        if v["name"] is not None:
+            names[v["name"]] = names.get(v["name"], 0) + 1
+        else:
+            reasons[v["reason"]] = reasons.get(v["reason"], 0) + 1
+    out.update(observations=len(bound), named=sum(names.values()), names=names,
+               frame_reasons=reasons)
     if not bound:
         return dict(out, reason="no_observation")
     if out["named"] < ENTRY_MIN_NAMED:
-        return dict(out, reason="too_few_named")
+        return dict(out, reason=_thin_reason(reasons, len(bound)))
     top = max(names, key=names.get)
     if names[top] < ENTRY_MIN_SHARE * out["named"]:
         return dict(out, reason="frames_disagree")

@@ -154,7 +154,7 @@ class WeaponAttributionTests(unittest.TestCase):
         from reticle.adjudication.weapon import icon_grid, name_icon
         mined = self._mined([("Vandal", self._shape(70, 10)), ("Phantom", self._shape(70, 10))])
         grid, aspect = icon_grid(extract_icon_observation(self._shape(70, 10)).white_mask)
-        self.assertEqual(name_icon(grid, aspect, mined)["reason"], "tie")
+        self.assertEqual(name_icon(grid, aspect, mined)["reason"], "ambiguous")
 
     def test_mined_gallery_refuses_a_far_icon(self):
         """An icon no exemplar resembles gets no name from the mined gallery."""
@@ -163,7 +163,7 @@ class WeaponAttributionTests(unittest.TestCase):
         block = np.zeros((34, 74, 3), dtype=np.uint8)
         block[8:26, 2:72] = 255                # same box, half its area unlike the gun
         grid, aspect = icon_grid(extract_icon_observation(block).white_mask)
-        self.assertEqual(name_icon(grid, aspect, mined)["reason"], "no_close_exemplar")
+        self.assertEqual(name_icon(grid, aspect, mined)["reason"], "new")
 
     def test_mined_gallery_chamber_ability_is_not_a_gun(self):
         """Headhunter draws a revolver but is an ability, not a sidearm."""
@@ -215,6 +215,26 @@ class WeaponAttributionTests(unittest.TestCase):
         rows = self._rows(mined, [(0, 0, 200, 74, vandal)])
         ev = entry_weapon({"t_first": 0, "t_last": 500, "slot": 0, "sig": 200}, rows, mined)
         self.assertEqual((ev["status"], ev["reason"]), ("refused", "too_few_named"))
+
+    def test_entry_weapon_refuses_an_unknown_icon_as_new(self):
+        """Frames that score low against every allowed name refuse as new, not as too few."""
+        from reticle.adjudication.weapon import entry_weapon
+        mined = self._mined([("Vandal", self._shape(70, 10))])
+        block = np.zeros((34, 74, 3), dtype=np.uint8)
+        block[8:26, 2:72] = 255
+        rows = self._rows(mined, [(t, 0, 200, 74, block) for t in (0, 500, 1000)])
+        ev = entry_weapon({"t_first": 0, "t_last": 1000, "slot": 0, "sig": 200}, rows, mined)
+        self.assertEqual((ev["status"], ev["reason"], ev["frame_reasons"]),
+                         ("refused", "new", {"new": 3}))
+
+    def test_entry_weapon_refuses_a_tied_icon_as_ambiguous(self):
+        """Frames whose two best names lie within the margin refuse as ambiguous."""
+        from reticle.adjudication.weapon import entry_weapon
+        vandal = self._shape(70, 10)
+        mined = self._mined([("Vandal", vandal), ("Phantom", self._shape(70, 10))])
+        rows = self._rows(mined, [(t, 0, 200, 74, vandal) for t in (0, 500, 1000)])
+        ev = entry_weapon({"t_first": 0, "t_last": 1000, "slot": 0, "sig": 200}, rows, mined)
+        self.assertEqual((ev["status"], ev["reason"]), ("refused", "ambiguous"))
 
     def test_entry_weapon_ability_group_names_the_cause_not_a_weapon(self):
         """A group the player knew only as an ability gives the cause, with no name."""

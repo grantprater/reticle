@@ -5,7 +5,8 @@ r"""Open-set killfeed icons, step 1: can the owner's score tell a new icon from 
 
 `adjudication.weapon.name_icon` [owns:killfeed-weapon] scores an icon by its
 best aspect-gated IoU over the mined gallery and refuses below NAME_MIN_IOU
-(`no_close_exemplar`) or under NAME_MARGIN (`tie`). This prototype measures
+(`no_close_exemplar`, `new` since
+weapon-adjudication-0.6.0) or under NAME_MARGIN (`tie`, now `ambiguous`). This prototype measures
 whether that score separates a NEW icon (its name absent from the gallery)
 from a KNOWN one, without changing the owner.
 
@@ -132,7 +133,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from reticle import metrics  # noqa: E402
 from reticle.adjudication.weapon import (  # noqa: E402
-    MINED_NOT_GUN, NAME_ASPECT_TOL, NAME_MARGIN, NAME_MIN_IOU, WEAPON_ADJUDICATION_VERSION,
+    MINED_NOT_GUN, NAME_ASPECT_TOL, NAME_MARGIN, NAME_MIN_IOU, REFUSE_AMBIGUOUS, REFUSE_NEW,
+    WEAPON_ADJUDICATION_VERSION,
     WEAPON_GALLERY_VERSION, _icon_index, _name_icon, entry_weapon, mined_gallery_path,
     name_icon, restrict_gallery)
 from reticle.killfeed import unpack_icon_grid  # noqa: E402
@@ -394,7 +396,7 @@ def split_refusals(sids: list[str]) -> dict:
                 if label == "narrow":
                     c["below_threshold_full"] += v["score"] < t_full
                     c["below_threshold_unselected"] += v["score"] < t_un
-                    if v.get("reason") == "no_close_exemplar":
+                    if v.get("reason") == REFUSE_NEW:
                         low.append(dict(o, best=v["best"], score=v["score"]))
             s[label] = dict(c)
         s["entries_narrow"] = dict(_entry_split(sid, obs, full, agents, idx_n))
@@ -433,10 +435,10 @@ def split_refusals(sids: list[str]) -> dict:
             break
         metrics.record("killfeed_openset", part="refusals", session=sid,
                        values={"rows": s["rows"],
-                               "low_full": s["full"].get("no_close_exemplar", 0),
-                               "tie_full": s["full"].get("tie", 0),
-                               "low_narrow": s["narrow"].get("no_close_exemplar", 0),
-                               "tie_narrow": s["narrow"].get("tie", 0),
+                               "low_full": s["full"].get(REFUSE_NEW, 0),
+                               "tie_full": s["full"].get(REFUSE_AMBIGUOUS, 0),
+                               "low_narrow": s["narrow"].get(REFUSE_NEW, 0),
+                               "tie_narrow": s["narrow"].get(REFUSE_AMBIGUOUS, 0),
                                "named_narrow": s["narrow"].get("named", 0)},
                        deps=deps, note=f"{TASK}: owner's reasons over stored rows")
     if RECORD:
