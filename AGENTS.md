@@ -95,7 +95,8 @@ what "I rebuilt the geometry while my experiment read it" states.
 - Hold what you know about the system as uncertain beliefs, and update them
   on evidence. Before acting on an assumption about an owner, a
   detector or a mechanic, check it or state it with a falsifier. Spend effort
-  where uncertainty is largest and a cheap experiment can resolve it.
+  where uncertainty is largest and a cheap experiment can resolve it,
+  refining only where uncertainty exceeds the question's tolerance.
   Observations and the tools that produce them are uncertain too: a result
   that surprises may be a tool error, so check the instrument before revising
   the system belief. A failed prediction revises the belief; record it and carry
@@ -189,7 +190,6 @@ and why they exist", argues for them.
   files point to them (DOCS).
 
 QUOTED skips `docs/archive/`; DOMAIN checks only citations there.
-`NOTES.md` and `BACKLOG.md` are checked like any other document.
 
 ## Running
 
