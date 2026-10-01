@@ -455,3 +455,81 @@ and an unfamiliar gun icon is not explained by a skin
 """
 phrases = ["skin changes the killfeed icon"]
 see = ["capture/weapon-skins-picked-up"]
+
+[phoenix-hot-hands-icon]
+claim = """
+Phoenix's Hot Hands draws a killfeed icon of flames rising, a fire ring or
+ball. The rising flames tell it from Curveball's icon
+[domain:killfeed/phoenix-curveball-icon].
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat), on the flame icon in the weapon slot at
+b3b9defb6fd7 1731.5 s, which weapon-gallery-0.4.0 held as Curveball: "that
+is hot hands. Blaze looks like a wall with four segments, blaze like a fire
+ring or ball. The main distinguisher from curveball is the flames rising up,
+whereas curveball has sort of radiating irregular light"; the second "blaze"
+meant Hot Hands [domain:killfeed/phoenix-flame-icons-reading]. Of the
+same weapon box: "It's also cropped a bit too tightly"
+"""
+use = """
+the b3b9defb6fd7 1731.5 s exemplar is Hot Hands; the gallery names it by the
+ability stem the player picked (Phoenix_Ability1), mapped through
+`adjudication.weapon.ABILITY_CANONICAL_NAMES`
+"""
+phrases = ["hot hands killfeed icon", "fire ball killfeed icon"]
+see = ["killfeed/phoenix-blaze-icon", "killfeed/phoenix-curveball-icon",
+       "abilities/phoenix-slots"]
+
+[phoenix-blaze-icon]
+claim = """
+Phoenix's Blaze draws a killfeed icon of a wall with four segments.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat): "Blaze looks like a wall with four segments"
+"""
+use = "a four-segment wall icon in the weapon slot names Blaze, not Hot Hands"
+phrases = ["blaze killfeed icon", "four segment wall icon"]
+see = ["killfeed/phoenix-hot-hands-icon", "abilities/phoenix-blaze"]
+
+[phoenix-curveball-icon]
+claim = """
+Phoenix's Curveball draws an icon of radiating, irregular light, without the
+rising flames of Hot Hands [domain:killfeed/phoenix-hot-hands-icon].
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat): "The main distinguisher from curveball is the
+flames rising up, whereas curveball has sort of radiating irregular light"
+"""
+use = "a radiating-light icon names Curveball; rising flames name Hot Hands"
+phrases = ["curveball killfeed icon", "radiating light icon"]
+see = ["killfeed/phoenix-hot-hands-icon"]
+
+[phoenix-flame-icons-reading]
+claim = """
+In the player's 2026-10-01 description of Phoenix's icons, the second
+"blaze" of "Blaze looks like a wall with four segments, blaze like a fire
+ring or ball" means Hot Hands: Blaze is the four-segment wall, Hot Hands the
+fire ring or ball.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat), confirming that reading: "correct, sorry
+thanks"
+"""
+use = """
+read [domain:killfeed/phoenix-hot-hands-icon] and
+[domain:killfeed/phoenix-blaze-icon] with this reading
+"""
+phrases = ["second blaze meant hot hands"]
+see = ["killfeed/phoenix-hot-hands-icon", "killfeed/phoenix-blaze-icon"]

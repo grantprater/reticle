@@ -53,7 +53,11 @@ from .killfeed_kits import kill_kits, open_questions
 # listed abilities.
 # 1.1.0 (2026-10-01): the kits take the player's answers (killfeed-kits-0.3.0),
 # so no agent holds an open question and Sage and Clove qualify.
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.1.0"
+# 1.2.0 (2026-10-01): ABILITY_CANONICAL_NAMES follows the reference's slots
+# (Brimstone, Deadlock, Harbor and Phoenix had two slots swapped; six agents
+# were missing), so `ability_agent` and the reference-asset matcher name
+# those abilities and agents correctly; it reads weapon-gallery-0.5.0.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.2.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -120,8 +124,19 @@ CLASS_ASPECT_RANGES = {
     "melee": (1.5, 2.8),
 }
 
-#: Canonical mapping from reference ability asset stem to in-game ability name.
+#: Reference ability asset stem (`<Agent>_<slot>`) to in-game ability name, as
+#: `<store>/reference/abilities.json` (valorant-api) names each slot; the
+#: casing is ours. Before 2026-10-01 four agents had slots swapped here:
+#: Phoenix's Ability1 read Curveball, so the labeller showed the Hot Hands
+#: art [domain:killfeed/phoenix-hot-hands-icon] captioned "Curveball"
+#: [domain:abilities/phoenix-slots]. `tests/test_ability_names.py` checks the
+#: table against the reference.
 ABILITY_CANONICAL_NAMES = {
+    # Astra
+    "Astra_Ability1": "Nova Pulse",
+    "Astra_Ability2": "Nebula / Dissipate",
+    "Astra_Grenade": "Gravity Well",
+    "Astra_Ultimate": "Astral Form / Cosmic Divide",
     # Breach
     "Breach_Ability1": "Flashpoint",
     "Breach_Ability2": "Fault Line",
@@ -129,8 +144,8 @@ ABILITY_CANONICAL_NAMES = {
     "Breach_Ultimate": "Rolling Thunder",
     # Brimstone
     "Brimstone_Ability1": "Incendiary",
-    "Brimstone_Ability2": "Stim Beacon",
-    "Brimstone_Grenade": "Sky Smoke",
+    "Brimstone_Ability2": "Sky Smoke",
+    "Brimstone_Grenade": "Stim Beacon",
     "Brimstone_Ultimate": "Orbital Strike",
     # Chamber
     "Chamber_Ability1": "Headhunter",
@@ -149,8 +164,8 @@ ABILITY_CANONICAL_NAMES = {
     "Cypher_Ultimate": "Neural Theft",
     # Deadlock
     "Deadlock_Ability1": "Sonic Sensor",
-    "Deadlock_Ability2": "Barrier Mesh",
-    "Deadlock_Grenade": "GravNet",
+    "Deadlock_Ability2": "GravNet",
+    "Deadlock_Grenade": "Barrier Mesh",
     "Deadlock_Ultimate": "Annihilation",
     # Fade
     "Fade_Ability1": "Seize",
@@ -163,9 +178,9 @@ ABILITY_CANONICAL_NAMES = {
     "Gekko_Grenade": "Mosh Pit",
     "Gekko_Ultimate": "Thrash",
     # Harbor
-    "Harbor_Ability1": "Cove",
-    "Harbor_Ability2": "High Tide",
-    "Harbor_Grenade": "Cascade",
+    "Harbor_Ability1": "High Tide",
+    "Harbor_Ability2": "Cove",
+    "Harbor_Grenade": "Storm Surge",
     "Harbor_Ultimate": "Reckoning",
     # Iso
     "Iso_Ability1": "Undercut",
@@ -192,9 +207,19 @@ ABILITY_CANONICAL_NAMES = {
     "Neon_Ability2": "High Gear",
     "Neon_Grenade": "Fast Lane",
     "Neon_Ultimate": "Overdrive",
+    # Miks
+    "Miks_Ability1": "Harmonize",
+    "Miks_Ability2": "Waveform",
+    "Miks_Grenade": "M-pulse",
+    "Miks_Ultimate": "Bassquake",
+    # Omen
+    "Omen_Ability1": "Paranoia",
+    "Omen_Ability2": "Dark Cover",
+    "Omen_Grenade": "Shrouded Step",
+    "Omen_Ultimate": "From the Shadows",
     # Phoenix
-    "Phoenix_Ability1": "Curveball",
-    "Phoenix_Ability2": "Hot Hands",
+    "Phoenix_Ability1": "Hot Hands",
+    "Phoenix_Ability2": "Curveball",
     "Phoenix_Grenade": "Blaze",
     "Phoenix_Ultimate": "Run It Back",
     # Raze
@@ -222,6 +247,16 @@ ABILITY_CANONICAL_NAMES = {
     "Sova_Ability2": "Recon Bolt",
     "Sova_Grenade": "Owl Drone",
     "Sova_Ultimate": "Hunter's Fury",
+    # Tejo
+    "Tejo_Ability1": "Special Delivery",
+    "Tejo_Ability2": "Guided Salvo",
+    "Tejo_Grenade": "Stealth Drone",
+    "Tejo_Ultimate": "Armageddon",
+    # Veto
+    "Veto_Ability1": "Chokehold",
+    "Veto_Ability2": "Interceptor",
+    "Veto_Grenade": "Crosscut",
+    "Veto_Ultimate": "Evolution",
     # Viper
     "Viper_Ability1": "Poison Cloud",
     "Viper_Ability2": "Toxic Screen",
@@ -232,6 +267,11 @@ ABILITY_CANONICAL_NAMES = {
     "Vyse_Ability2": "Arc Rose",
     "Vyse_Grenade": "Razorvine",
     "Vyse_Ultimate": "Steel Garden",
+    # Waylay
+    "Waylay_Ability1": "Lightspeed",
+    "Waylay_Ability2": "Refract",
+    "Waylay_Grenade": "Saturate",
+    "Waylay_Ultimate": "Convergent Paths",
     # Yoru
     "Yoru_Ability1": "Blindside",
     "Yoru_Ability2": "Gatecrash",
@@ -425,8 +465,11 @@ def estimate_weapon_class(width: int, aspect_ratio: float) -> str:
 #: KAY/O's NULL/cmd in a revive entry's weapon slot
 #: [domain:killfeed/kayo-downed-entry]; a member whose aspect lies beyond
 #: NAME_ASPECT_TOL of its name's (`weapon_icons.new_icon_entries`) is a crop
-#: fault and stays out.
-WEAPON_GALLERY_VERSION = "weapon-gallery-0.4.0"
+#: fault and stays out. 0.5.0 names a per-entry ability row by the ability
+#: stem the player picked, through the corrected ABILITY_CANONICAL_NAMES: the
+#: b3b9defb6fd7 1731.5 s exemplar, which 0.4.0 held as Curveball, is Hot Hands
+#: [domain:killfeed/phoenix-hot-hands-icon].
+WEAPON_GALLERY_VERSION = "weapon-gallery-0.5.0"
 NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
 NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
 NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
@@ -479,11 +522,16 @@ AUDIT_EVERY = 10
 #: [domain:killfeed/chamber-gun-shaped-abilities]; "Ability" is a group the
 #: player named only as an ability, left to the ability gallery to name. Not
 #: Dead Yet and Resurrection mark revive entries [domain:killfeed/revive-entries].
+#: Phoenix's Hot Hands draws rising flames, Blaze a four-segment wall and
+#: Curveball radiating light [domain:killfeed/phoenix-blaze-icon]
+#: [domain:killfeed/phoenix-curveball-icon], by the player's confirmed reading
+#: [domain:killfeed/phoenix-flame-icons-reading].
 MINED_NOT_GUN = {"Melee": "melee", "Environmental": "environmental", "Other": "other",
                  "Ability": "ability", "Headhunter": "ability", "Tour De Force": "ability",
                  "Aftershock": "ability", "Orbital Strike": "ability", "Boom Bot": "ability",
                  "Not Dead Yet": "ability", "Resurrection": "ability",
-                 "Blade Storm": "ability", "Curveball": "ability", "Annihilation": "ability",
+                 "Blade Storm": "ability", "Curveball": "ability", "Hot Hands": "ability",
+                 "Annihilation": "ability",
                  "Clove expiry": "ability", "NULL/cmd": "ability"}
 
 #: Icons whose caster is the revived, not the acting role. A KAY/O revive

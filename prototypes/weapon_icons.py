@@ -46,7 +46,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reticle.adjudication.weapon import (  # noqa: E402
-    ICON_GRID as GRID, WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION,
+    ABILITY_CANONICAL_NAMES, ICON_GRID as GRID, WEAPON_ADJUDICATION_VERSION,
+    WEAPON_GALLERY_VERSION,
     ENTRY_BOX_TOL, bind_entry, extract_icon_observation, icon_grid,
     mined_gallery_path, name_icon)
 from reticle.checks import KF_SIG_TOL, merge_split_tracks, track_entries  # noqa: E402
@@ -440,15 +441,30 @@ ENTRY_FRAMES = 3                         # stored frames kept per labelled entry
 
 def entry_labels() -> dict[str, dict]:
     """The player's per-entry names, last row per death key. Unsure rows and
-    bad crops (the ring was not on the icon) name nothing."""
+    bad crops (the ring was not on the icon) name nothing.
+
+    An ability row's choice is the ability art the player picked, stored as
+    `ability_stem`; its `answer` is the caption `ABILITY_CANONICAL_NAMES` gave
+    that art when the row was written. The name is read from the stem through
+    the current table, so a corrected table renames the row without editing
+    it, and the written caption stays as `answer_written`. Phoenix_Ability1,
+    the Hot Hands art, was captioned Curveball until 2026-10-01
+    [domain:killfeed/phoenix-hot-hands-icon]."""
     last: dict[str, dict] = {}
     for path in sorted(KF_LABELS.glob("*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 row = json.loads(line)
                 last[row["key"]] = row
-    return {k: r for k, r in last.items()
-            if r.get("answer") and not r.get("uncertain") and r.get("class") != "bad_crop"}
+    out = {}
+    for k, r in last.items():
+        if not r.get("answer") or r.get("uncertain") or r.get("class") == "bad_crop":
+            continue
+        name = ABILITY_CANONICAL_NAMES.get(r.get("ability_stem") or "")
+        if name is not None and name != r["answer"]:
+            r = dict(r, answer=name, answer_written=r["answer"])
+        out[k] = r
+    return out
 
 
 def _entries_by_key(sid: str) -> dict[tuple[int, int], dict]:
