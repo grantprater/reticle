@@ -30,7 +30,8 @@ This DESCRIBES. `adjudication.identity` names.
 
 Owns [owns:ally-portrait-features].
 Measured by `minimap-feature-bank` and `ally-icon-rendered-art` in the
-store's `notes/predictions.jsonl`.
+store's `notes/predictions.jsonl`; the crop's jitter and contamination by
+`portrait-crop-audit-20261001` (`prototypes/portrait_crop_audit.py`).
 """
 from __future__ import annotations
 
