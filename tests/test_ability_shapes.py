@@ -45,6 +45,29 @@ class RingTest(unittest.TestCase):
         self.assertEqual(f["path"], "widened")
         self.assertIsNotNone(f["seeded"])
 
+    def test_a_ring_centred_off_the_footprint_is_not_found(self):
+        img = _widget()
+        cv2.circle(img, (40, 160), 45, TEAL, 2)
+        self.assertTrue(S.fit_shape(img, "Recon Bolt", None)["found"])
+        support = np.zeros(img.shape[:2], bool)
+        support[60:271, 60:271] = True
+        f = S.fit_shape(img, "Recon Bolt", None, support)
+        self.assertIs(f["found"], False)
+        self.assertTrue(f["cx"] is None or support[f["cy"], f["cx"]])
+
+    def test_ring_candidates_list_every_ring_best_first(self):
+        img = _widget()
+        cv2.circle(img, (120, 130), 40, TEAL, 2)
+        cv2.circle(img, (220, 220), 35, TEAL, 2)
+        tl = S.teal(img)
+        R, mask = S.widget(img.shape)
+        got = [c for c in S.ring_candidates(tl, mask, R) if c["accepted"]]
+        self.assertEqual(len(got), 2)
+        self.assertGreaterEqual(got[0]["score"], got[1]["score"])
+        centres = sorted((c["cx"], c["cy"]) for c in got)
+        self.assertLessEqual(np.hypot(centres[0][0] - 120, centres[0][1] - 130), 2)
+        self.assertLessEqual(np.hypot(centres[1][0] - 220, centres[1][1] - 220), 2)
+
     def test_an_icon_sized_ring_is_not_an_area(self):
         img = _widget()
         cv2.circle(img, (150, 150), 8, TEAL, 2)

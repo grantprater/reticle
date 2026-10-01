@@ -31,6 +31,7 @@ import itertools
 import json
 import os
 import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -127,7 +128,9 @@ class Session:
 def fit_for(kind, img, me, support=None):
     """The production observation, in the field names the scoring reads."""
     ability = {"ring_self": "Regrowth", "ring_free": "Recon Bolt", "beam": "Hunter's Fury"}[kind]
+    t0 = time.perf_counter()
     f = S_.fit_shape(img, ability, me, support)
+    f["s"] = time.perf_counter() - t0
     if "theta_deg" in f:
         f["theta"], f["p0"], f["p1"] = f["theta_deg"], (f["x0"], f["y0"]), (f["x1"], f["y1"])
     if f.get("reason") and not f.get("found") and "score" not in f:
@@ -236,7 +239,7 @@ def null_sample(per_session: int = 10, gap_s: float = 10.0) -> dict:
             continue
         with open(pk, "rb") as f:
             d = pickle.load(f)
-        drops = [r["t"] * 1000.0 for r in tsr.drops(d) if r["slot"] in slots[agent]]
+        drops = [r["t"] * 1000.0 for r in tsr.drop_rows(d) if r["slot"] in slots[agent]]
         man = STORE.read_manifest(sid)
         date = _date_of(man)
         gt = gametime.build_session_gametime(
@@ -257,9 +260,11 @@ def null_sample(per_session: int = 10, gap_s: float = 10.0) -> dict:
             if img is None:
                 continue
             me = S.self_at(t)
+            t0 = time.perf_counter()
             tl = S_.teal(img)
             R, mask = S_.widget(img.shape)
             ring = S_.fit_ring(tl, mask, R, step=3)["score"]
+            out.setdefault("ring_s", []).append(time.perf_counter() - t0)
             if me is not None:
                 ring = max(ring, S_.fit_ring(tl, mask, R, me, S_.RING_SEED_HALF * R)["score"])
             # Only a beam the reader could accept counts: one whose run is on the map.
@@ -281,7 +286,18 @@ def null_sample(per_session: int = 10, gap_s: float = 10.0) -> dict:
         v = np.array(out[k])
         out[k + "_summary"] = {"n": len(v), "max": float(v.max()), "p99": float(np.percentile(v, 99)),
                                "p90": float(np.percentile(v, 90)), "median": float(np.median(v))}
+    out["ring_summary"]["free_ring_s"] = _timing(out.get("ring_s", []))
     return out
+
+
+def _timing(v) -> dict:
+    """Seconds per crop: median, 90th percentile, maximum, and the maximum
+    after the first crop (which builds the kernels for its widget size)."""
+    v = np.asarray(v, float)
+    if not len(v):
+        return {}
+    return {"n": len(v), "median": float(np.median(v)), "p90": float(np.percentile(v, 90)),
+            "max": float(v.max()), "max_after_first": float(v[1:].max()) if len(v) > 1 else None}
 
 
 def summary(rows) -> dict:
@@ -307,6 +323,7 @@ def summary(rows) -> dict:
             "angle_ok": f"{sum(r.get('angle_err', 99) <= 3 for r in off)}/{len(off)}"},
         "S1_pre_not_found": f"{sum(not r['fit'].get('found') for r in real_pre)}/{len(real_pre)}",
         "pre_no_crop": len(pre) - len(real_pre),
+        "s_per_crop": _timing([r["fit"]["s"] for r in rows if "s" in r["fit"]]),
         "panels": [{k: (round(v, 2) if isinstance(v, float) else v) for k, v in
                     {"key": r["key"], "p": r["panel"], "score": r["fit"].get("score"),
                      "path": r["fit"].get("path"), "c_err": r.get("centre_err"),

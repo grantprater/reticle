@@ -60,6 +60,23 @@ def occluded(crop: np.ndarray, floor: np.ndarray, static: np.ndarray) -> np.ndar
     return occ.astype(bool)
 
 
+def dark_reader(ctx, spans, hz: float = 4.0, floor=None, sgray=None):
+    """The `DarkRegionReader` `scan` builds for a session
+    (`passes.SessionContext`), or None where the baked geometry has no
+    lighting reference. A pass that already holds the floor and base-map
+    grey (`scan`'s minimap reader) passes them."""
+    from . import geometry
+    from .minimap import minimap_roi_px
+    with np.load(geometry.path_of(ctx.session_id, ctx.store.root)) as z:
+        ref = lighting.reference(z)
+    if ref is None:
+        return None
+    return DarkRegionReader(floor=ctx.floor() if floor is None else floor,
+                            sgray=ctx.sgray() if sgray is None else sgray,
+                            static=ctx.map_reference(), ref=ref,
+                            box=minimap_roi_px(ctx.profile, *ctx.wh), hz=hz, spans=spans)
+
+
 class DarkRegionReader:
     """`passes.Reader` storing grey-dark and occluded masks per sampled frame.
 
