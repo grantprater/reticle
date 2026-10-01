@@ -14,6 +14,9 @@ is scored is what ships. They were fixed before any mark was read (predictions
 `ability-shape-fit`); the module's docstring states them. `SHAPE_COLOUR=ally`
 scores the minimap owner's stricter ally key in place of the teal weight;
 `SHAPE_SUPPORT=widget` drops the map's art footprint, so no beam is placed.
+Each session reads its key's transform (`geometry.map_scale`), as the reader
+does; `SHAPE_SCALE=set` reads every crop at `ability_shapes.SET_AT`, the
+scale the base values were set at, which checks a refactor against 0.2.0.
 
 Truth. Per labelled panel: a least-squares circle through the Regrowth marks;
 for Recon Bolt a RANSAC circle (4 px), because each panel also carries one mark
@@ -109,8 +112,10 @@ class Session:
         self.rect = self.cache.rect_of("minimap")
         self.static = geometry.reference_static(sid)
         x0, y0, x1, y1 = self.rect
+        self.ms = (S_.SET_AT if os.environ.get("SHAPE_SCALE") == "set"
+                   else geometry.map_scale_of(sid, STORE.root))
         self.support = (None if os.environ.get("SHAPE_SUPPORT") == "widget" else
-                        geometry.footprint(sid, STORE.root, dilate=S_.SUPPORT_DILATE,
+                        geometry.footprint(sid, STORE.root, dilate=S_.support_dilate(self.ms),
                                            shape=(y1 - y0, x1 - x0)))
         mm = STORE.read_minimap(sid, _date_of(man)).to_pydict()
         self.mt = np.asarray(mm["t_ms"], float)
@@ -125,11 +130,11 @@ class Session:
         return S_.seed_from_track(self.mt, self.sx, self.sy, t)
 
 
-def fit_for(kind, img, me, support=None):
+def fit_for(kind, img, me, support=None, ms=S_.SET_AT):
     """The production observation, in the field names the scoring reads."""
     ability = {"ring_self": "Regrowth", "ring_free": "Recon Bolt", "beam": "Hunter's Fury"}[kind]
     t0 = time.perf_counter()
-    f = S_.fit_shape(img, ability, me, support)
+    f = S_.fit_shape(img, ability, me, support, ms)
     f["s"] = time.perf_counter() - t0
     if "theta_deg" in f:
         f["theta"], f["p0"], f["p1"] = f["theta_deg"], (f["x0"], f["y0"]), (f["x1"], f["y1"])
@@ -163,7 +168,7 @@ def main() -> int:
             by[m["panel"]].append(m)
         t_drop = float(r["key"].split(":")[1])
         img, _ = S.crop(t_drop - 1000.0)
-        pre = (fit_for(kind, img, S.self_at(t_drop - 1000.0), S.support) if img is not None
+        pre = (fit_for(kind, img, S.self_at(t_drop - 1000.0), S.support, S.ms) if img is not None
                else {"refused": "no_crop"})
         rows.append({"key": r["key"], "ability": r["ability"], "panel": "pre", "fit": pre})
         for pan, ms in sorted(by.items()):
@@ -173,7 +178,7 @@ def main() -> int:
             t = ms[0]["t_ms"]
             img, _ = S.crop(t)
             me = S.self_at(t)
-            fit = fit_for(kind, img, me, S.support) if img is not None else {"refused": "no_crop"}
+            fit = fit_for(kind, img, me, S.support, S.ms) if img is not None else {"refused": "no_crop"}
             row = {"key": r["key"], "ability": r["ability"], "panel": pan, "fit": fit,
                    "self": me}
             if kind == "beam":
@@ -262,20 +267,21 @@ def null_sample(per_session: int = 10, gap_s: float = 10.0) -> dict:
             me = S.self_at(t)
             t0 = time.perf_counter()
             tl = S_.teal(img)
-            R, mask = S_.widget(img.shape)
-            ring = S_.fit_ring(tl, mask, R, step=3)["score"]
+            _, mask = S_.widget(img.shape)
+            ring = S_.fit_ring(tl, mask, S.ms, step=3)["score"]
             out.setdefault("ring_s", []).append(time.perf_counter() - t0)
             if me is not None:
-                ring = max(ring, S_.fit_ring(tl, mask, R, me, S_.RING_SEED_HALF * R)["score"])
+                ring = max(ring, S_.fit_ring(tl, mask, S.ms, me,
+                                             S.ms.px(S_.RING_SEED_HALF_BASE))["score"])
             # Only a beam the reader could accept counts: one whose run is on the map.
             placed = lambda f: (S.support is None or
                                 S_.on_map(f, S.support) >= S_.BEAM_ON_MAP)
             beam = -1.0
             if me is not None:
-                f = S_.fit_beam(tl, mask, me[0], me[1], R)
+                f = S_.fit_beam(tl, mask, me[0], me[1], S.ms)
                 beam = f["score"] if placed(f) else -1.0
-            if S_.longest_segment(tl, mask, R, S.support) is not None:
-                wide = S_.fit_shape(img, "Hunter's Fury", None, S.support)
+            if S_.longest_segment(tl, mask, S.ms, S.support) is not None:
+                wide = S_.fit_shape(img, "Hunter's Fury", None, S.support, S.ms)
                 if wide.get("score") is not None and wide.get("on_map", 1.0) >= S_.BEAM_ON_MAP:
                     beam = max(beam, wide["score"])
             out["ring"].append(ring)

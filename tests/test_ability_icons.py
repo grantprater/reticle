@@ -24,7 +24,7 @@ def _slab_img(n=465):
 class ProposerTest(unittest.TestCase):
     def setUp(self):
         self.base, self.slab = _slab_img()
-        self.terms = I.IconTerms(self.slab, self.base.shape[1] / 2.0)
+        self.terms = I.IconTerms(self.slab, I.SET_AT)
 
     def test_finds_a_dark_disc_and_nothing_on_a_blank_slab(self):
         self.assertEqual(I.propose_icons(self.base, self.terms), [])

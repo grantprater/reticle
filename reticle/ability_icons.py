@@ -11,9 +11,12 @@ found few of the player's labelled icons at 331 px
 proposer of `prototypes/ability_shape_fast.py` (`icon_candidates_fast`,
 `icon_verify`) and the reader that rides the ability pass.
 
-The proposer (`icon-proposer-0.2.0`). For each radius from ICON_R[0] R to
-ICON_R[1] R in RADIUS_STEP px, it scores the dark share (HSV value under
-ICON_DARK_V) of a disc minus the dark share of a band 1.5 px outside it.
+The proposer (`icon-proposer-0.3.0`). For each radius from ICON_R_BASE[0]
+to ICON_R_BASE[1] in RADIUS_STEP px, it scores the dark share (HSV value
+under ICON_DARK_V) of a disc minus the dark share of a band ICON_GAP outside
+it. Every length is a base value times the key's `geometry.map_scale`
+(`ability_shapes`' scale section); RADIUS_STEP is the search's pixel grid and
+stays 1 px.
 Darkness counts only on the baked slab (`minimap.slab_mask` of the
 geometry's reference static) and each share is taken over slab pixels, so
 the map's void holes and the world behind the widget stop reading as dark
@@ -31,7 +34,7 @@ candidates per null crop (`tools/ability_icon_benchmark.py` reruns it on
 this module).
 
 The verify. Each candidate of the previous sample is rescored at centres
-within VERIFY_HALF px, at its own radius and the two beside it. A verify
+within VERIFY_HALF_BASE, at its own radius and the two beside it. A verify
 whose best score falls under ICON_MIN stores `score` None: the icon is lost,
 a stored surprise. The reader runs the full search on every live 2 Hz
 sample as well, so the verify rows let the tracked schedule be replayed from
@@ -48,11 +51,19 @@ import cv2
 import numpy as np
 
 from .ability_scan import LIVE_PHASES, _rounded
+from .ability_shapes import SET_AT, _b
+from .geometry import MapScale
 from .version import ABILITY_ICON_VERSION
 
-#: Icon radii as a share of the widget radius R; the range spans thrown
-#: icons and team smokes' grey discs.
-ICON_R = (0.025, 0.075)
+#: Icon radii, base values set at 0.025-0.075 of the 331 px crop's half width
+#: (165.5 px); the range spans thrown icons and team smokes' grey discs.
+ICON_R_BASE = (_b(0.025 * 165.5), _b(0.075 * 165.5))
+#: The band's gap outside the disc and its least width (set at 1.5 and 3 px;
+#: it is otherwise 0.4 r), the rim colour band (r - 1 to r + 2.5 px), and the
+#: kernel's reach past r (5 px).
+ICON_GAP, ICON_BAND_MIN = _b(1.5), _b(3.0)
+ICON_RIM = (_b(1.0), _b(2.5))
+ICON_REACH = _b(5.0)
 #: HSV value under which a pixel is dark.
 ICON_DARK_V = 75
 #: The disc's dark share minus the band's that a candidate needs.
@@ -61,8 +72,8 @@ ICON_MIN = 0.35
 ICON_FLOOR_MIN = (0.5, 0.3)
 #: Radii read at this step in px (the stage-3 plan: 1 px).
 RADIUS_STEP = 1.0
-#: The verify's centre search half-width in px.
-VERIFY_HALF = 2
+#: The verify's centre search half-width (set at 2 px), rounded to px.
+VERIFY_HALF_BASE = _b(2.0)
 #: At most this many candidates are stored per sample, best first.
 MAX_CANDIDATES = 40
 
@@ -71,19 +82,24 @@ class IconTerms:
     """Per radius: the disc and band kernels and the slab terms. They depend
     on the baked slab alone, so a session builds them once."""
 
-    def __init__(self, slab: np.ndarray, R: float, step: float = RADIUS_STEP):
-        self.R, self.step = float(R), float(step)
+    def __init__(self, slab: np.ndarray, ms: MapScale = SET_AT, step: float = RADIUS_STEP):
+        self.ms, self.step = ms, float(step)
         self.fl = (slab > 0).astype(np.float32)
         self.shape = self.fl.shape
         self.terms = []
-        for r in np.arange(ICON_R[0] * R, ICON_R[1] * R + 0.01, step):
-            n = int(np.ceil(r + 5))
+        gap, wmin, reach = ms.px(ICON_GAP), ms.px(ICON_BAND_MIN), ms.px(ICON_REACH)
+        self.r_lo, self.r_hi = ms.px(ICON_R_BASE[0]), ms.px(ICON_R_BASE[1])
+        self.verify_half = int(round(ms.px(VERIFY_HALF_BASE)))
+        self.rim = (ms.px(ICON_RIM[0]), ms.px(ICON_RIM[1]))
+        self.reach = reach
+        for r in np.arange(self.r_lo, self.r_hi + 0.01, step):
+            n = int(np.ceil(r + reach))
             yy, xx = np.mgrid[-n:n + 1, -n:n + 1]
             d = np.hypot(xx, yy)
             kd = (d <= r).astype(np.float32)
             kd /= kd.sum()
-            out_w = max(3.0, 0.4 * r)
-            ka = ((d > r + 1.5) & (d <= r + 1.5 + out_w)).astype(np.float32)
+            out_w = max(wmin, 0.4 * r)
+            ka = ((d > r + gap) & (d <= r + gap + out_w)).astype(np.float32)
             ka /= ka.sum()
             fd = cv2.filter2D(self.fl, -1, kd, borderType=cv2.BORDER_CONSTANT)
             fa = cv2.filter2D(self.fl, -1, ka, borderType=cv2.BORDER_CONSTANT)
@@ -110,7 +126,7 @@ def propose_icons(img: np.ndarray, terms: IconTerms, min_score: float = ICON_MIN
         s[bad] = -9.0
         up = s > best
         best[up], arg[up] = s[up], r
-    k = max(3, int(2 * ICON_R[0] * terms.R) | 1)
+    k = max(3, int(2 * terms.r_lo) | 1)
     peak = (best >= min_score) & (best == cv2.dilate(best, np.ones((k, k), np.uint8)))
     ys, xs = np.nonzero(peak)
     order = np.argsort(-best[ys, xs])
@@ -122,13 +138,13 @@ def propose_icons(img: np.ndarray, terms: IconTerms, min_score: float = ICON_MIN
         keep.append({"cx": x, "cy": y, "r": r, "score": float(best[y, x])})
     h, w = dark.shape
     for c in keep:
-        m = int(np.ceil(c["r"] + 3))
+        m = int(np.ceil(c["r"] + terms.rim[1] + 0.5))
         x0, x1 = max(0, c["cx"] - m), min(w, c["cx"] + m + 1)
         y0, y1 = max(0, c["cy"] - m), min(h, c["cy"] + m + 1)
         win = hsv[y0:y1, x0:x1]
         yy, xx = np.mgrid[y0:y1, x0:x1]
         dd = np.hypot(xx - c["cx"], yy - c["cy"])
-        rim = (dd > c["r"] - 1) & (dd <= c["r"] + 2.5)
+        rim = (dd > c["r"] - terms.rim[0]) & (dd <= c["r"] + terms.rim[1])
         sat = rim & (win[..., 1] >= 70)
         hh = win[..., 0]
         c["rim_teal"] = float(((hh >= 75) & (hh <= 105) & sat).sum() / max(rim.sum(), 1))
@@ -138,13 +154,14 @@ def propose_icons(img: np.ndarray, terms: IconTerms, min_score: float = ICON_MIN
     return keep
 
 
-def verify_icons(img: np.ndarray, terms: IconTerms, tracks: list[dict], half: int = VERIFY_HALF,
+def verify_icons(img: np.ndarray, terms: IconTerms, tracks: list[dict], half: int | None = None,
            min_score: float = ICON_MIN) -> list[dict]:
-    """Each tracked icon `{cx, cy, r}` rescored at centres within `half` px,
-    at its own radius and the two beside it, on `propose_icons`'s terms. One dict
-    per track; `score` None when nothing passes `min_score` (the icon is
-    lost)."""
-    n = int(np.ceil(ICON_R[1] * terms.R + 5))
+    """Each tracked icon `{cx, cy, r}` rescored at centres within `half` px
+    (the terms' VERIFY_HALF_BASE), at its own radius and the two beside it, on
+    `propose_icons`'s terms. One dict per track; `score` None when nothing
+    passes `min_score` (the icon is lost)."""
+    half = terms.verify_half if half is None else half
+    n = int(np.ceil(terms.r_hi + terms.reach))
     h, w = img.shape[:2]
     out = []
     for tr in tracks:
@@ -183,20 +200,22 @@ class AbilityIconReader:
     records_clip = True
 
     def __init__(self, slab, floor, sgray, box, phase_at=None, hz=2.0, spans=None,
-                 name="ability_icon", step=RADIUS_STEP):
+                 name="ability_icon", step=RADIUS_STEP, ms: MapScale | None = SET_AT):
         self.live = LIVE_PHASES
         self.name, self.hz, self.spans = name, hz, spans
         self.frames_from = "video"
         self.cv_threads = 1
         self.slab, self.floor, self.sgray, self.box = slab, floor, sgray, box
         self.phase_at, self.step = phase_at, step
+        #: The key's transform from base values; None refuses every sample.
+        self.ms = ms
         self._terms: IconTerms | None = None
         self._prev: dict | None = None
         self.rows: list[dict] = []
 
     def terms(self, shape) -> IconTerms:
         if self._terms is None:
-            self._terms = IconTerms(self.slab, shape[1] / 2.0, self.step)
+            self._terms = IconTerms(self.slab, self.ms, self.step)
         return self._terms
 
     def feed(self, smp) -> None:
@@ -211,6 +230,8 @@ class AbilityIconReader:
             reason = "not_live"
         elif crop.shape[:2] != self.slab.shape[:2]:
             reason = "geometry_size_mismatch"
+        elif self.ms is None:
+            reason = "no_map_scale"
         elif not widget_drawn(crop, self.sgray, self.floor):
             reason = "widget_not_drawn"
         if reason is not None:
@@ -241,8 +262,10 @@ class AbilityIconReader:
             by[k] = by.get(k, 0) + 1
         head = {**common, "kind": "coverage", "hz": self.hz, "frames": len(self.rows),
                 "frames_from": self.frames_from, "by_reason": by, "radius_step": self.step,
-                "icon_min": ICON_MIN, "icon_r": list(ICON_R), "dark_v": ICON_DARK_V,
-                "floor_min": list(ICON_FLOOR_MIN), "verify_half": VERIFY_HALF,
+                "icon_min": ICON_MIN, "icon_r_base": [round(v, 4) for v in ICON_R_BASE],
+                "dark_v": ICON_DARK_V, "floor_min": list(ICON_FLOOR_MIN),
+                "verify_half_base": round(VERIFY_HALF_BASE, 4),
+                "map_scale": None if self.ms is None else self.ms.provenance(),
                 "slab": "minimap.slab_mask(geometry reference static)",
                 "candidates": sum(len(r["candidates"] or ()) for r in self.rows),
                 "verify_lost": sum(sum(v["score"] is None for v in r["verify"]["rows"])
@@ -256,10 +279,13 @@ class AbilityIconReader:
 def icon_reader(ctx, spans, phase_at=None, hz: float = 2.0, floor=None,
                 sgray=None) -> AbilityIconReader:
     """The `AbilityIconReader` `scan` builds for a session: the slab of the
-    geometry's reference static over the profile's minimap ROI."""
+    geometry's reference static and the key's transform
+    (`geometry.map_scale`), over the profile's minimap ROI."""
+    from . import geometry
     from .minimap import minimap_roi_px, slab_mask
     box = minimap_roi_px(ctx.profile, *ctx.wh)
     return AbilityIconReader(slab=slab_mask(ctx.map_reference()),
                              floor=ctx.floor() if floor is None else floor,
                              sgray=ctx.sgray() if sgray is None else sgray,
-                             box=box, phase_at=phase_at, hz=hz, spans=spans)
+                             box=box, phase_at=phase_at, hz=hz, spans=spans,
+                             ms=geometry.map_scale_of(ctx.session_id, ctx.store.root))

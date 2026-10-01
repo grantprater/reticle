@@ -212,6 +212,117 @@ def footprint(session: str, store: str | Path = DEFAULT_STORE,
     return art_floor(kind, dilate)
 
 
+# ------------------------------------------------------------------ map scale
+
+#: The configuration every base value of a map measurement is quoted at: the
+#: 465 px widget at the largest map scaling [domain:capture/largest-settings-widget],
+#: `minimap.REF_WIDGET_W`'s own reference. Its scale is 1 by definition.
+SCALE_REF_KEY = "ascent__valorant-16x9-bigmap"
+#: The wiki art ships at 1024 or 2048 px a side; `shade_fit`'s scale is widget px
+#: per art px, so it is normalised to this canvas before keys are compared.
+ART_CANVAS = 2048
+
+
+class MapScale:
+    """How one `(map, profile)` draws the map: `scale` = `widget_scale` x
+    `map_zoom`, the one transform from a base value (px at SCALE_REF_KEY) to
+    widget px. Readers write `ms.px(base)`, never a per-size constant.
+
+    The widget size and the map scaling are two settings
+    [domain:capture/minimap-size-settings]; `widget_scale` is the widget's
+    width against `minimap.REF_WIDGET_W`, and `map_zoom` the rest of the art
+    fit's scale. A variant widget is resampled into its baked frame before any
+    reader sees it (`widget_frame`), so it reads its baked key's scale."""
+
+    __slots__ = ("key", "widget_scale", "map_zoom", "source")
+
+    def __init__(self, key: str | None, widget_scale: float, map_zoom: float, source: str):
+        self.key, self.widget_scale, self.map_zoom = key, float(widget_scale), float(map_zoom)
+        self.source = source
+
+    @property
+    def scale(self) -> float:
+        return self.widget_scale * self.map_zoom
+
+    def px(self, base: float) -> float:
+        """A base length (px at SCALE_REF_KEY) in this key's widget px."""
+        return round(float(base) * self.scale, 6)
+
+    def area(self, base: float) -> float:
+        """A base area or pixel count in this key's widget px^2."""
+        return round(float(base) * self.scale ** 2, 6)
+
+    @classmethod
+    def at(cls, scale: float, source: str = "given") -> "MapScale":
+        """A transform of a stated scale, for synthetic crops and tests."""
+        return cls(None, scale, 1.0, source)
+
+    def provenance(self) -> dict:
+        return {"key": self.key, "scale": round(self.scale, 5),
+                "widget_scale": round(self.widget_scale, 5),
+                "map_zoom": round(self.map_zoom, 5), "source": self.source}
+
+    def __repr__(self) -> str:
+        return f"MapScale({self.provenance()})"
+
+
+def _art_side(p: Path) -> int:
+    """The larger side of the map art (the files are WebP under a .png name)."""
+    import cv2
+    im = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
+    return 0 if im is None else int(max(im.shape[:2]))
+
+
+_SCALES: dict = {}
+
+
+def _canvas_scale(k: str, store) -> tuple[float, int] | None:
+    import numpy as np
+    p = path(k, store)
+    if not p.is_file():
+        return None
+    with np.load(p) as z:
+        if "shade_fit" not in z.files or "shade_map" not in z.files:
+            return None
+        fit, name, w = z["shade_fit"].copy(), str(z["shade_map"]), int(z["static"].shape[1])
+    art = Path(store) / "reference" / "maps" / f"{name}.png"
+    if not art.is_file():
+        return None
+    return float(fit[1]) * _art_side(art) / ART_CANVAS, w
+
+
+def map_scale(k: str, store: str | Path = DEFAULT_STORE) -> MapScale | None:
+    """The key's transform from base values, or None when its geometry has no
+    art fit (`prototypes/map_shade.py build`); a caller then refuses by name.
+
+    Baked data only [domain:capture/session-pixels-are-not-the-map]: the art
+    fit's scale (`shade_fit[1]`, widget px per art px) times the art's side
+    over ART_CANVAS is widget px per canvas px, the same quantity
+    `prototypes/raised_edges.zoom` reads, taken against SCALE_REF_KEY's. The
+    331 px keys draw the map at 0.632-0.639 of the reference while their widget
+    is 0.712 of it, so their map scaling is about 0.89 of the largest. The
+    art's own world scale is not modelled: Chamber's Trademark, one world
+    distance, measures 13% larger on Split than on Ascent at one scale
+    [domain:abilities/chamber-trademark-minimap-white-area]."""
+    from .minimap import widget_scale
+    ck = (k, str(store))
+    if ck not in _SCALES:
+        got, ref = _canvas_scale(k, store), _canvas_scale(SCALE_REF_KEY, store)
+        if got is None or ref is None:
+            _SCALES[ck] = None
+        else:
+            ws = widget_scale(got[1])
+            _SCALES[ck] = MapScale(k, ws, got[0] / ref[0] / ws,
+                                   f"baked shade_fit scale x art side / {ART_CANVAS}, "
+                                   f"against {SCALE_REF_KEY}")
+    return _SCALES[ck]
+
+
+def map_scale_of(session: str, store: str | Path = DEFAULT_STORE) -> MapScale | None:
+    k = key_of(session, store)
+    return None if k is None else map_scale(k, store)
+
+
 def fit_path(k: str, store: str | Path = DEFAULT_STORE) -> Path:
     """The cached art-to-widget fit for a key.
 

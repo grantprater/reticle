@@ -28,7 +28,8 @@ unread, unobserved and empty stay apart.
 
 The gate (an opportunity gate, not an outcome). The fits run only where
 teal (`ability_shapes.teal` at least GATE_TEAL) forms a connected component
-at least GATE_EXTENT of the widget radius across. It needs no other stream,
+at least GATE_EXTENT_BASE across (a base value, `ability_shapes`' scale
+section). It needs no other stream,
 so it cannot go stale. Measured in `prototypes/ability_shape_fast.py`: it
 passed [metric:ability_shape_fast/marks@tray-object-marks#gate_post=45] of
 [metric:ability_shape_fast/marks@tray-object-marks#gate_post_n=45] post-cast
@@ -52,12 +53,14 @@ import cv2
 import numpy as np
 
 from . import ability_shapes as shapes
+from .geometry import MapScale
 from .minimap import widget_drawn
 from .version import ABILITY_GATE_VERSION, ABILITY_SHAPE_VERSION
 
-#: Teal weight a gate pixel needs, and the component extent, as a share of
-#: the widget radius, that opens the fits (`prototypes/ability_shape_fast.py`).
-GATE_TEAL, GATE_EXTENT = 0.25, 0.2
+#: Teal weight a gate pixel needs, and the component extent that opens the
+#: fits, a base value set at 0.2 of the 331 px widget radius
+#: (`prototypes/ability_shape_fast.py`).
+GATE_TEAL, GATE_EXTENT_BASE = 0.25, shapes._b(0.2 * shapes.SET_AT_R)
 #: The live phases a sample is read in (`gametime`).
 LIVE_PHASES = ("round_live", "post_plant")
 #: The 2 Hz grid of the plan: every other 4 Hz `minimap_dark` time.
@@ -66,13 +69,14 @@ ABILITY_HZ = 2.0
 MAX_COMPONENTS = 8
 
 
-def teal_gate(tl: np.ndarray, mask: np.ndarray, R: float) -> list[list[int]]:
-    """The teal components at least GATE_EXTENT R across, largest first, as
+def teal_gate(tl: np.ndarray, mask: np.ndarray, ms: MapScale = shapes.SET_AT) -> list[list[int]]:
+    """The teal components at least GATE_EXTENT_BASE across, largest first, as
     [x, y, w, h, pixels]; an empty list closes the gate."""
     b = ((tl >= GATE_TEAL) & mask).astype(np.uint8)
     n, _, st, _ = cv2.connectedComponentsWithStats(b, connectivity=8)
+    ext = ms.px(GATE_EXTENT_BASE)
     keep = [[int(v) for v in st[i, :5]] for i in range(1, n)
-            if max(st[i, cv2.CC_STAT_WIDTH], st[i, cv2.CC_STAT_HEIGHT]) >= GATE_EXTENT * R]
+            if max(st[i, cv2.CC_STAT_WIDTH], st[i, cv2.CC_STAT_HEIGHT]) >= ext]
     return sorted(keep, key=lambda c: -c[4])
 
 
@@ -89,12 +93,14 @@ class AbilityShapeReader:
     records_clip = True
 
     def __init__(self, floor, sgray, support, box, phase_at=None, hz=ABILITY_HZ,
-                 spans=None, name="ability"):
+                 spans=None, name="ability", ms: MapScale | None = shapes.SET_AT):
         self.name, self.hz, self.spans = name, hz, spans
         self.frames_from = "video"
         self.cv_threads = 1
         self.floor, self.sgray, self.support, self.box = floor, sgray, support, box
         self.phase_at = phase_at
+        #: The key's transform from base values; None refuses every sample.
+        self.ms = ms
         self.gate_rows: list[dict] = []
         self.shape_rows: list[dict] = []
 
@@ -110,18 +116,22 @@ class AbilityShapeReader:
         if crop.shape[:2] != self.floor.shape[:2]:
             self.gate_rows.append({**row, "gate": None, "reason": "geometry_size_mismatch"})
             return
+        if self.ms is None:
+            self.gate_rows.append({**row, "gate": None, "reason": "no_map_scale"})
+            return
         if not widget_drawn(crop, self.sgray, self.floor):
             self.gate_rows.append({**row, "gate": None, "reason": "widget_not_drawn"})
             return
         tl = shapes.teal(crop)
-        R, mask = shapes.widget(crop.shape)
-        comps = teal_gate(tl, mask, R)
+        _, mask = shapes.widget(crop.shape)
+        ms = self.ms
+        comps = teal_gate(tl, mask, ms)
         self.gate_rows.append({**row, "gate": bool(comps), "reason": None,
                                "components": comps[:MAX_COMPONENTS]})
         if not comps:
             return
-        rings = shapes.ring_candidates(tl, mask, R, self.support)
-        beam = shapes.widened_beam(tl, mask, R, self.support)
+        rings = shapes.ring_candidates(tl, mask, ms, self.support)
+        beam = shapes.widened_beam(tl, mask, ms, self.support)
         self.shape_rows.append({
             **row,
             "rings": [{"score": _rounded(f["score"]), "cx": f["cx"], "cy": f["cy"], "r": f["r"],
@@ -140,7 +150,8 @@ class AbilityShapeReader:
     def _head(self, common, frames) -> dict:
         head = {**common, "kind": "coverage", "hz": self.hz, "frames": frames,
                 "support": None if self.support is None else "art_footprint",
-                "frames_from": self.frames_from}
+                "frames_from": self.frames_from,
+                "map_scale": None if self.ms is None else self.ms.provenance()}
         clip = getattr(self, "spans_clip", None)
         if clip is not None:
             head["spans_clip"] = clip
@@ -154,7 +165,7 @@ class AbilityShapeReader:
             k = r["reason"] or ("gated" if r["gate"] else "closed")
             by[k] = by.get(k, 0) + 1
         head = {**self._head(common, len(self.gate_rows)), "by_reason": by,
-                "gate_teal": GATE_TEAL, "gate_extent": GATE_EXTENT}
+                "gate_teal": GATE_TEAL, "gate_extent_base": round(GATE_EXTENT_BASE, 4)}
         return [head] + [{**common, **r} for r in self.gate_rows]
 
     def shape_events(self, session_id: str, geometry_key: str | None) -> list[dict]:
@@ -173,14 +184,16 @@ class AbilityShapeReader:
 def shape_reader(ctx, spans, phase_at=None, hz: float = ABILITY_HZ,
                  floor=None, sgray=None) -> AbilityShapeReader:
     """The `AbilityShapeReader` `scan` builds for a session
-    (`passes.SessionContext`): the baked floor and base map, the map's art
-    footprint at `ability_shapes.SUPPORT_DILATE`, over the profile's
-    minimap ROI."""
+    (`passes.SessionContext`): the baked floor and base map, the key's
+    transform (`geometry.map_scale`), the map's art footprint at
+    `ability_shapes.support_dilate`, over the profile's minimap ROI."""
     from . import geometry
     from .minimap import minimap_roi_px
     box = minimap_roi_px(ctx.profile, *ctx.wh)
     floor = ctx.floor() if floor is None else floor
-    support = geometry.footprint(ctx.session_id, ctx.store.root,
-                                 dilate=shapes.SUPPORT_DILATE, shape=floor.shape[:2])
+    ms = geometry.map_scale_of(ctx.session_id, ctx.store.root)
+    support = None if ms is None else geometry.footprint(
+        ctx.session_id, ctx.store.root, dilate=shapes.support_dilate(ms), shape=floor.shape[:2])
     return AbilityShapeReader(floor=floor, sgray=ctx.sgray() if sgray is None else sgray,
-                              support=support, box=box, phase_at=phase_at, hz=hz, spans=spans)
+                              support=support, box=box, phase_at=phase_at, hz=hz, spans=spans,
+                              ms=ms)

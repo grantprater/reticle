@@ -4267,7 +4267,11 @@ def cmd_ability_shapes(args) -> int:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
             continue
         x0, y0, x1, y1 = cache.rect_of("minimap")
-        support = geometry.footprint(sid, store.root, dilate=ability_shapes.SUPPORT_DILATE,
+        ms = geometry.map_scale_of(sid, store.root)
+        if ms is None:
+            print(f"{sid}: no baked map scale for this key -- skipped")
+            continue
+        support = geometry.footprint(sid, store.root, dilate=ability_shapes.support_dilate(ms),
                                      shape=(y1 - y0, x1 - x0))
         if support is None:
             print(f"{sid}: no art footprint for this map -- no beam is checked against the map")
@@ -4291,7 +4295,7 @@ def cmd_ability_shapes(args) -> int:
                    for smp in cache.samples(times, rois=["minimap"])}
             for t in times:
                 seed = seed_at(t)
-                row = ability_shapes.fit_shape(got.get(t), ability, seed, support)
+                row = ability_shapes.fit_shape(got.get(t), ability, seed, support, ms)
                 rows.append({**common, "kind": "shape", "cast_t_ms": c["t_ms"],
                              "slot": c["slot"], "t_ms": t, "seed": seed, **row})
                 found[(ability, row["found"])] += 1

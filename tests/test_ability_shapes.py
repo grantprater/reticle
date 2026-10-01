@@ -61,7 +61,7 @@ class RingTest(unittest.TestCase):
         cv2.circle(img, (220, 220), 35, TEAL, 2)
         tl = S.teal(img)
         R, mask = S.widget(img.shape)
-        got = [c for c in S.ring_candidates(tl, mask, R) if c["accepted"]]
+        got = [c for c in S.ring_candidates(tl, mask, S.SET_AT) if c["accepted"]]
         self.assertEqual(len(got), 2)
         self.assertGreaterEqual(got[0]["score"], got[1]["score"])
         centres = sorted((c["cx"], c["cy"]) for c in got)

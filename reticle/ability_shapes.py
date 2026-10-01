@@ -111,7 +111,45 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from .geometry import MapScale
 from .version import ABILITY_SHAPE_VERSION
+
+# ------------------------------------------------------------------ scale
+#
+# One set of base values, one transform (0.3.0). Every length below is a base
+# value: px at `geometry.SCALE_REF_KEY` (the 465 px widget at the largest map
+# scaling). A reader turns it into widget px with the key's
+# `geometry.map_scale` (`ms.px(base)`), the widget scale times the map's zoom,
+# both from baked geometry. There is no per-size table.
+#
+# The values were set on 331 px keys (the tray-object marks and the null
+# sample are all 331 px), whose scale is 0.632-0.639; SET_AT_SCALE is their
+# median, and `_b` turns a value set there into a base value. The values that
+# were a share of the widget radius R were set at R = 164.5 px (the 329x331
+# crop's half height).
+#
+# Not lengths, and so not transformed: colour keys, angles, the score
+# acceptances, and the search's sampling grid (half-pixel radii, the coarse
+# surface's 2x2 average, REFINE_HALF's exact window round a coarse peak, the
+# beam profile's 2 px bins), which follow the pixel grid, not the map.
+
+#: The scale of the keys these values were set on, and their widget radius.
+SET_AT_SCALE, SET_AT_R = 0.636, 164.5
+
+
+def _b(px_at_331: float) -> float:
+    """A base value from a length set on the 331 px keys."""
+    return px_at_331 / SET_AT_SCALE
+
+
+def _ba(px2_at_331: float) -> float:
+    """A base area (or pixel count) from one set on the 331 px keys."""
+    return px2_at_331 / SET_AT_SCALE ** 2
+
+
+#: The transform a caller that names no geometry gets: the values exactly as
+#: set (synthetic crops and tests). Production readers pass the key's own.
+SET_AT = MapScale(None, SET_AT_SCALE, 1.0, "the scale the base values were set at")
 
 #: How far, in ms, a seed may be taken from a stored self position. The
 #: refreshed self track (`minimap-0.7.0`, 2026-09-27) stores single-frame
@@ -128,15 +166,35 @@ SHAPES = {"Regrowth": ("ring", "caster"),
           "Hunter's Fury": ("beam", "caster")}
 ACCEPT = {"ring": 0.2, "beam": 0.23}
 TEAL_H, TEAL_S_MIN = (75, 105), 70
-#: Ring radii and the seeded centre window, as fractions of the widget radius.
-RING_R, RING_SEED_HALF = (0.1, 0.45), 0.1
-#: Beam geometry, as fractions of the widget radius, and the icon cut in px.
-BEAM_HALF, BEAM_COLLAR, BEAM_REACH, BEAM_NEAR_PX = 0.037, 0.037, 1.116, 15.0
-#: The widened beam search: teal above this, segments at least this long.
-SEGMENT_TEAL, SEGMENT_MIN = 0.35, 0.3
-#: The map's art footprint grown by this many px is where a shape may lie
-#: (`minimap.art_floor`'s own search dilation).
-SUPPORT_DILATE = 9
+#: Ring radii and the seeded centre window (set at 0.1-0.45 R and 0.1 R).
+RING_R_BASE = (_b(0.1 * SET_AT_R), _b(0.45 * SET_AT_R))
+RING_SEED_HALF_BASE = _b(0.1 * SET_AT_R)
+#: The ring score's bands: the annulus is r +- RING_BAND[0], the side bands
+#: run RING_BAND[1]-RING_BAND[2] inside and outside it (set at 1.5, 3, 6 px),
+#: and a band needs RING_BAND_MIN pixels (set at 8).
+RING_BAND = (_b(1.5), _b(3.0), _b(6.0))
+RING_BAND_MIN = _ba(8)
+#: Beam geometry: strip half-width and collar (set at 0.037 R each), reach
+#: (1.116 R), the icon cut (15 px), and the pixels a strip and a collar need
+#: (20).
+BEAM_HALF_BASE = BEAM_COLLAR_BASE = _b(0.037 * SET_AT_R)
+BEAM_REACH_BASE, BEAM_NEAR_BASE = _b(1.116 * SET_AT_R), _b(15.0)
+BEAM_MIN_PIXELS = _ba(20)
+#: The beam's drawn run: profile gaps up to BEAM_RUN_GAP close, and a run
+#: shorter than BEAM_RUN_MIN is skipped (set at 6 and 10 px: 3 and 5 bins).
+BEAM_RUN_GAP, BEAM_RUN_MIN = _b(6.0), _b(10.0)
+#: The widened beam search: teal above SEGMENT_TEAL, segments at least
+#: SEGMENT_MIN_BASE long (set at 0.3 R), Hough votes and gap (set at 30, 6 px).
+SEGMENT_TEAL, SEGMENT_MIN_BASE = 0.35, _b(0.3 * SET_AT_R)
+SEGMENT_VOTES, SEGMENT_GAP = _b(30.0), _b(6.0)
+#: The map's art footprint grown by this much is where a shape may lie
+#: (`minimap.art_floor`'s own search dilation, set at 9 px).
+SUPPORT_DILATE_BASE = _b(9.0)
+
+
+def support_dilate(ms: MapScale) -> float:
+    """The footprint dilation `geometry.footprint` takes for this key."""
+    return ms.px(SUPPORT_DILATE_BASE)
 #: A beam is fired across the map: at least this fraction of its drawn run lies
 #: on the support, or it is teal scenery seen through the widget.
 BEAM_ON_MAP = 0.35
@@ -203,18 +261,21 @@ def _smooth_len(n: int) -> int:
 class _Radial:
     """Half-pixel radial sums round any centre of one crop, padded once."""
 
-    def __init__(self, tl: np.ndarray, mask: np.ndarray, radii: np.ndarray):
-        self.W = W = int(np.ceil(radii.max() + 7))
+    def __init__(self, tl: np.ndarray, mask: np.ndarray, radii: np.ndarray,
+                 ms: MapScale = SET_AT):
+        a, b0, b1 = (ms.px(v) for v in RING_BAND)
+        self.band_min = ms.area(RING_BAND_MIN)
+        self.W = W = int(np.ceil(radii.max() + b1 + 1))
         self.t = np.pad(tl * mask, W)
         self.m = np.pad(mask.astype(np.float32), W)
         yy, xx = np.mgrid[-W:W + 1, -W:W + 1]
         self.d = np.floor(np.hypot(xx, yy) * 2).astype(int).ravel()
         self.n = int(self.d.max()) + 2
         self.radii = radii
-        self.i = [np.clip(np.round(a * 2).astype(int), 0, self.n)
-                  for a in (radii - 1.5, radii - 6, radii + 3)]
-        self.j = [np.clip(np.round(b * 2).astype(int), 0, self.n)
-                  for b in (radii + 1.5, radii - 3, radii + 6)]
+        self.i = [np.clip(np.round(v * 2).astype(int), 0, self.n)
+                  for v in (radii - a, radii - b1, radii + b0)]
+        self.j = [np.clip(np.round(v * 2).astype(int), 0, self.n)
+                  for v in (radii + a, radii - b0, radii + b1)]
 
     def scores(self, x: int, y: int) -> np.ndarray:
         """The ring score at centre (x, y) for every radius."""
@@ -226,15 +287,17 @@ class _Radial:
 
         def band(k):
             cnt = M[self.j[k]] - M[self.i[k]]
-            return np.where(cnt >= 8, (T[self.j[k]] - T[self.i[k]]) / np.maximum(cnt, 1), np.nan)
+            return np.where(cnt >= self.band_min,
+                            (T[self.j[k]] - T[self.i[k]]) / np.maximum(cnt, 1), np.nan)
 
         out = band(0) - np.fmax(band(1), band(2))
         return np.where(np.isnan(out), -1.0, out)
 
 
-def ring_radii(R: float) -> np.ndarray:
-    """The searched ring radii: RING_R of the widget radius, in half pixels."""
-    return np.arange(RING_R[0] * R, RING_R[1] * R + 0.01, 0.5)
+def ring_radii(ms: MapScale = SET_AT) -> np.ndarray:
+    """The searched ring radii, RING_R_BASE transformed, in half pixels."""
+    lo, hi = ms.px(RING_R_BASE[0]), ms.px(RING_R_BASE[1])
+    return np.arange(lo, hi + 0.01, 0.5)
 
 
 class _Kernels:
@@ -244,26 +307,28 @@ class _Kernels:
     _cache: dict = {}
 
     @classmethod
-    def of(cls, shape, R: float, scale: float) -> "_Kernels":
-        key = (tuple(shape), round(R, 3), scale)
+    def of(cls, shape, ms: MapScale, scale: float) -> "_Kernels":
+        key = (tuple(shape), round(ms.scale, 6), scale)
         if key not in cls._cache:
-            cls._cache[key] = cls(tuple(shape), R, scale)
+            cls._cache[key] = cls(tuple(shape), ms, scale)
         return cls._cache[key]
 
-    def __init__(self, shape, R: float, scale: float):
+    def __init__(self, shape, ms: MapScale, scale: float):
         h, w = shape
-        full = ring_radii(R)
+        full = ring_radii(ms)
         self.radii = full if scale == 1.0 else full[::2]
         r, s = self.radii * scale, scale
-        i = [np.clip(np.round(a * 2).astype(int), 0, None)
-             for a in (r - 1.5 * s, r - 6 * s, r + 3 * s)]
-        j = [np.clip(np.round(b * 2).astype(int), 0, None)
-             for b in (r + 1.5 * s, r - 3 * s, r + 6 * s)]
+        a, b0, b1 = (ms.px(v) for v in RING_BAND)
+        self.band_min = ms.area(RING_BAND_MIN)
+        i = [np.clip(np.round(v * 2).astype(int), 0, None)
+             for v in (r - a * s, r - b1 * s, r + b0 * s)]
+        j = [np.clip(np.round(v * 2).astype(int), 0, None)
+             for v in (r + a * s, r - b0 * s, r + b1 * s)]
         self.ks = np.unique(np.concatenate(i + j))
         pos = {int(k): n for n, k in enumerate(self.ks)}
         self.jn = [np.array([pos[int(k)] for k in a]) for a in j]
         self.im = [np.array([pos[int(k)] for k in a]) for a in i]
-        W = int(np.ceil(r.max() + 7 * s))
+        W = int(np.ceil(r.max() + (b1 + 1) * s))
         self.P = (_smooth_len(h + W + 1), _smooth_len(w + W + 1))
         yy, xx = np.mgrid[-W:W + 1, -W:W + 1]
         d2 = np.floor(np.hypot(xx, yy) * 2).astype(int)
@@ -295,11 +360,11 @@ class RingSurface:
     averaged first, and the surface only proposes centres for the exact
     rescoring in `fit_ring`."""
 
-    def __init__(self, tl: np.ndarray, R: float, scale: float = COARSE_SCALE):
-        self.scale = scale
+    def __init__(self, tl: np.ndarray, ms: MapScale = SET_AT, scale: float = COARSE_SCALE):
+        self.scale, self.ms = scale, ms
         small = (tl if scale == 1.0 else
                  cv2.resize(tl, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA))
-        K = self.K = _Kernels.of(small.shape, R, scale)
+        K = self.K = _Kernels.of(small.shape, ms, scale)
         T, M = K.conv((small * K.mask).astype(np.float32), small.shape), K.M
         best = np.full(small.shape, -2.0, np.float32)
         arg = np.zeros(small.shape, np.int32)
@@ -309,7 +374,8 @@ class RingSurface:
                 jn, im = K.jn[b][q], K.im[b][q]
                 cnt = M[jn] - M[im]
                 with np.errstate(invalid="ignore", divide="ignore"):
-                    vals.append(np.where(cnt >= 8, (T[jn] - T[im]) / np.maximum(cnt, 1), np.nan))
+                    vals.append(np.where(cnt >= K.band_min, (T[jn] - T[im]) / np.maximum(cnt, 1),
+                                         np.nan))
             out = vals[0] - np.fmax(vals[1], vals[2])
             out = np.where(np.isnan(out), -1.0, out).astype(np.float32)
             better = out > best
@@ -318,9 +384,9 @@ class RingSurface:
         best[~K.mask] = -2.0
         self.best, self.arg = best, arg
 
-    def peaks(self, R: float, k: int = REFINE_K, sep_frac: float = 0.1,
-              centre=None, half=None, allowed: np.ndarray | None = None) -> list:
-        """The `k` best local maxima at least `sep_frac` R apart, as (score,
+    def peaks(self, k: int = REFINE_K, centre=None, half=None,
+              allowed: np.ndarray | None = None) -> list:
+        """The `k` best local maxima at least RING_SEED_HALF_BASE apart, as (score,
         x, y) in full-resolution pixels: inside the window round `centre`
         when given, and on `allowed` (a full-resolution mask) when given."""
         s = self.scale
@@ -339,7 +405,7 @@ class RingSurface:
             ok = allowed[np.clip(np.round(yy / s).astype(int), 0, h - 1),
                          np.clip(np.round(xx / s).astype(int), 0, w - 1)]
             b[~ok] = -2.0
-        sep = max(1, int(round(sep_frac * R * s)))
+        sep = max(1, int(round(self.ms.px(RING_SEED_HALF_BASE) * s)))
         out = []
         for _ in range(k):
             yi, xi = np.unravel_index(int(np.argmax(b)), b.shape)
@@ -366,14 +432,14 @@ def _ring_window(rad: _Radial, mask: np.ndarray, centre, half: float,
     return best
 
 
-def fit_ring(tl: np.ndarray, mask: np.ndarray, R: float,
+def fit_ring(tl: np.ndarray, mask: np.ndarray, ms: MapScale = SET_AT,
              centre: tuple[float, float] | None = None, half: float | None = None,
              step: int | None = None, _radial: _Radial | None = None,
              support: np.ndarray | None = None,
              _surface: RingSurface | None = None) -> dict:
     """The best ring, searched round `centre` (within `half`) or everywhere:
-    the score is mean teal on the annulus [r-1.5, r+1.5) minus the brighter of
-    [r-6, r-3) and [r+3, r+6).
+    the score is mean teal on the annulus r +- RING_BAND[0] minus the brighter
+    of the bands RING_BAND[1]-RING_BAND[2] inside and outside it.
 
     Coarse to fine (0.2.0): the coarse `RingSurface` proposes its REFINE_K
     best centres, and the exact score is maximised on a window of
@@ -382,10 +448,10 @@ def fit_ring(tl: np.ndarray, mask: np.ndarray, R: float,
     while teal still counts wherever it is drawn. `step` was 0.1.0's stride
     and is no longer read.
     """
-    rad = _radial or _Radial(tl, mask, ring_radii(R))
-    surf = _surface or RingSurface(tl, R)
+    rad = _radial or _Radial(tl, mask, ring_radii(ms), ms)
+    surf = _surface or RingSurface(tl, ms)
     allowed = None if support is None else (support & mask)
-    cands = surf.peaks(R, centre=centre, half=half, allowed=allowed)
+    cands = surf.peaks(centre=centre, half=half, allowed=allowed)
     if centre is not None:
         # The seeded window stays the prior's own.
         cands = [c for c in cands if abs(c[1] - centre[0]) <= half + 1
@@ -398,17 +464,17 @@ def fit_ring(tl: np.ndarray, mask: np.ndarray, R: float,
     return {"score": best[0], "cx": best[1], "cy": best[2], "r": best[3]}
 
 
-def ring_candidates(tl: np.ndarray, mask: np.ndarray, R: float,
+def ring_candidates(tl: np.ndarray, mask: np.ndarray, ms: MapScale = SET_AT,
                     support: np.ndarray | None = None, min_coarse: float = 0.10,
                     _surface: RingSurface | None = None) -> list[dict]:
     """The whole-widget ring search a scan of every caster stores: each
     coarse peak scoring at least `min_coarse`, refined as `fit_ring` refines
     its best, best first. `accepted` is ACCEPT's verdict on each."""
-    rad = _Radial(tl, mask, ring_radii(R))
-    surf = _surface or RingSurface(tl, R)
+    rad = _Radial(tl, mask, ring_radii(ms), ms)
+    surf = _surface or RingSurface(tl, ms)
     allowed = None if support is None else (support & mask)
     out = []
-    for c in surf.peaks(R, allowed=allowed):
+    for c in surf.peaks(allowed=allowed):
         if c[0] < min_coarse:
             continue
         s, x, y, r = _ring_window(rad, mask, (c[1], c[2]), REFINE_HALF, allowed)
@@ -426,18 +492,19 @@ def ring_candidates(tl: np.ndarray, mask: np.ndarray, R: float,
 BEAM_STEP_DEG, BEAM_AROUND_DEG = 0.2, 8.0
 
 
-def _beam(tl, mask, vx, vy, th, R):
+def _beam(tl, mask, vx, vy, th, ms: MapScale):
     c, s = np.cos(np.radians(th)), np.sin(np.radians(th))
     lp, dp = vx * c + vy * s, np.abs(-vx * s + vy * c)
-    hw, col = BEAM_HALF * R, BEAM_COLLAR * R
-    along = (lp >= BEAM_NEAR_PX) & (lp <= BEAM_REACH * R) & mask
+    hw, col = ms.px(BEAM_HALF_BASE), ms.px(BEAM_COLLAR_BASE)
+    along = (lp >= ms.px(BEAM_NEAR_BASE)) & (lp <= ms.px(BEAM_REACH_BASE)) & mask
     strip, collar = along & (dp <= hw), along & (dp > hw) & (dp <= hw + col)
-    if strip.sum() < 20 or collar.sum() < 20:
+    nmin = ms.area(BEAM_MIN_PIXELS)
+    if strip.sum() < nmin or collar.sum() < nmin:
         return -1.0, lp, strip
     return float(tl[strip].mean() - tl[collar].mean()), lp, strip
 
 
-def beam_sweep(tl: np.ndarray, mask: np.ndarray, ox: float, oy: float, R: float,
+def beam_sweep(tl: np.ndarray, mask: np.ndarray, ox: float, oy: float, ms: MapScale = SET_AT,
                step: float = BEAM_STEP_DEG) -> tuple[np.ndarray, np.ndarray]:
     """The beam score (strip minus collar) at every angle of a `step` grid.
 
@@ -448,10 +515,11 @@ def beam_sweep(tl: np.ndarray, mask: np.ndarray, ox: float, oy: float, R: float,
     ys, xs = np.nonzero(mask)
     vx, vy = xs - ox, ys - oy
     rho = np.hypot(vx, vy)
-    sel = (rho >= BEAM_NEAR_PX) & (rho <= BEAM_REACH * R)
+    sel = (rho >= ms.px(BEAM_NEAR_BASE)) & (rho <= ms.px(BEAM_REACH_BASE))
     rho, phi = rho[sel], np.degrees(np.arctan2(vy[sel], vx[sel])) % 360.0
     t = tl[ys[sel], xs[sel]].astype(np.float64)
-    hw, col = BEAM_HALF * R, BEAM_COLLAR * R
+    hw, col = ms.px(BEAM_HALF_BASE), ms.px(BEAM_COLLAR_BASE)
+    nmin = ms.area(BEAM_MIN_PIXELS)
     nb = int(round(360.0 / step))
 
     def interval(alpha, wts):
@@ -467,17 +535,17 @@ def beam_sweep(tl: np.ndarray, mask: np.ndarray, ox: float, oy: float, R: float,
     s1, n1 = interval(a1, t), interval(a1, one)
     s2, n2 = interval(a2, t) - s1, interval(a2, one) - n1
     with np.errstate(invalid="ignore", divide="ignore"):
-        sc = np.where((n1 >= 20) & (n2 >= 20), s1 / n1 - s2 / n2, -1.0)
+        sc = np.where((n1 >= nmin) & (n2 >= nmin), s1 / n1 - s2 / n2, -1.0)
     return np.arange(nb) * step, sc
 
 
-def fit_beam(tl: np.ndarray, mask: np.ndarray, ox: float, oy: float, R: float,
+def fit_beam(tl: np.ndarray, mask: np.ndarray, ox: float, oy: float, ms: MapScale = SET_AT,
              around: float | None = None) -> dict:
     """The best beam from (ox, oy), swept over every angle at BEAM_STEP_DEG
     (0.2.0), or within BEAM_AROUND_DEG of `around`. The score is mean teal in
     the strip minus mean teal in the collars either side; the beam ends where
     the strip's teal falls below half its peak."""
-    th, sc = beam_sweep(tl, mask, ox, oy, R)
+    th, sc = beam_sweep(tl, mask, ox, oy, ms)
     if around is not None:
         d = np.abs((th - around + 180) % 360 - 180)
         sc = np.where(d <= BEAM_AROUND_DEG, sc, -2.0)
@@ -485,17 +553,18 @@ def fit_beam(tl: np.ndarray, mask: np.ndarray, ox: float, oy: float, R: float,
     best, thb = float(sc[k]), float(th[k])
     h, w = tl.shape
     yy, xx = np.mgrid[0:h, 0:w]
-    _, lp, strip = _beam(tl, mask, xx - ox, yy - oy, thb, R)
+    _, lp, strip = _beam(tl, mask, xx - ox, yy - oy, thb, ms)
     bins = np.floor(lp[strip] / 2.0).astype(int)
     prof = np.bincount(bins, weights=tl[strip]) / np.maximum(np.bincount(bins), 1)
-    l0 = l1 = BEAM_NEAR_PX
+    l0 = l1 = ms.px(BEAM_NEAR_BASE)
+    gap, least = round(ms.px(BEAM_RUN_GAP) / 2.0), round(ms.px(BEAM_RUN_MIN) / 2.0)
     on = np.nonzero(prof >= 0.5 * prof.max())[0] if prof.size and prof.max() > 0 else []
     if len(on):
         run = [on[0]]
         for b in on[1:]:
-            if b - run[-1] <= 3:
+            if b - run[-1] <= gap:
                 run.append(b)
-            elif len(run) < 5:
+            elif len(run) < least:
                 run = [b]
             else:
                 break
@@ -514,13 +583,14 @@ def on_map(f: dict, support: np.ndarray, n: int = 40) -> float:
     return float(support[yi, xi].mean())
 
 
-def longest_segment(tl: np.ndarray, mask: np.ndarray, R: float,
+def longest_segment(tl: np.ndarray, mask: np.ndarray, ms: MapScale = SET_AT,
                     support: np.ndarray | None = None):
     """The longest straight teal segment in the widget that lies BEAM_ON_MAP on
     `support` (any segment without one), or None."""
     b = ((tl >= SEGMENT_TEAL) & mask).astype(np.uint8) * 255
-    segs = cv2.HoughLinesP(b, 1, np.pi / 360, 30,
-                           minLineLength=int(SEGMENT_MIN * R), maxLineGap=6)
+    segs = cv2.HoughLinesP(b, 1, np.pi / 360, int(round(ms.px(SEGMENT_VOTES))),
+                           minLineLength=int(ms.px(SEGMENT_MIN_BASE)),
+                           maxLineGap=int(round(ms.px(SEGMENT_GAP))))
     if segs is None:
         return None
     segs = [s for s in segs.reshape(-1, 4) if support is None or on_map(
@@ -531,7 +601,7 @@ def longest_segment(tl: np.ndarray, mask: np.ndarray, R: float,
     return (float(x0), float(y0)), (float(x1), float(y1))
 
 
-def widened_beam(tl: np.ndarray, mask: np.ndarray, R: float,
+def widened_beam(tl: np.ndarray, mask: np.ndarray, ms: MapScale = SET_AT,
                  support: np.ndarray | None = None,
                  seed: tuple[float, float] | None = None) -> dict | None:
     """The beam along the longest straight teal segment on the map, or None
@@ -540,9 +610,9 @@ def widened_beam(tl: np.ndarray, mask: np.ndarray, R: float,
 
     The end nearer `seed` is the caster's, and the row says `oriented`;
     without a seed the end is unknown. The caster's icon sits before the
-    drawn blast, as in the seeded geometry, so the origin goes BEAM_NEAR_PX
+    drawn blast, as in the seeded geometry, so the origin goes BEAM_NEAR_BASE
     behind the segment's end."""
-    seg = longest_segment(tl, mask, R, support)
+    seg = longest_segment(tl, mask, ms, support)
     if seg is None:
         return None
     (ax, ay), (bx, by) = seg
@@ -550,9 +620,10 @@ def widened_beam(tl: np.ndarray, mask: np.ndarray, R: float,
                              < np.hypot(ax - seed[0], ay - seed[1])):
         (ax, ay), (bx, by) = (bx, by), (ax, ay)
     th = float(np.degrees(np.arctan2(by - ay, bx - ax)))
-    ox = ax - BEAM_NEAR_PX * np.cos(np.radians(th))
-    oy = ay - BEAM_NEAR_PX * np.sin(np.radians(th))
-    out = dict(fit_beam(tl, mask, ox, oy, R, around=th), path="widened",
+    near = ms.px(BEAM_NEAR_BASE)
+    ox = ax - near * np.cos(np.radians(th))
+    oy = ay - near * np.sin(np.radians(th))
+    out = dict(fit_beam(tl, mask, ox, oy, ms, around=th), path="widened",
                oriented=seed is not None)
     if support is not None:
         out["on_map"] = on_map(out, support)
@@ -569,11 +640,14 @@ def beam_accepted(f: dict | None) -> bool:
 # ------------------------------------------------------------------- fit
 
 def fit_shape(crop: np.ndarray | None, ability: str,
-        seed: tuple[float, float] | None, support: np.ndarray | None = None) -> dict:
+        seed: tuple[float, float] | None, support: np.ndarray | None = None,
+        ms: MapScale = SET_AT) -> dict:
     """One observation of `ability`'s drawn shape in one minimap crop.
 
     `seed` is where the caster is believed to be (widget pixels), or None.
-    `support` is the map's footprint (`geometry.footprint` at SUPPORT_DILATE).
+    `support` is the map's footprint (`geometry.footprint` at `support_dilate`).
+    `ms` is the key's `geometry.map_scale`; SET_AT, the values as set, when
+    the caller names no geometry.
     Teal counts over the whole widget, because the shapes are drawn over the
     void too; the support only places a shape: a ring's centre lies on it
     (0.2.0) and a beam lies BEAM_ON_MAP on it. Without it nothing is placed,
@@ -582,7 +656,8 @@ def fit_shape(crop: np.ndarray | None, ability: str,
     `found=None` and says why.
     """
     base = {"ability": ability, "ability_shape_version": ABILITY_SHAPE_VERSION,
-            "support": None if support is None else "art_footprint"}
+            "support": None if support is None else "art_footprint",
+            "map_scale": ms.provenance()}
     if ability not in SHAPES:
         return {**base, "shape": None, "found": None, "reason": "no_shape_model"}
     shape, prior = SHAPES[ability]
@@ -609,20 +684,20 @@ def fit_shape(crop: np.ndarray | None, ability: str,
     out = None
     # One coarse surface and one exact scorer serve the seeded and the
     # widened ring.
-    surf = RingSurface(tl, R) if shape == "ring" else None
-    rad = _Radial(tl, mask, ring_radii(R)) if shape == "ring" else None
+    surf = RingSurface(tl, ms) if shape == "ring" else None
+    rad = _Radial(tl, mask, ring_radii(ms), ms) if shape == "ring" else None
     if prior == "caster" and seed is not None:
-        out = placed(dict(fit_ring(tl, mask, R, seed, RING_SEED_HALF * R, _radial=rad,
+        out = placed(dict(fit_ring(tl, mask, ms, seed, ms.px(RING_SEED_HALF_BASE), _radial=rad,
                                    support=support, _surface=surf) if shape == "ring"
-                          else fit_beam(tl, mask, seed[0], seed[1], R), path="seeded"))
+                          else fit_beam(tl, mask, seed[0], seed[1], ms), path="seeded"))
         if clears(out):
             return {**base, **out, "found": True, "reason": None}
     prior_fit = out
     if shape == "ring":
-        out = dict(fit_ring(tl, mask, R, _radial=rad, support=support, _surface=surf),
+        out = dict(fit_ring(tl, mask, ms, _radial=rad, support=support, _surface=surf),
                    path="free" if prior == "free" else "widened")
     else:
-        out = widened_beam(tl, mask, R, support, seed)
+        out = widened_beam(tl, mask, ms, support, seed)
     if clears(out):
         seeded = None if prior_fit is None else {"score": prior_fit["score"]}
         return {**base, **out, "seeded": seeded, "found": True, "reason": None}

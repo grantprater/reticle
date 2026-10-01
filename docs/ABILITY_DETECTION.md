@@ -531,6 +531,22 @@ detectors.
     proposer, must reject them.
   - The gallery's glyph classifier is scored only in-sample.
 
+**One transform (2026-09-30).** Every pixel length in `ability_shapes`,
+`ability_scan` and `ability_icons` is a base value times
+`geometry.map_scale(key).scale`: the widget's scale against the 465 px
+reference times the map zoom, both from the baked `shade_fit`, never from
+session pixels [domain:capture/minimap-size-settings]
+[domain:capture/session-pixels-are-not-the-map]. Base values are pixels at
+`SCALE_REF_KEY` (Ascent, bigmap), whose scale is 1. The 331 px keys read
+0.63-0.64: a widget scale of 0.712 times a map zoom near 0.89, so the old
+shares of the crop's radius were wrong at 465 px by that zoom. Sampling
+grids, colours, angles and acceptances are not lengths and do not scale.
+The world scale is unmodelled: Chamber's Trademark draws 13% larger on
+Split than on Ascent, and Regrowth and Recon Bolt rings differ by 7-8%
+between maps after the transform. Per-size constants outside the ability pass
+(`teardrop.SELF_FACING_GATES`, the fixed pixel radii in `minimap`,
+`minimap_dark`, `occluders`, `enemy_tracks.BIND_PX`) are unchanged.
+
 ## 10. Recall first
 
 The first acceptance metric is recall of **unnamed** ability entities: is

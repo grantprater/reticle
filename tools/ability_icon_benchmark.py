@@ -18,6 +18,10 @@ crops of the minimap crop cache, decoding nothing:
   and Skye sessions away from the player's shape casts); the count is
   candidates per crop.
 
+Each session reads its key's transform (`geometry.map_scale`), as the
+reader does; `ICON_SCALE=set` reads every crop at `ability_shapes.SET_AT`, the
+scale the base values were set at, which checks a refactor against 0.2.0.
+
 Cost: the full search's milliseconds per crop by widget width, and the
 verify of each null crop's own candidates. The standard: at least 123 of
 151 hits, at most 6 candidates per null crop, and the full search at most
@@ -92,6 +96,9 @@ class _Session:
         self.rect = self.cache.rect_of("minimap")
         self.ts = np.asarray(self.cache.t_ms, float)
         self.slab = minimap.slab_mask(geometry.reference_static(sid, store.root))
+        from reticle.ability_shapes import SET_AT
+        self.ms = (SET_AT if os.environ.get("ICON_SCALE") == "set"
+                   else geometry.map_scale_of(sid, store.root))
         self.terms = None
 
     def crop(self, t):
@@ -106,7 +113,7 @@ class _Session:
         if img.shape[:2] != self.slab.shape[:2]:
             return None, None
         if self.terms is None:
-            self.terms = I.IconTerms(self.slab, img.shape[1] / 2.0)
+            self.terms = I.IconTerms(self.slab, self.ms)
         return img, float(s.t_ms)
 
 

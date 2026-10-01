@@ -59,7 +59,7 @@ question = "What is the floor, terrain and reference art for this (map, profile)
 owner = "geometry"
 role = ["constrain"]
 status = "shipped"
-produces = ["reference_for_key", "key_of", "path_of"]
+produces = ["reference_for_key", "key_of", "path_of", "MapScale", "map_scale", "map_scale_of", "SCALE_REF_KEY"]
 not_for = """
 Anything a session's own pixels say. SESSION PIXELS DO NOT DEFINE THE MAP: a
 capture determines the widget's size, placement and orientation and nothing
