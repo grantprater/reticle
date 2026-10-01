@@ -725,6 +725,14 @@ Each stage commits when its evidence holds.
 4. **Recall pass.** The player labels section 10's frames. Acceptance:
    `.\.venv\Scripts\python.exe tools\ability_recall.py`, built in this
    stage over the recall labels. Evidence: entity recall and its lower bound, per widget size.
+   Built on 2026-09-30, unscored: the frames (section 10), the ability
+   pass on their four sessions, the labeller
+   (`.\.venv\Scripts\python.exe prototypes\label_ability_recall.py --block 1`
+   after `--prepare`) and the scorer with its tests on synthetic labels
+   (`tests/test_ability_recall.py`). No recall label exists yet. The pass
+   wrote `ability_gate`, `ability_shape_scan`, `ability_icon` and
+   `minimap_dark` for the four sessions from the crop cache; each
+   selection equals every 20th live row of its `ability_icon` stream.
 5. **Tracks and lifecycles.** `adjudication.ability` tracks and
    `adjudication.phases` rules per fact. Acceptance:
    `.\.venv\Scripts\python.exe -m reticle ability-entities SID` on the
