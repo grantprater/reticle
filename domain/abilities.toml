@@ -3848,3 +3848,50 @@ colour is not measured.
 use = "the Blaze descriptor of `ability_candidates`: width, length range and the ally colour model"
 values = { base_width = 5.9, base_length = [42.2, 84.8], ally_hue = [16, 18, 20], ally_sat_p10 = [153, 194] }
 see = ["abilities/phoenix-blaze"]
+
+[passive-abilities-draw-no-ui]
+claim = """
+A passive ability never shows in any on-screen UI other than its own
+description. Its use can be inferred but is never explicit: no tray slot, no
+killfeed icon, no assist icon.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+subject = "abilities"
+source = """
+the player, 2026-10-01: "Also heating up is phoenix's passive. Passive
+abilities never show up in any onscreen ui other than the description of the
+passive ability. Their use can be inferred but it is never explicit except
+jett's where you can hear the wooshing sound of the levitating, I believe
+that's all". The reference marks five passives (slot Passive): Astra's Astral
+Form, Jett's Drift, Phoenix's Heating Up, Sova's Uncanny Marksman, Viper's
+Toxic
+"""
+use = """
+`adjudication.killfeed_kits` keeps every slot-Passive ability out of the kits
+and the assist lists
+"""
+exceptions = "Jett's Drift has an audio cue [domain:abilities/jett-drift-whoosh]"
+see = ["abilities/jett-drift-whoosh", "killfeed/damaging-ability-kill-icon"]
+
+[jett-drift-whoosh]
+claim = """
+Jett's passive, Drift in the reference (holding jump while falling to glide),
+makes an audible whooshing sound while she glides: the one passive whose use
+the player knows to be explicit, by audio rather than on screen.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+subject = "jett:drift"
+source = """
+the player, 2026-10-01: "except jett's where you can hear the wooshing sound
+of the levitating, I believe that's all". The player called it levitating;
+the reference names Jett's passive Drift
+"""
+exceptions = """
+the player hedged "I believe that's all": another passive with a cue is not
+ruled out
+"""
+see = ["abilities/passive-abilities-draw-no-ui"]

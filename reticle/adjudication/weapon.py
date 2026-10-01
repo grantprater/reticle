@@ -51,7 +51,9 @@ from .killfeed_kits import kill_kits, open_questions
 # reference's descriptions. An agent with an ability the rule leaves undecided
 # (`KILLFEED_OPEN`) keeps NAME_MIN_IOU, and the lowered floor covers only the
 # listed abilities.
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.0.0"
+# 1.1.0 (2026-10-01): the kits take the player's answers (killfeed-kits-0.3.0),
+# so no agent holds an open question and Sage and Clove qualify.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.1.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36

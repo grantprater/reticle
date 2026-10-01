@@ -1,6 +1,6 @@
 {
- "about": "Killfeed-capable abilities per agent, derived by reticle/adjudication/killfeed_kits.py from the reference's ability descriptions and the killfeed facts. `kits`: damaging abilities and fact-named icons (weapon slot); `open`: abilities the damage rule cannot decide; `assist_icons` and `assist_open`: the disabling rule, unused by the weapon owner.",
- "version": "killfeed-kits-0.2.0",
+ "about": "Killfeed-capable abilities per agent, derived by reticle/adjudication/killfeed_kits.py from the reference's ability descriptions and the killfeed facts. `kits`: damaging abilities and fact-named icons (weapon slot); `unconfirmed`: kit abilities the player believes possible; `open`: abilities neither the rule nor the player has decided; `assist_icons` and `assist_open`: the disabling rule, unused by the weapon owner.",
+ "version": "killfeed-kits-0.3.0",
  "source": {
   "reference": "reference/abilities.json",
   "harvested": "2026-09-04",
@@ -42,7 +42,30 @@
    "Resurrection": "killfeed/revive-entries",
    "Not Dead Yet": "killfeed/revive-entries",
    "NULL/cmd": "killfeed/kayo-downed-entry"
-  }
+  },
+  "player_answers": {
+   "Killjoy/TURRET": "damaging",
+   "Phoenix/Blaze": "damaging",
+   "Phoenix/Hot Hands": "damaging",
+   "Raze/Blast Pack": "damaging",
+   "Raze/Boom Bot": "damaging",
+   "Iso/Kill Contract": "possible",
+   "Clove/Pick-me-up": "not_damaging",
+   "Clove/Meddle": "not_damaging",
+   "Cypher/Spycam": "not_damaging",
+   "Fade/Seize": "not_damaging",
+   "Fade/Nightfall": "not_damaging",
+   "Iso/Double Tap": "not_damaging",
+   "Reyna/Devour": "not_damaging",
+   "Sage/Healing Orb": "not_damaging",
+   "Sova/Owl Drone": "not_damaging",
+   "Veto/Chokehold": "not_damaging",
+   "Viper/Poison Cloud": "not_damaging",
+   "Viper/Toxic Screen": "not_damaging",
+   "Viper/Viper's Pit": "not_damaging",
+   "Viper/Toxic": "not_damaging"
+  },
+  "player_answer_source": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\""
  },
  "kits": {
   "Astra": [],
@@ -69,7 +92,9 @@
    "Mosh Pit"
   ],
   "Harbor": [],
-  "Iso": [],
+  "Iso": [
+   "Kill Contract"
+  ],
   "Jett": [
    "Blade Storm"
   ],
@@ -78,16 +103,22 @@
    "NULL/cmd"
   ],
   "Killjoy": [
-   "Nanoswarm"
+   "Nanoswarm",
+   "TURRET"
   ],
   "Miks": [],
   "Neon": [
    "Overdrive"
   ],
   "Omen": [],
-  "Phoenix": [],
+  "Phoenix": [
+   "Blaze",
+   "Hot Hands"
+  ],
   "Raze": [
+   "Blast Pack",
    "Paint Shells",
+   "Boom Bot",
    "Showstopper"
   ],
   "Reyna": [],
@@ -116,51 +147,10 @@
   "Waylay": [],
   "Yoru": []
  },
- "open": {
-  "Clove": [
-   "Pick-me-up",
-   "Meddle"
-  ],
-  "Cypher": [
-   "Spycam"
-  ],
-  "Fade": [
-   "Seize",
-   "Nightfall"
-  ],
+ "open": {},
+ "unconfirmed": {
   "Iso": [
-   "Kill Contract",
-   "Double Tap"
-  ],
-  "Killjoy": [
-   "TURRET"
-  ],
-  "Phoenix": [
-   "Blaze",
-   "Hot Hands",
-   "Heating Up"
-  ],
-  "Raze": [
-   "Blast Pack",
-   "Boom Bot"
-  ],
-  "Reyna": [
-   "Devour"
-  ],
-  "Sage": [
-   "Healing Orb"
-  ],
-  "Sova": [
-   "Owl Drone"
-  ],
-  "Veto": [
-   "Chokehold"
-  ],
-  "Viper": [
-   "Poison Cloud",
-   "Toxic Screen",
-   "Viper's Pit",
-   "Toxic"
+   "Kill Contract"
   ]
  },
  "assist_icons": {
@@ -267,8 +257,7 @@
    "Poison Cloud",
    "Toxic Screen",
    "Snake Bite",
-   "Viper's Pit",
-   "Toxic"
+   "Viper's Pit"
   ],
   "Vyse": [
    "Arc Rose",
@@ -385,13 +374,13 @@
    "name": "Astral Form",
    "functions": null,
    "damage": {
-    "status": "not_damaging",
-    "by": "rule:no-damage-wording",
+    "status": "passive",
+    "by": "fact:abilities/passive-abilities-draw-no-ui",
     "excerpt": null
    },
    "assist": {
-    "status": "not_disabling",
-    "by": "rule:no-status-term",
+    "status": "passive",
+    "by": "fact:abilities/passive-abilities-draw-no-ui",
     "excerpt": null
    }
   },
@@ -593,10 +582,15 @@
    "name": "Pick-me-up",
    "functions": "Empowerment Heal",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "ACTIVATE to absorb the life force of a fallen enemy that Clove damaged or killed, gaining haste and temporary health.",
-    "question": "'damaged' with no damage clause"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "ACTIVATE to absorb the life force of a fallen enemy that Clove damaged or killed, gaining haste and temporary health.",
+     "question": "'damaged' with no damage clause"
+    }
    },
    "assist": {
     "status": "not_disabling",
@@ -642,10 +636,15 @@
    "name": "Meddle",
    "functions": "Cripple",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "FIRE to throw the fragment, which upon landing on the floor, erupts after a short delay and temporarily Decays all targets caught inside.",
-    "question": "'Decays' with no damage clause"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "FIRE to throw the fragment, which upon landing on the floor, erupts after a short delay and temporarily Decays all targets caught inside.",
+     "question": "'Decays' with no damage clause"
+    }
    },
    "assist": {
     "status": "disabling",
@@ -675,10 +674,15 @@
    "name": "Spycam",
    "functions": "Controlled Deployable",
    "damage": {
-    "status": "undecided",
-    "by": "rule:attack-no-effect",
-    "excerpt": "While in control of the camera, FIRE to shoot a marking dart.",
-    "question": "'shoot' with no stated damage or status"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:attack-no-effect",
+     "excerpt": "While in control of the camera, FIRE to shoot a marking dart.",
+     "question": "'shoot' with no stated damage or status"
+    }
    },
    "assist": {
     "status": "undecided",
@@ -791,10 +795,15 @@
    "name": "Seize",
    "functions": "Cripple Tether",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "Held enemies are Deafened, and Decayed.",
-    "question": "'Decayed' with no damage clause"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "Held enemies are Deafened, and Decayed.",
+     "question": "'Decayed' with no damage clause"
+    }
    },
    "assist": {
     "status": "disabling",
@@ -841,10 +850,15 @@
    "name": "Nightfall",
    "functions": "Cripple Intel",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "Enemies caught in the wave are Marked by terror trails, Deafened, and Decayed.",
-    "question": "'Decayed' with no damage clause"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "Enemies caught in the wave are Marked by terror trails, Deafened, and Decayed.",
+     "question": "'Decayed' with no damage clause"
+    }
    },
    "assist": {
     "status": "disabling",
@@ -1002,10 +1016,15 @@
    "name": "Kill Contract",
    "functions": "Banish Limiter",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "FIRE to hurl a column of energy through the battlefield, pulling and healing both you and the first enemy hit into the arena to duel to the death.",
-    "question": "'death' with no damage clause"
+    "status": "possible",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "FIRE to hurl a column of energy through the battlefield, pulling and healing both you and the first enemy hit into the arena to duel to the death.",
+     "question": "'death' with no damage clause"
+    }
    },
    "assist": {
     "status": "disabling",
@@ -1019,10 +1038,15 @@
    "name": "Double Tap",
    "functions": "Empowerment Invulnerability",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "Once focused: gain a shield which absorbs one instance of damage from any source, reload more quickly, and enter a flow state during which downed enemies you kill or damage spawn an energy orb.",
-    "question": "'damage' with no damage clause"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "Once focused: gain a shield which absorbs one instance of damage from any source, reload more quickly, and enter a flow state during which downed enemies you kill or damage spawn an energy orb.",
+     "question": "'damage' with no damage clause"
+    }
    },
    "assist": {
     "status": "not_disabling",
@@ -1117,13 +1141,13 @@
    "name": "Drift",
    "functions": null,
    "damage": {
-    "status": "not_damaging",
-    "by": "rule:no-damage-wording",
+    "status": "passive",
+    "by": "fact:abilities/passive-abilities-draw-no-ui",
     "excerpt": null
    },
    "assist": {
-    "status": "not_disabling",
-    "by": "rule:no-status-term",
+    "status": "passive",
+    "by": "fact:abilities/passive-abilities-draw-no-ui",
     "excerpt": null
    }
   },
@@ -1229,10 +1253,15 @@
    "name": "TURRET",
    "functions": "Autonomous Deployable",
    "damage": {
-    "status": "undecided",
-    "by": "rule:attack-no-effect",
-    "excerpt": "FIRE to deploy a turret that fires at enemies in a 100 degree cone.",
-    "question": "'fires at' with no stated damage or status"
+    "status": "damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:attack-no-effect",
+     "excerpt": "FIRE to deploy a turret that fires at enemies in a 100 degree cone.",
+     "question": "'fires at' with no stated damage or status"
+    }
    },
    "assist": {
     "status": "not_disabling",
@@ -1454,10 +1483,15 @@
    "name": "Blaze",
    "functions": "Wall",
    "damage": {
-    "status": "undecided",
-    "by": "rule:heals",
-    "excerpt": "The fire wall heals Phoenix instead of dealing damage.",
-    "question": "damage clause with heals"
+    "status": "damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:heals",
+     "excerpt": "The fire wall heals Phoenix instead of dealing damage.",
+     "question": "damage clause with heals"
+    }
    },
    "assist": {
     "status": "disabling",
@@ -1471,10 +1505,15 @@
    "name": "Hot Hands",
    "functions": "Molotov",
    "damage": {
-    "status": "undecided",
-    "by": "rule:heals",
-    "excerpt": "The fire zone heals Phoenix instead of dealing damage.",
-    "question": "damage clause with heals"
+    "status": "damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:heals",
+     "excerpt": "The fire zone heals Phoenix instead of dealing damage.",
+     "question": "damage clause with heals"
+    }
    },
    "assist": {
     "status": "not_disabling",
@@ -1520,14 +1559,13 @@
    "name": "Heating Up",
    "functions": null,
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "PASSIVELY Heal Phoenix instead of taking damage after standing in Phoenix's own fire",
-    "question": "'damage' with no damage clause"
+    "status": "passive",
+    "by": "fact:abilities/passive-abilities-draw-no-ui",
+    "excerpt": null
    },
    "assist": {
-    "status": "not_disabling",
-    "by": "rule:no-status-term",
+    "status": "passive",
+    "by": "fact:abilities/passive-abilities-draw-no-ui",
     "excerpt": null
    }
   },
@@ -1537,10 +1575,15 @@
    "name": "Blast Pack",
    "functions": "Dash Displacement",
    "damage": {
-    "status": "undecided",
-    "by": "rule:conditional",
-    "excerpt": "RE-USE the ability after deployment to detonate, moving anything hit and dealing damage if fully armed.",
-    "question": "damage clause with conditional"
+    "status": "damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:conditional",
+     "excerpt": "RE-USE the ability after deployment to detonate, moving anything hit and dealing damage if fully armed.",
+     "question": "damage clause with conditional"
+    }
    },
    "assist": {
     "status": "not_disabling",
@@ -1570,10 +1613,15 @@
    "name": "Boom Bot",
    "functions": "Autonomous Deployable",
    "damage": {
-    "status": "undecided",
-    "by": "rule:conditional",
-    "excerpt": "The Boom Bot will lock on to any enemies in its frontal cone and chase them, exploding for heavy damage if it reaches them.",
-    "question": "damage clause with conditional"
+    "status": "damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:conditional",
+     "excerpt": "The Boom Bot will lock on to any enemies in its frontal cone and chase them, exploding for heavy damage if it reaches them.",
+     "question": "damage clause with conditional"
+    }
    },
    "assist": {
     "status": "not_disabling",
@@ -1603,10 +1651,15 @@
    "name": "Devour",
    "functions": "Heal",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "Soul Harvest: Enemies that die within 3 seconds of taking damage from Reyna leave behind Soul Orbs that last 3 seconds.",
-    "question": "'die' with no damage clause"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "Soul Harvest: Enemies that die within 3 seconds of taking damage from Reyna leave behind Soul Orbs that last 3 seconds.",
+     "question": "'die' with no damage clause"
+    }
    },
    "assist": {
     "status": "not_disabling",
@@ -1684,10 +1737,15 @@
    "name": "Healing Orb",
    "functions": "Heal",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "FIRE with your crosshairs over a damaged ally to activate a Heal-Over-Time on them.",
-    "question": "'damaged' with no damage clause"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "FIRE with your crosshairs over a damaged ally to activate a Heal-Over-Time on them.",
+     "question": "'damaged' with no damage clause"
+    }
    },
    "assist": {
     "status": "not_disabling",
@@ -1831,10 +1889,15 @@
    "name": "Owl Drone",
    "functions": "Controlled Deployable",
    "damage": {
-    "status": "undecided",
-    "by": "rule:attack-no-effect",
-    "excerpt": "While in control of the drone, FIRE to shoot a marking dart.",
-    "question": "'shoot' with no stated damage or status"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:attack-no-effect",
+     "excerpt": "While in control of the drone, FIRE to shoot a marking dart.",
+     "question": "'shoot' with no stated damage or status"
+    }
    },
    "assist": {
     "status": "undecided",
@@ -1866,13 +1929,13 @@
    "name": "Uncanny Marksman",
    "functions": null,
    "damage": {
-    "status": "not_damaging",
-    "by": "rule:no-damage-wording",
+    "status": "passive",
+    "by": "fact:abilities/passive-abilities-draw-no-ui",
     "excerpt": null
    },
    "assist": {
-    "status": "not_disabling",
-    "by": "rule:no-status-term",
+    "status": "passive",
+    "by": "fact:abilities/passive-abilities-draw-no-ui",
     "excerpt": null
    }
   },
@@ -1994,10 +2057,15 @@
    "name": "Chokehold",
    "functions": "Autonomous Deployable Cripple Tether",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "Held enemies are Deafened, and Decayed.",
-    "question": "'Decayed' with no damage clause"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "Held enemies are Deafened, and Decayed.",
+     "question": "'Decayed' with no damage clause"
+    }
    },
    "assist": {
     "status": "disabling",
@@ -2011,10 +2079,15 @@
    "name": "Poison Cloud",
    "functions": "Cripple Smoke",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "RE-USE the ability to create a toxic gas cloud that Decays opponents inside it at the cost of fuel.",
-    "question": "'Decays' with no damage clause"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "RE-USE the ability to create a toxic gas cloud that Decays opponents inside it at the cost of fuel.",
+     "question": "'Decays' with no damage clause"
+    }
    },
    "assist": {
     "status": "disabling",
@@ -2028,10 +2101,15 @@
    "name": "Toxic Screen",
    "functions": "Cripple Wall",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "RE-USE the ability to create a tall wall of toxic gas that Decays opponents that cross it at the cost of fuel.",
-    "question": "'Decays' with no damage clause"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "RE-USE the ability to create a tall wall of toxic gas that Decays opponents that cross it at the cost of fuel.",
+     "question": "'Decays' with no damage clause"
+    }
    },
    "assist": {
     "status": "disabling",
@@ -2061,10 +2139,15 @@
    "name": "Viper's Pit",
    "functions": "Cripple Vision Blocker",
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "FIRE to spray a chemical cloud in all directions around Viper, creating a large cloud that Nearsights players and Decays the health of enemies inside of it.",
-    "question": "'Decays' with no damage clause"
+    "status": "not_damaging",
+    "by": "player:2026-10-01",
+    "excerpt": "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot. Iso kill contract might show the icon if he kills them in it, that's the only borderline one, nothing else does damage. Also heating up is phoenix's passive.\"",
+    "rule": {
+     "status": "undecided",
+     "by": "rule:harm-word",
+     "excerpt": "FIRE to spray a chemical cloud in all directions around Viper, creating a large cloud that Nearsights players and Decays the health of enemies inside of it.",
+     "question": "'Decays' with no damage clause"
+    }
    },
    "assist": {
     "status": "disabling",
@@ -2078,15 +2161,14 @@
    "name": "Toxic",
    "functions": null,
    "damage": {
-    "status": "undecided",
-    "by": "rule:harm-word",
-    "excerpt": "Enemies that cross through Viper's Poison Cloud, Toxic Screen, or Viper's Pit are instantly inflicted with at least 30 Decay.",
-    "question": "'Decay' with no damage clause"
+    "status": "passive",
+    "by": "fact:abilities/passive-abilities-draw-no-ui",
+    "excerpt": null
    },
    "assist": {
-    "status": "disabling",
-    "by": "rule:status-term",
-    "excerpt": "Enemies that cross through Viper's Poison Cloud, Toxic Screen, or Viper's Pit are instantly inflicted with at least 30 Decay."
+    "status": "passive",
+    "by": "fact:abilities/passive-abilities-draw-no-ui",
+    "excerpt": null
    }
   },
   {

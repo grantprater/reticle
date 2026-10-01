@@ -65,6 +65,27 @@ class DerivationTests(unittest.TestCase):
         a = out["abilities"][0]["damage"]
         self.assertEqual((a["by"], a["excerpt"]), ("rule:does-damage", "The burst does heavy damage to anyone."))
 
+    def test_a_passive_draws_no_icon_and_answers_decide(self):
+        """A slot-Passive ability is in no list; the player's answer decides an
+        ability the rule left open, keeping the rule's decision beside it."""
+        ref = _ref(("Hot Hands", "a zone that damages enemies. The zone heals you instead of dealing damage.", None),
+                   ("Kill Contract", "duel to the death.", None))
+        ref["agents"]["Phoenix"] = ref["agents"].pop("Test")
+        ref["agents"]["Phoenix"]["abilities"].append(
+            {"name": "Heating Up", "key": None, "slot": "Passive", "functions": None,
+             "description": "PASSIVELY Heal Phoenix instead of taking damage"})
+        out = kk.derive(ref)
+        self.assertEqual(out["kits"]["Phoenix"], ["Hot Hands"])
+        self.assertEqual(out["open"], {"Phoenix": ["Kill Contract"]})
+        hot, _, heat = out["abilities"]
+        self.assertEqual((hot["damage"]["status"], hot["damage"]["rule"]["status"]), ("damaging", "undecided"))
+        self.assertEqual((heat["damage"]["status"], heat["assist"]["status"]), ("passive", "passive"))
+
+    def test_iso_kill_contract_is_possible_and_unconfirmed(self):
+        self.assertIn("Kill Contract", kk.kill_kits()["Iso"])
+        self.assertEqual(kk.load()["unconfirmed"], {"Iso": ["Kill Contract"]})
+        self.assertEqual(kk.open_questions(), {})
+
     def test_kits_spell_agents_as_ability_agent_does(self):
         """Every kit name's caster, as `weapon.ability_agent` spells it (the
         lineup's KAY_O), is the agent the kit is keyed by."""

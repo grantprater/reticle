@@ -12,7 +12,10 @@ decided from its own description in `<store>/reference/abilities.json` (the
 valorant-api dump with the wiki harvest), or from a killfeed fact that names
 its icon; never by analogy with another ability.
 
-The damage rule, in order:
+The player's answers (`PLAYER_ANSWERS`, 2026-10-01) decide every ability
+the rule below left open, and a slot-Passive ability draws no icon
+[domain:abilities/passive-abilities-draw-no-ui]; the rule's own decision is
+kept beside the answer. The damage rule, in order:
 
 1. A killfeed fact names the ability's weapon-slot icon (`FACT_ICONS`): in
    the kit.
@@ -54,10 +57,38 @@ from pathlib import Path
 from typing import Optional
 
 # 0.2.0 (2026-10-01): agents keyed by the lineup's spelling (KAY_O).
-KILLFEED_KITS_VERSION = "killfeed-kits-0.2.0"
+# 0.3.0 (2026-10-01): the player's answers (`PLAYER_ANSWERS`) decide the 21
+# abilities the rule left open; slot-Passive abilities draw no icon.
+KILLFEED_KITS_VERSION = "killfeed-kits-0.3.0"
 
 DATA = Path(__file__).resolve().parent.parent / "templates" / "killfeed_kits.json"
 REFERENCE = "reference/abilities.json"
+
+#: The player's answer to the damage questions the rule left open, verbatim.
+PLAYER_ANSWER_SOURCE = (
+    "the player, 2026-10-01: \"Killjoy turret, phoenix blaze and hot hands, raze blast "
+    "pack and boom bot. Iso kill contract might show the icon if he kills them in it, "
+    "that's the only borderline one, nothing else does damage. Also heating up is "
+    "phoenix's passive.\"")
+
+#: Each answered ability, by (agent, name): `damaging`, `possible` (the
+#: player's belief, unconfirmed: in the kit, so the agent qualifies only once
+#: the gallery holds it) or `not_damaging`. Heating Up is a passive
+#: [domain:abilities/passive-abilities-draw-no-ui], decided by slot.
+PLAYER_ANSWERS = {
+    ("Killjoy", "TURRET"): "damaging", ("Phoenix", "Blaze"): "damaging",
+    ("Phoenix", "Hot Hands"): "damaging", ("Raze", "Blast Pack"): "damaging",
+    ("Raze", "Boom Bot"): "damaging", ("Iso", "Kill Contract"): "possible",
+    **{k: "not_damaging" for k in (
+        ("Clove", "Pick-me-up"), ("Clove", "Meddle"), ("Cypher", "Spycam"),
+        ("Fade", "Seize"), ("Fade", "Nightfall"), ("Iso", "Double Tap"),
+        ("Reyna", "Devour"), ("Sage", "Healing Orb"), ("Sova", "Owl Drone"),
+        ("Veto", "Chokehold"), ("Viper", "Poison Cloud"), ("Viper", "Toxic Screen"),
+        ("Viper", "Viper's Pit"), ("Viper", "Toxic"))},
+}
+
+#: A passive draws no on-screen icon [domain:abilities/passive-abilities-draw-no-ui].
+PASSIVE = {"status": "passive", "by": "fact:abilities/passive-abilities-draw-no-ui", "excerpt": None}
 
 #: Abilities a killfeed fact names in the weapon slot, with the fact.
 FACT_ICONS = {
@@ -163,18 +194,27 @@ def derive(reference: dict, reference_sha: Optional[str] = None) -> dict:
     KAY_O where the reference says KAY/O)."""
     from ..lineup import ASSET_TO_AGENT
     to_stem = {v: k for k, v in ASSET_TO_AGENT.items()}
-    abilities, kits, opened, assists, assist_open = [], {}, {}, {}, {}
+    abilities, kits, opened, assists, assist_open, unconfirmed = [], {}, {}, {}, {}, {}
     for ref_agent in sorted(reference["agents"]):
         agent = to_stem.get(ref_agent, ref_agent)
         kits[agent], assists[agent] = [], []
         for ab in reference["agents"][ref_agent]["abilities"]:
             name, desc = ab["name"], ab.get("description") or ""
-            dmg = damage_decision(name, desc, ab.get("functions"))
-            ast = assist_decision(desc)
+            if ab.get("slot") == "Passive":
+                dmg = ast = PASSIVE
+            else:
+                dmg = damage_decision(name, desc, ab.get("functions"))
+                ast = assist_decision(desc)
+                answer = PLAYER_ANSWERS.get((agent, name)) or PLAYER_ANSWERS.get((ref_agent, name))
+                if answer:
+                    dmg = {"status": answer, "by": "player:2026-10-01",
+                           "excerpt": PLAYER_ANSWER_SOURCE, "rule": dmg}
             abilities.append({"agent": agent, "key": ab.get("key"), "name": name,
                               "functions": ab.get("functions"), "damage": dmg, "assist": ast})
-            if dmg["status"] in ("damaging", "kit_icon"):
+            if dmg["status"] in ("damaging", "kit_icon", "possible"):
                 kits[agent].append(name)
+            if dmg["status"] == "possible":
+                unconfirmed.setdefault(agent, []).append(name)
             elif dmg["status"] == "undecided":
                 opened.setdefault(agent, []).append(name)
             if ast["status"] == "disabling":
@@ -184,8 +224,9 @@ def derive(reference: dict, reference_sha: Optional[str] = None) -> dict:
     return {"about": ("Killfeed-capable abilities per agent, derived by "
                       "reticle/adjudication/killfeed_kits.py from the reference's ability "
                       "descriptions and the killfeed facts. `kits`: damaging abilities and "
-                      "fact-named icons (weapon slot); `open`: abilities the damage rule cannot "
-                      "decide; `assist_icons` and `assist_open`: the disabling rule, unused by "
+                      "fact-named icons (weapon slot); `unconfirmed`: kit abilities the player "
+                      "believes possible; `open`: abilities neither the rule nor the player has "
+                      "decided; `assist_icons` and `assist_open`: the disabling rule, unused by "
                       "the weapon owner."),
             "version": KILLFEED_KITS_VERSION,
             "source": {"reference": REFERENCE, "harvested": reference.get("harvested"),
@@ -193,8 +234,10 @@ def derive(reference: dict, reference_sha: Optional[str] = None) -> dict:
             "rules": {"damage_clauses": DAMAGE_CLAUSES, "qualifiers": QUALIFIERS,
                       "not_harm": NOT_HARM, "harm_words": HARM_WORDS,
                       "attack_words": ATTACK_WORDS, "status_terms": STATUS_TERMS,
-                      "assist_unclear": ASSIST_UNCLEAR, "fact_icons": FACT_ICONS},
-            "kits": kits, "open": opened, "assist_icons": assists, "assist_open": assist_open,
+                      "assist_unclear": ASSIST_UNCLEAR, "fact_icons": FACT_ICONS,
+                      "player_answers": {f"{a}/{n}": v for (a, n), v in PLAYER_ANSWERS.items()},
+                      "player_answer_source": PLAYER_ANSWER_SOURCE},
+            "kits": kits, "open": opened, "unconfirmed": unconfirmed, "assist_icons": assists, "assist_open": assist_open,
             "abilities": abilities}
 
 

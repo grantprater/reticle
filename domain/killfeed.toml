@@ -76,9 +76,13 @@ and lists every ability its rule cannot decide as a question;
 """
 exceptions = """
 the player said "can appear", not that no other ability draws a weapon-slot
-icon; revive icons [domain:killfeed/revive-entries] are not damage. Whether an
-ability that damages only on a condition, heals, or applies Decay counts is
-not known
+icon; revive icons [domain:killfeed/revive-entries] are not damage. The
+player, 2026-10-01, on the abilities the description rule left open:
+"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot.
+Iso kill contract might show the icon if he kills them in it, that's the only
+borderline one, nothing else does damage" (Decay, heals and the rest are not
+damage; `killfeed_kits.PLAYER_ANSWERS`). A passive draws no icon
+[domain:abilities/passive-abilities-draw-no-ui]
 """
 see = ["killfeed/ability-kill-icon", "abilities/ability-rules-are-unique"]
 
