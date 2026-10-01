@@ -199,7 +199,7 @@ launch, and abilities that move other agents, are left out.
 | C | M-pulse | Class 3 Projectile | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 2) | ? | ? | ? |
 | Q | Harmonize | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 | E | Waveform | Placement | 2 | 40 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | dark disc [domain:abilities/miks-smoke-minimap-disc] | ? | see [domain:abilities/miks-smoke-duration] | ? |
-| X | Bassquake | Grounded AoE | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
+| X | Bassquake | Grounded AoE | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | a wedge of fixed radius [domain:abilities/miks-bassquake-minimap-wedge]; census 1 saw nothing | ? | ? | ? |
 
 ## Neon
 
@@ -250,7 +250,7 @@ launch, and abilities that move other agents, are left out.
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Barrier Orb | Placement | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
+| C | Barrier Orb | Placement | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | a four-segment line [domain:abilities/sage-barrier-orb-segments]; census 1 saw nothing | ? | ? | ? |
 | Q | Slow Orb | Class 3 Projectile | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 2) | ? | ? | ? |
 | E | Healing Orb | Targeted (Ally cast) Self-targeted (Self cast) | 1 | 45 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 | X | Resurrection | Targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |

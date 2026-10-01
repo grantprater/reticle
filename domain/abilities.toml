@@ -163,17 +163,25 @@ see = ["abilities/clove-rouse"]
 
 [phoenix-blaze]
 claim = """
-Phoenix's Blaze is a flame wall in slot C. On the minimap it renders as a
-linear or curved wall segment extending forward from Phoenix. It blocks vision
-and heals Phoenix while damaging enemies.
+Phoenix's Blaze is a flame wall in slot C. On the minimap it is drawn as a
+smooth curve, not necessarily a straight line, extending forward from
+Phoenix. It blocks vision and heals Phoenix while damaging enemies.
 """
 kind = "rule"
-known = "measured"
-since = "2026-09-23"
+known = "player"
+since = "2026-09-30"
 subject = "phoenix:blaze"
-source = "prototypes/ability_hud.py measured on 481336df9adb"
-use = "search for linear or curved wall segment upon slot C charge drop"
-see = ["abilities/phoenix-tray-charges", "abilities/phoenix-blaze-duration"]
+source = """
+the player, 2026-09-30 (chat), labelling ability recall: the wall is a smooth
+curve, marked as one line or beam. First recorded 2026-09-23 from
+prototypes/ability_hud.py measured on 481336df9adb
+"""
+use = """
+search for a smooth curved wall upon a slot C charge drop; points along one
+smooth curve are one wall, and no straight-line fit describes it
+"""
+see = ["abilities/phoenix-tray-charges", "abilities/phoenix-blaze-duration",
+       "abilities/wall-icon-path-curve"]
 
 [phoenix-blaze-duration]
 claim = """
@@ -548,6 +556,27 @@ tracker bias and is unexplained.
 use = "the minimap lifetime to expect for a Miks smoke; do not correct it toward the wiki value"
 see = ["abilities/miks-smoke-duration"]
 
+[miks-bassquake-minimap-wedge]
+claim = """
+Miks's ultimate, Bassquake, is drawn on the minimap as a wedge-shaped area
+from the caster. Unlike a vision cone, the wedge has a fixed maximum radius
+from the caster.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-09-30"
+subject = "miks:bassquake"
+source = """
+the player, 2026-09-30 (chat), labelling ability recall; c62c2b06bcfb's recall
+frame 69 (frame 170 of block 1) holds one, filled with the player's area marks
+"""
+use = """
+seek a wedge of fixed radius from Miks after a Bassquake cast; the recall
+truth groups its fill marks as one area entity
+"""
+exceptions = "the radius, the wedge's angle and its lifetime are unmeasured"
+see = ["minimap/cone-rays-stop-at-first-edge"]
+
 [smoke-attribution]
 claim = """
 A minimap smoke can be attributed to an agent only three ways: the team has one
@@ -580,6 +609,28 @@ simultaneous smoke births are one cast from one agent; they are not evidence of
 two smoke agents, and for Omen or Astra they cannot share a cast
 """
 see = ["abilities/smoke-attribution"]
+
+[smoke-placement-prior-per-map]
+claim = """
+Each map has a few common choke points where smokes tend to be placed, per
+site and area. The player states this as a belief about how the game is
+played, not an observation.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+source = "the player, 2026-09-30 (chat), labelling ability recall"
+use = """
+a per-map placement prior for smokes, learned from stored smoke observations
+across sessions and keyed by map: it weighs where a smoke is sought and how a
+candidate scores, and a result it shapes declares that it rests on it. It is
+never a filter: a smoke off the choke points stays a smoke. It is learned from
+observed dynamic objects, not from base-map pixels, so
+[domain:capture/session-pixels-are-not-the-map] allows it. Not built
+"""
+exceptions = "unverified: no stored smoke observation has been counted by place"
+see = ["abilities/smoke-attribution", "capture/session-pixels-are-not-the-map"]
+phrases = ["smoke prior", "choke point"]
 
 [signature-on-e]
 claim = """
@@ -2995,7 +3046,74 @@ search for it on the minimap for both sides, outside team vision too; a
 census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
 """
 exceptions = "a belief from a search summary; unverified"
-see = ["minimap/ability-drawings-both-sides"]
+see = ["minimap/ability-drawings-both-sides", "abilities/sage-barrier-orb-segments",
+       "abilities/sage-barrier-orb-whole-before-break",
+       "abilities/sage-barrier-orb-occludes-team-vision"]
+
+[sage-barrier-orb-segments]
+claim = """
+A Sage Barrier Orb wall has four segments. Each segment can be broken on its
+own; all four break together when the wall's duration expires. A wall with a
+broken segment is still one wall, drawn on the minimap as a line with a gap.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "sage:barrier-orb"
+source = """
+the player, 2026-09-30 (chat), labelling ability recall; the player named
+c62c2b06bcfb's recall frame 36 (frame 137 of block 1) a broken Sage wall
+"""
+use = """
+one wall is one entity however many segments stand; a segment gone before the
+others is a break, and all four gone at once is the wall's expiry
+"""
+see = ["abilities/sage-barrier-orb-global-minimap",
+       "abilities/sage-barrier-orb-whole-before-break"]
+phrases = ["broken wall"]
+
+[sage-barrier-orb-whole-before-break]
+claim = """
+A Sage Barrier Orb wall is drawn whole for at least a short time before any
+segment breaks; the player doubts a segment can break within 100 ms of the
+wall going up. The player states this as a belief, not an observation.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "sage:barrier-orb"
+source = "the player, 2026-09-30 (chat), labelling ability recall"
+use = """
+a tracker may expect a wall's first sighting to be whole; a wall first seen
+with a gap at the 2 Hz grid is a surprise to store, and one first seen with a
+gap within 100 ms of its raising falsifies this belief
+"""
+exceptions = "unverified: no stored observation has tested it"
+see = ["abilities/sage-barrier-orb-segments"]
+
+[sage-barrier-orb-occludes-team-vision]
+claim = """
+For vision, a standing Sage Barrier Orb wall acts like a box
+[domain:minimap/boxes-block-unless-raised]: a dynamic occluder of the team's
+cones, present while its segments stand, in the way the static occluders are
+[domain:minimap/occluder-shapes]. Its height class is unknown.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "sage:barrier-orb"
+source = "the player, 2026-09-30 (chat), labelling ability recall"
+use = """
+a vision model adds each standing segment as an occluder of unknown height
+from the wall's raising to its break or expiry; the baked static occluders
+hold no wall. Not built
+"""
+exceptions = """
+the height class is unasked: whether a jump or higher ground sees past the
+wall, as past a raised box, is unknown
+"""
+see = ["minimap/boxes-block-unless-raised", "minimap/occluder-shapes",
+       "abilities/sage-barrier-orb-segments"]
 
 [deadlock-barrier-mesh-global-minimap]
 claim = """
