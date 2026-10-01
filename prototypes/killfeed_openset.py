@@ -206,6 +206,32 @@ gates it. Each row trips at least one channel the reader does not use
 portrait's top ([metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#band_shifted__band_off_portrait=2]); every truncated row is
 its track's first or last frame ([metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#truncated__track_edge=4]). Only
 [metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#bound_to_entry=7] rows bind to an entry the owner names.
+
+Step 4 (weapon-gallery-0.4.0, weapon-adjudication-0.9.0):
+
+    .\.venv\Scripts\python.exe prototypes\killfeed_openset.py galleries [sid ...]
+
+The gallery adds the player's Warden and KAY/O NULL/cmd groups; the builder
+refuses a labelled member whose aspect lies beyond NAME_ASPECT_TOL of its
+name's. The kit floor now lowers only for an agent whose whole killfeed kit
+a fact lists (`KILLFEED_KITS`); none is listed, so the four 287.0-288.5 s
+frames above refuse new again ([metric:killfeed_openset/gallery_entries@a06f04a0059f#kit_floor_frames_after=0]) and
+the entry stays Aftershock on its six frames. Held out, with each labelled
+kill's `new:` frames joined into one entry (`_group_new_entries`): AUROC
+[metric:killfeed_openset/heldout_all@weapon-gallery-0.4.0#auroc_full=0.9966] over [metric:killfeed_openset/heldout_all@weapon-gallery-0.4.0#names=26] names (0.9952 at 0.3.0), new-at-5%
+[metric:killfeed_openset/heldout_all@weapon-gallery-0.4.0#new_at_5_full=1.0]; on the unselected,
+[metric:killfeed_openset/heldout_all@weapon-gallery-0.4.0#auroc_unselected=0.9924] and [metric:killfeed_openset/heldout_all@weapon-gallery-0.4.0#new_at_5_unselected=1.0]. Through the
+tiers on the unselected, known icons refused new
+[metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.4.0#known_refused_new_after=0.0338] against 0.0272 at 0.3.0 with the open kit
+floor, and AUROC [metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.4.0#auroc_after=0.9924]. Named entries, before (0.7.0 over
+0.3.0) and after: a06f04a0059f [metric:killfeed_openset/gallery_entries@a06f04a0059f#named_before=179] to
+[metric:killfeed_openset/gallery_entries@a06f04a0059f#named_after=179], 5822b6646448 [metric:killfeed_openset/gallery_entries@5822b6646448#named_after=170]
+unchanged, 4f207c0c4e39 [metric:killfeed_openset/gallery_entries@4f207c0c4e39#named_before=159] to
+[metric:killfeed_openset/gallery_entries@4f207c0c4e39#named_after=171]; each of the
+[metric:killfeed_openset/gallery_entries@4f207c0c4e39#changed=12] changes is a refused-new entry now named Warden
+on the lineup tier. The Warden entry at 1783.0 s stays refused: its cut
+first box (71 px) fixes the entry's width in `bind_entry`, and only that
+frame binds.
 """
 from __future__ import annotations
 
@@ -250,7 +276,32 @@ def load_keyed_gallery() -> dict:
     g["names"] = np.array([str(n) for n in g["names"]])
     g["entry"] = np.array([entry_of(str(k)) for k in g["keys"]])
     g["session"] = np.array([str(k).split(":")[1] for k in g["keys"]])
+    _group_new_entries(g)
     return g
+
+
+#: Two `new:` frames of one name and session closer than this are one entry.
+NEW_ENTRY_GAP_MS = 5000
+
+
+def _group_new_entries(g: dict) -> None:
+    """A `new:` key names one frame of a labelled group (`weapon_icons.
+    new_icon_entries`), not its kill; frames of one name and session within
+    NEW_ENTRY_GAP_MS join one entry, `new:<sid>:<first t>`, so the held-out
+    experiment leaves the whole kill out. Two kills that close merge, which
+    holds out more, never less."""
+    new = [i for i, k in enumerate(g["keys"]) if str(k).startswith("new:")]
+    by = {}
+    for i in new:
+        _, sid, t, _slot = str(g["keys"][i]).split("#")[0].split(":")
+        by.setdefault((sid, str(g["names"][i])), []).append((float(t), i))
+    for (sid, _), ts in by.items():
+        start, last = None, None
+        for t, i in sorted(ts):
+            if last is None or t - last > NEW_ENTRY_GAP_MS:
+                start = t
+            g["entry"][i] = f"new:{sid}:{int(start)}"
+            last = t
 
 
 def entry_of(key: str) -> str:
@@ -434,7 +485,7 @@ def heldout() -> dict:
                         new_below_floor_unselected=res["unselected_owner_floor"]["new_flagged"],
                         all_new_at_unselected_threshold=res["all_new_at_unselected_threshold"])
         if RECORD:
-            metrics.record("killfeed_openset", part=f"heldout_{cat}", session="weapon-gallery-0.3.0",
+            metrics.record("killfeed_openset", part=f"heldout_{cat}", session=WEAPON_GALLERY_VERSION,
                            values=vals, deps=deps, note=f"{TASK}: new = whole name left out")
     return out
 
@@ -648,9 +699,9 @@ def kitnull() -> dict:
     another agent's kit tier (guns, unattributed names and that agent's
     abilities, `restrict_gallery`) and keep the cases where a kit ability
     ranks first, split by whether that ability's exemplars are ability-shaped
-    (`kit_names`). `known_kit_*` scores each ability icon against its own
+    (`ability_shaped_names`). `known_kit_*` scores each ability icon against its own
     kit tier with its entry held out."""
-    from reticle.adjudication.weapon import ability_agent, kit_names
+    from reticle.adjudication.weapon import ability_agent, ability_shaped_names
     g = load_keyed_gallery()
     names = g["names"]
     agents = sorted({ability_agent(str(n)) for n in names if ability_agent(str(n))})
@@ -663,7 +714,7 @@ def kitnull() -> dict:
         for a in agents:
             if a != own:
                 pre.append(_name_icon(g["masks"][i], float(g["aspects"][i]), alone[a])["score"])
-    shaped = {a: kit_names(g, a) for a in agents}
+    shaped = {a: ability_shaped_names(g, a) for a in agents}
     held = {"gun_shaped": [], "ability_shaped": []}
     for nm in sorted(set(names.tolist())):
         own = ability_agent(nm)
@@ -825,19 +876,19 @@ def stored_actors(sid: str) -> dict[str, dict]:
     return out
 
 
-def owner_before():
-    """`adjudication.weapon` as master held it before step 2 (BEFORE_COMMIT),
-    loaded beside the current one for the before/after comparison."""
+def owner_before(commit: str = BEFORE_COMMIT):
+    """`adjudication.weapon` as `commit` held it (default: master before step
+    2), loaded beside the current one for a before/after comparison."""
     import importlib.util
     import subprocess
-    src = subprocess.run(["git", "show", f"{BEFORE_COMMIT}:reticle/adjudication/weapon.py"],
+    src = subprocess.run(["git", "show", f"{commit}:reticle/adjudication/weapon.py"],
                          capture_output=True, text=True, check=True,
                          cwd=Path(__file__).resolve().parents[1]).stdout
-    spec = importlib.util.spec_from_loader("reticle.adjudication._weapon_before", loader=None)
+    spec = importlib.util.spec_from_loader(f"reticle.adjudication._weapon_{commit}", loader=None)
     mod = importlib.util.module_from_spec(spec)
     mod.__package__ = "reticle.adjudication"
     sys.modules[spec.name] = mod
-    exec(compile(src, f"{BEFORE_COMMIT}:weapon.py", "exec"), mod.__dict__)
+    exec(compile(src, f"{commit}:weapon.py", "exec"), mod.__dict__)
     return mod
 
 
@@ -1218,6 +1269,67 @@ def crop_faults(product: Path, labels: Path) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------- step 4
+
+#: The owner and gallery before step 3: weapon-adjudication-0.7.0 over
+#: weapon-gallery-0.3.0, with the kit floor open to every agent.
+GALLERY_BEFORE_COMMIT = "12d4dbe"
+
+
+def compare_galleries(sids: list[str]) -> dict:
+    """Each entry named by GALLERY_BEFORE_COMMIT's owner over its gallery
+    (0.3.0) and by this owner over this gallery, both with the same context
+    (lineup, the stored verdicts' actor); every changed entry listed with
+    both answers and the tiers that decided."""
+    from reticle.adjudication.death import death_key, session_entries
+    from reticle.adjudication.weapon import entry_weapon, load_mined_gallery
+    from weapon_icons import _hud
+    old = owner_before(GALLERY_BEFORE_COMMIT)
+    gal_b, gal_a = old.load_mined_gallery(), load_mined_gallery()
+    out = {"version": STEP3, "before": [old.WEAPON_ADJUDICATION_VERSION, old.WEAPON_GALLERY_VERSION],
+           "after": [WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION],
+           "sessions": {}, "changes": []}
+    for sid in sids:
+        obs, agents, actors = _rows(sid), session_agents(sid), stored_actors(sid)
+        c, names_b, names_a = Counter(), Counter(), Counter()
+        for e in session_entries(_hud(sid)):
+            did = death_key(sid, e["t_ms"], e["slot"])
+            actor = (actors.get(did) or {}).get("actor")
+            b = old.entry_weapon(e, obs, gallery=gal_b, agents=agents or None, actor=actor, key=did)
+            a = entry_weapon(e, obs, gallery=gal_a, agents=agents or None, actor=actor, key=did)
+            c["entries"] += 1
+            c["named_before"] += b["status"] == "resolved"
+            c["named_after"] += a["status"] == "resolved"
+            c["kit_floor_frames_before"] += b.get("kit_floor_frames", 0)
+            c["kit_floor_frames_after"] += a.get("kit_floor_frames", 0)
+            c["warden_after"] += a["name"] == "Warden"
+            names_b[b["name"] or f"refused:{b['reason']}"] += 1
+            names_a[a["name"] or f"refused:{a['reason']}"] += 1
+            if (b["status"], b["name"]) != (a["status"], a["name"]):
+                out["changes"].append({
+                    "death_id": did, "t_last": e["t_last"], "actor": (actor or {}).get("agent"),
+                    "before": [b["status"], b["name"], b.get("reason"), b.get("names"),
+                               b.get("kit_floor_frames"), [r["context"] for r in b.get("rests_on", [])]],
+                    "after": [a["status"], a["name"], a.get("reason"), a.get("names"),
+                              a.get("kit_floor_frames"), [r["context"] for r in a.get("rests_on", [])]]})
+        c["changed"] = sum(x["death_id"].split(":")[1] == sid for x in out["changes"])
+        out["sessions"][sid] = dict(c, names_before=dict(names_b), names_after=dict(names_a))
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "compare_galleries.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    if RECORD:
+        deps = {"gallery": WEAPON_GALLERY_VERSION, "owner": WEAPON_ADJUDICATION_VERSION,
+                "before": "+".join(out["before"]),
+                "code": metrics.fingerprint(compare_galleries)}
+        for sid, c in out["sessions"].items():
+            metrics.record("killfeed_openset", part="gallery_entries", session=sid, deps=deps,
+                           values={k: c.get(k, 0) for k in (
+                               "entries", "named_before", "named_after", "changed", "warden_after",
+                               "kit_floor_frames_before", "kit_floor_frames_after")},
+                           note=f"{TASK}: entries named before and after gallery 0.4.0 "
+                                f"and the listed-kit floor")
+    return out
+
+
 def main() -> None:
     global RECORD
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1229,6 +1341,7 @@ def main() -> None:
     sub.add_parser("kitnull")
     sub.add_parser("tiered")
     sub.add_parser("check").add_argument("product")
+    sub.add_parser("galleries").add_argument("sids", nargs="*")
     f = sub.add_parser("faults")
     f.add_argument("product")
     f.add_argument("labels")
@@ -1239,6 +1352,10 @@ def main() -> None:
     RECORD = not a.dry
     if a.cmd == "groups":
         group_new_rows(a.sids)
+        return
+    if a.cmd == "galleries":
+        out = compare_galleries(a.sids or list(FAST + OUT_OF_GALLERY))
+        print(json.dumps({k: v for k, v in out.items()}, indent=1))
         return
     if a.cmd == "faults":
         out = crop_faults(Path(a.product), Path(a.labels))
