@@ -1,0 +1,265 @@
+r"""Dark ability icons on the minimap: proposals and their pointwise verify.
+
+    .\.venv\Scripts\python.exe -m reticle scan <session> --only ability
+
+Owns [owns:ability-icon].
+
+Why. A thrown or sent ability draws a round dark disc on the minimap
+[domain:abilities/minimap-thrown-ability-icon]; the generic disc detectors
+found few of the player's labelled icons at 331 px
+(`docs/ABILITY_DETECTION.md`, section 3). This module ports the dark-icon
+proposer of `prototypes/ability_shape_fast.py` (`icon_candidates_fast`,
+`icon_verify`) and the reader that rides the ability pass.
+
+The proposer (`icon-proposer-0.2.0`). For each radius from ICON_R[0] R to
+ICON_R[1] R in RADIUS_STEP px, it scores the dark share (HSV value under
+ICON_DARK_V) of a disc minus the dark share of a band 1.5 px outside it.
+Darkness counts only on the baked slab (`minimap.slab_mask` of the
+geometry's reference static) and each share is taken over slab pixels, so
+the map's void holes and the world behind the widget stop reading as dark
+discs. A centre whose disc or band holds too little slab (ICON_FLOOR_MIN) is
+not scored. Peaks at or above ICON_MIN, suppressed where two discs overlap,
+are the candidates. Each carries its rim colour (teal, red) and its white
+glyph share, which later stages read as side and kind evidence. It names no
+ability, caster or side.
+
+On the player's labels at radius step 1 it hit
+[metric:ability_shape_fast/icons@player-labels#hit_step1=123] of
+[metric:ability_shape_fast/icons@player-labels#targets=151] icons with
+[metric:ability_shape_fast/icons@player-labels#null_per_crop_step1=5.8]
+candidates per null crop (`tools/ability_icon_benchmark.py` reruns it on
+this module).
+
+The verify. Each candidate of the previous sample is rescored at centres
+within VERIFY_HALF px, at its own radius and the two beside it. A verify
+whose best score falls under ICON_MIN stores `score` None: the icon is lost,
+a stored surprise. The reader runs the full search on every live 2 Hz
+sample as well, so the verify rows let the tracked schedule be replayed from
+storage and audited against the full search (section 4, audits) with no
+second pass.
+
+Not for. Teal rings and beams (`ability_shapes`, `ability_scan`); smokes
+(`minimap_dark`); tracks, kinds and names (`adjudication.ability`, the
+arbiter).
+"""
+from __future__ import annotations
+
+import cv2
+import numpy as np
+
+from .ability_scan import LIVE_PHASES, _rounded
+from .version import ABILITY_ICON_VERSION
+
+#: Icon radii as a share of the widget radius R; the range spans thrown
+#: icons and team smokes' grey discs.
+ICON_R = (0.025, 0.075)
+#: HSV value under which a pixel is dark.
+ICON_DARK_V = 75
+#: The disc's dark share minus the band's that a candidate needs.
+ICON_MIN = 0.35
+#: Slab share a disc, and its outer band, must have to be scored.
+ICON_FLOOR_MIN = (0.5, 0.3)
+#: Radii read at this step in px (the stage-3 plan: 1 px).
+RADIUS_STEP = 1.0
+#: The verify's centre search half-width in px.
+VERIFY_HALF = 2
+#: At most this many candidates are stored per sample, best first.
+MAX_CANDIDATES = 40
+
+
+class IconTerms:
+    """Per radius: the disc and band kernels and the slab terms. They depend
+    on the baked slab alone, so a session builds them once."""
+
+    def __init__(self, slab: np.ndarray, R: float, step: float = RADIUS_STEP):
+        self.R, self.step = float(R), float(step)
+        self.fl = (slab > 0).astype(np.float32)
+        self.shape = self.fl.shape
+        self.terms = []
+        for r in np.arange(ICON_R[0] * R, ICON_R[1] * R + 0.01, step):
+            n = int(np.ceil(r + 5))
+            yy, xx = np.mgrid[-n:n + 1, -n:n + 1]
+            d = np.hypot(xx, yy)
+            kd = (d <= r).astype(np.float32)
+            kd /= kd.sum()
+            out_w = max(3.0, 0.4 * r)
+            ka = ((d > r + 1.5) & (d <= r + 1.5 + out_w)).astype(np.float32)
+            ka /= ka.sum()
+            fd = cv2.filter2D(self.fl, -1, kd, borderType=cv2.BORDER_CONSTANT)
+            fa = cv2.filter2D(self.fl, -1, ka, borderType=cv2.BORDER_CONSTANT)
+            bad = (fd < ICON_FLOOR_MIN[0]) | (fa < ICON_FLOOR_MIN[1])
+            self.terms.append((float(r), kd, ka, 1.0 / np.maximum(fd, 1e-3),
+                               1.0 / np.maximum(fa, 1e-3), bad))
+        self.radii = np.array([t[0] for t in self.terms])
+
+
+def _dark(hsv, fl):
+    return (hsv[..., 2] < ICON_DARK_V).astype(np.float32) * fl
+
+
+def propose_icons(img: np.ndarray, terms: IconTerms, min_score: float = ICON_MIN) -> list[dict]:
+    """The full search: dark compact discs on the slab, best first, each
+    with `cx, cy, r, score, rim_teal, rim_red, glyph_white`."""
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    dark = _dark(hsv, terms.fl)
+    best = np.full(dark.shape, -9.0, np.float32)
+    arg = np.zeros(dark.shape, np.float32)
+    for r, kd, ka, ifd, ifa, bad in terms.terms:
+        s = cv2.filter2D(dark, -1, kd, borderType=cv2.BORDER_CONSTANT) * ifd - \
+            cv2.filter2D(dark, -1, ka, borderType=cv2.BORDER_CONSTANT) * ifa
+        s[bad] = -9.0
+        up = s > best
+        best[up], arg[up] = s[up], r
+    k = max(3, int(2 * ICON_R[0] * terms.R) | 1)
+    peak = (best >= min_score) & (best == cv2.dilate(best, np.ones((k, k), np.uint8)))
+    ys, xs = np.nonzero(peak)
+    order = np.argsort(-best[ys, xs])
+    keep: list[dict] = []
+    for i in order:
+        x, y, r = int(xs[i]), int(ys[i]), float(arg[ys[i], xs[i]])
+        if any(np.hypot(x - c["cx"], y - c["cy"]) < 0.8 * (r + c["r"]) for c in keep):
+            continue
+        keep.append({"cx": x, "cy": y, "r": r, "score": float(best[y, x])})
+    h, w = dark.shape
+    for c in keep:
+        m = int(np.ceil(c["r"] + 3))
+        x0, x1 = max(0, c["cx"] - m), min(w, c["cx"] + m + 1)
+        y0, y1 = max(0, c["cy"] - m), min(h, c["cy"] + m + 1)
+        win = hsv[y0:y1, x0:x1]
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        dd = np.hypot(xx - c["cx"], yy - c["cy"])
+        rim = (dd > c["r"] - 1) & (dd <= c["r"] + 2.5)
+        sat = rim & (win[..., 1] >= 70)
+        hh = win[..., 0]
+        c["rim_teal"] = float(((hh >= 75) & (hh <= 105) & sat).sum() / max(rim.sum(), 1))
+        c["rim_red"] = float((((hh <= 10) | (hh >= 170)) & sat).sum() / max(rim.sum(), 1))
+        core = dd <= 0.7 * c["r"]
+        c["glyph_white"] = float(((win[..., 2] > 190) & core).sum() / max(core.sum(), 1))
+    return keep
+
+
+def verify_icons(img: np.ndarray, terms: IconTerms, tracks: list[dict], half: int = VERIFY_HALF,
+           min_score: float = ICON_MIN) -> list[dict]:
+    """Each tracked icon `{cx, cy, r}` rescored at centres within `half` px,
+    at its own radius and the two beside it, on `propose_icons`'s terms. One dict
+    per track; `score` None when nothing passes `min_score` (the icon is
+    lost)."""
+    n = int(np.ceil(ICON_R[1] * terms.R + 5))
+    h, w = img.shape[:2]
+    out = []
+    for tr in tracks:
+        cx, cy = int(tr["cx"]), int(tr["cy"])
+        x0, x1 = max(0, cx - half - n), min(w, cx + half + n + 1)
+        y0, y1 = max(0, cy - half - n), min(h, cy + half + n + 1)
+        hsv = cv2.cvtColor(img[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+        dark = _dark(hsv, terms.fl[y0:y1, x0:x1])
+        i = int(np.argmin(np.abs(terms.radii - tr["r"])))
+        cx0, cx1 = max(0, cx - half) - x0, min(w, cx + half + 1) - x0
+        cy0, cy1 = max(0, cy - half) - y0, min(h, cy + half + 1) - y0
+        best = (-9.0, None, None, None)
+        for j in range(max(0, i - 1), min(len(terms.terms), i + 2)):
+            r, kd, ka, ifd, ifa, bad = terms.terms[j]
+            s = cv2.filter2D(dark, -1, kd, borderType=cv2.BORDER_CONSTANT) * ifd[y0:y1, x0:x1] - \
+                cv2.filter2D(dark, -1, ka, borderType=cv2.BORDER_CONSTANT) * ifa[y0:y1, x0:x1]
+            s[bad[y0:y1, x0:x1]] = -9.0
+            core = s[cy0:cy1, cx0:cx1]
+            if core.size == 0:
+                continue
+            k = np.unravel_index(int(np.argmax(core)), core.shape)
+            if core[k] > best[0]:
+                best = (float(core[k]), int(cx0 + k[1] + x0), int(cy0 + k[0] + y0), r)
+        sc, x, y, r = best
+        out.append({"cx": x, "cy": y, "r": r, "score": sc if sc >= min_score else None})
+    return out
+
+
+
+class AbilityIconReader:
+    """`passes.Reader` writing the `ability_icon` stream: per live 2 Hz
+    sample, the full search's candidates and the verify of the previous
+    sample's candidates."""
+
+    cache_resample = True
+    records_clip = True
+
+    def __init__(self, slab, floor, sgray, box, phase_at=None, hz=2.0, spans=None,
+                 name="ability_icon", step=RADIUS_STEP):
+        self.live = LIVE_PHASES
+        self.name, self.hz, self.spans = name, hz, spans
+        self.frames_from = "video"
+        self.cv_threads = 1
+        self.slab, self.floor, self.sgray, self.box = slab, floor, sgray, box
+        self.phase_at, self.step = phase_at, step
+        self._terms: IconTerms | None = None
+        self._prev: dict | None = None
+        self.rows: list[dict] = []
+
+    def terms(self, shape) -> IconTerms:
+        if self._terms is None:
+            self._terms = IconTerms(self.slab, shape[1] / 2.0, self.step)
+        return self._terms
+
+    def feed(self, smp) -> None:
+        from .minimap import widget_drawn
+        x0, y0, x1, y1 = self.box
+        crop = smp.frame[y0:y1, x0:x1]
+        row = {"kind": "frame", "frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms)}
+        phase = None if self.phase_at is None else self.phase_at(float(smp.t_ms))
+        row["phase"] = phase
+        reason = None
+        if self.phase_at is not None and phase not in self.live:
+            reason = "not_live"
+        elif crop.shape[:2] != self.slab.shape[:2]:
+            reason = "geometry_size_mismatch"
+        elif not widget_drawn(crop, self.sgray, self.floor):
+            reason = "widget_not_drawn"
+        if reason is not None:
+            self.rows.append({**row, "reason": reason, "candidates": None, "verify": None})
+            self._prev = None
+            return
+        terms = self.terms(crop.shape)
+        cands = propose_icons(crop, terms)[:MAX_CANDIDATES]
+        prev = self._prev
+        ver = None
+        if prev is not None:
+            ver = {"of_t_ms": prev["t_ms"],
+                   "rows": [{"of": i, "cx": v["cx"], "cy": v["cy"], "r": v["r"],
+                             "score": _rounded(v["score"])}
+                            for i, v in enumerate(verify_icons(crop, terms, prev["candidates"]))]}
+        out = [{"cx": c["cx"], "cy": c["cy"], "r": c["r"], "score": _rounded(c["score"]),
+                "rim_teal": _rounded(c["rim_teal"], 3), "rim_red": _rounded(c["rim_red"], 3),
+                "glyph_white": _rounded(c["glyph_white"], 3)} for c in cands]
+        self.rows.append({**row, "reason": None, "candidates": out, "verify": ver})
+        self._prev = {"t_ms": row["t_ms"], "candidates": cands}
+
+    def events(self, session_id: str, geometry_key: str | None) -> list[dict]:
+        common = {"session_id": session_id, "source": "minimap", "geometry_key": geometry_key,
+                  "ability_icon_version": ABILITY_ICON_VERSION}
+        by: dict = {}
+        for r in self.rows:
+            k = r["reason"] or "read"
+            by[k] = by.get(k, 0) + 1
+        head = {**common, "kind": "coverage", "hz": self.hz, "frames": len(self.rows),
+                "frames_from": self.frames_from, "by_reason": by, "radius_step": self.step,
+                "icon_min": ICON_MIN, "icon_r": list(ICON_R), "dark_v": ICON_DARK_V,
+                "floor_min": list(ICON_FLOOR_MIN), "verify_half": VERIFY_HALF,
+                "slab": "minimap.slab_mask(geometry reference static)",
+                "candidates": sum(len(r["candidates"] or ()) for r in self.rows),
+                "verify_lost": sum(sum(v["score"] is None for v in r["verify"]["rows"])
+                                   for r in self.rows if r["verify"])}
+        clip = getattr(self, "spans_clip", None)
+        if clip is not None:
+            head["spans_clip"] = clip
+        return [head] + [{**common, **r} for r in self.rows]
+
+
+def icon_reader(ctx, spans, phase_at=None, hz: float = 2.0, floor=None,
+                sgray=None) -> AbilityIconReader:
+    """The `AbilityIconReader` `scan` builds for a session: the slab of the
+    geometry's reference static over the profile's minimap ROI."""
+    from .minimap import minimap_roi_px, slab_mask
+    box = minimap_roi_px(ctx.profile, *ctx.wh)
+    return AbilityIconReader(slab=slab_mask(ctx.map_reference()),
+                             floor=ctx.floor() if floor is None else floor,
+                             sgray=ctx.sgray() if sgray is None else sgray,
+                             box=box, phase_at=phase_at, hz=hz, spans=spans)
