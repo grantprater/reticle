@@ -334,8 +334,8 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_WEAPON_VERSION
     from .lighting import LIGHTING_VERSION
     from .roi_cache import ROI_CACHE_VERSION
-    from .version import (ABILITY_SHAPE_VERSION, ICON_TEARDROP_VERSION, TEARDROP_VERSION,
-                          TRAY_VERSION)
+    from .version import (ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION, ICON_TEARDROP_VERSION,
+                          TEARDROP_VERSION, TRAY_VERSION)
     geo ={"geometry": _in("geometry_built_by", "geometry")}
     death = "death#death_adjudication_version"
     return {
@@ -425,6 +425,12 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
         "ability_gate": geo, "ability_icon": geo,
         "ability_shape_scan": {"shape_model": _code("ability_shape_version", ABILITY_SHAPE_VERSION),
                                **geo},
+        # The audit also runs the candidate path's fit on each sample to count
+        # `candidate_accepted`, so the fit rule is an input beside the shape model.
+        "ability_shape_audit": {"shape_model": _code("ability_shape_version",
+                                                     ABILITY_SHAPE_VERSION),
+                                "candidate_fit": _code("ability_fit_version", ABILITY_FIT_VERSION),
+                                **geo},
         "enemy_track": {"minimap_object": _in("minimap_object_version",
                                               "minimap_object#minimap_object_version"),
                         "death": _in("death_adjudication_version", death),
