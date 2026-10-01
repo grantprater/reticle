@@ -533,3 +533,24 @@ read [domain:killfeed/phoenix-hot-hands-icon] and
 """
 phrases = ["second blaze meant hot hands"]
 see = ["killfeed/phoenix-hot-hands-icon", "killfeed/phoenix-blaze-icon"]
+
+[weapon-slot-white-glyph]
+claim = """
+A killfeed weapon-slot icon is its white glyph alone: a gun or ability icon
+carries its information only in the white line art, and the entry's
+background colour carries none.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat), on whether an ability kill's icon differs with
+the entry's background colour: "It is only the white."
+"""
+use = """
+`adjudication.weapon` names an icon from its white mask
+(`killfeed.icon_white_mask`) and may compare it with a reference glyph drawn
+white over any flat background; the plate colour is never an icon feature
+"""
+phrases = ["killfeed icon is only the white", "icon background colour"]
+see = ["killfeed/ability-kill-icon"]
