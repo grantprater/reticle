@@ -249,7 +249,7 @@ def label(product: Path, min_size: int = 1) -> int:
         sess = ", ".join(f"{s} x{n}" for s, n in g["sessions"].items())
         status.config(text=f"  {state['k'] + 1}/{len(order)}  {g['group']}: {g['size']} rows, "
                            f"{g['entries']} entries ({sess})   N name  O other  X not an icon  "
-                           f"U unsure  F flash  A back  Q quit")
+                           f"U unsure  F flash  A back  Q quit  (X O U also work in an empty name box)")
         flash.config(text="")
         hint.config(text="")
         text.set("")
@@ -356,21 +356,34 @@ def label(product: Path, min_size: int = 1) -> int:
         # The letter keys act only outside the name box.
         return lambda e: None if root.focus_get() is entry else fn(e)
 
+    def empty_box(fn):
+        # X, O and U also act in the name box while it is empty; once a
+        # name is typed they are letters again.
+        def go(e):
+            if text.get():
+                return None
+            fn(e)
+            return "break"
+        return go
+
     text.trace_add("write", refresh)
     entry.bind("<Return>", submit)
     entry.bind("<Tab>", tab)
     entry.bind("<Down>", move(+1))
     entry.bind("<Up>", move(-1))
     entry.bind("<Escape>", leave)
-    root.bind("n", hot(focus_entry))
     root.bind("<slash>", hot(focus_entry))
     root.bind("<Return>", hot(focus_entry))
-    root.bind("o", hot(lambda e: write(None, "other")))
-    root.bind("x", hot(lambda e: write(None, "not_icon")))
-    root.bind("u", hot(lambda e: write(None, None)))
-    root.bind("f", hot(show_flash))
-    root.bind("a", hot(back))
-    root.bind("q", hot(finish))
+    # Each letter binds both cases, so Shift and Caps Lock work too.
+    letters = {"n": focus_entry, "f": show_flash, "a": back, "q": finish,
+               "o": lambda e: write(None, "other"),
+               "x": lambda e: write(None, "not_icon"),
+               "u": lambda e: write(None, None)}
+    for key, fn in letters.items():
+        for k in (key, key.upper()):
+            root.bind(k, hot(fn))
+            if key in "oxu":
+                entry.bind(k, empty_box(fn))
     root.bind("<Escape>", hot(finish))
     root.protocol("WM_DELETE_WINDOW", finish)
     show()
