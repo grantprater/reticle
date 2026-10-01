@@ -62,7 +62,11 @@ from .round_lifetimes import (ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank
 # 0.12.0 (2026-10-01): an ally piece seen more than the dead-icon lag after a
 # death is not its victim (`round_lifetimes.seen_after_death`), in `finish`,
 # in the check of its bound pairs and in the pairing of the deaths it left.
-ROUND_ENTITY_VERSION = "round-entity-0.12.0"
+# 0.13.0 (2026-10-01): the pairing of the deaths `finish` left also offers
+# each piece before a segment's last, with that piece's own last sighting and
+# name; a piece that takes a death ends there, and the pieces after it carry
+# `after_piece_death`.
+ROUND_ENTITY_VERSION = "round-entity-0.13.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
@@ -304,6 +308,7 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
     death_by_id = {d["death_id"]: d for rec in round_records for d in rec["deaths"]
                    if d.get("death_id")}
     unbound = Counter()
+    piece_deaths: dict[str, dict] = {}
 
     for rec in round_records:
         last_xy = {eid: (e["last_observation"]["x"], e["last_observation"]["y"])
@@ -336,20 +341,47 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                 ent.update(death_id=None, end_ms=None, death_evidence=None,
                            end_reason="last observation does not establish destruction/death",
                            right_censored_at_ms=ent["last_seen_ms"], death_unbound=why)
-        # Pair any remaining unlinked deaths with a nearby segment end.
+        # Pair any remaining unlinked deaths with a nearby segment end, or with
+        # the end of a piece before a segment's last: a segment's last sighting
+        # can be a stray fit the tracker joined after the victim's icon went
+        # (5822b6646448 R8: Omen's piece seen 0.3 s before the death, then one
+        # fit 40 px off 1.07 s after it), so `seen_after_death` is asked of
+        # each piece's own last sighting. A piece that takes a death ends
+        # there; the pieces after it keep the segment's continuity, which the
+        # death disputes, and say so (`after_piece_death`).
         claimed = {ent["death_id"] for ent in finished if ent.get("death_id")}
+        inner = []
+        for ent in finished:
+            ids = named.get("pieces_of", {}).get(ent["id"], [])
+            if ent.get("family") == "ally" and not ent.get("death_id") and len(ids) > 1:
+                inner += [{"id": pid, "family": "ally", "segment": ent,
+                           "last_seen_ms": pieces[pid]["t"][-1]} for pid in ids[:-1]]
+        piece_xy = {}
+        for o in rec["obs_rows"]:
+            pid = named.get("piece_of", {}).get(o["observation_key"])
+            if pid:
+                piece_xy[pid] = (o["x"], o["y"])
+        both_xy = {**last_xy, **piece_xy}
         for d in sorted(rec["deaths"], key=lambda x: x.get("t_ms", 0)):
             did, t_d = d.get("death_id"), d.get("t_ms", 0)
             if did in claimed:
                 continue
-            cands = [(rank(ent, d), ent) for ent in finished
-                     if ent.get("family") == "ally" and not ent.get("death_id")
+            cands = [(rank(ent, d, last_xy=both_xy), ent)
+                     for ent in finished + inner
+                     if ent.get("family") == "ally"
+                     and not (ent.get("segment") or ent).get("death_id")
+                     and not (ent.get("segment") or ent).get("piece_death_id")
                      and abs(ent["last_seen_ms"] - t_d) <= 3000.0
-                     and refusal(ent, d) is None]
+                     and refusal(ent, d, last_xy=both_xy) is None]
             if cands:
                 best_ent = min(cands, key=lambda x: x[0])[1]
-                best_ent.update(death_id=did, end_ms=t_d, end_reason="death",
-                                death_evidence="killfeed_verdict")
+                if "segment" in best_ent:
+                    seg = best_ent["segment"]
+                    seg["piece_death_id"] = did
+                    piece_deaths[best_ent["id"]] = d
+                else:
+                    best_ent.update(death_id=did, end_ms=t_d, end_reason="death",
+                                    death_evidence="killfeed_verdict")
                 claimed.add(did)
     coverage["death_unbound"] = dict(unbound)
 
@@ -363,7 +395,7 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
         for ent in rec.get("finished", []):
             fam = ent.get("family")
             body = {k: v for k, v in ent.items()
-                    if k not in ("appearance", "anchor_observation", "kind")}
+                    if k not in ("appearance", "anchor_observation", "kind", "piece_death_id")}
             body["agent"], body["teammate_key"] = None, None
             if fam == "self":
                 body["agent"] = player_agent
@@ -376,7 +408,8 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                     "round_no": rec["round_no"]}
             if fam == "ally" and ent["id"] in named.get("pieces_of", {}):
                 for piece in _piece_bodies(body, pieces, verdicts,
-                                           named["pieces_of"][ent["id"]], session_id):
+                                           named["pieces_of"][ent["id"]], session_id,
+                                           piece_deaths):
                     rows.append({**head, **piece})
                 continue
             if fam == "ally" and lineup:
@@ -389,9 +422,13 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
     return [{**common, "kind": "coverage", **coverage}] + rows
 
 
-def _piece_bodies(body, pieces, verdicts, ids, session_id):
+def _piece_bodies(body, pieces, verdicts, ids, session_id, piece_deaths=None):
     """Entity bodies for one segment's pieces: each carries its own span and
-    name; only the last inherits the segment's ending."""
+    name; only the last inherits the segment's ending, unless a death in
+    `piece_deaths` ended an earlier piece, whose later pieces then carry
+    `after_piece_death`."""
+    piece_deaths = piece_deaths or {}
+    died = None
     out = []
     for j, pid in enumerate(ids):
         p, v = pieces[pid], verdicts[pid]
@@ -410,9 +447,18 @@ def _piece_bodies(body, pieces, verdicts, ids, session_id):
             row["identity_barred"] = v["barred"]
         if v["reason"]:
             row["identity_reason"] = v["reason"]
-        if j < len(ids) - 1:
+        d = piece_deaths.get(pid)
+        if d is not None:
+            row.update(end_ms=d.get("t_ms"), right_censored_at_ms=None,
+                       death_id=d.get("death_id"), death_evidence="killfeed_verdict",
+                       end_reason="death")
+        elif j < len(ids) - 1:
             row.update(end_ms=None, right_censored_at_ms=ts[-1], death_id=None,
                        death_evidence=None, end_reason="split: best teammate changed")
+        if died is not None and d is None:
+            row["after_piece_death"] = died
+        if d is not None:
+            died = d.get("death_id")
         out.append(row)
     return out
 

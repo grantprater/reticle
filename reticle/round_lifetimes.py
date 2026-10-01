@@ -111,9 +111,14 @@ DEAD_ICON_LAG_MS = 1000.0
 #: Agents whose icon outlives a killfeed death the death owner did not flag as
 #: a second life: a downed KAY/O stays drawn, red, until he is revived or dies
 #: [domain:minimap/red-portrait-states], and Phoenix returns from Run It Back
-#: [domain:rounds/resurrection-mechanics]. An unread second-life badge stays a
-#: death (`adjudication.death.second_life_death`), so the name is the only
-#: witness left.
+#: [domain:rounds/resurrection-mechanics]. The down draws its own killfeed
+#: entry, marked by an X inside a downward triangle, and a teammate's revive
+#: draws the icon again [domain:killfeed/kayo-downed-entry]; the death owner
+#: reads neither icon (its badge reader fits a ring, on the player's entries
+#: only), so it stores the down as a death, and the revive as a death unless
+#: the one-colour plates call it one (`adjudication.death.plate_revive`). An unread second-life badge stays a death
+#: (`adjudication.death.second_life_death`), so the name is the only witness
+#: left.
 ICON_OUTLIVES_DEATH = ("KAY/O", "Phoenix")
 
 

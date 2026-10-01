@@ -321,6 +321,24 @@ class DeathBindingTests(unittest.TestCase):
                  if r["kind"] == "entity" and r["family"] == "ally"}
         self.assertEqual(bound, {1000.0: d["death_id"], 3500.0: None})
 
+    def test_a_death_can_end_a_piece_before_the_segments_last(self):
+        """5822b6646448 R8: Omen's piece P6 takes Omen's death; the stray
+        piece after it keeps the segment and records the dispute."""
+        from reticle.round_entities import _piece_bodies
+        v = {"agent": None, "status": "abstained", "reason": None, "votes": {},
+             "evidence_sum": {}, "reference_source": None, "gap": None, "fit": None,
+             "exact": False}
+        pieces = {"S/P0": {"t": [1000.0, 1100.0]}, "S/P1": {"t": [3100.0]}}
+        verdicts = {"S/P0": {**v, "agent": "Omen", "status": "resolved"}, "S/P1": v}
+        body = {"id": "S", "end_ms": None, "death_id": None, "end_reason": "x",
+                "right_censored_at_ms": 3100.0}
+        d = {"death_id": "death:s:1400:0", "t_ms": 1400.0}
+        rows = _piece_bodies(body, pieces, verdicts, ["S/P0", "S/P1"], "s", {"S/P0": d})
+        self.assertEqual((rows[0]["death_id"], rows[0]["end_reason"], rows[0]["end_ms"]),
+                         ("death:s:1400:0", "death", 1400.0))
+        self.assertIsNone(rows[1]["death_id"])
+        self.assertEqual(rows[1]["after_piece_death"], "death:s:1400:0")
+
     def test_a_drop_beside_the_players_death_ends_no_ally(self):
         from reticle.round_entities import drop_binding_refusal
         self.assertEqual(drop_binding_refusal({"family": "ally"}, 1000.0, [900.0]),
