@@ -1417,7 +1417,7 @@ rung boundary there may sit 1-2 px off.
 
 ## A team-vision over-light from the spike's "?"
 
-`team_vision` lit a spot the enemy spike had left. On Lotus a06f04a0059f the
+`team_vision` lit a spot the enemy spike had left. On Ascent a06f04a0059f the
 spike glyph became a yellow "?" at 184.067 s
 [domain:minimap/enemy-spike-ground-vision], which puts the spot outside the
 team's vision from 184.07 s; the stored `team_vision` marked it lit (about 0.75

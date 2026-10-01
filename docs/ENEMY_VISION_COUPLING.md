@@ -25,12 +25,16 @@ Each invariant cites a fact or names a question for the player (section 6).
 - **I2, entry.** A new enemy track begins at the light's frontier, in floor
   just lit, or inside a reveal. This is derived from I1 and continuous
   motion, not a game fact; a teleport breaks it
-  [domain:abilities/minimap-dash-or-teleport-trace].
+  [domain:abilities/minimap-dash-or-teleport-trace]. A movement ability is
+  the expected way for an enemy to stand deep inside a cone
+  [domain:minimap/enemy-sighting-ends-in-kill-belief].
 - **I3, exit.** An enemy that leaves vision becomes a red "?" at its last
   place one frame after its icon ends [domain:minimap/last-known-mark]
   [domain:minimap/last-known-mark-timing]. The light left that place about
   W before the swap. An icon that ends with its place still lit and no "?"
-  is a death or a reader's miss.
+  is a death or a reader's miss. An enemy deep inside a cone most likely
+  came there by a movement ability, and a first sighting is expected to end
+  in someone's kill [domain:minimap/enemy-sighting-ends-in-kill-belief].
 - **I4, death.** A gunfire kill says a teammate saw the victim, and an enemy X
   shows only while its place is in vision [domain:minimap/enemy-death-mark]
   [domain:minimap/death-mark-persistence]. The icon becomes the X
@@ -64,17 +68,30 @@ Each invariant cites a fact or names a question for the player (section 6).
   [domain:minimap/cone-origin-near-centre], and the light is binary with no
   range limit [domain:minimap/vision-light-binary]. An enemy that appears on
   one ally's edge ray, with no other source of light there, bounds that
-  ally's facing. Whether an enemy's body stops a ray is Q1.
+  ally's facing. An enemy's body stops no ray
+  [domain:minimap/cone-rays-stop-at-first-edge].
 - **I8, reveals.** Recon Bolt, Haunt and the Stealth Drone pulse and reveal
   the enemies in the device's line of sight within the range their ring
   draws [domain:abilities/pulse-scan-abilities]
   [domain:abilities/sova-recon-bolt-minimap-ring]. The reveal area is the
-  ring's disc cut by a raycast from the device over the baked geometry. The
-  catalogue says other abilities reveal too; each is its own question
-  [domain:abilities/ability-rules-are-unique] (Q3).
-- **I9, dark floor.** An enemy drawn on floor read dark, beyond W and outside
-  every known reveal, means an unrecorded reveal, light the vision reader
-  missed, or a false enemy. The enemy lobe is translucent
+  ring's disc cut by a raycast from the device over the baked geometry. A
+  reveal draws the enemy's icon and no light
+  [domain:minimap/reveal-draws-no-light]; how long the icon stays is a
+  belief to measure per ability [domain:minimap/reveal-icon-duration-belief].
+  Trapwire, Hunter's Fury, the Owl Drone's and Spycam's darts, Nightfall and
+  Neural Theft show the enemy they mark anywhere on the widget, for a time
+  of their own [domain:abilities/cypher-trapwire-reveal-belief]
+  [domain:abilities/sova-hunters-fury-reveal]
+  [domain:abilities/sova-owl-drone-dart-reveal]
+  [domain:abilities/cypher-spycam-dart-reveal]
+  [domain:abilities/fade-nightfall-reveal]
+  [domain:abilities/cypher-neural-theft-reveal]; no window transfers
+  between them [domain:abilities/ability-rules-are-unique].
+- **I9, dark floor.** A revealed enemy draws an icon and no light, so an
+  enemy on dark floor inside a reveal is consistent
+  [domain:minimap/reveal-draws-no-light]. Beyond W and outside every known
+  reveal, an enemy drawn on floor read dark means an unrecorded reveal,
+  light the vision reader missed, or a false enemy. The enemy lobe is translucent
   [domain:minimap/enemy-lobe-translucent], so the light read beside an enemy
   needs the icon's own pixels masked.
 
@@ -84,7 +101,7 @@ Each invariant cites a fact or names a question for the player (section 6).
 |---|---|---|
 | Enemy at p, t | p lit within [t - W, t], or in a reveal (I1) | the light reader, the enemy reader, or an unknown reveal (I9) |
 | Floor newly lit, or the frontier | where the enemy search looks first (I2) | nothing: a prior narrows a search and confirms nothing |
-| Track born deep in old light | an earlier miss by the enemy reader (I2) | the enemy reader, at the time the floor lit |
+| Track born deep in old light | a movement ability, else an earlier miss by the enemy reader (I2) | the enemy reader, at the time the floor lit |
 | Icon ends in light, no "?" | an X, a killfeed death (I3, I4) | the enemy reader, the death owner, or the light |
 | "?" onset at p | p went dark about W earlier (I3) | the light reader if p stays lit; it also measures W |
 | Enemy X or spike glyph shown | its place lit (I4, I5) | the light reader if the place reads dark |
@@ -141,12 +158,12 @@ drawn with the light in its draw cannot score the light.
 ## 5. First measurement
 
 Session a06f04a0059f (`C:\Users\grant\Videos\2026-08-26 09-56-37.mp4`),
-Ascent, 465 px widget; crop cache only, nothing written to the store.
+Ascent, 465 px widget; crop cache only. `prototypes/enemy_vision_count.py
+--record` writes one metric row and nothing else.
 
 **Inputs.** `reticle plan` reports `team_vision` stale here (stored
-`team-vision-0.3.0`, current `team-vision-0.6.0`). It was not refreshed,
-and the run reads no cone: it reads the drawn light (`lighting-0.3.0`,
-current) from the crop cache. The player's enemy and "?" marks for this
+`team-vision-0.3.0`, current `team-vision-0.6.0`). The run reads no cone:
+it reads the drawn light (`lighting-0.3.0`, current) from the crop cache. The player's enemy and "?" marks for this
 session lie in `labels/minimap`; the 2026-09-30 enemy label files hold none.
 No reveal observation is stored here (no resolved scanner on the team;
 `ability_shape` ran for the self agent only), so the reveal class is null
@@ -163,36 +180,55 @@ observation, which is detector output and so measures consistency only.
 **Predictions, stated before the run.** P1: at most a fifth of readable
 enemy marks are dark. P2: at most half of readable "?" marks are inside.
 P3: at least three in five readable first appearances are on an edge or
-newly lit. They are not yet logged in `notes/predictions.jsonl`.
+newly lit. They were logged in `notes/predictions.jsonl` only after the
+run, so they count as not pre-registered.
 
 **Instrument.** The first pass counted each icon's rim and tip as unlit
 floor, which capped every lit share. Masking saturated pixels removed the
 cap; inspected crops show the light's edge crossing the labelled icon.
 
-**Result.** P1, P2 and P3 held. The surprise: almost no labelled enemy
-stood deep inside light; most stood on a lit edge, and no "?" stood inside.
-Many marks sat on floor the reference cannot read. Both dark labelled
+**Result.** All three held.
+
+- P1: 2 [metric:enemy_vision_coupling/first-count@a06f04a0059f#label_enemy_dark=2]
+  of 46 [metric:enemy_vision_coupling/first-count@a06f04a0059f#label_enemy_readable=46]
+  readable enemy marks were dark.
+- P2: none of 28 [metric:enemy_vision_coupling/first-count@a06f04a0059f#label_question_readable=28]
+  readable "?" marks stood inside; 15 [metric:enemy_vision_coupling/first-count@a06f04a0059f#label_question_edge=15]
+  stood on an edge and 13 [metric:enemy_vision_coupling/first-count@a06f04a0059f#label_question_dark=13]
+  on dark floor.
+- P3: 109 [metric:enemy_vision_coupling/first-count@a06f04a0059f#track_first_edge_or_newly=109]
+  of 142 [metric:enemy_vision_coupling/first-count@a06f04a0059f#track_first_readable=142]
+  readable first appearances stood on an edge or newly lit floor.
+
+The surprise: 1 [metric:enemy_vision_coupling/first-count@a06f04a0059f#label_enemy_inside=1]
+readable labelled enemy stood inside the light, against
+39 [metric:enemy_vision_coupling/first-count@a06f04a0059f#label_enemy_edge=39]
+on an edge; of 29 [metric:enemy_vision_coupling/first-count@a06f04a0059f#label_enemy_instances=29]
+instances, none stood inside. The player's expectation explains it: a
+first sighting almost always ends in a kill, and an enemy reaches deep
+light mostly by a movement ability
+[domain:minimap/enemy-sighting-ends-in-kill-belief]. The labels sample
+the moments before kills:
+73 [metric:enemy_vision_coupling/first-count@a06f04a0059f#label_enemy_prekill=73]
+of 79 [metric:enemy_vision_coupling/first-count@a06f04a0059f#label_enemy_n=79]
+enemy marks come from the prekill pool, so they over-represent first
+sightings and cannot say where enemies stand in general.
+33 [metric:enemy_vision_coupling/first-count@a06f04a0059f#label_enemy_unknown=33]
+enemy marks sat on floor the reference cannot read. Both dark labelled
 enemies stand on site-tinted floor, where `docs/SCENE_MODEL.md` already
-finds unexplained light. The run was not recorded as a metric, so this
-document quotes no figure; a recorded run comes before any decision.
+finds unexplained light.
 
 **Next.** Measure W from the "?" marks: the time from each place's last
-lit frame to its swap (I3).
+lit frame to its swap (I3). Test the kill belief against the stored
+`death` verdicts: it fails if most enemy tracks end with no death of
+either side.
 
 ## 6. Questions for the player
 
-No fact answers these.
+- **Q1.** The catalogue says Neural Theft reveals enemies twice; the
+  player gave every reveal but the Recon Bolt one pulse
+  [domain:abilities/cypher-neural-theft-reveal]. Which holds?
 
-- **Q1.** Does an enemy's body stop a teammate's drawn light? The first
-  measurement found labelled enemies on a light edge far more often than
-  inside.
-- **Q2.** Is a revealed enemy's place drawn as light? How long does a
-  revealed enemy stay drawn after the pulse?
-- **Q3.** The catalogue says Trapwire, Neural Theft, Hunter's Fury, the
-  Spycam's and Owl Drone's darts, and Nightfall's marks reveal or mark
-  enemies. For each: does the enemy show on our minimap, where, and for how
-  long?
-
-W itself is measured, not asked (section 5, "Next"). Whether a drone's cone
+W and each reveal's window are measured, not asked. Whether a drone's cone
 lights the floor is already asked on `docs/ABILITY_MECHANICS_SHEET.md`
 [domain:abilities/piloted-drones-have-cones].
