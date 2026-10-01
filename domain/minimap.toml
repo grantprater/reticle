@@ -904,17 +904,29 @@ see = ["minimap/enemy-death-mark", "minimap/ally-death-mark", "minimap/vision-ga
 [death-icon-becomes-mark]
 claim = """
 At a death the victim's icon turns into an X and stops lighting the floor,
-possibly with a little linger or a timing offset between channels. For
-reading, the icon and its X are one thing: the icon either vanishes as the X
-appears or covers the X until it goes.
+at the death or very shortly after. For reading, the icon and its X are one
+thing: the icon either vanishes as the X appears or covers the X until it
+goes. A downed KAY/O is not dead: his icon stays drawn, red, until a teammate
+revives him or he dies of damage or the revive timer.
 """
 kind = "appearance"
 known = "player"
-since = "2026-09-30"
+since = "2026-10-01"
 source = """
-the player, 2026-09-29 (chat), answering the minimap-objects questions; and
+the player, 2026-09-29 (chat), answering the minimap-objects questions;
 2026-09-30, adding that the icon turns into the X and stops lighting the
-floor, possibly with a little linger or offset between channels
+floor, possibly with a little linger or offset between channels; and
+2026-10-01, asked whether the icon goes the moment the agent dies and which
+exceptions exist beyond Sage, Phoenix and Clove: "if it isn't the moment, it
+is very shortly after. I told you kay/o's ult, while he is downed his icon
+turns red, then he is either brought back up by a teammate or downed again by
+damage or the revive timer expiring"
+"""
+exceptions = """
+the player gave the linger no number; `round_lifetimes.DEAD_ICON_LAG_MS`
+holds the measured one. Revivals [domain:rounds/resurrection-mechanics] and
+KAY/O's red downed state [domain:minimap/red-portrait-states] keep an icon
+drawn after a killfeed entry
 """
 use = """
 a fit at a death's place at the death's time is the victim's icon or its X,
@@ -925,7 +937,8 @@ the tray the death screen blanks; on the minimap that lead can mark a player
 dead while the icon is still drawn, so do not reuse it for icons or light
 """
 see = ["minimap/enemy-death-mark", "minimap/death-mark-persistence",
-       "minimap/ally-death-mark", "minimap/dead-teammate-light-belief"]
+       "minimap/ally-death-mark", "minimap/dead-teammate-light-belief",
+       "minimap/red-portrait-states", "rounds/resurrection-mechanics"]
 
 [danger-ping-pulses]
 claim = """

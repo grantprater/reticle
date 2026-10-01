@@ -772,7 +772,7 @@ question = "Which observations across views are one physical entity this round?"
 owner = "round_lifetimes"
 role = ["track", "lifecycle", "adjudicate"]
 status = "partial"
-produces = ["RoundLifetimes", "ally_capacity", "readable_kind", "known_kind", "death_refusal", "BIND_PX"]
+produces = ["RoundLifetimes", "ally_capacity", "readable_kind", "known_kind", "death_refusal", "BIND_PX", "death_rank", "seen_after_death", "DEAD_ICON_LAG_MS", "ICON_OUTLIVES_DEATH"]
 not_for = """
 Agent identity. Names here are fixed at birth and deliberately English rather
 than agent names, which exposes fragmentation instead of pretending to know who

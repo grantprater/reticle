@@ -268,6 +268,59 @@ class DeathBindingTests(unittest.TestCase):
         self.assertIsNone(death_binding_refusal(ally, far, player_agent="Skye", agent="Jett",
                                                 last_xy=(95.0, 100.0)))
 
+    def test_an_ally_piece_seen_past_the_dead_icon_lag_is_not_the_victim(self):
+        """bfad2778a372 R18: a Fade piece last seen 1.25 s after an unnamed
+        death took it from the Chamber seen 2.2 s before."""
+        from reticle.round_entities import death_binding_refusal
+        from reticle.round_lifetimes import DEAD_ICON_LAG_MS
+        d = self._death(1881500.0, None)
+        late = {"family": "ally", "last_seen_ms": 1882750.0}
+        early = {"family": "ally", "last_seen_ms": 1879333.0}
+        self.assertLess(DEAD_ICON_LAG_MS, 1250.0)
+        self.assertEqual(death_binding_refusal(late, d, player_agent="Skye", agent="Fade"),
+                         "seen_after_death")
+        self.assertIsNone(death_binding_refusal(early, d, player_agent="Skye", agent="Chamber"))
+        # The self entity shows the spectated teammate after the player dies.
+        me = {"family": "self", "last_seen_ms": 1890000.0}
+        self.assertIsNone(death_binding_refusal(
+            me, self._death(1881500.0, "Skye", kf_player_death=True),
+            player_agent="Skye", agent=None))
+
+    def test_a_revival_or_a_downed_kayo_outlives_the_lag(self):
+        from reticle.round_entities import death_binding_refusal
+        late = {"family": "ally", "last_seen_ms": 5000.0}
+        jett = self._death(1000.0, "Jett")
+        revive = self._death(3000.0, "Jett", is_revive=True)
+        self.assertEqual(death_binding_refusal(late, jett, player_agent="Skye", agent=None),
+                         "seen_after_death")
+        self.assertIsNone(death_binding_refusal(late, jett, player_agent="Skye", agent=None,
+                                                deaths=[jett, revive]))
+        # A revive after the sighting explains nothing.
+        self.assertEqual(death_binding_refusal(
+            late, jett, player_agent="Skye", agent=None,
+            deaths=[jett, self._death(6000.0, "Jett", is_revive=True)]), "seen_after_death")
+        self.assertIsNone(death_binding_refusal(late, self._death(1000.0, "KAY/O"),
+                                                player_agent="Skye", agent=None))
+
+    def test_the_late_piece_leaves_the_death_to_the_earlier_one(self):
+        """The R18 shape end to end: a piece last seen 1.2 s after an unnamed
+        death is nearer in time than one seen 1.3 s before it, and the earlier
+        one takes the death."""
+        events = []
+        for k, t in enumerate(range(0, 3501, 100)):
+            events.append(_frame(k, float(t)))
+            xs = [50.0] + ([200.0] if t <= 1000 else [])
+            for x in xs:
+                icon = _icon(k, float(t), x)
+                icon["observation_key"] = f"s:{k}:{x}"
+                events.append(icon)
+        d = self._death(2300.0, None)
+        rounds = [{"round_no": 1, "t_start_ms": 0.0, "t_end_ms": 10000.0}]
+        rows = session_lifetimes("s", events, rounds, 1.0, None, deaths=[d])
+        bound = {r["last_seen_ms"]: r["death_id"] for r in rows
+                 if r["kind"] == "entity" and r["family"] == "ally"}
+        self.assertEqual(bound, {1000.0: d["death_id"], 3500.0: None})
+
     def test_a_drop_beside_the_players_death_ends_no_ally(self):
         from reticle.round_entities import drop_binding_refusal
         self.assertEqual(drop_binding_refusal({"family": "ally"}, 1000.0, [900.0]),

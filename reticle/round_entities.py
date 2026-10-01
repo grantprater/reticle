@@ -36,7 +36,8 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank, death_refusal
+from .round_lifetimes import (ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank, death_refusal,
+                              seen_after_death)
 
 # 0.8.0 (2026-09-26): `ally_dead_intervals` gives `identity.assign_ally_pieces`
 # each round's killfeed dead intervals, and the owner bars a dead teammate
@@ -58,7 +59,10 @@ from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank,
 # as its victim first, then the nearest last sighting, then the nearest
 # position to its X (`round_lifetimes.death_rank`), in `finish` and in the
 # pairing of the deaths it left; the most observed piece no longer binds first.
-ROUND_ENTITY_VERSION = "round-entity-0.11.0"
+# 0.12.0 (2026-10-01): an ally piece seen more than the dead-icon lag after a
+# death is not its victim (`round_lifetimes.seen_after_death`), in `finish`,
+# in the check of its bound pairs and in the pairing of the deaths it left.
+ROUND_ENTITY_VERSION = "round-entity-0.12.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
@@ -99,8 +103,15 @@ PLAYER_DROP_MS = 2500.0
 
 
 def death_binding_refusal(ent: dict, death: dict, *, player_agent: str | None,
-                          agent: str | None, last_xy=None, scale: float = 1.0) -> str | None:
+                          agent: str | None, last_xy=None, scale: float = 1.0,
+                          deaths=()) -> str | None:
     """Why the ally-side `death` may not end `ent`, or None when it may.
+
+    An ally piece seen more than the dead-icon lag after the death is not its
+    victim (`round_lifetimes.seen_after_death`, which reads the round's
+    revive entries from `deaths`). The self entity is exempt: after the
+    player dies it shows the spectated teammate, so a later self sighting
+    says nothing about the player's icon.
 
     Only a player entity takes a death. The player's own death -- the
     killfeed's player-death mask, or the player's agent as victim -- ends
@@ -119,6 +130,10 @@ def death_binding_refusal(ent: dict, death: dict, *, player_agent: str | None,
         return "victim_is_not_the_player"
     if fam == "ally" and mine:
         return "victim_is_the_player"
+    if fam == "ally" and ent.get("last_seen_ms") is not None:
+        late = seen_after_death(death, last_seen_ms=ent["last_seen_ms"], deaths=deaths)
+        if late:
+            return late
     return death_refusal(death, agent=binding_agent(ent, player_agent, agent),
                          last_xy=last_xy, scale=scale)
 
@@ -294,10 +309,11 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
         last_xy = {eid: (e["last_observation"]["x"], e["last_observation"]["y"])
                    for eid, e in rec["life"].entities.items() if e.get("last_observation")}
 
-        def refusal(ent, d, last_xy=last_xy):
+        def refusal(ent, d, last_xy=last_xy, deaths=rec["deaths"]):
             return death_binding_refusal(ent, d, player_agent=player_agent,
                                          agent=agent_of(ent["id"]),
-                                         last_xy=last_xy.get(ent["id"]), scale=scale)
+                                         last_xy=last_xy.get(ent["id"]), scale=scale,
+                                         deaths=deaths)
 
         def rank(ent, d, last_xy=last_xy):
             return death_rank(d, agent=binding_agent(ent, player_agent, agent_of(ent["id"])),

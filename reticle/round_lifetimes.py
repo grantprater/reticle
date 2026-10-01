@@ -17,6 +17,9 @@ from .minimap import REF_WIDGET_W
 # 0.10.0 (2026-10-01): `finish` binds each death in `death_rank` order -- the
 # entity named as the victim, then the nearest last sighting, then the nearest
 # position to the X -- not to the most observed entity first.
+# `seen_after_death` (2026-10-01) changes no output of this module: the ally
+# lane applies it and stamps round-entity-0.12.0, so the enemy lane, which
+# stamps this version too, is not restamped by a rule it does not use.
 ROUND_LIFETIME_VERSION = "round-lifetimes-0.10.0"
 MAX_ASSOCIATION_HISTORIES = 64
 
@@ -87,6 +90,55 @@ def death_refusal(death: dict, *, agent: str | None = None, last_xy=None,
     if agent and death.get("victim") and death["victim"] != agent:
         return "victim_is_another_agent"
     return None
+
+
+#: How long after its killfeed death a victim's icon may still be drawn: the
+#: icon goes at the death or very shortly after
+#: [domain:minimap/death-icon-becomes-mark]. Measured on stored rows as the
+#: last sighting of an ally piece the arbiter named as the victim minus the
+#: death's time, on deaths with one victim in the round, no revive entry and
+#: no second life: the longest was 667 ms
+#: [metric:dead_icon_linger/ally@5822b6646448+a06f04a0059f+e78e75b2d191#max_ms=666.7]
+#: over [metric:dead_icon_linger/ally@5822b6646448+a06f04a0059f+e78e75b2d191#n=131]
+#: deaths, none past 1 s; the lag is that longest linger rounded up to the
+#: killfeed's 500 ms sampling step
+#: [metric:dead_icon_linger/ally@5822b6646448+a06f04a0059f+e78e75b2d191#lag_ms=1000.0].
+#: The enemy lane does not apply it: a fit at the death's place is the icon or
+#: its X, one thing for reading, so an enemy track legitimately runs on into
+#: the X (a06f04a0059f 791.0 s: a stationary fit at the X 2.9 s on).
+DEAD_ICON_LAG_MS = 1000.0
+
+#: Agents whose icon outlives a killfeed death the death owner did not flag as
+#: a second life: a downed KAY/O stays drawn, red, until he is revived or dies
+#: [domain:minimap/red-portrait-states], and Phoenix returns from Run It Back
+#: [domain:rounds/resurrection-mechanics]. An unread second-life badge stays a
+#: death (`adjudication.death.second_life_death`), so the name is the only
+#: witness left.
+ICON_OUTLIVES_DEATH = ("KAY/O", "Phoenix")
+
+
+def seen_after_death(death: dict, *, last_seen_ms: float, deaths=(),
+                     lag_ms: float = DEAD_ICON_LAG_MS) -> str | None:
+    """"seen_after_death" when an entity last seen at `last_seen_ms` was
+    seen more than `lag_ms` after `death` and so is not its victim, or None.
+
+    Nearest-sighting ranking alone is symmetric: a Fade piece seen 1.25 s
+    after an unnamed death took it from the Chamber seen 2.2 s before, and
+    Fade's own death went unbound (bfad2778a372 1881.5 s). Exempt only what a
+    stored fact explains: a revive entry in `deaths` naming the victim between
+    the death and the sighting (Resurrection, Not Dead Yet), and a victim in
+    `ICON_OUTLIVES_DEATH`. A death with no time is not checked."""
+    t = death.get("t_ms")
+    if t is None or last_seen_ms - t <= lag_ms:
+        return None
+    victim = death.get("victim")
+    if victim in ICON_OUTLIVES_DEATH:
+        return None
+    if victim and any(r.get("is_revive") and r.get("victim") == victim
+                      and r.get("t_ms") is not None and t < r["t_ms"] <= last_seen_ms
+                      for r in deaths):
+        return None
+    return "seen_after_death"
 
 
 def death_rank(death: dict, *, last_seen_ms: float, agent: str | None = None,
