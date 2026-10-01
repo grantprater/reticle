@@ -66,6 +66,53 @@ cells that ask it are candidates from the catalogue's wiki function tags
 and descriptions, for the player to confirm or strike. Grenades that
 launch, and abilities that move other agents, are left out.
 
+## Killfeed icons
+
+Which of an agent's abilities can draw a killfeed icon? The player's rule:
+any damaging ability can draw a kill's weapon-slot icon
+[domain:killfeed/damaging-ability-kill-icon], and any disabling ability an
+assist icon [domain:killfeed/disabling-ability-assist-icon]; a passive draws
+no icon [domain:abilities/passive-abilities-draw-no-ui].
+`adjudication.killfeed_kits` applies the rule to each ability's reference
+description, beside the icons the facts name: Breach's Aftershock
+[domain:killfeed/ability-kill-icon]; Chamber's Headhunter and Tour De Force
+[domain:killfeed/chamber-gun-shaped-abilities]; Jett's Blade Storm
+[domain:killfeed/jett-blade-storm-icon]; Sage's Resurrection, Clove's Not
+Dead Yet and KAY/O's NULL/cmd in a revive [domain:killfeed/revive-entries]
+[domain:killfeed/kayo-downed-entry]. The player answered on 2026-10-01 every
+damage question the rule left open
+([metric:killfeed_kits/derivation@reference#player_decided=19] abilities,
+`killfeed_kits.PLAYER_ANSWERS`); of
+[metric:killfeed_kits/derivation@reference#abilities=121] reference entries,
+[metric:killfeed_kits/derivation@reference#damage_undecided=0] stay open.
+Iso's Kill Contract is the player's belief, not confirmed: it "might show the
+icon if he kills them in it". Does it?
+
+The mined weapon-slot gallery holds one exemplar the player labelled
+Curveball, though the description names a flash and no damage: b3b9defb6fd7
+at 1731.5 s, a Phoenix kill. Its stored box sits in the weapon slot, between
+the killer's name and the victim's, not in the assist panel
+(`<store>/analysis/killfeed-openset-20261001/curveball_boxes.png`); the icon
+is a flame. Is that icon Curveball or Hot Hands, and can a non-damaging
+ability draw a kill's weapon-slot icon?
+
+The assist list is not yet read by any owner. For each row: can the ability
+draw an assist icon? And can a damaging ability draw one?
+
+| Agent | Ability | Why the rule cannot decide | Description excerpt |
+|---|---|---|---|
+| Astra | Astral Form / Cosmic Divide | 'blocks bullets' with no status effect | "Cosmic Divide blocks bullets and sound." |
+| Cypher | Spycam | 'Reveal' with no status effect | "This dart will Reveal the location of any player struck by the dart." |
+| Cypher | Neural Theft | 'Revealed' with no status effect | "After a brief delay, the location of all living enemy players will be Revealed twice." |
+| Deadlock | Barrier Mesh | 'Barrier' with no status effect | "EQUIP a Barrier Mesh disc." |
+| Fade | Haunt | 'Revealing' with no status effect | "The watcher lashes out on impact, Revealing enemies in its line of sight and creating terror trails to them." |
+| Iso | Contingency | 'wall of energy' with no status effect | "FIRE to push an indestructible wall of energy forward that blocks bullets." |
+| Sage | Barrier Orb | 'barrier' with no status effect | "EQUIP a barrier orb." |
+| Sova | Recon Bolt | 'Revealing' with no status effect | "FIRE to send the recon bolt forward, activating upon collision and Revealing the location of nearby enemies caught in the line of sight of the bolt." |
+| Sova | Owl Drone | 'Reveal' with no status effect | "This dart will Reveal the location of any player struck by the dart." |
+| Sova | Hunter's Fury | 'Revealing' with no status effect | "FIRE to release an energy blast in a line in front of Sova, dealing damage and Revealing the location of enemies caught in the line." |
+| Vyse | Shear | 'wall trap' with no status effect | "FIRE to place a hidden wall trap." |
+
 ## Astra
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |

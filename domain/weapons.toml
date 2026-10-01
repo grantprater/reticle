@@ -22,7 +22,8 @@ exceptions = """
 three pairs are shared and the ammo counter alone cannot separate them:
 Classic and Guardian 12 | 36, Bucky and Operator 5 | 10, Judge and Marshal
 5 | 15; break the tie with another witness (the killfeed weapon icon, credits
-spent). A partial pair only bounds the capacity from below.
+spent). A partial pair only bounds the capacity from below. The Warden
+[domain:weapons/warden], new on 2026-10-01, is not listed; its load is not known.
 """
 phrases = ["magazine capacity", "ammo reserve per weapon"]
 
@@ -99,3 +100,31 @@ that every drop carries an equip sound is the player's belief; one drop was
 labelled; the player did not know how to separate the two sounds
 """
 see = ["weapons/per-weapon-properties", "capture/weapon-skins-picked-up"]
+
+[warden]
+claim = """
+The Warden is a gun new to the game. It is a rifle in the same class as the
+Vandal and the Phantom, at the same price, designed for long range as a
+compromise with a sniper rifle.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat), shown an unnamed rifle icon from the open-set
+killfeed measurement (prototypes/killfeed_openset.py, 4f207c0c4e39): "That's
+the warden, it's a new gun", and then: "It's a rifle in the same class as
+vandal and phantom, same price, though it's intended to be long-range and
+sort of a compromise with sniper"
+"""
+use = """
+adjudication.weapon names it a rifle; its killfeed icon is
+[domain:killfeed/warden-icon]. Captures before it existed cannot show it
+"""
+exceptions = """
+the player gave no price figure, magazine, damage, fire rate or release date;
+[domain:weapons/magazine-and-reserve] does not list it
+"""
+phrases = ["warden rifle", "new gun warden"]
+see = ["weapons/magazine-and-reserve", "weapons/per-weapon-properties",
+       "killfeed/warden-icon"]

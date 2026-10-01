@@ -23,7 +23,10 @@ Predictions are logged in the store's `notes/predictions.jsonl` under
 names (`labels/weapon_icon/`, propagated over the group) and the player's
 per-entry names (`labels/killfeed_icon/`), which override a group's name for
 that icon and add the entry's own stored descriptors (`killfeed_weapon`,
-bound by `adjudication.weapon.bind_entry`) as exemplars. A group named only
+bound by `adjudication.weapon.bind_entry`) as exemplars. The player's names
+for groups of icons the owner refused as new (`labels/killfeed_new_icon/`,
+from `prototypes/label_killfeed_groups.py`) add the members each label lists
+(`new_icon_entries`). A group named only
 "Ability" keeps no exemplar the player did not name. `entries` scores the
 per-entry names, leaving one session out at a time.
 """
@@ -43,7 +46,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reticle.adjudication.weapon import (  # noqa: E402
-    ICON_GRID as GRID, WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION,
+    ABILITY_CANONICAL_NAMES, ICON_GRID as GRID, WEAPON_ADJUDICATION_VERSION,
+    WEAPON_GALLERY_VERSION,
     ENTRY_BOX_TOL, bind_entry, extract_icon_observation, icon_grid,
     mined_gallery_path, name_icon)
 from reticle.checks import KF_SIG_TOL, merge_split_tracks, track_entries  # noqa: E402
@@ -437,15 +441,30 @@ ENTRY_FRAMES = 3                         # stored frames kept per labelled entry
 
 def entry_labels() -> dict[str, dict]:
     """The player's per-entry names, last row per death key. Unsure rows and
-    bad crops (the ring was not on the icon) name nothing."""
+    bad crops (the ring was not on the icon) name nothing.
+
+    An ability row's choice is the ability art the player picked, stored as
+    `ability_stem`; its `answer` is the caption `ABILITY_CANONICAL_NAMES` gave
+    that art when the row was written. The name is read from the stem through
+    the current table, so a corrected table renames the row without editing
+    it, and the written caption stays as `answer_written`. Phoenix_Ability1,
+    the Hot Hands art, was captioned Curveball until 2026-10-01
+    [domain:killfeed/phoenix-hot-hands-icon]."""
     last: dict[str, dict] = {}
     for path in sorted(KF_LABELS.glob("*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 row = json.loads(line)
                 last[row["key"]] = row
-    return {k: r for k, r in last.items()
-            if r.get("answer") and not r.get("uncertain") and r.get("class") != "bad_crop"}
+    out = {}
+    for k, r in last.items():
+        if not r.get("answer") or r.get("uncertain") or r.get("class") == "bad_crop":
+            continue
+        name = ABILITY_CANONICAL_NAMES.get(r.get("ability_stem") or "")
+        if name is not None and name != r["answer"]:
+            r = dict(r, answer=name, answer_written=r["answer"])
+        out[k] = r
+    return out
 
 
 def _entries_by_key(sid: str) -> dict[tuple[int, int], dict]:
@@ -492,6 +511,99 @@ def labelled_entries(labels: dict[str, dict]) -> list[dict]:
                         "grids": [unpack_icon_grid(o["grid"]) for o in rows],
                         "aspects": [float(o["aspect"]) for o in rows]})
     return out
+
+
+NEW_LABELS = Store().root / "labels" / "killfeed_new_icon"
+NEW_PRODUCTS = Store().root / "candidates" / "killfeed_new_icon"
+
+
+def new_icon_entries(refused: list | None = None) -> list[dict]:
+    """Exemplars from the player's names for groups of icons the owner refused
+    as new (`prototypes/label_killfeed_groups.py`, labels under
+    `labels/killfeed_new_icon/`, last row per group key). Only a named group
+    counts: unsure, `other` and `not_icon` rows name nothing. Each member the
+    row lists -- the members the player was shown, never the rest of the
+    group -- becomes one entry keyed `new:<sid>:<t_ms>:<slot>` with that
+    row's stored grid and aspect from the product the label names (its
+    SHA-256 must match). A new name in the gallery needs a new
+    WEAPON_GALLERY_VERSION; `write_gallery` refuses to overwrite one.
+
+    The aspect gate (`aspect_fault`): a member whose aspect lies beyond
+    NAME_ASPECT_TOL of every aspect its name already has -- the name's
+    exemplars in the current gallery, else its fact (`NAME_ASPECTS`) -- is a
+    crop fault, a box spanning the killer's name or a faded, cut icon, and
+    stays out; the owner could match it only to another such fault. Its
+    group, member, aspect and reference go to `refused`. A name with neither
+    reference joins ungated."""
+    import hashlib
+    from reticle.killfeed import unpack_icon_grid
+    ref = _name_aspects()
+    out = []
+    for path in sorted(NEW_LABELS.glob("*.jsonl")):
+        last: dict[str, dict] = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                last[row["key"]] = row
+        named = [r for r in last.values() if r.get("answer") and not r.get("uncertain")
+                 and r.get("class") not in ("other", "not_icon")]
+        if not named:
+            continue
+        product = NEW_PRODUCTS / named[0]["product"]
+        raw = product.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != named[0]["product_sha256"]:
+            raise SystemExit(f"{product} changed since {path.name} was labelled")
+        groups = {g["group"]: g for g in json.loads(raw.decode("utf-8"))["groups"]}
+        for lab in named:
+            members = {(m["session_id"], m["t_ms"], m["slot"]): m
+                       for m in groups[lab["group"]]["members"] + [groups[lab["group"]]["exemplar"]]}
+            for sid, t, slot in lab["members"]:
+                m = members[(sid, t, slot)]
+                why = aspect_fault(lab["answer"], float(m["aspect"]), ref)
+                if why is not None:
+                    if refused is not None:
+                        refused.append({"group": lab["group"], "name": lab["answer"],
+                                        "member": [sid, t, slot], **why})
+                    continue
+                out.append({"key": f"new:{sid}:{int(t)}:{slot}", "session_id": sid,
+                            "name": lab["answer"], "class": lab["class"], "bound": 1,
+                            "on_ring": 1, "elsewhere": False,
+                            "grids": [unpack_icon_grid(m["grid"])],
+                            "aspects": [float(m["aspect"])]})
+    return out
+
+
+def _name_aspects() -> dict[str, list[float]]:
+    """Each name's exemplar aspects in the gallery the owner loads now (the
+    version before the one being built), with `NAME_ASPECTS` for a name the
+    gallery lacks."""
+    import re
+    from reticle.adjudication.weapon import NAME_ASPECTS
+    ref: dict[str, list[float]] = defaultdict(list)
+    prior = sorted(mined_gallery_path().parent.glob("weapon-gallery-*.npz"),
+                   key=lambda p: [int(x) for x in re.findall(r"\d+", p.stem)])
+    prior = [p for p in prior if p != mined_gallery_path()]
+    if prior:
+        z = np.load(prior[-1])
+        for n, a in zip(z["names"], z["aspects"]):
+            ref[str(n)].append(float(a))
+    for n, a in NAME_ASPECTS.items():
+        ref.setdefault(n, [a])
+    return dict(ref)
+
+
+def aspect_fault(name: str, aspect: float, ref: dict[str, list[float]]) -> dict | None:
+    """Why a member named `name` is a crop fault, or None: its aspect lies
+    beyond NAME_ASPECT_TOL (|log| ratio) of every reference aspect of its name."""
+    from reticle.adjudication.weapon import NAME_ASPECT_TOL
+    have = ref.get(name)
+    if not have:
+        return None
+    d = min(abs(float(np.log(aspect / a))) for a in have)
+    if d <= NAME_ASPECT_TOL:
+        return None
+    return {"aspect": round(aspect, 3), "reference": [round(min(have), 3), round(max(have), 3)],
+            "log_ratio": round(d, 3), "reason": "aspect_beyond_name"}
 
 
 def revise_truth(have: list[dict], labels: dict[str, dict]) -> Counter:
@@ -577,10 +689,11 @@ def evaluate_entries(have: list[dict], bms: np.ndarray, entries: list[dict]) -> 
             "refused": [r for r in rows if r[4] == "refused"]}
 
 
-def write_gallery(gallery: dict, have: list[dict]) -> Path:
-    """The owner's mined gallery file, with what it was built from."""
+def write_gallery(gallery: dict, have: list[dict], refused: list | None = None) -> Path:
+    """The owner's mined gallery file, with what it was built from and the
+    named members the aspect gate kept out (`new_icon_entries`)."""
     import hashlib
-    labels = sorted(LABELS.glob("*.jsonl"))
+    labels = sorted(LABELS.glob("*.jsonl")) + sorted(NEW_LABELS.glob("*.jsonl"))
     provenance = {
         "version": WEAPON_GALLERY_VERSION, "built_by": f"prototypes/weapon_icons.py {VERSION}",
         "labels": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in labels},
@@ -588,6 +701,7 @@ def write_gallery(gallery: dict, have: list[dict]) -> Path:
         "aspect_tol": ASPECT_TOL, "per_name": PER_NAME,
         "sessions": sorted({r["session_id"] for r in have}),
         "names": dict(Counter(str(n) for n in gallery["names"])),
+        "new_icon_refused": refused or [],
     }
     path = mined_gallery_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -779,7 +893,14 @@ def main() -> None:
         player_names(have)
         labels = entry_labels()
         print("truth revised:", dict(revise_truth(have, labels)))
-        write_gallery(build_gallery(have, bms, set(), labelled_entries(labels)), have)
+        # The player's names for groups the owner refused as new join the
+        # per-entry names (`new_icon_entries`), less the crop faults.
+        refused: list[dict] = []
+        new = new_icon_entries(refused)
+        print("new-icon members kept:", dict(Counter(e["name"] for e in new)))
+        print("new-icon members refused:", json.dumps(refused))
+        write_gallery(build_gallery(have, bms, set(), labelled_entries(labels) + new), have,
+                      refused)
     elif args.cmd == "entries":
         rows, bms, _ = load_all()
         have = cluster(rows, bms)

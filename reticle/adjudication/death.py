@@ -21,7 +21,9 @@ This module decides WHICH death a witness speaks about and never decides the
 name. Each witness becomes an `identity_claim` keyed by the death id, and
 `adjudication.identity` returns the victim; see that module for why.
 
-Owns [owns:death-victim].
+Owns [owns:death-victim]. Also owns [owns:killfeed-entry-type]: which of
+the three entry types an entry is (`entry_type`) and which agent acts in it
+(`entry_actor`).
 """
 from __future__ import annotations
 
@@ -106,7 +108,15 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # divider agrees at the track's onset, not at the entry track's last read
 # (`session_entries`); bdfdcf009dba 294.0 s and 3694746e4e54 1454.0 s become
 # the player's kills, their entry tracks having run on into a later entry.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.22.0"
+# 0.23.0 (2026-10-01): the final pass names each entry's weapon again with
+# its acting role's agent (`entry_actor`, the arbiter over the left name's
+# claims without the icon's) narrowing the candidates to that agent's kit
+# (`adjudication.weapon.entry_weapon`, weapon-adjudication-0.7.0). An ability
+# the kit shaped yields a caster claim that depends on the actor's entity.
+# 0.24.0 (2026-10-01): KAY/O's NULL/cmd in the weapon slot marks a revive
+# entry (`REVIVE_ICONS`), and its icon makes no caster claim on the reviver
+# (weapon-adjudication-0.8.0).
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.24.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -116,10 +126,13 @@ COLLISION_IMPLICATED = ("killfeed_portrait", "killfeed_name_cluster", "scoreboar
                         "roster_diff")
 
 #: Weapon-slot icons that mark a revive entry, which is not a death
-#: [domain:killfeed/revive-entries]: the reviving agent by icon. The icon is
-#: the witness; the top bar is not one for Clove, whose death it never shows
-#: when Not Dead Yet follows within two seconds.
-REVIVE_ICONS = {"Not Dead Yet": "Clove", "Resurrection": "Sage"}
+#: [domain:killfeed/revive-entries]: by icon, the agent the entry's side must
+#: field, the reviver for Not Dead Yet and Resurrection and the revived KAY/O
+#: for NULL/cmd, whose revive entry any teammate makes
+#: [domain:killfeed/kayo-downed-entry]. The icon is the witness; the top bar
+#: is not one for Clove, whose death it never shows when Not Dead Yet follows
+#: within two seconds.
+REVIVE_ICONS = {"Not Dead Yet": "Clove", "Resurrection": "Sage", "NULL/cmd": "KAY_O"}
 MAX_DEATH_ALIGNMENT_DT_MS = 2500.0
 
 
@@ -505,6 +518,63 @@ def _second_life(i: int, entries: list[dict], second_life) -> bool:
     return i in second_life or bool(e.get("is_second_life") or e.get("is_run_it_back"))
 
 
+#: The roles of the left and right names of each killfeed entry type
+#: [domain:killfeed/entry-types]. Stored rows keep the names `killer` and
+#: `victim` for both roles of every type.
+ENTRY_ROLES = {"kill": ("killer", "victim"), "second_life_death": ("killer", "victim"),
+               "revive": ("reviver", "revived")}
+
+
+def entry_type(entry: dict, is_second_life: bool | None = None) -> str:
+    """`kill`, `second_life_death` or `revive`: a revive as `revive_entry`
+    says, a second life as the death's own vote says (`is_second_life`, else
+    the entry's), a kill otherwise."""
+    if revive_entry(entry):
+        return "revive"
+    second = entry.get("is_second_life") if is_second_life is None else is_second_life
+    return "second_life_death" if second else "kill"
+
+
+def entry_actor(entry: dict, killer_identity: dict | None,
+                is_second_life: bool | None = None) -> dict | None:
+    """The agent acting in an entry, the left name: the killer of a kill or a
+    second-life death, the reviver of a revive (`entry_type`). The arbiter
+    names it from the left-name entity's claims other than the weapon icon's
+    (`killer_identity`, a verdict's `metadata["killer_identity"]`), so the
+    weapon owner can narrow the icon by this agent's kit without the icon
+    vouching for itself. None when no other claim names one agent."""
+    claims = [c for c in (killer_identity or {}).get("claims") or ()
+              if c.get("channel") != "killfeed_weapon"]
+    v = (adjudicate_agent_identity(claims) or [None])[0] if claims else None
+    if v is None or v["status"] != "resolved":
+        return None
+    return {"agent": v["agent"], "entity_id": v["entity_id"],
+            "role": ENTRY_ROLES[entry_type(entry, is_second_life)][0],
+            "channels": v["channels"], "independent_channels": v["independent_channels"],
+            "depends_on": v["depends_on"]}
+
+
+def narrow_entry_weapon(entry: dict, verdict: "DeathVerdict", weapon_observations: list[dict],
+                        agents, sides: dict, session_id: str) -> dict:
+    """The entry with its weapon named again by `entry_weapon` given its
+    acting agent (`entry_actor`); unchanged when no actor is named. Its
+    revive witness is asked again (`plate_revive`) when the name changed."""
+    actor = entry_actor(entry, verdict.metadata.get("killer_identity"), verdict.is_second_life)
+    if actor is None:
+        return entry
+    ev = entry_weapon(entry, weapon_observations, agents=agents or None, actor=actor,
+                      key=death_key(session_id, entry["t_ms"], entry["slot"]))
+    e = {k: v for k, v in entry.items() if k not in ("weapon", "death_cause")}
+    e["weapon_evidence"] = ev
+    if ev["status"] == "resolved":
+        e["weapon"], e["death_cause"] = ev["name"], ev["category"]
+    if ev.get("name") != (entry.get("weapon_evidence") or {}).get("name"):
+        e["revive_witness"], e["plate_refusal"] = (
+            ("icon", None) if ev.get("name") in REVIVE_ICONS
+            else plate_revive(e, sides, entry.get("plate_names") or (None, "no_name_check")))
+    return e
+
+
 def revive_entry(entry: dict) -> bool:
     """Whether a killfeed entry is a revive rather than a death: its weapon,
     named by `adjudication.weapon.entry_weapon`, is one of `REVIVE_ICONS`, or
@@ -593,8 +663,8 @@ def second_life_death(t_first: float, t_last: float, observations: list[dict]) -
     fits a ring beside the victim's name and names no icon. It is
     probably unspecific: the player expects it to fire on the KAY/O down icon
     [domain:killfeed/kayo-downed-entry] and on other icons beside the name.
-    Whether it fires on the KAY/O icon is unmeasured, since no stored session
-    fields KAY/O. A badge read is evidence of some icon beside the victim's
+    Whether it fires on the KAY/O icon is unmeasured: 4f207c0c4e39 fields
+    KAY/O, but its down is not the player's, so no second-life row reads it. A badge read is evidence of some icon beside the victim's
     name, not of Run It Back.
 
     A majority vote over the stored `second_life_observation` rows inside the
@@ -1145,6 +1215,7 @@ def adjudicate_death(
     killer_claim: Optional[dict] = None,
     victim_name_claim: Optional[dict] = None,
     killer_name_claim: Optional[dict] = None,
+    weapon_rests_on: Optional[list] = None,
 ) -> DeathVerdict:
     """Adjudicate victim identity, killer, and location for one death instant.
 
@@ -1274,7 +1345,8 @@ def adjudicate_death(
         # An ability icon names its caster: other pixels than the portraits, so
         # a witness that can disagree with them. A revive's "killer" is the
         # reviver, which the icon names the same way.
-        caster = caster_claim(killer_id, weapon) if death_cause == "ability" else None
+        caster = (caster_claim(killer_id, weapon, weapon_rests_on)
+                  if death_cause == "ability" else None)
         if caster:
             killer_claims.append(caster)
     killer_identity = (adjudicate_agent_identity(killer_claims) or [None])[0]
@@ -1755,6 +1827,7 @@ def adjudicate_round_deaths(
             is_player_death=is_player_death,
             is_second_life=is_second_life,
             is_revive=is_revive,
+            weapon_rests_on=(kf.get("weapon_evidence") or {}).get("rests_on"),
         )
         if xmark is not None:
             verdict.metadata["xmark"] = xmark
@@ -2177,13 +2250,15 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
         kf_portraits = [r for r in portraits if r.get("kind") == "portrait_observation"]
         widths = icon_widths(weapon_observations)
         for e in entries:
-            ev = entry_weapon(e, weapon_observations, agents=agents or None)
+            ev = entry_weapon(e, weapon_observations, agents=agents or None,
+                              key=death_key(session_id, e["t_ms"], e["slot"]))
             e["weapon_evidence"] = ev
             if ev["status"] == "resolved":
                 e["weapon"] = ev["name"]
                 e["death_cause"] = ev["category"]
             names = (entry_names(e, kf_portraits, widths, name_observations, session_id)
                      if e.get("same_side") else (None, None))
+            e["plate_names"] = names
             e["revive_witness"], e["plate_refusal"] = (
                 ("icon", None) if ev.get("name") in REVIVE_ICONS
                 else plate_revive(e, lineup.get("sides") or {}, names))
@@ -2237,6 +2312,14 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
         window = [row for row in roster if a <= row["t_ms"] <= z]
         first = adjudicate_round_deaths(session_id, entries, window, player_agent=player_agent,
                                         xmarks=xm[r["round_no"]])
+        if weapon_observations is not None:
+            # Narrow each icon by its acting agent's kit, the agent named
+            # without the icon, then adjudicate the round again on the result.
+            entries = [narrow_entry_weapon(e, v, weapon_observations, agents,
+                                           lineup.get("sides") or {}, session_id)
+                       for e, v in zip(entries, first)]
+            first = adjudicate_round_deaths(session_id, entries, window,
+                                            player_agent=player_agent, xmarks=xm[r["round_no"]])
         openings = scoreboard_openings([row for row in board_rows
                                         if a <= float(row.get("t_ms", -1)) <= z])
         board = scoreboard_death_claims(

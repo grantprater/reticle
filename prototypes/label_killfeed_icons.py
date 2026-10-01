@@ -93,7 +93,8 @@ def items() -> list[dict]:
     # Highest signal first, so a pass stopped early still answered the most:
     # two witnesses in conflict, then abilities, then entries never named.
     rank = {"ammo_conflict": 0, "frames_disagree": 1, "unnamed_ability": 2,
-            "no_observation": 3, "too_few_named": 4}
+            "no_observation": 3, "too_few_named": 4,
+            "ambiguous": 1, "new": 4}
     return sorted(out, key=lambda it: (rank[it["why"]], bool(it["names"]),
                                        it["session_id"], it["t_first"]))
 

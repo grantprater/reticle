@@ -14,13 +14,16 @@ source = """
 a06f04a0059f at 99.5 s: Seacow (Breach) kills Truewarrior, chxck and
 vanshrana with one Aftershock; three entries, each with the Aftershock icon.
 The owner's ability gallery named all three Aftershock (0.69-0.72, margin
-about 0.18) before the player confirmed
+about 0.18) before the player confirmed. On 2026-10-01 the player named a
+19 px teal square with a flame on a06f04a0059f at 287.0-288.5 s, the late frames
+of Breach's kill of Jett, "aftershock": it is not Phoenix's Hot Hands
 """
 use = """
 adjudication.weapon classifies the weapon slot as gun or ability; an ability
 icon names the killer's agent, a witness for the lineup and the arbiter
 """
 phrases = ["ability icon in the weapon slot"]
+see = ["killfeed/damaging-ability-kill-icon"]
 
 [assist-panel]
 claim = """
@@ -48,6 +51,65 @@ limit. Whether a damage assist by a gun draws a gun icon, and how two assisters'
 portraits and icons are ordered, are not known
 """
 phrases = ["assist panel", "assist icon left of the killer"]
+see = ["killfeed/disabling-ability-assist-icon"]
+
+[damaging-ability-kill-icon]
+claim = """
+Any damaging ability can draw a kill's weapon-slot icon
+[domain:killfeed/ability-kill-icon]. Which abilities damage is read from the
+reference's ability descriptions, one ability at a time.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01: "As I've said before, any damaging ability, which I
+believe we have a reference for. And any disabling ability can appear in the
+assist sidecar, things like deadlock's gravnet, smokes, flashes, stuns". The
+reference is <store>/reference/abilities.json (valorant-api agents with the
+wiki harvest). No earlier wording of the rule was found in the private notes
+"""
+use = """
+`adjudication.killfeed_kits` derives each agent's kit from the descriptions
+and lists every ability its rule cannot decide as a question;
+`adjudication.weapon` lowers its kit floor only for an agent with no question
+"""
+exceptions = """
+the player said "can appear", not that no other ability draws a weapon-slot
+icon; revive icons [domain:killfeed/revive-entries] are not damage. The
+player, 2026-10-01, on the abilities the description rule left open:
+"Killjoy turret, phoenix blaze and hot hands, raze blast pack and boom bot.
+Iso kill contract might show the icon if he kills them in it, that's the only
+borderline one, nothing else does damage" (Decay, heals and the rest are not
+damage; `killfeed_kits.PLAYER_ANSWERS`). A passive draws no icon
+[domain:abilities/passive-abilities-draw-no-ui]
+"""
+see = ["killfeed/ability-kill-icon", "abilities/ability-rules-are-unique"]
+
+[disabling-ability-assist-icon]
+claim = """
+Any disabling ability can draw an assist icon in the panel left of the killer
+[domain:killfeed/assist-panel]: Deadlock's GravNet, smokes, flashes and
+stuns, for example.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01, in the same answer as
+[domain:killfeed/damaging-ability-kill-icon]: "And any disabling ability can
+appear in the assist sidecar, things like deadlock's gravnet, smokes, flashes,
+stuns"
+"""
+use = """
+`adjudication.killfeed_kits` lists each agent's disabling abilities
+(`assist_icons`) from the descriptions; no reader uses the list yet
+"""
+exceptions = """
+whether a damaging ability, a Reveal or a movement barrier draws an assist
+icon is not known
+"""
+see = ["killfeed/assist-panel", "abilities/ability-rules-are-unique"]
 
 [chamber-gun-shaped-abilities]
 claim = """
@@ -73,12 +135,16 @@ phrases = ["chamber abilities look like guns"]
 
 [revive-entries]
 claim = """
-A revive draws a killfeed entry that is not a death. Clove's Not Dead Yet draws
-Clove's player on both sides with the ult's round icon in the weapon slot; Sage's
-Resurrection draws the Sage as killer and the revived teammate as victim with the
-Resurrection icon. Both sit on the reviving team's plate colour. An ally
-Resurrection banner is green end to end, and its chevron divides a darker green
-from a lighter green, where a kill's chevron divides green from red.
+A revive draws a killfeed entry that is not a death. Its left name is the
+reviver and its right name the revived, both of one team. Sage's Resurrection
+draws the Sage as reviver and the revived teammate as revived, with the
+Resurrection icon; a revive of a downed KAY/O draws any teammate as reviver and
+KAY/O as revived [domain:killfeed/kayo-downed-entry]; Clove's Not Dead Yet is a
+self-revive, Clove's player as both reviver and revived, with the ult's round
+icon in the weapon slot. Every revive sits on the reviving team's plate colour.
+An ally Resurrection banner is green end to end, and its chevron divides a
+darker green from a lighter green, where a kill's chevron divides green from
+red.
 """
 kind = "appearance"
 known = "player"
@@ -89,7 +155,12 @@ the killfeed-icon labelling pass (<store>/labels/killfeed_icon/): the player nam
 Resurrection (59c70f1ef720 sneaks -> Jett at 961.0 s); death-adjudication-0.8.0
 stores all 20 as deaths. Frames since: e37fdeca944f 592.5 s shows Clove -> Clove
 with the Not Dead Yet icon a second after Reyna kills that Clove, and
-b7d24102a6f6 1014.0 s shows Sage -> Raze with Resurrection
+b7d24102a6f6 1014.0 s shows Sage -> Raze with Resurrection. The roles: the
+player, 2026-10-01 (chat), on calling the Sage the killer: "Maybe we should
+split the terms, or I guess have a separate term for teammate -> teammate
+entries (reviver and revivee?)"; and "clove is a self-revive, should be in the
+same category as the other revives". Stored rows keep the fields `killer` and
+`victim` for both roles [domain:killfeed/entry-types]
 """
 use = """
 the death owner must not count a revive entry as a death; the weapon-slot icon
@@ -103,7 +174,45 @@ Yet entry is the revive itself (7 of 16 come 1.0-2.0 s after a named Clove
 death, and the top bar never shows that death)
 """
 phrases = ["revive entry is not a death"]
-see = ["killfeed/kayo-downed-entry"]
+see = ["killfeed/kayo-downed-entry", "killfeed/entry-types"]
+
+[entry-types]
+claim = """
+A killfeed entry is one of three types, each with two roles. A kill: killer,
+victim. A second-life death, whose victim is not out of the round: Phoenix
+killed inside Run It Back, and KAY/O downed inside NULL/cmd
+[domain:killfeed/kayo-downed-entry], with the same layout as a kill (killer,
+victim). A revive: reviver, revived [domain:killfeed/revive-entries], which
+holds Sage's Resurrection, a teammate's revive of a downed KAY/O, and Clove's
+Not Dead Yet as a self-revive. An icon an entry can carry depends on its
+context: a Phoenix Run It Back badge only when the victim is Phoenix, alive in
+the round and inside his ultimate; a Sage revive entry only when a Sage is in
+the game and alive and a teammate on her side is dead; and the acting agent's
+kit (the killer's or the reviver's) bounds which ability icon the weapon slot
+can show.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat), on the proposed types (kill; Sage or KAY/O
+revive; KAY/O down; Not Dead Yet apart): "phoenix dead in ult would have the
+same structure as a kay/o down, and clove is a self-revive, should be in the
+same category as the other revives"; on Breach's 287 s Aftershock on
+a06f04a0059f: "considering breach is the killer in that killfeed entry that
+should also narrow it down"; and on reading icons: "If the victim is not
+phoenix or there is no phoenix in the game or alive there will not be a
+phoenix ult icon in the killfeed entry. Likewise if sage is not in the game or
+alive or no one on her team is dead there will not be a sage revive entry"
+"""
+use = """
+`adjudication.death.entry_type` names an entry's type and `ENTRY_ROLES` its
+roles; `entry_actor` names the acting role's agent, whose kit
+`adjudication.weapon.entry_weapon` tries first. Stored rows keep `killer` and
+`victim` for the left and right names of every type
+"""
+phrases = ["three entry types", "reviver and revived"]
+see = ["killfeed/revive-entries", "killfeed/kayo-downed-entry", "killfeed/ability-kill-icon"]
 
 [jett-blade-storm-icon]
 claim = """
@@ -256,7 +365,7 @@ drawn beside KAY/O's name as Phoenix's Run It Back badge is. When
 a teammate revives the downed KAY/O, the killfeed draws a revive entry laid out
 as a Sage Resurrection entry [domain:killfeed/revive-entries]: the reviver, any
 teammate, as killer, KAY/O always as the recipient, and the X-in-triangle icon
-in place of Resurrection's. A KAY/O revive entry always follows a down entry
+in place of Resurrection's, in the weapon slot between the two names. A KAY/O revive entry always follows a down entry
 for KAY/O in the same round, inside his ultimate, and both carry the same
 X-in-triangle icon.
 """
@@ -273,7 +382,14 @@ teammate can be anyone, the recipient is always kay/o, and the icon is
 different"; and in a fourth: "And it has to be following kay/o being downed in
 his ult, with the same icon on the original death killfeed entry"; and, asked
 whether the down icon sits in the weapon slot or beside KAY/O's name: "It's
-beside his name yes"
+beside his name yes". Shown the revive entry at 4f207c0c4e39 799.5 s (the
+icon ringed in the weapon slot, <store>/analysis/killfeed-openset-20261001/g021_context.png),
+which they had named NULL/cmd, they said: "Like the down icon, yes. Same as
+sage revive". The pair is on that capture
+(<store>/analysis/killfeed-openset-20261001/kayo_down_revive_4f207c0c4e39_781-800s.png):
+at 790.5 s aatrox (Reyna) downs usopp0936 (KAY/O) with a pistol, the icon
+beside usopp0936's name; at 799.0-800.5 s Rimuru (Reyna) revives
+usopp0936, both plates red, the icon in the weapon slot
 """
 use = """
 a KAY/O entry at a down is not yet his death; his minimap icon stays drawn, red
@@ -283,13 +399,137 @@ The pair is a consistency check: a KAY/O revive entry with no earlier down
 entry for KAY/O in the round, under his ultimate, is a misread
 """
 exceptions = """
-unobserved on any stored capture: no stored death row names KAY/O as killer or
-victim. Whether a death after a down draws a second entry is unknown. The
-second-life badge reader (`killfeed.detect_second_life_badge`) fits a ring
-where the down icon sits, on the player's own death entries only; the player
-expects it to fire on the KAY/O icon and on other icons beside the name, which
-no stored session can test
+4f207c0c4e39 fields KAY/O, and its one observed pair is above; no stored
+death row there names him, since that session has no death stream. Whether a
+death after a down draws a second entry is unknown. The second-life badge
+reader (`killfeed.detect_second_life_badge`) fits a ring where the down icon
+sits, on the player's own death entries only; the player expects it to fire
+on the KAY/O icon and on other icons beside the name, which no stored
+second-life row tests, since the down on 4f207c0c4e39 is not the player's
 """
 see = ["rounds/resurrection-mechanics", "rounds/scoreboard-dim-is-dead",
        "minimap/red-portrait-states", "killfeed/revive-entries"]
 phrases = ["kayo downed killfeed", "x in a triangle"]
+
+[warden-icon]
+claim = """
+A Warden [domain:weapons/warden] kill draws a long rifle silhouette with a
+thin dotted barrel in the weapon slot, 85-86 px wide on the 34 px entry band
+(aspect about 3.86).
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat), named the group of 114 refused
+`killfeed_weapon` rows, about 14 entries, on 4f207c0c4e39 "the warden"
+(contact sheet <store>/analysis/killfeed-openset-20261001/group_000_114rows.png);
+rows at 286.5, 438.0, 458.0, 795.0, 837.0, 1787.0, 1940.0, 1942.0, 2160.5,
+2189.0, 2191.0 and 2196.5 s. Widths read from the stored rows at 286.5,
+438.0, 837.0 and 2196.5 s
+"""
+use = """
+weapon-gallery-0.4.0 holds Warden exemplars from the player's named group;
+`adjudication.weapon.NAME_ASPECTS` holds the aspect, the reference the
+gallery builder checks a new Warden member against
+"""
+phrases = ["warden killfeed icon"]
+see = ["weapons/warden"]
+
+[weapon-skin-same-icon]
+claim = """
+A weapon skin does not change the gun's killfeed icon: the icon names the gun
+whatever skin it carries.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat): "the weapon skin does not change the killfeed
+icon"
+"""
+use = """
+one exemplar set per gun covers every skin; a picked-up skinned gun
+[domain:capture/weapon-skins-picked-up] needs no separate killfeed exemplar,
+and an unfamiliar gun icon is not explained by a skin
+"""
+phrases = ["skin changes the killfeed icon"]
+see = ["capture/weapon-skins-picked-up"]
+
+[phoenix-hot-hands-icon]
+claim = """
+Phoenix's Hot Hands draws a killfeed icon of flames rising, a fire ring or
+ball. The rising flames tell it from Curveball's icon
+[domain:killfeed/phoenix-curveball-icon].
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat), on the flame icon in the weapon slot at
+b3b9defb6fd7 1731.5 s, which weapon-gallery-0.4.0 held as Curveball: "that
+is hot hands. Blaze looks like a wall with four segments, blaze like a fire
+ring or ball. The main distinguisher from curveball is the flames rising up,
+whereas curveball has sort of radiating irregular light"; the second "blaze"
+meant Hot Hands [domain:killfeed/phoenix-flame-icons-reading]. Of the
+same weapon box: "It's also cropped a bit too tightly"
+"""
+use = """
+the b3b9defb6fd7 1731.5 s exemplar is Hot Hands; the gallery names it by the
+ability stem the player picked (Phoenix_Ability1), mapped through
+`adjudication.weapon.ABILITY_CANONICAL_NAMES`
+"""
+phrases = ["hot hands killfeed icon", "fire ball killfeed icon"]
+see = ["killfeed/phoenix-blaze-icon", "killfeed/phoenix-curveball-icon",
+       "abilities/phoenix-slots"]
+
+[phoenix-blaze-icon]
+claim = """
+Phoenix's Blaze draws a killfeed icon of a wall with four segments.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat): "Blaze looks like a wall with four segments"
+"""
+use = "a four-segment wall icon in the weapon slot names Blaze, not Hot Hands"
+phrases = ["blaze killfeed icon", "four segment wall icon"]
+see = ["killfeed/phoenix-hot-hands-icon", "abilities/phoenix-blaze"]
+
+[phoenix-curveball-icon]
+claim = """
+Phoenix's Curveball draws an icon of radiating, irregular light, without the
+rising flames of Hot Hands [domain:killfeed/phoenix-hot-hands-icon].
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat): "The main distinguisher from curveball is the
+flames rising up, whereas curveball has sort of radiating irregular light"
+"""
+use = "a radiating-light icon names Curveball; rising flames name Hot Hands"
+phrases = ["curveball killfeed icon", "radiating light icon"]
+see = ["killfeed/phoenix-hot-hands-icon"]
+
+[phoenix-flame-icons-reading]
+claim = """
+In the player's 2026-10-01 description of Phoenix's icons, the second
+"blaze" of "Blaze looks like a wall with four segments, blaze like a fire
+ring or ball" means Hot Hands: Blaze is the four-segment wall, Hot Hands the
+fire ring or ball.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-01"
+source = """
+the player, 2026-10-01 (chat), confirming that reading: "correct, sorry
+thanks"
+"""
+use = """
+read [domain:killfeed/phoenix-hot-hands-icon] and
+[domain:killfeed/phoenix-blaze-icon] with this reading
+"""
+phrases = ["second blaze meant hot hands"]
+see = ["killfeed/phoenix-hot-hands-icon", "killfeed/phoenix-blaze-icon"]

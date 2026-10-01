@@ -154,7 +154,7 @@ class WeaponAttributionTests(unittest.TestCase):
         from reticle.adjudication.weapon import icon_grid, name_icon
         mined = self._mined([("Vandal", self._shape(70, 10)), ("Phantom", self._shape(70, 10))])
         grid, aspect = icon_grid(extract_icon_observation(self._shape(70, 10)).white_mask)
-        self.assertEqual(name_icon(grid, aspect, mined)["reason"], "tie")
+        self.assertEqual(name_icon(grid, aspect, mined)["reason"], "ambiguous")
 
     def test_mined_gallery_refuses_a_far_icon(self):
         """An icon no exemplar resembles gets no name from the mined gallery."""
@@ -163,7 +163,7 @@ class WeaponAttributionTests(unittest.TestCase):
         block = np.zeros((34, 74, 3), dtype=np.uint8)
         block[8:26, 2:72] = 255                # same box, half its area unlike the gun
         grid, aspect = icon_grid(extract_icon_observation(block).white_mask)
-        self.assertEqual(name_icon(grid, aspect, mined)["reason"], "no_close_exemplar")
+        self.assertEqual(name_icon(grid, aspect, mined)["reason"], "new")
 
     def test_mined_gallery_chamber_ability_is_not_a_gun(self):
         """Headhunter draws a revolver but is an ability, not a sidearm."""
@@ -215,6 +215,26 @@ class WeaponAttributionTests(unittest.TestCase):
         rows = self._rows(mined, [(0, 0, 200, 74, vandal)])
         ev = entry_weapon({"t_first": 0, "t_last": 500, "slot": 0, "sig": 200}, rows, mined)
         self.assertEqual((ev["status"], ev["reason"]), ("refused", "too_few_named"))
+
+    def test_entry_weapon_refuses_an_unknown_icon_as_new(self):
+        """Frames that score low against every allowed name refuse as new, not as too few."""
+        from reticle.adjudication.weapon import entry_weapon
+        mined = self._mined([("Vandal", self._shape(70, 10))])
+        block = np.zeros((34, 74, 3), dtype=np.uint8)
+        block[8:26, 2:72] = 255
+        rows = self._rows(mined, [(t, 0, 200, 74, block) for t in (0, 500, 1000)])
+        ev = entry_weapon({"t_first": 0, "t_last": 1000, "slot": 0, "sig": 200}, rows, mined)
+        self.assertEqual((ev["status"], ev["reason"], ev["frame_reasons"]),
+                         ("refused", "new", {"new": 3}))
+
+    def test_entry_weapon_refuses_a_tied_icon_as_ambiguous(self):
+        """Frames whose two best names lie within the margin refuse as ambiguous."""
+        from reticle.adjudication.weapon import entry_weapon
+        vandal = self._shape(70, 10)
+        mined = self._mined([("Vandal", vandal), ("Phantom", self._shape(70, 10))])
+        rows = self._rows(mined, [(t, 0, 200, 74, vandal) for t in (0, 500, 1000)])
+        ev = entry_weapon({"t_first": 0, "t_last": 1000, "slot": 0, "sig": 200}, rows, mined)
+        self.assertEqual((ev["status"], ev["reason"]), ("refused", "ambiguous"))
 
     def test_entry_weapon_ability_group_names_the_cause_not_a_weapon(self):
         """A group the player knew only as an ability gives the cause, with no name."""
@@ -273,6 +293,202 @@ class CasterTests(unittest.TestCase):
                                  killfeed_claim={"channel": "killfeed_portrait", "killer": "Reyna"})
         self.assertEqual(clash.metadata["killer_identity"]["status"], "disagreement")
 
+
+class RoleNarrowingTests(unittest.TestCase):
+    """weapon-adjudication-0.7.0: the acting agent's kit, then the lineup, then
+    the full gallery; what an answer rests on; the fixed audit."""
+
+    @staticmethod
+    def _grid(cols, rows=16):
+        from reticle.killfeed import ICON_GRID
+        g = np.zeros(ICON_GRID, dtype=np.uint8)
+        g[:rows, :cols] = 1
+        return g
+
+    def _gallery(self):
+        # Aftershock (Breach) an ability-shaped block; Vandal a long gun.
+        return {"names": np.array(["Aftershock", "Vandal"]),
+                "masks": np.array([self._grid(20), self._grid(60, 6)]),
+                "aspects": np.array([1.0, 3.0])}
+
+    @staticmethod
+    def _obs(grid, aspect, times=(0, 500, 1000)):
+        hexgrid = np.packbits(grid.astype(bool)).tobytes().hex()
+        return [{"kind": "weapon_icon_observation", "t_ms": t, "slot": 0, "wx0": 200,
+                 "wx1": 220, "aspect": aspect, "grid": hexgrid} for t in times]
+
+    ENTRY = {"t_first": 0, "t_last": 1000, "slot": 0, "sig": 200}
+    BREACH = {"agent": "Breach", "entity_id": "death:s:0:0:killer", "role": "killer",
+              "channels": ["killfeed_name_cluster"]}
+
+    def test_breach_kit_is_aftershock_with_no_question(self):
+        """The derived kits list Breach's Aftershock alone and hold no question
+        of Breach, so the faint icon names Aftershock with Breach acting."""
+        from reticle.adjudication.weapon import KILLFEED_KITS, KILLFEED_OPEN, entry_weapon
+        self.assertEqual(KILLFEED_KITS["Breach"], frozenset({"Aftershock"}))
+        self.assertNotIn("Breach", KILLFEED_OPEN)
+        ev = entry_weapon(self.ENTRY, self._obs(self._grid(12), 1.0), self._gallery(),
+                          agents={"Breach", "Sova"}, actor=self.BREACH)
+        self.assertEqual((ev["status"], ev["name"], ev["kit_floor_frames"]),
+                         ("resolved", "Aftershock", 3))
+
+    def test_an_open_question_keeps_the_full_floor(self):
+        """An agent with an ability the rule cannot decide keeps NAME_MIN_IOU,
+        even with its listed kit in the gallery."""
+        from unittest import mock
+        from reticle.adjudication import weapon
+        with mock.patch.dict(weapon.KILLFEED_OPEN, {"Breach": frozenset({"Fault Line"})}):
+            self.assertEqual(weapon.kit_names(self._gallery(), "Breach"), frozenset())
+            ev = weapon.entry_weapon(self.ENTRY, self._obs(self._grid(12), 1.0), self._gallery(),
+                                     agents={"Breach", "Sova"}, actor=self.BREACH)
+        self.assertEqual((ev["status"], ev["reason"], ev["kit_floor_frames"]), ("refused", "new", 0))
+
+    def test_a_listed_kit_the_gallery_lacks_does_not_lower_the_floor(self):
+        """A listed kit lowers the floor only when the gallery holds all of it,
+        and only for the listed names."""
+        from unittest import mock
+        from reticle.adjudication import weapon
+        with mock.patch.dict(weapon.KILLFEED_KITS,
+                             {"Breach": frozenset({"Aftershock", "Rolling Thunder"})}):
+            self.assertEqual(weapon.kit_names(self._gallery(), "Breach"), frozenset())
+        with mock.patch.dict(weapon.KILLFEED_KITS, {"Breach": frozenset({"Aftershock"})}):
+            self.assertEqual(weapon.kit_names(self._gallery(), "Breach"), frozenset({"Aftershock"}))
+        with mock.patch.dict(weapon.KILLFEED_KITS, {"Breach": frozenset({"Vandal"})}):
+            self.assertEqual(weapon.kit_names(self._gallery(), "Breach"), frozenset())
+
+    def test_the_kit_floor_names_a_faint_ability_the_full_floor_refuses(self):
+        """An icon at IoU 0.6 to Aftershock is new without context, Aftershock
+        given Breach as the killer with Breach's kit listed whole, and that
+        answer rests on the killer."""
+        from unittest import mock
+        from reticle.adjudication import weapon
+        from reticle.adjudication.weapon import entry_weapon
+        listed = mock.patch.dict(weapon.KILLFEED_KITS, {"Breach": frozenset({"Aftershock"})})
+        listed.start()
+        self.addCleanup(listed.stop)
+        gal, rows = self._gallery(), self._obs(self._grid(12), 1.0)
+        bare = entry_weapon(self.ENTRY, rows, gal)
+        self.assertEqual((bare["status"], bare["reason"]), ("refused", "new"))
+        kit = entry_weapon(self.ENTRY, rows, gal, agents={"Breach", "Sova"}, actor=self.BREACH,
+                           frames=True)
+        self.assertEqual((kit["status"], kit["name"]), ("resolved", "Aftershock"))
+        self.assertEqual([r["context"] for r in kit["rests_on"]], ["actor"])
+        self.assertEqual(kit["rests_on"][0]["entity_id"], self.BREACH["entity_id"])
+        self.assertEqual(kit["kit_floor_frames"], 3)
+        self.assertTrue(all(f["rests_on"] for f in kit["frames"]))
+
+    def test_another_agents_kit_does_not_lower_the_floor(self):
+        """With Sova acting, Aftershock takes the full floor and the faint icon stays new."""
+        from reticle.adjudication.weapon import entry_weapon
+        sova = dict(self.BREACH, agent="Sova")
+        ev = entry_weapon(self.ENTRY, self._obs(self._grid(12), 1.0), self._gallery(),
+                          agents={"Breach", "Sova"}, actor=sova)
+        self.assertEqual((ev["status"], ev["reason"], ev["surprise"]), ("refused", "new", False))
+
+    def test_a_clear_icon_rests_on_the_lineup_not_the_actor(self):
+        """An icon every tier names the same way does not rest on the actor."""
+        from reticle.adjudication.weapon import entry_weapon
+        ev = entry_weapon(self.ENTRY, self._obs(self._grid(20), 1.0), self._gallery(),
+                          agents={"Breach"}, actor=self.BREACH)
+        self.assertEqual((ev["name"], [r["context"] for r in ev["rests_on"]], ev["kit_floor_frames"]),
+                         ("Aftershock", ["lineup"], 0))
+
+    def test_an_ability_outside_the_lineup_is_a_surprise(self):
+        """An icon only the full gallery names resolves through the surprise path."""
+        from reticle.adjudication.weapon import entry_weapon
+        ev = entry_weapon(self.ENTRY, self._obs(self._grid(20), 1.0), self._gallery(),
+                          agents={"Sova"})
+        self.assertEqual((ev["status"], ev["name"], ev["surprise"], ev["rests_on"]),
+                         ("resolved", "Aftershock", True, []))
+
+    def test_a_kit_shaped_caster_claim_depends_on_the_actor(self):
+        """The caster claim from an answer resting on the actor depends on its entity."""
+        from reticle.adjudication.weapon import caster_claim
+        on = [{"context": "actor", **self.BREACH}]
+        claim = caster_claim("death:s:0:0:killer", "Aftershock", on)
+        self.assertEqual((claim["agent"], claim["depends_on"]),
+                         ("Breach", ["death:s:0:0:killer"]))
+        free = caster_claim("death:s:0:0:killer", "Aftershock", [{"context": "lineup"}])
+        self.assertFalse(free["depends_on"])
+
+    def test_the_audit_is_a_fixed_hash_and_stored_apart(self):
+        """One key in AUDIT_EVERY carries the full search's answer under `audit`."""
+        from reticle.adjudication.weapon import AUDIT_EVERY, audit_entry, entry_weapon
+        keys = [f"death:s:{t}:0" for t in range(0, 500000, 500)]
+        picked = [k for k in keys if audit_entry(k)]
+        self.assertEqual(picked, [k for k in keys if audit_entry(k)])
+        self.assertLess(abs(len(picked) / len(keys) - 1 / AUDIT_EVERY), 0.03)
+        self.assertFalse(audit_entry(None))
+        ev = entry_weapon(self.ENTRY, self._obs(self._grid(20), 1.0), self._gallery(),
+                          agents={"Breach"}, key=picked[0])
+        self.assertEqual((ev["audit"]["name"], ev["audit"]["agrees"]), ("Aftershock", True))
+        self.assertNotIn("audit", entry_weapon(self.ENTRY, self._obs(self._grid(20), 1.0),
+                                               self._gallery(), key=next(
+                                                   k for k in keys if not audit_entry(k))))
+
+
+class KayoReviveIconTests(unittest.TestCase):
+    """weapon-gallery-0.4.0 holds NULL/cmd from a KAY/O revive entry's weapon
+    slot [domain:killfeed/kayo-downed-entry]: the icon marks a revive, names
+    the revived KAY/O and makes no claim on the reviver."""
+
+    def test_null_cmd_marks_a_revive_and_claims_no_caster(self):
+        from reticle.adjudication.death import revive_entry
+        from reticle.adjudication.weapon import MINED_NOT_GUN, caster_claim
+        self.assertEqual(MINED_NOT_GUN["NULL/cmd"], "ability")
+        self.assertTrue(revive_entry({"weapon_evidence": {"name": "NULL/cmd"}}))
+        self.assertIsNone(caster_claim("death:s:0:1:killer", "NULL/cmd"))
+        self.assertEqual(caster_claim("death:s:0:1:killer", "Aftershock")["agent"], "Breach")
+
+    def test_a_one_colour_banner_needs_kayo_fielded_for_his_revive(self):
+        from reticle.adjudication.death import plate_revive
+        unnamed = {"side": "enemy", "same_side": True,
+                   "weapon_evidence": {"status": "refused", "name": None}}
+        self.assertEqual(plate_revive(unnamed, {"enemy": [{"agent": "KAY_O"}]}, (False, None)),
+                         ("plates", None))
+
+
+class NewIconAspectGateTests(unittest.TestCase):
+    """`weapon_icons.new_icon_entries` keeps a named member out when its aspect
+    lies beyond NAME_ASPECT_TOL of every aspect its name already has."""
+
+    def test_the_gate(self):
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
+        from weapon_icons import aspect_fault
+        ref = {"Vandal": [3.30, 3.62], "Warden": [3.86]}
+        self.assertIsNone(aspect_fault("Vandal", 3.5, ref))
+        self.assertEqual(aspect_fault("Vandal", 4.887, ref)["reason"], "aspect_beyond_name")
+        self.assertIsNone(aspect_fault("Warden", 4.05, ref))
+        self.assertIsNotNone(aspect_fault("Warden", 3.227, ref))
+        self.assertIsNone(aspect_fault("NULL/cmd", 1.235, ref))   # no reference: ungated
+
+
+class EntryTypeTests(unittest.TestCase):
+    """adjudication.death owns the entry type and its acting role."""
+
+    def test_entry_types_and_roles(self):
+        from reticle.adjudication.death import ENTRY_ROLES, entry_type
+        revive = {"weapon_evidence": {"name": "Resurrection"}}
+        self.assertEqual(entry_type(revive), "revive")
+        self.assertEqual(ENTRY_ROLES["revive"], ("reviver", "revived"))
+        self.assertEqual(entry_type({"is_second_life": True}), "second_life_death")
+        self.assertEqual(entry_type({}, is_second_life=False), "kill")
+
+    def test_the_actor_is_named_without_the_icons_own_claim(self):
+        """The weapon icon's caster claim never names the actor that narrows it."""
+        from reticle.adjudication.death import entry_actor
+        from reticle.adjudication.identity import identity_claim
+        eid = "death:s:0:0:killer"
+        icon = identity_claim(eid, "Breach", channel="killfeed_weapon")
+        self.assertIsNone(entry_actor({}, {"claims": [icon]}))
+        name = identity_claim(eid, "Breach", channel="killfeed_name_cluster")
+        actor = entry_actor({}, {"claims": [icon, name]})
+        self.assertEqual((actor["agent"], actor["role"], actor["channels"]),
+                         ("Breach", "killer", ["killfeed_name_cluster"]))
+        revive = {"weapon_evidence": {"name": "Resurrection"}}
+        self.assertEqual(entry_actor(revive, {"claims": [name]})["role"], "reviver")
 
 if __name__ == "__main__":
     unittest.main()
