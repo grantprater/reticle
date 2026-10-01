@@ -1704,10 +1704,13 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
 
 
 # --------------------------------------------------------------------------- second life
-# The circular badge a Phoenix Run It Back death carries
-# [domain:rounds/resurrection-mechanics]. A downed KAY/O's icon sits in the same
-# place but is an X inside a downward triangle [domain:killfeed/kayo-downed-entry],
-# which this ring fit does not detect. Read here, in the reader
+# The second-life badge reader [domain:rounds/resurrection-mechanics]. It
+# fits a ring beside the victim's name and names no icon. It is
+# probably unspecific: the player expects it to fire on the KAY/O down icon
+# [domain:killfeed/kayo-downed-entry] and on other icons beside the name.
+# Whether it fires on the KAY/O icon is unmeasured, since no stored session
+# fields KAY/O. A badge read is evidence of some icon beside the victim's
+# name, not of Run It Back. Read here, in the reader
 # that already crops every entry; `adjudication.death` re-exports it.
 
 SECOND_LIFE_WHITE_V_MIN = 190
@@ -1775,11 +1778,14 @@ def detect_second_life_badge(
     victim_x: float | None = None,
     run_min: float = SECOND_LIFE_RUN_MIN,
 ) -> tuple[bool, dict]:
-    """Detect the circular Run It Back badge beside the victim on an entry crop.
+    """Detect a ring-shaped icon beside the victim's name on an entry crop.
 
-    A downed KAY/O's icon sits in the same place but is an X inside a downward
-    triangle [domain:killfeed/kayo-downed-entry]; this ring fit does not
-    detect it.
+    The detector fits a ring beside the victim's name and names no icon. It is
+    probably unspecific: the player expects it to fire on the KAY/O down icon
+    [domain:killfeed/kayo-downed-entry] and on other icons beside the name.
+    Whether it fires on the KAY/O icon is unmeasured, since no stored session
+    fields KAY/O. A badge read is evidence of some icon beside the victim's
+    name, not of Run It Back.
 
     When `victim_x` is supplied, `crop` is the full entry band and the search
     window is centered on `victim_x` with a width equal to twice the band height.
