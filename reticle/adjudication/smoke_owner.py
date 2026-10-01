@@ -196,6 +196,12 @@ def tray_verdict(birth_ms: float, player: str, others: list[str],
     return None, "no_player_cast_and_" + str(len(others)) + "_other_candidates", ev
 
 
+def smoke_entity_id(session_id: str, track: dict) -> str:
+    """A smoke track's entity id, which its `smoke_owner` row and identity
+    event carry; a consumer reads it from the row and never builds it."""
+    return f"{session_id}:smoke:{int(round(track['first_ms']))}:{track['track']}"
+
+
 def adjudicate(session_id: str, smoke_rows: list[dict], lineup: dict | None, *,
                hz: float | None = None, tray_casts: list[dict] | None = None,
                tray_reason: str | None = "tray_not_read") -> dict:
@@ -209,8 +215,7 @@ def adjudicate(session_id: str, smoke_rows: list[dict], lineup: dict | None, *,
     player = player_agent(lineup, session_id)
     tol = tolerance_s(hz)
     groups = cast_groups(tracks)
-    eid = {t["track"]: f"{session_id}:smoke:{int(round(t['first_ms']))}:{t['track']}"
-           for t in tracks}
+    eid = {t["track"]: smoke_entity_id(session_id, t) for t in tracks}
     ally = sides["ally"] if sides else None
     team = sorted(a for a in (ally["named"] if ally else []) if a in SMOKE_ABILITY)
     slots = ally["slots"] if ally else []

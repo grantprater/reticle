@@ -299,7 +299,8 @@ status = "partial"
 names_agents = true
 produces = ["adjudicate", "lifetime_verdict", "tray_verdict", "cast_groups",
             "tolerance_s", "window", "SMOKE_ABILITY", "NO_BULK", "LIFETIME_S",
-            "CAST_WINDOW_S", "NOT_A_PLAYER_CAST", "CHANNELS", "player_smoke_casts"]
+            "CAST_WINDOW_S", "NOT_A_PLAYER_CAST", "CHANNELS", "player_smoke_casts",
+            "smoke_entity_id"]
 not_for = """
 Finding or timing the smoke (`minimap-smoke`), enemy smokes (not drawn on the
 player's minimap), or deciding a name itself: each rule is a claim through
