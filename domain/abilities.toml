@@ -2907,3 +2907,172 @@ a boosted caster state for the height model
 analogy
 """
 see = ["abilities/jett-updraft-lifts-above-jump", "abilities/waylay-vertical-lifts-above-jump"]
+
+[killjoy-lockdown-global-minimap]
+claim = """
+Killjoy's Lockdown is drawn on every player's minimap once deployed, the enemy's
+in red, wherever it is: the device's position and a large ring showing its
+status.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "killjoy:lockdown"
+source = "the player, 2026-09-30 (chat): an AI search summary the player shared 'with a grain of salt' and judged right; unverified"
+use = """
+search for it on the minimap for both sides, outside team vision too; a
+census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "a belief from a search summary; unverified"
+see = ["minimap/ability-drawings-both-sides"]
+
+[reyna-leer-global-minimap]
+claim = """
+An enemy Reyna's Leer is drawn on the player's minimap as soon as it is cast,
+whatever the team's vision.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "reyna:leer"
+source = "the player, 2026-09-30 (chat): an AI search summary the player shared 'with a grain of salt' and judged right; unverified"
+use = """
+search for it on the minimap for both sides, outside team vision too; a
+census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "the player states this as certain; the search summary agrees"
+see = ["minimap/ability-drawings-both-sides"]
+
+[fade-haunt-global-minimap]
+claim = """
+An enemy Fade's Haunt (the eye) is drawn on the player's minimap whatever the
+team's vision.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "fade:haunt"
+source = "the player, 2026-09-30 (chat): an AI search summary the player shared 'with a grain of salt' and judged right; unverified"
+use = """
+search for it on the minimap for both sides, outside team vision too; a
+census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "the player states this as certain; the search summary does not list it"
+see = ["minimap/ability-drawings-both-sides"]
+
+[gekko-thrash-global-minimap]
+claim = """
+An enemy Gekko's Thrash, while he steers it, can show its icon on the
+player's minimap as it searches for targets.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "gekko:thrash"
+source = "the player, 2026-09-30 (chat): an AI search summary the player shared 'with a grain of salt' and judged right; unverified"
+use = """
+search for it on the minimap for both sides, outside team vision too; a
+census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "a belief from a search summary, which says it can flash; unverified"
+see = ["minimap/ability-drawings-both-sides"]
+
+[sage-barrier-orb-global-minimap]
+claim = """
+A Sage Barrier Orb wall is drawn on every player's minimap as soon as it is
+raised, wherever it is.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "sage:barrier-orb"
+source = "the player, 2026-09-30 (chat): an AI search summary the player shared 'with a grain of salt' and judged right; unverified"
+use = """
+search for it on the minimap for both sides, outside team vision too; a
+census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "a belief from a search summary; unverified"
+see = ["minimap/ability-drawings-both-sides"]
+
+[deadlock-barrier-mesh-global-minimap]
+claim = """
+A Deadlock Barrier Mesh is drawn on every player's minimap, wherever it is.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "deadlock:barrier-mesh"
+source = "the player, 2026-09-30 (chat): an AI search summary the player shared 'with a grain of salt' and judged right; unverified"
+use = """
+search for it on the minimap for both sides, outside team vision too; a
+census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "a belief from a search summary; unverified"
+see = ["minimap/ability-drawings-both-sides"]
+
+[sova-hunters-fury-global-minimap]
+claim = """
+A Sova's Hunter's Fury blasts are drawn as lines on every player's minimap,
+so an enemy Sova's aim shows on the player's.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "sova:hunters-fury"
+source = "the player, 2026-09-30 (chat): an AI search summary the player shared 'with a grain of salt' and judged right; unverified"
+use = """
+search for it on the minimap for both sides, outside team vision too; a
+census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "a belief from a search summary; the player's own and a teammate's are observed [domain:abilities/sova-hunters-fury-minimap-beam]"
+see = ["minimap/ability-drawings-both-sides"]
+
+[brimstone-orbital-strike-global-minimap]
+claim = """
+A Brimstone Orbital Strike is drawn as a hazard circle on every player's
+minimap.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "brimstone:orbital-strike"
+source = "the player, 2026-09-30 (chat): an AI search summary the player shared 'with a grain of salt' and judged right; unverified"
+use = """
+search for it on the minimap for both sides, outside team vision too; a
+census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "a belief from a search summary; unverified"
+see = ["minimap/ability-drawings-both-sides"]
+
+[astra-cosmic-divide-global-minimap]
+claim = """
+An Astra Cosmic Divide wall is drawn across every player's minimap.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "astra:cosmic-divide"
+source = "the player, 2026-09-30 (chat): an AI search summary the player shared 'with a grain of salt' and judged right; unverified"
+use = """
+search for it on the minimap for both sides, outside team vision too; a
+census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "a belief from a search summary; unverified"
+see = ["minimap/ability-drawings-both-sides"]
+
+[viper-toxic-screen-global-minimap]
+claim = """
+A Viper Toxic Screen line is drawn on every player's minimap, wherever it
+is.
+"""
+kind = "rule"
+known = "player"
+since = "2026-09-30"
+subject = "viper:toxic-screen"
+source = "the player, 2026-09-30 (chat): an AI search summary the player shared 'with a grain of salt' and judged right; unverified"
+use = """
+search for it on the minimap for both sides, outside team vision too; a
+census verifies it with a targeted demo [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = "a belief from a search summary; Viper's own minimap line is observed [domain:abilities/viper-toxic-screen-minimap-growth]"
+see = ["minimap/ability-drawings-both-sides"]
