@@ -646,9 +646,13 @@ produces = ["fit_icon", "IconPoseReader", "ICON_CLASSES", "tealness", "redness",
 not_for = """
 Finding the icon (`ally-candidates`: the ring fit still proposes each
 detection and seeds this fit) and naming the agent (`agent-identity`). It
-reads one frame's teardrop and holds no bearing across frames: an unread
-teardrop returns the ring fit's centre, no facing, and the reason
-(`low_ncc`, `no_ring`, `ambiguous_facing`, `no_key`). It does not tell an
+reads one frame's teardrop; given a frame index, `IconPoseReader` searches
+round the same icon's fit on the previous image (`rests_on` names it) and
+searches in full on surprise and on a fixed audit cadence, but it joins no
+track and resolves no bearing across frames (`enemy-track-session`,
+`team-vision`). An unread teardrop returns the ring fit's centre, no
+facing, and the reason (`low_ncc`, `no_ring`, `ambiguous_facing`,
+`no_key`). It does not tell an
 ability glyph drawn as a teardrop from an agent icon. The facing is scored
 against the player's labels of two 465 px sessions; the 331 px scaling is
 checked against the portrait fit and the drawn light, not against labels.
@@ -656,7 +660,7 @@ checked against the portrait fit and the drawn light, not against labels.
 class has no consumer in `reticle/` yet.
 """
 consumers = ["team_vision", "minimap", "self_icon", "minimap_objects"]
-evidence = "tests/test_teardrop.py, prototypes/icon_teardrop.py --centre-check, prototypes/icon_facing_eval.py, docs/STATISTICAL_ADJUDICATOR.md (E6)"
+evidence = "tests/test_teardrop.py, tests/test_teardrop_prior.py, prototypes/icon_teardrop.py --centre-check, prototypes/icon_facing_eval.py, docs/STATISTICAL_ADJUDICATOR.md (E6)"
 
 [[entry]]
 id = "team-vision"

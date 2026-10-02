@@ -1292,7 +1292,12 @@ class AllyIconReader:
         # pixels and alignment, and the published position.
         with step("pose"):
             raw_self = [self._posed(crop, f, "self", sc) for f in raw_self]
-            raw = [self._posed(crop, f, "ally", sc) for f in raw]
+            # A teammate's fit continues its fit on the previous image
+            # (`IconPoseReader`'s prior, ally-icon-0.7.0); `rests_on` names
+            # that fit's candidate.
+            raw = [self._posed(crop, f, "ally", sc, frame=frame,
+                               ref=f"{frame['frame_idx']}:ally:{i}")
+                   for i, f in enumerate(raw)]
         # A fit that lands on the spike glyph is the glyph, not an icon
         # (`spike.on_glyph`, ally-icon-0.5.0). Each candidate stores the
         # accepted glyphs near it, so `ally_decisions` refuses the same fits
@@ -1401,9 +1406,15 @@ class AllyIconReader:
         for i, d in enumerate(got):
             self.icons.append({**frame, "index": i, **d})
 
-    def _posed(self, crop: np.ndarray, f: dict, channel: str, sc: float) -> dict:
+    def _posed(self, crop: np.ndarray, f: dict, channel: str, sc: float,
+               frame: dict | None = None, ref: str | None = None) -> dict:
         """One ring fit posed by its teardrop (`teardrop.posed`); a fit that
         fails the shape gate is not read (`pose` reason `not_shaped`).
+
+        With `frame` (its `frame_idx` and `t_ms`) the ally reader continues
+        each icon's previous fit and audits it on a fixed cadence; `ref` is
+        this fit's candidate key within the session, which a later fit's
+        `rests_on` names. The self channel searches every image in full.
 
         The descriptor's disc (`_interior`: the composition, `map_diff` and
         the `interior_too_thin` refusal) stays at the ring fit's centre,
@@ -1423,7 +1434,12 @@ class AllyIconReader:
             if readers is None or readers[0] != sc:
                 readers = self._pose_readers = (sc, {"self": SelfConeReader(sc),
                                                      "ally": IconPoseReader("ally", sc)})
-            pose = readers[1][channel].read(crop, f["cx"], f["cy"])
+            if frame is None:
+                pose = readers[1][channel].read(crop, f["cx"], f["cy"])
+            else:
+                pose = readers[1][channel].read(crop, f["cx"], f["cy"],
+                                                frame_idx=frame["frame_idx"],
+                                                t_ms=frame["t_ms"], ref=ref)
             if channel == "self":
                 # The self icon's disc occludes a teammate's portrait and is the
                 # published self point; its centre follows the self portrait's rule.
@@ -1441,6 +1457,8 @@ class AllyIconReader:
                                                  if r["self_occluder_candidate_key"] else None),
                  "neighbor_candidate_keys": [f"{session_id}:{k}"
                                              for k in r["neighbor_candidate_keys"]],
+                 **({"pose": {**r["pose"], "rests_on": f"{session_id}:{r['pose']['rests_on']}"}}
+                    if (r.get("pose") or {}).get("rests_on") else {}),
                  "reader_version": ALLY_ICON_VERSION}
                 for r in self.candidates]
 
@@ -1454,7 +1472,8 @@ class AllyIconReader:
         from collections import Counter
 
         from .version import (ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
-                              ICON_TEARDROP_VERSION, TEARDROP_VERSION)
+                              ICON_POSE_PRIOR_VERSION, ICON_TEARDROP_VERSION,
+                              TEARDROP_VERSION)
 
         common = {"session_id": session_id, "source": "minimap",
                   "ally_icon_version": ALLY_ICON_VERSION, "hz": self.hz}
@@ -1505,7 +1524,8 @@ class AllyIconReader:
                  "candidate_lineage": "complete" if candidate_revision else "unavailable",
                  "refused_reasons": dict(sorted(refused.items())),
                  "teardrop_version": TEARDROP_VERSION,
-                 "icon_teardrop_version": ICON_TEARDROP_VERSION}]
+                 "icon_teardrop_version": ICON_TEARDROP_VERSION,
+                 "icon_pose_prior_version": ICON_POSE_PRIOR_VERSION}]
         frames_from = getattr(self, "frames_from", "video")
         if not frames_from.startswith("video"):
             # Only a cache-fed pass adds the key, so a decode's rows keep their bytes.

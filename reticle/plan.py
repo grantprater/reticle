@@ -334,8 +334,8 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_WEAPON_VERSION
     from .lighting import LIGHTING_VERSION
     from .roi_cache import ROI_CACHE_VERSION
-    from .version import (ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION, ICON_TEARDROP_VERSION,
-                          TEARDROP_VERSION, TRAY_VERSION)
+    from .version import (ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION, ICON_POSE_PRIOR_VERSION,
+                          ICON_TEARDROP_VERSION, TEARDROP_VERSION, TRAY_VERSION)
     geo ={"geometry": _in("geometry_built_by", "geometry")}
     death = "death#death_adjudication_version"
     return {
@@ -421,7 +421,10 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
         # `ally-icon-0.6.0` do not record it.
         "ally_icon": {"teardrop": _code("teardrop_version", TEARDROP_VERSION, optional=True),
                       "icon_teardrop": _code("icon_teardrop_version", ICON_TEARDROP_VERSION,
-                                             optional=True)},
+                                             optional=True),
+                      # Heads before `ally-icon-0.7.0` searched every image in full.
+                      "icon_pose_prior": _code("icon_pose_prior_version",
+                                               ICON_POSE_PRIOR_VERSION, optional=True)},
         "ability_gate": geo, "ability_icon": geo,
         "ability_shape_scan": {"shape_model": _code("ability_shape_version", ABILITY_SHAPE_VERSION),
                                **geo},
