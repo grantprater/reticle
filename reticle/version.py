@@ -295,7 +295,12 @@ PING_VERSION = "ping-0.1.0"
 # row; each fit keeps the ring fit's under `ring` and names its `pose` and
 # `facing_source`. `ally_decisions` rejects `facing_unread` only where neither
 # reader saw a lobe.
-ALLY_ICON_VERSION = "ally-icon-0.6.0"
+# 0.7.0 (2026-10-01): a teammate's teardrop continues its fit on the previous
+# image (`teardrop.IconPoseReader`'s prior, ICON_POSE_PRIOR_VERSION) and searches
+# in full only on surprise; each ally fit's `pose` records `search`, `surprise`,
+# `rests_on` (the prior's candidate key) and, on the audit cadence, `audit`. The
+# self channel still searches in full.
+ALLY_ICON_VERSION = "ally-icon-0.7.0"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.
@@ -347,6 +352,12 @@ TEARDROP_VERSION = "teardrop-0.4.0"
 # model, keys and gates are unchanged; 0.2.0 scales its radii by `minimap.widget_scale`,
 # as the self teardrop's are, so a 331 px widget's centre lands on the portrait.
 ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
+# The prior rule over `fit_icon` (`teardrop.IconPoseReader` given a frame index):
+# which earlier fit an icon continues (`PRIOR_PX`, `PRIOR_GAP_MS`), the local grid
+# (`LOCAL_PX`, `LOCAL_DEG`), the surprises that run the full grid, and the audit
+# cadence (`AUDIT_FRAMES`). `fit_icon` itself is ICON_TEARDROP_VERSION's; a
+# reader called without a frame index (`team_vision`) does not use this rule.
+ICON_POSE_PRIOR_VERSION = "icon-pose-prior-0.1.0"
 # One observation of an ability's drawn minimap shape (a ring or a beam), fitted
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
 # a prior, an acceptance or the stored fields change.

@@ -259,7 +259,7 @@ class ContentionAndBackendTest(unittest.TestCase):
             with usage.timed_pass():
                 pass
         row = usage.record()
-        self.assertEqual(row["version"], "scan-usage-3")
+        self.assertEqual(row["version"], "scan-usage-4")
         got = row["contention"]
         self.assertEqual(got["system_cpu_ns"], 4_000_000_000)
         self.assertEqual(got["other_cpu_ns"], 4_000_000_000 - row["cpu_ns"])
@@ -334,6 +334,140 @@ class ContentionAndBackendTest(unittest.TestCase):
         run_cached(None, [reader], cache, usage=usage)
         self.assertEqual(usage.record()["decode_backend"],
                          {"backend": "opencv", "codec": "ffv1", "source": "cache"})
+
+
+class Stepped(Reader):
+    """Two top-level steps per frame, the first with a nested one."""
+    shardable = ("seen",)
+
+    def __init__(self, name="stepped", seconds=0.002):
+        super().__init__()
+        self.name, self.seconds = name, seconds
+
+    def feed(self, sample):
+        from reticle.usage import step
+        with step("fit"):
+            spin(self.seconds)
+            with step("grid"):
+                spin(self.seconds)
+        with step("glyph"):
+            spin(self.seconds)
+        spin(self.seconds)          # outside every step: `other`
+        super().feed(sample)
+
+
+class StepTest(unittest.TestCase):
+    """Named steps inside a reader's feed, per thread, summing to the feed."""
+
+    manifest = {"session_id": "s", "source": {"content_key": "key"}}
+
+    def test_steps_accumulate_by_path_with_nesting(self):
+        from reticle.usage import StepRecorder
+        rec = StepRecorder(enabled=True)
+        reader = Stepped()
+        for i in range(4):
+            rec.feed(reader.name, reader.feed, i)
+        steps = rec.steps("stepped")
+        self.assertEqual(sorted(steps), ["fit", "fit/grid", "glyph", "other"])
+        self.assertTrue(all(steps[p]["count"] == 4 for p in steps))
+        self.assertGreaterEqual(steps["fit"]["total_ns"], steps["fit/grid"]["total_ns"])
+        self.assertGreater(steps["fit/grid"]["total_ns"], 4 * 0.001e9)
+        self.assertEqual(sum(steps["fit"]["buckets"]), 4)
+        self.assertGreaterEqual(steps["fit"]["max_ns"], steps["fit"]["total_ns"] // 4)
+
+    def test_top_level_steps_and_other_sum_to_the_feed(self):
+        reader = Stepped()
+        usage = ScanUsage(self.manifest, "profile", [reader], "cache:cache-test")
+        usage.step_times.enabled = True
+        run_cached(None, [reader], Frames(6), usage=usage)
+        row = usage.record()
+        r = row["readers"]["stepped"]
+        steps = r["steps"]
+        top = sum(t["total_ns"] for p, t in steps.items() if "/" not in p)
+        # `other` is the feed less its top-level steps; the record's feed adds
+        # only the outer call's few hundred ns around it.
+        self.assertLessEqual(top, r["feed"]["total_ns"])
+        self.assertLess(r["feed"]["total_ns"] - top, 0.001e9)
+        self.assertEqual(steps["other"]["count"], r["feed"]["count"])
+        self.assertGreater(steps["other"]["total_ns"], 6 * 0.001e9)
+        text = format_usage(row)
+        self.assertIn("fit", text)
+        self.assertIn("grid", text)
+        self.assertIn("(rest)", text)
+        self.assertIn("% of feed", text)
+
+    def test_a_reader_without_steps_records_none_and_a_step_outside_a_feed_records_nothing(self):
+        from reticle.usage import StepRecorder, step
+        with step("loose"):
+            pass
+        reader = Reader()
+        usage = ScanUsage(self.manifest, "profile", [reader], "cache:cache-test")
+        run_cached(None, [reader], Cache(), usage=usage)
+        self.assertEqual(usage.record()["readers"]["probe"]["steps"], {})
+        off = StepRecorder(enabled=False)
+        off.feed("stepped", Stepped().feed, 0)
+        self.assertEqual(off.steps("stepped"), {})
+
+    def test_threads_accumulate_apart_and_merge(self):
+        import threading
+        from reticle.usage import StepRecorder
+        rec = StepRecorder(enabled=True)
+        a, b = Stepped(seconds=0.0005), Stepped(seconds=0.0005)
+        start = threading.Barrier(2)
+
+        def run(reader, n):
+            start.wait()
+            for i in range(n):
+                rec.feed("stepped", reader.feed, i)
+        threads = [threading.Thread(target=run, args=(a, 5)),
+                   threading.Thread(target=run, args=(b, 7))]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(len(rec._sinks), 2)
+        steps = rec.steps("stepped")
+        self.assertTrue(all(steps[p]["count"] == 12 for p in steps))
+
+    def test_a_staged_pass_with_shards_merges_every_worker(self):
+        from reticle.pipeline import run_staged
+        reader = Stepped(seconds=0.0005)
+        usage = ScanUsage(self.manifest, "profile", [reader], "cache:cache-test")
+        usage.step_times.enabled = True
+        with usage.timed_pass():
+            got = run_staged(None, [reader], Frames(10), usage=usage, workers=2,
+                             shards={"stepped": 2})
+        usage.staged_run(got)
+        self.assertEqual(got.status, "completed", got.error)
+        r = usage.record()["readers"]["stepped"]
+        self.assertEqual(r["feed"]["count"], 10)
+        self.assertTrue(all(t["count"] == 10 for t in r["steps"].values()))
+        self.assertEqual(sorted(r["steps"]), ["fit", "fit/grid", "glyph", "other"])
+
+    def test_load_reads_every_version_and_formats_rows_without_steps(self):
+        reader = Stepped(seconds=0.0001)
+        usage = ScanUsage(self.manifest, "profile", [reader], "cache:cache-test")
+        usage.step_times.enabled = True
+        run_cached(None, [reader], Frames(2), usage=usage)
+        new = usage.record()
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "notes" / "usage.jsonl"
+            path.parent.mkdir(parents=True)
+            rows = []
+            for version in ("scan-usage-1", "scan-usage-2", "scan-usage-3"):
+                old = json.loads(json.dumps(new))
+                old["version"] = version
+                for r in old["readers"].values():
+                    r.pop("steps")
+                rows.append(old)
+            rows.append(new)
+            rows.append({**new, "version": "scan-usage-0"})
+            path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            got = load(Path(root), "s")
+        self.assertEqual([r["version"] for r in got],
+                         ["scan-usage-1", "scan-usage-2", "scan-usage-3", "scan-usage-4"])
+        self.assertNotIn("fit", format_usage(got[2]))
+        self.assertIn("fit", format_usage(got[3]))
 
 
 if __name__ == "__main__":

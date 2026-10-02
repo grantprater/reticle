@@ -3339,6 +3339,13 @@ def cmd_trial(args) -> int:
         for ex in d["example_only_stored"][:1]:
             print(f"    stored: {ex[:240]}")
     print("  identical to storage" if ok else "  DIFFERS from storage")
+    used = res["usage"]
+    feed = used["feed"]
+    print(f"  {used['reader']} feed {feed['total_ns'] / 1e9:.3f}s over {feed['count']} calls"
+          + (f", {feed['total_ns'] / feed['count'] / 1e6:.1f} ms each" if feed["count"] else ""))
+    from .usage import format_steps
+    for line in format_steps(used["steps"], feed["total_ns"]):
+        print(line)
     return 0 if ok else 1
 
 

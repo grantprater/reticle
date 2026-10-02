@@ -49,6 +49,22 @@ parallel, and CPU summing to one thread's wall means one ran at a time.
 Windows counts thread and process CPU in clock ticks of about 15.6 ms, so a
 figure under a few ticks says little.
 
+`scan-usage-4` adds each reader's `steps`: the time its `feed` spent in
+the named steps the reader marks with `step("name")`, one `CallTimes`
+record per step (`count`, `total_ns`, `max_ns`, `buckets`) keyed by its
+path. A step entered inside another is keyed `outer/inner` and its time is
+part of its parent's. `other` is each feed call's wall less its top-level
+steps, so the top-level steps and `other` sum to the reader's `feed`
+total, and its `count` is the feed calls. A reader that marks no step
+records `{}`. Each thread keeps its own accumulator per reader, so the
+step path takes no lock, and `record` merges them: a staged pass's workers
+and shards sum as their `feed` does. A step outside any timed feed (a
+test, a prototype) costs one thread-local lookup and records nothing.
+`RETICLE_USAGE_STEPS=0` turns step timing off and records `steps` as
+`{}`, to measure what the timer costs. Timing is operational: it changes
+no reader output and no version stamp. `reticle usage` prints the steps
+under each reader; `reticle trial` prints them for its reader.
+
 **Citing a scan.** `write_metric` appends a `scan_usage` pass row whose part
 names the readers and then how the pass ran (`series_part`), so each
 configuration is its own series: QUOTED compares a citation with the latest
@@ -88,9 +104,9 @@ from time import perf_counter_ns, process_time_ns, thread_time_ns
 from uuid import uuid4
 
 
-USAGE_VERSION = "scan-usage-3"
+USAGE_VERSION = "scan-usage-4"
 #: Versions `load` reads; each later one only adds keys.
-USAGE_VERSIONS = ("scan-usage-1", "scan-usage-2", USAGE_VERSION)
+USAGE_VERSIONS = ("scan-usage-1", "scan-usage-2", "scan-usage-3", USAGE_VERSION)
 #: Why a reader's own thread CPU is null when it fed on the dispatcher thread.
 INLINE_REASON = "fed on the dispatcher thread; see dispatcher.thread_cpu_ns"
 BUCKET_LIMITS_NS = (100_000, 500_000, 1_000_000, 2_000_000,
@@ -113,6 +129,125 @@ class CallTimes:
     def record(self) -> dict:
         return {"count": self.count, "total_ns": self.total_ns,
                 "max_ns": self.max_ns, "buckets": self.buckets}
+
+    def merge(self, other: "CallTimes") -> None:
+        self.count += other.count
+        self.total_ns += other.total_ns
+        self.max_ns = max(self.max_ns, other.max_ns)
+        self.buckets = [a + b for a, b in zip(self.buckets, other.buckets)]
+
+
+#: Step timing is on unless `RETICLE_USAGE_STEPS=0`; see the module docstring.
+STEPS_ENABLED = os.environ.get("RETICLE_USAGE_STEPS", "1") != "0"
+#: The step that holds a feed's time outside its top-level steps.
+OTHER_STEP = "other"
+_LOCAL = threading.local()
+
+
+class _Sink:
+    """One thread's step times for one reader; the active one sits on `_LOCAL`."""
+    __slots__ = ("steps", "stack", "top_ns")
+
+    def __init__(self):
+        self.steps: dict[str, CallTimes] = {}
+        self.stack: list[str] = []
+        self.top_ns = 0
+
+
+class step:
+    """Time a named step of the reader feeding on this thread.
+
+    `with step("grid"): ...`, one object per use. A step inside another is
+    keyed by its path (`pose/grid`). With no feed timed on this thread it
+    records nothing.
+    """
+    __slots__ = ("name", "sink", "path", "t0")
+
+    def __init__(self, name: str):
+        self.name = name
+        self.sink = None
+
+    def __enter__(self):
+        sink = getattr(_LOCAL, "sink", None)
+        if sink is not None:
+            stack = sink.stack
+            self.path = f"{stack[-1]}/{self.name}" if stack else self.name
+            stack.append(self.path)
+            self.sink = sink
+            self.t0 = perf_counter_ns()
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        sink = self.sink
+        if sink is None:
+            return False
+        elapsed = perf_counter_ns() - self.t0
+        stack = sink.stack
+        stack.pop()
+        if not stack:
+            sink.top_ns += elapsed
+        times = sink.steps.get(self.path)
+        if times is None:
+            times = sink.steps[self.path] = CallTimes()
+        times.add(elapsed)
+        return False
+
+
+class StepRecorder:
+    """Feed calls' steps per reader, accumulated per thread.
+
+    `feed(name, fn, sample)` runs `fn(sample)` with this thread's sink for
+    `name` active and returns the call's wall in ns; `steps(name)` merges
+    every thread's steps for the reader. `ScanUsage` and `trial` share it.
+    """
+
+    def __init__(self, enabled: bool | None = None):
+        self.enabled = STEPS_ENABLED if enabled is None else enabled
+        self._sinks: dict[tuple[int, str], _Sink] = {}
+        self._lock = threading.Lock()
+
+    def _sink(self, name: str) -> _Sink:
+        key = (threading.get_ident(), name)
+        sink = self._sinks.get(key)
+        if sink is None:
+            with self._lock:
+                sink = self._sinks.setdefault(key, _Sink())
+        return sink
+
+    def feed(self, name: str, fn, sample) -> int:
+        if not self.enabled:
+            start = perf_counter_ns()
+            fn(sample)
+            return perf_counter_ns() - start
+        sink = self._sink(name)
+        outer = getattr(_LOCAL, "sink", None)
+        sink.stack.clear()
+        sink.top_ns = 0
+        _LOCAL.sink = sink
+        start = perf_counter_ns()
+        try:
+            fn(sample)
+        finally:
+            elapsed = perf_counter_ns() - start
+            _LOCAL.sink = outer
+            times = sink.steps.get(OTHER_STEP)
+            if times is None:
+                times = sink.steps[OTHER_STEP] = CallTimes()
+            times.add(max(0, elapsed - sink.top_ns))
+        return elapsed
+
+    def steps(self, name: str) -> dict:
+        """`{path: CallTimes.record()}` over every thread; `{}` when the
+        reader marked no step."""
+        with self._lock:
+            sinks = [s for (_, n), s in self._sinks.items() if n == name]
+        merged: dict[str, CallTimes] = {}
+        for sink in sinks:
+            for path, times in list(sink.steps.items()):
+                merged.setdefault(path, CallTimes()).merge(times)
+        if set(merged) <= {OTHER_STEP}:
+            return {}
+        return {path: merged[path].record() for path in sorted(merged)}
 
 
 def code_revision(root: Path | None = None) -> dict:
@@ -165,6 +300,7 @@ class ScanUsage:
         self.system_cpu_ns: int | None = None
         # Shards of one reader share its name, and so its `CallTimes`.
         self._lock = threading.Lock()
+        self.step_times = StepRecorder()
 
     @contextmanager
     def timed_pass(self):
@@ -205,11 +341,13 @@ class ScanUsage:
             yield frame
 
     def feed(self, reader, sample) -> None:
+        elapsed = None
         start = perf_counter_ns()
         try:
-            reader.feed(sample)
+            elapsed = self.step_times.feed(reader.name, reader.feed, sample)
         finally:
-            elapsed = perf_counter_ns() - start
+            if elapsed is None:     # the feed raised
+                elapsed = perf_counter_ns() - start
             with self._lock:
                 self.readers[reader.name]["feed"].add(elapsed)
 
@@ -312,7 +450,8 @@ class ScanUsage:
                                 "fed": r["feed"].count if r["fed"] is None else r["fed"],
                                 "thread_cpu_ns": r["thread_cpu_ns"],
                                 "thread_cpu_reason": r["thread_cpu_reason"],
-                                "shards": [dict(u) for u in r["shards"]]}
+                                "shards": [dict(u) for u in r["shards"]],
+                                "steps": self.step_times.steps(name)}
                         for name, r in self.readers.items()},
             "pass_other_ns": max(0, self.pass_ns - source_ns - feed_ns - finish_ns),
         }
@@ -450,4 +589,38 @@ def format_usage(row: dict) -> str:
                      f"feed {sec(feed['total_ns'])}  finish {sec(reader['finish_ns'])}  "
                      f">10ms {slow}  max {sec(feed['max_ns'])}"
                      + (f"  thread cpu {sec(own)}" if own is not None else ""))
+        parts += format_steps(reader.get("steps") or {}, feed["total_ns"])
     return "\n".join(parts)
+
+
+def format_steps(steps: dict, feed_ns: int, indent: str = "    ") -> list[str]:
+    """One line per step under its reader: seconds, calls, ms per call,
+    share of the feed and the slowest call. A step's children follow it,
+    indented, then `(rest)`, its time outside them; `other` comes last."""
+    if not steps:
+        return []
+    children: dict[str, list[str]] = {}
+    for path in steps:
+        children.setdefault(path.rpartition("/")[0], []).append(path)
+
+    def line(label, depth, ns, calls, max_ns=None):
+        share = f"{100.0 * ns / feed_ns:5.1f}%" if feed_ns else "    -"
+        per = f"{ns / calls / 1e6:8.3f} ms/call" if calls else " " * 16
+        return (f"{indent}{'  ' * depth}{label:<{max(1, 20 - 2 * depth)}} "
+                f"{ns / 1e9:9.3f}s {calls:>8} calls {per}  {share} of feed"
+                + (f"  max {max_ns / 1e6:.1f} ms" if max_ns is not None else ""))
+
+    out: list[str] = []
+
+    def walk(parent, depth):
+        for path in sorted(children.get(parent, ()),
+                           key=lambda p: (p == OTHER_STEP, -steps[p]["total_ns"])):
+            t = steps[path]
+            out.append(line(path.rpartition("/")[2], depth, t["total_ns"], t["count"],
+                            t["max_ns"]))
+            if path in children:
+                walk(path, depth + 1)
+                rest = t["total_ns"] - sum(steps[c]["total_ns"] for c in children[path])
+                out.append(line("(rest)", depth + 1, max(0, rest), 0))
+    walk("", 0)
+    return out

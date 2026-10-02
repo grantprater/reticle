@@ -53,7 +53,10 @@ as the self teardrop's are, so on a 331 px widget the centre lands on the
 portrait instead of about 6 px off it. `IconPoseReader` returns an ally's
 centre and facing per frame, or the ring fit's centre and no facing with
 the reason. The ring fit still FINDS the icon; where the teardrop reads,
-it supplies neither centre nor facing.
+it supplies neither centre nor facing. Given a frame index, the reader
+continues each icon's fit on the previous image with a local search, runs
+the full grid on surprise, and audits the prior on a fixed frame cadence
+(`IconPoseReader`, ICON_POSE_PRIOR_VERSION).
 
 **On a turned widget** the facing needs no correction: the icons' facing
 arrows turn with the map [domain:minimap/upright-icons-on-turned-map], and
@@ -71,7 +74,9 @@ from typing import Callable
 
 import numpy as np
 
-from .version import ICON_TEARDROP_VERSION, TEARDROP_VERSION  # noqa: F401  (the stamps callers store)
+from .usage import step
+# The stamps callers store.
+from .version import ICON_POSE_PRIOR_VERSION, ICON_TEARDROP_VERSION, TEARDROP_VERSION  # noqa: F401
 
 # Fitted by `prototypes/teardrop_tip.py --calibrate` on 24 held-out frames of
 # e78e75b2d191 at widget scale 1.0: mean correlation 0.846, on a plateau over
@@ -82,6 +87,23 @@ WINDOW = 4.0          # the scoring window reaches this far past the apex
 SEARCH_PX = 4         # centre grid half-width round the detector's centre
 GRID_DEG = 10.0
 MIN_NCC = 0.5         # below this the shape is not read
+
+# The prior (`IconPoseReader` given a frame index): an icon continues its fit
+# on the previous image. Measured on the stored ally-icon-0.6.0 streams of
+# 587c15b07779, 5822b6646448 (465 px) and 223d636bf8d2 (331 px), between
+# teardrop reads 4-5 frames apart (15 Hz) whose ring fits lie within 12 px:
+# the teardrop's centre moves a median 0.4-0.9 px and stays within 3 px on
+# 98.6-99.5% of pairs; the ring fit's centre stays within 6 px on 99.0-99.7%;
+# the facing turns within 30 degrees on 97.2-98.0%; the NCC drops by more
+# than 0.1 on 0.4-0.6%. The prior's centre predicts the new centre better
+# than the prior moved by the ring fit's displacement (within 2 px on 95-96%
+# of pairs against 86-92%).
+PRIOR_PX = 6.0        # a detection's ring centre within this of a prior's (x scale)
+PRIOR_GAP_MS = 200.0  # a prior seen longer ago than this is no prior (three 15 Hz samples)
+LOCAL_PX = 3          # local centre half-width at scale 1.0 (`local_px`)
+LOCAL_DEG = 30.0      # local facings: the prior's +- this, in GRID_DEG steps
+NCC_DROP = 0.10       # a local fit this far under its prior's NCC is a surprise
+AUDIT_FRAMES = 40     # the first new image in each block of this many frames is audited
 
 
 def yellowness(crop: np.ndarray) -> np.ndarray:
@@ -124,7 +146,8 @@ def _correlation(obs, model):
 
 def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0,
                  r_in: float | None = None, r_out: float | None = None,
-                 L_: float | None = None, yel: np.ndarray | None = None) -> dict:
+                 L_: float | None = None, yel: np.ndarray | None = None,
+                 prior: tuple[float, float, float] | None = None) -> dict:
     """The teardrop nearest the detector's centre `(cx0, cy0)`.
 
     Returns `x`, `y` (the teardrop's centre, the cone's origin), `deg` (its
@@ -132,12 +155,20 @@ def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0
     `tip_y`, `ncc`, and `read` (False with a `reason` below MIN_NCC).
     `r_in`, `r_out` and `L_` override the scaled constants, in px, for
     `prototypes/teardrop_tip.py --calibrate`.
+
+    `prior` `(x, y, deg)` is the same icon's fit on an earlier image: the
+    grid then searches `local_px(scale)` round its centre and `LOCAL_DEG`
+    round its facing instead of the full grid, over the same window and
+    score, and the same refinement follows. `on_edge` says the local grid's
+    best lay on its boundary, so the pose may lie outside it.
     """
     r_in = R_IN * scale if r_in is None else r_in
     r_out = R_OUT * scale if r_out is None else r_out
     L_ = L * scale if L_ is None else L_
     edge, search = EDGE * scale, max(1, int(round(SEARCH_PX * scale)))
-    yel = yellowness(crop) if yel is None else yel
+    if yel is None:
+        with step("key"):
+            yel = yellowness(crop)
     h, w = yel.shape
     rad = L_ + WINDOW * scale + search
     x0, x1 = max(0, int(cx0 - rad)), min(w, int(cx0 + rad) + 1)
@@ -153,33 +184,52 @@ def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0
     # over, correlated with the window at every integer centre offset
     # (`cv2.matchTemplate`), which is the prototype's per-offset render to
     # float rounding and a tenth of its time.
-    sc, x, y, t = _grid(obs, keep, x0, y0, cx0, cy0, search, r_in, r_out, L_, edge)
+    # Named steps (`usage.step`): the grid's renders and correlations, then
+    # the refinement's. The local grid round a prior is its own step.
+    if prior is None:
+        with step("grid"):
+            sc, x, y, t, _ = _grid(obs, keep, x0, y0, cx0, cy0, search, r_in, r_out, L_, edge,
+                                   _FULL_FACINGS)
+    else:
+        k = int(LOCAL_DEG // GRID_DEG)
+        ths = np.radians(prior[2] + GRID_DEG * np.arange(-k, k + 1, dtype=np.float32))
+        with step("prior"):
+            sc, x, y, t, on_edge = _grid(obs, keep, x0, y0, prior[0], prior[1],
+                                         local_px(scale), r_in, r_out, L_, edge, ths)
 
     def score(x, y, t):
         return float(_correlation(obs, render(px - x, py - y, t, r_in, r_out, L_, edge)))
 
     step_p, step_t = 0.5, math.radians(3.0)
-    while step_p >= 0.05:
-        moved = False
-        for ddx, ddy, ddt in ((step_p, 0, 0), (-step_p, 0, 0), (0, step_p, 0), (0, -step_p, 0),
-                              (0, 0, step_t), (0, 0, -step_t)):
-            s2 = score(x + ddx, y + ddy, t + ddt)
-            if s2 > sc:
-                sc, x, y, t, moved = s2, x + ddx, y + ddy, t + ddt, True
-                break
-        if not moved:
-            step_p, step_t = step_p / 2, step_t / 2
+    with step("refine"):
+        while step_p >= 0.05:
+            moved = False
+            for ddx, ddy, ddt in ((step_p, 0, 0), (-step_p, 0, 0), (0, step_p, 0),
+                                  (0, -step_p, 0), (0, 0, step_t), (0, 0, -step_t)):
+                s2 = score(x + ddx, y + ddy, t + ddt)
+                if s2 > sc:
+                    sc, x, y, t, moved = s2, x + ddx, y + ddy, t + ddt, True
+                    break
+            if not moved:
+                step_p, step_t = step_p / 2, step_t / 2
     deg = (math.degrees(t) + 180.0) % 360.0 - 180.0
     out = {"x": x, "y": y, "deg": deg, "ncc": sc,
            "tip_x": x + L_ * math.cos(t), "tip_y": y + L_ * math.sin(t),
            "read": sc >= MIN_NCC}
+    if prior is not None:
+        out["on_edge"] = on_edge
     if not out["read"]:
         out["reason"] = "low_ncc"
     return out
 
 
-def _grid(obs, keep, x0, y0, cx0, cy0, search, r_in, r_out, L_, edge):
-    """Best `(ncc, x, y, th)` over integer centre offsets within `search` and GRID_DEG facings."""
+def _grid(obs, keep, x0, y0, cx0, cy0, search, r_in, r_out, L_, edge, facings):
+    """Best `(ncc, x, y, th, on_edge)` over integer centre offsets within
+    `search` of `(cx0, cy0)` and the `facings` (radians, in order).
+
+    `on_edge`: the best lies on the outer ring of offsets or at the first or
+    last facing, which only a local search's caller reads.
+    """
     import cv2
 
     h, w = keep.shape
@@ -193,8 +243,9 @@ def _grid(obs, keep, x0, y0, cx0, cy0, search, r_in, r_out, L_, edge):
     jy, jx = np.mgrid[0:h + 2 * search, 0:w + 2 * search].astype(np.float32)
     dx = (x0 - search - cx0) + jx
     dy = (y0 - search - cy0) + jy
-    best = (-2.0, 0.0, 0.0, 0.0)
-    for th in np.radians(np.arange(0.0, 360.0, GRID_DEG, dtype=np.float32)):
+    best = (-2.0, 0.0, 0.0, 0.0, False)
+    last = len(facings) - 1
+    for i, th in enumerate(facings):
         m = render(dx, dy, np.float32(th), r_in, r_out, L_, edge).astype(np.float32)
         s_mo = cv2.matchTemplate(m, o, cv2.TM_CCORR)
         s_m = cv2.matchTemplate(m, k, cv2.TM_CCORR)
@@ -204,8 +255,23 @@ def _grid(obs, keep, x0, y0, cx0, cy0, search, r_in, r_out, L_, edge):
             sc = np.where(var > 1e-9, s_mo / np.sqrt(np.maximum(var, 0) * oo), -1.0)
         u = np.unravel_index(int(np.argmax(sc)), sc.shape)
         if sc[u] > best[0]:
-            best = (float(sc[u]), float(cx0 + search - u[1]), float(cy0 + search - u[0]), float(th))
+            on_edge = i in (0, last) or u[0] in (0, 2 * search) or u[1] in (0, 2 * search)
+            best = (float(sc[u]), float(cx0 + search - u[1]), float(cy0 + search - u[0]),
+                    float(th), bool(on_edge))
     return best
+
+
+_FULL_FACINGS = np.radians(np.arange(0.0, 360.0, GRID_DEG, dtype=np.float32))
+
+
+def local_px(scale: float) -> int:
+    """The local search's centre half-width at `scale`: `LOCAL_PX` scaled, rounded up.
+
+    Rounded up, not to nearest: on the 331 px widget (scale 0.71) a 2 px
+    half-width put the local best on its edge for 8% of ally fits on
+    223d636bf8d2, where the icon's centre moves more than 2 px between
+    samples on 5% of pairs."""
+    return max(1, int(math.ceil(LOCAL_PX * scale - 1e-9)))
 
 
 class SelfConeReader:
@@ -233,8 +299,9 @@ class SelfConeReader:
         h, w = crop.shape[:2]
         win = crop[max(0, int(cy - rad)):min(h, int(cy + rad) + 2),
                    max(0, int(cx - rad)):min(w, int(cx + rad) + 2)]
-        key = (hashlib.blake2b(np.ascontiguousarray(win).tobytes(), digest_size=16).digest(),
-               win.shape, float(cx), float(cy))
+        with step("memo"):
+            key = (hashlib.blake2b(np.ascontiguousarray(win).tobytes(), digest_size=16).digest(),
+                   win.shape, float(cx), float(cy))
         if self._last is not None and self._last[0] == key:
             tf = self._last[1]
         else:
@@ -322,7 +389,9 @@ def posed(d: dict, pose: dict, *, ring_facing: bool = True) -> dict:
     The ring fit FINDS the icon; the teardrop, where it reads, supplies `cx`
     and `cy`, and its facing where the reader gives one (`facing_source`
     `teardrop`). The ring fit's own values stay under `ring`, and `pose`
-    keeps the `origin`, NCC, refusal `reason` and `facing_reason`. Where the
+    keeps the `origin`, NCC, refusal `reason` and `facing_reason`, and the
+    prior's `search`, `surprise`, `rests_on` and `audit` where the read
+    carries them. Where the
     teardrop gives no facing the detection keeps, with `ring_facing`, the
     ring fit's facing (`facing_source` `ring_fit`), and otherwise carries
     none (`facing_source` None).
@@ -331,6 +400,10 @@ def posed(d: dict, pose: dict, *, ring_facing: bool = True) -> dict:
     out["ring"] = {"cx": d["cx"], "cy": d["cy"], "facing": d.get("facing")}
     out["pose"] = {"origin": pose["origin"], "ncc": pose.get("ncc"), "reason": pose.get("reason"),
                    "facing_reason": pose.get("facing_reason")}
+    # How a prior-driven read searched (`IconPoseReader`), where it did.
+    for k in ("search", "surprise", "rests_on", "audit"):
+        if k in pose:
+            out["pose"][k] = pose[k]
     if pose["origin"] == "teardrop":
         out["cx"], out["cy"] = pose["x"], pose["y"]
     if pose.get("deg") is not None:
@@ -407,7 +480,8 @@ def _window(key: np.ndarray, cx0: float, cy0: float, reach: float):
 def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: float, *,
              scale: float = 1.0, key: np.ndarray | None = None,
              r_in: float | None = None, r_out: float | None = None,
-             L_: float | None = None) -> dict:
+             L_: float | None = None,
+             prior: tuple[float, float, float] | None = None) -> dict:
     """The `cls` teardrop (`ally`, `enemy`, or an `IconClass`) nearest the detector's centre `(cx0, cy0)`.
 
     Returns `fit_teardrop`'s fields (`x`, `y`, `deg`, `tip_x`, `tip_y`,
@@ -424,7 +498,12 @@ def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: f
 
     The radii scale by `scale` (`minimap.widget_scale`) unless given in px;
     `key` is the class's key over `crop`, computed once per frame by a caller
-    fitting several icons.
+    fitting several icons. `prior` is `fit_teardrop`'s: a local search round
+    an earlier fit, which adds `on_edge` and `outside_ncc` (the best NCC on
+    the margin's sweep more than `LOCAL_DEG` from the fit's facing, which
+    the local grid could not reach). The margin and the ring cover are
+    measured at the fitted centre whichever grid found it, so they mean the
+    same under either search.
     """
     c = cls if isinstance(cls, IconClass) else ICON_CLASSES[cls]
     cls = c.name
@@ -433,17 +512,27 @@ def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: f
     L_ = c.L * scale if L_ is None else L_
     edge = EDGE * scale
     key = c.key(crop) if key is None else key
-    f = fit_teardrop(None, cx0, cy0, scale=scale, r_in=r_in, r_out=r_out, L_=L_, yel=key)
+    f = fit_teardrop(None, cx0, cy0, scale=scale, r_in=r_in, r_out=r_out, L_=L_, yel=key,
+                     prior=prior)
     f["cls"] = cls
     if "x" not in f:
         return {"cls": cls, "read": False, "reason": "no_key"}
-    px, py, obs = _window(key, f["x"], f["y"], L_ + WINDOW * scale)
-    ths = np.radians(np.arange(0.0, 360.0, MARGIN_DEG, dtype=np.float32))
-    sc = _correlation(obs, render(px[None, :] - f["x"], py[None, :] - f["y"], ths[:, None],
-                                  r_in, r_out, L_, edge))
-    far = np.abs(_signed_deg(np.degrees(ths) - f["deg"])) >= 90.0
-    f["margin"] = float(f["ncc"] - sc[far].max())
-    f["ring_cover"] = ring_cover(key, f["x"], f["y"], f["deg"], r_in, r_out, pad=0.5 * scale)
+    with step("margin"):
+        px, py, obs = _window(key, f["x"], f["y"], L_ + WINDOW * scale)
+        ths = np.radians(np.arange(0.0, 360.0, MARGIN_DEG, dtype=np.float32))
+        sc = _correlation(obs, render(px[None, :] - f["x"], py[None, :] - f["y"], ths[:, None],
+                                      r_in, r_out, L_, edge))
+        far = np.abs(_signed_deg(np.degrees(ths) - f["deg"])) >= 90.0
+        f["margin"] = float(f["ncc"] - sc[far].max())
+        if prior is not None:
+            # The best facing the local grid could not reach, scored on the
+            # same sweep at the fitted centre: above the fit, the lobe lies
+            # outside the window the prior allowed.
+            outside = np.abs(_signed_deg(np.degrees(ths) - f["deg"])) > LOCAL_DEG
+            f["outside_ncc"] = float(sc[outside].max())
+    with step("ring_cover"):
+        f["ring_cover"] = ring_cover(key, f["x"], f["y"], f["deg"], r_in, r_out,
+                                     pad=0.5 * scale)
     f["read"] = True
     f.pop("reason", None)
     if f["ncc"] < c.min_ncc:
@@ -495,6 +584,30 @@ class IconPoseReader:
     memoised by its pixels, so the minimap's repeated images (several cached
     frames hold one image) and the same icon asked twice return the fit a
     fresh one gives without recomputing it.
+
+    **The prior** (a caller that passes `frame_idx` and `t_ms`). An icon
+    continues its fit on the previous distinct image: a detection whose ring
+    centre lies within `PRIOR_PX` (scaled) of a read fit's on that image,
+    last shown at most `PRIOR_GAP_MS` earlier, is searched round that fit
+    (`fit_icon(prior=)`), and its pose names the prior's detection under
+    `rests_on` (`search` `prior`). The full grid runs instead on surprise
+    (`search` `full`, `surprise` saying which): `no_prior`, `gap`, `edge`
+    (the local best on the local grid's boundary), a gate refusing the
+    local fit (`low_ncc`, `no_ring`, `ambiguous_facing`), `facing_elsewhere`
+    (a facing outside the local window outscores the fit on the margin's
+    sweep), or `ncc_drop` (NCC more than `NCC_DROP` under the prior's). A
+    refusal therefore always
+    comes from the full search, and a margin always means the same thing:
+    the best NCC less the best 90 degrees or more away, at the fitted centre.
+
+    **The audit.** The first new image in each block of `AUDIT_FRAMES`
+    frames, fixed by frame index before any fit, runs the full search beside
+    the local one for every detection with a prior, and stores both under
+    `audit` (`prior`, `full`), apart from the published answer, which stays
+    the one the prior rule gives. A surprise's full search is no audit
+    sample; on an audit image it is reused as the audit's `full`. Without a
+    frame index the reader searches every image in full and adds none of
+    these fields.
     """
 
     def __init__(self, cls: str = "ally", scale: float = 1.0):
@@ -502,27 +615,122 @@ class IconPoseReader:
         self._digest: bytes | None = None
         self._key: np.ndarray | None = None
         self._fits: dict = {}
+        self._t: float | None = None
+        self._prev: tuple[float | None, list[dict]] | None = None
+        self._bucket: int | None = None
+        self._audit_due = False
 
-    def read(self, crop: np.ndarray, cx: float, cy: float) -> dict:
+    def read(self, crop: np.ndarray, cx: float, cy: float, *, frame_idx: int | None = None,
+             t_ms: float | None = None, ref: str | None = None) -> dict:
         """`{"x", "y", "deg", "origin", "ncc", ...}` for a detection centred at `(cx, cy)`.
 
         Where the shape reads, `origin` is `teardrop` and `x`, `y`, `deg` are
         its centre and facing (image degrees, y down). Otherwise `origin` is
         `ring_fit`: `x`, `y` are the detector's own centre, `deg` is None and
-        `reason` says why the teardrop was not read.
+        `reason` says why the teardrop was not read. With `frame_idx` the
+        read continues the prior and adds `search`, `surprise`, `rests_on`
+        (the prior's `ref`, the caller's name for that detection) and, on an
+        audit image, `audit`.
         """
-        digest = hashlib.blake2b(np.ascontiguousarray(crop).tobytes(), digest_size=16).digest()
+        with step("memo"):
+            digest = hashlib.blake2b(np.ascontiguousarray(crop).tobytes(),
+                                     digest_size=16).digest()
         if digest != self._digest:
+            if self._fits:
+                # The prior's age runs from the last frame that showed its image.
+                self._prev = (self._t, [e for e in self._fits.values() if e["fit"].get("read")])
             self._digest, self._key, self._fits = digest, None, {}
+            if frame_idx is not None:
+                bucket = int(frame_idx) // AUDIT_FRAMES
+                self._audit_due, self._bucket = bucket != self._bucket, bucket
+        self._t = t_ms
         k = (float(cx), float(cy))
-        tf = self._fits.get(k)
-        if tf is None:
+        entry = self._fits.get(k)
+        if entry is None:
             if self._key is None:
-                self._key = ICON_CLASSES[self.cls].key(crop)
-            tf = self._fits[k] = fit_icon(None, self.cls, cx, cy, scale=self.scale, key=self._key)
+                with step("key"):
+                    self._key = ICON_CLASSES[self.cls].key(crop)
+            entry = self._fits[k] = self._fit(cx, cy, frame_idx, t_ms, ref)
+        tf = entry["fit"]
         if tf.get("read"):
-            return {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
-                    "origin": "teardrop", "ncc": float(tf["ncc"]),
-                    "margin": float(tf["margin"])}
-        return {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
-                "ncc": _num(tf.get("ncc")), "reason": tf.get("reason")}
+            out = {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
+                   "origin": "teardrop", "ncc": float(tf["ncc"]),
+                   "margin": float(tf["margin"])}
+        else:
+            out = {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
+                   "ncc": _num(tf.get("ncc")), "reason": tf.get("reason")}
+        out.update(entry["search"])
+        return out
+
+    def _fit(self, cx: float, cy: float, frame_idx, t_ms, ref) -> dict:
+        """One detection's memo entry: the fit, how it was searched, and what
+        the next image's prior needs (`ring`, `ref`)."""
+        full = lambda: fit_icon(None, self.cls, cx, cy, scale=self.scale, key=self._key)
+        entry = {"ring": (float(cx), float(cy)), "ref": ref, "search": {}}
+        if frame_idx is None:
+            entry["fit"] = full()
+            return entry
+        prior, surprise = self._prior(cx, cy, t_ms)
+        local = None
+        if prior is not None:
+            p = prior["fit"]
+            local = fit_icon(None, self.cls, cx, cy, scale=self.scale, key=self._key,
+                             prior=(p["x"], p["y"], p["deg"]))
+            surprise = _surprise(local, p)
+        if surprise is None:
+            entry["fit"] = local
+            entry["search"] = {"search": "prior", "surprise": None, "rests_on": prior["ref"]}
+        else:
+            entry["fit"] = full()
+            entry["search"] = {"search": "full", "surprise": surprise, "rests_on": None}
+        if prior is not None and self._audit_due:
+            # Chosen by frame index and the prior's presence, before either
+            # fit; a surprise's full search is the same computation.
+            if surprise is None:
+                with step("audit"):
+                    audit_full = full()
+            else:
+                audit_full = entry["fit"]
+            entry["search"]["audit"] = {"prior": _audit_view(local),
+                                        "full": _audit_view(audit_full)}
+        return entry
+
+    def _prior(self, cx: float, cy: float, t_ms) -> tuple[dict | None, str | None]:
+        """The previous image's read fit whose ring centre lies nearest
+        `(cx, cy)` within `PRIOR_PX`, or None and the surprise (`no_prior`,
+        `gap`). Two detections may continue one prior: nearness alone binds
+        them, so the answer does not depend on the order they are asked in."""
+        if self._prev is None:
+            return None, "no_prior"
+        t_prev, fits = self._prev
+        if t_prev is None or t_ms is None or t_ms - t_prev > PRIOR_GAP_MS:
+            return None, "gap"
+        best, d_best = None, PRIOR_PX * self.scale
+        for e in fits:
+            d = math.hypot(e["ring"][0] - cx, e["ring"][1] - cy)
+            if d <= d_best:
+                best, d_best = e, d
+        return (best, None) if best is not None else (None, "no_prior")
+
+
+def _surprise(local: dict, prior: dict) -> str | None:
+    """Why a local fit round `prior` cannot stand, or None."""
+    if "x" not in local:
+        return local.get("reason", "no_key")
+    if local.get("on_edge"):
+        return "edge"
+    if not local.get("read"):
+        return local["reason"]
+    if local.get("outside_ncc", -2.0) > local["ncc"]:
+        return "facing_elsewhere"
+    if local["ncc"] < prior["ncc"] - NCC_DROP:
+        return "ncc_drop"
+    return None
+
+
+def _audit_view(f: dict | None) -> dict | None:
+    """The fields an audit compares, from one `fit_icon`."""
+    if f is None:
+        return None
+    return {k: (f.get(k) if k in ("read", "reason") else _num(f.get(k)))
+            for k in ("x", "y", "deg", "ncc", "margin", "read", "reason")}

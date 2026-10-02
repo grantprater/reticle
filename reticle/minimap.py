@@ -48,6 +48,7 @@ import numpy as np
 
 from . import ally_portrait
 from .profiles import Profile
+from .usage import step
 
 # ---------------------------------------------------------------- widget scale
 #
@@ -1003,7 +1004,8 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
             c, d = max(0, x - r_max), min(W, x + w + r_max)
             a2, b2 = max(0, y - 2 * r_max), min(H, y + h + 2 * r_max)
             c2, d2 = max(0, x - 2 * r_max), min(W, x + w + 2 * r_max)
-            surf, surf_r = coverage_surface(keyed[a2:b2, c2:d2], r_min, r_max)
+            with step("coverage"):
+                surf, surf_r = coverage_surface(keyed[a2:b2, c2:d2], r_min, r_max)
             near = cv2.dilate((lbl[a:b, c:d] == i).astype(np.uint8), grow) > 0
             cand = np.where(near, surf[a - a2:b - a2, c - c2:d - c2], -1.0)
             yy, xx = divmod(int(np.argmax(cand)), cand.shape[1])
@@ -1265,7 +1267,10 @@ class AllyIconReader:
         x0, y0, x1, y1 = self.box
         crop = smp.frame[y0:y1, x0:x1]
         frame = {"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms)}
-        if not widget_drawn(crop, self.sgray, self.floor):
+        # The named steps (`usage.step`) time this feed for `reticle usage`.
+        with step("widget"):
+            drawn = widget_drawn(crop, self.sgray, self.floor)
+        if not drawn:
             self.frames.append({**frame, "widget_drawn": False, "icons": 0,
                                 "self": None})
             return
@@ -1274,28 +1279,38 @@ class AllyIconReader:
         # Each channel is fitted once; its gated list is filtered from the
         # raw one, which is what `icons` with `gates` returns.
         sc = widget_scale(crop.shape[1])
-        amask, smask = ally_mask(crop), self_mask(crop)
-        keyed = amask | smask
-        raw_self = icons(smask, crop, self.floor, support=self.slab, gates=False)
-        raw = icons(amask, crop, self.floor, support=self.slab,
-                    seed="surface", gates=False)
+        with step("masks"):
+            amask, smask = ally_mask(crop), self_mask(crop)
+            keyed = amask | smask
+        with step("icons"):
+            raw_self = icons(smask, crop, self.floor, support=self.slab, gates=False)
+            raw = icons(amask, crop, self.floor, support=self.slab,
+                        seed="surface", gates=False)
         # The ring fit finds each icon; its teardrop supplies the centre and
         # facing every later step reads, where it reads (`teardrop.posed`,
         # ally-icon-0.6.0): the glyph check, the separation, the portrait's
         # pixels and alignment, and the published position.
-        raw_self = [self._posed(crop, f, "self", sc) for f in raw_self]
-        raw = [self._posed(crop, f, "ally", sc) for f in raw]
+        with step("pose"):
+            raw_self = [self._posed(crop, f, "self", sc) for f in raw_self]
+            # A teammate's fit continues its fit on the previous image
+            # (`IconPoseReader`'s prior, ally-icon-0.7.0); `rests_on` names
+            # that fit's candidate.
+            raw = [self._posed(crop, f, "ally", sc, frame=frame,
+                               ref=f"{frame['frame_idx']}:ally:{i}")
+                   for i, f in enumerate(raw)]
         # A fit that lands on the spike glyph is the glyph, not an icon
         # (`spike.on_glyph`, ally-icon-0.5.0). Each candidate stores the
         # accepted glyphs near it, so `ally_decisions` refuses the same fits
         # from storage; the gated lists here skip them, as the decisions do.
         from . import spike
-        glyphs = spike.accepted(spike.glyph_fits(crop, self.slab))
-        near = {}
-        for f in raw_self + raw:
-            near[id(f)] = [{k: g[k] for k in ("cx", "cy", "state", "side", "ncc", "amp", "reason")}
-                           for g in glyphs if np.hypot(g["cx"] - f["cx"], g["cy"] - f["cy"])
-                           <= spike.ON_GLYPH_PX * sc]
+        with step("glyph"):
+            glyphs = spike.accepted(spike.glyph_fits(crop, self.slab))
+            near = {}
+            for f in raw_self + raw:
+                near[id(f)] = [{k: g[k] for k in ("cx", "cy", "state", "side", "ncc", "amp",
+                                                  "reason")}
+                               for g in glyphs if np.hypot(g["cx"] - f["cx"], g["cy"] - f["cy"])
+                               <= spike.ON_GLYPH_PX * sc]
         # The icons a carried glyph may belong to: every fit of either channel
         # past the shape gate, which `ally_decisions` rebuilds from the rows.
         shaped = [f for f in raw_self + raw
@@ -1306,17 +1321,20 @@ class AllyIconReader:
         me = mine[0] if mine else None
         occ = [(me["cx"], me["cy"], me["r"])] if me else []
         found = _gated(clear(raw), sc)
-        grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
-        ref = self.ref
-        _mark_barriers(found, keyed, grey, ref)
-        got = ally_icon_descriptors(crop, self.floor, self.slab, self.static, occ,
-                                    found=found)
+        with step("barriers"):
+            grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            ref = self.ref
+            _mark_barriers(found, keyed, grey, ref)
+        with step("descriptors"):
+            got = ally_icon_descriptors(crop, self.floor, self.slab, self.static, occ,
+                                        found=found)
         # The portrait's feature families, on the icon's aligned window of this
         # same crop; upright whatever it faces (`ally_portrait`).
-        for d in got:
-            img = ally_portrait.align_icon(crop, d["cx"], d["cy"])
-            d["portrait_features"] = ally_portrait.stored(
-                ally_portrait.portrait_features(img, portrait_key(img)))
+        with step("portrait"):
+            for d in got:
+                img = ally_portrait.align_icon(crop, d["cx"], d["cy"])
+                d["portrait_features"] = ally_portrait.stored(
+                    ally_portrait.portrait_features(img, portrait_key(img)))
         self_key = next((f"{frame['frame_idx']}:self:{i}" for i, f in enumerate(raw_self)
                          if me is not None and (f["cx"], f["cy"], f["r"]) ==
                          (me["cx"], me["cy"], me["r"])), None)
@@ -1352,10 +1370,11 @@ class AllyIconReader:
         # that mask's source keys; another selection requires source pixels.
         for i, f in enumerate(raw):
             match = claimed.get(i)
-            win, keep = _interior(f, keyed)
-            baseline = appearance.hsv_composition(crop[win], keep)
-            baseline_diff = (float(np.abs(grey[win][keep] - ref[win][keep]).mean())
-                             if keep.any() else None)
+            with step("baseline"):
+                win, keep = _interior(f, keyed)
+                baseline = appearance.hsv_composition(crop[win], keep)
+                baseline_diff = (float(np.abs(grey[win][keep] - ref[win][keep]).mean())
+                                 if keep.any() else None)
             self.candidates.append({**frame, "channel": "ally", "index": i,
                                     **f, "widget_scale": widget_scale(crop.shape[1]),
                                     "spike_glyphs": near[id(f)],
@@ -1387,9 +1406,15 @@ class AllyIconReader:
         for i, d in enumerate(got):
             self.icons.append({**frame, "index": i, **d})
 
-    def _posed(self, crop: np.ndarray, f: dict, channel: str, sc: float) -> dict:
+    def _posed(self, crop: np.ndarray, f: dict, channel: str, sc: float,
+               frame: dict | None = None, ref: str | None = None) -> dict:
         """One ring fit posed by its teardrop (`teardrop.posed`); a fit that
         fails the shape gate is not read (`pose` reason `not_shaped`).
+
+        With `frame` (its `frame_idx` and `t_ms`) the ally reader continues
+        each icon's previous fit and audits it on a fixed cadence; `ref` is
+        this fit's candidate key within the session, which a later fit's
+        `rests_on` names. The self channel searches every image in full.
 
         The descriptor's disc (`_interior`: the composition, `map_diff` and
         the `interior_too_thin` refusal) stays at the ring fit's centre,
@@ -1409,7 +1434,12 @@ class AllyIconReader:
             if readers is None or readers[0] != sc:
                 readers = self._pose_readers = (sc, {"self": SelfConeReader(sc),
                                                      "ally": IconPoseReader("ally", sc)})
-            pose = readers[1][channel].read(crop, f["cx"], f["cy"])
+            if frame is None:
+                pose = readers[1][channel].read(crop, f["cx"], f["cy"])
+            else:
+                pose = readers[1][channel].read(crop, f["cx"], f["cy"],
+                                                frame_idx=frame["frame_idx"],
+                                                t_ms=frame["t_ms"], ref=ref)
             if channel == "self":
                 # The self icon's disc occludes a teammate's portrait and is the
                 # published self point; its centre follows the self portrait's rule.
@@ -1427,6 +1457,8 @@ class AllyIconReader:
                                                  if r["self_occluder_candidate_key"] else None),
                  "neighbor_candidate_keys": [f"{session_id}:{k}"
                                              for k in r["neighbor_candidate_keys"]],
+                 **({"pose": {**r["pose"], "rests_on": f"{session_id}:{r['pose']['rests_on']}"}}
+                    if (r.get("pose") or {}).get("rests_on") else {}),
                  "reader_version": ALLY_ICON_VERSION}
                 for r in self.candidates]
 
@@ -1440,7 +1472,8 @@ class AllyIconReader:
         from collections import Counter
 
         from .version import (ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
-                              ICON_TEARDROP_VERSION, TEARDROP_VERSION)
+                              ICON_POSE_PRIOR_VERSION, ICON_TEARDROP_VERSION,
+                              TEARDROP_VERSION)
 
         common = {"session_id": session_id, "source": "minimap",
                   "ally_icon_version": ALLY_ICON_VERSION, "hz": self.hz}
@@ -1491,7 +1524,8 @@ class AllyIconReader:
                  "candidate_lineage": "complete" if candidate_revision else "unavailable",
                  "refused_reasons": dict(sorted(refused.items())),
                  "teardrop_version": TEARDROP_VERSION,
-                 "icon_teardrop_version": ICON_TEARDROP_VERSION}]
+                 "icon_teardrop_version": ICON_TEARDROP_VERSION,
+                 "icon_pose_prior_version": ICON_POSE_PRIOR_VERSION}]
         frames_from = getattr(self, "frames_from", "video")
         if not frames_from.startswith("video"):
             # Only a cache-fed pass adds the key, so a decode's rows keep their bytes.
