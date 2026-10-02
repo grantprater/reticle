@@ -542,7 +542,8 @@ MIN_ICON_SEPARATION_PX = 2 * R_MIN
 # reported the facing 180 degrees out before it was measured from the hole.
 # Base px. The centroid search enumerates the integer centre offsets within
 # `SEARCH * widget_scale` px: +/-9 on the reference widget, +/-6 at 331 px.
-# Until ally-icon-0.8.0 it was 5 px on every widget. Self-fit frames
+# Until ally-icon-0.8.0 it was 5 px on every widget, as the enemy fit's still is
+# (`enemy_ring_geometry`). Self-fit frames
 # (ally-ring-subpixel-20261001), by search radius in px:
 #
 #     465 px  a06f04a0059f 600-760 s, 5822b6646448 1142-1302 s
@@ -579,7 +580,35 @@ def ring_geometry(sc: float) -> dict:
     """
     return {"r_min": max(3.0, R_MIN * sc), "r_max": max(4.0, R_MAX * sc),
             "step": R_STEP * sc, "search": SEARCH * sc,
-            "reach_start": REACH_START * sc, "reach_step": REACH_STEP * sc}
+            "reach_start": REACH_START * sc, "reach_step": REACH_STEP * sc,
+            "march_sc": sc, "min_area": max(4.0, MIN_ICON_AREA * sc * sc)}
+
+
+#: The enemy ring fit's centroid search, in px on EVERY widget. Not a base
+#: value: no base b gives `floor(b * sc)` = 5 at both 465 px (sc 1.0) and
+#: 331 px (sc 0.71), so it cannot be written as base x `widget_scale`.
+ENEMY_SEARCH_PX = 5
+
+
+def enemy_ring_geometry(sc: float) -> dict:
+    """The ENEMY ring fit's geometry: the geometry every ring fit used until
+    ally-icon-0.8.0, kept unchanged because it has not been re-measured.
+
+    Radii are whole pixels, `round(R_MIN * sc)` .. `round(R_MAX * sc)` in
+    steps of 1; the centroid search is `ENEMY_SEARCH_PX` on every widget; the
+    facing march is unscaled; the blob area gate is rounded. `ring_geometry`
+    (9 base px of search, fractional radii) was measured on the player's self
+    labels and the ally roster only. Applied to the enemy it moved 54 of 455
+    sampled frames of a06f04a0059f 600-760 s (465 px; finds 128 -> 162) and
+    206 of 465 of 3694746e4e54 884-1044 s (331 px), unscored against enemy
+    labels, so the enemy keeps this until those are scored. A measured
+    exception to the one scale transform, not a second definition.
+    """
+    return {"r_min": float(max(3, int(round(R_MIN * sc)))),
+            "r_max": float(max(4, int(round(R_MAX * sc)))),
+            "step": 1.0, "search": float(ENEMY_SEARCH_PX),
+            "reach_start": REACH_START, "reach_step": REACH_STEP,
+            "march_sc": 1.0, "min_area": max(4, int(round(MIN_ICON_AREA * sc * sc)))}
 
 
 def _circle_offsets(r_min: float = None, r_max: float = None, step: float = R_STEP):
@@ -756,7 +785,7 @@ def _reach_loop(red, cx, cy, r, sc: float = 1.0):
 
 
 def fit_ring(red, grey, cx, cy, r_min: float = None, r_max: float = None,
-             sc: float = 1.0):
+             sc: float = 1.0, geometry: dict | None = None):
     """Best (coverage, cx, cy, r, interior stats) over centres and radii.
 
     Coverage is the share of the circle's circumference that is red. A whole
@@ -770,16 +799,17 @@ def fit_ring(red, grey, cx, cy, r_min: float = None, r_max: float = None,
     widget's `widget_scale`: the radius grid's step, the centroid search and
     the facing march scale by it (`ring_geometry`), and `r_min`, `r_max`
     default to `R_MIN`, `R_MAX` times it. `sc` 1.0 is the measured
-    enlarged-widget geometry.
+    enlarged-widget geometry. `geometry`, a `ring_geometry`-shaped dict,
+    replaces `ring_geometry(sc)` (the enemy passes `enemy_ring_geometry`).
     """
-    g = ring_geometry(sc)
-    r_min = R_MIN * sc if r_min is None else r_min
-    r_max = R_MAX * sc if r_max is None else r_max
+    g = ring_geometry(sc) if geometry is None else geometry
+    r_min = g["r_min"] if r_min is None else r_min
+    r_max = g["r_max"] if r_max is None else r_max
     best = _best_circle(red, cx, cy, r_min, r_max, g["step"], g["search"])
     if best is None:
         return None
     cov, x0, y0, r = best
-    return _ring_at(red, grey, cov, x0, y0, r, sc)
+    return _ring_at(red, grey, cov, x0, y0, r, g["march_sc"])
 
 
 def _ring_at(red, grey, cov, x0, y0, r, sc: float = 1.0):
@@ -995,8 +1025,13 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
           require_facing: bool = True, min_area: int | None = None,
           support: np.ndarray | None = None,
           separation_px: float | None = None,
-          seed: str = "centroid", gates: bool = True) -> list[dict]:
+          seed: str = "centroid", gates: bool = True,
+          geometry=ring_geometry) -> list[dict]:
     """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
+
+    `geometry` maps `widget_scale` to the fit's radii, search, ray march and
+    area gate: `ring_geometry` for the self and ally keys, and
+    `enemy_ring_geometry` for the enemy's, which has not been re-measured.
 
     **`seed` decides where each blob's circle is searched for.** `"centroid"`
     searches +/-`SEARCH` px around the blob's centroid, and every self-position
@@ -1040,12 +1075,12 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     the margin as 90.1% outside the painting on this map.
     """
     sc = widget_scale(crop.shape[1])
-    g = ring_geometry(sc)
+    g = geometry(sc)
     r_min, r_max = g["r_min"], g["r_max"]
     # The integer reach of a ring of radius <= r_max, for windows and kernels.
     R = int(np.ceil(r_max - 1e-9))
     if min_area is None:
-        min_area = max(4.0, MIN_ICON_AREA * sc * sc)  # an area: x sc^2, unrounded
+        min_area = g["min_area"]  # an area: x sc^2, unrounded in `ring_geometry`
     keyed = mask & floor
     grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     m = cv2.morphologyEx(keyed.astype(np.uint8), cv2.MORPH_CLOSE,
@@ -1069,7 +1104,7 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
         if supported is not None and i not in supported:
             continue
         if seed == "centroid":
-            f = fit_ring(keyed, grey, cen[i][0], cen[i][1], r_min, r_max, sc)
+            f = fit_ring(keyed, grey, cen[i][0], cen[i][1], r_min, r_max, sc, g)
         else:
             x, y, w, h = (int(v) for v in st[i, :4])
             a, b = max(0, y - R), min(H, y + h + R)
@@ -1084,7 +1119,7 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
             yy, xx = divmod(int(np.argmax(cand)), cand.shape[1])
             f = (None if cand[yy, xx] < 0 else
                  _ring_at(keyed, grey, float(cand[yy, xx]), c + xx, a + yy,
-                          float(surf_r[a - a2 + yy, c - c2 + xx]), sc))
+                          float(surf_r[a - a2 + yy, c - c2 + xx]), g["march_sc"]))
         if f is None:
             continue
         found.append({"cx": float(f["cx"]), "cy": float(f["cy"]), "r": float(f["r"]),

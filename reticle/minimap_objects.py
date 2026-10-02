@@ -65,11 +65,7 @@ import numpy as np
 
 from .version import ALLY_PORTRAIT_FEATURES_VERSION, TEARDROP_VERSION
 
-# 0.2.0 (2026-10-01): the enemy ring fit follows the ring fit
-# (`minimap.icons`) scales its radius grid, facing ray march and centroid search (9 base px; was 5 px) by `widget_scale` and keeps radii fractional (`minimap.ring_geometry`,
-# ally-ring-subpixel-20261001); the 465 px widget fits the same radii, a 331
-# px widget's radius floor falls from 6 to 5.69 px.
-MINIMAP_OBJECT_BASE = "minimap-object-0.2.0"
+MINIMAP_OBJECT_BASE = "minimap-object-0.1.0"
 
 #: The switchable fixes, in stamp order.
 FIXES = ("teardrop_box", "slab_gate")
@@ -164,7 +160,7 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
     marks = minimap_x_marks(crop, floor, scale)
     finds = minimap.icons(enemy_red_mask(crop), crop, floor, cov_min=COV_MIN,
                           inner_max=INNER_RED_MAX, require_facing=False, support=slab,
-                          seed="centroid")
+                          seed="centroid", geometry=minimap.enemy_ring_geometry)
     for d in finds:
         ring = {"x": _rnd(d["cx"]), "y": _rnd(d["cy"]), "r": _rnd(d.get("r"))}
         f = teardrop.fit_icon(None, "enemy", d["cx"], d["cy"], scale=scale, key=red)

@@ -64,6 +64,25 @@ class RingGeometryScales(unittest.TestCase):
         self.assertEqual(disc[9].tobytes(), disc_f[9.0].tobytes())
 
 
+class EnemyKeepsTheWholePixelGeometry(unittest.TestCase):
+    """The enemy fit keeps the pre-0.8.0 geometry: whole-pixel radii, a 5 px
+    search on every widget, an unscaled ray march, a rounded area gate."""
+
+    def test_both_widgets(self):
+        for width, radii in ((465, range(8, 14)), (331, range(6, 10))):
+            sc = minimap.widget_scale(width)
+            g = minimap.enemy_ring_geometry(sc)
+            self.assertEqual(minimap.ring_radii(g["r_min"], g["r_max"], g["step"]),
+                             [float(r) for r in radii])
+            self.assertEqual((g["search"], g["march_sc"]), (5.0, 1.0))
+            self.assertEqual(g["min_area"], max(4, int(round(minimap.MIN_ICON_AREA * sc * sc))))
+
+    def test_the_ally_geometry_differs_only_off_the_reference_widget(self):
+        a, e = minimap.ring_geometry(1.0), minimap.enemy_ring_geometry(1.0)
+        self.assertEqual({k: a[k] for k in a if k != "search"},
+                         {k: float(e[k]) for k in e if k != "search"})
+
+
 class GatedMatchesIcons(unittest.TestCase):
     def test_gated_from_raw_equals_gated_fit(self):
         rng = np.random.default_rng(1)

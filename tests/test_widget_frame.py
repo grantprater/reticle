@@ -118,9 +118,13 @@ class TestSyntheticVariant(unittest.TestCase):
         got = self.self_icons(crop, self.floor, require_facing=False)
         self.assertTrue(got, "the self icon did not fit on the normalised crop")
         best = max(got, key=lambda f: f["cov"])
-        # 2.5 px: ring-fit centres are integer offsets, so a resampled crop's fit
-        # may land a pixel off on each axis; the 9 base px centroid search
-        # (ally-ring-subpixel-20261001) puts the three variants at 2.0, 2.24 and 1.0 px.
+        # 2.5 px, not 2.0: the REFERENCE fit sits in a radius tie, not the round
+        # trip. The 331 px grid (5.69, 6.41, 7.12 ... px, ally-icon-0.8.0) has no
+        # 6 px circle, so the reference moves from r 6 at (184, 135) to the
+        # equally covered r 7.12 at (184, 134), 0.35 = 14 of 40 rim points each.
+        # Integer centres let each fit hop a pixel between near-equal circles:
+        # the variants fit r 5.69-6.41 at (184, 136), (183, 136), (184, 135),
+        # 2.0, 2.24 and 1.0 px from the new reference, 1.0, 1.41, 0.0 from the old.
         self.assertLess(np.hypot(best["cx"] - self.fit0["cx"], best["cy"] - self.fit0["cy"]), 2.5)
 
     def test_larger_and_rotated(self):
