@@ -220,12 +220,14 @@ the first round after the halftime swap also measured 42 s on a06f04a0059f
 claim = """
 The spike can be planted after the score changes, in the post-round period. The
 scoreline then keeps its post-round countdown and draws no planted-spike graphic.
+Such a plant changes nothing in the decided round; it only awards the planting
+team its plant credits.
 """
 kind = "lifecycle"
-known = "observed"
+known = "player"
 since = "2026-10-02"
 source = """
-Riot match records aligned to the store clock put plants 2.1 s after the score
+player, 2026-10-02 (chat), confirming this observation: Riot match records aligned to the store clock put plants 2.1 s after the score
 change at 223d636bf8d2 near 1303 s (C:/Users/grant/Videos/2026-08-23 20-09-01.mp4)
 and 5.8 s after it at 5822b6646448 near 1653 s
 (C:/Users/grant/Videos/2026-08-26 12-38-38.mp4); the cached scoreline crops
