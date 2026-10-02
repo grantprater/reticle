@@ -334,8 +334,9 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_WEAPON_VERSION
     from .lighting import LIGHTING_VERSION
     from .roi_cache import ROI_CACHE_VERSION
-    from .version import (ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION, ICON_TEARDROP_VERSION,
-                          TEARDROP_VERSION, TRAY_VERSION)
+    from .ability_candidates import values_digest
+    from .version import (ABILITY_CANDIDATES_VERSION, ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION,
+                          ICON_TEARDROP_VERSION, TEARDROP_VERSION, TRAY_VERSION)
     geo ={"geometry": _in("geometry_built_by", "geometry")}
     death = "death#death_adjudication_version"
     return {
@@ -368,10 +369,19 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                          if k not in ("tray_kit", "menu_open")},
                       "round": _in("inputs.round", "rounds"), **_lineup_inputs()},
         # The shapes are fitted after the gate's casts, over the stored rounds
-        # and the arbiter's player agent, seeded from the minimap table.
+        # and the arbiter's player agent, seeded from the minimap table. The
+        # candidate table picks which casts are fitted (`TABLE`) and sizes and
+        # colours each fit (`ability_descriptor`), so its stamp and its facts'
+        # values are rules the rows rest on; `ability-shape-0.1.0` heads do
+        # not record them.
         "ability_shape": {"tray_drop": _in("tray_version", "tray_drop#tray_version"),
                           "minimap": _in("minimap_version", "minimap"),
-                          "round": _in("inputs.round", "rounds"), **_gate(), **_lineup_inputs()},
+                          "round": _in("inputs.round", "rounds"),
+                          "candidates": _code("ability_candidates_version",
+                                              ABILITY_CANDIDATES_VERSION, optional=True),
+                          "appearance_values": _code("appearance_values", values_digest(),
+                                                     optional=True),
+                          **_gate(), **_lineup_inputs()},
         "scoreboard_presence": {"scoreboard_strip": _in("scoreboard_strip_version",
                                                         "scoreboard_strip#scoreboard_strip_version"),
                                 "scoreboard": _in("scoreboard_version", "scoreboard")},

@@ -218,6 +218,36 @@ class PlanTests(unittest.TestCase):
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("ability_shape", ["tray_drop"])])
 
+    def test_a_moved_candidate_table_stales_the_shapes(self):
+        # `reticle ability-shapes` picks and sizes each fit from the candidate
+        # table, and records its stamp and its facts' digest; both are compared.
+        from reticle.ability_candidates import values_digest
+        from reticle.plan import compared_paths
+        from reticle.version import ABILITY_CANDIDATES_VERSION
+        self.assertTrue({"ability_candidates_version", "appearance_values"}
+                        <= compared_paths()["ability_shape"])
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            _tray_drops(store)
+            head = {"ability_shape_version": ABILITY_SHAPE_VERSION, "tray_version": TRAY_VERSION,
+                    "player_cast_version": PLAYER_CAST_VERSION}
+            # A head written before the table was recorded is not compared on it.
+            store.events["ability_shape:rows"] = [dict(head)]
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            head.update(ability_candidates_version=ABILITY_CANDIDATES_VERSION,
+                        appearance_values=values_digest())
+            store.events["ability_shape:rows"] = [dict(head)]
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            store.events["ability_shape:rows"] = [{**head, "ability_candidates_version":
+                                                   "ability-candidates-0.0.1"}]
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
+                             [("ability_shape", ["candidates"])])
+            store.events["ability_shape:rows"] = [{**head, "appearance_values": "000000000000"}]
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
+                             [("ability_shape", ["appearance_values"])])
+
     def test_rows_the_gate_before_partial_charge_decided_are_stale(self):
         old = "player-cast-0.2.0"
         self.assertNotEqual(old, PLAYER_CAST_VERSION)
