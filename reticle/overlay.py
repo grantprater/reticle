@@ -319,11 +319,12 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
         c = (x0 + cx, y0 + cy)
         deg = by_pos.get((round(d["cx"]), round(d["cy"])))
         colour = AMBER if deg is None else base
-        cv2.circle(img, c, d["r"], colour, 1)
+        rd = int(round(d["r"]))  # display only; the fitted radius is fractional
+        cv2.circle(img, c, rd, colour, 1)
         if deg is None:
             # No arrow, because the track refused a bearing -- either the fit
             # gave none, or the window was ambiguous. No cone was cast either.
-            _text(img, "?", (c[0] + d["r"] + 2, c[1] - d["r"]), AMBER, 0.42)
+            _text(img, "?", (c[0] + rd + 2, c[1] - rd), AMBER, 0.42)
         else:
             # The arrow starts where the cone does and points where it faces:
             # every icon's cone at its teardrop's centre, along its facing,

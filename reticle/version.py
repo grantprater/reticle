@@ -261,7 +261,11 @@ HUD_VERSION = "hud-0.16.0"
 # cross-referencing the ally channel. No detector changed, so positions are
 # byte-identical to 0.5.0; this bump exists because the TABLE gained a column,
 # and rows without it must read as unknown rather than as false.
-MINIMAP_VERSION = "minimap-0.7.0"
+# 0.8.0 (2026-10-01): the self fit moves on small widgets: the ring fit
+# (`minimap.icons`) scales its radius grid, facing ray march (and a larger widget's centroid search) by `widget_scale` and keeps radii fractional (`minimap.ring_geometry`,
+# ally-ring-subpixel-20261001); the 465 px widget fits the same circles, a 331
+# px widget's radius floor falls from 6 to 5.69 px.
+MINIMAP_VERSION = "minimap-0.8.0"
 # Minimap pings, emitted as EVENTS rather than per-frame rows. Bump when the
 # hue bands, the size gates or the lifetime gate change. Events are rewritten
 # whole per session, so this is a stamp for attribution rather than a cache
@@ -300,7 +304,12 @@ PING_VERSION = "ping-0.1.0"
 # in full only on surprise; each ally fit's `pose` records `search`, `surprise`,
 # `rests_on` (the prior's candidate key) and, on the audit cadence, `audit`. The
 # self channel still searches in full.
-ALLY_ICON_VERSION = "ally-icon-0.7.0"
+# 0.8.0 (2026-10-01): the ring fit (`minimap.icons`) scales its radius grid,
+# facing ray march (and a larger widget's centroid search) by `widget_scale` and keeps radii
+# fractional (`minimap.ring_geometry`, ally-ring-subpixel-20261001); the 465
+# px widget fits the same circles, a 331 px widget's radius floor falls from 6
+# to 5.69 px. Each fit's `r` is a float.
+ALLY_ICON_VERSION = "ally-icon-0.8.0"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.
@@ -335,7 +344,12 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # reads at NCC 0.55 and above, not 0.6 (TEARDROP_VERSION 0.4.0, the player's
 # 331 px self facing labels, E13); a read under 0.55 casts nothing. Numbered
 # above self-spike-tracker-20260929's 0.5.0.
-TEAM_VISION_VERSION = "team-vision-0.6.0"
+# 0.7.0 (2026-10-01): the ring fit (`minimap.icons`) scales its radius grid,
+# facing ray march (and a larger widget's centroid search) by `widget_scale` and keeps radii
+# fractional (`minimap.ring_geometry`, ally-ring-subpixel-20261001); the 465
+# px widget fits the same circles, a 331 px widget's radius floor falls from 6
+# to 5.69 px.
+TEAM_VISION_VERSION = "team-vision-0.7.0"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.
@@ -466,7 +480,12 @@ TRAY_KIT_VERSION = "tray-kit-0.1.0"
 # teardrop's centre (`teardrop.SelfConeReader`, TEARDROP_VERSION) where it reads
 # on the labelled 465 px widget; each row keeps the ring fit's `cx`, `cy` and adds
 # `x`, `y`, `origin` and `origin_reason`.
-SELF_ICON_VERSION = "self-icon-0.5.0"
+# 0.6.0 (2026-10-01): the ring fit (`minimap.icons`) scales its radius grid,
+# facing ray march (and a larger widget's centroid search) by `widget_scale` and keeps radii
+# fractional (`minimap.ring_geometry`, ally-ring-subpixel-20261001); the 465
+# px widget fits the same circles, a 331 px widget's radius floor falls from 6
+# to 5.69 px. Each row's `r` is the fitted float, not truncated.
+SELF_ICON_VERSION = "self-icon-0.6.0"
 # The kit of the local player as a state per slot (charges, equipped,
 # castable, owner alive), written as `ability_state` rows by `reticle
 # ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,
@@ -497,7 +516,13 @@ ULT_CAST_VERSION = "ult-cast-0.2.0"
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or
 # the stored fields change -- those need pixels, so they re-decode.
-MINIMAP_DARK_VERSION = "minimap-dark-0.1.0"
+# 0.2.0 (2026-10-01): the icon occluders follow the ring fit (`minimap.icons`)
+# scales its radius grid, facing ray march (and a larger widget's centroid search) by
+# `widget_scale` and keeps radii fractional (`minimap.ring_geometry`,
+# ally-ring-subpixel-20261001); the 465 px widget fits the same circles, a 331
+# px widget's radius floor falls from 6 to 5.69 px. Each occluder disc's
+# radius is rounded, not truncated.
+MINIMAP_DARK_VERSION = "minimap-dark-0.2.0"
 # Smoke tracks recomputed from stored `minimap_dark` rows by `reticle smokes`.
 # Bump when a birth, presence or end rule in `adjudication.smokes` changes.
 # 0.2.0: sampling gaps are unobserved; onsets carry their own censoring.
@@ -608,7 +633,12 @@ ROSTER_SPLIT_VERSION = "roster-split-0.4.0"
 # 180) arrives in the baked frame with its upright glyph upside down; the
 # glyph's state and the carrier's offset turn with the placement's rotation,
 # which each frame row stores. Unturned sessions read the same fits.
-SPIKE_VERSION = "spike-0.2.0"
+# 0.3.0 (2026-10-01): the icons a carried glyph pairs with follow the ring fit
+# (`minimap.icons`) scales its radius grid, facing ray march (and a larger widget's centroid search) by `widget_scale` and keeps radii fractional (`minimap.ring_geometry`,
+# ally-ring-subpixel-20261001); the 465 px widget fits the same circles, a 331
+# px widget's radius floor falls from 6 to 5.69 px. Each icon's `r` is the
+# fitted float.
+SPIKE_VERSION = "spike-0.3.0"
 # The spike's carrier and state cross-checked from stored `spike` rows, the
 # rounds table and the roster (`adjudication.spike_carrier`): the roster
 # marker against the minimap carried glyph, the carrier against the plant, a

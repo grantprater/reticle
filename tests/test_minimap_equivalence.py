@@ -18,6 +18,51 @@ class ReachMatchesLoop(unittest.TestCase):
             self.assertEqual(minimap._reach(red, cx, cy, r).tobytes(),
                              minimap._reach_loop(red, cx, cy, r).tobytes())
 
+    def test_scaled_march_matches_loop(self):
+        rng = np.random.default_rng(2)
+        for _ in range(200):
+            red = (rng.random((60, 70)) < rng.random()).astype(np.uint8)
+            sc = float(rng.uniform(0.5, 2.0))
+            r = float(rng.uniform(3, 15))
+            cx, cy = float(rng.uniform(0, 70)), float(rng.uniform(0, 60))
+            self.assertEqual(minimap._reach(red, cx, cy, r, sc).tobytes(),
+                             minimap._reach_loop(red, cx, cy, r, sc).tobytes())
+
+
+class BestCircleMatchesLoop(unittest.TestCase):
+    def test_fractional_radii_and_scaled_search(self):
+        rng = np.random.default_rng(3)
+        for _ in range(30):
+            red = (rng.random((50, 50)) < rng.random()).astype(bool)
+            sc = float(rng.uniform(0.6, 1.4))
+            g = minimap.ring_geometry(sc)
+            cx, cy = float(rng.uniform(10, 40)), float(rng.uniform(10, 40))
+            args = (red, cx, cy, g["r_min"], g["r_max"], g["step"], g["search"])
+            self.assertEqual(minimap._best_circle(*args), minimap._best_circle_loop(*args))
+
+
+class RingGeometryScales(unittest.TestCase):
+    def test_the_reference_widget_keeps_the_integer_grid(self):
+        g = minimap.ring_geometry(1.0)
+        self.assertEqual(minimap.ring_radii(g["r_min"], g["r_max"], g["step"]),
+                         [float(r) for r in range(minimap.R_MIN, minimap.R_MAX + 1)])
+        self.assertEqual((g["search"], g["reach_start"], g["reach_step"]), (5.0, 1.0, 0.7))
+
+    def test_a_small_widget_keeps_its_floor_fractional(self):
+        sc = minimap.widget_scale(331)
+        g = minimap.ring_geometry(sc)
+        rs = minimap.ring_radii(g["r_min"], g["r_max"], g["step"])
+        self.assertAlmostEqual(rs[0], minimap.R_MIN * sc)
+        self.assertLess(rs[0], 6.0)
+        self.assertAlmostEqual(rs[-1], minimap.R_MAX * sc)
+        self.assertEqual(len(rs), minimap.R_MAX - minimap.R_MIN + 1)
+
+    def test_an_integer_radius_keeps_its_offsets(self):
+        ring, disc = minimap._circle_offsets(9, 9)
+        ring_f, disc_f = minimap._circle_offsets(9.0, 9.0)
+        self.assertEqual(ring[9].tobytes(), ring_f[9.0].tobytes())
+        self.assertEqual(disc[9].tobytes(), disc_f[9.0].tobytes())
+
 
 class GatedMatchesIcons(unittest.TestCase):
     def test_gated_from_raw_equals_gated_fit(self):

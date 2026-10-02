@@ -122,7 +122,7 @@ def read_frame(crop: np.ndarray, ctx: dict, gal: dict, references: dict | None =
     pose = self_portrait_pose(SelfConeReader(sc).read(crop, ring["cx"], ring["cy"]), sc,
                               ring["cx"], ring["cy"])
     f = posed(ring, pose)
-    row = {"cx": round(ring["cx"], 2), "cy": round(ring["cy"], 2), "r": int(f["r"]),
+    row = {"cx": round(ring["cx"], 2), "cy": round(ring["cy"], 2), "r": round(float(f["r"]), 2),
            "cov": round(f["cov"], 3), "x": round(f["cx"], 2), "y": round(f["cy"], 2),
            "origin": pose["origin"], "origin_reason": pose.get("reason")}
     near = min((float(np.hypot(a["cx"] - f["cx"], a["cy"] - f["cy"])) - a["r"] - f["r"]

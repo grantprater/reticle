@@ -65,7 +65,11 @@ import numpy as np
 
 from .version import ALLY_PORTRAIT_FEATURES_VERSION, TEARDROP_VERSION
 
-MINIMAP_OBJECT_BASE = "minimap-object-0.1.0"
+# 0.2.0 (2026-10-01): the enemy ring fit follows the ring fit
+# (`minimap.icons`) scales its radius grid, facing ray march (and a larger widget's centroid search) by `widget_scale` and keeps radii fractional (`minimap.ring_geometry`,
+# ally-ring-subpixel-20261001); the 465 px widget fits the same circles, a 331
+# px widget's radius floor falls from 6 to 5.69 px.
+MINIMAP_OBJECT_BASE = "minimap-object-0.2.0"
 
 #: The switchable fixes, in stamp order.
 FIXES = ("teardrop_box", "slab_gate")

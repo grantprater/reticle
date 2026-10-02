@@ -518,8 +518,16 @@ def _static_side(sgray, floor):
 # radius is very nearly a constant (measured ~9-10 on the enlarged widget) and
 # letting it float was giving away the strongest prior available.
 #
-# This is per-widget-size and must be re-measured if the player changes the slider.
+# These are base px on the reference widget; a caller multiplies them, and
+# `R_STEP` and `SEARCH`, by `widget_scale` (see `ring_geometry`).
 R_MIN, R_MAX = 8, 13
+#: The radius grid's step, base px. The candidate radii are
+#: `(R_MIN + k * R_STEP) * widget_scale`, kept fractional: on the reference
+#: widget the integers 8..13, on the 331 px widget 5.69, 6.41, ... 9.25. Until
+#: ally-icon-0.8.0 the floor was rounded to a whole pixel, 6 on that widget,
+#: and rims fitted at 6-7 px missed `ALLY_COV_MIN` where a 5.7 px circle
+#: passed (docs/ALLY_ICON_UPSCALE.md).
+R_STEP = 1.0
 #: Two same-role fits closer than this are two fits of ONE icon, not two
 #: icons: the widget cannot draw two of them overlapping and leave two rings
 #: to find. `2 * R_MIN` is the smallest diameter this detector will fit, and
@@ -532,26 +540,63 @@ MIN_ICON_SEPARATION_PX = 2 * R_MIN
 # How far the true centre may sit from the blob's centroid. The triangle drags
 # the centroid toward itself by several pixels, which is the same effect that
 # reported the facing 180 degrees out before it was measured from the hole.
+# The centroid search enumerates the integer centre offsets within
+# `max(SEARCH, SEARCH * widget_scale)` px: it grows with a larger widget and
+# never shrinks below 5 px. The centroid's drag does not shrink with the
+# widget: on 331 px widgets (223d636bf8d2 1250-1410 s, 3694746e4e54
+# 884-1044 s) a search of 3 px (5 x 0.712, floored) kept the self fit on 585
+# and 643 frames, 4 px on 858 and 979, 5 px on 1010 and 1120
+# (ally-ring-subpixel-20261001). The 4:2:0 fragmentation that drags it is
+# fixed in capture pixels [domain:capture/chroma-420].
 SEARCH = 5
 N_THETA = 48
 
 
-def _circle_offsets(r_min: int = None, r_max: int = None):
+def ring_radii(r_min: float, r_max: float, step: float = R_STEP) -> list[float]:
+    """The candidate radii `r_min, r_min + step, ...` up to `r_max`, fractional.
+
+    Integer `r_min`, `r_max` and a step of 1 give the old `range(r_min,
+    r_max + 1)`. Each radius is `r_min + k * step` rather than a running sum,
+    so the reference widget's grid is exactly 8.0 .. 13.0.
+    """
+    n = int(np.floor((r_max - r_min) / step + 1e-9))
+    return [float(r_min + k * step) for k in range(max(0, n) + 1)]
+
+
+def ring_geometry(sc: float) -> dict:
+    """The ring fit's geometry on a widget at `widget_scale` `sc`: base px x `sc`.
+
+    `r_min` and `r_max` bound the radius grid (floored at 3 and 4 px, as
+    before), `step` spaces it, `search` is the centroid search radius and
+    `reach_start`, `reach_step` the facing ray march's (see `_reach`). The
+    search never falls below `SEARCH` (see its comment). None of them is
+    rounded: a radius that gates the coverage decision stays fractional. On
+    the reference widget every value is the old constant.
+    """
+    return {"r_min": max(3.0, R_MIN * sc), "r_max": max(4.0, R_MAX * sc),
+            "step": R_STEP * sc, "search": max(SEARCH, SEARCH * sc),
+            "reach_start": REACH_START * sc, "reach_step": REACH_STEP * sc}
+
+
+def _circle_offsets(r_min: float = None, r_max: float = None, step: float = R_STEP):
     """Precomputed integer ring offsets per radius, and the disc per radius.
 
     The range is a parameter rather than the module constants because the icon
     radius is a WIDGET-SIZE constant, not a game constant: 8-13 was measured on
-    the enlarged widget, and a session at `widget_scale` 0.71 wants 6-9. The
-    default is the measured pair, so every existing caller is unmoved.
+    the enlarged widget, and a session at `widget_scale` 0.71 wants 5.7-9.3.
+    The default is the measured pair, so every existing caller is unmoved. A
+    radius may be fractional; its ring points are rounded to the pixel grid,
+    and a radius equal to an integer gives exactly that integer's offsets.
     """
     ring, disc = {}, {}
     th = np.arange(N_THETA) / N_THETA * 2 * np.pi
-    for r in range(R_MIN if r_min is None else r_min,
-                   (R_MAX if r_max is None else r_max) + 1):
+    for r in ring_radii(R_MIN if r_min is None else r_min,
+                   R_MAX if r_max is None else r_max, step):
         pts = np.unique(np.stack([np.round(r * np.cos(th)),
                                   np.round(r * np.sin(th))], 1).astype(int), axis=0)
         ring[r] = pts
-        yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
+        R = int(np.ceil(r - 1e-9))
+        yy, xx = np.mgrid[-R:R + 1, -R:R + 1]
         inner = (yy ** 2 + xx ** 2) <= (r * 0.62) ** 2
         disc[r] = np.stack([xx[inner], yy[inner]], 1)
     return ring, disc
@@ -560,7 +605,7 @@ def _circle_offsets(r_min: int = None, r_max: int = None):
 RING, DISC = _circle_offsets()
 
 
-def _offsets(r: int):
+def _offsets(r: float):
     """Ring and disc offsets for one radius, memoised into RING/DISC."""
     if r not in RING:
         ring, disc = _circle_offsets(r, r)
@@ -575,8 +620,11 @@ N_FACE = 32
 _FACE_TH = np.arange(N_FACE) / N_FACE * 2 * np.pi
 
 
-def _best_circle(red, cx, cy, r_min, r_max):
+def _best_circle(red, cx, cy, r_min, r_max, step: float = R_STEP, search: float = SEARCH):
     """The (cov, x0, y0, r) with the most red circumference. Vectorised.
+
+    The radii are `ring_radii(r_min, r_max, step)` and the centres every integer
+    offset within `search` px of the centroid; `ring_geometry` scales all four.
 
     The search is 11x11 centre offsets by ~6 radii, and the loop version did
     726 separate `.mean()` calls over ~40 points each -- 8 ms per blob, which
@@ -589,7 +637,8 @@ def _best_circle(red, cx, cy, r_min, r_max):
     `_fit_ring_loop` is kept as the reference and `--self-test` checks them.
     """
     h, w = red.shape
-    offs = np.arange(-SEARCH, SEARCH + 1)
+    s = int(np.floor(search + 1e-9))
+    offs = np.arange(-s, s + 1)
     # `rint(c + off)`, NOT `rint(c) + off`. Those are not the same under
     # banker's rounding when the centroid lands on a half-integer, which real
     # centroids do constantly: at cy=76.5 the loop's eleven offsets come out
@@ -603,10 +652,10 @@ def _best_circle(red, cx, cy, r_min, r_max):
     y0s = np.rint(cy + offs).astype(int)[:, None]        # (11, 1)  dy outer
     x0s = np.rint(cx + offs).astype(int)[None, :]        # (1, 11)  dx inner
     n_off = len(offs)
-    radii = list(range(r_min, r_max + 1))
+    rs = ring_radii(r_min, r_max, step)
 
-    cov = np.full((n_off, n_off, len(radii)), -1.0)
-    for k, r in enumerate(radii):
+    cov = np.full((n_off, n_off, len(rs)), -1.0)
+    for k, r in enumerate(rs):
         pts, _ = _offsets(r)
         xs = x0s[..., None] + pts[None, None, :, 0]      # (11, 11, P)
         ys = y0s[..., None] + pts[None, None, :, 1]
@@ -623,17 +672,19 @@ def _best_circle(red, cx, cy, r_min, r_max):
         return None
     i = int(np.argmax(cov))
     iy, ix, ir = np.unravel_index(i, cov.shape)
-    return (float(cov[iy, ix, ir]), int(x0s[0, ix]), int(y0s[iy, 0]), radii[ir])
+    return (float(cov[iy, ix, ir]), int(x0s[0, ix]), int(y0s[iy, 0]), rs[ir])
 
 
-def _best_circle_loop(red, cx, cy, r_min, r_max):
+def _best_circle_loop(red, cx, cy, r_min, r_max, step: float = R_STEP,
+                      search: float = SEARCH):
     """The reference `_best_circle`. Only `--self-test` should call this."""
     h, w = red.shape
     best = None
-    for dy in range(-SEARCH, SEARCH + 1):
-        for dx in range(-SEARCH, SEARCH + 1):
+    s = int(np.floor(search + 1e-9))
+    for dy in range(-s, s + 1):
+        for dx in range(-s, s + 1):
             y0, x0 = int(round(cy + dy)), int(round(cx + dx))
-            for r in range(r_min, r_max + 1):
+            for r in ring_radii(r_min, r_max, step):
                 pts, _ = _offsets(r)
                 xs, ys = x0 + pts[:, 0], y0 + pts[:, 1]
                 ok = (xs >= 0) & (ys >= 0) & (xs < w) & (ys < h)
@@ -645,16 +696,25 @@ def _best_circle_loop(red, cx, cy, r_min, r_max):
     return best
 
 
-def _reach(red, cx, cy, r):
+#: The facing ray march starts `REACH_START` past the ring and steps
+#: `REACH_STEP`, base px; `_reach` takes both times `widget_scale`.
+REACH_START, REACH_STEP = 1.0, 0.7
+
+
+def _reach(red, cx, cy, r, sc: float = 1.0):
     """How far past `r` the key reaches, per angle. ONE ray march, two readers.
 
     `_facing` and `_lobe` each computed this identically and independently --
     the same 32 angles, the same radii, the same test -- which is a duplicated
     definition of the sort this repo has paid for elsewhere. They now share it.
+
+    The march runs from `r + REACH_START * sc` to `1.9 r` in steps of
+    `REACH_STEP * sc`, so it samples the lobe at the same base-px spacing on
+    every widget; `sc` 1.0 is the reference widget.
     """
     h, w = red.shape
     reach = np.zeros(N_FACE)
-    rr = np.arange(r + 1, r * 1.9, 0.7)
+    rr = np.arange(r + REACH_START * sc, r * 1.9, REACH_STEP * sc)
     if not rr.size:
         return reach
     # All angles at once; `_reach_loop` is the reference. Products, sums and
@@ -676,13 +736,13 @@ _FACE_DX = np.array([np.cos(th) for th in _FACE_TH])
 _FACE_DY = np.array([np.sin(th) for th in _FACE_TH])
 
 
-def _reach_loop(red, cx, cy, r):
+def _reach_loop(red, cx, cy, r, sc: float = 1.0):
     """The reference `_reach`, one ray and one step at a time."""
     h, w = red.shape
     reach = np.zeros(N_FACE)
     for k, th in enumerate(_FACE_TH):
         dx, dy = np.cos(th), np.sin(th)
-        for rr in np.arange(r + 1, r * 1.9, 0.7):
+        for rr in np.arange(r + REACH_START * sc, r * 1.9, REACH_STEP * sc):
             x, y = int(round(cx + dx * rr)), int(round(cy + dy * rr))
             if not (0 <= x < w and 0 <= y < h):
                 break
@@ -691,7 +751,8 @@ def _reach_loop(red, cx, cy, r):
     return reach
 
 
-def fit_ring(red, grey, cx, cy, r_min: int = None, r_max: int = None):
+def fit_ring(red, grey, cx, cy, r_min: float = None, r_max: float = None,
+             sc: float = 1.0):
     """Best (coverage, cx, cy, r, interior stats) over centres and radii.
 
     Coverage is the share of the circle's circumference that is red. A whole
@@ -701,21 +762,23 @@ def fit_ring(red, grey, cx, cy, r_min: int = None, r_max: int = None):
 
     `red` is any binary ring mask, not necessarily the enemy red: the self key
     works here unchanged, which is what `self_agent.py` uses it for, and the
-    ALLY key works here too, which is what `icons` uses it for. `r_min` and
-    `r_max` default to the measured enlarged-widget pair and must be scaled by
-    the caller for the small widget.
+    ALLY key works here too, which is what `icons` uses it for. `sc` is the
+    widget's `widget_scale`: the radius grid's step, the centroid search and
+    the facing march scale by it (`ring_geometry`), and `r_min`, `r_max`
+    default to `R_MIN`, `R_MAX` times it. `sc` 1.0 is the measured
+    enlarged-widget geometry.
     """
-    r_min = R_MIN if r_min is None else r_min
-    r_max = R_MAX if r_max is None else r_max
-    h, w = red.shape
-    best = _best_circle(red, cx, cy, r_min, r_max)
+    g = ring_geometry(sc)
+    r_min = R_MIN * sc if r_min is None else r_min
+    r_max = R_MAX * sc if r_max is None else r_max
+    best = _best_circle(red, cx, cy, r_min, r_max, g["step"], g["search"])
     if best is None:
         return None
     cov, x0, y0, r = best
-    return _ring_at(red, grey, cov, x0, y0, r)
+    return _ring_at(red, grey, cov, x0, y0, r, sc)
 
 
-def _ring_at(red, grey, cov, x0, y0, r):
+def _ring_at(red, grey, cov, x0, y0, r, sc: float = 1.0):
     """Interior and lobe statistics of the circle `(x0, y0, r)` already chosen."""
     h, w = red.shape
     _, d = _offsets(r)
@@ -725,28 +788,30 @@ def _ring_at(red, grey, cov, x0, y0, r):
         return None
     inner_red = float(red[ys[ok], xs[ok]].mean())
     inner_v = float(grey[ys[ok], xs[ok]].mean())
-    reach = _reach(red, x0, y0, r)
+    reach = _reach(red, x0, y0, r, sc)
     return {"cov": cov, "cx": x0, "cy": y0, "r": r,
             "inner_red": inner_red, "inner_v": inner_v,
             "facing": _facing_from(reach, r),
             "lobe": _lobe_from(reach, r)}
 
 
-def coverage_surface(red, r_min, r_max):
+def coverage_surface(red, r_min, r_max, step: float = R_STEP):
     """Per pixel, the best circumference coverage over radii, and that radius.
 
     The score `_best_circle` maximises, computed everywhere at once: one
-    ring-kernel correlation per radius. A circle running off the image scores
-    its in-bounds points against the full count, so an edge candidate is
-    penalised rather than skipped.
+    ring-kernel correlation per radius of `ring_radii(r_min, r_max, step)`. A
+    circle running off the image scores its in-bounds points against the full
+    count, so an edge candidate is penalised rather than skipped. The radius
+    map is float: a fractional radius is returned as fitted.
     """
     kf = red.astype(np.float32)
     best = np.full(kf.shape, -1.0, np.float32)
-    rad = np.zeros(kf.shape, np.int32)
-    for r in range(r_min, r_max + 1):
+    rad = np.zeros(kf.shape, np.float64)
+    for r in ring_radii(r_min, r_max, step):
         pts, _ = _offsets(r)
-        k = np.zeros((2 * r + 1, 2 * r + 1), np.float32)
-        k[pts[:, 1] + r, pts[:, 0] + r] = 1.0 / len(pts)
+        R = int(np.abs(pts).max())
+        k = np.zeros((2 * R + 1, 2 * R + 1), np.float32)
+        k[pts[:, 1] + R, pts[:, 0] + R] = 1.0 / len(pts)
         c = cv2.filter2D(kf, -1, k, borderType=cv2.BORDER_CONSTANT)
         up = c > best
         best[up], rad[up] = c[up], r
@@ -971,7 +1036,10 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     the margin as 90.1% outside the painting on this map.
     """
     sc = widget_scale(crop.shape[1])
-    r_min, r_max = max(3, int(round(R_MIN * sc))), max(4, int(round(R_MAX * sc)))
+    g = ring_geometry(sc)
+    r_min, r_max = g["r_min"], g["r_max"]
+    # The integer reach of a ring of radius <= r_max, for windows and kernels.
+    R = int(np.ceil(r_max - 1e-9))
     if min_area is None:
         min_area = max(4, int(round(MIN_ICON_AREA * sc * sc)))
     keyed = mask & floor
@@ -988,7 +1056,7 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
         # is computed per blob on that padded window; a window clipped by the
         # image edge sees the same zero border the whole-crop filter did. The
         # whole-crop surface was 43% of the ally reader's time at 15 Hz.
-        grow = np.ones((2 * r_max + 1, 2 * r_max + 1), np.uint8)
+        grow = np.ones((2 * R + 1, 2 * R + 1), np.uint8)
     H, W = keyed.shape
     found: list[dict] = []
     for i in range(1, n):
@@ -997,24 +1065,25 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
         if supported is not None and i not in supported:
             continue
         if seed == "centroid":
-            f = fit_ring(keyed, grey, cen[i][0], cen[i][1], r_min, r_max)
+            f = fit_ring(keyed, grey, cen[i][0], cen[i][1], r_min, r_max, sc)
         else:
             x, y, w, h = (int(v) for v in st[i, :4])
-            a, b = max(0, y - r_max), min(H, y + h + r_max)
-            c, d = max(0, x - r_max), min(W, x + w + r_max)
-            a2, b2 = max(0, y - 2 * r_max), min(H, y + h + 2 * r_max)
-            c2, d2 = max(0, x - 2 * r_max), min(W, x + w + 2 * r_max)
+            a, b = max(0, y - R), min(H, y + h + R)
+            c, d = max(0, x - R), min(W, x + w + R)
+            a2, b2 = max(0, y - 2 * R), min(H, y + h + 2 * R)
+            c2, d2 = max(0, x - 2 * R), min(W, x + w + 2 * R)
             with step("coverage"):
-                surf, surf_r = coverage_surface(keyed[a2:b2, c2:d2], r_min, r_max)
+                surf, surf_r = coverage_surface(keyed[a2:b2, c2:d2], r_min, r_max,
+                                                g["step"])
             near = cv2.dilate((lbl[a:b, c:d] == i).astype(np.uint8), grow) > 0
             cand = np.where(near, surf[a - a2:b - a2, c - c2:d - c2], -1.0)
             yy, xx = divmod(int(np.argmax(cand)), cand.shape[1])
             f = (None if cand[yy, xx] < 0 else
                  _ring_at(keyed, grey, float(cand[yy, xx]), c + xx, a + yy,
-                          int(surf_r[a - a2 + yy, c - c2 + xx])))
+                          float(surf_r[a - a2 + yy, c - c2 + xx]), sc))
         if f is None:
             continue
-        found.append({"cx": float(f["cx"]), "cy": float(f["cy"]), "r": int(f["r"]),
+        found.append({"cx": float(f["cx"]), "cy": float(f["cy"]), "r": float(f["r"]),
                       "cov": float(f["cov"]), "inner": float(f["inner_red"]),
                       # `inner_v` is the interior's GREY, where `inner` is the
                       # interior's KEYED fraction, and the two answer different

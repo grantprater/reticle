@@ -428,9 +428,9 @@ def read_frame(crop: np.ndarray, ctx: dict) -> dict:
         me = self_icons(crop, ctx["floor"], require_facing=False, support=ctx["slab"])[:1]
         al = ally_icons(crop, ctx["floor"], support=ctx["slab"], static=ctx["static"])
         row["icons"] = ([{"channel": "self", "cx": round(f["cx"], 2), "cy": round(f["cy"], 2),
-                          "r": int(f["r"])} for f in me]
+                          "r": round(float(f["r"]), 2)} for f in me]
                         + [{"channel": "ally", "cx": round(f["cx"], 2), "cy": round(f["cy"], 2),
-                            "r": int(f["r"])} for f in al])
+                            "r": round(float(f["r"]), 2)} for f in al])
     return row
 
 

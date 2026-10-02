@@ -54,9 +54,9 @@ def occluded(crop: np.ndarray, floor: np.ndarray, static: np.ndarray) -> np.ndar
     """Pixels the player's and teammates' icons cover this frame."""
     occ = np.zeros(crop.shape[:2], np.uint8)
     for s in self_icons(crop, floor, require_facing=False):
-        cv2.circle(occ, (int(s["cx"]), int(s["cy"])), int(s["r"]) + SELF_MARGIN_PX, 1, -1)
+        cv2.circle(occ, (int(s["cx"]), int(s["cy"])), int(round(s["r"] + SELF_MARGIN_PX)), 1, -1)
     for a in ally_icons(crop, floor, static=static, require_facing=False):
-        cv2.circle(occ, (int(a["cx"]), int(a["cy"])), int(a["r"]) + ALLY_MARGIN_PX, 1, -1)
+        cv2.circle(occ, (int(a["cx"]), int(a["cy"])), int(round(a["r"] + ALLY_MARGIN_PX)), 1, -1)
     return occ.astype(bool)
 
 
