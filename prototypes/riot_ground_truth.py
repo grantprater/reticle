@@ -416,8 +416,12 @@ def _stream_rows(path: Path):
                 yield json.loads(line)
 
 
-def stored_deaths(store_root: Path, sid: str) -> list[dict]:
-    return [r for r in _stream_rows(Path(store_root) / "events" / "death" / f"{sid}.jsonl")
+def stored_deaths(store_root: Path, sid: str, deaths_from: Path | None = None) -> list[dict]:
+    """The `death_verdict` rows; `deaths_from` reads `<dir>/events/death/<sid>.jsonl`
+    instead, such as a trial's in-memory adjudication
+    (`prototypes/killfeed_trial_deaths.py`)."""
+    root = Path(deaths_from) if deaths_from else Path(store_root)
+    return [r for r in _stream_rows(root / "events" / "death" / f"{sid}.jsonl")
             if r.get("kind") == "death_verdict"]
 
 
@@ -494,7 +498,7 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
            "widget": None, "cohort": widget_frame.cohort(man), "player_basis": ident.get("basis"),
            "map": m["matchInfo"]["mapId"].rsplit("/", 1)[-1]}
 
-    deaths = stored_deaths(store_root, sid)
+    deaths = stored_deaths(store_root, sid, getattr(opts, "deaths_from", None))
     kills = sorted(m["kills"], key=lambda k: k["gameTime"])
     if not deaths:
         out["refused"] = "no_stored_deaths"
@@ -1366,6 +1370,8 @@ def main(argv=None) -> int:
     ap.add_argument("--no-status", action="store_true", help="skip status.collect (HUD K/D)")
     ap.add_argument("--facing", default="auto", help="viewRadians convention for the headline")
     ap.add_argument("--list-misses", action="store_true")
+    ap.add_argument("--deaths-from", default=None,
+                    help="score <dir>/events/death/<sid>.jsonl instead of the store's deaths")
     ap.add_argument("--record", action="store_true", help="append metrics to notes/metrics.jsonl")
     ap.add_argument("--json", default=None, help="write full results (private: keep outside the repo)")
     args = ap.parse_args(argv)

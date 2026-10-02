@@ -3127,6 +3127,32 @@ def cmd_deaths(args) -> int:
     `death_identity` stream of the formal events. A board interval whose
     independent names repeat an agent adds a `collision` row
     (`board_collisions`), which names no one."""
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    sid = manifest["session_id"]
+    d = death_streams(store, manifest)
+    head, rows, collisions, res = d["head"], d["rows"], d["collisions"], d["result"]
+    # The roster, the lineup view and the reliability table's bytes.
+    _record_inputs(store, sid, "death", head)
+    out = store.write_events("death", sid, [head] + rows + collisions)
+    store.write_events("death_identity", sid, d["events"])
+    print(f"{sid}: {len(rows) - head['revives']} deaths and {head['revives']} revives over "
+          f"{d['n_rounds']} rounds in {res['passes']} passes; "
+          f"victims {head['victims']}, killers {head['killers']}, "
+          f"{len(collisions)} board collisions; entry types {head['entry_types']}, "
+          f"{head['entry_disagreements']} witness disagreements -> {out}")
+    return 0
+
+
+def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=None,
+                  names=None) -> dict:
+    """The `death` stream's summary, verdict rows and collisions, and the
+    `death_identity` events, from stored data; writes nothing.
+
+    `hud`, `portraits`, `weapons` and `names` replace the stored HUD table and
+    killfeed streams, as a reader trial produces them in memory
+    (`prototypes/killfeed_trial_deaths.py`); given, they are taken at the
+    code's stamps."""
     from .adjudication.death import (DEATH_ADJUDICATION_VERSION, adjudicate_session_deaths,
                                      death_verdict_to_events, stored_second_life)
     from .adjudication.identity import AGENT_IDENTITY_VERSION, load_identity_gallery
@@ -3135,13 +3161,13 @@ def cmd_deaths(args) -> int:
     from .adjudication.weapon import WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION
     from .lineup import load_lineup
 
-    store = Store(args.store)
-    manifest = _resolve_session(store, args.session)
     sid, date = manifest["session_id"], _date_of(manifest)
-    portraits = store.read_events("killfeed_portrait", sid)
-    if store.events_version("killfeed_portrait", sid) != KILLFEED_PORTRAIT_VERSION:
-        raise SystemExit(f"{sid}: killfeed portraits are not at {KILLFEED_PORTRAIT_VERSION} -- "
-                         f"run `reticle scan {sid} --only hud`")
+    given = {"weapons": weapons is not None, "names": names is not None}
+    if portraits is None:
+        portraits = store.read_events("killfeed_portrait", sid)
+        if store.events_version("killfeed_portrait", sid) != KILLFEED_PORTRAIT_VERSION:
+            raise SystemExit(f"{sid}: killfeed portraits are not at {KILLFEED_PORTRAIT_VERSION} -- "
+                             f"run `reticle scan {sid} --only hud`")
     rounds = store.read_rounds(sid, date)
     if rounds is None:
         raise SystemExit(f"{sid}: no stored rounds -- run `reticle rounds {sid}` first")
@@ -3150,17 +3176,19 @@ def cmd_deaths(args) -> int:
     if not lineup:
         raise SystemExit(f"{sid}: no stored lineup")
     # A stale or missing weapon stream names no weapon; it never blocks deaths.
-    weapons = (store.read_events("killfeed_weapon", sid)
-               if store.events_version("killfeed_weapon", sid) == KILLFEED_WEAPON_VERSION
-               else None)
+    if weapons is None:
+        weapons = (store.read_events("killfeed_weapon", sid)
+                   if store.events_version("killfeed_weapon", sid) == KILLFEED_WEAPON_VERSION
+                   else None)
     if weapons is None:
         print(f"{sid}: no killfeed_weapon stream at {KILLFEED_WEAPON_VERSION}; weapons unnamed "
               f"-- run `reticle scan {sid} --only hud`")
     # A stale or missing name stream leaves every role on its per-entry vote.
     # The name clusters and their assignment were measured in
     # `prototypes/killfeed_name_continuity.py` and `prototypes/match_name_assignment.py`.
-    names = (store.read_events("killfeed_name", sid)
-             if store.events_version("killfeed_name", sid) == KILLFEED_NAME_VERSION else None)
+    if names is None:
+        names = (store.read_events("killfeed_name", sid)
+                 if store.events_version("killfeed_name", sid) == KILLFEED_NAME_VERSION else None)
     if names is None:
         print(f"{sid}: no killfeed_name stream at {KILLFEED_NAME_VERSION}; no name clusters "
               f"-- run `reticle scan {sid} --only hud --from cache`")
@@ -3183,7 +3211,8 @@ def cmd_deaths(args) -> int:
     else:
         print(f"{sid}: no minimap_object stream at {minimap_object_version()}; no death is "
               f"placed by an X -- run `reticle minimap-objects {sid}`")
-    hud = store.read_hud(sid, date)
+    if hud is None:
+        hud = store.read_hud(sid, date)
     res = adjudicate_session_deaths(
         sid, rounds, hud, store.read_roster(sid, date), portraits,
         store.read_events("scoreboard", sid), lineup, load_identity_gallery(store.root),
@@ -3246,22 +3275,16 @@ def cmd_deaths(args) -> int:
                                      if births is not None else None), "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
                        # The stored stamps, read or not: a stream rescanned
                        # to the code's stamp makes these deaths stale.
-                       "killfeed_weapon": store.events_version("killfeed_weapon", sid) or "no_rows",
-                       "killfeed_name": store.events_version("killfeed_name", sid) or "no_rows",
+                       "killfeed_weapon": (KILLFEED_WEAPON_VERSION if given["weapons"] else
+                                           store.events_version("killfeed_weapon", sid) or "no_rows"),
+                       "killfeed_name": (KILLFEED_NAME_VERSION if given["names"] else
+                                         store.events_version("killfeed_name", sid) or "no_rows"),
                        "scoreboard": store.events_version("scoreboard", sid),
                        "round": rounds[0].get("round_version") if rounds else None,
                        "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION,
                        "reliability": RELIABILITY_VERSION if rel is not None else None}}
-    # The roster, the lineup view and the reliability table's bytes.
-    _record_inputs(store, sid, "death", head)
-    out = store.write_events("death", sid, [head] + rows + collisions)
-    store.write_events("death_identity", sid, events)
-    print(f"{sid}: {len(rows) - head['revives']} deaths and {head['revives']} revives over "
-          f"{len(rounds)} rounds in {res['passes']} passes; "
-          f"victims {head['victims']}, killers {head['killers']}, "
-          f"{len(collisions)} board collisions; entry types {head['entry_types']}, "
-          f"{head['entry_disagreements']} witness disagreements -> {out}")
-    return 0
+    return {"head": head, "rows": rows, "collisions": collisions, "events": events,
+            "result": res, "n_rounds": len(rounds)}
 
 
 def cmd_plan(args) -> int:
