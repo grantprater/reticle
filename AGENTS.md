@@ -76,6 +76,16 @@ what "I rebuilt the geometry while my experiment read it" states.
   per-session static-map cache or capture median to a reader/prototype; `doctor`
   enforces this. The only exceptions are the geometry builder and
   `clip_preflight`, whose capture median sets only size, placement and orientation.
+- **Read pixels as samples of a smooth image** (player, 2026-10-01). A
+  minimap icon spans about 13 px at 1080p, so a reader keeps every partial
+  pixel. Shrink with `INTER_AREA`; enlarge, warp or shift with linear or
+  cubic interpolation; name the flag on every resample, since `cv2.resize`
+  defaults to linear, which skips pixels when it shrinks. Score colour and
+  coverage softly and cut a soft score once, at the decision, as `teardrop`
+  does; never binarise a template or an observation before resampling or
+  matching it. Fit position to sub-pixel precision where position decides.
+  Never enlarge a frame to read it: enlargement adds no information.
+  Nearest-neighbour belongs to display code alone.
 - Never use stored-data bounds or a model's own output as independent evidence.
   Keep unresolved and no-contact opportunities so coverage is not biased.
 - **READ THE REFUSAL REASON BEFORE CALLING ANYTHING A BLOCKER.** A count of
