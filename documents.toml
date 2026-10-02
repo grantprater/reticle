@@ -257,6 +257,12 @@ status = "recorded"
 since = "2026-09-29"
 
 [[document]]
+path = "docs/ALLY_ICON_UPSCALE.md"
+kind = "findings"
+status = "recorded"
+since = "2026-10-01"
+
+[[document]]
 path = "docs/ALLY_RATE.md"
 kind = "findings"
 status = "recorded"
