@@ -468,8 +468,10 @@ def estimate_weapon_class(width: int, aspect_ratio: float) -> str:
 #: fault and stays out. 0.5.0 names a per-entry ability row by the ability
 #: stem the player picked, through the corrected ABILITY_CANONICAL_NAMES: the
 #: b3b9defb6fd7 1731.5 s exemplar, which 0.4.0 held as Curveball, is Hot Hands
-#: [domain:killfeed/phoenix-hot-hands-icon].
-WEAPON_GALLERY_VERSION = "weapon-gallery-0.5.0"
+#: [domain:killfeed/phoenix-hot-hands-icon]. 0.6.0 rebinds the per-entry
+#: names to the `killfeed_weapon` rows killfeed-weapon-0.7.0 reread from the
+#: crop cache (corpus rerun, 2026-10-01); the labels are unchanged.
+WEAPON_GALLERY_VERSION = "weapon-gallery-0.6.0"
 NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
 NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
 NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
