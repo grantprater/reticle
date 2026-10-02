@@ -53,6 +53,7 @@ import numpy as np
 from .ability_scan import LIVE_PHASES, _rounded
 from .ability_shapes import SET_AT, _b
 from .geometry import MapScale
+from .usage import step as usage_step
 from .version import ABILITY_ICON_VERSION
 
 #: Icon radii, base values set at 0.025-0.075 of the 331 px crop's half width
@@ -232,21 +233,28 @@ class AbilityIconReader:
             reason = "geometry_size_mismatch"
         elif self.ms is None:
             reason = "no_map_scale"
-        elif not widget_drawn(crop, self.sgray, self.floor):
-            reason = "widget_not_drawn"
+        else:
+            # The named steps (`usage.step`) time this feed for `reticle usage`.
+            with usage_step("widget"):
+                if not widget_drawn(crop, self.sgray, self.floor):
+                    reason = "widget_not_drawn"
         if reason is not None:
             self.rows.append({**row, "reason": reason, "candidates": None, "verify": None})
             self._prev = None
             return
-        terms = self.terms(crop.shape)
-        cands = propose_icons(crop, terms)[:MAX_CANDIDATES]
+        with usage_step("terms"):
+            terms = self.terms(crop.shape)
+        with usage_step("propose"):
+            cands = propose_icons(crop, terms)[:MAX_CANDIDATES]
         prev = self._prev
         ver = None
         if prev is not None:
-            ver = {"of_t_ms": prev["t_ms"],
-                   "rows": [{"of": i, "cx": v["cx"], "cy": v["cy"], "r": v["r"],
-                             "score": _rounded(v["score"])}
-                            for i, v in enumerate(verify_icons(crop, terms, prev["candidates"]))]}
+            with usage_step("verify"):
+                ver = {"of_t_ms": prev["t_ms"],
+                       "rows": [{"of": i, "cx": v["cx"], "cy": v["cy"], "r": v["r"],
+                                 "score": _rounded(v["score"])}
+                                for i, v in enumerate(verify_icons(crop, terms,
+                                                                   prev["candidates"]))]}
         out = [{"cx": c["cx"], "cy": c["cy"], "r": c["r"], "score": _rounded(c["score"]),
                 "rim_teal": _rounded(c["rim_teal"], 3), "rim_red": _rounded(c["rim_red"], 3),
                 "glyph_white": _rounded(c["glyph_white"], 3)} for c in cands]

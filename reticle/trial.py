@@ -29,7 +29,8 @@ frames read.
 A trial writes nothing to the store. It is a test tier, not a scan: the
 occupied windows come from stored output, so a change that finds entries
 where the old reader saw none can only show up in a full scan, which stays
-the acceptance run. Returns the rows and their diff.
+the acceptance run. Returns the rows and their diff, and under `usage` the
+reader's feed time and its named steps (`usage.StepRecorder`).
 """
 from __future__ import annotations
 
@@ -254,6 +255,7 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
     the timeline, such as a round; the diff compares only frames inside it."""
     from .decode import seek_at
     from .passes import SessionContext
+    from .usage import CallTimes, StepRecorder
     from .profiles import get_profile
     from .roi_cache import RoiCache
 
@@ -281,11 +283,15 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
         raise ValueError(f"unknown source {source!r}")
     read: list[float] = []
     moved_idx = 0
+    # The reader's feed and its named steps, as a scan's usage record
+    # holds them (`usage.StepRecorder`); held in the result, never written.
+    steps, feed_times = StepRecorder(), CallTimes()
+    name = getattr(r, "name", reader)
     for smp in frames:
         idx = int(stored_idx.get(smp.t_ms, smp.frame_idx))
         moved_idx += idx != int(smp.frame_idx)
         smp.frame_idx = idx
-        r.feed(smp)
+        feed_times.add(steps.feed(name, r.feed, smp))
         read.append(float(smp.t_ms))
     seconds = time.perf_counter() - t0
     # A frame the source did not yield is refused, with the cache's reason.
@@ -307,7 +313,8 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
            "pad_ms": pad_ms, "between": between, "timeline": n_timeline, "frames": len(read),
            "asked": len(want), "refused": dict(sorted(refused.items())),
            "frame_idx_moved": moved_idx, "seconds": round(seconds, 1), "diff": diffs,
-           "rows": rows}
+           "rows": rows,
+           "usage": {"reader": name, "feed": feed_times.record(), "steps": steps.steps(name)}}
     if reader == "scoreboard":
         # The GPU and CPU scorers differ in the fourth decimal; a trial on the
         # other one moves portrait scores without any reader change.

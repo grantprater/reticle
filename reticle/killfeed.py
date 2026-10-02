@@ -325,6 +325,7 @@ import cv2
 from . import appearance
 from .census import Census
 from .profiles import Profile, Roi, template_key
+from .usage import step as usage_step
 
 #: The capture height every length constant in this module was measured at.
 BASE_HEIGHT = 1080
@@ -2646,38 +2647,46 @@ class KillfeedPortraitReader:
             return
         # One scale for the capture, handed to every reader of this frame.
         s = KillfeedScale.for_capture(self.w, self.h)
-        views = analyse_killfeed(
-            smp.frame, self.roi, self.w, self.h, self.mask,
-            self.profile.name, mask_prefix=self.mask_prefix, scale=s)
+        # The named steps (`usage.step`) time this feed for `reticle usage`.
+        with usage_step("entries"):
+            views = analyse_killfeed(
+                smp.frame, self.roi, self.w, self.h, self.mask,
+                self.profile.name, mask_prefix=self.mask_prefix, scale=s)
         # The player's own deaths: does the entry carry the second-life badge?
         # Stored for every such entry, badge or not, so a consumer can tell a
         # Run It Back death from a death, and both from an entry never read.
         x0, y0, x1, y1 = self.roi.pixels(self.w, self.h)
-        for view in views:
-            if (view.verdict != "death" or not view.victim_run
-                    or view.y1 - view.y0 < s.px(SECOND_LIFE_MIN_BAND_H)):
-                continue
-            band = smp.frame[y0 + view.y0:y0 + view.y1, x0:x1]
-            has_badge, metrics = detect_second_life_badge(band, view.victim_run[0], s=s)
-            self.badges.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms),
-                                "slot": view.slot, "y0": int(view.y0), "y1": int(view.y1),
-                                "victim_x": int(view.victim_run[0]),
-                                "has_badge": bool(has_badge), **metrics})
-        for row in weapon_icon_observations(smp.frame, self.roi, self.w, self.h, views,
-                                            scale=s):
-            self.weapons.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms), **row})
-        portraits = portrait_observations(
-            smp.frame, self.roi, self.w, self.h, views=views,
-            mask=self.mask, profile_name=self.profile.name, scale=s)
-        for observation in portraits:
-            self.rows.append({
-                "frame_idx": int(smp.frame_idx),
-                "t_ms": float(smp.t_ms),
-                **observation,
-            })
-        for row in name_observations(smp.frame, self.roi, self.w, self.h, views,
-                                     portraits, mask=self.mask, scale=s):
-            self.names.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms), **row})
+        with usage_step("second_life"):
+            for view in views:
+                if (view.verdict != "death" or not view.victim_run
+                        or view.y1 - view.y0 < s.px(SECOND_LIFE_MIN_BAND_H)):
+                    continue
+                band = smp.frame[y0 + view.y0:y0 + view.y1, x0:x1]
+                has_badge, metrics = detect_second_life_badge(band, view.victim_run[0], s=s)
+                self.badges.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms),
+                                    "slot": view.slot, "y0": int(view.y0), "y1": int(view.y1),
+                                    "victim_x": int(view.victim_run[0]),
+                                    "has_badge": bool(has_badge), **metrics})
+        with usage_step("weapon"):
+            for row in weapon_icon_observations(smp.frame, self.roi, self.w, self.h, views,
+                                                scale=s):
+                self.weapons.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms),
+                                     **row})
+        with usage_step("portraits"):
+            portraits = portrait_observations(
+                smp.frame, self.roi, self.w, self.h, views=views,
+                mask=self.mask, profile_name=self.profile.name, scale=s)
+            for observation in portraits:
+                self.rows.append({
+                    "frame_idx": int(smp.frame_idx),
+                    "t_ms": float(smp.t_ms),
+                    **observation,
+                })
+        with usage_step("names"):
+            for row in name_observations(smp.frame, self.roi, self.w, self.h, views,
+                                         portraits, mask=self.mask, scale=s):
+                self.names.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms),
+                                   **row})
 
     def events(self, session_id: str) -> list[dict]:
         """Return JSONL-ready raw observations, never identity verdicts.

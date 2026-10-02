@@ -71,6 +71,7 @@ from typing import Callable
 
 import numpy as np
 
+from .usage import step
 from .version import ICON_TEARDROP_VERSION, TEARDROP_VERSION  # noqa: F401  (the stamps callers store)
 
 # Fitted by `prototypes/teardrop_tip.py --calibrate` on 24 held-out frames of
@@ -137,7 +138,9 @@ def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0
     r_out = R_OUT * scale if r_out is None else r_out
     L_ = L * scale if L_ is None else L_
     edge, search = EDGE * scale, max(1, int(round(SEARCH_PX * scale)))
-    yel = yellowness(crop) if yel is None else yel
+    if yel is None:
+        with step("key"):
+            yel = yellowness(crop)
     h, w = yel.shape
     rad = L_ + WINDOW * scale + search
     x0, x1 = max(0, int(cx0 - rad)), min(w, int(cx0 + rad) + 1)
@@ -153,22 +156,26 @@ def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0
     # over, correlated with the window at every integer centre offset
     # (`cv2.matchTemplate`), which is the prototype's per-offset render to
     # float rounding and a tenth of its time.
-    sc, x, y, t = _grid(obs, keep, x0, y0, cx0, cy0, search, r_in, r_out, L_, edge)
+    # Named steps (`usage.step`): the grid's renders and correlations, then
+    # the refinement's.
+    with step("grid"):
+        sc, x, y, t = _grid(obs, keep, x0, y0, cx0, cy0, search, r_in, r_out, L_, edge)
 
     def score(x, y, t):
         return float(_correlation(obs, render(px - x, py - y, t, r_in, r_out, L_, edge)))
 
     step_p, step_t = 0.5, math.radians(3.0)
-    while step_p >= 0.05:
-        moved = False
-        for ddx, ddy, ddt in ((step_p, 0, 0), (-step_p, 0, 0), (0, step_p, 0), (0, -step_p, 0),
-                              (0, 0, step_t), (0, 0, -step_t)):
-            s2 = score(x + ddx, y + ddy, t + ddt)
-            if s2 > sc:
-                sc, x, y, t, moved = s2, x + ddx, y + ddy, t + ddt, True
-                break
-        if not moved:
-            step_p, step_t = step_p / 2, step_t / 2
+    with step("refine"):
+        while step_p >= 0.05:
+            moved = False
+            for ddx, ddy, ddt in ((step_p, 0, 0), (-step_p, 0, 0), (0, step_p, 0),
+                                  (0, -step_p, 0), (0, 0, step_t), (0, 0, -step_t)):
+                s2 = score(x + ddx, y + ddy, t + ddt)
+                if s2 > sc:
+                    sc, x, y, t, moved = s2, x + ddx, y + ddy, t + ddt, True
+                    break
+            if not moved:
+                step_p, step_t = step_p / 2, step_t / 2
     deg = (math.degrees(t) + 180.0) % 360.0 - 180.0
     out = {"x": x, "y": y, "deg": deg, "ncc": sc,
            "tip_x": x + L_ * math.cos(t), "tip_y": y + L_ * math.sin(t),
@@ -233,8 +240,9 @@ class SelfConeReader:
         h, w = crop.shape[:2]
         win = crop[max(0, int(cy - rad)):min(h, int(cy + rad) + 2),
                    max(0, int(cx - rad)):min(w, int(cx + rad) + 2)]
-        key = (hashlib.blake2b(np.ascontiguousarray(win).tobytes(), digest_size=16).digest(),
-               win.shape, float(cx), float(cy))
+        with step("memo"):
+            key = (hashlib.blake2b(np.ascontiguousarray(win).tobytes(), digest_size=16).digest(),
+                   win.shape, float(cx), float(cy))
         if self._last is not None and self._last[0] == key:
             tf = self._last[1]
         else:
@@ -437,13 +445,16 @@ def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: f
     f["cls"] = cls
     if "x" not in f:
         return {"cls": cls, "read": False, "reason": "no_key"}
-    px, py, obs = _window(key, f["x"], f["y"], L_ + WINDOW * scale)
-    ths = np.radians(np.arange(0.0, 360.0, MARGIN_DEG, dtype=np.float32))
-    sc = _correlation(obs, render(px[None, :] - f["x"], py[None, :] - f["y"], ths[:, None],
-                                  r_in, r_out, L_, edge))
-    far = np.abs(_signed_deg(np.degrees(ths) - f["deg"])) >= 90.0
-    f["margin"] = float(f["ncc"] - sc[far].max())
-    f["ring_cover"] = ring_cover(key, f["x"], f["y"], f["deg"], r_in, r_out, pad=0.5 * scale)
+    with step("margin"):
+        px, py, obs = _window(key, f["x"], f["y"], L_ + WINDOW * scale)
+        ths = np.radians(np.arange(0.0, 360.0, MARGIN_DEG, dtype=np.float32))
+        sc = _correlation(obs, render(px[None, :] - f["x"], py[None, :] - f["y"], ths[:, None],
+                                      r_in, r_out, L_, edge))
+        far = np.abs(_signed_deg(np.degrees(ths) - f["deg"])) >= 90.0
+        f["margin"] = float(f["ncc"] - sc[far].max())
+    with step("ring_cover"):
+        f["ring_cover"] = ring_cover(key, f["x"], f["y"], f["deg"], r_in, r_out,
+                                     pad=0.5 * scale)
     f["read"] = True
     f.pop("reason", None)
     if f["ncc"] < c.min_ncc:
@@ -511,14 +522,17 @@ class IconPoseReader:
         `ring_fit`: `x`, `y` are the detector's own centre, `deg` is None and
         `reason` says why the teardrop was not read.
         """
-        digest = hashlib.blake2b(np.ascontiguousarray(crop).tobytes(), digest_size=16).digest()
+        with step("memo"):
+            digest = hashlib.blake2b(np.ascontiguousarray(crop).tobytes(),
+                                     digest_size=16).digest()
         if digest != self._digest:
             self._digest, self._key, self._fits = digest, None, {}
         k = (float(cx), float(cy))
         tf = self._fits.get(k)
         if tf is None:
             if self._key is None:
-                self._key = ICON_CLASSES[self.cls].key(crop)
+                with step("key"):
+                    self._key = ICON_CLASSES[self.cls].key(crop)
             tf = self._fits[k] = fit_icon(None, self.cls, cx, cy, scale=self.scale, key=self._key)
         if tf.get("read"):
             return {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
