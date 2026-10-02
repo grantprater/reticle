@@ -539,6 +539,22 @@ stored_consumers = ["adjudication.scoreboard"]
 evidence = "tests/test_scoreboard_strip.py, docs/SCOREBOARD_PRESENCE.md, prototypes/scoreboard_strip.py"
 
 [[entry]]
+id = "planted-spike-graphic"
+question = "Does the scoreline's clock field show the planted-spike graphic at this cached frame?"
+owner = "plant_graphic"
+role = ["detect"]
+status = "partial"
+produces = ["read_field", "shows_graphic", "graphic_events", "stored_reads"]
+not_for = """
+Deciding that a round was planted, or when: `round-bounds` owns the plant and
+cross-references these samples with the unread clock. Nor the minimap's planted
+spike, a defuse, or a plant after the round was decided, which the scoreline
+does not draw.
+"""
+consumers = ["cli", "rounds", "status"]
+evidence = "tests/test_plant_graphic.py"
+
+[[entry]]
 id = "hud-scan"
 question = "What does one shared HUD decode pass see in this frame?"
 owner = "hud_reader"
@@ -915,7 +931,8 @@ owner = "rounds"
 stored_consumers = ["entity_events"]
 role = ["lifecycle", "adjudicate"]
 status = "partial"
-produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events", "in_round_window", "round_containing"]
+produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events", "in_round_window", "round_containing", "plant_state"]
+defers_to = ["planted-spike-graphic"]
 not_for = """
 Player identity. A side is a round state. About 20% of coaching events still sit
 near an uncertain boundary, and plant inference that reads a FUTURE clock gap is

@@ -39,18 +39,19 @@ Free from what is already stored:
   only as a check. It used to decide, and abstained on 3 sessions, leaving `won`
   NULL for 43 rounds -- all 23 of Lotus among them.
 
-**`spike_planted` is USABLE as of 2026-08-27, at ~88% either way.** It used to
-catch a one-sample clock discontinuity and found 6 plants in 262 rounds. It now
-reads the plant as the *persistent state* it is, and needs no new ROI and no
-video re-read: the spike graphic sits exactly where the digits are, so a planted
-round has no clock to read and `clock_ms is None` is already stored. See the
-PLANT_* block for the rule and its validation. **170 of 349 rounds (49%)**, with
-per-session rates 35-57% where the first threshold gave 11-62%.
+**`spike_planted` reads the planted-spike graphic as of round-0.8.0
+(2026-10-02).** The graphic stands where the clock's digits go, so a plant is
+that graphic (`plant_graphic`, from the hud crop cache) on two consecutive
+samples whose clock reads nothing. It replaced a rule that took any unread-clock
+run of 7 s reaching the round's end, which missed plants in rounds won by
+elimination seconds after the plant and could not tell a washed-out clock from
+the graphic. `spike_planted` is null, with `plant_reason`, where the evidence is
+absent or too short; False means the graphic was looked for and not seen. A
+plant after the score increment is outside the field's meaning: the scoreline
+keeps its post-round countdown then. See the PLANT_* block.
 
-Two limits to respect. The **boundary is only good to about +/-5 s**, because an
-OCR drop can start the run before the plant -- enough to SPLIT a round into
-phases, not to time one. And `plant_t_ms` is therefore a phase marker, not an
-event timestamp; do not cut a clip on it.
+`plant_t_ms` is the first graphic sample: within about half a second of
+Riot's recorded plant on the 21 Riot-scored matches, the cache's 2 Hz.
 
 The plant is a **phase boundary**, not just a fact (recorded). Pre-plant and
 post-plant are different games -- attackers switch to holding, defenders must
@@ -169,13 +170,96 @@ FIRST_BLOOD_TOL_MS = 1_500
 # **a defuse takes 7 s**, so no post-plant can be shorter than that. 20_000 was
 # the first guess and it cost 2 of 5 plants on 223d636bf8d2 -- both real, at
 # 18.5 s and 16.0 s, fast defuses missed by seconds.
+#
+# **Superseded 2026-10-02 (round-0.8.0) as the deciding rule**; it now runs
+# only where no current `plant_graphic` stream exists, and marks plants there
+# but never a non-plant. Against Riot's match records over 21 matches it missed
+# 68 of 280 plants: 66 were rounds won by elimination a median 3.4 s after the
+# plant, a post-plant shorter than a defuse. The floor assumed the post-plant
+# lasts at least a defuse; an elimination ends it sooner. And the unread-clock
+# run is not the plant's own evidence: a washed-out clock over a bright sky, or
+# the last fifteen seconds' red plate, leaves the digits unread for as long.
 PLANT_MIN_MS = 7_000
 PLANT_TAIL_MS = 2_500
 PLANT_MIN_ELAPSED_MS = 15_000
 
+# --- the plant, read as the planted-spike GRAPHIC (round-0.8.0) -------------
+# The graphic stands where the digits go [domain:hud/planted-spike-replaces-clock],
+# so a plant has two witnesses on one sample: `plant_graphic` sees the graphic,
+# and the scoreline reads no clock. A sample is a graphic sample when both hold;
+# a read clock refutes the graphic. The graphic is a persistent state, so a
+# plant needs PLANT_MIN_SAMPLES consecutive graphic samples; a single one is too
+# short to tell from a red flash and stores null. A plant after the score
+# increment shows no graphic [domain:rounds/post-round-plant-no-graphic], so
+# the window ends at the round's end and `spike_planted` means planted before
+# the round was decided. It opens at the round's first live clock reading
+# (above BUY_CLOCK_MAX_MS): the graphic replaces a running round clock, and a
+# round opened at the capture's start may hold menus before it.
+PLANT_MIN_SAMPLES = 2
+
+
+def _plant_graphic(t, clock, a: float, z: float,
+                   graphic: dict[float, dict]) -> tuple[bool | None, float | None, str | None]:
+    """(planted, plant time, reason) from the graphic over the round's live
+    play: from its first live clock reading to its end `z`.
+
+    True at the first sample of the first run of PLANT_MIN_SAMPLES graphic
+    samples; None with `no_live_clock` where no live clock was read,
+    `graphic_single_sample` where the graphic never held longer, or
+    `no_plant_graphic_rows` where no sample of the window was read; False
+    otherwise."""
+    from .plant_graphic import shows_graphic
+    live = next((t[i] for i in range(len(t)) if a <= t[i] <= z and clock[i] is not None
+                 and clock[i] > BUY_CLOCK_MAX_MS), None)
+    if live is None:
+        return None, None, "no_live_clock"
+    runs, cur, read = [], [], 0
+    for i in range(len(t)):
+        if not (live <= t[i] <= z):
+            continue
+        seen = shows_graphic(graphic.get(float(t[i])))
+        read += seen is not None
+        if seen and clock[i] is None:
+            cur.append(float(t[i]))
+            continue
+        if cur:
+            runs.append(cur)
+        cur = []
+    if cur:
+        runs.append(cur)
+    held = [r for r in runs if len(r) >= PLANT_MIN_SAMPLES]
+    if held:
+        return True, held[0][0], None
+    if runs:
+        return None, None, "graphic_single_sample"
+    if not read:
+        return None, None, "no_plant_graphic_rows"
+    return False, None, None
+
+
+def plant_state(t, clock, a: float, z: float, graphic: dict[float, dict] | None) -> dict:
+    """The round's plant fields: `spike_planted` (True, False, or None with
+    `plant_reason`), `plant_t_ms`, `post_plant_ms` and `plant_source`.
+
+    `graphic` is the stored `plant_graphic` samples by time
+    (`plant_graphic.stored_reads`); None where the stream is absent or stale.
+    Without it the clock-run rule may mark a plant, but its silence is no
+    evidence of none: every other round is null, `plant_graphic_absent`."""
+    if graphic is not None:
+        planted, tp, why = _plant_graphic(t, clock, a, z, graphic)
+        source = "plant_graphic"
+    else:
+        ok, tp = _plant(t, clock, a, z)
+        planted, why, source = (True, None, "clock_run") if ok else (None, "plant_graphic_absent",
+                                                                    "clock_run")
+    return {"spike_planted": planted, "plant_t_ms": tp,
+            "post_plant_ms": (z - tp) if tp is not None else None,
+            "plant_source": source, "plant_reason": why}
+
 
 def _plant(t, clock, a: float, z: float) -> tuple[bool, float | None]:
-    """Longest unreadable-clock run in [a, z), and whether it is a plant."""
+    """Longest unreadable-clock run in [a, z), and whether it is a plant by
+    the superseded run rule (see the PLANT_* block)."""
     best, cur, cstart = (0.0, None, None), 0, None
     for i in range(len(t)):
         if not (a <= t[i] < z):
@@ -459,13 +543,18 @@ def round_closes(rounds: list[dict]) -> list[float]:
         [rounds[-1]["t_end_ms"] + tail] if rounds else [])
 
 
-def build_rounds(table, second_life: list[dict] | None = None) -> list[dict]:
+def build_rounds(table, second_life: list[dict] | None = None,
+                 plant_graphic: dict[float, dict] | None = None) -> list[dict]:
     """One row per round, from a session's stored HUD reads.
 
     `second_life` is the stored `second_life_observation` rows. Given them, a
     player death that `adjudication.death.second_life_death` calls a second
     life (Run It Back) is counted in `player_second_lives`, not as a death;
     without them every death is counted, as before.
+
+    `plant_graphic` is the stored planted-spike graphic samples by time
+    (`plant_graphic.stored_reads`); without them a round's plant is null
+    unless the superseded clock-run rule marks one (`plant_state`).
     """
     names = set(table.column_names)
     t = table.column("t_ms").to_pylist()
@@ -507,13 +596,9 @@ def build_rounds(table, second_life: list[dict] | None = None) -> list[dict]:
             r["first_event"] = ("player_kill" if near(rk)
                                 else "player_death" if near(rd) else "other")
 
-        # The plant is a persistent state, not a one-sample clock jump: the
-        # spike graphic sits where the digits are, so the clock goes unreadable
-        # and stays that way to the round's end. See the PLANT_* block.
-        planted, t_plant = _plant(t, clock, a, z)
-        r["spike_planted"] = planted
-        r["plant_t_ms"] = t_plant
-        r["post_plant_ms"] = (z - t_plant) if t_plant is not None else None
+        # The plant is the spike graphic standing where the digits are, a
+        # persistent state, not a one-sample clock jump. See `plant_state`.
+        r.update(plant_state(t, clock, a, z, plant_graphic))
 
     # PLAYER_SIDE decides; the inference is carried alongside as a check whose
     # disagreement is worth looking at, never as the answer.
@@ -613,6 +698,8 @@ def round_events(rounds: list[dict], session_id: str) -> list[dict]:
                 "right_before": r.get("right_before"),
                 "spike_planted": r.get("spike_planted"),
                 "plant_t_ms": r.get("plant_t_ms"),
+                "plant_source": r.get("plant_source"),
+                "plant_reason": r.get("plant_reason"),
             },
         ).to_dict())
     return events

@@ -3,6 +3,7 @@ r"""Score stored outputs against Riot's own match records.
     .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py SESSION [SESSION ...]
     .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --all [--record] [--json OUT]
     .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py SESSION --list-misses
+    .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py SESSION --derive-rounds cache --no-minimap
 
 Why this exists
 ---------------
@@ -521,8 +522,11 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
     rstart = {}
     for k in kills:
         rstart.setdefault(k["round"], k["gameTime"] - k["roundTime"])
-    rounds = store.read_rounds(sid, man["ingested_at"][:10]).to_pylist() \
-        if store.rounds_path(sid, man["ingested_at"][:10]).exists() else []
+    if opts.derive_rounds:
+        rounds = derive_rounds(store, man, opts.derive_rounds)
+    else:
+        rounds = store.read_rounds(sid, man["ingested_at"][:10]).to_pylist() \
+            if store.rounds_path(sid, man["ingested_at"][:10]).exists() else []
     out["rounds"] = score_rounds(rounds, m, rstart, a, my_team, opts)
 
     # -- deaths
@@ -546,6 +550,33 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
     return out
 
 
+def derive_rounds(store, man: dict, graphic_from: str) -> list[dict]:
+    """The session's rounds rebuilt in memory from the stored HUD, as `reticle
+    rounds` builds them, writing nothing. `graphic_from` picks the plant
+    graphic: `store` (the stored stream, None where stale), `cache` (read now
+    from the hud crop cache's scoreline crops, no decode) or `none`."""
+    import pyarrow.parquet as pq
+    from reticle import plant_graphic
+    from reticle.adjudication.death import stored_second_life
+    from reticle.killfeed import KILLFEED_PORTRAIT_VERSION
+    from reticle.rounds import build_rounds
+    sid, date = man["session_id"], man["ingested_at"][:10]
+    hud = pq.read_table(store.hud_path(sid, date))
+    second_life = stored_second_life(store.read_events("killfeed_portrait", sid),
+                                     KILLFEED_PORTRAIT_VERSION)
+    graphic = None
+    if graphic_from == "store":
+        graphic = plant_graphic.stored_reads(store, sid)
+    elif graphic_from == "cache":
+        from reticle.profiles import get_profile
+        from reticle.roi_cache import RoiCache
+        cache, _why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "hud")
+        if cache is not None:
+            graphic = {float(t): plant_graphic.read_field(crop)
+                       for _f, t, crop in cache.crops(plant_graphic.ROI)}
+    return build_rounds(hud, second_life, graphic)
+
+
 def _round_pair(rounds, t):
     for r in rounds:
         if r["t_start_ms"] <= t <= (r["t_close_ms"] or r["t_end_ms"]):
@@ -561,6 +592,10 @@ def score_rounds(rounds, m, rstart, a, my_team, opts) -> dict:
            "stored_rounds": len(rounds), "paired": 0,
            "winner_right": 0, "winner_wrong": 0, "winner_unread": 0,
            "plant_both": 0, "plant_riot_only": 0, "plant_store_only": 0,
+           # Riot plants timed after the stored score change: the post-round
+           # period, whose scoreline draws no graphic.
+           "plant_riot_only_post_decision": 0,
+           "plant_null_riot": 0, "plant_null_none": 0, "plant_null_reasons": Counter(),
            "plant_dt_ms": [], "start_dt_ms": [], "start_dt_by_source": defaultdict(list),
            "site": "no stored owner names a plant site",
            "defuse": "no stored owner times a defuse", "unpaired_riot": [], "rows": []}
@@ -590,7 +625,11 @@ def score_rounds(rounds, m, rstart, a, my_team, opts) -> dict:
         row = {"riot_round": n + 1, "stored_round": s["round_no"], "won_riot": won,
                "won_store": s["won"], "start_source": s["start_source"],
                "barrier_minus_start_ms": round(dstart), "riot_result": r.get("roundResultCode")}
-        if rp and s["spike_planted"]:
+        if s.get("spike_planted") is None:
+            out["plant_null_riot" if rp else "plant_null_none"] += 1
+            out["plant_null_reasons"][s.get("plant_reason")] += 1
+            row["plant"] = "null"
+        elif rp and s["spike_planted"]:
             out["plant_both"] += 1
             tp = t0 + r["plantRoundTime"]
             if s["plant_t_ms"] is not None:
@@ -599,11 +638,15 @@ def score_rounds(rounds, m, rstart, a, my_team, opts) -> dict:
         elif rp:
             out["plant_riot_only"] += 1
             row["plant"] = "riot_only"
+            if t0 + r["plantRoundTime"] > s["t_end_ms"] + MATCH_TOL_MS:
+                out["plant_riot_only_post_decision"] += 1
+                row["plant"] = "riot_only_post_decision"
         elif s["spike_planted"]:
             out["plant_store_only"] += 1
             row["plant"] = "store_only"
         out["rows"].append(row)
     out["start_dt_by_source"] = dict(out["start_dt_by_source"])
+    out["plant_null_reasons"] = dict(out["plant_null_reasons"])
     return out
 
 
@@ -1052,8 +1095,9 @@ def pool(results: list[dict], conv: str | None) -> dict:
     for r in ok:
         x = r["rounds"]
         for k in ("riot_rounds", "stored_rounds", "paired", "winner_right", "winner_wrong",
-                  "winner_unread", "plant_both", "plant_riot_only", "plant_store_only"):
-            R[k] += x[k]
+                  "winner_unread", "plant_both", "plant_riot_only", "plant_store_only",
+                  "plant_riot_only_post_decision", "plant_null_riot", "plant_null_none"):
+            R[k] += x.get(k, 0)
         R["count_equal_sessions"] += int(x["riot_rounds"] == x["stored_rounds"])
         sdt += x["start_dt_ms"]
         pdt += x["plant_dt_ms"]
@@ -1262,7 +1306,10 @@ def print_session(r: dict, list_misses: bool):
     ro = r["rounds"]
     print(f"   rounds riot {ro['riot_rounds']} stored {ro['stored_rounds']} paired {ro['paired']} "
           f"winners R/W/unread {ro['winner_right']}/{ro['winner_wrong']}/{ro['winner_unread']} plants both "
-          f"{ro['plant_both']} riot-only {ro['plant_riot_only']} store-only {ro['plant_store_only']} "
+          f"{ro['plant_both']} riot-only {ro['plant_riot_only']} "
+          f"(post-decision {ro.get('plant_riot_only_post_decision', 0)}) store-only "
+          f"{ro['plant_store_only']} null riot/none {ro.get('plant_null_riot', 0)}/"
+          f"{ro.get('plant_null_none', 0)} {ro.get('plant_null_reasons') or ''} "
           f"plant dt {_summ(ro['plant_dt_ms'])} barrier-start {_summ(ro['start_dt_ms'])}")
     if r.get("assists"):
         print(f"   combat report per round {r['assists']}")
@@ -1368,6 +1415,10 @@ def main(argv=None) -> int:
     ap.add_argument("--list-misses", action="store_true")
     ap.add_argument("--record", action="store_true", help="append metrics to notes/metrics.jsonl")
     ap.add_argument("--json", default=None, help="write full results (private: keep outside the repo)")
+    ap.add_argument("--derive-rounds", choices=("store", "cache", "none"), default=None,
+                    help="rebuild rounds in memory from the stored HUD instead of reading the "
+                         "round table; the plant graphic from the stored stream, the crop "
+                         "cache, or none")
     args = ap.parse_args(argv)
     _below_normal()
 

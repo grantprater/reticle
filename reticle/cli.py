@@ -74,7 +74,7 @@ from .profiles import DEFAULT_PROFILE, MinimapMode, get_profile
 from .segment import HUD_CHROME_ROIS, STATES, SegmentConfig, classify, segment
 from .store import DEFAULT_STORE, Store
 from .version import (ALLY_ICON_VERSION, COMBAT_REPORT_VERSION, MINIMAP_DARK_VERSION, SMOKE_VERSION, EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
-                      ROSTER_VERSION, SCOREBOARD_VERSION, SEGMENTER_VERSION)
+                      PLANT_GRAPHIC_VERSION, ROSTER_VERSION, SCOREBOARD_VERSION, SEGMENTER_VERSION)
 from .hud_reader import HudReader
 
 _HudPass = HudReader
@@ -1907,6 +1907,29 @@ def cmd_board(args) -> int:
     return 0
 
 
+def cmd_plant_graphic(args) -> int:
+    """The planted-spike graphic in the clock field at every cached frame,
+    from the hud crop cache's scoreline crop (`plant_graphic`). Decodes no
+    video."""
+    from . import plant_graphic
+    from .roi_cache import RoiCache
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        man = store.read_manifest(sid)
+        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "hud")
+        if cache is None:
+            print(f"{sid}: no hud crop cache ({why}) -- skipped")
+            continue
+        reads = [(f, t, plant_graphic.read_field(crop))
+                 for f, t, crop in cache.crops(plant_graphic.ROI)]
+        rows = plant_graphic.graphic_events(sid, reads, cache.rect_of(plant_graphic.ROI),
+                                            cache.record["version"])
+        out = store.write_events("plant_graphic", sid, rows)
+        print(f"{sid}: {rows[0]['frames']} frames, {rows[0]['graphic']} show the graphic -> {out}")
+    return 0
+
+
 def cmd_strip(args) -> int:
     """The round-history strip at every cached frame, from the hud crop cache's
     centre crop (`scoreboard_strip`): a second witness that the Tab board is
@@ -2362,7 +2385,11 @@ def cmd_rounds(args) -> int:
         from .adjudication.death import stored_second_life
         second_life = stored_second_life(store.read_events("killfeed_portrait", sid),
                                          KILLFEED_PORTRAIT_VERSION)
-        rs = build_rounds(hud, second_life)
+        # The plant is read from the planted-spike graphic where a current
+        # stream holds it (`plant_graphic.stored_reads`); otherwise it is null.
+        from . import plant_graphic
+        graphic = plant_graphic.stored_reads(store, sid)
+        rs = build_rounds(hud, second_life, graphic)
         if not rs:
             continue
         mp = next((t.split(":", 1)[1] for t in man.get("tags", []) if t.startswith("map:")), "?")
@@ -2370,7 +2397,8 @@ def cmd_rounds(args) -> int:
             r["map"] = mp
             r["session_id"] = sid
         every += rs
-        store.write_rounds(rs, sid, date, KILLFEED_PORTRAIT_VERSION if second_life is not None else None)
+        store.write_rounds(rs, sid, date, KILLFEED_PORTRAIT_VERSION if second_life is not None else None,
+                           PLANT_GRAPHIC_VERSION if graphic is not None else None)
         st_list = stalls.for_session(store, sid, date)
         _gt = gametime.build_session_gametime(sid, hud, rs, stall_list=st_list)
         won = [r["won"] for r in rs if r["won"] is not None]
@@ -5224,6 +5252,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--min-confidence", type=float, default=0.80)
     s.add_argument("--min-margin", type=float, default=0.04)
     s.set_defaults(func=cmd_board)
+
+    s = sub.add_parser("plant-graphic",
+                       help="the planted-spike graphic in the scoreline's clock field at every "
+                            "cached frame, from stored crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.set_defaults(func=cmd_plant_graphic)
 
     s = sub.add_parser("strip", help="the scoreboard's round-history strip at every cached frame, "
                                      "from stored crops (no video)")

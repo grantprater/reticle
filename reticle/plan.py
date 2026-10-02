@@ -64,7 +64,8 @@ def _round_stamps(store, manifest: dict) -> dict | None:
     meta = pq.read_schema(path).metadata or {}
     get = lambda k, missing: meta.get(k.encode(), missing.encode()).decode()
     return {"round": get("round_version", "unstamped"), "hud": get("hud_version", "unknown"),
-            "killfeed_portrait": get("killfeed_portrait_version", "unrecorded")}
+            "killfeed_portrait": get("killfeed_portrait_version", "unrecorded"),
+            "plant_graphic": get("plant_graphic_version", "unrecorded")}
 
 
 def waiver(stored, current: str) -> str | None:
@@ -170,8 +171,8 @@ def derived_streams() -> list[dict]:
     from .track import TRACK_VERSION
     from .version import (ABILITY_LIGHT_VERSION, COMBAT_REPORT_ROUND_VERSION,
                           COMBAT_REPORT_VERSION, ICON_TEARDROP_VERSION, MENU_VERSION,
-                          MINIMAP_DARK_VERSION, SMOKE_OWNER_VERSION, SMOKE_VERSION,
-                          SPIKE_CARRIER_VERSION, SPIKE_VERSION, TEAM_VISION_VERSION,
+                          MINIMAP_DARK_VERSION, PLANT_GRAPHIC_VERSION, SMOKE_OWNER_VERSION,
+                          SMOKE_VERSION, SPIKE_CARRIER_VERSION, SPIKE_VERSION, TEAM_VISION_VERSION,
                           TEARDROP_VERSION, TRAY_KIT_VERSION, TRAY_VERSION)
     roi = {"roi_cache_version": ROI_CACHE_VERSION}
     rows = [
@@ -179,6 +180,9 @@ def derived_streams() -> list[dict]:
          "command": "reticle menu {sid}", "how": "cache", "fields": roi, "upstream": ()},
         {"stream": "spike", "key": "spike_version", "current": SPIKE_VERSION,
          "command": "reticle spike {sid}", "how": "cache", "fields": roi, "upstream": ()},
+        {"stream": "plant_graphic", "key": "plant_graphic_version",
+         "current": PLANT_GRAPHIC_VERSION, "command": "reticle plant-graphic {sid}",
+         "how": "cache", "fields": roi, "upstream": ()},
         {"stream": "spike_carrier", "key": "spike_carrier_version",
          "current": SPIKE_CARRIER_VERSION, "command": "reticle spike {sid} --from-store",
          "how": "storage", "fields": {"spike_version": SPIKE_VERSION},
@@ -918,7 +922,8 @@ def stale(store, sessions: list[str]) -> dict:
     from .input_stamps import NO_ROWS
     from .killfeed import KILLFEED_PORTRAIT_VERSION
     from .minimap_objects import minimap_object_version
-    from .version import HUD_VERSION, ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION
+    from .version import (HUD_VERSION, PLANT_GRAPHIC_VERSION, ROUND_VERSION, TRAY_VERSION,
+                          ULT_CAST_VERSION)
     code_fields = hand_code_fields()
     out = {}
     for sid in sessions:
@@ -967,7 +972,11 @@ def stale(store, sessions: list[str]) -> dict:
             # rebuild now would record the current stamp or none.
             portrait = (KILLFEED_PORTRAIT_VERSION if store.events_version("killfeed_portrait", sid)
                         == KILLFEED_PORTRAIT_VERSION else "none")
-            moved = [k for k, v in (("hud", HUD_VERSION), ("killfeed_portrait", portrait))
+            # Plants are read only from a current graphic stream, likewise.
+            graphic = (PLANT_GRAPHIC_VERSION if store.events_version("plant_graphic", sid)
+                       == PLANT_GRAPHIC_VERSION else "none")
+            moved = [k for k, v in (("hud", HUD_VERSION), ("killfeed_portrait", portrait),
+                                    ("plant_graphic", graphic))
                      if r[k] != v or k in rescanned]
             if r["round"] != ROUND_VERSION or moved:
                 rounds_stale = True

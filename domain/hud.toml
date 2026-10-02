@@ -366,3 +366,50 @@ crops; whether the minimap's widget scale composes with resolution is untested
 """
 see = ["capture/minimap-size-settings"]
 phrases = ["killfeed scale", "hud scales with resolution"]
+
+[planted-spike-replaces-clock]
+claim = """
+From the plant until the round's end, the scoreline draws a red spike graphic
+(a rounded red triangle around a dark hexagonal mark) where the round clock's
+digits stand, and no digits.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-02"
+subject = "hud:scoreline"
+source = """
+player, 2026-10-02 (chat), confirming the observation in cached scoreline
+crops (roi_cache hud), viewed 2026-10-02 at Riot-recorded
+plants: 3694746e4e54 523.5-527.0 s (C:/Users/grant/Videos/2026-08-25 14-42-25.mp4)
+and 587c15b07779 1737.0-1738.0 s (C:/Users/grant/Videos/2026-09-05 19-21-29.mp4),
+each followed by the post-round countdown once the score changed
+"""
+use = """
+the plant's own witness: `plant_graphic` scores the field's red against its
+white ink, and `rounds` takes the graphic with the clock unread as the plant
+"""
+see = ["hud/low-clock-red-plate", "rounds/post-round-plant-no-graphic",
+       "minimap/spike-planted-icon"]
+phrases = ["spike graphic replaces the clock", "planted spike icon in the timer"]
+
+[low-clock-red-plate]
+claim = """
+Below fifteen seconds the round clock shows seconds and hundredths (14.96)
+instead of minutes and seconds, and its plate turns red; the digits stay white.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-02"
+subject = "hud:scoreline"
+source = """
+player, 2026-10-02 (chat), confirming the observation in cached scoreline
+crops viewed 2026-10-02: b7d24102a6f6 398.0-404.0 s
+(C:/Users/grant/Videos/2026-08-24 12-37-04.mp4) and 59c70f1ef720 1661.5-1667.0 s
+(C:/Users/grant/Videos/2026-08-24 13-58-11.mp4), rounds without a plant
+"""
+use = """
+a red clock field is not the planted spike; the white digits tell them apart.
+The scoreline OCR reads no clock in this form
+"""
+see = ["hud/planted-spike-replaces-clock"]
+phrases = ["red timer", "hundredths on the clock"]

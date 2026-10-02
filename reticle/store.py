@@ -708,9 +708,11 @@ class Store:
         return path
 
     def write_rounds(self, rounds: list[dict], session_id: str, date: str,
-                     killfeed_portrait_version: str | None = None) -> Path:
+                     killfeed_portrait_version: str | None = None,
+                     plant_graphic_version: str | None = None) -> Path:
         """`killfeed_portrait_version` is the stamp of the portrait stream whose
-        second-life reads split the deaths, or None where none were read."""
+        second-life reads split the deaths, or None where none were read;
+        `plant_graphic_version` likewise for the planted-spike graphic."""
         n = len(rounds)
         hud_path = self.hud_path(session_id, date)
         hud_meta = (pq.read_schema(hud_path).metadata or {}) if hud_path.is_file() else {}
@@ -750,6 +752,11 @@ class Store:
             "spike_planted": col("spike_planted", pa.bool_()),
             "plant_t_ms": col("plant_t_ms", pa.float64()),
             "post_plant_ms": col("post_plant_ms", pa.float64()),
+            # Which rule decided the plant (`plant_graphic` or the superseded
+            # `clock_run`), and why `spike_planted` is null where it is
+            # (round-0.8.0).
+            "plant_source": col("plant_source", pa.string()),
+            "plant_reason": col("plant_reason", pa.string()),
             "side_inferred": col("side_inferred", pa.string()),
             "side_separation": col("side_separation", pa.float64()),
             "side_agrees": col("side_agrees", pa.bool_()),
@@ -764,6 +771,7 @@ class Store:
                                     "hud_version": source_version or "unknown",
                                     "content_key": content_key or "unknown",
                                     "killfeed_portrait_version": killfeed_portrait_version or "none",
+                                    "plant_graphic_version": plant_graphic_version or "none",
                                     "schema_version": str(SCHEMA_VERSION)})
         path = self.rounds_path(session_id, date)
         path.parent.mkdir(parents=True, exist_ok=True)

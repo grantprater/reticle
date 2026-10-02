@@ -174,6 +174,7 @@ def collect(store: Store) -> dict:
         # predate a change to rounds.py, and a stale table is exactly what this
         # module exists to make impossible.
         rec["n_rounds"] = rec["won"] = rec["lost"] = rec["planted"] = None
+        rec["plant_unread"] = None
         rec["kills"] = rec["deaths"] = None
         rec["verdict"] = None
         if rec["hud"]:
@@ -189,7 +190,8 @@ def collect(store: Store) -> dict:
                     "killfeed_portrait", sid, "second_life_observation"),
                                                  KILLFEED_PORTRAIT_VERSION)
                 tbl = pq.read_table(store.hud_path(sid, date))
-                rs = build_rounds(tbl, second_life)
+                from . import plant_graphic
+                rs = build_rounds(tbl, second_life, plant_graphic.stored_reads(store, sid))
                 # The combat report's per-round verdict, read through its
                 # owner, which refuses a verdict assigned against other rounds.
                 from .adjudication.combat_report import round_verdicts
@@ -208,7 +210,10 @@ def collect(store: Store) -> dict:
                     # one being the half that generates STATUS.md.
                     rec["won"] = sum(1 for r in rs if r["won"] is True)
                     rec["lost"] = sum(1 for r in rs if r["won"] is False)
-                    rec["planted"] = sum(1 for r in rs if r["spike_planted"])
+                    # `is True`, and the nulls counted apart: an unread plant
+                    # is neither a plant nor a round without one.
+                    rec["planted"] = sum(1 for r in rs if r["spike_planted"] is True)
+                    rec["plant_unread"] = sum(1 for r in rs if r["spike_planted"] is None)
                     # Per-round sums, kept because the GAP between these and
                     # the session totals below is itself a measurement: it is
                     # the events that fall outside any detected round.
@@ -277,7 +282,8 @@ def render(data: dict, markdown: bool = False) -> str:
     if planted:
         tp = sum(s["planted"] for s in planted)
         tr = sum(s["n_rounds"] for s in planted)
-        L.append(f"Plants: {tp}/{tr} rounds ({tp / tr:.0%}).")
+        tu = sum(s.get("plant_unread") or 0 for s in planted)
+        L.append(f"Plants: {tp}/{tr} rounds ({tp / tr:.0%}); {tu} unread.")
     L.append("")
 
     cols = ("session", "map", "min", "rnds", "W-L", "plant", "K/D", "known", "d",
