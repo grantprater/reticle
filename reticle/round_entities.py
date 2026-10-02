@@ -70,7 +70,11 @@ from .round_lifetimes import (ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank
 # the segment's end holds a death; each piece takes at most one
 # (c40d950031bb 872.0 s: Killjoy's inner piece, under a segment bound to
 # Jett's later death).
-ROUND_ENTITY_VERSION = "round-entity-0.14.0"
+# 0.15.0 (2026-10-02): `_name_pieces` cuts a piece where a sighting gap spans
+# its best-evidence teammate's dead-interval start (`_death_cuts`), so the
+# alive constraint bars only the sightings after the killfeed death and the
+# part before it can carry the name; the cut is stored as `piece_cut`.
+ROUND_ENTITY_VERSION = "round-entity-0.15.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
@@ -471,7 +475,11 @@ def _piece_bodies(body, pieces, verdicts, ids, session_id, piece_deaths=None):
                        end_reason="death")
         elif j < len(ids) - 1:
             row.update(end_ms=None, right_censored_at_ms=ts[-1], death_id=None,
-                       death_evidence=None, end_reason="split: best teammate changed")
+                       death_evidence=None,
+                       end_reason=("split: sighting gap spans the best teammate's death"
+                                   if p.get("cut") else "split: best teammate changed"))
+        if p.get("cut"):
+            row["piece_cut"] = p["cut"]
         if died is not None and d is None:
             row["after_piece_death"] = died
         if d is not None:
@@ -535,6 +543,41 @@ def ally_dead_intervals(deaths: list[dict] | None, round_ends: dict, rt: list, r
     return out
 
 
+def _death_cuts(part, offset: int, claims: dict, dead_round: dict) -> dict:
+    """`{index: cut}` where one piece's sightings cross its best teammate's death.
+
+    `part` is the piece's sorted `(t_ms, observation_key)` sightings, starting
+    at `offset` in its segment; `dead_round` is the round's
+    `ally_dead_intervals`. The best teammate is the one the piece's summed
+    rendered-art evidence favours. Where a sighting gap (`GAP_MS`) spans the
+    start of that teammate's dead interval -- the last sighting at or before
+    it, the next strictly inside it -- the piece is cut: the killfeed, another
+    channel, witnesses that the teammate drew no icon after, so the sightings
+    inside the interval are another icon the tracker joined, and the alive
+    constraint should bar them alone (b7d24102a6f6 R5: 90 Sage fits, then 2
+    fits 14.5 s after Sage's death). Without a gap the tracker followed one
+    icon across the death, and nothing is cut. No sighting is dropped."""
+    total = Counter()
+    for _, k in part:
+        total.update((((claims.get(k) or {}).get("evidence") or {}).get("scores")) or {})
+    if not total:
+        return {}
+    best, score = total.most_common(1)[0]
+    if score <= 0:
+        return {}
+    out = {}
+    ts = [t for t, _ in part]
+    for s, e, why in dead_round.get(best, ()):
+        for i in range(len(ts) - 1):
+            if ts[i] <= s < ts[i + 1] < e and ts[i + 1] - ts[i] > GAP_MS:
+                out[offset + i + 1] = {
+                    "rule": "sighting_gap_spans_death", "teammate": best,
+                    "evidence": round(score, 4), "gap_ms": [ts[i], ts[i + 1]],
+                    "dead_from_ms": s, "reason": why}
+                break
+    return out
+
+
 def _roster_window(times: list[float], alive: list, t_ms: float) -> list:
     """The roster reads within `ROSTER_LAG_MS` of `t_ms`, with the read in
     force at the window's start."""
@@ -570,6 +613,8 @@ def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, ref
     pieces, pieces_of, piece_of, last_piece = {}, {}, {}, {}
     frames: dict[tuple, set] = {}
     self_seen = set()
+    dead = ally_dead_intervals([d for rec in round_records for d in rec["deaths"]],
+                               {rec["round_no"]: rec["z"] for rec in round_records}, rt, ra)
     for rec in round_records:
         rno, segs = rec["round_no"], {}
         for o in rec["obs_rows"]:
@@ -585,19 +630,23 @@ def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, ref
                                 or {}).get(a, 0.0) for a in names] for _, k in ob])
                 path = _viterbi(E, penalty)
             cuts = [0] + [i for i in range(1, len(path)) if path[i] != path[i - 1]] + [len(ob)]
+            why_cut = {}
+            for a, b in zip(cuts, cuts[1:]):
+                why_cut.update(_death_cuts(ob[a:b], a, claims, dead.get(rno) or {}))
+            cuts = sorted(set(cuts) | set(why_cut))
             ids = [seg] if len(cuts) == 2 else [f"{seg}/P{j}" for j in range(len(cuts) - 1)]
             pieces_of[seg], last_piece[seg] = ids, ids[-1]
             for j, pid in enumerate(ids):
                 part = ob[cuts[j]:cuts[j + 1]]
                 pieces[pid] = {"round": rno, "t": [t for t, _ in part],
                                "claims": [claims[k] for _, k in part if k in claims]}
+                if cuts[j + 1] in why_cut:
+                    pieces[pid]["cut"] = why_cut[cuts[j + 1]]
                 for t, k in part:
                     piece_of[k] = pid
                     frames.setdefault((rno, t), set()).add(pid)
     capacity = {f: ally_capacity(_roster_window(rt, ra, f[1]) if rt else None, f in self_seen)
                 for f in frames}
-    dead = ally_dead_intervals([d for rec in round_records for d in rec["deaths"]],
-                          {rec["round_no"]: rec["z"] for rec in round_records}, rt, ra)
     assigned = assign_ally_pieces(pieces, frames, capacity,
                                   teammate_fit=(references or {}).get("teammate_fit"), dead=dead)
     # The assignment is the piece's witness; the arbiter decides its name.

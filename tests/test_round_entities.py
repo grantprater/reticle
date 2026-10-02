@@ -351,7 +351,8 @@ class DeathBindingTests(unittest.TestCase):
 
 
 class BindingRuleTests(unittest.TestCase):
-    """round-entity-0.14.0: inner pieces under a bound segment."""
+    """Inner pieces under a bound segment (round-entity-0.14.0), and the cut
+    at a sighting gap that spans the best teammate's killfeed death (0.15.0)."""
 
     NAMES = ["Breach", "Deadlock", "Miks", "Reyna"]
 
@@ -394,6 +395,21 @@ class BindingRuleTests(unittest.TestCase):
         allies = self._run(spans, [breach, reyna], t_end=1000.0)
         self.assertEqual([(r["agent"], r["death_id"]) for r in allies],
                          [("Breach", breach["death_id"]), ("Reyna", reyna["death_id"])])
+
+    def test_a_piece_is_cut_where_a_gap_spans_its_teammates_death(self):
+        """b7d24102a6f6: a Sage piece with two stray fits 14.5 s after Sage's
+        death was barred whole and left the death unbound."""
+        spans = [(67 * k, 0.0) for k in range(6)] + [(2010, 0.0), (2077, 0.0)]
+        d = self._death(400.0, "Breach")
+        allies = self._run(spans, [d])
+        self.assertEqual(sum(r["observations"] for r in allies), len(spans))  # none dropped
+        first, last = allies[0], allies[-1]
+        self.assertEqual((first["agent"], first["death_id"]), ("Breach", d["death_id"]))
+        self.assertEqual(first["piece_cut"]["teammate"], "Breach")
+        self.assertEqual(first["piece_cut"]["gap_ms"], [335.0, 2010.0])
+        self.assertNotEqual(last["agent"], "Breach")
+        self.assertIn("Breach", last["identity_barred"])
+        self.assertIsNone(last["death_id"])
 
     def test_a_revive_stays_unbound(self):
         """bdfdcf009dba 1310.0 s and ff636d173b07 525.0 s: a revive entry ends
