@@ -29,7 +29,18 @@ SCHEMA_VERSION = 1
 # second life, not a death (`player_second_lives`), where badge reads exist.
 # 0.7.0 (2026-09-24): a player kill or death entry split into two tracks is
 # counted once (`checks.merge_split_tracks`).
-ROUND_VERSION = "round-0.7.0"
+# 0.8.0 (2026-10-02): a plant is the planted-spike graphic (`plant_graphic`)
+# seen on two consecutive samples with the clock unread, not an unread-clock run
+# of at least 7 s; one sample, or no graphic rows in the round, stores
+# `spike_planted` null with `plant_reason`. Without a current `plant_graphic`
+# stream the old run rule still marks a plant (`plant_source = clock_run`) and
+# every other round is null, never False. Over the 21 Riot-scored matches:
+# plants found by both 212 -> 251, Riot only 68 -> 27, store only 8 -> 0.
+ROUND_VERSION = "round-0.8.0"
+# The planted-spike graphic in the scoreline's clock field, read from the hud
+# crop cache (`plant_graphic`). 0.1.0 (2026-10-02): red coverage of the clock
+# field less twice its white ink, cut at 0.2.
+PLANT_GRAPHIC_VERSION = "plant-graphic-0.1.0"
 # Coaching bundle. 0.2.0 (2026-09-24): rounds apply the second-life gate, and
 # each event carries its round's combat report verdict (`round_verdict`).
 # 0.3.0 (2026-09-30): kills and deaths are the death owner's `death_verdict`

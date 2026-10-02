@@ -71,7 +71,9 @@ class RoundTimeSchedule:
     t_start_ms: float                  # Media start of round (buy phase start)
     t_end_ms: float                    # Media end of round (score increment)
     t_live_ms: float                   # Media instant barriers drop (clock -> 100s)
-    spike_planted: bool = False
+    # None where the rounds table could not read the plant (`plant_reason`);
+    # such a round has no post-plant phase to place.
+    spike_planted: Optional[bool] = False
     plant_t_ms: Optional[float] = None # Media instant spike was planted
     post_plant_ms: Optional[float] = None
     won_left: Optional[bool] = None
@@ -276,7 +278,8 @@ def build_session_gametime(
     for r in rounds:
         r_no = r["round_no"]
         t_s, t_e = float(r["t_start_ms"]), float(r["t_end_ms"])
-        planted = bool(r.get("spike_planted", False))
+        planted = r.get("spike_planted", False)
+        planted = None if planted is None else bool(planted)
         plant_t = float(r["plant_t_ms"]) if r.get("plant_t_ms") is not None else None
         post_plant = float(r["post_plant_ms"]) if r.get("post_plant_ms") is not None else None
         won_left = r.get("won_left")

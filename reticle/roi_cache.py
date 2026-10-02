@@ -59,7 +59,8 @@ ROI_CACHE_VERSION = "roi-cache-0.1.0"
 CACHE_SETS = {
     "killfeed": ("killfeed",),
     # The HUD pass (`hud_reader.HudReader`), the roster that rides it, and the
-    # screen centre. The spike graphic replaces the clock inside `scoreline`.
+    # screen centre. The spike graphic replaces the clock inside `scoreline`
+    # [domain:hud/planted-spike-replaces-clock].
     "hud": ("scoreline", "hud_hp", "hud_ammo", "killfeed", "hud_roster", "hud_roster_enemy",
             "center"),
     # The minimap and the ability tray at the minimap rate, written over each

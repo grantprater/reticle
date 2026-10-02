@@ -59,8 +59,9 @@ def _current_store(root: Path) -> _Store:
             store.table(stream, **{f"{stream}_version": now})
         else:
             store.events[stream] = [{"v": now}]
+    # No plant graphic stream is stored, so the rounds read none.
     store.table("rounds", round_version=ROUND_VERSION, hud_version=HUD_VERSION,
-                killfeed_portrait_version=KILLFEED_PORTRAIT_VERSION)
+                killfeed_portrait_version=KILLFEED_PORTRAIT_VERSION, plant_graphic_version="none")
     store.events["death:rows"] = [{"death_adjudication_version": DEATH_ADJUDICATION_VERSION,
                                    "inputs": {"hud": HUD_VERSION,
                                               "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
@@ -100,7 +101,8 @@ class PlanTests(unittest.TestCase):
     def test_unrecorded_portrait_stamp_stales_rounds_then_deaths(self):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
-            store.table("rounds", round_version=ROUND_VERSION, hud_version=HUD_VERSION)
+            store.table("rounds", round_version=ROUND_VERSION, hud_version=HUD_VERSION,
+                        plant_graphic_version="none")
             derived = stale(store, ["s"])["s"]["derived"]
             self.assertEqual([x["stream"] for x in derived], ["rounds", "death", "ult_cast"])
             self.assertEqual(derived[0]["inputs_moved"], ["killfeed_portrait"])
@@ -123,10 +125,19 @@ class PlanTests(unittest.TestCase):
             store = _current_store(Path(d))
             store.events["killfeed_portrait"] = [{"v": "killfeed-portrait-0.0.1"}]
             store.table("rounds", round_version=ROUND_VERSION, hud_version=HUD_VERSION,
-                        killfeed_portrait_version="none")
+                        killfeed_portrait_version="none", plant_graphic_version="none")
             derived = stale(store, ["s"])["s"]["derived"]
             # The rescan rewrites the portraits, and then the badges move the rounds.
             self.assertEqual(derived[0]["inputs_moved"], ["killfeed_portrait"])
+
+    def test_a_stored_plant_graphic_stales_rounds_built_without_it(self):
+        from reticle.version import PLANT_GRAPHIC_VERSION
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["plant_graphic"] = [{"v": PLANT_GRAPHIC_VERSION}]
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual(derived[0]["stream"], "rounds")
+            self.assertEqual(derived[0]["inputs_moved"], ["plant_graphic"])
 
     def test_a_round_bump_stales_deaths_built_on_the_old_rounds(self):
         with tempfile.TemporaryDirectory() as d:

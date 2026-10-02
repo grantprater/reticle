@@ -215,3 +215,24 @@ exceptions = """
 the first round after the halftime swap also measured 42 s on a06f04a0059f
 (round 13), so the long buy phase may belong to both pistol rounds; unconfirmed
 """
+
+[post-round-plant-no-graphic]
+claim = """
+The spike can be planted after the score changes, in the post-round period. The
+scoreline then keeps its post-round countdown and draws no planted-spike graphic.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-02"
+source = """
+Riot match records aligned to the store clock put plants 2.1 s after the score
+change at 223d636bf8d2 near 1303 s (C:/Users/grant/Videos/2026-08-23 20-09-01.mp4)
+and 5.8 s after it at 5822b6646448 near 1653 s
+(C:/Users/grant/Videos/2026-08-26 12-38-38.mp4); the cached scoreline crops
+show the countdown 0:06 to 0:00 through both, no graphic (viewed 2026-10-02)
+"""
+use = """
+`rounds.spike_planted` means planted before the round was decided; a plant in
+the post-round period is outside what the scoreline can show
+"""
+see = ["rounds/post-round-period", "hud/planted-spike-replaces-clock"]
