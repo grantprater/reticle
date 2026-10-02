@@ -348,3 +348,59 @@ class DeathBindingTests(unittest.TestCase):
                          "drop_is_a_teammate")
         self.assertEqual(drop_binding_refusal({"family": "barrier"}, 1000.0, []),
                          "barrier_is_not_a_player")
+
+
+class BindingRuleTests(unittest.TestCase):
+    """round-entity-0.14.0: inner pieces under a bound segment."""
+
+    NAMES = ["Breach", "Deadlock", "Miks", "Reyna"]
+
+    def _run(self, spans, deaths, t_end=5000.0):
+        """`spans` lists `(t_ms, feature)` sightings of one icon at x=50; the
+        feature 0.0 reads as Breach, 3.0 as Reyna. Frames between sightings
+        draw the widget with no ally icon."""
+        from reticle.version import ALLY_PORTRAIT_FEATURES_VERSION
+        refs = {"version": "t", "features_version": ALLY_PORTRAIT_FEATURES_VERSION,
+                "margin_min": 0.5, "variance": {"g": [1.0]},
+                "agents": {n: {"g": [float(i)]} for i, n in enumerate(self.NAMES)}}
+        lineup = {"sides": {"ally": [{"slot": i, "agent": a, "best_guess": a} for i, a in
+                                     enumerate(["Phoenix"] + self.NAMES)]},
+                  "player": {"agent": "Phoenix"}}
+        seen = dict(spans)
+        events = []
+        for k, t in enumerate(sorted(set(seen) | set(range(0, int(t_end), 67)))):
+            events.append(_frame(k, float(t)))
+            if t in seen:
+                icon = _icon(k, float(t), 50.0)
+                icon.update(portrait_features={"g": [seen[t]]},
+                            portrait_features_version=ALLY_PORTRAIT_FEATURES_VERSION)
+                events.append(icon)
+        rounds = [{"round_no": 1, "t_start_ms": 0.0, "t_end_ms": t_end}]
+        rows = session_lifetimes("s", events, rounds, 1.0, lineup=lineup,
+                                 gallery={n: [] for n in self.NAMES}, references=refs,
+                                 deaths=deaths)
+        return sorted((r for r in rows if r["kind"] == "entity" and r["family"] == "ally"),
+                      key=lambda r: r["first_seen_ms"])
+
+    def _death(self, t, victim, **kw):
+        return {"kind": "death_verdict", "side": "ally", "round_no": 1, "t_ms": t,
+                "victim": victim, "death_id": f"death:s:{int(t)}:0", **kw}
+
+    def test_an_inner_piece_takes_its_death_under_a_bound_segment(self):
+        """c40d950031bb 872.0 s: Killjoy's inner piece, whose segment's end
+        took Jett's later death, takes Killjoy's."""
+        spans = [(67 * k, 0.0 if k < 6 else 3.0) for k in range(12)]
+        breach, reyna = self._death(360.0, "Breach"), self._death(800.0, "Reyna")
+        allies = self._run(spans, [breach, reyna], t_end=1000.0)
+        self.assertEqual([(r["agent"], r["death_id"]) for r in allies],
+                         [("Breach", breach["death_id"]), ("Reyna", reyna["death_id"])])
+
+    def test_a_revive_stays_unbound(self):
+        """bdfdcf009dba 1310.0 s and ff636d173b07 525.0 s: a revive entry ends
+        no piece, inner or cut."""
+        spans = [(67 * k, 0.0 if k < 6 else 3.0) for k in range(12)]
+        revive = self._death(360.0, "Breach", is_revive=True)
+        reyna = self._death(800.0, "Reyna")
+        allies = self._run(spans, [revive, reyna], t_end=1000.0)
+        self.assertNotIn(revive["death_id"], [r["death_id"] for r in allies])
+        self.assertEqual(allies[-1]["death_id"], reyna["death_id"])
