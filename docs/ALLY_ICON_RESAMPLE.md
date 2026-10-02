@@ -218,3 +218,6 @@ the 15 Hz pass, both from the cache:
 The 2 Hz pass still grabs every cached frame between samples
 (`roi_cache.GRAB_MAX`), and the FFV1 decoder spreads that over its own
 threads, so CPU falls less than wall. A decode was not timed.
+
+Smoothly enlarged crops, the other resampling question, are measured in
+[ALLY_ICON_UPSCALE.md](ALLY_ICON_UPSCALE.md).
