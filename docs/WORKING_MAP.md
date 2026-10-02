@@ -49,6 +49,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Which documents are live, their status, and what reaches them | `documents.toml`, `reticle/documents.py`, `doctor` DOCS |
 | VOD scan cost and reader call frequencies | `reticle usage [SESSION]`, `reticle/usage.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
+| Stored outputs against Riot's match records (private, in `<store>/external/riot`) | `prototypes/riot_ground_truth.py` |
 | Experiments | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |
 | The scene model: render-and-compare, all channels | [SCENE_MODEL.md](SCENE_MODEL.md) |
@@ -112,6 +113,7 @@ Module names above are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle view SESSION --round N|--gaps  # stored events and lanes
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
 .\.venv\Scripts\python.exe tools\wipe_scout.py SESSION   # stored data only
+.\.venv\Scripts\python.exe prototypes\riot_ground_truth.py SESSION|--all [--list-misses] [--record]  # stored data and Riot records only
 .\.venv\Scripts\python.exe prototypes\minimap_geometry.py --all
 .\.venv\Scripts\python.exe prototypes\line_classes.py bake --all
 .\.venv\Scripts\python.exe -m reticle occluders --all
