@@ -107,8 +107,8 @@ what "I rebuilt the geometry while my experiment read it" states.
 - **Continue the prior; widen the search only on surprise.** Context predicts
   most of what comes next: the last frame's state, the match's lineup, the
   banner's type, the adjudicated belief the last run left. Start every reading
-  and experiment from that prediction, check it cheaply, and widen only on
-  surprise. Follow a killfeed entry where it was; seek a smoke where the match's
+  and experiment from that prediction, check it cheaply, and widen only where
+  surprised. Follow a killfeed entry where it was; seek a smoke where the match's
   agents' abilities land; place a portrait tile from its banner type's anchor;
   revise the belief an experiment tested rather than starting over. Store the
   surprise, never average it away. A surprise may reopen the verdict it
