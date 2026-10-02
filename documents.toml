@@ -263,6 +263,12 @@ status = "recorded"
 since = "2026-10-01"
 
 [[document]]
+path = "docs/CAPTURE_PSF.md"
+kind = "findings"
+status = "recorded"
+since = "2026-10-02"
+
+[[document]]
 path = "docs/ALLY_RATE.md"
 kind = "findings"
 status = "recorded"

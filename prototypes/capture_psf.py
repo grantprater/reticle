@@ -3,6 +3,10 @@ r"""The capture chain's blur on the minimap, measured on the baked map's walls.
     .\.venv\Scripts\python.exe prototypes\capture_psf.py measure SESSION [--frames N]
     .\.venv\Scripts\python.exe prototypes\capture_psf.py compare SESSION [SESSION ...]
     .\.venv\Scripts\python.exe prototypes\capture_psf.py plot SESSION [SESSION ...]
+    .\.venv\Scripts\python.exe prototypes\capture_psf.py icons SESSION --between T0 T1
+    .\.venv\Scripts\python.exe prototypes\capture_psf.py icon-score --calib S:T0-T1 ... --test S:T0-T1 ...
+    .\.venv\Scripts\python.exe prototypes\capture_psf.py icon-sheet SESSION --between T0 T1 [--n N]
+    .\.venv\Scripts\python.exe prototypes\capture_psf.py record SESSION [SESSION ...]
 
 The player's hypothesis: every minimap element passes through one nearly
 fixed blur -- the game's anti-aliased draw, OBS's downscale, 4:2:0 chroma
@@ -39,7 +43,19 @@ PSF, then a chroma sample per 2-pixel pair aligned to even FRAME coordinates
 odd-aligned pair is the control. `block_test` counts 2x2 blocks whose four
 chroma values agree.
 
-No reader stamp moves; each `measure` writes one JSON under
+**Stage 2: ally icons through the PSF** (`IconBatch`, `fit_batch`). The
+ally teardrop of `teardrop.ICON_CLASSES['ally']` times `geometry.map_scale`
+(the one scale transform) times a free scale s, at each stored ally_icon
+detection (`ally-icon-0.7.0`). Five layers per channel: ring and lobe,
+portrait disc, a one-pixel rim outside the teardrop (added after the first
+sheet; see the amendment record), background (the baked static times a gain)
+and a constant. Luma coverage passes through the stage-1 PSF as a 1.13 px
+ramp; chroma through the same plus 4:2:0. Colours are solved linearly; centre,
+s and facing by grid, then compass refine. `icon-score` scores the fit as a
+verifier of the stored stream (`upscale_trial`'s roster score) and its centre
+jitter on stationary icons; `record` writes the metrics rows the doc cites.
+
+No reader stamp moves; every command writes under
 `analysis/capture-psf-20261001/`.
 """
 from __future__ import annotations
@@ -62,7 +78,7 @@ import numpy as np  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from reticle import geometry  # noqa: E402
+from reticle import geometry, teardrop  # noqa: E402
 from reticle.minimap import VOID, minimap_roi_px, widget_scale  # noqa: E402
 from reticle.profiles import get_profile  # noqa: E402
 from reticle.roi_cache import RoiCache  # noqa: E402
@@ -656,12 +672,639 @@ def plot(sids: list[str]) -> Path:
     return p
 
 
+# ------------------------------------------------------------------ stage 2: icons through the PSF
+#: Stage 1's luma PSF (a one-pixel box and a 0.15 px Gaussian) as the linear
+#: ramp of equal variance: sqrt(1 + 12 x 0.15^2) px.
+LUMA_RAMP = 1.13
+NOISE = 4.0               # grey; z = (SSE_bg - SSE_icon) / NOISE^2
+ALLY = teardrop.ICON_CLASSES["ally"]
+DEEP_PX = 2.0             # pixels deeper than r_in - this inside the initial disc carry no weight
+C_GRID = np.arange(-1.5, 1.501, 0.5)
+S_GRID = (0.9, 1.0, 1.1)
+TH_NEAR = (-20.0, 0.0, 20.0, 180.0)   # degrees about the stored facing (180: the ring fit's flip)
+TH_ALL = tuple(range(0, 360, 30))      # when the stored icon has no facing
+STEP0 = (0.25, 0.03, 8.0)              # compass: centre px, scale, degrees
+STEP_MIN = 0.03
+TEAL_MIN = 0.5
+STAT_DISC = 0.55          # stationary test: luma inside this fraction of r_in
+STAT_MEAN, STAT_MAX, CHANGED_MIN = 1.0, 6.0, 0.3
+PAIR_MS, PAIR_PX = 100.0, 2.0
+
+
+def _tdev():
+    import torch
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def _layers(dx, dy, th, s, sc):
+    """Ring-and-lobe, disc, rim and background coverage at pixel centres through
+    the luma PSF: `teardrop.render`'s model with the edge set by stage 1."""
+    import torch
+    r_in, r_out, L_ = ALLY.r_in * sc * s, ALLY.r_out * sc * s, ALLY.L * sc * s
+    c, sn = torch.cos(th), torch.sin(th)
+    u = dx * c + dy * sn
+    v = -dx * sn + dy * c
+    rho = torch.sqrt(dx * dx + dy * dy)
+    ca = r_out / L_
+    sa = torch.sqrt(torch.clamp(1.0 - ca * ca, min=0.0))
+    d_wedge = u * ca + v.abs() * sa - r_out
+    d_tri = torch.maximum(d_wedge, torch.maximum(r_out * ca - u, u - L_))
+    d_tear = torch.minimum(rho - r_out, d_tri)
+    T = torch.clamp(0.5 - torch.maximum(d_tear, r_in - rho) / LUMA_RAMP, 0.0, 1.0)
+    D = torch.clamp(0.5 - (rho - r_in) / LUMA_RAMP, 0.0, 1.0)
+    # A one-pixel band outside the teardrop: the dark rim some captures draw
+    # round the ring; its colour is free, so where no rim is drawn it takes
+    # the background's.
+    O = torch.clamp(0.5 - (d_tear - 1.0) / LUMA_RAMP, 0.0, 1.0) - torch.clamp(0.5 - d_tear / LUMA_RAMP, 0.0, 1.0)
+    O = torch.clamp(O, 0.0, 1.0)
+    Bg = torch.clamp(1.0 - T - D - O, 0.0, 1.0)
+    return T, D, O, Bg
+
+
+def _q420(M, fx0, fy0):
+    """4:2:0 as stage 1 measured it: a pair mean vertically and a left-sited
+    [1 2 1]/4 horizontally, both on pairs aligned to even frame coordinates,
+    then duplicated. M (B, P, H, W); fx0, fy0 (B,) frame coordinates of M's
+    pixel (0, 0)."""
+    import torch
+    B, P, H, W = M.shape
+    dev = M.device
+    rows = torch.arange(H, device=dev)
+    lr = (rows[None] - ((fy0[:, None] + rows[None]) % 2)).clamp(0, H - 2)        # (B, H)
+    i0 = lr[:, None, :, None].expand(B, P, H, W)
+    Mv = 0.5 * (torch.gather(M, 2, i0) + torch.gather(M, 2, i0 + 1))
+    cols = torch.arange(W, device=dev)
+    lc = (cols[None] - ((fx0[:, None] + cols[None]) % 2)).clamp(1, W - 2)        # (B, W)
+    j0 = lc[:, None, None, :].expand(B, P, H, W)
+    return (0.25 * torch.gather(Mv, 3, j0 - 1) + 0.5 * torch.gather(Mv, 3, j0)
+            + 0.25 * torch.gather(Mv, 3, j0 + 1))
+
+
+def _solve(X, y, w):
+    """Weighted least squares per (B, P): X (B, P, K, N), y (B, N), w (B, N).
+    Returns SSE (B, P) and coefficients (B, P, K)."""
+    import torch
+    Xw = X * w[:, None, None, :]
+    A = (Xw @ X.transpose(-1, -2)).double()
+    K = X.shape[2]
+    tr = A.diagonal(dim1=-2, dim2=-1).sum(-1)[..., None, None] / K
+    # A ridge relative to the matrix's scale keeps an empty layer (an icon at
+    # the widget's edge, a band off the window) from making it singular.
+    A = A + (1e-7 * tr + 1e-6) * torch.eye(K, device=X.device, dtype=A.dtype)
+    b = (Xw * y[:, None, None, :]).sum(-1).double()
+    coef = torch.linalg.solve(A, b[..., None])[..., 0]
+    yy = (w * y * y).sum(-1)[:, None].double()
+    sse = (yy - (coef * b).sum(-1)).float()
+    return sse, coef.float()
+
+
+class IconBatch:
+    """Windows of B icons: observed Y/Cb/Cr (inner window), the baked static
+    on the padded window, weights, frame origins and initial poses."""
+
+    def __init__(self, obs, stat, w, fx0, fy0, init, sc, half):
+        import torch
+        dev = _tdev()
+        self.obs = torch.as_tensor(obs, device=dev, dtype=torch.float32)      # (B, 3, N)
+        self.stat = torch.as_tensor(stat, device=dev, dtype=torch.float32)    # (B, 3, Hp, Wp)
+        self.w = torch.as_tensor(w, device=dev, dtype=torch.float32)          # (B, N)
+        self.fx0 = torch.as_tensor(fx0, device=dev, dtype=torch.long)         # padded origin
+        self.fy0 = torch.as_tensor(fy0, device=dev, dtype=torch.long)
+        self.init = torch.as_tensor(init, device=dev, dtype=torch.float32)    # (B, 3): cx, cy in window px, facing deg
+        self.sc, self.half = float(sc), int(half)
+        Hp = 2 * half + 1 + 4
+        g = torch.arange(Hp, device=dev, dtype=torch.float32) - 2.0           # inner px coords
+        self.Y, self.X = torch.meshgrid(g, g, indexing="ij")
+        self.Hp = Hp
+
+    def _inner(self, M):
+        n = 2 * self.half + 1
+        return M[..., 2:2 + n, 2:2 + n].reshape(*M.shape[:2], n * n)
+
+    def loss(self, cx, cy, s, th, want_coef=False):
+        """SSE summed over Y, Cb, Cr for parameters (B, P) each."""
+        import torch
+        dx = self.X[None, None] - cx[..., None, None]
+        dy = self.Y[None, None] - cy[..., None, None]
+        T, D, O, Bg = _layers(dx, dy, th[..., None, None], s[..., None, None], self.sc)
+        sY, sB, sR = (self.stat[:, k][:, None] for k in range(3))
+        XY = torch.stack([self._inner(T), self._inner(D), self._inner(O), self._inner(sY * Bg),
+                          self._inner(Bg)], 2)
+        QT, QD, QO, QB = (_q420(M, self.fx0, self.fy0) for M in (T, D, O, Bg))
+        XB = torch.stack([self._inner(QT), self._inner(QD), self._inner(QO),
+                          self._inner(_q420(sB * Bg, self.fx0, self.fy0)), self._inner(QB)], 2)
+        XR = torch.stack([self._inner(QT), self._inner(QD), self._inner(QO),
+                          self._inner(_q420(sR * Bg, self.fx0, self.fy0)), self._inner(QB)], 2)
+        tot, coefs = 0.0, []
+        for k, Xc in enumerate((XY, XB, XR)):
+            sse, coef = _solve(Xc, self.obs[:, k], self.w)
+            tot = tot + sse
+            coefs.append(coef)
+        return (tot, torch.stack(coefs, -1)) if want_coef else tot
+
+    def loss_bg(self):
+        """SSE of the background alone (static gain and offset per channel)."""
+        import torch
+        ones = torch.ones((self.obs.shape[0], 1, self.Hp, self.Hp), device=self.obs.device)
+        tot = 0.0
+        for k in range(3):
+            sk = self.stat[:, k][:, None]
+            m = sk if k == 0 else _q420(sk, self.fx0, self.fy0)
+            X = torch.stack([self._inner(m), self._inner(ones)], 2)
+            sse, _ = _solve(X, self.obs[:, k], self.w)
+            tot = tot + sse[:, 0]
+        return tot
+
+
+def fit_batch(bt: IconBatch) -> dict:
+    """Grid round each icon's stored pose, then a compass refine."""
+    import torch
+    B = bt.obs.shape[0]
+    dev = bt.obs.device
+    cx0, cy0, f0 = bt.init[:, 0], bt.init[:, 1], bt.init[:, 2]
+    has_f = ~torch.isnan(f0)
+    grid = []
+    for dxx in C_GRID:
+        for dyy in C_GRID:
+            for ss in S_GRID:
+                grid.append((dxx, dyy, ss))
+    G = torch.tensor(grid, device=dev, dtype=torch.float32)                   # (g, 3)
+    ths_near = torch.tensor(TH_NEAR, device=dev, dtype=torch.float32)
+    ths_all = torch.tensor(TH_ALL, device=dev, dtype=torch.float32)
+    best = torch.full((B,), float("inf"), device=dev)
+    bp = torch.zeros((B, 4), device=dev)
+    # Icons with a stored facing try its four near values; the rest every 30
+    # degrees. A batch mixing both runs twelve, the near list repeating.
+    nt = len(TH_NEAR) if bool(has_f.all()) else len(TH_ALL)
+    for ti in range(nt):
+        th_deg = torch.where(has_f, torch.nan_to_num(f0) + ths_near[ti % len(TH_NEAR)],
+                             ths_all[ti % len(TH_ALL)].expand(B))
+        for g0 in range(0, G.shape[0], 49):
+            Gc = G[g0:g0 + 49]
+            cx = cx0[:, None] + Gc[None, :, 0]
+            cy = cy0[:, None] + Gc[None, :, 1]
+            s = Gc[None, :, 2].expand(B, -1)
+            th = torch.deg2rad(th_deg)[:, None].expand(B, Gc.shape[0])
+            L = bt.loss(cx, cy, s, th)
+            v, j = L.min(1)
+            upd = v < best
+            best = torch.where(upd, v, best)
+            cand = torch.stack([cx[torch.arange(B), j], cy[torch.arange(B), j], s[torch.arange(B), j],
+                                th_deg], 1)
+            bp = torch.where(upd[:, None], cand, bp)
+    # Compass refine.
+    step = torch.tensor(STEP0, device=dev).repeat(B, 1)                        # (B, 3)
+    dirs = torch.tensor([[0, 0, 0, 0], [1, 0, 0, 0], [-1, 0, 0, 0], [0, 1, 0, 0], [0, -1, 0, 0],
+                         [0, 0, 1, 0], [0, 0, -1, 0], [0, 0, 0, 1], [0, 0, 0, -1]], device=dev, dtype=torch.float32)
+    for _ in range(80):
+        sc4 = torch.stack([step[:, 0], step[:, 0], step[:, 1], step[:, 2]], 1)   # (B, 4)
+        cand = bp[:, None, :] + dirs[None] * sc4[:, None, :]                   # (B, 9, 4)
+        cand[..., 2] = cand[..., 2].clamp(0.6, 1.6)
+        L = bt.loss(cand[..., 0], cand[..., 1], cand[..., 2], torch.deg2rad(cand[..., 3]))
+        v, j = L.min(1)
+        moved = j != 0
+        bp = cand[torch.arange(B), j]
+        best = v
+        step = torch.where(moved[:, None], step, step / 2)
+        if bool((step[:, 0] < STEP_MIN).all()):
+            break
+    L, coef = bt.loss(bp[:, None, 0], bp[:, None, 1], bp[:, None, 2], torch.deg2rad(bp[:, None, 3]),
+                      want_coef=True)
+    bg = bt.loss_bg()
+    return {"cx": bp[:, 0].cpu().numpy(), "cy": bp[:, 1].cpu().numpy(), "s": bp[:, 2].cpu().numpy(),
+            "facing": (bp[:, 3].cpu().numpy() % 360.0), "sse": L[:, 0].cpu().numpy(), "sse_bg": bg.cpu().numpy(),
+            "coef": coef[:, 0].cpu().numpy(), "n_w": bt.w.sum(1).cpu().numpy()}
+
+
+def _ycc_to_bgr(yc):
+    """(3,) Y, Cb, Cr -> BGR float (OpenCV's BT.601 full range)."""
+    a = np.array([[[yc[0], yc[2], yc[1]]]], np.float32)
+    return cv2.cvtColor(np.clip(a, 0, 255).astype(np.uint8), cv2.COLOR_YCrCb2BGR)[0, 0].astype(np.float32)
+
+
+def _stored_icons(store, sid, between):
+    t0, t1 = between[0] * 1000.0, between[1] * 1000.0
+    rows = [r for r in store.read_events("ally_icon", sid)
+            if r.get("kind") == "icon" and t0 <= float(r["t_ms"]) <= t1]
+    return rows
+
+
+def fit_icons(sid: str, between, limit: int | None = None, batch: int = 32) -> Path:
+    """Fit every stored ally icon (both families) in the slice through the PSF."""
+    import torch
+    store, man, profile = _session(sid)
+    cache, why = RoiCache.load(store.root, man, profile, "minimap")
+    if cache is None:
+        raise SystemExit(f"{sid}: no usable minimap crop cache ({why}); not decoding")
+    key = geometry.key_of(sid)
+    ms = geometry.map_scale(key)
+    if ms is None:
+        raise SystemExit(f"{sid}: {key} has no map scale; refusing")
+    sc = ms.scale
+    with np.load(geometry.path(key), allow_pickle=False) as z:
+        static = z["static"].copy()
+    wh = (int(man["source"]["width"]), int(man["source"]["height"]))
+    x0, y0, x1, y1 = minimap_roi_px(profile, *wh)
+    st = ycc(static)
+    H, W = st.shape[:2]
+    half = int(math.ceil(ALLY.L * sc * 1.15 + 3))
+    n = 2 * half + 1
+    pad = half + 2
+    stp = np.pad(st, ((pad, pad), (pad, pad), (0, 0)), mode="edge")
+    inside = np.pad(np.ones((H, W), np.float32), ((pad, pad), (pad, pad)))
+    icons = _stored_icons(store, sid, between)
+    if limit:
+        icons = icons[:limit]
+    by_t: dict[float, list[int]] = {}
+    for i, r in enumerate(icons):
+        by_t.setdefault(float(r["t_ms"]), []).append(i)
+    yy, xx = np.mgrid[-half:half + 1, -half:half + 1]
+    r_deep = ALLY.r_in * sc - DEEP_PX
+    results = [None] * len(icons)
+    pend = []
+
+    def flush():
+        if not pend:
+            return
+        obs = np.stack([p[1] for p in pend]); stat = np.stack([p[2] for p in pend])
+        w = np.stack([p[3] for p in pend]); fx0 = np.array([p[4] for p in pend]); fy0 = np.array([p[5] for p in pend])
+        init = np.stack([p[6] for p in pend])
+        bt = IconBatch(obs, stat, w, fx0, fy0, init, sc, half)
+        with torch.no_grad():
+            f = fit_batch(bt)
+        for j, p in enumerate(pend):
+            i, ox, oy = p[0], p[7], p[8]
+            coef = f["coef"][j]                                   # (5 basis, 3 channels)
+            ring = coef[0]
+            teal = float(teardrop.tealness(_ycc_to_bgr(ring)[None, None])[0, 0])
+            results[i] = {"cx": float(f["cx"][j] + ox), "cy": float(f["cy"][j] + oy), "s": float(f["s"][j]),
+                          "r_out": float(ALLY.r_out * sc * f["s"][j]), "facing": float(f["facing"][j]),
+                          "sse": float(f["sse"][j]), "sse_bg": float(f["sse_bg"][j]),
+                          "z": float((f["sse_bg"][j] - f["sse"][j]) / NOISE ** 2), "n_w": float(f["n_w"][j]),
+                          "rmse": float(math.sqrt(max(f["sse"][j], 0.0) / max(3 * f["n_w"][j], 1.0))),
+                          "ring_ycc": [float(v) for v in ring], "disc_ycc": [float(v) for v in coef[1]],
+                          "teal": teal}
+        pend.clear()
+
+    t_start = time.perf_counter()
+    times = sorted(by_t)
+    for smp in cache.samples(times, rois=("minimap",)):
+        crop = smp.frame[y0:y1, x0:x1]
+        yc = np.pad(ycc(crop), ((pad, pad), (pad, pad), (0, 0)), mode="edge")
+        for i in by_t.get(float(smp.t_ms), []):
+            r = icons[i]
+            ix, iy = int(round(r["cx"])), int(round(r["cy"]))
+            ox, oy = ix - half, iy - half                          # inner window origin, crop px
+            sy, sx = oy + pad, ox + pad
+            ob = yc[sy:sy + n, sx:sx + n]
+            sp = stp[sy - 2:sy + n + 2, sx - 2:sx + n + 2]
+            wv = inside[sy:sy + n, sx:sx + n].copy()
+            # distance from the stored centre, in inner window coordinates
+            rho0 = np.hypot(xx + half - (r["cx"] - ox), yy + half - (r["cy"] - oy))
+            wv[rho0 < r_deep] = 0.0
+            f0 = r.get("facing")
+            init = np.array([r["cx"] - ox, r["cy"] - oy, np.nan if f0 is None else float(f0)], np.float32)
+            # frame coordinates of the padded window's pixel (0, 0)
+            fx0, fy0 = x0 + ox - 2, y0 + oy - 2
+            pend.append((i, np.moveaxis(ob, 2, 0).reshape(3, -1), np.moveaxis(sp, 2, 0), wv.reshape(-1),
+                         fx0, fy0, init, ox, oy))
+            if len(pend) >= batch:
+                flush()
+    flush()
+    out_rows = []
+    for r, f in zip(icons, results):
+        if f is None:
+            continue
+        out_rows.append({"t_ms": float(r["t_ms"]), "frame_idx": int(r["frame_idx"]), "family": r["family"],
+                         "reason": r.get("reason"), "pose_origin": (r.get("pose") or {}).get("origin"),
+                         "stored": {"cx": r["cx"], "cy": r["cy"], "r": r["r"], "facing": r.get("facing")},
+                         "ring": {"cx": (r.get("ring") or {}).get("cx"), "cy": (r.get("ring") or {}).get("cy")},
+                         "psf": f})
+    out = {"version": VERSION, "task": TASK, "session_id": sid, "key": key, "between": list(between),
+           "map_scale": ms.provenance(), "half": half, "luma_ramp": LUMA_RAMP, "noise": NOISE,
+           "icons": out_rows, "seconds": round(time.perf_counter() - t_start, 1)}
+    OUT.mkdir(parents=True, exist_ok=True)
+    p = OUT / f"{sid}_{int(between[0])}-{int(between[1])}_icons.json"
+    p.write_text(json.dumps(out), encoding="utf-8")
+    ss = np.array([r["psf"]["s"] for r in out_rows if r["family"] == "ally"])
+    print(json.dumps({"session": sid, "icons": len(out_rows), "seconds": out["seconds"],
+                      "s_median": round(float(np.median(ss)), 4) if ss.size else None,
+                      "r_out_median": round(float(np.median([r["psf"]["r_out"] for r in out_rows])), 3)}))
+    print(f"wrote {p}")
+    return p
+
+
+# ------------------------------------------------------------------ stage 2: scoring
+def _load_icons(sid, between):
+    return json.loads((OUT / f"{sid}_{int(between[0])}-{int(between[1])}_icons.json").read_text(encoding="utf-8"))
+
+
+def _accept(f: dict, zstar: float) -> bool:
+    return f["z"] >= zstar and f["teal"] >= TEAL_MIN
+
+
+def _roster(sid, between, zstar=None):
+    """Roster residuals {t: n - capacity} for the stored icons and, given
+    z*, for the PSF verifier; frames as `upscale_trial.score` counts them."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import upscale_trial as ut
+    store = Store(STORE)
+    d = _load_icons(sid, between)
+    frames = [r for r in store.read_events_kind("ally_icon", sid, "frame") if r.get("kind") == "frame"
+              and between[0] * 1000.0 <= float(r["t_ms"]) <= between[1] * 1000.0 and r.get("widget_drawn")]
+    pop = ut._population(store, sid, sorted(float(r["t_ms"]) for r in frames))
+    from collections import Counter
+    base = Counter(r["t_ms"] for r in d["icons"] if r["family"] != "barrier")
+    res_a = {t: base.get(t, 0) - c for t, c in pop.items()}
+    if zstar is None:
+        return res_a, None, pop, d
+    ver = Counter(r["t_ms"] for r in d["icons"] if r["family"] != "barrier" and _accept(r["psf"], zstar))
+    res_v = {t: ver.get(t, 0) - c for t, c in pop.items()}
+    return res_a, res_v, pop, d
+
+
+def _pairs(store, sid, d):
+    """Stationary pairs (the stationary rule in the predictions record)."""
+    man = json.loads((store.root / "manifests" / f"{sid}.json").read_text(encoding="utf-8"))
+    profile = get_profile(man["source_profile"])
+    cache, _ = RoiCache.load(store.root, man, profile, "minimap")
+    x0, y0, x1, y1 = minimap_roi_px(profile, int(man["source"]["width"]), int(man["source"]["height"]))
+    sc = d["map_scale"]["scale"]
+    rd = STAT_DISC * ALLY.r_in * sc
+    half = d["half"]
+    by_t: dict[float, list[dict]] = {}
+    for r in d["icons"]:
+        if r["family"] == "ally":
+            by_t.setdefault(r["t_ms"], []).append(r)
+    times = sorted(by_t)
+    lum = {}
+    for smp in cache.samples(times, rois=("minimap",)):
+        lum[float(smp.t_ms)] = ycc(smp.frame[y0:y1, x0:x1])[..., 0]
+    yy, xx = np.mgrid[-half:half + 1, -half:half + 1]
+    disc = np.hypot(xx, yy) <= rd
+    pairs = []
+    for ta, tb in zip(times[:-1], times[1:]):
+        if tb - ta > PAIR_MS or ta not in lum or tb not in lum:
+            continue
+        for a in by_t[ta]:
+            cands = [b for b in by_t[tb] if math.hypot(b["stored"]["cx"] - a["stored"]["cx"],
+                                                       b["stored"]["cy"] - a["stored"]["cy"]) <= PAIR_PX]
+            if len(cands) != 1:
+                continue
+            b = cands[0]
+            ix, iy = int(round(a["stored"]["cx"])), int(round(a["stored"]["cy"]))
+            if iy - half < 0 or ix - half < 0 or iy + half + 1 > lum[ta].shape[0] or ix + half + 1 > lum[ta].shape[1]:
+                continue
+            wa = lum[ta][iy - half:iy + half + 1, ix - half:ix + half + 1]
+            wb = lum[tb][iy - half:iy + half + 1, ix - half:ix + half + 1]
+            dd = np.abs(wa - wb)
+            if dd[disc].mean() > STAT_MEAN or dd[disc].max() > STAT_MAX:
+                continue
+            pairs.append({"ta": ta, "tb": tb, "a": a, "b": b, "changed": bool(dd.mean() >= CHANGED_MIN)})
+    return pairs
+
+
+def _disp(p, which):
+    a, b = p["a"], p["b"]
+    if which == "psf":
+        return math.hypot(b["psf"]["cx"] - a["psf"]["cx"], b["psf"]["cy"] - a["psf"]["cy"])
+    if which == "ring":
+        if a["ring"]["cx"] is None or b["ring"]["cx"] is None:
+            return None
+        return math.hypot(b["ring"]["cx"] - a["ring"]["cx"], b["ring"]["cy"] - a["ring"]["cy"])
+    return math.hypot(b["stored"]["cx"] - a["stored"]["cx"], b["stored"]["cy"] - a["stored"]["cy"])
+
+
+def _stationary_spans(pairs):
+    """Chains of consecutive stationary pairs of one icon, >= 3 frames."""
+    nxt = {(p["ta"], id(p["a"])): p for p in pairs}
+    starts = set(nxt) - {(p["tb"], id(p["b"])) for p in pairs}
+    spans = []
+    for st in starts:
+        chain = [nxt[st]["a"]]
+        k = st
+        while k in nxt:
+            p = nxt[k]
+            chain.append(p["b"])
+            k = (p["tb"], id(p["b"]))
+        if len(chain) >= 3:
+            spans.append(chain)
+    return spans
+
+
+def _rms(chain, which):
+    if which == "psf":
+        P = np.array([[c["psf"]["cx"], c["psf"]["cy"]] for c in chain])
+    elif which == "ring":
+        if any(c["ring"]["cx"] is None for c in chain):
+            return None
+        P = np.array([[c["ring"]["cx"], c["ring"]["cy"]] for c in chain], float)
+    else:
+        P = np.array([[c["stored"]["cx"], c["stored"]["cy"]] for c in chain])
+    return float(np.sqrt(((P - P.mean(0)) ** 2).sum(1).mean()))
+
+
+def icon_score(calib: list[str], test: list[str]) -> dict:
+    """z* from the calibration slices, then jitter, size and roster on the test slices.
+
+    Slices are `SID:T0-T1` (seconds)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import upscale_trial as ut
+
+    def parse(x):
+        sid, span = x.split(":")
+        a, b = span.split("-")
+        return sid, (float(a), float(b))
+
+    store = Store(STORE)
+    cal = [parse(x) for x in calib]
+    zall = np.concatenate([[r["psf"]["z"] for r in _load_icons(sid, bw)["icons"]] for sid, bw in cal])
+    zs = np.unique(np.concatenate([[0.0], np.percentile(zall, np.linspace(0, 60, 121))]))
+    tot = {}
+    for z in zs:
+        errs = []
+        for sid, bw in cal:
+            _, rv, _, _ = _roster(sid, bw, float(z))
+            errs.extend(abs(v) for v in rv.values())
+        tot[float(z)] = float(np.mean(errs))
+    zstar = min(tot, key=lambda k: (tot[k], k))
+    out = {"zstar": zstar, "calib": calib, "calib_mae_at_zstar": round(tot[zstar], 4),
+           "calib_mae_at_0": round(tot[0.0], 4), "test": {}}
+    mae = lambda v: float(np.abs(v).mean())  # noqa: E731
+    for x in test:
+        sid, bw = parse(x)
+        ra, rv, pop, d = _roster(sid, bw, zstar)
+        dm = ut._boot(ra, rv, mae)
+        ally = [r for r in d["icons"] if r["family"] == "ally"]
+        sc = d["map_scale"]
+        pairs = _pairs(store, sid, d)
+        ch = [p for p in pairs if p["changed"]]
+        sp = _stationary_spans(pairs)
+        jit = {}
+        for which in ("psf", "stored", "ring"):
+            dv = [v for v in (_disp(p, which) for p in pairs) if v is not None]
+            dc = [v for v in (_disp(p, which) for p in ch) if v is not None]
+            rr = [v for v in (_rms(c, which) for c in sp) if v is not None]
+            jit[which] = {"pairs_median": round(float(np.median(dv)), 4) if dv else None,
+                          "pairs_mean": round(float(np.mean(dv)), 4) if dv else None,
+                          "changed_median": round(float(np.median(dc)), 4) if dc else None,
+                          "changed_mean": round(float(np.mean(dc)), 4) if dc else None,
+                          "changed_p90": round(float(np.percentile(dc, 90)), 4) if dc else None,
+                          "span_rms_median": round(float(np.median(rr)), 4) if rr else None,
+                          "span_rms_mean": round(float(np.mean(rr)), 4) if rr else None}
+        r_out = np.array([r["psf"]["r_out"] for r in ally])
+        out["test"][x] = {
+            "icons": len(d["icons"]), "ally_icons": len(ally),
+            "roster": {"n": len(pop), "stored": ut._metrics(ra), "psf_verifier": ut._metrics(rv),
+                       "d_mae": dm, "dropped": sum(1 for r in d["icons"] if r["family"] != "barrier"
+                                                   and not _accept(r["psf"], zstar))},
+            "size": {"r_out": _q(r_out), "s": _q([r["psf"]["s"] for r in ally]),
+                     "map_scale_r_out": round(ALLY.r_out * sc["scale"], 3),
+                     "widget_scale_r_out": round(ALLY.r_out * sc["widget_scale"], 3)},
+            "fit": {"rmse": _q([r["psf"]["rmse"] for r in ally]), "z": _q([r["psf"]["z"] for r in ally]),
+                    "teal": _q([r["psf"]["teal"] for r in ally])},
+            "jitter": {"stationary_pairs": len(pairs), "changed_pairs": len(ch), "spans": len(sp), **jit}}
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "icon_score.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print(json.dumps(out, indent=1))
+    return out
+
+
+def icon_sheet(sid: str, between, n: int = 8) -> Path:
+    """Observed / rendered / residual for n ally icons spread over the slice,
+    at 10x (nearest, display only), with the PSF centre (red), the stored
+    pose (green) and the ring fit (magenta)."""
+    import torch
+    store, man, profile = _session(sid)
+    cache, _ = RoiCache.load(store.root, man, profile, "minimap")
+    d = _load_icons(sid, between)
+    key = d["key"]
+    sc = d["map_scale"]["scale"]
+    half = d["half"]
+    with np.load(geometry.path(key), allow_pickle=False) as z:
+        static = z["static"].copy()
+    x0, y0, x1, y1 = minimap_roi_px(profile, int(man["source"]["width"]), int(man["source"]["height"]))
+    st = ycc(static)
+    ally = [r for r in d["icons"] if r["family"] == "ally"]
+    pick = [ally[int(i)] for i in np.linspace(0, len(ally) - 1, n)]
+    Z, nwin = 10, 2 * half + 1
+    pad = half + 2
+    stp = np.pad(st, ((pad, pad), (pad, pad), (0, 0)), mode="edge")
+    rows = []
+    for r in pick:
+        smp = next(cache.samples([r["t_ms"]], rois=("minimap",)))
+        crop = smp.frame[y0:y1, x0:x1]
+        yc = np.pad(ycc(crop), ((pad, pad), (pad, pad), (0, 0)), mode="edge")
+        ix, iy = int(round(r["stored"]["cx"])), int(round(r["stored"]["cy"]))
+        ox, oy = ix - half, iy - half
+        sy, sx = oy + pad, ox + pad
+        ob = yc[sy:sy + nwin, sx:sx + nwin]
+        sp = stp[sy - 2:sy + nwin + 2, sx - 2:sx + nwin + 2]
+        w = np.ones(nwin * nwin, np.float32)
+        bt = IconBatch(np.moveaxis(ob, 2, 0).reshape(1, 3, -1), np.moveaxis(sp, 2, 0)[None], w[None],
+                       np.array([x0 + ox - 2]), np.array([y0 + oy - 2]),
+                       np.array([[0, 0, 0]], np.float32), sc, half)
+        f = r["psf"]
+        dev = bt.obs.device
+        t = lambda v: torch.tensor([[v]], device=dev, dtype=torch.float32)  # noqa: E731
+        with torch.no_grad():
+            dx = bt.X[None, None] - t(f["cx"] - ox)[..., None, None]
+            dy = bt.Y[None, None] - t(f["cy"] - oy)[..., None, None]
+            T, D, O, Bg = _layers(dx, dy, t(math.radians(f["facing"]))[..., None, None], t(f["s"])[..., None, None], sc)
+            _, coef = bt.loss(t(f["cx"] - ox), t(f["cy"] - oy), t(f["s"]), t(math.radians(f["facing"])), want_coef=True)
+            coef = coef[0, 0].cpu().numpy()                                    # (5, 3)
+            model = np.zeros((3, nwin, nwin), np.float32)
+            for k in range(3):
+                maps = [T, D, O, bt.stat[:, k][:, None] * Bg, Bg]
+                if k > 0:
+                    maps = [_q420(m, bt.fx0, bt.fy0) for m in maps]
+                acc = sum(coef[j, k] * maps[j] for j in range(5))
+                model[k] = acc[0, 0, 2:2 + nwin, 2:2 + nwin].cpu().numpy()
+        mo = np.moveaxis(model, 0, 2)
+        to_bgr = lambda a: cv2.cvtColor(np.clip(a[..., [0, 2, 1]], 0, 255).astype(np.uint8), cv2.COLOR_YCrCb2BGR)  # noqa: E731
+        o_img, m_img = to_bgr(ob), to_bgr(mo)
+        res = np.abs(ob - mo).sum(2)
+        r_img = cv2.applyColorMap(np.clip(res * 4, 0, 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
+        tiles = []
+        for im in (o_img, m_img, r_img):
+            big = cv2.resize(im, None, fx=Z, fy=Z, interpolation=cv2.INTER_NEAREST)
+            P = lambda x, y: (int((x - ox + 0.5) * Z), int((y - oy + 0.5) * Z))  # noqa: E731
+            cv2.circle(big, P(f["cx"], f["cy"]), 4, (0, 0, 255), -1)
+            cv2.circle(big, P(r["stored"]["cx"], r["stored"]["cy"]), 4, (0, 200, 0), -1)
+            if r["ring"]["cx"] is not None:
+                cv2.circle(big, P(r["ring"]["cx"], r["ring"]["cy"]), 4, (255, 0, 255), -1)
+            tiles.append(big)
+        row = np.hstack(tiles)
+        cv2.putText(row, f"t {r['t_ms'] / 1000:.2f}s z {f['z']:.0f} rmse {f['rmse']:.1f} r_out {f['r_out']:.2f} "
+                    f"teal {f['teal']:.2f}", (5, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        rows.append(row)
+    sheet = np.vstack(rows)
+    p = OUT / f"icon_sheet_{sid}_{int(between[0])}-{int(between[1])}.png"
+    cv2.imwrite(str(p), sheet)
+    print(f"wrote {p}")
+    return p
+
+# ------------------------------------------------------------------ record
+def record_metrics(sids: list[str]) -> None:
+    """One metrics row per stage-1 session (`capture_psf/stage1`) and per
+    stage-2 test slice (`capture_psf/icons`), for the doc's citations."""
+    from reticle import metrics
+    for sid in sids:
+        o = json.loads((OUT / f"{sid}_stage1.json").read_text(encoding="utf-8"))
+        s = summary(o)
+        vals = {"widget_px": o["widget_px"][0], "frames": s["used_frames"], "chunks": s["chunks_fitted"],
+                "luma_sigma": s["luma_sigma_all"]["median"], "luma_sigma_v": s["luma_sigma_v"]["median"],
+                "luma_sigma_h": s["luma_sigma_h"]["median"],
+                "luma_sigma_half_iqr": s["luma_sigma_all"]["half_iqr"],
+                "boxgauss_sigma_v": s["boxgauss_sigma_v"]["median"],
+                "boxgauss_sigma_h": s["boxgauss_sigma_h"]["median"],
+                "chroma_step_sigma_v": s["chroma_step_sigma_v"]["median"],
+                "chroma_step_sigma_h": s["chroma_step_sigma_h"]["median"],
+                "chroma_chunks": s["chroma_sigma_v"]["n"] + s["chroma_sigma_h"]["n"],
+                "block_aligned": s["block_test"]["aligned"], "block_off_x": s["block_test"]["off_x"],
+                "block_off_y": s["block_test"]["off_y"],
+                "ringing_max_abs": max(abs(v["mean"]) for v in s["ringing"].values() if v["mean"] is not None),
+                "offset_mid_v": s["offset_mid_v"]["median"], "offset_mid_h": s["offset_mid_h"]["median"]}
+        metrics.record("capture_psf", part="stage1", session=sid, values=vals,
+                       deps={"version": VERSION, "key": o["key"], "static_built_from": o["static_built_from"]},
+                       context={"task": TASK})
+    p = OUT / "icon_score.json"
+    if p.is_file():
+        d = json.loads(p.read_text(encoding="utf-8"))
+        for x, v in d["test"].items():
+            sid = x.split(":")[0]
+            j = v["jitter"]
+            vals = {"zstar": d["zstar"], "stationary_pairs": j["stationary_pairs"], "changed_pairs": j["changed_pairs"],
+                    "spans": j["spans"], "r_out": v["size"]["r_out"]["median"], "s": v["size"]["s"]["median"],
+                    "map_scale_r_out": v["size"]["map_scale_r_out"],
+                    "widget_scale_r_out": v["size"]["widget_scale_r_out"],
+                    "mae_stored": v["roster"]["stored"]["mae"], "mae_verifier": v["roster"]["psf_verifier"]["mae"],
+                    "d_mae": v["roster"]["d_mae"][0], "dropped": v["roster"]["dropped"],
+                    "rmse": v["fit"]["rmse"]["median"]}
+            for which in ("psf", "stored", "ring"):
+                for k in ("changed_median", "changed_mean", "changed_p90", "span_rms_median", "span_rms_mean"):
+                    vals[f"{which}_{k}"] = j[which][k]
+            metrics.record("capture_psf", part="icons", session=sid, values=vals,
+                           deps={"version": VERSION, "slice": x, "calib": " ".join(d["calib"]),
+                                 "ally_icon_version": "ally-icon-0.7.0"},
+                           context={"task": TASK})
+    print("recorded")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     m = sub.add_parser("measure"); m.add_argument("session"); m.add_argument("--frames", type=int, default=FRAMES)
     c = sub.add_parser("compare"); c.add_argument("sessions", nargs="+")
     p = sub.add_parser("plot"); p.add_argument("sessions", nargs="+")
+    f = sub.add_parser("icons"); f.add_argument("session")
+    f.add_argument("--between", type=float, nargs=2, required=True)
+    f.add_argument("--limit", type=int, default=None)
+    sc = sub.add_parser("icon-score"); sc.add_argument("--calib", nargs="+", required=True)
+    sc.add_argument("--test", nargs="+", required=True)
+    sh = sub.add_parser("icon-sheet"); sh.add_argument("session"); sh.add_argument("--between", type=float, nargs=2, required=True)
+    sh.add_argument("--n", type=int, default=8)
+    rc = sub.add_parser("record"); rc.add_argument("sessions", nargs="+")
     a = ap.parse_args(argv)
     _idle()
     if a.cmd == "measure":
@@ -670,6 +1313,14 @@ def main(argv=None) -> int:
         compare(a.sessions)
     elif a.cmd == "plot":
         plot(a.sessions)
+    elif a.cmd == "icons":
+        fit_icons(a.session, tuple(a.between), a.limit)
+    elif a.cmd == "icon-score":
+        icon_score(a.calib, a.test)
+    elif a.cmd == "icon-sheet":
+        icon_sheet(a.session, tuple(a.between), a.n)
+    elif a.cmd == "record":
+        record_metrics(a.sessions)
     return 0
 
 
