@@ -140,6 +140,27 @@ class SessionEntries(unittest.TestCase):
         self.assertEqual([(e["t_first"], e["t_last"], e["kf_player_kill"]) for e in got],
                          [(0.0, 10000.0, True)])
 
+    def test_an_entry_unread_at_its_onset_takes_its_tracks_first_read_side(self):
+        """bdfdcf009dba 672.0 s: Evan -> TunaNoCrust appears in slot 3 under
+        the Shooting Error overlay, victim plate unread, and reads an enemy
+        victim from 674.5 s on. The entry's side is enemy, not unknown."""
+        from reticle.adjudication.death import session_entries
+        # (t, entry mask, packed dividers, ally mask, enemy mask), hud-0.17.0
+        rows = [(671000.0, 3, 172749, 2, 1), (671500.0, 7, 58893005, 2, 5),
+                (672000.0, 15, 58893005, 2, 5), (672500.0, 15, 59155149, 2, 5),
+                (673000.0, 15, 58893005, 2, 5), (673500.0, 15, 58893005, 2, 5),
+                (674000.0, 14, 59169280, 2, 4), (674500.0, 7, 48087889, 1, 6),
+                (675000.0, 6, 48087552, 0, 6), (675500.0, 3, 93921, 0, 3),
+                (676000.0, 3, 93921, 0, 3), (676500.0, 2, 93696, 0, 2),
+                (677000.0, 0, 0, 0, 0)]
+        t, mask, wx, ally, enemy = (list(c) for c in zip(*rows))
+        hud = {"t_ms": t, "kf_entry_mask": mask, "kf_entry_wx": wx,
+               "kf_ally_mask": ally, "kf_enemy_mask": enemy,
+               "kf_kill_mask": [0] * len(t), "kf_death_mask": [0] * len(t)}
+        got = {e["t_first"]: e for e in session_entries(hud)}
+        self.assertEqual((got[672000.0]["slot"], got[672000.0]["side"],
+                          got[672000.0]["victim_ally"]), (3, "enemy", False))
+
 
 class SplitTracks(unittest.TestCase):
     def _tr(self, a, z, slot, sig):

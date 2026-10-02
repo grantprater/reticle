@@ -328,13 +328,38 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[d
             b = min(below, key=lambda b: b["slot"])
             return not (fits(b, *det) and not stayed(b))
 
+        def held(b, lo) -> bool:
+            """Whether entry `b` reads now in a slot below `lo` and no lower
+            than its own: a detection there whose divider and victim side
+            agree with `b`'s, both read. An unread divider agrees with
+            anything and so holds nothing."""
+            return any(lo < s <= b["slot"] and b["sig"] is not None
+                       and wx_at(packed, s) is not None
+                       and fits(b, wx_at(packed, s), _side_at(pair, s))
+                       for s in here)
+
+        def passes(a, slot) -> bool:
+            """Whether track `a` taking `slot` would pass an entry it was
+            below. Entries keep their order [domain:killfeed/stack-order], so
+            an entry read above `a` in `a`'s last sample, read again last
+            sample between `slot` and `a`'s slot, and read now below `slot`,
+            still holds `a` below it. An entry first seen after `a`'s last
+            read may have arrived below it (bdfdcf009dba 875.5 s), so it
+            orders nothing."""
+            return any(b is not a and slot <= b["slot"] < a["slot"]
+                       and b["t_last"] == prev_t and held(b, slot)
+                       and any(t_ == a["t_last"] and s_ < a["slot"]
+                               for t_, s_, _ in b["assigned"])
+                       for bi_, b in enumerate(active) if bi_ not in retired)
+
         for slot in here:
             sig = wx_at(packed, slot)
             side = _side_at(pair, slot)
             one_colour = _same_at(pair, slot)
             cands = [ai for ai, a in enumerate(active)
-                     # an entry never moves down the stack
-                     if ai not in used and slot <= a["slot"] and fits(a, sig, side)]
+                     # an entry never moves down the stack, nor past another
+                     if ai not in used and slot <= a["slot"] and fits(a, sig, side)
+                     and not passes(a, slot)]
             # The nearest slot wins, unless the stack says otherwise:
             #
             #   merge  -- an entry expires and the one below rises into the

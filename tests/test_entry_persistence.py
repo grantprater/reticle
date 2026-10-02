@@ -332,6 +332,54 @@ class RiseIntoVacatedSlotTests(unittest.TestCase):
         self.assertEqual([(a["t_first"], a["t_last"], a["slot_first"]) for a in tracks],
                          [(0.0, t[-1], 0), (0.0, t[-1], 1)])
 
+    def test_an_unread_entry_does_not_jump_past_the_entry_above_it(self):
+        # bdfdcf009dba (C:/Users/grant/Videos/2026-08-23 19-25-23.mp4) 668.5-
+        # 677.5 s, hud-0.17.0 rows read from the crop cache. macaroni -> Clove
+        # (an ability kill, divider 337, ally victim) holds slot 1 and Evan ->
+        # TunaNoCrust holds slot 3 under the Shooting Error overlay, divider
+        # and side unread. At 674.0 s the entry above expires and macaroni's
+        # divider reads 365, its plate seam. The unread track fit that read
+        # vacuously and took it past Me -> Waylay (slot 2, divider 225), then
+        # took macaroni's 337 back at 674.5 s by the stack rule: two entries
+        # split into four tracks, two of them false deaths.
+        rows = [(668500.0, 1, 0, 0, 1, 0), (669000.0, 5, 53739725, 0, 5, 0),
+                (669500.0, 5, 53739725, 0, 5, 0), (670000.0, 4, 53739520, 0, 4, 0),
+                (670500.0, 6, 88447488, 4, 2, 0), (671000.0, 3, 172749, 2, 1, 0),
+                (671500.0, 7, 58893005, 2, 5, 0), (672000.0, 15, 58893005, 2, 5, 0),
+                (672500.0, 15, 59155149, 2, 5, 0), (673000.0, 15, 58893005, 2, 5, 0),
+                (673500.0, 15, 58893005, 2, 5, 0), (674000.0, 14, 59169280, 2, 4, 0),
+                (674500.0, 7, 48087889, 1, 6, 0), (675000.0, 6, 48087552, 0, 6, 0),
+                (675500.0, 3, 93921, 0, 3, 0), (676000.0, 3, 93921, 0, 3, 0),
+                (676500.0, 2, 93696, 0, 2, 0), (677000.0, 0, 0, 0, 0, 0),
+                (677500.0, 0, 0, 0, 0, 0)]
+        t, masks, wx, sides = stored(rows)
+        tracks = track_entries(t, masks, wx, sides=sides)
+        self.assertEqual([(a["t_first"], a["t_last"], a["slot_first"], a["sig"])
+                          for a in tracks if a["counted"] and a["t_first"] >= 669000.0],
+                         [(669000.0, 673500.0, 2, 205), (670500.0, 674500.0, 2, 337),
+                          (671500.0, 676000.0, 2, 225), (672000.0, 676500.0, 3, 183)])
+        # The seam read is a track of its own, refused as one frame.
+        self.assertIn((674000.0, 365, "single_frame"),
+                      [(a["t_first"], a["sig"], a["refused"]) for a in tracks])
+
+    def test_an_entry_that_arrived_after_the_last_read_orders_nothing(self):
+        # bdfdcf009dba 872.5-880.5 s, hud-0.17.0 rows. Evan -> duckyrelicc
+        # (divider 195) reads in slot 2 at 875.0 s as the two entries above it
+        # expire, goes unread at 875.5 s while TunaNoCrust -> Evan (264)
+        # arrives BELOW it in slot 1, and reads in slot 0 from 876.0 s. The
+        # newcomer was never seen above it, so it does not block the rise.
+        rows = [(872500.0, 3, 115920, 2, 1, 0), (873000.0, 3, 115920, 2, 1, 0),
+                (873500.0, 3, 115920, 2, 1, 0), (874000.0, 3, 115920, 2, 1, 0),
+                (874500.0, 3, 115920, 2, 1, 0), (875000.0, 4, 51118080, 0, 4, 0),
+                (875500.0, 2, 135168, 2, 0, 0)] + [
+                (ts, 3, 135363, 2, 1, 0) for ts in steps(876_000.0, 8, 500.0)] + [
+                (880000.0, 2, 135168, 2, 0, 0), (880500.0, 0, 0, 0, 0, 0)]
+        t, masks, wx, sides = stored(rows)
+        tracks = [a for a in track_entries(t, masks, wx, sides=sides) if a["counted"]]
+        self.assertEqual([(a["t_first"], a["t_last"], a["slot_first"], a["sig"])
+                          for a in tracks if a["t_first"] >= 875000.0],
+                         [(875000.0, 879500.0, 2, 195), (875500.0, 880000.0, 1, 264)])
+
 
 class PlateSideTests(unittest.TestCase):
     """One entry's victim never changes team: a flipped plate is a new entry."""
