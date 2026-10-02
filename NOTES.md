@@ -2,41 +2,39 @@
 
 ## Picking up
 
-**2026-10-01.** Master stands at `b218bb3` and is pushed. On 2026-09-30 the entity-event layer landed: `reticle project` writes the death, spike, round-entity and enemy lanes, and `reticle view` draws a round from them alone ([ENTITY_EVENTS.md](docs/ENTITY_EVENTS.md)). The identity rule became one arbiter per channel under the `adjudication.identity` aggregator, and `plan` now compares every input stamp a stream recorded. On 2026-10-01 the killfeed weapon owner learned to refuse an icon it has never seen. The [backlog](BACKLOG.md) holds three active items: the corpus rerun, the killfeed crop faults and the missing killfeed readers. The previous handoff is [archived](docs/archive/NOTES-2026-09-29-to-10-01.md).
-
-The player's answers stand as facts in `domain/*.toml`; their words stay in `~/reticle-notes/`.
+**2026-10-02.** Master stands at `296dce7` and is pushed. The corpus rerun finished on the matches, so `plan` names no stale stream on any match. The [backlog](BACKLOG.md) holds three active items: stacked ally icons by render-and-compare, the killfeed crop faults and the missing killfeed readers. The previous handoff is [archived](docs/archive/NOTES-2026-10-01-to-10-02.md).
 
 ### What `status` and `plan` say
 
-`reticle status`: 60 sessions ingested, 439 rounds derived; 13 of 17 exact against `checks.KNOWN_KD`; plants on 220 of 439 rounds; one ping session stale.
+After the 2026-10-02 rerun: `verify --tier fast` passes 7 of 7; `status` reads 13 of 17 exact against `checks.KNOWN_KD` and plants on 220 of 439 rounds; doctor reports 0 errors. `plan` still names `vision` (`team-vision-0.3.0` -> `0.6.0`) on 37 sessions and `ult-cast` on 6, all demos under a minute, which the matches-only rule skips.
 
-`reticle plan` names one crop-cache reread (`ally_icon` on 18 sessions) and storage reruns across nearly every match: `deaths` (`death-adjudication-0.20.0` -> `0.24.0` on 16 sessions), `lifetimes` (`round-entity-0.8.0` -> `0.13.0`), `ability-shapes` (`ability-shape-0.1.0` -> `0.4.0`), `self-icon` (-> `0.5.0`), `vision` (`team-vision-0.3.0` -> `0.6.0`), then `ult-cast`, `ability-state`, `combat-report`, `tray`, `smokes`, `enemy-tracks` and `project`. bfad2778a372's entity lanes are held until its deaths refresh.
+### Landed on 2026-10-01 and 10-02
 
-### Landed on 2026-10-01
+- **Killfeed.** `KillfeedScale` scales every length by capture height; `killfeed-weapon-0.6.0` stores the slot's soft glyph and sub-pixel centroid [domain:killfeed/subpixel-placement]; 0.7.0 cuts the slot where the names place the entry; `weapon-gallery-0.6.0` rebinds the player's names. `death-adjudication-0.25.0` types each entry from every revive witness at once.
+- **Pixels.** AGENTS.md now says to read pixels as samples of a smooth image [domain:capture/capture-resolution]. `prototypes/capture_psf.py` measures the capture's blur on baked wall lines; ally icons fitted through it do not beat the stored pose ([CAPTURE_PSF.md](docs/CAPTURE_PSF.md)). The portrait crop audit finds contamination a 331 px problem.
+- **Minimap and binding.** `ally-icon-0.7.0` continues each teardrop's prior fit; `round-entity-0.14.0` offers an inner piece under a bound segment to the deaths left.
+- **Staleness.** `plan` compares the candidate supply's recorded inputs; `usage` times named steps inside a reader.
 
-- **Test crash.** `test_usage` stands in for `cv2.VideoCapture` instead of subclassing it; the subclass corrupted pymalloc under OpenCV 5.
-- **Death binding.** A death binds first to the piece the arbiter named its victim, then the nearest sighting (`round-entity-0.11.0`). A piece seen past the dead-icon lag is not the victim (0.12.0), and a death left unbound may end a piece before its segment's last (0.13.0, `seen_after_death`). A player kill joins the entry whose divider agrees at the kill's onset (`death-adjudication-0.22.0`); `plan` stamps the reliability table by its death rule.
-- **Ability candidates and walls.** `ability_candidates` supplies the abilities a lineup allows, each with a drawn size in base px times the map scale; the shape reader fits rings, beams, walls (Barrier Orb) and curves (Blaze). An enemy Killjoy's Lockdown is a yellow ring [domain:abilities/killjoy-lockdown-enemy-minimap-ring]; off Split it refuses as `no_radius_on_map`, since no radius is measured there.
-- **Open-set killfeed icons.** `adjudication.weapon` scores an icon by nearest-exemplar IoU and refuses as `new` (unlike every exemplar) or `ambiguous` (two names too close). It narrows by the actor's kit, then the match's agents, then the full gallery as the surprise path, and audits one entry in ten with the full search. `death-adjudication` owns the entry type: kill, second-life death or revive, with reviver and revived roles [domain:killfeed/entry-types] [domain:killfeed/revive-entries]. The Warden is a new rifle [domain:killfeed/warden-icon]; `weapon-gallery-0.4.0` names twelve Warden entries on 4f207c0c4e39 and changes no other name. `prototypes/label_killfeed_groups.py` lets the player name each group of refused icons.
-- **Ability names.** `ABILITY_CANONICAL_NAMES` had slots swapped for Phoenix, Brimstone, Deadlock and Harbor; it now follows `<store>/reference/abilities.json`, and `tests/test_ability_names.py` guards it. Phoenix's Ability1 is Hot Hands [domain:killfeed/phoenix-hot-hands-icon]. The fix moved one exemplar: `weapon-gallery-0.5.0`, `weapon-adjudication-1.2.0`.
+### Corpus rerun, 2026-10-02
 
-### What the killfeed numbers say
+From storage, on matches only: `lifetimes` on 20 match sessions to `round-entity-0.14.0`, then `project` on 5822b6646448 (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`), a06f04a0059f (`C:\Users\grant\Videos\2026-08-26 09-56-37.mp4`) and bfad2778a372 (`C:\Users\grant\Videos\2026-08-24 14-45-35.mp4`), whose entity lanes no longer held.
 
-Through the tiered search, known icons refused as `new` rose from [metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.3.0#known_refused_new_after=0.0272] at gallery 0.3.0 to [metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.4.0#known_refused_new_after=0.0338] at 0.4.0, for no measured cause. The player named [metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#rows=16] groups of refused rows no icon; most are boxes the weapon reader cut badly, and a channel the reader ignores catches each ([metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#caught_any=16]). A box can also crop an icon too tightly.
+### Unmerged records
 
-### Open questions
+- **`binding-rules-20261002`** (`b248d0c`, `round-entity-0.15.0`): cut a piece where a sighting gap spans its teammate's death. Against 0.14.0 it gains 21 victim-matching bindings and moves 6 unnamed pieces to a match, but demotes 9 correct bindings to unnamed pieces (matches 686 -> 704 over 78 cuts, measured on the branch). Two faults: a cut piece is inner, so `RoundLifetimes.finish` never offers it the death that cut it; and in 64 of 78 cuts the dead teammate's portrait still scores after the gap (top score in 50), so the cut's premise fails. To rework: fix the stacked-icon phantoms first, offer each cut piece its death through `death_rank`, and cut only when the post-gap sightings do not read as the dead teammate. 96aa1ae9b96f 849.5 s is a revive naming no victim, so Clove's dead interval stays open.
+- **`ally-ring-subpixel-20261001`** (`24fbfb1`, `ally-icon-0.8.0`), shelved: fractional ring radii scaled by widget scale, a 9 base px centroid search, and a portrait floor scaled by area. Ally-count MAE falls on every 331 px slice (bfad2778a372 1259-1419 s 0.626 -> 0.530), but excess named icons beyond the roster rise on all three scorable slices, from thin-rim fits on the player's Sova Recon Bolt ring and Split's green world, and 3 labelled 331 px icons are lost (e37fdeca944f, `C:\Users\grant\Videos\2026-08-25 13-17-45.mp4`, 1342.5 s Waylay). The radii alone starve identity; the commits land together or not at all. The 9 px self search helps at 465 px (median centre error 3.18 -> 1.20 px on 5822b6646448). Proposed gate, unbuilt: of two close fits, keep the one the teardrop reads as an icon; refuse fits on the player's own ability rings.
+- **`stacked-icons-20261002`** (`50ddd0b`, `prototypes/stack_fit.py`, `stack-fit-0.2.0`, `wire: no`): at master, `_gated` keeps a fit between two touching icons, which refuses both as `interior_too_thin`. In seeded samples master missed 18 of 50 real icons at 331 px and 6 of 22 at 465 px. The joint k-icon search made no between fits and cut 223d636bf8d2's whole-slice MAE from 0.627 to 0.407, but lost 42 of 197 labelled icons master finds, placed phantoms on bfad2778a372's green area fill and ran 3-5x slower, because its teal key erases the icons' pale-cyan ring. The first active backlog item carries the next step.
+- **`luma-render-20261002`** (`19c2a0a`, WIP, tabled): luma-keyed rims (E1) and fuller render fits (E2), unverified, four E2 test slices unrun; the likely vehicle for the stacked-icon render.
 
-- Orange rings on 043bafca271a (`C:\Users\grant\Videos\2026-08-25 13-59-44.mp4`): whose ability?
-- Regrowth's saturation floor waits on a definition of a rim pixel; the stored floor was measured on pixels already cut at saturation 50, and the Regrowth benchmark fell from 14 to 12.
-- bfad2778a372 (`C:\Users\grant\Videos\2026-08-24 14-45-35.mp4`) shows a Chamber death twice, at 1017.0 s and 1018.5 s.
-- Hunter's Fury's angle is within 3 degrees on 17 of 19 casts, down from 19.
-- The icon benchmark runs 1.8 times slower than before, for no measured cause.
+Capture paths: 223d636bf8d2 `C:\Users\grant\Videos\2026-08-23 20-09-01.mp4`; 3694746e4e54 `C:\Users\grant\Videos\2026-08-25 14-42-25.mp4`.
+
+[EXTERNAL_GROUND_TRUTH.md](docs/EXTERNAL_GROUND_TRUTH.md) surveys outside records of a match. All 22 match captures have their match-details record (each kill with positions and view angles; 3,532 kills) saved in the store under `external/riot/`, each naming its session in `probe.session_id`. A 40-day-old match falsified the 30-day retention guess; pull new records promptly. The open questions wait in the backlog.
 
 ### Held and unmerged
 
-`git log master..<branch>` lists unmerged commits on:
+`git log master..<branch>` lists unmerged commits on the four records above (1, 5, 1 and 2 commits, all pushed) and on:
 
-- `self-spike-tracker-20260929` (4): the player-dead owner and guard 6 can merge with bumped versions; the minimap tracker waits on on-spike labels.
+- `self-spike-tracker-20260929` (4): the player-dead owner and guard 6 can merge with bumped versions; the tracker waits on labels.
 - `wip-vision-lifecycle-wiring` (1): WIP, do not merge.
 - `enemy-fix-check-20260930` (1): a held-out check of the teardrop box and the baked-slab gate.
 - `worktree-agent-a18926290da85c09f` (6, local only): the protocol-demo census.
@@ -45,4 +43,4 @@ Through the tiered search, known icons refused as `new` rose from [metric:killfe
 
 `decodes-20260929` has no unmerged commit left; delete it when convenient.
 
-The untracked `prototypes/mechanics_eval.py` belongs to the user; leave it untouched. The [working map](docs/WORKING_MAP.md) routes reading.
+The untracked `prototypes/mechanics_eval.py` belongs to the user; leave it untouched.
