@@ -722,7 +722,10 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a) -> tuple[
         elif got is None:
             c["weapon_refused"] += 1
             reasons["weapon"][we.get("reason") or we.get("status") or "none"] += 1
-        elif canon(got) == canon(wtrue):
+        elif canon(got) == canon(wtrue) or (wkind in ("bomb", "fall")
+                                             and canon(got) == "environmental"):
+            # The gallery's one name for the spike and fall icons
+            # [domain:killfeed/environmental-self-entry].
             c["weapon_right"] += 1
         else:
             c["weapon_wrong"] += 1

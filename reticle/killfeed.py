@@ -497,6 +497,13 @@ ICON_V_MED_MIN, ICON_S_MED_MAX = 250, 20
 # is Not Dead Yet's butterfly when its ring splits off; line art that small
 # is a candidate only in the first pass (see `_band_text`).
 KNIFE_MIN_AREA, KNIFE_MIN_H = 60, 12
+# An ability icon drawn in thin strokes breaks under the text cut into pieces
+# no tier above admits: Neon's Overdrive (75a55a296d3b 1205.5 s) into a 22x10
+# and a 23x5 bar two rows apart, plus two 8x3 ticks, 201 px of ink in all.
+# `_stroke_groups` joins line-art pieces off the name baseline that lie within
+# this many base px of each other, plus any line art inside the group's box,
+# and offers the group as one icon at the knife's bar, in a last pass.
+STROKE_JOIN = 3
 # Name glyphs. The headshot icon's fragments pass the size test but scatter off
 # the baseline, which is what excludes them.
 GLYPH_W = (1, 16)
@@ -1131,6 +1138,50 @@ def _line_art(px: np.ndarray) -> bool:
             and np.median(px[:, 1]) <= ICON_S_MED_MAX)
 
 
+def _stroke_groups(st: np.ndarray, art: set, on_line, s: "KillfeedScale") -> list[np.ndarray]:
+    """Line-art pieces of one icon joined into one box, as `cv2` stats rows.
+
+    A group grows from a piece that is not a name glyph (`on_line(i)` false)
+    by two rules until neither adds a piece: another such piece within
+    `STROKE_JOIN` base px of the group's box, or any line-art piece inside the
+    box widened by one px (an icon's inner strokes can be glyph-sized and sit
+    on the baseline, as Showstopper's do). A name's letters join only from
+    inside the box, so a group never runs along a name. A group is kept when
+    it holds two or more pieces and reaches the knife's bar
+    (`KNIFE_MIN_AREA`, `KNIFE_MIN_H`); one piece is already a candidate."""
+    gap = s.px(STROKE_JOIN)
+    free = sorted(art, key=lambda i: -st[i, 4])
+    used: set = set()
+    out = []
+    for seed in free:
+        if seed in used or on_line(seed):
+            continue
+        members = {seed}
+        x0, y0 = st[seed, 0], st[seed, 1]
+        x1, y1 = x0 + st[seed, 2], y0 + st[seed, 3]
+        grew = True
+        while grew:
+            grew = False
+            for i in free:
+                if i in members or i in used:
+                    continue
+                a0, b0 = st[i, 0], st[i, 1]
+                a1, b1 = a0 + st[i, 2], b0 + st[i, 3]
+                inside = a0 >= x0 - 1 and b0 >= y0 - 1 and a1 <= x1 + 1 and b1 <= y1 + 1
+                near = (not on_line(i) and a0 <= x1 + gap and a1 >= x0 - gap
+                        and b0 <= y1 + gap and b1 >= y0 - gap)
+                if inside or near:
+                    members.add(i)
+                    x0, y0, x1, y1 = min(x0, a0), min(y0, b0), max(x1, a1), max(y1, b1)
+                    grew = True
+        area = int(sum(st[i, 4] for i in members))
+        if (len(members) >= 2 and area >= s.area(KNIFE_MIN_AREA)
+                and y1 - y0 >= s.px(KNIFE_MIN_H)):
+            used |= members
+            out.append(np.array([x0, y0, x1 - x0, y1 - y0, area], dtype=st.dtype))
+    return out
+
+
 def _band_text(
     white: np.ndarray, usable: np.ndarray | None = None, plates=None,
     value: np.ndarray | None = None, s: "KillfeedScale" = UNIT_SCALE,
@@ -1175,13 +1226,37 @@ def _band_text(
         tiers = [[i for i in big if i in art], [i for i in small if i in art],
                  [i for i in big if i not in art], [i for i in small if i not in art]]
         tiers.append([i for i in tiny_pool if i in art])
-    if not big and not small:
-        return "no_icon"
     gw, gh = (s.px(GLYPH_W[0]), s.px(GLYPH_W[1])), (s.px(GLYPH_H[0]), s.px(GLYPH_H[1]))
     cand = [
         i for i in idx
         if gw[0] <= st[i, 2] <= gw[1] and gh[0] <= st[i, 3] <= gh[1]
     ]
+    groups, soft = [], []
+    if value is not None and cand:
+        # An ability icon in thin strokes breaks into pieces no tier admits
+        # (`STROKE_JOIN`); join them. A piece on the name baseline is a glyph.
+        line0 = int(np.bincount(np.array([st[i, 1] + st[i, 3] for i in cand])).argmax())
+        glyph = set(cand)
+        on_line = lambda i: (i in glyph
+                             and abs(int(st[i, 1] + st[i, 3]) - line0) <= s.px(BASELINE_TOL))
+        pieces = {i for i in idx if _line_art(value[lab == i])}
+        groups = _stroke_groups(st, pieces, on_line, s)
+        # Thin strokes blend with the plate: Showstopper's mark at
+        # 75a55a296d3b 504.5 s reads median V 244, S 30, under the line-art
+        # bar, as the names on a red plate do. Pieces of any tint group too,
+        # for the last pass only.
+        soft = _stroke_groups(st, set(idx), on_line, s)
+        if groups or soft:
+            st = np.vstack([st] + groups + soft)
+    group_ids = list(range(n, n + len(groups)))
+    soft_ids = list(range(n + len(groups), n + len(groups) + len(soft)))
+    # `no_icon` once meant "nothing passes the size or area tier", and the
+    # knife-sized line art the first pass admits (Showstopper's 19x19 mark at
+    # 75a55a296d3b 504.5 s, Hot Hands' 12x18 flame) was never reached: 45 of
+    # 56 ability and spike kills Riot records and the store missed were
+    # refused here. Now it means no candidate of any tier or group.
+    if not big and not small and not (value is not None and (tiny_pool or groups or soft)):
+        return "no_icon"
     if not cand:
         return "no_glyphs"
     # The divider separates two names, so it must have a *name* on both sides of
@@ -1210,8 +1285,26 @@ def _band_text(
     named = glyph_cols[np.abs(bottoms - line) <= s.px(BASELINE_TOL)]
     divides = lambda i, left, right: ((left < st[i, 0]).any()
                                       and (right > st[i, 0] + st[i, 2]).any())
+    # (3) A line-art stroke group (`_stroke_groups`) with name glyphs on the
+    # baseline to its left. (4) Last, a knife-sized piece or a group of any
+    # tint, with name glyphs on the baseline on BOTH sides, so a piece of a
+    # portrait cannot divide. Both take only candidates taller than any name
+    # glyph, so two kerned letters merged into one piece cannot divide a name.
+    # Both run only where every earlier pass failed, so no band an earlier
+    # pass divides moves; a band the plate seam split now splits at its icon.
+    # CROSS-REFERENCE: the icon is drawn on the killer's plate, so where the
+    # plates meet at one seam (`plate_seam`) a late candidate must end by it.
+    # A tall piece of the victim's portrait divided "CEOofTree [Paint Shells]
+    # aatrox" inside the victim's plate at 4f207c0c4e39 1759.0 s without it.
+    art_set = set(tiers[4]) if value is not None else set()
+    seam = plate_seam(*plates, s=s) if plates is not None else None
+    tall = lambda ids: [i for i in ids if st[i, 3] > gh[1]
+                        and (seam is None or st[i, 0] + st[i, 2] <= seam + s.px(BASELINE_TOL))]
+    late = ([([tall(group_ids)], named, glyph_cols)] if group_ids else []) + (
+        [([tall(i for i in tiny_pool if i not in art_set), tall(soft_ids)], named, named)]
+        if value is not None else [])
     passes = ([([tiers[0], tiers[1], tiers[4]], named, glyph_cols)] if value is not None
-              else []) + [(tiers[:4], glyph_cols, glyph_cols)]
+              else []) + [(tiers[:4], glyph_cols, glyph_cols)] + late
     wep = None
     for group, left, right in passes:
         for tier in group:
@@ -1227,7 +1320,6 @@ def _band_text(
         # purpose: the seam is a *coarser* split than the icon (marks fall on
         # the killer's side of it), so it is only right to prefer it where
         # there is no icon to be had.
-        seam = plate_seam(*plates, s=s) if plates is not None else None
         if seam is None:
             return "no_divider"
         wx0 = wx1 = seam
@@ -1547,7 +1639,9 @@ PORTRAIT_ASPECT = 2.0
 # (`own_ink`), so white hair no longer carries the box past the portrait.
 # 0.9.0 (2026-09-28): `_join_split_runs` reads an entry whose plate run
 # broke at its text rows, so an entry can be observed samples earlier.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.9.0"
+# 0.10.0 (2026-10-02): `_band_text` admits ability icons it refused as `no_icon`: knife-sized
+# pieces of any tint and joined thin strokes (`_stroke_groups`), gated on the plate seam.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.10.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -2019,7 +2113,9 @@ def detect_second_life_badge(
 # 0.7.0 (2026-10-01): the slot is cut from the rows the entry's names place
 # it at (`band_shift`, stored as `band_shift`), and a divider wholly outside
 # the band's plate runs refuses as `off_plate_run`.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.7.0"
+# 0.8.0 (2026-10-02): ability entries refused as `no_icon` are read; see the
+# portrait stamp.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.8.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -2472,7 +2568,9 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # uint8, zlib) for `adjudication.killfeed_names` to compare. Measured in
 # `prototypes/killfeed_name_continuity.py`.
 # 0.2.0 (2026-09-28): more bands read (`_join_split_runs`); see the portrait stamp.
-KILLFEED_NAME_VERSION = "killfeed-name-0.2.0"
+# 0.3.0 (2026-10-02): ability entries refused as `no_icon` are read; see the
+# portrait stamp.
+KILLFEED_NAME_VERSION = "killfeed-name-0.3.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15

@@ -30,9 +30,13 @@ def _below_normal() -> None:
     for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
         os.environ.setdefault(k, "4")
     try:
-        import psutil
-        psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if os.name == "nt" else 10)
-    except Exception:
+        if sys.platform == "win32":
+            import ctypes
+            k = ctypes.windll.kernel32
+            k.SetPriorityClass(k.GetCurrentProcess(), 0x00004000)   # BELOW_NORMAL
+        else:
+            os.nice(10)
+    except Exception:                                   # noqa: BLE001 -- best effort
         pass
 
 
