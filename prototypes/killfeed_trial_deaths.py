@@ -33,7 +33,13 @@ def _below_normal() -> None:
         if sys.platform == "win32":
             import ctypes
             k = ctypes.windll.kernel32
+            # Untyped, the pseudo-handle reaches SetPriorityClass truncated
+            # and the call fails with ERROR_INVALID_HANDLE, silently.
+            k.GetCurrentProcess.restype = ctypes.c_void_p
+            k.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            k.GetPriorityClass.argtypes = [ctypes.c_void_p]
             k.SetPriorityClass(k.GetCurrentProcess(), 0x00004000)   # BELOW_NORMAL
+            print(f"priority class {k.GetPriorityClass(k.GetCurrentProcess()):#x}")
         else:
             os.nice(10)
     except Exception:                                   # noqa: BLE001 -- best effort

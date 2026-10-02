@@ -124,7 +124,14 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # named Sage dead, KAY/O's named down). `decide_entry_type` publishes the type
 # with its alternatives; a disagreement refuses with its reason and is stored
 # (`entry_type`), where one witness ("icon" or "plates") decided before.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.25.0"
+# 0.26.0 (2026-10-02): an entry track never takes a detection above an entry
+# it was below that still reads (`checks.track_entries`, the order rule
+# [domain:killfeed/stack-order]). At bdfdcf009dba 674.0 s an entry whose
+# divider sat unread under the Shooting Error overlay took the entry above's
+# seam misread two slots up, past Me -> Waylay; two false deaths followed.
+# An entry whose victim plate went unread where it appeared takes the first
+# side its own track read (`session_entries`), not "unknown".
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.26.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -1016,8 +1023,17 @@ def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[di
     out = []
     for j, e in enumerate(tracks):
         i, slot = at[e["t_first"]], e["slot_first"]
-        bit = lambda c: bool((hud[c][i] or 0) & (1 << slot))
-        ally, enemy = bit("kf_ally_mask"), bit("kf_enemy_mask")
+        bit = lambda c, i, s: bool((hud[c][i] or 0) & (1 << s))
+        ally, enemy = bit("kf_ally_mask", i, slot), bit("kf_enemy_mask", i, slot)
+        if not (ally or enemy):
+            # The victim plate went unread where the entry appeared (under the
+            # Shooting Error overlay, bdfdcf009dba 672.0 s): its side is the
+            # first one its own track read, since one entry's victim never
+            # changes team.
+            read = [(a, n) for t_, s_, _ in e.get("assigned") or ()
+                    for a, n in [(bit("kf_ally_mask", at[t_], s_),
+                                  bit("kf_enemy_mask", at[t_], s_))] if a or n]
+            ally, enemy = read[0] if read else (False, False)
         pk = j in owner["kill"]
         dt = owner["death"].get(j)
         out.append({"t_ms": e["t_first"], "t_first": e["t_first"], "t_last": e["t_last"],
