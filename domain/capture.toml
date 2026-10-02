@@ -205,3 +205,19 @@ whether 5822b6646448 and c62c2b06bcfb were themselves captured at the largest
 settings is a question for the player; only the placement is observed
 """
 see = ["capture/minimap-size-settings", "capture/largest-scaling-shows-whole-map-belief"]
+
+[capture-resolution]
+claim = """
+Every capture through 2026-10-01 (94 files under C:/Users/grant/Videos) is
+1920x1080 H.264 4:2:0 at 60 fps, 4 to 33 Mbit/s, from OBS. The player records
+at 1080p to save data, plays on a 2560x1440 monitor, and may record future
+captures at a higher resolution.
+"""
+kind = "codec"
+known = "player"
+since = "2026-10-01"
+source = "ffprobe of every capture, 2026-10-01; the player"
+use = """
+a capture above 1080p reaches readers through the one scale transform; run
+clip_preflight on the first one before scanning
+"""

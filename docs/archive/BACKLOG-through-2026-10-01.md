@@ -42,3 +42,9 @@ In former order; each item's full text is in the [09-29 archive](docs/archive/BA
 - **`decodes` (2026-09-29):** the `scoreboard` rescan and the storage reruns at `death-adjudication-0.20.0`.
 
 Full entries: [09-29 archive](docs/archive/BACKLOG-through-2026-09-29.md), [09-28 evening archive](docs/archive/BACKLOG-through-2026-09-28b.md).
+
+## Icon descriptors: the killfeed steps (moved from BACKLOG.md, 2026-10-01)
+
+Moved to make room for the reader-resampling item; the item itself stays open in `BACKLOG.md` under Waiting.
+
+(a) Count gun confusions on the player's labels, Vandal against Phantom first; `ambiguous` = 0 hides confusion. (b) Histogram plate-edge positions modulo 1, both axes, resting and sliding: a spike (whole-pixel snapping) makes (b) and (c) moot; blur gives snapped edges one profile, so read the spread across entries; then measure each entry's per-frame sub-pixel offset from plate edges and names (horizontal from content, vertical from stack slot and slide), checked first against the icon's own. (c) Shift the reference by known pixel fractions; compare the score's fall with the right icon's lead over the best wrong one, to decide whether a quarter pixel suffices. (d) Descriptors at two or three blur levels (coarse whiteness grid, regional edge-orientation histograms, outline turning at sharp or rounded corners, notches), weighted per finalist pair with a floor. (e) Native-size matching on plate-relative soft whiteness against one averaged reference per icon.
