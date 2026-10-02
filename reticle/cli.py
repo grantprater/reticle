@@ -864,11 +864,25 @@ SHAPE_STREAMS = ("ability_gate", "ability_fit", "ability_wall", "ability_shape_s
 
 def _ability_stale(store, sid, streams=None) -> bool:
     """Whether any of `streams` (default every stream of the ability pass) is
-    absent or behind its stamp."""
-    from .plan import ability_streams
-    return any(store.events_version(stream, sid) != current
-               for stream, _key, current in ability_streams()
-               if streams is None or stream in streams)
+    absent, behind its stamp, or built over a rule or stored input that has
+    moved since: `plan.recorded_stale`, the check `plan` makes of what each
+    stream recorded. Until 2026-10-01 this compared each stream's own stamp
+    alone, so `plan` named `scan --only ability` for a fit over
+    `death-adjudication-0.20.0` and the scan answered "current"."""
+    from .input_stamps import head_row
+    from .plan import ability_streams, derived_streams, recorded_stale
+    specs = {s["stream"]: s for s in derived_streams()}
+    manifest, memo = store.read_manifest(sid), {}
+    for stream, _key, current in ability_streams():
+        if streams is not None and stream not in streams:
+            continue
+        if store.events_version(stream, sid) != current:
+            return True
+        behind, moved, _ = recorded_stale(store, manifest, specs[stream],
+                                          head_row(store, stream, sid) or {}, memo)
+        if behind or moved:
+            return True
+    return False
 
 
 def cmd_usage(args) -> int:
