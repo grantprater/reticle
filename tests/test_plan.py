@@ -401,6 +401,51 @@ class DeclaredStreamTests(unittest.TestCase):
                              ["occluders"])
 
 
+class AbilitySupplyStaleTests(unittest.TestCase):
+    """On 2026-10-01 `plan` named `scan --only ability` for `ability_fit` heads
+    whose `supply.death` read `death-adjudication-0.20.0` beside deaths at
+    0.25.0, and the scan answered "requested channels are current": it
+    compared each stream's own stamp alone, and `plan` followed `death` only
+    while the deaths were themselves stale."""
+
+    def _store(self, d, death_read: str):
+        store = _current_store(Path(d))
+        for stream in ("ability_fit", "ability_wall"):
+            head = {**_declared_head(stream),
+                    "supply": {"death": death_read, "rounds": ROUND_VERSION}}
+            store.events[stream + ":rows"] = [head]
+            store.events[stream] = [{"v": head[f"{stream}_version"]}]
+        return store
+
+    def test_plan_names_a_fit_over_older_deaths_after_the_deaths_rerun(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(stale(self._store(d, DEATH_ADJUDICATION_VERSION), ["s"])["s"]["derived"],
+                             [])
+            derived = stale(self._store(d, "death-adjudication-0.20.0"), ["s"])["s"]["derived"]
+            self.assertEqual([(x["stream"], x["inputs_moved"], x["command"]) for x in derived],
+                             [("ability_fit", ["death"], "reticle scan s --only ability"),
+                              ("ability_wall", ["death"], "reticle scan s --only ability")])
+
+    def test_scan_rereads_what_plan_calls_stale(self):
+        from reticle.cli import _ability_stale
+        with tempfile.TemporaryDirectory() as d:
+            for death_read, want in ((DEATH_ADJUDICATION_VERSION, False),
+                                     ("death-adjudication-0.20.0", True)):
+                store = self._store(d, death_read)
+                self.assertEqual(_ability_stale(store, "s", ("ability_fit", "ability_wall")), want)
+                self.assertEqual(bool(stale(store, ["s"])["s"]["derived"]), want)
+
+    def test_a_pass_with_no_supply_read_no_deaths(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = self._store(d, DEATH_ADJUDICATION_VERSION)
+            store.events["ability_fit:rows"][0].update(supply=None, supply_reason="no_lineup",
+                                                       ability_candidates_version=None)
+            got = stale(store, ["s"])["s"]
+            self.assertEqual((got["derived"], got["unrecorded"]), ([], []))
+            from reticle.cli import _ability_stale
+            self.assertFalse(_ability_stale(store, "s", ("ability_fit",)))
+
+
 class EnemyLaneStaleTests(unittest.TestCase):
     """The enemy lane: each fix is part of the `minimap_object` stamp, so a
     stream read with a fix off is stale, and the tracks and deaths built on it

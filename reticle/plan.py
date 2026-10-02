@@ -327,6 +327,13 @@ def _lineup_inputs(prefix: str = "inputs.", file_path: str | None = None) -> dic
             "lineup": _in(prefix + "lineup_view", "lineup")}
 
 
+def _supply_inputs() -> dict:
+    """The stored inputs a candidate supply rests on (`CandidateSupply.rests_on`)."""
+    return {"death": _in("supply.death", "death#death_adjudication_version", optional=True),
+            "lineup_file": _in("supply.lineup", "lineup_file", optional=True),
+            "round": _in("supply.rounds", "rounds", optional=True)}
+
+
 def stream_inputs() -> dict[str, dict[str, dict]]:
     """stream -> {input name: declared input}, for every stream that reads a
     stored input. The name is what `plan` reports as moved."""
@@ -383,6 +390,16 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                           "appearance_values": _code("appearance_values", values_digest(),
                                                      optional=True),
                           **_gate(), **_lineup_inputs()},
+        # The candidate streams of the ability pass fit over the supply
+        # `ability_candidates.for_session` built from the stored deaths, the
+        # lineup file and the rounds, and record their stamps under `supply`.
+        # Until 2026-10-01 nothing compared them: `death` was only an
+        # `upstream`, followed while the deaths were stale and forgotten once
+        # they were rerun, so a fit over `death-adjudication-0.20.0` read as
+        # current beside deaths at 0.25.0. A pass with no supply (`supply:
+        # null`, `supply_reason`) read none of them, hence `optional`.
+        "ability_fit": _supply_inputs(),
+        "ability_wall": _supply_inputs(),
         "scoreboard_presence": {"scoreboard_strip": _in("scoreboard_strip_version",
                                                         "scoreboard_strip#scoreboard_strip_version"),
                                 "scoreboard": _in("scoreboard_version", "scoreboard")},
@@ -658,6 +675,37 @@ def record_inputs(store, manifest: dict, stream: str, head: dict) -> dict:
             at = at.setdefault(part, {})
         at[leaf] = input_head(store, manifest, d["probe"], head)
     return head
+
+
+def recorded_stale(store, manifest: dict, spec: dict, head: dict, memo: dict | None = None,
+                   accepted=None) -> tuple[bool, list[str], list[str]]:
+    """(behind, moved, unrecorded) of one `derived_streams` spec by what its
+    stored first row `head` records alone: its own stamp behind the code's,
+    each rule stamp in `spec["fields"]` the code has moved past, each declared
+    stored input that moved since it was read (`inputs_moved`) and, for a cone
+    stream, the occluder table. `unrecorded` names the declared inputs `head`
+    does not record.
+
+    `stale` adds the inputs still waiting on a rerun (`upstream_names`);
+    `scan` asks this alone before it rereads, so the command `plan` prints
+    rereads what `plan` calls stale once the inputs ahead of it are rerun.
+    `accepted` is `stale`'s waiver check; by default a declared waiver accepts."""
+    if accepted is None:
+        accepted = lambda where, stored, current: waiver(stored, current) is not None
+    stream = spec["stream"]
+    moved = sorted(k for k, v in spec["fields"].items() if _dig(head, k) not in (v, None)
+                   and not accepted(f"{stream} input {k}", _dig(head, k), v))
+    got, missing = inputs_moved(store, manifest, stream, head, memo, accepted)
+    moved += [k for k in got if k not in moved]
+    if spec.get("occluders"):
+        # A stream cast over an older occluder table, or over none where the
+        # geometry now holds one, is stale.
+        now = geometry_occluders(store, head.get(spec["occluders"]))
+        if now is not None and head.get("occluders") != now:
+            moved.append("occluders")
+    version = head.get(spec["key"])
+    behind = version != spec["current"] and not accepted(stream, version, spec["current"])
+    return behind, moved, missing
 
 
 def geometry_occluders(store, key: str | None) -> str | None:
@@ -1014,18 +1062,11 @@ def stale(store, sessions: list[str]) -> dict:
             if head is None:
                 continue
             version = head.get(spec["key"])
-            moved = sorted(k for k, v in spec["fields"].items() if _dig(head, k) not in (v, None)
-                           and not accepted(f"{stream} input {k}", _dig(head, k), v))
-            moved = recorded_moved(stream, head, moved)
-            if spec.get("occluders"):
-                # A stream cast over an older occluder table, or over none
-                # where the geometry now holds one, is stale.
-                now = geometry_occluders(store, head.get(spec["occluders"]))
-                if now is not None and head.get("occluders") != now:
-                    moved.append("occluders")
+            behind, moved, missing = recorded_stale(store, man, spec, head, memo, accepted)
+            if missing:
+                unrecorded.append({"stream": stream, "inputs": missing})
             moved += sorted(u for u in upstream_names(stream, spec["upstream"], moving, head)
                             if u not in moved)
-            behind = version != spec["current"] and not accepted(stream, version, spec["current"])
             if behind or moved:
                 derived.append({"stream": stream, "stored": version, "current": spec["current"],
                                 "inputs_moved": moved, "how": spec["how"],

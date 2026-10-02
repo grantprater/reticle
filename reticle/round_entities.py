@@ -66,7 +66,11 @@ from .round_lifetimes import (ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank
 # each piece before a segment's last, with that piece's own last sighting and
 # name; a piece that takes a death ends there, and the pieces after it carry
 # `after_piece_death`.
-ROUND_ENTITY_VERSION = "round-entity-0.13.0"
+# 0.14.0 (2026-10-02): that pairing offers a segment's inner pieces even when
+# the segment's end holds a death; each piece takes at most one
+# (c40d950031bb 872.0 s: Killjoy's inner piece, under a segment bound to
+# Jett's later death).
+ROUND_ENTITY_VERSION = "round-entity-0.14.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
@@ -349,11 +353,14 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
         # each piece's own last sighting. A piece that takes a death ends
         # there; the pieces after it keep the segment's continuity, which the
         # death disputes, and say so (`after_piece_death`).
+        # An inner piece is offered even when its segment's end holds a death:
+        # the tracker can join two teammates, and the earlier one's death is
+        # the inner piece's, not the segment's (`_holds_death`).
         claimed = {ent["death_id"] for ent in finished if ent.get("death_id")}
         inner = []
         for ent in finished:
             ids = named.get("pieces_of", {}).get(ent["id"], [])
-            if ent.get("family") == "ally" and not ent.get("death_id") and len(ids) > 1:
+            if ent.get("family") == "ally" and len(ids) > 1:
                 inner += [{"id": pid, "family": "ally", "segment": ent,
                            "last_seen_ms": pieces[pid]["t"][-1]} for pid in ids[:-1]]
         piece_xy = {}
@@ -369,8 +376,7 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
             cands = [(rank(ent, d, last_xy=both_xy), ent)
                      for ent in finished + inner
                      if ent.get("family") == "ally"
-                     and not (ent.get("segment") or ent).get("death_id")
-                     and not (ent.get("segment") or ent).get("piece_death_id")
+                     and not _holds_death(ent, piece_deaths)
                      and abs(ent["last_seen_ms"] - t_d) <= 3000.0
                      and refusal(ent, d, last_xy=both_xy) is None]
             if cands:
@@ -420,6 +426,17 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
                      **report})
 
     return [{**common, "kind": "coverage", **coverage}] + rows
+
+
+def _holds_death(ent: dict, piece_deaths: dict) -> bool:
+    """Whether a candidate in the pairing of left deaths already holds one.
+
+    A segment holds a death by its own end or by an inner piece's; an inner
+    piece (`ent["segment"]` set) only by its own, so a segment bound at its
+    end still offers its earlier pieces (0.14.0)."""
+    if "segment" in ent:
+        return ent["id"] in piece_deaths
+    return bool(ent.get("death_id") or ent.get("piece_death_id"))
 
 
 def _piece_bodies(body, pieces, verdicts, ids, session_id, piece_deaths=None):
