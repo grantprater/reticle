@@ -42,11 +42,11 @@ class BestCircleMatchesLoop(unittest.TestCase):
 
 
 class RingGeometryScales(unittest.TestCase):
-    def test_the_reference_widget_keeps_the_integer_grid(self):
+    def test_the_reference_widget_uses_the_base_values(self):
         g = minimap.ring_geometry(1.0)
         self.assertEqual(minimap.ring_radii(g["r_min"], g["r_max"], g["step"]),
                          [float(r) for r in range(minimap.R_MIN, minimap.R_MAX + 1)])
-        self.assertEqual((g["search"], g["reach_start"], g["reach_step"]), (5.0, 1.0, 0.7))
+        self.assertEqual((g["search"], g["reach_start"], g["reach_step"]), (9.0, 1.0, 0.7))
 
     def test_a_small_widget_keeps_its_floor_fractional(self):
         sc = minimap.widget_scale(331)

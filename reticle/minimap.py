@@ -540,15 +540,20 @@ MIN_ICON_SEPARATION_PX = 2 * R_MIN
 # How far the true centre may sit from the blob's centroid. The triangle drags
 # the centroid toward itself by several pixels, which is the same effect that
 # reported the facing 180 degrees out before it was measured from the hole.
-# The centroid search enumerates the integer centre offsets within
-# `max(SEARCH, SEARCH * widget_scale)` px: it grows with a larger widget and
-# never shrinks below 5 px. The centroid's drag does not shrink with the
-# widget: on 331 px widgets (223d636bf8d2 1250-1410 s, 3694746e4e54
-# 884-1044 s) a search of 3 px (5 x 0.712, floored) kept the self fit on 585
-# and 643 frames, 4 px on 858 and 979, 5 px on 1010 and 1120
-# (ally-ring-subpixel-20261001). The 4:2:0 fragmentation that drags it is
-# fixed in capture pixels [domain:capture/chroma-420].
-SEARCH = 5
+# Base px. The centroid search enumerates the integer centre offsets within
+# `SEARCH * widget_scale` px: +/-9 on the reference widget, +/-6 at 331 px.
+# Until ally-icon-0.8.0 it was 5 px on every widget. Self-fit frames
+# (ally-ring-subpixel-20261001), by search radius in px:
+#
+#     465 px  a06f04a0059f 600-760 s, 5822b6646448 1142-1302 s
+#             5: 1310 / 1153   7: 1324 / 1203   8: 1324 / 1205   9: 1324 / 1206
+#     331 px  223d636bf8d2 1250-1410 s, 3694746e4e54 884-1044 s
+#             3:  585 /  643   4:  858 /  979   5: 1010 / 1120
+#             6: 1043 / 1158   7: 1045 / 1160
+#
+# Both widgets saturate at 9 base px (465 px from 7, 331 px from 8.43, the
+# least base whose offsets reach 6 px).
+SEARCH = 9
 N_THETA = 48
 
 
@@ -568,13 +573,12 @@ def ring_geometry(sc: float) -> dict:
 
     `r_min` and `r_max` bound the radius grid (floored at 3 and 4 px, as
     before), `step` spaces it, `search` is the centroid search radius and
-    `reach_start`, `reach_step` the facing ray march's (see `_reach`). The
-    search never falls below `SEARCH` (see its comment). None of them is
-    rounded: a radius that gates the coverage decision stays fractional. On
-    the reference widget every value is the old constant.
+    `reach_start`, `reach_step` the facing ray march's (see `_reach`). None
+    of them is rounded: a radius that gates the coverage decision stays fractional. On
+    the reference widget the radii and ray march keep their old values.
     """
     return {"r_min": max(3.0, R_MIN * sc), "r_max": max(4.0, R_MAX * sc),
-            "step": R_STEP * sc, "search": max(SEARCH, SEARCH * sc),
+            "step": R_STEP * sc, "search": SEARCH * sc,
             "reach_start": REACH_START * sc, "reach_step": REACH_STEP * sc}
 
 
@@ -901,7 +905,7 @@ def _rings(mask: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]
     m = cv2.morphologyEx((mask & floor).astype(np.uint8), cv2.MORPH_CLOSE,
                          np.ones((_odd(3 * sc), _odd(3 * sc)), np.uint8))
     n, _lab, st, cen = cv2.connectedComponentsWithStats(m, 8)
-    min_area = max(4, int(round(MIN_ICON_AREA * sc * sc)))
+    min_area = max(4.0, MIN_ICON_AREA * sc * sc)
     return [(int(st[i, 4]), float(cen[i][0]), float(cen[i][1]))
             for i in range(1, n) if st[i, 4] >= min_area]
 
@@ -1041,7 +1045,7 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     # The integer reach of a ring of radius <= r_max, for windows and kernels.
     R = int(np.ceil(r_max - 1e-9))
     if min_area is None:
-        min_area = max(4, int(round(MIN_ICON_AREA * sc * sc)))
+        min_area = max(4.0, MIN_ICON_AREA * sc * sc)  # an area: x sc^2, unrounded
     keyed = mask & floor
     grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     m = cv2.morphologyEx(keyed.astype(np.uint8), cv2.MORPH_CLOSE,
@@ -1223,6 +1227,16 @@ ALLY_DESCRIPTOR_HZ = 15.0
 ALLY_MAP_DIFF_MIN = 15.0
 
 
+def portrait_min_pixels(width_px: float) -> float:
+    """The fewest portrait pixels a minimap icon's composition needs on a
+    widget `width_px` wide: `appearance.MIN_PIXELS` (base px at the reference
+    widget) times `widget_scale` squared, an area, unrounded. Until
+    ally-icon-0.8.0 the 64 px floor was fixed, and the 331 px widget's disc
+    sat on it."""
+    from . import appearance
+    return appearance.MIN_PIXELS * widget_scale(width_px) ** 2
+
+
 def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
                           support: np.ndarray | None = None,
                           static: np.ndarray | None = None,
@@ -1256,7 +1270,7 @@ def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
     out = []
     for f in found:
         win, keep = _interior(f, keyed, found, occluders)
-        comp = appearance.hsv_composition(crop[win], keep)
+        comp = appearance.hsv_composition(crop[win], keep, portrait_min_pixels(crop.shape[1]))
         diff = f.get("map_diff")
         reason = ("interior_is_map" if f.get("barrier")
                   else "interior_too_thin" if not comp.size else None)
@@ -1441,7 +1455,8 @@ class AllyIconReader:
             match = claimed.get(i)
             with step("baseline"):
                 win, keep = _interior(f, keyed)
-                baseline = appearance.hsv_composition(crop[win], keep)
+                baseline = appearance.hsv_composition(crop[win], keep,
+                                                      portrait_min_pixels(crop.shape[1]))
                 baseline_diff = (float(np.abs(grey[win][keep] - ref[win][keep]).mean())
                                  if keep.any() else None)
             self.candidates.append({**frame, "channel": "ally", "index": i,

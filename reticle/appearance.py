@@ -50,8 +50,13 @@ BINS = H_BINS * S_BINS * V_BINS
 MIN_PIXELS = 64
 
 
-def hsv_composition(bgr: np.ndarray, mask: np.ndarray | None = None) -> np.ndarray:
+def hsv_composition(bgr: np.ndarray, mask: np.ndarray | None = None,
+                    min_pixels: float | None = None) -> np.ndarray:
     """Normalized HSV composition of a crop, or an empty vector when too thin.
+
+    Too thin is fewer than `min_pixels` art pixels, `MIN_PIXELS` by default.
+    A caller reading a scaled widget passes `MIN_PIXELS * scale**2`, unrounded:
+    the floor is an area.
 
     Returns a length-`BINS` float32 vector summing to 1, so two of them may be
     compared by histogram intersection -- `np.minimum(a, b).sum()` -- which is
@@ -67,7 +72,7 @@ def hsv_composition(bgr: np.ndarray, mask: np.ndarray | None = None) -> np.ndarr
     if mask is not None:
         index = index[mask.astype(bool)]
     index = np.asarray(index).ravel()
-    if index.size < MIN_PIXELS:
+    if index.size < (MIN_PIXELS if min_pixels is None else min_pixels):
         return np.zeros(0, np.float32)
     hist = np.bincount(index, minlength=BINS).astype(np.float32)
     return hist / max(1.0, float(hist.sum()))
