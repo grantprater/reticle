@@ -123,3 +123,6 @@ there; that is untested.
 Condition A reproduces the stored stream: on a06f04a0059f, 5942 of 5949 rows
 agree, as `reticle trial --reader ally_icon` finds, and the seven that differ
 move only the pose's prior fields at the slice's cold start.
+
+[CAPTURE_PSF.md](CAPTURE_PSF.md) measures the capture's blur on the same
+crops and fits ally icons through it on the same two slices.
