@@ -552,5 +552,70 @@ class InputCycleTests(unittest.TestCase):
                 self.assertEqual(stale_streams(store), [])
 
 
+class BuildOrderTests(unittest.TestCase):
+    """A driver ran `plan`'s lines top to bottom and rebuilt `ult_cast` before
+    the `tray` and `combat-report` it reads, so the casts went stale again."""
+
+    def test_the_order_graph_holds_no_loop(self):
+        from reticle.plan import input_cycles, order_graph
+        self.assertEqual(input_cycles(order_graph()[0]), [])
+
+    def test_no_reader_is_built_from_a_rerun_stream(self):
+        from reticle.plan import _hand_specs, build_order, order_graph
+        graph = order_graph()[0]
+        rerun = set(_hand_specs()) | {s["stream"] for s in derived_streams()} | {"rounds"}
+        for stream, *_ in reader_streams():
+            seen, stack = set(), list(graph.get(stream, ()))
+            while stack:
+                n = stack.pop()
+                if n not in seen:
+                    seen.add(n)
+                    stack.extend(graph.get(n, ()))
+            self.assertFalse(seen & rerun, stream)
+        self.assertEqual(build_order(["death", "hud"], graph), ["hud", "death"])
+
+    def test_a_loop_keeps_its_given_order_and_its_dependents_follow(self):
+        from reticle.plan import build_order
+        graph = {"a": {"b"}, "b": {"a"}, "c": {"a"}}
+        self.assertEqual(build_order(["c", "b", "a", "d"], graph), ["b", "a", "c", "d"])
+
+    def test_plan_lines_follow_their_inputs(self):
+        from reticle.plan import order_graph
+        graph, fold = order_graph()
+        rows = [("ult_cast_identity", "reticle ult-cast s1"), ("ult_cast", "reticle ult-cast s1"),
+                ("death_identity", "reticle deaths s1"), ("smoke_owner", "reticle smokes s1"),
+                ("round_entity", "reticle lifetimes s1"), ("death", "reticle deaths s1"),
+                ("combat_report_round", "reticle combat-report s1"),
+                ("tray_drop", "reticle tray s1"), ("rounds", "reticle rounds s1"),
+                ("tray_kit", "reticle tray-kit s1"), ("ult_cast", "reticle ult-cast s2", "older")]
+        # The s2 casts are stale for another reason, so they get a line of their own.
+        derived = [{"stream": s, "stored": (rest or ("old",))[0], "current": "new",
+                    "inputs_moved": [], "command": c} for s, c, *rest in rows]
+        plan = {"s1": {"decode": [], "derived": [d for d in derived if "s1" in d["command"]]},
+                "s2": {"decode": [], "derived": [d for d in derived if "s2" in d["command"]]}}
+        lines = [ln for ln in render(plan).splitlines() if ln.startswith(("storage", "cache"))]
+        order = [ln.split("(", 1)[1].split(":", 1)[0] for ln in lines]
+        node = [fold.get(s, s) for s in order]
+
+        def ancestors(s):
+            seen, stack = set(), list(graph.get(s, ()))
+            while stack:
+                n = stack.pop()
+                if n not in seen:
+                    seen.add(n)
+                    stack.extend(graph.get(n, ()))
+            return seen
+
+        for i, s in enumerate(node):
+            later = set(node[i + 1:]) - {s}
+            self.assertFalse(ancestors(s) & later, (order[i], order))
+        for want in ("rounds", "tray_drop", "combat_report_round", "death"):
+            self.assertLess(order.index(want), order.index("ult_cast"), order)
+        # One stream's lines stay together, its identity stream right after.
+        self.assertEqual(order[order.index("ult_cast"):order.index("ult_cast") + 3],
+                         ["ult_cast", "ult_cast", "ult_cast_identity"])
+        self.assertEqual(order[order.index("death") + 1], "death_identity")
+
+
 if __name__ == "__main__":
     unittest.main()

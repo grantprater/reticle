@@ -147,7 +147,9 @@ def _ability_inputs(stream: str) -> tuple[dict, tuple]:
 
 def derived_streams() -> list[dict]:
     """Every stored adjudication and derived stream `stale` does not check by
-    hand, in the order their inputs are built.
+    hand. The list's order is not the build order: `build_order` derives
+    that from the declared inputs (`order_graph`), so no hand-kept order
+    can contradict them.
 
     `key` is the stamp in the stream's first row and `current` the code's.
     `fields` maps a stamp the first row records of an input (`a.b` descends
@@ -513,7 +515,8 @@ def input_streams(stream: str) -> set[str]:
 #: no stored stream (geometry, the lineup file, the catalogue, the rendered
 #: portrait art).
 TABLE_SOURCES = {
-    "rounds": ("hud", "killfeed_portrait"),
+    # The plants are read from a current `plant_graphic` stream (`_round_stamps`).
+    "rounds": ("hud", "killfeed_portrait", "plant_graphic"),
     "lineup": ("lineup_file", "self_icon", "scoreboard"),
     "reliability": ("death",),
     # `prototypes/ally_teammate_fit.py` fits the threshold on the deaths
@@ -573,6 +576,54 @@ def input_cycles(graph: dict[str, set[str]] | None = None) -> list[list[str]]:
                 elif order[nxt] > order[start] and nxt not in path:
                     stack.append((nxt, path + [nxt]))
     return cycles
+
+
+def order_graph() -> tuple[dict[str, set[str]], dict[str, str]]:
+    """(graph, fold): `input_graph` with each entity lane's consumer stream
+    built from its lane's inputs, and each identity stream folded into the
+    stream whose command writes it (`fold`: identity stream -> parent), so
+    the two order as one."""
+    from .entity_events import ENTITY_LANES, lane_streams
+    graph = input_graph()
+    for spec in ENTITY_LANES:
+        graph.setdefault(lane_streams(spec["lane"])[0], set()).update(spec["inputs"])
+    fold = {s["stream"]: s["upstream"][0] for s in derived_streams() if s.get("identity")}
+    out: dict[str, set[str]] = {}
+    for node, deps in graph.items():
+        at = fold.get(node, node)
+        out.setdefault(at, set()).update(fold.get(d, d) for d in deps)
+        out[at].discard(at)
+    return out, fold
+
+
+def build_order(streams: list[str], graph: dict[str, set[str]] | None = None) -> list[str]:
+    """`streams` reordered so each follows every listed stream it is built
+    from, directly or through streams not listed (default graph
+    `order_graph`). Streams with no such tie keep their given order, and so
+    do the members of a loop: `input_cycles` fails the tests on one, never
+    the user."""
+    graph = order_graph()[0] if graph is None else graph
+    streams = list(dict.fromkeys(streams))
+    ancestors: dict[str, set[str]] = {}
+    for s in streams:
+        seen, stack = set(), list(graph.get(s, ()))
+        while stack:
+            n = stack.pop()
+            if n not in seen:
+                seen.add(n)
+                stack.extend(graph.get(n, ()))
+        ancestors[s] = seen
+    # Ancestry is transitive, so dropping the mutual pairs (a loop) leaves a
+    # strict partial order, and the scan below always finds a ready stream.
+    before = {s: {a for a in streams if a != s and a in ancestors[s]
+                  and s not in ancestors[a]} for s in streams}
+    out: list[str] = []
+    left = list(streams)
+    while left:
+        ready = next(s for s in left if before[s] <= set(out))
+        out.append(ready)
+        left.remove(ready)
+    return out
 
 
 _MISSING = object()
@@ -1178,17 +1229,26 @@ def render(plan: dict) -> str:
         accept = ACCEPT.get(ch, f"reticle scan <sid> --only {ch}")
         lines.append(f"  accept {accept}   for {' '.join(sids)}"
                      + ("   (from the ROI crop cache where one exists)" if cached else ""))
-    # Grouped by command and reason, rounds before the adjudications that read them.
-    # `how` says what the command reads: stored rows only, the ROI crop cache,
-    # or the capture itself.
+    # Grouped by command and reason, each stream after every stream it is
+    # built from (`build_order`), so a driver can run the lines top to bottom;
+    # an identity stream follows the stream whose command writes it. `how`
+    # says what the command reads: stored rows only, the ROI crop cache, or
+    # the capture itself.
     grouped: dict[tuple[str, str, str], list[str]] = defaultdict(list)
-    for sid, d in sorted(derived, key=lambda x: x[1]["stream"] != "rounds"):
+    stream_of: dict[tuple[str, str, str], str] = {}
+    for sid, d in derived:
         why = "; ".join(filter(None, (
             f"{d['stored']} -> {d['current']}" if d["stored"] != d["current"] else None,
             "inputs " + ", ".join(d["inputs_moved"]) if d["inputs_moved"] else None)))
         command = re.sub(rf"(?<![\w-]){re.escape(sid)}(?![\w-])", "<sid>", d["command"])
-        grouped[(d.get("how", "storage"), command,
-                 f"{d['stream']}: {why}")].append(sid)
-    for (how, command, why), sids in grouped.items():
-        lines.append(f"{how:<8} {command}   ({why}) for {' '.join(sids)}")
+        key = (d.get("how", "storage"), command, f"{d['stream']}: {why}")
+        grouped[key].append(sid)
+        stream_of[key] = d["stream"]
+    graph, fold = order_graph()
+    node = {k: fold.get(s, s) for k, s in stream_of.items()}
+    rank = {n: i for i, n in enumerate(build_order(list(node.values()), graph))}
+    first = {k: i for i, k in enumerate(grouped)}
+    for key in sorted(grouped, key=lambda k: (rank[node[k]], stream_of[k] != node[k], first[k])):
+        how, command, why = key
+        lines.append(f"{how:<8} {command}   ({why}) for {' '.join(grouped[key])}")
     return "\n".join(lines + waived_lines)
