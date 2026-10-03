@@ -2,45 +2,47 @@
 
 ## Picking up
 
-**2026-10-02.** Master stands at `296dce7` and is pushed. The corpus rerun finished on the matches, so `plan` names no stale stream on any match. The [backlog](BACKLOG.md) holds three active items: stacked ally icons by render-and-compare, the killfeed crop faults and the missing killfeed readers. The previous handoff is [archived](docs/archive/NOTES-2026-10-01-to-10-02.md).
+**2026-10-03.** Master stands at `4ad072a`. A corpus rerun from the crop cache and storage finished on every match, so `plan` names no stale line on a match. The [backlog](BACKLOG.md) holds three active items: close the remaining failures against Riot's match records, cut runtime (first, why `ally_icon` costs twice as much per call on six sessions), and stacked ally icons by render-and-compare. The killfeed crop faults and missing killfeed readers became threads of the first. The previous handoff is [archived](docs/archive/NOTES-2026-10-02-to-10-03.md).
 
-### What `status` and `plan` say
+A crash at 00:52 on 2026-10-03 zeroed `.git/refs/heads/master` mid-merge; the player restored it to `48ae5df` from the reflog, and `git fsck` reports no fault.
 
-After the 2026-10-02 rerun: `verify --tier fast` passes 7 of 7; `status` reads 13 of 17 exact against `checks.KNOWN_KD` and plants on 220 of 439 rounds; doctor reports 0 errors. `plan` still names `vision` (`team-vision-0.3.0` -> `0.6.0`) on 37 sessions and `ult-cast` on 6, all demos under a minute, which the matches-only rule skips.
+### What `status`, `plan` and the Riot scorer say
 
-### Landed on 2026-10-01 and 10-02
+After the rerun, `verify --tier fast` passes every check with none stale (before it, three were stale); `status` reads one more known K/D exact than before; doctor reports no error. `plan` still names `vision` (`team-vision-0.3.0` -> `0.6.0`) and `ult-cast` on the demos, which the matches-only rule skips.
 
-- **Killfeed.** `KillfeedScale` scales every length by capture height; `killfeed-weapon-0.6.0` stores the slot's soft glyph and sub-pixel centroid [domain:killfeed/subpixel-placement]; 0.7.0 cuts the slot where the names place the entry; `weapon-gallery-0.6.0` rebinds the player's names. `death-adjudication-0.25.0` types each entry from every revive witness at once.
-- **Pixels.** AGENTS.md now says to read pixels as samples of a smooth image [domain:capture/capture-resolution]. `prototypes/capture_psf.py` measures the capture's blur on baked wall lines; ally icons fitted through it do not beat the stored pose ([CAPTURE_PSF.md](docs/CAPTURE_PSF.md)). The portrait crop audit finds contamination a 331 px problem.
-- **Minimap and binding.** `ally-icon-0.7.0` continues each teardrop's prior fit; `round-entity-0.14.0` offers an inner piece under a bound segment to the deaths left.
-- **Staleness.** `plan` compares the candidate supply's recorded inputs; `usage` times named steps inside a reader.
+`prototypes/riot_ground_truth.py --all --offline --record` scored the stored streams against Riot's match records on 21 matches:
 
-### Corpus rerun, 2026-10-02
+- **Deaths:** recall [metric:riot_truth/deaths#recall=0.978], precision [metric:riot_truth/deaths#precision=0.9765]; of named fields, victim [metric:riot_truth/deaths#victim_right_of_named=0.9946], killer [metric:riot_truth/deaths#killer_right_of_named=0.991], weapon [metric:riot_truth/deaths#weapon_right_of_named=0.9981].
+- **Rounds:** winners right on [metric:riot_truth/rounds#winner_right=439] of [metric:riot_truth/rounds#riot_rounds=439]; plants on both sides [metric:riot_truth/rounds#plant_both=251], Riot only [metric:riot_truth/rounds#plant_riot_only=27], two unread.
+- **K/D:** known players agree on [metric:riot_truth/kd#known_agree=18] of [metric:riot_truth/kd#known_scored=18]; tracked exact on [metric:riot_truth/kd#tracked_exact=15] of [metric:riot_truth/kd#tracked_scored=21].
+- **Minimap allies at kill instants:** [metric:riot_truth/minimap/all#matched=7272] of [metric:riot_truth/minimap/all#riot_allies=8935] matched, [metric:riot_truth/minimap/all#phantom=1453] phantoms, [metric:riot_truth/minimap/all#missed_stacked=792] misses in stacks; reader centre error median [metric:riot_truth/minimap/all#reader_pos_err_px_median=1.3] px.
 
-From storage, on matches only: `lifetimes` on 20 match sessions to `round-entity-0.14.0`, then `project` on 5822b6646448 (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`), a06f04a0059f (`C:\Users\grant\Videos\2026-08-26 09-56-37.mp4`) and bfad2778a372 (`C:\Users\grant\Videos\2026-08-24 14-45-35.mp4`), whose entity lanes no longer held.
+### Landed since the 2026-10-02 handoff
+
+Each commit body carries its measurements (`git log --no-merges d52a54b..master`).
+
+- **Ground truth.** `prototypes/riot_ground_truth.py` (`riot-truth-0.1.0`, `wire: no`) scores stored streams against Riot's records; `killfeed_trial_deaths.py` adjudicates a killfeed trial in memory for it.
+- **Rounds.** `plant_graphic` (`plant-graphic-0.1.0`) reads the planted-spike graphic in the cached scoreline crop; `round-0.8.0` marks plants from it [domain:hud/planted-spike-replaces-clock]. `stored_reads` keeps only sample rows.
+- **Killfeed.** `hud-0.17.0` reads ability kills that `_band_text` had refused as `no_icon`; `hud-0.18.0` reads Clove's ringed divider as one ring. `death-adjudication-0.26.0` keeps entries in their order across a misread divider [domain:killfeed/stack-order]. `prototypes/killfeed_queue_stats.py` measured the stack as a queue; the player's answers on entry lifetime, capacity and round end are facts in `domain/killfeed.toml`.
+- **Speed.** `ally_icon` runs faster with byte-identical output; `track.assign` calls scipy. `ally-icon-0.9.3` and `icon-pose-prior-0.4.0` continue the self teardrop's fit at 465 px, search the self icon in full on a weak prior, continue a refused fit as a prior, and start the compass finer.
+- **Usage.** Stored-data commands record their runs (`command-usage-1`) and mark named steps. `reticle usage` still lists only scan passes, so an estimate cannot use those records.
+- **Plan.** `plan` prints rerun lines in dependency order (`build_order` over `order_graph`): a driver running lines top to bottom had rebuilt `ult-cast` before the `tray` and `combat-report` it reads.
+
+### Corpus rerun, 2026-10-03
+
+On the 21 matches, crop cache and storage, no decode: `scan --only hud --from cache`, then `scan --only ally_icon --from cache`, then `vision`, then the storage commands `plan` named, and a short second pass. `hud` and `ally_icon` read different crop-cache sets, so one `--only hud ally_icon --from cache` pass refuses; run them separately.
 
 ### Unmerged records
 
-- **`binding-rules-20261002`** (`b248d0c`, `round-entity-0.15.0`): cut a piece where a sighting gap spans its teammate's death. Against 0.14.0 it gains 21 victim-matching bindings and moves 6 unnamed pieces to a match, but demotes 9 correct bindings to unnamed pieces (matches 686 -> 704 over 78 cuts, measured on the branch). Two faults: a cut piece is inner, so `RoundLifetimes.finish` never offers it the death that cut it; and in 64 of 78 cuts the dead teammate's portrait still scores after the gap (top score in 50), so the cut's premise fails. To rework: fix the stacked-icon phantoms first, offer each cut piece its death through `death_rank`, and cut only when the post-gap sightings do not read as the dead teammate. 96aa1ae9b96f 849.5 s is a revive naming no victim, so Clove's dead interval stays open.
-- **`ally-ring-subpixel-20261001`** (`24fbfb1`, `ally-icon-0.8.0`), shelved: fractional ring radii scaled by widget scale, a 9 base px centroid search, and a portrait floor scaled by area. Ally-count MAE falls on every 331 px slice (bfad2778a372 1259-1419 s 0.626 -> 0.530), but excess named icons beyond the roster rise on all three scorable slices, from thin-rim fits on the player's Sova Recon Bolt ring and Split's green world, and 3 labelled 331 px icons are lost (e37fdeca944f, `C:\Users\grant\Videos\2026-08-25 13-17-45.mp4`, 1342.5 s Waylay). The radii alone starve identity; the commits land together or not at all. The 9 px self search helps at 465 px (median centre error 3.18 -> 1.20 px on 5822b6646448). Proposed gate, unbuilt: of two close fits, keep the one the teardrop reads as an icon; refuse fits on the player's own ability rings.
-- **`stacked-icons-20261002`** (`50ddd0b`, `prototypes/stack_fit.py`, `stack-fit-0.2.0`, `wire: no`): at master, `_gated` keeps a fit between two touching icons, which refuses both as `interior_too_thin`. In seeded samples master missed 18 of 50 real icons at 331 px and 6 of 22 at 465 px. The joint k-icon search made no between fits and cut 223d636bf8d2's whole-slice MAE from 0.627 to 0.407, but lost 42 of 197 labelled icons master finds, placed phantoms on bfad2778a372's green area fill and ran 3-5x slower, because its teal key erases the icons' pale-cyan ring. The first active backlog item carries the next step.
-- **`luma-render-20261002`** (`19c2a0a`, WIP, tabled): luma-keyed rims (E1) and fuller render fits (E2), unverified, four E2 test slices unrun; the likely vehicle for the stacked-icon render.
+- **`binding-rules-20261002`** (`round-entity-0.15.0`): cuts a piece where a sighting gap spans its teammate's death; gains victim-matching bindings but demotes correct ones. A cut piece is inner, so `RoundLifetimes.finish` never offers it its death, and the dead teammate's portrait usually still scores after the gap. Rework after the stacked icons: offer each cut piece its death through `death_rank`, and cut only where the later sightings do not read as the dead teammate. The revive at 96aa1ae9b96f (`C:\Users\grant\Videos\2026-08-24 17-51-06.mp4`) 849.5 s names no victim.
+- **`ally-ring-subpixel-20261001`** (`ally-icon-0.8.0`): a negative result by the player's verdict; it stays shelved and unmerged. Fractional ring radii lowered ally-count error at 331 px but added phantom fits and lost labelled icons.
+- **`stacked-icons-20261002`** (`prototypes/stack_fit.py`, `wire: no`): the joint k-icon search made no fit between two icons but lost labelled icons, because its teal key erases the pale-cyan ring. The first active item carries the next step.
+- **`luma-render-20261002`** (WIP, tabled): luma-keyed rims and fuller render fits, unverified; the likely vehicle for the stacked-icon render.
+- **`killfeed-prior-design-20261002`** (2 commits): `docs/KILLFEED_QUEUE_PRIOR.md`, a proposed plan for a prior-driven killfeed reader that follows the queue. `killfeed-prior-step1-20261002` adds `prototypes/killfeed_follow.py`, step 1 of that plan, not wired.
+- `self-spike-tracker-20260929`: the player-dead owner and guard 6 can merge with bumped versions; the tracker waits on labels. `wip-vision-lifecycle-wiring`: WIP, do not merge. `enemy-fix-check-20260930`: a held-out check of the teardrop box and the baked-slab gate. Local only: `worktree-agent-a18926290da85c09f` (protocol-demo census), `worktree-agent-a3c32f26e36c27c4f` (demo glyph mining), `experiment/bootstrap-*`. Delete `decodes-20260929` when convenient.
 
-Capture paths: 223d636bf8d2 `C:\Users\grant\Videos\2026-08-23 20-09-01.mp4`; 3694746e4e54 `C:\Users\grant\Videos\2026-08-25 14-42-25.mp4`.
+Riot's match-details records for all 22 match captures sit in the store under `external/riot/`, each naming its session in `probe.session_id` ([EXTERNAL_GROUND_TRUTH.md](docs/EXTERNAL_GROUND_TRUTH.md)); pull new ones promptly.
 
-[EXTERNAL_GROUND_TRUTH.md](docs/EXTERNAL_GROUND_TRUTH.md) surveys outside records of a match. All 22 match captures have their match-details record (each kill with positions and view angles; 3,532 kills) saved in the store under `external/riot/`, each naming its session in `probe.session_id`. A 40-day-old match falsified the 30-day retention guess; pull new records promptly. The open questions wait in the backlog.
-
-### Held and unmerged
-
-`git log master..<branch>` lists unmerged commits on the four records above (1, 5, 1 and 2 commits, all pushed) and on:
-
-- `self-spike-tracker-20260929` (4): the player-dead owner and guard 6 can merge with bumped versions; the tracker waits on labels.
-- `wip-vision-lifecycle-wiring` (1): WIP, do not merge.
-- `enemy-fix-check-20260930` (1): a held-out check of the teardrop box and the baked-slab gate.
-- `worktree-agent-a18926290da85c09f` (6, local only): the protocol-demo census.
-- `worktree-agent-a3c32f26e36c27c4f` (5, local only): demo glyph mining and tray-drop checks.
-- `experiment/bootstrap-a` (1), `experiment/bootstrap-b` (1), `experiment/bootstrap-integration` (2), local only.
-
-`decodes-20260929` has no unmerged commit left; delete it when convenient.
+Capture paths: 223d636bf8d2 `C:\Users\grant\Videos\2026-08-23 20-09-01.mp4`; 3694746e4e54 `C:\Users\grant\Videos\2026-08-25 14-42-25.mp4`; bfad2778a372 `C:\Users\grant\Videos\2026-08-24 14-45-35.mp4`; a06f04a0059f `C:\Users\grant\Videos\2026-08-26 09-56-37.mp4`; 5822b6646448 `C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`.
 
 The untracked `prototypes/mechanics_eval.py` belongs to the user; leave it untouched.
