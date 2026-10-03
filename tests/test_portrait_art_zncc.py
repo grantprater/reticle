@@ -160,6 +160,13 @@ class ArtZnccTests(unittest.TestCase):
         self.assertEqual(moved["art_shift"], [-12, 0])
         self.assertEqual(max(moved["art_zncc"], key=moved["art_zncc"].get), "Echo")
 
+    def test_a_sliding_victim_widens_its_rows_not_its_anchor(self):
+        # the entry still slides into its slot: the band reads 5 rows above the art
+        crop = self._crop(victim="Delta", y0=13, h=60)
+        got = art_view(crop, "victim", None, 8, False, UNIT_SCALE, self.dir)
+        self.assertEqual((got["art_search"], got["art_shift"]), ("widened", [0, 5]))
+        self.assertEqual(max(got["art_zncc"], key=got["art_zncc"].get), "Delta")
+
     def test_candidates_come_from_the_side_and_widen_to_all_on_surprise(self):
         crop = self._crop(killer="Foxtrot", killer_x0=60)
         side = {"ally": ["Alpha", "Bravo"], "enemy": ["Foxtrot", "Charlie"]}

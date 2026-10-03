@@ -368,7 +368,7 @@ question = "What does this crop of agent art look like, as one comparable vector
 owner = "appearance"
 role = ["detect"]
 status = "shipped"
-produces = ["hsv_composition", "detail", "agrees", "ArtTiles", "killfeed_art", "art_zncc", "to_lab", "ART_INNER_MARGIN"]
+produces = ["hsv_composition", "detail", "agrees", "ArtTiles", "killfeed_art", "art_zncc", "to_lab", "ART_INNER_MARGIN", "ART_MIN_COVER"]
 not_for = """
 Naming the agent, and replacing `lineup`'s feature. This is a DESCRIPTION; the
 gallery that would turn one into a name is built with the prototype composition

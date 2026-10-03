@@ -1751,8 +1751,11 @@ ART_TILE_H = 34
 ART_VICTIM_OUTER = 11
 #: The search about a prior (base px): columns, rows either side.
 ART_PRIOR_X, ART_PRIOR_Y = 2, 1
-#: The killer's search on surprise (base px): the study's whole strip.
-ART_WIDE_X, ART_WIDE_Y = 24, 3
+#: The search on surprise (base px): a killer's columns span the study's whole
+#: strip; a victim keeps its anchor's columns. Rows cover an entry still
+#: sliding into its slot, whose band reads a few rows off the portrait
+#: (bfad2778a372 2397.0 s: band y0 88, Deadlock's art at 93).
+ART_WIDE_X, ART_WIDE_Y = 24, 6
 #: Below this best correlation the prior is a surprise: a killer's search
 #: widens to the strip, and then any view's candidates widen to every agent.
 #: The study's label-free clean cut.
@@ -1991,8 +1994,9 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
     killer's portrait ends where its name starts, so its window starts at
     `x0` (the stored box's inner edge less the tile width) and is searched the
     same distance. Where the best candidate correlates under `ART_SURPRISE_Z`,
-    a killer's search widens to `ART_WIDE_X` / `ART_WIDE_Y` about that start
-    (`art_search` "widened"); then, if still under, any view's candidates widen
+    the search widens to `ART_WIDE_Y` rows, and a killer's to `ART_WIDE_X`
+    columns, about that start (`art_search` "widened"); then, if still under,
+    any view's candidates widen
     to every agent with art (`art_candidates_widened` gives why). Each
     candidate's score is its best over the windows searched; `art_x0`,
     `art_y0` place the best candidate's window and `art_shift` its offset
@@ -2043,12 +2047,13 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
             cover[i] = art.cut_terms(cut, victim)["cover"][[art.index[n] for n in names]]
         return z, xs, ya, cover
 
+    wide_dx = s.n(ART_PRIOR_X if victim else ART_WIDE_X)
     with usage_step("art"):
         got = search(s.n(ART_PRIOR_X), s.n(ART_PRIOR_Y), cands)
         mode = "prior"
-        if not victim and (got is None or float(got[0].max()) < ART_SURPRISE_Z):
+        if got is None or float(got[0].max()) < ART_SURPRISE_Z:
             with usage_step("widened"):
-                wide = search(s.n(ART_WIDE_X), s.n(ART_WIDE_Y), cands)
+                wide = search(wide_dx, s.n(ART_WIDE_Y), cands)
             if wide is not None:
                 got, mode = wide, "widened"
         if got is None:
@@ -2060,7 +2065,7 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
             cands = list(art.agents)
             with usage_step("all_agents"):
                 got = search(*((s.n(ART_PRIOR_X), s.n(ART_PRIOR_Y)) if mode == "prior"
-                               else (s.n(ART_WIDE_X), s.n(ART_WIDE_Y))), cands)
+                               else (wide_dx, s.n(ART_WIDE_Y))), cands)
     z, xs, ya, cover = got
     per = z.reshape(-1, z.shape[2]).max(0)
     top = int(per.argmax())

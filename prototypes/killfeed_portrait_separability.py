@@ -381,7 +381,7 @@ def _device():
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def art_zncc(strip_lab: np.ndarray, valid: np.ndarray, ref_lab: np.ndarray, ref_a: np.ndarray,
+def strip_zncc(strip_lab: np.ndarray, valid: np.ndarray, ref_lab: np.ndarray, ref_a: np.ndarray,
              batch: int = 512) -> tuple[np.ndarray, np.ndarray]:
     """Weighted zero-mean normalised correlation of every tile window with
     every agent's art, at every offset the strip allows.
@@ -551,7 +551,7 @@ def session_features(out: Path, sid: str, agents, RL, RA) -> dict:
     from reticle.adjudication import identity
     S = load_session(out, sid)
     S["lab"] = lab(S["strips"])
-    z, cov = art_zncc(S["lab"], S["valid"], RL, RA)       # N, A, 2*YPAD+1, W-TW+1
+    z, cov = strip_zncc(S["lab"], S["valid"], RL, RA)       # N, A, 2*YPAD+1, W-TW+1
     n = len(z)
     box, anc = anchors(S)
     ys = slice(YPAD - SEARCH_Y, YPAD + SEARCH_Y + 1)
@@ -598,7 +598,7 @@ def session_features(out: Path, sid: str, agents, RL, RA) -> dict:
     # art finds its own portrait where the name start misplaced the box
     zw = np.where(S["victim"][:, None], za, wide)
     # the same searches with the art's border unweighted (INNER_MARGIN)
-    zi, _ = art_zncc(S["lab"], S["valid"], RL, inner_weights(RA))
+    zi, _ = strip_zncc(S["lab"], S["valid"], RL, inner_weights(RA))
     zia = np.take_along_axis(
         zi[:, :, ys, :], np.broadcast_to((anc[:, None] + np.arange(-SEARCH_X, SEARCH_X + 1)[None])
                                          [:, None, None, :], (n, zi.shape[1], 2 * SEARCH_Y + 1,
@@ -1022,7 +1022,7 @@ def aligned_tiles(out: Path, sid: str, idx, label_agents, RL, RA):
     best = np.empty(len(idx), np.float32)
     for a in sorted(set(label_agents)):
         sel = np.array([x == a for x in label_agents])
-        z, _ = art_zncc(L[sel], S["valid"][np.asarray(idx)[sel]], RL[a:a + 1], w[a:a + 1])
+        z, _ = strip_zncc(L[sel], S["valid"][np.asarray(idx)[sel]], RL[a:a + 1], w[a:a + 1])
         zf = z[:, 0].reshape(sel.sum(), -1)
         k = zf.argmax(1)
         dy, dx = np.unravel_index(k, z.shape[2:])
