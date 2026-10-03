@@ -109,10 +109,12 @@ class TrackGapTests(unittest.TestCase):
         # scoreboard K/D there. At that rate the sample bound is 20 s and the
         # 2500 ms cap binds, so the walk is the one those numbers validated.
         t = steps(0.0, 60, 500.0)
-        occupied = {ts: (0,) for ts in t if ts <= 2000.0 or 4000.0 <= ts <= 6000.0}
+        # The two reads stay within one entry's life, which the weld split
+        # would otherwise cut [domain:killfeed/entry-lifetime].
+        occupied = {ts: (0,) for ts in t if ts <= 1500.0 or 3500.0 <= ts <= 5000.0}
         tracks = track_entries(t, feed(t, occupied))
         self.assertEqual(len(tracks), 1)
-        self.assertEqual(tracks[0]["t_last"], 6000.0)
+        self.assertEqual(tracks[0]["t_last"], 5000.0)
 
     def test_a_dropout_inside_one_entry_does_not_split_it(self):
         # A real entry's plate drops out mid-life -- 583 ms of it on
@@ -424,11 +426,15 @@ class PlateSideTests(unittest.TestCase):
                          [(first[0], first[-1], "enemy"), (second[0], second[-1], "ally")])
         self.assertEqual([a["counted"] for a in tracks], [True, True])
 
-    def test_without_sides_the_walk_is_unchanged(self):
+    # Without a side flip the walk joins the two entries across the missed
+    # sample; the joined track outlives one entry, so the weld split cuts it
+    # back at that gap [domain:killfeed/entry-lifetime].
+    def test_without_sides_the_walk_joins_and_the_lifetime_cuts(self):
         t, masks, wx, first, second = self.shape()
         tracks = track_entries(t, masks, wx)
         self.assertEqual([(a["t_first"], a["t_last"]) for a in tracks],
-                         [(first[0], second[-1])])
+                         [(first[0], first[-1]), (second[0], second[-1])])
+        self.assertEqual(tracks[0]["weld"]["cuts"], [(second[0], "gap")])
         self.assertNotIn("side", tracks[0])
 
     def test_a_stable_side_does_not_split(self):
@@ -436,16 +442,18 @@ class PlateSideTests(unittest.TestCase):
         sides = [(0, 1) if ts in first + second else (0, 0) for ts in t]
         tracks = track_entries(t, masks, wx, sides=sides)
         self.assertEqual([(a["t_first"], a["t_last"], a["side"]) for a in tracks],
-                         [(first[0], second[-1], "enemy")])
+                         [(first[0], first[-1], "enemy"), (second[0], second[-1], "enemy")])
+        self.assertEqual(tracks[0]["weld"]["cuts"], [(second[0], "gap")])
 
     def test_an_unread_side_rules_nothing_out(self):
-        # A sample whose plate went unread (neither bit) keeps the track, and
-        # the track keeps the last side it read.
+        # A sample whose plate went unread (neither bit) keeps the track; the
+        # piece the weld split cuts off it read no side.
         t, masks, wx, first, second = self.shape()
         sides = [(0, 1) if ts in first else (0, 0) for ts in t]
         tracks = track_entries(t, masks, wx, sides=sides)
         self.assertEqual([(a["t_first"], a["t_last"], a["side"]) for a in tracks],
-                         [(first[0], second[-1], "enemy")])
+                         [(first[0], first[-1], "enemy"), (second[0], second[-1], None)])
+        self.assertEqual(tracks[0]["weld"]["cuts"], [(second[0], "gap")])
 
     def test_a_one_colour_banner_does_not_split_on_its_flicker(self):
         # bdfdcf009dba 1884-1886 s: a revive's plate reads ally with the
@@ -485,6 +493,90 @@ class EntryPresenceTests(unittest.TestCase):
         at = {r["t_ms"]: r["entries"] for r in rows}
         self.assertEqual(at[t[0]], 0)
         self.assertTrue(all(v == 1 for ts, v in at.items() if 4000.0 < ts < 4500.0))
+
+
+class WeldSplitTests(unittest.TestCase):
+    """A counted track that outlives one entry [domain:killfeed/entry-lifetime]
+    is two entries in one slot, cut where the evidence puts it."""
+
+    def walk(self, t0, rows):
+        """`rows` maps each 2 Hz sample from `t0` to `[(slot, divider)]`, every
+        victim plate enemy."""
+        from reticle.killfeed import divider_of_ys, FIRST_Y, PITCH
+        t = steps(t0, len(rows), 500.0)
+        masks = [sum(1 << s for s, _ in r) for r in rows]
+        wx = [divider_of_ys([FIRST_Y + s * PITCH for s, _ in r], [w for _, w in r]) if r else 0
+              for r in rows]
+        sides = [(0, m, 0) for m in masks]
+        return [(a["t_first"], a["t_last"], a["counted"], a.get("weld"))
+                for a in track_entries(t, masks, wx, sides=sides)]
+
+    def test_a_slot_gap_after_a_full_life_splits_the_track(self):
+        # The stored shape at 043bafca271a: divider 234 reads 820.0-824.5 s, the
+        # slot misses 825.0 and 825.5 s, and 236 reads 826.0-830.5 s. The
+        # dividers agree within KF_SIG_TOL and the sides match, so the walk
+        # held one 10.5 s track and Riot's second death went unmatched.
+        rows = [[(0, 234)]] * 10 + [[]] * 2 + [[(0, 236)]] * 10
+        got = self.walk(820_000.0, rows)
+        weld = {"t_first": 820_000.0, "cuts": [(826_000.0, "gap")]}
+        self.assertEqual(got, [(820_000.0, 824_500.0, True, weld),
+                               (826_000.0, 830_500.0, True, weld)])
+
+    def test_a_phantom_read_before_a_gap_is_cut_off_the_entry(self):
+        # 59c70f1ef720 953.0 s: one read, a two-sample gap, then the entry.
+        rows = [[(0, 211)]] + [[]] * 2 + [[(0, 211)]] * 10
+        got = self.walk(0.0, rows)
+        self.assertEqual([(a, b, c) for a, b, c, _ in got],
+                         [(0.0, 0.0, False), (1_500.0, 6_000.0, True)])
+
+    def test_a_cut_off_piece_with_no_divider_is_refused(self):
+        # 96aa1ae9b96f 948.5-955.5 s: the entry reads 206 px for ten samples,
+        # then the slot reads only unread dividers after a gap.
+        rows = [[(0, 206)]] * 10 + [[]] + [[(0, 0)]] * 3
+        t = steps(0.0, len(rows), 500.0)
+        masks = [sum(1 << s for s, _ in r) for r in rows]
+        from reticle.killfeed import divider_of_ys, FIRST_Y, PITCH
+        wx = [divider_of_ys([FIRST_Y + s * PITCH for s, w in r if w], [w for _, w in r if w])
+              if any(w for _, w in r) else 0 for r in rows]
+        got = track_entries(t, masks, wx)
+        self.assertEqual([(a["t_first"], a["refused"]) for a in got],
+                         [(0.0, None), (5_500.0, "weld_fragment")])
+
+    def test_a_cut_off_full_life_with_no_divider_stays_an_entry(self):
+        # e37fdeca944f 499.5-504.0 s: an entry whose divider never read.
+        rows = [[(0, 226)]] * 10 + [[]] + [[(0, 0)]] * 10
+        t = steps(0.0, len(rows), 500.0)
+        masks = [sum(1 << s for s, _ in r) for r in rows]
+        from reticle.killfeed import divider_of_ys, FIRST_Y, PITCH
+        wx = [divider_of_ys([FIRST_Y + s * PITCH for s, w in r if w], [w for _, w in r if w])
+              if any(w for _, w in r) else 0 for r in rows]
+        got = track_entries(t, masks, wx)
+        self.assertEqual([(a["t_first"], a["refused"]) for a in got],
+                         [(0.0, None), (5_500.0, None)])
+
+    def test_a_dropout_inside_one_life_keeps_the_track_whole(self):
+        rows = [[(0, 234)]] * 4 + [[]] + [[(0, 234)]] * 5
+        self.assertEqual(self.walk(0.0, rows), [(0.0, 4_500.0, True, None)])
+
+    def test_two_lives_back_to_back_split_where_the_divider_steps(self):
+        # 9acf02f98283: 246 px reads 1656.0-1660.5 s, then 243 px with no gap.
+        rows = [[(0, 246)]] * 10 + [[(0, 243)]] * 10
+        got = self.walk(1_656_000.0, rows)
+        self.assertEqual([(a, b) for a, b, _, _ in got],
+                         [(1_656_000.0, 1_660_500.0), (1_661_000.0, 1_665_500.0)])
+        self.assertEqual(got[0][3]["cuts"], [(1_661_000.0, "divider")])
+
+    def test_two_lives_with_one_divider_split_one_life_in(self):
+        rows = [[(0, 210)]] * 20
+        got = self.walk(0.0, rows)
+        self.assertEqual([(a, b) for a, b, _, _ in got], [(0.0, 4_500.0), (5_000.0, 9_500.0)])
+        self.assertEqual(got[0][3]["cuts"], [(5_000.0, "life")])
+
+    def test_a_held_entry_that_is_not_two_lives_stays_whole(self):
+        # c62c2b06bcfb 1915.5-1922.5 s: 15 samples, held until the round wipe
+        # [domain:killfeed/post-round-kill-persists].
+        rows = [[(0, 250)]] * 15
+        self.assertEqual(self.walk(0.0, rows), [(0.0, 7_000.0, True, None)])
 
 
 if __name__ == "__main__":

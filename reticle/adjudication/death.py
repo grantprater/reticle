@@ -137,7 +137,15 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # crop edge the slide-in or a second edge reading often moves
 # (`follow_entry_portraits`); the first frame still binds. On five matches
 # 13 killers and 6 victims refused before were named, none wrongly.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.27.0"
+# 0.28.0 (2026-10-03): no entry track outlives one entry
+# [domain:killfeed/entry-lifetime]: `checks.track_entries` cuts a welded track
+# at the sample its slot missed, else at the divider's step or one life in,
+# and refuses a cut-off piece shorter than a life that read no divider
+# (`weld_fragment`). Over the 21 Riot-scored matches, in memory: missed
+# deaths 58 -> 33, false deaths 50 -> 49; all 26 deaths missed as two entries
+# welded into one track match. b3b9defb6fd7 1661 s trades a match for a false
+# death: its slot-5 phantom reads no longer carry the entry below them.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.28.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
