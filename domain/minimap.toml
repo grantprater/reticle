@@ -124,10 +124,16 @@ reads no spike after a plant
 """
 exceptions = """
 unmeasured: the rotation angle is not stated. Measure it from the minimap
-crop cache after 1696.5 s on bfad2778a372; no value is assumed until then
+crop cache after 1696.5 s on bfad2778a372; no value is assumed until then.
+The minimap also draws the planted icon after a post-round plant (player,
+2026-10-03, confirming: "That is right. Often it would be overlapping with the
+planter, and I'm not sure how visibility rules work for the losing team
+post-round, but yes there is an icon"). The icon often overlaps the planter's
+own icon, a stacked-icon case for the reader. Whether the losing team sees it
+post-round is unknown to the player
 """
 see = ["minimap/spike-glyph", "minimap/spike-inversion", "minimap/spike-carrier-overlay",
-       "minimap/ally-carrier-planted-switch"]
+       "minimap/ally-carrier-planted-switch", "minimap/icon-stack-order-is-stable"]
 
 [no-spike-channel]
 claim = """
