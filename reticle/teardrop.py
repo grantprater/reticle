@@ -122,6 +122,14 @@ SELF_PRIOR_MIN_NCC = 0.65
 # through 10, and past 10 too few reads remain to show it does not. The bound
 # stops a chain where the measurement stops vouching for it.
 REFUSAL_CHAIN = 10
+# The compass's first step (px; facing in proportion) where the local grid's
+# best is the prior's own pose, which the prior's refinement already placed.
+# Against a 0.5 px start over the seven test windows it changed no published
+# icon count or ally-count error, moved the full search's disagreement within
+# noise (facing > 10 degrees 192 -> 197 of ~16,360 reads, Fisher p = 0.8) and
+# cut the refinement's time 5-15% on every window; a 0.25 px start saved
+# nothing measurable.
+PRIOR_REFINE_STEP = 0.125
 
 
 def yellowness(crop: np.ndarray) -> np.ndarray:
@@ -177,7 +185,8 @@ def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0
     `prior` `(x, y, deg)` is the same icon's fit on an earlier image: the
     grid then searches `local_px(scale)` round its centre and `LOCAL_DEG`
     round its facing instead of the full grid, over the same window and
-    score, and the same refinement follows. `on_edge` says the local grid's
+    score, and the same refinement follows, from `PRIOR_REFINE_STEP` where
+    the local grid kept the prior's own pose. `on_edge` says the local grid's
     best lay on its boundary, so the pose may lie outside it.
     """
     r_in = R_IN * scale if r_in is None else r_in
@@ -223,6 +232,10 @@ def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0
     # probe gets (centre cast to float32 as `px - x` casts it, facing kept
     # float64), so the scores and the move match a probe-at-a-time search.
     step_p, step_t = 0.5, math.radians(3.0)
+    if (prior is not None and abs(x - prior[0]) < 1e-6 and abs(y - prior[1]) < 1e-6
+            and abs(t - math.radians(prior[2])) < 1e-6):
+        # The local grid kept the prior's refined pose: start the compass finer.
+        step_p, step_t = PRIOR_REFINE_STEP, math.radians(3.0) * PRIOR_REFINE_STEP / 0.5
     with step("refine"):
         while step_p >= 0.05:
             cand = ((x + step_p, y, t), (x - step_p, y, t), (x, y + step_p, t),

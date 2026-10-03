@@ -319,5 +319,28 @@ class SelfPriorTests(unittest.TestCase):
         self.assertEqual((out["pose"]["search"], out["pose"]["rests_on"]), ("prior", "1:self:0"))
 
 
+class PriorRefineTests(unittest.TestCase):
+    def _renders(self, crop, prior):
+        n = []
+        real = teardrop._correlation
+
+        def count(*a, **kw):
+            n.append(1)
+            return real(*a, **kw)
+
+        with patch.object(teardrop, "_correlation", count):
+            fit = teardrop.fit_teardrop(crop, 46.0, 44.0, prior=prior)
+        return fit, len(n)
+
+    def test_a_prior_the_local_grid_keeps_starts_the_compass_finer(self):
+        crop = _yellow(45.3, 44.8, 33)
+        full = teardrop.fit_teardrop(crop, 46.0, 44.0)
+        kept, n_kept = self._renders(crop, (full["x"], full["y"], full["deg"]))
+        moved, n_moved = self._renders(crop, (full["x"] + 1.0, full["y"], full["deg"]))
+        self.assertLess(n_kept, n_moved)
+        self.assertLess(math.hypot(kept["x"] - full["x"], kept["y"] - full["y"]), 0.1)
+        self.assertLess(_ang(kept["deg"], full["deg"]), 0.5)
+
+
 if __name__ == "__main__":
     unittest.main()
