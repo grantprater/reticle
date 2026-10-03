@@ -56,7 +56,8 @@ the reason. The ring fit still FINDS the icon; where the teardrop reads,
 it supplies neither centre nor facing. Given a frame index, the reader
 continues each icon's fit on the previous image with a local search, runs
 the full grid on surprise, and audits the prior on a fixed frame cadence
-(`IconPoseReader`, ICON_POSE_PRIOR_VERSION).
+(`IconPoseReader`, ICON_POSE_PRIOR_VERSION); `SelfConeReader` given a frame
+index continues the self icon's fit under the same rule.
 
 **On a turned widget** the facing needs no correction: the icons' facing
 arrows turn with the map [domain:minimap/upright-icons-on-turned-map], and
@@ -329,41 +330,88 @@ class SelfConeReader:
     keeps the last fit keyed by the pixels it scored and the seed; a repeat
     returns the same fit without recomputing it, and the answer is the one a
     fresh fit gives.
+
+    **The prior** (a caller that passes `frame_idx` and `t_ms`). The self
+    icon continues its fit on the previous image under `IconPoseReader`'s
+    rule, unchanged: the same association, local search, surprises and
+    audit cadence, over `fit_self` (`_SelfFits`), and the read carries the
+    same `search`, `surprise`, `rests_on` and `audit`. The facing gate
+    applies to the answer either search gives. Without a frame index the
+    reader searches every image in full and adds none of these fields.
     """
 
     def __init__(self, scale: float = 1.0):
         self.scale = scale
         self._last: tuple | None = None
+        self._fits: _SelfFits | None = None
 
-    def read(self, crop: np.ndarray, cx: float, cy: float) -> dict:
+    def read(self, crop: np.ndarray, cx: float, cy: float, *, frame_idx: int | None = None,
+             t_ms: float | None = None, ref: str | None = None,
+             digest: bytes | None = None) -> dict:
         """`{"x", "y", "deg", "origin", "ncc", ...}` for a self fit centred at `(cx, cy)`.
 
         Where the shape reads, `origin` is `teardrop` and `x`, `y`, `deg` are
         its centre and facing (image degrees, y down). Otherwise `origin` is
         `ring_fit`: `x`, `y` are the detector's own centre, `deg` is None and
-        `reason` says why the teardrop was not read.
+        `reason` says why the teardrop was not read. With `frame_idx` the
+        read continues the prior (`IconPoseReader.read`'s `t_ms`, `ref` and
+        `digest`) and adds its search fields.
         """
-        rad = (L + WINDOW + SEARCH_PX) * self.scale + 1
-        h, w = crop.shape[:2]
-        win = crop[max(0, int(cy - rad)):min(h, int(cy + rad) + 2),
-                   max(0, int(cx - rad)):min(w, int(cx + rad) + 2)]
-        with step("memo"):
-            key = (hashlib.blake2b(np.ascontiguousarray(win).tobytes(), digest_size=16).digest(),
-                   win.shape, float(cx), float(cy))
-        if self._last is not None and self._last[0] == key:
-            tf = self._last[1]
+        if frame_idx is not None:
+            if self._fits is None:
+                self._fits = _SelfFits(self.scale)
+            got = self._fits.read(crop, cx, cy, frame_idx=frame_idx, t_ms=t_ms, ref=ref,
+                                  digest=digest)
+            tf = ({"read": True, **got} if got["origin"] == "teardrop" else
+                  {"read": False, "ncc": got["ncc"], "reason": got["reason"]})
+            search = {k: got[k] for k in ("search", "surprise", "rests_on", "audit") if k in got}
         else:
-            tf = fit_teardrop(crop, cx, cy, scale=self.scale)
-            self._last = (key, tf)
+            rad = (L + WINDOW + SEARCH_PX) * self.scale + 1
+            h, w = crop.shape[:2]
+            win = crop[max(0, int(cy - rad)):min(h, int(cy + rad) + 2),
+                       max(0, int(cx - rad)):min(w, int(cx + rad) + 2)]
+            with step("memo"):
+                key = (hashlib.blake2b(np.ascontiguousarray(win).tobytes(),
+                                       digest_size=16).digest(),
+                       win.shape, float(cx), float(cy))
+            if self._last is not None and self._last[0] == key:
+                tf = self._last[1]
+            else:
+                tf = fit_teardrop(crop, cx, cy, scale=self.scale)
+                self._last = (key, tf)
+            search = {}
         if tf.get("read"):
             out = {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
                    "origin": "teardrop", "ncc": float(tf["ncc"])}
             gate, why = self_facing_gate(self.scale)
             if gate is not None and tf["ncc"] < gate:
                 out.update(deg=None, facing_reason=why)
-            return out
-        return {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
-                "ncc": _num(tf.get("ncc")), "reason": tf.get("reason")}
+        else:
+            out = {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
+                   "ncc": _num(tf.get("ncc")), "reason": tf.get("reason")}
+        out.update(search)
+        return out
+
+
+def fit_self(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0,
+             yel: np.ndarray | None = None,
+             prior: tuple[float, float, float] | None = None) -> dict:
+    """`fit_teardrop` for the self icon, with the field a prior's surprise reads.
+
+    Without `prior` it is `fit_teardrop` unchanged. With `prior` it adds
+    `outside_ncc`, as `fit_icon` does: the best NCC more than `LOCAL_DEG`
+    from the fit's facing, on the `MARGIN_DEG` sweep at the fitted centre,
+    so a lobe the local grid could not reach is a surprise
+    (`facing_elsewhere`) for the self icon as for a teammate.
+    """
+    f = fit_teardrop(crop, cx0, cy0, scale=scale, yel=yel, prior=prior)
+    if prior is not None and "x" in f:
+        key = yellowness(crop) if yel is None else yel
+        with step("margin"):
+            sc, rel = _facing_sweep(key, f["x"], f["y"], f["deg"], R_IN * scale,
+                                    R_OUT * scale, L * scale, scale)
+            f["outside_ncc"] = float(sc[rel > LOCAL_DEG].max())
+    return f
 
 
 #: On a widget size the player's facing labels do not cover, a self read
@@ -535,6 +583,19 @@ def _window(key: np.ndarray, cx0: float, cy0: float, reach: float):
     return px, py, key[py.astype(int), px.astype(int)]
 
 
+def _facing_sweep(key: np.ndarray, x: float, y: float, deg: float, r_in: float,
+                  r_out: float, L_: float, scale: float):
+    """The silhouette's NCC at centre `(x, y)` at every `MARGIN_DEG` facing,
+    over the window the fit scores round it, and each facing's distance in
+    degrees from `deg`: the sweep `fit_icon`'s margin and a prior's
+    `outside_ncc` read."""
+    px, py, obs = _window(key, x, y, L_ + WINDOW * scale)
+    ths = np.radians(np.arange(0.0, 360.0, MARGIN_DEG, dtype=np.float32))
+    sc = _correlation(obs, render(px[None, :] - x, py[None, :] - y, ths[:, None],
+                                  r_in, r_out, L_, EDGE * scale))
+    return sc, np.abs(_signed_deg(np.degrees(ths) - deg))
+
+
 def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: float, *,
              scale: float = 1.0, key: np.ndarray | None = None,
              r_in: float | None = None, r_out: float | None = None,
@@ -568,7 +629,6 @@ def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: f
     r_in = c.r_in * scale if r_in is None else r_in
     r_out = c.r_out * scale if r_out is None else r_out
     L_ = c.L * scale if L_ is None else L_
-    edge = EDGE * scale
     key = c.key(crop) if key is None else key
     f = fit_teardrop(None, cx0, cy0, scale=scale, r_in=r_in, r_out=r_out, L_=L_, yel=key,
                      prior=prior)
@@ -576,18 +636,13 @@ def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: f
     if "x" not in f:
         return {"cls": cls, "read": False, "reason": "no_key"}
     with step("margin"):
-        px, py, obs = _window(key, f["x"], f["y"], L_ + WINDOW * scale)
-        ths = np.radians(np.arange(0.0, 360.0, MARGIN_DEG, dtype=np.float32))
-        sc = _correlation(obs, render(px[None, :] - f["x"], py[None, :] - f["y"], ths[:, None],
-                                      r_in, r_out, L_, edge))
-        far = np.abs(_signed_deg(np.degrees(ths) - f["deg"])) >= 90.0
-        f["margin"] = float(f["ncc"] - sc[far].max())
+        sc, rel = _facing_sweep(key, f["x"], f["y"], f["deg"], r_in, r_out, L_, scale)
+        f["margin"] = float(f["ncc"] - sc[rel >= 90.0].max())
         if prior is not None:
             # The best facing the local grid could not reach, scored on the
             # same sweep at the fitted centre: above the fit, the lobe lies
             # outside the window the prior allowed.
-            outside = np.abs(_signed_deg(np.degrees(ths) - f["deg"])) > LOCAL_DEG
-            f["outside_ncc"] = float(sc[outside].max())
+            f["outside_ncc"] = float(sc[rel > LOCAL_DEG].max())
     with step("ring_cover"):
         f["ring_cover"] = ring_cover(key, f["x"], f["y"], f["deg"], r_in, r_out,
                                      pad=0.5 * scale)
@@ -714,23 +769,33 @@ class IconPoseReader:
         if entry is None:
             if self._key is None:
                 with step("key"):
-                    self._key = ICON_CLASSES[self.cls].key(crop)
+                    self._key = self._key_of(crop)
             entry = self._fits[k] = self._fit(cx, cy, frame_idx, t_ms, ref)
         tf = entry["fit"]
         if tf.get("read"):
             out = {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
-                   "origin": "teardrop", "ncc": float(tf["ncc"]),
-                   "margin": float(tf["margin"])}
+                   "origin": "teardrop", "ncc": float(tf["ncc"])}
+            if "margin" in tf:
+                out["margin"] = float(tf["margin"])
         else:
             out = {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
                    "ncc": _num(tf.get("ncc")), "reason": tf.get("reason")}
         out.update(entry["search"])
         return out
 
+    def _key_of(self, crop: np.ndarray) -> np.ndarray:
+        """The class's key over the image, computed once per image."""
+        return ICON_CLASSES[self.cls].key(crop)
+
+    def _fit_one(self, cx: float, cy: float, prior=None) -> dict:
+        """One fit at the detection's centre: the full grid, or with `prior`
+        `(x, y, deg)` the local search round it."""
+        return fit_icon(None, self.cls, cx, cy, scale=self.scale, key=self._key, prior=prior)
+
     def _fit(self, cx: float, cy: float, frame_idx, t_ms, ref) -> dict:
         """One detection's memo entry: the fit, how it was searched, and what
         the next image's prior needs (`ring`, `ref`)."""
-        full = lambda: fit_icon(None, self.cls, cx, cy, scale=self.scale, key=self._key)
+        full = lambda: self._fit_one(cx, cy)
         entry = {"ring": (float(cx), float(cy)), "ref": ref, "search": {}}
         if frame_idx is None:
             entry["fit"] = full()
@@ -739,8 +804,7 @@ class IconPoseReader:
         local = None
         if prior is not None:
             p = prior["fit"]
-            local = fit_icon(None, self.cls, cx, cy, scale=self.scale, key=self._key,
-                             prior=(p["x"], p["y"], p["deg"]))
+            local = self._fit_one(cx, cy, prior=(p["x"], p["y"], p["deg"]))
             surprise = _surprise(local, p)
         if surprise is None:
             entry["fit"] = local
@@ -776,6 +840,44 @@ class IconPoseReader:
             if d <= d_best:
                 best, d_best = e, d
         return (best, None) if best is not None else (None, "no_prior")
+
+
+class _SelfFits(IconPoseReader):
+    """`IconPoseReader`'s memo, prior and audit over the self teardrop
+    (`fit_self`), for `SelfConeReader` given a frame index.
+
+    Only the windows the fits score are keyed, as `fit_teardrop` keys only
+    its own: the yellowness of a pixel reads that pixel alone, so a window
+    keyed into a blank image gives every fit the values a whole-image key
+    gives.
+    """
+
+    def __init__(self, scale: float = 1.0):
+        super().__init__("self", scale)
+        self._crop: np.ndarray | None = None
+
+    def read(self, crop, cx, cy, **kw) -> dict:
+        self._crop = crop
+        return super().read(crop, cx, cy, **kw)
+
+    def _key_of(self, crop: np.ndarray) -> np.ndarray:
+        return np.zeros(crop.shape[:2], np.float32)
+
+    def _fit_one(self, cx: float, cy: float, prior=None) -> dict:
+        # Every pixel a fit reads: the window round the detection's centre
+        # both grids score, and with a prior the facing sweep's window round
+        # the fit, which lies within the local reach of the prior's centre.
+        self._key_window(cx, cy, (L + WINDOW + SEARCH_PX) * self.scale)
+        if prior is not None:
+            self._key_window(prior[0], prior[1], (L + WINDOW + LOCAL_PX + 1) * self.scale)
+        return fit_self(None, cx, cy, scale=self.scale, yel=self._key, prior=prior)
+
+    def _key_window(self, x: float, y: float, reach: float) -> None:
+        r = int(math.ceil(reach)) + 3
+        h, w = self._key.shape
+        ys = slice(max(0, int(y) - r), min(h, int(y) + r + 1))
+        xs = slice(max(0, int(x) - r), min(w, int(x) + r + 1))
+        self._key[ys, xs] = yellowness(self._crop[ys, xs])
 
 
 def _surprise(local: dict, prior: dict) -> str | None:

@@ -152,5 +152,68 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(set(bare["pose"]), {"origin", "ncc", "reason", "facing_reason"})
 
 
+def _yellow(cx, cy, deg, size=90):
+    """A yellow self teardrop drawn by the self model."""
+    yy, xx = np.mgrid[0:size, 0:size].astype(np.float32)
+    m = teardrop.render(xx - cx, yy - cy, np.float32(math.radians(deg)))
+    crop = np.zeros((size, size, 3), np.uint8)
+    crop[..., 1] = crop[..., 2] = (80 * m).astype(np.uint8)
+    crop[..., 0] = (10 * m).astype(np.uint8)
+    return crop
+
+
+class SelfPriorTests(unittest.TestCase):
+    def test_the_self_icon_continues_its_prior_and_names_it(self):
+        r = teardrop.SelfConeReader()
+        first = r.read(_yellow(45, 45, 30), 46.0, 44.0, frame_idx=1, t_ms=0.0, ref="1:self:0")
+        self.assertEqual((first["search"], first["surprise"], first["rests_on"]),
+                         ("full", "no_prior", None))
+        crop = _yellow(46.2, 44.5, 38)
+        o = r.read(crop, 47.0, 44.0, frame_idx=5, t_ms=66.7, ref="5:self:0")
+        self.assertEqual((o["search"], o["surprise"], o["rests_on"], o["origin"]),
+                         ("prior", None, "1:self:0", "teardrop"))
+        full = teardrop.fit_teardrop(crop, 47.0, 44.0)
+        self.assertLess(math.hypot(o["x"] - full["x"], o["y"] - full["y"]), 0.2)
+        self.assertLess(_ang(o["deg"], full["deg"]), 1.0)
+
+    def test_the_self_prior_s_full_search_is_the_reader_s_own(self):
+        # A self read with a frame index and no prior is the frameless read.
+        crop = _yellow(45, 45, -70)
+        o = teardrop.SelfConeReader().read(crop, 46.0, 44.0, frame_idx=1, t_ms=0.0, ref="a")
+        bare = teardrop.SelfConeReader().read(crop, 46.0, 44.0)
+        self.assertFalse({"search", "surprise", "rests_on", "audit"} & set(bare))
+        self.assertEqual({k: o[k] for k in bare}, bare)
+
+    def test_a_self_lobe_outside_the_local_window_is_a_surprise(self):
+        r = teardrop.SelfConeReader()
+        r.read(_yellow(45, 45, 0), 46.0, 44.0, frame_idx=1, t_ms=0.0, ref="a")
+        o = r.read(_yellow(45, 45, 150), 46.0, 44.0, frame_idx=5, t_ms=66.7, ref="b")
+        self.assertEqual(o["search"], "full")
+        self.assertIn(o["surprise"], ("edge", "facing_elsewhere"))
+        self.assertLess(_ang(o["deg"], 150.0), 2.0)
+
+    def test_the_self_audit_runs_on_the_ally_cadence(self):
+        r = teardrop.SelfConeReader()
+        frames = [2 + 4 * i for i in range(22)]
+        reads = [r.read(_yellow(45.0 + 0.01 * i, 45, 30.0), 46.0, 44.0, frame_idx=f,
+                        t_ms=f * 1000 / 60, ref=f"{f}:self:0") for i, f in enumerate(frames)]
+        due = {f for f in frames if f // teardrop.AUDIT_FRAMES != (f - 4) // teardrop.AUDIT_FRAMES}
+        due.discard(2)
+        self.assertEqual({f for f, o in zip(frames, reads) if "audit" in o}, due)
+        a = next(o for o in reads if "audit" in o)
+        self.assertEqual(a["search"], "prior")
+        self.assertLess(_ang(a["audit"]["prior"]["deg"], a["audit"]["full"]["deg"]), 1.0)
+
+    def test_the_ally_reader_continues_the_self_icon_at_465_px(self):
+        from reticle.minimap import AllyIconReader
+        rd = AllyIconReader.__new__(AllyIconReader)
+        f = {"cx": 46.0, "cy": 44.0, "r": 10, "cov": 1.0, "inner": 0.0, "facing": 0.0}
+        rd._posed(_yellow(45, 45, 30), f, "self", 1.0, frame={"frame_idx": 1, "t_ms": 0.0},
+                  ref="1:self:0")
+        out = rd._posed(_yellow(45.3, 45, 33), f, "self", 1.0,
+                        frame={"frame_idx": 5, "t_ms": 66.7}, ref="5:self:0")
+        self.assertEqual((out["pose"]["search"], out["pose"]["rests_on"]), ("prior", "1:self:0"))
+
+
 if __name__ == "__main__":
     unittest.main()

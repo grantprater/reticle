@@ -320,7 +320,11 @@ PING_VERSION = "ping-0.1.0"
 # its pose is `ring_fit` with `reason` `unlabelled_scale` and `ncc` None, where
 # 0.7.0 kept the unused NCC and a refused fit's reason. Centres, facings and
 # accepted rows are unchanged. Numbered above ally-ring-subpixel-20261001's 0.8.0.
-ALLY_ICON_VERSION = "ally-icon-0.9.0"
+# 0.9.1: where the self teardrop is fitted (465 px), it continues its fit on the
+# previous image under the prior rule (`teardrop.SelfConeReader` given a frame
+# index, ICON_POSE_PRIOR_VERSION 0.2.0); each self fit's `pose` records `search`,
+# `surprise`, `rests_on` and, on the audit cadence, `audit`, as an ally fit's does.
+ALLY_ICON_VERSION = "ally-icon-0.9.1"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.
@@ -377,7 +381,11 @@ ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
 # (`LOCAL_PX`, `LOCAL_DEG`), the surprises that run the full grid, and the audit
 # cadence (`AUDIT_FRAMES`). `fit_icon` itself is ICON_TEARDROP_VERSION's; a
 # reader called without a frame index (`team_vision`) does not use this rule.
-ICON_POSE_PRIOR_VERSION = "icon-pose-prior-0.1.0"
+# 0.2.0 (2026-10-02): the rule also serves the self teardrop (`SelfConeReader`
+# given a frame index, over `teardrop.fit_self`), whose local fit now carries
+# `outside_ncc` so `facing_elsewhere` means for it what it means for a teammate.
+# The ally rule is unchanged.
+ICON_POSE_PRIOR_VERSION = "icon-pose-prior-0.2.0"
 # One observation of an ability's drawn minimap shape (a ring or a beam), fitted
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
 # a prior, an acceptance or the stored fields change.
