@@ -27,6 +27,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .roster import N_SLOTS
+from .usage import timed_read
 from .version import (EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, ROSTER_VERSION,
                       ROSTER_SPLIT_VERSION, ROUND_VERSION, SCHEMA_VERSION, SEGMENTER_VERSION)
 from .events import validate_event_rows, EVENTS_VERSION
@@ -299,6 +300,7 @@ class Store:
         path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
         return path
 
+    @timed_read(lambda self, session_id: ("manifest", self.manifest_path(session_id)))
     def read_manifest(self, session_id: str) -> dict:
         path = self.manifest_path(session_id)
         if not path.is_file():
@@ -368,6 +370,7 @@ class Store:
         pq.write_table(table, path, compression="zstd")
         return path
 
+    @timed_read(lambda self, session_id, date: ("primitives", self.primitives_path(session_id, date)))
     def read_primitives(self, session_id: str, date: str) -> dict[str, np.ndarray]:
         path = self.primitives_path(session_id, date)
         if not path.is_file():
@@ -525,6 +528,7 @@ class Store:
         np.save(p, mask)
         return p
 
+    @timed_read(lambda self, session_id, date: ('hud', self.hud_path(session_id, date)))
     def read_hud(self, session_id: str, date: str):
         path = self.hud_path(session_id, date)
         if not path.is_file():
@@ -605,6 +609,7 @@ class Store:
         pq.write_table(table, path, compression="zstd")
         return path
 
+    @timed_read(lambda self, session_id, date: ('roster', self.roster_path(session_id, date)))
     def read_roster(self, session_id: str, date: str):
         path = self.roster_path(session_id, date)
         if not path.is_file():
@@ -671,6 +676,7 @@ class Store:
         pq.write_table(table, path, compression="zstd")
         return path
 
+    @timed_read(lambda self, session_id, date: ('minimap', self.minimap_path(session_id, date)))
     def read_minimap(self, session_id: str, date: str):
         path = self.minimap_path(session_id, date)
         if not path.is_file():
@@ -778,10 +784,12 @@ class Store:
         pq.write_table(table, path, compression="zstd")
         return path
 
+    @timed_read(lambda self, session_id, date: ('rounds', self.rounds_path(session_id, date)))
     def read_rounds(self, session_id: str, date: str):
         path = self.rounds_path(session_id, date)
         return pq.read_table(path) if path.is_file() else None
 
+    @timed_read(lambda self, session_id, date: ('spans', self.spans_path(session_id, date)))
     def read_spans(self, session_id: str, date: str):
         path = self.spans_path(session_id, date)
         if not path.is_file():
@@ -852,6 +860,7 @@ class Store:
             tmp.unlink(missing_ok=True)
         return path
 
+    @timed_read(lambda self, kind, session_id: (f"{kind}:version", None))
     def events_version(self, kind: str, session_id: str) -> str | None:
         """The version an event file was written at, or None if there is none.
 
@@ -892,6 +901,7 @@ class Store:
             return f"incomplete: its last row reads {end[key]}, its first {version}"
         return version
 
+    @timed_read(lambda self, kind, session_id: (kind, self.events_path(kind, session_id)))
     def read_events(self, kind: str, session_id: str) -> list[dict]:
         path = self.events_path(kind, session_id)
         if not path.is_file():
@@ -899,6 +909,7 @@ class Store:
         with open(path, encoding="utf-8") as f:
             return [json.loads(ln) for ln in f if ln.strip()]
 
+    @timed_read(lambda self, kind, session_id, row_kind: (kind, self.events_path(kind, session_id)))
     def read_events_kind(self, kind: str, session_id: str, row_kind: str) -> list[dict]:
         """Read the first row (for its stamp) and rows of one event kind.
 

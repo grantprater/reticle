@@ -258,6 +258,21 @@ def derived_streams() -> list[dict]:
     return rows
 
 
+def rerun_commands() -> frozenset[str]:
+    """The CLI commands that recompute a derived stream from storage or the
+    crop cache, as `reticle usage` records them: each hand-checked stream's
+    and each declared stream's command, less `scan` and any command whose
+    `how` is `decode`, plus `rounds`, which `stale` names by hand."""
+    found = {"rounds"}
+    specs = [{"command": cmd, "how": _CACHE_READERS.get(s, "storage")}
+             for s, (_, _, cmd) in _hand_specs().items()] + derived_streams()
+    for spec in specs:
+        words = spec["command"].split()
+        if len(words) > 1 and words[1] != "scan" and spec["how"] != "decode":
+            found.add(words[1])
+    return frozenset(found)
+
+
 def _head(store, stream: str, sid: str, needle: bytes | None = None) -> dict | None:
     """The first row of a stored stream (with `needle`, the first row whose
     line holds it), without reading the rest."""

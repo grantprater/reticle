@@ -886,13 +886,13 @@ def _ability_stale(store, sid, streams=None) -> bool:
 
 
 def cmd_usage(args) -> int:
-    """Show scan cost records, completed and failed, with source and reader time."""
+    """Show scan and stored-data command cost records, completed and failed."""
     from .usage import load, format_usage
 
     store = Store(args.store)
     rows = load(store.root, args.session)
     if not rows:
-        print("no scan usage records")
+        print("no usage records")
         return 0
     for row in rows[-args.limit:]:
         print(json.dumps(row, indent=2) if args.json else format_usage(row))
@@ -1581,9 +1581,10 @@ def cmd_scan(args) -> int:
             usage.write_metric(out.root)
         except OSError as exc:
             print(f"usage log could not be written: {exc}", file=sys.stderr)
-        print(f"usage      run {usage.run_id} ({pipeline}"
-              + (f", workers {workers}" if workers is not None else "")
-              + (f", shards {shards}" if shards else "") + ")")
+        if usage.enabled:
+            print(f"usage      run {usage.run_id} ({pipeline}"
+                  + (f", workers {workers}" if workers is not None else "")
+                  + (f", shards {shards}" if shards else "") + ")")
         return usage
 
     if args.check:
@@ -5672,9 +5673,31 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def command_usage(args):
+    """A `CommandUsage` for a stored-data command (`plan.rerun_commands`), or
+    None for any other command or at `RETICLE_USAGE=off`."""
+    from .usage import CommandUsage, usage_level
+    if usage_level() == "off":
+        return None
+    from .plan import rerun_commands
+    if args.cmd not in rerun_commands():
+        return None
+    given = {k: v for k, v in vars(args).items() if k not in ("func", "cmd", "store")}
+    return CommandUsage(args.cmd, given, given.get("session"))
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    usage = command_usage(args)
+    if usage is None:
+        return args.func(args)
+    try:
+        return usage.run(lambda: args.func(args))
+    finally:
+        try:
+            usage.write(Path(args.store))
+        except OSError as exc:
+            print(f"usage log could not be written: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":
