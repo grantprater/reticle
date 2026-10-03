@@ -572,7 +572,8 @@ def entry_actor(entry: dict, killer_identity: dict | None,
 
 
 def narrow_entry_weapon(entry: dict, verdict: "DeathVerdict", weapon_observations: list[dict],
-                        agents, sides: dict, session_id: str) -> dict:
+                        agents, sides: dict, session_id: str,
+                        store_root=None) -> dict:
     """The entry with its weapon named again by `entry_weapon` given its
     acting agent (`entry_actor`); unchanged when no actor is named. Its icon
     witness is asked again (`icon_witness`); the caller types the round again
@@ -580,7 +581,8 @@ def narrow_entry_weapon(entry: dict, verdict: "DeathVerdict", weapon_observation
     actor = entry_actor(entry, verdict.metadata.get("killer_identity"), verdict.is_second_life)
     if actor is None:
         return entry
-    ev = entry_weapon(entry, weapon_observations, agents=agents or None, actor=actor,
+    ev = entry_weapon(entry, weapon_observations, store_root=store_root,
+                      agents=agents or None, actor=actor,
                       key=death_key(session_id, entry["t_ms"], entry["slot"]))
     e = {k: v for k, v in entry.items() if k not in ("weapon", "death_cause")}
     e["weapon_evidence"] = ev
@@ -2497,7 +2499,8 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                               weapon_observations: list[dict] | None = None,
                               name_observations: list[dict] | None = None,
                               reliability: dict | None = None,
-                              xmarks: list[dict] | None = None) -> dict:
+                              xmarks: list[dict] | None = None,
+                              store_root=None) -> dict:
     """Every round's deaths from stored data only; decodes no video.
 
     `xmarks` are the session's `xmark_births`; each round's verdicts may take
@@ -2513,7 +2516,8 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
     `weapon_observations` are the stored `killfeed_weapon` rows; given them,
     `adjudication.weapon.entry_weapon` names each entry's weapon or ability and
     the entry carries its evidence. Without them no weapon is named, and no
-    entry is a revive (`revive_entry`).
+    entry is a revive (`revive_entry`). `store_root` is the store whose mined
+    weapon gallery names the icons; None means the default store.
 
     `name_observations` are the stored `killfeed_name` rows. Given them, the
     converged pass's roles are joined into name clusters
@@ -2536,7 +2540,8 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
         kf_portraits = [r for r in portraits if r.get("kind") == "portrait_observation"]
         widths = icon_widths(weapon_observations)
         for e in entries:
-            ev = entry_weapon(e, weapon_observations, agents=agents or None,
+            ev = entry_weapon(e, weapon_observations, store_root=store_root,
+                              agents=agents or None,
                               key=death_key(session_id, e["t_ms"], e["slot"]))
             e["weapon_evidence"] = ev
             if ev["status"] == "resolved":
@@ -2602,7 +2607,8 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
             # Narrow each icon by its acting agent's kit, the agent named
             # without the icon, then adjudicate the round again on the result.
             entries = [narrow_entry_weapon(e, v, weapon_observations, agents,
-                                           lineup.get("sides") or {}, session_id)
+                                           lineup.get("sides") or {}, session_id,
+                                           store_root)
                        for e, v in zip(entries, first)]
         # Type the round again with its verdicts' victim names: a Sage named
         # dead cannot revive, and a KAY/O revive needs his named down.

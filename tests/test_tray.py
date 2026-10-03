@@ -159,5 +159,45 @@ class TraySpansTest(unittest.TestCase):
         self.assertEqual(_tray_spans(self._Cache(None, [])), [])
 
 
+class StripCropTest(unittest.TestCase):
+    """`slot_counts` crops the strip before converting; the whole-frame read
+    it replaced must give the same counts and verdict."""
+
+    @staticmethod
+    def _whole_frame(frame):
+        import cv2
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+        teal = ((h > tray.TEAL_H[0]) & (h < tray.TEAL_H[1])
+                & (s > tray.TEAL_S_MIN) & (v > tray.TEAL_V_MIN))
+        out, bleed = [], 0.0
+        for k in range(4):
+            cx = tray.SLOT_X0 + tray.SLOT_DX * k
+            sl = slice(cx - tray.BAR_HALF, cx + tray.BAR_HALF)
+            out.append(int(teal[tray.BAR_Y0:tray.BAR_Y1, sl].sum()))
+            bar = teal[tray.BAR_Y0:tray.BAR_Y1, sl].mean()
+            g = max(teal[a:b, sl].mean() for a, b in tray.GUARD_Y)
+            if bar > 0.05:
+                bleed = max(bleed, g / bar)
+        return out, bleed <= tray.GUARD_MAX_RATIO
+
+    def test_crop_reads_as_the_whole_frame(self):
+        rng = np.random.default_rng(20261002)
+        frames = [_frame(), _frame((0.5, 0.0, 1.0, 0.3))]
+        for _ in range(6):
+            f = _frame(tuple(rng.random(4)))
+            noise = rng.integers(0, 256, f.shape, dtype=np.uint8)
+            frames.append(np.where(rng.random(f.shape[:2])[..., None] < 0.3, noise, f))
+        flood = _frame()
+        flood[tray.GUARD_Y[0][0]:tray.GUARD_Y[1][1], :] = TEAL
+        frames.append(flood)
+        for f in frames:
+            self.assertEqual(tray.slot_counts(f), self._whole_frame(f))
+
+    def test_strip_covers_bars_and_guards(self):
+        self.assertEqual(tray.STRIP_Y, (1008, 1076))
+        self.assertEqual(tray.STRIP_X, (751, 1166))
+
+
 if __name__ == "__main__":
     unittest.main()

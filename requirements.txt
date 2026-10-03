@@ -2,6 +2,7 @@ numpy>=2.0
 opencv-python-headless>=4.10
 pyarrow>=17.0
 duckdb>=1.0
+scipy>=1.14              # track.assign: linear_sum_assignment
 av>=15.0                 # audio decode, and NVDEC video decode when CUDA is present
 
 # Optional: GPU portrait scores for the scoreboard reader (scoreboard.py falls
