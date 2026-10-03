@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 from .track import CLASSES, admits, association_tolerance, assign, refit_of
 from .minimap import REF_WIDGET_W
+from .usage import step
 
 # 0.10.0 (2026-10-01): `finish` binds each death in `death_rank` order -- the
 # entity named as the victim, then the nearest last sighting, then the nearest
@@ -237,89 +238,94 @@ class RoundLifetimes:
         # ranking witness, not a measurement: the question it can answer is
         # *which of these entities is this icon*, never *is this icon that
         # entity*. Ranking it here also keeps it out of the per-pair loop.
-        best = {}
-        for i, obs in enumerate(observations):
-            if obs["family"] not in {"ally", "enemy"} or not obs.get("appearance"):
-                continue
-            scored = sorted(
-                ((_intersect(obs["appearance"], e["appearance"]), e["id"])
-                 for e in prior
-                 if e["family"] == obs["family"] and e["view"] == obs["view"]
-                 and e.get("appearance")), reverse=True)
-            if scored:
-                runner = scored[1][0] if len(scored) > 1 else 0.0
-                best[i] = (scored[0][1], scored[0][0] - runner)
-        costs, candidates = [], []
-        for i, obs in enumerate(observations):
-            row, parents = [], []
-            for ent in prior:
-                old = ent["last_observation"]
-                dt = (t_ms - ent["last_seen_ms"]) / 1000
-                compatible = (obs["view"] == old["view"] and
-                              obs["family"] == old["family"])
-                if known_kind(obs) and ent.get("known_kind"):
-                    compatible = compatible and known_kind(obs) == ent["known_kind"]
-                d = math.hypot(obs["x"]-old["x"], obs["y"]-old["y"])
-                if obs["family"] == "self" and compatible:
-                    allowed = True
-                elif obs["view"] == "world":
-                    allowed = dt <= .3 and d <= max(30, old["box"][2]*.5)
-                else:
-                    moving = obs["family"] in {"ally", "enemy"}
-                    budget = .75 if moving else 1.0
-                    motion = CLASSES["walker" if moving else "static"]
-                    slack = association_tolerance(self.scale,
-                                r_a=obs.get("r"), r_b=old.get("r"))
-                    adm = admits(motion, max(0, d-slack), dt, self.scale)[0]
-                    if moving and dt > budget:
-                        near_self_last = ent.get("near_self_at_last_seen", False)
-                        self_curr_dist = math.hypot(me["x"] - old["x"], me["y"] - old["y"]) if me else float("inf")
-                        obs_self_dist = math.hypot(me["x"] - obs["x"], me["y"] - obs["y"]) if me else float("inf")
-                        occluded_by_self = (near_self_last or self_curr_dist <= OCCLUSION_RADIUS_PX * self.scale) and (obs_self_dist <= (OCCLUSION_RADIUS_PX + 10.0) * self.scale or adm)
+        with step("appearance_rank"):
+            best = {}
+            for i, obs in enumerate(observations):
+                if obs["family"] not in {"ally", "enemy"} or not obs.get("appearance"):
+                    continue
+                scored = sorted(
+                    ((_intersect(obs["appearance"], e["appearance"]), e["id"])
+                     for e in prior
+                     if e["family"] == obs["family"] and e["view"] == obs["view"]
+                     and e.get("appearance")), reverse=True)
+                if scored:
+                    runner = scored[1][0] if len(scored) > 1 else 0.0
+                    best[i] = (scored[0][1], scored[0][0] - runner)
+        with step("cost_matrix"):
+            costs, candidates = [], []
+            for i, obs in enumerate(observations):
+                row, parents = [], []
+                for ent in prior:
+                    old = ent["last_observation"]
+                    dt = (t_ms - ent["last_seen_ms"]) / 1000
+                    compatible = (obs["view"] == old["view"] and
+                                  obs["family"] == old["family"])
+                    if known_kind(obs) and ent.get("known_kind"):
+                        compatible = compatible and known_kind(obs) == ent["known_kind"]
+                    d = math.hypot(obs["x"]-old["x"], obs["y"]-old["y"])
+                    if obs["family"] == "self" and compatible:
+                        allowed = True
+                    elif obs["view"] == "world":
+                        allowed = dt <= .3 and d <= max(30, old["box"][2]*.5)
+                    else:
+                        moving = obs["family"] in {"ally", "enemy"}
+                        budget = .75 if moving else 1.0
+                        motion = CLASSES["walker" if moving else "static"]
+                        slack = association_tolerance(self.scale,
+                                    r_a=obs.get("r"), r_b=old.get("r"))
+                        adm = admits(motion, max(0, d-slack), dt, self.scale)[0]
+                        if moving and dt > budget:
+                            near_self_last = ent.get("near_self_at_last_seen", False)
+                            self_curr_dist = math.hypot(me["x"] - old["x"], me["y"] - old["y"]) if me else float("inf")
+                            obs_self_dist = math.hypot(me["x"] - obs["x"], me["y"] - obs["y"]) if me else float("inf")
+                            occluded_by_self = (near_self_last or self_curr_dist <= OCCLUSION_RADIUS_PX * self.scale) and (obs_self_dist <= (OCCLUSION_RADIUS_PX + 10.0) * self.scale or adm)
 
-                        near_ally_last = ent.get("near_ally_at_last_seen", False)
-                        stacked = near_ally_last and adm
+                            near_ally_last = ent.get("near_ally_at_last_seen", False)
+                            stacked = near_ally_last and adm
 
-                        stationary = (d <= STATIONARY_RADIUS_PX * self.scale and dt <= STATIONARY_BUDGET_S)
+                            stationary = (d <= STATIONARY_RADIUS_PX * self.scale and dt <= STATIONARY_BUDGET_S)
 
-                        if (occluded_by_self or stacked) and dt <= MERGED_BUDGET_S and adm:
-                            budget = MERGED_BUDGET_S
-                        elif stationary:
-                            budget = STATIONARY_BUDGET_S
+                            if (occluded_by_self or stacked) and dt <= MERGED_BUDGET_S and adm:
+                                budget = MERGED_BUDGET_S
+                            elif stationary:
+                                budget = STATIONARY_BUDGET_S
 
-                    allowed = dt <= budget and adm
-                    if moving and not allowed and i in best:
-                        winner, margin = best[i]
-                        informative = motion.max_px_s*self.scale*dt + slack < math.sqrt(2)*REF_WIDGET_W*self.scale
-                        allowed = (informative and ent["id"] == winner
-                                   and margin >= APPEARANCE_MARGIN
-                                   and adm)
-                    if not moving and allowed:
-                        anchor = ent["anchor_observation"]
-                        anchor_d = math.hypot(obs["x"]-anchor["x"], obs["y"]-anchor["y"])
-                        anchor_slack = association_tolerance(self.scale,
-                            r_a=obs.get("r"), r_b=anchor.get("r"))
-                        allowed = admits(motion, max(0,anchor_d-anchor_slack),dt,self.scale)[0]
-                if compatible and allowed:
-                    parents.append(ent["id"])
-                    row.append(d)
-                else:
-                    row.append(float("inf"))
-            candidates.append(parents)
-            costs.append(row)
-        assignments = assign(costs)
+                        allowed = dt <= budget and adm
+                        if moving and not allowed and i in best:
+                            winner, margin = best[i]
+                            informative = motion.max_px_s*self.scale*dt + slack < math.sqrt(2)*REF_WIDGET_W*self.scale
+                            allowed = (informative and ent["id"] == winner
+                                       and margin >= APPEARANCE_MARGIN
+                                       and adm)
+                        if not moving and allowed:
+                            anchor = ent["anchor_observation"]
+                            anchor_d = math.hypot(obs["x"]-anchor["x"], obs["y"]-anchor["y"])
+                            anchor_slack = association_tolerance(self.scale,
+                                r_a=obs.get("r"), r_b=anchor.get("r"))
+                            allowed = admits(motion, max(0,anchor_d-anchor_slack),dt,self.scale)[0]
+                    if compatible and allowed:
+                        parents.append(ent["id"])
+                        row.append(d)
+                    else:
+                        row.append(float("inf"))
+                candidates.append(parents)
+                costs.append(row)
+        with step("assign"):
+            assignments = assign(costs)
         output = []
         alive = None if roster is None else roster.get("alive_ally")
         has_self = any(o["family"] == "self" for o in observations)
         capacity = ally_capacity(alive, has_self)
-        accepted_allies = self._fill_roster(observations, assignments, prior,
-                                            candidates, capacity)
+        with step("fill_roster"):
+            accepted_allies = self._fill_roster(observations, assignments, prior,
+                                                candidates, capacity)
         observation_ids = []
         for _ in observations:
             observation_ids.append(f"{self.round_id}:O{self.next_observation:06d}")
             self.next_observation += 1
-        component_for = self._record_ambiguous_components(
-            observation_ids, assignments, prior, candidates)
+        with step("components"):
+            component_for = self._record_ambiguous_components(
+                observation_ids, assignments, prior, candidates)
         # Entities seen on the PREVIOUS step and not on this one, which an
         # unassigned icon may be a refit of -- `track.refit_of` owns the rule.
         # Only the previous step: an entity hidden for longer is a

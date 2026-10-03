@@ -21,6 +21,7 @@ from . import tray
 from .ability_coverage import build_inventory
 from .rounds import in_round_window
 from .store import DEFAULT_STORE
+from .usage import step
 
 
 ABILITY_TIMELINE_VERSION = "ability-timeline-0.1.0"
@@ -497,8 +498,9 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     from .version import PLAYER_CAST_VERSION
 
     hud = store.read_hud(session_id, date)
-    gt = gametime.build_session_gametime(session_id, hud, rounds,
-                                         stall_list=stalls.for_session(store, session_id, date))
+    with step("gametime"):
+        gt = gametime.build_session_gametime(session_id, hud, rounds,
+                                             stall_list=stalls.for_session(store, session_id, date))
     badges = stored_second_life(store.read_events_kind(
         "killfeed_portrait", session_id, "second_life_observation"), KILLFEED_PORTRAIT_VERSION)
     verdicts = [r for r in store.read_events("death", session_id)

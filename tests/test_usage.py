@@ -543,6 +543,25 @@ class CommandUsageTest(unittest.TestCase):
             text = format_usage(usage.record())
             self.assertRegex(text, r"read:killfeed_portrait\s+\d\.\d+s\s+2 calls")
 
+    def test_marked_steps_of_the_stored_data_commands_reach_the_record(self):
+        from reticle.lineup import load_lineup
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            store.write_kf_mask("s1", np.zeros((2, 2), bool))
+
+            def body():
+                self.assertIsNone(load_lineup("s1", root))
+                store.read_kf_mask("s1")
+                return 0
+            with _level(None):
+                usage = CommandUsage("deaths", {}, "s1")
+                usage.run(body)
+            steps = usage.record()["steps"]
+        self.assertEqual(steps["load_lineup"]["count"], 1)
+        self.assertEqual(steps["read:kf_mask"]["count"], 1)
+        self.assertGreater(steps["read:kf_mask"]["bytes"], 0)
+        self.assertRegex(format_usage(usage.record()), r"load_lineup\s+\d\.\d+s\s+1 call")
+
     def test_no_sink_records_nothing(self):
         with tempfile.TemporaryDirectory() as root:
             store = Store(root)

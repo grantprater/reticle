@@ -36,6 +36,8 @@ from __future__ import annotations
 
 from collections import Counter
 
+from .usage import step
+
 from .round_lifetimes import (ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank, death_refusal,
                               seen_after_death)
 
@@ -241,64 +243,66 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
     obs_by_ent: dict[str, list[str]] = {}
     round_records: list[dict] = []
     coverage = Counter()
-    for rnd in rounds:
-        a, z = rnd["t_start_ms"], rnd["t_end_ms"]
-        inside = [f for f in frames if a <= f["t_ms"] < z]
-        if not inside:
-            coverage["rounds_without_frames"] += 1
-            continue
-        life = RoundLifetimes(f"{session_id}:R{rnd['round_no']}", a, scale)
-        obs_rows = []
-        for f in inside:
-            if not f["widget_drawn"]:
-                life.step(f["t_ms"], [], source_state="absent")
-                coverage["absent_frames"] += 1
+    with step("associate"):
+        for rnd in rounds:
+            a, z = rnd["t_start_ms"], rnd["t_end_ms"]
+            inside = [f for f in frames if a <= f["t_ms"] < z]
+            if not inside:
+                coverage["rounds_without_frames"] += 1
                 continue
-            if menu is not None and menu(f["t_ms"]) is True:
-                life.step(f["t_ms"], [], source_state="menu_open")
-                coverage["menu_open_frames"] += 1
-                continue
-            obs = [_observation(i) for i in icons.get(f["frame_idx"], [])]
-            me = _self_observation(f)
-            if me:
-                obs.append(me)
-            out = life.step(f["t_ms"], obs,
-                            roster=_roster_at(rt, ra, f["t_ms"]) if rt else None)
-            coverage["frames"] += 1
-            for o in out:
-                if o.get("observation_key") and o.get("entity_id"):
-                    obs_entity_map[o["observation_key"]] = o["entity_id"]
-                    obs_by_ent.setdefault(o["entity_id"], []).append(o["observation_key"])
-                obs_rows.append({**common, "kind": "observation", "round_no": rnd["round_no"],
-                                 "t_ms": f["t_ms"], "frame_idx": f["frame_idx"],
-                                 "observation_key": o["observation_key"],
-                                 "observation_id": o["observation_id"],
-                                 "family": o["family"], "entity_id": o["entity_id"],
-                                 "name": o["name"], "state": o["state"],
-                                 "identity_status": o["identity_status"],
-                                 "alternatives": o["alternatives"],
-                                 "component": o["association_component_id"],
-                                 "acquisition": o["acquisition"],
-                                 "x": round(o["x"], 2), "y": round(o["y"], 2)})
-        rnd_deaths = [d for d in (deaths or [])
-                      if d.get("kind") == "death_verdict" and d.get("round_no") == rnd["round_no"]
-                      and d.get("side") == "ally"]
-        rnd_drops = [rt[i] for i in range(1, len(rt))
-                     if ra[i] is not None and ra[i-1] is not None and ra[i] < ra[i-1]
-                     and a <= rt[i] <= z]
-        round_records.append({
-            "round_no": rnd["round_no"],
-            "life": life,
-            "deaths": rnd_deaths,
-            "drops": rnd_drops,
-            "z": z,
-            "obs_rows": obs_rows,
-        })
-        coverage["rounds"] += 1
+            life = RoundLifetimes(f"{session_id}:R{rnd['round_no']}", a, scale)
+            obs_rows = []
+            for f in inside:
+                if not f["widget_drawn"]:
+                    life.step(f["t_ms"], [], source_state="absent")
+                    coverage["absent_frames"] += 1
+                    continue
+                if menu is not None and menu(f["t_ms"]) is True:
+                    life.step(f["t_ms"], [], source_state="menu_open")
+                    coverage["menu_open_frames"] += 1
+                    continue
+                obs = [_observation(i) for i in icons.get(f["frame_idx"], [])]
+                me = _self_observation(f)
+                if me:
+                    obs.append(me)
+                out = life.step(f["t_ms"], obs,
+                                roster=_roster_at(rt, ra, f["t_ms"]) if rt else None)
+                coverage["frames"] += 1
+                for o in out:
+                    if o.get("observation_key") and o.get("entity_id"):
+                        obs_entity_map[o["observation_key"]] = o["entity_id"]
+                        obs_by_ent.setdefault(o["entity_id"], []).append(o["observation_key"])
+                    obs_rows.append({**common, "kind": "observation", "round_no": rnd["round_no"],
+                                     "t_ms": f["t_ms"], "frame_idx": f["frame_idx"],
+                                     "observation_key": o["observation_key"],
+                                     "observation_id": o["observation_id"],
+                                     "family": o["family"], "entity_id": o["entity_id"],
+                                     "name": o["name"], "state": o["state"],
+                                     "identity_status": o["identity_status"],
+                                     "alternatives": o["alternatives"],
+                                     "component": o["association_component_id"],
+                                     "acquisition": o["acquisition"],
+                                     "x": round(o["x"], 2), "y": round(o["y"], 2)})
+            rnd_deaths = [d for d in (deaths or [])
+                          if d.get("kind") == "death_verdict" and d.get("round_no") == rnd["round_no"]
+                          and d.get("side") == "ally"]
+            rnd_drops = [rt[i] for i in range(1, len(rt))
+                         if ra[i] is not None and ra[i-1] is not None and ra[i] < ra[i-1]
+                         and a <= rt[i] <= z]
+            round_records.append({
+                "round_no": rnd["round_no"],
+                "life": life,
+                "deaths": rnd_deaths,
+                "drops": rnd_drops,
+                "z": z,
+                "obs_rows": obs_rows,
+            })
+            coverage["rounds"] += 1
 
     player_agent = (lineup.get("player") or {}).get("agent") if lineup else None
-    named = _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery,
-                         references) if lineup and gallery else None
+    with step("name_pieces"):
+        named = _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery,
+                             references) if lineup and gallery else None
     named = named or {}
     pieces, verdicts = named.get("pieces", {}), named.get("verdicts", {})
     last_piece = named.get("last_piece", {})
@@ -314,116 +318,118 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
     unbound = Counter()
     piece_deaths: dict[str, dict] = {}
 
-    for rec in round_records:
-        last_xy = {eid: (e["last_observation"]["x"], e["last_observation"]["y"])
-                   for eid, e in rec["life"].entities.items() if e.get("last_observation")}
+    with step("bind_deaths"):
+        for rec in round_records:
+            last_xy = {eid: (e["last_observation"]["x"], e["last_observation"]["y"])
+                       for eid, e in rec["life"].entities.items() if e.get("last_observation")}
 
-        def refusal(ent, d, last_xy=last_xy, deaths=rec["deaths"]):
-            return death_binding_refusal(ent, d, player_agent=player_agent,
-                                         agent=agent_of(ent["id"]),
-                                         last_xy=last_xy.get(ent["id"]), scale=scale,
-                                         deaths=deaths)
+            def refusal(ent, d, last_xy=last_xy, deaths=rec["deaths"]):
+                return death_binding_refusal(ent, d, player_agent=player_agent,
+                                             agent=agent_of(ent["id"]),
+                                             last_xy=last_xy.get(ent["id"]), scale=scale,
+                                             deaths=deaths)
 
-        def rank(ent, d, last_xy=last_xy):
-            return death_rank(d, agent=binding_agent(ent, player_agent, agent_of(ent["id"])),
-                              last_seen_ms=ent["last_seen_ms"], last_xy=last_xy.get(ent["id"]))
+            def rank(ent, d, last_xy=last_xy):
+                return death_rank(d, agent=binding_agent(ent, player_agent, agent_of(ent["id"])),
+                                  last_seen_ms=ent["last_seen_ms"], last_xy=last_xy.get(ent["id"]))
 
-        mine = [d["t_ms"] for d in rec["deaths"] if d.get("t_ms") is not None
-                and _is_player_death(d, player_agent)
-                and death_refusal(d) not in ("revive", "second_life")]
-        finished = rec["life"].finish(
-            rec["z"], deaths=rec["deaths"], roster_drops=rec["drops"],
-            admit=lambda ent, d: refusal(ent, d) is None, rank=rank,
-            admit_drop=lambda ent, t, mine=mine: drop_binding_refusal(ent, t, mine) is None)
-        rec["finished"] = finished
-        # The same rule on the bound pairs; any disagreement is counted.
-        for ent in finished:
-            d = death_by_id.get(ent.get("death_id"))
-            why = None if d is None else refusal(ent, d)
-            if why:
-                unbound[why] += 1
-                ent.update(death_id=None, end_ms=None, death_evidence=None,
-                           end_reason="last observation does not establish destruction/death",
-                           right_censored_at_ms=ent["last_seen_ms"], death_unbound=why)
-        # Pair any remaining unlinked deaths with a nearby segment end, or with
-        # the end of a piece before a segment's last: a segment's last sighting
-        # can be a stray fit the tracker joined after the victim's icon went
-        # (5822b6646448 R8: Omen's piece seen 0.3 s before the death, then one
-        # fit 40 px off 1.07 s after it), so `seen_after_death` is asked of
-        # each piece's own last sighting. A piece that takes a death ends
-        # there; the pieces after it keep the segment's continuity, which the
-        # death disputes, and say so (`after_piece_death`).
-        # An inner piece is offered even when its segment's end holds a death:
-        # the tracker can join two teammates, and the earlier one's death is
-        # the inner piece's, not the segment's (`_holds_death`).
-        claimed = {ent["death_id"] for ent in finished if ent.get("death_id")}
-        inner = []
-        for ent in finished:
-            ids = named.get("pieces_of", {}).get(ent["id"], [])
-            if ent.get("family") == "ally" and len(ids) > 1:
-                inner += [{"id": pid, "family": "ally", "segment": ent,
-                           "last_seen_ms": pieces[pid]["t"][-1]} for pid in ids[:-1]]
-        piece_xy = {}
-        for o in rec["obs_rows"]:
-            pid = named.get("piece_of", {}).get(o["observation_key"])
-            if pid:
-                piece_xy[pid] = (o["x"], o["y"])
-        both_xy = {**last_xy, **piece_xy}
-        for d in sorted(rec["deaths"], key=lambda x: x.get("t_ms", 0)):
-            did, t_d = d.get("death_id"), d.get("t_ms", 0)
-            if did in claimed:
-                continue
-            cands = [(rank(ent, d, last_xy=both_xy), ent)
-                     for ent in finished + inner
-                     if ent.get("family") == "ally"
-                     and not _holds_death(ent, piece_deaths)
-                     and abs(ent["last_seen_ms"] - t_d) <= 3000.0
-                     and refusal(ent, d, last_xy=both_xy) is None]
-            if cands:
-                best_ent = min(cands, key=lambda x: x[0])[1]
-                if "segment" in best_ent:
-                    seg = best_ent["segment"]
-                    seg["piece_death_id"] = did
-                    piece_deaths[best_ent["id"]] = d
-                else:
-                    best_ent.update(death_id=did, end_ms=t_d, end_reason="death",
-                                    death_evidence="killfeed_verdict")
-                claimed.add(did)
+            mine = [d["t_ms"] for d in rec["deaths"] if d.get("t_ms") is not None
+                    and _is_player_death(d, player_agent)
+                    and death_refusal(d) not in ("revive", "second_life")]
+            finished = rec["life"].finish(
+                rec["z"], deaths=rec["deaths"], roster_drops=rec["drops"],
+                admit=lambda ent, d: refusal(ent, d) is None, rank=rank,
+                admit_drop=lambda ent, t, mine=mine: drop_binding_refusal(ent, t, mine) is None)
+            rec["finished"] = finished
+            # The same rule on the bound pairs; any disagreement is counted.
+            for ent in finished:
+                d = death_by_id.get(ent.get("death_id"))
+                why = None if d is None else refusal(ent, d)
+                if why:
+                    unbound[why] += 1
+                    ent.update(death_id=None, end_ms=None, death_evidence=None,
+                               end_reason="last observation does not establish destruction/death",
+                               right_censored_at_ms=ent["last_seen_ms"], death_unbound=why)
+            # Pair any remaining unlinked deaths with a nearby segment end, or with
+            # the end of a piece before a segment's last: a segment's last sighting
+            # can be a stray fit the tracker joined after the victim's icon went
+            # (5822b6646448 R8: Omen's piece seen 0.3 s before the death, then one
+            # fit 40 px off 1.07 s after it), so `seen_after_death` is asked of
+            # each piece's own last sighting. A piece that takes a death ends
+            # there; the pieces after it keep the segment's continuity, which the
+            # death disputes, and say so (`after_piece_death`).
+            # An inner piece is offered even when its segment's end holds a death:
+            # the tracker can join two teammates, and the earlier one's death is
+            # the inner piece's, not the segment's (`_holds_death`).
+            claimed = {ent["death_id"] for ent in finished if ent.get("death_id")}
+            inner = []
+            for ent in finished:
+                ids = named.get("pieces_of", {}).get(ent["id"], [])
+                if ent.get("family") == "ally" and len(ids) > 1:
+                    inner += [{"id": pid, "family": "ally", "segment": ent,
+                               "last_seen_ms": pieces[pid]["t"][-1]} for pid in ids[:-1]]
+            piece_xy = {}
+            for o in rec["obs_rows"]:
+                pid = named.get("piece_of", {}).get(o["observation_key"])
+                if pid:
+                    piece_xy[pid] = (o["x"], o["y"])
+            both_xy = {**last_xy, **piece_xy}
+            for d in sorted(rec["deaths"], key=lambda x: x.get("t_ms", 0)):
+                did, t_d = d.get("death_id"), d.get("t_ms", 0)
+                if did in claimed:
+                    continue
+                cands = [(rank(ent, d, last_xy=both_xy), ent)
+                         for ent in finished + inner
+                         if ent.get("family") == "ally"
+                         and not _holds_death(ent, piece_deaths)
+                         and abs(ent["last_seen_ms"] - t_d) <= 3000.0
+                         and refusal(ent, d, last_xy=both_xy) is None]
+                if cands:
+                    best_ent = min(cands, key=lambda x: x[0])[1]
+                    if "segment" in best_ent:
+                        seg = best_ent["segment"]
+                        seg["piece_death_id"] = did
+                        piece_deaths[best_ent["id"]] = d
+                    else:
+                        best_ent.update(death_id=did, end_ms=t_d, end_reason="death",
+                                        death_evidence="killfeed_verdict")
+                    claimed.add(did)
     coverage["death_unbound"] = dict(unbound)
 
     rows: list[dict] = []
     piece_of = named.get("piece_of", {})
-    for rec in round_records:
-        for o in rec["obs_rows"]:
-            pid = piece_of.get(o["observation_key"])
-            rows.append({**o, "segment_id": o["entity_id"], "entity_id": pid}
-                        if pid and pid != o["entity_id"] else o)
-        for ent in rec.get("finished", []):
-            fam = ent.get("family")
-            body = {k: v for k, v in ent.items()
-                    if k not in ("appearance", "anchor_observation", "kind", "piece_death_id")}
-            body["agent"], body["teammate_key"] = None, None
-            if fam == "self":
-                body["agent"] = player_agent
-                body["identity_status"] = "resolved" if player_agent else "provisional"
-                body["teammate_key"] = (f"{session_id}:teammate:{player_agent}"
-                                        if player_agent else None)
-            elif fam == "barrier":
-                body["identity_status"], body["identity_reason"] = "abstained", "barrier"
-            head = {**common, "kind": "entity", "entity_kind": ent.get("kind"),
-                    "round_no": rec["round_no"]}
-            if fam == "ally" and ent["id"] in named.get("pieces_of", {}):
-                for piece in _piece_bodies(body, pieces, verdicts,
-                                           named["pieces_of"][ent["id"]], session_id,
-                                           piece_deaths):
-                    rows.append({**head, **piece})
-                continue
-            if fam == "ally" and lineup:
-                body["identity_status"], body["identity_reason"] = "abstained", "no_claims"
-            rows.append({**head, **body})
-        report = rec["life"].association_report()
-        rows.append({**common, "kind": "associations", "round_no": rec["round_no"],
-                     **report})
+    with step("rows"):
+        for rec in round_records:
+            for o in rec["obs_rows"]:
+                pid = piece_of.get(o["observation_key"])
+                rows.append({**o, "segment_id": o["entity_id"], "entity_id": pid}
+                            if pid and pid != o["entity_id"] else o)
+            for ent in rec.get("finished", []):
+                fam = ent.get("family")
+                body = {k: v for k, v in ent.items()
+                        if k not in ("appearance", "anchor_observation", "kind", "piece_death_id")}
+                body["agent"], body["teammate_key"] = None, None
+                if fam == "self":
+                    body["agent"] = player_agent
+                    body["identity_status"] = "resolved" if player_agent else "provisional"
+                    body["teammate_key"] = (f"{session_id}:teammate:{player_agent}"
+                                            if player_agent else None)
+                elif fam == "barrier":
+                    body["identity_status"], body["identity_reason"] = "abstained", "barrier"
+                head = {**common, "kind": "entity", "entity_kind": ent.get("kind"),
+                        "round_no": rec["round_no"]}
+                if fam == "ally" and ent["id"] in named.get("pieces_of", {}):
+                    for piece in _piece_bodies(body, pieces, verdicts,
+                                               named["pieces_of"][ent["id"]], session_id,
+                                               piece_deaths):
+                        rows.append({**head, **piece})
+                    continue
+                if fam == "ally" and lineup:
+                    body["identity_status"], body["identity_reason"] = "abstained", "no_claims"
+                rows.append({**head, **body})
+            report = rec["life"].association_report()
+            rows.append({**common, "kind": "associations", "round_no": rec["round_no"],
+                         **report})
 
     return [{**common, "kind": "coverage", **coverage}] + rows
 
@@ -559,10 +565,11 @@ def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, ref
     if not icons:
         return None
     prefix = f"{session_id}:ally_icon:"
-    claims = {c["entity_id"][len(prefix):]: c
-              for c in claims_from_ally_icons(icons, lineup, gallery=gallery,
-                                              session_id=session_id, references=references)
-              if c["entity_id"].startswith(prefix)}
+    with step("claims"):
+        claims = {c["entity_id"][len(prefix):]: c
+                  for c in claims_from_ally_icons(icons, lineup, gallery=gallery,
+                                                  session_id=session_id, references=references)
+                  if c["entity_id"].startswith(prefix)}
     scored = [c["evidence"] for c in claims.values() if (c.get("evidence") or {}).get("scores")]
     name_sets = Counter(tuple(sorted(e["scores"])) for e in scored)
     names = list(name_sets.most_common(1)[0][0]) if name_sets else []
@@ -570,36 +577,38 @@ def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, ref
     pieces, pieces_of, piece_of, last_piece = {}, {}, {}, {}
     frames: dict[tuple, set] = {}
     self_seen = set()
-    for rec in round_records:
-        rno, segs = rec["round_no"], {}
-        for o in rec["obs_rows"]:
-            if o["family"] == "self":
-                self_seen.add((rno, o["t_ms"]))
-            elif o["family"] == "ally" and o["entity_id"]:
-                segs.setdefault(o["entity_id"], []).append((o["t_ms"], o["observation_key"]))
-        for seg, ob in segs.items():
-            ob.sort()
-            path = [0] * len(ob)
-            if len(names) > 1:
-                E = np.array([[(((claims.get(k) or {}).get("evidence") or {}).get("scores")
-                                or {}).get(a, 0.0) for a in names] for _, k in ob])
-                path = _viterbi(E, penalty)
-            cuts = [0] + [i for i in range(1, len(path)) if path[i] != path[i - 1]] + [len(ob)]
-            ids = [seg] if len(cuts) == 2 else [f"{seg}/P{j}" for j in range(len(cuts) - 1)]
-            pieces_of[seg], last_piece[seg] = ids, ids[-1]
-            for j, pid in enumerate(ids):
-                part = ob[cuts[j]:cuts[j + 1]]
-                pieces[pid] = {"round": rno, "t": [t for t, _ in part],
-                               "claims": [claims[k] for _, k in part if k in claims]}
-                for t, k in part:
-                    piece_of[k] = pid
-                    frames.setdefault((rno, t), set()).add(pid)
+    with step("pieces"):
+        for rec in round_records:
+            rno, segs = rec["round_no"], {}
+            for o in rec["obs_rows"]:
+                if o["family"] == "self":
+                    self_seen.add((rno, o["t_ms"]))
+                elif o["family"] == "ally" and o["entity_id"]:
+                    segs.setdefault(o["entity_id"], []).append((o["t_ms"], o["observation_key"]))
+            for seg, ob in segs.items():
+                ob.sort()
+                path = [0] * len(ob)
+                if len(names) > 1:
+                    E = np.array([[(((claims.get(k) or {}).get("evidence") or {}).get("scores")
+                                    or {}).get(a, 0.0) for a in names] for _, k in ob])
+                    path = _viterbi(E, penalty)
+                cuts = [0] + [i for i in range(1, len(path)) if path[i] != path[i - 1]] + [len(ob)]
+                ids = [seg] if len(cuts) == 2 else [f"{seg}/P{j}" for j in range(len(cuts) - 1)]
+                pieces_of[seg], last_piece[seg] = ids, ids[-1]
+                for j, pid in enumerate(ids):
+                    part = ob[cuts[j]:cuts[j + 1]]
+                    pieces[pid] = {"round": rno, "t": [t for t, _ in part],
+                                   "claims": [claims[k] for _, k in part if k in claims]}
+                    for t, k in part:
+                        piece_of[k] = pid
+                        frames.setdefault((rno, t), set()).add(pid)
     capacity = {f: ally_capacity(_roster_window(rt, ra, f[1]) if rt else None, f in self_seen)
                 for f in frames}
     dead = ally_dead_intervals([d for rec in round_records for d in rec["deaths"]],
                           {rec["round_no"]: rec["z"] for rec in round_records}, rt, ra)
-    assigned = assign_ally_pieces(pieces, frames, capacity,
-                                  teammate_fit=(references or {}).get("teammate_fit"), dead=dead)
+    with step("assign"):
+        assigned = assign_ally_pieces(pieces, frames, capacity,
+                                      teammate_fit=(references or {}).get("teammate_fit"), dead=dead)
     # The assignment is the piece's witness; the arbiter decides its name.
     arb = AgentIdentityArbiter()
     arb.extend(identity_claim(
