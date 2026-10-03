@@ -376,5 +376,65 @@ class MinimapTruthTest(unittest.TestCase):
         self.assertNotIn("b1", rg.truth_locations(k, dying, legacy_victim=True))
 
 
+class StaleStatusTest(unittest.TestCase):
+    """0.3.1: a tracked K/D read from a stale gate is unread; versions name
+    the death rows scored."""
+
+    @staticmethod
+    def _write(path, rows):
+        import json
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    def _store(self, tmp, portrait_version, observations=True):
+        rows = [{"kind": "stamp", "killfeed_portrait_version": portrait_version}]
+        if observations:
+            rows.append({"kind": "second_life_observation", "t_ms": 1.0,
+                         "killfeed_portrait_version": portrait_version})
+        self._write(tmp / "events" / "killfeed_portrait" / "s1.jsonl", rows)
+
+    def test_stale_stream_is_unread(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            self._store(tmp, "old")
+            self.assertTrue(rg.second_life_stale(tmp, "s1", "new"))
+            self.assertFalse(rg.second_life_stale(tmp, "s1", "old"))
+            self._store(tmp, "old", observations=False)
+            self.assertFalse(rg.second_life_stale(tmp, "s1", "new"))
+            self.assertFalse(rg.second_life_stale(tmp, "absent", "new"))
+
+    def _kd(self, stale):
+        who = {"me": {"stats": {"kills": 10, "deaths": 5, "assists": 2}, "teamId": "Red"}}
+        return rg.score_kd("s1", {}, "me", [], [], [], who, {"me": "Jett"}, None,
+                           {"kills": 10, "deaths": 7, "verdict": "rounds_changed 3"},
+                           stale=stale)
+
+    def test_score_and_pool(self):
+        fresh, stale = self._kd(None), self._kd("second_life_stream_stale")
+        self.assertEqual(fresh["tracked_vs_riot"], (0, 2))
+        self.assertIsNone(stale["tracked_vs_riot"])
+        self.assertEqual(stale["tracked_unread"], "second_life_stream_stale")
+        self.assertEqual(stale["status_tracked"], (10, 7))
+        P = rg.pool([{"session": "a", "kd": fresh}, {"session": "b", "kd": stale}], None)
+        self.assertEqual(P["kd"]["tracked_scored"], 1)
+        self.assertEqual(P["kd"]["tracked_exact"], 0)
+        self.assertEqual(P["kd"]["tracked_unread_stale"], 1)
+
+    def test_versions_name_the_scored_rows(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            store, trial = Path(d) / "store", Path(d) / "trial"
+            for root, v in ((store, "death-adjudication-0.1"), (trial, "death-adjudication-0.2")):
+                self._write(root / "events" / "death" / "s1.jsonl",
+                            [{"kind": "death_verdict", "t_ms": 1.0,
+                              "death_adjudication_version": v}])
+            scored = rg.stored_deaths(store, "s1", trial)
+            dv = sorted({r["death_adjudication_version"] for r in scored})
+            self.assertEqual(rg.stream_versions(store, "s1", dv)["death"],
+                             "death-adjudication-0.2")
+            self.assertEqual(rg.stream_versions(store, "s1")["death"], "death-adjudication-0.1")
+
+
 if __name__ == "__main__":
     unittest.main()
