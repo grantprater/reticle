@@ -96,6 +96,18 @@ What Riot's record omits by design (0.2.0)
 * Agent weapons valorant-api's weapon list lacks (Chamber's, Neon's) score as
   unmappable and list their full item ids (`unmappable_items`).
 
+Capture stalls (0.3.2)
+----------------------
+While the capture stalls (`reticle.stalls`, its zero-motion runs extended
+over the frozen game clock) the killfeed is not sampled: a kill Riot records
+inside a stored stall span may draw no entry, or draw one first seen at the
+stall's end, seconds late.
+* A Riot kill left unpaired whose aligned time lies inside a stall span is
+  `unobservable`, counted apart from `missed`.
+* The name pass measures its tolerance in unstalled time: the stall's
+  duration between the aligned kill and the stored death does not count.
+`--legacy stall` restores 0.3.1 (no spans read).
+
 What the scorer reads stale (0.3.1)
 -----------------------------------
 * `status` reads second lives under the running code's
@@ -137,7 +149,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-RIOT_TRUTH_VERSION = "riot-truth-0.3.1"
+RIOT_TRUTH_VERSION = "riot-truth-0.3.2"
 STORE = Path.home() / "reticle-store"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -157,8 +169,9 @@ AMBIGUOUS_MS = 500.0
 NAME_PAIR_TOL_MS = 5000.0
 #: Earlier rules `--legacy` can restore, one per fix: the 0.1.0 victim,
 #: second-life, pairing and self-kill rules, and `order`, the 0.2.0 time-only
-#: pairing (`pairing` wins where both are named).
-LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill", "order")
+#: pairing (`pairing` wins where both are named), and `stall`, the 0.3.1
+#: scoring that reads no stall span.
+LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill", "order", "stall")
 #: The minimap read time relative to the killfeed-fitted offset. The fit's
 #: offset includes about half a killfeed step of sampling lag plus the feed's
 #: render delay. Measured with `--scan-lag` on the self icon (three sessions,
@@ -646,6 +659,11 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
         return out
     legacy = set(getattr(opts, "legacy", None) or ())
     kill_like, second_life = split_deaths(deaths, legacy)
+    stall_spans = None
+    if "stall" not in legacy:
+        from reticle import stalls as _stalls
+        stall_spans = _stalls.for_session(store, sid, man["ingested_at"][:10])
+    out["stall_spans"] = None if stall_spans is None else len(stall_spans)
     st = [float(r["t_ms"]) for r in kill_like]
     al = fit_alignment([k["gameTime"] for k in kills], st)
     out["align"] = {k: v for k, v in al.items() if k != "pairs"}
@@ -674,7 +692,8 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
     # -- deaths
     out["deaths"], out["death_rows"] = score_deaths(kills, kill_like, pairs, who, agent_of,
                                                      my_team, ref, a, legacy=legacy,
-                                                     match_tol=opts.match_tol)
+                                                     match_tol=opts.match_tol,
+                                                     stalls=stall_spans)
     out["deaths"]["revive_entries"] = sum(1 for r in deaths if r.get("is_revive"))
     out["deaths"]["second_life_entries"] = len(second_life)
     out["deaths"]["second_life"] = [{"t_ms": r["t_ms"], "death_id": r.get("death_id"),
@@ -885,10 +904,27 @@ def _assign(n_i: int, n_j: int, cost: dict) -> list[tuple[int, int]]:
     return [(int(i), int(j)) for i, j in zip(rows, cols) if (int(i), int(j)) in cost]
 
 
-def _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms) -> list:
+def stalled_ms(a: float, b: float, stalls) -> float:
+    """Milliseconds of stored stall spans between times `a` and `b`."""
+    lo, hi = min(a, b), max(a, b)
+    return sum(max(0.0, min(hi, s["t_end_ms"]) - max(lo, s["t_start_ms"]))
+               for s in stalls or ())
+
+
+def in_stall(t: float, stalls) -> dict | None:
+    """The stored stall span holding time `t`, or None."""
+    for s in stalls or ():
+        if s["t_start_ms"] <= t <= s["t_end_ms"]:
+            return s
+    return None
+
+
+def _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms, stalls=None) -> list:
     """Pass 3: leftovers within `name_tol_ms` whose victim names agree and
     whose killer names do not disagree, most agreeing killers then least
-    |dt| first. `x` and `t` are the aligned kill and stored death times."""
+    |dt| first. `x` and `t` are the aligned kill and stored death times.
+    The tolerance counts unstalled time (0.3.2): a stall span between the
+    kill and the death does not count against it."""
     big, mid = 1e12, 1e7
     ni, nj = len(kills), len(deaths)
     used_i = {i for i, *_ in out}
@@ -901,7 +937,7 @@ def _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms) -> list:
             if j in used_j:
                 continue
             d = t[j] - x[i]
-            if abs(d) > name_tol_ms:
+            if abs(d) - stalled_ms(x[i], t[j], stalls) > name_tol_ms:
                 continue
             v, kl = _name_agree(kills[i], deaths[j], agent_of)
             if v and kl is not False:
@@ -1107,7 +1143,7 @@ def _order_consistent(match, kills, deaths, contra=frozenset()) -> bool:
 
 
 def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
-                         name_tol_ms=NAME_PAIR_TOL_MS) -> tuple[list, dict, dict]:
+                         name_tol_ms=NAME_PAIR_TOL_MS, stalls=None) -> tuple[list, dict, dict]:
     """Riot kills to stored deaths in three passes (0.3.0): `(i, j, dt, how)`
     as `pair_deaths`, its stats, and {kill index: reason} for the pairs whose
     order the record leaves unknown (`order_ambiguity`).
@@ -1121,7 +1157,7 @@ def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
        `tol_ms` that pair as many, the one whose stored names agree most;
        ties keep pass 1. Inside such a block the time error is sampling
        jitter, as 0.2.0 held for every cluster.
-    3. name pass, as 0.2.0.
+    3. name pass, as 0.2.0, its tolerance in unstalled time (0.3.2).
 
     The stats also compare pass 1 with the 0.2.0 time-only assignment, kill
     by kill: where they part, whether the order partner's names agree with
@@ -1189,7 +1225,7 @@ def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
             named.update(best)
     out = [(i, j, t[j] - x[i], "time" if pairs.get(i) == j else "name_reassigned")
            for i, j in sorted(named.items())]
-    out += _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms)
+    out += _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms, stalls)
     amb = {i: kill_amb.get(i) or death_amb.get(j) for i, j, _d, how in out
            if how != "name_pass" and (i in kill_amb or j in death_amb)}
 
@@ -1227,7 +1263,7 @@ def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
 
 
 def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=(),
-                 match_tol=MATCH_TOL_MS) -> tuple[dict, list]:
+                 match_tol=MATCH_TOL_MS, stalls=None) -> tuple[dict, list]:
     legacy = set(legacy or ())
     if "pairing" in legacy:
         pairs, clustered = reorder_clusters(pairs, kills, deaths, agent_of, a, match_tol)
@@ -1237,10 +1273,18 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
         pairs, pstats = pair_deaths(kills, deaths, agent_of, a, match_tol)
         clustered = _ambiguous(pairs, kills)
     else:
-        pairs, pstats, clustered = pair_deaths_in_order(kills, deaths, agent_of, a, match_tol)
+        pairs, pstats, clustered = pair_deaths_in_order(kills, deaths, agent_of, a, match_tol,
+                                                        stalls=stalls)
     out = {"riot_kills": len(kills), "stored_deaths": len(deaths), "matched": len(pairs)}
     out.update(pstats)
-    out["missed"] = len(kills) - len(pairs)
+    # 0.3.2: an unpaired kill inside a stall span had no sample to draw on
+    paired_i = {p[0] for p in pairs}
+    unobs = [(i, in_stall(a + kills[i]["gameTime"], stalls)) for i in range(len(kills))
+             if i not in paired_i]
+    unobs = [(i, sp) for i, sp in unobs if sp is not None]
+    out["unobservable"] = len(unobs)
+    out["unobservable_kills"] = []  # filled beside `misses` below
+    out["missed"] = len(kills) - len(pairs) - len(unobs)
     out["false_deaths"] = len(deaths) - len(pairs)
     out["recall"] = len(pairs) / len(kills) if kills else None
     out["precision"] = len(pairs) / len(deaths) if deaths else None
@@ -1326,10 +1370,14 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
     matched_i = {p[0] for p in pairs}
     matched_j = {p[1] for p in pairs}
     misses = []
+    unobs_i = {i for i, _sp in unobs}
     for i, k in enumerate(kills):
         if i in matched_i:
             continue
-        misses.append({"t_ms": round(a + k["gameTime"]), "round": k["round"] + 1,
+        (out["unobservable_kills"] if i in unobs_i else misses).append(
+                      {"t_ms": round(a + k["gameTime"]), "round": k["round"] + 1,
+                       "stall": ([sp["t_start_ms"], sp["t_end_ms"]] if i in unobs_i
+                                 and (sp := in_stall(a + k["gameTime"], stalls)) else None),
                        "victim": agent_of.get(k["victim"]),
                        "killer": agent_of.get(k.get("killer")),
                        "victim_side": None if my_team is None else
@@ -1657,7 +1705,9 @@ POOL_KEYS_DEATH = ("riot_kills", "stored_deaths", "matched", "victim_right", "vi
                    "order_contradictions",
                    "order_vs_time_differs", "order_vs_time_one_unpaired",
                    "order_vs_time_names_better", "order_vs_time_names_worse",
-                   "order_vs_time_names_same")
+                   "order_vs_time_names_same",
+                   # 0.3.2: unpaired kills inside a stall span
+                   "unobservable")
 POOL_KEYS_DEATH += tuple(f"{p}_kind_{k}" for p in ("riot", "matched")
                          for k in ("weapon", "ability", "unmapped", "bomb", "melee", "fall"))
 
@@ -1997,7 +2047,8 @@ def print_pool(P: dict, conv):
               f"{d.get('order_vs_time_differs', 0)} (one unpaired {d.get('order_vs_time_one_unpaired', 0)}, "
               f"order names better {d.get('order_vs_time_names_better', 0)}, worse "
               f"{d.get('order_vs_time_names_worse', 0)}, same {d.get('order_vs_time_names_same', 0)})")
-    print(f"  missed {d.get('missed')} false deaths {d.get('false_deaths')}; killer not applicable "
+    print(f"  missed {d.get('missed')} (unobservable in a stall {d.get('unobservable', 0)}) "
+          f"false deaths {d.get('false_deaths')}; killer not applicable "
           f"(self-kill) {d.get('killer_not_applicable', 0)}")
     print(f"  second-life deaths: {d.get('second_life_entries', 0)}, Riot omits them by design")
     print(f"  unmappable Riot items (no cached valorant-api name): {json.dumps(d.get('unmappable_items'))}")

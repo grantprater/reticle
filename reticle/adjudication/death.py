@@ -165,7 +165,16 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # The first-slot seed bound the newcomer that rose into the slot the entry had
 # left (043bafca271a 578.0 s) or that the slide-in misread placed it in
 # (3694746e4e54 1638.0 s).
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.31.0"
+# 0.32.0 (2026-10-03): a death whose victim name agrees with an earlier
+# death's, inside one entry life and the queue, is that entry's second track
+# and merges into it, stored with its evidence (`merge_split_entries`; ten
+# split duplicates over the 21 Riot-scored matches, each a new divider read
+# after a rise or a misread); a death no channel names and nothing else
+# observes is refused (`refuse_unwitnessed`: recap panels, the round-start
+# banner, scenery). Capture-stall spans (stalls-0.2.0) count an entry drawn
+# at a stall's release (`checks.track_entries`) and discount stall time in
+# the merge.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.32.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -1262,13 +1271,16 @@ def death_key(session_id: str, t_ms: float, slot: int) -> str:
     return f"death:{session_id}:{int(float(t_ms))}:{int(slot)}"
 
 
-def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[dict]:
+def session_entries(hud: dict, second_life: list[dict] | None = None,
+                    stalls: list[dict] | None = None) -> list[dict]:
     """One dict per counted killfeed entry track over the whole session, from
     stored HUD columns only: first-seen time, the slot it appeared in, the
     victim's plate side there, whether it is the player's kill or death, and
     the track's per-sample `(t_ms, slot)` reads (`reads`), which follow the
     entry as it rises and seed `entry_follow` where its first slot shows no
-    portrait.
+    portrait. `stalls`, the session's capture-stall spans, count an entry
+    drawn at a stall's release (`checks.track_entries`); such an entry carries
+    `released`, the span.
 
     Tracked over the session, not per round: a death on a round's last sample
     is a one-frame track inside the round and would be refused. The player's
@@ -1281,7 +1293,8 @@ def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[di
     at = {x: i for i, x in enumerate(t)}
     col = lambda c: hud.get(c) or [None] * len(t)
     mine = {kind: merge_split_tracks([e for e in track_entries(t, hud[f"kf_{kind}_mask"],
-                                                                col(f"kf_{kind}_wx"))
+                                                                col(f"kf_{kind}_wx"),
+                                                                stalls=stalls)
                                       if e["counted"]])
             for kind in ("kill", "death")}
     # Stored from hud-0.15.0; an older table reads no entry's plates as one side.
@@ -1292,7 +1305,7 @@ def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[di
              if hud.get("kf_ally_mask") and hud.get("kf_enemy_mask") else None)
     tracks = [e for e in track_entries(t, hud["kf_entry_mask"], col("kf_entry_wx"),
                                        flags={"same_side": same} if same else None,
-                                       sides=sides)
+                                       sides=sides, stalls=stalls)
               if e["counted"]]
     # A player track belongs to the entry on screen when it was first seen
     # whose divider agrees, the latest such onset first (the attribution can
@@ -1346,7 +1359,8 @@ def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[di
                     "is_second_life": bool(dt is not None and second_life is not None
                                            and second_life_death(dt["t_first"], dt["t_last"],
                                                                  second_life)),
-                    "claim": None, "location": None, "killer_location": None})
+                    "claim": None, "location": None, "killer_location": None,
+                    **({"released": e["released"]} if e.get("released") else {})})
     return out
 
 
@@ -1369,6 +1383,219 @@ def split_second_lives(deaths: list[dict], observations: list[dict] | None
         return list(deaths), []
     lives = [d for d in deaths if second_life_death(d["t_first"], d["t_last"], observations)]
     return [d for d in deaths if d not in lives], lives
+
+
+def _unstalled_ms(a: float, b: float, stalls) -> float:
+    """`b - a` less the time inside capture-stall spans."""
+    inside = sum(max(0.0, min(b, s["t_end_ms"]) - max(a, s["t_start_ms"])) for s in stalls or ())
+    return (b - a) - inside
+
+
+def _slot_at(entry: dict, t: float) -> int:
+    """The slot an entry track held at its last read at or before `t`, else
+    its first slot."""
+    held = [s for t_, s in entry.get("reads") or () if t_ <= t]
+    return held[-1] if held else entry["slot"]
+
+
+def _onset_slot(entry: dict, step: float) -> int:
+    """The highest slot an entry track reads within one sample of its onset:
+    one read in a slot below its true one is a slot misread
+    (59c70f1ef720 1271.0 s, read in slot 1 then slot 0)."""
+    t0 = float(entry["t_first"])
+    return min([s for t_, s in entry.get("reads") or () if t_ <= t0 + step] or [entry["slot"]])
+
+
+def same_entry(earlier: tuple[dict, "DeathVerdict"], later: tuple[dict, "DeathVerdict"], *,
+               stalls=None, step: float = 500.0, revives=()) -> dict | None:
+    """Whether two adjudicated deaths are one killfeed entry read as two
+    tracks: the merge rule with its evidence, or None.
+
+    The tracks' dividers cannot say it -- each split here took a new divider
+    read -- so the evidence is a second channel, the names, checked against
+    the queue [domain:killfeed/stack-order] and the entry's lifetime
+    [domain:killfeed/entry-lifetime]:
+
+      names  -- both victims named and equal, the killers not named apart.
+                One agent dies once per entry life; a revive between the two
+                (`revives`, the revive verdicts' times and sides) or a second
+                life breaks that, so neither may be a revive and both must be
+                second lives or neither. Where a victim is unnamed, both
+                killers named and equal suffice only for `continuation`.
+      side   -- the victim plates do not read opposite sides.
+      queue  -- the later track starts in the slot the earlier held at that
+                time or above it, since an entry never moves down
+                (`_onset_slot` forgives a one-sample slot misread).
+      life   -- `queue`: the two together fit one entry's life outside stall
+                time, `t_last(later) - t_first(earlier) + step`;
+                `stall_release`: the later is first read within one sample of
+                a stall's end and the earlier was read within a track gap of
+                that stall's start, so the release redrew it
+                (3694746e4e54 143.5 s, the 125 s entry, stall 130.6-144.0 s);
+                `continuation` (killers agree, a victim unnamed): the later
+                is read the very next sample in the slot the earlier left,
+                the earlier too young to have expired, and the two fit one
+                life. One killer's next kill lands in a new slot below, never
+                in the slot of an entry still on screen (96aa1ae9b96f 600.5
+                and 601.0 s, Clove, slot 1, dividers 199 and 215).
+    """
+    from ..checks import KF_ENTRY_LIFE_MS, KF_ENTRY_LIFE_TOL_MS, KF_TRACK_GAP_MS
+    (e, ve), (l, vl) = earlier, later
+    if ve.is_revive or vl.is_revive or bool(ve.is_second_life) != bool(vl.is_second_life):
+        return None
+    if ve.victim and vl.victim and ve.victim != vl.victim:
+        return None
+    if ve.killer and vl.killer and ve.killer != vl.killer:
+        return None
+    by_victim = bool(ve.victim and vl.victim)
+    if not (by_victim or (ve.killer and vl.killer)):
+        return None
+    sides = {e.get("side"), l.get("side")} & {"ally", "enemy"}
+    if len(sides) > 1:
+        return None
+    t_e, t_l = float(e["t_first"]), float(l["t_first"])
+    if t_l < t_e or any(t_e < float(r["t_ms"]) <= t_l
+                        and (not sides or r.get("side") not in ("ally", "enemy")
+                             or r.get("side") in sides)
+                        for r in revives):
+        return None
+    e_slot, l_slot = _slot_at(e, t_l), _onset_slot(l, step)
+    if l_slot > e_slot:
+        return None
+    ev = {"victim": [ve.victim, vl.victim], "killer": [ve.killer, vl.killer],
+          "slots": [e_slot, l_slot], "t_last": [float(e["t_last"]), float(l["t_last"])],
+          "life_ms": _unstalled_ms(t_e, float(l["t_last"]), stalls) + step}
+    one_life = ev["life_ms"] <= KF_ENTRY_LIFE_MS + KF_ENTRY_LIFE_TOL_MS
+    if not by_victim:
+        young = float(e["t_last"]) - t_e + step < KF_ENTRY_LIFE_MS - KF_ENTRY_LIFE_TOL_MS
+        next_sample = 0.0 < t_l - float(e["t_last"]) <= 1.5 * step
+        if one_life and young and next_sample and int(l["slot"]) == e_slot:
+            return {"rule": "continuation", "evidence": ev}
+        return None
+    if one_life:
+        return {"rule": "queue", "evidence": ev}
+    for s in stalls or ():
+        if (abs(t_l - s["t_end_ms"]) <= step
+                and s["t_start_ms"] - KF_TRACK_GAP_MS <= float(e["t_last"]) <= s["t_end_ms"]):
+            return {"rule": "stall_release",
+                    "evidence": {**ev, "stall": [s["t_start_ms"], s["t_end_ms"]]}}
+    return None
+
+
+def merge_split_entries(rounds: list[dict], *, stalls=None, step: float = 500.0) -> list[dict]:
+    """Fold each death that `same_entry` calls an earlier death's second
+    track into that earlier death, over the whole session; returns the merges.
+
+    The earlier death keeps its key, its verdict and its row, unless it
+    names no victim and the later one does: the victim is the death's
+    identity, so the named piece survives (96aa1ae9b96f 601.0 s over the
+    600.5 s release frame). The survivor's entry takes the union of the two
+    `t_last`, reads and player flags and carries `merged`, the absorbed death
+    ids with each rule and its evidence. The absorbed death leaves its round's
+    `entries` and `verdicts` for the round's `merged`, as
+    `(entry, verdict, merge)`; nothing is dropped. A later death is compared
+    with each surviving earlier one, nearest first. Names never pass between
+    the two verdicts: each stays the arbiter's verdict on its own key.
+    """
+    items = sorted(((float(e["t_first"]), int(e["slot"]), ri, k)
+                    for ri, x in enumerate(rounds) for k, e in enumerate(x["entries"])))
+    revives = [{"t_ms": float(v.t_ms), "side": e.get("side")}
+               for x in rounds for e, v in zip(x["entries"], x["verdicts"]) if v.is_revive]
+    alive: list[tuple[int, int]] = []
+    gone: dict[tuple[int, int], dict] = {}
+    for _, _, ri, k in items:
+        e, v = rounds[ri]["entries"][k], rounds[ri]["verdicts"][k]
+        hit = None
+        for n, (rj, j) in reversed(list(enumerate(alive))):
+            pe, pv = rounds[rj]["entries"][j], rounds[rj]["verdicts"][j]
+            if float(e["t_first"]) - float(pe["t_first"]) > 60_000:
+                break
+            m = same_entry((pe, pv), (e, v), stalls=stalls, step=step, revives=revives)
+            if m:
+                hit = (n, rj, j, m)
+                break
+        if hit is None:
+            alive.append((ri, k))
+            continue
+        n, rj, j, m = hit
+        pe, pv = rounds[rj]["entries"][j], rounds[rj]["verdicts"][j]
+        keep, lose = ((ri, k), (rj, j)) if (pv.victim is None and v.victim) else ((rj, j), (ri, k))
+        se, sv = rounds[keep[0]]["entries"][keep[1]], rounds[keep[0]]["verdicts"][keep[1]]
+        le, lv = rounds[lose[0]]["entries"][lose[1]], rounds[lose[0]]["verdicts"][lose[1]]
+        merge = {"into": sv.death_id, "absorbed": lv.death_id, **m}
+        se["t_last"] = max(float(se["t_last"]), float(le["t_last"]))
+        se["reads"] = sorted(set(map(tuple, se.get("reads") or ()))
+                             | set(map(tuple, le.get("reads") or ())))
+        for flag in ("kf_player_kill", "kf_player_death"):
+            se[flag] = bool(se.get(flag) or le.get(flag))
+        se["merged"] = le.pop("merged", []) + se.get("merged", []) + [merge]
+        for prior in se["merged"]:
+            prior["into"] = sv.death_id
+        alive[n] = keep
+        gone[lose] = merge
+    for ri, x in enumerate(rounds):
+        drop = [k for k in range(len(x["entries"])) if (ri, k) in gone]
+        x["merged"] = x.get("merged", []) + [(x["entries"][k], x["verdicts"][k], gone[(ri, k)])
+                                             for k in drop]
+        x["entries"] = [en for k, en in enumerate(x["entries"]) if (ri, k) not in gone]
+        x["verdicts"] = [vd for k, vd in enumerate(x["verdicts"]) if (ri, k) not in gone]
+    return list(gone.values())
+
+
+#: Channels that observe a death without the killfeed: the living set's
+#: drop, a minimap X or track, and the player's own HUD.
+DEATH_OBSERVERS = ("roster_diff", "xmark", "minimap_track", "player_hud")
+
+
+def unwitnessed_entry(entry: dict, verdict: "DeathVerdict") -> dict | None:
+    """Why a killfeed entry is no death, or None when something attests it.
+
+    A band of plate colour that is not an entry -- a death-recap panel, the
+    round-start banner, red and green scenery -- tracks like one, and nothing
+    else sees it: no channel names its victim or its killer, no other channel
+    observes a death then (`DEATH_OBSERVERS`), no weapon icon is read in it,
+    and the player is in neither role. Over the 21 Riot-scored matches seven
+    of the ten phantom deaths were exactly that (b3b9defb6fd7 1650.5 s, the
+    recap panel in slot 5; bdfdcf009dba 128.0 s, the DEFENDING banner), while
+    every unnamed real death had a roster drop or a read weapon icon. A
+    revive's type witnesses attest it, so a revive is never refused.
+    """
+    if verdict.is_revive:
+        return None
+    md = verdict.metadata or {}
+    claims = [c for key in ("identity", "killer_identity")
+              for c in ((md.get(key) or {}).get("claims") or [])]
+    if any(c.get("agent") for c in claims):
+        return None
+    observers = [c for c in verdict.channels if c in DEATH_OBSERVERS]
+    weapon = (entry.get("weapon_evidence") or {}).get("status") == "resolved"
+    player = bool(entry.get("kf_player_kill") or entry.get("kf_player_death"))
+    if observers or weapon or player:
+        return None
+    return {"reason": "no_role_named_no_observer",
+            "evidence": {"channels": list(verdict.channels),
+                         "claims": [[c.get("channel"), c.get("reason")] for c in claims],
+                         "weapon": (entry.get("weapon_evidence") or {}).get("status"),
+                         "slot": entry.get("slot"), "side": entry.get("side")}}
+
+
+def refuse_unwitnessed(rounds: list[dict]) -> list[dict]:
+    """Move each death `unwitnessed_entry` refuses from its round's `entries`
+    and `verdicts` to the round's `refused`, as `(entry, verdict, refusal)`;
+    returns the refusals."""
+    out = []
+    for x in rounds:
+        keep, refused = [], list(x.get("refused", []))
+        for e, v in zip(x["entries"], x["verdicts"]):
+            why = unwitnessed_entry(e, v)
+            if why is None:
+                keep.append((e, v))
+            else:
+                refused.append((e, v, why))
+                out.append({"death_id": v.death_id, **why})
+        x["entries"], x["verdicts"] = [e for e, _ in keep], [v for _, v in keep]
+        x["refused"] = refused
+    return out
 
 
 REVIVE_ABILITY_ICONS = {
@@ -2807,8 +3034,15 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                               name_observations: list[dict] | None = None,
                               reliability: dict | None = None,
                               xmarks: list[dict] | None = None,
-                              store_root=None) -> dict:
+                              store_root=None, stalls: list[dict] | None = None) -> dict:
     """Every round's deaths from stored data only; decodes no video.
+
+    `stalls`, the session's capture-stall spans, count entries drawn at a
+    stall's release (`session_entries`) and discount stall time when two
+    deaths are tested as one entry. After the last pass, `merge_split_entries`
+    folds each death that is an earlier death's second track into it and
+    `refuse_unwitnessed` refuses each death nothing attests; each round then
+    carries `merged` and `refused`, and the result `merges` and `refusals`.
 
     `xmarks` are the session's `xmark_births`; each round's verdicts may take
     a location from the births of that round only.
@@ -2837,9 +3071,15 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
     from ..reconciliation import board_alive_auditor, contradicted_openings
     from .scoreboard import scoreboard_openings
     from ..rounds import in_round_window
+    from ..checks import sample_step_ms
     hud, roster = hud_table.to_pydict(), roster_table.to_pylist()
     player_agent = (lineup.get("player") or {}).get("agent")
-    entries = session_entries(hud, second_life)
+    entries = session_entries(hud, second_life, stalls=stalls)
+    step_ms = sample_step_ms(hud["t_ms"])
+
+    def settle(rounds: list[dict]) -> dict:
+        merges = merge_split_entries(rounds, stalls=stalls, step=step_ms)
+        return {"merges": merges, "refusals": refuse_unwitnessed(rounds)}
     # Both sides: an icon's caster may be on either team (a revive, a team kill).
     agents = {r["agent"] for side in (lineup.get("sides") or {}).values()
               for r in side if r.get("agent")}
@@ -2905,7 +3145,7 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                 break
             keys, exemplars = new, harvested
     if name_observations is None:
-        return {"rounds": results, "passes": n}
+        return {"rounds": results, "passes": n, **settle(results)}
     with step("name_clusters"):
         claims, summary = _name_cluster_claims(session_id, results, portraits, name_observations,
                                                lineup, gallery, reliability)
@@ -2946,7 +3186,7 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                                                xmarks=xm[r["round_no"]])
             final.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts,
                           "collisions": board_collisions(session_id, r["round_no"], board)})
-    return {"rounds": final, "passes": n + 1, "name_clusters": summary}
+    return {"rounds": final, "passes": n + 1, "name_clusters": summary, **settle(final)}
 
 
 def _named_by(verdicts) -> dict[int, list]:
