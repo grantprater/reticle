@@ -1718,7 +1718,11 @@ PORTRAIT_ASPECT = 2.0
 # 0.11.0 (2026-10-02): a divider piece inside a fitted ring grows to the
 # ring's pieces (`_grow_strokes`, `ring_fit`), so a ringed icon's emblem is no
 # longer a name and the crops beside a ringed icon move.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.11.0"
+# 0.12.0 (2026-10-03): each view also stores its inner-weighted art ZNCC per
+# candidate (`art_view`): victims as the mirrored art at the right-aligned
+# anchor, killers about the stored box, widened on surprise. The composition
+# and shifts stay beside it for comparison.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.12.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -1732,6 +1736,27 @@ PORTRAIT_SHIFTS = (-4, -2, 0, 2, 4)
 #: A column with this much white ink is text, and text sits ON the plate. Lower
 #: than `TEXT_V_MIN`'s per-pixel test because this one is per column.
 PORTRAIT_TEXT_FRAC = 0.15
+
+# --- art ZNCC (`appearance.art_zncc`) ----------------------------------------
+# Measured by `prototypes/killfeed_portrait_separability.py`
+# (docs/KILLFEED_PORTRAIT_SEPARABILITY.md) on 21 matches labelled by Riot's
+# records. The art is drawn one band high and two wide at every capture size,
+# so the tile is a base length under the capture's scale, never a measured band.
+#: The art tile's height (base px); its width is `PORTRAIT_ASPECT` times this.
+ART_TILE_H = 34
+#: The victim portrait's outer (last) column sits at ROI column
+#: roi_w - ART_VICTIM_OUTER (base px): the feed is right-aligned. The stored
+#: victim box wanders by about 20 px; the anchor holds on almost every victim
+#: view (22291 of 22891 well-correlated views in the study).
+ART_VICTIM_OUTER = 11
+#: The search about a prior (base px): columns, rows either side.
+ART_PRIOR_X, ART_PRIOR_Y = 2, 1
+#: The killer's search on surprise (base px): the study's whole strip.
+ART_WIDE_X, ART_WIDE_Y = 24, 3
+#: Below this best correlation the prior is a surprise: a killer's search
+#: widens to the strip, and then any view's candidates widen to every agent.
+#: The study's label-free clean cut.
+ART_SURPRISE_Z = 0.5
 
 
 def _entry_columns(green_band, red_band, white_band, bh: int) -> np.ndarray:
@@ -1932,11 +1957,134 @@ def own_ink(white_band: np.ndarray, x: int) -> np.ndarray:
     return np.where(keep[lab], white_band, 0).astype(white_band.dtype)
 
 
+def _art_candidates(ally: bool | None, candidates: dict | None,
+                    art: "appearance.ArtTiles") -> tuple[list[str], str]:
+    """The agents one view is scored against, and why those.
+
+    The side's admitted agents when a lineup is given and the plate names the
+    side: the five that side can field, as `adjudication.identity` admits them
+    (named and rival slots). The match's agents when the side is unread. Every
+    agent with art when no lineup is given, as the lineup reader scores all of
+    them before any lineup exists. Agents without art are dropped."""
+    if candidates is None:
+        return list(art.agents), "all: no lineup given"
+    if ally is None:
+        pool = {a for side in candidates.values() for a in side}
+        source = "match: side unread"
+    else:
+        pool = set(candidates.get("ally" if ally else "enemy") or ())
+        source = "side"
+    got = sorted(a for a in pool if a in art.index)
+    if not got:
+        return list(art.agents), f"all: no {source} candidate has art"
+    return got, source
+
+
+def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | None,
+             s: "KillfeedScale", art_dir, candidates: dict | None = None) -> dict:
+    """One portrait view's inner-weighted art ZNCC (`appearance.art_zncc`), as
+    `art_*` fields of its observation. It names no agent.
+
+    **Continue the prior; widen on surprise.** A victim's portrait is the art
+    mirrored, its outer column at ROI column roi_w - `ART_VICTIM_OUTER`, so its
+    window is searched there, `ART_PRIOR_X` / `ART_PRIOR_Y` either side. A
+    killer's portrait ends where its name starts, so its window starts at
+    `x0` (the stored box's inner edge less the tile width) and is searched the
+    same distance. Where the best candidate correlates under `ART_SURPRISE_Z`,
+    a killer's search widens to `ART_WIDE_X` / `ART_WIDE_Y` about that start
+    (`art_search` "widened"); then, if still under, any view's candidates widen
+    to every agent with art (`art_candidates_widened` gives why). Each
+    candidate's score is its best over the windows searched; `art_x0`,
+    `art_y0` place the best candidate's window and `art_shift` its offset
+    from the prior.
+
+    A long killer name pushes the portrait past the ROI's left edge; a window
+    that starts left of column 0 scores the art's columns inside the ROI
+    (`appearance.art_zncc` `cut`, at least `appearance.ART_MIN_COVER` of the
+    weight), and `art_cover` gives the best window's share. A killer without a
+    start (`x0` None), and a search with no window inside the ROI, refuse:
+    `art_zncc` stays None and `art_reason` says why. The ROI's occlusion mask
+    is not consulted, as the study did not.
+    """
+    h, w = crop.shape[:2]
+    th = s.n(ART_TILE_H)
+    tw = int(round(PORTRAIT_ASPECT * th))
+    art = appearance.killfeed_art(art_dir, th, tw, s.n(appearance.ART_INNER_MARGIN))
+    out = {"art_zncc": None, "art_reason": None}
+    if art is None:
+        out["art_reason"] = "no_art"
+        return out
+    victim = role == "victim"
+    px = (w - s.n(ART_VICTIM_OUTER) + 1 - tw) if victim else x0
+    if px is None:
+        out["art_reason"] = "no_killer_box"
+        return out
+    cands, source = _art_candidates(ally, candidates, art)
+
+    def search(dx: int, dy: int, names: list[str]):
+        # window starts px-dx..px+dx; a start left of the ROI scores the art's
+        # columns inside it (appearance.art_zncc `cut`), one start per cut
+        ya, yb = max(0, y0 - dy), min(h, y0 + th + dy)
+        xs = np.arange(px - dx, px + dx + 1)
+        xs = xs[(xs + tw <= w) & (xs > -tw)]
+        if yb - ya < th or not len(xs):
+            return None
+        lab = appearance.to_lab(crop[ya:yb, max(0, int(xs[0])):min(w, int(xs[-1]) + tw)])
+        z = np.zeros((yb - ya - th + 1, len(xs), len(names)), np.float32)
+        cover = np.ones((len(xs), len(names)), np.float32)
+        whole = xs >= 0
+        if whole.any():
+            z[:, whole] = appearance.art_zncc(lab[:, int(xs[whole][0]) - max(0, int(xs[0])):],
+                                              art, names, mirrored=victim)
+        for i in np.flatnonzero(~whole):
+            cut = int(-xs[i])
+            z[:, i] = appearance.art_zncc(lab[:, :tw - cut], art, names, mirrored=victim,
+                                          cut=cut)[:, 0]
+            cover[i] = art.cut_terms(cut, victim)["cover"][[art.index[n] for n in names]]
+        return z, xs, ya, cover
+
+    with usage_step("art"):
+        got = search(s.n(ART_PRIOR_X), s.n(ART_PRIOR_Y), cands)
+        mode = "prior"
+        if not victim and (got is None or float(got[0].max()) < ART_SURPRISE_Z):
+            with usage_step("widened"):
+                wide = search(s.n(ART_WIDE_X), s.n(ART_WIDE_Y), cands)
+            if wide is not None:
+                got, mode = wide, "widened"
+        if got is None:
+            out["art_reason"] = "art_outside_roi"
+            return out
+        widened = None
+        if float(got[0].max()) < ART_SURPRISE_Z and len(cands) < len(art.agents):
+            widened = f"top {float(got[0].max()):.3f} below {ART_SURPRISE_Z}"
+            cands = list(art.agents)
+            with usage_step("all_agents"):
+                got = search(*((s.n(ART_PRIOR_X), s.n(ART_PRIOR_Y)) if mode == "prior"
+                               else (s.n(ART_WIDE_X), s.n(ART_WIDE_Y))), cands)
+    z, xs, ya, cover = got
+    per = z.reshape(-1, z.shape[2]).max(0)
+    top = int(per.argmax())
+    by, bx = np.unravel_index(int(z[:, :, top].argmax()), z.shape[:2])
+    out.update({
+        "art_zncc": {a: round(float(v), 4) for a, v in zip(cands, per)},
+        "art_candidates": source,
+        "art_candidates_widened": widened,
+        "art_search": mode,
+        "art_x0": int(xs[bx]), "art_y0": int(ya + by),
+        "art_shift": [int(xs[bx] - px), int(ya + by - y0)],
+        "art_cover": round(float(cover[bx, top]), 3),
+        "art_mirrored": victim,
+        "art_anchor": "right_edge" if victim else "killer_box",
+    })
+    return out
+
+
 def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                           views: "list[EntryView] | None" = None,
                           mask: np.ndarray | None = None,
                           profile_name: str = "valorant-16x9", *,
-                          scale: "KillfeedScale | None" = None) -> list[dict]:
+                          scale: "KillfeedScale | None" = None,
+                          art_dir=None, candidates: dict | None = None) -> list[dict]:
     """Context-free appearance evidence for each entry's two agent portraits.
 
     **The killfeed draws the agent, and nothing has ever looked at it.** Every
@@ -1961,6 +2109,12 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
     outside the ROI. The victim's portrait sits at the entry's right end and is
     routinely cut by a few pixels; a consumer weighing two claims should know
     which one saw a whole face.
+
+    Given `art_dir` (the store's agent art), each view also carries its
+    inner-weighted art ZNCC per candidate (`art_view`), the descriptor
+    `adjudication.identity` names from; `candidates` ({"ally": [...],
+    "enemy": [...]}, each side's admitted agents) narrows the agents scored,
+    and is a candidate set, never a verdict.
     """
     s = scale or KillfeedScale.for_capture(width, height)
     if views is None:
@@ -2005,9 +2159,26 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                 edge = start
             else:
                 edge = _portrait_edge(on, start, step, w, s=s)
+            # Which team this portrait belongs to. The killer and the victim
+            # are on opposite sides of every entry, and `victim_ally` is
+            # read from the plate the VICTIM's name sits on.
+            ally = (None if view.victim_ally is None else
+                    (view.victim_ally if role == "victim" else not view.victim_ally))
+            if art_dir is not None:
+                # The killer's art ends at its name's start; the victim's sits
+                # at the right-aligned anchor, so it needs no gap past the name.
+                fields = art_view(crop, role, (edge - int(round(PORTRAIT_ASPECT * s.n(ART_TILE_H))))
+                                  if role == "killer" else None, py0, ally, s, art_dir,
+                                  candidates)
+            else:
+                fields = {}
             if edge is None:
-                out.append({"slot": view.slot, "role": role,
-                            "reason": "no gap past the name"})
+                row = {"slot": view.slot, "role": role, "reason": "no gap past the name"}
+                if fields.get("art_zncc") is not None:
+                    # The composition has no crop; the art found the portrait.
+                    row.update(fields, ally=ally, y0=int(py0), y1=int(py1), reason="",
+                               composition_reason="no gap past the name")
+                out.append(row)
                 continue
             outer = edge + step * wide
             px0, px1 = sorted((edge, outer))
@@ -2033,13 +2204,9 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                 "detail": round(appearance.detail(art), 3),
                 "composition": appearance.hsv_composition(art, keep).tolist(),
                 "shifts": shifts,
-                # Which team this portrait belongs to. The killer and the victim
-                # are on opposite sides of every entry, and `victim_ally` is
-                # read from the plate the VICTIM's name sits on.
-                "ally": None if view.victim_ally is None else
-                        (view.victim_ally if role == "victim"
-                         else not view.victim_ally),
+                "ally": ally,
                 "reason": "",
+                **fields,
             })
     return out
 
@@ -2800,9 +2967,18 @@ class KillfeedPortraitReader:
     it to a lineup without reopening the video.
     """
 
-    def __init__(self, profile, wh, mask=None, hz=2.0, spans=None):
+    def __init__(self, profile, wh, mask=None, hz=2.0, spans=None, art_dir=None,
+                 candidates=None, candidates_from=None):
         self.profile = profile
         self.w, self.h = wh
+        # The store's agent art, for the art ZNCC (`art_view`); None stores none.
+        self.art_dir = art_dir
+        # Each side's admitted agents ({"ally": [...], "enemy": [...]}) from a
+        # stored lineup, and that lineup's stamp (`candidates_from`); a
+        # candidate set for the art ZNCC, never a verdict. None scores every
+        # agent with art.
+        self.candidates = candidates
+        self.candidates_from = candidates_from
         self.mask = mask
         self.mask_prefix = mask.astype(np.int32).cumsum(axis=1) if mask is not None else None
         self.roi = killfeed_roi(profile)
@@ -2855,7 +3031,8 @@ class KillfeedPortraitReader:
         with usage_step("portraits"):
             portraits = portrait_observations(
                 smp.frame, self.roi, self.w, self.h, views=views,
-                mask=self.mask, profile_name=self.profile.name, scale=s)
+                mask=self.mask, profile_name=self.profile.name, scale=s,
+                art_dir=self.art_dir, candidates=self.candidates)
             for observation in portraits:
                 self.rows.append({
                     "frame_idx": int(smp.frame_idx),
@@ -2892,6 +3069,17 @@ class KillfeedPortraitReader:
             "refused": sum(refused.values()),
             "refused_reasons": dict(sorted(refused.items())),
             "frames_from": self.frames_from,
+            # The art ZNCC: which candidates it scored and what refused it.
+            "art": {"scored": self.art_dir is not None,
+                    "candidates_from": self.candidates_from,
+                    "search": dict(sorted(Counter(r.get("art_search") for r in self.rows
+                                                  if r.get("art_search")).items())),
+                    "candidates": dict(sorted(Counter(r.get("art_candidates") for r in self.rows
+                                                      if r.get("art_candidates")).items())),
+                    "candidates_widened": sum(bool(r.get("art_candidates_widened"))
+                                              for r in self.rows),
+                    "refused_reasons": dict(sorted(Counter(r["art_reason"] for r in self.rows
+                                                           if r.get("art_reason")).items()))},
         }
         rows = []
         for row in self.rows:

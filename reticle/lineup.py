@@ -207,6 +207,26 @@ def view_stamp(session: str, store) -> str:
     return f"{version}@{digest}"
 
 
+def portrait_candidates(session: str, store) -> tuple[dict | None, str | None]:
+    """The agents the killfeed portrait reader may score per side, and their
+    stamp: ({"ally": [...], "enemy": [...]}, "lineup <view_stamp>"), or
+    (None, None) when no lineup is stored.
+
+    Each side's admitted agents as `identity.side_candidates` admits them, the
+    named slots and the refused slots' best guesses, so the reader scores
+    every agent a claim may compare. A CANDIDATE SET, never a verdict: the
+    portrait claim still weighs its own evidence."""
+    from .adjudication.identity import side_candidates
+    lineup = load_lineup(session, store)
+    if not lineup:
+        return None, None
+    out = {}
+    for side, rows in (lineup.get("sides") or {}).items():
+        split = side_candidates(rows)
+        out[side] = sorted({a for a in split["named"] + split["rivals"] if a})
+    return out, f"lineup {view_stamp(session, store)}"
+
+
 def _version_key(stamp: str | None) -> tuple[int, ...] | None:
     """`scoreboard-0.13.0` as (0, 13, 0); None for anything else."""
     tail = (stamp or "").rpartition("-")[2]

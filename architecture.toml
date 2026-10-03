@@ -185,6 +185,18 @@ write, so it asks the rule's owner (`ally_decisions`, `accepted`) rather than
 restating it; it writes nothing.
 """
 
+[[exception]]
+from = "trial"
+to = "lineup"
+kind = "deferred"
+imports = "portrait_candidates"
+reason = """
+The killfeed portrait reader scores each side's admitted agents from the stored
+lineup, as `scan` builds it. A trial builds the reader `scan` would, so it asks
+the lineup's owner for that candidate set rather than restating it; it writes
+nothing.
+"""
+
 # ---------------------------------------------------------------------------
 # The tree direction. `reticle/` does not know `prototypes/` exists.
 # ---------------------------------------------------------------------------

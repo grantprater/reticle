@@ -70,7 +70,11 @@ from ..track import assign
 # 0.9.0 (2026-09-28): a portrait name an exemplar decided depends on the death
 # that labelled the exemplar at the shift that set the winning score; it had
 # named the exemplar of the last shift where any exemplar beat the art.
-AGENT_IDENTITY_VERSION = "agent-identity-0.9.0"
+# 0.10.0 (2026-10-03): a killfeed portrait that carries the art ZNCC
+# (`killfeed-portrait-0.12.0`) names from it (`PORTRAIT_LIKELIHOOD["art_zncc"]`),
+# against a "none of them" hypothesis at log ratio 0; exemplars are not
+# consulted for it. Older rows keep the composition path.
+AGENT_IDENTITY_VERSION = "agent-identity-0.10.0"
 
 #: Borrowed from `lineup.MARGIN_MIN` and NOT refitted here. It keeps every
 #: correct player portrait on the one population with a truth --
@@ -105,10 +109,28 @@ SIDE_MARGIN_MIN = 0.07
 #: held-out art worse than pooled ones (0.925 against 0.942 of entities), so
 #: the table is pooled. Outcome: `portrait-likelihood-calibration` in the
 #: store's `notes/predictions.jsonl`.
+#:
+#: `art_zncc` is the inner-weighted art ZNCC (`appearance.art_zncc`) of a view
+#: with its own agent and with another of the side's five. Fitted by
+#: `prototypes/killfeed_portrait_separability.py`'s functions on its tiles: the
+#: clean labelled views (Riot's match records) of 21 matches, pooled:
+#: same [metric:portrait_zncc_llr/pooled#same=0.8841], diff
+#: [metric:portrait_zncc_llr/pooled#diff=0.142], var
+#: [metric:portrait_zncc_llr/pooled#var=0.01239]; leave-one-session-out the
+#: same mean ranged [metric:portrait_zncc_llr/pooled#loso_same_min=0.8837] to
+#: [metric:portrait_zncc_llr/pooled#loso_same_max=0.885]. No other channel's
+#: verdict labelled it.
 PORTRAIT_LIKELIHOOD = {
     "art": {"same": 0.5230, "diff": 0.2772, "var": 0.006164},
     "exemplar": {"same": 0.8603, "diff": 0.3892, "var": 0.010014},
+    "art_zncc": {"same": 0.8841, "diff": 0.1420, "var": 0.01239},
 }
+
+#: The log likelihood ratio of "none of the admitted agents" in an art ZNCC
+#: posterior: a view that resembles no candidate better than the midpoint of
+#: same and diff leaves its mass there and names nothing.
+PORTRAIT_NONE_LLR = 0.0
+PORTRAIT_NONE = "(none)"
 
 #: The posterior the best admitted agent needs, uniform prior over the side's
 #: admitted candidates. Set before scoring on the held-out labels.
@@ -793,6 +815,12 @@ def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
     had vetoed: `5822b6646448`'s Sage faces rank Reyna first on the art and
     Sage first on the exemplars. Both raised disagreements over the corpus.
 
+    **A view that carries the art ZNCC names from it** (`_claim_from_art_zncc`,
+    `killfeed-portrait-0.12.0` on): the composition keeps the palette and
+    drops the layout, and confused Fade with Iso, Clove with Reyna and
+    Brimstone with Breach (docs/KILLFEED_PORTRAIT_SEPARABILITY.md). The
+    composition fields stay in the row, for comparison only.
+
     **A reader that already refused is quoted, never re-diagnosed.** The
     observation's own `reason` says what the pixels did -- no gap past the
     name, a band too short -- and computing a second reason here reports a thin
@@ -809,6 +837,9 @@ def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
         "candidates": sorted({c for c in candidates if c}),
         "rivals": sorted({r for r in rivals if r}),
     }
+    if "art_zncc" in observation and not stored:
+        return _claim_from_art_zncc(observation, entity_id, candidates, rivals, evidence,
+                                    source_version, posterior_min)
     if stored or (observation.get("composition") is None and not observation.get("shifts")):
         return identity_claim(
             entity_id, None, channel="killfeed_portrait",
@@ -855,6 +886,66 @@ def claim_from_killfeed_portrait(observation, *, entity_id, candidates, gallery,
         source_version=source_version,
         observed_at_ms=observation.get("t_ms"), evidence=evidence,
         depends_on=[exemplar["label_entity"]] if exemplar is not None else None)
+
+
+def _claim_from_art_zncc(observation, entity_id, candidates, rivals, evidence,
+                         source_version, posterior_min) -> dict:
+    """`claim_from_killfeed_portrait` for a view that carries the art ZNCC.
+
+    Each admitted agent's stored correlation becomes a log likelihood ratio
+    (`PORTRAIT_LIKELIHOOD["art_zncc"]`), and a "none of them" hypothesis
+    enters the posterior at `PORTRAIT_NONE_LLR`: a portrait that correlates
+    with no admitted agent (an occluded tile, the wrong side, a lineup slot
+    misread) leaves its mass there and names nothing. Rivals stay barred, a
+    single admitted agent stays a constraint result, and the best agent
+    needs `posterior_min`. An admitted agent the reader did not score refuses
+    the view: its score is unknown, never zero. Exemplars are not consulted;
+    they are compositions, another descriptor on another scale."""
+    scores = observation.get("art_zncc")
+    admitted = sorted({c for c in list(candidates) + list(rivals) if c})
+    evidence.update({"likelihood_source": "art_zncc",
+                     "art_search": observation.get("art_search"),
+                     "art_shift": observation.get("art_shift"),
+                     "art_candidates": observation.get("art_candidates"),
+                     "art_candidates_widened": observation.get("art_candidates_widened")})
+
+    def refuse(reason):
+        return identity_claim(entity_id, None, channel="killfeed_portrait", reason=reason,
+                              source_version=source_version,
+                              observed_at_ms=observation.get("t_ms"), evidence=evidence)
+
+    if scores is None:
+        return refuse(f"portrait_art_refused {observation.get('art_reason') or 'unscored'}")
+    if not admitted:
+        return refuse("portrait_no_comparable_candidate")
+    missing = [a for a in admitted if a not in scores]
+    if missing:
+        return refuse("portrait_candidate_unscored " + ",".join(missing))
+    llrs = {a: portrait_llr("art_zncc", float(scores[a])) for a in admitted}
+    llrs[PORTRAIT_NONE] = PORTRAIT_NONE_LLR
+    posterior = portrait_posterior(llrs)
+    best = max(sorted(posterior), key=posterior.get)
+    if best == PORTRAIT_NONE:
+        reason = f"portrait_none_of_them {posterior[best]:.3f}"
+    elif best in evidence["rivals"]:
+        reason = f"portrait_best_is_refused_slot {best}"
+    elif len(admitted) == 1:
+        reason = "portrait_single_candidate"
+    elif posterior[best] < posterior_min:
+        reason = f"portrait_posterior {posterior[best]:.3f} below {posterior_min}"
+    else:
+        reason = None
+    ordered = sorted(((a, float(scores[a])) for a in admitted), key=lambda p: (-p[1], p[0]))
+    evidence.update({
+        "scores": {a: round(v, 4) for a, v in ordered},
+        "best_guess": ordered[0][0],
+        "margin": round(ordered[0][1] - ordered[1][1], 4) if len(ordered) > 1 else 0.0,
+        "posterior": {a: round(p, 6) for a, p in sorted(posterior.items())},
+    })
+    return identity_claim(
+        entity_id, best if reason is None else None,
+        channel="killfeed_portrait", reason=reason, source_version=source_version,
+        observed_at_ms=observation.get("t_ms"), evidence=evidence)
 
 
 def _portrait_decision(llrs, barred, posterior_min):

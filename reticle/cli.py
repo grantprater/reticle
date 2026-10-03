@@ -1197,9 +1197,16 @@ def cmd_scan(args) -> int:
             declare_set(mp, "minimap", profile, (mp.w, mp.h))
 
         ctx = SessionContext(store=store, manifest=manifest, profile=profile, spans=spans)
-        kp = (KillfeedPortraitReader(
-                  profile, ctx.wh, mask=ctx.kf_mask(), hz=args.hz, spans=None)
-              if want_portraits else None)
+        kp = None
+        if want_portraits:
+            # The art ZNCC scores each side's admitted agents from the stored
+            # lineup, or every agent with art before any lineup exists.
+            from .lineup import portrait_candidates
+            cands, cands_from = portrait_candidates(sid, store.root)
+            kp = KillfeedPortraitReader(
+                profile, ctx.wh, mask=ctx.kf_mask(), hz=args.hz, spans=None,
+                art_dir=Path(store.root) / "reference" / "assets" / "agents",
+                candidates=cands, candidates_from=cands_from)
         # Pings ride whatever pass is already happening -- they never justify a
         # decode of their own, which is why this is on by default and why it takes
         # the floor mask the minimap half has already paid for rather than

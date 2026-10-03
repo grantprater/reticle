@@ -145,7 +145,10 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # deaths 58 -> 33, false deaths 50 -> 49; all 26 deaths missed as two entries
 # welded into one track match. b3b9defb6fd7 1661 s trades a match for a false
 # death: its slot-5 phantom reads no longer carry the entry below them.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.28.0"
+# 0.30.0 (2026-10-03): the portrait channel names from the art ZNCC
+# (killfeed-portrait-0.12.0, agent-identity-0.10.0), with a "none of them"
+# hypothesis; the two-view unanimous rule stands.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.30.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster

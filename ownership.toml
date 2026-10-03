@@ -368,7 +368,7 @@ question = "What does this crop of agent art look like, as one comparable vector
 owner = "appearance"
 role = ["detect"]
 status = "shipped"
-produces = ["hsv_composition", "detail", "agrees"]
+produces = ["hsv_composition", "detail", "agrees", "ArtTiles", "killfeed_art", "art_zncc", "to_lab", "ART_INNER_MARGIN"]
 not_for = """
 Naming the agent, and replacing `lineup`'s feature. This is a DESCRIPTION; the
 gallery that would turn one into a name is built with the prototype composition
@@ -399,12 +399,13 @@ question = "What do the killer and victim portraits in this entry look like?"
 owner = "killfeed"
 role = ["detect"]
 status = "partial"
-produces = ["portrait_observations", "PORTRAIT_ASPECT", "KILLFEED_PORTRAIT_VERSION", "KillfeedPortraitReader"]
+produces = ["portrait_observations", "PORTRAIT_ASPECT", "KILLFEED_PORTRAIT_VERSION", "KillfeedPortraitReader", "art_view", "ART_TILE_H", "ART_VICTIM_OUTER", "ART_SURPRISE_Z"]
 not_for = """
-Naming either agent, and being believed one frame at a time. The descriptor plus
-the plate's side is all a reader may emit; the five agents that side may hold
-come from `lineup`, and a reader that borrowed them would collapse two witnesses
-into one. Nor is one frame an answer: over 12 consecutive frames of one entry
+Naming either agent, and being believed one frame at a time. The descriptors plus
+the plate's side are all a reader may emit. The art ZNCC scores the side's
+admitted agents (`lineup.portrait_candidates`), a candidate set and never a
+verdict; the claim that names from it is `adjudication.identity`'s, so the
+lineup's conclusion never becomes this reader's. Nor is one frame an answer: over 12 consecutive frames of one entry
 the top match changes at least once on a fifth of them, while 92.5% of frames
 agree with their own entry's majority. Accumulate over the entry's lifetime, as
 `lineup` accumulates over a session. See `agent-identity`.
@@ -1038,7 +1039,7 @@ question = "Which agent occupies this roster or top-bar slot?"
 owner = "lineup"
 role = ["detect"]
 status = "transitional"
-produces = ["Lineup", "LineupReader", "read_session"]
+produces = ["Lineup", "LineupReader", "read_session", "portrait_candidates"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """
