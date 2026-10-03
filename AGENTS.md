@@ -6,10 +6,10 @@ single root guidance; `CLAUDE.md` imports it.
 
 ## Start here
 
-Use [`docs/WORKING_MAP.md`](docs/WORKING_MAP.md) for task routing. Read
-`NOTES.md` (the current handoff), then the `BACKLOG.md` task, then the
-owning module docstring and the relevant `PROJECT_GUIDE.md` section before
-changing a subsystem. Minimap and prototype work
+Use [`docs/WORKING_MAP.md`](docs/WORKING_MAP.md) for task routing. Before
+changing a subsystem, read `NOTES.md` (the current handoff), the
+`BACKLOG.md` task, the owning module docstring and the relevant
+`PROJECT_GUIDE.md` section. Minimap and prototype work
 also requires `prototypes/CLAUDE.md`; domain attribution and private quotes
 remain in `~/reticle-notes/`, outside this public repo.
 
@@ -59,7 +59,7 @@ what "I rebuilt the geometry while my experiment read it" states.
   and stored rounds, never a reader, tracker or adjudicator; a missing field
   goes into the owning event, never a recomputing consumer.
 - Run the least work that tests the change. `reticle plan` names the stale
-  streams; adjudications rerun from storage; a reader change is checked first
+  streams; adjudications rerun from storage; check a reader change first
   with `reticle trial` (stored windows, crop cache, no decode); a full scan is
   the acceptance run.
 - The HUD and minimap are semi-transparent over the void
@@ -68,8 +68,8 @@ what "I rebuilt the geometry while my experiment read it" states.
   never seed label files. Invoke the `labelling-pass` skill before labelling.
 - **SESSION PIXELS DO NOT DEFINE THE MAP**
   [domain:capture/session-pixels-are-not-the-map]. A capture may determine only
-  the minimap widget's dimensions and placement. Base-map pixels, floor masks,
-  lighting references, detector backgrounds, and all other static map values
+  the minimap widget's dimensions and placement. All static map values
+  (base-map pixels, floor masks, lighting references, detector backgrounds)
   come only from baked geometry keyed by `(map, profile)`. Never add a
   per-session static-map cache or capture median to a reader or prototype except
   the geometry builder and `clip_preflight`, whose capture median sets only
@@ -90,28 +90,27 @@ what "I rebuilt the geometry while my experiment read it" states.
   refusals is a symptom; the cause is usually stored beside it. `lineup`'s
   refused slots read as *3 of 5 named*, a coverage fact; each slot's `reason`
   said PAIRWISE TIE, and twelve of 79 refusals were ties a constraint had
-  already broken. Provenance can be perfect and attribution wrong; no citation
+  broken. Provenance can be perfect and attribution wrong; no citation
   check catches it.
 - **CROSS-REFERENCE BEFORE TUNING.** When a detection is wrong, first ask which
   other channel observes the event, and gate one on the other. Tuning a
-  threshold, mask or morphology on the erring channel is the second resort. The
-  precedent: `ally_icons` scored against the roster turned +0.99 phantom
+  threshold, mask or morphology on the erring channel is the second resort.
+  Precedent: `ally_icons` scored against the roster turned +0.99 phantom
   teammates per frame into -0.15 with the detector unchanged. Agreement is
-  consistency, not accuracy -- store the disagreements.
+  consistency, not accuracy; store the disagreements.
 - Measure a known baseline before structural edits, then rerun the real command
   and confirm a known result. A parse check alone is not verification.
-- Hold what you know about the system as uncertain beliefs, updated on evidence.
+- Hold beliefs about the system as uncertain, updated on evidence.
   Before acting on an assumption about an owner, a detector or a mechanic, check
   it or state its falsifier. Spend effort where uncertainty is largest and cheap
-  to resolve, refining only where it exceeds the question's tolerance.
-  Observations and their tools are uncertain too: a surprise may be a tool
-  error, so check the instrument before revising the system belief. A failed
+  to resolve, refining only where it exceeds the question's tolerance. A
+  surprise may be a tool error; check the instrument before revising the
+  system belief. A failed
   prediction revises the belief; record it and carry it into the handoff.
 - **Continue the prior; widen the search only on surprise.** Context predicts
   most of what comes next: the last frame's state, the match's lineup, the
   banner's type, the adjudicated belief the last run left. Start every reading
-  and experiment from that prediction, check it cheaply, and widen only where
-  surprised. Follow a killfeed entry where it was; seek a smoke where the match's
+  and experiment from that prediction and check it cheaply. Follow a killfeed entry where it was; seek a smoke where the match's
   agents' abilities land; place a portrait tile from its banner type's anchor;
   revise the belief an experiment tested rather than starting over. Store the
   surprise, never average it away. A surprise may reopen the verdict it
@@ -141,9 +140,8 @@ what "I rebuilt the geometry while my experiment read it" states.
   working documents, not logs: `NOTES.md` holds only the current handoff;
   `BACKLOG.md`, open work plus the five latest completed tasks. Rewrite them in
   place and move what they retire to a dated file under `docs/archive/`.
-  `doctor` HANDOFF checks the limits. An open `BACKLOG.md` item carries an
-  `Acceptance:` command and an `Evidence:` standard inside its paragraph;
-  HANDOFF reports items without them.
+  `doctor` HANDOFF checks the limits and reports any open `BACKLOG.md` item
+  whose paragraph lacks an `Acceptance:` command and an `Evidence:` standard.
 - Never put Claude session URLs in repository files or commit messages. Public
   files contain facts; attribution, quotes, and private domain notes stay out.
 
@@ -156,11 +154,11 @@ and why they exist", argues for them.
   `reticle/` or carries `"wire": "no"` with a `"wire_reason"` (PROMOTE).
 - **Domain facts** about VALORANT and its capture live in `domain/*.toml`, one
   table per fact with `claim`, `kind`, `known` and `since`; prose cites them
-  with a bracketed `domain:` token instead of restating them. Read one with
+  by bracketed `domain:` token, never restating them. Read one with
   `reticle domain`. Pipeline accuracy is not a domain fact (DOMAIN).
 - **Quoted numbers cite their run** with a bracketed `metric:` token naming
-  series, session and value (QUOTED). The check compares only numbers carrying a
-  token, so a bare measured number passes silently: record the run and cite it.
+  series, session and value (QUOTED). The check compares only tokened numbers; a
+  bare measured number passes silently: record the run and cite it.
 - **Layers are declared** in `architecture.toml`. Place every new module; an
   upward import needs a blessed edge. `reticle/` never imports `prototypes/`,
   including by `sys.path` insert (LAYER).
@@ -169,8 +167,7 @@ and why they exist", argues for them.
   carries its `[owns:<id>]` token. Route with `reticle ownership <question>`
   (OWNERSHIP).
 - **Ask the owner; never restate its rule.** Before writing code that decides
-  anything, run `reticle ownership` for the question. If an owner exists, call
-  it, even when its rule looks like three lines to copy. A restated rule
+  anything, run `reticle ownership`; if an owner exists, call it, even when its rule looks like three lines to copy. A restated rule
   compiles, passes its tests and drifts silently.
 - **Every agent name is decided by `adjudication.identity`**, the aggregator
   over one arbiter per channel, per entity and side. Each channel pools its
@@ -181,8 +178,8 @@ and why they exist", argues for them.
   rests on another entity's verdict declares `depends_on`; an observation a
   prior placed declares `rests_on`. An ownership entry whose output carries a
   name declares `names_agents = true` and defers to `agent-identity`. OWNERSHIP
-  makes an undeclared name producer or an identity event built outside the
-  arbiter an ERROR; the event validator rejects such events.
+  errors on an undeclared name producer or an identity event built outside the
+  arbiter, and the event validator rejects such events.
 - **Documents are declared** in `documents.toml`. Register each document, with
   its kind, status and date, in the commit that creates it. A plan becomes
   `implemented`, naming `implemented_by`, or `superseded`, naming
