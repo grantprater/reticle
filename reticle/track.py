@@ -60,7 +60,11 @@ from .minimap import FIT_ERR_PX, MIN_ICON_SEPARATION_PX, RUN_PX
 #: sample. Imported for the same reason.
 from .ping import LIFETIME_S
 
-TRACK_VERSION = "track-0.3.0"
+#: 0.3.1: `assign` solves with scipy, whose tie-break differs from the old
+#: Hungarian's. On `96aa1ae9b96f` at 774.7 s two tracks sat 5.0 px from one
+#: detection; the solvers gave it to different tracks, so ids diverge from
+#: there (1486 of 14438 frames; 33 differ beyond ids). Equal cost, a tie.
+TRACK_VERSION = "track-0.3.1"
 
 #: A dash is continuous motion that nonetheless clears the walk ceiling over a
 #: sample interval. Jett, Neon and Waylay's Q. **This is a bound, not a
