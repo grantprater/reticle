@@ -105,9 +105,13 @@ def graphic_events(session_id: str, reads, rect, roi_cache_version: str) -> list
 
 def stored_reads(store, session_id: str) -> dict[float, dict] | None:
     """The stored samples keyed by `t_ms`, or None where the stream is absent
-    or not at the current stamp (a stale reading is not evidence)."""
+    or not at the current stamp (a stale reading is not evidence).
+
+    `read_events_kind` also returns the stream's first row, the coverage row,
+    for its stamp; only `sample` rows carry a `t_ms`."""
     if store.events_version("plant_graphic", session_id) != PLANT_GRAPHIC_VERSION:
         return None
     return {float(r["t_ms"]): r
-            for r in store.read_events_kind("plant_graphic", session_id, "sample")}
+            for r in store.read_events_kind("plant_graphic", session_id, "sample")
+            if r.get("kind") == "sample"}
 
