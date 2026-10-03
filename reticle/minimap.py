@@ -1429,7 +1429,10 @@ class AllyIconReader:
         each icon's previous fit and audits it on a fixed cadence; `ref` is
         this fit's candidate key within the session, which a later fit's
         `rests_on` names, and `digest` the crop's `teardrop.crop_digest`. The
-        self channel searches every image in full.
+        self channel searches every image in full, and on a widget size
+        whose self portrait takes the ring fit's centre (`teardrop.
+        labelled_scale` False) it is not fitted at all: its pose there is
+        `origin` `ring_fit`, `reason` `unlabelled_scale`, `ncc` None.
 
         The descriptor's disc (`_interior`: the composition, `map_diff` and
         the `interior_too_thin` refusal) stays at the ring fit's centre,
@@ -1440,10 +1443,16 @@ class AllyIconReader:
         identity arbiter's preferred evidence, are aligned at the teardrop's
         centre.
         """
-        from .teardrop import IconPoseReader, SelfConeReader, posed, self_portrait_pose
+        from .teardrop import (IconPoseReader, SelfConeReader, labelled_scale, posed,
+                               self_portrait_pose)
 
         if f["cov"] < ALLY_COV_MIN or f["inner"] > ALLY_INNER_MAX:
             out = posed(f, {"origin": "ring_fit", "reason": "not_shaped"})
+        elif channel == "self" and not labelled_scale(sc):
+            # Here the self portrait takes the ring fit's centre and no facing
+            # whatever the teardrop reads (`self_portrait_pose`), so the fit
+            # is skipped (ally-icon-0.9.0).
+            out = posed(f, self_portrait_pose(None, sc, f["cx"], f["cy"]))
         else:
             readers = getattr(self, "_pose_readers", None)
             if readers is None or readers[0] != sc:

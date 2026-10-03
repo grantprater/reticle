@@ -314,7 +314,13 @@ PING_VERSION = "ping-0.1.0"
 # in full only on surprise; each ally fit's `pose` records `search`, `surprise`,
 # `rests_on` (the prior's candidate key) and, on the audit cadence, `audit`. The
 # self channel still searches in full.
-ALLY_ICON_VERSION = "ally-icon-0.7.0"
+# 0.9.0 (2026-10-02): on a widget size whose self portrait takes the ring fit's
+# centre (`teardrop.labelled_scale` False: 331 px) the self channel's teardrop is
+# not fitted, since `self_portrait_pose` discarded its centre and facing there;
+# its pose is `ring_fit` with `reason` `unlabelled_scale` and `ncc` None, where
+# 0.7.0 kept the unused NCC and a refused fit's reason. Centres, facings and
+# accepted rows are unchanged. Numbered above ally-ring-subpixel-20261001's 0.8.0.
+ALLY_ICON_VERSION = "ally-icon-0.9.0"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.

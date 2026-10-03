@@ -409,7 +409,7 @@ def self_facing_gate(scale: float) -> tuple[float | None, str]:
     return SELF_FACING_MIN_NCC, "low_ncc_unlabelled_scale"
 
 
-def self_portrait_pose(pose: dict, scale: float, cx: float, cy: float) -> dict:
+def self_portrait_pose(pose: dict | None, scale: float, cx: float, cy: float) -> dict:
     """Where to cut the player's portrait: `pose` (`SelfConeReader.read` at the
     ring fit's `cx`, `cy`) on a labelled widget size, the ring fit's centre
     elsewhere (`reason` `unlabelled_scale`).
@@ -419,7 +419,17 @@ def self_portrait_pose(pose: dict, scale: float, cx: float, cy: float) -> dict:
     icon_teardrop.py --centre-check --centre-class self` on 5822b6646448);
     on four 331 px sessions it fit better on two and worse on two, so the
     ring fit's centre stays there. A teammate's portrait has no such limit.
+
+    Elsewhere the answer reads nothing of the teardrop but its NCC, so a
+    caller that needs only the portrait's centre may skip the fit there
+    (`labelled_scale` False) and pass `pose` None: the answer is the same
+    centre, no facing, `ncc` None and `reason` `unlabelled_scale`.
     """
+    if pose is None:
+        if labelled_scale(scale):
+            raise ValueError("a labelled scale cuts the portrait at the teardrop: fit it")
+        return {"origin": "ring_fit", "x": float(cx), "y": float(cy), "deg": None,
+                "ncc": None, "reason": "unlabelled_scale"}
     if pose["origin"] != "teardrop" or labelled_scale(scale):
         return pose
     return {"origin": "ring_fit", "x": float(cx), "y": float(cy), "deg": None,
