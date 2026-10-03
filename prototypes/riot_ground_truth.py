@@ -96,6 +96,17 @@ What Riot's record omits by design (0.2.0)
 * Agent weapons valorant-api's weapon list lacks (Chamber's, Neon's) score as
   unmappable and list their full item ids (`unmappable_items`).
 
+What the scorer reads stale (0.3.1)
+-----------------------------------
+* `status` reads second lives under the running code's
+  `KILLFEED_PORTRAIT_VERSION`; a stored portrait stream at another stamp
+  leaves every Run It Back death counted as a death. When that stream holds
+  `second_life_observation` rows, the tracked K/D is unread
+  (`tracked_unread: second_life_stream_stale`, pooled as
+  `tracked_unread_stale`), never inexact.
+* `versions["death"]` is the stamp of the death rows scored, so
+  `--deaths-from` reports the trial's version, not the store's.
+
 The minimap truth at a kill
 ---------------------------
 `MINIMAP_LAG_MS` was fitted on the self icon so that the frame read at
@@ -126,7 +137,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-RIOT_TRUTH_VERSION = "riot-truth-0.3.0"
+RIOT_TRUTH_VERSION = "riot-truth-0.3.1"
 STORE = Path.home() / "reticle-store"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -498,6 +509,21 @@ def stored_deaths(store_root: Path, sid: str, deaths_from: Path | None = None) -
             if r.get("kind") == "death_verdict"]
 
 
+def second_life_stale(store_root: Path, sid: str, version: str | None = None) -> bool:
+    """True when the store's `killfeed_portrait` stream holds
+    `second_life_observation` rows that `status` cannot read: its stamp
+    differs from the running code's `KILLFEED_PORTRAIT_VERSION`, so
+    `stored_second_life` returns None and `status` counts every Run It Back
+    death as a death (0.3.1). The tracked K/D is then unread, not inexact."""
+    from reticle.adjudication.death import stored_second_life
+    if version is None:
+        from reticle.killfeed import KILLFEED_PORTRAIT_VERSION as version
+    rows = list(_stream_rows(Path(store_root) / "events" / "killfeed_portrait" / f"{sid}.jsonl"))
+    if not any(r.get("kind") == "second_life_observation" for r in rows):
+        return False
+    return stored_second_life(rows, version) is None
+
+
 def split_deaths(deaths: list[dict], legacy=()) -> tuple[list[dict], list[dict]]:
     """(rows Riot may list as kills, second-life rows counted apart).
 
@@ -609,11 +635,14 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
            "map": m["matchInfo"]["mapId"].rsplit("/", 1)[-1]}
 
     deaths = stored_deaths(store_root, sid, getattr(opts, "deaths_from", None))
+    out["death_versions"] = sorted({str(r.get("death_adjudication_version")) for r in deaths})
     kills = sorted(m["kills"], key=lambda k: k["gameTime"])
+    stale = "second_life_stream_stale" if status_rec and second_life_stale(store_root, sid) else None
     if not deaths:
         out["refused"] = "no_stored_deaths"
         # K/D against the scoreboard's known values needs no stored death
-        out["kd"] = score_kd(sid, m, me, kills, [], [], who, agent_of, None, status_rec)
+        out["kd"] = score_kd(sid, m, me, kills, [], [], who, agent_of, None, status_rec,
+                             stale=stale)
         return out
     legacy = set(getattr(opts, "legacy", None) or ())
     kill_like, second_life = split_deaths(deaths, legacy)
@@ -653,7 +682,8 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
                                     for r in second_life]
 
     # -- K/D for the player and per player
-    out["kd"] = score_kd(sid, m, me, kills, kill_like, pairs, who, agent_of, my_team, status_rec)
+    out["kd"] = score_kd(sid, m, me, kills, kill_like, pairs, who, agent_of, my_team, status_rec,
+                         stale=stale)
     out["assists"] = score_assists(store_root, sid, m, me, rounds, rstart, a)
 
     # -- minimap at kill instants
@@ -1333,7 +1363,11 @@ def _summ(xs):
             "max_abs": round(max(abs(x) for x in xs), 1)}
 
 
-def score_kd(sid, m, me, kills, deaths, pairs, who, agent_of, my_team, status_rec) -> dict:
+def score_kd(sid, m, me, kills, deaths, pairs, who, agent_of, my_team, status_rec,
+             stale: str | None = None) -> dict:
+    """The player's K/D against Riot. `stale` names why `status`'s tracked
+    K/D cannot be read (0.3.1: `second_life_stream_stale`); the tracked K/D and
+    its verdict are then reported but scored as unread, never inexact."""
     from reticle.checks import KNOWN_KD, KNOWN_DIVERGENCE
 
     out = {}
@@ -1348,7 +1382,10 @@ def score_kd(sid, m, me, kills, deaths, pairs, who, agent_of, my_team, status_re
     if status_rec:
         out["status_tracked"] = (status_rec.get("kills"), status_rec.get("deaths"))
         out["status_verdict"] = status_rec.get("verdict")
-        if out.get("riot") and status_rec.get("kills") is not None:
+        if stale:
+            out["tracked_vs_riot"] = None
+            out["tracked_unread"] = stale
+        elif out.get("riot") and status_rec.get("kills") is not None:
             out["tracked_vs_riot"] = (status_rec["kills"] - out["riot"][0],
                                       status_rec["deaths"] - out["riot"][1])
     out["allowance"] = KNOWN_DIVERGENCE.get(sid)
@@ -1679,6 +1716,8 @@ def pool(results: list[dict], conv: str | None) -> dict:
         if kd.get("known_vs_riot"):
             K["known_scored"] += 1
             K["known_agree"] += kd["known_vs_riot"] == "agree"
+        if kd.get("tracked_unread") == "second_life_stream_stale":
+            K["tracked_unread_stale"] += 1
         if kd.get("tracked_vs_riot") is not None:
             K["tracked_scored"] += 1
             K["tracked_exact"] += kd["tracked_vs_riot"] == (0, 0)
@@ -1780,7 +1819,7 @@ def record_metrics(P: dict, results: list[dict], conv: str | None) -> list[str]:
         toks.append(f"[metric:riot_truth/rounds#{f}={rv.get(f)}]")
     metrics.record("riot_truth", part="kd", values=dict(P["kd"]), deps=deps, context=ctx)
     for f in ("known_scored", "known_agree", "tracked_scored", "tracked_exact",
-              "players", "players_exact"):
+              "tracked_unread_stale", "players", "players_exact"):
         toks.append(f"[metric:riot_truth/kd#{f}={P['kd'].get(f)}]")
     if P.get("assists"):
         metrics.record("riot_truth", part="assists", values=dict(P["assists"]), deps=deps,
@@ -1830,11 +1869,18 @@ def record_metrics(P: dict, results: list[dict], conv: str | None) -> list[str]:
     return toks
 
 
-def stream_versions(store_root: Path, sid: str) -> dict:
+def stream_versions(store_root: Path, sid: str, death_versions: list | None = None) -> dict:
+    """The stored streams' version stamps. `death_versions`, the stamps of the
+    death rows actually scored (`--deaths-from` reads another directory), win
+    over the store's death stream (0.3.1)."""
     out = {}
+    if death_versions:
+        out["death"] = ",".join(death_versions)
     for kind, key in (("death", "death_adjudication_version"),
                       ("round_entity", "round_entity_version"),
                       ("ally_icon", "ally_icon_version")):
+        if kind in out:
+            continue
         for r in _stream_rows(Path(store_root) / "events" / kind / f"{sid}.jsonl"):
             if r.get(key):
                 out[kind] = r[key]
@@ -2046,7 +2092,7 @@ def main(argv=None) -> int:
         except FileNotFoundError as e:
             r = {"session": sid, "refused": f"missing:{e}", "capture": "", "profile": "",
                  "cohort": "", "player_basis": ident.get("basis"), "map": ""}
-        r["versions"] = stream_versions(root, sid)
+        r["versions"] = stream_versions(root, sid, r.get("death_versions"))
         results.append(r)
         print_session(r, args.list_misses)
     conv = args.facing
