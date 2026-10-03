@@ -1307,6 +1307,156 @@ class EntryFollowTests(unittest.TestCase):
         self.assertEqual(ev["rests_on"], [{"context": "hud_track", "t_first": 0.0, "slot": 3}])
         self.assertEqual(len(ev["observations"]), 2)
 
+    def _victim(self, t, slot, ally):
+        return {"kind": "portrait_observation", "t_ms": float(t), "slot": slot,
+                "role": "victim", "x0": 420, "ally": ally}
+
+    def test_an_entry_risen_before_its_first_portrait_leaves_the_newcomer(self):
+        # 043bafca271a 578.0 s: the entry arrives at slot 1 sliding in (no
+        # portrait), the entry above expires and it rises to 0 at 1000 ms; a
+        # newcomer, an ally victim, arrives at slot 1 then. The first-slot seed
+        # bound the newcomer.
+        from reticle.adjudication.death import attach_stored_killfeed_portraits, entry_follow
+        above = {"t_ms": -4500.0, "t_first": -4500.0, "t_last": 0.0, "slot": 0,
+                 "side": "enemy", "reads": [(-4500.0, 0), (0.0, 0)]}
+        entry = {"t_ms": 0.0, "t_first": 0.0, "t_last": 3000.0, "slot": 1, "side": "enemy",
+                 "reads": [(0.0, 1), (500.0, 1), (1000.0, 0), (2500.0, 0), (3000.0, 0)]}
+        newcomer = {"t_ms": 1000.0, "t_first": 1000.0, "t_last": 4000.0, "slot": 1,
+                    "side": "ally", "reads": [(1000.0, 1), (2000.0, 1)]}
+        rows = []
+        for t in (1000, 1500, 2000, 2500, 3000):
+            rows += [self._row(t, 0, 74, ally=True), self._victim(t, 0, False),
+                     self._row(t, 1, 60, ally=False), self._victim(t, 1, True)]
+        self.assertEqual(entry_follow(entry, rows, others=[above, entry, newcomer]),
+                         ({(float(t), 0) for t in (1000, 1500, 2000, 2500, 3000)}, "track"))
+        out = attach_stored_killfeed_portraits([above, entry, newcomer], rows,
+                                               {"sides": {}}, {}, source_version="t")[1]
+        obs = out["killer_claim"]["evidence"]["observations"]
+        self.assertEqual(len(obs), 5)
+        self.assertNotIn("portrait_side_disagrees_with_entry", {o["reason"] for o in obs})
+
+    def test_a_slide_in_read_a_slot_low_is_a_surprise(self):
+        # 3694746e4e54 1638.0 s: one entry above, so the entry lands at slot 1,
+        # but its first track read says 2; from 1000 ms the next entry sits at
+        # slot 2 with the same plate key. No entry above expired before the
+        # 500 ms rise, so the arrival read contradicts the queue.
+        from reticle.adjudication.death import entry_follow_evidence, entry_slot_path
+        above = {"t_first": -1500.0, "t_last": 3000.0, "slot": 0,
+                 "reads": [(-1500.0, 0), (3000.0, 0)]}
+        entry = {"t_first": 0.0, "t_last": 5000.0, "slot": 2, "side": "ally",
+                 "reads": [(0.0, 2), (500.0, 1), (1000.0, 1), (3500.0, 1), (4000.0, 0),
+                           (5000.0, 0)]}
+        nxt = {"t_first": 1000.0, "t_last": 5500.0, "slot": 2,
+               "reads": [(1000.0, 2), (4000.0, 1)]}
+        path, surprises = entry_slot_path(entry, [above, entry, nxt])
+        self.assertEqual(path, [(500.0, 1), (1000.0, 1), (3500.0, 1), (4000.0, 0), (5000.0, 0)])
+        self.assertEqual([(s["t_ms"], s["slot"], s["reason"]) for s in surprises],
+                         [(0.0, 2, "arrival_slot_contradicts_queue")])
+        rows = [self._row(500, 1, 69), self._victim(500, 1, True)]
+        for t in (1000, 1500, 2000):
+            rows += [self._row(t, 1, 119 if t == 1000 else 69), self._victim(t, 1, True),
+                     self._row(t, 2, 69), self._victim(t, 2, True)]
+        rows += [self._row(4000, 0, 69), self._victim(4000, 0, True),
+                 self._row(4000, 1, 69), self._victim(4000, 1, True)]
+        ev = entry_follow_evidence(entry, rows, others=[above, entry, nxt])
+        self.assertEqual(ev["seed"], "track")
+        self.assertEqual(ev["bound"], {(500.0, 1), (1500.0, 1), (2000.0, 1), (4000.0, 0)})
+        self.assertTrue(all((t, 2) not in ev["bound"] for t in (1000.0, 1500.0, 2000.0)))
+
+    def test_a_low_arrival_read_before_a_paid_rise_is_a_surprise(self):
+        # 043bafca271a 759.5 s: one entry above, reads 2, 1, then 0 once the
+        # entry above expired; the arrival read 2 is the slide-in.
+        from reticle.adjudication.death import entry_slot_path
+        above = {"t_first": -3000.0, "t_last": 0.0, "slot": 0}
+        entry = {"t_first": 0.0, "t_last": 2000.0, "slot": 2,
+                 "reads": [(0.0, 2), (500.0, 1), (1000.0, 0), (1500.0, 0), (2000.0, 0)]}
+        path, surprises = entry_slot_path(entry, [above, entry])
+        self.assertEqual(path, [(500.0, 1), (1000.0, 0), (1500.0, 0), (2000.0, 0)])
+        self.assertEqual([(s["t_ms"], s["reason"]) for s in surprises],
+                         [(0.0, "arrival_slot_contradicts_queue")])
+
+    def test_an_unpaid_rise_after_arrival_is_rejected(self):
+        from reticle.adjudication.death import entry_slot_path
+        above = {"t_first": -1000.0, "t_last": 5000.0, "slot": 0}
+        entry = {"t_first": 0.0, "t_last": 3000.0, "slot": 1,
+                 "reads": [(0.0, 1), (1000.0, 1), (2000.0, 1), (2500.0, 0), (3000.0, 0)]}
+        path, surprises = entry_slot_path(entry, [above, entry])
+        self.assertEqual(path, [(0.0, 1), (1000.0, 1), (2000.0, 1)])
+        self.assertEqual([(s["t_ms"], s["reason"]) for s in surprises],
+                         [(2500.0, "rise_without_expiry"), (3000.0, "rise_without_expiry")])
+
+    def test_a_view_the_track_contradicts_is_stored_not_bound(self):
+        from reticle.adjudication.death import entry_follow_evidence
+        entry = {"t_first": 0.0, "t_last": 1000.0, "slot": 1, "side": "enemy",
+                 "reads": [(0.0, 1), (500.0, 1), (1000.0, 1)]}
+        rows = [self._row(0, 1, 50), self._row(500, 0, 50), self._row(1000, 1, 50)]
+        ev = entry_follow_evidence(entry, rows)
+        self.assertEqual(ev["bound"], {(0.0, 1), (1000.0, 1)})
+        self.assertEqual([(s["t_ms"], s["slot"], s["reason"]) for s in ev["surprises"]],
+                         [(500.0, 0, "slot_contradicts_track")])
+
+    def test_a_victim_plate_of_the_other_side_is_stored_not_bound(self):
+        from reticle.adjudication.death import entry_follow_evidence
+        entry = {"t_first": 0.0, "t_last": 1000.0, "slot": 0, "side": "enemy",
+                 "reads": [(0.0, 0), (500.0, 0), (1000.0, 0)]}
+        rows = [self._row(0, 0, 50), self._victim(0, 0, False), self._row(500, 0, 50),
+                self._victim(500, 0, True), self._row(1000, 0, 50), self._victim(1000, 0, False)]
+        ev = entry_follow_evidence(entry, rows)
+        self.assertEqual(ev["bound"], {(0.0, 0), (1000.0, 0)})
+        self.assertEqual([(s["t_ms"], s["reason"]) for s in ev["surprises"]],
+                         [(500.0, "victim_side_contradicts_entry")])
+
+    def test_a_welded_track_tail_whose_victim_changed_is_cut(self):
+        # bfad2778a372 2227.0 s: one track runs from Sage -> Fade into
+        # Sage -> Miks, risen into its slot with the same key.
+        from reticle.adjudication.death import entry_follow_evidence
+        entry = {"t_first": 0.0, "t_last": 4000.0, "slot": 1, "side": "ally",
+                 "reads": [(float(t), 1) for t in range(0, 4001, 500)]}
+        rows = []
+        for t in range(0, 4001, 500):
+            v = self._victim(t, 1, True)
+            v["art_zncc"] = {"Fade": 0.93, "Miks": 0.14} if t < 3000 else {"Fade": 0.13, "Miks": 0.91}
+            rows += [self._row(t, 1, 0), v]
+        ev = entry_follow_evidence(entry, rows)
+        self.assertEqual(ev["bound"], {(float(t), 1) for t in range(0, 2501, 500)})
+        self.assertEqual([(s["t_ms"], s["reason"]) for s in ev["surprises"]],
+                         [(t, "portrait_changed_to_end") for t in (3000.0, 3500.0, 4000.0)])
+
+    def test_a_change_after_slide_in_views_stays_bound(self):
+        # 5822b6646448 1258.0 s: the first two killer views read Skye while
+        # the plate slid in; the killer then settled as Sage.
+        from reticle.adjudication.death import entry_follow_evidence
+        entry = {"t_first": 0.0, "t_last": 2500.0, "slot": 0, "side": "ally",
+                 "reads": [(float(t), 0) for t in range(0, 2501, 500)]}
+        rows = []
+        for t in range(0, 2501, 500):
+            k = self._row(t, 0, 140 if t < 1000 else 102)
+            k["art_zncc"] = {"Skye": 0.4, "Sage": 0.2} if t < 1000 else {"Skye": 0.1, "Sage": 0.93}
+            rows.append(k)
+        ev = entry_follow_evidence(entry, rows)
+        self.assertNotIn("portrait_changed_to_end", {s["reason"] for s in ev["surprises"]})
+
+    def test_a_portrait_change_that_reverts_stays_bound(self):
+        from reticle.adjudication.death import entry_follow_evidence
+        entry = {"t_first": 0.0, "t_last": 2000.0, "slot": 1, "side": "ally",
+                 "reads": [(float(t), 1) for t in range(0, 2001, 500)]}
+        rows = []
+        for t in range(0, 2001, 500):
+            v = self._victim(t, 1, True)
+            v["art_zncc"] = {"Fade": 0.2, "Miks": 0.9} if t in (500, 1000) else {"Fade": 0.9}
+            rows += [self._row(t, 1, 0), v]
+        ev = entry_follow_evidence(entry, rows)
+        self.assertEqual(len(ev["bound"]), 5)
+        self.assertEqual(ev["surprises"], [])
+
+    def test_a_track_read_that_falls_is_a_surprise(self):
+        from reticle.adjudication.death import entry_slot_path
+        entry = {"t_first": 0.0, "t_last": 1500.0, "slot": 1,
+                 "reads": [(0.0, 1), (500.0, 0), (1000.0, 1), (1500.0, 0)]}
+        path, surprises = entry_slot_path(entry)
+        self.assertEqual(path, [(0.0, 1), (500.0, 0), (1500.0, 0)])
+        self.assertEqual([(s["t_ms"], s["reason"]) for s in surprises], [(1000.0, "slot_fell")])
+
     def test_the_first_slot_seed_is_named(self):
         from reticle.adjudication.death import entry_follow
         entry = {"t_first": 0.0, "t_last": 500.0, "slot": 1, "reads": [(0.0, 1), (500.0, 1)]}
