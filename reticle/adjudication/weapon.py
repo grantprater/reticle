@@ -547,6 +547,8 @@ _MINED_CACHE: dict[str, dict] = {}
 
 
 def mined_gallery_path(store_root: Optional[Path] = None) -> Path:
+    """The mined gallery's file in `store_root`; the default store only when
+    the caller names none, so a command run with `--store` passes its root."""
     if store_root is None:
         from ..store import Store
         store_root = Store().root
@@ -554,7 +556,8 @@ def mined_gallery_path(store_root: Optional[Path] = None) -> Path:
 
 
 def load_mined_gallery(path: Optional[Path | str] = None) -> Optional[dict]:
-    """The mined, player-named exemplar gallery, or None when it is not built."""
+    """The mined, player-named exemplar gallery, or None when it is not built.
+    `path` defaults to the default store's (`mined_gallery_path`)."""
     path = Path(path) if path is not None else mined_gallery_path()
     key = str(path)
     if key not in _MINED_CACHE:
@@ -838,7 +841,7 @@ def audit_entry(key: Optional[str]) -> bool:
 def entry_weapon(entry: dict, observations: list[dict],
                  gallery: Optional[dict] = None, agents=None,
                  actor: Optional[dict] = None, key: Optional[str] = None,
-                 frames: bool = False) -> dict:
+                 frames: bool = False, store_root=None) -> dict:
     """The weapon or ability behind one killfeed entry, from stored descriptors.
 
     The entry's rows are those `bind_entry` follows. One frame is not an
@@ -866,14 +869,15 @@ def entry_weapon(entry: dict, observations: list[dict],
     audit (`audit_entry`): the full search's answer is stored apart in
     `audit`. `kit_floor_frames` counts the frames only the kit's lower floor
     named; each rests on the actor. `frames=True` adds each bound row's own
-    answer (`frames`), with its `rests_on`.
+    answer (`frames`), with its `rests_on`. Without `gallery`, the mined
+    gallery comes from `store_root` (`mined_gallery_path`).
     """
     from ..killfeed import unpack_icon_grid
 
     out = {"version": WEAPON_ADJUDICATION_VERSION, "gallery": WEAPON_GALLERY_VERSION,
            "name": None, "category": None, "status": "refused"}
     if gallery is None:
-        gallery = load_mined_gallery()
+        gallery = load_mined_gallery(mined_gallery_path(store_root))
     if gallery is None:
         return dict(out, reason="no_gallery")
     tiers = candidate_tiers(gallery, agents, actor)

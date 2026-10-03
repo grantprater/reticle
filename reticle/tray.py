@@ -93,19 +93,30 @@ SUSPECT_S = 1.5
 GAP_S = 3.0
 
 
+#: The strip `slot_counts` reads: the four bars and their guard rows, from the
+#: geometry above. The tray module reads 1920x1080 only, so nothing scales.
+STRIP_Y = (min(BAR_Y0, *(a for a, _ in GUARD_Y)), max(BAR_Y1, *(b for _, b in GUARD_Y)))
+STRIP_X = (SLOT_X0 - BAR_HALF, SLOT_X0 + SLOT_DX * (len(SLOT_KEYS) - 1) + BAR_HALF)
+
+
 def slot_counts(frame: np.ndarray) -> tuple[list[int], bool]:
     """Teal pixel count per charge bar, and whether the frame is trustworthy
-    (no screen-wide green bleeding into the guard rows)."""
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    (no screen-wide green bleeding into the guard rows).
+
+    Crops the strip (`STRIP_Y`, `STRIP_X`) before converting: converting and
+    masking the whole frame to read 68 rows cost 8 ms a sample."""
+    y0, x0 = STRIP_Y[0], STRIP_X[0]
+    hsv = cv2.cvtColor(np.ascontiguousarray(frame[y0:STRIP_Y[1], x0:STRIP_X[1]]),
+                       cv2.COLOR_BGR2HSV)
     h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
     teal = ((h > TEAL_H[0]) & (h < TEAL_H[1]) & (s > TEAL_S_MIN) & (v > TEAL_V_MIN))
     out, bleed = [], 0.0
     for k in range(4):
-        cx = SLOT_X0 + SLOT_DX * k
+        cx = SLOT_X0 + SLOT_DX * k - x0
         sl = slice(cx - BAR_HALF, cx + BAR_HALF)
-        out.append(int(teal[BAR_Y0:BAR_Y1, sl].sum()))
-        bar = teal[BAR_Y0:BAR_Y1, sl].mean()
-        g = max(teal[a:b, sl].mean() for a, b in GUARD_Y)
+        out.append(int(teal[BAR_Y0 - y0:BAR_Y1 - y0, sl].sum()))
+        bar = teal[BAR_Y0 - y0:BAR_Y1 - y0, sl].mean()
+        g = max(teal[a - y0:b - y0, sl].mean() for a, b in GUARD_Y)
         if bar > 0.05:
             bleed = max(bleed, g / bar)
     return out, bleed <= GUARD_MAX_RATIO

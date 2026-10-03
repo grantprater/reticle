@@ -3247,7 +3247,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
         source_version=KILLFEED_PORTRAIT_VERSION,
         second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION),
         weapon_observations=weapons, name_observations=names, reliability=rel,
-        xmarks=births)
+        xmarks=births, store_root=store.root)
     common = {"session_id": sid, "source": "death",
               "death_adjudication_version": DEATH_ADJUDICATION_VERSION}
     rows, events = [], []

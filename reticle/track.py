@@ -49,6 +49,8 @@ import math
 import sys
 from dataclasses import dataclass, field
 
+import numpy as np
+
 #: Top speed of a real track, widget px/s. `minimap.RUN_PX`, measured rather
 #: than derived -- every filtered track sits under it and every misdetection
 #: blew far past it. Imported rather than restated so there is one definition.
@@ -370,13 +372,15 @@ def refit_of(x: float, y: float, unobserved, scale: float = 1.0,
     return None if best is None else best[1]
 
 
-def assign(cost: list[list[float]], forbidden: float = float("inf")) -> list[int]:
-    """Minimum-cost one-to-one assignment. Hungarian, O(n^3), no scipy.
+def assign(cost, forbidden: float = float("inf")) -> list[int]:
+    """Minimum-cost one-to-one assignment, by `scipy.optimize.linear_sum_assignment`.
 
-    Written out rather than imported because the four dependencies in
-    `requirements.txt` are the whole environment and adding scipy for one
-    function is not worth it at these sizes -- a frame holds at most a handful
-    of tracks and a couple of dozen candidates.
+    This was a hand-written Hungarian argued for as "no scipy, at these
+    sizes". The argument failed: `identity.board_side_sets` solves a 5x29
+    side once per accepted opening and again per slot for its margin, 12,636
+    solves per command, and the Python loop padded each to 29x29 and spent
+    about 17 s of every stored-data command on it (session `96aa1ae9b96f`,
+    2026-10-02). The compiled solver takes rectangular matrices as they are.
 
     **Greedy nearest-neighbour is what this replaces, and the difference is
     the entire point.** Greedy assigns the closest pair first and then lives
@@ -385,66 +389,34 @@ def assign(cost: list[list[float]], forbidden: float = float("inf")) -> list[int
     the case ally identity exists to handle. A joint optimum can pay a little
     on one pair to keep the whole assignment coherent.
 
-    Returns, per row, the column it takes, or -1 for none. A `forbidden` cost
-    (the default, infinity) means the pair is inadmissible -- which is how a
-    motion law enters the assignment rather than being applied afterwards.
+    Returns, per row, the column it takes, or -1 for none. A cost at or above
+    `forbidden` (the default, infinity), NaN or None means the pair is
+    inadmissible -- which is how a motion law enters the assignment rather
+    than being applied afterwards. The solver never takes an inadmissible
+    pair while an admissible complete assignment exists. Where none exists, it
+    first minimises the number of inadmissible pairs, as the padded Hungarian
+    did, and reports those rows as -1. Among equal-cost optima the solver's
+    tie-break, not the old one's, decides.
     """
-    if not cost or not cost[0]:
-        return [-1] * len(cost)
-    n_r, n_c = len(cost), len(cost[0])
-    n = max(n_r, n_c)
-    big = 1e12
-    # Square, padded with zeros so unmatched rows are free rather than forced.
-    a = [[0.0] * n for _ in range(n)]
-    for i in range(n_r):
-        for j in range(n_c):
-            c = cost[i][j]
-            a[i][j] = big if (c is None or c >= forbidden or c != c) else float(c)
+    from scipy.optimize import linear_sum_assignment
 
-    INF = float("inf")
-    u = [0.0] * (n + 1)
-    v = [0.0] * (n + 1)
-    p = [0] * (n + 1)
-    way = [0] * (n + 1)
-    for i in range(1, n + 1):
-        p[0] = i
-        j0 = 0
-        minv = [INF] * (n + 1)
-        # Unused columns stay ascending, so the scan meets them in the order
-        # a pass over every column does; a used column's update touches only
-        # its own entries, so the order of `done` changes no value.
-        free = list(range(1, n + 1))
-        done = []
-        while True:
-            done.append(j0)
-            i0, delta, j1 = p[j0], INF, 0
-            row, ui = a[i0 - 1], u[i0]
-            for j in free:
-                cur = row[j - 1] - ui - v[j]
-                m = minv[j]
-                if cur < m:
-                    minv[j] = m = cur
-                    way[j] = j0
-                if m < delta:
-                    delta, j1 = m, j
-            for j in done:
-                u[p[j]] += delta
-                v[j] -= delta
-            for j in free:
-                minv[j] -= delta
-            j0 = j1
-            free.remove(j0)
-            if p[j0] == 0:
-                break
-        while j0:
-            j1 = way[j0]
-            p[j0], j0 = p[j1], j1
-
-    out = [-1] * n_r
-    for j in range(1, n + 1):
-        i = p[j] - 1
-        if 0 <= i < n_r and j - 1 < n_c and a[i][j - 1] < big:
-            out[i] = j - 1
+    if cost is None or len(cost) == 0 or len(cost[0]) == 0:
+        return [-1] * (0 if cost is None else len(cost))
+    a = np.array(cost, dtype=float)
+    bad = np.isnan(a) | (a >= forbidden)
+    if bad.all():
+        return [-1] * a.shape[0]
+    if bad.any():
+        good = a[~bad]
+        lo, hi = float(good.min()), float(good.max())
+        # Worse than any assignment of admissible pairs can differ by, so an
+        # inadmissible pair is taken only when the shape forces one.
+        a[bad] = hi + (hi - lo + 1.0) * (min(a.shape) + 1)
+    rows, cols = linear_sum_assignment(a)
+    out = [-1] * a.shape[0]
+    for i, j in zip(rows.tolist(), cols.tolist()):
+        if not bad[i, j]:
+            out[i] = j
     return out
 
 

@@ -81,6 +81,9 @@ what "I rebuilt the geometry while my experiment read it" states.
   decision, as `teardrop` does; never binarise before resampling or
   matching. Fit sub-pixel where position decides. Never enlarge a frame to
   read it.
+- **No pure Python on the critical path** (player, 2026-10-02). Per-frame,
+  per-sample and per-row work runs vectorised in numpy, OpenCV or scipy;
+  never hand-write an algorithm a maintained library provides.
 - Never use stored-data bounds or a model's own output as independent evidence.
   Keep unresolved and no-contact opportunities so coverage stays unbiased.
 - **READ THE REFUSAL REASON BEFORE CALLING ANYTHING A BLOCKER.** A count of
