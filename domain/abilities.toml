@@ -679,6 +679,32 @@ unexplained: an ability equipped and not used, or a tray misread
 """
 see = ["abilities/phoenix-blaze", "abilities/phoenix-slots"]
 
+[phoenix-curveball-blind-screen]
+claim = """
+While Phoenix's Curveball blinds the player, the screen is a uniform
+red-brown wash with diagonal light streaks, which hides the killfeed.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-02"
+subject = "phoenix:curveball"
+source = """
+the player, 2026-10-02, asked about the red-brown screens the killfeed queue
+measurement found. Observations in the killfeed crop cache (2 Hz): 587c15b07779
+61.0-62.0 s and bfad2778a372 1960.0-1961.0 s, red-brown with streaks; the next
+sample (62.5 s, 1961.5 s) is a pale beige wash, through which the
+bfad2778a372 entry shows faintly
+"""
+use = """
+a killfeed entry cut short by this screen was hidden, not expired. The player
+wants flash detection, for the minimap as well as the killfeed
+"""
+exceptions = """
+what the minimap shows while the player is blinded is not recorded. Whether
+the pale wash after the streaks belongs to the same blind is not recorded
+"""
+see = ["killfeed/entry-lifetime", "abilities/phoenix-slots"]
+
 [skye-regrowth-minimap-ring]
 claim = """
 While Skye channels Regrowth, the minimap draws a teal ring centred on her.
@@ -943,6 +969,31 @@ and keyed_117 (6ab7a9e99235 17.567 s) under
 <store>/analysis/demo-cast-census/montage/
 """
 see = ["abilities/minimap-thrown-ability-icon"]
+
+[skye-guiding-light-blind-screen]
+claim = """
+While Skye's Guiding Light blinds the player, the screen is a uniform green
+wash with diagonal light streaks, which hides the killfeed.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-02"
+subject = "skye:guiding light"
+source = """
+the player, 2026-10-02, asked about the green screens the killfeed queue
+measurement found. Observations in the killfeed crop cache (2 Hz): a06f04a0059f
+1768.5 s to at least 1770.0 s and c62c2b06bcfb 759.5-760.5 s, green with streaks; at
+c62c2b06bcfb 761.0 s a pale beige wash follows
+"""
+use = """
+a killfeed entry cut short by this screen was hidden, not expired. The player
+wants flash detection, for the minimap as well as the killfeed
+"""
+exceptions = """
+what the minimap shows while the player is blinded is not recorded. Whether
+the pale wash after the streaks belongs to the same blind is not recorded
+"""
+see = ["killfeed/entry-lifetime", "abilities/skye-guiding-light-minimap-icon"]
 
 [yoru-gatecrash-minimap-icon]
 claim = """
