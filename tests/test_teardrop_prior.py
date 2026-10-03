@@ -204,6 +204,15 @@ class SelfPriorTests(unittest.TestCase):
         self.assertEqual(a["search"], "prior")
         self.assertLess(_ang(a["audit"]["prior"]["deg"], a["audit"]["full"]["deg"]), 1.0)
 
+    def test_a_weak_self_prior_runs_the_full_search(self):
+        r = teardrop.SelfConeReader()
+        r.read(_yellow(45, 45, 30), 46.0, 44.0, frame_idx=1, t_ms=0.0, ref="a")
+        with patch.object(teardrop._SelfFits, "prior_min_ncc", 1.5):
+            o = r.read(_yellow(45.3, 45, 33), 46.0, 44.0, frame_idx=5, t_ms=66.7, ref="b")
+        self.assertEqual((o["search"], o["surprise"], o["origin"]),
+                         ("full", "weak_prior", "teardrop"))
+        self.assertIsNone(teardrop.IconPoseReader.prior_min_ncc)
+
     def test_the_ally_reader_continues_the_self_icon_at_465_px(self):
         from reticle.minimap import AllyIconReader
         rd = AllyIconReader.__new__(AllyIconReader)

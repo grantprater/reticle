@@ -383,8 +383,9 @@ ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
 # reader called without a frame index (`team_vision`) does not use this rule.
 # 0.2.0 (2026-10-02): the rule also serves the self teardrop (`SelfConeReader`
 # given a frame index, over `teardrop.fit_self`), whose local fit now carries
-# `outside_ncc` so `facing_elsewhere` means for it what it means for a teammate.
-# The ally rule is unchanged.
+# `outside_ncc` so `facing_elsewhere` means for it what it means for a teammate,
+# and whose prior under `SELF_PRIOR_MIN_NCC` (0.65) runs the full grid
+# (`weak_prior`). The ally rule is unchanged.
 ICON_POSE_PRIOR_VERSION = "icon-pose-prior-0.2.0"
 # One observation of an ability's drawn minimap shape (a ring or a beam), fitted
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,

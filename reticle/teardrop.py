@@ -107,6 +107,14 @@ LOCAL_PX = 3          # local centre half-width at scale 1.0 (`local_px`)
 LOCAL_DEG = 30.0      # local facings: the prior's +- this, in GRID_DEG steps
 NCC_DROP = 0.10       # a local fit this far under its prior's NCC is a surprise
 AUDIT_FRAMES = 40     # the first new image in each block of this many frames is audited
+# The self icon's prior is continued only from a fit at this NCC or above. On
+# 5822b6646448 473-573 s and a06f04a0059f 600-760 s (465 px) the self prior
+# path, read beside the full search, left it (centre > 1 px or facing > 10
+# degrees) on 24 of 165 reads continuing a prior under 0.65 and on 2 of 2,182
+# from 0.65 up. Under 0.65 the local fit's NCC was the higher on 8 of the 24,
+# so the full grid is no truth there either; the gate keeps the self channel's
+# answers where the full search puts them.
+SELF_PRIOR_MIN_NCC = 0.65
 
 
 def yellowness(crop: np.ndarray) -> np.ndarray:
@@ -335,7 +343,8 @@ class SelfConeReader:
     icon continues its fit on the previous image under `IconPoseReader`'s
     rule, unchanged: the same association, local search, surprises and
     audit cadence, over `fit_self` (`_SelfFits`), and the read carries the
-    same `search`, `surprise`, `rests_on` and `audit`. The facing gate
+    same `search`, `surprise`, `rests_on` and `audit`, except that a prior
+    under `SELF_PRIOR_MIN_NCC` runs the full grid (`weak_prior`). The facing gate
     applies to the answer either search gives. Without a frame index the
     reader searches every image in full and adds none of these fields.
     """
@@ -729,6 +738,10 @@ class IconPoseReader:
     these fields.
     """
 
+    #: A prior whose NCC lies under this runs the full grid (`surprise`
+    #: `weak_prior`); None: every prior is continued. The ally rule has none.
+    prior_min_ncc: float | None = None
+
     def __init__(self, cls: str = "ally", scale: float = 1.0):
         self.cls, self.scale = cls, scale
         self._digest: bytes | None = None
@@ -804,8 +817,11 @@ class IconPoseReader:
         local = None
         if prior is not None:
             p = prior["fit"]
-            local = self._fit_one(cx, cy, prior=(p["x"], p["y"], p["deg"]))
-            surprise = _surprise(local, p)
+            if self.prior_min_ncc is not None and p["ncc"] < self.prior_min_ncc:
+                surprise = "weak_prior"
+            else:
+                local = self._fit_one(cx, cy, prior=(p["x"], p["y"], p["deg"]))
+                surprise = _surprise(local, p)
         if surprise is None:
             entry["fit"] = local
             entry["search"] = {"search": "prior", "surprise": None, "rests_on": prior["ref"]}
@@ -850,7 +866,11 @@ class _SelfFits(IconPoseReader):
     its own: the yellowness of a pixel reads that pixel alone, so a window
     keyed into a blank image gives every fit the values a whole-image key
     gives.
+
+    A self prior under `SELF_PRIOR_MIN_NCC` is not continued (`weak_prior`).
     """
+
+    prior_min_ncc = SELF_PRIOR_MIN_NCC
 
     def __init__(self, scale: float = 1.0):
         super().__init__("self", scale)
