@@ -909,3 +909,25 @@ measured
 """
 phrases = ["post-round kill persists", "killfeed holds after round decided"]
 see = ["killfeed/round-clear", "killfeed/entry-lifetime"]
+
+[entry-holds-its-column]
+claim = """
+A killfeed entry does not move sideways during its life. Its plate's left end,
+and the killer's portrait drawn from it, hold one column from the entry's
+first view to its last while the stack rises; no entry slides in from the side.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-10-03"
+source = """
+the player, 2026-10-03 ("the portrait position is fixed"); measured on the
+killfeed crop cache of 043bafca271a, bfad2778a372 and 223d636bf8d2, 644
+entries followed by layout: the killer art window of 4735 views scoring 0.5
+or more lay within 1 px of its entry's median on 99.7%, every larger move a
+false widened match; confident plate edges (score 8 or more) lay within
+0.5 px of their entry's median on 94%, and an entry's first edge differed
+from the rest by more than 1 px on 11 of 259 entries, each a detector
+miss in either direction rather than a slide
+"""
+use = "`killfeed.EntryAnchors` carries an entry's killer portrait column from view to view"
+see = ["killfeed/stack-order", "killfeed/subpixel-placement"]

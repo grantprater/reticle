@@ -230,10 +230,89 @@ class ArtZnccTests(unittest.TestCase):
         alone = art_view(crop, "killer", None, 8, True, UNIT_SCALE, self.dir, plate_x0=60)
         self.assertEqual(max(alone["art_zncc"], key=alone["art_zncc"].get), "Echo")
 
+    def test_an_entry_anchor_holds_and_a_surprise_there_widens_rows_only(self):
+        crop = self._crop(killer="Echo", killer_x0=60, y0=12, h=60)
+        # the anchor holds the column; the band reads 4 rows above the art
+        got = art_view(crop, "killer", 80, 8, True, UNIT_SCALE, self.dir, entry_x0=60.3)
+        self.assertEqual((got["art_search"], got["art_anchor"], got["art_shift"]),
+                         ("widened", "entry_anchor", [0, 4]))
+        self.assertEqual(max(got["art_zncc"], key=got["art_zncc"].get), "Echo")
+        # without it the name-start box at 80 widens the strip instead
+        strip = art_view(crop, "killer", 80, 8, True, UNIT_SCALE, self.dir)
+        self.assertEqual((strip["art_anchor"], strip["art_shift"]), ("killer_box", [-20, 4]))
+        # a misplaced anchor falls through to the view's own plate edge
+        own = art_view(self._crop(killer="Echo", killer_x0=60), "killer", 90, 8, True,
+                       UNIT_SCALE, self.dir, plate_x0=60, entry_x0=120)
+        self.assertEqual((own["art_search"], own["art_anchor"]), ("prior", "plate_left"))
+
     def test_a_killer_without_a_box_refuses_with_its_reason(self):
         got = art_view(self._crop(), "killer", None, 8, True, UNIT_SCALE, self.dir)
         self.assertIsNone(got["art_zncc"])
         self.assertEqual(got["art_reason"], "no_killer_box")
+
+
+class EntryAnchorTests(unittest.TestCase):
+    """The follow and the anchor of `killfeed.EntryAnchors`."""
+
+    def _view(self, slot, y0, wx0=200, v0=300):
+        return killfeed.EntryView(slot=slot, y0=y0, y1=y0 + 34, wx0=wx0, wx1=wx0 + 30,
+                                  killer_run=(120, 190), victim_run=(v0, 400))
+
+    @staticmethod
+    def _fields(x0, z=0.9, anchor="plate_left", search="prior"):
+        return {"art_zncc": {"A": z}, "art_anchor": anchor, "art_search": search,
+                "art_x0": x0, "art_candidates_widened": None}
+
+    def test_an_entry_is_followed_as_it_rises_and_a_new_layout_is_a_new_entry(self):
+        a = killfeed.EntryAnchors()
+        a.frame(0.0)
+        first = a.entry(self._view(1, 54), UNIT_SCALE)
+        a.frame(500.0)
+        risen = a.entry(self._view(0, 15, wx0=201), UNIT_SCALE)
+        other = a.entry(self._view(1, 54, v0=330), UNIT_SCALE)
+        self.assertIs(first, risen)
+        self.assertIsNot(other, first)
+        # an entry never falls: the same layout lower down is another entry
+        a.frame(1000.0)
+        self.assertIsNot(a.entry(self._view(2, 93), UNIT_SCALE), first)
+        # unseen past ENTRY_FOLLOW_GAP_MS, it is gone
+        a.frame(1000.0 + killfeed.ENTRY_FOLLOW_GAP_MS + 1)
+        self.assertIsNot(a.entry(self._view(0, 15), UNIT_SCALE), first)
+
+    def test_the_anchor_is_the_median_of_the_most_confident_confirmed_edges(self):
+        a = killfeed.EntryAnchors()
+        a.frame(0.0)
+        e = a.entry(self._view(0, 15), UNIT_SCALE)
+        self.assertIsNone(killfeed.EntryAnchors.anchor(e))
+        # an edge the art did not confirm is not taken
+        killfeed.EntryAnchors.confirm(e, self._fields(57, z=0.3), (57.4, 30.0))
+        self.assertIsNone(killfeed.EntryAnchors.anchor(e))
+        for edge, score in ((56.2, 9.0), (56.4, 12.0), (68.0, 4.5), (56.3, 10.0)):
+            killfeed.EntryAnchors.confirm(e, self._fields(int(edge)), (edge, score))
+        got = killfeed.EntryAnchors.anchor(e)
+        self.assertEqual((got["source"], got["views"]), ("plate_left", killfeed.ANCHOR_VIEWS))
+        self.assertAlmostEqual(got["x"], 56.3)
+
+    def test_an_art_only_placement_needs_a_second_view(self):
+        a = killfeed.EntryAnchors()
+        a.frame(0.0)
+        e = a.entry(self._view(0, 15), UNIT_SCALE)
+        killfeed.EntryAnchors.confirm(e, self._fields(56, anchor="killer_box", search="widened"),
+                                      None)
+        self.assertIsNone(killfeed.EntryAnchors.anchor(e))
+        killfeed.EntryAnchors.confirm(e, self._fields(57, anchor="killer_box", search="widened"),
+                                      None)
+        got = killfeed.EntryAnchors.anchor(e)
+        self.assertEqual(got["source"], "art")
+        self.assertAlmostEqual(got["x"], 56.5)
+        # an all-agent result is the art alone even on the prior window: one
+        # view places nothing, two that agree do
+        f = a.entry(self._view(1, 54, v0=340), UNIT_SCALE)
+        widened = dict(self._fields(56, anchor="killer_box"), art_candidates_widened="top 0.4")
+        killfeed.EntryAnchors.confirm(f, widened, (56.2, 20.0))
+        self.assertIsNone(killfeed.EntryAnchors.anchor(f))
+        killfeed.EntryAnchors.confirm(f, widened, None)
+        self.assertEqual(killfeed.EntryAnchors.anchor(f)["source"], "art")
 
 
 class ArtClaimTests(unittest.TestCase):

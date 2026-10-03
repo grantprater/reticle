@@ -399,7 +399,7 @@ question = "What do the killer and victim portraits in this entry look like?"
 owner = "killfeed"
 role = ["detect"]
 status = "partial"
-produces = ["portrait_observations", "PORTRAIT_ASPECT", "KILLFEED_PORTRAIT_VERSION", "KillfeedPortraitReader", "art_view", "ART_TILE_H", "ART_VICTIM_OUTER", "ART_SURPRISE_Z", "plate_score", "plate_left_edge", "PLATE_EDGE_SIDE", "PLATE_EDGE_MIN", "KILLER_ART_FROM_PLATE"]
+produces = ["portrait_observations", "PORTRAIT_ASPECT", "KILLFEED_PORTRAIT_VERSION", "KillfeedPortraitReader", "art_view", "ART_TILE_H", "ART_VICTIM_OUTER", "ART_SURPRISE_Z", "plate_score", "plate_left_edge", "PLATE_EDGE_SIDE", "PLATE_EDGE_MIN", "KILLER_ART_FROM_PLATE", "EntryAnchors", "ENTRY_FOLLOW_X", "ENTRY_FOLLOW_GAP_MS", "ANCHOR_VIEWS", "ANCHOR_CHECK_X"]
 not_for = """
 Naming either agent, and being believed one frame at a time. The descriptors plus
 the plate's side are all a reader may emit. The art ZNCC scores the side's
