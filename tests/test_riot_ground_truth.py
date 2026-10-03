@@ -186,11 +186,13 @@ class DeathPairingTest(unittest.TestCase):
         self.assertEqual(out["matched"], 0)
 
     def test_simultaneous_swap_is_reassigned_by_name(self):
-        # time alone pairs each kill with the other's entry
+        # one sample, slots unread: the order is unknown, names choose
         kills = [_kill(10_000, "b1", "a1"), _kill(10_100, "b2", "a2")]
-        deaths = [_death(10_000, "Omen", "Sova"), _death(10_100, "Raze", "Jett")]
+        deaths = [_death(10_500, "Omen", "Sova"), _death(10_500, "Raze", "Jett")]
         legacy_free = _score(kills, deaths, legacy=("pairing",))
         out = _score(kills, deaths)
+        self.assertEqual(out["ambiguous_pairs"], 2)
+        self.assertEqual(out["ambiguous_death_order_unknown"], 2)
         self.assertEqual(out["pairs_name_reassigned"], 2)
         self.assertEqual(out["victim_paired_by_name"], 2)
         self.assertEqual(out.get("victim_right", 0), 0)
@@ -200,12 +202,24 @@ class DeathPairingTest(unittest.TestCase):
 
     def test_name_pairing_keeps_a_wrong_name_wrong(self):
         kills = [_kill(10_000, "b1", "a1"), _kill(10_100, "b2", "a2")]
-        # victims swapped in time; the second entry's killer is misread
-        deaths = [_death(10_000, "Omen", "Sova"), _death(10_100, "Raze", "Sova")]
+        # order unknown; the second entry's killer is misread
+        deaths = [_death(10_500, "Omen", "Sova"), _death(10_500, "Raze", "Sova")]
         out = _score(kills, deaths)
         self.assertEqual(out["pairs_name_reassigned"], 2)
         self.assertEqual(out["killer_wrong"], 1)
         self.assertEqual(out["killer_paired_by_name"], 1)
+
+    def test_time_only_swap_kept_by_legacy_order(self):
+        # 0.2.0: entries 100 ms apart, time ties, names reassign
+        kills = [_kill(10_000, "b1", "a1"), _kill(10_100, "b2", "a2")]
+        deaths = [_death(10_000, "Omen", "Sova"), _death(10_100, "Raze", "Jett")]
+        old = _score(kills, deaths, legacy=("order",))
+        self.assertEqual(old["pairs_name_reassigned"], 2)
+        # 0.3.0: the stored order is known; the names it gives score wrong
+        out = _score(kills, deaths)
+        self.assertEqual(out["pairs_name_reassigned"], 0)
+        self.assertEqual(out["ambiguous_pairs"], 0)
+        self.assertEqual(out["victim_wrong"], 2)
 
     def test_time_pass_pairs_as_many_as_greedy(self):
         kills = [_kill(g, "b1", "a1") for g in (1000, 5000, 9000)]
@@ -213,6 +227,79 @@ class DeathPairingTest(unittest.TestCase):
         _p, stats = rg.pair_deaths(kills, deaths, AGENTS, 0.0)
         self.assertEqual(stats["pairs_time"], stats["pairs_time_greedy"])
         self.assertEqual(stats["pairs_time"], 3)
+
+
+class OrderPairingTest(unittest.TestCase):
+    """0.3.0: the killfeed's order pairs what time alone cannot."""
+
+    def test_same_sample_ordered_by_slot(self):
+        # two kills 200 ms apart, first seen in one sample; slot 0 is older
+        kills = [_kill(10_000, "b1", "a1"), _kill(10_200, "b2", "a2")]
+        deaths = [_death(10_500, "Omen", "Sova", slot=1), _death(10_500, "Raze", "Jett", slot=0)]
+        out = _score(kills, deaths)
+        self.assertEqual((out["matched"], out["pairs_time_kept"]), (2, 2))
+        self.assertEqual(out["ambiguous_pairs"], 0)
+        self.assertEqual((out["victim_right"], out["killer_right"]), (2, 2))
+        pairs, _st, amb = rg.pair_deaths_in_order(kills, deaths, AGENTS, 0.0)
+        self.assertEqual(sorted((i, j) for i, j, *_ in pairs), [(0, 1), (1, 0)])
+        self.assertEqual(amb, {})
+
+    def test_crossing_forbidden(self):
+        # nearest time would pair 0->1 and 1->0, which crosses the order
+        x = [1000.0, 1400.0]
+        y = [1500.0, 1600.0]
+        self.assertEqual(rg.align_in_order(x, y, 1500.0), [(0, 0), (1, 1)])
+        # a crossing that would add a pair never beats the order: the
+        # entry placed first in the feed cannot pair the later kill and the
+        # entry placed second the earlier one
+        self.assertEqual(rg.align_in_order([1000.0, 5000.0], [5100.0, 1150.0], 500.0),
+                         [(1, 0)])
+
+    def test_gap_on_either_side(self):
+        # a missed kill: the middle kill has no entry
+        self.assertEqual(rg.align_in_order([1000.0, 5000.0, 9000.0], [1300.0, 9200.0], 1500.0),
+                         [(0, 0), (2, 1)])
+        # a false death: the middle entry has no kill
+        self.assertEqual(rg.align_in_order([1000.0, 9000.0], [1300.0, 5000.0, 9200.0], 1500.0),
+                         [(0, 0), (1, 2)])
+        out = _score([_kill(1000, "b1", "a1"), _kill(9000, "b2", "a2")],
+                     [_death(1300, "Raze", "Jett", slot=0), _death(5000, None, None, slot=0),
+                      _death(9200, "Omen", "Sova", slot=0)])
+        self.assertEqual((out["matched"], out["missed"], out["false_deaths"]), (2, 0, 1))
+
+    def test_most_pairs_before_least_dt(self):
+        # skipping the near death pairs both kills; order keeps them apart
+        self.assertEqual(rg.align_in_order([1000.0, 2000.0], [1900.0, 3000.0], 1500.0),
+                         [(0, 0), (1, 1)])
+
+    def test_same_sample_rival_is_ambiguous(self):
+        # one kill, two entries of one sample: time and order tie, names choose
+        kills = [_kill(10_000, "b1", "a1")]
+        deaths = [_death(10_500, "Omen", "Sova", slot=0), _death(10_500, "Raze", "Jett", slot=1)]
+        out = _score(kills, deaths)
+        self.assertEqual((out["matched"], out["false_deaths"]), (1, 1))
+        self.assertEqual(out["ambiguous_same_sample_unpaired"], 1)
+        self.assertEqual(out["victim_paired_by_name"], 1)
+        self.assertEqual(out.get("victim_wrong", 0), 0)
+
+    def test_late_first_read_contradicts_the_order(self):
+        # the second entry is first read at 11 000 in slot 0, above the entry
+        # seen at 10 500 and still on screen: the stack calls it the older
+        kills = [_kill(10_000, "b2", "a2"), _kill(10_200, "b1", "a1")]
+        deaths = [_death(10_500, "Raze", "Jett", slot=1, t_last_ms=14_000),
+                  _death(11_000, "Omen", "Sova", slot=0, t_last_ms=14_500)]
+        self.assertEqual(rg.order_contradictions(deaths), {frozenset((0, 1))})
+        out = _score(kills, deaths)
+        self.assertEqual(out["ambiguous_death_order_contradicted"], 2)
+        self.assertEqual(out["victim_paired_by_name"], 2)
+        self.assertEqual(out.get("victim_wrong", 0), 0)
+
+    def test_kill_tie_is_ambiguous(self):
+        kills = [_kill(10_000, "b1", "a1"), _kill(10_000, "b2", "a2")]
+        deaths = [_death(10_500, "Omen", "Sova", slot=0), _death(10_500, "Raze", "Jett", slot=1)]
+        out = _score(kills, deaths)
+        self.assertEqual(out["ambiguous_kill_order_tie"], 2)
+        self.assertEqual(out["victim_paired_by_name"] + out.get("victim_right", 0), 2)
 
 
 class SecondLifeTest(unittest.TestCase):
