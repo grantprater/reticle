@@ -1138,6 +1138,45 @@ def _line_art(px: np.ndarray) -> bool:
             and np.median(px[:, 1]) <= ICON_S_MED_MAX)
 
 
+def _grow_strokes(st: np.ndarray, seed: int, pool, used: set, on_line,
+                  s: "KillfeedScale", min_h: float = 0,
+                  names: np.ndarray | None = None) -> tuple[set, tuple[int, int, int, int]]:
+    """The pieces of `pool` one icon joins from `seed`, and their box.
+
+    Two rules, applied until neither adds a piece: a piece that is not a name
+    glyph (`on_line(i)` false) within `STROKE_JOIN` base px of the box, or
+    any piece inside the box widened by one px. A name's letters join only
+    from inside the box, so the box never runs along a name. `min_h` lets
+    only pieces taller than it join from outside the box, and `names` (the
+    columns of name glyphs on the baseline) refuses a piece that would bring
+    two of them into the box: a name holds two glyphs or more, an icon none.
+    Shared by `_stroke_groups` and by `_band_text`'s divider, which grows its
+    piece to the ring it belongs to."""
+    gap = s.px(STROKE_JOIN)
+    members = {seed}
+    x0, y0 = int(st[seed, 0]), int(st[seed, 1])
+    x1, y1 = x0 + int(st[seed, 2]), y0 + int(st[seed, 3])
+    grew = True
+    while grew:
+        grew = False
+        for i in pool:
+            if i in members or i in used:
+                continue
+            a0, b0 = int(st[i, 0]), int(st[i, 1])
+            a1, b1 = a0 + int(st[i, 2]), b0 + int(st[i, 3])
+            inside = a0 >= x0 - 1 and b0 >= y0 - 1 and a1 <= x1 + 1 and b1 <= y1 + 1
+            near = (not on_line(i) and b1 - b0 > min_h and a0 <= x1 + gap and a1 >= x0 - gap
+                    and b0 <= y1 + gap and b1 >= y0 - gap)
+            if near and names is not None:
+                near = int(((names >= a0) & (names < a1)
+                            & ((names < x0) | (names >= x1))).sum()) < 2
+            if inside or near:
+                members.add(i)
+                x0, y0, x1, y1 = min(x0, a0), min(y0, b0), max(x1, a1), max(y1, b1)
+                grew = True
+    return members, (x0, y0, x1, y1)
+
+
 def _stroke_groups(st: np.ndarray, art: set, on_line, s: "KillfeedScale") -> list[np.ndarray]:
     """Line-art pieces of one icon joined into one box, as `cv2` stats rows.
 
@@ -1149,31 +1188,13 @@ def _stroke_groups(st: np.ndarray, art: set, on_line, s: "KillfeedScale") -> lis
     inside the box, so a group never runs along a name. A group is kept when
     it holds two or more pieces and reaches the knife's bar
     (`KNIFE_MIN_AREA`, `KNIFE_MIN_H`); one piece is already a candidate."""
-    gap = s.px(STROKE_JOIN)
     free = sorted(art, key=lambda i: -st[i, 4])
     used: set = set()
     out = []
     for seed in free:
         if seed in used or on_line(seed):
             continue
-        members = {seed}
-        x0, y0 = st[seed, 0], st[seed, 1]
-        x1, y1 = x0 + st[seed, 2], y0 + st[seed, 3]
-        grew = True
-        while grew:
-            grew = False
-            for i in free:
-                if i in members or i in used:
-                    continue
-                a0, b0 = st[i, 0], st[i, 1]
-                a1, b1 = a0 + st[i, 2], b0 + st[i, 3]
-                inside = a0 >= x0 - 1 and b0 >= y0 - 1 and a1 <= x1 + 1 and b1 <= y1 + 1
-                near = (not on_line(i) and a0 <= x1 + gap and a1 >= x0 - gap
-                        and b0 <= y1 + gap and b1 >= y0 - gap)
-                if inside or near:
-                    members.add(i)
-                    x0, y0, x1, y1 = min(x0, a0), min(y0, b0), max(x1, a1), max(y1, b1)
-                    grew = True
+        members, (x0, y0, x1, y1) = _grow_strokes(st, seed, free, used, on_line, s)
         area = int(sum(st[i, 4] for i in members))
         if (len(members) >= 2 and area >= s.area(KNIFE_MIN_AREA)
                 and y1 - y0 >= s.px(KNIFE_MIN_H)):
@@ -1283,8 +1304,60 @@ def _band_text(
     bottoms = np.array([st[i, 1] + st[i, 3] for i in cand])
     line = int(np.bincount(bottoms).argmax())
     named = glyph_cols[np.abs(bottoms - line) <= s.px(BASELINE_TOL)]
-    divides = lambda i, left, right: ((left < st[i, 0]).any()
-                                      and (right > st[i, 0] + st[i, 2]).any())
+    # The divider is the whole icon, not the piece that won. Resurrection's
+    # ring breaks into a left arc, an emblem and a right arc, and an emblem
+    # piece is glyph-sized: tested alone, each arc found a "name" in the next
+    # piece, and one still plate at bdfdcf009dba 687-689 s read dividers 317,
+    # 328 and 347 -- three entry tracks, three deaths. Each candidate grows to
+    # its icon (`_grow_strokes`, any tint, since the pieces' line-art test
+    # flickers frame to frame), and the names must lie outside that box. Only
+    # pieces taller than a name glyph join from outside the box: a one-row
+    # streak of the next plate's edge ran along the band's top from the ring
+    # into the victim's name at 684.5 s, and the box then held the name. A
+    # piece that spans a name joins nothing: scenery merged with a portrait
+    # and the ring into one 258 px blob at 663.5 s. CROSS-REFERENCE: a box
+    # grows only round a ring (`ring_fit`, `ring_verdict`
+    # [domain:killfeed/revive-ring]), the one icon drawn in separate tall
+    # pieces; a pale plate's wash beside a gun (a06f04a0059f 412.0 s,
+    # 1687.5 s) is tall too, and grew the divider over the killer's name.
+    # The ring is fitted at the winning piece, then at the grown box, and its
+    # radius bounds the box: growth ran past the ring into the victim's
+    # short name at 96aa1ae9b96f 1139.0 s, and a fit centred on that box
+    # missed the ring on most frames of one plate. A ring the fit finds
+    # bounds the box even where growth fails: at 1141.0 s the rising plate
+    # merged both arcs with its edge, and growth refused them.
+    boxes: dict = {}
+
+    def box(i):
+        if i not in boxes:
+            boxes[i] = (int(st[i, 0]), int(st[i, 0] + st[i, 2]))
+            if value is not None:
+                grown, (b0, _y0, b1, _y1) = _grow_strokes(st, i, idx, set(), on_line, s,
+                                                          gh[1], named)
+                a0, a1 = boxes[i]
+                hgt = white.shape[0]
+                if (b0, b1) != boxes[i] or a1 - a0 <= 2 * RING_R[1] * hgt:
+                    for cx0 in dict.fromkeys(((a0 + a1) / 2, (b0 + b1) / 2)):
+                        fit = ring_fit(white, cx0, hgt, s=s)
+                        if ring_verdict(fit)[0]:
+                            # The fitted ring bounds the icon: the box covers
+                            # the ring and the pieces within its radius, so
+                            # growth that ran past the ring, or growth a
+                            # merged edge refused, cannot move the divider.
+                            lo = fit["cx"] - fit["r"] - s.px(STROKE_JOIN)
+                            hi = fit["cx"] + fit["r"] + s.px(STROKE_JOIN)
+                            keep = [m for m in grown | {i}
+                                    if st[m, 0] >= lo and st[m, 0] + st[m, 2] <= hi]
+                            boxes[i] = (
+                                min([int(st[m, 0]) for m in keep]
+                                    + [a0, int(round(fit["cx"] - fit["r"]))]),
+                                max([int(st[m, 0] + st[m, 2]) for m in keep]
+                                    + [a1, int(round(fit["cx"] + fit["r"]))]))
+                            break
+        return boxes[i]
+
+    divides = lambda i, left, right: ((left < box(i)[0]).any()
+                                      and (right > box(i)[1]).any())
     # (3) A line-art stroke group (`_stroke_groups`) with name glyphs on the
     # baseline to its left. (4) Last, a knife-sized piece or a group of any
     # tint, with name glyphs on the baseline on BOTH sides, so a piece of a
@@ -1324,7 +1397,7 @@ def _band_text(
             return "no_divider"
         wx0 = wx1 = seam
     else:
-        wx0, wx1 = int(st[wep, 0]), int(st[wep, 0] + st[wep, 2])
+        wx0, wx1 = box(wep)
     if usable is not None:
         for lo, hi in ((0, wx0), (wx1, usable.shape[1])):
             if hi - lo <= 0:
@@ -1375,8 +1448,9 @@ class EntryView:
     # `BAND_REFUSALS`, or a band-level reason when the band never reached
     # `_band_text` at all. Empty when nothing refused.
     reason: str = ""
-    # The weapon-slot icon's column bounds (`icon_extent`): wx0..wx1 is one
-    # piece, the divider; this is the element it points at, every piece of the
+    # The weapon-slot icon's column bounds (`icon_extent`): wx0..wx1 is the
+    # divider, one piece, or a ring's pieces grown together (`_grow_strokes`);
+    # this is the element it points at, every piece of the
     # icon and nothing beside it. Only the `killfeed_weapon` descriptor reads
     # it. Zero when there is no icon.
     ix0: int = 0
@@ -1641,7 +1715,10 @@ PORTRAIT_ASPECT = 2.0
 # broke at its text rows, so an entry can be observed samples earlier.
 # 0.10.0 (2026-10-02): `_band_text` admits ability icons it refused as `no_icon`: knife-sized
 # pieces of any tint and joined thin strokes (`_stroke_groups`), gated on the plate seam.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.10.0"
+# 0.11.0 (2026-10-02): a divider piece inside a fitted ring grows to the
+# ring's pieces (`_grow_strokes`, `ring_fit`), so a ringed icon's emblem is no
+# longer a name and the crops beside a ringed icon move.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.11.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -2115,7 +2192,9 @@ def detect_second_life_badge(
 # the band's plate runs refuses as `off_plate_run`.
 # 0.8.0 (2026-10-02): ability entries refused as `no_icon` are read; see the
 # portrait stamp.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.8.0"
+# 0.9.0 (2026-10-02): a ringed icon's divider is the whole ring; see the
+# portrait stamp.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.9.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -2258,9 +2337,10 @@ def icon_extent(white_band: np.ndarray, icon_band: np.ndarray, wx0: int, wx1: in
                 lo: int, hi: int, s: "KillfeedScale" = UNIT_SCALE) -> tuple[int, int]:
     """The weapon-slot icon's columns: the element the divider points at.
 
-    `_band_text` divides the names at ONE connected component of the text cut,
-    which may be one piece of an icon drawn in several (a ringed ult, a
-    dimmed icon broken by a fade) or, over a washed-out plate, a name and the
+    `_band_text` divides the names at one connected component of the text cut,
+    or at a ring's pieces grown together, which may still miss pieces of an
+    icon drawn in several (a dimmed icon broken by a fade) or, over a
+    washed-out plate, hold a name and the
     icon merged. The descriptor needs the icon alone, so this is a separate box.
 
     The rule is structural. Take the pieces of `icon_band` (`slot_white_mask`)
@@ -2570,7 +2650,9 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # 0.2.0 (2026-09-28): more bands read (`_join_split_runs`); see the portrait stamp.
 # 0.3.0 (2026-10-02): ability entries refused as `no_icon` are read; see the
 # portrait stamp.
-KILLFEED_NAME_VERSION = "killfeed-name-0.3.0"
+# 0.4.0 (2026-10-02): a ringed icon's divider is the whole ring; see the
+# portrait stamp.
+KILLFEED_NAME_VERSION = "killfeed-name-0.4.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15
