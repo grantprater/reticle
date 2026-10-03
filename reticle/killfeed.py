@@ -1722,7 +1722,10 @@ PORTRAIT_ASPECT = 2.0
 # candidate (`art_view`): victims as the mirrored art at the right-aligned
 # anchor, killers about the stored box, widened on surprise. The composition
 # and shifts stay beside it for comparison.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.12.0"
+# 0.13.0 (2026-10-03): a killer's first prior is its plate's left end
+# (`plate_left_edge`, stored as `plate_left`); the name-start box is the
+# fallback, then the widened strip.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.13.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -1760,6 +1763,90 @@ ART_WIDE_X, ART_WIDE_Y = 24, 6
 #: widens to the strip, and then any view's candidates widen to every agent.
 #: The study's label-free clean cut.
 ART_SURPRISE_Z = 0.5
+#: Columns (base px) each side of a candidate plate edge whose plate share is
+#: compared, inside against outside.
+PLATE_EDGE_SIDE = 2
+#: The least edge score (`plate_left_edge`) that places a plate's left end.
+#: On 412 clean killer views of three matches the edge was found on 70% of
+#: them, within 2 px of the art on 89% of those; at 8 on 54%, within 2 px on
+#: 96%. Missed and misplaced edges fall back to the name-start box.
+PLATE_EDGE_MIN = 4.0
+#: The killer art's left edge less the plate's left end (base px). Measured
+#: on 2639 clean killer views of 21 matches at 1080p: median +0.05 px,
+#: interquartile -0.35 to +0.44; the art starts at the plate's end.
+KILLER_ART_FROM_PLATE = 0.0
+
+
+def plate_score(crop: np.ndarray) -> np.ndarray:
+    """Each pixel's soft plate membership, 0..1: the green and red plate
+    windows of `_plate_masks` (hue, saturation, value) with linear ramps in
+    place of their cuts, the larger of the two. Scored softly so the plate
+    edge can be placed between pixels; the cut comes once, at the edge."""
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hh, ss, vv = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+
+    def up(x, lo, width):
+        return np.clip((x - lo) / width + 0.5, 0.0, 1.0)
+
+    val = up(vv, PLATE_V_MIN, 20)
+    green = (up(hh, GREEN_H[0], 6) * (1 - up(hh, GREEN_H[1], 6))
+             * up(ss, GREEN_S[0], 12) * (1 - up(ss, GREEN_S[1], 12)) * val)
+    red = (np.maximum(1 - up(hh, RED_H_LO, 6), up(hh, RED_H_HI, 6)) * up(ss, RED_S_MIN, 12) * val)
+    return np.maximum(green, red)
+
+
+def plate_left_edge(band_bgr: np.ndarray, hi: int,
+                    s: "KillfeedScale" = UNIT_SCALE) -> tuple[float, float] | None:
+    """The entry plate's left end in one band's crop, left of column `hi`:
+    (edge, score), the edge
+    in column-boundary coordinates (pixel c spans c..c+1) to a sub-pixel, or
+    None when no edge scores `PLATE_EDGE_MIN`.
+
+    The plate's left end is a crisp vertical edge over the band's full height,
+    plate to its right and scene to its left; the killer's art is drawn over
+    the plate from that edge, its transparent left margin showing the plate.
+    Each boundary scores, in the band's top and bottom halves apart, the
+    median Lab step across it times the rise in plate share
+    (`plate_score`) from `PLATE_EDGE_SIDE` columns left to as many right;
+    the score is the lesser half, so the assist panel, which fills only the
+    top 18 rows [domain:killfeed/assist-panel-layout], and the killstreak
+    numeral in the bottom half do not score. The leftmost boundary that
+    reaches `PLATE_EDGE_MIN` is the edge; a parabola through the Lab step
+    places it between pixels. Matrix work over the columns; nothing loops per
+    pixel.
+    """
+    h = band_bgr.shape[0]
+    hi = min(int(hi), band_bgr.shape[1] - 1 - max(1, s.n(PLATE_EDGE_SIDE)))
+    k = max(1, s.n(PLATE_EDGE_SIDE))
+    if h < 4 or hi <= 2 * k:
+        return None
+    band = appearance.to_lab(band_bgr[:, :hi + k])
+    plate = plate_score(band_bgr[:, :hi + k])
+    step = np.linalg.norm(band[:, 1:] - band[:, :-1], axis=2)                 # boundary c+1
+    halves = (slice(0, h // 2), slice(h // 2, h))
+    scores = []
+    e = np.arange(k, hi)                                                       # boundary e: c-1 | c
+    for half in halves:
+        med = np.median(step[half], axis=0)
+        cs = np.concatenate([[0.0], np.cumsum(plate[half].mean(0))])
+        inside = (cs[e + k] - cs[e]) / k
+        outside = (cs[e] - cs[e - k]) / k
+        scores.append(med[e - 1] * np.clip(inside - outside, 0.0, 1.0))
+    score = np.minimum(*scores)
+    ok = np.flatnonzero(score >= PLATE_EDGE_MIN)
+    if not len(ok):
+        return None
+    i = int(ok[0])
+    while i + 1 < len(score) and score[i + 1] > score[i]:
+        i += 1                                               # the local peak of this edge
+    c = int(e[i])
+    med = np.median(step, axis=0)
+    dlt = 0.0
+    if 2 <= c < len(med):
+        a, b, d = float(med[c - 2]), float(med[c - 1]), float(med[c])
+        den = a - 2 * b + d
+        dlt = 0.0 if den >= 0 else float(np.clip(0.5 * (a - d) / den, -0.5, 0.5))
+    return c + dlt, float(score[i])
 
 
 def _entry_columns(green_band, red_band, white_band, bh: int) -> np.ndarray:
@@ -1984,16 +2071,20 @@ def _art_candidates(ally: bool | None, candidates: dict | None,
 
 
 def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | None,
-             s: "KillfeedScale", art_dir, candidates: dict | None = None) -> dict:
+             s: "KillfeedScale", art_dir, candidates: dict | None = None,
+             plate_x0: float | None = None) -> dict:
     """One portrait view's inner-weighted art ZNCC (`appearance.art_zncc`), as
     `art_*` fields of its observation. It names no agent.
 
     **Continue the prior; widen on surprise.** A victim's portrait is the art
     mirrored, its outer column at ROI column roi_w - `ART_VICTIM_OUTER`, so its
     window is searched there, `ART_PRIOR_X` / `ART_PRIOR_Y` either side. A
-    killer's portrait ends where its name starts, so its window starts at
-    `x0` (the stored box's inner edge less the tile width) and is searched the
-    same distance. Where the best candidate correlates under `ART_SURPRISE_Z`,
+    killer's portrait starts at its plate's left end (`plate_x0`, from
+    `plate_left_edge`), as the victim's ends at the right; where no edge was
+    found, or the art there surprises, its portrait ends where its name
+    starts, at `x0` (the stored box's inner edge less the tile width), each
+    searched the same distance. `art_anchor` names the prior that held.
+    Where the best candidate still correlates under `ART_SURPRISE_Z`,
     the search widens to `ART_WIDE_Y` rows, and a killer's to `ART_WIDE_X`
     columns, about that start (`art_search` "widened"); then, if still under,
     any view's candidates widen
@@ -2005,8 +2096,8 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
     A long killer name pushes the portrait past the ROI's left edge; a window
     that starts left of column 0 scores the art's columns inside the ROI
     (`appearance.art_zncc` `cut`, at least `appearance.ART_MIN_COVER` of the
-    weight), and `art_cover` gives the best window's share. A killer without a
-    start (`x0` None), and a search with no window inside the ROI, refuse:
+    weight), and `art_cover` gives the best window's share. A killer with
+    neither start, and a search with no window inside the ROI, refuse:
     `art_zncc` stays None and `art_reason` says why. The ROI's occlusion mask
     is not consulted, as the study did not.
     """
@@ -2019,8 +2110,12 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
         out["art_reason"] = "no_art"
         return out
     victim = role == "victim"
-    px = (w - s.n(ART_VICTIM_OUTER) + 1 - tw) if victim else x0
-    if px is None:
+    if victim:
+        priors = [(w - s.n(ART_VICTIM_OUTER) + 1 - tw, "right_edge")]
+    else:
+        priors = ([(int(round(plate_x0)), "plate_left")] if plate_x0 is not None else []) + \
+                 ([(x0, "killer_box")] if x0 is not None else [])
+    if not priors:
         out["art_reason"] = "no_killer_box"
         return out
     cands, source = _art_candidates(ally, candidates, art)
@@ -2049,8 +2144,17 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
 
     wide_dx = s.n(ART_PRIOR_X if victim else ART_WIDE_X)
     with usage_step("art"):
-        got = search(s.n(ART_PRIOR_X), s.n(ART_PRIOR_Y), cands)
-        mode = "prior"
+        got, mode = None, "prior"
+        for px, anchor in priors:
+            try_ = search(s.n(ART_PRIOR_X), s.n(ART_PRIOR_Y), cands)
+            if try_ is not None and (got is None or float(try_[0].max()) > float(got[0].max())):
+                got, best = try_, (px, anchor)
+            if got is not None and float(got[0].max()) >= ART_SURPRISE_Z:
+                break
+        # the widened strip and the all-agent search run about the last prior,
+        # the name-start box where there is one
+        px, anchor = (best if got is not None and float(got[0].max()) >= ART_SURPRISE_Z
+                      else priors[-1])
         if got is None or float(got[0].max()) < ART_SURPRISE_Z:
             with usage_step("widened"):
                 wide = search(wide_dx, s.n(ART_WIDE_Y), cands)
@@ -2079,7 +2183,7 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
         "art_shift": [int(xs[bx] - px), int(ya + by - y0)],
         "art_cover": round(float(cover[bx, top]), 3),
         "art_mirrored": victim,
-        "art_anchor": "right_edge" if victim else "killer_box",
+        "art_anchor": anchor,
     })
     return out
 
@@ -2170,11 +2274,21 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
             ally = (None if view.victim_ally is None else
                     (view.victim_ally if role == "victim" else not view.victim_ally))
             if art_dir is not None:
-                # The killer's art ends at its name's start; the victim's sits
-                # at the right-aligned anchor, so it needs no gap past the name.
+                # The killer's art starts at its plate's left end, else ends at
+                # its name's start; the victim's sits at the right-aligned
+                # anchor, so it needs no gap past the name.
+                plate_fields, plate_x0 = {}, None
+                if role == "killer":
+                    hi = min(name0, view.wx0 if view.wx1 > view.wx0 else name0) - 1
+                    pe = plate_left_edge(crop[py0:py1], hi, s)
+                    if pe is not None:
+                        plate_x0 = pe[0] + s.px(KILLER_ART_FROM_PLATE)
+                        plate_fields = {"plate_left": round(pe[0], 2),
+                                        "plate_left_score": round(pe[1], 2)}
                 fields = art_view(crop, role, (edge - int(round(PORTRAIT_ASPECT * s.n(ART_TILE_H))))
                                   if role == "killer" else None, py0, ally, s, art_dir,
-                                  candidates)
+                                  candidates, plate_x0=plate_x0)
+                fields.update(plate_fields)
             else:
                 fields = {}
             if edge is None:

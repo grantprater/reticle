@@ -204,6 +204,32 @@ class ArtZnccTests(unittest.TestCase):
         far = appearance.art_zncc(region[:, :8], self.art, ["Bravo"], cut=TW - 8)
         self.assertEqual(float(far.max()), 0.0)
 
+    def test_the_plate_left_end_is_found_to_a_subpixel_past_the_assist_panel(self):
+        # a teal plate from x = 50.5 (its first column half covered), over grey
+        # scene, with an assist panel's teal cell over the top 18 rows left of it
+        h, w = 34, 200
+        crop = np.full((h, w, 3), (90, 90, 90), np.float32)
+        teal = np.array((160, 190, 60), np.float32)        # BGR, hue inside GREEN_H
+        crop[:, 51:] = teal
+        crop[:, 50] = 0.5 * teal + 0.5 * crop[:, 49]
+        crop[:18, 10:44] = teal
+        crop = crop.astype(np.uint8)
+        got = killfeed.plate_left_edge(crop, 150, UNIT_SCALE)
+        self.assertIsNotNone(got)
+        self.assertAlmostEqual(got[0], 50.5, delta=0.3)
+
+    def test_a_killer_starts_at_its_plate_and_falls_back_to_its_box(self):
+        crop = self._crop(killer="Echo", killer_x0=60)
+        got = art_view(crop, "killer", 72, 8, True, UNIT_SCALE, self.dir, plate_x0=60.2)
+        self.assertEqual((got["art_search"], got["art_anchor"], got["art_shift"]),
+                         ("prior", "plate_left", [0, 0]))
+        # a misplaced edge surprises; the name-start box holds
+        box = art_view(crop, "killer", 60, 8, True, UNIT_SCALE, self.dir, plate_x0=120)
+        self.assertEqual((box["art_search"], box["art_anchor"]), ("prior", "killer_box"))
+        # no box: the plate alone places it
+        alone = art_view(crop, "killer", None, 8, True, UNIT_SCALE, self.dir, plate_x0=60)
+        self.assertEqual(max(alone["art_zncc"], key=alone["art_zncc"].get), "Echo")
+
     def test_a_killer_without_a_box_refuses_with_its_reason(self):
         got = art_view(self._crop(), "killer", None, 8, True, UNIT_SCALE, self.dir)
         self.assertIsNone(got["art_zncc"])
