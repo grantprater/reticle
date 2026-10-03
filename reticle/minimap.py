@@ -926,7 +926,8 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
           require_facing: bool = True, min_area: int | None = None,
           support: np.ndarray | None = None,
           separation_px: float | None = None,
-          seed: str = "centroid", gates: bool = True) -> list[dict]:
+          seed: str = "centroid", gates: bool = True,
+          grey: np.ndarray | None = None) -> list[dict]:
     """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
 
     **`seed` decides where each blob's circle is searched for.** `"centroid"`
@@ -946,6 +947,8 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     or None), `lobe`, `area`. Facing is in the same convention as
     `cone.raycast` -- 0 is +x and +90 is DOWN the image -- so it can be handed
     straight to it.
+
+    `grey` is the crop's `COLOR_BGR2GRAY`, where the caller holds it.
 
     `require_facing=False` keeps a positionally-good icon whose bearing was
     refused, which is what the interpolation pass needs: a lobe the fit could
@@ -975,7 +978,8 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     if min_area is None:
         min_area = max(4, int(round(MIN_ICON_AREA * sc * sc)))
     keyed = mask & floor
-    grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    if grey is None:
+        grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     m = cv2.morphologyEx(keyed.astype(np.uint8), cv2.MORPH_CLOSE,
                          np.ones((_odd(3 * sc), _odd(3 * sc)), np.uint8))
     n, lbl, st, cen = cv2.connectedComponentsWithStats(m, 8)
@@ -1157,7 +1161,8 @@ ALLY_MAP_DIFF_MIN = 15.0
 def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
                           support: np.ndarray | None = None,
                           static: np.ndarray | None = None,
-                          occluders=(), found: list[dict] | None = None) -> list[dict]:
+                          occluders=(), found: list[dict] | None = None,
+                          keyed: np.ndarray | None = None) -> list[dict]:
     """Each teammate icon's centre, radius and what its portrait LOOKS like.
 
     The icon is the ally channel's gated fit, supported by the slab.
@@ -1175,12 +1180,15 @@ def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
     barrier passes the ring fit and facing gates, and inside its ring the
     unkeyed pixels ARE the map. None when no reference is passed.
 
+    `keyed` is `ally_mask(crop) | self_mask(crop)`, where the caller holds it.
+
     Readers do not name entities. This describes; `adjudication.identity`
     names.
     """
     from . import appearance
 
-    keyed = ally_mask(crop) | self_mask(crop)
+    if keyed is None:
+        keyed = ally_mask(crop) | self_mask(crop)
     if found is None:
         found = ally_icons(crop, floor, support=support, static=static,
                            keep_barriers=True)
@@ -1256,6 +1264,7 @@ class AllyIconReader:
                  spans=None, name="ally_icon"):
         self.name, self.hz, self.spans = name, hz, spans
         self.frames_from = "video"
+        self.cv_threads = 1        # small crops: see `passes._feed`
         self.floor, self.slab, self.static, self.box = floor, slab, static, box
         self.sgray = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float64)
         self.ref = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float32)
@@ -1282,10 +1291,12 @@ class AllyIconReader:
         with step("masks"):
             amask, smask = ally_mask(crop), self_mask(crop)
             keyed = amask | smask
+            grey8 = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         with step("icons"):
-            raw_self = icons(smask, crop, self.floor, support=self.slab, gates=False)
+            raw_self = icons(smask, crop, self.floor, support=self.slab, gates=False,
+                             grey=grey8)
             raw = icons(amask, crop, self.floor, support=self.slab,
-                        seed="surface", gates=False)
+                        seed="surface", gates=False, grey=grey8)
         # The ring fit finds each icon; its teardrop supplies the centre and
         # facing every later step reads, where it reads (`teardrop.posed`,
         # ally-icon-0.6.0): the glyph check, the separation, the portrait's
@@ -1294,9 +1305,11 @@ class AllyIconReader:
             raw_self = [self._posed(crop, f, "self", sc) for f in raw_self]
             # A teammate's fit continues its fit on the previous image
             # (`IconPoseReader`'s prior, ally-icon-0.7.0); `rests_on` names
-            # that fit's candidate.
+            # that fit's candidate. The crop is hashed once for all of them.
+            from .teardrop import crop_digest
+            digest = crop_digest(crop) if raw else None
             raw = [self._posed(crop, f, "ally", sc, frame=frame,
-                               ref=f"{frame['frame_idx']}:ally:{i}")
+                               ref=f"{frame['frame_idx']}:ally:{i}", digest=digest)
                    for i, f in enumerate(raw)]
         # A fit that lands on the spike glyph is the glyph, not an icon
         # (`spike.on_glyph`, ally-icon-0.5.0). Each candidate stores the
@@ -1322,12 +1335,12 @@ class AllyIconReader:
         occ = [(me["cx"], me["cy"], me["r"])] if me else []
         found = _gated(clear(raw), sc)
         with step("barriers"):
-            grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            grey = grey8.astype(np.float32)
             ref = self.ref
             _mark_barriers(found, keyed, grey, ref)
         with step("descriptors"):
             got = ally_icon_descriptors(crop, self.floor, self.slab, self.static, occ,
-                                        found=found)
+                                        found=found, keyed=keyed)
         # The portrait's feature families, on the icon's aligned window of this
         # same crop; upright whatever it faces (`ally_portrait`).
         with step("portrait"):
@@ -1407,14 +1420,16 @@ class AllyIconReader:
             self.icons.append({**frame, "index": i, **d})
 
     def _posed(self, crop: np.ndarray, f: dict, channel: str, sc: float,
-               frame: dict | None = None, ref: str | None = None) -> dict:
+               frame: dict | None = None, ref: str | None = None,
+               digest: bytes | None = None) -> dict:
         """One ring fit posed by its teardrop (`teardrop.posed`); a fit that
         fails the shape gate is not read (`pose` reason `not_shaped`).
 
         With `frame` (its `frame_idx` and `t_ms`) the ally reader continues
         each icon's previous fit and audits it on a fixed cadence; `ref` is
         this fit's candidate key within the session, which a later fit's
-        `rests_on` names. The self channel searches every image in full.
+        `rests_on` names, and `digest` the crop's `teardrop.crop_digest`. The
+        self channel searches every image in full.
 
         The descriptor's disc (`_interior`: the composition, `map_diff` and
         the `interior_too_thin` refusal) stays at the ring fit's centre,
@@ -1439,7 +1454,7 @@ class AllyIconReader:
             else:
                 pose = readers[1][channel].read(crop, f["cx"], f["cy"],
                                                 frame_idx=frame["frame_idx"],
-                                                t_ms=frame["t_ms"], ref=ref)
+                                                t_ms=frame["t_ms"], ref=ref, digest=digest)
             if channel == "self":
                 # The self icon's disc occludes a teammate's portrait and is the
                 # published self point; its centre follows the self portrait's rule.

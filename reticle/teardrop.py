@@ -69,6 +69,8 @@ from __future__ import annotations
 
 import hashlib
 import math
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Callable
 
@@ -166,17 +168,20 @@ def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0
     r_out = R_OUT * scale if r_out is None else r_out
     L_ = L * scale if L_ is None else L_
     edge, search = EDGE * scale, max(1, int(round(SEARCH_PX * scale)))
-    if yel is None:
-        with step("key"):
-            yel = yellowness(crop)
-    h, w = yel.shape
+    h, w = (crop if yel is None else yel).shape[:2]
     rad = L_ + WINDOW * scale + search
     x0, x1 = max(0, int(cx0 - rad)), min(w, int(cx0 + rad) + 1)
     y0, y1 = max(0, int(cy0 - rad)), min(h, int(cy0 + rad) + 1)
+    if yel is None:
+        # Only the window is scored, so only the window is keyed.
+        with step("key"):
+            yel, ox, oy = yellowness(crop[y0:y1, x0:x1]), x0, y0
+    else:
+        ox = oy = 0
     yy, xx = np.mgrid[y0:y1, x0:x1]
     keep = np.hypot(xx - cx0, yy - cy0) <= rad
     px, py = xx[keep].astype(np.float32), yy[keep].astype(np.float32)
-    obs = yel[py.astype(int), px.astype(int)]
+    obs = yel[py.astype(int) - oy, px.astype(int) - ox]
     if obs.size == 0 or obs.max() <= 0:
         return {"read": False, "reason": "no_yellow"}
 
@@ -197,20 +202,25 @@ def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0
             sc, x, y, t, on_edge = _grid(obs, keep, x0, y0, prior[0], prior[1],
                                          local_px(scale), r_in, r_out, L_, edge, ths)
 
-    def score(x, y, t):
-        return float(_correlation(obs, render(px - x, py - y, t, r_in, r_out, L_, edge)))
-
+    # The compass: six probes scored in one broadcast render, the first
+    # improving one in probe order taken. Each row is the render a single
+    # probe gets (centre cast to float32 as `px - x` casts it, facing kept
+    # float64), so the scores and the move match a probe-at-a-time search.
     step_p, step_t = 0.5, math.radians(3.0)
     with step("refine"):
         while step_p >= 0.05:
-            moved = False
-            for ddx, ddy, ddt in ((step_p, 0, 0), (-step_p, 0, 0), (0, step_p, 0),
-                                  (0, -step_p, 0), (0, 0, step_t), (0, 0, -step_t)):
-                s2 = score(x + ddx, y + ddy, t + ddt)
-                if s2 > sc:
-                    sc, x, y, t, moved = s2, x + ddx, y + ddy, t + ddt, True
-                    break
-            if not moved:
+            cand = ((x + step_p, y, t), (x - step_p, y, t), (x, y + step_p, t),
+                    (x, y - step_p, t), (x, y, t + step_t), (x, y, t - step_t))
+            cx = np.array([c[0] for c in cand], np.float32)[:, None]
+            cy = np.array([c[1] for c in cand], np.float32)[:, None]
+            ct = np.array([c[2] for c in cand], np.float64)[:, None]
+            s2 = _correlation(obs, render(px[None, :] - cx, py[None, :] - cy, ct,
+                                          r_in, r_out, L_, edge))
+            better = np.flatnonzero(s2 > sc)
+            if better.size:
+                j = int(better[0])
+                sc, (x, y, t) = float(s2[j]), cand[j]
+            else:
                 step_p, step_t = step_p / 2, step_t / 2
     deg = (math.degrees(t) + 180.0) % 360.0 - 180.0
     out = {"x": x, "y": y, "deg": deg, "ncc": sc,
@@ -233,24 +243,15 @@ def _grid(obs, keep, x0, y0, cx0, cy0, search, r_in, r_out, L_, edge, facings):
     import cv2
 
     h, w = keep.shape
-    k = keep.astype(np.float32)
     o = np.zeros((h, w), np.float32)
     o[keep] = obs - obs.mean()
     oo = float((o * o).sum())
-    n = float(keep.sum())
-    # Lattice index j maps to pixel x0 + j - search, so offset `off` reads
-    # j = i - off + search for window index i.
-    jy, jx = np.mgrid[0:h + 2 * search, 0:w + 2 * search].astype(np.float32)
-    dx = (x0 - search - cx0) + jx
-    dy = (y0 - search - cy0) + jy
     best = (-2.0, 0.0, 0.0, 0.0, False)
     last = len(facings) - 1
-    for i, th in enumerate(facings):
-        m = render(dx, dy, np.float32(th), r_in, r_out, L_, edge).astype(np.float32)
+    models = _models(keep, x0 - search - cx0, y0 - search - cy0, search, r_in, r_out, L_, edge,
+                     facings)
+    for i, (th, (m, var)) in enumerate(zip(facings, models)):
         s_mo = cv2.matchTemplate(m, o, cv2.TM_CCORR)
-        s_m = cv2.matchTemplate(m, k, cv2.TM_CCORR)
-        s_mm = cv2.matchTemplate(m * m, k, cv2.TM_CCORR)
-        var = s_mm - s_m * s_m / n
         with np.errstate(invalid="ignore", divide="ignore"):
             sc = np.where(var > 1e-9, s_mo / np.sqrt(np.maximum(var, 0) * oo), -1.0)
         u = np.unravel_index(int(np.argmax(sc)), sc.shape)
@@ -260,6 +261,53 @@ def _grid(obs, keep, x0, y0, cx0, cy0, search, r_in, r_out, L_, edge, facings):
                     float(th), bool(on_edge))
     return best
 
+
+def _models(keep, ox, oy, search, r_in, r_out, L_, edge, facings) -> list:
+    """Each facing's `(model, variance)` for `_grid`: the silhouette rendered
+    on the lattice the window slides over, and its variance under the window
+    at every offset. Neither reads the observation, so both are memoised by
+    every input they read (`_MODELS`): an icon at an integer ring centre
+    renders the same lattice on every image. Types are keyed with values,
+    since a numpy scalar and a float promote a float32 lattice differently.
+    """
+    import cv2
+
+    tv = lambda v: (type(v).__name__, float(v))
+    fa = np.asarray(facings)
+    key = (keep.shape, np.packbits(keep).tobytes(), tv(ox), tv(oy), int(search), tv(r_in),
+           tv(r_out), tv(L_), tv(edge), fa.dtype.str, fa.tobytes())
+    with _MODELS_LOCK:
+        ent = _MODELS.get(key)
+        if ent is not None:
+            _MODELS.move_to_end(key)
+            return ent
+    h, w = keep.shape
+    k = keep.astype(np.float32)
+    n = float(keep.sum())
+    # Lattice index j maps to pixel x0 + j - search, so offset `off` reads
+    # j = i - off + search for window index i.
+    jy, jx = np.mgrid[0:h + 2 * search, 0:w + 2 * search].astype(np.float32)
+    dx = ox + jx
+    dy = oy + jy
+    ent = []
+    for th in facings:
+        m = render(dx, dy, np.float32(th), r_in, r_out, L_, edge).astype(np.float32)
+        s_m = cv2.matchTemplate(m, k, cv2.TM_CCORR)
+        s_mm = cv2.matchTemplate(m * m, k, cv2.TM_CCORR)
+        ent.append((m, s_mm - s_m * s_m / n))
+    with _MODELS_LOCK:
+        _MODELS[key] = ent
+        if len(_MODELS) > _MODELS_MAX:
+            _MODELS.popitem(last=False)
+    return ent
+
+
+#: `_models`' memo, least recently used first. A full grid's entry holds
+#: 36 renders of about 63 px square at widget scale 1.0 (about 0.6 MB).
+#: The lock serves `pipeline`'s reader threads; an entry is never mutated.
+_MODELS: "OrderedDict[tuple, list]" = OrderedDict()
+_MODELS_MAX = 64
+_MODELS_LOCK = threading.Lock()
 
 _FULL_FACINGS = np.radians(np.arange(0.0, 360.0, GRID_DEG, dtype=np.float32))
 
@@ -577,6 +625,12 @@ def ring_cover(key: np.ndarray, x: float, y: float, deg: float, r_in: float, r_o
     return float(np.mean(peak[used] >= min_key))
 
 
+def crop_digest(crop: np.ndarray) -> bytes:
+    """The digest `IconPoseReader` keys an image's fits by."""
+    with step("memo"):
+        return hashlib.blake2b(np.ascontiguousarray(crop).tobytes(), digest_size=16).digest()
+
+
 class IconPoseReader:
     """A teammate's or an enemy's centre and facing per frame, from the teardrop.
 
@@ -621,7 +675,8 @@ class IconPoseReader:
         self._audit_due = False
 
     def read(self, crop: np.ndarray, cx: float, cy: float, *, frame_idx: int | None = None,
-             t_ms: float | None = None, ref: str | None = None) -> dict:
+             t_ms: float | None = None, ref: str | None = None,
+             digest: bytes | None = None) -> dict:
         """`{"x", "y", "deg", "origin", "ncc", ...}` for a detection centred at `(cx, cy)`.
 
         Where the shape reads, `origin` is `teardrop` and `x`, `y`, `deg` are
@@ -630,11 +685,11 @@ class IconPoseReader:
         `reason` says why the teardrop was not read. With `frame_idx` the
         read continues the prior and adds `search`, `surprise`, `rests_on`
         (the prior's `ref`, the caller's name for that detection) and, on an
-        audit image, `audit`.
+        audit image, `audit`. `digest` is `crop_digest(crop)`, for a caller
+        reading several icons of one crop to hash it once.
         """
-        with step("memo"):
-            digest = hashlib.blake2b(np.ascontiguousarray(crop).tobytes(),
-                                     digest_size=16).digest()
+        if digest is None:
+            digest = crop_digest(crop)
         if digest != self._digest:
             if self._fits:
                 # The prior's age runs from the last frame that showed its image.
