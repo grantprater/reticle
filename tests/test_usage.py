@@ -1,6 +1,8 @@
 """Operational scan usage stays separate from stored observations."""
 
+import argparse
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -9,7 +11,12 @@ from pathlib import Path
 import numpy as np
 
 from reticle.passes import run_cached
-from reticle.usage import BUCKET_LIMITS_NS, CallTimes, ScanUsage, format_usage, load
+from unittest import mock
+
+from reticle import cli
+from reticle.store import Store
+from reticle.usage import (BUCKET_LIMITS_NS, CallTimes, CommandUsage, ScanUsage,
+                           StepRecorder, format_usage, load, step, usage_level)
 
 
 class Reader:
@@ -469,6 +476,167 @@ class StepTest(unittest.TestCase):
         self.assertNotIn("fit", format_usage(got[2]))
         self.assertIn("fit", format_usage(got[3]))
 
+
+def _level(value, steps=None):
+    env = {k: v for k, v in os.environ.items() if k not in ("RETICLE_USAGE", "RETICLE_USAGE_STEPS")}
+    if value is not None:
+        env["RETICLE_USAGE"] = value
+    if steps is not None:
+        env["RETICLE_USAGE_STEPS"] = steps
+    return mock.patch.dict(os.environ, env, clear=True)
+
+
+class CommandUsageTest(unittest.TestCase):
+    def test_record_fields_and_steps_inside_the_command(self):
+        def body():
+            with step("compute"):
+                with step("inner"):
+                    pass
+            return 0
+        with _level(None):
+            usage = CommandUsage("deaths", {"session": "s1", "func": None, "n": Path("x")}, "s1")
+            self.assertEqual(usage.run(body), 0)
+        row = usage.record()
+        for key in ("version", "command", "arguments", "session_id", "recorded_at", "wall_ns",
+                    "cpu_ns", "contention", "code_revision", "status", "error", "steps"):
+            self.assertIn(key, row)
+        self.assertEqual((row["version"], row["status"], row["exit_code"]),
+                         ("command-usage-1", "completed", 0))
+        self.assertEqual(row["arguments"]["n"], "x")
+        self.assertEqual(set(row["steps"]), {"compute", "compute/inner", "other"})
+        self.assertIn("priority", row["contention"])
+        self.assertIn("compute", format_usage(row))
+
+    def test_exception_records_failed_and_reraises(self):
+        def body():
+            raise RuntimeError("boom")
+        with _level(None), tempfile.TemporaryDirectory() as root:
+            usage = CommandUsage("deaths", {}, "s1")
+            with self.assertRaises(RuntimeError):
+                usage.run(body)
+            usage.write(Path(root))
+            (row,) = load(Path(root))
+        self.assertEqual(row["status"], "failed")
+        self.assertIn("boom", row["error"])
+
+    def test_read_steps_are_keyed_by_stream_and_totalled(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            store.write_events("killfeed_portrait", "s1", [{"t_ms": 1}])
+            path = store.events_path("killfeed_portrait", "s1")
+
+            def body():
+                store.read_events("killfeed_portrait", "s1")
+                with step("compute"):
+                    store.read_events("killfeed_portrait", "s1")
+                    store.events_version("killfeed_portrait", "s1")
+                return 0
+            with _level(None):
+                usage = CommandUsage("deaths", {}, "s1")
+                usage.run(body)
+            steps = usage.record()["steps"]
+            self.assertEqual(steps["read:killfeed_portrait"]["count"], 1)
+            self.assertEqual(steps["read:killfeed_portrait"]["bytes"], path.stat().st_size)
+            self.assertEqual(steps["compute/read:killfeed_portrait"]["count"], 1)
+            self.assertIn("compute/read:killfeed_portrait:version", steps)
+            self.assertNotIn("bytes", steps["compute/read:killfeed_portrait:version"])
+            text = format_usage(usage.record())
+            self.assertRegex(text, r"read:killfeed_portrait\s+\d\.\d+s\s+2 calls")
+
+    def test_no_sink_records_nothing(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            store.write_events("hud_x", "s1", [{"t_ms": 1}])
+            with _level(None):
+                self.assertEqual(len(store.read_events("hud_x", "s1")), 1)
+                rec = StepRecorder(enabled=True)
+                self.assertEqual(rec.steps("deaths"), {})
+
+    def _run_main(self, root, cmd, fn, level):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--store", default=str(root))
+        sub = parser.add_subparsers(dest="cmd", required=True)
+        s = sub.add_parser(cmd)
+        s.add_argument("session", nargs="?")
+        s.set_defaults(func=fn)
+        with _level(level), mock.patch.object(cli, "build_parser", lambda: parser):
+            return cli.main(["--store", str(root), cmd, "s1"])
+
+    def test_main_records_listed_commands_only(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertEqual(self._run_main(root, "rounds", lambda a: 0, None), 0)
+            self.assertEqual(self._run_main(root, "doctor", lambda a: 0, None), 0)
+            rows = load(Path(root))
+        self.assertEqual([(r["command"], r["session_id"]) for r in rows], [("rounds", "s1")])
+
+    def test_main_failed_command_is_recorded_and_raises(self):
+        def fail(a):
+            raise ValueError("bad")
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaises(ValueError):
+                self._run_main(root, "deaths", fail, None)
+            (row,) = load(Path(root))
+        self.assertEqual(row["status"], "failed")
+
+    def test_levels(self):
+        with _level("off"):
+            self.assertEqual(usage_level(), "off")
+        with _level("record"):
+            self.assertEqual(usage_level(), "record")
+        with _level(None):
+            self.assertEqual(usage_level(), "steps")
+        with _level(None, "0"):
+            self.assertEqual(usage_level(), "record")
+        with _level("steps", "0"):
+            self.assertEqual(usage_level(), "steps")
+        with _level("bogus"), self.assertRaises(ValueError):
+            usage_level()
+
+    def test_command_levels(self):
+        def body():
+            with step("compute"):
+                pass
+            return 0
+        with tempfile.TemporaryDirectory() as root:
+            self.assertEqual(self._run_main(root, "rounds", lambda a: body(), "record"), 0)
+            self.assertEqual(self._run_main(root, "rounds", lambda a: body(), "steps"), 0)
+            self.assertEqual(self._run_main(root, "rounds", lambda a: body(), "off"), 0)
+            rows = load(Path(root))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["steps"], {})
+        self.assertIn("compute", rows[1]["steps"])
+
+    def test_off_writes_nothing_for_scans_or_commands(self):
+        manifest = {"session_id": "s", "source": {"content_key": "key"}}
+        with tempfile.TemporaryDirectory() as root, _level("off"):
+            reader = Reader()
+            scan = ScanUsage(manifest, "profile", [reader], "cache:cache-test")
+            run_cached(None, [reader], Cache(), usage=scan)
+            self.assertIsNone(scan.write(Path(root)))
+            self.assertIsNone(scan.write_metric(Path(root)))
+            self.assertIsNone(scan.code_revision)
+            self.assertEqual(scan.record()["readers"]["probe"]["steps"], {})
+            self.assertEqual(self._run_main(root, "rounds", lambda a: 0, "off"), 0)
+            self.assertEqual(list(Path(root).rglob("*.jsonl")), [])
+            self.assertEqual(load(Path(root)), [])
+
+    def test_record_level_scan_has_no_steps_but_writes(self):
+        manifest = {"session_id": "s", "source": {"content_key": "key"}}
+        with tempfile.TemporaryDirectory() as root, _level("record"):
+            reader = Reader()
+            scan = ScanUsage(manifest, "profile", [reader], "cache:cache-test")
+            run_cached(None, [reader], Cache(), usage=scan)
+            scan.write(Path(root))
+            (row,) = load(Path(root))
+        self.assertEqual(row["readers"]["probe"]["steps"], {})
+
+    def test_every_listed_command_is_a_subcommand(self):
+        from reticle.plan import rerun_commands
+        parser = cli.build_parser()
+        names = set(next(a for a in parser._actions
+                         if isinstance(a, argparse._SubParsersAction)).choices)
+        self.assertLessEqual(rerun_commands(), names)
+        self.assertNotIn("scan", rerun_commands())
 
 if __name__ == "__main__":
     unittest.main()

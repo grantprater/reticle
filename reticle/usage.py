@@ -60,10 +60,35 @@ records `{}`. Each thread keeps its own accumulator per reader, so the
 step path takes no lock, and `record` merges them: a staged pass's workers
 and shards sum as their `feed` does. A step outside any timed feed (a
 test, a prototype) costs one thread-local lookup and records nothing.
-`RETICLE_USAGE_STEPS=0` turns step timing off and records `steps` as
-`{}`, to measure what the timer costs. Timing is operational: it changes
-no reader output and no version stamp. `reticle usage` prints the steps
-under each reader; `reticle trial` prints them for its reader.
+Timing is operational: it changes no reader output and no version stamp.
+`reticle usage` prints the steps under each reader; `reticle trial` prints
+them for its reader.
+
+**The switch.** `RETICLE_USAGE` sets how much the profiler does, read when a
+record starts: `steps` (the default) records the line and its steps; `record`
+writes the per-scan or per-command line only, with `steps` as `{}`, and times
+no step; `off` writes no record, runs no `git`, reads no system counter and
+times no step, so a `step` costs one thread-local lookup and `write` and
+`write_metric` return None. The older `RETICLE_USAGE_STEPS=0` is a deprecated
+alias for `record`; `RETICLE_USAGE` wins when both are set. Anything that
+reads `notes/usage.jsonl` must tolerate its absence: `load` returns `[]`.
+
+`command-usage-1` records a stored-data command, one line beside the scan
+lines in `notes/usage.jsonl` with `kind: "command"`: `command`, `arguments`,
+`session_id`, `recorded_at`, `wall_ns`, `cpu_ns`, `contention` (as in a scan),
+`code_revision`, `status` (`completed`, or `failed` with `error` when the
+command raised; the exception propagates), `exit_code` and `steps`. The
+command is the one reader, so every `step` inside its call tree records, on
+the calling thread only. The set is `plan.rerun_commands()`, the commands the
+plan names as rerunning a derived stream from storage or the crop cache,
+plus `rounds`; `scan` writes its own record and a command that decodes is
+not in it. `cli.main` wraps them once. `Store`'s read paths time themselves
+as `read:<stream>` steps (`read:killfeed_portrait`, `read:hud`; a version
+probe is `read:<stream>:version`), with the file's `bytes` where the method
+reads the whole file; a read inside a step keys `outer/read:x`. With no
+sink active a read costs one thread-local lookup. `reticle usage` prints
+each command's steps, then `reads`: per stream the calls, seconds and bytes
+across every path.
 
 **Citing a scan.** `write_metric` appends a `scan_usage` pass row whose part
 names the readers and then how the pass ran (`series_part`), so each
@@ -93,6 +118,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from datetime import datetime, timezone
+from functools import wraps
 from contextlib import contextmanager
 import json
 import os
@@ -105,8 +131,11 @@ from uuid import uuid4
 
 
 USAGE_VERSION = "scan-usage-4"
+COMMAND_VERSION = "command-usage-1"
 #: Versions `load` reads; each later one only adds keys.
-USAGE_VERSIONS = ("scan-usage-1", "scan-usage-2", "scan-usage-3", USAGE_VERSION)
+USAGE_VERSIONS = ("scan-usage-1", "scan-usage-2", "scan-usage-3", USAGE_VERSION,
+                  COMMAND_VERSION)
+LEVELS = ("off", "record", "steps")
 #: Why a reader's own thread CPU is null when it fed on the dispatcher thread.
 INLINE_REASON = "fed on the dispatcher thread; see dispatcher.thread_cpu_ns"
 BUCKET_LIMITS_NS = (100_000, 500_000, 1_000_000, 2_000_000,
@@ -118,6 +147,7 @@ class CallTimes:
         self.count = 0
         self.total_ns = 0
         self.max_ns = 0
+        self.bytes = 0
         self.buckets = [0] * (len(BUCKET_LIMITS_NS) + 1)
 
     def add(self, elapsed_ns: int) -> None:
@@ -127,18 +157,31 @@ class CallTimes:
         self.buckets[bisect_right(BUCKET_LIMITS_NS, elapsed_ns)] += 1
 
     def record(self) -> dict:
-        return {"count": self.count, "total_ns": self.total_ns,
-                "max_ns": self.max_ns, "buckets": self.buckets}
+        row = {"count": self.count, "total_ns": self.total_ns,
+               "max_ns": self.max_ns, "buckets": self.buckets}
+        if self.bytes:
+            row["bytes"] = self.bytes
+        return row
 
     def merge(self, other: "CallTimes") -> None:
         self.count += other.count
         self.total_ns += other.total_ns
         self.max_ns = max(self.max_ns, other.max_ns)
+        self.bytes += other.bytes
         self.buckets = [a + b for a, b in zip(self.buckets, other.buckets)]
 
 
-#: Step timing is on unless `RETICLE_USAGE_STEPS=0`; see the module docstring.
-STEPS_ENABLED = os.environ.get("RETICLE_USAGE_STEPS", "1") != "0"
+def usage_level() -> str:
+    """`off`, `record` or `steps`: `RETICLE_USAGE`, else `record` under the
+    deprecated `RETICLE_USAGE_STEPS=0`, else `steps`; see the module docstring."""
+    level = os.environ.get("RETICLE_USAGE", "").strip().lower()
+    if not level:
+        return "record" if os.environ.get("RETICLE_USAGE_STEPS", "1") == "0" else "steps"
+    if level not in LEVELS:
+        raise ValueError(f"RETICLE_USAGE={level!r}: expected one of {', '.join(LEVELS)}")
+    return level
+
+
 #: The step that holds a feed's time outside its top-level steps.
 OTHER_STEP = "other"
 _LOCAL = threading.local()
@@ -161,11 +204,12 @@ class step:
     keyed by its path (`pose/grid`). With no feed timed on this thread it
     records nothing.
     """
-    __slots__ = ("name", "sink", "path", "t0")
+    __slots__ = ("name", "sink", "path", "t0", "bytes")
 
     def __init__(self, name: str):
         self.name = name
         self.sink = None
+        self.bytes = 0
 
     def __enter__(self):
         sink = getattr(_LOCAL, "sink", None)
@@ -190,7 +234,33 @@ class step:
         if times is None:
             times = sink.steps[self.path] = CallTimes()
         times.add(elapsed)
+        times.bytes += self.bytes
         return False
+
+
+def timed_read(locate):
+    """Decorate a `Store` read method to time itself as a `read:<stream>` step.
+
+    `locate(self, *args, **kwargs)` returns `(stream, path)`; `path` is the
+    file read whole, whose size is recorded as `bytes`, or None. With no sink
+    on this thread the wrapper makes one thread-local lookup and calls the
+    method.
+    """
+    def decorate(fn):
+        @wraps(fn)
+        def wrapper(self, *args, **kwargs):
+            if getattr(_LOCAL, "sink", None) is None:
+                return fn(self, *args, **kwargs)
+            stream, path = locate(self, *args, **kwargs)
+            with step(f"read:{stream}") as timed:
+                if path is not None:
+                    try:
+                        timed.bytes = path.stat().st_size
+                    except OSError:
+                        pass
+                return fn(self, *args, **kwargs)
+        return wrapper
+    return decorate
 
 
 class StepRecorder:
@@ -202,7 +272,7 @@ class StepRecorder:
     """
 
     def __init__(self, enabled: bool | None = None):
-        self.enabled = STEPS_ENABLED if enabled is None else enabled
+        self.enabled = (usage_level() == "steps") if enabled is None else enabled
         self._sinks: dict[tuple[int, str], _Sink] = {}
         self._lock = threading.Lock()
 
@@ -293,14 +363,19 @@ class ScanUsage:
         self.until_s: float | None = None
         self.cpu_ns: int | None = None
         self.dispatcher_cpu_ns: int | None = None
-        self.code_revision = code_revision()
+        self.level = usage_level()
+        self.code_revision = code_revision() if self.level != "off" else None
         self.status = "completed"
         self.error: str | None = None
         self.decode_backend: dict | None = None
         self.system_cpu_ns: int | None = None
         # Shards of one reader share its name, and so its `CallTimes`.
         self._lock = threading.Lock()
-        self.step_times = StepRecorder()
+        self.step_times = StepRecorder(self.level == "steps")
+
+    @property
+    def enabled(self) -> bool:
+        return self.level != "off"
 
     @contextmanager
     def timed_pass(self):
@@ -309,7 +384,7 @@ class ScanUsage:
         Sets `pass_ns` (wall), `cpu_ns` (the process's CPU) and the
         dispatcher's `thread_cpu_ns` over the same span, on failure too.
         """
-        system = system_cpu_ns()
+        system = system_cpu_ns() if self.enabled else None
         wall, cpu, own = perf_counter_ns(), process_time_ns(), thread_time_ns()
         try:
             yield self
@@ -317,17 +392,12 @@ class ScanUsage:
             self.pass_ns = perf_counter_ns() - wall
             self.cpu_ns = process_time_ns() - cpu
             self.dispatcher_cpu_ns = thread_time_ns() - own
-            after = system_cpu_ns()
+            after = system_cpu_ns() if self.enabled else None
             self.system_cpu_ns = (after - system if None not in (system, after) else None)
 
     def contention(self) -> dict:
         """What else ran during the pass; see the module docstring."""
-        other = (max(0, self.system_cpu_ns - self.cpu_ns)
-                 if None not in (self.system_cpu_ns, self.cpu_ns) else None)
-        return {"system_cpu_ns": self.system_cpu_ns, "other_cpu_ns": other,
-                "logical_cpus": os.cpu_count(), "priority": process_priority(),
-                "reason": (None if other is not None
-                           else "no system CPU counter on this platform")}
+        return contention(self.system_cpu_ns, self.cpu_ns)
 
     def timed_frames(self, frames):
         iterator = iter(frames)
@@ -456,12 +526,9 @@ class ScanUsage:
             "pass_other_ns": max(0, self.pass_ns - source_ns - feed_ns - finish_ns),
         }
 
-    def write(self, store_root: Path) -> Path:
-        path = Path(store_root) / "notes" / "usage.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as out:
-            out.write(json.dumps(self.record(), separators=(",", ":")) + "\n")
-        return path
+    def write(self, store_root: Path) -> Path | None:
+        """Append the record; None, writing nothing, at `RETICLE_USAGE=off`."""
+        return append_record(store_root, self.record()) if self.enabled else None
 
     def metric_values(self) -> dict:
         """The `pass` row's values, in seconds; see the module docstring.
@@ -489,13 +556,15 @@ class ScanUsage:
                 values[f"thread_cpu_s_{field}"] = s(r["thread_cpu_ns"])
         return values
 
-    def write_metric(self, store_root: Path) -> dict:
+    def write_metric(self, store_root: Path) -> dict | None:
         """One `pass` row in `notes/metrics.jsonl` naming this record's run_id.
 
         Timings move from run to run with the machine's load, so the run_id
         is context, not a dependency: two runs of one configuration compare
-        as CHANGED, never as BROKEN.
+        as CHANGED, never as BROKEN. None, writing nothing, at `off`.
         """
+        if not self.enabled:
+            return None
         from . import metrics
         return metrics.record(
             "scan_usage", part=self.series_part(),
@@ -508,6 +577,90 @@ class ScanUsage:
             context={"usage_run_id": self.run_id},
             log_path=Path(store_root) / "notes" / "metrics.jsonl",
             usage_run_id=self.run_id)
+
+
+def append_record(store_root: Path, row: dict) -> Path:
+    path = Path(store_root) / "notes" / "usage.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as out:
+        out.write(json.dumps(row, separators=(",", ":"), default=str) + "\n")
+    return path
+
+
+def contention(system_ns: int | None, cpu_ns: int | None) -> dict:
+    """What else ran over a span; see the module docstring."""
+    other = (max(0, system_ns - cpu_ns)
+             if None not in (system_ns, cpu_ns) else None)
+    return {"system_cpu_ns": system_ns, "other_cpu_ns": other,
+            "logical_cpus": os.cpu_count(), "priority": process_priority(),
+            "reason": (None if other is not None
+                       else "no system CPU counter on this platform")}
+
+
+class CommandUsage:
+    """One stored-data command's cost, `command-usage-1`; see the module docstring.
+
+    `run(fn)` calls `fn()` with the command as the one reader of a
+    `StepRecorder`, records wall, CPU and the outcome, and re-raises what
+    `fn` raises. At `RETICLE_USAGE=off` it only calls `fn`.
+    """
+
+    def __init__(self, command: str, arguments: dict | None = None,
+                 session_id: str | None = None, level: str | None = None):
+        self.level = usage_level() if level is None else level
+        self.run_id = uuid4().hex
+        self.command = command
+        self.arguments = json.loads(json.dumps(arguments or {}, default=str))
+        self.session_id = session_id
+        self.recorded_at = datetime.now(timezone.utc).isoformat()
+        self.step_times = StepRecorder(self.level == "steps")
+        self.wall_ns = self.cpu_ns = self.system_cpu_ns = None
+        self.status, self.error, self.exit_code = "completed", None, None
+        self.code_revision = None
+
+    @property
+    def enabled(self) -> bool:
+        return self.level != "off"
+
+    def run(self, fn):
+        if not self.enabled:
+            return fn()
+        self.code_revision = code_revision()
+        system = system_cpu_ns()
+        wall, cpu = perf_counter_ns(), process_time_ns()
+        result = []
+        try:
+            self.step_times.feed(self.command, lambda _: result.append(fn()), None)
+        except BaseException as exc:
+            self.status, self.error = "failed", f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, SystemExit):
+                self.exit_code = exc.code
+            raise
+        finally:
+            self.wall_ns = perf_counter_ns() - wall
+            self.cpu_ns = process_time_ns() - cpu
+            after = system_cpu_ns()
+            self.system_cpu_ns = (after - system if None not in (system, after) else None)
+        if isinstance(result[0], int):
+            self.exit_code = result[0]
+        return result[0]
+
+    def record(self) -> dict:
+        return {"version": COMMAND_VERSION, "run_id": self.run_id,
+                "recorded_at": self.recorded_at, "kind": "command",
+                "command": self.command, "arguments": self.arguments,
+                "session_id": self.session_id, "status": self.status,
+                "error": self.error, "exit_code": self.exit_code,
+                "code_revision": self.code_revision,
+                "wall_ns": self.wall_ns, "cpu_ns": self.cpu_ns,
+                "contention": contention(self.system_cpu_ns, self.cpu_ns),
+                "steps": self.step_times.steps(self.command)}
+
+    def write(self, store_root: Path) -> Path | None:
+        """Append the record; None, writing nothing, at `off` or before `run`."""
+        if not self.enabled or self.wall_ns is None:
+            return None
+        return append_record(store_root, self.record())
 
 
 def system_cpu_ns() -> int | None:
@@ -563,6 +716,9 @@ def load(store_root: Path, session_id: str | None = None) -> list[dict]:
 
 
 def format_usage(row: dict) -> str:
+    if row.get("kind") == "command":
+        return format_command(row)
+
     def sec(ns):
         return f"{ns / 1e9:.3f}s"
 
@@ -593,7 +749,41 @@ def format_usage(row: dict) -> str:
     return "\n".join(parts)
 
 
-def format_steps(steps: dict, feed_ns: int, indent: str = "    ") -> list[str]:
+def stream_reads(steps: dict) -> dict[str, dict]:
+    """Per `read:<stream>` step name, over every path: calls, ns and bytes."""
+    out: dict[str, dict] = {}
+    for path, t in steps.items():
+        name = path.rpartition("/")[2]
+        if name.startswith("read:"):
+            r = out.setdefault(name, {"count": 0, "total_ns": 0, "bytes": 0})
+            r["count"] += t["count"]
+            r["total_ns"] += t["total_ns"]
+            r["bytes"] += t.get("bytes", 0)
+    return out
+
+
+def format_command(row: dict) -> str:
+    wall, steps = row.get("wall_ns"), row.get("steps") or {}
+    args = " ".join(f"{k}={v}" for k, v in (row.get("arguments") or {}).items()
+                    if v not in (None, False, [], "") and k not in ("session", "cmd"))
+    status = row.get("status", "completed")
+    lines = [f"{row['recorded_at']}  {row.get('session_id')}  command {row['command']}"
+             + (f"  {args}" if args else "")
+             + (f"  {status}: {row.get('error')}" if status != "completed" else ""),
+             f"  wall {wall / 1e9:.3f}s  cpu {row['cpu_ns'] / 1e9:.3f}s"
+             f"  priority {(row.get('contention') or {}).get('priority')}"]
+    lines += format_steps(steps, wall or 0, of="wall")
+    reads = stream_reads(steps)
+    if reads:
+        lines.append("  reads")
+        for name, r in sorted(reads.items(), key=lambda kv: -kv[1]["total_ns"]):
+            lines.append(f"    {name:<34} {r['total_ns'] / 1e9:8.3f}s {r['count']:>5} calls"
+                         + (f"  {r['bytes'] / 1e6:8.1f} MB" if r["bytes"] else ""))
+    return "\n".join(lines)
+
+
+def format_steps(steps: dict, feed_ns: int, indent: str = "    ",
+                 of: str = "feed") -> list[str]:
     """One line per step under its reader: seconds, calls, ms per call,
     share of the feed and the slowest call. A step's children follow it,
     indented, then `(rest)`, its time outside them; `other` comes last."""
@@ -607,7 +797,7 @@ def format_steps(steps: dict, feed_ns: int, indent: str = "    ") -> list[str]:
         share = f"{100.0 * ns / feed_ns:5.1f}%" if feed_ns else "    -"
         per = f"{ns / calls / 1e6:8.3f} ms/call" if calls else " " * 16
         return (f"{indent}{'  ' * depth}{label:<{max(1, 20 - 2 * depth)}} "
-                f"{ns / 1e9:9.3f}s {calls:>8} calls {per}  {share} of feed"
+                f"{ns / 1e9:9.3f}s {calls:>8} calls {per}  {share} of {of}"
                 + (f"  max {max_ns / 1e6:.1f} ms" if max_ns is not None else ""))
 
     out: list[str] = []
