@@ -56,7 +56,11 @@ from pathlib import Path
 
 import numpy as np
 
-ABILITY_PHASE_VERSION = "ability-phases-0.2.0"
+# 0.3.0 (2026-10-03): the ally deaths come from `checks.track_entries` with
+# its weld split [domain:killfeed/entry-lifetime]: two ally entries welded in
+# one slot count as two deaths (over the 21 Riot-scored matches, ten more
+# counted ally tracks, at Riot ally deaths the welds had hidden).
+ABILITY_PHASE_VERSION = "ability-phases-0.3.0"
 
 #: The empty gap measured on 2026-09-09 between the two appearance modes of the
 #: 71 labelled sonic sensors: 24 at contrast 122-175, 47 at 231-241.

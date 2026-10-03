@@ -126,7 +126,9 @@ class SessionEntries(unittest.TestCase):
         """bdfdcf009dba 294.0 s: the player's kill entry (divider 233) expired,
         and a later entry in its slot (227, then 223) ran on in its track; the
         entry's last divider disagreed with the kill's and the kill went
-        unmarked."""
+        unmarked. The weld split now cuts that track at the empty samples
+        [domain:killfeed/entry-lifetime], so the kill keeps its own entry and
+        the later one stands apart."""
         from reticle.adjudication.death import session_entries
         t = [float(x) for x in range(0, 10001, 500)]
         div = [233 if x <= 4500 else 0 if x < 6000 else 227 if x == 6000 else 223 for x in t]
@@ -138,7 +140,7 @@ class SessionEntries(unittest.TestCase):
                "kf_death_mask": [0] * len(t)}
         got = session_entries(hud)
         self.assertEqual([(e["t_first"], e["t_last"], e["kf_player_kill"]) for e in got],
-                         [(0.0, 10000.0, True)])
+                         [(0.0, 4500.0, True), (6000.0, 10000.0, False)])
 
     def test_an_entry_unread_at_its_onset_takes_its_tracks_first_read_side(self):
         """bdfdcf009dba 672.0 s: Evan -> TunaNoCrust appears in slot 3 under

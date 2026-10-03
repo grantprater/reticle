@@ -78,6 +78,13 @@ KF_ENTRY_MIN_LIFE_MS = 1_500
 # across sessions it wanders by at most 3 px. Two different entries sharing a
 # slot are tens of pixels apart. 6 px sits well clear of both.
 KF_SIG_TOL = 6
+# How long one entry stays on screen, and the bound beyond which a read is no
+# longer its own timer [domain:killfeed/entry-lifetime]. A counted track that
+# spans more than LIFE + TOL is two entries welded into one slot, unless the
+# feed was held [domain:killfeed/post-round-kill-persists]; `_weld_cuts`
+# splits it. Lives here are `span + step`: n samples show a life of n steps.
+KF_ENTRY_LIFE_MS = 5_000
+KF_ENTRY_LIFE_TOL_MS = 500
 
 # Scoreboard K/D read off the end-of-match screen, keyed by session. This is the
 # only external ground truth in the project -- everything else here is a
@@ -205,6 +212,93 @@ def sample_step_ms(times, default: float = 500.0) -> float:
     return float(np.median(d)) if d.size else float(default)
 
 
+def _weld_cuts(ts, sigs, step: float, lo: int, hi: int) -> list[tuple[int, str]]:
+    """Where to cut reads `lo:hi` of one track into entries that each fit one
+    life [domain:killfeed/entry-lifetime]: `(index, rule)` pairs, the cut
+    falling before `ts[index]`.
+
+    Reads that span no more than LIFE + TOL are one entry. Over it, the cut
+    goes where the evidence puts it:
+
+      gap      -- a sample the track missed. Its largest gap whose two sides
+                  each fit one life, else its largest gap; each side is cut
+                  again while it outlives an entry.
+      divider  -- no gap, and the reads fit two full lives back to back: the
+                  cut, among those leaving each side one life, where the
+                  divider column steps furthest between the two sides' means
+                  (9acf02f98283 1661.0 s, 246 px to 243 px).
+      life     -- the same, when the means differ by under 1 px: the cut
+                  nearest one life from the track's start.
+
+    A gapless track that is not two full lives is a held feed or a misread
+    [domain:killfeed/post-round-kill-persists], and stays whole.
+    """
+    life, tol = KF_ENTRY_LIFE_MS, KF_ENTRY_LIFE_TOL_MS
+    span = lambda a, b: ts[b - 1] - ts[a]
+    if span(lo, hi) <= life + tol:
+        return []
+    fits = lambda a, b: span(a, b) <= life + tol
+    gaps = [k for k in range(lo + 1, hi) if ts[k] - ts[k - 1] > 1.5 * step]
+    if gaps:
+        k = max([g for g in gaps if fits(lo, g) and fits(g, hi)] or gaps,
+                key=lambda g: (ts[g] - ts[g - 1], -g))
+        return _weld_cuts(ts, sigs, step, lo, k) + [(k, "gap")] + _weld_cuts(ts, sigs, step, k, hi)
+    full = lambda a, b: life - tol <= span(a, b) + step <= life + tol
+    cands = [k for k in range(lo + 1, hi) if full(lo, k) and full(k, hi)]
+    if not cands:
+        return []
+
+    def step_px(k) -> float:
+        a = [s for s in sigs[lo:k] if s is not None]
+        b = [s for s in sigs[k:hi] if s is not None]
+        return abs(float(np.mean(a)) - float(np.mean(b))) if a and b else 0.0
+
+    k = max(cands, key=lambda k: (step_px(k), -abs(span(lo, k) + step - life)))
+    return [(k, "divider" if step_px(k) >= 1 else "life")]
+
+
+def _split_weld(track: dict, step: float, use_sides: bool) -> list[dict]:
+    """`track` cut at `_weld_cuts`, each piece rebuilt from its own reads; the
+    pieces carry `weld = {"t_first", "cuts": [(t, rule), ...]}` naming the
+    welded track and every cut made in it."""
+    reads = track.pop("_reads")
+    ts = [t for t, _, _ in track["assigned"]]
+    cuts = _weld_cuts(ts, [r[0] for r in reads], step, 0, len(ts))
+    if not cuts:
+        return [track]
+    weld = {"t_first": track["t_first"], "cuts": [(ts[k], rule) for k, rule in cuts]}
+    bounds = [0, *(k for k, _ in cuts), len(ts)]
+    pieces = []
+    for a, b in zip(bounds, bounds[1:]):
+        rs, asg = reads[a:b], track["assigned"][a:b]
+        hits: dict = {}
+        for r in rs:
+            for name, v in r[3].items():
+                hits[name] = hits.get(name, 0) + v
+        sig = next((r[0] for r in reversed(rs) if r[0]), None)
+        p = {"t_first": asg[0][0], "t_last": asg[-1][0], "slot": asg[-1][1],
+             "slot_first": asg[0][1], "n_obs": len(asg), "sig": sig, "flag_hits": hits,
+             "assigned": asg, "weld": weld}
+        if use_sides:
+            p["side"] = next((r[1] for r in reversed(rs) if r[1] is not None), None)
+            p["one_colour"] = any(r[2] for r in rs)
+        pieces.append(p)
+    if "ended_by" in track:
+        pieces[-1]["ended_by"] = track["ended_by"]
+    # An unread divider agrees with anything, so the walk's joining it to the
+    # track was no evidence of an entry. A piece that read no divider while
+    # another piece of the same track did is that unevidenced remainder: a
+    # fading plate's last reads (587c15b07779 1560.0 s) or a phantom band in
+    # an empty slot (b3b9defb6fd7 slot 5, 1660.0 s, under four empty slots).
+    # A piece that lived a full life is an entry whose divider went unread
+    # throughout (e37fdeca944f 499.5-504.0 s) and stays.
+    if any(p["sig"] for p in pieces):
+        for p in pieces:
+            p["weld_fragment"] = not p["sig"] and (
+                p["t_last"] - p["t_first"] + step < KF_ENTRY_LIFE_MS - KF_ENTRY_LIFE_TOL_MS)
+    return pieces
+
+
 def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[dict]:
     """Follow each entry across frames; one dict per distinct entry.
 
@@ -267,6 +361,21 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[d
     detection, the rule `new`, `nearest` or `stack_rise`, so the walk can say
     why a detection joined the track it did; the track whose slot a risen
     entry took ends there and carries `ended_by = "stack_rise"`.
+
+    **No track outlives one entry** [domain:killfeed/entry-lifetime]. When an
+    entry expires and the next one in its slot agrees in divider and victim
+    side, the walk joins them: at 043bafca271a slot 0 one track ran
+    820.0-830.5 s, divider 234 then, after two empty samples, 236, and Riot's
+    second kill there went unmatched. After the walk, `_weld_cuts` cuts any
+    track that spans more than one life: at a sample the slot missed, else,
+    where the reads fit two full lives back to back, at the divider's step or
+    one life in. A gapless track of any other length is a held feed
+    [domain:killfeed/post-round-kill-persists] and stays whole. Each piece is
+    rebuilt from its own reads and carries `weld`, the welded track's
+    `t_first` and every cut with its rule (`gap`, `divider`, `life`). A piece
+    shorter than one life that read no divider while another piece did is
+    refused as `weld_fragment`: only an unread divider, which agrees with
+    anything, put those reads on the track.
     """
     active: list[dict] = []
     done: list[dict] = []
@@ -392,16 +501,18 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[d
                         retired.add(bi)
                     bi = min(risen, key=near)
                     rule = "stack_rise"
+            read = (sig, side, one_colour, flagged(slot))
             if bi is None:
                 active.append({"t_first": t, "t_last": t, "slot": slot, "slot_first": slot,
                                "n_obs": 1, "sig": sig, "flag_hits": flagged(slot),
-                               "assigned": [(t, slot, rule)]})
+                               "assigned": [(t, slot, rule)], "_reads": [read]})
                 if use_sides:
                     active[-1]["side"] = side
                     active[-1]["one_colour"] = one_colour
                 used.add(len(active) - 1)
             else:
                 active[bi]["assigned"].append((t, slot, rule))
+                active[bi]["_reads"].append(read)
                 hits = active[bi]["flag_hits"]
                 for k, v in flagged(slot).items():
                     hits[k] = hits.get(k, 0) + v
@@ -416,6 +527,7 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[d
             done.extend(active[ai] for ai in sorted(retired))
             active = [a for ai, a in enumerate(active) if ai not in retired]
     done.extend(active)
+    done = [p for a in done for p in _split_weld(a, step, use_sides)]
     done.sort(key=lambda a: a["t_first"])
     for a in done:
         a["span_ms"] = a["t_last"] - a["t_first"]
@@ -425,6 +537,7 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[d
         a["refused"] = (
             "single_frame" if a["n_obs"] < KF_MIN_OBS
             else "no_persistence" if a["life_ms"] < KF_ENTRY_MIN_LIFE_MS
+            else "weld_fragment" if a.get("weld_fragment")
             else None
         )
         a["counted"] = a["refused"] is None
