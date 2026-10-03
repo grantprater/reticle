@@ -46,10 +46,50 @@ axes is checked on data, not assumed: `--axes` scores both.
 Matching tolerances
 -------------------
 A Riot kill matches a stored death within `MATCH_TOL_MS` of the aligned time,
-one to one, nearest first. The killfeed is sampled at 2 Hz, so a correct
-entry lands 0-500 ms after the aligned instant plus render jitter; the
-residual histogram (printed) shows where the tail begins. Teammates match
-stored pieces within `GATE_M` metres, one to one, nearest first.
+one to one. The killfeed is sampled at 2 Hz, so a correct entry lands 0-500
+ms after the aligned instant plus render jitter; the residual histogram
+(printed) shows where the tail begins. Teammates match stored pieces within
+`GATE_M` metres, one to one, nearest first.
+
+Pairing deaths (0.2.0) runs in passes, and each pass reports its count:
+
+1. time: the one-to-one assignment within `MATCH_TOL_MS` that pairs the most
+   kills, least total time error first (`linear_sum_assignment`).
+2. name reassignment: among the assignments that pair as many, the one whose
+   stored victim and killer names agree most with Riot's. Two kills one
+   killfeed sample apart cannot be ordered by time.
+3. name pass: leftovers within `NAME_PAIR_TOL_MS` paired by victim name, and by
+   killer name when both name one; an entry first seen seconds late.
+
+Passes 2 and 3 REST ON THE PIPELINE'S OWN NAMES. A pair they made scores an
+agreeing name as `paired_by_name`, never as right; agreement there is
+consistency, not accuracy. A disagreeing name still scores wrong.
+
+What Riot's record omits by design (0.2.0)
+------------------------------------------
+* A Phoenix Run It Back death is no kill in Riot's record
+  [domain:rounds/resurrection-mechanics]: a stored `is_second_life` death is
+  counted apart (`second_life_entries`), neither false nor right.
+* A self-kill (spike, fall: Riot's killer is the victim) draws no killer
+  [domain:killfeed/environmental-self-entry]: an unnamed stored killer scores
+  `killer_not_applicable`, not refused.
+* Agent weapons valorant-api's weapon list lacks (Chamber's, Neon's) score as
+  unmappable and list their full item ids (`unmappable_items`).
+
+The minimap truth at a kill
+---------------------------
+`MINIMAP_LAG_MS` was fitted on the self icon so that the frame read at
+`a + MINIMAP_LAG_MS + gameTime` shows the game at `gameTime`: the frame is
+450 ms before the killfeed's first sample in capture time but at the kill
+instant in game time. Every player alive at that instant is drawn, the
+victim included: Riot's `playerLocations` lists the living after the kill,
+so the victim of every kill at that `gameTime` joins at its
+`victimLocation`. The death turns the icon into its X at the same place, one
+thing for reading [domain:minimap/death-icon-becomes-mark]. Victims of
+earlier kills stay out.
+
+`--legacy` restores any 0.1.0 rule (victim, second-life, pairing, self-kill)
+so each fix's effect can be measured alone.
 """
 from __future__ import annotations
 
@@ -65,7 +105,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-RIOT_TRUTH_VERSION = "riot-truth-0.1.0"
+RIOT_TRUTH_VERSION = "riot-truth-0.2.0"
 STORE = Path.home() / "reticle-store"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -78,6 +118,11 @@ ALIGN_STEP_MS = 250.0
 MATCH_TOL_MS = 1500.0
 #: Two Riot kills closer than this are ambiguous for a time-only assignment.
 AMBIGUOUS_MS = 500.0
+#: The name pass pairs leftovers this far apart: the triage found entries
+#: first seen 1.7-4.2 s after the aligned kill, same victim.
+NAME_PAIR_TOL_MS = 5000.0
+#: 0.1.0 rules `--legacy` can restore, one per fix.
+LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill")
 #: The minimap read time relative to the killfeed-fitted offset. The fit's
 #: offset includes about half a killfeed step of sampling lag plus the feed's
 #: render delay. Measured with `--scan-lag` on the self icon (three sessions,
@@ -135,8 +180,10 @@ def weapon_name(fd: dict, killer_agent: str | None, ref: Reference) -> tuple[str
     """Riot's finishing damage as the name our gallery uses, and its kind.
 
     Kinds: `weapon`, `ability`, `melee`, `bomb`, `fall`, or `unmapped` for a
-    weapon item valorant-api does not list (agent weapons such as Chamber's),
-    which is cross-tabulated but not scored.
+    weapon item valorant-api does not list (agent weapons such as Chamber's
+    and Neon's), which is cross-tabulated but not scored. The unmapped name
+    carries the full item id, so the report lists what no cached table names;
+    no mapping is guessed by hand.
     """
     from reticle.adjudication.weapon import ABILITY_CANONICAL_NAMES
 
@@ -146,7 +193,7 @@ def weapon_name(fd: dict, killer_agent: str | None, ref: Reference) -> tuple[str
         name = ref.weapons.get(item.lower())
         if name:
             return name, "weapon"
-        return f"unmapped:{killer_agent}:{item[:8] or 'empty'}", "unmapped"
+        return f"unmapped:{killer_agent}:{item or 'empty'}", "unmapped"
     if dt == "Ability":
         slot = ABILITY_SLOT.get(item)
         stem = (killer_agent or "").replace("/", "_")
@@ -426,6 +473,43 @@ def stored_deaths(store_root: Path, sid: str, deaths_from: Path | None = None) -
             if r.get("kind") == "death_verdict"]
 
 
+def split_deaths(deaths: list[dict], legacy=()) -> tuple[list[dict], list[dict]]:
+    """(rows Riot may list as kills, second-life rows counted apart).
+
+    Revive entries are not kills; Riot lists kills only. A Run It Back death
+    is no kill in Riot's record either [domain:rounds/resurrection-mechanics]:
+    it is counted apart, never false and never right. `legacy` holding
+    `second-life` keeps it among the kills, as 0.1.0 did.
+    """
+    kill_like = [r for r in deaths if not r.get("is_revive")]
+    if "second-life" in set(legacy or ()):
+        return kill_like, []
+    return ([r for r in kill_like if not r.get("is_second_life")],
+            [r for r in kill_like if r.get("is_second_life")])
+
+
+def truth_locations(k: dict, dying_at: dict, legacy_victim: bool = False) -> dict:
+    """Subject -> location record of every player drawn at kill `k`'s frame.
+
+    The frame shows the game at k's instant (see the module docstring), so
+    every victim dying at that instant is still drawn, its icon or its X at
+    its `victimLocation`, one thing for reading
+    [domain:minimap/death-icon-becomes-mark]; Riot's `playerLocations` lists
+    only the living after the kill. Victims of earlier kills stay out. An
+    added victim carries `victim_added` and no view angle. `dying_at` maps
+    `(round, gameTime)` to the kills at that instant.
+    """
+    locs = {p["subject"]: p for p in k["playerLocations"]}
+    if legacy_victim:
+        locs.pop(k["victim"], None)
+        return locs
+    for kk in dying_at.get((k["round"], k["gameTime"]), ()):
+        if kk["victim"] not in locs and kk.get("victimLocation"):
+            locs[kk["victim"]] = {"subject": kk["victim"], "location": kk["victimLocation"],
+                                  "viewRadians": None, "victim_added": True}
+    return locs
+
+
 def near_any(sorted_ts, t, tol) -> bool:
     k = bisect.bisect_left(sorted_ts, t - tol)
     return k < len(sorted_ts) and sorted_ts[k] <= t + tol
@@ -506,8 +590,8 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
         # K/D against the scoreboard's known values needs no stored death
         out["kd"] = score_kd(sid, m, me, kills, [], [], who, agent_of, None, status_rec)
         return out
-    # Revive entries are not kills; Riot lists kills only.
-    kill_like = [r for r in deaths if not r.get("is_revive")]
+    legacy = set(getattr(opts, "legacy", None) or ())
+    kill_like, second_life = split_deaths(deaths, legacy)
     st = [float(r["t_ms"]) for r in kill_like]
     al = fit_alignment([k["gameTime"] for k in kills], st)
     out["align"] = {k: v for k, v in al.items() if k != "pairs"}
@@ -535,8 +619,13 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
 
     # -- deaths
     out["deaths"], out["death_rows"] = score_deaths(kills, kill_like, pairs, who, agent_of,
-                                                     my_team, ref, a)
-    out["deaths"]["revive_entries"] = len(deaths) - len(kill_like)
+                                                     my_team, ref, a, legacy=legacy,
+                                                     match_tol=opts.match_tol)
+    out["deaths"]["revive_entries"] = sum(1 for r in deaths if r.get("is_revive"))
+    out["deaths"]["second_life_entries"] = len(second_life)
+    out["deaths"]["second_life"] = [{"t_ms": r["t_ms"], "death_id": r.get("death_id"),
+                                     "victim": r.get("victim"), "killer": r.get("killer")}
+                                    for r in second_life]
 
     # -- K/D for the player and per player
     out["kd"] = score_kd(sid, m, me, kills, kill_like, pairs, who, agent_of, my_team, status_rec)
@@ -671,11 +760,12 @@ def reorder_clusters(pairs, kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS):
     keeps the permutation whose stored names agree most with Riot's (ties keep
     the time order). The re-pairing RESTS ON the stored names, so name scores
     on clustered pairs are an upper bound; the unambiguous pairs carry the
-    headline. Recall and precision do not change.
+    headline. Recall and precision do not change. The 0.1.0 rule, kept for
+    `--legacy pairing`; `pair_deaths` replaces it.
     """
     from itertools import permutations
 
-    by_i = {i: (j, dt) for i, j, dt in pairs}
+    by_i = {p[0]: (p[1], p[2]) for p in pairs}
     order = sorted(by_i, key=lambda i: kills[i]["gameTime"])
     clusters, cur = [], []
     for i in order:
@@ -711,9 +801,116 @@ def reorder_clusters(pairs, kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS):
     return out, clustered
 
 
-def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a) -> tuple[dict, list]:
-    pairs, clustered = reorder_clusters(pairs, kills, deaths, agent_of, a)
+def is_self_kill(k: dict) -> bool:
+    """Riot names no other killer: the spike, a fall [domain:killfeed/environmental-self-entry]."""
+    return not k.get("killer") or k.get("killer") == k["victim"]
+
+
+def _name_agree(k: dict, s: dict, agent_of) -> tuple[bool, bool | None]:
+    """(victim names agree, killer names agree or None where either is unnamed)."""
+    v = s.get("victim") is not None and canon(s.get("victim")) == canon(agent_of.get(k["victim"]))
+    kt = agent_of.get(k.get("killer")) if k.get("killer") else None
+    if s.get("killer") is None or kt is None:
+        return v, None
+    return v, canon(s.get("killer")) == canon(kt)
+
+
+def _assign(n_i: int, n_j: int, cost: dict) -> list[tuple[int, int]]:
+    """The one-to-one assignment over the candidate edges `cost[(i, j)]`
+    (all negative) that minimises their sum; non-candidates never pair."""
+    if not cost:
+        return []
+    import numpy as np
+    from scipy.optimize import linear_sum_assignment
+
+    m = np.zeros((n_i, n_j))
+    for (i, j), c in cost.items():
+        m[i, j] = c
+    rows, cols = linear_sum_assignment(m)
+    return [(int(i), int(j)) for i, j in zip(rows, cols) if (int(i), int(j)) in cost]
+
+
+def pair_deaths(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
+                name_tol_ms=NAME_PAIR_TOL_MS) -> tuple[list, dict]:
+    """Riot kills to stored deaths in three passes; `(i, j, dt, how)` with
+    `how` one of `time`, `name_reassigned`, `name_pass`.
+
+    Each assignment is lexicographic: most pairs first, then (for the name
+    passes) most agreeing names, then least total |dt|. The time pass decides
+    which pairs exist; the name reassignment may only choose among
+    assignments that pair as many, and a pair it chose that the time pass did
+    not make is `name_reassigned`. The name pass pairs leftovers within
+    `name_tol_ms` whose victim names agree and whose killer names do not
+    disagree. Passes 2 and 3 rest on the stored names; `score_deaths` never
+    scores an agreeing name on such a pair as right.
+    """
+    ni, nj = len(kills), len(deaths)
+    x = [a + k["gameTime"] for k in kills]
+    t = [float(s["t_ms"]) for s in deaths]
+    big, mid = 1e12, 1e7
+    near = {}
+    for i in range(ni):
+        for j in range(nj):
+            d = t[j] - x[i]
+            if abs(d) <= tol_ms:
+                near[(i, j)] = d
+    agree = {}
+    for (i, j) in near:
+        v, kl = _name_agree(kills[i], deaths[j], agent_of)
+        agree[(i, j)] = int(v) + int(bool(kl))
+    timed = set(_assign(ni, nj, {e: -big + abs(d) for e, d in near.items()}))
+    named = _assign(ni, nj, {e: -big - mid * agree[e] + abs(d) for e, d in near.items()})
+    out = [(i, j, near[(i, j)], "time" if (i, j) in timed else "name_reassigned")
+           for i, j in named]
+    used_i = {i for i, *_ in out}
+    used_j = {j for _i, j, *_ in out}
+    left = {}
+    for i in range(ni):
+        if i in used_i:
+            continue
+        for j in range(nj):
+            if j in used_j:
+                continue
+            d = t[j] - x[i]
+            if abs(d) > name_tol_ms:
+                continue
+            v, kl = _name_agree(kills[i], deaths[j], agent_of)
+            if v and kl is not False:
+                left[(i, j)] = (d, int(bool(kl)))
+    for i, j in _assign(ni, nj, {e: -big - mid * ka + abs(d) for e, (d, ka) in left.items()}):
+        out.append((i, j, left[(i, j)][0], "name_pass"))
+    stats = {"pairs_time_greedy": len(match_times(x, t, 0.0, 1.0, tol_ms)),
+             "pairs_time": len(timed),
+             "pairs_time_kept": sum(1 for p in out if p[3] == "time"),
+             "pairs_name_reassigned": sum(1 for p in out if p[3] == "name_reassigned"),
+             "pairs_name_pass": sum(1 for p in out if p[3] == "name_pass")}
+    return out, stats
+
+
+def _ambiguous(pairs, kills) -> set:
+    """Kills of pairs within `AMBIGUOUS_MS` of another paired kill."""
+    order = sorted({p[0] for p in pairs}, key=lambda i: kills[i]["gameTime"])
+    amb = set()
+    for p, q in zip(order, order[1:]):
+        if kills[q]["gameTime"] - kills[p]["gameTime"] < AMBIGUOUS_MS:
+            amb |= {p, q}
+    return amb
+
+
+def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=(),
+                 match_tol=MATCH_TOL_MS) -> tuple[dict, list]:
+    legacy = set(legacy or ())
+    if "pairing" in legacy:
+        pairs, clustered = reorder_clusters(pairs, kills, deaths, agent_of, a, match_tol)
+        pairs = [(i, j, dt, "time") for i, j, dt in pairs]
+        pstats = {"pairs_time": len(pairs)}
+    else:
+        pairs, pstats = pair_deaths(kills, deaths, agent_of, a, match_tol)
+        clustered = _ambiguous(pairs, kills)
     out = {"riot_kills": len(kills), "stored_deaths": len(deaths), "matched": len(pairs)}
+    out.update(pstats)
+    out["missed"] = len(kills) - len(pairs)
+    out["false_deaths"] = len(deaths) - len(pairs)
     out["recall"] = len(pairs) / len(kills) if kills else None
     out["precision"] = len(pairs) / len(deaths) if deaths else None
     c = Counter()
@@ -722,36 +919,51 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a) -> tuple[
     jitter = []
     rows = []
     # recall by Riot's damage kind: a reader can miss one kind of entry whole
-    got_i = {i for i, _j, _dt in pairs}
+    got_i = {p[0] for p in pairs}
+    unmappable = Counter()
     for i, k in enumerate(kills):
         kl = agent_of.get(k["killer"]) if k.get("killer") else None
-        kind = weapon_name(k.get("finishingDamage"), kl, ref)[1]
+        wname, kind = weapon_name(k.get("finishingDamage"), kl, ref)
         c[f"riot_kind_{kind}"] += 1
         c[f"matched_kind_{kind}"] += int(i in got_i)
-    for i, j, dt in pairs:
+        if kind == "unmapped":
+            unmappable[wname] += 1
+    for i, j, dt, how in pairs:
         k, s = kills[i], deaths[j]
         jitter.append(dt)
         amb = i in clustered
+        by_name = how != "time"
         v_true = agent_of.get(k["victim"])
         kl_true = agent_of.get(k["killer"]) if k.get("killer") else None
+        self_kill = "self-kill" not in legacy and is_self_kill(k)
         v_side = None if my_team is None else ("ally" if who[k["victim"]]["teamId"] == my_team else "enemy")
         meta = s.get("metadata") or {}
         for role, truth, got, idm in (("victim", v_true, s.get("victim"), meta.get("identity")),
                                       ("killer", kl_true, s.get("killer"), meta.get("killer_identity"))):
-            if got is None:
+            if role == "killer" and self_kill and got is None:
+                # no other player killed them; the entry draws no killer
+                c["killer_not_applicable"] += 1
+            elif got is None:
                 c[f"{role}_refused"] += 1
                 if not amb:
                     c[f"{role}_refused_unamb"] += 1
                 reasons[role][_refusal_of_identity(idm) or s.get("reason") or "none"] += 1
             elif canon(got) == canon(truth):
-                c[f"{role}_right"] += 1
-                if not amb:
-                    c[f"{role}_right_unamb"] += 1
+                # a pair the stored names chose cannot witness those names
+                if by_name:
+                    c[f"{role}_paired_by_name"] += 1
+                else:
+                    c[f"{role}_right"] += 1
+                    if not amb:
+                        c[f"{role}_right_unamb"] += 1
             else:
                 c[f"{role}_wrong"] += 1
                 if not amb:
                     c[f"{role}_wrong_unamb"] += 1
-        if v_side is not None and s.get("side") in ("ally", "enemy"):
+        if by_name and v_side is not None and s.get("side") == v_side:
+            # the victim name that chose the pair all but fixes its side
+            c["side_paired_by_name"] += 1
+        elif v_side is not None and s.get("side") in ("ally", "enemy"):
             c["side_right" if s["side"] == v_side else "side_wrong"] += 1
             if not amb:
                 c["side_right_unamb" if s["side"] == v_side else "side_wrong_unamb"] += 1
@@ -776,9 +988,9 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a) -> tuple[
         rows.append({"t_ms": s["t_ms"], "dt_ms": round(dt), "round": k["round"] + 1,
                      "victim": [v_true, s.get("victim")], "killer": [kl_true, s.get("killer")],
                      "weapon": [wtrue, got], "side": [v_side, s.get("side")], "ambiguous": amb,
-                     "death_id": s.get("death_id")})
-    matched_i = {i for i, _j, _ in pairs}
-    matched_j = {j for _i, j, _ in pairs}
+                     "paired_by": how, "self_kill": self_kill, "death_id": s.get("death_id")})
+    matched_i = {p[0] for p in pairs}
+    matched_j = {p[1] for p in pairs}
     misses = []
     for i, k in enumerate(kills):
         if i in matched_i:
@@ -798,6 +1010,7 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a) -> tuple[
     out.update(c)
     out["refusal_reasons"] = {k: dict(v) for k, v in reasons.items()}
     out["weapon_cross"] = {f"{t} -> {g}": n for (t, g), n in wcross.most_common()}
+    out["unmappable_items"] = dict(unmappable.most_common())
     out["jitter_ms"] = _summ(jitter)
     out["misses"] = misses
     out["false"] = false
@@ -936,6 +1149,7 @@ def score_minimap(sid, store_root, kills, a, mf: MapFrame, who, agent_of, me, my
 
     c = Counter()
     miss_rows = []
+    victim_rows = []
     reader_err, reader_fac = [], defaultdict(list)
     has_tracker = (Path(store_root) / "events" / "round_entity" / f"{sid}.jsonl").is_file()
     out["tracker"] = "round_entity" if has_tracker else "no_round_entity_stream"
@@ -943,6 +1157,10 @@ def score_minimap(sid, store_root, kills, a, mf: MapFrame, who, agent_of, me, my
     enemy_err = []
     id_reasons = Counter()
     rows = []
+    legacy_victim = "victim" in (getattr(opts, "legacy", None) or ())
+    dying_at = defaultdict(list)
+    for k in kills:
+        dying_at[(k["round"], k["gameTime"])].append(k)
     for k in kills:
         t = a + k["gameTime"] + lag
         f = frame_at(t)
@@ -953,17 +1171,32 @@ def score_minimap(sid, store_root, kills, a, mf: MapFrame, who, agent_of, me, my
             c["kill_widget_not_drawn"] += 1
             continue
         c["kill_frames"] += 1
-        locs = {p["subject"]: p for p in k["playerLocations"]}
-        allies = [s for s, p in locs.items() if who[s]["teamId"] == my_team and s != k["victim"]]
-        foes = [s for s, p in locs.items() if who[s]["teamId"] != my_team and s != k["victim"]]
+        locs = truth_locations(k, dying_at, legacy_victim)
+        for s, p in locs.items():
+            if p.get("victim_added"):
+                c["truth_victims_added"] += 1
+                c["truth_victims_added_ally"] += int(who[s]["teamId"] == my_team)
+        allies = [s for s in locs if who[s]["teamId"] == my_team]
+        foes = [s for s in locs if who[s]["teamId"] != my_team]
         # self, from the ally reader's self fit
-        if me in locs and f in self_by_frame:
+        # (the living player only: a dying self icon may already mark the spectated)
+        if me in locs and f in self_by_frame and not locs[me].get("victim_added"):
             px = mf.to_px(locs[me]["location"]["x"], locs[me]["location"]["y"])
             self_err.append(math.hypot(px[0] - self_by_frame[f][0], px[1] - self_by_frame[f][1]))
         pieces = [o for o in obs.get(f, []) if o.get("family") in ("ally", "self")]
         truth_px = [mf.to_px(locs[s]["location"]["x"], locs[s]["location"]["y"]) for s in allies]
         got_px = [(o["x"], o["y"]) for o in pieces]
         pr = greedy_pairs(truth_px, got_px, gate)
+        for i, j, dd in pr:
+            if not locs[allies[i]].get("victim_added"):
+                continue
+            # a dying victim the 0.1.0 truth left out, now matched
+            c["truth_victims_matched"] += int(has_tracker)
+            if len(victim_rows) < 400:
+                victim_rows.append({"t_ms": round(t), "frame": f, "agent": agent_of.get(allies[i]),
+                                    "truth_px": [round(v, 1) for v in truth_px[i]],
+                                    "piece_px": [round(v, 1) for v in got_px[j]],
+                                    "dist_px": round(dd, 2)})
         c["riot_allies"] += len(allies)
         if has_tracker:
             c["tracker_riot_allies"] += len(allies)
@@ -994,7 +1227,7 @@ def score_minimap(sid, store_root, kills, a, mf: MapFrame, who, agent_of, me, my
         c["reader_icons"] += len(own) + len(sf)
         for i, j, dd in rpr:
             reader_err.append(dd)
-            if j < len(own) and own[j][2] is not None:
+            if j < len(own) and own[j][2] is not None and locs[allies[i]]["viewRadians"] is not None:
                 loc = locs[allies[i]]
                 for name, fn in FACING_CONVENTIONS.items():
                     tdeg = mf.facing_deg(loc["location"]["x"], loc["location"]["y"],
@@ -1016,7 +1249,10 @@ def score_minimap(sid, store_root, kills, a, mf: MapFrame, who, agent_of, me, my
             else:
                 c["id_wrong"] += 1
             fdeg = facing.get(o.get("observation_key"))
-            if fdeg is not None:
+            if locs[s]["viewRadians"] is None:
+                # a victim's record carries no view angle
+                c["facing_no_truth"] += 1
+            elif fdeg is not None:
                 loc = locs[s]
                 for name, fn in FACING_CONVENTIONS.items():
                     tdeg = mf.facing_deg(loc["location"]["x"], loc["location"]["y"],
@@ -1040,6 +1276,7 @@ def score_minimap(sid, store_root, kills, a, mf: MapFrame, who, agent_of, me, my
                      "matched": len(pr)})
     out.update(c)
     out["miss_rows"] = miss_rows
+    out["victim_rows"] = victim_rows
     m2m = 1.0 / (mf.px_per_unit * 100.0)
     out["pos_err_px"] = _summ(pos_err)
     out["pos_err_m"] = None if not pos_err else round(statistics.median(pos_err) * m2m, 2)
@@ -1066,7 +1303,12 @@ POOL_KEYS_DEATH = ("riot_kills", "stored_deaths", "matched", "victim_right", "vi
                    "killer_wrong_unamb", "weapon_right", "weapon_wrong", "weapon_refused",
                    "weapon_unmapped_riot", "side_right", "side_wrong", "revive_entries",
                    "side_right_unamb", "side_wrong_unamb", "ambiguous_pairs",
-                   "victim_refused_unamb", "killer_refused_unamb")
+                   "victim_refused_unamb", "killer_refused_unamb",
+                   # 0.2.0: what the passes paired, and what is scored apart
+                   "missed", "false_deaths", "second_life_entries", "killer_not_applicable",
+                   "victim_paired_by_name", "killer_paired_by_name", "side_paired_by_name",
+                   "pairs_time_greedy",
+                   "pairs_time", "pairs_time_kept", "pairs_name_reassigned", "pairs_name_pass")
 POOL_KEYS_DEATH += tuple(f"{p}_kind_{k}" for p in ("riot", "matched")
                          for k in ("weapon", "ability", "unmapped", "bomb", "melee", "fall"))
 
@@ -1081,6 +1323,13 @@ def pool(results: list[dict], conv: str | None) -> dict:
     P["deaths"] = dict(D)
     P["deaths"]["recall"] = D["matched"] / D["riot_kills"] if D["riot_kills"] else None
     P["deaths"]["precision"] = D["matched"] / D["stored_deaths"] if D["stored_deaths"] else None
+    # time pairs only: the name passes rest on the stored names
+    tk = D["pairs_time_kept"] if D.get("pairs_time_kept") or D.get("pairs_name_pass")         or D.get("pairs_name_reassigned") else D["matched"]
+    P["deaths"]["recall_time_only"] = tk / D["riot_kills"] if D["riot_kills"] else None
+    um = Counter()
+    for r in ok:
+        um.update(r["deaths"].get("unmappable_items", {}))
+    P["deaths"]["unmappable_items"] = dict(um.most_common())
     for role in ("victim", "killer", "weapon"):
         n = D[f"{role}_right"] + D[f"{role}_wrong"]
         P["deaths"][f"{role}_right_of_named"] = D[f"{role}_right"] / n if n else None
@@ -1150,7 +1399,8 @@ def pool(results: list[dict], conv: str | None) -> dict:
                       "missed_outside_widget", "missed_stacked",
                       "store_pieces", "matched", "missed", "phantom", "id_right", "id_wrong",
                       "id_refused", "facing_unread", "enemy_frames", "enemy_store",
-                      "enemy_matched", "enemy_unmatched_store"):
+                      "enemy_matched", "enemy_unmatched_store", "truth_victims_added",
+                      "truth_victims_added_ally", "truth_victims_matched", "facing_no_truth"):
                 C[k] += mm.get(k, 0)
             pe += mm["pos_err_samples"]
             se += mm["self_err_samples"]
@@ -1372,6 +1622,17 @@ def print_pool(P: dict, conv):
              for k in ("weapon", "ability", "unmapped", "bomb", "melee", "fall")
              if d.get("riot_kind_" + k)]
     print("  recall by riot kind " + ", ".join(kinds))
+    print(f"  pairs: time {d.get('pairs_time_kept', d['matched'])} (time-only assignment "
+          f"{d.get('pairs_time', '-')}, greedy {d.get('pairs_time_greedy', '-')}), reassigned by name "
+          f"{d.get('pairs_name_reassigned', 0)}, name pass {d.get('pairs_name_pass', 0)}; name pairs rest "
+          f"on the stored names: victim/killer paired by name {d.get('victim_paired_by_name', 0)}/"
+          f"{d.get('killer_paired_by_name', 0)}, side {d.get('side_paired_by_name', 0)}, never counted right; "
+          f"recall on time pairs "
+          f"{d.get('recall_time_only')}")
+    print(f"  missed {d.get('missed')} false deaths {d.get('false_deaths')}; killer not applicable "
+          f"(self-kill) {d.get('killer_not_applicable', 0)}")
+    print(f"  second-life deaths: {d.get('second_life_entries', 0)}, Riot omits them by design")
+    print(f"  unmappable Riot items (no cached valorant-api name): {json.dumps(d.get('unmappable_items'))}")
     print(f"  refusal reasons {json.dumps(d['refusal_reasons'])}")
     print(f"  weapon cross (riot -> store) {json.dumps(d['weapon_cross_top'])}")
     print(f"rounds: {json.dumps(P['rounds'])}")
@@ -1386,6 +1647,8 @@ def print_pool(P: dict, conv):
               f"{G.get('id_right')}/{G.get('id_wrong')}/{G.get('id_refused')} pos {G['pos_err_px']} self "
               f"{G['self_err_px']} enemy {G['enemy_err_px']} ({G.get('enemy_matched')}/{G.get('enemy_store')}) "
               f"facing best {best[:2]} within30 {G.get('facing_within_30')} id refusals {G['id_refusal_reasons']}")
+        print(f"  dying victims added to the truth {G.get('truth_victims_added', 0)} (allies "
+              f"{G.get('truth_victims_added_ally', 0)}, matched {G.get('truth_victims_matched', 0)})")
         print(f"  tracker allies {G.get('tracker_riot_allies')}; reader pos {G.get('reader_pos_err_px')} reader facing "
               f"{(G.get('reader_facing_by_convention') or {}).get(conv)} within30 {G.get('reader_facing_within_30')}")
 
@@ -1420,6 +1683,9 @@ def main(argv=None) -> int:
     ap.add_argument("--no-status", action="store_true", help="skip status.collect (HUD K/D)")
     ap.add_argument("--facing", default="auto", help="viewRadians convention for the headline")
     ap.add_argument("--list-misses", action="store_true")
+    ap.add_argument("--legacy", default="",
+                    help="comma list of 0.1.0 rules to restore: " + ",".join(LEGACY_RULES)
+                         + " or all")
     ap.add_argument("--deaths-from", default=None,
                     help="score <dir>/events/death/<sid>.jsonl instead of the store's deaths")
     ap.add_argument("--record", action="store_true", help="append metrics to notes/metrics.jsonl")
@@ -1429,6 +1695,10 @@ def main(argv=None) -> int:
                          "round table; the plant graphic from the stored stream, the crop "
                          "cache, or none")
     args = ap.parse_args(argv)
+    leg = [x.strip() for x in args.legacy.split(",") if x.strip()]
+    args.legacy = set(LEGACY_RULES) if "all" in leg else set(leg)
+    if args.legacy - set(LEGACY_RULES):
+        ap.error(f"unknown --legacy rule {sorted(args.legacy - set(LEGACY_RULES))}")
     _below_normal()
 
     root = Path(args.store)
@@ -1465,7 +1735,7 @@ def main(argv=None) -> int:
         conv = min(fb, key=lambda n: (fb[n] or {}).get("median", 999)) if fb else None
     P = pool(results, conv)
     print_pool(P, conv)
-    print(f"facing convention used: {conv}")
+    print(f"facing convention used: {conv}; legacy rules {sorted(args.legacy) or 'none'}")
     if args.json:
         slim = []
         for r in results:

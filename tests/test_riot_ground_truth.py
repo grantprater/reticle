@@ -119,5 +119,175 @@ class PairsTest(unittest.TestCase):
         self.assertEqual(sorted((i, j) for i, j, _ in pr), [(0, 1), (1, 0)])
 
 
+class _Ref:
+    """A valorant-api stand-in: one weapon, no agent weapons."""
+    weapons = {"vandal-uuid": "Vandal"}
+
+
+GUN = {"damageType": "Weapon", "damageItem": "VANDAL-UUID"}
+AGENTS = {"a1": "Jett", "a2": "Sova", "b1": "Raze", "b2": "Omen"}
+WHO = {"a1": {"teamId": "Blue"}, "a2": {"teamId": "Blue"},
+       "b1": {"teamId": "Red"}, "b2": {"teamId": "Red"}}
+
+
+def _kill(g, victim, killer, rnd=0, fd=GUN):
+    return {"gameTime": g, "round": rnd, "victim": victim, "killer": killer,
+            "finishingDamage": fd}
+
+
+def _death(t, victim, killer, side=None, **kw):
+    return dict({"t_ms": t, "victim": victim, "killer": killer, "side": side,
+                 "weapon": "Vandal", "death_id": f"d{t}"}, **kw)
+
+
+def _score(kills, deaths, legacy=()):
+    pairs = rg.match_times([k["gameTime"] for k in kills], [d["t_ms"] for d in deaths],
+                           0.0, 1.0, rg.MATCH_TOL_MS)
+    out, _rows = rg.score_deaths(kills, deaths, pairs, WHO, AGENTS, "Blue", _Ref(), 0.0,
+                                 legacy=legacy)
+    return out
+
+
+class DeathPairingTest(unittest.TestCase):
+    """Fix 3: time first, then names, each pass counted apart."""
+
+    def test_time_pass_scores_names_right(self):
+        out = _score([_kill(10_000, "b1", "a1")], [_death(10_300, "Raze", "Jett", "enemy")])
+        self.assertEqual(out["pairs_time_kept"], 1)
+        self.assertEqual(out["victim_right"], 1)
+        self.assertEqual(out["killer_right"], 1)
+        self.assertEqual(out.get("victim_paired_by_name", 0), 0)
+
+    def test_late_entry_pairs_by_name_never_right(self):
+        # first seen 3.2 s late: past the time tolerance, same victim
+        kills = [_kill(10_000, "b1", "a1")]
+        deaths = [_death(13_200, "Raze", "Jett", "enemy")]
+        legacy = _score(kills, deaths, legacy=("pairing",))
+        self.assertEqual((legacy["matched"], legacy["missed"], legacy["false_deaths"]), (0, 1, 1))
+        out = _score(kills, deaths)
+        self.assertEqual((out["matched"], out["missed"], out["false_deaths"]), (1, 0, 0))
+        self.assertEqual(out["pairs_name_pass"], 1)
+        self.assertEqual(out["victim_paired_by_name"], 1)
+        self.assertEqual(out["killer_paired_by_name"], 1)
+        self.assertEqual(out.get("side_paired_by_name"), 1)
+        for k in ("victim_right", "killer_right", "side_right"):
+            self.assertEqual(out.get(k, 0), 0, k)
+
+    def test_name_pass_needs_agreeing_killer(self):
+        out = _score([_kill(10_000, "b1", "a1")], [_death(13_200, "Raze", "Sova")])
+        self.assertEqual(out["matched"], 0)
+        # an unnamed killer does not block it, and scores refused
+        out = _score([_kill(10_000, "b1", "a1")], [_death(13_200, "Raze", None)])
+        self.assertEqual(out["pairs_name_pass"], 1)
+        self.assertEqual(out["killer_refused"], 1)
+
+    def test_name_pass_window(self):
+        out = _score([_kill(10_000, "b1", "a1")], [_death(15_500, "Raze", "Jett")])
+        self.assertEqual(out["matched"], 0)
+
+    def test_simultaneous_swap_is_reassigned_by_name(self):
+        # time alone pairs each kill with the other's entry
+        kills = [_kill(10_000, "b1", "a1"), _kill(10_100, "b2", "a2")]
+        deaths = [_death(10_000, "Omen", "Sova"), _death(10_100, "Raze", "Jett")]
+        legacy_free = _score(kills, deaths, legacy=("pairing",))
+        out = _score(kills, deaths)
+        self.assertEqual(out["pairs_name_reassigned"], 2)
+        self.assertEqual(out["victim_paired_by_name"], 2)
+        self.assertEqual(out.get("victim_right", 0), 0)
+        self.assertEqual(out.get("victim_wrong", 0), 0)
+        # 0.1.0 counted the name-chosen permutation as right
+        self.assertEqual(legacy_free["victim_right"], 2)
+
+    def test_name_pairing_keeps_a_wrong_name_wrong(self):
+        kills = [_kill(10_000, "b1", "a1"), _kill(10_100, "b2", "a2")]
+        # victims swapped in time; the second entry's killer is misread
+        deaths = [_death(10_000, "Omen", "Sova"), _death(10_100, "Raze", "Sova")]
+        out = _score(kills, deaths)
+        self.assertEqual(out["pairs_name_reassigned"], 2)
+        self.assertEqual(out["killer_wrong"], 1)
+        self.assertEqual(out["killer_paired_by_name"], 1)
+
+    def test_time_pass_pairs_as_many_as_greedy(self):
+        kills = [_kill(g, "b1", "a1") for g in (1000, 5000, 9000)]
+        deaths = [_death(t, None, None) for t in (1400, 5100, 9900)]
+        _p, stats = rg.pair_deaths(kills, deaths, AGENTS, 0.0)
+        self.assertEqual(stats["pairs_time"], stats["pairs_time_greedy"])
+        self.assertEqual(stats["pairs_time"], 3)
+
+
+class SecondLifeTest(unittest.TestCase):
+    """Fix 2: a Run It Back death is counted apart."""
+
+    def test_split(self):
+        rows = [_death(1, "Phoenix", "Raze", is_second_life=True), _death(2, "Raze", "Jett"),
+                _death(3, "Sage", None, is_revive=True)]
+        kill_like, apart = rg.split_deaths(rows)
+        self.assertEqual([r["t_ms"] for r in kill_like], [2])
+        self.assertEqual([r["t_ms"] for r in apart], [1])
+        kill_like, apart = rg.split_deaths(rows, legacy=("second-life",))
+        self.assertEqual([r["t_ms"] for r in kill_like], [1, 2])
+        self.assertEqual(apart, [])
+
+
+class SelfKillTest(unittest.TestCase):
+    """Fix 4: Riot's killer is the victim: no killer to read."""
+    SPIKE = {"damageType": "Bomb", "damageItem": ""}
+
+    def test_unnamed_killer_not_applicable(self):
+        kills = [_kill(10_000, "b1", "b1", fd=self.SPIKE)]
+        deaths = [_death(10_200, "Raze", None)]
+        out = _score(kills, deaths)
+        self.assertEqual(out["killer_not_applicable"], 1)
+        self.assertEqual(out.get("killer_refused", 0), 0)
+        old = _score(kills, deaths, legacy=("self-kill",))
+        self.assertEqual(old["killer_refused"], 1)
+
+    def test_named_killer_still_scored(self):
+        out = _score([_kill(10_000, "b1", "b1", fd=self.SPIKE)], [_death(10_200, "Raze", "Omen")])
+        self.assertEqual(out["killer_wrong"], 1)
+
+
+class UnmappableItemTest(unittest.TestCase):
+    """Fix 5: an item the cached table lacks is listed by its full id."""
+
+    def test_full_id(self):
+        fd = {"damageType": "Weapon", "damageItem": "856D9A7E-4B06-DC37-15DC-9D809C37CB90"}
+        name, kind = rg.weapon_name(fd, "Chamber", _Ref())
+        self.assertEqual(kind, "unmapped")
+        self.assertEqual(name, "unmapped:Chamber:856D9A7E-4B06-DC37-15DC-9D809C37CB90")
+        out = _score([_kill(10_000, "b1", "a1", fd=fd)], [_death(10_100, "Raze", "Jett")])
+        self.assertEqual(out["unmappable_items"], {name.replace("Chamber", "Jett"): 1})
+        self.assertEqual(out["weapon_unmapped_riot"], 1)
+
+
+class MinimapTruthTest(unittest.TestCase):
+    """Fix 1: the victims dying at the frame's instant are drawn."""
+
+    @staticmethod
+    def _k(g, victim, rnd=0, alive=("a1", "a2", "b1", "b2")):
+        return {"gameTime": g, "round": rnd, "victim": victim,
+                "victimLocation": {"x": g, "y": 1.0},
+                "playerLocations": [{"subject": s, "location": {"x": 0.0, "y": 0.0},
+                                     "viewRadians": 0.0} for s in alive if s != victim]}
+
+    def test_victim_and_simultaneous_victims_join(self):
+        early = self._k(4000, "a2", alive=("a1", "a2", "b1", "b2"))
+        k = self._k(5000, "b1", alive=("a1", "b1", "b2"))
+        twin = self._k(5000, "b2", alive=("a1", "b1", "b2"))
+        later = self._k(5000, "a1", rnd=1)          # another round, same game time
+        dying = {}
+        for x in (early, k, twin, later):
+            dying.setdefault((x["round"], x["gameTime"]), []).append(x)
+        locs = rg.truth_locations(k, dying)
+        self.assertEqual(set(locs), {"a1", "b1", "b2"})
+        self.assertTrue(locs["b1"]["victim_added"])
+        self.assertEqual(locs["b1"]["location"], {"x": 5000, "y": 1.0})
+        self.assertIsNone(locs["b1"]["viewRadians"])
+        # the earlier kill's victim stays dead
+        self.assertNotIn("a2", locs)
+        # 0.1.0 left the victim out
+        self.assertNotIn("b1", rg.truth_locations(k, dying, legacy_victim=True))
+
+
 if __name__ == "__main__":
     unittest.main()
