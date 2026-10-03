@@ -125,6 +125,26 @@ class Events(unittest.TestCase):
         self.assertEqual((rows[0]["frames"], rows[0]["graphic"], rows[0]["no_crop"]), (2, 1, 1))
         self.assertTrue(all(r["plant_graphic_version"] == pg.PLANT_GRAPHIC_VERSION for r in rows))
 
+    def test_stored_reads_round_trips_through_the_real_store(self):
+        # The stream's first row is its coverage row, which has no `t_ms`;
+        # `read_events_kind` returns it for the stamp, so `stored_reads`
+        # must keep only the samples (043bafca271a crashed `rounds` here).
+        import tempfile
+        from reticle.store import Store
+        reads = [(0, 0.0, pg.read_field(_crop(field_bgr=(20, 20, 220)))),
+                 (1, 500.0, pg.read_field(None)),
+                 (2, 1000.0, pg.read_field(_crop(digits=True)))]
+        rows = pg.graphic_events("s", reads, [1, 2, 3, 4], "roi-cache-0.1.0")
+        with tempfile.TemporaryDirectory() as d:
+            store = Store(d)
+            self.assertIsNone(pg.stored_reads(store, "s"))
+            store.write_events("plant_graphic", "s", rows)
+            got = pg.stored_reads(store, "s")
+        self.assertEqual(sorted(got), [0.0, 500.0, 1000.0])
+        self.assertTrue(all(r["kind"] == "sample" for r in got.values()))
+        self.assertTrue(pg.shows_graphic(got[0.0]))
+        self.assertEqual(got[500.0]["reason"], "no_crop")
+
 
 if __name__ == "__main__":
     unittest.main()
