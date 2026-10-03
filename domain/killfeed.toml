@@ -355,8 +355,10 @@ in the top slot is the oldest entry on screen, and the newest only when alone
 """
 exceptions = """
 the player thinks the stack may also rise when it reaches a maximum count, and
-does not know whether such a maximum exists. If it does, it is greater than
-four, so a rise without an expiry would be rare
+does not know whether such a maximum exists. If it does, the player expects it
+well above six (theoretically about ten, extraordinarily rare), with entries
+beyond the visible slots feeding up into them, so a rise without an expiry
+would be rare [domain:killfeed/stack-queue]
 """
 phrases = ["new entries arrive at the top", "killfeed stack direction"]
 
@@ -708,16 +710,18 @@ see = ["killfeed/revive-entries", "killfeed/kayo-downed-entry", "killfeed/entry-
 
 [entry-lifetime]
 claim = """
-A killfeed entry shows its content for about 4.97 s, after one blank plate
-frame as it slides in, so it stays about 5.0 s in all. Each entry runs its own
-timer from its arrival: the lifetime is the same at every slot it arrives in
-or expires from, and whether the player is alive or dead.
+A killfeed entry stays about 5 s; the player, asked, said probably 5 s. Measured,
+not stated by the player: the entry shows its content for about 4.97 s, after
+one blank plate frame as it slides in, so it stays about 5.0 s in all, and each
+entry runs its own timer from its arrival: the lifetime is the same at every
+slot it arrives in or expires from, and whether the player is alive or dead.
 """
 kind = "measurement"
-known = "measured"
+known = "player"
 since = "2026-10-02"
 source = """
-`prototypes/killfeed_queue_stats.py` over the killfeed crop cache of 21 match
+the player, 2026-10-02, confirming the measurement's 5 s with a hedge
+(probably). The measurement: `prototypes/killfeed_queue_stats.py` over the killfeed crop cache of 21 match
 sessions (2 Hz samples, no decode), entries tracked by appearance and kept only
 when the arrival and the expiry are seen, unobstructed, away from a round
 boundary, a stall, a menu and a session edge, and matched to a kill in Riot's
@@ -744,13 +748,15 @@ held feed; an entry gone well before 4.5 s was hidden or cleared, not expired
 exceptions = """
 entries hidden early by a full-screen state end short: a death-cam transition
 (043bafca271a 753.0-755.5 s), the round-transition wipe
-[domain:killfeed/round-clear], and uniform red-brown or green screens with
-diagonal streaks of unknown cause (587c15b07779 61.0 s, a06f04a0059f 1768.5 s,
-bfad2778a372 1960.0 s, c62c2b06bcfb 759.5 s). A few entries show content longer
-than 5.0 s with no stall found: 11 samples at bfad2778a372 1850.0 s and
+[domain:killfeed/round-clear], and the blind screens of Phoenix's Curveball
+[domain:abilities/phoenix-curveball-blind-screen] and Skye's Guiding Light
+[domain:abilities/skye-guiding-light-blind-screen]. A few entries show content
+longer than 5.0 s with no stall found: 11 samples at bfad2778a372 1850.0 s and
 ff636d173b07 239.5 s and 2674.5 s, 12 at 223d636bf8d2 751.5 s, and 14 at
-c62c2b06bcfb 1915.5 s, the last until the round wipe at 1922.5 s. Whether the
-game holds the feed once a round is decided is unknown; ask the player
+c62c2b06bcfb 1915.5 s, the last until the round wipe at 1922.5 s. A kill made
+after the round is decided persists until the wipe
+[domain:killfeed/post-round-kill-persists]; these long entries are unchecked
+against round times
 """
 phrases = ["killfeed entry lifetime", "how long a killfeed entry stays"]
 see = ["killfeed/stack-order", "killfeed/stack-queue", "killfeed/round-clear"]
@@ -831,7 +837,10 @@ empty slot below the stack, even across that gap
 exceptions = """
 the killfeed crop holds six slots (slot 6 would start at 249 px of a 265 px
 ROI), so a seventh entry, or a rise when a maximum is reached, cannot be seen
-in the cache: the maximum is 6 or more and unknown. A slide-in shows a blank
+in the cache: the maximum is 6 or more and unknown. The player does not know
+whether a maximum exists either, expects any maximum well above 6 (theoretically
+about 10, extraordinarily rare), and says entries beyond the visible slots feed
+up into them, so the six-slot crop sees every entry. A slide-in shows a blank
 plate first, and an expiring entry may fade over one sample, slightly raised
 """
 phrases = ["killfeed queue", "killfeed maximum entries"]
@@ -865,7 +874,38 @@ before it (a1a995e6b19b 1527.0 s, c40d950031bb 456.5 s, e37fdeca944f
 2116.0 s and b3b9defb6fd7 1755.0 s among them), yet
 [metric:killfeed_queue/stack@match21#span_pre_start_full=89] of
 [metric:killfeed_queue/stack@match21#span_pre_start_n=101] gap-free entries
-spanning 2.75 s before a clock reset lived 9 or more samples
+spanning 2.75 s before a clock reset lived 9 or more samples. Which entries
+reach the wipe: [domain:killfeed/post-round-kill-persists]
 """
 phrases = ["killfeed cleared at round end", "round transition wipe"]
-see = ["killfeed/entry-lifetime", "killfeed/stack-queue"]
+see = ["killfeed/entry-lifetime", "killfeed/stack-queue", "killfeed/post-round-kill-persists"]
+
+[post-round-kill-persists]
+claim = """
+The killfeed keeps its entries once a round is decided, until the
+round-transition wipe. A kill made after the round is decided persists until
+the wipe. The round-ending kill does not reach the wipe: the post-round phase
+lasts about 6 s or more, so that entry expires on its own timer of about 5 s
+first.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-02"
+source = """
+the player, 2026-10-02, answering whether the killfeed keeps entries once a
+round is decided, raised by the long entries in the exceptions of
+[domain:killfeed/entry-lifetime]
+"""
+use = """
+an entry from a kill after the round's decision may outlive the 5 s timer and
+end at the wipe; expect the round-ending kill's entry to expire before the wipe
+"""
+exceptions = """
+the player did not say whether a post-decision entry is held past its 5 s
+timer or simply never outlives the post-round phase; the long entries in
+[domain:killfeed/entry-lifetime]'s exceptions are unchecked against round
+decision times. The post-round phase's length is the player's estimate, not
+measured
+"""
+phrases = ["post-round kill persists", "killfeed holds after round decided"]
+see = ["killfeed/round-clear", "killfeed/entry-lifetime"]
