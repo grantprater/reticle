@@ -86,6 +86,9 @@ other:
 Store disagreements beside agreements. The record is evidence about the match,
 never a reader's prior: a result it shaped declares `rests_on`.
 
+The records label killfeed portraits offline in
+[KILLFEED_PORTRAIT_SEPARABILITY.md](KILLFEED_PORTRAIT_SEPARABILITY.md).
+
 ## Next step
 
 Align each record to its capture by fitting one offset from the

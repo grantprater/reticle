@@ -417,6 +417,12 @@ status = "recorded"
 since = "2026-09-30"
 
 [[document]]
+path = "docs/KILLFEED_PORTRAIT_SEPARABILITY.md"
+kind = "findings"
+status = "recorded"
+since = "2026-10-03"
+
+[[document]]
 path = "docs/ARBITER_ARCHITECTURE.md"
 kind = "plan"
 status = "proposed"

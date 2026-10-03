@@ -40,8 +40,14 @@ import time
 import numpy as np
 
 def _killfeed_reader(ctx):
+    from pathlib import Path
     from .killfeed import KillfeedPortraitReader
-    return KillfeedPortraitReader(ctx.profile, ctx.wh, mask=ctx.kf_mask(), hz=2.0, spans=None)
+    from .lineup import portrait_candidates
+    # `scan`'s inputs: the store's art, and the stored lineup's candidates.
+    cands, cands_from = portrait_candidates(ctx.session_id, ctx.store.root)
+    return KillfeedPortraitReader(ctx.profile, ctx.wh, mask=ctx.kf_mask(), hz=2.0, spans=None,
+                                  art_dir=Path(ctx.store.root) / "reference" / "assets" / "agents",
+                                  candidates=cands, candidates_from=cands_from)
 
 
 def _killfeed_rows(reader, sid: str) -> dict[str, list[dict]]:

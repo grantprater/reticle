@@ -154,7 +154,10 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # Clove); killer refused 88 -> 51, victim refused 75 -> 62. One victim turns
 # right -> refused: 223d636bf8d2 1868.5 s now reads Reyna for Clove, and the
 # board's collision contests Reyna at 1866.0 s.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.29.0"
+# 0.30.0 (2026-10-03): the portrait channel names from the art ZNCC
+# (killfeed-portrait-0.12.0, agent-identity-0.10.0), with a "none of them"
+# hypothesis; the two-view unanimous rule stands.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.30.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
