@@ -662,6 +662,51 @@ then keeps the element under the divider, never the whole name
 phrases = ["killfeed element spacing", "gap between killfeed elements"]
 see = ["killfeed/headshot-icon", "killfeed/weapon-slot-white-glyph"]
 
+[weapon-cell]
+claim = """
+A gun kill's weapon-slot icon sits centred in a cell between the killer's name
+and the plate's colour seam, and the weapon's class, not the icon's ink width,
+sets the cell. At 1080p, scale 1.0, name end to seam: Marshal, Operator,
+Outlaw and Ares about 151.5 px; Phantom, Vandal, Bulldog, Guardian, Bucky,
+Judge and Odin about 119.6 px; Stinger, Spectre, Ghost, Sheriff, Classic,
+Frenzy and Shorty about 87.3 px. Two guns have cells of their own: Bandit
+66.7 px, narrower than the other sidearms though its ink is wider (36.4 px,
+against Classic 28.3 and Frenzy 28.8), and Warden 110.6 px, narrower than
+Odin's 119.6 px cell though both inks are 84.6 px wide. The gap from the
+icon to a headshot or wallbang mark equals the gap from the name to the icon.
+The victim's name starts 7-8.6 px after the seam for every weapon.
+"""
+kind = "geometry"
+known = "measured"
+since = "2026-10-03"
+source = """
+sub-pixel name ends, icon extents and plate seams of gun-kill entries in the
+killfeed crop cache, by the scripts and rows under
+<store>/analysis/killfeed-weapon-cell-20261003/ (measure.py -> m40_t30.jsonl;
+seam_all.py -> seam_all.jsonl; models_seam.py; contact sheet sheet.png).
+Fitting name end to seam over 294 entries, per-class cells plus Bandit and
+Warden leave a median absolute residual of 0.50 px; fixed gaps round an icon
+of variable width leave 7.3 px. Name-to-icon gap less icon-to-seam gap:
+median -0.28 px. Bandit: 40 entries on 20 sessions, IQR 0.8 px. Warden: 12
+entries, all on 4f207c0c4e39. The player found the Bandit and Warden cells
+surprising, and that prompted this check
+"""
+use = """
+predicts where the weapon-slot icon and the victim's name lie once the
+killer's name end and the weapon class are known: the icon's centre at name
+end plus half the cell, the victim's name just past the seam
+"""
+exceptions = """
+measured at 1080p only; scale the cells as base px x widget scale, a rule no
+other scale has tested. Ability icons are unchecked: only Not Dead Yet and
+Resurrection were read, 63-64 px cells set off-centre (6-7 px left gap,
+14-15 px right gap). Every Warden sample comes from one capture
+"""
+values = { cell_px = { sniper = 151.5, rifle = 119.6, shotgun = 119.6, odin = 119.6, smg_sidearm = 87.3, bandit = 66.7, warden = 110.6 }, victim_after_seam_px = [7.0, 8.6] }
+phrases = ["killfeed weapon cell", "weapon cell width", "weapon class cell"]
+see = ["killfeed/killfeed-element-spacing", "killfeed/warden-icon",
+       "killfeed/headshot-icon", "killfeed/subpixel-placement"]
+
 [revive-ring]
 claim = """
 The thin white ring marks a revive-related ability, not an ultimate. A revive
