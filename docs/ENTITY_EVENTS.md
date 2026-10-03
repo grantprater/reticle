@@ -748,13 +748,15 @@ What stage 1 built, and where it differs from the text above:
   The spike layer no longer draws the spike reader's glyph frames; the
   lane holds the round table's plants and the carrier owner's losses.
 
-The first run on `bfad2778a372`: the death lane holds 162 consumer events
-[metric:entity_events/resolution/death@bfad2778a372#consumer_events=162]
+On `bfad2778a372`, after the 2026-10-03 rebuild of the lanes and deaths
+from storage (`death-adjudication-0.27.0`), the death lane holds 166
+consumer events
+[metric:entity_events/resolution/death@bfad2778a372#consumer_events=166]
 with resolved share
-[metric:entity_events/resolution/death@bfad2778a372#resolved_share=0.8482];
+[metric:entity_events/resolution/death@bfad2778a372#resolved_share=0.8691];
 the spike lane
-[metric:entity_events/resolution/spike@bfad2778a372#resolved_share=0.4444];
-the first run held every round_entity row in the ledger, most of them
+[metric:entity_events/resolution/spike@bfad2778a372#resolved_share=0.3077].
+The first run held every round_entity row in the ledger, most of them
 stale, because `round_entity` rested on `ally_icon` rows at
 `ally-icon-0.4.0` under code at `ally-icon-0.6.0`. After the `ally_icon`
 reread from the crop cache, `reticle vision`, `reticle lifetimes` and
