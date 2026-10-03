@@ -51,15 +51,35 @@ ms after the aligned instant plus render jitter; the residual histogram
 (printed) shows where the tail begins. Teammates match stored pieces within
 `GATE_M` metres, one to one, nearest first.
 
-Pairing deaths (0.2.0) runs in passes, and each pass reports its count:
+Pairing deaths (0.3.0) runs in passes, and each pass reports its count:
 
-1. time: the one-to-one assignment within `MATCH_TOL_MS` that pairs the most
-   kills, least total time error first (`linear_sum_assignment`).
-2. name reassignment: among the assignments that pair as many, the one whose
-   stored victim and killer names agree most with Riot's. Two kills one
-   killfeed sample apart cannot be ordered by time.
+1. order: Riot kills by `gameTime` and stored deaths by first-seen sample,
+   then slot, aligned without crossing (`align_in_order`): the most pairs
+   within `MATCH_TOL_MS`, then the least total time error. Two kills 200 ms
+   apart land in one 2 Hz sample, so time alone ties; the killfeed keeps
+   their order, since a new entry lands at the bottom and entries never pass
+   one another [domain:killfeed/stack-order], and the higher slot holds the
+   older entry. Either side may stay unpaired.
+2. name reassignment: only where time and order leave the pairing open
+   (`order_ambiguity`), the matching of that block whose stored names agree
+   most with Riot's. Open means two Riot kills at one `gameTime`; two
+   entries of one sample with unknown or equal slots; an entry first seen in
+   slot 0 while an earlier-seen entry is still on screen, which sits above
+   it, so the stack calls it the older and its first read late
+   (`order_contradictions`); or one sample holding a paired and an
+   unpaired entry, which pair the kill at the same time error. Those pairs
+   count as ambiguous, each with its reason; every other pair is
+   unambiguous.
 3. name pass: leftovers within `NAME_PAIR_TOL_MS` paired by victim name, and by
    killer name when both name one; an entry first seen seconds late.
+
+A death first seen late (its first slot occluded) may sort out of place; the
+stats count where the order pass and the 0.2.0 time-only pairing part, and
+whether the order partner's names agree more or less.
+
+0.2.0 paired by time alone (`linear_sum_assignment`) and let the stored
+names choose among every pair within `AMBIGUOUS_MS` of another;
+`--legacy order` restores it.
 
 Passes 2 and 3 REST ON THE PIPELINE'S OWN NAMES. A pair they made scores an
 agreeing name as `paired_by_name`, never as right; agreement there is
@@ -89,7 +109,8 @@ thing for reading [domain:minimap/death-icon-becomes-mark]. Victims of
 earlier kills stay out.
 
 `--legacy` restores any 0.1.0 rule (victim, second-life, pairing, self-kill)
-so each fix's effect can be measured alone.
+or the 0.2.0 time-only pairing (`order`) so each fix's effect can be
+measured alone.
 """
 from __future__ import annotations
 
@@ -105,7 +126,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-RIOT_TRUTH_VERSION = "riot-truth-0.2.0"
+RIOT_TRUTH_VERSION = "riot-truth-0.3.0"
 STORE = Path.home() / "reticle-store"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -116,13 +137,17 @@ ALIGN_STEP_MS = 250.0
 #: A Riot kill and a stored death match within this many ms after alignment.
 #: Two 500 ms killfeed samples plus render jitter either way; see `residuals`.
 MATCH_TOL_MS = 1500.0
-#: Two Riot kills closer than this are ambiguous for a time-only assignment.
+#: Two Riot kills closer than this are ambiguous for a time-only assignment
+#: (0.2.0, `--legacy order`); 0.3.0 calls a pair ambiguous only where the
+#: order is unknown (`order_ambiguity`).
 AMBIGUOUS_MS = 500.0
 #: The name pass pairs leftovers this far apart: the triage found entries
 #: first seen 1.7-4.2 s after the aligned kill, same victim.
 NAME_PAIR_TOL_MS = 5000.0
-#: 0.1.0 rules `--legacy` can restore, one per fix.
-LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill")
+#: Earlier rules `--legacy` can restore, one per fix: the 0.1.0 victim,
+#: second-life, pairing and self-kill rules, and `order`, the 0.2.0 time-only
+#: pairing (`pairing` wins where both are named).
+LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill", "order")
 #: The minimap read time relative to the killfeed-fitted offset. The fit's
 #: offset includes about half a killfeed step of sampling lag plus the feed's
 #: render delay. Measured with `--scan-lag` on the self icon (three sessions,
@@ -830,9 +855,35 @@ def _assign(n_i: int, n_j: int, cost: dict) -> list[tuple[int, int]]:
     return [(int(i), int(j)) for i, j in zip(rows, cols) if (int(i), int(j)) in cost]
 
 
+def _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms) -> list:
+    """Pass 3: leftovers within `name_tol_ms` whose victim names agree and
+    whose killer names do not disagree, most agreeing killers then least
+    |dt| first. `x` and `t` are the aligned kill and stored death times."""
+    big, mid = 1e12, 1e7
+    ni, nj = len(kills), len(deaths)
+    used_i = {i for i, *_ in out}
+    used_j = {j for _i, j, *_ in out}
+    left = {}
+    for i in range(ni):
+        if i in used_i:
+            continue
+        for j in range(nj):
+            if j in used_j:
+                continue
+            d = t[j] - x[i]
+            if abs(d) > name_tol_ms:
+                continue
+            v, kl = _name_agree(kills[i], deaths[j], agent_of)
+            if v and kl is not False:
+                left[(i, j)] = (d, int(bool(kl)))
+    return [(i, j, left[(i, j)][0], "name_pass") for i, j in
+            _assign(ni, nj, {e: -big - mid * ka + abs(d) for e, (d, ka) in left.items()})]
+
+
 def pair_deaths(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
                 name_tol_ms=NAME_PAIR_TOL_MS) -> tuple[list, dict]:
-    """Riot kills to stored deaths in three passes; `(i, j, dt, how)` with
+    """The 0.2.0 pairing, kept for `--legacy order`: Riot kills to stored
+    deaths in three passes; `(i, j, dt, how)` with
     `how` one of `time`, `name_reassigned`, `name_pass`.
 
     Each assignment is lexicographic: most pairs first, then (for the name
@@ -862,23 +913,7 @@ def pair_deaths(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
     named = _assign(ni, nj, {e: -big - mid * agree[e] + abs(d) for e, d in near.items()})
     out = [(i, j, near[(i, j)], "time" if (i, j) in timed else "name_reassigned")
            for i, j in named]
-    used_i = {i for i, *_ in out}
-    used_j = {j for _i, j, *_ in out}
-    left = {}
-    for i in range(ni):
-        if i in used_i:
-            continue
-        for j in range(nj):
-            if j in used_j:
-                continue
-            d = t[j] - x[i]
-            if abs(d) > name_tol_ms:
-                continue
-            v, kl = _name_agree(kills[i], deaths[j], agent_of)
-            if v and kl is not False:
-                left[(i, j)] = (d, int(bool(kl)))
-    for i, j in _assign(ni, nj, {e: -big - mid * ka + abs(d) for e, (d, ka) in left.items()}):
-        out.append((i, j, left[(i, j)][0], "name_pass"))
+    out += _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms)
     stats = {"pairs_time_greedy": len(match_times(x, t, 0.0, 1.0, tol_ms)),
              "pairs_time": len(timed),
              "pairs_time_kept": sum(1 for p in out if p[3] == "time"),
@@ -897,6 +932,270 @@ def _ambiguous(pairs, kills) -> set:
     return amb
 
 
+# ----------------------------------------------------------------- 0.3.0 order
+
+def death_order_key(s: dict) -> tuple[float, float]:
+    """A stored death's place in the killfeed's order: its first-seen sample,
+    then the slot it appeared in (`death_verdict.slot`, the track's first
+    slot). A new entry lands at the bottom and entries never pass one another
+    [domain:killfeed/stack-order], so of two entries first seen in one sample
+    the one in the lower-numbered, higher slot is the older; slot 0 is the
+    top [domain:killfeed/slot-pitch]. An unknown slot sorts last."""
+    slot = s.get("slot")
+    return float(s["t_ms"]), (math.inf if slot is None else float(slot))
+
+
+def _death_before(a: dict, b: dict) -> bool | None:
+    """True when death `a` is known older than `b`, False when newer, None
+    when the record leaves their order unknown (one sample, an unknown or
+    equal slot)."""
+    if float(a["t_ms"]) != float(b["t_ms"]):
+        return float(a["t_ms"]) < float(b["t_ms"])
+    if a.get("slot") is None or b.get("slot") is None or a["slot"] == b["slot"]:
+        return None
+    return a["slot"] < b["slot"]
+
+
+def align_in_order(x, y, tol_ms=MATCH_TOL_MS) -> list[tuple[int, int]]:
+    """The order-preserving alignment with gaps of sorted times `x` (Riot
+    kills, aligned) and `y` (stored deaths in killfeed order): most pairs
+    within `tol_ms` first, then least total |dt|, and no two pairs crossing.
+    Either side may stay unpaired. A Needleman-Wunsch table filled one row per
+    kill in numpy: each cell takes the cell above or a match on the diagonal,
+    carried right by a running maximum. Returns (index into x, index into y).
+
+    `linear_sum_assignment` cannot forbid a crossing: under |dt| a crossed
+    and an uncrossed matching of two kills in one sample cost the same, which
+    is the arbitrary tie 0.2.0 broke by names.
+    """
+    import numpy as np
+
+    x = np.asarray(x, float)
+    y = np.asarray(y, float)
+    n, m = len(x), len(y)
+    if not n or not m:
+        return []
+    big = tol_ms * (min(n, m) + 1) + 1.0          # one more pair outweighs any |dt| sum
+    dt = np.abs(y[None, :] - x[:, None])
+    w = np.where(dt <= tol_ms, big - dt, -np.inf)
+    D = np.zeros((n + 1, m + 1))
+    for i in range(1, n + 1):
+        e = D[i - 1].copy()
+        e[1:] = np.maximum(e[1:], D[i - 1, :-1] + w[i - 1])
+        D[i] = np.maximum.accumulate(e)
+    out, i, j = [], n, m
+    while i > 0 and j > 0:
+        if D[i, j] == D[i, j - 1]:
+            j -= 1
+        elif D[i, j] == D[i - 1, j]:
+            i -= 1
+        else:
+            out.append((i - 1, j - 1))
+            i, j = i - 1, j - 1
+    return out[::-1]
+
+
+def order_contradictions(deaths) -> set:
+    """{frozenset((older, newer))}: pairs of stored deaths whose first-seen
+    order the stack contradicts. An entry first seen in slot 0 while an
+    earlier-seen entry is still on screen sits above it, so it is the older
+    [domain:killfeed/stack-order]: its first slot was occluded and it was
+    first read late. The two witnesses disagree, so their order is unknown."""
+    out = set()
+    for b, db in enumerate(deaths):
+        if db.get("slot") != 0:
+            continue
+        tb = float(db["t_ms"])
+        for a, da in enumerate(deaths):
+            if a != b and float(da["t_ms"]) < tb <= float(da.get("t_last_ms") or -math.inf):
+                out.add(frozenset((a, b)))
+    return out
+
+
+def order_ambiguity(kills, deaths, paired=(), contra=frozenset()) -> tuple[dict, dict]:
+    """({kill index: reason}, {death index: reason}) for the members whose
+    order, or whose place in the pairing, time and order leave open:
+
+    * `kill_order_tie`: Riot kills at one gameTime.
+    * `death_order_unknown`: stored deaths first seen in one sample whose
+      slots are unknown or equal.
+    * `death_order_contradicted`: a pair in `contra` (`order_contradictions`).
+    * `same_sample_unpaired`: one sample holds a paired and an unpaired
+      death (indices `paired`); the kill could take either at the same
+      time error, so time and order tie.
+    """
+    kill_amb, death_amb = {}, {}
+    by_g = defaultdict(list)
+    for i, k in enumerate(kills):
+        by_g[k["gameTime"]].append(i)
+    for g in by_g.values():
+        if len(g) > 1:
+            kill_amb.update({i: "kill_order_tie" for i in g})
+    for pair in contra:
+        for j in pair:
+            death_amb.setdefault(j, "death_order_contradicted")
+    by_t = defaultdict(list)
+    for j, s in enumerate(deaths):
+        by_t[float(s["t_ms"])].append(j)
+    paired = set(paired)
+    for g in by_t.values():
+        for p in g:
+            if any(_death_before(deaths[p], deaths[q]) is None for q in g if q != p):
+                death_amb.setdefault(p, "death_order_unknown")
+        if len(g) > 1 and any(j in paired for j in g) and any(j not in paired for j in g):
+            for j in g:
+                death_amb.setdefault(j, "same_sample_unpaired")
+    return kill_amb, death_amb
+
+
+def _block_matchings(ks, js, near):
+    """Every partial matching of kills `ks` to deaths `js` over edges `near`."""
+    def rec(a, used):
+        if a == len(ks):
+            yield []
+            return
+        yield from rec(a + 1, used)
+        for j in js:
+            if j not in used and (ks[a], j) in near:
+                for rest in rec(a + 1, used | {j}):
+                    yield [(ks[a], j)] + rest
+    yield from rec(0, frozenset())
+
+
+def _order_consistent(match, kills, deaths, contra=frozenset()) -> bool:
+    """No two pairs of `match` cross an order the record knows; a pair of
+    deaths in `contra` has none."""
+    for p, (i, j) in enumerate(match):
+        for i2, j2 in match[p + 1:]:
+            gi, gi2 = kills[i]["gameTime"], kills[i2]["gameTime"]
+            if gi == gi2 or frozenset((j, j2)) in contra:
+                continue
+            before = _death_before(deaths[j], deaths[j2])
+            if before is not None and before != (gi < gi2):
+                return False
+    return True
+
+
+def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
+                         name_tol_ms=NAME_PAIR_TOL_MS) -> tuple[list, dict, dict]:
+    """Riot kills to stored deaths in three passes (0.3.0): `(i, j, dt, how)`
+    as `pair_deaths`, its stats, and {kill index: reason} for the pairs whose
+    order the record leaves unknown (`order_ambiguity`).
+
+    1. order: `align_in_order` over Riot kills by gameTime and stored deaths
+       by `death_order_key`. Two kills one sample apart pair in the
+       killfeed's order.
+    2. name reassignment, only inside a block of ambiguous pairs
+       (`order_ambiguity` groups joined by the pairs touching them, at most 8
+       members): among the block's order-consistent matchings within
+       `tol_ms` that pair as many, the one whose stored names agree most;
+       ties keep pass 1. Inside such a block the time error is sampling
+       jitter, as 0.2.0 held for every cluster.
+    3. name pass, as 0.2.0.
+
+    The stats also compare pass 1 with the 0.2.0 time-only assignment, kill
+    by kill: where they part, whether the order partner's names agree with
+    Riot's more, less or as much (a death first seen late may sort out of
+    place).
+    """
+    ni, nj = len(kills), len(deaths)
+    x = [a + k["gameTime"] for k in kills]
+    t = [float(s["t_ms"]) for s in deaths]
+    ko = sorted(range(ni), key=lambda i: kills[i]["gameTime"])
+    do = sorted(range(nj), key=lambda j: death_order_key(deaths[j]))
+    pairs = {ko[r]: do[c] for r, c in align_in_order([x[i] for i in ko], [t[j] for j in do],
+                                                     tol_ms)}
+    contra = order_contradictions(deaths)
+    kill_amb, death_amb = order_ambiguity(kills, deaths, set(pairs.values()), contra)
+
+    parent = {}
+
+    def find(u):
+        parent.setdefault(u, u)
+        while parent[u] != u:
+            parent[u] = parent[parent[u]]
+            u = parent[u]
+        return u
+
+    groups = defaultdict(list)
+    for i in kill_amb:
+        groups[("g", kills[i]["gameTime"])].append(("k", i))
+    for j in death_amb:
+        groups[("t", t[j])].append(("d", j))
+    for a_, b_ in map(tuple, contra):
+        groups[("c", min(a_, b_), max(a_, b_))] += [("d", a_), ("d", b_)]
+    for g in groups.values():
+        for u in g:
+            parent[find(u)] = find(g[0])
+    for i, j in pairs.items():
+        if i in kill_amb or j in death_amb:
+            parent[find(("k", i))] = find(("d", j))
+    blocks = defaultdict(lambda: (set(), set()))
+    for u in list(parent):
+        blocks[find(u)][0 if u[0] == "k" else 1].add(u[1])
+
+    def agree(mt):
+        n = 0
+        for i, j in mt:
+            v, kl = _name_agree(kills[i], deaths[j], agent_of)
+            n += int(v) + int(bool(kl))
+        return n
+
+    named = dict(pairs)
+    for ks, js in blocks.values():
+        orig = [(i, pairs[i]) for i in sorted(ks) if i in pairs]
+        if not orig or len(ks) + len(js) > 8:
+            continue
+        near = {(i, j): t[j] - x[i] for i in ks for j in js if abs(t[j] - x[i]) <= tol_ms}
+        best, best_ag = orig, agree(orig)
+        for mt in _block_matchings(sorted(ks), sorted(js), near):
+            if len(mt) != len(orig):
+                continue
+            if _order_consistent(mt, kills, deaths, contra) and (ag := agree(mt)) > best_ag:
+                best, best_ag = mt, ag
+        if best is not orig:
+            for i, _j in orig:
+                named.pop(i)
+            named.update(best)
+    out = [(i, j, t[j] - x[i], "time" if pairs.get(i) == j else "name_reassigned")
+           for i, j in sorted(named.items())]
+    out += _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms)
+    amb = {i: kill_amb.get(i) or death_amb.get(j) for i, j, _d, how in out
+           if how != "name_pass" and (i in kill_amb or j in death_amb)}
+
+    near_all = {(i, j): t[j] - x[i] for i in range(ni) for j in range(nj)
+                if abs(t[j] - x[i]) <= tol_ms}
+    timed = dict(_assign(ni, nj, {e: -1e12 + abs(d) for e, d in near_all.items()}))
+    differ = Counter()
+    for i in set(pairs) | set(timed):
+        jo, jt = pairs.get(i), timed.get(i)
+        if jo == jt:
+            continue
+        differ["order_vs_time_differs"] += 1
+        if jo is None or jt is None:
+            differ["order_vs_time_one_unpaired"] += 1
+            continue
+        ao, at_ = agree([(i, jo)]), agree([(i, jt)])
+        differ["order_vs_time_names_better" if ao > at_ else
+               "order_vs_time_names_worse" if ao < at_ else "order_vs_time_names_same"] += 1
+    stats = {"pairs_time_greedy": len(match_times(x, t, 0.0, 1.0, tol_ms)),
+             "pairs_time": len(timed),
+             "pairs_order": len(pairs),
+             "pairs_time_kept": sum(1 for p in out if p[3] == "time"),
+             "pairs_name_reassigned": sum(1 for p in out if p[3] == "name_reassigned"),
+             "pairs_name_pass": sum(1 for p in out if p[3] == "name_pass"),
+             "ambiguous_kill_order_tie": sum(1 for v in amb.values() if v == "kill_order_tie"),
+             "ambiguous_death_order_unknown": sum(1 for v in amb.values()
+                                                  if v == "death_order_unknown"),
+             "ambiguous_death_order_contradicted": sum(1 for v in amb.values()
+                                                       if v == "death_order_contradicted"),
+             "ambiguous_same_sample_unpaired": sum(1 for v in amb.values()
+                                                   if v == "same_sample_unpaired"),
+             "order_contradictions": len(contra)}
+    stats.update(differ)
+    return out, stats, amb
+
+
 def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=(),
                  match_tol=MATCH_TOL_MS) -> tuple[dict, list]:
     legacy = set(legacy or ())
@@ -904,9 +1203,11 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
         pairs, clustered = reorder_clusters(pairs, kills, deaths, agent_of, a, match_tol)
         pairs = [(i, j, dt, "time") for i, j, dt in pairs]
         pstats = {"pairs_time": len(pairs)}
-    else:
+    elif "order" in legacy:
         pairs, pstats = pair_deaths(kills, deaths, agent_of, a, match_tol)
         clustered = _ambiguous(pairs, kills)
+    else:
+        pairs, pstats, clustered = pair_deaths_in_order(kills, deaths, agent_of, a, match_tol)
     out = {"riot_kills": len(kills), "stored_deaths": len(deaths), "matched": len(pairs)}
     out.update(pstats)
     out["missed"] = len(kills) - len(pairs)
@@ -988,7 +1289,10 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
         rows.append({"t_ms": s["t_ms"], "dt_ms": round(dt), "round": k["round"] + 1,
                      "victim": [v_true, s.get("victim")], "killer": [kl_true, s.get("killer")],
                      "weapon": [wtrue, got], "side": [v_side, s.get("side")], "ambiguous": amb,
-                     "paired_by": how, "self_kill": self_kill, "death_id": s.get("death_id")})
+                     "paired_by": how, "self_kill": self_kill, "death_id": s.get("death_id"),
+                     "riot_game_ms": k["gameTime"], "slot": s.get("slot"),
+                     "ambiguous_why": (clustered.get(i) if isinstance(clustered, dict)
+                                       else "kill_within_ambiguous_ms" if amb else None)})
     matched_i = {p[0] for p in pairs}
     matched_j = {p[1] for p in pairs}
     misses = []
@@ -1308,7 +1612,15 @@ POOL_KEYS_DEATH = ("riot_kills", "stored_deaths", "matched", "victim_right", "vi
                    "missed", "false_deaths", "second_life_entries", "killer_not_applicable",
                    "victim_paired_by_name", "killer_paired_by_name", "side_paired_by_name",
                    "pairs_time_greedy",
-                   "pairs_time", "pairs_time_kept", "pairs_name_reassigned", "pairs_name_pass")
+                   "pairs_time", "pairs_time_kept", "pairs_name_reassigned", "pairs_name_pass",
+                   # 0.3.0: the order pass, why pairs stay ambiguous, and where
+                   # order and time-only pairing part
+                   "pairs_order", "ambiguous_kill_order_tie", "ambiguous_death_order_unknown",
+                   "ambiguous_death_order_contradicted", "ambiguous_same_sample_unpaired",
+                   "order_contradictions",
+                   "order_vs_time_differs", "order_vs_time_one_unpaired",
+                   "order_vs_time_names_better", "order_vs_time_names_worse",
+                   "order_vs_time_names_same")
 POOL_KEYS_DEATH += tuple(f"{p}_kind_{k}" for p in ("riot", "matched")
                          for k in ("weapon", "ability", "unmapped", "bomb", "melee", "fall"))
 
@@ -1629,6 +1941,16 @@ def print_pool(P: dict, conv):
           f"{d.get('killer_paired_by_name', 0)}, side {d.get('side_paired_by_name', 0)}, never counted right; "
           f"recall on time pairs "
           f"{d.get('recall_time_only')}")
+    if d.get("pairs_order"):
+        print(f"  order pass {d.get('pairs_order')}; ambiguous {d.get('ambiguous_pairs')} (kill order tie "
+              f"{d.get('ambiguous_kill_order_tie', 0)}, death order unknown "
+              f"{d.get('ambiguous_death_order_unknown', 0)}, contradicted by the stack "
+              f"{d.get('ambiguous_death_order_contradicted', 0)} of {d.get('order_contradictions', 0)} "
+              f"death pairs, same sample unpaired {d.get('ambiguous_same_sample_unpaired', 0)}); "
+              f"order vs time-only: differ "
+              f"{d.get('order_vs_time_differs', 0)} (one unpaired {d.get('order_vs_time_one_unpaired', 0)}, "
+              f"order names better {d.get('order_vs_time_names_better', 0)}, worse "
+              f"{d.get('order_vs_time_names_worse', 0)}, same {d.get('order_vs_time_names_same', 0)})")
     print(f"  missed {d.get('missed')} false deaths {d.get('false_deaths')}; killer not applicable "
           f"(self-kill) {d.get('killer_not_applicable', 0)}")
     print(f"  second-life deaths: {d.get('second_life_entries', 0)}, Riot omits them by design")
@@ -1684,7 +2006,7 @@ def main(argv=None) -> int:
     ap.add_argument("--facing", default="auto", help="viewRadians convention for the headline")
     ap.add_argument("--list-misses", action="store_true")
     ap.add_argument("--legacy", default="",
-                    help="comma list of 0.1.0 rules to restore: " + ",".join(LEGACY_RULES)
+                    help="comma list of earlier rules to restore: " + ",".join(LEGACY_RULES)
                          + " or all")
     ap.add_argument("--deaths-from", default=None,
                     help="score <dir>/events/death/<sid>.jsonl instead of the store's deaths")
