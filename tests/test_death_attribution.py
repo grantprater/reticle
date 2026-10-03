@@ -1225,3 +1225,29 @@ class EntryFollowTests(unittest.TestCase):
         rows = [self._row(0, 1, 100), self._row(500, 1, 101), self._row(500, 0, 99)]
         widths = {(0.0, 1): 76, (500.0, 1): 50, (500.0, 0): 77}
         self.assertEqual(follow_entry_portraits(entry, rows, widths), {(0.0, 1), (500.0, 0)})
+
+    def test_the_key_waits_for_the_slide_in_to_settle(self):
+        from reticle.adjudication.death import follow_entry_portraits
+        entry = {"t_first": 0.0, "t_last": 2000.0, "slot": 1}
+        rows = [self._row(0, 1, 61), self._row(500, 1, 16), self._row(1000, 1, 16),
+                self._row(1500, 0, 17), self._row(2000, 0, 16)]
+        self.assertEqual(follow_entry_portraits(entry, rows),
+                         {(0.0, 1), (500.0, 1), (1000.0, 1), (1500.0, 0), (2000.0, 0)})
+
+    def test_a_newer_entry_risen_into_the_slot_proposes_no_key(self):
+        from reticle.adjudication.death import follow_entry_portraits
+        entry = {"t_first": 0.0, "t_last": 2000.0, "slot": 1}
+        rows = [self._row(0, 1, 0), self._row(500, 1, 176), self._row(500, 2, 201),
+                self._row(1000, 0, 175), self._row(1000, 1, 156), self._row(1500, 0, 113),
+                self._row(1500, 1, 156), self._row(2000, 1, 156)]
+        widths = {(0.0, 1): 63, (500.0, 1): 63, (500.0, 2): 27, (1000.0, 0): 63,
+                  (1000.0, 1): 29, (1500.0, 0): 63, (1500.0, 1): 29, (2000.0, 1): 29}
+        self.assertEqual(follow_entry_portraits(entry, rows, widths),
+                         {(0.0, 1), (500.0, 1), (1000.0, 0)})
+
+    def test_an_unconfirmed_window_keys_on_the_first_frame(self):
+        from reticle.adjudication.death import follow_entry_portraits
+        entry = {"t_first": 0.0, "t_last": 1500.0, "slot": 1}
+        rows = [self._row(0, 1, 140), self._row(500, 1, 90), self._row(1000, 1, 40),
+                self._row(1500, 1, 141)]
+        self.assertEqual(follow_entry_portraits(entry, rows), {(0.0, 1), (1500.0, 1)})
