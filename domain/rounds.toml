@@ -221,7 +221,7 @@ claim = """
 The spike can be planted after the score changes, in the post-round period. The
 scoreline then keeps its post-round countdown and draws no planted-spike graphic.
 Such a plant changes nothing in the decided round; it only awards the planting
-team its plant credits.
+team its plant credits [domain:rounds/plant-credits].
 """
 kind = "lifecycle"
 known = "player"
@@ -237,4 +237,69 @@ use = """
 `rounds.spike_planted` means planted before the round was decided; a plant in
 the post-round period is outside what the scoreline can show
 """
-see = ["rounds/post-round-period", "hud/planted-spike-replaces-clock"]
+see = ["rounds/post-round-period", "hud/planted-spike-replaces-clock",
+       "rounds/plant-credits", "rounds/post-round-plant-sound"]
+
+[plant-credits]
+claim = """
+A plant awards 200 credits to each member of the planting team, a post-round
+plant included.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-03"
+source = """
+player, 2026-10-03 (chat), answering how post-round plants are witnessed: "There
+is also 200 credits added for each member of the planted team."
+"""
+use = """
+scoreboard credits can witness a plant: the planting team's credits rise by
+this amount
+"""
+see = ["rounds/post-round-plant-no-graphic", "rounds/scoreboard-credit-snapshot"]
+
+[post-round-plant-sound]
+claim = """
+A post-round plant plays the spike-planted sound and no announcer line.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-03"
+source = """
+player, 2026-10-03 (chat): "There isn't an announcement, though there is a
+planted sound."
+"""
+use = """
+the audio gate can witness a post-round plant, which the scoreline cannot show
+[domain:rounds/post-round-plant-no-graphic]
+"""
+exceptions = """
+the player spoke of the post-round case only; whether an in-round plant carries
+an announcer line is not stated
+"""
+see = ["rounds/post-round-plant-no-graphic", "minimap/ally-carrier-planted-switch"]
+
+[scoreboard-credit-snapshot]
+claim = """
+Every scoreboard opening is a snapshot of each visible player's credits. The
+player knows the full economy rules. Enemy purchases (abilities, guns) are
+hidden; they could be inferred to a decent degree given fully accurate income.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-10-03"
+source = """
+player, 2026-10-03 (chat): "The full rules for the economy are known, and every
+scoreboard opening is a snapshot, though we obviously have a less complete
+picture of enemies as we don't know what abilities or guns they bought, though
+we could infer them to a decent degree if we had fully accurate income."
+"""
+use = """
+credits between two openings are a ledger of income and purchases; an ally's
+purchases are visible, an enemy's are an inference
+"""
+exceptions = """
+the rules themselves are not recorded here: the player holds them, and none has
+been stated into a domain table
+"""
+see = ["rounds/plant-credits"]

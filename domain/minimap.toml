@@ -126,7 +126,8 @@ exceptions = """
 unmeasured: the rotation angle is not stated. Measure it from the minimap
 crop cache after 1696.5 s on bfad2778a372; no value is assumed until then
 """
-see = ["minimap/spike-glyph", "minimap/spike-inversion", "minimap/spike-carrier-overlay"]
+see = ["minimap/spike-glyph", "minimap/spike-inversion", "minimap/spike-carrier-overlay",
+       "minimap/ally-carrier-planted-switch"]
 
 [no-spike-channel]
 claim = """
@@ -1653,3 +1654,27 @@ the one value". A module scaling icon sizes by `minimap.REF_WIDGET_W` alone
 errs by about 12% between the two profiles
 """
 see = ["minimap/world-drawings-follow-map-zoom", "capture/minimap-size-settings"]
+
+[ally-carrier-planted-switch]
+claim = """
+For an ally carrier, the carried ("holding") spike icon switches to the
+planted-spike icon at the plant [domain:minimap/spike-planted-icon].
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-03"
+subject = "minimap:spike"
+source = """
+player, 2026-10-03 (chat), listing the witnesses of a post-round plant: "There is
+a planted-spike icon, and for ally the switch from the \"holding\" to the
+planted-spike icon."
+"""
+use = """
+the switch times the plant: a carried glyph on an ally followed by the planted
+icon is the plant's minimap witness, a post-round plant included
+"""
+exceptions = """
+the player stated the ally switch only; the enemy carrier's minimap behaviour at
+a plant is not stated
+"""
+see = ["minimap/spike-planted-icon", "rounds/post-round-plant-sound"]
