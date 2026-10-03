@@ -132,7 +132,12 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # seam misread two slots up, past Me -> Waylay; two false deaths followed.
 # An entry whose victim plate went unread where it appeared takes the first
 # side its own track read (`session_entries`), not "unknown".
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.26.0"
+# 0.27.0 (2026-10-03): an entry's follow keys on the in-window frame of its
+# first slot whose key the longest follow fits, not on its first frame, whose
+# crop edge the slide-in or a second edge reading often moves
+# (`follow_entry_portraits`); the first frame still binds. On five matches
+# 13 killers and 6 victims refused before were named, none wrongly.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.27.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -179,6 +184,19 @@ def follow_entry_portraits(entry: dict, portraits: list[dict],
     starts in its first slot within `FOLLOW_START_MS`, and each frame it stays
     or rises one slot. A frame where both slots fit the key is ambiguous and
     binds nothing: that surprise is where a neighbour would be taken for it.
+
+    **The key is the one the entry's track supports.** The first frame's
+    crop edge is often not the entry's lasting one: the slide-in catches it
+    mid-animation (x0 61, then 16 16 16 at 043bafca271a 500.0 s; 142, then
+    32 32 at 744.5 s), and some entries' edges alternate between two readings
+    (144 and 130 at 587c15b07779 254.5 s). A key taken there fits no later
+    frame: 63 killer and 15 victim entries over 21 matches were refused on one
+    view (2026-10-03). So every frame of the first slot within
+    `FOLLOW_START_MS` proposes a key and is followed, and the longest follow
+    wins, the earliest on a tie; the first frame binds as before. A proposal
+    stops at the first frame where an earlier follow has the entry risen: from
+    then on the slot holds a newer entry, whose longer track would otherwise be
+    taken for this one (043bafca271a 153.5 s).
     """
     icon_width = icon_width or {}
     by: dict[float, dict[int, tuple]] = {}
@@ -187,24 +205,39 @@ def follow_entry_portraits(entry: dict, portraits: list[dict],
                 and entry["t_first"] <= float(p["t_ms"]) <= entry["t_last"]):
             by.setdefault(float(p["t_ms"]), {})[p["slot"]] = (
                 p["x0"], icon_width.get((float(p["t_ms"]), p["slot"])), p.get("ally"))
-    slot, key, out = entry["slot"], None, set()
-    for t in sorted(by):
-        here = by[t]
-        if key is None:
-            if slot in here and t <= entry["t_first"] + FOLLOW_START_MS:
-                key = here[slot]
-                out.add((t, slot))
-            continue
-        fits = [s for s in (slot, slot - 1) if s in here
+
+    def fits(here: dict, slot: int, key: tuple) -> list[int]:
+        return [s for s in (slot, slot - 1) if s in here
                 and abs(here[s][0] - key[0]) <= FOLLOW_X0_TOL and here[s][2] == key[2]
                 and (here[s][1] is None or key[1] is None
                      or abs(here[s][1] - key[1]) <= FOLLOW_WIDTH_TOL)]
-        if len(fits) != 1:
-            continue
-        slot = fits[0]
-        key = (here[slot][0], key[1] if here[slot][1] is None else here[slot][1], key[2])
-        out.add((t, slot))
-    return out
+
+    times, slot = sorted(by), entry["slot"]
+
+    def follow(i: int) -> set[tuple[float, int]]:
+        s, key, out = slot, by[times[i]][slot], {(times[i], slot)}
+        for t in times[i + 1:]:
+            here = by[t]
+            fit = fits(here, s, key)
+            if len(fit) != 1:
+                continue
+            s = fit[0]
+            key = (here[s][0], key[1] if here[s][1] is None else here[s][1], key[2])
+            out.add((t, s))
+        return out
+
+    # Each in-window frame of the first slot proposes a key, until a follow
+    # shows the entry has risen: from then on a newer entry holds that slot.
+    tracks, risen = [], math.inf
+    for i, t in enumerate(times):
+        if t > entry["t_first"] + FOLLOW_START_MS or t >= risen:
+            break
+        if slot in by[t]:
+            tracks.append(follow(i))
+            risen = min([risen] + [u for u, s in tracks[-1] if s < slot])
+    if not tracks:
+        return set()
+    return max(tracks, key=len) | tracks[0]
 
 
 def attach_stored_killfeed_portraits(
