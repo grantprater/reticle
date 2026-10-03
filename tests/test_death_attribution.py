@@ -1251,3 +1251,64 @@ class EntryFollowTests(unittest.TestCase):
         rows = [self._row(0, 1, 140), self._row(500, 1, 90), self._row(1000, 1, 40),
                 self._row(1500, 1, 141)]
         self.assertEqual(follow_entry_portraits(entry, rows), {(0.0, 1), (1500.0, 1)})
+
+    def test_a_masked_first_slot_seeds_from_the_track_after_the_rise(self):
+        # The Shooting Error overlay hides slot 3; the entry rises to 2, where
+        # its own track reads it and the portrait reader stores its killer.
+        from reticle.adjudication.death import entry_follow
+        entry = {"t_first": 0.0, "t_last": 2000.0, "slot": 3,
+                 "reads": [(0.0, 3), (500.0, 3), (1000.0, 2), (1500.0, 2), (2000.0, 1)]}
+        rows = [self._row(1000, 2, 80), self._row(1500, 2, 81), self._row(2000, 1, 80),
+                self._row(1500, 3, 40)]
+        self.assertEqual(entry_follow(entry, rows),
+                         ({(1000.0, 2), (1500.0, 2), (2000.0, 1)}, "track"))
+
+    def test_a_late_first_portrait_seeds_from_the_track(self):
+        from reticle.adjudication.death import entry_follow
+        entry = {"t_first": 0.0, "t_last": 3000.0, "slot": 1,
+                 "reads": [(t, 1) for t in (0.0, 500.0, 1000.0, 1500.0, 2000.0, 2500.0)]}
+        rows = [self._row(1500, 1, 50), self._row(2000, 1, 50), self._row(2500, 1, 51)]
+        self.assertEqual(entry_follow(entry, rows),
+                         ({(1500.0, 1), (2000.0, 1), (2500.0, 1)}, "track"))
+
+    def test_a_rise_before_the_first_portrait_seeds_from_the_track(self):
+        # A newer entry arrives in the vacated slot 2 after the window; it is
+        # not this entry, whose track is at 1.
+        from reticle.adjudication.death import entry_follow
+        entry = {"t_first": 0.0, "t_last": 2000.0, "slot": 2,
+                 "reads": [(0.0, 2), (500.0, 1), (1000.0, 1), (1500.0, 1), (2000.0, 0)]}
+        rows = [self._row(500, 1, 120), self._row(1000, 1, 121), self._row(1500, 2, 60),
+                self._row(1500, 1, 120), self._row(2000, 0, 120)]
+        self.assertEqual(entry_follow(entry, rows),
+                         ({(500.0, 1), (1000.0, 1), (1500.0, 1), (2000.0, 0)}, "track"))
+
+    def test_no_portrait_anywhere_still_refuses(self):
+        from reticle.adjudication.death import attach_stored_killfeed_portraits, entry_follow
+        entry = {"t_ms": 0.0, "t_first": 0.0, "t_last": 1000.0, "slot": 3, "side": "enemy",
+                 "reads": [(0.0, 3), (500.0, 2), (1000.0, 2)]}
+        rows = [self._row(500, 1, 70)]
+        self.assertEqual(entry_follow(entry, rows), (set(), None))
+        out = attach_stored_killfeed_portraits([entry], rows, {"sides": {}}, {},
+                                               source_version="t")[0]
+        for role in ("claim", "killer_claim"):
+            self.assertEqual(out[role]["reason"], "no_stored_portrait_at_entry")
+            self.assertIsNone(out[role]["evidence"]["seed"])
+            self.assertNotIn("rests_on", out[role]["evidence"])
+
+    def test_a_track_seeded_claim_rests_on_the_track(self):
+        from reticle.adjudication.death import attach_stored_killfeed_portraits
+        entry = {"t_ms": 0.0, "t_first": 0.0, "t_last": 1000.0, "slot": 3, "side": "enemy",
+                 "reads": [(0.0, 3), (500.0, 2), (1000.0, 2)]}
+        rows = [self._row(500, 2, 70, ally=True), self._row(1000, 2, 70, ally=True)]
+        out = attach_stored_killfeed_portraits([entry], rows, {"sides": {}}, {},
+                                               source_version="t")[0]
+        ev = out["killer_claim"]["evidence"]
+        self.assertEqual(ev["seed"], "track")
+        self.assertEqual(ev["rests_on"], [{"context": "hud_track", "t_first": 0.0, "slot": 3}])
+        self.assertEqual(len(ev["observations"]), 2)
+
+    def test_the_first_slot_seed_is_named(self):
+        from reticle.adjudication.death import entry_follow
+        entry = {"t_first": 0.0, "t_last": 500.0, "slot": 1, "reads": [(0.0, 1), (500.0, 1)]}
+        rows = [self._row(0, 1, 100), self._row(500, 1, 100)]
+        self.assertEqual(entry_follow(entry, rows), ({(0.0, 1), (500.0, 1)}, "first_slot"))

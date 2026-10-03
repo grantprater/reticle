@@ -145,7 +145,16 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # deaths 58 -> 33, false deaths 50 -> 49; all 26 deaths missed as two entries
 # welded into one track match. b3b9defb6fd7 1661 s trades a match for a false
 # death: its slot-5 phantom reads no longer carry the entry below them.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.28.0"
+# 0.29.0 (2026-10-03): an entry whose first slot shows no killer portrait
+# within `FOLLOW_START_MS` seeds its portrait follow from its own hud track's
+# reads (`session_entries` `reads`, `entry_follow` seed "track"); the claim's
+# evidence names the seed and rests on the track. Over the 21 Riot-scored
+# matches, in memory: of 43 killers refused with no_stored_portrait_at_entry,
+# 36 are named right and 1 wrong (b3b9defb6fd7 1573.0 s, a Vyse portrait read
+# Clove); killer refused 88 -> 51, victim refused 75 -> 62. One victim turns
+# right -> refused: 223d636bf8d2 1868.5 s now reads Reyna for Clove, and the
+# board's collision contests Reyna at 1866.0 s.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.29.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -175,7 +184,15 @@ FOLLOW_START_MS = 1000.0
 
 def follow_entry_portraits(entry: dict, portraits: list[dict],
                            icon_width: dict | None = None) -> set[tuple[float, int]]:
-    """The (frame time, slot) pairs one killfeed entry occupies over its track.
+    """The (frame time, slot) pairs one killfeed entry occupies over its track;
+    `entry_follow` without its seed."""
+    return entry_follow(entry, portraits, icon_width)[0]
+
+
+def entry_follow(entry: dict, portraits: list[dict], icon_width: dict | None = None
+                 ) -> tuple[set[tuple[float, int]], str | None]:
+    """The (frame time, slot) pairs one killfeed entry occupies over its track,
+    and where the follow was seeded: `"first_slot"`, `"track"` or None.
 
     **An entry does not keep its slot.** The stack rises as older entries
     expire, and a newer entry arrives BELOW [domain:killfeed/stack-order].
@@ -205,6 +222,21 @@ def follow_entry_portraits(entry: dict, portraits: list[dict],
     stops at the first frame where an earlier follow has the entry risen: from
     then on the slot holds a newer entry, whose longer track would otherwise be
     taken for this one (043bafca271a 153.5 s).
+
+    **Where the first slot shows no portrait, the entry's own track seeds the
+    follow** (seed `"track"`). 43 Riot-matched killers over 21 matches
+    refused with `no_stored_portrait_at_entry` although the portrait reader
+    stored the killer in the slots the entry rose into (2026-10-03): the
+    Shooting Error overlay masked slots 3-4 (25), the first portrait came
+    more than `FOLLOW_START_MS` after arrival (8), the entry rose before its
+    first slot showed one (6), or the track began on a phantom read. The hud
+    track (`session_entries`, `reads`) already follows the entry's slot as it
+    rises, so the seeds are the track's reads that hold a stored portrait:
+    from the earliest, every read in the same slot within `FOLLOW_START_MS`
+    proposes a key, with the longest-follow and stop-on-rise rules above.
+    Such a follow rests on the hud track, which the caller declares
+    (`attach_stored_killfeed_portraits`). An entry without `reads`, or whose
+    track holds no portrait, binds nothing.
     """
     icon_width = icon_width or {}
     by: dict[float, dict[int, tuple]] = {}
@@ -220,11 +252,12 @@ def follow_entry_portraits(entry: dict, portraits: list[dict],
                 and (here[s][1] is None or key[1] is None
                      or abs(here[s][1] - key[1]) <= FOLLOW_WIDTH_TOL)]
 
-    times, slot = sorted(by), entry["slot"]
+    times = sorted(by)
+    index = {t: i for i, t in enumerate(times)}
 
-    def follow(i: int) -> set[tuple[float, int]]:
-        s, key, out = slot, by[times[i]][slot], {(times[i], slot)}
-        for t in times[i + 1:]:
+    def follow(t0: float, s0: int) -> set[tuple[float, int]]:
+        s, key, out = s0, by[t0][s0], {(t0, s0)}
+        for t in times[index[t0] + 1:]:
             here = by[t]
             fit = fits(here, s, key)
             if len(fit) != 1:
@@ -234,18 +267,28 @@ def follow_entry_portraits(entry: dict, portraits: list[dict],
             out.add((t, s))
         return out
 
-    # Each in-window frame of the first slot proposes a key, until a follow
-    # shows the entry has risen: from then on a newer entry holds that slot.
-    tracks, risen = [], math.inf
-    for i, t in enumerate(times):
-        if t > entry["t_first"] + FOLLOW_START_MS or t >= risen:
-            break
-        if slot in by[t]:
-            tracks.append(follow(i))
-            risen = min([risen] + [u for u, s in tracks[-1] if s < slot])
-    if not tracks:
-        return set()
-    return max(tracks, key=len) | tracks[0]
+    def propose(seeds: list[tuple[float, int]]) -> set[tuple[float, int]]:
+        # Each seed in the first seed's slot within the window proposes a key,
+        # until a follow shows the entry has risen: from then on a newer entry
+        # holds that slot.
+        tracks, risen = [], math.inf
+        t_start, slot = seeds[0]
+        for t, s in seeds:
+            if t > t_start + FOLLOW_START_MS or t >= risen or s != slot:
+                break
+            tracks.append(follow(t, s))
+            risen = min([risen] + [u for u, s_ in tracks[-1] if s_ < slot])
+        return max(tracks, key=len) | tracks[0]
+
+    first = [(t, entry["slot"]) for t in times
+             if t <= entry["t_first"] + FOLLOW_START_MS and entry["slot"] in by[t]]
+    if first:
+        return propose(first), "first_slot"
+    track = sorted((float(t), int(s)) for t, s in entry.get("reads") or ()
+                   if float(t) in by and int(s) in by[float(t)])
+    if track:
+        return propose(track), "track"
+    return set(), None
 
 
 def attach_stored_killfeed_portraits(
@@ -256,9 +299,11 @@ def attach_stored_killfeed_portraits(
     """Join raw portraits to their entry without reading media.
 
     An entry carrying its track (`t_first`, `t_last`, from `session_entries`)
-    takes the views `follow_entry_portraits` binds, with the icon widths from
+    takes the views `entry_follow` binds, with the icon widths from
     `weapon_observations`; one without a track takes its first slot until the
-    next entry, at most 2 s. A single named frame is retained as evidence but
+    next entry, at most 2 s. Each claim's evidence carries the follow's `seed`
+    (None without a track); one seeded from the entry's hud track declares
+    `rests_on` that track in its evidence. A single named frame is retained as evidence but
     cannot promote a name: its appearance has no within-entry repeat check.
     At least two views must name, and every view that names must name the same
     admitted lineup candidate, before this channel publishes a name; a view
@@ -275,9 +320,9 @@ def attach_stored_killfeed_portraits(
     for i, original in enumerate(entries):
         entry = dict(original)
         start = float(entry["t_ms"])
-        slot, views = entry.get("slot"), portraits
+        slot, views, seed = entry.get("slot"), portraits, None
         if entry.get("t_last") is not None and entry.get("t_first") is not None:
-            bound = follow_entry_portraits(entry, portraits, widths)
+            bound, seed = entry_follow(entry, portraits, widths)
             views = [dict(p, slot=slot) for p in portraits
                      if (float(p["t_ms"]), p["slot"]) in bound]
             end = max((t for t, _ in bound), default=start) + 1.0
@@ -298,6 +343,15 @@ def attach_stored_killfeed_portraits(
             views, "killer", killer_side, slot, start, end, lineup, gallery,
             entity_id=f"death:{int(start)}:killer", source_version=source_version,
             exemplars=exemplars)
+        for role in ("claim", "killer_claim"):
+            # The evidence travels into the identity claim; a top-level key
+            # would not (`identity.identity_claim`).
+            entry[role]["evidence"]["seed"] = seed
+            if seed == "track":
+                # The hud track placed these views: a prior, never a second
+                # witness of the name.
+                entry[role]["evidence"]["rests_on"] = [
+                    {"context": "hud_track", "t_first": entry["t_first"], "slot": slot}]
         out.append(entry)
     return out
 
@@ -1011,7 +1065,10 @@ def death_key(session_id: str, t_ms: float, slot: int) -> str:
 def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[dict]:
     """One dict per counted killfeed entry track over the whole session, from
     stored HUD columns only: first-seen time, the slot it appeared in, the
-    victim's plate side there, and whether it is the player's kill or death.
+    victim's plate side there, whether it is the player's kill or death, and
+    the track's per-sample `(t_ms, slot)` reads (`reads`), which follow the
+    entry as it rises and seed `entry_follow` where its first slot shows no
+    portrait.
 
     Tracked over the session, not per round: a death on a round's last sample
     is a one-frame track inside the round and would be refused. The player's
@@ -1082,6 +1139,7 @@ def session_entries(hud: dict, second_life: list[dict] | None = None) -> list[di
         dt = owner["death"].get(j)
         out.append({"t_ms": e["t_first"], "t_first": e["t_first"], "t_last": e["t_last"],
                     "slot": slot, "sig": e.get("sig"), "side": "ally" if ally else "enemy" if enemy else "unknown",
+                    "reads": [(float(t_), int(s_)) for t_, s_, _ in e.get("assigned") or ()],
                     "victim_ally": ally, "kf_player_kill": pk, "kf_player_death": dt is not None,
                     "same_side": (None if not same else
                                   2 * e["flag_hits"].get("same_side", 0) > e["n_obs"]),
@@ -1718,7 +1776,12 @@ def adjudicate_death(
     depends = dict(victim_depends_on or {})
     if killfeed_claim and killfeed_claim.get("depends_on"):
         depends.setdefault("killfeed_portrait", killfeed_claim["depends_on"])
-    claims = [identity_claim(death_id, agent, channel=ch, depends_on=depends.get(ch))
+    # The portrait follow's seed, and the hud track a "track" seed rests on,
+    # stay on the victim's portrait claim (`attach_stored_killfeed_portraits`).
+    follow = {k: v for k, v in ((killfeed_claim or {}).get("evidence") or {}).items()
+              if k in ("seed", "rests_on")} or None
+    claims = [identity_claim(death_id, agent, channel=ch, depends_on=depends.get(ch),
+                             evidence=follow if ch == "killfeed_portrait" else None)
               if ch != NAME_CLUSTER_CHANNEL else
               identity_claim(death_id, agent, channel=ch,
                              source_version=victim_name_claim.get("source_version"),
@@ -1730,12 +1793,14 @@ def adjudicate_death(
             claims.append(identity_claim(
                 death_id, None, channel=ch,
                 reason=f"replaced_by_name_cluster: per-entry said {replaced[ch]}",
-                evidence={"per_entry_agent": replaced[ch]}))
+                evidence={"per_entry_agent": replaced[ch], **(follow or {})}))
         elif (ch in ("killfeed_portrait", "scoreboard_dim", NAME_CLUSTER_CHANNEL)
               and ch not in named_votes):
             claims.append(identity_claim(death_id, None, channel=ch, reason=w.get("reason"),
                                          evidence=(w.get("evidence")
-                                                   if ch == NAME_CLUSTER_CHANNEL else None),
+                                                   if ch == NAME_CLUSTER_CHANNEL else
+                                                   follow if ch == "killfeed_portrait"
+                                                   else None),
                                          contest=w.get("contest")))
     identity = (adjudicate_agent_identity(claims) or [None])[0]
     status = identity["status"] if identity else "abstained"
