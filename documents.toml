@@ -447,3 +447,11 @@ status = "proposed"
 since = "2026-10-02"
 remains = "Every step after the probe: each saved match record aligned to the stored killfeed, the coordinate transform's axis check, and the record scored as a channel like any other."
 waits_for = "Nothing; the alignment can start."
+
+[[document]]
+path = "docs/KILLFEED_QUEUE_PRIOR.md"
+kind = "plan"
+status = "proposed"
+since = "2026-10-02"
+remains = "Every step: the follow beside the parse, its wiring with entry ids, track_entries taking the ids, the audit to significance, and the player's options."
+waits_for = "The player's choices on descriptor thinning and a top-k cap; step 1 can start."
