@@ -380,6 +380,27 @@ class RiseIntoVacatedSlotTests(unittest.TestCase):
                           for a in tracks if a["t_first"] >= 875000.0],
                          [(875000.0, 879500.0, 2, 195), (875500.0, 880000.0, 1, 264)])
 
+    def test_a_ringed_revive_holds_one_divider_and_one_track(self):
+        # bdfdcf009dba (C:/Users/grant/Videos/2026-08-23 19-25-23.mp4) 682.0-
+        # 689.0 s, hud-0.18.0 rows read from the crop cache. Evan
+        # [Resurrection] Clove arrives in slot 1 at 684.5 s and rises to slot
+        # 0 at 687.0 s. At hud-0.17.0 its divider read 327, then 317, 317,
+        # 328, 347, 347 in slot 0 -- one ring piece or another -- and the walk
+        # counted three tracks. The divider is now the whole ring, 317.
+        rows = [(682000.0, 1, 198, 0, 1, 0), (682500.0, 1, 198, 0, 1, 0),
+                (683000.0, 1, 198, 0, 1, 0), (683500.0, 1, 198, 0, 1, 0),
+                (684000.0, 1, 198, 0, 1, 0), (684500.0, 3, 162502, 2, 1, 2),
+                (685000.0, 3, 198, 2, 1, 2), (685500.0, 3, 198, 2, 1, 2),
+                (686000.0, 3, 198, 2, 1, 2), (686500.0, 2, 0, 2, 0, 2)] + [
+                (ts, 1, 317, 1, 0, 1) for ts in steps(687_000.0, 5, 500.0)] + [
+                (689500.0, 0, 0, 0, 0, 0), (690000.0, 0, 0, 0, 0, 0)]
+        t, masks, wx, sides = stored(rows)
+        same = [r[5] for r in rows]
+        tracks = [a for a in track_entries(t, masks, wx, flags={"same_side": same}, sides=sides)
+                  if a["counted"]]
+        self.assertEqual([(a["t_first"], a["t_last"], a["slot_first"], a["sig"]) for a in tracks],
+                         [(682000.0, 686000.0, 0, 198), (684500.0, 689000.0, 1, 317)])
+
 
 class PlateSideTests(unittest.TestCase):
     """One entry's victim never changes team: a flipped plate is a new entry."""

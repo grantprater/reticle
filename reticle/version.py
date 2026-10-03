@@ -201,7 +201,10 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # 0.17.0 (2026-10-02): `_band_text` admits ability icons it refused as `no_icon`: knife-sized
 # pieces of any tint and joined thin strokes (`_stroke_groups`), gated on the plate seam.
 # Ability-kill entries enter `kf_entry_mask`.
-HUD_VERSION = "hud-0.17.0"
+# 0.18.0 (2026-10-02): a killfeed divider piece inside a fitted ring grows to
+# the ring's pieces (`_grow_strokes`, `ring_fit`), so a ringed icon's `kf_*_wx`
+# holds one column, not whichever piece won, and its emblem is no name.
+HUD_VERSION = "hud-0.18.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits

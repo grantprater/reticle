@@ -520,3 +520,84 @@ class VictimSideTests(unittest.TestCase):
         old = killfeed.KillfeedRead(entries=1, slots=(0,), player_kill=False,
                                     player_death=False, entry_ys=(15,), entry_ally=(True,))
         self.assertEqual(old.same_side_mask, 0)
+
+
+class RingedDividerTests(unittest.TestCase):
+    """A ringed icon divides the names at its whole extent, whichever piece
+    wins. Built on bdfdcf009dba 687-689 s (C:/Users/grant/Videos/2026-08-23
+    19-25-23.mp4), "Evan [Resurrection] Clove": the ring breaks into a left
+    arc, an emblem and a right arc, and a glyph-sized emblem piece passed for
+    a name beside either arc, so the divider read 317, 328 or 347 frame to
+    frame and one plate became three entry tracks."""
+
+    CX, R = 338, 20
+
+    def _band(self, left_w, right_w):
+        white = np.zeros((34, 480), dtype=bool)
+        for x0, y0, w, h in ((279, 12, 7, 11), (287, 15, 7, 8), (295, 15, 7, 8),
+                             (303, 15, 7, 8),                      # "Evan", baseline 23
+                             (375, 12, 10, 12), (387, 12, 3, 12), (392, 15, 7, 9),
+                             (401, 15, 7, 9), (410, 15, 7, 9),     # "Clove", baseline 24
+                             (334, 14, 7, 8)):                     # the emblem's glyph-sized piece
+            white[y0:y0 + h, x0:x0 + w] = True
+        # The ring, clipped by the band and broken at its top and bottom into
+        # a left and a right arc of the given stroke widths.
+        yy, xx = np.mgrid[0:34, 0:480]
+        d = np.hypot(xx - self.CX, yy - 16.5)
+        gap = np.abs(xx - self.CX) < 6
+        white |= (d <= self.R) & (d > self.R - left_w) & (xx < self.CX) & ~gap
+        white |= (d <= self.R) & (d > self.R - right_w) & (xx > self.CX) & ~gap
+        white[10:28, 330] = white[10:28, 346] = True               # the emblem's outline
+        white[10, 330:347] = white[27, 330:347] = True
+        value = np.zeros((34, 480, 3), dtype=np.uint8)
+        value[...] = (60, 150, 120)
+        value[white] = (0, 0, 255)
+        return white, value
+
+    def _extent(self, white):
+        cols = np.nonzero(white[:, 312:370].any(axis=0))[0] + 312
+        return int(cols[0]), int(cols[-1]) + 1
+
+    def test_either_arc_winning_gives_one_divider(self):
+        for left_w, right_w in ((3, 2), (2, 3)):
+            white, value = self._band(left_w, right_w)
+            parsed = killfeed._band_text(white, value=value, s=killfeed.UNIT_SCALE)
+            self.assertNotIsInstance(parsed, str)
+            _text, wx0, wx1 = parsed
+            self.assertEqual((wx0, wx1), self._extent(white), (left_w, right_w))
+
+    def test_the_emblem_piece_is_not_a_name(self):
+        white, value = self._band(2, 3)
+        text, wx0, wx1 = killfeed._band_text(white, value=value, s=killfeed.UNIT_SCALE)
+        self.assertEqual(killfeed.name_run(text[:, :wx0], -1, killfeed.UNIT_SCALE), (279, 309))
+        vrun = killfeed.name_run(text[:, wx1:], +1, killfeed.UNIT_SCALE)
+        self.assertEqual(vrun[0] + wx1, 375)
+
+    def test_a_piece_spanning_a_name_does_not_join_the_icon(self):
+        # bdfdcf009dba 663.5 s: scenery and a portrait merged into one tall
+        # piece across the killer's name up to the ring; joined, the divider
+        # swallowed both names.
+        white, value = self._band(3, 2)
+        extent = self._extent(white)
+        white[0:2, 200:extent[0] - 2] = white[32:34, 200:extent[0] - 2] = white[:, 200] = True
+        value[white] = (0, 0, 255)
+        _text, wx0, wx1 = killfeed._band_text(white, value=value, s=killfeed.UNIT_SCALE)
+        self.assertEqual((wx0, wx1), extent)
+
+    def test_a_gun_does_not_grow_into_a_pale_plate(self):
+        # a06f04a0059f 1687.5 s (C:/Users/grant/Videos/2026-08-26 09-56-37.mp4):
+        # a gun beside a pale plate's tall wash; no ring, so the divider stays
+        # the gun and the wash stays off it.
+        white = np.zeros((34, 480), dtype=bool)
+        for x0 in (93, 101, 109):                                  # killer name
+            white[15:23, x0:x0 + 6] = True
+        for x0 in (373, 381, 389, 397):                            # victim name
+            white[15:23, x0:x0 + 6] = True
+        white[6:29, 233:310] = True                                # the gun
+        white[0:34, 200:231:3] = True                              # the wash's strokes
+        white[0, 200:231] = True
+        value = np.zeros((34, 480, 3), dtype=np.uint8)
+        value[...] = (60, 150, 120)
+        value[white] = (0, 0, 255)
+        _text, wx0, wx1 = killfeed._band_text(white, value=value, s=killfeed.UNIT_SCALE)
+        self.assertEqual((wx0, wx1), (233, 310))
