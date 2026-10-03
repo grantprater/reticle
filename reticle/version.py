@@ -324,7 +324,10 @@ PING_VERSION = "ping-0.1.0"
 # previous image under the prior rule (`teardrop.SelfConeReader` given a frame
 # index, ICON_POSE_PRIOR_VERSION 0.2.0); each self fit's `pose` records `search`,
 # `surprise`, `rests_on` and, on the audit cadence, `audit`, as an ally fit's does.
-ALLY_ICON_VERSION = "ally-icon-0.9.1"
+# 0.9.2: a refused fit is a prior too (ICON_POSE_PRIOR_VERSION 0.3.0): the next
+# image's fit near it searches locally, and a refusal there is stored with
+# `search` `prior`, its `rests_on` and its reason.
+ALLY_ICON_VERSION = "ally-icon-0.9.2"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.
@@ -386,7 +389,11 @@ ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
 # `outside_ncc` so `facing_elsewhere` means for it what it means for a teammate,
 # and whose prior under `SELF_PRIOR_MIN_NCC` (0.65) runs the full grid
 # (`weak_prior`). The ally rule is unchanged.
-ICON_POSE_PRIOR_VERSION = "icon-pose-prior-0.2.0"
+# 0.3.0: a refused fit continues as a read one does, after the nearest read fit
+# is preferred; a local read ends it (`refusal_ended`), a refusal for another
+# reason is a surprise, and `REFUSAL_CHAIN` (10) prior-searched refusals in a
+# row run the full grid (`refusal_chain`). The audit samples these reads.
+ICON_POSE_PRIOR_VERSION = "icon-pose-prior-0.3.0"
 # One observation of an ability's drawn minimap shape (a ring or a beam), fitted
 # by `ability_shapes` on the stored minimap crops at a cast. Bump when a model,
 # a prior, an acceptance or the stored fields change.

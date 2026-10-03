@@ -115,6 +115,13 @@ AUDIT_FRAMES = 40     # the first new image in each block of this many frames is
 # so the full grid is no truth there either; the gate keeps the self channel's
 # answers where the full search puts them.
 SELF_PRIOR_MIN_NCC = 0.65
+# Prior-searched refusals in a row before the full grid runs again. Unbounded,
+# over the seven test windows (ally channel), a refusal searched round a
+# refusal was one the full grid read on 2 of 436 reads at chain 1, 9 of 687 at
+# chains 2-10 and 0 of 127 past 10: the rate does not climb with the chain
+# through 10, and past 10 too few reads remain to show it does not. The bound
+# stops a chain where the measurement stops vouching for it.
+REFUSAL_CHAIN = 10
 
 
 def yellowness(crop: np.ndarray) -> np.ndarray:
@@ -715,27 +722,42 @@ class IconPoseReader:
 
     **The prior** (a caller that passes `frame_idx` and `t_ms`). An icon
     continues its fit on the previous distinct image: a detection whose ring
-    centre lies within `PRIOR_PX` (scaled) of a read fit's on that image,
-    last shown at most `PRIOR_GAP_MS` earlier, is searched round that fit
+    centre lies within `PRIOR_PX` (scaled) of a fit's on that image, last
+    shown at most `PRIOR_GAP_MS` earlier, is searched round that fit
     (`fit_icon(prior=)`), and its pose names the prior's detection under
-    `rests_on` (`search` `prior`). The full grid runs instead on surprise
-    (`search` `full`, `surprise` saying which): `no_prior`, `gap`, `edge`
-    (the local best on the local grid's boundary), a gate refusing the
-    local fit (`low_ncc`, `no_ring`, `ambiguous_facing`), `facing_elsewhere`
-    (a facing outside the local window outscores the fit on the margin's
-    sweep), or `ncc_drop` (NCC more than `NCC_DROP` under the prior's). A
-    refusal therefore always
-    comes from the full search, and a margin always means the same thing:
-    the best NCC less the best 90 degrees or more away, at the fitted centre.
+    `rests_on` (`search` `prior`). The nearest read fit is the prior; where
+    none lies within reach, the nearest refused one (a fit with a centre and
+    facing: `low_ncc`, `no_ring` or `ambiguous_facing`). The full grid runs
+    instead on surprise (`search` `full`, `surprise` saying which):
+    `no_prior`, `gap`, `edge` (the local best on the local grid's boundary),
+    `facing_elsewhere` (a facing outside the local window outscores the fit
+    on the margin's sweep), `ncc_drop` (NCC more than `NCC_DROP` under the
+    prior's), or a change of state: a read prior whose local fit a gate
+    refuses (`low_ncc`, `no_ring`, `ambiguous_facing`), a refused prior
+    whose local fit reads (`refusal_ended`) or is refused for another reason
+    (that reason). A margin always means the same thing: the best NCC less
+    the best 90 degrees or more away, at the fitted centre.
+
+    **A refusal continues as a read does** (icon-pose-prior-0.3.0). A
+    refused prior whose local fit is refused again for the same reason, with
+    no other surprise, publishes that local refusal: `origin` `ring_fit`, the
+    local fit's `ncc` and `reason`, `search` `prior` and the refused prior
+    under `rests_on`. A refusal from the full search says `search` `full`,
+    so the two stay apart. Such a chain is bounded: after `REFUSAL_CHAIN`
+    consecutive prior-searched refusals the next image runs the full grid
+    (`surprise` `refusal_chain`), so a teardrop the local window misses
+    cannot stay refused for long, and the full search re-anchors the chain.
+    The self icon's `SELF_PRIOR_MIN_NCC` gate applies to a refused prior as
+    to a read one, so a self refusal under it runs the full grid.
 
     **The audit.** The first new image in each block of `AUDIT_FRAMES`
     frames, fixed by frame index before any fit, runs the full search beside
-    the local one for every detection with a prior, and stores both under
-    `audit` (`prior`, `full`), apart from the published answer, which stays
-    the one the prior rule gives. A surprise's full search is no audit
-    sample; on an audit image it is reused as the audit's `full`. Without a
-    frame index the reader searches every image in full and adds none of
-    these fields.
+    the local one for every detection with a prior, read or refused, and
+    stores both under `audit` (`prior`, `full`), apart from the published
+    answer, which stays the one the prior rule gives. A surprise's full
+    search is no audit sample; on an audit image it is reused as the audit's
+    `full`. Without a frame index the reader searches every image in full
+    and adds none of these fields.
     """
 
     #: A prior whose NCC lies under this runs the full grid (`surprise`
@@ -771,7 +793,8 @@ class IconPoseReader:
         if digest != self._digest:
             if self._fits:
                 # The prior's age runs from the last frame that showed its image.
-                self._prev = (self._t, [e for e in self._fits.values() if e["fit"].get("read")])
+                # A fit with a centre and facing may be a prior, read or refused.
+                self._prev = (self._t, [e for e in self._fits.values() if "x" in e["fit"]])
             self._digest, self._key, self._fits = digest, None, {}
             if frame_idx is not None:
                 bucket = int(frame_idx) // AUDIT_FRAMES
@@ -809,7 +832,7 @@ class IconPoseReader:
         """One detection's memo entry: the fit, how it was searched, and what
         the next image's prior needs (`ring`, `ref`)."""
         full = lambda: self._fit_one(cx, cy)
-        entry = {"ring": (float(cx), float(cy)), "ref": ref, "search": {}}
+        entry = {"ring": (float(cx), float(cy)), "ref": ref, "search": {}, "chain": 0}
         if frame_idx is None:
             entry["fit"] = full()
             return entry
@@ -817,14 +840,19 @@ class IconPoseReader:
         local = None
         if prior is not None:
             p = prior["fit"]
-            if self.prior_min_ncc is not None and p["ncc"] < self.prior_min_ncc:
+            if self.prior_min_ncc is not None and (p.get("ncc") or 0.0) < self.prior_min_ncc:
                 surprise = "weak_prior"
+            elif not p.get("read") and prior["chain"] >= REFUSAL_CHAIN:
+                surprise = "refusal_chain"
             else:
                 local = self._fit_one(cx, cy, prior=(p["x"], p["y"], p["deg"]))
                 surprise = _surprise(local, p)
         if surprise is None:
             entry["fit"] = local
             entry["search"] = {"search": "prior", "surprise": None, "rests_on": prior["ref"]}
+            if not local.get("read"):
+                # One more refusal searched round a refusal.
+                entry["chain"] = prior["chain"] + 1
         else:
             entry["fit"] = full()
             entry["search"] = {"search": "full", "surprise": surprise, "rests_on": None}
@@ -842,20 +870,26 @@ class IconPoseReader:
 
     def _prior(self, cx: float, cy: float, t_ms) -> tuple[dict | None, str | None]:
         """The previous image's read fit whose ring centre lies nearest
-        `(cx, cy)` within `PRIOR_PX`, or None and the surprise (`no_prior`,
-        `gap`). Two detections may continue one prior: nearness alone binds
-        them, so the answer does not depend on the order they are asked in."""
+        `(cx, cy)` within `PRIOR_PX`, else its nearest refused fit there, or
+        None and the surprise (`no_prior`, `gap`). Two detections may
+        continue one prior: nearness alone binds them, so the answer does not
+        depend on the order they are asked in."""
         if self._prev is None:
             return None, "no_prior"
         t_prev, fits = self._prev
         if t_prev is None or t_ms is None or t_ms - t_prev > PRIOR_GAP_MS:
             return None, "gap"
-        best, d_best = None, PRIOR_PX * self.scale
-        for e in fits:
-            d = math.hypot(e["ring"][0] - cx, e["ring"][1] - cy)
-            if d <= d_best:
-                best, d_best = e, d
-        return (best, None) if best is not None else (None, "no_prior")
+        for read in (True, False):
+            best, d_best = None, PRIOR_PX * self.scale
+            for e in fits:
+                if bool(e["fit"].get("read")) != read:
+                    continue
+                d = math.hypot(e["ring"][0] - cx, e["ring"][1] - cy)
+                if d <= d_best:
+                    best, d_best = e, d
+            if best is not None:
+                return best, None
+        return None, "no_prior"
 
 
 class _SelfFits(IconPoseReader):
@@ -901,12 +935,18 @@ class _SelfFits(IconPoseReader):
 
 
 def _surprise(local: dict, prior: dict) -> str | None:
-    """Why a local fit round `prior` cannot stand, or None."""
+    """Why a local fit round `prior` cannot stand, or None. A read prior
+    must read again; a refused one must be refused again for its reason."""
     if "x" not in local:
         return local.get("reason", "no_key")
     if local.get("on_edge"):
         return "edge"
-    if not local.get("read"):
+    if prior.get("read", True):
+        if not local.get("read"):
+            return local["reason"]
+    elif local.get("read"):
+        return "refusal_ended"
+    elif local["reason"] != prior["reason"]:
         return local["reason"]
     if local.get("outside_ncc", -2.0) > local["ncc"]:
         return "facing_elsewhere"

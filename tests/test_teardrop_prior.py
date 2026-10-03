@@ -112,6 +112,101 @@ class SurpriseTests(unittest.TestCase):
                          ("full", "ambiguous_facing", "teardrop"))
 
 
+def _refusing(why="low_ncc"):
+    """`fit_icon` with every fit refused for `why`, its pose kept."""
+    real = teardrop.fit_icon
+
+    def fit(*a, **kw):
+        f = real(*a, **kw)
+        f.update(read=False, reason=why)
+        return f
+    return patch("reticle.teardrop.fit_icon", side_effect=fit)
+
+
+class RefusalPriorTests(unittest.TestCase):
+    def _read(self, r, x, deg, f, ref):
+        return r.read(_teal(x, 45, deg), x + 1.0, 44.0, frame_idx=f, t_ms=f * 1000 / 60, ref=ref)
+
+    def test_a_refusal_continues_as_a_prior_searched_refusal_and_names_its_prior(self):
+        r = teardrop.IconPoseReader("ally")
+        with _refusing():
+            first = self._read(r, 45.0, 30.0, 1, "a")
+            o = self._read(r, 45.3, 32.0, 5, "b")
+        self.assertEqual((first["search"], first["surprise"], first["origin"], first["reason"]),
+                         ("full", "no_prior", "ring_fit", "low_ncc"))
+        # Told apart from a full search's refusal by `search`.
+        self.assertEqual((o["search"], o["surprise"], o["rests_on"], o["origin"], o["reason"]),
+                         ("prior", None, "a", "ring_fit", "low_ncc"))
+
+    def test_a_refusal_that_reads_again_runs_the_full_search(self):
+        r = teardrop.IconPoseReader("ally")
+        with _refusing():
+            self._read(r, 45.0, 30.0, 1, "a")
+        o = self._read(r, 45.3, 32.0, 5, "b")
+        self.assertEqual((o["search"], o["surprise"], o["origin"]),
+                         ("full", "refusal_ended", "teardrop"))
+
+    def test_another_refusal_reason_runs_the_full_search(self):
+        r = teardrop.IconPoseReader("ally")
+        with _refusing("low_ncc"):
+            self._read(r, 45.0, 30.0, 1, "a")
+        with _refusing("ambiguous_facing"):
+            o = self._read(r, 45.3, 32.0, 5, "b")
+        self.assertEqual((o["search"], o["surprise"], o["reason"]),
+                         ("full", "ambiguous_facing", "ambiguous_facing"))
+
+    def test_the_chain_of_prior_searched_refusals_is_bounded(self):
+        r = teardrop.IconPoseReader("ally")
+        n = 3
+        with _refusing(), patch.object(teardrop, "REFUSAL_CHAIN", n):
+            reads = [self._read(r, 45.0 + 0.01 * i, 30.0, 1 + 4 * i, f"{i}")
+                     for i in range(n + 3)]
+        self.assertEqual([o["search"] for o in reads],
+                         ["full"] + ["prior"] * n + ["full"] + ["prior"])
+        self.assertEqual(reads[n + 1]["surprise"], "refusal_chain")
+        self.assertEqual(reads[n + 2]["rests_on"], f"{n + 1}")
+
+    def test_a_read_prior_is_preferred_to_a_nearer_refusal(self):
+        r = teardrop.IconPoseReader("ally")
+        crop = _teal(45, 45, 30)
+        real = teardrop.fit_icon
+
+        def refuse_far(*a, **kw):
+            f = real(*a, **kw)
+            if a[2] < 44.0:  # the detection at x 43 is refused
+                f.update(read=False, reason="low_ncc")
+            return f
+        with patch("reticle.teardrop.fit_icon", side_effect=refuse_far):
+            r.read(crop, 46.0, 44.0, frame_idx=1, t_ms=0.0, ref="read")
+            r.read(crop, 43.0, 44.0, frame_idx=1, t_ms=0.0, ref="refused")
+        o = r.read(_teal(45.2, 45, 31), 44.0, 44.0, frame_idx=5, t_ms=66.7, ref="b")
+        self.assertEqual((o["search"], o["rests_on"]), ("prior", "read"))
+
+    def test_the_audit_samples_prior_searched_refusals(self):
+        r = teardrop.IconPoseReader("ally")
+        frames = [2 + 4 * i for i in range(22)]
+        with _refusing():
+            reads = [self._read(r, 45.0 + 0.01 * i, 30.0, f, f"{f}") for i, f in enumerate(frames)]
+        audited = [o for o in reads if "audit" in o]
+        self.assertTrue(audited)
+        for o in audited:
+            if o["search"] == "prior":
+                self.assertEqual(o["audit"]["prior"]["reason"], "low_ncc")
+                self.assertIsNotNone(o["audit"]["full"])
+
+    def test_each_refusal_trigger_names_itself(self):
+        refused = {"read": False, "reason": "low_ncc", "ncc": 0.45}
+        base = {"x": 1.0, "read": False, "reason": "low_ncc", "ncc": 0.44, "on_edge": False}
+        self.assertIsNone(teardrop._surprise(base, refused))
+        self.assertEqual(teardrop._surprise({**base, "read": True, "reason": None}, refused),
+                         "refusal_ended")
+        self.assertEqual(teardrop._surprise({**base, "reason": "no_ring"}, refused), "no_ring")
+        self.assertEqual(teardrop._surprise({**base, "on_edge": True}, refused), "edge")
+        self.assertEqual(teardrop._surprise({**base, "outside_ncc": 0.5}, refused),
+                         "facing_elsewhere")
+        self.assertEqual(teardrop._surprise({**base, "ncc": 0.3}, refused), "ncc_drop")
+
+
 class AuditTests(unittest.TestCase):
     def _walk(self, poses):
         """Read one icon along `poses` at 15 Hz (frames 4 apart); the reads."""
