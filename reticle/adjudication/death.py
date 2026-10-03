@@ -28,6 +28,7 @@ the context gate) and which agent acts in it (`entry_actor`).
 """
 from __future__ import annotations
 
+import bisect
 import math
 from collections import Counter
 from dataclasses import dataclass, field
@@ -157,7 +158,14 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # 0.30.0 (2026-10-03): the portrait channel names from the art ZNCC
 # (killfeed-portrait-0.12.0, agent-identity-0.10.0), with a "none of them"
 # hypothesis; the two-view unanimous rule stands.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.30.0"
+# 0.31.0 (2026-10-03): the hud track places an entry's portrait views and the
+# key only confirms them (`entry_follow_evidence`); the queue rule filters the
+# track (`entry_slot_path`), and a view the key fits where the track or the
+# victim plate contradicts the entry is stored as a surprise, never bound.
+# The first-slot seed bound the newcomer that rose into the slot the entry had
+# left (043bafca271a 578.0 s) or that the slide-in misread placed it in
+# (3694746e4e54 1638.0 s).
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.31.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -186,16 +194,132 @@ FOLLOW_START_MS = 1000.0
 
 
 def follow_entry_portraits(entry: dict, portraits: list[dict],
-                           icon_width: dict | None = None) -> set[tuple[float, int]]:
+                           icon_width: dict | None = None,
+                           others: list[dict] | None = None) -> set[tuple[float, int]]:
     """The (frame time, slot) pairs one killfeed entry occupies over its track;
     `entry_follow` without its seed."""
-    return entry_follow(entry, portraits, icon_width)[0]
+    return entry_follow_evidence(entry, portraits, icon_width, others)["bound"]
 
 
-def entry_follow(entry: dict, portraits: list[dict], icon_width: dict | None = None
+def entry_follow(entry: dict, portraits: list[dict], icon_width: dict | None = None,
+                 others: list[dict] | None = None
                  ) -> tuple[set[tuple[float, int]], str | None]:
-    """The (frame time, slot) pairs one killfeed entry occupies over its track,
-    and where the follow was seeded: `"first_slot"`, `"track"` or None.
+    """`entry_follow_evidence`'s bound views and seed."""
+    ev = entry_follow_evidence(entry, portraits, icon_width, others)
+    return ev["bound"], ev["seed"]
+
+
+def entry_slot_path(entry: dict, others: list[dict] | None = None
+                    ) -> tuple[list[tuple[float, int]] | None, list[dict]]:
+    """The entry's hud track reads (`session_entries` `reads`) that the queue
+    rule admits, and a surprise for each read it rejects; (None, []) for an
+    entry without reads.
+
+    New entries land at the bottom and an entry never moves down; when an
+    entry above expires, every entry below rises one slot
+    [domain:killfeed/stack-order]. So a read below the entry's last admitted
+    slot is a surprise (`slot_fell`), and with the session's other tracks
+    (`others`) every rise must be paid for by an older track that expired
+    since this entry arrived: the slots risen since the first admitted read
+    never exceed the older tracks whose last read precedes the rise. When
+    an unpaid rise is paid once the arrival slot's reads are dropped, and
+    those reads all lie within `FOLLOW_START_MS` of arrival, they are the
+    slide-in reading the entry a slot low and are rejected
+    (`arrival_slot_contradicts_queue`): 3694746e4e54 1638.0 s read slot 2
+    with one entry above; 043bafca271a 759.5 s read 2, 1, then 0 after the
+    one entry above expired. Otherwise the unpaid read is rejected
+    (`rise_without_expiry`).
+    """
+    reads = sorted((float(t), int(s)) for t, s in entry.get("reads") or ())
+    if not reads:
+        return None, []
+    t_first = float(entry["t_first"])
+    older = None
+    if others is not None:
+        older = sorted(float(o["t_last"]) for o in others
+                       if o is not entry and o.get("t_last") is not None
+                       and (float(o["t_first"]), int(o["slot"])) < (t_first, int(entry["slot"]))
+                       and float(o["t_last"]) >= t_first)
+    kept, surprises = [reads[0]], []
+    for t, s in reads[1:]:
+        last = kept[-1][1]
+        if s > last:
+            surprises.append({"t_ms": t, "slot": s, "reason": "slot_fell", "from_slot": last})
+            continue
+        if s < last and older is not None:
+            paid = sum(1 for u in older if u < t)
+            if kept[0][1] - s > paid:
+                run = [k for k in kept if k[1] == kept[0][1]]
+                rest = kept[len(run):]
+                if (run[-1][0] - t_first <= FOLLOW_START_MS
+                        and (rest[0][1] if rest else s) - s <= paid):
+                    surprises.extend({"t_ms": u, "slot": k, "reason":
+                                      "arrival_slot_contradicts_queue", "risen_to": s}
+                                     for u, k in run)
+                    kept = rest
+                else:
+                    surprises.append({"t_ms": t, "slot": s, "reason": "rise_without_expiry",
+                                      "from_slot": last})
+                    continue
+        kept.append((t, s))
+    return kept, surprises
+
+
+#: Views a portrait's best match must hold, to the follow's end, before the
+#: change is taken for a successor entry rather than a misread.
+FOLLOW_TAIL_MIN_VIEWS = 2
+
+
+def _cut_changed_tail(bound: set[tuple[float, int]], tops: dict, t_first: float
+                      ) -> tuple[set[tuple[float, int]], list[dict]]:
+    """`bound` without a tail whose victim or killer portrait's best art
+    match changed and held to the end, with a surprise for each view cut.
+
+    One entry's victim and killer never change. A hud track can run on into
+    the next entry in the same slot when both share a divider column, and no
+    gap or second full life lets `checks._weld_cuts` cut it (bfad2778a372
+    2227.0 s: Sage -> Fade, then Sage -> Miks risen into its slot, both
+    divider 175 px, one 6.5 s track). Placed by that track, the follow bound
+    the successor's views. A change to a new agent that holds for at least
+    `FOLLOW_TAIL_MIN_VIEWS` views to the follow's end, after as many views
+    past the slide-in (`FOLLOW_START_MS`) agreed on one agent, is that
+    successor; a change that reverts, or that follows only slide-in views,
+    is a misread, stays bound, and the unanimous
+    rule weighs it (`_portrait_channel`). The best match is the reader's raw art
+    score, compared only with this entry's own views, never a verdict.
+    """
+    views = sorted(bound)
+    cut_at = None
+    for role in ("victim", "killer"):
+        named = [(t, s, tops[(t, s, role)]) for t, s in views if (t, s, role) in tops]
+        if len(named) <= FOLLOW_TAIL_MIN_VIEWS:
+            continue
+        last, k = named[-1][2], len(named) - 1
+        while k > 0 and named[k - 1][2] == last:
+            k -= 1
+        # The tail's agent is new to the entry, and the head had settled on
+        # one agent after the slide-in: a return to an earlier agent ends a
+        # misread, and views within `FOLLOW_START_MS` of arrival catch the
+        # slide-in (043bafca271a 744.5 s, one view; 5822b6646448 1258.0 s,
+        # two views read Skye before the killer settled as Sage).
+        head = {a for _, _, a in named[:k]}
+        settled = Counter(a for t, _, a in named[:k] if t > t_first + FOLLOW_START_MS)
+        if (k > 0 and len(named) - k >= FOLLOW_TAIL_MIN_VIEWS and last not in head
+                and settled and max(settled.values()) >= FOLLOW_TAIL_MIN_VIEWS):
+            t_change = named[k][0]
+            cut_at = t_change if cut_at is None else min(cut_at, t_change)
+    if cut_at is None:
+        return bound, []
+    return ({v for v in bound if v[0] < cut_at},
+            [{"t_ms": t, "slot": s, "reason": "portrait_changed_to_end"}
+             for t, s in views if t >= cut_at])
+
+
+def entry_follow_evidence(entry: dict, portraits: list[dict], icon_width: dict | None = None,
+                          others: list[dict] | None = None) -> dict:
+    """The (frame time, slot) pairs one killfeed entry occupies over its track
+    (`bound`), where the follow was seeded (`seed`: `"first_slot"`, `"track"`
+    or None), and the surprises the follow met (`surprises`).
 
     **An entry does not keep its slot.** The stack rises as older entries
     expire, and a newer entry arrives BELOW [domain:killfeed/stack-order].
@@ -208,10 +332,10 @@ def entry_follow(entry: dict, portraits: list[dict], icon_width: dict | None = N
 
     So the entry is followed by its own key: the killer crop's left edge (set by
     the killer's name and the icon), the weapon icon's box width from the same
-    frame and slot (`icon_width`, when stored), and the killer's plate side. It
-    starts in its first slot within `FOLLOW_START_MS`, and each frame it stays
-    or rises one slot. A frame where both slots fit the key is ambiguous and
-    binds nothing: that surprise is where a neighbour would be taken for it.
+    frame and slot (`icon_width`, when stored), and the killer's plate side.
+    Each frame it stays or rises one slot. A frame where both slots fit the
+    key is ambiguous and binds nothing: that surprise is where a neighbour
+    would be taken for it.
 
     **The key is the one the entry's track supports.** The first frame's
     crop edge is often not the entry's lasting one: the slide-in catches it
@@ -219,35 +343,69 @@ def entry_follow(entry: dict, portraits: list[dict], icon_width: dict | None = N
     32 32 at 744.5 s), and some entries' edges alternate between two readings
     (144 and 130 at 587c15b07779 254.5 s). A key taken there fits no later
     frame: 63 killer and 15 victim entries over 21 matches were refused on one
-    view (2026-10-03). So every frame of the first slot within
+    view (2026-10-03). So every seed in the first seed's slot within
     `FOLLOW_START_MS` proposes a key and is followed, and the longest follow
-    wins, the earliest on a tie; the first frame binds as before. A proposal
+    wins, the earliest on a tie; the first seed binds as before. A proposal
     stops at the first frame where an earlier follow has the entry risen: from
     then on the slot holds a newer entry, whose longer track would otherwise be
     taken for this one (043bafca271a 153.5 s).
 
-    **Where the first slot shows no portrait, the entry's own track seeds the
-    follow** (seed `"track"`). 43 Riot-matched killers over 21 matches
-    refused with `no_stored_portrait_at_entry` although the portrait reader
-    stored the killer in the slots the entry rose into (2026-10-03): the
-    Shooting Error overlay masked slots 3-4 (25), the first portrait came
-    more than `FOLLOW_START_MS` after arrival (8), the entry rose before its
-    first slot showed one (6), or the track began on a phantom read. The hud
-    track (`session_entries`, `reads`) already follows the entry's slot as it
-    rises, so the seeds are the track's reads that hold a stored portrait:
-    from the earliest, every read in the same slot within `FOLLOW_START_MS`
-    proposes a key, with the longest-follow and stop-on-rise rules above.
-    Such a follow rests on the hud track, which the caller declares
-    (`attach_stored_killfeed_portraits`). An entry without `reads`, or whose
-    track holds no portrait, binds nothing.
+    **The hud track places the entry; the key only confirms it.** The track
+    (`session_entries` `reads`) follows the entry's slot as it rises; the
+    queue rule filters it (`entry_slot_path`). The seeds are the admitted
+    reads that hold a stored killer portrait, and each frame's follow may
+    take only the slot the track read then, or, between reads, the slot of
+    the read before or after. Seeding from the entry's first slot for
+    `FOLLOW_START_MS` regardless of the track bound the newcomer that rose
+    into the slot after the entry had left it: at 043bafca271a 578.0 s the
+    entry arrived at slot 1 and rose to 0 by 579.0 s, before slot 1 showed a
+    portrait; the follow took Phoenix -> Sova at slot 1. At 3694746e4e54
+    1638.0 s the slide-in read the entry at slot 2 and the follow took the
+    next entry, Reyna -> Cypher, which arrived there at 1639.0 s. A view the
+    key fits in a slot the track contradicts, or whose victim plate reads the
+    other side from the entry's, is stored as a surprise (`surprises`) and
+    never bound. Such a follow rests on the hud track, which the caller
+    declares (`attach_stored_killfeed_portraits`) unless the seed is the
+    entry's first slot within `FOLLOW_START_MS` of arrival (`"first_slot"`).
+    A tail of views whose portraits changed to another agent and held to
+    the end is a successor the track ran on into; it is cut and stored
+    (`_cut_changed_tail`).
+
+    An entry without `reads` keeps the earlier rule: it is seeded from its
+    first slot within `FOLLOW_START_MS`, and stays or rises by its key alone.
+    An entry whose admitted reads hold no portrait binds nothing.
     """
     icon_width = icon_width or {}
     by: dict[float, dict[int, tuple]] = {}
+    victim_side: dict[tuple[float, int], Any] = {}
+    tops: dict[tuple[float, int, str], str] = {}
     for p in portraits:
-        if (p.get("role") == "killer" and "x0" in p
-                and entry["t_first"] <= float(p["t_ms"]) <= entry["t_last"]):
+        if not entry["t_first"] <= float(p["t_ms"]) <= entry["t_last"]:
+            continue
+        if p.get("art_zncc") and not p.get("art_reason"):
+            tops[(float(p["t_ms"]), p["slot"], p.get("role"))] = max(
+                p["art_zncc"], key=p["art_zncc"].get)
+        if p.get("role") == "killer" and "x0" in p:
             by.setdefault(float(p["t_ms"]), {})[p["slot"]] = (
                 p["x0"], icon_width.get((float(p["t_ms"]), p["slot"])), p.get("ally"))
+        elif p.get("role") == "victim" and p.get("ally") is not None:
+            victim_side[(float(p["t_ms"]), p["slot"])] = (
+                "ally" if p["ally"] is True else "enemy")
+    path, surprises = entry_slot_path(entry, others)
+    side = entry.get("side") if entry.get("side") in ("ally", "enemy") else None
+
+    if path:
+        at = dict(path)
+        path_t = [t for t, _ in path]
+
+        def allowed(t: float) -> set[int]:
+            if t in at:
+                return {at[t]}
+            i = bisect.bisect_left(path_t, t)
+            return ({at[path_t[i - 1]]} if i else set()) | (
+                {at[path_t[i]]} if i < len(path_t) else set())
+    else:
+        allowed = None
 
     def fits(here: dict, slot: int, key: tuple) -> list[int]:
         return [s for s in (slot, slot - 1) if s in here
@@ -258,19 +416,29 @@ def entry_follow(entry: dict, portraits: list[dict], icon_width: dict | None = N
     times = sorted(by)
     index = {t: i for i, t in enumerate(times)}
 
-    def follow(t0: float, s0: int) -> set[tuple[float, int]]:
-        s, key, out = s0, by[t0][s0], {(t0, s0)}
+    def follow(t0: float, s0: int) -> tuple[set[tuple[float, int]], list[dict]]:
+        s, key, out, met = s0, by[t0][s0], {(t0, s0)}, []
         for t in times[index[t0] + 1:]:
             here = by[t]
             fit = fits(here, s, key)
+            ok = allowed(t) if allowed is not None else None
+            for f in fit:
+                if ok is not None and f not in ok:
+                    met.append({"t_ms": t, "slot": f, "reason": "slot_contradicts_track",
+                                "track_slots": sorted(ok)})
+                elif side and victim_side.get((t, f), side) != side:
+                    met.append({"t_ms": t, "slot": f, "reason": "victim_side_contradicts_entry",
+                                "observed_side": victim_side[(t, f)]})
+            fit = [f for f in fit if (ok is None or f in ok)
+                   and (not side or victim_side.get((t, f), side) == side)]
             if len(fit) != 1:
                 continue
             s = fit[0]
             key = (here[s][0], key[1] if here[s][1] is None else here[s][1], key[2])
             out.add((t, s))
-        return out
+        return out, met
 
-    def propose(seeds: list[tuple[float, int]]) -> set[tuple[float, int]]:
+    def propose(seeds: list[tuple[float, int]]) -> tuple[set[tuple[float, int]], list[dict]]:
         # Each seed in the first seed's slot within the window proposes a key,
         # until a follow shows the entry has risen: from then on a newer entry
         # holds that slot.
@@ -280,18 +448,40 @@ def entry_follow(entry: dict, portraits: list[dict], icon_width: dict | None = N
             if t > t_start + FOLLOW_START_MS or t >= risen or s != slot:
                 break
             tracks.append(follow(t, s))
-            risen = min([risen] + [u for u, s_ in tracks[-1] if s_ < slot])
-        return max(tracks, key=len) | tracks[0]
+            risen = min([risen] + [u for u, s_ in tracks[-1][0] if s_ < slot])
+        best = max(tracks, key=lambda x: len(x[0]))
+        met = {(m["t_ms"], m["slot"], m["reason"]): m for m in tracks[0][1] + best[1]}
+        return best[0] | tracks[0][0], [met[k] for k in sorted(met)]
 
-    first = [(t, entry["slot"]) for t in times
-             if t <= entry["t_first"] + FOLLOW_START_MS and entry["slot"] in by[t]]
-    if first:
-        return propose(first), "first_slot"
-    track = sorted((float(t), int(s)) for t, s in entry.get("reads") or ()
-                   if float(t) in by and int(s) in by[float(t)])
-    if track:
-        return propose(track), "track"
-    return set(), None
+    def seeded_ok(t: float, s: int) -> bool:
+        return not side or victim_side.get((t, s), side) == side
+
+    if path is None:
+        first = [(t, entry["slot"]) for t in times
+                 if t <= entry["t_first"] + FOLLOW_START_MS and entry["slot"] in by[t]]
+        if first:
+            bound, met = propose(first)
+            return {"bound": bound, "seed": "first_slot", "surprises": surprises + met}
+        return {"bound": set(), "seed": None, "surprises": surprises}
+    seeds = []
+    for t, s in path:
+        if t in by and s in by[t]:
+            if seeded_ok(t, s):
+                seeds.append((t, s))
+            else:
+                surprises.append({"t_ms": t, "slot": s, "reason": "victim_side_contradicts_entry",
+                                  "observed_side": victim_side[(t, s)]})
+    if not seeds:
+        return {"bound": set(), "seed": None, "surprises": surprises}
+    bound, met = propose(seeds)
+    bound, cut = _cut_changed_tail(bound, tops, float(entry["t_first"]))
+    met = met + cut
+    t0, s0 = seeds[0]
+    seed = ("first_slot" if s0 == entry["slot"] and t0 <= entry["t_first"] + FOLLOW_START_MS
+            else "track")
+    # A seed the victim plate refused is met again by the follow: one surprise.
+    once = {(m["t_ms"], m["slot"], m["reason"]): m for m in surprises + met}
+    return {"bound": bound, "seed": seed, "surprises": [once[k] for k in sorted(once)]}
 
 
 def attach_stored_killfeed_portraits(
@@ -302,11 +492,13 @@ def attach_stored_killfeed_portraits(
     """Join raw portraits to their entry without reading media.
 
     An entry carrying its track (`t_first`, `t_last`, from `session_entries`)
-    takes the views `entry_follow` binds, with the icon widths from
-    `weapon_observations`; one without a track takes its first slot until the
+    takes the views `entry_follow_evidence` binds, with the icon widths from
+    `weapon_observations` and the other entries as the queue
+    (`entry_slot_path`); one without a track takes its first slot until the
     next entry, at most 2 s. Each claim's evidence carries the follow's `seed`
-    (None without a track); one seeded from the entry's hud track declares
-    `rests_on` that track in its evidence. A single named frame is retained as evidence but
+    (None without a track) and the follow's surprises (`follow_surprises`);
+    one seeded from the entry's hud track declares `rests_on` that track in
+    its evidence. A single named frame is retained as evidence but
     cannot promote a name: its appearance has no within-entry repeat check.
     At least two views must name, and every view that names must name the same
     admitted lineup candidate, before this channel publishes a name; a view
@@ -323,9 +515,10 @@ def attach_stored_killfeed_portraits(
     for i, original in enumerate(entries):
         entry = dict(original)
         start = float(entry["t_ms"])
-        slot, views, seed = entry.get("slot"), portraits, None
+        slot, views, seed, surprises = entry.get("slot"), portraits, None, None
         if entry.get("t_last") is not None and entry.get("t_first") is not None:
-            bound, seed = entry_follow(entry, portraits, widths)
+            ev = entry_follow_evidence(entry, portraits, widths, others=entries)
+            bound, seed, surprises = ev["bound"], ev["seed"], ev["surprises"]
             views = [dict(p, slot=slot) for p in portraits
                      if (float(p["t_ms"]), p["slot"]) in bound]
             end = max((t for t, _ in bound), default=start) + 1.0
@@ -350,6 +543,9 @@ def attach_stored_killfeed_portraits(
             # The evidence travels into the identity claim; a top-level key
             # would not (`identity.identity_claim`).
             entry[role]["evidence"]["seed"] = seed
+            # Views the key fitted where the track or the victim plate
+            # contradicts the entry: stored, never bound.
+            entry[role]["evidence"]["follow_surprises"] = surprises
             if seed == "track":
                 # The hud track placed these views: a prior, never a second
                 # witness of the name.
@@ -993,13 +1189,14 @@ def revive_entry(entry: dict) -> bool:
 
 def entry_names(entry: dict, portraits: list[dict], widths: dict,
                 name_observations: list[dict] | None,
-                session_id: str) -> tuple[bool | None, str | None]:
+                session_id: str, others: list[dict] | None = None
+                ) -> tuple[bool | None, str | None]:
     """`killfeed_names.self_entry` at the views `follow_entry_portraits` binds
     the entry to, or None with a reason when no name stream is stored."""
     from .killfeed_names import followed_views, self_entry
     if name_observations is None:
         return None, "no_killfeed_name_stream"
-    bound = follow_entry_portraits(entry, portraits, widths)
+    bound = follow_entry_portraits(entry, portraits, widths, others)
     obs = [p for p in portraits
            if p.get("role") == "killer" and (float(p["t_ms"]), p["slot"]) in bound]
     return self_entry(followed_views(obs), name_observations, session_id)
@@ -2658,7 +2855,8 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                 if ev["status"] == "resolved":
                     e["weapon"] = ev["name"]
                     e["death_cause"] = ev["category"]
-                names = (entry_names(e, kf_portraits, widths, name_observations, session_id)
+                names = (entry_names(e, kf_portraits, widths, name_observations, session_id,
+                                     others=entries)
                          if e.get("same_side") else (None, None))
                 e["plate_names"] = names
                 e["revive_witnesses"] = entry_witnesses(e, weapon_observations, names)
