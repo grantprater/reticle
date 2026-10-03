@@ -203,6 +203,8 @@ class Store:
         validate_candidates(doc["rows"], producer)
         return doc
 
+    @timed_read(lambda self, producer, session_id, revision_id: (
+        f"candidates:{producer}", self.candidate_revision_path(producer, session_id, revision_id)))
     def read_candidates(self, producer: str, session_id: str,
                         revision_id: str) -> list[dict]:
         return self.read_candidate_batch(producer, session_id, revision_id)["rows"]
@@ -232,6 +234,9 @@ class Store:
             os.replace(tmp, path)
         return path
 
+    @timed_read(lambda self, producer, session_id, candidate_revision, rule_version, candidates=None: (
+        f"decisions:{producer}",
+        self.decision_revision_path(producer, session_id, candidate_revision, rule_version)))
     def read_decisions(self, producer: str, session_id: str,
                        candidate_revision: str, rule_version: str,
                        candidates: list[dict] | None = None) -> list[dict]:
@@ -506,6 +511,7 @@ class Store:
     def kf_mask_path(self, session_id: str) -> Path:
         return self.root / "masks" / f"{session_id}.kf.npy"
 
+    @timed_read(lambda self, session_id: ("kf_mask", self.kf_mask_path(session_id)))
     def read_kf_mask(self, session_id: str):
         """The cached killfeed overlay mask, or None.
 

@@ -23,6 +23,7 @@ import numpy as np
 # The icon's white mask and its normalised grid are measurements, so the reader
 # layer owns them; this module names what they describe.
 from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
+from ..usage import step
 from .killfeed_kits import kill_kits, open_questions
 
 # 0.5.0 (2026-09-25): `entry_weapon` takes the match's agents and drops ability
@@ -393,15 +394,16 @@ def load_ability_gallery(assets_dir: Optional[Path | str] = None) -> dict[str, n
     if not assets_dir.is_dir():
         return {}
 
-    loaded = {}
-    for p in assets_dir.glob("*.png"):
-        raw = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
-        if raw is not None and len(raw.shape) == 3 and raw.shape[2] == 4:
-            alpha = raw[:, :, 3]
-            ys, xs = np.where(alpha > 128)
-            if len(ys) > 10:
-                raw = raw[int(ys.min()):int(ys.max()+1), int(xs.min()):int(xs.max()+1)]
-            loaded[p.stem] = raw
+    with step("ability_gallery"):
+        loaded = {}
+        for p in assets_dir.glob("*.png"):
+            raw = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
+            if raw is not None and len(raw.shape) == 3 and raw.shape[2] == 4:
+                alpha = raw[:, :, 3]
+                ys, xs = np.where(alpha > 128)
+                if len(ys) > 10:
+                    raw = raw[int(ys.min()):int(ys.max()+1), int(xs.min()):int(xs.max()+1)]
+                loaded[p.stem] = raw
 
     _ABILITY_GALLERY_CACHE = loaded
     return _ABILITY_GALLERY_CACHE
@@ -428,11 +430,12 @@ def load_weapon_gallery(assets_dir: Optional[Path | str] = None) -> dict[str, np
     if not assets_dir.is_dir():
         return {}
 
-    loaded = {}
-    for p in assets_dir.glob("*.png"):
-        raw = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
-        if raw is not None and len(raw.shape) == 3 and raw.shape[2] == 4:
-            loaded[p.stem] = raw
+    with step("weapon_gallery"):
+        loaded = {}
+        for p in assets_dir.glob("*.png"):
+            raw = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
+            if raw is not None and len(raw.shape) == 3 and raw.shape[2] == 4:
+                loaded[p.stem] = raw
 
     _WEAPON_GALLERY_CACHE = loaded
     return _WEAPON_GALLERY_CACHE
@@ -563,8 +566,9 @@ def load_mined_gallery(path: Optional[Path | str] = None) -> Optional[dict]:
     if key not in _MINED_CACHE:
         if not path.is_file():
             return None
-        z = np.load(path)
-        _MINED_CACHE[key] = {k: z[k] for k in ("names", "masks", "aspects")}
+        with step("mined_gallery"):
+            z = np.load(path)
+            _MINED_CACHE[key] = {k: z[k] for k in ("names", "masks", "aspects")}
     return _MINED_CACHE[key]
 
 

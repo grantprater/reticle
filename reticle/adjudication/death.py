@@ -46,6 +46,7 @@ from ..events import (
 from ..killfeed import (SECOND_LIFE_RUN_MIN, detect_second_life_badge,  # noqa: F401 -- re-exported
                         fit_arc)
 from ..roster import N_SLOTS
+from ..usage import step
 from .identity import (NAME_CLUSTER_CHANNEL, adjudicate_agent_identity,
                        claim_from_killfeed_portrait, identity_claim, identity_events,
                        side_candidates, _channel_verdict)
@@ -2536,21 +2537,22 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
     # Both sides: an icon's caster may be on either team (a revive, a team kill).
     agents = {r["agent"] for side in (lineup.get("sides") or {}).values()
               for r in side if r.get("agent")}
-    if weapon_observations is not None:
-        kf_portraits = [r for r in portraits if r.get("kind") == "portrait_observation"]
-        widths = icon_widths(weapon_observations)
-        for e in entries:
-            ev = entry_weapon(e, weapon_observations, store_root=store_root,
-                              agents=agents or None,
-                              key=death_key(session_id, e["t_ms"], e["slot"]))
-            e["weapon_evidence"] = ev
-            if ev["status"] == "resolved":
-                e["weapon"] = ev["name"]
-                e["death_cause"] = ev["category"]
-            names = (entry_names(e, kf_portraits, widths, name_observations, session_id)
-                     if e.get("same_side") else (None, None))
-            e["plate_names"] = names
-            e["revive_witnesses"] = entry_witnesses(e, weapon_observations, names)
+    with step("entry_weapons"):
+        if weapon_observations is not None:
+            kf_portraits = [r for r in portraits if r.get("kind") == "portrait_observation"]
+            widths = icon_widths(weapon_observations)
+            for e in entries:
+                ev = entry_weapon(e, weapon_observations, store_root=store_root,
+                                  agents=agents or None,
+                                  key=death_key(session_id, e["t_ms"], e["slot"]))
+                e["weapon_evidence"] = ev
+                if ev["status"] == "resolved":
+                    e["weapon"] = ev["name"]
+                    e["death_cause"] = ev["category"]
+                names = (entry_names(e, kf_portraits, widths, name_observations, session_id)
+                         if e.get("same_side") else (None, None))
+                e["plate_names"] = names
+                e["revive_witnesses"] = entry_witnesses(e, weapon_observations, names)
     audit_board = board_alive_auditor(hud_table, roster_table)
     xm: dict = {r["round_no"]: [] for r in rounds}
     for b in xmarks or ():
@@ -2561,15 +2563,69 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                                                    r.get("t_close_ms") or r["t_end_ms"], ends),
                                    sides, lineup_version=lineup_version)) for r in rounds]
     exemplars, keys, n = [], None, 0
-    while True:
-        results = []
-        for r, raw in base:
+    with step("passes"):
+        while True:
+            results = []
+            for r, raw in base:
+                a, z = r["t_start_ms"], r.get("t_close_ms") or r["t_end_ms"]
+                with step("attach_portraits"):
+                    entries = attach_stored_killfeed_portraits(raw, portraits, lineup, gallery,
+                                                               source_version=source_version,
+                                                               exemplars=exemplars,
+                                                               weapon_observations=weapon_observations)
+                window = [row for row in roster if a <= row["t_ms"] <= z]
+                with step("verdict_first"):
+                    first = adjudicate_round_deaths(session_id, entries, window,
+                                                    player_agent=player_agent, xmarks=xm[r["round_no"]])
+                with step("board_claims"):
+                    openings = scoreboard_openings([row for row in board_rows
+                                                    if a <= float(row.get("t_ms", -1)) <= z])
+                    board = scoreboard_death_claims(
+                        entries, openings, {i: v.victim for i, v in enumerate(first)},
+                        {i for i, v in enumerate(first) if v.is_second_life},
+                        contradicted_openings(audit_board(openings)), _named_by(first))
+                with step("verdict_final"):
+                    verdicts = adjudicate_round_deaths(session_id, entries, window,
+                                                       player_agent=player_agent,
+                                                       scoreboard_claims=board, xmarks=xm[r["round_no"]])
+                results.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts,
+                                "collisions": board_collisions(session_id, r["round_no"], board)})
+            n += 1
+            harvested = portrait_exemplars([v for x in results for v in x["verdicts"]],
+                                           [e for x in results for e in x["entries"]])
+            new = {x["observation_key"] for x in harvested}
+            if new == keys or n >= MAX_EXEMPLAR_PASSES:
+                break
+            keys, exemplars = new, harvested
+    if name_observations is None:
+        return {"rounds": results, "passes": n}
+    with step("name_clusters"):
+        claims, summary = _name_cluster_claims(session_id, results, portraits, name_observations,
+                                               lineup, gallery, reliability)
+    final = []
+    with step("final_pass"):
+        for (r, _), x in zip(base, results):
             a, z = r["t_start_ms"], r.get("t_close_ms") or r["t_end_ms"]
-            entries = attach_stored_killfeed_portraits(raw, portraits, lineup, gallery,
-                                                       source_version=source_version,
-                                                       exemplars=exemplars,
-                                                       weapon_observations=weapon_observations)
+            entries = [dict(e, name_claim=claims.get(v.death_id),
+                            killer_name_claim=claims.get(f"{v.death_id}:killer"))
+                       for e, v in zip(x["entries"], x["verdicts"])]
             window = [row for row in roster if a <= row["t_ms"] <= z]
+            first = adjudicate_round_deaths(session_id, entries, window, player_agent=player_agent,
+                                            xmarks=xm[r["round_no"]])
+            if weapon_observations is not None:
+                # Narrow each icon by its acting agent's kit, the agent named
+                # without the icon, then adjudicate the round again on the result.
+                with step("narrow_weapons"):
+                    entries = [narrow_entry_weapon(e, v, weapon_observations, agents,
+                                                   lineup.get("sides") or {}, session_id,
+                                                   store_root)
+                               for e, v in zip(entries, first)]
+            # Type the round again with its verdicts' victim names: a Sage named
+            # dead cannot revive, and a KAY/O revive needs his named down.
+            entries = type_round_entries(
+                entries, sides, lineup_version=lineup_version,
+                victims={float(e["t_ms"]): (v.victim, v.death_id)
+                         for e, v in zip(entries, first) if v.victim and not v.is_revive})
             first = adjudicate_round_deaths(session_id, entries, window,
                                             player_agent=player_agent, xmarks=xm[r["round_no"]])
             openings = scoreboard_openings([row for row in board_rows
@@ -2579,56 +2635,10 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                 {i for i, v in enumerate(first) if v.is_second_life},
                 contradicted_openings(audit_board(openings)), _named_by(first))
             verdicts = adjudicate_round_deaths(session_id, entries, window,
-                                               player_agent=player_agent,
-                                               scoreboard_claims=board, xmarks=xm[r["round_no"]])
-            results.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts,
-                            "collisions": board_collisions(session_id, r["round_no"], board)})
-        n += 1
-        harvested = portrait_exemplars([v for x in results for v in x["verdicts"]],
-                                       [e for x in results for e in x["entries"]])
-        new = {x["observation_key"] for x in harvested}
-        if new == keys or n >= MAX_EXEMPLAR_PASSES:
-            break
-        keys, exemplars = new, harvested
-    if name_observations is None:
-        return {"rounds": results, "passes": n}
-    claims, summary = _name_cluster_claims(session_id, results, portraits, name_observations,
-                                           lineup, gallery, reliability)
-    final = []
-    for (r, _), x in zip(base, results):
-        a, z = r["t_start_ms"], r.get("t_close_ms") or r["t_end_ms"]
-        entries = [dict(e, name_claim=claims.get(v.death_id),
-                        killer_name_claim=claims.get(f"{v.death_id}:killer"))
-                   for e, v in zip(x["entries"], x["verdicts"])]
-        window = [row for row in roster if a <= row["t_ms"] <= z]
-        first = adjudicate_round_deaths(session_id, entries, window, player_agent=player_agent,
-                                        xmarks=xm[r["round_no"]])
-        if weapon_observations is not None:
-            # Narrow each icon by its acting agent's kit, the agent named
-            # without the icon, then adjudicate the round again on the result.
-            entries = [narrow_entry_weapon(e, v, weapon_observations, agents,
-                                           lineup.get("sides") or {}, session_id,
-                                           store_root)
-                       for e, v in zip(entries, first)]
-        # Type the round again with its verdicts' victim names: a Sage named
-        # dead cannot revive, and a KAY/O revive needs his named down.
-        entries = type_round_entries(
-            entries, sides, lineup_version=lineup_version,
-            victims={float(e["t_ms"]): (v.victim, v.death_id)
-                     for e, v in zip(entries, first) if v.victim and not v.is_revive})
-        first = adjudicate_round_deaths(session_id, entries, window,
-                                        player_agent=player_agent, xmarks=xm[r["round_no"]])
-        openings = scoreboard_openings([row for row in board_rows
-                                        if a <= float(row.get("t_ms", -1)) <= z])
-        board = scoreboard_death_claims(
-            entries, openings, {i: v.victim for i, v in enumerate(first)},
-            {i for i, v in enumerate(first) if v.is_second_life},
-            contradicted_openings(audit_board(openings)), _named_by(first))
-        verdicts = adjudicate_round_deaths(session_id, entries, window,
-                                           player_agent=player_agent, scoreboard_claims=board,
-                                           xmarks=xm[r["round_no"]])
-        final.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts,
-                      "collisions": board_collisions(session_id, r["round_no"], board)})
+                                               player_agent=player_agent, scoreboard_claims=board,
+                                               xmarks=xm[r["round_no"]])
+            final.append({"round_no": r["round_no"], "entries": entries, "verdicts": verdicts,
+                          "collisions": board_collisions(session_id, r["round_no"], board)})
     return {"rounds": final, "passes": n + 1, "name_clusters": summary}
 
 

@@ -66,6 +66,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .usage import step
 from .roster import ART_FRAC, N_SLOTS, alive_counts, roster_rois
 from .adjudication.identity import (SIDE_MARGIN_MIN, adjudicate_agent_identity,
                                     assign_side, claims_from_lineup,
@@ -101,7 +102,7 @@ def _composition(bgr, mask=None):
     return composition(bgr, mask)
 
 
-def load_lineup(session: str, store) -> dict | None:
+def _load_lineup(session: str, store) -> dict | None:
     """The stored lineup verdict for a session, or None when never read.
 
     **The identity verdict is DERIVED here when the file predates it.** The 19
@@ -138,7 +139,8 @@ def load_lineup(session: str, store) -> dict | None:
     got.setdefault("session", session)
     if "player" in got:
         got["stored_player"] = got.pop("player")
-    attached = _attach_self_icon(got, session, store)
+    with step("self_icon"):
+        attached = _attach_self_icon(got, session, store)
     if attached or not any(v.get("entity_id") == player_entity(session)
                            for v in got.get("agent_identity") or []):
         claims = claims_from_lineup(
@@ -155,7 +157,10 @@ def load_lineup(session: str, store) -> dict | None:
     stored = board_store.events_version("scoreboard", session)
     if stored in SCOREBOARD_VERDICT_COMPATIBLE:
         openings = scoreboard_openings(board_store.read_events("scoreboard", session))
-        got = lineup_with_board(got, board_side_sets(openings))
+        with step("board_side_sets"):
+            sets = board_side_sets(openings)
+        with step("lineup_with_board"):
+            got = lineup_with_board(got, sets)
         got["board_state"] = {"applied": True, "version": stored,
                               "current": stored == SCOREBOARD_VERSION}
     else:
@@ -166,6 +171,12 @@ def load_lineup(session: str, store) -> dict | None:
         got["board_state"] = {"applied": False, "reason": _board_refusal(stored)}
     got["player"] = player_identity(got, session)
     return got
+
+
+def load_lineup(session: str, store) -> dict | None:
+    """`_load_lineup`, as the named step `load_lineup` of `reticle usage`."""
+    with step("load_lineup"):
+        return _load_lineup(session, store)
 
 
 def view_stamp(session: str, store) -> str:

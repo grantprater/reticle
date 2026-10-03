@@ -45,6 +45,7 @@ import numpy as np
 from .decode import sample_frames, sample_multi, sample_spans
 from .checks import KNOWN_KD, check_hud, player_events, track_entries
 from .rounds import build_rounds, summarise
+from .usage import step as usage_step
 from .scoreboard import ScoreboardReader, load_agent_icons, read_scoreboard, strip_rect
 from . import cone, geometry, lighting
 from .fidelity import FROZEN_WINDOWS
@@ -2476,24 +2477,26 @@ def cmd_lifetimes(args) -> int:
     if not events:
         raise SystemExit(f"no ally_icon events for {sid} -- "
                          f"run `reticle scan {sid} --only ally_icon --ally-hz 15`")
-    source_revision = hashlib.sha256(
-        store.events_path("ally_icon", sid).read_bytes()).hexdigest()
+    with usage_step("source_stamp"):
+        source_revision = hashlib.sha256(
+            store.events_path("ally_icon", sid).read_bytes()).hexdigest()
     # A new observation revision invalidates this derived association, and so
     # does a new identity rule or reference table: segments carry their names.
     from .adjudication.identity import AGENT_IDENTITY_VERSION, load_ally_portrait_references
 
-    table = load_ally_portrait_references(store.root) or {}
-    refs_version = table.get("version")
-    if table.get("teammate_fit"):
-        refs_version = f"{refs_version}+{table['teammate_fit'].get('version')}"
-    # The lineup names from the stored lineup and the scoreboard's side sets,
-    # and deaths bind to pieces: a rescan of either changes the entities
-    # without touching the ally icons, so their bytes are stamped too.
-    inputs = hashlib.sha256()
-    for part in (store.root / "lineups" / f"{sid}.json",
-                 store.events_path("scoreboard", sid), store.events_path("death", sid)):
-        inputs.update(part.read_bytes() if part.is_file() else b"-")
-    inputs_revision = inputs.hexdigest()
+    with usage_step("stamp_inputs"):
+        table = load_ally_portrait_references(store.root) or {}
+        refs_version = table.get("version")
+        if table.get("teammate_fit"):
+            refs_version = f"{refs_version}+{table['teammate_fit'].get('version')}"
+        # The lineup names from the stored lineup and the scoreboard's side sets,
+        # and deaths bind to pieces: a rescan of either changes the entities
+        # without touching the ally icons, so their bytes are stamped too.
+        inputs = hashlib.sha256()
+        for part in (store.root / "lineups" / f"{sid}.json",
+                     store.events_path("scoreboard", sid), store.events_path("death", sid)):
+            inputs.update(part.read_bytes() if part.is_file() else b"-")
+        inputs_revision = inputs.hexdigest()
     path = store.events_path("round_entity", sid)
     stamped = None
     if path.is_file():
@@ -2515,7 +2518,8 @@ def cmd_lifetimes(args) -> int:
             return 0
         print(f"cache miss session {sid}: plan lists round_entity "
               f"(inputs {', '.join(why['inputs_moved']) or 'none'})")
-    rounds = build_rounds(store.read_hud(sid, date))
+    with usage_step("build_rounds"):
+        rounds = build_rounds(store.read_hud(sid, date))
     roster = None
     if store.has_roster(sid, date):
         t = store.read_roster(sid, date)
@@ -2528,22 +2532,26 @@ def cmd_lifetimes(args) -> int:
     from .lineup import load_lineup
     from .adjudication.identity import load_ally_portrait_references, load_identity_gallery
 
-    lineup = load_lineup(sid, store.root)
-    references = load_ally_portrait_references(store.root) if lineup else None
-    gallery = load_identity_gallery(store.root) if lineup else None
+    with usage_step("identity_inputs"):
+        lineup = load_lineup(sid, store.root)
+        references = load_ally_portrait_references(store.root) if lineup else None
+        gallery = load_identity_gallery(store.root) if lineup else None
     from .menu import stored_menu
-    menu, menu_stamp = stored_menu(store, sid)
-    rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]),
-                             roster, source_revision, deaths=deaths,
-                             lineup=lineup, gallery=gallery, references=references,
-                             menu=menu.at if menu is not None else None)
+    with usage_step("stored_menu"):
+        menu, menu_stamp = stored_menu(store, sid)
+    with usage_step("session_lifetimes"):
+        rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]),
+                                 roster, source_revision, deaths=deaths,
+                                 lineup=lineup, gallery=gallery, references=references,
+                                 menu=menu.at if menu is not None else None)
     rows[0]["menu_open"] = menu_stamp
     # Stamp the rules that named the segments, so a later change recomputes.
     rows[0]["agent_identity_version"] = AGENT_IDENTITY_VERSION
     rows[0]["ally_portrait_refs_version"] = refs_version
     rows[0]["inputs_revision"] = inputs_revision
-    _record_inputs(store, sid, "round_entity", rows[0])
-    out = store.write_events("round_entity", sid, rows)
+    with usage_step("write"):
+        _record_inputs(store, sid, "round_entity", rows[0])
+        out = store.write_events("round_entity", sid, rows)
     cov = rows[0]
     ents = [r for r in rows if r["kind"] == "entity"]
     by_family = Counter(e["family"] for e in ents)
@@ -3071,7 +3079,8 @@ def cmd_combat_report(args) -> int:
     if rounds is None:
         raise SystemExit(f"{sid}: no stored rounds -- run `reticle rounds {sid}` first")
     deaths = player_death_times(store.read_hud(sid, date))
-    out_rows = report_events(sid, rows, rounds.to_pylist(), deaths)
+    with usage_step("report_events"):
+        out_rows = report_events(sid, rows, rounds.to_pylist(), deaths)
     _record_inputs(store, sid, "combat_report_round", out_rows[0])
     out = store.write_events("combat_report_round", sid, out_rows)
     head = out_rows[0]
@@ -3085,7 +3094,8 @@ def cmd_combat_report(args) -> int:
                                      or r["kills"] is None):
             print(f"  round {r['round_no']:>2}: report K{r['kills']} D{r['deaths']}  "
                   f"stored K{r['stored_kills']} D{r['stored_deaths']}  {r['reason'] or ''}")
-    _combat_report_identity(store, sid, date, rows, rounds.to_pylist(), deaths)
+    with usage_step("identity"):
+        _combat_report_identity(store, sid, date, rows, rounds.to_pylist(), deaths)
     return 0
 
 
@@ -3101,8 +3111,9 @@ def _combat_report_identity(store, sid, date, rows, rounds, death_times) -> None
         print(f"  identity: no stored lineup for {sid}; rows stay unnamed")
         return
     frames = [r for r in rows if r.get("kind") == "frame"]
-    ps = adj.panels(frames, death_times)
-    adj.assign_rounds(ps, rounds)
+    with usage_step("panels"):
+        ps = adj.panels(frames, death_times)
+        adj.assign_rounds(ps, rounds)
     hud = store.read_hud(sid, date)
     t = hud.column("t_ms").to_pylist()
     tracks = lambda c: [x for x in track_entries(t, hud.column(f"kf_{c}_mask").to_pylist(),
@@ -3123,11 +3134,12 @@ def _combat_report_identity(store, sid, date, rows, rounds, death_times) -> None
         death_rows = []
     elif not death_rows:
         print(f"  deaths: none stored; rows stay unbound -- run `reticle deaths {sid}`")
-    claims, verdicts = adj.name_rows(sid, ps, rounds, tracks("kill"), tracks("death"),
-                                     portraits, board, lineup["sides"]["enemy"],
-                                     load_identity_gallery(store.root), death_rows,
-                                     lineup["sides"].get("ally", []),
-                                     (lineup.get("player") or {}).get("agent"))
+    with usage_step("name_rows"):
+        claims, verdicts = adj.name_rows(sid, ps, rounds, tracks("kill"), tracks("death"),
+                                         portraits, board, lineup["sides"]["enemy"],
+                                         load_identity_gallery(store.root), death_rows,
+                                         lineup["sides"].get("ally", []),
+                                         (lineup.get("player") or {}).get("agent"))
     events = identity_events(verdicts, sid)
     rows_named = [{"session_id": sid, "kind": "row_entity", "panel_start_ms": p["start_ms"],
                    "row": k, "entity_id": row.get("entity_id"), "cluster": row.get("cluster"),
@@ -3135,8 +3147,9 @@ def _combat_report_identity(store, sid, date, rows, rounds, death_times) -> None
                   for p in ps for k, row in enumerate(p["rows"])]
     # A stream of formal events holds nothing else, so the row-to-entity map
     # is its own stream beside the arbiter's events.
-    store.write_events("combat_report_rows", sid, rows_named)
-    out = store.write_events("combat_report_identity", sid, events)
+    with usage_step("write"):
+        store.write_events("combat_report_rows", sid, rows_named)
+        out = store.write_events("combat_report_identity", sid, events)
     by = {v["entity_id"]: v for v in verdicts}
     covered = sum(1 for r in rows_named if by.get(r["entity_id"], {}).get("status") == "resolved")
     print(f"  identity: {len({r['cluster'] for r in rows_named})} portrait clusters, "
@@ -3159,12 +3172,14 @@ def cmd_deaths(args) -> int:
     store = Store(args.store)
     manifest = _resolve_session(store, args.session)
     sid = manifest["session_id"]
-    d = death_streams(store, manifest)
+    with usage_step("death_streams"):
+        d = death_streams(store, manifest)
     head, rows, collisions, res = d["head"], d["rows"], d["collisions"], d["result"]
     # The roster, the lineup view and the reliability table's bytes.
-    _record_inputs(store, sid, "death", head)
-    out = store.write_events("death", sid, [head] + rows + collisions)
-    store.write_events("death_identity", sid, d["events"])
+    with usage_step("write"):
+        _record_inputs(store, sid, "death", head)
+        out = store.write_events("death", sid, [head] + rows + collisions)
+        store.write_events("death_identity", sid, d["events"])
     print(f"{sid}: {len(rows) - head['revives']} deaths and {head['revives']} revives over "
           f"{d['n_rounds']} rounds in {res['passes']} passes; "
           f"victims {head['victims']}, killers {head['killers']}, "
@@ -3192,126 +3207,130 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
 
     sid, date = manifest["session_id"], _date_of(manifest)
     given = {"weapons": weapons is not None, "names": names is not None}
-    if portraits is None:
-        portraits = store.read_events("killfeed_portrait", sid)
-        if store.events_version("killfeed_portrait", sid) != KILLFEED_PORTRAIT_VERSION:
-            raise SystemExit(f"{sid}: killfeed portraits are not at {KILLFEED_PORTRAIT_VERSION} -- "
-                             f"run `reticle scan {sid} --only hud`")
-    rounds = store.read_rounds(sid, date)
-    if rounds is None:
-        raise SystemExit(f"{sid}: no stored rounds -- run `reticle rounds {sid}` first")
-    rounds = rounds.to_pylist()
-    lineup = load_lineup(sid, store.root)
-    if not lineup:
-        raise SystemExit(f"{sid}: no stored lineup")
-    # A stale or missing weapon stream names no weapon; it never blocks deaths.
-    if weapons is None:
-        weapons = (store.read_events("killfeed_weapon", sid)
-                   if store.events_version("killfeed_weapon", sid) == KILLFEED_WEAPON_VERSION
-                   else None)
-    if weapons is None:
-        print(f"{sid}: no killfeed_weapon stream at {KILLFEED_WEAPON_VERSION}; weapons unnamed "
-              f"-- run `reticle scan {sid} --only hud`")
-    # A stale or missing name stream leaves every role on its per-entry vote.
-    # The name clusters and their assignment were measured in
-    # `prototypes/killfeed_name_continuity.py` and `prototypes/match_name_assignment.py`.
-    if names is None:
-        names = (store.read_events("killfeed_name", sid)
-                 if store.events_version("killfeed_name", sid) == KILLFEED_NAME_VERSION else None)
-    if names is None:
-        print(f"{sid}: no killfeed_name stream at {KILLFEED_NAME_VERSION}; no name clusters "
-              f"-- run `reticle scan {sid} --only hud --from cache`")
-    # A name's probability, from each naming channel's measured reliability.
-    # It annotates each verdict, and weighs the reference channels in the name
-    # clusters' assignment.
-    from .adjudication.reliability import RELIABILITY_VERSION, load as load_reliability, name_probability
-    rel = load_reliability(store.root)
-    # The X marks place deaths: the `minimap_object` stream at the code's
-    # stamp, with the `ally_icon` icons. A stale or missing stream places none.
-    from .adjudication.death import stored_xmark_births
-    from .minimap_objects import minimap_object_version
-    mo_version = store.events_version("minimap_object", sid)
-    births = None
-    if mo_version == minimap_object_version():
-        mo = store.read_events("minimap_object", sid)
-        scale = next((r.get("scale") for r in mo if r.get("kind") == "coverage"), 1.0)
-        births = stored_xmark_births(mo, store.read_events("ally_icon", sid) or [], rounds,
-                                     scale)
-    else:
-        print(f"{sid}: no minimap_object stream at {minimap_object_version()}; no death is "
-              f"placed by an X -- run `reticle minimap-objects {sid}`")
-    if hud is None:
-        hud = store.read_hud(sid, date)
-    res = adjudicate_session_deaths(
-        sid, rounds, hud, store.read_roster(sid, date), portraits,
-        store.read_events("scoreboard", sid), lineup, load_identity_gallery(store.root),
-        source_version=KILLFEED_PORTRAIT_VERSION,
-        second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION),
-        weapon_observations=weapons, name_observations=names, reliability=rel,
-        xmarks=births, store_root=store.root)
+    with usage_step("load_inputs"):
+        if portraits is None:
+            portraits = store.read_events("killfeed_portrait", sid)
+            if store.events_version("killfeed_portrait", sid) != KILLFEED_PORTRAIT_VERSION:
+                raise SystemExit(f"{sid}: killfeed portraits are not at {KILLFEED_PORTRAIT_VERSION} -- "
+                                 f"run `reticle scan {sid} --only hud`")
+        rounds = store.read_rounds(sid, date)
+        if rounds is None:
+            raise SystemExit(f"{sid}: no stored rounds -- run `reticle rounds {sid}` first")
+        rounds = rounds.to_pylist()
+        lineup = load_lineup(sid, store.root)
+        if not lineup:
+            raise SystemExit(f"{sid}: no stored lineup")
+        # A stale or missing weapon stream names no weapon; it never blocks deaths.
+        if weapons is None:
+            weapons = (store.read_events("killfeed_weapon", sid)
+                       if store.events_version("killfeed_weapon", sid) == KILLFEED_WEAPON_VERSION
+                       else None)
+        if weapons is None:
+            print(f"{sid}: no killfeed_weapon stream at {KILLFEED_WEAPON_VERSION}; weapons unnamed "
+                  f"-- run `reticle scan {sid} --only hud`")
+        # A stale or missing name stream leaves every role on its per-entry vote.
+        # The name clusters and their assignment were measured in
+        # `prototypes/killfeed_name_continuity.py` and `prototypes/match_name_assignment.py`.
+        if names is None:
+            names = (store.read_events("killfeed_name", sid)
+                     if store.events_version("killfeed_name", sid) == KILLFEED_NAME_VERSION else None)
+        if names is None:
+            print(f"{sid}: no killfeed_name stream at {KILLFEED_NAME_VERSION}; no name clusters "
+                  f"-- run `reticle scan {sid} --only hud --from cache`")
+        # A name's probability, from each naming channel's measured reliability.
+        # It annotates each verdict, and weighs the reference channels in the name
+        # clusters' assignment.
+        from .adjudication.reliability import RELIABILITY_VERSION, load as load_reliability, name_probability
+        rel = load_reliability(store.root)
+        # The X marks place deaths: the `minimap_object` stream at the code's
+        # stamp, with the `ally_icon` icons. A stale or missing stream places none.
+        from .adjudication.death import stored_xmark_births
+        from .minimap_objects import minimap_object_version
+        mo_version = store.events_version("minimap_object", sid)
+        births = None
+        if mo_version == minimap_object_version():
+            mo = store.read_events("minimap_object", sid)
+            scale = next((r.get("scale") for r in mo if r.get("kind") == "coverage"), 1.0)
+            births = stored_xmark_births(mo, store.read_events("ally_icon", sid) or [], rounds,
+                                         scale)
+        else:
+            print(f"{sid}: no minimap_object stream at {minimap_object_version()}; no death is "
+                  f"placed by an X -- run `reticle minimap-objects {sid}`")
+        if hud is None:
+            hud = store.read_hud(sid, date)
+    with usage_step("adjudicate"):
+        res = adjudicate_session_deaths(
+            sid, rounds, hud, store.read_roster(sid, date), portraits,
+            store.read_events("scoreboard", sid), lineup, load_identity_gallery(store.root),
+            source_version=KILLFEED_PORTRAIT_VERSION,
+            second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION),
+            weapon_observations=weapons, name_observations=names, reliability=rel,
+            xmarks=births, store_root=store.root)
     common = {"session_id": sid, "source": "death",
               "death_adjudication_version": DEATH_ADJUDICATION_VERSION}
-    rows, events = [], []
-    for r in res["rounds"]:
-        for e, v in zip(r["entries"], r["verdicts"]):
-            if rel is not None:
-                for key in ("identity", "killer_identity"):
-                    if v.metadata.get(key):
-                        v.metadata[key]["p_named"] = name_probability(rel, v.metadata[key])
-            rows.append({**common, "kind": "death_verdict", "round_no": r["round_no"],
-                         "slot": e["slot"], "t_last_ms": e["t_last"],
-                         "kf_player_kill": e["kf_player_kill"],
-                         "kf_player_death": e["kf_player_death"],
-                         "weapon_evidence": e.get("weapon_evidence"),
-                         "same_side": e.get("same_side"),
-                         "entry_type": e.get("entry_type"), **v.to_dict()})
-            events.extend(death_verdict_to_events(v, sid))
-    collisions = [{**common, **c} for r in res["rounds"] for c in r.get("collisions", [])]
-    status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
-                                       for r in rows)
-    head = {**common, "kind": "summary", "deaths": len(rows), "passes": res["passes"],
-            "victims": dict(status("identity", "victim")),
-            "killers": dict(status("killer_identity", "killer")),
-            "weapons": dict(Counter((r.get("weapon_evidence") or {}).get("status", "none")
-                                    for r in rows)),
-            "revives": sum(bool(r.get("is_revive")) for r in rows),
-            "collisions": len(collisions),
-            # Each entry's type (`decide_entry_type`): resolved types, and
-            # refusals by reason; which witnesses spoke for each revive.
-            "entry_types": dict(Counter(
-                (r.get("entry_type") or {}).get("type")
-                or f"refused:{(r.get('entry_type') or {}).get('reason')}" for r in rows)),
-            "revive_witnesses": dict(Counter(
-                "+".join(((r.get("entry_type") or {}).get("alternatives") or [{}])[0].get("for")
-                         or ["none"])
-                for r in rows if r.get("is_revive"))),
-            "entry_disagreements": sum(bool((r.get("entry_type") or {}).get("disagreement"))
-                                       for r in rows),
-            "name_clusters": res.get("name_clusters"),
-            "xmarks": dict(Counter(f"{r.get('side')}:{(r['metadata'].get('xmark') or {}).get('status', 'none')}"
-                                   for r in rows)),
-            "xmark_births": None if births is None else len(births),
-            # The stored HUD table's own stamp, not the code's: the deaths
-            # read the table, whatever stamp it holds.
-            "inputs": {"hud": (hud.schema.metadata or {}).get(b"hud_version", b"").decode()
-                       or "unstamped",
-                       "weapon_adjudication": WEAPON_ADJUDICATION_VERSION,
-                       "weapon_gallery": WEAPON_GALLERY_VERSION,
-                       "killfeed_name_cluster": KILLFEED_NAME_CLUSTER_VERSION,
-                       "scoreboard_agent": SCOREBOARD_AGENT_VERSION,
-                       "minimap_object": mo_version if births is not None else None,
-                       "ally_icon": (store.events_version("ally_icon", sid)
-                                     if births is not None else None), "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
-                       # The stored stamps, read or not: a stream rescanned
-                       # to the code's stamp makes these deaths stale.
-                       "killfeed_weapon": (KILLFEED_WEAPON_VERSION if given["weapons"] else
-                                           store.events_version("killfeed_weapon", sid) or "no_rows"),
-                       "killfeed_name": (KILLFEED_NAME_VERSION if given["names"] else
-                                         store.events_version("killfeed_name", sid) or "no_rows"),
-                       "scoreboard": store.events_version("scoreboard", sid),
-                       "round": rounds[0].get("round_version") if rounds else None,
-                       "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION,
-                       "reliability": RELIABILITY_VERSION if rel is not None else None}}
+    with usage_step("verdict_rows"):
+        rows, events = [], []
+        for r in res["rounds"]:
+            for e, v in zip(r["entries"], r["verdicts"]):
+                if rel is not None:
+                    for key in ("identity", "killer_identity"):
+                        if v.metadata.get(key):
+                            v.metadata[key]["p_named"] = name_probability(rel, v.metadata[key])
+                rows.append({**common, "kind": "death_verdict", "round_no": r["round_no"],
+                             "slot": e["slot"], "t_last_ms": e["t_last"],
+                             "kf_player_kill": e["kf_player_kill"],
+                             "kf_player_death": e["kf_player_death"],
+                             "weapon_evidence": e.get("weapon_evidence"),
+                             "same_side": e.get("same_side"),
+                             "entry_type": e.get("entry_type"), **v.to_dict()})
+                events.extend(death_verdict_to_events(v, sid))
+    with usage_step("summary_head"):
+        collisions = [{**common, **c} for r in res["rounds"] for c in r.get("collisions", [])]
+        status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
+                                           for r in rows)
+        head = {**common, "kind": "summary", "deaths": len(rows), "passes": res["passes"],
+                "victims": dict(status("identity", "victim")),
+                "killers": dict(status("killer_identity", "killer")),
+                "weapons": dict(Counter((r.get("weapon_evidence") or {}).get("status", "none")
+                                        for r in rows)),
+                "revives": sum(bool(r.get("is_revive")) for r in rows),
+                "collisions": len(collisions),
+                # Each entry's type (`decide_entry_type`): resolved types, and
+                # refusals by reason; which witnesses spoke for each revive.
+                "entry_types": dict(Counter(
+                    (r.get("entry_type") or {}).get("type")
+                    or f"refused:{(r.get('entry_type') or {}).get('reason')}" for r in rows)),
+                "revive_witnesses": dict(Counter(
+                    "+".join(((r.get("entry_type") or {}).get("alternatives") or [{}])[0].get("for")
+                             or ["none"])
+                    for r in rows if r.get("is_revive"))),
+                "entry_disagreements": sum(bool((r.get("entry_type") or {}).get("disagreement"))
+                                           for r in rows),
+                "name_clusters": res.get("name_clusters"),
+                "xmarks": dict(Counter(f"{r.get('side')}:{(r['metadata'].get('xmark') or {}).get('status', 'none')}"
+                                       for r in rows)),
+                "xmark_births": None if births is None else len(births),
+                # The stored HUD table's own stamp, not the code's: the deaths
+                # read the table, whatever stamp it holds.
+                "inputs": {"hud": (hud.schema.metadata or {}).get(b"hud_version", b"").decode()
+                           or "unstamped",
+                           "weapon_adjudication": WEAPON_ADJUDICATION_VERSION,
+                           "weapon_gallery": WEAPON_GALLERY_VERSION,
+                           "killfeed_name_cluster": KILLFEED_NAME_CLUSTER_VERSION,
+                           "scoreboard_agent": SCOREBOARD_AGENT_VERSION,
+                           "minimap_object": mo_version if births is not None else None,
+                           "ally_icon": (store.events_version("ally_icon", sid)
+                                         if births is not None else None), "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
+                           # The stored stamps, read or not: a stream rescanned
+                           # to the code's stamp makes these deaths stale.
+                           "killfeed_weapon": (KILLFEED_WEAPON_VERSION if given["weapons"] else
+                                               store.events_version("killfeed_weapon", sid) or "no_rows"),
+                           "killfeed_name": (KILLFEED_NAME_VERSION if given["names"] else
+                                             store.events_version("killfeed_name", sid) or "no_rows"),
+                           "scoreboard": store.events_version("scoreboard", sid),
+                           "round": rounds[0].get("round_version") if rounds else None,
+                           "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION,
+                           "reliability": RELIABILITY_VERSION if rel is not None else None}}
     return {"head": head, "rows": rows, "collisions": collisions, "events": events,
             "result": res, "n_rounds": len(rounds)}
 
@@ -3570,7 +3589,8 @@ def _tray_samples(cache, step_s: float) -> tuple[list, list, list, list]:
     ts, counts, clean, real = [], [], [], []
     for a, b in _tray_spans(cache):
         for smp in cache.samples(_cache_grid(cache.t_ms, a, b, step_s), rois=["hud_abilities"]):
-            c, ok = tray.slot_counts(smp.frame)
+            with usage_step("slot_counts"):
+                c, ok = tray.slot_counts(smp.frame)
             ts.append(float(smp.t_ms))
             counts.append(c)
             clean.append(ok)
@@ -3656,12 +3676,15 @@ def cmd_tray(args) -> int:
         if (int(src["width"]), int(src["height"])) != (1920, 1080):
             print(f"{sid}: tray geometry is measured at 1920x1080 -- skipped")
             continue
-        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
+        with usage_step("cache_load"):
+            cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
         if cache is None:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
             continue
-        ts, counts, clean, real = _tray_samples(cache, args.step)
-        drops = tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool))
+        with usage_step("tray_samples"):
+            ts, counts, clean, real = _tray_samples(cache, args.step)
+        with usage_step("drops"):
+            drops = tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool))
         date = _date_of(man)
         table = store.read_rounds(sid, date)
         if table is None:
@@ -3674,13 +3697,15 @@ def cmd_tray(args) -> int:
             stamps = {"tray_kit": "no_rounds", "menu_open": menu_stamp, "round": "no_rows"}
         else:
             rounds = table.to_pylist()
-            gate, stamps = stored_gate_inputs(store, sid, date, rounds,
-                                              player_agent(load_lineup(sid, store.root), sid))
-            rows = player_tray_casts(
-                drops, gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
-                second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
-                report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-                kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
+            with usage_step("gate_inputs"):
+                gate, stamps = stored_gate_inputs(store, sid, date, rounds,
+                                                  player_agent(load_lineup(sid, store.root), sid))
+            with usage_step("player_tray_casts"):
+                rows = player_tray_casts(
+                    drops, gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                    second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+                    report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+                    kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
         common = {"session_id": sid, "tray_version": TRAY_VERSION,
                   "player_cast_version": PLAYER_CAST_VERSION, "step_s": args.step}
         why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
@@ -3692,9 +3717,10 @@ def cmd_tray(args) -> int:
                                 if k not in ("tray_kit", "menu_open")},
                      "drops": len(rows), "player_casts": sum(r["player_cast"] for r in rows),
                      "refused_reasons": dict(sorted(why_not.items()))}]
-        _record_inputs(store, sid, "tray_drop", out_rows[0])
-        out_rows += [{**common, "kind": "drop", **r} for r in rows]
-        out = store.write_events("tray_drop", sid, out_rows)
+        with usage_step("write"):
+            _record_inputs(store, sid, "tray_drop", out_rows[0])
+            out_rows += [{**common, "kind": "drop", **r} for r in rows]
+            out = store.write_events("tray_drop", sid, out_rows)
         print(f"{sid}: {len(rows)} drops, {out_rows[0]['player_casts']} the player's casts; "
               f"refused {dict(why_not)} -> {out}")
     return 0
@@ -4241,34 +4267,41 @@ def cmd_ability_state(args) -> int:
             print(f"{sid}: no minimap crop cache with round spans ({why}) -- skipped")
             continue
         drops = [r for r in stored if r.get("kind") == "drop"]
-        ts, counts, clean, real = _tray_samples(cache, cov["step_s"])
-        counts, clean = np.asarray(counts, float), np.asarray(clean, bool)
+        with usage_step("tray_samples"):
+            ts, counts, clean, real = _tray_samples(cache, cov["step_s"])
+            counts, clean = np.asarray(counts, float), np.asarray(clean, bool)
         t_read = time.perf_counter() - t0
         # The reread must give the stored drops, or the fills are not theirs.
         key = lambda r: tuple(r[k] for k in ("t_ms", "slot", "from", "to", "forced",
                                               "cooccur", "across_gap"))
-        reread_mismatch = len(set(map(key, tray.drops(ts, counts, clean)))
-                              ^ set(map(key, drops)))
-        fills = tray.fills(counts, clean)
+        with usage_step("reread_check"):
+            reread_mismatch = len(set(map(key, tray.drops(ts, counts, clean)))
+                                  ^ set(map(key, drops)))
+        with usage_step("fills"):
+            fills = tray.fills(counts, clean)
         keep = np.asarray(real, bool)
         date = _date_of(man)
         rounds = store.read_rounds(sid, date)
         round_version = (rounds.schema.metadata or {}).get(b"round_version", b"").decode() or None
         rounds = rounds.to_pylist()
-        lineup = load_lineup(sid, store.root)
-        agent = player_agent_verdict(lineup, sid)
-        gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent["agent"])
-        gate_rows = player_tray_casts(
-            [{k: r[k] for k in DROP_FIELDS} for r in drops], gate["phase_of"], rounds,
-            gate["player_deaths_ms"], agent=gate["agent"],
-            second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
-            report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-            kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
-        kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
-                           second_lives_ms=gate["second_lives_ms"],
-                           revives_ms=gate["revives_ms"], report_deaths=gate["report_deaths"],
-                           kit_changes_ms=gate["kit_changes_ms"],
-                           kit_returns_ms=gate["kit_returns_ms"])
+        with usage_step("lineup"):
+            lineup = load_lineup(sid, store.root)
+            agent = player_agent_verdict(lineup, sid)
+        with usage_step("gate_inputs"):
+            gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent["agent"])
+        with usage_step("gate_rows"):
+            gate_rows = player_tray_casts(
+                [{k: r[k] for k in DROP_FIELDS} for r in drops], gate["phase_of"], rounds,
+                gate["player_deaths_ms"], agent=gate["agent"],
+                second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+                report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+                kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
+        with usage_step("kit_windows"):
+            kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                               second_lives_ms=gate["second_lives_ms"],
+                               revives_ms=gate["revives_ms"], report_deaths=gate["report_deaths"],
+                               kit_changes_ms=gate["kit_changes_ms"],
+                               kit_returns_ms=gate["kit_returns_ms"])
         spectated = stored_kit_witness(store.read_events("tray_kit", sid),
                                        agent=agent["agent"])["other_spans"]
         # The kit's names come from the same harvest (`lineup.abilities_for`).
@@ -4283,12 +4316,13 @@ def cmd_ability_state(args) -> int:
                       (a["reason"], a["player_cast"]) != (b.get("reason"), b.get("player_cast"))
                       for a, b in zip(gate_rows, drops)),
                   "cache_read_s": round(t_read, 1)}
-        rows = adjudicate(
-            sid, drops=drops, gate_rows=gate_rows, kits=kits, phase_of=gate["phase_of"],
-            samples={"t_ms": [t for t, r in zip(ts, real) if r], "fills": fills[keep],
-                     "drawn": [tray.drawn(f) for f in fills[keep]], "clean": clean[keep]},
-            agent=agent, params=slot_parameters(agent["agent"], kit, facts, catalogue=catalogue),
-            inputs=inputs, checks=checks, spectated=spectated)
+        with usage_step("adjudicate"):
+            rows = adjudicate(
+                sid, drops=drops, gate_rows=gate_rows, kits=kits, phase_of=gate["phase_of"],
+                samples={"t_ms": [t for t, r in zip(ts, real) if r], "fills": fills[keep],
+                         "drawn": [tray.drawn(f) for f in fills[keep]], "clean": clean[keep]},
+                agent=agent, params=slot_parameters(agent["agent"], kit, facts, catalogue=catalogue),
+                inputs=inputs, checks=checks, spectated=spectated)
         rows[0]["checks"]["wall_s"] = round(time.perf_counter() - t0, 1)
         _record_inputs(store, sid, "ability_state", rows[0])
         out = store.write_events("ability_state", sid, rows)
@@ -4443,15 +4477,18 @@ def cmd_ability_shapes(args) -> int:
             print(f"{sid}: no rounds table, so every tray drop is `no_rounds` -- skipped")
             continue
         rounds = table.to_pylist()
-        gate, stamps = stored_gate_inputs(store, sid, _date_of(man), rounds, agent)
-        casts = [d for d in player_tray_casts(
-                     [d for d in drops if d.get("kind") == "drop"],
-                     gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
-                     second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
-                     report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-                     kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
-                 if d["player_cast"] and kit.get(d["slot"]) in ability_candidates.TABLE]
-        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
+        with usage_step("gate_inputs"):
+            gate, stamps = stored_gate_inputs(store, sid, _date_of(man), rounds, agent)
+        with usage_step("player_tray_casts"):
+            casts = [d for d in player_tray_casts(
+                         [d for d in drops if d.get("kind") == "drop"],
+                         gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
+                         second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
+                         report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
+                         kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
+                     if d["player_cast"] and kit.get(d["slot"]) in ability_candidates.TABLE]
+        with usage_step("cache_load"):
+            cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
         if cache is None:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
             continue
@@ -4460,8 +4497,9 @@ def cmd_ability_shapes(args) -> int:
         if ms is None:
             print(f"{sid}: no baked map scale for this key -- skipped")
             continue
-        support = geometry.footprint(sid, store.root, dilate=ability_shapes.support_dilate(ms),
-                                     shape=(y1 - y0, x1 - x0))
+        with usage_step("footprint"):
+            support = geometry.footprint(sid, store.root, dilate=ability_shapes.support_dilate(ms),
+                                         shape=(y1 - y0, x1 - x0))
         if support is None:
             print(f"{sid}: no art footprint for this map -- no beam is checked against the map")
         mm = store.read_minimap(sid, _date_of(man))
@@ -4485,21 +4523,24 @@ def cmd_ability_shapes(args) -> int:
             # carries its sizes and colour, or refuses with the reason.
             desc = ability_candidates.ability_descriptor(ability, "ally", ms)
             times = _cache_grid(cache.t_ms, c["t_ms"], c["t_ms"] + args.window * 1000.0, args.step)
-            got = {float(smp.t_ms): smp.frame[y0:y1, x0:x1]
-                   for smp in cache.samples(times, rois=["minimap"])}
-            for t in times:
-                seed = seed_at(t)
-                row = ability_shapes.fit_shape(got.get(t), desc, seed, support, ms)
-                rows.append({**common, "kind": "shape", "cast_t_ms": c["t_ms"],
-                             "slot": c["slot"], "t_ms": t, "seed": seed, **row})
-                found[(ability, row["found"])] += 1
+            with usage_step("read_crops"):
+                got = {float(smp.t_ms): smp.frame[y0:y1, x0:x1]
+                       for smp in cache.samples(times, rois=["minimap"])}
+            with usage_step("fit_shapes"):
+                for t in times:
+                    seed = seed_at(t)
+                    row = ability_shapes.fit_shape(got.get(t), desc, seed, support, ms)
+                    rows.append({**common, "kind": "shape", "cast_t_ms": c["t_ms"],
+                                 "slot": c["slot"], "t_ms": t, "seed": seed, **row})
+                    found[(ability, row["found"])] += 1
         out_rows = [{**common, "kind": "coverage", "casts": len(casts),
                      "ability_shape_version": ability_shapes.ABILITY_SHAPE_VERSION,
                      "observations": len(rows),
                      "found": {f"{a}:{f}": n for (a, f), n in sorted(found.items(), key=str)},
                      "inputs": stamps}]
-        _record_inputs(store, sid, "ability_shape", out_rows[0])
-        out = store.write_events("ability_shape", sid, out_rows + rows)
+        with usage_step("write"):
+            _record_inputs(store, sid, "ability_shape", out_rows[0])
+            out = store.write_events("ability_shape", sid, out_rows + rows)
         print(f"{sid}: {agent}, {len(casts)} casts with a shape model, {len(rows)} crops; "
               f"{out_rows[0]['found']} -> {out}")
     return 0
