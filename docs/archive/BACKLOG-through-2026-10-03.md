@@ -1,0 +1,57 @@
+# Reticle task queue
+
+This file orders work and says why a task is active; each open item carries an `Acceptance:` command and an `Evidence:` standard. Historical arguments and completed items are in the dated backlog archives; the queue as it stood at the end of 2026-10-01, with every item's full text, is [here](BACKLOG-through-2026-10-01.md), and as it stood on 2026-10-02 [here](BACKLOG-through-2026-10-02.md).
+
+## Agreed order (2026-10-02)
+
+**Stacked ally icons by render-and-compare.** Replace `_gated` and `ally_decisions`' separation with the joint k-icon search from `prototypes/stack_fit.py`, scored against `capture_psf`'s YCbCr icon render through the PSF and 4:2:0 instead of a teal key, seeded by master's own fits. At master a fit between two touching icons refuses both as `interior_too_thin`; the teal-keyed prototype on `stacked-icons-20261002` lost icons whose ring its key erased (NOTES). The tabled `luma-render-20261002` branch (luma-keyed rims, fuller render fits; unverified) is the likely vehicle for the render.
+Acceptance: `python prototypes/stack_fit.py labels --out <dir>` plus `size` on 223d636bf8d2 1250-1410, 3694746e4e54 884-1044, bfad2778a372 1259-1419, a06f04a0059f 600-760.
+Evidence: zero labelled icons lost; no between fits and no more misses than master in the seeded 12-frame sheets; whole-slice MAE no worse than master by more than 0.02; at most 3x master's s/frame.
+
+**Killfeed weapon box crop faults, and the rise in known icons refused as new.** Of the [metric:killfeed_openset/crop_faults@a06f04a0059f+5822b6646448+4f207c0c4e39#rows=16] groups of new-icon rows the player named no icon, most are bad boxes (`prototypes/killfeed_openset.py faults`). `killfeed-weapon-0.7.0` cuts the slot where the names place the entry: g017 and g018 (4f207c0c4e39 460.0 s, 460.5 s) now read the Warden, and g019 and g024 refuse as `off_plate_run`. A box can also crop an icon too tightly: the Hot Hands entry at b3b9defb6fd7 1731.5 s (`C:\Users\grant\Videos\2026-08-23 18-24-15.mp4`) [domain:killfeed/phoenix-hot-hands-icon]. `killfeed._band_text` [owns:killfeed-weapon-descriptor] sets wx0/wx1 from its own blob alone. Gate it by cross-reference: a killer name read in the slot (`killfeed_name`), a counted entry track covering the frame, the box's top against the killer portrait's, its width against the entry's modal width; mark a track's first and last frames. A cut first frame also fixes the entry's width in `adjudication.weapon.bind_entry`: the Warden entry at 4f207c0c4e39 1783.0 s binds its 71 px first box and stays refused. Separately, known icons refused as `new` rose from [metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.3.0#known_refused_new_after=0.0272] to [metric:killfeed_openset/tiered_all_unselected@weapon-gallery-0.4.0#known_refused_new_after=0.0338] between gallery 0.3.0 and 0.4.0; read the refusal reasons of the added rows before changing anything.
+Acceptance: `.\.venv\Scripts\python.exe -m reticle trial --reader killfeed SESSION` on a06f04a0059f, 5822b6646448 and 4f207c0c4e39, then `.\.venv\Scripts\python.exe prototypes\killfeed_openset.py faults <product> <labels>`.
+Evidence: none of the 16 labelled rows stored as a weapon icon; every named entry of the three sessions keeps its name; the cause of the 0.0272 -> 0.0338 rise stated from the stored reasons, with crops viewed.
+
+**The missing killfeed readers.** (1) KAY/O's down and revive each draw an X inside a downward triangle [domain:killfeed/kayo-downed-entry]. `killfeed.detect_second_life_badge` fits a ring on the player's own entries only, so a down is stored as a death; `revive_entry` keys on the revive icons. Cross-reference the pair: a revive must follow a KAY/O down in the round, under his ult (`ult_cast`). 4f207c0c4e39 has a down at 790.5 s and a revive at 799.0 s and no death stream. (2) The icon beside the victim's name: [KILLFEED_VICTIM_ICON.md](../KILLFEED_VICTIM_ICON.md) waits on the player's list of icons that can appear there. The crop cache serves [metric:killfeed_openset/victim_icon_cache_coverage@corpus#sessions_cached=21] sessions; the rest need `scan --only hud` (ask first). (3) The assist panel's disabling-ability icons [domain:killfeed/assist-panel].
+Acceptance: `.\.venv\Scripts\python.exe -m reticle deaths SESSION` on a KAY/O capture stores each down as `is_second_life` and each revive as `is_revive`, with the pair linked.
+Evidence: the player's labels of every KAY/O down and revive in that capture, against the stored rows; the player's answer on victim-side icons recorded as a fact before any reader code.
+
+## Waiting
+
+Full texts are in the dated archives.
+
+- **Icon descriptors, proven on the killfeed first** (2026-10-01): the player's order is killfeed, minimap ally portraits, ability icons. (1) Killfeed, on `weapon-gallery-0.6.0`, rebuilt from `killfeed-weapon-0.7.0` cuts. `killfeed.icon_grid` resizes each glyph's tight box, so one faint extremal pixel rescales it: the Resurrection glyph's top dot refused as `new` at b3b9defb6fd7 844.5 s. Variants anchor scale to the slot's geometry (band height times widget scale) and position to the entry, never to the tight box. Steps (a)-(e) are in the [10-01 archive](BACKLOG-through-2026-10-01.md). Score variants leave-one-session-out against the IoU baseline; keep winners. (2) Minimap ally portraits: the crop audit measured jitter and contamination (`prototypes/portrait_crop_audit.py`); mine icons only where an independent channel (a killfeed death, the roster, a lone known icon) agrees, storing disagreements, then select descriptors by blur level. (3) Ability icons, after (2).
+  Acceptance: `.\.venv\Scripts\python.exe prototypes\killfeed_descriptors.py` (to be written) prints leave-one-session-out top-1 and per-pair confusion counts for the IoU baseline and each variant on the player's killfeed labels, plus the shift test.
+  Evidence: a variant beats the IoU baseline on held-out sessions and adds no confusion; the shift test's result recorded with a `metric:` token.
+
+- **Reader resampling** (2026-10-01): an audit found readers that drop partial pixels: `adjudication/weapon.py` and `adjudication/death.py` binarise shrunk reference art; `minimap.py` hard-keys and closes the teal rim and fits integer centres; `widget_frame.py` warps linearly, skipping pixels where the widget exceeds the baked one; `killfeed.py` cuts whiteness before `icon_grid` (full list in the [10-01 archive](BACKLOG-through-2026-10-01.md)). Rework one reader at a time, killfeed weapon first, since its benchmark exists; at 331 px the ally ring fit's integer radius floor costs most ([ALLY_ICON_UPSCALE.md](../ALLY_ICON_UPSCALE.md)), and the shelved fractional radii on `ally-ring-subpixel-20261001` traded lost icons for phantoms (NOTES).
+  Acceptance: `.\.venv\Scripts\python.exe -m reticle trial --reader killfeed SESSION` on a06f04a0059f, 5822b6646448 and 4f207c0c4e39 before and after each change.
+  Evidence: the reworked reader matches or beats its stored benchmark on the player's labels, with every changed verdict listed and explained.
+
+- **Ability candidate follow-ups** (2026-10-01): orange rings on 043bafca271a (`C:\Users\grant\Videos\2026-08-25 13-59-44.mp4`), owner unknown; Regrowth's saturation floor waits on the player's definition of a rim pixel; Hunter's Fury's angle benchmark fell from 19 to 17 casts within 3 degrees; the icon benchmark runs 1.8 times slower; Lockdown's radius is measured only on Split.
+- **Duplicate Chamber death** (2026-10-01): bfad2778a372 (`C:\Users\grant\Videos\2026-08-24 14-45-35.mp4`) stores Chamber's death at 1017.0 s and again at 1018.5 s.
+- **External ground truth** (2026-10-02): match-details records for all 22 match captures are saved in the store, found by `probe.session_id` ([EXTERNAL_GROUND_TRUTH.md](../EXTERNAL_GROUND_TRUTH.md)). Fit one offset per session from record kill times to stored killfeed reads.
+  Acceptance: each aligned record scored against its session's stored killfeed entries and minimap ally positions and facings at each kill.
+  Evidence: the offset's residuals; every disagreement stored.
+- **Death binding at sighting gaps** (2026-10-02): `binding-rules-20261002` (`round-entity-0.15.0`) demotes correct bindings; rework after the stacked icons (NOTES). The revive at 96aa1ae9b96f 849.5 s names no victim, so Clove's dead interval stays open.
+- **Scene model: draw every light source** (2026-09-29): `scene-stack-0.6.1` casts light by raycast and still flips more facings than the teardrop; nothing wired until the joint fit beats the teardrop on the player's labels at both widget sizes ([SCENE_MODEL.md](../SCENE_MODEL.md)).
+- **Audio: the circle scores the bank** (2026-09-29): `sound-bank-2.0.0` reaches knife equips in match audio; other classes do not transfer from the range; use the self audio circle's onsets to score the rest.
+- **Player inputs**: the [mechanics sheet](../ABILITY_MECHANICS_SHEET.md)'s open cells (Gekko's missing cone at `5822b6646448` 49.50 s, piloted drones' cones, the Seekers' despawn, harvest values).
+- **Identity follow-ups** (2026-09-28): contested deaths waiting on an outside witness; three `223d636bf8d2` names; the Shooting Error box; the Iso spike carrier and self icon; `--from auto`; the `scoreboard_edges` fixture.
+- **Minimap follow-ups** (2026-09-29): `plan` staleness for never-read inputs (`c62c2b06bcfb`); the facing carry on the teardrop; rays crossing walls; the portrait gate for enemies at 331 px; an enemy tint reader; the enemy spike "?" in the held tracker.
+- **Spectated self icon** (2026-09-30): `round_lifetimes` names the self family "you" after the player's death, when the icon is the spectated teammate.
+- **Killfeed attribution** (2026-09-24): exemplar source mismatch; `agent-alive`; the branching banner reader; `scoreboard_dim` names; plate revives.
+- **Ability identification on the demos** (2026-09-26): the Sova C refusals; census answers; the ability timer bar; the bank rebuild; the ult-ready scorer.
+- **Minimap identity, ally slice first** ([results](../ALLY_MINIMAP_IDENTITY.md)); **the statistical adjudicator** ([plan](../STATISTICAL_ADJUDICATOR.md)), E1-E13 ran.
+- **Geometry stamp reads line endings:** `minimap_geometry.source_stamp` hashes raw bytes.
+- **Documents over budget:** `docs/WORKING_MAP.md` and `PROJECT_GUIDE.md` exceed their word budgets; `docs/SCOREBOARD_LINEUP.md` is reached by nothing.
+
+## Completed
+
+- **`corpus-rerun-20261001` (2026-10-02):** every stale stream on the matches rerun from storage; `lifetimes` to `round-entity-0.14.0` on 20 sessions and `project` on three; `plan` names no stale stream on a match. The demos' `vision` and `ult-cast` remain.
+- **`binding-rule1-20261002` (2026-10-02):** an inner piece under a bound segment is offered the deaths `finish` left (`round-entity-0.14.0`).
+- **`capture-psf-20261001` (2026-10-02):** the capture's blur measured on baked wall lines; ally icons fitted through it, not wired ([CAPTURE_PSF.md](../CAPTURE_PSF.md)).
+- **`facing-prior-20261001` (2026-10-01):** each ally teardrop continues its prior fit and searches in full on surprise (`ally-icon-0.7.0`).
+- **`killfeed-prerun-20261001` (2026-10-01):** `KillfeedScale`, the soft glyph and the cut at the names' placement (`killfeed-weapon-0.7.0`); `weapon-gallery-0.6.0`.
+
+Full entries: [10-02 archive](BACKLOG-through-2026-10-02.md), [10-01 archive](BACKLOG-through-2026-10-01.md).
