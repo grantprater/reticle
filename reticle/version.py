@@ -636,7 +636,9 @@ ULT_LINE_VERSION = "ult-line-0.2.0"
 # with a tray or ult-kill witness (`rests_on`).
 # 0.4.0: a burst counts every stored peak at or above BURST_FLOOR, not only the
 # selected ones; the coverage row states `vo_heard`.
-ULT_CAST_VERSION = "ult-cast-0.4.0"
+# 0.5.0: every cast and refusal row carries its round's barrier drop (`gametime`),
+# onset minus drop and a phase (buy, at_drop, live); selection is unchanged.
+ULT_CAST_VERSION = "ult-cast-0.5.0"
 # Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or
