@@ -143,8 +143,16 @@ docs/DATA.md "Minimap projection" states the same crossing over 12 maps
 
 [vrf-ability-actors]
 claim = """
-A replay holds every ability actor the server spawned: its class path, spawn
-point and yaw, and open and close times. An ability's actor classes live under
+On the one replay that has a capture (b03fecd3), each ability world actor
+carries its class path, spawn point and yaw, and open and close times; 37 of
+its 81 non-player actor classes map to an ability, the ult orb, the planted
+spike or the spike item. The other 44 stay unmapped: 35 inventory items with
+no world position, 5 character-folder actors outside an ability folder (a
+glide passive, controllers, Clove's post-death pawn and its unarmed item), 3
+child actors of Iso's arena without a class path in the game index, and Iso's
+arena actor, which the game state owns. Whether a replay holds every actor
+the server spawned is not established; charges, cooldowns and per-state truth
+are not decoded. An ability's actor classes live under
 `/Game/Characters/<code>/S0/Ability_<L>/`, where the game files' `UIData` in
 that folder names the ability; the folder letter is the game's, not the tray
 key. Each actor's `Instigator` chain (a drone's dart through the drone, a
@@ -160,8 +168,12 @@ known = "measured"
 since = "2026-10-04"
 source = """
 prototypes/replay_abilities.py census on b03fecd3 (capture 9acf02f98283):
-[metric:replay_abilities/census#mapped=37] classes map to an ability, the ult
-orb, the planted spike or the spike item; every mapped ability class's
+[metric:replay_abilities/census#mapped=37] of
+[metric:replay_abilities/census#classes=81] classes map to an ability, the ult
+orb, the planted spike or the spike item, and
+[metric:replay_abilities/census#unmapped=44] stay unmapped with their reasons
+(analysis/replay-abilities-20261004/census-b03fecd3.json, unmapped_classes);
+every mapped ability class's
 instigator chain ends at a pawn of its own folder's agent;
 [metric:replay_abilities/census#non_player_movement_rows=364144] movement rows
 belong to [metric:replay_abilities/census#non_player_pawns=99] non-player
@@ -223,9 +235,7 @@ In the replay a Recon Bolt is a projectile (`Projectile_Hunter_Q_RevealBolt_C`)
 that opens at the cast, then a stuck bolt (`GameObject_Hunter_Q_SonarBolt_C`)
 that spawns where the projectile is, about 1 s before the projectile actor
 closes, and lives about 2.3 s, or less when the bolt is destroyed; each pulse
-is a `GameObject_Hunter_Q_SonarPing_C`. The stored minimap ring of the
-player's bolt is centred within about 1 px of the stuck bolt and drawn from
-about 0.3 s after it opens until about 0.1 s before it closes.
+is a `GameObject_Hunter_Q_SonarPing_C`.
 """
 kind = "lifecycle"
 known = "measured"
@@ -243,8 +253,7 @@ ms from its close; lifetime median
 [metric:replay_abilities/census#gameobject_hunter_q_sonarbolt_life_s_median=2.3]
 s; [metric:replay_abilities/census#gameobject_hunter_q_sonarping_opens=69] pings
 for [metric:replay_abilities/census#gameobject_hunter_q_sonarbolt_opens=41]
-bolts. score on 9acf02f98283: found rings
-[metric:replay_abilities/score#rb_err_px_median=0.96] px from the bolt. The
+bolts. The
 player's "nothing on the minimap" answer for the Recon Bolt at 798.0 s matches
 a bolt the replay keeps for 0.375 s
 """
@@ -289,9 +298,9 @@ see = ["minimap/spike-planted-icon"]
 [vrf-ability-truth-per-replay]
 claim = """
 Every preserved replay holds hundreds of ability world actors, so each match
-kept with both its replay and its capture brings truth for every placed
-ability, cast and ult; of the fifteen preserved replays only one has a
-capture.
+kept with both its replay and its capture brings truth for the mapped
+abilities' placements, casts and ults, as b03fecd3 did; of the fifteen
+preserved replays only one has a capture.
 """
 kind = "measurement"
 known = "measured"

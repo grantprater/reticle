@@ -45,7 +45,13 @@ fields and mapping, the cast records and the ult transitions.
 
 `score` aligns replay time to capture time through STORED deaths
 (`replay_truth.session_context`, the same fit `replay_truth score` reports)
-and scores 9acf02f98283-style stored streams: `tray_drop` player casts,
+with one constant offset: on 9acf02f98283,
+[metric:replay_truth/score#align_offset_ms=112619.5] ms, 180 of 181 stored
+deaths paired, residual MAD [metric:replay_truth/score#align_mad_ms=145.0] ms.
+The capture clock drifts against the replay's: the stored alignment's slope is
+1.00013, 282 ms over the match (`align.slope` and `align.drift_ms_over_match`
+in analysis/replay-abilities-20261004/9acf02f98283.json), so the constant offset's
+timing error spans up to 282 ms across the match. It then scores 9acf02f98283-style stored streams: `tray_drop` player casts,
 `ability_state` cast and death verdicts, `ability_shape` Recon Bolt rings and
 Hunter's Fury beams, `ult_cast`, `spike` (through `replay_truth.score_spike`),
 `smoke`, and the player's own tray-object marks and minimap-glyph labels.
@@ -53,6 +59,16 @@ Positions go through `riot_ground_truth.MapFrame` exactly as `replay_truth`
 does. Agreement is consistency, not accuracy; disagreements are stored.
 
 `survey` counts the ability classes in every parse (counts only).
+
+What `score` measured on 9acf02f98283
+-------------------------------------
+Reader accuracy, not a domain fact: the stored `ability_shape` ring of the
+player's Recon Bolt is centred a median
+[metric:replay_abilities/score#rb_err_px_median=0.96] px from the replay's
+stuck bolt, and drawn from about 0.3 s after the bolt opens until about
+0.1 s before it closes (medians 315.5 and -108.8 ms over 15 bolts,
+`ability_shape.recon_bolt` in analysis/replay-abilities-20261004/
+9acf02f98283.json).
 
 Facts this file established
 ---------------------------

@@ -6,20 +6,26 @@ reads it, no prior rests on it, nothing shows it during play.
 
 ## Why
 
-A replay holds every ability the server spawned: where each projectile,
-smoke, wall and deployable appeared, when it opened and closed, and which
-player cast it [domain:replay/vrf-ability-actors]; every cast with its slot
-and time [domain:replay/vrf-cast-records]; every ult
-[domain:replay/vrf-ult-active]; and every planted spike
-[domain:replay/vrf-planted-spike-actor]. On the one match kept with both its
-replay and its capture, that truth scored the player's Recon Bolt rings
-within [metric:replay_abilities/score#rb_err_px_median=0.96] px
-[domain:replay/vrf-sova-recon-bolt-actors] and paired
-[metric:replay_abilities/score#ult_paired_same_label=28] of the stored ult
-casts by agent and side. Every preserved replay holds hundreds of ability
+One replay so far has a capture beside it, and on that one match the replay
+gave: where each mapped projectile, smoke, wall and deployable appeared, when
+it opened and closed, and which player cast it
+[domain:replay/vrf-ability-actors]; each cast with its slot and time
+[domain:replay/vrf-cast-records]; each ult [domain:replay/vrf-ult-active];
+and each planted spike [domain:replay/vrf-planted-spike-actor]. The census
+mapped [metric:replay_abilities/census#mapped=37] of its
+[metric:replay_abilities/census#classes=81] actor classes; the
+[metric:replay_abilities/census#unmapped=44] it left are inventory items with
+no world position, actors outside an ability folder, and Iso's arena, which
+no player owns. Chamber's re-placements stay unresolved, and charges,
+cooldowns and per-state truth are not decoded. On that match the truth scored
+the player's Recon Bolt rings within a median
+[metric:replay_abilities/score#rb_err_px_median=0.96] px of the stuck bolt
+(`prototypes/replay_abilities.py`) and
+paired [metric:replay_abilities/score#ult_paired_same_label=28] of the stored
+ult casts by agent and side. Every preserved replay holds hundreds of ability
 actors, but only one of the fifteen has a capture
 [domain:replay/vrf-ability-truth-per-replay]. Each new match kept with both
-brings full truth for every ability in it.
+adds one more match of this truth, limited to what the census maps.
 
 ## What the player does, in the client
 

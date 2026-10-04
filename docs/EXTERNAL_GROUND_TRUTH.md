@@ -80,8 +80,8 @@ median [metric:replay_truth/check#kill_pos_median_cm=7.1] cm from Riot's, and
 the stored allied observations a median
 [metric:replay_truth/score#ally_err_px_median=1.55] px from the replay, with
 [metric:replay_truth/score#ally_id_agreement=0.9108] of named ones agreeing.
-The same replay holds every ability actor, cast and ult with its caster
-[domain:replay/vrf-ability-actors]; `prototypes/replay_abilities.py` scores
+The same replay holds ability actors, casts and ults with their casters for
+the classes its census maps [domain:replay/vrf-ability-actors]; `prototypes/replay_abilities.py` scores
 the stored ability streams against them, and
 [REPLAY_KEEPING.md](REPLAY_KEEPING.md) says how to keep each match's replay.
 Evaluation truth only: never a reader input, a prior or a display in play.
