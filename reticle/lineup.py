@@ -66,6 +66,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .appearance import portrait_composition
 from .usage import step
 from .roster import ART_FRAC, N_SLOTS, alive_counts, roster_rois
 from .adjudication.identity import (SIDE_MARGIN_MIN, adjudicate_agent_identity,
@@ -94,12 +95,7 @@ def _agent_name(path: str, surface: str) -> str:
 
 
 def _composition(bgr, mask=None):
-    import sys
-    root = Path(__file__).resolve().parent.parent
-    if str(root / "prototypes") not in sys.path:
-        sys.path.insert(0, str(root / "prototypes"))
-    from minimap_portrait import composition
-    return composition(bgr, mask)
+    return portrait_composition(bgr, mask)
 
 
 def _load_lineup(session: str, store) -> dict | None:
