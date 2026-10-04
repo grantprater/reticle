@@ -430,6 +430,12 @@ status = "recorded"
 since = "2026-10-03"
 
 [[document]]
+path = "docs/OMEN_DARK_COVER_MISSES.md"
+kind = "findings"
+status = "recorded"
+since = "2026-10-04"
+
+[[document]]
 path = "docs/ARBITER_ARCHITECTURE.md"
 kind = "plan"
 status = "proposed"
