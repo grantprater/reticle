@@ -111,23 +111,68 @@ class TemplateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ul.harvested_ults(rows, have=set())
 
-    def test_the_manifest_lists_the_assets_and_the_harvested_pair(self):
+    @staticmethod
+    def _vo(agent, event, media, heard_by, slot="X"):
+        return {"agent": agent, "event": event, "media": media, "heard_by": heard_by, "slot": slot,
+                "language": "en-US", "flac": f"{agent.replace('/', '_')}/{slot}/{event}__{media}.flac",
+                "ref_version": "vo-ref-0.1.0"}
+
+    def test_the_ult_pair_is_the_x_event_with_one_ally_and_one_enemy_line(self):
+        v = self._vo
+        rows = [v("Gekko", "Play_VO_Aggrobot_AbilityXCast", "A.XCastAllies01", "ally"),
+                v("Gekko", "Play_VO_Aggrobot_AbilityXCast", "A.XCastEnemies01", "enemy"),
+                v("Gekko", "Play_VO_Aggrobot_AbilityXCast_2nd", "A.XRecastAllies01", "ally"),
+                v("Gekko", "Play_VO_Aggrobot_AbilityXCast_2nd", "A.XRecastAllies02", "ally"),
+                v("Gekko", "Play_VO_Aggrobot_AbilityXCast_2nd", "A.XRecastEnemies01", "enemy"),
+                v("Gekko", "Play_VO_Aggrobot_AbilityXCast_2nd", "A.XRecastEnemies02", "enemy"),
+                v("Raze", "Play_VO_Clay_AbilityXCast", "Clay.AbilityXCast01", None),
+                v("Raze", "Play_VO_Clay_AbilityXEquip", "Clay.AbilityXEquipAllies03", "ally"),
+                v("Raze", "Play_VO_Clay_AbilityXEquip", "Clay.AbilityXEquipEnemies01", "enemy"),
+                {**v("Reyna", "Play_VO_Vampire_ULT_AbilityXCast", "Vampire.ULT.AbilityXCastAllies01", "ally"),
+                 "ult_form": True},
+                {**v("Reyna", "Play_VO_Vampire_ULT_AbilityXCast", "Vampire.ULT.AbilityXCastAllies02", "ally"),
+                 "ult_form": True},
+                v("Reyna", "Play_VO_Vampire_AbilityXCast", "V.XCastAllies01", "ally"),
+                v("Reyna", "Play_VO_Vampire_AbilityXCast", "V.XCastEnemies01", "enemy"),
+                v("KAY/O", "Play_VO_Grenadier_AbilityXCast", "G.XCastAllies01", "ally"),
+                v("KAY/O", "Play_VO_Grenadier_AbilityXCast", "G.XCastEnemies01", "enemy"),
+                v("KAY/O", "Play_VO_Grenadier_AbilityQCast", "G.QCast01", None, slot="Q")]
+        got = {n: r["media"] for n, r in ul.ult_event_rows(rows).items()}
+        self.assertEqual(got, {"Gekko_ult_ally": "A.XCastAllies01", "Gekko_ult_enemy": "A.XCastEnemies01",
+                               "KAY_O_ult_ally": "G.XCastAllies01", "KAY_O_ult_enemy": "G.XCastEnemies01",
+                               "Raze_ult_ally": "Clay.AbilityXEquipAllies03",
+                               "Raze_ult_enemy": "Clay.AbilityXEquipEnemies01",
+                               "Reyna_ult_ally": "Vampire.ULT.AbilityXCastAllies01",
+                               "Reyna_ult_enemy": "Vampire.ULT.AbilityXCastAllies02"})
+        self.assertEqual(ul.ult_event_rows(rows)["Reyna_ult_enemy"]["heard_by"], "enemy")
+
+    def test_an_agent_without_one_split_x_event_refuses_the_set(self):
+        v = self._vo
+        with self.assertRaises(ValueError):
+            ul.ult_event_rows([v("Raze", "Play_VO_Clay_AbilityXCast", "Clay.AbilityXCast01", None)])
+        two = [v("X", f"Play_VO_X_{e}", f"X.{e}{s}", h) for e in ("AbilityXCast", "AbilityXEquip")
+               for s, h in (("Allies01", "ally"), ("Enemies01", "enemy"))]
+        with self.assertRaises(ValueError):
+            ul.ult_event_rows(two)
+
+    def test_the_manifest_lists_the_game_lines_with_their_hashes(self):
         with tempfile.TemporaryDirectory() as d:
             v = Path(d)
-            (v / "casts").mkdir()
-            for name in ("Sova_ult_ally.mp3", "Sova_ult_enemy.mp3", "KAY_O_ult_ally.mp3"):
-                (v / name).write_bytes(name.encode())
-            (v / "casts" / "G__t__ally-cast__1.mp3").write_bytes(b"g")
-            (v / "casts" / "index.json").write_text(json.dumps([
-                {"agent": "Gekko", "ability": "Thrash", "section": "Ally Cast",
-                 "file": "G__t__ally-cast__1.mp3"}]), encoding="utf-8")
+            rows = [self._vo("Sova", "Play_VO_Hunter_AbilityXCast", "Hunter.AbilityXCastAllies", "ally"),
+                    self._vo("Sova", "Play_VO_Hunter_AbilityXCast", "Hunter.AbilityXCastEnemies01", "enemy")]
+            for r in rows:
+                (v / r["flac"]).parent.mkdir(parents=True, exist_ok=True)
+                (v / r["flac"]).write_bytes(r["media"].encode())
+            (v / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
             got = ul.manifest_from_assets(v)
             self.assertEqual([(e["name"], e["agent"], e["variant"], e["file"]) for e in got],
-                             [("Gekko_ult_ally", "Gekko", "ally", "casts/G__t__ally-cast__1.mp3"),
-                              ("KAY_O_ult_ally", "KAY_O", "ally", "KAY_O_ult_ally.mp3"),
-                              ("Sova_ult_ally", "Sova", "ally", "Sova_ult_ally.mp3"),
-                              ("Sova_ult_enemy", "Sova", "enemy", "Sova_ult_enemy.mp3")])
-            self.assertEqual(got[2]["sha256"], ul.template_digest(v / "Sova_ult_ally.mp3"))
+                             [("Sova_ult_ally", "Sova", "ally", rows[0]["flac"]),
+                              ("Sova_ult_enemy", "Sova", "enemy", rows[1]["flac"])])
+            self.assertEqual(got[0]["sha256"], ul.template_digest(v / rows[0]["flac"]))
+            self.assertEqual(got[1]["event"], "Play_VO_Hunter_AbilityXCast")
+            self.assertEqual(ul.manifest_dir({"dir": "reference/game-files/vo"}),
+                             Path("reference/game-files/vo"))
+            self.assertEqual(ul.manifest_dir({}), ul.VOICE_DIR)
 
     def test_a_file_that_differs_from_the_manifest_refuses_the_run(self):
         with tempfile.TemporaryDirectory() as d:
@@ -152,6 +197,8 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("KAY_O", by_agent)
         self.assertIn("Gekko", by_agent)
         self.assertEqual(m["key"], ul.templates_key(m["templates"]))
+        self.assertEqual(ul.manifest_dir(m), ul.VO_DIR)
+        self.assertTrue(all(e["ref_version"] == m["ref_version"] for e in m["templates"]))
 
 
 class ObservationTests(unittest.TestCase):

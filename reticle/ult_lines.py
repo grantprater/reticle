@@ -32,13 +32,25 @@ and classes peaks. Two templates may peak at one onset -- a line that resembles
 another, or two ultimates at once -- and both stay: cross-template suppression
 was measured and declined (`docs/VOICE_LINES.md`, "Verdicts at 0.2.0").
 
-The templates. `templates/ult_lines.json` lists name, agent, variant, file and
-hash: the 56 `<Agent>_ult_<variant>.mp3` files under
-`<store>/reference/assets/voicelines/`, and for an agent they lack, the first
-take of the harvest index's `Ally Cast` and `Enemy Cast` rows of the one
-ability that has them (`harvested_ults`; Gekko's Thrash). Agents are spelled as
-the asset files and the lineup spell them (`KAY_O`). A file whose hash differs
-from the manifest refuses the run.
+The templates. `templates/ult_lines.json` names its folder under the store
+(`dir`, read by `manifest_dir`) and lists name, agent, variant, file, hash, and
+the game event and media each line came from: the game's own English voice
+lines, `vo-ref-0.1.0` under `<store>/reference/game-files/vo/`, extracted
+headlessly from the installed paks (that folder's `provenance.json`). Each
+agent contributes its ultimate announcement's ally and enemy line
+(`ult_event_rows`). Agents are spelled as the lineup spells them (`KAY_O`). A
+file whose hash differs from the manifest refuses the run.
+
+Until ult-line-0.2.0 the templates were 56 wiki MP3s under
+`<store>/reference/assets/voicelines/` and Gekko's harvested pair
+(`harvested_ults`, which the prototypes still read). Clip against clip, 55 of
+the 58 wiki lines are the game's recordings (GCC-PHAT 0.97 to 1.0 against the
+template that replaces them; `prototypes/vo_ref_eval.py equivalence`). Raze's
+wiki pair is her `AbilityXEquip` lines, which replace them exactly. Harbor's
+wiki ally line matches no Harbor line of the current game build (best 0.18),
+so the game's ally line replaces it. Reyna's wiki enemy line is the media the
+game names `Vampire.ULT.AbilityXCastAllies02`, which her enemies hear
+(HEARD_BY).
 """
 from __future__ import annotations
 
@@ -68,13 +80,18 @@ PHAT_BAND = (100.0, 8000.0)
 PHAT_BATCH = 8
 #: A peak is kept at or above this quantile of its own template's track.
 FLOOR_Q = 0.99
-#: Where the official lines live, under the store root.
+#: Where the wiki's lines live, under the store root: the templates until
+#: ult-line-0.2.0, which the prototypes still read.
 VOICE_DIR = Path("reference") / "assets" / "voicelines"
+#: The game's own voice lines (vo-ref), under the store root.
+VO_DIR = Path("reference") / "game-files" / "vo"
 #: The declared template set.
 MANIFEST = Path(__file__).resolve().parent / "templates" / "ult_lines.json"
 #: The harvest index's sections that hold an ultimate's two heard lines.
 ULT_SECTIONS = {"Ally Cast": "ally", "Enemy Cast": "enemy"}
 VARIANTS = ("ally", "enemy")
+#: The side that hears a game line whose media name misstates it.
+HEARD_BY = {"Vampire.ULT.AbilityXCastAllies02": "enemy"}  # [domain:abilities/reyna-ult-line-media-names]
 
 
 # ---------------------------------------------------------------------------
@@ -263,26 +280,58 @@ def template_digest(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
 
 
-def manifest_from_assets(voice_dir: Path) -> list[dict]:
-    """The template entries the assets hold: every `<Agent>_ult_<variant>.mp3`,
-    then the harvested pair of each agent those lack. It writes nothing; the
+def ult_event_rows(rows: list[dict]) -> dict[str, dict]:
+    """{template name: vo-ref manifest row} for each agent's ultimate
+    announcement: of the agent's X-slot events, the one that holds exactly one
+    line heard by allies and one heard by enemies (`heard_by`, as HEARD_BY
+    corrects it), preferring a `ULT_` event (`ult_form`) where there is one;
+    each line is one template `<Agent>_ult_<variant>`. Gekko's
+    `AbilityXCast_2nd` holds three recast takes a side and leaves; Raze's
+    `AbilityXCast` holds efforts with no side, so her `AbilityXEquip` is the
+    one [domain:abilities/raze-ult-line-plays-at-equip]; Reyna's
+    `ULT_AbilityXCast` is hers, not the plain `AbilityXCast`
+    [domain:abilities/reyna-ult-line-media-names]. An agent with no such
+    event, or two of one form, refuses the set."""
+    events: dict[str, dict[str, list[dict]]] = {}
+    for r in rows:
+        if r.get("slot") == "X" and r.get("language", "en-US") == "en-US":
+            agent = str(r["agent"]).replace("/", "_")
+            r = {**r, "heard_by": HEARD_BY.get(r["media"], r.get("heard_by"))}
+            events.setdefault(agent, {}).setdefault(r["event"], []).append(r)
+    out = {}
+    for agent in sorted(events):
+        split = {ev: rs for ev, rs in events[agent].items()
+                 if sorted(str(x.get("heard_by")) for x in rs) == list(VARIANTS)}
+        ult = {ev: rs for ev, rs in split.items() if all(x.get("ult_form") for x in rs)}
+        split = ult or split
+        if len(split) != 1:
+            raise ValueError(f"{agent}: {len(split)} X events hold one ally and one enemy line "
+                             f"({sorted(split) or sorted(events[agent])})")
+        for x in next(iter(split.values())):
+            out[f"{agent}_ult_{x['heard_by']}"] = {**x, "agent": agent}
+    return out
+
+
+def manifest_from_assets(vo_dir: Path) -> list[dict]:
+    """The template entries the game's voice lines hold: `ult_event_rows` over
+    vo-ref's `manifest.jsonl`, each with its FLAC's path under `vo_dir`, its
+    hash, and the event and media it came from. It writes nothing; the
     declared set is MANIFEST, which `reticle ult-lines --check-manifest`
     compares with this."""
-    voice_dir = Path(voice_dir)
-    files = {p.stem: p.name for p in voice_dir.glob("*_ult_*.mp3")}
-    idx = voice_dir / "casts" / "index.json"
-    if idx.is_file():
-        have = {n.rsplit("_ult_", 1)[0] for n in files}
-        rows = json.loads(idx.read_text(encoding="utf-8"))
-        files.update({n: f"casts/{f}" for n, f in harvested_ults(rows, have).items()})
+    vo_dir = Path(vo_dir)
+    rows = [json.loads(x) for x in (vo_dir / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
+            if x.strip()]
     out = []
-    for name in sorted(files):
-        agent, variant = name.rsplit("_ult_", 1)
-        if variant not in VARIANTS:
-            raise ValueError(f"{name}: unknown variant {variant!r}")
-        out.append({"name": name, "agent": agent, "variant": variant, "file": files[name],
-                    "sha256": template_digest(voice_dir / files[name])})
+    for name, r in sorted(ult_event_rows(rows).items()):
+        out.append({"name": name, "agent": r["agent"], "variant": r["heard_by"], "file": r["flac"],
+                    "sha256": template_digest(vo_dir / r["flac"]), "event": r["event"],
+                    "media": r["media"], "ref_version": r["ref_version"]})
     return out
+
+
+def manifest_dir(m: dict) -> Path:
+    """The folder, under the store root, that a declared set's files are relative to."""
+    return Path(m.get("dir") or VOICE_DIR)
 
 
 def templates_key(entries: list[dict]) -> str:

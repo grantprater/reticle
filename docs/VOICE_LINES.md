@@ -728,14 +728,17 @@ The pipeline runs F-B unsuppressed at 0.0443, the configuration the 0.2.0
 verdicts chose, as a reader and an adjudicator.
 
 - **Reader.** `reticle ult-lines SESSION | --all` (`reticle/ult_lines.py`,
-  `ult-line-0.1.0`, `[owns:ult-line]`) decodes only the capture's audio
-  stream, in memory, and correlates the 58 templates that
-  `reticle/templates/ult_lines.json` declares: the 56 asset files and Gekko's
-  harvested Thrash pair, each checked against its hash. The FFTs run on the
+  `[owns:ult-line]`) decodes only the capture's audio
+  stream, in memory, and correlates the templates that
+  `reticle/templates/ult_lines.json` declares, each checked against its hash.
+  Through `ult-line-0.1.0` they were the 56 wiki asset files and Gekko's
+  harvested Thrash pair; from `ult-line-0.2.0` they are the game's own English
+  lines (`vo-ref-0.1.0` under `<store>/reference/game-files/vo/`), each agent's
+  ultimate announcement pair (`ult_lines.ult_event_rows`; the module docstring
+  names the three agents whose lines changed). The FFTs run on the
   GPU with cupy and fall back to numpy. It stores every peak above its
   template's 99th-percentile floor in `events/ult_line/<sid>.jsonl`, after a
-  coverage row, and consults no lineup. Gekko is scored from scratch, so the
-  0.2.0 merge's inexactness is gone. `prototypes/voice_lines.py` and
+  coverage row, and consults no lineup. `prototypes/voice_lines.py` and
   `prototypes/audio_gate.py` import the template cut, the correlation, the
   peaks, the decode and the log-mel front end from it.
 - **Adjudicator.** `reticle ult-cast SESSION | --all [--record]`

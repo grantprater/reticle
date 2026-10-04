@@ -1369,7 +1369,8 @@ owner = "ult_lines"
 role = ["detect"]
 status = "partial"
 produces = ["read_capture", "observations", "build_templates", "load_manifest",
-            "manifest_from_assets", "harvested_ults", "phat_tracks", "track_peaks",
+            "manifest_from_assets", "ult_event_rows", "manifest_dir",
+            "phat_tracks", "track_peaks",
             "nms_peaks", "trim_floor", "decode_mono", "log_mel", "array_module"]
 not_for = """
 Whose line it was, whether that agent is in the match, or whether a peak is a
