@@ -4,6 +4,12 @@ r"""A held-out labelling pass for minimap ability icons in the solo demos.
     .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py list      (counts and the time estimate)
     .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py label     [--by player]
     .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py label --headless SCRIPT.json [--labels DIR]
+    .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py --pass sonic queue|list|label
+
+`--pass sonic` (since 2026-10-04) runs a second, separate held-out pass for
+`prototypes/sonic_square.py` over MATCH sessions, with its own queue, labels
+and instructions; see "The Sonic Sensor pass" below. Without it the tool is
+the glyph pass described next, unchanged.
 
 Why. `minimap_glyph_eval.py`'s held-out score is contaminated: its follow
 parameters were chosen after viewing held-out montages (store
@@ -78,8 +84,33 @@ Files. The queue (`queue`) writes `<store>/analysis/minimap-label-pass-20261004/
 last row for a key wins, and a rerun resumes at the first unanswered item.
 Mark coordinates are minimap ROI pixels of the stored crop (`coords`, `roi`).
 
-Wire: no. A labelling tool; `minimap_glyph_eval.py` scores against its
-labels, and nothing in reticle/ runs it.
+The Sonic Sensor pass (`--pass sonic`). A fresh held-out set for
+`sonic_square.py` from sonic-square-0.2.0 on: the earlier set held one
+sensor, in a demo now used as dev. Fixed before any item is labelled, and
+logged in the store's `notes/predictions.jsonl` (sonic-square-20261004, kind
+split):
+* Opportunities are match sessions (capture longer than SONIC_MIN_MATCH_MIN)
+  whose stored lineup names Deadlock on either side, as `lineup.load_lineup`
+  and `identity.side_candidates` name it (the agent-identity owner), minus
+  `sonic_square.py`'s dev sessions.
+* In each such session's stored rounds (`Store.read_rounds`), every
+  SONIC_ROUND_STRIDE-th round from round SONIC_ROUND_FIRST (every 3rd from the
+  2nd; every 5th left too few items once cache gaps dropped frames), and in each, the
+  frames SONIC_OFFSETS_S after the round's start while before its end; the
+  nearest held crop-cache sample stands for each. No detector output, and no
+  look at the frames, chose an item.
+* The player clicks the centre of EVERY Sonic Sensor icon (Deadlock's Q),
+  whoever placed it, lit or dim, and names it 2 (Q); U if unsure. Other
+  Deadlock icons may be marked with their digit. N = no Sonic Sensor icon on
+  the minimap (a claim). The default view is the side the lineup puts
+  Deadlock on (teammate or enemy; self where the lineup names the player
+  Deadlock). The comparison frame is SONIC_BEFORE_S before the item.
+Answers append to `<store>/labels/sonic_square_heldout/<session>.jsonl`;
+the queue and crops live in `<store>/analysis/sonic-square-label-pass-20261004/`.
+Nobody tunes `sonic_square.py` on them; each version is scored once.
+
+Wire: no. A labelling tool; `minimap_glyph_eval.py` and `sonic_square.py`
+score against its labels, and nothing in reticle/ runs it.
 """
 from __future__ import annotations
 
@@ -119,6 +150,23 @@ OTHER_NO_ICON = {"visibility:Gekko:C:ally", "visibility:Gekko:E:ally"}
 SECONDS_PER_ITEM = 10.0      # estimate: the click tools' mean ~6 s per item (tray_object, demo_cast_class), plus naming
 BUDGET_MIN = 45.0
 SLOTS = "CQEX"
+
+# --- the Sonic Sensor pass, fixed before any item is labelled
+SONIC_QDIR = STORE / "analysis" / "sonic-square-label-pass-20261004"
+SONIC_LABEL_DIR = STORE / "labels" / "sonic_square_heldout"
+SONIC_QUEUE_VERSION = "sonic-square-heldout-queue-0.1.0"
+SONIC_AGENT = "Deadlock"
+SONIC_MIN_MATCH_MIN = 15.0
+SONIC_ROUND_FIRST, SONIC_ROUND_STRIDE = 2, 3
+SONIC_OFFSETS_S = (25.0, 60.0)
+SONIC_BEFORE_S = -5.0
+#: An asked frame whose nearest held sample is further than this is dropped, with the reason.
+SONIC_MAX_GAP_MS = 1000.0
+SONIC_TEXT = (
+    "Click the centre of EVERY Sonic Sensor icon (Deadlock's Q) on the minimap, whoever placed it, lit or dim, "
+    "and name it 2. Other Deadlock icons may take their digit (1-4); 6 another agent's ability; 7 other (type).\n"
+    "U = last mark unsure (or the whole item, with no marks); Z/X/C/V = last mark's view self/teammate/"
+    "enemy/spectator; right-click undo; SPACE/D save; N = no Sonic Sensor icon; A back; Q/ESC quit.")
 VIEWS = {"z": "self", "x": "teammate", "c": "enemy", "v": "spectator"}
 NAMES = {"5": "smoke", "6": "other_agent", "7": "other"}
 
@@ -243,6 +291,125 @@ def _add(items: dict, sid: str, th: float, t_asked: float, role: str, cast: dict
                               "offset_s": off, "t_asked_ms": t_asked})
 
 
+def plan_sonic_items(sessions: dict, rounds: dict, holds: dict) -> tuple:
+    """(items, dropped). `sessions`: sid -> {"side", "view"}; `rounds`: sid -> stored round rows;
+    `holds`: sid -> held crop-cache times. Pure: the cadence alone picks the frames."""
+    items, dropped = {}, []
+    for sid in sorted(sessions):
+        if sid not in holds:
+            dropped.append({"session_id": sid, "why": "no minimap crop cache"})
+            continue
+        for r in sorted(rounds.get(sid) or [], key=lambda r: r["round_no"]):
+            n = int(r["round_no"])
+            if n < SONIC_ROUND_FIRST or (n - SONIC_ROUND_FIRST) % SONIC_ROUND_STRIDE:
+                continue
+            for off in SONIC_OFFSETS_S:
+                t = float(r["t_start_ms"]) + off * 1000
+                if r.get("t_end_ms") is not None and t >= float(r["t_end_ms"]):
+                    dropped.append({"session_id": sid, "round_no": n, "offset_s": off,
+                                    "why": "after the round's end"})
+                    continue
+                th = nearest(holds[sid], t)
+                if abs(th - t) > SONIC_MAX_GAP_MS:
+                    dropped.append({"session_id": sid, "round_no": n, "offset_s": off,
+                                    "why": f"nearest held sample {abs(th - t):.0f} ms away"})
+                    continue
+                it = items.setdefault((sid, th), {
+                    "key": f"{sid}:{int(round(th))}", "session_id": sid, "t_ms": th, "agent": SONIC_AGENT,
+                    "kind": "cadence", "opportunity": [], "t_before_ms": th + SONIC_BEFORE_S * 1000,
+                    "view_default": sessions[sid]["view"], "dev_session": False, "near_tuned_label": False,
+                    "audit_excluded": False, "pass": "sonic", "deadlock_side": sessions[sid]["side"]})
+                it["opportunity"].append({"role": "cadence", "round_no": n, "slot": "Q", "ability": "Sonic Sensor",
+                                          "offset_s": off, "t_asked_ms": t})
+    return [items[k] for k in sorted(items)], dropped
+
+
+def cmd_queue_sonic(args) -> None:
+    from reticle import cli
+    from reticle.adjudication.identity import side_candidates
+    from reticle.lineup import load_lineup
+    from reticle.profiles import get_profile
+    from reticle.roi_cache import RoiCache
+    from reticle.store import Store
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import sonic_square as ss                    # its dev sessions only, recorded at queue time
+    qdir = SONIC_QDIR
+    if (qdir / "queue.json").exists() and not args.rebuild:
+        raise SystemExit(f"{qdir / 'queue.json'} exists; the queue is fixed once built (--rebuild replaces it, "
+                         "and only before any label is written)")
+    if args.rebuild and answered(SONIC_LABEL_DIR):
+        raise SystemExit(f"{SONIC_LABEL_DIR} holds answers; a rebuilt queue would move the held-out set under them")
+    ss.below_normal()
+    dev = set(ss.DEV_LABEL_SESSIONS) | {ss.ROTATED[0]} | set(ss.NEGATIVE_SESSIONS)
+    st = Store(str(STORE))
+    sessions, rounds, holds, caches, skipped = {}, {}, {}, {}, []
+    for man in st.sessions():
+        sid = man["session_id"]
+        lu = load_lineup(sid, str(STORE))
+        if lu is None:
+            continue
+        sides = sorted(side for side, rows in (lu.get("sides") or {}).items()
+                       if SONIC_AGENT in side_candidates(rows)["named"])
+        if not sides:
+            continue
+        minutes = man["n_samples"] / man["sample_hz"] / 60 if man.get("sample_hz") else 0.0
+        if sid in dev:
+            skipped.append({"session_id": sid, "why": "sonic_square dev session"})
+            continue
+        if minutes <= SONIC_MIN_MATCH_MIN:
+            skipped.append({"session_id": sid, "why": f"capture {minutes:.1f} min, not a match"})
+            continue
+        player = (lu.get("player") or {}).get("agent")
+        view = "self" if player == SONIC_AGENT else ("teammate" if sides == ["ally"] else
+                                                     "enemy" if sides == ["enemy"] else "spectator")
+        tab = st.read_rounds(sid, cli._date_of(man))
+        c, why = RoiCache.load(STORE, man, get_profile(man["source_profile"]), "minimap")
+        if c is None:
+            skipped.append({"session_id": sid, "why": f"no minimap cache ({why})"})
+            continue
+        sessions[sid] = {"side": "+".join(sides), "view": view, "player_agent": player}
+        rounds[sid] = tab.to_pylist() if tab is not None else []
+        caches[sid] = c
+        holds[sid] = np.asarray(c.holds(), dtype=float)
+    items, dropped = plan_sonic_items(sessions, rounds, holds)
+    (qdir / "crops").mkdir(parents=True, exist_ok=True)
+    by = defaultdict(list)
+    for it in items:
+        by[it["session_id"]].append(it)
+    for sid, its in by.items():
+        c = caches[sid]
+        x0, y0, x1, y1 = c.rect_of("minimap")
+        want = {it["t_ms"] for it in its} | {nearest(holds[sid], max(0.0, it["t_before_ms"])) for it in its}
+        got = {s.t_ms: s.frame[y0:y1, x0:x1] for s in c.samples(sorted(want), rois=["minimap"])}
+        for it in its:
+            tb = nearest(holds[sid], max(0.0, it["t_before_ms"]))
+            it["roi"] = [x0, y0, x1, y1]
+            it["crop"] = f"crops/{sid}_{int(round(it['t_ms']))}.png"
+            it["t_before_held_ms"] = tb
+            it["before"] = f"crops/{sid}_{int(round(tb))}.png" if tb != it["t_ms"] else None
+            for t, rel in ((it["t_ms"], it["crop"]), (tb, it["before"])):
+                if rel and not (qdir / rel).exists():
+                    cv2.imwrite(str(qdir / rel), got[t])
+    est = len(items) * SECONDS_PER_ITEM / 60
+    q = {"version": SONIC_QUEUE_VERSION, "tool": VERSION, "pass": "sonic",
+         "built": datetime.datetime.now().isoformat(timespec="seconds"),
+         "split": {"all": "heldout for prototypes/sonic_square.py; never tuned on",
+                   "excluded_dev_sessions": sorted(dev)},
+         "sample": {"opportunities": "match sessions whose stored lineup names Deadlock (lineup.load_lineup, "
+                                     "identity.side_candidates)",
+                    "min_match_min": SONIC_MIN_MATCH_MIN, "round_first": SONIC_ROUND_FIRST,
+                    "round_stride": SONIC_ROUND_STRIDE, "offsets_s": list(SONIC_OFFSETS_S),
+                    "before_s": SONIC_BEFORE_S, "max_gap_ms": SONIC_MAX_GAP_MS},
+         "inputs": {"crops": "roi_cache minimap (no decode)", "rounds": "Store.read_rounds"},
+         "sessions": sessions, "skipped_sessions": skipped, "dropped": dropped,
+         "estimate_min": round(est, 1), "seconds_per_item": SECONDS_PER_ITEM, "items": items}
+    if est > BUDGET_MIN:
+        raise SystemExit(f"{len(items)} items, ~{est:.0f} min: over the {BUDGET_MIN:.0f} min budget; cap first")
+    (qdir / "queue.json").write_text(json.dumps(q, indent=1), encoding="utf-8", newline="\n")
+    print(f"{len(items)} items over {len(by)} sessions, ~{est:.0f} min; {len(dropped)} asked frames dropped, "
+          f"{len(skipped)} sessions skipped -> {qdir / 'queue.json'}")
+
+
 def session_view(manifest: dict) -> str:
     return "spectator" if "spectator" in (manifest.get("tags") or []) else "self"
 
@@ -334,9 +501,17 @@ def load_queue(qdir=QDIR) -> dict:
 
 
 def cmd_list(args) -> None:
-    q = load_queue()
+    q = load_queue(args.qdir)
     items = q["items"]
     done = answered(Path(args.labels))
+    if q.get("pass") == "sonic":
+        print(f"{q['version']}: {len(items)} items ({sum(it['key'] in done for it in items)} answered), "
+              f"~{q['estimate_min']} min at {q['seconds_per_item']:.0f} s each")
+        print("items per session:", dict(Counter(it["session_id"] for it in items)))
+        print("sessions:", q["sessions"])
+        print("skipped:", q["skipped_sessions"])
+        print("dropped:", dict(Counter(d["why"].split(" ")[0] for d in q["dropped"])))
+        return
     per = Counter()
     for it in items:
         for o in it["opportunity"]:
@@ -461,6 +636,9 @@ class Pass:
                "audit_excluded": it.get("audit_excluded", False),
                "by": self.by, "at": datetime.datetime.now().isoformat(timespec="seconds"), "tool": VERSION,
                "queue_version": self.qv, "compared_against_derived": False}
+        if it.get("pass"):           # another pass's item says so; the glyph pass's rows are unchanged
+            row.update({"pass": it["pass"], "split": f"heldout:{it['pass']}",
+                        "deadlock_side": it.get("deadlock_side")})
         self.labels.mkdir(parents=True, exist_ok=True)
         with open(self.labels / f"{it['session_id']}.jsonl", "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -549,7 +727,9 @@ def run_ui(p: Pass, qdir: Path) -> None:
             b = cv2.resize(b, (b.shape[1] // 2, b.shape[0] // 2), interpolation=cv2.INTER_AREA)
             st["refs"]["before"] = ImageTk.PhotoImage(Image.fromarray(cv2.cvtColor(b, cv2.COLOR_BGR2RGB)))
             before.configure(image=st["refs"]["before"])
-            before_cap.configure(text=f"1 s before the cast ({it['t_before_held_ms'] / 1000:.2f} s), half size,\n"
+            lead = (f"{(it['t_ms'] - it['t_before_held_ms']) / 1000:.0f} s before" if it.get("pass")
+                    else "1 s before the cast")
+            before_cap.configure(text=f"{lead} ({it['t_before_held_ms'] / 1000:.2f} s), half size,\n"
                                       "for comparison only; mark on the left")
         else:
             before.configure(image="")
@@ -566,6 +746,14 @@ def run_ui(p: Pass, qdir: Path) -> None:
             st["refs"]["kit"] = ImageTk.PhotoImage(Image.fromarray(cv2.cvtColor(row, cv2.COLOR_BGR2RGB)))
             kitrow.configure(image=st["refs"]["kit"])
         why = "; ".join(f"{o['role']} {o['slot']} {o['ability']} {o['offset_s']:+.0f} s" for o in it["opportunity"])
+        if it.get("pass") == "sonic":
+            why = "; ".join(f"round {o['round_no']} start {o['offset_s']:+.0f} s" for o in it["opportunity"])
+            txt.configure(text=(f"{it['session_id']} (match; the lineup puts Deadlock on: {it['deadlock_side']}) at "
+                                f"{it['t_ms'] / 1000:.2f} s. Default view: {it['view_default']}.\n{SONIC_TEXT}\n"
+                                f"Why this frame (a fixed cadence, not a detection): {why}"))
+            redraw_marks()
+            set_status()
+            return
         txt.configure(text=(
             f"{it['session_id']} ({it['agent']} demo) at {it['t_ms'] / 1000:.2f} s. Default view: {it['view_default']}.\n"
             "Click the centre of EVERY ability icon on the minimap (whoever cast it; not shapes, portraits, pings "
@@ -651,7 +839,7 @@ def run_headless(p: Pass, script: list) -> None:
 
 
 def cmd_label(args) -> None:
-    q = load_queue()
+    q = load_queue(args.qdir)
     cat = json.load(open(CAT, encoding="utf-8"))["agents"]
     kits = {a: kit(a, cat) for a in {it["agent"] for it in q["items"]}}
     p = Pass(q["items"], Path(args.labels), args.by, kits, q["version"])
@@ -661,25 +849,32 @@ def cmd_label(args) -> None:
     if args.headless:
         run_headless(p, json.load(open(args.headless, encoding="utf-8")))
     else:
-        run_ui(p, QDIR)
+        run_ui(p, Path(args.qdir))
     done = answered(Path(args.labels))
     print(f"{sum(it['key'] in done for it in q['items'])} / {len(q['items'])} answered -> {args.labels}")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--pass", dest="pass_", choices=("glyph", "sonic"), default="glyph",
+                    help="glyph: the minimap glyph pass (default); sonic: the Sonic Sensor match pass")
     sub = ap.add_subparsers(dest="cmd")
     qp = sub.add_parser("queue")
     qp.add_argument("--rebuild", action="store_true")
     lp = sub.add_parser("list")
-    lp.add_argument("--labels", default=str(LABEL_DIR))
+    lp.add_argument("--labels", default=None)
     lb = sub.add_parser("label")
     lb.add_argument("--by", default="player")
-    lb.add_argument("--labels", default=str(LABEL_DIR))
+    lb.add_argument("--labels", default=None)
     lb.add_argument("--headless", help="a JSON list of events to feed instead of the window")
     args = ap.parse_args()
-    {"queue": cmd_queue, "list": cmd_list, "label": cmd_label}.get(args.cmd or "label", cmd_label)(
-        args if args.cmd else ap.parse_args(["label"]))
+    if not args.cmd:
+        args = ap.parse_args(sys.argv[1:] + ["label"])
+    sonic = args.pass_ == "sonic"
+    args.qdir = str(SONIC_QDIR if sonic else QDIR)
+    if args.cmd in ("list", "label") and args.labels is None:
+        args.labels = str(SONIC_LABEL_DIR if sonic else LABEL_DIR)
+    {"queue": cmd_queue_sonic if sonic else cmd_queue, "list": cmd_list, "label": cmd_label}[args.cmd](args)
 
 
 if __name__ == "__main__":
