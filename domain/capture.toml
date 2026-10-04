@@ -221,3 +221,32 @@ use = """
 a capture above 1080p reaches readers through the one scale transform; run
 clip_preflight on the first one before scanning
 """
+
+[cast-voice-lines-absent-4f207c0c4e39]
+claim = """
+The Split capture 4f207c0c4e39 (C:\\Users\\grant\\Videos\\2026-09-27 19-40-58.mp4)
+holds no ultimate cast voice line, while the rest of the game's sound is
+present. The cause is unknown: the player does not know the voice-over
+volume of that session, and the audio cannot tell a muted voice-over from
+another voice-over language.
+"""
+kind = "codec"
+known = "observed"
+since = "2026-10-04"
+source = """
+the stored ult-line-0.2.0 peaks and one audio-only decode, 2026-10-04: best
+peak [metric:ult_lines/vo-audible@4f207c0c4e39#best_mono=0.0649]; the
+templates of agents Riot records casting outrank absent agents' no better than
+chance (AUC [metric:ult_lines/vo-audible@4f207c0c4e39#auc_heard_vs_absent_mono=0.614]
+against at least
+[metric:ult_lines/vo-audible@4f207c0c4e39#auc_other_matches_min=0.909] on the
+other twenty matches); neither channel alone lifts a line above
+[metric:ult_lines/vo-audible@4f207c0c4e39#best_left=0.066] (docs/VOICE_LINES.md,
+"Weak clusters and the heard-line check"). The player, 2026-10-04 (chat),
+on the voice-over volume: unknown
+"""
+use = """
+the ult-cast coverage row's `vo_heard` is false here, so a want of casts means
+"not heard", not "not cast"; score this capture's ultimates apart
+"""
+see = ["capture/game-audio-track-only"]

@@ -1,6 +1,7 @@
 r"""The game's minimap ability glyphs as a caster-naming channel, scored on the player's positioned labels.
 
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py score      [--out DIR] [--states probe|all] [--answers on|off]
+                                                                     [--gamedata on|off] [--only sid,sid]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py misses     [--out DIR]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py separate   [--out DIR]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py inventory  [--out DIR]
@@ -14,6 +15,10 @@ glyph by masked Pearson correlation of luma inside an r = 8.5 px disc
 (x scale), centre +-3 px, glyph canvas 11-22 px, rotation 0-345 by 15 deg, never
 binarised; templates are each ability's DisplayIcon plus the export's minimap
 markers assigned to a kit ability by glyph correlation (never by file letter).
+With `--gamedata on` (the default, eval 0.3.0), the game data's ability state
+inventory (store reference/ability-states) then assigns each marker it names a
+minimap brush of one kit ability, moving a correlation assignment
+(`apply_gamedata`; items.json meta `gamedata_log`); off reproduces eval 0.2.0.
 With `--answers on` (the default), the player's texture answers
 (labels/minimap_glyph_questions/answers.jsonl) then add each answered stem's
 variants as references of the answered ability, citing the answer's line, and
@@ -82,7 +87,7 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
-VERSION = "minimap-glyph-eval-0.2.0"
+VERSION = "minimap-glyph-eval-0.3.0"   # 0.3.0: the state inventory's minimap brushes join the references
 STORE = Path("C:/Users/grant/reticle-store")
 BUILD = "release-13.06-shipping-18-5590001"
 GX = STORE / "reference" / "game-files" / BUILD
@@ -268,11 +273,14 @@ ANSWERS = LABELS / "minimap_glyph_questions" / "answers.jsonl"
 DERIVED_GLYPH: dict = {}
 
 
-def build_extra(states=PROBE_STATES, min_corr=0.5, min_gap=0.05, answers: bool = False) -> list[dict]:
+def build_extra(states=PROBE_STATES, min_corr=0.5, min_gap=0.05, answers: bool = False,
+                gamedata: bool = False) -> list[dict]:
     """Assign each export marker to the kit icon it correlates with best (corr >= 0.5, gap >= 0.05); with
-    `answers`, the player's texture answers then override and extend that assignment (`apply_answers`)."""
+    `gamedata`, the state inventory's minimap brushes then assign and move markers (`apply_gamedata`); with
+    `answers`, the player's texture answers then override and extend both (`apply_answers`)."""
     EXTRA.clear()
     ANSWER_LOG.clear()
+    GAMEDATA_LOG.clear()
     rows = marker_map(states)
     DERIVED_GLYPH.clear()
     DERIVED_GLYPH.update({r["path"]: r["glyph"] for r in rows})
@@ -286,9 +294,75 @@ def build_extra(states=PROBE_STATES, min_corr=0.5, min_gap=0.05, answers: bool =
             EXTRA.setdefault(key, []).append(
                 (r["glyph"], f"1306:{os.path.basename(r['file'])} corr {s:.2f} gap {gap:.2f}"))
             r["assigned"] = f"{key[0]}:{key[1]}"
+    if gamedata:
+        apply_gamedata(rows)
     if answers:
         apply_answers(states)
     return rows
+
+
+#: The game data's ability state inventory (tools/ability_states; store reference/ability-states).
+STATE_INVENTORY = STORE / "reference" / "ability-states" / "ability-states-gamedata-0.2.0.jsonl"
+#: What the state inventory did to the references in the last build_extra (written into items.json meta).
+GAMEDATA_LOG: dict = {}
+
+
+def gamedata_brushes() -> dict:
+    """{texture file name: {(agent, catalogue key): [row refs]}}: every state-inventory row whose cue is a minimap
+    brush (cue_type minimap_*: IconBrush, EnemyIcon, Icon, Image, WidgetBrush) with a png and some view drawing it
+    (`views` true for self, teammate, enemy or spectator). The catalogue key is matched by the row's ability
+    display name (`find`), never by the file's letter; a row whose ability has no kit glyph is dropped."""
+    out: dict = defaultdict(lambda: defaultdict(list))
+    with open(STATE_INVENTORY, encoding="utf-8") as fh:
+        for ln in fh:
+            if '"minimap_' not in ln:
+                continue
+            r = json.loads(ln)
+            if not (r.get("png") and r.get("cue_type", "").startswith("minimap_")
+                    and any((r.get("views") or {}).values())):
+                continue
+            key = find(r["agent"], r.get("ability") or "")
+            if key is not None:
+                out[os.path.basename(r["png"])][key].append(
+                    f"{r['codename']}:{r['key']}:{r['state']}:{r['cue_type']}")
+    return out
+
+
+def apply_gamedata(rows: list[dict]) -> None:
+    """The state inventory's minimap brushes as references: a marker the inventory names one kit key's brush is
+    that key's reference, provenance `gamedata:<file> <inventory> <row>`; it moves a marker the DisplayIcon
+    correlation assigned elsewhere. A marker named by two keys stays as the correlation left it. The glyph is the
+    rendering `marker_map` gave the file. Answers run after and override (`apply_answers`); GAMEDATA_LOG lists
+    every effect. Correlation misses a texture unlike its DisplayIcon
+    [domain:abilities/killjoy-alarmbot-minimap-texture]."""
+    gd = gamedata_brushes()
+    inv = os.path.basename(STATE_INVENTORY)
+    agree, added, moved, ambiguous = [], [], [], []
+    for r in rows:
+        name = os.path.basename(r["file"])
+        hit = gd.get(name)
+        if not hit:
+            continue
+        if len(hit) > 1:
+            ambiguous.append({"file": name, "keys": sorted(f"{k[0]}:{k[1]}" for k in hit)})
+            continue
+        key, refs = next(iter(hit.items()))
+        ks = f"{key[0]}:{key[1]}"
+        if r["assigned"] == ks:
+            agree.append({"file": name, "key": ks})
+            continue
+        if r["assigned"]:
+            old = tuple(r["assigned"].rsplit(":", 1))
+            EXTRA[old] = [(g, p) for g, p in EXTRA[old] if p.split(" ")[0].split(":", 1)[-1] != name]
+            if not EXTRA[old]:
+                del EXTRA[old]
+            moved.append({"file": name, "from": r["assigned"], "to": ks})
+        else:
+            added.append({"file": name, "key": ks, "rows": refs})
+        EXTRA.setdefault(key, []).append((r["glyph"], f"gamedata:{name} {inv} {refs[0]}"))
+        r["assigned"] = ks
+    GAMEDATA_LOG.update({"file": os.path.relpath(STATE_INVENTORY, STORE).replace("\\", "/"), "agree": agree,
+                         "added": added, "moved_from_correlation": moved, "ambiguous": ambiguous})
 
 
 def texture_answers() -> dict:
@@ -560,8 +634,9 @@ def cmd_score(args) -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     states = None if args.states == "all" else PROBE_STATES
-    rows = build_extra(states, answers=args.answers == "on")
-    items = load_items()
+    rows = build_extra(states, answers=args.answers == "on", gamedata=args.gamedata == "on")
+    only = set(args.only.split(",")) if args.only else None
+    items = [it for it in load_items() if only is None or it["sid"] in only]
     print(f"items {len(items)}; extra markers {sum(len(v) for v in EXTRA.values())}", flush=True)
     res, wins_Y, wins_C, wins_static = [], [], [], []
     t0 = time.time()
@@ -640,7 +715,8 @@ def cmd_score(args) -> None:
         print(f"  {sid}: {len(its)} items, {time.time() - t0:.0f}s", flush=True)
     np.savez_compressed(out / "windows.npz", Y=np.array(wins_Y), C=np.array(wins_C), S=np.array(wins_static))
     meta = {"version": VERSION, "build": BUILD, "states": args.states, "n_items": len(res),
-            "answers": args.answers == "on", "answer_log": dict(ANSWER_LOG),
+            "answers": args.answers == "on", "answer_log": dict(ANSWER_LOG), "only": args.only,
+            "gamedata": args.gamedata == "on", "gamedata_log": dict(GAMEDATA_LOG),
             "extra": {f"{k[0]}:{k[1]}": [p for _, p in v] for k, v in EXTRA.items()},
             "markers": [{k: r[k] for k in ("file", "agent", "rest", "state", "disc", "assigned")} |
                         {"best": r["best"] and [round(r["best"][0], 3), f"{r['best'][1][0]}:{r['best'][1][1]}"],
@@ -678,7 +754,8 @@ def summarise(res) -> dict:
 
 def load_scores(out: Path, states: str = "probe"):
     d = json.load(open(out / "items.json", encoding="utf-8"))
-    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES, answers=d["meta"].get("answers", False))
+    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES, answers=d["meta"].get("answers", False),
+                gamedata=d["meta"].get("gamedata", False))
     z = np.load(out / "windows.npz")
     return d, z
 
@@ -741,8 +818,9 @@ def montage_row(r: dict, z, k: int = 5, tag: str = "rot") -> np.ndarray:
 
 
 #: Each held-out miss's cause, assigned after viewing the montage (misses.png). Key: sid, t_ms (int), label x, y.
-#: Dev misses by (sid, t_ms, label): Killjoy's C and Q markers are unassigned by DisplayIcon correlation (0.27, 0.42)
-#: though the crops show them; the 48.45 s Spycam is a teal state the references lack.
+#: Dev misses of eval 0.1.0 by (sid, t_ms, label): Killjoy's C and Q markers are unassigned by DisplayIcon correlation
+#: (0.27, 0.42) though the crops show them (C answered in 0.2.0, Q from the game data in 0.3.0); the 48.45 s Spycam
+#: is a teal state the references lack.
 DEV_CAUSES = {("d95cfad5693a", 24600, "cypher:trapwire"): {"cause": "occlusion_or_stack", "note": "under a portrait"},
               ("d95cfad5693a", 48450, "cypher:spycam"): {"cause": "variant_missing", "note": "teal Spycam state"},
               **{("dae6f33f3f48", t, lab): {"cause": "variant_missing", "note": "Killjoy marker not assigned"}
@@ -1444,7 +1522,8 @@ def follow_row(x: dict, got: dict, k: int = 4, R: int = 16, n_used: int = 6, n_s
 def cmd_follow(args) -> None:
     out = Path(args.out)
     d = json.load(open(out / "items.json", encoding="utf-8"))
-    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES, answers=d["meta"].get("answers", False))
+    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES, answers=d["meta"].get("answers", False),
+                gamedata=d["meta"].get("gamedata", False))
     only = set(args.only.split(",")) if args.only else None
     P = [r for r in positives(d["items"]) if only is None or r["sid"] in only]
     by = defaultdict(list)
@@ -1616,7 +1695,7 @@ def cmd_heldout(args) -> None:
     from reticle import ability_icons, geometry
     out = HELDOUT_OUT if args.out == str(OUT) else Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    build_extra(PROBE_STATES, answers=True)
+    build_extra(PROBE_STATES, answers=True, gamedata=True)
     q = lab.load_queue()
     rows = lab.answered()
     n_rows = sum(len(lab.read_jsonl(f)) for f in glob.glob(str(lab.LABEL_DIR / "*.jsonl")))
@@ -1718,14 +1797,15 @@ def cmd_heldout(args) -> None:
         print(f"  {sid}: {len(its)} items, {time.time() - t0:.0f}s", flush=True)
     F = [f for f in frames_out if not f.get("refused")]
     summ = {"version": HELDOUT_VERSION, "matcher": VERSION, "follow": FOLLOW_VERSION, "build": BUILD,
-            "states": "probe", "answers": True, "queue": q["version"], "label_rows": n_rows, "items_answered": len(rows),
+            "states": "probe", "answers": True, "gamedata": True, "queue": q["version"], "label_rows": n_rows, "items_answered": len(rows),
             "rule": "last row per item wins; headline = kind after_cast or control, not dev_session, not "
                     "near_tuned_label; the matcher's verdict is follow (base = the labelled frame alone)",
             "candidates": "the session agent's kit (GLYPHS keys); the matcher has no other-agent path",
             "params": {"CANVAS": [float(CANVAS[0]), float(CANVAS[-1])], "MASK_R": MASK_R, "SHIFT": SHIFT,
                        "ROT_STEP": ROTS[1], "SNAP_R": SNAP_R, "FOLLOW_MS": FOLLOW_MS, "N_CLEAN": N_CLEAN, "OCC_R": OCC_R,
                        "SAME_R": SAME_R, "REACH": REACH, "ICON_SCORE": ICON_SCORE, "MAP_CORR": MAP_CORR},
-            "answer_log": dict(ANSWER_LOG), "extra": {f"{k[0]}:{k[1]}": [p for _, p in v] for k, v in EXTRA.items()},
+            "answer_log": dict(ANSWER_LOG), "gamedata_log": dict(GAMEDATA_LOG),
+            "extra": {f"{k[0]}:{k[1]}": [p for _, p in v] for k, v in EXTRA.items()},
             "unsure_items": unsure_items, "refused_frames": [f for f in frames_out if f.get("refused")],
             "wall_s": round(time.time() - t0, 1)}
     summ["naming"] = {s: naming_summary(marks_out, s) for s in ("headline", "dev_session", "near_tuned_label",
@@ -1920,7 +2000,10 @@ def main() -> None:
     ap.add_argument("--states", default="probe", choices=["probe", "all"])
     ap.add_argument("--answers", default="on", choices=["on", "off"],
                     help="score: use the player's texture answers as references (follow reads the choice from items.json)")
-    ap.add_argument("--only", default=None, help="follow: comma-separated session ids (a small sample)")
+    ap.add_argument("--only", default=None, help="score, follow: comma-separated session ids (a small sample)")
+    ap.add_argument("--gamedata", default="on", choices=["on", "off"],
+                    help="score: use the state inventory's minimap brushes as references (follow reads the choice "
+                         "from items.json; off reproduces eval 0.2.0)")
     args = ap.parse_args()
     {"score": cmd_score, "misses": cmd_misses, "examples": cmd_examples, "separate": cmd_separate,
      "inventory": cmd_inventory, "follow": cmd_follow, "heldout": cmd_heldout}[args.cmd](args)
