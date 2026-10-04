@@ -178,7 +178,12 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # read at its admitted track reads (`entry_second_life`), not only the entry a
 # player death track owns; the player track's window vote counts only the
 # player's own rows. Rows store the vote as `second_life_vote`.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.33.0"
+# 0.34.0 (2026-10-03): a round that ended by elimination inside a capture
+# stall's gap kills every member of the losing side the killfeed prior holds
+# alive before the gap (`infer_stall_deaths`): `inferred_death` rows with the
+# gap as their window, no time and no killer, resting on the prior's deaths
+# and the round's outcome claim (`adjudication.round_outcome`).
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.34.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -3301,3 +3306,163 @@ def _name_cluster_claims(session_id, results, portraits, name_observations, line
                "channels_weighted": reliability is not None}
     return {c["entity_id"]: c for c in claims}, summary
 
+
+
+# --- Deaths a capture stall swallowed, from how the round ended -------------
+
+#: A stored round end this far after a stall's release still falls in it: the
+#: round end the stall swallowed is read at the first frame after release.
+STALL_ROUND_END_SLACK_MS = 1000.0
+#: A round end read later than that, up to this long after release, still
+#: fell in the gap when no sample between release and the end read the
+#: scoring side's score: the first readable score already held the point.
+#: Over the 21 Riot-scored matches the stored end follows the last kill of an
+#: elimination round by a median 0.28 s, p95 3.0 s; 3694746e4e54's round 12
+#: ended in its stall and its score was first read 4.4 s after release.
+STALL_ROUND_END_READ_MS = 6000.0
+#: A killfeed entry first seen inside the gap or this long after release,
+#: naming a victim the rule infers, binds to the inferred death as its witness.
+LATE_WITNESS_MS = 6000.0
+#: The identity channel of a name the round's elimination implies.
+ELIMINATION_CHANNEL = "round_elimination"
+
+
+def _score_unread(hud, side_cols, a: float, b: float) -> bool:
+    """True when no HUD sample in (a, b) reads a score in `side_cols`."""
+    t = np.asarray(hud["t_ms"], dtype=np.float64)
+    i, j = int(np.searchsorted(t, a, side="right")), int(np.searchsorted(t, b, side="left"))
+    for col in side_cols:
+        vals = hud[col][i:j]
+        vals = vals.to_pylist() if hasattr(vals, "to_pylist") else list(vals)
+        if any(v is not None for v in vals):
+            return False
+    return True
+
+
+def _stall_holding(span_list, stored: dict, hud=None):
+    """(the stall whose gap holds round `stored`'s end, how it is known), or
+    (None, None): `release` where the end was read by
+    `STALL_ROUND_END_SLACK_MS` after release; `score_unread_after_release`
+    where it was read later, within `STALL_ROUND_END_READ_MS`, and no sample
+    in between read the scoring side's score."""
+    t_end = float(stored["t_end_ms"])
+    won_left = stored.get("won_left")
+    cols = (("score_left",) if won_left else ("score_right",)) if won_left is not None \
+        else ("score_left", "score_right")
+    for s in span_list or ():
+        a, b = float(s["t_start_ms"]), float(s["t_end_ms"])
+        if a <= t_end <= b + STALL_ROUND_END_SLACK_MS:
+            return s, "release"
+        if (hud is not None and b < t_end <= b + STALL_ROUND_END_READ_MS
+                and _score_unread(hud, cols, b, t_end)):
+            return s, "score_unread_after_release"
+    return None, None
+
+
+def _roster_before(roster, t0: float, t_start: float) -> dict | None:
+    """The roster reader's last living counts in [t_start, t0), or None."""
+    if roster is None:
+        return None
+    t = np.asarray(roster["t_ms"], dtype=np.float64)
+    i = int(np.searchsorted(t, t0, side="left")) - 1
+    if i < 0 or t[i] < t_start:
+        return None
+    return {"t_ms": float(t[i]), "ally": int(roster["alive_ally"][i]),
+            "enemy": int(roster["alive_enemy"][i])}
+
+
+def infer_stall_deaths(session_id: str, results: list[dict], rounds: list[dict], stall_spans,
+                       outcome_claims: list[dict] | None, lineup: dict, roster=None,
+                       hud=None) -> dict:
+    """Deaths that fell in a capture stall where the round ended by elimination.
+
+    For each stored round whose end lies in a stall's gap (`_stall_holding`:
+    read at release, or read soon after it with the score unread in between,
+    from the HUD table `hud`): when the round's
+    outcome claim (`adjudication.round_outcome`) reads `elimination`, every
+    member of the losing side still alive before the gap died in it. The
+    living set is the killfeed prior: this round's resolved verdicts before
+    the gap through `build_round_roster_timeline`, revives returning their
+    agent. Each such member becomes one `inferred_death` row: `inferred:
+    true`, `t_ms: null` with `t_ms_reason`, `t_window_ms` the gap, `killer:
+    null` with `killer_reason: "unobserved interval"`, `rests_on` the prior's
+    death ids and the outcome claim, and the victim named through the
+    identity arbiter on channel `round_elimination`, `depends_on` the prior
+    deaths (a name by elimination is never an independent witness).
+
+    A killfeed verdict first seen inside the gap (a sample the stall span
+    holds at its edge) or within `LATE_WITNESS_MS` after it
+    that names one of these victims binds to it as `late_witness`; the
+    inferred death keeps its window and the verdict keeps its own time.
+
+    Refusals, one row per stalled round: `outcome_unread` (no claim, or the
+    claim refused), `ended_by_<reason>` (not an elimination: the gap's deaths
+    are unknown), `prior_count_disagrees` (the roster reader's last living
+    count before the gap is not the prior's), `none_alive` (the prior already
+    holds the side dead). An unknown stall list (None) infers nothing.
+
+    Allies follow the same rule as enemies. Gaps inside a round that the
+    roster difference shows are out of scope. Returns `{"inferred",
+    "refused"}` row lists without session-common fields."""
+    out = {"inferred": [], "refused": []}
+    if not stall_spans:
+        return out
+    claims = {c["round_no"]: c for c in (outcome_claims or ())}
+    by_round = {x["round_no"]: x for x in results}
+    for r in sorted(rounds, key=lambda r: r["round_no"]):
+        if r.get("t_end_ms") is None:
+            continue
+        stall, how = _stall_holding(stall_spans, r, hud)
+        if stall is None:
+            continue
+        a, b = float(stall["t_start_ms"]), float(stall["t_end_ms"])
+        claim = claims.get(r["round_no"])
+        base = {"round_no": r["round_no"], "t_window_ms": [a, b], "end_in_gap": how,
+                "outcome_claim": None if claim is None else claim.get("claim_id")}
+        if claim is None or claim.get("refusal") or not claim.get("end_reason"):
+            out["refused"].append({**base, "refusal": "outcome_unread",
+                                   "claim_refusal": None if claim is None else claim.get("refusal")})
+            continue
+        if claim["end_reason"] != "elimination":
+            out["refused"].append({**base, "refusal": f"ended_by_{claim['end_reason']}"})
+            continue
+        side = "enemy" if claim["winner"] == "ally" else "ally"
+        x = by_round.get(r["round_no"], {"entries": [], "verdicts": []})
+        before = [v for v in x["verdicts"] if v.t_ms < a]
+        deaths = [v for v in before if not v.is_revive]
+        revives = [{"t_ms": float(v.t_ms), "side": v.side, "agent": v.victim} for v in before
+                   if v.is_revive and v.status == "resolved" and v.victim]
+        snap = build_round_roster_timeline(lineup, deaths, r["round_no"],
+                                           float(r.get("t_start_ms") or 0.0), revives=revives)[-1]
+        living = list(snap.ally_agents if side == "ally" else snap.enemy_agents)
+        prior_ids = [v.death_id for v in before]
+        seen = _roster_before(roster, a, float(r.get("t_start_ms") or 0.0))
+        base = {**base, "side": side, "prior_living": living, "prior_deaths": prior_ids,
+                "roster_before": seen}
+        if seen is not None and seen[side] != len(living):
+            out["refused"].append({**base, "refusal": "prior_count_disagrees"})
+            continue
+        if not living:
+            out["refused"].append({**base, "refusal": "none_alive"})
+            continue
+        late = [v for v in x["verdicts"] if a <= v.t_ms <= b + LATE_WITNESS_MS
+                and not v.is_revive and v.side == side and v.status == "resolved" and v.victim]
+        for agent in living:
+            death_id = f"{session_id}:inferred:{r['round_no']}:{side}:{agent}"
+            ident = adjudicate_agent_identity([identity_claim(
+                death_id, agent, channel=ELIMINATION_CHANNEL,
+                reason="alive_before_gap_side_eliminated", source_version=DEATH_ADJUDICATION_VERSION,
+                evidence={"outcome_claim": claim["claim_id"], "prior_deaths": prior_ids},
+                depends_on=prior_ids)])[0]
+            witness = next((v for v in late if v.victim == agent), None)
+            out["inferred"].append({
+                **{k: base[k] for k in ("round_no", "t_window_ms", "end_in_gap",
+                                        "outcome_claim", "side")},
+                "death_id": death_id, "inferred": True, "victim": agent,
+                "t_ms": None, "t_ms_reason": "died_in_capture_stall",
+                "killer": None, "killer_reason": "unobserved interval",
+                "rests_on": {"deaths": prior_ids, "outcome_claim": claim["claim_id"]},
+                "identity": ident, "roster_before": seen,
+                "late_witness": None if witness is None else
+                {"death_id": witness.death_id, "t_ms": float(witness.t_ms)}})
+    return out

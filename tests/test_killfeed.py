@@ -31,6 +31,7 @@ def read_with_bands(bands, refusals):
     with mock.patch.object(killfeed, "_plate_masks",
                            return_value=(plate, plate, plate)), \
             mock.patch.object(killfeed, "_entry_bands", return_value=bands), \
+            mock.patch.object(killfeed, "_one_colour_bands", return_value=[]), \
             mock.patch.object(killfeed, "_band_text", side_effect=band_text):
         return read_killfeed(frame, _roi(), 1920, 1080,
                              np.ones((300, 400), dtype=bool))
