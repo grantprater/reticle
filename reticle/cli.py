@@ -4746,8 +4746,8 @@ def cmd_ult_lines(args) -> int:
     from .version import ULT_LINE_VERSION
 
     store = Store(args.store)
-    voice = store.root / ult_lines.VOICE_DIR
     declared = ult_lines.load_manifest()
+    voice = store.root / ult_lines.manifest_dir(declared)
     if args.check_manifest:
         want = {e["name"]: e for e in declared["templates"]}
         got = {e["name"]: e for e in ult_lines.manifest_from_assets(voice)}
