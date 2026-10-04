@@ -58,6 +58,24 @@ with the teardrop's reasons. On a widget drawn turned over the icons' facing
 arrows turn with the map [domain:minimap/upright-icons-on-turned-map], so the
 teardrop's facing needs no correction in the baked frame.
 
+**Teammates come from the stored `ally_icon` stream (0.7.0).** The ally
+reader (`minimap.AllyIconReader`, owner of `ally-candidates`) already fits
+every teammate's ring and poses it by its teardrop (`icon-pose`), with the
+prior that continues each icon's previous fit; the chain fitting them again
+cost about half of `reticle vision`'s time and could publish another pose
+for the same icon. `StoredAllyPoses` reads the stream's published teammates
+(family `ally`; barriers and stacked-icon members are left out, as the ring
+fit here never proposed them) and hands each to `teardrop.posed` with this
+chain's own `ring_fallback`, so an unread teardrop casts nothing here
+although the stream keeps the ring fit's facing. A frame the stream never
+read -- the buy phase it clips (`outside_cache_rounds`), or a frame whose
+widget it found absent where this chain finds it drawn -- is refused as
+`widget` `ally_unread` with the reason: no mask, no refit. The coverage row
+records the stream's stamp (`inputs.ally_icon`), so `plan` stales this
+product when the ally reader changes. Without `ally_poses` the chain fits
+teammates itself, which only `overlay` and the prototypes do; the stored
+product never does.
+
 **On demand.** `at` computes the rows at chosen instants only, starting the
 chain at the last cache gap its tracks and lifecycle expire across, so each
 row equals the full run's except for track ids. `reticle vision --check`
@@ -91,6 +109,7 @@ from .minimap_diagnostics import DIAGNOSTICS_VERSION, distance_agreement, light_
 from .minimap_lifecycle import LIFECYCLE_VERSION, Lifecycle
 from .stalls import STALL_VERSION, stalled_at
 from .track import Tracker
+from .usage import step as usage_step
 
 #: An icon whose teardrop gives no facing casts from the ring fit along its
 #: track's resolved lobe (True), or casts nothing (False). See `TeamVision`.
@@ -102,6 +121,77 @@ from .track import Tracker
 #: the fallback adds recall at 465 px but lowers precision on c40d950031bb
 #: below 0.3.0's.
 RING_FALLBACK = False
+
+#: The ring fit's fields a stored `ally_icon` row carries, which the tracker
+#: and the light's lobe resolution read as `ally_icons` returns them.
+_RING_FIELDS = ("r", "cov", "inner", "inner_v", "lobe", "area", "map_diff")
+#: The teardrop read's fields `teardrop.posed` keeps under `pose`.
+_POSE_FIELDS = ("ncc", "reason", "facing_reason", "search", "surprise", "rests_on", "audit")
+
+
+class StoredAllyPoses:
+    """Each frame's teammates as the stored `ally_icon` stream publishes them.
+
+    `at(frame_idx)` returns `(detections, None)`, the stream's teammates as
+    ring-fit detections posed by their stored teardrop read
+    (`teardrop.posed`, with `ring_facing` the caller's), or `(None, reason)`
+    where the stream holds no drawn frame there. Only family `ally` rows are
+    teammates here: a `barrier` is furniture and a `stack_fit` member has no
+    ring fit (`AllyIconReader._stack`), and the ring-fit chain never saw
+    either. Builds no pose of its own.
+    """
+
+    def __init__(self, frames: list[dict], icons: list[dict], head: dict | None = None):
+        head = head or {}
+        self.version = head.get("ally_icon_version")
+        clip = head.get("spans_clip")
+        self.clip_reason = (clip.get("reason") if isinstance(clip, dict) else None)
+        self.drawn = {int(r["frame_idx"]): bool(r.get("widget_drawn")) for r in frames}
+        self.icons: dict[int, list[dict]] = {}
+        self.skipped = {"barrier": 0, "stack_fit": 0}
+        for r in icons:
+            if r.get("family") == "barrier":
+                self.skipped["barrier"] += 1
+            elif r.get("origin") == "stack_fit" or r.get("facing_source") == "stack_fit":
+                self.skipped["stack_fit"] += 1
+            else:
+                self.icons.setdefault(int(r["frame_idx"]), []).append(r)
+
+    @classmethod
+    def from_store(cls, store, session_id: str):
+        """`(StoredAllyPoses, None)`, or `(None, reason)` with no stream."""
+        if not store.has_events("ally_icon", session_id):
+            return None, "no ally_icon stream"
+        frames = store.read_events_kind("ally_icon", session_id, "frame")
+        head = frames[0] if frames and frames[0].get("kind") == "coverage" else None
+        icons = store.read_events_kind("ally_icon", session_id, "icon")
+        frames = [r for r in frames if r.get("kind") == "frame"]
+        icons = [{k: r.get(k) for k in ("frame_idx", "cx", "cy", "facing", "facing_source",
+                                         "ring", "pose", "family", "origin", *_RING_FIELDS)}
+                 for r in icons if r.get("kind") == "icon"]
+        if head is None:
+            return None, "ally_icon stream has no coverage row"
+        return cls(frames, icons, head), None
+
+    def at(self, frame_idx: int, ring_facing: bool):
+        drawn = self.drawn.get(int(frame_idx))
+        if drawn is None:
+            return None, ("ally_icon stored no frame here"
+                          + (f" ({self.clip_reason})" if self.clip_reason else ""))
+        if not drawn:
+            return None, "ally_icon found the widget absent here"
+        return [self._posed(r, ring_facing) for r in self.icons.get(int(frame_idx), ())], None
+
+    @staticmethod
+    def _posed(r: dict, ring_facing: bool) -> dict:
+        ring = r.get("ring") or {"cx": r["cx"], "cy": r["cy"], "facing": r.get("facing")}
+        d = {"cx": ring["cx"], "cy": ring["cy"], "facing": ring.get("facing"),
+             **{k: r.get(k) for k in _RING_FIELDS}, "barrier": False}
+        p = r.get("pose") or {"origin": "ring_fit"}
+        read = {"origin": p.get("origin", "ring_fit"), "x": r["cx"], "y": r["cy"],
+                "deg": r["facing"] if r.get("facing_source") == "teardrop" else None,
+                **{k: p[k] for k in _POSE_FIELDS if k in p}}
+        return posed(d, read, ring_facing=ring_facing)
 
 
 @dataclass
@@ -211,7 +301,8 @@ class TeamVision:
                  light=None, stalls=None, origin_events=(), track_self=None,
                  track_ally=None, lifecycle=None, distance_diagnostics=True,
                  box_id=None, open_boxes=None,
-                 ring_fallback: bool = RING_FALLBACK):
+                 ring_fallback: bool = RING_FALLBACK,
+                 ally_poses: StoredAllyPoses | None = None):
         self.floor, self.passable, self.sgray = floor, passable, sgray
         self.box_id, self.open_boxes = box_id, open_boxes
         self.slab, self.static, self.light = slab, static, light
@@ -227,6 +318,11 @@ class TeamVision:
         #: centre along its track's resolved lobe. `RING_FALLBACK` is the
         #: stored product's; the other value exists to measure the fallback.
         self.ring_fallback = ring_fallback
+        #: The stored `ally_icon` teammates (`StoredAllyPoses`), which the
+        #: stored product reads in place of fitting them again; None fits
+        #: them here (`overlay`, the prototypes), and `step` then needs no
+        #: frame index.
+        self.ally_poses = ally_poses
         #: `distance_agreement` is a diagnostic `overlay` shows and nothing
         #: stores or decides on; it was 29% of `reticle vision`'s time, and
         #: the stored product runs without it.
@@ -240,13 +336,19 @@ class TeamVision:
                    stalls=inputs.stalls, origin_events=origin_events,
                    box_id=inputs.box_id, open_boxes=inputs.open_boxes, **kw)
 
-    def step(self, crop: np.ndarray, t_ms: float, masks: bool = True) -> VisionFrame:
+    def step(self, crop: np.ndarray, t_ms: float, masks: bool = True,
+             frame_idx: int | None = None) -> VisionFrame:
         """Advance the chain one frame.
 
         `masks=False` advances every stateful stage -- trackers, principal,
         lifecycle -- and casts no union cone: a warm-up frame whose masks
         nobody reads. Such a frame returns `observable` None and is never a
         stored row.
+
+        With `ally_poses`, `frame_idx` names the cache frame whose stored
+        teammates the chain reads; a drawn frame the stream holds no
+        teammates for returns `widget` `ally_unread` with the stream's reason,
+        and every tracker and the lifecycle see it as an unread widget.
         """
         known_stalls = self.stalls
         # **A frozen source is not an observation.** The stall fact is the
@@ -255,32 +357,46 @@ class TeamVision:
         # as the buy panel is unchanging without the capture having stalled.
         drawn = widget_drawn(crop, self.sgray, self.floor)
         stale = stalled_at(known_stalls, t_ms) and drawn
-        if stale or not drawn:
+        unread = None
+        if self.ally_poses is not None and drawn and not stale:
+            if frame_idx is None:
+                raise ValueError("TeamVision with ally_poses steps by frame index")
+            stored, unread = self.ally_poses.at(frame_idx, ring_facing=self.ring_fallback)
+        if stale or not drawn or unread is not None:
             self.track_self.step(t_ms, [])
             self.track_ally.step(t_ms, [])
-            diagnostic = {"version": DIAGNOSTICS_VERSION, "t_ms": t_ms,
-                          "widget": "stale" if stale else "not_drawn",
+            widget = "stale" if stale else "not_drawn" if not drawn else "ally_unread"
+            diagnostic = {"version": DIAGNOSTICS_VERSION, "t_ms": t_ms, "widget": widget,
                           "observations": [], "stall_version": STALL_VERSION,
                           "stalls_known": known_stalls is not None,
                           "reason": ("source not advancing (l1/primitives motion)"
-                                     if stale else "widget unavailable")}
+                                     if stale else "widget unavailable" if not drawn
+                                     else f"ally poses unread: {unread}")}
             self.lifecycle.step(diagnostic)
             return VisionFrame(t_ms, diagnostic["widget"], diagnostic)
 
-        # `require_facing=False` keeps a refused bearing as a detection: the
-        # gap is what limits the area, and hiding it hides the limit.
-        allies = ally_icons(crop, self.floor, require_facing=False,
-                            support=self.slab, static=self.static)
-        # Every self candidate goes to the tracker, and the TRACK decides
-        # (`track.Tracker.principal`).
-        selves = self_icons(crop, self.floor, require_facing=False, support=self.slab)
-        raw_allies, raw_selves = [dict(d) for d in allies], [dict(d) for d in selves]
-
         # The ring fit FINDS each icon; the teardrop supplies its centre and
         # facing wherever it reads (`teardrop.SelfConeReader`,
-        # `teardrop.IconPoseReader`), before the tracker sees either.
-        allies = [self._posed(crop, d, self.ally_pose_reader) for d in allies]
-        selves = [self._posed(crop, d, self.self_cone_reader) for d in selves]
+        # `teardrop.IconPoseReader`), before the tracker sees either. The
+        # stored product takes the teammates `ally_icon` found and posed.
+        if self.ally_poses is not None:
+            allies = stored
+            raw_allies = [dict(d) for d in allies]
+        else:
+            with usage_step("allies"):
+                # `require_facing=False` keeps a refused bearing as a
+                # detection: the gap is what limits the area, and hiding it
+                # hides the limit.
+                allies = ally_icons(crop, self.floor, require_facing=False,
+                                    support=self.slab, static=self.static)
+                raw_allies = [dict(d) for d in allies]
+                allies = [self._posed(crop, d, self.ally_pose_reader) for d in allies]
+        with usage_step("self"):
+            # Every self candidate goes to the tracker, and the TRACK decides
+            # (`track.Tracker.principal`).
+            selves = self_icons(crop, self.floor, require_facing=False, support=self.slab)
+            raw_selves = [dict(d) for d in selves]
+            selves = [self._posed(crop, d, self.self_cone_reader) for d in selves]
 
         # The light settles the ring fit's 180-degree lobe (`cone.resolve_lobe`)
         # on a fallback bearing only; a teardrop points one way.
@@ -519,7 +635,8 @@ def at(cache, inputs, instants, warmup_ms: float | None = None, **kw):
     for frames, emit in at_plan(cache.t_ms, instants, warmup_ms, expiry):
         vision = TeamVision.from_inputs(inputs, **kw)
         for smp in cache.samples(frames, rois=["minimap"]):
-            got = vision.step(smp.frame[y0:y1, x0:x1], smp.t_ms, masks=smp.t_ms in emit)
+            got = vision.step(smp.frame[y0:y1, x0:x1], smp.t_ms, masks=smp.t_ms in emit,
+                              frame_idx=smp.frame_idx)
             if smp.t_ms in emit:
                 out.append((smp.frame_idx, got))
     return out

@@ -406,7 +406,12 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # reads at NCC 0.55 and above, not 0.6 (TEARDROP_VERSION 0.4.0, the player's
 # 331 px self facing labels, E13); a read under 0.55 casts nothing. Numbered
 # above self-spike-tracker-20260929's 0.5.0.
-TEAM_VISION_VERSION = "team-vision-0.6.0"
+# 0.7.0 (2026-10-04): the teammates are the stored `ally_icon` stream's family
+# `ally` rows, posed by `teardrop.posed` with this chain's `RING_FALLBACK`,
+# not a second ring fit and teardrop read; a drawn frame the stream did not
+# read is refused (`widget` `ally_unread`, with its reason). The coverage row
+# records `inputs.ally_icon` and no longer `icon_teardrop_version`.
+TEAM_VISION_VERSION = "team-vision-0.7.0"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.

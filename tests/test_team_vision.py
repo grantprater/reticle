@@ -6,7 +6,7 @@ import numpy as np
 from reticle import lighting
 from reticle import cone
 from reticle.minimap_diagnostics import R_MAX, SUPPORT_OUTER_PX, light_support
-from reticle.team_vision import TeamVision, at_plan, frame_row
+from reticle.team_vision import StoredAllyPoses, TeamVision, at_plan, frame_row
 
 
 def _vision():
@@ -51,6 +51,56 @@ class TeamVisionTests(unittest.TestCase):
         self.assertEqual(row["widget"], "not_drawn")
         self.assertIsNone(row["observable"])
         self.assertEqual(row["reason"], "widget unavailable")
+
+    def test_the_stored_product_reads_ally_icon_and_refuses_an_unread_frame(self):
+        floor = np.ones((60, 60), bool)
+        ring = {"r": 5, "cov": 0.9, "inner": 0.0, "inner_v": 100.0, "lobe": 0.4, "area": 80,
+                "map_diff": 40.0}
+        rows = [
+            # A teardrop read: its centre and facing cast.
+            {"frame_idx": 3, "cx": 30.5, "cy": 30.25, "facing": 90.0, "facing_source": "teardrop",
+             "ring": {"cx": 31.0, "cy": 32.0, "facing": 270.0}, "family": "ally",
+             "pose": {"origin": "teardrop", "ncc": 0.8, "reason": None, "facing_reason": None},
+             **ring},
+            # An unread teardrop: the stream keeps the ring fit's facing, which
+            # this chain drops without `ring_fallback`.
+            {"frame_idx": 3, "cx": 10.0, "cy": 10.0, "facing": 45.0, "facing_source": "ring_fit",
+             "ring": {"cx": 10.0, "cy": 10.0, "facing": 45.0}, "family": "ally",
+             "pose": {"origin": "ring_fit", "ncc": 0.3, "reason": "low_ncc",
+                      "facing_reason": None}, **ring},
+            {"frame_idx": 3, "cx": 50.0, "cy": 50.0, "facing": 0.0, "family": "barrier",
+             "facing_source": "teardrop", "pose": {"origin": "teardrop"}, **ring},
+            {"frame_idx": 3, "cx": 45.0, "cy": 20.0, "facing": 0.0, "family": "ally",
+             "facing_source": "stack_fit", "origin": "stack_fit"},
+        ]
+        stored = StoredAllyPoses([{"frame_idx": 3, "widget_drawn": True},
+                                  {"frame_idx": 4, "widget_drawn": False}], rows,
+                                 {"ally_icon_version": "ally-icon-x",
+                                  "spans_clip": {"reason": "outside_cache_rounds"}})
+        self.assertEqual(stored.skipped, {"barrier": 1, "stack_fit": 1})
+        vision = TeamVision(floor, floor, np.zeros((60, 60)), width=60, ally_poses=stored)
+        crop = np.zeros((60, 60, 3), np.uint8)
+        with patch("reticle.team_vision.widget_drawn", return_value=True), \
+                patch("reticle.team_vision.self_icons", return_value=[]), \
+                patch("reticle.team_vision.ally_icons",
+                      side_effect=AssertionError("the stored product fits no teammate")):
+            got = vision.step(crop, 0.0, frame_idx=3)
+            self.assertEqual(got.widget, "drawn")
+            by_x = {d["cx"]: d for d in got.allies}
+            self.assertEqual(sorted(by_x), [10.0, 30.5])
+            self.assertEqual(by_x[30.5]["facing"], 90.0)
+            self.assertEqual(by_x[30.5]["ring"]["cx"], 31.0)
+            self.assertIsNone(by_x[10.0]["facing"])
+            self.assertIsNone(by_x[10.0]["facing_source"])
+            for t, frame_idx, why in (
+                    (66.7, 5, "ally_icon stored no frame here (outside_cache_rounds)"),
+                    (100.0, 4, "ally_icon found the widget absent here")):
+                row = frame_row(vision.step(crop, t, frame_idx=frame_idx))
+                self.assertEqual(row["widget"], "ally_unread")
+                self.assertIsNone(row["observable"])
+                self.assertEqual(row["reason"], f"ally poses unread: {why}")
+            with self.assertRaises(ValueError):
+                vision.step(crop, 133.3)
 
     def test_an_ineligible_track_casts_no_adjudicated_cone(self):
         vision = _vision()

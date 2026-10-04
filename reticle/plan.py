@@ -206,12 +206,13 @@ def derived_streams() -> list[dict]:
          "command": "reticle vision {sid}", "how": "cache",
          "fields": {**roi, "lighting_version": LIGHTING_VERSION, "track_version": TRACK_VERSION,
                     "teardrop_version": TEARDROP_VERSION,
-                    "icon_teardrop_version": ICON_TEARDROP_VERSION,
                     "lifecycle_version": LIFECYCLE_VERSION,
                     "diagnostics_version": DIAGNOSTICS_VERSION, "stall_version": STALL_VERSION},
          # The cones stop at the geometry's occluder table: the stored
-         # `occluders` must be the npz's `occ_built_by` today.
-         "occluders": "geometry_key", "upstream": ()},
+         # `occluders` must be the npz's `occ_built_by` today. The teammates
+         # are the stored `ally_icon` stream's (team-vision-0.7.0), which
+         # records its own teardrop stamps.
+         "occluders": "geometry_key", "upstream": ("ally_icon",)},
         {"stream": "round_entity", "key": "round_entity_version", "current": ROUND_ENTITY_VERSION,
          "command": "reticle lifetimes {sid}", "how": "storage",
          "fields": {"round_lifetime_version": ROUND_LIFETIME_VERSION,
@@ -332,6 +333,9 @@ NOT_INPUTS = {
     "geometry_key": "names the geometry; its `built_by` is compared as `geometry`",
     "ally_icon_revision": "the ally_icon bytes `reticle lifetimes` keys its cache on; "
                           "the stream's stamp is compared as `ally_icon`",
+    "icon_teardrop_version": "the teammate teardrop stamp; `ally_icon` compares it as a rule "
+                             "stamp, and `team_vision` heads before team-vision-0.7.0 recorded "
+                             "it, which their own stamp now stales",
     "inputs_revision": "the byte digest `reticle lifetimes` keys its cache on; its parts "
                        "are compared one by one",
     "events_version": "the event contract's stamp, written by `store.write_events`",
@@ -478,7 +482,8 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
         "spike_carrier": {"spike": _in("spike_version", "spike#spike_version"),
                           "rounds": _in("inputs.rounds", "rounds"),
                           "roster": _in("inputs.roster", "roster")},
-        "team_vision": geo,
+        # The teammates' poses are the stored ally reader's (team-vision-0.7.0).
+        "team_vision": {"ally_icon": _in("inputs.ally_icon", "ally_icon"), **geo},
         "round_entity": {"menu_open": _in("menu_open", "menu_open#menu_version"),
                          "hud": _in("inputs.hud", "hud"), "roster": _in("inputs.roster", "roster"),
                          "ally_icon": _in("inputs.ally_icon", "ally_icon"),

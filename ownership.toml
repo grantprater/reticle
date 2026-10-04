@@ -776,17 +776,21 @@ question = "What can the team see at this instant, as the pipeline adjudicates i
 owner = "team_vision"
 role = ["constrain", "corroborate"]
 status = "partial"
-produces = ["TeamVision", "load_inputs", "frame_row", "at", "at_plan", "compare_rows"]
+produces = ["TeamVision", "StoredAllyPoses", "load_inputs", "frame_row", "at", "at_plan",
+            "compare_rows"]
 not_for = """
 Ground truth for vision, and a new rule for any stage. It composes the owners'
 calls -- lobe from the drawn light, track facing, lifecycle eligibility, the
 `observable` union -- and restates none. It under-claims: a refused bearing
 casts nothing and a ray stops at the baked boxes, which also seal some narrow
 gaps the drawn light passes (the three e78e75b2d191 slivers). Smokes do not
-yet block its rays.
+yet block its rays. It finds and poses no teammate in the stored product:
+those are the stored `ally_icon` stream's (`ally-candidates`, `icon-pose`),
+and a frame that stream did not read is refused, not refitted.
 """
 defers_to = ["viewcone", "drawn-light", "track-continuation", "minimap-origin",
-             "capture-stall", "light-support", "self-cone-origin"]
+             "capture-stall", "light-support", "self-cone-origin", "ally-candidates",
+             "icon-pose"]
 consumers = ["overlay", "cli"]
 stored_consumers = ["adjudication.ability"]
 evidence = "tests/test_team_vision.py, tests/test_ability_entities.py"
