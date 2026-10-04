@@ -555,7 +555,12 @@ TRAY_KIT_VERSION = "tray-kit-0.1.0"
 # teardrop's centre (`teardrop.SelfConeReader`, TEARDROP_VERSION) where it reads
 # on the labelled 465 px widget; each row keeps the ring fit's `cx`, `cy` and adds
 # `x`, `y`, `origin` and `origin_reason`.
-SELF_ICON_VERSION = "self-icon-0.5.0"
+# 0.6.0 (2026-10-04): where the session's stored widget placement is rotated
+# 180 degrees, the aligned portrait is turned back before its features are
+# taken (`self_icon.turned_widget`): the resampled widget had delivered it
+# upside down, and the turned half of 4f207c0c4e39 named Phoenix for Iso.
+# A frame read so carries `turned`; the coverage row, `widget_frame`.
+SELF_ICON_VERSION = "self-icon-0.6.0"
 # The kit of the local player as a state per slot (charges, equipped,
 # castable, owner alive), written as `ability_state` rows by `reticle
 # ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,
@@ -582,7 +587,10 @@ SELF_ICON_VERSION = "self-icon-0.5.0"
 # its margin (`best_ref`, `margin_ref`, `p_right_reason`,
 # `calibration_basis`); `score_labels` reads the player's corrections
 # (`tray_object_labels`) and says whether each label agrees with its drop.
-ABILITY_STATE_VERSION = "ability-state-0.6.0"
+# 0.7.0: the audio claim carries the witness's `phase` (a phase group's
+# release and landing evidence, `ability-audio-0.4.0`); its verdict may be
+# refused `bolt_unknown` or `landing_tie`.
+ABILITY_STATE_VERSION = "ability-state-0.7.0"
 # Which ability of the player's kit the audio around a tray cast sounds like:
 # a whitened matched filter over the stored audio-gate log-mel against the
 # game's own ability sounds (`adjudication.ability_audio`), read by
@@ -594,7 +602,12 @@ ABILITY_STATE_VERSION = "ability-state-0.6.0"
 # score never reaches the next cast's sound.
 # 0.3.0: each row carries `p_right`, the set's stored margin calibration
 # applied to the best referenced class's margin, beside the margin.
-ABILITY_AUDIO_VERSION = "ability-audio-0.3.0"
+# 0.4.0: phase groups (`ability_audio.cast_verdicts`): abilities sharing a
+# sound score as one kit class, and where it wins a later phase names the
+# slot -- Sova's bolts share their release, and the landing files after it
+# name the bolt; neither landing heard refuses `bolt_unknown`, a landing
+# margin under TIE_MARGIN `landing_tie`; each row carries `phase`.
+ABILITY_AUDIO_VERSION = "ability-audio-0.4.0"
 # The fitted parameter set the audio witness reads, under
 # `reference/ability-audio/<version>/` in the store: per agent the background
 # whitener (shrink 0.1), the AR(2) coefficients, the whitened templates and
@@ -619,7 +632,12 @@ ABILITY_AUDIO_VERSION = "ability-audio-0.3.0"
 # (`ability_audio_fit.END_PHASE_LEFT_OUT`); the Guiding Light map is gone.
 # 0.2.4: 0.2.3's arrays byte for byte with the margin calibration fitted on
 # its dev casts.
-ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.4"
+# 0.2.5: Sova's Hunter_AbilQ_Cast_* are the bolts' shared release, the phase
+# group Q+E (`ability_audio_fit.PHASE_GROUPS`), with the Shock and Recon
+# landing files and their levels; thresholds per kit-level class.
+# 0.2.6: 0.2.5's arrays byte for byte with the margin calibration fitted on
+# its dev casts (a bolt's margin is its landing margin).
+ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.6"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the
@@ -636,7 +654,9 @@ ULT_LINE_VERSION = "ult-line-0.2.0"
 # with a tray or ult-kill witness (`rests_on`).
 # 0.4.0: a burst counts every stored peak at or above BURST_FLOOR, not only the
 # selected ones; the coverage row states `vo_heard`.
-ULT_CAST_VERSION = "ult-cast-0.4.0"
+# 0.5.0: every cast and refusal row carries its round's barrier drop (`gametime`),
+# onset minus drop and a phase (buy, at_drop, live); selection is unchanged.
+ULT_CAST_VERSION = "ult-cast-0.5.0"
 # Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or

@@ -4849,6 +4849,20 @@ def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict], agent: str |
                                                                 **stamps}
 
 
+def _ult_barrier_drops(store, sid: str, date: str, rounds: list[dict]):
+    """({round number: barrier drop ms} as `gametime` schedules it, or None;
+    the input stamps) for `ult-cast`."""
+    from . import gametime, stalls
+    if not rounds or not store.hud_path(sid, date).is_file():
+        return None, {"hud": "no_rows"}
+    hud = store.read_hud(sid, date)
+    gt = gametime.build_session_gametime(sid, hud, rounds,
+                                         stall_list=stalls.for_session(store, sid, date))
+    stamp = (hud.schema.metadata or {}).get(b"hud_version", b"").decode() or "unstamped"
+    return ({s.round_no: s.t_live_ms for s in gt.schedules},
+            {"hud": stamp, "gametime": gametime.GAMETIME_VERSION})
+
+
 def cmd_ult_cast(args) -> int:
     """Ultimate casts, their side and their round from stored voice-line peaks,
     the lineup and the rounds table (`adjudication.ult_cast`), with own lines
@@ -4879,9 +4893,13 @@ def cmd_ult_cast(args) -> int:
         deaths = [r for r in store.read_events("death", sid) if r.get("kind") == "death_verdict"]
         tray_inputs = {**tray_inputs, "death": event_stamp(store, "death", sid,
                                                            "death_adjudication_version")}
+        # Each round's barrier drop, as `gametime` schedules it from the HUD clock.
+        drops_ms, drop_inputs = _ult_barrier_drops(store, sid, _date_of(man), rounds)
+        tray_inputs = {**drop_inputs, **tray_inputs}
         res = adjudicate(sid, peaks, lineup, rounds, round_version,
                          tray_drops=tray_drops, tray_reason=tray_reason, tray_inputs=tray_inputs,
-                         deaths=deaths or None, death_reason="no_death_verdicts")
+                         deaths=deaths or None, death_reason="no_death_verdicts",
+                         drops_ms=drops_ms)
         _record_inputs(store, sid, "ult_cast", res["rows"][0])
         out = store.write_events("ult_cast", sid, res["rows"])
         store.write_events("ult_cast_identity", sid, res["events"])
@@ -4891,7 +4909,10 @@ def cmd_ult_cast(args) -> int:
         pooled.update({"sessions_with_lineup": int(cov["lineup"]), "peaks": cov["peaks"],
                        "selected": cov["selected"], "casts": cov["casts"],
                        "refusals": cov["refusals"], "player_casts": cov["by_class"]["own"],
-                       **{f"class_{c}": n for c, n in cov["by_class"].items()}})
+                       **{f"class_{c}": n for c, n in cov["by_class"].items()},
+                       # Rows by their place against the round's barrier drop.
+                       **{f"drop_{k}": n for k, n in cov["drop"].items()
+                          if k.startswith(("cast_", "refusal_")) or k == "unplaced"}})
         pooled.update(Counter(f"named_{r['side']}" for r in res["rows"]
                               if r.get("kind") == "cast" and r["agent"]))
         if cov["lineup"]:

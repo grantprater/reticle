@@ -198,7 +198,13 @@ disc only 22.6 px across and sits BELOW the ability median
 """
 exceptions = """
 the labelled boxes are RIGHT-CENSORED at 40 px, so this bounds the families
-from below and says nothing about the top of the ability tail
+from below and says nothing about the top of the ability tail. Correction
+(2026-10-04): the "disc edge" in the source is the Sonic Sensor's icon disc.
+The sensor's translucent area is not a disc: it is a square about 26 px a side
+with the icon on the midpoint of one side
+[domain:abilities/deadlock-sonic-sensor-minimap-white-area], turned with its
+wall [domain:abilities/deadlock-sonic-sensor-square-follows-wall]. The player
+corrected a relay that called it a disc
 """
 
 [vision-trailing-persistence]

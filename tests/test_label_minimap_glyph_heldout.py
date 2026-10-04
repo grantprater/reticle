@@ -154,5 +154,35 @@ class PassTests(unittest.TestCase):
         self.assertEqual(json.loads(json.dumps(rows[0]))["coords"], "minimap roi pixels")
 
 
+
+class SonicPlanTests(unittest.TestCase):
+    def test_cadence_picks_every_third_round_from_the_second_and_drops_late_frames(self):
+        holds = {"m1": np.arange(0, 2_000_000, 500.0)}
+        rounds = {"m1": [{"round_no": n, "t_start_ms": 100_000.0 * n, "t_end_ms": 100_000.0 * n + 50_000.0}
+                         for n in range(1, 13)]}
+        rounds["m1"][4]["t_end_ms"] = 500_000.0 + 90_000.0          # round 5 runs long enough for both offsets
+        items, dropped = L.plan_sonic_items({"m1": {"side": "ally", "view": "teammate"}, "m2": {"side": "enemy",
+                                                                                               "view": "enemy"}},
+                                            rounds, holds)
+        got = sorted((o["round_no"], o["offset_s"]) for it in items for o in it["opportunity"])
+        self.assertEqual(got, [(2, 25.0), (5, 25.0), (5, 60.0), (8, 25.0), (11, 25.0)])
+        self.assertEqual(sorted(d.get("round_no", 0) for d in dropped), [0, 2, 8, 11])   # m2 has no cache
+        self.assertTrue(all(it["pass"] == "sonic" and it["view_default"] == "teammate" for it in items))
+        self.assertAlmostEqual(items[0]["t_before_ms"], items[0]["t_ms"] - 5000.0)
+
+    def test_sonic_rows_carry_their_pass_and_glyph_rows_do_not(self):
+        it = {"key": "m1:225000", "session_id": "m1", "t_ms": 225000.0, "agent": "Deadlock", "kind": "cadence",
+              "opportunity": [], "view_default": "teammate", "dev_session": False, "near_tuned_label": False,
+              "audit_excluded": False, "pass": "sonic", "deadlock_side": "ally"}
+        with tempfile.TemporaryDirectory() as d:
+            p = L.Pass([it], Path(d), "test", {"Deadlock": L.kit("Deadlock", {"Deadlock": {"abilities": [
+                {"key": s_, "name": s_} for s_ in "CQEX"]}})})
+            p.click(10, 10)
+            p.key("2")
+            self.assertEqual(p.key("space"), "advance")
+            row = json.loads((Path(d) / "m1.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual((row["pass"], row["split"], row["marks"][0]["ability"]), ("sonic", "heldout:sonic", "Deadlock:Q"))
+
+
 if __name__ == "__main__":
     unittest.main()
