@@ -18,14 +18,28 @@ from ..spike import on_glyph
 #: `on_spike_glyph`, after the shape gate and before facing and separation;
 #: the frame's shape-gated fits of both channels are the icons a carried glyph
 #: may belong to (`spike.on_glyph`).
-MINIMAP_ICON_DECISION_VERSION = "minimap-icon-decision-0.2.0"
+#: 0.3.0: the stacked-icon search's members (channel `stack`, ally-icon-0.10.0)
+#: are decided after the frame's ring fits (`_stack_decisions`); ring-fit
+#: decisions are unchanged.
+MINIMAP_ICON_DECISION_VERSION = "minimap-icon-decision-0.3.0"
+
+#: A stacked-icon member within this share of the icon's outer radius of an
+#: accepted ring fit (or the self fit) is that icon found again. Two
+#: teammates drawn closer than half a radius are one shape: the probe read
+#: the underneath portrait at that spacing on 0.03-0.5 of icons even at
+#: Riot's own centre (`minimap-render-20261003`, S3).
+SAME_ICON_FRAC = 0.5
 
 
 def ally_decisions(rows: list[dict]) -> list[dict]:
     """Account for every fitted ally hypothesis from stored measurements."""
     groups = defaultdict(list)
     shaped = defaultdict(list)
+    stack = defaultdict(list)
     for row in rows:
+        if row["channel"] == "stack":
+            stack[row["frame_idx"]].append(row)
+            continue
         groups[(row["frame_idx"], row["channel"])].append(row)
         # Either channel's fit past the shape gate may carry a spike glyph.
         if row["cov"] >= ALLY_COV_MIN and row["inner"] <= ALLY_INNER_MAX:
@@ -68,6 +82,64 @@ def ally_decisions(rows: list[dict]) -> list[dict]:
                         "preferred_candidate_key": (preferred["candidate_key"]
                                                     if preferred else None),
                         "family": family if reason is None else None})
+    if stack:
+        verdict = {d["candidate_key"]: d for d in out}
+        held = defaultdict(list)
+        for row in rows:
+            d = verdict.get(row["candidate_key"])
+            if d is not None and d["disposition"] == "accepted":
+                held[row["frame_idx"]].append((row, d["family"]))
+        for f, members in stack.items():
+            out += _stack_decisions(members, held[f], shaped[f])
+    return out
+
+
+def _stack_decisions(members: list[dict], held: list[tuple[dict, str]],
+                     shaped: list[dict]) -> list[dict]:
+    """One frame's stacked-icon members against its accepted fits `held`
+    (row, family).
+
+    In order: a member on a spike glyph is rejected (`on_spike_glyph`); one
+    whose interior is the map (`map_diff` under `ALLY_MAP_DIFF_MIN`) is
+    furniture (`interior_is_map`); one within `SAME_ICON_FRAC` of the icon's
+    outer radius of an accepted fit of either channel is that icon
+    (`same_icon_as_ring_fit`, naming it in `same_icon_candidate_key`). The
+    rest are accepted by margin while the ring fit's teammates and the
+    accepted members stay within the capacity the member rests on; the
+    others are `over_capacity`.
+    """
+    out = []
+
+    def decide(row, disposition, reason, family=None, same=None):
+        out.append({"kind": "decision", "candidate_key": row["candidate_key"],
+                    "rule_version": MINIMAP_ICON_DECISION_VERSION,
+                    "disposition": disposition, "reason": reason,
+                    "preferred_candidate_key": None, "family": family,
+                    **({"same_icon_candidate_key": same} if same else {})})
+
+    ring = sum(1 for _, fam in held if fam == "ally")
+    room = None
+    left = []
+    for row in sorted(members, key=lambda r: -r["stack"]["margin"]):
+        if room is None:
+            room = (row["capacity"] or 0) - ring
+        same = min(((hypot(row["cx"] - h["cx"], row["cy"] - h["cy"]), h["candidate_key"])
+                    for h, _ in held), default=None)
+        if on_glyph(row["cx"], row["cy"], row.get("spike_glyphs") or [],
+                    row["widget_scale"], shaped) is not None:
+            decide(row, "rejected", "on_spike_glyph")
+        elif row["map_diff"] is not None and row["map_diff"] < ALLY_MAP_DIFF_MIN:
+            decide(row, "rejected", "interior_is_map")
+        elif same is not None and same[0] < SAME_ICON_FRAC * row["stack"]["r_out"]:
+            decide(row, "rejected", "same_icon_as_ring_fit", same=same[1])
+        else:
+            left.append(row)
+    for row in left:
+        if room > 0:
+            decide(row, "accepted", "eligible", family="ally")
+            room -= 1
+        else:
+            decide(row, "rejected", "over_capacity")
     return out
 
 

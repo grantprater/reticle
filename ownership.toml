@@ -260,6 +260,23 @@ excludes another's region.
 consumers = ["round_lifetimes", "minimap_diagnostics", "team_vision"]
 
 [[entry]]
+id = "stacked-ally-icons"
+question = "Where are the teammates drawn inside a stack of overlapping minimap icons?"
+owner = "stack_fit"
+role = ["detect"]
+status = "partial"
+produces = ["Fitter", "fit_window", "fit_box", "stack_windows", "STACK_MASS", "ICON_ALPHA"]
+not_for = """
+Deciding whether the search runs or which members are new icons: the reader's
+`StackGate` asks `round_lifetimes.ally_capacity`, and
+`adjudication.minimap_candidates` decides each member against the ring fits.
+Identity: a member's portrait goes to the arbiter like any ring fit's. The
+stacking order between teammates, which nobody knows.
+"""
+consumers = ["minimap"]
+evidence = "tests/test_stack_fit.py"
+
+[[entry]]
 id = "minimap-dark"
 question = "Which minimap floor pixels does something grey and opaque cover this frame, and which can an icon hide?"
 owner = "minimap_dark"
@@ -797,7 +814,7 @@ question = "Which observations across views are one physical entity this round?"
 owner = "round_lifetimes"
 role = ["track", "lifecycle", "adjudicate"]
 status = "partial"
-produces = ["RoundLifetimes", "ally_capacity", "readable_kind", "known_kind", "death_refusal", "BIND_PX", "death_rank", "seen_after_death", "DEAD_ICON_LAG_MS", "ICON_OUTLIVES_DEATH"]
+produces = ["RoundLifetimes", "ally_capacity", "roster_window", "ROSTER_LAG_MS", "readable_kind", "known_kind", "death_refusal", "BIND_PX", "death_rank", "seen_after_death", "DEAD_ICON_LAG_MS", "ICON_OUTLIVES_DEATH"]
 not_for = """
 Agent identity. Names here are fixed at birth and deliberately English rather
 than agent names, which exposes fragmentation instead of pretending to know who

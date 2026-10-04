@@ -38,8 +38,8 @@ from collections import Counter
 
 from .usage import step
 
-from .round_lifetimes import (ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank, death_refusal,
-                              seen_after_death)
+from .round_lifetimes import (ROSTER_LAG_MS, ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank,
+                              death_refusal, roster_window, seen_after_death)
 
 # 0.8.0 (2026-09-26): `ally_dead_intervals` gives `identity.assign_ally_pieces`
 # each round's killfeed dead intervals, and the owner bars a dead teammate
@@ -77,9 +77,9 @@ ROUND_ENTITY_VERSION = "round-entity-0.14.0"
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
 SWITCH = 5.0
-#: Roster reads either side of a frame; the largest stands, because the count
-#: drops at a death while the dying teammate's icon may still show.
-ROSTER_LAG_MS = 500.0
+# The roster window round a frame is `round_lifetimes.roster_window`, beside
+# the capacity rule it feeds; `_roster_window` is its old name here.
+_roster_window = roster_window
 #: A teammate counts as dead from its killfeed death plus this lag: its icon
 #: may still draw for a moment after the entry. Starting the interval before
 #: the death instead unnamed victims' own last pieces and lost most right
@@ -539,16 +539,6 @@ def ally_dead_intervals(deaths: list[dict] | None, round_ends: dict, rt: list, r
         if end > start:
             out.setdefault(r, {}).setdefault(a, []).append((start, end, why))
     return out
-
-
-def _roster_window(times: list[float], alive: list, t_ms: float) -> list:
-    """The roster reads within `ROSTER_LAG_MS` of `t_ms`, with the read in
-    force at the window's start."""
-    import bisect
-
-    lo = max(0, bisect.bisect_right(times, t_ms - ROSTER_LAG_MS) - 1)
-    hi = bisect.bisect_right(times, t_ms + ROSTER_LAG_MS)
-    return alive[lo:hi]
 
 
 def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, references):

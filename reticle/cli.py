@@ -1402,6 +1402,13 @@ def cmd_scan(args) -> int:
             events = AllyIconReader.replay_events(
                 sid, batch["frames"], kept, ap.hz, candidate_revision,
                 frames_from=ap.frames_from, spans_clip=getattr(ap, "spans_clip", None))
+            gate = getattr(ap, "stack", None)
+            if gate is not None and gate.reason is None:
+                # The stacked-icon search's gate read the stored roster
+                # (`minimap.StackGate`); `plan` compares its stamp.
+                from .plan import input_head
+                events[0].setdefault("inputs", {})["roster"] = input_head(
+                    store, manifest, "roster", events[0])
             path = out.write_events("ally_icon", sid, events)
             cov = events[0]
             print(f"ally icons {cov['frames']} frames, {cov['icons']} icons, "

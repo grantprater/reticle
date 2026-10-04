@@ -1684,3 +1684,29 @@ the player stated the ally switch only; the enemy carrier's minimap behaviour at
 a plant is not stated
 """
 see = ["minimap/spike-planted-icon", "rounds/post-round-plant-sound"]
+
+[icons-semi-transparent]
+claim = """
+A minimap agent icon is drawn see-through: where two icons stack, the one
+beneath shows faintly through the one above, and the floor shows faintly
+through both. A render of a stack composites each icon at an opacity just
+under one, never as an opaque disc.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-03"
+subject = "minimap:agent-icon"
+source = """
+the player, 2026-10-03, relayed by the orchestrator: the icons are see-through.
+The minimap renderer probe of 2026-10-03 had fitted an icon opacity near 0.9
+before the player confirmed it.
+"""
+use = "stack_fit composites a stack's icons at ICON_ALPHA"
+exceptions = """
+the opacity value is the probe's fit, not the player's; the statement updates
+[domain:minimap/enemy-lobe-translucent], whose ally and self lobes read as
+opaque on a 465 px measurement of enemy icons. The order in which the game
+stacks icons is unknown to the player; a reader may hold it only as a
+measured per-match prior declared as rests_on
+"""
+see = ["minimap/enemy-lobe-translucent", "minimap/coincident-icons"]
