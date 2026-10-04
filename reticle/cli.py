@@ -4837,8 +4837,14 @@ def cmd_ult_cast(args) -> int:
         lineup = load_lineup(sid, store.root)
         tray_drops, tray_reason, tray_inputs = _ult_tray_drops(
             store, sid, _date_of(man), rounds, player_agent(lineup, sid))
+        # The stored death verdicts witness ultimates by their killfeed icon.
+        from .input_stamps import event_stamp
+        deaths = [r for r in store.read_events("death", sid) if r.get("kind") == "death_verdict"]
+        tray_inputs = {**tray_inputs, "death": event_stamp(store, "death", sid,
+                                                           "death_adjudication_version")}
         res = adjudicate(sid, peaks, lineup, rounds, round_version,
-                         tray_drops=tray_drops, tray_reason=tray_reason, tray_inputs=tray_inputs)
+                         tray_drops=tray_drops, tray_reason=tray_reason, tray_inputs=tray_inputs,
+                         deaths=deaths or None, death_reason="no_death_verdicts")
         _record_inputs(store, sid, "ult_cast", res["rows"][0])
         out = store.write_events("ult_cast", sid, res["rows"])
         store.write_events("ult_cast_identity", sid, res["events"])
