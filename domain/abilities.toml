@@ -4073,3 +4073,27 @@ every other agent's median, so the plain pair is not what plays.
 use = "`ult_lines.HEARD_BY` corrects the media name; `ult_event_rows` prefers the ULT_ event"
 exceptions = "Whether the plain AbilityXCast event plays at all is unknown."
 see = ["abilities/ult-lines-heard-by-both-teams"]
+
+[brimstone-gauntlet-texture-belief]
+claim = """
+The player believes the exported texture `Sarge_Gauntlet_minimap` is likely
+the map on Brimstone's gauntlet tablet, a first-person view texture, and not a
+marker the HUD minimap draws.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "brimstone:gauntlet"
+source = """
+the player, 2026-10-04 (chat). His answer in the texture questions
+(prototypes/ask_minimap_glyphs.py) had been unsure
+"""
+use = """
+keep the texture out of the HUD minimap marker references and out of the
+player's texture questions
+"""
+exceptions = """
+a belief, hedged "likely"; no game file or capture has checked it. The
+texture correlates with none of Brimstone's DisplayIcons (best 0.20,
+minimap-texture-inventory-0.1.0)
+"""

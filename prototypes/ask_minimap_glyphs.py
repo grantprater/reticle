@@ -11,14 +11,21 @@ Three kinds of question, in this order:
   inventory`) whose mapping the player's labelled crops did not prove, the
   icon-correlation proposals included: the game's file letters disagree with
   the catalogue's keys (Deadlock's E texture fits the labelled Barrier Mesh,
-  the catalogue's C), so a letter proves nothing.
-* visibility: does the ability draw an icon, a shape, both or nothing on a
-  teammate's minimap, and on an enemy's? The sheet's Minimap cell records the
-  caster's own view; it decides neither the teammate's nor the enemy's
-  unless it names that view (Astra's stars name the teammate's). Asked first
-  where the cell is `?`, a single census vote, a split vote, a question, or
-  carries no domain fact; then where an inventory texture is proposed; then
-  every other ability.
+  the catalogue's C), so a letter proves nothing. Not asked:
+  a stem a domain fact answers (`Minimap_Smokes`
+  [domain:abilities/smoke-attribution]; `Sarge_Gauntlet_minimap`
+  [domain:abilities/brimstone-gauntlet-texture-belief]), and a stem whose
+  only evidence of being a HUD marker is its name (no row correlates with a
+  labelled crop or a DisplayIcon); `--list` prints those to glance at.
+* visibility: what does the ability draw on the minimap, an icon, a shape,
+  both or nothing? A player's own casts draw as a teammate's
+  [domain:minimap/ability-drawing-colour-by-side], and every ability that
+  draws does so for both sides, smokes excepted
+  [domain:minimap/ability-drawings-both-sides],
+  [domain:abilities/enemy-smokes-not-on-minimap]; so the sheet's caster-view
+  cell answers all three views, and one question per ability is asked only
+  where that cell is `?`, a single census vote, a split vote, a question, or
+  carries no domain fact. Abilities with a proposed texture come first.
 * rotation: does the ability's icon turn with its placement, or stay
   upright? Asked for each labelled ability, showing up to eight of its crops
   the evaluation named right, each with the rotation the fit chose.
@@ -95,15 +102,69 @@ def undecided(cell: str) -> str | None:
     return None
 
 
-def texture_questions(inv: dict) -> list[dict]:
+#: Texture stems a domain fact already answers; never asked.
+TEXTURE_FACTS = {
+    "Minimap_Smokes": "abilities/smoke-attribution",       # one smoke marker; a smoke names no agent by its drawing
+    "Sarge_Gauntlet_minimap": "abilities/brimstone-gauntlet-texture-belief",   # the tablet's map, not the HUD's
+}
+#: Evidence that a texture is a HUD minimap marker beyond its name: a median best Pearson with the player's
+#: labelled crops of one ability at least LABEL_EVIDENCE, or a DisplayIcon correlation at least ICON_EVIDENCE
+#: (the inventory's own proposal thresholds, gaps ignored).
+LABEL_EVIDENCE, ICON_EVIDENCE = 0.6, 0.5
+#: Visibility facts: a player's own casts draw as a teammate's do [domain:minimap/ability-drawing-colour-by-side],
+#: every ability that draws does so for both sides, smokes excepted [domain:minimap/ability-drawings-both-sides],
+#: and an enemy's smoke is never drawn [domain:abilities/enemy-smokes-not-on-minimap]. Where the sheet decides the
+#: caster's view, the teammate's and the enemy's follow; where it does not, one question asks the drawing.
+VIEW_FACTS = ("minimap/ability-drawing-colour-by-side", "minimap/ability-drawings-both-sides",
+              "abilities/enemy-smokes-not-on-minimap")
+
+
+def check_facts() -> None:
+    """Every fact the pruning cites must exist; a renamed fact fails loudly rather than reopening questions."""
+    from reticle import domain
+    facts = domain.load()
+    missing = [k for k in list(TEXTURE_FACTS.values()) + list(VIEW_FACTS) if k not in facts]
+    if missing:
+        raise SystemExit(f"domain facts missing: {missing}")
+
+
+def name_only(rows: list[dict]) -> bool:
+    """True when no row of a stem correlates with a labelled crop or a DisplayIcon: only its name says minimap."""
+    def top(v):
+        return v[0][0] if v else -1.0
+    return all(top(r.get("label_corr")) < LABEL_EVIDENCE and top(r.get("icon_corr")) < ICON_EVIDENCE for r in rows)
+
+
+def texture_groups(inv: dict) -> dict:
     groups = defaultdict(list)
     for r in inv["rows"]:
         if r["kind"] != "candidate" or r.get("status") == "labels":
             continue
         stem = re.sub(r"_(" + "|".join(ev.STATE_WORDS) + r")$", "", r["name"], flags=re.I)
         groups[stem].append(r)
+    return groups
+
+
+def texture_pruned(inv: dict) -> tuple[list, list]:
+    """(stems a domain fact answers, with the fact), (stems whose only marker evidence is the name, with values)."""
+    by_fact, glance = [], []
+    for stem, rows in sorted(texture_groups(inv).items()):
+        if stem in TEXTURE_FACTS:
+            by_fact.append((stem, TEXTURE_FACTS[stem]))
+        elif name_only(rows):
+            glance.append((stem, rows[0]["agent"], max((r["icon_corr"][0][0] for r in rows if r.get("icon_corr")),
+                                                        default=None),
+                           max((r["label_corr"][0][0] for r in rows if r.get("label_corr")), default=None)))
+    return by_fact, glance
+
+
+def texture_questions(inv: dict) -> list[dict]:
+    by_fact, glance = texture_pruned(inv)
+    drop = {s for s, _ in by_fact} | {g[0] for g in glance}
     qs = []
-    for stem, rows in sorted(groups.items()):
+    for stem, rows in sorted(texture_groups(inv).items()):
+        if stem in drop:
+            continue
         rows.sort(key=lambda r: r["name"])
         qs.append({"kind": "texture", "key": f"texture:{stem}", "stem": stem, "agent": rows[0]["agent"],
                    "files": [r["file"] for r in rows],
@@ -113,7 +174,9 @@ def texture_questions(inv: dict) -> list[dict]:
     return qs
 
 
-def visibility_questions(inv: dict) -> list[dict]:
+def visibility_questions(inv: dict, pruned: list | None = None) -> list[dict]:
+    """One question per ability whose caster view the sheet leaves open; the view facts (VIEW_FACTS) make the
+    teammate's and the enemy's view follow the caster's, so a decided cell asks nothing (listed in `pruned`)."""
     sheet = sheet_minimap()
     proposed = defaultdict(list)
     for r in inv["rows"]:
@@ -123,19 +186,13 @@ def visibility_questions(inv: dict) -> list[dict]:
     for (agent, slot), (ability, cell) in sorted(sheet.items()):
         key = f"{agent}:{slot}"
         why = undecided(cell)
-        rank = 0 if why else 1
         if why is None:
-            why = ("a texture is proposed; the sheet records only the caster's view" if key in proposed
-                   else "the sheet decides only the caster's view")
-            rank = 1 if key in proposed else 2
-        for view in ("ally", "enemy"):
-            words = ("teammate", "ally") if view == "ally" else ("enemy",)
-            if any(w in cell.lower() for w in words):
-                continue          # a fact on the sheet already names this view
-            qs.append({"kind": "visibility", "key": f"visibility:{key}:{view}", "agent": agent, "slot": slot,
-                       "ability": ability, "view": view, "rank": rank,
-                       "shown": {"sheet_cell": cell, "why_asked": why, "textures": proposed.get(key, [])}})
-    # undecided caster views first, then abilities with a proposed texture, then the rest
+            if pruned is not None:
+                pruned.append((key, ability))
+            continue
+        qs.append({"kind": "visibility", "key": f"visibility:{key}:drawing", "agent": agent, "slot": slot,
+                   "ability": ability, "view": "drawing", "rank": 0 if key in proposed else 1,
+                   "shown": {"sheet_cell": cell, "why_asked": why, "textures": proposed.get(key, [])}})
     return sorted(qs, key=lambda q: q["rank"])
 
 
@@ -237,7 +294,8 @@ def prompt(q: dict) -> str:
                 f"Evaluation's proposal, for comparison only: {sh['proposed']} {sh['status']}; "
                 f"icon correlation {sh['icon_corr']}; label correlation {sh['label_corr']}")
     if q["kind"] == "visibility":
-        who = "a TEAMMATE's minimap (not the caster's own)" if q["view"] == "ally" else "an ENEMY's minimap"
+        who = ("the minimap (the caster's, a teammate's and, inside vision, an enemy's draw alike; an enemy's "
+               "smoke draws nothing)")
         opts = "; ".join(f"{k} = {v}" for k, v in VIEW_OPTS.items())
         return (f"{q['agent']} {q['slot']} {q['ability']}: what does it draw on {who} while it is out?\n"
                 f"{opts}; U = unsure.\nAsked because: {sh['why_asked']}. The sheet's caster-view cell: "
@@ -263,13 +321,33 @@ def answer_text(q: dict, ch: str) -> str | None:
 # ------------------------------------------------------------------ storage
 
 def answered() -> dict:
+    """The last answer per key. Before the view facts pruned the visibility questions, the player answered a
+    teammate's view and an enemy's separately; a sure teammate's answer stands for the ability's drawing
+    question, marked `carried_from`, since the facts make the teammate's view the drawing."""
     last = {}
     if ANSWERS.exists():
         for line in ANSWERS.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 r = json.loads(line)
                 last[r["key"]] = r
+    for k, r in list(last.items()):
+        if k.startswith("visibility:") and k.endswith(":ally") and not r.get("unsure"):
+            last.setdefault(k[:-len(":ally")] + ":drawing", dict(r, carried_from=k))
     return last
+
+
+def view_disagreements(done: dict) -> list[tuple]:
+    """Abilities where the player's sure teammate's and enemy's answers differ; the view facts say they draw
+    alike (an enemy's smoke excepted), so each is a disagreement to store, not a question to drop silently."""
+    out = []
+    for k, r in done.items():
+        if not (k.startswith("visibility:") and k.endswith(":ally")) or r.get("unsure"):
+            continue
+        e = done.get(k[:-len(":ally")] + ":enemy")
+        if e and not e.get("unsure") and (e.get("answer"), e.get("other")) != (r.get("answer"), r.get("other")):
+            out.append((k[len("visibility:"):-len(":ally")], r.get("answer"), r.get("other"), e.get("answer"),
+                        e.get("other")))
+    return sorted(out)
 
 
 def append(row: dict) -> None:
@@ -363,19 +441,38 @@ def main() -> None:
     out = Path(args.out)
     inv = json.load(open(out / "inventory.json", encoding="utf-8"))
     d, z = ev.load_scores(out)
+    check_facts()
     kinds = args.kinds.split(",")
-    qs = []
+    qs, vis_pruned = [], []
     if "texture" in kinds:
         qs += texture_questions(inv)
     if "visibility" in kinds:
-        qs += visibility_questions(inv)
+        qs += visibility_questions(inv, vis_pruned)
     if "rotation" in kinds:
         qs += rotation_questions(d)
     if args.list:
         done = answered()
         for q in qs:
             print(("done " if q["key"] in done else "open ") + q["key"])
-        print({k: sum(q["kind"] == k for q in qs) for k in ("texture", "visibility", "rotation")})
+        by_fact, glance = texture_pruned(inv)
+        print("\nTextures a domain fact answers (not asked):")
+        for stem, fact in by_fact:
+            print(f"  {stem:44s} [domain:{fact}]")
+        print("\nTo glance at, not ask: textures whose only evidence of being a HUD minimap marker is their name "
+              f"(best labelled-crop correlation < {LABEL_EVIDENCE}, best DisplayIcon correlation < {ICON_EVIDENCE}):")
+        for stem, agent, ic, lc in glance:
+            print(f"  {stem:44s} {str(agent):9s} icon {ic}  labels {lc}")
+        print(f"\nVisibility: {len(vis_pruned)} abilities whose caster view the sheet decides ask nothing "
+              f"({', '.join('[domain:' + f + ']' for f in VIEW_FACTS)})")
+        dis = view_disagreements(done)
+        print(f"\nThe player's earlier teammate's and enemy's answers differ on {len(dis)} abilities "
+              "(the view facts say they draw alike; smokes excepted):")
+        for row in dis:
+            print("  " + " | ".join(str(x) for x in row))
+        print("open:", {k: sum(q["kind"] == k and q["key"] not in done for q in qs)
+                        for k in ("texture", "visibility", "rotation")})
+        print({k: sum(q["kind"] == k for q in qs) for k in ("texture", "visibility", "rotation")},
+              {"texture_by_fact": len(by_fact), "texture_glance": len(glance), "visibility_decided": len(vis_pruned)})
         return
     ask_loop(qs, z, args.by)
 
