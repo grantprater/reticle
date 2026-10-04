@@ -96,7 +96,7 @@ class PlanTests(unittest.TestCase):
             plan = stale(_current_store(Path(d)), ["s"])
             self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": [], "waived": [],
                                          "unchecked": [], "held": [], "unrecorded": [],
-                                         "widget": None})
+                                         "widget": None, "placement": {}})
             self.assertEqual(render(plan), "nothing stale over 1 sessions")
 
     def test_a_per_side_session_without_a_placement_is_named(self):
@@ -757,6 +757,112 @@ class RecordedInputsDeclaredTests(unittest.TestCase):
             # A refused witness read no audio: not compared.
             state["inputs"] = {"audio_features": None, "audio_labels": None}
             self.assertEqual(inputs_moved(store, man, "ability_state", state)[0], [])
+
+
+class PlacementMovedTests(unittest.TestCase):
+    """4f207c0c4e39's refit moved its side switch from 1192766.67 ms to
+    1148000 ms; 37 ally_icon frame rows read through the old placement went
+    unnamed, since no stamp moved. A change of the stored placement is an
+    input change of every stream that read the widget's pixels."""
+
+    OLD = ("widget-frame-0.1.0", "2026-09-29T02:50:49+00:00", 1192766.6666666667)
+    NEW = ("widget-frame-0.3.0", "2026-10-04T22:09:54+00:00", 1148000.0)
+
+    def _store(self, d):
+        from tests.test_widget_frame import _placement
+        store = _current_store(Path(d))
+        old = _placement(self.OLD[2], self.OLD[0], self.OLD[1])
+        new = _placement(self.NEW[2], self.NEW[0], self.NEW[1])
+        base = store.read_manifest
+        extra = {"minimap_widget": new, "minimap_widget_history": [old],
+                 "source_profile": "valorant-16x9"}
+        store.read_manifest = lambda sid: {**base(sid), **extra}
+        return store, old, new
+
+    def _ally(self, store, placement):
+        from reticle.version import ALLY_ICON_VERSION
+        head = {"v": ALLY_ICON_VERSION, "ally_icon_version": ALLY_ICON_VERSION}
+        if placement is not None:
+            head["widget_placement"] = placement
+        store.events["ally_icon"] = [head]
+        store.events["ally_icon:rows"] = [head]
+
+    def test_a_head_read_through_the_old_placement_is_named(self):
+        from reticle import widget_frame as wf
+        with tempfile.TemporaryDirectory() as d:
+            store, old, _new = self._store(d)
+            self._ally(store, wf.placement_identity({"minimap_widget": old}))
+            p = stale(store, ["s"])["s"]
+            ally = [x for x in p["decode"] if x["stream"] == "ally_icon"]
+            self.assertEqual(len(ally), 1)
+            self.assertIn("widget_placement", ally[0]["inputs_moved"])
+            self.assertIn("ally_icon", p["placement"])
+            self.assertIn("reticle scan <sid> --only ally_icon", render({"s": p}))
+
+    def test_a_head_read_through_the_stored_placement_is_current(self):
+        from reticle import widget_frame as wf
+        with tempfile.TemporaryDirectory() as d:
+            store, _old, new = self._store(d)
+            self._ally(store, wf.placement_identity({"minimap_widget": new}))
+            p = stale(store, ["s"])["s"]
+            self.assertNotIn("ally_icon", {x["stream"] for x in p["decode"]})
+            # A refit that moves only the stamp moves no pixel.
+            self._ally(store, "widget-frame-0.2.0#" + wf.placement_digest(new))
+            self.assertNotIn("ally_icon", stale(store, ["s"])["s"]["placement"])
+
+    def test_an_unrecorded_table_written_before_the_change_is_named(self):
+        import datetime as dt
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            store, _old, _new = self._store(d)
+            path = store.minimap_path("s", None)
+            before = dt.datetime(2026, 10, 4, 21, 0, tzinfo=dt.timezone.utc).timestamp()
+            os.utime(path, (before, before))
+            p = stale(store, ["s"])["s"]
+            self.assertIn("2026-10-04T22:09:54", p["placement"]["minimap"])
+            mm = [x for x in p["decode"] if x["stream"] == "minimap"]
+            self.assertEqual(mm[0]["inputs_moved"], ["widget_placement"])
+            after = dt.datetime(2026, 10, 4, 23, 0, tzinfo=dt.timezone.utc).timestamp()
+            os.utime(path, (after, after))
+            self.assertNotIn("minimap", stale(store, ["s"])["s"]["placement"])
+
+    def test_a_recorded_table_is_compared_by_its_record(self):
+        from reticle import widget_frame as wf
+        from reticle.plan import placement_moved, reader_streams as rs
+        with tempfile.TemporaryDirectory() as d:
+            store, old, new = self._store(d)
+            man = store.read_manifest("s")
+            now = dict((s, v) for s, _, v, _ in rs())["minimap"]
+            store.table("minimap", minimap_version=now,
+                        widget_placement=wf.placement_identity({"minimap_widget": new}))
+            self.assertIsNone(placement_moved(store, man, "minimap"))
+            store.table("minimap", minimap_version=now,
+                        widget_placement=wf.placement_identity({"minimap_widget": old}))
+            self.assertIsNotNone(placement_moved(store, man, "minimap"))
+
+    def test_a_derived_widget_stream_is_named_and_recorded(self):
+        from reticle import widget_frame as wf
+        from reticle.plan import placement_moved, record_inputs
+        from reticle.version import TEAM_VISION_VERSION
+        with tempfile.TemporaryDirectory() as d:
+            store, old, _new = self._store(d)
+            man = store.read_manifest("s")
+            head = record_inputs(store, man, "team_vision",
+                                 {"team_vision_version": TEAM_VISION_VERSION})
+            self.assertEqual(head["widget_placement"], wf.placement_identity(man))
+            head["widget_placement"] = wf.placement_identity({"minimap_widget": old})
+            store.events["team_vision:rows"] = [head]
+            self.assertIsNotNone(placement_moved(store, man, "team_vision"))
+            vision = [x for x in stale(store, ["s"])["s"]["derived"]
+                      if x["stream"] == "team_vision"]
+            self.assertIn("widget_placement", vision[0]["inputs_moved"])
+
+    def test_a_session_with_no_placement_is_never_named(self):
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            os.utime(store.minimap_path("s", None), (0, 0))
+            self.assertEqual(stale(store, ["s"])["s"]["placement"], {})
 
 
 if __name__ == "__main__":

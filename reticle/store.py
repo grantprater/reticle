@@ -633,12 +633,15 @@ class Store:
         return pq.read_table(path)
 
     def write_minimap(self, rows: list[dict], fingerprint, profile_name: str, date: str,
-                      frames_from: str | None = None, spans_clip: dict | None = None) -> Path:
+                      frames_from: str | None = None, spans_clip: dict | None = None,
+                      widget_placement: str | None = None) -> Path:
         """The raw per-frame minimap table. A pass fed from the crop cache
         names it in the schema metadata's `frames_from`, and one clipped to a
         round cache's rounds adds `spans_clip` (JSON, `roi_cache.clip_record`):
         its `spans_skipped` were never read, so no row there is not an absent
-        widget. A decode's table carries neither key."""
+        widget. A decode's table carries neither key. `widget_placement` is
+        the placement the widget was read through
+        (`widget_frame.placement_identity`), which `plan` compares."""
         if not rows:
             raise SystemExit("no frames were read -- nothing to write")
         n = len(rows)
@@ -684,6 +687,8 @@ class Store:
             meta["frames_from"] = frames_from
         if spans_clip is not None:
             meta["spans_clip"] = json.dumps(spans_clip, sort_keys=True)
+        if widget_placement is not None:
+            meta["widget_placement"] = widget_placement
         table = pa.table(arrays).replace_schema_metadata(meta)
         path = self.minimap_path(fingerprint.session_id, date)
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -32,7 +32,10 @@ stamp, the stamps of its inputs it records, the streams it is built from, the
 command that refreshes it and how that command reads (`storage`, `cache` for
 the ROI crop cache, `decode` for the capture). `team_vision` casts its cones over the baked geometry's
 occluder table, so it is stale too when the `occluders` it stored is not the
-npz's `occ_built_by` today, as after an occluder rebuild. An identity stream is stale
+npz's `occ_built_by` today, as after an occluder rebuild. Every stream that
+read the minimap widget's pixels (`widget_streams`) is stale too when the
+session's stored placement moved since it read them (`placement_moved`): a
+refit moves no stamp. An identity stream is stale
 with the arbiter or with the stream it is written beside. The entity lanes
 (`entity_events`) are checked by `entity_events.lane_status`. A stream on
 disk that none of these declares is reported `undeclared`, and one written
@@ -783,8 +786,9 @@ def inputs_moved(store, manifest: dict, stream: str, head: dict, memo: dict | No
 def record_inputs(store, manifest: dict, stream: str, head: dict) -> dict:
     """Record in `head`, a stream's first row about to be written, the stored
     stamp of every declared input of `stream` the writer did not record
-    itself. An optional input is recorded only by the writer, where it read
-    it. Returns `head`."""
+    itself, and the widget placement a widget-reading stream read through
+    (`record_placement`). An optional input is recorded only by the writer,
+    where it read it. Returns `head`."""
     for d in stream_inputs().get(stream, {}).values():
         if d["optional"] or _dig_missing(head, d["path"]) is not _MISSING:
             continue
@@ -793,7 +797,7 @@ def record_inputs(store, manifest: dict, stream: str, head: dict) -> dict:
         for part in parents:
             at = at.setdefault(part, {})
         at[leaf] = input_head(store, manifest, d["probe"], head)
-    return head
+    return record_placement(manifest, stream, head)
 
 
 def recorded_stale(store, manifest: dict, spec: dict, head: dict, memo: dict | None = None,
@@ -993,6 +997,8 @@ def compared_paths() -> dict[str, set[str]]:
             out[spec["stream"]] |= {"occluders", spec["occluders"]}
     for stream, declared in stream_inputs().items():
         out[stream] |= {d["path"] for d in declared.values()}
+    for stream in widget_streams():
+        out[stream].add(WIDGET_INPUT)
     return dict(out)
 
 
@@ -1087,10 +1093,18 @@ def stale(store, sessions: list[str]) -> dict:
         # that cannot hold it (`widget_work`): every stored stream that read
         # the widget's pixels rereads after the placement and the crop are fixed.
         widget = widget_work(store, man)
-        if widget is not None:
+        # A stream read through another placement than the stored one moved
+        # with it, though no stamp moved (`placement_moved`).
+        placed = {s: why for s in widget_streams()
+                  if (why := placement_moved(store, man, s)) is not None}
+        if widget is not None or placed:
             by = {s["stream"]: s for s in decode}
             for stream, channel, now, trial in reader_streams():
                 if stream not in WIDGET_PIXEL_READERS or stream in absent:
+                    continue
+                if widget is None and stream not in placed:
+                    continue
+                if WIDGET_INPUT in by.get(stream, {}).get("inputs_moved", ()):
                     continue
                 if stream in by:
                     by[stream].setdefault("inputs_moved", []).append(WIDGET_INPUT)
@@ -1217,6 +1231,8 @@ def stale(store, sessions: list[str]) -> dict:
                 moving.add(stream)
         if widget is not None:
             _widget_derived(store, sid, derived, moving)
+        elif placed:
+            _widget_derived(store, sid, derived, moving, set(placed))
         # A stream checked above before one of its inputs was found stale
         # follows it now: staleness follows every declared input, in any order.
         _follow(store, sid, derived, moving)
@@ -1231,7 +1247,7 @@ def stale(store, sessions: list[str]) -> dict:
                      for s in stored_streams(store, sid) if s not in declared]
         out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived,
                     "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded,
-                    "widget": widget}
+                    "widget": widget, "placement": placed}
     return out
 
 
@@ -1240,7 +1256,86 @@ WIDGET_INPUT = "widget_placement"
 #: The reader streams that read the minimap widget's pixels (`scan`'s
 #: `_normalise_decoded` set), and the cache-reading streams that do.
 WIDGET_PIXEL_READERS = ("minimap", "ping", "ally_icon", "minimap_dark")
-WIDGET_PIXEL_DERIVED = ("team_vision", "spike", "minimap_object", "self_icon")
+#: `ability_shape` fits its shapes on the cached minimap crops too. The tray
+#: and menu streams read the tray ROI of the same cache, never the widget;
+#: `ability_light` decodes the profile's ROI and never reads the placement.
+WIDGET_PIXEL_DERIVED = ("team_vision", "spike", "minimap_object", "self_icon", "ability_shape")
+
+
+def widget_streams() -> tuple[str, ...]:
+    """Every stream that reads the minimap widget's pixels through the
+    session's stored placement: the readers, the cache-reading streams and
+    the ability pass's streams."""
+    return (WIDGET_PIXEL_READERS + WIDGET_PIXEL_DERIVED
+            + tuple(s for s, _, _ in ability_streams()))
+
+
+def record_placement(manifest: dict, stream: str, head: dict) -> dict:
+    """Record in `head`, a widget-reading stream's first row about to be
+    written, the placement it read the widget through
+    (`widget_frame.placement_identity`) under `WIDGET_INPUT`. Returns `head`."""
+    if stream in widget_streams():
+        from .widget_frame import placement_identity
+        head[WIDGET_INPUT] = placement_identity(manifest)
+    return head
+
+
+def _placement_stored(store, manifest: dict, stream: str):
+    """(the placement identity a stored widget stream recorded, or `_MISSING`;
+    the stream's file, or None where the store keeps no files or the stream
+    holds no rows)."""
+    sid, date = manifest["session_id"], manifest["ingested_at"][:10]
+    if stream == "minimap":
+        path_of = getattr(store, "minimap_path", None)
+        path = path_of(sid, date) if path_of is not None else None
+        if path is None or not path.is_file():
+            return _MISSING, None
+        meta = pq.read_schema(path).metadata or {}
+        got = meta.get(WIDGET_INPUT.encode())
+        return (_MISSING if got is None else got.decode()), path
+    head = _head(store, stream, sid)
+    path_of = getattr(store, "events_path", None)
+    # A file with no rows holds no reading, as `stale` calls it absent.
+    path = path_of(stream, sid) if path_of is not None and head is not None else None
+    return (_MISSING if head is None or WIDGET_INPUT not in head else head[WIDGET_INPUT]), path
+
+
+def placement_moved(store, manifest: dict, stream: str) -> str | None:
+    """Why a stored widget-reading stream read the widget through another
+    placement than the one stored now, or None.
+
+    A stream that recorded its placement (`record_placement`) moved when the
+    recorded `placement_digest` differs from the stored one's; the stamp
+    alone moves no pixel. One written before it was recorded is compared
+    by time: it moved when its file was written before the stored placement
+    last changed what a reader reads (`widget_frame.placement_changed_at`,
+    over `minimap_widget_history`). 4f207c0c4e39's refit moved the turn from
+    1192766.67 ms to 1148000 ms, and 37 ally_icon frame rows read through the
+    old one went unnamed, since no stamp moved. A file rewritten by hand
+    after the change reads as current: the time is the file's, not the read's."""
+    import datetime as dt
+    from .input_stamps import normalize
+    from .widget_frame import NO_PLACEMENT, placement_changed_at, placement_identity
+    rec, path = _placement_stored(store, manifest, stream)
+    if rec is not _MISSING:
+        now = placement_identity(manifest)
+        digest = lambda v: (normalize(v) or NO_PLACEMENT).rsplit("#", 1)[-1]
+        if digest(rec) != digest(now):
+            return f"read through {rec}, stored {now}"
+        return None
+    changed = placement_changed_at(manifest)
+    if changed is None or path is None or not path.is_file():
+        return None
+    written = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc)
+    try:
+        at = dt.datetime.fromisoformat(changed)
+    except ValueError:
+        return f"written before the placement changed at an unparsed time {changed}"
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=dt.timezone.utc)
+    if written < at:
+        return f"written before the placement changed at {changed}"
+    return None
 
 
 def widget_work(store, manifest: dict) -> dict | None:
@@ -1284,15 +1379,18 @@ def widget_work(store, manifest: dict) -> dict | None:
     return None
 
 
-def _widget_derived(store, sid: str, derived: list[dict], moving: set[str]) -> None:
+def _widget_derived(store, sid: str, derived: list[dict], moving: set[str],
+                    only: set[str] | None = None) -> None:
     """Name every stored cache-reading stream that read the widget's pixels
-    (`WIDGET_PIXEL_DERIVED` and the ability pass's streams) as moved by the
-    placement; `_follow` then carries it downstream."""
+    (`WIDGET_PIXEL_DERIVED` and the ability pass's streams), or those of
+    them in `only`, as moved by the placement; `_follow` then carries it
+    downstream."""
     hand = {s: (k, c, cmd, _CACHE_READERS.get(s, "storage"))
             for s, (k, c, cmd) in _hand_specs().items()}
     specs = {**hand, **{s["stream"]: (s["key"], s["current"], s["command"], s["how"])
                         for s in derived_streams()}}
-    names = list(WIDGET_PIXEL_DERIVED) + [s for s, _, _ in ability_streams()]
+    names = [s for s in widget_streams()
+             if s not in WIDGET_PIXEL_READERS and (only is None or s in only)]
     by = {d["stream"]: d for d in derived}
     for stream in names:
         if stream not in specs:
@@ -1379,6 +1477,13 @@ def render(plan: dict) -> str:
         if "reread" in w:
             lines.append(f"reread   minimap streams of {sid}   ({w['reread']['reason']}: "
                          f"{w['reread']['detail']})")
+        # Streams read through another placement than the stored one.
+        why_of: dict[str, list[str]] = defaultdict(list)
+        for stream, why in sorted((p.get("placement") or {}).items()):
+            why_of[why].append(stream)
+        for why, streams in why_of.items():
+            lines.append(f"reread   {', '.join(streams)} of {sid}   (placement_moved: {why}; "
+                         f"each is listed below with input {WIDGET_INPUT})")
     if not by_channel and not derived:
         return "\n".join(lines + [f"nothing stale over {len(plan)} sessions"] + waived_lines)
     for ch, sids in sorted(by_channel.items()):

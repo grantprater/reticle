@@ -293,6 +293,62 @@ def is_variant(manifest: dict) -> bool:
     return any(not is_identity(s["affine"], e["baked_roi"]) for s in e["segments"])
 
 
+#: The identity of reading the baked placement: no stored placement, or one
+#: whose every segment is identity (`for_session` returns None for both).
+NO_PLACEMENT = "none"
+
+
+def placement_digest(e: dict | None) -> str:
+    """A content hash of the segments a reader resamples by: each segment's
+    span, rotation and affine. The fit's diagnostics (`n`, `ncc_min`, the
+    bracketing frames, `switch_round`) and its stamp move no pixel, so they
+    are left out. `NO_PLACEMENT` where readers read the baked frame."""
+    import hashlib
+    import json
+    if e is None or not e.get("segments") or all(
+            is_identity(s["affine"], e["baked_roi"]) for s in e["segments"]):
+        return NO_PLACEMENT
+    r = lambda v: None if v is None else round(float(v), 3)
+    segs = [[r(s.get("t0_ms")), r(s.get("t1_ms")), int(s.get("rotation") or 0) % 360,
+             [[round(float(v), 4) for v in row] for row in s["affine"]]]
+            for s in e["segments"]]
+    blob = json.dumps({"baked_roi": [int(v) for v in e["baked_roi"]], "segments": segs},
+                      sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+def placement_identity(manifest: dict) -> str:
+    """The stored placement a reader reads the widget through, as a stream
+    records it: `<stamp>#<placement_digest>`, or `NO_PLACEMENT`."""
+    e = entry(manifest)
+    d = placement_digest(e)
+    return d if d == NO_PLACEMENT else f"{e.get('version')}#{d}"
+
+
+def placement_changed_at(manifest: dict) -> str | None:
+    """When the stored placement last changed what a reader reads: the
+    `fitted_at` of the oldest entry, in `minimap_widget_history` and the
+    current one, of the unbroken run of entries ending at the current one
+    whose `placement_digest` matches it. None where the session has never
+    stored a placement that reads differently from the baked one, and
+    `unknown` where the entry that changed it records no time. A refit
+    that moves only the stamp or the diagnostics changes nothing here."""
+    cur = entry(manifest)
+    if cur is None:
+        return None
+    hist = [h for h in (manifest.get(MANIFEST_KEY + "_history") or [])
+            if isinstance(h, dict) and h.get("segments")]
+    chain = hist + [cur]
+    want = placement_digest(cur)
+    i = len(chain) - 1
+    while i > 0 and placement_digest(chain[i - 1]) == want:
+        i -= 1
+    if i == 0 and want == NO_PLACEMENT:
+        return None
+    # An entry with no `fitted_at` changed the placement at an unknown time.
+    return chain[i].get("fitted_at") or "unknown"
+
+
 def cohort(manifest: dict) -> str:
     """The analytics cohort a session belongs to: `minimap-variant` for a
     session read through a transform (or tagged so), else `standard`. Reports
