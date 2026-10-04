@@ -1,7 +1,7 @@
 """Fixes for the Riot scorer's residual failures (2026-10-04).
 
-* A name read whole and cut at its word gap is one name
-  (`killfeed_names.join_fragments`).
+* A name read whole and cut at its word gap is one name; a crop read once
+  never bridges two names (`killfeed_names.join_fragments`).
 * A revive drawn below a split track's later piece separates nothing
   (`death.same_entry`).
 * An entry whose victim side went unread takes only a roster drop no sided
@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from reticle.adjudication.death import _match_shrinks, same_entry
+from reticle.adjudication.death import _match_shrinks, entry_victim_side, same_entry
 from reticle.adjudication.killfeed_names import (NCC_MIN, fragment_ncc, join_fragments,
                                                  name_clusters)
 
@@ -30,6 +30,16 @@ def _word(seed: int, w: int) -> np.ndarray:
     g = np.full((24, w), 90, np.uint8)
     for x in range(1, w - 3, 5):
         g[8:8 + int(rng.integers(4, 10)), x:x + 2] = 240
+    return g
+
+
+def _scatter(seed: int, w: int) -> np.ndarray:
+    """A 24-row band with white strokes at random columns and rows."""
+    rng = np.random.default_rng(seed)
+    g = np.full((24, w), 90, np.uint8)
+    for x in rng.choice(np.arange(1, w - 2), size=w // 4, replace=False):
+        y = int(rng.integers(4, 14))
+        g[y:y + int(rng.integers(3, 8)), x:x + 2] = 240
     return g
 
 
@@ -60,9 +70,42 @@ class FragmentJoinTests(unittest.TestCase):
         first, last = _word(1, 40), _word(3, 30)
         whole = _name(first, last)
         crops = _crops(k1=whole, v1=first, k2=whole.copy(), v2=first.copy(), k3=last,
-                       o1=_word(5, 40), o2=_word(5, 40))
+                       k4=last.copy(), o1=_word(5, 40), o2=_word(5, 40))
         out = name_clusters(crops)
-        self.assertEqual(out["sides"]["ally"], [["k1", "v1", "k2", "v2", "k3"], ["o1", "o2"]])
+        self.assertEqual(out["sides"]["ally"],
+                         [["k1", "v1", "k2", "v2", "k3", "k4"], ["o1", "o2"]])
+
+    def test_a_crop_read_once_joins_the_one_name_it_links_to(self):
+        first, last = _word(1, 40), _word(3, 30)
+        whole = _name(first, last)
+        crops = _crops(v1=first, v2=first.copy(), k1=whole)
+        self.assertEqual(name_clusters(crops)["sides"]["ally"], [["v1", "v2", "k1"]])
+        crops = _crops(v1=first, k1=whole, k2=whole.copy())
+        self.assertEqual(name_clusters(crops)["sides"]["ally"], [["v1", "k1", "k2"]])
+
+    def test_a_word_two_names_share_bridges_neither(self):
+        tag = _scatter(1, 30)
+        one, two = _name(tag, _scatter(3, 60)), _name(tag, _scatter(5, 62))
+        crops = _crops(a1=one, a2=one.copy(), b1=two, b2=two.copy(), t1=tag)
+        self.assertEqual(name_clusters(crops)["sides"]["ally"], [["a1", "a2"], ["b1", "b2"], ["t1"]])
+
+    def test_a_crop_read_once_joins_two_groups_that_read_one_name(self):
+        # bfad2778a372: greedy clustering split one 113 px name into 28 and 8
+        # crops; a 102 px crop is a word of both. The test hands the split
+        # clusters to the join directly.
+        first, last = _scatter(1, 60), _scatter(3, 30)
+        whole = _name(first, last)
+        crops = _crops(a1=whole, a2=whole.copy(), b1=whole[:, :-1].copy(), b2=whole[:, :-1].copy(),
+                       w=first)
+        greedy = [["a1", "a2"], ["b1", "b2"], ["w"]]
+        self.assertEqual(join_fragments(greedy, crops), [["a1", "a2", "b1", "b2", "w"]])
+
+    def test_a_singleton_junk_crop_cannot_bridge_two_names(self):
+        # One junk crop holds one name at its left edge and another at its
+        # right; each name recurs, the junk crop does not.
+        a, b = _word(1, 40), _word(7, 40)
+        crops = _crops(a1=a, a2=a.copy(), b1=b, b2=b.copy(), junk=_name(a, _word(9, 20), b))
+        self.assertEqual(name_clusters(crops)["sides"]["ally"], [["a1", "a2"], ["b1", "b2"], ["junk"]])
 
     def test_unrelated_clusters_stay_apart(self):
         crops = _crops(a=_word(1, 40), b=_word(2, 60), c=_word(4, 30))
@@ -98,6 +141,14 @@ class ReviveBelowTests(unittest.TestCase):
 
 
 class UnreadSideShrinkTests(unittest.TestCase):
+    def test_the_victim_side_reads_side_then_flag_then_victim_side(self):
+        self.assertEqual(entry_victim_side({"side": "ally", "victim_ally": False}), "ally")
+        self.assertEqual(entry_victim_side({"victim_ally": True}), "ally")
+        self.assertEqual(entry_victim_side({"victim_ally": False, "victim_side": "ally"}), "enemy")
+        self.assertEqual(entry_victim_side({"victim_side": "ally"}), "ally")
+        self.assertEqual(entry_victim_side({}), "enemy")
+        self.assertIsNone(entry_victim_side({"victim_side": None}))
+
     def test_an_unread_side_takes_no_drop_a_sided_entry_took(self):
         drop = {"t_ms": 1500.0}
         got = _match_shrinks([{"t_ms": 1000.0, "side": "enemy"}, {"t_ms": 1500.0, "side": "unknown"}],

@@ -36,10 +36,12 @@ same player's victim crops read "FazeTSMGhost" (100 px), and "Rylo Rodriguez"
 (101 px) read "Rodriguez" (67 px) as a killer. Widths that far apart never
 match, so one name made two large clusters, and the one-to-one assignment gave
 the 11-role Miks fragment Fade against 204.5 nats of its own portrait
-evidence. After the greedy pass, two clusters on one side join when a member
+evidence. After the greedy pass, two clusters on one side link when a member
 crop of the narrower matches the left- or right-aligned window of a member of
-the wider (`fragment_ncc >= NCC_MIN`): the narrower is one word of the wider's
-name (`join_fragments`).
+the wider at `NCC_MIN`: the narrower is one word of the wider's name. Clusters
+read on two entries or more join along their links; a crop read once joins
+the one group it links to, and two groups only when they read one name whole,
+so one junk crop never bridges two names (`join_fragments`).
 
 Owns [owns:killfeed-name-continuity].
 """
@@ -56,7 +58,10 @@ from ..killfeed import unpack_name_gray
 # followed views (`followed_views(every=True)`).
 # 0.3.0 (2026-10-04): clusters whose crops are one name read whole and cut at
 # its word gap join (`join_fragments`).
-KILLFEED_NAME_CLUSTER_VERSION = "killfeed-name-cluster-0.3.0"
+# 0.4.0 (2026-10-04): a singleton cluster joins only the one group it links
+# to, or groups that read one name whole (`join_fragments`); scores come from
+# one masked `_best_ncc` per crop and joins from `connected_components`.
+KILLFEED_NAME_CLUSTER_VERSION = "killfeed-name-cluster-0.4.0"
 
 #: Set from the two views of one entry, which are one name (labels-free).
 NCC_MIN = 0.9
@@ -65,11 +70,28 @@ NCC_MIN = 0.9
 TOPHAT = 7
 #: Widths of one name's crop differ by up to this much between frames.
 WIDTH_TOL = 3
-#: A word cut from a name is at least this wide (px): shorter text is too
-#: little to tell two names apart.
+#: A word cut from a name is at least this wide (px). Swept over the 20
+#: matches other than bfad2778a372 and graded against Riot, no floor from 8
+#: to 40 px makes a join that mixes two Riot agents
+#: [metric:killfeed_name_fragments/floor_members_sweep#impure_px8=0]; 24 px
+#: keeps [metric:killfeed_name_fragments/floor_members_sweep#joins_px24=52]
+#: of the [metric:killfeed_name_fragments/floor_members_sweep#joins_px8=55]
+#: joins an 8 px floor makes, and its narrowest joined crop is
+#: [metric:killfeed_name_fragments/floor_members_sweep#narrowest_px_px24=29]
+#: px. The joins it gives up rest on crops as narrow as
+#: [metric:killfeed_name_fragments/floor_members_sweep#narrowest_px_px8=15]
+#: px, too few in the stored data to vouch for.
 FRAGMENT_MIN_PX = 24
 #: Members of each cluster compared when testing two clusters for one name.
+#: On the same sweep three members make
+#: [metric:killfeed_name_fragments/floor_members_sweep#joins_px24=52] joins,
+#: one or two make [metric:killfeed_name_fragments/floor_members_sweep#joins_k2=51],
+#: and four to six make
+#: [metric:killfeed_name_fragments/floor_members_sweep#joins_k4=53], none of
+#: them mixed; each further member adds a scoring call per crop.
 FRAGMENT_MEMBERS = 3
+#: A cluster with fewer members is a crop read once (`join_fragments`).
+FRAGMENT_SUPPORT = 2
 
 OTHER_SIDE = {"ally": "enemy", "enemy": "ally"}
 
@@ -106,44 +128,125 @@ def ncc(a: np.ndarray, b: np.ndarray) -> float:
     return best
 
 
+def _best_ncc(a: np.ndarray, bs: list[np.ndarray]) -> np.ndarray:
+    """`ncc` of text `a` against each text in `bs` at once: the best Pearson
+    correlation over the overlap, over shifts of up to `WIDTH_TOL` px across
+    and 2 px vertically. The texts are laid in one zero-padded stack with a
+    validity mask, so each shift is one masked sum over the whole stack."""
+    hs = [b.shape[0] for b in bs] + [a.shape[0]]
+    ws = [b.shape[1] for b in bs] + [a.shape[1]]
+    H, W = max(hs), max(ws)
+    A = np.zeros((H, W)); MA = np.zeros((H, W), bool)
+    A[:a.shape[0], :a.shape[1]] = a
+    MA[:a.shape[0], :a.shape[1]] = True
+    B = np.zeros((len(bs), H, W)); MB = np.zeros((len(bs), H, W), bool)
+    for k, b in enumerate(bs):
+        B[k, :b.shape[0], :b.shape[1]] = b
+        MB[k, :b.shape[0], :b.shape[1]] = True
+    best = np.full(len(bs), -1.0)
+    for dy in range(-2, 3):
+        for dx in range(-WIDTH_TOL, WIDTH_TOL + 1):
+            ya, yb, xa, xb = max(0, dy), max(0, -dy), max(0, dx), max(0, -dx)
+            h, w = H - max(ya, yb), W - max(xa, xb)
+            m = MA[ya:ya + h, xa:xa + w] & MB[:, yb:yb + h, xb:xb + w]
+            p = np.where(m, A[ya:ya + h, xa:xa + w], 0.0)
+            q = np.where(m, B[:, yb:yb + h, xb:xb + w], 0.0)
+            n = m.sum(axis=(1, 2))
+            sp, sq = p.sum(axis=(1, 2)), q.sum(axis=(1, 2))
+            nn = np.maximum(n, 1)
+            cov = (p * q).sum(axis=(1, 2)) - sp * sq / nn
+            var = ((p * p).sum(axis=(1, 2)) - sp * sp / nn) * ((q * q).sum(axis=(1, 2)) - sq * sq / nn)
+            ok = (n >= 9) & (var > 0)
+            r = np.where(ok, cov / np.sqrt(np.where(ok, var, 1.0)), -1.0)
+            best = np.maximum(best, r)
+    return best
+
+
+def fragment_matrix(grays: list[np.ndarray]) -> np.ndarray:
+    """`out[a, b]`: how well name crop `a` reads as one word of crop `b`'s
+    name, the better `ncc` of `a` against `b`'s left- and right-aligned
+    windows of `a`'s width; 0 unless `a` is at least `FRAGMENT_MIN_PX` wide,
+    more than `WIDTH_TOL` px narrower than `b`, and within 2 px of its height.
+    One `_best_ncc` call per crop scores all its windows."""
+    m = len(grays)
+    out = np.zeros((m, m))
+    if m < 2:
+        return out
+    hs = np.array([g.shape[0] for g in grays])
+    ws = np.array([g.shape[1] for g in grays])
+    part = ((np.abs(hs[:, None] - hs[None, :]) <= 2) & (ws[:, None] >= FRAGMENT_MIN_PX)
+            & (ws[None, :] - ws[:, None] > WIDTH_TOL))
+    for a in np.flatnonzero(part.any(axis=1)):
+        bs, w = np.flatnonzero(part[a]), ws[a]
+        wins = [_text(x) for b in bs for x in (grays[b][:, :w], grays[b][:, ws[b] - w:])]
+        out[a, bs] = _best_ncc(_text(grays[a]), wins).reshape(-1, 2).max(axis=1)
+    return out
+
+
 def fragment_ncc(narrow: np.ndarray, wide: np.ndarray) -> float:
-    """How well `narrow` reads as one word of `wide`'s name: the better `ncc`
-    of `narrow` against `wide`'s left- and right-aligned windows of its width;
-    0 when the two are not one fragment and one whole (widths within
-    `WIDTH_TOL`, `narrow` under `FRAGMENT_MIN_PX`, or heights apart)."""
-    w = narrow.shape[1]
-    if (abs(narrow.shape[0] - wide.shape[0]) > 2 or w < FRAGMENT_MIN_PX
-            or wide.shape[1] - w <= WIDTH_TOL):
-        return 0.0
-    return max(ncc(narrow, wide[:, :w]), ncc(narrow, wide[:, wide.shape[1] - w:]))
+    """How well the `narrow` crop reads as one word of the `wide` crop's name
+    (`fragment_matrix`); 0 when they cannot be one fragment and one whole."""
+    return float(fragment_matrix([narrow, wide])[0, 1])
+
+
+def reads_one_name(a: list[np.ndarray], b: list[np.ndarray]) -> bool:
+    """Whether some crop of `a` and some crop of `b` show one name whole:
+    widths within `WIDTH_TOL`, heights within 2 px and `ncc >= NCC_MIN`."""
+    for g in a:
+        near = [_text(x) for x in b
+                if abs(x.shape[1] - g.shape[1]) <= WIDTH_TOL and abs(x.shape[0] - g.shape[0]) <= 2]
+        if near and _best_ncc(_text(g), near).max() >= NCC_MIN:
+            return True
+    return False
 
 
 def join_fragments(clusters: list[list[str]], crops: dict) -> list[list[str]]:
     """One side's clusters with each cluster that reads one word of another
-    cluster's name joined to it (`fragment_ncc >= NCC_MIN` between any of
-    their first `FRAGMENT_MEMBERS` members), members in entry order, largest
-    cluster first. Joins chain: a name cut on both sides of its gap joins
-    through its whole reading."""
+    cluster's name joined to it, members in entry order, largest cluster
+    first.
+
+    Two clusters link when a member of one, among their first
+    `FRAGMENT_MEMBERS`, matches the left- or right-aligned window of a member
+    of the other at `NCC_MIN` (`fragment_matrix`): the narrower is one word of
+    the wider's name. Clusters of at least `FRAGMENT_SUPPORT` members, names
+    read on two entries or more, join along their links, and the joins chain
+    (`connected_components`): a name cut on both sides of its gap joins
+    through its whole reading. A singleton, a crop read once, joins the one
+    group it links to. When it links two or more groups, it joins them only
+    if each pair of them reads one name whole (`reads_one_name`), as when
+    greedy clustering, which compares only first members, split one name;
+    otherwise it joins nothing. A junk crop holding one name's word and
+    another's, or a word two names share, so never bridges two names: the
+    groups' own crops must carry the join."""
+    from scipy.sparse import csr_matrix
+    from scipy.sparse.csgraph import connected_components
+
     order = {eid: i for i, eid in enumerate(crops)}
-    parent = list(range(len(clusters)))
-
-    def find(u):
-        while parent[u] != u:
-            parent[u] = parent[parent[u]]
-            u = parent[u]
-        return u
-
-    heads = [[crops[e]["gray"] for e in c[:FRAGMENT_MEMBERS]] for c in clusters]
-    for i in range(len(clusters)):
-        for j in range(i + 1, len(clusters)):
-            if find(i) == find(j):
-                continue
-            if any(max(fragment_ncc(a, b), fragment_ncc(b, a)) >= NCC_MIN
-                   for a in heads[i] for b in heads[j]):
-                parent[find(j)] = find(i)
+    n = len(clusters)
+    if n < 2:
+        return [sorted(c, key=order.__getitem__) for c in clusters]
+    heads = [c[:FRAGMENT_MEMBERS] for c in clusters]
+    owner = np.repeat(np.arange(n), [len(h) for h in heads])
+    member_of = np.eye(n, dtype=np.int64)[owner]                         # (members, clusters)
+    frag = fragment_matrix([crops[e]["gray"] for h in heads for e in h]) >= NCC_MIN
+    link = (member_of.T @ (frag & (owner[:, None] != owner[None, :])) @ member_of) > 0
+    link |= link.T
+    big = np.array([len(c) for c in clusters]) >= FRAGMENT_SUPPORT
+    edge = link & big[:, None] & big[None, :]
+    k, group = connected_components(csr_matrix(edge), directed=False)
+    # The recurring groups each singleton links to.
+    hits = ((link & big[None, :]).astype(np.int64) @ np.eye(k, dtype=np.int64)[group]) > 0
+    joins = ~big & (hits.sum(axis=1) == 1)
+    for i in np.flatnonzero(~big & (hits.sum(axis=1) > 1)):
+        crops_of = [[crops[e]["gray"] for j in np.flatnonzero(group == g) for e in heads[j]]
+                    for g in np.flatnonzero(hits[i])]
+        joins[i] = all(reads_one_name(crops_of[x], crops_of[y])
+                       for x in range(len(crops_of)) for y in range(x + 1, len(crops_of)))
+    edge |= link & big[None, :] & joins[:, None]
+    _, label = connected_components(csr_matrix(edge), directed=False)
     joined: dict[int, list[str]] = {}
     for i, c in enumerate(clusters):
-        joined.setdefault(find(i), []).extend(c)
+        joined.setdefault(int(label[i]), []).extend(c)
     out = [sorted(c, key=order.__getitem__) for c in joined.values()]
     return sorted(out, key=lambda c: (-len(c), order[c[0]]))
 

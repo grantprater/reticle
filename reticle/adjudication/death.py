@@ -184,7 +184,7 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # gap as their window, no time and no killer, resting on the prior's deaths
 # and the round's outcome claim (`adjudication.round_outcome`).
 # 0.35.0 (2026-10-04): name clusters join a name read whole and cut at its
-# word gap (`killfeed-name-cluster-0.3.0`); a revive drawn below a split
+# word gap (`killfeed-name-cluster-0.4.0`); a revive drawn below a split
 # track's later piece no longer blocks the merge (`same_entry`); an entry
 # whose victim side went unread takes only a roster drop no sided entry took
 # (`_match_shrinks`).
@@ -1202,6 +1202,21 @@ def type_round_entries(entries: list[dict], sides: dict, *, lineup_version: str 
         done.append(e)
         out[i] = e
     return out
+
+
+def entry_victim_side(entry: dict) -> str | None:
+    """The side of a killfeed entry's victim: its `side`, else its
+    `victim_ally` flag (True is "ally", False "enemy"), else its
+    `victim_side`, which defaults to "enemy" when the key is absent and
+    stays None when it is stored as None."""
+    if entry.get("side"):
+        return entry["side"]
+    ally = entry.get("victim_ally")
+    if ally is True:
+        return "ally"
+    if ally is False:
+        return "enemy"
+    return entry.get("victim_side", "enemy")
 
 
 def revive_entry(entry: dict) -> bool:
@@ -2450,8 +2465,7 @@ def _match_shrinks(entries: list[dict], ally_shrinks: list[dict], enemy_shrinks:
     for i, kf in enumerate(entries):
         if revive_entry(kf):
             continue
-        side = kf.get("side") or ("ally" if kf.get("victim_ally") is True else "enemy"
-                                  if kf.get("victim_ally") is False else kf.get("victim_side", "enemy"))
+        side = entry_victim_side(kf)
         if side not in lists:
             unread.append(i)
             continue
@@ -2529,7 +2543,7 @@ def adjudicate_round_deaths(
     used_xmarks: set[int] = set()
     death_ids = []
     for i, kf in enumerate(killfeed_entries):
-        side_i = kf.get("side") or ("ally" if kf.get("victim_ally") is True else "enemy" if kf.get("victim_ally") is False else kf.get("victim_side", "enemy"))
+        side_i = entry_victim_side(kf)
         # The stable key when the entry knows its slot; the list index only
         # for callers that never had one, since it moves with detection.
         death_ids.append(death_key(session_id, kf["t_ms"], kf["slot"]) if kf.get("slot") is not None
@@ -2539,7 +2553,7 @@ def adjudicate_round_deaths(
 
     for i, kf in enumerate(killfeed_entries):
         t_ms = float(kf.get("t_ms", 0.0))
-        side = kf.get("side") or ("ally" if kf.get("victim_ally") is True else "enemy" if kf.get("victim_ally") is False else kf.get("victim_side", "enemy"))
+        side = entry_victim_side(kf)
         death_id = death_ids[i]
 
         # Apply any pending revives prior to this death instant

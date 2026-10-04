@@ -1106,11 +1106,29 @@ def _release_pass(kills, deaths, agent_of, x, t, out) -> list:
     """Pass 4 (0.4.2): a stored death the stall rule drew at a stall's release
     (its `released` span) pairs with a leftover Riot kill inside that span
     whose names do not disagree with it, most agreeing names then least |dt|
-    first. The entry lived through the stall unseen, so its first-seen time
-    trails the kill by up to the stall's length, and an unnamed victim leaves
-    the name pass nothing to agree on (b3b9defb6fd7 1339.5 s, Waylay killed
-    at 1332.7 s inside the 1331.4-1339.6 s stall). Its names rest on no time
-    agreement, so like the name pass it never counts a name right."""
+    first. Its names rest on no time agreement, so like the name pass it
+    never counts a name right.
+
+    The pair may trail the kill by more than an entry's life of about 5.0 s
+    [domain:killfeed/entry-lifetime], because that life runs from the
+    entry's arrival on the picture and a stall shows no arrival: its frames
+    repeat one picture while time passes (`reticle.stalls`). The first frame
+    to show the entry is the release, so its first-seen time trails the kill
+    by up to the stall's length, and the pass bounds the kill by the stall
+    span, not by the lifetime. The stored frame times show both cases:
+
+    * b3b9defb6fd7 (C:/Users/grant/Videos/2026-08-23 18-24-15.mp4): the
+      round clock reads 42 s from 1331.0 s to 1339.5 s and 33 s at 1340.0 s,
+      so game time ran through the 1331.4-1339.6 s stall. No sample from
+      1331.0 s to 1339.0 s reads an entry; the 1339.5 s sample, clock still
+      frozen, reads one, and 1340.0 s none. Riot's Waylay kill falls at
+      1332.7 s, 6.75 s before that sighting. The victim went unnamed, so the
+      name pass had nothing to agree on.
+    * bfad2778a372 (C:/Users/grant/Videos/2026-08-24 14-45-35.mp4): the
+      clock holds 82 s through 615.0 s inside the 588.2-616.0 s stall; the
+      Sage death is read from 616.5 s to 620.0 s, 5.68 s to 9.2 s after
+      Riot's kill at 610.8 s. It outlived the kill by over 5.0 s, so its
+      life ran from the release, not from the kill."""
     used_i = {i for i, *_ in out}
     used_j = {j for _i, j, *_ in out}
     cand = {}
