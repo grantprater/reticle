@@ -423,8 +423,8 @@ scores (TeamScoreHUDElement Score) 22 pt and the ammo reserve 16 pt, each in
 face 'Default', which resolves to DINNext_Font's first face, Regular. Health
 (HealthText) and the magazine (LoadedAmmo) are DIN Next Medium 36 pt, and the
 scoreboard's kills, deaths, assists and credits DIN Next Medium 11 pt. The
-shield's widget (ArmorHUDElement_CharacterHUD) is not exported; its digits fit
-DIN Next Medium at about 14 pt.
+shield's widget (ArmorHUDElement_CharacterHUD) is not exported; its digits
+draw in DIN Next Medium at about 14 pt.
 """
 kind = "appearance"
 known = "measured"
@@ -433,21 +433,25 @@ subject = "hud:scoreline"
 source = """
 the game's widget data under the store's reference/game-files/
 release-13.06-shipping-18-5590001/hud-layout (font face, size and tracking per
-TextBlock; the font object is not exported), and prototypes/game_font_digits.py
-census, which fit every exported face at sizes 10-56 px to the stored glyphs of
-a06f04a0059f, 5822b6646448 and 4f207c0c4e39: each field's best face is the one
-named here, at the widget's size within 0.7 px; Tungsten-Bold fits the clock
-with a mean normalised-bitmap difference of 0.187 against DIN Next Regular's
-0.032
+TextBlock; the font object is not exported), and the census in
+prototypes/game_font_digits.py, which fit every exported face at sizes 10-56 px
+to the stored glyphs of a06f04a0059f, 5822b6646448 and 4f207c0c4e39. Each
+field's best face is the one named here, at the widget's size
+[metric:game_font_digits/census#max_em_offset_px=0.7]; on the clock,
+Tungsten-Bold's mean normalised-bitmap difference
+[metric:game_font_digits/census#clock_tungsten_bold_mad=0.187] is about six
+times DIN Next Regular's [metric:game_font_digits/census#clock_dinnext_regular_mad=0.032];
+the shield fits DIN Next Medium at
+[metric:game_font_digits/census#shield_fit_pt=14] pt
 """
 use = """
 render digit templates from the font file at the widget's size
 (`ocr.FIELD_FONTS`) instead of mining them from captures
 """
 exceptions = """
-the scoreboard's digits fit DIN Next Medium best at 15.5 px, not the 14.7 px
-that 11 pt predicts; the cause (a scale box or the widget's render transform)
-is unexported
+the scoreboard's digits fit DIN Next Medium larger than 11 pt predicts (the
+game-fonts-20261004 F4 outcome in the store's notes/predictions.jsonl); the
+cause (a scale box or the widget's render transform) is unexported
 """
 see = ["hud/hud-scales-with-resolution", "hud/low-clock-red-plate"]
 phrases = ["hud digit font", "scoreline font", "DIN Next digits"]
