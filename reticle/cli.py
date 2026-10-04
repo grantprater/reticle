@@ -3975,8 +3975,10 @@ def cmd_widget_fit(args) -> int:
     print(f"fitted     {got['frames']} cached frames in {held}")
     for sg in got["segments"]:
         a = np.asarray(sg["affine"])
-        at = (f" (switch before round {sg['switch_round']})"
-              if sg.get("switch_round") is not None else "")
+        at = (f" (the turn that opens round {sg['switch_round']}; cached frames "
+              f"{sg['t_prev_last_ms']} then {sg['t_first_ms']} ms)"
+              if sg.get("switch_round") is not None else
+              f" (turn refused: {sg['switch_refusal']})" if sg.get("switch_refusal") else "")
         print(f"  from {sg['t0_ms']} to {sg['t1_ms']} ms: rotation {sg['rotation']}, "
               f"scale {sg['scale']:.3f}, corner ({a[0, 2]:.1f}, {a[1, 2]:.1f}), "
               f"{sg['n']} frames, ncc >= {sg['ncc_min']:.3f}{at}")

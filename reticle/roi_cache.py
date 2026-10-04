@@ -438,6 +438,19 @@ def rewrite_command(sid: str, name: str, record: dict | None = None) -> str:
     return cmd
 
 
+def _raw_rects_ok(rec: dict, want: list[list[int]]) -> bool:
+    """Whether a raw read (`RoiCache.load(raw=True)`) may use a cache whose
+    rectangles differ from the ones the manifest names now: only its minimap
+    rectangle may differ. The raw read takes the minimap crop at the box it
+    was cut with (`stored_rect`), and the placement fit compares that box with
+    the one it needs, so a stored capture box wider than the cache's crop
+    never refuses the fit that would name it."""
+    held = CACHE_SETS[rec["roi"]]
+    got = [list(r) for r in rec["rects"]]
+    return ("minimap" in held and len(got) == len(want)
+            and all(g == w for r, g, w in zip(held, got, want) if r != "minimap"))
+
+
 def _cache_record(manifest: dict, profile, name: str, rects, hz: float, spans=None,
                   gate=None) -> dict:
     rec = {"version": ROI_CACHE_VERSION, "roi": name, "rects": [list(r) for r in rects],
@@ -626,7 +639,8 @@ class RoiCache:
         for key, v in want.items():
             if rec.get(key) != v:
                 return None, f"stale_{key}"
-        if roi_rects(rec["roi"], profile, wh, manifest) != rec["rects"]:
+        want_rects = roi_rects(rec["roi"], profile, wh, manifest)
+        if want_rects != rec["rects"] and not (raw and _raw_rects_ok(rec, want_rects)):
             return None, "stale_rects"
         idx = np.load(d / f"{sid}.idx.npy")
         if idx.shape[1] == 4:                              # t, frame, offset, length
@@ -653,8 +667,9 @@ class RoiCache:
              name: str = "killfeed", raw: bool = False) -> tuple["RoiCache | None", str | None]:
         """The cache for set `name`, or one whose rectangles include it; or
         None with the reason no cache can be used. `raw` reads the minimap
-        crops as stored, with no placement and no placement refusal: the
-        placement fit (`widget_frame.fit_placement`) reads them so."""
+        crops as stored, at the box they were cut with, with no placement and
+        no placement refusal (`_raw_rects_ok`): the placement fit
+        (`widget_frame.fit_placement`) reads them so."""
         need = set(CACHE_SETS[name])
         why = "no_cache"
         for other in [name] + [n for n, rs in CACHE_SETS.items()

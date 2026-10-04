@@ -39,7 +39,10 @@ pass refuse it by name; `scan` fits it from the crop cache (`fit_session`,
 which fits a frame in each stored round as well as the evenly spread ones)
 and writes the placement through `write_placement`, the path `widget-fit
 --write` takes, with its provenance. A per-side session that never turns
-stores its identity placement, so it is not fitted again.
+stores its identity placement, so it is not fitted again. A fitted turn
+starts at the stored start of the round it opens, not at the first cached
+frame that reads turned (`snap_switch`)
+[domain:minimap/side-based-widget-turns-between-rounds].
 
 The capture box a session's minimap cache is cut with holds the widget
 under every stored placement and the profile's own ROI (`capture_box_for`):
@@ -64,7 +67,12 @@ import numpy as np
 #: round and records the rounds its segments start in (`switch_rounds`); a
 #: per-side session that fits identity stores that placement; the capture box
 #: is the union of every segment's box and the profile's ROI (`capture_box_for`).
-WIDGET_FRAME_VERSION = "widget-frame-0.2.0"
+#: 0.3.0 (2026-10-04): a turn starts at the stored start of the round that
+#: holds its first turned cached frame, not at that frame, and `switch_round`
+#: names that round (0.2.0 named the next one wherever a cache gap followed
+#: the round start); a turn the bracketing frames cannot place at exactly one
+#: round start is refused (`snap_switch`).
+WIDGET_FRAME_VERSION = "widget-frame-0.3.0"
 #: The manifest key that holds a session's placements and capture box.
 MANIFEST_KEY = "minimap_widget"
 #: The tag a session with a non-identity placement carries.
@@ -566,9 +574,11 @@ def fit_session(manifest: dict, cache, store_root, n: int = 24,
     `rounds`, one cached frame inside each round (`round_frames`), groups them
     into segments (`placement_segments`), then moves each segment boundary to
     the first cached frame between the two fitted frames whose crop the later
-    placement explains better. With `rounds`, each later segment records the
-    first round that starts at or after it (`switch_round`). Returns `{"segments", "frames",
-    "box", "shape"}`.
+    placement explains better. Each later segment records the cached frames
+    that bracket its change (`t_prev_last_ms`, `t_first_ms`); with `rounds`,
+    a turn moves to the start of the round that holds its first turned frame
+    and records that round as `switch_round`, or is refused by name
+    (`snap_switch`). Returns `{"segments", "frames", "box", "shape"}`.
     """
     from . import geometry
     sid = manifest["session_id"]
@@ -589,19 +599,69 @@ def fit_session(manifest: dict, cache, store_root, n: int = 24,
         for smp in cache.samples(between, rois=("minimap",), normalise=False):
             crop = smp.frame[y0:y1, x0:x1]
             sb = placement_ncc(sgray, crop, (x0, y0), b["affine"])
-            if sb >= MIN_NCC and sb > placement_ncc(sgray, crop, (x0, y0), a["affine"]):
+            sa = placement_ncc(sgray, crop, (x0, y0), a["affine"])
+            if sb >= MIN_NCC and sb > sa:
                 b["t0_ms"] = a["t1_ms"] = smp.t_ms
                 break
+            if sa >= MIN_NCC:
+                a["t_last_ms"] = smp.t_ms
+        # The cached frames that bracket the change: the last one the earlier
+        # placement explains and the first one the later one does.
+        b["t_prev_last_ms"], b["t_first_ms"] = a["t_last_ms"], b["t0_ms"]
+    for a, b in zip(segs, segs[1:]):
+        if rounds:
+            snap_switch(a, b, rounds)
     for s in segs:
         s.pop("t_last_ms", None)
-        if rounds and s["t0_ms"] is not None:
-            # The first stored round that starts at or after the switch: the
-            # widget turns between rounds, in the post-round period.
-            nxt = [r for r in rounds if float(r["t_start_ms"]) >= float(s["t0_ms"])]
-            s["switch_round"] = (int(min(nxt, key=lambda r: r["t_start_ms"])["round_no"])
-                                 if nxt else None)
     return {"segments": segs, "frames": len(fits), "box": box,
             "shape": tuple(static.shape[:2])}
+
+
+#: How late a stored round start may stand after the instant it marks: the
+#: rounds table reads its starts from the HUD at 2 Hz (`rounds`), so a start
+#: lags the buy phase by up to one 500 ms sample. b3b9defb6fd7's widget reads
+#: turned from 1430216.67 ms, 283 ms before its stored round 13 start of
+#: 1430500 ms.
+ROUND_START_LAG_MS = 500.0
+
+
+def snap_switch(a: dict, b: dict, rounds: list[dict]) -> None:
+    """Move the turn between segments `a` and `b` to the stored start of the
+    round it opens, and record that round as `switch_round`.
+
+    The sides swap at halftime [domain:rounds/halftime-side-swap], and a
+    side-based widget turns only then, between two rounds
+    [domain:minimap/side-based-widget-turns-between-rounds]. The first cached
+    frame that reads turned bounds the turn from above only: a cache gap at a
+    round start would otherwise mark the round's first seconds upright.
+
+    The round is the one stored round whose start lies after the last cached
+    frame the earlier placement explains (`t_prev_last_ms`) and no later than
+    `ROUND_START_LAG_MS` after the first the later one explains
+    (`t_first_ms`). The turn moves to that start, or to the first turned frame
+    where the frame comes first: a stored start may lag the turn by one HUD
+    sample, and a frame that reads turned is never marked upright.
+
+    The turn is refused, `switch_round` None with `switch_refusal`, and the
+    boundary left at the first turned frame, where the change is not a turn
+    or where the bracket holds no round start or more than one: then the fit
+    cannot place the turn at one round boundary, which falsifies the fact
+    above for this session or names a fit error."""
+    lo, hi = float(b["t_prev_last_ms"]), float(b["t_first_ms"])
+    starts = sorted((float(r["t_start_ms"]), int(r["round_no"])) for r in rounds
+                    if lo < float(r["t_start_ms"]) <= hi + ROUND_START_LAG_MS)
+    why = None
+    if a["rotation"] == b["rotation"]:
+        why = "not_a_turn: the placements differ in scale or corner, not rotation"
+    elif len(starts) != 1:
+        why = (f"unbracketed: {len(starts)} round starts lie after the last earlier "
+               f"frame {lo} ms and by {ROUND_START_LAG_MS:g} ms after the first later "
+               f"frame {hi} ms")
+    if why is not None:
+        b["switch_round"], b["switch_refusal"] = None, why
+        return
+    b["t0_ms"] = a["t1_ms"] = min(starts[0][0], hi)
+    b["switch_round"] = starts[0][1]
 
 
 def fit_placement(store, manifest: dict, n: int = 24) -> dict:
