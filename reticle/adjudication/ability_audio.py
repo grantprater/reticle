@@ -49,6 +49,21 @@ margin, or refuses, first match wins:
   unexplained frames (stored with the parameters);
 * `pairwise_tie` -- the margin over the best rival is under TIE_MARGIN.
 
+**Phase groups.** Abilities whose casts play one shared sound are one kit
+class: the group's members and the shared sound's class (the group's name)
+score as one family (`kit_view`). Where the family is the best referenced
+class, the slot is decided by a later phase (`phase_scores`, from
+`ability-audio-params-0.2.5`): the release frame is the shared class's
+maximum in the cast's window, and the member whose landing track scores
+higher from `post_s` after the release, cut at the next own cast's drop,
+is `best_ref`, its margin over the other's `margin_ref`. Neither landing
+track at its level refuses `bolt_unknown` with no `best_ref` (a bolt, but
+which is unknown); a landing margin under TIE_MARGIN refuses
+`landing_tie`. The parameter set declares each group, its landing files
+and levels; Sova's bolts share their release
+[domain:abilities/sova-bolts-share-release-sound]. `cast_verdicts` is the
+one decision the witness and the fit tool both call.
+
 **A calibrated probability** stands beside the margin, never in its place.
 `ref_margin` names the best class among the referenced ones (`none` left
 out) and its margin over the referenced runner-up; `p_right` maps that
@@ -111,8 +126,11 @@ SELF_FRAMES = 1
 TIE_MARGIN = 0.25
 #: The none class's name.
 NONE = "none"
-#: The refusals, in the order they are tested.
-REFUSALS = ("none_wins", "below_null", "pairwise_tie")
+#: The refusals, in the order they are tested; the last two only where a
+#: phase group wins (`cast_verdicts`).
+REFUSALS = ("none_wins", "below_null", "pairwise_tie", "bolt_unknown", "landing_tie")
+#: A phase group's landing track for member slot S is named LANDING + S.
+LANDING = "landing:"
 #: The false fires per live minute a class threshold allows on dev.
 THRESHOLD_FF_PER_MIN = 1.0
 #: Two peaks of a track count as one false fire within this (frames).
@@ -360,10 +378,13 @@ class Corpus:
 
 
 def class_tracks(Xw: np.ndarray, templates: list[np.ndarray], labels: list[str],
-                 null_mask: np.ndarray, xp=np) -> dict[str, np.ndarray]:
+                 null_mask: np.ndarray, xp=np, extra: dict[str, list[int]] | None = None
+                 ) -> dict[str, np.ndarray]:
     """{class: track}: per template its Pearson track less its median over
     the null frames, over the span to their 99.9th percentile; a class's
-    track the maximum over its templates. Host float32."""
+    track the maximum over its templates. `extra` {name: template indices}
+    adds a track per name, the maximum over those templates' tracks (a
+    template counts in its class and in any extra track). Host float32."""
     if not templates:
         return {}
     nidx = np.flatnonzero(null_mask)
@@ -372,11 +393,16 @@ def class_tracks(Xw: np.ndarray, templates: list[np.ndarray], labels: list[str],
     C = Corpus(Xw, max(t.shape[0] for t in templates), xp)
     ni = xp.asarray(nidx)
     out = {}
-    for W, lab in zip(templates, labels):
+    member = {}
+    for name, ix in (extra or {}).items():
+        for i in ix:
+            member.setdefault(int(i), []).append(name)
+    for i, (W, lab) in enumerate(zip(templates, labels)):
         tr = C.track(W)
         q50, q999 = xp.quantile(tr[ni], xp.asarray([0.5, 0.999]))
         v = (tr - q50) / xp.maximum(q999 - q50, 1e-3)
-        out[lab] = v if lab not in out else xp.maximum(out[lab], v)
+        for key in [lab] + member.get(i, []):
+            out[key] = v if key not in out else xp.maximum(out[key], v)
     host = {k: to_host(v).astype(np.float32) for k, v in out.items()}
     del C
     release_gpu(xp)
@@ -489,6 +515,182 @@ def ref_margin(scores: np.ndarray, classes: list[str]) -> tuple[list[str | None]
     return [names[i] for i in np.argmax(S, axis=1)], margin
 
 
+# ---------------------------------------------------------------------------
+# Phase groups: abilities that share a sound, told apart by a later phase
+# ---------------------------------------------------------------------------
+
+def landing_indices(files: list[dict], groups: list[dict]) -> dict[str, list[int]]:
+    """{LANDING + slot: the indices of that slot's landing templates} over
+    every phase group, from the files each group names."""
+    at = {f["flac"]: i for i, f in enumerate(files)}
+    return {f"{LANDING}{s}": [at[x] for x in fl if x in at]
+            for g in groups or () for s, fl in g["landing"].items()}
+
+
+def session_tracks(Xw: np.ndarray, params: dict, null_mask: np.ndarray, xp=np) -> dict:
+    """The class tracks of a whitened session (`class_tracks`) under an
+    agent's parameters, with each phase group's landing tracks."""
+    return class_tracks(Xw, params["templates"], params["labels"], null_mask, xp,
+                        extra=landing_indices(params["files"], params.get("groups")))
+
+
+def kit_view(tracks: dict, groups=()) -> dict:
+    """{kit class: track}: the class tracks, less the landing tracks, with
+    each phase group's members and its shared class (the group's name)
+    merged into one family track, their maximum. Without groups, the class
+    tracks."""
+    out = {k: v for k, v in tracks.items() if not k.startswith(LANDING)}
+    for g in groups or ():
+        parts = [out.pop(c) for c in [*g["members"], g["name"]] if c in out]
+        if parts:
+            out[g["name"]] = np.maximum.reduce(parts) if len(parts) > 1 else parts[0]
+    return out
+
+
+def kit_classes(classes, groups=()) -> list[str]:
+    """The kit-level classes: each phase group's members replaced by the
+    group's name, in the kit order C, Q, E, X, then `none`."""
+    merged = {m: g["name"] for g in groups or () for m in g["members"]}
+    out = []
+    for c in classes:
+        if c.startswith(LANDING):
+            continue
+        k = merged.get(c, c)
+        if k not in out:
+            out.append(k)
+    return sorted(out, key=lambda c: ("CQEX" + NONE).find(c[0]) if c != NONE else 9)
+
+
+def referenced_slots(classes, groups=()) -> set[str]:
+    """The slots a cast can be named as: the kit classes but `none` and the
+    group names, and every group's members."""
+    names = {g["name"] for g in groups or ()}
+    return ({c for c in classes if c != NONE and c not in names and not c.startswith(LANDING)}
+            | {m for g in groups or () for m in g["members"]})
+
+
+def window_argmax(track: np.ndarray, lo, hi) -> np.ndarray:
+    """The frame of the track's maximum over [lo, hi) per pair (the first
+    on a tie), bounds clipped to the track. Vectorised over a padded gather."""
+    t = np.asarray(track, np.float32)
+    n = len(t)
+    lo = np.clip(np.asarray(lo, np.int64), 0, n - 1)
+    hi = np.clip(np.asarray(hi, np.int64), lo + 1, n)
+    if not len(lo):
+        return np.zeros(0, np.int64)
+    idx = lo[:, None] + np.arange(int((hi - lo).max()))[None, :]
+    vals = np.where(idx < hi[:, None], t[np.minimum(idx, n - 1)], -np.inf)
+    return lo + vals.argmax(axis=1)
+
+
+def next_neighbour(frames, neighbours) -> np.ndarray:
+    """Per cast the frame of the next own cast after it (one within
+    SELF_FRAMES is the cast itself), int64 max where none follows."""
+    f = np.asarray(frames, np.int64)
+    nb = np.unique(np.asarray(neighbours, np.int64))
+    if not len(nb):
+        return np.full(len(f), np.iinfo(np.int64).max)
+    j = np.searchsorted(nb, f + SELF_FRAMES, side="right")
+    return np.where(j < len(nb), nb[np.clip(j, 0, len(nb) - 1)], np.iinfo(np.int64).max)
+
+
+def phase_scores(tracks: dict, group: dict, frames, neighbours) -> dict:
+    """One phase group's later-phase evidence per cast: the release frame,
+    the maximum of the group's shared-class track (the release) inside the
+    cast's window (`clip_bounds`); then each member's landing track's
+    maximum from `post_s[0]` to `post_s[1]` s after the release, cut at the
+    next own cast's drop. Returns {"release": frames, "release_score",
+    "window": (lo, hi) frames, "landing": {slot: scores}}. Vectorised."""
+    f = np.asarray(frames, np.int64)
+    lo, hi = clip_bounds(f, neighbours)
+    rel = tracks[group["name"]]
+    r = window_argmax(rel, lo, hi)
+    a = r + int(round(group["post_s"][0] * FPS))
+    b = np.minimum(r + int(round(group["post_s"][1] * FPS)), next_neighbour(f, neighbours))
+    b = np.maximum(b, a + 1)
+    return {"release": r, "release_score": np.asarray(rel, np.float32)[np.clip(r, 0, len(rel) - 1)],
+            "window": (a, b),
+            "landing": {s: range_max(tracks[f"{LANDING}{s}"], a, b) for s in group["members"]}}
+
+
+def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
+                  tie_margin: float = TIE_MARGIN) -> list[dict]:
+    """Per cast the witness's verdict under an agent's parameters.
+
+    The kit level (`identify` over `kit_view`): the best kit class, its
+    runner-up, margin and refusal, and `best_ref`/`margin_ref` over the
+    referenced kit classes (`ref_margin`). Where the best referenced class is
+    a phase group (abilities that share a sound, e.g. Sova's bolts sharing
+    their release), the slot is decided by the group's later phase
+    (`phase_scores`): `best_ref` is the member whose landing track scores
+    higher, `margin_ref` its margin over the other's; neither landing track
+    at its level (the group's `levels`) refuses `bolt_unknown` with
+    `best_ref` None (a bolt, but which is unknown), and a landing margin
+    under `tie_margin` refuses `landing_tie`, each after the kit-level
+    refusals. The verdict is `best_ref` unless refused. `p_right` maps
+    `margin_ref` through the set's calibration. Decisions vectorised; rows
+    are their record."""
+    groups = params.get("groups") or []
+    kt = kit_view(tracks, groups)
+    classes = kit_classes(list(kt), groups)
+    f = np.asarray(frames, np.int64)
+    sc = cast_scores(kt, f, classes, neighbours=neighbours)
+    ids = identify(sc, classes, params["thresholds"], tie_margin)
+    best_ref, margin_ref = ref_margin(sc, classes)
+    best_ref = np.array(best_ref, object)
+    margin_ref = np.asarray(margin_ref, float).copy()
+    reason = np.array([v["reason"] or "" for v in ids], object)
+    phase = [None] * len(ids)
+    for g in groups:
+        rows = np.flatnonzero(best_ref == g["name"])
+        if not len(rows):
+            continue
+        ph = phase_scores(tracks, g, f[rows], neighbours)
+        mem = list(g["members"])
+        L = np.stack([ph["landing"][m] for m in mem], axis=1)
+        lev = np.array([float(g["levels"][m]) for m in mem])
+        heard = (L >= lev).any(axis=1)
+        o = np.argsort(-L, axis=1, kind="stable")
+        k = np.arange(len(rows))
+        top = L[k, o[:, 0]]
+        lm = top - (L[k, o[:, 1]] if len(mem) > 1 else np.nan)
+        pick = np.array(mem, object)[o[:, 0]]
+        unk = ~heard
+        best_ref[rows] = np.where(unk, None, pick)
+        margin_ref[rows] = np.where(unk, np.nan, lm)
+        free = reason[rows] == ""
+        reason[rows] = np.where(free & unk, "bolt_unknown",
+                                np.where(free & ~unk & (lm < tie_margin), "landing_tie",
+                                         reason[rows]))
+        r4 = lambda v: None if not np.isfinite(v) else round(float(v), 4)
+        for j, i in enumerate(rows):
+            phase[i] = {"group": g["name"], "release_s": round(float(ph["release"][j]) / FPS, 2),
+                        "release_score": r4(ph["release_score"][j]),
+                        "window_s": [round(float(ph["window"][0][j]) / FPS, 2),
+                                     round(float(ph["window"][1][j]) / FPS, 2)],
+                        "landing": {m: r4(L[j, q]) for q, m in enumerate(mem)},
+                        "levels": {m: r4(lev[q]) for q, m in enumerate(mem)},
+                        "heard": bool(heard[j]), "pick": None if unk[j] else pick[j],
+                        "margin": r4(lm[j]), "basis": g.get("basis")}
+    cal = params.get("calibration")
+    pr = p_right(margin_ref, cal["w"]) if cal else np.full(len(ids), np.nan)
+    out = []
+    for i, v in enumerate(ids):
+        why = reason[i] or None
+        b = best_ref[i]
+        verdict = (b if phase[i] is not None else v["verdict"]) if why is None else None
+        p = pr[i] if b is not None else np.nan
+        out.append({**v, "reason": why, "verdict": verdict, "best_ref": b,
+                    "margin_ref": None if not np.isfinite(margin_ref[i]) else round(float(margin_ref[i]), 4),
+                    "p_right": None if not np.isfinite(p) else round(float(p), 4),
+                    "p_right_reason": (None if np.isfinite(p) else "no_calibration" if not cal
+                                       else "bolt_unknown" if phase[i] and not phase[i]["heard"]
+                                       else "no_referenced_rival"),
+                    "calibration_basis": cal["basis"] if cal else None,
+                    "phase": phase[i]})
+    return out
+
+
 def logistic(x: np.ndarray, y: np.ndarray, l2: float = CALIB_L2, iters: int = 50) -> np.ndarray:
     """[w0, w1] of P(y) = 1 / (1 + exp(-(w0 + w1 x))), Newton's method with
     a small ridge."""
@@ -584,7 +786,7 @@ def save_params(store_root, version: str, agents: dict, provenance: dict) -> Pat
         arrays[f"{key}__lens"] = lens
         meta[agent] = {"key": key, "classes": a["labels"], "files": a["files"],
                        "slots": a["slots"], "thresholds": a["thresholds"],
-                       "dev": a["dev"], "fit": a["fit"]}
+                       "groups": a.get("groups") or [], "dev": a["dev"], "fit": a["fit"]}
     np.savez(d / "params.npz", **arrays)
     (d / "provenance.json").write_text(json.dumps({**provenance, "version": version,
                                                    "agents": meta}, indent=1),
@@ -638,6 +840,6 @@ def load_params(store_root, version: str, agent: str) -> tuple[dict | None, str 
             "ar": z[f"{k}__ar"],
             "templates": [T[a:b] for a, b in zip(cuts[:-1], cuts[1:])],
             "labels": meta["classes"], "files": meta["files"], "slots": meta["slots"],
-            "thresholds": meta["thresholds"], "dev": meta["dev"], "fit": meta["fit"],
-            "calibration": meta.get("calibration"),
+            "thresholds": meta["thresholds"], "groups": meta.get("groups") or [],
+            "dev": meta["dev"], "fit": meta["fit"], "calibration": meta.get("calibration"),
             "provenance": {k2: v for k2, v in prov.items() if k2 != "agents"}}, None

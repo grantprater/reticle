@@ -71,6 +71,57 @@ class TeardropCentreTests(unittest.TestCase):
         self.assertEqual(seen["fit"]["cx"], 43.0)
 
 
+class TurnedWidgetTests(unittest.TestCase):
+    """A widget placed turned 180 degrees delivers the portrait upside down;
+    the reader turns it back [domain:minimap/upright-icons-on-turned-map]."""
+
+    class _Cache:
+        def __init__(self, segments):
+            from reticle.widget_frame import WidgetFrame
+            self.widget = (None if segments is None else
+                           WidgetFrame(segments=segments, baked_roi=[0, 0, 10, 10],
+                                       shape=(10, 10), box=[0, 0, 12, 12]))
+
+    def test_only_a_turned_segment_turns_the_portrait(self):
+        segs = [{"t0_ms": None, "t1_ms": 1000.0, "rotation": 180,
+                 "affine": [[-1.1, 0.0, 11.0], [0.0, -1.1, 11.0]]},
+                {"t0_ms": 1000.0, "t1_ms": None, "rotation": 0,
+                 "affine": [[1.1, 0.0, 0.0], [0.0, 1.1, 0.0]]}]
+        cache = self._Cache(segs)
+        self.assertTrue(self_icon.turned_widget(cache, 500.0))
+        self.assertFalse(self_icon.turned_widget(cache, 1500.0))
+
+    def test_a_session_with_no_placement_is_never_turned(self):
+        self.assertFalse(self_icon.turned_widget(self._Cache(None), 500.0))
+        self.assertFalse(self_icon.turned_widget(object(), 500.0))
+
+    def test_the_turned_portrait_is_scored_upright(self):
+        from unittest.mock import patch
+        seen = []
+
+        def features(img, key):
+            seen.append(img.copy())
+            return {}
+        crop = np.zeros((80, 465, 3), np.uint8)
+        crop[30:40, 35:45] = 200                        # the portrait's top half only
+        ctx = {"floor": np.ones(crop.shape[:2], bool), "slab": None, "static": None, "sgray": None}
+        det = {"cx": 40.0, "cy": 40.0, "r": 9, "cov": 0.9}
+        with patch("reticle.minimap.widget_drawn", return_value=True), \
+                patch("reticle.minimap.self_icons", return_value=[dict(det)]), \
+                patch("reticle.minimap.ally_icons", return_value=[]), \
+                patch("reticle.spike.glyph_fits", return_value=[]), \
+                patch("reticle.minimap.self_portrait_pixels",
+                      return_value=((slice(30, 50), slice(30, 50)), np.ones((20, 20), bool))), \
+                patch("reticle.ally_portrait.portrait_features", side_effect=features), \
+                patch("reticle.ally_portrait.stored", return_value={}):
+            plain = self_icon.read_frame(crop, ctx, {})
+            turned = self_icon.read_frame(crop, ctx, {}, turned=True)
+        self.assertNotIn("turned", plain)
+        self.assertTrue(turned["turned"])
+        np.testing.assert_array_equal(seen[1], seen[0][::-1, ::-1])
+        self.assertEqual(plain["composition_scores"], turned["composition_scores"])
+
+
 class WitnessTests(unittest.TestCase):
     def test_the_witness_is_the_mean_score_over_scored_frames(self):
         got = self_icon.icon_witness([_frame({"A": 1.0, "B": 0.0}), _frame({"A": 0.5, "B": 1.0}),

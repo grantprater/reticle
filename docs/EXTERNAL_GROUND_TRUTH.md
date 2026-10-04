@@ -91,6 +91,58 @@ never a reader's prior: a result it shaped declares `rests_on`.
 The records label killfeed portraits offline in
 [KILLFEED_PORTRAIT_SEPARABILITY.md](KILLFEED_PORTRAIT_SEPARABILITY.md).
 
+## Chamber's ultimate count
+
+A property of Riot's records, not a game fact: a player's
+`stats.abilityCasts.ultimateCasts` undercounts Chamber's Tour De Force equips.
+The game spends the ultimate on the equip
+[domain:abilities/chamber-tour-de-force-equip-spends-ult], his allies hear its
+line then [domain:abilities/chamber-tour-de-force-ally-line-at-equip], and an
+equip does not carry into the next round
+[domain:abilities/chamber-tour-de-force-not-kept-next-round], so each round
+with a Tour De Force kill holds an equip. Riot's count never exceeds those
+rounds and falls below them for most Chamber players; it records some equips,
+not none.
+
+A recount of the raw Riot files, per Chamber player, as (Riot count, Tour De
+Force kill rounds): five players at 0 with at least one such round; three at
+(1, 1), `bfad2778a372`, `c40d950031bb` and `59c70f1ef720`; two at (1, 2),
+`e37fdeca944f` and `223d636bf8d2`; one at (2, 4), `a1a995e6b19b`.
+
+Evidence, `prototypes/riot_ground_truth.py` (riot-truth-0.5.1) over the 21
+scored matches: Riot counts
+[metric:riot_truth/ult#chamber_line_riot_casts=7] Chamber ults for the
+[metric:riot_truth/ult#chamber_line_players=12] Chamber players, where the
+store holds [metric:riot_truth/ult#chamber_line_stored=27] Chamber lines.
+Riot's own kills contradict its count: its count falls below that player's
+Tour De Force kill rounds for
+[metric:riot_truth/ult#chamber_tdf_riot_below_tdf_rounds=8] players, and is
+zero for [metric:riot_truth/ult#chamber_tdf_riot_zero_with_tdf_kill=5] who
+killed with Tour De Force. Of the
+[metric:riot_truth/ult#chamber_line_tdf_rounds=16] rounds with a Tour De Force
+kill, [metric:riot_truth/ult#chamber_line_tdf_rounds_held=15] hold a stored
+Chamber line from that side. All of the ult pool's
+[metric:riot_truth/ult#excess_rows=20] excess rows are Chamber's: without him
+the stored rows hold [metric:riot_truth/ult#apart_excess_rows=0].
+
+The older `chamber_tdf` count score compares each Chamber player's line count
+with a lower bound, max(Riot's count, his Tour De Force kill rounds). Its
+count recall
+[metric:riot_truth/ult#chamber_tdf_count_recall_vs_lower_bound=1.0] says
+every player holds at least that many lines, not that every kill round holds
+one; the round that holds none belongs to a player with lines in other
+rounds. Its [metric:riot_truth/ult#chamber_tdf_count_above_lower_bound=11]
+lines above the bound are one fewer than the
+[metric:riot_truth/ult#chamber_line_lines_unverifiable=12] lines outside a
+kill round: the count lets one line outside a kill round stand in for the
+kill round that holds none. No figure there is false; the per-round figures
+are `chamber_line`'s.
+
+So the scorer scores Chamber apart: the per-match count without him, and his
+lines against Tour De Force kill rounds, counting a line outside one
+unverifiable, not false. Whether Riot's count holds other uncounted
+activations is unknown.
+
 ## Next step
 
 Align each record to its capture by fitting one offset from the

@@ -694,7 +694,8 @@ def _fill_change(slot: str, sp: dict, sj: dict, phase: str):
 #: The audio witness's fields an `audio` claim carries as evidence.
 AUDIO_FIELDS = ("best", "score", "runner_up", "runner_up_score", "margin", "threshold",
                 "reason", "verdict", "scores", "slot_referenced", "params_version",
-                "best_ref", "margin_ref", "p_right", "p_right_reason", "calibration_basis")
+                "best_ref", "margin_ref", "p_right", "p_right_reason", "calibration_basis",
+                "phase")
 #: The audio witness's window opens this long before the drop (ms).
 PRE_MS = 2000.0
 
