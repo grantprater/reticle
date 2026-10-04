@@ -355,7 +355,23 @@ PING_VERSION = "ping-0.1.0"
 # `search` `prior`, its `rests_on` and its reason.
 # 0.9.3: a prior-searched fit whose local grid keeps the prior's pose refines
 # from a finer compass step (ICON_POSE_PRIOR_VERSION 0.4.0).
-ALLY_ICON_VERSION = "ally-icon-0.9.3"
+# 0.11.0 (2026-10-04), merging two branches that each bumped 0.9.3 (stack-fit's
+# 0.10.0 and game-spike's 0.9.4, neither stored): where the self icon is seen,
+# the stored roster's capacity (`round_lifetimes.ally_capacity`) exceeds the
+# frame's ring-fit teammates, and a window of teal holds more than one teammate
+# draws, the stacked-icon search (`stack_fit`, STACK_FIT_VERSION) fits that
+# window; each member is a candidate of channel `stack`, and `ally_decisions`
+# (minimap-icon-decision-0.3.0) accepts a member the ring fits do not already
+# hold, up to the capacity, as an ally icon with `origin` `stack_fit`. Frame rows
+# carry `stack_reason`; ring-fit rows and their observation keys are unchanged.
+# The spike glyph step (`spike.glyph_fits`, SPIKE_VERSION 0.3.0) draws the
+# game's Minimap_BombIcon texture, so on-glyph flags may move.
+ALLY_ICON_VERSION = "ally-icon-0.11.0"
+# The stacked teammate icon search (`stack_fit`), ported from
+# `prototypes/stack_fit.py` 0.2.0. 0.3.0: numpy in place of torch, the icons
+# drawn at `ICON_ALPHA` instead of opaque, windows scored on each pose's
+# covered pixels.
+STACK_FIT_VERSION = "stack-fit-0.3.0"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.
@@ -598,7 +614,12 @@ ABILITY_AUDIO_VERSION = "ability-audio-0.3.0"
 # 0.2.2: 0.2.1's arrays byte for byte, and per agent the margin calibration
 # fitted on its dev casts (`ability_audio.calibrate`, `reticle
 # ability-audio-fit --calibrate`).
-ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.2"
+# 0.2.3: Skye's Guide_AbilE_ScoutExpire_3P is Trailblazer's end-phase sound
+# (player and game data, 2026-10-04), left out of the cast-window references
+# (`ability_audio_fit.END_PHASE_LEFT_OUT`); the Guiding Light map is gone.
+# 0.2.4: 0.2.3's arrays byte for byte with the margin calibration fitted on
+# its dev casts.
+ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.4"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the
@@ -613,7 +634,9 @@ ULT_LINE_VERSION = "ult-line-0.2.0"
 # 0.2.0: `tray_witness` on own casts and `missed_line` rows.
 # 0.3.0: bursts under BURST_BOUND refused; peaks under THRESHOLD accepted only
 # with a tray or ult-kill witness (`rests_on`).
-ULT_CAST_VERSION = "ult-cast-0.3.0"
+# 0.4.0: a burst counts every stored peak at or above BURST_FLOOR, not only the
+# selected ones; the coverage row states `vo_heard`.
+ULT_CAST_VERSION = "ult-cast-0.4.0"
 # Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or
@@ -729,7 +752,14 @@ ROSTER_SPLIT_VERSION = "roster-split-0.4.0"
 # 180) arrives in the baked frame with its upright glyph upside down; the
 # glyph's state and the carrier's offset turn with the placement's rotation,
 # which each frame row stores. Unturned sessions read the same fits.
-SPIKE_VERSION = "spike-0.2.0"
+# 0.3.0 (2026-10-03): the glyph is drawn from the game's texture
+# Minimap_BombIcon (build release-13.06-shipping-18-5590001, sha256 checked
+# against the store manifest) in place of the hand-drawn triangle: 24 units
+# dropped and 18 carried, times the measured box fractions, times the capture's
+# map scale (`geometry.MapScale`); centres refine sub-pixel, and the session
+# head stores `map_scale` and `game_textures`. The roster marker keeps its
+# mined template (`spike.TEMPLATE_FILE` says why).
+SPIKE_VERSION = "spike-0.3.0"
 # The spike's carrier and state cross-checked from stored `spike` rows, the
 # rounds table and the roster (`adjudication.spike_carrier`): the roster
 # marker against the minimap carried glyph, the carrier against the plant, a

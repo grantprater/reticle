@@ -30,6 +30,9 @@ Four checks, and each is a fault this repo has actually had
    module depending on something with no version stamp and no tests is the
    fault `doctor`'s own docstring claims is protected, and
    `ability_timeline.materialize_demo_casts` has been violating it unreported.
+   A `sys.path` change or an `importlib` load naming the tree is an ERROR
+   for every module but a declared auditor (`trees.auditor`); `trees.allow`
+   excuses only plain imports, and reports each one on every run.
 
 Why layers and not edges
 ------------------------
@@ -161,6 +164,89 @@ def foreign_imports(path: Path, tree_name: str = "prototypes",
                 head = alias.name.split(".")[0]
                 if head == tree_name or head in stems:
                     out.append((alias.name, node.lineno))
+    out.extend(foreign_loads(path, tree_name, stems, parsed))
+    return sorted(out, key=lambda c: c[1])
+
+
+#: Calls that load code by path or by a name held in a string: `importlib`'s
+#: and `runpy`'s entry points, the file loader, `site` and the builtin.
+_LOADERS = frozenset({"import_module", "spec_from_file_location", "run_path",
+                      "run_module", "SourceFileLoader", "addsitedir",
+                      "__import__"})
+#: `sys.path` methods that change where a bare import resolves.
+_PATH_MUTATORS = frozenset({"insert", "append", "extend"})
+
+
+def _strings(node: ast.AST) -> list[str]:
+    return [n.value for n in ast.walk(node)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+
+
+def _is_sys_path(node: ast.AST) -> bool:
+    return (isinstance(node, ast.Attribute) and node.attr == "path"
+            and isinstance(node.value, ast.Name) and node.value.id == "sys")
+
+
+def _callee(func: ast.AST) -> str:
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return func.id if isinstance(func, ast.Name) else ""
+
+
+def foreign_loads(path: Path, tree_name: str = "prototypes",
+                  stems: frozenset[str] | None = None,
+                  parsed: ast.Module | None = None) -> list[tuple[str, int]]:
+    """`(description, lineno)` for every reach into the other tree that no
+    import statement shows: a `sys.path` change naming the tree, and an
+    `importlib`, `runpy`, `site` or `__import__` load naming the tree or one
+    of its modules.
+
+    `lineup._composition` reached `prototypes/` this way, and the LAYER check
+    stayed silent because `lineup` sat in `trees.allow`, which waved through
+    every crossing a module made. The insert is the part that makes ANY later
+    bare import resolve into the other tree, so `verify` judges these apart
+    from plain imports, and `trees.allow` does not cover them.
+
+    A string matches when it names the tree as a path part (`root /
+    "prototypes"`, `"prototypes/x.py"`), as a dotted head, or is one of the
+    tree's module names. A path built from no string constant is beyond a
+    static check.
+    """
+    parsed = parsed if parsed is not None else _parse_source(path)
+    if parsed is None:
+        return []
+    if stems is None:
+        stems = frozenset(p.stem for p in (ROOT / tree_name).glob("*.py"))
+
+    def path_part(text: str) -> bool:
+        return tree_name in text.replace("\\", "/").split("/")
+
+    def names_tree(text: str) -> bool:
+        return path_part(text) or text.split(".")[0] in (stems | {tree_name})
+
+    out: list[tuple[str, int]] = []
+    for node in ast.walk(parsed):
+        if isinstance(node, ast.Call):
+            func = node.func
+            args = list(node.args) + [k.value for k in node.keywords]
+            texts = [t for a in args for t in _strings(a)]
+            if (isinstance(func, ast.Attribute) and _is_sys_path(func.value)
+                    and func.attr in _PATH_MUTATORS):
+                hit = [t for t in texts if path_part(t)]
+                if hit:
+                    out.append((f"sys.path.{func.attr}({hit[0]!r})", node.lineno))
+            elif _callee(func) in _LOADERS:
+                hit = [t for t in texts if names_tree(t)]
+                if hit:
+                    out.append((f"{_callee(func)}({hit[0]!r})", node.lineno))
+        elif isinstance(node, (ast.Assign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            touches = any(_is_sys_path(t) or (isinstance(t, ast.Subscript)
+                                              and _is_sys_path(t.value))
+                          for t in targets)
+            hit = [t for t in _strings(node.value) if path_part(t)]
+            if touches and hit:
+                out.append((f"sys.path assignment ({hit[0]!r})", node.lineno))
     return out
 
 
@@ -244,6 +330,7 @@ def verify(data: dict | None = None,
                             f"delete the exception"))
 
     trees = data.get("trees", {})
+    auditors = set(trees.get("auditor", []))
     allowed = set(trees.get("allow", []))
     seen_allowed: set[str] = set()
     # Resolve the other tree's module names against the root being VERIFIED,
@@ -254,14 +341,35 @@ def verify(data: dict | None = None,
         crossings = foreign_imports(paths[module], stems=stems, parsed=parsed[module])
         if not crossings:
             continue
-        if module in allowed:
+        file = f"reticle/{module.replace('.', '/')}.py"
+        if module in auditors:
             seen_allowed.add(module)
             continue
-        where = ", ".join(f"{name} (line {line})" for name, line in crossings)
-        out.append(("ERROR", f"`reticle/{module.replace('.', '/')}.py` imports "
+        loads = foreign_loads(paths[module], stems=stems, parsed=parsed[module])
+        if loads:
+            # A path change or a load by string is never allowed: it makes
+            # every later bare import resolve into the other tree.
+            where = ", ".join(f"{name} (line {line})" for name, line in loads)
+            out.append(("ERROR", f"`{file}` loads the prototypes tree by path "
+                                 f"or by string -- {where}. reticle/ must not "
+                                 f"depend on it; trees.allow does not cover "
+                                 f"this spelling."))
+        plain = [c for c in crossings if c not in set(loads)]
+        if not plain:
+            continue
+        where = ", ".join(f"{name} (line {line})" for name, line in plain)
+        if module in allowed:
+            # Allowed is unfinished, not blessed: report it every run, as a
+            # dated consumer exemption is, so the allowance cannot go quiet.
+            seen_allowed.add(module)
+            out.append(("WARN", f"`{file}` imports the prototypes tree -- "
+                                f"{where}; trees.allow lets it until the code "
+                                f"is promoted"))
+            continue
+        out.append(("ERROR", f"`{file}` imports "
                              f"the prototypes tree -- {where}. reticle/ must "
                              f"not depend on it."))
-    for module in sorted(allowed - seen_allowed):
+    for module in sorted((allowed | auditors) - seen_allowed):
         out.append(("WARN", f"architecture.toml allows `{module}` to import "
                             f"prototypes/ and it no longer does -- delete it "
                             f"from trees.allow"))
