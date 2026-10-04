@@ -23,6 +23,67 @@ class WindowTest(unittest.TestCase):
             np.testing.assert_array_equal(got, np.array(want, np.float32))
 
 
+class ClippedWindowTest(unittest.TestCase):
+    def test_a_window_stops_at_the_midpoint_to_each_neighbouring_cast(self):
+        lo, hi = aa.clip_bounds([1000, 1000, 5000], [1000, 1001, 1200, 4000, 5000], 200, 300)
+        # 1001 is the cast itself; 1200 cuts at 1100; 5000 has 4000 before it.
+        np.testing.assert_array_equal(lo, [800, 800, 4800])
+        np.testing.assert_array_equal(hi, [1100, 1100, 5300])
+        lo, hi = aa.clip_bounds([1000, 4600], [], 200, 300)
+        np.testing.assert_array_equal(lo, [800, 4400])
+        np.testing.assert_array_equal(hi, [1300, 4900])
+        lo, hi = aa.clip_bounds([1000], [997, 1002], 200, 300)
+        self.assertEqual((int(lo[0]), int(hi[0])), (999, 1001))   # a lone frame window
+
+    def test_the_range_maximum_matches_a_brute_force_scan(self):
+        rng = np.random.default_rng(7)
+        t = rng.normal(size=500).astype(np.float32)
+        lo = np.array([0, 10, 490, 100, 50, -5])
+        hi = np.array([5, 11, 520, 300, 60, 3])
+        want = [t[max(a, 0):min(b, len(t))].max() for a, b in zip(lo, hi)]
+        np.testing.assert_array_equal(aa.range_max(t, lo, hi), np.array(want, np.float32))
+
+    def test_without_neighbours_the_scores_are_the_fixed_window(self):
+        rng = np.random.default_rng(8)
+        tracks = {"C": rng.normal(size=2000).astype(np.float32),
+                  "Q": rng.normal(size=2000).astype(np.float32)}
+        f = [300, 900, 1500]
+        np.testing.assert_array_equal(aa.cast_scores(tracks, f, ["C", "Q"]),
+                                      aa.cast_scores(tracks, f, ["C", "Q"], neighbours=[]))
+        tracks["C"][:] = 0
+        tracks["C"][1000] = 9.0
+        got = aa.cast_scores(tracks, [900], ["C", "Q"], neighbours=[900, 1100])
+        self.assertLess(got[0, 0], 9.0)    # the next cast's sound is not this cast's
+        got = aa.cast_scores(tracks, [900], ["C", "Q"], neighbours=[900])
+        self.assertEqual(got[0, 0], 9.0)
+
+
+class SplitAndReferenceRuleTest(unittest.TestCase):
+    def test_the_split_alternates_sorted_sessions_and_halves_a_lone_one(self):
+        got = aa.split_sessions({"Sova": ["d", "b", "a", "c", "e"], "Iso": ["z"]})
+        self.assertEqual(got["Sova"], {"dev": ["a", "c", "e"], "held": ["b", "d"]})
+        self.assertEqual(got["Iso"], {"dev": ["z:first"], "held": ["z:second"]})
+
+    def test_a_file_whose_event_two_abilities_play_is_shared(self):
+        plays = {"Hunter|Play_Mvt_A": {"Q", "4"}, "Hunter|Play_Circle": {"Q"}}
+        keep = aa.shared_reference_mask([["Hunter|Play_Circle"], ["Hunter|Play_Mvt_A"],
+                                         [], ["Hunter|Play_Circle", "Hunter|Play_Mvt_A"]], plays)
+        np.testing.assert_array_equal(keep, [True, False, True, False])
+
+    def test_the_pooled_whitener_never_pairs_frames_across_sessions(self):
+        from scipy.signal import lfilter
+        rng = np.random.default_rng(9)
+        sessions = []
+        for k in range(3):
+            y = lfilter([1.0], [1.0, -0.8, 0.1], rng.normal(size=(20000, 3)), axis=0)
+            bg = np.ones(len(y), bool)
+            bg[::500] = False
+            sessions.append((y.astype(np.float32), bg))
+        W = aa.fit_whitener(iter(sessions))
+        np.testing.assert_allclose(W["ar"], [0.8, -0.1], atol=0.03)
+        self.assertEqual(W["bg_frames"], sum(int(b.sum()) for _y, b in sessions))
+
+
 class IdentifyTest(unittest.TestCase):
     CLASSES = ["C", "Q", "E", aa.NONE]
     THR = {"C": 1.5, "Q": 1.5, "E": 1.5}
