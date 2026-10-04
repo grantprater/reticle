@@ -44,8 +44,8 @@ new capture's record promptly.
 
 All 22 match captures have their match-details record saved in the store
 under `external/riot/` (a store path, not the repository): 22 files,
-[metric:riot_economy/team_rounds#kills=3459] kills in all (an earlier count here, 3,532, does not
-reproduce). [metric:riot_economy/team_rounds#competitive_matches=20] are competitive and
+[metric:riot_economy/team_rounds#kills=3459] kill events in all, [metric:riot_economy/team_rounds#spike_kills=12] of them spike deaths (an earlier count here,
+3,532, does not reproduce). [metric:riot_economy/team_rounds#competitive_matches=20] are competitive and
 [metric:riot_economy/team_rounds#unrated_matches=2] unrated (0f08b3dc3777 and b3b9defb6fd7). Each file names its session in `probe.session_id`; the store is
 the index, and match IDs stay out of this repository.
 
@@ -62,12 +62,14 @@ not the buy phase; unconfirmed until aligned.
 ult points), `round_phase`, and the player's own health and abilities. No
 positions and no in-round time; `spike_planted` was removed on 2025-01-30.
 
-**In-game Replays.** Since patch 11.06 the client keeps Replays of the
-player's own matches and plays them back, with every enemy shown; each patch
-wipes them. They are local files: 15 `.vrf` files sit in
-`%LOCALAPPDATA%\VALORANT\Saved\Demos` (counted 2026-10-04). Whether Reticle
-can read a `.vrf` directly is under test; a capture of a Replay's playback is
-readable like any other capture.
+**In-game Replays.** Wiped each patch. They are local files: 15 `.vrf` files
+sit in `%LOCALAPPDATA%\VALORANT\Saved\Demos` (counted 2026-10-04). Reticle can
+read them: the payloads are compressed, not encrypted, and uncompressed event
+chunks carry deaths, plants, defuses and round starts. In b03fecd3 the
+replay's 180 deaths pair one to one, in time order, with Riot's 180 kills. The
+evidence is the store's `notes/predictions.jsonl` outcome rows for
+`replay-vrf-probe-20261004` and `replay-vrf-verify-20261004`; the format's
+facts belong in `domain/*.toml`.
 
 **HenrikDev's unofficial API.** It mirrors Riot's match schema. Whether it
 still serves the corpus's past matches is unconfirmed.

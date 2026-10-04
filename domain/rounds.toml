@@ -255,8 +255,8 @@ round's wallet is `remaining + spent`, compared per team. With 300, the replay r
 [metric:riot_economy/team_rounds#regular_n=816] regular team-rounds, carrying [metric:riot_economy/team_rounds#ok_plant_payments=1310]
 plant payments; with 200 it reproduces [metric:riot_economy/team_rounds#plant_200_regular_ok=553]. The
 records hold [metric:riot_economy/team_rounds#post_round_plants=25] post-round plants among
-[metric:riot_economy/team_rounds#plant_rounds=292] plant rounds. The player, 2026-10-04 (chat), accepted the
-revision.
+[metric:riot_economy/team_rounds#plant_rounds=292] plant rounds. The player, 2026-10-04 (chat), asked "plant reward 300" as the
+third of eleven numbered questions, answered "3. Yes".
 """
 use = """
 scoreboard credits can witness a plant: each attacker's credits rise by this
@@ -321,13 +321,17 @@ see = ["rounds/plant-credits", "rounds/credit-ledger-rules"]
 
 [credit-ledger-rules]
 claim = """
-A player's credits change only by the reset banks, round rewards, kill
-rewards, plant rewards and purchases, under one cap. Each rule has its own
-table: [domain:rounds/pistol-round-bank], [domain:rounds/halftime-credit-reset],
-[domain:rounds/overtime-bank], [domain:rounds/loss-ladder],
-[domain:rounds/survival-loss-reward], [domain:rounds/defuse-reward],
-[domain:rounds/credit-cap], [domain:rounds/plant-credits],
-[domain:rounds/afk-round-reward] and [domain:rounds/leaver-compensation].
+A team's credits follow the reset banks, round rewards, kill rewards, plant
+rewards and purchases, under one cap: [domain:rounds/pistol-round-bank],
+[domain:rounds/halftime-credit-reset], [domain:rounds/overtime-bank],
+[domain:rounds/loss-ladder], [domain:rounds/survival-loss-reward],
+[domain:rounds/defuse-reward], [domain:rounds/credit-cap] and
+[domain:rounds/plant-credits]. Two more paths move credits outside these
+rules, and the ledger does not model them: an AFK round's withheld reward
+goes to teammates [domain:rounds/afk-round-reward], and an abandon brings
+leaver compensation [domain:rounds/leaver-compensation]. One player's
+`remaining + spent` can exceed the cap, so the rules are checked on team
+totals, not on each wallet.
 """
 kind = "rule"
 known = "observed"
@@ -516,15 +520,15 @@ see = ["rounds/leaver-compensation", "rounds/credit-ledger-rules"]
 
 [leaver-compensation]
 claim = """
-A player who abandons the match triggers leaver compensation for the remaining
-team. How it pays credits is unknown.
+When a player abandons the match there is leaver compensation. How it pays
+credits is unknown.
 """
 kind = "rule"
 known = "player"
 since = "2026-10-04"
 source = """
-the player, 2026-10-04 (chat); the player does not recall how the credits work.
-No stored Riot record holds an abandon: [metric:riot_economy/team_rounds#players_multi_period=0] players
+the player, 2026-10-04 (chat): "If they've abandoned the game there is leaver
+compensation, I don't recall how they get credits". No stored Riot record holds an abandon: [metric:riot_economy/team_rounds#players_multi_period=0] players
 carry a second participation period and [metric:riot_economy/team_rounds#players_short_rounds=0] played
 fewer rounds than their match's other players, so the credit mechanics stay
 unmeasured
