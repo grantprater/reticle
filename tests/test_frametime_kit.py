@@ -1,0 +1,106 @@
+"""The frame-time kit's pure rules on synthetic data: the PresentMon reader
+and decision table (`prototypes/frametime_results.py`) and the live-load
+harness's schedule (`prototypes/live_load.py`)."""
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
+import frametime_results as fr  # noqa: E402
+import live_load as ll  # noqa: E402
+
+
+def _csv(path: Path, ms: list[float], col: str = "MsBetweenPresents",
+         extra_app: bool = True, extra_chain: bool = False) -> None:
+    rows = [f"Application,ProcessID,SwapChainAddress,{col}"]
+    rows += [f"{fr.GAME},1,0xA,{m}" for m in ms]
+    if extra_app:
+        rows += ["obs64.exe,2,0xB,1.0"] * 50
+    if extra_chain:
+        rows += [f"{fr.GAME},1,0xC,99.0"] * 3
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+class ReaderTest(unittest.TestCase):
+    def test_keeps_the_games_main_swapchain_and_reads_either_column(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "01_base.csv"
+            _csv(p, [5.0] * 100, extra_chain=True)
+            ft, col, note = fr.frame_times(p)
+            self.assertEqual((len(ft), col), (100, "MsBetweenPresents"))
+            self.assertEqual((note["other_apps"], note["other_swapchains"]), (50, 3))
+            _csv(p, [4.0] * 10, col="FrameTime")
+            ft, col, _ = fr.frame_times(p)
+            self.assertEqual((len(ft), col), (10, "FrameTime"))
+
+    def test_summary_fixes_the_definitions(self):
+        ft = np.r_[np.full(990, 5.0), np.full(10, 20.0)]
+        s = fr.summary(ft)
+        self.assertEqual(s["fps_median"], 200.0)
+        self.assertEqual(s["p99_ms"], 5.0 + 0.01 * 15.0 * 1)      # numpy's linear p99
+        self.assertAlmostEqual(s["fps_low1"], 1000.0 / s["p99_ms"], places=1)
+
+
+class DecideTest(unittest.TestCase):
+    def _arms(self, d: Path, fps: dict, pace=None):
+        k = 1
+        for arm, values in fps.items():
+            for v in values:
+                p = d / f"{k:02d}_{arm}.csv"
+                _csv(p, list(np.full(500, 1000.0 / v)))
+                if pace is not None and arm in pace:
+                    p.with_name(p.stem + ".load.json").write_text(json.dumps({"pace": pace[arm]}))
+                k += 1
+        return fr.collect_arms(d)
+
+    def test_highest_level_within_budget_is_chosen(self):
+        with tempfile.TemporaryDirectory() as d:
+            arms = self._arms(Path(d), {"base": [200, 198], "obs": [180, 180],
+                                        "light": [175, 175], "medium": [165, 165],
+                                        "full": [150, 150]})
+            dec = fr.decide(arms)
+            self.assertTrue(dec["rows"]["light"]["passes"])
+            self.assertTrue(dec["rows"]["medium"]["passes"])        # 1 - 165/199 = 17%
+            self.assertFalse(dec["rows"]["full"]["passes"])         # 25%
+            self.assertEqual(dec["chosen"], "medium")
+            self.assertIn("medium", dec["verdict"])
+
+    def test_a_harness_that_fell_behind_fails_and_drift_undecides(self):
+        with tempfile.TemporaryDirectory() as d:
+            arms = self._arms(Path(d), {"base": [200, 200], "light": [190, 190]},
+                              pace={"light": 0.5})
+            dec = fr.decide(arms)
+            self.assertFalse(dec["rows"]["light"]["passes"])
+            self.assertIn("fell behind", dec["rows"]["light"]["why"])
+        with tempfile.TemporaryDirectory() as d:
+            arms = self._arms(Path(d), {"base": [200, 180], "light": [190, 190]})
+            self.assertTrue(fr.decide(arms)["verdict"].startswith("undecided"))
+
+
+class ScheduleTest(unittest.TestCase):
+    def test_each_reader_reads_its_own_grid_inside_the_window(self):
+        t15 = np.arange(0.0, 10000.0, 1000.0 / 15)
+        t2 = np.arange(0.0, 10000.0, 500.0)
+        caches = {"hud": SimpleNamespace(t_ms=t2, record={}),
+                  "minimap": SimpleNamespace(t_ms=t15, record={"spans": [[0.0, 4000.0]]})}
+        readers = {"hud": SimpleNamespace(hz=2.0), "ally_icon": SimpleNamespace(hz=5.0)}
+        ev = ll.schedule(caches, readers, 1000.0, 6000.0, {}, with_audio=True)
+        hud = [t for t, s, w in ev if s == "hud"]
+        ally = [t for t, s, w in ev if s == "minimap"]
+        self.assertEqual(len(hud), 11)                      # 1.0 .. 6.0 s at 2 Hz
+        self.assertTrue(all(1000.0 <= t <= 4000.0 for t in ally))   # the cached span only
+        # 3 s at 5 Hz from 1.0 s; the last cached time falls just short of 4.0 s.
+        self.assertEqual(len(ally), 15)
+        self.assertEqual([w for t, s, w in ev if s == "audio"], [["0.0:4000.0"]])
+        self.assertEqual([t for t, *_ in ev], sorted(t for t, *_ in ev))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -48,6 +48,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | A figure quoted in prose, and the run behind it | `reticle/quoted.py`, `reticle/metrics.py` |
 | Which documents are live, their status, and what reaches them | `documents.toml`, `reticle/documents.py`, `doctor` DOCS |
 | VOD scan cost and reader call frequencies | `reticle usage [SESSION]`, `reticle/usage.py` |
+| What live analysis costs the game's frame rate | [FRAMETIME_PROTOCOL.md](FRAMETIME_PROTOCOL.md), `prototypes/live_load.py`, `prototypes/frametime_results.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Riot match records | `prototypes/riot_ground_truth.py SESSION\|--all` |
 | Experiments | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
