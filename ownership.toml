@@ -1249,7 +1249,8 @@ role = ["attribute", "adjudicate"]
 status = "partial"
 names_agents = true
 produces = ["adjudicate", "read_sample", "candidate_sets", "stored_kit_witness",
-            "spectated_agent", "CHANNEL", "PLAYER_FIT_MIN", "KIT_FIT_MIN", "MARGIN_MIN",
+            "spectated_agent", "kit_transitions", "kit_agents_at", "same_agent",
+            "KIT_LOOKBACK_MS", "KIT_LOOKAHEAD_MS", "CHANNEL", "PLAYER_FIT_MIN", "KIT_FIT_MIN", "MARGIN_MIN",
             "SLOT_READ_MIN", "MIN_READ_SLOTS", "MIN_RUN", "REFUSALS"]
 not_for = """
 Deciding a death or a cast. A kit change says only that the tray stopped

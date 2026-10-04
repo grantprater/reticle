@@ -203,6 +203,9 @@ STOOD_FOR = {
     "no_round": ("none", "unreadable: outside every round"),
     "after_player_death": ("none", "kit frozen: the tray shows no kit of the player's"),
     "after_kit_change": ("none", "kit frozen: the tray's icons show another agent's kit"),
+    "kit_not_player": ("none", "the tray's icons at the drop show another agent's kit"),
+    "kit_owner_unresolved": ("unresolved", "the tray's icons name a kit, and the arbiter "
+                                           "names no player agent to call it the player's"),
     "phase:buy_phase": ("unresolved", "the buy phase: a fall the gate does not read as a cast"),
     "phase": ("none", "unreadable: a phase whose tray is not the player's kit"),
     "forced": ("none", "unreadable: the tray is not drawn on the drop's sample"),

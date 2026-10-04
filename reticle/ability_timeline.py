@@ -165,7 +165,7 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                       player_deaths_ms: list[float], *, agent: str | None = None,
                       second_lives_ms=(), revives_ms=(),
                       report_deaths: dict | None = None, kit_changes_ms=(),
-                      kit_returns_ms=(), menu_at=None) -> list[dict]:
+                      kit_returns_ms=(), menu_at=None, kit_spans=None) -> list[dict]:
     """Which of a session's tray drops (`tray.drops`) are the local player's casts.
 
     The tray shows the player's kit only while the player lives; afterwards it
@@ -220,6 +220,20 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     sessions of docs/TRAY_KIT_WITNESS.md the `forced` and co-occurrence tests
     refused every one, so the change needs no lead.
 
+    The change alone misses a drop under another agent's kit where the round
+    shows no span of the player's kit before it, and on `4f207c0c4e39` the
+    stored rows named no player agent, so no change was stored at all: 28 of
+    52 drops the gate passed fell under a teammate's kit. So the gate also
+    reads the kit at each drop. `kit_spans` are the spans the arbiter named
+    (`adjudication.tray_kit.stored_kit_witness`); `tray_kit.kit_agents_at`
+    names the kit the tray showed at the drop. A drop under a named kit is
+    `kit_not_player` where that kit is not `agent`'s, and
+    `kit_owner_unresolved` where the arbiter names no player agent, since no
+    kit can then be called the player's. A drop under no named span passes
+    this test. `kit_spans` None (no current `tray_kit` rows) applies no test.
+    Both names are tested after `after_kit_change`, and each row carries the
+    `kit_agent` read at its drop.
+
     The menu is refused before every other test. Opening it dims the whole
     tray, which reads as a fall on every slot at one instant
     [domain:hud/menu-dims-tray]. `menu_at(t_ms)` is the stored menu witness
@@ -258,7 +272,8 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
 
     Every test names its refusal, and a drop keeps the first that refuses it,
     in this order: `menu_open`, `no_rounds`, `no_round`, `after_player_death`,
-    `after_kit_change`, `phase:<name>`, `forced` or `cooccur_among_casts`,
+    `after_kit_change`, `kit_not_player` or `kit_owner_unresolved`,
+    `phase:<name>`, `forced` or `cooccur_among_casts`,
     `partial_charge`, `pips_lit`, `equip_release`.
 
     *Full* is read from the drop's own `from`: the slot's teal count on the
@@ -430,15 +445,19 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     if rounds is None:
         return [{**d, "phase": None, "round_ms": None, "first_player_death_ms": None,
                  "kit_end_ms": None, "undone_deaths": [], "kit_change_ms": None,
+                 "kit_agent": None,
                  "reason": "menu_open" if covered(d["t_ms"]) else "no_rounds",
                  "player_cast": False} for d in drops]
+    from .adjudication.tray_kit import kit_agents_at, same_agent
     ends = {r["t_end_ms"] for r in rounds}
     deaths = [{"t_first": x} for x in player_deaths_ms]
     kits = kit_windows(rounds, player_deaths_ms, agent=agent, second_lives_ms=second_lives_ms,
                        revives_ms=revives_ms, report_deaths=report_deaths,
                        kit_changes_ms=kit_changes_ms, kit_returns_ms=kit_returns_ms)
+    seen_at = (kit_agents_at([d["t_ms"] for d in drops], kit_spans) if kit_spans is not None
+               else [None] * len(drops))
     rows = []
-    for d in drops:
+    for d, seen in zip(drops, seen_at):
         t = d["t_ms"]
         k = round_window_of(t, kits)
         rnd = k["window"] if k else None
@@ -452,8 +471,10 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                   else "after_player_death" if end is not None and t >= end - DEATH_LEAD_MS
                   else "after_kit_change" if (change is not None and t >= change
                                               and (back is None or t < back))
+                  else "kit_owner_unresolved" if seen is not None and agent is None
+                  else "kit_not_player" if same_agent(seen, agent) is False
                   else None if phase in CAST_PHASES else f"phase:{phase}")
-        rows.append({**d, "phase": phase,
+        rows.append({**d, "phase": phase, "kit_agent": seen,
                      "round_ms": None if rnd is None else [float(rnd[0]), float(rnd[2])],
                      "first_player_death_ms": first, "kit_end_ms": end,
                      "undone_deaths": undone, "kit_change_ms": change, "reason": reason})
@@ -482,10 +503,12 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     (`adjudication.death.stored_second_life`). Revives are the player's own
     revive entries among the stored `death` verdicts. The report's death
     counts are the stored `combat_report_round` rows where a report was read.
-    The kit changes are the stored `tray_kit` rows
+    The kit changes and the named kit spans are the stored `tray_kit` rows
     (`adjudication.tray_kit.stored_kit_witness`), used only where they are
-    current and name the same player agent; otherwise the list is empty and
-    the stamp says why. The menu witness is the stored `menu_open` rows
+    current, with own and other judged against `agent`; otherwise the lists
+    are empty, `kit_spans` is None, and the stamp says why. Without an
+    `agent` the spans are still handed on, so the gate refuses a drop under
+    a named kit as `kit_owner_unresolved`. The menu witness is the stored `menu_open` rows
     (`menu.stored_menu`), used only where current; otherwise `menu_at` is None
     and the stamp says why.
     """
@@ -521,6 +544,8 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     kit = stored_kit_witness(store.read_events("tray_kit", session_id), agent=agent)
     inputs["kit_changes_ms"] = kit["kit_changes_ms"]
     inputs["kit_returns_ms"] = kit["kit_returns_ms"]
+    inputs["kit_spans"] = (kit["spans"] if kit["reason"] in (None, "no_player_agent")
+                           else None)
     menu, menu_stamp = stored_menu(store, session_id)
     inputs["menu_at"] = menu.at if menu is not None else None
     # Each stored input's own stamp, read from its first row (`no_rows` where
@@ -536,6 +561,7 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
               "combat_report_round": event_stamp(store, "combat_report_round", session_id,
                                                  "combat_report_round_version"),
               "tray_kit": kit["version"] or NO_ROWS, "tray_kit_reason": kit["reason"],
+              "tray_kit_own_basis": kit["own_basis"],
               "menu_open": menu_stamp}
     return inputs, stamps
 
