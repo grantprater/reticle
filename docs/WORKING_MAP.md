@@ -47,6 +47,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | VOD scan cost and reader call frequencies | `reticle usage [SESSION]`, `reticle/usage.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Riot match records | `prototypes/riot_ground_truth.py SESSION\|--all` |
+| Player-run Riot record fetch | [MATCH_FETCH_KIT.md](MATCH_FETCH_KIT.md) |
 | Experiments | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
 | The scene model (render-and-compare) | [SCENE_MODEL.md](SCENE_MODEL.md) |
 | Events consumers read | [ENTITY_EVENTS.md](ENTITY_EVENTS.md) |

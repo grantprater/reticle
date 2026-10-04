@@ -56,7 +56,7 @@ GONE_S = 1.0
 MIN_LIFE_S = 1.0
 #: A gap between stored rows longer than this many sample periods is unobserved
 #: time, the rule `adjudication.phases` applies to its own traces. The scan
-#: samples only active spans, and a span that ended mid-smoke read as its end.
+#: samples only in-match spans, and a span that ended mid-smoke read as its end.
 MAX_GAP_PERIODS = 3.0
 
 

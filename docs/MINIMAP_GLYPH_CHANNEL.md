@@ -1,0 +1,739 @@
+# The minimap ability-glyph channel
+
+This plan wires the game's minimap ability textures into production as a
+channel that names the ability a minimap disc draws, and through the kit
+that holds it, the agent who cast it. It answers BACKLOG item 2(a). The
+evaluation it builds on is `prototypes/minimap_glyph_eval.py`
+(`minimap-glyph-eval-0.2.0` on master, `0.3.0` on `killjoy-refs-20261004`;
+wire: no); the measurements it rests on are `prototypes/glyph_channel_cost.py`
+(`glyph-channel-cost-0.2.1`, wire: no), logged in the store's
+`notes/predictions.jsonl` as `glyph-wiring-design-20261004` W1-W13 (0.1.0)
+and G1-G4 (0.2.0), with the corrections and the stage 1 predictions of
+`glyph-wiring-design-fix-20261004`. The rules it obeys live in `AGENTS.md`;
+this document cites them and never restates them. Revised 2026-10-04 with
+the clean held-out score, the player's rotation answers, the two-flag
+rotation test and the cross-channel independence measurement
+(`cross-channel-independence-20261004`).
+
+## 1. What the measurements decide
+
+**The clean held-out score clears the bar.** On labels nobody tuned on
+(`minimap-heldout-score-20261004`, H1-H8), the prototype's follow named
+[metric:glyph_channel_cost/heldout_020#headline_follow_right=102] of
+[metric:glyph_channel_cost/heldout_020#headline_n=139] headline marks, the
+single frame [metric:glyph_channel_cost/heldout_020#headline_base_right=100],
+none refused. The Killjoy Alarmbot fix (eval 0.3.0, K5) left the headline at
+[metric:glyph_channel_cost/heldout_030#headline_follow_right=102] while the
+dev session went from
+[metric:glyph_channel_cost/heldout_020#dev_session_follow_right=15] to
+[metric:glyph_channel_cost/heldout_030#dev_session_follow_right=21] of
+[metric:glyph_channel_cost/heldout_030#dev_session_n=21]. With the player's
+Chamber correction (the marks re-answered Chamber:E) the headline is
+[metric:glyph_channel_cost/heldout_030#corrected_headline_follow_right=103];
+the player was re-asked only where the matcher disagreed, so the corrected
+score is biased upward and the uncorrected one stays the headline. The first
+recording of the corrected score wrote 102 (store `notes/metrics.jsonl`,
+the two `heldout_*` rows at 15:34:11); those rows stay, a correction row in
+`predictions.jsonl` names them, and the later rows carry the right value.
+The labels are now spent: no arm in this plan is chosen on them.
+
+**The misses are ontology, not pixels.** The headline confusions are led by
+Astra:E named Astra:Q
+([metric:glyph_channel_cost/heldout_020#astra_e_to_q=12] marks) and Omen:E
+named Omen:Q ([metric:glyph_channel_cost/heldout_020#omen_e_to_q=7]). The
+outcome row's provisional visual reading (store `notes/predictions.jsonl`,
+the `minimap-heldout-score-20261004` outcome) puts every Astra:E mark on a
+smoke disc, and most Omen:E marks on a smoke disc or a ring: shapes a glyph
+matcher cannot name and `minimap-dark` owns. So the Astra rule below fixes
+none of the held-out Astra misses, and the held-out confusions say nothing
+about how often the glyph will tie on Astra or Omen icons. The icons that do
+reach the glyph need rules from each ability's facts, not a better pixel
+pair [domain:abilities/ability-rules-are-unique]:
+
+- A placed Astra star is a pending ability, not yet a smoke, concuss or well;
+  which it becomes is read when it turns
+  [domain:abilities/astra-star-placed-then-turned]
+  [domain:abilities/astra-star-ally-minimap-glyph]. The star states on the
+  minimap are being recorded on `astra-star-states-20261004`
+  (`astra-star-minimap-states`, not yet in master).
+- Omen's Paranoia travels: it leaves his icon 0.5 s after the tray drop, is
+  40-70 px away by 1 s and gone by 2 s
+  [domain:abilities/omen-paranoia-minimap-icon]. A Dark Cover stays where
+  it lands: a target icon from 0.5 s, a grey disc from 2-4 s, seen to +8 s on
+  every census cast [domain:abilities/omen-dark-cover-minimap-phases]. Motion
+  and lifetime separate them; the glyph scores only break a tie the track
+  leaves. The fact's pixel distances were read on demo captures whose widget
+  scale it does not state, so the motion cut waits until that scale is
+  recorded (section 2, the Omen rule).
+
+This contradicts the first draft's P4, which expected ties on Skye and Sova.
+
+**The proposer finds most icons; it costs; the glyphs do not.** A proposer
+disc lay within 8 px x scale of
+[metric:glyph_channel_cost/heldout_020#found_raw=106] of
+[metric:glyph_channel_cost/heldout_020#icon_marks=143] headline icon marks.
+On 100 cached minimap frames of c40d950031bb
+(`C:\Users\grant\Videos\2026-08-24 18-27-17.mp4`, 331 px crop),
+`ability_icons.propose_icons` took
+[metric:glyph_channel_cost/cost@c40d950031bb#propose_ms=44.8] ms per frame
+(median), and scoring every proposed disc against the ally candidate set's
+glyphs, every rotation searched, took
+[metric:glyph_channel_cost/cost@c40d950031bb#bank_a_ms=3.4] ms. On
+a06f04a0059f (`C:\Users\grant\Videos\2026-08-26 09-56-37.mp4`, 465 px) the
+proposer took [metric:glyph_channel_cost/cost@a06f04a0059f#propose_ms=148.2]
+ms and the glyphs [metric:glyph_channel_cost/cost@a06f04a0059f#bank_a_ms=5.6]
+ms. The same bank on the GPU took
+[metric:glyph_channel_cost/cost@c40d950031bb#bank_a_gpu_ms=0.86] and
+[metric:glyph_channel_cost/cost@a06f04a0059f#bank_a_gpu_ms=0.75] ms.
+`ability_icons.verify_icons`, which rescores the previous frame's discs
+locally, took [metric:glyph_channel_cost/cost@c40d950031bb#verify_ms=1.06]
+and [metric:glyph_channel_cost/cost@a06f04a0059f#verify_ms=1.08] ms. The
+prototype's `follow` reruns the proposer on every cached frame for 3 s
+after each label; production must never do that.
+
+**A random-access crop read costs more than the glyphs.** Reading one
+cached minimap crop alone took
+[metric:glyph_channel_cost/births@c40d950031bb#read_ms=62.2] ms (median).
+The reader must ride a pass that already reads the crop cache in order,
+never fetch frames one at a time.
+
+**A shared threshold sits under the null.** All
+[metric:glyph_channel_cost/births@c40d950031bb#new_at_or_above=50] of the
+[metric:glyph_channel_cost/births@c40d950031bb#new=50] new discs at 2 Hz
+on c40d950031bb scored at least 0.4 against the ally set (median
+[metric:glyph_channel_cost/births@c40d950031bb#best_q50=0.626]). Against
+the labelled caster's kit, every rotation searched, a share
+[metric:glyph_channel_cost/null#not_at_or_above_04=0.9917] of the player's
+labelled non-ability discs scored at least 0.4 (median
+[metric:glyph_channel_cost/null#not_p50=0.543], 90th percentile
+[metric:glyph_channel_cost/null#not_p90=0.664]); labelled icons score a
+median [metric:glyph_channel_cost/null#pos_p50=0.875]. The follow's
+`ICON_SCORE` gate therefore admits every disc. A maximum over thousands of
+templates is high on noise. The null is the channel's open-set path: a disc
+whose best key does not clear that key's null, measured per bank and per
+key, refuses as `below_null` (no ability, or one outside the bank) and goes
+to the surprise path; nothing is named by elimination.
+
+**Rotation is per key; a game-data rule fits most answers, unproven.** The
+player answered the rotation questions on 2026-10-04
+(`labels/minimap_glyph_questions/answers.jsonl`, `rotation:*` rows):
+Cypher:E, Omen:E and Killjoy:Q turn; of Deadlock:Q the player said "I think
+it could be any angle but it is always normal to the wall"; Deadlock:C,
+Reyna:C, Skye:E, Skye:Q and Sova:C stay upright; Cypher:C and Skye:X are
+unsure. The Killjoy:Q answer was logged 8 s after prediction G1, about three
+minutes before the run. `bRotates` alone contradicts the answers (Reyna:C
+and Deadlock:C set it and stay upright). A hypothesis, not a domain fact,
+fits them better:
+
+> An icon turns iff its minimap component's `bRotates` XOR
+> `RotationSpace == AMRS_ConstantMinimap`; `RotationSource == AMRSRC_Upright`
+> forces upright; a component that sets none of the three (Skye's and
+> Sova's `Comp_Actor_AresFastMinimapPill`) stays upright.
+
+`glyph_channel_cost.py rotrule` read every minimap component of the raw
+ability-states export, merged down its class chain (the derived table
+`ability-states-gamedata-0.2.0` drops `RotationSource` and some targeting
+components), and joined
+[metric:glyph_channel_cost/rotation_rule#keys_with_component=45] catalogue
+keys by texture. Of [metric:glyph_channel_cost/rotation_rule#answers_sure=9]
+sure answers the rule agrees with
+[metric:glyph_channel_cost/rotation_rule#answers_agree=7]. The two it misses,
+Deadlock:Q and Omen:E, are mixed keys: their targeting or projectile
+component reads turns, and their placed object
+(`GameObject_StealthingTrap_SoundSensor`, `FXC_Wraith_4_ChargeMarker_Parent`)
+sets no flag and reads upright. Prediction G1 said 8 of 8, falsified at 6 or
+fewer; on those 8 answers the rule agrees with 6 (7 of 9 minus Killjoy:Q;
+correction row glyph-wiring-design-fix-20261004, ts
+2026-10-04T22:19:35.822601Z), so G1 failed on its own falsifier. The count
+with any one component deciding
+([metric:glyph_channel_cost/rotation_rule#answers_agree_some_component=9])
+is no evidence: a mixed key agrees with any answer. The rule was framed after
+8 of the 9 answers were seen; only Killjoy:Q tests it out of sample, and it
+agrees (1 of 1, the same correction row). The visible behaviour of both
+placed icons is answered: the sensor is normal to the wall (L349) and the
+Dark Cover marker turns (L350); the rotated sonic square seen on `sonic-square-20261004` agrees for the
+sensor. Which game component draws each placed icon is game-data work, not
+a question for the player.
+
+The dev fits agree where they can: on the right dev items of eval 0.3.0,
+[metric:glyph_channel_cost/rotation_rule#dev_rotates_near_zero=18] of
+[metric:glyph_channel_cost/rotation_rule#dev_rotates_items=55] items of
+rule-rotating keys fit within 15 deg of upright; Cypher's Trapwire and
+Killjoy's Alarmbot (Q_InActive: no `bRotates`, ConstantMinimap) fit far from
+upright (`rotrule.json`, `dev_angles`). Every near-upright fit is Cypher:E,
+which the player says turns: the dev cameras faced near north, or the glyph
+is near symmetric at that scale, so a dev fit near 0 proves nothing. No dev
+item falls on a rule-upright key, so G3's upright side is untested.
+
+Searched as a per-key policy (the rule's
+[metric:glyph_channel_cost/rotation_rule#rotating_keys=18] rotating keys,
+[metric:glyph_channel_cost/rotation_rule#mixed_keys=9] of them mixed,
+rotated; the rest upright), the single-frame matcher named
+[metric:glyph_channel_cost/rotation_rule#heldout_policy=174] of
+[metric:glyph_channel_cost/rotation#heldout_n=192] stored windows and
+[metric:glyph_channel_cost/rotation_rule#dev_policy=53] of
+[metric:glyph_channel_cost/rotation#dev_n=59] dev, against
+[metric:glyph_channel_cost/rotation#heldout_rotate_all=164] for rotating
+every key, [metric:glyph_channel_cost/rotation#heldout_gamedata_policy=155]
+for `bRotates` alone and
+[metric:glyph_channel_cost/rotation_rule#heldout_upright=157] upright (the
+control, reproduced exactly). Prediction G4 put the policy between the
+`bRotates`-only policy and rotate-all; it overshot that range and beat
+rotate-all, so G4 held only on its falsifier clause (no better than
+upright). The overshoot is a surprise, logged in the correction row; its
+cause is unmeasured (one candidate: upright keys searched at one rotation
+win less often on noise).
+These windows are contaminated: the matcher and the follow were chosen on
+them, and the player saw their crops before answering. They are also the
+eval 0.2.0 windows, not stage 1's. They size the design; they gate nothing.
+
+**Naming the caster is easier than naming the slot.** Widening the
+candidate set from the labelled caster's kit to the ally candidate set
+(named slots plus each refused slot's best guess and rival) took the slot
+right from
+[metric:glyph_channel_cost/rotation#ally_rotate_all_caster_kit_right=152]
+to [metric:glyph_channel_cost/rotation#ally_rotate_all_ally_set_right=144]
+of [metric:glyph_channel_cost/rotation#ally_rotate_all_items=178] items,
+and the caster agent was right on
+[metric:glyph_channel_cost/rotation#ally_rotate_all_ally_set_agent_right=155].
+The identity claim needs only the caster; a slot refusal must not withhold
+it.
+
+**The prior carries most discs.** At the cache's hold spacing
+([metric:glyph_channel_cost/cost@c40d950031bb#hold_gap_ms=66.7] ms), a share
+[metric:glyph_channel_cost/cost@c40d950031bb#prior_share=0.954] of discs lie
+within 2 px x scale of a disc of the frame before; at the ability pass's
+2 Hz the stored streams give
+[metric:glyph_channel_cost/prior2hz@c62c2b06bcfb#prior_share=0.52] (c62c2b06bcfb,
+`C:\Users\grant\Videos\2026-08-26 13-18-48.mp4`) to
+[metric:glyph_channel_cost/prior2hz@c40d950031bb#prior_share=0.78]
+(c40d950031bb).
+
+**A follow seeded at the self icon is no channel.** The cross-channel
+independence measurement (`cross-channel-independence-20261004`, store
+`analysis/cross-channel-independence-20261004`) ran the glyph follow on the
+player's own casts on the matches, seeded at the self icon at the tray drop.
+On the casts of abilities that draw a glyph it named a slot right
+[metric:glyph_channel_cost/cross_channel@matches#glyph_self_seed_right=69]
+times and wrong
+[metric:glyph_channel_cost/cross_channel@matches#glyph_self_seed_wrong=50]
+(named precision
+[metric:glyph_channel_cost/cross_channel@matches#glyph_self_seed_precision=0.5798]),
+and on [metric:cross_channel_independence/glyph_control@matches#not_drawn_casts=118]
+casts of abilities that draw nothing it still named a slot
+[metric:cross_channel_independence/glyph_control@matches#named_a_slot=35]
+times. The cause is the seed: the thrown glyph is already beyond the
+follow's starting reach at the drop frame, 4 px times the widget scale
+(`REACH[0]` in `prototypes/minimap_glyph_eval.py`). An instance is Undercut
+on 4f207c0c4e39 (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`), the Iso:Q
+cast at `t_ms` 232500 in the store's
+`analysis/cross-channel-independence-20261004/casts.jsonl`, where audio named
+Q and the follow kept the self icon and named Iso:E. Stage 1 seeds the
+follow from the thrown icon: the proposer's birth near the caster after the
+drop, as the reader's birth rule already does, never the self position.
+
+**Audio can label the player's own glyphs.** On the same casts the audio
+witness (`ability-audio` [owns:ability-audio], ability-audio-0.4.0, params
+0.2.6) named the slot with precision
+[metric:glyph_channel_cost/cross_channel@matches#audio_precision=0.9814]
+([metric:glyph_channel_cost/cross_channel@matches#audio_right=211] right,
+[metric:glyph_channel_cost/cross_channel@matches#audio_wrong=4] wrong,
+[metric:glyph_channel_cost/cross_channel@matches#audio_refused=11]
+refused), and
+[metric:glyph_channel_cost/cross_channel@matches#audio_sova_skye_precision=0.9856]
+on Sova:C and Skye:Q, E and X, which hold almost all of them. The label
+path rests on that precision, not on independence. Audio and minimap
+failures are not shown independent: the correction row of
+cross-channel-independence-20261004 (store `notes/predictions.jsonl`, ts
+2026-10-04T22:17:25Z) calls the pooled odds ratio a Simpson's-paradox
+artefact, because glyph casts pair rare audio failure with common minimap
+failure and shape casts the reverse. Stratified by minimap source, the
+Mantel-Haenszel odds ratio is
+[metric:cross_channel_independence/stratified_source@matches#or_mh=2.694]
+(CI [metric:cross_channel_independence/stratified_source@matches#ci_low=1.105]
+to [metric:cross_channel_independence/stratified_source@matches#ci_high=6.57]):
+inconclusive under the registered rule, and leaning against independence.
+Part of the coupling is built in: every channel anchors on the tray drop
+(audio's cast frame and window, the glyph window's start, the shape owner's
+drop time), so a wrong tray cast fails them together and their agreement
+cannot catch it. On glyph casts the follow seeded at the self icon fails on
+its own, not jointly: it fails on
+[metric:cross_channel_independence/glyph@matches#p_b_fail=0.673] of them,
+audio on [metric:cross_channel_independence/glyph@matches#p_a_fail=0.0711],
+and both on [metric:cross_channel_independence/glyph@matches#p_both=0.0521];
+that stratum's odds ratio
+[metric:cross_channel_independence/glyph@matches#or_cmle=1.363] (CI
+[metric:cross_channel_independence/glyph@matches#or_ci_low=0.385] to
+[metric:cross_channel_independence/glyph@matches#or_ci_high=6.096]) cannot
+tell coupling from independence.
+
+So a disc born where the player's thrown glyph flies can be a borrowed glyph
+label. It declares `rests_on` both the audio witness, with its version and
+params, and the tray drop it was anchored on (`tray_drop:<sid>:<t_ms>`, the
+`player_cast` whose slot `ability-cast` decides; audio corroborates). Such
+labels cover only the player's own casts of Sova:C and Skye:Q, E and X,
+where audio's precision is measured; Iso:Q and Iso:C hold
+[metric:cross_channel_independence/corrections@matches#iso_q_casts=3] and
+[metric:cross_channel_independence/corrections@matches#iso_c_casts=3] casts,
+too few to call safe. They enter only the dev side of stage 1, and a fit
+made from them (the null table's cut, the follow comparison) is scored only
+on the player's own labels, never on borrowed ones. They are never an
+identity claim: `ability-audio` is not pooled into `agent-identity`.
+Shape-owner casts couple with audio more strongly (odds ratio
+[metric:cross_channel_independence/shape@matches#or_cmle=7.208]), and the
+shape owner is told the truth slot, so the label path stays on glyph
+abilities.
+
+## 2. The parts
+
+The channel has four parts, each with its own owner, stamp and stream.
+The proposer exists; the other three are proposed.
+
+| Part | Owner | Stream | Reads | Decides |
+|---|---|---|---|---|
+| Proposer (exists) | `ability_icons` [owns:ability-icon] | `ability_icon` | crop cache | where dark discs are |
+| Glyph reader | `minimap_glyph` (new) | `ability_glyph` | crop cache, `ability_icon` rows, lineup, policy and null tables | each disc's score per candidate texture |
+| Disc tracks | `adjudication.ability` (new function) | `ability_disc_track` | `ability_icon`, `ability_glyph` | which observations are one object |
+| Glyph verdict | `adjudication.ability_glyph` (new) | `ability_glyph_name`, `ability_glyph_identity` | the tracks, `team_vision`, `tray_kit`, the lineup, the null table | each track's ability and the claim on its caster |
+
+The aggregator, `adjudication.identity` [owns:agent-identity], decides the
+caster's name, as for every name.
+
+### The glyph reader
+
+**Where it runs.** It joins the ability pass (`reticle scan <sid> --only
+ability`), which rereads the minimap crop cache at 2 Hz on live spans, as a
+`passes.Reader`. Sharing the pass is an execution optimisation: the reader
+keeps its own stamp `ability-glyph-0.1.0`, and a change to the proposer
+restamps it only through its declared input. It reads the proposer's
+candidates for the same frame, never reruns the proposer, and never
+decodes video.
+
+**The follow.** A disc the frame before does not carry (a birth) opens a
+follow window of up to 3 s (a design choice). Inside it the reader takes the
+cache's held frames, every one, and tracks the disc by `verify_icons` from
+its last fix, searching wider each frame it misses, as the prototype's reach
+does. Each fix declares `rests_on` the fix before it. The window ends after
+eight scored frames or at 3 s (design choices). Dense sampling here is gated
+on opportunity (a birth), not outcome. Whether the follow at the cache's
+cadence beats the same follow over the 2 Hz frames alone is stage 1's
+question; the 2 Hz arm costs no extra reads.
+
+**The candidate set.** Per frame, the reader scores the textures the
+match's context allows: the ally side's kits, each texture whose game-data
+row (`ability-states-gamedata-0.2.0`) does not mark the frame's view
+`false`, and the enemy side's kits, only textures an enemy sees. The
+sides come from the lineup's verdicts, each refused slot admitting its best
+guess and rival, as the arbiter admits rivals. Each frame row declares
+`rests_on` the lineup file and version. The full set, every agent's kit,
+runs on two paths, stored apart:
+
+- the audit: every tenth birth (a cadence fixed here, a design choice),
+  scored against every kit, every key rotated, through its window; these
+  rows carry `audit: true` and measure what the lineup prior and the
+  rotation policy hide;
+- the surprise: a disc whose best candidate stays under its key's null
+  through its window is rescored against every kit, `surprise: true`,
+  never an audit sample.
+
+The full set costs [metric:glyph_channel_cost/cost@c40d950031bb#bank_c_ms_per_disc=2.75]
+ms per disc against [metric:glyph_channel_cost/cost@c40d950031bb#bank_a_ms_per_disc=1.29]
+for the ally set on c40d950031bb.
+
+**The rotation policy, per key.** A stored table
+(`glyph-rotation-policy-0.1.0`), one row per catalogue key, each row citing
+what decided it, in this order:
+
+1. A sure player answer decides. `upright`: 0 deg only. `rotates`: 0-345 deg
+   by 15. Deadlock:Q, normal to the wall: the two normals of the sensor's
+   wall, plus or minus 15 deg, when a sonic-square fit at that place gives the
+   wall (`sonic-square-20261004`, not yet in master); all rotations when none
+   does. Each answer becomes one domain fact per ability before the table
+   cites it.
+2. Without an answer, the two-flag rule over every component that draws
+   the key's textures: all upright gives 0 deg; any component turning, a
+   mixed key, or a `RotationSource` the rule does not read (Custom,
+   Rotation, None) gives all rotations. The row stores each component's
+   flags and verdict, so a later answer that contradicts the rule is a
+   stored surprise against the hypothesis, not a silent override. This
+   step carries a risk: an unanswered key the rule calls upright is
+   searched only upright on a hypothesis fitted to other abilities'
+   answers, not on its own fact. The audit path, which rotates every key,
+   measures what that hides; a key whose audit fits turn is a surprise
+   that reopens its row.
+3. Every rotated key's null is measured at its own search size (the
+   per-key null), because a key searched over 24 times more templates wins
+   on noise; the audit path rescores with every key rotated.
+
+The stored fit angle of a turning key is an observation; it becomes a
+placement fact only where an ability's fact says what the angle means (the
+Alarmbot's facing, the sensor's wall).
+
+**The textures.** Each ability's DisplayIcon and its exported minimap
+textures, assigned by the player's texture answers
+([domain:abilities/minimap-textures-deadlock] and its siblings, one fact
+per agent) or by DisplayIcon correlation where no answer exists, with the
+export build and inventory versions in the stamp. Game files, never mined
+captures. Of the [metric:glyph_channel_cost/gamedata_minimap#minimap_abilities=71]
+abilities with a minimap component in the game data,
+[metric:glyph_channel_cost/gamedata_minimap#abilities_with_png=49] have an
+exported texture.
+
+**Pixels.** Luma inside an r = 8.5 px x scale disc, masked Pearson, never
+binarised; templates shrink with `INTER_AREA` and turn with linear
+interpolation [domain:capture/capture-resolution]. All discs of a frame
+score in one matrix product, on the GPU when one is present; no per-disc
+Python loop.
+
+**Stored row (`ability_glyph`).** A coverage row: the stamp; inputs
+(`ability_icon_version`, `roi_cache_version`, the lineup's file and
+version, the glyph bank's digest: build, inventory, export, answers file
+hash, states table, rotation policy table); the matcher's parameters; the
+candidate set per side with why each agent is in it; the audit cadence;
+counts by reason. One row per scored frame and disc:
+`{t_ms, frame_idx, disc: "ability_icon:<sid>:<t_ms>:<i>" or a follow fix
+{cx, cy, r, rests_on}, set: "context"|"audit"|"surprise", scores:
+{"<agent>:<slot>": [score, texture, canvas, rot, dx, dy]}, best, second,
+margin}`. An unread frame keeps its reason: `not_live`,
+`widget_not_drawn`, `no_ability_icon_row`, `off_crop`,
+`geometry_size_mismatch`, `no_lineup`. The reader names nothing.
+
+### Disc tracks
+
+`ability-icon`'s entry routes tracks to `adjudication.ability`
+(`not_for`: "tracks and lifecycles"), so the track joins there as
+`disc_tracks`, pure over stored rows: a 2 Hz birth, its follow fixes, and
+the later 2 Hz candidates its verify keeps. A track ends when the verify
+loses it (`score` None, stored) or the round ends. Track ids are
+`<sid>:adisc:<birth_t_ms>:<i>`. Each track stores its path length, its
+speed over its first second and its lifetime, the inputs the per-ability
+rules below read. A track switching objects, which the prototype saw twice,
+is a stored surprise when its fixes jump past the reach.
+
+### The glyph verdict
+
+`adjudication.ability_glyph` reads the tracks and decides per track,
+pure over stored rows:
+
+1. **Gates, from other owners' stored answers.** A frame counts when the
+   widget is drawn [owns:widget-drawn], no stored `team_vision` portrait
+   covers the disc (the prototype's `portrait_cover`) and the disc is not
+   the baked map's [domain:capture/session-pixels-are-not-the-map]. The
+   frame's view is `self` while the tray shows the player's kit and
+   `spectator` while it shows a teammate's [owns:tray-kit]
+   [domain:hud/tray-after-player-death]; textures whose view is false for
+   that view leave the set. A null view stays in with `view_unknown`, and
+   a verdict resting on one is a stored surprise until the player answers
+   [domain:minimap/spectator-view-matches-self].
+2. **Pooling.** The mean score per key over the clean frames.
+3. **The cut, once.** A key names the track when its pooled score clears
+   its own null and its margin over the runner-up clears the tie margin;
+   both come from the null table (gate 3), never a shared constant.
+   Otherwise the track refuses with one reason: `below_null`,
+   `pairwise_tie`, `no_clean_frame`, `occluded`, `outside_candidate_set`
+   (the audit or surprise path named a kit outside the set),
+   `view_excluded`, `pending` (below).
+4. **Per-ability rules, from facts.** Each rule is the named ability's own,
+   cites its fact, and runs only on tracks whose candidates include it:
+   - Astra: a disc that scores best as a placed star names the track
+     `Astra:star`, state `pending`, never E, Q or C
+     [domain:abilities/astra-star-placed-then-turned]. Which slot it
+     becomes is a later event read at the turn: a smoke disc at the same
+     place is `minimap-dark`'s, the others need their own drawing facts,
+     which the mechanics sheet asks. The glyph never names the turn.
+   - Omen: between Paranoia and Dark Cover, a track that moves 40 px or
+     more within its first second and ends by 2 s is Paranoia
+     [domain:abilities/omen-paranoia-minimap-icon]; a track that stays
+     within the follow's reach and outlives 2 s is Dark Cover
+     [domain:abilities/omen-dark-cover-minimap-phases]. A track that fits
+     neither refuses `pairwise_tie` with both pooled scores stored. The
+     40 px and 2 s cuts come from the facts; their tolerances are design
+     choices, measured on dev before use. The 40 px is a pixel distance on
+     demo captures at a widget scale the fact does not state; the rule
+     applies it as base value x widget scale x map zoom, and runs only
+     after the fact records the scale it was read at (or a dev
+     measurement replaces it).
+   No rule carries to another ability by analogy
+   [domain:abilities/ability-rules-are-unique].
+5. **State.** The winning texture's game-data state (inactive, active,
+   ally, enemy and the rest) is an observation of that ability's drawing.
+   A lifecycle phase comes only from the ability's lifecycle fact
+   [domain:minimap/device-dim-on-deactivation]; the entity contract
+   enforces it.
+
+Output `ability_glyph_name`: per track, the ability (agent, game slot,
+display name) or `pending`, the texture and its state, the pooled scores of
+every candidate (the alternatives), margin, the rule that decided it, clean
+and skipped frames with reasons, and `rests_on` the lineup, `team_vision`,
+`tray_kit` and policy-table stamps.
+
+**The claim.** Per track whose winning kit is clear, one
+`identity.identity_claim` on channel `minimap_glyph`: the entity is the
+track, the agent is the kit's owner. The caster's kit may be clear when the
+slot is not (a `pairwise_tie` inside one kit, an Astra `pending` star); the
+claim then names the agent and the track stays refused on its slot. When
+the lineup chose the candidates, the claim `depends_on` the ally slot
+entities, as `smoke_owner`'s claims do, so it never counts as an
+independent witness of the roster. An audit-path claim, scored against
+every kit, rests on no lineup and may witness which agents a side fields;
+it enters the aggregator only after the null holds on the audit rows.
+Until channel arbiters exist (`docs/ARBITER_ARCHITECTURE.md`, section 1),
+the owner publishes its claims as `smoke_owner` does
+(`ability_glyph_identity`); afterwards, through the minimap channel's
+arbiter.
+
+### The event and its consumers
+
+A new lane `ability_icon` in `docs/ENTITY_EVENTS.md`: an `ability_object`
+entity per track, its `identity` the aggregator's verdict cited by `ref`,
+events `drawn` (first fix) and `gone` (the verify's loss) with observed
+times and baked positions, one event per texture state change, and for an
+Astra star a `turned` event when its slot is read. A refused track goes to
+the ledger with its reason and `returns_to: ["ability-glyph-name"]`.
+Consumers read only this lane [owns:entity-event]:
+
+- `reticle view`, which draws named ability icons on the annotated match;
+- `ability-owner`, unowned today and blocked on "an ability entity to
+  attribute": the track is that entity, and the aggregator's verdict over
+  the glyph claim, the birth at a bound ally fragment
+  [domain:abilities/minimap-thrown-ability-icon] and the player's tray drop
+  answers it;
+- `adjudication.ability_state`'s later steps (allies' kits) and
+  `adjudication.phases`, which read texture states as transitions;
+- `adjudication.reliability` [owns:identity-channel-reliability], which
+  scores the channel per agent.
+
+## 3. Ownership entries
+
+Proposed text; each lands in `ownership.toml` with the code that owns it.
+
+- **`ability-glyph`**, owner `minimap_glyph`, role detect, "Which game
+  minimap texture of the candidate kits does each proposed ability disc
+  draw, and how well does each candidate score?" Produces the reader and
+  its scoring. `not_for`: finding discs (`ability-icon`); joining discs
+  across frames (`ability-disc-track`); naming the ability or its caster
+  (`ability-glyph-name`, `agent-identity`); smokes (`minimap-dark`) and
+  shapes (`ability-shape`); choosing the candidate set beyond the
+  lineup's verdicts, which it takes as a candidate set only.
+- **`ability-disc-track`**, owner `adjudication.ability`, role group,
+  "Which stored ability-disc observations are one object, from birth to
+  loss?" `not_for`: reading pixels (the follow's fixes are the reader's);
+  naming; lifecycle phases (`ability-phase`).
+- **`ability-glyph-name`**, owner `adjudication.ability_glyph`, roles
+  adjudicate and attribute, `names_agents = true`, `defers_to =
+  ["agent-identity", "player-agent", "tray-kit", "team-vision",
+  "ability-disc-track"]`, "Which ability does a tracked minimap disc
+  draw, in which texture state, and whose kit holds it?" `not_for`:
+  deciding the caster's name, which the aggregator decides from the claim;
+  binding the ability to a player track (`ability-owner`); a phase without
+  a lifecycle fact; the slot an Astra star turns into; a threshold the null
+  table does not give.
+- **`ability-owner`** stays the aggregator's question; this plan supplies
+  its entity and its first witness, and its `blocked_by` changes to the
+  stage 5 lane.
+
+## 4. Plan inputs
+
+In `reticle/plan.py`, beside the ability pass's streams:
+
+- `ability_glyph`: command `reticle scan {sid} --only ability`, how
+  `cache`; fields `ability_glyph_version`, the glyph bank digest (the
+  rotation policy table's version inside it), `ability_icon_version`;
+  upstream `ability_icon`; inputs the geometry and `_lineup_inputs()`.
+- `ability_disc_track`: command `reticle ability-glyphs {sid}`, how
+  `storage`; upstream `ability_icon`, `ability_glyph`, `rounds`.
+- `ability_glyph_name`: same command, storage; fields the null table's
+  version and the states table's version; upstream `ability_disc_track`,
+  `team_vision`, `tray_kit`; inputs `_lineup_inputs()`.
+- `ability_glyph_identity`: an identity stream, `producer_version` the
+  aggregator's, parent `ability_glyph_name`.
+
+The lineup appears twice on purpose: a lineup change restamps the reader,
+whose candidate set it chose, and the verdict, whose claims depend on it.
+
+## 5. Evaluation gates
+
+Each gate states its command, its labels and its threshold before it runs.
+Every threshold below is a design choice made here, not a measured
+optimum; a gate that fails reopens its threshold only with a logged reason.
+
+1. **Instrument.** `prototypes\glyph_channel_cost.py rotation` reproduced
+   the prototype's [metric:glyph_channel_cost/rotation#heldout_rotate_all=164]
+   of [metric:glyph_channel_cost/rotation#heldout_n=192] and
+   [metric:glyph_channel_cost/rotation#dev_rotate_all=51] of
+   [metric:glyph_channel_cost/rotation#dev_n=59]; `rotrule`'s upright
+   control reproduced [metric:glyph_channel_cost/rotation_rule#dev_upright=35]
+   of them. On stage 1's own windows (eval 0.3.0 dev), `baseline030` read
+   rotate-all at [metric:glyph_channel_cost/dev_030#dev_rotate_all=55] and
+   upright at [metric:glyph_channel_cost/dev_030#dev_upright=35] of
+   [metric:glyph_channel_cost/dev_030#dev_n=59]. Done.
+2. **The clean held-out pass.** Done:
+   [metric:glyph_channel_cost/heldout_020#headline_follow_right=102] of
+   [metric:glyph_channel_cost/heldout_020#headline_n=139] (section 1)
+   against a stop line of 35% (a design choice); stage 1 may start.
+3. **The null table.** Per bank (context set and full set, at each widget
+   scale) and per key at its policy's search size, the pooled-score and
+   margin distributions of discs the player labelled as no ability, and of
+   proposer discs no label names, from dev sessions only. The cut sits
+   where the false naming rate on those discs is at most 5% (a design
+   choice). Stored as its own version; the verdict records it.
+4. **Accuracy at the cut, on a fresh held-out set.** A new labelling pass
+   (`prototypes/label_minimap_glyph_heldout.py`, a new queue version) on
+   sessions no stage used, glyph marks and shape marks asked apart. Named
+   tracks must be right on the caster agent on at least 90% (Wilson lower
+   bound at least 80%), naming at least half the sure kit-named glyph
+   marks (design choices). Refusals are kept with reasons.
+5. **Riot.** Riot records each player's casts per slot per match (`stats.
+   abilityCasts`; per-round effects are null). For each ally player and
+   slot whose ability draws a disc, named births may not exceed Riot's
+   count times that ability's births per cast; an ability with no births
+   fact gets no bound and asks the player through the mechanics sheet.
+   Excess lists the tracks with their reasons. Run with
+   `prototypes\riot_ground_truth.py --all --offline --record` once a
+   block reads the lane.
+6. **Cross-reference.** The glyph claim against the birth's origin at an
+   ally fragment and against the player's tray drop; disagreements are
+   stored, never averaged, and the agreement rate joins the reliability
+   table. Agreement is consistency, not accuracy.
+7. **Cost.** `reticle usage <sid>` on the fast handful: the reader adds at
+   most 10% to the ability pass's wall time, and the verdict runs under
+   one minute per match from storage (design choices).
+
+## 6. Staged order
+
+0. **Done:** cost, prior share, rotation and null measurements (W1-W13);
+   the clean held-out score (H1-H8, K5); the rotation answers; the
+   two-flag test (G1-G4, with its correction row); the cross-channel
+   independence measurement; S1's baseline on the eval 0.3.0 windows.
+1. **Rotation policy and null table on dev. Ready to build.** Inputs are
+   settled: the answers, the raw export, the dev windows of eval 0.3.0
+   (`analysis/minimap-glyphs-killjoy-refs-20261004`, gamedata on). Build, in
+   `prototypes/`, the policy table (`glyph-rotation-policy-0.1.0`, section
+   2) and the null table (gate 3) from dev only, and compare the 2 Hz follow
+   with the cache-cadence follow on dev. Every follow is seeded at the
+   thrown icon (the proposer's birth near the caster after the tray drop),
+   never at the self icon (section 1). The player's own glyph casts on dev
+   sessions may add borrowed labels from the audio witness and the tray
+   drop, each with `rests_on` both (section 1); a fit made from them (the
+   null table's cut, the 2 Hz against cache-cadence comparison) is scored
+   only on the player's own labels, so S2 to S4 count only those. The two
+   unsure keys (Cypher:C, Skye:X) go to the player through `prototypes/ask_minimap_glyphs.py`; until
+   answered the table rotates them and says why. Which component draws a
+   placed Deadlock:Q or Omen:E icon is read from the game data; the table
+   follows the player's answers for both. Predictions, logged in the store
+   (`glyph-wiring-design-fix-20261004`) before the build runs:
+   - S1: with the policy table, single-frame top-1 on the eval 0.3.0 dev
+     windows is at least
+     [metric:glyph_channel_cost/dev_030#dev_rotate_all=55] of
+     [metric:glyph_channel_cost/dev_030#dev_n=59], rotate-all's score on
+     the same windows, and the follow at least
+     [metric:minimap_glyph_eval/killjoy_refs_dev#dev_follow_after=58] of
+     [metric:minimap_glyph_eval/killjoy_refs_dev#dev_n=59]; falsified below
+     rotate-all's score single frame, or below the follow's. The policy's
+     [metric:glyph_channel_cost/rotation_rule#dev_policy=53] was measured
+     on the eval 0.2.0 windows, where rotate-all scored
+     [metric:glyph_channel_cost/rotation#dev_rotate_all=51], so it is no
+     baseline here.
+   - S2: at the per-key cut (at most 5% false naming on dev non-ability
+     discs), at least 80% of right dev glyph items clear their key's null;
+     falsified below 60%.
+   - S3: rotated keys' cuts sit above upright keys' by at least 0.03 in
+     median; falsified if the two medians lie within 0.01, which would make
+     a per-bank null enough.
+   - S4: the 2 Hz follow names within 3 points of the cache-cadence follow
+     on dev.
+   - S5: seeded at the thrown icon, the follow's named precision on the
+     matches' own glyph casts exceeds the self seed's
+     [metric:glyph_channel_cost/cross_channel@matches#glyph_self_seed_precision=0.5798];
+     falsified at or below it.
+   Acceptance: `prototypes\glyph_channel_cost.py rotrule --out <new dir>`
+   reproduces the 0.2.0 counts, and the new table builder's command writes
+   both tables with version, build, answers line numbers and dev session
+   list, rerunnable from storage; `doctor` shows 0 errors. Evidence: the
+   prediction and outcome rows, the metric series each quoted number cites,
+   and both tables' provenance naming no held-out label.
+2. **The reader** in the ability pass, `ability-glyph-0.1.0`; `reticle
+   trial --reader ability_glyph` on a06f04a0059f, 5822b6646448
+   (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`) and 4f207c0c4e39
+   (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`); gate 7.
+3. **Tracks, verdict, per-ability rules and claims** from storage; gates 4
+   and 6. The ability pass first runs on the 21 matches in one batched
+   corpus rerun; today `ability_icon` exists on five sessions only.
+4. **The lane and `reticle view`**; gate 5.
+5. **The scene model.** The glyph textures become an ability sprite in
+   `docs/SCENE_MODEL.md`'s renderer, composited over the baked static at
+   the fitted pose; the per-key null becomes the sprite's residual
+   threshold, and the reader's scores the render-and-compare residual.
+
+## 7. Real time
+
+Live, nothing decodes: the reader is a function of one minimap crop and
+the previous frame's fixes. Its glyph scoring fits a live budget on the GPU
+([metric:glyph_channel_cost/cost@a06f04a0059f#bank_a_gpu_ms=0.75] ms per
+frame median). The proposer does not
+([metric:glyph_channel_cost/cost@a06f04a0059f#propose_ms=148.2] ms at
+465 px). A live proposer would continue the prior: verify the tracked
+discs every frame, propose births only near the ally icons where an
+ability's fact places its birth, and run the full search on surprise and
+at a fixed audit cadence. That change belongs to `ability-icon` and needs
+a birth-place fact per ability; it is out of this plan's scope.
+
+## 8. Predictions for the later stages
+
+Logged in the store when each stage starts, with these as the first
+draft:
+
+- P3 (stage 2): the reader adds at most 10% to the ability pass's wall time.
+- P4 (stage 3): at the cut, at most 20% of tracks refuse as `below_null`
+  on matches, and the Omen motion-and-lifetime rule resolves at least 80%
+  of Omen tracks the glyph alone ties. The held-out Astra and Omen
+  confusions were smoke discs and rings, not glyphs, so they predict
+  nothing about where `pairwise_tie` and `pending` fall; stage 3 measures
+  that.
+- P5 (stage 3): audit-path verdicts agree with context-path verdicts on at
+  least 95% of audit births.
+- P6 (stage 3): the caster agent is right on more tracks than the slot,
+  as on the stored windows.
+
+## 9. What this plan does not settle
+
+- Whether a spectator sees what the spectated player sees
+  [domain:minimap/spectator-view-matches-self]: the player is unsure, and
+  the views gate rests on it.
+- Births per cast per ability, for the Riot bound.
+- Two rotation answers (Cypher:C, Skye:X), and the two-flag rule itself:
+  one out-of-sample answer (Killjoy:Q) supports it.
+- Which game component draws a placed icon where an ability's components
+  disagree (Deadlock:Q, Omen:E): game-data work; the player has answered
+  what the icons do.
+- The widget scale behind the Omen fact's pixel distances.
+- How an Astra star's turn into Nova Pulse or Gravity Well draws; only the
+  smoke turn is observed.
+- The cost of reading the cache in order inside the pass; only the
+  random-access read is measured.
+- Shape-class drawings (recon bolt, smokes, walls): `ability-shape` and
+  `minimap-dark` own them.
+
+## Reproduce
+
+From the repository root, single-threaded, Below Normal, no decode:
+
+```powershell
+.\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py cost --out <new dir>      # cost.json: 100 frames each on c40d950031bb, a06f04a0059f
+.\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py rotation --out <new dir>  # rotation.json: stored windows, no cache
+.\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py births --out <new dir>    # births.json: c40d950031bb, stored 2 Hz rows
+.\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py table                     # game-data minimap counts
+.\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py record --out <that dir>   # the 0.1.0 metric series
+.\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py rotrule --out <new dir>   # rotrule.json: raw export, answers, dev angles, policy arm
+.\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py record2 --out <rotrule dir>  # rotation_rule, heldout_020, heldout_030
+.\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py baseline030               # dev_030: S1's baseline on eval 0.3.0 dev
+.\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py crosscheck                # cross_channel@matches: audio and self-seed precision
+```
+
+Each writing command refuses an existing output file, and `--out` has no
+default, so a rerun never overwrites the stored 0.1.0 outputs (the store's
+`analysis/glyph-wiring-20261004/`) or the two-flag run
+(`analysis/glyph-wiring-rotrule-20261004/`). `record2`, `baseline030` and
+`crosscheck` refuse an input already recorded, so a rerun appends no
+duplicate metric rows; `record` has no such guard and records once per
+directory by hand.

@@ -828,6 +828,37 @@ there must turn with the placement (`spike`, rotation)
 see = ["minimap/spike-inversion", "minimap/spike-carrier-overlay"]
 phrases = ["portraits keep their on-screen orientation", "facing arrow turns with the map"]
 
+[side-based-widget-turns-between-rounds]
+claim = """
+A side-based minimap widget turns 180 degrees only when the sides swap, between
+two rounds [domain:rounds/halftime-side-swap]; within a round it keeps one
+orientation.
+"""
+kind = "lifecycle"
+known = "inferred"
+since = "2026-10-04"
+depends_on = ["rounds/halftime-side-swap"]
+source = """
+inferred from the halftime swap: the orientation follows the side, and the side
+changes only at halftime. Observed on both side-based captures in the minimap
+crop cache (widget-frame-0.3.0): on 4f207c0c4e39 the last cached frame read
+turned is at 1147216.67 ms and the first read upright at 1192766.67 ms, with
+round 13's stored start of 1148000 ms between them; on b3b9defb6fd7 the widget
+reads upright at 1430150 ms and turned from 1430216.67 ms, 283 ms before round
+13's stored start of 1430500 ms, within one 2 Hz HUD sample
+"""
+use = """
+`widget_frame.snap_switch` moves a fitted turn to the stored start of the round
+it opens and refuses a turn the bracketing cached frames cannot place at one
+round start
+"""
+exceptions = """
+unconfirmed by the player; whether the sides, and so the widget, also swap in
+overtime is not recorded. Falsifier: a cached frame inside one stored round,
+beyond one HUD sample of its start, that reads the other orientation
+(`snap_switch` refuses such a turn as `unbracketed`)
+"""
+
 [last-known-mark]
 claim = """
 An enemy's red "?" on the minimap marks the place the team last saw that

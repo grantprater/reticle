@@ -19,7 +19,9 @@ import math
 
 from .track import CLASSES, Corroboration, admits, association_tolerance, corroborates_teleport
 
-LIFECYCLE_VERSION = "minimap-lifecycle-0.2.0"
+#: 0.3.0 (2026-10-04): a drawn frame's `unread_roles` suspends those roles
+#: (`Lifecycle`); a frame without them adjudicates as 0.2.0 did.
+LIFECYCLE_VERSION = "minimap-lifecycle-0.3.0"
 
 #: What each role may do between two observations, as a `track.CLASSES` key.
 #: The motion law is not restated here -- `track.admits` owns it, and the two
@@ -88,11 +90,22 @@ class Lifecycle:
     Track IDs are detector associations. Short-gap geometric predecessors are
     reported as alternatives; multiple parents never silently merge identities.
     Persistence of a quarantined candidate cannot corroborate itself.
+
+    **A role a drawn frame could not read is suspended, as an absent widget
+    suspends every role.** A frame's `unread_roles` names the roles whose
+    detector read nothing there although the widget was drawn (team_vision's
+    teammates where the stored ally stream holds no frame). The frame's
+    other roles adjudicate as usual; a suspended role whose anchors all
+    expire across the gap meets a boundary of its own, so its first
+    appearance after the gap is `left_censored`, as after an absent widget.
     """
     def __init__(self, scale=1.0, max_gap_ms=500.0):
         self.scale, self.max_gap_ms = scale, max_gap_ms
         self.last_t = None
         self.boundary = True
+        #: Roles at a boundary of their own: unread on the last drawn frame
+        #: with none of their anchors left (see the class docstring).
+        self.role_boundary: set[str] = set()
         self.known = {}
         self.anchors = []
         self.history: list[dict] = []
@@ -125,9 +138,10 @@ class Lifecycle:
             self._expire(t_ms)
             return []
         self._expire(t_ms)
+        unread = set(frame.get("unread_roles") or ())
         output, additions, used_events = [], [], set()
         for obs in frame.get("observations", []):
-            if obs["position_state"] != "observed":
+            if obs["position_state"] != "observed" or obs["role"] in unread:
                 continue
             key = f"{obs['role']}:{obs['track_id']}"
             light = light_state(obs, frame.get("light_budget"))
@@ -165,7 +179,7 @@ class Lifecycle:
                 entity = next(iter(parents)) if len(parents) == 1 else key
                 state = "continuation" if len(parents) == 1 else "ambiguous_continuation"
                 eligible = len(parents) == 1
-            elif self.boundary:
+            elif self.boundary or obs["role"] in self.role_boundary:
                 entity, state, eligible = key, "left_censored", True
             else:
                 entity, state, eligible = key, "unexplained_appearance", False
@@ -191,6 +205,8 @@ class Lifecycle:
                 additions.append(row)
         self.anchors.extend(additions)
         self.boundary = False
+        live = {a["role"] for a in self.anchors}
+        self.role_boundary = {r for r in unread if r not in live}
         return output
 
     def events(self, session_id: str, transitions_only: bool = True) -> list[dict]:

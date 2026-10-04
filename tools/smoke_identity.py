@@ -66,11 +66,11 @@ def below_normal() -> None:
 
 
 def _context(store, sid):
-    from reticle.cli import _active_spans, _date_of, _live_phase_at, _live_round_spans
+    from reticle.cli import _reader_spans, _date_of, _live_phase_at, _live_round_spans
     man = store.read_manifest(sid)
     date = _date_of(man)
     profile = get_profile(man["source_profile"])
-    spans = _active_spans(store, sid, date)
+    spans = _reader_spans(store, sid, date)
     ctx = SessionContext(store=store, manifest=man, profile=profile, spans=spans)
 
     def live_rounds():

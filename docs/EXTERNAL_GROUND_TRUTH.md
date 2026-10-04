@@ -30,7 +30,12 @@ carried the game's own build string, read from the `CI server version:` line
 of `%LOCALAPPDATA%\VALORANT\Saved\Logs\ShooterGame.log` (form
 `release-13.06-shipping-18-5590001`), and the request sent a non-default
 User-Agent naming the tool. A build hash from the local product session was
-rejected. The probe is not in this repository.
+rejected. The probe is not in this repository. The player's kit for the
+uncaptured matches, `prototypes/riot_match_fetch.py`, uses the same
+endpoints, build-string header and named User-Agent, and adds two steps from
+the unofficial docs that the probe's notes do not record: tokens from the
+local client through its lockfile, and an `X-Riot-ClientPlatform` header
+([MATCH_FETCH_KIT.md](MATCH_FETCH_KIT.md)).
 
 Three accounts' histories were read. The first held 18 matches, 2026-09-13 to
 2026-10-01 (Total 18); the second 47, 2026-09-03 to 2026-09-11 (Total 47). On
@@ -43,8 +48,10 @@ the earlier spans were each account's play. Retention is unknown, so pull each
 new capture's record promptly.
 
 All 22 match captures have their match-details record saved in the store
-under `external/riot/` (a store path, not the repository): 22 files, 3,532
-kills in all. Each file names its session in `probe.session_id`; the store is
+under `external/riot/` (a store path, not the repository): 22 files. The
+"3,532 kills" this paragraph once gave does not reproduce; the counts are in
+[WIN_PROBABILITY_RESEARCH.md](WIN_PROBABILITY_RESEARCH.md), section 5, Data.
+Each file names its session in `probe.session_id`; the store is
 the index, and match IDs stay out of this repository.
 
 4f207c0c4e39's record, for one, is Split (`/Game/Maps/Bonsai/Bonsai`), 10
@@ -60,7 +67,20 @@ not the buy phase; unconfirmed until aligned.
 ult points), `round_phase`, and the player's own health and abilities. No
 positions and no in-round time; `spike_planted` was removed on 2025-01-30.
 
-**In-game replays.** Wiped each patch; they cannot be exported.
+**In-game replays.** The client keeps `.vrf` files in
+`%LOCALAPPDATA%\VALORANT\Saved\Demos` and rotates them; 15 are preserved in
+the store under `external/replays/`. vrfkit, built from source with the
+player's approval (2026-10-04), decodes every player's position and view at
+the server tick [domain:replay/vrf-position-stream], and
+`prototypes/replay_truth.py` checks each parse against Riot's record before
+scoring the stored streams. On the one replay with a capture, 180 of 180 kills
+agree by killer and victim
+([metric:replay_truth/check#killer_agree=180]), kill-instant positions sit a
+median [metric:replay_truth/check#kill_pos_median_cm=7.1] cm from Riot's, and
+the stored allied observations a median
+[metric:replay_truth/score#ally_err_px_median=1.55] px from the replay, with
+[metric:replay_truth/score#ally_id_agreement=0.9108] of named ones agreeing.
+Evaluation truth only: never a reader input, a prior or a display in play.
 
 **HenrikDev's unofficial API.** It mirrors Riot's match schema. Whether it
 still serves the corpus's past matches is unconfirmed.

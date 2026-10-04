@@ -4,7 +4,7 @@ r"""A held-out labelling pass for minimap ability icons in the solo demos.
     .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py list      (counts and the time estimate)
     .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py label     [--by player]
     .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py label --headless SCRIPT.json [--labels DIR]
-    .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py --pass sonic queue|list|label
+    .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py --pass sonic queue|list|label [--queue FILE]
 
 `--pass sonic` (since 2026-10-04) runs a second, separate held-out pass for
 `prototypes/sonic_square.py` over MATCH sessions, with its own queue, labels
@@ -93,18 +93,46 @@ split):
   whose stored lineup names Deadlock on either side, as `lineup.load_lineup`
   and `identity.side_candidates` name it (the agent-identity owner), minus
   `sonic_square.py`'s dev sessions.
-* In each such session's stored rounds (`Store.read_rounds`), every
-  SONIC_ROUND_STRIDE-th round from round SONIC_ROUND_FIRST (every 3rd from the
-  2nd; every 5th left too few items once cache gaps dropped frames), and in each, the
-  frames SONIC_OFFSETS_S after the round's start while before its end; the
-  nearest held crop-cache sample stands for each. No detector output, and no
-  look at the frames, chose an item.
+* Queue 0.2.0 (`queue-0.2.0.json`, the default): in each such session's
+  stored rounds (`Store.read_rounds`), every SONIC_ROUND_STRIDE-th round from
+  round SONIC_ROUND_FIRST (every 5th from the 2nd), and in each, the frames
+  SONIC_OFFSETS_S after the round's cache start, while at or before the
+  round's end. The live-round minimap cache is written by design from 1 s
+  before each round's barrier drop to the next round's start
+  (`cli._live_round_spans`, LIVE_LEAD_MS); the barrier drop is `gametime`'s
+  `t_live_ms` (owner `in-game-time`). The cache therefore skips the buy
+  phase [domain:rounds/buy-phase-barriers]: on the three queue sessions, in
+  rounds 2 on, a round's first dense sample comes
+  [metric:sonic_heldout_queue/cache_start@a1a995e6b19b+bdfdcf009dba+bfad2778a372#gap_min_s=11.0]
+  to
+  [metric:sonic_heldout_queue/cache_start@a1a995e6b19b+bdfdcf009dba+bfad2778a372#gap_max_s=42.5]
+  s after its start, longest in the first round after halftime; round 1 may
+  wait minutes. Of the
+  [metric:sonic_heldout_queue/cache_start@a1a995e6b19b+bdfdcf009dba+bfad2778a372#rounds=64]
+  rounds,
+  [metric:sonic_heldout_queue/cache_start@a1a995e6b19b+bdfdcf009dba+bfad2778a372#lone_start_rounds=33]
+  also hold one sample exactly at their start, likely the inclusive end of
+  the previous round's span. Offsets from the round's
+  start therefore landed in the buy phase: queue 0.1.0 (`queue.json`, every
+  3rd round, +25 s and +60 s from the round start) kept 20 frames at +60 s
+  and 3 at +25 s, and stays on disk unlabelled (`--queue queue.json`). A
+  frame is refused, with its reason, where `gametime` read no barrier drop,
+  where the cache holds a gap over SONIC_MAX_GAP_MS between the cache start
+  and the frame (a stall or a mid-round gap), or where the frame or its
+  comparison frame lies in a `gametime` discontinuity. The nearest held
+  sample stands for each frame. No detector output, and no look at the
+  frames, chose an item. (Queue 0.2.0 was built with a longest-dense-run
+  rule that restated this schedule; the owner's schedule picks the same
+  [metric:sonic_heldout_queue/cache_start@a1a995e6b19b+bdfdcf009dba+bfad2778a372#items=26]
+  frames and comparison frames, changing
+  [metric:sonic_heldout_queue/cache_start@a1a995e6b19b+bdfdcf009dba+bfad2778a372#frames_changed=0].)
 * The player clicks the centre of EVERY Sonic Sensor icon (Deadlock's Q),
   whoever placed it, lit or dim, and names it 2 (Q); U if unsure. Other
   Deadlock icons may be marked with their digit. N = no Sonic Sensor icon on
   the minimap (a claim). The default view is the side the lineup puts
   Deadlock on (teammate or enemy; self where the lineup names the player
-  Deadlock). The comparison frame is SONIC_BEFORE_S before the item.
+  Deadlock). The comparison frame is SONIC_BEFORE_S before the item,
+  clamped to the round's cache start.
 Answers append to `<store>/labels/sonic_square_heldout/<session>.jsonl`;
 the queue and crops live in `<store>/analysis/sonic-square-label-pass-20261004/`.
 Nobody tunes `sonic_square.py` on them; each version is scored once.
@@ -154,13 +182,17 @@ SLOTS = "CQEX"
 # --- the Sonic Sensor pass, fixed before any item is labelled
 SONIC_QDIR = STORE / "analysis" / "sonic-square-label-pass-20261004"
 SONIC_LABEL_DIR = STORE / "labels" / "sonic_square_heldout"
-SONIC_QUEUE_VERSION = "sonic-square-heldout-queue-0.1.0"
+SONIC_QUEUE_VERSION = "sonic-square-heldout-queue-0.2.0"
+#: Queue 0.1.0 is `queue.json` (unlabelled, offsets from the round start); 0.2.0 is written beside it.
+SONIC_QUEUE_FILE = "queue-0.2.0.json"
 SONIC_AGENT = "Deadlock"
 SONIC_MIN_MATCH_MIN = 15.0
-SONIC_ROUND_FIRST, SONIC_ROUND_STRIDE = 2, 3
-SONIC_OFFSETS_S = (25.0, 60.0)
+SONIC_ROUND_FIRST, SONIC_ROUND_STRIDE = 2, 5
+#: Offsets from the round's cache start (1 s before `gametime`'s barrier drop), not from the round start.
+SONIC_OFFSETS_S = (5.0, 35.0)
 SONIC_BEFORE_S = -5.0
-#: An asked frame whose nearest held sample is further than this is dropped, with the reason.
+#: A frame whose span from the cache start holds a longer stretch with no held sample is
+#: dropped, with the reason (a stall or a mid-round gap).
 SONIC_MAX_GAP_MS = 1000.0
 SONIC_TEXT = (
     "Click the centre of EVERY Sonic Sensor icon (Deadlock's Q) on the minimap, whoever placed it, lit or dim, "
@@ -291,41 +323,91 @@ def _add(items: dict, sid: str, th: float, t_asked: float, role: str, cast: dict
                               "offset_s": off, "t_asked_ms": t_asked})
 
 
-def plan_sonic_items(sessions: dict, rounds: dict, holds: dict) -> tuple:
-    """(items, dropped). `sessions`: sid -> {"side", "view"}; `rounds`: sid -> stored round rows;
-    `holds`: sid -> held crop-cache times. Pure: the cadence alone picks the frames."""
+def cache_gap(holds: np.ndarray, t0: float, t1: float) -> float:
+    """The longest stretch of [t0, t1] with no held sample, in ms; the interval's ends count as edges."""
+    h = np.asarray(holds, dtype=float)
+    h = h[(h >= t0) & (h <= t1)]
+    return float(np.max(np.diff(np.r_[t0, h, t1])))
+
+
+def plan_sonic_items(sessions: dict, rounds: dict, holds: dict, gaps: dict | None = None) -> tuple:
+    """(items, dropped). `sessions`: sid -> {"side", "view"}; `rounds`: sid -> rows of `round_no`,
+    `t_start_ms`, `t_end_ms`, `t_live_ms` (the barrier drop, as `gametime` schedules it) and
+    `t_cache_start_ms` (where the live-round cache starts, `cli._live_round_spans`); `holds`: sid ->
+    held crop-cache times; `gaps`: sid -> `gametime` discontinuities as (start, end, kind). Pure: the
+    cadence alone picks the frames, at fixed offsets from each selected round's cache start. A frame
+    is refused, with its reason, where `gametime` read no barrier drop, where the frame falls after
+    the round's end, where the cache holds a gap over SONIC_MAX_GAP_MS between the cache start and
+    the frame (a stall or a mid-round gap), or where it or its comparison frame lies in a
+    discontinuity."""
     items, dropped = {}, []
+    gaps = gaps or {}
     for sid in sorted(sessions):
         if sid not in holds:
             dropped.append({"session_id": sid, "why": "no minimap crop cache"})
             continue
+        h = np.sort(np.asarray(holds[sid], dtype=float))
         for r in sorted(rounds.get(sid) or [], key=lambda r: r["round_no"]):
             n = int(r["round_no"])
             if n < SONIC_ROUND_FIRST or (n - SONIC_ROUND_FIRST) % SONIC_ROUND_STRIDE:
                 continue
+            t0, t_live, a = float(r["t_start_ms"]), float(r["t_live_ms"]), float(r["t_cache_start_ms"])
+            t1 = float(r["t_end_ms"]) if r.get("t_end_ms") is not None else None
+            if t_live <= t0:
+                dropped.append({"session_id": sid, "round_no": n,
+                                "why": "gametime read no barrier drop (t_live_ms is the round start)"})
+                continue
             for off in SONIC_OFFSETS_S:
-                t = float(r["t_start_ms"]) + off * 1000
-                if r.get("t_end_ms") is not None and t >= float(r["t_end_ms"]):
+                t = a + off * 1000
+                if t1 is not None and t > t1:
                     dropped.append({"session_id": sid, "round_no": n, "offset_s": off,
-                                    "why": "after the round's end"})
+                                    "why": f"after the round's end ({(t1 - a) / 1000:.1f} s from the cache start)"})
                     continue
-                th = nearest(holds[sid], t)
-                if abs(th - t) > SONIC_MAX_GAP_MS:
+                g = cache_gap(h, a, t)
+                if g > SONIC_MAX_GAP_MS:
                     dropped.append({"session_id": sid, "round_no": n, "offset_s": off,
-                                    "why": f"nearest held sample {abs(th - t):.0f} ms away"})
+                                    "why": f"cache gap of {g / 1000:.1f} s between the cache start and the frame"})
+                    continue
+                th = nearest(h, t)
+                tb = max(a, th + SONIC_BEFORE_S * 1000)
+                hit = next((k for s, e, k in gaps.get(sid, []) if s <= th <= e or s <= tb <= e), None)
+                if hit:
+                    dropped.append({"session_id": sid, "round_no": n, "offset_s": off,
+                                    "why": f"frame or comparison frame in a gametime {hit}"})
                     continue
                 it = items.setdefault((sid, th), {
                     "key": f"{sid}:{int(round(th))}", "session_id": sid, "t_ms": th, "agent": SONIC_AGENT,
-                    "kind": "cadence", "opportunity": [], "t_before_ms": th + SONIC_BEFORE_S * 1000,
+                    "kind": "cadence", "opportunity": [], "t_before_ms": tb,
                     "view_default": sessions[sid]["view"], "dev_session": False, "near_tuned_label": False,
                     "audit_excluded": False, "pass": "sonic", "deadlock_side": sessions[sid]["side"]})
                 it["opportunity"].append({"role": "cadence", "round_no": n, "slot": "Q", "ability": "Sonic Sensor",
-                                          "offset_s": off, "t_asked_ms": t})
+                                          "offset_s": off, "t_asked_ms": t, "anchor": "cache_start",
+                                          "t_round_start_ms": t0, "t_live_ms": t_live, "t_cache_start_ms": a,
+                                          "round_offset_s": round((th - t0) / 1000, 3),
+                                          "live_offset_s": round((th - t_live) / 1000, 3)})
     return [items[k] for k in sorted(items)], dropped
 
 
+def sonic_schedule(store, sid: str, date: str):
+    """(round rows for `plan_sonic_items`, `gametime` discontinuities, stall note), or the reason
+    there are none. Each round's barrier drop is `gametime`'s `t_live_ms` (owner `in-game-time`) and
+    its cache start is the live-round cache's own span (`cli._live_round_spans`, which wrote it)."""
+    from reticle import cli, gametime, stalls
+    rs, hud = store.read_rounds(sid, date), store.read_hud(sid, date)
+    if rs is None or hud is None:
+        return "no stored rounds or HUD for gametime"
+    stall_list = stalls.for_session(store, sid, date)
+    gt = gametime.build_session_gametime(sid, hud, rs.to_pylist(), stall_list=stall_list)
+    spans = cli._live_round_spans(store, sid, date)
+    rows = [{"round_no": s.round_no, "t_start_ms": s.t_start_ms, "t_end_ms": s.t_end_ms,
+             "t_live_ms": s.t_live_ms, "t_cache_start_ms": sp[0]} for s, sp in zip(gt.schedules, spans)]
+    gaps = [(d.t_media_start, d.t_media_end, d.kind) for d in gt.discontinuities]
+    note = "unknown (no primitives table)" if stall_list is None else f"{len(stall_list)} stored stall spans"
+    return rows, gaps, note
+
+
 def cmd_queue_sonic(args) -> None:
-    from reticle import cli
+    from reticle import cli, gametime
     from reticle.adjudication.identity import side_candidates
     from reticle.lineup import load_lineup
     from reticle.profiles import get_profile
@@ -334,15 +416,14 @@ def cmd_queue_sonic(args) -> None:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import sonic_square as ss                    # its dev sessions only, recorded at queue time
     qdir = SONIC_QDIR
-    if (qdir / "queue.json").exists() and not args.rebuild:
-        raise SystemExit(f"{qdir / 'queue.json'} exists; the queue is fixed once built (--rebuild replaces it, "
-                         "and only before any label is written)")
-    if args.rebuild and answered(SONIC_LABEL_DIR):
-        raise SystemExit(f"{SONIC_LABEL_DIR} holds answers; a rebuilt queue would move the held-out set under them")
+    out = qdir / SONIC_QUEUE_FILE
+    if out.exists():
+        raise SystemExit(f"{out} exists; a queue is fixed once built and never overwritten (bump "
+                         "SONIC_QUEUE_VERSION and SONIC_QUEUE_FILE for a new one)")
     ss.below_normal()
     dev = set(ss.DEV_LABEL_SESSIONS) | {ss.ROTATED[0]} | set(ss.NEGATIVE_SESSIONS)
     st = Store(str(STORE))
-    sessions, rounds, holds, caches, skipped = {}, {}, {}, {}, []
+    sessions, rounds, holds, gaps, caches, skipped = {}, {}, {}, {}, {}, []
     for man in st.sessions():
         sid = man["session_id"]
         lu = load_lineup(sid, str(STORE))
@@ -362,16 +443,19 @@ def cmd_queue_sonic(args) -> None:
         player = (lu.get("player") or {}).get("agent")
         view = "self" if player == SONIC_AGENT else ("teammate" if sides == ["ally"] else
                                                      "enemy" if sides == ["enemy"] else "spectator")
-        tab = st.read_rounds(sid, cli._date_of(man))
         c, why = RoiCache.load(STORE, man, get_profile(man["source_profile"]), "minimap")
         if c is None:
             skipped.append({"session_id": sid, "why": f"no minimap cache ({why})"})
             continue
-        sessions[sid] = {"side": "+".join(sides), "view": view, "player_agent": player}
-        rounds[sid] = tab.to_pylist() if tab is not None else []
+        sched = sonic_schedule(st, sid, cli._date_of(man))
+        if isinstance(sched, str):
+            skipped.append({"session_id": sid, "why": sched})
+            continue
+        rounds[sid], gaps[sid], stall_note = sched
+        sessions[sid] = {"side": "+".join(sides), "view": view, "player_agent": player, "stalls": stall_note}
         caches[sid] = c
         holds[sid] = np.asarray(c.holds(), dtype=float)
-    items, dropped = plan_sonic_items(sessions, rounds, holds)
+    items, dropped = plan_sonic_items(sessions, rounds, holds, gaps)
     (qdir / "crops").mkdir(parents=True, exist_ok=True)
     by = defaultdict(list)
     for it in items:
@@ -399,15 +483,28 @@ def cmd_queue_sonic(args) -> None:
                                      "identity.side_candidates)",
                     "min_match_min": SONIC_MIN_MATCH_MIN, "round_first": SONIC_ROUND_FIRST,
                     "round_stride": SONIC_ROUND_STRIDE, "offsets_s": list(SONIC_OFFSETS_S),
-                    "before_s": SONIC_BEFORE_S, "max_gap_ms": SONIC_MAX_GAP_MS},
-         "inputs": {"crops": "roi_cache minimap (no decode)", "rounds": "Store.read_rounds"},
+                    "offset_anchor": "the round's cache start: 1 s before gametime's barrier drop (t_live_ms), "
+                                     "as cli._live_round_spans writes the live-round cache",
+                    "before_s": SONIC_BEFORE_S, "before_clamp": "the round's cache start",
+                    "max_gap_ms": SONIC_MAX_GAP_MS,
+                    "refusals": "no barrier drop read; after the round's end; a cache gap over max_gap_ms "
+                                "between the cache start and the frame; frame or comparison frame in a "
+                                "gametime discontinuity"},
+         "supersedes": {"file": "queue.json", "version": "sonic-square-heldout-queue-0.1.0", "labelled": False,
+                        "why": "the live-round minimap cache is written by design from 1 s before each round's "
+                               "barrier drop (gametime t_live_ms), so offsets from the round start fell in the "
+                               "uncached buy phase: 20 of 23 items at +60 s, 3 at +25 s"},
+         "inputs": {"crops": "roi_cache minimap (no decode)", "rounds": "Store.read_rounds",
+                    "schedule": f"gametime {gametime.GAMETIME_VERSION} t_live_ms; cli._live_round_spans; "
+                                "stalls.for_session"},
          "sessions": sessions, "skipped_sessions": skipped, "dropped": dropped,
          "estimate_min": round(est, 1), "seconds_per_item": SECONDS_PER_ITEM, "items": items}
     if est > BUDGET_MIN:
         raise SystemExit(f"{len(items)} items, ~{est:.0f} min: over the {BUDGET_MIN:.0f} min budget; cap first")
-    (qdir / "queue.json").write_text(json.dumps(q, indent=1), encoding="utf-8", newline="\n")
+    with open(out, "x", encoding="utf-8", newline="\n") as f:          # "x": never overwrite
+        f.write(json.dumps(q, indent=1))
     print(f"{len(items)} items over {len(by)} sessions, ~{est:.0f} min; {len(dropped)} asked frames dropped, "
-          f"{len(skipped)} sessions skipped -> {qdir / 'queue.json'}")
+          f"{len(skipped)} sessions skipped -> {out}")
 
 
 def session_view(manifest: dict) -> str:
@@ -496,12 +593,12 @@ def cmd_queue(args) -> None:
     print(f"{len(items)} items, ~{est:.0f} min; {len(excluded)} casts out of scope -> {QDIR / 'queue.json'}")
 
 
-def load_queue(qdir=QDIR) -> dict:
-    return json.load(open(Path(qdir) / "queue.json", encoding="utf-8"))
+def load_queue(qdir=QDIR, name: str = "queue.json") -> dict:
+    return json.load(open(Path(qdir) / name, encoding="utf-8"))
 
 
 def cmd_list(args) -> None:
-    q = load_queue(args.qdir)
+    q = load_queue(args.qdir, args.queue)
     items = q["items"]
     done = answered(Path(args.labels))
     if q.get("pass") == "sonic":
@@ -839,7 +936,7 @@ def run_headless(p: Pass, script: list) -> None:
 
 
 def cmd_label(args) -> None:
-    q = load_queue(args.qdir)
+    q = load_queue(args.qdir, args.queue)
     cat = json.load(open(CAT, encoding="utf-8"))["agents"]
     kits = {a: kit(a, cat) for a in {it["agent"] for it in q["items"]}}
     p = Pass(q["items"], Path(args.labels), args.by, kits, q["version"])
@@ -867,11 +964,16 @@ def main() -> None:
     lb.add_argument("--by", default="player")
     lb.add_argument("--labels", default=None)
     lb.add_argument("--headless", help="a JSON list of events to feed instead of the window")
+    for sp in (lp, lb):
+        sp.add_argument("--queue", default=None, help=f"queue file in the pass's directory (sonic default: "
+                                                      f"{SONIC_QUEUE_FILE}; glyph: queue.json)")
     args = ap.parse_args()
     if not args.cmd:
         args = ap.parse_args(sys.argv[1:] + ["label"])
     sonic = args.pass_ == "sonic"
     args.qdir = str(SONIC_QDIR if sonic else QDIR)
+    if getattr(args, "queue", None) is None:
+        args.queue = SONIC_QUEUE_FILE if sonic else "queue.json"
     if args.cmd in ("list", "label") and args.labels is None:
         args.labels = str(SONIC_LABEL_DIR if sonic else LABEL_DIR)
     {"queue": cmd_queue_sonic if sonic else cmd_queue, "list": cmd_list, "label": cmd_label}[args.cmd](args)

@@ -1261,7 +1261,7 @@ class AllyIconReader:
     records_clip = True
 
     def __init__(self, floor, slab, static, box, hz=ALLY_DESCRIPTOR_HZ,
-                 spans=None, name="ally_icon", stack=None):
+                 spans=None, name="ally_icon", stack=None, turned=None):
         self.name, self.hz, self.spans = name, hz, spans
         self.frames_from = "video"
         self.cv_threads = 1        # small crops: see `passes._feed`
@@ -1269,6 +1269,10 @@ class AllyIconReader:
         #: The stacked-icon search's gate (`StackGate`), or None: no member
         #: is fitted and each drawn frame says `not_configured`.
         self.stack = stack
+        #: `widget_frame.turned_at`'s function of time, or None where no
+        #: stored placement is turned: where it is True the aligned
+        #: portraits are turned back before their features are taken.
+        self.turned = turned
         self.sgray = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float64)
         self.ref = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float32)
         self.frames: list[dict] = []
@@ -1348,10 +1352,13 @@ class AllyIconReader:
             got = ally_icon_descriptors(crop, self.floor, self.slab, self.static, occ,
                                         found=found, keyed=keyed)
         # The portrait's feature families, on the icon's aligned window of this
-        # same crop; upright whatever it faces (`ally_portrait`).
+        # same crop; upright whatever it faces (`ally_portrait`). On a widget
+        # placed turned over, the baked frame holds the portrait upside down
+        # and it is turned back (`_turned`, ally-icon-0.12.0).
+        turn = self._turned(frame["t_ms"])
         with step("portrait"):
             for d in got:
-                img = ally_portrait.align_icon(crop, d["cx"], d["cy"])
+                img = self._upright(ally_portrait.align_icon(crop, d["cx"], d["cy"]), turn)
                 d["portrait_features"] = ally_portrait.stored(
                     ally_portrait.portrait_features(img, portrait_key(img)))
         self_key = next((f"{frame['frame_idx']}:self:{i}" for i, f in enumerate(raw_self)
@@ -1427,15 +1434,32 @@ class AllyIconReader:
         if self.stack is not None:
             with step("stack_fit"):
                 stack_reason = self._stack(crop, frame, found, occ, self_key, keyed,
-                                           grey, glyphs, shaped, sc)
+                                           grey, glyphs, shaped, sc, turn)
         self.frames.append({**frame, "widget_drawn": True, "icons": len(got),
                             "self": [round(v, 2) for v in occ[0]] if occ else None,
-                            "stack_reason": stack_reason})
+                            "stack_reason": stack_reason,
+                            # Only a turned frame carries the key, so an
+                            # upright session's rows keep their bytes.
+                            **({"turned": True} if turn else {})})
         for i, d in enumerate(got):
             self.icons.append({**frame, "index": i, **d})
 
+    def _turned(self, t_ms: float) -> bool:
+        """Whether the session's stored placement is turned 180 degrees at
+        `t_ms` (`widget_frame.turned_at`, set by `ally_icon_reader`)."""
+        return bool(self.turned is not None and self.turned(float(t_ms)))
+
+    @staticmethod
+    def _upright(img: np.ndarray, turn: bool) -> np.ndarray:
+        """An aligned portrait turned back where the widget is turned over:
+        portraits keep their on-screen orientation on a turned map
+        [domain:minimap/upright-icons-on-turned-map], and `align_icon` puts the
+        fitted centre at the middle pixel, so a turn of both axes turns the
+        portrait about its own centre."""
+        return cv2.rotate(img, cv2.ROTATE_180) if turn else img
+
     def _stack(self, crop, frame, found, occ, self_key, keyed, grey, glyphs, shaped,
-               sc) -> str | None:
+               sc, turn: bool = False) -> str | None:
         """Fit the frame's stacked windows where `self.stack` opens the gate;
         appends one `stack` candidate per member and returns the frame's
         `stack_reason` (None where the search ran)."""
@@ -1463,7 +1487,7 @@ class AllyIconReader:
             comp = appearance.hsv_composition(crop[win], keep)
             diff = (float(np.abs(grey[win][keep] - self.ref[win][keep]).mean())
                     if keep.any() else None)
-            img = ally_portrait.align_icon(crop, m["x"], m["y"])
+            img = self._upright(ally_portrait.align_icon(crop, m["x"], m["y"]), turn)
             near = [{k: g[k] for k in ("cx", "cy", "state", "side", "ncc", "amp", "reason")}
                     for g in glyphs if np.hypot(g["cx"] - m["x"], g["cy"] - m["y"])
                     <= spike.ON_GLYPH_PX * sc]
@@ -1659,6 +1683,11 @@ class AllyIconReader:
             # A pass clipped to a round cache's rounds names the spans it left
             # unread: no frame row there is not an empty minimap.
             rows[0]["spans_clip"] = clip
+        turned = sum(1 for f in self.frames if f.get("turned"))
+        if turned:
+            # Frames whose portraits were turned back (`_turned`); an upright
+            # session's coverage row carries no key.
+            rows[0]["widget_turned_frames"] = turned
         rows += [{**common, "kind": "frame", **f} for f in self.frames]
         for r in selected:
             out = dict(r)
@@ -1768,6 +1797,7 @@ def ally_icon_reader(ctx, hz: float = ALLY_DESCRIPTOR_HZ, spans=None, floor=None
     A pass that already holds the floor and slab (`scan`'s minimap reader)
     passes them; `trial` builds them here."""
     from . import geometry
+    from .widget_frame import turned_at
     med = ctx.map_reference()
     if slab is None:
         slab = slab_mask(med, sd=geometry.stability(ctx.session_id, ctx.store.root,
@@ -1776,7 +1806,8 @@ def ally_icon_reader(ctx, hz: float = ALLY_DESCRIPTOR_HZ, spans=None, floor=None
     return AllyIconReader(floor=floor, slab=slab,
                           static=med, box=minimap_roi_px(ctx.profile, *ctx.wh), hz=hz,
                           spans=spans,
-                          stack=stack_gate(ctx, med, floor, slab) if stack else None)
+                          stack=stack_gate(ctx, med, floor, slab) if stack else None,
+                          turned=turned_at(ctx.manifest))
 
 
 def art_floor(shade_kind: np.ndarray, dilate: float = 1) -> np.ndarray:
