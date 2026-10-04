@@ -95,6 +95,7 @@ class PlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             plan = stale(_current_store(Path(d)), ["s"])
             self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": [], "waived": [],
+                                         "declined": [],
                                          "unchecked": [], "held": [], "unrecorded": [],
                                          "widget": None})
             self.assertEqual(render(plan), "nothing stale over 1 sessions")
@@ -409,6 +410,114 @@ class PlanTests(unittest.TestCase):
                 self.assertTrue(text.startswith("nothing stale over 1 sessions"))
                 self.assertIn("waived   scoreboard: scoreboard-0.12.0 accepted as "
                               "scoreboard-0.13.0 by waiver", text)
+
+
+def _ally_store(root: Path, manifest: dict, tables: bool = True) -> _Store:
+    """A current store whose ally_icon stream was written at 0.11.0, read
+    through `manifest`; `tables` stores a minimap and a round table that hold
+    the columns a side switch is looked for in, with no collapse."""
+    from reticle.plan import reader_streams as rs
+    store = _current_store(root)
+    store.events["ally_icon"] = [{"v": "ally-icon-0.11.0"}]
+    base = store.read_manifest
+    store.read_manifest = lambda sid: {**base(sid), **manifest}
+    if tables:
+        now = dict((s, v) for s, _, v, _ in rs())["minimap"]
+        t = [float(x) for x in range(0, 1_800_000, 500)]
+        pq.write_table(pa.table({"t_ms": t, "widget_drawn": [True] * len(t)})
+                       .replace_schema_metadata({"minimap_version": now}),
+                       store.minimap_path("s", None))
+        rounds = [{"round_no": k + 1, "t_start_ms": k * 100_000.0,
+                   "t_end_ms": k * 100_000.0 + 90_000.0} for k in range(18)]
+        pq.write_table(pa.Table.from_pylist(rounds).replace_schema_metadata(
+            {"round_version": ROUND_VERSION, "hud_version": HUD_VERSION,
+             "killfeed_portrait_version": KILLFEED_PORTRAIT_VERSION,
+             "plant_graphic_version": "none"}), store.rounds_path("s", None))
+    return store
+
+
+def _placement(*rotations) -> dict:
+    """A stored widget placement of one identity segment per rotation, split
+    at 900 s."""
+    from reticle.widget_frame import MANIFEST_KEY
+    roi = [0, 0, 100, 100]
+    bounds = [(None, 900_000.0), (900_000.0, None)] if len(rotations) == 2 else [(None, None)]
+    return {MANIFEST_KEY: {"baked_roi": roi, "segments": [
+        {"rotation": r, "t0_ms": a, "t1_ms": b, "affine": [[1, 0, 0], [0, 1, 0]]}
+        for r, (a, b) in zip(rotations, bounds)]}}
+
+
+class AllyIconWaiverTests(unittest.TestCase):
+    """The player's 2026-10-04 stamp waiver: stored ally-icon-0.11.0 rows count
+    as 0.12.0 only where the stored placement is upright throughout
+    (`widget_frame.upright_throughout`)."""
+
+    def test_the_waiver_is_declared_conditional(self):
+        from reticle.plan import WAIVER_CONDITIONS, waiver
+        from reticle.version import ALLY_ICON_VERSION, STAMP_WAIVERS
+        self.assertEqual(ALLY_ICON_VERSION, "ally-icon-0.12.0")
+        w = STAMP_WAIVERS[("ally-icon-0.12.0", "ally-icon-0.11.0")]
+        self.assertIn(w["when"], WAIVER_CONDITIONS)
+        self.assertIn("2026-10-04", w["why"])
+        # No session to evaluate the condition on: never accepted.
+        self.assertIsNone(waiver("ally-icon-0.11.0", "ally-icon-0.12.0"))
+        # An older stamp is never waived.
+        self.assertNotIn(("ally-icon-0.12.0", "ally-icon-0.10.0"), STAMP_WAIVERS)
+
+    def _check(self, manifest: dict, tables: bool = True):
+        with tempfile.TemporaryDirectory() as d:
+            store = _ally_store(Path(d), manifest, tables)
+            plan = stale(store, ["s"])
+            return plan["s"], render(plan)
+
+    def test_an_upright_session_is_accepted_by_waiver(self):
+        for manifest in ({}, _placement(0), _placement(0, 0)):
+            p, text = self._check(manifest)
+            self.assertEqual([x["stream"] for x in p["decode"]], [], manifest)
+            self.assertEqual([(w["stream"], w["stored"], w["current"]) for w in p["waived"]],
+                             [("ally_icon", "ally-icon-0.11.0", "ally-icon-0.12.0")])
+            self.assertIn("upright", p["waived"][0]["why"])
+            self.assertEqual(p["declined"], [])
+            self.assertTrue(text.startswith("nothing stale over 1 sessions"), text)
+            self.assertIn("waived   ally_icon: ally-icon-0.11.0 accepted as ally-icon-0.12.0 "
+                          "by waiver (version.STAMP_WAIVERS, where upright_placement holds)",
+                          text)
+
+    def test_a_turned_side_based_session_is_not(self):
+        for manifest in (_placement(180, 0), _placement(0, 180),
+                         {**_placement(0, 180), "minimap_mode": {"orientation": "per_side"}}):
+            p, text = self._check(manifest)
+            self.assertIn("ally_icon", [x["stream"] for x in p["decode"]])
+            self.assertEqual(p["waived"], [])
+            self.assertEqual([(w["stream"], w["why"].split(":")[1].strip())
+                              for w in p["declined"]],
+                             [("ally_icon", "turned")])
+            self.assertIn("not waived ally_icon: ally-icon-0.11.0 stays stale", text)
+            self.assertNotIn("accepted as ally-icon-0.12.0", text)
+
+    def test_an_unknown_placement_is_not(self):
+        cases = (({"minimap_mode": {"orientation": "per_side"}}, True, "per_side_unplaced"),
+                 ({}, False, "no stored minimap and round tables"))
+        for manifest, tables, reason in cases:
+            p, text = self._check(manifest, tables)
+            self.assertIn("ally_icon", [x["stream"] for x in p["decode"]])
+            self.assertEqual(p["waived"], [])
+            self.assertEqual(len(p["declined"]), 1)
+            self.assertIn("unknown", p["declined"][0]["why"])
+            self.assertIn(reason, p["declined"][0]["why"])
+            self.assertNotIn("accepted as ally-icon-0.12.0", text)
+
+    def test_the_condition_is_the_owners(self):
+        """`plan` asks `widget_frame.upright_throughout`; it holds, fails or is
+        unknown as the stored placement says."""
+        from reticle.widget_frame import upright_throughout
+        with tempfile.TemporaryDirectory() as d:
+            store = _ally_store(Path(d), {})
+            man = store.read_manifest("s")
+            self.assertIs(upright_throughout(store, man)[0], True)
+            self.assertIs(upright_throughout(store, {**man, **_placement(0, 180)})[0], False)
+            self.assertIsNone(upright_throughout(
+                store, {**man, "minimap_mode": {"orientation": "per_side"}})[0])
 
 
 def _declared_head(stream: str) -> dict:

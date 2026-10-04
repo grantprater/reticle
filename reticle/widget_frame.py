@@ -402,6 +402,34 @@ def placement_status(store, manifest: dict) -> dict | None:
     return None
 
 
+def upright_throughout(store, manifest: dict) -> tuple[bool | None, str]:
+    """Whether every minimap frame of the session is read upright, with why.
+
+    True where a stored placement holds no turned segment, or where none is
+    stored and the session is not side-based: it declares no `per_side`
+    orientation and its stored `widget_drawn` rate does not collapse at a
+    round boundary (`placement_status` is None over a stored minimap table and
+    round table that hold the columns `drawn_collapse` reads). False where a
+    stored segment is turned (`turned_at`). None where it is unknown: a
+    side-based session with no placement stored, or no stored minimap or round
+    table to look for a collapse in."""
+    import pyarrow.parquet as pq
+    e = entry(manifest)
+    if e is not None:
+        if turned_at(manifest) is not None:
+            return False, "turned: a stored placement segment is rotated 180 degrees"
+        return True, f"upright: {len(e['segments'])} stored placement segments, none turned"
+    status = placement_status(store, manifest)
+    if status is not None:
+        return None, f"unknown: {status['reason']}, no placement stored"
+    sid, date = manifest["session_id"], manifest["ingested_at"][:10]
+    need = ((store.minimap_path(sid, date), {"t_ms", "widget_drawn"}),
+            (store.rounds_path(sid, date), {"round_no", "t_start_ms", "t_end_ms"}))
+    if not all(p.is_file() and cols <= set(pq.read_schema(p).names) for p, cols in need):
+        return None, "unknown: no stored minimap and round tables to look for a side switch in"
+    return True, "upright: not side-based (always_same, no widget_drawn collapse), baked placement"
+
+
 def turned_at(manifest: dict):
     """A function of `t_ms` that is True where the session's stored placement
     is rotated 180 degrees; None where no stored segment is turned.
