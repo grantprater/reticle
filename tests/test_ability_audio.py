@@ -283,6 +283,103 @@ class CalibrationTest(unittest.TestCase):
         self.assertTrue(np.isnan(p[2]))
 
 
+class PhaseGroupTest(unittest.TestCase):
+    """Sova-shaped synthetic tracks: the bolts' shared release `Q+E`, each
+    bolt's landing track, and the kit's other classes."""
+    GROUP = {"name": "Q+E", "members": ["Q", "E"], "landing": {"Q": [], "E": []},
+             "post_s": [0.05, 2.0], "levels": {"Q": 1.2, "E": 1.3}, "basis": "test"}
+
+    def tracks(self, n=4000):
+        z = lambda: np.zeros(n, np.float32)
+        return {"C": z(), "Q": z(), "E": z(), "X": z(), "Q+E": z(),
+                "landing:Q": z(), "landing:E": z()}
+
+    def test_the_window_argmax_and_next_neighbour_match_a_brute_force_scan(self):
+        rng = np.random.default_rng(3)
+        t = rng.normal(size=500).astype(np.float32)
+        lo, hi = np.array([0, 10, 490, 200]), np.array([5, 300, 600, 201])
+        want = [l + int(np.argmax(t[l:min(h, 500)])) for l, h in zip(lo, hi)]
+        np.testing.assert_array_equal(aa.window_argmax(t, lo, hi), want)
+        nxt = aa.next_neighbour([100, 300, 900], [100, 101, 300, 500])
+        np.testing.assert_array_equal(nxt[:2], [300, 500])
+        self.assertEqual(nxt[2], np.iinfo(np.int64).max)
+
+    def test_the_kit_view_merges_a_group_into_one_family(self):
+        tr = self.tracks(10)
+        tr["Q"][2], tr["E"][3], tr["Q+E"][4] = 1.0, 2.0, 3.0
+        kt = aa.kit_view(tr, [self.GROUP])
+        self.assertEqual(sorted(kt), ["C", "Q+E", "X"])
+        np.testing.assert_array_equal(kt["Q+E"][2:5], [1.0, 2.0, 3.0])
+        self.assertEqual(aa.kit_classes(list(tr), [self.GROUP]), ["C", "Q+E", "X"])
+        self.assertEqual(aa.referenced_slots(["C", "Q+E", "X"], [self.GROUP]),
+                         {"C", "Q", "E", "X"})
+        self.assertEqual(aa.kit_view({"C": tr["C"], "E": tr["E"]}), {"C": tr["C"], "E": tr["E"]})
+
+    def test_an_extra_track_is_the_maximum_over_its_templates(self):
+        rng = np.random.default_rng(4)
+        X = rng.normal(size=(600, 8)).astype(np.float32)
+        Ws = [rng.normal(size=(9, 8)).astype(np.float32) for _ in range(3)]
+        null = np.ones(600, bool)
+        tr = aa.class_tracks(X, Ws, ["Q", "Q", "E"], null, extra={"landing:Q": [1]})
+        one = aa.class_tracks(X, [Ws[1]], ["Q"], null)["Q"]
+        np.testing.assert_allclose(tr["landing:Q"], one, atol=1e-6)
+        self.assertEqual(sorted(tr), ["E", "Q", "landing:Q"])
+
+    def test_the_landing_names_the_bolt_and_neither_heard_refuses(self):
+        tr = self.tracks()
+        frames = [500, 1500, 2500, 3300, 3700]
+        # 500: release at 480, Shock lands 60 frames later.
+        tr["Q+E"][480], tr["landing:Q"][540] = 4.0, 3.0
+        # 1500: release at 1420, Recon lands 150 frames later, past the drop.
+        tr["Q+E"][1420], tr["landing:E"][1570] = 4.0, 2.5
+        # 2500: release, but no landing over its level.
+        tr["Q+E"][2490], tr["landing:Q"][2520], tr["landing:E"][2530] = 4.0, 1.1, 1.2
+        # 3300: both landings at nearly one level.
+        tr["Q+E"][3290], tr["landing:Q"][3320], tr["landing:E"][3330] = 4.0, 2.0, 1.9
+        # 3700: the Owl Drone.
+        tr["C"][3710] = 5.0
+        params = {"thresholds": {"C": 1.0, "Q+E": 1.0, "X": 1.0}, "groups": [self.GROUP],
+                  "calibration": {"w": [0.0, 2.0], "basis": "agent"}}
+        rows = aa.cast_verdicts(tr, frames, frames, params)
+        self.assertEqual([r["verdict"] for r in rows], ["Q", "E", None, None, "C"])
+        self.assertEqual([r["reason"] for r in rows],
+                         [None, None, "bolt_unknown", "landing_tie", None])
+        self.assertEqual([r["best_ref"] for r in rows], ["Q", "E", None, "Q", "C"])
+        self.assertAlmostEqual(rows[0]["margin_ref"], 3.0)
+        self.assertEqual(rows[0]["phase"]["release_s"], 4.8)
+        self.assertIsNone(rows[2]["p_right"])
+        self.assertEqual(rows[2]["p_right_reason"], "bolt_unknown")
+        self.assertIsNone(rows[2]["margin_ref"])
+        self.assertIsNotNone(rows[3]["p_right"])
+        self.assertIsNone(rows[4]["phase"])
+        self.assertEqual(rows[0]["best"], "Q+E")
+
+    def test_a_landing_after_the_next_cast_is_not_this_casts(self):
+        tr = self.tracks()
+        tr["Q+E"][1000], tr["landing:E"][1150] = 4.0, 3.0
+        params = {"thresholds": {"C": 1.0, "Q+E": 1.0, "X": 1.0}, "groups": [self.GROUP]}
+        alone = aa.cast_verdicts(tr, [1000], [1000], params)[0]
+        cut = aa.cast_verdicts(tr, [1000], [1000, 1100], params)[0]
+        self.assertEqual(alone["verdict"], "E")
+        self.assertEqual(cut["reason"], "bolt_unknown")
+        self.assertEqual(alone["p_right_reason"], "no_calibration")
+
+    def test_without_groups_the_verdict_is_the_kit_levels(self):
+        rng = np.random.default_rng(5)
+        tr = {c: rng.normal(size=900).astype(np.float32) * 2 for c in "CQEX"}
+        frames, nb = [100, 400, 700], [100, 400, 700]
+        thr = {c: 1.0 for c in "CQEX"}
+        rows = aa.cast_verdicts(tr, frames, nb, {"thresholds": thr})
+        sc = aa.cast_scores(tr, frames, list("CQEX"), neighbours=nb)
+        want = aa.identify(sc, list("CQEX"), thr)
+        best, m = aa.ref_margin(sc, list("CQEX"))
+        for r, w, b, mm in zip(rows, want, best, m):
+            self.assertEqual((r["verdict"], r["reason"], r["best_ref"]),
+                             (w["verdict"], w["reason"], b))
+            self.assertAlmostEqual(r["margin_ref"], round(float(mm), 4))
+            self.assertIsNone(r["phase"])
+
+
 class OwnKitMaskTest(unittest.TestCase):
     def test_frames_near_a_span_of_the_players_kit_only(self):
         spans = [(1000.0, 5000.0, "Sova"), (9000.0, 12000.0, "Omen")]

@@ -10,6 +10,9 @@ Extends [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md), the existing
 lifecycle -> compound episode -> review architecture. Does not replace the
 entity ontology or initiate detector work, rescans, or a labeling campaign.
 
+The win-probability research and staged roadmap of 2026-10-04 are in
+[WIN_PROBABILITY_RESEARCH.md](WIN_PROBABILITY_RESEARCH.md).
+
 ## Product objective
 
 Find valuable inflection points conditioned on the history available at the
