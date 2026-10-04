@@ -451,3 +451,13 @@ for this gate; a later channel may read them as events of their own. The
 falsifier for the direction is a gate whose recall on the labelled casts
 cannot be raised above the tray's without a false alarm every few seconds,
 in which case the tray stays the primary witness and audio only names.
+
+## Per-file phase census (2026-10-04)
+
+`prototypes/demo_audio_census.py` scores every game sound file of a solo
+demo's agent, unmapped folders included, over two seconds before to fifteen
+after each census cast, and records when each file fires against a null from
+the other agents' demos. Its table (`analysis/demo-audio-census-20261004/`
+in the store) proposes a phase per file and slot for the player to confirm;
+it writes no domain fact. Rebuild it with
+`.venv\Scripts\python.exe prototypes\demo_audio_census.py --replace`.
