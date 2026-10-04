@@ -1,12 +1,84 @@
 r"""Do the audio witness and the minimap channel fail on the same casts? Measured on the player's own casts.
 
-    .\.venv\Scripts\python.exe prototypes\cross_channel_independence.py build  [--only sid,sid] [--no-demos]
-    .\.venv\Scripts\python.exe prototypes\cross_channel_independence.py report
+    .\.venv\Scripts\python.exe prototypes\cross_channel_independence.py build  [--only sid,sid] [--no-demos] [--out DIR [--resume]]
+    .\.venv\Scripts\python.exe prototypes\cross_channel_independence.py report [--dir DIR] [--record]
 
 The question is the player's (2026-10-04): with the audio and minimap channels much better, cross-referencing
-them for training is safe if their weaknesses do not overlap. `build` writes one row per cast to the store's
-analysis/cross-channel-independence-20261004/casts.jsonl; `report` writes report.json there. Pre-registered in
-the store's notes/predictions.jsonl (task cross-channel-independence-20261004) before any outcome was read.
+them for training is safe if their weaknesses do not overlap. Pre-registered in the store's
+notes/predictions.jsonl (task cross-channel-independence-20261004) before any outcome was read.
+
+`build` writes one row per cast to casts.jsonl in a NEW versioned directory under the store's analysis/
+(`cross-channel-independence-<version>-<UTC stamp>`); it refuses a directory that already holds output unless
+`--resume` continues it, so a rerun never overwrites evidence. The stored run is
+analysis/cross-channel-independence-20261004/ (build 0.1.0, 680 casts). `report` reads a directory's
+casts.jsonl and writes report-<version>.json beside it; `--record` appends its metrics rows.
+
+Result (report 0.2.0 on the stored 0.1.0 casts)
+-----------------------------------------------
+Headline: stratified by minimap source (glyph follow, shape owner), the Mantel-Haenszel odds ratio of joint
+failure on match casts is [metric:cross_channel_independence/stratified_source@matches#or_mh=2.694]
+[[metric:cross_channel_independence/stratified_source@matches#ci_low=1.105],
+[metric:cross_channel_independence/stratified_source@matches#ci_high=6.57]]; stratified by agent and slot it is
+[metric:cross_channel_independence/stratified_agent_slot@matches#or_mh=2.466]
+[[metric:cross_channel_independence/stratified_agent_slot@matches#ci_low=0.983],
+[metric:cross_channel_independence/stratified_agent_slot@matches#ci_high=6.189]]. Under the pre-registered rule
+(guess: odds ratio <= 2; refuted when the CI's lower bound exceeds 2; a point above 2 with the CI spanning 2 is
+inconclusive) the player's guess that the channels fail independently is INCONCLUSIVE AND LEANS AGAINST: the
+source-stratified interval excludes 1. The stratification was chosen after registration (by the verifier of
+63578e9); the registered statistic is the pooled conditional odds ratio,
+[metric:cross_channel_independence/pooled@matches#or_cmle=0.782], and that figure is a Simpson's-paradox
+artefact: it lies below both source strata, because glyph casts pair rare audio failure with common minimap
+failure and shape casts the reverse.
+
+Dependence built in by construction: the shared tray gate. Every channel is anchored on the tray drop. Audio
+takes the drop as the cast frame, cuts its window at neighbouring drops and excludes null frames by them; the
+glyph window starts at the drop; the shape owner reads the drop time AND the truth slot's descriptor. So channel
+B on shape casts is no blind witness: shape-owner "right" means "detected, given the truth slot", and its
+precision of 1.0 holds by construction. A wrong tray cast, or a context both channels share (the player's own
+ult in progress: 59c70f1ef720 at 2429.0 s, an E drop 4 s after an X drop, audio names X), fails both at once;
+some of the coupling above is this gate, not the channels.
+
+Borrowed labels. A label one channel lends the other declares `rests_on` its source witness and version
+(e.g. `ability_shape:<sid>:<cast>@ability-shape-0.4.0`) AND the tray drop / player_cast it was anchored on
+(`tray_drop:<sid>:<t_ms>`; the stored shape claims already declare `depends_on ...:player_cast`), so neither
+the witness nor the tray ever counts again as an independent witness. A shape-owner label's slot IS the tray's.
+
+Choices made after registration, each labelled in the report (`post_registration`):
+* `absent_as_unobserved()` (the 63578e9 `normalise()`) moves B refusals for a missing or stale crop cache and
+  A refusals `audio_not_live` / `no_audio_row` to "unobserved"; the report also gives the headline without it.
+* the session stratification (`mh_by_session_*`) and the source / agent-slot / session-source strata.
+* the NO_DESCRIPTOR comparisons, chosen after seeing the joint failures. The 63578e9 report's "without those
+  four" dropped all 7 `no_radius_on_map` casts
+  ([metric:cross_channel_independence/shape_drop_no_descriptor@matches#or_cmle=12.271] on
+  [metric:cross_channel_independence/shape_drop_no_descriptor@matches#n_both=3] joint failures); dropping only
+  the 4 Abyss joint failures gives
+  [metric:cross_channel_independence/shape_drop_four_abyss@matches#or_cmle=3.116]
+  [[metric:cross_channel_independence/shape_drop_four_abyss@matches#ci_low=0.429],
+  [metric:cross_channel_independence/shape_drop_four_abyss@matches#ci_high=19.722]]. Of those 4 Recon Bolts on
+  75a55a296d3b, audio refuses `bolt_unknown` on
+  [metric:cross_channel_independence/corrections@matches#abyss_bolt_unknown=3]; at 658050 ms it is wrong and
+  names C.
+* the [metric:cross_channel_independence/corrections@matches#stale_cache_casts=15] casts of b3b9defb6fd7 (Skye)
+  are a stale crop cache (`no_crop_cache:stale_rects`), not missing minimap owner rows; coverage now counts them
+  apart.
+
+Smoke. The registration said "smoke = stored smoke rows"; `build` reads the smoke stream
+(events/smoke/<sid>.jsonl). No Clove session stores one (the match a1a995e6b19b, the demos 0c6c52a65b9e and
+28f53bfddbbe), so every smoke cast is "unobserved"; where a stream exists, no onset rule was registered, and the
+cast stays "unobserved" (`smoke_rows_unscored`) rather than gaining a rule after the fact.
+
+Other corrections to the 63578e9 report: the glyph follow's parameters came from the glyph eval, whose items
+in these matches number [metric:cross_channel_independence/corrections@matches#glyph_eval_items=181]
+([metric:cross_channel_independence/corrections@matches#glyph_eval_items_heldout=178] held out, 3 unsplit, none
+in its dev split), and only [metric:cross_channel_independence/corrections@matches#casts_with_glyph_item_near=33]
+casts have an item within -0.5 to +3.5 s; "294 match casts" counted every cast of those sessions. Audio's
+per-ability precision is in `audio_precision_by_ability_match`: Iso Q and C have
+[metric:cross_channel_independence/corrections@matches#iso_q_casts=3] and
+[metric:cross_channel_independence/corrections@matches#iso_c_casts=3] casts, too few to call safe (Iso Q:
+[metric:cross_channel_independence/corrections@matches#iso_q_audio_right=2] right); Skye X
+([metric:cross_channel_independence/corrections@matches#skye_x_audio_right=19] of
+[metric:cross_channel_independence/corrections@matches#skye_x_audio_named=20]) belongs in the list of
+abilities where audio may label the minimap, beside Sova C and Skye Q and E.
 
 Truth. Matches: the tray's own casts (`ability_audio_fit.gate_snapshot` rows with `player_cast`; the slot that
 dropped is the truth, the agent the identity arbiter's over the stored lineup). Demos: the player's census
@@ -65,9 +137,11 @@ except Exception:  # noqa: BLE001
 
 import numpy as np  # noqa: E402
 
-VERSION = "cross-channel-independence-0.1.0"
+VERSION = "cross-channel-independence-0.2.0"
 STORE = Path("C:/Users/grant/reticle-store")
-OUT = STORE / "analysis" / "cross-channel-independence-20261004"
+ANALYSIS = STORE / "analysis"
+#: The stored 0.1.0 build, measured at 63578e9; `report` reads it by default.
+OUT = ANALYSIS / "cross-channel-independence-20261004"
 FOLLOW_MS = 3000.0          # the matcher's own window; Guiding Light is gone by 4 s
 GUNFIRE_WIN = (-1.0, 2.0)   # s around the drop
 DEATH_WIN = 2.0
@@ -178,6 +252,21 @@ def shape_outcome(rows: list[dict] | None) -> tuple[str, str | None, dict]:
         return "right", None, info
     why = Counter(r.get("reason") or "not_found" for r in rows).most_common(1)[0][0]
     return "refused", why, info
+
+
+def smoke_tracks(sid: str) -> int | None:
+    """The number of stored smoke track rows of the session (events/smoke), or None when it stores no stream."""
+    f = STORE / "events" / "smoke" / f"{sid}.jsonl"
+    if not f.exists():
+        return None
+    return sum(1 for ln in open(f, encoding="utf-8") if '"kind":"track"' in ln.replace(" ", ""))
+
+
+def smoke_outcome(n_tracks: int | None) -> tuple[str, str, dict]:
+    """A smoke cast is unobserved: no stream, or a stream with no onset rule registered to score it."""
+    if n_tracks is None:
+        return "unobserved", "no_smoke_stream", {}
+    return "unobserved", "smoke_rows_unscored (no onset rule was registered)", {"n_tracks": n_tracks}
 
 
 def self_seed_track(store, sid: str):
@@ -328,6 +417,7 @@ def glyph_label_sessions() -> set:
 def build_session(store, sid, kind, agent, casts, audio_rows, split, lab, G, glyph_sids):
     """Rows for one session's casts: A, B, covariates."""
     shapes = shape_rows(sid)
+    smoke = smoke_tracks(sid)
     by_t = {(r["slot"], int(round(r["t_ms"]))): r for r in audio_rows}
     t_s = np.array([c["t_ms"] / 1000.0 for c in casts])
     cov = covariates(t_s, lab, t_s)
@@ -353,7 +443,7 @@ def build_session(store, sid, kind, agent, casts, audio_rows, split, lab, G, gly
         elif src == "shape":
             b, b_why, b_info = shape_outcome(shapes.get((slot, int(round(c["t_ms"])))))
         elif src == "smoke":
-            b, b_why, b_info = "unobserved", "no_owner_rows (no stored smoke rows for this session)", {}
+            b, b_why, b_info = smoke_outcome(smoke)
         elif src == "not_drawn":
             b, b_why, b_info = "not_drawn", None, {}
         else:
@@ -374,25 +464,40 @@ def build_session(store, sid, kind, agent, casts, audio_rows, split, lab, G, gly
     return rows
 
 
+def build_dir(out: str | None, resume: bool) -> Path:
+    """The directory a build writes: a new versioned one by default. A directory that already holds output is
+    refused unless `resume` continues it, so a rerun never deletes or overwrites stored evidence."""
+    if out is None:
+        if resume:
+            raise SystemExit("--resume needs --out naming the directory to continue")
+        d = ANALYSIS / f"{VERSION}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
+    else:
+        d = Path(out)
+    if d.exists() and any(d.iterdir()) and not resume:
+        raise SystemExit(f"refusing to write into {d}: it holds output; pass --resume to continue it, "
+                         "or omit --out for a new versioned directory")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def cmd_build(args) -> None:
+    out_dir = build_dir(args.out, args.resume)      # refuse before any work
     from prototypes import minimap_glyph_eval as G
     from reticle.ability_audio_fit import demo_truth, gate_snapshot
     from reticle.store import Store
     from reticle.version import ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION
     G.build_extra(G.PROBE_STATES, answers=True)
     store = Store(str(STORE))
-    OUT.mkdir(parents=True, exist_ok=True)
+    only = set(args.only.split(",")) if args.only else None
     split = audio_split()
     glyph_sids = glyph_label_sessions()
-    only = set(args.only.split(",")) if args.only else None
     matches = sorted(p.stem for p in (STORE / "events" / "ability_state").glob("*.jsonl"))
     demos = [] if args.no_demos else sorted(p.stem for p in (STORE / "labels" / "demo_cast_class").glob("*.jsonl"))
-    out_f = OUT / ("casts.jsonl" if only is None else "casts-sample.jsonl")
+    out_f = out_dir / ("casts.jsonl" if only is None else "casts-sample.jsonl")
     done = set()
     if args.resume and out_f.exists():
         done = {json.loads(ln)["sid"] for ln in open(out_f, encoding="utf-8")}
-    elif out_f.exists():
-        out_f.unlink()
+    print(f"writing {out_f}", flush=True)
     t0 = time.time()
     log = {"version": VERSION, "ability_audio": ABILITY_AUDIO_VERSION, "params": ABILITY_AUDIO_PARAMS_VERSION,
            "follow": G.FOLLOW_VERSION, "sessions": {}}
@@ -437,7 +542,7 @@ def cmd_build(args) -> None:
         print(f"{sid} {kind} {agent} casts {len(rows)} A {dict(Counter(r['A'] for r in rows))} "
               f"B {dict(Counter(r['B'] for r in rows))} {time.time() - t0:.0f}s", flush=True)
     log["wall_s"] = round(time.time() - t0, 1)
-    json.dump(log, open(OUT / ("build_log.json" if only is None else "build_log-sample.json"), "w"), indent=1)
+    json.dump(log, open(out_dir / ("build_log.json" if only is None else "build_log-sample.json"), "w"), indent=1)
 
 
 # ------------------------------------------------------------------ report
@@ -490,31 +595,61 @@ def summary(rows) -> dict:
             **(odds(t2) or {})}
 
 
+#: Strata of the Mantel-Haenszel estimates. All were chosen after registration (the registered statistic is the
+#: pooled conditional odds ratio); "source" is the headline because the pooled figure mixes two minimap sources
+#: whose failure rates run in opposite directions (Simpson's paradox).
+STRATA = {
+    "source": lambda r: r["B_source"],
+    "agent_slot": lambda r: f"{r['agent']}:{r['slot']}",
+    "session": lambda r: r["sid"],
+    "session_source": lambda r: f"{r['sid']}:{r['B_source']}",
+}
+
+
 def mantel_haenszel(rows, key="sid") -> dict:
-    """The Mantel-Haenszel odds ratio of joint failure over strata (default: the session), with the
-    Robins-Breslow-Greenland 95% CI: removes a coupling that lives only between sessions (a map, a capture)."""
-    by = defaultdict(list)
-    for r in rows:
-        by[r[key]].append(r)
-    T = np.array([table(R)[1] for R in by.values()], float).reshape(-1, 4)   # a b c d per stratum
+    """The Mantel-Haenszel odds ratio of joint failure over strata, with the Robins-Breslow-Greenland 95% CI.
+    `key` is a row field or a function of the row. Vectorised: the four cells of every stratum come from one
+    bincount over (stratum, cell)."""
+    if not rows:
+        return {"n": 0, "strata": 0, "or_mh": None}
+    kf = key if callable(key) else (lambda r, k=key: r[k])
+    labels, inv = np.unique(np.array([str(kf(r)) for r in rows]), return_inverse=True)
+    af = np.fromiter((r["A"] in FAIL for r in rows), bool, len(rows))
+    bf = np.fromiter((r["B"] in FAIL for r in rows), bool, len(rows))
+    cell = 2 * (~af) + (~bf)                 # 0 both fail, 1 A fails only, 2 B fails only, 3 neither
+    T = np.bincount(inv * 4 + cell, minlength=4 * len(labels)).reshape(-1, 4).astype(float)
     a, b, c, d = T.T
-    n = a + b + c + d
+    n = T.sum(1)
     ok = n > 1
+    tables = {str(lb): [int(x) for x in t] for lb, t in zip(labels, T)}
     a, b, c, d, n = a[ok], b[ok], c[ok], d[ok], n[ok]
     R, S = a * d / n, b * c / n
+    out = {"n": len(rows), "strata": int(ok.sum()), "strata_tables_[both,A_only,B_only,neither]": tables}
     if R.sum() == 0 or S.sum() == 0:
-        return {"strata": int(ok.sum()), "or_mh": None}
+        return {**out, "or_mh": None}
     P, Q = (a + d) / n, (b + c) / n
     orr = R.sum() / S.sum()
     var = ((P * R).sum() / (2 * R.sum() ** 2) + ((P * S + Q * R).sum()) / (2 * R.sum() * S.sum())
            + (Q * S).sum() / (2 * S.sum() ** 2))
     se = float(np.sqrt(var))
-    return {"strata": int(ok.sum()), "or_mh": round(float(orr), 3),
+    return {**out, "or_mh": round(float(orr), 3),
             "ci95": [round(float(orr * np.exp(-1.96 * se)), 3), round(float(orr * np.exp(1.96 * se)), 3)]}
+
+
+def g1_verdict(est: float | None, lo: float | None) -> str:
+    """The pre-registered rule for the player's guess (odds ratio of joint failure <= 2)."""
+    if est is None or lo is None:
+        return "undetermined"
+    if lo > 2:
+        return "refuted"
+    if est > 2:
+        return "inconclusive, leans against (point estimate above 2, CI spans 2)"
+    return "holds (point estimate <= 2)"
 
 
 #: Shape-owner refusals where the owner holds no descriptor for the map: the minimap cannot be read for that
 #: ability there (a coverage gap of the appearance facts), the sensitivity arm moves them to unobserved.
+#: Chosen after registration and after seeing the joint failures (post_registration).
 NO_DESCRIPTOR = ("no_radius_on_map", "no_descriptor")
 
 
@@ -550,7 +685,9 @@ def joint_conditions(rows) -> dict:
 UNOBSERVED_PREFIX = ("no_crop_cache", "no_cached_frame")
 
 
-def normalise(r: dict) -> dict:
+def absent_as_unobserved(r: dict) -> dict:
+    """Move refusals that say an input is absent to "unobserved". Chosen after registration (post_registration):
+    the registration counted every refusal as a failure; the report gives the headline both ways."""
     if r["B"] == "refused" and str(r.get("B_reason") or "").startswith(UNOBSERVED_PREFIX):
         r = {**r, "B": "unobserved"}
     if r["A"] == "refused" and r.get("A_reason") in ("audio_not_live", "no_audio_row"):
@@ -558,36 +695,140 @@ def normalise(r: dict) -> dict:
     return r
 
 
+#: What the tray gate shares between the channels; stated in every report beside the headline.
+SHARED_GATE = (
+    "Dependence built in by construction: every channel is anchored on the tray drop. Audio takes the drop as the "
+    "cast frame, cuts its window at neighbouring drops and excludes null frames by them; the glyph window starts at "
+    "the drop; the shape owner reads the drop time and the truth slot's descriptor. Shape-owner 'right' means "
+    "'detected, given the truth slot', and its precision of 1.0 holds by construction. A wrong tray cast, or a "
+    "context both channels share, fails both at once.")
+
+BORROWED_LABEL = (
+    "A borrowed label declares rests_on its source witness and version (e.g. "
+    "ability_shape:<sid>:<cast>@ability-shape-0.4.0) and the tray drop / player_cast it was anchored on "
+    "(tray_drop:<sid>:<t_ms>); a shape-owner label's slot is the tray's.")
+
+POST_REGISTRATION = {
+    "normalise": "moves B refusals no_crop_cache*/no_cached_frame and A refusals audio_not_live/no_audio_row to "
+                 "unobserved; the registration counted every refusal as a failure",
+    "strata": "every Mantel-Haenszel stratification (source, agent_slot, session, session_source); the "
+              "registered statistic is the pooled conditional odds ratio",
+    "no_descriptor": "the NO_DESCRIPTOR comparisons, chosen after seeing the joint failures",
+    "stale_cache": "b3b9defb6fd7's casts are a stale crop cache (no_crop_cache:stale_rects), counted apart from "
+                   "missing owner rows",
+}
+
+
+def coverage_of(R) -> dict:
+    """Which channels observe each cast; an unobserved B names why (draws nothing, stale or missing crop cache,
+    no smoke stream, no owner rows)."""
+    cov = Counter()
+    for r in R:
+        a_obs = r["A"] in OBS
+        why = str(r.get("B_reason") or "")
+        if not a_obs and r["B"] in ("not_drawn", "unobserved"):
+            cov["neither"] += 1
+        elif r["B"] == "not_drawn":
+            cov["audio_only:minimap_draws_nothing"] += 1
+        elif r["B"] == "unobserved" and why.startswith(UNOBSERVED_PREFIX):
+            cov["audio_only:stale_or_missing_crop_cache"] += 1
+        elif r["B"] == "unobserved" and r["B_source"] == "smoke":
+            cov["audio_only:no_smoke_rows"] += 1
+        elif r["B"] == "unobserved":
+            cov["audio_only:no_minimap_owner_rows"] += 1
+        elif not a_obs:
+            cov["minimap_only:audio_not_scored"] += 1
+        else:
+            cov["both"] += 1
+    return {"n": len(R), **dict(cov),
+            "audio_not_scored_reasons": dict(Counter(r["A_reason"] for r in R if r["A"] in ("refused", "unobserved"))),
+            "unobserved_B_by_session_reason": {f"{s}|{w}": n for (s, w), n in sorted(Counter(
+                (r["sid"], r["B_reason"]) for r in R if r["B"] == "unobserved").items())}}
+
+
+def audio_precision(rows) -> dict:
+    """{agent:slot: casts, named, right} of the audio witness over every match cast it scored, minimap or not."""
+    out = {}
+    by = defaultdict(list)
+    for r in rows:
+        by[f"{r['agent']}:{r['slot']}"].append(r["A"])
+    for k, A in sorted(by.items()):
+        a = np.array(A)
+        named = np.isin(a, ("right", "wrong"))
+        out[k] = {"casts": len(a), "named": int(named.sum()), "right": int((a == "right").sum()),
+                  "precision": None if not named.any() else round(float((a == "right").sum() / named.sum()), 4)}
+    return out
+
+
+def glyph_eval_overlap(rows) -> dict:
+    """How far the glyph eval's labelled items (on which the follow's parameters were fitted) overlap these match
+    casts: items per split in the match sessions, and casts with an item within -0.5 to +3.5 s of the drop."""
+    p = ANALYSIS / "minimap-glyphs-20261004" / "items.json"
+    if not p.exists():
+        return {"items_file": None}
+    items = json.load(open(p, encoding="utf-8"))["items"]
+    match = [r for r in rows if r["kind"] == "match"]
+    sids = {r["sid"] for r in match}
+    it = [i for i in items if i["sid"] in sids]
+    near = 0
+    for sid in sorted({i["sid"] for i in it}):
+        ti = np.array([i["t_ms"] for i in it if i["sid"] == sid], float)
+        tc = np.array([r["t_ms"] for r in match if r["sid"] == sid], float)
+        d = ti[None, :] - tc[:, None]
+        near += int(((d >= -500) & (d <= 3500)).any(1).sum())
+    return {"sessions_with_items": len({i["sid"] for i in it}),
+            "match_casts_in_those_sessions": sum(r["sid"] in {i["sid"] for i in it} for r in match),
+            "items_by_split": dict(Counter(i.get("split") for i in it)),
+            "casts_with_item_within_-0.5_+3.5_s": near}
+
+
+def smoke_stream_check(rows) -> dict:
+    """The smoke stream of every session holding a smoke-source cast: the registration's 'stored smoke rows'."""
+    return {sid: smoke_tracks(sid) for sid in sorted({r["sid"] for r in rows if r["B_source"] == "smoke"})}
+
+
+def headline(match) -> dict:
+    """The source-stratified Mantel-Haenszel estimate, its agent-slot companion, and the pre-registered verdict."""
+    out = {}
+    for k in ("source", "agent_slot"):
+        m = mantel_haenszel(match, STRATA[k])
+        lo = (m.get("ci95") or [None])[0]
+        out[k] = {**{x: m[x] for x in ("n", "strata", "or_mh") if x in m}, "ci95": m.get("ci95"),
+                  "excludes_1": None if lo is None else bool(lo > 1 or m["ci95"][1] < 1),
+                  "G1_verdict": g1_verdict(m.get("or_mh"), lo)}
+    return out
+
+
 def cmd_report(args) -> None:
-    rows = [normalise(json.loads(ln)) for ln in open(OUT / "casts.jsonl", encoding="utf-8")]
+    d = Path(args.dir)
+    raw = [json.loads(ln) for ln in open(d / "casts.jsonl", encoding="utf-8")]
+    rows = [absent_as_unobserved(r) for r in raw]
     both = [r for r in rows if r["A"] in OBS and r["B"] in OBS]
     match = [r for r in both if r["kind"] == "match"]
-    rep = {"version": VERSION, "n_casts": len(rows),
-           "coverage": {}, "pooled_match": summary(match), "pooled_match_held_audio": summary(
+    raw_match = [r for r in raw if r["kind"] == "match" and r["A"] in OBS and r["B"] in OBS]
+    shape = [r for r in match if r["B_source"] == "shape"]
+    glyph = [r for r in match if r["B_source"] == "glyph"]
+    pooled = summary(match)
+    rep = {"version": VERSION, "casts_version": sorted({r["version"] for r in raw}), "n_casts": len(rows),
+           "headline": {"estimate": "Mantel-Haenszel odds ratio of joint failure on match casts both channels "
+                                    "observe, stratified by minimap source (post_registration)",
+                        **headline(match),
+                        "rule": "pre-registered G1: guess holds at odds ratio <= 2; refuted when the 95% CI's "
+                                "lower bound exceeds 2; a point estimate above 2 with the CI spanning 2 is "
+                                "inconclusive",
+                        "registered_pooled_or": {"or_cmle": pooled.get("or_cmle"), "ci95": pooled.get("ci95"),
+                                                 "note": "Simpson's paradox: below both source strata"},
+                        "without_normalise": headline(raw_match)},
+           "shared_gate": SHARED_GATE, "borrowed_label": BORROWED_LABEL, "post_registration": POST_REGISTRATION,
+           "coverage": {}, "pooled_match": pooled, "pooled_match_held_audio": summary(
                [r for r in match if r["audio_stratum"] == "held"]),
-           "pooled_match_glyph_only": summary([r for r in match if r["B_source"] == "glyph"]),
-           "pooled_match_shape_only": summary([r for r in match if r["B_source"] == "shape"]),
+           "pooled_match_glyph_only": summary(glyph),
+           "pooled_match_shape_only": summary(shape),
            "pooled_demo": summary([r for r in both if r["kind"] == "demo"]),
            "per_agent_ability": {}, "conditions_match": joint_conditions(match),
-           "conditions_match_glyph": joint_conditions([r for r in match if r["B_source"] == "glyph"])}
+           "conditions_match_glyph": joint_conditions(glyph)}
     for kind in ("match", "demo"):
-        R = [r for r in rows if r["kind"] == kind]
-        cov = Counter()
-        for r in R:
-            a_obs = r["A"] in OBS
-            if not a_obs and r["B"] in ("not_drawn", "unobserved"):
-                cov["neither"] += 1
-            elif r["B"] == "not_drawn":
-                cov["audio_only:minimap_draws_nothing"] += 1
-            elif r["B"] == "unobserved":
-                cov["audio_only:no_minimap_owner_rows"] += 1
-            elif not a_obs:
-                cov["minimap_only:audio_not_scored"] += 1
-            else:
-                cov["both"] += 1
-        rep["coverage"][kind] = {"n": len(R), **dict(cov),
-                                 "audio_not_scored_reasons": dict(Counter(r["A_reason"] for r in R
-                                                                          if r["A"] == "refused"))}
+        rep["coverage"][kind] = coverage_of([r for r in rows if r["kind"] == kind])
     by = defaultdict(list)
     for r in both:
         by[(r["kind"], r["agent"], r["slot"])].append(r)
@@ -598,6 +839,8 @@ def cmd_report(args) -> None:
     for r in match:
         by_agent[r["agent"]].append(r)
     rep["per_agent_match"] = {a: summary(R) for a, R in sorted(by_agent.items())}
+    rep["audio_precision_by_ability_match"] = audio_precision([r for r in rows if r["kind"] == "match"
+                                                               and r["A"] in OBS])
     # B's failures: wrong vs refused, and the controls on casts that draw nothing
     g = [r for r in rows if r["kind"] == "match" and r["B_source"] == "glyph"]
     rep["glyph_failures_match"] = {"n": len(g), **dict(Counter(r["B"] for r in g)),
@@ -607,15 +850,24 @@ def cmd_report(args) -> None:
         "n": len(ctl), "named_a_slot": sum(r["glyph"] in ("right", "wrong") for r in ctl),
         "named_the_true_slot": sum(r["glyph"] == "right" for r in ctl),
         "by_kind": {k: dict(Counter(r["glyph"] for r in ctl if r["kind"] == k)) for k in ("match", "demo")}}
-    # A's naming of B's confident items and B's naming of A's confident items (direction safety)
-    shape = [r for r in match if r["B_source"] == "shape"]
-    shape_s = [r for r in shape if not str(r.get("B_reason") or "").startswith(NO_DESCRIPTOR)]
-    glyph = [r for r in match if r["B_source"] == "glyph"]
+    rep["glyph_eval_overlap"] = glyph_eval_overlap(rows)
+    rep["smoke_stream_check"] = smoke_stream_check(rows)
+    # sensitivity arms: every one chosen after registration
+    no_desc = [r for r in shape if str(r.get("B_reason") or "").startswith(NO_DESCRIPTOR)]
+    shape_s = [r for r in shape if r not in no_desc]
+    jf_nd = [r for r in no_desc if r["A"] in FAIL]
+    shape_4 = [r for r in shape if r not in jf_nd]
     rep["sensitivity"] = {
-        "mh_by_session_pooled_match": mantel_haenszel(match),
+        "post_registration": True,
+        **{f"mh_by_{k}_pooled_match": mantel_haenszel(match, f) for k, f in STRATA.items()},
         "mh_by_session_shape": mantel_haenszel(shape),
         "mh_by_session_glyph": mantel_haenszel(glyph),
-        "shape_without_no_descriptor_refusals": summary(shape_s),
+        "no_descriptor_casts": {"n": len(no_desc), "A": dict(Counter(f"{r['A']}:{r['A_reason'] or r['A_verdict']}"
+                                                                     for r in no_desc))},
+        "shape_without_all_no_descriptor_casts": summary(shape_s),
+        "shape_without_the_no_descriptor_joint_failures": {
+            "dropped": [{k: r[k] for k in ("sid", "t_ms", "A", "A_reason", "A_verdict")} for r in jf_nd],
+            **summary(shape_4)},
         "mh_by_session_shape_without_no_descriptor": mantel_haenszel(shape_s),
         "pooled_match_without_no_descriptor": summary(
             [r for r in match if not str(r.get("B_reason") or "").startswith(NO_DESCRIPTOR)]),
@@ -625,8 +877,9 @@ def cmd_report(args) -> None:
         "shape_audio_held": summary([r for r in shape if r["audio_stratum"] == "held"]),
         "shape_audio_dev": summary([r for r in shape if r["audio_stratum"] == "dev"])}
     rep["direction"] = direction(match)
-    rep["direction_shape"] = direction([r for r in match if r["B_source"] == "shape"])
-    rep["direction_glyph"] = direction([r for r in match if r["B_source"] == "glyph"])
+    rep["direction_shape"] = direction(shape, b_note="shape owner: detection given the truth slot; it cannot name "
+                                                     "another slot, so its precision is 1.0 by construction")
+    rep["direction_glyph"] = direction(glyph)
     jf = [r for r in match if r["A"] in FAIL and r["B"] in FAIL]
     rep["joint_failures_match"] = [{k: r[k] for k in ("sid", "agent", "slot", "t_ms", "A", "A_reason", "A_verdict",
                                                       "B_source", "B", "B_reason", "gunfire", "death_near",
@@ -635,12 +888,58 @@ def cmd_report(args) -> None:
                                                   if r["B"] == b and r["A"] in FAIL)) for b in OBS}
     rep["census_vs_rule_demo"] = dict(Counter(f"{r['B_source']}|{r.get('census_class')}"
                                               for r in rows if r["kind"] == "demo"))
-    json.dump(rep, open(OUT / "report.json", "w"), indent=1, default=float)
-    print(json.dumps({k: rep[k] for k in ("coverage", "pooled_match", "glyph_failures_match",
-                                          "glyph_control_on_not_drawn")}, indent=1, default=float))
+    out_f = d / f"report-{VERSION}.json"
+    if out_f.exists():
+        raise SystemExit(f"refusing to overwrite {out_f}")
+    json.dump(rep, open(out_f, "w"), indent=1, default=float)
+    if args.record:
+        record_metrics(rep, d)
+    print(f"wrote {out_f}")
+    print(json.dumps({k: rep[k] for k in ("headline", "coverage", "glyph_eval_overlap", "smoke_stream_check")},
+                     indent=1, default=float))
 
 
-def direction(rows) -> dict:
+def record_metrics(rep: dict, d: Path) -> None:
+    """Append the corrected headline and the corrected counts to the metrics log."""
+    import hashlib
+    from reticle import metrics
+    casts = d / "casts.jsonl"
+    deps = {"casts_sha": hashlib.sha256(casts.read_bytes()).hexdigest()[:16], "report": VERSION,
+            "code": metrics.fingerprint(mantel_haenszel, summary, absent_as_unobserved)}
+    note = f"{VERSION} report on {d.name}/casts.jsonl ({', '.join(rep['casts_version'])}); post_registration strata"
+    for part in ("source", "agent_slot"):
+        h = rep["headline"][part]
+        metrics.record("cross_channel_independence", part=f"stratified_{part}", session="matches",
+                       values={"n": h["n"], "strata": h["strata"], "or_mh": h["or_mh"], "ci_low": h["ci95"][0],
+                               "ci_high": h["ci95"][1]}, deps=deps, context={"verdict": h["G1_verdict"]}, note=note)
+    m = rep["sensitivity"]["mh_by_session_source_pooled_match"]
+    metrics.record("cross_channel_independence", part="stratified_session_source", session="matches",
+                   values={"n": m["n"], "strata": m["strata"], "or_mh": m["or_mh"], "ci_low": m["ci95"][0],
+                           "ci_high": m["ci95"][1]}, deps=deps, note=note)
+    for part, key in (("shape_drop_four_abyss", "shape_without_the_no_descriptor_joint_failures"),
+                      ("shape_drop_no_descriptor", "shape_without_all_no_descriptor_casts")):
+        s = rep["sensitivity"][key]
+        metrics.record("cross_channel_independence", part=part, session="matches",
+                       values={"n": s["n"], "n_both": s["n_both"], "or_cmle": round(s["or_cmle"], 3),
+                               "ci_low": round(s["ci95"][0], 3), "ci_high": round(s["ci95"][1], 3)},
+                       deps=deps, note=note + "; chosen after seeing the joint failures")
+    ap = rep["audio_precision_by_ability_match"]
+    nd = rep["sensitivity"]["no_descriptor_casts"]["A"]
+    cov = rep["coverage"]["match"]
+    ge = rep["glyph_eval_overlap"]
+    metrics.record("cross_channel_independence", part="corrections", session="matches", values={
+        "glyph_eval_items": sum(ge["items_by_split"].values()),
+        "glyph_eval_items_heldout": ge["items_by_split"].get("heldout", 0),
+        "casts_with_glyph_item_near": ge["casts_with_item_within_-0.5_+3.5_s"],
+        "skye_x_audio_named": ap["Skye:X"]["named"], "skye_x_audio_right": ap["Skye:X"]["right"],
+        "iso_q_casts": ap["Iso:Q"]["casts"], "iso_c_casts": ap["Iso:C"]["casts"],
+        "iso_q_audio_right": ap["Iso:Q"]["right"],
+        "stale_cache_casts": cov.get("audio_only:stale_or_missing_crop_cache", 0),
+        "abyss_bolt_unknown": sum(v for k, v in nd.items() if k.endswith("bolt_unknown"))},
+        deps=deps, note=note)
+
+
+def direction(rows, b_note: str | None = None) -> dict:
     """When one channel names a slot, how often is the other channel right, and how often is the name itself
     right (the label's precision if it trained the other channel)."""
     out = {}
@@ -650,6 +949,8 @@ def direction(rows) -> dict:
                                round(float(np.mean([r[src] == "right" for r in named])), 4),
                                f"{oth}_fail_among_{src}_right": None if not named else
                                round(float(np.mean([r[oth] in FAIL for r in named if r[src] == "right"] or [np.nan])), 4)}
+    if b_note:
+        out["B_named"]["note"] = b_note
     return out
 
 
@@ -659,8 +960,11 @@ def main() -> None:
     b = sub.add_parser("build")
     b.add_argument("--only")
     b.add_argument("--no-demos", action="store_true")
-    b.add_argument("--resume", action="store_true")
-    sub.add_parser("report")
+    b.add_argument("--out", help="output directory; default a new versioned one under analysis/")
+    b.add_argument("--resume", action="store_true", help="continue the --out directory's casts")
+    r = sub.add_parser("report")
+    r.add_argument("--dir", default=str(OUT), help="a build directory holding casts.jsonl")
+    r.add_argument("--record", action="store_true", help="append the metrics rows")
     a = ap.parse_args()
     {"build": cmd_build, "report": cmd_report}[a.cmd](a)
 
