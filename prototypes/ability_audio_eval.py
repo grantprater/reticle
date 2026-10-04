@@ -81,7 +81,7 @@ BELIEF = {("Reyna", "Abil_E"): ("Dismiss", "player_belief_20261003")}
 #: (`ability_audio_eval` none-file diagnostic); held casts never chose them.
 EVIDENCE = [
     ("Skye", "Abil_E", ("Guide_Taz_", "Guide_AbilE_", "Guide_Abil_E_Attack"), "Trailblazer",
-     "name_token_taz+dev_cooccurrence_20261003"),
+     "player_20261003+name_token_taz+dev_cooccurrence_20261003"),
     ("Sova", "Abil_X", ("Hunter_S0_AB_X_SuperBolt_OnBeam_",), "Hunter's Fury",
      "name_token_onbeam+dev_cooccurrence_20261003"),
 ]

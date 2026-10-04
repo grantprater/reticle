@@ -576,7 +576,9 @@ ABILITY_AUDIO_VERSION = "ability-audio-0.1.0"
 # their classes, and the class thresholds at one false fire per live minute,
 # fitted on the dev sessions its provenance names. A new fit is a new
 # version; a set is never overwritten.
-ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.1.0"
+# 0.1.1: the same fit; Skye's Trailblazer evidence map adds the player's
+# confirmation (`player_20261003`) to its basis.
+ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.1.1"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the
