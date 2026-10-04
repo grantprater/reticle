@@ -99,6 +99,13 @@ implemented_by = ["owns:ability-hypothesis", "owns:ability-phase", "owns:ability
 remains = "Annotation and new capture have not run."
 
 [[document]]
+path = "docs/ABILITY_STATES_GAMEDATA.md"
+kind = "design"
+status = "proposed"
+since = "2026-10-04"
+waits_for = "A reader that adopts the table (ability-states-gamedata-0.2.0, built for all 29 agents by prototypes/ability_states_gamedata.py, wire: no), and the player's answers to its mechanics-sheet questions."
+
+[[document]]
 path = "docs/ABILITY_STATE_MODEL.md"
 kind = "design"
 status = "partial"

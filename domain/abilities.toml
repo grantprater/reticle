@@ -4638,3 +4638,110 @@ exceptions = """
 the player answered per texture stem, its state variants shown side by side; which
 state the HUD draws for which viewer is not part of the answer
 """
+
+[views-separate-per-ability]
+claim = """
+Each ability decides on its own what the caster, a teammate and an enemy
+see and hear. A difference between the teammate's view and the enemy's is a
+property of that ability, never a conflict between two answers: Omen's
+ultimate blinds enemies and not teammates, and Yoru in his ultimate shows on
+teammates' minimaps and not on enemies'.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+source = """
+the player, 2026-10-04 (chat), answering the minimap glyph tool's list of
+abilities whose teammate and enemy answers differed
+"""
+use = """
+model the view (self, teammate, enemy, spectator) as its own axis per
+ability (`ability-states-gamedata-0.2.0` gives every row `views`); store a
+teammate-enemy difference as a fact, and never reconcile two views' answers
+"""
+see = ["abilities/ability-rules-are-unique", "minimap/ability-drawings-both-sides",
+       "minimap/spectator-view-matches-self"]
+
+[astra-star-hover-yellow]
+claim = """
+A star Astra has placed has a hovered state, drawn yellow. At least one frame
+of a yellow star precedes every activation of Gravity Well, Nova Pulse or
+Nebula, on the star the activation acts on. Which views draw the yellow
+star, Astra's own, a teammate's or a spectator's, the player did not say.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "astra:stars"
+source = "the player, 2026-10-04 (chat)"
+use = """
+a star's hovered state is the predecessor of each operation on it; read a
+yellow star as the star the next Gravity Well, Nova Pulse or Nebula takes
+"""
+exceptions = """
+the game data (`ability-states-gamedata-0.2.0`, build
+release-13.06-shipping-18-5590001) draws the hovered brush
+(TX_Astra_Minimap_PassiveGold) only on Astra's own client: her star tracker
+selects the best star only when the local controller is hers, and the
+selection is not replicated. By that reading neither a teammate nor a
+spectator sees the yellow star, against the belief that a spectator sees
+what the player sees [domain:minimap/spectator-view-matches-self]. The data
+orders hovered before the operation on Astra's view; it names no frame count
+"""
+see = ["abilities/astra-star-placed-then-turned", "abilities/astra-star-ally-minimap-glyph",
+       "abilities/astra-stars-shared", "abilities/views-separate-per-ability"]
+
+[sova-shock-bolt-audio-phases]
+claim = """
+Sova's Shock Bolt sounds in phases: the cast, then the landing or
+activation, which is the shock. The player believes an in-flight sound
+also plays between cast and landing, for one bolt or both.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "sova:shock bolt"
+source = """
+the player, 2026-10-04 (chat), who does not know how the game's files
+organise these sounds; the in-flight sound he added the same day as a
+belief ("I think")
+"""
+use = """
+score a Shock Bolt cast on its later phases too: the shock follows the
+landing. The store's `audio-phases-ability-states-gamedata-0.2.0.jsonl` maps
+each file to its ability and phase from the game's event data
+"""
+exceptions = """
+the game data plays the cast event Play_Hunter_AbilQ_Cast from both bolts'
+fire states, so the cast files witness neither bolt alone
+[domain:abilities/sova-abilq-cast-is-shock-bolt]
+"""
+see = ["abilities/sova-recon-bolt-audio-phases", "abilities/ability-sound-phases",
+       "abilities/sova-bolt-equips-share-sounds"]
+
+[sova-recon-bolt-audio-phases]
+claim = """
+Sova's Recon Bolt sounds in phases: the cast, the landing, and the scan
+pulse. The player believes an in-flight sound also plays between cast and
+landing, for one bolt or both.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "sova:recon bolt"
+source = """
+the player, 2026-10-04 (chat), who does not know how the game's files
+organise these sounds; the in-flight sound he added the same day as a
+belief ("I think")
+"""
+use = """
+score a Recon Bolt cast on its landing and scan pulses as well as its cast;
+the store's `audio-phases-ability-states-gamedata-0.2.0.jsonl` maps each file
+to its ability and phase from the game's event data
+"""
+exceptions = """
+the scan pulse's event (Play_Hunter_Abil_SonarBolt_SonarPing_upd) plays media
+named Abil_Joules_Q_Sonar_Ping_01, which the store's ability audio export
+(`ability-audio-ref-0.2.0`) does not hold
+"""
+see = ["abilities/sova-shock-bolt-audio-phases", "abilities/ability-sound-phases"]

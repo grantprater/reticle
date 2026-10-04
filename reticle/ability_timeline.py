@@ -568,6 +568,48 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
 
 #: The stored audio-gate log-mel and labels, under the store root.
 AUDIO_GATE_DIR = Path("analysis") / "audio-gate" / "0.1.0"
+#: The player's tray-cast labels (`prototypes/label_tray_objects.py`) and the
+#: corrections the player made to them, stored beside them, never over them.
+TRAY_OBJECT_DIR = Path("labels") / "tray_object"
+TRAY_OBJECT_CORRECTIONS_DIR = Path("labels") / "tray_object_corrections"
+#: The fields a correction may change.
+CORRECTED_FIELDS = ("slot", "ability")
+
+
+def _label_file_stamp(path: Path) -> str:
+    import hashlib
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
+def tray_object_labels(store_root, session_id: str) -> tuple[list[dict], dict]:
+    """(the player's tray-cast labels of a session, their stamps), each
+    correction (TRAY_OBJECT_CORRECTIONS_DIR, keyed by the label's `key`)
+    applied at read time. A corrected label carries the corrected `slot` and
+    `ability`, its original values as `label_slot` and `label_ability`, and
+    `correction` (the correction's basis, by, at and file); every label says
+    its `value_source`, `player_correction` or `player_label`. Neither file
+    is rewritten. The stamps are each file's sha256, `no_rows` where it is
+    absent. Every consumer of the labels reads them here."""
+    from .input_stamps import NO_ROWS
+    root = Path(store_root)
+    lp = root / TRAY_OBJECT_DIR / f"{session_id}.jsonl"
+    cp = root / TRAY_OBJECT_CORRECTIONS_DIR / f"{session_id}.jsonl"
+    read = lambda p: [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines()
+                      if x.strip()] if p.is_file() else []
+    fix = {c["key"]: c for c in read(cp)}
+    out = []
+    for lab in read(lp):
+        c = fix.get(lab["key"])
+        if c is None:
+            out.append({**lab, "value_source": "player_label"})
+            continue
+        out.append({**lab, **{f: c[f] for f in CORRECTED_FIELDS if f in c},
+                    **{f"label_{f}": lab.get(f) for f in CORRECTED_FIELDS},
+                    "value_source": "player_correction",
+                    "correction": {k: c.get(k) for k in ("basis", "by", "at")}
+                    | {"file": (TRAY_OBJECT_CORRECTIONS_DIR / cp.name).as_posix()}})
+    stamp = lambda p: _label_file_stamp(p) if p.is_file() else NO_ROWS
+    return out, {"labels_tray_object": stamp(lp), "labels_tray_object_corrections": stamp(cp)}
 #: The refusals a drop gets for showing another kit than the player's: a
 #: teammate's sound at that instant, known, so never background.
 KIT_REFUSALS = ("after_kit_change", "kit_not_player", "kit_owner_unresolved")
@@ -672,7 +714,10 @@ def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent
                        **where) -> dict:
     """The audio witness for each of the player's casts: which kit ability
     the audio around the drop sounds like (`adjudication.ability_audio`),
-    with its scores, margin and refusal. The candidate set is the player's
+    with its scores, margin and refusal, and beside the margin `p_right`:
+    P(the best referenced class, `best_ref`, is the slot) from the set's
+    stored calibration (`ability_audio.ref_margin`, `p_right`), None with
+    `p_right_reason` where the set carries none. The candidate set is the player's
     kit, named by the identity arbiter's agent (`agent`) through the
     parameter set's classes; a cast of a slot with no reference can only be
     refused or named as another slot, and the row says the slot is
@@ -680,9 +725,11 @@ def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent
     features or labels every cast row carries the reason and no score.
     `where` passes `features_path`, `labels_path` and `span_s` to
     `audio_session`."""
+    import numpy as np
+
     from . import ult_lines
     from .adjudication.ability_audio import (NONE, cast_scores, class_tracks, identify,
-                                             load_params, whiten_frames)
+                                             load_params, p_right, ref_margin, whiten_frames)
     from .version import ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION
     casts = [r for r in gate_rows if r["player_cast"]]
     base = {"ability_audio_version": ABILITY_AUDIO_VERSION,
@@ -712,6 +759,16 @@ def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent
     sc = cast_scores(tracks, [c["frame"] for c in session["casts"]], classes,
                      neighbours=session.get("neighbours", ()))
     ids = identify(sc, classes, params["thresholds"])
+    # The calibrated probability stands beside the margin, never in its place.
+    cal = params.get("calibration")
+    best_ref, margin_ref = ref_margin(sc, classes)
+    pr = p_right(margin_ref, cal["w"]) if cal else np.full(len(ids), np.nan)
+    for v, b, m, p in zip(ids, best_ref, margin_ref, pr):
+        v.update(best_ref=b, margin_ref=None if not np.isfinite(m) else round(float(m), 4),
+                 p_right=None if not np.isfinite(p) else round(float(p), 4),
+                 p_right_reason=(None if np.isfinite(p) else
+                                 "no_calibration" if not cal else "no_referenced_rival"),
+                 calibration_basis=cal["basis"] if cal else None)
     at = {c["t_ms"]: (c, v) for c, v in zip(session["casts"], ids)}
     rows = []
     for r in casts:
@@ -729,6 +786,7 @@ def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent
                                           "`none` holds the agent's unmapped files"},
            "params": {k: params["provenance"].get(k) for k in ("version", "reference", "fitted_at")},
            "dev_sessions": params["dev"], "thresholds": params["thresholds"],
+           "calibration": cal,
            "casts": len(casts), "scored": len(ids), "null_frames": int(session["bg"].sum()),
            "live_min": round(session["live_min"], 2), "inputs": session["stamps"],
            "verdicts": dict(sorted(Counter(r.get("verdict") or f"refused:{r['reason']}"
