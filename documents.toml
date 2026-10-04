@@ -423,6 +423,12 @@ status = "recorded"
 since = "2026-10-03"
 
 [[document]]
+path = "docs/WHITENED_WEAPON_NULL.md"
+kind = "findings"
+status = "recorded"
+since = "2026-10-04"
+
+[[document]]
 path = "docs/ARBITER_ARCHITECTURE.md"
 kind = "plan"
 status = "proposed"

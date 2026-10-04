@@ -1151,59 +1151,14 @@ def build_whitening(store_root: Optional[Path] = None, scale: float = 1.0,
     import json
     from ..store import Store
     store = Store(store_root) if store_root is not None else Store()
-    textures, why = game_textures(store.root)
-    if textures is None:
-        raise RuntimeError(f"no game icons: {why}")
-    path = mined_gallery_path(store.root)
-    if not path.is_file():
-        raise RuntimeError(f"no mined gallery: {path}")
-    z = np.load(path)
-    mined = {"names": z["names"], "keys": z["keys"]}
     ws = whiten_scale(scale)
-    names, kinds, refs, ref_keys = [], [], [], []
-    with step("whiten_templates"):
-        for name, (rgba, out_key, digest) in textures.items():
-            m = template_mean(rgba, ws)
-            if m is not None:
-                names.append(name)
-                kinds.append("game")
-                refs.append(m)
-                ref_keys.append([f"game:{GAME_ICON_BUILD}:{out_key}:{digest[:12]}"])
-    game_names = set(names)
-    dev_rows = _mined_rows(store, mined, set(sessions))
-    any_rows = _mined_rows(store, mined, None)
-    any_session = []
-    for name in sorted({str(n) for n in mined["names"]} - set(GAME_ICON_POLICY)):
-        got = dev_rows.get(name, [])
-        if len(got) < WHITEN_MINED_MIN:
-            if name in game_names or got:
-                continue
-            got = any_rows.get(name, [])
-            if not got:
-                continue
-            any_session.append(name)
-        cs = [c for c in (soft_canvas(r, ws)[0] for _k, r in got) if c is not None]
-        if cs:
-            names.append(name)
-            kinds.append("mined")
-            refs.append(np.mean(cs, axis=0))
-            ref_keys.append([k for k, _r in got])
-    R = np.array([r.ravel() for r in refs], np.float32)
+    rf = whiten_references(store, ws, sessions)
+    names, kinds, R, ref_keys = rf["names"], rf["kinds"], rf["refs"], rf["ref_keys"]
+    game_names, any_session = rf["game_names"], rf["any_session"]
     with step("whiten_fit"):
-        fit = [f for f in whiten_fit_rows(store, sessions) if f["name"] in game_names]
-        G, lab = [], []
-        for f in fit:
-            c, _ = soft_canvas(f["row"], ws)
-            if c is not None:
-                G.append(c.ravel())
-                lab.append(f["name"])
-        G = np.array(G, np.float32)
+        G, lab, _sids, fit = whiten_fit_matrix(store, ws, sessions, game_names)
         gi = {n: i for i, n in enumerate(names) if kinds[i] == "game"}
-        res = G - R[[gi[n] for n in lab]]
-        S = np.cov(res.T)
-        dg = np.diag(S)
-        S = ((1 - WHITEN_SHRINK) * S + WHITEN_SHRINK * np.diag(dg)
-             + WHITEN_RIDGE * dg.mean() * np.eye(len(dg)))
+        S = whiten_covariance(G - R[[gi[n] for n in lab]])
         W = np.linalg.solve(S, R.T).T.astype(np.float32)
         c = (0.5 * np.einsum("kd,kd->k", W, R)).astype(np.float32)
     # Limits: the rightly named fit rows' coverage against their winning row.
@@ -1244,6 +1199,79 @@ def build_whitening(store_root: Optional[Path] = None, scale: float = 1.0,
                             provenance=np.array(json.dumps(prov)))
         _WHITEN_CACHE.pop(str(p), None)
     return out
+
+
+def whiten_covariance(res: np.ndarray) -> np.ndarray:
+    """The whitening covariance of residual rows `res` (glyph less its name's
+    game mean): their covariance shrunk by WHITEN_SHRINK toward its diagonal,
+    plus a WHITEN_RIDGE ridge as a share of the mean variance."""
+    S = np.cov(np.asarray(res, np.float64).T)
+    dg = np.diag(S)
+    return ((1 - WHITEN_SHRINK) * S + WHITEN_SHRINK * np.diag(dg)
+            + WHITEN_RIDGE * dg.mean() * np.eye(len(dg)))
+
+
+def whiten_fit_matrix(store, ws: float, sessions, game_names
+                      ) -> tuple[np.ndarray, list, list, list]:
+    """The fit rows of `sessions` (`whiten_fit_rows`) whose name has a game
+    icon, registered at `ws`: the canvases as rows, each canvas's name and
+    session, and every such fit row (registered or not), which the
+    provenance counts."""
+    fit = [f for f in whiten_fit_rows(store, sessions) if f["name"] in game_names]
+    G, lab, sids = [], [], []
+    for f in fit:
+        c, _ = soft_canvas(f["row"], ws)
+        if c is not None:
+            G.append(c.ravel())
+            lab.append(f["name"])
+            sids.append(f["session_id"])
+    return np.array(G, np.float32), lab, sids, fit
+
+
+def whiten_references(store, ws: float, sessions) -> dict:
+    """The whitened filter's reference rows at `ws` (`build_whitening`): each
+    game icon's rendered mean, then each mined name's mean registered dev
+    exemplar. Returns `names`, `kinds`, `refs` (rows), `ref_keys`,
+    `game_names` and `any_session` (mined names taken from any session)."""
+    textures, why = game_textures(store.root)
+    if textures is None:
+        raise RuntimeError(f"no game icons: {why}")
+    path = mined_gallery_path(store.root)
+    if not path.is_file():
+        raise RuntimeError(f"no mined gallery: {path}")
+    z = np.load(path)
+    mined = {"names": z["names"], "keys": z["keys"]}
+    names, kinds, refs, ref_keys = [], [], [], []
+    with step("whiten_templates"):
+        for name, (rgba, out_key, digest) in textures.items():
+            m = template_mean(rgba, ws)
+            if m is not None:
+                names.append(name)
+                kinds.append("game")
+                refs.append(m)
+                ref_keys.append([f"game:{GAME_ICON_BUILD}:{out_key}:{digest[:12]}"])
+    game_names = set(names)
+    dev_rows = _mined_rows(store, mined, set(sessions))
+    any_rows = _mined_rows(store, mined, None)
+    any_session = []
+    for name in sorted({str(n) for n in mined["names"]} - set(GAME_ICON_POLICY)):
+        got = dev_rows.get(name, [])
+        if len(got) < WHITEN_MINED_MIN:
+            if name in game_names or got:
+                continue
+            got = any_rows.get(name, [])
+            if not got:
+                continue
+            any_session.append(name)
+        cs = [c for c in (soft_canvas(r, ws)[0] for _k, r in got) if c is not None]
+        if cs:
+            names.append(name)
+            kinds.append("mined")
+            refs.append(np.mean(cs, axis=0))
+            ref_keys.append([k for k, _r in got])
+    R = np.array([r.ravel() for r in refs], np.float32)
+    return {"names": names, "kinds": kinds, "refs": R, "ref_keys": ref_keys,
+            "game_names": game_names, "any_session": any_session}
 
 
 def _ref_aspect(t: np.ndarray) -> float:

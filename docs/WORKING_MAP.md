@@ -31,7 +31,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Persistent schemas and cache rules | `store.py`, `version.py` |
 | Frame primitives and spans | `primitives.py`, `segment.py` |
 | HUD, killfeed, roster | `ocr.py`, `killfeed.py`, `roster.py` |
-| Killfeed icons, new and beside the victim | `adjudication/weapon.py`, `prototypes/killfeed_openset.py`, [KILLFEED_VICTIM_ICON.md](KILLFEED_VICTIM_ICON.md) |
+| Killfeed icons, new and beside the victim | `adjudication/weapon.py`, `prototypes/killfeed_openset.py`, `prototypes/weapon_null_eval.py`, [KILLFEED_VICTIM_ICON.md](KILLFEED_VICTIM_ICON.md), [WHITENED_WEAPON_NULL.md](WHITENED_WEAPON_NULL.md) |
 | Rounds and phase boundaries | `rounds.py`, `scoreboard.py` |
 | Is the Tab scoreboard open, and its round marks | `scoreboard.py`, `scoreboard_strip.py` (`reticle strip`), `adjudication/scoreboard.py` (`reticle openings`), [SCOREBOARD_PRESENCE.md](SCOREBOARD_PRESENCE.md), [SCOREBOARD_ROUND_MARKS.md](SCOREBOARD_ROUND_MARKS.md) |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py`, `team_vision.py` |
