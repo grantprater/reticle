@@ -458,8 +458,32 @@ class UltScoringTest(unittest.TestCase):
         got = rg._chamber_tdf(players, casts, self.ROUNDS, 0.0)
         self.assertEqual(got, [{"side": "enemy", "riot_casts": 1, "tdf_rounds": 2,
                                 "tdf_rounds_held": 2, "stored": 2, "truth": 2, "matched": 2,
-                                "excess": 0, "deficit": 0}])
+                                "excess": 0, "deficit": 0, "lines_in_tdf_round": 2,
+                                "lines_unverifiable": 0}])
         self.assertEqual(players[0]["riot_casts"], 1)
+
+    def test_chamber_lines_outside_tdf_rounds_are_unverifiable(self):
+        """0.5.0: a Chamber line outside a Tour De Force kill round is unverifiable."""
+        kills = [{"round": 0, "game_ms": 30000, "kind": "Tour De Force", "kills": 1}]
+        players = [{"agent": "Chamber", "side": "ally", "riot_casts": 0, "ult_kills": kills}]
+        casts = [{"agent": "Chamber", "side": "ally", "round": 1},
+                 {"agent": "Chamber", "side": "ally", "round": 2}]
+        got = rg._chamber_tdf(players, casts, self.ROUNDS, 0.0)[0]
+        self.assertEqual((got["tdf_rounds_held"], got["lines_in_tdf_round"],
+                          got["lines_unverifiable"]), (1, 1, 1))
+
+    def test_apart_drops_chamber_from_the_count_score(self):
+        """0.5.0: the count score without Chamber keeps every other row."""
+        players = [{"agent": "Chamber", "side": "enemy", "riot_casts": 0},
+                   {"agent": "Jett", "side": "ally", "riot_casts": 2}]
+        casts = [{"agent": "Chamber", "side": "enemy", "_disp": "excess"},
+                 {"agent": "Jett", "side": "ally", "_disp": "matched"},
+                 {"agent": None, "side": "ally", "_disp": "unnamed"}]
+        per = {("Chamber", "enemy"): {"matched": 0, "deficit": 0},
+               ("Jett", "ally"): {"matched": 1, "deficit": 1}}
+        self.assertEqual(rg._apart(players, casts, per),
+                         {"riot_casts": 2, "stored_casts": 2, "matched": 1, "deficit": 1,
+                          "excess_rows": 1})
 
 
 if __name__ == "__main__":

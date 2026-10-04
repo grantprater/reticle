@@ -167,11 +167,40 @@ players; scores here measure agreement with it, not accuracy per cast.
   apply; it has no tray, so `sweep_reproduces_stored` compares the rows no
   witness selected.
 
-0.4.2: a stored death drawn at a stall's release (`released`) pairs with a
+0.5.0 (ult-cast-0.5.0): Chamber apart
+
+* Riot's Chamber ult count undercounts Tour De Force equips
+  (`docs/EXTERNAL_GROUND_TRUTH.md`, "Chamber's ultimate count"): it never
+  exceeds his Tour De Force kill rounds and falls below them for most Chamber
+  players, so it is no truth for him (`RIOT_COUNT_UNFIT`). `apart` scores the per-match count
+  without him: Riot casts, stored rows, matched, excess rows, recall and
+  precision.
+* `chamber_line` scores Chamber's stored lines against the rounds in which
+  that side's Chamber kills with Tour De Force: rounds held (`tdf_recall`),
+  lines in such a round, and lines outside one, counted unverifiable, never
+  false; `off_roster` counts Chamber lines on a side Riot fields no Chamber.
+* The combined figures, Chamber included, print and record as before, beside
+  both; so do the halves.
+
+0.5.1: the 0.4.1 `chamber_tdf` pool relabelled
+
+* Its count score compares each Chamber player's stored line count with a
+  lower bound, max(Riot's count, his Tour De Force kill rounds), never round
+  by round. Its pooled `truth`, `matched`, `deficit`, `excess`, `recall` and
+  `precision` print and record as `count_lower_bound`, `count_matched`,
+  `count_short_of_lower_bound`, `count_above_lower_bound`,
+  `count_recall_vs_lower_bound` and `count_precision_vs_lower_bound`. A count
+  recall of 1.0 says every player holds at least as many lines as the bound,
+  even where a kill round holds none of them; lines above the bound are not
+  false. The per-round figures are `chamber_line`'s. Two 0.5.0 --record rows
+  came from different builds; 0.5.1 restamps the same figures.
+
+0.5.2: a stored death drawn at a stall's release (`released`) pairs with a
 leftover Riot kill inside that stall whose names do not disagree
 (`_release_pass`, `how = "stall_release"`); such a kill is matched, not
 unobservable, and its names count as paired by name, never right.
-`--legacy release` restores 0.4.1.
+`--legacy release` restores 0.5.1. The rule carried the stamp
+riot-truth-0.4.2 on its branch, before 0.5.0 and 0.5.1 reached it.
 
 What the scorer reads stale (0.3.1)
 -----------------------------------
@@ -214,7 +243,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-RIOT_TRUTH_VERSION = "riot-truth-0.4.2"
+RIOT_TRUTH_VERSION = "riot-truth-0.5.2"
 STORE = Path.home() / "reticle-store"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -1103,7 +1132,7 @@ def _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms, stalls=None) -> 
 
 
 def _release_pass(kills, deaths, agent_of, x, t, out) -> list:
-    """Pass 4 (0.4.2): a stored death the stall rule drew at a stall's release
+    """Pass 4 (0.5.2): a stored death the stall rule drew at a stall's release
     (its `released` span) pairs with a leftover Riot kill inside that span
     whose names do not disagree with it, most agreeing names then least |dt|
     first. Its names rest on no time agreement, so like the name pass it
@@ -2440,8 +2469,9 @@ def _sweep(sid: str, peak_rows: list[dict], lineup, rounds, round_version, playe
 
 def _chamber_tdf(players: list[dict], casts: list[dict], rounds: list[dict], a: float) -> list[dict]:
     """Per Chamber player: the Riot rounds with a Tour De Force kill, how many
-    hold a stored Chamber cast of that side, and the count truth max(Riot's
-    count, those rounds) against the stored casts."""
+    hold a stored Chamber cast of that side, and the stored line count against
+    a lower bound, `truth` = max(Riot's count, those rounds); the pool reports
+    that comparison under `count_*` names."""
     from reticle.adjudication.ult_cast import round_of
     out = []
     for p in players:
@@ -2451,12 +2481,33 @@ def _chamber_tdf(players: list[dict], casts: list[dict], rounds: list[dict], a: 
                if x["kind"] == "Tour De Force"} - {None}
         mine = [c for c in casts if c.get("agent") == "Chamber" and c["side"] == p["side"]]
         held = {c.get("round") for c in mine} & tdf
+        in_tdf = sum(c.get("round") in tdf for c in mine)
         truth = max(p["riot_casts"], len(tdf))
         out.append({"side": p["side"], "riot_casts": p["riot_casts"], "tdf_rounds": len(tdf),
                     "tdf_rounds_held": len(held), "stored": len(mine), "truth": truth,
                     "matched": min(len(mine), truth), "excess": max(len(mine) - truth, 0),
-                    "deficit": max(truth - len(mine), 0)})
+                    "deficit": max(truth - len(mine), 0),
+                    "lines_in_tdf_round": in_tdf, "lines_unverifiable": len(mine) - in_tdf})
     return out
+
+
+#: Riot's Chamber ult count undercounts Tour De Force equips: it never exceeds his
+#: Tour De Force kill rounds and falls below them for most Chamber players
+#: (docs/EXTERNAL_GROUND_TRUTH.md, "Chamber's ultimate count"), so its per-match
+#: count is no truth for him.
+RIOT_COUNT_UNFIT = frozenset({"Chamber"})
+
+
+def _apart(players: list[dict], casts: list[dict], per: dict) -> dict:
+    """The per-match count score without the agents in RIOT_COUNT_UNFIT: Riot
+    casts, stored rows, matched, deficit and excess rows (every unmatched
+    disposition) of the rest. Unnamed rows stay in. Run after `_ult_dispose`."""
+    keep = [p for p in players if p["agent"] not in RIOT_COUNT_UNFIT]
+    rows = [c for c in casts if c.get("agent") not in RIOT_COUNT_UNFIT]
+    return {"riot_casts": sum(p["riot_casts"] for p in keep), "stored_casts": len(rows),
+            "matched": sum(per[(p["agent"], p["side"])]["matched"] for p in keep),
+            "deficit": sum(per[(p["agent"], p["side"])]["deficit"] for p in keep),
+            "excess_rows": sum(c["_disp"] != "matched" for c in rows)}
 
 
 def score_ults(sid: str, d: dict, ident: dict, ref: Reference, store_root: Path, a: float,
@@ -2565,6 +2616,10 @@ def score_ults(sid: str, d: dict, ident: dict, ref: Reference, store_root: Path,
                                         "disp": r.get("_disp")}
                        for r in casts + refusals}
     out["chamber_tdf"] = _chamber_tdf(players, casts, rounds, a)
+    out["apart"] = _apart(players, casts, per)
+    chamber_sides = {p["side"] for p in players if p["agent"] == "Chamber"}
+    out["chamber_off_roster"] = sum(c.get("agent") == "Chamber" and c["side"] not in chamber_sides
+                                    for c in casts)
     # Deficits: the player's template's refusals, and its best live peaks that no
     # selected row of that template's round holds.
     sel_rounds = defaultdict(set)
@@ -2705,12 +2760,37 @@ def pool_ults(results: list[dict]) -> dict:
             C.update({k: v for k, v in c.items() if isinstance(v, int)})
             C["players"] += 1
             C["riot_below_tdf_rounds"] += c["riot_casts"] < c["tdf_rounds"]
+            C["riot_zero_with_tdf_kill"] += c["riot_casts"] == 0 and c["tdf_rounds"] > 0
     if C:
         C["tdf_rounds_held_fraction"] = (round(C["tdf_rounds_held"] / C["tdf_rounds"], 4)
                                          if C["tdf_rounds"] else None)
-        C["recall"] = round(C["matched"] / C["truth"], 4) if C["truth"] else None
-        C["precision"] = round(C["matched"] / C["stored"], 4) if C["stored"] else None
+        # 0.5.1: a count score against a per-player lower bound, not per round;
+        # named so, beside chamber_line's per-round figures.
+        for old, new in (("truth", "count_lower_bound"), ("matched", "count_matched"),
+                         ("deficit", "count_short_of_lower_bound"),
+                         ("excess", "count_above_lower_bound")):
+            C[new] = C.pop(old)
+        C["count_recall_vs_lower_bound"] = (round(C["count_matched"] / C["count_lower_bound"], 4)
+                                            if C["count_lower_bound"] else None)
+        C["count_precision_vs_lower_bound"] = (round(C["count_matched"] / C["stored"], 4)
+                                               if C["stored"] else None)
     P["chamber_tdf"] = dict(sorted(C.items()))
+    # 0.5.0: the count score without Chamber, whose Riot count undercounts his equips,
+    # and Chamber's own line: recall against Tour De Force kill rounds, and his
+    # lines outside such rounds unverifiable, not false.
+    X = Counter()
+    for r in ok:
+        X.update(r["ult"]["apart"])
+    P["apart"] = {**dict(X), "agents_out": sorted(RIOT_COUNT_UNFIT),
+                  "recall": round(X["matched"] / X["riot_casts"], 4) if X["riot_casts"] else None,
+                  "precision": (round(X["matched"] / X["stored_casts"], 4)
+                                if X["stored_casts"] else None),
+                  "excess_per_live_min": round(X["excess_rows"] / live, 4) if live else None}
+    L = Counter({k: C.get(k, 0) for k in ("players", "riot_casts", "tdf_rounds", "tdf_rounds_held",
+                                          "stored", "lines_in_tdf_round", "lines_unverifiable")})
+    L["off_roster"] = sum(r["ult"]["chamber_off_roster"] for r in ok)
+    P["chamber_line"] = {**dict(L), "tdf_recall": (round(L["tdf_rounds_held"] / L["tdf_rounds"], 4)
+                                                   if L["tdf_rounds"] else None)}
     # Deficits by cause: refused rows of the template, else a template never
     # selected anywhere in the session, else candidate peaks below threshold.
     D = Counter()
@@ -2773,11 +2853,29 @@ def print_ults(results: list[dict], P: dict) -> None:
                       f"{x.get('cause')} named {x.get('named')} best {x.get('best_peak')}")
     show = {k: v for k, v in P.items() if k not in ("per_agent", "sweep")}
     print(json.dumps(show, indent=1, default=str))
+    print(headline_ults(P))
     print("per agent:")
     for a, c in P["per_agent"].items():
         print(f"   {a:10s} {json.dumps(c)}")
     for tau, v in (P.get("sweep") or {}).items():
         print(f"   sweep {tau}: {json.dumps(v)}")
+
+
+def headline_ults(P: dict) -> str:
+    """The three ult figures side by side: Riot's combined count score, the
+    score without the agents whose Riot count is unfit, and Chamber's line."""
+    X, L = P.get("apart") or {}, P.get("chamber_line") or {}
+    return "\n".join((
+        f"ult combined (all agents)  recall {P.get('recall')} precision {P.get('precision')} "
+        f"excess {P.get('excess_rows')} of {P.get('stored_casts')} stored, "
+        f"riot {P.get('riot_casts')}",
+        f"ult without {','.join(X.get('agents_out') or [])}  recall {X.get('recall')} "
+        f"precision {X.get('precision')} excess {X.get('excess_rows')} of "
+        f"{X.get('stored_casts')} stored, riot {X.get('riot_casts')}",
+        f"Chamber line  TDF kill rounds held {L.get('tdf_rounds_held')}/{L.get('tdf_rounds')} "
+        f"(recall {L.get('tdf_recall')}); lines {L.get('stored')}: "
+        f"{L.get('lines_in_tdf_round')} in a TDF kill round, {L.get('lines_unverifiable')} "
+        f"unverifiable, {L.get('off_roster')} off roster; riot counts {L.get('riot_casts')}"))
 
 
 #: The pooled fields printed and recorded per half.
@@ -2796,15 +2894,17 @@ def record_ult_metrics(P: dict, results: list[dict], halves: dict | None = None)
            "stamps": sorted({json.dumps(r["ult"]["stamps"], sort_keys=True) for r in ok})}
     flat = {k: v for k, v in P.items() if isinstance(v, (int, float)) and v is not None}
     for grp in ("own", "ult_kills", "deficit_causes", "dispositions", "excess_causes",
-                "impossible_causes", "impossible_flags", "chamber_tdf"):
+                "impossible_causes", "impossible_flags", "chamber_tdf", "apart", "chamber_line"):
         flat.update({f"{grp}_{k}".replace(":", "_"): v for k, v in (P.get(grp) or {}).items()
                      if isinstance(v, (int, float)) and v is not None})
     metrics.record("riot_truth", part="ult", values=flat, deps=deps, context=ctx)
     toks = [f"[metric:riot_truth/ult#{f}={flat.get(f)}]" for f in (
         "riot_casts", "stored_casts", "matched", "recall", "precision", "excess_rows",
         "excess_per_live_min", "impossible", "burst_refused", "witnessed_casts",
-        "own_own_recall", "ult_kills_recall", "chamber_tdf_recall",
-        "chamber_tdf_tdf_rounds_held_fraction")]
+        "own_own_recall", "ult_kills_recall", "chamber_tdf_count_recall_vs_lower_bound",
+        "chamber_tdf_tdf_rounds_held_fraction", "apart_recall", "apart_precision",
+        "apart_excess_rows", "chamber_line_tdf_recall", "chamber_line_stored",
+        "chamber_line_lines_in_tdf_round", "chamber_line_lines_unverifiable")]
     for h, PH in (halves or {}).items():
         hv = {k: PH.get(k) for k in ULT_HALF_KEYS if PH.get(k) is not None}
         hv.update({f"ult_kills_{k}".replace(":", "_"): v
@@ -2812,13 +2912,18 @@ def record_ult_metrics(P: dict, results: list[dict], halves: dict | None = None)
                    if isinstance(v, (int, float)) and v is not None})
         hv.update({f"own_{k}": v for k, v in (PH.get("own") or {}).items()
                    if isinstance(v, (int, float)) and v is not None})
+        for grp in ("apart", "chamber_line"):
+            hv.update({f"{grp}_{k}": v for k, v in (PH.get(grp) or {}).items()
+                       if isinstance(v, (int, float)) and v is not None})
         metrics.record("riot_truth", part=f"ult/{h}", values=hv, deps=deps,
                        context={"sessions": sorted(r["session"] for r in ok
                                                    if (r["session"] in ULT_DEV_SESSIONS)
                                                    == (h == "dev"))})
         toks += [f"[metric:riot_truth/ult/{h}#{f}={hv.get(f)}]" for f in (
             "recall", "precision", "excess_rows", "impossible", "burst_refused",
-            "ult_kills_recall")]
+            "ult_kills_recall", "apart_recall", "apart_precision", "apart_excess_rows",
+            "chamber_line_tdf_recall", "chamber_line_lines_in_tdf_round",
+            "chamber_line_lines_unverifiable")]
     av = {a: c for a, c in P["per_agent"].items()}
     metrics.record("riot_truth", part="ult/agent", values={
         f"{a}_{k}": v for a, c in av.items() for k, v in c.items() if v is not None},
@@ -3067,6 +3172,7 @@ def main(argv=None) -> int:
         for h, P in halves.items():
             print(f"half {h}: " + json.dumps({k: P.get(k) for k in ULT_HALF_KEYS}))
             print(f"half {h} ult kills: " + json.dumps(P.get("ult_kills")))
+            print(f"half {h}:\n" + headline_ults(P))
         if args.json and args.ult_only:
             Path(args.json).write_text(json.dumps({"ult_pool": PU, "halves": halves, "sessions": [
                 {"session": r["session"], "capture": r.get("capture"), "ult": r.get("ult")}
