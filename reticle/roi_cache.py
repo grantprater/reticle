@@ -418,6 +418,26 @@ def cache_dir(store_root: Path, name: str) -> Path:
     return Path(store_root) / "roi_cache" / name / ROI_CACHE_VERSION
 
 
+def stored_record(store_root: Path, sid: str, name: str) -> dict | None:
+    """The stored cache record of set `name` for `sid`, unchecked; None where
+    none is stored."""
+    meta = cache_dir(store_root, name) / f"{sid}.json"
+    return json.loads(meta.read_text(encoding="utf-8")) if meta.is_file() else None
+
+
+def rewrite_command(sid: str, name: str, record: dict | None = None) -> str:
+    """The scan that re-decodes set `name`'s crop cache for `sid` at the rects
+    the manifest names now (`roi_rects`), at the stored record's rate and, where
+    it held round spans, over the live rounds again."""
+    cmd = f"reticle scan {sid} --only roi_cache --cache-roi {name}"
+    if record is not None:
+        if record.get("hz") is not None:
+            cmd += f" --cache-hz {float(record['hz']):g}"
+        if record.get("spans"):
+            cmd += " --cache-live"
+    return cmd
+
+
 def _cache_record(manifest: dict, profile, name: str, rects, hz: float, spans=None,
                   gate=None) -> dict:
     rec = {"version": ROI_CACHE_VERSION, "roi": name, "rects": [list(r) for r in rects],
@@ -592,7 +612,7 @@ class RoiCache:
     widget: object = None
 
     @classmethod
-    def _open(cls, d: Path, manifest: dict, profile):
+    def _open(cls, d: Path, manifest: dict, profile, raw: bool = False):
         sid = manifest["session_id"]
         meta = d / f"{sid}.json"
         if not meta.is_file():
@@ -614,10 +634,15 @@ class RoiCache:
         got = cls(rec, idx[:, 0], idx[:, 1].astype(int), idx[:, 2].astype(int),
                   idx[:, 3].astype(np.int64), idx[:, 4].astype(np.int64),
                   d / f"{sid}.bin")
-        if "minimap" in CACHE_SETS[rec["roi"]]:
+        if "minimap" in CACHE_SETS[rec["roi"]] and not raw:
             # A widget drawn elsewhere is read through its placement; one the
             # stored crop cannot hold is refused by name, never read as absent.
-            from .widget_frame import for_session, refusal_text
+            # A side-based session with no placement is refused by name too:
+            # its turned half would read as an absent widget.
+            from .widget_frame import for_session, refusal_text, unplaced_refusal
+            unplaced = unplaced_refusal(manifest)
+            if unplaced is not None:
+                return None, unplaced
             got.widget = for_session(manifest, got.stored_rect("minimap"), d.parents[2])
             if got.widget is not None and got.widget.refusal is not None:
                 return None, refusal_text(got.widget.refusal)
@@ -625,14 +650,16 @@ class RoiCache:
 
     @classmethod
     def load(cls, store_root: Path, manifest: dict, profile,
-             name: str = "killfeed") -> tuple["RoiCache | None", str | None]:
+             name: str = "killfeed", raw: bool = False) -> tuple["RoiCache | None", str | None]:
         """The cache for set `name`, or one whose rectangles include it; or
-        None with the reason no cache can be used."""
+        None with the reason no cache can be used. `raw` reads the minimap
+        crops as stored, with no placement and no placement refusal: the
+        placement fit (`widget_frame.fit_placement`) reads them so."""
         need = set(CACHE_SETS[name])
         why = "no_cache"
         for other in [name] + [n for n, rs in CACHE_SETS.items()
                                if n != name and need <= set(rs)]:
-            got, reason = cls._open(cache_dir(store_root, other), manifest, profile)
+            got, reason = cls._open(cache_dir(store_root, other), manifest, profile, raw)
             if got is not None:
                 return got, None
             if reason != "no_cache":

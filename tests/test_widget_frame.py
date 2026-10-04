@@ -51,6 +51,167 @@ class TestAffine(unittest.TestCase):
         self.assertGreater(wf.clipped_fraction(big, floor, [0, 0, 100, 100]), wf.MAX_CLIP)
 
 
+class TestUnionCaptureBox(unittest.TestCase):
+    """One crop holds the widget under every stored placement and never less
+    than the profile's ROI (`capture_box_for`)."""
+
+    ROI = [15, 22, 346, 351]
+    SHAPE = (329, 331)
+
+    def _segs(self):
+        upright = {"affine": wf.identity_affine(self.ROI).tolist()}
+        # b3b9defb6fd7's turned half: rotation 180, scale 1, corner (336, 363).
+        turned = {"affine": wf.affine(180, 1.0, 1.0, 336 - 330, 363 - 328, self.SHAPE,
+                                      (0, 0)).tolist()}
+        return upright, turned
+
+    def test_union_covers_both_placements_and_the_profile_roi(self):
+        upright, turned = self._segs()
+        box = wf.capture_box_for([upright, turned], self.SHAPE, (1920, 1080), self.ROI)
+        for seg in (upright, turned):
+            one = wf.needed_box([seg], self.SHAPE, (1920, 1080))
+            self.assertLessEqual(box[0], one[0])
+            self.assertLessEqual(box[1], one[1])
+            self.assertGreaterEqual(box[2], one[2])
+            self.assertGreaterEqual(box[3], one[3])
+        self.assertLessEqual(box[0], self.ROI[0])
+        self.assertGreaterEqual(box[3], self.ROI[3])
+        # b3b9defb6fd7's dry run named this box.
+        self.assertEqual(box, [2, 18, 350, 368])
+        floor = np.ones(self.SHAPE, bool)
+        for seg in (upright, turned):
+            self.assertEqual(wf.clipped_fraction(seg["affine"], floor, box), 0.0)
+
+    def test_the_profile_roi_alone_clips_the_turned_widget(self):
+        _, turned = self._segs()
+        floor = np.ones(self.SHAPE, bool)
+        self.assertGreater(wf.clipped_fraction(turned["affine"], floor, self.ROI), wf.MAX_CLIP)
+
+    def test_a_smaller_widget_keeps_the_profile_crop(self):
+        small = {"affine": wf.affine(0, 0.9, 0.9, 20, 30, self.SHAPE, (0, 0)).tolist()}
+        box = wf.capture_box_for([small], self.SHAPE, (1920, 1080), self.ROI)
+        self.assertEqual(box[:2], self.ROI[:2])
+        self.assertEqual(box[2:], self.ROI[2:])
+
+
+class TestPerSide(unittest.TestCase):
+    """A side-based session is never read against the unturned static
+    silently: declared or collapsing, it needs a placement first."""
+
+    def _man(self, orientation="per_side", entry=None):
+        m = {"session_id": "s1", "source_profile": "valorant-16x9",
+             "minimap_mode": {"orientation": orientation}}
+        if entry is not None:
+            m[wf.MANIFEST_KEY] = entry
+        return m
+
+    def test_the_declaration_is_read_from_the_manifest_then_the_profile(self):
+        self.assertEqual(wf.declared_orientation(self._man()), "per_side")
+        self.assertEqual(wf.declared_orientation(
+            {"source_profile": "valorant-16x9-crop75"}), "per_side")
+        self.assertEqual(wf.declared_orientation({"source_profile": "valorant-16x9"}),
+                         "always_same")
+
+    def test_an_unplaced_per_side_session_is_refused_with_the_command(self):
+        why = wf.unplaced_refusal(self._man())
+        self.assertIn("per_side_unplaced", why)
+        self.assertIn("reticle widget-fit s1 --write", why)
+        self.assertIsNone(wf.unplaced_refusal(self._man("always_same")))
+
+    def test_any_stored_placement_answers_it(self):
+        roi = [15, 22, 346, 351]
+        e = {"baked_roi": roi, "segments": [{"t0_ms": None, "t1_ms": None, "rotation": 0,
+                                             "affine": wf.identity_affine(roi).tolist()}]}
+        self.assertIsNone(wf.unplaced_refusal(self._man(entry=e)))
+        self.assertIsNone(wf.placement_status(None, self._man(entry=e)))
+        self.assertIsNone(wf.turned_at(self._man(entry=e)))
+
+    def test_placement_status_names_a_declared_session(self):
+        s = wf.placement_status(None, self._man())
+        self.assertEqual(s["reason"], "per_side_unplaced")
+        self.assertEqual(s["command"], "reticle widget-fit s1 --write")
+
+    def test_turned_at_follows_the_turned_segments(self):
+        e = {"baked_roi": [0, 0, 10, 10], "segments": [
+            {"t0_ms": None, "t1_ms": 1000.0, "rotation": 180, "affine": [[-1, 0, 9], [0, -1, 9]]},
+            {"t0_ms": 1000.0, "t1_ms": None, "rotation": 0, "affine": [[1, 0, 0], [0, 1, 0]]}]}
+        turned = wf.turned_at(self._man(entry=e))
+        self.assertTrue(turned(0.0))
+        self.assertTrue(turned(999.9))
+        self.assertFalse(turned(1000.0))
+        self.assertFalse(turned(5e6))
+
+    def _rounds(self, n=18, length=100_000.0):
+        return [{"round_no": k + 1, "t_start_ms": k * length,
+                 "t_end_ms": k * length + 0.9 * length} for k in range(n)]
+
+    def test_a_collapse_at_the_switch_is_found(self):
+        rounds = self._rounds()
+        t = np.arange(0, 18 * 100_000.0, 500.0)
+        drawn = np.where(t < 12 * 100_000.0, True, False)
+        drawn[::40] = ~drawn[::40]                   # a little noise both ways
+        c = wf.drawn_collapse(t, drawn, rounds)
+        self.assertIsNotNone(c)
+        self.assertEqual(c["round_no"], 13)
+        self.assertGreaterEqual(c["before"], wf.DRAWN_BEFORE_MIN)
+        self.assertLessEqual(c["after"], wf.DRAWN_AFTER_MAX)
+
+    def test_a_steady_rate_is_no_collapse(self):
+        rounds = self._rounds()
+        t = np.arange(0, 18 * 100_000.0, 500.0)
+        drawn = np.ones(len(t), bool)
+        drawn[::20] = False
+        self.assertIsNone(wf.drawn_collapse(t, drawn, rounds))
+        # Undrawn time between rounds is not weighed.
+        drawn = np.array([(tt % 100_000.0) < 90_000.0 for tt in t])
+        self.assertIsNone(wf.drawn_collapse(t, drawn, rounds))
+
+    def test_the_crop_cache_refuses_an_unplaced_per_side_session_by_name(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from reticle.profiles import get_profile
+        from reticle.roi_cache import (ROI_CACHE_VERSION, RoiCache, cache_dir, rewrite_command,
+                                       roi_rects)
+        profile = get_profile("valorant-16x9")
+        man = {**self._man(), "source": {"width": 1920, "height": 1080, "content_key": "k"}}
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            cd = cache_dir(root, "minimap")
+            cd.mkdir(parents=True)
+            rec = {"version": ROI_CACHE_VERSION, "roi": "minimap", "profile": profile.name,
+                   "content_key": "k", "wh": [1920, 1080], "hz": 15.0, "spans": [[0.0, 1.0]],
+                   "rects": roi_rects("minimap", profile, (1920, 1080))}
+            (cd / "s1.json").write_text(json.dumps(rec), encoding="utf-8")
+            np.save(cd / "s1.idx.npy", np.zeros((0, 5)))
+            cache, why = RoiCache.load(root, man, profile, "minimap")
+            self.assertIsNone(cache)
+            self.assertTrue(why.startswith("per_side_unplaced"))
+            raw, why = RoiCache.load(root, man, profile, "minimap", raw=True)
+            self.assertIsNotNone(raw, why)
+            self.assertEqual(rewrite_command("s1", "minimap", rec),
+                             "reticle scan s1 --only roi_cache --cache-roi minimap "
+                             "--cache-hz 15 --cache-live")
+            # A capture box in the stored placement makes the cache stale by rect.
+            roi = [15, 22, 346, 351]
+            placed = {**man, wf.MANIFEST_KEY: {
+                "baked_roi": roi, "capture_box": [2, 18, 350, 368],
+                "segments": [{"t0_ms": None, "t1_ms": None, "rotation": 0,
+                              "affine": wf.identity_affine(roi).tolist()}]}}
+            self.assertEqual(roi_rects("minimap", profile, (1920, 1080), placed)[0],
+                             [2, 18, 350, 368])
+            self.assertEqual(RoiCache.load(root, placed, profile, "minimap")[1], "stale_rects")
+
+    def test_round_frames_take_one_cached_time_inside_each_round(self):
+        rounds = self._rounds(4)
+        ts = np.arange(0, 4 * 100_000.0, 1000.0)
+        got = wf.round_frames(ts, rounds)
+        self.assertEqual(len(got), 4)
+        for r, t in zip(rounds, got):
+            self.assertTrue(r["t_start_ms"] <= t < r["t_end_ms"])
+
+
 @unittest.skipUnless((DEFAULT_STORE / "manifests" / f"{SESSION}.json").is_file(),
                      "needs the store")
 class TestSyntheticVariant(unittest.TestCase):
