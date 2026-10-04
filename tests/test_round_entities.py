@@ -350,6 +350,85 @@ class DeathBindingTests(unittest.TestCase):
                          "barrier_is_not_a_player")
 
 
+class SelfDeathTests(unittest.TestCase):
+    """round-entity-0.15.0: the self entity ends at the player's own death;
+    while the player is dead the self icon marks the spectated teammate
+    [domain:minimap/self-icon-shows-spectated]."""
+
+    def _death(self, t, victim="Iso", **kw):
+        return {"kind": "death_verdict", "side": "ally", "round_no": 1, "t_ms": t,
+                "victim": victim, "death_id": f"death:s:{int(t)}:0", **kw}
+
+    def _run(self, deaths, lineup={"player": {"agent": "Iso"}}):
+        events = [_frame(k, float(t), me=(100.0 + k * 0.2, 100.0, 10))
+                  for k, t in enumerate(range(0, 1000, 100))]
+        rows = session_lifetimes("s", events, ROUNDS[:1], 1.0, None, deaths=deaths,
+                                 lineup=lineup)
+        ents = [r for r in rows if r["kind"] == "entity"]
+        obs = [r for r in rows if r["kind"] == "observation"]
+        return ents, obs
+
+    def test_dead_spans_close_at_a_revive_and_skip_second_lives(self):
+        from reticle.round_entities import player_dead_spans
+        deaths = [self._death(300.0), self._death(500.0, is_revive=True),
+                  self._death(600.0, kf_player_death=True, is_second_life=True),
+                  self._death(700.0, None, kf_player_death=True)]
+        spans = [(d["death_id"], s, e) for d, s, e in player_dead_spans(deaths, "Iso", 1000.0)]
+        self.assertEqual(spans, [("death:s:300:0", 300.0, 500.0),
+                                 ("death:s:700:0", 700.0, 1000.0)])
+        self.assertEqual(player_dead_spans([self._death(300.0, "Jett")], "Iso", 1000.0), [])
+
+    def test_the_players_death_cuts_the_self_entity_and_the_rest_abstains(self):
+        ents, obs = self._run([self._death(450.0)])
+        alive, spect = sorted(ents, key=lambda e: e["first_seen_ms"])
+        self.assertEqual((alive["family"], alive["agent"], alive["identity_status"]),
+                         ("self", "Iso", "resolved"))
+        self.assertEqual((alive["last_seen_ms"], alive["death_id"]), (400.0, "death:s:450:0"))
+        self.assertEqual((spect["family"], spect["agent"], spect["identity_status"]),
+                         ("spectated", None, "abstained"))
+        self.assertTrue(spect["identity_reason"].startswith("spectated: the player died at 450"))
+        self.assertEqual(spect["first_seen_ms"], 500.0)
+        self.assertIsNone(spect["death_id"])
+        self.assertEqual({alive["segment_id"], spect["segment_id"]}, {"s:R1:E0001"})
+        late = [o for o in obs if o["t_ms"] > 450.0]
+        self.assertTrue(late and all(o["entity_id"] == spect["id"] for o in late))
+        self.assertTrue(all(o["family"] == "self" for o in obs))
+
+    def test_an_observation_at_the_deaths_instant_is_the_players(self):
+        ents, obs = self._run([self._death(400.0)])
+        at = next(o for o in obs if o["t_ms"] == 400.0)
+        self.assertEqual(next(e for e in ents if e["id"] == at["entity_id"])["agent"], "Iso")
+
+    def test_a_revive_returns_the_self_icon_to_the_player(self):
+        ents, _ = self._run([self._death(250.0), self._death(650.0, is_revive=True)])
+        got = [(e["family"], e["agent"]) for e in sorted(ents, key=lambda e: e["first_seen_ms"])]
+        self.assertEqual(got, [("self", "Iso"), ("spectated", None), ("self", "Iso")])
+
+    def test_a_spectated_run_is_cut_where_the_teammate_may_change(self):
+        """A teammate's death and a jump no walker makes each start a new
+        spectated piece; walking does not."""
+        from reticle.round_entities import _cut_self
+        xs = [100.0, 100.5, 101.0, 101.5, 160.0, 160.5, 161.0, 161.5]
+        obs = [{"family": "self", "entity_id": "E", "t_ms": 100.0 * k, "x": x, "y": 50.0,
+                "observation_key": f"k{k}"} for k, x in enumerate(xs)]
+        death = {"death_id": "d"}
+        (pieces,) = _cut_self(obs, [(death, 50.0, 1000.0)], switches=[250.0]).values()
+        self.assertEqual([p["t"] for p in pieces],
+                         [[0.0], [100.0, 200.0], [300.0], [400.0, 500.0, 600.0, 700.0]])
+        self.assertEqual([p["spectated"] for p in pieces], [False, True, True, True])
+        self.assertIs(pieces[0]["death"], death)
+
+    def test_no_death_leaves_one_self_entity_named_by_the_arbiter(self):
+        ents, _ = self._run([])
+        (me,) = ents
+        self.assertEqual((me["id"], me["agent"], me["identity_status"]),
+                         ("s:R1:E0001", "Iso", "resolved"))
+        (unknown,) = self._run([], lineup=None)[0]
+        self.assertIsNone(unknown["agent"])
+        self.assertEqual(unknown["identity_status"], "abstained")
+        self.assertTrue(unknown["identity_reason"].startswith("player_unknown"))
+
+
 class BindingRuleTests(unittest.TestCase):
     """round-entity-0.14.0: inner pieces under a bound segment."""
 
@@ -394,6 +473,50 @@ class BindingRuleTests(unittest.TestCase):
         allies = self._run(spans, [breach, reyna], t_end=1000.0)
         self.assertEqual([(r["agent"], r["death_id"]) for r in allies],
                          [("Breach", breach["death_id"]), ("Reyna", reyna["death_id"])])
+
+    def test_a_spectated_piece_records_the_gates_its_elimination_rests_on(self):
+        """round-entity-0.17.0: with no named piece beside it, a spectated
+        piece's name rests on the killfeed bars alone, and its row says so."""
+        from reticle.version import ALLY_PORTRAIT_FEATURES_VERSION
+        refs = {"version": "t", "features_version": ALLY_PORTRAIT_FEATURES_VERSION,
+                "margin_min": 0.5, "variance": {"g": [1.0]},
+                "agents": {n: {"g": [float(i)]} for i, n in enumerate(self.NAMES)}}
+        lineup = {"sides": {"ally": [{"slot": i, "agent": a, "best_guess": a} for i, a in
+                                     enumerate(["Phoenix"] + self.NAMES)]},
+                  "player": {"agent": "Phoenix"}}
+        events = []
+        for k, t in enumerate(range(0, 3000, 67)):
+            events.append(_frame(k, float(t)))
+            if t < 300:
+                icon = _icon(k, float(t), 50.0)
+                icon.update(portrait_features={"g": [0.0]},
+                            portrait_features_version=ALLY_PORTRAIT_FEATURES_VERSION)
+                events.append(icon)
+        deaths = [self._death(300.0, "Breach"), self._death(310.0, "Deadlock"),
+                  self._death(320.0, "Miks"), self._death(600.0, "Phoenix")]
+        rows = session_lifetimes("s", events, [{"round_no": 1, "t_start_ms": 0.0,
+                                                "t_end_ms": 3000.0}], 1.0, lineup=lineup,
+                                 gallery={n: [] for n in self.NAMES}, references=refs,
+                                 deaths=deaths)
+        spect = [r for r in rows if r["kind"] == "entity" and r["family"] == "spectated"]
+        (named,) = [r for r in spect if r["agent"]]
+        self.assertEqual(named["agent"], "Reyna")
+        self.assertNotIn("identity_depends_on", named)
+        gates = named["identity_gates"]
+        self.assertEqual(gates["candidates"], self.NAMES)
+        self.assertEqual(set(gates["barred"]), {"Breach", "Deadlock", "Miks", "Phoenix"})
+        self.assertTrue(gates["barred"]["Breach"].startswith("dead from killfeed death at 300"))
+
+    def test_frames_of_keeps_first_observed_order(self):
+        import numpy as np
+
+        from reticle.round_entities import _frames_of
+        got = _frames_of([np.array([2, 2]), np.array([1, 2])],
+                         [np.array([5.0, 3.0]), np.array([9.0, 5.0])],
+                         [np.array(["a", "a"], dtype=object), np.array(["b", "b"], dtype=object)])
+        self.assertEqual(list(got.items()),
+                         [((2, 5.0), {"a", "b"}), ((2, 3.0), {"a"}), ((1, 9.0), {"b"})])
+        self.assertEqual(_frames_of([], [], []), {})
 
     def test_a_revive_stays_unbound(self):
         """bdfdcf009dba 1310.0 s and ff636d173b07 525.0 s: a revive entry ends

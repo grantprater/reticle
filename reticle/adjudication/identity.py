@@ -74,7 +74,10 @@ from ..track import assign
 # (`killfeed-portrait-0.12.0`) names from it (`PORTRAIT_LIKELIHOOD["art_zncc"]`),
 # against a "none of them" hypothesis at log ratio 0; exemplars are not
 # consulted for it. Older rows keep the composition path.
-AGENT_IDENTITY_VERSION = "agent-identity-0.10.0"
+# 0.11.0 (2026-10-04): `assign_ally_pieces` names a piece that carries
+# `candidates` and no claims by elimination under the same constraints, and
+# each verdict carries `depends_on`.
+AGENT_IDENTITY_VERSION = "agent-identity-0.11.0"
 
 #: Borrowed from `lineup.MARGIN_MIN` and NOT refitted here. It keeps every
 #: correct player portrait on the one population with a truth --
@@ -1549,6 +1552,11 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
 #: and marks the component inexact.
 PIECE_MAX_NODES = 400_000
 
+#: The score `assign_ally_pieces` gives each candidate of a piece named by
+#: elimination: positive, so naming it beats leaving it unnamed, and far below
+#: any icon's log ratio, so it never outbids a piece with evidence.
+ELIMINATION_SCORE = 1e-3
+
 
 def _solve_pieces(comp, dom, S, edges, tight, cap, floor=-np.inf):
     """Exact maximum of summed scores over named pieces (unnamed scores 0):
@@ -1619,11 +1627,23 @@ def assign_ally_pieces(pieces, frames, capacity=None, *, teammate_fit=None,
     its reason (`alive_constraint: ...`). Because deaths now constrain the
     names, killfeed deaths are no longer an independent check of them.
 
+    A piece that carries `candidates` (a list of names) and no claims is
+    named by ELIMINATION: it has no evidence of its own, only the caller's
+    candidate set (the self icon while the player is dead marks one living
+    teammate [domain:minimap/self-icon-shows-spectated], so the candidates
+    are the side's teammates). Each candidate scores `ELIMINATION_SCORE`, so
+    the same search names it with what the co-observation, capacity and dead
+    constraints leave, and it never takes a name from a piece with evidence.
+    It is named only when no solution within the margin names it otherwise
+    (`elimination leaves A and B` otherwise), and its verdict's `depends_on`
+    lists the co-observed pieces the solution named: its name rests on theirs.
+
     Returns `{piece_id: verdict}`; every verdict carries `agent` (None when
     refused), `status`, `reason`, `evidence_sum`, `reference_source`,
-    `gap`, `fit`, `votes`, `barred` and `exact`.
+    `gap`, `fit`, `votes`, `barred`, `exact` and `depends_on`.
     """
     S, dom, out, barred, gates = {}, {}, {}, set(), []
+    by_elimination = {pid for pid, p in pieces.items() if p.get("candidates") is not None}
     for pid, p in pieces.items():
         total, sources, votes, reasons = Counter(), Counter(), Counter(), Counter()
         for c in p["claims"]:
@@ -1646,15 +1666,17 @@ def assign_ally_pieces(pieces, frames, capacity=None, *, teammate_fit=None,
             why = next((w for s, e, w in spans for t in p.get("t", ()) if s < t < e), None)
             if why is not None:
                 bar[a] = why
-        dom[pid] = [] if fit_reason else sorted(set(total) - set(bar))
+        if pid in by_elimination:
+            S[pid] = dict.fromkeys(p["candidates"], ELIMINATION_SCORE)
+        dom[pid] = [] if fit_reason else sorted(set(S[pid]) - set(bar))
         out[pid] = {"agent": None, "status": "abstained",
-                    "reason": fit_reason or (None if total else
+                    "reason": fit_reason or (None if total or pid in by_elimination else
                                              f"no scored icon: {reasons.most_common(1)[0][0]}"
                                              if reasons else "no icons"),
                     "evidence_sum": {a: round(v, 4) for a, v in sorted(total.items())},
                     "reference_source": sources.most_common(1)[0][0] if sources else None,
                     "gap": None, "fit": None if fit is None else round(fit, 4),
-                    "votes": dict(votes), "barred": bar, "exact": True}
+                    "votes": dict(votes), "barred": bar, "exact": True, "depends_on": []}
     gate = max(gates) if gates else SIDE_MARGIN_MIN
     cap = {f: (len(ids) if (capacity or {}).get(f) is None else capacity[f])
            for f, ids in frames.items()}
@@ -1692,6 +1714,22 @@ def assign_ally_pieces(pieces, frames, capacity=None, *, teammate_fit=None,
                                else "constraints leave no teammate")
                 continue
             alt = {**dom, p: [x for x in dom[p] if x != a]}
+            if p in by_elimination:
+                # Its evidence is no margin: ask only whether a solution within
+                # the gate names it otherwise, by lifting every other name of it
+                # above any solution that leaves it unnamed.
+                lift = abs(opt) + gate + 1.0
+                lifted = {**S, p: {x: s + lift for x, s in S[p].items()}}
+                sc, apick, _ = _solve_pieces(comp, alt, lifted, edges, tight, cap,
+                                             floor=opt - gate + lift)
+                if apick is not None and apick.get(p) is not None:
+                    v["reason"] = f"elimination leaves {a} and {apick[p]}"
+                elif a in barred:
+                    v["reason"] = f"track_best_is_refused_slot {a}"
+                else:
+                    v["agent"], v["status"] = a, "resolved"
+                    v["depends_on"] = sorted(q for q in edges[p] if pick.get(q) is not None)
+                continue
             sc, apick, _ = _solve_pieces(comp, alt, S, edges, tight, cap, floor=opt - gate)
             if apick is not None:
                 v["gap"] = round(opt - sc, 4)

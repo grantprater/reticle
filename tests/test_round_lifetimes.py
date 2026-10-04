@@ -152,6 +152,10 @@ class AllyCapacityTests(unittest.TestCase):
         self.assertEqual(ally_capacity([3, None, 4, 2], True), 3)
         self.assertIsNone(ally_capacity([None], True))
 
+    def test_a_spectated_self_counted_among_the_allies_leaves_all_of_them(self):
+        self.assertEqual(ally_capacity(3, True, spectated=True), 3)
+        self.assertIsNone(ally_capacity(3, False, spectated=True))
+
 
 class NameTests(unittest.TestCase):
     """The name is the fragmentation test, so it must be legible and fixed."""
