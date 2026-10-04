@@ -356,6 +356,23 @@ class RoleNarrowingTests(unittest.TestCase):
         with mock.patch.dict(weapon.KILLFEED_KITS, {"Breach": frozenset({"Vandal"})}):
             self.assertEqual(weapon.kit_names(self._gallery(), "Breach"), frozenset())
 
+    def test_the_kit_floor_follows_the_tiers_null_not_the_aspect(self):
+        """weapon-adjudication-1.4.0: a wide kit ability with no close
+        neighbour takes the lower floor; one a gun of its tier resembles
+        (kit_null at or over NAME_KIT_MIN_IOU) keeps NAME_MIN_IOU."""
+        from unittest import mock
+        from reticle.adjudication import weapon
+        wide = {"names": np.array(["Aftershock", "Vandal"]),
+                "masks": np.array([self._grid(40), self._grid(60, 6)]),
+                "aspects": np.array([1.8, 3.0])}
+        with mock.patch.dict(weapon.KILLFEED_KITS, {"Breach": frozenset({"Aftershock"})}):
+            self.assertLess(weapon.kit_null(wide, "Aftershock"), weapon.NAME_KIT_MIN_IOU)
+            self.assertEqual(weapon.kit_names(wide, "Breach"), frozenset({"Aftershock"}))
+            near = dict(wide, masks=np.array([self._grid(40), self._grid(44)]),
+                        aspects=np.array([1.8, 1.85]))
+            self.assertGreaterEqual(weapon.kit_null(near, "Aftershock"), weapon.NAME_KIT_MIN_IOU)
+            self.assertEqual(weapon.kit_names(near, "Breach"), frozenset())
+
     def test_the_kit_floor_names_a_faint_ability_the_full_floor_refuses(self):
         """An icon at IoU 0.6 to Aftershock is new without context, Aftershock
         given Breach as the killer with Breach's kit listed whole, and that
