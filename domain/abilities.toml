@@ -4905,14 +4905,18 @@ matches, 2026-10-04:
 +1.55 s, [metric:ult_phase/agents@all-matches#Chamber_enemy_buy=1] in the buy
 phase; buy against drop by variant, Fisher's exact p
 [metric:ult_phase/agents@all-matches#chamber_variant_fisher_p=0.000115]. The
-player said a buy-phase ult's line plays at the drop for Chamber's and
-Reyna's (2026-10-04, chat)
+claim rests on this measurement alone. The player's first answer the same day,
+that a buy-phase ult's line plays at the drop for Chamber's and Reyna's, was
+superseded by the player's own corrections in that conversation and is no
+source here; the measured ally line, heard at the equip in the buy phase,
+contradicts it for Chamber's allies
 """
 use = """
 read an enemy Chamber line at the drop as the enemy line of an equip made at
-or before the drop, likely in the buy phase, since Chamber players equip there
-when the player can hear it; `adjudication.ult_cast` stores the line's phase
-and keeps the onset as its observation time
+or before the drop, often in the buy phase, where the ally line places most
+equips [domain:abilities/chamber-tour-de-force-ally-line-at-equip];
+`adjudication.ult_cast` stores the line's phase and keeps the onset as its
+observation time
 """
 exceptions = """
 the one buy-phase enemy line, 5822b6646448 (C:\\Users\\grant\\Videos\\2026-08-26
