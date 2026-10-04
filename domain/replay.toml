@@ -140,3 +140,177 @@ geometry, 9acf02f98283's stored ally observations lie a median
 affine fitted to the self points improves the median by 0.15 px. vrfkit
 docs/DATA.md "Minimap projection" states the same crossing over 12 maps
 """
+
+[vrf-ability-actors]
+claim = """
+On the one replay that has a capture (b03fecd3), each ability world actor
+carries its class path, spawn point and yaw, and open and close times; 37 of
+its 81 non-player actor classes map to an ability, the ult orb, the planted
+spike or the spike item. The other 44 stay unmapped: 35 inventory items with
+no world position, 5 character-folder actors outside an ability folder (a
+glide passive, controllers, Clove's post-death pawn and its unarmed item), 3
+child actors of Iso's arena without a class path in the game index, and Iso's
+arena actor, which the game state owns. Whether a replay holds every actor
+the server spawned is not established; charges, cooldowns and per-state truth
+are not decoded. An ability's actor classes live under
+`/Game/Characters/<code>/S0/Ability_<L>/`, where the game files' `UIData` in
+that folder names the ability; the folder letter is the game's, not the tray
+key. Each actor's `Instigator` chain (a drone's dart through the drone, a
+post-death pawn through its player) ends at the casting player's pawn, whose
+agent the header's playerLoadouts name. Inventory items (`Ability_*`,
+`Gun_*`, `Equippable_*`) carry no world position. Positions beyond the spawn
+exist only where the class replicates movement: a projectile's or smoke's
+`ReplicatedMovement`, or the movement stream's rows for non-player pawns
+(Owl Drone, Killjoy's turret and alarmbot, Clove's post-death pawn).
+"""
+kind = "codec"
+known = "measured"
+since = "2026-10-04"
+source = """
+prototypes/replay_abilities.py census on b03fecd3 (capture 9acf02f98283):
+[metric:replay_abilities/census#mapped=37] of
+[metric:replay_abilities/census#classes=81] classes map to an ability, the ult
+orb, the planted spike or the spike item, and
+[metric:replay_abilities/census#unmapped=44] stay unmapped with their reasons
+(analysis/replay-abilities-20261004/census-b03fecd3.json, unmapped_classes);
+every mapped ability class's
+instigator chain ends at a pawn of its own folder's agent;
+[metric:replay_abilities/census#non_player_movement_rows=364144] movement rows
+belong to [metric:replay_abilities/census#non_player_pawns=99] non-player
+pawns. Class paths checked against the game-file index of
+release-13.06-shipping-18-5590001
+"""
+use = """
+evaluation truth only (prototypes/replay_abilities.py); never a reader input or
+a prior
+"""
+exceptions = """
+an actor's open is not always the cast: Chamber's cast records pair a new
+actor within 2 s on few casts while the replay holds traps and teleporter
+anchors, so a re-placement may move an existing actor and its spawn point is
+then not the placement (not established); Iso's arena actor is owned by the
+game state and maps to no player
+"""
+see = ["replay/vrf-cast-records", "replay/vrf-sova-recon-bolt-actors"]
+
+[vrf-cast-records]
+claim = """
+The replay records each ability cast in `AbilityCastsThisRound`: player,
+`Slot` byte, round, phase, `CastTime` (seconds from the round's buy-phase end,
+`MulticastSetPhase` 4) and cast location. The array replicates by delta, so a
+reader must carry each element's fields forward; a cast read from one snapshot
+alone often lacks its player or slot. For Sova the `Slot` byte is 3 for Owl
+Drone, 4 for Shock Bolt and 5 for Recon Bolt, each cast pairing with that
+ability's first world actor, which opens within a few ms of the cast (the drone
+pawn about 0.19 s after). The ult's slot opens no world actor.
+"""
+kind = "codec"
+known = "measured"
+since = "2026-10-04"
+subject = "sova"
+source = """
+prototypes/replay_abilities.py census on b03fecd3:
+[metric:replay_abilities/census#cast_records=411] casts;
+[metric:replay_abilities/census#slot_sova_3_paired=19] of
+[metric:replay_abilities/census#slot_sova_3_casts=19],
+[metric:replay_abilities/census#slot_sova_4_paired=10] of
+[metric:replay_abilities/census#slot_sova_4_casts=10] and
+[metric:replay_abilities/census#slot_sova_5_paired=41] of
+[metric:replay_abilities/census#slot_sova_5_casts=41] pair with Owl Drone's,
+Shock Bolt's and Recon Bolt's actors; open-after-cast medians
+[metric:replay_abilities/census#open_after_cast_sova_3_pawn_hunter_e_drone_ms_median=186.3],
+[metric:replay_abilities/census#open_after_cast_sova_4_projectile_hunter_4_explosivebolt_ms_median=-1.4],
+[metric:replay_abilities/census#open_after_cast_sova_5_projectile_hunter_q_revealbolt_ms_median=-0.8]
+ms. vrfkit docs/DATA.md gives the CastTime epoch
+"""
+exceptions = """
+the byte's meaning is measured per agent from actor pairing, never carried
+from one agent to another; slots whose casts open no actor (an ult beam, a
+dash, Chamber's re-placements) stay unmapped in the census
+"""
+
+[vrf-sova-recon-bolt-actors]
+claim = """
+In the replay a Recon Bolt is a projectile (`Projectile_Hunter_Q_RevealBolt_C`)
+that opens at the cast, then a stuck bolt (`GameObject_Hunter_Q_SonarBolt_C`)
+that spawns where the projectile is, about 1 s before the projectile actor
+closes, and lives about 2.3 s, or less when the bolt is destroyed; each pulse
+is a `GameObject_Hunter_Q_SonarPing_C`.
+"""
+kind = "lifecycle"
+known = "measured"
+since = "2026-10-04"
+subject = "sova:recon-bolt"
+source = """
+prototypes/replay_abilities.py census on b03fecd3:
+[metric:replay_abilities/census#handoff_gameobject_hunter_q_sonarbolt_paired=41]
+stuck bolts spawn a median
+[metric:replay_abilities/census#handoff_gameobject_hunter_q_sonarbolt_cm_median=1.1]
+cm (max [metric:replay_abilities/census#handoff_gameobject_hunter_q_sonarbolt_cm_max=1.5])
+from the projectile, opening
+[metric:replay_abilities/census#handoff_gameobject_hunter_q_sonarbolt_ms_median=-994.0]
+ms from its close; lifetime median
+[metric:replay_abilities/census#gameobject_hunter_q_sonarbolt_life_s_median=2.3]
+s; [metric:replay_abilities/census#gameobject_hunter_q_sonarping_opens=69] pings
+for [metric:replay_abilities/census#gameobject_hunter_q_sonarbolt_opens=41]
+bolts. The
+player's "nothing on the minimap" answer for the Recon Bolt at 798.0 s matches
+a bolt the replay keeps for 0.375 s
+"""
+see = ["abilities/sova-recon-bolt-minimap-ring"]
+
+[vrf-ult-active]
+claim = """
+A player's ult use is the player state's `bUltimateActive` turning true; the
+replay's `characterUltimateUsed` events outnumber those transitions, and only
+the events within 100 ms of a transition mark one.
+"""
+kind = "codec"
+known = "measured"
+since = "2026-10-04"
+source = """
+prototypes/replay_abilities.py census on b03fecd3:
+[metric:replay_abilities/census#ult_transitions=28] transitions,
+[metric:replay_abilities/census#ult_events=40] events,
+[metric:replay_abilities/census#ult_events_within_100ms=28] within 100 ms; vrfkit
+docs/DATA.md states the same over its corpus. The stored ult_cast casts of
+9acf02f98283 pair one-to-one with these transitions by agent and side
+([metric:replay_abilities/score#ult_paired_same_label=28])
+"""
+
+[vrf-planted-spike-actor]
+claim = """
+A replay opens one `TimedBomb_C` per plant, spawned at the planted spike; ult
+orbs are `UltPointOrb_C` actors with spawn points and lifetimes.
+"""
+kind = "codec"
+known = "measured"
+since = "2026-10-04"
+source = """
+prototypes/replay_abilities.py census on b03fecd3:
+[metric:replay_abilities/census#timedbomb_opens=14] opens for
+[metric:replay_abilities/census#plant_events=14] spikePlanted events, lifetime
+median [metric:replay_abilities/census#timedbomb_life_s_median=38.1] s;
+[metric:replay_abilities/census#ultpointorb_opens=48] ult orbs
+"""
+see = ["minimap/spike-planted-icon"]
+
+[vrf-ability-truth-per-replay]
+claim = """
+Every preserved replay holds hundreds of ability world actors, so each match
+kept with both its replay and its capture brings truth for the mapped
+abilities' placements, casts and ults, as b03fecd3 did; of the fifteen
+preserved replays only one has a capture.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+source = """
+prototypes/replay_abilities.py survey over the 15 parses (release-11.11 to
+13.04): [metric:replay_abilities/survey#parsed=15], median
+[metric:replay_abilities/survey#world_opens_median=585.0] and at least
+[metric:replay_abilities/survey#world_opens_min=157] ability world actor
+opens per replay, [metric:replay_abilities/survey#classes=160] classes in all;
+the replay manifest links one replay (b03fecd3) to a capture session
+"""
+see = ["replay/vrf-values-scrambled-per-patch"]

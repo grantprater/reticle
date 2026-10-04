@@ -48,10 +48,11 @@ clusters or a word two names share at one end never bridges two names
 (`join_fragments`).
 
 **One residual is by design.** A word two names share at opposite ends
-("TAG X" and "Y TAG") still bridges them when the other word in each is
-narrower than `FRAGMENT_MIN_PX`, because the guard cannot tell it from one
-name whose crops carry an icon's edge on opposite sides: with 12 px words
-(18 px beside the shared word) all six crops of that case merge. Both guard
+("TAG X" and "Y TAG") still bridges them when each crop is less than
+`FRAGMENT_MIN_PX` wider than the shared word (the other word plus the gap
+beside it), because the guard cannot tell it from one name whose crops carry
+an icon's edge on opposite sides: with 12 px other words (18 px beside the
+shared word) all six crops of that case merge. Both guard
 conditions were designed and checked on the same 21 Riot matches; no
 held-out data tests them.
 
@@ -371,9 +372,10 @@ def join_fragments(clusters: list[list[str]], crops: dict) -> list[list[str]]:
     clusters, or a word two names share at one end so never bridge two
     names however often they recur: the groups' own crops, or the word's
     place in them, must carry the join. The residual, by design: a word two
-    names share at opposite ends still bridges them when the other word in
-    each is narrower than `FRAGMENT_MIN_PX`, since that reads as one name
-    with an icon's edge on opposite sides. A whole name whose two words each
+    names share at opposite ends still bridges them when each crop is less
+    than `FRAGMENT_MIN_PX` wider than the word (the other word plus the gap
+    beside it), since that reads as one name with an icon's edge on opposite
+    sides. A whole name whose two words each
     recur as clusters is such a bridge too and joins neither. A crop read
     once joins the groups it links to, never another crop read once."""
     from scipy.sparse import csr_matrix
