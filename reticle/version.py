@@ -227,7 +227,27 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # spacer (5) [domain:killfeed/entry-list-layout], not 40: a tall plate run
 # splits into bands on the game's grid and `absolute_slot` names slots by it.
 # (0.19.0 belongs to one-colour-band-20261003.)
-HUD_VERSION = "hud-0.20.0"
+# 0.21.0 (2026-10-04): the clock, both scores, health, shield and magazine
+# read digit templates rendered from the game's DIN Next font files at each
+# widget's size (`ocr.game_font_templates`) [domain:hud/digit-fonts], not the
+# 44 mined ones; the reserve keeps the mined set (`ocr.RESERVE_FONT`). Those
+# fields match every glyph against every template at once
+# (`Templates.match_many`), with margins from exact pixel sums, so a margin
+# of 12/240 passes the 0.05 cut. A number with a leading zero refuses, and so
+# does a field whose digits' tops and bottoms both spread over 2 px. The
+# guards bind the mined reserve too: on 043bafca271a they refuse 15 stored
+# reserve reads of 0, each a '00' misread of 100
+# [metric:game_font_digits/compare_production@043bafca271a#ammo_reserve_lost=15].
+# On the tuning sessions they refuse seven stored health reads of 0 where the
+# HUD shows 20 or 100 [metric:game_font_digits/tuning_guards#hp_stored_zero_refused=7].
+# Held out, no stored value changes to another value
+# [metric:game_font_digits/compare_production@3694746e4e54#hp_changed=0]
+# [metric:game_font_digits/compare_production@c40d950031bb#hp_changed=0];
+# the margins of about 600 templates drop lone 0s in the clock and scores
+# [metric:game_font_digits/compare_production@c40d950031bb#score_right_lost=5]
+# [metric:game_font_digits/compare_production@4f207c0c4e39#clock_ms_lost=4]
+# (prototypes/game_font_digits.py compare --production).
+HUD_VERSION = "hud-0.21.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits

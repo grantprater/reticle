@@ -20,7 +20,8 @@ class HudReaderTests(unittest.TestCase):
     def test_cached_mask_does_not_open_video(self):
         store = types.SimpleNamespace(read_kf_mask=lambda sid: np.ones((2, 2), dtype=bool))
         profile = types.SimpleNamespace(name="test")
-        with patch("reticle.hud_reader.Templates.load", return_value=object()), \
+        with patch("reticle.hud_reader.game_font_templates", return_value=object()), \
+                patch("reticle.hud_reader.Templates.load", return_value=object()), \
                 patch("reticle.hud_reader.scoreline_roi", return_value=(0, 0, 1, 1)), \
                 patch("reticle.hud_reader.killfeed_roi", return_value=(0, 0, 1, 1)), \
                 patch("cv2.VideoCapture", side_effect=AssertionError("video opened")):
@@ -45,7 +46,8 @@ class HudReaderTests(unittest.TestCase):
         )
         store = types.SimpleNamespace(read_kf_mask=lambda sid: np.ones((2, 2), dtype=bool))
         profile = types.SimpleNamespace(name="test")
-        with patch("reticle.hud_reader.Templates.load", return_value=object()), \
+        with patch("reticle.hud_reader.game_font_templates", return_value=object()), \
+                patch("reticle.hud_reader.Templates.load", return_value=object()), \
                 patch("reticle.hud_reader.scoreline_roi", return_value=(0, 0, 1, 1)), \
                 patch("reticle.hud_reader.killfeed_roi", return_value=(0, 0, 1, 1)), \
                 patch("reticle.hud_reader.crop_gray", return_value=np.zeros((1, 1), dtype=np.uint8)), \

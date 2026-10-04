@@ -789,18 +789,22 @@ class DeathAttributionTests(unittest.TestCase):
         """adjudicate_round_deaths uses icon_crop to adjudicate weapon, cause, and second life."""
         import cv2
 
-        from reticle.adjudication.weapon import load_ability_gallery, load_mined_gallery
+        from reticle.adjudication.weapon import (GAME_KILL_ICONS, drawn_icon_alpha,
+                                                 game_build_dir, load_ability_gallery,
+                                                 load_gallery)
 
-        # 1. Gun icon crop: Spectre, drawn from a player-named exemplar. The
-        # store's reference/assets/weapons/Spectre.png is a Ghost silhouette.
-        mined = load_mined_gallery()
-        if mined is None or "Spectre" not in set(mined["names"]):
-            self.skipTest("mined weapon gallery not built")
-        k = list(mined["names"]).index("Spectre")
-        w = int(round(mined["aspects"][k] * 20))
-        s = cv2.resize(mined["masks"][k] * 255, (w, 20), interpolation=cv2.INTER_NEAREST)
+        # 1. Gun icon crop: Spectre, drawn from the game's kill icon as the
+        # killfeed draws it (weapon-gallery-0.8.0 holds no mined Spectre to
+        # copy). The store's reference/assets/weapons/Spectre.png is a Ghost
+        # silhouette.
+        if load_gallery()[0] is None:
+            self.skipTest("weapon gallery not built")
+        rgba = cv2.imread(str(game_build_dir() / GAME_KILL_ICONS["Spectre"][0]),
+                          cv2.IMREAD_UNCHANGED)
+        a = drawn_icon_alpha(rgba, 24.0)
+        h, w = a.shape
         spectre_crop = np.zeros((34, w + 4, 3), dtype=np.uint8)
-        spectre_crop[7:27, 2:2 + w][s > 127] = 255
+        spectre_crop[5:5 + h, 2:2 + w] = (a[..., None] * 255).round().astype(np.uint8)
 
         raw_kf = [
             {
