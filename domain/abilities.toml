@@ -3947,6 +3947,133 @@ ruled out
 """
 see = ["abilities/passive-abilities-draw-no-ui"]
 
+[sova-bolt-equips-share-sounds]
+claim = """
+Sova's Shock Bolt (slot Q; the game's folders call it Ability_4) and Recon
+Bolt (slot E) equip montages play four of the same sound events:
+Play_Hunter_Abil4_Equip_Bow_Mvt_A, Play_Hunter_Abil4_Equip_Bow_Mvt_B,
+Play_Hunter_S0_AB_Q_SonarBolt_Equip_Bow_Mvt_C and
+Play_Hunter_S0_AB_Q_SonarBolt_Equip_Elec_A. Only
+Play_Hunter_Abil4_Equip_Elec_B is the Shock Bolt equip's own, and only
+Play_Hunter_S0_AB_Q_SonarBolt_Equip_Circle the Recon Bolt's. Of every agent's
+ability montages, these four events are the only ones two abilities play.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-10-04"
+subject = "sova:shock bolt"
+source = """
+game files, build release-13.06-shipping-18-5590001: the montages
+FP_Hunter_S0_4_Bow_EquipV2_Montage and FP_Hunter_S0_Q_Bow_EquipV2_Montage,
+exported with the store's tools/game-extract (1283 ability montages, store
+reference/game-files/release-13.06-shipping-18-5590001/ability-anims/manifest-montages.jsonl)
+"""
+use = """
+`ability_audio.shared_reference_mask`: a reference file whose event two
+abilities' montages play witnesses neither, and the fit leaves it out
+"""
+see = ["abilities/ability-sound-phases", "abilities/sova-shock-bolt-charges"]
+
+[sova-abilq-cast-is-shock-bolt]
+claim = """
+Sova's Hunter_AbilQ_Cast_01 to _04 sound files (event Play_Hunter_AbilQ_Cast,
+folder TEMP/Abil_Q) are the Shock Bolt's (slot Q) cast, not the Recon Bolt's;
+the two bolts' casts sound very much alike.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "sova:shock bolt"
+source = """
+the player, 2026-10-04, a belief ("I imagine"), reasoned from the file's Q
+letter. The reference manifest (ability-audio-ref-0.2.0) had mapped the
+files to Recon Bolt by name match
+"""
+use = """
+not applied: `ability_audio_fit.PLAYER_MAPS_NOT_APPLIED` records it, and
+`ability-audio-params-0.2.1` keeps the manifest's Recon Bolt mapping
+"""
+exceptions = """
+Sova's game folders name Recon Bolt Q (SonarBolt) and Shock Bolt 4, so the
+letter does not name the key. On the 2026-10-04 dev casts _01 and _03 score
+3 or more on 2 of 5 Shock Bolt and 7 and 10 of 45 Recon Bolt casts; _02 and
+_04 on 0 of 5 Shock Bolt and 4 and 8 of 45 Recon Bolt casts. Mapped to Shock
+Bolt, Sova dev top-1 fell from 86 to 68 of 98 and held from 87 to 62 of 94;
+left out as shared, dev fell to 85 of 98. No exported montage plays the event
+"""
+see = ["abilities/sova-bolt-equips-share-sounds"]
+
+[skye-scout-expire-is-guiding-light]
+claim = """
+Skye's Guide_AbilE_ScoutExpire_3P sound file (event Play_Guide_AbilE_ScoutExpire,
+folder Abil_E) is Guiding Light's (slot E) expiry, not Trailblazer's.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "skye:guiding light"
+source = """
+the player, 2026-10-04, a belief reasoned from the E folder letter and the
+word "expire". The reference manifest (ability-audio-ref-0.2.0) had mapped
+the file to Trailblazer by name match
+"""
+use = """
+`ability_audio_fit.PLAYER_MAPS` maps the file to Guiding Light from
+`ability-audio-params-0.2.1`
+"""
+exceptions = """
+the player answered on 2026-10-03 that Skye's Abil_E folder holds the Taz
+(Trailblazer) media, its letters swapped against the keys; the file scores
+3 or more on no dev Skye cast. No exported montage plays the event. Mapped
+to Guiding Light, it wins a held Guiding Light demo cast (6ab7a9e99235,
+17.57 s) and loses a held Trailblazer cast (e37fdeca944f, 1345.55 s) it had
+won as Trailblazer: one cast for, one against
+"""
+see = ["abilities/ability-sound-phases"]
+
+[raze-ult-line-plays-at-equip]
+claim = """
+Raze's ultimate announcement, the ally line and the enemy line, belongs to the
+game's AbilityXEquip voice event (Play_VO_Clay_AbilityXEquip), not to
+AbilityXCast, whose media are short efforts with no side.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-03"
+subject = "raze:showstopper"
+source = """
+the game's own event and media names, extracted headlessly into vo-ref-0.1.0
+(<store>/reference/game-files/vo/manifest.jsonl); the wiki's two Raze ult
+lines are those two XEquip media by GCC-PHAT clip against clip
+(prototypes/vo_ref_eval.py equivalence)
+"""
+use = "`ult_lines.ult_event_rows` takes Raze's pair from XEquip"
+see = ["abilities/ult-lines-heard-by-both-teams"]
+
+[reyna-ult-line-media-names]
+claim = """
+Reyna's ultimate cast plays the game's Play_VO_Vampire_ULT_AbilityXCast event,
+not the plain AbilityXCast: its media Vampire.ULT.AbilityXCastAllies01 is the
+line her allies hear, and Vampire.ULT.AbilityXCastAllies02, despite its name,
+the line her enemies hear.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-10-03"
+subject = "reyna:empress"
+source = """
+the stored ult-line-0.1.0 peaks, whose two Reyna templates are those two media,
+on the five Riot-recorded matches with one Reyna: Allies01 peaks only where
+Reyna was the player's ally, Allies02 only where she was an enemy, the other
+template staying at its noise floor (prototypes/vo_ref_eval.py; the commit
+that adds this fact carries the scores). Her plain AbilityXCast pair scores
+about half against them by GCC-PHAT, and her templates' cast peaks read above
+every other agent's median, so the plain pair is not what plays.
+"""
+use = "`ult_lines.HEARD_BY` corrects the media name; `ult_event_rows` prefers the ULT_ event"
+exceptions = "Whether the plain AbilityXCast event plays at all is unknown."
+see = ["abilities/ult-lines-heard-by-both-teams"]
+
 [brimstone-gauntlet-texture-belief]
 claim = """
 The player believes the exported texture `Sarge_Gauntlet_minimap` is likely

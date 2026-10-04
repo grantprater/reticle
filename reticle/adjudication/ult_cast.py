@@ -25,7 +25,11 @@ half's impossible rate is
 or [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_b=0.1101]
 per live minute (`docs/VOICE_LINES.md`, "Held-out threshold"). Every peak above
 it stays: two templates that peak at one onset are two selections
-(`docs/VOICE_LINES.md`, "Verdicts at 0.2.0").
+(`docs/VOICE_LINES.md`, "Verdicts at 0.2.0"). The threshold was set on the
+wiki templates of ult-line-0.1.0; the game's own lines that replace them at
+ult-line-0.2.0 are the same recordings for 57 of 58 templates (GCC-PHAT at
+least 0.96 clip against clip, `prototypes/vo_ref_eval.py`), Harbor's ally
+line being the exception.
 
 **Classing** (`template_class`), against the lineup's identity verdicts:
 
@@ -63,13 +67,55 @@ disagreement is kept, not settled here. An X cast inside a round with no own
 selection in its window is a `missed_line` row: the cast, its round, the
 player's agent, and the best stored peak of the own template within the
 window, which lies below THRESHOLD, or null with `no_peak_above_floor` when the
-reader stored none there. The window binds two observations of one cast; it
-selects nothing. A session without current tray drops, or without the player's
-agent, binds nothing and says why in its coverage row.
+reader stored none there. The window binds two observations of one cast. A
+session without current tray drops, or without the player's agent, binds
+nothing and says why in its coverage row.
+
+**Bursts** (0.3.0). A selected peak with BURST_N or more selected peaks (itself
+included) within BURST_S of its onset lies in a burst, and bursts chained within
+BURST_S are one: a sound that fires many templates, since a line fires its own
+template and at most one other (`docs/VOICE_LINES.md`, "Verdicts at 0.2.0"). In
+a burst, every peak under BURST_BOUND is refused with reason `burst`; a peak at
+or above it stands. A burst whose best peak is weak is so refused whole, and a
+strong line keeps its place while its crosstalk is refused. The refused row
+keeps its class and the burst's size and best score; nothing is deleted. The
+bound was fitted on the dev half of the Riot sessions
+(`prototypes/riot_ground_truth.py`; split by sorted session id, even places dev):
+the midpoint between the strongest dev burst whose best row Riot's count does not
+hold (0.0753, 23 templates in 2 s) and the weakest whose best row it holds live
+(0.0908).
+
+**Witnessed peaks** (0.3.0). A peak under THRESHOLD but at or above
+WITNESS_FLOOR is a cast only with an independent witness of that cast, and the
+row names it in `rests_on` and `witness`:
+
+* `tray_x_cast` -- one of the player's X casts (`player_x_drops`) in a round
+  with no own selection in its window: the best own-template peak in the
+  window.
+* `ult_kill` -- a stored `death` verdict whose resolved killfeed icon is an
+  ultimate (`adjudication.weapon.ABILITY_CANONICAL_NAMES`, the agent by
+  `weapon.ability_agent`) and whose actor the death owner names as that agent
+  or leaves unnamed: the best peak of the agent's template for the actor's
+  side in that round, at most DEATH_SLACK_S after the earliest such death,
+  where no selected cast of that template already stands there. The actor's
+  side is the victim's for a same-side entry (a revive) and the other side
+  otherwise, as `adjudication.death` binds the killer's plate. NULL/cmd names
+  the revived, not the actor (`weapon.REVIVED_CASTER_ICONS`), so it witnesses
+  nothing here.
+
+A witnessed peak the lineup classes `impossible` stays unselected and is
+counted. A witness may also reinstate a peak a burst refused. The witnessed
+claim `depends_on` the death's killer entity as well, since the icon named the
+agent the selection rests on. WITNESS_FLOOR is the 95th percentile, on the dev
+half, of the best live peak of a template in a round that holds neither a
+selection nor a witness of it (12525 template rounds). The global THRESHOLD is
+unchanged.
 """
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
+
+import numpy as np
 
 from ..version import ULT_CAST_VERSION
 from .identity import (AGENT_IDENTITY_VERSION, adjudicate_agent_identity, identity_claim,
@@ -101,6 +147,20 @@ CAST_WINDOW = {"Phoenix": (-20.0, OWN_WINDOW_S)}
 #: The fields `tray.drops` writes. The stored gate's fields stay behind, so the
 #: owner decides afresh on the rounds this adjudicator reads.
 DROP_FIELDS = ("t_ms", "slot", "from", "to", "suspect", "forced", "cooccur", "across_gap")
+#: A burst: at least BURST_N selected peaks within BURST_S of one onset.
+BURST_N = 3
+BURST_S = 2.0
+#: In a burst, peaks under this score are refused. Fitted on the dev half; see
+#: the module docstring.
+BURST_BOUND = 0.083
+#: The lowest score a witnessed peak may have. Fitted on the dev half; see the
+#: module docstring.
+WITNESS_FLOOR = 0.030
+#: A line counts for an ultimate's killfeed entry up to this long after it (s):
+#: on the dev half, revive entries follow their own line by 0.0-0.3 s and some
+#: Not Dead Yet entries precede it by up to 0.3 s.
+DEATH_SLACK_S = 1.5
+_OTHER = {"ally": "enemy", "enemy": "ally"}
 
 
 def _norm(agent):
@@ -203,17 +263,79 @@ def nearest_cast(t_ms: float, casts_ms: list[float],
     return {"dt_s": round((t_ms - c) / 1000.0, 3), "cast_t_ms": c}
 
 
+def burst_of(t_s, scores, n: int = BURST_N, span_s: float = BURST_S) -> list[dict | None]:
+    """Per selected peak (onsets `t_s` in seconds, `scores`), the burst it lies
+    in as {n, best_score, t0_s}, or None. A peak lies in a burst when at least
+    `n` peaks, itself included, lie within `span_s` of its onset; in-burst peaks
+    chained within `span_s` are one burst."""
+    t = np.asarray(t_s, dtype=float)
+    s = np.asarray(scores, dtype=float)
+    out: list[dict | None] = [None] * len(t)
+    if len(t) < n:
+        return out
+    order = np.argsort(t, kind="stable")
+    ts = t[order]
+    count = np.searchsorted(ts, ts + span_s, "right") - np.searchsorted(ts, ts - span_s, "left")
+    inb = np.flatnonzero(count >= n)
+    if not inb.size:
+        return out
+    gid = np.concatenate([[0], np.cumsum(np.diff(ts[inb]) > span_s)])
+    for g in np.unique(gid):
+        members = order[inb[gid == g]]
+        info = {"n": int(members.size), "best_score": float(s[members].max()),
+                "t0_s": float(t[members].min())}
+        for i in members:
+            out[int(i)] = info
+    return out
+
+
+def ult_kill_witnesses(death_rows: list[dict] | None, rounds: list[dict]) -> tuple[list[dict], dict]:
+    """(each stored death verdict whose resolved killfeed icon is an ultimate,
+    as {template, agent, side, round, t_ms, death_id, weapon, version}; counts
+    of the ultimate icons left out, by reason). See the module docstring."""
+    from .weapon import ABILITY_CANONICAL_NAMES, REVIVED_CASTER_ICONS, ability_agent
+    ults = {name for stem, name in ABILITY_CANONICAL_NAMES.items() if stem.endswith("_Ultimate")}
+    out, skipped = [], Counter()
+    for d in death_rows or ():
+        name = d.get("weapon")
+        if d.get("kind") != "death_verdict" or name not in ults:
+            continue
+        if name in REVIVED_CASTER_ICONS:
+            skipped["icon_names_the_revived"] += 1
+            continue
+        if (d.get("weapon_evidence") or {}).get("status", "resolved") != "resolved":
+            skipped["icon_unresolved"] += 1
+            continue
+        agent, killer = _norm(ability_agent(name)), _norm(d.get("killer"))
+        if killer is not None and killer != agent:
+            skipped["actor_named_another_agent"] += 1
+            continue
+        if d.get("side") not in _OTHER:
+            skipped["side_unread"] += 1
+            continue
+        side = d["side"] if d.get("same_side") else _OTHER[d["side"]]
+        t = float(d["t_ms"])
+        out.append({"template": f"{agent}_ult_{side}", "agent": agent, "side": side,
+                    "round": round_of(t, rounds), "t_ms": t, "death_id": d.get("death_id"),
+                    "weapon": name, "version": d.get("death_adjudication_version")})
+    return out, dict(sorted(skipped.items()))
+
+
 def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
                rounds: list[dict], round_version: str | None,
                threshold: float = THRESHOLD, tray_drops: list[dict] | None = None,
                tray_reason: str | None = "no_tray_drops",
-               tray_inputs: dict | None = None) -> dict:
+               tray_inputs: dict | None = None, deaths: list[dict] | None = None,
+               death_reason: str | None = "no_deaths", burst_bound: float = BURST_BOUND,
+               witness_floor: float = WITNESS_FLOOR) -> dict:
     """The session's stored rows, its claims, the arbiter's verdicts and the
     formal identity events, from stored peaks, the lineup and the rounds.
 
     `tray_drops` are the X drops with the owner's verdict from
     `player_x_drops`, or None with `tray_reason`; `tray_inputs` are their
-    stamps for the coverage row."""
+    stamps for the coverage row. `deaths` are the stored `death` verdicts, or
+    None with `death_reason`. `burst_bound` and `witness_floor` exist for the
+    scorer's sweep; production passes neither."""
     cover = next((r for r in peak_rows if r.get("kind") == "coverage"), {}) or {}
     peaks = [r for r in peak_rows if r.get("kind") == "peak"]
     sides = lineup_sides(lineup, session_id)
@@ -221,24 +343,6 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
     selected = sorted((p for p in peaks if p["score"] >= threshold),
                       key=lambda p: (p["frame"], p["template"]))
     source = cover.get("ult_line_version") or (peaks[0].get("ult_line_version") if peaks else None)
-
-    claims, meta = [], {}
-    for p in selected:
-        agent, variant = _norm(p["agent"]), p["variant"]
-        t_ms = round(p["t_s"] * 1000.0)
-        cls, why = template_class(agent, variant, sides, player)
-        eid = f"{session_id}:ult_cast:{t_ms}:{p['template']}"
-        claims.append(identity_claim(
-            eid, None if cls == "impossible" else agent, channel=CHANNEL,
-            observed_at_ms=t_ms, reason=why, source_version=source,
-            evidence={"template": p["template"], "variant": variant, "score": p["score"],
-                      "floor": p.get("floor"), "class": cls, "threshold": threshold},
-            depends_on=sides[variant]["slots"] if sides else None))
-        meta[eid] = {"t_ms": t_ms, "peak": p, "agent": agent, "class": cls, "reason": why}
-
-    verdicts = adjudicate_agent_identity(claims)
-    by_id = {v["entity_id"]: v for v in verdicts}
-    common = {"session_id": session_id, "ult_cast_version": ULT_CAST_VERSION}
     window = cast_window(player)
     if tray_drops is not None and player is None:
         tray_reason = "no_player_agent"
@@ -246,22 +350,129 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
     tray_casts = [c for c in tray_drops if c["player_cast"]] if bind else []
     casts_ms = [float(c["t_ms"]) for c in tray_casts]
     refused = {float(c["t_ms"]): c["reason"] for c in tray_drops or [] if not c["player_cast"]}
+
+    # 1. Selection, class and bursts.
+    meta = {}
+    bursts = burst_of([p["t_s"] for p in selected], [p["score"] for p in selected])
+    for p, b in zip(selected, bursts):
+        agent, t_ms = _norm(p["agent"]), round(p["t_s"] * 1000.0)
+        cls, why = template_class(agent, p["variant"], sides, player)
+        eid = f"{session_id}:ult_cast:{t_ms}:{p['template']}"
+        meta[eid] = {"t_ms": t_ms, "peak": p, "agent": agent, "class": cls, "reason": why,
+                     "burst": b, "refused": (why if cls == "impossible" else
+                                             "burst" if b and p["score"] < burst_bound else None),
+                     "witness": None}
+
+    def standing(template, keep=lambda m: True):
+        return [m for m in meta.values() if m["refused"] is None
+                and m["peak"]["template"] == template and keep(m)]
+
+    def candidate(template, keep):
+        """The best peak of `template` that `keep` admits, at or above the
+        witness floor, that is not already a standing cast: (peak, entity id)."""
+        best = None
+        for p in peaks:
+            if p["template"] != template or p["score"] < witness_floor or not keep(p):
+                continue
+            eid = f"{session_id}:ult_cast:{round(p['t_s'] * 1000.0)}:{template}"
+            if eid in meta and meta[eid]["refused"] is None:
+                continue
+            if best is None or (p["score"], -p["t_s"]) > (best[0]["score"], -best[0]["t_s"]):
+                best = (p, eid)
+        return best
+
+    def accept(p, eid, witness, rests_on, depends=()):
+        agent, t_ms = _norm(p["agent"]), round(p["t_s"] * 1000.0)
+        cls, why = template_class(agent, p["variant"], sides, player)
+        if cls == "impossible":
+            return False
+        old = meta.get(eid) or {}
+        meta[eid] = {"t_ms": t_ms, "peak": p, "agent": agent, "class": cls, "reason": why,
+                     "burst": old.get("burst"), "refused": None, "witness": witness,
+                     "rests_on": rests_on, "depends": list(depends),
+                     "burst_refusal_overridden": old.get("refused") == "burst"}
+        return True
+
+    # 2. Witnesses for peaks under the threshold. The tray first: it binds by time.
+    wit = Counter()
+    own_tpl = f"{player}_ult_ally"
+    for c in tray_casts:
+        t = float(c["t_ms"])
+        if round_of(t, rounds) is None or standing(
+                own_tpl, lambda m: in_window(m["t_ms"], t, window)):
+            continue
+        got = candidate(own_tpl, lambda p: in_window(p["t_s"] * 1000.0, t, window))
+        if got is None:
+            wit["tray_below_floor"] += 1
+            continue
+        w = {"kind": "tray_x_cast", "cast_t_ms": t,
+             "dt_s": round((got[0]["t_s"] * 1000.0 - t) / 1000.0, 3)}
+        ok = accept(*got, w, [{"stream": "tray_drop", "owner": "ability_timeline.player_tray_casts",
+                               "cast_t_ms": t}])
+        wit["tray_accepted" if ok else "tray_impossible"] += 1
+    kills, skipped = ult_kill_witnesses(deaths, rounds) if deaths is not None else ([], {})
+    by_key = defaultdict(list)
+    for k in kills:
+        if k["round"] is not None:
+            by_key[(k["template"], k["round"])].append(k)
+    for (tpl, rnd), ks in sorted(by_key.items(), key=lambda x: (x[0][1], x[0][0])):
+        first = min(ks, key=lambda k: k["t_ms"])
+        hi_ms = first["t_ms"] + DEATH_SLACK_S * 1000.0
+        if standing(tpl, lambda m: round_of(m["t_ms"], rounds) == rnd and m["t_ms"] <= hi_ms):
+            wit["ult_kill_explained"] += 1
+            continue
+        got = candidate(tpl, lambda p: p["t_s"] * 1000.0 <= hi_ms
+                        and round_of(p["t_s"] * 1000.0, rounds) == rnd)
+        if got is None:
+            wit["ult_kill_below_floor"] += 1
+            continue
+        w = {"kind": "ult_kill", "death_id": first["death_id"], "weapon": first["weapon"],
+             "death_t_ms": first["t_ms"], "lead_s": round((first["t_ms"] / 1000.0) - got[0]["t_s"], 3),
+             "deaths": len(ks)}
+        ok = accept(*got, w, [{"stream": "death", "owner": "adjudication.death",
+                               "death_id": k["death_id"], "version": k["version"]} for k in ks],
+                    depends=[f"{k['death_id']}:killer" for k in ks if k["death_id"]])
+        wit["ult_kill_accepted" if ok else "ult_kill_impossible"] += 1
+
+    # 3. Claims, one per selected or witnessed peak, through the arbiter.
+    claims = []
+    ordered = sorted(meta.items(), key=lambda x: (x[1]["peak"]["frame"], x[1]["peak"]["template"]))
+    for eid, m in ordered:
+        p, variant = m["peak"], m["peak"]["variant"]
+        on = list(sides[variant]["slots"]) if sides else []
+        on += m.get("depends", [])
+        claims.append(identity_claim(
+            eid, None if m["refused"] else m["agent"], channel=CHANNEL,
+            observed_at_ms=m["t_ms"], reason=m["refused"] if m["refused"] == "burst" else m["reason"],
+            source_version=source,
+            evidence={"template": p["template"], "variant": variant, "score": p["score"],
+                      "floor": p.get("floor"), "class": m["class"], "threshold": threshold,
+                      "selected_by": "witness" if m["witness"] else "threshold",
+                      **({"witness": m["witness"]} if m["witness"] else {})},
+            depends_on=on or None))
+    verdicts = adjudicate_agent_identity(claims)
+    by_id = {v["entity_id"]: v for v in verdicts}
+    common = {"session_id": session_id, "ult_cast_version": ULT_CAST_VERSION}
     rows, events = [], []
-    for eid, m in meta.items():
+    for eid, m in ordered:
         p, v = m["peak"], by_id[eid]
         base = {**common, "entity_id": eid, "t_ms": m["t_ms"], "t_s": p["t_s"],
                 "variant": p["variant"], "template": p["template"], "score": p["score"],
                 "floor": p.get("floor"), "class": m["class"],
-                "round": round_of(m["t_ms"], rounds)}
-        if m["class"] == "impossible":
+                "round": round_of(m["t_ms"], rounds), "burst": m["burst"]}
+        if m["refused"]:
             rows.append({**base, "kind": "refusal", "template_agent": m["agent"],
-                         "reason": m["reason"]})
+                         "reason": m["refused"], "class_reason": m["reason"]})
         else:
             rows.append({**base, "kind": "cast", "side": p["variant"],
                          "player_cast": m["class"] == "own",
                          "agent": v["agent"] if v["status"] == "resolved" else None,
                          "identity_status": v["status"], "identity_reason": v["reason"],
-                         "class_reason": m["reason"]})
+                         "class_reason": m["reason"],
+                         "selected_by": "witness" if m["witness"] else "threshold",
+                         "witness": m["witness"], "rests_on": m.get("rests_on") or [],
+                         **({"burst_refusal_overridden": True}
+                            if m.get("burst_refusal_overridden") else {})})
             if m["class"] == "own":
                 w = nearest_cast(m["t_ms"], casts_ms, window) if bind else None
                 rows[-1]["tray_witness"] = w
@@ -274,9 +485,8 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
                         "reason": refused[r["cast_t_ms"]]}
         events += identity_events([v], session_id, m["t_ms"])
 
-    # The player's X casts inside a round with no own selection in their window.
+    # 4. The player's X casts inside a round with no own cast in their window.
     missed, outside = [], 0
-    own_tpl = f"{player}_ult_ally"
     own_ms = [r["t_ms"] for r in rows if r["kind"] == "cast" and r["class"] == "own"]
     own_peaks = [p for p in peaks if p["template"] == own_tpl]
     for c in tray_casts:
@@ -300,8 +510,10 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
             "best_peak_reason": None if best else "no_peak_above_floor"})
     rows += missed
 
-    by_class = Counter(r["class"] for r in rows if r["kind"] in ("cast", "refusal"))
+    sel_rows = [r for r in rows if r["kind"] in ("cast", "refusal")]
+    by_class = Counter(r["class"] for r in sel_rows)
     own_rows = [r for r in rows if r["kind"] == "cast" and r["class"] == "own"]
+    groups = {(b["t0_s"], b["n"]): b for b in bursts if b}
     coverage = {**common, "kind": "coverage", "threshold": threshold,
                 "inputs": {"ult_line": source,
                            "lineup": (lineup or {}).get("version"),
@@ -315,7 +527,24 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
                 "by_class": {c: by_class.get(c, 0) for c in CLASSES},
                 "casts": sum(r["kind"] == "cast" for r in rows),
                 "refusals": sum(r["kind"] == "refusal" for r in rows),
+                "refusal_reasons": dict(sorted(Counter(
+                    "burst" if r["reason"] == "burst" else "impossible"
+                    for r in rows if r["kind"] == "refusal").items())),
                 "rounds": len(rounds),
+                "burst": {"n": BURST_N, "span_s": BURST_S, "bound": burst_bound,
+                          "bursts": len(groups),
+                          "weak": sum(b["best_score"] < burst_bound for b in groups.values()),
+                          "in_burst": sum(b is not None for b in bursts),
+                          "refused": sum(r["kind"] == "refusal" and r["reason"] == "burst"
+                                         for r in rows)},
+                "witness": {"floor": witness_floor, "death_slack_s": DEATH_SLACK_S,
+                            "deaths": len(deaths) if deaths is not None else None,
+                            "death_reason": None if deaths is not None else death_reason,
+                            "ult_kill_icons": len(kills), "ult_kill_icons_left_out": skipped,
+                            **{k: wit.get(k, 0) for k in (
+                                "tray_accepted", "tray_impossible", "tray_below_floor",
+                                "ult_kill_accepted", "ult_kill_impossible",
+                                "ult_kill_below_floor", "ult_kill_explained")}},
                 "tray": {"bound": bind, "reason": None if bind else tray_reason,
                          "x_drops": len(tray_drops) if tray_drops is not None else None,
                          "player_x_casts": (sum(c["player_cast"] for c in tray_drops)

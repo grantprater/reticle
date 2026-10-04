@@ -170,7 +170,7 @@ class TrayBindingTests(unittest.TestCase):
         self.lu = _lineup("s", ALLY, ENEMY)            # the player is Sova
         self.peaks = _stored(_peak(50.0, "Sova", "ally", 0.20),     # witnessed own line
                              _peak(150.0, "Sova", "ally", 0.10),    # own line, no drop
-                             _peak(69.6, "Sova", "ally", 0.03),     # under the threshold
+                             _peak(69.6, "Sova", "ally", 0.025),    # under the witness floor
                              _peak(90.3, "Jett", "ally", 0.03))     # another template
         self.casts = [_cast(50400.0), _cast(70000.0), _cast(90000.0, **{"from": 0.97}),
                       _cast(150500.0, "after_player_death")]
@@ -199,7 +199,7 @@ class TrayBindingTests(unittest.TestCase):
     def test_a_drop_without_a_line_keeps_the_best_peak_under_the_threshold(self):
         r = self.missed[70000.0]
         self.assertEqual((r["round"], r["player_agent"], r["template"]), (1, "Sova", "Sova_ult_ally"))
-        self.assertEqual(r["best_peak"]["score"], 0.03)
+        self.assertEqual(r["best_peak"]["score"], 0.025)
         self.assertEqual(r["best_peak"]["dt_s"], -0.4)
         self.assertIsNone(r["best_peak_reason"])
         self.assertLess(r["best_peak"]["score"], uc.THRESHOLD)
@@ -271,6 +271,148 @@ class TrayBindingTests(unittest.TestCase):
         # and the E drop is not the ultimate.
         self.assertEqual([(r["t_ms"], r["player_cast"], r["reason"]) for r in got],
                          [(50000.0, True, None), (65000.0, False, "after_player_death")])
+
+
+class BurstTests(unittest.TestCase):
+    """Three or more selections within BURST_S are one sound."""
+
+    def setUp(self):
+        self.lu = _lineup("s", ALLY, ENEMY)
+
+    def test_a_weak_burst_is_refused_whole_and_kept_as_evidence(self):
+        res = uc.adjudicate("s", _stored(_peak(50.0, "Jett", "ally", 0.06),
+                                         _peak(50.8, "Reyna", "enemy", 0.05),
+                                         _peak(51.9, "Killjoy", "ally", 0.07)),
+                            self.lu, ROUNDS, "round-test")
+        rows = {r["template"]: r for r in res["rows"][1:]}
+        self.assertEqual({r["kind"] for r in rows.values()}, {"refusal"})
+        self.assertEqual(rows["Jett_ult_ally"]["reason"], "burst")
+        self.assertEqual(rows["Jett_ult_ally"]["class"], "possible")
+        self.assertEqual(rows["Jett_ult_ally"]["burst"], {"n": 3, "best_score": 0.07, "t0_s": 50.0})
+        # The impossible row keeps the lineup's reason; the burst is beside it.
+        self.assertEqual(rows["Killjoy_ult_ally"]["reason"], "agent_not_on_ally_side")
+        self.assertTrue(all(c["agent"] is None for c in res["claims"]))
+        cov = res["rows"][0]
+        self.assertEqual(cov["burst"]["refused"], 2)
+        self.assertEqual(cov["refusal_reasons"], {"burst": 2, "impossible": 1})
+        self.assertEqual(validate_event_rows(res["events"]), [])
+
+    def test_a_strong_line_stands_and_its_crosstalk_is_refused(self):
+        res = uc.adjudicate("s", _stored(_peak(50.0, "Jett", "ally", 0.30),
+                                         _peak(50.5, "Reyna", "enemy", 0.05),
+                                         _peak(51.0, "Viper", "enemy", 0.06)),
+                            self.lu, ROUNDS, "round-test")
+        kinds = {r["template"]: (r["kind"], r.get("reason")) for r in res["rows"][1:]}
+        self.assertEqual(kinds, {"Jett_ult_ally": ("cast", None),
+                                 "Reyna_ult_enemy": ("refusal", "burst"),
+                                 "Viper_ult_enemy": ("refusal", "burst")})
+
+    def test_a_pair_is_no_burst(self):
+        res = uc.adjudicate("s", _stored(_peak(50.0, "Jett", "ally", 0.05),
+                                         _peak(51.0, "Reyna", "enemy", 0.05),
+                                         _peak(53.5, "Viper", "enemy", 0.05)),
+                            self.lu, ROUNDS, "round-test")
+        self.assertEqual({r["kind"] for r in res["rows"][1:]}, {"cast"})
+        self.assertTrue(all(r["burst"] is None for r in res["rows"][1:]))
+
+    def test_bursts_chain_within_the_span(self):
+        got = uc.burst_of([1.0, 2.0, 3.0, 4.5, 6.0, 20.0], [0.1, 0.2, 0.3, 0.4, 0.5, 0.9])
+        self.assertEqual([None if b is None else b["n"] for b in got], [4, 4, 4, 4, None, None])
+        self.assertEqual(got[0]["best_score"], 0.4)  # 6.0 s has one neighbour: no burst
+
+
+def _death(t_ms, weapon, killer, side, same_side=False, status="resolved"):
+    """One stored `death_verdict`: `side` is the victim's."""
+    return {"kind": "death_verdict", "death_id": f"death:s:{int(t_ms)}:0", "t_ms": t_ms,
+            "weapon": weapon, "killer": killer, "side": side, "same_side": same_side,
+            "weapon_evidence": {"status": status},
+            "death_adjudication_version": "death-test"}
+
+
+class WitnessTests(unittest.TestCase):
+    """Peaks under the threshold stand only with an independent witness."""
+
+    def setUp(self):
+        self.lu = _lineup("s", ALLY, ENEMY)            # the player is Sova
+
+    def _rows(self, res):
+        return {r["template"]: r for r in res["rows"][1:] if r["kind"] == "cast"}
+
+    def test_an_ult_kill_witnesses_the_best_earlier_peak_of_its_round(self):
+        res = uc.adjudicate("s", _stored(_peak(40.0, "Jett", "ally", 0.035),
+                                         _peak(45.0, "Jett", "ally", 0.032),
+                                         _peak(62.0, "Jett", "ally", 0.04),     # after the kill
+                                         _peak(120.0, "Jett", "ally", 0.04)),   # round 2
+                            self.lu, ROUNDS, "round-test",
+                            deaths=[_death(60000.0, "Blade Storm", "Jett", "enemy")])
+        casts = [r for r in res["rows"][1:] if r["kind"] == "cast"]
+        self.assertEqual([r["t_s"] for r in casts], [40.0])
+        r = casts[0]
+        self.assertEqual((r["selected_by"], r["agent"], r["side"]), ("witness", "Jett", "ally"))
+        self.assertEqual(r["witness"]["kind"], "ult_kill")
+        self.assertEqual(r["witness"]["lead_s"], 20.0)
+        self.assertEqual(r["rests_on"], [{"stream": "death", "owner": "adjudication.death",
+                                          "death_id": "death:s:60000:0", "version": "death-test"}])
+        claim = next(c for c in res["claims"] if c["entity_id"] == r["entity_id"])
+        self.assertIn("death:s:60000:0:killer", claim["depends_on"])
+        self.assertEqual(claim["evidence"]["selected_by"], "witness")
+        self.assertEqual(res["rows"][0]["witness"]["ult_kill_accepted"], 1)
+        self.assertEqual(validate_event_rows(res["events"]), [])
+
+    def test_a_revive_witnesses_its_own_side(self):
+        res = uc.adjudicate("s", _stored(_peak(59.8, "Sage", "ally", 0.035)), self.lu, ROUNDS,
+                            "round-test",
+                            deaths=[_death(60000.0, "Resurrection", "Sage", "ally", same_side=True)])
+        self.assertEqual(self._rows(res)["Sage_ult_ally"]["witness"]["lead_s"], 0.2)
+
+    def test_no_witness_below_the_floor_or_beside_a_standing_cast(self):
+        deaths = [_death(60000.0, "Blade Storm", "Jett", "enemy")]
+        res = uc.adjudicate("s", _stored(_peak(40.0, "Jett", "ally", uc.WITNESS_FLOOR - 0.001)),
+                            self.lu, ROUNDS, "round-test", deaths=deaths)
+        self.assertEqual(self._rows(res), {})
+        self.assertEqual(res["rows"][0]["witness"]["ult_kill_below_floor"], 1)
+        res = uc.adjudicate("s", _stored(_peak(30.0, "Jett", "ally", 0.2),
+                                         _peak(40.0, "Jett", "ally", 0.04)),
+                            self.lu, ROUNDS, "round-test", deaths=deaths)
+        self.assertEqual([r["t_s"] for r in res["rows"][1:] if r["kind"] == "cast"], [30.0])
+        self.assertEqual(res["rows"][0]["witness"]["ult_kill_explained"], 1)
+
+    def test_a_witness_names_no_agent_the_lineup_rules_out(self):
+        res = uc.adjudicate("s", _stored(_peak(40.0, "Raze", "enemy", 0.04)), self.lu, ROUNDS,
+                            "round-test", deaths=[_death(60000.0, "Showstopper", "Raze", "ally")])
+        self.assertEqual(self._rows(res), {})
+        self.assertEqual(res["rows"][0]["witness"]["ult_kill_impossible"], 1)
+
+    def test_an_icon_another_agent_is_named_for_witnesses_nothing(self):
+        kills, skipped = uc.ult_kill_witnesses(
+            [_death(60000.0, "Blade Storm", "Reyna", "enemy"),
+             _death(61000.0, "NULL/cmd", "KAY/O", "ally", same_side=True),
+             _death(62000.0, "Vandal", "Jett", "enemy"),
+             _death(63000.0, "Blade Storm", None, "enemy", status="refused")], ROUNDS)
+        self.assertEqual(kills, [])
+        self.assertEqual(skipped, {"actor_named_another_agent": 1, "icon_names_the_revived": 1,
+                                   "icon_unresolved": 1})
+
+    def test_a_witness_reinstates_a_peak_a_burst_refused(self):
+        res = uc.adjudicate("s", _stored(_peak(50.0, "Jett", "ally", 0.06),
+                                         _peak(50.8, "Reyna", "enemy", 0.05),
+                                         _peak(51.0, "Viper", "enemy", 0.05)),
+                            self.lu, ROUNDS, "round-test",
+                            deaths=[_death(60000.0, "Blade Storm", "Jett", "enemy")])
+        r = self._rows(res)["Jett_ult_ally"]
+        self.assertTrue(r["burst_refusal_overridden"])
+        self.assertEqual(r["selected_by"], "witness")
+        self.assertEqual(len(res["rows"]) - 1, 3)    # one row per entity
+
+    def test_the_players_x_cast_witnesses_its_own_line(self):
+        res = uc.adjudicate("s", _stored(_peak(69.6, "Sova", "ally", 0.035)), self.lu, ROUNDS,
+                            "round-test", tray_drops=[_cast(70000.0)])
+        r = self._rows(res)["Sova_ult_ally"]
+        self.assertEqual(r["witness"], {"kind": "tray_x_cast", "cast_t_ms": 70000.0, "dt_s": -0.4})
+        self.assertEqual(r["tray_witness"], {"dt_s": -0.4, "cast_t_ms": 70000.0})
+        self.assertEqual(r["rests_on"][0]["stream"], "tray_drop")
+        self.assertEqual(res["rows"][0]["missed_lines"], 0)
+        self.assertEqual(res["rows"][0]["witness"]["tray_accepted"], 1)
 
 
 if __name__ == "__main__":

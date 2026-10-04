@@ -1,411 +1,587 @@
 {
- "about": "The official ultimate voice lines `reticle ult-lines` correlates: file is relative to <store>/reference/assets/voicelines/, sha256 is the first 16 hex digits of the file's hash. `reticle ult-lines --check-manifest` compares it with the assets.",
+ "about": "The game's own English ultimate voice lines `reticle ult-lines` correlates: each agent's ultimate announcement event's ally and enemy line (`ult_lines.ult_event_rows`). file is relative to <store>/<dir>, sha256 is the first 16 hex digits of the file's hash; event and media name the game's Wwise event and media. `reticle ult-lines --check-manifest` compares it with vo-ref's manifest.",
+ "dir": "reference/game-files/vo",
+ "ref_version": "vo-ref-0.1.0",
  "templates": [
   {
    "name": "Astra_ult_ally",
    "agent": "Astra",
    "variant": "ally",
-   "file": "Astra_ult_ally.mp3",
-   "sha256": "3053e55a83c62668"
+   "file": "Astra/X/Play_VO_Rift_AbilityXCast__Rift.Ability.XCastAllies01.flac",
+   "sha256": "52ab1e07f0acc0aa",
+   "event": "Play_VO_Rift_AbilityXCast",
+   "media": "Rift.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Astra_ult_enemy",
    "agent": "Astra",
    "variant": "enemy",
-   "file": "Astra_ult_enemy.mp3",
-   "sha256": "35f6950d3efa9d7b"
+   "file": "Astra/X/Play_VO_Rift_AbilityXCast__Rift.Ability.XCastEnemies02.flac",
+   "sha256": "a89c3a49e835d4e2",
+   "event": "Play_VO_Rift_AbilityXCast",
+   "media": "Rift.Ability.XCastEnemies02",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Breach_ult_ally",
    "agent": "Breach",
    "variant": "ally",
-   "file": "Breach_ult_ally.mp3",
-   "sha256": "0d07e00b269080a4"
+   "file": "Breach/X/Play_VO_Breach_AbilityXCast__Breach.AbilityXCastAllies01.flac",
+   "sha256": "07bd8246fa84a063",
+   "event": "Play_VO_Breach_AbilityXCast",
+   "media": "Breach.AbilityXCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Breach_ult_enemy",
    "agent": "Breach",
    "variant": "enemy",
-   "file": "Breach_ult_enemy.mp3",
-   "sha256": "3fc823a7118c9250"
+   "file": "Breach/X/Play_VO_Breach_AbilityXCast__Breach.AbilityXCastEnemies02.flac",
+   "sha256": "41ae6670dc5b6e09",
+   "event": "Play_VO_Breach_AbilityXCast",
+   "media": "Breach.AbilityXCastEnemies02",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Brimstone_ult_ally",
    "agent": "Brimstone",
    "variant": "ally",
-   "file": "Brimstone_ult_ally.mp3",
-   "sha256": "989e59fda51a1875"
+   "file": "Brimstone/X/Play_VO_Sarge_AbilityXCast__Sarge.AbilityXCastAllies.flac",
+   "sha256": "c8e30dddc072436b",
+   "event": "Play_VO_Sarge_AbilityXCast",
+   "media": "Sarge.AbilityXCastAllies",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Brimstone_ult_enemy",
    "agent": "Brimstone",
    "variant": "enemy",
-   "file": "Brimstone_ult_enemy.mp3",
-   "sha256": "d0bac151ff1c5e50"
+   "file": "Brimstone/X/Play_VO_Sarge_AbilityXCast__Sarge.AbilityXCastEnemies.flac",
+   "sha256": "f5c2bdf2451e8174",
+   "event": "Play_VO_Sarge_AbilityXCast",
+   "media": "Sarge.AbilityXCastEnemies",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Chamber_ult_ally",
    "agent": "Chamber",
    "variant": "ally",
-   "file": "Chamber_ult_ally.mp3",
-   "sha256": "2b8fb1149092bc24"
+   "file": "Chamber/X/Play_VO_Deadeye_E03_AbilityXCast__Deadeye.Ability.XCastAllies01.flac",
+   "sha256": "dd6cf687d24d6af6",
+   "event": "Play_VO_Deadeye_E03_AbilityXCast",
+   "media": "Deadeye.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Chamber_ult_enemy",
    "agent": "Chamber",
    "variant": "enemy",
-   "file": "Chamber_ult_enemy.mp3",
-   "sha256": "0fd8fd80db299a7a"
+   "file": "Chamber/X/Play_VO_Deadeye_E03_AbilityXCast__Deadeye.Ability.XCastEnemies01.flac",
+   "sha256": "e42338558cd98d98",
+   "event": "Play_VO_Deadeye_E03_AbilityXCast",
+   "media": "Deadeye.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Clove_ult_ally",
    "agent": "Clove",
    "variant": "ally",
-   "file": "Clove_ult_ally.mp3",
-   "sha256": "cfaad1bc63520d21"
+   "file": "Clove/X/Play_VO_Smonk_AbilityXCast__Smonk.Ability.XCastAllies01_PostDeath.flac",
+   "sha256": "4ba4c282a6d0b03d",
+   "event": "Play_VO_Smonk_AbilityXCast",
+   "media": "Smonk.Ability.XCastAllies01_PostDeath",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Clove_ult_enemy",
    "agent": "Clove",
    "variant": "enemy",
-   "file": "Clove_ult_enemy.mp3",
-   "sha256": "6e0b85dafc9d3405"
+   "file": "Clove/X/Play_VO_Smonk_AbilityXCast__Smonk.Ability.XCastEnemies01_PostDeath.flac",
+   "sha256": "61bda34d538467bb",
+   "event": "Play_VO_Smonk_AbilityXCast",
+   "media": "Smonk.Ability.XCastEnemies01_PostDeath",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Cypher_ult_ally",
    "agent": "Cypher",
    "variant": "ally",
-   "file": "Cypher_ult_ally.mp3",
-   "sha256": "5c61d57be07b7308"
+   "file": "Cypher/X/Play_VO_Aamir_AbilityXCast__Gumshoe.AbilityXCastAllies01.flac",
+   "sha256": "f7dd78671a9151e1",
+   "event": "Play_VO_Aamir_AbilityXCast",
+   "media": "Gumshoe.AbilityXCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Cypher_ult_enemy",
    "agent": "Cypher",
    "variant": "enemy",
-   "file": "Cypher_ult_enemy.mp3",
-   "sha256": "bb8108ffd3ab742a"
+   "file": "Cypher/X/Play_VO_Aamir_AbilityXCast__Gumshoe.AbilityXCastEnemies01.flac",
+   "sha256": "ffad2a8c72fdb4ce",
+   "event": "Play_VO_Aamir_AbilityXCast",
+   "media": "Gumshoe.AbilityXCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Deadlock_ult_ally",
    "agent": "Deadlock",
    "variant": "ally",
-   "file": "Deadlock_ult_ally.mp3",
-   "sha256": "3a381d36df822c55"
+   "file": "Deadlock/X/Play_VO_Cable_E06_AbilityXCast__Cable.Ability.XCastAllies01.flac",
+   "sha256": "53456d67df7d645c",
+   "event": "Play_VO_Cable_E06_AbilityXCast",
+   "media": "Cable.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Deadlock_ult_enemy",
    "agent": "Deadlock",
    "variant": "enemy",
-   "file": "Deadlock_ult_enemy.mp3",
-   "sha256": "f8159d2093f92677"
+   "file": "Deadlock/X/Play_VO_Cable_E06_AbilityXCast__Cable.Ability.XCastEnemies01.flac",
+   "sha256": "53caf91d183c73b0",
+   "event": "Play_VO_Cable_E06_AbilityXCast",
+   "media": "Cable.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Fade_ult_ally",
    "agent": "Fade",
    "variant": "ally",
-   "file": "Fade_ult_ally.mp3",
-   "sha256": "7a376386f9a93301"
+   "file": "Fade/X/Play_VO_BountyHunter_E04_AbilityXCast__BountyHunter.Ability.XCastAllies01.flac",
+   "sha256": "a5c608692368f0dd",
+   "event": "Play_VO_BountyHunter_E04_AbilityXCast",
+   "media": "BountyHunter.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Fade_ult_enemy",
    "agent": "Fade",
    "variant": "enemy",
-   "file": "Fade_ult_enemy.mp3",
-   "sha256": "d18c81cea2e0d09d"
+   "file": "Fade/X/Play_VO_BountyHunter_E04_AbilityXCast__BountyHunter.Ability.XCastEnemies01.flac",
+   "sha256": "0bf348eac973f9c1",
+   "event": "Play_VO_BountyHunter_E04_AbilityXCast",
+   "media": "BountyHunter.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Gekko_ult_ally",
    "agent": "Gekko",
    "variant": "ally",
-   "file": "casts/Gekko__thrash__ally-cast__1.mp3",
-   "sha256": "3e3f2fe7e97df452"
+   "file": "Gekko/X/Play_VO_Aggrobot_E06_AbilityXCast__Aggrobot.Ability.XCastAllies01.flac",
+   "sha256": "7cc0d3d5efbbcdd5",
+   "event": "Play_VO_Aggrobot_E06_AbilityXCast",
+   "media": "Aggrobot.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Gekko_ult_enemy",
    "agent": "Gekko",
    "variant": "enemy",
-   "file": "casts/Gekko__thrash__enemy-cast__1.mp3",
-   "sha256": "27a1d955634049f0"
+   "file": "Gekko/X/Play_VO_Aggrobot_E06_AbilityXCast__Aggrobot.Ability.XCastEnemies01.flac",
+   "sha256": "1d50508a60612d3c",
+   "event": "Play_VO_Aggrobot_E06_AbilityXCast",
+   "media": "Aggrobot.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Harbor_ult_ally",
    "agent": "Harbor",
    "variant": "ally",
-   "file": "Harbor_ult_ally.mp3",
-   "sha256": "a733034892135900"
+   "file": "Harbor/X/Play_VO_Mage_E05_AbilityXCast__Mage.Ability.XCastAllies01.flac",
+   "sha256": "1d04603ed5fa90a1",
+   "event": "Play_VO_Mage_E05_AbilityXCast",
+   "media": "Mage.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Harbor_ult_enemy",
    "agent": "Harbor",
    "variant": "enemy",
-   "file": "Harbor_ult_enemy.mp3",
-   "sha256": "5af61af5b03443c1"
+   "file": "Harbor/X/Play_VO_Mage_E05_AbilityXCast__Mage.Ability.XCastEnemies02.flac",
+   "sha256": "cf0ee9b3a1dd2e61",
+   "event": "Play_VO_Mage_E05_AbilityXCast",
+   "media": "Mage.Ability.XCastEnemies02",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Iso_ult_ally",
    "agent": "Iso",
    "variant": "ally",
-   "file": "Iso_ult_ally.mp3",
-   "sha256": "a0b5054963603ecf"
+   "file": "Iso/X/Play_VO_Sequoia_AbilityXCast__Sequoia.Ability.XCastAllies01.flac",
+   "sha256": "4d4fefc3bc4323a8",
+   "event": "Play_VO_Sequoia_AbilityXCast",
+   "media": "Sequoia.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Iso_ult_enemy",
    "agent": "Iso",
    "variant": "enemy",
-   "file": "Iso_ult_enemy.mp3",
-   "sha256": "5d59dcc34c2d371e"
+   "file": "Iso/X/Play_VO_Sequoia_AbilityXCast__Sequoia.Ability.XCastEnemies01.flac",
+   "sha256": "30a489a99d231678",
+   "event": "Play_VO_Sequoia_AbilityXCast",
+   "media": "Sequoia.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Jett_ult_ally",
    "agent": "Jett",
    "variant": "ally",
-   "file": "Jett_ult_ally.mp3",
-   "sha256": "768b7705349ecebe"
+   "file": "Jett/X/Play_VO_Wushu_AbilityXCast__Wushu.AbilityXCastAllies01.flac",
+   "sha256": "95fd19e190831cc2",
+   "event": "Play_VO_Wushu_AbilityXCast",
+   "media": "Wushu.AbilityXCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Jett_ult_enemy",
    "agent": "Jett",
    "variant": "enemy",
-   "file": "Jett_ult_enemy.mp3",
-   "sha256": "2071114307126b43"
+   "file": "Jett/X/Play_VO_Wushu_AbilityXCast__Wushu.AbilityXCastEnemies01_alt01.flac",
+   "sha256": "e4a5346b11327407",
+   "event": "Play_VO_Wushu_AbilityXCast",
+   "media": "Wushu.AbilityXCastEnemies01_alt01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "KAY_O_ult_ally",
    "agent": "KAY_O",
    "variant": "ally",
-   "file": "KAY_O_ult_ally.mp3",
-   "sha256": "f33d1bbf106df490"
+   "file": "KAY_O/X/Play_VO_Grenadier_E02_AbilityXCast__Grenadier.Ability.XCastAllies01.flac",
+   "sha256": "aeb707323e93e9d1",
+   "event": "Play_VO_Grenadier_E02_AbilityXCast",
+   "media": "Grenadier.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "KAY_O_ult_enemy",
    "agent": "KAY_O",
    "variant": "enemy",
-   "file": "KAY_O_ult_enemy.mp3",
-   "sha256": "c72de85e11512bf4"
+   "file": "KAY_O/X/Play_VO_Grenadier_E02_AbilityXCast__Grenadier.Ability.XCastEnemies01.flac",
+   "sha256": "26584cd87f67435e",
+   "event": "Play_VO_Grenadier_E02_AbilityXCast",
+   "media": "Grenadier.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Killjoy_ult_ally",
    "agent": "Killjoy",
    "variant": "ally",
-   "file": "Killjoy_ult_ally.mp3",
-   "sha256": "c77c7544a36600bd"
+   "file": "Killjoy/X/Play_VO_Killjoy_AbilityXCast__Killjoy.Ability.XCastAllies02.flac",
+   "sha256": "96d1efeafa77dd51",
+   "event": "Play_VO_Killjoy_AbilityXCast",
+   "media": "Killjoy.Ability.XCastAllies02",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Killjoy_ult_enemy",
    "agent": "Killjoy",
    "variant": "enemy",
-   "file": "Killjoy_ult_enemy.mp3",
-   "sha256": "8d0606f2a159b897"
+   "file": "Killjoy/X/Play_VO_Killjoy_AbilityXCast__Killjoy.Ability.XCastEnemies01.flac",
+   "sha256": "65c405504f197975",
+   "event": "Play_VO_Killjoy_AbilityXCast",
+   "media": "Killjoy.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Miks_ult_ally",
    "agent": "Miks",
    "variant": "ally",
-   "file": "Miks_ult_ally.mp3",
-   "sha256": "ab399f5110d3b142"
+   "file": "Miks/X/Play_VO_Iris_AbilityXCast__Iris.Ability.XCastAllies01.flac",
+   "sha256": "9156402ebf6f1bdb",
+   "event": "Play_VO_Iris_AbilityXCast",
+   "media": "Iris.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Miks_ult_enemy",
    "agent": "Miks",
    "variant": "enemy",
-   "file": "Miks_ult_enemy.mp3",
-   "sha256": "2dea8cda6564cae7"
+   "file": "Miks/X/Play_VO_Iris_AbilityXCast__Iris.Ability.XCastEnemies01.flac",
+   "sha256": "5600226b1886c01d",
+   "event": "Play_VO_Iris_AbilityXCast",
+   "media": "Iris.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Neon_ult_ally",
    "agent": "Neon",
    "variant": "ally",
-   "file": "Neon_ult_ally.mp3",
-   "sha256": "98f7be0c61f2d6c9"
+   "file": "Neon/X/Play_VO_Sprinter_E04_AbilityXCast_01__Sprinter.Ability.XCastAllies01.flac",
+   "sha256": "1f7653539d2b0fb4",
+   "event": "Play_VO_Sprinter_E04_AbilityXCast_01",
+   "media": "Sprinter.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Neon_ult_enemy",
    "agent": "Neon",
    "variant": "enemy",
-   "file": "Neon_ult_enemy.mp3",
-   "sha256": "fb90b876c02902fc"
+   "file": "Neon/X/Play_VO_Sprinter_E04_AbilityXCast_01__Sprinter.Ability.XCastEnemies01.flac",
+   "sha256": "d917c8de853db422",
+   "event": "Play_VO_Sprinter_E04_AbilityXCast_01",
+   "media": "Sprinter.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Omen_ult_ally",
    "agent": "Omen",
    "variant": "ally",
-   "file": "Omen_ult_ally.mp3",
-   "sha256": "8142b6b9f307d42d"
+   "file": "Omen/X/Play_VO_Wraith_AbilityXCast__Wraith.AbilityXCastAllies01.flac",
+   "sha256": "9d4ec9454bed560f",
+   "event": "Play_VO_Wraith_AbilityXCast",
+   "media": "Wraith.AbilityXCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Omen_ult_enemy",
    "agent": "Omen",
    "variant": "enemy",
-   "file": "Omen_ult_enemy.mp3",
-   "sha256": "848c977034673dea"
+   "file": "Omen/X/Play_VO_Wraith_AbilityXCast__Wraith.AbilityXCastEnemies01.flac",
+   "sha256": "7438752b11a043b2",
+   "event": "Play_VO_Wraith_AbilityXCast",
+   "media": "Wraith.AbilityXCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Phoenix_ult_ally",
    "agent": "Phoenix",
    "variant": "ally",
-   "file": "Phoenix_ult_ally.mp3",
-   "sha256": "1f03324c4f4d3138"
+   "file": "Phoenix/X/Play_VO_Phoenix_AbilityXCast__Phoenix.AbilityXCastAllies01.flac",
+   "sha256": "e99505d93c142016",
+   "event": "Play_VO_Phoenix_AbilityXCast",
+   "media": "Phoenix.AbilityXCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Phoenix_ult_enemy",
    "agent": "Phoenix",
    "variant": "enemy",
-   "file": "Phoenix_ult_enemy.mp3",
-   "sha256": "9fd5a5f0bfe93d90"
+   "file": "Phoenix/X/Play_VO_Phoenix_AbilityXCast__Phoenix.AbilityXCastEnemies01.flac",
+   "sha256": "cd9ca3dec29f0c8d",
+   "event": "Play_VO_Phoenix_AbilityXCast",
+   "media": "Phoenix.AbilityXCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Raze_ult_ally",
    "agent": "Raze",
    "variant": "ally",
-   "file": "Raze_ult_ally.mp3",
-   "sha256": "7123c5674ff7ebfa"
+   "file": "Raze/X/Play_VO_Clay_AbilityXEquip__Clay.AbilityXEquipAllies03.flac",
+   "sha256": "39a25b96cbd36125",
+   "event": "Play_VO_Clay_AbilityXEquip",
+   "media": "Clay.AbilityXEquipAllies03",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Raze_ult_enemy",
    "agent": "Raze",
    "variant": "enemy",
-   "file": "Raze_ult_enemy.mp3",
-   "sha256": "16c0b4eb8e2380ff"
+   "file": "Raze/X/Play_VO_Clay_AbilityXEquip__Clay.AbilityXEquipEnemies01.flac",
+   "sha256": "0d09e698ce4ea9b0",
+   "event": "Play_VO_Clay_AbilityXEquip",
+   "media": "Clay.AbilityXEquipEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Reyna_ult_ally",
    "agent": "Reyna",
    "variant": "ally",
-   "file": "Reyna_ult_ally.mp3",
-   "sha256": "41b9df8b57d6af93"
+   "file": "Reyna/X/Play_VO_Vampire_ULT_AbilityXCast__Vampire.ULT.AbilityXCastAllies01.flac",
+   "sha256": "001f548f00fcf54a",
+   "event": "Play_VO_Vampire_ULT_AbilityXCast",
+   "media": "Vampire.ULT.AbilityXCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Reyna_ult_enemy",
    "agent": "Reyna",
    "variant": "enemy",
-   "file": "Reyna_ult_enemy.mp3",
-   "sha256": "2830baa495630566"
+   "file": "Reyna/X/Play_VO_Vampire_ULT_AbilityXCast__Vampire.ULT.AbilityXCastAllies02.flac",
+   "sha256": "6292cd389e7be4e9",
+   "event": "Play_VO_Vampire_ULT_AbilityXCast",
+   "media": "Vampire.ULT.AbilityXCastAllies02",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Sage_ult_ally",
    "agent": "Sage",
    "variant": "ally",
-   "file": "Sage_ult_ally.mp3",
-   "sha256": "6dbb99446d7b03c5"
+   "file": "Sage/X/Play_VO_Thorne_AbilityXCast__Thorne.AbilityXCastAllies01.flac",
+   "sha256": "2d43d588ace96f88",
+   "event": "Play_VO_Thorne_AbilityXCast",
+   "media": "Thorne.AbilityXCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Sage_ult_enemy",
    "agent": "Sage",
    "variant": "enemy",
-   "file": "Sage_ult_enemy.mp3",
-   "sha256": "727e38c34b2e11cd"
+   "file": "Sage/X/Play_VO_Thorne_AbilityXCast__Thorne.AbilityXCastEnemies01.flac",
+   "sha256": "413772bad673633e",
+   "event": "Play_VO_Thorne_AbilityXCast",
+   "media": "Thorne.AbilityXCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Skye_ult_ally",
    "agent": "Skye",
    "variant": "ally",
-   "file": "Skye_ult_ally.mp3",
-   "sha256": "391d30bbd82560fe"
+   "file": "Skye/X/Play_VO_Guide_AbilityXCast__Guide.Ability.XCastAllies01.flac",
+   "sha256": "785146973c4ed095",
+   "event": "Play_VO_Guide_AbilityXCast",
+   "media": "Guide.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Skye_ult_enemy",
    "agent": "Skye",
    "variant": "enemy",
-   "file": "Skye_ult_enemy.mp3",
-   "sha256": "66302bec30e38290"
+   "file": "Skye/X/Play_VO_Guide_AbilityXCast__Guide.Ability.XCastEnemies03.flac",
+   "sha256": "d1c50a3c8062b7fc",
+   "event": "Play_VO_Guide_AbilityXCast",
+   "media": "Guide.Ability.XCastEnemies03",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Sova_ult_ally",
    "agent": "Sova",
    "variant": "ally",
-   "file": "Sova_ult_ally.mp3",
-   "sha256": "f5348872777fcde1"
+   "file": "Sova/X/Play_VO_Hunter_AbilityXCast__Hunter.AbilityXCastAllies.flac",
+   "sha256": "9e6ff56518755415",
+   "event": "Play_VO_Hunter_AbilityXCast",
+   "media": "Hunter.AbilityXCastAllies",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Sova_ult_enemy",
    "agent": "Sova",
    "variant": "enemy",
-   "file": "Sova_ult_enemy.mp3",
-   "sha256": "89352c1fc00b113e"
+   "file": "Sova/X/Play_VO_Hunter_AbilityXCast__Hunter.AbilityXCastEnemies01.flac",
+   "sha256": "46a3e1763ed827cc",
+   "event": "Play_VO_Hunter_AbilityXCast",
+   "media": "Hunter.AbilityXCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Tejo_ult_ally",
    "agent": "Tejo",
    "variant": "ally",
-   "file": "Tejo_ult_ally.mp3",
-   "sha256": "f8517bd03ef2b619"
+   "file": "Tejo/X/Play_VO_Cashew_AbilityXCast__Cashew.Ability.XCastAllies01.flac",
+   "sha256": "d1d21068214f20e2",
+   "event": "Play_VO_Cashew_AbilityXCast",
+   "media": "Cashew.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Tejo_ult_enemy",
    "agent": "Tejo",
    "variant": "enemy",
-   "file": "Tejo_ult_enemy.mp3",
-   "sha256": "aad35d65c84479f1"
+   "file": "Tejo/X/Play_VO_Cashew_AbilityXCast__Cashew.Ability.XCastEnemies01.flac",
+   "sha256": "be150fac40b82ef0",
+   "event": "Play_VO_Cashew_AbilityXCast",
+   "media": "Cashew.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Veto_ult_ally",
    "agent": "Veto",
    "variant": "ally",
-   "file": "Veto_ult_ally.mp3",
-   "sha256": "b72158745f149715"
+   "file": "Veto/X/Play_VO_Pine_ULT_AbilityXCast__Pine.ULT.Ability.XCastAllies01.flac",
+   "sha256": "27e83990b18320d8",
+   "event": "Play_VO_Pine_ULT_AbilityXCast",
+   "media": "Pine.ULT.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Veto_ult_enemy",
    "agent": "Veto",
    "variant": "enemy",
-   "file": "Veto_ult_enemy.mp3",
-   "sha256": "9d4a5085d32945b4"
+   "file": "Veto/X/Play_VO_Pine_ULT_AbilityXCast__Pine.ULT.Ability.XCastEnemies01.flac",
+   "sha256": "2e4dfa684933ec6b",
+   "event": "Play_VO_Pine_ULT_AbilityXCast",
+   "media": "Pine.ULT.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Viper_ult_ally",
    "agent": "Viper",
    "variant": "ally",
-   "file": "Viper_ult_ally.mp3",
-   "sha256": "94b9f96a54da5a6c"
+   "file": "Viper/X/Play_VO_Pandemic_AbilityXCast__Pandemic.AbilityXCastAllies01.flac",
+   "sha256": "be408509aa886192",
+   "event": "Play_VO_Pandemic_AbilityXCast",
+   "media": "Pandemic.AbilityXCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Viper_ult_enemy",
    "agent": "Viper",
    "variant": "enemy",
-   "file": "Viper_ult_enemy.mp3",
-   "sha256": "53f690b8755a9132"
+   "file": "Viper/X/Play_VO_Pandemic_AbilityXCast__Pandemic.AbilityXCastEnemies01.flac",
+   "sha256": "1f19ec90d58aadb2",
+   "event": "Play_VO_Pandemic_AbilityXCast",
+   "media": "Pandemic.AbilityXCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Vyse_ult_ally",
    "agent": "Vyse",
    "variant": "ally",
-   "file": "Vyse_ult_ally.mp3",
-   "sha256": "c10b3fe7238847c8"
+   "file": "Vyse/X/Play_VO_Nox_AbilityXCast__Nox.Ability.XCastAllies01.flac",
+   "sha256": "06d6de6e3b77ce79",
+   "event": "Play_VO_Nox_AbilityXCast",
+   "media": "Nox.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Vyse_ult_enemy",
    "agent": "Vyse",
    "variant": "enemy",
-   "file": "Vyse_ult_enemy.mp3",
-   "sha256": "b3739e9621246b19"
+   "file": "Vyse/X/Play_VO_Nox_AbilityXCast__Nox.Ability.XCastEnemies01.flac",
+   "sha256": "7b1cdaa21936bf35",
+   "event": "Play_VO_Nox_AbilityXCast",
+   "media": "Nox.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Waylay_ult_ally",
    "agent": "Waylay",
    "variant": "ally",
-   "file": "Waylay_ult_ally.mp3",
-   "sha256": "1aa5257411f45a12"
+   "file": "Waylay/X/Play_VO_Terra_AbilityXCast__Terra.Ability.XCastAllies01.flac",
+   "sha256": "96fa6c044f008b43",
+   "event": "Play_VO_Terra_AbilityXCast",
+   "media": "Terra.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Waylay_ult_enemy",
    "agent": "Waylay",
    "variant": "enemy",
-   "file": "Waylay_ult_enemy.mp3",
-   "sha256": "16b4e3256f96d6f5"
+   "file": "Waylay/X/Play_VO_Terra_AbilityXCast__Terra.Ability.XCastEnemies01.flac",
+   "sha256": "3002cd98f6c42be3",
+   "event": "Play_VO_Terra_AbilityXCast",
+   "media": "Terra.Ability.XCastEnemies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Yoru_ult_ally",
    "agent": "Yoru",
    "variant": "ally",
-   "file": "Yoru_ult_ally.mp3",
-   "sha256": "988a66354e02b8d5"
+   "file": "Yoru/X/Play_VO_Stealth_AbilityXCast__Stealthboi.Ability.XCastAllies01.flac",
+   "sha256": "ced07dd3f74b5ded",
+   "event": "Play_VO_Stealth_AbilityXCast",
+   "media": "Stealthboi.Ability.XCastAllies01",
+   "ref_version": "vo-ref-0.1.0"
   },
   {
    "name": "Yoru_ult_enemy",
    "agent": "Yoru",
    "variant": "enemy",
-   "file": "Yoru_ult_enemy.mp3",
-   "sha256": "9b10ebf79c5b7d73"
+   "file": "Yoru/X/Play_VO_Stealth_AbilityXCast__Stealthboi.Ability.XCastEnemies02.flac",
+   "sha256": "7bf3b3a094825c50",
+   "event": "Play_VO_Stealth_AbilityXCast",
+   "media": "Stealthboi.Ability.XCastEnemies02",
+   "ref_version": "vo-ref-0.1.0"
   }
  ]
 }
