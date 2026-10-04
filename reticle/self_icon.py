@@ -87,12 +87,18 @@ def all_alive(roster_t, roster_alive, t_ms: float, n: int = 5) -> bool:
     return all(abs(rt[k] - t_ms) <= ROSTER_GAP_MS and roster_alive[k] == n for k in (lo, hi))
 
 
-def read_frame(crop: np.ndarray, ctx: dict, gal: dict, references: dict | None = None) -> dict:
+def read_frame(crop: np.ndarray, ctx: dict, gal: dict, references: dict | None = None,
+               turned: bool = False) -> dict:
     """One frame's self-icon reading: the fit and the scores, or a refusal.
 
     `ctx` holds the baked geometry's `floor`, `slab`, `static` and `sgray`;
     `gal` is `lineup.load_gallery`'s and `references` the rendered-art table
-    (`identity.load_ally_portrait_references`), or None."""
+    (`identity.load_ally_portrait_references`), or None. `turned` says the
+    session's widget placement at this frame is rotated 180 degrees, so the
+    portrait arrives upside down in the baked frame and is turned back
+    before its features are taken (`turned_widget`)."""
+    import cv2
+
     from . import ally_portrait
     from .adjudication.identity import rendered_art_scores
     from .lineup import _composition, gallery_scores
@@ -138,12 +144,32 @@ def read_frame(crop: np.ndarray, ctx: dict, gal: dict, references: dict | None =
     row["composition_scores"] = {n: round(v, 5)
                                  for n, v in sorted(gallery_scores(hq, gal).items())}
     img = ally_portrait.align_icon(crop, f["cx"], f["cy"])
+    if turned:
+        # `align_icon` puts the fitted centre at the middle pixel, so a flip of
+        # both axes turns the portrait about its own centre.
+        img = cv2.rotate(img, cv2.ROTATE_180)
+        row["turned"] = True
     feats = ally_portrait.portrait_features(img, portrait_key(img))
     row["portrait_features"] = ally_portrait.stored(feats)
     art = (rendered_art_scores(feats, sorted(references["agents"]), references)
            if references else None)
     row["art_scores"] = None if art is None else {n: round(v, 5) for n, v in art.items()}
     return {**row, "reason": None}
+
+
+def turned_widget(cache, t_ms: float) -> bool:
+    """True where the session's stored widget placement at `t_ms` is rotated
+    180 degrees (`widget_frame.WidgetFrame.at`).
+
+    `RoiCache.samples` resamples such a widget into the baked frame, which
+    turns the map back and the portraits upside down: portraits keep their
+    on-screen orientation on a turned map
+    [domain:minimap/upright-icons-on-turned-map]. On 4f207c0c4e39 the
+    upright half's frames ranked Iso first among the ally five and the turned
+    half's ranked Phoenix."""
+    wf = getattr(cache, "widget", None)
+    seg = wf.at(t_ms) if wf is not None else None
+    return bool(seg is not None and int(seg.get("rotation") or 0) % 360 == 180)
 
 
 def _mean(dicts: list[dict]) -> dict:
@@ -203,6 +229,7 @@ def read_session(store, sid: str, gal: dict, references: dict | None = None,
     from .minimap import floor_mask, slab_mask
     from .profiles import get_profile
     from .roi_cache import RoiCache
+    from .widget_frame import WIDGET_FRAME_VERSION
 
     man = store.read_manifest(sid)
     cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
@@ -243,7 +270,8 @@ def read_session(store, sid: str, gal: dict, references: dict | None = None,
                                "reason": "widget_not_drawn"})
                 continue
             frames.append({"kind": "frame", "t_ms": float(smp.t_ms), "cache_span": si,
-                           **read_frame(crop, ctx, gal, references)})
+                           **read_frame(crop, ctx, gal, references,
+                                        turned=turned_widget(cache, smp.t_ms))})
     frames.sort(key=lambda r: r["t_ms"])
     counts = {k: sum(r["reason"] == k for r in frames) for k in REFUSALS}
     head = {"kind": "coverage", "session": sid, "self_icon_version": SELF_ICON_VERSION,
@@ -255,6 +283,10 @@ def read_session(store, sid: str, gal: dict, references: dict | None = None,
             "geometry_key": gkey, "geometry_built_by": geometry_stamp(store.root, gkey),
             "parameters": {"step_s": step_s, "MIN_PIXELS": MIN_PIXELS,
                            "ROSTER_GAP_MS": ROSTER_GAP_MS},
+            # The stored placement the portraits were turned by, if any.
+            "widget_frame": (None if getattr(cache, "widget", None) is None else
+                             {"version": WIDGET_FRAME_VERSION,
+                              "turned_scored": sum(bool(r.get("turned")) for r in frames)}),
             "grid_frames": len(frames), "scored": sum(r["reason"] is None for r in frames),
             "refused": counts, "witness": icon_witness(frames, references)}
     for r in frames:

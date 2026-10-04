@@ -315,6 +315,36 @@ class BurstTests(unittest.TestCase):
         self.assertEqual({r["kind"] for r in res["rows"][1:]}, {"cast"})
         self.assertTrue(all(r["burst"] is None for r in res["rows"][1:]))
 
+    def test_unselected_peaks_above_the_floor_make_a_burst(self):
+        # One selection beside two sub-threshold peaks of other templates.
+        res = uc.adjudicate("s", _stored(_peak(50.0, "Jett", "ally", 0.05),
+                                         _peak(50.5, "Viper", "enemy", 0.04),
+                                         _peak(51.0, "Neon", "enemy", 0.038)),
+                            self.lu, ROUNDS, "round-test")
+        rows = res["rows"][1:]
+        self.assertEqual([(r["template"], r["kind"], r["reason"]) for r in rows],
+                         [("Jett_ult_ally", "refusal", "burst")])
+        self.assertEqual(rows[0]["burst"], {"n": 3, "best_score": 0.05, "t0_s": 50.0})
+        self.assertEqual(res["rows"][0]["burst"]["floor"], uc.BURST_FLOOR)
+
+    def test_peaks_under_the_floor_make_no_burst(self):
+        res = uc.adjudicate("s", _stored(_peak(50.0, "Jett", "ally", 0.05),
+                                         _peak(50.5, "Viper", "enemy", 0.034),
+                                         _peak(51.0, "Neon", "enemy", 0.034)),
+                            self.lu, ROUNDS, "round-test")
+        self.assertEqual([(r["template"], r["kind"]) for r in res["rows"][1:]],
+                         [("Jett_ult_ally", "cast")])
+
+    def test_the_coverage_row_says_whether_any_line_was_heard(self):
+        quiet = uc.adjudicate("s", _stored(_peak(50.0, "Jett", "ally", 0.06)),
+                              self.lu, ROUNDS, "round-test")["rows"][0]["vo_heard"]
+        self.assertEqual((quiet["heard"], quiet["reason"]), (False, "no_line_above_bound"))
+        loud = uc.adjudicate("s", _stored(_peak(50.0, "Jett", "ally", 0.4)),
+                             self.lu, ROUNDS, "round-test")["rows"][0]["vo_heard"]
+        self.assertEqual((loud["heard"], loud["best_template"]), (True, "Jett_ult_ally"))
+        none = uc.adjudicate("s", _stored(), self.lu, ROUNDS, "round-test")["rows"][0]["vo_heard"]
+        self.assertEqual((none["heard"], none["reason"]), (None, "no_peaks"))
+
     def test_bursts_chain_within_the_span(self):
         got = uc.burst_of([1.0, 2.0, 3.0, 4.5, 6.0, 20.0], [0.1, 0.2, 0.3, 0.4, 0.5, 0.9])
         self.assertEqual([None if b is None else b["n"] for b in got], [4, 4, 4, 4, None, None])
@@ -413,6 +443,38 @@ class WitnessTests(unittest.TestCase):
         self.assertEqual(r["rests_on"][0]["stream"], "tray_drop")
         self.assertEqual(res["rows"][0]["missed_lines"], 0)
         self.assertEqual(res["rows"][0]["witness"]["tray_accepted"], 1)
+
+
+class DropPhaseTests(unittest.TestCase):
+
+    def test_phase_reads_the_onset_against_the_rounds_drop(self):
+        drops = {1: 40000.0}
+        self.assertEqual(uc.drop_phase(20000.0, 1, drops)[0]["phase"], "buy")
+        self.assertEqual(uc.drop_phase(38600.0, 1, drops)[0]["phase"], "at_drop")
+        self.assertEqual(uc.drop_phase(41500.0, 1, drops)[0]["phase"], "at_drop")
+        self.assertEqual(uc.drop_phase(41600.0, 1, drops)[0]["phase"], "live")
+        self.assertEqual(uc.drop_phase(41000.0, 1, drops)[0]["dt_s"], 1.0)
+        self.assertEqual(uc.drop_phase(41000.0, None, drops), (None, "outside_round"))
+        self.assertEqual(uc.drop_phase(41000.0, 2, drops), (None, "round_has_no_drop"))
+        self.assertEqual(uc.drop_phase(41000.0, 1, None), (None, "no_drops"))
+
+    def test_rows_carry_the_drop_and_selection_is_unchanged(self):
+        lu = _lineup("s", ALLY, ENEMY)
+        peaks = _stored(_peak(15.0, "Reyna", "enemy", 0.20), _peak(41.0, "Jett", "ally", 0.10),
+                        _peak(70.0, "Killjoy", "ally", 0.09))
+        plain = uc.adjudicate("s", peaks, lu, ROUNDS, "round-test")
+        res = uc.adjudicate("s", peaks, lu, ROUNDS, "round-test", drops_ms={1: 40000.0})
+        strip = lambda rs: [{k: v for k, v in r.items() if k not in ("drop", "drop_reason")}
+                            for r in rs["rows"][1:]]
+        self.assertEqual(strip(plain), strip(res))
+        by = {r["template"]: r for r in res["rows"][1:]}
+        self.assertEqual(by["Reyna_ult_enemy"]["drop"]["phase"], "buy")
+        self.assertEqual(by["Jett_ult_ally"]["drop"]["phase"], "at_drop")
+        self.assertEqual(by["Killjoy_ult_ally"]["drop"]["phase"], "live")    # a refusal
+        self.assertIsNone(plain["rows"][1]["drop"])
+        self.assertEqual(plain["rows"][1]["drop_reason"], "no_drops")
+        cov = res["rows"][0]["drop"]
+        self.assertEqual((cov["cast_buy"], cov["cast_at_drop"], cov["refusal_live"]), (1, 1, 1))
 
 
 if __name__ == "__main__":
