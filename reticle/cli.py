@@ -75,7 +75,8 @@ from .profiles import DEFAULT_PROFILE, MinimapMode, get_profile
 from .segment import HUD_CHROME_ROIS, STATES, SegmentConfig, classify, segment
 from .store import DEFAULT_STORE, Store
 from .version import (ALLY_ICON_VERSION, COMBAT_REPORT_VERSION, MINIMAP_DARK_VERSION, SMOKE_VERSION, EXTRACTOR_VERSION, HUD_VERSION, MINIMAP_VERSION, PING_VERSION,
-                      PLANT_GRAPHIC_VERSION, ROSTER_VERSION, SCOREBOARD_VERSION, SEGMENTER_VERSION)
+                      PLANT_GRAPHIC_VERSION, ROSTER_VERSION, ROUND_OUTCOME_CLAIM_VERSION,
+                      ROUND_OUTCOME_VERSION, SCOREBOARD_VERSION, SEGMENTER_VERSION)
 from .hud_reader import HudReader
 
 _HudPass = HudReader
@@ -1965,6 +1966,74 @@ def cmd_strip(args) -> int:
     return 0
 
 
+def round_outcome_streams(store, man: dict) -> dict:
+    """The `round_outcome` stream for one session from stored data, written
+    nowhere: the reader's coverage and `frame` rows (`round_outcome`, over
+    the scoreboard crop cache on frames the strip witness read `present`),
+    then one `round_outcome_claim` row per stored round
+    (`adjudication.round_outcome`). Returns `{"rows"}` or `{"refused"}`."""
+    from . import round_outcome as ro
+    from .adjudication.round_outcome import pool_outcomes
+    from .roi_cache import RoiCache
+    from .scoreboard import strip_rect, table_columns
+    from .scoreboard_strip import ROW_Y
+    from .version import SCOREBOARD_STRIP_VERSION
+
+    sid = man["session_id"]
+    strip = store.read_events("scoreboard_strip", sid) or []
+    stamp = strip[0].get("scoreboard_strip_version") if strip else None
+    if stamp != SCOREBOARD_STRIP_VERSION:
+        return {"refused": f"strip rows {'absent' if stamp is None else 'at ' + stamp}, "
+                           f"current is {SCOREBOARD_STRIP_VERSION} -- run `reticle strip {sid}`"}
+    cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "scoreboard")
+    if cache is None:
+        return {"refused": f"no scoreboard crop cache ({why})"}
+    rounds = store.read_rounds(sid, _date_of(man))
+    if rounds is None:
+        return {"refused": f"no stored rounds -- run `reticle rounds {sid}`"}
+    W, H = int(man["source"]["width"]), int(man["source"]["height"])
+    srect = strip_rect(man["source_profile"], W, H)
+    held = {float(t) for t in cache.t_ms}
+    present = [float(r["t_ms"]) for r in strip if r.get("kind") == "sample"
+               and r.get("verdict") == "present" and float(r["t_ms"]) in held]
+    if not present:
+        return {"refused": "no frame the strip reads present"}
+    x0, _, x1, _ = cache.record["rects"][0]
+    y0, y1 = ROW_Y[0] - ro.BAND_PAD, ROW_Y[1] + ro.BAND_PAD + 1
+    icons = ro.load_outcome_icons(store.root, H)
+    pick = present[:: max(1, len(present) // ro.FIT_FRAMES)][: ro.FIT_FRAMES]
+    fit = [(x0, smp.frame[y0:y1, x0:x1].copy()) for smp in cache.samples(pick)]
+    geometry = ro.fit_columns(fit, box=ro.history_box(table_columns(srect), H), height=H)
+    reads = []
+    if geometry.get("refusal") is None:
+        reads = [(smp.frame_idx, smp.t_ms, ro.read_cells(smp.frame[y0:y1, x0:x1], x0,
+                                                         geometry["columns"], icons))
+                 for smp in cache.samples(present)]
+    rows = ro.outcome_events(sid, reads, geometry, cache.record["version"], stamp)
+    claims = pool_outcomes(sid, rows, rounds.to_pylist())
+    return {"rows": rows + claims, "claims": claims, "geometry": geometry}
+
+
+def cmd_round_outcome(args) -> int:
+    """How each round ended, from the Tab board's round-history strip in the
+    scoreboard crop cache (`round_outcome`), pooled into one claim per round
+    (`adjudication.round_outcome`). Decodes no video."""
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        got = round_outcome_streams(store, store.read_manifest(sid))
+        if "refused" in got:
+            print(f"{sid}: {got['refused']} -- skipped")
+            continue
+        out = store.write_events("round_outcome", sid, got["rows"])
+        claims = got["claims"]
+        named = Counter(c["end_reason"] for c in claims if c["end_reason"])
+        refused = Counter(c["refusal"] for c in claims if c["refusal"])
+        print(f"{sid}: {len(claims)} rounds, {dict(named)}, refused {dict(refused)}, "
+              f"{sum(bool(c.get('won_disagrees')) for c in claims)} disagree with stored `won` "
+              f"-> {out}")
+    return 0
+
+
 def _presence_counts(samples: list[dict], on=None) -> dict:
     """Open samples, holds, single-sample holds and one-sample holes under one
     reading of presence (`adjudication.scoreboard.presence_runs`)."""
@@ -3197,7 +3266,7 @@ def cmd_deaths(args) -> int:
 
 
 def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=None,
-                  names=None) -> dict:
+                  names=None, outcome_claims=None) -> dict:
     """The `death` stream's summary, verdict rows and collisions, and the
     `death_identity` events, from stored data; writes nothing. `set_aside`
     holds a `merged_entry` row per death folded into an earlier one and a
@@ -3207,9 +3276,14 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
     `hud`, `portraits`, `weapons` and `names` replace the stored HUD table and
     killfeed streams, as a reader trial produces them in memory
     (`prototypes/killfeed_trial_deaths.py`); given, they are taken at the
-    code's stamps."""
+    code's stamps; `outcome_claims` replaces the stored round-outcome claims
+    the same way. `inferred` holds an `inferred_death` row per death a
+    capture stall swallowed (`infer_stall_deaths`) and an
+    `inferred_death_refusal` row per stalled round it refused; both also sit
+    in `set_aside`, so no `death_verdict` consumer reads them."""
     from .adjudication.death import (DEATH_ADJUDICATION_VERSION, adjudicate_session_deaths,
-                                     death_verdict_to_events, stored_second_life)
+                                     death_verdict_to_events, infer_stall_deaths,
+                                     stored_second_life)
     from .adjudication.identity import AGENT_IDENTITY_VERSION, load_identity_gallery
     from .adjudication.killfeed_names import KILLFEED_NAME_CLUSTER_VERSION
     from .adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
@@ -3281,6 +3355,15 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
             second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION),
             weapon_observations=weapons, name_observations=names, reliability=rel,
             xmarks=births, store_root=store.root, stalls=stall_spans)
+    # How each round ended (`round_outcome_claim` rows at the code's stamps):
+    # a round that ended by elimination inside a stall's gap kills the losing
+    # side's living members there. Missing or stale claims refuse every
+    # stalled round as `outcome_unread`.
+    with usage_step("stall_deaths"):
+        claims = (outcome_claims if outcome_claims is not None
+                  else stored_outcome_claims(store, sid))
+        stalled = infer_stall_deaths(sid, res["rounds"], rounds, stall_spans, claims, lineup,
+                                     store.read_roster(sid, date), hud)
     common = {"session_id": sid, "source": "death",
               "death_adjudication_version": DEATH_ADJUDICATION_VERSION}
 
@@ -3310,6 +3393,8 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
             set_aside += [row("merged_entry", r, e, v, merge=m) for e, v, m in r.get("merged", [])]
             set_aside += [row("refused_entry", r, e, v, refusal=why)
                           for e, v, why in r.get("refused", [])]
+        inferred = ([{**common, "kind": "inferred_death", **x} for x in stalled["inferred"]]
+                    + [{**common, "kind": "inferred_death_refusal", **x} for x in stalled["refused"]])
     with usage_step("summary_head"):
         collisions = [{**common, **c} for r in res["rounds"] for c in r.get("collisions", [])]
         status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
@@ -3326,6 +3411,9 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                 "merged": dict(Counter(m["rule"] for m in res.get("merges", []))),
                 "refused_entries": dict(Counter(x["reason"] for x in res.get("refusals", []))),
                 "stalls": None if stall_spans is None else len(stall_spans),
+                # Deaths a stall swallowed, inferred from the round's end.
+                "inferred_deaths": len(stalled["inferred"]),
+                "inferred_refusals": dict(Counter(x["refusal"] for x in stalled["refused"])),
                 # Each entry's type (`decide_entry_type`): resolved types, and
                 # refusals by reason; which witnesses spoke for each revive.
                 "entry_types": dict(Counter(
@@ -3362,9 +3450,25 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                            "round": rounds[0].get("round_version") if rounds else None,
                            "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION,
                            "reliability": RELIABILITY_VERSION if rel is not None else None,
-                           "stalls": stalls.STALL_VERSION if stall_spans is not None else None}}
+                           "stalls": stalls.STALL_VERSION if stall_spans is not None else None,
+                           "round_outcome": ROUND_OUTCOME_VERSION if claims is not None else None,
+                           "round_outcome_claim": (ROUND_OUTCOME_CLAIM_VERSION
+                                                   if claims is not None else None)}}
     return {"head": head, "rows": rows, "collisions": collisions, "events": events,
-            "set_aside": set_aside, "result": res, "n_rounds": len(rounds)}
+            "set_aside": set_aside + inferred, "inferred": inferred, "result": res,
+            "n_rounds": len(rounds)}
+
+
+def stored_outcome_claims(store, sid: str) -> list[dict] | None:
+    """The `round_outcome` stream's claims when reader and pooling stamps are
+    the code's; None otherwise (a stale claim is unread, never trusted)."""
+    rows = store.read_events("round_outcome", sid) or []
+    claims = [r for r in rows if r.get("kind") == "round_outcome_claim"]
+    if not claims or any(r.get("round_outcome_claim_version") != ROUND_OUTCOME_CLAIM_VERSION
+                         or r.get("round_outcome_version") != ROUND_OUTCOME_VERSION
+                         for r in claims):
+        return None
+    return claims
 
 
 def cmd_plan(args) -> int:
@@ -5362,6 +5466,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("session", nargs="?")
     s.add_argument("--all", action="store_true", help="every session")
     s.set_defaults(func=cmd_strip)
+
+    s = sub.add_parser("round-outcome", help="how each round ended (elimination, defuse, "
+                                             "detonation, time) from the Tab board's "
+                                             "round-history strip, from stored crops (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.set_defaults(func=cmd_round_outcome)
 
     s = sub.add_parser("openings", help="scoreboard openings from the slab test and the strip "
                                         "together, from storage (no video)")

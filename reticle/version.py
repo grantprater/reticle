@@ -183,6 +183,19 @@ assert all(stored in SCOREBOARD_VERDICT_COMPATIBLE
 # `scoreboard_strip` rows by `reticle strip`. 0.1.0 ports the rule and
 # constants of `prototypes/scoreboard_strip.py` at its 0.2.0.
 SCOREBOARD_STRIP_VERSION = "scoreboard-strip-0.1.0"
+# The round-end icon in each cell of the Tab board's round-history strip, read
+# by `round_outcome` from the scoreboard crop cache on frames the strip witness
+# reads present, and written as `round_outcome` rows by `reticle round-outcome`.
+# 0.1.0 (2026-10-03): the build's four MatchOutcomes alphas at the widget's
+# 19-unit slot, INTER_AREA, against soft colourfulness; columns fitted from the
+# strip witness's marks and checked against the widget JSON's inset.
+ROUND_OUTCOME_VERSION = "round-outcome-0.1.0"
+# How each round ended, pooled from the `round_outcome` cells by
+# `adjudication.round_outcome` and written as `round_outcome_claim` rows.
+# 0.1.0 (2026-10-03): column N is the stored round with score_us + score_them
+# = N - 1; only frames after the stored round end vote; at least 2 votes and
+# 80% agreement on reason and line, else a refusal with the votes kept.
+ROUND_OUTCOME_CLAIM_VERSION = "round-outcome-claim-0.1.0"
 EXTRACTOR_VERSION = "l1-0.1.0"
 SEGMENTER_VERSION = "seg-0.2.0"
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the
