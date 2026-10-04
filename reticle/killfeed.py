@@ -605,6 +605,12 @@ class KillfeedRead:
     # `no_divider` is the ability-kill signature; see BAND_REFUSALS.
     unparsed: int = 0
     unparsed_reason: str | None = None
+    # Bands refused before they became views, and why the first was: masked
+    # out by an overlay, no plate colour, or a one-colour candidate without an
+    # entry's furniture (`one_colour:<reason>`). Until hud-0.19.0 only the
+    # census saw these reasons.
+    dropped_bands: int = 0
+    dropped_band_reason: str | None = None
     # Entries whose killer or victim name was covered by a toggled overlay. They
     # are neither kills nor deaths *nor* confirmed non-player entries -- a
     # non-zero count here is a capture problem, not a code one.
@@ -773,7 +779,7 @@ def overlay_mask(
 
 def _row_profile(
     green: np.ndarray, red: np.ndarray, usable: np.ndarray | None = None,
-    usable_prefix: np.ndarray | None = None,
+    usable_prefix: np.ndarray | None = None, both: bool = True,
 ) -> np.ndarray:
     """How solidly each row is filled by an entry's two plates.
 
@@ -798,6 +804,14 @@ def _row_profile(
     would drag the row under PLATE_ROW_FRAC and dissolve the band -- so an entry
     sitting behind the shooting-error box was not reported occluded, it simply
     never existed. Two of six on-screen entries were being lost that way.
+
+    `both=False` asks for either colour instead, the profile of a ONE-COLOUR
+    entry: a spike or self kill, a team kill, a Not Dead Yet expiry
+    [domain:killfeed/revive-entries]. At e37fdeca944f 2038.5 s such a banner
+    fills about 0.40 of each row with red and none with green, so the
+    both-colour profile reads 0 there. Colour alone admits warm scenery
+    too; `_one_colour_bands` takes these rows only as candidates, and
+    `analyse_killfeed` admits one only on its own furniture.
     """
     plate = (green | red).astype(np.int32)
     rows = np.arange(plate.shape[0])
@@ -816,11 +830,9 @@ def _row_profile(
                else usable.astype(np.int32).cumsum(axis=1))
         seen = (vis[rows, hi] - vis[rows, lo] + usable[rows, lo]).astype(np.float64)
     prof = np.divide(inside, seen, out=np.zeros(plate.shape[0]), where=seen > 0)
-    both = (
-        (green.mean(axis=1) > ROW_COLOUR_FRAC)
-        & (red.mean(axis=1) > ROW_COLOUR_FRAC)
-    )
-    return np.where(both, prof, 0.0)
+    g_on = green.mean(axis=1) > ROW_COLOUR_FRAC
+    r_on = red.mean(axis=1) > ROW_COLOUR_FRAC
+    return np.where((g_on & r_on) if both else (g_on | r_on), prof, 0.0)
 
 
 def _join_split_runs(runs: list[tuple[int, int]],
@@ -885,20 +897,64 @@ def _entry_bands(
     neighbour's text.
     """
     on = _row_profile(green, red, usable, usable_prefix) > PLATE_ROW_FRAC
-    limit = len(on)
+    return _bands_from_rows(on, s)[:MAX_SLOTS]
 
-    runs: list[tuple[int, int]] = []
-    i = 0
-    while i < limit:
-        if not on[i]:
-            i += 1
-            continue
-        j = i
-        while j < limit and on[j]:
-            j += 1
-        runs.append((i, j))
-        i = j
-    runs = _join_split_runs(runs, s)
+
+def _row_runs(on: np.ndarray) -> list[tuple[int, int]]:
+    """Half-open spans of consecutive True rows."""
+    edges = np.diff(np.concatenate(([0], on.astype(np.int8), [0])))
+    return list(zip(np.flatnonzero(edges == 1).tolist(), np.flatnonzero(edges == -1).tolist()))
+
+
+def _one_colour_bands(
+    green: np.ndarray, red: np.ndarray, taken: list[tuple[int, int]],
+    usable: np.ndarray | None = None, usable_prefix: np.ndarray | None = None,
+    s: "KillfeedScale" = UNIT_SCALE,
+) -> list[tuple[int, int]]:
+    """Candidate bands of ONE plate colour, in rows no two-colour band holds.
+
+    A spike or self kill, a team kill or a Not Dead Yet expiry draws its
+    whole banner in one colour, and `_row_profile`'s both-colour test reads
+    those rows as empty: ten deaths Riot records went unread that way. Here
+    the rows of either colour (`_row_profile(both=False)`) outside `taken`
+    become runs, split and padded as `_entry_bands` does, and a pad never
+    crosses into a taken band. These are candidates, never entries: warm or
+    teal scenery passes one colour too, and `analyse_killfeed` admits a
+    candidate only when an icon divides two names in it."""
+    on = _row_profile(green, red, usable, usable_prefix, both=False) > PLATE_ROW_FRAC
+    for a, z in taken:
+        on[a:z] = False
+    return _bands_from_rows(on, s, taken, grid=True)
+
+
+#: Where a resting entry's plate top lies, ROI px at 1080p: FIRST_Y plus this
+#: pitch per slot [domain:killfeed/slot-pitch]. `PITCH` (40) splits runs; this
+#: places a band where no run edge can.
+REST_PITCH = 39
+
+
+def _rest_slots(a: int, z: int, s: "KillfeedScale") -> list[tuple[int, int]]:
+    """The resting entry bands (FIRST_Y + REST_PITCH k, ENTRY_H tall) that lie
+    inside rows a..z, within BASELINE_TOL. A one-colour entry over scenery of
+    its own colour joins one run with it: at 4f207c0c4e39 1582.0 s a teal
+    banner and a teal sign below it made 53 rows, too tall for one entry, and
+    the banner was never a band. A resting entry sits on the slot grid
+    whatever lies beside it, so the grid places the band the run cannot."""
+    tol = s.px(BASELINE_TOL)
+    tops = (s.px(FIRST_Y) + s.px(REST_PITCH) * np.arange(MAX_SLOTS)).round().astype(int)
+    h = s.n(ENTRY_H)
+    return [(int(y), int(y) + h) for y in tops if y >= a - tol and y + h <= z + tol]
+
+
+def _bands_from_rows(on: np.ndarray, s: "KillfeedScale",
+                     fixed: list[tuple[int, int]] = (),
+                     grid: bool = False) -> list[tuple[int, int]]:
+    """`_entry_bands`' runs, split and padding over a row mask; `fixed` bands
+    bound the padding as neighbours and are not returned. With `grid`, a run
+    too tall for one entry and too short for two yields the resting slots
+    that lie inside it (`_rest_slots`) instead of nothing."""
+    limit = len(on)
+    runs = _join_split_runs(_row_runs(on), s)
 
     split: list[tuple[int, int]] = []
     lo, hi = s.px(MIN_BAND_H), s.px(MAX_BAND_H)
@@ -908,6 +964,8 @@ def _entry_bands(
         if k == 1:
             if lo <= h <= hi:
                 split.append((a, z))
+            elif grid and h > hi:
+                split.extend(_rest_slots(a, z, s))
         else:
             step = h / k
             for m in range(k):
@@ -917,16 +975,19 @@ def _entry_bands(
                     split.append((a2, z2))
 
     bands: list[tuple[int, int]] = []
+    fixed = sorted(fixed)
     for idx, (a, z) in enumerate(split):
         short = s.n(ENTRY_H) - (z - a)
         if short > 0:
             up = short // 2
             floor = split[idx - 1][1] if idx else 0
             ceil = split[idx + 1][0] if idx + 1 < len(split) else limit
+            floor = max([floor] + [fz for fa, fz in fixed if fz <= a])
+            ceil = min([ceil] + [fa for fa, fz in fixed if fa >= z])
             a = max(0, floor, a - up)
             z = min(limit, ceil, z + (short - up))
         bands.append((a, z))
-    return bands[:MAX_SLOTS]
+    return bands
 
 
 _ME_CACHE: dict[str, tuple] = {}
@@ -1059,6 +1120,14 @@ def _match_me(region: np.ndarray, tpl_info, side: int,
             best_s, best_w = score, width
     return best_w, best_s
 
+
+#: A one-colour band's divider must lie within these gaps of a name glyph on
+#: the baseline, base px: the killer's name ends 6-29 px before the icon, and
+#: the icon ends 10-28 px before the next element, which is the victim's name
+#: or a headshot mark 24-25 px wide whose own gap to the name is 19-20 px
+#: [domain:killfeed/killfeed-element-spacing], so at most about 28 + 25 + 20.
+ONE_COLOUR_KILLER_GAP = 32
+ONE_COLOUR_VICTIM_GAP = 73
 
 #: Why `_band_text` refused a band, in the order the guards run. Each is a
 #: different *kind* of failure and they do not deserve one name between them:
@@ -1203,9 +1272,28 @@ def _stroke_groups(st: np.ndarray, art: set, on_line, s: "KillfeedScale") -> lis
     return out
 
 
+def _soft_stroke_groups(soft: np.ndarray, line: int, s: "KillfeedScale") -> list[np.ndarray]:
+    """`_stroke_groups` over the plate-relative white cut (`slot_white_mask`).
+
+    A thin-stroked icon is anti-aliased into the plate, so the fixed V/S cut
+    keeps only its brightest pixels, in pieces under MIN_COMP_AREA that no
+    pass can join. Judged against its own plate (PLATE_WHITE_CUT, the
+    half-coverage point) the strokes hold together. Every piece takes part;
+    a glyph-sized piece whose bottom lies on the names' baseline `line` is a
+    name glyph and joins a group only from inside its box."""
+    n, _lab, st, _ = cv2.connectedComponentsWithStats(soft.astype(np.uint8), 8)
+    if n <= 1:
+        return []
+    gw, gh = (s.px(GLYPH_W[0]), s.px(GLYPH_W[1])), (s.px(GLYPH_H[0]), s.px(GLYPH_H[1]))
+    glyph = ((st[:, 2] >= gw[0]) & (st[:, 2] <= gw[1]) & (st[:, 3] >= gh[0]) & (st[:, 3] <= gh[1])
+             & (np.abs(st[:, 1] + st[:, 3] - line) <= s.px(BASELINE_TOL)))
+    return _stroke_groups(st, set(range(1, n)), lambda i: bool(glyph[i]), s)
+
+
 def _band_text(
     white: np.ndarray, usable: np.ndarray | None = None, plates=None,
     value: np.ndarray | None = None, s: "KillfeedScale" = UNIT_SCALE,
+    soft_white=None, one_colour: bool = False,
 ):
     """Isolate the band's name text and locate the weapon icon dividing it.
 
@@ -1227,6 +1315,20 @@ def _band_text(
     Two other bright things in a band would otherwise be taken for a name: the
     headshot icon, which sits between the weapon icon and the victim's name and
     is about as wide as "Me", and the portraits at either end.
+
+    `soft_white`, a callable returning the band's plate-relative white cut
+    (`slot_white_mask`), feeds one last pass (`_soft_stroke_groups`): an icon
+    drawn in strokes too thin for the fixed cut, offered only where the
+    plates meet at one seam.
+
+    `one_colour` marks a band of one plate colour, which has no seam to bound
+    its divider. There a divider must also sit at an entry's spacing from the
+    names (`ONE_COLOUR_KILLER_GAP`, `ONE_COLOUR_VICTIM_GAP`), and each name
+    must be text, MIN_NAME_PARTS glyphs or more under NAME_GAP apart: at
+    4f207c0c4e39 890.0 s the assist panel's portrait, 66 px left of the
+    killer's name, divided scenery glyphs from the name and won on size, and
+    at e37fdeca944f 174.5 s a poster's specks either side of an astronaut's
+    helmet passed as names.
     """
     wb = white.astype(np.uint8)
     n, lab, st, _cen = cv2.connectedComponentsWithStats(wb, 8)
@@ -1276,7 +1378,12 @@ def _band_text(
     # 75a55a296d3b 504.5 s, Hot Hands' 12x18 flame) was never reached: 45 of
     # 56 ability and spike kills Riot records and the store missed were
     # refused here. Now it means no candidate of any tier or group.
-    if not big and not small and not (value is not None and (tiny_pool or groups or soft)):
+    seam = plate_seam(*plates, s=s) if plates is not None else None
+    # The plate-relative pass (`_soft_stroke_groups`) needs line art, glyphs
+    # and a seam; without all three, a band with no candidate is `no_icon`.
+    thin = soft_white is not None and value is not None and seam is not None and bool(cand)
+    no_tier = not big and not small and not (value is not None and (tiny_pool or groups or soft))
+    if no_tier and not thin:
         return "no_icon"
     if not cand:
         return "no_glyphs"
@@ -1357,7 +1464,33 @@ def _band_text(
         return boxes[i]
 
     divides = lambda i, left, right: ((left < box(i)[0]).any()
-                                      and (right > box(i)[1]).any())
+                                      and (right > box(i)[1]).any()
+                                      and (not one_colour or spaced(box(i))))
+    if one_colour or thin:
+        on_base = np.array([abs(int(st[i, 1] + st[i, 3]) - line) <= s.px(BASELINE_TOL)
+                            for i in cand])
+        name_x0 = np.array([st[i, 0] for i in cand])
+        name_x1 = np.array([st[i, 0] + st[i, 2] for i in cand])
+
+        def name_parts(near, far, base, gap) -> int:
+            """Glyphs on the baseline in a name that starts within `gap` of the
+            divider: `near` and `far` are each glyph's edges toward and away
+            from it, as distances from it. Letters of one name sit under
+            NAME_GAP apart, and a descender ("y") links them though it ends
+            below the baseline."""
+            o = np.argsort(near)
+            near, far, base = near[o], far[o], base[o]
+            if near.size == 0 or near[0] > s.px(gap):
+                return 0
+            breaks = np.flatnonzero(near[1:] - np.maximum.accumulate(far)[:-1] > s.px(NAME_GAP))
+            return int(base[:breaks[0] + 1 if breaks.size else near.size].sum())
+
+        def spaced(b) -> bool:
+            left, right = name_x1 <= b[0], name_x0 >= b[1]
+            return (name_parts(b[0] - name_x1[left], b[0] - name_x0[left], on_base[left],
+                               ONE_COLOUR_KILLER_GAP) >= MIN_NAME_PARTS
+                    and name_parts(name_x0[right] - b[1], name_x1[right] - b[1],
+                                   on_base[right], ONE_COLOUR_VICTIM_GAP) >= MIN_NAME_PARTS)
     # (3) A line-art stroke group (`_stroke_groups`) with name glyphs on the
     # baseline to its left. (4) Last, a knife-sized piece or a group of any
     # tint, with name glyphs on the baseline on BOTH sides, so a piece of a
@@ -1370,7 +1503,6 @@ def _band_text(
     # A tall piece of the victim's portrait divided "CEOofTree [Paint Shells]
     # aatrox" inside the victim's plate at 4f207c0c4e39 1759.0 s without it.
     art_set = set(tiers[4]) if value is not None else set()
-    seam = plate_seam(*plates, s=s) if plates is not None else None
     tall = lambda ids: [i for i in ids if st[i, 3] > gh[1]
                         and (seam is None or st[i, 0] + st[i, 2] <= seam + s.px(BASELINE_TOL))]
     late = ([([tall(group_ids)], named, glyph_cols)] if group_ids else []) + (
@@ -1387,6 +1519,26 @@ def _band_text(
                 break
         if wep is not None:
             break
+    if wep is None and thin:
+        # (5) Last of all, an icon in strokes the fixed cut breaks into
+        # pieces under MIN_COMP_AREA: Raze's Paint Shells at 4f207c0c4e39
+        # 1760.5 s is a thin ring of pieces of 1 to 8 px, 52 px in all, and
+        # the band went `no_icon`. The plate-relative cut keeps its strokes
+        # (109 px). Same bars as pass (4): names on both sides, taller than
+        # a glyph, ending by the seam; and, as on a one-colour band, a run of
+        # name glyphs beside it on each side (`spaced`). The softer cut keeps
+        # strands of the killer's hair: without that bar the divider flipped
+        # between the portrait (193-216) and the ability icon (296-317) frame
+        # to frame at 96aa1ae9b96f 1043.5-1044.5 s, and each flip split the
+        # entry into a false death.
+        thin_rows = _soft_stroke_groups(soft_white(), line, s)
+        if thin_rows:
+            thin_ids = list(range(len(st), len(st) + len(thin_rows)))
+            st = np.vstack([st] + thin_rows)
+            wep = next((i for i in sorted(tall(thin_ids), key=lambda i: -st[i, 4])
+                        if divides(i, named, named) and spaced(box(i))), None)
+    if wep is None and no_tier:
+        return "no_icon"
     if wep is None:
         # Nothing icon-shaped divides two names. The plates still do -- see
         # `plate_seam`, which is what reads an ability kill. Last resort on
@@ -1580,6 +1732,25 @@ def _plate_masks(crop: np.ndarray, mask: np.ndarray):
     return green, red, white
 
 
+#: A one-colour entry's icon sits on its plate, with plate on both sides:
+#: of the ONE_COLOUR_FLANK base px either side of the divider, this share of
+#: columns must be plate-covered (PLATE_COL_FRAC of the band's height). On
+#: the twelve missed entries' frames every admitted one-colour divider read
+#: 0.81-1.00 on both sides; a striped wall at c62c2b06bcfb 109.0 s, whose
+#: stripes made glyphs either side of a 137 px blob, read 0.00 on both.
+ONE_COLOUR_FLANK = 32
+ONE_COLOUR_FLANK_COVER = 0.5
+
+
+def _plate_flanks(plate: np.ndarray, wx0: int, wx1: int, s: "KillfeedScale") -> bool:
+    """Whether plate covers both flanks of a divider (ONE_COLOUR_FLANK_COVER)."""
+    live = plate.sum(axis=0) >= PLATE_COL_FRAC * plate.shape[0]
+    f = s.n(ONE_COLOUR_FLANK)
+    left, right = live[max(0, wx0 - f):wx0], live[wx1:wx1 + f]
+    return bool(left.size and right.size and left.mean() >= ONE_COLOUR_FLANK_COVER
+                and right.mean() >= ONE_COLOUR_FLANK_COVER)
+
+
 def analyse_killfeed(
     frame: np.ndarray,
     roi: Roi,
@@ -1592,6 +1763,7 @@ def analyse_killfeed(
     *,
     mask_prefix: np.ndarray | None = None,
     scale: "KillfeedScale | None" = None,
+    dropped: list | None = None,
 ) -> list[EntryView]:
     """Per-entry detail for one frame. `read_killfeed` is a summary of this.
 
@@ -1604,6 +1776,20 @@ def analyse_killfeed(
     re-scored a session. The census makes the rate *visible* first; whether a
     dropped band should have been a view is then a question with evidence
     behind it rather than a guess. See `reticle.census`.
+
+    `dropped`, when given, gets `(slot, y0, y1, reason)` for each band refused
+    before it became a view, so the reason reaches the stored row
+    (`KillfeedRead.dropped_band_reason`) and not only the census.
+
+    ONE-COLOUR ENTRIES. That census showed what the both-colour rule cost: a
+    spike or self kill, a team kill or a Not Dead Yet expiry draws its banner
+    in one colour, and ten such deaths Riot records were read nowhere, absent
+    from the row profile or dropped here as `band_one_plate_colour`. Such a
+    band, and each one-colour candidate `_one_colour_bands` finds in rows no
+    two-colour band holds, is admitted only on its own furniture: `_band_text`
+    must divide it at an ICON with name glyphs on both sides, never at a seam,
+    which one colour does not have. Colour alone admits nothing, since scenery
+    is red and teal too. A refused candidate is dropped as `one_colour:<reason>`.
     """
     s = scale or KillfeedScale.for_capture(width, height)
     tpl = scaled_me_template(me_template(profile_name), s)
@@ -1615,22 +1801,62 @@ def analyse_killfeed(
     green, red, white = _plate_masks(crop, mask)
     value = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)   # `_band_text` tests line art on it
 
+    def drop(reason, where, slot, a, z):
+        if census is not None:
+            census.drop(reason, where)
+        if dropped is not None:
+            dropped.append((slot, int(a), int(z), reason))
+
     views: list[EntryView] = []
-    for (a, z) in _entry_bands(green, red, mask, mask_prefix, s):
+    two = _entry_bands(green, red, mask, mask_prefix, s)
+    one = set(_one_colour_bands(green, red, two, mask, mask_prefix, s))
+    for (a, z) in sorted(set(two) | one)[:MAX_SLOTS]:
         slot = absolute_slot(a, s)
         where = (round(t_ms / 1000.0, 2) if t_ms is not None else None, slot)
         if census is not None:
             census.saw("bands")
         if mask[a:z].sum() < s.area(BAND_VISIBLE_MIN):   # too much of this band is occluded
-            if census is not None:
-                census.drop("band_masked_out", where)
+            drop("band_masked_out", where, slot, a, z)
             continue
-        # Both plate colours must be present: that is what rejects warm scenery.
-        if green[a:z].mean() < PLATE_MIN_FRAC or red[a:z].mean() < PLATE_MIN_FRAC:
-            if census is not None:
-                census.drop("band_one_plate_colour", where)
+        # Both plate colours present is what rejects warm scenery; a band of
+        # one colour must show an entry's furniture instead (see above).
+        g_frac, r_frac = green[a:z].mean(), red[a:z].mean()
+        one_colour = (a, z) in one or g_frac < PLATE_MIN_FRAC or r_frac < PLATE_MIN_FRAC
+        if one_colour and max(g_frac, r_frac) < PLATE_MIN_FRAC:
+            drop("band_no_plate_colour", where, slot, a, z)
             continue
-        parsed = _band_text(white[a:z] > 0, mask[a:z], (green[a:z], red[a:z]), value[a:z], s)
+        held: dict = {}
+
+        def soft(a=a, z=z):
+            # The plate-relative white cut, computed once per band and only
+            # when `_band_text` or `icon_extent` asks for it.
+            if "m" not in held:
+                held["m"] = slot_white_mask(crop[a:z], green[a:z], red[a:z], s) & mask[a:z]
+            return held["m"]
+
+        parsed = _band_text(white[a:z] > 0, mask[a:z], (green[a:z], red[a:z]), value[a:z], s,
+                            soft_white=soft, one_colour=one_colour)
+        if one_colour and (isinstance(parsed, str) or parsed[2] <= parsed[1]):
+            # A pale plate swallows a name under the fixed cut: the victim's
+            # "suko" at 4f207c0c4e39 1582.0 s is one 31 px blob on the light
+            # teal half of a one-colour banner, so no glyph stands right of
+            # the spike. Judged against its own plate (`slot_white_mask`)
+            # the letters part. A two-colour band keeps the fixed cut alone,
+            # so no band it read moves.
+            again = _band_text(soft(), mask[a:z], (green[a:z], red[a:z]), value[a:z], s,
+                               one_colour=True)
+            if not isinstance(again, str) and again[2] > again[1]:
+                parsed = again
+        if one_colour:
+            if isinstance(parsed, str) or parsed[2] <= parsed[1]:
+                drop("one_colour:" + (parsed if isinstance(parsed, str) else "seam_divider"),
+                     where, slot, a, z)
+                continue
+            if not _plate_flanks(green[a:z] | red[a:z], parsed[1], parsed[2], s):
+                drop("one_colour:no_plate_flank", where, slot, a, z)
+                continue
+            if census is not None:
+                census.saw("one_colour_entries")
         if isinstance(parsed, str):
             if census is not None:
                 census.drop(parsed, where)
@@ -1679,7 +1905,7 @@ def analyse_killfeed(
             # Only one side can be the player, so a tie is a parse failure.
             verdict = "tie"
         ix0, ix1 = icon_extent(white[a:z] > 0,
-                               slot_white_mask(crop[a:z], green[a:z], red[a:z], s) & mask[a:z],
+                               soft(),
                                wx0, wx1, krun[1] + 1 if krun else 0, vrun[0] if vrun else w, s)
         views.append(EntryView(slot, int(a), int(z), int(wx0), int(wx1),
                                killer_run=krun, victim_run=vrun,
@@ -1725,7 +1951,11 @@ PORTRAIT_ASPECT = 2.0
 # 0.13.0 (2026-10-03): a killer's first prior is its plate's left end
 # (`plate_left_edge`, stored as `plate_left`); the name-start box is the
 # fallback, then the widened strip.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.13.0"
+# 0.14.0 (2026-10-03): one-colour bands (spike, self and team kills, Not Dead Yet
+# expiries) are entries when an icon at an entry's spacing divides two names
+# on plate (`_one_colour_bands`, `_plate_flanks`); a thin-stroked icon (Paint
+# Shells) divides by the plate-relative cut (`_soft_stroke_groups`).
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.14.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -2480,7 +2710,11 @@ def detect_second_life_badge(
 # portrait stamp.
 # 0.9.0 (2026-10-02): a ringed icon's divider is the whole ring; see the
 # portrait stamp.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.9.0"
+# 0.10.0 (2026-10-03): one-colour bands (spike, self and team kills, Not Dead Yet
+# expiries) are entries when an icon at an entry's spacing divides two names
+# on plate (`_one_colour_bands`, `_plate_flanks`); a thin-stroked icon (Paint
+# Shells) divides by the plate-relative cut (`_soft_stroke_groups`).
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.10.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -2938,7 +3172,11 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # portrait stamp.
 # 0.4.0 (2026-10-02): a ringed icon's divider is the whole ring; see the
 # portrait stamp.
-KILLFEED_NAME_VERSION = "killfeed-name-0.4.0"
+# 0.5.0 (2026-10-03): one-colour bands (spike, self and team kills, Not Dead Yet
+# expiries) are entries when an icon at an entry's spacing divides two names
+# on plate (`_one_colour_bands`, `_plate_flanks`); a thin-stroked icon (Paint
+# Shells) divides by the plate-relative cut (`_soft_stroke_groups`).
+KILLFEED_NAME_VERSION = "killfeed-name-0.5.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15
@@ -3292,8 +3530,9 @@ def read_killfeed(
     t_ms: float | None = None,
 ) -> KillfeedRead:
     """Count killfeed entries and attribute any the local player is in."""
+    dropped: list = []
     seen = analyse_killfeed(frame, roi, width, height, mask, profile_name,
-                            census, t_ms)
+                            census, t_ms, dropped=dropped)
     # An empty band is a plate-coloured region carrying none of an entry's
     # furniture. It is not an entry and it does not enter the stack, so nothing
     # that tracks entry movement is handed one. It is still counted, because
@@ -3323,5 +3562,7 @@ def read_killfeed(
         unparsed=sum(1 for v in views if v.verdict == "unparsed"),
         unparsed_reason=next((v.reason for v in views
                               if v.verdict == "unparsed" and v.reason), None),
+        dropped_bands=len(dropped),
+        dropped_band_reason=dropped[0][3] if dropped else None,
         scale=KillfeedScale.for_capture(width, height).scale,
     )
