@@ -197,7 +197,10 @@ ROUND_OUTCOME_VERSION = "round-outcome-0.1.0"
 # 80% agreement on reason and line, else a refusal with the votes kept.
 ROUND_OUTCOME_CLAIM_VERSION = "round-outcome-claim-0.1.0"
 EXTRACTOR_VERSION = "l1-0.1.0"
-SEGMENTER_VERSION = "seg-0.2.0"
+SEGMENTER_VERSION = "seg-0.3.0"
+# 0.3.0 (2026-10-04): `in_match` is HUD chrome alone; the minimap-change term
+# gated on an outcome and labelled HUD-present stretches `off`. Minimap readers
+# read `segment.READ_STATES` (idle and active), and record the spans' stamp.
 # Stage 02 deterministic HUD extraction. Bump when glyph segmentation, the
 # template set, or field parsing changes -- that invalidates stored HUD reads
 # and forces a re-decode, since this stage needs pixels.
@@ -653,7 +656,10 @@ SMOKE_VERSION = "smoke-0.4.0"
 # Which ally agent cast each smoke track, from stored `smoke` tracks, the
 # lineup's verdicts and the player's tray casts (`adjudication.smoke_owner`).
 # Bump when a rule, a lifetime, a cast window or the stored fields change.
-SMOKE_OWNER_VERSION = "smoke-owner-0.1.0"
+# 0.2.0 (2026-10-04): each row links the player's smoke-slot tray cast its
+# track was cast from (`cast`, `cast_ms`, `rests_on`), so the entity starts at
+# the drop and a Dark Cover's target-icon phase lies inside it.
+SMOKE_OWNER_VERSION = "smoke-owner-0.2.0"
 # Combat report reads (header score, per-row damage, hit splits, flag-word
 # correlations), written as `combat_report` rows by `reticle scan`. It stores no
 # decision. Bump when an offset, a threshold, the templates or the stored fields
