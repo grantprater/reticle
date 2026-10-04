@@ -64,7 +64,7 @@ class WeaponAttributionTests(unittest.TestCase):
                 "Raze_Ultimate": np.zeros((128, 128, 4), dtype=np.uint8),
             }
             crop = np.full((24, 24, 3), 255, dtype=np.uint8)
-            verdict = classify_killfeed_icon(crop, active_agent="Breach", gallery=synthetic_gallery)
+            verdict = classify_killfeed_icon(crop, agents=["Breach"], gallery=synthetic_gallery)
             self.assertEqual(verdict.status, "resolved")
             self.assertEqual(verdict.name, "Aftershock")
             self.assertEqual(verdict.category, "ability")
@@ -79,7 +79,7 @@ class WeaponAttributionTests(unittest.TestCase):
         mask = resized[:, :, 3] > 128
         crop[mask] = 255
 
-        verdict = classify_killfeed_icon(crop, active_agent="Breach", gallery=gallery)
+        verdict = classify_killfeed_icon(crop, agents=["Breach"], gallery=gallery)
         self.assertEqual(verdict.status, "resolved")
         self.assertEqual(verdict.name, "Aftershock")
         self.assertEqual(verdict.category, "ability")
