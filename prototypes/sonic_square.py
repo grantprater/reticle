@@ -115,8 +115,27 @@ on the axis sensors fits at 0 deg, and the free angle ran
 [metric:sonic_square/dev_surprises@a06f04a0059f+5822b6646448+29eff6920e8f+negatives#surprises=5]
 times, adopted
 [metric:sonic_square/dev_surprises@a06f04a0059f+5822b6646448+29eff6920e8f+negatives#adopted=0].
+Two of the 14 turned frames passed weakly: at 42.0 s and 43.0 s the icon
+centre landed off the sensor's wall, the prior picked another wall (44.98 and
+-42.02 deg against about -33 deg on the other twelve; the free-angle refit
+read 55.97 and -33.98, 11.0 and 8.0 deg from the prior, about 9-12 deg from
+the session's wall), and the icon share read 0.23 and 0.29 against 0.48-0.53
+elsewhere (icon membership 0.42 and 0.66); both were accepted (scores 0.37
+and 0.62). Recall 14/14 overstates the angle prior's hold on this sensor
+(`<store>/analysis/sonic-square-20261004/sonic-square-0.2.0/eval.json`,
+`rows` and `rotated_diagnosis`).
 The fresh held-out set is `label_minimap_glyph_heldout.py --pass sonic`
-(match sessions, unlabelled on 2026-10-04); 0.2.0 has no held-out score.
+(queue `sonic-square-heldout-queue-0.2.0`, 26 frames at fixed offsets in
+each round's cached span over three match sessions, unlabelled on
+2026-10-04); 0.2.0 has no held-out score.
+
+**Outputs.** The top-level `eval.json` and `eval_*.png` of
+`<store>/analysis/sonic-square-20261004/` are rev1's run (named 3/4, live
+38/44, 126 surprises), though stamped sonic-square-0.2.0: two 0.2.0 runs
+wrote there and overwrote 0.1.0's top-level files. `sonic-square-0.2.0/`
+holds rev3, the frozen 0.2.0, which overwrote rev2 there. The store's
+`notes/predictions.jsonl` carries the correction; write each run to a new
+directory.
 
 Wire: no. A square is a shape the `ability-shape` owner does not fit yet; the
 owner of minimap ability icons is unassigned (`reticle ownership`).
