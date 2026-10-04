@@ -573,6 +573,32 @@ AUDIO_GATE_DIR = Path("analysis") / "audio-gate" / "0.1.0"
 KIT_REFUSALS = ("after_kit_change", "kit_not_player", "kit_owner_unresolved")
 
 
+def features_stamp(z, path) -> str:
+    """The stamp of a stored audio-gate log-mel npz `z`, read from `path`."""
+    return str(z["version"]) if "version" in z.files else f"unstamped:{Path(path).name}"
+
+
+def audio_input_stamps(store_root, session_id: str) -> dict[str, str]:
+    """The stamps of the audio-gate log-mel and labels `audio_session` reads
+    for a session, as stored now (`no_rows` where a file is absent), which
+    `plan` compares with what `ability-state` recorded. Loads only the npz's
+    `version` member."""
+    import numpy as np
+
+    from .input_stamps import NO_ROWS
+    gate = Path(store_root) / AUDIO_GATE_DIR
+    fp = gate / "features" / f"{session_id}.npz"
+    lp = gate / "labels" / f"{session_id}.json"
+    out = {"audio_features": NO_ROWS, "audio_labels": NO_ROWS}
+    if fp.is_file():
+        with np.load(fp, allow_pickle=True) as z:
+            out["audio_features"] = features_stamp(z, fp)
+    if lp.is_file():
+        out["audio_labels"] = (json.loads(lp.read_text(encoding="utf-8")).get("version")
+                               or "unstamped")
+    return out
+
+
 def audio_session(store_root, session_id: str, gate_rows: list[dict], agent: str | None,
                   kit_spans=None, *, features_path=None, labels_path=None,
                   span_s: tuple[float, float] | None = None) -> tuple[dict | None, str | None]:
@@ -629,7 +655,7 @@ def audio_session(store_root, session_id: str, gate_rows: list[dict], agent: str
               + [r["t_ms"] / 1000.0 for r in gate_rows if r.get("reason") in KIT_REFUSALS])
     code = explained(n, [c["t_ms"] / 1000.0 for c in casts], lab.get("fires", []), others)
     bg = background(live, cls, code)
-    stamps = {"audio_features": str(z["version"]) if "version" in z.files else f"unstamped:{fp.name}",
+    stamps = {"audio_features": features_stamp(z, fp),
               "audio_labels": lab.get("version"), "features_path": fp.as_posix(),
               "labels_path": lp.as_posix()}
     return {"X": X, "live": live, "code": code, "bg": bg, "casts": casts,
