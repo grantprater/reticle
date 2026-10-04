@@ -486,5 +486,36 @@ class UltScoringTest(unittest.TestCase):
                           "excess_rows": 1})
 
 
+class AmbiguousPairsTest(unittest.TestCase):
+    """0.6.0: a minimap pair whose piece lies about as close to a second
+    teammate is ambiguous."""
+
+    def test_stack_cases(self):
+        # piece 12.2 px from Reyna and 12.6 px from Sage: ambiguous
+        truth = [(0.0, 0.0), (12.2 + 12.6, 0.0)]
+        got = [(12.2, 0.0)]
+        pr = rg.greedy_pairs(truth, got, 18.0)
+        self.assertEqual(rg.ambiguous_pairs(truth, got, pr, 4.56), [True])
+
+    def test_clear_pairs(self):
+        truth = [(0.0, 0.0), (30.0, 0.0), (0.0, 30.0)]
+        got = [(1.0, 0.0), (30.0, 1.0)]
+        pr = rg.greedy_pairs(truth, got, 18.0)
+        self.assertEqual(rg.ambiguous_pairs(truth, got, pr, 4.56), [False, False])
+
+    def test_lone_teammate_and_no_pairs(self):
+        self.assertEqual(rg.ambiguous_pairs([(0.0, 0.0)], [(1.0, 0.0)], [(0, 0, 1.0)], 4.56),
+                         [False])
+        self.assertEqual(rg.ambiguous_pairs([(0.0, 0.0)], [], [], 4.56), [])
+
+    def test_margin_is_a_difference_not_a_ratio(self):
+        # 1 px vs 5 px differs by 4 px (< 4.56): ambiguous although 5x the ratio
+        truth = [(0.0, 0.0), (6.0, 0.0)]
+        got = [(1.0, 0.0)]
+        pr = rg.greedy_pairs(truth, got, 18.0)
+        self.assertEqual(rg.ambiguous_pairs(truth, got, pr, 4.56), [True])
+        self.assertEqual(rg.ambiguous_pairs(truth, got, pr, 3.9), [False])
+
+
 if __name__ == "__main__":
     unittest.main()
