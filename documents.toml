@@ -122,6 +122,14 @@ implemented_by = ["owns:position-belief", "cmd:belief"]
 remains = "The graph solver and `reticle adjudicate` were never built; docs/ARBITER_ARCHITECTURE.md proposes to replace them with channel arbiters and a staged aggregator."
 
 [[document]]
+path = "docs/COACHING_ROTATIONS_LURKS.md"
+kind = "plan"
+status = "proposed"
+since = "2026-10-04"
+remains = "Every stage: the stored-data prototype (R1-R5), a region owner, the plant site and entity-keyed facing, holds and duplicates, the enemy kit, Replay truth and the live footprint."
+waits_for = "The player's answers to the plan's open questions on definitions and thresholds."
+
+[[document]]
 path = "docs/BEHAVIOUR_MODEL_DESIGN.md"
 kind = "design"
 status = "partial"
