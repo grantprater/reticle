@@ -831,16 +831,20 @@ def _live_round_spans(store, sid, date) -> list[tuple[float, float]]:
 
 
 def _live_phase_at(store, sid, date):
-    """`gametime`'s phase at a time, for the ability pass's live-sample gate,
-    or None where the session has no stored rounds or HUD (every sample is
-    then read)."""
+    """(`gametime`'s phase at a time, None) for the ability pass's live-sample
+    gate, or (None, reason) where the session has no stored HUD stream (a demo
+    scanned without `hud`) or no stored rounds: the live phase is then
+    unknown and every sample is read."""
     from . import stalls
-    rs, hud = store.read_rounds(sid, date), store.read_hud(sid, date)
-    if rs is None or hud is None:
-        return None
+    if not store.hud_path(sid, date).is_file():
+        return None, "no HUD stream"
+    rs = store.read_rounds(sid, date)
+    if rs is None:
+        return None, "no rounds stream"
+    hud = store.read_hud(sid, date)
     gt = gametime.build_session_gametime(sid, hud, rs.to_pylist(),
                                          stall_list=stalls.for_session(store, sid, date))
-    return lambda t: gt.game_time_at(t).phase
+    return (lambda t: gt.game_time_at(t).phase), None
 
 
 def _ability_supply(store, sid, date):
@@ -1270,7 +1274,9 @@ def cmd_scan(args) -> int:
             # stamp and only where it is stale; `minimap_dark` joins only where
             # it is itself stale.
             from .roi_cache import declare_set
-            phase_at = _live_phase_at(store, sid, date)
+            phase_at, phase_why = _live_phase_at(store, sid, date)
+            if phase_at is None:
+                print(f"ability live phase: unknown ({phase_why}); every sample is read")
             floor = mp.floor if mp is not None else None
             sgray = mp.sgray if mp is not None else None
             if want_shapes:
@@ -1283,11 +1289,13 @@ def cmd_scan(args) -> int:
                     print(f"ability candidates: none ({why}); every gated sample takes "
                           f"the surprise path")
                 bp = shape_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray,
-                                  supply=supply, supply_reason=why, values=values_digest())
+                                  supply=supply, supply_reason=why, values=values_digest(),
+                                  phase_reason=phase_why)
                 declare_set(bp, "minimap", profile, ctx.wh)
             if want_icons:
                 from .ability_icons import icon_reader
-                ip = icon_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray)
+                ip = icon_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray,
+                                 phase_reason=phase_why)
                 declare_set(ip, "minimap", profile, ctx.wh)
         cp = None
         if want_report:
@@ -1410,6 +1418,13 @@ def cmd_scan(args) -> int:
             events = AllyIconReader.replay_events(
                 sid, batch["frames"], kept, ap.hz, candidate_revision,
                 frames_from=ap.frames_from, spans_clip=getattr(ap, "spans_clip", None))
+            gate = getattr(ap, "stack", None)
+            if gate is not None and gate.reason is None:
+                # The stacked-icon search's gate read the stored roster
+                # (`minimap.StackGate`); `plan` compares its stamp.
+                from .plan import input_head
+                events[0].setdefault("inputs", {})["roster"] = input_head(
+                    store, manifest, "roster", events[0])
             path = out.write_events("ally_icon", sid, events)
             cov = events[0]
             print(f"ally icons {cov['frames']} frames, {cov['icons']} icons, "
@@ -4115,6 +4130,7 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
     from .roi_cache import RoiCache
     from .spike import (AMP_MIN, AMP_PARTIAL, MARK_NCC_MIN, NCC_MIN, NCC_STRONG, ROSTER_GAP_MS,
                         SIDES, read_frame, roster_marker)
+    from .spike import provenance as spike_provenance
     from .version import SPIKE_VERSION
 
     man = store.read_manifest(sid)
@@ -4128,8 +4144,10 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
     except SystemExit as e:                  # `geometry.require` exits with the reason
         return {"skipped": f"no baked geometry ({e})"}
     sd = geometry.stability(sid, store.root, med.shape[:2])
+    ms = geometry.map_scale_of(sid, store.root)
     ctx = {"floor": floor_mask(med, sd=sd), "slab": slab_mask(med, sd=sd), "static": med,
-           "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)}
+           "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64),
+           "scale": None if ms is None else ms.scale}
     t = np.unique(np.asarray(mm.t_ms, float))
     spans = mm.record.get("spans") or [[float(t[0]), float(t[-1])]]
     grid: list[float] = []
@@ -4171,6 +4189,8 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
     read = [r for r in frames if r["reason"] is None]
     head = {"kind": "coverage", "session": sid, "spike_version": SPIKE_VERSION,
             "widget_scale": round(widget_scale(x1 - x0), 4),
+            "map_scale": None if ms is None else ms.provenance(),
+            "game_textures": spike_provenance(store.root),
             "roi_cache_version": mm.record.get("version"),
             "hud_cache": None if hud is None else hud.record.get("version"),
             "hud_cache_reason": hud_why,
@@ -4829,6 +4849,20 @@ def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict], agent: str |
                                                                 **stamps}
 
 
+def _ult_barrier_drops(store, sid: str, date: str, rounds: list[dict]):
+    """({round number: barrier drop ms} as `gametime` schedules it, or None;
+    the input stamps) for `ult-cast`."""
+    from . import gametime, stalls
+    if not rounds or not store.hud_path(sid, date).is_file():
+        return None, {"hud": "no_rows"}
+    hud = store.read_hud(sid, date)
+    gt = gametime.build_session_gametime(sid, hud, rounds,
+                                         stall_list=stalls.for_session(store, sid, date))
+    stamp = (hud.schema.metadata or {}).get(b"hud_version", b"").decode() or "unstamped"
+    return ({s.round_no: s.t_live_ms for s in gt.schedules},
+            {"hud": stamp, "gametime": gametime.GAMETIME_VERSION})
+
+
 def cmd_ult_cast(args) -> int:
     """Ultimate casts, their side and their round from stored voice-line peaks,
     the lineup and the rounds table (`adjudication.ult_cast`), with own lines
@@ -4859,9 +4893,13 @@ def cmd_ult_cast(args) -> int:
         deaths = [r for r in store.read_events("death", sid) if r.get("kind") == "death_verdict"]
         tray_inputs = {**tray_inputs, "death": event_stamp(store, "death", sid,
                                                            "death_adjudication_version")}
+        # Each round's barrier drop, as `gametime` schedules it from the HUD clock.
+        drops_ms, drop_inputs = _ult_barrier_drops(store, sid, _date_of(man), rounds)
+        tray_inputs = {**drop_inputs, **tray_inputs}
         res = adjudicate(sid, peaks, lineup, rounds, round_version,
                          tray_drops=tray_drops, tray_reason=tray_reason, tray_inputs=tray_inputs,
-                         deaths=deaths or None, death_reason="no_death_verdicts")
+                         deaths=deaths or None, death_reason="no_death_verdicts",
+                         drops_ms=drops_ms)
         _record_inputs(store, sid, "ult_cast", res["rows"][0])
         out = store.write_events("ult_cast", sid, res["rows"])
         store.write_events("ult_cast_identity", sid, res["events"])
@@ -4871,7 +4909,10 @@ def cmd_ult_cast(args) -> int:
         pooled.update({"sessions_with_lineup": int(cov["lineup"]), "peaks": cov["peaks"],
                        "selected": cov["selected"], "casts": cov["casts"],
                        "refusals": cov["refusals"], "player_casts": cov["by_class"]["own"],
-                       **{f"class_{c}": n for c, n in cov["by_class"].items()}})
+                       **{f"class_{c}": n for c, n in cov["by_class"].items()},
+                       # Rows by their place against the round's barrier drop.
+                       **{f"drop_{k}": n for k, n in cov["drop"].items()
+                          if k.startswith(("cast_", "refusal_")) or k == "unplaced"}})
         pooled.update(Counter(f"named_{r['side']}" for r in res["rows"]
                               if r.get("kind") == "cast" and r["agent"]))
         if cov["lineup"]:

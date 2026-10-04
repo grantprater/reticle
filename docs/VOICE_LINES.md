@@ -1014,12 +1014,190 @@ ultimate killfeed icon (the rules and their dev-half fits are in
 [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.944] of
 the casts have an own line. Against Riot's records
 (`prototypes/riot_ground_truth.py --ult-only`), recall is
-[metric:riot_truth/ult#recall=0.9028] and precision
-[metric:riot_truth/ult#precision=0.942], with
-[metric:riot_truth/ult#burst_refused=27] rows refused as bursts and
-[metric:riot_truth/ult#witnessed_casts=8] casts selected by a witness; on the
-held-out half, recall [metric:riot_truth/ult/held#recall=0.9526] and precision
-[metric:riot_truth/ult/held#precision=0.9269].
+[metric:riot_truth/ult@ult-cast-0.3.0#recall=0.9028] and precision
+[metric:riot_truth/ult@ult-cast-0.3.0#precision=0.942], with
+[metric:riot_truth/ult@ult-cast-0.3.0#burst_refused=27] rows refused as bursts and
+[metric:riot_truth/ult@ult-cast-0.3.0#witnessed_casts=8] casts selected by a witness; on the
+held-out half, recall [metric:riot_truth/ult/held@ult-cast-0.3.0#recall=0.9526] and precision
+[metric:riot_truth/ult/held@ult-cast-0.3.0#precision=0.9269].
+
+### Weak clusters and the heard-line check (ult-cast-0.4.0)
+
+At 0.3.0 seven of the eight excess rows that were not Chamber's were weak
+selections, each under 0.05, among two or more other templates' peaks just
+under the threshold: the many-template sound a burst refuses, with too few
+peaks selected to count as one. `ult-cast-0.4.0` counts a burst over every
+stored peak at or above BURST_FLOOR, selected or not (the fit is in
+`adjudication.ult_cast`'s docstring). Rerun from storage on the 21 matches, it
+refused eight casts and changed no other verdict. Against Riot's records,
+recall stays [metric:riot_truth/ult#recall=0.9028] and precision rises to
+[metric:riot_truth/ult#precision=0.9579], with
+[metric:riot_truth/ult#excess_rows=20] excess rows; on the held-out half,
+recall [metric:riot_truth/ult/held#recall=0.9526] and precision
+[metric:riot_truth/ult/held#precision=0.9488]. No session lost a matched cast.
+
+Every excess row left is Chamber's
+([metric:riot_truth/ult/agent#Chamber_excess=20]). Riot's records count
+[metric:riot_truth/ult#chamber_tdf_riot_casts=7] Chamber ultimates where the
+same players kill with Tour De Force in
+[metric:riot_truth/ult#chamber_tdf_tdf_rounds=16] rounds, so Riot's count of
+Chamber's casts falls short of its own kills.
+
+The Split capture `4f207c0c4e39` holds no heard ultimate line. Its best stored
+peak is [metric:ult_lines/vo-audible@4f207c0c4e39#best_mono=0.0649], and the
+templates of agents Riot records casting outrank absent agents' templates no
+better than chance (AUC
+[metric:ult_lines/vo-audible@4f207c0c4e39#auc_heard_vs_absent_mono=0.614];
+the other twenty matches at least
+[metric:ult_lines/vo-audible@4f207c0c4e39#auc_other_matches_min=0.909]). One
+audio-only decode ruled out the instrument and the capture's channels: the
+mono mix reproduces the stored maxima, and neither channel alone, nor their
+difference, nor a resampled template lifts any line above
+[metric:ult_lines/vo-audible@4f207c0c4e39#best_left=0.066]. The rest of the
+game's sound is present with the usual spectrum, its speech band
+[metric:ult_lines/vo-audible@4f207c0c4e39#speech_band_db_minus_other_matches=-5.68]
+dB under the other matches'. The cast voice lines are absent from the mix,
+and the data cannot tell a muted voice-over from another voice-over language.
+The coverage row's `vo_heard` now states this for every capture; it refuses
+nothing [domain:capture/cast-voice-lines-absent-4f207c0c4e39].
+
+### Buy phase and the barrier drop (ult-cast-0.5.0)
+
+Which ultimates can be cast in the buy phase was measured per agent on
+2026-10-04, from storage, by `prototypes/ult_phase_audit.py`. It places every
+stored line against its round's barrier drop, which `gametime` schedules from
+the HUD clock [domain:rounds/buy-phase-barriers].
+
+**The drop's precision, fixed before any line was read.** The HUD reads the
+clock every [metric:ult_phase/precision@all-matches#hud_cadence_ms=500.0] ms.
+Per round, the drops its live clock reads imply spread
+[metric:ult_phase/precision@all-matches#implied_spread_ms_median=500.0] ms at
+the median and
+[metric:ult_phase/precision@all-matches#implied_spread_ms_p95=1000.0] ms at
+the 95th percentile. Riot's round zero, carried into capture time by the
+killfeed alignment, falls
+[metric:ult_phase/precision@all-matches#riot_zero_minus_drop_ms_median=973.0]
+ms after the scheduled drop (5th to 95th percentile
+[metric:ult_phase/precision@all-matches#riot_zero_minus_drop_ms_p05=404.2] to
+[metric:ult_phase/precision@all-matches#riot_zero_minus_drop_ms_p95=1290.2]
+ms), and
+[metric:ult_phase/precision@all-matches#riot_zero_minus_latest_implied_ms_median=559.5]
+ms after the latest drop the clock reads allow. The scheduled drop is the
+first live read less the clock's run, so it leads the true drop by up to a
+second; the killfeed's sampling lag adds to Riot's side. The window, declared
+in the store's predictions before the run, is the larger 95th percentile
+rounded up to half a second:
+[metric:ult_phase/precision@all-matches#window_s=1.5] s either side of the
+drop. A line more than that before the drop is `buy`, within it `at_drop`,
+after it `live`.
+
+**Per agent**, cast rows on the 21 matches:
+
+| Agent | Variant | Buy | At the drop | Live |
+|---|---|---|---|---|
+| Chamber | ally | [metric:ult_phase/agents@all-matches#Chamber_ally_buy=9] | [metric:ult_phase/agents@all-matches#Chamber_ally_at_drop=1] | [metric:ult_phase/agents@all-matches#Chamber_ally_live=2] |
+| Chamber | enemy | [metric:ult_phase/agents@all-matches#Chamber_enemy_buy=1] | [metric:ult_phase/agents@all-matches#Chamber_enemy_at_drop=12] | [metric:ult_phase/agents@all-matches#Chamber_enemy_live=2] |
+| Jett | ally | [metric:ult_phase/agents@all-matches#Jett_ally_buy=0] | [metric:ult_phase/agents@all-matches#Jett_ally_at_drop=9] | [metric:ult_phase/agents@all-matches#Jett_ally_live=10] |
+| Jett | enemy | [metric:ult_phase/agents@all-matches#Jett_enemy_buy=0] | [metric:ult_phase/agents@all-matches#Jett_enemy_at_drop=3] | [metric:ult_phase/agents@all-matches#Jett_enemy_live=4] |
+| Reyna | ally | [metric:ult_phase/agents@all-matches#Reyna_ally_buy=0] | [metric:ult_phase/agents@all-matches#Reyna_ally_at_drop=7] | [metric:ult_phase/agents@all-matches#Reyna_ally_live=15] |
+| Reyna | enemy | [metric:ult_phase/agents@all-matches#Reyna_enemy_buy=0] | [metric:ult_phase/agents@all-matches#Reyna_enemy_at_drop=11] | [metric:ult_phase/agents@all-matches#Reyna_enemy_live=15] |
+| every other agent | both | [metric:ult_phase/agents@all-matches#others_buy=0] | [metric:ult_phase/agents@all-matches#others_at_drop=9] | [metric:ult_phase/agents@all-matches#others_live=365] |
+
+The other agents' lines at the drop are Phoenix's, Skye's and Iso's.
+
+* **Chamber.** Equipping Tour De Force spends the ultimate
+  [domain:abilities/chamber-tour-de-force-equip-spends-ult]. His allies hear
+  the line at the equip, mostly in the buy phase
+  [domain:abilities/chamber-tour-de-force-ally-line-at-equip]; his enemies
+  hear theirs at the drop
+  [domain:abilities/chamber-tour-de-force-enemy-line-at-drop]. Buy against
+  drop by variant, Fisher's exact p is
+  [metric:ult_phase/agents@all-matches#chamber_variant_fisher_p=0.000115].
+  Two enemy lines at +1.53 and +1.55 s fall just past the window, which was
+  fixed before; they belong to the drop's cluster.
+* **Jett and Reyna.** No line of either variant lies in a buy phase, and a
+  large share lies at the drop
+  [domain:abilities/jett-blade-storm-line-not-in-buy-phase]
+  [domain:abilities/reyna-empress-line-not-in-buy-phase]. Any ult can be cast
+  at the drop [domain:abilities/ult-castable-at-barrier-drop], so audio
+  cannot tell a cast at the drop from a buy-phase cast whose line is held.
+  The player's tray would, and no capture has the player on either agent.
+* **Every other agent.** No line in a buy phase
+  [domain:abilities/ult-lines-not-in-buy-phase-other-agents].
+* **The tray.** All
+  [metric:ult_phase/agents@all-matches#x_drops_buy=18] of the player's X falls
+  in a buy phase are forced falls of every slot at once
+  ([metric:ult_phase/agents@all-matches#x_drops_buy_forced_cooccur=18]), which
+  the gate refuses as `phase:buy_phase`; none is a cast. The player's own lines
+  lie [metric:ult_phase/agents@all-matches#own_buy=0] in a buy phase,
+  [metric:ult_phase/agents@all-matches#own_at_drop=5] at the drop and
+  [metric:ult_phase/agents@all-matches#own_live=58] later. Two Skye lines at
+  the drop sit beside an X fall at the drop: casts at the drop, their lines
+  immediate. No capture shows an X fall in the buy phase with its line at the
+  drop, the pattern of a held line.
+
+**Chamber against Riot's count.** Over the 12 Chamber players Riot counts
+[metric:ult_phase/agents@all-matches#chamber_riot_casts=7] ultimates. The
+store holds [metric:ult_phase/agents@all-matches#chamber_lines=27] Chamber
+lines, and the same players kill with Tour De Force in
+[metric:ult_phase/agents@all-matches#chamber_tdf_rounds=16] rounds, of which
+[metric:ult_phase/agents@all-matches#chamber_tdf_rounds_without_line=1]
+holds no line of that Chamber (223d636bf8d2, round 7; its best Chamber peak
+there is 0.022, under the witness floor). Since the equip spends the
+ultimate, each such round needs an equip, and Riot's count falls short of
+them on [metric:ult_phase/agents@all-matches#chamber_players_riot_below_tdf_rounds=8]
+of the 12 players; it exceeds the stored lines on
+[metric:ult_phase/agents@all-matches#chamber_players_riot_above_lines=0]. No
+round holds two lines of one Chamber
+([metric:ult_phase/agents@all-matches#chamber_rounds_with_two_lines=0]), so no
+line is a re-equip or a duplicate. Riot's `ultimateCasts` is no count of
+Tour De Force equips, and the stored data do not say what it counts.
+
+The [metric:ult_phase/agents@all-matches#chamber_lines_outside_tdf_rounds=12]
+lines in rounds without a Tour De Force kill, each above the threshold:
+
+| Session | Capture | Round | Variant | Onset minus drop (s) | Score | Reading |
+|---|---|---|---|---|---|---|
+| 043bafca271a | 2026-08-25 13-59-44.mp4 | 12 | ally | +7.78 | 0.153 | live equip |
+| 223d636bf8d2 | 2026-08-23 20-09-01.mp4 | 11 | ally | -20.73 | 0.155 | buy-phase equip |
+| 5822b6646448 | 2026-08-26 12-38-38.mp4 | 10 | enemy | -30.19 | 0.164 | at the buy-phase snap (below) |
+| 5822b6646448 | 2026-08-26 12-38-38.mp4 | 18 | enemy | +0.99 | 0.274 | enemy line at the drop, beside a Reyna enemy line |
+| 5822b6646448 | 2026-08-26 12-38-38.mp4 | 21 | enemy | +1.25 | 0.140 | enemy line at the drop |
+| 587c15b07779 | 2026-09-05 19-21-29.mp4 | 5 | enemy | +1.38 | 0.345 | enemy line at the drop |
+| 59c70f1ef720 | 2026-08-24 13-58-11.mp4 | 7 | enemy | +1.31 | 0.573 | enemy line at the drop |
+| 59c70f1ef720 | 2026-08-24 13-58-11.mp4 | 24 | enemy | +1.35 | 0.605 | enemy line at the drop, beside a Jett ally line |
+| 9acf02f98283 | 2026-08-24 11-55-34.mp4 | 11 | ally | -15.11 | 0.073 | buy-phase equip |
+| 9acf02f98283 | 2026-08-24 11-55-34.mp4 | 20 | ally | -6.52 | 0.533 | buy-phase equip |
+| b7d24102a6f6 | 2026-08-24 12-37-04.mp4 | 8 | enemy | +1.04 | 0.422 | enemy line at the drop, beside the player's Skye line |
+| bfad2778a372 | 2026-08-24 14-45-35.mp4 | 21 | ally | -19.07 | 0.141 | buy-phase equip |
+
+Three share their onset with another template's line at the drop, one of
+them stronger (Reyna's enemy line, 0.337); two ultimates at one drop are
+plausible, and no row reads as a template false match. Each is an equip that
+killed no one with Tour De Force, which the spent ultimate allows. The 5822b6646448 round-10 line lies 0.2 s before the
+buy-phase snap that the HUD's buy clock implies; the rounds table started that
+round at the score increment, 5.3 s earlier. Why a line plays at the snap is
+open.
+
+**The rule.** `ult-cast-0.5.0` stores each row's drop, onset minus drop and
+phase (`adjudication.ult_cast`, "Barrier drop"); it selects, refuses and names
+as 0.4.0 did. It was frozen on the dev half (the store's predictions record
+the freeze); the held half's lines were read only after it, though the
+precision run read every match's drop times. Rerun from storage on the 21
+matches, every one of the 48 `ult_cast` and identity files equals its 0.4.0
+backup but for the new fields, and the rows place
+[metric:ult_lines/ult-cast@all-sessions#drop_cast_buy=10] casts in a buy
+phase, [metric:ult_lines/ult-cast@all-sessions#drop_cast_at_drop=52] at the
+drop and [metric:ult_lines/ult-cast@all-sessions#drop_cast_live=413] later.
+Against Riot's records nothing moves: recall
+[metric:riot_truth/ult#recall=0.9028], precision
+[metric:riot_truth/ult#precision=0.9579], excess rows
+[metric:riot_truth/ult#excess_rows=20]; on the held half recall
+[metric:riot_truth/ult/held#recall=0.9526], precision
+[metric:riot_truth/ult/held#precision=0.9488], excess rows
+[metric:riot_truth/ult/held#excess_rows=13]. No session lost a match. The
+measurements support no selection rule: every Chamber excess row is an
+equip Riot does not count.
 
 ### What was not done in production
 
