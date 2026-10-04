@@ -44,8 +44,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Layers and blessed upward edges | `architecture.toml`, `reticle/architecture.py` |
 | A quoted figure and its run | `reticle/quoted.py`, `reticle/metrics.py` |
 | Which documents are live, and what reaches them | `documents.toml`, `reticle/documents.py`, `doctor` DOCS |
-| VOD scan cost and reader call frequencies | `reticle usage [SESSION]`, `reticle/usage.py` |
-| What live analysis costs the game's frame rate | [FRAMETIME_PROTOCOL.md](FRAMETIME_PROTOCOL.md), `prototypes/live_load.py`, `prototypes/frametime_results.py` |
+| Scan cost and live frame-rate cost | `reticle usage [SESSION]`, `reticle/usage.py`, [FRAMETIME_PROTOCOL.md](FRAMETIME_PROTOCOL.md) |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Riot match records | `prototypes/riot_ground_truth.py SESSION\|--all` |
 | Player-run Riot record fetch | [MATCH_FETCH_KIT.md](MATCH_FETCH_KIT.md) |
