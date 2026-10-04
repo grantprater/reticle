@@ -4196,8 +4196,12 @@ state the HUD draws for which viewer is not part of the answer.
 DISPUTED by game data: ability-states-gamedata-0.2.0 (store reference/ability-states)
 names `TX_Astra_Minimap_PassiveGold` as Astral Form / Cosmic Divide's (X) star brush when
 selected, drawn only on Astra's own client; the player answered it as none of
-the four. No labelled capture shows either star; ask the player
+the four. The player has since named the black icon a placed, inactive star
+and the gold icon a hovered star [domain:abilities/astra-star-minimap-states],
+which resolves the dispute; `TX_UI_Minimap_Rift_Passive` stays unresolved.
+No labelled capture shows either star
 """
+see = ["abilities/astra-star-minimap-states"]
 
 [minimap-textures-chamber]
 claim = """
@@ -4772,6 +4776,40 @@ orders hovered before the operation on Astra's view; it names no frame count
 """
 see = ["abilities/astra-star-placed-then-turned", "abilities/astra-star-ally-minimap-glyph",
        "abilities/astra-stars-shared", "abilities/views-separate-per-ability"]
+
+[astra-star-minimap-states]
+claim = """
+A placed, inactive Astra star draws the black passive icon
+(`TX_Astra_Minimap_PassiveBlack`). While Astra hovers it in Astral Form, it
+draws the gold icon (`TX_Astra_Minimap_PassiveGold`). When she presses an
+ability key while hovering, the star becomes one of her three standard
+abilities, Nova Pulse (Q), Nebula (E) or Gravity Well (C), and then draws
+that ability's icon.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "astra:stars"
+source = """
+the player, 2026-10-04 (chat), revising the texture answers at
+<store>/labels/minimap_glyph_questions/answers.jsonl line(s) 367, 368
+"""
+use = """
+read a black star as pending, a gold star as the one Astra is about to
+turn, and the ability icon at the same place as the star's outcome
+"""
+exceptions = """
+which views (Astra's own, a teammate's, an enemy's) draw each state is
+unasked; the game data draws the gold state only on Astra's own client
+[domain:abilities/astra-star-hover-yellow]. The player has not resolved
+`TX_UI_Minimap_Rift_Passive` (Default, Hovered, Precast); the game data's
+three states parallel this lifecycle. The game data
+(`ability-states-gamedata-0.2.0`) files the star textures under Astral Form
+/ Cosmic Divide (X), since Astra places stars in Astral Form; the player's
+earlier X answer for `TX_Astra_Minimap_PassiveBlack` agrees
+"""
+see = ["abilities/minimap-textures-astra", "abilities/astra-star-hover-yellow",
+       "abilities/astra-star-placed-then-turned", "abilities/astra-star-ally-minimap-glyph"]
 
 [sova-shock-bolt-audio-phases]
 claim = """
