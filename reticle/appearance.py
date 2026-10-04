@@ -113,11 +113,6 @@ def agrees(a, b) -> float:
 #: [domain:killfeed/self-yellow-frame]; weighted, the frame held those killers'
 #: own-agent correlation near 0.5.
 ART_INNER_MARGIN = 4
-#: The share of a candidate's art weight that must lie inside the ROI for a
-#: window cut by the ROI's left edge to count, as the separability study
-#: required (its MIN_COVER). A killer with a long name has its portrait pushed
-#: past the ROI's left edge; under this share the window scores 0.
-ART_MIN_COVER = 0.4
 
 
 class ArtTiles:
@@ -229,8 +224,10 @@ def art_zncc(region_lab: np.ndarray, art: ArtTiles, candidates,
 
     With `cut` > 0 the windows are the art less its `cut` leftmost columns,
     `art.w - cut` wide, for a window the ROI's left edge cuts: the correlation
-    runs over the columns inside, and a candidate with under `ART_MIN_COVER`
-    of its weight there scores 0.
+    runs over the columns inside. Every candidate is scored on the same
+    columns; the caller decides how few columns are too few
+    (`killfeed.ART_MIN_VISIBLE`), one width for every candidate, since a
+    per-candidate share of weight scored some agents 0 where others scored.
     """
     t = art.cut_terms(cut, mirrored) if cut > 0 else art.terms[bool(mirrored)]
     idx = [art.index[c] for c in candidates]
@@ -247,6 +244,4 @@ def art_zncc(region_lab: np.ndarray, art: ArtTiles, candidates,
     num = X.reshape(len(X), -1) @ rcw                                    # O, A
     z = num / np.sqrt(np.maximum(vx, 1e-6) * np.maximum(var, 1e-6)[None])
     z = np.where(vx > 1e-3 * var[None], np.clip(z, -1.0, 1.0), 0.0)
-    if cut > 0:
-        z = np.where(t["cover"][idx][None] >= ART_MIN_COVER, z, 0.0)
     return z.reshape(oy, ox, len(idx)).astype(np.float32)

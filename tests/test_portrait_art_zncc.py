@@ -200,9 +200,40 @@ class ArtZnccTests(unittest.TestCase):
         np.testing.assert_allclose(
             z[:, :, 0], _brute(region, np.ascontiguousarray(self._lab(i)[:, cut:]),
                                self._weight(i)[:, cut:]), atol=2e-4)
-        # under ART_MIN_COVER of the art inside, the window is no evidence
-        far = appearance.art_zncc(region[:, :8], self.art, ["Bravo"], cut=TW - 8)
-        self.assertEqual(float(far.max()), 0.0)
+        self.assertAlmostEqual(got["art_visible"], (TW - cut) / TW, places=3)
+
+    def test_a_cut_killer_keeps_its_column_and_refuses_under_the_visible_minimum(self):
+        vmin = killfeed.ART_MIN_VISIBLE
+        crop = np.full((60, 420, 3), 40, np.uint8)
+        # the art 4 rows below the band, cut to vmin + 2 columns
+        cut = TW - (vmin + 2)
+        crop[12:12 + TH, 0:TW - cut] = _tile(self.dir, "Bravo")[:, cut:]
+        got = art_view(crop, "killer", -cut, 8, True, UNIT_SCALE, self.dir)
+        self.assertEqual(max(got["art_zncc"], key=got["art_zncc"].get), "Bravo")
+        self.assertEqual((got["art_search"], got["art_x0"], got["art_shift"]),
+                         ("widened", -cut, [0, 4]))
+        # a surprise at a cut placement widens rows only, never the column: a
+        # placement 6 px off finds nothing it could have found by moving
+        off = art_view(crop, "killer", -cut + 6, 8, True, UNIT_SCALE, self.dir)
+        self.assertLessEqual(abs(off["art_shift"][0]), killfeed.ART_PRIOR_X)
+        # under the minimum the view refuses and stores the placement
+        tiny = TW - (vmin - 1)
+        refused = art_view(crop, "killer", -tiny, 8, True, UNIT_SCALE, self.dir)
+        self.assertIsNone(refused["art_zncc"])
+        self.assertEqual((refused["art_reason"], refused["art_x0"]), ("art_cut_by_roi", -tiny))
+        self.assertAlmostEqual(refused["art_visible"], (vmin - 1) / TW, places=3)
+        # a visible prior beside a cut one is still searched
+        both = art_view(self._crop(killer="Echo", killer_x0=60), "killer", -tiny, 8, True,
+                        UNIT_SCALE, self.dir, plate_x0=60)
+        self.assertEqual((both["art_anchor"], both["art_search"]), ("plate_left", "prior"))
+
+    def test_every_candidate_is_scored_on_the_same_cut_columns(self):
+        # no per-candidate cover gate: a narrow cut scores every agent
+        region = appearance.to_lab(np.full((TH, 10, 3), 90, np.uint8)
+                                   + np.arange(10, dtype=np.uint8)[None, :, None] * 9)
+        z = appearance.art_zncc(region, self.art, list(self.art.agents), cut=TW - 10)
+        self.assertEqual(z.shape, (1, 1, len(self.art.agents)))
+        self.assertTrue(np.all(z != 0.0))
 
     def test_the_plate_left_end_is_found_to_a_subpixel_past_the_assist_panel(self):
         # a teal plate from x = 50.5 (its first column half covered), over grey
@@ -313,6 +344,24 @@ class EntryAnchorTests(unittest.TestCase):
         self.assertIsNone(killfeed.EntryAnchors.anchor(f))
         killfeed.EntryAnchors.confirm(f, widened, None)
         self.assertEqual(killfeed.EntryAnchors.anchor(f)["source"], "art")
+
+
+    def test_a_cut_entry_is_seeded_from_its_name_start_until_a_confirmed_anchor(self):
+        a = killfeed.EntryAnchors()
+        a.frame(0.0)
+        e = a.entry(self._view(0, 15), UNIT_SCALE)
+        # a whole placement seeds nothing: the strip may still find the art
+        killfeed.EntryAnchors.seed(e, 12.0, UNIT_SCALE)
+        self.assertIsNone(killfeed.EntryAnchors.anchor(e))
+        killfeed.EntryAnchors.seed(e, -20.4, UNIT_SCALE)
+        killfeed.EntryAnchors.seed(e, -25.0, UNIT_SCALE)      # the first seed holds
+        got = killfeed.EntryAnchors.anchor(e)
+        self.assertEqual((got["source"], got["views"]), ("name_start", 1))
+        self.assertAlmostEqual(got["x"], -20.4)
+        # two art views that agree take over from the seed
+        for x in (-21, -21):
+            killfeed.EntryAnchors.confirm(e, self._fields(x, anchor="entry_anchor"), None)
+        self.assertEqual(killfeed.EntryAnchors.anchor(e)["source"], "art")
 
 
 class ArtClaimTests(unittest.TestCase):

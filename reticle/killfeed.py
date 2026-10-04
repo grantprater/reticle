@@ -1745,7 +1745,13 @@ PORTRAIT_ASPECT = 2.0
 # 0.15.0 (2026-10-03): a `second_life_observation` per entry whose victim may be
 # Phoenix or KAY/O by the lineup (`second_life_gate`), not only the player's
 # own deaths; each row carries `victim_ally`, `player_death` and `gate`.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.15.0"
+# 0.16.0 (2026-10-03): a killer art the ROI's left edge cuts is placed from
+# its name start (`KILLER_ART_FROM_NAME`) and scored on its visible columns
+# at a fixed column; under `ART_MIN_VISIBLE` columns it refuses as
+# `art_cut_by_roi` instead of widening; rows store `art_visible`. The
+# per-candidate cover gate is gone. A cut entry's first placement seeds its
+# anchor (source `name_start`) until a confirmed one takes over.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.16.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -1795,6 +1801,25 @@ PLATE_EDGE_MIN = 4.0
 #: on 2639 clean killer views of 21 matches at 1080p: median +0.05 px,
 #: interquartile -0.35 to +0.44; the art starts at the plate's end.
 KILLER_ART_FROM_PLATE = 0.0
+#: The killer name's first column less the killer art's right end (base px):
+#: the art ends just before the name. Measured on 1080p clean killer views:
+#: median 0.97, interquartile 0.69 to 1.20. Where the ROI's left edge cuts
+#: the art, no plate edge shows, and this places it.
+KILLER_ART_FROM_NAME = 0.97
+#: The fewest art columns (base px) inside the ROI that a cut killer window
+#: may be scored on. Cutting whole Riot-labelled killer art to its right v
+#: columns, the side's-five top-1 is
+#: [metric:portrait_cut_width/killer_side5#top1_v18=0.954] at 18 px and
+#: [metric:portrait_cut_width/killer_side5#top1_v20=0.9998] at 20, and the
+#: pooled likelihood (`identity.PORTRAIT_LIKELIHOOD`) names a wrong agent on
+#: [metric:portrait_cut_width/killer_side5#wrong_named_v18=242] views at 18
+#: px and [metric:portrait_cut_width/killer_side5#wrong_named_v22=0] at 22,
+#: same [metric:portrait_cut_width/killer_side5#same_v22=0.8457] and diff
+#: [metric:portrait_cut_width/killer_side5#diff_v22=0.143] there, close to the
+#: pooled table, so it needs no per-width parameters. 22 is one step above
+#: the cliff. A placement with fewer columns inside refuses as
+#: `art_cut_by_roi`; it never widens.
+ART_MIN_VISIBLE = 22
 #: An entry keeps its killer portrait's column for its life
 #: [domain:killfeed/entry-holds-its-column]. The follow (`EntryAnchors`)
 #: matches an entry by its weapon-icon start and its victim name's start,
@@ -1868,7 +1893,7 @@ class EntryAnchors:
                     best = (d, e)
         if best is None:
             e = {"entry": self.next_id, "wx0": view.wx0, "v0": v0, "y0": view.y0,
-                 "t_ms": self.t_ms, "edges": [], "arts": [], "views": 0}
+                 "t_ms": self.t_ms, "edges": [], "arts": [], "views": 0, "seed": None}
             self.next_id += 1
             self.live.append(e)
         else:
@@ -1881,23 +1906,34 @@ class EntryAnchors:
     @staticmethod
     def anchor(e: dict | None) -> dict | None:
         """The entry's anchor: {x, source, views}, or None before a confident
-        placement."""
+        placement. An entry whose art the ROI's left edge cuts has no plate
+        edge to confirm it; its first view's name-start placement seeds the
+        anchor (source "name_start", `seed`) until a confirmed one exists."""
         if e is None:
             return None
+        seed = (None if e.get("seed") is None else
+                {"x": float(e["seed"]), "source": "name_start", "views": 1})
         if e["edges"]:
             top = sorted(e["edges"], key=lambda r: -r[1])[:ANCHOR_VIEWS]
             return {"x": float(np.median([r[0] for r in top])), "source": "plate_left",
                     "views": len(top)}
         arts = np.array([r[0] for r in e["arts"]], np.float64)
         if not len(arts):
-            return None
+            return seed
         both = np.array([r[1] for r in e["arts"]], bool)
         # a window two witnesses placed, else two art-only windows within 1 px
         ok = both | (np.abs(arts[:, None] - arts[None, :]) <= 1).sum(1) >= 2
         if not ok.any():
-            return None
+            return seed
         return {"x": float(np.median(arts[ok][:ANCHOR_VIEWS])), "source": "art",
                 "views": int(min(ok.sum(), ANCHOR_VIEWS))}
+
+    @staticmethod
+    def seed(e: dict | None, x: float, s: "KillfeedScale") -> None:
+        """Seed an entry with no anchor from a cut placement: the name-start
+        box `x`, which starts left of the ROI. The first seed holds."""
+        if e is not None and e.get("seed") is None and x < 0 and                 EntryAnchors.anchor(e) is None:
+            e["seed"] = float(x)
 
     @staticmethod
     def confirm(e: dict | None, fields: dict, plate: tuple[float, float] | None) -> None:
@@ -2240,9 +2276,14 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
 
     A long killer name pushes the portrait past the ROI's left edge; a window
     that starts left of column 0 scores the art's columns inside the ROI
-    (`appearance.art_zncc` `cut`, at least `appearance.ART_MIN_COVER` of the
-    weight), and `art_cover` gives the best window's share. A killer with
-    neither start, and a search with no window inside the ROI, refuse:
+    (`appearance.art_zncc` `cut`), at least `ART_MIN_VISIBLE` of them, and
+    `art_visible` gives the best window's share of the art's width,
+    `art_cover` its share of the art's weight. A cut placement fixes the
+    column as an entry anchor does: no plate edge witnesses it and the strip
+    about it lies off-crop, so a surprise widens rows only. Where every prior
+    leaves fewer than `ART_MIN_VISIBLE` columns inside, the view refuses as
+    `art_cut_by_roi` and stores the placement (`art_x0`, `art_visible`). A
+    killer with neither start, and a search with no window inside the ROI, refuse:
     `art_zncc` stays None and `art_reason` says why. The ROI's occlusion mask
     is not consulted, as the study did not.
     """
@@ -2264,14 +2305,26 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
     if not priors:
         out["art_reason"] = "no_killer_box"
         return out
+    # A window keeps at least ART_MIN_VISIBLE columns inside the ROI; a prior
+    # that places the art further off-crop holds no evidence to score.
+    vmin = s.n(ART_MIN_VISIBLE)
+    seen = [p for p in priors if min(w, p[0] + tw) - max(0, p[0]) >= vmin]
+    if not seen:
+        out.update({"art_reason": "art_cut_by_roi", "art_x0": int(priors[0][0]),
+                    "art_anchor": priors[0][1],
+                    "art_visible": round(max(0, min(w, priors[0][0] + tw)
+                                             - max(0, priors[0][0])) / tw, 3)})
+        return out
+    priors = seen
     cands, source = _art_candidates(ally, candidates, art)
 
     def search(dx: int, dy: int, names: list[str]):
         # window starts px-dx..px+dx; a start left of the ROI scores the art's
-        # columns inside it (appearance.art_zncc `cut`), one start per cut
+        # columns inside it (appearance.art_zncc `cut`), one start per cut,
+        # each with at least ART_MIN_VISIBLE columns inside
         ya, yb = max(0, y0 - dy), min(h, y0 + th + dy)
         xs = np.arange(px - dx, px + dx + 1)
-        xs = xs[(xs + tw <= w) & (xs > -tw)]
+        xs = xs[(xs + tw <= w) & (xs + tw >= vmin)]
         if yb - ya < th or not len(xs):
             return None
         lab = appearance.to_lab(crop[ya:yb, max(0, int(xs[0])):min(w, int(xs[-1]) + tw)])
@@ -2288,8 +2341,11 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
             cover[i] = art.cut_terms(cut, victim)["cover"][[art.index[n] for n in names]]
         return z, xs, ya, cover
 
-    # An entry anchor fixes the column: a surprise there widens rows only.
-    fixed = entry_x0 is not None and not victim
+    # An entry anchor fixes the column, and so does a placement the ROI's left
+    # edge cuts: no plate edge can witness it, and the strip about it lies
+    # mostly off-crop. A surprise there widens rows only.
+    anchored = entry_x0 is not None and not victim and priors[0][1] == "entry_anchor"
+    fixed = not victim and (anchored or (priors[0] if anchored else priors[-1])[0] < 0)
     wide_dx = s.n(ART_PRIOR_X if victim or fixed else ART_WIDE_X)
     with usage_step("art"):
         got, mode = None, "prior"
@@ -2303,7 +2359,7 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
         # anchor where there is one, else the last prior, the name-start box
         # where there is one
         px, anchor = (best if got is not None and float(got[0].max()) >= ART_SURPRISE_Z
-                      else priors[0] if fixed else priors[-1])
+                      else priors[0] if anchored else priors[-1])
         if got is None or float(got[0].max()) < ART_SURPRISE_Z:
             with usage_step("widened"):
                 wide = search(wide_dx, s.n(ART_WIDE_Y), cands)
@@ -2331,6 +2387,7 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
         "art_x0": int(xs[bx]), "art_y0": int(ya + by),
         "art_shift": [int(xs[bx] - px), int(ya + by - y0)],
         "art_cover": round(float(cover[bx, top]), 3),
+        "art_visible": round((min(w, int(xs[bx]) + tw) - max(0, int(xs[bx]))) / tw, 3),
         "art_mirrored": victim,
         "art_anchor": anchor,
     })
@@ -2435,8 +2492,10 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                 # its name's start; the victim's sits at the right-aligned
                 # anchor, so it needs no gap past the name.
                 plate_fields, plate_x0, pe, ent, anc = {}, None, None, None, None
-                box_x0 = ((edge - int(round(PORTRAIT_ASPECT * s.n(ART_TILE_H))))
-                          if role == "killer" else None)
+                # the art ends KILLER_ART_FROM_NAME before the name starts
+                box_xf = (name0 - s.px(KILLER_ART_FROM_NAME)
+                          - int(round(PORTRAIT_ASPECT * s.n(ART_TILE_H))))
+                box_x0 = int(round(box_xf)) if role == "killer" else None
                 if role == "killer":
                     # The entry's anchor first (`EntryAnchors`); the plate
                     # edge is measured until the anchor holds ANCHOR_VIEWS.
@@ -2454,6 +2513,8 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                                   entry_x0=None if anc is None
                                   else anc["x"] + s.px(KILLER_ART_FROM_PLATE))
                 fields.update(plate_fields)
+                if role == "killer":
+                    EntryAnchors.seed(ent, box_xf, s)
                 if ent is not None:
                     fields["entry"] = ent["entry"]
                     if anc is not None:
@@ -3498,6 +3559,8 @@ class KillfeedPortraitReader:
                     "anchors": {
                         "entries": len({r["entry"] for r in self.rows if "entry" in r}),
                         "anchored": sum("entry_anchor" in r for r in self.rows),
+                        "seeded": sum(any(x.get("source") == "name_start"
+                                          for x in r.get("rests_on") or ()) for r in self.rows),
                         "held": sum(r.get("art_anchor") == "entry_anchor" for r in self.rows),
                         "name_start_surprises": sum(bool((r.get("anchor_check") or {})
                                                          .get("surprise")) for r in self.rows)}},
