@@ -435,3 +435,41 @@ but scored washed-out roster frames lower, so `spike` keeps the mined template
 """
 phrases = ["spike carrier marker texture", "roster bomb icon"]
 see = ["hud/spike-carrier-marker"]
+
+[topbar-health-pill]
+claim = """
+The pill under each top-bar portrait fills with that player's health alone,
+as health over max health; shield does not enter it. The game's
+PlayerParticipantWidget_v2 sets its Health ProgressBar (44 x 10 units) in
+UpdateWidgets from GetHealth and GetMaxHealth, and its export holds no shield
+or armor getter. The fill is white, turns red at low health, and shows teal
+at times not yet explained.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+source = """
+the player, 2026-10-04 (chat): the pill shows health and probably excludes
+shield. Game build release-13.06-shipping-18-5590001: PlayerParticipantWidget_v2's
+exported JSON under <store>/reference/game-files/release-13.06-shipping-18-5590001/hud-layout/.
+Measured by prototypes/topbar_pill.py on the hud crop cache of 4f207c0c4e39,
+59c70f1ef720 and a06f04a0059f, the player's own slot while alive
+(<store>/analysis/topbar-pill-0.3.0/): at full health the fill reads the
+same with shield null, 25 or 50
+([metric:topbar_pill/self_alive#full_hp_shield_null_fill=0.9602],
+[metric:topbar_pill/self_alive#full_hp_shield_25_fill=0.9584],
+[metric:topbar_pill/self_alive#full_hp_shield_50_fill=0.9603] of the
+pill), where health plus shield predicts 100, 125 and 150 parts of 150;
+hp/100 places
+[metric:topbar_pill/self_alive#all_health_only_within_005=0.9342] of
+samples within 0.05 of the fill, (hp+shield)/150
+[metric:topbar_pill/self_alive#all_health_plus_shield_within_005=0.5152]
+"""
+use = """
+a top-bar reader reads each living player's health, never shield, from the
+pill's fill; the bottom HUD stays the only shield witness, and only for the
+player or the spectated teammate. The local player is not always the
+outermost slot: the drawn position follows the lineup's team order
+"""
+phrases = ["top bar health pill", "roster health pill", "health pill shield"]
+see = ["hud/spike-carrier-marker-texture"]
