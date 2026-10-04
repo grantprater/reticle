@@ -350,6 +350,71 @@ class DeathBindingTests(unittest.TestCase):
                          "barrier_is_not_a_player")
 
 
+class SelfDeathTests(unittest.TestCase):
+    """round-entity-0.15.0: the self entity ends at the player's own death;
+    while the player is dead the self icon marks the spectated teammate
+    [domain:minimap/self-icon-shows-spectated]."""
+
+    def _death(self, t, victim="Iso", **kw):
+        return {"kind": "death_verdict", "side": "ally", "round_no": 1, "t_ms": t,
+                "victim": victim, "death_id": f"death:s:{int(t)}:0", **kw}
+
+    def _run(self, deaths, lineup={"player": {"agent": "Iso"}}):
+        events = [_frame(k, float(t), me=(100.0 + k * 0.2, 100.0, 10))
+                  for k, t in enumerate(range(0, 1000, 100))]
+        rows = session_lifetimes("s", events, ROUNDS[:1], 1.0, None, deaths=deaths,
+                                 lineup=lineup)
+        ents = [r for r in rows if r["kind"] == "entity"]
+        obs = [r for r in rows if r["kind"] == "observation"]
+        return ents, obs
+
+    def test_dead_spans_close_at_a_revive_and_skip_second_lives(self):
+        from reticle.round_entities import player_dead_spans
+        deaths = [self._death(300.0), self._death(500.0, is_revive=True),
+                  self._death(600.0, kf_player_death=True, is_second_life=True),
+                  self._death(700.0, None, kf_player_death=True)]
+        spans = [(d["death_id"], s, e) for d, s, e in player_dead_spans(deaths, "Iso", 1000.0)]
+        self.assertEqual(spans, [("death:s:300:0", 300.0, 500.0),
+                                 ("death:s:700:0", 700.0, 1000.0)])
+        self.assertEqual(player_dead_spans([self._death(300.0, "Jett")], "Iso", 1000.0), [])
+
+    def test_the_players_death_cuts_the_self_entity_and_the_rest_abstains(self):
+        ents, obs = self._run([self._death(450.0)])
+        alive, spect = sorted(ents, key=lambda e: e["first_seen_ms"])
+        self.assertEqual((alive["family"], alive["agent"], alive["identity_status"]),
+                         ("self", "Iso", "resolved"))
+        self.assertEqual((alive["last_seen_ms"], alive["death_id"]), (400.0, "death:s:450:0"))
+        self.assertEqual((spect["family"], spect["agent"], spect["identity_status"]),
+                         ("spectated", None, "abstained"))
+        self.assertTrue(spect["identity_reason"].startswith("spectated: the player died at 450"))
+        self.assertEqual(spect["first_seen_ms"], 500.0)
+        self.assertIsNone(spect["death_id"])
+        self.assertEqual({alive["segment_id"], spect["segment_id"]}, {"s:R1:E0001"})
+        late = [o for o in obs if o["t_ms"] > 450.0]
+        self.assertTrue(late and all(o["entity_id"] == spect["id"] for o in late))
+        self.assertTrue(all(o["family"] == "self" for o in obs))
+
+    def test_an_observation_at_the_deaths_instant_is_the_players(self):
+        ents, obs = self._run([self._death(400.0)])
+        at = next(o for o in obs if o["t_ms"] == 400.0)
+        self.assertEqual(next(e for e in ents if e["id"] == at["entity_id"])["agent"], "Iso")
+
+    def test_a_revive_returns_the_self_icon_to_the_player(self):
+        ents, _ = self._run([self._death(250.0), self._death(650.0, is_revive=True)])
+        got = [(e["family"], e["agent"]) for e in sorted(ents, key=lambda e: e["first_seen_ms"])]
+        self.assertEqual(got, [("self", "Iso"), ("spectated", None), ("self", "Iso")])
+
+    def test_no_death_leaves_one_self_entity_named_by_the_arbiter(self):
+        ents, _ = self._run([])
+        (me,) = ents
+        self.assertEqual((me["id"], me["agent"], me["identity_status"]),
+                         ("s:R1:E0001", "Iso", "resolved"))
+        (unknown,) = self._run([], lineup=None)[0]
+        self.assertIsNone(unknown["agent"])
+        self.assertEqual(unknown["identity_status"], "abstained")
+        self.assertTrue(unknown["identity_reason"].startswith("player_unknown"))
+
+
 class BindingRuleTests(unittest.TestCase):
     """round-entity-0.14.0: inner pieces under a bound segment."""
 

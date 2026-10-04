@@ -672,14 +672,15 @@ def _lane_round_entity(ev, t0, t1):
         pos = pose.get("position") or {}
         agent = _agent((ent or {}).get("identity"))
         kind = (ent or {}).get("kind")
-        label = agent or {"self": "you", "ally": "ally", "barrier": "barrier"}.get(
+        label = agent or {"self": "you", "spectated": "spectated", "ally": "ally",
+                          "barrier": "barrier"}.get(
             kind, "unassigned")
         return Item(
             "round_entity", stream, "pose", pose["observed_ms"], pose["observed_ms"],
             "minimap", label, status, reason, x=pos.get("x"), y=pos.get("y"),
             r=pos.get("r"), event_id=pose["event_id"], version=version,
             entity_id=pose.get("entity_id"),
-            colour={"self": "self", "ally": "ally"}.get(kind, "barrier"),
+            colour={"self": "self", "spectated": "self", "ally": "ally"}.get(kind, "barrier"),
             detail={"family": kind, "identity_status": status,
                     "alternatives": _alternatives(lrow),
                     "ledger_id": (lrow or {}).get("ledger_id"),
