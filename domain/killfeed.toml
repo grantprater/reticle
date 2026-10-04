@@ -803,29 +803,44 @@ game build release-13.06-shipping-18-5590001: the DamageType assets' KillIcon re
 texture's source path and sha256); `adjudication.weapon.GAME_KILL_ICONS` maps
 ability to texture. The `gaps-0.1.0` export (`damage-type-icons/`, 2026-10-04)
 added the KillIcon textures outside those folders, Blade Storm's
-TX_Hud_Wushu_X_Dagger and Mosh Pit's TX_Aggrobot_Bubbles among them; the
-build's DamageType JSON (`weapon-data/`, `ability-states/`) names each
-DamageType's KillIcon and parent class
+TX_Hud_Wushu_X_Dagger and Mosh Pit's TX_Aggrobot_Bubbles among them. The
+`damage-types/` export (2026-10-04, `game-extract export --paths`) holds the
+JSON of all 90 DamageType packages under ShooterGame/ outside Console/
+(index.tsv.gz, file names matched case-insensitively), each naming its
+KillIcon and parent class; `game-extract whorefs` over the whole build
+(2026-10-04) names every package that imports each extra DamageType. Each
+export writes a texture once per encoded-PNG sha256 and records a repeat as
+a `dedup` manifest row pointing at the first file
+(<store>/tools/game-extract/src/Assets.cs, `WriteBytes`)
 """
 use = """
 since weapon-gallery-0.8.0 the gallery is the game's closed set, one exemplar
 set per KillIcon texture; mined exemplars stay only for revive and downed
-entries, which have no DamageType. An ability's icon is read from its own
+entries, which have no DamageType. Since weapon-gallery-0.9.0 the base-class
+and placeholder icons stay out, and the game-mode icons are candidates only
+on the surprise path. An ability's icon is read from its own
 texture, never by analogy with another ability's
 [domain:abilities/ability-rules-are-unique]
 """
 exceptions = """
-texture UV rectangles are ignored. Boom Bot, Orbital Strike, Annihilation and
-Hot Hands draw poorly from their textures at 24 px (best IoU 0.62-0.74 against
-their labelled exemplars, under the 0.75 floor): the capture thins their
-strokes. Stinger's DamageType names TX_Hud_Vector, which no export holds; the
-gallery draws its UIData KillStreamIcon, TX_Hud_SMG_KrissVector_S. Eighteen
-of the 89 DamageTypes under ShooterGame/ (Console twins aside) name no
-KillIcon in the exported data (the base classes,
-DmgType_Knife, DmgType_FallDamage, DmgType_Incendiary, DmgType_Eradication,
-DmgType_Instant, DmgType_TurtlingPenalty, two game-mode overtime types, the
-Vandal's DmgType_AK, Phoenix's healing fire and Veto's utility destroyer);
-those either inherit a listed icon or are not exported
+texture UV rectangles are ignored. Stinger's DamageType names TX_Hud_Vector,
+whose bytes equal its UIData KillStreamIcon's (sha256 80ace063...): both
+manifests (`killfeed-icons/`, `damage-type-icons/`) record TX_Hud_Vector as a
+`dedup` row of TX_Hud_SMG_KrissVector_S.png, so that file is the DamageType's
+own kill icon. Of the 90 DamageTypes, 83 name a KillIcon, their own or their
+parent class's, on 67 textures; seven name none (DmgType_Base,
+DmgType_Healing_Base, DmgType_Instant, DmgType_TurtlingPenalty, Dodgeball's
+overtime, Phoenix's healing fire, Veto's utility destroyer). Three KillIcons
+belong to base classes no kill deals: DmgType_Explosion (the minimap kill X,
+parent of Aftershock's type), DmgType_PistolBase (parent of the pistols'
+types) and DmgType_Phoenix_FireBase (parent of Hot Hands' and Blaze's types;
+the base fire buff names it, but each concrete fire buff names its own
+type). DmgType_Internal draws an archived placeholder texture (tomatoes) and
+only Globals names it. Golden Gun (Spike Rush), the plague orb (GameModes/Orbs)
+and the snowball (Snowball Fight) are named only by game-mode packages.
+TX_Hud_Icons_Abilities_Clay1 is drawn by DmgType_GrenadeBounceDamage, which
+GrenadeDestroyOnImpact deals for many agents' grenade projectiles, and by
+DmgType_Incendiary, which Triad's lava (LavaDamageBuff) deals
 """
 phrases = ["ability kill icon texture", "damage type kill icon"]
 see = ["killfeed/ability-kill-icon", "killfeed/kill-icon-mirrored"]

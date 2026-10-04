@@ -109,6 +109,36 @@ class MappingTests(unittest.TestCase):
         """A mined-only name is one no DamageType draws."""
         self.assertEqual(MINED_ONLY_NAMES & set(GAME_KILL_ICONS), set())
 
+    def test_no_base_class_or_placeholder_icon_is_a_candidate(self):
+        """weapon-gallery-0.9.0: the icons of base classes no kill deals and
+        the placeholder stay out of the gallery, kept as provenance."""
+        from reticle.adjudication.weapon import GAME_KILL_ICONS_EXCLUDED
+        self.assertEqual(set(GAME_KILL_ICONS_EXCLUDED),
+                         {"Explosion", "Pistol", "Phoenix fire", "Internal"})
+        self.assertEqual(set(GAME_KILL_ICONS_EXCLUDED) & set(GAME_KILL_ICONS), set())
+        self.assertTrue(all(v["why"] and v["damage_types"]
+                            for v in GAME_KILL_ICONS_EXCLUDED.values()))
+
+    def test_game_mode_icons_are_candidates_only_on_the_surprise_path(self):
+        """A game-mode icon leaves the kit and lineup tiers and stays in full."""
+        from reticle.adjudication.weapon import GAME_MODE_ICONS, candidate_tiers
+        names = ["Vandal", "Golden Gun", "Snowball", "Plague orb", "Aftershock"]
+        g = {"names": np.array(names), "masks": np.zeros((5, 16, 64)), "aspects": np.ones(5)}
+        self.assertEqual(set(GAME_MODE_ICONS) - set(GAME_KILL_ICONS), set())
+        tiers = {t["tier"]: t for t in candidate_tiers(
+            g, agents={"Breach"}, actor={"agent": "Breach", "entity_id": "e"})}
+        for tier in ("kit", "lineup"):
+            self.assertEqual(tiers[tier]["index"]["names"], ["Vandal", "Aftershock"], tier)
+            self.assertEqual(set(tiers[tier]["dropped"]), set(GAME_MODE_ICONS), tier)
+        self.assertEqual(tiers["full"]["index"]["names"], names)
+
+    def test_stinger_reads_its_damage_types_texture(self):
+        """Stinger's KillIcon TX_Hud_Vector is exported as a dedup of the
+        KillStreamIcon file; the provenance names the DamageType's texture."""
+        from reticle.adjudication.weapon import GAME_KILL_ICON_TEXTURES
+        self.assertTrue(GAME_KILL_ICONS["Stinger"][0].endswith("TX_Hud_SMG_KrissVector_S.png"))
+        self.assertTrue(GAME_KILL_ICON_TEXTURES["Stinger"].endswith("TX_Hud_Vector"))
+
     def test_blade_storm_draws_its_damage_types_single_dagger(self):
         """Blade Storm's kill icon is its DamageType's dagger, not the tray's
         three knives."""

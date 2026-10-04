@@ -1,6 +1,7 @@
 r"""The game's kill icons against the mined gallery, scored on the player's labels.
 
     .\.venv\Scripts\python.exe prototypes\game_killicons.py [--json OUT] [--record]
+    .\.venv\Scripts\python.exe prototypes\game_killicons.py --inventory OUT
 
 Every exemplar of the mined gallery (`weapon-gallery-0.6.0`) is a stored
 `killfeed_weapon` grid the player named. Each is named by
@@ -74,11 +75,78 @@ def outcome(truth: str, v: dict, known: set) -> str:
     return "right" if v["name"] in (want, truth) else "wrong"
 
 
+def inventory(store_root=None) -> list[dict]:
+    """Every DamageType of the build and the kill icon it draws: the packages
+    under ShooterGame/ outside Console/ whose file name holds `dmgtype` or
+    `damagetype` in any case (index.tsv.gz; Dmgtype_GoldenGun_SpikeRush has a
+    lower-case t), each read from the `damage-types` export: its parent
+    class, its KillIcon, own or inherited through the parents, the exported
+    file that holds it (a `dedup` row points at the first file with the same
+    bytes) and the gallery name drawing it, or why the gallery leaves it out."""
+    import gzip
+    import re
+    from reticle.adjudication.weapon import (GAME_KILL_ICONS, GAME_KILL_ICONS_EXCLUDED,
+                                             game_build_dir)
+    d = game_build_dir(store_root)
+    c = "ShooterGame/Content/"
+    dts = []
+    with gzip.open(d / "index.tsv.gz", "rt", encoding="utf-8") as fh:
+        next(fh)
+        for line in fh:
+            p = line.split("\t")[0]
+            if (p.startswith("ShooterGame/") and "/Console/" not in p and p.endswith(".uasset")
+                    and re.search(r"dmgtype|damagetype", p.rsplit("/", 1)[-1], re.I)):
+                dts.append(p[len(c):-len(".uasset")])
+    parent, icon = {}, {}
+    for k in dts:
+        for o in json.loads((d / "damage-types" / c / f"{k}.json").read_text(encoding="utf-8")):
+            if o.get("Type") == "BlueprintGeneratedClass" and o.get("Super"):
+                parent[k] = o["Super"]["ObjectPath"].replace("/Game/", "").rsplit(".", 1)[0]
+            if "KillIcon" in (o.get("Properties") or {}):
+                t = (o["Properties"]["KillIcon"].get("Texture") or {}).get("ObjectPath")
+                icon[k] = t.replace("/Game/", "").rsplit(".", 1)[0] if t else None
+    files = {}
+    for export in ("killfeed-icons", "damage-type-icons", "minimap"):
+        for line in (d / export / "manifest.jsonl").read_text(encoding="utf-8").splitlines():
+            r = json.loads(line)
+            if r.get("output"):
+                files.setdefault(r["game_path"][len(c):-len(".uasset")].lower(),
+                                 (r["output"].replace("\\", "/"), r.get("status")))
+    by_file = {rel.lower(): n for n, (rel, _cat) in GAME_KILL_ICONS.items()}
+    out_of = {v["texture"].lower(): n for n, v in GAME_KILL_ICONS_EXCLUDED.items()}
+    rows = []
+    for k in sorted(dts):
+        cur = k
+        while cur is not None and cur not in icon:
+            cur = parent.get(cur)
+        tex = icon.get(cur) if cur else None
+        f, status = files.get(tex.lower(), (None, None)) if tex else (None, None)
+        rows.append({"damage_type": k, "parent": parent.get(k), "kill_icon": tex,
+                     "how": ("own" if cur == k else f"inherited from {cur}") if tex else "none",
+                     "file": f, "export_status": status,
+                     "gallery": by_file.get((f or "").lower()),
+                     "excluded": out_of.get((f or "").lower())})
+    return rows
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--json", type=Path)
     ap.add_argument("--record", action="store_true")
+    ap.add_argument("--inventory", type=Path,
+                    help="write the DamageType inventory (`inventory`) to this JSON and stop")
     args = ap.parse_args(argv)
+    if args.inventory:
+        rows = inventory()
+        drawn = [r for r in rows if r["kill_icon"]]
+        print(f"DamageTypes {len(rows)}; with a KillIcon {len(drawn)} "
+              f"({sum(r['how'] == 'own' for r in drawn)} own); textures "
+              f"{len({r['kill_icon'] for r in drawn})}; in the gallery "
+              f"{sum(bool(r['gallery']) for r in drawn)}; excluded "
+              f"{sum(bool(r['excluded']) for r in drawn)}; neither "
+              f"{[r['damage_type'] for r in drawn if not (r['gallery'] or r['excluded'])]}")
+        args.inventory.write_text(json.dumps(rows, indent=1), encoding="utf-8")
+        return 0
     from reticle.adjudication.weapon import (WEAPON_GALLERY_VERSION, _icon_index, _name_icon,
                                              load_game_icons, MINED_ONLY_NAMES,
                                              MINED_GALLERY_VERSION, mined_gallery_path)

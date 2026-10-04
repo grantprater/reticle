@@ -98,6 +98,19 @@ class DerivationTests(unittest.TestCase):
                 if ability_agent(n) is not None:
                     self.assertEqual(ability_agent(n), agent, n)
 
+    def test_kit_names_are_spelled_as_the_gallery_spells_them(self):
+        """killfeed-kits-0.4.0: a capitalised reference word is capitalised
+        ("TURRET"); the game's own mixed casing stays; every kit name is a
+        weapon gallery name."""
+        self.assertEqual(kk.kit_name("TURRET"), "Turret")
+        for n in ("FRAG/ment", "NULL/cmd", "Hunter's Fury", "Tour De Force", "ZERO/point"):
+            self.assertEqual(kk.kit_name(n), n)
+        self.assertIn("Turret", kk.kill_kits()["Killjoy"])
+        from reticle.adjudication.weapon import GAME_KILL_ICONS, MINED_ONLY_NAMES
+        gallery = set(GAME_KILL_ICONS) | set(MINED_ONLY_NAMES)
+        for agent, names in kk.kill_kits().items():
+            self.assertEqual(set(names) - gallery, set(), agent)
+
     def test_stored_derivation_matches_the_reference(self):
         from reticle.store import DEFAULT_STORE
         ref = DEFAULT_STORE / kk.REFERENCE

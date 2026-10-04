@@ -67,9 +67,17 @@ from .killfeed_kits import kill_kits, open_questions
 # on either team.
 # 1.3.1 (2026-10-04): names against weapon-gallery-0.8.0, the game's closed
 # set; `ability_agent` gives Phoenix's fire base icon to Phoenix.
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.3.1"
+# 1.4.0 (2026-10-04): names against weapon-gallery-0.9.0. A game-mode icon
+# (GAME_MODE_ICONS) is a candidate only in the `full` tier, the surprise
+# path: no owner reads a capture's game mode. The kit floor's names are
+# those no other name of the kit tier reaches NAME_KIT_MIN_IOU against
+# (`kit_null`), in place of the ABILITY_MAX_ASPECT cap it stood for; the kits
+# come normalised from killfeed-kits-0.4.0 (Killjoy's Turret).
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.4.0"
 
-#: Aspect ratio and width thresholds separating abilities from guns.
+#: Aspect ratio and width thresholds separating abilities from guns in the
+#: reference-art path (`extract_icon_observation`, `estimate_weapon_class`);
+#: the kit floor no longer reads them (`kit_null`).
 ABILITY_MAX_WIDTH_PX = 36
 ABILITY_MAX_ASPECT = 1.35
 
@@ -498,7 +506,13 @@ MINED_GALLERY_VERSION = "weapon-gallery-0.6.0"
 #: dagger. Left one icon out, it names
 #: [metric:game_killicons/served_loio@weapon-gallery-0.8.0#all_misnamed=2]
 #: unseen icons: the case a closed set leaves only for an undrawn DamageType.
-WEAPON_GALLERY_VERSION = "weapon-gallery-0.8.0"
+#: 0.9.0 (2026-10-04) drops the icons no kill draws (GAME_KILL_ICONS_EXCLUDED:
+#: three base classes and a placeholder) and lists each icon's DamageTypes
+#: from the build's `damage-types` export; it names
+#: [metric:game_killicons/served@weapon-gallery-0.9.0#all_right=809] labelled
+#: exemplars, none wrong, and left one icon out
+#: [metric:game_killicons/served_loio@weapon-gallery-0.9.0#all_misnamed=2].
+WEAPON_GALLERY_VERSION = "weapon-gallery-0.9.0"
 NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
 NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
 NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
@@ -524,14 +538,18 @@ NAME_ASPECTS = {"Warden": 3.86}
 #: ability icon scores above
 #: [metric:killfeed_openset/kit_null@weapon-gallery-0.3.0#null_max_ability=0.513]
 #: against another agent's abilities (`prototypes/killfeed_openset.py kitnull`).
-#: A gun-shaped ability (Headhunter, Tour De Force, Boom Bot; exemplar aspect
-#: over ABILITY_MAX_ASPECT) keeps NAME_MIN_IOU, since a Sheriff scores up to
+#: A gun-shaped ability keeps NAME_MIN_IOU, since a Sheriff scores up to
 #: [metric:killfeed_openset/kit_null@weapon-gallery-0.3.0#null_max_gun_shaped=0.82]
-#: against Headhunter [domain:killfeed/chamber-gun-shaped-abilities]. The
-#: null samples other agents' icons, not an agent's own unlabelled abilities,
-#: so the floor lowers only where the gallery holds the agent's whole
-#: killfeed kit (`KILLFEED_KITS`): an unlisted ability of the actor's would
-#: otherwise be named as the nearest listed one.
+#: against Headhunter [domain:killfeed/chamber-gun-shaped-abilities]. Until
+#: weapon-adjudication-1.4.0 "gun-shaped" meant an exemplar aspect over
+#: ABILITY_MAX_ASPECT, a proxy for that confusion that also barred Mosh Pit
+#: (aspect 1.5) and Boom Bot (1.64) whatever their neighbours; now a name
+#: takes the lower floor only when no exemplar of another name in its kit
+#: tier, the guns included, scores NAME_KIT_MIN_IOU against its exemplars
+#: (`kit_null`). The null samples other names' icons, not an agent's own
+#: unlabelled abilities, so the floor lowers only where the gallery holds the
+#: agent's whole killfeed kit (`KILLFEED_KITS`): an unlisted ability of the
+#: actor's would otherwise be named as the nearest listed one.
 NAME_KIT_MIN_IOU = 0.52
 
 #: Every ability of an agent that can draw a killfeed weapon-slot icon: its
@@ -612,24 +630,30 @@ def load_mined_gallery(path: Optional[Path | str] = None) -> Optional[dict]:
 #: [domain:killfeed/ability-kill-icon-texture], mirrored
 #: [domain:killfeed/kill-icon-mirrored], 24 px high at 1080p
 #: [domain:killfeed/weapon-cell-formula]. The table is the closed set: every
-#: DamageType of GAME_ICON_BUILD that names a KillIcon texture, one row per
-#: texture (GAME_KILL_ICON_SOURCES names the DamageTypes that draw it). The
-#: build's index lists 89 DamageType packages under ShooterGame/ outside
-#: `Console/`; 71 name a KillIcon drawn here; the other 18 have no KillIcon
-#: in the exported data (a base class, or a type the export lacks).
+#: KillIcon texture a DamageType of GAME_ICON_BUILD draws, own or inherited,
+#: one row per texture (GAME_KILL_ICON_SOURCES names the DamageTypes that
+#: draw it), less GAME_KILL_ICONS_EXCLUDED. The build's index lists 90
+#: DamageType packages under ShooterGame/ outside `Console/` (file names
+#: matched case-insensitively: Dmgtype_GoldenGun_SpikeRush has a lower-case
+#: t); the `damage-types` export holds each one's JSON, and 83 of them name a
+#: KillIcon, their own or their parent's, on 67 textures; the other seven
+#: (DmgType_Base, DmgType_Healing_Base, DmgType_Instant, the turtling penalty,
+#: Dodgeball's overtime, Phoenix's healing fire and Veto's utility destroyer)
+#: name none [domain:killfeed/ability-kill-icon-texture].
 #: The path is relative to the build's export directory (`game_build_dir`),
 #: its first part the export set: `killfeed-icons/` (UIData DisplayIcon and
-#: KillStreamIcon), `damage-type-icons/` (every DamageType's KillIcon, the
-#: `gaps-0.1.0` export, which holds Blade Storm's single dagger and Mosh
-#: Pit's bubbles) or `minimap/`. The name is the gallery's (a gun's name, an
-#: ability's `ABILITY_CANONICAL_NAMES` name, or a cause); the category is
-#: what `entry_weapon` reports, `other` for a base class or game-mode icon
-#: with no caster (GAME_MODE_ICONS names the modes). Stinger keeps its
-#: UIData KillStreamIcon, TX_Hud_SMG_KrissVector_S, the texture the gamefiles
-#: probe scored on capture crops: its DamageType names TX_Hud_Vector, which no
-#: export holds. Not here: Not Dead Yet, Resurrection and NULL/cmd, which mark
-#: revive and downed entries and have no DamageType; the mined gallery keeps
-#: those (MINED_ONLY_NAMES).
+#: KillStreamIcon), `damage-type-icons/` (the DamageTypes' KillIcon
+#: textures, the `gaps-0.1.0` export, which holds Blade Storm's single dagger
+#: and Mosh Pit's bubbles) or `minimap/`. Each export deduplicates textures by
+#: their encoded PNG's sha256, so a texture whose bytes another export already
+#: wrote is a `dedup` manifest row pointing at that file: Stinger's KillIcon,
+#: TX_Hud_Vector, is byte-identical to its UIData KillStreamIcon and is read
+#: from TX_Hud_SMG_KrissVector_S.png (GAME_KILL_ICON_TEXTURES). The name is the
+#: gallery's (a gun's name, an ability's `ABILITY_CANONICAL_NAMES` name, or a
+#: cause); the category is what `entry_weapon` reports, `other` for an icon
+#: with no caster. Not here: Not Dead Yet, Resurrection and NULL/cmd, which
+#: mark revive and downed entries and have no DamageType; the mined gallery
+#: keeps those (MINED_ONLY_NAMES).
 GAME_ICON_BUILD = "release-13.06-shipping-18-5590001"
 _KC = "killfeed-icons/ShooterGame/Content/UI/InGame/HUD/KillCallout/Assets/"
 _AB = "killfeed-icons/ShooterGame/Content/UI/InGame/HUD/Abilities/Assets/ShippingIcons/"
@@ -697,25 +721,54 @@ GAME_KILL_ICONS: dict[str, tuple[str, str]] = {
     "Blade Storm": (_DT + "UI/InGame/HUD/Abilities/Assets/NormalNew/TX_Hud_Wushu_X_Dagger.png",
                     "ability"),
     "Mosh Pit": (_DT + "Characters/AggroBot/AbilityIcons/TX_Aggrobot_Bubbles.png", "ability"),
-    "Phoenix fire": (_DT + "UI/InGame/Shop/Old/Assets/Shop_Special_FireArrow_Icon.png", "ability"),
     "Grenade bounce": (_DT + "UI/InGame/HUD/Abilities/Assets/NormalNew/"
                        "TX_Hud_Icons_Abilities_Clay1.png", "other"),
-    "Explosion": ("minimap/ShooterGame/Content/UI/InGame/HUD/Minimap/TX_Hud_Icons_Kill_S.png",
-                  "other"),
-    "Pistol": (_DT + "Weapons/Pistol/PistolIcon.png", "other"),
-    "Internal": (_DT + "Environment/_Archive/blackmarket/Textures/bm_tomatoes.png", "other"),
     "Golden Gun": (_DT + "GameModes/Equippables/GoldenGun/TX_Hud_Pistol_GoldenGun_S.png", "other"),
     "Plague orb": (_DT + "GameModes/Orbs/VFX/Textures/UI_Icons_Modes_Plagues_NoFrame.png", "other"),
     "Snowball": (_KC + "TX_SnowballLauncher.png", "other"),
 }
+#: The game texture a name's file holds when the export wrote it under
+#: another texture's name (a `dedup` manifest row, same sha256): Stinger's
+#: DamageType names TX_Hud_Vector, exported as TX_Hud_SMG_KrissVector_S.png.
+GAME_KILL_ICON_TEXTURES = {"Stinger": "UI/InGame/HUD/KillCallout/Assets/TX_Hud_Vector"}
+#: KillIcon textures no kill draws, kept out of the gallery, with the
+#: DamageTypes that name them and why (`whorefs` over the whole build,
+#: 2026-10-04: every package that imports or names the DamageType). A base
+#: class is named only by its subclasses, each with its own KillIcon, so its
+#: icon never reaches a killfeed. Provenance, not a candidate.
+GAME_KILL_ICONS_EXCLUDED: dict[str, dict] = {
+    "Explosion": {"texture": "minimap/ShooterGame/Content/UI/InGame/HUD/Minimap/"
+                             "TX_Hud_Icons_Kill_S.png",
+                  "damage_types": ("DmgType_Explosion",),
+                  "why": "base class: named only by DmgType_Breach_4_FusionBlast, its subclass"},
+    "Pistol": {"texture": _DT + "Weapons/Pistol/PistolIcon.png",
+               "damage_types": ("Weapons/Pistol/DmgType_PistolBase",),
+               "why": "base class: named only by the pistol DamageTypes (Classic, Ghost, Sheriff, "
+                      "Frenzy, Bandit, Headhunter, Golden Gun) that subclass it"},
+    "Phoenix fire": {"texture": _DT + "UI/InGame/Shop/Old/Assets/Shop_Special_FireArrow_Icon.png",
+                     "damage_types": ("Characters/Phoenix/S0/Passive_Fire/DmgType_Phoenix_FireBase",),
+                     "why": "base class: named by Hot Hands' and Blaze's DamageTypes, its "
+                            "subclasses, and by Buff_Phoenix_Fire_Base, whose two fire buffs "
+                            "name their own DamageTypes"},
+    "Internal": {"texture": _DT + "Environment/_Archive/blackmarket/Textures/bm_tomatoes.png",
+                 "damage_types": ("Weapons/Pistol/DmgType_Internal",),
+                 "why": "placeholder: an archived environment texture (tomatoes) on the "
+                        "engine's internal DamageType, which only Globals names"},
+}
 #: The DamageTypes (paths under the build's `Content/`) that draw each
-#: GAME_KILL_ICONS texture, from their exported KillIcon (`weapon-data`,
-#: `ability-states`, `damage-type-icons/manifest.jsonl`); console twins
+#: GAME_KILL_ICONS texture, own or inherited through the class's parent, from
+#: the build's `damage-types` export (every DamageType's JSON); console twins
 #: inherit theirs and are left out. Provenance, not a rule.
 GAME_KILL_ICON_SOURCES: dict[str, tuple[str, ...]] = {
-    "Odin": ("Equippables/Guns/HvyMachineGuns/HMG/DmgType_HeavyMachineGun",),
+    "Odin": ("Equippables/Guns/HvyMachineGuns/HMG/DmgType_HeavyMachineGun",
+             "Equippables/Guns/HvyMachineGuns/HMG/DmgType_HeavyMachineGunPrimaryFire"),
     "Ares": ("Equippables/Guns/HvyMachineGuns/LMG/DmgType_LightMachineGun",),
-    "Vandal": ("Equippables/Guns/_Core/DmgType_GunBase", "Equippables/Guns/Rifles/AK/DmgType_AK"),
+    "Vandal": ("Equippables/Guns/_Core/DmgType_GunBase", "Equippables/Guns/Rifles/AK/DmgType_AK",
+               "Equippables/Guns/HvyMachineGuns/DmgType_HeavyMachineGunBase",
+               "Equippables/Guns/Rifles/DmgType_RifleBase",
+               "Equippables/Guns/Shotguns/DmgType_ShotgunBase",
+               "Equippables/Guns/SniperRifles/DmgType_SniperRifleBase",
+               "Equippables/Guns/SubMachineGuns/DmgType_SubMachineGunBase"),
     "Warden": ("Equippables/Guns/Rifles/BattleRifle/DmgType_BattleRifle",),
     "Bulldog": ("Equippables/Guns/Rifles/Burst/DmgType_AssaultRifleBurst",),
     "Phantom": ("Equippables/Guns/Rifles/Carbine/DmgType_ACR",),
@@ -733,12 +786,12 @@ GAME_KILL_ICON_SOURCES: dict[str, tuple[str, ...]] = {
     "Marshal": ("Equippables/Guns/SniperRifles/Leversniper/DmgType_LeverSniperRifle",),
     "Spectre": ("Equippables/Guns/SubMachineGuns/MP5/DmgType_MP5",),
     "Stinger": ("Equippables/Guns/SubMachineGuns/Vector/DmgType_SubMachineGunVector",),
-    "Melee": ("Weapons/BaseBlueprints/DmgType_Knife (not exported: Melee_UIData KillStreamIcon)",
-              "GameModes/GunGame/DmgType_Knife_Gungame"),
+    "Melee": ("Weapons/BaseBlueprints/DmgType_Knife", "GameModes/GunGame/DmgType_Knife_Gungame"),
     "Headhunter": ("Characters/Deadeye/S0/Ability_Q/Gun/DmgType_Deadeye_Q_Pistol",),
     "Tour De Force": ("Characters/Deadeye/S0/Ability_X/Gun_Giantslayer/DmgType_Deadeye_Giantslayer",),
     "Spike": ("DmgType_ObjectiveBombPlantExplosion",),
-    "Fall": ("DamageTypesShared/DmgType_Crush",),
+    "Fall": ("DamageTypesShared/DmgType_Crush", "DamageTypesShared/DmgType_FallDamage",
+             "DamageTypesShared/DmgType_Eradication"),
     "Crushed": ("Environment/Plummet/Blueprints/DroppableDoor/DmgType_DescentBox_Crush",),
     "Aftershock": ("Characters/Breach/S0/Ability_4/DmgType_Breach_4_FusionBlast",),
     "Boom Bot": ("Characters/Clay/S0/Ability_E/DmgType_Clay_E_Boomba",),
@@ -769,7 +822,8 @@ GAME_KILL_ICON_SOURCES: dict[str, tuple[str, ...]] = {
     "Armageddon": ("Characters/Cashew/S0/Ability_X/DmgType_Cashew_X_Airstrike",),
     "Seize": ("Characters/BountyHunter/S0/Global/DmgType_BountyHunter_Decay_Seize",),
     "Nightfall": ("Characters/BountyHunter/S0/Global/DmgType_BountyHunter_Decay_Nightfall",),
-    "Viper decay": ("Characters/Pandemic/S0/Ability_X/DmgType_Pandemic_Decay",),
+    "Viper decay": ("Characters/Pandemic/S0/Ability_X/DmgType_Pandemic_Decay",
+                    "GameModes/AbilityDraftArena/DmgType_Vulcan_Overtime"),
     "Meddle": ("Characters/Smonk/S0/Ability_Q/DebuffKnife/DecayLauncher/DmgType_Smonk_Decay_Pulse",),
     "Clove expiry": ("Characters/Smonk/S0/Ability_X/ReactiveRes/DmgType_Smonk_X_SelfDamage",),
     "Chokehold": ("Characters/Pine/S0/Ability_Q/DmgType_Pine_Decay_Seize",),
@@ -777,19 +831,27 @@ GAME_KILL_ICON_SOURCES: dict[str, tuple[str, ...]] = {
                     "Characters/Wushu/S0/Ability_X/DmgType_Wushu_X_Dagger_Burst"),
     "Mosh Pit": ("Characters/AggroBot/S0/Ability_4/DmgType_Aggrobot_PatchDoT",
                  "Characters/AggroBot/S0/Ability_4/DmgType_Aggrobot_PatchExplosion"),
-    "Phoenix fire": ("Characters/Phoenix/S0/Passive_Fire/DmgType_Phoenix_FireBase",),
-    "Grenade bounce": ("Projectiles/Grenades/DmgType_GrenadeBounceDamage",),
-    "Explosion": ("DmgType_Explosion",),
-    "Pistol": ("Weapons/Pistol/DmgType_PistolBase",),
-    "Internal": ("Weapons/Pistol/DmgType_Internal",),
+    "Grenade bounce": ("Projectiles/Grenades/DmgType_GrenadeBounceDamage",
+                       "Projectiles/Grenades/DmgType_Incendiary"),
     "Golden Gun": ("GameModes/Equippables/GoldenGun/Dmgtype_GoldenGun_SpikeRush",),
     "Plague orb": ("GameModes/Orbs/Plague/DmgType_PlagueOrb",),
     "Snowball": ("GameModes/SnowballFight/DmgType_Snowball",),
 }
-#: Icons only a game mode draws, by the mode its DamageType's folder names.
-#: They stay in the closed set: the gallery does not know a capture's mode.
-GAME_MODE_ICONS = {"Golden Gun": "Spike Rush", "Plague orb": "Spike Rush",
+#: Icons only a game mode draws, by the mode its DamageType's package names:
+#: `whorefs` finds each DamageType named only by packages under GameModes/
+#: (Projectile_GoldenGun_SpikeRush, Buff_PlagueOrb_Plague under Orbs/,
+#: Projectile_Snowball under SnowballFight/). A mode's icon belongs to that
+#: mode, and no owner reads a capture's game mode (`reticle ownership "game
+#: mode"` names none), so these are candidates only in the `full` tier, the
+#: surprise path (`restrict_gallery`): no agent or lineup allows them, and a
+#: capture of the mode still reaches them.
+GAME_MODE_ICONS = {"Golden Gun": "Spike Rush", "Plague orb": "Orbs",
                    "Snowball": "Snowball Fight"}
+#: Grenade bounce stays in every tier: its texture is drawn by
+#: DmgType_GrenadeBounceDamage, which GrenadeDestroyOnImpact deals for the
+#: grenade projectiles of many agents (Projectile_BaseGrenade imports it),
+#: and by DmgType_Incendiary, which Triad's lava (LavaDamageBuff) deals; no
+#: agent or lineup excludes either.
 #: Mined names no DamageType draws: revive and downed entries
 #: [domain:killfeed/revive-entries] [domain:killfeed/kayo-downed-entry]. The
 #: gallery keeps their player-named exemplars, flagged `mined` in its
@@ -931,6 +993,8 @@ def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
                 keys.append(f"game:{GAME_ICON_BUILD}:{Path(rel).stem}@{ph[0]:.2f},{ph[1]:.2f}")
             prov[name] = {"texture": out_key, "sha256": digest,
                           "damage_types": list(GAME_KILL_ICON_SOURCES.get(name, ()))}
+            if name in GAME_KILL_ICON_TEXTURES:
+                prov[name]["kill_icon"] = GAME_KILL_ICON_TEXTURES[name]
     out = {"names": np.array(names), "classes": np.array(cls),
            "masks": np.array(masks, dtype=np.float32), "aspects": np.array(aspects),
            "keys": np.array(keys),
@@ -939,7 +1003,9 @@ def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
                           "filters": "mirror; INTER_AREA to the drawn height; linear warp to "
                                      "the phase; the reader's PLATE_WHITE_CUT and icon_grid "
                                      "(INTER_AREA to ICON_GRID)",
-                          "icons": prov}}
+                          "icons": prov,
+                          "excluded": {n: v["why"] for n, v in GAME_KILL_ICONS_EXCLUDED.items()},
+                          "surprise_only": dict(GAME_MODE_ICONS)}}
     _GAME_CACHE[key] = (out, None)
     return out, None
 
@@ -981,11 +1047,8 @@ def load_gallery(store_root: Optional[Path] = None, scale: float = 1.0
 #: The self entries that are an agent's own ability but not one of its four
 #: official icons [domain:rounds/clove-revive-expiry-entry]. Viper's decay
 #: kill icon is a DamageType of Viper's (Pandemic) character data in the
-#: game build, not one of her four abilities' names. Phoenix's fire base
-#: DamageType (Passive_Fire) is the parent of Hot Hands' and Blaze's and has
-#: its own KillIcon.
-EXTRA_ABILITY_AGENTS = {"Clove expiry": "Clove", "Viper decay": "Viper",
-                        "Phoenix fire": "Phoenix"}
+#: game build, not one of her four abilities' names.
+EXTRA_ABILITY_AGENTS = {"Clove expiry": "Clove", "Viper decay": "Viper"}
 
 
 def ability_agent(name: Optional[str]) -> Optional[str]:
@@ -1024,11 +1087,14 @@ def caster_claim(entity_id: str, name: Optional[str],
 
 
 def restrict_gallery(gallery: dict, agents) -> tuple[dict, list[str]]:
-    """The gallery without ability exemplars no agent in `agents` can cast,
-    and the names it dropped. Guns and unattributed names stay."""
+    """The gallery without ability exemplars no agent in `agents` can cast
+    and without the game-mode icons (GAME_MODE_ICONS), which no agent or
+    lineup context allows, and the names it dropped. Guns and the other
+    unattributed names stay."""
     agents = set(agents)
     drop = sorted({str(n) for n in gallery["names"]
-                   if ability_agent(str(n)) is not None and ability_agent(str(n)) not in agents})
+                   if str(n) in GAME_MODE_ICONS
+                   or (ability_agent(str(n)) is not None and ability_agent(str(n)) not in agents)})
     keep = np.array([str(n) not in drop for n in gallery["names"]])
     return {k: (v[keep] if isinstance(v, np.ndarray) and len(v) == len(keep) else v)
             for k, v in gallery.items()}, drop
@@ -1147,26 +1213,37 @@ def _thin_reason(reasons: dict[str, int], n_bound: int) -> str:
 
 
 def kit_names(gallery: dict, agent: Optional[str]) -> frozenset:
-    """The names that take NAME_KIT_MIN_IOU in `agent`'s kit tier: its listed
-    `ability_shaped_names`, but only when `KILLFEED_KITS` lists the agent,
-    `KILLFEED_OPEN` holds no question of it, and `gallery` holds every name
-    listed; otherwise none, and the floor stays NAME_MIN_IOU."""
+    """The names that take NAME_KIT_MIN_IOU in `agent`'s kit tier (`gallery`,
+    as `restrict_gallery` narrows it): its listed abilities (names
+    `ability_agent` gives to the agent) whose `kit_null` in that tier is
+    under NAME_KIT_MIN_IOU, but only when `KILLFEED_KITS`
+    lists the agent, `KILLFEED_OPEN` holds no question of it, and `gallery`
+    holds every name listed; otherwise none, and the floor stays NAME_MIN_IOU."""
     listed = KILLFEED_KITS.get(agent or "")
     if (not listed or KILLFEED_OPEN.get(agent or "")
             or not listed <= {str(n) for n in gallery["names"]}):
         return frozenset()
-    return ability_shaped_names(gallery, agent) & listed
+    return frozenset(n for n in listed if ability_agent(n) == agent
+                     and kit_null(gallery, n) < NAME_KIT_MIN_IOU)
 
 
-def ability_shaped_names(gallery: dict, agent: Optional[str]) -> frozenset:
-    """The ability-shaped names of `agent`'s kit in `gallery`: the names
-    `ability_agent` gives to the agent whose exemplars' median aspect is at
-    most ABILITY_MAX_ASPECT."""
-    if not agent:
-        return frozenset()
+def kit_null(gallery: dict, name: str) -> float:
+    """The highest score `_name_icon` gives any exemplar of another name in
+    `gallery` against the exemplars of `name` (IoU, zero beyond
+    NAME_ASPECT_TOL): how close the tier's other icons come to it. A name
+    whose null reaches NAME_KIT_MIN_IOU would let one of them pass as it at
+    the lower floor (a Sheriff as Headhunter), so it keeps NAME_MIN_IOU."""
     names = np.array([str(n) for n in gallery["names"]])
-    return frozenset(n for n in set(names.tolist()) if ability_agent(n) == agent
-                     and float(np.median(gallery["aspects"][names == n])) <= ABILITY_MAX_ASPECT)
+    own = names == name
+    if not own.any() or own.all():
+        return 0.0
+    g = gallery["masks"].reshape(len(names), -1).astype(np.float32)
+    a, b = g[own], g[~own]
+    inter = a @ b.T
+    iou = inter / np.maximum(a.sum(1)[:, None] + b.sum(1)[None, :] - inter, 1)
+    asp = np.asarray(gallery["aspects"], dtype=np.float64)
+    iou[np.abs(np.log(asp[own][:, None] / asp[~own][None, :])) > NAME_ASPECT_TOL] = 0.0
+    return float(iou.max())
 
 
 def candidate_tiers(gallery: dict, agents=None, actor: Optional[dict] = None) -> list[dict]:
