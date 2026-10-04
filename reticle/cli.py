@@ -2982,9 +2982,10 @@ def cmd_vision(args) -> int:
     from .minimap_diagnostics import DIAGNOSTICS_VERSION
     from .minimap_lifecycle import LIFECYCLE_VERSION
     from .roi_cache import ROI_CACHE_VERSION, RoiCache
-    from .team_vision import TeamVision, at, compare_rows, frame_row, load_inputs
+    from .team_vision import (StoredAllyPoses, TeamVision, at, compare_rows, frame_row,
+                              load_inputs)
     from .track import TRACK_VERSION
-    from .version import ICON_TEARDROP_VERSION, TEAM_VISION_VERSION, TEARDROP_VERSION
+    from .version import TEAM_VISION_VERSION, TEARDROP_VERSION
 
     store = Store(args.store)
     targets = store.sessions() if args.all else [_resolve_session(store, args.session)]
@@ -3024,6 +3025,12 @@ def cmd_vision(args) -> int:
         if args.check and not stored:
             print(f"{sid}: no stored team_vision to check against -- skipped")
             continue
+        # The teammates are the stored ally reader's, never fitted again here
+        # (team-vision-0.7.0); a session without the stream is skipped.
+        allies, why = StoredAllyPoses.from_store(store, sid)
+        if allies is None:
+            print(f"{sid}: {why} -- skipped; run `reticle scan {sid} --only ally_icon` first")
+            continue
         inputs.stalls = stalls.for_session(store, sid, _date_of(manifest))
         common = {"session_id": sid, "team_vision_version": TEAM_VISION_VERSION}
         rows, widget = [], Counter()
@@ -3031,14 +3038,19 @@ def cmd_vision(args) -> int:
         started = time.perf_counter()
         if instants is not None:
             got = at(cache, inputs, sorted(instants[sid]), warmup_ms=warmup_ms,
-                     distance_diagnostics=False)
+                     distance_diagnostics=False, ally_poses=allies)
         else:
-            vision = TeamVision.from_inputs(inputs, distance_diagnostics=False)
-            got = ((smp.frame_idx, vision.step(smp.frame[y0:y1, x0:x1], smp.t_ms))
+            vision = TeamVision.from_inputs(inputs, distance_diagnostics=False,
+                                            ally_poses=allies)
+            got = ((smp.frame_idx, vision.step(smp.frame[y0:y1, x0:x1], smp.t_ms,
+                                               frame_idx=smp.frame_idx))
                    for smp in cache.samples(times, rois=["minimap"]))
+        causes = Counter()
         for frame_idx, frame in got:
             widget[frame.widget] += 1
             rows.append({**common, **frame_row(frame, frame_idx)})
+            if frame.widget == "ally_unread":
+                causes[rows[-1].get("ally_unread_cause")] += 1
             if len(rows) % 500 == 0:
                 sys.stdout.write(f"\r  {sid}  {len(rows)}/{len(times)} frames")
                 sys.stdout.flush()
@@ -3067,7 +3079,12 @@ def cmd_vision(args) -> int:
                                          if inputs.light is not None else None),
                     "track_version": TRACK_VERSION,
                     "teardrop_version": TEARDROP_VERSION,
-                    "icon_teardrop_version": ICON_TEARDROP_VERSION,
+                    # The teammates' poses are the stored ally reader's rows
+                    # (`inputs.ally_icon` records its stamp), less the
+                    # families this chain does not cast from.
+                    "ally_icons_skipped": dict(allies.skipped),
+                    # Each refused frame's own cause (`team_vision.UNREAD_CAUSES`).
+                    "ally_unread_causes": dict(sorted(causes.items())),
                     "lifecycle_version": LIFECYCLE_VERSION,
                     "diagnostics_version": DIAGNOSTICS_VERSION,
                     "stall_version": stalls.STALL_VERSION,
@@ -3085,7 +3102,8 @@ def cmd_vision(args) -> int:
         out = store.write_events("team_vision", sid, rows)
         drawn = widget.get("drawn", 0)
         print(f"{sid}: {len(rows) - 1} frames, {drawn} drawn, "
-              f"{widget.get('not_drawn', 0)} no widget, {widget.get('stale', 0)} stale "
+              f"{widget.get('not_drawn', 0)} no widget, {widget.get('stale', 0)} stale, "
+              f"{widget.get('ally_unread', 0)} ally poses unread {dict(causes)} "
               f"in {elapsed:.0f} s -> {out}")
     return 0
 
