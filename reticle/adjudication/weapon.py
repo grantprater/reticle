@@ -71,8 +71,9 @@ from .killfeed_kits import kill_kits, open_questions
 # rendered means and the mined exemplars' means with the dev residual
 # covariance folded in (`_name_white`), among the names the IoU floor clears.
 # New refusals: `registration_failed` (no ink edge, or coverage against the
-# winner beyond the fit limits) and `pairwise_tie` (TIE_Z). A row without the
-# glyph, or a scale without parameters, keeps the IoU rule.
+# winner beyond the fit limits) and `pairwise_tie` (TIE_Z). A row whose glyph
+# is unread (none stored, plate colour unknown inside the icon box, ink on the
+# patch border), or a scale without parameters, keeps the IoU rule.
 WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.4.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
@@ -493,8 +494,12 @@ MINED_GALLERY_VERSION = "weapon-gallery-0.6.0"
 #: The gallery `entry_weapon` names against (`load_gallery`): the mined
 #: exemplars plus the game's kill icons (`load_game_icons`). 0.7.0
 #: (2026-10-03) adds the game set of GAME_ICON_BUILD to MINED_GALLERY_VERSION;
-#: see GAME_ICON_POLICY for what each shared name keeps.
-WEAPON_GALLERY_VERSION = "weapon-gallery-0.7.0"
+#: see GAME_ICON_POLICY for what each shared name keeps. 0.7.1 (2026-10-03)
+#: leaves out a game icon placement the reader's own gate (`icon_grid`) cuts
+#: to nothing at the capture's scale, as Hot Hands at 0.667, instead of
+#: refusing the whole gallery; the reader never reports such a glyph. At
+#: scale 1.0 every placement reads and the gallery is unchanged.
+WEAPON_GALLERY_VERSION = "weapon-gallery-0.7.1"
 NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
 NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
 NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
@@ -806,8 +811,11 @@ def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
     neither. Refuses `no_game_icons` when the build's export or its
     manifest is missing, `game_icon_missing:<name>` when a listed texture is,
     and `game_icon_sha256:<name>` when a texture's bytes differ from the
-    manifest's sha256. The gallery carries the build and each texture's
-    sha256 (`provenance`)."""
+    manifest's sha256. A placement `icon_grid` cuts to nothing at this scale
+    is left out and listed under `provenance["unreadable"]`: the reader's
+    gate refuses such a glyph, so no observation can match it; a name left
+    with no placement is absent from the gallery, never guessed. The gallery
+    carries the build and each texture's sha256 (`provenance`)."""
     d = game_icons_dir(store_root)
     key = (str(d), round(float(scale), 4), tuple(phases), soft, mirror)
     if key in _GAME_CACHE:
@@ -816,6 +824,7 @@ def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
     if textures is None:
         return None, why
     names, cls, masks, aspects, keys, prov = [], [], [], [], [], {}
+    unreadable: list[str] = []
     with step("game_icons"):
         for name, (rel, category) in GAME_KILL_ICONS.items():
             rgba, out_key, digest = textures[name]
@@ -825,7 +834,8 @@ def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
                 ex = (game_icon_exemplar(rgba, GAME_ICON_HEIGHT * scale, soft=soft, phase=ph)
                       if rgba is not None else None)
                 if ex is None:
-                    return None, f"game_icon_unreadable:{name}"
+                    unreadable.append(f"{name}@{ph[0]:.2f},{ph[1]:.2f}")
+                    continue
                 names.append(name)
                 cls.append(category)
                 masks.append(ex[0])
@@ -840,7 +850,7 @@ def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
                           "filters": "mirror; INTER_AREA to the drawn height; linear warp to "
                                      "the phase; the reader's PLATE_WHITE_CUT and icon_grid "
                                      "(INTER_AREA to ICON_GRID)",
-                          "icons": prov}}
+                          "icons": prov, "unreadable": unreadable}}
     _GAME_CACHE[key] = (out, None)
     return out, None
 
@@ -926,7 +936,12 @@ WHITEN_PER_NAME = 25
 WHITEN_MINED_MIN = 3
 #: The registration limits are this quantile of the fit rows' coverage
 #: against their own winning reference, among rows the filter names right.
-WHITEN_REG_QUANTILE = 0.995
+#: Chosen on the dev sessions alone, by leave-one-session-out, as the
+#: smallest of 0.995, 0.999 and 1.0 whose limits from ten sessions refuse at
+#: most 0.5% of the eleventh's right frames: 0.995 refused 9 of 1104 at
+#: scale 1.0, 0.999 refused 2 (the coverage of right frames is heavy-tailed
+#: across sessions).
+WHITEN_REG_QUANTILE = 0.999
 #: The two best names are a pairwise tie when the winner's score clears the
 #: runner-up's by less than this many standard deviations of their score
 #: difference, sqrt((mu_a - mu_b)' S^-1 (mu_a - mu_b)) under the fit
@@ -957,7 +972,8 @@ def register_canvas(w: np.ndarray, scale: float = 1.0
     WHITEN_LEFT, and the whiteness-weighted row centroid of the columns from
     that edge on to the canvas's middle row, by one linear warp. Returns the
     canvas (float32) and the shift; None and `no_edge` when no column crosses
-    the cut."""
+    the cut, `edge_at_border` when the first column already does: whiteness
+    runs off the patch, so the edge was never observed."""
     hc, wc = int(round(WHITEN_CANVAS[0] * scale)), int(round(WHITEN_CANVAS[1] * scale))
     w = np.clip(np.asarray(w, np.float32), 0.0, 1.0)
     cm = w.max(axis=0)
@@ -965,7 +981,9 @@ def register_canvas(w: np.ndarray, scale: float = 1.0
     if idx.size == 0:
         return None, {"reason": "no_edge"}
     j = int(idx[0])
-    xe = (j - (cm[j] - PLATE_WHITE_CUT) / max(float(cm[j] - cm[j - 1]), 1e-3)) if j > 0 else float(j)
+    if j == 0:
+        return None, {"reason": "edge_at_border"}
+    xe = j - (cm[j] - PLATE_WHITE_CUT) / max(float(cm[j] - cm[j - 1]), 1e-3)
     rm = w[:, j:].sum(axis=1)
     yc = float((rm * np.arange(len(rm))).sum() / max(float(rm.sum()), 1e-6))
     m = np.float32([[1, 0, WHITEN_LEFT * scale - xe], [0, 1, (hc - 1) / 2 - yc]])
@@ -983,11 +1001,20 @@ def soft_canvas(row: dict, scale: float) -> tuple[Optional[np.ndarray], dict]:
     on) registered at `scale` (`register_canvas`). A row cut at a larger
     scale is first shrunk to `scale` with INTER_AREA; one cut smaller is
     refused (`row_below_scale`), since enlarging would invent detail. None
-    and `no_soft` for a row without the field."""
+    and `no_soft` for a row without the field; `plate_unknown` when the
+    plate colour is unknown in a column of the reader's icon box
+    (`ix0..ix1`): the reader stores whiteness 0 there, an unread value, so
+    part of the glyph is missing rather than dark."""
     soft = row.get("soft")
     if not soft:
         return None, {"reason": "no_soft"}
-    w = unpack_soft(soft)[0].astype(np.float32) / 255.0
+    w, known = unpack_soft(soft)
+    w = w.astype(np.float32) / 255.0
+    if row.get("ix0") is not None and row.get("ix1") is not None:
+        b0 = max(0, int(row["ix0"]) - int(soft["x0"]))
+        b1 = min(len(known), int(row["ix1"]) - int(soft["x0"]) + 1)
+        if not known[b0:b1].all():
+            return None, {"reason": "plate_unknown"}
     s = row_scale(row)
     if s < scale - 1e-3:
         return None, {"reason": "row_below_scale"}
@@ -1196,6 +1223,7 @@ def build_whitening(store_root: Optional[Path] = None, scale: float = 1.0,
             "labels": "death_verdict weapon_evidence resolved (pipeline verdicts; agreement, "
                       "not accuracy), the middle ring-witness frame",
             "death_versions": sorted({str(f["death_version"]) for f in fit}),
+            "reader_versions": sorted({str(f["row"].get("killfeed_weapon_version")) for f in fit}),
             "fit_rows": len(G), "fit_per_name": per_name,
             "fit_keys_sha1": hashlib.sha1("\n".join(keys).encode()).hexdigest(),
             "fit_right": int(len(cov)), "limits": limits, "quantile": WHITEN_REG_QUANTILE,
@@ -1709,8 +1737,9 @@ def entry_weapon(entry: dict, observations: list[dict],
         sc = out["whiten"]["scale"]
         with step("whiten_register"):
             canvases = [soft_canvas(o, sc) for o in bound]
-        # A row with no soft glyph (or cut smaller than the parameters) is
-        # named by the IoU rule; a glyph with no ink edge refuses.
+        # A row whose soft glyph is unread (none stored, cut smaller than the
+        # parameters, plate unknown inside the box, edge off the patch) is
+        # named by the IoU rule; a glyph with no ink edge at all refuses.
         canvases = [c if c[0] is not None or c[1].get("reason") == "no_edge" else None
                     for c in canvases]
     narrow = set(by) - {"full"}

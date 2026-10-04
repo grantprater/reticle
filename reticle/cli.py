@@ -3296,7 +3296,8 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
     from .adjudication.identity import AGENT_IDENTITY_VERSION, load_identity_gallery
     from .adjudication.killfeed_names import KILLFEED_NAME_CLUSTER_VERSION
     from .adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
-    from .adjudication.weapon import WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION
+    from .adjudication.weapon import (WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION,
+                                      WEAPON_WHITEN_VERSION)
     from .lineup import load_lineup
 
     sid, date = manifest["session_id"], _date_of(manifest)
@@ -3444,6 +3445,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                            or "unstamped",
                            "weapon_adjudication": WEAPON_ADJUDICATION_VERSION,
                            "weapon_gallery": WEAPON_GALLERY_VERSION,
+                           "weapon_whiten": WEAPON_WHITEN_VERSION,
                            "killfeed_name_cluster": KILLFEED_NAME_CLUSTER_VERSION,
                            "scoreboard_agent": SCOREBOARD_AGENT_VERSION,
                            "minimap_object": mo_version if births is not None else None,
@@ -5171,6 +5173,21 @@ def cmd_ally_portrait_refs(args) -> int:
     return 0
 
 
+def cmd_weapon_whiten(args) -> int:
+    """Fit the killfeed weapon scorer's whitening parameters from stored data
+    (`adjudication.weapon.build_whitening`), one file per scale."""
+    from .adjudication.weapon import build_whitening, whitening_path
+    store = Store(args.store)
+    for scale in args.scale:
+        out = build_whitening(store.root, scale)
+        p = out["provenance"]
+        print(f"{p['version']} at {p['scale']:.3f}: {len(out['names'])} references, "
+              f"{p['fit_rows']} fit rows from {len(p['dev_sessions'])} sessions "
+              f"({', '.join(p['reader_versions'])}; {', '.join(p['death_versions'])}), "
+              f"limits {p['limits']} -> {whitening_path(store.root, scale)}")
+    return 0
+
+
 def cmd_domain(args) -> int:
     """The domain registry: what is true of the GAME, not of this pipeline.
 
@@ -5853,6 +5870,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("ally-portrait-refs", help="bake minimap ally-portrait "
                        "references rendered from the stored art")
     s.set_defaults(func=cmd_ally_portrait_refs)
+
+    s = sub.add_parser("weapon-whiten", help="fit the killfeed weapon scorer's "
+                       "whitening parameters on the dev sessions' stored rows")
+    s.add_argument("--scale", type=float, nargs="+", default=[1.0],
+                   help="capture scales to fit (default 1.0)")
+    s.set_defaults(func=cmd_weapon_whiten)
 
     s = sub.add_parser("domain", help="the domain registry -- what is true of "
                        "VALORANT, cited rather than restated")

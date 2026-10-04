@@ -897,7 +897,8 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
     from .adjudication.killfeed_names import KILLFEED_NAME_CLUSTER_VERSION
     from .adjudication.reliability import RELIABILITY_VERSION
     from .adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
-    from .adjudication.weapon import WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION
+    from .adjudication.weapon import (WEAPON_ADJUDICATION_VERSION, WEAPON_GALLERY_VERSION,
+                                      WEAPON_WHITEN_VERSION)
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
     from .minimap_objects import minimap_object_version
     from .roi_cache import ROI_CACHE_VERSION
@@ -916,6 +917,7 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
              # The rules the verdicts pass through, recorded since 2026-09-30.
              "weapon_adjudication": WEAPON_ADJUDICATION_VERSION,
              "weapon_gallery": WEAPON_GALLERY_VERSION,
+             "weapon_whiten": WEAPON_WHITEN_VERSION,
              "killfeed_name_cluster": KILLFEED_NAME_CLUSTER_VERSION,
              "scoreboard_agent": SCOREBOARD_AGENT_VERSION,
              "reliability": RELIABILITY_VERSION}
