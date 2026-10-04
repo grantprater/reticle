@@ -170,6 +170,63 @@ def _correlation(obs, model):
         return np.where(den > 0, (m * o).sum(axis=-1) / den, -1.0)
 
 
+def silhouette_reach(r_out: float, L_: float, edge: float) -> float:
+    """How far from its centre `render`'s silhouette can be non-zero.
+
+    A pixel renders above 0 only where `d` < edge / 2: within `r_out` +
+    edge / 2 of the centre, or inside the lobe's triangle grown by edge / 2,
+    whose farthest points lie at `u` = L + edge / 2, `|v|` = (edge / 2)(1 -
+    cos a) / sin a, with cos a = r_out / L. Strictly beyond the larger of
+    the two the silhouette is exactly 0."""
+    e = edge / 2
+    ca = r_out / L_
+    sa = math.sqrt(max(1e-12, 1.0 - ca * ca))
+    return max(r_out + e, math.hypot(L_ + e, e * (1.0 - ca) / sa)) + 1e-3
+
+
+class _Support:
+    """`_correlation` of a window's observation with silhouettes rendered
+    only where they can cover.
+
+    A silhouette is 0 farther than `reach` from its centre, so a model row
+    is rendered on the window's pixels within `reach` plus a margin of the
+    probes' centre, and the window's other pixels enter the normalised
+    correlation through the observation's own sums: with `o` the centred
+    observation over all `n` pixels and `m` the model, the numerator is
+    `m . o - mean(m) sum(o)` and the model's variance `m . m - n mean(m)^2`.
+    The same score as `_correlation` over the whole window, to float
+    rounding, on about a quarter of the pixels."""
+
+    MARGIN = 1.0
+
+    def __init__(self, obs: np.ndarray, px: np.ndarray, py: np.ndarray, reach: float):
+        self.o = obs - obs.mean()
+        self.n = float(obs.size)
+        self.oo = float((self.o * self.o).sum())
+        self.so = float(self.o.sum(dtype=np.float64))
+        self.px, self.py, self.reach = px, py, reach
+        self.c = None
+
+    def around(self, x: float, y: float, step_p: float = 0.0):
+        """The pixels a silhouette centred within `step_p` of `(x, y)` can
+        cover: `(px, py)`, kept until the centre leaves the margin."""
+        if self.c is None or math.hypot(x - self.c[0], y - self.c[1]) + step_p > self.MARGIN:
+            sel = np.hypot(self.px - x, self.py - y) <= self.reach + self.MARGIN
+            self.c = (x, y)
+            self.qx, self.qy, self.qo = self.px[sel], self.py[sel], self.o[sel]
+        return self.qx, self.qy
+
+    def ncc(self, model: np.ndarray) -> np.ndarray:
+        """Each model row's normalised correlation, as `_correlation` gives it."""
+        model = np.asarray(model, np.float64)
+        mean = model.sum(axis=-1) / self.n
+        num = model @ self.qo - mean * self.so
+        var = (model * model).sum(axis=-1) - self.n * mean * mean
+        den = np.sqrt(self.oo * np.maximum(var, 0.0))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(den > 0, num / den, -1.0)
+
+
 def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0,
                  r_in: float | None = None, r_out: float | None = None,
                  L_: float | None = None, yel: np.ndarray | None = None,
@@ -236,6 +293,7 @@ def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0
             and abs(t - math.radians(prior[2])) < 1e-6):
         # The local grid kept the prior's refined pose: start the compass finer.
         step_p, step_t = PRIOR_REFINE_STEP, math.radians(3.0) * PRIOR_REFINE_STEP / 0.5
+    sup = _Support(obs, px, py, silhouette_reach(r_out, L_, edge))
     with step("refine"):
         while step_p >= 0.05:
             cand = ((x + step_p, y, t), (x - step_p, y, t), (x, y + step_p, t),
@@ -243,8 +301,8 @@ def fit_teardrop(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0
             cx = np.array([c[0] for c in cand], np.float32)[:, None]
             cy = np.array([c[1] for c in cand], np.float32)[:, None]
             ct = np.array([c[2] for c in cand], np.float64)[:, None]
-            s2 = _correlation(obs, render(px[None, :] - cx, py[None, :] - cy, ct,
-                                          r_in, r_out, L_, edge))
+            qx, qy = sup.around(x, y, step_p)
+            s2 = sup.ncc(render(qx[None, :] - cx, qy[None, :] - cy, ct, r_in, r_out, L_, edge))
             better = np.flatnonzero(s2 > sc)
             if better.size:
                 j = int(better[0])
