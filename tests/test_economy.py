@@ -125,6 +125,15 @@ class EconomyTests(unittest.TestCase):
         self.assertEqual(tracker.loss_streaks, {"ally": 0, "enemy": 0})
         self.assertEqual(tracker.last_settled_round, 1)
 
+    def test_overtime_reset_assigns_the_overtime_bank(self):
+        tracker = self.tracker()
+        tracker.reset_period(2, "overtime")
+        self.assertTrue(all(v == CreditRange.exact(5000)
+                            for v in tracker.balances.values()))
+        tracker.reset_period(3, "halftime")
+        self.assertTrue(all(v == CreditRange.exact(800)
+                            for v in tracker.balances.values()))
+
     def test_survival_rule_propagates_unknowns(self):
         self.assertTrue(survival_penalty("attack", True, False, False))
         self.assertFalse(survival_penalty("attack", True, True, False))
