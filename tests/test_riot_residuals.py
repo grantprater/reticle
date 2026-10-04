@@ -17,7 +17,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from reticle.adjudication.death import _match_shrinks, entry_victim_side, same_entry
-from reticle.adjudication.killfeed_names import (NCC_MIN, fragment_ncc, join_fragments,
+from reticle.adjudication.killfeed_names import (NCC_MIN, fragment_ncc, join_fragments, ncc,
                                                  name_clusters)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
@@ -91,6 +91,26 @@ class FragmentJoinTests(unittest.TestCase):
         crops = _crops(a1=a, a2=a.copy(), b1=b, b2=b.copy(), j1=junk, j2=junk.copy())
         self.assertEqual(name_clusters(crops)["sides"]["ally"],
                          [["a1", "a2"], ["b1", "b2"], ["j1", "j2"]])
+
+    def test_two_recurring_junk_clusters_cannot_vouch_for_each_other(self):
+        # killfeed-name-cluster-0.5.1: each junk cluster holds A's word and
+        # B's word around a different middle; tested with the other still in
+        # place, each saw A and B as one group through the other.
+        a, b = _scatter(21, 44), _scatter(23, 44)
+        j, k = _name(a, _scatter(25, 20), b), _name(a, _scatter(27, 20), b)
+        self.assertLess(ncc(j, k), NCC_MIN)
+        crops = _crops(a1=a, a2=a.copy(), b1=b, b2=b.copy(), j1=j, j2=j.copy(), k1=k, k2=k.copy())
+        self.assertEqual(name_clusters(crops)["sides"]["ally"],
+                         [["a1", "a2"], ["b1", "b2"], ["j1", "j2"], ["k1", "k2"]])
+
+    def test_a_word_two_names_share_at_opposite_ends_bridges_neither(self):
+        # "TAG X" and "Y TAG": TAG is the left word of one and the right word
+        # of the other, with a whole word beside it in each.
+        tag = _scatter(31, 30)
+        one, two = _name(tag, _scatter(33, 60)), _name(_scatter(35, 62), tag)
+        crops = _crops(p1=one, p2=one.copy(), q1=two, q2=two.copy(), t1=tag, t2=tag.copy())
+        self.assertEqual(name_clusters(crops)["sides"]["ally"],
+                         [["p1", "p2"], ["q1", "q2"], ["t1", "t2"]])
 
     def test_a_recurring_shared_word_bridges_neither(self):
         tag = _scatter(1, 30)

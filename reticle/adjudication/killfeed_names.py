@@ -41,8 +41,10 @@ crop of the narrower matches the left- or right-aligned window of a member of
 the wider at `NCC_MIN`: the narrower is one word of the wider's name. Clusters
 join along their links, but no cluster, read once or on many entries, joins
 two groups each read on two entries or more unless the groups read one name
-whole or it is a word at the left end of one and the right end of the other,
-so a junk crop or a word two names share never bridges two names
+whole, one is a word of the other, or it is a word at the left end of one and
+the right end of the other with too little beside it for another word. Every
+such bridge is removed before any is tested, so a junk crop, two junk
+clusters or a word two names share never bridges two names
 (`join_fragments`).
 
 Every score is one masked sum per shift over a stack of crops
@@ -83,7 +85,22 @@ from ..killfeed import unpack_name_gray
 # clustering the 21 matches takes
 # [metric:killfeed_name_fragments/join_time#name_clusters_s_050=6.95] s
 # against [metric:killfeed_name_fragments/join_time#name_clusters_s_040=18.08].
-KILLFEED_NAME_CLUSTER_VERSION = "killfeed-name-cluster-0.5.0"
+# 0.5.1 (2026-10-04): the guard removes every bridge before testing any, and
+# each recurring bridge counts as a group of its own, so two recurring junk
+# clusters on the same two names no longer vouch for each other; two groups
+# may also join when one is a word of the other. The opposite-ends case
+# needs less than `FRAGMENT_MIN_PX` beside the word in each group, so a word
+# two names share at opposite ends ("TAG X", "Y TAG") no longer joins them.
+# Without that case the guard splits
+# [metric:killfeed_name_fragments/strict_guard#joins_split_without_opposite_ends=9]
+# side-runs' joins on the 21 Riot matches, so it stays; the widest rest
+# beside a kept word there is
+# [metric:killfeed_name_fragments/strict_guard#widest_rest_px=18] px. On the
+# 21 matches the join sets equal 0.5.0's
+# [metric:killfeed_name_fragments/strict_guard#side_runs_changed=0]
+# (designed on those matches; no held-out data). The test of every bridge is
+# one batch per pass, with no Python loop over bridges.
+KILLFEED_NAME_CLUSTER_VERSION = "killfeed-name-cluster-0.5.1"
 
 #: Set from the two views of one entry, which are one name (labels-free).
 NCC_MIN = 0.9
@@ -327,22 +344,26 @@ def join_fragments(clusters: list[list[str]], crops: dict) -> list[list[str]]:
     `FRAGMENT_MEMBERS`, matches the left- or right-aligned window of a member
     of the other at `NCC_MIN` (`fragment_sides`): the narrower is one word of
     the wider's name. Clusters join along their links (`connected_components`),
-    with one guard. A group is a set of linked clusters of at least
-    `FRAGMENT_SUPPORT` members each, a name read on two entries or more. A
-    cluster whose links reach two or more groups, counted without it, joins
-    them only when each pair of them reads one name whole (some member crops
-    within `WIDTH_TOL` reach `NCC_MIN`, `whole_matrix`), as when greedy
-    clustering, which compares only first members, split one name; or when it
-    is a word at the left end of a member of one and at the right end of a
-    member of the other, as when one name's crops carry a neighbouring icon
-    on opposite sides. Otherwise it joins nothing. Removing a cluster can make
-    another a bridge, so the guard repeats until no cluster fails it. A junk
-    crop holding one name's word and another's, or a word two names share,
-    so never bridges two names however often it recurs: the groups' own
-    crops, or the word's place in them, must carry the join. A whole name
-    whose two words each recur as clusters is such a bridge too and joins
-    neither. A crop read once joins the groups it links to, never another
-    crop read once."""
+    with one guard. A bridge is a cluster linked to two or more clusters of
+    at least `FRAGMENT_SUPPORT` members, names read on two entries or more.
+    The guard removes every bridge at once; the recurring clusters left form
+    groups along their links, and each recurring bridge counts as a group of
+    its own, so no two bridges vouch for each other. A bridge whose links
+    reach two or more groups joins them only when each pair of them reads
+    one name whole (some member crops within `WIDTH_TOL` reach `NCC_MIN`,
+    `whole_matrix`), as when greedy clustering, which compares only first
+    members, split one name; or one is a word of the other; or the bridge is
+    a word at the left end of a member of one and at the right end of a
+    member of the other with less than `FRAGMENT_MIN_PX`, too little for a
+    word, beside it in each, as when one name's crops carry a neighbouring
+    icon's edge on opposite sides. Otherwise it joins nothing. Removing a
+    bridge can change the groups, so the guard repeats until no bridge fails
+    it. A junk crop holding one name's word and another's, two such junk
+    clusters, or a word two names share at either end so never bridge two
+    names however often they recur: the groups' own crops, or the word's
+    place in them, must carry the join. A whole name whose two words each
+    recur as clusters is such a bridge too and joins neither. A crop read
+    once joins the groups it links to, never another crop read once."""
     from scipy.sparse import csr_matrix
     from scipy.sparse.csgraph import connected_components
 
@@ -361,30 +382,31 @@ def join_fragments(clusters: list[list[str]], crops: dict) -> list[list[str]]:
 
     left, right = fragment_sides(grays)
     word_l, word_r = lift(left >= NCC_MIN), lift(right >= NCC_MIN)     # [i, j]: i a word of j
-    whole = lift(whole_matrix(grays) >= NCC_MIN)
+    ws = np.array([g.shape[1] for g in grays])
+    rest = ws[None, :] - ws[:, None] < FRAGMENT_MIN_PX                  # no word beside it
+    end_l, end_r = lift((left >= NCC_MIN) & rest), lift((right >= NCC_MIN) & rest)
+    whole = lift(whole_matrix(grays) >= NCC_MIN).astype(np.int64)
     link = word_l | word_r
     link |= link.T
     big = np.array([len(c) for c in clusters]) >= FRAGMENT_SUPPORT
     live = np.ones(n, bool)
     while True:
-        failed = []
-        for x in np.flatnonzero(live & ((link & big[None, :] & live[None, :]).sum(axis=1) >= 2)):
-            keep = big & live
-            keep[x] = False
-            k, group = connected_components(csr_matrix(link & keep[:, None] & keep[None, :]),
-                                            directed=False)
-            member = np.eye(k, dtype=np.int64)[group] * keep[:, None]      # (clusters, groups)
-            reach = (link[x].astype(np.int64) @ member) > 0
-            if reach.sum() < 2:
-                continue
-            member = member[:, reach]
-            one = (member.T @ whole.astype(np.int64) @ member) > 0
-            at_l = (word_l[x].astype(np.int64) @ member) > 0
-            at_r = (word_r[x].astype(np.int64) @ member) > 0
-            ok = one | np.outer(at_l, at_r) | np.outer(at_r, at_l)
-            if not ok[np.triu_indices(len(ok), 1)].all():
-                failed.append(x)
-        if not failed:
+        cand = live & ((link & big[None, :] & live[None, :]).sum(axis=1) >= 2)
+        if not cand.any():
+            break
+        keep = big & live & ~cand
+        k, group = connected_components(csr_matrix(link & keep[:, None] & keep[None, :]),
+                                        directed=False)
+        member = np.eye(k, dtype=np.int64)[group] * (big & live)[:, None]  # (clusters, units)
+        x = np.flatnonzero(cand)
+        reach = (link[x].astype(np.int64) @ member) > 0                    # (bridges, units)
+        one = (member.T @ (whole + link) @ member) > 0                     # one name, or a word of it
+        at_l = (end_l[x].astype(np.int64) @ member) > 0
+        at_r = (end_r[x].astype(np.int64) @ member) > 0
+        ok = one[None] | (at_l[:, :, None] & at_r[:, None, :]) | (at_r[:, :, None] & at_l[:, None, :])
+        bad = reach[:, :, None] & reach[:, None, :] & ~ok & ~np.eye(k, dtype=bool)[None]
+        failed = x[bad.any(axis=(1, 2))]
+        if not failed.size:
             break
         live[failed] = False
     edge = link & live[:, None] & live[None, :] & (big[:, None] | big[None, :])

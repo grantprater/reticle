@@ -188,17 +188,24 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # track's later piece no longer blocks the merge (`same_entry`); an entry
 # whose victim side went unread takes only a roster drop no sided entry took
 # (`_match_shrinks`).
-# 0.35.1 (2026-10-04): name clusters from `killfeed-name-cluster-0.5.0`: no
-# cluster joins two names through a word or junk crop. On 043bafca271a and
-# c62c2b06bcfb one killer crop read once each no longer joins its name (it
-# linked only another crop read once), so its killer rests on the portrait
-# alone, naming the same agent; beyond version stamps,
-# [metric:riot_residuals/death_rows_cc7_dff#member_count_rows=67] death rows
-# there differ from 0.35.0 in the cluster's member count and
-# [metric:riot_residuals/death_rows_cc7_dff#killer_channel_rows=2] in the
-# killer's channel; no name and no Riot score changes. `entry_victim_side`
-# owns the victim-side rule `_match_shrinks` and `adjudicate_round_deaths`
-# restated.
+# 0.35.1 (2026-10-04): name clusters from `killfeed-name-cluster-0.5.1`,
+# through three cluster changes since 0.35.0's 0.3.0:
+# * `killfeed-name-cluster-0.4.0` makes every row change: a crop read once
+#   joins only the one recurring group it links to, never another crop read
+#   once. On 043bafca271a and c62c2b06bcfb one killer crop read once each no
+#   longer joins its name (it linked only another crop read once), so its
+#   killer rests on the portrait alone, naming the same agent; beyond
+#   version stamps,
+#   [metric:riot_residuals/death_rows_cc7_dff#member_count_rows=67] death
+#   rows there differ from 0.35.0 in the cluster's member count,
+#   [metric:riot_residuals/death_rows_cc7_dff#killer_channel_rows=2] in the
+#   killer's channel, and each session's summary row in that member; no name
+#   and no Riot score changes.
+# * `killfeed-name-cluster-0.5.0` and `-0.5.1` guard every bridge between two
+#   recurring names, a junk crop or a shared word, and change no row on the
+#   21 Riot matches.
+# `entry_victim_side` owns the victim-side rule `_match_shrinks` and
+# `adjudicate_round_deaths` restated.
 DEATH_ADJUDICATION_VERSION = "death-adjudication-0.35.1"
 
 #: Channels an elimination collision implicates: the two killfeed readings
