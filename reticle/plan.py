@@ -82,6 +82,7 @@ def reader_streams() -> list[tuple[str, str, str, str | None]]:
     """(stream, scan channel, current stamp, trial reader or None)."""
     from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
                            KILLFEED_WEAPON_VERSION)
+    from .killfeed_numeral import KILLFEED_NUMERAL_VERSION
     from .version import (ALLY_ICON_VERSION, COMBAT_REPORT_VERSION, HUD_VERSION,
                           MINIMAP_DARK_VERSION, MINIMAP_VERSION, PING_VERSION,
                           ROSTER_VERSION, SCOREBOARD_VERSION, ULT_LINE_VERSION)
@@ -89,6 +90,7 @@ def reader_streams() -> list[tuple[str, str, str, str | None]]:
             ("killfeed_portrait", "hud", KILLFEED_PORTRAIT_VERSION, "killfeed"),
             ("killfeed_weapon", "hud", KILLFEED_WEAPON_VERSION, "killfeed"),
             ("killfeed_name", "hud", KILLFEED_NAME_VERSION, "killfeed"),
+            ("killfeed_numeral", "hud", KILLFEED_NUMERAL_VERSION, "killfeed"),
             ("minimap", "minimap", MINIMAP_VERSION, None),
             ("roster", "roster", ROSTER_VERSION, None),
             ("ping", "ping", PING_VERSION, None),

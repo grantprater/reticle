@@ -50,7 +50,7 @@ modules = ["minimap", "ally_portrait", "ocr", "killfeed", "roster", "ping", "con
            "hud_reader", "scoreboard", "scoreboard_strip", "glance", "track", "economy",
            "minimap_dark", "combat_report", "ability_shapes", "tray", "ult_lines",
            "tray_icons", "menu", "teardrop", "spike", "occluders", "ability_scan", "ability_icons",
-           "plant_graphic"]
+           "plant_graphic", "killfeed_numeral"]
 
 [orchestration]
 claim = "shared decode passes, which dispatch to readers and own no reading"
@@ -69,7 +69,8 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "adjudication.combat_report", "adjudication.reliability",
            "adjudication.killfeed_names", "adjudication.ult_cast",
            "adjudication.ability_state", "adjudication.tray_kit",
-           "adjudication.smoke_owner", "adjudication.spike_carrier", "self_icon",
+           "adjudication.smoke_owner", "adjudication.spike_carrier", "adjudication.killstreak",
+           "self_icon",
            "minimap_objects",
            "ability_coverage", "ability_candidates",
            "ability_timeline", "gametime", "domain_learning"]

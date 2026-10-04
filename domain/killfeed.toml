@@ -259,6 +259,25 @@ priority order rather than a wider row
 """
 phrases = ["killstreak numeral", "kill streak badge"]
 
+[killstreak-numeral-six]
+claim = """
+The killstreak numeral [domain:killfeed/killstreak-indicator] draws past V: a
+sixth kill in the round draws VI beside the killer's portrait, on the red
+(enemy) backer as on the green. Whether VII or higher draws is not known.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-03"
+source = """
+4f207c0c4e39 (C:\\Users\\grant\\Videos\\2026-09-27 19-40-58.mp4), round 18:
+enemy Raze's entry reads VI on ten views, 1783.0-1787.5 s
+(`killfeed-numeral-0.1.0`, score 0.947-0.959, margin 0.31-0.33 over the next
+template), inspected on a contact sheet cut from the crop cache; Riot's record lists
+this as Raze's sixth kill of round 18, the only six-kill round among the 22
+recorded matches
+"""
+see = ["killfeed/killstreak-indicator"]
+
 [environmental-self-entry]
 claim = """
 A spike detonation kill draws the spike's hexagonal icon in the weapon slot,

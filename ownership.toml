@@ -483,6 +483,41 @@ consumers = ["adjudication.death"]
 stored_consumers = ["rounds"]
 
 [[entry]]
+id = "killfeed-killstreak-numeral"
+question = "Which killstreak numeral (III, IV, V...) does this killfeed entry's killer carry, if any?"
+owner = "killfeed_numeral"
+role = ["detect"]
+status = "partial"
+produces = ["KILLFEED_NUMERAL_VERSION", "NUMERALS", "EMPTY", "FONT_RELPATH", "FONT_PT", "FONT_PX", "SUPERSAMPLE", "PHASES", "SLOT_CX", "SLOT_CY", "TEXT_MIN_CONTRAST", "READ_MIN_SCORE", "READ_MIN_MARGIN", "font_path", "store_font", "templates", "slot_whiteness", "fit_scores", "slot_windows", "read_slot", "numeral_observations"]
+not_for = """
+Counting kills, or deciding a death or its killer. The reader stores one row
+per killer portrait row per frame in the `killfeed_numeral` stream: a numeral,
+the empty slot, or None with a reason, placed from the killer art window
+`killfeed-portrait` found (`rests_on`). Pooling an entry's views and comparing
+the numeral with a kill count is `killstreak-kill-index`'s.
+"""
+consumers = ["killfeed"]
+stored_consumers = ["adjudication.killstreak"]
+evidence = "tests/test_killfeed_numeral.py"
+
+[[entry]]
+id = "killstreak-kill-index"
+question = "Does each killfeed entry's killstreak numeral agree with its killer's kill index in the round, as the death stream counts it?"
+owner = "adjudication.killstreak"
+role = ["adjudicate"]
+status = "partial"
+produces = ["KILLSTREAK_WITNESS_VERSION", "POOL_MIN_VIEWS", "FIRST_DRAWN", "pool_entry", "killer_views", "bind_rows", "kill_indices", "witness", "summary", "events"]
+not_for = """
+Altering a death, its killer or its round: the witness writes the
+`killstreak_witness` stream of agreements and surprises beside the death
+stream, and a disagreement is stored with both sides, never resolved here.
+Nor for naming a killer: the killer and its side are the death verdict's
+(`death-victim`), read from storage.
+"""
+defers_to = ["death-victim"]
+evidence = "tests/test_killfeed_numeral.py"
+
+[[entry]]
 id = "killfeed-event"
 question = "Did a kill appear in the feed, and did it involve the local player?"
 owner = "killfeed"

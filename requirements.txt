@@ -4,6 +4,7 @@ pyarrow>=17.0
 duckdb>=1.0
 scipy>=1.14              # track.assign: linear_sum_assignment
 av>=15.0                 # audio decode, and NVDEC video decode when CUDA is present
+pillow>=11.0             # killfeed_numeral: renders numeral templates from the game font
 
 # Optional: GPU portrait scores for the scoreboard reader (scoreboard.py falls
 # back to OpenCV without it). Needs an NVIDIA GPU; about 1.5 GB with the toolkit.

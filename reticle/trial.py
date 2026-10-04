@@ -42,17 +42,20 @@ import numpy as np
 def _killfeed_reader(ctx):
     from pathlib import Path
     from .killfeed import KillfeedPortraitReader
+    from .killfeed_numeral import store_font
     from .lineup import portrait_candidates
-    # `scan`'s inputs: the store's art, and the stored lineup's candidates.
+    # `scan`'s inputs: the store's art and game font, and the stored lineup's candidates.
     cands, cands_from = portrait_candidates(ctx.session_id, ctx.store.root)
     return KillfeedPortraitReader(ctx.profile, ctx.wh, mask=ctx.kf_mask(), hz=2.0, spans=None,
                                   art_dir=Path(ctx.store.root) / "reference" / "assets" / "agents",
-                                  candidates=cands, candidates_from=cands_from)
+                                  candidates=cands, candidates_from=cands_from,
+                                  font_file=store_font(ctx.store.root))
 
 
 def _killfeed_rows(reader, sid: str) -> dict[str, list[dict]]:
     return {"killfeed_portrait": reader.events(sid), "killfeed_weapon": reader.weapon_events(sid),
-            "killfeed_name": reader.name_events(sid)}
+            "killfeed_name": reader.name_events(sid),
+            "killfeed_numeral": reader.numeral_events(sid)}
 
 
 def _hud_reader(ctx):
@@ -160,7 +163,8 @@ def scoreboard_targets(samples: list[dict], strip_rows: list[dict] | None,
 TRIAL_READERS = {
     # reader -> (the ROI cache set its reads stay inside, build, rows, streams, timeline)
     "killfeed": ("killfeed", _killfeed_reader, _killfeed_rows,
-                 ("killfeed_portrait", "killfeed_weapon", "killfeed_name"), _hud_timeline),
+                 ("killfeed_portrait", "killfeed_weapon", "killfeed_name", "killfeed_numeral"),
+                 _hud_timeline),
     "hud": ("hud", _hud_reader, _hud_rows, ("hud",), _hud_timeline),
     "scoreboard": ("scoreboard", _scoreboard_reader, _scoreboard_rows, ("scoreboard",),
                    _scoreboard_timeline),

@@ -324,6 +324,7 @@ import cv2
 
 from . import appearance
 from .census import Census
+from .killfeed_numeral import KILLFEED_NUMERAL_VERSION, numeral_observations
 from .profiles import Profile, Roi, template_key
 from .usage import step as usage_step
 
@@ -3442,7 +3443,7 @@ class KillfeedPortraitReader:
     """
 
     def __init__(self, profile, wh, mask=None, hz=2.0, spans=None, art_dir=None,
-                 candidates=None, candidates_from=None):
+                 candidates=None, candidates_from=None, font_file=None):
         self.profile = profile
         self.w, self.h = wh
         # The store's agent art, for the art ZNCC (`art_view`); None stores none.
@@ -3469,6 +3470,11 @@ class KillfeedPortraitReader:
         self.badges: list[dict] = []
         self.weapons: list[dict] = []
         self.names: list[dict] = []
+        # The killstreak numeral beside each killer's art
+        # (`killfeed_numeral`), read with the game font `font_file`; without
+        # it each killer row is stored refused as `no_font`.
+        self.font_file = None if font_file is None else str(font_file)
+        self.numerals: list[dict] = []
         self.frames_offered = 0
         # Each entry's killer portrait column, carried across frames.
         self.anchors = EntryAnchors()
@@ -3518,6 +3524,12 @@ class KillfeedPortraitReader:
                                          portraits, mask=self.mask, scale=s):
                 self.names.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms),
                                    **row})
+        with usage_step("numeral"):
+            rx0, ry0, rx1, ry1 = self.roi.pixels(self.w, self.h)
+            for row in numeral_observations(smp.frame[ry0:ry1, rx0:rx1], portraits,
+                                            self.font_file, s.scale, art_h=s.n(ART_TILE_H)):
+                self.numerals.append({"frame_idx": int(smp.frame_idx),
+                                      "t_ms": float(smp.t_ms), **row})
 
     def events(self, session_id: str) -> list[dict]:
         """Return JSONL-ready raw observations, never identity verdicts.
@@ -3611,6 +3623,27 @@ class KillfeedPortraitReader:
                          if r.get("slot_geom")], s)}
         return [coverage] + [{**common, "kind": "weapon_icon_observation", **r}
                              for r in self.weapons]
+
+    def numeral_events(self, session_id: str) -> list[dict]:
+        """The `killfeed_numeral` stream: a coverage row with its reads and
+        refusals, then one row per killer portrait row per frame, keyed like
+        the portraits (`sid:frame:slot:numeral`). Its own stamp
+        (`KILLFEED_NUMERAL_VERSION`), so the numeral reader can change without
+        restating the portraits."""
+        common = {"session_id": session_id, "source": "killfeed",
+                  "killfeed_numeral_version": KILLFEED_NUMERAL_VERSION}
+        refused = Counter(r["reason"] for r in self.numerals if r.get("reason"))
+        coverage = {**common, "kind": "coverage", "frames_offered": self.frames_offered,
+                    "frames_from": self.frames_from, "font": self.font_file is not None,
+                    "observations": len(self.numerals),
+                    "read": dict(sorted(Counter(r["numeral"] or "(empty)" for r in self.numerals
+                                                if r.get("numeral") is not None).items())),
+                    "refused": sum(refused.values()),
+                    "refused_reasons": dict(sorted(refused.items()))}
+        return [coverage] + [
+            {**common, "kind": "numeral_observation",
+             "observation_key": f"{session_id}:{r['frame_idx']}:{r['slot']}:numeral", **r}
+            for r in self.numerals]
 
     def name_events(self, session_id: str) -> list[dict]:
         """The `killfeed_name` stream: a coverage row with its refusals, then
