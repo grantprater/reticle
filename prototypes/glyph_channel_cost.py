@@ -6,6 +6,13 @@ r"""Per-frame cost and prior share of a minimap ability-glyph reader, on cached 
     .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py births [--out DIR]
     .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py record [--out DIR]
     .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py table
+    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py rotrule --out DIR   (a new DIR per run)
+    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py record2 --out DIR   (the rotrule DIR)
+
+`rotrule` (prediction rows G1-G4) tests the two-flag rotation hypothesis (`rule_verdict`) on every minimap
+component of the raw ability-states export, against the player's rotation answers, the dev fitted angles of
+minimap-glyph-eval-0.3.0 and, single frame, the contaminated answers-on windows. `record2` records that run and
+the stored clean held-out runs as metric series (`cmd_record2`); it reruns nothing.
 
 `record` stores the three runs' summaries as metric series `glyph_channel_cost/<part>[@session]`; `table`
 counts the game-data table's minimap rows (`cmd_table`).
@@ -58,7 +65,7 @@ import numpy as np  # noqa: E402
 
 import minimap_glyph_eval as mge  # noqa: E402
 
-VERSION = "glyph-channel-cost-0.1.0"
+VERSION = "glyph-channel-cost-0.2.0"   # 0.2.0 adds rotrule and heldout; 0.1.0's commands are unchanged
 STATES_TABLE = mge.STORE / "reference" / "ability-states" / "ability-states-gamedata-0.2.0.jsonl"
 PRIOR_R = 2.0
 
@@ -223,6 +230,237 @@ def cmd_rotation(out: Path) -> None:
     print("wrote", out / "rotation.json")
 
 
+TEX_RX = re.compile(r"(TX_[A-Za-z0-9_]+?)(?:\.png|')")
+MINIMAP_COMPONENT_RX = re.compile(r"Minimap", re.I)
+KILLJOY_REFS_DEV = mge.STORE / "analysis" / "minimap-glyphs-killjoy-refs-20261004" / "gamedata-on" / "items.json"
+
+
+def rule_verdict(c: dict) -> str:
+    """The two-flag hypothesis for one minimap component (merged down its class chain): RotationSource Upright
+    forces upright; another RotationSource (Custom, Rotation, None) leaves the verdict undetermined; else the icon
+    turns iff bRotates XOR RotationSpace == ConstantMinimap. A hypothesis under test, never a domain fact."""
+    src = str(c.get("RotationSource") or "")
+    if src.endswith("AMRSRC_Upright"):
+        return "upright"
+    if src:
+        return "undetermined"
+    return "rotates" if bool(c.get("bRotates")) != str(c.get("RotationSpace") or "").endswith("ConstantMinimap") \
+        else "upright"
+
+
+def minimap_components() -> list[dict]:
+    """Every minimap component of the ability-states export that names a texture: package, component, class,
+    the three rotation flags (merged down the class chain, then the component class's own defaults) and the
+    textures it names."""
+    import ability_states_gamedata as asg
+    root = asg.EXP / "ShooterGame" / "Content" / "Characters"
+    out = []
+    for f in sorted(root.rglob("*.json")):
+        if not MINIMAP_COMPONENT_RX.search(f.read_text(encoding="utf-8", errors="ignore")):
+            continue
+        pkg = "/Game/" + str(f.relative_to(asg.EXP / "ShooterGame" / "Content")).replace("\\", "/")[:-5]
+        if not asg.bp(pkg).ok:
+            continue
+        for name, c in asg.merged_components(pkg).items():
+            if not MINIMAP_COMPONENT_RX.search(c["type"] or ""):
+                continue
+            props = dict(c["props"])
+            for k, v in asg.comp_defaults(c.get("class_path")).items():
+                props.setdefault(k, v)
+            tex = sorted(set(TEX_RX.findall(json.dumps(props))))
+            if tex:
+                out.append({"pkg": pkg, "component": name, "type": c["type"], "textures": tex,
+                            "bRotates": props.get("bRotates"), "RotationSpace": props.get("RotationSpace"),
+                            "RotationSource": props.get("RotationSource"), "verdict": rule_verdict(props)})
+    return out
+
+
+def texture_keys() -> dict:
+    """{texture name: {catalogue key}} for every reference the matcher scores (build_extra, answers on), plus each
+    ability-states-gamedata-0.2.0 minimap row's texture joined to its key by display name (as `rotating_keys`);
+    the second join covers textures eval 0.2.0 does not score, such as Killjoy's Q_InActive."""
+    mge.build_extra(mge.PROBE_STATES, answers=True)
+    out: dict = {}
+    for key, refs in mge.EXTRA.items():
+        for _g, prov in refs:
+            for t in TEX_RX.findall(prov):
+                out.setdefault(t, set()).add(f"{key[0]}:{key[1]}")
+    for ln in open(STATES_TABLE, encoding="utf-8"):
+        r = json.loads(ln)
+        if not r["cue_type"].startswith("minimap_") or not r.get("png"):
+            continue
+        names = [n for n in re.split(r"\s*/\s*", r["ability"] or "") if n]
+        hit = next((k for n in names for k in [mge.find(r["agent"], n)] if k), None)
+        if hit:
+            out.setdefault(Path(r["png"]).stem, set()).add(f"{hit[0]}:{hit[1]}")
+    return out
+
+
+def rotation_answers() -> dict:
+    """{key: answer} from the rotation rows (last row wins): rotates, upright, unsure, or the player's own
+    words for `other`."""
+    out = {}
+    for ln in mge.ANSWERS.read_text(encoding="utf-8").splitlines():
+        if ln.strip():
+            r = json.loads(ln)
+            if r.get("kind") == "rotation":
+                out[r["key"].split(":", 1)[1]] = ("unsure" if r.get("unsure") else
+                                                  r["answer"] if r["answer"] != "other" else f"other: {r['other']}")
+    return out
+
+
+def fitted_angles(path: Path = KILLJOY_REFS_DEV, split: str = "dev") -> dict:
+    """{key: [(fitted rotation of the truth key, rotated minus upright truth score)]} over the right items of
+    `split` (the rotate-all verdict equals the truth)."""
+    out: dict = {}
+    for r in json.load(open(path, encoding="utf-8"))["items"]:
+        t = r.get("truth")
+        if r.get("refused") or r["split"] != split or not t or r.get("rot_pred") != t or t not in r.get("rot_fits", {}):
+            continue
+        out.setdefault(t, []).append((int(r["rot_fits"][t][1]), round(r["rot_scores"][t] - r["norot_scores"][t], 4)))
+    return out
+
+
+def near_zero(a: int, tol: int = 15) -> bool:
+    return min(a % 360, 360 - a % 360) <= tol
+
+
+def cmd_rotrule(out: Path) -> None:
+    """The two-flag rotation hypothesis (prediction rows G1-G4): its verdict per catalogue key from the raw
+    export's minimap components, checked against the player's rotation answers and the dev fitted angles, and its
+    per-key policy scored single frame on the contaminated answers-on windows beside an upright control."""
+    comps = minimap_components()
+    tk = texture_keys()
+    per_key: dict = {}
+    for c in comps:
+        for t in c["textures"]:
+            for k in tk.get(t, ()):
+                per_key.setdefault(k, []).append({**{x: c[x] for x in ("pkg", "component", "bRotates", "RotationSpace",
+                                                                       "RotationSource", "verdict")}, "texture": t})
+    verdict = {k: (lambda v: v.pop() if len(v) == 1 else "mixed")({r["verdict"] for r in rs}) for k, rs in per_key.items()}
+    ans = rotation_answers()
+    ang = fitted_angles()
+    check = {}
+    for k, a in sorted(ans.items()):
+        said = "rotates" if a.startswith("other") and "normal to the wall" in a else a
+        v = verdict.get(k, "no_component")
+        comp_v = sorted({r["verdict"] for r in per_key.get(k, [])})
+        check[k] = {"answer": a, "answer_as": said, "rule": v, "component_verdicts": comp_v,
+                    "agrees": None if said == "unsure" else v == said,
+                    "agrees_some_component": None if said == "unsure" else said in comp_v}
+    sure = [c for c in check.values() if c["agrees"] is not None]
+    dev = {}
+    for k, xs in sorted(ang.items()):
+        dev[k] = {"rule": verdict.get(k, "no_component"), "n": len(xs), "angles": sorted(a for a, _ in xs),
+                  "near_zero": sum(near_zero(a) for a, _ in xs),
+                  "gain_median": round(float(np.median([g for _, g in xs])), 4)}
+    side = {}
+    for tag in ("upright", "rotates"):
+        ks = [k for k, d in dev.items() if d["rule"] == tag]
+        n = sum(dev[k]["n"] for k in ks)
+        side[tag] = {"keys": ks, "items": n, "near_zero": sum(dev[k]["near_zero"] for k in ks),
+                     "share": round(sum(dev[k]["near_zero"] for k in ks) / n, 4) if n else None}
+    rep = {"version": VERSION, "rule": rule_verdict.__doc__.split(".")[0], "components": len(comps),
+           "keys_with_component": len(verdict), "verdicts": dict(sorted(verdict.items())),
+           "evidence": {k: per_key[k] for k in sorted(per_key)}, "answers": check,
+           "answers_sure": len(sure), "answers_agree": sum(c["agrees"] for c in sure),
+           "answers_agree_some_component": sum(c["agrees_some_component"] for c in sure), "dev_angles": dev,
+           "dev_sides": side}
+    d, z = mge.load_scores(ANSWERS_ON)
+    rot = {tuple(k.split(":")) for k, v in verdict.items() if v != "upright"}
+    mge.ROTATING = rot
+    fn = lambda P, T, s, meta, r: mge.pearson(P, T)  # noqa: E731
+    for tag, arm in (("upright", False), ("two_flag_policy", "policy")):
+        eng = mge.Engine(d, z, rotate=arm)
+        sc = eng.run(fn)
+        rep[tag] = {sp: mge.verdicts(sc, eng.items, sp)["top1"] for sp in ("heldout", "dev")}
+        print(tag, rep[tag], flush=True)
+    rep["two_flag_rotating"] = sorted(f"{a}:{b}" for a, b in rot)
+    f = out / "rotrule.json"
+    assert not f.exists(), f"{f} exists; write each run to a new directory"
+    json.dump(rep, open(f, "w", encoding="utf-8"), indent=1, default=str)
+    print(json.dumps({k: rep[k] for k in ("components", "keys_with_component", "answers_sure", "answers_agree",
+                                          "answers_agree_some_component",
+                                          "dev_sides", "upright", "two_flag_policy")}, default=str))
+    print("wrote", f)
+
+
+HELDOUT_RUNS = {"heldout_020": mge.STORE / "analysis" / "minimap-heldout-score-20261004" / "heldout.json",
+                "heldout_030": mge.STORE / "analysis" / "minimap-heldout-score-killjoy-refs-k5-20261004" / "heldout.json"}
+
+
+def corrected_truths(marks: list[dict]) -> list[dict]:
+    """The marks with each named truth replaced by the latest label row of its item (last row wins), matched by
+    position within 3 px; the Chamber correction (ccff4a11ff5a) is the only later row today. Biased upward: the
+    player was re-asked only where the matcher disagreed."""
+    latest = {}
+    for f in sorted((mge.LABELS / "minimap_glyph_heldout").glob("*.jsonl")):
+        for ln in open(f, encoding="utf-8"):
+            if ln.strip():
+                r = json.loads(ln)
+                latest[r["key"]] = r
+    out = []
+    for m in marks:
+        m = dict(m)
+        r = latest.get(m["item"])
+        if r and m["class"] == "named":
+            near = sorted((q for q in r["marks"] if np.hypot(q["x"] - m["x"], q["y"] - m["y"]) <= 3 and q.get("ability")),
+                          key=lambda q: (round(float(np.hypot(q["x"] - m["x"], q["y"] - m["y"])), 2),
+                                         q["ability"] != m["truth"]))   # overlapping marks: nearest, then same truth
+            if near and ":" in near[0]["ability"]:
+                m["truth"] = near[0]["ability"]
+        out.append(m)
+    return out
+
+
+def cmd_record2(rotrule_dir: Path) -> None:
+    """Record the 0.2.0 parts. `rotation_rule`: rotrule.json under `rotrule_dir` (answers agreeing, dev angles,
+    the policy against the upright control). `heldout_020`, `heldout_030`: the stored clean held-out runs
+    (minimap-heldout-score-20261004 and killjoy-refs K5): headline and dev_session follow counts, the two leading
+    confusions, the proposer's raw recall of icon marks, and the headline under the corrected labels. Reads only;
+    reruns nothing."""
+    from reticle import metrics
+    rr = json.load(open(rotrule_dir / "rotrule.json", encoding="utf-8"))
+    num = lambda s: int(s.split("/")[0])  # noqa: E731
+    vals = {"answers_sure": rr["answers_sure"], "answers_agree": rr["answers_agree"],
+            "answers_agree_some_component": rr["answers_agree_some_component"],
+            "keys_with_component": rr["keys_with_component"], "rotating_keys": len(rr["two_flag_rotating"]),
+            "mixed_keys": sum(v == "mixed" for v in rr["verdicts"].values()),
+            "dev_rotates_items": rr["dev_sides"]["rotates"]["items"],
+            "dev_rotates_near_zero": rr["dev_sides"]["rotates"]["near_zero"],
+            "dev_upright_items": rr["dev_sides"]["upright"]["items"],
+            "heldout_policy": num(rr["two_flag_policy"]["heldout"]), "dev_policy": num(rr["two_flag_policy"]["dev"]),
+            "heldout_upright": num(rr["upright"]["heldout"]), "dev_upright": num(rr["upright"]["dev"])}
+    metrics.record("glyph_channel_cost", part="rotation_rule", values=vals,
+                   deps={"version": VERSION, "build": "release-13.06-shipping-18-5590001",
+                         "states_table": STATES_TABLE.name, "answers": "answers.jsonl rotation rows, last wins"},
+                   context={"run": str(rotrule_dir), "windows": str(ANSWERS_ON), "contaminated": True,
+                            "dev_angles": str(KILLJOY_REFS_DEV)},
+                   controls=[{"name": "upright arm reproduces rotation.json (157/192 heldout windows)",
+                              "observed": vals["heldout_upright"], "expected": 157, "tol": 0},
+                             {"name": "upright arm reproduces rotation.json (35/59 dev)",
+                              "observed": vals["dev_upright"], "expected": 35, "tol": 0}])
+    print("rotation_rule", json.dumps(vals))
+    for part, f in HELDOUT_RUNS.items():
+        d = json.load(open(f, encoding="utf-8"))
+        h = mge.naming_summary(d["marks"], "headline")
+        dv = mge.naming_summary(d["marks"], "dev_session")
+        hc = mge.naming_summary(corrected_truths(d["marks"]), "headline")
+        det = mge.detection_summary(d["frames"], "headline")
+        vals = {"headline_n": h["n"], "headline_follow_right": h["follow"]["right"],
+                "headline_base_right": h["base"]["right"], "headline_refused": h["follow"]["refused"],
+                "dev_session_n": dv["n"], "dev_session_follow_right": dv["follow"]["right"],
+                "astra_e_to_q": h["confusions"].get("Astra:E -> Astra:Q", 0),
+                "omen_e_to_q": h["confusions"].get("Omen:E -> Omen:Q", 0),
+                "icon_marks": det["icon_marks"], "found_raw": det["found_raw"],
+                "corrected_headline_follow_right": hc["follow"]["right"]}
+        print(part, json.dumps(vals))
+        metrics.record("glyph_channel_cost", part=part, values=vals,
+                       deps={"version": VERSION, "run": d["meta"]["version"], "matcher": d["meta"]["matcher"],
+                             "follow": d["meta"]["follow"], "queue": d["meta"]["queue"]},
+                       context={"file": str(f), "corrected": "labels/minimap_glyph_heldout last row per item"})
+
+
 def cmd_births(out: Path, sid: str = "c40d950031bb", n: int = 100) -> None:
     """New discs at the ability pass's 2 Hz and what a first-frame glyph gate keeps (W12, W13): `n` stored
     ability_icon read frames evenly spaced, each with the read frame before it; each frame read alone from the
@@ -353,7 +591,8 @@ def cmd_table() -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", nargs="?", default="cost", choices=("cost", "rotation", "births", "record", "table"))
+    ap.add_argument("cmd", nargs="?", default="cost", choices=("cost", "rotation", "births", "record", "table",
+                                                                   "rotrule", "record2"))
     ap.add_argument("--sessions", default="c40d950031bb,a06f04a0059f")
     ap.add_argument("--windows", type=int, default=10)
     ap.add_argument("--per", type=int, default=10)
@@ -373,6 +612,12 @@ def main() -> None:
         return
     if a.cmd == "table":
         cmd_table()
+        return
+    if a.cmd == "rotrule":
+        cmd_rotrule(out)
+        return
+    if a.cmd == "record2":
+        cmd_record2(out)
         return
     from reticle import ability_icons
 
