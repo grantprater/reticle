@@ -472,6 +472,12 @@ status = "live"
 since = "2026-10-04"
 
 [[document]]
+path = "docs/REPLAY_KEEPING.md"
+kind = "reference"
+status = "live"
+since = "2026-10-04"
+
+[[document]]
 path = "docs/EXTERNAL_GROUND_TRUTH.md"
 kind = "plan"
 status = "proposed"

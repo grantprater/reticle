@@ -641,7 +641,15 @@ def _assign(frame_ids, D, gate):
     return res_j, res_d
 
 
-def score(sid: str) -> dict:
+def session_context(sid: str) -> dict:
+    """What every scorer of one capture needs, built once from STORED events.
+
+    The replay, the player and teams (Riot's record), the agents
+    (playerLoadouts), the replay-to-capture offset `a` fitted on replay kills
+    against the stored deaths, the stored rounds and the baked `MapFrame`.
+    `ctx["out"]` is the report's head; a refusal sets `ctx["out"]["refused"]`
+    and leaves the later keys out. `score` and `replay_abilities` both use it.
+    """
     from reticle.store import Store
 
     store = Store(STORE)
@@ -651,7 +659,7 @@ def score(sid: str) -> dict:
     rep = json.loads((REPLAYS / "manifest.json").read_text(encoding="utf-8"))
     entry = next((f for f in rep["files"] if f.get("capture_session") == sid), None)
     if entry is None:
-        return {"session": sid, "refused": "no_replay_for_session"}
+        return {"out": {"session": sid, "refused": "no_replay_for_session"}}
     match = Path(entry["file"]).stem
     rp = Replay(match)
     ref = rg.Reference(STORE / "external" / "valorant-api", fetch=False)
@@ -666,7 +674,7 @@ def score(sid: str) -> dict:
     out["team_source"] = "riot_record" if d else None
     if me is None or not team:
         out["refused"] = "no_player_or_team"
-        return out
+        return {"out": out}
     allies = [s for s in rp.subjects if team.get(s) == team[me]]
     foes = [s for s in rp.subjects if s in team and team[s] != team[me]]
     agent = {s: ref.agent(c) for s, c in rp.loadouts().items()}
@@ -709,7 +717,7 @@ def score(sid: str) -> dict:
                                STORE)
     if mf is None:
         out["refused"] = f"map_frame:{why}"
-        return out
+        return {"out": out}
     # the vectorised transform must reproduce MapFrame.to_px
     probe = [(0.0, 0.0), (1234.0, -5678.0), (-4000.0, 3000.0)]
     vx, vy = to_px(mf, [p[0] for p in probe], [p[1] for p in probe])
@@ -721,6 +729,20 @@ def score(sid: str) -> dict:
     out["px_per_m"] = round(mf.px_per_unit * 100.0, 3)
     out["gate_px"] = round(gate, 2)
     out["widget"] = [int(W), int(H)]
+    return {"out": out, "store": store, "man": man, "rp": rp, "ref": ref, "me": me,
+            "team": team, "allies": allies, "foes": foes, "agent": agent, "a": a,
+            "rounds": rounds, "rs": rs, "mf": mf, "cm_per_px": cm_per_px, "gate": gate}
+
+
+def score(sid: str) -> dict:
+    ctx = session_context(sid)
+    out = ctx["out"]
+    if "refused" in out:
+        return out
+    rp, mf, a, me, team = ctx["rp"], ctx["mf"], ctx["a"], ctx["me"], ctx["team"]
+    allies, foes, agent, rs = ctx["allies"], ctx["foes"], ctx["agent"], ctx["rs"]
+    cm_per_px, gate = ctx["cm_per_px"], ctx["gate"]
+    H, W = mf.widget_shape
 
     def truth_at(subs, t_rep):
         """(n, k) px arrays and alive mask for subjects `subs` at replay times."""
