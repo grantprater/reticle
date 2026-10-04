@@ -200,9 +200,40 @@ class ArtZnccTests(unittest.TestCase):
         np.testing.assert_allclose(
             z[:, :, 0], _brute(region, np.ascontiguousarray(self._lab(i)[:, cut:]),
                                self._weight(i)[:, cut:]), atol=2e-4)
-        # under ART_MIN_COVER of the art inside, the window is no evidence
-        far = appearance.art_zncc(region[:, :8], self.art, ["Bravo"], cut=TW - 8)
-        self.assertEqual(float(far.max()), 0.0)
+        self.assertAlmostEqual(got["art_visible"], (TW - cut) / TW, places=3)
+
+    def test_a_cut_killer_keeps_its_column_and_refuses_under_the_visible_minimum(self):
+        vmin = killfeed.ART_MIN_VISIBLE
+        crop = np.full((60, 420, 3), 40, np.uint8)
+        # the art 4 rows below the band, cut to vmin + 2 columns
+        cut = TW - (vmin + 2)
+        crop[12:12 + TH, 0:TW - cut] = _tile(self.dir, "Bravo")[:, cut:]
+        got = art_view(crop, "killer", -cut, 8, True, UNIT_SCALE, self.dir)
+        self.assertEqual(max(got["art_zncc"], key=got["art_zncc"].get), "Bravo")
+        self.assertEqual((got["art_search"], got["art_x0"], got["art_shift"]),
+                         ("widened", -cut, [0, 4]))
+        # a surprise at a cut placement widens rows only, never the column: a
+        # placement 6 px off finds nothing it could have found by moving
+        off = art_view(crop, "killer", -cut + 6, 8, True, UNIT_SCALE, self.dir)
+        self.assertLessEqual(abs(off["art_shift"][0]), killfeed.ART_PRIOR_X)
+        # under the minimum the view refuses and stores the placement
+        tiny = TW - (vmin - 1)
+        refused = art_view(crop, "killer", -tiny, 8, True, UNIT_SCALE, self.dir)
+        self.assertIsNone(refused["art_zncc"])
+        self.assertEqual((refused["art_reason"], refused["art_x0"]), ("art_cut_by_roi", -tiny))
+        self.assertAlmostEqual(refused["art_visible"], (vmin - 1) / TW, places=3)
+        # a visible prior beside a cut one is still searched
+        both = art_view(self._crop(killer="Echo", killer_x0=60), "killer", -tiny, 8, True,
+                        UNIT_SCALE, self.dir, plate_x0=60)
+        self.assertEqual((both["art_anchor"], both["art_search"]), ("plate_left", "prior"))
+
+    def test_every_candidate_is_scored_on_the_same_cut_columns(self):
+        # no per-candidate cover gate: a narrow cut scores every agent
+        region = appearance.to_lab(np.full((TH, 10, 3), 90, np.uint8)
+                                   + np.arange(10, dtype=np.uint8)[None, :, None] * 9)
+        z = appearance.art_zncc(region, self.art, list(self.art.agents), cut=TW - 10)
+        self.assertEqual(z.shape, (1, 1, len(self.art.agents)))
+        self.assertTrue(np.all(z != 0.0))
 
     def test_the_plate_left_end_is_found_to_a_subpixel_past_the_assist_panel(self):
         # a teal plate from x = 50.5 (its first column half covered), over grey
@@ -230,10 +261,107 @@ class ArtZnccTests(unittest.TestCase):
         alone = art_view(crop, "killer", None, 8, True, UNIT_SCALE, self.dir, plate_x0=60)
         self.assertEqual(max(alone["art_zncc"], key=alone["art_zncc"].get), "Echo")
 
+    def test_an_entry_anchor_holds_and_a_surprise_there_widens_rows_only(self):
+        crop = self._crop(killer="Echo", killer_x0=60, y0=12, h=60)
+        # the anchor holds the column; the band reads 4 rows above the art
+        got = art_view(crop, "killer", 80, 8, True, UNIT_SCALE, self.dir, entry_x0=60.3)
+        self.assertEqual((got["art_search"], got["art_anchor"], got["art_shift"]),
+                         ("widened", "entry_anchor", [0, 4]))
+        self.assertEqual(max(got["art_zncc"], key=got["art_zncc"].get), "Echo")
+        # without it the name-start box at 80 widens the strip instead
+        strip = art_view(crop, "killer", 80, 8, True, UNIT_SCALE, self.dir)
+        self.assertEqual((strip["art_anchor"], strip["art_shift"]), ("killer_box", [-20, 4]))
+        # a misplaced anchor falls through to the view's own plate edge
+        own = art_view(self._crop(killer="Echo", killer_x0=60), "killer", 90, 8, True,
+                       UNIT_SCALE, self.dir, plate_x0=60, entry_x0=120)
+        self.assertEqual((own["art_search"], own["art_anchor"]), ("prior", "plate_left"))
+
     def test_a_killer_without_a_box_refuses_with_its_reason(self):
         got = art_view(self._crop(), "killer", None, 8, True, UNIT_SCALE, self.dir)
         self.assertIsNone(got["art_zncc"])
         self.assertEqual(got["art_reason"], "no_killer_box")
+
+
+class EntryAnchorTests(unittest.TestCase):
+    """The follow and the anchor of `killfeed.EntryAnchors`."""
+
+    def _view(self, slot, y0, wx0=200, v0=300):
+        return killfeed.EntryView(slot=slot, y0=y0, y1=y0 + 34, wx0=wx0, wx1=wx0 + 30,
+                                  killer_run=(120, 190), victim_run=(v0, 400))
+
+    @staticmethod
+    def _fields(x0, z=0.9, anchor="plate_left", search="prior"):
+        return {"art_zncc": {"A": z}, "art_anchor": anchor, "art_search": search,
+                "art_x0": x0, "art_candidates_widened": None}
+
+    def test_an_entry_is_followed_as_it_rises_and_a_new_layout_is_a_new_entry(self):
+        a = killfeed.EntryAnchors()
+        a.frame(0.0)
+        first = a.entry(self._view(1, 54), UNIT_SCALE)
+        a.frame(500.0)
+        risen = a.entry(self._view(0, 15, wx0=201), UNIT_SCALE)
+        other = a.entry(self._view(1, 54, v0=330), UNIT_SCALE)
+        self.assertIs(first, risen)
+        self.assertIsNot(other, first)
+        # an entry never falls: the same layout lower down is another entry
+        a.frame(1000.0)
+        self.assertIsNot(a.entry(self._view(2, 93), UNIT_SCALE), first)
+        # unseen past ENTRY_FOLLOW_GAP_MS, it is gone
+        a.frame(1000.0 + killfeed.ENTRY_FOLLOW_GAP_MS + 1)
+        self.assertIsNot(a.entry(self._view(0, 15), UNIT_SCALE), first)
+
+    def test_the_anchor_is_the_median_of_the_most_confident_confirmed_edges(self):
+        a = killfeed.EntryAnchors()
+        a.frame(0.0)
+        e = a.entry(self._view(0, 15), UNIT_SCALE)
+        self.assertIsNone(killfeed.EntryAnchors.anchor(e))
+        # an edge the art did not confirm is not taken
+        killfeed.EntryAnchors.confirm(e, self._fields(57, z=0.3), (57.4, 30.0))
+        self.assertIsNone(killfeed.EntryAnchors.anchor(e))
+        for edge, score in ((56.2, 9.0), (56.4, 12.0), (68.0, 4.5), (56.3, 10.0)):
+            killfeed.EntryAnchors.confirm(e, self._fields(int(edge)), (edge, score))
+        got = killfeed.EntryAnchors.anchor(e)
+        self.assertEqual((got["source"], got["views"]), ("plate_left", killfeed.ANCHOR_VIEWS))
+        self.assertAlmostEqual(got["x"], 56.3)
+
+    def test_an_art_only_placement_needs_a_second_view(self):
+        a = killfeed.EntryAnchors()
+        a.frame(0.0)
+        e = a.entry(self._view(0, 15), UNIT_SCALE)
+        killfeed.EntryAnchors.confirm(e, self._fields(56, anchor="killer_box", search="widened"),
+                                      None)
+        self.assertIsNone(killfeed.EntryAnchors.anchor(e))
+        killfeed.EntryAnchors.confirm(e, self._fields(57, anchor="killer_box", search="widened"),
+                                      None)
+        got = killfeed.EntryAnchors.anchor(e)
+        self.assertEqual(got["source"], "art")
+        self.assertAlmostEqual(got["x"], 56.5)
+        # an all-agent result is the art alone even on the prior window: one
+        # view places nothing, two that agree do
+        f = a.entry(self._view(1, 54, v0=340), UNIT_SCALE)
+        widened = dict(self._fields(56, anchor="killer_box"), art_candidates_widened="top 0.4")
+        killfeed.EntryAnchors.confirm(f, widened, (56.2, 20.0))
+        self.assertIsNone(killfeed.EntryAnchors.anchor(f))
+        killfeed.EntryAnchors.confirm(f, widened, None)
+        self.assertEqual(killfeed.EntryAnchors.anchor(f)["source"], "art")
+
+
+    def test_a_cut_entry_is_seeded_from_its_name_start_until_a_confirmed_anchor(self):
+        a = killfeed.EntryAnchors()
+        a.frame(0.0)
+        e = a.entry(self._view(0, 15), UNIT_SCALE)
+        # a whole placement seeds nothing: the strip may still find the art
+        killfeed.EntryAnchors.seed(e, 12.0, UNIT_SCALE)
+        self.assertIsNone(killfeed.EntryAnchors.anchor(e))
+        killfeed.EntryAnchors.seed(e, -20.4, UNIT_SCALE)
+        killfeed.EntryAnchors.seed(e, -25.0, UNIT_SCALE)      # the first seed holds
+        got = killfeed.EntryAnchors.anchor(e)
+        self.assertEqual((got["source"], got["views"]), ("name_start", 1))
+        self.assertAlmostEqual(got["x"], -20.4)
+        # two art views that agree take over from the seed
+        for x in (-21, -21):
+            killfeed.EntryAnchors.confirm(e, self._fields(x, anchor="entry_anchor"), None)
+        self.assertEqual(killfeed.EntryAnchors.anchor(e)["source"], "art")
 
 
 class ArtClaimTests(unittest.TestCase):

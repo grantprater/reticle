@@ -77,7 +77,8 @@ class MatchEnd(unittest.TestCase):
 
 class SecondLife(unittest.TestCase):
     def _obs(self, t, badge):
-        return {"kind": "second_life_observation", "t_ms": float(t), "has_badge": badge}
+        return {"kind": "second_life_observation", "t_ms": float(t), "has_badge": badge,
+                "player_death": True}
 
     def test_a_badged_entry_is_a_second_life_and_an_unread_one_is_unknown(self):
         from reticle.adjudication.death import second_life_death

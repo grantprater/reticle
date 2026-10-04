@@ -299,7 +299,17 @@ def _split_weld(track: dict, step: float, use_sides: bool) -> list[dict]:
     return pieces
 
 
-def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[dict]:
+def _released(t_first: float, stall_spans, step: float) -> dict | None:
+    """The stall span whose end lies within one sample of `t_first`, or None:
+    a track first read there was on screen while the source stood still."""
+    for s in stall_spans or ():
+        if s["t_start_ms"] <= t_first and abs(t_first - s["t_end_ms"]) <= step:
+            return {"t_start_ms": s["t_start_ms"], "t_end_ms": s["t_end_ms"]}
+    return None
+
+
+def track_entries(times, masks, dividers=None, flags=None, sides=None,
+                  stalls=None) -> list[dict]:
     """Follow each entry across frames; one dict per distinct entry.
 
     Returns every track, including the ones the bars refuse, with `counted`
@@ -376,6 +386,15 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[d
     shorter than one life that read no divider while another piece did is
     refused as `weld_fragment`: only an unread divider, which agrees with
     anything, put those reads on the track.
+
+    **An entry drawn at a stall's release lived through the stall unseen.**
+    `stalls`, the session's capture-stall spans (`stalls.for_session`),
+    exempts a track first read within one sample of a span's end from the
+    `single_frame` and `no_persistence` bars: the kill came while the source
+    stood still, and the entry spent most of its life on screen behind the
+    frozen picture (a06f04a0059f 702.0 s after a stall from 692.6 s; Riot's
+    kill at 696.9 s). Such a track carries `released`, the span. None keeps
+    the bars for every track.
     """
     active: list[dict] = []
     done: list[dict] = []
@@ -534,9 +553,12 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None) -> list[d
         # `span + 2*step` is the longest life this track is consistent with,
         # so a sampler is never refused for resolution it does not have.
         a["life_ms"] = a["span_ms"] + 2 * step
+        released = _released(a["t_first"], stalls, step) if stalls else None
+        if released:
+            a["released"] = released
         a["refused"] = (
-            "single_frame" if a["n_obs"] < KF_MIN_OBS
-            else "no_persistence" if a["life_ms"] < KF_ENTRY_MIN_LIFE_MS
+            "single_frame" if a["n_obs"] < KF_MIN_OBS and not released
+            else "no_persistence" if a["life_ms"] < KF_ENTRY_MIN_LIFE_MS and not released
             else "weld_fragment" if a.get("weld_fragment")
             else None
         )
