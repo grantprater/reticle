@@ -1320,7 +1320,9 @@ produces = ["session_frames", "explained", "background", "ar_filter", "whiten_fr
             "split_sessions", "shared_reference_mask",
             "BMASK", "SHRINK", "TIE_MARGIN", "REFUSALS", "NONE", "PRE_S", "POST_S",
             "SELF_FRAMES", "ref_margin", "logistic", "calibrate", "p_right",
-            "save_calibrated", "CALIB_MIN", "CALIB_L2"]
+            "save_calibrated", "CALIB_MIN", "CALIB_L2", "LANDING", "landing_indices",
+            "session_tracks", "kit_view", "kit_classes", "referenced_slots", "window_argmax",
+            "next_neighbour", "phase_scores", "cast_verdicts"]
 not_for = """
 Deciding a cast, its slot or its time: the tray drop and the gate
 (`ability-cast`) decide those, and this owner scores only the drops the gate
@@ -1330,7 +1332,7 @@ by the identity arbiter's agent, and neither its scores nor its calibrated
 of teammates' or enemies' abilities.
 """
 consumers = ["ability_timeline", "ability_audio_fit"]
-exit = "Wired 2026-10-04: `reticle ability-audio-fit` (`ability_audio_fit`) fits `ability-audio-params-0.2.0` with the declared split, one pooled whitener and the shared-file rule, and scores dev, held, verified and demo casts. From `ability-audio-params-0.2.2` the set stores the margin calibration fitted on dev (`--calibrate`), and each witness row carries `p_right` beside its margin. Open: pooling `p_right` into an identity or cast claim."
+exit = "Wired 2026-10-04: `reticle ability-audio-fit` (`ability_audio_fit`) fits `ability-audio-params-0.2.0` with the declared split, one pooled whitener and the shared-file rule, and scores dev, held, verified and demo casts. From `ability-audio-params-0.2.2` the set stores the margin calibration fitted on dev (`--calibrate`), and each witness row carries `p_right` beside its margin. From `ability-audio-params-0.2.5` a phase group (Sova's bolts, which share their release sound) is one kit class whose later phase, the landing, names the slot (`cast_verdicts`); a bolt neither landing names is refused `bolt_unknown`. Open: pooling `p_right` into an identity or cast claim."
 evidence = "tests/test_ability_audio.py, reticle/ability_audio_fit.py"
 
 [[entry]]

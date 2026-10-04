@@ -42,6 +42,13 @@ mapped by the ability's display name to the tray slot
   only Sova's Shock Bolt and Recon Bolt equips share events
   [domain:abilities/sova-bolt-equips-share-sounds].
 
+A release event two abilities play (PHASE_GROUPS) is neither's: its files
+are the phase group's own class, and the witness names the slot from the
+group's landing files after the release (`ability_audio.cast_verdicts`).
+The fit stores each group's landing files and, per member, the landing
+track's level at one false fire per live minute on dev; thresholds are per
+kit-level class, a group's family as one.
+
 It replaces the split, the reference rule and the fit that lived in
 `prototypes/ability_audio_eval.py` (`ability-audio-params-0.1.1`); that
 script now passes this command the probe's inputs.
@@ -114,17 +121,44 @@ END_PHASE_LEFT_OUT = [
 #: Player answers recorded but not applied, with the dev measurement that
 #: refused them. Remapping Sova's Hunter_AbilQ_Cast_* to Shock Bolt dropped
 #: Sova dev top-1 86/98 -> 68/98; leaving them out, 86 -> 85, below the
-#: pre-registered bar; the manifest's Recon Bolt mapping stands.
+#: pre-registered bar. From `ability-audio-params-0.2.5` the files are
+#: neither bolt's: they are the bolts' shared release (PHASE_GROUPS).
 PLAYER_MAPS_NOT_APPLIED = [
     ("Sova", ("Hunter_AbilQ_Cast_",), "Shock Bolt", "player_belief_20261004",
-     "dev top-1 86/98 -> 68/98 remapped, 85/98 left out"),
+     "dev top-1 86/98 -> 68/98 remapped, 85/98 left out; superseded by the shared "
+     "release (PHASE_GROUPS, ability-audio-params-0.2.5)"),
+]
+#: Phase groups: abilities whose casts share a sound, told apart by a later
+#: phase. The files of a release event become the group's own class (its
+#: name); at the kit level the group's members and that class score as one
+#: family; where the family wins, the slot is the member whose landing files
+#: score higher from `post_s[0]` to `post_s[1]` s after the release
+#: (`ability_audio.cast_verdicts`). Each member's landing level is its
+#: landing track's level at one false fire per live minute on dev. Sova's
+#: bolts share Play_Hunter_AbilQ_Cast
+#: [domain:abilities/sova-bolts-share-release-sound]; Shock Bolt lands with
+#: Play_Hunter_AbilGrenade_Hit_3P [domain:abilities/sova-shock-bolt-landing-sound],
+#: Recon Bolt flies with Play_Hunter_AbilQ_Missile_3P_upd and lands with
+#: Play_Hunter_AbilQ_Hit_3P_upd [domain:abilities/sova-recon-bolt-landing-sound].
+#: The landing sets (by event) and the window 0.05 to 2.0 s were chosen on
+#: Sova dev casts alone by the rule pre-registered as
+#: sova-bolt-phases-20261004 (dev top-1, then fewer bolt_unknown, then the
+#: shorter window): every end from 2.0 to 3.0 s tied on dev.
+PHASE_GROUPS = [
+    {"agent": "Sova", "name": "Q+E", "abilities": ("Shock Bolt", "Recon Bolt"),
+     "release_events": ("Play_Hunter_AbilQ_Cast",),
+     "landing_events": {"Shock Bolt": ("Play_Hunter_AbilGrenade_Hit_3P",),
+                        "Recon Bolt": ("Play_Hunter_AbilQ_Hit_3P_upd",
+                                       "Play_Hunter_AbilQ_Missile_3P_upd")},
+     "post_s": (0.05, 2.0),
+     "basis": "census_demo-audio-census-20261004+gamedata_ability-states-0.2.0+player_20261004"},
 ]
 #: Corrections the player made to a verified label, stored beside the labels,
 #: never over them; `ability_timeline.tray_object_labels` applies them.
 CORRECTIONS_DIR = TRAY_OBJECT_CORRECTIONS_DIR
 #: The set `--calibrate` derives the current set from: the same arrays, with
 #: the margin calibration fitted on its dev casts.
-CALIBRATED_FROM = "ability-audio-params-0.2.3"
+CALIBRATED_FROM = "ability-audio-params-0.2.5"
 #: The P(right) at which a verdict counts as accepted in the report.
 ACCEPT_P = 0.95
 
@@ -183,6 +217,16 @@ def references(store_root, agent: str, plays: dict[str, set]) -> tuple[list[dict
         if any(e[0] == agent and name.startswith(e[1]) for e in END_PHASE_LEFT_OUT):
             why["end_phase_left_out"] += 1
             continue
+        evs = {e.split("/")[-1] for e in (r.get("events") or [])}
+        grp = next((g for g in PHASE_GROUPS if g["agent"] == agent
+                    and evs & set(g["release_events"])), None)
+        if grp:
+            # A release two abilities share: the group's own class.
+            out.append({"flac": r["flac"], "class": grp["name"],
+                        "ability": " / ".join(grp["abilities"]),
+                        "basis": f"{grp['basis']} (manifest: {ability} by {basis})",
+                        "events": [f"{r.get('codename')}|{e}" for e in sorted(evs)]})
+            continue
         pm = next((p for p in PLAYER_MAPS if p[0] == agent and name.startswith(p[1])), None)
         if pm:
             # The player's answer overrides the manifest's mapping; the row
@@ -216,6 +260,28 @@ def references(store_root, agent: str, plays: dict[str, set]) -> tuple[list[dict
         why[f"{o['class']}:{o['basis']}"] += 1
     return out, {"kit": kit, "counts": dict(sorted(why.items())), "shared_files": shared,
                  "slots_without_reference": sorted(set(kit) - {o["class"] for o in out})}
+
+
+def phase_groups(agent: str, refs: list[dict], kit: dict) -> list[dict]:
+    """The agent's PHASE_GROUPS as the witness reads them: the member slots,
+    the group's class (its name), each member's landing files (the kept
+    references whose events include the member's landing events) and the
+    post-release window. The levels are the fit's."""
+    slot_of = {v: k for k, v in kit.items()}
+    out = []
+    for g in PHASE_GROUPS:
+        if g["agent"] != agent or not all(a in slot_of for a in g["abilities"]):
+            continue
+        landing = {}
+        for ab in g["abilities"]:
+            evs = set(g["landing_events"].get(ab, ()))
+            landing[slot_of[ab]] = [r["flac"] for r in refs if r["class"] == slot_of[ab]
+                                    and evs & {e.split("|")[-1] for e in r["events"]}]
+        out.append({"name": g["name"], "members": [slot_of[a] for a in g["abilities"]],
+                    "abilities": list(g["abilities"]), "release_events": list(g["release_events"]),
+                    "landing_events": {slot_of[a]: list(v) for a, v in g["landing_events"].items()},
+                    "landing": landing, "post_s": list(g["post_s"]), "basis": g["basis"]})
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -427,10 +493,15 @@ def fit_params(store_root, out_root, gate: dict, audio_dirs=(), agents=None, xp=
             temps.append(aa.whiten_template(T, W["P"], W["ar"]))
             labels.append(r["class"])
             files.append({"flac": r["flac"], "ability": r["ability"], "basis": r["basis"]})
+        kept = {f["flac"] for f in files}
+        groups = phase_groups(agent, [r for r in refs if r["flac"] in kept], rule["kit"])
         per[agent] = {"temps": temps, "labels": labels, "files": files, "rule": rule,
-                      "peaks": {}}
+                      "groups": groups, "peaks": {}}
         print(f"{agent}: {len(temps)} templates {dict(Counter(labels))}, "
-              f"shared left out {len(rule['shared_files'])}", flush=True)
+              f"shared left out {len(rule['shared_files'])}"
+              + "".join(f", group {g['name']} landing "
+                        f"{ {s: len(v) for s, v in g['landing'].items()} }" for g in groups),
+              flush=True)
     live_min = 0.0
     for n, s in dev_sessions():
         t1 = time.time()
@@ -438,7 +509,13 @@ def fit_params(store_root, out_root, gate: dict, audio_dirs=(), agents=None, xp=
         for agent, a in per.items():
             if not a["temps"]:
                 continue
-            for c, v in aa.class_tracks(Xw, a["temps"], a["labels"], s["bg"], xp).items():
+            # Thresholds of the kit-level classes (a phase group's family as
+            # one) and levels of the landing tracks.
+            tr = aa.session_tracks(Xw, {"templates": a["temps"], "labels": a["labels"],
+                                        "files": a["files"], "groups": a["groups"]}, s["bg"], xp)
+            kt = aa.kit_view(tr, a["groups"])
+            kt.update({k: v for k, v in tr.items() if k.startswith(aa.LANDING)})
+            for c, v in kt.items():
                 a["peaks"].setdefault(c, []).append(aa.false_fire_peaks(v, s["live"], s["code"]))
         live_min += s["live_min"]
         print(f"  thresholds: {n} ({time.time() - t1:.0f} s)", flush=True)
@@ -447,11 +524,17 @@ def fit_params(store_root, out_root, gate: dict, audio_dirs=(), agents=None, xp=
         if not a["temps"]:
             print(f"{agent}: no references -- no parameters")
             continue
-        thr = {c: aa.threshold_at(v, live_min) for c, v in a["peaks"].items() if c != aa.NONE}
+        thr = {c: aa.threshold_at(v, live_min) for c, v in a["peaks"].items()
+               if c != aa.NONE and not c.startswith(aa.LANDING)}
+        for g in a["groups"]:
+            g["levels"] = {m: aa.threshold_at(a["peaks"][f"{aa.LANDING}{m}"], live_min)
+                           for m in g["members"]}
+            print(f"{agent}: group {g['name']} landing levels "
+                  f"{ {k: round(v, 3) for k, v in g['levels'].items()} }", flush=True)
         agents_out[agent] = {
             "mu": W["mu"], "P": W["P"], "ar": W["ar"], "templates": a["temps"],
             "labels": a["labels"], "files": a["files"], "slots": a["rule"]["kit"],
-            "thresholds": thr,
+            "thresholds": thr, "groups": a["groups"],
             "dev": [{"name": n, "path": gate[sid_of(n)]["path"], "stamps": stamps.get(n),
                      "agent": gate[sid_of(n)]["agent"],
                      "agent_basis": gate[sid_of(n)]["agent_basis"]} for n in dev],
@@ -472,7 +555,9 @@ def fit_params(store_root, out_root, gate: dict, audio_dirs=(), agents=None, xp=
                                   "(lineup.abilities_for), the player's maps overriding the "
                                   "manifest for the files they name; movement and footstep "
                                   "folders left out; files that play at an ability's end "
-                                  "left out (end_phase_left_out); unmapped rows left out "
+                                  "left out (end_phase_left_out); a release event two "
+                                  "abilities share is its phase group's class "
+                                  "(phase_groups); unmapped rows left out "
                                   "unless a belief or an evidence map names them",
                           "shared_rule": "a file whose sound event the ability montages of two "
                                          "or more abilities play is left out "
@@ -489,7 +574,12 @@ def fit_params(store_root, out_root, gate: dict, audio_dirs=(), agents=None, xp=
                               {"agent": a, "prefixes": list(pre), "ability": ab, "basis": b,
                                "why": why} for a, pre, ab, b, why in END_PHASE_LEFT_OUT],
                           "evidence_maps": [{"agent": e[0], "folder": e[1], "prefixes": list(e[2]),
-                                             "ability": e[3], "basis": e[4]} for e in EVIDENCE]},
+                                             "ability": e[3], "basis": e[4]} for e in EVIDENCE],
+                          "phase_groups": [{**g, "abilities": list(g["abilities"]),
+                                            "release_events": list(g["release_events"]),
+                                            "landing_events": {k: list(v) for k, v
+                                                               in g["landing_events"].items()},
+                                            "post_s": list(g["post_s"])} for g in PHASE_GROUPS]},
             "split": split,
             "split_basis": "ability_audio.split_sessions: per agent the sessions sorted by id, "
                            "even positions dev, odd held; one session split at its frame "
@@ -501,7 +591,9 @@ def fit_params(store_root, out_root, gate: dict, audio_dirs=(), agents=None, xp=
             "candidate_rule": "the player's kit slots with references",
             "threshold_rule": f"{aa.THRESHOLD_FF_PER_MIN} false fire per live minute over every "
                               f"dev session's unexplained live frames, peaks {aa.PEAK_GAP} "
-                              f"frames apart",
+                              f"frames apart; per kit-level class (a phase group's family "
+                              f"as one, ability_audio.kit_view), and per phase group member's "
+                              f"landing track (the group's levels)",
             "gate": {sid: {"agent": g["agent"], "agent_basis": g["agent_basis"]}
                      for sid, g in gate.items()}}
     d = aa.save_params(out_root, ABILITY_AUDIO_PARAMS_VERSION, agents_out, prov)
@@ -534,8 +626,9 @@ def reliability_bins(p: np.ndarray, y: np.ndarray, bins=(0, .5, .8, .9, .95, .99
 
 def _xy(rows):
     """(margins, 1 where the best referenced class was the slot) of the
-    referenced rows."""
-    rows = [r for r in rows if r["referenced"]]
+    referenced rows that name a slot (a `bolt_unknown` names none)."""
+    rows = [r for r in rows if r["referenced"] and r["best_ref"] is not None
+            and np.isfinite(r["margin_ref"])]
     return (np.array([r["margin_ref"] for r in rows], float),
             np.array([r["best_ref"] == r["slot"] for r in rows], float))
 
@@ -592,23 +685,25 @@ def calibrate_margin(rows_by_agent: dict[str, list[dict]], stored: dict | None =
     return out
 
 
-def _score_rows(kind, name, casts, tracks, neighbours, classes, thresholds):
-    """Rows for `casts` scored on `tracks`: every class's score, the
-    verdict, and the argmax and margin over the referenced classes."""
-    from .adjudication.ability_audio import NONE, cast_scores, identify, ref_margin
+def _score_rows(kind, name, casts, tracks, neighbours, params):
+    """Rows for `casts` scored on `tracks` by the witness's own rule
+    (`ability_audio.cast_verdicts`): every kit class's score, the verdict,
+    and the best referenced slot and its margin (a phase group's later
+    phase where the group wins; None for a bolt neither landing names)."""
+    from .adjudication.ability_audio import cast_verdicts, kit_classes, referenced_slots
     if not casts:
         return []
-    sc = cast_scores(tracks, [c["frame"] for c in casts], classes, neighbours=neighbours)
-    ids = identify(sc, classes, thresholds)
-    best, margin = ref_margin(sc, classes)
-    ref = [c for c in classes if c != NONE]
+    groups = params.get("groups") or []
+    ref = referenced_slots(kit_classes(list(tracks), groups), groups)
+    ids = cast_verdicts(tracks, [c["frame"] for c in casts], neighbours, params)
     out = []
-    for c, v, row, b, m in zip(casts, ids, sc, best, margin):
-        s = {k: float(x) for k, x in zip(classes, row)}
+    for c, v in zip(casts, ids):
         out.append({"kind": kind, "name": name, "t_ms": c["t_ms"], "slot": c["slot"],
-                    "referenced": c["slot"] in ref, "best_ref": b, "margin_ref": float(m),
-                    "verdict": v["verdict"], "reason": v["reason"],
-                    "scores": {k: round(x, 4) for k, x in s.items()}})
+                    "referenced": c["slot"] in ref, "best_ref": v["best_ref"],
+                    "margin_ref": (float("nan") if v["margin_ref"] is None
+                                   else float(v["margin_ref"])),
+                    "verdict": v["verdict"], "reason": v["reason"], "scores": v["scores"],
+                    "phase": v["phase"]})
     return out
 
 
@@ -651,20 +746,16 @@ def evaluate_params(store_root, params_root, gate: dict, audio_dirs=(), agents=N
                 res = audio_cast_witness(root, sid_of(name), g["rows"], g["agent"],
                                          g["kit_spans"], params=params, session=s, xp=xp)
                 tracks = res["tracks"]
-                classes = res["coverage"]["candidate_set"]["classes"]
-                rows += _score_rows(kind, name, s["casts"], tracks, s["neighbours"], classes,
-                                    params["thresholds"])
+                rows += _score_rows(kind, name, s["casts"], tracks, s["neighbours"], params)
                 rows += _score_rows(f"{kind}_verified", name, s["verified"], tracks,
-                                    s["neighbours"], classes, params["thresholds"])
+                                    s["neighbours"], params)
         for sid, a in demos.items():
             if a != agent:
                 continue
             s = demo_session(root, sid, audio_dirs)
             Xw = aa.whiten_frames(s["X"], params["mu"], params["P"], params["ar"])
-            tracks = aa.class_tracks(Xw, params["templates"], params["labels"], s["bg"], xp)
-            classes = sorted(tracks, key=lambda c: "CQEX".find(c) if c != aa.NONE else 9)
-            rows += _score_rows("demo", sid, s["casts"], tracks, s["neighbours"], classes,
-                                params["thresholds"])
+            tracks = aa.session_tracks(Xw, params, s["bg"], xp)
+            rows += _score_rows("demo", sid, s["casts"], tracks, s["neighbours"], params)
         rows_by_agent[agent] = rows
         summ = {}
         for kind in ("dev", "held", "dev_verified", "held_verified", "demo"):
