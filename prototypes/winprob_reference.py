@@ -77,7 +77,10 @@ Observed states
 The same model, fitted on Riot states, is scored on the captured matches'
 G instants twice: with Riot's inputs and with reticle's (alive from
 `roster.resolve` with the menu witness, plant from the stored round table,
-clock from the HUD), as-of joins no older than `ASOF_MS`. Side stays Riot's;
+clock from `gametime`, the in-game-time owner: a HUD read no older than
+`ASOF_MS` goes to it, and it infers the clock from the barrier drop where the
+read is null or stale), as-of joins no older than `ASOF_MS`. Version 0.1.0
+read the raw `hud.clock_ms` and dropped every instant without a fresh read. Side stays Riot's;
 reticle has no loadout, so the observed model carries none.
 """
 from __future__ import annotations
@@ -102,7 +105,7 @@ sys.path.insert(0, str(HERE))
 import riot_ground_truth as rgt  # noqa: E402
 from reticle.gametime import ROUND_LIVE_CLOCK_MS, SPIKE_FUSE_MS  # noqa: E402
 
-VERSION = "winprob-reference-0.1.0"
+VERSION = "winprob-reference-0.2.0"
 STORE = Path("C:/Users/grant/reticle-store")
 #: External, no domain fact: full defuse and the half checkpoint.
 DEFUSE_MS = 7000.0
@@ -638,6 +641,8 @@ def observed_states(G: Data, frames, why: Counter):
     from reticle.store import Store
     from reticle import roster as _roster
     from reticle import menu as _menu
+    from reticle import gametime as _gametime
+    from reticle import stalls as _stalls
     store = Store(STORE)
     obs = [None] * len(G.S)
     cover = Counter()
@@ -664,10 +669,14 @@ def observed_states(G: Data, frames, why: Counter):
         ht = hud.column("t_ms").to_pylist()
         clock = hud.column("clock_ms").to_pylist()
         rounds_tab = store.read_rounds(sid, date).to_pylist() if store.rounds_path(sid, date).exists() else []
+        # the clock comes from the in-game-time owner, which infers it where the read is null
+        gt = _gametime.build_session_gametime(sid, hud, rounds_tab,
+                                              stall_list=_stalls.for_session(store, sid, date))
         meta = roster.schema.metadata or {}
         stamps[sid] = {"roster": meta.get(b"roster_version", b"").decode(), "menu": mwhy,
                        "hud": (hud.schema.metadata or {}).get(b"hud_version", b"").decode(),
-                       "rounds": rounds_tab[0]["round_version"] if rounds_tab else None}
+                       "rounds": rounds_tab[0]["round_version"] if rounds_tab else None,
+                       "gametime": _gametime.GAMETIME_VERSION}
         for i in idx:
             s = G.S[i]
             rd = G.rounds[s["ri"]]
@@ -690,10 +699,18 @@ def observed_states(G: Data, frames, why: Counter):
             if planted:
                 t_obs = None
             else:
-                if h < 0 or ts - ht[h] > ASOF_MS or clock[h] is None:
-                    cover["clock_unread"] += 1
+                # a fresh read goes to the owner; a stale or null one leaves it to infer
+                fresh = h >= 0 and ts - ht[h] <= ASOF_MS and clock[h] is not None
+                g = gt.game_time_at(ts, clock[h] if fresh else None)
+                if g.phase == "round_live" and g.clock_ms is not None:
+                    t_obs = ROUND_LIVE_CLOCK_MS / 1000.0 - g.clock_ms / 1000.0
+                    cover["clock_read" if fresh else "clock_inferred"] += 1
+                elif g.phase in ("buy_phase", "round_end"):
+                    t_obs = g.round_elapsed_ms / 1000.0
+                    cover[f"clock_{g.phase}"] += 1
+                else:
+                    cover[f"clock_unread_{g.phase}"] += 1
                     continue
-                t_obs = ROUND_LIVE_CLOCK_MS / 1000.0 - clock[h] / 1000.0
             ally_att = fr["team"] == rd["att_team"]
             a, d = (ally[j], enemy[j]) if ally_att else (enemy[j], ally[j])
             tp = None
@@ -719,7 +736,7 @@ def digest(paths) -> str:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--out", default=str(STORE / "analysis" / "winprob-reference-20261004"))
+    ap.add_argument("--out", default=str(STORE / "analysis" / "winprob-reference-0.2.0-20261004"))
     ap.add_argument("--boot", type=int, default=2000)
     ap.add_argument("--cache", default=None, help="position cache directory (default: --out)")
     ap.add_argument("--record", action="store_true")
