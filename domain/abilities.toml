@@ -4018,18 +4018,59 @@ word "expire". The reference manifest (ability-audio-ref-0.2.0) had mapped
 the file to Trailblazer by name match
 """
 use = """
-`ability_audio_fit.PLAYER_MAPS` maps the file to Guiding Light from
-`ability-audio-params-0.2.1`
+none since 2026-10-04: superseded by
+[domain:abilities/skye-scout-expire-is-trailblazer]. From
+`ability-audio-params-0.2.1` to 0.2.2 `ability_audio_fit.PLAYER_MAPS` mapped
+the file to Guiding Light; the table stays as the record of that belief
 """
 exceptions = """
-the player answered on 2026-10-03 that Skye's Abil_E folder holds the Taz
+SUPERSEDED 2026-10-04: game data links the event to Trailblazer's scout
+ending, and the player accepted the switch. The player answered on 2026-10-03 that Skye's Abil_E folder holds the Taz
 (Trailblazer) media, its letters swapped against the keys; the file scores
 3 or more on no dev Skye cast. No exported montage plays the event. Mapped
 to Guiding Light, it wins a held Guiding Light demo cast (6ab7a9e99235,
 17.57 s) and loses a held Trailblazer cast (e37fdeca944f, 1345.55 s) it had
 won as Trailblazer: one cast for, one against
 """
-see = ["abilities/ability-sound-phases"]
+see = ["abilities/ability-sound-phases", "abilities/skye-scout-expire-is-trailblazer"]
+
+[skye-scout-expire-is-trailblazer]
+claim = """
+Skye's Guide_AbilE_ScoutExpire_3P sound file (events Play_Guide_AbilE_ScoutExpire
+and Play_Guide_AbilE_ScoutExpire_1P, folder Abil_E) is Trailblazer's (slot Q),
+played when the scout ends, not at the cast. The Abil_E folder letter does
+not name the key.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "skye:trailblazer"
+source = """
+the player, 2026-10-04 ("yes you can switch it to trailblazer"), shown the
+game-data inventory: reference/ability-states/ability-states-gamedata-0.2.0.jsonl
+(build release-13.06-shipping-18-5590001) links both events to
+Pawn_Guide_Q_PossessableScout ReceiveEndPlay -> FXC_Guide_Q_PossessableScout_ScoutTimeOut
+(phase end), resting on
+ShooterGame/Content/Characters/Guide/S0/Ability_Q/FXC_Guide_Q_PossessableScout_ScoutTimeOut.json
+and Pawn_Guide_Q_PossessableScout.json#ReceiveEndPlay. The player does not
+know whether a spectator hears it
+"""
+use = """
+`ability_audio_fit.END_PHASE_LEFT_OUT` leaves the file out of the
+cast-window references from `ability-audio-params-0.2.3`: an end-phase
+sound, not a cast sound
+"""
+exceptions = """
+how long after the cast the scout ends varies with the player's piloting;
+the cast window (2 s before the drop to 3 s after) reaches it only when the
+scout ends early. Whether spectators hear it is unknown
+"""
+supersedes = """
+[domain:abilities/skye-scout-expire-is-guiding-light], the player's belief
+of the same morning, reasoned from the E folder letter
+"""
+see = ["abilities/ability-sound-phases", "abilities/skye-scout-expire-is-guiding-light",
+       "abilities/skye-trailblazer-piloted"]
 
 [raze-ult-line-plays-at-equip]
 claim = """
