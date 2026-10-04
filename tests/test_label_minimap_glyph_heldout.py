@@ -51,8 +51,14 @@ class PlanTests(unittest.TestCase):
         items, excl = L.plan_items(self.casts, drawing, self.holds, {"s2": "spectator"}, {"s2"}, {"s1": [6100.0]})
         self.assertEqual([e["key"] for e in excl], ["s1:9000:X"])
         s1 = [it for it in items if it["session_id"] == "s1"]
-        # Q and E at the same instant share each offset's sample; one control 1 s before the first cast
-        self.assertEqual(len(s1), 3)
+        # Q and E at the same instant share each offset's sample; one control 1 s before the first cast;
+        # one audit frame 1 s after the excluded X
+        self.assertEqual(len(s1), 4)
+        aud = [it for it in s1 if it["kind"] == "audit_excluded"]
+        self.assertEqual(len(aud), 1)
+        self.assertAlmostEqual(aud[0]["t_ms"], 10000, delta=40)
+        self.assertTrue(aud[0]["audit_excluded"])
+        self.assertFalse(any(it["audit_excluded"] for it in s1 if it is not aud[0]))
         ctl = [it for it in s1 if it["kind"] == "control"]
         self.assertEqual(len(ctl), 1)
         self.assertAlmostEqual(ctl[0]["t_ms"], 4000, delta=40)
@@ -64,6 +70,20 @@ class PlanTests(unittest.TestCase):
         self.assertTrue(all(it["dev_session"] and it["view_default"] == "spectator" for it in s2))
         self.assertFalse(any(it["kind"] == "control" for it in s2))   # a cast at 0.3 s leaves no control frame
         self.assertEqual(len({it["key"] for it in items}), len(items))
+
+
+    def test_audit_takes_each_excluded_ability_once_from_its_earliest_cast(self):
+        casts = [cast("s2", 8000, "X"), cast("s1", 9000, "X"), cast("s1", 2000, "C"), cast("s2", 2000, "C"),
+                 cast("s1", 4000, "Q")]
+        drawing = {("Omen", "X"): ("shape", None, "k"), ("Omen", "C"): ("nothing", None, "k")}
+        items, excl = L.plan_items(casts, drawing, self.holds, {}, set(), {})
+        self.assertEqual(len(excl), 4)
+        aud = sorted((o["cast"], o["offset_s"]) for it in items for o in it["opportunity"]
+                     if o["role"] == "audit_excluded")
+        # C ties at 2000 ms: the session id breaks it; X: the earliest cast, 8000 ms in s2
+        self.assertEqual(aud, [("s1:2000:C", 1.0), ("s2:8000:X", 1.0)])
+        # a session with no kept cast gets its audit frame and no control frame
+        self.assertEqual([it["kind"] for it in items if it["session_id"] == "s2"], ["audit_excluded"])
 
 
 class PassTests(unittest.TestCase):

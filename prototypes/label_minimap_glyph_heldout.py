@@ -14,11 +14,12 @@ agent whose kit draws a minimap icon.
 The split, fixed before any item is labelled. Every label this tool writes is
 HELD-OUT for `prototypes/minimap_glyph_eval.py` and anything that succeeds it:
 nobody tunes a parameter, template, threshold or rule on these labels or on
-the queue's crops, and a method is scored on them once per version. Two
+the queue's crops, and a method is scored on them once per version. Three
 subsets are reported apart and never pooled into the headline: items from the
-evaluation's dev sessions (`dev_session`, its `DEV` set at queue time) and
+evaluation's dev sessions (`dev_session`, its `DEV` set at queue time),
 items within [-0.5 s, +3.5 s] of a positioned label the earlier tuning saw
-(`near_tuned_label`; labels/ability, ability_paint, tray_object). The split
+(`near_tuned_label`; labels/ability, ability_paint, tray_object), and the
+audit of the exclusion prior (`audit_excluded`, below). The split
 is also logged in the store's `notes/predictions.jsonl`
 (minimap-label-pass-20261004).
 
@@ -29,9 +30,16 @@ Sample, by opportunity only; no detector output chooses an item.
   (`labels/minimap_glyph_questions/answers.jsonl`, the `drawing` key, else
   the `ally` key, the last sure row winning) says it draws `nothing` or only a
   `shape`, or words to that effect (`OTHER_NO_ICON`); an unsure or missing
-  answer keeps it. So the pass never asks what
-  the player answered, and every agent and ability with a minimap icon in the
-  demos is covered.
+  answer keeps it. Every agent and ability with a minimap icon in the demos
+  is covered.
+* Those answers name the ally and enemy views only; the demos are the self
+  view. That self draws as ally draws
+  [domain:minimap/ability-drawing-colour-by-side] is a prior, so it is
+  audited: one frame AUDIT_S (+1 s) after each excluded ability's earliest
+  cast (smallest t_cast_ms, then session id), the no-icon agents included,
+  flagged `audit_excluded` and scored apart from the held-out headline. The
+  headline reads items of `kind` after_cast or control; an audit frame that
+  lands on such a frame serves both, flagged and keeping its kind.
 * Per kept cast, the frames at +1.0 s and +3.0 s after the refined cast
   time (`OFFSETS_S`, fixed in advance); per session, one control frame 1 s
   before its first cast (any slot), a frame where no new ability has been
@@ -94,7 +102,7 @@ import numpy as np  # noqa: E402
 cv2.setNumThreads(1)
 
 VERSION = "minimap-glyph-heldout-labels-0.1.0"
-QUEUE_VERSION = "minimap-glyph-heldout-queue-0.1.0"
+QUEUE_VERSION = "minimap-glyph-heldout-queue-0.2.0"
 STORE = Path("C:/Users/grant/reticle-store")
 QDIR = STORE / "analysis" / "minimap-label-pass-20261004"
 LABEL_DIR = STORE / "labels" / "minimap_glyph_heldout"
@@ -102,6 +110,7 @@ ANSWERS = STORE / "labels" / "minimap_glyph_questions" / "answers.jsonl"
 CAT = STORE / "reference" / "abilities.json"
 OFFSETS_S = (1.0, 3.0)        # frames after each kept cast, fixed before labelling
 CONTROL_S = -1.0              # one control frame this long before a session's first cast
+AUDIT_S = 1.0                 # the audit frame after an excluded ability's earliest cast
 BEFORE_S = -1.0               # the comparison frame, relative to the item's cast
 TUNED_WINDOW_MS = (-500.0, 3500.0)   # an item this near a tuned label is flagged near_tuned_label
 NO_ICON = {"nothing", "shape"}       # the player's drawing answers that rule an icon out
@@ -204,12 +213,24 @@ def plan_items(casts: list[dict], drawing: dict, holds: dict, views: dict, dev: 
         t = float(c["t_cast_ms"]) + CONTROL_S * 1000
         if t >= 0:
             _add(items, sid, nearest(holds[sid], t), t, "control", c, CONTROL_S)
+    # The audit of the exclusion prior: one frame per excluded ability, from its earliest cast
+    # (smallest t_cast_ms, then session id), at AUDIT_S.
+    audit = {}
+    for c in sorted(casts, key=lambda c: (float(c["t_cast_ms"]), c["session_id"])):
+        if c["session_id"] in holds and not icon_scope(drawing, c["agent"], c["slot"])[0]:
+            audit.setdefault((c["agent"], c["slot"]), c)
+    for c in audit.values():
+        sid, t = c["session_id"], float(c["t_cast_ms"]) + AUDIT_S * 1000
+        _add(items, sid, nearest(holds[sid], t), t, "audit_excluded", c, AUDIT_S)
     out = []
     for (sid, th), it in sorted(items.items()):
         lo, hi = TUNED_WINDOW_MS
+        roles = {o["role"] for o in it["opportunity"]}
         it.update({"view_default": views.get(sid, "self"), "dev_session": sid in dev,
-                   "near_tuned_label": any(lo <= th - t <= hi for t in tuned.get(sid, []))})
-        it["kind"] = "control" if all(o["role"] == "control" for o in it["opportunity"]) else "after_cast"
+                   "near_tuned_label": any(lo <= th - t <= hi for t in tuned.get(sid, [])),
+                   "audit_excluded": "audit_excluded" in roles})
+        it["kind"] = ("after_cast" if "after_cast" in roles else
+                      "audit_excluded" if "audit_excluded" in roles else "control")
         out.append(it)
     return out, excluded
 
@@ -293,11 +314,12 @@ def cmd_queue(args) -> None:
     est = len(items) * SECONDS_PER_ITEM / 60
     q = {"version": QUEUE_VERSION, "tool": VERSION, "built": datetime.datetime.now().isoformat(timespec="seconds"),
          "split": {"all": "heldout for prototypes/minimap_glyph_eval.py; never tuned on",
-                   "report_apart": ["dev_session", "near_tuned_label"], "eval_dev_sessions": sorted(ev.DEV),
+                   "report_apart": ["dev_session", "near_tuned_label", "audit_excluded"], "eval_dev_sessions": sorted(ev.DEV),
                    "tuned_window_ms": list(TUNED_WINDOW_MS)},
          "sample": {"opportunities": "labels/demo_cast_class (player-confirmed tray-gated census casts)",
                     "scope": "abilities the player did not answer as drawing nothing or only a shape",
-                    "offsets_s": list(OFFSETS_S), "control_s": CONTROL_S, "before_s": BEFORE_S},
+                    "offsets_s": list(OFFSETS_S), "control_s": CONTROL_S, "before_s": BEFORE_S,
+                    "audit_s": AUDIT_S, "audit_rule": "one frame per excluded ability, its earliest cast"},
          "inputs": {"crops": "roi_cache minimap (no decode)", "answers": str(ANSWERS.relative_to(STORE))},
          "estimate_min": round(est, 1), "seconds_per_item": SECONDS_PER_ITEM,
          "items": items, "excluded_casts": excluded}
@@ -325,15 +347,19 @@ def cmd_list(args) -> None:
     print("kinds:", dict(Counter(it["kind"] for it in items)),
           "dev_session:", sum(it["dev_session"] for it in items),
           "near_tuned_label:", sum(it["near_tuned_label"] for it in items),
+          "audit_excluded:", sum(it.get("audit_excluded", False) for it in items),
           "views:", dict(Counter(it["view_default"] for it in items)))
     ag = Counter(it["agent"] for it in items)
     print(f"\n{len(ag)} agents, {len(per)} abilities (after-cast frames per ability):")
     for (a, s, n), k in sorted(per.items()):
         print(f"  {a:9s} {s} {n:28s} {k}   (agent items {ag[a]})")
-    print(f"\n{len(q['excluded_casts'])} casts out of scope:")
+    audited = {(o["cast"].split(":")[0], it["agent"], o["slot"]): it["key"] for it in items
+               for o in it["opportunity"] if o["role"] == "audit_excluded"}
+    print(f"\n{len(q['excluded_casts'])} casts out of scope; the audit frame of each excluded ability:")
     for (a, s, n, w), k in sorted(Counter((e["agent"], e["slot"], e["ability"], e["why"])
                                           for e in q["excluded_casts"]).items()):
-        print(f"  {a:9s} {s} {n:28s} x{k}  {w}")
+        key = next((v for (sid, aa, ss), v in audited.items() if (aa, ss) == (a, s)), "-")
+        print(f"  {a:9s} {s} {n:28s} x{k}  audit {key:20s} {w}")
 
 
 # ------------------------------------------------------------------ answers
@@ -432,6 +458,7 @@ class Pass:
                "kind": it["kind"], "opportunity": it["opportunity"], "marks": self.marks, "nothing": nothing,
                "unsure": unsure, "coords": "minimap roi pixels", "roi": it.get("roi"), "crop": it.get("crop"),
                "split": "heldout", "dev_session": it["dev_session"], "near_tuned_label": it["near_tuned_label"],
+               "audit_excluded": it.get("audit_excluded", False),
                "by": self.by, "at": datetime.datetime.now().isoformat(timespec="seconds"), "tool": VERSION,
                "queue_version": self.qv, "compared_against_derived": False}
         self.labels.mkdir(parents=True, exist_ok=True)

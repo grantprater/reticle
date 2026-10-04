@@ -785,6 +785,8 @@ labels still carry it.
 `prototypes/label_minimap_glyph_heldout.py` queues minimap frames at +1 s and
 +3 s after each census cast whose ability the player did not answer as
 drawing nothing or only a shape, plus one control frame per demo, and asks
-the player to mark and name every ability icon. Its labels are held-out for
+the player to mark and name every ability icon. Those answers name the ally
+and enemy views, not the demos' self view, so one +1 s frame after each
+excluded ability's earliest cast audits the exclusion, scored apart. Its labels are held-out for
 `prototypes/minimap_glyph_eval.py` and never tuned on; the module docstring
 fixes the split and lists the controls.
