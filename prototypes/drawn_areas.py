@@ -37,6 +37,8 @@ spread over each measured run and on 120 frames of four sessions with no Deadloc
 the stored lineup. The void pass of `icon_candidates`, the sector rim and the two-centre rim
 search were added after the e37 and 9acf positives missed, so those two are not held out.
 
+`prototypes/sonic_square.py` proposes sensor squares with no icon given, by a soft parametric fit.
+
 `rendezvous` searches the Chamber sessions for rings round dark icons that are not Trademarks.
 It identified no Rendezvous; its appearance stays unmeasured
 [domain:abilities/chamber-rendezvous-minimap-white-radius].
