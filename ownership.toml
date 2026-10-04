@@ -1324,7 +1324,9 @@ produces = ["session_frames", "explained", "background", "ar_filter", "whiten_fr
             "split_sessions", "shared_reference_mask",
             "BMASK", "SHRINK", "TIE_MARGIN", "REFUSALS", "NONE", "PRE_S", "POST_S",
             "SELF_FRAMES", "ref_margin", "logistic", "calibrate", "p_right",
-            "save_calibrated", "CALIB_MIN", "CALIB_L2"]
+            "save_calibrated", "CALIB_MIN", "CALIB_L2", "LANDING", "landing_indices",
+            "session_tracks", "kit_view", "kit_classes", "referenced_slots", "window_argmax",
+            "next_neighbour", "phase_scores", "cast_verdicts"]
 not_for = """
 Deciding a cast, its slot or its time: the tray drop and the gate
 (`ability-cast`) decide those, and this owner scores only the drops the gate
@@ -1334,7 +1336,7 @@ by the identity arbiter's agent, and neither its scores nor its calibrated
 of teammates' or enemies' abilities.
 """
 consumers = ["ability_timeline", "ability_audio_fit"]
-exit = "Wired 2026-10-04: `reticle ability-audio-fit` (`ability_audio_fit`) fits `ability-audio-params-0.2.0` with the declared split, one pooled whitener and the shared-file rule, and scores dev, held, verified and demo casts. From `ability-audio-params-0.2.2` the set stores the margin calibration fitted on dev (`--calibrate`), and each witness row carries `p_right` beside its margin. Open: pooling `p_right` into an identity or cast claim."
+exit = "Wired 2026-10-04: `reticle ability-audio-fit` (`ability_audio_fit`) fits `ability-audio-params-0.2.0` with the declared split, one pooled whitener and the shared-file rule, and scores dev, held, verified and demo casts. From `ability-audio-params-0.2.2` the set stores the margin calibration fitted on dev (`--calibrate`), and each witness row carries `p_right` beside its margin. From `ability-audio-params-0.2.5` a phase group (Sova's bolts, which share their release sound) is one kit class whose later phase, the landing, names the slot (`cast_verdicts`); a bolt neither landing names is refused `bolt_unknown`. Open: pooling `p_right` into an identity or cast claim."
 evidence = "tests/test_ability_audio.py, reticle/ability_audio_fit.py"
 
 [[entry]]
@@ -1407,7 +1409,7 @@ status = "partial"
 names_agents = true
 produces = ["adjudicate", "template_class", "lineup_sides", "player_agent", "round_of",
             "THRESHOLD", "cast_window", "CAST_WINDOW", "OWN_WINDOW_S", "player_x_drops",
-            "in_window", "nearest_cast"]
+            "in_window", "nearest_cast", "drop_phase", "DROP_WINDOW_S"]
 not_for = """
 Deciding which tray drops are the player's casts. It asks `ability-cast`
 (`ability_timeline.player_tray_casts`, through `player_x_drops`), binds each
@@ -1420,7 +1422,9 @@ deciding a name itself: each selected peak is a claim on channel `ult_line`,
 and the cast's agent is the arbiter's verdict. Its threshold was chosen on the
 sessions it was scored on and held out on two halves and each session left
 out (docs/VOICE_LINES.md, "Held-out threshold"); a session without a lineup
-classes every peak unknown.
+classes every peak unknown. Nor is it for scheduling the barrier drop:
+`in-game-time` (`gametime`) does, and `drop_phase` only places a line against
+the drop it is given.
 """
 defers_to = ["agent-identity", "ability-cast"]
 consumers = ["cli", "adjudication.ability_state"]
