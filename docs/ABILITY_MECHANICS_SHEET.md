@@ -9,6 +9,10 @@ and ability; each answer becomes a fact in `domain/abilities.toml` or
 `domain/hud.toml`. No script writes this sheet: whoever records a fact edits
 its cell by hand, from those files, the catalogue or the census.
 
+The game's own data names each ability's states, sounds, minimap textures and
+views; [ABILITY_STATES_GAMEDATA.md](ABILITY_STATES_GAMEDATA.md) says where, and its
+questions sit in the cells below.
+
 Columns. *Deployment* comes from the catalogue
 (`<store>/reference/abilities.json`, harvested from the wiki on 2026-09-04,
 sometimes wrong). *Charges* for C, Q and E are the catalogue's counts, which
@@ -120,7 +124,7 @@ draw an assist icon? And can a damaging ability draw one?
 | C | Gravity Well | Targeted | shared stars [domain:abilities/astra-stars-shared] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | other (census 1) | ? | the placed star persists after Astra dies [domain:abilities/astra-placed-stars-persist-after-death] | can a placed one be activated after its owner dies? |
 | Q | Nova Pulse | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | nothing (census 1) | ? | the placed star persists after Astra dies [domain:abilities/astra-placed-stars-persist-after-death] | can a placed one be activated after its owner dies? |
 | E | Nebula  / Dissipate | ? | shared stars [domain:abilities/astra-stars-shared] | ? | second press (ACTIVATE) | a placed star turned into this [domain:abilities/astra-star-placed-then-turned]; a teammate sees the placed star as a black disc with a white ring and notch [domain:abilities/astra-star-ally-minimap-glyph] | dark disc [domain:abilities/astra-nebula-minimap-disc]; on a teammate's minimap the star's disc becomes a larger grey disc [domain:abilities/astra-star-ally-minimap-glyph] | ? | the placed star persists after Astra dies [domain:abilities/astra-placed-stars-persist-after-death] | global placement [domain:abilities/astra-nebula-global-placement]; can a placed one be activated after its owner dies? |
-| X | Astral Form / Cosmic Divide | ? | ? | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
+| X | Astral Form / Cosmic Divide | ? | ? | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | Game data (`ability-states-gamedata-0.2.0`): Astral Form places the stars, and only Astra's own client draws the star she aims at yellow (TX_Astra_Minimap_PassiveGold) [domain:abilities/astra-star-hover-yellow]. Does a teammate, or a spectator watching Astra, see the yellow star? Which input turns a placed star into Dissipate's fake smoke (the data names only the star's use action)? |
 
 ## Breach
 
@@ -234,9 +238,9 @@ draw an assist icon? And can a damaging ability draw one?
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Nanoswarm | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | placed, then a second press activates (player 2026-09-26) [domain:abilities/placed-then-activated] | dark icon, white triangle [domain:abilities/killjoy-nanoswarm-minimap-icon] | ? | the round; persists deactivated after Killjoy dies [domain:abilities/killjoy-nanoswarm-persists-after-death] | can a placed one be activated after its owner dies? |
+| C | Nanoswarm | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | placed, then a second press activates (player 2026-09-26) [domain:abilities/placed-then-activated] | dark icon, white triangle [domain:abilities/killjoy-nanoswarm-minimap-icon] | ? | the round; persists deactivated after Killjoy dies [domain:abilities/killjoy-nanoswarm-persists-after-death] | can a placed one be activated after its owner dies? Game data (`ability-states-gamedata-0.1.0`): the minimap component names only `TX_UI_Minimap_Killjoy_C_InActive`; `_Active` and `_Selected` belong to the in-world icon (Comp_InWorldIcon). Does the minimap icon change when the swarm activates, or when you aim at it? |
 | Q | ALARMBOT | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; recallable | ? | dark disc with line art [domain:abilities/killjoy-alarmbot] | ? | the round; persists deactivated after Killjoy dies [domain:abilities/killjoy-alarmbot-persists-after-death] | ? |
-| E | TURRET | Placement | 1 | 60 s (Destroyed); 20 s (Recalled) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; recallable | placed; activates on enemy proximity (player 2026-09-26) [domain:abilities/placed-then-activated] | nothing (census 1) | ? | the round; persists deactivated after Killjoy dies [domain:abilities/killjoy-turret-persists-after-death] | ? |
+| E | TURRET | Placement | 1 | 60 s (Destroyed); 20 s (Recalled) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; recallable | placed; activates on enemy proximity (player 2026-09-26) [domain:abilities/placed-then-activated] | nothing (census 1) | ? | the round; persists deactivated after Killjoy dies [domain:abilities/killjoy-turret-persists-after-death] | Game data (`ability-states-gamedata-0.1.0`): the turret's minimap component names `TX_UI_Minimap_Killjoy_E_InActive`; `_Active` appears only in FXC_Killjoy_E_Turret_HasTarget, which no exported blueprint names. Does the turret's minimap icon change while it fires at a target? |
 | X | Lockdown | ? | 9 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | triggers on enemies | ? | compact icon (census 1) | ? | ? | ? |
 
 ## Miks

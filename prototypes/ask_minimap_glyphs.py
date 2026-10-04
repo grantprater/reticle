@@ -336,9 +336,10 @@ def answered() -> dict:
     return last
 
 
-def view_disagreements(done: dict) -> list[tuple]:
-    """Abilities where the player's sure teammate's and enemy's answers differ; the view facts say they draw
-    alike (an enemy's smoke excepted), so each is a disagreement to store, not a question to drop silently."""
+def view_differences(done: dict) -> list[tuple]:
+    """Abilities where the player's sure teammate's and enemy's answers differ. Views are separate per ability
+    [domain:abilities/views-separate-per-ability], so each is a recorded view difference: a fact about that
+    ability, listed beside the view facts, never a conflict to resolve."""
     out = []
     for k, r in done.items():
         if not (k.startswith("visibility:") and k.endswith(":ally")) or r.get("unsure"):
@@ -464,9 +465,10 @@ def main() -> None:
             print(f"  {stem:44s} {str(agent):9s} icon {ic}  labels {lc}")
         print(f"\nVisibility: {len(vis_pruned)} abilities whose caster view the sheet decides ask nothing "
               f"({', '.join('[domain:' + f + ']' for f in VIEW_FACTS)})")
-        dis = view_disagreements(done)
-        print(f"\nThe player's earlier teammate's and enemy's answers differ on {len(dis)} abilities "
-              "(the view facts say they draw alike; smokes excepted):")
+        dis = view_differences(done)
+        print(f"\nRecorded view differences: the player's teammate's and enemy's answers differ on {len(dis)} "
+              "abilities (views are separate per ability [domain:abilities/views-separate-per-ability]; "
+              "a difference is a fact, not a conflict):")
         for row in dis:
             print("  " + " | ".join(str(x) for x in row))
         print("open:", {k: sum(q["kind"] == k and q["key"] not in done for q in qs)
