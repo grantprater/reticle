@@ -748,12 +748,12 @@ What stage 1 built, and where it differs from the text above:
   The spike layer no longer draws the spike reader's glyph frames; the
   lane holds the round table's plants and the carrier owner's losses.
 
-On `bfad2778a372`, after the 2026-10-03 rebuild of the lanes and deaths
-from storage (`death-adjudication-0.27.0`), the death lane holds 166
-consumer events
-[metric:entity_events/resolution/death@bfad2778a372#consumer_events=166]
+On `bfad2778a372`, after the 2026-10-03 corpus rerun rebuilt the lanes
+and deaths from storage (`death-adjudication-0.34.0`), the death lane holds
+172 consumer events
+[metric:entity_events/resolution/death@bfad2778a372#consumer_events=172]
 with resolved share
-[metric:entity_events/resolution/death@bfad2778a372#resolved_share=0.8691];
+[metric:entity_events/resolution/death@bfad2778a372#resolved_share=0.8912];
 the spike lane
 [metric:entity_events/resolution/spike@bfad2778a372#resolved_share=0.3077].
 The first run held every round_entity row in the ledger, most of them
