@@ -91,17 +91,17 @@ evidence = "tests/test_cone_walls.py, tests/test_occluder_lines.py"
 
 [[entry]]
 id = "minimap-widget-frame"
-question = "Where does this session draw its minimap widget relative to the baked geometry, and is it a variant?"
+question = "Where does this session draw its minimap widget relative to the baked geometry, is it a variant, and is it turned at this time?"
 owner = "widget_frame"
 role = ["constrain"]
 status = "shipped"
-produces = ["fit_crop", "for_session", "cohort", "capture_box"]
+produces = ["fit_crop", "for_session", "cohort", "capture_box", "capture_box_for", "placement_status", "unplaced_refusal", "turned_at", "fit_placement"]
 not_for = """
 Any map value. The fit measures the widget's scale, rotation and placement
 against the baked static and nothing else; the floor, lighting and base map
 still come from `map-geometry`. Not the icons drawn on the widget either.
 """
-consumers = ["roi_cache", "status", "cli"]
+consumers = ["roi_cache", "status", "cli", "plan", "minimap"]
 evidence = "tests/test_widget_frame.py"
 
 [[entry]]

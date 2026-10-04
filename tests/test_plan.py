@@ -95,8 +95,46 @@ class PlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             plan = stale(_current_store(Path(d)), ["s"])
             self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": [], "waived": [],
-                                         "unchecked": [], "held": [], "unrecorded": []})
+                                         "unchecked": [], "held": [], "unrecorded": [],
+                                         "widget": None})
             self.assertEqual(render(plan), "nothing stale over 1 sessions")
+
+    def test_a_per_side_session_without_a_placement_is_named(self):
+        """A declared side-based widget needs a placement before its pixels
+        are read; plan names the fit and every stored widget reader."""
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            base = store.read_manifest
+            store.read_manifest = lambda sid: {**base(sid), "source_profile": "valorant-16x9",
+                                               "minimap_mode": {"orientation": "per_side"}}
+            p = stale(store, ["s"])["s"]
+            self.assertEqual(p["widget"]["placement"]["reason"], "per_side_unplaced")
+            moved = {x["stream"] for x in p["decode"] if "widget_placement" in
+                     x.get("inputs_moved", [])}
+            self.assertEqual(moved, {"minimap", "ping", "ally_icon", "minimap_dark"})
+            text = render(stale(store, ["s"]))
+            self.assertIn("placement reticle widget-fit s --write", text)
+            self.assertLess(text.index("widget-fit"), text.index("ally_icon"))
+
+    def test_a_drawn_collapse_without_a_placement_is_named(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            from reticle.plan import reader_streams as rs
+            now = dict((s, v) for s, _, v, _ in rs())["minimap"]
+            t = [float(x) for x in range(0, 1_800_000, 500)]
+            path = store.minimap_path("s", None)
+            pq.write_table(pa.table({"t_ms": t, "widget_drawn": [x < 1_200_000 for x in t]})
+                           .replace_schema_metadata({"minimap_version": now}), path)
+            rounds = [{"round_no": k + 1, "t_start_ms": k * 100_000.0,
+                       "t_end_ms": k * 100_000.0 + 90_000.0} for k in range(18)]
+            pq.write_table(pa.Table.from_pylist(rounds).replace_schema_metadata(
+                {"round_version": ROUND_VERSION, "hud_version": HUD_VERSION,
+                 "killfeed_portrait_version": KILLFEED_PORTRAIT_VERSION,
+                 "plant_graphic_version": "none"}), store.rounds_path("s", None))
+            p = stale(store, ["s"])["s"]
+            w = p["widget"]["placement"]
+            self.assertEqual(w["reason"], "drawn_collapse_unplaced")
+            self.assertEqual(w["collapse"]["round_no"], 13)
 
     def test_unrecorded_portrait_stamp_stales_rounds_then_deaths(self):
         with tempfile.TemporaryDirectory() as d:

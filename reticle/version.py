@@ -386,7 +386,14 @@ PING_VERSION = "ping-0.1.0"
 # carry `stack_reason`; ring-fit rows and their observation keys are unchanged.
 # The spike glyph step (`spike.glyph_fits`, SPIKE_VERSION 0.3.0) draws the
 # game's Minimap_BombIcon texture, so on-glyph flags may move.
-ALLY_ICON_VERSION = "ally-icon-0.11.0"
+# 0.12.0 (2026-10-04): where the session's stored widget placement is turned
+# 180 degrees (`widget_frame.turned_at`), each aligned teammate portrait (ring
+# fits and stacked members) is turned back before its features are taken, as
+# `self_icon` and `minimap_objects` already do
+# [domain:minimap/upright-icons-on-turned-map]. A turned frame row carries
+# `turned`, and the coverage row `widget_turned_frames`; a session with no
+# turned placement reads the same rows as 0.11.0.
+ALLY_ICON_VERSION = "ally-icon-0.12.0"
 # The stacked teammate icon search (`stack_fit`), ported from
 # `prototypes/stack_fit.py` 0.2.0. 0.3.0: numpy in place of torch, the icons
 # drawn at `ICON_ALPHA` instead of opaque, windows scored on each pose's

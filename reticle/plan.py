@@ -1083,6 +1083,21 @@ def stale(store, sessions: list[str]) -> dict:
                 if moved:
                     decode.append({"stream": stream, "channel": channel, "stored": got,
                                    "current": now, "trial": trial, "inputs_moved": moved})
+        # A side-based widget read without its placement, or through a crop
+        # that cannot hold it (`widget_work`): every stored stream that read
+        # the widget's pixels rereads after the placement and the crop are fixed.
+        widget = widget_work(store, man)
+        if widget is not None:
+            by = {s["stream"]: s for s in decode}
+            for stream, channel, now, trial in reader_streams():
+                if stream not in WIDGET_PIXEL_READERS or stream in absent:
+                    continue
+                if stream in by:
+                    by[stream].setdefault("inputs_moved", []).append(WIDGET_INPUT)
+                else:
+                    decode.append({"stream": stream, "channel": channel,
+                                   "stored": stored_stamp(store, man, stream), "current": now,
+                                   "trial": trial, "inputs_moved": [WIDGET_INPUT]})
         rescanned = {s["stream"] for s in decode}
         rounds_stale = False
         r = _round_stamps(store, man)
@@ -1200,6 +1215,8 @@ def stale(store, sessions: list[str]) -> dict:
                                 "inputs_moved": moved, "how": spec["how"],
                                 "command": spec["command"].format(sid=sid)})
                 moving.add(stream)
+        if widget is not None:
+            _widget_derived(store, sid, derived, moving)
         # A stream checked above before one of its inputs was found stale
         # follows it now: staleness follows every declared input, in any order.
         _follow(store, sid, derived, moving)
@@ -1213,8 +1230,87 @@ def stale(store, sessions: list[str]) -> dict:
         unchecked = [{"stream": s, "why": UNSTAMPED.get(s, "undeclared: no check in plan")}
                      for s in stored_streams(store, sid) if s not in declared]
         out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived,
-                    "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded}
+                    "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded,
+                    "widget": widget}
     return out
+
+
+#: The name a stream's `inputs_moved` gives the session's widget placement.
+WIDGET_INPUT = "widget_placement"
+#: The reader streams that read the minimap widget's pixels (`scan`'s
+#: `_normalise_decoded` set), and the cache-reading streams that do.
+WIDGET_PIXEL_READERS = ("minimap", "ping", "ally_icon", "minimap_dark")
+WIDGET_PIXEL_DERIVED = ("team_vision", "spike", "minimap_object", "self_icon")
+
+
+def widget_work(store, manifest: dict) -> dict | None:
+    """What the session's minimap widget needs before its pixels are read
+    (`widget_frame`), or None:
+
+    * `placement`: a side-based or drawn-collapse session with no stored
+      placement (`widget_frame.placement_status`), and the fit command;
+    * `cache`: a stored placement the minimap crop cache cannot serve
+      (`stale_rects` after a wider capture box, `crop_clips_widget`), and the
+      re-decode command (`roi_cache.rewrite_command`), which only the player
+      starts;
+    * `reread`: a stored placement and a usable cache, but a stored minimap
+      table whose `widget_drawn` rate still collapses at a round boundary
+      (`widget_frame.stored_collapse`): its readers read before the placement.
+    """
+    from . import widget_frame as wf
+    from .profiles import get_profile
+    from .roi_cache import RoiCache, rewrite_command, stored_record
+    sid = manifest["session_id"]
+    status = wf.placement_status(store, manifest)
+    if status is not None:
+        if stored_record(store.root, sid, "minimap") is None:
+            status = {**status, "detail": status["detail"] + "; no minimap crop cache is "
+                      "stored, so the fit waits for one"}
+        return {"placement": status}
+    if wf.entry(manifest) is None:
+        return None
+    rec = stored_record(store.root, sid, "minimap")
+    if rec is not None:
+        cache, why = RoiCache.load(store.root, manifest, get_profile(manifest["source_profile"]),
+                                   "minimap")
+        if cache is None:
+            return {"cache": {"reason": why, "held": rec.get("rects", [None])[0],
+                              "command": rewrite_command(sid, "minimap", rec)}}
+    c = wf.stored_collapse(store, manifest)
+    if c is not None:
+        return {"reread": {"reason": "drawn_collapse_after_placement",
+                           "detail": (f"widget_drawn {c['before']:.3f} before round "
+                                      f"{c['round_no']} and {c['after']:.3f} from it")}}
+    return None
+
+
+def _widget_derived(store, sid: str, derived: list[dict], moving: set[str]) -> None:
+    """Name every stored cache-reading stream that read the widget's pixels
+    (`WIDGET_PIXEL_DERIVED` and the ability pass's streams) as moved by the
+    placement; `_follow` then carries it downstream."""
+    hand = {s: (k, c, cmd, _CACHE_READERS.get(s, "storage"))
+            for s, (k, c, cmd) in _hand_specs().items()}
+    specs = {**hand, **{s["stream"]: (s["key"], s["current"], s["command"], s["how"])
+                        for s in derived_streams()}}
+    names = list(WIDGET_PIXEL_DERIVED) + [s for s, _, _ in ability_streams()]
+    by = {d["stream"]: d for d in derived}
+    for stream in names:
+        if stream not in specs:
+            continue
+        head = _head(store, stream, sid)
+        if head is None:
+            continue
+        if stream in by:
+            if WIDGET_INPUT not in by[stream]["inputs_moved"]:
+                by[stream]["inputs_moved"].append(WIDGET_INPUT)
+            continue
+        key, current, command, how = specs[stream]
+        entry = {"stream": stream, "stored": head.get(key), "current": current,
+                 "inputs_moved": [WIDGET_INPUT], "how": how,
+                 "command": command.format(sid=sid)}
+        derived.append(entry)
+        by[stream] = entry
+        moving.add(stream)
 
 
 def _lane_streams() -> set[str]:
@@ -1267,8 +1363,24 @@ def render(plan: dict) -> str:
     waived_lines += [f"held     {stream}: rows held stale until {inputs} are refreshed, then "
                      f"`reticle project <sid>` for {' '.join(sids)}"
                      for (stream, inputs), sids in sorted(held.items())]
+    # The widget comes first: a placement fit (crop cache, no decode), then
+    # the crop cache's re-decode, which only the player starts; every stream
+    # below that names `widget_placement` waits for both.
+    for sid, p in plan.items():
+        w = p.get("widget") or {}
+        if "placement" in w:
+            s = w["placement"]
+            lines.append(f"placement {s['command']}   ({s['reason']}: {s['detail']}; reads "
+                         f"the minimap crop cache and rounds, no decode) for {sid}")
+        if "cache" in w:
+            c = w["cache"]
+            lines.append(f"decode   {c['command']}   (minimap crop cache {c['reason']}; holds "
+                         f"{c['held']}; the player starts this decode) for {sid}")
+        if "reread" in w:
+            lines.append(f"reread   minimap streams of {sid}   ({w['reread']['reason']}: "
+                         f"{w['reread']['detail']})")
     if not by_channel and not derived:
-        return "\n".join([f"nothing stale over {len(plan)} sessions"] + waived_lines)
+        return "\n".join(lines + [f"nothing stale over {len(plan)} sessions"] + waived_lines)
     for ch, sids in sorted(by_channel.items()):
         streams = sorted({s["stream"] for p in plan.values() for s in p["decode"]
                           if s["channel"] == ch})
