@@ -39,6 +39,14 @@ names each channel gives; the joint rules J1 (glyph if a glyph disc is
 present, else shape), J2 (smoke first, else J1) and J3 (Astra: smoke names
 Nebula, else the glyph). TOL is the matcher's SNAP_R (8 px x scale).
 
+J3 is not a clean held-out score. Its rule was written after reading
+heldout.json's confusions on these same labels (Astra:E 0/12, all named Q),
+so its count on the headline marks is dev, to be rescored on fresh labels.
+The mechanic it uses is recorded: a placed star turned into Nebula becomes a
+larger grey disc at the same place [domain:abilities/astra-star-ally-minimap-glyph]
+[domain:abilities/astra-star-placed-then-turned]
+[domain:abilities/astra-nebula-minimap-disc].
+
 Wire: no. An evaluation of frozen readers on held-out labels; no rule is
 promoted before the player confirms the glyph/shape split.
 """
@@ -66,7 +74,10 @@ if os.name == "nt":
     import ctypes
     ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x4000)
 
-VERSION = "shape-heldout-score-0.1.0"
+VERSION = "shape-heldout-score-0.1.1"
+#: J3 was written after reading heldout.json's confusions on these labels; its headline count is no held-out score.
+J3_CAVEAT = ("J3 is NOT a clean held-out score: its rule was chosen after reading heldout.json's confusions "
+             "on these same labels (Astra:E 0/12, all named Q); rescore it on fresh labels")
 STORE = Path("C:/Users/grant/reticle-store")
 OUT = STORE / "analysis" / "shape-heldout-score-20261004"
 HELDOUT = STORE / "analysis" / "minimap-heldout-score-20261004" / "heldout.json"
@@ -264,10 +275,12 @@ def cmd_score(args) -> None:
                     "smoke_off_slot": sorted({(m["truth"], m["item"]) for m in M if m["smoke"] is not None
                                               and smoke_name(m["agent"]) != m["truth"]}),
                     "named_by_ability_reader": sum(bool(m["ability"].get("named")) for m in M)}
+    res["J3_caveat"] = J3_CAVEAT
     res["marks"] = marks
     OUT.mkdir(parents=True, exist_ok=True)
     json.dump(res, open(OUT / "score.json", "w"), indent=1, default=float)
     print(json.dumps({k: res[k] for k in ("headline", "dev_session")}, indent=1, default=str)[:6000])
+    print(f"J3 headline {res['headline']['total'].get('J3_right', 0)}/{res['headline']['n']}: {J3_CAVEAT}")
 
 
 # ------------------------------------------------------------------ DEV: Astra star to smoke
