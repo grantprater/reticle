@@ -103,5 +103,121 @@ class SheetColumnsByHeader(unittest.TestCase):
                                ("Yoru", "C"): ("Fakeout", "?")})
 
 
+class _Fact:
+    def __init__(self, claim, known="player", since="2026-10-04"):
+        self.claim, self.known, self.since = claim, known, since
+
+
+FACTS = {"abilities/killjoy-lockdown-global-minimap": _Fact("drawn on every player's minimap: device and ring"),
+         "abilities/phoenix-blaze-no-minimap-icon": _Fact("Blaze draws no icon on the minimap; the wall")}
+TABLE = {"abilities/killjoy-lockdown-global-minimap": [("Killjoy", "X", "Lockdown", ask.ALL_VIEWS,
+                                                        {"icon": True, "shape": True})],
+         "abilities/phoenix-blaze-no-minimap-icon": [("Phoenix", "C", "Blaze", None, {"icon": False, "shape": True})]}
+SHEET2 = {("Killjoy", "X"): ("Lockdown", "compact icon (census 1)"),
+          ("Phoenix", "C"): ("Blaze", "orange wall [domain:abilities/phoenix-blaze], no icon (disputed) "
+                                      "[domain:abilities/phoenix-blaze-no-minimap-icon]")}
+
+
+def _row(key, answer, line, unsure=False, shown=None):
+    return {"key": key, "kind": "visibility", "answer": answer, "unsure": unsure, "by": "player",
+            "ts": "2026-10-04T16:06:50", "_line": line, "shown": shown or {}}
+
+
+class StatementsSettleAndReopen(unittest.TestCase):
+    def setUp(self):
+        self.saved = ask.sheet_minimap
+        ask.sheet_minimap = lambda: SHEET2
+        self.stmts = ask.fact_statements(FACTS, TABLE)
+
+    def tearDown(self):
+        ask.sheet_minimap = self.saved
+
+    def qs(self, done, extra=None):
+        st = dict(self.stmts)
+        for k, v in (extra or {}).items():
+            st[k] = st.get(k, []) + v
+        qs = ask.visibility_questions({"rows": []}, [], {}, st)
+        return qs, ask.annotate(qs, done)
+
+    def test_player_fact_naming_the_view_settles_it(self):
+        _, status = self.qs({})
+        for v in ("self", "ally", "enemy"):
+            self.assertEqual(status[f"visibility:Killjoy:X:{v}"],
+                             (False, "settled by [domain:abilities/killjoy-lockdown-global-minimap]: icon_and_shape"))
+
+    def test_fact_not_naming_a_view_settles_nothing(self):
+        _, status = self.qs({})
+        for v in ("ally", "enemy"):
+            self.assertTrue(status[f"visibility:Phoenix:C:{v}"][0])
+
+    def test_disputed_sheet_cell_is_open(self):
+        self.assertEqual(ask.undecided(SHEET2[("Phoenix", "C")][1]), "a disputed statement")
+        qs, status = self.qs({})
+        self.assertIn("visibility:Phoenix:C:self", [q["key"] for q in qs])
+        self.assertTrue(status["visibility:Phoenix:C:self"][0])
+
+    def test_contradicted_answer_reopens_with_both_statements(self):
+        done = {"visibility:Phoenix:C:ally": _row("visibility:Phoenix:C:ally", "icon_and_shape", 307),
+                "visibility:Phoenix:C:enemy": _row("visibility:Phoenix:C:enemy", "icon_and_shape", 308)}
+        belief = {("Phoenix", "C"): [{"source": "answers.jsonl#L366 question:blaze-icon:enemy", "by": "player",
+                                      "since": "2026-10-04T19:04", "views": ["enemy"], "says": "Possibly",
+                                      "states": {"icon": "possible"}}]}
+        qs, status = self.qs(done, belief)
+        is_open, why = status["visibility:Phoenix:C:enemy"]
+        self.assertTrue(is_open)
+        self.assertIn("'icon_and_shape' (answers.jsonl#L308", why)
+        self.assertIn("[domain:abilities/phoenix-blaze-no-minimap-icon]", why)
+        self.assertNotIn("L366", why)                       # a hedge contradicts nothing ...
+        q = next(q for q in qs if q["key"] == "visibility:Phoenix:C:enemy")
+        self.assertIn("L366", ask.prompt(q))                # ... but is shown
+        self.assertIn("REOPENED", ask.prompt(q))
+        self.assertEqual({q["key"] for q in qs[:2]}, {"visibility:Phoenix:C:ally", "visibility:Phoenix:C:enemy"})
+
+    def test_answer_given_with_the_statement_shown_stands(self):
+        qs, _ = self.qs({})
+        shown = next(q for q in qs if q["key"] == "visibility:Phoenix:C:ally")["shown"]
+        done = {"visibility:Phoenix:C:ally": _row("visibility:Phoenix:C:ally", "icon_and_shape", 400, shown=shown)}
+        _, status = self.qs(done)
+        self.assertEqual(status["visibility:Phoenix:C:ally"],
+                         (False, "answered with the contradicting statements shown"))
+
+    def test_agreeing_or_unsure_answer_stays_done(self):
+        done = {"visibility:Phoenix:C:ally": _row("visibility:Phoenix:C:ally", "shape", 10),
+                "visibility:Phoenix:C:enemy": _row("visibility:Phoenix:C:enemy", None, 11, unsure=True)}
+        _, status = self.qs(done)
+        self.assertFalse(status["visibility:Phoenix:C:ally"][0])
+        self.assertFalse(status["visibility:Phoenix:C:enemy"][0])
+
+    def test_contradicting_answer_blocks_a_fact_settlement(self):
+        done = {"visibility:Killjoy:X:enemy": _row("visibility:Killjoy:X:enemy", "nothing", 5)}
+        _, status = self.qs(done)
+        self.assertTrue(status["visibility:Killjoy:X:enemy"][0])
+
+    def test_repo_table_cites_player_facts_and_sheet_abilities(self):
+        ask.sheet_minimap = self.saved
+        ask.check_facts()            # raises SystemExit on a missing, non-player or misplaced fact row
+
+    def test_row_statement_carries_its_line(self):
+        done = {"question:blaze-icon:enemy": {"key": "question:blaze-icon:enemy", "answer": "possible", "by": "player",
+                                              "ts": "t", "_line": 366, "answer_words": "2. Possibly"}}
+        st = ask.row_statements(done)[("Phoenix", "C")][0]
+        self.assertEqual((st["source"], st["views"], st["states"]),
+                         ("answers.jsonl#L366 question:blaze-icon:enemy", ["enemy"], {"icon": "possible"}))
+
+    def test_clash_and_category(self):
+        self.assertEqual(ask.clash({"drawn": False}, {"shape": True}), ["shape", "drawn"])
+        self.assertEqual(ask.clash({"icon": "possible"}, {"icon": False}), [])
+        self.assertEqual(ask.category({"drawn": False}), "nothing")
+        self.assertIsNone(ask.category({"shape": True}))
+
+
+class ListPrintsOpenFirst(unittest.TestCase):
+    def test_list_output_puts_open_keys_before_done(self):
+        qs = [{"key": k, "kind": "rotation", "shown": {}} for k in ("a", "b", "c")]
+        status = ask.annotate(qs, {"a": {"answer": "upright"}, "c": {"answer": "rotates"}})
+        self.assertEqual(status, {"a": (False, "answered"), "b": (True, "no answer"), "c": (False, "answered")})
+        self.assertEqual(ask.key_lines(qs, status), ["open b", "done a", "done c"])
+
+
 if __name__ == "__main__":
     unittest.main()
