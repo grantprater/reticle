@@ -586,7 +586,11 @@ ABILITY_STATE_VERSION = "ability-state-0.7.0"
 # slot -- Sova's bolts share their release, and the landing files after it
 # name the bolt; neither landing heard refuses `bolt_unknown`, a landing
 # margin under TIE_MARGIN `landing_tie`; each row carries `phase`.
-ABILITY_AUDIO_VERSION = "ability-audio-0.4.0"
+# 0.5.0: a phase group may declare a late phase per member (Sova's Recon
+# Bolt's scan pulse): where no landing is heard and exactly one member's late
+# track reaches its level, that member is the verdict with no margin and no
+# `p_right` (`late_phase_only`); `phase` carries the late scores.
+ABILITY_AUDIO_VERSION = "ability-audio-0.5.0"
 # The fitted parameter set the audio witness reads, under
 # `reference/ability-audio/<version>/` in the store: per agent the background
 # whitener (shrink 0.1), the AR(2) coefficients, the whitened templates and
@@ -616,7 +620,12 @@ ABILITY_AUDIO_VERSION = "ability-audio-0.4.0"
 # landing files and their levels; thresholds per kit-level class.
 # 0.2.6: 0.2.5's arrays byte for byte with the margin calibration fitted on
 # its dev casts (a bolt's margin is its landing margin).
-ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.6"
+# 0.2.7: 0.2.6's arrays, thresholds and calibration, with the Recon Bolt's
+# scan pulse (Play_Hunter_Abil_SonarBolt_SonarPing_upd, audio-sfx-gaps-0.1.0)
+# as the phase group Q+E's late phase for E, 0.05 to 6.0 s after the release,
+# its level at one false fire per live minute on dev (`reticle
+# ability-audio-fit --late-phase`).
+ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.7"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the

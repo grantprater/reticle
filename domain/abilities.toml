@@ -781,7 +781,7 @@ the ring's radius is the reveal range, fixed for the ability, so it is a prior
 for the fit and a check on a found ring; an enemy icon appearing inside the
 ring during the pulse is a reveal, not a sighting
 """
-see = ["abilities/pulse-scan-abilities"]
+see = ["abilities/pulse-scan-abilities", "abilities/sova-recon-bolt-minimap-everyone"]
 
 [sova-hunters-fury-minimap-beam]
 claim = """
@@ -4138,12 +4138,109 @@ phase group Q+E (`ability-audio-params-0.2.5`), the in-flight file with them
 exceptions = """
 Play_Hunter_AbilQ_Hit_3P, which the same files also carry, is played by the
 Owl Drone's dart too; only the _upd event is the Recon Bolt's own. A bolt
-shot far lands out of earshot or after the window (0.05 to 2.0 s after the
-release): on held match casts such bolts are refused bolt_unknown. The scan
-pulse's files are not in the landing set
+that lands out of the caster's audio range is not heard landing
+[domain:abilities/sova-recon-bolt-landing-audible-range], and one that lands
+after the window (0.05 to 2.0 s after the release) is not scored: to
+`ability-audio-params-0.2.6` such bolts are refused bolt_unknown. The scan
+pulse's file is not in the landing set; from `ability-audio-params-0.2.7` it
+is the bolt's later phase [domain:abilities/sova-recon-bolt-pulse-louder]
 """
 see = ["abilities/sova-bolts-share-release-sound", "abilities/sova-recon-bolt-minimap-ring",
-       "abilities/sova-recon-bolt-charges"]
+       "abilities/sova-recon-bolt-charges", "abilities/sova-recon-bolt-landing-audible-range"]
+
+[sova-recon-bolt-landing-audible-range]
+claim = """
+Sova hears his own Recon Bolt land only when it lands within his audio
+range, and near the edge of that range the landing is very quiet.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "sova:recon bolt"
+source = """
+the player, 2026-10-04 (chat), asked whether a Recon Bolt released with no
+landing sound after it was still heard landing
+"""
+use = """
+a Recon Bolt release with no landing heard is no evidence of a Shock Bolt;
+the audio witness keeps it a refusal (bolt_unknown) unless a later phase
+names it; the minimap ring, drawn for everyone
+[domain:abilities/sova-recon-bolt-minimap-everyone], does not depend on range
+"""
+exceptions = """
+the range is not measured in game units or minimap pixels
+"""
+see = ["abilities/sova-recon-bolt-landing-sound", "abilities/sova-recon-bolt-pulse-louder",
+       "abilities/sova-recon-bolt-pulse-audible-range"]
+
+[sova-recon-bolt-pulse-louder]
+claim = """
+Sova's Recon Bolt's scan pulse is louder than its landing.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "sova:recon bolt"
+source = """
+the player, 2026-10-04 (chat). The pulse's event
+Play_Hunter_Abil_SonarBolt_SonarPing_upd plays media Abil_Joules_Q_Sonar_Ping_01
+(2.24 s), exported as the store's
+reference/game-files/audio-sfx-gaps-0.1.0/Sova/Play_Hunter_Abil_SonarBolt_SonarPing_upd__Abil_Joules_Q_Sonar_Ping_01.flac
+"""
+use = """
+`ability_audio_fit.PHASE_GROUPS` `late_events`: from
+`ability-audio-params-0.2.7` the pulse is the Recon Bolt's late phase, which
+names a bolt release no landing names (`ability_audio.cast_verdicts`)
+"""
+see = ["abilities/sova-recon-bolt-audio-phases", "abilities/sova-recon-bolt-landing-audible-range",
+       "abilities/sova-recon-bolt-pulse-audible-range"]
+
+[sova-recon-bolt-pulse-audible-range]
+claim = """
+The player believes Sova does not hear his own Recon Bolt's scan pulse at
+every distance: like the landing, it carries only so far.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "sova:recon bolt"
+source = """
+the player, 2026-10-04 (chat), a belief: he is unsure and asked for it to be
+measured
+"""
+use = """
+none yet: a pulse not heard is no evidence against a Recon Bolt
+"""
+exceptions = """
+measured 2026-10-04 on the stored dev and held Sova casts (the store's
+notes/predictions.jsonl, recon-recovery-20261004): the whitened pulse
+template reached its level after about four in ten tray-confirmed Recon
+releases in each band of landing distance to 150 base px, with no fall over
+that span, and after none of 10 Shock Bolt releases. Only 2 landings lay
+farther, so the measurement neither confirms nor refutes the belief
+"""
+see = ["abilities/sova-recon-bolt-pulse-louder", "abilities/sova-recon-bolt-landing-audible-range"]
+
+[sova-recon-bolt-minimap-everyone]
+claim = """
+Sova's Recon Bolt shows on the minimap for everyone.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "sova:recon bolt"
+source = """
+the player, 2026-10-04 (chat)
+"""
+use = """
+the ring after a release is a witness that does not depend on the caster's
+audio range [domain:abilities/sova-recon-bolt-landing-audible-range]
+"""
+exceptions = """
+the player did not say whether everyone includes the enemy team; the enemy
+ring's colour is not measured [domain:abilities/sova-recon-bolt-minimap-ring-size]
+"""
+see = ["abilities/sova-recon-bolt-minimap-ring", "abilities/sova-recon-bolt-minimap-ring-size"]
 
 [skye-scout-expire-is-guiding-light]
 claim = """
@@ -4936,6 +5033,11 @@ to its ability and phase from the game's event data
 exceptions = """
 the scan pulse's event (Play_Hunter_Abil_SonarBolt_SonarPing_upd) plays media
 named Abil_Joules_Q_Sonar_Ping_01, which the store's ability audio export
-(`ability-audio-ref-0.2.0`) does not hold
+(`ability-audio-ref-0.2.0`) does not hold; the gap export
+`audio-sfx-gaps-0.1.0` does, and from `ability-audio-params-0.2.7` the
+witness scores it [domain:abilities/sova-recon-bolt-pulse-louder]. The caster
+hears the landing only within his audio range
+[domain:abilities/sova-recon-bolt-landing-audible-range]
 """
-see = ["abilities/sova-shock-bolt-audio-phases", "abilities/ability-sound-phases"]
+see = ["abilities/sova-shock-bolt-audio-phases", "abilities/ability-sound-phases",
+       "abilities/sova-recon-bolt-pulse-louder", "abilities/sova-recon-bolt-pulse-audible-range"]
