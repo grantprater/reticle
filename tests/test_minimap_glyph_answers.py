@@ -44,5 +44,29 @@ class LastRowWins(unittest.TestCase):
         self.assertEqual(got["texture:TX_UI_Minimap_Iris_C"]["revises"], "answers.jsonl#L1")
 
 
+class GameDataReferences(unittest.TestCase):
+    """eval 0.3.0: the state inventory's minimap brushes assign markers; the player's answers still override."""
+
+    @classmethod
+    def setUpClass(cls):
+        ev.build_extra(ev.PROBE_STATES, answers=True, gamedata=True)
+        cls.log = dict(ev.GAMEDATA_LOG)
+        cls.extra = {k: [p for _, p in v] for k, v in ev.EXTRA.items()}
+
+    def test_alarmbot_takes_its_minimap_brush(self):
+        refs = self.extra.get(("Killjoy", "Q"), [])
+        self.assertTrue(any(p.startswith("gamedata:TX_UI_Minimap_Killjoy_Q_InActive.png ") for p in refs), refs)
+
+    def test_an_agent_other_answer_removes_a_game_data_reference(self):
+        flat = [p for v in self.extra.values() for p in v]
+        self.assertFalse(any("TX_UI_Minimap_Rift_Passive_Default.png" in p for p in flat))
+
+    def test_off_reproduces_eval_020(self):
+        ev.build_extra(ev.PROBE_STATES, answers=True, gamedata=False)
+        refs = [p for _, p in ev.EXTRA.get(("Killjoy", "Q"), [])]
+        self.assertFalse(any("Killjoy_Q_InActive" in p for p in refs))
+        self.assertEqual(ev.GAMEDATA_LOG, {})
+
+
 if __name__ == "__main__":
     unittest.main()
