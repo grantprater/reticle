@@ -300,6 +300,31 @@ class PlanTests(unittest.TestCase):
                               ("scoreboard_presence", ["scoreboard", "scoreboard_strip"],
                                "reticle openings s")])
 
+    def test_a_reader_claim_or_strip_change_stales_the_round_outcomes(self):
+        from reticle.roi_cache import ROI_CACHE_VERSION
+        from reticle.version import (ROUND_OUTCOME_CLAIM_VERSION, ROUND_OUTCOME_VERSION,
+                                     SCOREBOARD_STRIP_VERSION)
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["scoreboard_strip:rows"] = [{"scoreboard_strip_version": SCOREBOARD_STRIP_VERSION,
+                                                      "roi_cache_version": ROI_CACHE_VERSION}]
+            store.events["round_outcome:rows"] = [
+                {"round_outcome_version": ROUND_OUTCOME_VERSION,
+                 "roi_cache_version": ROI_CACHE_VERSION,
+                 "scoreboard_strip_version": SCOREBOARD_STRIP_VERSION,
+                 "round_outcome_claim_version": ROUND_OUTCOME_CLAIM_VERSION}]
+            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            head = store.events["round_outcome:rows"][0]
+            head["round_outcome_version"] = "round-outcome-0.0.1"
+            head["round_outcome_claim_version"] = "round-outcome-claim-0.0.1"
+            store.events["scoreboard_strip:rows"][0]["scoreboard_strip_version"] = "strip-0.0.1"
+            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            got = derived["round_outcome"]
+            self.assertEqual((got["command"], got["how"], got["stored"]),
+                             ("reticle round-outcome s", "cache", "round-outcome-0.0.1"))
+            self.assertIn("round_outcome_claim_version", got["inputs_moved"])
+            self.assertIn("scoreboard_strip", got["inputs_moved"])
+
     def test_the_waiver_accepts_scoreboard_0_12_0_and_names_it(self):
         """The player's 2026-09-29 waiver: a 0.12.0 board stream, and the
         deaths and openings read from it, are not stale under 0.13.0, and

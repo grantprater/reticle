@@ -253,11 +253,34 @@ check a kill count against
 """
 exceptions = """
 the numeral starts at the third kill (the player, 2026-09-25: II would be far
-more common, and III is the lowest seen). How the numeral and a two-assister
-panel share the space left of the entry is not known; the player expects a
-priority order rather than a wider row
+more common, and III is the lowest seen). The player expected the numeral and a
+two-assister panel to share the space left of the entry by a priority order
+rather than a wider row. The game's layout answers it: both sit in one
+vertical box, `LeftOverhang`, the numeral (`Numerals`, bottom-aligned, size
+rule Fill) above the assister portraits (top-aligned), so both can draw at
+once (build release-13.06-shipping-18-5590001, hud-layout/ShooterGame/Content/UI/InGame/HUD/KillCallout/KillFeed_Assists/KillFeedRow.json). No frame showing
+both has been checked
 """
 phrases = ["killstreak numeral", "kill streak badge"]
+
+[killstreak-numeral-six]
+claim = """
+The killstreak numeral [domain:killfeed/killstreak-indicator] draws past V: a
+sixth kill in the round draws VI beside the killer's portrait, on the red
+(enemy) backer as on the green. Whether VII or higher draws is not known.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-03"
+source = """
+4f207c0c4e39 (C:\\Users\\grant\\Videos\\2026-09-27 19-40-58.mp4), round 18:
+enemy Raze's entry reads VI on ten views, 1783.0-1787.5 s
+(`killfeed-numeral-0.1.0`, score 0.947-0.959, margin 0.31-0.33 over the next
+template), inspected on a contact sheet cut from the crop cache; Riot's record lists
+this as Raze's sixth kill of round 18, the only six-kill round among the 22
+recorded matches
+"""
+see = ["killfeed/killstreak-indicator"]
 
 [environmental-self-entry]
 claim = """
@@ -703,7 +726,126 @@ Resurrection were read, 63-64 px cells set off-centre (6-7 px left gap,
 values = { cell_px = { sniper = 151.5, rifle = 119.6, shotgun = 119.6, odin = 119.6, smg_sidearm = 87.3, bandit = 66.7, warden = 110.6 }, victim_after_seam_px = [7.0, 8.6] }
 phrases = ["killfeed weapon cell", "weapon cell width", "weapon class cell"]
 see = ["killfeed/killfeed-element-spacing", "killfeed/warden-icon",
-       "killfeed/headshot-icon", "killfeed/subpixel-placement"]
+       "killfeed/headshot-icon", "killfeed/subpixel-placement",
+       "killfeed/weapon-cell-formula"]
+
+[weapon-cell-formula]
+claim = """
+The weapon cell is the kill icon's texture canvas drawn 24 px high plus fixed
+padding: at 1080p, scale 1.0, name end to seam = 24.23 x W/H + 22.7 px, where
+W x H is the icon texture's size. One widget, `WeaponSizeBox` (max 130 x 24,
+padding 5 + 5), holds every weapon icon and scales it with ScaleToFitY,
+DownOnly, so the game keeps no class table: the class cells of
+[domain:killfeed/weapon-cell], Bandit's and Warden's included, follow from
+each texture's canvas width, not its ink.
+"""
+kind = "geometry"
+known = "measured"
+since = "2026-10-03"
+source = """
+game build release-13.06-shipping-18-5590001: hud-layout/ShooterGame/Content/UI/InGame/HUD/KillCallout/KillFeed_Assists/KillFeed_Participant.json
+(`WeaponSizeBox`: WidthOverride 125, MaxDesiredWidth 130, MaxDesiredHeight 24;
+its Image stretches ScaleToFitY, DownOnly). Least squares of name end to seam
+on each kill icon's canvas aspect W/H, over the 294 seam rows of
+<store>/analysis/killfeed-weapon-cell-20261003/seam_all.jsonl (cell_model.py
+-> cell_model.json): slope 24.23, intercept 22.7, median absolute residual
+0.53 px, every class median within 1.3 px of its prediction. The canvases came
+from valorant-api's killStreamIcon PNGs, which share the game textures' sizes
+"""
+use = """
+supersedes the per-class table of [domain:killfeed/weapon-cell] as its
+explanation; that table stays as the measurement. Predicts an ability's cell
+from its own texture once the texture is known
+"""
+exceptions = """
+measured at 1080p on guns only. Padding of 5 + 5 explains 10 px of the 22.7 px
+intercept; the rest is unaccounted for. Ability cells are unchecked against it
+"""
+values = { slope_px = 24.23, intercept_px = 22.7, n = 294, median_abs_res_px = 0.53 }
+phrases = ["weapon cell formula", "kill icon canvas"]
+see = ["killfeed/weapon-cell", "killfeed/kill-icon-mirrored"]
+
+[kill-icon-mirrored]
+claim = """
+The killfeed draws every kill icon mirrored left to right from its texture: a
+gun's muzzle points right, at the victim.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-10-03"
+source = """
+the kill icon textures of game build release-13.06-shipping-18-5590001
+(<store>/reference/game-files/release-13.06-shipping-18-5590001/killfeed-icons/, manifest.jsonl), drawn at
+the capture's height and scored against the 826 mined exemplars of
+weapon-gallery-0.6.0 by prototypes/game_killicons.py: mirrored, the game
+icons name 707 of the 721 exemplars whose names they carry, none wrongly;
+unmirrored, 29
+"""
+use = """
+adjudication.weapon mirrors each game texture before it becomes a gallery
+exemplar
+"""
+phrases = ["kill icon mirrored", "kill icon flipped"]
+see = ["killfeed/ability-kill-icon-texture"]
+
+[ability-kill-icon-texture]
+claim = """
+An ability kill draws its DamageType's KillIcon texture, in the same slot and
+widget a gun's icon uses; Melee draws the standard knife, and the spike, a
+fall and a crush draw environmental icons of their own.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-03"
+source = """
+game build release-13.06-shipping-18-5590001: the DamageType assets' KillIcon references, exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/killfeed-icons/ (manifest.jsonl gives each
+texture's source path and sha256); `adjudication.weapon.GAME_KILL_ICONS` maps
+ability to texture. The export holds no texture for Blade Storm or Mosh Pit
+"""
+use = """
+the game textures become gallery exemplars beside the mined ones
+(weapon-gallery-0.7.0); an ability's icon is read from its own texture, never
+by analogy with another ability's [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = """
+texture UV rectangles are ignored. Boom Bot, Orbital Strike, Annihilation and
+Hot Hands draw poorly from their textures at 24 px (IoU 0.47-0.68 against the
+mined exemplars), so the mined exemplars keep naming them
+"""
+phrases = ["ability kill icon texture", "damage type kill icon"]
+see = ["killfeed/ability-kill-icon", "killfeed/kill-icon-mirrored"]
+
+[entry-list-layout]
+claim = """
+The killfeed's entries stack in one vertical box anchored at the screen's
+right edge less 20 px and at 15% of its height less 66 px: at 1080p, right
+edge x = 1900, top y = 96. Each entry is a row 34 px high followed by a 5 px
+spacer, a pitch of 39 px. A player's name sits in a size box at most 160 px
+wide and ends in an ellipsis when it overflows.
+"""
+kind = "geometry"
+known = "observed"
+since = "2026-10-03"
+source = """
+game build release-13.06-shipping-18-5590001: hud-layout/ShooterGame/Content/UI/InGame/HUD/KillCallout/KillCalloutHUDElement.json (`VerticalBoxForKillRows`
+slot: anchor (1.0, 0.15), alignment (1, 0), offsets left -20, top -66);
+hud-layout/ShooterGame/Content/UI/InGame/HUD/KillCallout/KillFeed_Assists/KillFeedRow.json (arrow images 8 x 34, `Spacer_55`
+1 x 5); hud-layout/ShooterGame/Content/UI/InGame/HUD/KillCallout/KillFeed_Assists/KillFeed_Participant.json (`SizeBox_0`
+MaxDesiredWidth 160 around the name, bAlwaysClipText and bShowEllipsis). The
+39 px pitch matches the measured [domain:killfeed/slot-pitch]
+"""
+use = """
+`killfeed.PITCH` is 39 from hud-0.20.0. A name may be cut short at 160 px, so
+a killfeed name matches a roster name by prefix
+"""
+exceptions = """
+the layout is in 1080p UI units; other resolutions scale it by the UI scale,
+untested here. The resting top against the killfeed ROI is the measured
+[domain:killfeed/slot-pitch]
+"""
+phrases = ["killfeed entry box anchor", "killfeed row spacer", "killfeed name width"]
+see = ["killfeed/slot-pitch", "killfeed/stack-order"]
 
 [revive-ring]
 claim = """
@@ -822,9 +964,9 @@ first [metric:killfeed_queue/stack@match21#first_top_px=15.031] px, pitch
 medians 15.00, 54.07, 93.01, 132.06 and 171.00 px
 """
 use = """
-the reader's slot constant `killfeed.PITCH` is 40 px; at 1080p
-`round((y - FIRST_Y) / PITCH)` still names slots 0-5 correctly, but the
-predicted rest drifts 1 px per slot
+the reader's slot constant `killfeed.PITCH` is 39 px from hud-0.20.0 (40
+before); the game's layout gives the same pitch
+[domain:killfeed/entry-list-layout]
 """
 exceptions = """
 all 21 captures are 1080p, so how the pitch scales with capture height
@@ -832,7 +974,8 @@ all 21 captures are 1080p, so how the pitch scales with capture height
 [domain:killfeed/self-yellow-frame]
 """
 phrases = ["killfeed slot pitch", "killfeed rest positions"]
-see = ["killfeed/subpixel-placement", "killfeed/stack-order"]
+see = ["killfeed/subpixel-placement", "killfeed/stack-order",
+       "killfeed/entry-list-layout"]
 
 [stack-queue]
 claim = """

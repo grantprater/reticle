@@ -58,7 +58,14 @@ from .killfeed_kits import kill_kits, open_questions
 # (Brimstone, Deadlock, Harbor and Phoenix had two slots swapped; six agents
 # were missing), so `ability_agent` and the reference-asset matcher name
 # those abilities and agents correctly; it reads weapon-gallery-0.5.0.
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.2.0"
+# 1.3.0 (2026-10-03): names against weapon-gallery-0.7.0 (`load_gallery`): the
+# mined exemplars plus the game's kill icons, drawn at the capture's scale
+# (`observation_scale`); a store without the game icons refuses with their
+# reason. A game icon's category comes from its table (`name_category`).
+# `classify_killfeed_icon` takes the match's `agents`, both sides, in place
+# of the player's own agent (`active_agent`): a kill icon's caster may be
+# on either team.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.3.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -474,7 +481,12 @@ def estimate_weapon_class(width: int, aspect_ratio: float) -> str:
 #: [domain:killfeed/phoenix-hot-hands-icon]. 0.6.0 rebinds the per-entry
 #: names to the `killfeed_weapon` rows killfeed-weapon-0.7.0 reread from the
 #: crop cache (corpus rerun, 2026-10-01); the labels are unchanged.
-WEAPON_GALLERY_VERSION = "weapon-gallery-0.6.0"
+MINED_GALLERY_VERSION = "weapon-gallery-0.6.0"
+#: The gallery `entry_weapon` names against (`load_gallery`): the mined
+#: exemplars plus the game's kill icons (`load_game_icons`). 0.7.0
+#: (2026-10-03) adds the game set of GAME_ICON_BUILD to MINED_GALLERY_VERSION;
+#: see GAME_ICON_POLICY for what each shared name keeps.
+WEAPON_GALLERY_VERSION = "weapon-gallery-0.7.0"
 NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
 NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
 NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
@@ -546,6 +558,14 @@ MINED_NOT_GUN = {"Melee": "melee", "Environmental": "environmental", "Other": "o
 REVIVED_CASTER_ICONS = frozenset({"NULL/cmd"})
 
 
+def name_category(name: str) -> str:
+    """What a gallery name is: MINED_NOT_GUN's category for a mined name, the
+    game table's for a game icon (GAME_KILL_ICONS), else a gun."""
+    if name in MINED_NOT_GUN:
+        return MINED_NOT_GUN[name]
+    return GAME_KILL_ICONS[name][1] if name in GAME_KILL_ICONS else "gun"
+
+
 _MINED_CACHE: dict[str, dict] = {}
 
 
@@ -555,7 +575,7 @@ def mined_gallery_path(store_root: Optional[Path] = None) -> Path:
     if store_root is None:
         from ..store import Store
         store_root = Store().root
-    return Path(store_root) / "reference" / "weapon_gallery" / f"{WEAPON_GALLERY_VERSION}.npz"
+    return Path(store_root) / "reference" / "weapon_gallery" / f"{MINED_GALLERY_VERSION}.npz"
 
 
 def load_mined_gallery(path: Optional[Path | str] = None) -> Optional[dict]:
@@ -572,9 +592,273 @@ def load_mined_gallery(path: Optional[Path | str] = None) -> Optional[dict]:
     return _MINED_CACHE[key]
 
 
+#: The game's own kill icons, read from the build's files in the store, never
+#: copied into this repository. Each killfeed weapon slot draws its
+#: DamageType's KillIcon, an ability's included (not the ability's display
+#: icon) [domain:killfeed/ability-kill-icon-texture], mirrored
+#: [domain:killfeed/kill-icon-mirrored], 24 px high at 1080p
+#: [domain:killfeed/weapon-cell-formula]. The path is relative to the build's
+#: `killfeed-icons/` export; the name is the gallery's (a gun's name, an
+#: ability's `ABILITY_CANONICAL_NAMES` name, or an environmental cause), the
+#: category is what `entry_weapon` reports. Stinger's texture is the one the
+#: gamefiles probe scored on capture crops (TX_Hud_SMG_KrissVector_S); its
+#: DamageType names TX_Hud_Vector. Not here: Blade Storm's and Mosh Pit's
+#: KillIcon textures, which the export lacks; Not Dead Yet, Resurrection,
+#: NULL/cmd, which are revive and downed entries with no DamageType. The
+#: mined gallery keeps those.
+GAME_ICON_BUILD = "release-13.06-shipping-18-5590001"
+_KC = "ShooterGame/Content/UI/InGame/HUD/KillCallout/Assets/"
+_AB = "ShooterGame/Content/UI/InGame/HUD/Abilities/Assets/ShippingIcons/"
+_CH = "ShooterGame/Content/Characters/"
+GAME_KILL_ICONS: dict[str, tuple[str, str]] = {
+    "Odin": (_KC + "TX_Hud_HMG.png", "gun"),
+    "Ares": (_KC + "TX_Hud_LMG.png", "gun"),
+    "Vandal": (_KC + "TX_Hud_Volcano.png", "gun"),
+    "Warden": (_KC + "TX_Hud_BattleRifle_S.png", "gun"),
+    "Bulldog": (_KC + "TX_Hud_Burst.png", "gun"),
+    "Phantom": (_KC + "TX_Hud_Assault_AR10A2_S.png", "gun"),
+    "Judge": (_KC + "TX_Hud_Shotguns_Spas12_S.png", "gun"),
+    "Bucky": (_KC + "TX_Hud_Pump.png", "gun"),
+    "Frenzy": (_KC + "TX_Hud_AutoPistol.png", "gun"),
+    "Classic": (_KC + "TX_Hud_Pistol_Glock_S.png", "gun"),
+    "Bandit": (_KC + "TX_Hud_Pistol_Compact_S.png", "gun"),
+    "Ghost": (_KC + "TX_Hud_Pistol_Luger_S.png", "gun"),
+    "Sheriff": (_KC + "TX_Hud_Pistol_Revolver_S.png", "gun"),
+    "Shorty": (_KC + "TX_Hud_Pistol_SawedOff_S.png", "gun"),
+    "Operator": (_KC + "TX_Hud_Operator.png", "gun"),
+    "Guardian": (_KC + "tx_hud_dmr.png", "gun"),
+    "Outlaw": (_KC + "TX_Hud_DoubleSniper.png", "gun"),
+    "Marshal": (_KC + "TX_Hud_Sniper_BoltAction_S.png", "gun"),
+    "Spectre": (_KC + "TX_Hud_SMG_MP5_S.png", "gun"),
+    "Stinger": (_KC + "TX_Hud_SMG_KrissVector_S.png", "gun"),
+    "Melee": (_KC + "TX_Hud_Knife_Standard_S.png", "melee"),
+    "Headhunter": (_KC + "TX_Hud_Deadeye_Q_Pistol.png", "ability"),
+    "Tour De Force": (_KC + "TX_Hud_Deadeye_X_GiantSlayer.png", "ability"),
+    "Spike": (_KC + "TX_Hud_Bomb_S.png", "environmental"),
+    "Fall": (_KC + "TX_Icon_FallenDamage_S.png", "environmental"),
+    "Crushed": (_KC + "TX_Hud_CrushedDamage.png", "environmental"),
+    "Aftershock": (_AB + "Breach/TX_Breach_FusionBlast.png", "ability"),
+    "Boom Bot": (_AB + "Clay/TX_Clay_Boomba.png", "ability"),
+    "Paint Shells": (_AB + "Clay/TX_Clay_ClusterBomb.png", "ability"),
+    "Blast Pack": (_AB + "Clay/TX_Clay_Satchel.png", "ability"),
+    "Showstopper": (_AB + "Clay/TX_Clay_RocketLauncher.png", "ability"),
+    "Orbital Strike": (_AB + "Sarge/TX_Sarge_OrbitalStrike.png", "ability"),
+    "Incendiary": (_AB + "Sarge/TX_Sarge_MolotovLauncher.png", "ability"),
+    "Hot Hands": (_AB + "Phoenix/TX_Pheonix_Molotov.png", "ability"),
+    "Blaze": (_AB + "Phoenix/TX_Pheonix_FireWall.png", "ability"),
+    "Annihilation": (_AB + "Cable/TX_Cable_FishingHook.png", "ability"),
+    "Snake Bite": (_AB + "Pandemic/TX_Pandemic_AcidLauncher.png", "ability"),
+    "Nanoswarm": (_AB + "Killjoy/TX_KJ_Bees.png", "ability"),
+    "Turret": (_AB + "Killjoy/tx_KJ_turret.png", "ability"),
+    "Trapwire": (_AB + "Gumshoe/TX_Gumshoe_Tripwire.png", "ability"),
+    "Shock Bolt": (_AB + "Hunter/TX_Hunter_ShockArrow.png", "ability"),
+    "Hunter's Fury": (_AB + "Hunter/TX_Hunter_BowBlast.png", "ability"),
+    "Trailblazer": (_AB + "Guide/TX_Guide4.png", "ability"),
+    "Kill Contract": (_AB + "Sequoia/TX_Sequoia_ArenaDuel.png", "ability"),
+    "FRAG/ment": (_CH + "Grenadier/Grenadier_Icons/TX_Gren_Icon_3.png", "ability"),
+    "Razorvine": (_CH + "Nox/S0/AbilityIcons/TX_UI_Nox_C.png", "ability"),
+    "Overdrive": (_CH + "Sprinter/AbilityIcons/TX_Neon_Ult.png", "ability"),
+    "Fast Lane": (_CH + "Sprinter/AbilityIcons/TX_Neon_Wall.png", "ability"),
+    "Special Delivery": (_CH + "Cashew/Icons/TX_UI_Cashew_Q.png", "ability"),
+    "Guided Salvo": (_CH + "Cashew/Icons/TX_UI_Cashew_E.png", "ability"),
+    "Armageddon": (_CH + "Cashew/Icons/TX_UI_Cashew_X.png", "ability"),
+    "Viper decay": ("ShooterGame/Content/UI/Textures/Icons/Killfeed/TX_UI_Icon_DecayDmg.png",
+                    "ability"),
+    "Meddle": ("ShooterGame/Content/UI/Shared/Icons/Character/Abilities/Smonk/TX_UI_Smonk_Q.png",
+               "ability"),
+    "Clove expiry": ("ShooterGame/Content/UI/Textures/Icons/Killfeed/TX_UI_Smonk_UltExpire.png",
+                     "ability"),
+    "Chokehold": ("ShooterGame/Content/UI/Shared/Icons/Character/Abilities/Pine/TX_UI_Pine_Q.png",
+                  "ability"),
+}
+#: The drawn icon height at 1080p, scale 1.0 [domain:killfeed/weapon-cell-formula].
+GAME_ICON_HEIGHT = 24.0
+
+
+def game_icons_dir(store_root: Optional[Path] = None) -> Path:
+    """The build's exported kill icons in `store_root` (default: the default store)."""
+    if store_root is None:
+        from ..store import Store
+        store_root = Store().root
+    return Path(store_root) / "reference" / "game-files" / GAME_ICON_BUILD / "killfeed-icons"
+
+
+#: Sub-pixel placements each game icon is drawn at, as (dx, dy) in capture
+#: px: an entry lands on the screen at a fractional position
+#: [domain:killfeed/subpixel-placement], and the reader's cut of a small icon
+#: moves with it (Boom Bot's median IoU against its labelled exemplars runs
+#: 0.58-0.77 across drawn heights 23-24 px at one placement). Each placement
+#: is one exemplar of the name, as each labelled frame is in the mined set.
+GAME_ICON_PHASES = tuple((dx, dy) for dy in (0.0, 1 / 3, 2 / 3) for dx in (0.0, 1 / 3, 2 / 3))
+
+
+def drawn_icon_alpha(rgba: np.ndarray, height: float = GAME_ICON_HEIGHT,
+                     phase: tuple[float, float] = (0.0, 0.0)) -> Optional[np.ndarray]:
+    """A game kill icon's alpha as the capture draws it: mirrored left to
+    right, as every killfeed icon is [domain:killfeed/kill-icon-mirrored], the
+    whole texture shrunk to the drawn `height` (the capture's scale times
+    GAME_ICON_HEIGHT) with INTER_AREA, and moved by the sub-pixel `phase`
+    (dx, dy) with a linear warp inside a one-pixel margin. Soft, 0..1; None
+    without alpha."""
+    if rgba is None or rgba.ndim != 3 or rgba.shape[2] != 4:
+        return None
+    a = rgba[:, ::-1, 3].astype(np.float32) / 255.0
+    w = a.shape[1] * height / a.shape[0]
+    drawn = cv2.resize(a, (max(1, int(round(w))), max(1, int(round(height)))),
+                       interpolation=cv2.INTER_AREA)
+    if phase == (0.0, 0.0):
+        return drawn
+    drawn = np.pad(drawn, 1)
+    m = np.float32([[1, 0, phase[0]], [0, 1, phase[1]]])
+    return cv2.warpAffine(drawn, m, (drawn.shape[1], drawn.shape[0]), flags=cv2.INTER_LINEAR)
+
+
+def game_icon_exemplar(rgba: np.ndarray, height: float = GAME_ICON_HEIGHT, *,
+                       soft: bool = False, phase: tuple[float, float] = (0.0, 0.0)
+                       ) -> Optional[tuple[np.ndarray, float]]:
+    """One game kill icon in the gallery's grid space, with its box's aspect;
+    None for a texture with no alpha or too little ink.
+
+    The drawn alpha (`drawn_icon_alpha`) goes through the reader's own
+    descriptor: `killfeed.weapon_icon_observations` cuts the slot where its
+    plate-relative whiteness, the icon's alpha recovered from the plate,
+    reaches `killfeed.PLATE_WHITE_CUT`, and `killfeed.icon_grid` resizes the
+    cut's tight box to ICON_GRID with INTER_AREA. Applying that same cut to
+    the drawn alpha predicts the stored grid; it adds no cut of its own.
+    `soft=True` keeps the drawn alpha soft instead (box at the same cut, grid
+    by INTER_AREA on the alpha), the variant `prototypes/game_killicons.py`
+    scored against it: under the owner's IoU it named
+    [metric:game_killicons/game_soft@weapon-gallery-0.7.0#right=657] of
+    [metric:game_killicons/game_soft@weapon-gallery-0.7.0#n=721] labelled
+    exemplars and the descriptor
+    [metric:game_killicons/game@weapon-gallery-0.7.0#right=707]
+    (GAME_ICON_POLICY)."""
+    from ..killfeed import PLATE_WHITE_CUT, KillfeedScale
+    drawn = drawn_icon_alpha(rgba, height, phase)
+    if drawn is None:
+        return None
+    if not soft:
+        return icon_grid(drawn >= PLATE_WHITE_CUT, KillfeedScale.at(height / GAME_ICON_HEIGHT))
+    ys, xs = np.nonzero(drawn >= PLATE_WHITE_CUT)
+    if len(xs) == 0:
+        return None
+    tight = drawn[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    grid = cv2.resize(tight, ICON_GRID[::-1], interpolation=cv2.INTER_AREA)
+    return np.clip(grid, 0.0, 1.0), tight.shape[1] / tight.shape[0]
+
+
+_GAME_CACHE: dict[tuple, tuple] = {}
+
+
+def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
+                    phases=GAME_ICON_PHASES, soft: bool = False, mirror: bool = True
+                    ) -> tuple[Optional[dict], Optional[str]]:
+    """The game's kill icons as gallery exemplars (`game_icon_exemplar` at
+    `scale` x GAME_ICON_HEIGHT), one per GAME_KILL_ICONS name and placement in
+    `phases`, and None; or None and why not. `soft` and `mirror=False` build
+    the variants `prototypes/game_killicons.py` scores; the owner uses
+    neither. Refuses `no_game_icons` when the build's export or its
+    manifest is missing, `game_icon_missing:<name>` when a listed texture is,
+    and `game_icon_sha256:<name>` when a texture's bytes differ from the
+    manifest's sha256. The gallery carries the build and each texture's
+    sha256 (`provenance`)."""
+    import hashlib
+    import json
+    d = game_icons_dir(store_root)
+    key = (str(d), round(float(scale), 4), tuple(phases), soft, mirror)
+    if key in _GAME_CACHE:
+        return _GAME_CACHE[key]
+    manifest = d / "manifest.jsonl"
+    if not manifest.is_file():
+        return None, "no_game_icons"
+    sha = {}
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            r = json.loads(line)
+            if r.get("output"):
+                sha[r["output"].replace("\\", "/")] = r.get("sha256")
+    names, cls, masks, aspects, keys, prov = [], [], [], [], [], {}
+    with step("game_icons"):
+        for name, (rel, category) in GAME_KILL_ICONS.items():
+            p = d / rel
+            out_key = f"killfeed-icons/{rel}"
+            if not p.is_file():
+                return None, f"game_icon_missing:{name}"
+            raw = p.read_bytes()
+            digest = hashlib.sha256(raw).hexdigest()
+            if sha.get(out_key) != digest:
+                return None, f"game_icon_sha256:{name}"
+            rgba = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_UNCHANGED)
+            if rgba is not None and not mirror:
+                rgba = rgba[:, ::-1].copy()     # drawn mirrored twice: as stored
+            for ph in phases:
+                ex = (game_icon_exemplar(rgba, GAME_ICON_HEIGHT * scale, soft=soft, phase=ph)
+                      if rgba is not None else None)
+                if ex is None:
+                    return None, f"game_icon_unreadable:{name}"
+                names.append(name)
+                cls.append(category)
+                masks.append(ex[0])
+                aspects.append(ex[1])
+                keys.append(f"game:{GAME_ICON_BUILD}:{Path(rel).stem}@{ph[0]:.2f},{ph[1]:.2f}")
+            prov[name] = {"texture": out_key, "sha256": digest}
+    out = {"names": np.array(names), "classes": np.array(cls),
+           "masks": np.array(masks, dtype=np.float32), "aspects": np.array(aspects),
+           "keys": np.array(keys),
+           "provenance": {"build": GAME_ICON_BUILD, "height_px": GAME_ICON_HEIGHT * scale,
+                          "phases": [list(p) for p in phases], "soft": soft, "mirror": mirror,
+                          "filters": "mirror; INTER_AREA to the drawn height; linear warp to "
+                                     "the phase; the reader's PLATE_WHITE_CUT and icon_grid "
+                                     "(INTER_AREA to ICON_GRID)",
+                          "icons": prov}}
+    _GAME_CACHE[key] = (out, None)
+    return out, None
+
+
+#: What the gallery keeps where a game icon and mined exemplars name one
+#: icon, decided on the player's labels (`prototypes/game_killicons.py`:
+#: each of the 826 labelled exemplars of MINED_GALLERY_VERSION named by the
+#: owner's rule, the mined part leaving the exemplar's session out). Both
+#: sets stay for every shared gun and ability name: the game set alone named
+#: [metric:game_killicons/game@weapon-gallery-0.7.0#right=707] of
+#: [metric:game_killicons/game@weapon-gallery-0.7.0#n=721] exemplars of the
+#: names it shares, none wrong, and the union named every shared name at least
+#: as often as the mined set alone, none wrong (Aftershock 25 of 26 against
+#: 22, Warden 24 of 24 against none held out). Each name listed here keeps
+#: only the game icon: the player named the spike hexagon `Environmental`
+#: [domain:killfeed/environmental-self-entry], the game names it Spike; the
+#: game icon names all 5 labelled exemplars, the two names together left one
+#: ambiguous between themselves.
+GAME_ICON_POLICY = {"Environmental": "Spike"}
+
+
+def load_gallery(store_root: Optional[Path] = None, scale: float = 1.0
+                 ) -> tuple[Optional[dict], Optional[str]]:
+    """WEAPON_GALLERY_VERSION: the mined gallery less the names
+    GAME_ICON_POLICY gives to a game icon, plus the game's kill icons at the
+    capture's `scale` (`load_game_icons`). Returns the gallery and None, or
+    None and why: `no_gallery` without the mined file, or the game set's own
+    refusal (`no_game_icons`, ...). The game icons are never a silent
+    absence: a gallery without them is not this version."""
+    mined = load_mined_gallery(mined_gallery_path(store_root))
+    if mined is None:
+        return None, "no_gallery"
+    game, why = load_game_icons(store_root, scale)
+    if game is None:
+        return None, why
+    keep = np.array([str(n) not in GAME_ICON_POLICY for n in mined["names"]])
+    return {"names": np.concatenate([mined["names"][keep].astype(str), game["names"].astype(str)]),
+            "masks": np.concatenate([mined["masks"][keep].astype(np.float32), game["masks"]]),
+            "aspects": np.concatenate([mined["aspects"][keep], game["aspects"]]),
+            "provenance": {"version": WEAPON_GALLERY_VERSION, "mined": MINED_GALLERY_VERSION,
+                           "game": game["provenance"], "policy": GAME_ICON_POLICY}}, None
+
+
 #: The self entries that are an agent's own ability but not one of its four
-#: official icons [domain:rounds/clove-revive-expiry-entry].
-EXTRA_ABILITY_AGENTS = {"Clove expiry": "Clove"}
+#: official icons [domain:rounds/clove-revive-expiry-entry]. Viper's decay
+#: kill icon is a DamageType of Viper's (Pandemic) character data in the
+#: game build, not one of her four abilities' names.
+EXTRA_ABILITY_AGENTS = {"Clove expiry": "Clove", "Viper decay": "Viper"}
 
 
 def ability_agent(name: Optional[str]) -> Optional[str]:
@@ -842,6 +1126,18 @@ def audit_entry(key: Optional[str]) -> bool:
     return key is not None and int(hashlib.sha1(key.encode()).hexdigest()[:8], 16) % AUDIT_EVERY == 0
 
 
+def observation_scale(observations: list[dict]) -> float:
+    """The capture's killfeed scale the stored descriptors were cut at
+    (`slot_geom.scale.scale`, killfeed-weapon-0.6.0 on), so the game icons
+    are drawn at the capture's icon height
+    [domain:hud/hud-scales-with-resolution]; 1.0 when no row carries it."""
+    for o in observations:
+        sc = ((o.get("slot_geom") or {}).get("scale") or {}).get("scale")
+        if sc:
+            return float(sc)
+    return 1.0
+
+
 def entry_weapon(entry: dict, observations: list[dict],
                  gallery: Optional[dict] = None, agents=None,
                  actor: Optional[dict] = None, key: Optional[str] = None,
@@ -873,17 +1169,18 @@ def entry_weapon(entry: dict, observations: list[dict],
     audit (`audit_entry`): the full search's answer is stored apart in
     `audit`. `kit_floor_frames` counts the frames only the kit's lower floor
     named; each rests on the actor. `frames=True` adds each bound row's own
-    answer (`frames`), with its `rests_on`. Without `gallery`, the mined
-    gallery comes from `store_root` (`mined_gallery_path`).
+    answer (`frames`), with its `rests_on`. Without `gallery`, the gallery
+    comes from `store_root` (`load_gallery`, the game icons drawn at the
+    descriptors' own scale), and its refusal is the entry's.
     """
     from ..killfeed import unpack_icon_grid
 
     out = {"version": WEAPON_ADJUDICATION_VERSION, "gallery": WEAPON_GALLERY_VERSION,
            "name": None, "category": None, "status": "refused"}
     if gallery is None:
-        gallery = load_mined_gallery(mined_gallery_path(store_root))
-    if gallery is None:
-        return dict(out, reason="no_gallery")
+        gallery, why = load_gallery(store_root, observation_scale(observations))
+        if gallery is None:
+            return dict(out, reason=why)
     tiers = candidate_tiers(gallery, agents, actor)
     by = {t["tier"]: t for t in tiers}
     if "lineup" in by:
@@ -936,14 +1233,14 @@ def entry_weapon(entry: dict, observations: list[dict],
     if v["status"] != "resolved":
         return dict(out, reason=v["reason"])
     top = v["name"]
-    category = MINED_NOT_GUN.get(top, "gun")
+    category = name_category(top)
     return dict(out, status="resolved", reason=None, category=category,
                 name=None if top == "Ability" else top)
 
 
 def classify_killfeed_icon(
     obs_or_crop: IconObservation | np.ndarray,
-    active_agent: Optional[str] = None,
+    agents=None,
     gallery: Optional[dict[str, np.ndarray]] = None,
     weapon_gallery: Optional[dict[str, np.ndarray]] = None,
     min_score: float = 0.60,
@@ -953,12 +1250,15 @@ def classify_killfeed_icon(
 ) -> WeaponVerdict:
     """Classify a killfeed divider icon against ability and weapon reference galleries.
 
-    The mined gallery answers first when it is built: a gun, melee, an
-    environmental death or a named gun-shaped ability. An icon it knows only as
-    "Ability", or refuses, falls through to the ability gallery for squarish
-    icons and the reference templates for the rest. When `active_agent` is
-    provided (e.g. Breach or Raze), candidate ability templates for that agent
-    are prioritized.
+    The gallery (`load_gallery`: the mined exemplars and the game's kill
+    icons) answers first: a gun, melee, an environmental death or a named
+    ability. An icon it knows only as "Ability", or refuses, falls through to
+    the ability art for squarish icons and the reference templates for the
+    rest. `agents` is the match's agents, both sides: the abilities any of
+    them can cast are the candidates. A kill icon's caster may be on either
+    team, so the player's own agent never narrows them (it did before
+    weapon-adjudication-1.3.0); without `agents`, every ability is a
+    candidate.
     """
     if isinstance(obs_or_crop, np.ndarray):
         obs = extract_icon_observation(obs_or_crop)
@@ -978,13 +1278,15 @@ def classify_killfeed_icon(
     mined = None
     if use_mined:
         if mined_gallery is None:
-            mined_gallery = load_mined_gallery()
+            mined_gallery, _why = load_gallery()
+        if mined_gallery is not None and agents:
+            mined_gallery, _dropped = restrict_gallery(mined_gallery, agents)
         cut = icon_grid(obs.white_mask) if mined_gallery is not None else None
         if cut is not None:
             mined = name_icon(cut[0], cut[1], mined_gallery)
             n = mined["name"]
             if n is not None and n != "Ability":
-                category = MINED_NOT_GUN.get(n, "gun")
+                category = name_category(n)
                 return WeaponVerdict(
                     name=n,
                     category=category,
@@ -1003,11 +1305,11 @@ def classify_killfeed_icon(
             gallery = load_ability_gallery()
 
         if gallery:
-            # Filter candidate gallery by active_agent if provided
-            if active_agent:
-                cands = {k: v for k, v in gallery.items() if k.lower().startswith(active_agent.lower())}
-                if not cands:
-                    cands = gallery
+            # The match's agents, both sides: a caster may be either team's.
+            if agents:
+                allowed = {a.replace("/", "_").lower() for a in agents}
+                cands = {k: v for k, v in gallery.items()
+                         if k.rsplit("_", 1)[0].lower() in allowed}
             else:
                 cands = gallery
 

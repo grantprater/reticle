@@ -39,6 +39,7 @@ class HudReaderTests(unittest.TestCase):
             entry_mask=1, kill_mask=2, death_mask=4, unattributed=False,
             unparsed=True, unparsed_reason="bad glyph",
             empty_bands=2, empty_band_reason="no_glyphs", ally_mask=8,
+            dropped_bands=1, dropped_band_reason="one_colour:no_icon",
             enemy_mask=16, same_side_mask=32, entry_dividers=(10,), kill_dividers=(20,),
             death_dividers=(30,),
         )
@@ -62,6 +63,7 @@ class HudReaderTests(unittest.TestCase):
             "kf_kill_mask": 2, "kf_death_mask": 4, "kf_unattributed": False,
             "kf_unparsed": True, "kf_unparsed_reason": "bad glyph",
             "kf_empty_bands": 2, "kf_empty_band_reason": "no_glyphs",
+            "kf_dropped_bands": 1, "kf_dropped_band_reason": "one_colour:no_icon",
             "clock_reason": "unreadable", "score_left_reason": None,
             "score_right_reason": "unreadable", "kf_ally_mask": 8,
             "kf_enemy_mask": 16, "kf_same_side_mask": 32, "kf_entry_wx": (10,),

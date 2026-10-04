@@ -108,6 +108,19 @@ stall's end, seconds late.
   duration between the aligned kill and the stored death does not count.
 `--legacy stall` restores 0.3.1 (no spans read).
 
+Inferred deaths (0.3.3)
+-----------------------
+The death stream's `inferred_death` rows (`infer_stall_deaths`: a round that
+ended by elimination inside a stall kills the losing side's living members
+there) carry a window, no time and no killer. They never enter the pairing,
+recall, precision or any killer measure above; `inferred_deaths` scores them
+apart (`score_inferred`). An unwitnessed one pairs with a Riot kill no stored
+verdict paired, inside its window widened by `MATCH_TOL_MS`, on its side:
+`victim_right` where the victim agrees, else `victim_wrong`; `side_wrong`
+where only the other side's kills lie in the window, `false` where none
+does. One a late killfeed entry witnesses counts `witnessed`, since that
+verdict is scored with the others. Refusals count by reason.
+
 What the scorer reads stale (0.3.1)
 -----------------------------------
 * `status` reads second lives under the running code's
@@ -149,7 +162,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-RIOT_TRUTH_VERSION = "riot-truth-0.3.2"
+RIOT_TRUTH_VERSION = "riot-truth-0.3.3"
 STORE = Path.home() / "reticle-store"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -522,6 +535,80 @@ def stored_deaths(store_root: Path, sid: str, deaths_from: Path | None = None) -
             if r.get("kind") == "death_verdict"]
 
 
+def stored_inferred(store_root: Path, sid: str, deaths_from: Path | None = None) -> dict:
+    """The death stream's `inferred_death` rows and `inferred_death_refusal`
+    rows (`adjudication.death.infer_stall_deaths`), from the same file as
+    `stored_deaths`."""
+    root = Path(deaths_from) if deaths_from else Path(store_root)
+    out = {"inferred": [], "refused": []}
+    for r in _stream_rows(root / "events" / "death" / f"{sid}.jsonl"):
+        if r.get("kind") == "inferred_death":
+            out["inferred"].append(r)
+        elif r.get("kind") == "inferred_death_refusal":
+            out["refused"].append(r)
+    return out
+
+
+def score_inferred(kills, inferred: dict, paired_i: set, who, agent_of, my_team, a,
+                   tol_ms=MATCH_TOL_MS) -> dict:
+    """0.3.3: inferred deaths scored apart from every killfeed measure.
+
+    An inferred death has a window, no time and no killer, so it pairs only
+    with a Riot kill that no stored verdict paired, whose aligned time lies in
+    its window (widened by `tol_ms`) and whose victim is on its side: first
+    where the victim agrees too (`victim_right`), then on side alone
+    (`victim_wrong`). One with a late killfeed witness is counted
+    `witnessed`; that verdict is scored with the others. An unwitnessed one
+    that pairs with nothing is `false`. No killer is scored."""
+    rows = inferred.get("inferred") or []
+    out = Counter(rows=len(rows))
+    for r in inferred.get("refused") or ():
+        out[f"refused_{r.get('refusal')}"] += 1
+    used, detail = set(), []
+    open_rows = []
+    for r in rows:
+        if r.get("late_witness"):
+            out["witnessed"] += 1
+        else:
+            open_rows.append(r)
+    side_of = {i: (None if my_team is None else
+                   "ally" if who[k["victim"]]["teamId"] == my_team else "enemy")
+               for i, k in enumerate(kills)}
+
+    def candidates(r):
+        w0, w1 = r["t_window_ms"]
+        return [i for i, k in enumerate(kills) if i not in paired_i and i not in used
+                and w0 - tol_ms <= a + k["gameTime"] <= w1 + tol_ms]
+
+    for strict in (True, False):
+        for r in open_rows:
+            if r.get("_paired"):
+                continue
+            for i in candidates(r):
+                if side_of[i] != r.get("side"):
+                    continue
+                same = canon(agent_of.get(kills[i]["victim"])) == canon(r.get("victim"))
+                if strict and not same:
+                    continue
+                used.add(i)
+                r["_paired"] = True
+                out["paired"] += 1
+                out["victim_right" if same else "victim_wrong"] += 1
+                detail.append({"round": kills[i]["round"] + 1, "window": r["t_window_ms"],
+                               "t_ms": round(a + kills[i]["gameTime"]), "side": r.get("side"),
+                               "victim": [agent_of.get(kills[i]["victim"]), r.get("victim")]})
+                break
+    for r in open_rows:
+        if r.pop("_paired", False):
+            continue
+        other = [i for i in candidates(r) if side_of[i] != r.get("side")]
+        out["side_wrong" if other else "false"] += 1
+        detail.append({"round": r.get("round_no"), "window": r["t_window_ms"], "t_ms": None,
+                       "side": r.get("side"), "victim": [None, r.get("victim")],
+                       "false": True, "side_wrong": bool(other)})
+    return {**dict(out), "rows_detail": detail}
+
+
 def second_life_stale(store_root: Path, sid: str, version: str | None = None) -> bool:
     """True when the store's `killfeed_portrait` stream holds
     `second_life_observation` rows that `status` cannot read: its stamp
@@ -694,6 +781,12 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
                                                      my_team, ref, a, legacy=legacy,
                                                      match_tol=opts.match_tol,
                                                      stalls=stall_spans)
+    # -- deaths a capture stall swallowed, inferred from the round's end (0.3.3)
+    paired_ms = {r["riot_game_ms"] for r in out["death_rows"]}
+    out["inferred_deaths"] = score_inferred(
+        kills, stored_inferred(store_root, sid, getattr(opts, "deaths_from", None)),
+        {i for i, k in enumerate(kills) if k["gameTime"] in paired_ms},
+        who, agent_of, my_team, a)
     out["deaths"]["revive_entries"] = sum(1 for r in deaths if r.get("is_revive"))
     out["deaths"]["second_life_entries"] = len(second_life)
     out["deaths"]["second_life"] = [{"t_ms": r["t_ms"], "death_id": r.get("death_id"),
@@ -1712,9 +1805,19 @@ POOL_KEYS_DEATH += tuple(f"{p}_kind_{k}" for p in ("riot", "matched")
                          for k in ("weapon", "ability", "unmapped", "bomb", "melee", "fall"))
 
 
+POOL_KEYS_INFERRED = ("rows", "witnessed", "paired", "victim_right", "victim_wrong",
+                      "side_wrong", "false")
+
+
 def pool(results: list[dict], conv: str | None) -> dict:
     ok = [r for r in results if "deaths" in r]
     P = {"sessions": len(ok)}
+    inf = Counter()
+    for r in ok:
+        inf.update({k: v for k, v in (r.get("inferred_deaths") or {}).items()
+                    if isinstance(v, int)})
+    P["inferred_deaths"] = {**{k: inf.get(k, 0) for k in POOL_KEYS_INFERRED},
+                            **{k: v for k, v in sorted(inf.items()) if k.startswith("refused_")}}
     D = Counter()
     for r in ok:
         for k in POOL_KEYS_DEATH:
@@ -2051,6 +2154,7 @@ def print_pool(P: dict, conv):
           f"false deaths {d.get('false_deaths')}; killer not applicable "
           f"(self-kill) {d.get('killer_not_applicable', 0)}")
     print(f"  second-life deaths: {d.get('second_life_entries', 0)}, Riot omits them by design")
+    print(f"  inferred deaths (stalls, scored apart): {json.dumps(P.get('inferred_deaths'))}")
     print(f"  unmappable Riot items (no cached valorant-api name): {json.dumps(d.get('unmappable_items'))}")
     print(f"  refusal reasons {json.dumps(d['refusal_reasons'])}")
     print(f"  weapon cross (riot -> store) {json.dumps(d['weapon_cross_top'])}")
