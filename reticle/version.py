@@ -172,9 +172,42 @@ SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", "scoreb
 # bump; a waived stamp must already be verdict-compatible. `plan` names each
 # stream it accepts here as accepted by waiver, never as current. Stored
 # stamps stay as written: they record the code that wrote them.
+#
+# A waiver whose equivalence holds only on some sessions is a dict: `why`, and
+# `when`, the name of a per-session condition `plan.WAIVER_CONDITIONS`
+# evaluates over the stored data. It accepts only where the condition holds;
+# where it fails or cannot be evaluated (no session given, an unknown
+# placement) the stamp stays stale, and `plan` names the waiver it declined.
+#
+# The player approved on 2026-10-04 ("stamp waiver") that stored
+# ally-icon-0.11.0 rows count as ally-icon-0.12.0 on sessions whose minimap
+# placement is upright, so the cached ally-icon rerun then writing 0.11.0
+# rows need not run again. 0.12.0 differs from 0.11.0 only where
+# `widget_frame.turned_at` says the stored placement is turned, so it holds
+# only where `widget_frame.upright_throughout` is True; side-based sessions
+# with a turned half (4f207c0c4e39, b3b9defb6fd7) and side-based sessions with
+# no stored placement (0f08b3dc3777, declared per_side) stay stale. Read in
+# memory from the crop cache over one two-minute window each, 0.12.0 and
+# 0.11.0 wrote the same rows, stamps and the stamp-bearing candidate revision
+# aside: [metric:ally_icon_waiver/equivalence@043bafca271a#differing_rows=0] of
+# [metric:ally_icon_waiver/equivalence@043bafca271a#rows=4202] rows on 043bafca271a,
+# [metric:ally_icon_waiver/equivalence@223d636bf8d2#differing_rows=0] of
+# [metric:ally_icon_waiver/equivalence@223d636bf8d2#rows=4472] on 223d636bf8d2 and
+# [metric:ally_icon_waiver/equivalence@587c15b07779#differing_rows=0] of
+# [metric:ally_icon_waiver/equivalence@587c15b07779#rows=3755] on 587c15b07779,
+# stacked members among them
+# ([metric:ally_icon_waiver/equivalence@043bafca271a#stack_rows=429],
+# [metric:ally_icon_waiver/equivalence@223d636bf8d2#stack_rows=323] and
+# [metric:ally_icon_waiver/equivalence@587c15b07779#stack_rows=291] rows).
 STAMP_WAIVERS = {
     ("scoreboard-0.13.0", "scoreboard-0.12.0"):
         "player 2026-09-29: testing-phase waiver, no rescan; 0.13.0 changes no verdict",
+    ("ally-icon-0.12.0", "ally-icon-0.11.0"): {
+        "why": "player 2026-10-04 (\"stamp waiver\"): 0.12.0 turns portraits back only "
+               "where the stored placement is turned, so an upright session reads the "
+               "same rows",
+        "when": "upright_placement",
+    },
 }
 assert all(stored in SCOREBOARD_VERDICT_COMPATIBLE
            for current, stored in STAMP_WAIVERS if current.startswith("scoreboard-"))
@@ -436,7 +469,17 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # reads at NCC 0.55 and above, not 0.6 (TEARDROP_VERSION 0.4.0, the player's
 # 331 px self facing labels, E13); a read under 0.55 casts nothing. Numbered
 # above self-spike-tracker-20260929's 0.5.0.
-TEAM_VISION_VERSION = "team-vision-0.6.0"
+# 0.7.0 (2026-10-04): the teammates are the stored `ally_icon` stream's family
+# `ally` rows, posed by `teardrop.posed` with this chain's `RING_FALLBACK`,
+# not a second ring fit and teardrop read; a drawn frame the stream did not
+# read is refused (`widget` `ally_unread`, with its reason). The coverage row
+# records `inputs.ally_icon` and no longer `icon_teardrop_version`.
+# 0.7.1 (2026-10-04): on an `ally_unread` frame the self icon is still read,
+# tracked and cast (`observable_self`), and the lifecycle suspends only the
+# `ally` role (LIFECYCLE_VERSION 0.3.0); each refused frame names its own
+# cause (`ally_unread_cause`) from the stream's frame rows and `spans_clip`,
+# not the head's clip reason; the coverage row counts the causes.
+TEAM_VISION_VERSION = "team-vision-0.7.1"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.

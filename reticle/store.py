@@ -634,13 +634,16 @@ class Store:
 
     def write_minimap(self, rows: list[dict], fingerprint, profile_name: str, date: str,
                       frames_from: str | None = None, spans_clip: dict | None = None,
-                      segmenter_version: str | None = None) -> Path:
+                      segmenter_version: str | None = None,
+                      widget_placement: str | None = None) -> Path:
         """The raw per-frame minimap table. A pass fed from the crop cache
         names it in the schema metadata's `frames_from`, and one clipped to a
         round cache's rounds adds `spans_clip` (JSON, `roi_cache.clip_record`):
         its `spans_skipped` were never read, so no row there is not an absent
         widget. A decode's table carries neither key. `segmenter_version` is
-        the stamp of the stored spans the pass read, which `plan` compares."""
+        the stamp of the stored spans the pass read, and `widget_placement`
+        the placement the widget was read through
+        (`widget_frame.placement_identity`); `plan` compares both."""
         if not rows:
             raise SystemExit("no frames were read -- nothing to write")
         n = len(rows)
@@ -688,6 +691,8 @@ class Store:
             meta["spans_clip"] = json.dumps(spans_clip, sort_keys=True)
         if segmenter_version is not None:
             meta["segmenter_version"] = segmenter_version
+        if widget_placement is not None:
+            meta["widget_placement"] = widget_placement
         table = pa.table(arrays).replace_schema_metadata(meta)
         path = self.minimap_path(fingerprint.session_id, date)
         path.parent.mkdir(parents=True, exist_ok=True)
