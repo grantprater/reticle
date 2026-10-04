@@ -135,7 +135,7 @@ class ReconciliationTests(unittest.TestCase):
                 return 1
             args = build_parser().parse_args(['--store',d,'scan','s','--only','roster'])
             with patch('reticle.cli.passes_run',side_effect=shared_pass) as run, \
-                    patch('reticle.cli._active_spans',side_effect=AssertionError('unnecessary spans')), \
+                    patch('reticle.cli._reader_spans',side_effect=AssertionError('unnecessary spans')), \
                     patch('reticle.cli._HudPass',side_effect=AssertionError('unnecessary HUD')), \
                     patch('reticle.cli._MinimapPass',side_effect=AssertionError('unnecessary geometry')), \
                     contextlib.redirect_stdout(io.StringIO()):

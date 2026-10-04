@@ -26,8 +26,15 @@ seg-0.2.0 labelled HUD-present stretches `off`, which this docstring defines
 as no HUD. On the 21 Riot-record matches it labelled
 [metric:omen_smoke_gaps/span_rule#live_off_old=4464] of
 [metric:omen_smoke_gaps/span_rule#live_n=67447] live-round samples (5 Hz) off
-while the HUD stream read the round clock, and minimap readers read only
-active spans; the in-match spans leave
+while the HUD stream read the round clock. Per sample,
+[metric:omen_smoke_gaps/span_terms#off_minimap_only=4135] of them failed
+`minimap_dchange` alone, [metric:omen_smoke_gaps/span_terms#off_hud_only=5]
+failed `hud_edge` alone, and
+[metric:omen_smoke_gaps/span_terms#off_coalesced=324] passed both and fell
+off when a short span merged into an off neighbour. Minimap readers read
+only active spans, which also skipped
+[metric:omen_smoke_gaps/span_terms#live_idle_old=24] idle live samples; the
+in-match spans leave
 [metric:omen_smoke_gaps/span_rule#live_unread_new=5] of them unread.
 
 The thresholds below are starting guesses. Calibrate them against your own

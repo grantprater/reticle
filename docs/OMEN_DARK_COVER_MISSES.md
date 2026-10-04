@@ -57,9 +57,18 @@ Three causes, none of them a rejected smoke.
 matches too: on the 21 Riot-record matches `seg-0.2.0` labelled
 [metric:omen_smoke_gaps/span_rule#live_off_old=4464] of
 [metric:omen_smoke_gaps/span_rule#live_n=67447] live-round samples off while
-the HUD stream read the round clock, every one failing on `minimap_dchange`
-alone. `seg-0.3.0` gates `in_match` on HUD chrome alone, and the minimap
-readers read idle and active spans (`segment.READ_STATES`); that leaves
+the HUD stream read the round clock, and
+[metric:omen_smoke_gaps/span_terms#live_idle_old=24] more idle, of
+[metric:omen_smoke_gaps/span_terms#live_nonactive_old=4488] non-active.
+Per sample, [metric:omen_smoke_gaps/span_terms#off_minimap_only=4135] of
+the off samples failed `minimap_dchange` alone,
+[metric:omen_smoke_gaps/span_terms#off_hud_only=5] failed `hud_edge` alone,
+and [metric:omen_smoke_gaps/span_terms#off_coalesced=324] passed both and
+fell off when a short span merged into an off neighbour; the idle samples
+all passed both terms, and
+[metric:omen_smoke_gaps/span_terms#idle_motion_fail=23] failed on motion.
+`seg-0.3.0` gates `in_match` on HUD chrome alone, and the minimap readers
+read idle and active spans (`segment.READ_STATES`); that leaves
 [metric:omen_smoke_gaps/span_rule#live_unread_new=5] such samples unread. The
 cost outside rounds:
 [metric:omen_smoke_gaps/span_rule#outside_newly_in_match=2379] of
