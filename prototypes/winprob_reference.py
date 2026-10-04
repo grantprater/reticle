@@ -632,7 +632,7 @@ def ally_pos_features(G: Data, frames, cache_dir: Path, why: Counter, mode: str 
 
 # ----------------------------------------------------------------- observed
 
-def observed_states(G: Data, frames, why: Counter):
+def reticle_inputs_at_states(G: Data, frames, why: Counter):
     """Per G state of a captured match: reticle's observed state or None."""
     import pyarrow.parquet as pq
     from reticle.store import Store
@@ -923,7 +923,7 @@ def main(argv=None):
             print("G positions", mode, R[key]["coverage"], R[key]["step"], flush=True)
 
         # observation cost
-        obs, stamps = observed_states(G, frames, why)
+        obs, stamps = reticle_inputs_at_states(G, frames, why)
         R["observed_stamps"] = stamps
         have = np.array([o is not None for o in obs])
         Go = G.subset(have)
@@ -960,10 +960,10 @@ def main(argv=None):
     (out_dir / "results.json").write_text(json.dumps(R, indent=1, default=str), encoding="utf-8")
     print("wrote", out_dir / "results.json", R["elapsed_s"], "s")
     if args.record:
-        record(R)
+        record_results(R)
 
 
-def record(R: dict):
+def record_results(R: dict):
     from reticle import metrics
     deps = {"tool_version": VERSION, "riot_digest": R["riot_digest"], **R["constants"]}
     ctx = {"admitted_rounds": R["admission"]["admitted"], "riot_files": R["riot_files"]}
