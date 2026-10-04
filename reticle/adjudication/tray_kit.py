@@ -64,6 +64,14 @@ to the player's kit within a cache span (the round ends and the view returns to
 the player [domain:hud/tray-slot-icons], or a revive) is stored as
 `kit_return`; the consumers end the witness's death there, since the tray shows
 the player's kit again.
+
+**Consumers judge own against their agent.** A span's agent is the arbiter's
+verdict on the kit and holds no player agent; only its `own` does. Rows written
+while the arbiter named no player agent (`4f207c0c4e39`) stored no change, and
+the gate passed 28 drops under teammates' kits. So `stored_kit_witness`
+recomputes the changes against the consumer's player agent
+(`kit_transitions`), and `kit_agents_at` names the kit at any instant, which
+the gate reads at each drop.
 """
 from __future__ import annotations
 
@@ -218,6 +226,43 @@ def _runs(named: list[tuple[int, str]]) -> list[list]:
     return out
 
 
+def same_agent(a: str | None, b: str | None) -> bool | None:
+    """Whether two agent names are one agent, across the asset spelling
+    (KAY/O is KAY_O); None where either is unknown."""
+    if a is None or b is None:
+        return None
+    return str(a).replace("/", "_") == str(b).replace("/", "_")
+
+
+def kit_transitions(span_rows: list[dict], player: str | None,
+                    common: dict | None = None) -> list[dict]:
+    """The `kit_change` and `kit_return` rows of a session's span rows, each
+    span judged own or another's against `player` (`same_agent`). The module
+    docstring gives the rule; `adjudicate` stores these rows, and
+    `stored_kit_witness` recomputes them against a consumer's agent."""
+    common = common or {}
+    changes = []
+    for cs in sorted({r["cache_span"] for r in span_rows}):
+        state, last_own, last_other = "start", None, None
+        for r in (r for r in span_rows if r["cache_span"] == cs):
+            own = same_agent(r.get("agent"), player)
+            if own is True:
+                if state == "changed":
+                    changes.append({**common, "kind": "kit_return", "cache_span": cs,
+                                    "t_ms": r["t_first_ms"], "since_ms": last_other,
+                                    "entity_id": r["entity_id"], "agent": r["agent"]})
+                state, last_own = "own", r["t_last_ms"]
+            elif own is False and r["claims_for_agent"] >= MIN_RUN:
+                if state == "own":
+                    changes.append({**common, "kind": "kit_change", "cache_span": cs,
+                                    "kit_change_ms": r["t_first_ms"], "since_ms": last_own,
+                                    "entity_id": r["entity_id"], "agent": r["agent"],
+                                    "claims": r["claims"]})
+                    state = "changed"
+                last_other = r["t_last_ms"]
+    return changes
+
+
 def adjudicate(session_id: str, samples: list[dict], sets: dict | None,
                inputs: dict, parameters: dict) -> dict:
     """The session's stored rows, its identity claims, the arbiter's verdicts
@@ -262,24 +307,7 @@ def adjudicate(session_id: str, samples: list[dict], sets: dict | None,
             "own": None if player is None or agent is None else agent == player})
         events += identity_events([v], session_id, samples[idx[0]]["t_ms"])
 
-    changes = []
-    for cs in sorted({r["cache_span"] for r in span_rows}):
-        state, last_own, last_other = "start", None, None
-        for r in (r for r in span_rows if r["cache_span"] == cs):
-            if r["own"] is True:
-                if state == "changed":
-                    changes.append({**common, "kind": "kit_return", "cache_span": cs,
-                                    "t_ms": r["t_first_ms"], "since_ms": last_other,
-                                    "entity_id": r["entity_id"], "agent": r["agent"]})
-                state, last_own = "own", r["t_last_ms"]
-            elif r["own"] is False and r["claims_for_agent"] >= MIN_RUN:
-                if state == "own":
-                    changes.append({**common, "kind": "kit_change", "cache_span": cs,
-                                    "kit_change_ms": r["t_first_ms"], "since_ms": last_own,
-                                    "entity_id": r["entity_id"], "agent": r["agent"],
-                                    "claims": r["claims"]})
-                    state = "changed"
-                last_other = r["t_last_ms"]
+    changes = kit_transitions(span_rows, player, common)
 
     sample_rows = [{**common, "kind": "sample", **{k: v for k, v in s.items()}}
                    for s in samples]
@@ -308,35 +336,93 @@ def adjudicate(session_id: str, samples: list[dict], sets: dict | None,
 def stored_kit_witness(rows: list[dict], version: str = TRAY_KIT_VERSION, *,
                        agent: str | None = None) -> dict:
     """What a consumer reads from a session's stored `tray_kit` rows: the kit
-    changes and returns, the spans of another agent's kit, and the stamp; or
-    empty lists
-    with the reason they are not used (`no_rows`, `stale:<version>`,
-    `no_lineup`, `no_player_agent`, or `player_agent_moved` where the rows
-    judged "own" against another agent than the consumer's `agent`)."""
+    changes and returns, the spans of another agent's kit, every span the
+    arbiter named (`spans`, (t_first_ms, t_last_ms, agent)), the stamp, and
+    which agent "own" was judged against (`own_basis`).
+
+    The span rows hold the arbiter's verdict on each span's kit, which no
+    player agent enters; only "own" does. So the changes, returns and other
+    spans are recomputed (`kit_transitions`) against the consumer's `agent`,
+    the identity arbiter's verdict on the player, where it is given:
+    `own_basis` is `stored` where it equals the agent the rows were written
+    against and `consumer_agent` where the rows named none or another. Without
+    an agent from either, the changes and other spans are empty with the
+    reason `no_player_agent`, and `spans` still lists the named kits, so a
+    consumer can refuse a drop under a named kit it cannot call the player's.
+    Empty lists, `spans` included, with the reason they are not used:
+    `no_rows`, `stale:<version>`, `no_lineup`."""
+    empty = {"kit_changes_ms": [], "kit_returns_ms": [], "other_spans": [], "spans": [],
+             "own_basis": None}
     cov = next((r for r in rows if r.get("kind") == "coverage"), None)
     if cov is None:
-        return {"kit_changes_ms": [], "kit_returns_ms": [], "other_spans": [], "version": None,
-                "reason": "no_rows"}
+        return {**empty, "version": None, "reason": "no_rows"}
     if cov.get("tray_kit_version") != version:
-        return {"kit_changes_ms": [], "kit_returns_ms": [], "other_spans": [],
-                "version": cov.get("tray_kit_version"),
+        return {**empty, "version": cov.get("tray_kit_version"),
                 "reason": f"stale:{cov.get('tray_kit_version')}"}
-    if not cov.get("lineup") or not cov.get("player_agent"):
-        return {"kit_changes_ms": [], "kit_returns_ms": [], "other_spans": [],
-                "version": version,
-                "reason": "no_lineup" if not cov.get("lineup") else "no_player_agent"}
-    if agent is not None and cov["player_agent"] != agent:
-        return {"kit_changes_ms": [], "kit_returns_ms": [], "other_spans": [],
-                "version": version, "reason": "player_agent_moved"}
-    return {"kit_changes_ms": sorted(float(r["kit_change_ms"]) for r in rows
-                                     if r.get("kind") == "kit_change"),
-            "kit_returns_ms": sorted(float(r["t_ms"]) for r in rows
-                                     if r.get("kind") == "kit_return"),
-            "other_spans": [(float(r["t_first_ms"]), float(r["t_last_ms"]), r["agent"])
-                            for r in rows if r.get("kind") == "span" and r.get("own") is False],
-            "version": version, "reason": None}
+    if not cov.get("lineup"):
+        return {**empty, "version": version, "reason": "no_lineup"}
+    span_rows = [r for r in rows if r.get("kind") == "span"]
+    spans = [(float(r["t_first_ms"]), float(r["t_last_ms"]), r["agent"])
+             for r in span_rows if r.get("agent")]
+    player = agent if agent is not None else cov.get("player_agent")
+    if player is None:
+        return {**empty, "spans": spans, "version": version, "reason": "no_player_agent"}
+    basis = "stored" if same_agent(player, cov.get("player_agent")) else "consumer_agent"
+    changes = kit_transitions(span_rows, player)
+    return {"kit_changes_ms": sorted(float(r["kit_change_ms"]) for r in changes
+                                     if r["kind"] == "kit_change"),
+            "kit_returns_ms": sorted(float(r["t_ms"]) for r in changes
+                                     if r["kind"] == "kit_return"),
+            "other_spans": [s for s in spans if same_agent(s[2], player) is False],
+            "spans": spans, "own_basis": basis, "version": version, "reason": None}
 
 
 def spectated_agent(t_ms: float, other_spans) -> str | None:
     """The agent of the other kit whose span holds `t_ms`, or None."""
     return next((a for t0, t1, a in other_spans if t0 <= t_ms <= t1), None)
+
+
+#: How far before a drop the last named kit sample may lie and still name the
+#: kit the drop fell from: three samples of the 0.5 s grid, so a tray the cast
+#: itself dims or flashes for a sample or two keeps the kit read before it.
+KIT_LOOKBACK_MS = 1500.0
+#: How far after a drop a span may start and still hold it: under one sample,
+#: so the kit that follows a spectator switch never names the drop before it.
+KIT_LOOKAHEAD_MS = 100.0
+
+
+def own_kit_mask(times_ms, spans, player: str | None, near_ms: float = 1000.0) -> np.ndarray:
+    """Per instant of `times_ms` (sorted), whether the nearest named span
+    (inside it is nearest) lies within `near_ms` and is `player`'s kit. All
+    False without a player agent. Vectorised by `searchsorted` over the
+    spans' starts, which `adjudicate` writes in time order within a session."""
+    t = np.asarray(times_ms, float)
+    if player is None or not len(spans):
+        return np.zeros(len(t), bool)
+    sp = sorted(spans, key=lambda s: s[0])
+    t0 = np.array([s[0] for s in sp], float)
+    t1 = np.array([s[1] for s in sp], float)
+    own = np.array([same_agent(s[2], player) is True for s in sp])
+    i = np.clip(np.searchsorted(t0, t, side="right") - 1, 0, len(sp) - 1)
+    j = np.clip(i + 1, 0, len(sp) - 1)
+    di = np.maximum(np.maximum(t0[i] - t, t - t1[i]), 0.0)
+    dj = np.maximum(np.maximum(t0[j] - t, t - t1[j]), 0.0)
+    k = np.where(dj < di, j, i)
+    return (np.minimum(di, dj) <= near_ms) & own[k]
+
+
+def kit_agents_at(times_ms, spans, lookback_ms: float = KIT_LOOKBACK_MS,
+                  lookahead_ms: float = KIT_LOOKAHEAD_MS) -> list[str | None]:
+    """Per instant of `times_ms`, the arbiter's agent for the kit the tray
+    showed then: of the named `spans` (t_first_ms, t_last_ms, agent) that
+    start by the instant plus `lookahead_ms` and last until at least the
+    instant less `lookback_ms`, the one that starts last; None where no span
+    does. Vectorised over instants and spans."""
+    t = np.asarray(times_ms, float).reshape(-1, 1)
+    if not len(spans) or not t.size:
+        return [None] * t.shape[0]
+    t0 = np.array([s[0] for s in spans], float)
+    t1 = np.array([s[1] for s in spans], float)
+    hold = (t0[None] <= t + lookahead_ms) & (t1[None] >= t - lookback_ms)
+    j = np.argmax(np.where(hold, t0[None], -np.inf), axis=1)
+    return [spans[k][2] if hold[i, k] else None for i, k in enumerate(j)]

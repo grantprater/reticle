@@ -165,7 +165,7 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                       player_deaths_ms: list[float], *, agent: str | None = None,
                       second_lives_ms=(), revives_ms=(),
                       report_deaths: dict | None = None, kit_changes_ms=(),
-                      kit_returns_ms=(), menu_at=None) -> list[dict]:
+                      kit_returns_ms=(), menu_at=None, kit_spans=None) -> list[dict]:
     """Which of a session's tray drops (`tray.drops`) are the local player's casts.
 
     The tray shows the player's kit only while the player lives; afterwards it
@@ -220,6 +220,20 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     sessions of docs/TRAY_KIT_WITNESS.md the `forced` and co-occurrence tests
     refused every one, so the change needs no lead.
 
+    The change alone misses a drop under another agent's kit where the round
+    shows no span of the player's kit before it, and on `4f207c0c4e39` the
+    stored rows named no player agent, so no change was stored at all: 28 of
+    52 drops the gate passed fell under a teammate's kit. So the gate also
+    reads the kit at each drop. `kit_spans` are the spans the arbiter named
+    (`adjudication.tray_kit.stored_kit_witness`); `tray_kit.kit_agents_at`
+    names the kit the tray showed at the drop. A drop under a named kit is
+    `kit_not_player` where that kit is not `agent`'s, and
+    `kit_owner_unresolved` where the arbiter names no player agent, since no
+    kit can then be called the player's. A drop under no named span passes
+    this test. `kit_spans` None (no current `tray_kit` rows) applies no test.
+    Both names are tested after `after_kit_change`, and each row carries the
+    `kit_agent` read at its drop.
+
     The menu is refused before every other test. Opening it dims the whole
     tray, which reads as a fall on every slot at one instant
     [domain:hud/menu-dims-tray]. `menu_at(t_ms)` is the stored menu witness
@@ -258,7 +272,8 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
 
     Every test names its refusal, and a drop keeps the first that refuses it,
     in this order: `menu_open`, `no_rounds`, `no_round`, `after_player_death`,
-    `after_kit_change`, `phase:<name>`, `forced` or `cooccur_among_casts`,
+    `after_kit_change`, `kit_not_player` or `kit_owner_unresolved`,
+    `phase:<name>`, `forced` or `cooccur_among_casts`,
     `partial_charge`, `pips_lit`, `equip_release`.
 
     *Full* is read from the drop's own `from`: the slot's teal count on the
@@ -430,15 +445,19 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     if rounds is None:
         return [{**d, "phase": None, "round_ms": None, "first_player_death_ms": None,
                  "kit_end_ms": None, "undone_deaths": [], "kit_change_ms": None,
+                 "kit_agent": None,
                  "reason": "menu_open" if covered(d["t_ms"]) else "no_rounds",
                  "player_cast": False} for d in drops]
+    from .adjudication.tray_kit import kit_agents_at, same_agent
     ends = {r["t_end_ms"] for r in rounds}
     deaths = [{"t_first": x} for x in player_deaths_ms]
     kits = kit_windows(rounds, player_deaths_ms, agent=agent, second_lives_ms=second_lives_ms,
                        revives_ms=revives_ms, report_deaths=report_deaths,
                        kit_changes_ms=kit_changes_ms, kit_returns_ms=kit_returns_ms)
+    seen_at = (kit_agents_at([d["t_ms"] for d in drops], kit_spans) if kit_spans is not None
+               else [None] * len(drops))
     rows = []
-    for d in drops:
+    for d, seen in zip(drops, seen_at):
         t = d["t_ms"]
         k = round_window_of(t, kits)
         rnd = k["window"] if k else None
@@ -452,8 +471,10 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                   else "after_player_death" if end is not None and t >= end - DEATH_LEAD_MS
                   else "after_kit_change" if (change is not None and t >= change
                                               and (back is None or t < back))
+                  else "kit_owner_unresolved" if seen is not None and agent is None
+                  else "kit_not_player" if same_agent(seen, agent) is False
                   else None if phase in CAST_PHASES else f"phase:{phase}")
-        rows.append({**d, "phase": phase,
+        rows.append({**d, "phase": phase, "kit_agent": seen,
                      "round_ms": None if rnd is None else [float(rnd[0]), float(rnd[2])],
                      "first_player_death_ms": first, "kit_end_ms": end,
                      "undone_deaths": undone, "kit_change_ms": change, "reason": reason})
@@ -482,10 +503,12 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     (`adjudication.death.stored_second_life`). Revives are the player's own
     revive entries among the stored `death` verdicts. The report's death
     counts are the stored `combat_report_round` rows where a report was read.
-    The kit changes are the stored `tray_kit` rows
+    The kit changes and the named kit spans are the stored `tray_kit` rows
     (`adjudication.tray_kit.stored_kit_witness`), used only where they are
-    current and name the same player agent; otherwise the list is empty and
-    the stamp says why. The menu witness is the stored `menu_open` rows
+    current, with own and other judged against `agent`; otherwise the lists
+    are empty, `kit_spans` is None, and the stamp says why. Without an
+    `agent` the spans are still handed on, so the gate refuses a drop under
+    a named kit as `kit_owner_unresolved`. The menu witness is the stored `menu_open` rows
     (`menu.stored_menu`), used only where current; otherwise `menu_at` is None
     and the stamp says why.
     """
@@ -521,6 +544,8 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     kit = stored_kit_witness(store.read_events("tray_kit", session_id), agent=agent)
     inputs["kit_changes_ms"] = kit["kit_changes_ms"]
     inputs["kit_returns_ms"] = kit["kit_returns_ms"]
+    inputs["kit_spans"] = (kit["spans"] if kit["reason"] in (None, "no_player_agent")
+                           else None)
     menu, menu_stamp = stored_menu(store, session_id)
     inputs["menu_at"] = menu.at if menu is not None else None
     # Each stored input's own stamp, read from its first row (`no_rows` where
@@ -536,8 +561,147 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
               "combat_report_round": event_stamp(store, "combat_report_round", session_id,
                                                  "combat_report_round_version"),
               "tray_kit": kit["version"] or NO_ROWS, "tray_kit_reason": kit["reason"],
+              "tray_kit_own_basis": kit["own_basis"],
               "menu_open": menu_stamp}
     return inputs, stamps
+
+
+#: The stored audio-gate log-mel and labels, under the store root.
+AUDIO_GATE_DIR = Path("analysis") / "audio-gate" / "0.1.0"
+#: The refusals a drop gets for showing another kit than the player's: a
+#: teammate's sound at that instant, known, so never background.
+KIT_REFUSALS = ("after_kit_change", "kit_not_player", "kit_owner_unresolved")
+
+
+def audio_session(store_root, session_id: str, gate_rows: list[dict], agent: str | None,
+                  kit_spans=None, *, features_path=None, labels_path=None,
+                  span_s: tuple[float, float] | None = None) -> tuple[dict | None, str | None]:
+    """(the stored audio a cast's witness reads, None) or (None, why not).
+
+    The frames are the audio gate's stored log-mel (`AUDIO_GATE_DIR`
+    `features/<sid>.npz`) less its median. Live frames are the audio gate's
+    (alive in a live phase, at its 0.1 s step) where the log-mel window lies
+    inside the audio, and, where `kit_spans` name kits, near a span of
+    `agent`'s kit (`tray_kit.own_kit_mask`): the tray shows the player's kit
+    while the player lives. The casts are the gate's (`player_tray_casts`
+    rows with `player_cast`) on a frame the audio gate calls live. The null
+    frames are `ability_audio.background`: live, the gate's background class,
+    and no own cast, gunfire span or known other sound within
+    `ability_audio.EXPLAIN_S`; the drops refused for another kit
+    (KIT_REFUSALS) are known other sounds. `span_s` keeps only frames and
+    casts inside [start, end) s, how one session is split in two. Decodes
+    nothing."""
+    import numpy as np
+
+    from .adjudication.ability_audio import FPS, background, explained, session_frames
+    from .adjudication.tray_kit import own_kit_mask
+    root = Path(store_root)
+    fp = Path(features_path) if features_path else root / AUDIO_GATE_DIR / "features" / f"{session_id}.npz"
+    lp = Path(labels_path) if labels_path else root / AUDIO_GATE_DIR / "labels" / f"{session_id}.json"
+    if not fp.is_file():
+        return None, "no_audio_features"
+    if not lp.is_file():
+        return None, "no_audio_labels"
+    z = np.load(fp, allow_pickle=True)
+    med = z["med"] if "med" in z.files else np.median(z["L"].astype(np.float32), axis=0)
+    X = session_frames(z["L"], med)
+    n = len(X)
+    lab = json.loads(lp.read_text(encoding="utf-8"))
+    lz = np.load(lp.with_suffix(".npz"))
+    rep = int(round(float(lab["step_s"]) * FPS))
+    up = lambda a: np.concatenate([np.repeat(a, rep), np.zeros(max(0, n - rep * len(a)), a.dtype)])[:n]
+    gate_live = up(lz["live"]).astype(bool)
+    live = gate_live & z["ok"][:n].astype(bool)
+    cls = up(lz["cls"])
+    if kit_spans:
+        live &= own_kit_mask(np.arange(n) * (1000.0 / FPS), kit_spans, agent)
+    keep = np.ones(n, bool)
+    if span_s is not None:
+        keep[:] = False
+        keep[int(span_s[0] * FPS):int(span_s[1] * FPS)] = True
+        live &= keep
+    casts = []
+    for r in gate_rows:
+        k = int(r["t_ms"] / 1000.0 * FPS)
+        if r["player_cast"] and 0 <= k < n and gate_live[k] and keep[k]:
+            casts.append({"t_ms": float(r["t_ms"]), "slot": r["slot"], "frame": k})
+    others = ([float(o["t"]) for o in lab.get("known_others", [])]
+              + [r["t_ms"] / 1000.0 for r in gate_rows if r.get("reason") in KIT_REFUSALS])
+    code = explained(n, [c["t_ms"] / 1000.0 for c in casts], lab.get("fires", []), others)
+    bg = background(live, cls, code)
+    stamps = {"audio_features": str(z["version"]) if "version" in z.files else f"unstamped:{fp.name}",
+              "audio_labels": lab.get("version"), "features_path": fp.as_posix(),
+              "labels_path": lp.as_posix()}
+    return {"X": X, "live": live, "code": code, "bg": bg, "casts": casts,
+            "live_min": float(live.sum()) / (60.0 * FPS), "stamps": stamps}, None
+
+
+def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent: str | None,
+                       kit_spans=None, *, params=None, session=None, xp=None,
+                       **where) -> dict:
+    """The audio witness for each of the player's casts: which kit ability
+    the audio around the drop sounds like (`adjudication.ability_audio`),
+    with its scores, margin and refusal. The candidate set is the player's
+    kit, named by the identity arbiter's agent (`agent`) through the
+    parameter set's classes; a cast of a slot with no reference can only be
+    refused or named as another slot, and the row says the slot is
+    unreferenced. Returns {"rows", "coverage"}; without an agent, parameters,
+    features or labels every cast row carries the reason and no score.
+    `where` passes `features_path`, `labels_path` and `span_s` to
+    `audio_session`."""
+    from . import ult_lines
+    from .adjudication.ability_audio import (NONE, cast_scores, class_tracks, identify,
+                                             load_params, whiten_frames)
+    from .version import ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION
+    casts = [r for r in gate_rows if r["player_cast"]]
+    base = {"ability_audio_version": ABILITY_AUDIO_VERSION,
+            "params_version": ABILITY_AUDIO_PARAMS_VERSION}
+
+    def refuse(why, stamps=None):
+        return {"rows": [{**base, "t_ms": float(r["t_ms"]), "slot": r["slot"], "reason": why,
+                          "verdict": None} for r in casts],
+                "coverage": {**base, "agent": agent, "reason": why, "casts": len(casts),
+                             "inputs": stamps or {}}}
+
+    if agent is None:
+        return refuse("no_player_agent")
+    if params is None:
+        params, why = load_params(store_root, ABILITY_AUDIO_PARAMS_VERSION, agent)
+        if params is None:
+            return refuse(why)
+    if session is None:
+        session, why = audio_session(store_root, session_id, gate_rows, agent, kit_spans,
+                                     **where)
+        if session is None:
+            return refuse(why)
+    xp = xp or ult_lines.array_module()
+    Xw = whiten_frames(session["X"], params["mu"], params["P"], params["ar"])
+    tracks = class_tracks(Xw, params["templates"], params["labels"], session["bg"], xp)
+    classes = sorted(tracks, key=lambda c: ("CQEX" + NONE).find(c[0]) if c != NONE else 9)
+    sc = cast_scores(tracks, [c["frame"] for c in session["casts"]], classes)
+    ids = identify(sc, classes, params["thresholds"])
+    at = {c["t_ms"]: (c, v) for c, v in zip(session["casts"], ids)}
+    rows = []
+    for r in casts:
+        c, v = at.get(float(r["t_ms"]), (None, None))
+        if v is None:
+            rows.append({**base, "t_ms": float(r["t_ms"]), "slot": r["slot"],
+                         "reason": "audio_not_live", "verdict": None})
+            continue
+        rows.append({**base, "t_ms": c["t_ms"], "slot": c["slot"],
+                     "slot_referenced": c["slot"] in classes, **v,
+                     "agrees": None if v["verdict"] is None else v["verdict"] == c["slot"]})
+    cov = {**base, "agent": agent, "reason": None, "candidate_set": {
+               "classes": classes, "why": "the player's kit: the tray shows it while the player "
+                                          "lives, and the gate passes only drops under it; "
+                                          "`none` holds the agent's unmapped files"},
+           "params": {k: params["provenance"].get(k) for k in ("version", "reference", "fitted_at")},
+           "dev_sessions": params["dev"], "thresholds": params["thresholds"],
+           "casts": len(casts), "scored": len(ids), "null_frames": int(session["bg"].sum()),
+           "live_min": round(session["live_min"], 2), "inputs": session["stamps"],
+           "verdicts": dict(sorted(Counter(r.get("verdict") or f"refused:{r['reason']}"
+                                           for r in rows).items()))}
+    return {"rows": rows, "coverage": cov, "tracks": tracks, "session": session}
 
 
 def build_timeline(root: str | Path) -> dict:
