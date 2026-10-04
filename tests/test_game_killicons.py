@@ -1,4 +1,4 @@
-"""Tests for the game kill icons in the weapon gallery (weapon-gallery-0.7.0)."""
+"""Tests for the game kill icons in the weapon gallery (weapon-gallery-0.8.0)."""
 from __future__ import annotations
 
 import hashlib
@@ -14,14 +14,16 @@ from reticle.adjudication.weapon import (
     ABILITY_CANONICAL_NAMES,
     EXTRA_ABILITY_AGENTS,
     GAME_ICON_BUILD,
+    GAME_KILL_ICON_SOURCES,
     GAME_KILL_ICONS,
+    MINED_ONLY_NAMES,
     WEAPON_TAXONOMY,
     ability_agent,
     classify_killfeed_icon,
     drawn_icon_alpha,
     entry_weapon,
     game_icon_exemplar,
-    game_icons_dir,
+    game_build_dir,
     icon_grid,
     load_game_icons,
     load_gallery,
@@ -74,9 +76,11 @@ class MirrorTests(unittest.TestCase):
 
 class MappingTests(unittest.TestCase):
     def test_every_game_name_has_a_category(self):
-        """Each game icon is a gun, melee, environmental death or ability."""
+        """Each game icon is a gun, melee, environmental death, ability or
+        other (a base class or game-mode icon with no caster), the death
+        causes `DeathVerdict` declares."""
         for name, (rel, category) in GAME_KILL_ICONS.items():
-            self.assertIn(category, {"gun", "melee", "environmental", "ability"}, name)
+            self.assertIn(category, {"gun", "melee", "environmental", "ability", "other"}, name)
             self.assertEqual(name_category(name), category, name)
             self.assertTrue(rel.endswith(".png"), name)
 
@@ -96,6 +100,56 @@ class MappingTests(unittest.TestCase):
             self.assertIn(name, canonical, name)
             self.assertIsNotNone(ability_agent(name), name)
 
+    def test_every_icon_names_its_damage_types(self):
+        """Each texture names the DamageTypes that draw it, and only those."""
+        self.assertEqual(set(GAME_KILL_ICON_SOURCES), set(GAME_KILL_ICONS))
+        self.assertTrue(all(GAME_KILL_ICON_SOURCES.values()))
+
+    def test_mined_only_names_have_no_game_icon(self):
+        """A mined-only name is one no DamageType draws."""
+        self.assertEqual(MINED_ONLY_NAMES & set(GAME_KILL_ICONS), set())
+
+    def test_no_base_class_or_placeholder_icon_is_a_candidate(self):
+        """weapon-gallery-0.9.0: the icons of base classes no kill deals and
+        the placeholder stay out of the gallery, kept as provenance."""
+        from reticle.adjudication.weapon import GAME_KILL_ICONS_EXCLUDED
+        self.assertEqual(set(GAME_KILL_ICONS_EXCLUDED),
+                         {"Explosion", "Pistol", "Phoenix fire", "Internal"})
+        self.assertEqual(set(GAME_KILL_ICONS_EXCLUDED) & set(GAME_KILL_ICONS), set())
+        self.assertTrue(all(v["why"] and v["damage_types"]
+                            for v in GAME_KILL_ICONS_EXCLUDED.values()))
+
+    def test_game_mode_icons_are_candidates_only_on_the_surprise_path(self):
+        """A game-mode icon, and Grenade bounce (weapon-adjudication-1.5.0),
+        leave the kit and lineup tiers and stay in full."""
+        from reticle.adjudication.weapon import (GAME_MODE_ICONS, SURPRISE_ONLY_ICONS,
+                                                 candidate_tiers)
+        names = ["Vandal", "Golden Gun", "Snowball", "Plague orb", "Grenade bounce", "Aftershock"]
+        g = {"names": np.array(names), "masks": np.zeros((6, 16, 64)), "aspects": np.ones(6)}
+        self.assertEqual(set(SURPRISE_ONLY_ICONS) - set(GAME_KILL_ICONS), set())
+        self.assertEqual(set(SURPRISE_ONLY_ICONS), set(GAME_MODE_ICONS) | {"Grenade bounce"})
+        self.assertEqual(GAME_MODE_ICONS["Plague orb"], "Spike Rush")
+        tiers = {t["tier"]: t for t in candidate_tiers(
+            g, agents={"Breach"}, actor={"agent": "Breach", "entity_id": "e"})}
+        for tier in ("kit", "lineup"):
+            self.assertEqual(tiers[tier]["index"]["names"], ["Vandal", "Aftershock"], tier)
+            self.assertEqual(set(tiers[tier]["dropped"]), set(SURPRISE_ONLY_ICONS), tier)
+        self.assertEqual(tiers["full"]["index"]["names"], names)
+
+    def test_stinger_reads_its_damage_types_texture(self):
+        """Stinger's KillIcon TX_Hud_Vector is exported as a dedup of the
+        KillStreamIcon file; the provenance names the DamageType's texture."""
+        from reticle.adjudication.weapon import GAME_KILL_ICON_TEXTURES
+        self.assertTrue(GAME_KILL_ICONS["Stinger"][0].endswith("TX_Hud_SMG_KrissVector_S.png"))
+        self.assertTrue(GAME_KILL_ICON_TEXTURES["Stinger"].endswith("TX_Hud_Vector"))
+
+    def test_blade_storm_draws_its_damage_types_single_dagger(self):
+        """Blade Storm's kill icon is its DamageType's dagger, not the tray's
+        three knives."""
+        rel = GAME_KILL_ICONS["Blade Storm"][0]
+        self.assertTrue(rel.startswith("damage-type-icons/"))
+        self.assertTrue(rel.endswith("TX_Hud_Wushu_X_Dagger.png"))
+
 
 class RefusalTests(unittest.TestCase):
     def test_a_store_without_the_export_refuses(self):
@@ -109,15 +163,15 @@ class RefusalTests(unittest.TestCase):
         name, (rel, _) = next(iter(GAME_KILL_ICONS.items()))
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            icons = game_icons_dir(root)
-            (icons / rel).parent.mkdir(parents=True)
+            build = game_build_dir(root)
+            (build / rel).parent.mkdir(parents=True)
             ok, png = cv2.imencode(".png", _left_heavy())
-            (icons / rel).write_bytes(png.tobytes())
-            (icons / "manifest.jsonl").write_text(json.dumps(
-                {"output": f"killfeed-icons/{rel}", "sha256": "0" * 64}) + "\n")
+            (build / rel).write_bytes(png.tobytes())
+            (build / "killfeed-icons" / "manifest.jsonl").write_text(json.dumps(
+                {"output": rel, "sha256": "0" * 64}) + "\n")
             self.assertEqual(load_game_icons(root), (None, f"game_icon_sha256:{name}"))
-            (icons / "manifest.jsonl").write_text(json.dumps(
-                {"output": f"killfeed-icons/{rel}",
+            (build / "killfeed-icons" / "manifest.jsonl").write_text(json.dumps(
+                {"output": rel,
                  "sha256": hashlib.sha256(png.tobytes()).hexdigest()}) + "\n")
             second = list(GAME_KILL_ICONS)[1]
             self.assertEqual(load_game_icons(root), (None, f"game_icon_missing:{second}"))
@@ -130,10 +184,11 @@ class RefusalTests(unittest.TestCase):
         self.assertEqual(v.get("reason"), "no_gallery")
 
 
-_ICONS = game_icons_dir()
+_BUILD = game_build_dir()
 
 
-@unittest.skipUnless((_ICONS / "manifest.jsonl").is_file(), "game kill icons not exported")
+@unittest.skipUnless((_BUILD / "killfeed-icons" / "manifest.jsonl").is_file(),
+                     "game kill icons not exported")
 class StoreTests(unittest.TestCase):
     def test_the_gallery_keeps_build_and_sha256(self):
         """Each game exemplar names its build, and each texture its sha256."""
@@ -144,6 +199,14 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(all(len(v["sha256"]) == 64 for v in g["provenance"]["icons"].values()))
         self.assertTrue(all(str(k).startswith(f"game:{GAME_ICON_BUILD}:") for k in g["keys"]))
 
+    def test_the_gallery_keeps_mined_exemplars_only_where_no_game_icon_exists(self):
+        """0.8.0 serves the game set and the mined-only names, nothing mined else."""
+        g, why = load_gallery()
+        self.assertIsNone(why)
+        names = {str(n) for n in g["names"]}
+        self.assertEqual(names - set(GAME_KILL_ICONS), set(g["provenance"]["mined_only"]))
+        self.assertLessEqual(set(g["provenance"]["mined_only"]), MINED_ONLY_NAMES)
+
     def test_a_clean_paint_shells_descriptor_is_named_paint_shells(self):
         """Raze's Paint Shells drawn whole at a placement no exemplar was drawn
         at, and cut as the reader cuts a descriptor, names Paint Shells. The
@@ -153,7 +216,7 @@ class StoreTests(unittest.TestCase):
         from reticle.killfeed import PLATE_WHITE_CUT
         g, why = load_gallery()
         self.assertIsNone(why)
-        rgba = cv2.imread(str(_ICONS / GAME_KILL_ICONS["Paint Shells"][0]), cv2.IMREAD_UNCHANGED)
+        rgba = cv2.imread(str(_BUILD / GAME_KILL_ICONS["Paint Shells"][0]), cv2.IMREAD_UNCHANGED)
         drawn = drawn_icon_alpha(rgba, 24.0, (0.5, 0.5))
         grid, aspect = icon_grid(drawn >= PLATE_WHITE_CUT)
         self.assertEqual(name_icon(grid, aspect, g)["name"], "Paint Shells")

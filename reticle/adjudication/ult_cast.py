@@ -126,6 +126,26 @@ agent the selection rests on. WITNESS_FLOOR is the 95th percentile, on the dev
 half, of the best live peak of a template in a round that holds neither a
 selection nor a witness of it (12525 template rounds). The global THRESHOLD is
 unchanged.
+
+**Barrier drop** (0.5.0). Every cast and refusal row carries `drop`: its
+round's barrier drop as `gametime` schedules it (`t_live_ms`)
+[domain:rounds/buy-phase-barriers], the onset minus the drop (`dt_s`), and a
+phase: `buy` more than DROP_WINDOW_S before the drop, `at_drop` within it,
+`live` after it. A row outside every round, or in a round without a drop, has
+`drop` null and a `drop_reason`. The row's `t_ms` stays the onset, an
+observation time: a line at the drop may announce a cast made earlier in the
+buy phase [domain:abilities/chamber-tour-de-force-enemy-line-at-drop]. The
+window was fixed from the drop's precision before any line was read. Per
+round, the drops the HUD's live clock reads imply spread
+[metric:ult_phase/precision@all-matches#implied_spread_ms_p95=1000.0] ms at
+the 95th percentile, and Riot's round zero falls
+[metric:ult_phase/precision@all-matches#riot_zero_minus_drop_ms_median=973.0]
+ms after the scheduled drop at the median (at most
+[metric:ult_phase/precision@all-matches#riot_zero_minus_drop_ms_p95=1290.2]
+ms at the 95th percentile), a lead partly the killfeed alignment's own. The
+phase selects, refuses and names nothing. `prototypes/ult_phase_audit.py`
+measured the phases per agent and the Chamber lines against Riot's count
+(`docs/VOICE_LINES.md`, "Buy phase and the barrier drop").
 """
 from __future__ import annotations
 
@@ -182,6 +202,11 @@ WITNESS_FLOOR = 0.030
 #: on the dev half, revive entries follow their own line by 0.0-0.3 s and some
 #: Not Dead Yet entries precede it by up to 0.3 s.
 DEATH_SLACK_S = 1.5
+#: A line whose onset lies within this of its round's barrier drop (s) is
+#: `at_drop`. Fixed from the drop's precision before any line was read; see
+#: the module docstring, "Barrier drop".
+DROP_WINDOW_S = 1.5
+DROP_PHASES = ("buy", "at_drop", "live")
 _OTHER = {"ally": "enemy", "enemy": "ally"}
 
 
@@ -323,6 +348,24 @@ def vo_heard(peaks: list[dict], bound: float = VO_HEARD_BOUND) -> dict:
             "bound": bound, "reason": None if heard else "no_line_above_bound"}
 
 
+def drop_phase(t_ms: float, round_no: int | None, drops_ms: dict | None,
+               window_s: float = DROP_WINDOW_S) -> tuple[dict | None, str | None]:
+    """(the line's place against its round's barrier drop as {t_drop_ms, dt_s,
+    phase, window_s}, or None; the reason for None). `drops_ms` maps a round
+    number to its drop (`gametime`'s `t_live_ms`). See the module docstring."""
+    if drops_ms is None:
+        return None, "no_drops"
+    if round_no is None:
+        return None, "outside_round"
+    t_drop = drops_ms.get(int(round_no))
+    if t_drop is None:
+        return None, "round_has_no_drop"
+    dt = (float(t_ms) - float(t_drop)) / 1000.0
+    phase = "at_drop" if abs(dt) <= window_s else "buy" if dt < 0 else "live"
+    return {"t_drop_ms": float(t_drop), "dt_s": round(dt, 3), "phase": phase,
+            "window_s": window_s}, None
+
+
 def ult_kill_witnesses(death_rows: list[dict] | None, rounds: list[dict]) -> tuple[list[dict], dict]:
     """(each stored death verdict whose resolved killfeed icon is an ultimate,
     as {template, agent, side, round, t_ms, death_id, weapon, version}; counts
@@ -361,15 +404,18 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
                tray_reason: str | None = "no_tray_drops",
                tray_inputs: dict | None = None, deaths: list[dict] | None = None,
                death_reason: str | None = "no_deaths", burst_bound: float = BURST_BOUND,
-               witness_floor: float = WITNESS_FLOOR, burst_floor: float = BURST_FLOOR) -> dict:
+               witness_floor: float = WITNESS_FLOOR, burst_floor: float = BURST_FLOOR,
+               drops_ms: dict | None = None) -> dict:
     """The session's stored rows, its claims, the arbiter's verdicts and the
     formal identity events, from stored peaks, the lineup and the rounds.
 
     `tray_drops` are the X drops with the owner's verdict from
     `player_x_drops`, or None with `tray_reason`; `tray_inputs` are their
     stamps for the coverage row. `deaths` are the stored `death` verdicts, or
-    None with `death_reason`. `burst_bound`, `witness_floor` and `burst_floor`
-    exist for the scorer's sweep; production passes none of them."""
+    None with `death_reason`. `drops_ms` maps each round number to its barrier
+    drop as `gametime` schedules it, or is None. `burst_bound`, `witness_floor`
+    and `burst_floor` exist for the scorer's sweep; production passes none of
+    them."""
     cover = next((r for r in peak_rows if r.get("kind") == "coverage"), {}) or {}
     peaks = [r for r in peak_rows if r.get("kind") == "peak"]
     sides = lineup_sides(lineup, session_id)
@@ -495,10 +541,12 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
     rows, events = [], []
     for eid, m in ordered:
         p, v = m["peak"], by_id[eid]
+        rnd = round_of(m["t_ms"], rounds)
+        drop, drop_why = drop_phase(m["t_ms"], rnd, drops_ms)
         base = {**common, "entity_id": eid, "t_ms": m["t_ms"], "t_s": p["t_s"],
                 "variant": p["variant"], "template": p["template"], "score": p["score"],
                 "floor": p.get("floor"), "class": m["class"],
-                "round": round_of(m["t_ms"], rounds), "burst": m["burst"]}
+                "round": rnd, "burst": m["burst"], "drop": drop, "drop_reason": drop_why}
         if m["refused"]:
             rows.append({**base, "kind": "refusal", "template_agent": m["agent"],
                          "reason": m["refused"], "class_reason": m["reason"]})
@@ -571,6 +619,14 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
                     for r in rows if r["kind"] == "refusal").items())),
                 "rounds": len(rounds),
                 "vo_heard": vo_heard(peaks),
+                "drop": {"window_s": DROP_WINDOW_S,
+                         "rounds": None if drops_ms is None else len(drops_ms),
+                         "reason": None if drops_ms is not None else "no_drops",
+                         **{f"{k}_{ph}": sum(r["kind"] == k and (r["drop"] or {}).get("phase") == ph
+                                             for r in rows)
+                            for k in ("cast", "refusal") for ph in DROP_PHASES},
+                         "unplaced": sum(r["kind"] in ("cast", "refusal") and r["drop"] is None
+                                         for r in rows)},
                 "burst": {"n": BURST_N, "span_s": BURST_S, "bound": burst_bound,
                           "floor": floor, "bursts": len(groups),
                           "weak": sum(b["best_score"] < burst_bound for b in groups.values()),
