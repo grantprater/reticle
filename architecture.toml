@@ -208,23 +208,23 @@ claim = """
 reverse makes a shipped module depend on something with no version stamp, no
 tests, and no promise to keep working.
 """
-allow = ["doctor", "ability_timeline", "lineup"]
+auditor = ["doctor"]
+allow = ["ability_timeline"]
 allow_reason = """
-`doctor` is the auditor and is allowed to reach both trees -- a checker that can
-only see one side of a fork cannot see a fork. It mostly reads them as FILES,
-which no import rule can see or should; `check_shade` is the one place it
-genuinely imports, calling `map_shade.stamp()` after a `sys.path` insert, and
-that spelling is exactly why the check counts a bare import of a prototype
-module and not only a `prototypes.`-prefixed one.
+`doctor` is the auditor and may reach both trees by any spelling -- a checker
+that can only see one side of a fork cannot see a fork. It mostly reads them as
+FILES, which no import rule can see or should; `check_shade` and its neighbours
+import after a `sys.path` insert, and that spelling is exactly why the check
+counts a bare import of a prototype module and not only a
+`prototypes.`-prefixed one.
 
-`ability_timeline` and `lineup` are NOT blessed on principle. Both reach into
-prototypes because the calibration still lives there, which is an unfinished
-promotion rather than a design, and NOTHING REPORTED EITHER until this check
-existed. `ability_timeline.materialize_demo_casts` drives `ability_cast` and
-`ability_hud` as readers. `lineup._composition` inserts the prototypes
-directory on `sys.path` and imports `minimap_portrait.composition`: it reads
-like a stdlib import and is a shipped module depending on an unversioned
-prototype. Its second reach, `ability_hud`'s tray geometry, now comes from
-`reticle.tray` (2026-09-26). Both are triaged in BACKLOG.md under the ability
-line.
+`allow` is NOT a blessing: it excuses plain imports only, `verify` reports each
+on every run, and a `sys.path` change or `importlib` load naming the tree is an
+ERROR for every module but an auditor. `ability_timeline` reaches into
+prototypes because the calibration still lives there, an unfinished promotion
+rather than a design: `materialize_demo_casts` drives `ability_cast` and
+`ability_hud` as readers, triaged in BACKLOG.md under the ability line.
+`lineup` sat here too, inserting the prototypes directory on `sys.path` for
+`minimap_portrait.composition`, and the allowance silenced the check; the
+histogram moved to `appearance.portrait_composition` (2026-10-04).
 """
