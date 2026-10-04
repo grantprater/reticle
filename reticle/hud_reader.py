@@ -85,6 +85,8 @@ class HudReader:
             "kf_unparsed_reason": kf.unparsed_reason,
             "kf_empty_bands": kf.empty_bands,
             "kf_empty_band_reason": kf.empty_band_reason,
+            "kf_dropped_bands": kf.dropped_bands,
+            "kf_dropped_band_reason": kf.dropped_band_reason,
             "clock_reason": r.clock_reason,
             "score_left_reason": r.score_left_reason, "score_right_reason": r.score_right_reason,
             "kf_ally_mask": kf.ally_mask, "kf_enemy_mask": kf.enemy_mask,

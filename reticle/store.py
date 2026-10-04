@@ -469,6 +469,14 @@ class Store:
             "kf_empty_bands": pa.array(col("kf_empty_bands"), type=pa.int16()),
             "kf_empty_band_reason": pa.array(col("kf_empty_band_reason"),
                                            type=pa.dictionary(pa.int8(), pa.string())),
+            # Bands refused before they became entries, and the first one's
+            # reason (`killfeed.KillfeedRead.dropped_band_reason`): masked out,
+            # no plate colour, or a one-colour band without an entry's
+            # furniture. Null on rows written before hud-0.19.0.
+            "kf_dropped_bands": pa.array([r.get("kf_dropped_bands") for r in rows],
+                                         type=pa.int16()),
+            "kf_dropped_band_reason": pa.array([r.get("kf_dropped_band_reason") for r in rows],
+                                               type=pa.dictionary(pa.int8(), pa.string())),
             # Each entry's weapon-icon divider column, packed nine bits per
             # stack slot. An entry's divider does not move while it is on
             # screen, so this is what tells one entry from the next when both
