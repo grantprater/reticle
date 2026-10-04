@@ -790,3 +790,6 @@ and enemy views, not the demos' self view, so one +1 s frame after each
 excluded ability's earliest cast audits the exclusion, scored apart. Its labels are held-out for
 `prototypes/minimap_glyph_eval.py` and never tuned on; the module docstring
 fixes the split and lists the controls.
+
+The smoke channel scored on the same labels missed most Omen:E marks; the
+causes are in [OMEN_DARK_COVER_MISSES.md](OMEN_DARK_COVER_MISSES.md).
