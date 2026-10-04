@@ -650,7 +650,7 @@ def select_session(store, sid: str) -> dict:
     ability pass's own 2 Hz grid over the minimap crop cache."""
     from reticle import gametime, stalls
     from reticle.ability_scan import LIVE_PHASES, shape_reader
-    from reticle.cli import _active_spans, _date_of, _live_round_spans
+    from reticle.cli import _reader_spans, _date_of, _live_round_spans
     from reticle.minimap import minimap_roi_px
     from reticle.passes import SessionContext, cache_feed
     from reticle.profiles import get_profile
@@ -662,7 +662,7 @@ def select_session(store, sid: str) -> dict:
         raise SystemExit(f"{sid}: {dur_min:.1f} min is not a match (needs > 15)")
     date = _date_of(man)
     profile = get_profile(man["source_profile"])
-    spans = _active_spans(store, sid, date)
+    spans = _reader_spans(store, sid, date)
     ctx = SessionContext(store=store, manifest=man, profile=profile, spans=spans)
     bp = shape_reader(ctx, spans)
     declare_set(bp, "minimap", profile, ctx.wh)

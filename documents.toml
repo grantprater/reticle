@@ -466,6 +466,12 @@ remains = "Every step: the player's list of icons beside the victim's name, a ki
 waits_for = "The player's answer on which icons can appear beside the victim's name."
 
 [[document]]
+path = "docs/MATCH_FETCH_KIT.md"
+kind = "reference"
+status = "live"
+since = "2026-10-04"
+
+[[document]]
 path = "docs/EXTERNAL_GROUND_TRUTH.md"
 kind = "plan"
 status = "proposed"

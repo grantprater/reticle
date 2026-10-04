@@ -865,5 +865,61 @@ class PlacementMovedTests(unittest.TestCase):
             self.assertEqual(stale(store, ["s"])["s"]["placement"], {})
 
 
+class _SpanStore(_Store):
+    """A store that holds the spans table the minimap readers read."""
+
+    def spans_path(self, sid, date):
+        return self._path("spans", sid, date)
+
+
+class SpanPlanTests(unittest.TestCase):
+    """seg-0.3.0: the minimap readers read every in-match span, so spans the
+    segmenter rebuilt stale every reader that read the old ones."""
+
+    def _store(self, root: Path, seg: str, dark_head: dict) -> _SpanStore:
+        store = _current_store(root)
+        store.__class__ = _SpanStore
+        store.table("spans", segmenter_version=seg)
+        store.events["minimap_dark:rows"] = [dark_head]
+        return store
+
+    def test_old_spans_name_the_segment_rerun_and_every_span_reader(self):
+        from reticle.version import SEGMENTER_VERSION
+        with tempfile.TemporaryDirectory() as d:
+            plan = stale(self._store(Path(d), "seg-0.2.0", {}), ["s"])["s"]
+            spans = [x for x in plan["derived"] if x["stream"] == "spans"]
+            self.assertEqual([(x["stored"], x["current"], x["command"]) for x in spans],
+                             [("seg-0.2.0", SEGMENTER_VERSION, "reticle segment s")])
+            moved = {x["stream"] for x in plan["decode"] if "spans" in x.get("inputs_moved", [])}
+            self.assertEqual(moved, {"minimap", "ping", "ally_icon", "minimap_dark"})
+            self.assertIn("reticle segment <sid>", render({"s": plan}))
+
+    def test_a_reader_read_before_the_rebuild_is_stale_after_it(self):
+        from reticle.version import SEGMENTER_VERSION
+        with tempfile.TemporaryDirectory() as d:
+            # Its head records no spans: it read seg-0.2.0's active spans.
+            plan = stale(self._store(Path(d), SEGMENTER_VERSION, {}), ["s"])["s"]
+            self.assertNotIn("spans", [x["stream"] for x in plan["derived"]])
+            dark = [x for x in plan["decode"] if x["stream"] == "minimap_dark"]
+            self.assertEqual([x["inputs_moved"] for x in dark], [["spans"]])
+            self.assertIn("minimap", [x["stream"] for x in plan["decode"]])
+
+    def test_a_reader_that_read_the_current_spans_is_current(self):
+        from reticle.plan import spans_read_moved
+        from reticle.version import MINIMAP_VERSION, SEGMENTER_VERSION
+        with tempfile.TemporaryDirectory() as d:
+            store = self._store(Path(d), SEGMENTER_VERSION,
+                                {"inputs": {"spans": SEGMENTER_VERSION}})
+            plan = stale(store, ["s"])["s"]
+            self.assertNotIn("minimap_dark", [x["stream"] for x in plan["decode"]])
+            # `scan` asks the same question before it rereads.
+            man = store.read_manifest("s")
+            self.assertFalse(spans_read_moved(store, man, "minimap_dark"))
+            self.assertTrue(spans_read_moved(store, man, "minimap"))
+            store.table("minimap", minimap_version=MINIMAP_VERSION,
+                        segmenter_version=SEGMENTER_VERSION)
+            self.assertFalse(spans_read_moved(store, man, "minimap"))
+
+
 if __name__ == "__main__":
     unittest.main()
