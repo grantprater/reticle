@@ -27,6 +27,31 @@ A placement the capture crop cannot hold is refused by name,
 `crop_clips_widget`, with the fraction of the baked floor that falls outside
 the crop; it is never read as an absent widget.
 
+A side-based widget turns at the side switch. A session whose manifest or
+profile declares `minimap_mode.orientation` `per_side`, or whose stored
+`widget_drawn` rate collapses at the halftime switch
+[domain:rounds/halftime-side-swap] (`drawn_collapse`), needs a stored
+placement before any reader reads its minimap: unread, the turned half meets
+the unturned static and reads as an absent widget (b3b9defb6fd7 read 0 of
+5018 second-half frames drawn). `placement_status` names such a session and
+`fit_command` the fix; `unplaced_refusal` makes the crop cache and a decode
+pass refuse it by name; `scan` fits it from the crop cache (`fit_session`,
+which fits a frame in each stored round as well as the evenly spread ones)
+and writes the placement through `write_placement`, the path `widget-fit
+--write` takes, with its provenance. A per-side session that never turns
+stores its identity placement, so it is not fitted again. A fitted turn
+starts at the stored start of the round it opens, not at the first cached
+frame that reads turned (`snap_switch`)
+[domain:minimap/side-based-widget-turns-between-rounds].
+
+The capture box a session's minimap cache is cut with holds the widget
+under every stored placement and the profile's own ROI (`capture_box_for`):
+one crop serves both halves of a side-based match.
+
+Portraits keep their on-screen orientation on a turned map
+[domain:minimap/upright-icons-on-turned-map], so the readers that score a
+portrait turn it back where `turned_at` says the placement is turned.
+
 Owns [owns:minimap-widget-frame].
 """
 from __future__ import annotations
@@ -38,7 +63,16 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-WIDGET_FRAME_VERSION = "widget-frame-0.1.0"
+#: 0.2.0 (2026-10-04): the fit also fits a cached frame inside each stored
+#: round and records the rounds its segments start in (`switch_rounds`); a
+#: per-side session that fits identity stores that placement; the capture box
+#: is the union of every segment's box and the profile's ROI (`capture_box_for`).
+#: 0.3.0 (2026-10-04): a turn starts at the stored start of the round that
+#: holds its first turned cached frame, not at that frame, and `switch_round`
+#: names that round (0.2.0 named the next one wherever a cache gap followed
+#: the round start); a turn the bracketing frames cannot place at exactly one
+#: round start is refused (`snap_switch`).
+WIDGET_FRAME_VERSION = "widget-frame-0.3.0"
 #: The manifest key that holds a session's placements and capture box.
 MANIFEST_KEY = "minimap_widget"
 #: The tag a session with a non-identity placement carries.
@@ -62,6 +96,16 @@ MAX_CLIP = 0.005
 #: Translation and scale tolerances under which a placement IS the baked one.
 IDENTITY_PX = 0.5
 IDENTITY_SCALE = 0.005
+#: The stored `widget_drawn` collapse that names a turned widget read without
+#: its placement: at some round boundary, the rate inside the rounds before it
+#: at least DRAWN_BEFORE_MIN and inside the rounds from it on at most
+#: DRAWN_AFTER_MAX. Declared cuts in an empty band: over the 20 stored matches
+#: with a round 13 and no placement, the rates before and after round 13 ran
+#: 0.950-0.986, except b3b9defb6fd7's 0.977 then 0.000.
+DRAWN_BEFORE_MIN = 0.60
+DRAWN_AFTER_MAX = 0.20
+#: The fewest rounds on each side of a boundary the collapse test weighs.
+COLLAPSE_MIN_ROUNDS = 3
 
 
 # ---------------------------------------------------------------- geometry
@@ -215,8 +259,10 @@ def placement_segments(fits: list[tuple[float, dict | None]]) -> list[dict]:
 # ---------------------------------------------------------------- manifest
 
 def record(segs: list[dict], key: str, baked_roi, capture_box, source: str,
-           n_frames: int) -> dict:
-    """The manifest entry for a fitted session, with provenance and stamp."""
+           n_frames: int, rounds_from: str | None = None, why: str | None = None) -> dict:
+    """The manifest entry for a fitted session, with provenance and stamp.
+    `rounds_from` names the round table whose rounds were fitted, `why` what
+    asked for the fit (`placement_status`'s reason, or `widget-fit`)."""
     return {
         "version": WIDGET_FRAME_VERSION,
         "method": "baked static NCC fit over rotation, scale and translation "
@@ -226,6 +272,8 @@ def record(segs: list[dict], key: str, baked_roi, capture_box, source: str,
         "capture_box": None if capture_box is None else [int(v) for v in capture_box],
         "fitted_from": source,
         "fitted_frames": int(n_frames),
+        "fitted_rounds_from": rounds_from,
+        "fitted_because": why,
         "fitted_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "segments": segs,
     }
@@ -259,6 +307,155 @@ def capture_box(manifest: dict) -> list[int] | None:
     e = (manifest or {}).get(MANIFEST_KEY)
     box = e.get("capture_box") if isinstance(e, dict) else None
     return [int(v) for v in box] if box else None
+
+
+# ---------------------------------------------------------------- side-based widgets
+
+def declared_orientation(manifest: dict) -> str:
+    """The minimap orientation the session declares: the manifest's
+    `minimap_mode.orientation`, else its profile's, else `always_same`."""
+    mode = (manifest or {}).get("minimap_mode") or {}
+    if mode.get("orientation"):
+        return str(mode["orientation"])
+    try:
+        from .profiles import get_profile
+        return get_profile(manifest["source_profile"]).minimap.orientation
+    except (KeyError, SystemExit, ValueError):
+        return "always_same"
+
+
+def fit_command(sid: str) -> str:
+    """The command that fits and stores a session's placement."""
+    return f"reticle widget-fit {sid} --write"
+
+
+def unplaced_refusal(manifest: dict) -> str | None:
+    """Why a minimap read of this session is refused before it has a stored
+    placement: it declares a side-based orientation, so half the match draws
+    the widget turned. None once any placement is stored."""
+    if entry(manifest) is not None or declared_orientation(manifest) != "per_side":
+        return None
+    return (f"per_side_unplaced: the session declares a side-based minimap and stores "
+            f"no placement -- run `{fit_command(manifest['session_id'])}`")
+
+
+def drawn_collapse(t_ms, drawn, rounds: list[dict]) -> dict | None:
+    """The round boundary where the stored `widget_drawn` rate collapses, or None.
+
+    `t_ms` and `drawn` are a minimap stream's sample times and flags; `rounds`
+    the stored round rows (`round_no`, `t_start_ms`, `t_end_ms`). The rate is
+    taken inside rounds only. The boundary returned is the round start with
+    the rounds before it drawn at `DRAWN_BEFORE_MIN` or more and the rounds
+    from it on at `DRAWN_AFTER_MAX` or less, each side `COLLAPSE_MIN_ROUNDS`
+    rounds or more; the largest drop wins."""
+    if len(rounds) < 2 * COLLAPSE_MIN_ROUNDS:
+        return None
+    rs = sorted(rounds, key=lambda r: r["t_start_ms"])
+    t = np.asarray(t_ms, float)
+    d = np.asarray(drawn, float)
+    a = np.asarray([r["t_start_ms"] for r in rs], float)
+    z = np.asarray([r["t_end_ms"] for r in rs], float)
+    k = np.searchsorted(a, t, side="right") - 1
+    ok = (k >= 0) & (t < z[np.clip(k, 0, None)])
+    k, d = k[ok], d[ok]
+    n = np.bincount(k, minlength=len(rs)).astype(float)
+    s = np.bincount(k, weights=d, minlength=len(rs))
+    cn, cs = np.cumsum(n), np.cumsum(s)
+    best = None
+    for i in range(COLLAPSE_MIN_ROUNDS, len(rs) - COLLAPSE_MIN_ROUNDS + 1):
+        nb, na = cn[i - 1], cn[-1] - cn[i - 1]
+        if nb == 0 or na == 0:
+            continue
+        before, after = cs[i - 1] / nb, (cs[-1] - cs[i - 1]) / na
+        if before >= DRAWN_BEFORE_MIN and after <= DRAWN_AFTER_MAX:
+            if best is None or before - after > best["before"] - best["after"]:
+                best = {"round_no": int(rs[i]["round_no"]), "t_ms": float(a[i]),
+                        "before": round(float(before), 3), "after": round(float(after), 3),
+                        "frames_before": int(nb), "frames_after": int(na)}
+    return best
+
+
+def stored_collapse(store, manifest: dict) -> dict | None:
+    """`drawn_collapse` over the session's stored minimap table and rounds;
+    None where either is not stored."""
+    import pyarrow.parquet as pq
+    sid, date = manifest["session_id"], manifest["ingested_at"][:10]
+    mp, rp = store.minimap_path(sid, date), store.rounds_path(sid, date)
+    if not mp.is_file() or not rp.is_file():
+        return None
+    if not ({"t_ms", "widget_drawn"} <= set(pq.read_schema(mp).names)
+            and {"round_no", "t_start_ms", "t_end_ms"} <= set(pq.read_schema(rp).names)):
+        return None
+    m = pq.read_table(mp, columns=["t_ms", "widget_drawn"]).to_pydict()
+    r = pq.read_table(rp, columns=["round_no", "t_start_ms", "t_end_ms"]).to_pylist()
+    return drawn_collapse(m["t_ms"], [bool(v) for v in m["widget_drawn"]], r)
+
+
+def placement_status(store, manifest: dict) -> dict | None:
+    """Why this session needs a placement fit before its minimap is read, or
+    None: `per_side_unplaced` (declared side-based, nothing stored) or
+    `drawn_collapse_unplaced` (the stored `widget_drawn` rate collapses at a
+    round boundary, nothing stored). Each names `fit_command`."""
+    if entry(manifest) is not None:
+        return None
+    sid = manifest["session_id"]
+    if declared_orientation(manifest) == "per_side":
+        return {"reason": "per_side_unplaced", "command": fit_command(sid),
+                "detail": "declares a side-based minimap (minimap_mode.orientation per_side)"}
+    c = stored_collapse(store, manifest)
+    if c is not None:
+        return {"reason": "drawn_collapse_unplaced", "command": fit_command(sid),
+                "detail": (f"widget_drawn {c['before']:.3f} before round {c['round_no']} "
+                           f"and {c['after']:.3f} from it"), "collapse": c}
+    return None
+
+
+def upright_throughout(store, manifest: dict) -> tuple[bool | None, str]:
+    """Whether every minimap frame of the session is read upright, with why.
+
+    True where a stored placement holds no turned segment, or where none is
+    stored and the session is not side-based: it declares no `per_side`
+    orientation and its stored `widget_drawn` rate does not collapse at a
+    round boundary (`placement_status` is None over a stored minimap table and
+    round table that hold the columns `drawn_collapse` reads). False where a
+    stored segment is turned (`turned_at`). None where it is unknown: a
+    side-based session with no placement stored, or no stored minimap or round
+    table to look for a collapse in."""
+    import pyarrow.parquet as pq
+    e = entry(manifest)
+    if e is not None:
+        if turned_at(manifest) is not None:
+            return False, "turned: a stored placement segment is rotated 180 degrees"
+        return True, f"upright: {len(e['segments'])} stored placement segments, none turned"
+    status = placement_status(store, manifest)
+    if status is not None:
+        return None, f"unknown: {status['reason']}, no placement stored"
+    sid, date = manifest["session_id"], manifest["ingested_at"][:10]
+    need = ((store.minimap_path(sid, date), {"t_ms", "widget_drawn"}),
+            (store.rounds_path(sid, date), {"round_no", "t_start_ms", "t_end_ms"}))
+    if not all(p.is_file() and cols <= set(pq.read_schema(p).names) for p, cols in need):
+        return None, "unknown: no stored minimap and round tables to look for a side switch in"
+    return True, "upright: not side-based (always_same, no widget_drawn collapse), baked placement"
+
+
+def turned_at(manifest: dict):
+    """A function of `t_ms` that is True where the session's stored placement
+    is rotated 180 degrees; None where no stored segment is turned.
+
+    Portraits keep their on-screen orientation on a turned map
+    [domain:minimap/upright-icons-on-turned-map], so a portrait read in the
+    baked frame there arrives upside down and its reader turns it back."""
+    e = entry(manifest)
+    if e is None:
+        return None
+    spans = [(s.get("t0_ms"), s.get("t1_ms")) for s in e["segments"]
+             if int(s.get("rotation") or 0) % 360 == 180]
+    if not spans:
+        return None
+
+    def turned(t_ms: float) -> bool:
+        return any((a is None or t_ms >= a) and (b is None or t_ms < b) for a, b in spans)
+    return turned
 
 
 # ---------------------------------------------------------------- application
@@ -355,13 +552,61 @@ def needed_box(segs: list[dict], shape: tuple[int, int], wh: tuple[int, int],
     return [int(max(0, x0)), int(max(0, y0)), int(min(wh[0], x1)), int(min(wh[1], y1))]
 
 
-def fit_session(manifest: dict, cache, store_root, n: int = 24) -> dict:
+def capture_box_for(segs: list[dict], shape: tuple[int, int], wh: tuple[int, int],
+                    profile_rect, margin: int = 4) -> list[int]:
+    """The minimap crop a session's cache is cut with: the union of every
+    segment's placed widget (`needed_box`) and the profile's own minimap ROI,
+    so one crop holds the widget under every stored placement and never less
+    than the profile crops."""
+    need = needed_box(segs, shape, wh, margin)
+    p = [int(v) for v in profile_rect]
+    return [min(need[0], p[0]), min(need[1], p[1]), max(need[2], p[2]), max(need[3], p[3])]
+
+
+def write_placement(store, manifest: dict, rec: dict, variant: bool) -> Path:
+    """Store a fitted placement on the manifest (`record`'s entry): a previous
+    one moves to `minimap_widget_history`, never overwritten, and a variant
+    is tagged `VARIANT_TAG`. The one path `widget-fit --write` and `scan`'s
+    automatic fit both take."""
+    import json
+    man = manifest
+    if man.get(MANIFEST_KEY):
+        man.setdefault(MANIFEST_KEY + "_history", []).append(man[MANIFEST_KEY])
+    man[MANIFEST_KEY] = rec
+    if variant and VARIANT_TAG not in man.setdefault("tags", []):
+        man["tags"].append(VARIANT_TAG)
+    path = store.manifest_path(man["session_id"])
+    path.write_text(json.dumps(man, indent=2), encoding="utf-8")
+    return path
+
+
+def round_frames(ts: np.ndarray, rounds: list[dict] | None) -> list[float]:
+    """One cached time per stored round, the one nearest its middle, so a
+    side switch at any round boundary is fitted on both sides."""
+    if not rounds or not len(ts):
+        return []
+    out = []
+    for r in rounds:
+        mid = 0.5 * (float(r["t_start_ms"]) + float(r["t_end_ms"]))
+        i = int(np.argmin(np.abs(ts - mid)))
+        if r["t_start_ms"] <= ts[i] < r["t_end_ms"]:
+            out.append(float(ts[i]))
+    return out
+
+
+def fit_session(manifest: dict, cache, store_root, n: int = 24,
+                rounds: list[dict] | None = None) -> dict:
     """Fit a session's widget placement from its minimap crop cache (no decode).
 
-    Fits `n` cached frames spread over the capture, groups them into segments
-    (`placement_segments`), then moves each segment boundary to the first cached frame
-    between the two fitted frames whose crop the later placement explains
-    better. Returns `{"segments", "frames", "box", "shape"}`.
+    Fits `n` cached frames spread over the capture and, given the stored
+    `rounds`, one cached frame inside each round (`round_frames`), groups them
+    into segments (`placement_segments`), then moves each segment boundary to
+    the first cached frame between the two fitted frames whose crop the later
+    placement explains better. Each later segment records the cached frames
+    that bracket its change (`t_prev_last_ms`, `t_first_ms`); with `rounds`,
+    a turn moves to the start of the round that holds its first turned frame
+    and records that round as `switch_round`, or is refused by name
+    (`snap_switch`). Returns `{"segments", "frames", "box", "shape"}`.
     """
     from . import geometry
     sid = manifest["session_id"]
@@ -373,6 +618,7 @@ def fit_session(manifest: dict, cache, store_root, n: int = 24) -> dict:
     if not len(ts):
         raise SystemExit(f"{sid}: the minimap cache holds no frames")
     pick = [float(t) for t in ts[np.linspace(0, len(ts) - 1, min(n, len(ts))).astype(int)]]
+    pick = sorted(set(pick) | set(round_frames(ts, rounds)))
     fits = [(smp.t_ms, fit_crop(sgray, smp.frame[y0:y1, x0:x1], (x0, y0)))
             for smp in cache.samples(pick, rois=("minimap",), normalise=False)]
     segs = placement_segments(fits)
@@ -381,13 +627,135 @@ def fit_session(manifest: dict, cache, store_root, n: int = 24) -> dict:
         for smp in cache.samples(between, rois=("minimap",), normalise=False):
             crop = smp.frame[y0:y1, x0:x1]
             sb = placement_ncc(sgray, crop, (x0, y0), b["affine"])
-            if sb >= MIN_NCC and sb > placement_ncc(sgray, crop, (x0, y0), a["affine"]):
+            sa = placement_ncc(sgray, crop, (x0, y0), a["affine"])
+            if sb >= MIN_NCC and sb > sa:
                 b["t0_ms"] = a["t1_ms"] = smp.t_ms
                 break
+            if sa >= MIN_NCC:
+                a["t_last_ms"] = smp.t_ms
+        # The cached frames that bracket the change: the last one the earlier
+        # placement explains and the first one the later one does.
+        b["t_prev_last_ms"], b["t_first_ms"] = a["t_last_ms"], b["t0_ms"]
+    for a, b in zip(segs, segs[1:]):
+        if rounds:
+            snap_switch(a, b, rounds)
     for s in segs:
         s.pop("t_last_ms", None)
     return {"segments": segs, "frames": len(fits), "box": box,
             "shape": tuple(static.shape[:2])}
+
+
+#: How late a stored round start may stand after the instant it marks: the
+#: rounds table reads its starts from the HUD at 2 Hz (`rounds`), so a start
+#: lags the buy phase by up to one 500 ms sample. b3b9defb6fd7's widget reads
+#: turned from 1430216.67 ms, 283 ms before its stored round 13 start of
+#: 1430500 ms.
+ROUND_START_LAG_MS = 500.0
+
+
+def snap_switch(a: dict, b: dict, rounds: list[dict]) -> None:
+    """Move the turn between segments `a` and `b` to the stored start of the
+    round it opens, and record that round as `switch_round`.
+
+    The sides swap at halftime [domain:rounds/halftime-side-swap], and a
+    side-based widget turns only then, between two rounds
+    [domain:minimap/side-based-widget-turns-between-rounds]. The first cached
+    frame that reads turned bounds the turn from above only: a cache gap at a
+    round start would otherwise mark the round's first seconds upright.
+
+    The round is the one stored round whose start lies after the last cached
+    frame the earlier placement explains (`t_prev_last_ms`) and no later than
+    `ROUND_START_LAG_MS` after the first the later one explains
+    (`t_first_ms`). The turn moves to that start, or to the first turned frame
+    where the frame comes first: a stored start may lag the turn by one HUD
+    sample, and a frame that reads turned is never marked upright.
+
+    The turn is refused, `switch_round` None with `switch_refusal`, and the
+    boundary left at the first turned frame, where the change is not a turn
+    or where the bracket holds no round start or more than one: then the fit
+    cannot place the turn at one round boundary, which falsifies the fact
+    above for this session or names a fit error."""
+    lo, hi = float(b["t_prev_last_ms"]), float(b["t_first_ms"])
+    starts = sorted((float(r["t_start_ms"]), int(r["round_no"])) for r in rounds
+                    if lo < float(r["t_start_ms"]) <= hi + ROUND_START_LAG_MS)
+    why = None
+    if a["rotation"] == b["rotation"]:
+        why = "not_a_turn: the placements differ in scale or corner, not rotation"
+    elif len(starts) != 1:
+        why = (f"unbracketed: {len(starts)} round starts lie after the last earlier "
+               f"frame {lo} ms and by {ROUND_START_LAG_MS:g} ms after the first later "
+               f"frame {hi} ms")
+    if why is not None:
+        b["switch_round"], b["switch_refusal"] = None, why
+        return
+    b["t0_ms"] = a["t1_ms"] = min(starts[0][0], hi)
+    b["switch_round"] = starts[0][1]
+
+
+def fit_placement(store, manifest: dict, n: int = 24) -> dict:
+    """Fit a session's placement from its raw minimap crops and the stored
+    rounds, and the capture box it needs. Writes nothing.
+
+    Returns `{"segments", "frames", "held", "need", "box", "fits", "variant",
+    "record", "store"}`: `held` is the cache's crop, `need` the box every
+    segment's widget needs (`capture_box_for`), `fits` whether `held` holds
+    it, `record` the manifest entry to store, `store` whether to store it (a
+    variant, or a session `placement_status` names, whose identity fit must
+    be stored so the question is answered)."""
+    from . import geometry
+    from .profiles import get_profile
+    from .roi_cache import RoiCache, roi_rects
+    sid = manifest["session_id"]
+    profile = get_profile(manifest["source_profile"])
+    cache, why = RoiCache.load(store.root, manifest, profile, "minimap", raw=True)
+    if cache is None:
+        raise SystemExit(f"{sid}: no minimap cache ({why})")
+    date = manifest["ingested_at"][:10]
+    table = store.read_rounds(sid, date) if store.rounds_path(sid, date).is_file() else None
+    rounds = None if table is None else table.select(
+        ["round_no", "t_start_ms", "t_end_ms"]).to_pylist()
+    got = fit_session(manifest, cache, store.root, n=n, rounds=rounds)
+    segs = got["segments"]
+    if not segs:
+        raise SystemExit(f"{sid}: no cached frame reached ncc {MIN_NCC}")
+    with np.load(geometry.require(sid, store.root)) as z:
+        baked_roi = [int(v) for v in z["roi"]]
+    wh = (int(manifest["source"]["width"]), int(manifest["source"]["height"]))
+    variant = any(not is_identity(sg["affine"], baked_roi) for sg in segs)
+    profile_rect = roi_rects("minimap", profile, wh)[0]
+    need = capture_box_for(segs, got["shape"], wh, profile_rect)
+    held = got["box"]
+    fits = (need[0] >= held[0] and need[1] >= held[1]
+            and need[2] <= held[2] and need[3] <= held[3])
+    # The crop that holds every placement: the one stored, where it holds
+    # them, else the union. None keeps the profile's own crop.
+    box = (capture_box(manifest) if fits else need)
+    status = placement_status(store, manifest)
+    rec = record(segs, geometry.key_of(sid, store.root), baked_roi, box,
+                 f"roi_cache {cache.record['version']} rect {held}", got["frames"],
+                 rounds_from=(None if rounds is None else "rounds " + (
+                     table.schema.metadata or {}).get(b"round_version", b"unstamped").decode()),
+                 why=status["reason"] if status else "widget-fit")
+    return {"segments": segs, "frames": got["frames"], "held": held, "need": need,
+            "box": box, "fits": fits, "variant": variant, "record": rec,
+            "store": variant or status is not None, "status": status,
+            "cache_record": cache.record}
+
+
+def fit_if_needed(store, manifest: dict, n: int = 24) -> dict | None:
+    """`scan`'s automatic step: fit and store the placement of a session
+    `placement_status` names, from its minimap crop cache. None where the
+    session needs none; `{"refused"}` where no cache can be fitted, else
+    `fit_placement`'s result with `path`, the manifest it wrote."""
+    status = placement_status(store, manifest)
+    if status is None:
+        return None
+    try:
+        got = fit_placement(store, manifest, n=n)
+    except SystemExit as e:
+        return {"refused": f"{status['reason']}: {e} -- {status['command']} needs a minimap cache"}
+    got["path"] = write_placement(store, manifest, got["record"], got["variant"])
+    return got
 
 
 class Normalised:

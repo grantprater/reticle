@@ -26,7 +26,8 @@ made visible.
 
 Three things a fact carries beyond its claim
 --------------------------------------------
-`known` is the provenance -- `player`, `measured`, `observed`, `inferred` -- and
+`known` is the provenance -- `player`, `measured`, `observed`, `inferred`,
+`cited` -- and
 it is required because this repo's standing rule is that a guess must stay
 distinguishable from a read. `use` says which channel to read the fact through,
 because *own-team icons are always drawn* is useless without *use the DRAWN
@@ -75,8 +76,11 @@ KINDS = frozenset({
 })
 
 #: How the fact came to be known. Required, because a player's answer and an
-#: inference must never become indistinguishable.
-KNOWN = frozenset({"player", "measured", "observed", "inferred"})
+#: inference must never become indistinguishable. `cited` is an outside
+#: source's claim that nobody here has measured (a third-party parser's docs);
+#: it must name that `source`, and a measurement that confirms it becomes a
+#: separate `measured` fact.
+KNOWN = frozenset({"player", "measured", "observed", "inferred", "cited"})
 
 REQUIRED = ("claim", "kind", "known", "since")
 OPTIONAL = ("use", "exceptions", "source", "see", "phrases", "supersedes",
@@ -364,6 +368,8 @@ def validate(facts: dict[str, Fact],
                                  f"declares depends_on -- a fact someone told us "
                                  f"or we watched happen rests on nothing. Make "
                                  f"it inferred, or drop the dependency."))
+        if fact.known == "cited" and not fact.source:
+            out.append(("ERROR", f"{key} is cited and names no source"))
         if fact.known == "inferred" and not fact.depends_on:
             out.append(("ERROR", f"{key} is inferred and names nothing it rests "
                                  f"on -- add depends_on"))
