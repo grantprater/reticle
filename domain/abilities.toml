@@ -5137,13 +5137,101 @@ exceptions = """
 the scan pulse's event (Play_Hunter_Abil_SonarBolt_SonarPing_upd) plays media
 named Abil_Joules_Q_Sonar_Ping_01, which the store's ability audio export
 (`ability-audio-ref-0.2.0`) does not hold; the gap export
-`audio-sfx-gaps-0.1.0` does, and from `ability-audio-params-0.2.7` the
+`audio-sfx-gaps-0.1.0` does [domain:abilities/sova-recon-bolt-scan-pulse-media],
+and from `ability-audio-params-0.2.7` the
 witness scores it [domain:abilities/sova-recon-bolt-pulse-louder]. The caster
 hears the landing only within his audio range
 [domain:abilities/sova-recon-bolt-landing-audible-range]
 """
 see = ["abilities/sova-shock-bolt-audio-phases", "abilities/ability-sound-phases",
        "abilities/sova-recon-bolt-pulse-louder", "abilities/sova-recon-bolt-pulse-audible-range"]
+
+[sova-recon-bolt-scan-pulse-media]
+claim = """
+The game files hold Recon Bolt's scan-pulse sound: the event
+Play_Hunter_Abil_SonarBolt_SonarPing_upd plays one SFX medium,
+Abil_Joules_Q_Sonar_Ping_01, 2.24 s, filed under a _Char_Joules audio folder
+rather than Sova's own. The controller FXC_Hunter_Q_SonarPulse plays the
+event, and the game object GameObject_Hunter_Q_SonarPing names that
+controller; no other package names either.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+subject = "sova:recon bolt"
+source = """
+game build release-13.06-shipping-18-5590001: game-extract's wwise resolver
+(FModel's) over every character SFX event, kept as
+<store>/reference/game-files/audio-sfx-gaps-0.1.0/ (manifest.jsonl and
+delta.json at the set root, the medium under Sova/); the referrers from the
+whole-game scan release-13.06-shipping-18-5590001/gaps-0.1.0/whorefs-all.tsv. The
+ability-audio-ref filter had dropped the cross-agent _Char_Joules folder
+"""
+use = """
+the scan-pulse reference for scoring a Recon Bolt on its pulses
+[domain:abilities/sova-recon-bolt-audio-phases]
+"""
+exceptions = """
+the "no other package names either" clause rests on the whole-game
+reverse-reference scan (whorefs-all.tsv).
+game-extract's whorefs (src/Commands.cs, WhoRefs and PackageName,
+commit 531a47f) reads each package's hard imports as IoStore package ids and
+its name map, matching a name by its leaf (after the last '/', before the
+first '.', less a _C suffix); a soft object path is held as names, so the
+name-map match sees it. It cannot see a reference stored outside the name
+map (an FString property value, a numeric or hashed id such as a Wwise
+short id), a hard import of a target outside ShooterGame/Content and
+Engine/Content (plugin content, whose package id PackageName never
+computes), a file that is not a package, or a package it failed to load
+(counted as unreadable on stderr); a referrer of any such kind would escape
+it
+"""
+see = ["abilities/sova-recon-bolt-audio-phases"]
+
+[killjoy-minimap-texture-referrers]
+claim = """
+Every Killjoy minimap texture in the game files has a referrer.
+TX_UI_Minimap_Killjoy_E_Active is named only by the controller
+FXC_Killjoy_E_Turret_HasTarget, which only the turret's behaviour tree
+BehaviorTree_Killjoy_E_Turret names. TX_UI_Minimap_Killjoy_Q_Active and
+TX_Hud_Icons_Minimap_Killjoy_Alarmbot_Active are named only by
+FXC_Killjoy_Q_AlarmBot_Detect, which Pawn_Killjoy_Q_StealthAlarmbot names.
+The data names which controller draws each texture; it does not say what the
+player sees.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+subject = "killjoy:turret; killjoy:alarmbot"
+source = """
+game build release-13.06-shipping-18-5590001: the whole-game reverse-reference
+scan (imports and name maps of 289,307 packages) in
+<store>/reference/game-files/release-13.06-shipping-18-5590001/gaps-0.1.0/
+(whorefs-all.tsv, manifest-delta.json); the behaviour tree is exported in
+ability-ai-widgets/, the rest in ability-states/
+"""
+use = """
+reach the turret's active marker through its behaviour tree when the game
+data maps a minimap texture to its state; what the marker means on screen
+stays a question for the player
+[domain:abilities/ability-rules-are-unique]
+"""
+exceptions = """
+the "named only by" clauses rest on the whole-game reverse-reference scan
+(whorefs-all.tsv).
+game-extract's whorefs (src/Commands.cs, WhoRefs and PackageName,
+commit 531a47f) reads each package's hard imports as IoStore package ids and
+its name map, matching a name by its leaf (after the last '/', before the
+first '.', less a _C suffix); a soft object path is held as names, so the
+name-map match sees it. It cannot see a reference stored outside the name
+map (an FString property value, a numeric or hashed id such as a Wwise
+short id), a hard import of a target outside ShooterGame/Content and
+Engine/Content (plugin content, whose package id PackageName never
+computes), a file that is not a package, or a package it failed to load
+(counted as unreadable on stderr); a referrer of any such kind would escape
+it
+"""
+see = ["abilities/killjoy-alarmbot", "abilities/ability-rules-are-unique"]
 
 [ult-castable-at-barrier-drop]
 claim = """
