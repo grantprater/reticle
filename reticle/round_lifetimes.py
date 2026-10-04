@@ -184,21 +184,25 @@ def roster_window(times: list[float], alive: list, t_ms: float) -> list:
     return alive[lo:hi]
 
 
-def ally_capacity(alive_ally, self_seen: bool) -> int | None:
+def ally_capacity(alive_ally, self_seen: bool, spectated: bool = False) -> int | None:
     """How many ally icons the roster licenses in one frame, or None.
 
-    The living allies less the player, and only where the player's own icon
-    is observed: a spectated or absent self is unknown, so nothing is
-    subtracted and nothing is capped. `alive_ally` is one roster read or
-    several (a caller's window of reads); the largest read stands, because
-    the count drops at a death while the dying teammate's icon may still
-    show. None reads are unread, not zero.
+    The living allies less the one the self icon draws, and only where a
+    self icon is observed; an absent self is unknown, so nothing is
+    subtracted and nothing is capped. While the player is dead the self icon
+    draws the spectated teammate instead of that teammate's ally icon
+    [domain:minimap/self-icon-shows-spectated], so the count less one still
+    holds. `spectated` asks for the icons of the living allies when the
+    caller counts that spectated self icon among them: all of them.
+    `alive_ally` is one roster read or several (a caller's window of reads);
+    the largest read stands, because the count drops at a death while the
+    dying teammate's icon may still show. None reads are unread, not zero.
     """
     reads = alive_ally if isinstance(alive_ally, (list, tuple)) else [alive_ally]
     reads = [int(v) for v in reads if v is not None]
     if not reads or not self_seen:
         return None
-    return max(0, max(reads) - 1)
+    return max(0, max(reads) - (0 if spectated else 1))
 
 
 def readable_kind(obs):

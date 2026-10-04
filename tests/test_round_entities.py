@@ -404,6 +404,20 @@ class SelfDeathTests(unittest.TestCase):
         got = [(e["family"], e["agent"]) for e in sorted(ents, key=lambda e: e["first_seen_ms"])]
         self.assertEqual(got, [("self", "Iso"), ("spectated", None), ("self", "Iso")])
 
+    def test_a_spectated_run_is_cut_where_the_teammate_may_change(self):
+        """A teammate's death and a jump no walker makes each start a new
+        spectated piece; walking does not."""
+        from reticle.round_entities import _cut_self
+        xs = [100.0, 100.5, 101.0, 101.5, 160.0, 160.5, 161.0, 161.5]
+        obs = [{"family": "self", "entity_id": "E", "t_ms": 100.0 * k, "x": x, "y": 50.0,
+                "observation_key": f"k{k}"} for k, x in enumerate(xs)]
+        death = {"death_id": "d"}
+        (pieces,) = _cut_self(obs, [(death, 50.0, 1000.0)], switches=[250.0]).values()
+        self.assertEqual([p["t"] for p in pieces],
+                         [[0.0], [100.0, 200.0], [300.0], [400.0, 500.0, 600.0, 700.0]])
+        self.assertEqual([p["spectated"] for p in pieces], [False, True, True, True])
+        self.assertIs(pieces[0]["death"], death)
+
     def test_no_death_leaves_one_self_entity_named_by_the_arbiter(self):
         ents, _ = self._run([])
         (me,) = ents

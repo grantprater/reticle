@@ -30,7 +30,10 @@ Observation mapping, and why
   dead are entities of family `spectated`, because the self icon then marks
   the spectated teammate [domain:minimap/self-icon-shows-spectated]; their
   observations keep the reader's `self` family. The arbiter names every self
-  piece from a `self_track` claim (`_self_verdicts`).
+  piece from a `self_track` claim (`_self_verdicts`). A spectated piece is
+  cut again wherever the spectated teammate may change, and
+  `identity.assign_ally_pieces` names it with the ally pieces, by
+  elimination: it carries no portrait evidence of its own.
 
 A widget-absent frame is passed as `source_state="absent"`, which suspends
 association rather than ending anything.
@@ -45,6 +48,7 @@ from .usage import step
 
 from .round_lifetimes import (ROSTER_LAG_MS, ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank,
                               death_refusal, roster_window, seen_after_death)
+from .track import CLASSES, admits, association_tolerance
 
 # 0.8.0 (2026-09-26): `ally_dead_intervals` gives `identity.assign_ally_pieces`
 # each round's killfeed dead intervals, and the owner bars a dead teammate
@@ -84,7 +88,13 @@ from .round_lifetimes import (ROSTER_LAG_MS, ROUND_LIFETIME_VERSION, RoundLifeti
 # [domain:minimap/self-icon-shows-spectated]. Every self piece is named by
 # `adjudication.identity`'s arbiter from a `self_track` claim that
 # `depends_on` the player entity; nothing assigns the player's agent here.
-ROUND_ENTITY_VERSION = "round-entity-0.15.0"
+# 0.16.0 (2026-10-04): spectated pieces are cut again at each teammate's
+# death and where the icon jumps further than a walker may (`track.admits`),
+# and join `identity.assign_ally_pieces` as pieces of the spectated teammate
+# with the side's teammates as candidates, named by elimination; a frame
+# holding one counts it among the living allies
+# (`round_lifetimes.ally_capacity(spectated=True)`).
+ROUND_ENTITY_VERSION = "round-entity-0.16.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
@@ -215,14 +225,19 @@ def player_dead_spans(deaths, player_agent: str | None, end_ms: float) -> list[t
 SELF_TRACK_CHANNEL = "self_track"
 
 
-def _cut_self(obs_rows: list[dict], spans: list[tuple]) -> dict:
+def _cut_self(obs_rows: list[dict], spans: list[tuple], switches=(), scale: float = 1.0) -> dict:
     """`{self segment: [piece, ...]}` for each self entity of one round that
     the player's dead `spans` cut; an uncut segment is absent.
 
-    A piece is `{"id", "spectated", "t", "keys", "xy", "death"}`: a run of the
-    segment's observations, `spectated` while the player is dead (strictly
-    inside a span), and `death` the verdict that opened the span after an
-    alive piece. An observation at the death's instant is the player's."""
+    A piece is `{"id", "spectated", "t", "keys", "xy", "death", "dead_from"}`:
+    a run of the segment's observations, `spectated` while the player is dead
+    (strictly inside a span), and `death` the verdict that opened the span
+    after an alive piece. An observation at the death's instant is the
+    player's. One spectated piece must stay one teammate, so a spectated run
+    is cut again where the spectated teammate may change: after each time in
+    `switches` (a teammate's death), and where the icon moves further than a
+    walker may between two observations (`track.admits`, the tracker's
+    motion rule), as it does when the player spectates another teammate."""
     import numpy as np
 
     by_seg: dict[str, list[dict]] = {}
@@ -241,7 +256,16 @@ def _cut_self(obs_rows: list[dict], spans: list[tuple]) -> dict:
         dead = inside.any(axis=1)
         if not dead.any():
             continue
-        cuts = np.concatenate([[0], np.flatnonzero(np.diff(dead.astype(np.int8))) + 1, [len(ts)]])
+        epoch = np.searchsorted(np.sort(np.asarray(switches, dtype=float)), ts)
+        xy = np.array([(o["x"], o["y"]) for o in obs])
+        step_px = np.hypot(*np.diff(xy, axis=0).T) - association_tolerance(scale)
+        both = dead[1:] & dead[:-1]
+        jump = np.zeros(len(step_px), bool)
+        for i in np.flatnonzero(both & (step_px > 0)):
+            jump[i] = not admits(CLASSES["walker"], float(step_px[i]),
+                                 float(ts[i + 1] - ts[i]) / 1000.0, scale)[0]
+        cut = (np.diff(dead.astype(np.int8)) != 0) | (dead[1:] & (np.diff(epoch) != 0)) | jump
+        cuts = np.concatenate([[0], np.flatnonzero(cut) + 1, [len(ts)]])
         pieces = []
         for j, (a, b) in enumerate(zip(cuts[:-1], cuts[1:])):
             nxt = int(np.argmax(inside[b])) if b < len(ts) and dead[b] else None
@@ -414,7 +438,10 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
     with step("cut_self"):
         for rec in round_records:
             rec["self_pieces"] = _cut_self(
-                rec["obs_rows"], player_dead_spans(rec["deaths"], player_agent, rec["z"]))
+                rec["obs_rows"], player_dead_spans(rec["deaths"], player_agent, rec["z"]),
+                [d["t_ms"] for d in rec["deaths"] if d.get("t_ms") is not None
+                 and not _is_player_death(d, player_agent) and death_refusal(d) is None],
+                scale)
             for ps in rec["self_pieces"].values():
                 for p in ps:
                     self_piece_of.update(dict.fromkeys(p["keys"], p["id"]))
@@ -544,6 +571,11 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
             if not cut:
                 units[ent["id"]] = (False, ent["last_seen_ms"], None)
     self_names = _self_verdicts(session_id, units, player_agent)
+    # A spectated piece the ally owner named or refused takes that verdict.
+    for pid, (spect, _, _) in units.items():
+        v = verdicts.get(pid) if spect else None
+        if v is not None:
+            self_names[pid] = {**v, "reason": v["reason"] and f"spectated: {v['reason']}"}
 
     rows: list[dict] = []
     piece_of = {**named.get("piece_of", {}), **self_piece_of}
@@ -592,6 +624,8 @@ def _named(v: dict, session_id: str) -> dict:
            "teammate_key": f"{session_id}:teammate:{v['agent']}" if v["agent"] else None}
     if v["reason"]:
         out["identity_reason"] = v["reason"]
+    if v.get("depends_on"):
+        out["identity_depends_on"] = v["depends_on"]
     return out
 
 
@@ -766,7 +800,7 @@ def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, ref
     penalty = SWITCH * max([e["margin_min"] for e in scored] or [0.0])
     pieces, pieces_of, piece_of, last_piece = {}, {}, {}, {}
     frames: dict[tuple, set] = {}
-    self_seen = set()
+    self_seen, spectated = set(), set()
     with step("pieces"):
         for rec in round_records:
             rno, segs = rec["round_no"], {}
@@ -792,7 +826,18 @@ def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, ref
                     for t, k in part:
                         piece_of[k] = pid
                         frames.setdefault((rno, t), set()).add(pid)
-    capacity = {f: ally_capacity(_roster_window(rt, ra, f[1]) if rt else None, f in self_seen)
+            # While the player is dead the self icon is a living teammate's,
+            # the side's names its candidates; the owner names it by
+            # elimination [domain:minimap/self-icon-shows-spectated].
+            for sp in (sp for ps in rec["self_pieces"].values() for sp in ps
+                       if sp["spectated"]):
+                pieces[sp["id"]] = {"round": rno, "t": sp["t"], "claims": [],
+                                    "candidates": names}
+                for t in sp["t"]:
+                    frames.setdefault((rno, t), set()).add(sp["id"])
+                    spectated.add((rno, t))
+    capacity = {f: ally_capacity(_roster_window(rt, ra, f[1]) if rt else None, f in self_seen,
+                                 spectated=f in spectated)
                 for f in frames}
     dead = ally_dead_intervals([d for rec in round_records for d in rec["deaths"]],
                           {rec["round_no"]: rec["z"] for rec in round_records}, rt, ra)
@@ -804,7 +849,7 @@ def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, ref
     arb.extend(identity_claim(
         pid, v["agent"], channel="ally_track", reason=v["reason"],
         source_version=AGENT_IDENTITY_VERSION, observed_at_ms=pieces[pid]["t"][-1],
-        binding_from="round_entity", evidence={k: v[k] for k in (
+        binding_from="round_entity", depends_on=v["depends_on"], evidence={k: v[k] for k in (
             "evidence_sum", "reference_source", "gap", "fit", "exact", "votes")})
         for pid, v in assigned.items())
     verdicts = {}
