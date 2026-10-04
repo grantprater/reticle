@@ -33,7 +33,10 @@ Observation mapping, and why
   piece from a `self_track` claim (`_self_verdicts`). A spectated piece is
   cut again wherever the spectated teammate may change, and
   `identity.assign_ally_pieces` names it with the ally pieces, by
-  elimination: it carries no portrait evidence of its own.
+  elimination: it carries no portrait evidence of its own. Its row records
+  the gates the elimination rests on (`identity_gates`: the side's
+  candidates and the killfeed bars on dead teammates) beside the named
+  pieces it depends on (`identity_depends_on`).
 
 A widget-absent frame is passed as `source_state="absent"`, which suspends
 association rather than ending anything.
@@ -48,7 +51,7 @@ from .usage import step
 
 from .round_lifetimes import (ROSTER_LAG_MS, ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank,
                               death_refusal, roster_window, seen_after_death)
-from .track import CLASSES, admits, association_tolerance
+from .track import CLASSES, admits_many, association_tolerance
 
 # 0.8.0 (2026-09-26): `ally_dead_intervals` gives `identity.assign_ally_pieces`
 # each round's killfeed dead intervals, and the owner bars a dead teammate
@@ -94,7 +97,10 @@ from .track import CLASSES, admits, association_tolerance
 # with the side's teammates as candidates, named by elimination; a frame
 # holding one counts it among the living allies
 # (`round_lifetimes.ally_capacity(spectated=True)`).
-ROUND_ENTITY_VERSION = "round-entity-0.16.0"
+# 0.17.0 (2026-10-04): a spectated piece's row records `identity_gates`, the
+# candidate set and the killfeed bars on dead teammates its elimination rests
+# on; a piece with no `identity_depends_on` rests on these gates alone.
+ROUND_ENTITY_VERSION = "round-entity-0.17.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.
@@ -236,46 +242,52 @@ def _cut_self(obs_rows: list[dict], spans: list[tuple], switches=(), scale: floa
     player's. One spectated piece must stay one teammate, so a spectated run
     is cut again where the spectated teammate may change: after each time in
     `switches` (a teammate's death), and where the icon moves further than a
-    walker may between two observations (`track.admits`, the tracker's
+    walker may between two observations (`track.admits_many`, the tracker's
     motion rule), as it does when the player spectates another teammate."""
     import numpy as np
+    from operator import itemgetter
 
-    by_seg: dict[str, list[dict]] = {}
-    for o in obs_rows:
-        if o["family"] == "self" and o["entity_id"]:
-            by_seg.setdefault(o["entity_id"], []).append(o)
-    if not spans or not by_seg:
+    if not spans or not obs_rows:
         return {}
+    fam = np.array(list(map(itemgetter("family"), obs_rows)), dtype=object)
+    eid = np.array(list(map(itemgetter("entity_id"), obs_rows)), dtype=object)
+    mine = np.flatnonzero((fam == "self") & eid.astype(bool))
+    if not len(mine):
+        return {}
+    seg_of = eid[mine].astype(str)
+    segs, first = np.unique(seg_of, return_index=True)
     starts = np.array([s for _, s, _ in spans])
     ends = np.array([e for _, _, e in spans])
+    walker = CLASSES["walker"]
+    stops = np.sort(np.asarray(switches, dtype=float))
     out = {}
-    for seg, obs in by_seg.items():
-        obs.sort(key=lambda o: o["t_ms"])
-        ts = np.array([o["t_ms"] for o in obs])
+    for seg in segs[np.argsort(first)].tolist():
+        obs = list(map(obs_rows.__getitem__, mine[seg_of == seg].tolist()))
+        ts = np.array(list(map(itemgetter("t_ms"), obs)))
+        order = np.argsort(ts, kind="stable")
+        obs, ts = list(map(obs.__getitem__, order.tolist())), ts[order]
         inside = (ts[:, None] > starts) & (ts[:, None] < ends)
         dead = inside.any(axis=1)
         if not dead.any():
             continue
-        epoch = np.searchsorted(np.sort(np.asarray(switches, dtype=float)), ts)
-        xy = np.array([(o["x"], o["y"]) for o in obs])
+        epoch = np.searchsorted(stops, ts)
+        xy = np.column_stack([np.array(list(map(itemgetter("x"), obs)), dtype=float),
+                              np.array(list(map(itemgetter("y"), obs)), dtype=float)])
         step_px = np.hypot(*np.diff(xy, axis=0).T) - association_tolerance(scale)
         both = dead[1:] & dead[:-1]
-        jump = np.zeros(len(step_px), bool)
-        for i in np.flatnonzero(both & (step_px > 0)):
-            jump[i] = not admits(CLASSES["walker"], float(step_px[i]),
-                                 float(ts[i + 1] - ts[i]) / 1000.0, scale)[0]
+        jump = both & (step_px > 0) & ~admits_many(walker, step_px, np.diff(ts) / 1000.0, scale)
         cut = (np.diff(dead.astype(np.int8)) != 0) | (dead[1:] & (np.diff(epoch) != 0)) | jump
-        cuts = np.concatenate([[0], np.flatnonzero(cut) + 1, [len(ts)]])
+        cuts = np.concatenate([[0], np.flatnonzero(cut) + 1, [len(ts)]]).tolist()
+        keys = list(map(itemgetter("observation_key"), obs))
+        span_of = np.argmax(inside, axis=1)
         pieces = []
         for j, (a, b) in enumerate(zip(cuts[:-1], cuts[1:])):
-            nxt = int(np.argmax(inside[b])) if b < len(ts) and dead[b] else None
+            nxt = int(span_of[b]) if b < len(ts) and dead[b] else None
             pieces.append({"id": f"{seg}/P{j}", "spectated": bool(dead[a]),
-                           "t": ts[a:b].tolist(),
-                           "keys": [o["observation_key"] for o in obs[a:b]],
+                           "t": ts[a:b].tolist(), "keys": keys[a:b],
                            "xy": (obs[b - 1]["x"], obs[b - 1]["y"]),
                            "death": None if nxt is None or dead[a] else spans[nxt][0],
-                           "dead_from": float(starts[int(np.argmax(inside[a]))]) if dead[a]
-                           else None})
+                           "dead_from": float(starts[span_of[a]]) if dead[a] else None})
         out[seg] = pieces
     return out
 
@@ -571,11 +583,19 @@ def session_lifetimes(session_id: str, events: list[dict], rounds: list[dict],
             if not cut:
                 units[ent["id"]] = (False, ent["last_seen_ms"], None)
     self_names = _self_verdicts(session_id, units, player_agent)
-    # A spectated piece the ally owner named or refused takes that verdict.
+    # A spectated piece the ally owner named or refused takes that verdict,
+    # with the gates its elimination rests on: the candidate set and the
+    # killfeed bars on dead teammates. A piece no named piece was seen beside
+    # (no `depends_on`) rests on these gates alone.
     for pid, (spect, _, _) in units.items():
         v = verdicts.get(pid) if spect else None
         if v is not None:
-            self_names[pid] = {**v, "reason": v["reason"] and f"spectated: {v['reason']}"}
+            self_names[pid] = {**v, "reason": v["reason"] and f"spectated: {v['reason']}",
+                               "gates": {"candidates": list(pieces[pid]["candidates"]),
+                                         "candidates_from": "lineup: the side's teammates",
+                                         "barred": dict(v.get("barred") or {}),
+                                         "barred_from": "killfeed death verdicts "
+                                                        "(ally_dead_intervals)"}}
 
     rows: list[dict] = []
     piece_of = {**named.get("piece_of", {}), **self_piece_of}
@@ -629,6 +649,17 @@ def _named(v: dict, session_id: str) -> dict:
     return out
 
 
+def _gap_stats(ts) -> tuple:
+    """`(len(track_gaps(ts)), largest step or 0)` over one piece's sorted
+    observation times, as arrays."""
+    import numpy as np
+
+    d = np.diff(np.asarray(ts))
+    if not len(d):
+        return 0, 0
+    return int(np.count_nonzero(d > GAP_MS)), d.max().item()
+
+
 def _self_piece_bodies(body, cut, verdicts, endings, session_id):
     """Entity bodies for the pieces the player's death cut from one self
     entity. A piece observed while the player is dead is family `spectated`;
@@ -637,13 +668,15 @@ def _self_piece_bodies(body, cut, verdicts, endings, session_id):
     out = []
     for j, p in enumerate(cut):
         ts = p["t"]
-        gaps = [b - a for a, b in zip(ts, ts[1:])]
+        n_gaps, max_gap = _gap_stats(ts)
         row = {**body, "id": p["id"], "segment_id": body["id"], "piece_index": j,
                "pieces_of_segment": len(cut), "first_seen_ms": ts[0], "last_seen_ms": ts[-1],
-               "observations": len(ts), "gaps": len(track_gaps(ts)),
-               "max_gap_ms": max(gaps, default=0), "identity_reason": None,
+               "observations": len(ts), "gaps": n_gaps,
+               "max_gap_ms": max_gap, "identity_reason": None,
                "family": "spectated" if p["spectated"] else "self"}
         row.update(_named(verdicts[p["id"]], session_id))
+        if "gates" in verdicts[p["id"]]:
+            row["identity_gates"] = verdicts[p["id"]]["gates"]
         if row["identity_reason"] is None:
             del row["identity_reason"]
         if j:
@@ -690,11 +723,11 @@ def _piece_bodies(body, pieces, verdicts, ids, session_id, piece_deaths=None):
     for j, pid in enumerate(ids):
         p, v = pieces[pid], verdicts[pid]
         ts = p["t"]
-        gaps = [b - a for a, b in zip(ts, ts[1:])]
+        n_gaps, max_gap = _gap_stats(ts)
         row = {**body, "id": pid, "segment_id": body["id"], "piece_index": j,
                "pieces_of_segment": len(ids), "first_seen_ms": ts[0], "last_seen_ms": ts[-1],
-               "observations": len(ts), "gaps": len(track_gaps(ts)),
-               "max_gap_ms": max(gaps, default=0),
+               "observations": len(ts), "gaps": n_gaps,
+               "max_gap_ms": max_gap,
                "agent": v["agent"], "identity_status": v["status"],
                "teammate_key": f"{session_id}:teammate:{v['agent']}" if v["agent"] else None,
                "identity_evidence": {k: v[k] for k in ("evidence_sum", "reference_source",
@@ -775,9 +808,32 @@ def ally_dead_intervals(deaths: list[dict] | None, round_ends: dict, rt: list, r
     return out
 
 
+def _frames_of(mem_r, mem_t, mem_p) -> dict:
+    """`{(round, t_ms): {piece id, ...}}` from per-piece membership arrays,
+    keys in the order first observed, as one `setdefault` per observation
+    gave."""
+    import numpy as np
+
+    r = np.concatenate(mem_r) if mem_r else np.zeros(0)
+    if not len(r):
+        return {}
+    t, p = np.concatenate(mem_t), np.concatenate(mem_p)
+    uniq, first, inv = np.unique(np.column_stack([r.astype(float), t]), axis=0,
+                                 return_index=True, return_inverse=True)
+    inv = inv.reshape(-1)
+    by = np.argsort(inv, kind="stable")
+    groups = np.split(p[by], np.flatnonzero(np.diff(inv[by])) + 1)
+    keep = np.argsort(first, kind="stable").tolist()
+    keys = zip(uniq[keep, 0].astype(int).tolist(), uniq[keep, 1].tolist())
+    return dict(zip(keys, map(set, map(groups.__getitem__, keep))))
+
+
 def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, references):
     """Split ally segments where the best teammate changes and stays changed,
     then ask `identity.assign_ally_pieces` to name the pieces per round."""
+    from itertools import repeat
+    from operator import itemgetter
+
     import numpy as np
 
     from .adjudication.identity import (AGENT_IDENTITY_VERSION, AgentIdentityArbiter,
@@ -799,33 +855,48 @@ def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, ref
     names = list(name_sets.most_common(1)[0][0]) if name_sets else []
     penalty = SWITCH * max([e["margin_min"] for e in scored] or [0.0])
     pieces, pieces_of, piece_of, last_piece = {}, {}, {}, {}
-    frames: dict[tuple, set] = {}
     self_seen, spectated = set(), set()
+    # Every (round, time, piece) membership in the order observed; `frames`
+    # is built from them at once.
+    mem_r, mem_t, mem_p = [], [], []
+    zero = np.zeros(len(names))
+    vec = {k: np.array([((c.get("evidence") or {}).get("scores") or {}).get(a, 0.0)
+                        for a in names]) for k, c in claims.items()} if len(names) > 1 else {}
+
+    def member(rno, ts, pid):
+        mem_r.append(np.full(len(ts), rno))
+        mem_t.append(np.asarray(ts, dtype=float))
+        mem_p.append(np.full(len(ts), pid, dtype=object))
+
     with step("pieces"):
         for rec in round_records:
-            rno, segs = rec["round_no"], {}
-            for o in rec["obs_rows"]:
-                if o["family"] == "self":
-                    self_seen.add((rno, o["t_ms"]))
-                elif o["family"] == "ally" and o["entity_id"]:
-                    segs.setdefault(o["entity_id"], []).append((o["t_ms"], o["observation_key"]))
-            for seg, ob in segs.items():
-                ob.sort()
-                path = [0] * len(ob)
+            rno, obs_rows = rec["round_no"], rec["obs_rows"]
+            fam = np.array(list(map(itemgetter("family"), obs_rows)), dtype=object)
+            eid = np.array(list(map(itemgetter("entity_id"), obs_rows)), dtype=object)
+            t_all = np.array(list(map(itemgetter("t_ms"), obs_rows)), dtype=object)
+            key_all = np.array(list(map(itemgetter("observation_key"), obs_rows)), dtype=object)
+            self_seen.update(zip(repeat(rno), t_all[fam == "self"].tolist()))
+            ally = np.flatnonzero((fam == "ally") & eid.astype(bool))
+            seg_of = eid[ally].astype(str)
+            segs, first = np.unique(seg_of, return_index=True)
+            for seg in segs[np.argsort(first)].tolist():
+                at = ally[seg_of == seg]
+                # (t, key) order, as sorting the tuples gave
+                order = np.lexsort((key_all[at].astype(str), t_all[at].astype(float)))
+                ts, keys = t_all[at][order].tolist(), key_all[at][order].tolist()
+                cuts = [0, len(ts)]
                 if len(names) > 1:
-                    E = np.array([[(((claims.get(k) or {}).get("evidence") or {}).get("scores")
-                                    or {}).get(a, 0.0) for a in names] for _, k in ob])
-                    path = _viterbi(E, penalty)
-                cuts = [0] + [i for i in range(1, len(path)) if path[i] != path[i - 1]] + [len(ob)]
+                    E = np.array(list(map(vec.get, keys, repeat(zero))))
+                    path = np.asarray(_viterbi(E, penalty))
+                    cuts = [0] + (np.flatnonzero(np.diff(path)) + 1).tolist() + [len(ts)]
                 ids = [seg] if len(cuts) == 2 else [f"{seg}/P{j}" for j in range(len(cuts) - 1)]
                 pieces_of[seg], last_piece[seg] = ids, ids[-1]
                 for j, pid in enumerate(ids):
-                    part = ob[cuts[j]:cuts[j + 1]]
-                    pieces[pid] = {"round": rno, "t": [t for t, _ in part],
-                                   "claims": [claims[k] for _, k in part if k in claims]}
-                    for t, k in part:
-                        piece_of[k] = pid
-                        frames.setdefault((rno, t), set()).add(pid)
+                    a, b = cuts[j], cuts[j + 1]
+                    pieces[pid] = {"round": rno, "t": ts[a:b],
+                                   "claims": list(filter(None, map(claims.get, keys[a:b])))}
+                    piece_of.update(zip(keys[a:b], repeat(pid)))
+                    member(rno, ts[a:b], pid)
             # While the player is dead the self icon is a living teammate's,
             # the side's names its candidates; the owner names it by
             # elimination [domain:minimap/self-icon-shows-spectated].
@@ -833,9 +904,9 @@ def _name_pieces(session_id, events, round_records, rt, ra, lineup, gallery, ref
                        if sp["spectated"]):
                 pieces[sp["id"]] = {"round": rno, "t": sp["t"], "claims": [],
                                     "candidates": names}
-                for t in sp["t"]:
-                    frames.setdefault((rno, t), set()).add(sp["id"])
-                    spectated.add((rno, t))
+                member(rno, sp["t"], sp["id"])
+                spectated.update(zip(repeat(rno), sp["t"]))
+    frames = _frames_of(mem_r, mem_t, mem_p)
     capacity = {f: ally_capacity(_roster_window(rt, ra, f[1]) if rt else None, f in self_seen,
                                  spectated=f in spectated)
                 for f in frames}

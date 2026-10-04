@@ -844,15 +844,15 @@ question = "May this observation continue that entity's track?"
 owner = "track"
 role = ["track", "constrain"]
 status = "shipped"
-produces = ["admits", "association_tolerance", "assign", "CLASSES"]
+produces = ["admits", "admits_many", "association_tolerance", "assign", "CLASSES"]
 not_for = """
 SEMANTIC IDENTITY. This is the most important negative boundary in the repo:
 `track` says what a PROPOSED identity is allowed to do over time, and motion
 being consistent with Agent X is not evidence that this is Agent X. A consumer
 treating an association as a name is a design error, not a tuning problem.
 """
-consumers = ["adjudication.identity", "minimap_lifecycle", "round_lifetimes", "team_vision"]
-evidence = "`python -m reticle.track --self-test`"
+consumers = ["adjudication.identity", "minimap_lifecycle", "round_entities", "round_lifetimes", "team_vision"]
+evidence = "`python -m reticle.track --self-test`, tests/test_track_admits.py"
 
 [[entry]]
 id = "teleport-licence"

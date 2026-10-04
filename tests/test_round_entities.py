@@ -474,6 +474,50 @@ class BindingRuleTests(unittest.TestCase):
         self.assertEqual([(r["agent"], r["death_id"]) for r in allies],
                          [("Breach", breach["death_id"]), ("Reyna", reyna["death_id"])])
 
+    def test_a_spectated_piece_records_the_gates_its_elimination_rests_on(self):
+        """round-entity-0.17.0: with no named piece beside it, a spectated
+        piece's name rests on the killfeed bars alone, and its row says so."""
+        from reticle.version import ALLY_PORTRAIT_FEATURES_VERSION
+        refs = {"version": "t", "features_version": ALLY_PORTRAIT_FEATURES_VERSION,
+                "margin_min": 0.5, "variance": {"g": [1.0]},
+                "agents": {n: {"g": [float(i)]} for i, n in enumerate(self.NAMES)}}
+        lineup = {"sides": {"ally": [{"slot": i, "agent": a, "best_guess": a} for i, a in
+                                     enumerate(["Phoenix"] + self.NAMES)]},
+                  "player": {"agent": "Phoenix"}}
+        events = []
+        for k, t in enumerate(range(0, 3000, 67)):
+            events.append(_frame(k, float(t)))
+            if t < 300:
+                icon = _icon(k, float(t), 50.0)
+                icon.update(portrait_features={"g": [0.0]},
+                            portrait_features_version=ALLY_PORTRAIT_FEATURES_VERSION)
+                events.append(icon)
+        deaths = [self._death(300.0, "Breach"), self._death(310.0, "Deadlock"),
+                  self._death(320.0, "Miks"), self._death(600.0, "Phoenix")]
+        rows = session_lifetimes("s", events, [{"round_no": 1, "t_start_ms": 0.0,
+                                                "t_end_ms": 3000.0}], 1.0, lineup=lineup,
+                                 gallery={n: [] for n in self.NAMES}, references=refs,
+                                 deaths=deaths)
+        spect = [r for r in rows if r["kind"] == "entity" and r["family"] == "spectated"]
+        (named,) = [r for r in spect if r["agent"]]
+        self.assertEqual(named["agent"], "Reyna")
+        self.assertNotIn("identity_depends_on", named)
+        gates = named["identity_gates"]
+        self.assertEqual(gates["candidates"], self.NAMES)
+        self.assertEqual(set(gates["barred"]), {"Breach", "Deadlock", "Miks", "Phoenix"})
+        self.assertTrue(gates["barred"]["Breach"].startswith("dead from killfeed death at 300"))
+
+    def test_frames_of_keeps_first_observed_order(self):
+        import numpy as np
+
+        from reticle.round_entities import _frames_of
+        got = _frames_of([np.array([2, 2]), np.array([1, 2])],
+                         [np.array([5.0, 3.0]), np.array([9.0, 5.0])],
+                         [np.array(["a", "a"], dtype=object), np.array(["b", "b"], dtype=object)])
+        self.assertEqual(list(got.items()),
+                         [((2, 5.0), {"a", "b"}), ((2, 3.0), {"a"}), ((1, 9.0), {"b"})])
+        self.assertEqual(_frames_of([], [], []), {})
+
     def test_a_revive_stays_unbound(self):
         """bdfdcf009dba 1310.0 s and ff636d173b07 525.0 s: a revive entry ends
         no piece, inner or cut."""

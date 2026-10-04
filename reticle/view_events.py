@@ -36,7 +36,10 @@ from pathlib import Path
 
 from . import entity_events as ee
 
-VIEW_EVENTS_VERSION = "view-events-0.4.0"
+VIEW_EVENTS_VERSION = "view-events-0.5.0"
+# 0.5.0 (2026-10-04): the round_entity lane labels a `spectated` entity
+# (`round_entities`, round-entity-0.15.0) "spectated" in the self colour;
+# it drew "unassigned" in the barrier colour before.
 # 0.4.0 (2026-09-30): a smoke track's entity id comes from its `smoke_owner`
 # row; the viewer no longer builds the key, whose `int(first_ms)` missed 22
 # of the owner's 84 verdicts on four sessions.
