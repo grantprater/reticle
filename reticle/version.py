@@ -598,7 +598,12 @@ ABILITY_AUDIO_VERSION = "ability-audio-0.3.0"
 # 0.2.2: 0.2.1's arrays byte for byte, and per agent the margin calibration
 # fitted on its dev casts (`ability_audio.calibrate`, `reticle
 # ability-audio-fit --calibrate`).
-ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.2"
+# 0.2.3: Skye's Guide_AbilE_ScoutExpire_3P is Trailblazer's end-phase sound
+# (player and game data, 2026-10-04), left out of the cast-window references
+# (`ability_audio_fit.END_PHASE_LEFT_OUT`); the Guiding Light map is gone.
+# 0.2.4: 0.2.3's arrays byte for byte with the margin calibration fitted on
+# its dev casts.
+ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.4"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the
