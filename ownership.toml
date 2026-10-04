@@ -573,9 +573,44 @@ Reading a row, naming an agent, or deciding when the board opened. The strip is
 one presence witness; `scoreboard-presence` reconciles it with the slab test.
 The circles it counts as marks are round outcomes, which it does not read.
 """
-consumers = ["cli", "scoreboard"]
+consumers = ["cli", "scoreboard", "round_outcome"]
 stored_consumers = ["adjudication.scoreboard"]
 evidence = "tests/test_scoreboard_strip.py, docs/SCOREBOARD_PRESENCE.md, prototypes/scoreboard_strip.py"
+
+[[entry]]
+id = "round-outcome-cell"
+question = "Which round-end icon (elimination, defuse, detonation, time) does each column of the Tab board's round-history strip show at this cached frame, and on which line?"
+owner = "round_outcome"
+role = ["detect"]
+status = "partial"
+produces = ["read_cells", "fit_columns", "load_outcome_icons", "layout_from_game_files", "outcome_events"]
+not_for = """
+How a round ended. One frame's cells are raw: an unplayed column's dots can
+score as an icon, and which stored round a column is depends on the scores.
+`round-outcome` pools the frames into a claim. Nor whether the board is open:
+it reads only frames the strip witness (`scoreboard-strip`) reads present.
+"""
+consumers = ["cli"]
+stored_consumers = ["adjudication.round_outcome"]
+evidence = "tests/test_round_outcome.py"
+
+[[entry]]
+id = "round-outcome"
+question = "How did round N end (elimination, defuse, detonation, time), and which side won it, by the round-history strip?"
+owner = "adjudication.round_outcome"
+role = ["adjudicate"]
+status = "partial"
+produces = ["pool_outcomes", "game_round"]
+not_for = """
+The round's bounds, its winner of record or its plant: `round-bounds` owns
+those, and a claim never overwrites `won`; it records `won_disagrees`. Nor
+which players died: `death-victim` reads an elimination claim as the reason a
+stall's living members died, and decides who they were. A refused claim
+(`no_frames`, `few_frames`, `frames_disagree`) names no reason.
+"""
+consumers = ["cli"]
+stored_consumers = ["adjudication.death"]
+evidence = "tests/test_round_outcome.py"
 
 [[entry]]
 id = "planted-spike-graphic"

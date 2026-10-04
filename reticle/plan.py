@@ -387,6 +387,10 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                   "ally_icon": _in("inputs.ally_icon", "ally_icon", optional=True),
                   "roster": _in("inputs.roster", "roster"),
                   "reliability_table": _in("inputs.reliability_table", "reliability"),
+                  # How each round ended: read only at the code's stamps, and
+                  # heads before death-adjudication-0.34.0 record none.
+                  "round_outcome": _in("inputs.round_outcome",
+                                       "round_outcome#round_outcome_version", optional=True),
                   **_lineup_inputs()},
         "ult_cast": {"ult_line": _in("inputs.ult_line", "ult_line"),
                      "round": _in("inputs.round", "rounds"),

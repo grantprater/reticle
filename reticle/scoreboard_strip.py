@@ -98,6 +98,13 @@ def _marks(crop: np.ndarray, rows: tuple[int, int]):
     return found
 
 
+def strip_marks(crop: np.ndarray, rows: tuple[int, int]):
+    """The marks `read_strip` counts, as (line, x, kind) in crop pixels:
+    dark dots, yellow dots and teal or red icons near each marker line at
+    crop rows `rows`. `round_outcome` places the strip's columns by them."""
+    return _marks(crop, rows)
+
+
 def _lattice(marks):
     """The (pitch, phase) that puts the most marks in distinct (line, column)
     cells, and those cells; ties go to the smaller mean offset."""
