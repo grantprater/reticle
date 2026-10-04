@@ -4097,3 +4097,544 @@ a belief, hedged "likely"; no game file or capture has checked it. The
 texture correlates with none of Brimstone's DisplayIcons (best 0.20,
 minimap-texture-inventory-0.1.0)
 """
+
+[minimap-textures-astra]
+claim = """
+Of the game's exported minimap textures, the player names these for Astra:
+`TX_Astra_Minimap_PassiveBlack` is Astral Form / Cosmic Divide's (X);
+`TX_Astra_Minimap_PassiveGold` is Astra's but none of the four kit abilities';
+`TX_UI_Minimap_Rift_Passive` (Default, Hovered, Precast) is Astra's but none
+of the four kit abilities'. Keys are the tray catalogue's, not the file's
+letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "astra"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 3, 4, 52 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer.
+DISPUTED by game data: ability-states-gamedata-0.2.0 (store reference/ability-states)
+names `TX_Astra_Minimap_PassiveGold` as Astral Form / Cosmic Divide's (X) star brush when
+selected, drawn only on Astra's own client; the player answered it as none of
+the four. No labelled capture shows either star; ask the player
+"""
+
+[minimap-textures-chamber]
+claim = """
+Of the game's exported minimap textures, the player names these for Chamber:
+`TX_UI_Minimap_Chamber_C` (Active, Inactive, Selected) is Trademark's (C);
+`TX_UI_Minimap_Chamber_E` (InActive, Selected) is Rendezvous's (E). Keys are
+the tray catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "chamber"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 26, 27 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-cypher]
+claim = """
+Of the game's exported minimap textures, the player names these for Cypher:
+`TX_UI_Minimap_Cypher_Q` (InActive, Selected) is Cyber Cage's (Q). Keys are
+the tray catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "cypher"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 29 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-deadlock]
+claim = """
+Of the game's exported minimap textures, the player names these for Deadlock:
+`TX_Minimap_Cable_FishingHook` is Annihilation's (X);
+`TX_UI_Minimap_Deadlock_C` (InActive) is GravNet's (E). Keys are the tray
+catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "deadlock"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 12, 30 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-fade]
+claim = """
+Of the game's exported minimap textures, the player names these for Fade:
+`TX_UI_Minimap_BountyHounter_SeizeArea` is Seize's (Q);
+`TX_UI_Minimap_BountyHunter_C` is Prowler's (C); `TX_UI_Minimap_Fade_E`
+(Enemy, InActive) is Haunt's (E). Keys are the tray catalogue's, not the
+file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "fade"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 23, 24, 31 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-gekko]
+claim = """
+Of the game's exported minimap textures, the player names these for Gekko:
+`TX_UI_Minimap_Aggrobot_Q` is Wingman's (Q); `TX_UI_Minimap_Aggrobot_Wingman`
+is Wingman's (Q); `TX_UI_Minimap_Aggrobot_X` is Thrash's (X). Keys are the
+tray catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "gekko"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 20, 21, 22 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-harbor]
+claim = """
+Of the game's exported minimap textures, the player names these for Harbor:
+`TX_UI_Minimap_Mage_C` (InActive) is Cove's (E); `TX_UI_Minimap_Mage_E`
+(Active, InActive) is High Tide's (Q); `TX_UI_Minimap_Mage_HighTideActive` is
+High Tide's (Q). Keys are the tray catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "harbor"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 42, 43, 44 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer.
+DISPUTED by game data: ability-states-gamedata-0.2.0 names
+`TX_UI_Minimap_Mage_HighTideActive` as the minimap EnemyIcon of Phoenix's Blaze
+(C, enemy view only), not High Tide's; no labelled capture shows Harbor, and the
+22 Blaze labels are shape-class, unscored; ask the player
+"""
+
+[minimap-textures-iso]
+claim = """
+Of the game's exported minimap textures, the player names these for Iso:
+`TX_UI_Minimap_Iso_Q` (InActive) is Undercut's (Q). Keys are the tray
+catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "iso"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 36 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-kayo]
+claim = """
+Of the game's exported minimap textures, the player names these for KAY/O:
+`TX_Hud_Icons_Minimap_Grenadier_C` (Active and plain) is FLASH/drive's (Q);
+`TX_Minimap_Kayo_Knife` (Enemy) is ZERO/point's (E); `TX_UI_Minimap_KAYO_E`
+(Active, InActive) is ZERO/point's (E); `TX_UI_Minimap_KAYO_Q` (Active,
+InActive) is FLASH/drive's (Q). Keys are the tray catalogue's, not the file's
+letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "kayo"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 6, 15, 37, 38 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-killjoy]
+claim = """
+Of the game's exported minimap textures, the player names these for Killjoy:
+`TX_UI_Minimap_Killjoy_C` (Active, InActive, Selected) is Nanoswarm's (C);
+`TX_UI_Minimap_Killjoy_E` (Active, InActive) is TURRET's (E);
+`TX_UI_Minimap_Killjoy_X` (Ally, Enemy) is Lockdown's (X). Keys are the tray
+catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "killjoy"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 39, 40, 41 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-miks]
+claim = """
+Of the game's exported minimap textures, the player names these for Miks:
+`TX_UI_Minimap_Iris_C` (InActive) is Waveform's (E); `TX_UI_Minimap_Iris_C2`
+(InActive) is Waveform's (E). Keys are the tray catalogue's, not the file's
+letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "miks"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 34, 35 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer.
+DISPUTED by game data: ability-states-gamedata-0.2.0 names `TX_UI_Minimap_Iris_C`
+and `TX_UI_Minimap_Iris_C2` as M-pulse's (C) minimap images (GameObject_Thumper_Concuss
+and GameObject_Thumper_Heal), not E's; no labelled capture shows Miks; ask the player
+"""
+
+[minimap-textures-neon]
+claim = """
+Of the game's exported minimap textures, the player names these for Neon:
+`TX_Neon_Wall` is not an ability marker. Keys are the tray catalogue's, not
+the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "neon"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 16 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-omen]
+claim = """
+Of the game's exported minimap textures, the player names these for Omen:
+`TX_UI_Minimap_Wraith_E` (InActive) is Dark Cover's (E);
+`TX_UI_Minimap_Wraith_Q` (InActive) is Paranoia's (Q). Keys are the tray
+catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "omen"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 57, 58 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-phoenix]
+claim = """
+Of the game's exported minimap textures, the player names these for Phoenix:
+`TX_UI_Minimap_Phoenix_FireWall` is Blaze's (C). Keys are the tray
+catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "phoenix"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 48 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-raze]
+claim = """
+Of the game's exported minimap textures, the player names these for Raze:
+`TX_UI_Minimap_Clay_C` is Boom Bot's (C). Keys are the tray catalogue's, not
+the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "raze"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 28 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-reyna]
+claim = """
+Of the game's exported minimap textures, the player names these for Reyna:
+`TX_UI_Minimap_Vampire_C` (InActive) is Leer's (C). Keys are the tray
+catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "reyna"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 56 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-skye]
+claim = """
+Of the game's exported minimap textures, the player names these for Skye:
+`TX_UI_Minimap_Guide_E` is Guiding Light's (E). Keys are the tray catalogue's,
+not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "skye"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 32 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-sova]
+claim = """
+Of the game's exported minimap textures, the player names these for Sova:
+`TX_Hud_Icons_Minimap_HunterDart` (Ally, Enemy) is Recon Bolt's (E);
+`TX_UI_Minimap_Hunter_C` is Owl Drone's (C). Keys are the tray catalogue's,
+not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "sova"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 7, 33 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-tejo]
+claim = """
+Of the game's exported minimap textures, the player names these for Tejo:
+`TX_UI_Minimap_Cashew_C` is Stealth Drone's (C). Keys are the tray
+catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "tejo"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 25 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-veto]
+claim = """
+Of the game's exported minimap textures, the player names these for Veto:
+`TX_UI_Minimap_Pine_C` (Active, InActive, Selected) is Crosscut's (C);
+`TX_UI_Minimap_Pine_E` (Active, Inactive, Selected) is Interceptor's (E);
+`TX_UI_Minimap_Pine_Q` (Active, InActive, Selected) is Chokehold's (Q). Keys
+are the tray catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "veto"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 49, 50, 51 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-vyse]
+claim = """
+Of the game's exported minimap textures, the player names these for Vyse:
+`TX_UI_Minimap_Nox_C` (Active, Inactive, Selected) is Razorvine's (C);
+`TX_UI_Minimap_Nox_E` (Active, Inactive, Selected) is Arc Rose's (E);
+`TX_UI_Minimap_Nox_Q` (Active, Inactive, Selected) is Shear's (Q). Keys are
+the tray catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "vyse"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 45, 46, 47 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
+
+[minimap-textures-yoru]
+claim = """
+Of the game's exported minimap textures, the player names these for Yoru:
+`TX_Hud_Icons_Minimap_Decoy` (Active and plain) is FAKEOUT's (C);
+`TX_Hud_Icons_Minimap_gatecrash` (active and plain) is GATECRASH's (E);
+`TX_UI_Minimap_Stealth_E` (Active, InActive, Selected) is GATECRASH's (E);
+`TX_UI_Minimap_Stealth_Q` (InActive, Selected) is FAKEOUT's (C). Keys are the
+tray catalogue's, not the file's letter.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "yoru"
+source = """
+the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
+line(s) 5, 10, 53, 54 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+"""
+use = """
+minimap_glyph_eval.apply_answers reads the same lines as glyph references
+(minimap-glyph-eval-0.2.0)
+"""
+exceptions = """
+the player answered per texture stem, its state variants shown side by side; which
+state the HUD draws for which viewer is not part of the answer
+"""
