@@ -207,6 +207,37 @@ class WeaponAttributionTests(unittest.TestCase):
         self.assertEqual((lower["status"], lower["name"], lower["names"]),
                          ("resolved", "Vandal", {"Vandal": 10}))
 
+    def test_bind_entry_follows_the_tracks_reads_through_a_two_slot_rise(self):
+        """The track's own reads carry the entry from slot 3 to slot 1 in one
+        sample; the entry now at slot 3 is another's and is not bound."""
+        from reticle.adjudication.weapon import bind_entry
+        spectre, vandal = self._shape(50, 5), self._shape(70, 30)
+        mined = self._mined([("Spectre", spectre), ("Vandal", vandal)])
+        frames, reads = [], []
+        for k, t in enumerate(range(0, 3000, 500)):
+            slot = 3 if k < 3 else 1
+            reads.append((float(t), slot))
+            frames.append((t, slot, 200, 54, spectre))
+            if k >= 3:
+                frames.append((t, 3, 200, 54, vandal))   # a new entry below, same box
+        rows = self._rows(mined, frames)
+        entry = {"t_first": 0, "t_last": 2500, "slot": 3, "sig": 200, "reads": reads}
+        bound = bind_entry(entry, rows)
+        self.assertEqual([(o["t_ms"], o["slot"]) for o in bound], [(float(t), s) for t, s in reads])
+
+    def test_bind_entry_takes_the_width_from_the_median_not_a_fading_first_row(self):
+        """A narrower fade-in first row no longer fixes the width and drops the rest."""
+        from reticle.adjudication.weapon import bind_entry
+        vandal = self._shape(70, 30)
+        mined = self._mined([("Vandal", vandal)])
+        frames = [(0, 0, 200, 66, vandal)] + [(t, 0, 200, 74, vandal) for t in range(500, 3000, 500)]
+        rows = self._rows(mined, frames)
+        reads = [(float(t), 0) for t, *_ in frames]
+        bound = bind_entry({"t_first": 0, "t_last": 2500, "slot": 0, "sig": 200, "reads": reads}, rows)
+        self.assertEqual([o["t_ms"] for o in bound], [500, 1000, 1500, 2000, 2500])
+        old = bind_entry({"t_first": 0, "t_last": 2500, "slot": 0, "sig": 200}, rows)
+        self.assertEqual([o["t_ms"] for o in old], [0])   # without reads: the 1.5.0 rule
+
     def test_entry_weapon_refuses_one_frame(self):
         """A single named frame is not an answer."""
         from reticle.adjudication.weapon import entry_weapon

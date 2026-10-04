@@ -76,7 +76,13 @@ from .killfeed_kits import kill_kits, open_questions
 # 1.5.0 (2026-10-04): Grenade bounce joins the game-mode icons on the
 # surprise path (SURPRISE_ONLY_ICONS): the build shows no standard-match
 # kill that draws it.
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.5.0"
+# 1.6.0 (2026-10-04): `bind_entry` follows the HUD track's own per-sample
+# slots (`reads`) where it has one, two-slot rises included, and takes the
+# icon box width from the median of the rows followed, not the first (often
+# fading-in) row. On the labelled exemplars' entries it adds no wrong name
+# and names [metric:weapon_binding/dev_keyjoin@weapon-adjudication-1.6.0#recovered=7]
+# entries 1.5.0 refused (<store>/analysis/weapon-binding-20261004/).
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.6.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns in the
 #: reference-art path (`extract_icon_observation`, `estimate_weapon_class`);
@@ -1196,14 +1202,29 @@ ENTRY_BOX_TOL = 2             # px an entry's icon box width may vary over its l
 def bind_entry(entry: dict, observations: list[dict]) -> list[dict]:
     """The stored `killfeed_weapon` rows that belong to one killfeed entry.
 
-    `entry` is a `session_entries` row (`t_first`, `t_last`, `slot`, `sig`);
-    `observations` are stored `killfeed_weapon` rows. The divider column is the
-    icon's LEFT edge in a right-aligned row, so it depends on the victim's name
-    as well as the icon, and two adjacent entries with different guns can share
-    it (a Spectre and a Vandal at 1906.5 s on a06f04a0059f). So the entry is
-    followed frame by frame instead: it starts in the slot it appeared in, only
-    ever rises one slot as an older entry expires, and takes at most one row per
-    frame, its own slot before the one above.
+    `entry` is a `session_entries` row (`t_first`, `t_last`, `slot`, `sig`,
+    `reads`); `observations` are stored `killfeed_weapon` rows. The divider
+    column is the icon's LEFT edge in a right-aligned row, so it depends on
+    the victim's name as well as the icon, and two adjacent entries with
+    different guns can share it (a Spectre and a Vandal at 1906.5 s on
+    a06f04a0059f). So the entry is followed frame by frame instead, and takes
+    at most one row per frame.
+
+    Where the entry's HUD track has a read at the frame (`reads`, the
+    track's own `(t_ms, slot)` per sample), the row in that slot is the
+    entry's: the track already followed the stack's rises, two slots at once
+    included (e37fdeca944f 1263.5 s, slot 3 then slot 1), and saw past a
+    first slot under the Shooting Error overlay. Where it has none, the entry
+    stays in its slot or rises one, its own slot first. An entry without
+    reads binds as weapon-adjudication-1.5.0 did (`_bind_without_reads`).
+
+    The icon's box width is fixed for an entry's life, so a row whose width
+    lies more than ENTRY_BOX_TOL from the median of the rows followed is
+    another entry's or a fading frame's and is dropped. Until
+    weapon-adjudication-1.6.0 the first row fixed the width; that row is
+    often the entry fading in, narrower than the rest (043bafca271a 1238.5 s,
+    Odin, 76 px faded against 85 px after), and every later frame was lost.
+    `death.ring_witness` binds its frames here too.
     """
     from ..checks import KF_SIG_TOL
 
@@ -1213,12 +1234,38 @@ def bind_entry(entry: dict, observations: list[dict]) -> list[dict]:
         if (o.get("kind") == "weapon_icon_observation" and o.get("grid")
                 and entry["t_first"] <= o["t_ms"] <= entry["t_last"]
                 and (sig is None or abs(o["wx0"] - sig) <= KF_SIG_TOL)):
-            by_frame.setdefault(o["t_ms"], {})[o["slot"]] = o
-    bound, slot, width = [], entry["slot"], None
+            by_frame.setdefault(float(o["t_ms"]), {})[o["slot"]] = o
+    reads = {float(t): int(s) for t, s in entry.get("reads") or ()}
+    if not reads:
+        return _bind_without_reads(entry["slot"], by_frame)
+    path, slot = [], entry["slot"]
     for t in sorted(by_frame):
-        # The whole stack rises at once, so the entry below can arrive in the
-        # slot this one just left; the icon's box width, fixed for an entry's
-        # life, tells them apart where the column cannot.
+        here = by_frame[t]
+        if t in reads:
+            slot = reads[t]
+            if slot in here:
+                path.append(here[slot])
+            continue
+        for s in (slot, slot - 1):
+            if s in here:
+                slot = s
+                path.append(here[s])
+                break
+    if not path:
+        return []
+    widths = np.array([o["wx1"] - o["wx0"] for o in path], dtype=np.float64)
+    keep = np.abs(widths - np.median(widths)) <= ENTRY_BOX_TOL
+    return [o for o, k in zip(path, keep) if k]
+
+
+def _bind_without_reads(slot: int, by_frame: dict[float, dict[int, dict]]) -> list[dict]:
+    """`bind_entry` for an entry with no track reads (a synthetic or older
+    entry; every `session_entries` row carries them): the rule of
+    weapon-adjudication-1.5.0. The entry stays in its slot or rises one, and
+    the first row's box width, fixed for its life, tells it from the entry
+    below that arrives in the slot it left."""
+    bound, width = [], None
+    for t in sorted(by_frame):
         here = {s: o for s, o in by_frame[t].items()
                 if width is None or abs((o["wx1"] - o["wx0"]) - width) <= ENTRY_BOX_TOL}
         for s in (slot, slot - 1):
