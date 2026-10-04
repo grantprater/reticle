@@ -896,6 +896,13 @@ class Store:
         `scan` rereads it and `plan` calls it stale. A cut that falls exactly
         on a row boundary still reads as whole; `write_events` writes
         atomically, so only a file written some other way can be cut there.
+
+        The stamp is the first row's `<kind>_version`. A stream of formal
+        entity events (`events.Event`: `ping` since it wrote them) carries no
+        such key; its stamp is the event's `producer_version` where the event
+        comes from this channel (`source_channel == kind`). Reading only
+        `<kind>_version` returned None for such a file, so `plan` listed the
+        stream absent and `scan` reread it on every pass.
         """
         path = self.events_path(kind, session_id)
         if not path.is_file():
@@ -910,9 +917,13 @@ class Store:
             if not first:
                 return None
             try:
-                version = json.loads(first).get(key)
+                head = json.loads(first)
             except ValueError:
                 return "incomplete: its first row does not parse"
+            if (isinstance(head, dict) and key not in head and "event_kind" in head
+                    and head.get("source_channel") == kind):
+                key = "producer_version"
+            version = head.get(key) if isinstance(head, dict) else None
             last = _last_line(f)
         if not last.endswith(b"\n"):
             return "incomplete: no newline ends its last row"
