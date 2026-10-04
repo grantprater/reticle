@@ -82,7 +82,11 @@ from .killfeed_kits import kill_kits, open_questions
 # fading-in) row. On the labelled exemplars' entries it adds no wrong name
 # and names [metric:weapon_binding/dev_keyjoin@weapon-adjudication-1.6.0#recovered=7]
 # entries 1.5.0 refused (<store>/analysis/weapon-binding-20261004/).
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.6.0"
+# 1.7.0 (2026-10-04): a frame the grid leaves `new` whose stored soft patch
+# holds the whole icon is matched softly, registered at native px over the
+# sub-pixel phases, against the game icons (`soft_scores`), and may be
+# named only with a square-texture (ability-slot) icon (`soft_name`).
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.7.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns in the
 #: reference-art path (`extract_icon_observation`, `estimate_weapon_class`);
@@ -1322,6 +1326,126 @@ def kit_null(gallery: dict, name: str) -> float:
     return float(iou.max())
 
 
+#: The soft registered match (`soft_scores`, `soft_name`) names a frame the
+#: binarised grid leaves `new`, and only with an icon drawn from a square
+#: texture: the ability-slot icons (24 x 24 at 24 px) and the spike. Guns,
+#: Headhunter and Tour De Force draw on wide textures and stay with the grid.
+#: The 16 x 64 grid binarised at PLATE_WHITE_CUT breaks the 1 px anti-aliased
+#: strokes of such icons differently in the capture and in the drawn texture
+#: (Showstopper and Paint Shells score IoU 0.37-0.46 against their own
+#: texture), so the soft whiteness is matched instead.
+#:
+#: SOFT_MIN_ZNCC is above the dev null: on the labelled exemplars' own rows
+#: no square-texture name other than the label scores above
+#: [metric:weapon_soft/dev_null@weapon-adjudication-1.7.0#null_max=0.789]
+#: (Hot Hands against Incendiary), while every labelled square-texture
+#: exemplar scores its own name at least
+#: [metric:weapon_soft/dev_null@weapon-adjudication-1.7.0#own_min=0.962];
+#: the null is also each such exemplar's leave-one-icon-out score.
+SOFT_MIN_ZNCC = 0.85
+SOFT_NAME_MARGIN = 0.10
+
+_SOFT_CACHE: dict[tuple, dict] = {}
+
+
+def soft_templates(store_root: Optional[Path] = None, scale: float = 1.0) -> dict:
+    """Each GAME_KILL_ICONS texture as the capture draws it (`drawn_icon_alpha`:
+    mirrored, INTER_AREA to the drawn height, linear warp to each of
+    GAME_ICON_PHASES), the phases stacked and trimmed to the union of their
+    ink: name -> (stack (phases, h, w) float32, square texture)."""
+    key = (str(game_build_dir(store_root)), round(float(scale), 4))
+    if key in _SOFT_CACHE:
+        return _SOFT_CACHE[key]
+    d = game_build_dir(store_root)
+    out = {}
+    for name, (rel, _) in GAME_KILL_ICONS.items():
+        p = d / rel
+        rgba = (cv2.imdecode(np.fromfile(str(p), np.uint8), cv2.IMREAD_UNCHANGED)
+                if p.is_file() else None)
+        if rgba is None or rgba.ndim != 3 or rgba.shape[2] != 4:
+            continue
+        stack = np.stack([np.pad(a, 1) if ph == (0.0, 0.0) else a
+                          for ph in GAME_ICON_PHASES
+                          for a in [drawn_icon_alpha(rgba, GAME_ICON_HEIGHT * scale, ph)]]
+                         ).astype(np.float32)
+        ys, xs = np.nonzero(stack.max(axis=0) > 1.0 / 255)
+        if len(xs) == 0:
+            continue
+        out[name] = (np.ascontiguousarray(stack[:, ys.min():ys.max() + 1, xs.min():xs.max() + 1]),
+                     rgba.shape[0] == rgba.shape[1])
+    _SOFT_CACHE[key] = out
+    return out
+
+
+def soft_whole(row: dict) -> bool:
+    """Whether a stored row's soft patch holds the whole icon: the margin
+    columns the reader kept on each side of its cut (killfeed.SOFT_MARGIN)
+    exist and hold no whiteness at PLATE_WHITE_CUT. A cut that clipped the
+    icon or kept one piece of a multi-piece icon fails."""
+    from ..killfeed import PLATE_WHITE_CUT, unpack_soft
+    soft = row.get("soft")
+    if not soft or row.get("ix0") is None:
+        return False
+    patch = unpack_soft(soft)[0]
+    left = int(row["ix0"]) - int(soft["x0"])
+    right = int(soft["x0"]) + patch.shape[1] - int(row["ix1"])
+    cut = PLATE_WHITE_CUT * 255
+    return bool(left >= 1 and right >= 1 and patch[:, :left].max() < cut
+                and patch[:, patch.shape[1] - right:].max() < cut)
+
+
+def soft_scores(row: dict, templates: dict) -> dict[str, float]:
+    """The stored soft whiteness of `row` (native px) against each template
+    that fits inside it: zero-normalised cross-correlation over the WHOLE
+    patch, the template on a zero canvas, best over whole-pixel offsets and
+    the sub-pixel phases. cv2.TM_CCOEFF_NORMED normalises over the
+    template's window only, so a small icon (Trapwire's bar) scores 1.0
+    inside a gun; here the patch's ink outside the template counts against
+    it. Computed from cv2.TM_CCORR with offset-free means and norms."""
+    from ..killfeed import unpack_soft
+    patch = unpack_soft(row["soft"])[0].astype(np.float32) / 255.0
+    H, Wd = patch.shape
+    n = float(H * Wd)
+    mean = float(patch.mean())
+    pnorm = float(np.linalg.norm(patch - mean))
+    out = {}
+    for name, (stack, _) in templates.items():
+        if stack.shape[1] > H or stack.shape[2] > Wd or pnorm == 0:
+            continue
+        sums = stack.sum(axis=(1, 2))
+        dens = pnorm * np.sqrt(np.maximum((stack * stack).sum(axis=(1, 2)) - sums * sums / n, 0.0))
+        best = -1.0
+        for t, st, den in zip(stack, sums, dens):
+            if den > 0:
+                cc = cv2.matchTemplate(patch, t, cv2.TM_CCORR)
+                best = max(best, float((cc.max() - st * mean) / den))
+        out[name] = best
+    return out
+
+
+def soft_name(scores: dict[str, float], templates: dict, tiers: list[dict]) -> dict:
+    """One frame named by its soft scores through `candidate_tiers`, as
+    `name_frame` names by the grid: in the first tier where some allowed
+    name reaches SOFT_MIN_ZNCC, a square-texture top name clearing every
+    other allowed name by SOFT_NAME_MARGIN is the answer; any other top
+    leaves the frame refused there (`soft_ambiguous`). No tier: `new`."""
+    for t in tiers:
+        allowed = [(v, k) for k, v in scores.items() if k in t["names"]]
+        if not allowed:
+            continue
+        allowed.sort(reverse=True)
+        score, top = allowed[0]
+        if score < SOFT_MIN_ZNCC:
+            continue
+        margin = score - (allowed[1][0] if len(allowed) > 1 else 0.0)
+        out = {"best": top, "score": round(score, 3), "margin": round(margin, 3),
+               "tier": t["tier"], "descriptor": "soft"}
+        if templates[top][1] and margin >= SOFT_NAME_MARGIN:
+            return dict(out, name=top)
+        return dict(out, name=None, reason="soft_ambiguous")
+    return {"name": None, "reason": REFUSE_NEW, "descriptor": "soft"}
+
+
 def candidate_tiers(gallery: dict, agents=None, actor: Optional[dict] = None) -> list[dict]:
     """The candidate sets `entry_weapon` tries, narrowest first: `kit` (the
     guns and unattributed names, with only `actor`'s own abilities), `lineup`
@@ -1339,6 +1463,8 @@ def candidate_tiers(gallery: dict, agents=None, actor: Optional[dict] = None) ->
                     "dropped": dropped})
     out.append({"tier": "full", "index": _icon_index(gallery), "kit": frozenset(),
                 "dropped": []})
+    for t in out:
+        t["names"] = frozenset(t["index"]["names"])
     return out
 
 
@@ -1445,6 +1571,11 @@ def entry_weapon(entry: dict, observations: list[dict],
     A caster claim from an answer resting on the actor depends on the
     actor's entity (`caster_claim`).
 
+    A frame the grid names `new` gets the soft registered match when its
+    stored patch holds the whole icon (`soft_whole`, `soft_name`); a frame
+    named that way carries `descriptor: soft`, and every frame tried keeps
+    its soft answer (`soft`).
+
     `key`, the entry's `death_key`, puts one entry in AUDIT_EVERY into the
     audit (`audit_entry`): the full search's answer is stored apart in
     `audit`. `kit_floor_frames` counts the frames only the kit's lower floor
@@ -1474,14 +1605,35 @@ def entry_weapon(entry: dict, observations: list[dict],
                     rests_on=[], surprise=False)
     grids = [(unpack_icon_grid(o["grid"]), o["aspect"]) for o in bound]
     narrow = set(by) - {"full"}
-    rows = [name_frame(g, a, tiers) for g, a in grids]
+    # A frame the grid leaves `new` whose stored patch holds the whole icon
+    # gets the soft registered match (`soft_name`), which names only a
+    # square-texture icon; its scores are computed once per frame.
+    soft_cache: dict[int, dict] = {}
+
+    def named(tset: list[dict]) -> list[dict]:
+        res = []
+        for k, (o, (g, a)) in enumerate(zip(bound, grids)):
+            r = name_frame(g, a, tset)
+            if r.get("reason") == REFUSE_NEW and soft_whole(o):
+                if k not in soft_cache:
+                    soft_cache[k] = soft_scores(o, soft_templates(
+                        store_root, observation_scale(observations)))
+                templates = soft_templates(store_root, observation_scale(observations))
+                sv = soft_name(soft_cache[k], templates, tset)
+                r["soft"] = {x: sv.get(x) for x in ("best", "score", "margin", "tier", "reason")}
+                if sv["name"] is not None:
+                    r = dict(sv, soft=r["soft"])
+            res.append(r)
+        return res
+
+    rows = named(tiers)
     v = _decide(rows, narrow)
     rests_on: list[dict] = []
     if v["status"] == "resolved" and not v["surprise"]:
         kit_shaped = False
         if "kit" in by:
             plain = [t for t in tiers if t["tier"] != "kit"]
-            w = _decide([name_frame(g, a, plain) for g, a in grids], narrow - {"kit"})
+            w = _decide(named(plain), narrow - {"kit"})
             kit_shaped = (w["status"], w["name"]) != (v["status"], v["name"])
         if kit_shaped:
             rests_on.append({"context": "actor", **out["actor"]})
@@ -1490,8 +1642,8 @@ def entry_weapon(entry: dict, observations: list[dict],
     out.update({k: v[k] for k in ("named", "names", "frame_reasons")})
     # A frame its kit's lower floor named rests on the actor even when the
     # entry's name stands without it (`kit_floor_frames`).
-    on_kit = [r["name"] is not None and r["tier"] == "kit" and r["score"] < NAME_MIN_IOU
-              for r in rows]
+    on_kit = [r["name"] is not None and r["tier"] == "kit" and r.get("descriptor") != "soft"
+              and r["score"] < NAME_MIN_IOU for r in rows]
     out.update(rests_on=rests_on, surprise=v["surprise"], kit_floor_frames=sum(on_kit))
     if v.get("surprise_frames"):
         out["surprise_frames"] = v["surprise_frames"]
@@ -1499,7 +1651,7 @@ def entry_weapon(entry: dict, observations: list[dict],
         out["tiers"] = v["tiers"]
     if audit_entry(key):
         full = [by["full"]]
-        a = _count([name_frame(g, x, full) for g, x in grids], {"full"})
+        a = _count(named(full), {"full"})
         out["audit"] = {"rule": f"sha1(death_key)[:8] % {AUDIT_EVERY} == 0",
                         "status": a["status"], "name": a["name"], "reason": a["reason"],
                         "names": a["names"],
@@ -1508,7 +1660,9 @@ def entry_weapon(entry: dict, observations: list[dict],
         out["frames"] = [{"t_ms": o["t_ms"], "slot": o["slot"], "name": r["name"],
                           "reason": r.get("reason"), "tier": r["tier"], "best": r["best"],
                           "score": r["score"], "margin": r["margin"],
-                          "rests_on": [{"context": "actor", **out["actor"]}] if k else []}
+                          "rests_on": [{"context": "actor", **out["actor"]}] if k else [],
+                          **({"descriptor": "soft"} if r.get("descriptor") == "soft" else {}),
+                          **({"soft": r["soft"]} if r.get("soft") else {})}
                          for o, r, k in zip(bound, rows, on_kit)]
     if v["status"] != "resolved":
         return dict(out, reason=v["reason"])
