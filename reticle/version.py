@@ -431,7 +431,12 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # not a second ring fit and teardrop read; a drawn frame the stream did not
 # read is refused (`widget` `ally_unread`, with its reason). The coverage row
 # records `inputs.ally_icon` and no longer `icon_teardrop_version`.
-TEAM_VISION_VERSION = "team-vision-0.7.0"
+# 0.7.1 (2026-10-04): on an `ally_unread` frame the self icon is still read,
+# tracked and cast (`observable_self`), and the lifecycle suspends only the
+# `ally` role (LIFECYCLE_VERSION 0.3.0); each refused frame names its own
+# cause (`ally_unread_cause`) from the stream's frame rows and `spans_clip`,
+# not the head's clip reason; the coverage row counts the causes.
+TEAM_VISION_VERSION = "team-vision-0.7.1"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.

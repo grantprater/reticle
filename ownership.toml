@@ -786,7 +786,8 @@ casts nothing and a ray stops at the baked boxes, which also seal some narrow
 gaps the drawn light passes (the three e78e75b2d191 slivers). Smokes do not
 yet block its rays. It finds and poses no teammate in the stored product:
 those are the stored `ally_icon` stream's (`ally-candidates`, `icon-pose`),
-and a frame that stream did not read is refused, not refitted.
+and a frame that stream did not read refuses the team's `observable`, not
+refitted; the self cone there is stored apart as `observable_self`.
 """
 defers_to = ["viewcone", "drawn-light", "track-continuation", "minimap-origin",
              "capture-stall", "light-support", "self-cone-origin", "ally-candidates",

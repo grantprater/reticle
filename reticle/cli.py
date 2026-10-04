@@ -3002,9 +3002,12 @@ def cmd_vision(args) -> int:
             got = ((smp.frame_idx, vision.step(smp.frame[y0:y1, x0:x1], smp.t_ms,
                                                frame_idx=smp.frame_idx))
                    for smp in cache.samples(times, rois=["minimap"]))
+        causes = Counter()
         for frame_idx, frame in got:
             widget[frame.widget] += 1
             rows.append({**common, **frame_row(frame, frame_idx)})
+            if frame.widget == "ally_unread":
+                causes[rows[-1].get("ally_unread_cause")] += 1
             if len(rows) % 500 == 0:
                 sys.stdout.write(f"\r  {sid}  {len(rows)}/{len(times)} frames")
                 sys.stdout.flush()
@@ -3037,6 +3040,8 @@ def cmd_vision(args) -> int:
                     # (`inputs.ally_icon` records its stamp), less the
                     # families this chain does not cast from.
                     "ally_icons_skipped": dict(allies.skipped),
+                    # Each refused frame's own cause (`team_vision.UNREAD_CAUSES`).
+                    "ally_unread_causes": dict(sorted(causes.items())),
                     "lifecycle_version": LIFECYCLE_VERSION,
                     "diagnostics_version": DIAGNOSTICS_VERSION,
                     "stall_version": stalls.STALL_VERSION,
@@ -3055,7 +3060,7 @@ def cmd_vision(args) -> int:
         drawn = widget.get("drawn", 0)
         print(f"{sid}: {len(rows) - 1} frames, {drawn} drawn, "
               f"{widget.get('not_drawn', 0)} no widget, {widget.get('stale', 0)} stale, "
-              f"{widget.get('ally_unread', 0)} ally poses unread "
+              f"{widget.get('ally_unread', 0)} ally poses unread {dict(causes)} "
               f"in {elapsed:.0f} s -> {out}")
     return 0
 

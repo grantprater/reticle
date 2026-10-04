@@ -56,27 +56,37 @@ class TeamVisionTests(unittest.TestCase):
         floor = np.ones((60, 60), bool)
         ring = {"r": 5, "cov": 0.9, "inner": 0.0, "inner_v": 100.0, "lobe": 0.4, "area": 80,
                 "map_diff": 40.0}
+        audit = {"prior": None, "full": {"x": 30.0, "y": 30.0, "deg": 88.0, "ncc": 0.7,
+                                         "margin": 0.1, "read": True, "reason": None}}
         rows = [
+            {"kind": "frame", "frame_idx": 3, "t_ms": 0.0, "widget_drawn": True},
+            {"kind": "frame", "frame_idx": 4, "t_ms": 100.0, "widget_drawn": False},
             # A teardrop read: its centre and facing cast.
-            {"frame_idx": 3, "cx": 30.5, "cy": 30.25, "facing": 90.0, "facing_source": "teardrop",
+            {"kind": "icon", "frame_idx": 3, "cx": 30.5, "cy": 30.25, "facing": 90.0,
+             "facing_source": "teardrop",
              "ring": {"cx": 31.0, "cy": 32.0, "facing": 270.0}, "family": "ally",
-             "pose": {"origin": "teardrop", "ncc": 0.8, "reason": None, "facing_reason": None},
-             **ring},
+             "pose": {"origin": "teardrop", "ncc": 0.8, "reason": None, "facing_reason": None,
+                      "search": "full", "surprise": None, "rests_on": "s:ally:1",
+                      "audit": audit}, **ring},
             # An unread teardrop: the stream keeps the ring fit's facing, which
             # this chain drops without `ring_fallback`.
-            {"frame_idx": 3, "cx": 10.0, "cy": 10.0, "facing": 45.0, "facing_source": "ring_fit",
+            {"kind": "icon", "frame_idx": 3, "cx": 10.0, "cy": 10.0, "facing": 45.0,
+             "facing_source": "ring_fit",
              "ring": {"cx": 10.0, "cy": 10.0, "facing": 45.0}, "family": "ally",
              "pose": {"origin": "ring_fit", "ncc": 0.3, "reason": "low_ncc",
                       "facing_reason": None}, **ring},
-            {"frame_idx": 3, "cx": 50.0, "cy": 50.0, "facing": 0.0, "family": "barrier",
-             "facing_source": "teardrop", "pose": {"origin": "teardrop"}, **ring},
-            {"frame_idx": 3, "cx": 45.0, "cy": 20.0, "facing": 0.0, "family": "ally",
-             "facing_source": "stack_fit", "origin": "stack_fit"},
+            {"kind": "icon", "frame_idx": 3, "cx": 50.0, "cy": 50.0, "facing": 0.0,
+             "family": "barrier", "facing_source": "teardrop", "pose": {"origin": "teardrop"},
+             **ring},
+            {"kind": "icon", "frame_idx": 3, "cx": 45.0, "cy": 20.0, "facing": 0.0,
+             "family": "ally", "facing_source": "stack_fit", "origin": "stack_fit"},
         ]
-        stored = StoredAllyPoses([{"frame_idx": 3, "widget_drawn": True},
-                                  {"frame_idx": 4, "widget_drawn": False}], rows,
-                                 {"ally_icon_version": "ally-icon-x",
-                                  "spans_clip": {"reason": "outside_cache_rounds"}})
+        # Frame 7 lies in a span the stream read, 5 in one its clip skipped,
+        # 6 in none it was asked for.
+        clip = {"reason": "outside_cache_rounds", "spans_asked": [[0.0, 200.0]],
+                "spans_read": [[0.0, 40.0], [80.0, 200.0]], "spans_skipped": [[40.0, 80.0]]}
+        stored = StoredAllyPoses.from_rows(rows, {"ally_icon_version": "ally-icon-x",
+                                                  "spans_clip": clip})
         self.assertEqual(stored.skipped, {"barrier": 1, "stack_fit": 1})
         vision = TeamVision(floor, floor, np.zeros((60, 60)), width=60, ally_poses=stored)
         crop = np.zeros((60, 60, 3), np.uint8)
@@ -90,17 +100,77 @@ class TeamVisionTests(unittest.TestCase):
             self.assertEqual(sorted(by_x), [10.0, 30.5])
             self.assertEqual(by_x[30.5]["facing"], 90.0)
             self.assertEqual(by_x[30.5]["ring"]["cx"], 31.0)
+            self.assertEqual(by_x[30.5]["pose"]["audit"], audit)
+            self.assertEqual(by_x[30.5]["pose"]["rests_on"], "s:ally:1")
+            self.assertNotIn("audit", by_x[10.0]["pose"])
             self.assertIsNone(by_x[10.0]["facing"])
             self.assertIsNone(by_x[10.0]["facing_source"])
-            for t, frame_idx, why in (
-                    (66.7, 5, "ally_icon stored no frame here (outside_cache_rounds)"),
-                    (100.0, 4, "ally_icon found the widget absent here")):
+            for t, frame_idx, cause, why in (
+                    (20.0, 7, "no_frame_in_read_span",
+                     "ally_icon stored no frame here (no_frame_in_read_span)"),
+                    (66.7, 5, "outside_cache_rounds",
+                     "ally_icon stored no frame here (outside_cache_rounds)"),
+                    (100.0, 4, "widget_absent",
+                     "ally_icon found the widget absent here (widget_absent)"),
+                    (500.0, 6, "outside_spans_asked",
+                     "ally_icon stored no frame here (outside_spans_asked)")):
                 row = frame_row(vision.step(crop, t, frame_idx=frame_idx))
                 self.assertEqual(row["widget"], "ally_unread")
                 self.assertIsNone(row["observable"])
+                self.assertEqual(row["ally_unread_cause"], cause)
                 self.assertEqual(row["reason"], f"ally poses unread: {why}")
             with self.assertRaises(ValueError):
-                vision.step(crop, 133.3)
+                vision.step(crop, 633.3)
+
+    def test_unread_teammates_leave_the_self_cone_cast(self):
+        # The stream reads frames 0-9 and 30-34; 10-29 lie outside the spans
+        # it was asked for, as a buy phase does.
+        floor = np.ones((60, 60), bool)
+        ring = {"r": 5, "cov": 0.9, "inner": 0.0, "inner_v": 100.0, "lobe": 0.4, "area": 80,
+                "map_diff": 40.0}
+        read = [*range(10), *range(30, 35)]
+        rows = [{"kind": "frame", "frame_idx": i, "t_ms": i * 66.7, "widget_drawn": True}
+                for i in read]
+        rows += [{"kind": "icon", "frame_idx": i, "cx": 30.0, "cy": 30.0, "facing": 90.0,
+                  "facing_source": "teardrop", "family": "ally",
+                  "ring": {"cx": 30.0, "cy": 30.0, "facing": 90.0},
+                  "pose": {"origin": "teardrop", "ncc": 0.8, "reason": None,
+                           "facing_reason": None}, **ring} for i in read]
+        clip = {"reason": "outside_cache_rounds", "spans_asked": [[0.0, 650.0], [1990.0, 2400.0]],
+                "spans_read": [[0.0, 650.0], [1990.0, 2400.0]], "spans_skipped": []}
+        stored = StoredAllyPoses.from_rows(rows, {"spans_clip": clip})
+        vision = TeamVision(floor, floor, np.zeros((60, 60)), width=60, ally_poses=stored,
+                            ring_fallback=True)
+        crop = np.zeros((60, 60, 3), np.uint8)
+        me = {"cx": 15.0, "cy": 45.0, "r": 5, "cov": 0.9, "facing": 0.0}
+        got = {}
+        with patch("reticle.team_vision.widget_drawn", return_value=True), \
+                patch("reticle.team_vision.self_icons", side_effect=lambda *a, **k: [dict(me)]):
+            for i in range(35):
+                got[i] = vision.step(crop, i * 66.7, frame_idx=i)
+        for i in (12, 20, 29):
+            row = frame_row(got[i], frame_idx=i)
+            self.assertEqual(row["widget"], "ally_unread")
+            self.assertEqual(row["ally_unread_cause"], "outside_spans_asked")
+            self.assertIsNone(row["observable"])
+            self.assertIsNone(row["observable_all"])
+            # The self cone is cast and stored; no teammate casts.
+            self.assertTrue(got[i].observable_self.any())
+            self.assertTrue(np.array_equal(lighting.unpack_mask(row["observable_self"]),
+                                           got[i].observable_self))
+            casting = {ic["role"] for ic in row["icons"] if ic["casts"]}
+            self.assertEqual(casting, {"self"})
+            # The self track continues across the gap.
+            me_row = [r for r in got[i].diagnostic["adjudication"] if r["role"] == "self"]
+            self.assertEqual(me_row[0]["state"], "continuation")
+        # The teammate returns after its anchors expired: a boundary of its
+        # role's own, not an unexplained appearance.
+        back = got[30].diagnostic["adjudication"]
+        ally = [r for r in back if r["role"] == "ally"]
+        self.assertEqual(ally[0]["state"], "left_censored")
+        self.assertTrue(ally[0]["eligible"])
+        self.assertEqual(got[30].widget, "drawn")
+        self.assertIsNone(got[30].observable_self)
 
     def test_an_ineligible_track_casts_no_adjudicated_cone(self):
         vision = _vision()
