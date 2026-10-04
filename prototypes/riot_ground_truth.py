@@ -169,9 +169,10 @@ players; scores here measure agreement with it, not accuracy per cast.
 
 0.5.0 (ult-cast-0.5.0): Chamber apart
 
-* Riot's Chamber ult count omits Tour De Force equips
-  (`docs/EXTERNAL_GROUND_TRUTH.md`, "Chamber's ultimate count"), so it is no
-  truth for him (`RIOT_COUNT_UNFIT`). `apart` scores the per-match count
+* Riot's Chamber ult count undercounts Tour De Force equips
+  (`docs/EXTERNAL_GROUND_TRUTH.md`, "Chamber's ultimate count"): it never
+  exceeds his Tour De Force kill rounds and falls below them for most Chamber
+  players, so it is no truth for him (`RIOT_COUNT_UNFIT`). `apart` scores the per-match count
   without him: Riot casts, stored rows, matched, excess rows, recall and
   precision.
 * `chamber_line` scores Chamber's stored lines against the rounds in which
@@ -180,6 +181,19 @@ players; scores here measure agreement with it, not accuracy per cast.
   false; `off_roster` counts Chamber lines on a side Riot fields no Chamber.
 * The combined figures, Chamber included, print and record as before, beside
   both; so do the halves.
+
+0.5.1: the 0.4.1 `chamber_tdf` pool relabelled
+
+* Its count score compares each Chamber player's stored line count with a
+  lower bound, max(Riot's count, his Tour De Force kill rounds), never round
+  by round. Its pooled `truth`, `matched`, `deficit`, `excess`, `recall` and
+  `precision` print and record as `count_lower_bound`, `count_matched`,
+  `count_short_of_lower_bound`, `count_above_lower_bound`,
+  `count_recall_vs_lower_bound` and `count_precision_vs_lower_bound`. A count
+  recall of 1.0 says every player holds at least as many lines as the bound,
+  even where a kill round holds none of them; lines above the bound are not
+  false. The per-round figures are `chamber_line`'s. Two 0.5.0 --record rows
+  came from different builds; 0.5.1 restamps the same figures.
 
 What the scorer reads stale (0.3.1)
 -----------------------------------
@@ -222,7 +236,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-RIOT_TRUTH_VERSION = "riot-truth-0.5.0"
+RIOT_TRUTH_VERSION = "riot-truth-0.5.1"
 STORE = Path.home() / "reticle-store"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -2395,8 +2409,9 @@ def _sweep(sid: str, peak_rows: list[dict], lineup, rounds, round_version, playe
 
 def _chamber_tdf(players: list[dict], casts: list[dict], rounds: list[dict], a: float) -> list[dict]:
     """Per Chamber player: the Riot rounds with a Tour De Force kill, how many
-    hold a stored Chamber cast of that side, and the count truth max(Riot's
-    count, those rounds) against the stored casts."""
+    hold a stored Chamber cast of that side, and the stored line count against
+    a lower bound, `truth` = max(Riot's count, those rounds); the pool reports
+    that comparison under `count_*` names."""
     from reticle.adjudication.ult_cast import round_of
     out = []
     for p in players:
@@ -2416,8 +2431,10 @@ def _chamber_tdf(players: list[dict], casts: list[dict], rounds: list[dict], a: 
     return out
 
 
-#: Riot's Chamber ult count omits Tour De Force equips (docs/EXTERNAL_GROUND_TRUTH.md,
-#: "Chamber's ultimate count"), so its per-match count is no truth for him.
+#: Riot's Chamber ult count undercounts Tour De Force equips: it never exceeds his
+#: Tour De Force kill rounds and falls below them for most Chamber players
+#: (docs/EXTERNAL_GROUND_TRUTH.md, "Chamber's ultimate count"), so its per-match
+#: count is no truth for him.
 RIOT_COUNT_UNFIT = frozenset({"Chamber"})
 
 
@@ -2687,10 +2704,18 @@ def pool_ults(results: list[dict]) -> dict:
     if C:
         C["tdf_rounds_held_fraction"] = (round(C["tdf_rounds_held"] / C["tdf_rounds"], 4)
                                          if C["tdf_rounds"] else None)
-        C["recall"] = round(C["matched"] / C["truth"], 4) if C["truth"] else None
-        C["precision"] = round(C["matched"] / C["stored"], 4) if C["stored"] else None
+        # 0.5.1: a count score against a per-player lower bound, not per round;
+        # named so, beside chamber_line's per-round figures.
+        for old, new in (("truth", "count_lower_bound"), ("matched", "count_matched"),
+                         ("deficit", "count_short_of_lower_bound"),
+                         ("excess", "count_above_lower_bound")):
+            C[new] = C.pop(old)
+        C["count_recall_vs_lower_bound"] = (round(C["count_matched"] / C["count_lower_bound"], 4)
+                                            if C["count_lower_bound"] else None)
+        C["count_precision_vs_lower_bound"] = (round(C["count_matched"] / C["stored"], 4)
+                                               if C["stored"] else None)
     P["chamber_tdf"] = dict(sorted(C.items()))
-    # 0.5.0: the count score without Chamber, whose Riot count omits his equips,
+    # 0.5.0: the count score without Chamber, whose Riot count undercounts his equips,
     # and Chamber's own line: recall against Tour De Force kill rounds, and his
     # lines outside such rounds unverifiable, not false.
     X = Counter()
@@ -2816,7 +2841,7 @@ def record_ult_metrics(P: dict, results: list[dict], halves: dict | None = None)
     toks = [f"[metric:riot_truth/ult#{f}={flat.get(f)}]" for f in (
         "riot_casts", "stored_casts", "matched", "recall", "precision", "excess_rows",
         "excess_per_live_min", "impossible", "burst_refused", "witnessed_casts",
-        "own_own_recall", "ult_kills_recall", "chamber_tdf_recall",
+        "own_own_recall", "ult_kills_recall", "chamber_tdf_count_recall_vs_lower_bound",
         "chamber_tdf_tdf_rounds_held_fraction", "apart_recall", "apart_precision",
         "apart_excess_rows", "chamber_line_tdf_recall", "chamber_line_stored",
         "chamber_line_lines_in_tdf_round", "chamber_line_lines_unverifiable")]
