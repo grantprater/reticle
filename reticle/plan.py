@@ -15,7 +15,10 @@ reread the stored crops and decode nothing. A stream never written is
 A stored stamp the code declares acceptable in its place
 (`version.STAMP_WAIVERS`, a testing-phase decision of the player's) is not
 stale either, and not current: `stale` lists it under `waived`, as a stream
-or as an input of a rerun, and `render` names it as accepted by waiver.
+or as an input of a rerun, and `render` names it as accepted by waiver. A
+conditional waiver accepts only on the sessions where its condition
+(`WAIVER_CONDITIONS`) holds; elsewhere the stamp stays stale, `stale` lists
+it under `declined` with the reason, and `render` names it as not waived.
 
 A stamp is only as good as the bump: a code change that keeps its stamp is
 invisible here, as it is to `scan`'s cache check.
@@ -68,10 +71,47 @@ def _round_stamps(store, manifest: dict) -> dict | None:
             "plant_graphic": get("plant_graphic_version", "unrecorded")}
 
 
-def waiver(stored, current: str) -> str | None:
-    """Why `stored` counts as `current` by a declared waiver, or None."""
+def _upright_placement(store, manifest: dict) -> tuple[bool | None, str]:
+    from .widget_frame import upright_throughout
+    return upright_throughout(store, manifest)
+
+
+#: The per-session conditions a conditional waiver names in `when`: each
+#: maps (store, manifest) to (holds, why), holds None where unknown.
+WAIVER_CONDITIONS = {"upright_placement": _upright_placement}
+
+
+def waiver_check(stored, current: str, store=None, manifest: dict | None = None,
+                 memo: dict | None = None) -> tuple[str | None, str | None]:
+    """(why `stored` counts as `current` by a declared waiver, why a declared
+    waiver declined); at most one is set, both None where none is declared.
+
+    A conditional waiver (`version.STAMP_WAIVERS` value with `when`) accepts
+    only where its condition holds on this session; with no session, or where
+    the condition is unknown, it declines. `memo` holds each condition's
+    answer for the session."""
     from .version import STAMP_WAIVERS
-    return STAMP_WAIVERS.get((current, stored))
+    w = STAMP_WAIVERS.get((current, stored))
+    if w is None or isinstance(w, str):
+        return w, None
+    cond = w["when"]
+    if store is None or manifest is None:
+        return None, f"{cond}: no session to evaluate it on"
+    memo = {} if memo is None else memo
+    key = ("waiver_condition", cond)
+    if key not in memo:
+        memo[key] = WAIVER_CONDITIONS[cond](store, manifest)
+    holds, why = memo[key]
+    if holds is True:
+        return f"{w['why']} [{cond}: {why}]", None
+    return None, f"{cond}: {why}"
+
+
+def waiver(stored, current: str, store=None, manifest: dict | None = None,
+           memo: dict | None = None) -> str | None:
+    """Why `stored` counts as `current` by a declared waiver, or None
+    (`waiver_check`)."""
+    return waiver_check(stored, current, store, manifest, memo)[0]
 
 
 #: The command that rereads a channel `scan` does not read.
@@ -841,7 +881,8 @@ def recorded_stale(store, manifest: dict, spec: dict, head: dict, memo: dict | N
     rereads what `plan` calls stale once the inputs ahead of it are rerun.
     `accepted` is `stale`'s waiver check; by default a declared waiver accepts."""
     if accepted is None:
-        accepted = lambda where, stored, current: waiver(stored, current) is not None
+        accepted = lambda where, stored, current: waiver(stored, current, store, manifest,
+                                                         memo) is not None
     stream = spec["stream"]
     moved = sorted(k for k, v in spec["fields"].items() if _dig(head, k) not in (v, None)
                    and not accepted(f"{stream} input {k}", _dig(head, k), v))
@@ -1097,15 +1138,19 @@ def stale(store, sessions: list[str]) -> dict:
     out = {}
     for sid in sessions:
         man = store.read_manifest(sid)
-        decode, derived, absent, waived, unrecorded = [], [], [], [], []
+        decode, derived, absent, waived, unrecorded, declined = [], [], [], [], [], []
         memo: dict = {}
 
         def accepted(where: str, stored, current: str) -> bool:
-            """True where a waiver accepts `stored` as `current`, and records it."""
-            why = waiver(stored, current)
+            """True where a waiver accepts `stored` as `current`, and records
+            it; a conditional waiver that declines here is recorded too."""
+            why, no = waiver_check(stored, current, store, man, memo)
             if why is not None:
                 waived.append({"stream": where, "stored": stored, "current": current,
                                "why": why})
+            elif no is not None:
+                declined.append({"stream": where, "stored": stored, "current": current,
+                                 "why": no})
             return why is not None
 
         def recorded_moved(stream: str, head: dict | None, moved: list[str]) -> list[str]:
@@ -1297,6 +1342,7 @@ def stale(store, sessions: list[str]) -> dict:
         unchecked = [{"stream": s, "why": UNSTAMPED.get(s, "undeclared: no check in plan")}
                      for s in stored_streams(store, sid) if s not in declared]
         out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived,
+                    "declined": declined,
                     "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded,
                     "widget": widget}
     return out
@@ -1403,9 +1449,22 @@ def render(plan: dict) -> str:
     for sid, p in plan.items():
         for w in p.get("waived", []):
             waived[(w["stream"], w["stored"], w["current"])].append(sid)
+    from .version import STAMP_WAIVERS
+    when = lambda stored, current: (
+        f", where {w['when']} holds" if isinstance(w := STAMP_WAIVERS.get((current, stored)), dict)
+        else "")
     waived_lines = [f"waived   {stream}: {stored} accepted as {current} by waiver "
-                    f"(version.STAMP_WAIVERS) on {len(sids)} sessions: {' '.join(sids)}"
+                    f"(version.STAMP_WAIVERS{when(stored, current)}) on {len(sids)} sessions: "
+                    f"{' '.join(sids)}"
                     for (stream, stored, current), sids in sorted(waived.items())]
+    # A conditional waiver that did not hold on a session leaves it stale, by name.
+    declined: dict[tuple[str, str, str, str], list[str]] = defaultdict(list)
+    for sid, p in plan.items():
+        for w in p.get("declined", []):
+            declined[(w["stream"], w["stored"], w["current"], w["why"])].append(sid)
+    waived_lines += [f"not waived {stream}: {stored} stays stale under {current}, the waiver's "
+                     f"condition fails ({why}) on {len(sids)} sessions: {' '.join(sids)}"
+                     for (stream, stored, current, why), sids in sorted(declined.items())]
     unchecked: dict[tuple[str, str], list[str]] = defaultdict(list)
     for sid, p in plan.items():
         for u in p.get("unchecked", []):
