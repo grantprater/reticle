@@ -54,6 +54,10 @@ apart and never scored as a cast.
   threshold applies to every detection before grouping);
 
 each over every file (`all`) or with 3P-named files left out (`no3p`).
+`seq-dev` tests a fourth on dev demos only, outside the choice: `seq`, each
+ability's own sequence, an opening detection and, where the ability's game
+data plays any file of a later phase (travel, bounce, impact, detonate,
+activate, loop, ...), a detection of one.
 
 **Scoring.** An event matches a cast of its slot when its time lies within
 MATCH_S of the drop; events and casts pair one to one by
@@ -271,15 +275,21 @@ def file_table(files: dict[str, list[dict]], agents: list[str]) -> dict:
     phases = sorted({f["phase"] for f in rows}) or ["none"]
     persp = np.array([f["perspective"] for f in rows], dtype=object)
     opens = np.array([bool(f["opens"]) for f in rows], bool)
-    return {"off": off[:-1], "n": off[-1],
-            "slot": np.array([SLOTS.index(f["slot"]) for f in rows], np.int64),
-            "rank": np.array([UNRANKED if f["rank"] is None else f["rank"] for f in rows],
-                             np.int64),
+    slot = np.array([SLOTS.index(f["slot"]) for f in rows], np.int64)
+    rank = np.array([UNRANKED if f["rank"] is None else f["rank"] for f in rows], np.int64)
+    keep = {"all": np.ones(len(rows), bool), "no3p": persp != "3P",
+            "3p": persp == "3P", "opening": opens, "later": ~opens}
+    # Per subset and file: whether the file's ability (agent and slot) keeps
+    # any file of a phase later than OPENING_RANK.
+    ability = np.repeat(np.arange(len(agents)), np.diff(off)) * len(SLOTS) + slot
+    later = (rank > OPENING_RANK) & (rank < UNRANKED)
+    need = {k: (np.bincount(ability, weights=(m & later).astype(float),
+                            minlength=len(agents) * len(SLOTS)) > 0)[ability]
+            for k, m in keep.items()}
+    return {"off": off[:-1], "n": off[-1], "slot": slot, "rank": rank,
             "opens": opens, "phase_names": phases,
             "phase": np.array([phases.index(f["phase"]) for f in rows], np.int64),
-            "perspective": persp,
-            "keep": {"all": np.ones(len(rows), bool), "no3p": persp != "3P",
-                     "3p": persp == "3P", "opening": opens, "later": ~opens}}
+            "perspective": persp, "keep": keep, "need_later": need}
 
 
 # ---------------------------------------------------------------------------
@@ -483,14 +493,16 @@ def _block_first(keys: np.ndarray) -> np.ndarray:
 
 
 def group_events(key, slot, frame, rank, opens, phase, v, family: str, fps: int = FPS,
-                 rule: str = RULE, tie=None) -> dict:
+                 rule: str = RULE, tie=None, need_later=None) -> dict:
     """Events from detections already thresholded and subset, as arrays.
 
     Every argument but `family` is one value per detection: `key` the
     group (a session, or a session and agent), `slot` 0-3, `rank` the
     file's phase rank (UNRANKED for none), `opens` whether the file's phase
     is OPENING_RANK or earlier, `phase` the phase id, `v` the scaled score;
-    `tie` orders detections of one frame (the file index). Returns per
+    `tie` orders detections of one frame (the file index); `need_later`,
+    for the `seq` family, whether the detection's ability plays any file of
+    a phase later than OPENING_RANK in the game data. Returns per
     event its key, slot, frame, `cast` (False: an equip state event), best
     score, the index of its best detection, distinct phases and detection
     count, sorted by key and frame. The rule is the module docstring's."""
@@ -553,6 +565,15 @@ def group_events(key, slot, frame, rank, opens, phase, v, family: str, fps: int 
         keep = has_open
     elif family == "agree":
         keep = nphase >= 2
+    elif family == "seq":
+        # The ability's own sequence: an opening detection, and a later-phase
+        # one where the ability's game data plays any later-phase file.
+        rk = rank[det]
+        has_later = np.maximum.reduceat(((rk > OPENING_RANK) & (rk < UNRANKED))
+                                        .astype(np.int8), first).astype(bool)
+        need = (np.zeros(n, bool) if need_later is None
+                else np.asarray(need_later, bool))[det[first]]
+        keep = has_open & (has_later | ~need)
     out = {"key": key[det[first]], "slot": slot[det[first]], "frame": t, "cast": is_cast,
            "score": v[det[first]], "best": det[first], "nphase": nphase, "n": cnt}
     out = {k: np.asarray(a)[keep] for k, a in out.items()}
@@ -636,7 +657,7 @@ def evaluate(D: dict, family: str, subset: str, theta: float, sids: list[str],
     g = det["gfi"][m]
     E = group_events(det["sid"][m], ft["slot"][g], det["frame"][m], ft["rank"][g],
                      ft["opens"][g], ft["phase"][g], det["v"][m], family, rule=rule,
-                     tie=det["fidx"][m])
+                     tie=det["fidx"][m], need_later=ft["need_later"][subset][g])
     best_g = g[E["best"]] if len(E["best"]) else np.zeros(0, np.int64)
     bounds = np.searchsorted(E["key"], np.r_[sidx, sidx + 1].reshape(2, -1))
     rows = {}
@@ -685,7 +706,8 @@ def evaluate(D: dict, family: str, subset: str, theta: float, sids: list[str],
         nA = len(D["agents"])
         Ex = group_events(det["sid"][mx].astype(np.int64) * nA + det["agent"][mx],
                           ft["slot"][gx], det["frame"][mx], ft["rank"][gx], ft["opens"][gx],
-                          ft["phase"][gx], det["v"][mx], family, rule=rule, tie=det["fidx"][mx])
+                          ft["phase"][gx], det["v"][mx], family, rule=rule, tie=det["fidx"][mx],
+                          need_later=ft["need_later"][subset][gx])
         n_x = np.bincount((Ex["key"] % nA)[Ex["cast"]], minlength=nA)
         live_min = np.array([D["live"][s].sum() / (60.0 * FPS) for s in sids])
         ag = np.array([D["agents"].index(D["agent_of"][s]) for s in sids])
@@ -837,6 +859,27 @@ def report(scan_dir: Path, store_root, rule: str = RULE) -> dict:
             "rule": {"match_s": MATCH_S, "castfree_s": CASTFREE_S, "join_s": JOIN_S,
                      "life_s": LIFE_S, "ff_per_min": FF_PER_MIN,
                      "coincident_ms": COINCIDENT_MS}}
+
+
+def seq_dev(score_dir: Path, store_root, rule: str = RULE) -> dict:
+    """Dev demos only: the `seq` family (each ability's own sequence from the
+    game data's phase map) beside the frozen choice, at the choice's subset
+    and threshold, and at seq's own dev operating point."""
+    rep = json.loads((Path(score_dir) / "report.json").read_text(encoding="utf-8"))
+    D, meta = load(Path(rep["scan_dir"]), store_root)
+    dev, c = meta["split"]["dev"], rep["choice"]
+    out = {"version": rule, "score_dir": Path(score_dir).as_posix(), "choice": c,
+           "split": "dev demos only", "at_choice": {}, "own_point": {}}
+    for fam in (c["family"], "cast", "agree", "seq"):
+        out["at_choice"][fam] = pooled(evaluate(D, fam, c["subset"], c["theta"], dev,
+                                                cross=False, rule=rule))
+    for sub in SUBSETS:
+        for th in THETAS:
+            p = pooled(evaluate(D, "seq", sub, float(th), dev, cross=False, rule=rule))
+            if p["false_per_min"] <= FF_PER_MIN:
+                out["own_point"][sub] = {"theta": float(th), **p}
+                break
+    return out
 
 
 def print_report(rep: dict) -> None:
@@ -1046,7 +1089,7 @@ def print_match_report(rep: dict) -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("cmd", choices=("scan", "score", "match-scan", "match-score"))
+    ap.add_argument("cmd", choices=("scan", "score", "match-scan", "match-score", "seq-dev"))
     ap.add_argument("--store", default=str(STORE))
     ap.add_argument("--scan", default=None, help="score: the demo scan directory")
     ap.add_argument("--score", default=None, help="match-scan: the demo score directory")
@@ -1066,6 +1109,15 @@ def main(argv=None) -> int:
         rep = report(scan_dir, store)
         out = new_dir(Path(a.out) if a.out else scan_dir / f"score-{RULE}_{TRUTH_RULE}")
         print_report(rep)
+    elif a.cmd == "seq-dev":
+        rep = seq_dev(Path(a.score), store)
+        out = new_dir(Path(a.out) if a.out else Path(a.score) / f"seq-dev-{RULE}")
+        for k, v in rep["at_choice"].items():
+            print(f"at choice {k:5}: dev {v['hit']}/{v['casts']} false {v['false']} "
+                  f"({v['false_per_min']:.2f}/min)")
+        for k, v in rep["own_point"].items():
+            print(f"seq {k} own point theta {v['theta']}: {v['hit']}/{v['casts']} "
+                  f"{v['false_per_min']:.2f}/min")
     else:
         rep = match_report(Path(a.match), store)
         out = new_dir(Path(a.out) if a.out else Path(a.match) / f"score-{RULE}")

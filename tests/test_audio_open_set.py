@@ -89,7 +89,8 @@ def events(dets, files=FILES, family="max", rule=A.RULE):
     k = np.array([d[1] for d in dets], np.int64)
     v = np.array([d[2] for d in dets], np.float64)
     E = A.group_events(np.zeros(len(f), np.int64), ft["slot"][f], k, ft["rank"][f],
-                       ft["opens"][f], ft["phase"][f], v, family, rule=rule, tie=f)
+                       ft["opens"][f], ft["phase"][f], v, family, rule=rule, tie=f,
+                       need_later=ft["need_later"]["all"][f])
     return [{"slot": A.SLOTS[s], "frame": int(t), "state": "cast" if c else "equip",
              "best_phase": ft["phase_names"][ft["phase"][f[b]]], "n": int(n)}
             for s, t, c, b, n in zip(E["slot"], E["frame"], E["cast"], E["best"], E["n"])]
@@ -171,6 +172,13 @@ class EventTests(unittest.TestCase):
     def test_agree_family_needs_two_phases(self):
         self.assertEqual(events([(1, 100, 5.0)], family="agree"), [])
         self.assertEqual(len(events([(1, 100, 5.0), (2, 300, 1.0)], family="agree")), 1)
+
+    def test_seq_family_needs_the_abilitys_own_later_phase(self):
+        self.assertEqual(events([(1, 100, 5.0)], family="seq"), [])
+        self.assertEqual(len(events([(1, 100, 5.0), (2, 300, 1.0)], family="seq")), 1)
+        no_later = [dict(f, rank=2, phase="cast", opens=True) if f["slot"] == "Q" else f
+                    for f in FILES]
+        self.assertEqual(len(events([(1, 100, 5.0)], no_later, family="seq")), 1)
 
     def test_abilities_group_apart(self):
         ev = events([(1, 100, 2.0), (3, 120, 2.0)])
