@@ -18,7 +18,7 @@ from ..spike import on_glyph
 #: `on_spike_glyph`, after the shape gate and before facing and separation;
 #: the frame's shape-gated fits of both channels are the icons a carried glyph
 #: may belong to (`spike.on_glyph`).
-#: 0.3.0: the stacked-icon search's members (channel `stack`, ally-icon-0.10.0)
+#: 0.3.0: the stacked-icon search's members (channel `stack`, ally-icon-0.11.0)
 #: are decided after the frame's ring fits (`_stack_decisions`); ring-fit
 #: decisions are unchanged.
 MINIMAP_ICON_DECISION_VERSION = "minimap-icon-decision-0.3.0"

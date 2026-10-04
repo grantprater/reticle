@@ -4122,6 +4122,7 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
     from .roi_cache import RoiCache
     from .spike import (AMP_MIN, AMP_PARTIAL, MARK_NCC_MIN, NCC_MIN, NCC_STRONG, ROSTER_GAP_MS,
                         SIDES, read_frame, roster_marker)
+    from .spike import provenance as spike_provenance
     from .version import SPIKE_VERSION
 
     man = store.read_manifest(sid)
@@ -4135,8 +4136,10 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
     except SystemExit as e:                  # `geometry.require` exits with the reason
         return {"skipped": f"no baked geometry ({e})"}
     sd = geometry.stability(sid, store.root, med.shape[:2])
+    ms = geometry.map_scale_of(sid, store.root)
     ctx = {"floor": floor_mask(med, sd=sd), "slab": slab_mask(med, sd=sd), "static": med,
-           "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)}
+           "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64),
+           "scale": None if ms is None else ms.scale}
     t = np.unique(np.asarray(mm.t_ms, float))
     spans = mm.record.get("spans") or [[float(t[0]), float(t[-1])]]
     grid: list[float] = []
@@ -4178,6 +4181,8 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
     read = [r for r in frames if r["reason"] is None]
     head = {"kind": "coverage", "session": sid, "spike_version": SPIKE_VERSION,
             "widget_scale": round(widget_scale(x1 - x0), 4),
+            "map_scale": None if ms is None else ms.provenance(),
+            "game_textures": spike_provenance(store.root),
             "roi_cache_version": mm.record.get("version"),
             "hud_cache": None if hud is None else hud.record.get("version"),
             "hud_cache_reason": hud_why,

@@ -514,7 +514,7 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                       # Heads before `ally-icon-0.7.0` searched every image in full.
                       "icon_pose_prior": _code("icon_pose_prior_version",
                                                ICON_POSE_PRIOR_VERSION, optional=True),
-                      # From `ally-icon-0.10.0` the stacked-icon search runs
+                      # From `ally-icon-0.11.0` the stacked-icon search runs
                       # where the stored roster's capacity exceeds the ring
                       # fits (`minimap.StackGate`); a head whose gate read no
                       # roster records neither.
