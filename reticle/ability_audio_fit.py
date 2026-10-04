@@ -32,7 +32,9 @@ mapped by the ability's display name to the tray slot
 
 * movement and footstep folders (`Mvmnt`, `Movement`, `FS_*`), no cast;
 * rows the manifest leaves unmapped, unless the player's belief (BELIEF) or
-  dev evidence (EVIDENCE) names their ability;
+  dev evidence (EVIDENCE) names their ability. The player's answers
+  (PLAYER_MAPS) override the manifest's mapping for the files they name,
+  once dev casts do not refute them (PLAYER_MAPS_NOT_APPLIED);
 * shared files: a file whose sound event the ability montages of two or
   more abilities play (`ability_audio.shared_reference_mask`, over the
   montage export MONTAGES). On build `release-13.06-shipping-18-5590001`
@@ -82,6 +84,24 @@ EVIDENCE = [
     ("Sova", "Abil_X", ("Hunter_S0_AB_X_SuperBolt_OnBeam_",), "Hunter's Fury",
      "name_token_onbeam+dev_cooccurrence_20261003"),
 ]
+#: The player's answers of 2026-10-04, each a belief, overriding the
+#: manifest's mapping for the named files only: (agent, file-name prefixes,
+#: ability, basis) [domain:abilities/sova-abilq-cast-is-shock-bolt]
+#: [domain:abilities/skye-scout-expire-is-guiding-light].
+PLAYER_MAPS = [
+    ("Skye", ("Guide_AbilE_ScoutExpire_3P",), "Guiding Light", "player_belief_20261004"),
+]
+#: Player answers recorded but not applied, with the dev measurement that
+#: refused them. Remapping Sova's Hunter_AbilQ_Cast_* to Shock Bolt dropped
+#: Sova dev top-1 86/98 -> 68/98; leaving them out, 86 -> 85, below the
+#: pre-registered bar; the manifest's Recon Bolt mapping stands.
+PLAYER_MAPS_NOT_APPLIED = [
+    ("Sova", ("Hunter_AbilQ_Cast_",), "Shock Bolt", "player_belief_20261004",
+     "dev top-1 86/98 -> 68/98 remapped, 85/98 left out"),
+]
+#: Corrections the player made to a verified label, stored beside the labels
+#: (`<VERIFIED_DIR>_corrections/<sid>.jsonl`), never over them.
+CORRECTIONS_DIR = Path("labels") / "tray_object_corrections"
 #: Calibration: an agent's own margin fit needs this many right and wrong dev casts.
 CALIB_MIN = 3
 #: The P(right) at which a verdict counts as accepted in the report.
@@ -138,6 +158,12 @@ def references(store_root, agent: str, plays: dict[str, set]) -> tuple[list[dict
             why["movement_left_out"] += 1
             continue
         ability, basis = r.get("ability"), r.get("map_basis")
+        name = r["flac"].split("/")[-1]
+        pm = next((p for p in PLAYER_MAPS if p[0] == agent and name.startswith(p[1])), None)
+        if pm:
+            # The player's answer overrides the manifest's mapping; the row
+            # keeps what the manifest said.
+            ability, basis = pm[2], f"{pm[3]} (manifest: {ability} by {basis})"
         if ability is None:
             belief = next((v for (a, f), v in BELIEF.items() if a == agent and f in parts), None)
             if belief:
@@ -227,15 +253,32 @@ def audio_paths(store_root, sid: str, audio_dirs) -> dict:
     return {}
 
 
+def label_corrections(store_root) -> dict[str, dict]:
+    """{label key: the player's correction} from CORRECTIONS_DIR; the
+    labels themselves are never rewritten."""
+    out: dict[str, dict] = {}
+    for f in sorted((Path(store_root) / CORRECTIONS_DIR).glob("*.jsonl")):
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                r = json.loads(line)
+                out[r["key"]] = r
+    return out
+
+
 def verified_casts(store_root) -> dict[str, list[dict]]:
-    """{session: the player's verified casts}: time and slot."""
+    """{session: the player's verified casts}: time and slot; a corrected
+    label carries its correction's slot, and `label_slot` the original."""
+    fix = label_corrections(store_root)
     out: dict[str, list[dict]] = {}
     for f in sorted((Path(store_root) / VERIFIED_DIR).glob("*.jsonl")):
         for line in f.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 r = json.loads(line)
-                out.setdefault(r["session_id"], []).append(
-                    {"t_ms": float(r["t_drop_s"]) * 1000.0, "slot": r["slot"], "key": r["key"]})
+                row = {"t_ms": float(r["t_drop_s"]) * 1000.0, "slot": r["slot"], "key": r["key"]}
+                if r["key"] in fix:
+                    row.update(slot=fix[r["key"]]["slot"], label_slot=r["slot"],
+                               correction=fix[r["key"]].get("basis"))
+                out.setdefault(r["session_id"], []).append(row)
     return out
 
 
@@ -412,15 +455,21 @@ def fit_params(store_root, out_root, gate: dict, audio_dirs=(), agents=None, xp=
             "fitted_by": "reticle ability-audio-fit --fit",
             "reference": {"manifest": MANIFEST.as_posix(), "ref_version": REF_VERSION,
                           "rule": "by the ability's display name to the tray slot "
-                                  "(lineup.abilities_for); movement and footstep folders "
-                                  "left out; unmapped rows left out unless a belief or an "
-                                  "evidence map names them",
+                                  "(lineup.abilities_for), the player's maps overriding the "
+                                  "manifest for the files they name; movement and footstep "
+                                  "folders left out; unmapped rows left out unless a belief "
+                                  "or an evidence map names them",
                           "shared_rule": "a file whose sound event the ability montages of two "
                                          "or more abilities play is left out "
                                          "(ability_audio.shared_reference_mask)",
                           "montages": {"manifest": MONTAGES.as_posix(), "build": MONTAGE_BUILD},
                           "beliefs": [{"agent": a, "folder": f, "ability": v[0], "basis": v[1]}
                                       for (a, f), v in BELIEF.items()],
+                          "player_maps": [{"agent": a, "prefixes": list(pre), "ability": ab,
+                                           "basis": b} for a, pre, ab, b in PLAYER_MAPS],
+                          "player_maps_not_applied": [
+                              {"agent": a, "prefixes": list(pre), "ability": ab, "basis": b,
+                               "refused_by": why} for a, pre, ab, b, why in PLAYER_MAPS_NOT_APPLIED],
                           "evidence_maps": [{"agent": e[0], "folder": e[1], "prefixes": list(e[2]),
                                              "ability": e[3], "basis": e[4]} for e in EVIDENCE]},
             "split": split,

@@ -83,6 +83,28 @@ class SplitAndReferenceRuleTest(unittest.TestCase):
         np.testing.assert_allclose(W["ar"], [0.8, -0.1], atol=0.03)
         self.assertEqual(W["bg_frames"], sum(int(b.sum()) for _y, b in sessions))
 
+    def test_a_correction_beside_a_label_sets_the_slot_and_keeps_the_label(self):
+        import json
+        from pathlib import Path
+        from reticle import ability_audio_fit as fit
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / fit.VERIFIED_DIR).mkdir(parents=True)
+            (root / fit.CORRECTIONS_DIR).mkdir(parents=True)
+            label = {"key": "s:1911000:Q", "session_id": "s", "t_drop_s": 1911.0, "slot": "Q"}
+            other = {"key": "s:20000:E", "session_id": "s", "t_drop_s": 20.0, "slot": "E"}
+            text = json.dumps(label) + "\n" + json.dumps(other) + "\n"
+            (root / fit.VERIFIED_DIR / "s.jsonl").write_text(text, encoding="utf-8")
+            fix = {"key": "s:1911000:Q", "slot": "C", "basis": "player"}
+            (root / fit.CORRECTIONS_DIR / "s.jsonl").write_text(json.dumps(fix) + "\n",
+                                                                 encoding="utf-8")
+            got = fit.verified_casts(root)["s"]
+            self.assertEqual((got[0]["slot"], got[0]["label_slot"]), ("C", "Q"))
+            self.assertEqual(got[1]["slot"], "E")
+            self.assertNotIn("label_slot", got[1])
+            self.assertEqual(json.loads((root / fit.VERIFIED_DIR / "s.jsonl")
+                                        .read_text(encoding="utf-8").splitlines()[0])["slot"], "Q")
+
 
 class IdentifyTest(unittest.TestCase):
     CLASSES = ["C", "Q", "E", aa.NONE]

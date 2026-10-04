@@ -586,7 +586,10 @@ ABILITY_AUDIO_VERSION = "ability-audio-0.2.0"
 # dev sessions, thresholds over every dev session, shared reference files
 # left out (`ability_audio.shared_reference_mask`); Sova, Skye, Phoenix,
 # Clove, Iso, and Omen and Deadlock zero-shot.
-ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.0"
+# 0.2.1: the player's answers of 2026-10-04 (`ability_audio_fit.PLAYER_MAPS`):
+# Skye's Guide_AbilE_ScoutExpire_3P is Guiding Light. Sova's
+# Hunter_AbilQ_Cast_* as Shock Bolt is recorded, not applied: dev refuted it.
+ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.1"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the
