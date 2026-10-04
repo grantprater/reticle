@@ -3886,7 +3886,8 @@ def cmd_tray(args) -> int:
                     drops, gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
                     second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                     report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-                    kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
+                    kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
+                    kit_spans=gate["kit_spans"])
         common = {"session_id": sid, "tray_version": TRAY_VERSION,
                   "player_cast_version": PLAYER_CAST_VERSION, "step_s": args.step}
         why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
@@ -4410,7 +4411,8 @@ def cmd_ability_state(args) -> int:
     import time
 
     from . import domain, tray
-    from .ability_timeline import kit_windows, player_tray_casts, stored_gate_inputs
+    from .ability_timeline import (audio_cast_witness, kit_windows, player_tray_casts,
+                                   stored_gate_inputs)
     from .adjudication.ability_state import (CATALOGUE_PATH, adjudicate, player_agent_verdict,
                                              player_kit, slot_parameters)
     from .adjudication.tray_kit import stored_kit_witness
@@ -4476,7 +4478,8 @@ def cmd_ability_state(args) -> int:
                 gate["player_deaths_ms"], agent=gate["agent"],
                 second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                 report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-                kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
+                kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
+                kit_spans=gate["kit_spans"])
         with usage_step("kit_windows"):
             kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
                                second_lives_ms=gate["second_lives_ms"],
@@ -4485,13 +4488,21 @@ def cmd_ability_state(args) -> int:
                                kit_returns_ms=gate["kit_returns_ms"])
         spectated = stored_kit_witness(store.read_events("tray_kit", sid),
                                        agent=agent["agent"])["other_spans"]
+        with usage_step("audio_witness"):
+            audio = audio_cast_witness(store.root, sid, gate_rows, gate["agent"],
+                                       gate["kit_spans"])
+            audio.pop("tracks", None), audio.pop("session", None)
         # The kit's names come from the same harvest (`lineup.abilities_for`).
         kit = player_kit(agent["agent"], store.root) if catalogue is not None else {}
         inputs = {**stamps, "tray_drop": cov["tray_version"], "catalogue": cat_stamp,
                   "tray_drop_player_cast": cov.get("player_cast_version"),
                   "tray_fill": TRAY_VERSION, "roi_cache": cache.record.get("version"),
                   "round": round_version, "lineup": (lineup or {}).get("version"),
-                  "agent_identity": agent["adjudication_version"]}
+                  "agent_identity": agent["adjudication_version"],
+                  "ability_audio": audio["coverage"]["ability_audio_version"],
+                  "ability_audio_params": audio["coverage"]["params_version"],
+                  "audio_features": audio["coverage"]["inputs"].get("audio_features"),
+                  "audio_labels": audio["coverage"]["inputs"].get("audio_labels")}
         checks = {"step_s": cov["step_s"], "drops_reread_mismatch": reread_mismatch,
                   "gate_stored_mismatch": sum(
                       (a["reason"], a["player_cast"]) != (b.get("reason"), b.get("player_cast"))
@@ -4503,7 +4514,7 @@ def cmd_ability_state(args) -> int:
                 samples={"t_ms": [t for t, r in zip(ts, real) if r], "fills": fills[keep],
                          "drawn": [tray.drawn(f) for f in fills[keep]], "clean": clean[keep]},
                 agent=agent, params=slot_parameters(agent["agent"], kit, facts, catalogue=catalogue),
-                inputs=inputs, checks=checks, spectated=spectated)
+                inputs=inputs, checks=checks, spectated=spectated, audio=audio)
         rows[0]["checks"]["wall_s"] = round(time.perf_counter() - t0, 1)
         _record_inputs(store, sid, "ability_state", rows[0])
         out = store.write_events("ability_state", sid, rows)
@@ -4513,7 +4524,9 @@ def cmd_ability_state(args) -> int:
               f"{c['surprises']}; reread mismatch {reread_mismatch}, gate mismatch "
               f"{checks['gate_stored_mismatch']}; counts from {c['charges_source']}, "
               f"conflicts {len(c['charge_conflicts'])}, without a count "
-              f"{[x['slot'] for x in c['slots_without_count']]}; "
+              f"{[x['slot'] for x in c['slots_without_count']]}; audio "
+              f"{c['audio']['reason'] or c['audio']['verdicts']} (agreed "
+              f"{c['audio']['agreed']}, disagreed {c['audio']['disagreed']}); "
               f"{rows[0]['checks']['wall_s']} s -> {out}")
         done.append((sid, rows))
     if args.record and done:
@@ -4666,7 +4679,8 @@ def cmd_ability_shapes(args) -> int:
                          gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
                          second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                          report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-                         kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"])
+                         kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
+                         kit_spans=gate["kit_spans"])
                      if d["player_cast"] and kit.get(d["slot"]) in ability_candidates.TABLE]
         with usage_step("cache_load"):
             cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")

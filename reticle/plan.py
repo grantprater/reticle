@@ -333,6 +333,8 @@ NOT_INPUTS = {
     "events_version": "the event contract's stamp, written by `store.write_events`",
     "stored_spike_version": "the spike stamp `spike_carrier` read, compared as `spike`",
     "candidate_revision": "the ally_icon candidate batch, carried on the rows built from it",
+    "geometry": "round_outcome's column fit, measured from this session's cached scoreboard "
+                "crops by `fit_columns`: the reader's own output, not a baked table",
 }
 
 

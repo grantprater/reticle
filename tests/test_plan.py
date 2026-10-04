@@ -642,5 +642,22 @@ class BuildOrderTests(unittest.TestCase):
         self.assertEqual(order[order.index("death") + 1], "death_identity")
 
 
+class RoundOutcomeGeometryTests(unittest.TestCase):
+    def test_the_fitted_column_geometry_is_not_a_stored_input(self):
+        """round_outcome's head records `geometry`, its own column fit; doctor
+        INPUTS must not call it an undeclared input."""
+        import json
+        from reticle import plan
+        from reticle.doctor import ERROR, check_inputs
+        self.assertIn("geometry", plan.NOT_INPUTS)
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "events" / "round_outcome" / "s.jsonl"
+            f.parent.mkdir(parents=True)
+            f.write_text(json.dumps({"kind": "coverage", "geometry": {"columns": []}}) + "\n",
+                         encoding="utf-8")
+            found = [m for s, m in check_inputs(Path(d)) if s == ERROR and "geometry" in m]
+            self.assertEqual(found, [])
+
+
 if __name__ == "__main__":
     unittest.main()

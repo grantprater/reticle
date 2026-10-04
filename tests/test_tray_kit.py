@@ -226,10 +226,37 @@ class Spans(unittest.TestCase):
         self.assertEqual(tk.stored_kit_witness([])["reason"], "no_rows")
         stale = [{**rows[0], "tray_kit_version": "tray-kit-0.0.1"}] + rows[1:]
         self.assertEqual(tk.stored_kit_witness(stale)["reason"], "stale:tray-kit-0.0.1")
-        self.assertEqual(tk.stored_kit_witness(rows, agent="Omen")["reason"],
-                         "player_agent_moved")
+        self.assertEqual(got["own_basis"], "stored")
         self.assertEqual(tk.spectated_agent(12500.0, got["other_spans"]), "Omen")
         self.assertIsNone(tk.spectated_agent(9000.0, got["other_spans"]))
+
+    def test_the_stored_witness_judges_own_against_the_consumers_agent(self):
+        rows = self._rows()["rows"]
+        # Rows written while the arbiter named no player agent: no change is
+        # stored, and every span's `own` is None.
+        unnamed = [{**rows[0], "player_agent": None}] + [
+            {**r, "own": None} if r["kind"] == "span" else r
+            for r in rows[1:] if r["kind"] not in ("kit_change", "kit_return")]
+        self.assertEqual(tk.stored_kit_witness(unnamed)["reason"], "no_player_agent")
+        self.assertEqual(tk.stored_kit_witness(unnamed)["other_spans"], [])
+        self.assertEqual(len(tk.stored_kit_witness(unnamed)["spans"]), 6)
+        got = tk.stored_kit_witness(unnamed, agent="Iso")
+        self.assertEqual((got["kit_changes_ms"], got["kit_returns_ms"], got["own_basis"],
+                          got["reason"]), ([11000.0], [18000.0], "consumer_agent", None))
+        # Another agent than the rows' is judged afresh, not refused.
+        omen = tk.stored_kit_witness(rows, agent="Omen")
+        self.assertEqual(omen["own_basis"], "consumer_agent")
+        self.assertNotIn("Omen", {a for _, _, a in omen["other_spans"]})
+        self.assertEqual(omen["kit_changes_ms"], [15000.0])
+
+    def test_the_kit_at_an_instant_is_the_last_span_holding_it(self):
+        spans = [(0.0, 10000.0, "Iso"), (11000.0, 14000.0, "Omen"), (30000.0, 31000.0, "KAY/O")]
+        got = tk.kit_agents_at([5000.0, 10850.0, 11050.0, 15400.0, 15600.0, 29950.0, 40000.0],
+                               spans)
+        self.assertEqual(got, ["Iso", "Iso", "Omen", "Omen", None, "KAY/O", None])
+        self.assertEqual(tk.kit_agents_at([1.0], []), [None])
+        self.assertTrue(tk.same_agent("KAY/O", "KAY_O"))
+        self.assertIsNone(tk.same_agent(None, "Iso"))
 
 
 ROUNDS = [{"round_no": 1, "t_start_ms": 0.0, "t_end_ms": 60000.0, "t_close_ms": 65000.0}]
@@ -262,6 +289,31 @@ class Consumers(unittest.TestCase):
                           "after_player_death"])
         self.assertEqual([r["reason"] for r in player_tray_casts(
             [dict(d) for d in drops], live, ROUNDS, [])], [None] * 4)
+
+    def test_the_gate_refuses_a_drop_under_another_agents_kit(self):
+        # The round shows no span of the player's kit before Omen's, so no
+        # change is stored; the kit at the drop still refuses it.
+        drops = [_drop(10000), _drop(21000, "C"), _drop(35000, "Q")]
+        live = lambda t: "round_live"
+        spans = [(15000.0, 25000.0, "Omen"), (33000.0, 40000.0, "KAY/O")]
+        rows = player_tray_casts([dict(d) for d in drops], live, ROUNDS, [], agent="KAY_O",
+                                 kit_spans=spans)
+        self.assertEqual([r["reason"] for r in rows], [None, "kit_not_player", None])
+        self.assertEqual([r["kit_agent"] for r in rows], [None, "Omen", "KAY/O"])
+        # No player agent from the arbiter: a drop under a named kit cannot be
+        # called the player's.
+        rows = player_tray_casts([dict(d) for d in drops], live, ROUNDS, [], kit_spans=spans)
+        self.assertEqual([r["reason"] for r in rows],
+                         [None, "kit_owner_unresolved", "kit_owner_unresolved"])
+        # No current kit rows: no kit test.
+        rows = player_tray_casts([dict(d) for d in drops], live, ROUNDS, [], kit_spans=None)
+        self.assertEqual([r["reason"] for r in rows], [None] * 3)
+        # The killfeed's death and the stored change are named first.
+        rows = player_tray_casts([dict(d) for d in drops], live, ROUNDS, [20000.0],
+                                 agent="KAY_O", kit_spans=spans)
+        self.assertEqual(rows[1]["reason"], "after_player_death")
+        self.assertIn("kit_not_player", st.STOOD_FOR)
+        self.assertIn("kit_owner_unresolved", st.STOOD_FOR)
 
     def test_the_state_reads_the_spectated_kit_and_the_owner_dead_by_the_witness(self):
         kits = kit_windows(ROUNDS, [], kit_changes_ms=[30000.0], kit_returns_ms=[50000.0])

@@ -505,7 +505,13 @@ MENU_VERSION = "menu-0.1.0"
 # menu`) finds the menu open is refused first, as `menu_open`, and taints no
 # drop beside it; on a capture with no rounds table it outranks `no_rounds`.
 # A session without current `menu_open` rows is decided as under 0.6.0.
-PLAYER_CAST_VERSION = "player-cast-0.7.0"
+# 0.8.0: the gate reads the kit at each drop from the stored `tray_kit` spans
+# (`tray_kit.kit_agents_at`): a drop under another agent's kit is
+# `kit_not_player`, and under a named kit where the arbiter names no player
+# agent `kit_owner_unresolved`. Own and other are judged against the
+# consumer's player agent, not the agent the rows were written against, so
+# rows written with no player agent still give kit changes.
+PLAYER_CAST_VERSION = "player-cast-0.8.0"
 # Whose kit the ability tray shows, per sample of the stored `hud_abilities`
 # crops: the slot icons scored against the catalogue's (`tray_icons`) and read
 # against the candidate sets the lineup allows (`adjudication.tray_kit`),
@@ -548,7 +554,31 @@ SELF_ICON_VERSION = "self-icon-0.5.0"
 # another agent's kit is unreadable as `kit:spectating:<agent>`, and after the
 # round's first kit change as `owner_dead:kit_witness`, where the tray's own
 # kit rather than a killfeed entry says the owner is dead.
-ABILITY_STATE_VERSION = "ability-state-0.3.0"
+# 0.4.0: the gate's `player-cast-0.8.0` verdicts, and the spans of another
+# agent's kit judged against the arbiter's player agent even where the stored
+# `tray_kit` rows named none.
+# 0.5.0: the audio witness (`adjudication.ability_audio`, through
+# `ability_timeline.audio_cast_witness`). Each drop verdict carries an `audio`
+# claim: the kit ability the audio around the drop sounds like, its score,
+# margin and refusal, and whether it agrees with the drop's slot; the
+# coverage row counts them. It changes no state.
+ABILITY_STATE_VERSION = "ability-state-0.5.0"
+# Which ability of the player's kit the audio around a tray cast sounds like:
+# a whitened matched filter over the stored audio-gate log-mel against the
+# game's own ability sounds (`adjudication.ability_audio`), read by
+# `ability_timeline.audio_cast_witness`. Bump when the frames, the whitening,
+# the template rule, the track, the window, the refusals or the stored fields
+# change.
+ABILITY_AUDIO_VERSION = "ability-audio-0.1.0"
+# The fitted parameter set the audio witness reads, under
+# `reference/ability-audio/<version>/` in the store: per agent the background
+# whitener (shrink 0.1), the AR(2) coefficients, the whitened templates and
+# their classes, and the class thresholds at one false fire per live minute,
+# fitted on the dev sessions its provenance names. A new fit is a new
+# version; a set is never overwritten.
+# 0.1.1: the same fit; Skye's Trailblazer evidence map adds the player's
+# confirmation (`player_20261003`) to its basis.
+ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.1.1"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the
