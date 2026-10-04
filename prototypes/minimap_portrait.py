@@ -392,26 +392,16 @@ def mine_lineup(cap, n_probe=240):
 # 10 hue bins x 3 saturation x 3 value. Coarse deliberately: the icon is ~90
 # unmasked cells, so a finer histogram is mostly empty bins and the intersection
 # becomes noise.
-HIST_H, HIST_S, HIST_V = 10, 3, 3
+#
+# The histogram itself moved to `reticle.appearance.portrait_composition`
+# (2026-10-04), so `reticle.lineup` no longer puts this directory on
+# `sys.path`. `composition` stays importable here under its old name for the
+# prototypes that use it.
+from reticle.appearance import portrait_composition as composition  # noqa: E402,F401
 # The disc taken out of the source portrait, in units of its height. Fitted by
 # held-out agent, not by hand -- and note that skipping the crop entirely still
 # scores 77.2%, so this is a refinement rather than a load-bearing constant.
 SRC_DISC_CX, SRC_DISC_FRAC = 0.42, 0.28
-
-
-def composition(bgr, mask=None):
-    """Colour histogram, L1-normalised. Layout-free by construction."""
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    h, sa, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
-    keep = np.ones(h.shape, bool) if mask is None else mask
-    if not keep.any():
-        return np.zeros(HIST_H * HIST_S * HIST_V, np.float32)
-    hi = (h[keep].astype(int) * HIST_H // 180).clip(0, HIST_H - 1)
-    si = (sa[keep].astype(int) * HIST_S // 256).clip(0, HIST_S - 1)
-    vi = (v[keep].astype(int) * HIST_V // 256).clip(0, HIST_V - 1)
-    out = np.bincount((hi * HIST_S + si) * HIST_V + vi,
-                      minlength=HIST_H * HIST_S * HIST_V).astype(np.float32)
-    return out / max(1.0, out.sum())
 
 
 def source_composition(art, cx=SRC_DISC_CX, frac=SRC_DISC_FRAC):

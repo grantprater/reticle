@@ -93,12 +93,23 @@ EVIDENCE = [
     ("Sova", "Abil_X", ("Hunter_S0_AB_X_SuperBolt_OnBeam_",), "Hunter's Fury",
      "name_token_onbeam+dev_cooccurrence_20261003"),
 ]
-#: The player's answers of 2026-10-04, each a belief, overriding the
-#: manifest's mapping for the named files only: (agent, file-name prefixes,
-#: ability, basis) [domain:abilities/sova-abilq-cast-is-shock-bolt]
-#: [domain:abilities/skye-scout-expire-is-guiding-light].
-PLAYER_MAPS = [
-    ("Skye", ("Guide_AbilE_ScoutExpire_3P",), "Guiding Light", "player_belief_20261004"),
+#: The player's answers, each overriding the manifest's mapping for the named
+#: files only: (agent, file-name prefixes, ability, basis)
+#: [domain:abilities/sova-abilq-cast-is-shock-bolt]. Skye's ScoutExpire map
+#: to Guiding Light (0.2.1, 0.2.2) is superseded
+#: [domain:abilities/skye-scout-expire-is-guiding-light]: see
+#: `END_PHASE_LEFT_OUT`.
+PLAYER_MAPS: list[tuple] = []
+#: Files of an ability that play at its end, not at its cast, left out of the
+#: cast-window references: (agent, file-name prefixes, ability, basis, why).
+#: Skye's ScoutExpire is Trailblazer's, played when the scout ends
+#: [domain:abilities/skye-scout-expire-is-trailblazer]. On 2026-10-04 it won
+#: no dev cast as Trailblazer (Skye dev top-1 67/70 mapped or left out), and
+#: the pre-registered rule left it out on that tie.
+END_PHASE_LEFT_OUT = [
+    ("Skye", ("Guide_AbilE_ScoutExpire_3P",), "Trailblazer",
+     "player_20261004+gamedata_ability-states-0.2.0",
+     "plays at Pawn_Guide_Q_PossessableScout ReceiveEndPlay (phase end), not at the cast"),
 ]
 #: Player answers recorded but not applied, with the dev measurement that
 #: refused them. Remapping Sova's Hunter_AbilQ_Cast_* to Shock Bolt dropped
@@ -113,7 +124,7 @@ PLAYER_MAPS_NOT_APPLIED = [
 CORRECTIONS_DIR = TRAY_OBJECT_CORRECTIONS_DIR
 #: The set `--calibrate` derives the current set from: the same arrays, with
 #: the margin calibration fitted on its dev casts.
-CALIBRATED_FROM = "ability-audio-params-0.2.1"
+CALIBRATED_FROM = "ability-audio-params-0.2.3"
 #: The P(right) at which a verdict counts as accepted in the report.
 ACCEPT_P = 0.95
 
@@ -169,6 +180,9 @@ def references(store_root, agent: str, plays: dict[str, set]) -> tuple[list[dict
             continue
         ability, basis = r.get("ability"), r.get("map_basis")
         name = r["flac"].split("/")[-1]
+        if any(e[0] == agent and name.startswith(e[1]) for e in END_PHASE_LEFT_OUT):
+            why["end_phase_left_out"] += 1
+            continue
         pm = next((p for p in PLAYER_MAPS if p[0] == agent and name.startswith(p[1])), None)
         if pm:
             # The player's answer overrides the manifest's mapping; the row
@@ -252,9 +266,13 @@ def gate_snapshot(store, sids: list[str], supplied: dict[str, str]) -> dict:
 
 def audio_paths(store_root, sid: str, audio_dirs) -> dict:
     """The log-mel and labels of a session: the store's, else the first
-    `audio_dirs` entry holding them; {} where the store has them."""
+    `audio_dirs` entry holding them; {} where the store has both. A store
+    holding the log-mel without the labels does not count: the pair comes
+    from one place."""
     from .ability_timeline import AUDIO_GATE_DIR
-    if (Path(store_root) / AUDIO_GATE_DIR / "features" / f"{sid}.npz").is_file():
+    gate_dir = Path(store_root) / AUDIO_GATE_DIR
+    if ((gate_dir / "features" / f"{sid}.npz").is_file()
+            and (gate_dir / "labels" / f"{sid}.json").is_file()):
         return {}
     for d in audio_dirs or ():
         fp = Path(d) / "features" / f"{sid}.npz"
@@ -453,8 +471,9 @@ def fit_params(store_root, out_root, gate: dict, audio_dirs=(), agents=None, xp=
                           "rule": "by the ability's display name to the tray slot "
                                   "(lineup.abilities_for), the player's maps overriding the "
                                   "manifest for the files they name; movement and footstep "
-                                  "folders left out; unmapped rows left out unless a belief "
-                                  "or an evidence map names them",
+                                  "folders left out; files that play at an ability's end "
+                                  "left out (end_phase_left_out); unmapped rows left out "
+                                  "unless a belief or an evidence map names them",
                           "shared_rule": "a file whose sound event the ability montages of two "
                                          "or more abilities play is left out "
                                          "(ability_audio.shared_reference_mask)",
@@ -466,6 +485,9 @@ def fit_params(store_root, out_root, gate: dict, audio_dirs=(), agents=None, xp=
                           "player_maps_not_applied": [
                               {"agent": a, "prefixes": list(pre), "ability": ab, "basis": b,
                                "refused_by": why} for a, pre, ab, b, why in PLAYER_MAPS_NOT_APPLIED],
+                          "end_phase_left_out": [
+                              {"agent": a, "prefixes": list(pre), "ability": ab, "basis": b,
+                               "why": why} for a, pre, ab, b, why in END_PHASE_LEFT_OUT],
                           "evidence_maps": [{"agent": e[0], "folder": e[1], "prefixes": list(e[2]),
                                              "ability": e[3], "basis": e[4]} for e in EVIDENCE]},
             "split": split,

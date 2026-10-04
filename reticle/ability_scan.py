@@ -184,12 +184,15 @@ class AbilityShapeReader:
     def __init__(self, floor, sgray, support, box, phase_at=None, hz=ABILITY_HZ,
                  spans=None, name="ability", ms: MapScale | None = shapes.SET_AT,
                  supply=None, supply_reason: str | None = "no_supply",
-                 audit_every: int = AUDIT_EVERY, values: str | None = None):
+                 audit_every: int = AUDIT_EVERY, values: str | None = None,
+                 phase_reason: str | None = None):
         self.name, self.hz, self.spans = name, hz, spans
         self.frames_from = "video"
         self.cv_threads = 1
         self.floor, self.sgray, self.support, self.box = floor, sgray, support, box
         self.phase_at = phase_at
+        #: Why `phase_at` is None (e.g. "no HUD stream"), stored in the head.
+        self.phase_reason = None if phase_at is not None else phase_reason
         #: The key's transform from base values; None refuses every sample.
         self.ms = ms
         self.supply = supply
@@ -288,6 +291,9 @@ class AbilityShapeReader:
         clip = getattr(self, "spans_clip", None)
         if clip is not None:
             head["spans_clip"] = clip
+        if self.phase_reason is not None:
+            # No phase gate: every row's `phase` is null for this reason.
+            head["phase_reason"] = self.phase_reason
         return head
 
     def gate_events(self, session_id: str, geometry_key: str | None) -> list[dict]:
@@ -384,7 +390,8 @@ class AbilityShapeReader:
 
 def shape_reader(ctx, spans, phase_at=None, hz: float = ABILITY_HZ,
                  floor=None, sgray=None, supply=None, supply_reason: str | None = "no_supply",
-                 values: str | None = None) -> AbilityShapeReader:
+                 values: str | None = None,
+                 phase_reason: str | None = None) -> AbilityShapeReader:
     """The `AbilityShapeReader` `scan` builds for a session
     (`passes.SessionContext`): the baked floor and base map, the key's
     transform (`geometry.map_scale`), the map's art footprint at
@@ -399,4 +406,5 @@ def shape_reader(ctx, spans, phase_at=None, hz: float = ABILITY_HZ,
         ctx.session_id, ctx.store.root, dilate=shapes.support_dilate(ms), shape=floor.shape[:2])
     return AbilityShapeReader(floor=floor, sgray=ctx.sgray() if sgray is None else sgray,
                               support=support, box=box, phase_at=phase_at, hz=hz, spans=spans,
-                              ms=ms, supply=supply, supply_reason=supply_reason, values=values)
+                              ms=ms, supply=supply, supply_reason=supply_reason, values=values,
+                              phase_reason=phase_reason)

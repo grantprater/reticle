@@ -78,7 +78,7 @@ def _context(store, sid):
             return _live_round_spans(store, sid, date), None
         except SystemExit as exc:
             return None, str(exc)
-    return ctx, man, profile, spans, _live_phase_at(store, sid, date), live_rounds
+    return ctx, man, profile, spans, _live_phase_at(store, sid, date)[0], live_rounds
 
 
 def run_pass(store, sid, with_ability: bool, extra=None) -> dict:
