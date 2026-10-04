@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from reticle.adjudication.weapon import (  # noqa: E402
     ABILITY_CANONICAL_NAMES, ICON_GRID as GRID, WEAPON_ADJUDICATION_VERSION,
-    WEAPON_GALLERY_VERSION,
+    MINED_GALLERY_VERSION, WEAPON_GALLERY_VERSION,
     ENTRY_BOX_TOL, bind_entry, extract_icon_observation, icon_grid,
     mined_gallery_path, name_icon)
 from reticle.checks import KF_SIG_TOL, merge_split_tracks, track_entries  # noqa: E402
@@ -526,7 +526,7 @@ def new_icon_entries(refused: list | None = None) -> list[dict]:
     group -- becomes one entry keyed `new:<sid>:<t_ms>:<slot>` with that
     row's stored grid and aspect from the product the label names (its
     SHA-256 must match). A new name in the gallery needs a new
-    WEAPON_GALLERY_VERSION; `write_gallery` refuses to overwrite one.
+    MINED_GALLERY_VERSION; `write_gallery` refuses to overwrite one.
 
     The aspect gate (`aspect_fault`): a member whose aspect lies beyond
     NAME_ASPECT_TOL of every aspect its name already has -- the name's
@@ -695,7 +695,7 @@ def write_gallery(gallery: dict, have: list[dict], refused: list | None = None) 
     import hashlib
     labels = sorted(LABELS.glob("*.jsonl")) + sorted(NEW_LABELS.glob("*.jsonl"))
     provenance = {
-        "version": WEAPON_GALLERY_VERSION, "built_by": f"prototypes/weapon_icons.py {VERSION}",
+        "version": MINED_GALLERY_VERSION, "built_by": f"prototypes/weapon_icons.py {VERSION}",
         "labels": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in labels},
         "mask": WEAPON_ADJUDICATION_VERSION, "same_icon": SAME_ICON,
         "aspect_tol": ASPECT_TOL, "per_name": PER_NAME,
@@ -706,7 +706,7 @@ def write_gallery(gallery: dict, have: list[dict], refused: list | None = None) 
     path = mined_gallery_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
-        raise SystemExit(f"{path} exists; bump WEAPON_GALLERY_VERSION rather than overwrite it")
+        raise SystemExit(f"{path} exists; bump MINED_GALLERY_VERSION rather than overwrite it")
     np.savez_compressed(path, **gallery, provenance=json.dumps(provenance))
     print(f"wrote {len(gallery['names'])} exemplars over {len(provenance['names'])} names to {path}")
     return path

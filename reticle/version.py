@@ -223,7 +223,11 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # Shells) divides by the plate-relative cut (`_soft_stroke_groups`).
 # `kf_dropped_bands` and `kf_dropped_band_reason` store each refused band's
 # reason, which only the census held.
-HUD_VERSION = "hud-0.19.0"
+# 0.20.0 (2026-10-03): `killfeed.PITCH` is 39, the game's row (34) plus
+# spacer (5) [domain:killfeed/entry-list-layout], not 40: a tall plate run
+# splits into bands on the game's grid and `absolute_slot` names slots by it.
+# (0.19.0 belongs to one-colour-band-20261003.)
+HUD_VERSION = "hud-0.20.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits

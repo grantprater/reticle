@@ -427,10 +427,12 @@ def scale_check(heights, s: "KillfeedScale") -> dict:
             "agrees": bool(abs(ratio - 1.0) <= SCALE_CHECK_TOL), "reason": None}
 
 # Entry geometry in ROI pixels at 1080p. Measured off the row profile across a
-# full session: band heights pile up hard at 34, at a PITCH of 40, with the
-# topmost entry starting at FIRST_Y.
+# full session: band heights pile up hard at 34, with the topmost entry
+# starting at FIRST_Y. PITCH is the game's: a row 34 high and a spacer of 5
+# [domain:killfeed/entry-list-layout], 39 px, as the resting tops measure
+# [domain:killfeed/slot-pitch]; it was 40 before hud-0.20.0.
 ENTRY_H = 34
-PITCH = 40
+PITCH = 39
 FIRST_Y = 15
 MAX_SLOTS = 6
 # A row belongs to an entry when this share of it is plate-coloured.
@@ -929,8 +931,8 @@ def _one_colour_bands(
 
 
 #: Where a resting entry's plate top lies, ROI px at 1080p: FIRST_Y plus this
-#: pitch per slot [domain:killfeed/slot-pitch]. `PITCH` (40) splits runs; this
-#: places a band where no run edge can.
+#: pitch per slot [domain:killfeed/slot-pitch]. `PITCH` splits runs (40 until
+#: hud-0.20.0, now 39 as well); this places a band where no run edge can.
 REST_PITCH = 39
 
 
@@ -1982,7 +1984,10 @@ PORTRAIT_ASPECT = 2.0
 # expiries) are entries when an icon at an entry's spacing divides two names
 # on plate (`_one_colour_bands`, `_plate_flanks`); a thin-stroked icon (Paint
 # Shells) divides by the plate-relative cut (`_soft_stroke_groups`).
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.17.0"
+# 0.18.0 (2026-10-03): `PITCH` is 39, the game's row plus spacer, not 40, so
+# a tall plate run splits and a band takes its slot on the game's grid.
+# (0.17.0 belongs to one-colour-band-20261003.)
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.18.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -3070,7 +3075,9 @@ def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # expiries) are entries when an icon at an entry's spacing divides two names
 # on plate (`_one_colour_bands`, `_plate_flanks`); a thin-stroked icon (Paint
 # Shells) divides by the plate-relative cut (`_soft_stroke_groups`).
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.10.0"
+# 0.11.0 (2026-10-03): `PITCH` is 39; see the portrait stamp. (0.10.0 belongs
+# to one-colour-band-20261003.)
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.11.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -3532,7 +3539,9 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # expiries) are entries when an icon at an entry's spacing divides two names
 # on plate (`_one_colour_bands`, `_plate_flanks`); a thin-stroked icon (Paint
 # Shells) divides by the plate-relative cut (`_soft_stroke_groups`).
-KILLFEED_NAME_VERSION = "killfeed-name-0.5.0"
+# 0.6.0 (2026-10-03): `PITCH` is 39; see the portrait stamp. (0.5.0 belongs to
+# one-colour-band-20261003.)
+KILLFEED_NAME_VERSION = "killfeed-name-0.6.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15

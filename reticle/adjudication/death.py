@@ -2641,7 +2641,10 @@ def adjudicate_round_deaths(
 
         # Weapon / Ability icon classification if icon crop is provided
         if kf.get("icon_crop") is not None and not weapon:
-            w_verdict = classify_killfeed_icon(kf["icon_crop"], active_agent=player_agent)
+            # The match's agents, both sides: a caster may be either team's.
+            match_agents = ({r["agent"] for rows in (lineup or {}).get("sides", {}).values()
+                             for r in rows if r.get("agent")} or None)
+            w_verdict = classify_killfeed_icon(kf["icon_crop"], agents=match_agents)
             if w_verdict.status == "resolved" and w_verdict.name:
                 weapon = w_verdict.name
                 if not death_cause:
