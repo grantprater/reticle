@@ -3077,7 +3077,11 @@ def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # Shells) divides by the plate-relative cut (`_soft_stroke_groups`).
 # 0.11.0 (2026-10-03): `PITCH` is 39; see the portrait stamp. (0.10.0 belongs
 # to one-colour-band-20261003.)
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.11.0"
+# 0.12.0 (2026-10-04): an entry divided at its plate seam gets a row: the
+# icon is the element ending within SEAM_ICON_GAP before the seam
+# (`_seam_icon`), else the row is null with reason `seam_no_icon`. Such views
+# were skipped with no row. Every other row is unchanged.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.12.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -3234,27 +3238,81 @@ def icon_extent(white_band: np.ndarray, icon_band: np.ndarray, wx0: int, wx1: in
     The spacing [domain:killfeed/killfeed-element-spacing] keeps out the
     headshot mark [domain:killfeed/headshot-icon], the names, the portraits
     and the killstreak numeral; sharing a row keeps out the next entry's plate
-    along the band's edge. The plate-seam fallback (wx0 == wx1) returns the seam.
+    along the band's edge. A plate-seam divider (wx0 == wx1) has no piece to
+    point at; there the icon is `_seam_icon`'s element.
     """
     if wx1 <= wx0:
-        return wx0, wx1
+        return _seam_icon(icon_band, wx0, s) if wx0 > 0 else (wx0, wx1)
     rows = _divider_rows(white_band, wx0, wx1)
     if rows is None:
         return wx0, wx1
     _lab, st, keep = _slot_pieces(icon_band, rows, lo, hi, s)
-    els: list[list] = []
-    for i in sorted(keep, key=lambda i: st[i, 0]):
-        p0, p1 = int(st[i, 0]), int(st[i, 0] + st[i, 2])
-        if els and p0 - els[-1][1] < s.px(ELEMENT_GAP):
-            els[-1][1] = max(els[-1][1], p1)
-            els[-1][2] += int(st[i, 4])
-        else:
-            els.append([p0, p1, int(st[i, 4])])
+    els = _elements(st, keep, s)
     over = [e for e in els if e[0] < wx1 and e[1] > wx0]
     if not over:
         return wx0, wx1
     best = max(over, key=lambda e: e[2])
     return best[0], best[1]
+
+
+def _elements(st: np.ndarray, keep, s: "KillfeedScale" = UNIT_SCALE) -> list[list]:
+    """Pieces `keep` (rows of connected-component stats `st`) grouped into
+    killfeed elements, left to right: pieces under ELEMENT_GAP columns apart
+    are one. Each is [x0, x1, ink, pieces, y0, y1]."""
+    els: list[list] = []
+    for i in sorted(keep, key=lambda i: st[i, 0]):
+        p0, p1 = int(st[i, 0]), int(st[i, 0] + st[i, 2])
+        q0, q1 = int(st[i, 1]), int(st[i, 1] + st[i, 3])
+        if els and p0 - els[-1][1] < s.px(ELEMENT_GAP):
+            e = els[-1]
+            e[1], e[2], e[3] = max(e[1], p1), e[2] + int(st[i, 4]), e[3] + 1
+            e[4], e[5] = min(e[4], q0), max(e[5], q1)
+        else:
+            els.append([p0, p1, int(st[i, 4]), 1, q0, q1])
+    return els
+
+
+#: The weapon-slot icon ends 10-28 px before the next element
+#: [domain:killfeed/killfeed-element-spacing]; past a plate seam that element
+#: is the victim's plate. On 300 cached frames of e37fdeca944f the icon of a
+#: divided two-colour entry with no headshot mark ended 7-19 px or 26-27 px
+#: before the seam (`plate_seam`), and 42-62 px before it with a mark.
+SEAM_ICON_GAP = 28
+#: The headshot mark's size, base px: 23-24 wide, 16-17 tall, eight or more
+#: pieces [domain:killfeed/headshot-icon]. One px of slack either way.
+HEADSHOT_W = (22, 25)
+HEADSHOT_H = (15, 18)
+HEADSHOT_PIECES = 8
+
+
+def _seam_icon(icon_band: np.ndarray, seam: int,
+               s: "KillfeedScale" = UNIT_SCALE) -> tuple[int, int]:
+    """The weapon-slot icon's columns on a band divided at its plate seam.
+
+    `_band_text` falls back to the seam when no candidate divides the names,
+    and the seam holds no piece to grow from: Mosh Pit's small mark at
+    e37fdeca944f 131.5 s and Nanoswarm's at a06f04a0059f 34.5 s are glyph
+    sized, so the killer's name run took the icon itself. The icon is drawn
+    on the killer's plate, the last element before the seam
+    [domain:killfeed/killfeed-element-spacing]: of the plate-relative pieces
+    crossing the band's middle half (the next entry's plate bleeds in only
+    along the edges), the element ending nearest the seam and within
+    SEAM_ICON_GAP of it. A headshot mark in that place
+    [domain:killfeed/headshot-icon] stands between icon and seam, so the
+    answer is no icon rather than the element before it, unread. (seam, seam)
+    when there is none."""
+    h = icon_band.shape[0]
+    _lab, st, keep = _slot_pieces(icon_band, (h // 4, h - h // 4), 0,
+                                  seam + s.px(BASELINE_TOL), s)
+    els = [e for e in _elements(st, keep, s)
+           if -s.px(BASELINE_TOL) <= seam - e[1] <= s.px(SEAM_ICON_GAP)]
+    if not els:
+        return seam, seam
+    e = max(els, key=lambda e: e[1])
+    mark = (s.px(HEADSHOT_W[0]) <= e[1] - e[0] <= s.px(HEADSHOT_W[1])
+            and s.px(HEADSHOT_H[0]) <= e[5] - e[4] <= s.px(HEADSHOT_H[1])
+            and e[3] >= HEADSHOT_PIECES)
+    return (seam, seam) if mark else (e[0], e[1])
 
 
 #: The ring a revive entry draws round its weapon-slot icon
@@ -3397,6 +3455,9 @@ def _centroid(w: np.ndarray, piece: np.ndarray) -> list[float] | None:
 
 #: The 0.6.0 fields of a row refused before its slot pieces are cut.
 NO_SOFT = {"ring_stripped": None, "soft": None, "centroid": None, "slot_geom": None}
+#: The verdicts of a view `_band_text` divided between two names: an entry,
+#: whose weapon slot always gets a row, described or refused with a reason.
+ENTRY_VERDICTS = ("kill", "death", "other", "tie")
 
 
 def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
@@ -3436,13 +3497,37 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
     portrait and its agent badge left of an unread killer name
     (4f207c0c4e39 892.5 s), or the wash's red art under a band the split made
     from an entry's lower half (460.0 s, slot 1).
+
+    Every entry view (ENTRY_VERDICTS) gets a row. One divided at its plate
+    seam (wx0 == wx1, the seam's column) is described from the icon
+    `_seam_icon` found (ix0..ix1), and the gates read those columns; with no
+    icon there the row is null with reason `seam_no_icon`. Until 0.12.0 such
+    views got no row at all: Mosh Pit at e37fdeca944f 131.5 s, Nanoswarm at
+    a06f04a0059f 34.5 s and Razorvine at b3b9defb6fd7 1575.0 s were absent,
+    not refused. A band refused before any divider is no entry, and its
+    reason stays the view's.
     """
     s = scale or KillfeedScale.for_capture(width, height)
     x0, y0, x1, y1 = roi.pixels(width, height)
     out = []
     for v in views:
-        if v.wx1 <= v.wx0 or v.y1 <= v.y0:
+        if v.y1 <= v.y0:
             continue
+        seam = v.wx1 <= v.wx0
+        if seam and v.verdict not in ENTRY_VERDICTS:
+            # No entry: the band refused before any divider, and its reason
+            # is the view's, stored with the HUD read.
+            continue
+        if seam and v.ix1 <= v.ix0:
+            # Divided at the plate seam with no icon before it (`_seam_icon`).
+            out.append({"slot": v.slot, "y0": int(v.y0), "y1": int(v.y1), "wx0": int(v.wx0),
+                        "wx1": int(v.wx1), "verdict": v.verdict, "band_shift": 0,
+                        "ix0": int(v.ix0), "ix1": int(v.ix1), "grid": None, "aspect": None,
+                        "reason": "seam_no_icon", "ringed": None, "ring_reason": "seam_no_icon",
+                        "ring": None, **NO_SOFT})
+            continue
+        # The divider's columns, or on a seam view the icon's (`_seam_icon`).
+        d0, d1 = (v.ix0, v.ix1) if seam else (v.wx0, v.wx1)
         band = frame[y0 + v.y0:y0 + v.y1, x0:x1]
         green, red, white = _plate_masks(band, np.ones(band.shape[:2], bool))
         dy = (band_shift(white > 0, v.killer_run, v.victim_run, s)
@@ -3460,7 +3545,7 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
                 band, green, red, white = moved, mg, mr, mw
             else:
                 dy = 0
-        crop = band[:, v.wx0:v.wx1]
+        crop = band[:, d0:d1]
         cut = icon_grid(icon_white_mask(crop, s), s)
         row = {"slot": v.slot, "y0": int(v.y0), "y1": int(v.y1), "wx0": int(v.wx0),
                "wx1": int(v.wx1), "verdict": v.verdict, "band_shift": int(dy)}
@@ -3468,26 +3553,28 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
         # neighbours are a portrait edge or a name, never the missing icon
         # (a06f04a0059f 1969.0 s, a portrait's edge, gained a grid otherwise).
         if cut is None:
-            out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
+            out.append({**row, "ix0": int(d0), "ix1": int(d1), "grid": None,
                         "aspect": None, "reason": "no_icon", "ringed": None,
                         "ring_reason": "no_icon", "ring": None, **NO_SOFT})
             continue
-        behind = ((green | red)[:, v.wx0:v.wx1].sum(axis=0) >= s.px(PLATE_MIN_PX)).mean()
+        behind = ((green | red)[:, d0:d1].sum(axis=0) >= s.px(PLATE_MIN_PX)).mean()
         if behind < PLATE_BEHIND_MIN:
-            out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
+            out.append({**row, "ix0": int(d0), "ix1": int(d1), "grid": None,
                         "aspect": None, "reason": "no_plate", "ringed": None,
                         "ring_reason": "no_plate", "ring": None, **NO_SOFT})
             continue
         runs = _plate_runs(green, red, s)
-        if not runs or v.wx1 <= runs[0][1] or v.wx0 >= runs[-1][2]:
-            out.append({**row, "ix0": int(v.wx0), "ix1": int(v.wx1), "grid": None,
+        if not runs or d1 <= runs[0][1] or d0 >= runs[-1][2]:
+            out.append({**row, "ix0": int(d0), "ix1": int(d1), "grid": None,
                         "aspect": None, "reason": "off_plate_run", "ringed": None,
                         "ring_reason": "off_plate_run", "ring": None, **NO_SOFT})
             continue
         w, ok = plate_whiteness(band, green, red, s)
         icon = slot_white_mask(band, green, red, s, whiteness=(w, ok))
-        ix0, ix1 = (v.ix0, v.ix1) if v.ix1 > v.ix0 else (v.wx0, v.wx1)
-        rows = _divider_rows(white > 0, v.wx0, v.wx1)
+        ix0, ix1 = (v.ix0, v.ix1) if v.ix1 > v.ix0 else (d0, d1)
+        # A seam view has no divider piece; its icon crosses the band's middle half.
+        bh = v.y1 - v.y0
+        rows = (bh // 4, bh - bh // 4) if seam else _divider_rows(white > 0, v.wx0, v.wx1)
         piece = np.zeros_like(icon)
         if rows is not None:
             lab, _st, keep = _slot_pieces(icon, rows, ix0, ix1, s)
@@ -3506,7 +3593,7 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
             ix0, ix1 = int(xs[0]), int(xs[-1]) + 1
             cut = icon_grid(piece[:, ix0:ix1], s)
         else:
-            ix0, ix1 = v.wx0, v.wx1
+            ix0, ix1 = d0, d1
         row.update({"ix0": int(ix0), "ix1": int(ix1), "ringed": ringed, "ring_reason": why,
                     "ring": ({k: round(val, 3) for k, val in fit.items()} if fit else None)})
         m = s.n(SOFT_MARGIN)
