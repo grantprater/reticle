@@ -355,7 +355,20 @@ PING_VERSION = "ping-0.1.0"
 # `search` `prior`, its `rests_on` and its reason.
 # 0.9.3: a prior-searched fit whose local grid keeps the prior's pose refines
 # from a finer compass step (ICON_POSE_PRIOR_VERSION 0.4.0).
-ALLY_ICON_VERSION = "ally-icon-0.9.3"
+# 0.10.0 (2026-10-03): where the self icon is seen, the stored roster's
+# capacity (`round_lifetimes.ally_capacity`) exceeds the frame's ring-fit
+# teammates, and a window of teal holds more than one teammate draws, the
+# stacked-icon search (`stack_fit`, STACK_FIT_VERSION) fits that window; each
+# member is a candidate of channel `stack`, and `ally_decisions`
+# (minimap-icon-decision-0.3.0) accepts a member the ring fits do not already
+# hold, up to the capacity, as an ally icon with `origin` `stack_fit`. Frame rows
+# carry `stack_reason`; ring-fit rows and their observation keys are unchanged.
+ALLY_ICON_VERSION = "ally-icon-0.10.0"
+# The stacked teammate icon search (`stack_fit`), ported from
+# `prototypes/stack_fit.py` 0.2.0. 0.3.0: numpy in place of torch, the icons
+# drawn at `ICON_ALPHA` instead of opaque, windows scored on each pose's
+# covered pixels.
+STACK_FIT_VERSION = "stack-fit-0.3.0"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.

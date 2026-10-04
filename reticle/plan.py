@@ -384,7 +384,7 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     from .ability_candidates import values_digest
     from .version import (ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION,
                           ABILITY_CANDIDATES_VERSION, ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION,
-                          ICON_POSE_PRIOR_VERSION,
+                          ICON_POSE_PRIOR_VERSION, STACK_FIT_VERSION,
                           ICON_TEARDROP_VERSION, TEARDROP_VERSION, TRAY_VERSION)
     geo ={"geometry": _in("geometry_built_by", "geometry")}
     death = "death#death_adjudication_version"
@@ -513,7 +513,13 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                              optional=True),
                       # Heads before `ally-icon-0.7.0` searched every image in full.
                       "icon_pose_prior": _code("icon_pose_prior_version",
-                                               ICON_POSE_PRIOR_VERSION, optional=True)},
+                                               ICON_POSE_PRIOR_VERSION, optional=True),
+                      # From `ally-icon-0.10.0` the stacked-icon search runs
+                      # where the stored roster's capacity exceeds the ring
+                      # fits (`minimap.StackGate`); a head whose gate read no
+                      # roster records neither.
+                      "stack_fit": _code("stack_fit_version", STACK_FIT_VERSION, optional=True),
+                      "roster": _in("inputs.roster", "roster", optional=True)},
         "ability_gate": geo, "ability_icon": geo,
         "ability_shape_scan": {"shape_model": _code("ability_shape_version", ABILITY_SHAPE_VERSION),
                                **geo},

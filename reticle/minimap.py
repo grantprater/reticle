@@ -1261,11 +1261,14 @@ class AllyIconReader:
     records_clip = True
 
     def __init__(self, floor, slab, static, box, hz=ALLY_DESCRIPTOR_HZ,
-                 spans=None, name="ally_icon"):
+                 spans=None, name="ally_icon", stack=None):
         self.name, self.hz, self.spans = name, hz, spans
         self.frames_from = "video"
         self.cv_threads = 1        # small crops: see `passes._feed`
         self.floor, self.slab, self.static, self.box = floor, slab, static, box
+        #: The stacked-icon search's gate (`StackGate`), or None: no member
+        #: is fitted and each drawn frame says `not_configured`.
+        self.stack = stack
         self.sgray = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float64)
         self.ref = cv2.cvtColor(static, cv2.COLOR_BGR2GRAY).astype(np.float32)
         self.frames: list[dict] = []
@@ -1417,10 +1420,82 @@ class AllyIconReader:
                                     "self_occluder_candidate_key": self_key,
                                     "neighbor_candidate_keys": [k for k in selected_keys
                                                                if k != f"{frame['frame_idx']}:ally:{i}"]})
+        # The stacked-icon search, at opportunity only (`StackGate`): its
+        # members are candidates of their own channel, beside the ring fits,
+        # and `ally_decisions` says which are new teammates.
+        stack_reason = "not_configured"
+        if self.stack is not None:
+            with step("stack_fit"):
+                stack_reason = self._stack(crop, frame, found, occ, self_key, keyed,
+                                           grey, glyphs, shaped, sc)
         self.frames.append({**frame, "widget_drawn": True, "icons": len(got),
-                            "self": [round(v, 2) for v in occ[0]] if occ else None})
+                            "self": [round(v, 2) for v in occ[0]] if occ else None,
+                            "stack_reason": stack_reason})
         for i, d in enumerate(got):
             self.icons.append({**frame, "index": i, **d})
+
+    def _stack(self, crop, frame, found, occ, self_key, keyed, grey, glyphs, shaped,
+               sc) -> str | None:
+        """Fit the frame's stacked windows where `self.stack` opens the gate;
+        appends one `stack` candidate per member and returns the frame's
+        `stack_reason` (None where the search ran)."""
+        from . import appearance, spike
+
+        ring = sum(1 for f in found if not f.get("barrier"))
+        gate = self.stack.gate(frame["t_ms"], bool(occ), ring)
+        if gate["reason"] is not None:
+            return gate["reason"]
+        T, B, Wt, wins = self.stack.fitter.stacks(crop)
+        if not wins:
+            return "no_stack_window"
+        shape = self.stack.fitter.shape
+        members = []
+        for w in wins:
+            a, b, c, d = w["box"]
+            for m in self.stack.fitter.fit(T, B, Wt, w["box"]):
+                members.append({**m, "window": [c, a, d, b],
+                                "mass_ratio": round(w["mass_ratio"], 3)})
+        fs = [{"cx": m["x"], "cy": m["y"], "r": shape.r_int} for m in members]
+        index = sum(1 for r in self.candidates if r["frame_idx"] == frame["frame_idx"]
+                    and r["channel"] == "stack")
+        for m, f in zip(members, fs):
+            win, keep = _interior(f, keyed, others=found + fs, occluders=occ)
+            comp = appearance.hsv_composition(crop[win], keep)
+            diff = (float(np.abs(grey[win][keep] - self.ref[win][keep]).mean())
+                    if keep.any() else None)
+            img = ally_portrait.align_icon(crop, m["x"], m["y"])
+            near = [{k: g[k] for k in ("cx", "cy", "state", "side", "ncc", "amp", "reason")}
+                    for g in glyphs if np.hypot(g["cx"] - m["x"], g["cy"] - m["y"])
+                    <= spike.ON_GLYPH_PX * sc]
+            self.candidates.append({
+                **frame, "channel": "stack", "index": index,
+                "cx": m["x"], "cy": m["y"], "r": shape.r_int,
+                # The ring fit's measurements: this search fits no ring.
+                "cov": None, "inner": None, "inner_v": None, "lobe": None, "area": None,
+                "facing": m["deg"] % 360.0, "facing_reason": None,
+                "facing_source": "stack_fit",
+                "widget_scale": sc, "spike_glyphs": near,
+                "map_diff": diff, "map_diff_reason": None if diff is not None else "interior_unread",
+                "descriptor": [float(v) for v in comp] if comp.size else None,
+                "descriptor_reason": None if comp.size else "interior_too_thin",
+                "descriptor_pixels": int(keep.sum()),
+                "portrait_features": ally_portrait.stored(
+                    ally_portrait.portrait_features(img, portrait_key(img))),
+                "baseline_descriptor": None, "baseline_map_diff": None,
+                "baseline_reason": "not_applicable",
+                "self_occluder": [round(v, 2) for v in occ[0]] if occ else None,
+                "self_occluder_candidate_key": self_key,
+                "neighbor_candidate_keys": [],
+                "stack": {"margin": m["margin"], "visible": m["visible"], "gain": m["g"],
+                          "depth": m["depth"], "members": m["members"],
+                          "window": m["window"], "mass_ratio": m["mass_ratio"],
+                          "r_out": shape.r_out},
+                "capacity": gate["capacity"], "ring_fits": ring,
+                # The capacity that opened the gate: a prior from another
+                # channel, weighed once (`ally_decisions` caps by it).
+                "rests_on": gate["rests_on"]})
+            index += 1
+        return None
 
     def _posed(self, crop: np.ndarray, f: dict, channel: str, sc: float,
                frame: dict | None = None, ref: str | None = None,
@@ -1501,7 +1576,7 @@ class AllyIconReader:
 
         from .version import (ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
                               ICON_POSE_PRIOR_VERSION, ICON_TEARDROP_VERSION,
-                              TEARDROP_VERSION)
+                              STACK_FIT_VERSION, TEARDROP_VERSION)
 
         common = {"session_id": session_id, "source": "minimap",
                   "ally_icon_version": ALLY_ICON_VERSION, "hz": self.hz}
@@ -1509,9 +1584,14 @@ class AllyIconReader:
         if accepted is not None:
             selected = []
             accepted_index = {}
+            # Within a frame, ring fits first, then the stacked-icon members,
+            # so the ring-fit rows keep their indices and observation keys.
+            pos: dict = {}
             for c in accepted:
-                if c["channel"] != "ally":
-                    continue
+                pos.setdefault(c["frame_idx"], len(pos))
+            ordered = sorted((c for c in accepted if c["channel"] in ("ally", "stack")),
+                             key=lambda c: (pos[c["frame_idx"]], c["channel"] == "stack"))
+            for c in ordered:
                 if c.get("descriptor_reason") == "not_selected":
                     raise ValueError(f"accepted fit has no measured descriptor: {c['candidate_key']}")
                 reason = ("interior_is_map" if c["decision"]["family"] == "barrier"
@@ -1532,14 +1612,23 @@ class AllyIconReader:
                                  "family": c["decision"]["family"],
                                  "self_occluder": c["self_occluder"],
                                  **{k: c[k] for k in ("ring", "pose", "facing_source")
-                                    if k in c}})
+                                    if k in c},
+                                 # A stacked-icon member names its search, the
+                                 # capacity it rests on and its fit.
+                                 **({"origin": "stack_fit", "stack": c["stack"],
+                                     "stack_fit_version": STACK_FIT_VERSION,
+                                     "capacity": c["capacity"], "ring_fits": c["ring_fits"],
+                                     "rests_on": c["rests_on"]}
+                                    if c["channel"] == "stack" else {})})
             # Preserve the previous accepted view's positions and refusal
-            # causes; a changed gate must be deliberate and versioned.
+            # causes; a changed gate must be deliberate and versioned. The
+            # reader selects ring fits only; the stacked members are the
+            # decision rule's alone.
             if self.icons:
                 old = sorted((r["frame_idx"], r["cx"], r["cy"], r["reason"])
                              for r in self.icons)
                 new = sorted((r["frame_idx"], r["cx"], r["cy"], r["reason"])
-                             for r in selected)
+                             for r in selected if r.get("origin") != "stack_fit")
                 if old != new:
                     raise ValueError("stored candidate replay changed accepted ally output")
         refused = Counter(r["reason"] for r in selected if r["reason"])
@@ -1553,7 +1642,14 @@ class AllyIconReader:
                  "refused_reasons": dict(sorted(refused.items())),
                  "teardrop_version": TEARDROP_VERSION,
                  "icon_teardrop_version": ICON_TEARDROP_VERSION,
-                 "icon_pose_prior_version": ICON_POSE_PRIOR_VERSION}]
+                 "icon_pose_prior_version": ICON_POSE_PRIOR_VERSION,
+                 # Where the stacked-icon search ran ("ran") and why it did
+                 # not elsewhere, per drawn frame; its members by origin.
+                 "stack_fit_version": STACK_FIT_VERSION,
+                 "stack_reasons": dict(sorted(Counter(
+                     f.get("stack_reason", "unrecorded") or "ran" for f in self.frames
+                     if f["widget_drawn"]).items())),
+                 "stack_icons": sum(1 for r in selected if r.get("origin") == "stack_fit")}]
         frames_from = getattr(self, "frames_from", "video")
         if not frames_from.startswith("video"):
             # Only a cache-fed pass adds the key, so a decode's rows keep their bytes.
@@ -1599,10 +1695,76 @@ class AllyIconReader:
         return reader.events(session_id, accepted, candidate_revision)
 
 
+class StackGate:
+    """When `AllyIconReader` runs the stacked-icon search (`stack_fit`), and
+    what that rests on.
+
+    The search runs only at opportunity: the self icon is seen, the stored
+    roster's capacity (`round_lifetimes.ally_capacity` over
+    `round_lifetimes.roster_window`) exceeds the frame's ring-fit teammates,
+    and a window holds more teal than one teammate draws
+    (`stack_fit.STACK_MASS`). The capacity is another channel's count, taken
+    as a gate and declared under each member's `rests_on` with the roster's
+    content digest; the reader decides nothing by it. `reason` refuses the
+    whole session (`no_map_scale`, `no_stored_roster`).
+    """
+
+    def __init__(self, fitter, roster_t, roster_alive, roster_digest, reason=None):
+        self.fitter, self.reason = fitter, reason
+        self.rt, self.ra, self.digest = roster_t or [], roster_alive or [], roster_digest
+
+    def gate(self, t_ms: float, self_seen: bool, ring: int) -> dict:
+        """`reason` (None where the search may run), `capacity`, `rests_on`."""
+        from .round_lifetimes import ROSTER_LAG_MS, ally_capacity, roster_window
+        out = {"reason": self.reason, "capacity": None, "rests_on": None}
+        if self.reason is not None:
+            return out
+        if not self_seen:
+            out["reason"] = "self_unseen"
+            return out
+        reads = roster_window(self.rt, self.ra, t_ms)
+        cap = ally_capacity(reads, True)
+        if cap is None:
+            out["reason"] = "capacity_unread"
+            return out
+        out["capacity"] = cap
+        if ring >= cap:
+            out["reason"] = "at_capacity"
+            return out
+        out["rests_on"] = {"stream": "roster", "roster_sha256": self.digest,
+                           "t_ms": [t_ms - ROSTER_LAG_MS, t_ms + ROSTER_LAG_MS],
+                           "alive_ally": reads, "rule": "round_lifetimes.ally_capacity"}
+        return out
+
+
+def stack_gate(ctx, static, floor, slab) -> StackGate:
+    """The session's `StackGate`: its map scale (`geometry.map_scale`, the one
+    scale transform) and the stored roster, read once."""
+    import hashlib
+
+    from . import geometry
+    from .stack_fit import Fitter
+    root = ctx.store.root
+    k = geometry.key_of(ctx.session_id, root)
+    ms = None if k is None else geometry.map_scale(k, root)
+    if ms is None:
+        return StackGate(None, None, None, None, reason="no_map_scale")
+    date = ctx.manifest["ingested_at"][:10]
+    if not ctx.store.has_roster(ctx.session_id, date):
+        return StackGate(None, None, None, None, reason="no_stored_roster")
+    path = ctx.store.roster_path(ctx.session_id, date)
+    t = ctx.store.read_roster(ctx.session_id, date)
+    return StackGate(Fitter(ms.scale, static, floor, slab),
+                     [float(v) for v in t.column("t_ms").to_pylist()],
+                     t.column("alive_ally").to_pylist(),
+                     hashlib.sha256(path.read_bytes()).hexdigest())
+
+
 def ally_icon_reader(ctx, hz: float = ALLY_DESCRIPTOR_HZ, spans=None, floor=None,
-                     slab=None) -> AllyIconReader:
+                     slab=None, stack: bool = True) -> AllyIconReader:
     """The `AllyIconReader` `scan` builds for a session (`passes.SessionContext`):
-    the baked map's floor, slab and base map, over the profile's minimap ROI.
+    the baked map's floor, slab and base map, over the profile's minimap ROI,
+    and the stacked-icon search's gate (`stack_gate`; `stack=False` omits it).
     A pass that already holds the floor and slab (`scan`'s minimap reader)
     passes them; `trial` builds them here."""
     from . import geometry
@@ -1610,9 +1772,11 @@ def ally_icon_reader(ctx, hz: float = ALLY_DESCRIPTOR_HZ, spans=None, floor=None
     if slab is None:
         slab = slab_mask(med, sd=geometry.stability(ctx.session_id, ctx.store.root,
                                                     med.shape[:2]))
-    return AllyIconReader(floor=ctx.floor() if floor is None else floor, slab=slab,
+    floor = ctx.floor() if floor is None else floor
+    return AllyIconReader(floor=floor, slab=slab,
                           static=med, box=minimap_roi_px(ctx.profile, *ctx.wh), hz=hz,
-                          spans=spans)
+                          spans=spans,
+                          stack=stack_gate(ctx, med, floor, slab) if stack else None)
 
 
 def art_floor(shade_kind: np.ndarray, dilate: float = 1) -> np.ndarray:

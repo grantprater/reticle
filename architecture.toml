@@ -50,7 +50,7 @@ modules = ["minimap", "ally_portrait", "ocr", "killfeed", "roster", "ping", "con
            "hud_reader", "scoreboard", "scoreboard_strip", "round_outcome", "glance", "track", "economy",
            "minimap_dark", "combat_report", "ability_shapes", "tray", "ult_lines",
            "tray_icons", "menu", "teardrop", "spike", "occluders", "ability_scan", "ability_icons",
-           "plant_graphic", "killfeed_numeral"]
+           "plant_graphic", "killfeed_numeral", "stack_fit"]
 
 [orchestration]
 claim = "shared decode passes, which dispatch to readers and own no reading"
@@ -184,6 +184,19 @@ The `ally_icon` stream `scan` publishes is the accepted view of the reader's
 candidates under the stored decision rule. A trial diffs the rows `scan` would
 write, so it asks the rule's owner (`ally_decisions`, `accepted`) rather than
 restating it; it writes nothing.
+"""
+
+[[exception]]
+from = "minimap"
+to = "round_lifetimes"
+kind = "deferred"
+imports = "ROSTER_LAG_MS, ally_capacity, roster_window"
+reason = """
+The stacked-icon search runs only where the roster's alive teammates exceed
+the frame's ring fits. `StackGate` asks the capacity rule's owner
+(`ally_capacity` over `roster_window`) rather than restating it, and declares
+the roster reads it rests on; it takes a count from the roster channel, never
+a verdict on an icon.
 """
 
 [[exception]]

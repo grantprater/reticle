@@ -169,6 +169,21 @@ def _intersect(a, b):
     return sum(min(x, y) for x, y in zip(a, b))
 
 
+#: Roster reads either side of a frame; the largest stands, because the count
+#: drops at a death while the dying teammate's icon may still show.
+ROSTER_LAG_MS = 500.0
+
+
+def roster_window(times: list[float], alive: list, t_ms: float) -> list:
+    """The roster reads within `ROSTER_LAG_MS` of `t_ms`, with the read in
+    force at the window's start: the window `ally_capacity` takes."""
+    import bisect
+
+    lo = max(0, bisect.bisect_right(times, t_ms - ROSTER_LAG_MS) - 1)
+    hi = bisect.bisect_right(times, t_ms + ROSTER_LAG_MS)
+    return alive[lo:hi]
+
+
 def ally_capacity(alive_ally, self_seen: bool) -> int | None:
     """How many ally icons the roster licenses in one frame, or None.
 
