@@ -520,6 +520,8 @@ class AudioWitnessTest(unittest.TestCase):
         {"t_ms": 20000.0, "slot": "E", "best": "E", "score": 3.1, "runner_up": "Q",
          "runner_up_score": 1.0, "margin": 2.1, "threshold": 1.5, "reason": None,
          "verdict": "E", "scores": {"E": 3.1, "Q": 1.0}, "slot_referenced": True,
+         "best_ref": "E", "margin_ref": 2.1, "p_right": 0.97, "p_right_reason": None,
+         "calibration_basis": "agent",
          "ability_audio_version": "audio-test", "params_version": "params-test"},
         {"t_ms": 40000.0, "slot": "X", "best": "C", "score": 2.0, "runner_up": "X",
          "runner_up_score": 1.2, "margin": 0.8, "threshold": 1.5, "reason": None,
@@ -541,6 +543,8 @@ class AudioWitnessTest(unittest.TestCase):
         self.assertIn("audio", casts["X"]["disagreed"])
         self.assertEqual(audio_claims["X"]["observed"], "C")
         self.assertEqual(audio_claims["X"]["evidence"]["margin"], 0.8)
+        self.assertEqual(audio_claims["E"]["evidence"]["p_right"], 0.97)
+        self.assertEqual(audio_claims["E"]["evidence"]["margin"], 2.1)
         if "Q" in audio_claims:
             self.assertEqual(audio_claims["Q"]["observed"], "refused:below_null")
             self.assertNotIn("audio", casts.get("Q", {"agreed": []})["agreed"])
@@ -550,6 +554,56 @@ class AudioWitnessTest(unittest.TestCase):
         states = lambda rows: [r for r in rows if r["kind"] == "state"]
         self.assertEqual(states(plain), states(heard))
         self.assertNotIn("audio", plain[0])
+
+
+
+class LabelCorrectionTest(unittest.TestCase):
+    """The player's corrections apply when the labels are read, beside the
+    labels, and a label moved off its drop's slot claims no cast there."""
+
+    def test_a_correction_is_applied_at_read_and_scored_against_its_drop(self):
+        import tempfile
+        from pathlib import Path
+
+        from reticle.ability_timeline import (TRAY_OBJECT_CORRECTIONS_DIR, TRAY_OBJECT_DIR,
+                                              tray_object_labels)
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / TRAY_OBJECT_DIR).mkdir(parents=True)
+            labs = [{"key": "s:1911000:Q", "session_id": "s", "t_drop_s": 1911.0,
+                     "slot": "Q", "ability": "Shock Bolt"},
+                    {"key": "s:20000:E", "session_id": "s", "t_drop_s": 20.0, "slot": "E",
+                     "ability": "Recon Bolt"}]
+            text = "".join(json.dumps(x) + "\n" for x in labs)
+            (root / TRAY_OBJECT_DIR / "s.jsonl").write_text(text, encoding="utf-8")
+            got, stamps = tray_object_labels(root, "s")
+            self.assertEqual([g["value_source"] for g in got], ["player_label"] * 2)
+            self.assertEqual(stamps["labels_tray_object_corrections"], "no_rows")
+            (root / TRAY_OBJECT_CORRECTIONS_DIR).mkdir(parents=True)
+            fix = {"key": "s:1911000:Q", "slot": "C", "ability": "Owl Drone",
+                   "basis": "player", "by": "player", "at": "2026-10-04"}
+            (root / TRAY_OBJECT_CORRECTIONS_DIR / "s.jsonl").write_text(json.dumps(fix) + "\n",
+                                                                         encoding="utf-8")
+            got, stamps = tray_object_labels(root, "s")
+            self.assertEqual((got[0]["slot"], got[0]["ability"]), ("C", "Owl Drone"))
+            self.assertEqual((got[0]["label_slot"], got[0]["label_ability"]),
+                             ("Q", "Shock Bolt"))
+            self.assertEqual(got[0]["value_source"], "player_correction")
+            self.assertEqual(got[0]["correction"]["basis"], "player")
+            self.assertNotIn("label_slot", got[1])
+            self.assertTrue(stamps["labels_tray_object_corrections"].startswith("sha256:"))
+            self.assertEqual(text, (root / TRAY_OBJECT_DIR / "s.jsonl").read_text(encoding="utf-8"))
+        verdict = lambda t, slot, transition: {
+            "kind": "verdict", "session_id": "s", "t_ms": t, "slot": slot,
+            "agreed": ["tray_drop"], "transition": transition, "reason": None,
+            "before": None, "surprise_reason": None}
+        rows = [verdict(1911000.0, "Q", "unequip"), verdict(20000.0, "E", "cast")]
+        before = st.score_labels(rows, labs)["labels"]
+        after = st.score_labels(rows, got)["labels"]
+        self.assertEqual([x["agrees"] for x in before], [False, True])
+        self.assertEqual([x["agrees"] for x in after], [True, True])
+        self.assertEqual((after[0]["label_slot"], after[0]["labelled_slot"],
+                          after[0]["label_cast_of_drop"]), ("Q", "C", False))
 
 
 if __name__ == "__main__":

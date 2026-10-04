@@ -693,7 +693,8 @@ def _fill_change(slot: str, sp: dict, sj: dict, phase: str):
 
 #: The audio witness's fields an `audio` claim carries as evidence.
 AUDIO_FIELDS = ("best", "score", "runner_up", "runner_up_score", "margin", "threshold",
-                "reason", "verdict", "scores", "slot_referenced", "params_version")
+                "reason", "verdict", "scores", "slot_referenced", "params_version",
+                "best_ref", "margin_ref", "p_right", "p_right_reason", "calibration_basis")
 #: The audio witness's window opens this long before the drop (ms).
 PRE_MS = 2000.0
 
@@ -1091,24 +1092,40 @@ def invariant_violations(rows: list[dict]) -> dict:
 
 
 def score_labels(rows: list[dict], labels: list[dict]) -> dict:
-    """The player's tray-cast labels (`labels/tray_object`) against one
-    session's rows: each label is a cast the player saw; its key is
-    `<sid>:<round(t_ms)>:<slot>`. Returns, per label, the transition its drop
-    became, and for the drops the gate accepts, whether the state before
-    held a charge (C, Q, E: `charges_range[0] >= 1`) or a lit bar (X)."""
+    """The player's tray-cast labels against one session's rows, as
+    `ability_timeline.tray_object_labels` reads them, corrections applied:
+    each label is a cast the player saw at a drop; its key is
+    `<sid>:<round(t_ms)>:<drop slot>`. Returns, per label, the transition
+    its drop became, and for the drops the gate accepts, whether the state
+    before held a charge (C, Q, E: `charges_range[0] >= 1`) or a lit bar (X).
+
+    A label says its drop is a cast of the drop's slot unless a correction
+    moved its slot elsewhere (`label_cast_of_drop`); it `agrees` where the
+    drop's transition is a cast exactly when the label says so. Each row
+    keeps the label's original slot and the value's source."""
     by_key = {f"{v['session_id']}:{round(v['t_ms'])}:{v['slot']}": v
               for v in rows if v.get("kind") == "verdict" and "tray_drop" in v["agreed"]}
     out = []
     for lab in labels:
         v = by_key.get(lab["key"])
+        drop_slot = lab["key"].rsplit(":", 1)[-1]
+        says_cast = lab.get("slot", drop_slot) == drop_slot
+        src = {"value_source": lab.get("value_source", "player_label"),
+               "label_slot": lab.get("label_slot", lab.get("slot")),
+               "labelled_slot": lab.get("slot", drop_slot),
+               "label_cast_of_drop": says_cast,
+               "correction": lab.get("correction")}
         if v is None:
-            out.append({"key": lab["key"], "transition": None, "reason": "no_drop_verdict"})
+            out.append({"key": lab["key"], "transition": None, "reason": "no_drop_verdict",
+                        "agrees": None, **src})
             continue
         b = v["before"]
         held = (None if v["transition"] != "cast" or b is None
                 else bool(b["castable"]) if v["slot"] == ULT_SLOT
                 else b["charges_range"][0] >= 1)
         out.append({"key": lab["key"], "slot": v["slot"], "agent": lab.get("agent"),
+                    **src,
+                    "agrees": (v["transition"] == "cast") == says_cast,
                     "transition": v["transition"], "reason": v["reason"],
                     "held_before": held,
                     "before_level": None if b is None else b["level"],

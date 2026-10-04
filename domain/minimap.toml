@@ -1732,3 +1732,27 @@ box times map scale, so the reader searches a band of box fractions
 """
 phrases = ["spike glyph texture", "minimap bomb icon"]
 see = ["minimap/spike-glyph", "minimap/spike-inversion", "minimap/spike-carrier-overlay"]
+
+[spectator-view-matches-self]
+claim = """
+The player believes that spectating a player shows what that player sees,
+and that the only difference is the audio circle, which a spectated
+player's icon never carries. He is not fully sure.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "minimap:views"
+source = "the player, 2026-10-04 (chat), a belief (\"I think\", \"not 100% positive\")"
+use = """
+derive the spectator view from the self view, the same drawing without the
+audio circle [domain:minimap/self-audio-circle]; the self icon follows the
+spectated player [domain:minimap/self-icon-shows-spectated]. Store any
+spectator-only or self-only material, widget or sound as a disagreement
+"""
+exceptions = """
+the game data (`ability-states-gamedata-0.2.0`) draws Astra's hovered star
+only on Astra's own client [domain:abilities/astra-star-hover-yellow]
+"""
+see = ["minimap/self-icon-shows-spectated", "minimap/self-audio-circle",
+       "abilities/views-separate-per-ability"]

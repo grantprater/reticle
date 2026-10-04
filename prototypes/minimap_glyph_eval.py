@@ -1,10 +1,11 @@
 r"""The game's minimap ability glyphs as a caster-naming channel, scored on the player's positioned labels.
 
-    .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py score      [--out DIR] [--states probe|all]
+    .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py score      [--out DIR] [--states probe|all] [--answers on|off]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py misses     [--out DIR]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py separate   [--out DIR]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py inventory  [--out DIR]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py follow     [--out DIR] [--only sid,sid]
+    .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py heldout    [--out DIR]
 
 `score` reads every positioned ability label (labels/ability, labels/ability_paint,
 labels/tray_object marks) from the minimap crop cache (no decode), snaps it to the
@@ -13,6 +14,11 @@ glyph by masked Pearson correlation of luma inside an r = 8.5 px disc
 (x scale), centre +-3 px, glyph canvas 11-22 px, rotation 0-345 by 15 deg, never
 binarised; templates are each ability's DisplayIcon plus the export's minimap
 markers assigned to a kit ability by glyph correlation (never by file letter).
+With `--answers on` (the default), the player's texture answers
+(labels/minimap_glyph_questions/answers.jsonl) then add each answered stem's
+variants as references of the answered ability, citing the answer's line, and
+override the correlation's assignment of the same file; unsure answers stay
+out (`apply_answers`; items.json meta `answer_log` lists every effect).
 It writes items.json (per-item verdicts) and windows.npz (each item's luma and
 colour window, so `separate` and `misses` read no cache).
 
@@ -31,6 +37,18 @@ drawn, or the disc is the baked map, and decides once from up to 8 clean
 frames (follow.json, follow_misses.png). `prototypes/ask_minimap_glyphs.py`
 asks the player what these cannot derive: unproven texture mappings, what an
 ability draws on the minimap, and whether an icon rotates.
+
+`heldout` scores the matcher once, every parameter as above (probe states,
+answers on), on the held-out labelling pass
+(`label_minimap_glyph_heldout.py`; last row per item wins). Each sure mark
+named with a kit key is snapped, classified over the session agent's kit (no
+other-agent path) and followed; the follow's verdict is the matcher's. The
+headline is after_cast and control frames outside dev_session and
+near_tuned_label; those two and the audit-only frames report apart. It also
+counts the proposer's discs near the player's icon marks and away from every
+mark, raw and after the follow's gates, and audits each excluded ability
+against the self-view marks (heldout.json). Unsure, smoke, other-agent and
+typed marks are listed, never scored.
 
 Wire: no. It evaluates the game glyphs; wiring into reticle/ waits for an
 owner of ability-disc tracking (ability-icon proposes, nothing follows) and a
@@ -63,7 +81,7 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
-VERSION = "minimap-glyph-eval-0.1.0"
+VERSION = "minimap-glyph-eval-0.2.0"
 STORE = Path("C:/Users/grant/reticle-store")
 BUILD = "release-13.06-shipping-18-5590001"
 GX = STORE / "reference" / "game-files" / BUILD
@@ -241,12 +259,22 @@ def marker_map(states=PROBE_STATES) -> list[dict]:
 
 
 EXTRA: dict = {}
+#: What the player's texture answers did to the references in the last build_extra (written into items.json meta).
+ANSWER_LOG: dict = {}
+ANSWERS = LABELS / "minimap_glyph_questions" / "answers.jsonl"
+#: The glyph `marker_map` rendered for each export marker it read (path -> glyph); an answer that re-labels such a
+#: file keeps this rendering, so the answer changes the label and never the drawing.
+DERIVED_GLYPH: dict = {}
 
 
-def build_extra(states=PROBE_STATES, min_corr=0.5, min_gap=0.05) -> list[dict]:
-    """Assign each export marker to the kit icon it correlates with best (corr >= 0.5, gap >= 0.05)."""
+def build_extra(states=PROBE_STATES, min_corr=0.5, min_gap=0.05, answers: bool = False) -> list[dict]:
+    """Assign each export marker to the kit icon it correlates with best (corr >= 0.5, gap >= 0.05); with
+    `answers`, the player's texture answers then override and extend that assignment (`apply_answers`)."""
     EXTRA.clear()
+    ANSWER_LOG.clear()
     rows = marker_map(states)
+    DERIVED_GLYPH.clear()
+    DERIVED_GLYPH.update({r["path"]: r["glyph"] for r in rows})
     for r in rows:
         r["assigned"] = None
         if r["best"] is None:
@@ -257,7 +285,92 @@ def build_extra(states=PROBE_STATES, min_corr=0.5, min_gap=0.05) -> list[dict]:
             EXTRA.setdefault(key, []).append(
                 (r["glyph"], f"1306:{os.path.basename(r['file'])} corr {s:.2f} gap {gap:.2f}"))
             r["assigned"] = f"{key[0]}:{key[1]}"
+    if answers:
+        apply_answers(states)
     return rows
+
+
+def texture_answers() -> dict:
+    """{stem: (line number, answer row)} for the texture questions; the last row for a key wins, as the asking
+    tool reads them (`ask_minimap_glyphs.answered`)."""
+    out = {}
+    for i, ln in enumerate(ANSWERS.read_text(encoding="utf-8").splitlines(), 1):
+        if ln.strip():
+            r = json.loads(ln)
+            if r.get("kind") == "texture":
+                out[r["key"].split(":", 1)[1]] = (i, r)
+    return out
+
+
+def stem_of(name: str) -> str:
+    """A texture's stem: its name less a trailing state word (the asking tool's grouping)."""
+    return re.sub(r"_(" + "|".join(STATE_WORDS) + r")$", "", name, flags=re.I)
+
+
+def answer_glyph(f: str) -> np.ndarray:
+    """An answered texture's glyph: the rendering `marker_map` gave it, else `marker_glyph` for a disc texture
+    (`is_disc`, which needs alpha), else `icon_glyph`."""
+    if f in DERIVED_GLYPH:
+        return DERIVED_GLYPH[f]
+    im = cv2.imread(f, cv2.IMREAD_UNCHANGED)
+    return marker_glyph(f) if im.ndim == 3 and im.shape[2] == 4 and is_disc(im) else icon_glyph(f)
+
+
+def apply_answers(states=PROBE_STATES) -> None:
+    """The player's texture answers as references. A sure answer naming a kit key (agent:slot) adds each exported
+    variant of the stem whose state `states` keeps, provenance `answers.jsonl#L<n>`; it moves a file the
+    DisplayIcon correlation assigned elsewhere, never duplicating it. `agent_other` and `not_ability` remove the
+    stem's files from the references. Unsure answers change nothing; ANSWER_LOG lists every answer's effect.
+
+    The sure answers are domain facts, one per agent: [domain:abilities/minimap-textures-astra]
+    [domain:abilities/minimap-textures-chamber] [domain:abilities/minimap-textures-cypher]
+    [domain:abilities/minimap-textures-deadlock] [domain:abilities/minimap-textures-fade]
+    [domain:abilities/minimap-textures-gekko] [domain:abilities/minimap-textures-harbor]
+    [domain:abilities/minimap-textures-iso] [domain:abilities/minimap-textures-kayo]
+    [domain:abilities/minimap-textures-killjoy] [domain:abilities/minimap-textures-miks]
+    [domain:abilities/minimap-textures-neon] [domain:abilities/minimap-textures-omen]
+    [domain:abilities/minimap-textures-phoenix] [domain:abilities/minimap-textures-raze]
+    [domain:abilities/minimap-textures-reyna] [domain:abilities/minimap-textures-skye]
+    [domain:abilities/minimap-textures-sova] [domain:abilities/minimap-textures-tejo]
+    [domain:abilities/minimap-textures-veto] [domain:abilities/minimap-textures-vyse]
+    [domain:abilities/minimap-textures-yoru]."""
+    by_stem = defaultdict(list)
+    for f in inv_files():
+        by_stem[stem_of(os.path.basename(f)[:-4])].append(f)
+    rel_answers = os.path.relpath(ANSWERS, STORE).replace("\\", "/")
+    used, unsure, removed, out_of_states, moved = [], [], [], [], []
+    for stem, (ln, a) in sorted(texture_answers().items()):
+        if a.get("unsure") or not a.get("answer"):
+            unsure.append({"stem": stem, "line": ln})
+            continue
+        files = by_stem.get(stem, [])
+        names = {os.path.basename(f) for f in files}
+        for key in list(EXTRA):                         # the answer decides these files; drop derived assignments
+            keep = []
+            for g, p in EXTRA[key]:
+                f0 = p.split(" ")[0].split(":", 1)[-1]
+                if f0 in names:
+                    moved.append({"file": f0, "from": f"{key[0]}:{key[1]}", "to": a["answer"], "line": ln})
+                else:
+                    keep.append((g, p))
+            EXTRA[key] = keep
+            if not keep:
+                del EXTRA[key]
+        key = tuple(a["answer"].rsplit(":", 1)) if ":" in a["answer"] else None
+        if key is None or key not in GLYPHS:
+            removed.append({"stem": stem, "line": ln, "answer": a["answer"], "files": sorted(names)})
+            continue
+        for f in sorted(files):
+            name = os.path.basename(f)[:-4]
+            state = next((w for w in STATE_WORDS if name.lower().endswith("_" + w)), "")
+            if states is not None and state not in states:
+                out_of_states.append({"file": os.path.basename(f), "answer": a["answer"], "line": ln, "state": state})
+                continue
+            rel = os.path.relpath(f, str(GX)).replace("\\", "/")
+            EXTRA.setdefault(key, []).append((answer_glyph(f), f"answer:{rel_answers}#L{ln}:{rel}"))
+            used.append({"file": rel, "answer": a["answer"], "line": ln})
+    ANSWER_LOG.update({"file": rel_answers, "used": used, "unsure": unsure, "no_kit_key": removed,
+                       "state_filtered": out_of_states, "moved_from_derived": moved})
 
 
 # ------------------------------------------------------------------ the probe's matcher (cv2, reproduced exactly)
@@ -446,7 +559,7 @@ def cmd_score(args) -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     states = None if args.states == "all" else PROBE_STATES
-    rows = build_extra(states)
+    rows = build_extra(states, answers=args.answers == "on")
     items = load_items()
     print(f"items {len(items)}; extra markers {sum(len(v) for v in EXTRA.values())}", flush=True)
     res, wins_Y, wins_C, wins_static = [], [], [], []
@@ -526,6 +639,7 @@ def cmd_score(args) -> None:
         print(f"  {sid}: {len(its)} items, {time.time() - t0:.0f}s", flush=True)
     np.savez_compressed(out / "windows.npz", Y=np.array(wins_Y), C=np.array(wins_C), S=np.array(wins_static))
     meta = {"version": VERSION, "build": BUILD, "states": args.states, "n_items": len(res),
+            "answers": args.answers == "on", "answer_log": dict(ANSWER_LOG),
             "extra": {f"{k[0]}:{k[1]}": [p for _, p in v] for k, v in EXTRA.items()},
             "markers": [{k: r[k] for k in ("file", "agent", "rest", "state", "disc", "assigned")} |
                         {"best": r["best"] and [round(r["best"][0], 3), f"{r['best'][1][0]}:{r['best'][1][1]}"],
@@ -563,7 +677,7 @@ def summarise(res) -> dict:
 
 def load_scores(out: Path, states: str = "probe"):
     d = json.load(open(out / "items.json", encoding="utf-8"))
-    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES)
+    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES, answers=d["meta"].get("answers", False))
     z = np.load(out / "windows.npz")
     return d, z
 
@@ -1136,7 +1250,7 @@ def cmd_separate(args) -> None:
 
 # ------------------------------------------------------------------ follow in time, gated by the stored portraits
 
-FOLLOW_VERSION = "minimap-glyph-follow-0.1.0"
+FOLLOW_VERSION = "minimap-glyph-follow-0.2.0"
 FOLLOW_MS = 3000.0     # how far after the label the object is followed
 N_CLEAN = 8            # the decision stops after this many unoccluded frames
 OCC_R = 17.0           # a portrait centre within this (px x scale) touches the r = 8.5 scoring disc (portrait r ~8.5)
@@ -1329,7 +1443,7 @@ def follow_row(x: dict, got: dict, k: int = 4, R: int = 16, n_used: int = 6, n_s
 def cmd_follow(args) -> None:
     out = Path(args.out)
     d = json.load(open(out / "items.json", encoding="utf-8"))
-    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES)
+    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES, answers=d["meta"].get("answers", False))
     only = set(args.only.split(",")) if args.only else None
     P = [r for r in positives(d["items"]) if only is None or r["sid"] in only]
     by = defaultdict(list)
@@ -1379,7 +1493,8 @@ def cmd_follow(args) -> None:
         if rows:
             Wm = max(im.shape[1] for im in rows)
             cv2.imwrite(str(out / name), np.vstack([_pad(im, im.shape[0], Wm) for im in rows]))
-    summ = {"version": FOLLOW_VERSION, "base": VERSION, "build": BUILD,
+    summ = {"version": FOLLOW_VERSION, "base": d["meta"]["version"], "build": BUILD,
+            "answers": d["meta"].get("answers", False),
             "params": {"FOLLOW_MS": FOLLOW_MS, "N_CLEAN": N_CLEAN, "OCC_R": OCC_R, "SAME_R": SAME_R,
                        "REACH": REACH, "ICON_SCORE": ICON_SCORE, "MAP_CORR": MAP_CORR, "proposer": "reticle.ability_icons.propose_icons"},
             "inputs": {"crops": "roi_cache minimap", "portraits": "events/team_vision frame icons (stored)"},
@@ -1393,6 +1508,241 @@ def cmd_follow(args) -> None:
                        "no_clean_frame": sum(r["decided_by"] != "follow" for r in S)}
     json.dump({"meta": summ, "items": res}, open(out / "follow.json", "w"), indent=1, default=float)
     print(json.dumps(summ, indent=1))
+
+
+# ------------------------------------------------------------------ the held-out labelling pass, scored once
+
+HELDOUT_VERSION = "minimap-glyph-heldout-score-0.1.0"
+HELDOUT_OUT = STORE / "analysis" / "minimap-heldout-score-20261004"
+SNAP_R = 8.0           # cmd_score's snap reach (px x scale); detection counts a disc this near a mark as found
+ICON_MARKS = ("named", "unsure", "smoke", "other_agent")   # marks that claim an ability icon at the point
+
+
+def mark_class(m: dict) -> str:
+    """named (a kit key agent:slot), smoke, other_agent, other (typed), or unsure (an icon, ability unsure)."""
+    a = m.get("ability")
+    if a is None:
+        return "unsure"
+    if ":" in a:
+        return "named"
+    return a
+
+
+def heldout_subsets(row: dict) -> list[str]:
+    """The subsets fixed in the queue: the headline (after_cast or control, neither dev nor near a tuned label);
+    dev_session and near_tuned_label apart (they may overlap); audit-only frames apart."""
+    out = []
+    if row["kind"] == "audit_excluded":
+        out.append("audit_only")
+    elif not row["dev_session"] and not row["near_tuned_label"]:
+        out.append("headline")
+    if row["dev_session"]:
+        out.append("dev_session")
+    if row["near_tuned_label"]:
+        out.append("near_tuned_label")
+    return out
+
+
+def naming_summary(marks: list[dict], subset: str) -> dict:
+    """right / wrong / refused for the follow verdict (the matcher's final) and the single-frame verdict."""
+    M = [m for m in marks if m["class"] == "named" and subset in m["subsets"]]
+    out = {"n": len(M), "truth_outside_kit": sum(not m["truth_in_kit"] for m in M)}
+    for tag in ("follow", "base"):
+        right = sum(m.get(f"{tag}_pred") == m["truth"] for m in M)
+        refused = sum(m.get(f"{tag}_pred") is None for m in M)
+        out[tag] = {"right": right, "wrong": len(M) - right - refused, "refused": refused,
+                    "accuracy": round(right / len(M), 4) if M else None}
+    per_agent, per_ability = defaultdict(lambda: [0, 0]), defaultdict(lambda: [0, 0])
+    for m in M:
+        for d, k in ((per_agent, m["agent"]), (per_ability, f"{m['truth']} {m['truth_name']}")):
+            d[k][1] += 1
+            d[k][0] += m.get("follow_pred") == m["truth"]
+    out["per_agent"] = {k: f"{a}/{n}" for k, (a, n) in sorted(per_agent.items())}
+    out["per_ability"] = {k: f"{a}/{n}" for k, (a, n) in sorted(per_ability.items())}
+    out["confusions"] = {f"{t} -> {p}": n for (t, p), n in Counter(
+        (m["truth"], m.get("follow_pred")) for m in M if m.get("follow_pred") != m["truth"]).most_common()}
+    return out
+
+
+def detection_summary(frames_: list[dict], subset: str | None = None, kind=None, nothing=None) -> dict:
+    """Sure icon marks found by a proposer disc within SNAP_R x scale, and discs no mark explains, raw and after
+    the follow's gates (static map, ICON_SCORE) and its stored-portrait gate. A disc near an `other` mark is
+    neither found nor false."""
+    F = [f for f in frames_ if (subset is None or subset in f["subsets"]) and (kind is None or f["kind"] == kind)
+         and (nothing is None or f["nothing"] == nothing)]
+    out = {"frames": len(F), "icon_marks": sum(f["n_icon_marks"] for f in F)}
+    for g in ("raw", "gated", "gated_uncovered"):
+        out[f"found_{g}"] = sum(f[f"found_{g}"] for f in F)
+        out[f"false_{g}"] = sum(f[f"false_{g}"] for f in F)
+        out[f"false_{g}_per_frame"] = round(out[f"false_{g}"] / len(F), 3) if F else None
+    return out
+
+
+def audit_exclusions(q: dict, rows: dict) -> list[dict]:
+    """Per excluded ability: the earlier answer that excluded it, its audit frame's marks, and every sure mark in
+    the pass naming it (a self-view mark contradicts the exclusion; a spectator-view one is listed apart)."""
+    groups = defaultdict(list)
+    for e in q["excluded_casts"]:
+        groups[(e["agent"], e["slot"], e["ability"], e["why"])].append(e["key"])
+    out = []
+    for (agent, slot, name, why), casts in sorted(groups.items()):
+        key = f"{agent}:{slot}"
+        audit = [it["key"] for it in q["items"] for o in it["opportunity"]
+                 if o["role"] == "audit_excluded" and it["agent"] == agent and o["slot"] == slot]
+        audit_marks = []
+        for k in audit:
+            r = rows.get(k)
+            audit_marks.append({"item": k, "answered": r is not None, "nothing": r and r["nothing"],
+                                "item_unsure": r and r["unsure"],
+                                "marks": [] if r is None else [{"class": mark_class(m), "ability": m.get("ability"),
+                                                                "other": m.get("other"), "view": m["view"],
+                                                                "x": round(m["x"], 1), "y": round(m["y"], 1)}
+                                                               for m in r["marks"]]})
+        named = [{"item": r["key"], "kind": r["kind"], "view": m["view"], "x": round(m["x"], 1), "y": round(m["y"], 1)}
+                 for r in rows.values() if not r["unsure"] for m in r["marks"] if m.get("ability") == key]
+        out.append({"ability": key, "name": name, "excluded_by": why, "excluded_casts": len(casts),
+                    "audit_items": audit_marks, "marked_self": [n for n in named if n["view"] == "self"],
+                    "marked_other_view": [n for n in named if n["view"] != "self"],
+                    "contradicts": any(n["view"] == "self" for n in named)})
+    return out
+
+
+def cmd_heldout(args) -> None:
+    """Score the matcher, frozen at VERSION / FOLLOW_VERSION with the default states and answers, once on the
+    held-out minimap labelling pass (prototypes/label_minimap_glyph_heldout.py; last row per item wins)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import label_minimap_glyph_heldout as lab
+    from reticle import ability_icons, geometry
+    out = HELDOUT_OUT if args.out == str(OUT) else Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    build_extra(PROBE_STATES, answers=True)
+    q = lab.load_queue()
+    rows = lab.answered()
+    n_rows = sum(len(lab.read_jsonl(f)) for f in glob.glob(str(lab.LABEL_DIR / "*.jsonl")))
+    by = defaultdict(list)
+    for it in q["items"]:
+        if it["key"] in rows:
+            by[it["session_id"]].append(rows[it["key"]])
+    t0 = time.time()
+    marks_out, frames_out, unsure_items = [], [], []
+    for sid, its in sorted(by.items()):
+        c, why, _ = crop_cache(sid)
+        if c is None:
+            for r in its:
+                frames_out.append({"item": r["key"], "refused": why})
+            continue
+        cr = c.rect_of("minimap")
+        h = np.asarray(c.holds(), dtype=float)
+        held = {r["key"]: float(h[np.argmin(np.abs(h - r["t_ms"]))]) for r in its}
+        plan = {r["key"]: [float(t) for t in h[(h >= held[r["key"]]) & (h <= held[r["key"]] + FOLLOW_MS)]]
+                for r in its}
+        need = sorted({t for v in plan.values() for t in v} | set(held.values()))
+        got = {s.t_ms: s.frame[cr[1]:cr[3], cr[0]:cr[2]].copy() for s in c.samples(need, rois=["minimap"])}
+        vis = vision_rows(sid, need)
+        try:
+            st = geometry.reference_static(sid, str(STORE))
+            static_Y = luma(st if st.ndim == 3 else cv2.cvtColor(st, cv2.COLOR_GRAY2BGR))
+        except (SystemExit, Exception):  # noqa: BLE001
+            static_Y = None
+        for r in its:
+            if r["unsure"]:
+                unsure_items.append(r["key"])
+                continue
+            th = held[r["key"]]
+            subsets = heldout_subsets(r)
+            fr = {"item": r["key"], "sid": sid, "kind": r["kind"], "subsets": subsets, "nothing": r["nothing"],
+                  "t_held": th}
+            if th not in got or abs(th - r["t_ms"]) > 70:
+                fr["refused"] = "no_frame" if th not in got else f"nearest_frame_{th - r['t_ms']:.0f}ms"
+                frames_out.append(fr)
+                for i, m in enumerate(r["marks"]):
+                    marks_out.append({"item": r["key"], "i": i, "class": mark_class(m), "refused": fr["refused"],
+                                      "subsets": subsets})
+                continue
+            crop = got[th]
+            scale = crop.shape[1] / 465.0
+            Y = luma(crop)
+            agent = r["agent"]
+            keys = sorted(kit(agent))
+            kit_keys = tuple(keys)
+            terms = icon_terms(sid, crop.shape)
+            sY = static_Y if static_Y is not None and static_Y.shape == crop.shape[:2] else None
+            icons = vis.get(round(th, 3), (None, []))[1] or []
+            props = []
+            for p in (ability_icons.propose_icons(crop, terms) if terms is not None else []):
+                pp = (float(p["cx"]), float(p["cy"]))
+                s = frame_scores(Y, pp, scale, kit_keys) if keys else None
+                gated = not (sY is not None and map_like(Y, sY, pp, scale)) and s is not None and s.max() >= ICON_SCORE
+                props.append({"cx": pp[0], "cy": pp[1], "r": float(p["r"]), "gated": bool(gated),
+                              "covered": portrait_cover(pp, icons, scale)})
+            pts = []
+            for i, m in enumerate(r["marks"]):
+                x = m["x"] + (r["roi"] or cr)[0] - cr[0]
+                y = m["y"] + (r["roi"] or cr)[1] - cr[1]
+                cls = mark_class(m)
+                pts.append((x, y, cls))
+                o = {"item": r["key"], "i": i, "sid": sid, "t_ms": r["t_ms"], "t_held": th, "kind": r["kind"],
+                     "subsets": subsets, "agent": agent, "class": cls, "ability": m.get("ability"),
+                     "other": m.get("other"), "view": m["view"], "x": round(x, 2), "y": round(y, 2),
+                     "scale": scale}
+                near = [p for p in props if np.hypot(p["cx"] - x, p["cy"] - y) <= SNAP_R * scale]
+                snap = min(near, key=lambda p: np.hypot(p["cx"] - x, p["cy"] - y)) if near else None
+                if cls == "named":
+                    truth = tuple(m["ability"].rsplit(":", 1))
+                    o.update({"truth": m["ability"], "truth_name": m.get("ability_name"),
+                              "truth_in_kit": truth in keys, "kit": [f"{k[0]}:{k[1]}" for k in keys]})
+                    cx, cy = (snap["cx"], snap["cy"]) if snap else (x, y)
+                    o.update({"cx": cx, "cy": cy, "snapped": snap is not None})
+                    cl = classify(Y, cx, cy, keys, scale, rotate=True) if keys else None
+                    o["base_pred"] = cl and f"{cl['pred'][0]}:{cl['pred'][1]}"
+                    o["base_score"], o["base_margin"] = (cl["score"], cl["margin"]) if cl else (None, None)
+                    rr = {"kit": o["kit"], "scale": scale, "cx": cx, "cy": cy, "t_held": th, "rot_pred": o["base_pred"]}
+                    f = follow_item(rr, [(t, got[t]) for t in plan[r["key"]] if t in got], vis, terms, sY)
+                    o.update({"follow_pred": f["pred"], "decided_by": f["decided_by"], "n_clean": f["n_clean"],
+                              "follow_mean": f.get("mean"), "follow_margin": f.get("margin"),
+                              "n_following_cached": len(plan[r["key"]])})
+                marks_out.append(o)
+            icon_pts = [(x, y) for x, y, cls in pts if cls in ICON_MARKS]
+            all_pts = [(x, y) for x, y, _ in pts]
+            fr["n_icon_marks"] = len(icon_pts)
+            fr["proposals"] = props
+            for g, sel in (("raw", lambda p: True), ("gated", lambda p: p["gated"]),
+                           ("gated_uncovered", lambda p: p["gated"] and p["covered"] is None)):
+                P = [p for p in props if sel(p)]
+                fr[f"found_{g}"] = sum(any(np.hypot(p["cx"] - x, p["cy"] - y) <= SNAP_R * scale for p in P)
+                                       for x, y in icon_pts)
+                fr[f"false_{g}"] = sum(all(np.hypot(p["cx"] - x, p["cy"] - y) > SNAP_R * scale for x, y in all_pts)
+                                       for p in P)
+            frames_out.append(fr)
+        print(f"  {sid}: {len(its)} items, {time.time() - t0:.0f}s", flush=True)
+    F = [f for f in frames_out if not f.get("refused")]
+    summ = {"version": HELDOUT_VERSION, "matcher": VERSION, "follow": FOLLOW_VERSION, "build": BUILD,
+            "states": "probe", "answers": True, "queue": q["version"], "label_rows": n_rows, "items_answered": len(rows),
+            "rule": "last row per item wins; headline = kind after_cast or control, not dev_session, not "
+                    "near_tuned_label; the matcher's verdict is follow (base = the labelled frame alone)",
+            "candidates": "the session agent's kit (GLYPHS keys); the matcher has no other-agent path",
+            "params": {"CANVAS": [float(CANVAS[0]), float(CANVAS[-1])], "MASK_R": MASK_R, "SHIFT": SHIFT,
+                       "ROT_STEP": ROTS[1], "SNAP_R": SNAP_R, "FOLLOW_MS": FOLLOW_MS, "N_CLEAN": N_CLEAN, "OCC_R": OCC_R,
+                       "SAME_R": SAME_R, "REACH": REACH, "ICON_SCORE": ICON_SCORE, "MAP_CORR": MAP_CORR},
+            "answer_log": dict(ANSWER_LOG), "extra": {f"{k[0]}:{k[1]}": [p for _, p in v] for k, v in EXTRA.items()},
+            "unsure_items": unsure_items, "refused_frames": [f for f in frames_out if f.get("refused")],
+            "wall_s": round(time.time() - t0, 1)}
+    summ["naming"] = {s: naming_summary(marks_out, s) for s in ("headline", "dev_session", "near_tuned_label",
+                                                                 "audit_only")}
+    summ["detection"] = {"headline": detection_summary(F, "headline"),
+                         "headline_control": detection_summary(F, "headline", kind="control"),
+                         "headline_nothing": detection_summary(F, "headline", nothing=True),
+                         "all_control": detection_summary(F, kind="control"),
+                         "all_nothing": detection_summary(F, nothing=True), "all": detection_summary(F)}
+    summ["not_scored"] = {c: [{k: m.get(k) for k in ("item", "i", "kind", "subsets", "view", "x", "y", "other")}
+                              for m in marks_out if m["class"] == c] for c in ("unsure", "smoke", "other_agent", "other")}
+    summ["audit"] = audit_exclusions(q, rows)
+    json.dump({"meta": summ, "marks": marks_out, "frames": frames_out}, open(out / "heldout.json", "w"),
+              indent=1, default=float)
+    show = {k: summ[k] for k in ("naming", "detection")}
+    show["not_scored"] = {c: len(v) for c, v in summ["not_scored"].items()}
+    show["audit_contradictions"] = [a["ability"] for a in summ["audit"] if a["contradicts"]]
+    print(json.dumps(show, indent=1))
 
 
 # ------------------------------------------------------------------ texture inventory
@@ -1564,13 +1914,15 @@ def cmd_inventory(args) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("cmd", choices=["score", "misses", "examples", "separate", "inventory", "follow"])
+    ap.add_argument("cmd", choices=["score", "misses", "examples", "separate", "inventory", "follow", "heldout"])
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--states", default="probe", choices=["probe", "all"])
+    ap.add_argument("--answers", default="on", choices=["on", "off"],
+                    help="score: use the player's texture answers as references (follow reads the choice from items.json)")
     ap.add_argument("--only", default=None, help="follow: comma-separated session ids (a small sample)")
     args = ap.parse_args()
     {"score": cmd_score, "misses": cmd_misses, "examples": cmd_examples, "separate": cmd_separate,
-     "inventory": cmd_inventory, "follow": cmd_follow}[args.cmd](args)
+     "inventory": cmd_inventory, "follow": cmd_follow, "heldout": cmd_heldout}[args.cmd](args)
 
 
 if __name__ == "__main__":
