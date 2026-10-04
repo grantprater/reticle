@@ -5,9 +5,10 @@ the game, the Riot client or the tools below.
 
 **Nothing is shown on screen during a match.** Reticle draws no overlay,
 opens no window over the game and shows no conclusion while you play. In this
-session the load harness only computes: it writes a log file to the session
-folder and prints that log to its own PowerShell window behind the game. You
-read the results after the session, with the game closed.
+session the load harness only computes: it runs hidden, with no window, and
+writes its log to the session folder as `NN_ARM.load.json`, with its printed
+output in `NN_ARM.load.txt` and its errors in `NN_ARM.load.err.txt`. You read
+the results after the session, with the game closed.
 
 ## The question, and the number that answers it
 
@@ -17,7 +18,7 @@ during a match, so the case to measure is silent computation beside the game
 (`docs/WIN_PROBABILITY_RESEARCH.md` section 2, branch
 `winprob-research-20261004`). This protocol runs reticle on the gaming PC
 itself; that placement is the kit's choice, not something the player said.
-One session of about 30 minutes measures the game's frame times under five
+One session of about 35 minutes measures the game's frame times under five
 arms and picks the highest reticle load that fits the budget.
 
 **Decided before the session** (`prototypes/frametime_results.py` applies it):
@@ -34,7 +35,9 @@ arms and picks the highest reticle load that fits the budget.
   seconds, a ratio over the whole run) at least 0.98, and the 95th
   percentile of call lateness (`lag_s.p95`) at most 1 s, since a run can keep
   the whole-run ratio while falling seconds behind in stretches. A level with
-  a missing load log fails: nothing shows its load ran.
+  a missing load log fails: nothing shows its load ran. So does a log whose
+  `ready_s` (harness launch to its first call) exceeds 25 s, since PresentMon
+  starts recording 30 s after the launch; the reason names the row to rerun.
 - **Noise:** the two `base` repeats' median FPS may differ by at most 5%;
   above that the session is undecided, names no level, and repeats. A cost
   below that drift reads as within noise.
@@ -64,8 +67,9 @@ It replays session `043bafca271a` (capture
 replay window mixes round time with a gap between rounds: the minimap crop
 cache covers only round time, so the minimap readers idle in the gap while
 the HUD readers keep running. A recording's load is therefore lighter on
-average than the load inside a round; the 1% low FPS, set by the slowest
-frames, is the figure closer to the in-round cost.
+average than the load inside a round. Which FPS figure, median or 1% low,
+tracks the in-round load is untested: the slowest frames may come as well
+from the round-end audio call or from OBS.
 
 A live pass would also copy the screen; the harness reads its crops from disk
 instead, and the OBS arm carries the capture-and-encode path. The harness's
@@ -74,6 +78,11 @@ own CPU figures on 2026-10-04, taken on a busy machine, are in the store under
 that includes a gap between rounds. They show `full` needs more than one core,
 so on its one thread it falls behind and fails the pace rule by construction;
 its arm still measures what one saturated Below Normal core costs the game.
+The protocol runs each load with `--seconds 160 --max-wall 170`: a harness
+that keeps pace ends after its 160 stored seconds, and one that falls behind
+stops 170 s after its first call instead of running minutes past the
+recording; its log then says `stopped_early` and counts only the stored
+seconds it reached.
 
 ## Install (once, before the session)
 
@@ -87,9 +96,16 @@ its arm still measures what one saturated Below Normal core costs the game.
 
    This makes a separate folder, `C:\Users\grant\reticle-frametime`, and
    leaves the main checkout's branch alone. The commands below run the kit
-   from that folder with the main checkout's Python. If the branch has merged
-   into `master` and the main checkout is on `master`, use
-   `C:\Users\grant\reticle` as the kit folder instead.
+   from that folder with the main checkout's Python. If the folder already
+   exists from an earlier try, update it instead of adding it:
+
+   ```powershell
+   git -C C:\Users\grant\reticle fetch origin frametime-kit-20261004
+   git -C C:\Users\grant\reticle-frametime checkout --detach origin/frametime-kit-20261004
+   ```
+
+   If the branch has merged into `master` and the main checkout is on
+   `master`, use `C:\Users\grant\reticle` as the kit folder instead.
 2. **PresentMon 2.3.1**, Intel's open-source frame-time logger (it reads
    Windows' ETW present events; it injects nothing into the game). Download the
    console build `PresentMon-2.3.1-x64.exe` from the official releases page,
@@ -130,7 +146,7 @@ its arm still measures what one saturated Below Normal core costs the game.
 - **Warm up:** play 5 minutes before the first arm so shaders are compiled.
 - **OBS arms** use your normal recording settings; record to the usual disk.
 
-## The session (about 30 minutes)
+## The session (about 35 minutes)
 
 Each arm takes 150 s: PresentMon waits 30 s for the arm to settle, then records
 120 s. Each arm runs twice, mirrored, so warming drifts both ways equally:
@@ -161,29 +177,35 @@ Each arm takes 150 s: PresentMon waits 30 s for the arm to settle, then records
    function Arm([string]$nn, [string]$arm, [string]$level) {
      $h = $null
      if ($level) {
-       $h = Start-Process $py -PassThru -WindowStyle Minimized -RedirectStandardOutput "$dir\${nn}_$arm.load.txt" -ArgumentList "$kit\prototypes\live_load.py 043bafca271a --level $level --seconds 160 --out $dir\${nn}_$arm.load.json"
+       $h = Start-Process $py -PassThru -WindowStyle Hidden -RedirectStandardOutput "$dir\${nn}_$arm.load.txt" -RedirectStandardError "$dir\${nn}_$arm.load.err.txt" -ArgumentList "$kit\prototypes\live_load.py 043bafca271a --level $level --seconds 160 --max-wall 170 --out $dir\${nn}_$arm.load.json"
      }
      & $pm --process_name VALORANT-Win64-Shipping.exe --output_file "$dir\${nn}_$arm.csv" --delay 30 --timed 120 --terminate_after_timed --v1_metrics
-     if ($h) { $h.WaitForExit() }
+     if ($h -and -not $h.WaitForExit(90000)) { $h.Kill(); "row ${nn}: the load overran the recording by 90 s and was stopped" }
+     if ($h -and -not (Test-Path "$dir\${nn}_$arm.load.json")) { "row ${nn}: the load wrote no log; see ${nn}_$arm.load.err.txt, then rerun the row" }
      "row $nn done"
    }
    ```
 
-   The harness, when a row has one, runs minimized and at Below Normal
-   priority (it lowers itself); running it from an administrator window gives
-   it no extra rights it uses.
+   The harness, when a row has one, runs hidden and at Below Normal priority
+   (it lowers itself); running it from an administrator window gives it no
+   extra rights it uses.
 3. **Check once (10 s):** run
 
    ```powershell
    & $pm --process_name VALORANT-Win64-Shipping.exe --output_file "$dir\00_check.csv" --timed 10 --terminate_after_timed --v1_metrics
+   & $py "$kit\prototypes\frametime_results.py" --check "$dir\00_check.csv"
    ```
 
-   and confirm `00_check.csv` has rows. If it is empty, use FrameView. Leave
-   the file where it is; the results reader skips it.
+   The second line prints how many VALORANT frames the file holds and which
+   frame-time column it read. If it says `no game frames`, use FrameView; if
+   it says `no frame-time column`, PresentMon wrote columns this kit does not
+   know: stop and send the line it printed. Leave the file where it is; the
+   results reader skips it.
 4. **For each row of the table, in order:** set OBS recording as the row
    says, then run the row's line and return to the game at once. Hold still
-   until the window prints `row NN done` (about 160 s plus the harness's
-   setup when it has a load).
+   until the window prints `row NN done` (about 150 s for a row with no load,
+   about 3 minutes for a row with one). If it also prints `wrote no log`,
+   rerun that row with the same line before going on.
 
    ```powershell
    Arm 01 base
@@ -198,19 +220,23 @@ Each arm takes 150 s: PresentMon waits 30 s for the arm to settle, then records
    Arm 10 base
    ```
 
-   The harness's setup must finish inside PresentMon's 30 s delay: if a load
-   log's `setup_s` exceeds 25, rerun that row with the same line.
+   The harness must start inside PresentMon's 30 s delay. The results reader
+   fails a level whose log's `ready_s` exceeds 25 s and names the file; rerun
+   that row with the same line (it overwrites the row's files), then read the
+   results again.
 5. Write `notes.txt` in the folder: the map, the spot, the in-game
    resolution, the OBS output settings, anything that ran that you could not
    stop, anything that happened mid-arm (a stutter, a notification).
 
 Optional, beside each arm and not part of the decision: GPU load with
 `nvidia-smi --query-gpu=timestamp,utilization.gpu,clocks.gr,temperature.gpu --format=csv -l 1 -f C:\Users\grant\frametime\20261005\NN_ARM.gpu.csv`
-in a second window (installed with the NVIDIA driver; stop it with Ctrl+C).
+in a second window, with the day's folder and the row's `NN_ARM` in the file
+name (installed with the NVIDIA driver; stop it with Ctrl+C).
 
 ## Read the results
 
-After the session, with the game closed, in the same window:
+After the session, with the game closed, in the same window (if you closed
+it, open PowerShell and paste the four `$` lines of step 2 again first):
 
 ```powershell
 & $py "$kit\prototypes\frametime_results.py" $dir --json "$dir\decision.json"

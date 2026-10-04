@@ -4,6 +4,7 @@ harness's schedule (`prototypes/live_load.py`)."""
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -132,6 +133,34 @@ class ProtocolFolderTest(unittest.TestCase):
             dec = fr.decide(fr.collect_arms(Path(d)))
             self.assertFalse(dec["rows"]["medium"]["passes"])
             self.assertIn("late", dec["rows"]["medium"]["why"])
+
+    def test_a_late_start_fails_the_level_and_names_its_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._session(Path(d), load={"light": {"ready_s": 31.0}})
+            dec = fr.decide(fr.collect_arms(Path(d)))
+            self.assertFalse(dec["rows"]["light"]["passes"])
+            self.assertIn("started late in 03_light.csv", dec["rows"]["light"]["why"])
+            self.assertEqual(dec["chosen"], "medium")
+
+    def test_check_reads_the_ten_second_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._session(Path(d))
+            self.assertEqual(fr.main(["--check", str(Path(d) / "00_check.csv")]), 0)
+            empty = Path(d) / "empty.csv"
+            _csv(empty, [], extra_app=True)
+            self.assertEqual(fr.check(empty), 1)
+
+    def test_the_protocols_arm_line_matches_the_rules(self):
+        doc = (Path(__file__).resolve().parents[1] / "docs" / "FRAMETIME_PROTOCOL.md").read_text(
+            encoding="utf-8")
+        line = next(x for x in doc.splitlines() if "live_load.py 043bafca271a" in x)
+        seconds = float(re.search(r"--seconds (\d+)", line).group(1))
+        max_wall = float(re.search(r"--max-wall (\d+)", line).group(1))
+        delay, timed = (float(x) for x in re.search(r"--delay (\d+) --timed (\d+)", doc).groups())
+        self.assertGreater(max_wall, seconds)          # a harness at pace is never cut short
+        self.assertGreaterEqual(seconds, delay + timed)  # the load spans the recording
+        self.assertLess(fr.READY_MAX, delay)
+        self.assertIn("-RedirectStandardError", line)
 
     def test_an_undecided_session_names_no_level(self):
         with tempfile.TemporaryDirectory() as d:

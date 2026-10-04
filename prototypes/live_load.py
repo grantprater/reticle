@@ -3,6 +3,7 @@ r"""Replay a stored session's crop cache through the live readers at real-time p
     .\.venv\Scripts\python.exe prototypes\live_load.py SESSION --level light
         [--seconds 150] [--start auto|SECONDS] [--priority below_normal|idle]
         [--threads 1] [--pace realtime|max] [--rate ally_icon=4] [--out FILE.json]
+        [--max-wall SECONDS]
 
 Why this exists, 2026-10-04
 ---------------------------
@@ -60,6 +61,14 @@ What it measures, and what it does not
   seconds; below 1 the harness fell behind (it runs on one thread, serially).
 * `system_busy`: the share of all logical CPUs busy during the run
   (`GetSystemTimes`), so a contended run says so.
+* `ready_s`: seconds from this process's creation (`GetProcessTimes`) to the
+  first scheduled call, imports and cache loading included. The frame-time
+  protocol starts PresentMon's 30 s delay as it launches the harness, so a
+  load whose `ready_s` exceeds that delay missed the start of the recording.
+* `--max-wall S` ends the replay S wall seconds after the first call, where
+  it stands; `stopped_early` says so, and `pace` and `demand_cores` count only
+  the stored seconds reached. A harness that falls behind then stops when the
+  recording does instead of running minutes past it.
 * The audio witness reads the whole session's stored features on each call;
   its cost per round end is an upper bound on a live per-round witness, and
   the live log-mel extraction it would need is not measured.
@@ -113,6 +122,8 @@ def _args(argv=None):
     p.add_argument("--no-audio", action="store_true", help="skip the round-end audio witness")
     p.add_argument("--out", default=None, help="write the result JSON here (never the store)")
     p.add_argument("--store", default=str(STORE))
+    p.add_argument("--max-wall", type=float, default=None,
+                   help="stop the replay this many wall seconds after its first call")
     return p.parse_args(argv)
 
 
@@ -127,6 +138,7 @@ if _k32 is not None:
     _k32.SetPriorityClass.argtypes = (wintypes.HANDLE, wintypes.DWORD)
     _k32.GetPriorityClass.argtypes = (wintypes.HANDLE,)
     _k32.GetPriorityClass.restype = wintypes.DWORD
+    _k32.GetProcessTimes.argtypes = (wintypes.HANDLE,) + (ctypes.POINTER(wintypes.FILETIME),) * 4
 
 
 def set_priority(name: str) -> None:
@@ -134,6 +146,18 @@ def set_priority(name: str) -> None:
     if _k32 is not None:
         if not _k32.SetPriorityClass(_k32.GetCurrentProcess(), PRIORITY[name]):
             raise SystemExit(f"could not set priority {name}")
+
+
+def process_age_s() -> float | None:
+    """Seconds since Windows created this process, interpreter start included."""
+    if _k32 is None:
+        return None
+    c, e, k, u = (wintypes.FILETIME() for _ in range(4))
+    if not _k32.GetProcessTimes(_k32.GetCurrentProcess(), ctypes.byref(c), ctypes.byref(e),
+                                ctypes.byref(k), ctypes.byref(u)):
+        return None
+    created = ((c.dwHighDateTime << 32) | c.dwLowDateTime) / 1e7 - 11644473600.0
+    return time.time() - created
 
 
 def priority_class() -> str | None:
@@ -343,9 +367,14 @@ def replay(args) -> dict:
     names = list(readers) + (["audio"] if audio is not None else [])
     cost = {n: {"calls": 0, "cpu_s": 0.0, "wall_s": 0.0} for n in names + ["source"]}
     lags, missing = [], 0
+    ready_s = process_age_s()
     sys0, cpu0 = system_times(), time.process_time()
     wall0 = time.perf_counter()
+    reached, stopped = b, False
     for t, src, who in events:
+        if args.max_wall is not None and time.perf_counter() - wall0 > args.max_wall:
+            reached, stopped = t, True
+            break
         due = wall0 + (t - a) / 1000.0
         if args.pace == "realtime":
             now = time.perf_counter()
@@ -384,7 +413,7 @@ def replay(args) -> dict:
     wall = time.perf_counter() - wall0
     cpu = time.process_time() - cpu0
     sys1 = system_times()
-    replayed = (b - a) / 1000.0
+    replayed = max(1e-9, (reached - a) / 1000.0)
     busy = (None if sys0 is None else
             round((sys1[0] - sys0[0]) / max(1e-9, sys1[1] - sys0[1]), 3))
     lag = np.asarray(lags) if lags else np.zeros(1)
@@ -395,10 +424,13 @@ def replay(args) -> dict:
     return {
         "version": LIVE_LOAD_VERSION, "session_id": sid, "level": args.level, "rates": rates,
         "window_s": [round(a / 1000, 3), round(b / 1000, 3)], "pace_mode": args.pace,
+        "max_wall_s": args.max_wall, "stopped_early": stopped,
+        "replayed_s": round(replayed, 3),
         "priority": args.priority, "priority_read_back": priority_class(), "threads": int(args.threads),
         "gpu": getattr(xp, "__name__", str(xp)),
         "audio_agent": None if audio is None else [audio["agent"], audio["agent_status"]],
         "setup_s": round(setup_s, 1), "reader_setup_s": setup,
+        "ready_s": None if ready_s is None else round(ready_s, 1),
         "events": len(events), "missing_frames": missing,
         "wall_s": round(wall, 2), "cpu_s": round(cpu, 2),
         "demand_cores": round(cpu / replayed, 4),

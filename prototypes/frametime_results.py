@@ -1,6 +1,7 @@
 r"""Turn the frame-time session's PresentMon CSVs into the decision table.
 
     .\.venv\Scripts\python.exe prototypes\frametime_results.py DIR [--json OUT.json]
+    .\.venv\Scripts\python.exe prototypes\frametime_results.py --check FILE.csv
 
 Why this exists, 2026-10-04
 ---------------------------
@@ -24,8 +25,11 @@ before the session:
   its repeats has a load log showing the harness kept pace: `pace` (stored
   over wall seconds, a whole-run ratio) at least `PACE_MIN` and its
   95th-percentile call lateness `lag_s.p95` at most `LAG_P95_MAX` seconds. A
-  missing log fails the level: nothing shows its load ran. The chosen level
-  is the highest reticle level that passes.
+  missing log fails the level: nothing shows its load ran. So does a log
+  whose `ready_s` (harness launch to its first call) exceeds `READY_MAX`: the
+  load started too close to the end of PresentMon's 30 s delay. Each reason
+  names the file whose row to rerun. The chosen level is the highest reticle
+  level that passes.
 * Measuring against `base` charges OBS's cost to reticle. That reference is
   the kit's choice, not the player's; `chosen_vs_obs` applies the same rule
   against `obs` so both answers sit side by side.
@@ -34,7 +38,8 @@ before the session:
   undecided session names no level (`best_within_budget` keeps what the rule
   would have chosen, for the record only).
 * `00_check.csv`, the protocol's 10 s PresentMon check, is not an arm and is
-  skipped (`SKIP_ARMS`).
+  skipped (`SKIP_ARMS`). `--check FILE` reads that one file and says whether
+  it holds the game's frames and which frame-time column it found.
 
 Reads only the files named; writes only `--json`. No per-row Python: the CSVs
 are read by pyarrow and reduced with numpy.
@@ -62,6 +67,9 @@ PACE_MIN = 0.98
 #: ...and one whose calls ran this many seconds late at the 95th percentile fell
 #: behind in stretches even when its whole-run `pace` held.
 LAG_P95_MAX = 1.0
+#: ...and one whose first call came more than this many seconds after launch
+#: may have missed the start of PresentMon's recording (its delay is 30 s).
+READY_MAX = 25.0
 #: Files named like arms that are not arms: the protocol's 10 s check.
 SKIP_ARMS = ("check",)
 FT_COLUMNS = ("MsBetweenPresents", "FrameTime", "msBetweenPresents")
@@ -119,13 +127,20 @@ def kept_pace(a: dict) -> tuple[bool, str | None]:
     pace, and why not."""
     logs = a.get("loads") or []
     if len(logs) < len(a.get("repeats") or []) or any(x is None for x in logs):
-        return False, "no load log for every repeat"
-    for x in logs:
+        gone = [f["file"] for f, x in zip(a.get("files") or [], logs) if x is None]
+        return False, "no load log for every repeat" + (f" ({', '.join(gone)})" if gone else "")
+    files = [f["file"] for f in a.get("files") or []] or [None] * len(logs)
+    for f, x in zip(files, logs):
         pace, p95 = x.get("pace"), (x.get("lag_s") or {}).get("p95")
+        at = f" in {f}" if f else ""
         if pace is None or pace < PACE_MIN:
-            return False, f"harness fell behind (pace {pace})"
+            return False, f"harness fell behind{at} (pace {pace})"
         if p95 is None or p95 > LAG_P95_MAX:
-            return False, f"harness calls ran late (lag p95 {p95} s)"
+            return False, f"harness calls ran late{at} (lag p95 {p95} s)"
+        ready = x.get("ready_s")
+        if ready is not None and ready > READY_MAX:
+            return False, (f"harness started late{at} (ready {ready} s > {READY_MAX:g} s); "
+                           f"rerun that row")
     return True, None
 
 
@@ -203,7 +218,9 @@ def collect_arms(d: Path, game: str = GAME) -> dict:
         log = json.loads(load.read_text(encoding="utf-8")) if load.is_file() else None
         a["loads"].append(None if log is None else
                           {"pace": log.get("pace"),
-                           "lag_s": {"p95": (log.get("lag_s") or {}).get("p95")}})
+                           "lag_s": {"p95": (log.get("lag_s") or {}).get("p95")},
+                           "ready_s": log.get("ready_s"),
+                           "stopped_early": log.get("stopped_early")})
     if not arms:
         raise SystemExit(f"{d}: no arm files, only {', '.join(SKIP_ARMS)}")
     for a in arms.values():
@@ -241,12 +258,30 @@ def table(arms: dict, dec: dict) -> str:
     return "\n".join(lines)
 
 
+def check(path: Path, game: str = GAME) -> int:
+    """Print what one PresentMon CSV holds; 1 when it has none of the game's frames."""
+    ft, col, note = frame_times(path, game)
+    s = summary(ft)
+    print(f"{path.name}: {s['frames']} frames of {game} over {s['seconds']} s, "
+          f"column {col}, median FPS {s['fps_median']} ({note['rows']} rows, "
+          f"{note.get('other_apps', '-')} from other processes)")
+    if not s["frames"]:
+        print("no game frames: PresentMon did not see the game; use FrameView")
+        return 1
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("dir", help="the session folder of NN_ARM.csv files")
+    ap.add_argument("dir", nargs="?", help="the session folder of NN_ARM.csv files")
     ap.add_argument("--game", default=GAME, help=f"process name (default {GAME})")
     ap.add_argument("--json", default=None, help="also write the table as JSON here")
+    ap.add_argument("--check", default=None, help="read one PresentMon CSV and say what it holds")
     a = ap.parse_args(argv)
+    if a.check:
+        return check(Path(a.check), a.game)
+    if not a.dir:
+        ap.error("give the session folder, or --check FILE")
     arms = collect_arms(Path(a.dir), a.game)
     dec = decide(arms)
     print(table(arms, dec))
