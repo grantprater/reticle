@@ -426,10 +426,12 @@ def scale_check(heights, s: "KillfeedScale") -> dict:
             "agrees": bool(abs(ratio - 1.0) <= SCALE_CHECK_TOL), "reason": None}
 
 # Entry geometry in ROI pixels at 1080p. Measured off the row profile across a
-# full session: band heights pile up hard at 34, at a PITCH of 40, with the
-# topmost entry starting at FIRST_Y.
+# full session: band heights pile up hard at 34, with the topmost entry
+# starting at FIRST_Y. PITCH is the game's: a row 34 high and a spacer of 5
+# [domain:killfeed/entry-list-layout], 39 px, as the resting tops measure
+# [domain:killfeed/slot-pitch]; it was 40 before hud-0.20.0.
 ENTRY_H = 34
-PITCH = 40
+PITCH = 39
 FIRST_Y = 15
 MAX_SLOTS = 6
 # A row belongs to an entry when this share of it is plate-coloured.
@@ -1751,7 +1753,10 @@ PORTRAIT_ASPECT = 2.0
 # `art_cut_by_roi` instead of widening; rows store `art_visible`. The
 # per-candidate cover gate is gone. A cut entry's first placement seeds its
 # anchor (source `name_start`) until a confirmed one takes over.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.16.0"
+# 0.18.0 (2026-10-03): `PITCH` is 39, the game's row plus spacer, not 40, so
+# a tall plate run splits and a band takes its slot on the game's grid.
+# (0.17.0 belongs to one-colour-band-20261003.)
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.18.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -2835,7 +2840,9 @@ def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # portrait stamp.
 # 0.9.0 (2026-10-02): a ringed icon's divider is the whole ring; see the
 # portrait stamp.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.9.0"
+# 0.11.0 (2026-10-03): `PITCH` is 39; see the portrait stamp. (0.10.0 belongs
+# to one-colour-band-20261003.)
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.11.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -3293,7 +3300,9 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # portrait stamp.
 # 0.4.0 (2026-10-02): a ringed icon's divider is the whole ring; see the
 # portrait stamp.
-KILLFEED_NAME_VERSION = "killfeed-name-0.4.0"
+# 0.6.0 (2026-10-03): `PITCH` is 39; see the portrait stamp. (0.5.0 belongs to
+# one-colour-band-20261003.)
+KILLFEED_NAME_VERSION = "killfeed-name-0.6.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15
