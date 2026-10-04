@@ -73,7 +73,10 @@ from .killfeed_kits import kill_kits, open_questions
 # those no other name of the kit tier reaches NAME_KIT_MIN_IOU against
 # (`kit_null`), in place of the ABILITY_MAX_ASPECT cap it stood for; the kits
 # come normalised from killfeed-kits-0.4.0 (Killjoy's Turret).
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.4.0"
+# 1.5.0 (2026-10-04): Grenade bounce joins the game-mode icons on the
+# surprise path (SURPRISE_ONLY_ICONS): the build shows no standard-match
+# kill that draws it.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.5.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns in the
 #: reference-art path (`extract_icon_observation`, `estimate_weapon_class`);
@@ -634,8 +637,10 @@ def load_mined_gallery(path: Optional[Path | str] = None) -> Optional[dict]:
 #: one row per texture (GAME_KILL_ICON_SOURCES names the DamageTypes that
 #: draw it), less GAME_KILL_ICONS_EXCLUDED. The build's index lists 90
 #: DamageType packages under ShooterGame/ outside `Console/` (file names
-#: matched case-insensitively: Dmgtype_GoldenGun_SpikeRush has a lower-case
-#: t); the `damage-types` export holds each one's JSON, and 83 of them name a
+#: holding `dmgtype` or `damagetype`, matched case-insensitively: 89 hold
+#: `dmgtype`, Dmgtype_GoldenGun_SpikeRush with a lower-case t, and the 90th,
+#: Characters/Gumshoe/S0/Ability_4/DamageType_Gumshoe_4_Tripwire, only
+#: `damagetype`); the `damage-types` export holds each one's JSON, and 83 of them name a
 #: KillIcon, their own or their parent's, on 67 textures; the other seven
 #: (DmgType_Base, DmgType_Healing_Base, DmgType_Instant, the turtling penalty,
 #: Dodgeball's overtime, Phoenix's healing fire and Veto's utility destroyer)
@@ -733,9 +738,12 @@ GAME_KILL_ICONS: dict[str, tuple[str, str]] = {
 GAME_KILL_ICON_TEXTURES = {"Stinger": "UI/InGame/HUD/KillCallout/Assets/TX_Hud_Vector"}
 #: KillIcon textures no kill draws, kept out of the gallery, with the
 #: DamageTypes that name them and why (`whorefs` over the whole build,
-#: 2026-10-04: every package that imports or names the DamageType). A base
-#: class is named only by its subclasses, each with its own KillIcon, so its
-#: icon never reaches a killfeed. Provenance, not a candidate.
+#: 2026-10-04: every package that imports or names the DamageType, stored in
+#: <store>/analysis/weapon-gallery-fix-20261004/whorefs/). `whorefs` checks
+#: packages only, not what a package does with the class: no package but
+#: the base class's subclasses (and, for Phoenix's fire, a base buff whose
+#: concrete buffs name their own DamageTypes) imports or names it, so no
+#: package can deal it. Provenance, not a candidate.
 GAME_KILL_ICONS_EXCLUDED: dict[str, dict] = {
     "Explosion": {"texture": "minimap/ShooterGame/Content/UI/InGame/HUD/Minimap/"
                              "TX_Hud_Icons_Kill_S.png",
@@ -840,18 +848,35 @@ GAME_KILL_ICON_SOURCES: dict[str, tuple[str, ...]] = {
 #: Icons only a game mode draws, by the mode its DamageType's package names:
 #: `whorefs` finds each DamageType named only by packages under GameModes/
 #: (Projectile_GoldenGun_SpikeRush, Buff_PlagueOrb_Plague under Orbs/,
-#: Projectile_Snowball under SnowballFight/). A mode's icon belongs to that
-#: mode, and no owner reads a capture's game mode (`reticle ownership "game
-#: mode"` names none), so these are candidates only in the `full` tier, the
-#: surprise path (`restrict_gallery`): no agent or lineup allows them, and a
-#: capture of the mode still reaches them.
-GAME_MODE_ICONS = {"Golden Gun": "Spike Rush", "Plague orb": "Orbs",
+#: Projectile_Snowball under SnowballFight/). The plague orb is Spike Rush's:
+#: OrbSpawner_Random spawns PlagueOrb and is placed only in the maps'
+#: `*_Mode_SpikeRush`, `*_Mode_QuickSpike` and Ascent's `_Mode_SiteRush`
+#: levels, and QuickBombGameMode_UIData (Spike Rush is QuickBomb) names it
+#: (<store>/analysis/weapon-gallery-fix2-20261004/game-refs/whorefs7.tsv).
+#: A mode's icon belongs to that mode, and no owner reads a capture's game
+#: mode (`reticle ownership "game mode"` names none).
+GAME_MODE_ICONS = {"Golden Gun": "Spike Rush", "Plague orb": "Spike Rush",
                    "Snowball": "Snowball Fight"}
-#: Grenade bounce stays in every tier: its texture is drawn by
-#: DmgType_GrenadeBounceDamage, which GrenadeDestroyOnImpact deals for the
-#: grenade projectiles of many agents (Projectile_BaseGrenade imports it),
-#: and by DmgType_Incendiary, which Triad's lava (LavaDamageBuff) deals; no
-#: agent or lineup excludes either.
+#: Icons the build shows no standard-match kill drawing, with why: the
+#: game-mode icons and Grenade bounce. They are candidates only in the `full`
+#: tier, the surprise path (`restrict_gallery`): no agent or lineup allows
+#: them, and a capture that draws one still reaches them. Grenade bounce's
+#: texture (TX_Hud_Icons_Abilities_Clay1) is drawn by two DamageTypes.
+#: DmgType_GrenadeBounceDamage: GrenadeDestroyOnImpact's bytecode passes it to
+#: ApplyPointDamage only on an actor of its DestroyedObjectFilter
+#: (RespawningDestructible, BakedDestructible), never a player.
+#: DmgType_Incendiary: LavaDamageBuff's DamageType, applied by Triad_HotLava,
+#: which LavaRespawningDestructible spawns when destroyed; one such actor is
+#: placed in Triad_Inactive, a level Triad.umap streams in. Triad is Haven
+#: (Triad_PrimaryAsset: MapURL /Game/Maps/Triad/Triad, splash Loading_Haven,
+#: modes BombMode, BTMMode, FortCollins). That lava in a standard match is
+#: placement, not an observed kill; until a capture or the player shows it,
+#: it stays on the surprise path
+#: (<store>/analysis/weapon-gallery-fix2-20261004/game-refs/).
+SURPRISE_ONLY_ICONS: dict[str, str] = {
+    **{n: f"game mode: {m}" for n, m in GAME_MODE_ICONS.items()},
+    "Grenade bounce": "no standard-match kill shown: destructibles only; Haven's lava "
+                      "placed in Triad_Inactive, never observed"}
 #: Mined names no DamageType draws: revive and downed entries
 #: [domain:killfeed/revive-entries] [domain:killfeed/kayo-downed-entry]. The
 #: gallery keeps their player-named exemplars, flagged `mined` in its
@@ -919,7 +944,11 @@ def game_icon_exemplar(rgba: np.ndarray, height: float = GAME_ICON_HEIGHT, *,
     [metric:game_killicons/game_soft@weapon-gallery-0.7.0#n=721] labelled
     exemplars and the descriptor
     [metric:game_killicons/game@weapon-gallery-0.7.0#right=707]
-    (GAME_ICON_POLICY)."""
+    (GAME_ICON_POLICY). Scored softly as well, the stored soft whiteness of
+    each exemplar's own row by sum(min)/sum(max) against this alpha, it named
+    fewer labelled exemplars than the stored grids on the same rows and
+    misnamed many more left out (<store>/analysis/weapon-gallery-fix2-20261004/
+    softlf.json, 2026-10-04); the owner keeps the binarised grid."""
     from ..killfeed import PLATE_WHITE_CUT, KillfeedScale
     drawn = drawn_icon_alpha(rgba, height, phase)
     if drawn is None:
@@ -1005,7 +1034,7 @@ def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
                                      "(INTER_AREA to ICON_GRID)",
                           "icons": prov,
                           "excluded": {n: v["why"] for n, v in GAME_KILL_ICONS_EXCLUDED.items()},
-                          "surprise_only": dict(GAME_MODE_ICONS)}}
+                          "surprise_only": dict(SURPRISE_ONLY_ICONS)}}
     _GAME_CACHE[key] = (out, None)
     return out, None
 
@@ -1088,12 +1117,12 @@ def caster_claim(entity_id: str, name: Optional[str],
 
 def restrict_gallery(gallery: dict, agents) -> tuple[dict, list[str]]:
     """The gallery without ability exemplars no agent in `agents` can cast
-    and without the game-mode icons (GAME_MODE_ICONS), which no agent or
-    lineup context allows, and the names it dropped. Guns and the other
-    unattributed names stay."""
+    and without the icons the build shows no standard match drawing
+    (SURPRISE_ONLY_ICONS), which no agent or lineup context allows, and the
+    names it dropped. Guns and the other unattributed names stay."""
     agents = set(agents)
     drop = sorted({str(n) for n in gallery["names"]
-                   if str(n) in GAME_MODE_ICONS
+                   if str(n) in SURPRISE_ONLY_ICONS
                    or (ability_agent(str(n)) is not None and ability_agent(str(n)) not in agents)})
     keep = np.array([str(n) not in drop for n in gallery["names"]])
     return {k: (v[keep] if isinstance(v, np.ndarray) and len(v) == len(keep) else v)

@@ -120,16 +120,20 @@ class MappingTests(unittest.TestCase):
                             for v in GAME_KILL_ICONS_EXCLUDED.values()))
 
     def test_game_mode_icons_are_candidates_only_on_the_surprise_path(self):
-        """A game-mode icon leaves the kit and lineup tiers and stays in full."""
-        from reticle.adjudication.weapon import GAME_MODE_ICONS, candidate_tiers
-        names = ["Vandal", "Golden Gun", "Snowball", "Plague orb", "Aftershock"]
-        g = {"names": np.array(names), "masks": np.zeros((5, 16, 64)), "aspects": np.ones(5)}
-        self.assertEqual(set(GAME_MODE_ICONS) - set(GAME_KILL_ICONS), set())
+        """A game-mode icon, and Grenade bounce (weapon-adjudication-1.5.0),
+        leave the kit and lineup tiers and stay in full."""
+        from reticle.adjudication.weapon import (GAME_MODE_ICONS, SURPRISE_ONLY_ICONS,
+                                                 candidate_tiers)
+        names = ["Vandal", "Golden Gun", "Snowball", "Plague orb", "Grenade bounce", "Aftershock"]
+        g = {"names": np.array(names), "masks": np.zeros((6, 16, 64)), "aspects": np.ones(6)}
+        self.assertEqual(set(SURPRISE_ONLY_ICONS) - set(GAME_KILL_ICONS), set())
+        self.assertEqual(set(SURPRISE_ONLY_ICONS), set(GAME_MODE_ICONS) | {"Grenade bounce"})
+        self.assertEqual(GAME_MODE_ICONS["Plague orb"], "Spike Rush")
         tiers = {t["tier"]: t for t in candidate_tiers(
             g, agents={"Breach"}, actor={"agent": "Breach", "entity_id": "e"})}
         for tier in ("kit", "lineup"):
             self.assertEqual(tiers[tier]["index"]["names"], ["Vandal", "Aftershock"], tier)
-            self.assertEqual(set(tiers[tier]["dropped"]), set(GAME_MODE_ICONS), tier)
+            self.assertEqual(set(tiers[tier]["dropped"]), set(SURPRISE_ONLY_ICONS), tier)
         self.assertEqual(tiers["full"]["index"]["names"], names)
 
     def test_stinger_reads_its_damage_types_texture(self):

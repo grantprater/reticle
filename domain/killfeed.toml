@@ -806,9 +806,15 @@ added the KillIcon textures outside those folders, Blade Storm's
 TX_Hud_Wushu_X_Dagger and Mosh Pit's TX_Aggrobot_Bubbles among them. The
 `damage-types/` export (2026-10-04, `game-extract export --paths`) holds the
 JSON of all 90 DamageType packages under ShooterGame/ outside Console/
-(index.tsv.gz, file names matched case-insensitively), each naming its
-KillIcon and parent class; `game-extract whorefs` over the whole build
-(2026-10-04) names every package that imports each extra DamageType. Each
+(index.tsv.gz, file names holding `dmgtype` or `damagetype` in any case: 89
+hold `dmgtype`, Dmgtype_GoldenGun_SpikeRush among them; the 90th,
+Characters/Gumshoe/S0/Ability_4/DamageType_Gumshoe_4_Tripwire, only
+`damagetype`), each naming its KillIcon and parent class. `game-extract
+whorefs` over the whole build (2026-10-04) lists every package that imports
+or names each extra DamageType; it reads packages, not what they do with one
+(<store>/analysis/weapon-gallery-fix-20261004/whorefs/,
+<store>/analysis/weapon-gallery-fix2-20261004/game-refs/, with the exported
+JSON the claims below read). Each
 export writes a texture once per encoded-PNG sha256 and records a repeat as
 a `dedup` manifest row pointing at the first file
 (<store>/tools/game-extract/src/Assets.cs, `WriteBytes`)
@@ -818,7 +824,8 @@ since weapon-gallery-0.8.0 the gallery is the game's closed set, one exemplar
 set per KillIcon texture; mined exemplars stay only for revive and downed
 entries, which have no DamageType. Since weapon-gallery-0.9.0 the base-class
 and placeholder icons stay out, and the game-mode icons are candidates only
-on the surprise path. An ability's icon is read from its own
+on the surprise path; since weapon-adjudication-1.5.0 Grenade bounce is too.
+An ability's icon is read from its own
 texture, never by analogy with another ability's
 [domain:abilities/ability-rules-are-unique]
 """
@@ -831,16 +838,27 @@ own kill icon. Of the 90 DamageTypes, 83 name a KillIcon, their own or their
 parent class's, on 67 textures; seven name none (DmgType_Base,
 DmgType_Healing_Base, DmgType_Instant, DmgType_TurtlingPenalty, Dodgeball's
 overtime, Phoenix's healing fire, Veto's utility destroyer). Three KillIcons
-belong to base classes no kill deals: DmgType_Explosion (the minimap kill X,
-parent of Aftershock's type), DmgType_PistolBase (parent of the pistols'
-types) and DmgType_Phoenix_FireBase (parent of Hot Hands' and Blaze's types;
-the base fire buff names it, but each concrete fire buff names its own
-type). DmgType_Internal draws an archived placeholder texture (tomatoes) and
-only Globals names it. Golden Gun (Spike Rush), the plague orb (GameModes/Orbs)
-and the snowball (Snowball Fight) are named only by game-mode packages.
-TX_Hud_Icons_Abilities_Clay1 is drawn by DmgType_GrenadeBounceDamage, which
-GrenadeDestroyOnImpact deals for many agents' grenade projectiles, and by
-DmgType_Incendiary, which Triad's lava (LavaDamageBuff) deals
+belong to base classes that, by whorefs, no package imports or names but
+their subclasses: DmgType_Explosion (the minimap kill X, parent of
+Aftershock's type), DmgType_PistolBase (parent of the pistols' types) and
+DmgType_Phoenix_FireBase (parent of Hot Hands' and Blaze's types; the base
+fire buff also names it, and each concrete fire buff names its own type).
+DmgType_Internal draws an archived placeholder texture (tomatoes) and only
+Globals names it. Golden Gun and the plague orb (Spike Rush: OrbSpawner_Random
+spawns the orb and is placed only in Spike Rush mode levels; Spike Rush's
+UIData, QuickBombGameMode_UIData, names it) and the snowball (Snowball
+Fight) are named only by game-mode packages.
+TX_Hud_Icons_Abilities_Clay1 is drawn by two DamageTypes.
+DmgType_GrenadeBounceDamage: GrenadeDestroyOnImpact, which
+Projectile_BaseGrenade imports, passes it to ApplyPointDamage (its bytecode)
+only on actors of its DestroyedObjectFilter, RespawningDestructible and
+BakedDestructible, not players. DmgType_Incendiary: the DamageType of
+LavaDamageBuff, which Triad_HotLava applies; LavaRespawningDestructible
+spawns Triad_HotLava when destroyed, and one is placed in Triad_Inactive, a
+level Triad.umap streams in (bShouldBeLoaded, bShouldBeVisible). Triad is
+Haven (Triad_PrimaryAsset: MapURL /Game/Maps/Triad/Triad, splash
+Loading_Haven, mode tags BombMode, BTMMode, FortCollins). Whether that lava
+appears in a standard match is not shown: placement is not an observed kill
 """
 phrases = ["ability kill icon texture", "damage type kill icon"]
 see = ["killfeed/ability-kill-icon", "killfeed/kill-icon-mirrored"]
