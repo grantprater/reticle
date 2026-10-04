@@ -394,6 +394,43 @@ class PhaseGroupTest(unittest.TestCase):
         self.assertEqual(same[0]["reason"], "bolt_unknown")
         self.assertNotIn("late", same[0]["phase"])
 
+    def test_a_calibrated_late_phase_carries_a_probability(self):
+        cal = {"ff_per_min": 1.0, "hit": [3, 8], "prior": [7, 9], "basis": "dev"}
+        g = dict(self.GROUP, late_post_s=[0.05, 6.0], late_levels={"E": 1.1},
+                 late_calibration={"E": cal})
+        tr = {**self.tracks(), "late:E": np.zeros(4000, np.float32)}
+        tr["Q+E"][480], tr["late:E"][780] = 4.0, 2.0
+        tr["Q+E"][1480], tr["landing:Q"][1540] = 4.0, 3.0
+        params = {"thresholds": {"C": 1.0, "Q+E": 1.0, "X": 1.0}, "groups": [g],
+                  "calibration": {"w": [0.0, 2.0], "basis": "agent"}}
+        rows = aa.cast_verdicts(tr, [500, 1500], [500, 1500], params)
+        lo, hi = rows[0]["phase"]["late_window_s"]
+        f = 1 - np.exp(-(hi - lo) / 60.0)
+        h, pi = 4 / 10, 8 / 11
+        self.assertEqual(rows[0]["verdict"], "E")
+        self.assertAlmostEqual(rows[0]["p_right"], pi * h / (pi * h + (1 - pi) * f), places=3)
+        self.assertIsNone(rows[0]["p_right_reason"])
+        self.assertEqual(rows[0]["calibration_basis"], "late_phase")
+        # A heard landing keeps the margin's calibration.
+        self.assertEqual(rows[1]["calibration_basis"], "agent")
+        # A longer window allows more false fires, so a lower probability.
+        p = aa.late_p_right([1.0, 6.0], cal)
+        self.assertGreater(p[0], p[1])
+
+    def test_the_late_calibration_counts_dev_rows(self):
+        from reticle.ability_audio_fit import late_calibration
+
+        def row(slot, heard, late):
+            return {"slot": slot, "phase": {"group": "Q+E", "heard": heard, "late": {"E": late},
+                                            "late_levels": {"E": 1.1}}}
+        rows = [row("E", True, 2.0), row("E", False, 0.5), row("E", False, 1.5),
+                row("Q", True, 0.2), row("Q", False, 0.3), {"slot": "C", "phase": None}]
+        g = dict(self.GROUP, late_levels={"E": 1.1})
+        got = late_calibration(rows, [g], 0.99)
+        self.assertEqual(got["Q+E"]["E"]["hit"], [2, 3])
+        self.assertEqual(got["Q+E"]["E"]["prior"], [2, 3])
+        self.assertEqual(got["Q+E"]["E"]["ff_per_min"], 0.99)
+
     def test_a_set_with_added_templates_keeps_the_source_arrays(self):
         a = {"mu": np.zeros(3), "P": np.eye(3), "ar": [0.9, -0.2],
              "templates": [np.ones((4, 3), np.float32)], "labels": ["Q+E"], "files": [{"flac": "a"}],

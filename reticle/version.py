@@ -611,7 +611,11 @@ ABILITY_STATE_VERSION = "ability-state-0.7.0"
 # Bolt's scan pulse): where no landing is heard and exactly one member's late
 # track reaches its level, that member is the verdict with no margin and no
 # `p_right` (`late_phase_only`); `phase` carries the late scores.
-ABILITY_AUDIO_VERSION = "ability-audio-0.5.0"
+# 0.6.0: a pulse-only verdict carries a `p_right` from its group's
+# `late_calibration` (`late_p_right`: the late level's false-fire rate over
+# the cast's late window against the dev hit rate and prior), basis
+# `late_phase`; without one it stays None (`late_phase_only`).
+ABILITY_AUDIO_VERSION = "ability-audio-0.6.0"
 # The fitted parameter set the audio witness reads, under
 # `reference/ability-audio/<version>/` in the store: per agent the background
 # whitener (shrink 0.1), the AR(2) coefficients, the whitened templates and
@@ -646,7 +650,10 @@ ABILITY_AUDIO_VERSION = "ability-audio-0.5.0"
 # as the phase group Q+E's late phase for E, 0.05 to 6.0 s after the release,
 # its level at one false fire per live minute on dev (`reticle
 # ability-audio-fit --late-phase`).
-ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.7"
+# 0.2.8: 0.2.7's arrays, with the phase group Q+E's late phase for E
+# calibrated on dev (`reticle ability-audio-fit --late-calibrate`): the
+# counts `ability_audio.late_p_right` reads.
+ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.8"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the

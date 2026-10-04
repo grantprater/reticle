@@ -4235,7 +4235,8 @@ exceptions = """
 the range is not measured in game units or minimap pixels
 """
 see = ["abilities/sova-recon-bolt-landing-sound", "abilities/sova-recon-bolt-pulse-louder",
-       "abilities/sova-recon-bolt-pulse-audible-range"]
+       "abilities/sova-recon-bolt-pulse-audible-range", "abilities/sova-bolt-charge-and-bounce",
+       "abilities/sova-shock-bolt-minimap-none"]
 
 [sova-recon-bolt-pulse-louder]
 claim = """
@@ -4262,7 +4263,7 @@ see = ["abilities/sova-recon-bolt-audio-phases", "abilities/sova-recon-bolt-land
 [sova-recon-bolt-pulse-audible-range]
 claim = """
 The player believes Sova does not hear his own Recon Bolt's scan pulse at
-every distance: like the landing, it carries only so far.
+every distance.
 """
 kind = "rule"
 known = "player"
@@ -4276,14 +4277,13 @@ use = """
 none yet: a pulse not heard is no evidence against a Recon Bolt
 """
 exceptions = """
-measured 2026-10-04 on the stored dev and held Sova casts (the store's
-notes/predictions.jsonl, recon-recovery-20261004): the whitened pulse
-template reached its level after about four in ten tray-confirmed Recon
-releases in each band of landing distance to 150 base px, with no fall over
-that span, and after none of 10 Shock Bolt releases. Only 2 landings lay
-farther, so the measurement neither confirms nor refutes the belief
+a belief, not settled: the player is unsure and asked for a measurement. The
+pipeline's measurement (the store's notes/predictions.jsonl,
+recon-recovery-20261004) is no domain fact, and it tests the detector's
+recall as much as the sound's reach
 """
-see = ["abilities/sova-recon-bolt-pulse-louder", "abilities/sova-recon-bolt-landing-audible-range"]
+see = ["abilities/sova-recon-bolt-pulse-louder", "abilities/sova-recon-bolt-landing-audible-range",
+       "abilities/sova-bolt-charge-and-bounce"]
 
 [sova-recon-bolt-minimap-everyone]
 claim = """
@@ -4304,7 +4304,8 @@ exceptions = """
 the player did not say whether everyone includes the enemy team; the enemy
 ring's colour is not measured [domain:abilities/sova-recon-bolt-minimap-ring-size]
 """
-see = ["abilities/sova-recon-bolt-minimap-ring", "abilities/sova-recon-bolt-minimap-ring-size"]
+see = ["abilities/sova-recon-bolt-minimap-ring", "abilities/sova-recon-bolt-minimap-ring-size",
+       "abilities/sova-shock-bolt-minimap-none"]
 
 [skye-scout-expire-is-guiding-light]
 claim = """

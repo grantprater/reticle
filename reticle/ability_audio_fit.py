@@ -6,6 +6,7 @@ ownership entry `ability-audio`; this module is its fit tool).
     reticle ability-audio-fit --gate-in G.json --fit ROOT [--audio-dir DIR]
     reticle ability-audio-fit --gate-in G.json --calibrate ROOT [--audio-dir DIR]
     reticle ability-audio-fit --gate-in G.json --late-phase ROOT [--audio-dir DIR]
+    reticle ability-audio-fit --gate-in G.json --late-calibrate ROOT [--audio-dir DIR]
     reticle ability-audio-fit --gate-in G.json --eval ROOT [--json OUT] [--audio-dir DIR]
 
 `--gate` computes the gate's verdicts (`ability_timeline.player_tray_casts`,
@@ -65,10 +66,16 @@ arrays, and per agent the margin calibration `ability_audio.calibrate`
 fits on that set's dev casts (`ability-audio-params-0.2.2`), which the
 witness reads to give each cast's `p_right` beside its margin.
 
-`--late-phase` derives the current set from LATE_FROM: the same arrays,
+`--late-phase` derives LATE_VERSION from LATE_FROM: the same arrays,
 thresholds and calibration, and each phase group's late templates (from the
 gap export, LATE_MANIFEST) with their levels on dev
 (`ability-audio-params-0.2.7`: the Recon Bolt's scan pulse).
+
+`--late-calibrate` derives the current set from LATE_CALIBRATED_FROM: the
+same arrays, and per phase-group member with a late phase the counts
+`late_calibration` takes from that set's dev casts alone, which
+`ability_audio.late_p_right` turns into a pulse-only verdict's `p_right`
+(`ability-audio-params-0.2.8`). Held casts and demos are not scored.
 """
 from __future__ import annotations
 
@@ -182,6 +189,24 @@ LATE_MANIFEST = LATE_DIR / "manifest.jsonl"
 #: The set `--late-phase` derives the current set from: its arrays, with each
 #: phase group's late templates and levels added.
 LATE_FROM = "ability-audio-params-0.2.6"
+#: The set `--late-phase` writes.
+LATE_VERSION = "ability-audio-params-0.2.7"
+#: The set `--late-calibrate` derives the current set from: its arrays, with
+#: each late phase's dev calibration added to its phase group. The rule was
+#: chosen and frozen on dev (recon-recovery-fix-20261004): the minimap Recon
+#: ring is declined as a gate because the shape search that finds it runs
+#: only after a tray-E drop, the evaluation's own label, so no dev Shock Bolt
+#: release could test a gate's precision
+#: ([metric:ability_audio_late/calibration@sova-dev#shock_ring_searched=0] of
+#: [metric:ability_audio_late/calibration@sova-dev#shock_releases=5]), and it
+#: would have kept [metric:ability_audio_late/calibration@sova-dev#late_with_searched_ring=2]
+#: of the [metric:ability_audio_late/calibration@sova-dev#late_n=4] dev
+#: pulse-only verdicts. Held was scored once after the freeze; the wire of
+#: 0.2.7 had been decided after held pulse rows were seen, so that score is a
+#: contaminated check: [metric:ability_audio_late/contaminated_check@sova-held#late_right=4]
+#: of [metric:ability_audio_late/contaminated_check@sova-held#late_n=4] held
+#: pulse-only verdicts right, none of them changed.
+LATE_CALIBRATED_FROM = "ability-audio-params-0.2.7"
 #: Corrections the player made to a verified label, stored beside the labels,
 #: never over them; `ability_timeline.tray_object_labels` applies them.
 CORRECTIONS_DIR = TRAY_OBJECT_CORRECTIONS_DIR
@@ -790,24 +815,28 @@ def _score_rows(kind, name, casts, tracks, neighbours, params):
                     "margin_ref": (float("nan") if v["margin_ref"] is None
                                    else float(v["margin_ref"])),
                     "verdict": v["verdict"], "reason": v["reason"], "scores": v["scores"],
+                    "p_right": v["p_right"],
                     "phase": v["phase"]})
     return out
 
 
 def evaluate_params(store_root, params_root, gate: dict, audio_dirs=(), agents=None, xp=np,
-                    version: str | None = None) -> dict:
-    """Score set `version`'s (default `ABILITY_AUDIO_PARAMS_VERSION`) dev
-    and held sessions, their verified casts and the demos; per agent the
-    argmax top-1 over referenced casts and the verdicts per kind, the
-    misses, and the calibration: the set's stored one where it carries one,
-    else one fitted on the dev casts here."""
+                    version: str | None = None, kinds=("dev", "held"),
+                    demos_too: bool = True) -> dict:
+    """Score set `version`'s (default `ABILITY_AUDIO_PARAMS_VERSION`)
+    sessions of `kinds` in its split, their verified casts and (with
+    `demos_too`) the demos; per agent the argmax top-1 over referenced casts
+    and the verdicts per kind, the pulse-only verdicts per kind
+    (`late_phase`: n, right, mean `p_right`), the misses, and the
+    calibration: the set's stored one where it carries one, else one fitted
+    on the dev casts here."""
     from .ability_timeline import audio_cast_witness
     from .adjudication import ability_audio as aa
     from .version import ABILITY_AUDIO_PARAMS_VERSION
     version = version or ABILITY_AUDIO_PARAMS_VERSION
     root = Path(store_root)
     verified = verified_casts(root)
-    demos = demo_census_sessions(root, audio_dirs)
+    demos = demo_census_sessions(root, audio_dirs) if demos_too else {}
     prov = json.loads((aa.params_path(params_root, version)
                        / "provenance.json").read_text(encoding="utf-8"))
     split = prov["split"]
@@ -823,7 +852,7 @@ def evaluate_params(store_root, params_root, gate: dict, audio_dirs=(), agents=N
             continue
         rows = []
         sp = split.get(agent, {"dev": [], "held": []})
-        for kind in ("dev", "held"):
+        for kind in kinds:
             for name in sp[kind]:
                 s, why = match_session(root, name, gate, audio_dirs, verified)
                 if s is None:
@@ -855,6 +884,17 @@ def evaluate_params(store_root, params_root, gate: dict, audio_dirs=(), agents=N
                           "right": v["right"], "wrong": v["wrong"], "refused": v["refused"],
                           "unreferenced": sum(x["kind"] == kind and not x["referenced"]
                                               for x in rows)}
+        late = {}
+        for kind in ("dev", "held", "dev_verified", "held_verified", "demo"):
+            r = [x for x in rows if x["kind"] == kind and x["phase"]
+                 and x["phase"].get("late_pick") and x["verdict"]]
+            if r:
+                ps = [x["p_right"] for x in r if x["p_right"] is not None]
+                late[kind] = {"n": len(r), "right": sum(x["verdict"] == x["slot"] for x in r),
+                              "mean_p_right": round(float(np.mean(ps)), 3) if ps else None,
+                              "p_right": [x["p_right"] for x in r]}
+        if late:
+            summ["late_phase"] = late
         out[agent] = {"summary": summ, "split": sp,
                       "demos": sorted(s for s, a in demos.items() if a == agent),
                       "misses": [x for x in rows if x["kind"] in ("held", "held_verified", "demo")
@@ -899,14 +939,14 @@ def calibrate_params(store_root, params_root, gate: dict, audio_dirs=(), xp=np,
 
 def late_phase_params(store_root, params_root, gate: dict, audio_dirs=(), xp=np,
                       src_version: str = LATE_FROM) -> Path:
-    """Derive set `ABILITY_AUDIO_PARAMS_VERSION` under `params_root` from
+    """Derive set LATE_VERSION under `params_root` from
     `src_version`: its arrays, thresholds and calibration unchanged and, per
     agent whose phase group declares late events (PHASE_GROUPS), the late
     templates whitened by the set's own whitener, and each late track's
     level at one false fire per live minute over the set's dev sessions'
     null frames, the rule of every other level. Held casts never enter it."""
     from .adjudication import ability_audio as aa
-    from .version import ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION
+    from .version import ABILITY_AUDIO_VERSION
     root = Path(store_root)
     prov = json.loads((aa.params_path(params_root, src_version) / "provenance.json")
                       .read_text(encoding="utf-8"))
@@ -963,7 +1003,74 @@ def late_phase_params(store_root, params_root, gate: dict, audio_dirs=(), xp=np,
                               "late_events": {k: list(v) for k, v in g["late_events"].items()},
                               "late_post_s": list(g["late_post_s"])}
                              for g in PHASE_GROUPS if g.get("late_events")]}
-    d = aa.save_with_templates(params_root, src_version, ABILITY_AUDIO_PARAMS_VERSION, added, note)
+    d = aa.save_with_templates(params_root, src_version, LATE_VERSION, added, note)
+    print("params ->", d)
+    return d
+
+
+def late_calibration(rows: list[dict], groups: list[dict], ff_per_min: float) -> dict:
+    """Per phase group and member with a late phase, the dev counts
+    `ability_audio.late_p_right` reads, from `rows` (one agent's scored dev
+    casts, `_score_rows`): `hit` [k, n], the member's releases (phase rows
+    whose slot is the member) whose late track reached its level; `prior`
+    [k, n], the group's releases with no landing heard whose slot is the
+    member; `ff_per_min`, the late level's false-fire rate on dev. Returns
+    {group name: {member: calibration}}. Pure."""
+    out = {}
+    for g in groups:
+        for m in (g.get("late_levels") or {}):
+            ph = [r for r in rows if r["phase"] and r["phase"]["group"] == g["name"]
+                  and r["phase"].get("late") is not None]
+            mine = [r for r in ph if r["slot"] == m]
+            hit = sum(r["phase"]["late"][m] is not None
+                      and r["phase"]["late"][m] >= r["phase"]["late_levels"][m] for r in mine)
+            unheard = [r for r in ph if not r["phase"]["heard"]]
+            out.setdefault(g["name"], {})[m] = {
+                "ff_per_min": round(float(ff_per_min), 4), "hit": [int(hit), len(mine)],
+                "prior": [sum(r["slot"] == m for r in unheard), len(unheard)],
+                "basis": "dev"}
+    return out
+
+
+def late_calibrate_params(store_root, params_root, gate: dict, audio_dirs=(), xp=np,
+                          src_version: str = LATE_CALIBRATED_FROM) -> Path:
+    """Derive set `ABILITY_AUDIO_PARAMS_VERSION` under `params_root` from
+    `src_version`: its arrays unchanged and, per phase group with a late
+    phase, `late_calibration` from the source set's dev casts alone (held
+    casts and demos are never scored). The false-fire rate is the late
+    level's own, floor(live_min) peaks over the source fit's dev live
+    minutes (`ability_audio.threshold_at`)."""
+    from .adjudication import ability_audio as aa
+    from .version import ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION
+    prov = json.loads((aa.params_path(params_root, src_version) / "provenance.json")
+                      .read_text(encoding="utf-8"))
+    live_min = float(prov["late_phase"]["live_min"])
+    ff = int(np.floor(aa.THRESHOLD_FF_PER_MIN * live_min)) / live_min
+    agents = [a for a, m in prov["agents"].items()
+              if any(g.get("late_levels") for g in m.get("groups") or ())]
+    res = evaluate_params(store_root, params_root, gate, audio_dirs, agents, xp, src_version,
+                          kinds=("dev",), demos_too=False)
+    added = {}
+    for a in agents:
+        groups = [dict(g) for g in prov["agents"][a]["groups"]]
+        cal = late_calibration([r for r in res["rows"][a] if r["kind"] == "dev"], groups, ff)
+        for g in groups:
+            if g["name"] in cal:
+                g["late_calibration"] = cal[g["name"]]
+                print(f"{a}: group {g['name']} late calibration {cal[g['name']]}", flush=True)
+        added[a] = {"templates": [], "labels": [], "files": [], "groups": groups}
+    note = {"ability_audio_version": ABILITY_AUDIO_VERSION,
+            "fitted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "fitted_by": "reticle ability-audio-fit --late-calibrate",
+            "rule": "a pulse-only verdict's p_right = pi h / (pi h + (1 - pi) f), f = 1 - "
+                    "exp(-r w) with r the late level's false fires per live minute on dev and "
+                    "w the cast's late window; h and pi add-one shares of the dev counts "
+                    "(ability_audio.late_p_right); chosen and frozen on dev before held was "
+                    "scored again (recon-recovery-fix-20261004)",
+            "dev_sessions": sorted(n for sp in prov["split"].values() for n in sp["dev"]),
+            "dev_summary": {a: res["agents"][a]["summary"] for a in agents if a in res["agents"]}}
+    d = aa.save_with_templates(params_root, src_version, ABILITY_AUDIO_PARAMS_VERSION, added,
+                               note, note_key="late_calibration")
     print("params ->", d)
     return d
 
@@ -1002,6 +1109,8 @@ def main(args) -> int:
         calibrate_params(store.root, Path(args.calibrate), gate, dirs, xp)
     if getattr(args, "late_phase", None):
         late_phase_params(store.root, Path(args.late_phase), gate, dirs, xp)
+    if getattr(args, "late_calibrate", None):
+        late_calibrate_params(store.root, Path(args.late_calibrate), gate, dirs, xp)
     if args.eval:
         res = evaluate_params(store.root, Path(args.eval), gate, dirs, args.agent, xp)
         if args.json:

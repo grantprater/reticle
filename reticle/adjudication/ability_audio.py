@@ -63,7 +63,9 @@ which is unknown); a landing margin under TIE_MARGIN refuses
 `ability-audio-params-0.2.7`, the Recon Bolt's scan pulse, louder than its
 landing [domain:abilities/sova-recon-bolt-pulse-louder]): where no landing
 is heard, one member's late track at its level names the bolt, without a
-margin. The parameter set declares each group, its landing and late files
+margin; from `ability-audio-params-0.2.8` its `p_right` weighs the late
+track's false-fire rate on dev against its dev hit rate (`late_p_right`).
+The parameter set declares each group, its landing and late files
 and levels; Sova's bolts share their release
 [domain:abilities/sova-bolts-share-release-sound]. `cast_verdicts` is the
 one decision the witness and the fit tool both call.
@@ -655,10 +657,12 @@ def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
     refusals. A group may declare a late phase per member (`late_levels`,
     e.g. the Recon Bolt's scan pulse): where no landing is heard and exactly
     one member's late track reaches its level, that member is `best_ref` and
-    the verdict, with no margin and so no `p_right` (`late_phase_only`);
-    a heard landing is never overruled by it. The verdict is `best_ref`
-    unless refused. `p_right` maps `margin_ref` through the set's
-    calibration. Decisions vectorised; rows are their record."""
+    the verdict, with no margin; a heard landing is never overruled by it.
+    Its `p_right` comes from the group's `late_calibration` for that member
+    (`late_p_right`, from `ability-audio-params-0.2.8`; without one it is
+    None, `late_phase_only`). The verdict is `best_ref` unless refused.
+    Otherwise `p_right` maps `margin_ref` through the set's calibration.
+    Decisions vectorised; rows are their record."""
     groups = params.get("groups") or []
     kt = kit_view(tracks, groups)
     classes = kit_classes(list(kt), groups)
@@ -670,6 +674,7 @@ def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
     margin_ref = np.asarray(margin_ref, float).copy()
     reason = np.array([v["reason"] or "" for v in ids], object)
     phase = [None] * len(ids)
+    p_late = np.full(len(ids), np.nan)
     for g in groups:
         rows = np.flatnonzero(best_ref == g["name"])
         if not len(rows):
@@ -698,6 +703,12 @@ def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
             late_ok = np.zeros(len(rows), bool)
             lpick = np.full(len(rows), None, object)
         best_ref[rows] = np.where(late_ok, lpick, np.where(unk, None, pick))
+        lcal = g.get("late_calibration") or {}
+        for m in lmem:
+            q = late_ok & (lpick == m)
+            if lcal.get(m) and q.any():
+                w_s = (ph["late_window"][1][q] - ph["late_window"][0][q]) / FPS
+                p_late[rows[q]] = late_p_right(w_s, lcal[m])
         margin_ref[rows] = np.where(unk, np.nan, lm)
         free = reason[rows] == ""
         reason[rows] = np.where(free & unk & ~late_ok, "bolt_unknown",
@@ -722,6 +733,8 @@ def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
                     late_pick=lpick[j] if late_ok[j] else None)
     cal = params.get("calibration")
     pr = p_right(margin_ref, cal["w"]) if cal else np.full(len(ids), np.nan)
+    is_late = np.isfinite(p_late)
+    pr = np.where(is_late, p_late, pr)
     out = []
     for i, v in enumerate(ids):
         why = reason[i] or None
@@ -735,9 +748,31 @@ def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
                                        else "late_phase_only" if phase[i] and phase[i].get("late_pick")
                                        else "bolt_unknown" if phase[i] and not phase[i]["heard"]
                                        else "no_referenced_rival"),
-                    "calibration_basis": cal["basis"] if cal else None,
+                    "calibration_basis": ("late_phase" if is_late[i]
+                                          else cal["basis"] if cal else None),
                     "phase": phase[i]})
     return out
+
+
+def late_p_right(window_s, cal: dict) -> np.ndarray:
+    """P(the bolt is the member | its late phase reached its level and no
+    landing was heard), per cast, from a member's `late_calibration`
+    (fitted on dev, `ability_audio_fit.late_calibration`):
+
+        p = pi h / (pi h + (1 - pi) f),  f = 1 - exp(-r w)
+
+    `f` is the chance the late track fires falsely in the cast's late window
+    of `window_s` seconds at the level's false-fire rate `r`
+    (`ff_per_min`, on dev's unexplained live frames); `h` = (k + 1) / (n + 2)
+    of `hit` [k, n], the dev share of the member's releases whose late track
+    reached its level; `pi` = (k + 1) / (n + 2) of `prior` [k, n], the dev
+    share of the group's releases with no landing heard that were the
+    member. Vectorised."""
+    w = np.asarray(window_s, float)
+    f = 1.0 - np.exp(-float(cal["ff_per_min"]) / 60.0 * np.clip(w, 0.0, None))
+    h = (cal["hit"][0] + 1.0) / (cal["hit"][1] + 2.0)
+    pi = (cal["prior"][0] + 1.0) / (cal["prior"][1] + 2.0)
+    return pi * h / (pi * h + (1.0 - pi) * f)
 
 
 def logistic(x: np.ndarray, y: np.ndarray, l2: float = CALIB_L2, iters: int = 50) -> np.ndarray:
@@ -871,13 +906,14 @@ def save_calibrated(store_root, src_version: str, version: str, calibration: dic
 
 
 def save_with_templates(store_root, src_version: str, version: str, added: dict,
-                        note: dict) -> Path:
+                        note: dict, note_key: str = "late_phase") -> Path:
     """Write set `version`: set `src_version`'s arrays and provenance, with
     per agent in `added` ({agent: {"templates", "labels", "files",
     "groups"}}) the templates appended after the source's (their classes and
     file rows likewise) and its phase groups replaced; every other array
     copied unchanged. The provenance names the source and its arrays'
-    sha256 (`derived_from`) and carries `note`. Refuses to overwrite."""
+    sha256 (`derived_from`) and carries `note` under `note_key`. Refuses to
+    overwrite."""
     import hashlib
     src, d = params_path(store_root, src_version), params_path(store_root, version)
     if d.exists():
@@ -898,7 +934,7 @@ def save_with_templates(store_root, src_version: str, version: str, added: dict,
     d.mkdir(parents=True)
     np.savez(d / "params.npz", **arrays)
     prov.update(version=version, derived_from={"version": src_version, "params_npz_sha256": sha},
-                late_phase=note)
+                **{note_key: note})
     (d / "provenance.json").write_text(json.dumps(prov, indent=1), encoding="utf-8")
     return d
 
