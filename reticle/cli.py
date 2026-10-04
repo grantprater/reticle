@@ -3185,10 +3185,11 @@ def cmd_deaths(args) -> int:
     # The roster, the lineup view and the reliability table's bytes.
     with usage_step("write"):
         _record_inputs(store, sid, "death", head)
-        out = store.write_events("death", sid, [head] + rows + collisions)
+        out = store.write_events("death", sid, [head] + rows + collisions + d["set_aside"])
         store.write_events("death_identity", sid, d["events"])
     print(f"{sid}: {len(rows) - head['revives']} deaths and {head['revives']} revives over "
           f"{d['n_rounds']} rounds in {res['passes']} passes; "
+          f"{head['merged']} merged, {sum(head['refused_entries'].values())} refused; "
           f"victims {head['victims']}, killers {head['killers']}, "
           f"{len(collisions)} board collisions; entry types {head['entry_types']}, "
           f"{head['entry_disagreements']} witness disagreements -> {out}")
@@ -3198,7 +3199,10 @@ def cmd_deaths(args) -> int:
 def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=None,
                   names=None) -> dict:
     """The `death` stream's summary, verdict rows and collisions, and the
-    `death_identity` events, from stored data; writes nothing.
+    `death_identity` events, from stored data; writes nothing. `set_aside`
+    holds a `merged_entry` row per death folded into an earlier one and a
+    `refused_entry` row per death nothing attests, each with its verdict and
+    evidence; neither is a `death_verdict`.
 
     `hud`, `portraits`, `weapons` and `names` replace the stored HUD table and
     killfeed streams, as a reader trial produces them in memory
@@ -3265,6 +3269,10 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                   f"placed by an X -- run `reticle minimap-objects {sid}`")
         if hud is None:
             hud = store.read_hud(sid, date)
+        # Capture stalls: an entry drawn at a stall's release counts, and two
+        # tracks of one entry are timed outside the stall. Unknown (no
+        # primitives) is passed as None and changes nothing.
+        stall_spans = stalls.for_session(store, sid, date)
     with usage_step("adjudicate"):
         res = adjudicate_session_deaths(
             sid, rounds, hud, store.read_roster(sid, date), portraits,
@@ -3272,26 +3280,36 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
             source_version=KILLFEED_PORTRAIT_VERSION,
             second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION),
             weapon_observations=weapons, name_observations=names, reliability=rel,
-            xmarks=births, store_root=store.root)
+            xmarks=births, store_root=store.root, stalls=stall_spans)
     common = {"session_id": sid, "source": "death",
               "death_adjudication_version": DEATH_ADJUDICATION_VERSION}
+
+    def row(kind, r, e, v, **extra):
+        return {**common, "kind": kind, "round_no": r["round_no"],
+                "slot": e["slot"], "t_last_ms": e["t_last"],
+                "kf_player_kill": e["kf_player_kill"],
+                "kf_player_death": e["kf_player_death"],
+                "weapon_evidence": e.get("weapon_evidence"),
+                "same_side": e.get("same_side"),
+                "second_life_vote": e.get("second_life_vote"),
+                "entry_type": e.get("entry_type"),
+                **({"merged": e["merged"]} if e.get("merged") else {}),
+                **({"released": e["released"]} if e.get("released") else {}),
+                **extra, **v.to_dict()}
+
     with usage_step("verdict_rows"):
-        rows, events = [], []
+        rows, events, set_aside = [], [], []
         for r in res["rounds"]:
             for e, v in zip(r["entries"], r["verdicts"]):
                 if rel is not None:
                     for key in ("identity", "killer_identity"):
                         if v.metadata.get(key):
                             v.metadata[key]["p_named"] = name_probability(rel, v.metadata[key])
-                rows.append({**common, "kind": "death_verdict", "round_no": r["round_no"],
-                             "slot": e["slot"], "t_last_ms": e["t_last"],
-                             "kf_player_kill": e["kf_player_kill"],
-                             "kf_player_death": e["kf_player_death"],
-                             "weapon_evidence": e.get("weapon_evidence"),
-                             "same_side": e.get("same_side"),
-                             "second_life_vote": e.get("second_life_vote"),
-                             "entry_type": e.get("entry_type"), **v.to_dict()})
+                rows.append(row("death_verdict", r, e, v))
                 events.extend(death_verdict_to_events(v, sid))
+            set_aside += [row("merged_entry", r, e, v, merge=m) for e, v, m in r.get("merged", [])]
+            set_aside += [row("refused_entry", r, e, v, refusal=why)
+                          for e, v, why in r.get("refused", [])]
     with usage_step("summary_head"):
         collisions = [{**common, **c} for r in res["rounds"] for c in r.get("collisions", [])]
         status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
@@ -3304,6 +3322,10 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                 "revives": sum(bool(r.get("is_revive")) for r in rows),
                 "second_lives": sum(bool(r.get("is_second_life")) for r in rows),
                 "collisions": len(collisions),
+                # Deaths set aside (`merge_split_entries`, `refuse_unwitnessed`).
+                "merged": dict(Counter(m["rule"] for m in res.get("merges", []))),
+                "refused_entries": dict(Counter(x["reason"] for x in res.get("refusals", []))),
+                "stalls": None if stall_spans is None else len(stall_spans),
                 # Each entry's type (`decide_entry_type`): resolved types, and
                 # refusals by reason; which witnesses spoke for each revive.
                 "entry_types": dict(Counter(
@@ -3339,9 +3361,10 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                            "scoreboard": store.events_version("scoreboard", sid),
                            "round": rounds[0].get("round_version") if rounds else None,
                            "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION,
-                           "reliability": RELIABILITY_VERSION if rel is not None else None}}
+                           "reliability": RELIABILITY_VERSION if rel is not None else None,
+                           "stalls": stalls.STALL_VERSION if stall_spans is not None else None}}
     return {"head": head, "rows": rows, "collisions": collisions, "events": events,
-            "result": res, "n_rounds": len(rounds)}
+            "set_aside": set_aside, "result": res, "n_rounds": len(rounds)}
 
 
 def cmd_plan(args) -> int:

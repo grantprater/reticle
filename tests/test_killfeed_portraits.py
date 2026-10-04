@@ -204,6 +204,47 @@ class CompositionTests(unittest.TestCase):
             appearance.hsv_composition(art[:, :20])), 0.99)
 
 
+class EntryAnchorCarryTests(unittest.TestCase):
+    """An entry's confident killer placement is carried to its later views."""
+
+    def test_the_anchor_found_on_one_view_is_the_next_views_first_prior(self):
+        frame, y0, y1, _bh, _pw = band_frame()
+        h, w = frame.shape[:2]
+        view = EntryView(0, y0, y1, 80, 100, killer_run=(60, 70),
+                         victim_run=(120, 130), victim_ally=True)
+        seen = []
+
+        def fake_art_view(crop, role, x0, y0_, ally, s, art_dir, candidates=None,
+                          plate_x0=None, entry_x0=None):
+            seen.append((role, plate_x0, entry_x0))
+            if role != "killer":
+                return {"art_zncc": {"A": 0.9}, "art_search": "prior",
+                        "art_anchor": "right_edge", "art_x0": 150}
+            return {"art_zncc": {"A": 0.9}, "art_search": "prior", "art_x0": 10,
+                    "art_anchor": "entry_anchor" if entry_x0 is not None else "plate_left",
+                    "art_candidates_widened": None}
+
+        anchors = killfeed.EntryAnchors()
+        with patch("reticle.killfeed.art_view", fake_art_view), \
+             patch("reticle.killfeed.plate_left_edge", return_value=(10.3, 9.0)):
+            rows = []
+            for t in (0.0, 500.0):
+                anchors.frame(t)
+                rows.append(portrait_observations(
+                    frame, Roi("kf", 0.0, 0.0, 1.0, 1.0), w, h, views=[view],
+                    scale=UNIT_SCALE, art_dir="unused", anchors=anchors))
+        killers = [x for x in seen if x[0] == "killer"]
+        self.assertEqual(killers[0][2], None)
+        self.assertAlmostEqual(killers[1][2], 10.3)
+        first, second = rows[0][0], rows[1][0]
+        self.assertEqual(first["entry"], second["entry"])
+        self.assertNotIn("entry_anchor", first)
+        self.assertEqual(second["rests_on"][0]["prior"], "entry_anchor")
+        self.assertEqual(second["rests_on"][0]["source"], "plate_left")
+        # the name-start box is the cross-check; its disagreement is stored
+        self.assertIn("surprise", second["anchor_check"])
+
+
 class ReaderTests(unittest.TestCase):
     def test_reader_persists_raw_observations_with_stable_keys(self):
         profile = SimpleNamespace(name="valorant-16x9")

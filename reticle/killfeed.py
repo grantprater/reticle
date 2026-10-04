@@ -1737,10 +1737,15 @@ PORTRAIT_ASPECT = 2.0
 # 0.13.0 (2026-10-03): a killer's first prior is its plate's left end
 # (`plate_left_edge`, stored as `plate_left`); the name-start box is the
 # fallback, then the widened strip.
-# 0.14.0 (2026-10-03): a `second_life_observation` per entry whose victim may be
+# 0.14.0 (2026-10-03): a killer's portrait column is measured once per entry
+# and carried to its later views (`EntryAnchors`, stored as `entry`,
+# `entry_anchor`, `rests_on`); with an anchor a surprise widens rows only,
+# and the name-start box is a cross-check whose disagreement is stored
+# (`anchor_check`).
+# 0.15.0 (2026-10-03): a `second_life_observation` per entry whose victim may be
 # Phoenix or KAY/O by the lineup (`second_life_gate`), not only the player's
 # own deaths; each row carries `victim_ally`, `player_death` and `gate`.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.14.0"
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.15.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -1790,6 +1795,126 @@ PLATE_EDGE_MIN = 4.0
 #: on 2639 clean killer views of 21 matches at 1080p: median +0.05 px,
 #: interquartile -0.35 to +0.44; the art starts at the plate's end.
 KILLER_ART_FROM_PLATE = 0.0
+#: An entry keeps its killer portrait's column for its life
+#: [domain:killfeed/entry-holds-its-column]. The follow (`EntryAnchors`)
+#: matches an entry by its weapon-icon start and its victim name's start,
+#: each within this many base px.
+ENTRY_FOLLOW_X = 2
+#: A followed entry stays or rises [domain:killfeed/stack-order]; one unseen
+#: this long (ms) is gone.
+ENTRY_FOLLOW_GAP_MS = 2000
+#: The confirmed placements an entry's anchor takes, most confident first;
+#: once it holds this many, the plate edge is not measured again.
+ANCHOR_VIEWS = 3
+#: How far (base px) the name-start box may sit from the entry anchor before
+#: the disagreement is stored as a surprise.
+ANCHOR_CHECK_X = 2
+
+
+class EntryAnchors:
+    """The killer portrait's column per killfeed entry, carried from view to
+    view.
+
+    **The portrait does not move within an entry**
+    [domain:killfeed/entry-holds-its-column]. Measuring it afresh per view
+    lost it whenever the edge detector missed or the name-start box was off
+    (a self entry's
+    yellow frame, a killstreak numeral, a name the walk misreads), and each
+    loss paid the widened strip search. So the column is measured on an
+    entry's first confident views and carried to every later one as its
+    first prior (`art_view` `entry_x0`).
+
+    A placement is confident when two witnesses agree: a plate edge
+    (`plate_left_edge`) or the name-start box at which the art then scored
+    `ART_SURPRISE_Z` or better. A placement the art found alone, on the
+    widened search or among every agent, counts only once a second view of
+    the entry found it within 1 px; the widened search's false matches (on
+    a flash or a scene edge) land at a different column each view. The anchor is the median of the entry's confirmed plate
+    edges (sub-pixel), else of its confirmed art windows; it rests on those
+    views (`rests_on`).
+
+    The follow is the stack's own rule [domain:killfeed/stack-order]: an
+    entry stays or rises, never falls, and keeps its layout, so a view
+    continues the live entry whose weapon-icon start and victim-name start
+    lie within `ENTRY_FOLLOW_X` and whose band lies at or above it. A view
+    that matches none starts a new entry. Feed frames in time order.
+    """
+
+    def __init__(self):
+        self.live: list[dict] = []
+        self.next_id = 0
+        self.t_ms: float | None = None
+        self.taken: set[int] = set()
+
+    def frame(self, t_ms: float) -> None:
+        """Start a frame: drop entries unseen for `ENTRY_FOLLOW_GAP_MS`."""
+        self.t_ms = float(t_ms)
+        self.live = [e for e in self.live if self.t_ms - e["t_ms"] <= ENTRY_FOLLOW_GAP_MS]
+        self.taken = set()
+
+    def entry(self, view: "EntryView", s: "KillfeedScale") -> dict:
+        """The live entry this view continues, or a new one."""
+        tol = s.px(ENTRY_FOLLOW_X)
+        v0 = view.victim_run[0] if view.victim_run else -1
+        lift = s.px(PITCH) * MAX_SLOTS
+        best = None
+        for e in self.live:
+            if id(e) in self.taken:
+                continue
+            if (abs(e["wx0"] - view.wx0) <= tol and abs(e["v0"] - v0) <= tol
+                    and e["y0"] - lift - tol <= view.y0 <= e["y0"] + tol):
+                d = abs(e["y0"] - view.y0)
+                if best is None or d < best[0]:
+                    best = (d, e)
+        if best is None:
+            e = {"entry": self.next_id, "wx0": view.wx0, "v0": v0, "y0": view.y0,
+                 "t_ms": self.t_ms, "edges": [], "arts": [], "views": 0}
+            self.next_id += 1
+            self.live.append(e)
+        else:
+            e = best[1]
+            e.update(y0=view.y0, t_ms=self.t_ms)
+        e["views"] += 1
+        self.taken.add(id(e))
+        return e
+
+    @staticmethod
+    def anchor(e: dict | None) -> dict | None:
+        """The entry's anchor: {x, source, views}, or None before a confident
+        placement."""
+        if e is None:
+            return None
+        if e["edges"]:
+            top = sorted(e["edges"], key=lambda r: -r[1])[:ANCHOR_VIEWS]
+            return {"x": float(np.median([r[0] for r in top])), "source": "plate_left",
+                    "views": len(top)}
+        arts = np.array([r[0] for r in e["arts"]], np.float64)
+        if not len(arts):
+            return None
+        both = np.array([r[1] for r in e["arts"]], bool)
+        # a window two witnesses placed, else two art-only windows within 1 px
+        ok = both | (np.abs(arts[:, None] - arts[None, :]) <= 1).sum(1) >= 2
+        if not ok.any():
+            return None
+        return {"x": float(np.median(arts[ok][:ANCHOR_VIEWS])), "source": "art",
+                "views": int(min(ok.sum(), ANCHOR_VIEWS))}
+
+    @staticmethod
+    def confirm(e: dict | None, fields: dict, plate: tuple[float, float] | None) -> None:
+        """Record a view's confident placement in its entry."""
+        if e is None or not fields.get("art_zncc"):
+            return
+        if max(fields["art_zncc"].values()) < ART_SURPRISE_Z:
+            return
+        anchor = fields.get("art_anchor")
+        # an all-agent result is the art alone, however it was placed
+        alone = bool(fields.get("art_candidates_widened"))
+        if plate is not None and anchor == "plate_left" and not alone:
+            e["edges"].append((float(plate[0]), float(plate[1])))
+        elif len(e["arts"]) < 2 * ANCHOR_VIEWS:
+            prior = (fields.get("art_search") == "prior" and anchor in ("plate_left", "killer_box")
+                     and not alone)
+            e["arts"].append((int(fields["art_x0"]), bool(prior)))
 
 
 def plate_score(crop: np.ndarray) -> np.ndarray:
@@ -2087,9 +2212,14 @@ def _art_candidates(ally: bool | None, candidates: dict | None,
 
 def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | None,
              s: "KillfeedScale", art_dir, candidates: dict | None = None,
-             plate_x0: float | None = None) -> dict:
+             plate_x0: float | None = None, entry_x0: float | None = None) -> dict:
     """One portrait view's inner-weighted art ZNCC (`appearance.art_zncc`), as
     `art_*` fields of its observation. It names no agent.
+
+    A killer whose entry already holds an anchor (`entry_x0`, from
+    `EntryAnchors`) is searched there first (`art_anchor` "entry_anchor"),
+    then at its own plate edge and name-start box; with an anchor the
+    column is fixed, so a surprise widens the rows only, about the anchor.
 
     **Continue the prior; widen on surprise.** A victim's portrait is the art
     mirrored, its outer column at ROI column roi_w - `ART_VICTIM_OUTER`, so its
@@ -2128,7 +2258,8 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
     if victim:
         priors = [(w - s.n(ART_VICTIM_OUTER) + 1 - tw, "right_edge")]
     else:
-        priors = ([(int(round(plate_x0)), "plate_left")] if plate_x0 is not None else []) + \
+        priors = ([(int(round(entry_x0)), "entry_anchor")] if entry_x0 is not None else []) + \
+                 ([(int(round(plate_x0)), "plate_left")] if plate_x0 is not None else []) + \
                  ([(x0, "killer_box")] if x0 is not None else [])
     if not priors:
         out["art_reason"] = "no_killer_box"
@@ -2157,7 +2288,9 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
             cover[i] = art.cut_terms(cut, victim)["cover"][[art.index[n] for n in names]]
         return z, xs, ya, cover
 
-    wide_dx = s.n(ART_PRIOR_X if victim else ART_WIDE_X)
+    # An entry anchor fixes the column: a surprise there widens rows only.
+    fixed = entry_x0 is not None and not victim
+    wide_dx = s.n(ART_PRIOR_X if victim or fixed else ART_WIDE_X)
     with usage_step("art"):
         got, mode = None, "prior"
         for px, anchor in priors:
@@ -2166,10 +2299,11 @@ def art_view(crop: np.ndarray, role: str, x0: int | None, y0: int, ally: bool | 
                 got, best = try_, (px, anchor)
             if got is not None and float(got[0].max()) >= ART_SURPRISE_Z:
                 break
-        # the widened strip and the all-agent search run about the last prior,
-        # the name-start box where there is one
+        # the widened search and the all-agent search run about the entry
+        # anchor where there is one, else the last prior, the name-start box
+        # where there is one
         px, anchor = (best if got is not None and float(got[0].max()) >= ART_SURPRISE_Z
-                      else priors[-1])
+                      else priors[0] if fixed else priors[-1])
         if got is None or float(got[0].max()) < ART_SURPRISE_Z:
             with usage_step("widened"):
                 wide = search(wide_dx, s.n(ART_WIDE_Y), cands)
@@ -2209,7 +2343,8 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                           profile_name: str = "valorant-16x9", *,
                           scale: "KillfeedScale | None" = None,
                           art_dir=None, candidates: dict | None = None,
-                          badge_fits: dict | None = None) -> list[dict]:
+                          badge_fits: dict | None = None,
+                          anchors: "EntryAnchors | None" = None) -> list[dict]:
     """Context-free appearance evidence for each entry's two agent portraits.
 
     **The killfeed draws the agent, and nothing has ever looked at it.** Every
@@ -2239,7 +2374,11 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
     inner-weighted art ZNCC per candidate (`art_view`), the descriptor
     `adjudication.identity` names from; `candidates` ({"ally": [...],
     "enemy": [...]}, each side's admitted agents) narrows the agents scored,
-    and is a candidate set, never a verdict.
+    and is a candidate set, never a verdict. `anchors` (`EntryAnchors`, its
+    `frame` already called for this frame) carries each entry's killer
+    portrait column from view to view; each killer row then stores its
+    `entry`, and once anchored the `entry_anchor`, its `rests_on` and the
+    name-start box's `anchor_check`.
     """
     s = scale or KillfeedScale.for_capture(width, height)
     if views is None:
@@ -2295,18 +2434,40 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                 # The killer's art starts at its plate's left end, else ends at
                 # its name's start; the victim's sits at the right-aligned
                 # anchor, so it needs no gap past the name.
-                plate_fields, plate_x0 = {}, None
+                plate_fields, plate_x0, pe, ent, anc = {}, None, None, None, None
+                box_x0 = ((edge - int(round(PORTRAIT_ASPECT * s.n(ART_TILE_H))))
+                          if role == "killer" else None)
                 if role == "killer":
-                    hi = min(name0, view.wx0 if view.wx1 > view.wx0 else name0) - 1
-                    pe = plate_left_edge(crop[py0:py1], hi, s)
+                    # The entry's anchor first (`EntryAnchors`); the plate
+                    # edge is measured until the anchor holds ANCHOR_VIEWS.
+                    ent = anchors.entry(view, s) if anchors is not None else None
+                    anc = EntryAnchors.anchor(ent)
+                    if anc is None or anc["views"] < ANCHOR_VIEWS:
+                        hi = min(name0, view.wx0 if view.wx1 > view.wx0 else name0) - 1
+                        pe = plate_left_edge(crop[py0:py1], hi, s)
                     if pe is not None:
                         plate_x0 = pe[0] + s.px(KILLER_ART_FROM_PLATE)
                         plate_fields = {"plate_left": round(pe[0], 2),
                                         "plate_left_score": round(pe[1], 2)}
-                fields = art_view(crop, role, (edge - int(round(PORTRAIT_ASPECT * s.n(ART_TILE_H))))
-                                  if role == "killer" else None, py0, ally, s, art_dir,
-                                  candidates, plate_x0=plate_x0)
+                fields = art_view(crop, role, box_x0, py0, ally, s, art_dir, candidates,
+                                  plate_x0=plate_x0,
+                                  entry_x0=None if anc is None
+                                  else anc["x"] + s.px(KILLER_ART_FROM_PLATE))
                 fields.update(plate_fields)
+                if ent is not None:
+                    fields["entry"] = ent["entry"]
+                    if anc is not None:
+                        # The name-start box cross-checks the anchor; a
+                        # disagreement is stored, never averaged in.
+                        delta = None if box_x0 is None else round(box_x0 - anc["x"], 2)
+                        fields.update({
+                            "entry_anchor": round(anc["x"], 2),
+                            "rests_on": [{"prior": "entry_anchor", "entry": ent["entry"],
+                                          "source": anc["source"], "views": anc["views"]}],
+                            "anchor_check": {"name_start": box_x0, "delta": delta,
+                                             "surprise": (delta is not None and
+                                                          abs(delta) > s.px(ANCHOR_CHECK_X))}})
+                    EntryAnchors.confirm(ent, fields, pe)
             else:
                 fields = {}
             if edge is None:
@@ -3248,6 +3409,8 @@ class KillfeedPortraitReader:
         self.weapons: list[dict] = []
         self.names: list[dict] = []
         self.frames_offered = 0
+        # Each entry's killer portrait column, carried across frames.
+        self.anchors = EntryAnchors()
 
     def feed(self, smp) -> None:
         self.frames_offered += 1
@@ -3277,10 +3440,12 @@ class KillfeedPortraitReader:
                 self.weapons.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms),
                                      **row})
         with usage_step("portraits"):
+            self.anchors.frame(smp.t_ms)
             portraits = portrait_observations(
                 smp.frame, self.roi, self.w, self.h, views=views,
                 mask=self.mask, profile_name=self.profile.name, scale=s,
-                art_dir=self.art_dir, candidates=self.candidates, badge_fits=fits)
+                art_dir=self.art_dir, candidates=self.candidates, anchors=self.anchors,
+                badge_fits=fits)
             for observation in portraits:
                 self.rows.append({
                     "frame_idx": int(smp.frame_idx),
@@ -3327,7 +3492,15 @@ class KillfeedPortraitReader:
                     "candidates_widened": sum(bool(r.get("art_candidates_widened"))
                                               for r in self.rows),
                     "refused_reasons": dict(sorted(Counter(r["art_reason"] for r in self.rows
-                                                           if r.get("art_reason")).items()))},
+                                                           if r.get("art_reason")).items())),
+                    # The entry anchor: killer views it placed, and the
+                    # name-start box's disagreements with it.
+                    "anchors": {
+                        "entries": len({r["entry"] for r in self.rows if "entry" in r}),
+                        "anchored": sum("entry_anchor" in r for r in self.rows),
+                        "held": sum(r.get("art_anchor") == "entry_anchor" for r in self.rows),
+                        "name_start_surprises": sum(bool((r.get("anchor_check") or {})
+                                                         .get("surprise")) for r in self.rows)}},
         }
         rows = []
         for row in self.rows:
