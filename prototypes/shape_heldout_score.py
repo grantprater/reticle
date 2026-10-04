@@ -47,6 +47,9 @@ larger grey disc at the same place [domain:abilities/astra-star-ally-minimap-gly
 [domain:abilities/astra-star-placed-then-turned]
 [domain:abilities/astra-nebula-minimap-disc].
 
+Why the smoke channel missed most Omen:E marks (span gate, target-icon
+phase, one mark with no smoke): docs/OMEN_DARK_COVER_MISSES.md.
+
 Wire: no. An evaluation of frozen readers on held-out labels; no rule is
 promoted before the player confirms the glyph/shape split.
 """
