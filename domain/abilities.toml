@@ -4858,6 +4858,30 @@ a Tour De Force line in the buy phase is a spent ultimate, whether or not the
 weapon later kills
 """
 see = ["abilities/chamber-tour-de-force-ally-line-at-equip",
+       "abilities/chamber-tour-de-force-enemy-line-at-drop",
+       "abilities/chamber-tour-de-force-not-kept-next-round"]
+
+[chamber-tour-de-force-not-kept-next-round]
+claim = """
+An equipped Tour De Force does not carry into the next round.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "chamber:tour de force"
+source = "the player, 2026-10-04 (chat)"
+use = """
+a Tour De Force kill in a round implies an equip, and so an ult line, in that
+same round
+"""
+exceptions = """
+the store contradicts it once: 223d636bf8d2 (C:\\Users\\grant\\Videos\\2026-08-23
+20-09-01.mp4) round 7 has a Tour De Force kill but no stored Chamber line in
+that round or the one before; the best Chamber peak there, 0.022, lies under
+the 0.030 floor for kill-witnessed peaks, so that line was missed
+"""
+see = ["abilities/chamber-tour-de-force-equip-spends-ult",
+       "abilities/chamber-tour-de-force-ally-line-at-equip",
        "abilities/chamber-tour-de-force-enemy-line-at-drop"]
 
 [chamber-tour-de-force-ally-line-at-equip]
@@ -4883,7 +4907,8 @@ date an allied Chamber's equip by the ally line's onset, in the buy phase as
 in the round
 """
 see = ["abilities/chamber-tour-de-force-equip-spends-ult",
-       "abilities/chamber-tour-de-force-enemy-line-at-drop"]
+       "abilities/chamber-tour-de-force-enemy-line-at-drop",
+       "abilities/chamber-tour-de-force-not-kept-next-round"]
 
 [chamber-tour-de-force-enemy-line-at-drop]
 claim = """
@@ -4927,7 +4952,8 @@ is about half a second (`docs/VOICE_LINES.md`, "Buy phase and the barrier
 drop")
 """
 see = ["abilities/chamber-tour-de-force-ally-line-at-equip",
-       "abilities/ult-lines-heard-by-both-teams", "rounds/buy-phase-barriers"]
+       "abilities/ult-lines-heard-by-both-teams", "rounds/buy-phase-barriers",
+       "abilities/chamber-tour-de-force-not-kept-next-round"]
 
 [jett-blade-storm-line-not-in-buy-phase]
 claim = """
