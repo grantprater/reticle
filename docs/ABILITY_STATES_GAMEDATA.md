@@ -154,8 +154,9 @@ data plays them (`audio-phases-*.jsonl`):
 - Activation: Shock Bolt `Hunter_S0_AB_4_ShockBolt_Explode_01`-`_03` and
   `Hunter_S0_AB_4_Deployed_Start_1`; Recon Bolt's deployed loops
   (`Hunter_AbilQ_Deployed_Loop_01`, `_Deployed_Ally_`/`_Enemy_Swt_Loop`).
-- Scan pulse: `Play_Hunter_Abil_SonarBolt_SonarPing_upd`, whose media
-  (`Abil_Joules_Q_Sonar_Ping_01`) the audio export lacks.
+- Scan pulse: `Play_Hunter_Abil_SonarBolt_SonarPing_upd`, whose medium
+  (`Abil_Joules_Q_Sonar_Ping_01`) the store's `audio-sfx-gaps-0.1.0` holds
+  [domain:abilities/sova-recon-bolt-scan-pulse-media].
 
 The cast cannot separate the bolts; the landing and activation files can.
 
@@ -188,6 +189,12 @@ mapped and
 [metric:ability_states_gamedata/checks@all-agents#audio_manifest_unmapped_data_silent=28]
 unmapped rows: Jett's passive (`AbilP`), Miks' `AbilC_Explosion` media,
 Skye's `HawkFlash_Fly`, and hit confirms on damage types the walk leaves.
+The export already holds a player for each of the 28: `FXC_Wushu_Glide` and
+`_GlideLand` under `Ability_Wushu_Passive_Glide` (folder `S0/Glide`, outside
+`Ability_*`), `FXC_Thumper_Slam_Concuss` and `_Heal` under the thumper game
+objects, and Tejo's `FXC_Cashew_X_SelectLocation` and
+`_ClearClickedLocations` under `Ability_Cashew_X_Airstrike`; the walk misses
+them (the store's `game-files/release-13.06-shipping-18-5590001/gaps-0.1.0/`).
 
 ## Disagreements
 
@@ -219,9 +226,14 @@ answered textures. The checks file lists each with its path; the main ones:
 ## Open
 
 The mechanics sheet asks the player about Killjoy's C and E icon states and
-Astra's yellow star views and Dissipate input. Not derived: the order of
-state transitions outside the hand reading (the state machine names states,
-not edges); AnimSequence notifies (only montages are exported); the media a
-perspective switch selects; Recon Bolt's scan pulse media (not exported);
-spectral or duration matching of files to phases (names and event data
-only); and the minimap meaning of `EnemyVisibility`.
+Astra's yellow star views and Dissipate input. The turret's active marker is
+reached only through its behaviour tree, now exported in `ability-ai-widgets/`
+[domain:abilities/killjoy-minimap-texture-referrers]; the walk does not read
+behaviour trees yet. The same export pass added the two kill icons the
+killfeed set lacked [domain:killfeed/blade-storm-and-mosh-pit-kill-icon-textures]
+and the shared controllers behind the 44 `missing_fxc` cues (`shared-fxc/`).
+Not derived: the order of state transitions outside the hand reading (the
+state machine names states, not edges); AnimSequence notifies (only montages
+are exported); the media a perspective switch selects; spectral or duration
+matching of files to phases (names and event data only); and the minimap
+meaning of `EnemyVisibility`.

@@ -4827,3 +4827,61 @@ named Abil_Joules_Q_Sonar_Ping_01, which the store's ability audio export
 (`ability-audio-ref-0.2.0`) does not hold
 """
 see = ["abilities/sova-shock-bolt-audio-phases", "abilities/ability-sound-phases"]
+
+[sova-recon-bolt-scan-pulse-media]
+claim = """
+The game files hold Recon Bolt's scan-pulse sound: the event
+Play_Hunter_Abil_SonarBolt_SonarPing_upd plays one SFX medium,
+Abil_Joules_Q_Sonar_Ping_01, 2.24 s, filed under a _Char_Joules audio folder
+rather than Sova's own. The controller FXC_Hunter_Q_SonarPulse plays the
+event, and the game object GameObject_Hunter_Q_SonarPing names that
+controller; no other package names either.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-04"
+subject = "sova:recon bolt"
+source = """
+game build release-13.06-shipping-18-5590001: game-extract's wwise resolver
+(FModel's) over every character SFX event, kept as
+<store>/reference/game-files/audio-sfx-gaps-0.1.0/Sova/ (manifest.jsonl,
+delta.json); the referrers from the whole-game scan
+release-13.06-shipping-18-5590001/gaps-0.1.0/whorefs-all.tsv. The
+ability-audio-ref filter had dropped the cross-agent _Char_Joules folder
+"""
+use = """
+the scan-pulse reference for scoring a Recon Bolt on its pulses
+[domain:abilities/sova-recon-bolt-audio-phases]; that fact's exception (the
+export lacks the medium) predates audio-sfx-gaps-0.1.0
+"""
+see = ["abilities/sova-recon-bolt-audio-phases"]
+
+[killjoy-minimap-texture-referrers]
+claim = """
+Every Killjoy minimap texture in the game files has a referrer.
+TX_UI_Minimap_Killjoy_E_Active is named only by the controller
+FXC_Killjoy_E_Turret_HasTarget, which only the turret's behaviour tree
+BehaviorTree_Killjoy_E_Turret names. TX_UI_Minimap_Killjoy_Q_Active and
+TX_Hud_Icons_Minimap_Killjoy_Alarmbot_Active are named only by
+FXC_Killjoy_Q_AlarmBot_Detect, which Pawn_Killjoy_Q_StealthAlarmbot names.
+The data names which controller draws each texture; it does not say what the
+player sees.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+subject = "killjoy:turret; killjoy:alarmbot"
+source = """
+game build release-13.06-shipping-18-5590001: the whole-game reverse-reference
+scan (imports and name maps of 289,307 packages) in
+<store>/reference/game-files/release-13.06-shipping-18-5590001/gaps-0.1.0/
+(whorefs-all.tsv, manifest-delta.json); the behaviour tree is exported in
+ability-ai-widgets/, the rest in ability-states/
+"""
+use = """
+reach the turret's active marker through its behaviour tree when the game
+data maps a minimap texture to its state; what the marker means on screen
+stays a question for the player
+[domain:abilities/ability-rules-are-unique]
+"""
+see = ["abilities/killjoy-alarmbot", "abilities/ability-rules-are-unique"]
