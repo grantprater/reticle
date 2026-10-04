@@ -358,5 +358,54 @@ class TestSyntheticVariant(unittest.TestCase):
         self._check(0, 0.90, (40, 30))
 
 
+def _placement(t_switch, version="widget-frame-0.3.0", fitted_at="2026-10-04T22:09:54+00:00",
+               ncc=0.5):
+    """A side-based entry shaped like 4f207c0c4e39's: turned, then upright."""
+    turned = [[-1.1752, 0.0, 394.9124], [0.0, -1.1763, 426.9119]]
+    upright = [[1.1752, 0.0, 18.0876], [0.0, 1.1763, 25.0881]]
+    return {"version": version, "baked_roi": [15, 22, 346, 351], "fitted_at": fitted_at,
+            "segments": [{"t0_ms": None, "t1_ms": t_switch, "rotation": 180,
+                          "affine": turned, "n": 23, "ncc_min": ncc},
+                         {"t0_ms": t_switch, "t1_ms": None, "rotation": 0,
+                          "affine": upright, "n": 16, "ncc_min": ncc}]}
+
+
+class TestPlacementIdentity(unittest.TestCase):
+    """What a widget-reading stream records of the placement it read through,
+    and when the stored placement last changed what a reader reads."""
+
+    def test_no_placement_and_an_identity_one_read_the_baked_frame(self):
+        self.assertEqual(wf.placement_identity({}), wf.NO_PLACEMENT)
+        ident = {"version": "widget-frame-0.3.0", "baked_roi": [15, 22, 346, 351],
+                 "segments": [{"t0_ms": None, "t1_ms": None, "rotation": 0,
+                               "affine": [[1.0, 0.0, 15.0], [0.0, 1.0, 22.0]]}]}
+        self.assertEqual(wf.placement_identity({wf.MANIFEST_KEY: ident}), wf.NO_PLACEMENT)
+        self.assertIsNone(wf.placement_changed_at({wf.MANIFEST_KEY: ident}))
+        self.assertIsNone(wf.placement_changed_at({}))
+
+    def test_a_moved_switch_changes_the_digest_and_diagnostics_do_not(self):
+        old, new = _placement(1192766.6666666667), _placement(1148000.0)
+        self.assertNotEqual(wf.placement_digest(old), wf.placement_digest(new))
+        diag = _placement(1148000.0, version="widget-frame-9.9.9", ncc=0.9)
+        diag["segments"][1].update(t_first_ms=1192766.67, switch_round=13)
+        self.assertEqual(wf.placement_digest(diag), wf.placement_digest(new))
+        ident = wf.placement_identity({wf.MANIFEST_KEY: new})
+        self.assertTrue(ident.startswith("widget-frame-0.3.0#"))
+        self.assertEqual(ident.split("#")[1], wf.placement_digest(new))
+
+    def test_changed_at_is_the_refit_that_moved_the_pixels(self):
+        old = _placement(1192766.6666666667, "widget-frame-0.1.0", "2026-09-29T02:50:49+00:00")
+        new = _placement(1148000.0, fitted_at="2026-10-04T22:09:54+00:00")
+        man = {wf.MANIFEST_KEY: new, wf.MANIFEST_KEY + "_history": [old]}
+        self.assertEqual(wf.placement_changed_at(man), "2026-10-04T22:09:54+00:00")
+        # A later refit that moves only the stamp leaves the change where it was.
+        again = _placement(1148000.0, "widget-frame-0.4.0", "2026-10-05T00:00:00+00:00")
+        man = {wf.MANIFEST_KEY: again, wf.MANIFEST_KEY + "_history": [old, new]}
+        self.assertEqual(wf.placement_changed_at(man), "2026-10-04T22:09:54+00:00")
+        # The first placement changed it from the baked frame.
+        self.assertEqual(wf.placement_changed_at({wf.MANIFEST_KEY: old}),
+                         "2026-09-29T02:50:49+00:00")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -745,8 +745,10 @@ def cmd_minimap(args) -> int:
     if not rows:
         raise SystemExit("decoded zero frames inside in-match spans -- is segmentation right?")
 
+    from .widget_frame import placement_identity
     out = store.write_minimap(rows, _FP(src, sid), profile.name, date,
-                              segmenter_version=_spans_stamp(store, sid, date))
+                              segmenter_version=_spans_stamp(store, sid, date),
+                              widget_placement=placement_identity(manifest))
     dt = time.perf_counter() - t0
 
     n = len(rows)
@@ -884,7 +886,7 @@ def _ability_stale(store, sid, streams=None) -> bool:
     alone, so `plan` named `scan --only ability` for a fit over
     `death-adjudication-0.20.0` and the scan answered "current"."""
     from .input_stamps import head_row
-    from .plan import ability_streams, derived_streams, recorded_stale
+    from .plan import ability_streams, derived_streams, placement_moved, recorded_stale
     specs = {s["stream"]: s for s in derived_streams()}
     manifest, memo = store.read_manifest(sid), {}
     for stream, _key, current in ability_streams():
@@ -894,7 +896,7 @@ def _ability_stale(store, sid, streams=None) -> bool:
             return True
         behind, moved, _ = recorded_stale(store, manifest, specs[stream],
                                           head_row(store, stream, sid) or {}, memo)
-        if behind or moved:
+        if behind or moved or placement_moved(store, manifest, stream) is not None:
             return True
     return False
 
@@ -1142,11 +1144,15 @@ def cmd_scan(args) -> int:
                        or store.events_version("killfeed_name", sid) != KILLFEED_NAME_VERSION
                        or store.events_version("killfeed_numeral", sid) != KILLFEED_NUMERAL_VERSION))
     # A reader stream read over other spans than the stored ones rereads
-    # (`plan.spans_read_moved`), as `plan` calls it stale.
-    from .plan import spans_read_moved
+    # (`plan.spans_read_moved`), as `plan` calls it stale; so does a widget
+    # stream read through another placement than the stored one, though
+    # its stamp is current (`plan.placement_moved`).
+    from .plan import placement_moved, spans_read_moved
     spans_moved = lambda stream: spans_read_moved(store, manifest, stream)
+    reread_placed = lambda s: placement_moved(store, manifest, s) is not None
     want_mm = 'minimap' in channels and (args.force or not store.has_minimap(sid, date)
-                                         or spans_moved("minimap"))
+                                         or spans_moved("minimap")
+                                         or reread_placed("minimap"))
     # Pings are events rather than a versioned table, but the cache key is the
     # VERSION, not the file's existence. Keying on existence made `PING_VERSION`
     # a stamp nothing read: bumping it re-read nothing, and a store could hold
@@ -1154,14 +1160,14 @@ def cmd_scan(args) -> int:
     # which is the one job version.py says a stamp exists to do.
     want_ping = 'ping' in channels and args.ping and (args.force
                                or store.events_version("ping", sid) != PING_VERSION
-                               or spans_moved("ping"))
+                               or spans_moved("ping") or reread_placed("ping"))
     want_roster = 'roster' in channels and args.roster and (args.force or not store.has_roster(sid, date))
     # Rides the minimap's in-match spans at `--ally-hz` (`ALLY_DESCRIPTOR_HZ`);
     # versioned by its own stamp, so a descriptor change re-reads descriptors
     # and leaves positions alone.
     want_ally = 'ally_icon' in channels and (
         args.force or store.events_version("ally_icon", sid) != ALLY_ICON_VERSION
-        or spans_moved("ally_icon"))
+        or spans_moved("ally_icon") or reread_placed("ally_icon"))
     # Grey dark floor at 4 Hz over in-match spans: the smoke observation.
     # Versioned by its own stamp, so `reticle smokes` can re-adjudicate
     # without a re-read.
@@ -1171,7 +1177,8 @@ def cmd_scan(args) -> int:
     want_dark = 'minimap_dark' in channels and (
         (args.force and dark_named)
         or store.events_version("minimap_dark", sid) != MINIMAP_DARK_VERSION
-        or (dark_named and spans_moved("minimap_dark")))
+        or (dark_named and spans_moved("minimap_dark"))
+        or reread_placed("minimap_dark"))
     # The ability pass at 2 Hz over the same spans, every caster's drawings:
     # each stream by its own stamp (`ability_scan`).
     # The shape reader writes SHAPE_STREAMS; the icon reader writes
@@ -1391,6 +1398,10 @@ def cmd_scan(args) -> int:
         each path printed below is the stream's place in staging."""
         hp, kp, mp, pp, rp, sp, lp, ap, dp, cp, xp = (
             R.hp, R.kp, R.mp, R.pp, R.rp, R.sp, R.lp, R.ap, R.dp, R.cp, R.xp)
+        # Every widget-reading stream records the placement it read through
+        # (`plan.record_placement`), so `plan` names it when the placement moves.
+        from .plan import record_placement
+        from .widget_frame import placement_identity
         if hp is not None:
             if not hp.rows:
                 raise SystemExit("decoded zero frames -- is the file readable?")
@@ -1426,7 +1437,8 @@ def cmd_scan(args) -> int:
                 mp.rows, _FP(src, sid), profile.name, date,
                 frames_from=None if frames_from.startswith("video") else frames_from,
                 spans_clip=getattr(mp, "spans_clip", None),
-                segmenter_version=_spans_stamp(store, sid, date))
+                segmenter_version=_spans_stamp(store, sid, date),
+                widget_placement=placement_identity(manifest))
             got = sum(1 for r in mp.rows if r["self_x"] is not None)
             print(f"minimap    {len(mp.rows)} rows -> {path}")
             print(f"           widget absent {mp.n_absent}/{len(mp.rows)} "
@@ -1546,11 +1558,13 @@ def cmd_scan(args) -> int:
             path = out.write_events("ability_gate", sid, rows)
             print(f"ability gate {rows[0]['frames']} samples {rows[0]['by_reason']} -> {path}")
             rows = bp.fit_events(sid, gkey)
+            record_placement(manifest, "ability_fit", rows[0])
             path = out.write_events("ability_fit", sid, rows)
             print(f"ability fits {rows[0]['gated']} gated samples, found "
                   f"{ {k: v['found'] for k, v in rows[0]['by_descriptor'].items()} }, "
                   f"surprise rate {rows[0]['surprise_rate']} -> {path}")
             rows = bp.wall_events(sid, gkey)
+            record_placement(manifest, "ability_wall", rows[0])
             path = out.write_events("ability_wall", sid, rows)
             print(f"ability walls {rows[0]['frames']} samples with a component "
                   f"{rows[0]['by_descriptor']} -> {path}")
@@ -1561,6 +1575,7 @@ def cmd_scan(args) -> int:
                   f"accepted on {rows[0]['rings_accepted']}, beams on {rows[0]['beams_accepted']} "
                   f"-> {path}")
             rows = bp.audit_events(sid, gkey)
+            record_placement(manifest, "ability_shape_audit", rows[0])
             path = out.write_events("ability_shape_audit", sid, rows)
             print(f"ability audit {rows[0]['frames']} samples (every {rows[0]['audit_every']}th "
                   f"gated), candidate accepted on {rows[0]['candidate_accepted']} -> {path}")
@@ -4065,6 +4080,8 @@ def cmd_self_icon(args) -> int:
             continue
         head = res["rows"][0]
         head["checks"] = {"wall_s": round(time.perf_counter() - t0, 1)}
+        from .plan import record_placement
+        record_placement(store.read_manifest(sid), "self_icon", head)
         out = store.write_events("self_icon", sid, res["rows"])
         w = head["witness"]
         print(f"{sid}: {head['scored']} of {head['grid_frames']} grid frames scored; "
@@ -4276,6 +4293,8 @@ def cmd_spike(args) -> int:
                 continue
             head = res["rows"][0]
             head["checks"] = {"wall_s": round(time.perf_counter() - t0, 1)}
+            from .plan import record_placement
+            record_placement(store.read_manifest(sid), "spike", head)
             out = store.write_events("spike", sid, res["rows"])
             print(f"{sid}: {head['read']} of {head['grid_frames']} grid frames read; glyph frames "
                   f"{head['glyph_frames']}; marker on {head['marker_frames']} of "

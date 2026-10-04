@@ -95,7 +95,7 @@ question = "Where does this session draw its minimap widget relative to the bake
 owner = "widget_frame"
 role = ["constrain"]
 status = "shipped"
-produces = ["fit_crop", "for_session", "cohort", "capture_box", "capture_box_for", "placement_status", "unplaced_refusal", "turned_at", "fit_placement"]
+produces = ["fit_crop", "for_session", "cohort", "capture_box", "capture_box_for", "placement_status", "unplaced_refusal", "turned_at", "fit_placement", "placement_identity", "placement_changed_at"]
 not_for = """
 Any map value. The fit measures the widget's scale, rotation and placement
 against the baked static and nothing else; the floor, lighting and base map
