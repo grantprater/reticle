@@ -413,3 +413,41 @@ The scoreline OCR reads no clock in this form
 """
 see = ["hud/planted-spike-replaces-clock"]
 phrases = ["red timer", "hundredths on the clock"]
+
+[digit-fonts]
+claim = """
+The HUD's digits draw in DIN Next (the game's DINNext_Font), never Tungsten.
+Each widget names a face and a point size, and Slate draws a point as 96/72 px
+at 1080p. The round clock (TimerHUDElement TimerLine1) is 28 pt, the team
+scores (TeamScoreHUDElement Score) 22 pt and the ammo reserve 16 pt, each in
+face 'Default', which resolves to DINNext_Font's first face, Regular. Health
+(HealthText) and the magazine (LoadedAmmo) are DIN Next Medium 36 pt, and the
+scoreboard's kills, deaths, assists and credits DIN Next Medium 11 pt. The
+shield's widget (ArmorHUDElement_CharacterHUD) is not exported; its digits fit
+DIN Next Medium at about 14 pt.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-10-04"
+subject = "hud:scoreline"
+source = """
+the game's widget data under the store's reference/game-files/
+release-13.06-shipping-18-5590001/hud-layout (font face, size and tracking per
+TextBlock; the font object is not exported), and prototypes/game_font_digits.py
+census, which fit every exported face at sizes 10-56 px to the stored glyphs of
+a06f04a0059f, 5822b6646448 and 4f207c0c4e39: each field's best face is the one
+named here, at the widget's size within 0.7 px; Tungsten-Bold fits the clock
+with a mean normalised-bitmap difference of 0.187 against DIN Next Regular's
+0.032
+"""
+use = """
+render digit templates from the font file at the widget's size
+(`ocr.FIELD_FONTS`) instead of mining them from captures
+"""
+exceptions = """
+the scoreboard's digits fit DIN Next Medium best at 15.5 px, not the 14.7 px
+that 11 pt predicts; the cause (a scale box or the widget's render transform)
+is unexported
+"""
+see = ["hud/hud-scales-with-resolution", "hud/low-clock-red-plate"]
+phrases = ["hud digit font", "scoreline font", "DIN Next digits"]

@@ -227,7 +227,17 @@ SEGMENTER_VERSION = "seg-0.2.0"
 # spacer (5) [domain:killfeed/entry-list-layout], not 40: a tall plate run
 # splits into bands on the game's grid and `absolute_slot` names slots by it.
 # (0.19.0 belongs to one-colour-band-20261003.)
-HUD_VERSION = "hud-0.20.0"
+# 0.21.0 (2026-10-04): the clock, both scores, health, shield and magazine
+# read digit templates rendered from the game's DIN Next font files at each
+# widget's size (`ocr.game_font_templates`) [domain:hud/digit-fonts], not the
+# 44 mined ones; the reserve keeps the mined set (`ocr.RESERVE_FONT`). A
+# number with a leading zero refuses, and so does a field whose digits'
+# tops and bottoms both spread over 2 px. On a06f04a0059f, 5822b6646448 and
+# 4f207c0c4e39 (crop cache) no stored value changes to another value; the
+# guards refuse seven stored health reads of 0 where the HUD shows 20 or
+# 100; health, shield, magazine and the right score read on more frames
+# (prototypes/game_font_digits.py compare --production).
+HUD_VERSION = "hud-0.21.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits

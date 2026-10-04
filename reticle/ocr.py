@@ -12,14 +12,19 @@ per-glyph template matching both exact and free. The pipeline is:
     threshold -> connected components -> filter by glyph geometry
               -> normalise each blob to a fixed grid -> nearest template
 
-Templates are mined from real footage (`reticle glyphs`) and labelled once by
-hand, then committed as a small .npz keyed by profile name. Nothing about this
-stage depends on the templates being *correct* in the abstract -- it depends on
-them matching the footage, which is why they are mined from it.
+The scoreline, health, shield and magazine match against templates rendered
+from the game's own font files (`game_font_templates`), one set per field: the widget
+data names each field's face and point size, and the store's game-file
+reference holds the fonts. Each digit is drawn at 8x, shrunk with
+`INTER_AREA` at 4x4 sub-pixel phases, and cut at four coverage levels that
+stand for the 190 luma cut over plates of different luma; each cut glyph then
+passes through `normalise` as a captured glyph does. The mined set
+(`Templates.load`, `reticle glyphs`) remains for the ammo reserve
+(`RESERVE_FONT`), the scoreboard and the combat report. `prototypes/game_font_digits.py`
+fits each field's face and size and compares the two sets on stored crops.
 
-What this reads today: the top-centre scoreline, meaning the round clock and
-both team scores. Ammo, HP, credits and the killfeed are the other stage-02
-extractors and are not built yet.
+What this reads: the top-centre scoreline (the round clock and both team
+scores) and the bottom HUD (health, shield, magazine, reserve).
 
 Owns [owns:scoreline].
 """
@@ -27,6 +32,7 @@ Owns [owns:scoreline].
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -242,6 +248,169 @@ class Templates:
         return path
 
 
+# --------------------------------------------------------------------------- game font
+
+#: The game's font files, relative to the store root; they stay in the store.
+FONT_DIR = ("reference/game-files/release-13.06-shipping-18-5590001/fonts/"
+            "ShooterGame/Content/UI/Fonts/FinalFonts")
+#: Slate draws a point as 96/72 px; the UI scale is 1.0 at 1080p.
+SLATE_PX_PER_PT = 96.0 / 72.0
+#: Each field's font file and point size [domain:hud/digit-fonts]. Every
+#: widget names DINNext_Font's face ('Default' is its first, Regular) and a
+#: size; the shield's widget is not exported and its size is fitted.
+FIELD_FONTS = {
+    "clock": ("DINNext_Regular.ttf", 28.0),
+    "score_left": ("DINNext_Regular.ttf", 22.0),
+    "score_right": ("DINNext_Regular.ttf", 22.0),
+    "hp": ("DINNext_Medium.ttf", 36.0),
+    "shield": ("DINNext_Medium.ttf", 14.0),
+    "ammo_mag": ("DINNext_Medium.ttf", 36.0),
+}
+#: The reserve's font: DIN Next Regular 16 pt. Not read with it yet: the
+#: reserve's 1 (4x14 px, 19 lit) falls under MIN_AREA, and the rendered 3
+#: then reads 31 as 3 with confidence where the mined set refuses
+#: (4f207c0c4e39 128.0 and 1208.0 s), so the reserve keeps the mined set.
+RESERVE_FONT = ("DINNext_Regular.ttf", 16.0)
+#: Glyphs are drawn this many times larger, then shrunk with `INTER_AREA`.
+FONT_SUPERSAMPLE = 8
+#: Sub-pixel phases per axis.
+FONT_PHASES = 4
+#: Coverage above which a rendered pixel is glyph. White text over a plate of
+#: luma b passes the 190 cut where coverage exceeds (190 - b) / (255 - b);
+#: these four cover plates from about 100 (0.4) to 170 (0.85).
+FONT_COVER_CUTS = (0.4, 0.55, 0.7, 0.85)
+#: A rendered digit whose largest piece is shorter than this share of its ink
+#: is broken by the cut and makes no template.
+BROKEN_GLYPH_H = 0.85
+
+
+def _font_cover(ch: str, font_file: str, px: float, dx: float, dy: float) -> np.ndarray:
+    """`ch` white on black at `px` px per em, offset (dx, dy) px, as float32
+    coverage: drawn FONT_SUPERSAMPLE times larger, shrunk with INTER_AREA."""
+    from PIL import Image, ImageDraw, ImageFont
+    ss = FONT_SUPERSAMPLE
+    font = ImageFont.truetype(font_file, px * ss, layout_engine=ImageFont.Layout.BASIC)
+    left, top, right, bottom = font.getbbox(ch)
+    pad = 2 * ss
+    w = int(np.ceil((right - left + 2 * pad) / ss)) * ss
+    h = int(np.ceil((bottom - top + 2 * pad) / ss)) * ss
+    im = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(im).text((pad - left + dx * ss, pad - top + dy * ss), ch, fill=255, font=font)
+    a = np.asarray(im, np.float32) / 255.0
+    return cv2.resize(a, (w // ss, h // ss), interpolation=cv2.INTER_AREA)
+
+
+def _cut_glyph(cover: np.ndarray, cut: float) -> np.ndarray | None:
+    """A rendered glyph as the reader sees one: cut once, its largest
+    component's box, `normalise`. None where the cut breaks the digit: a
+    largest piece shorter than BROKEN_GLYPH_H of the ink's height is a
+    fragment, and a fragment template would let a cut-off digit match."""
+    binary = (cover > cut).astype(np.uint8) * 255
+    n, _, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
+    if n < 2:
+        return None
+    i = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    x, y, w, h = (int(v) for v in stats[i, :4])
+    rows = np.nonzero(binary.any(axis=1))[0]
+    if h < BROKEN_GLYPH_H * (rows[-1] - rows[0] + 1):
+        return None
+    return normalise(binary[y:y + h, x:x + w])
+
+
+@lru_cache(maxsize=None)
+def font_digit_templates(font_file: str, pt: float) -> Templates:
+    """Digits 0-9 of one font file at `pt` points: every distinct glyph over
+    FONT_PHASES x FONT_PHASES phases and FONT_COVER_CUTS."""
+    px = pt * SLATE_PX_PER_PT
+    labels: list[str] = []
+    maps: list[np.ndarray] = []
+    seen: set[tuple[str, bytes]] = set()
+    for d in "0123456789":
+        for j in range(FONT_PHASES):
+            for i in range(FONT_PHASES):
+                cover = _font_cover(d, font_file, px, i / FONT_PHASES, j / FONT_PHASES)
+                for cut in FONT_COVER_CUTS:
+                    bm = _cut_glyph(cover, cut)
+                    if bm is None or (d, bm.tobytes()) in seen:
+                        continue
+                    seen.add((d, bm.tobytes()))
+                    labels.append(d)
+                    maps.append(bm)
+    return Templates(labels, np.array(maps, np.float32))
+
+
+class FieldTemplates:
+    """One `Templates` per field, rendered from the game's font files; a
+    field with no font set reads `default` (the mined set). `files` names the
+    font files read, for provenance."""
+
+    def __init__(self, by_field: dict[str, Templates], files: tuple[str, ...],
+                 default: Templates | None = None):
+        self.by_field = dict(by_field)
+        self.files = files
+        self.default = default
+
+    def __getitem__(self, field: str) -> Templates:
+        if field in self.by_field:
+            return self.by_field[field]
+        if self.default is None:
+            raise KeyError(f"no templates for field {field!r}")
+        return self.default
+
+
+def font_dir(store_root=None) -> Path:
+    if store_root is None:
+        from .store import Store
+        store_root = Store().root
+    return Path(store_root) / FONT_DIR
+
+
+def game_font_templates(store_root=None, default: Templates | None = None) -> FieldTemplates:
+    """Each `FIELD_FONTS` field's templates from the store's game fonts, and
+    `default` for every other field. A missing font stops the reader: no
+    mined fallback is read under the font's version."""
+    root = font_dir(store_root)
+    by_field, files = {}, set()
+    for field, (name, pt) in FIELD_FONTS.items():
+        path = root / name
+        if not path.is_file():
+            raise SystemExit(f"game font missing: {path}\n"
+                             "extract the game's fonts into the store's game-file reference")
+        by_field[field] = font_digit_templates(str(path), pt)
+        files.add(str(path))
+    return FieldTemplates(by_field, tuple(sorted(files)), default)
+
+
+def templates_for(templates: "Templates | FieldTemplates", field: str) -> Templates:
+    """The templates one field reads against: its own from a `FieldTemplates`,
+    else the one set every field shares."""
+    return templates[field] if isinstance(templates, FieldTemplates) else templates
+
+
+def _leading_zero(text: str) -> bool:
+    """A number this HUD draws never starts with 0 unless it is 0: two zeros
+    read where a bright mass swallowed the leading 1 of 100 (a06f04a0059f
+    31.5 s) are no reading."""
+    return len(text) > 1 and text[0] == "0"
+
+
+#: Digits one TextBlock draws share their top and bottom rows. A glyph whose
+#: top and bottom both sit more than this (1080p px) off its siblings' is
+#: displaced debris: a 7x22 stripe at the scoreline ROI's edge, 3 px low at
+#: its top and 5 px at its bottom, read 9 as 19 (a06f04a0059f 1689.5 s). Bloom
+#: on a digit moves one edge only, so either edge alone refuses nothing.
+MAX_EDGE_SPREAD = 2
+
+
+def _misaligned(glyphs: list[Glyph]) -> bool:
+    if len(glyphs) < 2:
+        return False
+    tops = [g.y for g in glyphs]
+    bottoms = [g.y + g.h for g in glyphs]
+    return (max(tops) - min(tops) > MAX_EDGE_SPREAD
+            and max(bottoms) - min(bottoms) > MAX_EDGE_SPREAD)
+
+
 # --------------------------------------------------------------------------- fields
 
 # Where each scoreline field sits, as a fraction of the ROI width. Measured off
@@ -315,7 +484,7 @@ def _digits(glyphs: list[Glyph], templates: Templates) -> tuple[str, float, floa
 
 def read_scoreline(
     frame_gray_roi: np.ndarray,
-    templates: Templates,
+    templates: "Templates | FieldTemplates",
     min_confidence: float = 0.82,
     min_margin: float = 0.05,
     census: "Census | None" = None,
@@ -376,9 +545,15 @@ def read_scoreline(
         if name in occluded:
             refuse(name, "occluded")
             return None
-        text, worst, margin = _digits(buckets[name], templates)
+        text, worst, margin = _digits(buckets[name], templates_for(templates, name))
         if not text or not text.isdigit():
             refuse(name, "no_digits" if not text else "not_a_number")
+            return None
+        if _leading_zero(text):
+            refuse(name, "leading_zero")
+            return None
+        if _misaligned(buckets[name]):
+            refuse(name, "misaligned")
             return None
         if worst < min_confidence:
             refuse(name, "low_confidence")
@@ -435,9 +610,11 @@ def read_scoreline(
         refuse("clock", "no_glyphs" if not clock_glyphs else
                f"{len(clock_glyphs)}_glyphs")
     else:
-        text, worst, margin = _digits(clock_glyphs, templates)
+        text, worst, margin = _digits(clock_glyphs, templates_for(templates, "clock"))
         if not text.isdigit():
             refuse("clock", "not_a_number")
+        elif _misaligned(clock_glyphs):
+            refuse("clock", "misaligned")
         elif worst < min_confidence:
             refuse("clock", "low_confidence")
         elif margin < min_margin:
@@ -561,7 +738,7 @@ class BottomRead:
 def read_subfields(
     gray_roi: np.ndarray,
     fields: list[SubField],
-    templates: Templates,
+    templates: "Templates | FieldTemplates",
     min_confidence: float = 0.82,
     min_margin: float = 0.05,
 ) -> tuple[dict[str, int | None], tuple[str, ...], float]:
@@ -605,8 +782,10 @@ def read_subfields(
             values[spec.name] = None
             continue
 
-        text, worst, margin = _digits(candidates, templates)
-        if not text.isdigit() or worst < min_confidence or margin < min_margin:
+        text, worst, margin = _digits(candidates, templates_for(templates, spec.name))
+        if (not text.isdigit() or _leading_zero(text) or _misaligned(candidates)
+                or worst < min_confidence
+                or margin < min_margin):
             values[spec.name] = None
             continue
         value = int(text)
@@ -622,7 +801,7 @@ def read_subfields(
 def read_bottom_hud(
     frame: np.ndarray,
     profile: Profile,
-    templates: Templates,
+    templates: "Templates | FieldTemplates",
     width: int,
     height: int,
     min_confidence: float = 0.82,
