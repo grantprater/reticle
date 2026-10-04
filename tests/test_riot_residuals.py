@@ -1,0 +1,134 @@
+"""Fixes for the Riot scorer's residual failures (2026-10-04).
+
+* A name read whole and cut at its word gap is one name
+  (`killfeed_names.join_fragments`).
+* A revive drawn below a split track's later piece separates nothing
+  (`death.same_entry`).
+* An entry whose victim side went unread takes only a roster drop no sided
+  entry took (`death._match_shrinks`).
+* The scorer pairs a death drawn at a stall's release with a kill inside the
+  stall (`riot_ground_truth._release_pass`).
+"""
+import sys
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+
+from reticle.adjudication.death import _match_shrinks, same_entry
+from reticle.adjudication.killfeed_names import (NCC_MIN, fragment_ncc, join_fragments,
+                                                 name_clusters)
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
+import riot_ground_truth as rg  # noqa: E402
+
+
+def _word(seed: int, w: int) -> np.ndarray:
+    """A 24-row band with white glyph-like strokes on a grey plate."""
+    rng = np.random.default_rng(seed)
+    g = np.full((24, w), 90, np.uint8)
+    for x in range(1, w - 3, 5):
+        g[8:8 + int(rng.integers(4, 10)), x:x + 2] = 240
+    return g
+
+
+def _name(*words) -> np.ndarray:
+    gap = np.full((24, 6), 90, np.uint8)
+    parts = []
+    for w in words:
+        parts += [w, gap]
+    return np.hstack(parts[:-1])
+
+
+def _crops(**grays):
+    return {eid: {"team": "ally", "me": False, "gray": g, "reason": None}
+            for eid, g in grays.items()}
+
+
+class FragmentJoinTests(unittest.TestCase):
+    def test_a_word_of_a_name_reads_as_its_fragment(self):
+        first, last = _word(1, 40), _word(3, 30)
+        whole = _name(first, last)
+        self.assertGreaterEqual(fragment_ncc(first, whole), NCC_MIN)
+        self.assertGreaterEqual(fragment_ncc(last, whole), NCC_MIN)
+        self.assertLess(fragment_ncc(_word(5, 40), whole), NCC_MIN)
+        # widths within the tolerance are one reading, not a fragment
+        self.assertEqual(fragment_ncc(whole[:, :-2], whole), 0.0)
+
+    def test_clusters_of_one_name_cut_at_its_gap_join(self):
+        first, last = _word(1, 40), _word(3, 30)
+        whole = _name(first, last)
+        crops = _crops(k1=whole, v1=first, k2=whole.copy(), v2=first.copy(), k3=last,
+                       o1=_word(5, 40), o2=_word(5, 40))
+        out = name_clusters(crops)
+        self.assertEqual(out["sides"]["ally"], [["k1", "v1", "k2", "v2", "k3"], ["o1", "o2"]])
+
+    def test_unrelated_clusters_stay_apart(self):
+        crops = _crops(a=_word(1, 40), b=_word(2, 60), c=_word(4, 30))
+        self.assertEqual(join_fragments([["a"], ["b"], ["c"]], crops), [["a"], ["b"], ["c"]])
+
+
+def verdict(t, victim=None, killer=None):
+    return SimpleNamespace(t_ms=t, victim=victim, killer=killer, is_revive=False,
+                           is_second_life=False)
+
+
+def entry(t0, t1, slot, side="enemy", reads=None):
+    return {"t_first": t0, "t_last": t1, "slot": slot, "side": side,
+            "reads": reads or [(t0, slot), (t1, slot)]}
+
+
+class ReviveBelowTests(unittest.TestCase):
+    def test_a_revive_below_the_later_piece_does_not_block_the_merge(self):
+        # 9acf02f98283: Killjoy -> Clove in slot 1 split at 968.5 s; the Not
+        # Dead Yet revive drew in slot 2 at 967.0 s
+        e, l_ = entry(966000.0, 968000.0, 1, "ally"), entry(968500.0, 970500.0, 1, "ally")
+        revive = entry(967000.0, 971500.0, 2, "ally")
+        args = ((e, verdict(966000, "Clove", "Killjoy")), (l_, verdict(968500, "Clove", "Killjoy")))
+        below = [{"t_ms": 967000.0, "side": "ally", "entry": revive}]
+        self.assertEqual(same_entry(*args, revives=below)["rule"], "queue")
+
+    def test_a_revive_at_or_above_the_later_piece_still_blocks(self):
+        e, l_ = entry(1000.0, 2500.0, 1), entry(3000.0, 5000.0, 1)
+        args = ((e, verdict(1000, "Jett")), (l_, verdict(3000, "Jett")))
+        level = [{"t_ms": 2000.0, "side": "enemy", "entry": entry(2000.0, 6000.0, 1)}]
+        self.assertIsNone(same_entry(*args, revives=level))
+        self.assertIsNone(same_entry(*args, revives=[{"t_ms": 2000.0, "side": "enemy"}]))
+
+
+class UnreadSideShrinkTests(unittest.TestCase):
+    def test_an_unread_side_takes_no_drop_a_sided_entry_took(self):
+        drop = {"t_ms": 1500.0}
+        got = _match_shrinks([{"t_ms": 1000.0, "side": "enemy"}, {"t_ms": 1500.0, "side": "unknown"}],
+                             [], [drop], 2500.0)
+        self.assertEqual(got, [drop, None])
+
+    def test_an_unread_side_takes_the_nearest_free_drop_of_either_side(self):
+        d1, d2, a1 = {"t_ms": 742000.0}, {"t_ms": 744000.0}, {"t_ms": 760000.0}
+        got = _match_shrinks([{"t_ms": 742000.0, "side": "unknown"},
+                              {"t_ms": 744000.0, "side": "enemy"}], [a1], [d1, d2], 2500.0)
+        self.assertEqual(got, [d2, d1])
+
+
+class ReleasePassTests(unittest.TestCase):
+    def test_a_released_death_pairs_with_a_kill_inside_its_stall(self):
+        span = {"t_start_ms": 1331400.0, "t_end_ms": 1339600.0}
+        kills = [{"victim": "p1", "killer": "p2"}]
+        agent_of = {"p1": "Waylay", "p2": "Jett"}
+        deaths = [{"t_ms": 1339500.0, "victim": None, "killer": "Jett", "released": span}]
+        got = rg._release_pass(kills, deaths, agent_of, [1332747.0], [1339500.0], [])
+        self.assertEqual(got, [(0, 0, 1339500.0 - 1332747.0, "stall_release")])
+
+    def test_a_disagreeing_killer_or_a_kill_outside_the_stall_does_not_pair(self):
+        span = {"t_start_ms": 1331400.0, "t_end_ms": 1339600.0}
+        kills = [{"victim": "p1", "killer": "p2"}]
+        agent_of = {"p1": "Waylay", "p2": "Jett"}
+        sova = [{"t_ms": 1339500.0, "victim": None, "killer": "Sova", "released": span}]
+        self.assertEqual(rg._release_pass(kills, sova, agent_of, [1332747.0], [1339500.0], []), [])
+        jett = [{"t_ms": 1339500.0, "victim": None, "killer": "Jett", "released": span}]
+        self.assertEqual(rg._release_pass(kills, jett, agent_of, [1320000.0], [1339500.0], []), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

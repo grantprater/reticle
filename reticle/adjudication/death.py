@@ -183,7 +183,12 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # alive before the gap (`infer_stall_deaths`): `inferred_death` rows with the
 # gap as their window, no time and no killer, resting on the prior's deaths
 # and the round's outcome claim (`adjudication.round_outcome`).
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.34.0"
+# 0.35.0 (2026-10-04): name clusters join a name read whole and cut at its
+# word gap (`killfeed-name-cluster-0.3.0`); a revive drawn below a split
+# track's later piece no longer blocks the merge (`same_entry`); an entry
+# whose victim side went unread takes only a roster drop no sided entry took
+# (`_match_shrinks`).
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.35.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -1472,7 +1477,13 @@ def same_entry(earlier: tuple[dict, "DeathVerdict"], later: tuple[dict, "DeathVe
                 One agent dies once per entry life; a revive between the two
                 (`revives`, the revive verdicts' times and sides) or a second
                 life breaks that, so neither may be a revive and both must be
-                second lives or neither. Where a victim is unnamed, both
+                second lives or neither. A revive whose entry (`entry`) sits
+                below the later track's onset slot at that time arrived after
+                it [domain:killfeed/stack-order], so the later track is the
+                older entry and the revive separates nothing: at
+                9acf02f98283 one Killjoy -> Clove entry held slot 1 from 966.0
+                to 970.5 s, the Not Dead Yet revive drew below it in slot 2 at
+                967.0 s, and the track split at 968.5 s. Where a victim is unnamed, both
                 killers named and equal suffice only for `continuation`.
       side   -- the victim plates do not read opposite sides.
       queue  -- the later track starts in the slot the earlier held at that
@@ -1506,12 +1517,13 @@ def same_entry(earlier: tuple[dict, "DeathVerdict"], later: tuple[dict, "DeathVe
     if len(sides) > 1:
         return None
     t_e, t_l = float(e["t_first"]), float(l["t_first"])
+    e_slot, l_slot = _slot_at(e, t_l), _onset_slot(l, step)
     if t_l < t_e or any(t_e < float(r["t_ms"]) <= t_l
                         and (not sides or r.get("side") not in ("ally", "enemy")
                              or r.get("side") in sides)
+                        and not (r.get("entry") is not None and l_slot < _slot_at(r["entry"], t_l))
                         for r in revives):
         return None
-    e_slot, l_slot = _slot_at(e, t_l), _onset_slot(l, step)
     if l_slot > e_slot:
         return None
     ev = {"victim": [ve.victim, vl.victim], "killer": [ve.killer, vl.killer],
@@ -1551,7 +1563,7 @@ def merge_split_entries(rounds: list[dict], *, stalls=None, step: float = 500.0)
     """
     items = sorted(((float(e["t_first"]), int(e["slot"]), ri, k)
                     for ri, x in enumerate(rounds) for k, e in enumerate(x["entries"])))
-    revives = [{"t_ms": float(v.t_ms), "side": e.get("side")}
+    revives = [{"t_ms": float(v.t_ms), "side": e.get("side"), "entry": e}
                for x in rounds for e, v in zip(x["entries"], x["verdicts"]) if v.is_revive]
     alive: list[tuple[int, int]] = []
     gone: dict[tuple[int, int], dict] = {}
@@ -2418,6 +2430,49 @@ def expand_events(series: list[dict], side: str) -> list[dict]:
     return out
 
 
+def _match_shrinks(entries: list[dict], ally_shrinks: list[dict], enemy_shrinks: list[dict],
+                   max_dt_ms: float) -> list[dict | None]:
+    """The roster drop each killfeed entry takes as its `roster_diff` witness,
+    in entry order; None for none. A revive removes no one, so it takes none.
+
+    An entry whose victim plate read a side takes, in entry order, the first
+    drop on that side within `max_dt_ms` that no earlier entry took. An entry
+    whose side went unread then takes the nearest drop of either side that no
+    entry took: a drop a sided entry explains witnesses no second death. Keyed
+    by its own side, the unread entry used to take the enemy drop a sided
+    entry had already taken, and so escaped `refuse_unwitnessed`:
+    b7d24102a6f6 1582.0 s, a third track of two kills, held the 1582.0 s
+    enemy drop the 1581.5 s Reyna death held."""
+    lists = {"ally": ally_shrinks, "enemy": enemy_shrinks}
+    used: set[tuple[str, int]] = set()
+    out: list[dict | None] = [None] * len(entries)
+    unread = []
+    for i, kf in enumerate(entries):
+        if revive_entry(kf):
+            continue
+        side = kf.get("side") or ("ally" if kf.get("victim_ally") is True else "enemy"
+                                  if kf.get("victim_ally") is False else kf.get("victim_side", "enemy"))
+        if side not in lists:
+            unread.append(i)
+            continue
+        t = float(kf.get("t_ms", 0.0))
+        for si, s in enumerate(lists[side]):
+            if (side, si) not in used and abs(s["t_ms"] - t) <= max_dt_ms:
+                out[i] = s
+                used.add((side, si))
+                break
+    for i in unread:
+        t = float(entries[i].get("t_ms", 0.0))
+        free = [(abs(s["t_ms"] - t), side, si) for side, ls in lists.items()
+                for si, s in enumerate(ls)
+                if (side, si) not in used and abs(s["t_ms"] - t) <= max_dt_ms]
+        if free:
+            _, side, si = min(free)
+            out[i] = lists[side][si]
+            used.add((side, si))
+    return out
+
+
 def adjudicate_round_deaths(
     session_id: str,
     killfeed_entries: list[dict],
@@ -2470,7 +2525,7 @@ def adjudicate_round_deaths(
             })
 
     verdicts = []
-    used_shrinks = set()
+    shrink_of = _match_shrinks(killfeed_entries, ally_shrinks, enemy_shrinks, max_dt_ms)
     used_xmarks: set[int] = set()
     death_ids = []
     for i, kf in enumerate(killfeed_entries):
@@ -2554,18 +2609,9 @@ def adjudicate_round_deaths(
                         "killer": curr_killer_agent,
                     }
 
-        # Match candidate roster shrink on the victim's side within max_dt_ms;
-        # a revive removes no one, so it takes none.
+        # The roster shrink `_match_shrinks` gave this entry.
         is_revive = revive_entry(kf)
-        shrinks = [] if is_revive else ally_shrinks if side == "ally" else enemy_shrinks
-        matched_shrink = None
-        for si, s in enumerate(shrinks):
-            if (side, si) in used_shrinks:
-                continue
-            if abs(s["t_ms"] - t_ms) <= max_dt_ms:
-                matched_shrink = s
-                used_shrinks.add((side, si))
-                break
+        matched_shrink = shrink_of[i]
 
         # Match candidate minimap death mark
         # `xmarks` are `xmark_births`: one of the victim's side, born at its

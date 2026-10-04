@@ -187,6 +187,14 @@ remains = "E3 (read the teardrop tip), then the sampler."
 waits_for = "team_vision storing pose windows, and a teardrop reader or the player's tip labels."
 
 [[document]]
+path = "docs/STALL_ROSTER_DIFFERENCE.md"
+kind = "design"
+status = "proposed"
+since = "2026-10-04"
+remains = "The roster-difference rule for capture stalls a round outlives, unbuilt."
+waits_for = "BACKLOG item 1's stall thread; the ally icons or a scoreboard opening to name the dead."
+
+[[document]]
 path = "docs/MINIMAP_OBJECTS_DESIGN.md"
 kind = "plan"
 status = "proposed"

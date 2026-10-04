@@ -30,6 +30,17 @@ and precision against the reference channels are the outcome
 Clustering is greedy: a crop joins the first cluster whose first member it
 matches, in entry order.
 
+**A name with a space can be read whole or cut at its word gap.** At
+bfad2778a372 the ally killer crops read "FazeTSMGhost JBJ" (130 px) while the
+same player's victim crops read "FazeTSMGhost" (100 px), and "Rylo Rodriguez"
+(101 px) read "Rodriguez" (67 px) as a killer. Widths that far apart never
+match, so one name made two large clusters, and the one-to-one assignment gave
+the 11-role Miks fragment Fade against 204.5 nats of its own portrait
+evidence. After the greedy pass, two clusters on one side join when a member
+crop of the narrower matches the left- or right-aligned window of a member of
+the wider (`fragment_ncc >= NCC_MIN`): the narrower is one word of the wider's
+name (`join_fragments`).
+
 Owns [owns:killfeed-name-continuity].
 """
 from __future__ import annotations
@@ -43,7 +54,9 @@ from ..killfeed import unpack_name_gray
 # the `killfeed_name` stream at two followed views per entry role.
 # 0.2.0 (2026-09-28): a role whose two views read no name tries its other
 # followed views (`followed_views(every=True)`).
-KILLFEED_NAME_CLUSTER_VERSION = "killfeed-name-cluster-0.2.0"
+# 0.3.0 (2026-10-04): clusters whose crops are one name read whole and cut at
+# its word gap join (`join_fragments`).
+KILLFEED_NAME_CLUSTER_VERSION = "killfeed-name-cluster-0.3.0"
 
 #: Set from the two views of one entry, which are one name (labels-free).
 NCC_MIN = 0.9
@@ -52,6 +65,11 @@ NCC_MIN = 0.9
 TOPHAT = 7
 #: Widths of one name's crop differ by up to this much between frames.
 WIDTH_TOL = 3
+#: A word cut from a name is at least this wide (px): shorter text is too
+#: little to tell two names apart.
+FRAGMENT_MIN_PX = 24
+#: Members of each cluster compared when testing two clusters for one name.
+FRAGMENT_MEMBERS = 3
 
 OTHER_SIDE = {"ally": "enemy", "enemy": "ally"}
 
@@ -86,6 +104,48 @@ def ncc(a: np.ndarray, b: np.ndarray) -> float:
             if d > 0:
                 best = max(best, float((p * q).sum()) / d)
     return best
+
+
+def fragment_ncc(narrow: np.ndarray, wide: np.ndarray) -> float:
+    """How well `narrow` reads as one word of `wide`'s name: the better `ncc`
+    of `narrow` against `wide`'s left- and right-aligned windows of its width;
+    0 when the two are not one fragment and one whole (widths within
+    `WIDTH_TOL`, `narrow` under `FRAGMENT_MIN_PX`, or heights apart)."""
+    w = narrow.shape[1]
+    if (abs(narrow.shape[0] - wide.shape[0]) > 2 or w < FRAGMENT_MIN_PX
+            or wide.shape[1] - w <= WIDTH_TOL):
+        return 0.0
+    return max(ncc(narrow, wide[:, :w]), ncc(narrow, wide[:, wide.shape[1] - w:]))
+
+
+def join_fragments(clusters: list[list[str]], crops: dict) -> list[list[str]]:
+    """One side's clusters with each cluster that reads one word of another
+    cluster's name joined to it (`fragment_ncc >= NCC_MIN` between any of
+    their first `FRAGMENT_MEMBERS` members), members in entry order, largest
+    cluster first. Joins chain: a name cut on both sides of its gap joins
+    through its whole reading."""
+    order = {eid: i for i, eid in enumerate(crops)}
+    parent = list(range(len(clusters)))
+
+    def find(u):
+        while parent[u] != u:
+            parent[u] = parent[parent[u]]
+            u = parent[u]
+        return u
+
+    heads = [[crops[e]["gray"] for e in c[:FRAGMENT_MEMBERS]] for c in clusters]
+    for i in range(len(clusters)):
+        for j in range(i + 1, len(clusters)):
+            if find(i) == find(j):
+                continue
+            if any(max(fragment_ncc(a, b), fragment_ncc(b, a)) >= NCC_MIN
+                   for a in heads[i] for b in heads[j]):
+                parent[find(j)] = find(i)
+    joined: dict[int, list[str]] = {}
+    for i, c in enumerate(clusters):
+        joined.setdefault(find(i), []).extend(c)
+    out = [sorted(c, key=order.__getitem__) for c in joined.values()]
+    return sorted(out, key=lambda c: (-len(c), order[c[0]]))
 
 
 def followed_views(observations: list[dict], every: bool = False
@@ -163,7 +223,9 @@ def self_entry(views: list[tuple[float, int, int]], name_rows: list[dict],
 
 def name_clusters(crops: dict) -> dict:
     """Per plate side, the clusters of entity ids whose crops show one name,
-    largest first (ties keep entry order), with the roles left out and why.
+    largest first (ties keep entry order), with the roles left out and why;
+    clusters reading one name whole and cut at its word gap are joined
+    (`join_fragments`).
 
     `crops` is `role_crops`'s output in entry order."""
     sides: dict[str, list[list[str]]] = {"ally": [], "enemy": []}
@@ -177,5 +239,5 @@ def name_clusters(crops: dict) -> dict:
         else:
             sides[c["team"]].append([eid])
     return {"version": KILLFEED_NAME_CLUSTER_VERSION,
-            "sides": {t: sorted(cl, key=len, reverse=True) for t, cl in sides.items()},
+            "sides": {t: join_fragments(cl, crops) for t, cl in sides.items()},
             "left_out": {eid: c["reason"] for eid, c in crops.items() if c["reason"]}}
