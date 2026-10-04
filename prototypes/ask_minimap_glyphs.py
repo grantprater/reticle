@@ -25,8 +25,10 @@ Three kinds of question, in this order:
   and no view's answer settles another's. A view is settled by the player's
   own answer to that view's key; by a domain fact the player gave
   (`VIEW_STATEMENT_FACTS`, `known = "player"`) that names the view and fixes
-  icon and shape, as [domain:abilities/killjoy-lockdown-global-minimap]
-  settles Lockdown's three views; or, for `self` alone, by a sheet Minimap
+  icon and shape, unless the player answered that view, as
+  [domain:abilities/killjoy-lockdown-global-minimap] settles Lockdown's
+  caster view (the player's own answers settle its teammate and enemy views,
+  and agree with it); or, for `self` alone, by a sheet Minimap
   cell (the caster's view) that carries a domain fact and no `?`, census
   vote, split or "disputed". A player fact or the player's words under
   another key (`STATEMENT_ROWS`) that contradicts an answer reopens the key,
@@ -79,7 +81,7 @@ import numpy as np  # noqa: E402
 
 import minimap_glyph_eval as ev  # noqa: E402
 
-VERSION = "ask-minimap-glyphs-0.3.0"
+VERSION = "ask-minimap-glyphs-0.3.1"
 ANSWERS = ev.STORE / "labels" / "minimap_glyph_questions" / "answers.jsonl"
 SHEET = Path(__file__).resolve().parents[1] / "docs" / "ABILITY_MECHANICS_SHEET.md"
 GAMEDATA = ev.STORE / "reference" / "ability-states" / "ability-states-gamedata-0.2.0.jsonl"
@@ -152,42 +154,89 @@ VIEW_FACTS = ("abilities/views-separate-per-ability", "minimap/spectator-view-ma
 
 ALL_VIEWS = tuple(VIEWS)
 #: What a domain fact the player gave (`known = "player"`) states about an ability's minimap views:
-#: fact -> [(agent, slot, ability, views, states)]. `views` names the views the claim states explicitly, or None
-#: when the claim says only "on the minimap" and names no view. `states` holds what the claim says is drawn:
-#: `icon`, `shape` and `drawn`, each True or False; a key the claim leaves open is absent. A statement settles a
-#: view only when it names that view and fixes both `icon` and `shape` (or says nothing is drawn); any other
+#: fact -> [(agent, slot, ability, views, states, words)]. `views` names the views the claim states explicitly, or
+#: None when the claim says only "on the minimap" and names no view. `states` holds what the claim says is drawn:
+#: `icon`, `shape` and `drawn`, each True or False; a key the claim leaves open is absent. `words` quotes, for each
+#: state and for `views`, the claim's own words that state it; `check_facts` finds each quote in the claim and
+#: checks it against `STATE_WORDS` and `VIEW_WORDS`. A statement settles a view only when it names that view and
+#: fixes both `icon` and `shape` (or says nothing is drawn), and the player has not answered that view; any other
 #: statement settles nothing but is shown with the question and checked against the player's answers. Each row
 #: reads its own fact's claim, never another ability's [domain:abilities/ability-rules-are-unique].
 VIEW_STATEMENT_FACTS = {
-    # "drawn on every player's minimap ... the device's position and a large ring"
-    "abilities/killjoy-lockdown-global-minimap": [("Killjoy", "X", "Lockdown", ALL_VIEWS,
-                                                   {"icon": True, "shape": True})],
-    # "drawn on the caster's minimap as a bounded dark disc ... the only Clove ability that draws anything there"
-    "abilities/clove-rouse": [("Clove", "E", "Ruse", ("self",), {"shape": True}),
-                              ("Clove", "C", "Pick-me-up", ("self",), {"drawn": False}),
-                              ("Clove", "Q", "Meddle", ("self",), {"drawn": False}),
-                              ("Clove", "X", "Not Dead Yet", ("self",), {"drawn": False})],
-    # "draws no icon on the minimap; its minimap drawing is the wall": no view named
-    "abilities/phoenix-blaze-no-minimap-icon": [("Phoenix", "C", "Blaze", None, {"icon": False, "shape": True})],
-    # "as an icon ..., green for an ally Gekko and red for an enemy one"
-    "abilities/gekko-wingman-minimap-icon": [("Gekko", "Q", "Wingman", ("ally", "enemy"), {"icon": True})],
-    "abilities/sage-barrier-orb-global-minimap": [("Sage", "C", "Barrier Orb", ALL_VIEWS, {"shape": True})],
-    "abilities/deadlock-barrier-mesh-global-minimap": [("Deadlock", "C", "Barrier Mesh", ALL_VIEWS,
-                                                        {"drawn": True})],
-    "abilities/sova-hunters-fury-global-minimap": [("Sova", "X", "Hunter's Fury", ALL_VIEWS, {"shape": True})],
-    "abilities/brimstone-orbital-strike-global-minimap": [("Brimstone", "X", "Orbital Strike", ALL_VIEWS,
-                                                           {"shape": True})],
-    "abilities/astra-cosmic-divide-global-minimap": [("Astra", "X", "Astral Form / Cosmic Divide", ALL_VIEWS,
-                                                      {"shape": True})],
-    "abilities/viper-toxic-screen-global-minimap": [("Viper", "E", "Toxic Screen", ALL_VIEWS, {"shape": True})],
-    "abilities/reyna-leer-global-minimap": [("Reyna", "C", "Leer", ("enemy",), {"drawn": True})],
-    "abilities/reyna-leer-enemy-minimap-glyph": [("Reyna", "C", "Leer", ("enemy",), {"icon": True})],
-    "abilities/fade-haunt-global-minimap": [("Fade", "E", "Haunt", ("enemy",), {"drawn": True})],
+    "abilities/killjoy-lockdown-global-minimap": [
+        ("Killjoy", "X", "Lockdown", ALL_VIEWS, {"icon": True, "shape": True},
+         {"views": "drawn on every player's minimap", "icon": "the device's position", "shape": "a large ring"})],
+    "abilities/clove-rouse": [
+        ("Clove", "E", "Ruse", ("self",), {"shape": True},
+         {"views": "drawn on the caster's minimap", "shape": "a bounded dark disc"}),
+        *[("Clove", s, n, ("self",), {"drawn": False},
+           {"views": "drawn on the caster's minimap",
+            "drawn": "Ruse is the only Clove ability that draws anything there"})
+          for s, n in (("C", "Pick-me-up"), ("Q", "Meddle"), ("X", "Not Dead Yet"))]],
+    "abilities/phoenix-blaze-no-minimap-icon": [
+        ("Phoenix", "C", "Blaze", None, {"icon": False, "shape": True},
+         {"icon": "draws no icon on the minimap", "shape": "its minimap drawing is the wall"})],
+    "abilities/phoenix-blaze": [
+        ("Phoenix", "C", "Blaze", None, {"shape": True}, {"shape": "drawn as a smooth curve"})],
+    "abilities/gekko-wingman-minimap-icon": [
+        ("Gekko", "Q", "Wingman", ("ally", "enemy"), {"icon": True},
+         {"views": "green for an ally Gekko and red for an enemy one", "icon": "on the minimap as an icon"})],
+    "abilities/gekko-thrash-global-minimap": [
+        ("Gekko", "X", "Thrash", ("enemy",), {"icon": True},
+         {"views": "An enemy Gekko's Thrash", "icon": "can show its icon on the player's minimap"})],
+    "abilities/sova-recon-bolt-minimap-ring": [
+        ("Sova", "E", "Recon Bolt", None, {"icon": True, "shape": True},
+         {"icon": "with the bolt's icon at the centre", "shape": "drawn on the minimap as a teal ring"})],
+    "abilities/pulse-scan-abilities": [
+        (a, s, n, None, {"shape": True}, {"shape": "All three draw a ring of their range on the minimap"})
+        for a, s, n in (("Sova", "E", "Recon Bolt"), ("Fade", "E", "Haunt"), ("Tejo", "C", "Stealth Drone"))],
+    "abilities/clove-dead-smoke-range-circle": [
+        ("Clove", "E", "Ruse", ("ally",), {"shape": True},
+         {"views": "Teammates see it on their minimaps", "shape": "the minimap draws a large circle"})],
+    "abilities/sage-barrier-orb-global-minimap": [
+        ("Sage", "C", "Barrier Orb", ALL_VIEWS, {"shape": True},
+         {"views": "drawn on every player's minimap", "shape": "Barrier Orb wall"})],
+    "abilities/deadlock-barrier-mesh-global-minimap": [
+        ("Deadlock", "C", "Barrier Mesh", ALL_VIEWS, {"drawn": True},
+         {"views": "drawn on every player's minimap", "drawn": "is drawn on every player's minimap"})],
+    "abilities/sova-hunters-fury-global-minimap": [
+        ("Sova", "X", "Hunter's Fury", ALL_VIEWS, {"shape": True},
+         {"views": "lines on every player's minimap", "shape": "drawn as lines"})],
+    "abilities/brimstone-orbital-strike-global-minimap": [
+        ("Brimstone", "X", "Orbital Strike", ALL_VIEWS, {"shape": True},
+         {"views": "on every player's minimap", "shape": "drawn as a hazard circle"})],
+    "abilities/astra-cosmic-divide-global-minimap": [
+        ("Astra", "X", "Astral Form / Cosmic Divide", ALL_VIEWS, {"shape": True},
+         {"views": "across every player's minimap", "shape": "Cosmic Divide wall"})],
+    "abilities/viper-toxic-screen-global-minimap": [
+        ("Viper", "E", "Toxic Screen", ALL_VIEWS, {"shape": True},
+         {"views": "drawn on every player's minimap", "shape": "Toxic Screen line"})],
+    "abilities/reyna-leer-global-minimap": [
+        ("Reyna", "C", "Leer", ("enemy",), {"drawn": True},
+         {"views": "An enemy Reyna's Leer", "drawn": "is drawn on the player's minimap"})],
+    "abilities/reyna-leer-enemy-minimap-glyph": [
+        ("Reyna", "C", "Leer", ("enemy",), {"icon": True},
+         {"views": "an enemy Reyna's Leer", "icon": "an iris, with a red vertical pupil"})],
+    "abilities/fade-haunt-global-minimap": [
+        ("Fade", "E", "Haunt", ("enemy",), {"drawn": True},
+         {"views": "An enemy Fade's Haunt", "drawn": "is drawn on the player's minimap"})],
 }
+#: The word stems a quote must hold for each state it supports: (state, value) -> stems, matched at a word start.
+#: A point marker at a position is read as an icon (Lockdown's "the device's position"), and Leer's iris and
+#: pupil as its icon; both readings are arguable and stay visible here. A False state needs a negation or an
+#: exclusion ("the only ... that draws"), and a True state's quote may hold none.
+STATE_WORDS = {("icon", True): ("icon", "position", "iris"),
+               ("shape", True): ("ring", "circle", "disc", "wall", "curve", "line"),
+               ("drawn", True): ("drawn", "draws")}
+NEGATIONS = ("no", "not", "nothing", "never", "only")
+#: The words a `views` quote must hold: every view at once ("every player's"), or each named view's own word.
+VIEW_WORDS = {"self": ("caster",), "ally": ("ally", "teammate"), "enemy": ("enemy",)}
 #: The player's own statements recorded under another key of the answer file, by that key: (agent, slot, views,
 #: states). "possible" is a hedge: shown with the question, never counted for or against an answer.
 STATEMENT_ROWS = {
     "question:blaze-icon:enemy": ("Phoenix", "C", ("enemy",), {"icon": "possible"}),
+    # "Does Sova's Recon Bolt ring show on the enemy team's minimap as well?" "Yes" (2026-10-04)
+    "visibility:Sova:E:minimap-ring": ("Sova", "E", ("enemy",), {"shape": True}),
 }
 #: What each visibility answer states.
 ANSWER_STATES = {"icon": {"icon": True, "shape": False}, "shape": {"icon": False, "shape": True},
@@ -196,7 +245,8 @@ ANSWER_STATES = {"icon": {"icon": True, "shape": False}, "shape": {"icon": False
 
 def check_facts(sheet: dict | None = None) -> None:
     """Every fact the pruning cites must exist; a renamed fact fails loudly. A view-statement fact must be the
-    player's (`known = "player"`) and name the ability the sheet keeps under its agent and slot."""
+    player's (`known = "player"`), name the ability the sheet keeps under its agent and slot, and quote the claim
+    for every state and view it codes (`claim_mismatches`)."""
     from reticle import domain
     facts = domain.load()
     cited = list(TEXTURE_FACTS.values()) + list(VIEW_FACTS) + list(VIEW_STATEMENT_FACTS)
@@ -208,9 +258,55 @@ def check_facts(sheet: dict | None = None) -> None:
         raise SystemExit(f"view-statement facts not known = player: {not_player}")
     sheet = sheet_minimap() if sheet is None else sheet
     wrong = [(k, a, s, n, sheet.get((a, s), ("absent",))[0]) for k, rows in VIEW_STATEMENT_FACTS.items()
-             for a, s, n, _, _ in rows if " ".join(sheet.get((a, s), ("",))[0].split()) != n]
+             for a, s, n, *_ in rows if " ".join(sheet.get((a, s), ("",))[0].split()) != n]
     if wrong:
         raise SystemExit(f"view-statement rows name another ability than the sheet: {wrong}")
+    bad = claim_mismatches(facts)
+    if bad:
+        raise SystemExit("view-statement rows the claim text does not support:\n  " + "\n  ".join(bad))
+
+
+def _quote_holds(text: str, stems: tuple) -> bool:
+    return any(re.search(r"\b" + re.escape(w), text, flags=re.I) for w in stems)
+
+
+def claim_mismatches(facts: dict, table: dict | None = None) -> list[str]:
+    """Where a view-statement row's coded states or views disagree with its fact's claim text: a state or a named
+    view without a quote, a quote the claim does not hold, a quote without the words `STATE_WORDS` or
+    `VIEW_WORDS` ask for that state or view, a False state quoted without a negation (`NEGATIONS`) or a True
+    state quoted with one. A row without quotes fails. The check reads words, not meaning: it catches a row that
+    drifts from its claim, not a claim the words mislead."""
+    out = []
+    for key, rows in (VIEW_STATEMENT_FACTS if table is None else table).items():
+        claim = " ".join(facts[key].claim.split()).lower()
+        for row in rows:
+            agent, slot, _, views, states, *rest = row
+            words, at = (rest[0] if rest else {}), f"{key} {agent}:{slot}"
+            for k, v in states.items():
+                q = words.get(k)
+                if not q:
+                    out.append(f"{at}: {k}={v} quotes no claim words")
+                    continue
+                if " ".join(q.split()).lower() not in claim:
+                    out.append(f"{at}: {k} quote not in the claim: {q!r}")
+                if v is True and not _quote_holds(q, STATE_WORDS[(k, True)]):
+                    out.append(f"{at}: {k}=True quote holds none of {STATE_WORDS[(k, True)]}: {q!r}")
+                if (v is False) != _quote_holds(q, NEGATIONS):
+                    out.append(f"{at}: {k}={v} quote {'lacks' if v is False else 'holds'} a negation: {q!r}")
+            if views:
+                q = words.get("views")
+                if not q:
+                    out.append(f"{at}: views {list(views)} quote no claim words")
+                    continue
+                if " ".join(q.split()).lower() not in claim:
+                    out.append(f"{at}: views quote not in the claim: {q!r}")
+                if tuple(views) == ALL_VIEWS:
+                    if "every player" not in q.lower():
+                        out.append(f"{at}: all views quoted without 'every player': {q!r}")
+                else:
+                    out += [f"{at}: view {v} quoted without {VIEW_WORDS[v]}: {q!r}" for v in views
+                            if not _quote_holds(q, VIEW_WORDS[v])]
+    return out
 
 
 def norm_states(states: dict) -> dict:
@@ -251,7 +347,7 @@ def fact_statements(facts: dict | None = None, table: dict | None = None) -> dic
     out = defaultdict(list)
     for key, rows in (VIEW_STATEMENT_FACTS if table is None else table).items():
         f = facts[key]
-        for agent, slot, _, views, states in rows:
+        for agent, slot, _, views, states, *_ in rows:
             out[(agent, slot)].append({"source": f"[domain:{key}]", "by": f.known, "since": f.since,
                                        "views": list(views) if views else None,
                                        "says": " ".join(f.claim.split())[:300], "states": states})
@@ -266,6 +362,8 @@ def row_statements(done: dict) -> dict:
         if r is None:
             continue
         words = r.get("answer_words") or r.get("player_words") or r.get("answer")
+        asked = (r.get("shown") or {}).get("question")
+        words = f"{asked} {words}" if asked else words
         out[(agent, slot)].append({"source": f"answers.jsonl#L{r.get('_line', '?')} {key}", "by": r.get("by"),
                                    "since": r.get("ts"), "views": list(views), "says": str(words)[:300],
                                    "states": states})

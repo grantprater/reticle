@@ -211,6 +211,44 @@ class StatementsSettleAndReopen(unittest.TestCase):
         self.assertIsNone(ask.category({"shape": True}))
 
 
+class ClaimWordsCheckCodedStates(unittest.TestCase):
+    """`claim_mismatches` checks a row's coded states and views against its fact's claim text."""
+    CLAIM = {"abilities/killjoy-lockdown-global-minimap": _Fact(
+        "Killjoy's Lockdown is drawn on every player's minimap: the device's position and a large ring.")}
+    WORDS = {"views": "drawn on every player's minimap", "icon": "the device's position", "shape": "a large ring"}
+
+    def check(self, states, words, views=ask.ALL_VIEWS):
+        return ask.claim_mismatches(self.CLAIM, {"abilities/killjoy-lockdown-global-minimap": [
+            ("Killjoy", "X", "Lockdown", views, states, words)]})
+
+    def test_quoted_row_passes(self):
+        self.assertEqual(self.check({"icon": True, "shape": True}, self.WORDS), [])
+
+    def test_flipped_state_fails(self):
+        self.assertIn("icon=False quote lacks a negation",
+                      self.check({"icon": False, "shape": True}, self.WORDS)[0])
+
+    def test_unquoted_state_and_foreign_quote_fail(self):
+        bad = self.check({"icon": True, "shape": True, "drawn": True}, dict(self.WORDS, shape="a small disc"))
+        self.assertEqual(len(bad), 2)
+        self.assertIn("shape quote not in the claim", bad[0])
+        self.assertIn("drawn=True quotes no claim words", bad[1])
+
+    def test_view_needs_its_word(self):
+        self.assertIn("view self quoted without", self.check({"icon": True}, self.WORDS, ("self",))[0])
+
+    def test_repo_rows_carry_quotes_the_claims_hold(self):
+        from reticle import domain
+        self.assertEqual(ask.claim_mismatches(domain.load()), [])
+
+    def test_sova_ring_answer_is_an_enemy_view_statement(self):
+        done = {"visibility:Sova:E:minimap-ring": {"key": "visibility:Sova:E:minimap-ring", "by": "player",
+                                                   "ts": "t", "_line": 370, "player_words": "Yes",
+                                                   "shown": {"question": "Enemy team too?"}}}
+        st = ask.row_statements(done)[("Sova", "E")][0]
+        self.assertEqual((st["views"], st["states"], st["says"]), (["enemy"], {"shape": True}, "Enemy team too? Yes"))
+
+
 class ListPrintsOpenFirst(unittest.TestCase):
     def test_list_output_puts_open_keys_before_done(self):
         qs = [{"key": k, "kind": "rotation", "shown": {}} for k in ("a", "b", "c")]
