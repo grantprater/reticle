@@ -201,13 +201,16 @@ class AbilityIconReader:
     records_clip = True
 
     def __init__(self, slab, floor, sgray, box, phase_at=None, hz=2.0, spans=None,
-                 name="ability_icon", step=RADIUS_STEP, ms: MapScale | None = SET_AT):
+                 name="ability_icon", step=RADIUS_STEP, ms: MapScale | None = SET_AT,
+                 phase_reason: str | None = None):
         self.live = LIVE_PHASES
         self.name, self.hz, self.spans = name, hz, spans
         self.frames_from = "video"
         self.cv_threads = 1
         self.slab, self.floor, self.sgray, self.box = slab, floor, sgray, box
         self.phase_at, self.step = phase_at, step
+        #: Why `phase_at` is None (e.g. "no HUD stream"), stored in the head.
+        self.phase_reason = None if phase_at is not None else phase_reason
         #: The key's transform from base values; None refuses every sample.
         self.ms = ms
         self._terms: IconTerms | None = None
@@ -281,11 +284,14 @@ class AbilityIconReader:
         clip = getattr(self, "spans_clip", None)
         if clip is not None:
             head["spans_clip"] = clip
+        if self.phase_reason is not None:
+            # No phase gate: every row's `phase` is null for this reason.
+            head["phase_reason"] = self.phase_reason
         return [head] + [{**common, **r} for r in self.rows]
 
 
 def icon_reader(ctx, spans, phase_at=None, hz: float = 2.0, floor=None,
-                sgray=None) -> AbilityIconReader:
+                sgray=None, phase_reason: str | None = None) -> AbilityIconReader:
     """The `AbilityIconReader` `scan` builds for a session: the slab of the
     geometry's reference static and the key's transform
     (`geometry.map_scale`), over the profile's minimap ROI."""
@@ -296,4 +302,5 @@ def icon_reader(ctx, spans, phase_at=None, hz: float = 2.0, floor=None,
                              floor=ctx.floor() if floor is None else floor,
                              sgray=ctx.sgray() if sgray is None else sgray,
                              box=box, phase_at=phase_at, hz=hz, spans=spans,
-                             ms=geometry.map_scale_of(ctx.session_id, ctx.store.root))
+                             ms=geometry.map_scale_of(ctx.session_id, ctx.store.root),
+                             phase_reason=phase_reason)

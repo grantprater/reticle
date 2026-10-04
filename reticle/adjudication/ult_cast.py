@@ -85,6 +85,22 @@ the midpoint between the strongest dev burst whose best row Riot's count does no
 hold (0.0753, 23 templates in 2 s) and the weakest whose best row it holds live
 (0.0908).
 
+**Burst floor** (0.4.0). The burst counts every stored peak at or above
+BURST_FLOOR, selected or not: a weak selection among two or more other
+templates' sub-threshold peaks is the same many-template sound as a burst of
+selections, and at 0.3.0 it stood as a cast. The selected peaks alone still
+decide what is refused. BURST_FLOOR was fitted on the dev half: per cast under
+BURST_BOUND, the third-highest stored peak within BURST_S of its onset; the
+floor is the midpoint of the highest such value of a row Riot's count holds
+(0.0334) and the lowest of an excess row above it (0.0378).
+
+**Heard-line check** (0.4.0). The coverage row's `vo_heard` states whether any
+template's best stored peak reaches VO_HEARD_BOUND. A match capture whose cast
+voice lines are absent from its audio scores no line above the noise, and its
+want of casts then means "not heard", not "not cast". The bound is the midpoint,
+on the dev half, of the best peak of the one capture without lines (0.065) and
+the lowest best peak of the other matches (0.345). The check refuses nothing.
+
 **Witnessed peaks** (0.3.0). A peak under THRESHOLD but at or above
 WITNESS_FLOOR is a cast only with an independent witness of that cast, and the
 row names it in `rests_on` and `witness`:
@@ -153,6 +169,12 @@ BURST_S = 2.0
 #: In a burst, peaks under this score are refused. Fitted on the dev half; see
 #: the module docstring.
 BURST_BOUND = 0.083
+#: A burst counts every stored peak at or above this score, selected or not.
+#: Fitted on the dev half; see the module docstring.
+BURST_FLOOR = 0.0356
+#: A capture whose best stored peak falls under this score holds no heard
+#: line (`vo_heard`). Fitted on the dev half; see the module docstring.
+VO_HEARD_BOUND = 0.205
 #: The lowest score a witnessed peak may have. Fitted on the dev half; see the
 #: module docstring.
 WITNESS_FLOOR = 0.030
@@ -289,6 +311,18 @@ def burst_of(t_s, scores, n: int = BURST_N, span_s: float = BURST_S) -> list[dic
     return out
 
 
+def vo_heard(peaks: list[dict], bound: float = VO_HEARD_BOUND) -> dict:
+    """Whether any template's best stored peak reaches `bound`: {heard, best_score,
+    best_template, bound, reason}. See the module docstring."""
+    best = max(peaks, key=lambda p: p["score"], default=None)
+    if best is None:
+        return {"heard": None, "best_score": None, "best_template": None, "bound": bound,
+                "reason": "no_peaks"}
+    heard = best["score"] >= bound
+    return {"heard": heard, "best_score": best["score"], "best_template": best["template"],
+            "bound": bound, "reason": None if heard else "no_line_above_bound"}
+
+
 def ult_kill_witnesses(death_rows: list[dict] | None, rounds: list[dict]) -> tuple[list[dict], dict]:
     """(each stored death verdict whose resolved killfeed icon is an ultimate,
     as {template, agent, side, round, t_ms, death_id, weapon, version}; counts
@@ -327,15 +361,15 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
                tray_reason: str | None = "no_tray_drops",
                tray_inputs: dict | None = None, deaths: list[dict] | None = None,
                death_reason: str | None = "no_deaths", burst_bound: float = BURST_BOUND,
-               witness_floor: float = WITNESS_FLOOR) -> dict:
+               witness_floor: float = WITNESS_FLOOR, burst_floor: float = BURST_FLOOR) -> dict:
     """The session's stored rows, its claims, the arbiter's verdicts and the
     formal identity events, from stored peaks, the lineup and the rounds.
 
     `tray_drops` are the X drops with the owner's verdict from
     `player_x_drops`, or None with `tray_reason`; `tray_inputs` are their
     stamps for the coverage row. `deaths` are the stored `death` verdicts, or
-    None with `death_reason`. `burst_bound` and `witness_floor` exist for the
-    scorer's sweep; production passes neither."""
+    None with `death_reason`. `burst_bound`, `witness_floor` and `burst_floor`
+    exist for the scorer's sweep; production passes none of them."""
     cover = next((r for r in peak_rows if r.get("kind") == "coverage"), {}) or {}
     peaks = [r for r in peak_rows if r.get("kind") == "peak"]
     sides = lineup_sides(lineup, session_id)
@@ -351,9 +385,14 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
     casts_ms = [float(c["t_ms"]) for c in tray_casts]
     refused = {float(c["t_ms"]): c["reason"] for c in tray_drops or [] if not c["player_cast"]}
 
-    # 1. Selection, class and bursts.
+    # 1. Selection, class and bursts. A burst counts every peak at or above
+    # the burst floor; the selected peaks are among them.
     meta = {}
-    bursts = burst_of([p["t_s"] for p in selected], [p["score"] for p in selected])
+    floor = min(burst_floor, threshold)
+    counted = [p for p in peaks if p["score"] >= floor]
+    by_peak = {id(p): b for p, b in zip(counted, burst_of([p["t_s"] for p in counted],
+                                                          [p["score"] for p in counted]))}
+    bursts = [by_peak[id(p)] for p in selected]
     for p, b in zip(selected, bursts):
         agent, t_ms = _norm(p["agent"]), round(p["t_s"] * 1000.0)
         cls, why = template_class(agent, p["variant"], sides, player)
@@ -531,8 +570,9 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
                     "burst" if r["reason"] == "burst" else "impossible"
                     for r in rows if r["kind"] == "refusal").items())),
                 "rounds": len(rounds),
+                "vo_heard": vo_heard(peaks),
                 "burst": {"n": BURST_N, "span_s": BURST_S, "bound": burst_bound,
-                          "bursts": len(groups),
+                          "floor": floor, "bursts": len(groups),
                           "weak": sum(b["best_score"] < burst_bound for b in groups.values()),
                           "in_burst": sum(b is not None for b in bursts),
                           "refused": sum(r["kind"] == "refusal" and r["reason"] == "burst"

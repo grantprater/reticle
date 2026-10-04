@@ -204,18 +204,83 @@ class TreeDirectionTests(unittest.TestCase):
                         prototypes=("helper",))
             self.assertEqual(tree.verify(), [])
 
-    def test_an_allowed_module_passes_and_a_stale_allowance_is_reported(self):
+    def test_an_allowed_module_is_reported_and_a_stale_allowance_too(self):
         allowed = DECLARATION.replace("allow = []", 'allow = ["cli"]')
         with contextlib.ExitStack() as stack:
             tree = Tree(stack, {"version": "", "reader": "",
                                 "cli": "from prototypes import helper"},
                         allowed, prototypes=("helper",))
-            self.assertEqual(tree.verify(), [])
+            self.assertEqual(tree.messages("ERROR"), [])
+            self.assertTrue(any("trees.allow" in m and "(line 1)" in m
+                                for m in tree.messages("WARN")))
         with contextlib.ExitStack() as stack:
             tree = Tree(stack, {"version": "", "reader": "", "cli": ""},
                         allowed, prototypes=("helper",))
             self.assertTrue(any("no longer does" in m
                                 for m in tree.messages("WARN")))
+
+    def test_a_path_insert_is_an_error_even_when_allowed(self):
+        """The allowance silenced `lineup`'s insert; it must not again."""
+        allowed = DECLARATION.replace("allow = []", 'allow = ["cli"]')
+        body = """
+            import sys
+            from pathlib import Path
+            def f():
+                root = Path(__file__).resolve().parent.parent
+                if str(root / "prototypes") not in sys.path:
+                    sys.path.insert(0, str(root / "prototypes"))
+                from helper import g
+                return g
+            """
+        with contextlib.ExitStack() as stack:
+            tree = Tree(stack, {"version": "", "reader": "", "cli": body},
+                        allowed, prototypes=("helper",))
+            errors = tree.messages("ERROR")
+            self.assertTrue(any("by path or by string" in m and "sys.path.insert" in m
+                                for m in errors), errors)
+
+    def test_a_path_insert_alone_is_an_error(self):
+        """No import statement follows: the insert itself is the reach."""
+        for body in ('import sys\nsys.path.append("prototypes")',
+                     'import sys, os\nsys.path.insert(0, os.path.join(R, "prototypes"))',
+                     'import sys\nsys.path[:0] = ["x/prototypes"]',
+                     'import sys\nsys.path += ["prototypes/"]',
+                     'import site\nsite.addsitedir("prototypes")'):
+            with self.subTest(body=body), contextlib.ExitStack() as stack:
+                tree = Tree(stack, {"version": "", "reader": "", "cli": body},
+                            prototypes=("helper",))
+                self.assertTrue(any("by path or by string" in m
+                                    for m in tree.messages("ERROR")), body)
+
+    def test_an_importlib_load_is_an_error(self):
+        for body in ('import importlib\nm = importlib.import_module("helper")',
+                     'import importlib\nm = importlib.import_module("prototypes.helper")',
+                     'from importlib import import_module\nm = import_module("helper")',
+                     'import importlib.util as u\n'
+                     's = u.spec_from_file_location("h", ROOT / "prototypes" / "helper.py")',
+                     'import runpy\nrunpy.run_path("prototypes/helper.py")',
+                     'm = __import__("helper")'):
+            with self.subTest(body=body), contextlib.ExitStack() as stack:
+                tree = Tree(stack, {"version": "", "reader": "", "cli": body},
+                            prototypes=("helper",))
+                self.assertTrue(any("by path or by string" in m
+                                    for m in tree.messages("ERROR")), body)
+
+    def test_unrelated_path_and_loads_are_left_alone(self):
+        body = ('import sys, importlib\nsys.path.insert(0, "vendor")\n'
+                'm = importlib.import_module("json")\nx = "prototypes are fun"')
+        with contextlib.ExitStack() as stack:
+            tree = Tree(stack, {"version": "", "reader": "", "cli": body},
+                        prototypes=("helper",))
+            self.assertEqual(tree.verify(), [])
+
+    def test_an_auditor_may_reach_by_any_spelling(self):
+        audited = DECLARATION.replace("allow = []", 'allow = []\nauditor = ["cli"]')
+        body = 'import sys\nsys.path.insert(0, "prototypes")\nimport helper'
+        with contextlib.ExitStack() as stack:
+            tree = Tree(stack, {"version": "", "reader": "", "cli": body},
+                        audited, prototypes=("helper",))
+            self.assertEqual(tree.verify(), [])
 
 
 class RepositoryDeclarationTests(unittest.TestCase):
@@ -224,6 +289,13 @@ class RepositoryDeclarationTests(unittest.TestCase):
     def test_the_shipped_declaration_has_no_errors(self):
         problems = architecture.verify()
         self.assertEqual([m for lv, m in problems if lv == "ERROR"], [])
+
+    def test_lineup_reaches_no_prototype(self):
+        """`lineup._composition` put `prototypes/` on `sys.path` while
+        `trees.allow` kept the check quiet (closed 2026-10-04)."""
+        path = architecture.ROOT / "reticle" / "lineup.py"
+        self.assertEqual(architecture.foreign_imports(path), [])
+        self.assertNotIn("lineup", architecture.load()["trees"].get("allow", []))
 
     def test_every_module_is_placed_exactly_once(self):
         data = architecture.load()

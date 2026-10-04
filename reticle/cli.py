@@ -831,16 +831,20 @@ def _live_round_spans(store, sid, date) -> list[tuple[float, float]]:
 
 
 def _live_phase_at(store, sid, date):
-    """`gametime`'s phase at a time, for the ability pass's live-sample gate,
-    or None where the session has no stored rounds or HUD (every sample is
-    then read)."""
+    """(`gametime`'s phase at a time, None) for the ability pass's live-sample
+    gate, or (None, reason) where the session has no stored HUD stream (a demo
+    scanned without `hud`) or no stored rounds: the live phase is then
+    unknown and every sample is read."""
     from . import stalls
-    rs, hud = store.read_rounds(sid, date), store.read_hud(sid, date)
-    if rs is None or hud is None:
-        return None
+    if not store.hud_path(sid, date).is_file():
+        return None, "no HUD stream"
+    rs = store.read_rounds(sid, date)
+    if rs is None:
+        return None, "no rounds stream"
+    hud = store.read_hud(sid, date)
     gt = gametime.build_session_gametime(sid, hud, rs.to_pylist(),
                                          stall_list=stalls.for_session(store, sid, date))
-    return lambda t: gt.game_time_at(t).phase
+    return (lambda t: gt.game_time_at(t).phase), None
 
 
 def _ability_supply(store, sid, date):
@@ -1270,7 +1274,9 @@ def cmd_scan(args) -> int:
             # stamp and only where it is stale; `minimap_dark` joins only where
             # it is itself stale.
             from .roi_cache import declare_set
-            phase_at = _live_phase_at(store, sid, date)
+            phase_at, phase_why = _live_phase_at(store, sid, date)
+            if phase_at is None:
+                print(f"ability live phase: unknown ({phase_why}); every sample is read")
             floor = mp.floor if mp is not None else None
             sgray = mp.sgray if mp is not None else None
             if want_shapes:
@@ -1283,11 +1289,13 @@ def cmd_scan(args) -> int:
                     print(f"ability candidates: none ({why}); every gated sample takes "
                           f"the surprise path")
                 bp = shape_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray,
-                                  supply=supply, supply_reason=why, values=values_digest())
+                                  supply=supply, supply_reason=why, values=values_digest(),
+                                  phase_reason=phase_why)
                 declare_set(bp, "minimap", profile, ctx.wh)
             if want_icons:
                 from .ability_icons import icon_reader
-                ip = icon_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray)
+                ip = icon_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray,
+                                 phase_reason=phase_why)
                 declare_set(ip, "minimap", profile, ctx.wh)
         cp = None
         if want_report:
@@ -1410,6 +1418,13 @@ def cmd_scan(args) -> int:
             events = AllyIconReader.replay_events(
                 sid, batch["frames"], kept, ap.hz, candidate_revision,
                 frames_from=ap.frames_from, spans_clip=getattr(ap, "spans_clip", None))
+            gate = getattr(ap, "stack", None)
+            if gate is not None and gate.reason is None:
+                # The stacked-icon search's gate read the stored roster
+                # (`minimap.StackGate`); `plan` compares its stamp.
+                from .plan import input_head
+                events[0].setdefault("inputs", {})["roster"] = input_head(
+                    store, manifest, "roster", events[0])
             path = out.write_events("ally_icon", sid, events)
             cov = events[0]
             print(f"ally icons {cov['frames']} frames, {cov['icons']} icons, "
@@ -4115,6 +4130,7 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
     from .roi_cache import RoiCache
     from .spike import (AMP_MIN, AMP_PARTIAL, MARK_NCC_MIN, NCC_MIN, NCC_STRONG, ROSTER_GAP_MS,
                         SIDES, read_frame, roster_marker)
+    from .spike import provenance as spike_provenance
     from .version import SPIKE_VERSION
 
     man = store.read_manifest(sid)
@@ -4128,8 +4144,10 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
     except SystemExit as e:                  # `geometry.require` exits with the reason
         return {"skipped": f"no baked geometry ({e})"}
     sd = geometry.stability(sid, store.root, med.shape[:2])
+    ms = geometry.map_scale_of(sid, store.root)
     ctx = {"floor": floor_mask(med, sd=sd), "slab": slab_mask(med, sd=sd), "static": med,
-           "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)}
+           "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64),
+           "scale": None if ms is None else ms.scale}
     t = np.unique(np.asarray(mm.t_ms, float))
     spans = mm.record.get("spans") or [[float(t[0]), float(t[-1])]]
     grid: list[float] = []
@@ -4171,6 +4189,8 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
     read = [r for r in frames if r["reason"] is None]
     head = {"kind": "coverage", "session": sid, "spike_version": SPIKE_VERSION,
             "widget_scale": round(widget_scale(x1 - x0), 4),
+            "map_scale": None if ms is None else ms.provenance(),
+            "game_textures": spike_provenance(store.root),
             "roi_cache_version": mm.record.get("version"),
             "hud_cache": None if hud is None else hud.record.get("version"),
             "hud_cache_reason": hud_why,
