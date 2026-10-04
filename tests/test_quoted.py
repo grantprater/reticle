@@ -83,6 +83,25 @@ class CitationTests(unittest.TestCase):
         self.assertEqual(got[0]["series"],
                          "floor_mask_eval/reticle.minimap | PLANT")
 
+    def test_a_field_may_name_a_model_step_and_its_measure(self):
+        """Recorded fields such as `step:M1->M2.nats` were never matched, so
+        the figures quoting them went unchecked without an error."""
+        rows = [row("winprob_reference", "riot_G", "",
+                    {"step:M1_alive->M2_alive_load.nats": 0.01719})]
+        with contextlib.ExitStack() as stack:
+            tree = Tree(stack, {"docs/a.md":
+                                "[metric:winprob_reference/riot_G"
+                                "#step:M1_alive->M2_alive_load.nats=0.0172] "
+                                "[metric:winprob_reference/riot_G"
+                                "#step:M1_alive->M2_alive_load.nats=0.0300]"})
+            got = quoted.citations(tree.root)
+            warns = tree.messages("WARN", rows=rows)
+        self.assertEqual([c["field"] for c in got],
+                         ["step:M1_alive->M2_alive_load.nats"] * 2)
+        stale = [m for m in warns if "stale" in m]
+        self.assertEqual(len(stale), 1)
+        self.assertIn("0.0300", stale[0])
+
     def test_an_agreeing_citation_is_silent(self):
         with contextlib.ExitStack() as stack:
             tree = Tree(stack, {"docs/a.md":

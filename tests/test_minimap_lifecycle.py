@@ -29,6 +29,29 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(row["state"], "left_censored")
         self.assertIsNone(row["origin_interval_ms"])
 
+    def test_an_unread_role_is_suspended_while_the_others_adjudicate(self):
+        lifecycle = Lifecycle()
+        lifecycle.step(frame(0, [obs(1, 10, "ally"), obs(2, 100, "self")]))
+        # 0.6 s of drawn frames read the self icon but not the teammates.
+        for t in range(100, 700, 100):
+            f = dict(frame(t, [obs(2, 100, "self")]), unread_roles=["ally"])
+            rows = lifecycle.step(f)
+            self.assertEqual([r["state"] for r in rows], ["continuation"])
+        self.assertEqual(lifecycle.role_boundary, {"ally"})
+        # The teammate's anchor expired across the gap: its first appearance
+        # after it is censored, as after an absent widget, while a self icon
+        # appearing far from its anchor stays unexplained.
+        rows = lifecycle.step(frame(700, [obs(1, 40, "ally"), obs(3, 160, "self")]))
+        by_role = {r["role"]: r for r in rows}
+        self.assertEqual(by_role["ally"]["state"], "left_censored")
+        self.assertTrue(by_role["ally"]["eligible"])
+        self.assertEqual(by_role["self"]["state"], "unexplained_appearance")
+        self.assertEqual(lifecycle.role_boundary, set())
+        # Without `unread_roles` an ally appearing far from every anchor is
+        # unexplained, as before.
+        late = lifecycle.step(frame(800, [obs(1, 40, "ally"), obs(4, 300, "ally")]))
+        self.assertEqual(late[1]["state"], "unexplained_appearance")
+
     def test_new_dark_nonping_quarantined_without_destroying_raw(self):
         lifecycle = Lifecycle()
         lifecycle.step(frame(0, [obs()]))
