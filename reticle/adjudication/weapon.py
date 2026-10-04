@@ -22,7 +22,7 @@ import numpy as np
 
 # The icon's white mask and its normalised grid are measurements, so the reader
 # layer owns them; this module names what they describe.
-from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
+from ..killfeed import ICON_GRID, PLATE_WHITE_CUT, icon_grid, icon_white_mask, unpack_soft
 from ..usage import step
 from .killfeed_kits import kill_kits, open_questions
 
@@ -65,7 +65,15 @@ from .killfeed_kits import kill_kits, open_questions
 # `classify_killfeed_icon` takes the match's `agents`, both sides, in place
 # of the player's own agent (`active_agent`): a kill icon's caster may be
 # on either team.
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.3.0"
+# 1.4.0 (2026-10-03): a frame whose row keeps its soft glyph is named by the
+# whitened matched filter (WEAPON_WHITEN_VERSION): the glyph registered on a
+# canvas at sub-pixel (`register_canvas`), scored against the game icons'
+# rendered means and the mined exemplars' means with the dev residual
+# covariance folded in (`_name_white`), among the names the IoU floor clears.
+# New refusals: `registration_failed` (no ink edge, or coverage against the
+# winner beyond the fit limits) and `pairwise_tie` (TIE_Z). A row without the
+# glyph, or a scale without parameters, keeps the IoU rule.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.4.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -733,7 +741,7 @@ def game_icon_exemplar(rgba: np.ndarray, height: float = GAME_ICON_HEIGHT, *,
     exemplars and the descriptor
     [metric:game_killicons/game@weapon-gallery-0.7.0#right=707]
     (GAME_ICON_POLICY)."""
-    from ..killfeed import PLATE_WHITE_CUT, KillfeedScale
+    from ..killfeed import KillfeedScale
     drawn = drawn_icon_alpha(rgba, height, phase)
     if drawn is None:
         return None
@@ -748,6 +756,44 @@ def game_icon_exemplar(rgba: np.ndarray, height: float = GAME_ICON_HEIGHT, *,
 
 
 _GAME_CACHE: dict[tuple, tuple] = {}
+_TEXTURE_CACHE: dict[str, tuple] = {}
+
+
+def game_textures(store_root: Optional[Path] = None) -> tuple[Optional[dict], Optional[str]]:
+    """Each GAME_KILL_ICONS name's texture as stored, `{name: (rgba, output
+    key, sha256)}`, and None; or None and why not: `no_game_icons` when the
+    build's export or its manifest is missing, `game_icon_missing:<name>` when
+    a listed texture is, `game_icon_sha256:<name>` when its bytes differ from
+    the manifest's sha256. `load_game_icons` and `build_whitening` read the
+    textures through it."""
+    import hashlib
+    import json
+    d = game_icons_dir(store_root)
+    if str(d) in _TEXTURE_CACHE:
+        return _TEXTURE_CACHE[str(d)]
+    manifest = d / "manifest.jsonl"
+    if not manifest.is_file():
+        return None, "no_game_icons"
+    sha = {}
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            r = json.loads(line)
+            if r.get("output"):
+                sha[r["output"].replace("\\", "/")] = r.get("sha256")
+    out = {}
+    for name, (rel, _category) in GAME_KILL_ICONS.items():
+        p = d / rel
+        out_key = f"killfeed-icons/{rel}"
+        if not p.is_file():
+            return None, f"game_icon_missing:{name}"
+        raw = p.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        if sha.get(out_key) != digest:
+            return None, f"game_icon_sha256:{name}"
+        out[name] = (cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_UNCHANGED),
+                     out_key, digest)
+    _TEXTURE_CACHE[str(d)] = (out, None)
+    return out, None
 
 
 def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
@@ -762,33 +808,17 @@ def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
     and `game_icon_sha256:<name>` when a texture's bytes differ from the
     manifest's sha256. The gallery carries the build and each texture's
     sha256 (`provenance`)."""
-    import hashlib
-    import json
     d = game_icons_dir(store_root)
     key = (str(d), round(float(scale), 4), tuple(phases), soft, mirror)
     if key in _GAME_CACHE:
         return _GAME_CACHE[key]
-    manifest = d / "manifest.jsonl"
-    if not manifest.is_file():
-        return None, "no_game_icons"
-    sha = {}
-    for line in manifest.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            r = json.loads(line)
-            if r.get("output"):
-                sha[r["output"].replace("\\", "/")] = r.get("sha256")
+    textures, why = game_textures(store_root)
+    if textures is None:
+        return None, why
     names, cls, masks, aspects, keys, prov = [], [], [], [], [], {}
     with step("game_icons"):
         for name, (rel, category) in GAME_KILL_ICONS.items():
-            p = d / rel
-            out_key = f"killfeed-icons/{rel}"
-            if not p.is_file():
-                return None, f"game_icon_missing:{name}"
-            raw = p.read_bytes()
-            digest = hashlib.sha256(raw).hexdigest()
-            if sha.get(out_key) != digest:
-                return None, f"game_icon_sha256:{name}"
-            rgba = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_UNCHANGED)
+            rgba, out_key, digest = textures[name]
             if rgba is not None and not mirror:
                 rgba = rgba[:, ::-1].copy()     # drawn mirrored twice: as stored
             for ph in phases:
@@ -852,6 +882,431 @@ def load_gallery(store_root: Optional[Path] = None, scale: float = 1.0
             "aspects": np.concatenate([mined["aspects"][keep], game["aspects"]]),
             "provenance": {"version": WEAPON_GALLERY_VERSION, "mined": MINED_GALLERY_VERSION,
                            "game": game["provenance"], "policy": GAME_ICON_POLICY}}, None
+
+
+# ------------------------------------------------------------ whitened scoring
+#: The whitened matched filter's parameter set, stamped apart from this
+#: module's rule: the reference rows, their prewhitened form and the
+#: registration limits, fit by `build_whitening` and stored per scale under
+#: `<store>/reference/weapon_whiten/` (`whitening_path`). 0.1.0
+#: (2026-10-03): the residual covariance of WHITEN_DEV_SESSIONS' pipeline
+#: verdicts against the game icons' rendered means.
+WEAPON_WHITEN_VERSION = "weapon-whiten-0.1.0"
+#: The sessions the covariance, the mined means and the limits are fit on:
+#: the separability probe's dev half (the 21 match sessions sorted, every
+#: other one from the first), fixed before any wired measurement. The other
+#: half is held out; no parameter reads it.
+WHITEN_DEV_SESSIONS = ("043bafca271a", "3694746e4e54", "5822b6646448", "59c70f1ef720",
+                       "75a55a296d3b", "9acf02f98283", "a1a995e6b19b", "b7d24102a6f6",
+                       "bfad2778a372", "c62c2b06bcfb", "ff636d173b07")
+#: The registration canvas (rows, columns) in base px, and the column the
+#: icon's left ink edge is moved to. An icon wider than the canvas less the
+#: edge (Ares, Operator, Outlaw, Marshal, Tour De Force) is scored on its
+#: first 96 base px; the IoU gate (`_name_icon`) still sees its whole aspect.
+WHITEN_CANVAS = (34.0, 100.0)
+WHITEN_LEFT = 4.0
+#: The covariance's shrinkage toward its diagonal and its ridge, as a share
+#: of the mean variance.
+WHITEN_SHRINK = 0.3
+WHITEN_RIDGE = 1e-4
+#: The game icon's rendered mean: every drawn height (base px, times the
+#: scale), horizontal sub-pixel phase and Gaussian blur sigma (base px) here,
+#: registered and averaged. The drawn height spans
+#: [domain:killfeed/weapon-cell-formula]'s 24 px by a quarter pixel either
+#: way, the phase [domain:killfeed/subpixel-placement] a pixel.
+WHITEN_HEIGHTS = (23.5, 23.75, 24.0, 24.25, 24.5)
+WHITEN_PHASES = (0.0, 0.2, 0.4, 0.6, 0.8)
+WHITEN_BLURS = (0.0, 0.25, 0.5)
+#: Fit rows: per session and name, at most this many verdicts, each read at
+#: the middle frame of its ring witness (the entry at rest).
+WHITEN_PER_NAME = 25
+#: A mined name joins the references as the mean of its dev exemplars when
+#: it has this many; a name with no game icon and no dev exemplar takes its
+#: exemplars from any session (recorded as `mined_any_session`).
+WHITEN_MINED_MIN = 3
+#: The registration limits are this quantile of the fit rows' coverage
+#: against their own winning reference, among rows the filter names right.
+WHITEN_REG_QUANTILE = 0.995
+#: The two best names are a pairwise tie when the winner's score clears the
+#: runner-up's by less than this many standard deviations of their score
+#: difference, sqrt((mu_a - mu_b)' S^-1 (mu_a - mu_b)) under the fit
+#: covariance: the observation lies that close to the pair's own boundary.
+#: Fixed in advance, not tuned.
+TIE_Z = 3.0
+#: Why the whitened filter refuses (beside `new` and `ambiguous`).
+#: `registration_failed`: the soft glyph has no ink edge to register by, or,
+#: registered, it holds ink its best reference lacks (a straddled crop) or
+#: lacks ink the reference holds (a cut one) beyond the fit rows' limits.
+#: `pairwise_tie`: the best two names lie within TIE_Z of each other.
+REFUSE_TIE = "pairwise_tie"
+REFUSE_REGISTRATION = "registration_failed"
+
+
+def whiten_scale(scale: float) -> float:
+    """The scale a capture at `scale` is whitened at: its own below 1.0, else
+    1.0, so a larger capture's glyph is shrunk to the parameters' size and
+    never one enlarged."""
+    return round(min(float(scale), 1.0), 3)
+
+
+def register_canvas(w: np.ndarray, scale: float = 1.0
+                    ) -> tuple[Optional[np.ndarray], dict]:
+    """A soft glyph (whiteness 0..1) moved onto the registration canvas at
+    `scale`: its left ink edge, the sub-pixel column where the column maximum
+    first crosses PLATE_WHITE_CUT (linear between the two columns), to
+    WHITEN_LEFT, and the whiteness-weighted row centroid of the columns from
+    that edge on to the canvas's middle row, by one linear warp. Returns the
+    canvas (float32) and the shift; None and `no_edge` when no column crosses
+    the cut."""
+    hc, wc = int(round(WHITEN_CANVAS[0] * scale)), int(round(WHITEN_CANVAS[1] * scale))
+    w = np.clip(np.asarray(w, np.float32), 0.0, 1.0)
+    cm = w.max(axis=0)
+    idx = np.flatnonzero(cm >= PLATE_WHITE_CUT)
+    if idx.size == 0:
+        return None, {"reason": "no_edge"}
+    j = int(idx[0])
+    xe = (j - (cm[j] - PLATE_WHITE_CUT) / max(float(cm[j] - cm[j - 1]), 1e-3)) if j > 0 else float(j)
+    rm = w[:, j:].sum(axis=1)
+    yc = float((rm * np.arange(len(rm))).sum() / max(float(rm.sum()), 1e-6))
+    m = np.float32([[1, 0, WHITEN_LEFT * scale - xe], [0, 1, (hc - 1) / 2 - yc]])
+    canvas = cv2.warpAffine(w, m, (wc, hc), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    return canvas, {"x_edge": round(float(xe), 3), "y_centroid": round(yc, 3)}
+
+
+def row_scale(row: dict) -> float:
+    """The capture scale a stored row was cut at (`slot_geom`), 1.0 unstated."""
+    return float((((row.get("slot_geom") or {}).get("scale") or {}).get("scale")) or 1.0)
+
+
+def soft_canvas(row: dict, scale: float) -> tuple[Optional[np.ndarray], dict]:
+    """A stored `killfeed_weapon` row's soft glyph (`soft`, killfeed-weapon-0.6.0
+    on) registered at `scale` (`register_canvas`). A row cut at a larger
+    scale is first shrunk to `scale` with INTER_AREA; one cut smaller is
+    refused (`row_below_scale`), since enlarging would invent detail. None
+    and `no_soft` for a row without the field."""
+    soft = row.get("soft")
+    if not soft:
+        return None, {"reason": "no_soft"}
+    w = unpack_soft(soft)[0].astype(np.float32) / 255.0
+    s = row_scale(row)
+    if s < scale - 1e-3:
+        return None, {"reason": "row_below_scale"}
+    if s > scale + 1e-3:
+        f = scale / s
+        w = cv2.resize(w, (max(1, int(round(w.shape[1] * f))), max(1, int(round(w.shape[0] * f)))),
+                       interpolation=cv2.INTER_AREA)
+    return register_canvas(w, scale)
+
+
+def template_mean(rgba: np.ndarray, scale: float = 1.0) -> Optional[np.ndarray]:
+    """A game kill icon's reference row: its drawn alpha (`drawn_icon_alpha`:
+    mirrored, INTER_AREA to the height, linear warp to the phase) at every
+    WHITEN_HEIGHTS x WHITEN_PHASES x WHITEN_BLURS (Gaussian blur), padded,
+    registered (`register_canvas`) and averaged. None for a texture without
+    alpha."""
+    out = []
+    for h in WHITEN_HEIGHTS:
+        for ph in WHITEN_PHASES:
+            a = drawn_icon_alpha(rgba, h * scale, (ph, 0.0))
+            if a is None:
+                return None
+            for b in WHITEN_BLURS:
+                t = cv2.GaussianBlur(a, (0, 0), b * scale) if b * scale > 0.05 else a
+                c, _ = register_canvas(np.pad(t, 4), scale)
+                if c is not None:
+                    out.append(c)
+    return np.mean(out, axis=0).astype(np.float32) if out else None
+
+
+def whitening_path(store_root: Optional[Path] = None, scale: float = 1.0) -> Path:
+    """The parameter file for `scale` in `store_root` (default: the default store)."""
+    if store_root is None:
+        from ..store import Store
+        store_root = Store().root
+    return (Path(store_root) / "reference" / "weapon_whiten"
+            / f"{WEAPON_WHITEN_VERSION}@s{whiten_scale(scale):.3f}.npz")
+
+
+def whiten_fit_rows(store, sessions=WHITEN_DEV_SESSIONS) -> list[dict]:
+    """The fit rows: in each of `sessions`, each death verdict whose weapon
+    the pipeline resolved, read at the middle frame of its ring witness, at
+    most WHITEN_PER_NAME per name, with the stored `killfeed_weapon` row of
+    that frame. The labels are the pipeline's verdicts, not the player's:
+    they measure agreement with the pipeline."""
+    out = []
+    for sid in sessions:
+        kw = {(float(r["t_ms"]), int(r["slot"])): r
+              for r in store.read_events("killfeed_weapon", sid) or []
+              if r.get("kind") == "weapon_icon_observation" and r.get("wx1")}
+        per: dict[str, int] = {}
+        for d in store.read_events("death", sid) or []:
+            we = d.get("weapon_evidence") or {}
+            name = we.get("name")
+            if (d.get("kind") != "death_verdict" or not name or we.get("status") != "resolved"
+                    or per.get(name, 0) >= WHITEN_PER_NAME):
+                continue
+            frames = ((((d.get("entry_type") or {}).get("witnesses") or {}).get("ring") or {})
+                      .get("evidence", {}).get("frames") or [])
+            if not frames:
+                continue
+            t, slot = frames[len(frames) // 2][:2]
+            r = kw.get((float(t), int(slot)))
+            if r is None or not r.get("soft"):
+                continue
+            per[name] = per.get(name, 0) + 1
+            out.append({"session_id": sid, "t_ms": float(t), "slot": int(slot), "name": name,
+                        "death_version": d.get("death_adjudication_version"), "row": r})
+    return out
+
+
+def _mined_rows(store, mined: dict, sessions) -> dict[str, list[tuple[str, dict]]]:
+    """The stored rows of the mined gallery's exemplars, `{name: [(key, row)]}`,
+    in `sessions` (None: any). A `kf:` key names its frame; a `death:...#k`
+    key the k-th frame of that death's ring witness."""
+    rows: dict[str, dict] = {}
+    deaths: dict[str, dict] = {}
+    out: dict[str, list] = {}
+    for name, key in zip(mined["names"], mined["keys"]):
+        key, name = str(key), str(name)
+        base, _, k = key.partition("#")
+        kind, sid, t, slot = base.split(":")
+        if sessions is not None and sid not in sessions:
+            continue
+        if sid not in rows:
+            rows[sid] = {(float(r["t_ms"]), int(r["slot"])): r
+                         for r in store.read_events("killfeed_weapon", sid) or []
+                         if r.get("kind") == "weapon_icon_observation"}
+            deaths[sid] = {d.get("death_id"): d for d in store.read_events("death", sid) or []
+                           if d.get("kind") == "death_verdict"}
+        if kind == "death":
+            frames = ((((deaths[sid].get(base) or {}).get("entry_type") or {}).get("witnesses")
+                       or {}).get("ring") or {}).get("evidence", {}).get("frames") or []
+            if not k or int(k) >= len(frames):
+                continue
+            t, slot = frames[int(k)][:2]
+        r = rows[sid].get((float(t), int(slot)))
+        if r is not None and r.get("soft"):
+            out.setdefault(name, []).append((key, r))
+    return out
+
+
+def _coverage(g: np.ndarray, t: np.ndarray) -> tuple[float, float]:
+    """(excess, deficit) of a registered glyph `g` against a reference `t`,
+    both on the canvas: the share of the glyph's whiteness above the
+    reference dilated by one pixel (3x3 maximum), and the share of the
+    reference's above the glyph dilated alike. Soft: no cut is taken."""
+    k = np.ones((3, 3), np.uint8)
+    g = np.clip(g, 0.0, 1.0)
+    t = np.clip(t, 0.0, 1.0)
+    exc = float(np.maximum(g - cv2.dilate(t, k), 0).sum() / max(float(g.sum()), 1e-6))
+    dfc = float(np.maximum(t - cv2.dilate(g, k), 0).sum() / max(float(t.sum()), 1e-6))
+    return exc, dfc
+
+
+def build_whitening(store_root: Optional[Path] = None, scale: float = 1.0,
+                    sessions=WHITEN_DEV_SESSIONS, write: bool = True) -> dict:
+    """Fit WEAPON_WHITEN_VERSION's parameters at `scale` from `sessions` and
+    write them to `whitening_path` (`write=False`: return only).
+
+    References: each GAME_KILL_ICONS name's rendered mean (`template_mean`),
+    and each mined name's mean registered exemplar (`_mined_rows`, the dev
+    sessions', WHITEN_MINED_MIN or more; a name with neither a game icon nor
+    a dev exemplar takes any session's), less the names GAME_ICON_POLICY
+    gives to a game icon. A name may hold both rows; its score is the best.
+    The covariance is that of the fit rows' residuals (`whiten_fit_rows`,
+    names with a game icon only) against their name's game mean, shrunk by
+    WHITEN_SHRINK toward its diagonal with a WHITEN_RIDGE ridge; its inverse
+    is folded into the references (`W = mu S^-1`, `c = mu S^-1 mu / 2`), so
+    a glyph g scores `W g - c` and S^-1 itself is not stored. The
+    registration limits are the WHITEN_REG_QUANTILE of the rightly named
+    fit rows' coverage (`_coverage`) against their winning reference."""
+    import hashlib
+    import json
+    from ..store import Store
+    store = Store(store_root) if store_root is not None else Store()
+    textures, why = game_textures(store.root)
+    if textures is None:
+        raise RuntimeError(f"no game icons: {why}")
+    path = mined_gallery_path(store.root)
+    if not path.is_file():
+        raise RuntimeError(f"no mined gallery: {path}")
+    z = np.load(path)
+    mined = {"names": z["names"], "keys": z["keys"]}
+    ws = whiten_scale(scale)
+    names, kinds, refs, ref_keys = [], [], [], []
+    with step("whiten_templates"):
+        for name, (rgba, out_key, digest) in textures.items():
+            m = template_mean(rgba, ws)
+            if m is not None:
+                names.append(name)
+                kinds.append("game")
+                refs.append(m)
+                ref_keys.append([f"game:{GAME_ICON_BUILD}:{out_key}:{digest[:12]}"])
+    game_names = set(names)
+    dev_rows = _mined_rows(store, mined, set(sessions))
+    any_rows = _mined_rows(store, mined, None)
+    any_session = []
+    for name in sorted({str(n) for n in mined["names"]} - set(GAME_ICON_POLICY)):
+        got = dev_rows.get(name, [])
+        if len(got) < WHITEN_MINED_MIN:
+            if name in game_names or got:
+                continue
+            got = any_rows.get(name, [])
+            if not got:
+                continue
+            any_session.append(name)
+        cs = [c for c in (soft_canvas(r, ws)[0] for _k, r in got) if c is not None]
+        if cs:
+            names.append(name)
+            kinds.append("mined")
+            refs.append(np.mean(cs, axis=0))
+            ref_keys.append([k for k, _r in got])
+    R = np.array([r.ravel() for r in refs], np.float32)
+    with step("whiten_fit"):
+        fit = [f for f in whiten_fit_rows(store, sessions) if f["name"] in game_names]
+        G, lab = [], []
+        for f in fit:
+            c, _ = soft_canvas(f["row"], ws)
+            if c is not None:
+                G.append(c.ravel())
+                lab.append(f["name"])
+        G = np.array(G, np.float32)
+        gi = {n: i for i, n in enumerate(names) if kinds[i] == "game"}
+        res = G - R[[gi[n] for n in lab]]
+        S = np.cov(res.T)
+        dg = np.diag(S)
+        S = ((1 - WHITEN_SHRINK) * S + WHITEN_SHRINK * np.diag(dg)
+             + WHITEN_RIDGE * dg.mean() * np.eye(len(dg)))
+        W = np.linalg.solve(S, R.T).T.astype(np.float32)
+        c = (0.5 * np.einsum("kd,kd->k", W, R)).astype(np.float32)
+    # Limits: the rightly named fit rows' coverage against their winning row.
+    sc = G @ W.T - c[None]
+    arr = np.array(names)
+    best = sc.argmax(axis=1)
+    hc, wc = int(round(WHITEN_CANVAS[0] * ws)), int(round(WHITEN_CANVAS[1] * ws))
+    cov = np.array([_coverage(G[i].reshape(hc, wc), R[best[i]].reshape(hc, wc))
+                    for i in range(len(G)) if arr[best[i]] == lab[i]])
+    limits = {"excess": round(float(np.quantile(cov[:, 0], WHITEN_REG_QUANTILE)), 4),
+              "deficit": round(float(np.quantile(cov[:, 1], WHITEN_REG_QUANTILE)), 4)}
+    per_name: dict[str, int] = {}
+    for n in lab:
+        per_name[n] = per_name.get(n, 0) + 1
+    keys = sorted(f"{f['session_id']}:{f['t_ms']:.0f}:{f['slot']}" for f in fit)
+    prov = {"version": WEAPON_WHITEN_VERSION, "scale": ws, "dev_sessions": list(sessions),
+            "labels": "death_verdict weapon_evidence resolved (pipeline verdicts; agreement, "
+                      "not accuracy), the middle ring-witness frame",
+            "death_versions": sorted({str(f["death_version"]) for f in fit}),
+            "fit_rows": len(G), "fit_per_name": per_name,
+            "fit_keys_sha1": hashlib.sha1("\n".join(keys).encode()).hexdigest(),
+            "fit_right": int(len(cov)), "limits": limits, "quantile": WHITEN_REG_QUANTILE,
+            "shrink": WHITEN_SHRINK, "ridge": WHITEN_RIDGE, "canvas": list(WHITEN_CANVAS),
+            "left": WHITEN_LEFT, "heights": list(WHITEN_HEIGHTS), "phases": list(WHITEN_PHASES),
+            "blurs": list(WHITEN_BLURS), "tie_z": TIE_Z, "game_build": GAME_ICON_BUILD,
+            "mined": MINED_GALLERY_VERSION, "policy": GAME_ICON_POLICY,
+            "mined_any_session": any_session,
+            "filters": "INTER_AREA to shrink; linear warp to register; Gaussian blur on the "
+                       "rendered references; 3x3 maximum for coverage"}
+    out = {"names": arr, "kinds": np.array(kinds), "refs": R, "W": W, "c": c,
+           "aspects": np.array([_ref_aspect(r.reshape(hc, wc)) for r in R]),
+           "ref_keys": np.array([json.dumps(k) for k in ref_keys]), "provenance": prov}
+    if write:
+        p = whitening_path(store.root, ws)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(p, **{k: v for k, v in out.items() if k != "provenance"},
+                            provenance=np.array(json.dumps(prov)))
+        _WHITEN_CACHE.pop(str(p), None)
+    return out
+
+
+def _ref_aspect(t: np.ndarray) -> float:
+    """A reference row's ink box aspect at PLATE_WHITE_CUT (columns over rows)."""
+    ys, xs = np.nonzero(t >= PLATE_WHITE_CUT)
+    if not len(xs):
+        return 0.0
+    return float((xs.max() - xs.min() + 1) / (ys.max() - ys.min() + 1))
+
+
+_WHITEN_CACHE: dict[str, dict] = {}
+
+
+def load_whitening(store_root: Optional[Path] = None, scale: float = 1.0
+                   ) -> tuple[Optional[dict], Optional[str]]:
+    """The whitened filter's parameters for a capture at `scale`
+    (`whiten_scale`, `whitening_path`), and None; or None and
+    `no_whitening:<scale>` when they are not built."""
+    import json
+    p = whitening_path(store_root, scale)
+    key = str(p)
+    if key not in _WHITEN_CACHE:
+        if not p.is_file():
+            return None, f"no_whitening:{whiten_scale(scale):.3f}"
+        with step("whiten_params"):
+            z = np.load(p)
+            _WHITEN_CACHE[key] = {k: z[k] for k in ("names", "kinds", "refs", "W", "c", "aspects")}
+            _WHITEN_CACHE[key]["names"] = _WHITEN_CACHE[key]["names"].astype(str)
+            _WHITEN_CACHE[key]["provenance"] = json.loads(str(z["provenance"]))
+    return _WHITEN_CACHE[key], None
+
+
+def _white_index(ref: dict) -> dict:
+    """What `_name_white` reads of a parameter set, prepared once: the rows
+    grouped by name (first-appearance order) and the canvas shape."""
+    names = [str(n) for n in ref["names"]]
+    order = list(dict.fromkeys(names))
+    rows = {n: [] for n in order}
+    for k, n in enumerate(names):
+        rows[n].append(k)
+    perm = np.array([k for n in order for k in rows[n]], dtype=np.intp)
+    counts = np.array([len(rows[n]) for n in order], dtype=np.intp)
+    prov = ref.get("provenance") or {}
+    return {"W": ref["W"], "c": ref["c"], "refs": ref["refs"], "names": order, "perm": perm,
+            "starts": np.concatenate([[0], np.cumsum(counts)[:-1]]).astype(np.intp),
+            "group": np.repeat(np.arange(len(order)), counts),
+            "limits": prov.get("limits") or {}, "scale": prov.get("scale", 1.0)}
+
+
+def _name_white(canvas: np.ndarray, index: dict, cleared) -> dict:
+    """One registered glyph named by the whitened filter among `index`'s
+    names. Each name scores its best reference row (`W g - c`); the winner
+    must (1) register onto its row within the fit limits (`_coverage`), else
+    `registration_failed`; (2) be a name the IoU floor cleared (`cleared`,
+    `_name_icon`'s open-set gate: shape and aspect), else `ambiguous`, the
+    two scorers disagreeing; (3) clear the runner-up by TIE_Z standard
+    deviations of the pair's score difference, else `pairwise_tie`."""
+    if not index["names"]:
+        return {"name": None, "reason": REFUSE_NEW, "scorer": "whitened", "best": None}
+    g = canvas.reshape(-1).astype(np.float32)
+    s = index["W"] @ g - index["c"]
+    sp = s[index["perm"]]
+    tops = np.maximum.reduceat(sp, index["starts"])
+    hit = np.flatnonzero(sp == tops[index["group"]])
+    first = hit[np.unique(index["group"][hit], return_index=True)[1]]
+    rows = index["perm"][first]                 # best row of each name
+    order = np.argsort(-tops)
+    a = int(order[0])
+    top, ja = index["names"][a], int(rows[a])
+    out = {"scorer": "whitened", "best": top, "score": round(float(tops[a]), 1),
+           "scores": {index["names"][i]: round(float(tops[i]), 1) for i in order[:5]}}
+    if len(order) > 1:
+        b = int(order[1])
+        jb = int(rows[b])
+        margin = float(tops[a] - tops[b])
+        dmu = index["refs"][ja] - index["refs"][jb]
+        delta = float(np.sqrt(max(float((index["W"][ja] - index["W"][jb]) @ dmu), 1e-12)))
+        out.update(margin=round(margin, 1), z=round(margin / delta, 2),
+                   pair=[top, index["names"][b]])
+    else:
+        out.update(margin=None, z=None, pair=[top])
+    exc, dfc = _coverage(canvas, index["refs"][ja].reshape(canvas.shape))
+    out["coverage"] = [round(exc, 3), round(dfc, 3)]
+    lim = index["limits"]
+    if exc > lim.get("excess", np.inf) or dfc > lim.get("deficit", np.inf):
+        return dict(out, name=None, reason=REFUSE_REGISTRATION)
+    if top not in cleared:
+        return dict(out, name=None, reason=REFUSE_AMBIGUOUS)
+    if out["z"] is not None and out["z"] < TIE_Z:
+        return dict(out, name=None, reason=REFUSE_TIE)
+    return dict(out, name=top, reason=None)
 
 
 #: The self entries that are an agent's own ability but not one of its four
@@ -947,9 +1402,12 @@ def _name_icon(grid: np.ndarray, aspect: float, index: dict,
     ranked = sorted(best.items(), key=lambda kv: -kv[1])
     top, score = ranked[0]
     margin = score - (ranked[1][1] if len(ranked) > 1 else 0.0)
-    out = {"best": top, "score": round(score, 3), "margin": round(margin, 3),
-           "scores": dict(ranked[:5])}
     cleared = [n for n, v in ranked if v >= (NAME_KIT_MIN_IOU if n in kit else NAME_MIN_IOU)]
+    # `cleared` is the open-set gate the whitened filter names within;
+    # `kit_cleared` the names only the kit's lower floor let through.
+    out = {"best": top, "score": round(score, 3), "margin": round(margin, 3),
+           "scores": dict(ranked[:5]), "cleared": cleared,
+           "kit_cleared": [n for n in cleared if best[n] < NAME_MIN_IOU]}
     if not cleared:
         return dict(out, name=None, reason=REFUSE_NEW)
     if cleared[0] != top or margin < NAME_MARGIN:
@@ -1010,10 +1468,11 @@ def bind_entry(entry: dict, observations: list[dict]) -> list[dict]:
 
 
 def _thin_reason(reasons: dict[str, int], n_bound: int) -> str:
-    """Why a thinly named entry refuses: `new` or `ambiguous` when more than
-    half its frames refused for that reason, else `too_few_named` (a short
-    entry whose few frames did name it)."""
-    for why in (REFUSE_NEW, REFUSE_AMBIGUOUS):
+    """Why a thinly named entry refuses: `new`, `ambiguous`, `pairwise_tie`
+    or `registration_failed` when more than half its frames refused for that
+    reason, else `too_few_named` (a short entry whose few frames did name
+    it)."""
+    for why in (REFUSE_NEW, REFUSE_AMBIGUOUS, REFUSE_TIE, REFUSE_REGISTRATION):
         if 2 * reasons.get(why, 0) > n_bound:
             return why
     return "too_few_named"
@@ -1042,35 +1501,69 @@ def ability_shaped_names(gallery: dict, agent: Optional[str]) -> frozenset:
                      and float(np.median(gallery["aspects"][names == n])) <= ABILITY_MAX_ASPECT)
 
 
-def candidate_tiers(gallery: dict, agents=None, actor: Optional[dict] = None) -> list[dict]:
+def candidate_tiers(gallery: dict, agents=None, actor: Optional[dict] = None,
+                    whiten: Optional[dict] = None) -> list[dict]:
     """The candidate sets `entry_weapon` tries, narrowest first: `kit` (the
     guns and unattributed names, with only `actor`'s own abilities), `lineup`
     (with the abilities of `agents`, the match's lineup) and `full`. A tier is
-    present only when its context is given; `full` always is."""
+    present only when its context is given; `full` always is. Any player can
+    buy any gun, so every tier holds every gun; only abilities narrow.
+
+    Given `whiten` (`load_whitening`), each tier also carries the whitened
+    filter's references for the same names (`white`), dropped by the same
+    rule (`restrict_gallery`)."""
     out = []
     agent = (actor or {}).get("agent")
+
+    def white(allowed):
+        if whiten is None:
+            return None
+        return _white_index(restrict_gallery(whiten, allowed)[0] if allowed is not None else whiten)
     if agent:
         g, dropped = restrict_gallery(gallery, {agent})
         out.append({"tier": "kit", "index": _icon_index(g), "kit": kit_names(g, agent),
-                    "dropped": dropped})
+                    "dropped": dropped, "white": white({agent})})
     if agents:
         g, dropped = restrict_gallery(gallery, agents)
         out.append({"tier": "lineup", "index": _icon_index(g), "kit": frozenset(),
-                    "dropped": dropped})
+                    "dropped": dropped, "white": white(agents)})
     out.append({"tier": "full", "index": _icon_index(gallery), "kit": frozenset(),
-                "dropped": []})
+                "dropped": [], "white": white(None)})
     return out
 
 
-def name_frame(grid: np.ndarray, aspect: float, tiers: list[dict]) -> dict:
+def name_frame(grid: np.ndarray, aspect: float, tiers: list[dict],
+               canvas=None) -> dict:
     """One icon named through `candidate_tiers`: the first tier where some
-    allowed name clears its floor decides (a name, or `ambiguous`, which a
-    wider set cannot cure); an icon no tier names is `new` at the widest."""
+    allowed name clears its IoU floor decides (a name or a refusal, which a
+    wider set cannot cure); an icon no tier names is `new` at the widest.
+
+    `canvas` is the frame's registered soft glyph (`soft_canvas`) as
+    `(canvas, info)`, or None for a row the filter cannot read (no `soft`, or
+    no parameters). With a canvas and a tier carrying `white`, the whitened
+    filter decides among the tier's names (`_name_white`), the IoU floor's
+    `cleared` names being its open-set gate; a canvas that did not register
+    refuses `registration_failed`. Otherwise the IoU rule decides, as before
+    weapon-adjudication-1.4.0 (`scorer: iou`). `kit_floor` marks a name only
+    the kit's lower floor let through."""
     for t in tiers:
         v = _name_icon(grid, aspect, t["index"], t["kit"])
-        if v.get("reason") != REFUSE_NEW:
-            return dict(v, tier=t["tier"])
-    return dict(v, tier=tiers[-1]["tier"])
+        if v.get("reason") == REFUSE_NEW:
+            continue
+        iou = {"best": v["best"], "score": v["score"], "margin": v["margin"],
+               "name": v["name"], "reason": v.get("reason")}
+        if t.get("white") is not None and canvas is not None:
+            c, info = canvas
+            if c is None:
+                w = {"scorer": "whitened", "name": None, "reason": REFUSE_REGISTRATION,
+                     "best": None, "score": None, "margin": None, "registration": info}
+            else:
+                w = dict(_name_white(c, t["white"], set(v["cleared"])), registration=info)
+            return dict(w, iou=iou, tier=t["tier"],
+                        kit_floor=w["name"] is not None and w["name"] in v["kit_cleared"])
+        return dict(v, scorer="iou", tier=t["tier"],
+                    kit_floor=v["name"] is not None and v["name"] in v["kit_cleared"])
+    return dict(v, scorer="iou", tier=tiers[-1]["tier"], kit_floor=False)
 
 
 def _count(frames: list[dict], allowed: set) -> dict:
@@ -1141,15 +1634,24 @@ def observation_scale(observations: list[dict]) -> float:
 def entry_weapon(entry: dict, observations: list[dict],
                  gallery: Optional[dict] = None, agents=None,
                  actor: Optional[dict] = None, key: Optional[str] = None,
-                 frames: bool = False, store_root=None) -> dict:
+                 frames: bool = False, store_root=None, whiten="auto") -> dict:
     """The weapon or ability behind one killfeed entry, from stored descriptors.
 
     The entry's rows are those `bind_entry` follows. One frame is not an
     answer: the entry is named only when ENTRY_MIN_NAMED frames name it and
     the top name holds ENTRY_MIN_SHARE of them. A refusal keeps its cause:
-    `new` or `ambiguous` when most frames refused that way (`_thin_reason`),
-    `too_few_named` or `frames_disagree` otherwise, with every frame's reason
-    in `frame_reasons`.
+    `new`, `ambiguous`, `pairwise_tie` or `registration_failed` when most
+    frames refused that way (`_thin_reason`), `too_few_named` or
+    `frames_disagree` otherwise, with every frame's reason in
+    `frame_reasons`.
+
+    Each frame is named by the whitened matched filter where its row keeps
+    a soft glyph (`soft_canvas`, `name_frame`, `_name_white`), within the
+    names the IoU floor clears; a row without one is named by the IoU rule.
+    `whiten` is the parameter set (`load_whitening`); "auto" loads it from
+    `store_root` at the descriptors' scale (`whiten_scale`), and None names
+    by the IoU rule alone. The answer records the set's version, scale and
+    how many frames it named (`whiten`), or why it was not used.
 
     Context narrows first (`candidate_tiers`, `name_frame`, `_decide`).
     `actor` is the acting role's agent as `adjudication.death.entry_actor`
@@ -1181,7 +1683,16 @@ def entry_weapon(entry: dict, observations: list[dict],
         gallery, why = load_gallery(store_root, observation_scale(observations))
         if gallery is None:
             return dict(out, reason=why)
-    tiers = candidate_tiers(gallery, agents, actor)
+    ws = whiten_scale(observation_scale(observations))
+    if isinstance(whiten, str) and whiten == "auto":
+        whiten, wwhy = load_whitening(store_root, ws)
+    else:
+        wwhy = None if whiten is not None else "not_given"
+    out["whiten"] = ({"version": WEAPON_WHITEN_VERSION, "status": "unavailable", "reason": wwhy}
+                     if whiten is None else
+                     {"version": WEAPON_WHITEN_VERSION, "status": "used",
+                      "scale": (whiten.get("provenance") or {}).get("scale", ws)})
+    tiers = candidate_tiers(gallery, agents, actor, whiten)
     by = {t["tier"]: t for t in tiers}
     if "lineup" in by:
         out["restricted_to_lineup"] = by["lineup"]["dropped"]
@@ -1193,15 +1704,27 @@ def entry_weapon(entry: dict, observations: list[dict],
         return dict(out, named=0, names={}, frame_reasons={}, reason="no_observation",
                     rests_on=[], surprise=False)
     grids = [(unpack_icon_grid(o["grid"]), o["aspect"]) for o in bound]
+    canvases = [None] * len(bound)
+    if whiten is not None:
+        sc = out["whiten"]["scale"]
+        with step("whiten_register"):
+            canvases = [soft_canvas(o, sc) for o in bound]
+        # A row with no soft glyph (or cut smaller than the parameters) is
+        # named by the IoU rule; a glyph with no ink edge refuses.
+        canvases = [c if c[0] is not None or c[1].get("reason") == "no_edge" else None
+                    for c in canvases]
     narrow = set(by) - {"full"}
-    rows = [name_frame(g, a, tiers) for g, a in grids]
+    rows = [name_frame(g, a, tiers, c) for (g, a), c in zip(grids, canvases)]
+    if whiten is not None:
+        out["whiten"]["frames"] = sum(r.get("scorer") == "whitened" for r in rows)
     v = _decide(rows, narrow)
     rests_on: list[dict] = []
     if v["status"] == "resolved" and not v["surprise"]:
         kit_shaped = False
         if "kit" in by:
             plain = [t for t in tiers if t["tier"] != "kit"]
-            w = _decide([name_frame(g, a, plain) for g, a in grids], narrow - {"kit"})
+            w = _decide([name_frame(g, a, plain, c) for (g, a), c in zip(grids, canvases)],
+                        narrow - {"kit"})
             kit_shaped = (w["status"], w["name"]) != (v["status"], v["name"])
         if kit_shaped:
             rests_on.append({"context": "actor", **out["actor"]})
@@ -1210,8 +1733,7 @@ def entry_weapon(entry: dict, observations: list[dict],
     out.update({k: v[k] for k in ("named", "names", "frame_reasons")})
     # A frame its kit's lower floor named rests on the actor even when the
     # entry's name stands without it (`kit_floor_frames`).
-    on_kit = [r["name"] is not None and r["tier"] == "kit" and r["score"] < NAME_MIN_IOU
-              for r in rows]
+    on_kit = [r["name"] is not None and r["tier"] == "kit" and r["kit_floor"] for r in rows]
     out.update(rests_on=rests_on, surprise=v["surprise"], kit_floor_frames=sum(on_kit))
     if v.get("surprise_frames"):
         out["surprise_frames"] = v["surprise_frames"]
@@ -1219,7 +1741,7 @@ def entry_weapon(entry: dict, observations: list[dict],
         out["tiers"] = v["tiers"]
     if audit_entry(key):
         full = [by["full"]]
-        a = _count([name_frame(g, x, full) for g, x in grids], {"full"})
+        a = _count([name_frame(g, x, full, c) for (g, x), c in zip(grids, canvases)], {"full"})
         out["audit"] = {"rule": f"sha1(death_key)[:8] % {AUDIT_EVERY} == 0",
                         "status": a["status"], "name": a["name"], "reason": a["reason"],
                         "names": a["names"],
@@ -1228,6 +1750,8 @@ def entry_weapon(entry: dict, observations: list[dict],
         out["frames"] = [{"t_ms": o["t_ms"], "slot": o["slot"], "name": r["name"],
                           "reason": r.get("reason"), "tier": r["tier"], "best": r["best"],
                           "score": r["score"], "margin": r["margin"],
+                          "scorer": r["scorer"], "z": r.get("z"), "pair": r.get("pair"),
+                          "coverage": r.get("coverage"), "iou": r.get("iou"),
                           "rests_on": [{"context": "actor", **out["actor"]}] if k else []}
                          for o, r, k in zip(bound, rows, on_kit)]
     if v["status"] != "resolved":
