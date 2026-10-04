@@ -125,8 +125,9 @@ and 0.62). Recall 14/14 overstates the angle prior's hold on this sensor
 (`<store>/analysis/sonic-square-20261004/sonic-square-0.2.0/eval.json`,
 `rows` and `rotated_diagnosis`).
 The fresh held-out set is `label_minimap_glyph_heldout.py --pass sonic`
-(queue `sonic-square-heldout-queue-0.2.0`, 26 frames at fixed offsets in
-each round's cached span over three match sessions, unlabelled on
+(queue `sonic-square-heldout-queue-0.2.0`, 26 frames at fixed offsets from
+each round's cache start, 1 s before `gametime`'s barrier drop, over three
+match sessions, unlabelled on
 2026-10-04); 0.2.0 has no held-out score.
 
 **Outputs.** The top-level `eval.json` and `eval_*.png` of
