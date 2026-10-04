@@ -91,17 +91,17 @@ evidence = "tests/test_cone_walls.py, tests/test_occluder_lines.py"
 
 [[entry]]
 id = "minimap-widget-frame"
-question = "Where does this session draw its minimap widget relative to the baked geometry, and is it a variant?"
+question = "Where does this session draw its minimap widget relative to the baked geometry, is it a variant, and is it turned at this time?"
 owner = "widget_frame"
 role = ["constrain"]
 status = "shipped"
-produces = ["fit_crop", "for_session", "cohort", "capture_box"]
+produces = ["fit_crop", "for_session", "cohort", "capture_box", "capture_box_for", "placement_status", "unplaced_refusal", "turned_at", "fit_placement"]
 not_for = """
 Any map value. The fit measures the widget's scale, rotation and placement
 against the baked static and nothing else; the floor, lighting and base map
 still come from `map-geometry`. Not the icons drawn on the widget either.
 """
-consumers = ["roi_cache", "status", "cli"]
+consumers = ["roi_cache", "status", "cli", "plan", "minimap"]
 evidence = "tests/test_widget_frame.py"
 
 [[entry]]
@@ -152,13 +152,13 @@ question = "Over which contiguous spans does a per-frame signal hold?"
 owner = "segment"
 role = ["lifecycle"]
 status = "shipped"
-produces = ["to_spans", "classify", "SegmentConfig"]
+produces = ["to_spans", "classify", "SegmentConfig", "reader_spans", "READ_STATES"]
 not_for = """
 An entity's lifetime. These are SOURCE spans over a stored column; an entity
 existing from one origin event to a terminal state is `round-entity`, and the
 shared word is the whole reason to say so here.
 """
-consumers = ["synth"]
+consumers = ["synth", "cli"]
 
 [[entry]]
 id = "capture-stall"
@@ -317,7 +317,7 @@ names_agents = true
 produces = ["adjudicate", "lifetime_verdict", "tray_verdict", "cast_groups",
             "tolerance_s", "window", "SMOKE_ABILITY", "NO_BULK", "LIFETIME_S",
             "CAST_WINDOW_S", "NOT_A_PLAYER_CAST", "CHANNELS", "player_smoke_casts",
-            "smoke_entity_id"]
+            "smoke_entity_id", "cast_links", "drop_id"]
 not_for = """
 Finding or timing the smoke (`minimap-smoke`), enemy smokes (not drawn on the
 player's minimap), or deciding a name itself: each rule is a claim through
@@ -776,17 +776,22 @@ question = "What can the team see at this instant, as the pipeline adjudicates i
 owner = "team_vision"
 role = ["constrain", "corroborate"]
 status = "partial"
-produces = ["TeamVision", "load_inputs", "frame_row", "at", "at_plan", "compare_rows"]
+produces = ["TeamVision", "StoredAllyPoses", "load_inputs", "frame_row", "at", "at_plan",
+            "compare_rows"]
 not_for = """
 Ground truth for vision, and a new rule for any stage. It composes the owners'
 calls -- lobe from the drawn light, track facing, lifecycle eligibility, the
 `observable` union -- and restates none. It under-claims: a refused bearing
 casts nothing and a ray stops at the baked boxes, which also seal some narrow
 gaps the drawn light passes (the three e78e75b2d191 slivers). Smokes do not
-yet block its rays.
+yet block its rays. It finds and poses no teammate in the stored product:
+those are the stored `ally_icon` stream's (`ally-candidates`, `icon-pose`),
+and a frame that stream did not read refuses the team's `observable`, not
+refitted; the self cone there is stored apart as `observable_self`.
 """
 defers_to = ["viewcone", "drawn-light", "track-continuation", "minimap-origin",
-             "capture-stall", "light-support", "self-cone-origin"]
+             "capture-stall", "light-support", "self-cone-origin", "ally-candidates",
+             "icon-pose"]
 consumers = ["overlay", "cli"]
 stored_consumers = ["adjudication.ability"]
 evidence = "tests/test_team_vision.py, tests/test_ability_entities.py"
