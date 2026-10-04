@@ -53,3 +53,42 @@ def test_no_square_no_detection():
     rng = np.random.default_rng(2)
     g, B, Hl, slab = _scene(rng, a=0.0)
     assert not [d for d in ss.detect_frame(g, B, Hl, slab, 1.0, use_glyph=False) if d["accepted"]]
+
+
+def test_turned_square_takes_the_angle_of_the_baked_wall_under_its_icon():
+    """A wall drawn in the static at 30 deg through the icon; the square hangs off it at that angle.
+    The axis-aligned first fit links the icon, the wall prior turns the refit, and the side lies along
+    the wall."""
+    rng = np.random.default_rng(3)
+    H_, W_, th = 140, 140, 30.0
+    yy, xx = np.mgrid[0:H_, 0:W_].astype(np.float64)
+    ix, iy = 70.0, 60.0
+    t = np.radians(th)
+    ux, uy, vx, vy = np.cos(t), np.sin(t), -np.sin(t), np.cos(t)
+    # the static: floor 110 with a 2 px bright wall line through the icon along (ux, uy)
+    dist = np.abs((xx - ix) * vx + (yy - iy) * vy)
+    B = np.where(dist <= 1.0, 210.0, 110.0).astype(np.float32)
+    Hl = np.full((H_, W_), 170.0, np.float32)
+    side = 26.0
+    cx, cy = ix + vx * side / 2, iy + vy * side / 2
+    u, v = (xx - cx) * ux + (yy - cy) * uy, (xx - cx) * vx + (yy - cy) * vy
+    S = ss.box_coverage(u, -side / 2, side / 2, 0.5) * ss.box_coverage(v, -side / 2, side / 2, 0.5)
+    g = B + (255.0 - B) * 0.17 * S
+    icon = np.hypot(xx - ix, yy - iy) <= 11.5
+    g[icon] = 20.0
+    g[icon & (np.hypot(xx - ix, yy - iy) <= 3)] = 230.0
+    g = (g + rng.normal(0, 2.0, g.shape)).astype(np.float32)
+    dets = ss.detect_frame(g, B, Hl, np.ones((H_, W_), bool), 1.0, use_glyph=False)
+    top = dets[0]
+    assert top["accepted"] and top["angle_source"] == "prior"
+    assert abs(ss.wrap45(top["prior"]["theta"] - th)) < 2.0
+    assert abs(top["cx"] - cx) < 1.0 and abs(top["cy"] - cy) < 1.0
+    assert abs(top["icon"]["x"] - ix) <= 3 and abs(top["icon"]["y"] - iy) <= 3
+
+
+def test_wall_at_reads_axis_walls_and_their_corner_as_zero():
+    B = np.full((80, 80), 110.0, np.float32)
+    B[40:42, :] = 210.0
+    B[:, 40:42] = 210.0
+    cands = ss.wall_at(ss.wall_field(B, 1.0), 40.5, 40.5, 1.0)
+    assert abs(cands[0][0]) < 1.0 and len(cands) == 1
