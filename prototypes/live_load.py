@@ -21,8 +21,19 @@ What it runs, per level (`LEVELS`; `--rate name=hz` overrides one rate)
     light   hud and killfeed at 2 Hz, ally_icon at 2 Hz, tray at 2 Hz,
             the audio witness at each round end
     medium  light, with ally_icon and the self position (minimap) at 5 Hz
-    full    production rates: ally_icon and minimap at 15 Hz, minimap_dark
-            at 4 Hz, ping at 10 Hz, plus the light set
+    full    the scan's minimap rates: ally_icon and minimap at 15 Hz,
+            minimap_dark at 4 Hz, ping at 10 Hz, plus the light set
+
+`full` is not the whole production scan. `reticle scan` (`cli.py`) also runs
+the roster reader at the HUD rate, the combat report reader at 1 Hz, the
+lineup reader, the ability shape and icon readers (they need stored round
+results as input) and, when asked, the scoreboard reader. No level runs any
+of them, so every level understates a full scan's load.
+
+Every window mixes round time with the gaps between rounds. The minimap crop
+cache covers only round time, so the minimap readers idle in a gap while the
+HUD readers keep running; `demand_cores` is an average over the whole window
+and understates the load inside a round.
 
 No owner answers "which readers does a live pass need" (`reticle ownership`
 routes it to nothing live); the set is the brief's minimum plus the self

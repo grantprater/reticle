@@ -20,11 +20,21 @@ before the session:
 * Cost of an arm = 1 - its FPS over the reference arm's, for median FPS and
   1% low FPS. The reference is `base` (the game alone); costs against `obs`
   are printed beside.
-* An arm PASSES when both costs are at most `BUDGET` (0.20) and, where its
-  load log exists, the harness kept pace (`pace` >= `PACE_MIN`). The
-  chosen level is the highest reticle level that passes.
+* An arm PASSES when both costs are at most `BUDGET` (0.20) and every one of
+  its repeats has a load log showing the harness kept pace: `pace` (stored
+  over wall seconds, a whole-run ratio) at least `PACE_MIN` and its
+  95th-percentile call lateness `lag_s.p95` at most `LAG_P95_MAX` seconds. A
+  missing log fails the level: nothing shows its load ran. The chosen level
+  is the highest reticle level that passes.
+* Measuring against `base` charges OBS's cost to reticle. That reference is
+  the kit's choice, not the player's; `chosen_vs_obs` applies the same rule
+  against `obs` so both answers sit side by side.
 * NOISE: the spread of the `base` repeats. A cost below it is within noise;
-  a spread above `DRIFT_MAX` makes the whole session undecided.
+  a spread above `DRIFT_MAX` makes the whole session undecided, and an
+  undecided session names no level (`best_within_budget` keeps what the rule
+  would have chosen, for the record only).
+* `00_check.csv`, the protocol's 10 s PresentMon check, is not an arm and is
+  skipped (`SKIP_ARMS`).
 
 Reads only the files named; writes only `--json`. No per-row Python: the CSVs
 are read by pyarrow and reduced with numpy.
@@ -49,6 +59,11 @@ BUDGET = 0.20
 DRIFT_MAX = 0.05
 #: A load log whose harness ran slower than this did not apply its level's load.
 PACE_MIN = 0.98
+#: ...and one whose calls ran this many seconds late at the 95th percentile fell
+#: behind in stretches even when its whole-run `pace` held.
+LAG_P95_MAX = 1.0
+#: Files named like arms that are not arms: the protocol's 10 s check.
+SKIP_ARMS = ("check",)
 FT_COLUMNS = ("MsBetweenPresents", "FrameTime", "msBetweenPresents")
 NAME = re.compile(r"^(\d+)_([a-z]+)\.csv$")
 
@@ -99,11 +114,27 @@ def cost(arm: dict, ref: dict, key: str) -> float | None:
     return round(1.0 - arm[key] / ref[key], 4)
 
 
+def kept_pace(a: dict) -> tuple[bool, str | None]:
+    """Whether every repeat of a level has a load log showing its harness kept
+    pace, and why not."""
+    logs = a.get("loads") or []
+    if len(logs) < len(a.get("repeats") or []) or any(x is None for x in logs):
+        return False, "no load log for every repeat"
+    for x in logs:
+        pace, p95 = x.get("pace"), (x.get("lag_s") or {}).get("p95")
+        if pace is None or pace < PACE_MIN:
+            return False, f"harness fell behind (pace {pace})"
+        if p95 is None or p95 > LAG_P95_MAX:
+            return False, f"harness calls ran late (lag p95 {p95} s)"
+    return True, None
+
+
 def decide(arms: dict) -> dict:
     """The decision table from per-arm pooled summaries (`arms[name]` holds
-    `pooled`, `repeats` and `pace`)."""
-    out = {"budget": BUDGET, "drift_max": DRIFT_MAX, "pace_min": PACE_MIN, "rows": {},
-           "chosen": None, "verdict": None}
+    `pooled`, `repeats` and `loads`, one load log or None per repeat)."""
+    out = {"budget": BUDGET, "drift_max": DRIFT_MAX, "pace_min": PACE_MIN,
+           "lag_p95_max": LAG_P95_MAX, "rows": {}, "chosen": None, "chosen_vs_obs": None,
+           "best_within_budget": None, "verdict": None}
     base = arms.get("base")
     if base is None or base["pooled"]["frames"] == 0:
         out["verdict"] = "undecided: no base arm"
@@ -129,19 +160,24 @@ def decide(arms: dict) -> dict:
         if name in LEVELS:
             fits = all(c is not None and c <= BUDGET
                        for c in (row["cost_median"], row["cost_low1"]))
-            paced = a.get("pace") is None or a["pace"] >= PACE_MIN
+            paced, why = kept_pace(a)
             row["passes"] = bool(fits and paced)
-            row["why"] = (None if row["passes"] else
-                          "over budget" if not fits else
-                          f"harness fell behind (pace {a['pace']})")
+            row["why"] = None if row["passes"] else "over budget" if not fits else why
+            fits_obs = all(c is not None and c <= BUDGET
+                           for c in (row["cost_median_vs_obs"], row["cost_low1_vs_obs"]))
+            row["passes_vs_obs"] = bool(fits_obs and paced)
             if row["passes"]:
-                out["chosen"] = name
+                out["best_within_budget"] = name
+            if row["passes_vs_obs"]:
+                out["best_vs_obs"] = name
         out["rows"][name] = row
     if drift is None:
         out["verdict"] = "undecided: base has fewer than two repeats"
     elif drift > DRIFT_MAX:
         out["verdict"] = f"undecided: base repeats drift {drift:.1%} > {DRIFT_MAX:.0%}"
     else:
+        out["chosen"] = out["best_within_budget"]
+        out["chosen_vs_obs"] = out.get("best_vs_obs")
         out["verdict"] = (f"highest level within budget: {out['chosen']}" if out["chosen"]
                           else "no reticle level fits the budget")
     return out
@@ -154,19 +190,25 @@ def collect_arms(d: Path, game: str = GAME) -> dict:
     arms: dict[str, dict] = {}
     for p in files:
         _, arm = NAME.match(p.name).groups()
+        if arm in SKIP_ARMS:
+            continue
         if arm not in ARMS:
             raise SystemExit(f"{p.name}: arm {arm!r} is not one of {', '.join(ARMS)}")
         ft, col, note = frame_times(p, game)
-        a = arms.setdefault(arm, {"files": [], "repeats": [], "ft": [], "paces": []})
+        a = arms.setdefault(arm, {"files": [], "repeats": [], "ft": [], "loads": []})
         a["files"].append({"file": p.name, "column": col, **note})
         a["repeats"].append(summary(ft))
         a["ft"].append(ft)
         load = p.with_name(p.stem + ".load.json")
-        if load.is_file():
-            a["paces"].append(json.loads(load.read_text(encoding="utf-8")).get("pace"))
+        log = json.loads(load.read_text(encoding="utf-8")) if load.is_file() else None
+        a["loads"].append(None if log is None else
+                          {"pace": log.get("pace"),
+                           "lag_s": {"p95": (log.get("lag_s") or {}).get("p95")}})
+    if not arms:
+        raise SystemExit(f"{d}: no arm files, only {', '.join(SKIP_ARMS)}")
     for a in arms.values():
         a["pooled"] = summary(np.concatenate(a.pop("ft")))
-        paces = [x for x in a.pop("paces") if x is not None]
+        paces = [x["pace"] for x in a["loads"] if x and x["pace"] is not None]
         a["pace"] = min(paces) if paces else None
     return arms
 
@@ -193,6 +235,9 @@ def table(arms: dict, dec: dict) -> str:
     drift = dec.get("base_drift")
     lines.append(f"base repeat drift {'-' if drift is None else f'{drift:.1%}'}; "
                  f"budget {BUDGET:.0%} on median and 1% low FPS; {dec['verdict']}")
+    if dec.get("chosen") is not None or dec.get("chosen_vs_obs") is not None:
+        lines.append(f"against the game with OBS instead of the game alone: "
+                     f"{dec.get('chosen_vs_obs') or 'no level'}")
     return "\n".join(lines)
 
 

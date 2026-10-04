@@ -55,8 +55,9 @@ class DecideTest(unittest.TestCase):
             for v in values:
                 p = d / f"{k:02d}_{arm}.csv"
                 _csv(p, list(np.full(500, 1000.0 / v)))
-                if pace is not None and arm in pace:
-                    p.with_name(p.stem + ".load.json").write_text(json.dumps({"pace": pace[arm]}))
+                if arm in fr.LEVELS:
+                    log = {"pace": (pace or {}).get(arm, 1.0), "lag_s": {"p95": 0.05}}
+                    p.with_name(p.stem + ".load.json").write_text(json.dumps(log))
                 k += 1
         return fr.collect_arms(d)
 
@@ -82,6 +83,65 @@ class DecideTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             arms = self._arms(Path(d), {"base": [200, 180], "light": [190, 190]})
             self.assertTrue(fr.decide(arms)["verdict"].startswith("undecided"))
+
+
+class ProtocolFolderTest(unittest.TestCase):
+    """The folder docs/FRAMETIME_PROTOCOL.md has the player leave, file for file."""
+
+    ORDER = ("base", "obs", "light", "medium", "full",
+             "full", "medium", "light", "obs", "base")
+    FPS = {"base": 200, "obs": 180, "light": 175, "medium": 165, "full": 150}
+
+    def _session(self, d: Path, skip_load: str | None = None,
+                 load: dict | None = None) -> None:
+        _csv(d / "00_check.csv", [5.0] * 20)                       # step 3's 10 s check
+        for k, arm in enumerate(self.ORDER, start=1):
+            stem = f"{k:02d}_{arm}"
+            _csv(d / f"{stem}.csv", list(np.full(500, 1000.0 / self.FPS[arm])))
+            (d / f"{stem}.gpu.csv").write_text("timestamp,utilization.gpu\n", encoding="utf-8")
+            if arm in fr.LEVELS and arm != skip_load:
+                log = {"pace": 1.0, "lag_s": {"p95": 0.05}, **(load or {}).get(arm, {})}
+                (d / f"{stem}.load.json").write_text(json.dumps(log), encoding="utf-8")
+                (d / f"{stem}.load.txt").write_text("{}", encoding="utf-8")
+        (d / "notes.txt").write_text("Ascent, attacker spawn\n", encoding="utf-8")
+        (d / "decision.json").write_text("{}", encoding="utf-8")
+
+    def test_the_protocols_folder_reads_and_decides(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._session(Path(d))
+            arms = fr.collect_arms(Path(d))
+            self.assertNotIn("check", arms)
+            self.assertEqual({k: len(a["files"]) for k, a in arms.items()},
+                             {"base": 2, "obs": 2, "light": 2, "medium": 2, "full": 2})
+            dec = fr.decide(arms)
+            self.assertEqual(dec["chosen"], "medium")
+            self.assertEqual(dec["chosen_vs_obs"], "full")         # 1 - 150/180 = 17%
+            self.assertEqual(fr.main([d]), 0)
+
+    def test_a_level_without_its_load_log_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._session(Path(d), skip_load="medium")
+            dec = fr.decide(fr.collect_arms(Path(d)))
+            self.assertFalse(dec["rows"]["medium"]["passes"])
+            self.assertIn("no load log", dec["rows"]["medium"]["why"])
+            self.assertEqual(dec["chosen"], "light")
+
+    def test_late_calls_fail_a_level_whose_pace_ratio_held(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._session(Path(d), load={"medium": {"pace": 1.0, "lag_s": {"p95": 1.58}}})
+            dec = fr.decide(fr.collect_arms(Path(d)))
+            self.assertFalse(dec["rows"]["medium"]["passes"])
+            self.assertIn("late", dec["rows"]["medium"]["why"])
+
+    def test_an_undecided_session_names_no_level(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._session(Path(d))
+            _csv(Path(d) / "10_base.csv", list(np.full(500, 1000.0 / 180)))
+            dec = fr.decide(fr.collect_arms(Path(d)))
+            self.assertTrue(dec["verdict"].startswith("undecided"))
+            self.assertIsNone(dec["chosen"])
+            self.assertIsNone(dec["chosen_vs_obs"])
+            self.assertEqual(dec["best_within_budget"], "medium")
 
 
 class ScheduleTest(unittest.TestCase):

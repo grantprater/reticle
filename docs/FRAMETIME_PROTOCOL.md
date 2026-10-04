@@ -3,29 +3,41 @@
 Status: proposed, 2026-10-04. The player runs every step; agents never launch
 the game, the Riot client or the tools below.
 
+**Nothing is shown on screen during a match.** Reticle draws no overlay,
+opens no window over the game and shows no conclusion while you play. In this
+session the load harness only computes: it writes a log file to the session
+folder and prints that log to its own PowerShell window behind the game. You
+read the results after the session, with the game closed.
+
 ## The question, and the number that answers it
 
-The player wants reticle to analyse during play on the same PC and accepts
-about a 20% FPS cost (the player, 2026-10-04 (chat)). Riot's rules bar showing
-conclusions during a match, so the case to measure is silent computation
-beside the game (`docs/WIN_PROBABILITY_RESEARCH.md` section 2, branch
-`winprob-research-20261004`). One session of about 30 minutes measures the
-game's frame times under five arms and picks the highest reticle load that
-fits the budget.
+The player wants reticle to analyse during play and accepts about a 20% FPS
+cost (the player, 2026-10-04 (chat)). Riot's rules bar showing conclusions
+during a match, so the case to measure is silent computation beside the game
+(`docs/WIN_PROBABILITY_RESEARCH.md` section 2, branch
+`winprob-research-20261004`). This protocol runs reticle on the gaming PC
+itself; that placement is the kit's choice, not something the player said.
+One session of about 30 minutes measures the game's frame times under five
+arms and picks the highest reticle load that fits the budget.
 
 **Decided before the session** (`prototypes/frametime_results.py` applies it):
 
-- **Reference arm:** the game alone (`base`). Costs against the game with OBS
-  (`obs`) print beside, for information.
+- **Reference arm:** the game alone (`base`). Every reticle arm also runs OBS,
+  so this reference charges OBS's cost to reticle's 20%. That is the kit's
+  choice; the player has not said which reference he meant. The results print
+  the same rule against the game with OBS (`obs`) beside it, so he can pick.
 - **Median FPS** is 1000 over the median frame time. **1% low FPS** is 1000
   over the 99th-percentile frame time. Both pool an arm's two repeats.
 - **Cost** = 1 - arm / reference, for each of the two.
-- **A reticle level passes** when both costs are at most 20% and its load log
-  shows the harness kept pace (`pace` at least 0.98; below that it did not
-  apply its level's load).
+- **A reticle level passes** when both costs are at most 20% and both of its
+  load logs show the harness kept pace: `pace` (stored seconds over wall
+  seconds, a ratio over the whole run) at least 0.98, and the 95th
+  percentile of call lateness (`lag_s.p95`) at most 1 s, since a run can keep
+  the whole-run ratio while falling seconds behind in stretches. A level with
+  a missing load log fails: nothing shows its load ran.
 - **Noise:** the two `base` repeats' median FPS may differ by at most 5%;
-  above that the session is undecided and repeats. A cost below that drift
-  reads as within noise.
+  above that the session is undecided, names no level, and repeats. A cost
+  below that drift reads as within noise.
 - **The answer** is the highest level that passes: `light`, `medium` or
   `full`, or none.
 
@@ -40,37 +52,61 @@ thread, and writes nothing to the store. Levels (rates in the harness's
 |---|---|
 | `light` | HUD and killfeed 2 Hz, ally icons 2 Hz, ability tray 2 Hz, the audio witness at each round end |
 | `medium` | `light`, with ally icons and the self position at 5 Hz |
-| `full` | today's scan rates: ally icons and self position 15 Hz, minimap dark 4 Hz, pings 10 Hz, plus the rest of `light` |
+| `full` | the scan's minimap rates: ally icons and self position 15 Hz, minimap dark 4 Hz, pings 10 Hz, plus the rest of `light` |
+
+**`full` is not the whole production scan.** `reticle scan` also runs the
+roster reader, the combat report reader, the lineup reader, the ability shape
+and icon readers and, when asked, the scoreboard reader. No level runs them,
+so every level understates what a live copy of today's scan would cost.
 
 It replays session `043bafca271a` (capture
-`C:\Users\grant\Videos\2026-08-25 13-59-44.mp4`) from its first round. A live
-pass would also copy the screen; the harness reads its crops from disk
+`C:\Users\grant\Videos\2026-08-25 13-59-44.mp4`) from its first round. Each
+replay window mixes round time with a gap between rounds: the minimap crop
+cache covers only round time, so the minimap readers idle in the gap while
+the HUD readers keep running. A recording's load is therefore lighter on
+average than the load inside a round; the 1% low FPS, set by the slowest
+frames, is the figure closer to the in-round cost.
+
+A live pass would also copy the screen; the harness reads its crops from disk
 instead, and the OBS arm carries the capture-and-encode path. The harness's
 own CPU figures on 2026-10-04, taken on a busy machine, are in the store under
-`analysis/live-load-0.1.0-20261004/`. They show `full` needs more than one
-core, so on its one thread it falls behind and fails the pace rule by
-construction; its arm still measures what one saturated Below Normal core
-costs the game.
+`analysis/live-load-0.1.0-20261004/`; they are averages over a 120 s window
+that includes a gap between rounds. They show `full` needs more than one core,
+so on its one thread it falls behind and fails the pace rule by construction;
+its arm still measures what one saturated Below Normal core costs the game.
 
 ## Install (once, before the session)
 
-1. **PresentMon 2.3.1**, Intel's open-source frame-time logger (it reads
+1. **Get the kit.** It lives on branch `frametime-kit-20261004` until it
+   merges. In an ordinary PowerShell window:
+
+   ```powershell
+   git -C C:\Users\grant\reticle fetch origin frametime-kit-20261004
+   git -C C:\Users\grant\reticle worktree add C:\Users\grant\reticle-frametime origin/frametime-kit-20261004
+   ```
+
+   This makes a separate folder, `C:\Users\grant\reticle-frametime`, and
+   leaves the main checkout's branch alone. The commands below run the kit
+   from that folder with the main checkout's Python. If the branch has merged
+   into `master` and the main checkout is on `master`, use
+   `C:\Users\grant\reticle` as the kit folder instead.
+2. **PresentMon 2.3.1**, Intel's open-source frame-time logger (it reads
    Windows' ETW present events; it injects nothing into the game). Download the
    console build `PresentMon-2.3.1-x64.exe` from the official releases page,
    https://github.com/GameTechDev/PresentMon/releases, into
    `C:\Users\grant\tools\presentmon\`. It needs an administrator PowerShell
    (or membership of the Performance Log Users group).
-2. Confirm the flags this protocol uses exist in the build you downloaded:
+3. Confirm the flags this protocol uses exist in the build you downloaded:
 
    ```powershell
-   cd C:\Users\grant\tools\presentmon
-   .\PresentMon-2.3.1-x64.exe --help
+   C:\Users\grant\tools\presentmon\PresentMon-2.3.1-x64.exe --help
    ```
 
    Look for `--process_name`, `--output_file`, `--delay`, `--timed`,
    `--terminate_after_timed` and `--v1_metrics`. If `--v1_metrics` is absent,
-   drop it: the results reader also reads the 2.x `FrameTime` column.
-3. **Fallback**, only if PresentMon records no VALORANT frames beside Vanguard
+   drop it from every command: the results reader also reads the 2.x
+   `FrameTime` column.
+4. **Fallback**, only if PresentMon records no VALORANT frames beside Vanguard
    (step 3 of the session checks): NVIDIA FrameView, which logs the same
    present-based CSV, https://www.nvidia.com/en-us/geforce/technologies/frameview/.
    Rename its CSVs to the names below.
@@ -80,10 +116,12 @@ costs the game.
 - **Nothing else heavy runs.** Stop `reticle scan`, Claude agents and any
   download for the whole session; close browsers. Note anything you cannot
   stop.
-- **Same game settings in every arm:** your normal resolution (2560x1440),
-  display mode and graphics preset; **FPS limits off** ("Limit FPS Always"
-  off), V-Sync off, NVIDIA Reflex as you play. A frame cap hides the cost
-  until the game falls below it. Screenshot the video settings page once.
+- **Same game settings in every arm:** the resolution, display mode and
+  graphics preset you play with (you play on a 2560x1440 monitor
+  [domain:capture/capture-resolution]; write the in-game resolution in the
+  notes); **FPS limits off** ("Limit FPS Always" off), V-Sync off, NVIDIA
+  Reflex as you play. A frame cap hides the cost until the game falls below
+  it. Screenshot the video settings page once.
 - **Same place and view:** a custom game, alone, on one map you name in the
   notes; stand at the same spot in attacker spawn, aim at the same landmark,
   and do not move during a recording. Re-aim between arms.
@@ -94,7 +132,6 @@ costs the game.
 
 ## The session (about 30 minutes)
 
-Make a folder for the day, for example `C:\Users\grant\frametime\20261005\`.
 Each arm takes 150 s: PresentMon waits 30 s for the arm to settle, then records
 120 s. Each arm runs twice, mirrored, so warming drifts both ways equally:
 
@@ -102,67 +139,97 @@ Each arm takes 150 s: PresentMon waits 30 s for the arm to settle, then records
 |---|---|---|---|
 | 01 | `base` | off | none |
 | 02 | `obs` | on | none |
-| 03 | `light` | on | `--level light` |
-| 04 | `medium` | on | `--level medium` |
-| 05 | `full` | on | `--level full` |
-| 06 | `full` | on | `--level full` |
-| 07 | `medium` | on | `--level medium` |
-| 08 | `light` | on | `--level light` |
+| 03 | `light` | on | `light` |
+| 04 | `medium` | on | `medium` |
+| 05 | `full` | on | `full` |
+| 06 | `full` | on | `full` |
+| 07 | `medium` | on | `medium` |
+| 08 | `light` | on | `light` |
 | 09 | `obs` | on | none |
 | 10 | `base` | off | none |
 
 1. Launch VALORANT, start the custom game, take your spot, warm up.
-2. Open two PowerShell windows: one administrator window in
-   `C:\Users\grant\tools\presentmon`, one ordinary window in
-   `C:\Users\grant\reticle`.
-3. **Check once (10 s):** in the administrator window run
+2. Open one **administrator** PowerShell window and paste these lines once.
+   They name the tools and make the day's folder (change the date to today's):
 
    ```powershell
-   .\PresentMon-2.3.1-x64.exe --process_name VALORANT-Win64-Shipping.exe --output_file C:\Users\grant\frametime\20261005\00_check.csv --timed 10 --terminate_after_timed --v1_metrics
+   $dir = 'C:\Users\grant\frametime\20261005'
+   $kit = 'C:\Users\grant\reticle-frametime'
+   $py  = 'C:\Users\grant\reticle\.venv\Scripts\python.exe'
+   $pm  = 'C:\Users\grant\tools\presentmon\PresentMon-2.3.1-x64.exe'
+   New-Item -ItemType Directory -Force $dir
+   function Arm([string]$nn, [string]$arm, [string]$level) {
+     $h = $null
+     if ($level) {
+       $h = Start-Process $py -PassThru -WindowStyle Minimized -RedirectStandardOutput "$dir\${nn}_$arm.load.txt" -ArgumentList "$kit\prototypes\live_load.py 043bafca271a --level $level --seconds 160 --out $dir\${nn}_$arm.load.json"
+     }
+     & $pm --process_name VALORANT-Win64-Shipping.exe --output_file "$dir\${nn}_$arm.csv" --delay 30 --timed 120 --terminate_after_timed --v1_metrics
+     if ($h) { $h.WaitForExit() }
+     "row $nn done"
+   }
    ```
 
-   and confirm the CSV has rows. If it is empty, use FrameView.
-4. **For each row of the table, in order** (`NN` and `ARM` from the row):
-   1. Start or stop OBS recording as the row says.
-   2. If the row has a reticle load, start it in the ordinary window:
+   The harness, when a row has one, runs minimized and at Below Normal
+   priority (it lowers itself); running it from an administrator window gives
+   it no extra rights it uses.
+3. **Check once (10 s):** run
 
-      ```powershell
-      .\.venv\Scripts\python.exe prototypes\live_load.py 043bafca271a --level LEVEL --seconds 160 --out C:\Users\grant\frametime\20261005\NN_ARM.load.json
-      ```
+   ```powershell
+   & $pm --process_name VALORANT-Win64-Shipping.exe --output_file "$dir\00_check.csv" --timed 10 --terminate_after_timed --v1_metrics
+   ```
 
-   3. At once, in the administrator window:
+   and confirm `00_check.csv` has rows. If it is empty, use FrameView. Leave
+   the file where it is; the results reader skips it.
+4. **For each row of the table, in order:** set OBS recording as the row
+   says, then run the row's line and return to the game at once. Hold still
+   until the window prints `row NN done` (about 160 s plus the harness's
+   setup when it has a load).
 
-      ```powershell
-      .\PresentMon-2.3.1-x64.exe --process_name VALORANT-Win64-Shipping.exe --output_file C:\Users\grant\frametime\20261005\NN_ARM.csv --delay 30 --timed 120 --terminate_after_timed --v1_metrics
-      ```
+   ```powershell
+   Arm 01 base
+   Arm 02 obs
+   Arm 03 light light
+   Arm 04 medium medium
+   Arm 05 full full
+   Arm 06 full full
+   Arm 07 medium medium
+   Arm 08 light light
+   Arm 09 obs
+   Arm 10 base
+   ```
 
-   4. Hold still until PresentMon exits (150 s). Wait for the harness to
-      print its JSON before the next row. Its setup must finish inside
-      PresentMon's 30 s delay: if the load log's `setup_s` exceeds 25, rerun
-      the row.
-5. Write `notes.txt` in the folder: the map, the spot, the OBS output
-   settings, anything that ran that you could not stop, anything that
-   happened mid-arm (a stutter, a notification).
+   The harness's setup must finish inside PresentMon's 30 s delay: if a load
+   log's `setup_s` exceeds 25, rerun that row with the same line.
+5. Write `notes.txt` in the folder: the map, the spot, the in-game
+   resolution, the OBS output settings, anything that ran that you could not
+   stop, anything that happened mid-arm (a stutter, a notification).
 
 Optional, beside each arm and not part of the decision: GPU load with
 `nvidia-smi --query-gpu=timestamp,utilization.gpu,clocks.gr,temperature.gpu --format=csv -l 1 -f C:\Users\grant\frametime\20261005\NN_ARM.gpu.csv`
-(installed with the NVIDIA driver; stop it with Ctrl+C).
+in a second window (installed with the NVIDIA driver; stop it with Ctrl+C).
 
 ## Read the results
 
+After the session, with the game closed, in the same window:
+
 ```powershell
-.\.venv\Scripts\python.exe prototypes\frametime_results.py C:\Users\grant\frametime\20261005 --json C:\Users\grant\frametime\20261005\decision.json
+& $py "$kit\prototypes\frametime_results.py" $dir --json "$dir\decision.json"
 ```
 
 It prints one row per arm (frames, median FPS, 1% low FPS, p99 frame time,
-both costs, the harness's pace) and the verdict. An agent then copies the
-folder into the store as a new dated directory under `analysis/frametime/`
-and records the verdict.
+both costs, the harness's pace) and the verdict, then the level the same rule
+picks against the game with OBS. An agent then copies the folder into the
+store as a new dated directory under `analysis/frametime/` and records the
+verdict.
 
 ## What this does not measure
 
 - The cost of copying the screen live (Windows.Graphics.Capture); OBS's
   arms bound the capture-and-encode path, the harness reads stored crops.
+- The readers no level runs: roster, combat report, lineup, ability shape
+  and icon, scoreboard.
+- The load inside a round alone: each recording averages round time with a
+  gap between rounds.
 - The live log-mel extraction the audio witness would need; the harness
   scores stored features only, and its round-end call reads the whole
   session's features, an upper bound on a live per-round call.
