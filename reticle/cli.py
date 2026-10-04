@@ -50,7 +50,8 @@ from .scoreboard import ScoreboardReader, load_agent_icons, read_scoreboard, str
 from . import cone, geometry, lighting
 from .fidelity import FROZEN_WINDOWS
 from .fingerprint import fingerprint
-from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION,
+from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_NUMERAL_VERSION,
+                       KILLFEED_PORTRAIT_VERSION,
                        KILLFEED_WEAPON_VERSION, KillfeedPortraitReader,
                        KillfeedRead, analyse_killfeed, killfeed_roi,
                        me_template_path, overlay_mask, read_killfeed)
@@ -1106,7 +1107,8 @@ def cmd_scan(args) -> int:
                       (args.force
                        or store.events_version("killfeed_portrait", sid) != KILLFEED_PORTRAIT_VERSION
                        or store.events_version("killfeed_weapon", sid) != KILLFEED_WEAPON_VERSION
-                       or store.events_version("killfeed_name", sid) != KILLFEED_NAME_VERSION))
+                       or store.events_version("killfeed_name", sid) != KILLFEED_NAME_VERSION
+                       or store.events_version("killfeed_numeral", sid) != KILLFEED_NUMERAL_VERSION))
     want_mm = 'minimap' in channels and (args.force or not store.has_minimap(sid, date))
     # Pings are events rather than a versioned table, but the cache key is the
     # VERSION, not the file's existence. Keying on existence made `PING_VERSION`
@@ -1201,12 +1203,14 @@ def cmd_scan(args) -> int:
         if want_portraits:
             # The art ZNCC scores each side's admitted agents from the stored
             # lineup, or every agent with art before any lineup exists.
+            from .killfeed_numeral import store_font
             from .lineup import portrait_candidates
             cands, cands_from = portrait_candidates(sid, store.root)
             kp = KillfeedPortraitReader(
                 profile, ctx.wh, mask=ctx.kf_mask(), hz=args.hz, spans=None,
                 art_dir=Path(store.root) / "reference" / "assets" / "agents",
-                candidates=cands, candidates_from=cands_from)
+                candidates=cands, candidates_from=cands_from,
+                font_file=store_font(store.root))
         # Pings ride whatever pass is already happening -- they never justify a
         # decode of their own, which is why this is on by default and why it takes
         # the floor mask the minimap half has already paid for rather than
@@ -1366,6 +1370,9 @@ def cmd_scan(args) -> int:
             names = kp.name_events(sid)
             path = out.write_events("killfeed_name", sid, names)
             print(f"names      {len(names) - 1} observations -> {path}")
+            numerals = kp.numeral_events(sid)
+            path = out.write_events("killfeed_numeral", sid, numerals)
+            print(f"numerals   {len(numerals) - 1} observations -> {path}")
         if mp is not None:
             if not mp.rows:
                 raise SystemExit("decoded zero frames inside active spans "
@@ -3516,6 +3523,40 @@ def cmd_reliability(args) -> int:
     return 0
 
 
+def cmd_killstreak(args) -> int:
+    """The killstreak numeral [domain:killfeed/killstreak-indicator] as a
+    per-round kill-count witness: the stored
+    `killfeed_numeral` reads against the death stream's kill index per killer
+    (`adjudication.killstreak`). Writes the `killstreak_witness` stream;
+    alters no death. Decodes no video."""
+    from .adjudication import killstreak as ks
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    numerals = store.read_events("killfeed_numeral", sid)
+    if not numerals or numerals[0].get("killfeed_numeral_version") != KILLFEED_NUMERAL_VERSION:
+        raise SystemExit(f"{sid}: no killfeed_numeral stream at {KILLFEED_NUMERAL_VERSION} -- run "
+                         f"`reticle scan {sid} --only hud --from cache`")
+    deaths = store.read_events("death", sid)
+    verdicts = [r for r in deaths if r.get("kind") == "death_verdict"]
+    if not verdicts:
+        raise SystemExit(f"{sid}: no death verdicts -- run `reticle deaths {sid}`")
+    rows = ks.witness(verdicts, numerals)
+    summ = ks.summary(rows)
+    print(f"{sid}: {len(rows)} deaths; {summ['status']}")
+    print(f"  pooled reads {summ['read']}; refused {summ['refused']}")
+    print(f"  false reads {summ['false_reads']}, missed numerals {summ['missed_numerals']}")
+    for r in rows:
+        if r["status"] == "disagree":
+            print(f"  surprise {r['t_ms'] / 1000:.1f} s round {r['round_no']} {r['killer_side']} "
+                  f"{r['killer']}: read {r['numeral']!r}, kill index {r['kill_index']} "
+                  f"({r['surprise']['kind']})")
+    path = store.write_events("killstreak_witness", sid, ks.events(
+        sid, rows, numerals[0].get("killfeed_numeral_version"),
+        deaths[0].get("death_adjudication_version") if deaths else None))
+    print(f"-> {path}")
+    return 0
+
+
 def cmd_smokes(args) -> int:
     """Smoke tracks from stored `minimap_dark` rows, and the ally agent who
     cast each (`adjudication.smoke_owner`). Decodes no video."""
@@ -5491,6 +5532,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--between", type=float, nargs=2, default=None, metavar=("T0", "T1"),
                    help="only frames between T0 and T1 seconds, such as one round")
     s.set_defaults(func=cmd_trial)
+
+    s = sub.add_parser("killstreak", help="killstreak numerals against the death stream's "
+                                          "per-round kill index (no video)")
+    s.add_argument("session", nargs="?")
+    s.set_defaults(func=cmd_killstreak)
 
     s = sub.add_parser("reliability", help="identity channel reliability per agent (no video)")
     s.add_argument("--top", type=int, default=12)
