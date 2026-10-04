@@ -147,7 +147,7 @@ This recomputes spans **from stored L1 without touching the video** — the poin
 of the L0/L1 split in §7. It's milliseconds, so you can sweep thresholds freely:
 
 ```
-.\.venv\Scripts\python.exe -m reticle segment --minimap-dchange 4 --active-motion 0.02
+.\.venv\Scripts\python.exe -m reticle segment --hud-edge 0.025 --active-motion 0.02
 ```
 
 `--show-signals` prints percentiles for each column the classifier thresholds

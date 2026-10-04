@@ -23,6 +23,10 @@ The citation
 So `[metric:proposal_audit/acquisition@d95cfad5693a#recall=0.9375]`. The series
 name is permissive because real ones contain dots, spaces and pipes
 (`floor_mask_eval/reticle.minimap | PLANT`); the field and value are strict.
+A field starts as an identifier and may go on with `.`, `:`, `-` and `>`,
+because recorded fields name a model and its measure
+(`step:M1_alive->M2_alive_load.nats`); until 2026-10-04 such a citation never
+matched, so its figure went unchecked and no error said so.
 
 **The citation carries the VALUE, which is the whole point.** A citation naming
 only its series would prove a measurement exists and say nothing about whether
@@ -78,7 +82,7 @@ CITE = re.compile(
     r"(?P<series>[^\]#@~]+?)"
     r"(?:@(?P<session>[^\]#@~]+?))?"
     r"(?:~(?P<run>[^\]#@~]+?))?"
-    r"#(?P<field>[A-Za-z_][A-Za-z0-9_]*)"
+    r"#(?P<field>[A-Za-z_][A-Za-z0-9_.:>-]*)"
     r"=(?P<value>[^\]]+)\]")
 
 #: Dated records live under HISTORY_PREFIXES, which `domain` defines for both

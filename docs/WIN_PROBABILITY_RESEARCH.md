@@ -11,11 +11,12 @@ URL and retrieval date. **Verified** means the verifier or a lens read the
 primary text or reran the number; **unverified** means it rests on a search
 summary, a secondary source or one scratch run. Internal numbers cite their
 run with a `metric:` token where the store records one. The
-`winprob_reference` tokens name fields with dots (`M1_alive.nats`), which the
-QUOTED pattern cannot parse, so doctor does not check them; they are
-provenance pointers into `notes/metrics.jsonl`, recorded 2026-10-04T14:43:49
-by `prototypes/winprob_reference.py` on branch `winprob-reference-20261004`
-(commit 45a8699, pushed, not merged).
+`winprob_reference` tokens name fields with dots (`M1_alive.nats`); until
+QUOTED's field pattern widened on 2026-10-04 it skipped the 11 such citations
+here (the other 25 of 36 matched), and it now checks all 36 against
+`notes/metrics.jsonl`. The Riot-only figures were recorded
+2026-10-04T14:43:49 by `prototypes/winprob_reference.py` 0.1.0; the observed
+state's cost and coverage are 0.2.0's, which asks `gametime` for the clock.
 
 ## Conclusions first
 
@@ -26,7 +27,9 @@ by `prototypes/winprob_reference.py` on branch `winprob-reference-20261004`
 2. **Alive counts carry most of round win probability; team loadout is the
    only other input with a resolved gain.** Positions, clock, side and map add
    nothing resolvable at 454 rounds. Reticle's observed state costs about
-   0.003 nats against Riot's exact state.
+   0.003 nats against Riot's exact state when the instants are placed by the
+   death claims, and about 0.015 when they are placed by the HUD clock, which
+   counts the killfeed's lag (stage 1).
 3. **Economy is the largest gap**, and its rules are known: Riot's ledgers
    reproduce `economy.EconomyRules` in 815 of 816 team-rounds. Two stored facts
    are wrong: the plant reward is 300, not 200, and overtime starts at 5,000,
@@ -221,11 +224,13 @@ as a batched full grid cuts it 3-4x, and Amdahl caps the gain near 4x.
 Since Patch 11.06 (https://playvalorant.com/en-us/news/dev/replays-everything-you-need-to-know,
 2025-09-16, verified) the client keeps Replays of the player's own games on
 the current patch, with all ten first-person views, speeds up to 8x, and a
-minimap that cannot hide enemies. `docs/EXTERNAL_GROUND_TRUTH.md` says replays
-"cannot be exported"; that line is stale, because 15 `.vrf` files sit in
-`%LOCALAPPDATA%\VALORANT\Saved\Demos`. A replay capture would give fog-free
-enemy positions for post-game coaching without inference. It needs the game
-client open and expires at the next patch. OP.GG already sells replay-based
+minimap that cannot hide enemies. The client stores them as local `.vrf` files
+in `%LOCALAPPDATA%\VALORANT\Saved\Demos` (`docs/EXTERNAL_GROUND_TRUTH.md`,
+"In-game replays"). A replay capture would give fog-free enemy positions for
+post-game coaching without inference. Watching one needs the game client
+open. On 2026-10-04 the player found older replays listed as "Expired or
+incompatible" in the client, yet the stored `.vrf` files span builds
+11.11-13.04 and parse offline [domain:replay/vrf-container]. OP.GG already sells replay-based
 analysis (https://op.gg/valorant/replay, retrieved 2026-10-04; features as
 advertised, untested).
 
@@ -258,7 +263,7 @@ weighted once; match-cluster bootstrap):
 | Riot positions at kills | −0.0004 [metric:winprob_reference/positions_K_riot#M3_alive_load_side.step.nats=-0.0004] | none resolved |
 | Reticle ally positions, 1 s grid | −0.0010 window [metric:winprob_reference/positions_G_ally/window#step.nats=-0.00095] on [metric:winprob_reference/positions_G_ally/window#full_states=12937] states; +0.0016 frame (post hoc); isolated-ally ("lurker") subset +0.0058 [−0.0048, 0.0154] | none resolved; the lurker sign leans positive |
 | Alive-count lag | 0.5 s costs 0.0071 bits per state [metric:winprob_reference/alive_lag#B3_phase_clock.lag_0.5s.bits=0.00715]; 2 s costs about 0.028 | 2 Hz suffices |
-| Reticle's observed state against Riot's | +0.0027 nats [metric:winprob_reference/observed_cost#O_alive_side_flag_clock.cost.nats=0.00265] on [metric:winprob_reference/observed_cost#share_of_captured=0.7458] of captured instants | readers are good enough; the clock requirement costs the coverage |
+| Reticle's observed state against Riot's | +0.0029 nats [metric:winprob_reference/observed_cost#O_alive_side_flag_clock.cost.nats=0.00292] on [metric:winprob_reference/observed_cost#share_of_captured=0.9864] of captured instants (0.2.0: the clock comes from `gametime`, which infers it where the read is missing) | readers are good enough; this aligns Riot to capture by the death claims themselves, so it leaves out the killfeed lag (see the round filter below) |
 
 The literature agrees in kind (all verified unless marked): Xenopoulos,
 Doraiswamy and Silva, "Valuing Player Actions in CS:GO"
@@ -509,7 +514,17 @@ observed-state log loss within 0.005 nats of the oracle; coverage above 95% of
 captured instants once the clock is dropped. Acceptance: one recorded
 `metrics.record` run; one number reruns identically. Evidence: log loss in
 nats and bits, Brier and five-bin reliability against Riot winners,
-match-bootstrap intervals, and coverage.
+match-bootstrap intervals, and coverage. Result (`round_filter` 0.2.0, 21
+matches): every captured instant is scored
+[metric:round_filter/riot_G/clock#share_of_captured=1.0]; aligned by
+`gametime`'s barrier drops the cost is
+[metric:round_filter/riot_G/clock#cost_nats=0.01536] nats, between
+[metric:round_filter/riot_G/clock_floor#cost_nats=0.0101] and
+[metric:round_filter/riot_G/clock_ceil#cost_nats=0.02055] by the clock's
+unknown display convention; aligned by the death claims it is
+[metric:round_filter/riot_G/deaths#cost_nats=0.00528]. The added state errors lie
+mostly within 1 s after a Riot kill: claims not yet observed. `round_filter` is a
+candidate to promote into `coaching-state` (its docstring names the step).
 
 **Stage 2. Team economy ledger.** Wire `EconomyTracker` to stored deaths,
 rounds, plants (post-round included) and `round_outcome`, emitting per-team
@@ -609,9 +624,11 @@ profile for live spectating; an enemy regional belief; more Riot records.
 - **Stale facts.** The plant-credit fact and the overtime default are wrong;
   the non-ult Riot-truth series predate `riot-truth-0.5.1`; the coaching
   report on disk is `coach-0.1.0` against code at `coach-0.3.0`.
-- **Unchecked citations.** The `winprob_reference` fields contain dots, so
-  QUOTED cannot parse their tokens; those figures go unchecked until the
-  series renames its fields or the pattern widens.
+- **Alignment hides lag.** A cost scored on instants placed by a fit to the
+  same death claims sets the killfeed's lag to zero. The round filter's cost
+  rises from [metric:round_filter/riot_G/deaths#cost_nats=0.00528] to
+  [metric:round_filter/riot_G/clock#cost_nats=0.01536] nats when the
+  instants come from `gametime`'s barrier drops instead.
 - **Transfer.** CS:GO coefficients and pro VALORANT data may misstate ranked
   play at tiers 9-13; use them at most as weak priors declared `rests_on`.
 - **Feedback loops.** A WP or belief posterior that later shapes reader

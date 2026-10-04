@@ -260,6 +260,48 @@ class AllyIconDescriptorTests(unittest.TestCase):
                 and c["portrait_features"] is not None]
         self.assertEqual(cand[0]["portrait_features"], pf)
 
+    def test_a_turned_placement_turns_the_portrait_back(self):
+        """On a widget placed turned over, the baked frame holds the portrait
+        upside down; the reader turns it back before taking its features
+        [domain:minimap/upright-icons-on-turned-map]."""
+        from reticle import ally_portrait
+        crop = _ally_icon_crop((30, 60, 200))
+        crop[53:60, 55:65] = (240, 240, 240)          # a portrait that is not symmetric
+
+        class Smp:
+            frame_idx, t_ms = 4, 2000.0
+            frame = crop
+
+        def portrait_of(turned):
+            reader = AllyIconReader(self.floor, None, self.static, (0, 0, W, W),
+                                    turned=turned)
+            with patch("reticle.minimap.widget_drawn", return_value=True):
+                reader.feed(Smp())
+            rows = reader.events("s")
+            return rows, [r for r in rows if r["kind"] == "icon"][0]
+
+        rows_up, up = portrait_of(None)
+        rows_t, turned = portrait_of(lambda t: t < 5000.0)
+        self.assertNotEqual(up["portrait_features"], turned["portrait_features"])
+        # The turned features are the upright reader's on the turned window.
+        d = [r for r in rows_up if r["kind"] == "icon"][0]
+        img = cv2.rotate(ally_portrait.align_icon(crop, d["cx"], d["cy"]), cv2.ROTATE_180)
+        from reticle.minimap import portrait_key
+        want = ally_portrait.stored(ally_portrait.portrait_features(img, portrait_key(img)))
+        # The stored centre is rounded to 3 places, so the window moves a hair.
+        for fam, v in want.items():
+            np.testing.assert_allclose(turned["portrait_features"][fam], v, atol=1.0)
+        frame_t = [r for r in rows_t if r["kind"] == "frame"][0]
+        self.assertTrue(frame_t["turned"])
+        self.assertEqual(rows_t[0]["widget_turned_frames"], 1)
+        # An upright session's rows carry neither key.
+        self.assertNotIn("turned", [r for r in rows_up if r["kind"] == "frame"][0])
+        self.assertNotIn("widget_turned_frames", rows_up[0])
+        # A placement turned only at other times leaves this frame upright.
+        rows_late, late = portrait_of(lambda t: t >= 5000.0)
+        self.assertEqual(late["portrait_features"], up["portrait_features"])
+        self.assertEqual(rows_late, rows_up)
+
     def test_a_candidate_without_features_replays_as_unmeasured(self):
         row = {"frame_idx": 1, "t_ms": 0.0, "channel": "ally", "cx": 5.0, "cy": 5.0,
                "r": 6, "facing": None, "cov": 1.0, "inner": 1.0, "inner_v": 1.0,

@@ -15,7 +15,10 @@ reread the stored crops and decode nothing. A stream never written is
 A stored stamp the code declares acceptable in its place
 (`version.STAMP_WAIVERS`, a testing-phase decision of the player's) is not
 stale either, and not current: `stale` lists it under `waived`, as a stream
-or as an input of a rerun, and `render` names it as accepted by waiver.
+or as an input of a rerun, and `render` names it as accepted by waiver. A
+conditional waiver accepts only on the sessions where its condition
+(`WAIVER_CONDITIONS`) holds; elsewhere the stamp stays stale, `stale` lists
+it under `declined` with the reason, and `render` names it as not waived.
 
 A stamp is only as good as the bump: a code change that keeps its stamp is
 invisible here, as it is to `scan`'s cache check.
@@ -68,10 +71,47 @@ def _round_stamps(store, manifest: dict) -> dict | None:
             "plant_graphic": get("plant_graphic_version", "unrecorded")}
 
 
-def waiver(stored, current: str) -> str | None:
-    """Why `stored` counts as `current` by a declared waiver, or None."""
+def _upright_placement(store, manifest: dict) -> tuple[bool | None, str]:
+    from .widget_frame import upright_throughout
+    return upright_throughout(store, manifest)
+
+
+#: The per-session conditions a conditional waiver names in `when`: each
+#: maps (store, manifest) to (holds, why), holds None where unknown.
+WAIVER_CONDITIONS = {"upright_placement": _upright_placement}
+
+
+def waiver_check(stored, current: str, store=None, manifest: dict | None = None,
+                 memo: dict | None = None) -> tuple[str | None, str | None]:
+    """(why `stored` counts as `current` by a declared waiver, why a declared
+    waiver declined); at most one is set, both None where none is declared.
+
+    A conditional waiver (`version.STAMP_WAIVERS` value with `when`) accepts
+    only where its condition holds on this session; with no session, or where
+    the condition is unknown, it declines. `memo` holds each condition's
+    answer for the session."""
     from .version import STAMP_WAIVERS
-    return STAMP_WAIVERS.get((current, stored))
+    w = STAMP_WAIVERS.get((current, stored))
+    if w is None or isinstance(w, str):
+        return w, None
+    cond = w["when"]
+    if store is None or manifest is None:
+        return None, f"{cond}: no session to evaluate it on"
+    memo = {} if memo is None else memo
+    key = ("waiver_condition", cond)
+    if key not in memo:
+        memo[key] = WAIVER_CONDITIONS[cond](store, manifest)
+    holds, why = memo[key]
+    if holds is True:
+        return f"{w['why']} [{cond}: {why}]", None
+    return None, f"{cond}: {why}"
+
+
+def waiver(stored, current: str, store=None, manifest: dict | None = None,
+           memo: dict | None = None) -> str | None:
+    """Why `stored` counts as `current` by a declared waiver, or None
+    (`waiver_check`)."""
+    return waiver_check(stored, current, store, manifest, memo)[0]
 
 
 #: The command that rereads a channel `scan` does not read.
@@ -206,12 +246,13 @@ def derived_streams() -> list[dict]:
          "command": "reticle vision {sid}", "how": "cache",
          "fields": {**roi, "lighting_version": LIGHTING_VERSION, "track_version": TRACK_VERSION,
                     "teardrop_version": TEARDROP_VERSION,
-                    "icon_teardrop_version": ICON_TEARDROP_VERSION,
                     "lifecycle_version": LIFECYCLE_VERSION,
                     "diagnostics_version": DIAGNOSTICS_VERSION, "stall_version": STALL_VERSION},
          # The cones stop at the geometry's occluder table: the stored
-         # `occluders` must be the npz's `occ_built_by` today.
-         "occluders": "geometry_key", "upstream": ()},
+         # `occluders` must be the npz's `occ_built_by` today. The teammates
+         # are the stored `ally_icon` stream's (team-vision-0.7.0), which
+         # records its own teardrop stamps.
+         "occluders": "geometry_key", "upstream": ("ally_icon",)},
         {"stream": "round_entity", "key": "round_entity_version", "current": ROUND_ENTITY_VERSION,
          "command": "reticle lifetimes {sid}", "how": "storage",
          "fields": {"round_lifetime_version": ROUND_LIFETIME_VERSION,
@@ -278,7 +319,7 @@ def rerun_commands() -> frozenset[str]:
     crop cache, as `reticle usage` records them: each hand-checked stream's
     and each declared stream's command, less `scan` and any command whose
     `how` is `decode`, plus `rounds`, which `stale` names by hand."""
-    found = {"rounds"}
+    found = {"rounds", "segment"}
     specs = [{"command": cmd, "how": _CACHE_READERS.get(s, "storage")}
              for s, (_, _, cmd) in _hand_specs().items()] + derived_streams()
     for spec in specs:
@@ -306,12 +347,28 @@ def _head(store, stream: str, sid: str, needle: bytes | None = None) -> dict | N
 # stored input (`lighting_version`, `player_cast`) stays a code field
 # (`derived_streams`' `fields`, or the hand checks in `stale`).
 
-def _in(path: str, probe: str, *, optional: bool = False, use_when: str | None = None) -> dict:
+def _in(path: str, probe: str, *, optional: bool = False, use_when: str | None = None,
+        before: str | None = None) -> dict:
     """One declared input. `optional`: rows that never read it (a cast pass
     with no tray drops) leave its key out, and that is not `unrecorded`.
     `use_when`: an older writer recorded None where the stored input was not
-    at this stamp and so went unread; it is stale once the input is."""
-    return {"path": path, "probe": probe, "optional": optional, "use_when": use_when}
+    at this stamp and so went unread; it is stale once the input is.
+    `before`: the stamp a head written before the input was recorded read, so
+    such a head is compared as if it recorded it."""
+    return {"path": path, "probe": probe, "optional": optional, "use_when": use_when,
+            "before": before}
+
+
+def _spans() -> dict:
+    """The stored spans a minimap reader read (`segment.reader_spans`), as its
+    head records them. Heads written before seg-0.3.0 record none and read
+    seg-0.2.0's active spans."""
+    return _in("inputs.spans", "spans", before="seg-0.2.0")
+
+
+#: The reader streams `scan` reads over the stored spans (`cli._reader_spans`).
+#: The ability pass's streams ride the same spans and declare `_spans` too.
+SPAN_READERS = ("minimap", "ping", "ally_icon", "minimap_dark")
 
 
 def _code(path: str, stamp: str, *, optional: bool = False) -> dict:
@@ -332,6 +389,9 @@ NOT_INPUTS = {
     "geometry_key": "names the geometry; its `built_by` is compared as `geometry`",
     "ally_icon_revision": "the ally_icon bytes `reticle lifetimes` keys its cache on; "
                           "the stream's stamp is compared as `ally_icon`",
+    "icon_teardrop_version": "the teammate teardrop stamp; `ally_icon` compares it as a rule "
+                             "stamp, and `team_vision` heads before team-vision-0.7.0 recorded "
+                             "it, which their own stamp now stales",
     "inputs_revision": "the byte digest `reticle lifetimes` keys its cache on; its parts "
                        "are compared one by one",
     "events_version": "the event contract's stamp, written by `store.write_events`",
@@ -478,7 +538,8 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
         "spike_carrier": {"spike": _in("spike_version", "spike#spike_version"),
                           "rounds": _in("inputs.rounds", "rounds"),
                           "roster": _in("inputs.roster", "roster")},
-        "team_vision": geo,
+        # The teammates' poses are the stored ally reader's (team-vision-0.7.0).
+        "team_vision": {"ally_icon": _in("inputs.ally_icon", "ally_icon"), **geo},
         "round_entity": {"menu_open": _in("menu_open", "menu_open#menu_version"),
                          "hud": _in("inputs.hud", "hud"), "roster": _in("inputs.roster", "roster"),
                          "ally_icon": _in("inputs.ally_icon", "ally_icon"),
@@ -505,7 +566,11 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
         "tray_kit": {"catalogue": _in("inputs.catalogue", "catalogue_icons"), **_lineup_inputs()},
         "ability_light": geo,
         "minimap_object": geo,
-        "minimap_dark": {"lighting": _code("lighting_version", LIGHTING_VERSION), **geo},
+        "minimap_dark": {"lighting": _code("lighting_version", LIGHTING_VERSION),
+                         "spans": _spans(), **geo},
+        # Pings are formal entity events with no coverage row: the first
+        # event's metadata carries the stamp.
+        "ping": {"spans": _in("metadata.spans", "spans", before="seg-0.2.0")},
         # The ally icons are read through the teardrop; heads before
         # `ally-icon-0.6.0` do not record it.
         "ally_icon": {"teardrop": _code("teardrop_version", TEARDROP_VERSION, optional=True),
@@ -519,10 +584,11 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                       # fits (`minimap.StackGate`); a head whose gate read no
                       # roster records neither.
                       "stack_fit": _code("stack_fit_version", STACK_FIT_VERSION, optional=True),
-                      "roster": _in("inputs.roster", "roster", optional=True)},
-        "ability_gate": geo, "ability_icon": geo,
+                      "roster": _in("inputs.roster", "roster", optional=True),
+                      "spans": _spans()},
+        "ability_gate": {"spans": _spans(), **geo}, "ability_icon": {"spans": _spans(), **geo},
         "ability_shape_scan": {"shape_model": _code("ability_shape_version", ABILITY_SHAPE_VERSION),
-                               **geo},
+                               "spans": _spans(), **geo},
         # The audit also runs the candidate path's fit on each sample to count
         # `candidate_accepted`, so the fit rule is an input beside the shape model.
         "ability_shape_audit": {"shape_model": _code("ability_shape_version",
@@ -702,6 +768,10 @@ def input_head(store, manifest: dict, probe: str, head: dict | None = None,
         now = ist.NO_ROWS if row is None else (row.get(field) or "unstamped")
     elif probe == "rounds":
         now = ist.table_stamp(store.rounds_path(sid, date), "round_version")
+    elif probe == "spans":
+        path_of = getattr(store, "spans_path", None)   # a test store may hold none
+        now = (ist.table_stamp(path_of(sid, date), "segmenter_version") if path_of is not None
+               else ist.NO_ROWS)
     elif probe == "geometry":
         from . import geometry
         gkey = (head or {}).get("geometry_key")
@@ -761,10 +831,16 @@ def inputs_moved(store, manifest: dict, stream: str, head: dict, memo: dict | No
     did not read, except where an older writer recorded None for an input
     that was not at the code's stamp (`use_when`) and now is. `accepted`
     (`stale`'s waiver check) may accept a recorded stamp as the stored one."""
-    from .input_stamps import moved as stamp_moved, normalize
+    from .input_stamps import NO_ROWS, moved as stamp_moved, normalize
     moved, unrecorded = [], []
     for name, d in stream_inputs().get(stream, {}).items():
         rec = _dig_missing(head, d["path"])
+        if rec is _MISSING and d.get("before") is not None:
+            # A head older than the record read the input at `before`, where
+            # the input is stored at all.
+            if input_head(store, manifest, d["probe"], head, memo) == NO_ROWS:
+                continue
+            rec = d["before"]
         if rec is _MISSING:
             if not d["optional"]:
                 unrecorded.append(name)
@@ -810,7 +886,8 @@ def recorded_stale(store, manifest: dict, spec: dict, head: dict, memo: dict | N
     rereads what `plan` calls stale once the inputs ahead of it are rerun.
     `accepted` is `stale`'s waiver check; by default a declared waiver accepts."""
     if accepted is None:
-        accepted = lambda where, stored, current: waiver(stored, current) is not None
+        accepted = lambda where, stored, current: waiver(stored, current, store, manifest,
+                                                         memo) is not None
     stream = spec["stream"]
     moved = sorted(k for k, v in spec["fields"].items() if _dig(head, k) not in (v, None)
                    and not accepted(f"{stream} input {k}", _dig(head, k), v))
@@ -825,6 +902,25 @@ def recorded_stale(store, manifest: dict, spec: dict, head: dict, memo: dict | N
     version = head.get(spec["key"])
     behind = version != spec["current"] and not accepted(stream, version, spec["current"])
     return behind, moved, missing
+
+
+def spans_read_moved(store, manifest: dict, stream: str, memo: dict | None = None) -> bool:
+    """Whether a span reader's stored stream (`SPAN_READERS`) read other spans
+    than the stored spans table holds now. The minimap table records the
+    stamp in its schema metadata, the event streams in their head
+    (`_spans`); a stream written before either read `before`."""
+    from .input_stamps import NO_ROWS
+    now = input_head(store, manifest, "spans", None, memo)
+    if now == NO_ROWS:
+        return False
+    if stream == "minimap":
+        read = _table_stamp(store.minimap_path(manifest["session_id"],
+                                               manifest["ingested_at"][:10]), "segmenter_version")
+        if read is None:
+            return False
+        return (_spans()["before"] if read == "unstamped" else read) != now
+    head = _head(store, stream, manifest["session_id"])
+    return head is not None and "spans" in inputs_moved(store, manifest, stream, head, memo)[0]
 
 
 def geometry_occluders(store, key: str | None) -> str | None:
@@ -1041,21 +1137,25 @@ def stale(store, sessions: list[str]) -> dict:
     from .input_stamps import NO_ROWS
     from .killfeed import KILLFEED_PORTRAIT_VERSION
     from .minimap_objects import minimap_object_version
-    from .version import (HUD_VERSION, PLANT_GRAPHIC_VERSION, ROUND_VERSION, TRAY_VERSION,
-                          ULT_CAST_VERSION)
+    from .version import (HUD_VERSION, PLANT_GRAPHIC_VERSION, ROUND_VERSION, SEGMENTER_VERSION,
+                          TRAY_VERSION, ULT_CAST_VERSION)
     code_fields = hand_code_fields()
     out = {}
     for sid in sessions:
         man = store.read_manifest(sid)
-        decode, derived, absent, waived, unrecorded = [], [], [], [], []
+        decode, derived, absent, waived, unrecorded, declined = [], [], [], [], [], []
         memo: dict = {}
 
         def accepted(where: str, stored, current: str) -> bool:
-            """True where a waiver accepts `stored` as `current`, and records it."""
-            why = waiver(stored, current)
+            """True where a waiver accepts `stored` as `current`, and records
+            it; a conditional waiver that declines here is recorded too."""
+            why, no = waiver_check(stored, current, store, man, memo)
             if why is not None:
                 waived.append({"stream": where, "stored": stored, "current": current,
                                "why": why})
+            elif no is not None:
+                declined.append({"stream": where, "stored": stored, "current": current,
+                                 "why": no})
             return why is not None
 
         def recorded_moved(stream: str, head: dict | None, moved: list[str]) -> list[str]:
@@ -1069,6 +1169,16 @@ def stale(store, sessions: list[str]) -> dict:
                 unrecorded.append({"stream": stream, "inputs": missing})
             return moved + [k for k in got if k not in moved]
 
+        # The spans the minimap readers read: a table stamped by the segmenter
+        # that wrote it, rebuilt from stored L1 by `reticle segment`. Each
+        # span reader is stale while they are, and once rebuilt it reads as
+        # moved against the stamp its head recorded (`_spans`).
+        spans_now = input_head(store, man, "spans", None, memo)
+        spans_stale = spans_now not in (SEGMENTER_VERSION, NO_ROWS)
+        if spans_stale:
+            derived.append({"stream": "spans", "stored": spans_now, "current": SEGMENTER_VERSION,
+                            "inputs_moved": [], "how": "storage",
+                            "command": f"reticle segment {sid}"})
         for stream, channel, now, trial in reader_streams():
             got = stored_stamp(store, man, stream)
             if got is None:
@@ -1076,13 +1186,35 @@ def stale(store, sessions: list[str]) -> dict:
             elif got != now and not accepted(stream, got, now):
                 decode.append({"stream": stream, "channel": channel, "stored": got,
                                "current": now, "trial": trial})
+            elif stream == "minimap":
+                # A table: its schema metadata records the spans' stamp.
+                if spans_stale or spans_read_moved(store, man, stream, memo):
+                    decode.append({"stream": stream, "channel": channel, "stored": got,
+                                   "current": now, "trial": trial, "inputs_moved": ["spans"]})
             elif stream in stream_inputs():
                 # A reader that read a stored input (`minimap_dark`, the baked
                 # geometry) rereads when that input moved.
                 moved = recorded_moved(stream, _head(store, stream, sid), [])
+                if spans_stale and stream in SPAN_READERS and "spans" not in moved:
+                    moved.append("spans")
                 if moved:
                     decode.append({"stream": stream, "channel": channel, "stored": got,
                                    "current": now, "trial": trial, "inputs_moved": moved})
+        # A side-based widget read without its placement, or through a crop
+        # that cannot hold it (`widget_work`): every stored stream that read
+        # the widget's pixels rereads after the placement and the crop are fixed.
+        widget = widget_work(store, man)
+        if widget is not None:
+            by = {s["stream"]: s for s in decode}
+            for stream, channel, now, trial in reader_streams():
+                if stream not in WIDGET_PIXEL_READERS or stream in absent:
+                    continue
+                if stream in by:
+                    by[stream].setdefault("inputs_moved", []).append(WIDGET_INPUT)
+                else:
+                    decode.append({"stream": stream, "channel": channel,
+                                   "stored": stored_stamp(store, man, stream), "current": now,
+                                   "trial": trial, "inputs_moved": [WIDGET_INPUT]})
         rescanned = {s["stream"] for s in decode}
         rounds_stale = False
         r = _round_stamps(store, man)
@@ -1200,6 +1332,8 @@ def stale(store, sessions: list[str]) -> dict:
                                 "inputs_moved": moved, "how": spec["how"],
                                 "command": spec["command"].format(sid=sid)})
                 moving.add(stream)
+        if widget is not None:
+            _widget_derived(store, sid, derived, moving)
         # A stream checked above before one of its inputs was found stale
         # follows it now: staleness follows every declared input, in any order.
         _follow(store, sid, derived, moving)
@@ -1213,8 +1347,88 @@ def stale(store, sessions: list[str]) -> dict:
         unchecked = [{"stream": s, "why": UNSTAMPED.get(s, "undeclared: no check in plan")}
                      for s in stored_streams(store, sid) if s not in declared]
         out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived,
-                    "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded}
+                    "declined": declined,
+                    "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded,
+                    "widget": widget}
     return out
+
+
+#: The name a stream's `inputs_moved` gives the session's widget placement.
+WIDGET_INPUT = "widget_placement"
+#: The reader streams that read the minimap widget's pixels (`scan`'s
+#: `_normalise_decoded` set), and the cache-reading streams that do.
+WIDGET_PIXEL_READERS = ("minimap", "ping", "ally_icon", "minimap_dark")
+WIDGET_PIXEL_DERIVED = ("team_vision", "spike", "minimap_object", "self_icon")
+
+
+def widget_work(store, manifest: dict) -> dict | None:
+    """What the session's minimap widget needs before its pixels are read
+    (`widget_frame`), or None:
+
+    * `placement`: a side-based or drawn-collapse session with no stored
+      placement (`widget_frame.placement_status`), and the fit command;
+    * `cache`: a stored placement the minimap crop cache cannot serve
+      (`stale_rects` after a wider capture box, `crop_clips_widget`), and the
+      re-decode command (`roi_cache.rewrite_command`), which only the player
+      starts;
+    * `reread`: a stored placement and a usable cache, but a stored minimap
+      table whose `widget_drawn` rate still collapses at a round boundary
+      (`widget_frame.stored_collapse`): its readers read before the placement.
+    """
+    from . import widget_frame as wf
+    from .profiles import get_profile
+    from .roi_cache import RoiCache, rewrite_command, stored_record
+    sid = manifest["session_id"]
+    status = wf.placement_status(store, manifest)
+    if status is not None:
+        if stored_record(store.root, sid, "minimap") is None:
+            status = {**status, "detail": status["detail"] + "; no minimap crop cache is "
+                      "stored, so the fit waits for one"}
+        return {"placement": status}
+    if wf.entry(manifest) is None:
+        return None
+    rec = stored_record(store.root, sid, "minimap")
+    if rec is not None:
+        cache, why = RoiCache.load(store.root, manifest, get_profile(manifest["source_profile"]),
+                                   "minimap")
+        if cache is None:
+            return {"cache": {"reason": why, "held": rec.get("rects", [None])[0],
+                              "command": rewrite_command(sid, "minimap", rec)}}
+    c = wf.stored_collapse(store, manifest)
+    if c is not None:
+        return {"reread": {"reason": "drawn_collapse_after_placement",
+                           "detail": (f"widget_drawn {c['before']:.3f} before round "
+                                      f"{c['round_no']} and {c['after']:.3f} from it")}}
+    return None
+
+
+def _widget_derived(store, sid: str, derived: list[dict], moving: set[str]) -> None:
+    """Name every stored cache-reading stream that read the widget's pixels
+    (`WIDGET_PIXEL_DERIVED` and the ability pass's streams) as moved by the
+    placement; `_follow` then carries it downstream."""
+    hand = {s: (k, c, cmd, _CACHE_READERS.get(s, "storage"))
+            for s, (k, c, cmd) in _hand_specs().items()}
+    specs = {**hand, **{s["stream"]: (s["key"], s["current"], s["command"], s["how"])
+                        for s in derived_streams()}}
+    names = list(WIDGET_PIXEL_DERIVED) + [s for s, _, _ in ability_streams()]
+    by = {d["stream"]: d for d in derived}
+    for stream in names:
+        if stream not in specs:
+            continue
+        head = _head(store, stream, sid)
+        if head is None:
+            continue
+        if stream in by:
+            if WIDGET_INPUT not in by[stream]["inputs_moved"]:
+                by[stream]["inputs_moved"].append(WIDGET_INPUT)
+            continue
+        key, current, command, how = specs[stream]
+        entry = {"stream": stream, "stored": head.get(key), "current": current,
+                 "inputs_moved": [WIDGET_INPUT], "how": how,
+                 "command": command.format(sid=sid)}
+        derived.append(entry)
+        by[stream] = entry
+        moving.add(stream)
 
 
 def _lane_streams() -> set[str]:
@@ -1240,9 +1454,22 @@ def render(plan: dict) -> str:
     for sid, p in plan.items():
         for w in p.get("waived", []):
             waived[(w["stream"], w["stored"], w["current"])].append(sid)
+    from .version import STAMP_WAIVERS
+    when = lambda stored, current: (
+        f", where {w['when']} holds" if isinstance(w := STAMP_WAIVERS.get((current, stored)), dict)
+        else "")
     waived_lines = [f"waived   {stream}: {stored} accepted as {current} by waiver "
-                    f"(version.STAMP_WAIVERS) on {len(sids)} sessions: {' '.join(sids)}"
+                    f"(version.STAMP_WAIVERS{when(stored, current)}) on {len(sids)} sessions: "
+                    f"{' '.join(sids)}"
                     for (stream, stored, current), sids in sorted(waived.items())]
+    # A conditional waiver that did not hold on a session leaves it stale, by name.
+    declined: dict[tuple[str, str, str, str], list[str]] = defaultdict(list)
+    for sid, p in plan.items():
+        for w in p.get("declined", []):
+            declined[(w["stream"], w["stored"], w["current"], w["why"])].append(sid)
+    waived_lines += [f"not waived {stream}: {stored} stays stale under {current}, the waiver's "
+                     f"condition fails ({why}) on {len(sids)} sessions: {' '.join(sids)}"
+                     for (stream, stored, current, why), sids in sorted(declined.items())]
     unchecked: dict[tuple[str, str], list[str]] = defaultdict(list)
     for sid, p in plan.items():
         for u in p.get("unchecked", []):
@@ -1267,8 +1494,24 @@ def render(plan: dict) -> str:
     waived_lines += [f"held     {stream}: rows held stale until {inputs} are refreshed, then "
                      f"`reticle project <sid>` for {' '.join(sids)}"
                      for (stream, inputs), sids in sorted(held.items())]
+    # The widget comes first: a placement fit (crop cache, no decode), then
+    # the crop cache's re-decode, which only the player starts; every stream
+    # below that names `widget_placement` waits for both.
+    for sid, p in plan.items():
+        w = p.get("widget") or {}
+        if "placement" in w:
+            s = w["placement"]
+            lines.append(f"placement {s['command']}   ({s['reason']}: {s['detail']}; reads "
+                         f"the minimap crop cache and rounds, no decode) for {sid}")
+        if "cache" in w:
+            c = w["cache"]
+            lines.append(f"decode   {c['command']}   (minimap crop cache {c['reason']}; holds "
+                         f"{c['held']}; the player starts this decode) for {sid}")
+        if "reread" in w:
+            lines.append(f"reread   minimap streams of {sid}   ({w['reread']['reason']}: "
+                         f"{w['reread']['detail']})")
     if not by_channel and not derived:
-        return "\n".join([f"nothing stale over {len(plan)} sessions"] + waived_lines)
+        return "\n".join(lines + [f"nothing stale over {len(plan)} sessions"] + waived_lines)
     for ch, sids in sorted(by_channel.items()):
         streams = sorted({s["stream"] for p in plan.values() for s in p["decode"]
                           if s["channel"] == ch})

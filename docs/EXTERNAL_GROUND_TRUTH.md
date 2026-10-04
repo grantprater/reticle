@@ -30,7 +30,12 @@ carried the game's own build string, read from the `CI server version:` line
 of `%LOCALAPPDATA%\VALORANT\Saved\Logs\ShooterGame.log` (form
 `release-13.06-shipping-18-5590001`), and the request sent a non-default
 User-Agent naming the tool. A build hash from the local product session was
-rejected. The probe is not in this repository.
+rejected. The probe is not in this repository. The player's kit for the
+uncaptured matches, `prototypes/riot_match_fetch.py`, uses the same
+endpoints, build-string header and named User-Agent, and adds two steps from
+the unofficial docs that the probe's notes do not record: tokens from the
+local client through its lockfile, and an `X-Riot-ClientPlatform` header
+([MATCH_FETCH_KIT.md](MATCH_FETCH_KIT.md)).
 
 Three accounts' histories were read. The first held 18 matches, 2026-09-13 to
 2026-10-01 (Total 18); the second 47, 2026-09-03 to 2026-09-11 (Total 47). On
@@ -46,7 +51,9 @@ All 22 match captures have their match-details record saved in the store
 under `external/riot/` (a store path, not the repository): 22 files,
 [metric:riot_economy/team_rounds#kills=3459] kill events in all, [metric:riot_economy/team_rounds#spike_kills=12] of them spike deaths (an earlier count here,
 3,532, does not reproduce). [metric:riot_economy/team_rounds#competitive_matches=20] are competitive and
-[metric:riot_economy/team_rounds#unrated_matches=2] unrated (0f08b3dc3777 and b3b9defb6fd7). Each file names its session in `probe.session_id`; the store is
+[metric:riot_economy/team_rounds#unrated_matches=2] unrated (0f08b3dc3777 and b3b9defb6fd7). The remaining counts are in
+[WIN_PROBABILITY_RESEARCH.md](WIN_PROBABILITY_RESEARCH.md), section 5, Data.
+Each file names its session in `probe.session_id`; the store is
 the index, and match IDs stay out of this repository.
 
 4f207c0c4e39's record, for one, is Split (`/Game/Maps/Bonsai/Bonsai`), 10
@@ -62,14 +69,26 @@ not the buy phase; unconfirmed until aligned.
 ult points), `round_phase`, and the player's own health and abilities. No
 positions and no in-round time; `spike_planted` was removed on 2025-01-30.
 
-**In-game Replays.** They are local files: 15 `.vrf` files sit in
-`%LOCALAPPDATA%\VALORANT\Saved\Demos` (counted 2026-10-04). They are
-readable: the payloads are compressed, not encrypted, and uncompressed event
-chunks carry deaths, plants, defuses and round starts. In b03fecd3 the
-replay's 180 deaths pair one to one, in time order, with Riot's 180 kills. The
-evidence is the store's `notes/predictions.jsonl` outcome rows for
-`replay-vrf-probe-20261004` and `replay-vrf-verify-20261004`; the format's
-facts belong in `domain/*.toml`.
+**In-game replays.** The client keeps `.vrf` files in
+`%LOCALAPPDATA%\VALORANT\Saved\Demos` and rotates them; 15 sat there on
+2026-10-04, and those 15 are preserved in the store under `external/replays/`.
+They are readable offline: the file is not encrypted, and its uncompressed
+event chunks carry deaths, plants, defuses and round starts
+[domain:replay/vrf-container]. In b03fecd3 the replay's 180 deaths pair one to
+one, in time order, with Riot's 180 kills (the store's
+`notes/predictions.jsonl` outcome rows for `replay-vrf-probe-20261004` and
+`replay-vrf-verify-20261004`). vrfkit, built from source with the
+player's approval (2026-10-04), decodes every player's position and view at
+the server tick [domain:replay/vrf-position-stream], and
+`prototypes/replay_truth.py` checks each parse against Riot's record before
+scoring the stored streams. On the one replay with a capture, 180 of 180 kills
+agree by killer and victim
+([metric:replay_truth/check#killer_agree=180]), kill-instant positions sit a
+median [metric:replay_truth/check#kill_pos_median_cm=7.1] cm from Riot's, and
+the stored allied observations a median
+[metric:replay_truth/score#ally_err_px_median=1.55] px from the replay, with
+[metric:replay_truth/score#ally_id_agreement=0.9108] of named ones agreeing.
+Evaluation truth only: never a reader input, a prior or a display in play.
 
 **HenrikDev's unofficial API.** It mirrors Riot's match schema. Whether it
 still serves the corpus's past matches is unconfirmed.
