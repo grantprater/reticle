@@ -1074,6 +1074,37 @@ and keyed_047 (dae6f33f3f48 5.55 s) under
 <store>/analysis/demo-cast-census/montage/
 """
 
+[killjoy-alarmbot-minimap-texture]
+claim = """
+A deployed Alarmbot on Killjoy's own minimap draws the glyph of the game texture
+`TX_UI_Minimap_Killjoy_Q_InActive` (a front-view bot with side wings, white on the
+dark disc of [domain:abilities/killjoy-alarmbot]), not Alarmbot's DisplayIcon
+`TX_KJ_Alarm`; the two correlate weakly, so glyph correlation never assigned it.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+subject = "killjoy:alarmbot"
+source = """
+game data: ability-states-gamedata-0.2.0 (<store>/reference/ability-states) names
+the texture the minimap IconBrush of Ability_Killjoy_Q_Alarmbot
+(BaseMinimapComponent_Parent, loop phase, self and teammate views). Observed: the
+earlier positioned Alarmbot labels in dae6f33f3f48 (25.5, 28.95, 31.05, 41.7 s)
+show it, and minimap_glyph_eval 0.3.0 names all six Alarmbot labels by follow
+[metric:minimap_glyph_eval/killjoy_refs_dev#alarmbot_follow_after=6]
+"""
+use = """
+minimap_glyph_eval.apply_gamedata reads the inventory row as Alarmbot's (Q)
+reference
+"""
+exceptions = """
+the enemy view and the detecting state (`TX_UI_Minimap_Killjoy_Q_Active`, a red
+disc set by BotDetectFXC) are unobserved. In dae6f33f3f48 the glyph fits turned a
+quarter (255-285 deg) although the inventory row sets ConstantMinimap rotation
+and no bRotates; one session, unexplained
+"""
+see = ["abilities/killjoy-alarmbot", "abilities/minimap-textures-killjoy"]
+
 [astra-nebula-minimap-disc]
 claim = """
 When Astra turns a star into a Nebula, the star's yellow icon on her minimap
@@ -1694,8 +1725,9 @@ see = ["abilities/minimap-icon-pale-region", "abilities/ability-rules-are-unique
 
 [deadlock-sonic-sensor-minimap-white-area]
 claim = """
-Deadlock's Sonic Sensor in slot Q draws an axis-aligned square on the
-minimap, about 26 px on a side at scale 1, with the sensor's icon on the
+Deadlock's Sonic Sensor in slot Q draws a square on the minimap, its
+side along the wall the sensor sits on (axis-aligned on an axis-aligned
+wall), about 26 px on a side at scale 1, with the sensor's icon on the
 midpoint of one side. The square is a flat white tint of alpha about 0.17
 with no brighter rim, drawn over void too. It does not light the floor. A
 dim (deactivated) sensor draws no square.
@@ -1724,12 +1756,44 @@ px widget [domain:minimap/icon-extent-by-family]. Floor inside the square is
 tinted, not lit
 """
 exceptions = """
-every measured square was axis-aligned; whether a sensor placed at another
-angle draws a rotated square is unasked. Durations are censored by
-crop-cache gaps; 17-83 s were seen
+the squares measured on 2026-09-30 were all on axis-aligned walls. A
+sensor on any other wall turns its square with the wall
+[domain:abilities/deadlock-sonic-sensor-square-follows-wall]. Durations
+are censored by crop-cache gaps; 17-83 s were seen
 """
 see = ["abilities/minimap-icon-pale-region", "minimap/device-dim-on-deactivation",
-       "abilities/ability-rules-are-unique"]
+       "abilities/ability-rules-are-unique", "abilities/deadlock-sonic-sensor-square-follows-wall"]
+
+[deadlock-sonic-sensor-square-follows-wall]
+claim = """
+A Sonic Sensor may sit at any angle and is always normal to the wall it is
+placed on, so its minimap square turns with the wall: the icon stays on the
+midpoint of one side and its glyph turns by the same angle.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "deadlock:sonic sensor"
+source = """
+the player, 2026-10-04 (labels/minimap_glyph_questions/answers.jsonl, row
+rotation:Deadlock:Q, 16:09 UTC): "I think it could be any angle but it is
+always normal to the wall". One observation agrees: a sensor on
+29eff6920e8f at (343, 164) on the minimap crop, 34.4-48.3 s, marked
+Deadlock:Q five times in the held-out glyph labelling pass, shows in the
+tint map (frame minus the baked static, over 255 minus the static) a
+square off the axes with the icon on its side, which
+prototypes/sonic_square.py's axis-aligned fit missed every time
+"""
+use = """
+fit the square with a rotation, the angle shared with the icon's glyph and
+the wall under it; an axis-aligned fit misses these
+"""
+exceptions = """
+the player hedged ("I think"). One observed instance, its angle read by
+eye; whether the square's side lies exactly along the minimap's drawn wall
+is unmeasured
+"""
+see = ["abilities/deadlock-sonic-sensor-minimap-white-area", "abilities/ability-rules-are-unique"]
 
 [piloted-drones-have-cones]
 claim = """
@@ -4020,18 +4084,130 @@ letter. The reference manifest (ability-audio-ref-0.2.0) had mapped the
 files to Recon Bolt by name match
 """
 use = """
-not applied: `ability_audio_fit.PLAYER_MAPS_NOT_APPLIED` records it, and
-`ability-audio-params-0.2.1` keeps the manifest's Recon Bolt mapping
+none since 2026-10-04: superseded by
+[domain:abilities/sova-bolts-share-release-sound]. Never applied:
+`ability_audio_fit.PLAYER_MAPS_NOT_APPLIED` records it; to
+`ability-audio-params-0.2.4` the manifest's Recon Bolt mapping stood, and
+from 0.2.5 the files are the bolts' shared release (`PHASE_GROUPS`)
 """
 exceptions = """
-Sova's game folders name Recon Bolt Q (SonarBolt) and Shock Bolt 4, so the
+SUPERSEDED 2026-10-04: the files are the release of both bolts, not of the
+Shock Bolt alone. Sova's game folders name Recon Bolt Q (SonarBolt) and Shock Bolt 4, so the
 letter does not name the key. On the 2026-10-04 dev casts _01 and _03 score
 3 or more on 2 of 5 Shock Bolt and 7 and 10 of 45 Recon Bolt casts; _02 and
 _04 on 0 of 5 Shock Bolt and 4 and 8 of 45 Recon Bolt casts. Mapped to Shock
 Bolt, Sova dev top-1 fell from 86 to 68 of 98 and held from 87 to 62 of 94;
 left out as shared, dev fell to 85 of 98. No exported montage plays the event
 """
-see = ["abilities/sova-bolt-equips-share-sounds"]
+see = ["abilities/sova-bolt-equips-share-sounds", "abilities/sova-bolts-share-release-sound"]
+
+[sova-bolts-share-release-sound]
+claim = """
+Sova's Shock Bolt (slot Q) and Recon Bolt (slot E) play one release sound:
+the event Play_Hunter_AbilQ_Cast (files Hunter_AbilQ_Cast_01 to _04). It
+fires when the bolt leaves the bow, so it names a bolt but not which; the
+landing after it does [domain:abilities/sova-shock-bolt-landing-sound]
+[domain:abilities/sova-recon-bolt-landing-sound]. The Recon Bolt's tray drop
+lags its release by about 0.8 s, the Shock Bolt's by 0 to 0.5 s.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+subject = "sova:bolts"
+source = """
+game data: reference/ability-states/ability-states-gamedata-0.2.0.jsonl
+(build release-13.06-shipping-18-5590001) plays Play_Hunter_AbilQ_Cast at
+ProjectileThrowState_FireBolt in both Ability_Hunter_4_BoltExplosive (Shock
+Bolt) and Ability_Hunter_Q_RevealBolt_Signature (Recon Bolt). The demo audio
+census (store analysis/demo-audio-census-20261004/sova.json, demo-audio-census-0.1.0;
+demos 02cf738b1c8f C:/Users/grant/Videos/2026-09-03 19-29-26.mp4 and
+aab12e41dcfc C:/Users/grant/Videos/2026-09-26 19-39-06.mp4): a Cast variant
+fires within 0.07 s of the release on all 6 bolt casts (4 Shock, 2 Recon).
+The player, 2026-10-04: each bolt is a cast, then a landing (Shock: a
+landing/activation shock sound; Recon: landing, then the scan pulse)
+"""
+use = """
+`ability_audio_fit.PHASE_GROUPS` makes the files the phase group Q+E's own
+class from `ability-audio-params-0.2.5`; `ability_audio.cast_verdicts`
+takes the group's maximum as the release frame and lets the landing name the
+bolt. Before, mapped to Recon Bolt, the files made 3 of the 4 demo Shock
+casts read Recon
+"""
+exceptions = """
+the release is heard on almost every bolt, so alone it cannot tell the bolts
+apart; which variant plays is random
+"""
+see = ["abilities/sova-bolt-equips-share-sounds", "abilities/sova-bolt-charge-and-bounce",
+       "abilities/ability-sound-phases"]
+
+[sova-shock-bolt-landing-sound]
+claim = """
+Sova's Shock Bolt (slot Q) lands with the event Play_Hunter_AbilGrenade_Hit_3P
+(files Hunter_ShockDart_Hit_01, Hunter_ShockDart_Hit_Sparks_01 and
+Hunter_ShockDart_Hit_Sparks_Expand_01), which no Recon Bolt plays.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+subject = "sova:shock bolt"
+source = """
+game data: ability-states-gamedata-0.2.0 plays the event at HitFXC (phase
+impact) of Projectile_Hunter_4_ExplosiveBolt only. The demo audio census
+(analysis/demo-audio-census-20261004/sova.json): the three files fire 0.15 to
+1.15 s after the drop on all 4 demo Shock casts and on neither Recon cast.
+The player, 2026-10-04: a Shock Bolt is a cast, then a landing/activation
+shock sound
+"""
+use = """
+`ability_audio_fit.PHASE_GROUPS`: the Shock Bolt's landing files of the
+phase group Q+E (`ability-audio-params-0.2.5`)
+"""
+exceptions = """
+the detonation (Play_Hunter_Abil4_ShockBolt_Explode, Deployed_Start) and the
+bounces (Play_Hunter_AbilGrenade_Ricochet_3P) are not in the landing set.
+Another Sova's Shock Bolt sounds the same: on held cast 96aa1ae9b96f 346.57 s
+(C:/Users/grant/Videos/2026-08-24 17-51-06.mp4) the tray says Recon Bolt and
+the Shock landing scores 6.1; the lineup leaves an enemy slot unresolved
+between Chamber and Sova
+"""
+see = ["abilities/sova-bolts-share-release-sound", "abilities/sova-shock-bolt-charges"]
+
+[sova-recon-bolt-landing-sound]
+claim = """
+Sova's Recon Bolt (slot E) flies with the event Play_Hunter_AbilQ_Missile_3P_upd
+(file Hunter_AbilQ_Missile_Sweetener_2400) and lands with
+Play_Hunter_AbilQ_Hit_3P_upd (files Hunter_S0_AB_Q_Hit_1 to _4,
+Hunter_S0_AB_Q_Hit_ArrowDebris_1 to _4, Hunter_AbilQ_Hit_01 to _04); no Shock
+Bolt plays either. The scan pulse follows the landing.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+subject = "sova:recon bolt"
+source = """
+game data: ability-states-gamedata-0.2.0 plays Play_Hunter_AbilQ_Hit_3P_upd
+at HitFXC (phase impact) and Play_Hunter_AbilQ_Missile_3P_upd at
+SFX_MissileSound (phase travel) of Projectile_Hunter_Q_RevealBolt only. The
+demo audio census (analysis/demo-audio-census-20261004/sova.json):
+Hunter_S0_AB_Q_Hit_2, Hit_4 and Riccochet_4 fire on both demo Recon casts,
+0.06 to 2.3 s after the release by flight distance, and on no Shock cast;
+Missile_Sweetener_2400 fires between release and hit on both. The player,
+2026-10-04: a Recon Bolt is a cast, a landing and a scan pulse; it makes an
+in-flight sound "I think"
+"""
+use = """
+`ability_audio_fit.PHASE_GROUPS`: the Recon Bolt's landing files of the
+phase group Q+E (`ability-audio-params-0.2.5`), the in-flight file with them
+"""
+exceptions = """
+Play_Hunter_AbilQ_Hit_3P, which the same files also carry, is played by the
+Owl Drone's dart too; only the _upd event is the Recon Bolt's own. A bolt
+shot far lands out of earshot or after the window (0.05 to 2.0 s after the
+release): on held match casts such bolts are refused bolt_unknown. The scan
+pulse's files are not in the landing set
+"""
+see = ["abilities/sova-bolts-share-release-sound", "abilities/sova-recon-bolt-minimap-ring",
+       "abilities/sova-recon-bolt-charges"]
 
 [skye-scout-expire-is-guiding-light]
 claim = """
@@ -4196,8 +4372,12 @@ state the HUD draws for which viewer is not part of the answer.
 DISPUTED by game data: ability-states-gamedata-0.2.0 (store reference/ability-states)
 names `TX_Astra_Minimap_PassiveGold` as Astral Form / Cosmic Divide's (X) star brush when
 selected, drawn only on Astra's own client; the player answered it as none of
-the four. No labelled capture shows either star; ask the player
+the four. The player has since named the black icon a placed, inactive star
+and the gold icon a hovered star [domain:abilities/astra-star-minimap-states],
+which resolves the dispute; `TX_UI_Minimap_Rift_Passive` stays unresolved.
+No labelled capture shows either star
 """
+see = ["abilities/astra-star-minimap-states"]
 
 [minimap-textures-chamber]
 claim = """
@@ -4773,6 +4953,40 @@ orders hovered before the operation on Astra's view; it names no frame count
 see = ["abilities/astra-star-placed-then-turned", "abilities/astra-star-ally-minimap-glyph",
        "abilities/astra-stars-shared", "abilities/views-separate-per-ability"]
 
+[astra-star-minimap-states]
+claim = """
+A placed, inactive Astra star draws the black passive icon
+(`TX_Astra_Minimap_PassiveBlack`). While Astra hovers it in Astral Form, it
+draws the gold icon (`TX_Astra_Minimap_PassiveGold`). When she presses an
+ability key while hovering, the star becomes one of her three standard
+abilities, Nova Pulse (Q), Nebula (E) or Gravity Well (C), and then draws
+that ability's icon.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "astra:stars"
+source = """
+the player, 2026-10-04 (chat), revising the texture answers at
+<store>/labels/minimap_glyph_questions/answers.jsonl line(s) 367, 368
+"""
+use = """
+read a black star as pending, a gold star as the one Astra is about to
+turn, and the ability icon at the same place as the star's outcome
+"""
+exceptions = """
+which views (Astra's own, a teammate's, an enemy's) draw each state is
+unasked; the game data draws the gold state only on Astra's own client
+[domain:abilities/astra-star-hover-yellow]. The player has not resolved
+`TX_UI_Minimap_Rift_Passive` (Default, Hovered, Precast); the game data's
+three states parallel this lifecycle. The game data
+(`ability-states-gamedata-0.2.0`) files the star textures under Astral Form
+/ Cosmic Divide (X), since Astra places stars in Astral Form; the player's
+earlier X answer for `TX_Astra_Minimap_PassiveBlack` agrees
+"""
+see = ["abilities/minimap-textures-astra", "abilities/astra-star-hover-yellow",
+       "abilities/astra-star-placed-then-turned", "abilities/astra-star-ally-minimap-glyph"]
+
 [sova-shock-bolt-audio-phases]
 claim = """
 Sova's Shock Bolt sounds in phases: the cast, then the landing or
@@ -4845,9 +5059,9 @@ subject = "sova:recon bolt"
 source = """
 game build release-13.06-shipping-18-5590001: game-extract's wwise resolver
 (FModel's) over every character SFX event, kept as
-<store>/reference/game-files/audio-sfx-gaps-0.1.0/Sova/ (manifest.jsonl,
-delta.json); the referrers from the whole-game scan
-release-13.06-shipping-18-5590001/gaps-0.1.0/whorefs-all.tsv. The
+<store>/reference/game-files/audio-sfx-gaps-0.1.0/ (manifest.jsonl and
+delta.json at the set root, the medium under Sova/); the referrers from the
+whole-game scan release-13.06-shipping-18-5590001/gaps-0.1.0/whorefs-all.tsv. The
 ability-audio-ref filter had dropped the cross-agent _Char_Joules folder
 """
 use = """
@@ -4856,10 +5070,18 @@ the scan-pulse reference for scoring a Recon Bolt on its pulses
 """
 exceptions = """
 the "no other package names either" clause rests on the whole-game
-reverse-reference scan (whorefs-all.tsv), which reads package imports and
-name maps; it cannot see a reference held as a string (a soft object path in
-asset data) or a plugin-content id stored as a hash, so a referrer of either
-kind would escape it
+reverse-reference scan (whorefs-all.tsv).
+game-extract's whorefs (src/Commands.cs, WhoRefs and PackageName,
+commit 531a47f) reads each package's hard imports as IoStore package ids and
+its name map, matching a name by its leaf (after the last '/', before the
+first '.', less a _C suffix); a soft object path is held as names, so the
+name-map match sees it. It cannot see a reference stored outside the name
+map (an FString property value, a numeric or hashed id such as a Wwise
+short id), a hard import of a target outside ShooterGame/Content and
+Engine/Content (plugin content, whose package id PackageName never
+computes), a file that is not a package, or a package it failed to load
+(counted as unreadable on stderr); a referrer of any such kind would escape
+it
 """
 see = ["abilities/sova-recon-bolt-audio-phases"]
 
@@ -4893,9 +5115,243 @@ stays a question for the player
 """
 exceptions = """
 the "named only by" clauses rest on the whole-game reverse-reference scan
-(whorefs-all.tsv), which reads package imports and name maps; it cannot
-see a reference held as a string (a soft object path in asset data) or a
-plugin-content id stored as a hash, so a referrer of either kind would
-escape it
+(whorefs-all.tsv).
+game-extract's whorefs (src/Commands.cs, WhoRefs and PackageName,
+commit 531a47f) reads each package's hard imports as IoStore package ids and
+its name map, matching a name by its leaf (after the last '/', before the
+first '.', less a _C suffix); a soft object path is held as names, so the
+name-map match sees it. It cannot see a reference stored outside the name
+map (an FString property value, a numeric or hashed id such as a Wwise
+short id), a hard import of a target outside ShooterGame/Content and
+Engine/Content (plugin content, whose package id PackageName never
+computes), a file that is not a package, or a package it failed to load
+(counted as unreadable on stderr); a referrer of any such kind would escape
+it
 """
 see = ["abilities/killjoy-alarmbot", "abilities/ability-rules-are-unique"]
+
+[ult-castable-at-barrier-drop]
+claim = """
+Any agent's ultimate can be cast at the instant the spawn barriers drop.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "abilities:ultimate"
+source = "the player, 2026-10-04 (chat)"
+use = """
+a cast line within a second or two after the drop is an ordinary cast for any
+agent; a line at the drop does not by itself show a buy-phase cast
+"""
+see = ["rounds/buy-phase-barriers", "abilities/chamber-tour-de-force-enemy-line-at-drop"]
+
+[chamber-tour-de-force-equip-spends-ult]
+claim = """
+Equipping Chamber's Tour De Force spends his ultimate, in the buy phase as
+in the live round.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "chamber:tour de force"
+source = "the player, 2026-10-04 (chat)"
+use = """
+a Tour De Force line in the buy phase is a spent ultimate, whether or not the
+weapon later kills
+"""
+see = ["abilities/chamber-tour-de-force-ally-line-at-equip",
+       "abilities/chamber-tour-de-force-enemy-line-at-drop",
+       "abilities/chamber-tour-de-force-not-kept-next-round"]
+
+[chamber-tour-de-force-not-kept-next-round]
+claim = """
+An equipped Tour De Force does not carry into the next round.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "chamber:tour de force"
+source = "the player, 2026-10-04 (chat)"
+use = """
+a Tour De Force kill in a round implies an equip, and so an ult line, in that
+same round
+"""
+exceptions = """
+the store contradicts it once: 223d636bf8d2 (C:\\Users\\grant\\Videos\\2026-08-23
+20-09-01.mp4) round 7 has a Tour De Force kill but no stored Chamber line in
+that round or the one before; the best Chamber peak there, 0.022, lies under
+the 0.030 floor for kill-witnessed peaks, so that line was missed
+"""
+see = ["abilities/chamber-tour-de-force-equip-spends-ult",
+       "abilities/chamber-tour-de-force-ally-line-at-equip",
+       "abilities/chamber-tour-de-force-enemy-line-at-drop"]
+
+[chamber-tour-de-force-ally-line-at-equip]
+claim = """
+Chamber's allies hear his Tour De Force line when he equips it, in the buy
+phase too: of the 12 ally-variant lines on 21 matches, 9 lie more than 1.5 s
+before the barrier drop, spread over the buy phase.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-04"
+subject = "chamber:tour de force"
+source = """
+prototypes/ult_phase_audit.py over the ult-cast-0.5.0 rows of the 21 Riot
+matches, 2026-10-04:
+[metric:ult_phase/agents@all-matches#Chamber_ally_buy=9] in the buy phase,
+[metric:ult_phase/agents@all-matches#Chamber_ally_at_drop=1] within 1.5 s of
+the drop (a witnessed peak under the threshold), and
+[metric:ult_phase/agents@all-matches#Chamber_ally_live=2] after it
+"""
+use = """
+date an allied Chamber's equip by the ally line's onset, in the buy phase as
+in the round
+"""
+see = ["abilities/chamber-tour-de-force-equip-spends-ult",
+       "abilities/chamber-tour-de-force-enemy-line-at-drop",
+       "abilities/chamber-tour-de-force-not-kept-next-round"]
+
+[chamber-tour-de-force-enemy-line-at-drop]
+claim = """
+Chamber's enemies hear his Tour De Force line at the barrier drop, not in the
+buy phase: of the 15 enemy-variant lines on 21 matches, 12 lie within 1.5 s
+of the drop and two more within 1.6 s, while the ally-variant lines of the
+same matches fall mostly in the buy phase
+[domain:abilities/chamber-tour-de-force-ally-line-at-equip].
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-04"
+subject = "chamber:tour de force"
+source = """
+prototypes/ult_phase_audit.py over the ult-cast-0.5.0 rows of the 21 Riot
+matches, 2026-10-04:
+[metric:ult_phase/agents@all-matches#Chamber_enemy_at_drop=12] at the drop,
+[metric:ult_phase/agents@all-matches#Chamber_enemy_live=2] at +1.53 and
++1.55 s, [metric:ult_phase/agents@all-matches#Chamber_enemy_buy=1] in the buy
+phase; buy against drop by variant, Fisher's exact p
+[metric:ult_phase/agents@all-matches#chamber_variant_fisher_p=0.000115]. The
+claim rests on this measurement alone. The player's first answer the same day,
+that a buy-phase ult's line plays at the drop for Chamber's and Reyna's, was
+superseded by the player's own corrections in that conversation and is no
+source here; the measured ally line, heard at the equip in the buy phase,
+contradicts it for Chamber's allies
+"""
+use = """
+read an enemy Chamber line at the drop as the enemy line of an equip made at
+or before the drop, often in the buy phase, where the ally line places most
+equips [domain:abilities/chamber-tour-de-force-ally-line-at-equip];
+`adjudication.ult_cast` stores the line's phase and keeps the onset as its
+observation time
+"""
+exceptions = """
+the one buy-phase enemy line, 5822b6646448 (C:\\Users\\grant\\Videos\\2026-08-26
+12-38-38.mp4) at 788.81 s, lies 0.2 s before the buy-phase snap that the HUD's
+buy clock implies, in a round the rounds table started at the score
+increment; why a line plays at the snap is unknown. The drop's own precision
+is about half a second (`docs/VOICE_LINES.md`, "Buy phase and the barrier
+drop")
+"""
+see = ["abilities/chamber-tour-de-force-ally-line-at-equip",
+       "abilities/ult-lines-heard-by-both-teams", "rounds/buy-phase-barriers",
+       "abilities/chamber-tour-de-force-not-kept-next-round"]
+
+[jett-blade-storm-line-not-in-buy-phase]
+claim = """
+No Blade Storm line, ally or enemy, was heard in a buy phase on 21 matches:
+of 26 lines, 12 lie within 1.5 s of the barrier drop and 14 later. Whether
+Blade Storm can be cast in the buy phase, with its line held to the drop, is
+unknown; the player believes it may be.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-04"
+subject = "jett:blade storm"
+source = """
+prototypes/ult_phase_audit.py over the ult-cast-0.5.0 rows of the 21 Riot
+matches, 2026-10-04: ally
+[metric:ult_phase/agents@all-matches#Jett_ally_buy=0] in the buy phase,
+[metric:ult_phase/agents@all-matches#Jett_ally_at_drop=9] at the drop,
+[metric:ult_phase/agents@all-matches#Jett_ally_live=10] later; enemy
+[metric:ult_phase/agents@all-matches#Jett_enemy_buy=0],
+[metric:ult_phase/agents@all-matches#Jett_enemy_at_drop=3],
+[metric:ult_phase/agents@all-matches#Jett_enemy_live=4]. The player,
+2026-10-04 (chat), first thought only Chamber's ult casts in the buy phase,
+then that Jett's may
+"""
+use = """
+a Blade Storm line at the drop is either a cast at the drop or a buy-phase
+cast heard late; audio cannot tell them apart, and no capture has the player
+on Jett, whose tray would
+"""
+exceptions = """
+the at-drop share of Blade Storm lines far exceeds that of agents with no
+line in the buy phase either (Raze, Clove, Sage: none at the drop), so many
+casts are timed to the drop; that holds for any ult
+[domain:abilities/ult-castable-at-barrier-drop]
+"""
+see = ["abilities/ult-castable-at-barrier-drop", "abilities/chamber-tour-de-force-enemy-line-at-drop"]
+
+[reyna-empress-line-not-in-buy-phase]
+claim = """
+No Empress line, ally or enemy, was heard in a buy phase on 21 matches: of 48
+lines, 18 lie within 1.5 s of the barrier drop and 30 later. Whether Empress
+can be cast in the buy phase, with its line held to the drop, is unknown; the
+player believes it may be.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-04"
+subject = "reyna:empress"
+source = """
+prototypes/ult_phase_audit.py over the ult-cast-0.5.0 rows of the 21 Riot
+matches, 2026-10-04: ally
+[metric:ult_phase/agents@all-matches#Reyna_ally_buy=0] in the buy phase,
+[metric:ult_phase/agents@all-matches#Reyna_ally_at_drop=7] at the drop,
+[metric:ult_phase/agents@all-matches#Reyna_ally_live=15] later; enemy
+[metric:ult_phase/agents@all-matches#Reyna_enemy_buy=0],
+[metric:ult_phase/agents@all-matches#Reyna_enemy_at_drop=11],
+[metric:ult_phase/agents@all-matches#Reyna_enemy_live=15]. The player,
+2026-10-04 (chat), said a buy-phase Reyna ult's line plays at the drop, then
+that only Chamber's ult casts in the buy phase, then that Reyna's may
+"""
+use = """
+a Reyna line at the drop is either a cast at the drop or a buy-phase cast
+heard late; audio cannot tell them apart, and no capture has the player on
+Reyna, whose tray would
+"""
+see = ["abilities/ult-castable-at-barrier-drop", "abilities/reyna-ult-line-media-names",
+       "abilities/chamber-tour-de-force-enemy-line-at-drop"]
+
+[ult-lines-not-in-buy-phase-other-agents]
+claim = """
+On 21 matches no agent's ultimate line but Chamber's was heard in a buy
+phase: none of the 374 cast lines of the agents other than Chamber, Jett and
+Reyna, of either variant. Nine of them lie within 1.5 s of the barrier drop
+(Phoenix, Skye and Iso).
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-04"
+subject = "abilities:ultimate"
+source = """
+prototypes/ult_phase_audit.py over the ult-cast-0.5.0 rows of the 21 Riot
+matches, 2026-10-04:
+[metric:ult_phase/agents@all-matches#others_buy=0] in the buy phase,
+[metric:ult_phase/agents@all-matches#others_at_drop=9] at the drop,
+[metric:ult_phase/agents@all-matches#others_live=365] later. The player's own
+X slot never fell in a buy phase except as a forced fall of every slot
+([metric:ult_phase/agents@all-matches#x_drops_buy_forced_cooccur=18] of
+[metric:ult_phase/agents@all-matches#x_drops_buy=18]), and two of the
+player's Skye lines at the drop sit beside an X fall at the drop
+"""
+use = """
+a line in the buy phase is evidence for that agent alone; each agent's
+answer is its own [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = """
+an agent with few lines here (Astra 1, Harbor 0, Viper 0) is untested, not
+answered
+"""
+see = ["abilities/ult-castable-at-barrier-drop", "abilities/ability-rules-are-unique"]

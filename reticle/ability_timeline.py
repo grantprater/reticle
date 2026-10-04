@@ -717,7 +717,11 @@ def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent
     with its scores, margin and refusal, and beside the margin `p_right`:
     P(the best referenced class, `best_ref`, is the slot) from the set's
     stored calibration (`ability_audio.ref_margin`, `p_right`), None with
-    `p_right_reason` where the set carries none. The candidate set is the player's
+    `p_right_reason` where the set carries none. Where the set declares a
+    phase group (abilities sharing a sound, e.g. Sova's bolts sharing their
+    release), the group is one kit class and its later phase names the slot
+    (`ability_audio.cast_verdicts`); the row's `phase` holds that evidence.
+    The candidate set is the player's
     kit, named by the identity arbiter's agent (`agent`) through the
     parameter set's classes; a cast of a slot with no reference can only be
     refused or named as another slot, and the row says the slot is
@@ -725,11 +729,9 @@ def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent
     features or labels every cast row carries the reason and no score.
     `where` passes `features_path`, `labels_path` and `span_s` to
     `audio_session`."""
-    import numpy as np
-
     from . import ult_lines
-    from .adjudication.ability_audio import (NONE, cast_scores, class_tracks, identify,
-                                             load_params, p_right, ref_margin, whiten_frames)
+    from .adjudication.ability_audio import (cast_verdicts, kit_classes, load_params,
+                                             referenced_slots, session_tracks, whiten_frames)
     from .version import ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION
     casts = [r for r in gate_rows if r["player_cast"]]
     base = {"ability_audio_version": ABILITY_AUDIO_VERSION,
@@ -754,21 +756,15 @@ def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent
             return refuse(why)
     xp = xp or ult_lines.array_module()
     Xw = whiten_frames(session["X"], params["mu"], params["P"], params["ar"])
-    tracks = class_tracks(Xw, params["templates"], params["labels"], session["bg"], xp)
-    classes = sorted(tracks, key=lambda c: ("CQEX" + NONE).find(c[0]) if c != NONE else 9)
-    sc = cast_scores(tracks, [c["frame"] for c in session["casts"]], classes,
-                     neighbours=session.get("neighbours", ()))
-    ids = identify(sc, classes, params["thresholds"])
-    # The calibrated probability stands beside the margin, never in its place.
+    tracks = session_tracks(Xw, params, session["bg"], xp)
+    groups = params.get("groups") or []
+    classes = kit_classes(list(tracks), groups)
+    referenced = referenced_slots(classes, groups)
+    # The kit-level verdict, a phase group's later phase where one wins, and
+    # the calibrated probability beside the margin, never in its place.
     cal = params.get("calibration")
-    best_ref, margin_ref = ref_margin(sc, classes)
-    pr = p_right(margin_ref, cal["w"]) if cal else np.full(len(ids), np.nan)
-    for v, b, m, p in zip(ids, best_ref, margin_ref, pr):
-        v.update(best_ref=b, margin_ref=None if not np.isfinite(m) else round(float(m), 4),
-                 p_right=None if not np.isfinite(p) else round(float(p), 4),
-                 p_right_reason=(None if np.isfinite(p) else
-                                 "no_calibration" if not cal else "no_referenced_rival"),
-                 calibration_basis=cal["basis"] if cal else None)
+    ids = cast_verdicts(tracks, [c["frame"] for c in session["casts"]],
+                        session.get("neighbours", ()), params)
     at = {c["t_ms"]: (c, v) for c, v in zip(session["casts"], ids)}
     rows = []
     for r in casts:
@@ -778,7 +774,7 @@ def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent
                          "reason": "audio_not_live", "verdict": None})
             continue
         rows.append({**base, "t_ms": c["t_ms"], "slot": c["slot"],
-                     "slot_referenced": c["slot"] in classes, **v,
+                     "slot_referenced": c["slot"] in referenced, **v,
                      "agrees": None if v["verdict"] is None else v["verdict"] == c["slot"]})
     cov = {**base, "agent": agent, "reason": None, "candidate_set": {
                "classes": classes, "why": "the player's kit: the tray shows it while the player "
@@ -786,7 +782,7 @@ def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent
                                           "`none` holds the agent's unmapped files"},
            "params": {k: params["provenance"].get(k) for k in ("version", "reference", "fitted_at")},
            "dev_sessions": params["dev"], "thresholds": params["thresholds"],
-           "calibration": cal,
+           "groups": groups, "calibration": cal,
            "casts": len(casts), "scored": len(ids), "null_frames": int(session["bg"].sum()),
            "live_min": round(session["live_min"], 2), "inputs": session["stamps"],
            "verdicts": dict(sorted(Counter(r.get("verdict") or f"refused:{r['reason']}"
