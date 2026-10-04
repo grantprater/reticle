@@ -197,10 +197,11 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 #   killer rests on the portrait alone, naming the same agent; beyond
 #   version stamps,
 #   [metric:riot_residuals/death_rows_cc7_dff#member_count_rows=67] death
-#   rows there differ from 0.35.0 in the cluster's member count,
+#   rows there differ from 0.35.0 in the cluster's member count and
 #   [metric:riot_residuals/death_rows_cc7_dff#killer_channel_rows=2] in the
-#   killer's channel, and each session's summary row in that member; no name
-#   and no Riot score changes.
+#   killer's channel, and the two sessions'
+#   [metric:riot_residuals/death_rows_cc7_dff#summary_rows=2] summary rows
+#   differ too; no name and no Riot score changes.
 # * `killfeed-name-cluster-0.5.0` and `-0.5.1` guard every bridge between two
 #   recurring names, a junk crop or a shared word, and change no row on the
 #   21 Riot matches.

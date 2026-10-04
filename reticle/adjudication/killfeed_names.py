@@ -44,8 +44,16 @@ two groups each read on two entries or more unless the groups read one name
 whole, one is a word of the other, or it is a word at the left end of one and
 the right end of the other with too little beside it for another word. Every
 such bridge is removed before any is tested, so a junk crop, two junk
-clusters or a word two names share never bridges two names
+clusters or a word two names share at one end never bridges two names
 (`join_fragments`).
+
+**One residual is by design.** A word two names share at opposite ends
+("TAG X" and "Y TAG") still bridges them when the other word in each is
+narrower than `FRAGMENT_MIN_PX`, because the guard cannot tell it from one
+name whose crops carry an icon's edge on opposite sides: with 12 px words
+(18 px beside the shared word) all six crops of that case merge. Both guard
+conditions were designed and checked on the same 21 Riot matches; no
+held-out data tests them.
 
 Every score is one masked sum per shift over a stack of crops
 (`_pair_ncc`), and every top-hat one erosion and one dilation over a canvas
@@ -91,9 +99,10 @@ from ..killfeed import unpack_name_gray
 # may also join when one is a word of the other. The opposite-ends case
 # needs less than `FRAGMENT_MIN_PX` beside the word in each group, so a word
 # two names share at opposite ends ("TAG X", "Y TAG") no longer joins them.
-# Without that case the guard splits
-# [metric:killfeed_name_fragments/strict_guard#joins_split_without_opposite_ends=9]
-# side-runs' joins on the 21 Riot matches, so it stays; the widest rest
+# Without that case the guard splits the joins of
+# [metric:killfeed_name_fragments/opposite_ends_051#joins_split_without_opposite_ends=11]
+# of the 42 side-runs on the 21 Riot matches, so it stays (0.5.0's guard
+# without it splits 9); the widest rest
 # beside a kept word there is
 # [metric:killfeed_name_fragments/strict_guard#widest_rest_px=18] px. On the
 # 21 matches the join sets equal 0.5.0's
@@ -359,9 +368,12 @@ def join_fragments(clusters: list[list[str]], crops: dict) -> list[list[str]]:
     icon's edge on opposite sides. Otherwise it joins nothing. Removing a
     bridge can change the groups, so the guard repeats until no bridge fails
     it. A junk crop holding one name's word and another's, two such junk
-    clusters, or a word two names share at either end so never bridge two
+    clusters, or a word two names share at one end so never bridge two
     names however often they recur: the groups' own crops, or the word's
-    place in them, must carry the join. A whole name whose two words each
+    place in them, must carry the join. The residual, by design: a word two
+    names share at opposite ends still bridges them when the other word in
+    each is narrower than `FRAGMENT_MIN_PX`, since that reads as one name
+    with an icon's edge on opposite sides. A whole name whose two words each
     recur as clusters is such a bridge too and joins neither. A crop read
     once joins the groups it links to, never another crop read once."""
     from scipy.sparse import csr_matrix
