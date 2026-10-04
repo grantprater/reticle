@@ -151,7 +151,7 @@ draw an assist icon? And can a damaging ability draw one?
 | C | Trademark | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | white-tinted area, mostly circular [domain:abilities/chamber-trademark-minimap-white-area]; compact icon (census 1) | ? | the round; persists deactivated after Chamber dies [domain:abilities/chamber-trademark-persists-after-death] | the player's trip, confirmed as Trademark at Sunset e37fdeca944f 1795.08 s, top mid [domain:abilities/chamber-trademark-minimap-white-area]. The area's radius? |
 | Q | Headhunter | Hitscan | 8 [domain:abilities/chamber-headhunter-charges] | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
 | E | Rendezvous | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); movement | ? | nothing (census 1) | ? | the round; persists deactivated after Chamber dies [domain:abilities/chamber-rendezvous-persists-after-death] | moves its agent farther than running? (candidate, wiki tag Teleport) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
-| X | Tour De Force | Hitscan | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
+| X | Tour De Force | Hitscan | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | equipping spends the ult, buy phase included [domain:abilities/chamber-tour-de-force-equip-spends-ult]; allies hear the line at the equip [domain:abilities/chamber-tour-de-force-ally-line-at-equip], enemies at the barrier drop [domain:abilities/chamber-tour-de-force-enemy-line-at-drop]. Does Tour De Force carry into the next round when Chamber survives? |
 
 ## Clove
 
@@ -223,7 +223,7 @@ draw an assist icon? And can a damaging ability draw one?
 | C | Cloudburst | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE); instant | ? | dark disc (census 2) | ? | see [domain:abilities/jett-cloudburst-duration] | ? |
 | Q | Updraft | Self-targeted | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant; movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Dash; upward) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
 | E | Tailwind | Self-targeted | 1 | 2 kills (1 in Escalation) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE, RE-USE); movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Dash) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
-| X | Blade Storm | ? | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
+| X | Blade Storm | ? | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | nothing (census 1) | ? | ? | no line heard in a buy phase [domain:abilities/jett-blade-storm-line-not-in-buy-phase]. Can Blade Storm be cast in the buy phase, and if so, when do allies and enemies hear its line? |
 
 ## KAY/O
 
@@ -295,7 +295,7 @@ draw an assist icon? And can a damaging ability draw one?
 | C | Leer | Missile | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); triggers on enemies | ? | travelling icon [domain:abilities/reyna-leer-minimap-icon] | ? | ? | ? |
 | Q | Devour | ? | ? | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies; instant | ? | nothing (census 1) | ? | ? | ? |
 | E | Dismiss | ? | ? | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant | ? | nothing (census 1) | ? | ? | ? |
-| X | Empress | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | ? | ? | ? | ? |
+| X | Empress | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | ? | ? | ? | no line heard in a buy phase [domain:abilities/reyna-empress-line-not-in-buy-phase]. Can Empress be cast in the buy phase, and if so, does its timer start at the cast or the drop? |
 
 ## Sage
 

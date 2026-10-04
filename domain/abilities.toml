@@ -4827,3 +4827,199 @@ named Abil_Joules_Q_Sonar_Ping_01, which the store's ability audio export
 (`ability-audio-ref-0.2.0`) does not hold
 """
 see = ["abilities/sova-shock-bolt-audio-phases", "abilities/ability-sound-phases"]
+
+[ult-castable-at-barrier-drop]
+claim = """
+Any agent's ultimate can be cast at the instant the spawn barriers drop.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "abilities:ultimate"
+source = "the player, 2026-10-04 (chat)"
+use = """
+a cast line within a second or two after the drop is an ordinary cast for any
+agent; a line at the drop does not by itself show a buy-phase cast
+"""
+see = ["rounds/buy-phase-barriers", "abilities/chamber-tour-de-force-enemy-line-at-drop"]
+
+[chamber-tour-de-force-equip-spends-ult]
+claim = """
+Equipping Chamber's Tour De Force spends his ultimate, in the buy phase as
+in the live round.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "chamber:tour de force"
+source = "the player, 2026-10-04 (chat)"
+use = """
+a Tour De Force line in the buy phase is a spent ultimate, whether or not the
+weapon later kills
+"""
+see = ["abilities/chamber-tour-de-force-ally-line-at-equip",
+       "abilities/chamber-tour-de-force-enemy-line-at-drop"]
+
+[chamber-tour-de-force-ally-line-at-equip]
+claim = """
+Chamber's allies hear his Tour De Force line when he equips it, in the buy
+phase too: of the 12 ally-variant lines on 21 matches, 9 lie more than 1.5 s
+before the barrier drop, spread over the buy phase.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-04"
+subject = "chamber:tour de force"
+source = """
+prototypes/ult_phase_audit.py over the ult-cast-0.5.0 rows of the 21 Riot
+matches, 2026-10-04:
+[metric:ult_phase/agents@all-matches#Chamber_ally_buy=9] in the buy phase,
+[metric:ult_phase/agents@all-matches#Chamber_ally_at_drop=1] within 1.5 s of
+the drop (a witnessed peak under the threshold), and
+[metric:ult_phase/agents@all-matches#Chamber_ally_live=2] after it
+"""
+use = """
+date an allied Chamber's equip by the ally line's onset, in the buy phase as
+in the round
+"""
+see = ["abilities/chamber-tour-de-force-equip-spends-ult",
+       "abilities/chamber-tour-de-force-enemy-line-at-drop"]
+
+[chamber-tour-de-force-enemy-line-at-drop]
+claim = """
+Chamber's enemies hear his Tour De Force line at the barrier drop, not in the
+buy phase: of the 15 enemy-variant lines on 21 matches, 12 lie within 1.5 s
+of the drop and two more within 1.6 s, while the ally-variant lines of the
+same matches fall mostly in the buy phase
+[domain:abilities/chamber-tour-de-force-ally-line-at-equip].
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-04"
+subject = "chamber:tour de force"
+source = """
+prototypes/ult_phase_audit.py over the ult-cast-0.5.0 rows of the 21 Riot
+matches, 2026-10-04:
+[metric:ult_phase/agents@all-matches#Chamber_enemy_at_drop=12] at the drop,
+[metric:ult_phase/agents@all-matches#Chamber_enemy_live=2] at +1.53 and
++1.55 s, [metric:ult_phase/agents@all-matches#Chamber_enemy_buy=1] in the buy
+phase; buy against drop by variant, Fisher's exact p
+[metric:ult_phase/agents@all-matches#chamber_variant_fisher_p=0.000115]. The
+player said a buy-phase ult's line plays at the drop for Chamber's and
+Reyna's (2026-10-04, chat)
+"""
+use = """
+read an enemy Chamber line at the drop as the enemy line of an equip made at
+or before the drop, likely in the buy phase, since Chamber players equip there
+when the player can hear it; `adjudication.ult_cast` stores the line's phase
+and keeps the onset as its observation time
+"""
+exceptions = """
+the one buy-phase enemy line, 5822b6646448 (C:\\Users\\grant\\Videos\\2026-08-26
+12-38-38.mp4) at 788.81 s, lies 0.2 s before the buy-phase snap that the HUD's
+buy clock implies, in a round the rounds table started at the score
+increment; why a line plays at the snap is unknown. The drop's own precision
+is about half a second (`docs/VOICE_LINES.md`, "Buy phase and the barrier
+drop")
+"""
+see = ["abilities/chamber-tour-de-force-ally-line-at-equip",
+       "abilities/ult-lines-heard-by-both-teams", "rounds/buy-phase-barriers"]
+
+[jett-blade-storm-line-not-in-buy-phase]
+claim = """
+No Blade Storm line, ally or enemy, was heard in a buy phase on 21 matches:
+of 26 lines, 12 lie within 1.5 s of the barrier drop and 14 later. Whether
+Blade Storm can be cast in the buy phase, with its line held to the drop, is
+unknown; the player believes it may be.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-04"
+subject = "jett:blade storm"
+source = """
+prototypes/ult_phase_audit.py over the ult-cast-0.5.0 rows of the 21 Riot
+matches, 2026-10-04: ally
+[metric:ult_phase/agents@all-matches#Jett_ally_buy=0] in the buy phase,
+[metric:ult_phase/agents@all-matches#Jett_ally_at_drop=9] at the drop,
+[metric:ult_phase/agents@all-matches#Jett_ally_live=10] later; enemy
+[metric:ult_phase/agents@all-matches#Jett_enemy_buy=0],
+[metric:ult_phase/agents@all-matches#Jett_enemy_at_drop=3],
+[metric:ult_phase/agents@all-matches#Jett_enemy_live=4]. The player,
+2026-10-04 (chat), first thought only Chamber's ult casts in the buy phase,
+then that Jett's may
+"""
+use = """
+a Blade Storm line at the drop is either a cast at the drop or a buy-phase
+cast heard late; audio cannot tell them apart, and no capture has the player
+on Jett, whose tray would
+"""
+exceptions = """
+the at-drop share of Blade Storm lines far exceeds that of agents with no
+line in the buy phase either (Raze, Clove, Sage: none at the drop), so many
+casts are timed to the drop; that holds for any ult
+[domain:abilities/ult-castable-at-barrier-drop]
+"""
+see = ["abilities/ult-castable-at-barrier-drop", "abilities/chamber-tour-de-force-enemy-line-at-drop"]
+
+[reyna-empress-line-not-in-buy-phase]
+claim = """
+No Empress line, ally or enemy, was heard in a buy phase on 21 matches: of 48
+lines, 18 lie within 1.5 s of the barrier drop and 30 later. Whether Empress
+can be cast in the buy phase, with its line held to the drop, is unknown; the
+player believes it may be.
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-04"
+subject = "reyna:empress"
+source = """
+prototypes/ult_phase_audit.py over the ult-cast-0.5.0 rows of the 21 Riot
+matches, 2026-10-04: ally
+[metric:ult_phase/agents@all-matches#Reyna_ally_buy=0] in the buy phase,
+[metric:ult_phase/agents@all-matches#Reyna_ally_at_drop=7] at the drop,
+[metric:ult_phase/agents@all-matches#Reyna_ally_live=15] later; enemy
+[metric:ult_phase/agents@all-matches#Reyna_enemy_buy=0],
+[metric:ult_phase/agents@all-matches#Reyna_enemy_at_drop=11],
+[metric:ult_phase/agents@all-matches#Reyna_enemy_live=15]. The player,
+2026-10-04 (chat), said a buy-phase Reyna ult's line plays at the drop, then
+that only Chamber's ult casts in the buy phase, then that Reyna's may
+"""
+use = """
+a Reyna line at the drop is either a cast at the drop or a buy-phase cast
+heard late; audio cannot tell them apart, and no capture has the player on
+Reyna, whose tray would
+"""
+see = ["abilities/ult-castable-at-barrier-drop", "abilities/reyna-ult-line-media-names",
+       "abilities/chamber-tour-de-force-enemy-line-at-drop"]
+
+[ult-lines-not-in-buy-phase-other-agents]
+claim = """
+On 21 matches no agent's ultimate line but Chamber's was heard in a buy
+phase: none of the 374 cast lines of the agents other than Chamber, Jett and
+Reyna, of either variant. Nine of them lie within 1.5 s of the barrier drop
+(Phoenix, Skye and Iso).
+"""
+kind = "lifecycle"
+known = "observed"
+since = "2026-10-04"
+subject = "abilities:ultimate"
+source = """
+prototypes/ult_phase_audit.py over the ult-cast-0.5.0 rows of the 21 Riot
+matches, 2026-10-04:
+[metric:ult_phase/agents@all-matches#others_buy=0] in the buy phase,
+[metric:ult_phase/agents@all-matches#others_at_drop=9] at the drop,
+[metric:ult_phase/agents@all-matches#others_live=365] later. The player's own
+X slot never fell in a buy phase except as a forced fall of every slot
+([metric:ult_phase/agents@all-matches#x_drops_buy_forced_cooccur=18] of
+[metric:ult_phase/agents@all-matches#x_drops_buy=18]), and two of the
+player's Skye lines at the drop sit beside an X fall at the drop
+"""
+use = """
+a line in the buy phase is evidence for that agent alone; each agent's
+answer is its own [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = """
+an agent with few lines here (Astra 1, Harbor 0, Viper 0) is untested, not
+answered
+"""
+see = ["abilities/ult-castable-at-barrier-drop", "abilities/ability-rules-are-unique"]
