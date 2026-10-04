@@ -16,7 +16,7 @@ Acceptance: `.\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --all --
 Evidence: every residual failure classified by cause (instrument fault, reader refusal with its stored reason, adjudication, or out of scope such as a post-decision plant), never a count alone; each fix's before and after on the 21 matches, with no session losing a match.
 
 **2. Game assets throughout production.** The player's directive (recorded 2026-10-04): every reader that matches game art or sound uses the extracted game files (the store's `reference/game-files/`). Ranked inventory:
-- (a) the game's minimap ability markers as a caster-naming channel; an earlier probe named 164 of 192 held-out labels, the gallery 2 of 192;
+- (a) the game's minimap ability markers as a caster-naming channel; an earlier probe named 164 of 192 held-out labels, the gallery 2 of 192; the wiring plan is [MINIMAP_GLYPH_CHANNEL.md](docs/MINIMAP_GLYPH_CHANNEL.md);
 - (b) the game composite (container, tint, layers) for self, ally and stacked icons, replacing the calibration in `ally-portrait-refs-1.0.0`, whose art already equals the game textures;
 - (c) ult voice lines (`game-vo-20261003`, in progress);
 - (d) fonts (Tungsten-Bold, DINNext_Bold) for OCR digits, combat-report words and the killfeed "Me";

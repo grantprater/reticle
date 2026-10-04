@@ -156,19 +156,48 @@ class PassTests(unittest.TestCase):
 
 
 class SonicPlanTests(unittest.TestCase):
-    def test_cadence_picks_every_third_round_from_the_second_and_drops_late_frames(self):
-        holds = {"m1": np.arange(0, 2_000_000, 500.0)}
-        rounds = {"m1": [{"round_no": n, "t_start_ms": 100_000.0 * n, "t_end_ms": 100_000.0 * n + 50_000.0}
-                         for n in range(1, 13)]}
-        rounds["m1"][4]["t_end_ms"] = 500_000.0 + 90_000.0          # round 5 runs long enough for both offsets
+    def test_cache_gap_is_the_longest_stretch_without_a_held_sample(self):
+        h = np.r_[100_000.0, np.arange(127_000.0, 180_001.0, 80.0), 200_000.0]
+        self.assertAlmostEqual(L.cache_gap(h, 127_000.0, 150_000.0), 80.0)
+        self.assertAlmostEqual(L.cache_gap(h, 100_000.0, 150_000.0), 27_000.0)
+        self.assertAlmostEqual(L.cache_gap(h, 300_000.0, 310_000.0), 10_000.0)   # nothing held: the whole span
+
+    def test_cadence_anchors_on_the_owners_cache_start_and_refuses_with_reasons(self):
+        # every round: a sample at its start (the last round's span end), then the live cache from 1 s
+        # before the barrier drop at +28 s, in 80 ms steps to the round's end
+        rounds, parts = [], []
+        for n in range(1, 18):
+            t0 = 100_000.0 * n
+            t1 = t0 + (90_000.0 if n != 7 else 50_000.0)               # round 7 too short for +35 s
+            live = t0 + 28_000.0 if n != 17 else t0                    # round 17: gametime read no barrier drop
+            rounds.append({"round_no": n, "t_start_ms": t0, "t_end_ms": t1, "t_live_ms": live,
+                           "t_cache_start_ms": max(t0, live - 1000.0)})
+            run = np.arange(t0 + 27_000.0, t1 + 1.0, 80.0)
+            if n == 12:                                                # a mid-round gap before +35 s
+                run = run[(run < t0 + 40_000.0) | (run > t0 + 50_000.0)]
+            parts += [np.array([t0]), run]
+        holds = {"m1": np.concatenate(parts)}
+        gaps = {"m1": [(261_500.0, 262_500.0, "stall_freeze")]}         # covers round 2's +35 s frame
         items, dropped = L.plan_sonic_items({"m1": {"side": "ally", "view": "teammate"}, "m2": {"side": "enemy",
                                                                                                "view": "enemy"}},
-                                            rounds, holds)
+                                            {"m1": rounds}, holds, gaps)
         got = sorted((o["round_no"], o["offset_s"]) for it in items for o in it["opportunity"])
-        self.assertEqual(got, [(2, 25.0), (5, 25.0), (5, 60.0), (8, 25.0), (11, 25.0)])
-        self.assertEqual(sorted(d.get("round_no", 0) for d in dropped), [0, 2, 8, 11])   # m2 has no cache
+        self.assertEqual(got, [(2, 5.0), (7, 5.0), (12, 5.0)])
+        why = {(d.get("round_no", 0), d.get("offset_s")): d["why"] for d in dropped}
+        self.assertEqual(sorted(why), [(0, None), (2, 35.0), (7, 35.0), (12, 35.0), (17, None)])
+        self.assertIn("no minimap crop cache", why[(0, None)])        # m2
+        self.assertIn("stall_freeze", why[(2, 35.0)])
+        self.assertIn("round's end", why[(7, 35.0)])
+        self.assertIn("cache gap of 10.", why[(12, 35.0)])
+        self.assertIn("no barrier drop", why[(17, None)])
+        for it in items:
+            o = it["opportunity"][0]
+            self.assertAlmostEqual(o["round_offset_s"], 27.0 + o["offset_s"], delta=0.1)
+            self.assertAlmostEqual(o["live_offset_s"], o["offset_s"] - 1.0, delta=0.1)
+            self.assertLessEqual(abs(it["t_ms"] - o["t_asked_ms"]), 80.0)
+            self.assertGreaterEqual(it["t_before_ms"], o["t_cache_start_ms"])
         self.assertTrue(all(it["pass"] == "sonic" and it["view_default"] == "teammate" for it in items))
-        self.assertAlmostEqual(items[0]["t_before_ms"], items[0]["t_ms"] - 5000.0)
+        self.assertEqual(items[0]["t_before_ms"], 227_000.0)           # +5 s, clamped to the cache start
 
     def test_sonic_rows_carry_their_pass_and_glyph_rows_do_not(self):
         it = {"key": "m1:225000", "session_id": "m1", "t_ms": 225000.0, "agent": "Deadlock", "kind": "cadence",

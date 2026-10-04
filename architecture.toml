@@ -188,6 +188,19 @@ restating it; it writes nothing.
 
 [[exception]]
 from = "minimap"
+to = "widget_frame"
+kind = "deferred"
+imports = "turned_at"
+reason = """
+Portraits keep their on-screen orientation on a widget placed turned over, so
+`ally_icon_reader` asks the placement's owner when the stored placement is
+turned (`turned_at`) and the reader turns the aligned portrait back there, as
+`self_icon` and `minimap_objects` do. A pure read of the manifest, one layer up,
+for one function; the reader decides nothing about the placement.
+"""
+
+[[exception]]
+from = "minimap"
 to = "round_lifetimes"
 kind = "deferred"
 imports = "ROSTER_LAG_MS, ally_capacity, roster_window"

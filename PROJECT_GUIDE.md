@@ -227,7 +227,8 @@ claim production from roster portraits, minimap icons, and killfeed portraits is
 still incomplete in the production pipeline.
 
 **Minimap position tracking (self) is built and wired in as of 2026-09-02**:
-`reticle minimap <session>` writes `l1/minimap` at 15 Hz over active spans —
+`reticle minimap <session>` writes `l1/minimap` at 15 Hz over every span
+with the HUD drawn (`segment.READ_STATES`: idle and active) —
 self is a filtered track, validated against two independent ground truths
 (the X mark a death leaves, and the map's physical chokepoints; see
 [the prototypes archive](docs/archive/PROTOTYPES-through-2026-09-23.md)). Ally
