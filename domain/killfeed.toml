@@ -1189,3 +1189,31 @@ miss in either direction rather than a slide
 """
 use = "`killfeed.EntryAnchors` carries an entry's killer portrait column from view to view"
 see = ["killfeed/stack-order", "killfeed/subpixel-placement"]
+
+[blade-storm-and-mosh-pit-kill-icon-textures]
+claim = """
+Blade Storm's two DamageTypes (DmgType_Wushu_X_Dagger and
+DmgType_Wushu_X_Dagger_Burst) name the KillIcon texture
+TX_Hud_Wushu_X_Dagger, a white diagonal knife on transparency, 128x128. Mosh
+Pit's two DamageTypes (DmgType_Aggrobot_PatchDoT and
+DmgType_Aggrobot_PatchExplosion) name TX_Aggrobot_Bubbles, 512x512, filed
+under Characters/AggroBot/AbilityIcons rather than the HUD icon folders.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+subject = "jett:blade storm; gekko:mosh pit"
+source = """
+game build release-13.06-shipping-18-5590001: each DamageType's
+KillIcon.Texture, exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/damage-type-icons/
+(manifest.jsonl: source path, size, sha256); the whole-game reverse-reference
+scan gaps-0.1.0/whorefs-all.tsv lists the packages that name each texture.
+The killfeed-icons set missed both because it followed UIData fields only
+"""
+use = """
+the game textures for these two abilities' kill icons, beside the ones
+[domain:killfeed/ability-kill-icon-texture] lists; that fact's note that the
+export holds no texture for them predates this export
+"""
+see = ["killfeed/ability-kill-icon-texture", "killfeed/jett-blade-storm-icon"]
