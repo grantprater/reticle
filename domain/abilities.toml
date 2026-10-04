@@ -3946,3 +3946,27 @@ the player hedged "I believe that's all": another passive with a cue is not
 ruled out
 """
 see = ["abilities/passive-abilities-draw-no-ui"]
+
+[brimstone-gauntlet-texture-belief]
+claim = """
+The player believes the exported texture `Sarge_Gauntlet_minimap` is likely
+the map on Brimstone's gauntlet tablet, a first-person view texture, and not a
+marker the HUD minimap draws.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "brimstone:gauntlet"
+source = """
+the player, 2026-10-04 (chat). His answer in the texture questions
+(prototypes/ask_minimap_glyphs.py) had been unsure
+"""
+use = """
+keep the texture out of the HUD minimap marker references and out of the
+player's texture questions
+"""
+exceptions = """
+a belief, hedged "likely"; no game file or capture has checked it. The
+texture correlates with none of Brimstone's DisplayIcons (best 0.20,
+minimap-texture-inventory-0.1.0)
+"""

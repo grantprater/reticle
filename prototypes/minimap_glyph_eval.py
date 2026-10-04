@@ -4,6 +4,7 @@ r"""The game's minimap ability glyphs as a caster-naming channel, scored on the 
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py misses     [--out DIR]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py separate   [--out DIR]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py inventory  [--out DIR]
+    .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py follow     [--out DIR] [--only sid,sid]
 
 `score` reads every positioned ability label (labels/ability, labels/ability_paint,
 labels/tray_object marks) from the minimap crop cache (no decode), snaps it to the
@@ -23,12 +24,18 @@ demo-abilities-gameicons-20261003 (store notes/predictions.jsonl).
 `misses` itemises every held-out miss and draws a montage; `separate` runs the
 separability methods (dev-trained or label-free, scored once on held-out);
 `inventory` lists every minimap-related texture of the export with its proposed
-ability and evidence. `prototypes/ask_minimap_glyphs.py` asks the player what
-these cannot derive: unproven texture mappings, what a teammate's and an
-enemy's minimap draw, and whether an icon rotates.
+ability and evidence. `follow` follows each labelled icon through the cached
+frames of the next 3 s, from the nearest proposer disc within a growing reach,
+skips a frame where a stored team_vision portrait covers it, the widget is not
+drawn, or the disc is the baked map, and decides once from up to 8 clean
+frames (follow.json, follow_misses.png). `prototypes/ask_minimap_glyphs.py`
+asks the player what these cannot derive: unproven texture mappings, what an
+ability draws on the minimap, and whether an icon rotates.
 
-Wire: no. It evaluates the game glyphs; wiring into reticle/ waits for
-held-out accuracy and the miss causes (predictions.jsonl, minimap-glyphs-20261004).
+Wire: no. It evaluates the game glyphs; wiring into reticle/ waits for an
+owner of ability-disc tracking (ability-icon proposes, nothing follows) and a
+held-out set the follow parameters were not chosen on (predictions.jsonl,
+minimap-glyph-follow-20261004).
 """
 from __future__ import annotations
 
@@ -1127,6 +1134,267 @@ def cmd_separate(args) -> None:
     json.dump(report, open(out / "separability.json", "w"), indent=1, default=str)
 
 
+# ------------------------------------------------------------------ follow in time, gated by the stored portraits
+
+FOLLOW_VERSION = "minimap-glyph-follow-0.1.0"
+FOLLOW_MS = 3000.0     # how far after the label the object is followed
+N_CLEAN = 8            # the decision stops after this many unoccluded frames
+OCC_R = 17.0           # a portrait centre within this (px x scale) touches the r = 8.5 scoring disc (portrait r ~8.5)
+SAME_R = 2.5           # an ally detection this close is the followed icon itself (the ally reader fits moving discs)
+REACH = (4.0, 2.0, 24.0)  # a disc may move this far (px x scale) from the last fix: base + per frame since, cap
+ICON_SCORE = 0.4       # the best kit score (label-free) a proposed disc needs to count as the followed icon
+MAP_CORR = 0.7         # a proposed disc whose luma correlates this well with the baked static is map, not icon
+
+
+def vision_rows(sid: str, times) -> dict:
+    """{t_ms: (widget, [(role, x, y)])} from the stored team_vision frames at the asked times (never rerun)."""
+    want = {round(float(t), 3) for t in times}
+    out = {}
+    f = STORE / "events" / "team_vision" / f"{sid}.jsonl"
+    if not f.exists():
+        return out
+    rx = re.compile(r'"t_ms":([0-9.eE+-]+)')
+    for ln in open(f, encoding="utf-8"):
+        if '"kind":"frame"' not in ln[:200]:
+            continue
+        m = rx.search(ln)
+        if not m or round(float(m.group(1)), 3) not in want:
+            continue
+        r = json.loads(ln)
+        out[round(float(r["t_ms"]), 3)] = (r.get("widget"), [(i["role"], float(i["x"]), float(i["y"]))
+                                                             for i in (r.get("icons") or [])])
+    return out
+
+
+def portrait_cover(p, icons, scale) -> str | None:
+    """Why a stored portrait covers the icon at p, or None. The self icon always counts; an ally detection counts
+    in the ring SAME_R..OCC_R, or when two sit on the icon (one of them is the icon itself)."""
+    same = 0
+    for role, x, y in icons:
+        d = float(np.hypot(x - p[0], y - p[1]))
+        if d > OCC_R * scale:
+            continue
+        if role == "self":
+            return "self_portrait"
+        if d > SAME_R * scale:
+            return "ally_portrait"
+        same += 1
+    return "ally_stack" if same > 1 else None
+
+
+def window_patches(Y: np.ndarray, p, scale: float, sh: int):
+    """Masked patches of a luma crop around p for every integer shift within +-sh (dy-major), or None off the crop."""
+    W, h, _, mask = geom(scale)
+    ix, iy = int(round(p[0])), int(round(p[1]))
+    y0, x0 = iy - h - sh, ix - h - sh
+    if y0 < 0 or x0 < 0 or iy + h + sh + 1 > Y.shape[0] or ix + h + sh + 1 > Y.shape[1]:
+        return None
+    sub = Y[y0:iy + h + sh + 1, x0:ix + h + sh + 1]
+    v = np.lib.stride_tricks.sliding_window_view(sub, (W, W)).reshape(-1, W, W)
+    return v[:, mask > 0].astype(np.float32)
+
+
+_fbanks: dict = {}
+
+
+def kit_bank(scale: float, kit_keys: tuple):
+    k = (round(scale, 3), kit_keys)
+    if k not in _fbanks:
+        T, meta = bank(scale, list(kit_keys), rotate=True)
+        _fbanks[k] = (zrows(T), np.array([kit_keys.index(m[0]) for m in meta]))
+    return _fbanks[k]
+
+
+def frame_scores(Y, p, scale, kit_keys):
+    """Per-key best score over the usual +-SHIFT centre search at p (the eval's matcher, vectorised)."""
+    sh = geom(scale)[2]
+    P = window_patches(Y, p, scale, sh)
+    if P is None:
+        return None
+    Tz, owner = kit_bank(scale, kit_keys)
+    S = zrows(P) @ Tz.T                                          # shifts x templates
+    per = np.full(len(kit_keys), -2.0, np.float32)
+    np.maximum.at(per, owner, S.max(0))
+    return per
+
+
+def map_like(Y, static_Y, p, scale) -> bool:
+    """True when the crop's luma inside the icon disc at p correlates with the baked static's (a wall notch the
+    proposer reads as a dark disc), Pearson >= MAP_CORR."""
+    a = window_patches(Y, p, scale, 0)
+    b = window_patches(static_Y, p, scale, 0)
+    if a is None or b is None or b.std() < 1e-3:
+        return False
+    return float((zrows(a) @ zrows(b).T)[0, 0]) >= MAP_CORR
+
+
+def follow_item(r, crops, vis, terms, static_Y=None):
+    """Follow one labelled icon over the cached frames after it; decide once from the unoccluded frames.
+
+    The ability-icon owner's proposer (`ability_icons.propose_icons`) supplies the dark discs; the track moves to
+    the nearest disc within REACH of its last fix (continue the prior; the reach widens each frame the disc is
+    missing) that the baked static does not draw and whose best kit score, label-free (the max over the caster's
+    kit, never the true key), reaches ICON_SCORE. The stored
+    team_vision portraits gate each frame (`portrait_cover`); the kit's per-key scores are averaged over the clean
+    frames, the labelled frame included when clean."""
+    from reticle import ability_icons
+    kit_keys = tuple(tuple(k.split(":")) for k in r["kit"])
+    scale = r["scale"]
+    p = (r["cx"], r["cy"])
+    steps, clean, since = [], [], 0
+    for t, crop in crops:
+        widget, icons = vis.get(round(t, 3), (None, None))
+        Y = luma(crop)
+        per, why = None, None
+        if t <= r["t_held"]:                                    # the labelled frame keeps its snapped centre
+            per = frame_scores(Y, p, scale, kit_keys)
+        elif terms is None:
+            why = "no_slab_terms"
+        else:
+            since += 1
+            reach = min(REACH[0] + REACH[1] * (since - 1), REACH[2]) * scale
+            best = None
+            near = sorted((float(np.hypot(q["cx"] - p[0], q["cy"] - p[1])), i, q)
+                          for i, q in enumerate(ability_icons.propose_icons(crop, terms)))
+            for dq, _, q in near:                              # nearest first: continue the prior
+                if dq > reach:
+                    break
+                if static_Y is not None and map_like(Y, static_Y, (q["cx"], q["cy"]), scale):
+                    continue                                    # the baked map draws this disc: not an icon
+                s = frame_scores(Y, (q["cx"], q["cy"]), scale, kit_keys)
+                if s is not None and s.max() >= ICON_SCORE:
+                    best = (q, s)
+                    break
+            if best is None:
+                why = "no_disc"
+            else:
+                p, per, since = (float(best[0]["cx"]), float(best[0]["cy"])), best[1], 0
+        if per is None and why is None:
+            why = "off_crop"
+        why = why or ("no_vision_row" if widget is None else None) or \
+            (f"widget_{widget}" if widget != "drawn" else None) or portrait_cover(p, icons, scale)
+        steps.append({"t": t, "x": float(p[0]), "y": float(p[1]), "skip": why,
+                      "scores": None if per is None else [round(float(s), 4) for s in per]})
+        if why is None:
+            clean.append(per)
+        if len(clean) >= N_CLEAN:
+            break
+    out = {"steps": steps, "n_clean": len(clean), "kit": [f"{k[0]}:{k[1]}" for k in kit_keys]}
+    if clean:
+        m = np.mean(clean, 0)
+        o = np.argsort(-m)
+        out["pred"] = f"{kit_keys[o[0]][0]}:{kit_keys[o[0]][1]}"
+        out["mean"] = {f"{k[0]}:{k[1]}": round(float(v), 4) for k, v in zip(kit_keys, m)}
+        out["margin"] = float(m[o[0]] - (m[o[1]] if len(o) > 1 else -1.0))
+        out["decided_by"] = "follow"
+    else:
+        out["pred"], out["decided_by"] = r.get("rot_pred"), "labelled_frame_no_clean_frame"
+    return out
+
+
+def follow_row(x: dict, got: dict, k: int = 4, R: int = 16, n_used: int = 6, n_skip: int = 3) -> np.ndarray:
+    """One montage row: the labelled frame, then the frames the follow used (green ring) and some it skipped
+    (red ring, reason), each centred on the tracked position; nearest-neighbour enlargement, display only."""
+    def cell(t, px, py, col, cap):
+        crop = got[t]
+        ix, iy = int(round(px)), int(round(py))
+        w = np.zeros((2 * R + 1, 2 * R + 1, 3), np.uint8)
+        ya, yb, xa, xb = max(0, iy - R), min(crop.shape[0], iy + R + 1), max(0, ix - R), min(crop.shape[1], ix + R + 1)
+        if ya < yb and xa < xb:
+            w[ya - iy + R:yb - iy + R, xa - ix + R:xb - ix + R] = crop[ya:yb, xa:xb]
+        big = cv2.resize(w, (w.shape[1] * k, w.shape[0] * k), interpolation=cv2.INTER_NEAREST)
+        cv2.circle(big, (R * k + k // 2, R * k + k // 2), int(MASK_R * x["scale"] * k), col, 1)
+        bar = np.zeros((12, big.shape[1], 3), np.uint8)
+        cv2.putText(bar, cap[:22], (1, 9), cv2.FONT_HERSHEY_SIMPLEX, 0.3, col, 1, cv2.LINE_AA)
+        return np.vstack([big, bar])
+
+    st = [s for s in x["steps"] if "x" in s]
+    cells = [cell(x["t_held"], x["cx"], x["cy"], (255, 255, 255), "label")] if st else []
+    used = [s for s in st if s["skip"] is None][:n_used]
+    skip = [s for s in st if s["skip"] is not None][:n_skip]
+    for s in sorted(used + skip, key=lambda s: s["t"]):
+        ok = s["skip"] is None
+        cap = f"+{(s['t'] - x['t_held']) / 1000:.2f} " + ("used" if ok else s["skip"].replace("_portrait", ""))
+        cells.append(cell(s["t"], s["x"], s["y"], (0, 220, 0) if ok else (0, 0, 255), cap))
+    row = np.hstack([np.pad(c, ((0, 0), (0, 3), (0, 0))) for c in cells]) if cells else np.zeros((40, 400, 3), np.uint8)
+    mean = x.get("mean") or {}
+    top = sorted(mean, key=lambda q: -mean[q])[:2]
+    txt = (f"{x['split'][:4]} {x['sid']} {x['t_ms'] / 1000:.2f}s {x['cat']} base {x['base_pred']} -> {x['pred']} "
+           f"[{x['decided_by']}, {x['n_clean']} clean] " + " ".join(f"{q.split(':')[1]} {mean[q]:.2f}" for q in top))
+    bar = np.zeros((14, max(row.shape[1], 900), 3), np.uint8)
+    cv2.putText(bar, txt, (2, 11), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1, cv2.LINE_AA)
+    return np.vstack([bar, _pad(row, row.shape[0], bar.shape[1]), np.zeros((4, bar.shape[1], 3), np.uint8)])
+
+
+def cmd_follow(args) -> None:
+    out = Path(args.out)
+    d = json.load(open(out / "items.json", encoding="utf-8"))
+    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES)
+    only = set(args.only.split(",")) if args.only else None
+    P = [r for r in positives(d["items"]) if only is None or r["sid"] in only]
+    by = defaultdict(list)
+    for r in P:
+        by[r["sid"]].append(r)
+    if only:
+        out = out / "follow-sample"
+        out.mkdir(exist_ok=True)
+    t0 = time.time()
+    res, unavailable, tiles = [], Counter(), []
+    for sid, its in sorted(by.items()):
+        c, why, _ = crop_cache(sid)
+        x0, y0, x1, y1 = c.rect_of("minimap")
+        h = np.asarray(c.holds())
+        plan = {id(r): [float(t) for t in h[(h >= r["t_held"]) & (h <= r["t_held"] + FOLLOW_MS)]] for r in its}
+        need = sorted({t for v in plan.values() for t in v})
+        vis = vision_rows(sid, need)
+        try:
+            from reticle import geometry
+            st = geometry.reference_static(sid, str(STORE))
+            static_Y = luma(st if st.ndim == 3 else cv2.cvtColor(st, cv2.COLOR_GRAY2BGR))
+        except (SystemExit, Exception):  # noqa: BLE001
+            static_Y = None
+            unavailable["no_baked_static"] += 1
+        got = {s.t_ms: s.frame[y0:y1, x0:x1].copy() for s in c.samples(need, rois=["minimap"])}
+        for r in its:
+            ts = plan[id(r)]
+            miss = sum(t not in got for t in ts)
+            if len(ts) < 2:
+                unavailable["no_following_frame"] += 1
+            unavailable["frames_not_decoded_from_cache"] += miss
+            first = next((got[t] for t in ts if t in got), None)
+            terms = icon_terms(sid, first.shape) if first is not None else None
+            sY = static_Y if first is not None and static_Y is not None and static_Y.shape == first.shape[:2] else None
+            f = follow_item(r, [(t, got[t]) for t in ts if t in got], vis, terms, sY)
+            res.append({"sid": sid, "t_ms": r["t_ms"], "x": r["x"], "y": r["y"], "cat": r["cat"], "truth": r["truth"],
+                        "split": r["split"], "win_index": r["win_index"], "scale": r["scale"], "cx": r["cx"],
+                        "cy": r["cy"], "t_held": r["t_held"], "base_pred": r.get("rot_pred"),
+                        "base_scores": r.get("rot_scores"), "n_following_cached": len(ts), **f})
+            if r.get("rot_pred") != r["truth"] or f["pred"] != r["truth"]:
+                tiles.append((res[-1], follow_row(res[-1], got)))
+        print(f"  {sid}: {len(its)} items, {time.time() - t0:.0f}s", flush=True)
+    for name, sel in (("follow_misses.png", lambda x: x["pred"] != x["truth"]),
+                      ("follow_baseline_misses.png", lambda x: x["base_pred"] != x["truth"])):
+        rows = [im for x, im in tiles if x["split"] == "heldout" and sel(x)] + \
+               [im for x, im in tiles if x["split"] == "dev" and sel(x)]
+        if rows:
+            Wm = max(im.shape[1] for im in rows)
+            cv2.imwrite(str(out / name), np.vstack([_pad(im, im.shape[0], Wm) for im in rows]))
+    summ = {"version": FOLLOW_VERSION, "base": VERSION, "build": BUILD,
+            "params": {"FOLLOW_MS": FOLLOW_MS, "N_CLEAN": N_CLEAN, "OCC_R": OCC_R, "SAME_R": SAME_R,
+                       "REACH": REACH, "ICON_SCORE": ICON_SCORE, "MAP_CORR": MAP_CORR, "proposer": "reticle.ability_icons.propose_icons"},
+            "inputs": {"crops": "roi_cache minimap", "portraits": "events/team_vision frame icons (stored)"},
+            "unavailable": dict(unavailable), "wall_s": round(time.time() - t0, 1)}
+    for split in ("heldout", "dev"):
+        S = [r for r in res if r["split"] == split]
+        summ[split] = {"before": f"{sum(r['base_pred'] == r['truth'] for r in S)}/{len(S)}",
+                       "after": f"{sum(r['pred'] == r['truth'] for r in S)}/{len(S)}",
+                       "fixed": sum(r["pred"] == r["truth"] != r["base_pred"] for r in S),
+                       "broken": sum(r["base_pred"] == r["truth"] != r["pred"] for r in S),
+                       "no_clean_frame": sum(r["decided_by"] != "follow" for r in S)}
+    json.dump({"meta": summ, "items": res}, open(out / "follow.json", "w"), indent=1, default=float)
+    print(json.dumps(summ, indent=1))
+
+
 # ------------------------------------------------------------------ texture inventory
 
 INVENTORY_VERSION = "minimap-texture-inventory-0.1.0"
@@ -1296,12 +1564,13 @@ def cmd_inventory(args) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("cmd", choices=["score", "misses", "examples", "separate", "inventory"])
+    ap.add_argument("cmd", choices=["score", "misses", "examples", "separate", "inventory", "follow"])
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--states", default="probe", choices=["probe", "all"])
+    ap.add_argument("--only", default=None, help="follow: comma-separated session ids (a small sample)")
     args = ap.parse_args()
     {"score": cmd_score, "misses": cmd_misses, "examples": cmd_examples, "separate": cmd_separate,
-     "inventory": cmd_inventory}[args.cmd](args)
+     "inventory": cmd_inventory, "follow": cmd_follow}[args.cmd](args)
 
 
 if __name__ == "__main__":
