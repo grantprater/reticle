@@ -2,8 +2,8 @@
 
 Date: 2026-10-04. Status: proposed plan; nothing here is built. Rules stay in
 [AGENTS.md](../AGENTS.md); commands stay in [WORKING_MAP.md](WORKING_MAP.md).
-The research this builds on is `docs/WIN_PROBABILITY_RESEARCH.md` on branch
-`winprob-research-20261004` (not merged); the behaviour framing is
+The research this builds on is
+[WIN_PROBABILITY_RESEARCH.md](WIN_PROBABILITY_RESEARCH.md); the behaviour framing is
 [BEHAVIOUR_MODEL_DESIGN.md](BEHAVIOUR_MODEL_DESIGN.md), whose candidate
 signatures name the lurker and the anchor.
 
