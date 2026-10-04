@@ -555,7 +555,12 @@ TRAY_KIT_VERSION = "tray-kit-0.1.0"
 # teardrop's centre (`teardrop.SelfConeReader`, TEARDROP_VERSION) where it reads
 # on the labelled 465 px widget; each row keeps the ring fit's `cx`, `cy` and adds
 # `x`, `y`, `origin` and `origin_reason`.
-SELF_ICON_VERSION = "self-icon-0.5.0"
+# 0.6.0 (2026-10-04): where the session's stored widget placement is rotated
+# 180 degrees, the aligned portrait is turned back before its features are
+# taken (`self_icon.turned_widget`): the resampled widget had delivered it
+# upside down, and the turned half of 4f207c0c4e39 named Phoenix for Iso.
+# A frame read so carries `turned`; the coverage row, `widget_frame`.
+SELF_ICON_VERSION = "self-icon-0.6.0"
 # The kit of the local player as a state per slot (charges, equipped,
 # castable, owner alive), written as `ability_state` rows by `reticle
 # ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,
