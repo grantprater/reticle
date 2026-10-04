@@ -9,10 +9,33 @@ buy / in-round / post-round / menu / spectate. This is the rule-based baseline
 that stands in until there is labelled data to train one on, and it makes a
 deliberately coarser claim:
 
-    in_match   HUD and minimap both present and live
+    in_match   HUD chrome present
     active     in_match, with meaningful scene motion
-    idle       in_match, but static (menus mid-match, death cam holds, AFK)
+    idle       in_match, but static (a held angle, a stationary caster,
+               menus mid-match, death cam holds, AFK)
     off        no HUD -- loading, agent select, alt-tabbed, desktop
+
+The minimap readers read every in-match span, idle and active alike
+(`READ_STATES`): the minimap is drawn wherever the HUD is, and whether
+anything on it moved is what they observe, not when they may look.
+
+seg-0.3.0 (2026-10-04) dropped the `minimap_dchange` term from `in_match`.
+It gated on an outcome: a stationary caster on an empty custom map
+(b9558488a607) and a held angle in a match left the minimap unchanged, so
+seg-0.2.0 labelled HUD-present stretches `off`, which this docstring defines
+as no HUD. On the 21 Riot-record matches it labelled
+[metric:omen_smoke_gaps/span_rule#live_off_old=4464] of
+[metric:omen_smoke_gaps/span_rule#live_n=67447] live-round samples (5 Hz) off
+while the HUD stream read the round clock. Per sample,
+[metric:omen_smoke_gaps/span_terms#off_minimap_only=4135] of them failed
+`minimap_dchange` alone, [metric:omen_smoke_gaps/span_terms#off_hud_only=5]
+failed `hud_edge` alone, and
+[metric:omen_smoke_gaps/span_terms#off_coalesced=324] passed both and fell
+off when a short span merged into an off neighbour. Minimap readers read
+only active spans, which also skipped
+[metric:omen_smoke_gaps/span_terms#live_idle_old=24] idle live samples; the
+in-match spans leave
+[metric:omen_smoke_gaps/span_rule#live_unread_new=5] of them unread.
 
 The thresholds below are starting guesses. Calibrate them against your own
 footage with `reticle segment --show-signals` before trusting the numbers.
@@ -31,10 +54,6 @@ import numpy as np
 class SegmentConfig:
     """Tunables for the baseline classifier. All comparisons are on L1 columns."""
 
-    # A live minimap is redrawn constantly. Sustained perceptual change in that
-    # ROI is the single most reliable "we are in a round" signal that does not
-    # depend on reading any text.
-    minimap_dchange_min: float = 2.0
     # HUD chrome is high-contrast line art; empty backgrounds are not.
     hud_edge_min: float = 0.020
     # Whole-frame motion separating an active scene from a held camera.
@@ -49,6 +68,9 @@ class SegmentConfig:
 
 
 STATES = ("off", "idle", "active")
+#: The states whose spans the minimap readers read: every span with the HUD
+#: drawn. Screen motion and minimap change are what a reader observes there.
+READ_STATES = ("idle", "active")
 
 # ROIs that carry HUD chrome. Whichever of these the profile defines and the
 # stored table actually has are maxed together for the "HUD is on screen" test.
@@ -74,9 +96,6 @@ def classify(table: dict[str, np.ndarray], cfg: SegmentConfig) -> np.ndarray:
     if n == 0:
         return np.empty(0, dtype=np.int8)
 
-    minimap_change = _rolling_median(
-        table.get("minimap_dchange", np.zeros(n)).astype(np.float64), cfg.smooth_window
-    )
     chrome = [
         table[f"{roi}_edge"].astype(np.float64)
         for roi in HUD_CHROME_ROIS
@@ -87,7 +106,7 @@ def classify(table: dict[str, np.ndarray], cfg: SegmentConfig) -> np.ndarray:
     )
     motion = _rolling_median(table["motion"].astype(np.float64), cfg.smooth_window)
 
-    in_match = (minimap_change >= cfg.minimap_dchange_min) & (hud_edge >= cfg.hud_edge_min)
+    in_match = hud_edge >= cfg.hud_edge_min
     active = in_match & (motion >= cfg.active_motion_min)
 
     labels = np.zeros(n, dtype=np.int8)  # off
@@ -192,6 +211,26 @@ def to_spans(
         span.pop("i0", None)
         span.pop("i1", None)
     return spans
+
+
+def reader_spans(spans) -> list[tuple[float, float]]:
+    """(start, end) in ms of the spans a minimap reader reads (`READ_STATES`),
+    from rows carrying `state`, `t_start_ms` and `t_end_ms`. Neighbours with
+    no `off` span between merge: an idle span beside an active one is one
+    stretch of HUD."""
+    out: list[tuple[float, float]] = []
+    joined = False
+    for s in sorted(spans, key=lambda r: r["t_start_ms"]):
+        if s["state"] not in READ_STATES:
+            joined = False
+            continue
+        a, b = float(s["t_start_ms"]), float(s["t_end_ms"])
+        if joined:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+        joined = True
+    return out
 
 
 def segment(table: dict[str, np.ndarray], cfg: SegmentConfig) -> list[dict]:

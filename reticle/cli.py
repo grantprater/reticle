@@ -306,7 +306,6 @@ def cmd_ingest(args) -> int:
 def cmd_segment(args) -> int:
     store = Store(args.store)
     cfg = SegmentConfig(
-        minimap_dchange_min=args.minimap_dchange,
         hud_edge_min=args.hud_edge,
         active_motion_min=args.active_motion,
         smooth_window=args.smooth,
@@ -352,7 +351,7 @@ def _show_signals(table: dict[str, np.ndarray], cfg: SegmentConfig) -> None:
         v = np.asarray(table[col], dtype=np.float64)
         qs = np.percentile(v, [5, 25, 50, 75, 95])
         print(f"    {col:<22}" + "".join(f"{q:9.4f}" for q in qs))
-    print(f"\n    thresholds in use: minimap_dchange>={cfg.minimap_dchange_min:g}  "
+    print(f"\n    thresholds in use: "
           f"hud_edge>={cfg.hud_edge_min:g}  motion>={cfg.active_motion_min:g}\n")
 
 
@@ -581,17 +580,24 @@ class _MinimapPass:
         })
 
 
-def _active_spans(store, sid, date):
-    """The active spans, or a clear failure -- both stages need them."""
+def _reader_spans(store, sid, date):
+    """The spans the minimap readers read (`segment.reader_spans`: every span
+    with the HUD drawn), or a clear failure -- both stages need them."""
+    from .segment import reader_spans
     tbl = store.read_spans(sid, date)
     if tbl is None:
         raise SystemExit(f"no spans for session {sid} -- run `reticle segment {sid}` first")
-    spans = [(a, b) for a, b, s in zip(tbl.column("t_start_ms").to_pylist(),
-                                       tbl.column("t_end_ms").to_pylist(),
-                                       tbl.column("state").to_pylist()) if s == "active"]
+    spans = reader_spans(tbl.select(["state", "t_start_ms", "t_end_ms"]).to_pylist())
     if not spans:
-        raise SystemExit(f"session {sid} has no active spans -- nothing to track")
+        raise SystemExit(f"session {sid} has no in-match spans -- nothing to track")
     return spans
+
+
+def _spans_stamp(store, sid, date) -> str:
+    """The segmenter stamp of the stored spans a reader reads (`plan`'s
+    `spans` input)."""
+    from .input_stamps import table_stamp
+    return table_stamp(store.spans_path(sid, date), "segmenter_version")
 
 
 def cmd_hud(args) -> int:
@@ -684,7 +690,7 @@ def cmd_hud(args) -> int:
 def cmd_minimap(args) -> int:
     """Stage 02: player position off the minimap.
 
-    Needs `reticle segment` to have run first -- active spans bound both the
+    Needs `reticle segment` to have run first -- in-match spans bound both the
     static-map sample and the decode itself, since the minimap has nothing
     to say off-round. Sampled at a higher rate than `hud` (default 15 Hz vs
     2 Hz): everything downstream of position is a *speed* measurement, and
@@ -706,7 +712,7 @@ def cmd_minimap(args) -> int:
         print("           pass --force to re-read")
         return 0
 
-    spans = _active_spans(store, sid, date)
+    spans = _reader_spans(store, sid, date)
 
     media = Path(src["path"])
     if not media.is_file():
@@ -717,7 +723,7 @@ def cmd_minimap(args) -> int:
     fps = float(src["fps"])
     print(f"session    {sid}  ({src['filename']})")
     print(f"profile    {profile.name}  ({MINIMAP_VERSION})")
-    print(f"roi        active spans {len(spans)} "
+    print(f"roi        in-match spans {len(spans)} "
           f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)")
     print(f"sampling   {args.hz:g} Hz")
 
@@ -737,9 +743,10 @@ def cmd_minimap(args) -> int:
     sys.stdout.write("\r" + " " * 72 + "\r")
 
     if not rows:
-        raise SystemExit("decoded zero frames inside active spans -- is segmentation right?")
+        raise SystemExit("decoded zero frames inside in-match spans -- is segmentation right?")
 
-    out = store.write_minimap(rows, _FP(src, sid), profile.name, date)
+    out = store.write_minimap(rows, _FP(src, sid), profile.name, date,
+                              segmenter_version=_spans_stamp(store, sid, date))
     dt = time.perf_counter() - t0
 
     n = len(rows)
@@ -1101,8 +1108,28 @@ def cmd_scan(args) -> int:
     # A scan narrowed with `--only` is testing one specific thing and is left
     # alone; anything else reads the lineup unless `--no-lineup` says not to.
     want_lineup = args.lineup and not args.only
-    spans = (_active_spans(store, sid, date)
+    spans = (_reader_spans(store, sid, date)
              if channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark', 'ability'} else [])
+    if channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark', 'ability'} and not args.check:
+        # A side-based widget is placed before any minimap reader reads it
+        # (`widget_frame.fit_if_needed`): fitted from the crop cache and the
+        # stored rounds, and written as `widget-fit --write` writes it.
+        from . import widget_frame as wf
+        placed = wf.fit_if_needed(store, manifest)
+        if placed is not None and "refused" in placed:
+            print(f"widget     {placed['refused']}")
+        elif placed is not None:
+            print(f"widget     fitted {len(placed['segments'])} placements "
+                  f"({placed['record']['fitted_because']}) -> {placed['path']}")
+            if placed["box"] is not None and placed["box"] != placed["held"]:
+                # The stored crop cannot hold the placed widget: the cache is
+                # stale, and only the player starts a decode.
+                from .roi_cache import rewrite_command
+                raise SystemExit(
+                    f"widget     the minimap cache's crop {placed['held']} cannot hold the "
+                    f"placed widget {placed['box']}: re-decode it with "
+                    f"`{rewrite_command(sid, 'minimap', placed['cache_record'])}`, "
+                    f"then rerun this scan")
     fps = float(src["fps"])
 
     want_hud = 'hud' in channels and (args.force or not store.has_hud(sid, date))
@@ -1114,21 +1141,28 @@ def cmd_scan(args) -> int:
                        or store.events_version("killfeed_weapon", sid) != KILLFEED_WEAPON_VERSION
                        or store.events_version("killfeed_name", sid) != KILLFEED_NAME_VERSION
                        or store.events_version("killfeed_numeral", sid) != KILLFEED_NUMERAL_VERSION))
-    want_mm = 'minimap' in channels and (args.force or not store.has_minimap(sid, date))
+    # A reader stream read over other spans than the stored ones rereads
+    # (`plan.spans_read_moved`), as `plan` calls it stale.
+    from .plan import spans_read_moved
+    spans_moved = lambda stream: spans_read_moved(store, manifest, stream)
+    want_mm = 'minimap' in channels and (args.force or not store.has_minimap(sid, date)
+                                         or spans_moved("minimap"))
     # Pings are events rather than a versioned table, but the cache key is the
     # VERSION, not the file's existence. Keying on existence made `PING_VERSION`
     # a stamp nothing read: bumping it re-read nothing, and a store could hold
     # pings at three definitions with no way to say which sessions were stale --
     # which is the one job version.py says a stamp exists to do.
     want_ping = 'ping' in channels and args.ping and (args.force
-                               or store.events_version("ping", sid) != PING_VERSION)
+                               or store.events_version("ping", sid) != PING_VERSION
+                               or spans_moved("ping"))
     want_roster = 'roster' in channels and args.roster and (args.force or not store.has_roster(sid, date))
-    # Rides the minimap's active spans at `--ally-hz` (`ALLY_DESCRIPTOR_HZ`);
+    # Rides the minimap's in-match spans at `--ally-hz` (`ALLY_DESCRIPTOR_HZ`);
     # versioned by its own stamp, so a descriptor change re-reads descriptors
     # and leaves positions alone.
     want_ally = 'ally_icon' in channels and (
-        args.force or store.events_version("ally_icon", sid) != ALLY_ICON_VERSION)
-    # Grey dark floor at 4 Hz over active spans: the smoke observation.
+        args.force or store.events_version("ally_icon", sid) != ALLY_ICON_VERSION
+        or spans_moved("ally_icon"))
+    # Grey dark floor at 4 Hz over in-match spans: the smoke observation.
     # Versioned by its own stamp, so `reticle smokes` can re-adjudicate
     # without a re-read.
     # `--force` rereads it only when it was asked for by name (or by default):
@@ -1136,7 +1170,8 @@ def cmd_scan(args) -> int:
     dark_named = not args.only or 'minimap_dark' in args.only
     want_dark = 'minimap_dark' in channels and (
         (args.force and dark_named)
-        or store.events_version("minimap_dark", sid) != MINIMAP_DARK_VERSION)
+        or store.events_version("minimap_dark", sid) != MINIMAP_DARK_VERSION
+        or (dark_named and spans_moved("minimap_dark")))
     # The ability pass at 2 Hz over the same spans, every caster's drawings:
     # each stream by its own stamp (`ability_scan`).
     # The shape reader writes SHAPE_STREAMS; the icon reader writes
@@ -1183,14 +1218,14 @@ def cmd_scan(args) -> int:
         ([f"hud {args.hz:g} Hz, whole capture"] if want_hud else [])
         + ([f"killfeed portraits, weapons and names {args.hz:g} Hz, whole capture"]
            if want_portraits else [])
-        + ([f"minimap {args.minimap_hz:g} Hz, {len(spans)} active spans "
+        + ([f"minimap {args.minimap_hz:g} Hz, {len(spans)} in-match spans "
             f"({sum(b - a for a, b in spans) / 1000.0:.0f}s)"] if want_mm else [])
-        + ([f"ping {args.ping_hz:g} Hz, active spans"] if want_ping else [])
+        + ([f"ping {args.ping_hz:g} Hz, in-match spans"] if want_ping else [])
         + ([f"roster {args.hz:g} Hz, whole capture"] if want_roster else [])
         + ([f"scoreboard {args.hz:g} Hz, whole capture"] if want_scoreboard else [])
-        + ([f"ally icons {args.ally_hz:g} Hz, active spans"] if want_ally else [])
-        + ([f"minimap dark {args.dark_hz:g} Hz, active spans"] if want_dark else [])
-        + (["ability 2 Hz, live samples of the active spans"] if want_ability else [])
+        + ([f"ally icons {args.ally_hz:g} Hz, in-match spans"] if want_ally else [])
+        + ([f"minimap dark {args.dark_hz:g} Hz, in-match spans"] if want_dark else [])
+        + (["ability 2 Hz, live samples of the in-match spans"] if want_ability else [])
         + ([f"combat report {args.report_hz:g} Hz, whole capture"] if want_report else [])))
 
     def build_readers():
@@ -1384,13 +1419,14 @@ def cmd_scan(args) -> int:
             print(f"numerals   {len(numerals) - 1} observations -> {path}")
         if mp is not None:
             if not mp.rows:
-                raise SystemExit("decoded zero frames inside active spans "
+                raise SystemExit("decoded zero frames inside in-match spans "
                                  "-- is segmentation right?")
             frames_from = getattr(mp, "frames_from", "video")
             path = out.write_minimap(
                 mp.rows, _FP(src, sid), profile.name, date,
                 frames_from=None if frames_from.startswith("video") else frames_from,
-                spans_clip=getattr(mp, "spans_clip", None))
+                spans_clip=getattr(mp, "spans_clip", None),
+                segmenter_version=_spans_stamp(store, sid, date))
             got = sum(1 for r in mp.rows if r["self_x"] is not None)
             print(f"minimap    {len(mp.rows)} rows -> {path}")
             print(f"           widget absent {mp.n_absent}/{len(mp.rows)} "
@@ -1425,6 +1461,7 @@ def cmd_scan(args) -> int:
                 from .plan import input_head
                 events[0].setdefault("inputs", {})["roster"] = input_head(
                     store, manifest, "roster", events[0])
+            _record_inputs(store, sid, "ally_icon", events[0])
             path = out.write_events("ally_icon", sid, events)
             cov = events[0]
             print(f"ally icons {cov['frames']} frames, {cov['icons']} icons, "
@@ -1537,7 +1574,10 @@ def cmd_scan(args) -> int:
 
         if pp is not None:
             pp.finish()
-            path = out.write_events("ping", sid, pp.events(sid))
+            rows = pp.events(sid)
+            if rows:
+                _record_inputs(store, sid, "ping", rows[0])
+            path = out.write_events("ping", sid, rows)
             by: dict[str, int] = {}
             for kind, *_r in pp.hits:
                 by[kind] = by.get(kind, 0) + 1
@@ -1634,6 +1674,9 @@ def _normalise_decoded(R, manifest, store) -> None:
     refused by name, never read as an absent widget."""
     from . import widget_frame as wf
     mine = {id(r) for r in (R.mp, R.pp, R.ap, R.dp, R.bp, R.ip) if r is not None}
+    unplaced = wf.unplaced_refusal(manifest) if mine else None
+    if unplaced is not None:
+        raise SystemExit(f"minimap refused: {unplaced}")
     src = manifest["source"]
     frame = (wf.for_session(manifest, [0, 0, int(src["width"]), int(src["height"])], store.root)
              if mine else None)
@@ -3931,72 +3974,52 @@ def _tray_frames(cache, step_s: float):
 
 def cmd_widget_fit(args) -> int:
     """Fit where the session draws its minimap widget against the baked static
-    (`widget_frame`), from the stored minimap crops. Decodes no video.
+    (`widget_frame`), from the stored minimap crops and rounds. Decodes no video.
 
-    `--write` stores the placement on the manifest with its stamp, tags a
-    non-identity one `minimap:variant`, and names a capture box when the
-    profile's crop cannot hold the widget -- which makes the minimap cache
-    stale until a re-decode stores the wider crop. A previous placement is
-    kept under `minimap_widget_history`, never overwritten."""
-    import json
-
-    from . import geometry
+    `--write` stores the placement on the manifest with its stamp
+    (`widget_frame.write_placement`), tags a non-identity one
+    `minimap:variant`, and names a capture box when the crop cannot hold the
+    widget under every placement (`capture_box_for`) -- which makes the
+    minimap cache stale until a re-decode stores the wider crop. A side-based
+    session's identity fit is stored too, so the question is answered. A
+    previous placement is kept under `minimap_widget_history`, never
+    overwritten."""
     from . import widget_frame as wf
-    from .roi_cache import RoiCache
 
     store = Store(args.store)
     man = _resolve_session(store, args.session)
     sid = man["session_id"]
-    profile = get_profile(man["source_profile"])
-    cache, why = RoiCache.load(store.root, man, profile, "minimap")
-    if cache is None:
-        # A stored placement the crop cannot hold refuses the cache it would
-        # normalise; the fit reads raw crops, so read it without the placement.
-        bare = {k: v for k, v in man.items() if k != wf.MANIFEST_KEY}
-        cache, why2 = RoiCache.load(store.root, bare, profile, "minimap")
-        if cache is None:
-            raise SystemExit(f"{sid}: no minimap cache ({why}; {why2})")
-    got = wf.fit_session(man, cache, store.root, n=args.frames)
-    segs = got["segments"]
-    if not segs:
-        raise SystemExit(f"{sid}: no cached frame reached ncc {wf.MIN_NCC}")
-    with np.load(geometry.require(sid, store.root)) as z:
-        baked_roi = [int(v) for v in z["roi"]]
-    wh = (int(man["source"]["width"]), int(man["source"]["height"]))
-    variant = any(not wf.is_identity(sg["affine"], baked_roi) for sg in segs)
-    need = wf.needed_box(segs, got["shape"], wh)
-    held = got["box"]
-    fits = (need[0] >= held[0] and need[1] >= held[1]
-            and need[2] <= held[2] and need[3] <= held[3])
+    got = wf.fit_placement(store, man, n=args.frames)
+    held, need = got["held"], got["need"]
     print(f"{sid}  {man['source']['path']}")
     print(f"fitted     {got['frames']} cached frames in {held}")
-    for sg in segs:
+    for sg in got["segments"]:
         a = np.asarray(sg["affine"])
+        at = (f" (the turn that opens round {sg['switch_round']}; cached frames "
+              f"{sg['t_prev_last_ms']} then {sg['t_first_ms']} ms)"
+              if sg.get("switch_round") is not None else
+              f" (turn refused: {sg['switch_refusal']})" if sg.get("switch_refusal") else "")
         print(f"  from {sg['t0_ms']} to {sg['t1_ms']} ms: rotation {sg['rotation']}, "
               f"scale {sg['scale']:.3f}, corner ({a[0, 2]:.1f}, {a[1, 2]:.1f}), "
-              f"{sg['n']} frames, ncc >= {sg['ncc_min']:.3f}")
-    print(f"placement  {'VARIANT' if variant else 'identity'}; the whole widget needs "
+              f"{sg['n']} frames, ncc >= {sg['ncc_min']:.3f}{at}")
+    print(f"placement  {'VARIANT' if got['variant'] else 'identity'}; the whole widget needs "
           f"{need}, the cache holds {held}"
-          + ("" if fits else " -- the crop clips the widget"))
+          + ("" if got["fits"] else " -- the crop clips the widget"))
+    if got["status"] is not None:
+        print(f"asked      {got['status']['reason']}: {got['status']['detail']}")
     if not args.write:
         return 0
-    if not variant:
+    if not got["store"]:
         print("identity   nothing stored: the session reads the baked placement")
         return 0
-    box = wf.capture_box(man) if fits else need
-    rec = wf.record(segs, geometry.key_of(sid, store.root), baked_roi, box,
-                    f"roi_cache {cache.record['version']} rect {held}", got["frames"])
-    if man.get(wf.MANIFEST_KEY):
-        man.setdefault(wf.MANIFEST_KEY + "_history", []).append(man[wf.MANIFEST_KEY])
-    man[wf.MANIFEST_KEY] = rec
-    if wf.VARIANT_TAG not in man.setdefault("tags", []):
-        man["tags"].append(wf.VARIANT_TAG)
-    store.manifest_path(sid).write_text(json.dumps(man, indent=2), encoding="utf-8")
-    print(f"stored     {wf.MANIFEST_KEY} ({wf.WIDGET_FRAME_VERSION}) and tag "
-          f"{wf.VARIANT_TAG} on {store.manifest_path(sid)}")
+    path = wf.write_placement(store, man, got["record"], got["variant"])
+    print(f"stored     {wf.MANIFEST_KEY} ({wf.WIDGET_FRAME_VERSION})"
+          + (f" and tag {wf.VARIANT_TAG}" if got["variant"] else "") + f" on {path}")
+    box = got["box"]
     if box is not None and box != held:
+        from .roi_cache import rewrite_command
         print(f"capture    box {box}: the minimap cache is stale until "
-              f"`reticle scan {sid} --only roi_cache --cache-roi minimap` re-decodes it")
+              f"`{rewrite_command(sid, 'minimap', got['cache_record'])}` re-decodes it")
     return 0
 
 
@@ -5175,7 +5198,7 @@ def cmd_fidelity_check(args) -> int:
         raise SystemExit(f"these windows were reviewed on {frozen['session_id']}, "
                          f"not {sid}")
     profile = get_profile(manifest["source_profile"])
-    spans = _active_spans(store, sid, _date_of(manifest))
+    spans = _reader_spans(store, sid, _date_of(manifest))
     ctx = SessionContext(store=store, manifest=manifest, profile=profile, spans=spans)
 
     tiers = [Tier("native", None)] + [Tier(f"{hz:g}hz", hz) for hz in args.hz]
@@ -5419,7 +5442,6 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("segment", help="recompute spans from stored L1 (no video)")
     s.add_argument("session", nargs="?"); s.add_argument("--all", action="store_true")
     d = SegmentConfig()
-    s.add_argument("--minimap-dchange", type=float, default=d.minimap_dchange_min)
     s.add_argument("--hud-edge", type=float, default=d.hud_edge_min)
     s.add_argument("--active-motion", type=float, default=d.active_motion_min)
     s.add_argument("--smooth", type=int, default=d.smooth_window)

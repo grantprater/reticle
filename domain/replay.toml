@@ -1,0 +1,142 @@
+# In-client replay files (.vrf): what the file holds and how its clock and
+# angles relate to Riot's match records. Facts about the format, not about any
+# reader. Replays are evaluation truth only (prototypes/replay_truth.py).
+# Schema and the citation form: reticle/domain.py.
+
+[vrf-container]
+claim = """
+An in-client replay is Unreal Engine's local-file replay layout under Riot's
+own magic number 0x43F4EFDD (not Unreal's 0x1CA2E27F), file version 7, with
+one custom-version entry between the version and the length field. Its
+replay-data and checkpoint chunks are Oodle-compressed (every block starts
+8C 0A); the event chunks are not compressed; the file is not encrypted (flag 0,
+no key stored). Fifteen files from release-11.11 to release-13.04 share the
+layout.
+"""
+kind = "codec"
+known = "measured"
+since = "2026-10-04"
+source = """
+the replay probe and its adversarial verifier (2026-10-04, two independent
+header readers over the store's 15 preserved copies; manifest
+external/replays/manifest.json); vrfkit v0.2.5 validate passes all 15
+"""
+
+[vrf-values-scrambled-per-patch]
+claim = """
+Inside the replay stream Riot scrambles each replicated value with a transform
+whose constants change with every game patch, so a parser reads only the
+builds whose constants it carries; a new patch is unreadable until someone
+recovers them from the new game binary.
+"""
+kind = "codec"
+known = "cited"
+since = "2026-10-04"
+source = """
+vrfkit README and docs/USAGE.md section 7 ("Adding a new build takes one
+transforms! line": branch, SEED_ADDEND, INIT_A_OFFSET, step list), and
+ValoReview's docs/vrf-decoding-findings.md; not measured here
+"""
+
+[vrf-position-stream]
+claim = """
+A replay's movement stream holds every living player's 3D position (cm, Unreal
+axes, height included) and yaw/pitch at the 128 Hz server tick: consecutive
+samples per player are 8 ms apart on about 80% of steps and 7 ms on about 19%,
+and a living second holds 128 samples. A hidden or unspawned pawn parks near
+x = -50000, z = -49900. A player can lose every movement row for 7-8 s while
+alive: on 9acf02f98283's replay, three such windows each covered two players at
+once while the others kept sampling; the cause is not established.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+source = """
+prototypes/replay_truth.py check on 9acf02f98283's replay (stream facts):
+[metric:replay_truth/check#step_ms_median=8.0],
+[metric:replay_truth/check#samples_per_living_second_median=128.0],
+[metric:replay_truth/check#living_seconds_ge_100=0.9955]; survey: 15 of 15
+replays show at least 92% of living seconds with 100 or more samples
+"""
+see = ["replay/vrf-tick-pattern"]
+
+[vrf-tick-pattern]
+claim = """
+The movement stream's `timestamp` is a 128 Hz server tick that resets at each
+round boundary, stepping 7 ms and 8 ms in a 3:13 ratio (not alternating); the
+replay's global clock is `time_ms`.
+"""
+kind = "codec"
+known = "cited"
+since = "2026-10-04"
+source = """
+vrfkit docs/DATA.md, "The tick is 128 Hz by a 3:13 pattern" (37,775,664 steps
+over 20 replays); the step shares, not the per-round reset, agree with
+replay/vrf-position-stream
+"""
+
+[vrf-riot-clock]
+claim = """
+Riot's match-details `gameTime` runs about 10.1 s ahead of the replay's clock
+and the gap drifts: on one match it grew from 10016 to 10220 ms over 37
+minutes. Time a replay instant to Riot's by the nearest paired kills, never one
+constant. Riot's plant and defuse instants then land within 1.4 ms of the
+replay's own events, and its kill-instant positions within 1 m.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+source = """
+prototypes/replay_truth.py check on 9acf02f98283's replay against its Riot
+record: [metric:replay_truth/check#offset_min_ms=10016.0],
+[metric:replay_truth/check#offset_max_ms=10220.0],
+[metric:replay_truth/check#kill_pos_median_cm=7.1],
+[metric:replay_truth/check#kill_pos_p95_cm=50.3]
+"""
+
+[vrf-yaw-is-view-radians]
+claim = """
+Riot's `viewRadians` is the replay's yaw (degrees, from +x toward +y in world
+coordinates) converted to radians, with no sign flip or quarter-turn.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+source = """
+prototypes/replay_truth.py check: median error
+[metric:replay_truth/check#facing_median_rad=0.002] over 1151 player-instants;
+every other candidate convention errs by 1.57 rad or more
+"""
+
+[vrf-round-started-opens-buy-phase]
+claim = """
+The replay's `roundStarted` event marks the start of the buy phase: Riot's
+round time zero falls 29.7-29.8 s after it in every round except the first
+round of each half, where it falls about 45 s after it.
+"""
+kind = "lifecycle"
+known = "measured"
+since = "2026-10-04"
+source = """
+prototypes/replay_truth.py check on 9acf02f98283's replay:
+[metric:replay_truth/check#round_zero_minus_started_median_ms=29796.5] over 23
+rounds after the first; rounds 1 and 13 at 44982 and 44792 ms
+"""
+see = ["rounds/buy-phase-barriers"]
+
+[vrf-minimap-axes-cross]
+claim = """
+valorant-api's map constants carry a replay or Riot world position to the
+minimap with crossed axes: u = y * xMultiplier + xScalarToAdd and
+v = x * yMultiplier + yScalarToAdd.
+"""
+kind = "geometry"
+known = "measured"
+since = "2026-10-04"
+source = """
+prototypes/replay_truth.py score: through the crossed transform and the baked
+geometry, 9acf02f98283's stored ally observations lie a median
+[metric:replay_truth/score#ally_err_px_median=1.55] px from the replay; an
+affine fitted to the self points improves the median by 0.15 px. vrfkit
+docs/DATA.md "Minimap projection" states the same crossing over 12 maps
+"""

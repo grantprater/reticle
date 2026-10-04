@@ -91,17 +91,17 @@ evidence = "tests/test_cone_walls.py, tests/test_occluder_lines.py"
 
 [[entry]]
 id = "minimap-widget-frame"
-question = "Where does this session draw its minimap widget relative to the baked geometry, and is it a variant?"
+question = "Where does this session draw its minimap widget relative to the baked geometry, is it a variant, and is it turned at this time?"
 owner = "widget_frame"
 role = ["constrain"]
 status = "shipped"
-produces = ["fit_crop", "for_session", "cohort", "capture_box"]
+produces = ["fit_crop", "for_session", "cohort", "capture_box", "capture_box_for", "placement_status", "unplaced_refusal", "turned_at", "fit_placement"]
 not_for = """
 Any map value. The fit measures the widget's scale, rotation and placement
 against the baked static and nothing else; the floor, lighting and base map
 still come from `map-geometry`. Not the icons drawn on the widget either.
 """
-consumers = ["roi_cache", "status", "cli"]
+consumers = ["roi_cache", "status", "cli", "plan", "minimap"]
 evidence = "tests/test_widget_frame.py"
 
 [[entry]]
@@ -152,13 +152,13 @@ question = "Over which contiguous spans does a per-frame signal hold?"
 owner = "segment"
 role = ["lifecycle"]
 status = "shipped"
-produces = ["to_spans", "classify", "SegmentConfig"]
+produces = ["to_spans", "classify", "SegmentConfig", "reader_spans", "READ_STATES"]
 not_for = """
 An entity's lifetime. These are SOURCE spans over a stored column; an entity
 existing from one origin event to a terminal state is `round-entity`, and the
 shared word is the whole reason to say so here.
 """
-consumers = ["synth"]
+consumers = ["synth", "cli"]
 
 [[entry]]
 id = "capture-stall"
@@ -317,7 +317,7 @@ names_agents = true
 produces = ["adjudicate", "lifetime_verdict", "tray_verdict", "cast_groups",
             "tolerance_s", "window", "SMOKE_ABILITY", "NO_BULK", "LIFETIME_S",
             "CAST_WINDOW_S", "NOT_A_PLAYER_CAST", "CHANNELS", "player_smoke_casts",
-            "smoke_entity_id"]
+            "smoke_entity_id", "cast_links", "drop_id"]
 not_for = """
 Finding or timing the smoke (`minimap-smoke`), enemy smokes (not drawn on the
 player's minimap), or deciding a name itself: each rule is a claim through
