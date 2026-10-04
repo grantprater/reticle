@@ -4641,6 +4641,14 @@ def _ability_state_values(store, done) -> dict:
     return values
 
 
+def cmd_ability_audio_fit(args) -> int:
+    """Fit or evaluate the audio witness's parameter set from stored
+    log-mel (`ability_audio_fit`); decodes only the game's reference
+    files."""
+    from .ability_audio_fit import main
+    return main(args)
+
+
 def cmd_ability_shapes(args) -> int:
     """The drawn minimap shape after each of the player's casts of an ability
     with a known form, from stored crops (`ability_shapes`). Decodes no video."""
@@ -4748,8 +4756,8 @@ def cmd_ult_lines(args) -> int:
     from .version import ULT_LINE_VERSION
 
     store = Store(args.store)
-    voice = store.root / ult_lines.VOICE_DIR
     declared = ult_lines.load_manifest()
+    voice = store.root / ult_lines.manifest_dir(declared)
     if args.check_manifest:
         want = {e["name"]: e for e in declared["templates"]}
         got = {e["name"]: e for e in ult_lines.manifest_from_assets(voice)}
@@ -4839,8 +4847,14 @@ def cmd_ult_cast(args) -> int:
         lineup = load_lineup(sid, store.root)
         tray_drops, tray_reason, tray_inputs = _ult_tray_drops(
             store, sid, _date_of(man), rounds, player_agent(lineup, sid))
+        # The stored death verdicts witness ultimates by their killfeed icon.
+        from .input_stamps import event_stamp
+        deaths = [r for r in store.read_events("death", sid) if r.get("kind") == "death_verdict"]
+        tray_inputs = {**tray_inputs, "death": event_stamp(store, "death", sid,
+                                                           "death_adjudication_version")}
         res = adjudicate(sid, peaks, lineup, rounds, round_version,
-                         tray_drops=tray_drops, tray_reason=tray_reason, tray_inputs=tray_inputs)
+                         tray_drops=tray_drops, tray_reason=tray_reason, tray_inputs=tray_inputs,
+                         deaths=deaths or None, death_reason="no_death_verdicts")
         _record_inputs(store, sid, "ult_cast", res["rows"][0])
         out = store.write_events("ult_cast", sid, res["rows"])
         store.write_events("ult_cast_identity", sid, res["events"])
@@ -5767,6 +5781,20 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--record", action="store_true",
                    help="score the tray-cast labels and record the numbers in notes/metrics.jsonl")
     s.set_defaults(func=cmd_ability_state)
+
+    s = sub.add_parser("ability-audio-fit",
+                       help="fit or evaluate the audio witness's parameters from stored log-mel (no capture decode)")
+    s.add_argument("--gate", help="write the gate snapshot of every session with audio labels here")
+    s.add_argument("--gate-in", help="the gate snapshot --fit and --eval read")
+    s.add_argument("--supply", action="append",
+                   help="SID=AGENT: the player's agent where the identity arbiter names none")
+    s.add_argument("--audio-dir", action="append",
+                   help="a directory with features/<sid>.npz and labels/<sid>.json the store lacks")
+    s.add_argument("--fit", help="fit the parameter set under this root (the store, or a scratch root)")
+    s.add_argument("--eval", help="evaluate the parameter set under this root")
+    s.add_argument("--agent", action="append", help="only this agent (repeatable)")
+    s.add_argument("--json", help="write the evaluation here")
+    s.set_defaults(func=cmd_ability_audio_fit)
 
     s = sub.add_parser("ability-shapes",
                        help="the drawn minimap shape after the player's casts, from stored crops (no video)")

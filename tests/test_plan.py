@@ -659,5 +659,67 @@ class RoundOutcomeGeometryTests(unittest.TestCase):
             self.assertEqual(found, [])
 
 
+class RecordedInputsDeclaredTests(unittest.TestCase):
+    """The stamps the 2026-10-03 writers record: death's stalls and
+    round-outcome claims, ability_state's audio witness, and the kit owner's
+    basis the gate records on four streams."""
+
+    RECORDED = {"death": ("stalls", "round_outcome_claim"),
+                "ability_state": ("ability_audio", "ability_audio_params", "audio_features",
+                                  "audio_labels", "tray_kit_own_basis"),
+                "ability_shape": ("tray_kit_own_basis",), "tray_drop": ("tray_kit_own_basis",),
+                "ult_cast": ("tray_kit_own_basis",)}
+
+    def test_doctor_finds_no_undeclared_input(self):
+        import json
+        from reticle.doctor import ERROR, check_inputs
+        with tempfile.TemporaryDirectory() as d:
+            for stream, keys in self.RECORDED.items():
+                f = Path(d) / "events" / stream / "s.jsonl"
+                f.parent.mkdir(parents=True)
+                f.write_text(json.dumps({"inputs": {k: "x-0.1.0" for k in keys}}) + "\n",
+                             encoding="utf-8")
+            found = [m for s, m in check_inputs(Path(d))
+                     if s == ERROR and "plan does not compare" in m]
+            self.assertEqual(found, [])
+
+    def test_a_moved_claim_or_audio_file_stales_its_reader(self):
+        import json
+
+        import numpy as np
+
+        from reticle.ability_timeline import AUDIO_GATE_DIR
+        from reticle.plan import hand_code_fields, inputs_moved
+        from reticle.stalls import STALL_VERSION
+        from reticle.version import ROUND_OUTCOME_CLAIM_VERSION
+        self.assertEqual(hand_code_fields()["death"]["stalls"], ("inputs.stalls", STALL_VERSION))
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            store = _Store(root)
+            man = store.read_manifest("s")
+            store.events["round_outcome:rows"] = [
+                {"round_outcome_claim_version": ROUND_OUTCOME_CLAIM_VERSION}]
+            death = {"inputs": {"round_outcome_claim": ROUND_OUTCOME_CLAIM_VERSION}}
+            self.assertEqual(inputs_moved(store, man, "death", death)[0], [])
+            death["inputs"]["round_outcome_claim"] = "round-outcome-claim-0.0.1"
+            self.assertEqual(inputs_moved(store, man, "death", death)[0],
+                             ["round_outcome_claim"])
+            gate = root / AUDIO_GATE_DIR
+            (gate / "features").mkdir(parents=True)
+            (gate / "labels").mkdir(parents=True)
+            np.savez(gate / "features" / "s.npz", version=np.array("audio-gate-0.1.0"))
+            (gate / "labels" / "s.json").write_text(json.dumps({"version": "audio-gate-0.1.0"}),
+                                                    encoding="utf-8")
+            state = {"inputs": {"audio_features": "audio-gate-0.1.0",
+                                "audio_labels": "audio-gate-0.1.0"}}
+            self.assertEqual(inputs_moved(store, man, "ability_state", state)[0], [])
+            state["inputs"]["audio_features"] = "audio-gate-0.0.1"
+            self.assertEqual(inputs_moved(store, man, "ability_state", state)[0],
+                             ["audio_features"])
+            # A refused witness read no audio: not compared.
+            state["inputs"] = {"audio_features": None, "audio_labels": None}
+            self.assertEqual(inputs_moved(store, man, "ability_state", state)[0], [])
+
+
 if __name__ == "__main__":
     unittest.main()

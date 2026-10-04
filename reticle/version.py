@@ -569,7 +569,10 @@ ABILITY_STATE_VERSION = "ability-state-0.5.0"
 # `ability_timeline.audio_cast_witness`. Bump when the frames, the whitening,
 # the template rule, the track, the window, the refusals or the stored fields
 # change.
-ABILITY_AUDIO_VERSION = "ability-audio-0.1.0"
+# 0.2.0: a cast's window is cut at the midpoint to the neighbouring own cast
+# the gate passes on each side (`ability_audio.clip_bounds`), so a cast's
+# score never reaches the next cast's sound.
+ABILITY_AUDIO_VERSION = "ability-audio-0.2.0"
 # The fitted parameter set the audio witness reads, under
 # `reference/ability-audio/<version>/` in the store: per agent the background
 # whitener (shrink 0.1), the AR(2) coefficients, the whitened templates and
@@ -578,18 +581,30 @@ ABILITY_AUDIO_VERSION = "ability-audio-0.1.0"
 # version; a set is never overwritten.
 # 0.1.1: the same fit; Skye's Trailblazer evidence map adds the player's
 # confirmation (`player_20261003`) to its basis.
-ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.1.1"
+# 0.2.0: `reticle ability-audio-fit`: the declared split
+# (`ability_audio.split_sessions`), one whitener pooled over every agent's
+# dev sessions, thresholds over every dev session, shared reference files
+# left out (`ability_audio.shared_reference_mask`); Sova, Skye, Phoenix,
+# Clove, Iso, and Omen and Deadlock zero-shot.
+# 0.2.1: the player's answers of 2026-10-04 (`ability_audio_fit.PLAYER_MAPS`):
+# Skye's Guide_AbilE_ScoutExpire_3P is Guiding Light. Sova's
+# Hunter_AbilQ_Cast_* as Shock Bolt is recorded, not applied: dev refuted it.
+ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.1"
 # Peaks of the official ultimate voice lines correlated against a capture's
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the
 # correlation, the floor or the stored fields change -- those re-decode audio.
-ULT_LINE_VERSION = "ult-line-0.1.0"
+# 0.2.0: the templates are the game's own English lines (vo-ref-0.1.0, each
+# agent's ultimate announcement event), not the wiki MP3s.
+ULT_LINE_VERSION = "ult-line-0.2.0"
 # Ultimate casts selected, classed and named from stored `ult_line` peaks, the
 # lineup and the rounds table by `reticle ult-cast` (`adjudication.ult_cast`),
 # with own lines bound to the player's X casts from `tray_drop`. Bump when the
 # threshold, the classing, the cast window or the stored fields change.
 # 0.2.0: `tray_witness` on own casts and `missed_line` rows.
-ULT_CAST_VERSION = "ult-cast-0.2.0"
+# 0.3.0: bursts under BURST_BOUND refused; peaks under THRESHOLD accepted only
+# with a tray or ult-kill witness (`rests_on`).
+ULT_CAST_VERSION = "ult-cast-0.3.0"
 # Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or

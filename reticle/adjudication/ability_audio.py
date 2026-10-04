@@ -36,7 +36,9 @@ median over the session's null frames, over the span from that median to the
 null's 99.9th percentile: 1.0 is a level the background reaches once in a
 thousand frames. A class's track is the maximum over its files, and a cast's
 score for a class is that track's maximum from PRE_S before the drop to
-POST_S after it.
+POST_S after it, cut at the midpoint to the neighbouring own cast on each
+side (`clip_bounds`), so one cast's score does not reach the next cast's
+sound.
 
 **A verdict** names the best class with its score, the runner-up and the
 margin, or refuses, first match wins:
@@ -51,12 +53,16 @@ The scores are not calibrated into likelihoods and are not pooled into
 `adjudication.identity`; that is a later task.
 
 **Parameters** (`ability-audio-params-*`, under `reference/ability-audio/` in
-the store) are fitted per agent on named dev sessions only, and carry their
-session list, the shrinkage, the AR coefficients, the template rule, the
-candidate rule and the reference table's version;
-`prototypes/ability_audio_eval.py` fits them and scores the held sessions
-through `ability_timeline.audio_cast_witness`. Every function here but
-`reference_logmel`, `load_params` and `save_params` is pure.
+the store) are fitted on named dev sessions only (`split_sessions`, a rule
+declared before scoring), and carry their session list, the shrinkage, the
+AR coefficients, the template rule, the candidate rule and the reference
+table's version. From `ability-audio-params-0.2.0` one whitener is pooled
+over every agent's dev sessions (`fit_whitener`), so an agent without an
+own match is scored zero-shot, and a reference file whose sound event two
+abilities' montages play is left out (`shared_reference_mask`).
+`reticle ability-audio-fit` (`ability_audio_fit`) fits them and scores the
+held sessions through `ability_timeline.audio_cast_witness`. Every function
+here but `reference_logmel`, `load_params` and `save_params` is pure.
 """
 from __future__ import annotations
 
@@ -88,6 +94,9 @@ PRE_S = 2.0
 POST_S = 3.0
 #: Frames of the log-mel per second.
 FPS = 100
+#: A neighbouring own cast within this many frames of a cast is the cast
+#: itself (`clip_bounds`).
+SELF_FRAMES = 1
 #: The least margin of the best class over the runner-up.
 TIE_MARGIN = 0.25
 #: The none class's name.
@@ -183,6 +192,49 @@ def fit_ar2(Y: np.ndarray, mask: np.ndarray, min_run: int = AR_MIN_RUN) -> np.nd
                          or [np.zeros(0, int)])
     y, l1, l2 = Y[idx].ravel(), Y[idx - 1].ravel(), Y[idx - 2].ravel()
     return np.linalg.lstsq(np.stack([l1, l2], 1), y, rcond=None)[0]
+
+
+def fit_whitener(sessions) -> dict:
+    """The pooled whitener of (frames, null mask) pairs, consumed one at a
+    time: the band whitener of every null frame (`fit_band_whitener`) and
+    the AR(2) of the null runs longer than AR_MIN_RUN (`fit_ar2`), no lag
+    pair crossing a run. Returns {mu, P, ar, cond, bg_frames}."""
+    Xbg, runs_x = [], []
+    for X, bg in sessions:
+        Xbg.append(np.asarray(X[bg], np.float32))
+        s, e = runs(bg)
+        keep = (e - s) > AR_MIN_RUN
+        runs_x += [np.asarray(X[a:b], np.float32) for a, b in zip(s[keep], e[keep])]
+    Xbg = np.concatenate(Xbg)
+    mu, P, cond = fit_band_whitener(Xbg)
+    nb = len(mu)
+    Y = np.concatenate([np.vstack([(r - mu) @ P, np.zeros((1, nb))]) for r in runs_x])
+    M = np.concatenate([np.concatenate([np.ones(len(r), bool), [False]]) for r in runs_x])
+    return {"mu": mu, "P": P, "ar": fit_ar2(Y, M), "cond": cond, "bg_frames": int(len(Xbg))}
+
+
+def split_sessions(sessions: dict[str, list[str]]) -> dict[str, dict[str, list[str]]]:
+    """The dev and held sessions per agent, a rule declared before scoring
+    (predictions `ability-audio-fit-20261004`): an agent's sessions sorted
+    by id, the even positions dev and the odd held; an agent with one
+    session is split at its frame midpoint, the first half (`<sid>:first`)
+    dev and the second (`<sid>:second`) held."""
+    out = {}
+    for agent, sids in sessions.items():
+        sids = sorted(set(sids))
+        if len(sids) == 1:
+            out[agent] = {"dev": [f"{sids[0]}:first"], "held": [f"{sids[0]}:second"]}
+        elif sids:
+            out[agent] = {"dev": sids[0::2], "held": sids[1::2]}
+    return out
+
+
+def shared_reference_mask(file_events: list[list[str]], plays: dict[str, set]) -> np.ndarray:
+    """Per reference file, False where one of its sound events is played by
+    the montages of two or more abilities (`plays`: event -> the abilities
+    whose montages play it): such a file witnesses no one ability."""
+    return np.array([not any(len(plays.get(e, ())) > 1 for e in evs) for evs in file_events],
+                    bool)
 
 
 def ar_filter(ar) -> np.ndarray:
@@ -326,10 +378,51 @@ def window_max(track: np.ndarray, pre: int = int(PRE_S * FPS),
                             origin=pre - (size // 2), mode="nearest")
 
 
-def cast_scores(tracks: dict[str, np.ndarray], frames, classes: list[str]) -> np.ndarray:
-    """[casts, classes]: each class's window maximum at each cast frame."""
-    f = np.clip(np.asarray(frames, int), 0, len(next(iter(tracks.values()))) - 1)
-    return np.stack([window_max(tracks[c])[f] for c in classes], axis=1)
+def clip_bounds(frames, neighbours, pre: int = int(PRE_S * FPS),
+                post: int = int(POST_S * FPS)) -> tuple[np.ndarray, np.ndarray]:
+    """([lo], [hi)) of each cast's window: `pre` frames before the drop to
+    `post` after it, cut at the midpoint to the nearest neighbouring own cast
+    on each side, so a cast's score never reaches the sound of the next.
+    A neighbour within SELF_FRAMES of the cast is the cast itself. Each
+    window keeps at least its drop frame. Vectorised (searchsorted)."""
+    f = np.asarray(frames, np.int64)
+    nb = np.unique(np.asarray(neighbours, np.int64))
+    lo, hi = f - pre, f + post
+    if len(nb) and len(f):
+        i = np.searchsorted(nb, f - SELF_FRAMES, side="left")
+        j = np.searchsorted(nb, f + SELF_FRAMES, side="right")
+        prev = np.where(i > 0, nb[np.clip(i - 1, 0, len(nb) - 1)], np.iinfo(np.int32).min)
+        nxt = np.where(j < len(nb), nb[np.clip(j, 0, len(nb) - 1)], np.iinfo(np.int32).max)
+        lo = np.maximum(lo, (f + prev + 1) // 2)
+        hi = np.minimum(hi, (f + nxt + 1) // 2)
+    return lo, np.maximum(hi, lo + 1)
+
+
+def range_max(track: np.ndarray, lo, hi) -> np.ndarray:
+    """The track's maximum over [lo, hi) per pair, bounds clipped to the
+    track; `np.maximum.reduceat` over the interleaved bounds."""
+    t = np.asarray(track, np.float32)
+    n = len(t)
+    lo = np.clip(np.asarray(lo, np.int64), 0, n - 1)
+    hi = np.clip(np.asarray(hi, np.int64), lo + 1, n)
+    if not len(lo):
+        return np.zeros(0, np.float32)
+    ext = np.append(t, np.float32(-np.inf))
+    return np.maximum.reduceat(ext, np.ravel(np.stack([lo, hi], 1)))[::2]
+
+
+def cast_scores(tracks: dict[str, np.ndarray], frames, classes: list[str],
+                neighbours=None) -> np.ndarray:
+    """[casts, classes]: each class's maximum in each cast's window -- the
+    fixed window (`window_max`) without `neighbours`, else the window cut at
+    the neighbouring own casts (`clip_bounds`)."""
+    n = len(next(iter(tracks.values())))
+    if neighbours is None:
+        f = np.clip(np.asarray(frames, int), 0, n - 1)
+        return np.stack([window_max(tracks[c])[f] for c in classes], axis=1)
+    lo, hi = clip_bounds(frames, neighbours)
+    return np.stack([range_max(tracks[c], lo, hi) for c in classes], axis=1).reshape(
+        len(lo), len(classes))
 
 
 def identify(scores: np.ndarray, classes: list[str], thresholds: dict[str, float],

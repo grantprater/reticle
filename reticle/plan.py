@@ -325,6 +325,10 @@ def _code(path: str, stamp: str, *, optional: bool = False) -> dict:
 NOT_INPUTS = {
     "board_state": "folded into the lineup view, compared as `lineup`",
     "tray_kit_reason": "why the kit witness went unused, not a stamp",
+    "tray_kit_own_basis": "which agent the kit witness judged `own` against (`stored` or "
+                          "`consumer_agent`, `stored_kit_witness`): a label derived from the "
+                          "tray_kit rows and the player agent, compared as `tray_kit` and "
+                          "`lineup`, not a stamp",
     "geometry_key": "names the geometry; its `built_by` is compared as `geometry`",
     "ally_icon_revision": "the ally_icon bytes `reticle lifetimes` keys its cache on; "
                           "the stream's stamp is compared as `ally_icon`",
@@ -378,7 +382,8 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     from .lighting import LIGHTING_VERSION
     from .roi_cache import ROI_CACHE_VERSION
     from .ability_candidates import values_digest
-    from .version import (ABILITY_CANDIDATES_VERSION, ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION,
+    from .version import (ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION,
+                          ABILITY_CANDIDATES_VERSION, ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION,
                           ICON_POSE_PRIOR_VERSION,
                           ICON_TEARDROP_VERSION, TEARDROP_VERSION, TRAY_VERSION)
     geo ={"geometry": _in("geometry_built_by", "geometry")}
@@ -404,6 +409,11 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                   # heads before death-adjudication-0.34.0 record none.
                   "round_outcome": _in("inputs.round_outcome",
                                        "round_outcome#round_outcome_version", optional=True),
+                  # The claims' pooling stamp, which the stream's first row
+                  # carries (`stored_outcome_claims` reads claims only at it).
+                  "round_outcome_claim": _in("inputs.round_outcome_claim",
+                                             "round_outcome#round_outcome_claim_version",
+                                             optional=True),
                   **_lineup_inputs()},
         "ult_cast": {"ult_line": _in("inputs.ult_line", "ult_line"),
                      "round": _in("inputs.round", "rounds"),
@@ -451,6 +461,15 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                           "tray_fill": _code("inputs.tray_fill", TRAY_VERSION),
                           "roi_cache": _code("inputs.roi_cache", ROI_CACHE_VERSION),
                           "agent_identity": _code("inputs.agent_identity", AGENT_IDENTITY_VERSION),
+                          # The audio witness (`audio_cast_witness`): its rule,
+                          # the fitted parameters it loads by the code's stamp,
+                          # and the audio gate's stored log-mel and labels. A
+                          # refused witness records the two files as None.
+                          "ability_audio": _code("inputs.ability_audio", ABILITY_AUDIO_VERSION),
+                          "ability_audio_params": _code("inputs.ability_audio_params",
+                                                        ABILITY_AUDIO_PARAMS_VERSION),
+                          "audio_features": _in("inputs.audio_features", "audio_features"),
+                          "audio_labels": _in("inputs.audio_labels", "audio_labels"),
                           **_lineup_inputs()},
         "self_icon": {"roster": _in("roster_version", "roster"),
                       "portrait_refs": _in("reference_version", "portrait_refs"), **geo},
@@ -519,7 +538,7 @@ def _probe_stream(probe: str) -> str | None:
     if "#" in probe:
         return probe.split("#", 1)[0]
     if probe in ("geometry", "lineup_file", "reliability", "catalogue", "catalogue_icons",
-                 "portrait_refs", "portrait_refs_fit"):
+                 "portrait_refs", "portrait_refs_fit", "audio_features", "audio_labels"):
         return None
     return probe
 
@@ -707,6 +726,9 @@ def input_head(store, manifest: dict, probe: str, head: dict | None = None,
             now = f"reference/abilities.json#{reference_key(root)}"
         else:
             now = ist.NO_ROWS
+    elif probe in ("audio_features", "audio_labels"):
+        from .ability_timeline import audio_input_stamps
+        now = audio_input_stamps(root, sid)[probe] if root is not None else ist.NO_ROWS
     elif probe in ("portrait_refs", "portrait_refs_fit"):
         table = None
         if root is not None:
@@ -904,6 +926,7 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
     from .minimap_objects import minimap_object_version
     from .roi_cache import ROI_CACHE_VERSION
+    from .stalls import STALL_VERSION
     from .version import (ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
                           COMBAT_REPORT_ROUND_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
                           ROUND_VERSION, SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION,
@@ -922,7 +945,10 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
              "weapon_whiten": WEAPON_WHITEN_VERSION,
              "killfeed_name_cluster": KILLFEED_NAME_CLUSTER_VERSION,
              "scoreboard_agent": SCOREBOARD_AGENT_VERSION,
-             "reliability": RELIABILITY_VERSION}
+             "reliability": RELIABILITY_VERSION,
+             # The stall rule over the stored motion and clock; the deaths it
+             # infers come from the stalls (recorded None where unread).
+             "stalls": STALL_VERSION}
     ult = {"ult_line": ULT_LINE_VERSION, "round": ROUND_VERSION, "tray_drop": TRAY_VERSION,
            "hud": HUD_VERSION, "player_cast": PLAYER_CAST_VERSION,
            "death": DEATH_ADJUDICATION_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,

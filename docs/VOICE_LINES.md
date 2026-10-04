@@ -728,14 +728,17 @@ The pipeline runs F-B unsuppressed at 0.0443, the configuration the 0.2.0
 verdicts chose, as a reader and an adjudicator.
 
 - **Reader.** `reticle ult-lines SESSION | --all` (`reticle/ult_lines.py`,
-  `ult-line-0.1.0`, `[owns:ult-line]`) decodes only the capture's audio
-  stream, in memory, and correlates the 58 templates that
-  `reticle/templates/ult_lines.json` declares: the 56 asset files and Gekko's
-  harvested Thrash pair, each checked against its hash. The FFTs run on the
+  `[owns:ult-line]`) decodes only the capture's audio
+  stream, in memory, and correlates the templates that
+  `reticle/templates/ult_lines.json` declares, each checked against its hash.
+  Through `ult-line-0.1.0` they were the 56 wiki asset files and Gekko's
+  harvested Thrash pair; from `ult-line-0.2.0` they are the game's own English
+  lines (`vo-ref-0.1.0` under `<store>/reference/game-files/vo/`), each agent's
+  ultimate announcement pair (`ult_lines.ult_event_rows`; the module docstring
+  names the three agents whose lines changed). The FFTs run on the
   GPU with cupy and fall back to numpy. It stores every peak above its
   template's 99th-percentile floor in `events/ult_line/<sid>.jsonl`, after a
-  coverage row, and consults no lineup. Gekko is scored from scratch, so the
-  0.2.0 merge's inexactness is gone. `prototypes/voice_lines.py` and
+  coverage row, and consults no lineup. `prototypes/voice_lines.py` and
   `prototypes/audio_gate.py` import the template cut, the correlation, the
   peaks, the decode and the log-mel front end from it.
 - **Adjudicator.** `reticle ult-cast SESSION | --all [--record]`
@@ -990,13 +993,33 @@ Under 0.4.0 a release still tainted a drop beside it as
 the release and the cast land in one window. `player-cast-0.5.0` lets a
 release, a drop `equip_release` refuses from above the full level, taint
 nothing, and accepts four more X casts: in-round X casts rise to
-[metric:ult_lines/ult-cast@all-sessions#x_casts=52], own selections
-witnessed to [metric:ult_lines/ult-cast@all-sessions#own_witnessed=48],
-missed lines to [metric:ult_lines/ult-cast@all-sessions#missed_lines=4], and
-[metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.923] of
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.5.0#x_casts=52], own selections
+witnessed to [metric:ult_lines/ult-cast@all-sessions-player-cast-0.5.0#own_witnessed=48],
+missed lines to [metric:ult_lines/ult-cast@all-sessions-player-cast-0.5.0#missed_lines=4], and
+[metric:ult_lines/ult-cast@all-sessions-player-cast-0.5.0#x_casts_with_line_fraction=0.923] of
 the casts have an own line. Three of the four bind a line that no cast
 witnessed before; the fourth, `bfad2778a372` at 405.57 s (Skye), has no own
 peak above the floor (the gate's docstring and ledger task `tray-cooccur`).
+
+### Bursts and witnesses (ult-cast-0.3.0)
+
+On 2026-10-04 `reticle ult-cast --all` reread the 21 matches' stored peaks
+under `player-cast-0.8.0` and `ult-cast-0.3.0`, which refuses weak bursts and
+accepts a peak under THRESHOLD only beside a tray X cast or a stored
+ultimate killfeed icon (the rules and their dev-half fits are in
+`adjudication.ult_cast`'s docstring). In-round X casts number
+[metric:ult_lines/ult-cast@all-sessions#x_casts=54], own selections witnessed
+[metric:ult_lines/ult-cast@all-sessions#own_witnessed=51], missed lines
+[metric:ult_lines/ult-cast@all-sessions#missed_lines=3], and
+[metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.944] of
+the casts have an own line. Against Riot's records
+(`prototypes/riot_ground_truth.py --ult-only`), recall is
+[metric:riot_truth/ult#recall=0.9028] and precision
+[metric:riot_truth/ult#precision=0.942], with
+[metric:riot_truth/ult#burst_refused=27] rows refused as bursts and
+[metric:riot_truth/ult#witnessed_casts=8] casts selected by a witness; on the
+held-out half, recall [metric:riot_truth/ult/held#recall=0.9526] and precision
+[metric:riot_truth/ult/held#precision=0.9269].
 
 ### What was not done in production
 
@@ -1146,7 +1169,7 @@ Ledger rows under task `voice-lines-heldout`, kind `outcome`, 2026-09-27.
   under `player-cast-0.4.0`, which also refuses the X drop that did not
   empty the slot, [metric:ult_lines/ult-cast@all-sessions-player-cast-0.4.0#x_casts_with_line_fraction=0.938] do;
   under `player-cast-0.5.0`, which accepts four X casts a release had
-  tainted, one of them unlined, [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.923] do.
+  tainted, one of them unlined, [metric:ult_lines/ult-cast@all-sessions-player-cast-0.5.0#x_casts_with_line_fraction=0.923] do.
 
 ### Recommendation
 

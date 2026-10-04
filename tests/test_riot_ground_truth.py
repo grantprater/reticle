@@ -436,5 +436,31 @@ class StaleStatusTest(unittest.TestCase):
             self.assertEqual(rg.stream_versions(store, "s1")["death"], "death-adjudication-0.1")
 
 
+class UltScoringTest(unittest.TestCase):
+    """0.4.1: burst refusals apart from impossible ones; Chamber's second truth."""
+
+    ROUNDS = [{"round_no": 1, "t_start_ms": 0.0, "t_end_ms": 90000.0, "t_close_ms": 97000.0},
+              {"round_no": 2, "t_start_ms": 97000.0, "t_end_ms": 190000.0, "t_close_ms": 197000.0}]
+
+    def test_a_burst_refusal_is_not_impossible(self):
+        self.assertTrue(rg._impossible({"kind": "refusal", "reason": "agent_not_on_ally_side"}))
+        self.assertFalse(rg._impossible({"kind": "refusal", "reason": "burst"}))
+        self.assertFalse(rg._impossible({"kind": "cast"}))
+
+    def test_tour_de_force_rounds_raise_chambers_truth_not_riots(self):
+        kills = [{"round": 0, "game_ms": 30000, "kind": "Tour De Force", "kills": 2},
+                 {"round": 1, "game_ms": 120000, "kind": "Tour De Force", "kills": 1}]
+        players = [{"agent": "Chamber", "side": "enemy", "riot_casts": 1, "ult_kills": kills},
+                   {"agent": "Jett", "side": "ally", "riot_casts": 2, "ult_kills": []}]
+        casts = [{"agent": "Chamber", "side": "enemy", "round": 1},
+                 {"agent": "Chamber", "side": "enemy", "round": 2},
+                 {"agent": "Chamber", "side": "ally", "round": 2}]
+        got = rg._chamber_tdf(players, casts, self.ROUNDS, 0.0)
+        self.assertEqual(got, [{"side": "enemy", "riot_casts": 1, "tdf_rounds": 2,
+                                "tdf_rounds_held": 2, "stored": 2, "truth": 2, "matched": 2,
+                                "excess": 0, "deficit": 0}])
+        self.assertEqual(players[0]["riot_casts"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
