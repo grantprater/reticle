@@ -25,7 +25,11 @@ half's impossible rate is
 or [metric:voice_lines/heldout-0.1.0@all-matches#heldout_impossible_per_min_b=0.1101]
 per live minute (`docs/VOICE_LINES.md`, "Held-out threshold"). Every peak above
 it stays: two templates that peak at one onset are two selections
-(`docs/VOICE_LINES.md`, "Verdicts at 0.2.0").
+(`docs/VOICE_LINES.md`, "Verdicts at 0.2.0"). The threshold was set on the
+wiki templates of ult-line-0.1.0; the game's own lines that replace them at
+ult-line-0.2.0 are the same recordings for 57 of 58 templates (GCC-PHAT at
+least 0.96 clip against clip, `prototypes/vo_ref_eval.py`), Harbor's ally
+line being the exception.
 
 **Classing** (`template_class`), against the lineup's identity verdicts:
 

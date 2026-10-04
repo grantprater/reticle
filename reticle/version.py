@@ -583,7 +583,9 @@ ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.1.1"
 # audio, written as `ult_line` rows by `reticle ult-lines` (`ult_lines`). It
 # stores no class and no name. Bump when a template, the front end, the
 # correlation, the floor or the stored fields change -- those re-decode audio.
-ULT_LINE_VERSION = "ult-line-0.1.0"
+# 0.2.0: the templates are the game's own English lines (vo-ref-0.1.0, each
+# agent's ultimate announcement event), not the wiki MP3s.
+ULT_LINE_VERSION = "ult-line-0.2.0"
 # Ultimate casts selected, classed and named from stored `ult_line` peaks, the
 # lineup and the rounds table by `reticle ult-cast` (`adjudication.ult_cast`),
 # with own lines bound to the player's X casts from `tray_drop`. Bump when the

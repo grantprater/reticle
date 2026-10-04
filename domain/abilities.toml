@@ -3946,3 +3946,46 @@ the player hedged "I believe that's all": another passive with a cue is not
 ruled out
 """
 see = ["abilities/passive-abilities-draw-no-ui"]
+
+[raze-ult-line-plays-at-equip]
+claim = """
+Raze's ultimate announcement, the ally line and the enemy line, belongs to the
+game's AbilityXEquip voice event (Play_VO_Clay_AbilityXEquip), not to
+AbilityXCast, whose media are short efforts with no side.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-03"
+subject = "raze:showstopper"
+source = """
+the game's own event and media names, extracted headlessly into vo-ref-0.1.0
+(<store>/reference/game-files/vo/manifest.jsonl); the wiki's two Raze ult
+lines are those two XEquip media by GCC-PHAT clip against clip
+(prototypes/vo_ref_eval.py equivalence)
+"""
+use = "`ult_lines.ult_event_rows` takes Raze's pair from XEquip"
+see = ["abilities/ult-lines-heard-by-both-teams"]
+
+[reyna-ult-line-media-names]
+claim = """
+Reyna's ultimate cast plays the game's Play_VO_Vampire_ULT_AbilityXCast event,
+not the plain AbilityXCast: its media Vampire.ULT.AbilityXCastAllies01 is the
+line her allies hear, and Vampire.ULT.AbilityXCastAllies02, despite its name,
+the line her enemies hear.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-10-03"
+subject = "reyna:empress"
+source = """
+the stored ult-line-0.1.0 peaks, whose two Reyna templates are those two media,
+on the five Riot-recorded matches with one Reyna: Allies01 peaks only where
+Reyna was the player's ally, Allies02 only where she was an enemy, the other
+template staying at its noise floor (prototypes/vo_ref_eval.py; the commit
+that adds this fact carries the scores). Her plain AbilityXCast pair scores
+about half against them by GCC-PHAT, and her templates' cast peaks read above
+every other agent's median, so the plain pair is not what plays.
+"""
+use = "`ult_lines.HEARD_BY` corrects the media name; `ult_event_rows` prefers the ULT_ event"
+exceptions = "Whether the plain AbilityXCast event plays at all is unknown."
+see = ["abilities/ult-lines-heard-by-both-teams"]
