@@ -178,12 +178,23 @@ def derived_streams() -> list[dict]:
                           MINIMAP_DARK_VERSION, PLANT_GRAPHIC_VERSION, SMOKE_OWNER_VERSION,
                           SMOKE_VERSION, SPIKE_CARRIER_VERSION, SPIKE_VERSION, TEAM_VISION_VERSION,
                           TEARDROP_VERSION, TRAY_KIT_VERSION, TRAY_VERSION)
+    from .version import (ROUND_OUTCOME_CLAIM_VERSION, ROUND_OUTCOME_VERSION,
+                          SCOREBOARD_STRIP_VERSION)
     roi = {"roi_cache_version": ROI_CACHE_VERSION}
     rows = [
         {"stream": "menu_open", "key": "menu_version", "current": MENU_VERSION,
          "command": "reticle menu {sid}", "how": "cache", "fields": roi, "upstream": ()},
         {"stream": "spike", "key": "spike_version", "current": SPIKE_VERSION,
          "command": "reticle spike {sid}", "how": "cache", "fields": roi, "upstream": ()},
+        # How each round ended: the round-history cells reread from the
+        # scoreboard crop cache on the strip's present frames, pooled into one
+        # claim per stored round. The coverage row records the pooling stamp.
+        {"stream": "round_outcome", "key": "round_outcome_version",
+         "current": ROUND_OUTCOME_VERSION, "command": "reticle round-outcome {sid}",
+         "how": "cache",
+         "fields": {**roi, "scoreboard_strip_version": SCOREBOARD_STRIP_VERSION,
+                    "round_outcome_claim_version": ROUND_OUTCOME_CLAIM_VERSION},
+         "upstream": ("scoreboard_strip", "rounds")},
         {"stream": "plant_graphic", "key": "plant_graphic_version",
          "current": PLANT_GRAPHIC_VERSION, "command": "reticle plant-graphic {sid}",
          "how": "cache", "fields": roi, "upstream": ()},
@@ -441,6 +452,8 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                           **_lineup_inputs()},
         "self_icon": {"roster": _in("roster_version", "roster"),
                       "portrait_refs": _in("reference_version", "portrait_refs"), **geo},
+        "round_outcome": {"scoreboard_strip": _in("scoreboard_strip_version",
+                                                  "scoreboard_strip#scoreboard_strip_version")},
         "spike_carrier": {"spike": _in("spike_version", "spike#spike_version"),
                           "rounds": _in("inputs.rounds", "rounds"),
                           "roster": _in("inputs.roster", "roster")},

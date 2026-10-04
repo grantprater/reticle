@@ -39,7 +39,8 @@ from pathlib import Path
 from . import geometry
 from .checks import KNOWN_KD, player_events
 from .store import DEFAULT_STORE, Store
-from .version import HUD_VERSION, MINIMAP_VERSION, PING_VERSION, ROSTER_VERSION
+from .version import (HUD_VERSION, MINIMAP_VERSION, PING_VERSION, ROSTER_VERSION,
+                      ROUND_OUTCOME_VERSION)
 from .widget_frame import cohort
 
 LABEL_KINDS = ("minimap", "minimap_dynamic", "minimap_agent", "enemies", "map_mask")
@@ -108,20 +109,23 @@ def stored_versions(root: Path) -> dict[str, collections.Counter]:
     # Events are not parquet and were invisible here, which is half of why
     # `PING_VERSION` could be written by every row and read by nothing. A
     # store holding pings at two definitions now says so.
-    c = collections.Counter()
-    d = root / "events" / "ping"
-    if d.is_dir():
-        for f in sorted(d.glob("*.jsonl")):
-            v = None
-            try:
-                for ln in f.read_text(encoding="utf-8").splitlines():
-                    if ln.strip():
-                        v = json.loads(ln).get("ping_version")
-                        break
-            except Exception:
-                v = "unreadable"
-            c[v or "(no rows)"] += 1
-    out["ping"] = c
+    # The round outcomes are read from the crop cache by `reticle
+    # round-outcome`, and the deaths rest on them; list their stamps too.
+    for stream, key in (("ping", "ping_version"), ("round_outcome", "round_outcome_version")):
+        c = collections.Counter()
+        d = root / "events" / stream
+        if d.is_dir():
+            for f in sorted(d.glob("*.jsonl")):
+                v = None
+                try:
+                    for ln in f.read_text(encoding="utf-8").splitlines():
+                        if ln.strip():
+                            v = json.loads(ln).get(key)
+                            break
+                except Exception:
+                    v = "unreadable"
+                c[v or "(no rows)"] += 1
+        out[stream] = c
     return out
 
 
@@ -131,7 +135,7 @@ def collect(store: Store) -> dict:
     out = {"sessions": [], "store": str(root),
            "hud_version": HUD_VERSION,
            "minimap_version": MINIMAP_VERSION,
-           "ping_version": PING_VERSION,
+           "ping_version": PING_VERSION, "round_outcome_version": ROUND_OUTCOME_VERSION,
            "roster_version": ROSTER_VERSION,
            "stored": {k: dict(v) for k, v in stored_versions(root).items()}}
     label_rows: dict = collections.defaultdict(dict)
@@ -266,6 +270,7 @@ def render(data: dict, markdown: bool = False) -> str:
                          # events, not a table -- but a version stamp nothing
                          # reports is a version stamp nothing can act on
                          ("ping", data["ping_version"]),
+                         ("round_outcome", data["round_outcome_version"]),
                          ("roster", data["roster_version"])):
         got = data.get("stored", {}).get(kind, {})
         if not got:
@@ -274,7 +279,9 @@ def render(data: dict, markdown: bool = False) -> str:
         stale = sum(n for v, n in got.items() if v != code_v)
         line = f"L1 {kind}: {parts}; code is at `{code_v}`"
         if stale:
-            line += f" -- **{stale} STALE**, re-read with `reticle scan`"
+            redo = ("reticle round-outcome --all" if kind == "round_outcome"
+                    else "reticle scan")
+            line += f" -- **{stale} STALE**, re-read with `{redo}`"
         L.append(line)
     if scored:
         L.append(f"{len(exact)} of {len(scored)} exact against `checks.KNOWN_KD`.")

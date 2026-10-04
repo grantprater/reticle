@@ -1984,7 +1984,7 @@ def round_outcome_streams(store, man: dict) -> dict:
     from .roi_cache import RoiCache
     from .scoreboard import strip_rect, table_columns
     from .scoreboard_strip import ROW_Y
-    from .version import SCOREBOARD_STRIP_VERSION
+    from .version import ROUND_OUTCOME_CLAIM_VERSION, SCOREBOARD_STRIP_VERSION
 
     sid = man["session_id"]
     strip = store.read_events("scoreboard_strip", sid) or []
@@ -2018,6 +2018,8 @@ def round_outcome_streams(store, man: dict) -> dict:
                  for smp in cache.samples(present)]
     rows = ro.outcome_events(sid, reads, geometry, cache.record["version"], stamp)
     claims = pool_outcomes(sid, rows, rounds.to_pylist())
+    # The coverage row records the pooling stamp, so `plan` sees a moved rule.
+    rows[0]["round_outcome_claim_version"] = ROUND_OUTCOME_CLAIM_VERSION
     return {"rows": rows + claims, "claims": claims, "geometry": geometry}
 
 
