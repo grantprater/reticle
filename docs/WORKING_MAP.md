@@ -14,8 +14,7 @@ owner is not for.
    [PROJECT_GUIDE.md](../PROJECT_GUIDE.md) section; read a design plan only for
    its rationale or acceptance boundary.
 
-[docs/archive/](archive/) holds dated history: old handoffs, completed
-arguments, retired task contracts.
+Dated history lives in [docs/archive/](archive/).
 
 ## Module routing
 
@@ -34,7 +33,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Each side's five agents from the scoreboard | `adjudication/identity.py` (`board_side_sets`, `lineup_with_board`), [SCOREBOARD_LINEUP.md](SCOREBOARD_LINEUP.md) |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py`, `team_vision.py` |
 | Which stored minimap fits become icons; the candidate record | `candidate_evidence.py`, `adjudication/minimap_candidates.py`, [MINIMAP_CANDIDATE_CONTRACT.md](MINIMAP_CANDIDATE_CONTRACT.md) |
-| Position belief and its evidence | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
+| Position belief; temporal adjudication design | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
 | Which icon is which: occluders, glyphs, appearance matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
 | Minimap mining critique, minimal-label design, deterministic vs YOLO | [MINIMAP_MINING_REVIEW.md](MINIMAP_MINING_REVIEW.md) |
 | What else lives in a colour key | `prototypes/key_collision.py` (label sheets, no decode) |
@@ -42,18 +41,17 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | What is true of the GAME, cited not restated | `domain/*.toml`, `reticle/domain.py`, `reticle domain` |
 | Proposed domain knowledge, reviewed over stored evidence | `reticle/domain_learning.py`, `tools/domain_hypothesis.py`, [ENTITY_DOMAIN_LEARNING_DESIGN.md](ENTITY_DOMAIN_LEARNING_DESIGN.md) |
 | WHICH MODULE MAY DECIDE A QUESTION | `reticle ownership <question>`, `ownership.toml`, the `reticle/ownership.py` docstring |
-| The layering, and which upward edges are blessed | `architecture.toml`, `reticle/architecture.py` |
+| Layers and blessed upward edges | `architecture.toml`, `reticle/architecture.py` |
 | A quoted figure and its run | `reticle/quoted.py`, `reticle/metrics.py` |
 | Which documents are live, and what reaches them | `documents.toml`, `reticle/documents.py`, `doctor` DOCS |
 | VOD scan cost and reader call frequencies | `reticle usage [SESSION]`, `reticle/usage.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Riot match records | `prototypes/riot_ground_truth.py SESSION\|--all` |
 | Experiments | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
-| Temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |
 | The scene model (render-and-compare) | [SCENE_MODEL.md](SCENE_MODEL.md) |
 | Events consumers read | [ENTITY_EVENTS.md](ENTITY_EVENTS.md) |
 | Ability entity inference and capture plan | `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` |
-| Every caster's minimap abilities: the crop-cache pass, cost, recall | [ABILITY_DETECTION.md](ABILITY_DETECTION.md) |
+| Every caster's minimap abilities | [ABILITY_DETECTION.md](ABILITY_DETECTION.md) |
 | What each demo cast draws on the minimap | [DEMO_CAST_CENSUS.md](DEMO_CAST_CENSUS.md) |
 | Naming the player's casts from audio | [AUDIO_ABILITY_BANK.md](AUDIO_ABILITY_BANK.md) |
 | The audio gate: design, labels, results | [AUDIO_GATE.md](AUDIO_GATE.md) |
@@ -63,11 +61,10 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
-| Visual debugging | `overlay.py`, `glance.py`, `refine.py` |
+| Visual debugging | `overlay.py`, `glance.py` |
 | Round review from events | `round_view.py`, `view_events.py`, `docs/EVENT_GAPS.md` |
-
 | Contiguous minimap correction and review | `tools/minimap_sequence_summary.py`, `tools/minimap_sequence_review.py` |
-| Camera wipes where per-frame and adjudicated killfeed counts disagree | `tools/wipe_scout.py` |
+| Camera wipes: per-frame vs adjudicated killfeed counts disagree | `tools/wipe_scout.py` |
 
 Module names are relative to `reticle/` unless a directory is shown.
 
@@ -115,23 +112,24 @@ Module names are relative to `reticle/` unless a directory is shown.
 ```
 
 Geometry is one npz per `<map>__<profile>`, never per session: resolve every
-path through `reticle/geometry.py`. A session with no `map:` tag reaches no
-geometry; `doctor` COVERAGE reports it.
+path through `reticle/geometry.py`, never by joining a session id onto
+`store/geometry/`. A session with no `map:` tag reaches no geometry; `doctor`
+COVERAGE reports it.
 
-For stored-data changes, prefer `segment`, `audit`, `coach` or `sql`;
-`segment` and `audit` reuse stored L1. `scan --only hud` rereads the crop cache
+For stored-data changes, prefer `segment` or `audit` (both reuse
+stored L1), `coach` or `sql`. `scan --only hud` rereads the crop cache
 (`roi_cache`) and decodes only with `--from video`. Under the default
-`--from auto`, a span reader (`minimap`, `minimap_dark`, `ally_icon`) reads a
-complete round cache's live rounds (no buy phase) and otherwise decodes; its stream records unread spans as `spans_clip`.
-`hud`, `board` and `overlay` open the source video. Run a targeted test file,
-then `verify --tier fast`, then the full suite across module boundaries.
+`--from auto`, a span reader reads a complete round cache, else decodes
+(`roi_cache.clip_record` owns the clip). `hud`, `board` and `overlay` open the
+source video. Run a targeted test file, then `verify --tier fast`, then the
+full suite across module boundaries.
 `refine` previews stored windows; `--execute` reads only their merged intervals
-into separate dense evidence, given current provenance and a cached killfeed
-mask. Repeated `--review-id`s combine windows; limits refuse, never truncate.
+into separate dense evidence. It requires current provenance and a cached
+killfeed mask. Repeated `--review-id`s combine windows; limits refuse, never
+truncate.
 
 ## Rules
 
-[AGENTS.md](../AGENTS.md#global-constraints) holds the global rules; this map
-does not restate them. They protect the pipeline spine `raw observation ->
-adjudication -> lifecycle event -> compound episode -> review/coaching
-hypothesis`, declared as layers in `architecture.toml`.
+[AGENTS.md](../AGENTS.md#global-constraints) holds the global rules. They
+protect the pipeline spine `raw observation -> adjudication -> lifecycle event
+-> compound episode -> review/coaching hypothesis`, declared as layers in `architecture.toml`.
