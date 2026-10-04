@@ -36,6 +36,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+from scipy.spatial.distance import cdist
 
 import cv2
 
@@ -177,9 +178,43 @@ class Templates:
         self.labels = list(labels)
         self.bitmaps = np.asarray(bitmaps, dtype=np.float32)
         self._flat = self.bitmaps.reshape(len(self.labels), -1)
+        # Templates grouped by label, so one `np.minimum.reduceat` gives each
+        # label's nearest template; the rival is the second-nearest label.
+        uniq, codes = np.unique(np.array(self.labels, dtype=str), return_inverse=True)
+        order = np.argsort(codes, kind="stable")
+        self._uniq = [str(u) for u in uniq]
+        # float64 for `cdist`, which computes in float64.
+        self._grouped = self._flat[order].astype(np.float64)
+        self._starts = np.searchsorted(codes[order], np.arange(len(uniq)))
 
     def __len__(self) -> int:
         return len(self.labels)
+
+    def match_many(self, bitmaps: np.ndarray) -> tuple[list[str], np.ndarray, np.ndarray]:
+        """`match` for a stack of normalised glyph bitmaps at once: labels,
+        scores and margins, one per glyph, as the HUD fields read them.
+
+        Distances are summed exactly (`cdist` in float64 over 0/1 bitmaps
+        gives integer sums) and divided once, so a margin equal to the cut is
+        exactly the cut and passes; `match`'s float32 mean put a 12/240
+        margin either side of 0.05 by rounding. A tie between labels takes
+        the first label in sort order, at margin 0."""
+        g = np.asarray(bitmaps, dtype=np.float64).reshape(len(bitmaps), -1)
+        if len(g) == 0:
+            return [], np.zeros(0), np.zeros(0)
+        n = g.shape[1]
+        s = cdist(g, self._grouped, "cityblock")
+        per_label = np.minimum.reduceat(s, self._starts, axis=1)
+        best = np.argmin(per_label, axis=1)
+        best_s = per_label[np.arange(len(g)), best]
+        if per_label.shape[1] > 1:
+            rival_s = np.partition(per_label, 1, axis=1)[:, 1]
+        elif s.shape[1] > 1:
+            # One label only: the rival is the next template of that label.
+            rival_s = np.partition(s, 1, axis=1)[:, 1]
+        else:
+            rival_s = best_s
+        return ([self._uniq[i] for i in best], 1.0 - best_s / n, (rival_s - best_s) / n)
 
     def match(self, glyph: Glyph) -> tuple[str, float, float]:
         """Nearest template by mean absolute difference.
@@ -195,6 +230,8 @@ class Templates:
         and matched "8" at score 0.85 -- its margin was 0.017, against 0.16-0.29
         for clean glyphs.
         """
+        # The scoreboard and the combat report read through this float32
+        # mean under their own versions; the HUD fields read `match_many`.
         d = np.abs(self._flat - glyph.bitmap.reshape(1, -1)).mean(axis=1)
         order = np.argsort(d)
         best = int(order[0])
@@ -473,13 +510,10 @@ def drop_odd_siblings(glyphs: list[Glyph]) -> list[Glyph]:
 
 def _digits(glyphs: list[Glyph], templates: Templates) -> tuple[str, float, float]:
     """Concatenated labels plus the weakest score and weakest margin seen."""
-    text, worst_score, worst_margin = "", 1.0, 1.0
-    for g in glyphs:
-        label, score, margin = templates.match(g)
-        text += label
-        worst_score = min(worst_score, score)
-        worst_margin = min(worst_margin, margin)
-    return text, worst_score, worst_margin
+    if not glyphs:
+        return "", 1.0, 1.0
+    labels, scores, margins = templates.match_many(np.stack([g.bitmap for g in glyphs]))
+    return ("".join(labels), min(1.0, float(scores.min())), min(1.0, float(margins.min())))
 
 
 def read_scoreline(

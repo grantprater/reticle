@@ -80,5 +80,46 @@ class RenderedDigitTests(unittest.TestCase):
         self.assertTrue(all(Path(f).is_file() for f in ft.files))
 
 
+class MatchManyTests(unittest.TestCase):
+    def setUp(self):
+        rng = np.random.default_rng(3)
+        self.maps = (rng.random((40, 20, 12)) > 0.5).astype(np.float32)
+        self.tpl = ocr.Templates([str(i % 7) for i in range(40)], self.maps)
+
+    def test_agrees_with_match_off_ties(self):
+        rng = np.random.default_rng(4)
+        glyphs = (rng.random((30, 20, 12)) > 0.5).astype(np.float32)
+        glyphs[:10] = self.maps[:10]
+        labels, scores, margins = self.tpl.match_many(glyphs)
+        for bm, label, score, margin in zip(glyphs, labels, scores, margins):
+            want = self.tpl.match(ocr.Glyph(0, 0, 12, 20, bm))
+            self.assertAlmostEqual(margin, want[2], places=6)
+            self.assertAlmostEqual(score, want[1], places=6)
+            if margin > 0:
+                self.assertEqual(label, want[0])
+
+    def test_margin_at_the_cut_is_the_cut(self):
+        # Twelve of 240 pixels separate the two labels: the margin is 0.05
+        # exactly, which the reader's `margin < 0.05` keeps.
+        a = np.zeros((20, 12), np.float32)
+        b = a.copy()
+        b[0, :] = 1.0
+        tpl = ocr.Templates(["0", "8"], np.stack([a, b]))
+        _labels, _scores, margins = tpl.match_many(a[None])
+        self.assertFalse(margins[0] < 0.05)
+
+    def test_one_label_takes_its_next_template_as_rival(self):
+        a = np.zeros((20, 12), np.float32)
+        b = a.copy()
+        b[0, :6] = 1.0
+        tpl = ocr.Templates(["1", "1"], np.stack([a, b]))
+        labels, _scores, margins = tpl.match_many(a[None])
+        self.assertEqual(labels, ["1"])
+        self.assertAlmostEqual(margins[0], 6 / 240)
+
+    def test_no_glyphs(self):
+        self.assertEqual(ocr._digits([], self.tpl), ("", 1.0, 1.0))
+
+
 if __name__ == "__main__":
     unittest.main()
