@@ -1725,8 +1725,9 @@ see = ["abilities/minimap-icon-pale-region", "abilities/ability-rules-are-unique
 
 [deadlock-sonic-sensor-minimap-white-area]
 claim = """
-Deadlock's Sonic Sensor in slot Q draws an axis-aligned square on the
-minimap, about 26 px on a side at scale 1, with the sensor's icon on the
+Deadlock's Sonic Sensor in slot Q draws a square on the minimap, its
+side along the wall the sensor sits on (axis-aligned on an axis-aligned
+wall), about 26 px on a side at scale 1, with the sensor's icon on the
 midpoint of one side. The square is a flat white tint of alpha about 0.17
 with no brighter rim, drawn over void too. It does not light the floor. A
 dim (deactivated) sensor draws no square.
@@ -1755,12 +1756,44 @@ px widget [domain:minimap/icon-extent-by-family]. Floor inside the square is
 tinted, not lit
 """
 exceptions = """
-every measured square was axis-aligned; whether a sensor placed at another
-angle draws a rotated square is unasked. Durations are censored by
-crop-cache gaps; 17-83 s were seen
+the squares measured on 2026-09-30 were all on axis-aligned walls. A
+sensor on any other wall turns its square with the wall
+[domain:abilities/deadlock-sonic-sensor-square-follows-wall]. Durations
+are censored by crop-cache gaps; 17-83 s were seen
 """
 see = ["abilities/minimap-icon-pale-region", "minimap/device-dim-on-deactivation",
-       "abilities/ability-rules-are-unique"]
+       "abilities/ability-rules-are-unique", "abilities/deadlock-sonic-sensor-square-follows-wall"]
+
+[deadlock-sonic-sensor-square-follows-wall]
+claim = """
+A Sonic Sensor may sit at any angle and is always normal to the wall it is
+placed on, so its minimap square turns with the wall: the icon stays on the
+midpoint of one side and its glyph turns by the same angle.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "deadlock:sonic sensor"
+source = """
+the player, 2026-10-04 (labels/minimap_glyph_questions/answers.jsonl, row
+rotation:Deadlock:Q, 16:09 UTC): "I think it could be any angle but it is
+always normal to the wall". One observation agrees: a sensor on
+29eff6920e8f at (343, 164) on the minimap crop, 34.4-48.3 s, marked
+Deadlock:Q five times in the held-out glyph labelling pass, shows in the
+tint map (frame minus the baked static, over 255 minus the static) a
+square off the axes with the icon on its side, which
+prototypes/sonic_square.py's axis-aligned fit missed every time
+"""
+use = """
+fit the square with a rotation, the angle shared with the icon's glyph and
+the wall under it; an axis-aligned fit misses these
+"""
+exceptions = """
+the player hedged ("I think"). One observed instance, its angle read by
+eye; whether the square's side lies exactly along the minimap's drawn wall
+is unmeasured
+"""
+see = ["abilities/deadlock-sonic-sensor-minimap-white-area", "abilities/ability-rules-are-unique"]
 
 [piloted-drones-have-cones]
 claim = """
