@@ -152,6 +152,21 @@ Overdrive (its item id) (`ULT_WEAPON_ITEMS`).
 Riot's count is truth only per match, and provably low for some Chamber
 players; scores here measure agreement with it, not accuracy per cast.
 
+0.4.1 (ult-cast-0.3.0):
+
+* `impossible` counts the lineup's refusals only; rows `ult_cast` refused as a
+  burst count as `burst_refused`. Before 0.4.1 every refusal was impossible.
+* A second Chamber truth (`chamber_tdf`): each Riot round in which a Chamber
+  kills with Tour De Force holds that Chamber's cast, so per Chamber player
+  the truth is at least the number of such rounds. It reports the rounds held
+  by a stored Chamber cast of that side, and Chamber's matched count against
+  max(Riot's count, those rounds). Riot's own numbers are unchanged.
+* Pools print and record for the declared dev and held halves
+  (`ULT_DEV_SESSIONS`) as well as for all sessions.
+* The sweep passes the stored deaths, so `ult_cast`'s ult-kill witnesses
+  apply; it has no tray, so `sweep_reproduces_stored` compares the rows no
+  witness selected.
+
 What the scorer reads stale (0.3.1)
 -----------------------------------
 * `status` reads second lives under the running code's
@@ -193,7 +208,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-RIOT_TRUTH_VERSION = "riot-truth-0.4.0"
+RIOT_TRUTH_VERSION = "riot-truth-0.4.1"
 STORE = Path.home() / "reticle-store"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -2121,6 +2136,14 @@ ULT_SWEEP = (0.03, 0.035, 0.04, 0.0443, 0.05, 0.06, 0.07)
 #: (`witness_killfeed`); Chamber's other unlisted item is Headhunter.
 ULT_WEAPON_ITEMS = {("Chamber", ""): "Tour De Force",
                     ("Neon", "95336AE4-45D4-1032-CFAF-6BAD01910607"): "Overdrive"}
+#: The dev half that fitted ult-cast-0.3.0's burst bound and witness floor: the
+#: 22 Riot-record sessions sorted by id, even places, declared before the fit
+#: (store notes/predictions.jsonl, task ult-adjudicate-20261004). The rest are
+#: held out.
+ULT_DEV_SESSIONS = frozenset((
+    "043bafca271a", "223d636bf8d2", "4f207c0c4e39", "587c15b07779", "7010b3d62460",
+    "96aa1ae9b96f", "a06f04a0059f", "b3b9defb6fd7", "bdfdcf009dba", "c40d950031bb",
+    "e37fdeca944f"))
 
 
 def asset_agent(name: str | None) -> str | None:
@@ -2321,25 +2344,59 @@ def _ult_kill_rows(players, casts, refusals, peaks, rounds, a, is_live) -> list[
     return out
 
 
+def _impossible(r: dict) -> bool:
+    """A refusal the lineup made, not a burst (ult-cast-0.3.0)."""
+    return r.get("kind") == "refusal" and r.get("reason") != "burst"
+
+
+def _unwitnessed_keys(rows: list[dict], witnessed: set) -> list:
+    """The cast and refusal rows' keys, leaving out the entities in `witnessed`."""
+    return sorted((r["entity_id"], r["kind"], r["class"], r.get("agent")) for r in rows
+                  if r.get("kind") in ("cast", "refusal") and r["entity_id"] not in witnessed)
+
+
 def _sweep(sid: str, peak_rows: list[dict], lineup, rounds, round_version, players,
-           is_live) -> dict:
-    """Per swept threshold, the owner's rows (`ult_cast.adjudicate`, no tray)
-    scored as the stored ones are: Riot matched, excess, impossible (live)."""
+           is_live, deaths=None) -> dict:
+    """Per swept threshold, the owner's rows (`ult_cast.adjudicate`, the stored
+    deaths, no tray) scored as the stored ones are: Riot matched, excess,
+    impossible (live), burst refusals."""
     from reticle.adjudication.ult_cast import adjudicate
     out = {}
     for tau in ULT_SWEEP:
-        rows = adjudicate(sid, peak_rows, lineup, rounds, round_version, threshold=tau)["rows"]
+        rows = adjudicate(sid, peak_rows, lineup, rounds, round_version, threshold=tau,
+                          deaths=deaths)["rows"]
         casts = [r for r in rows if r.get("kind") == "cast"]
         disp = _ult_dispose(casts, players, is_live,
                             [r for r in rows if r.get("kind") == "refusal"])
         out[tau] = {"casts": len(casts),
                     "matched": sum(v["matched"] for v in disp.values()),
                     "excess": sum(c.get("_disp") != "matched" for c in casts),
-                    "impossible": sum(r.get("kind") == "refusal" for r in rows),
-                    "impossible_live": sum(r.get("kind") == "refusal" and is_live(r["t_s"])
-                                           for r in rows),
-                    "_keys": sorted((r["entity_id"], r["kind"], r["class"], r.get("agent"))
-                                    for r in rows if r.get("kind") in ("cast", "refusal"))}
+                    "impossible": sum(_impossible(r) for r in rows),
+                    "impossible_live": sum(_impossible(r) and is_live(r["t_s"]) for r in rows),
+                    "burst_refused": sum(r.get("kind") == "refusal" and r.get("reason") == "burst"
+                                         for r in rows),
+                    "_rows": rows}
+    return out
+
+
+def _chamber_tdf(players: list[dict], casts: list[dict], rounds: list[dict], a: float) -> list[dict]:
+    """Per Chamber player: the Riot rounds with a Tour De Force kill, how many
+    hold a stored Chamber cast of that side, and the count truth max(Riot's
+    count, those rounds) against the stored casts."""
+    from reticle.adjudication.ult_cast import round_of
+    out = []
+    for p in players:
+        if p["agent"] != "Chamber":
+            continue
+        tdf = {round_of(a + x["game_ms"], rounds) for x in p["ult_kills"]
+               if x["kind"] == "Tour De Force"} - {None}
+        mine = [c for c in casts if c.get("agent") == "Chamber" and c["side"] == p["side"]]
+        held = {c.get("round") for c in mine} & tdf
+        truth = max(p["riot_casts"], len(tdf))
+        out.append({"side": p["side"], "riot_casts": p["riot_casts"], "tdf_rounds": len(tdf),
+                    "tdf_rounds_held": len(held), "stored": len(mine), "truth": truth,
+                    "matched": min(len(mine), truth), "excess": max(len(mine) - truth, 0),
+                    "deficit": max(truth - len(mine), 0)})
     return out
 
 
@@ -2384,7 +2441,9 @@ def score_ults(sid: str, d: dict, ident: dict, ref: Reference, store_root: Path,
     out = {"stamps": stamps, "live_min": round(live_min, 2), "podcast": sid in podcast,
            "player_agent": cov.get("player_agent"),
            "riot_casts": sum(p["riot_casts"] for p in players),
-           "stored_casts": len(casts), "impossible": len(refusals),
+           "stored_casts": len(casts), "impossible": sum(_impossible(r) for r in refusals),
+           "burst_refused": sum(r.get("reason") == "burst" for r in refusals),
+           "witnessed_casts": sum(c.get("selected_by") == "witness" for c in casts),
            "missed_lines": sum(r.get("kind") == "missed_line" for r in rows)}
     out["matched"] = sum(v["matched"] for v in per.values())
     out["deficit"] = sum(v["deficit"] for v in per.values())
@@ -2430,13 +2489,23 @@ def score_ults(sid: str, d: dict, ident: dict, ref: Reference, store_root: Path,
                          "cause": c.get("_cause"), "near_n": c["_near_n"]} for c in casts]
     imp = []
     for r in refusals:
+        if not _impossible(r):
+            continue
         cause, flags = _impossible_cause(r, casts, refusals, players, is_live, sid in podcast)
         imp.append({"t_s": r["t_s"], "template": r["template"], "score": r["score"],
                     "round": r.get("round"), "reason": r["reason"], "cause": cause,
                     **{k: v for k, v in flags.items() if v}})
     out["impossible_rows"] = imp
     out["impossible_causes"] = dict(Counter(r["cause"] for r in imp))
-    out["impossible_reasons"] = dict(Counter(r["reason"] for r in refusals))
+    out["impossible_reasons"] = dict(Counter(r["reason"] for r in refusals if _impossible(r)))
+    # Each cast row as the scorer judged it, keyed for the before/after diff.
+    out["verdicts"] = {r["entity_id"]: {"kind": r["kind"], "template": r["template"],
+                                        "t_s": r["t_s"], "score": r["score"],
+                                        "agent": r.get("agent"), "reason": r.get("reason"),
+                                        "selected_by": r.get("selected_by"),
+                                        "disp": r.get("_disp")}
+                       for r in casts + refusals}
+    out["chamber_tdf"] = _chamber_tdf(players, casts, rounds, a)
     # Deficits: the player's template's refusals, and its best live peaks that no
     # selected row of that template's round holds.
     sel_rounds = defaultdict(set)
@@ -2470,18 +2539,20 @@ def score_ults(sid: str, d: dict, ident: dict, ref: Reference, store_root: Path,
     out["ult_kills"] = _ult_kill_rows(players, casts, refusals, peaks, rounds, a, is_live)
     if sweep:
         lineup = load_lineup(sid, Path(store_root))
-        sw = _sweep(sid, peak_rows, lineup, rounds, round_version, players, is_live)
-        stored_keys = sorted((r["entity_id"], r["kind"], r["class"], r.get("agent"))
-                             for r in casts + refusals)
-        out["sweep_reproduces_stored"] = sw[0.0443].pop("_keys") == stored_keys
+        sw = _sweep(sid, peak_rows, lineup, rounds, round_version, players, is_live,
+                    deaths=stored_deaths(store_root, sid))
+        swept = sw[0.0443]["_rows"]
+        witnessed = {r["entity_id"] for r in casts + swept if r.get("selected_by") == "witness"}
+        out["sweep_reproduces_stored"] = (_unwitnessed_keys(swept, witnessed)
+                                          == _unwitnessed_keys(casts + refusals, witnessed))
         for v in sw.values():
-            v.pop("_keys", None)
+            v.pop("_rows", None)
         out["sweep"] = {str(k): v for k, v in sw.items()}
     return out
 
 
 ULT_POOL_KEYS = ("riot_casts", "stored_casts", "matched", "deficit", "excess_rows", "impossible",
-                 "missed_lines")
+                 "missed_lines", "burst_refused", "witnessed_casts")
 
 
 def pool_ults(results: list[dict]) -> dict:
@@ -2568,6 +2639,19 @@ def pool_ults(results: list[dict]) -> dict:
     K["instances"] = K["right"] + K["wrong"] + K["miss"]
     K["recall"] = round(K["right"] / K["instances"], 4) if K["instances"] else None
     P["ult_kills"] = dict(sorted(K.items()))
+    # Chamber against Tour De Force kill rounds, the second Chamber truth.
+    C = Counter()
+    for r in ok:
+        for c in r["ult"].get("chamber_tdf") or ():
+            C.update({k: v for k, v in c.items() if isinstance(v, int)})
+            C["players"] += 1
+            C["riot_below_tdf_rounds"] += c["riot_casts"] < c["tdf_rounds"]
+    if C:
+        C["tdf_rounds_held_fraction"] = (round(C["tdf_rounds_held"] / C["tdf_rounds"], 4)
+                                         if C["tdf_rounds"] else None)
+        C["recall"] = round(C["matched"] / C["truth"], 4) if C["truth"] else None
+        C["precision"] = round(C["matched"] / C["stored"], 4) if C["stored"] else None
+    P["chamber_tdf"] = dict(sorted(C.items()))
     # Deficits by cause: refused rows of the template, else a template never
     # selected anywhere in the session, else candidate peaks below threshold.
     D = Counter()
@@ -2637,7 +2721,12 @@ def print_ults(results: list[dict], P: dict) -> None:
         print(f"   sweep {tau}: {json.dumps(v)}")
 
 
-def record_ult_metrics(P: dict, results: list[dict]) -> list[str]:
+#: The pooled fields printed and recorded per half.
+ULT_HALF_KEYS = ("sessions", "riot_casts", "stored_casts", "matched", "recall", "precision",
+                 "excess_rows", "impossible", "burst_refused", "witnessed_casts", "missed_lines")
+
+
+def record_ult_metrics(P: dict, results: list[dict], halves: dict | None = None) -> list[str]:
     from reticle import metrics
     from reticle.version import ULT_CAST_VERSION, ULT_LINE_VERSION
     deps = {"riot_truth": RIOT_TRUTH_VERSION, "ult_line": ULT_LINE_VERSION,
@@ -2648,13 +2737,29 @@ def record_ult_metrics(P: dict, results: list[dict]) -> list[str]:
            "stamps": sorted({json.dumps(r["ult"]["stamps"], sort_keys=True) for r in ok})}
     flat = {k: v for k, v in P.items() if isinstance(v, (int, float)) and v is not None}
     for grp in ("own", "ult_kills", "deficit_causes", "dispositions", "excess_causes",
-                "impossible_causes", "impossible_flags"):
+                "impossible_causes", "impossible_flags", "chamber_tdf"):
         flat.update({f"{grp}_{k}".replace(":", "_"): v for k, v in (P.get(grp) or {}).items()
                      if isinstance(v, (int, float)) and v is not None})
     metrics.record("riot_truth", part="ult", values=flat, deps=deps, context=ctx)
     toks = [f"[metric:riot_truth/ult#{f}={flat.get(f)}]" for f in (
         "riot_casts", "stored_casts", "matched", "recall", "precision", "excess_rows",
-        "excess_per_live_min", "impossible", "own_own_recall", "ult_kills_recall")]
+        "excess_per_live_min", "impossible", "burst_refused", "witnessed_casts",
+        "own_own_recall", "ult_kills_recall", "chamber_tdf_recall",
+        "chamber_tdf_tdf_rounds_held_fraction")]
+    for h, PH in (halves or {}).items():
+        hv = {k: PH.get(k) for k in ULT_HALF_KEYS if PH.get(k) is not None}
+        hv.update({f"ult_kills_{k}".replace(":", "_"): v
+                   for k, v in (PH.get("ult_kills") or {}).items()
+                   if isinstance(v, (int, float)) and v is not None})
+        hv.update({f"own_{k}": v for k, v in (PH.get("own") or {}).items()
+                   if isinstance(v, (int, float)) and v is not None})
+        metrics.record("riot_truth", part=f"ult/{h}", values=hv, deps=deps,
+                       context={"sessions": sorted(r["session"] for r in ok
+                                                   if (r["session"] in ULT_DEV_SESSIONS)
+                                                   == (h == "dev"))})
+        toks += [f"[metric:riot_truth/ult/{h}#{f}={hv.get(f)}]" for f in (
+            "recall", "precision", "excess_rows", "impossible", "burst_refused",
+            "ult_kills_recall")]
     av = {a: c for a, c in P["per_agent"].items()}
     metrics.record("riot_truth", part="ult/agent", values={
         f"{a}_{k}": v for a, c in av.items() for k, v in c.items() if v is not None},
@@ -2898,12 +3003,17 @@ def main(argv=None) -> int:
     if args.ult:
         PU = pool_ults(results)
         print_ults(results, PU)
+        halves = {h: pool_ults([r for r in results if (r["session"] in ULT_DEV_SESSIONS)
+                                == (h == "dev")]) for h in ("dev", "held")}
+        for h, P in halves.items():
+            print(f"half {h}: " + json.dumps({k: P.get(k) for k in ULT_HALF_KEYS}))
+            print(f"half {h} ult kills: " + json.dumps(P.get("ult_kills")))
         if args.json and args.ult_only:
-            Path(args.json).write_text(json.dumps({"ult_pool": PU, "sessions": [
+            Path(args.json).write_text(json.dumps({"ult_pool": PU, "halves": halves, "sessions": [
                 {"session": r["session"], "capture": r.get("capture"), "ult": r.get("ult")}
                 for r in results]}, indent=1, default=str), encoding="utf-8")
         if args.record:
-            for t in record_ult_metrics(PU, results):
+            for t in record_ult_metrics(PU, results, halves):
                 print(t)
         if args.ult_only:
             return 0

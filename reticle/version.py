@@ -602,7 +602,9 @@ ULT_LINE_VERSION = "ult-line-0.2.0"
 # with own lines bound to the player's X casts from `tray_drop`. Bump when the
 # threshold, the classing, the cast window or the stored fields change.
 # 0.2.0: `tray_witness` on own casts and `missed_line` rows.
-ULT_CAST_VERSION = "ult-cast-0.2.0"
+# 0.3.0: bursts under BURST_BOUND refused; peaks under THRESHOLD accepted only
+# with a tray or ult-kill witness (`rests_on`).
+ULT_CAST_VERSION = "ult-cast-0.3.0"
 # Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or
