@@ -355,7 +355,9 @@ PING_VERSION = "ping-0.1.0"
 # `search` `prior`, its `rests_on` and its reason.
 # 0.9.3: a prior-searched fit whose local grid keeps the prior's pose refines
 # from a finer compass step (ICON_POSE_PRIOR_VERSION 0.4.0).
-ALLY_ICON_VERSION = "ally-icon-0.9.3"
+# 0.9.4 (2026-10-03): the spike glyph step (`spike.glyph_fits`, SPIKE_VERSION
+# 0.3.0) draws the game's Minimap_BombIcon texture, so on-glyph flags may move.
+ALLY_ICON_VERSION = "ally-icon-0.9.4"
 # The minimap portrait feature families (`ally_portrait.portrait_features`). Bump when
 # the alignment, the disc, `DISC_R` or any family changes: stored features and
 # the calibration fitted on them go stale together.
@@ -705,7 +707,14 @@ ROSTER_SPLIT_VERSION = "roster-split-0.4.0"
 # 180) arrives in the baked frame with its upright glyph upside down; the
 # glyph's state and the carrier's offset turn with the placement's rotation,
 # which each frame row stores. Unturned sessions read the same fits.
-SPIKE_VERSION = "spike-0.2.0"
+# 0.3.0 (2026-10-03): the glyph is drawn from the game's texture
+# Minimap_BombIcon (build release-13.06-shipping-18-5590001, sha256 checked
+# against the store manifest) in place of the hand-drawn triangle: 24 units
+# dropped and 18 carried, times the measured box fractions, times the capture's
+# map scale (`geometry.MapScale`); centres refine sub-pixel, and the session
+# head stores `map_scale` and `game_textures`. The roster marker keeps its
+# mined template (`spike.TEMPLATE_FILE` says why).
+SPIKE_VERSION = "spike-0.3.0"
 # The spike's carrier and state cross-checked from stored `spike` rows, the
 # rounds table and the roster (`adjudication.spike_carrier`): the roster
 # marker against the minimap carried glyph, the carrier against the plant, a
