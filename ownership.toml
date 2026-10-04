@@ -260,6 +260,23 @@ excludes another's region.
 consumers = ["round_lifetimes", "minimap_diagnostics", "team_vision"]
 
 [[entry]]
+id = "stacked-ally-icons"
+question = "Where are the teammates drawn inside a stack of overlapping minimap icons?"
+owner = "stack_fit"
+role = ["detect"]
+status = "partial"
+produces = ["Fitter", "fit_window", "fit_box", "stack_windows", "STACK_MASS", "ICON_ALPHA"]
+not_for = """
+Deciding whether the search runs or which members are new icons: the reader's
+`StackGate` asks `round_lifetimes.ally_capacity`, and
+`adjudication.minimap_candidates` decides each member against the ring fits.
+Identity: a member's portrait goes to the arbiter like any ring fit's. The
+stacking order between teammates, which nobody knows.
+"""
+consumers = ["minimap"]
+evidence = "tests/test_stack_fit.py"
+
+[[entry]]
 id = "minimap-dark"
 question = "Which minimap floor pixels does something grey and opaque cover this frame, and which can an icon hide?"
 owner = "minimap_dark"
@@ -368,14 +385,15 @@ question = "What does this crop of agent art look like, as one comparable vector
 owner = "appearance"
 role = ["detect"]
 status = "shipped"
-produces = ["hsv_composition", "detail", "agrees", "ArtTiles", "killfeed_art", "art_zncc", "to_lab", "ART_INNER_MARGIN"]
+produces = ["hsv_composition", "portrait_composition", "detail", "agrees", "ArtTiles", "killfeed_art", "art_zncc", "to_lab", "ART_INNER_MARGIN"]
 not_for = """
-Naming the agent, and replacing `lineup`'s feature. This is a DESCRIPTION; the
-gallery that would turn one into a name is built with the prototype composition
-in `lineup`, and the two are not interchangeable. Unmasked it describes the
-furniture a portrait is drawn on rather than the portrait.
+Naming the agent, and swapping one histogram for the other. These are
+DESCRIPTIONS; the gallery that would turn one into a name is built in `lineup`
+with `portrait_composition`, and it and `hsv_composition` are not
+interchangeable. Unmasked they describe the furniture a portrait is drawn on
+rather than the portrait.
 """
-consumers = ["killfeed", "scoreboard"]
+consumers = ["killfeed", "scoreboard", "lineup"]
 
 [[entry]]
 id = "ally-portrait-features"
@@ -867,7 +885,7 @@ question = "Which observations across views are one physical entity this round?"
 owner = "round_lifetimes"
 role = ["track", "lifecycle", "adjudicate"]
 status = "partial"
-produces = ["RoundLifetimes", "ally_capacity", "readable_kind", "known_kind", "death_refusal", "BIND_PX", "death_rank", "seen_after_death", "DEAD_ICON_LAG_MS", "ICON_OUTLIVES_DEATH"]
+produces = ["RoundLifetimes", "ally_capacity", "roster_window", "ROSTER_LAG_MS", "readable_kind", "known_kind", "death_refusal", "BIND_PX", "death_rank", "seen_after_death", "DEAD_ICON_LAG_MS", "ICON_OUTLIVES_DEATH"]
 not_for = """
 Agent identity. Names here are fixed at birth and deliberately English rather
 than agent names, which exposes fragmentation instead of pretending to know who
@@ -1111,7 +1129,7 @@ id = "agent-from-slot"
 question = "Which agent occupies this roster or top-bar slot?"
 owner = "lineup"
 role = ["detect"]
-status = "transitional"
+status = "partial"
 produces = ["Lineup", "LineupReader", "read_session", "portrait_candidates"]
 names_agents = true
 defers_to = ["agent-identity"]
@@ -1124,11 +1142,6 @@ stays `None` WITH ITS REASON, and the margin is measured against the best
 alternative the ASSIGNMENT permits -- measured against the raw ordering it
 refused ties the constraint had already broken, and worse, cleared the gate on
 one agent's evidence while naming another.
-"""
-exit = """
-`_composition` inserts `prototypes/` on `sys.path` and imports
-`minimap_portrait.composition`, then `ability_hud`'s tray geometry. Promote
-those assets into `reticle/` and this becomes `partial`.
 """
 evidence = "tests/test_lineup.py"
 
@@ -1163,7 +1176,7 @@ id = "player-agent"
 question = "Which agent is the local player?"
 owner = "lineup"
 role = ["detect", "assign"]
-status = "transitional"
+status = "partial"
 produces = ["tray_vote", "tray_shapes", "abilities_for", "load_lineup"]
 names_agents = true
 defers_to = ["agent-identity"]
@@ -1176,9 +1189,6 @@ which `load_lineup` also stores as the lineup's `player`. Tray QUALITY is
 checked first, because a bright Lotus background once produced a confident
 wrong answer. Abstention, disagreement and an agent no ally slot holds are
 different outcomes.
-"""
-exit = """
-As `agent-from-slot`: the calibration assets still live in prototypes/.
 """
 evidence = "tests/test_lineup.py"
 

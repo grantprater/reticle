@@ -17,7 +17,7 @@ def _crop(w=465, h=465):
 
 def _draw_glyph(crop, cx, cy, side, base_down):
     """Paint the rendered template into `crop` as yellow on grey."""
-    t = spike.glyph_template(side, base_down)
+    t = np.clip(spike.glyph_template(side, base_down), 0, 1)
     p = t.shape[0] // 2
     win = crop[cy - p:cy + p + 1, cx - p:cx + p + 1].astype(np.float32)
     a = t[..., None]
@@ -28,8 +28,8 @@ def _draw_glyph(crop, cx, cy, side, base_down):
 class GlyphTest(unittest.TestCase):
     def test_reads_ground_and_carried(self):
         crop = _crop()
-        _draw_glyph(crop, 100, 120, 21.0, True)
-        _draw_glyph(crop, 300, 300, 17.5, False)
+        _draw_glyph(crop, 100, 120, 20.4, True)
+        _draw_glyph(crop, 300, 300, 15.3, False)
         got = spike.accepted(spike.glyph_fits(crop))
         by = {g["state"]: g for g in got}
         self.assertEqual(sorted(by), ["carried", "dropped"])
@@ -42,8 +42,8 @@ class GlyphTest(unittest.TestCase):
         # reaches the reader turned back, glyphs upside down. The state names
         # the glyph as drawn on the screen.
         screen = _crop()
-        _draw_glyph(screen, 100, 120, 21.0, True)            # dropped
-        _draw_glyph(screen, 300, 300, 17.5, False)           # carried
+        _draw_glyph(screen, 100, 120, 20.4, True)            # dropped
+        _draw_glyph(screen, 300, 300, 15.3, False)           # carried
         baked = cv2.rotate(screen, cv2.ROTATE_180)
         h, w = baked.shape[:2]
         turned = {g["state"]: g for g in spike.accepted(spike.glyph_fits(baked, rotation=180))}
@@ -52,16 +52,16 @@ class GlyphTest(unittest.TestCase):
         self.assertLessEqual(abs(d["cx"] - (w - 1 - 100)) + abs(d["cy"] - (h - 1 - 120)), 2)
         self.assertLessEqual(abs(c["cx"] - (w - 1 - 300)) + abs(c["cy"] - (h - 1 - 300)), 2)
         # Read as if unturned, as spike-0.1.0 did, the states swap.
-        plain = {(g["cx"], g["cy"]): g["state"]
-                 for g in spike.accepted(spike.glyph_fits(baked))}
-        self.assertEqual(plain.get((d["cx"], d["cy"])), "carried")
+        plain = [g for g in spike.glyph_fits(baked)
+                 if abs(g["cx"] - d["cx"]) + abs(g["cy"] - d["cy"]) <= 3]
+        self.assertEqual(plain[0]["state"], "carried")
 
     def test_empty_floor_reads_nothing(self):
         self.assertEqual(spike.glyph_fits(_crop()), [])
 
     def test_orange_is_a_candidate(self):
         crop = _crop()
-        t = spike.glyph_template(21.0, True)
+        t = np.clip(spike.glyph_template(20.4, True), 0, 1)
         p = t.shape[0] // 2
         win = crop[100 - p:101 + p, 100 - p:101 + p].astype(np.float32)
         a = t[..., None]
@@ -70,6 +70,61 @@ class GlyphTest(unittest.TestCase):
         self.assertTrue(fits)
         self.assertEqual(spike.accepted(fits), [])
         self.assertEqual(fits[0]["reason"], "orange")
+
+
+class GameTextureTest(unittest.TestCase):
+    def test_provenance_names_the_build_and_each_sha256(self):
+        import hashlib
+        p = spike.provenance()
+        self.assertEqual(p["build"], spike.GAME_BUILD)
+        f = spike.game_dir() / spike.GLYPH_TEXTURE[0] / spike.GLYPH_TEXTURE[1]
+        self.assertEqual(p["textures"]["glyph"]["sha256"], hashlib.sha256(f.read_bytes()).hexdigest())
+        self.assertEqual(p["marker_template"]["sha256"],
+                         hashlib.sha256(spike.TEMPLATE_FILE.read_bytes()).hexdigest())
+
+    def test_a_changed_texture_is_refused(self):
+        import json
+        import shutil
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "reference" / "game-files" / spike.GAME_BUILD / spike.GLYPH_TEXTURE[0]
+            (d / spike.GLYPH_TEXTURE[1]).parent.mkdir(parents=True)
+            shutil.copy(spike.game_dir() / spike.GLYPH_TEXTURE[0] / spike.GLYPH_TEXTURE[1],
+                        d / spike.GLYPH_TEXTURE[1])
+            (d / "manifest.jsonl").write_text(json.dumps(
+                {"output": f"{spike.GLYPH_TEXTURE[0]}/{spike.GLYPH_TEXTURE[1]}",
+                 "sha256": "0" * 64}) + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                spike._texture(spike.GLYPH_TEXTURE, tmp)
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(FileNotFoundError):
+                spike._texture(spike.GLYPH_TEXTURE, tmp)
+
+    def test_boxes_follow_the_map_scale(self):
+        got = spike.drawn_boxes(331, 0.6315)
+        self.assertEqual(len(got["dropped"]), len(spike.BOX_FRACTIONS))
+        self.assertAlmostEqual(max(got["dropped"]), 24 * max(spike.BOX_FRACTIONS) * 0.6315, places=1)
+        self.assertAlmostEqual(max(got["carried"]), 18 * max(spike.BOX_FRACTIONS) * 0.6315, places=1)
+        # Without a MapScale the same number of boxes spans every baked zoom.
+        wide = spike.drawn_boxes(331)["dropped"]
+        self.assertEqual(len(wide), len(spike.BOX_FRACTIONS))
+        self.assertLess(min(wide), min(got["dropped"]) + 0.01)
+        self.assertGreater(max(wide), max(got["dropped"]))
+
+    def test_reads_a_glyph_at_a_named_scale(self):
+        crop = _crop(331, 331)
+        box = 24 * 0.85 * 0.6315
+        _draw_glyph(crop, 150, 160, box, True)
+        got = spike.accepted(spike.glyph_fits(crop, scale=0.6315))
+        self.assertEqual([g["state"] for g in got], ["dropped"])
+        ox, oy = spike.template_centroid(box, True)
+        self.assertLess(abs(got[0]["cx"] - (150 + ox)) + abs(got[0]["cy"] - (160 + oy)), 1.0)
+        self.assertIsInstance(got[0]["cx"], float)
+
+    def test_centroid_lies_toward_the_base(self):
+        self.assertGreater(spike.template_centroid(20.4, True)[1], 0)
+        self.assertLess(spike.template_centroid(20.4, False)[1], 0)
 
 
 class OnGlyphTest(unittest.TestCase):
