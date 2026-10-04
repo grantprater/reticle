@@ -801,20 +801,59 @@ source = """
 game build release-13.06-shipping-18-5590001: the DamageType assets' KillIcon references, exported to
 <store>/reference/game-files/release-13.06-shipping-18-5590001/killfeed-icons/ (manifest.jsonl gives each
 texture's source path and sha256); `adjudication.weapon.GAME_KILL_ICONS` maps
-ability to texture. The export holds no texture for Blade Storm or Mosh Pit
+ability to texture. The `gaps-0.1.0` export (`damage-type-icons/`, 2026-10-04)
+added the KillIcon textures outside those folders, Blade Storm's
+TX_Hud_Wushu_X_Dagger and Mosh Pit's TX_Aggrobot_Bubbles among them; the
+build's DamageType JSON (`weapon-data/`, `ability-states/`) names each
+DamageType's KillIcon and parent class
 """
 use = """
-the game textures become gallery exemplars beside the mined ones
-(weapon-gallery-0.7.0); an ability's icon is read from its own texture, never
-by analogy with another ability's [domain:abilities/ability-rules-are-unique]
+since weapon-gallery-0.8.0 the gallery is the game's closed set, one exemplar
+set per KillIcon texture; mined exemplars stay only for revive and downed
+entries, which have no DamageType. An ability's icon is read from its own
+texture, never by analogy with another ability's
+[domain:abilities/ability-rules-are-unique]
 """
 exceptions = """
 texture UV rectangles are ignored. Boom Bot, Orbital Strike, Annihilation and
-Hot Hands draw poorly from their textures at 24 px (IoU 0.47-0.68 against the
-mined exemplars), so the mined exemplars keep naming them
+Hot Hands draw poorly from their textures at 24 px (best IoU 0.62-0.74 against
+their labelled exemplars, under the 0.75 floor): the capture thins their
+strokes. Stinger's DamageType names TX_Hud_Vector, which no export holds; the
+gallery draws its UIData KillStreamIcon, TX_Hud_SMG_KrissVector_S. Eighteen
+of the 89 DamageTypes under ShooterGame/ (Console twins aside) name no
+KillIcon in the exported data (the base classes,
+DmgType_Knife, DmgType_FallDamage, DmgType_Incendiary, DmgType_Eradication,
+DmgType_Instant, DmgType_TurtlingPenalty, two game-mode overtime types, the
+Vandal's DmgType_AK, Phoenix's healing fire and Veto's utility destroyer);
+those either inherit a listed icon or are not exported
 """
 phrases = ["ability kill icon texture", "damage type kill icon"]
 see = ["killfeed/ability-kill-icon", "killfeed/kill-icon-mirrored"]
+
+[kill-icon-differs-from-tray]
+claim = """
+Six abilities draw a kill icon other than their ability-tray art: Headhunter
+(a revolver), Tour De Force (a long rifle), Blade Storm (one dagger, not the
+tray's three knives), Mosh Pit (bubbles), Viper's decay (a decay glyph, not
+Viper's Pit) and Clove's Not Dead Yet expiry (its own glyph). Every other
+damaging ability's KillIcon is its tray DisplayIcon texture.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+source = """
+game build release-13.06-shipping-18-5590001: each DamageType's KillIcon
+(`weapon-data/`, `ability-states/`, `damage-type-icons/manifest.jsonl`)
+against its ability's UIData DisplayIcon (`ability-data/`); the player did not
+know Headhunter and Tour De Force differ (2026-10-04), and saw Blade Storm draw
+one knife [domain:killfeed/jett-blade-storm-icon]
+"""
+use = """
+the weapon gallery draws a kill icon from its DamageType's KillIcon, never from
+the tray art (`adjudication.weapon.GAME_KILL_ICONS`)
+"""
+phrases = ["kill icon differs from tray", "killfeed icon not the ability icon"]
+see = ["killfeed/ability-kill-icon-texture", "killfeed/chamber-gun-shaped-abilities"]
 
 [entry-list-layout]
 claim = """

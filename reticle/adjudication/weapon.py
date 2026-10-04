@@ -65,7 +65,9 @@ from .killfeed_kits import kill_kits, open_questions
 # `classify_killfeed_icon` takes the match's `agents`, both sides, in place
 # of the player's own agent (`active_agent`): a kill icon's caster may be
 # on either team.
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.3.0"
+# 1.3.1 (2026-10-04): names against weapon-gallery-0.8.0, the game's closed
+# set; `ability_agent` gives Phoenix's fire base icon to Phoenix.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.3.1"
 
 #: Aspect ratio and width thresholds separating abilities from guns.
 ABILITY_MAX_WIDTH_PX = 36
@@ -482,11 +484,21 @@ def estimate_weapon_class(width: int, aspect_ratio: float) -> str:
 #: names to the `killfeed_weapon` rows killfeed-weapon-0.7.0 reread from the
 #: crop cache (corpus rerun, 2026-10-01); the labels are unchanged.
 MINED_GALLERY_VERSION = "weapon-gallery-0.6.0"
-#: The gallery `entry_weapon` names against (`load_gallery`): the mined
-#: exemplars plus the game's kill icons (`load_game_icons`). 0.7.0
-#: (2026-10-03) adds the game set of GAME_ICON_BUILD to MINED_GALLERY_VERSION;
-#: see GAME_ICON_POLICY for what each shared name keeps.
-WEAPON_GALLERY_VERSION = "weapon-gallery-0.7.0"
+#: The gallery `entry_weapon` names against (`load_gallery`). 0.7.0
+#: (2026-10-03) added the game set of GAME_ICON_BUILD to MINED_GALLERY_VERSION.
+#: 0.8.0 (2026-10-04) is the game's closed set alone, every DamageType's
+#: KillIcon (GAME_KILL_ICONS, from the `damage-type-icons` export too: Blade
+#: Storm's single dagger, Mosh Pit, Seize, Nightfall, the base-class and
+#: game-mode icons), with mined exemplars only for MINED_ONLY_NAMES, which
+#: no DamageType draws (player, 2026-10-04: "We have all the icons now").
+#: On the 826 labelled exemplars (`prototypes/game_killicons.py`, mined part
+#: one session out) it names
+#: [metric:game_killicons/served@weapon-gallery-0.8.0#all_right=809], none
+#: wrong, as 0.7.0 did; the game set alone names Blade Storm's 49 from its
+#: dagger. Left one icon out, it names
+#: [metric:game_killicons/served_loio@weapon-gallery-0.8.0#all_misnamed=2]
+#: unseen icons: the case a closed set leaves only for an undrawn DamageType.
+WEAPON_GALLERY_VERSION = "weapon-gallery-0.8.0"
 NAME_MIN_IOU = 0.75           # a name needs an exemplar at least this close
 NAME_MARGIN = 0.05            # and must clear the best exemplar of any other name
 NAME_ASPECT_TOL = 0.12        # |log| aspect difference beyond which two icons never match
@@ -595,21 +607,35 @@ def load_mined_gallery(path: Optional[Path | str] = None) -> Optional[dict]:
 #: The game's own kill icons, read from the build's files in the store, never
 #: copied into this repository. Each killfeed weapon slot draws its
 #: DamageType's KillIcon, an ability's included (not the ability's display
-#: icon) [domain:killfeed/ability-kill-icon-texture], mirrored
+#: icon, which six abilities draw differently
+#: [domain:killfeed/kill-icon-differs-from-tray])
+#: [domain:killfeed/ability-kill-icon-texture], mirrored
 #: [domain:killfeed/kill-icon-mirrored], 24 px high at 1080p
-#: [domain:killfeed/weapon-cell-formula]. The path is relative to the build's
-#: `killfeed-icons/` export; the name is the gallery's (a gun's name, an
-#: ability's `ABILITY_CANONICAL_NAMES` name, or an environmental cause), the
-#: category is what `entry_weapon` reports. Stinger's texture is the one the
-#: gamefiles probe scored on capture crops (TX_Hud_SMG_KrissVector_S); its
-#: DamageType names TX_Hud_Vector. Not here: Blade Storm's and Mosh Pit's
-#: KillIcon textures, which the export lacks; Not Dead Yet, Resurrection,
-#: NULL/cmd, which are revive and downed entries with no DamageType. The
-#: mined gallery keeps those.
+#: [domain:killfeed/weapon-cell-formula]. The table is the closed set: every
+#: DamageType of GAME_ICON_BUILD that names a KillIcon texture, one row per
+#: texture (GAME_KILL_ICON_SOURCES names the DamageTypes that draw it). The
+#: build's index lists 89 DamageType packages under ShooterGame/ outside
+#: `Console/`; 71 name a KillIcon drawn here; the other 18 have no KillIcon
+#: in the exported data (a base class, or a type the export lacks).
+#: The path is relative to the build's export directory (`game_build_dir`),
+#: its first part the export set: `killfeed-icons/` (UIData DisplayIcon and
+#: KillStreamIcon), `damage-type-icons/` (every DamageType's KillIcon, the
+#: `gaps-0.1.0` export, which holds Blade Storm's single dagger and Mosh
+#: Pit's bubbles) or `minimap/`. The name is the gallery's (a gun's name, an
+#: ability's `ABILITY_CANONICAL_NAMES` name, or a cause); the category is
+#: what `entry_weapon` reports, `other` for a base class or game-mode icon
+#: with no caster (GAME_MODE_ICONS names the modes). Stinger keeps its
+#: UIData KillStreamIcon, TX_Hud_SMG_KrissVector_S, the texture the gamefiles
+#: probe scored on capture crops: its DamageType names TX_Hud_Vector, which no
+#: export holds. Not here: Not Dead Yet, Resurrection and NULL/cmd, which mark
+#: revive and downed entries and have no DamageType; the mined gallery keeps
+#: those (MINED_ONLY_NAMES).
 GAME_ICON_BUILD = "release-13.06-shipping-18-5590001"
-_KC = "ShooterGame/Content/UI/InGame/HUD/KillCallout/Assets/"
-_AB = "ShooterGame/Content/UI/InGame/HUD/Abilities/Assets/ShippingIcons/"
-_CH = "ShooterGame/Content/Characters/"
+_KC = "killfeed-icons/ShooterGame/Content/UI/InGame/HUD/KillCallout/Assets/"
+_AB = "killfeed-icons/ShooterGame/Content/UI/InGame/HUD/Abilities/Assets/ShippingIcons/"
+_CH = "killfeed-icons/ShooterGame/Content/Characters/"
+_UI = "killfeed-icons/ShooterGame/Content/UI/"
+_DT = "damage-type-icons/ShooterGame/Content/"
 GAME_KILL_ICONS: dict[str, tuple[str, str]] = {
     "Odin": (_KC + "TX_Hud_HMG.png", "gun"),
     "Ares": (_KC + "TX_Hud_LMG.png", "gun"),
@@ -662,25 +688,124 @@ GAME_KILL_ICONS: dict[str, tuple[str, str]] = {
     "Special Delivery": (_CH + "Cashew/Icons/TX_UI_Cashew_Q.png", "ability"),
     "Guided Salvo": (_CH + "Cashew/Icons/TX_UI_Cashew_E.png", "ability"),
     "Armageddon": (_CH + "Cashew/Icons/TX_UI_Cashew_X.png", "ability"),
-    "Viper decay": ("ShooterGame/Content/UI/Textures/Icons/Killfeed/TX_UI_Icon_DecayDmg.png",
+    "Seize": (_CH + "BountyHunter/S0/AbilityIcons/TX_BountyHunter_Seize.png", "ability"),
+    "Nightfall": (_CH + "BountyHunter/S0/AbilityIcons/TX_BountyHunter_Nightfall.png", "ability"),
+    "Viper decay": (_UI + "Textures/Icons/Killfeed/TX_UI_Icon_DecayDmg.png", "ability"),
+    "Meddle": (_UI + "Shared/Icons/Character/Abilities/Smonk/TX_UI_Smonk_Q.png", "ability"),
+    "Clove expiry": (_UI + "Textures/Icons/Killfeed/TX_UI_Smonk_UltExpire.png", "ability"),
+    "Chokehold": (_UI + "Shared/Icons/Character/Abilities/Pine/TX_UI_Pine_Q.png", "ability"),
+    "Blade Storm": (_DT + "UI/InGame/HUD/Abilities/Assets/NormalNew/TX_Hud_Wushu_X_Dagger.png",
                     "ability"),
-    "Meddle": ("ShooterGame/Content/UI/Shared/Icons/Character/Abilities/Smonk/TX_UI_Smonk_Q.png",
-               "ability"),
-    "Clove expiry": ("ShooterGame/Content/UI/Textures/Icons/Killfeed/TX_UI_Smonk_UltExpire.png",
-                     "ability"),
-    "Chokehold": ("ShooterGame/Content/UI/Shared/Icons/Character/Abilities/Pine/TX_UI_Pine_Q.png",
-                  "ability"),
+    "Mosh Pit": (_DT + "Characters/AggroBot/AbilityIcons/TX_Aggrobot_Bubbles.png", "ability"),
+    "Phoenix fire": (_DT + "UI/InGame/Shop/Old/Assets/Shop_Special_FireArrow_Icon.png", "ability"),
+    "Grenade bounce": (_DT + "UI/InGame/HUD/Abilities/Assets/NormalNew/"
+                       "TX_Hud_Icons_Abilities_Clay1.png", "other"),
+    "Explosion": ("minimap/ShooterGame/Content/UI/InGame/HUD/Minimap/TX_Hud_Icons_Kill_S.png",
+                  "other"),
+    "Pistol": (_DT + "Weapons/Pistol/PistolIcon.png", "other"),
+    "Internal": (_DT + "Environment/_Archive/blackmarket/Textures/bm_tomatoes.png", "other"),
+    "Golden Gun": (_DT + "GameModes/Equippables/GoldenGun/TX_Hud_Pistol_GoldenGun_S.png", "other"),
+    "Plague orb": (_DT + "GameModes/Orbs/VFX/Textures/UI_Icons_Modes_Plagues_NoFrame.png", "other"),
+    "Snowball": (_KC + "TX_SnowballLauncher.png", "other"),
 }
+#: The DamageTypes (paths under the build's `Content/`) that draw each
+#: GAME_KILL_ICONS texture, from their exported KillIcon (`weapon-data`,
+#: `ability-states`, `damage-type-icons/manifest.jsonl`); console twins
+#: inherit theirs and are left out. Provenance, not a rule.
+GAME_KILL_ICON_SOURCES: dict[str, tuple[str, ...]] = {
+    "Odin": ("Equippables/Guns/HvyMachineGuns/HMG/DmgType_HeavyMachineGun",),
+    "Ares": ("Equippables/Guns/HvyMachineGuns/LMG/DmgType_LightMachineGun",),
+    "Vandal": ("Equippables/Guns/_Core/DmgType_GunBase", "Equippables/Guns/Rifles/AK/DmgType_AK"),
+    "Warden": ("Equippables/Guns/Rifles/BattleRifle/DmgType_BattleRifle",),
+    "Bulldog": ("Equippables/Guns/Rifles/Burst/DmgType_AssaultRifleBurst",),
+    "Phantom": ("Equippables/Guns/Rifles/Carbine/DmgType_ACR",),
+    "Judge": ("Equippables/Guns/Shotguns/AutoShotgun/DmgType_AutomaticShotgun",),
+    "Bucky": ("Equippables/Guns/Shotguns/PumpShotgun/DmgType_PumpShotgun",),
+    "Frenzy": ("Equippables/Guns/Sidearms/AutoPistol/DmgType_AutomaticPistol",),
+    "Classic": ("Weapons/Pistol/DmgType_Glock",),
+    "Bandit": ("Equippables/Guns/Sidearms/Compact/CompactDmgType",),
+    "Ghost": ("Weapons/Pistol/DmgType_Luger",),
+    "Sheriff": ("Weapons/Pistol/DmgType_Revolver",),
+    "Shorty": ("Equippables/Guns/Sidearms/Slim/DmgType_SawedOffShotgun",),
+    "Operator": ("Equippables/Guns/SniperRifles/Boltsniper/DmgType_BoltSniperRifle",),
+    "Guardian": ("Equippables/Guns/SniperRifles/DMR/DmgType_DMR",),
+    "Outlaw": ("Equippables/Guns/SniperRifles/Doublesniper/DmgType_DS",),
+    "Marshal": ("Equippables/Guns/SniperRifles/Leversniper/DmgType_LeverSniperRifle",),
+    "Spectre": ("Equippables/Guns/SubMachineGuns/MP5/DmgType_MP5",),
+    "Stinger": ("Equippables/Guns/SubMachineGuns/Vector/DmgType_SubMachineGunVector",),
+    "Melee": ("Weapons/BaseBlueprints/DmgType_Knife (not exported: Melee_UIData KillStreamIcon)",
+              "GameModes/GunGame/DmgType_Knife_Gungame"),
+    "Headhunter": ("Characters/Deadeye/S0/Ability_Q/Gun/DmgType_Deadeye_Q_Pistol",),
+    "Tour De Force": ("Characters/Deadeye/S0/Ability_X/Gun_Giantslayer/DmgType_Deadeye_Giantslayer",),
+    "Spike": ("DmgType_ObjectiveBombPlantExplosion",),
+    "Fall": ("DamageTypesShared/DmgType_Crush",),
+    "Crushed": ("Environment/Plummet/Blueprints/DroppableDoor/DmgType_DescentBox_Crush",),
+    "Aftershock": ("Characters/Breach/S0/Ability_4/DmgType_Breach_4_FusionBlast",),
+    "Boom Bot": ("Characters/Clay/S0/Ability_E/DmgType_Clay_E_Boomba",),
+    "Paint Shells": ("Characters/Clay/S0/Ability_4/DmgType_Clay_4_Projectile_Primary_Explosion",
+                     "Characters/Clay/S0/Ability_4/DmgType_Clay_4_Projectile_Secondary_Explosion"),
+    "Blast Pack": ("Characters/Clay/S0/Ability_Q/DmgType_Clay_Q_Satchel",),
+    "Showstopper": ("Characters/Clay/S0/Ability_X/DmgType_Clay_X_Rocket",),
+    "Orbital Strike": ("Characters/Sarge/S0/Ability_OrbitalStrike/DmgType_OrbitalLaser",
+                       "Characters/Sarge/S0/Ability_OrbitalStrike/DmgType_Sarge_X_Orbital"),
+    "Incendiary": ("Characters/Sarge/S0/Ability_Molotov/DmgType_Sarge_Fire",),
+    "Hot Hands": ("Characters/Phoenix/S0/Ability_4/Production/DmgType_Phoenix_4_Fire_Production",),
+    "Blaze": ("Characters/Phoenix/S0/Ability_Q/Production/DmgType_Phoenix_Q_Fire_Production",),
+    "Annihilation": ("Characters/Cable/S0/Ability_X/DmgType_FishingHook",),
+    "Snake Bite": ("Characters/Pandemic/S0/Ability_Q/DmgType_Pandemic_Q_Acid",),
+    "Nanoswarm": ("Characters/Killjoy/S0/Ability_4/DmgType_Killjoy_4_Bees",),
+    "Turret": ("Characters/Killjoy/S0/Ability_E/DmgType_Turret",),
+    "Trapwire": ("Characters/Gumshoe/S0/Ability_4/DamageType_Gumshoe_4_Tripwire",),
+    "Shock Bolt": ("Characters/Hunter/S0/Ability_4/DmgType_Hunter_4_Molotov",),
+    "Hunter's Fury": ("Characters/Hunter/S0/Ability_X/DmgType_Hunter_X_Laser",),
+    "Trailblazer": ("Characters/Guide/S0/Ability_Q/DmgType_Guide_Q_PossessableScout",),
+    "Kill Contract": ("Characters/Sequoia/S0/Ability_X/DmgType_Sequoia_X_ArenaTimeout",),
+    "FRAG/ment": ("Characters/Grenadier/S0/Ability_Q/DmgType_Grenadier_StickyGrenade",),
+    "Razorvine": ("Characters/Nox/S0/Ability_4/DmgType_Nox_BarbedWire",),
+    "Overdrive": ("Characters/Sprinter/S0/Ability_X/DmgType_Sprinter_X_LightningGun",),
+    "Fast Lane": ("Characters/Sprinter/S0/Ability_4/DmgType_Sprinter_4_Tunnel",),
+    "Special Delivery": ("Characters/Cashew/S0/Ability_Q/DmgType_Cashew_Q_ShellShockGrenade",),
+    "Guided Salvo": ("Characters/Cashew/S0/Ability_E/DmgType_Cashew_E_Missile",),
+    "Armageddon": ("Characters/Cashew/S0/Ability_X/DmgType_Cashew_X_Airstrike",),
+    "Seize": ("Characters/BountyHunter/S0/Global/DmgType_BountyHunter_Decay_Seize",),
+    "Nightfall": ("Characters/BountyHunter/S0/Global/DmgType_BountyHunter_Decay_Nightfall",),
+    "Viper decay": ("Characters/Pandemic/S0/Ability_X/DmgType_Pandemic_Decay",),
+    "Meddle": ("Characters/Smonk/S0/Ability_Q/DebuffKnife/DecayLauncher/DmgType_Smonk_Decay_Pulse",),
+    "Clove expiry": ("Characters/Smonk/S0/Ability_X/ReactiveRes/DmgType_Smonk_X_SelfDamage",),
+    "Chokehold": ("Characters/Pine/S0/Ability_Q/DmgType_Pine_Decay_Seize",),
+    "Blade Storm": ("Characters/Wushu/S0/Ability_X/DmgType_Wushu_X_Dagger",
+                    "Characters/Wushu/S0/Ability_X/DmgType_Wushu_X_Dagger_Burst"),
+    "Mosh Pit": ("Characters/AggroBot/S0/Ability_4/DmgType_Aggrobot_PatchDoT",
+                 "Characters/AggroBot/S0/Ability_4/DmgType_Aggrobot_PatchExplosion"),
+    "Phoenix fire": ("Characters/Phoenix/S0/Passive_Fire/DmgType_Phoenix_FireBase",),
+    "Grenade bounce": ("Projectiles/Grenades/DmgType_GrenadeBounceDamage",),
+    "Explosion": ("DmgType_Explosion",),
+    "Pistol": ("Weapons/Pistol/DmgType_PistolBase",),
+    "Internal": ("Weapons/Pistol/DmgType_Internal",),
+    "Golden Gun": ("GameModes/Equippables/GoldenGun/Dmgtype_GoldenGun_SpikeRush",),
+    "Plague orb": ("GameModes/Orbs/Plague/DmgType_PlagueOrb",),
+    "Snowball": ("GameModes/SnowballFight/DmgType_Snowball",),
+}
+#: Icons only a game mode draws, by the mode its DamageType's folder names.
+#: They stay in the closed set: the gallery does not know a capture's mode.
+GAME_MODE_ICONS = {"Golden Gun": "Spike Rush", "Plague orb": "Spike Rush",
+                   "Snowball": "Snowball Fight"}
+#: Mined names no DamageType draws: revive and downed entries
+#: [domain:killfeed/revive-entries] [domain:killfeed/kayo-downed-entry]. The
+#: gallery keeps their player-named exemplars, flagged `mined` in its
+#: provenance; every other mined name yields to its game icon.
+MINED_ONLY_NAMES = frozenset({"Not Dead Yet", "Resurrection", "NULL/cmd"})
 #: The drawn icon height at 1080p, scale 1.0 [domain:killfeed/weapon-cell-formula].
 GAME_ICON_HEIGHT = 24.0
 
 
-def game_icons_dir(store_root: Optional[Path] = None) -> Path:
-    """The build's exported kill icons in `store_root` (default: the default store)."""
+def game_build_dir(store_root: Optional[Path] = None) -> Path:
+    """The build's export directory in `store_root` (default: the default
+    store); GAME_KILL_ICONS paths are relative to it."""
     if store_root is None:
         from ..store import Store
         store_root = Store().root
-    return Path(store_root) / "reference" / "game-files" / GAME_ICON_BUILD / "killfeed-icons"
+    return Path(store_root) / "reference" / "game-files" / GAME_ICON_BUILD
 
 
 #: Sub-pixel placements each game icon is drawn at, as (dx, dy) in capture
@@ -757,31 +882,34 @@ def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
     `scale` x GAME_ICON_HEIGHT), one per GAME_KILL_ICONS name and placement in
     `phases`, and None; or None and why not. `soft` and `mirror=False` build
     the variants `prototypes/game_killicons.py` scores; the owner uses
-    neither. Refuses `no_game_icons` when the build's export or its
-    manifest is missing, `game_icon_missing:<name>` when a listed texture is,
-    and `game_icon_sha256:<name>` when a texture's bytes differ from the
-    manifest's sha256. The gallery carries the build and each texture's
-    sha256 (`provenance`)."""
+    neither. Refuses `no_game_icons` when the build's `killfeed-icons`
+    manifest is missing, `game_icon_missing:<name>` when a listed texture or
+    its export set's manifest is, and `game_icon_sha256:<name>` when a
+    texture's bytes differ from its manifest's sha256. The gallery carries
+    the build and each texture's sha256 and DamageTypes (`provenance`)."""
     import hashlib
     import json
-    d = game_icons_dir(store_root)
+    d = game_build_dir(store_root)
     key = (str(d), round(float(scale), 4), tuple(phases), soft, mirror)
     if key in _GAME_CACHE:
         return _GAME_CACHE[key]
-    manifest = d / "manifest.jsonl"
-    if not manifest.is_file():
+    if not (d / "killfeed-icons" / "manifest.jsonl").is_file():
         return None, "no_game_icons"
     sha = {}
-    for line in manifest.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            r = json.loads(line)
-            if r.get("output"):
-                sha[r["output"].replace("\\", "/")] = r.get("sha256")
+    for export in sorted({rel.split("/", 1)[0] for rel, _ in GAME_KILL_ICONS.values()}):
+        manifest = d / export / "manifest.jsonl"
+        if not manifest.is_file():
+            continue
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                r = json.loads(line)
+                if r.get("output"):
+                    sha[r["output"].replace("\\", "/")] = r.get("sha256")
     names, cls, masks, aspects, keys, prov = [], [], [], [], [], {}
     with step("game_icons"):
         for name, (rel, category) in GAME_KILL_ICONS.items():
             p = d / rel
-            out_key = f"killfeed-icons/{rel}"
+            out_key = rel
             if not p.is_file():
                 return None, f"game_icon_missing:{name}"
             raw = p.read_bytes()
@@ -801,7 +929,8 @@ def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
                 masks.append(ex[0])
                 aspects.append(ex[1])
                 keys.append(f"game:{GAME_ICON_BUILD}:{Path(rel).stem}@{ph[0]:.2f},{ph[1]:.2f}")
-            prov[name] = {"texture": out_key, "sha256": digest}
+            prov[name] = {"texture": out_key, "sha256": digest,
+                          "damage_types": list(GAME_KILL_ICON_SOURCES.get(name, ()))}
     out = {"names": np.array(names), "classes": np.array(cls),
            "masks": np.array(masks, dtype=np.float32), "aspects": np.array(aspects),
            "keys": np.array(keys),
@@ -815,50 +944,48 @@ def load_game_icons(store_root: Optional[Path] = None, scale: float = 1.0, *,
     return out, None
 
 
-#: What the gallery keeps where a game icon and mined exemplars name one
-#: icon, decided on the player's labels (`prototypes/game_killicons.py`:
-#: each of the 826 labelled exemplars of MINED_GALLERY_VERSION named by the
-#: owner's rule, the mined part leaving the exemplar's session out). Both
-#: sets stay for every shared gun and ability name: the game set alone named
-#: [metric:game_killicons/game@weapon-gallery-0.7.0#right=707] of
-#: [metric:game_killicons/game@weapon-gallery-0.7.0#n=721] exemplars of the
-#: names it shares, none wrong, and the union named every shared name at least
-#: as often as the mined set alone, none wrong (Aftershock 25 of 26 against
-#: 22, Warden 24 of 24 against none held out). Each name listed here keeps
-#: only the game icon: the player named the spike hexagon `Environmental`
-#: [domain:killfeed/environmental-self-entry], the game names it Spike; the
-#: game icon names all 5 labelled exemplars, the two names together left one
-#: ambiguous between themselves.
+#: The mined label the game names otherwise: the player named the spike
+#: hexagon `Environmental` [domain:killfeed/environmental-self-entry]; the
+#: game names it Spike. Since weapon-gallery-0.8.0 every mined name but
+#: MINED_ONLY_NAMES yields to its game icon, so this maps a label to the
+#: game name that replaced it, for scoring labels against the gallery.
 GAME_ICON_POLICY = {"Environmental": "Spike"}
 
 
 def load_gallery(store_root: Optional[Path] = None, scale: float = 1.0
                  ) -> tuple[Optional[dict], Optional[str]]:
-    """WEAPON_GALLERY_VERSION: the mined gallery less the names
-    GAME_ICON_POLICY gives to a game icon, plus the game's kill icons at the
-    capture's `scale` (`load_game_icons`). Returns the gallery and None, or
-    None and why: `no_gallery` without the mined file, or the game set's own
-    refusal (`no_game_icons`, ...). The game icons are never a silent
-    absence: a gallery without them is not this version."""
+    """WEAPON_GALLERY_VERSION: the game's kill icons at the capture's
+    `scale` (`load_game_icons`), the closed set of every DamageType's
+    KillIcon, plus the mined exemplars of MINED_ONLY_NAMES alone, which no
+    DamageType draws; the provenance names them (`mined_only`). Returns the
+    gallery and None, or None and why: `no_gallery` without the mined file,
+    or the game set's own refusal (`no_game_icons`, ...). The game icons are
+    never a silent absence: a gallery without them is not this version."""
     mined = load_mined_gallery(mined_gallery_path(store_root))
     if mined is None:
         return None, "no_gallery"
     game, why = load_game_icons(store_root, scale)
     if game is None:
         return None, why
-    keep = np.array([str(n) not in GAME_ICON_POLICY for n in mined["names"]])
-    return {"names": np.concatenate([mined["names"][keep].astype(str), game["names"].astype(str)]),
+    mnames = mined["names"].astype(str)
+    keep = np.isin(mnames, sorted(MINED_ONLY_NAMES))
+    kept = {n: int((mnames == n).sum()) for n in sorted(MINED_ONLY_NAMES)}
+    return {"names": np.concatenate([mnames[keep], game["names"].astype(str)]),
             "masks": np.concatenate([mined["masks"][keep].astype(np.float32), game["masks"]]),
             "aspects": np.concatenate([mined["aspects"][keep], game["aspects"]]),
             "provenance": {"version": WEAPON_GALLERY_VERSION, "mined": MINED_GALLERY_VERSION,
-                           "game": game["provenance"], "policy": GAME_ICON_POLICY}}, None
+                           "mined_only": kept, "game": game["provenance"],
+                           "policy": GAME_ICON_POLICY}}, None
 
 
 #: The self entries that are an agent's own ability but not one of its four
 #: official icons [domain:rounds/clove-revive-expiry-entry]. Viper's decay
 #: kill icon is a DamageType of Viper's (Pandemic) character data in the
-#: game build, not one of her four abilities' names.
-EXTRA_ABILITY_AGENTS = {"Clove expiry": "Clove", "Viper decay": "Viper"}
+#: game build, not one of her four abilities' names. Phoenix's fire base
+#: DamageType (Passive_Fire) is the parent of Hot Hands' and Blaze's and has
+#: its own KillIcon.
+EXTRA_ABILITY_AGENTS = {"Clove expiry": "Clove", "Viper decay": "Viper",
+                        "Phoenix fire": "Phoenix"}
 
 
 def ability_agent(name: Optional[str]) -> Optional[str]:

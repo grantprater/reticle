@@ -12,11 +12,20 @@ against four galleries:
 * `game_one_phase`: one placement per icon instead of GAME_ICON_PHASES;
 * `game_soft`: the drawn alpha kept soft in the grid, not cut as the reader cuts;
 * `game_unmirrored`: the same textures without the mirror;
-* `union`: `mined` plus `game`, what `load_gallery` serves.
+* `union`: `mined` plus `game`, what `load_gallery` served at weapon-gallery-0.7.0;
+* `served`: `game` plus the mined exemplars of `MINED_ONLY_NAMES` of the
+  other sessions, what `load_gallery` serves since weapon-gallery-0.8.0;
+* `served_loio`: `served` without the exemplar's own name, the
+  leave-one-icon-out harness of `prototypes/weapon_null_eval.py` (branch
+  `whitened-weapon-null-20261004`, a test harness only) under the
+  owner's IoU rule: a name given is an unseen icon misnamed. With the closed
+  set complete, production meets this case only for an icon the build's
+  DamageTypes do not list.
 
 The game icons never saw a capture, so every exemplar is held out from them.
-A label the game set lacks (Blade Storm, Not Dead Yet, Resurrection,
-NULL/cmd) is right only when refused: a name there would be wrong. The
+A label the game set lacks (Not Dead Yet, Resurrection, NULL/cmd; Blade
+Storm until weapon-gallery-0.8.0 added its dagger) is right only when
+refused: a name there would be wrong. The
 player named the spike hexagon `Environmental`
 [domain:killfeed/environmental-self-entry]; `Spike` counts as that name.
 
@@ -37,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np  # noqa: E402
 
-VERSION = "game-killicons-eval-0.1.0"
+VERSION = "game-killicons-eval-0.2.0"
 #: Labels whose name differs from the game set's for one icon.
 SAME_AS = {"Environmental": "Spike"}
 
@@ -71,7 +80,7 @@ def main(argv=None) -> int:
     ap.add_argument("--record", action="store_true")
     args = ap.parse_args(argv)
     from reticle.adjudication.weapon import (WEAPON_GALLERY_VERSION, _icon_index, _name_icon,
-                                             load_game_icons, load_mined_gallery,
+                                             load_game_icons, MINED_ONLY_NAMES,
                                              MINED_GALLERY_VERSION, mined_gallery_path)
     mined = dict(np.load(mined_gallery_path()))
     game, why = load_game_icons()
@@ -85,26 +94,46 @@ def main(argv=None) -> int:
     gs = _icon_index(load_game_icons(soft=True)[0])
     g1 = _icon_index(load_game_icons(phases=((0.0, 0.0),))[0])
     res = {k: defaultdict(Counter)
-           for k in ("mined", "game", "game_one_phase", "game_soft", "game_unmirrored", "union")}
+           for k in ("mined", "game", "game_one_phase", "game_soft", "game_unmirrored", "union",
+                     "served", "served_loio")}
     wrong = defaultdict(list)
     for sid in sorted(set(sids)):
         rest = _sub(mined, sids != sid)
         mi = _icon_index(rest)
         ui = _icon_index(_cat(rest, game))
+        only = _sub(rest, np.isin(rest["names"].astype(str), sorted(MINED_ONLY_NAMES)))
+        si = _icon_index(_cat(only, game))
         mknown = {str(n) for n in rest["names"]}
+        sknown = {str(n) for n in only["names"]} | gnames
+        served = _cat(only, game)
+        loio = {}
         for k in np.nonzero(sids == sid)[0]:
             q, a, t = mined["masks"][k], float(mined["aspects"][k]), names[k]
             for label, idx, known in (("mined", mi, mknown), ("game", gi, gnames),
                                       ("game_one_phase", g1, gnames),
                                       ("game_soft", gs, gnames),
                                       ("game_unmirrored", gu, gnames),
-                                      ("union", ui, mknown | gnames)):
+                                      ("union", ui, mknown | gnames),
+                                      ("served", si, sknown)):
                 v = _name_icon(q, a, idx)
                 o = outcome(t, v, known)
                 res[label][t][o] += 1
                 if o == "wrong":
                     wrong[label].append((str(mined["keys"][k]), t, v["name"], v["score"],
-                                         v["margin"]))
+                                        v["margin"]))
+            # Leave one icon out: the served gallery without the label's name
+            # (and the game name it maps to); a name given is an unseen icon
+            # misnamed.
+            drop = {t, SAME_AS.get(t, t)}
+            if t not in loio:
+                loio[t] = _icon_index(_sub(served, ~np.isin(served["names"].astype(str),
+                                                            sorted(drop))))
+            v = _name_icon(q, a, loio[t])
+            o = "misnamed" if v["name"] is not None else f"refused_{v['reason']}"
+            res["served_loio"][t][o] += 1
+            if o == "misnamed":
+                wrong["served_loio"].append((str(mined["keys"][k]), t, v["name"], v["score"],
+                                             v["margin"]))
     totals = {lab: dict(sum(per.values(), Counter())) for lab, per in res.items()}
     shared = sorted(n for n in set(names) if SAME_AS.get(n, n) in gnames)
     shared_tot = {lab: dict(sum((per[n] for n in shared), Counter())) for lab, per in res.items()}
@@ -117,9 +146,10 @@ def main(argv=None) -> int:
     for lab in res:
         print(f"{lab:16s} all {totals[lab]}")
         print(f"{'':16s} shared {shared_tot[lab]}")
-    print("per name (mined | game | union):")
+    print("per name (mined | game | union | served):")
     for n in sorted(set(names)):
-        print(f"  {n:16s} {dict(res['mined'][n])} | {dict(res['game'][n])} | {dict(res['union'][n])}")
+        print(f"  {n:16s} {dict(res['mined'][n])} | {dict(res['game'][n])} | "
+              f"{dict(res['union'][n])} | {dict(res['served'][n])}")
     for lab, rows in wrong.items():
         print(f"wrong {lab}: {len(rows)}")
         for r in rows[:40]:
