@@ -4536,7 +4536,10 @@ def cmd_ability_state(args) -> int:
                        deps={"ability_state_version": ABILITY_STATE_VERSION,
                              "tray_version": TRAY_VERSION,
                              "player_cast_version": PLAYER_CAST_VERSION},
-                       context={"labels": "labels/tray_object", "catalogue": cat_stamp,
+                       context={"labels": "labels/tray_object",
+                                "label_corrections": "labels/tray_object_corrections, applied at "
+                                                     "read (ability_timeline.tray_object_labels)",
+                                "catalogue": cat_stamp,
                                 "sessions": [sid for sid, _ in done]})
         print(json.dumps(values, indent=1))
     return 0
@@ -4546,8 +4549,7 @@ def _ability_state_values(store, done) -> dict:
     """The quoted numbers of one `ability-state --record` run: coverage, the
     unreadable reasons, the invariant counts, the charge counts' sources and
     conflicts, the half readings against each count, and the player's labels."""
-    import json
-
+    from .ability_timeline import tray_object_labels
     from .adjudication.ability_state import EQUIP_MIN, score_labels
     pooled, invariants, unread, reasons = Counter(), Counter(), Counter(), Counter()
     labelled = []
@@ -4593,10 +4595,8 @@ def _ability_state_values(store, done) -> dict:
                 invariants[k] += v
                 if v:
                     invariants[f"{k}_{sid}"] = v
-        path = store.root / "labels" / "tray_object" / f"{sid}.jsonl"
-        if path.exists():
-            labs = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-                    if line.strip()]
+        labs, _stamps = tray_object_labels(store.root, sid)
+        if labs:
             labelled += score_labels(rows, labs)["labels"]
     values = dict(sorted(pooled.items()))
     values["readable_fraction"] = round(values["readable_slot_samples"]
@@ -4626,7 +4626,16 @@ def _ability_state_values(store, done) -> dict:
         "segments_unscored": sum(v["unscored"] for v in segments.values()),
         "segments_by_slot": {k: segments[k] for k in sorted(segments)
                              if segments[k]["half_samples"]}})
-    casts = [lab for lab in labelled if lab["transition"] == "cast"]
+    # A label a correction moved off its drop's slot claims no cast there.
+    casts = [lab for lab in labelled if lab["transition"] == "cast" and lab["label_cast_of_drop"]]
+    corrected = [lab for lab in labelled if lab["value_source"] == "player_correction"]
+    values.update({"labels_corrected": len(corrected),
+                   "labels_corrected_rows": [
+                       f"{lab['key']}:label={lab['label_slot']}:corrected={lab['labelled_slot']}"
+                       f":transition={lab['transition']}:agrees={lab['agrees']}"
+                       for lab in corrected],
+                   "labels_agree": sum(lab["agrees"] is True for lab in labelled),
+                   "labels_disagree": sum(lab["agrees"] is False for lab in labelled)})
     values.update({"labels": len(labelled), "labels_cast": len(casts),
                    "labels_cast_held_before": sum(bool(lab["held_before"]) for lab in casts),
                    "labels_by_transition": dict(sorted(Counter(
@@ -5775,6 +5784,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a directory with features/<sid>.npz and labels/<sid>.json the store lacks")
     s.add_argument("--fit", help="fit the parameter set under this root (the store, or a scratch root)")
     s.add_argument("--eval", help="evaluate the parameter set under this root")
+    s.add_argument("--calibrate",
+                   help="derive the current parameter set under this root from "
+                        "ability_audio_fit.CALIBRATED_FROM, adding the margin calibration "
+                        "fitted on its dev casts")
     s.add_argument("--agent", action="append", help="only this agent (repeatable)")
     s.add_argument("--json", help="write the evaluation here")
     s.set_defaults(func=cmd_ability_audio_fit)

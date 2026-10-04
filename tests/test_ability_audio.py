@@ -233,6 +233,55 @@ class ParamsTest(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 aa.save_params(d, "p-test", {"KAY/O": a}, {})
 
+    def test_a_calibrated_set_copies_the_arrays_and_stores_the_calibration(self):
+        a = {"mu": np.zeros(3), "P": np.eye(3), "ar": [0.9, -0.2],
+             "templates": [np.ones((4, 3), np.float32)], "labels": ["C"], "files": ["a"],
+             "slots": {"C": "Widget"}, "thresholds": {"C": 1.5}, "dev": ["s1"], "fit": {}}
+        cal = {"pooled": {"w": [0.3, 1.0], "dev_n": 10, "dev_right": 8},
+               "agents": {"KAY/O": {"w": [0.5, 2.0], "basis": "agent", "dev_n": 10,
+                                    "dev_right": 8}}}
+        with tempfile.TemporaryDirectory() as d:
+            aa.save_params(d, "p-a", {"KAY/O": a}, {"split": {}})
+            self.assertIsNone(aa.load_params(d, "p-a", "KAY/O")[0]["calibration"])
+            with self.assertRaises(ValueError):
+                aa.save_calibrated(d, "p-a", "p-x", {"pooled": cal["pooled"], "agents": {}}, {})
+            aa.save_calibrated(d, "p-a", "p-b", cal, {"rule": "test"})
+            got, _ = aa.load_params(d, "p-b", "KAY/O")
+            self.assertEqual(got["calibration"]["w"], [0.5, 2.0])
+            self.assertEqual(got["provenance"]["derived_from"]["version"], "p-a")
+            self.assertEqual(got["provenance"]["calibration"]["pooled"], cal["pooled"])
+            self.assertEqual((aa.params_path(d, "p-a") / "params.npz").read_bytes(),
+                             (aa.params_path(d, "p-b") / "params.npz").read_bytes())
+            with self.assertRaises(FileExistsError):
+                aa.save_calibrated(d, "p-a", "p-b", cal, {})
+
+
+class CalibrationTest(unittest.TestCase):
+    def test_the_referenced_margin_leaves_none_out(self):
+        best, m = aa.ref_margin(np.array([[1.0, 3.0, 2.0, 9.0], [5.0, 1.0, 1.5, 0.0]]),
+                                ["C", "Q", "E", aa.NONE])
+        self.assertEqual(best, ["Q", "C"])
+        np.testing.assert_allclose(m, [1.0, 3.5])
+        best, m = aa.ref_margin(np.array([[2.0, 1.0]]), ["C", aa.NONE])
+        self.assertEqual(best, ["C"])
+        self.assertTrue(np.isnan(m[0]))
+
+    def test_an_agent_without_enough_wrong_dev_casts_takes_the_pooled_fit(self):
+        rng = np.random.default_rng(1)
+        x = rng.uniform(-3, 3, 2000)
+        y = (rng.uniform(size=2000) < 1 / (1 + np.exp(-(0.5 + 1.0 * x)))).astype(float)
+        cal = aa.calibrate({"A": (x, y), "B": (np.array([3.0, 4.0]), np.array([1.0, 1.0]))},
+                           ["A", "B", "C"])
+        np.testing.assert_allclose(cal["agents"]["A"]["w"], [0.5, 1.0], atol=0.1)
+        self.assertEqual(cal["agents"]["A"]["basis"], "agent")
+        self.assertEqual([cal["agents"][a]["basis"] for a in "BC"], ["pooled", "pooled"])
+        self.assertEqual(cal["agents"]["C"]["w"], cal["pooled"]["w"])
+        self.assertEqual(cal["pooled"]["dev_n"], 2002)
+        p = aa.p_right([0.0, 10.0, np.nan], [-1.0, 2.0])
+        self.assertAlmostEqual(p[0], 1 / (1 + np.e))
+        self.assertAlmostEqual(p[1], 1 - 1e-6)
+        self.assertTrue(np.isnan(p[2]))
+
 
 class OwnKitMaskTest(unittest.TestCase):
     def test_frames_near_a_span_of_the_players_kit_only(self):

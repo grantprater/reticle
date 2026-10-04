@@ -4,6 +4,7 @@ ownership entry `ability-audio`; this module is its fit tool).
 
     reticle ability-audio-fit --gate G.json [--supply SID=AGENT] [--audio-dir DIR]
     reticle ability-audio-fit --gate-in G.json --fit ROOT [--audio-dir DIR]
+    reticle ability-audio-fit --gate-in G.json --calibrate ROOT [--audio-dir DIR]
     reticle ability-audio-fit --gate-in G.json --eval ROOT [--json OUT] [--audio-dir DIR]
 
 `--gate` computes the gate's verdicts (`ability_timeline.player_tray_casts`,
@@ -47,8 +48,14 @@ script now passes this command the probe's inputs.
 
 `--eval` scores the dev and held sessions of the set's split, the
 player-verified casts (`labels/tray_object`) inside them, and the demos
-(`labels/demo_cast_class`) with stored log-mel, and calibrates the margin to
-P(right) on dev (`calibrate_margin`), judged on held.
+(`labels/demo_cast_class`) with stored log-mel, and judges the margin's
+calibration to P(right) on held casts and demos (`calibrate_margin`): the
+set's stored calibration where it carries one, else one fitted on dev.
+
+`--calibrate` derives the current set from CALIBRATED_FROM: the same
+arrays, and per agent the margin calibration `ability_audio.calibrate`
+fits on that set's dev casts (`ability-audio-params-0.2.2`), which the
+witness reads to give each cast's `p_right` beside its margin.
 """
 from __future__ import annotations
 
@@ -60,6 +67,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .ability_timeline import TRAY_OBJECT_CORRECTIONS_DIR, TRAY_OBJECT_DIR
+
 #: The reference table and its version, under the store root.
 REF_DIR = Path("reference") / "game-files" / "audio"
 MANIFEST = REF_DIR / "manifest-0.2.0.jsonl"
@@ -69,7 +78,7 @@ MONTAGE_BUILD = "release-13.06-shipping-18-5590001"
 MONTAGES = (Path("reference") / "game-files" / MONTAGE_BUILD / "ability-anims"
             / "manifest-montages.jsonl")
 #: The player's verified casts and the demos' cast census, under the store root.
-VERIFIED_DIR = Path("labels") / "tray_object"
+VERIFIED_DIR = TRAY_OBJECT_DIR
 DEMO_DIR = Path("labels") / "demo_cast_class"
 #: Folders whose files are movement, not a cast.
 MOVEMENT = ("Mvmnt", "Movement")
@@ -99,11 +108,12 @@ PLAYER_MAPS_NOT_APPLIED = [
     ("Sova", ("Hunter_AbilQ_Cast_",), "Shock Bolt", "player_belief_20261004",
      "dev top-1 86/98 -> 68/98 remapped, 85/98 left out"),
 ]
-#: Corrections the player made to a verified label, stored beside the labels
-#: (`<VERIFIED_DIR>_corrections/<sid>.jsonl`), never over them.
-CORRECTIONS_DIR = Path("labels") / "tray_object_corrections"
-#: Calibration: an agent's own margin fit needs this many right and wrong dev casts.
-CALIB_MIN = 3
+#: Corrections the player made to a verified label, stored beside the labels,
+#: never over them; `ability_timeline.tray_object_labels` applies them.
+CORRECTIONS_DIR = TRAY_OBJECT_CORRECTIONS_DIR
+#: The set `--calibrate` derives the current set from: the same arrays, with
+#: the margin calibration fitted on its dev casts.
+CALIBRATED_FROM = "ability-audio-params-0.2.1"
 #: The P(right) at which a verdict counts as accepted in the report.
 ACCEPT_P = 0.95
 
@@ -253,32 +263,18 @@ def audio_paths(store_root, sid: str, audio_dirs) -> dict:
     return {}
 
 
-def label_corrections(store_root) -> dict[str, dict]:
-    """{label key: the player's correction} from CORRECTIONS_DIR; the
-    labels themselves are never rewritten."""
-    out: dict[str, dict] = {}
-    for f in sorted((Path(store_root) / CORRECTIONS_DIR).glob("*.jsonl")):
-        for line in f.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                r = json.loads(line)
-                out[r["key"]] = r
-    return out
-
-
 def verified_casts(store_root) -> dict[str, list[dict]]:
-    """{session: the player's verified casts}: time and slot; a corrected
-    label carries its correction's slot, and `label_slot` the original."""
-    fix = label_corrections(store_root)
+    """{session: the player's verified casts}: time and slot, read through
+    `ability_timeline.tray_object_labels`, so a corrected label carries its
+    correction's slot, and `label_slot` the original."""
+    from .ability_timeline import tray_object_labels
     out: dict[str, list[dict]] = {}
     for f in sorted((Path(store_root) / VERIFIED_DIR).glob("*.jsonl")):
-        for line in f.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                r = json.loads(line)
-                row = {"t_ms": float(r["t_drop_s"]) * 1000.0, "slot": r["slot"], "key": r["key"]}
-                if r["key"] in fix:
-                    row.update(slot=fix[r["key"]]["slot"], label_slot=r["slot"],
-                               correction=fix[r["key"]].get("basis"))
-                out.setdefault(r["session_id"], []).append(row)
+        for r in tray_object_labels(store_root, f.stem)[0]:
+            row = {"t_ms": float(r["t_drop_s"]) * 1000.0, "slot": r["slot"], "key": r["key"]}
+            if r["value_source"] == "player_correction":
+                row.update(label_slot=r["label_slot"], correction=r["correction"]["basis"])
+            out.setdefault(r["session_id"], []).append(row)
     return out
 
 
@@ -502,18 +498,6 @@ def _sessions_by_agent(gate: dict) -> dict[str, list[str]]:
 # Evaluation
 # ---------------------------------------------------------------------------
 
-def logistic(x: np.ndarray, y: np.ndarray, l2: float = 1e-3, iters: int = 50) -> np.ndarray:
-    """[w0, w1] of P(y) = 1 / (1 + exp(-(w0 + w1 x))), Newton's method with
-    a small ridge."""
-    X = np.stack([np.ones_like(x), x], 1)
-    w = np.zeros(2)
-    for _ in range(iters):
-        p = 1 / (1 + np.exp(-X @ w))
-        H = (X * (p * (1 - p))[:, None]).T @ X + l2 * np.eye(2)
-        w -= np.linalg.solve(H, X.T @ (p - y) + l2 * w)
-    return w
-
-
 def reliability_bins(p: np.ndarray, y: np.ndarray, bins=(0, .5, .8, .9, .95, .99, 1.0001)):
     """(expected calibration error, [[lo, hi, n, mean P, share right]])."""
     e, rel = 0.0, []
@@ -526,37 +510,49 @@ def reliability_bins(p: np.ndarray, y: np.ndarray, bins=(0, .5, .8, .9, .95, .99
     return e / max(len(p), 1), rel
 
 
-def calibrate_margin(rows_by_agent: dict[str, list[dict]]) -> dict:
+def _xy(rows):
+    """(margins, 1 where the best referenced class was the slot) of the
+    referenced rows."""
+    rows = [r for r in rows if r["referenced"]]
+    return (np.array([r["margin_ref"] for r in rows], float),
+            np.array([r["best_ref"] == r["slot"] for r in rows], float))
+
+
+def dev_calibration(rows_by_agent: dict[str, list[dict]], agents=None) -> dict:
+    """`ability_audio.calibrate` over the dev casts of `rows_by_agent`, for
+    `agents` (default: the rows' agents)."""
+    from .adjudication.ability_audio import calibrate
+    dev = {a: _xy([r for r in rows if r["kind"] == "dev"]) for a, rows in rows_by_agent.items()}
+    return calibrate(dev, agents or list(rows_by_agent))
+
+
+def calibrate_margin(rows_by_agent: dict[str, list[dict]], stored: dict | None = None) -> dict:
     """Margin (best referenced class over the runner-up) -> P(right),
-    fitted on dev casts: an agent's own fit where its dev casts hold
-    CALIB_MIN right and wrong, else the fit pooled over every agent's dev
-    casts. Judged on held casts and demos; the LLR is logit(P) less the
-    logit of the pooled dev accuracy (natural log)."""
-    def xy(rows):
-        rows = [r for r in rows if r["referenced"]]
-        return (np.array([r["margin_ref"] for r in rows], float),
-                np.array([r["best_ref"] == r["slot"] for r in rows], float))
-    dev = {a: xy([r for r in rows if r["kind"] == "dev"]) for a, rows in rows_by_agent.items()}
-    dev = {a: v for a, v in dev.items() if len(v[0])}
-    xs = np.concatenate([v[0] for v in dev.values()])
-    ys = np.concatenate([v[1] for v in dev.values()])
-    w_pool, prior = logistic(xs, ys), float(ys.mean())
-    out = {"pooled": {"w": np.round(w_pool, 3).tolist(), "dev_n": int(len(ys)),
-                      "dev_right": int(ys.sum())}}
+    judged on held casts and demos. `stored` is the calibration the
+    parameter set carries ({"pooled", "agents"}, `ability_audio.calibrate`);
+    without it the calibration is fitted here on the rows' dev casts. The
+    LLR is logit(P) less the logit of the pooled dev accuracy (natural log)."""
+    from .adjudication.ability_audio import p_right
+    cal = stored or dev_calibration(rows_by_agent)
+    pooled = cal["pooled"]
+    prior = pooled["dev_right"] / max(pooled["dev_n"], 1)
+    out = {"source": "stored" if stored else "fitted_on_dev",
+           "pooled": {"w": np.round(pooled["w"], 3).tolist(), "dev_n": pooled["dev_n"],
+                      "dev_right": pooled["dev_right"]}}
     allp, ally = [], []
     for a, rows in rows_by_agent.items():
-        own = a in dev and (dev[a][1] == 0).sum() >= CALIB_MIN and (dev[a][1] == 1).sum() >= CALIB_MIN
-        w = logistic(*dev[a]) if own else w_pool
+        c = cal["agents"].get(a) or {"w": pooled["w"], "basis": "pooled"}
+        w = np.asarray(c["w"], float)
         for k in ("held", "demo"):
-            x, y = xy([r for r in rows if r["kind"] == k])
+            x, y = _xy([r for r in rows if r["kind"] == k])
             if not len(x):
                 continue
-            p = np.clip(1 / (1 + np.exp(-(w[0] + w[1] * x))), 1e-6, 1 - 1e-6)
+            p = p_right(x, w)
             e, rel = reliability_bins(p, y)
             llr = np.log(p / (1 - p)) - np.log(prior / (1 - prior))
             acc = p >= ACCEPT_P
             out.setdefault(a, {})[k] = {
-                "basis": "agent" if own else "pooled", "w": np.round(w, 3).tolist(),
+                "basis": c["basis"], "w": np.round(w, 3).tolist(),
                 "n": int(len(y)), "ece": round(float(e), 3), "reliability": rel,
                 f"accepted_p{int(ACCEPT_P * 100)}": f"{int(y[acc].sum())}/{int(acc.sum())}",
                 "llr_median_right": (round(float(np.median(llr[y == 1])), 2)
@@ -577,42 +573,47 @@ def calibrate_margin(rows_by_agent: dict[str, list[dict]]) -> dict:
 def _score_rows(kind, name, casts, tracks, neighbours, classes, thresholds):
     """Rows for `casts` scored on `tracks`: every class's score, the
     verdict, and the argmax and margin over the referenced classes."""
-    from .adjudication.ability_audio import NONE, cast_scores, identify
+    from .adjudication.ability_audio import NONE, cast_scores, identify, ref_margin
     if not casts:
         return []
     sc = cast_scores(tracks, [c["frame"] for c in casts], classes, neighbours=neighbours)
     ids = identify(sc, classes, thresholds)
+    best, margin = ref_margin(sc, classes)
     ref = [c for c in classes if c != NONE]
     out = []
-    for c, v, row in zip(casts, ids, sc):
+    for c, v, row, b, m in zip(casts, ids, sc, best, margin):
         s = {k: float(x) for k, x in zip(classes, row)}
-        o = sorted((s[k] for k in ref), reverse=True)
         out.append({"kind": kind, "name": name, "t_ms": c["t_ms"], "slot": c["slot"],
-                    "referenced": c["slot"] in ref,
-                    "best_ref": max(ref, key=lambda k: s[k]),
-                    "margin_ref": o[0] - o[1] if len(o) > 1 else float("nan"),
+                    "referenced": c["slot"] in ref, "best_ref": b, "margin_ref": float(m),
                     "verdict": v["verdict"], "reason": v["reason"],
                     "scores": {k: round(x, 4) for k, x in s.items()}})
     return out
 
 
-def evaluate_params(store_root, params_root, gate: dict, audio_dirs=(), agents=None, xp=np) -> dict:
-    """Score the set's dev and held sessions, their verified casts and the
-    demos; per agent the argmax top-1 over referenced casts and the
-    verdicts per kind, the misses, and the calibration."""
+def evaluate_params(store_root, params_root, gate: dict, audio_dirs=(), agents=None, xp=np,
+                    version: str | None = None) -> dict:
+    """Score set `version`'s (default `ABILITY_AUDIO_PARAMS_VERSION`) dev
+    and held sessions, their verified casts and the demos; per agent the
+    argmax top-1 over referenced casts and the verdicts per kind, the
+    misses, and the calibration: the set's stored one where it carries one,
+    else one fitted on the dev casts here."""
     from .ability_timeline import audio_cast_witness
     from .adjudication import ability_audio as aa
     from .version import ABILITY_AUDIO_PARAMS_VERSION
+    version = version or ABILITY_AUDIO_PARAMS_VERSION
     root = Path(store_root)
     verified = verified_casts(root)
     demos = demo_census_sessions(root, audio_dirs)
-    prov = json.loads((aa.params_path(params_root, ABILITY_AUDIO_PARAMS_VERSION)
+    prov = json.loads((aa.params_path(params_root, version)
                        / "provenance.json").read_text(encoding="utf-8"))
     split = prov["split"]
     agents = sorted(agents or prov["agents"])
+    stored = ({"pooled": prov["calibration"]["pooled"],
+               "agents": {a: m["calibration"] for a, m in prov["agents"].items()}}
+              if prov.get("calibration") else None)
     rows_by_agent, out = {}, {}
     for agent in agents:
-        params, why = aa.load_params(params_root, ABILITY_AUDIO_PARAMS_VERSION, agent)
+        params, why = aa.load_params(params_root, version, agent)
         if params is None:
             print(f"{agent}: {why}")
             continue
@@ -659,10 +660,41 @@ def evaluate_params(store_root, params_root, gate: dict, audio_dirs=(), agents=N
                       "misses": [x for x in rows if x["kind"] in ("held", "held_verified", "demo")
                                  and x["referenced"] and x["best_ref"] != x["slot"]]}
         print(agent, json.dumps(summ), flush=True)
-    cal = calibrate_margin(rows_by_agent)
-    print("calibration all held", json.dumps(cal.get("all_held")), flush=True)
+    cal = calibrate_margin(rows_by_agent, stored)
+    print(f"calibration ({cal['source']}) all held", json.dumps(cal.get("all_held")), flush=True)
     return {"params": prov["version"], "agents": out, "calibration": cal,
             "rows": {a: r for a, r in rows_by_agent.items()}}
+
+
+def calibrate_params(store_root, params_root, gate: dict, audio_dirs=(), xp=np,
+                     src_version: str = CALIBRATED_FROM) -> Path:
+    """Derive set `ABILITY_AUDIO_PARAMS_VERSION` under `params_root` from
+    `src_version`: its arrays unchanged and, per agent, the margin
+    calibration fitted on the source set's dev casts alone
+    (`ability_audio.calibrate`); held casts and demos never enter it."""
+    from .adjudication import ability_audio as aa
+    from .version import ABILITY_AUDIO_PARAMS_VERSION
+    prov = json.loads((aa.params_path(params_root, src_version) / "provenance.json")
+                      .read_text(encoding="utf-8"))
+    res = evaluate_params(store_root, params_root, gate, audio_dirs, None, xp, src_version)
+    cal = dev_calibration(res["rows"], list(prov["agents"]))
+    for a, c in cal["agents"].items():
+        print(f"{a}: calibration {c['basis']} w {np.round(c['w'], 3).tolist()} "
+              f"(dev {c['dev_right']}/{c['dev_n']})", flush=True)
+    note = {"rule": "P(the best referenced class is the cast's slot) = 1 / (1 + exp(-(w0 + w1 "
+                    "margin))), the margin the best referenced class's score over the "
+                    "referenced runner-up's (ability_audio.ref_margin); fitted by "
+                    "ability_audio.calibrate on the split's dev casts (the gate's player casts "
+                    "on dev sessions, referenced slots): an agent's own fit with "
+                    f"{aa.CALIB_MIN} right and {aa.CALIB_MIN} wrong dev casts, else the pooled "
+                    f"fit; ridge {aa.CALIB_L2}",
+            "fitted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "fitted_by": "reticle ability-audio-fit --calibrate",
+            "gate": {sid: {"agent": g["agent"], "stamps": g["stamps"]} for sid, g in gate.items()},
+            "held_check": res["calibration"].get("all_held")}
+    d = aa.save_calibrated(params_root, src_version, ABILITY_AUDIO_PARAMS_VERSION, cal, note)
+    print("params ->", d)
+    return d
 
 
 def main(args) -> int:
@@ -695,6 +727,8 @@ def main(args) -> int:
     xp = ult_lines.array_module()
     if args.fit:
         fit_params(store.root, Path(args.fit), gate, dirs, args.agent, xp)
+    if getattr(args, "calibrate", None):
+        calibrate_params(store.root, Path(args.calibrate), gate, dirs, xp)
     if args.eval:
         res = evaluate_params(store.root, Path(args.eval), gate, dirs, args.agent, xp)
         if args.json:

@@ -49,7 +49,15 @@ margin, or refuses, first match wins:
   unexplained frames (stored with the parameters);
 * `pairwise_tie` -- the margin over the best rival is under TIE_MARGIN.
 
-The scores are not calibrated into likelihoods and are not pooled into
+**A calibrated probability** stands beside the margin, never in its place.
+`ref_margin` names the best class among the referenced ones (`none` left
+out) and its margin over the referenced runner-up; `p_right` maps that
+margin through the logistic stored with the parameters (from
+`ability-audio-params-0.2.2`), P(the best referenced class is the cast's
+slot). `calibrate` fits it on dev casts only: an agent's own fit where its
+dev casts hold CALIB_MIN right and CALIB_MIN wrong, else the fit pooled over
+every agent's dev casts. A set without one gives `p_right` None with the
+reason `no_calibration`. The probability is not pooled into
 `adjudication.identity`; that is a later task.
 
 **Parameters** (`ability-audio-params-*`, under `reference/ability-audio/` in
@@ -61,8 +69,10 @@ over every agent's dev sessions (`fit_whitener`), so an agent without an
 own match is scored zero-shot, and a reference file whose sound event two
 abilities' montages play is left out (`shared_reference_mask`).
 `reticle ability-audio-fit` (`ability_audio_fit`) fits them and scores the
-held sessions through `ability_timeline.audio_cast_witness`. Every function
-here but `reference_logmel`, `load_params` and `save_params` is pure.
+held sessions through `ability_timeline.audio_cast_witness`; its
+`--calibrate` derives a set with the margin calibration
+(`save_calibrated`). Every function here but `reference_logmel`,
+`load_params`, `save_params` and `save_calibrated` is pure.
 """
 from __future__ import annotations
 
@@ -114,6 +124,10 @@ EXPLAIN_S = 1.5
 CLS_BACKGROUND = 2
 #: Where the parameter sets live, under the store root.
 PARAMS_DIR = Path("reference") / "ability-audio"
+#: An agent's own margin calibration needs this many right and as many wrong dev casts.
+CALIB_MIN = 3
+#: The ridge of the margin calibration's logistic fit.
+CALIB_L2 = 1e-3
 
 
 def band_centres() -> np.ndarray:
@@ -459,6 +473,66 @@ def identify(scores: np.ndarray, classes: list[str], thresholds: dict[str, float
     return out
 
 
+def ref_margin(scores: np.ndarray, classes: list[str]) -> tuple[list[str | None], np.ndarray]:
+    """Per row of `scores` [casts, classes]: the best referenced class
+    (`none` left out) and its margin over the referenced runner-up, NaN with
+    fewer than two referenced classes. Vectorised."""
+    scores = np.asarray(scores, float).reshape(-1, len(classes))
+    ref = np.array([c != NONE for c in classes], bool)
+    names = [c for c in classes if c != NONE]
+    S = scores[:, ref]
+    n = len(S)
+    if S.shape[1] == 0:
+        return [None] * n, np.full(n, np.nan)
+    o = np.sort(S, axis=1)[:, ::-1]
+    margin = o[:, 0] - o[:, 1] if S.shape[1] > 1 else np.full(n, np.nan)
+    return [names[i] for i in np.argmax(S, axis=1)], margin
+
+
+def logistic(x: np.ndarray, y: np.ndarray, l2: float = CALIB_L2, iters: int = 50) -> np.ndarray:
+    """[w0, w1] of P(y) = 1 / (1 + exp(-(w0 + w1 x))), Newton's method with
+    a small ridge."""
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    X = np.stack([np.ones_like(x), x], 1)
+    w = np.zeros(2)
+    for _ in range(iters):
+        p = 1 / (1 + np.exp(-X @ w))
+        H = (X * (p * (1 - p))[:, None]).T @ X + l2 * np.eye(2)
+        w -= np.linalg.solve(H, X.T @ (p - y) + l2 * w)
+    return w
+
+
+def calibrate(dev: dict[str, tuple[np.ndarray, np.ndarray]], agents) -> dict:
+    """The margin calibration of a parameter set from dev casts:
+    `dev` {agent: (margins, 1 where the best referenced class was the slot)}.
+    Returns {"pooled": {w, dev_n, dev_right}, "agents": {agent: {w, basis,
+    dev_n, dev_right}}} for every agent in `agents`: its own fit where its
+    dev casts hold CALIB_MIN right and CALIB_MIN wrong, else the pooled fit."""
+    dev = {a: (np.asarray(x, float), np.asarray(y, float)) for a, (x, y) in dev.items()
+           if len(x)}
+    if not dev:
+        raise ValueError("no dev casts to calibrate on")
+    xs = np.concatenate([v[0] for v in dev.values()])
+    ys = np.concatenate([v[1] for v in dev.values()])
+    w_pool = logistic(xs, ys)
+    out = {"pooled": {"w": [float(v) for v in w_pool], "dev_n": int(len(ys)),
+                      "dev_right": int(ys.sum())}, "agents": {}}
+    for a in sorted(agents):
+        x, y = dev.get(a, (np.zeros(0), np.zeros(0)))
+        own = (y == 1).sum() >= CALIB_MIN and (y == 0).sum() >= CALIB_MIN
+        w = logistic(x, y) if own else w_pool
+        out["agents"][a] = {"w": [float(v) for v in w], "basis": "agent" if own else "pooled",
+                            "dev_n": int(len(y)), "dev_right": int(y.sum())}
+    return out
+
+
+def p_right(margin, w) -> np.ndarray:
+    """P(the best referenced class is the slot) of each margin under the
+    logistic `w`, clipped to [1e-6, 1 - 1e-6]; NaN where the margin is."""
+    m = np.asarray(margin, float)
+    return np.clip(1 / (1 + np.exp(-(float(w[0]) + float(w[1]) * m))), 1e-6, 1 - 1e-6)
+
+
 def false_fire_peaks(track: np.ndarray, live: np.ndarray, code: np.ndarray,
                      gap: int = PEAK_GAP) -> np.ndarray:
     """A track's peak values on live, unexplained frames, peaks at least
@@ -518,6 +592,33 @@ def save_params(store_root, version: str, agents: dict, provenance: dict) -> Pat
     return d
 
 
+def save_calibrated(store_root, src_version: str, version: str, calibration: dict,
+                    note: dict) -> Path:
+    """Write set `version`: set `src_version`'s arrays copied byte for byte,
+    its provenance with each agent's margin calibration (`calibrate`) and
+    `note` (how the calibration was fitted), and `derived_from` naming the
+    source and its arrays' sha256. Refuses to overwrite an existing set."""
+    import hashlib
+    import shutil
+    src, d = params_path(store_root, src_version), params_path(store_root, version)
+    if d.exists():
+        raise FileExistsError(f"{d} exists; a parameter set is never overwritten")
+    prov = json.loads((src / "provenance.json").read_text(encoding="utf-8"))
+    missing = sorted(set(prov["agents"]) - set(calibration["agents"]))
+    if missing:
+        raise ValueError(f"no calibration for {missing}")
+    sha = hashlib.sha256((src / "params.npz").read_bytes()).hexdigest()
+    d.mkdir(parents=True)
+    shutil.copyfile(src / "params.npz", d / "params.npz")
+    for a, m in prov["agents"].items():
+        m["calibration"] = calibration["agents"][a]
+    prov.update(version=version,
+                derived_from={"version": src_version, "params_npz_sha256": sha},
+                calibration={**note, "pooled": calibration["pooled"]})
+    (d / "provenance.json").write_text(json.dumps(prov, indent=1), encoding="utf-8")
+    return d
+
+
 def load_params(store_root, version: str, agent: str) -> tuple[dict | None, str | None]:
     """(an agent's parameters, None) or (None, the reason there are none:
     `no_params:<version>` or `no_params_for:<agent>`)."""
@@ -538,4 +639,5 @@ def load_params(store_root, version: str, agent: str) -> tuple[dict | None, str 
             "templates": [T[a:b] for a, b in zip(cuts[:-1], cuts[1:])],
             "labels": meta["classes"], "files": meta["files"], "slots": meta["slots"],
             "thresholds": meta["thresholds"], "dev": meta["dev"], "fit": meta["fit"],
+            "calibration": meta.get("calibration"),
             "provenance": {k2: v for k2, v in prov.items() if k2 != "agents"}}, None
