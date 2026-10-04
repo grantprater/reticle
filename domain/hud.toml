@@ -413,3 +413,25 @@ The scoreline OCR reads no clock in this form
 """
 see = ["hud/planted-spike-replaces-clock"]
 phrases = ["red timer", "hundredths on the clock"]
+
+[spike-carrier-marker-texture]
+claim = """
+The roster's spike-carrier marker is the texture TX_Icon_Bomb_v2 turned 180,
+drawn in a 42-unit box (PlayerParticipantWidget_v2.bombCarrrierIcon in its
+BombContainer). TX_SpikeCarrier is the announcement's person silhouette, not
+the marker.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-03"
+source = """
+game build release-13.06-shipping-18-5590001: PlayerParticipantWidget_v2's
+exported JSON under <store>/reference/game-files/release-13.06-shipping-18-5590001/hud-layout/ and the textures in
+<store>/reference/game-files/release-13.06-shipping-18-5590001/spike-icons/ (manifest.jsonl gives source paths and sha256)
+"""
+use = """
+the texture drawn at 42 px correlates 0.87 with the mined marker template
+but scored washed-out roster frames lower, so `spike` keeps the mined template
+"""
+phrases = ["spike carrier marker texture", "roster bomb icon"]
+see = ["hud/spike-carrier-marker"]

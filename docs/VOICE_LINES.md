@@ -1014,12 +1014,52 @@ ultimate killfeed icon (the rules and their dev-half fits are in
 [metric:ult_lines/ult-cast@all-sessions#x_casts_with_line_fraction=0.944] of
 the casts have an own line. Against Riot's records
 (`prototypes/riot_ground_truth.py --ult-only`), recall is
-[metric:riot_truth/ult#recall=0.9028] and precision
-[metric:riot_truth/ult#precision=0.942], with
-[metric:riot_truth/ult#burst_refused=27] rows refused as bursts and
-[metric:riot_truth/ult#witnessed_casts=8] casts selected by a witness; on the
-held-out half, recall [metric:riot_truth/ult/held#recall=0.9526] and precision
-[metric:riot_truth/ult/held#precision=0.9269].
+[metric:riot_truth/ult@ult-cast-0.3.0#recall=0.9028] and precision
+[metric:riot_truth/ult@ult-cast-0.3.0#precision=0.942], with
+[metric:riot_truth/ult@ult-cast-0.3.0#burst_refused=27] rows refused as bursts and
+[metric:riot_truth/ult@ult-cast-0.3.0#witnessed_casts=8] casts selected by a witness; on the
+held-out half, recall [metric:riot_truth/ult/held@ult-cast-0.3.0#recall=0.9526] and precision
+[metric:riot_truth/ult/held@ult-cast-0.3.0#precision=0.9269].
+
+### Weak clusters and the heard-line check (ult-cast-0.4.0)
+
+At 0.3.0 seven of the eight excess rows that were not Chamber's were weak
+selections, each under 0.05, among two or more other templates' peaks just
+under the threshold: the many-template sound a burst refuses, with too few
+peaks selected to count as one. `ult-cast-0.4.0` counts a burst over every
+stored peak at or above BURST_FLOOR, selected or not (the fit is in
+`adjudication.ult_cast`'s docstring). Rerun from storage on the 21 matches, it
+refused eight casts and changed no other verdict. Against Riot's records,
+recall stays [metric:riot_truth/ult#recall=0.9028] and precision rises to
+[metric:riot_truth/ult#precision=0.9579], with
+[metric:riot_truth/ult#excess_rows=20] excess rows; on the held-out half,
+recall [metric:riot_truth/ult/held#recall=0.9526] and precision
+[metric:riot_truth/ult/held#precision=0.9488]. No session lost a matched cast.
+
+Every excess row left is Chamber's
+([metric:riot_truth/ult/agent#Chamber_excess=20]). Riot's records count
+[metric:riot_truth/ult#chamber_tdf_riot_casts=7] Chamber ultimates where the
+same players kill with Tour De Force in
+[metric:riot_truth/ult#chamber_tdf_tdf_rounds=16] rounds, so Riot's count of
+Chamber's casts falls short of its own kills.
+
+The Split capture `4f207c0c4e39` holds no heard ultimate line. Its best stored
+peak is [metric:ult_lines/vo-audible@4f207c0c4e39#best_mono=0.0649], and the
+templates of agents Riot records casting outrank absent agents' templates no
+better than chance (AUC
+[metric:ult_lines/vo-audible@4f207c0c4e39#auc_heard_vs_absent_mono=0.614];
+the other twenty matches at least
+[metric:ult_lines/vo-audible@4f207c0c4e39#auc_other_matches_min=0.909]). One
+audio-only decode ruled out the instrument and the capture's channels: the
+mono mix reproduces the stored maxima, and neither channel alone, nor their
+difference, nor a resampled template lifts any line above
+[metric:ult_lines/vo-audible@4f207c0c4e39#best_left=0.066]. The rest of the
+game's sound is present with the usual spectrum, its speech band
+[metric:ult_lines/vo-audible@4f207c0c4e39#speech_band_db_minus_other_matches=-5.68]
+dB under the other matches'. The cast voice lines are absent from the mix,
+and the data cannot tell a muted voice-over from another voice-over language.
+The coverage row's `vo_heard` now states this for every capture; it refuses
+nothing.
 
 ### What was not done in production
 

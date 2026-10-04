@@ -1685,6 +1685,54 @@ a plant is not stated
 """
 see = ["minimap/spike-planted-icon", "rounds/post-round-plant-sound"]
 
+[icons-semi-transparent]
+claim = """
+A minimap agent icon is drawn see-through: where two icons stack, the one
+beneath shows faintly through the one above, and the floor shows faintly
+through both. A render of a stack composites each icon at an opacity just
+under one, never as an opaque disc.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-03"
+subject = "minimap:agent-icon"
+source = """
+the player, 2026-10-03, relayed by the orchestrator: the icons are see-through.
+The minimap renderer probe of 2026-10-03 had fitted an icon opacity near 0.9
+before the player confirmed it.
+"""
+use = "stack_fit composites a stack's icons at ICON_ALPHA"
+exceptions = """
+the opacity value is the probe's fit, not the player's; the statement updates
+[domain:minimap/enemy-lobe-translucent], whose ally and self lobes read as
+opaque on a 465 px measurement of enemy icons. The order in which the game
+stacks icons is unknown to the player; a reader may hold it only as a
+measured per-match prior declared as rests_on
+"""
+see = ["minimap/enemy-lobe-translucent", "minimap/coincident-icons"]
+
+[spike-glyph-texture]
+claim = """
+The minimap draws the spike glyph from the texture Minimap_BombIcon: in a
+24-unit box when dropped (AresMinimapBombWidget), and in an 18-unit box turned
+180 when carried, offset (-7, +7) units from the carrier's 24-unit portrait
+(CharacterPortraitMinimapWidget.BombIcon).
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-03"
+source = """
+game build release-13.06-shipping-18-5590001: the two widgets' exported JSON
+under <store>/reference/game-files/release-13.06-shipping-18-5590001/hud-layout/ and the texture in
+<store>/reference/game-files/release-13.06-shipping-18-5590001/minimap/ (manifest.jsonl gives its source path and sha256)
+"""
+use = """
+`spike.glyph_template` draws this texture; the capture draws it smaller than
+box times map scale, so the reader searches a band of box fractions
+"""
+phrases = ["spike glyph texture", "minimap bomb icon"]
+see = ["minimap/spike-glyph", "minimap/spike-inversion", "minimap/spike-carrier-overlay"]
+
 [spectator-view-matches-self]
 claim = """
 The player believes that spectating a player shows what that player sees,
