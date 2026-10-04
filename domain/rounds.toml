@@ -255,8 +255,8 @@ round's wallet is `remaining + spent`, compared per team. With 300, the replay r
 [metric:riot_economy/team_rounds#regular_n=816] regular team-rounds, carrying [metric:riot_economy/team_rounds#ok_plant_payments=1310]
 plant payments; with 200 it reproduces [metric:riot_economy/team_rounds#plant_200_regular_ok=553]. The
 records hold [metric:riot_economy/team_rounds#post_round_plants=25] post-round plants among
-[metric:riot_economy/team_rounds#plant_rounds=292] plant rounds. The player, 2026-10-04 (chat), asked "plant reward 300" as the
-third of eleven numbered questions, answered "3. Yes".
+[metric:riot_economy/team_rounds#plant_rounds=292] plant rounds. Asked "plant reward 300", the third of eleven numbered
+questions (2026-10-04, chat), the player answered "3. Yes".
 """
 use = """
 scoreboard credits can witness a plant: each attacker's credits rise by this

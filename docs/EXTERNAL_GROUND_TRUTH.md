@@ -62,9 +62,9 @@ not the buy phase; unconfirmed until aligned.
 ult points), `round_phase`, and the player's own health and abilities. No
 positions and no in-round time; `spike_planted` was removed on 2025-01-30.
 
-**In-game Replays.** Wiped each patch. They are local files: 15 `.vrf` files
-sit in `%LOCALAPPDATA%\VALORANT\Saved\Demos` (counted 2026-10-04). Reticle can
-read them: the payloads are compressed, not encrypted, and uncompressed event
+**In-game Replays.** They are local files: 15 `.vrf` files sit in
+`%LOCALAPPDATA%\VALORANT\Saved\Demos` (counted 2026-10-04). They are
+readable: the payloads are compressed, not encrypted, and uncompressed event
 chunks carry deaths, plants, defuses and round starts. In b03fecd3 the
 replay's 180 deaths pair one to one, in time order, with Riot's 180 kills. The
 evidence is the store's `notes/predictions.jsonl` outcome rows for
