@@ -174,7 +174,11 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # banner, scenery). Capture-stall spans (stalls-0.2.0) count an entry drawn
 # at a stall's release (`checks.track_entries`) and discount stall time in
 # the merge.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.32.0"
+# 0.33.0 (2026-10-03): every entry votes its own second life from the badge rows
+# read at its admitted track reads (`entry_second_life`), not only the entry a
+# player death track owns; the player track's window vote counts only the
+# player's own rows. Rows store the vote as `second_life_vote`.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.33.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -1243,24 +1247,55 @@ def second_life_death(t_first: float, t_last: float, observations: list[dict]) -
     """Whether the player's killfeed death seen from `t_first` to `t_last` is a
     second life rather than a death, by the badge reader's vote.
 
-    The vote runs over the rows of `killfeed.detect_second_life_badge`, which
-    fits a ring beside the victim's name and names no icon. It is
-    probably unspecific: the player expects it to fire on the KAY/O down icon
-    [domain:killfeed/kayo-downed-entry] and on other icons beside the name.
-    Whether it fires on the KAY/O icon is unmeasured: 4f207c0c4e39 fields
-    KAY/O, but its down is not the player's, so no second-life row reads it. A badge read is evidence of some icon beside the victim's
-    name, not of Run It Back.
+    The vote runs over the rows of `killfeed.second_life_observations`,
+    which fit a ring at the left end of the victim's plate
+    (`killfeed.badge_ring`) and name no icon: Phoenix's Run It Back badge and
+    the KAY/O down icon [domain:killfeed/kayo-downed-entry] both read as one.
+    The reader's lineup gate (`killfeed.second_life_gate`) reads only entries
+    whose victim may be Phoenix or KAY/O, and the player's own deaths.
 
-    A majority vote over the stored `second_life_observation` rows inside the
-    track's lifetime. None when no observation falls there: unread, which a
-    caller keeps apart from "no badge".
+    A majority vote over the stored `second_life_observation` rows of the
+    player's own death entries (`player_death`) inside the track's lifetime:
+    `rounds` has the player's death tracks, not the entry's slots. Another
+    entry's rows never vote here; an entry's own vote is `entry_second_life`.
+    An uncertain read (`has_badge` None) does not vote. None when no read
+    falls there: unread, which a caller keeps apart from "no badge".
     """
     votes = [o["has_badge"] for o in observations
-             if o.get("kind") == "second_life_observation"
+             if o.get("kind") == "second_life_observation" and o.get("player_death")
+             and o.get("has_badge") is not None
              and t_first - SECOND_LIFE_SLACK_MS <= o["t_ms"] <= t_last + SECOND_LIFE_SLACK_MS]
     if not votes:
         return None
     return sum(votes) * 2 > len(votes)
+
+
+def entry_second_life(entry: dict, observations: list[dict] | None,
+                      others: list[dict] | None = None) -> dict:
+    """Whether one killfeed entry is a second-life death, by the badge rows
+    read at the views it occupies.
+
+    The views are the entry's hud track reads the queue rule admits
+    (`entry_slot_path`); a row votes when its `(t_ms, slot)` is one of them,
+    so a badge on one entry never votes on another on screen beside it. A
+    majority vote over the confident reads, as `second_life_death`'s; an
+    uncertain read (`has_badge` None) does not vote. Returns `{"value",
+    "badges", "reads", "binding"}`: `value` None when no confident read fell
+    at the entry (`binding` says why), which a caller keeps apart from "no
+    badge"."""
+    if observations is None:
+        return {"value": None, "badges": 0, "reads": 0, "binding": "no_badge_stream"}
+    path, _ = entry_slot_path(entry, others)
+    if path is None:
+        return {"value": None, "badges": 0, "reads": 0, "binding": "no_track_reads"}
+    at = set(path)
+    votes = [bool(o["has_badge"]) for o in observations
+             if o.get("kind") == "second_life_observation" and o.get("has_badge") is not None
+             and (float(o["t_ms"]), int(o["slot"])) in at]
+    if not votes:
+        return {"value": None, "badges": 0, "reads": 0, "binding": "unread"}
+    return {"value": sum(votes) * 2 > len(votes), "badges": sum(votes), "reads": len(votes),
+            "binding": "entry_reads"}
 
 
 def death_key(session_id: str, t_ms: float, slot: int) -> str:
@@ -1356,11 +1391,23 @@ def session_entries(hud: dict, second_life: list[dict] | None = None,
                     "victim_ally": ally, "kf_player_kill": pk, "kf_player_death": dt is not None,
                     "same_side": (None if not same else
                                   2 * e["flag_hits"].get("same_side", 0) > e["n_obs"]),
-                    "is_second_life": bool(dt is not None and second_life is not None
-                                           and second_life_death(dt["t_first"], dt["t_last"],
-                                                                 second_life)),
+                    "player_track": None if dt is None else (dt["t_first"], dt["t_last"]),
                     "claim": None, "location": None, "killer_location": None,
                     **({"released": e["released"]} if e.get("released") else {})})
+    # Each entry's own badge rows decide its second life (`entry_second_life`);
+    # the player's death track's window vote (`second_life_death`) stands in
+    # only where none was read at the entry's views. 587c15b07779 1294.5 s:
+    # a badge read on the player's Phoenix entry, but no player death track
+    # owned the entry, so the track vote never ran.
+    for e in out:
+        vote = entry_second_life(e, second_life, out)
+        span = e.pop("player_track")
+        if vote["value"] is None and span is not None and second_life is not None:
+            v = second_life_death(span[0], span[1], second_life)
+            if v is not None:
+                vote = {**vote, "value": v, "binding": "player_track"}
+        e["second_life_vote"] = vote
+        e["is_second_life"] = bool(vote["value"])
     return out
 
 

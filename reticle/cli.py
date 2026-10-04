@@ -3291,6 +3291,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                 "kf_player_death": e["kf_player_death"],
                 "weapon_evidence": e.get("weapon_evidence"),
                 "same_side": e.get("same_side"),
+                "second_life_vote": e.get("second_life_vote"),
                 "entry_type": e.get("entry_type"),
                 **({"merged": e["merged"]} if e.get("merged") else {}),
                 **({"released": e["released"]} if e.get("released") else {}),
@@ -3319,6 +3320,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                 "weapons": dict(Counter((r.get("weapon_evidence") or {}).get("status", "none")
                                         for r in rows)),
                 "revives": sum(bool(r.get("is_revive")) for r in rows),
+                "second_lives": sum(bool(r.get("is_second_life")) for r in rows),
                 "collisions": len(collisions),
                 # Deaths set aside (`merge_split_entries`, `refuse_unwitnessed`).
                 "merged": dict(Counter(m["rule"] for m in res.get("merges", []))),

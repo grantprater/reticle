@@ -1497,18 +1497,30 @@ def victim_is_ally(green, red, a: int, z: int, wx1: int, wx0: int | None = None,
     Returns None when no run is wide enough to be a plate, which is the honest
     answer for a band that is half occluded.
     """
-    W = green.shape[1]
-    if wx1 >= W - s.px(MIN_PLATE_RUN):
-        return None
-    runs = _plate_runs(green[a:z, wx1:], red[a:z, wx1:], s)
+    runs, killer, other = _victim_plate(green, red, a, z, wx1, wx0, s)
     if not runs:
         return None
-    killer_ally = killer_is_ally(green, red, a, z, wx0, wx1) if wx0 is not None else None
-    if killer_ally is not None:
-        killer = 1 if killer_ally else -1
-        other = next((run for run in runs if run[0] != killer), None)
+    if killer is not None:
         return bool((other[0] if other else killer) > 0)
     return bool(runs[-1][0] > 0)
+
+
+def _victim_plate(green, red, a: int, z: int, wx1: int, wx0: int | None,
+                  s: "KillfeedScale" = UNIT_SCALE
+                  ) -> tuple[list[tuple[int, int, int]], int | None, tuple[int, int, int] | None]:
+    """`victim_is_ally`'s reading of the plates past the icon: the wide runs
+    past `wx1` (`_plate_runs`, columns relative to `wx1`), the killer's colour
+    behind the icon (+1 green, -1 red, None undecided) and the first run of
+    the other colour, the victim's plate (None when the killer's colour is
+    undecided or no run differs, a one-colour banner)."""
+    if wx1 >= green.shape[1] - s.px(MIN_PLATE_RUN):
+        return [], None, None
+    runs = _plate_runs(green[a:z, wx1:], red[a:z, wx1:], s)
+    killer_ally = killer_is_ally(green, red, a, z, wx0, wx1) if wx0 is not None else None
+    if not runs or killer_ally is None:
+        return runs, None, None
+    killer = 1 if killer_ally else -1
+    return runs, killer, next((run for run in runs if run[0] != killer), None)
 
 
 #: How many times the other colour's pixels the killer's colour must hold
@@ -1730,7 +1742,10 @@ PORTRAIT_ASPECT = 2.0
 # `entry_anchor`, `rests_on`); with an anchor a surprise widens rows only,
 # and the name-start box is a cross-check whose disagreement is stored
 # (`anchor_check`).
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.14.0"
+# 0.15.0 (2026-10-03): a `second_life_observation` per entry whose victim may be
+# Phoenix or KAY/O by the lineup (`second_life_gate`), not only the player's
+# own deaths; each row carries `victim_ally`, `player_death` and `gate`.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.15.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -2328,6 +2343,7 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                           profile_name: str = "valorant-16x9", *,
                           scale: "KillfeedScale | None" = None,
                           art_dir=None, candidates: dict | None = None,
+                          badge_fits: dict | None = None,
                           anchors: "EntryAnchors | None" = None) -> list[dict]:
     """Context-free appearance evidence for each entry's two agent portraits.
 
@@ -2384,8 +2400,10 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
             continue
         # The plate, and white ink that begins by the victim's name end
         # (`own_ink`); portrait art begins past it.
-        badge, fit = detect_second_life_badge(crop[view.y0:view.y1], view.victim_run[0], s=s)
-        name1 = victim_name_end(white[view.y0:view.y1], view.victim_run,
+        # The badge fit `second_life_observations` made of this view, when given.
+        badge, fit = ((badge_fits or {}).get(view.slot)
+                      or detect_second_life_badge(crop[view.y0:view.y1], view.victim_run[0], s=s))
+        name1 =victim_name_end(white[view.y0:view.y1], view.victim_run,
                                 int(fit["cx"] + fit["r"]) if badge else None, s)
         on = _entry_columns(green[view.y0:view.y1], red[view.y0:view.y1],
                             own_ink(white[view.y0:view.y1], name1), bh)
@@ -2492,14 +2510,16 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
 
 
 # --------------------------------------------------------------------------- second life
-# The second-life badge reader [domain:rounds/resurrection-mechanics]. It
-# fits a ring beside the victim's name and names no icon. It is
-# probably unspecific: the player expects it to fire on the KAY/O down icon
-# [domain:killfeed/kayo-downed-entry] and on other icons beside the name.
-# Whether it fires on the KAY/O icon is unmeasured: 4f207c0c4e39 fields
-# KAY/O, but its down is not the player's, so no second-life row reads it. A badge read is evidence of some icon beside the victim's
-# name, not of Run It Back. Read here, in the reader
-# that already crops every entry; `adjudication.death` re-exports it.
+# The second-life badge reader [domain:rounds/resurrection-mechanics]. The
+# stored reads are `badge_ring`'s: the revive ring's fit (`ring_fit`) at the
+# left end of the victim's plate, on every entry whose victim may be Phoenix
+# or KAY/O (`second_life_gate`). It names no icon; the Run It Back badge and
+# the KAY/O down icon [domain:killfeed/kayo-downed-entry] both read as a ring.
+# The older arc fit (`detect_second_life_badge`) below fires on round letters
+# at a victim name's start and misses the ring itself (measured 2026-10-03,
+# `badge_ring`); it now only places the victim's name end for the portrait
+# walk. Read here, in the reader that already crops every entry;
+# `adjudication.death` re-exports the arc fit.
 
 SECOND_LIFE_WHITE_V_MIN = 190
 SECOND_LIFE_WHITE_S_MAX = 70
@@ -2570,14 +2590,15 @@ def detect_second_life_badge(
     run_min: float = SECOND_LIFE_RUN_MIN,
     s: "KillfeedScale" = UNIT_SCALE,
 ) -> tuple[bool, dict]:
-    """Detect a ring-shaped icon beside the victim's name on an entry crop.
+    """Fit an arc beside the victim's name on an entry crop.
 
-    The detector fits a ring beside the victim's name and names no icon. It is
-    probably unspecific: the player expects it to fire on the KAY/O down icon
-    [domain:killfeed/kayo-downed-entry] and on other icons beside the name.
-    Whether it fires on the KAY/O icon is unmeasured: 4f207c0c4e39 fields
-    KAY/O, but its down is not the player's, so no second-life row reads it. A badge read is evidence of some icon beside the victim's
-    name, not of Run It Back.
+    No longer the stored badge read (`badge_ring` is): its radii (0.26-0.42
+    of the band) are smaller than the badge's ring, and it skips every circle
+    the band clips, so it fits the glyph inside the badge, and also marks on
+    the killer's plate (4f207c0c4e39 36.5 s, run 0.297 on a death with no
+    badge) and round letters past a name's start (043bafca271a 1054.0 s, the
+    fits 0.43 band heights right of it). `portrait_observations` still
+    places the victim's name end past its fit.
 
     When `victim_x` is supplied, `crop` is the full entry band and the search
     window is centered on `victim_x` with a width equal to twice the band height.
@@ -2617,6 +2638,118 @@ def detect_second_life_badge(
             "r": round(r, 1),
             "has_badge": has_badge,
         }
+
+
+#: The agents whose killfeed victim can carry an icon beside the name that
+#: marks a second life [domain:killfeed/entry-types]: Phoenix killed inside
+#: Run It Back, KAY/O downed inside NULL/cmd [domain:killfeed/kayo-downed-entry].
+#: Identity and the lineup spell KAY/O by his asset stem, `KAY_O`; both spellings count.
+SECOND_LIFE_AGENTS = frozenset({"Phoenix", "KAY/O", "KAY_O"})
+
+
+def second_life_gate(view: "EntryView", candidates: dict | None) -> str | None:
+    """Why the badge reader reads this entry, or None to skip it.
+
+    The badge appears only when the victim is Phoenix or KAY/O
+    (`SECOND_LIFE_AGENTS`), so the candidate set is the agents the victim's
+    side may field: the side's admitted agents when the plate names the side
+    (`"side"`), the match's agents when it does not (`"match: side unread"`),
+    every agent when no lineup is given (`"all: no lineup given"`), as
+    `_art_candidates` admits them. The player's own death entry is always
+    read (`"player_death"`): its rows were stored before any lineup gate, and
+    `rounds` splits the player's deaths by them. Opportunity, not outcome:
+    the gate reads the lineup, never the badge."""
+    if view.verdict == "death":
+        return "player_death"
+    if candidates is None:
+        return "all: no lineup given"
+    if view.victim_ally is None:
+        pool, why = {a for side in candidates.values() for a in side}, "match: side unread"
+    else:
+        pool, why = set(candidates.get("ally" if view.victim_ally else "enemy") or ()), "side"
+    return why if pool & SECOND_LIFE_AGENTS else None
+
+
+def badge_ring(crop: np.ndarray, green: np.ndarray, red: np.ndarray, view: "EntryView",
+               usable: np.ndarray, s: "KillfeedScale" = UNIT_SCALE) -> dict:
+    """The second-life badge as a ring on the victim's plate: `ring_fit` and
+    `ring_verdict`, the revive ring's fit and cut, searched where the badge is
+    drawn.
+
+    The badge is a ring about one band height across, clipped by the band's
+    top and bottom, round Phoenix's wings or KAY/O's X-in-triangle, drawn at
+    the left end of the victim's plate before the name
+    [domain:killfeed/kayo-downed-entry]. The search centre is half a band
+    height past the victim plate's first column (`_victim_plate`: the first
+    run past the icon of the colour the killer's is not), and `ring_fit`
+    searches half a band height either side of it, so the ring may start
+    anywhere in the plate's first band height. A one-colour banner has no such
+    run; its search starts at the weapon icon's end (`anchor` says which).
+
+    Measured on cache frames 2026-10-03: badges at 5822b6646448 1414.0 s,
+    587c15b07779 1295.0 s, 043bafca271a 1020.5 and 1694.0 s, c62c2b06bcfb
+    479.0 s (Phoenix) and 4f207c0c4e39 790.5 s, a1a995e6b19b 939.0 and
+    1640.0 s (KAY/O) cover 1.0 with inner ink at most 0.005; four real deaths
+    the old arc fit read as badges (4f207c0c4e39 36.5 and 972.5 s,
+    043bafca271a 1054.5 s, a1a995e6b19b 1874.5 s) cover 0.41-0.55. The arc
+    fit (`detect_second_life_badge`) fitted marks, letters and the inner
+    glyph instead: its radii (0.26-0.42 of the band) are too small for the
+    ring, and it skipped every circle the band clips."""
+    a, z = view.y0, view.y1
+    bh = z - a
+    runs, _killer, other = _victim_plate(green, red, a, z, view.wx1, view.wx0, s)
+    if other is not None:
+        start, anchor = view.wx1 + other[1], "victim_plate"
+    else:
+        start, anchor = max(view.wx1, view.ix1), "icon_end"
+    icon_band = slot_white_mask(crop[a:z], green[a:z], red[a:z], s)
+    fit = ring_fit(icon_band, start + bh / 2.0, bh, usable[a:z], s)
+    ringed, why = ring_verdict(fit)
+    return {"has_badge": ringed, "reason": why, "anchor": anchor, "plate_x0": int(start),
+            "ring": None if fit is None else {k: round(v, 3) for k, v in fit.items()}}
+
+
+def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
+                             views: "list[EntryView]", *, mask: np.ndarray | None = None,
+                             candidates: dict | None = None,
+                             scale: "KillfeedScale | None" = None
+                             ) -> tuple[list[dict], dict[int, tuple[bool, dict]]]:
+    """The badge reads of one frame: (rows, fits).
+
+    `rows` holds one row per view the gate admits (`second_life_gate`) whose
+    band is tall enough to hold a badge: the slot and band, the victim's side
+    as the plate read it (`victim_ally`), whether the entry is the player's
+    own death (`player_death`), why it was read (`gate`) and the ring
+    (`badge_ring`): `has_badge` True on a confident ring, False on a
+    confident absence, None with its `reason` when the fit is uncertain. A
+    row is a read, never a verdict: `adjudication.death` votes over an
+    entry's rows.
+
+    `fits` holds the old arc fit (`detect_second_life_badge`) for every view
+    with a victim name, keyed by slot: `portrait_observations` places the
+    victim's name end past it, and reuses it rather than fitting twice."""
+    s = scale or KillfeedScale.for_capture(width, height)
+    x0, y0, x1, y1 = roi.pixels(width, height)
+    rows, fits = [], {}
+    masks = None
+    for view in views:
+        if not view.victim_run:
+            continue
+        band = frame[y0 + view.y0:y0 + view.y1, x0:x1]
+        fits[view.slot] = detect_second_life_badge(band, view.victim_run[0], s=s)
+        gate = second_life_gate(view, candidates)
+        if gate is None or view.y1 - view.y0 < s.px(SECOND_LIFE_MIN_BAND_H):
+            continue
+        if masks is None:
+            crop = frame[y0:y1, x0:x1]
+            usable = mask if mask is not None else np.ones(crop.shape[:2], dtype=bool)
+            green, red, _white = _plate_masks(crop, usable)
+            masks = (crop, green, red, usable)
+        rows.append({"slot": view.slot, "y0": int(view.y0), "y1": int(view.y1),
+                     "victim_x": int(view.victim_run[0]), "victim_ally": view.victim_ally,
+                     "player_death": view.verdict == "death", "gate": gate,
+                     **badge_ring(masks[0], masks[1], masks[2], view, masks[3], s)})
+    return rows, fits
 
 
 # 0.2.0 (2026-09-25): the weapon-slot box finds ringed ult icons and the
@@ -3290,21 +3423,17 @@ class KillfeedPortraitReader:
             views = analyse_killfeed(
                 smp.frame, self.roi, self.w, self.h, self.mask,
                 self.profile.name, mask_prefix=self.mask_prefix, scale=s)
-        # The player's own deaths: does the entry carry the second-life badge?
-        # Stored for every such entry, badge or not, so a consumer can tell a
-        # Run It Back death from a death, and both from an entry never read.
-        x0, y0, x1, y1 = self.roi.pixels(self.w, self.h)
+        # Does the entry carry the second-life badge? Stored for every entry
+        # the gate admits (`second_life_gate`), badge or not, so a consumer can
+        # tell a second-life death from a death, and both from an entry never
+        # read. The fits are handed to the portrait walk, which reads them too.
         with usage_step("second_life"):
-            for view in views:
-                if (view.verdict != "death" or not view.victim_run
-                        or view.y1 - view.y0 < s.px(SECOND_LIFE_MIN_BAND_H)):
-                    continue
-                band = smp.frame[y0 + view.y0:y0 + view.y1, x0:x1]
-                has_badge, metrics = detect_second_life_badge(band, view.victim_run[0], s=s)
+            badges, fits = second_life_observations(smp.frame, self.roi, self.w, self.h, views,
+                                                    mask=self.mask, candidates=self.candidates,
+                                                    scale=s)
+            for b in badges:
                 self.badges.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms),
-                                    "slot": view.slot, "y0": int(view.y0), "y1": int(view.y1),
-                                    "victim_x": int(view.victim_run[0]),
-                                    "has_badge": bool(has_badge), **metrics})
+                                    **b})
         with usage_step("weapon"):
             for row in weapon_icon_observations(smp.frame, self.roi, self.w, self.h, views,
                                                 scale=s):
@@ -3315,7 +3444,8 @@ class KillfeedPortraitReader:
             portraits = portrait_observations(
                 smp.frame, self.roi, self.w, self.h, views=views,
                 mask=self.mask, profile_name=self.profile.name, scale=s,
-                art_dir=self.art_dir, candidates=self.candidates, anchors=self.anchors)
+                art_dir=self.art_dir, candidates=self.candidates, anchors=self.anchors,
+                badge_fits=fits)
             for observation in portraits:
                 self.rows.append({
                     "frame_idx": int(smp.frame_idx),
@@ -3392,7 +3522,10 @@ class KillfeedPortraitReader:
                 **out,
             })
         coverage["second_life_observations"] = len(self.badges)
-        coverage["second_life_badges"] = sum(b["has_badge"] for b in self.badges)
+        coverage["second_life_badges"] = sum(b["has_badge"] is True for b in self.badges)
+        coverage["second_life_uncertain"] = dict(sorted(Counter(
+            b["reason"] for b in self.badges if b["has_badge"] is None).items()))
+        coverage["second_life_gates"] = dict(sorted(Counter(b["gate"] for b in self.badges).items()))
         badges = [{**common, "kind": "second_life_observation", **b} for b in self.badges]
         return [coverage] + rows + badges
 
