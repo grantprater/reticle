@@ -1,6 +1,6 @@
 r"""The game's minimap ability glyphs as a caster-naming channel, scored on the player's positioned labels.
 
-    .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py score      [--out DIR] [--states probe|all]
+    .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py score      [--out DIR] [--states probe|all] [--answers on|off]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py misses     [--out DIR]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py separate   [--out DIR]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py inventory  [--out DIR]
@@ -13,6 +13,11 @@ glyph by masked Pearson correlation of luma inside an r = 8.5 px disc
 (x scale), centre +-3 px, glyph canvas 11-22 px, rotation 0-345 by 15 deg, never
 binarised; templates are each ability's DisplayIcon plus the export's minimap
 markers assigned to a kit ability by glyph correlation (never by file letter).
+With `--answers on` (the default), the player's texture answers
+(labels/minimap_glyph_questions/answers.jsonl) then add each answered stem's
+variants as references of the answered ability, citing the answer's line, and
+override the correlation's assignment of the same file; unsure answers stay
+out (`apply_answers`; items.json meta `answer_log` lists every effect).
 It writes items.json (per-item verdicts) and windows.npz (each item's luma and
 colour window, so `separate` and `misses` read no cache).
 
@@ -63,7 +68,7 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
-VERSION = "minimap-glyph-eval-0.1.0"
+VERSION = "minimap-glyph-eval-0.2.0"
 STORE = Path("C:/Users/grant/reticle-store")
 BUILD = "release-13.06-shipping-18-5590001"
 GX = STORE / "reference" / "game-files" / BUILD
@@ -241,12 +246,22 @@ def marker_map(states=PROBE_STATES) -> list[dict]:
 
 
 EXTRA: dict = {}
+#: What the player's texture answers did to the references in the last build_extra (written into items.json meta).
+ANSWER_LOG: dict = {}
+ANSWERS = LABELS / "minimap_glyph_questions" / "answers.jsonl"
+#: The glyph `marker_map` rendered for each export marker it read (path -> glyph); an answer that re-labels such a
+#: file keeps this rendering, so the answer changes the label and never the drawing.
+DERIVED_GLYPH: dict = {}
 
 
-def build_extra(states=PROBE_STATES, min_corr=0.5, min_gap=0.05) -> list[dict]:
-    """Assign each export marker to the kit icon it correlates with best (corr >= 0.5, gap >= 0.05)."""
+def build_extra(states=PROBE_STATES, min_corr=0.5, min_gap=0.05, answers: bool = False) -> list[dict]:
+    """Assign each export marker to the kit icon it correlates with best (corr >= 0.5, gap >= 0.05); with
+    `answers`, the player's texture answers then override and extend that assignment (`apply_answers`)."""
     EXTRA.clear()
+    ANSWER_LOG.clear()
     rows = marker_map(states)
+    DERIVED_GLYPH.clear()
+    DERIVED_GLYPH.update({r["path"]: r["glyph"] for r in rows})
     for r in rows:
         r["assigned"] = None
         if r["best"] is None:
@@ -257,7 +272,92 @@ def build_extra(states=PROBE_STATES, min_corr=0.5, min_gap=0.05) -> list[dict]:
             EXTRA.setdefault(key, []).append(
                 (r["glyph"], f"1306:{os.path.basename(r['file'])} corr {s:.2f} gap {gap:.2f}"))
             r["assigned"] = f"{key[0]}:{key[1]}"
+    if answers:
+        apply_answers(states)
     return rows
+
+
+def texture_answers() -> dict:
+    """{stem: (line number, answer row)} for the texture questions; the last row for a key wins, as the asking
+    tool reads them (`ask_minimap_glyphs.answered`)."""
+    out = {}
+    for i, ln in enumerate(ANSWERS.read_text(encoding="utf-8").splitlines(), 1):
+        if ln.strip():
+            r = json.loads(ln)
+            if r.get("kind") == "texture":
+                out[r["key"].split(":", 1)[1]] = (i, r)
+    return out
+
+
+def stem_of(name: str) -> str:
+    """A texture's stem: its name less a trailing state word (the asking tool's grouping)."""
+    return re.sub(r"_(" + "|".join(STATE_WORDS) + r")$", "", name, flags=re.I)
+
+
+def answer_glyph(f: str) -> np.ndarray:
+    """An answered texture's glyph: the rendering `marker_map` gave it, else `marker_glyph` for a disc texture
+    (`is_disc`, which needs alpha), else `icon_glyph`."""
+    if f in DERIVED_GLYPH:
+        return DERIVED_GLYPH[f]
+    im = cv2.imread(f, cv2.IMREAD_UNCHANGED)
+    return marker_glyph(f) if im.ndim == 3 and im.shape[2] == 4 and is_disc(im) else icon_glyph(f)
+
+
+def apply_answers(states=PROBE_STATES) -> None:
+    """The player's texture answers as references. A sure answer naming a kit key (agent:slot) adds each exported
+    variant of the stem whose state `states` keeps, provenance `answers.jsonl#L<n>`; it moves a file the
+    DisplayIcon correlation assigned elsewhere, never duplicating it. `agent_other` and `not_ability` remove the
+    stem's files from the references. Unsure answers change nothing; ANSWER_LOG lists every answer's effect.
+
+    The sure answers are domain facts, one per agent: [domain:abilities/minimap-textures-astra]
+    [domain:abilities/minimap-textures-chamber] [domain:abilities/minimap-textures-cypher]
+    [domain:abilities/minimap-textures-deadlock] [domain:abilities/minimap-textures-fade]
+    [domain:abilities/minimap-textures-gekko] [domain:abilities/minimap-textures-harbor]
+    [domain:abilities/minimap-textures-iso] [domain:abilities/minimap-textures-kayo]
+    [domain:abilities/minimap-textures-killjoy] [domain:abilities/minimap-textures-miks]
+    [domain:abilities/minimap-textures-neon] [domain:abilities/minimap-textures-omen]
+    [domain:abilities/minimap-textures-phoenix] [domain:abilities/minimap-textures-raze]
+    [domain:abilities/minimap-textures-reyna] [domain:abilities/minimap-textures-skye]
+    [domain:abilities/minimap-textures-sova] [domain:abilities/minimap-textures-tejo]
+    [domain:abilities/minimap-textures-veto] [domain:abilities/minimap-textures-vyse]
+    [domain:abilities/minimap-textures-yoru]."""
+    by_stem = defaultdict(list)
+    for f in inv_files():
+        by_stem[stem_of(os.path.basename(f)[:-4])].append(f)
+    rel_answers = os.path.relpath(ANSWERS, STORE).replace("\\", "/")
+    used, unsure, removed, out_of_states, moved = [], [], [], [], []
+    for stem, (ln, a) in sorted(texture_answers().items()):
+        if a.get("unsure") or not a.get("answer"):
+            unsure.append({"stem": stem, "line": ln})
+            continue
+        files = by_stem.get(stem, [])
+        names = {os.path.basename(f) for f in files}
+        for key in list(EXTRA):                         # the answer decides these files; drop derived assignments
+            keep = []
+            for g, p in EXTRA[key]:
+                f0 = p.split(" ")[0].split(":", 1)[-1]
+                if f0 in names:
+                    moved.append({"file": f0, "from": f"{key[0]}:{key[1]}", "to": a["answer"], "line": ln})
+                else:
+                    keep.append((g, p))
+            EXTRA[key] = keep
+            if not keep:
+                del EXTRA[key]
+        key = tuple(a["answer"].rsplit(":", 1)) if ":" in a["answer"] else None
+        if key is None or key not in GLYPHS:
+            removed.append({"stem": stem, "line": ln, "answer": a["answer"], "files": sorted(names)})
+            continue
+        for f in sorted(files):
+            name = os.path.basename(f)[:-4]
+            state = next((w for w in STATE_WORDS if name.lower().endswith("_" + w)), "")
+            if states is not None and state not in states:
+                out_of_states.append({"file": os.path.basename(f), "answer": a["answer"], "line": ln, "state": state})
+                continue
+            rel = os.path.relpath(f, str(GX)).replace("\\", "/")
+            EXTRA.setdefault(key, []).append((answer_glyph(f), f"answer:{rel_answers}#L{ln}:{rel}"))
+            used.append({"file": rel, "answer": a["answer"], "line": ln})
+    ANSWER_LOG.update({"file": rel_answers, "used": used, "unsure": unsure, "no_kit_key": removed,
+                       "state_filtered": out_of_states, "moved_from_derived": moved})
 
 
 # ------------------------------------------------------------------ the probe's matcher (cv2, reproduced exactly)
@@ -446,7 +546,7 @@ def cmd_score(args) -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     states = None if args.states == "all" else PROBE_STATES
-    rows = build_extra(states)
+    rows = build_extra(states, answers=args.answers == "on")
     items = load_items()
     print(f"items {len(items)}; extra markers {sum(len(v) for v in EXTRA.values())}", flush=True)
     res, wins_Y, wins_C, wins_static = [], [], [], []
@@ -526,6 +626,7 @@ def cmd_score(args) -> None:
         print(f"  {sid}: {len(its)} items, {time.time() - t0:.0f}s", flush=True)
     np.savez_compressed(out / "windows.npz", Y=np.array(wins_Y), C=np.array(wins_C), S=np.array(wins_static))
     meta = {"version": VERSION, "build": BUILD, "states": args.states, "n_items": len(res),
+            "answers": args.answers == "on", "answer_log": dict(ANSWER_LOG),
             "extra": {f"{k[0]}:{k[1]}": [p for _, p in v] for k, v in EXTRA.items()},
             "markers": [{k: r[k] for k in ("file", "agent", "rest", "state", "disc", "assigned")} |
                         {"best": r["best"] and [round(r["best"][0], 3), f"{r['best'][1][0]}:{r['best'][1][1]}"],
@@ -563,7 +664,7 @@ def summarise(res) -> dict:
 
 def load_scores(out: Path, states: str = "probe"):
     d = json.load(open(out / "items.json", encoding="utf-8"))
-    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES)
+    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES, answers=d["meta"].get("answers", False))
     z = np.load(out / "windows.npz")
     return d, z
 
@@ -1136,7 +1237,7 @@ def cmd_separate(args) -> None:
 
 # ------------------------------------------------------------------ follow in time, gated by the stored portraits
 
-FOLLOW_VERSION = "minimap-glyph-follow-0.1.0"
+FOLLOW_VERSION = "minimap-glyph-follow-0.2.0"
 FOLLOW_MS = 3000.0     # how far after the label the object is followed
 N_CLEAN = 8            # the decision stops after this many unoccluded frames
 OCC_R = 17.0           # a portrait centre within this (px x scale) touches the r = 8.5 scoring disc (portrait r ~8.5)
@@ -1329,7 +1430,7 @@ def follow_row(x: dict, got: dict, k: int = 4, R: int = 16, n_used: int = 6, n_s
 def cmd_follow(args) -> None:
     out = Path(args.out)
     d = json.load(open(out / "items.json", encoding="utf-8"))
-    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES)
+    build_extra(None if d["meta"]["states"] == "all" else PROBE_STATES, answers=d["meta"].get("answers", False))
     only = set(args.only.split(",")) if args.only else None
     P = [r for r in positives(d["items"]) if only is None or r["sid"] in only]
     by = defaultdict(list)
@@ -1379,7 +1480,8 @@ def cmd_follow(args) -> None:
         if rows:
             Wm = max(im.shape[1] for im in rows)
             cv2.imwrite(str(out / name), np.vstack([_pad(im, im.shape[0], Wm) for im in rows]))
-    summ = {"version": FOLLOW_VERSION, "base": VERSION, "build": BUILD,
+    summ = {"version": FOLLOW_VERSION, "base": d["meta"]["version"], "build": BUILD,
+            "answers": d["meta"].get("answers", False),
             "params": {"FOLLOW_MS": FOLLOW_MS, "N_CLEAN": N_CLEAN, "OCC_R": OCC_R, "SAME_R": SAME_R,
                        "REACH": REACH, "ICON_SCORE": ICON_SCORE, "MAP_CORR": MAP_CORR, "proposer": "reticle.ability_icons.propose_icons"},
             "inputs": {"crops": "roi_cache minimap", "portraits": "events/team_vision frame icons (stored)"},
@@ -1567,6 +1669,8 @@ def main() -> None:
     ap.add_argument("cmd", choices=["score", "misses", "examples", "separate", "inventory", "follow"])
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--states", default="probe", choices=["probe", "all"])
+    ap.add_argument("--answers", default="on", choices=["on", "off"],
+                    help="score: use the player's texture answers as references (follow reads the choice from items.json)")
     ap.add_argument("--only", default=None, help="follow: comma-separated session ids (a small sample)")
     args = ap.parse_args()
     {"score": cmd_score, "misses": cmd_misses, "examples": cmd_examples, "separate": cmd_separate,
