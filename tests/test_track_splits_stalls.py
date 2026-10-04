@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 from reticle.adjudication.death import (merge_split_entries, refuse_unwitnessed,
                                         same_entry, unwitnessed_entry)
-from reticle.checks import track_entries
+from reticle.checks import stack_apart, track_entries
 from reticle.stalls import frozen_clock_runs, spans
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
@@ -168,6 +168,39 @@ class ScorerStallTests(unittest.TestCase):
         self.assertIs(rg.in_stall(5000.0, stall), stall[0])
         self.assertIsNone(rg.in_stall(13000.0, stall))
         self.assertIsNone(rg.in_stall(5000.0, None))
+
+
+class StackApartTests(unittest.TestCase):
+    """A band apart from the stack is no entry (`checks.stack_apart`)."""
+
+    # b7d24102a6f6 1580.5-1585.0 s in miniature: the death recap's panel reads
+    # in slot 5 under empty slots; a new entry arrives in slot 0, a second in 1.
+    MASKS = [32, 32, 33, 35, 35, 35, 3, 35, 3, 1]
+
+    def test_the_recap_panel_is_apart_and_the_stack_is_not(self):
+        apart = stack_apart(self.MASKS)
+        self.assertEqual([int(a) for a in apart], [32, 32, 32, 32, 32, 32, 0, 32, 0, 0])
+
+    def test_an_entry_below_a_stack_entry_is_not_apart(self):
+        self.assertEqual([int(a) for a in stack_apart([1, 3, 3, 2, 1])], [0, 0, 0, 0, 0])
+
+    def test_one_empty_slot_above_is_not_apart(self):
+        # A new entry read in slot 1 while the expiring one above has faded.
+        self.assertEqual([int(a) for a in stack_apart([1, 2, 1, 1])], [0, 0, 0, 0])
+        self.assertEqual([int(a) for a in stack_apart([3, 4, 6])], [0, 0, 0])
+
+    def test_a_band_under_an_apart_band_is_apart(self):
+        self.assertEqual([int(a) for a in stack_apart([48, 48, 0])], [48, 48, 0])
+
+    def test_apart_reads_join_no_entry_and_stay_visible(self):
+        t = [500.0 * i for i in range(len(self.MASKS))]
+        tracks = track_entries(t, self.MASKS, stack=self.MASKS)
+        counted = [(a["t_first"], a["slot_first"]) for a in tracks if a["counted"]]
+        self.assertEqual(counted, [(1000.0, 0), (1500.0, 1)])
+        self.assertTrue(all(a["refused"] == "stack_apart" for a in tracks if a["slot_first"] == 5))
+        # Without the stack, the panel's run is an entry.
+        self.assertIn((0.0, 5), [(a["t_first"], a["slot_first"])
+                                 for a in track_entries(t, self.MASKS) if a["counted"]])
 
 
 if __name__ == "__main__":

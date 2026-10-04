@@ -299,6 +299,51 @@ def _split_weld(track: dict, step: float, use_sides: bool) -> list[dict]:
     return pieces
 
 
+#: Empty slots directly above a detection, at every sample of its run, that
+#: set it apart from the stack (`stack_apart`). One is not enough: an entry
+#: first read in slot 1 while the expiring entry above has faded from the
+#: mask, then risen to slot 0, is common (33 such first reads on the nine
+#: sessions of the 2026-10-04 check, each a real entry).
+STACK_APART_GAP = 2
+
+
+def stack_apart(masks) -> np.ndarray:
+    """Per sample, the slots (bit mask) whose detection stands apart from the
+    killfeed stack: a run of samples in which the slot holds a detection and
+    the STACK_APART_GAP slots above it hold no stack entry at any of them.
+
+    The entries stack in one vertical box from the top
+    [domain:killfeed/entry-list-layout], a new one at the bottom
+    [domain:killfeed/stack-order], so a real entry below slot 0 has an entry
+    just above it at least when it appears. The death recap's KILLED BY panel
+    and a round banner draw coloured bands at the ROI's foot: slot 5 under
+    four empty slots at b7d24102a6f6 1580.5-1585.0 s, b3b9defb6fd7 1650.5 s
+    and 1661.5 s and c62c2b06bcfb 1162.0 s, slot 4 under four at
+    bdfdcf009dba 128.0 s. Slots are judged from the top down, so a band under
+    an apart band is apart too. `masks` are the stored `kf_entry_mask` column."""
+    m = np.array([int(x or 0) for x in masks], dtype=np.int64)
+    occ = [((m >> s) & 1).astype(bool) for s in range(6)]
+    apart = np.zeros(len(m), dtype=np.int64)
+    stack = lambda k: occ[k] & ~((apart >> k) & 1).astype(bool)
+    for s in range(STACK_APART_GAP, 6):
+        here = occ[s]
+        if not here.any():
+            continue
+        above = np.zeros(len(m), dtype=bool)
+        for k in range(s - STACK_APART_GAP, s):
+            above |= stack(k)
+        # Runs of consecutive samples holding slot s, and whether the slots
+        # above held a stack entry anywhere in each.
+        edge = np.diff(np.concatenate(([0], here.astype(np.int8), [0])))
+        starts, ends = np.flatnonzero(edge == 1), np.flatnonzero(edge == -1)
+        cs = np.concatenate(([0], np.cumsum(above)))
+        held = cs[ends] - cs[starts] > 0
+        run_id = np.cumsum(edge[:-1] == 1) - 1          # each sample's run, -1 before the first
+        lone = here & ~held[np.clip(run_id, 0, len(held) - 1)]
+        apart |= lone.astype(np.int64) << s
+    return apart
+
+
 def _released(t_first: float, stall_spans, step: float) -> dict | None:
     """The stall span whose end lies within one sample of `t_first`, or None:
     a track first read there was on screen while the source stood still."""
@@ -309,7 +354,7 @@ def _released(t_first: float, stall_spans, step: float) -> dict | None:
 
 
 def track_entries(times, masks, dividers=None, flags=None, sides=None,
-                  stalls=None) -> list[dict]:
+                  stalls=None, stack=None) -> list[dict]:
     """Follow each entry across frames; one dict per distinct entry.
 
     Returns every track, including the ones the bars refuse, with `counted`
@@ -395,12 +440,26 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None,
     frozen picture (a06f04a0059f 702.0 s after a stall from 692.6 s; Riot's
     kill at 696.9 s). Such a track carries `released`, the span. None keeps
     the bars for every track.
+
+    **A band apart from the stack is no entry.** `stack`, the stored
+    `kf_entry_mask` column parallel to `times`, takes out of the walk every
+    detection `stack_apart` marks: a run in one slot whose slot above holds
+    no stack entry at any of its samples. Each such run comes back as its own
+    track, refused `stack_apart`, so the reads stay visible. Without it the
+    death recap's panel in slot 5 began a track that the next entry, read in
+    slot 1, joined as risen (b7d24102a6f6 1581.5 s), and began a phantom
+    entry of its own (1582.0 s). None walks every detection.
     """
     active: list[dict] = []
     done: list[dict] = []
     times = list(times)
     step = sample_step_ms(times)
     gap = min(KF_TRACK_GAP_MS, KF_TRACK_GAP_STEPS * step)
+    apart_tracks: list[dict] = []
+    if stack is not None:
+        apart = stack_apart(stack) & np.array([int(x or 0) for x in masks], dtype=np.int64)
+        apart_tracks = _apart_tracks(times, apart, dividers, sides)
+        masks = [int(x or 0) & ~int(a) for x, a in zip(masks, apart)]
     if dividers is None:
         dividers = [None] * len(times)
     flags = flags or {}
@@ -563,7 +622,33 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None,
             else None
         )
         a["counted"] = a["refused"] is None
+    if apart_tracks:
+        done = sorted(done + apart_tracks, key=lambda a: a["t_first"])
     return done
+
+
+def _apart_tracks(times, apart, dividers, sides) -> list[dict]:
+    """One refused track per run of consecutive samples a slot spends apart
+    from the stack (`stack_apart`), in `track_entries`' shape."""
+    step = sample_step_ms(times)
+    out = []
+    for s in range(6):
+        here = ((apart >> s) & 1).astype(np.int8)
+        edge = np.diff(np.concatenate(([0], here, [0])))
+        for a, b in zip(np.flatnonzero(edge == 1), np.flatnonzero(edge == -1)):
+            ts = [times[i] for i in range(a, b)]
+            sigs = [wx_at(dividers[i], s) if dividers is not None else None for i in range(a, b)]
+            tr = {"t_first": ts[0], "t_last": ts[-1], "slot": s, "slot_first": s,
+                  "n_obs": len(ts), "sig": next((x for x in reversed(sigs) if x), None),
+                  "flag_hits": {}, "assigned": [(t, s, "stack_apart") for t in ts],
+                  "span_ms": ts[-1] - ts[0], "life_ms": ts[-1] - ts[0] + 2 * step,
+                  "refused": "stack_apart", "counted": False}
+            if sides is not None:
+                tr["side"] = next((x for x in (_side_at(sides[i], s) for i in range(b - 1, a - 1, -1))
+                                   if x is not None), None)
+                tr["one_colour"] = any(_same_at(sides[i], s) for i in range(a, b))
+            out.append(tr)
+    return out
 
 
 def entry_presence(times, masks, dividers=None) -> list[dict]:

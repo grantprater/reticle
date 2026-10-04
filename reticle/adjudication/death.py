@@ -183,7 +183,17 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # alive before the gap (`infer_stall_deaths`): `inferred_death` rows with the
 # gap as their window, no time and no killer, resting on the prior's deaths
 # and the round's outcome claim (`adjudication.round_outcome`).
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.34.0"
+# 0.35.0 (2026-10-04): an entry track takes no read the HUD's entry mask
+# places apart from the stack (`checks.stack_apart`: a slot run whose two
+# slots above never hold an entry), so the death recap's panel in slot 5
+# neither begins an entry (b7d24102a6f6 1580.5 s, 1582.0 s) nor becomes the
+# first read of a real one (b7d24102a6f6 1581.5 s, now slot 0; c62c2b06bcfb
+# 1162.0 s, now 1162.5 s slot 2; b3b9defb6fd7 1661.5 s, now 1663.5 s slot 0).
+# On nine sessions, in memory with killfeed-weapon-0.13.0 rows: weapons
+# named 1459 -> 1466 of 1484 deaths, none lost or changed; four more
+# entries start a sample later in a higher slot (e37fdeca944f 1263.5 s x2,
+# 96aa1ae9b96f 582.5 s, bdfdcf009dba 875.0 s).
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.35.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -1343,9 +1353,11 @@ def session_entries(hud: dict, second_life: list[dict] | None = None,
     # two entries that held one slot in turn and keep a revive whole.
     sides = (list(zip(hud["kf_ally_mask"], hud["kf_enemy_mask"], same or [None] * len(t)))
              if hud.get("kf_ally_mask") and hud.get("kf_enemy_mask") else None)
+    # A read apart from the stack (the death recap's panel, a round banner)
+    # joins no entry (`checks.stack_apart`).
     tracks = [e for e in track_entries(t, hud["kf_entry_mask"], col("kf_entry_wx"),
                                        flags={"same_side": same} if same else None,
-                                       sides=sides, stalls=stalls)
+                                       sides=sides, stalls=stalls, stack=hud["kf_entry_mask"])
               if e["counted"]]
     # A player track belongs to the entry on screen when it was first seen
     # whose divider agrees, the latest such onset first (the attribution can
