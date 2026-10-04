@@ -4824,7 +4824,8 @@ to its ability and phase from the game's event data
 exceptions = """
 the scan pulse's event (Play_Hunter_Abil_SonarBolt_SonarPing_upd) plays media
 named Abil_Joules_Q_Sonar_Ping_01, which the store's ability audio export
-(`ability-audio-ref-0.2.0`) does not hold
+(`ability-audio-ref-0.2.0`) does not hold; the later export
+audio-sfx-gaps-0.1.0 holds it [domain:abilities/sova-recon-bolt-scan-pulse-media]
 """
 see = ["abilities/sova-shock-bolt-audio-phases", "abilities/ability-sound-phases"]
 
@@ -4837,7 +4838,7 @@ rather than Sova's own. The controller FXC_Hunter_Q_SonarPulse plays the
 event, and the game object GameObject_Hunter_Q_SonarPing names that
 controller; no other package names either.
 """
-kind = "lifecycle"
+kind = "rule"
 known = "observed"
 since = "2026-10-04"
 subject = "sova:recon bolt"
@@ -4851,8 +4852,14 @@ ability-audio-ref filter had dropped the cross-agent _Char_Joules folder
 """
 use = """
 the scan-pulse reference for scoring a Recon Bolt on its pulses
-[domain:abilities/sova-recon-bolt-audio-phases]; that fact's exception (the
-export lacks the medium) predates audio-sfx-gaps-0.1.0
+[domain:abilities/sova-recon-bolt-audio-phases]
+"""
+exceptions = """
+the "no other package names either" clause rests on the whole-game
+reverse-reference scan (whorefs-all.tsv), which reads package imports and
+name maps; it cannot see a reference held as a string (a soft object path in
+asset data) or a plugin-content id stored as a hash, so a referrer of either
+kind would escape it
 """
 see = ["abilities/sova-recon-bolt-audio-phases"]
 
@@ -4883,5 +4890,12 @@ reach the turret's active marker through its behaviour tree when the game
 data maps a minimap texture to its state; what the marker means on screen
 stays a question for the player
 [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = """
+the "named only by" clauses rest on the whole-game reverse-reference scan
+(whorefs-all.tsv), which reads package imports and name maps; it cannot
+see a reference held as a string (a soft object path in asset data) or a
+plugin-content id stored as a hash, so a referrer of either kind would
+escape it
 """
 see = ["abilities/killjoy-alarmbot", "abilities/ability-rules-are-unique"]

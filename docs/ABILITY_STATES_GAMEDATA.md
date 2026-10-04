@@ -231,7 +231,7 @@ reached only through its behaviour tree, now exported in `ability-ai-widgets/`
 [domain:abilities/killjoy-minimap-texture-referrers]; the walk does not read
 behaviour trees yet. The same export pass added the two kill icons the
 killfeed set lacked [domain:killfeed/blade-storm-and-mosh-pit-kill-icon-textures]
-and the shared controllers behind the 44 `missing_fxc` cues (`shared-fxc/`).
+and the shared controllers behind the `missing_fxc` cues (`shared-fxc/`).
 Not derived: the order of state transitions outside the hand reading (the
 state machine names states, not edges); AnimSequence notifies (only montages
 are exported); the media a perspective switch selects; spectral or duration
