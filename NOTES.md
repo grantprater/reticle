@@ -26,7 +26,7 @@ Each commit body carries its measurements (`git log --no-merges ec20d71..f6e494c
 - **Round outcome.** `round-outcome-0.1.0` and its claim reader: 417 rounds right, 0 wrong, 22 refused. `death-adjudication-0.34.0` adds `infer_stall_deaths`. `plan` and `status` list `round_outcome`; its column fit sits in `NOT_INPUTS`.
 - **One-colour band.** `hud-0.19.0` reads spike, self, team and Not Dead Yet kills and Paint Shells; it found 11 of the 12 targeted Riot misses.
 - **Game kill icons.** The weapon gallery holds the game's kill icons (`weapon-gallery-0.7.0`, adjudication `1.3.0`); the killfeed pitch is the game's 39 px (`hud-0.20.0`); the killfeed layout became domain facts.
-- **Whitened audio.** `ability-audio-0.1.0` scores each own cast with a whitened matched filter; `ability-audio-params-0.1.1` fits only Sova, Skye and Iso (held-out top-1: Sova 47/58, Skye 53/56, Iso 11/13). The tray's kit-owner gate is `player-cast-0.8.0`; ability-state is `0.5.0`. The audio claim sits beside verdicts; identity does not pool it.
+- **Whitened audio.** `ability-audio-0.1.0` and `ability-audio-params-0.1.1` (Sova, Skye, Iso); kit-owner gate `player-cast-0.8.0`; ability-state `0.5.0`. Identity does not pool the audio claim.
 
 ### Unmerged branches
 
@@ -34,15 +34,14 @@ Each commit body carries its measurements (`git log --no-merges ec20d71..f6e494c
 - **`game-spike-20261003`** (`65223a6`), merge next: `spike-0.3.0` draws the minimap spike glyph from `Minimap_BombIcon`. Riot planter and carrier binding are unchanged; spike_carrier disagreements fell 381 -> 318. The roster marker keeps its mined template, since the game's `TX_Icon_Bomb_v2` lost washed-out frames. Its `ally-icon-0.9.4` collides with stack-fit's `0.10.0`; renumber on merge.
 - **`whitened-weapon-20261003`** (`9e64eeb`), held: no gain over the overlap (IoU) gate (Riot 531/0/15 both ways, held-out 949/949). It names Paint Shells on 4f207c0c4e39 at 1759 s, which the overlap gate refuses as `new`. It pays off only with a whitened open-set null fitted leave-one-icon-out on dev.
 - **`game-vo-20261003`** (`a527233`), unmerged: the game's en-US ability-cast voice lines are in the store at `reference/game-files/vo` (`vo-ref-0.1.0`, 447 FLACs, 29 agents); `ult_lines` reads them (`ult-line-0.2.0`); 57 of 58 templates are the wiki recordings; on stored features Riot ult recall rises 0.548 to 0.574 with own recall unchanged. The production `ult_line` stream needs an audio-only decode rerun (`reticle ult-lines --all`, then `ult-cast`), which needs the player's go-ahead.
+- **`ability-audio-fit-20261004`**, merge next: `reticle ability-audio-fit` fits `ability-audio-params-0.2.1` (in the store): declared split, pooled whitener, neighbour-cut windows (`ability-audio-0.2.0`), shared Sova files out, the player's Skye remap and Owl Drone correction in. Held top-1: Sova 87/94, Skye 93/97, Phoenix 30/34, Clove 22/22, Iso 12/13; demos 31/35. Dev refuted the player's Sova remap (86 to 68 of 98); ask again. `ability-state` is stale.
 - **`binding-rules-20261002`** (`round-entity-0.15.0`): cuts a piece where a sighting gap spans its teammate's death, but demotes correct bindings. Rework after the stacked icons through `death_rank`; the revive at 96aa1ae9b96f 849.5 s names no victim.
-- **`ally-ring-subpixel-20261001`**: a negative result by the player's verdict; shelved.
-- **`stacked-icons-20261002`**: its prototype is superseded by `stack-fit-wire`.
+- **`ally-ring-subpixel-20261001`** (shelved, a negative result) and **`stacked-icons-20261002`** (superseded by `stack-fit-wire`).
 - **`luma-render-20261002`** (WIP, tabled); **`killfeed-prior-design-20261002`** and **`killfeed-prior-step1-20261002`** (the queue-follow plan and its unwired step 1).
 - `self-spike-tracker-20260929` (the player-dead owner and guard 6 can merge with bumped versions); `wip-vision-lifecycle-wiring` (WIP, do not merge); `enemy-fix-check-20260930`. Delete `decodes-20260929` when convenient.
 
 ### Side findings
 
-- **INPUTS:** doctor's 10 errors on master (undeclared stamps on `death`, `ability_state` and the kit-owner gate's streams) are fixed on unmerged `plan-inputs-20261004` (`e618ee4`).
 - **LAYER:** `lineup._composition` inserts `prototypes/` into `sys.path` (`reticle/lineup.py` line 99), which AGENTS forbids; find out why doctor's LAYER check misses it.
 - **Open player questions** from the visual demo probe, for the [mechanics sheet](docs/ABILITY_MECHANICS_SHEET.md): minimap icon rotation; the Killjoy turret before its E drop, and a mislabelled crop; Cypher's teal discs; restock time (game data says 50 s against the catalogue's 60 s on 7 of 11 abilities) and Neon's costs; the Blade Storm kunai, absent from the export.
 

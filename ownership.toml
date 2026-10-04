@@ -1302,9 +1302,13 @@ owner = "adjudication.ability_audio"
 role = ["corroborate"]
 status = "partial"
 produces = ["session_frames", "explained", "background", "ar_filter", "whiten_frames",
-            "Corpus", "class_tracks", "window_max", "cast_scores", "identify",
-            "params_path", "load_params",
-            "BMASK", "SHRINK", "TIE_MARGIN", "REFUSALS", "NONE", "PRE_S", "POST_S"]
+            "Corpus", "class_tracks", "window_max", "clip_bounds", "range_max",
+            "cast_scores", "identify", "params_path", "load_params",
+            "fit_band_whitener", "fit_ar2", "fit_whitener", "reference_logmel", "template",
+            "whiten_template", "false_fire_peaks", "threshold_at", "save_params",
+            "split_sessions", "shared_reference_mask",
+            "BMASK", "SHRINK", "TIE_MARGIN", "REFUSALS", "NONE", "PRE_S", "POST_S",
+            "SELF_FRAMES"]
 not_for = """
 Deciding a cast, its slot or its time: the tray drop and the gate
 (`ability-cast`) decide those, and this owner scores only the drops the gate
@@ -1313,9 +1317,9 @@ by the identity arbiter's agent, and its scores are not calibrated or pooled
 into `agent-identity`. Nor does it detect casts in audio alone or say anything
 of teammates' or enemies' abilities.
 """
-consumers = ["ability_timeline"]
-exit = "The fit (`fit_band_whitener`, `fit_ar2`, `reference_logmel`, `template`, `whiten_template`, `false_fire_peaks`, `threshold_at`, `save_params`) runs once per parameter set from prototypes/ability_audio_eval.py; a `reticle` fit command wires it, and joins `produces`, when a second set is fitted."
-evidence = "tests/test_ability_audio.py, prototypes/ability_audio_eval.py"
+consumers = ["ability_timeline", "ability_audio_fit"]
+exit = "Wired 2026-10-04: `reticle ability-audio-fit` (`ability_audio_fit`) fits `ability-audio-params-0.2.0` with the declared split, one pooled whitener and the shared-file rule, and scores dev, held, verified and demo casts. Open: the margin calibration (`ability_audio_fit.calibrate`) is measured on held casts but not stored with the parameters or the rows."
+evidence = "tests/test_ability_audio.py, reticle/ability_audio_fit.py"
 
 [[entry]]
 id = "tray-icon"
@@ -1746,7 +1750,7 @@ modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
            "ability_capture", "ability_entities", "ability_gallery",
            "ability_phases", "events", "candidate_evidence",
            "plan", "input_stamps", "trial", "roi_cache", "pipeline", "documents", "tiers", "clipserve",
-           "view_events", "round_view", "entity_contract"]
+           "view_events", "round_view", "entity_contract", "ability_audio_fit"]
 
 [[entry]]
 id = "identity-channel-reliability"

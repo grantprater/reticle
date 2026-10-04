@@ -615,8 +615,9 @@ def audio_session(store_root, session_id: str, gate_rows: list[dict], agent: str
     and no own cast, gunfire span or known other sound within
     `ability_audio.EXPLAIN_S`; the drops refused for another kit
     (KIT_REFUSALS) are known other sounds. `span_s` keeps only frames and
-    casts inside [start, end) s, how one session is split in two. Decodes
-    nothing."""
+    casts inside [start, end) s, how one session is split in two.
+    `neighbours` holds the frames of every cast the gate passes, which cut
+    each cast's window (`ability_audio.clip_bounds`). Decodes nothing."""
     import numpy as np
 
     from .adjudication.ability_audio import FPS, background, explained, session_frames
@@ -658,7 +659,11 @@ def audio_session(store_root, session_id: str, gate_rows: list[dict], agent: str
     stamps = {"audio_features": features_stamp(z, fp),
               "audio_labels": lab.get("version"), "features_path": fp.as_posix(),
               "labels_path": lp.as_posix()}
+    # Every own cast the gate passes, live or not, bounds a cast's window.
+    neighbours = np.array([int(r["t_ms"] / 1000.0 * FPS) for r in gate_rows
+                           if r["player_cast"]], int)
     return {"X": X, "live": live, "code": code, "bg": bg, "casts": casts,
+            "neighbours": neighbours,
             "live_min": float(live.sum()) / (60.0 * FPS), "stamps": stamps}, None
 
 
@@ -704,7 +709,8 @@ def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent
     Xw = whiten_frames(session["X"], params["mu"], params["P"], params["ar"])
     tracks = class_tracks(Xw, params["templates"], params["labels"], session["bg"], xp)
     classes = sorted(tracks, key=lambda c: ("CQEX" + NONE).find(c[0]) if c != NONE else 9)
-    sc = cast_scores(tracks, [c["frame"] for c in session["casts"]], classes)
+    sc = cast_scores(tracks, [c["frame"] for c in session["casts"]], classes,
+                     neighbours=session.get("neighbours", ()))
     ids = identify(sc, classes, params["thresholds"])
     at = {c["t_ms"]: (c, v) for c, v in zip(session["casts"], ids)}
     rows = []
