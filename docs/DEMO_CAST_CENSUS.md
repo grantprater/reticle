@@ -779,3 +779,12 @@ labels still carry it.
   are the same pulse scan with different ranges
   [domain:abilities/pulse-scan-abilities], so one scan model with a range
   parameter serves all three, and the ring's radius names the device.
+
+### A held-out icon pass from these casts (2026-10-04)
+
+`prototypes/label_minimap_glyph_heldout.py` queues minimap frames at +1 s and
++3 s after each census cast whose ability the player did not answer as
+drawing nothing or only a shape, plus one control frame per demo, and asks
+the player to mark and name every ability icon. Its labels are held-out for
+`prototypes/minimap_glyph_eval.py` and never tuned on; the module docstring
+fixes the split and lists the controls.
