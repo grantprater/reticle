@@ -53,7 +53,8 @@ near_tuned_label; those two and the audit-only frames report apart. It also
 counts the proposer's discs near the player's icon marks and away from every
 mark, raw and after the follow's gates, and audits each excluded ability
 against the self-view marks (heldout.json). Unsure, smoke, other-agent and
-typed marks are listed, never scored.
+typed marks are listed, never scored. `shape_heldout_score.py` scores the
+frozen shape and smoke channels on the same marks.
 
 Wire: no. It evaluates the game glyphs; wiring into reticle/ waits for an
 owner of ability-disc tracking (ability-icon proposes, nothing follows) and a
