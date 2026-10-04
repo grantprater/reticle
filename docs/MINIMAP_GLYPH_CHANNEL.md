@@ -142,14 +142,16 @@ Deadlock:Q and Omen:E, are mixed keys: their targeting or projectile
 component reads turns, and their placed object
 (`GameObject_StealthingTrap_SoundSensor`, `FXC_Wraith_4_ChargeMarker_Parent`)
 sets no flag and reads upright. Prediction G1 said 8 of 8, falsified at 6 or
-fewer; on those 8 answers the rule agrees with 6, so G1 failed on its own
-falsifier. The count with any one component deciding
+fewer; on those 8 answers the rule agrees with 6 (7 of 9 minus Killjoy:Q;
+correction row glyph-wiring-design-fix-20261004, ts
+2026-10-04T22:19:35.822601Z), so G1 failed on its own falsifier. The count
+with any one component deciding
 ([metric:glyph_channel_cost/rotation_rule#answers_agree_some_component=9])
 is no evidence: a mixed key agrees with any answer. The rule was framed after
 8 of the 9 answers were seen; only Killjoy:Q tests it out of sample, and it
-agrees (1 of 1). The visible behaviour of both placed icons is answered: the
-sensor is normal to the wall (L349) and the Dark Cover marker turns (L350);
-the rotated sonic square seen on `sonic-square-20261004` agrees for the
+agrees (1 of 1, the same correction row). The visible behaviour of both
+placed icons is answered: the sensor is normal to the wall (L349) and the
+Dark Cover marker turns (L350); the rotated sonic square seen on `sonic-square-20261004` agrees for the
 sensor. Which game component draws each placed icon is game-data work, not
 a question for the player.
 
@@ -221,11 +223,14 @@ and on [metric:cross_channel_independence/glyph_control@matches#not_drawn_casts=
 casts of abilities that draw nothing it still named a slot
 [metric:cross_channel_independence/glyph_control@matches#named_a_slot=35]
 times. The cause is the seed: the thrown glyph is already beyond the
-follow's starting reach of 4 px at the drop frame (Undercut on 4f207c0c4e39,
-`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`, at 232.5 s, where the follow
-kept the self icon and named Iso:E). Stage 1 seeds the follow from the
-thrown icon: the proposer's birth near the caster after the drop, as the
-reader's birth rule already does, never the self position.
+follow's starting reach at the drop frame, 4 px times the widget scale
+(`REACH[0]` in `prototypes/minimap_glyph_eval.py`). An instance is Undercut
+on 4f207c0c4e39 (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`), the Iso:Q
+cast at `t_ms` 232500 in the store's
+`analysis/cross-channel-independence-20261004/casts.jsonl`, where audio named
+Q and the follow kept the self icon and named Iso:E. Stage 1 seeds the
+follow from the thrown icon: the proposer's birth near the caster after the
+drop, as the reader's birth rule already does, never the self position.
 
 **Audio can label the player's own glyphs.** On the same casts the audio
 witness (`ability-audio` [owns:ability-audio], ability-audio-0.4.0, params
@@ -236,17 +241,48 @@ witness (`ability-audio` [owns:ability-audio], ability-audio-0.4.0, params
 [metric:glyph_channel_cost/cross_channel@matches#audio_refused=11]
 refused), and
 [metric:glyph_channel_cost/cross_channel@matches#audio_sova_skye_precision=0.9856]
-on Sova:C and Skye:Q, E and X, which hold almost all of them. Pooled over
-sources, audio and minimap failures are independent (conditional odds ratio
-[metric:cross_channel_independence/pooled@matches#or_cmle=0.782]). So a disc
-born where the player's thrown glyph flies can be a glyph label with
-`rests_on` the audio witness and the tray drop (`ability-cast` decides the
-cast and its slot; audio corroborates). Such labels cover only the player's
-own kit, enter only the dev side of stage 1 (the null table and the follow
-comparison), and are never an identity claim: `ability-audio` is not pooled
-into `agent-identity`. Shape-owner casts are not independent of audio
-(odds ratio [metric:cross_channel_independence/shape@matches#or_cmle=7.208]),
-so the label path stays on glyph abilities.
+on Sova:C and Skye:Q, E and X, which hold almost all of them. The label
+path rests on that precision, not on independence. Audio and minimap
+failures are not shown independent: the correction row of
+cross-channel-independence-20261004 (store `notes/predictions.jsonl`, ts
+2026-10-04T22:17:25Z) calls the pooled odds ratio a Simpson's-paradox
+artefact, because glyph casts pair rare audio failure with common minimap
+failure and shape casts the reverse. Stratified by minimap source, the
+Mantel-Haenszel odds ratio is
+[metric:cross_channel_independence/stratified_source@matches#or_mh=2.694]
+(CI [metric:cross_channel_independence/stratified_source@matches#ci_low=1.105]
+to [metric:cross_channel_independence/stratified_source@matches#ci_high=6.57]):
+inconclusive under the registered rule, and leaning against independence.
+Part of the coupling is built in: every channel anchors on the tray drop
+(audio's cast frame and window, the glyph window's start, the shape owner's
+drop time), so a wrong tray cast fails them together and their agreement
+cannot catch it. On glyph casts the follow seeded at the self icon fails on
+its own, not jointly: it fails on
+[metric:cross_channel_independence/glyph@matches#p_b_fail=0.673] of them,
+audio on [metric:cross_channel_independence/glyph@matches#p_a_fail=0.0711],
+and both on [metric:cross_channel_independence/glyph@matches#p_both=0.0521];
+that stratum's odds ratio
+[metric:cross_channel_independence/glyph@matches#or_cmle=1.363] (CI
+[metric:cross_channel_independence/glyph@matches#or_ci_low=0.385] to
+[metric:cross_channel_independence/glyph@matches#or_ci_high=6.096]) cannot
+tell coupling from independence.
+
+So a disc born where the player's thrown glyph flies can be a borrowed glyph
+label. It declares `rests_on` both the audio witness, with its version and
+params, and the tray drop it was anchored on (`tray_drop:<sid>:<t_ms>`, the
+`player_cast` whose slot `ability-cast` decides; audio corroborates). Such
+labels cover only the player's own casts of Sova:C and Skye:Q, E and X,
+where audio's precision is measured; Iso:Q and Iso:C hold
+[metric:cross_channel_independence/corrections@matches#iso_q_casts=3] and
+[metric:cross_channel_independence/corrections@matches#iso_c_casts=3] casts,
+too few to call safe. They enter only the dev side of stage 1, and a fit
+made from them (the null table's cut, the follow comparison) is scored only
+on the player's own labels, never on borrowed ones. They are never an
+identity claim: `ability-audio` is not pooled into `agent-identity`.
+Shape-owner casts couple with audio more strongly (odds ratio
+[metric:cross_channel_independence/shape@matches#or_cmle=7.208]), and the
+shape owner is told the truth slot, so the label path stays on glyph
+abilities.
 
 ## 2. The parts
 
@@ -577,9 +613,11 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    with the cache-cadence follow on dev. Every follow is seeded at the
    thrown icon (the proposer's birth near the caster after the tray drop),
    never at the self icon (section 1). The player's own glyph casts on dev
-   sessions may add labels from the audio witness and the tray drop, each
-   with `rests_on` both (section 1). The two unsure keys (Cypher:C, Skye:X)
-   go to the player through `prototypes/ask_minimap_glyphs.py`; until
+   sessions may add borrowed labels from the audio witness and the tray
+   drop, each with `rests_on` both (section 1); a fit made from them (the
+   null table's cut, the 2 Hz against cache-cadence comparison) is scored
+   only on the player's own labels, so S2 to S4 count only those. The two
+   unsure keys (Cypher:C, Skye:X) go to the player through `prototypes/ask_minimap_glyphs.py`; until
    answered the table rotates them and says why. Which component draws a
    placed Deadlock:Q or Omen:E icon is read from the game data; the table
    follows the player's answers for both. Predictions, logged in the store
