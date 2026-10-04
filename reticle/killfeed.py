@@ -1325,7 +1325,7 @@ def _band_text(
     its divider. There a divider must also sit at an entry's spacing from the
     names (`ONE_COLOUR_KILLER_GAP`, `ONE_COLOUR_VICTIM_GAP`), and each name
     must be text, MIN_NAME_PARTS glyphs or more under NAME_GAP apart: at
-    4f207c0c4e39 890.0 s the assist panel's portrait, 66 px left of the
+    4f207c0c4e39 890.0 s the assist panel's portrait [domain:killfeed/assist-panel], 66 px left of the
     killer's name, divided scenery glyphs from the name and won on size, and
     at e37fdeca944f 174.5 s a poster's specks either side of an astronaut's
     helmet passed as names.
