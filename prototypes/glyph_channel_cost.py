@@ -1,13 +1,26 @@
 r"""Per-frame cost and prior share of a minimap ability-glyph reader, on cached minimap crops (no decode).
 
-    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py [cost] [--sessions c40d950031bb,a06f04a0059f]
-                                                                [--windows 10] [--per 10] [--out DIR] [--no-gpu]
-    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py rotation [--out DIR]
-    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py births [--out DIR]
-    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py record [--out DIR]
+    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py [cost] --out DIR [--sessions c40d950031bb,a06f04a0059f]
+                                                                [--windows 10] [--per 10] [--no-gpu]
+    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py rotation --out DIR
+    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py births --out DIR
+    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py record --out DIR     (the dir of the three runs)
     .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py table
     .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py rotrule --out DIR   (a new DIR per run)
-    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py record2 --out DIR   (the rotrule DIR)
+    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py record2 --out DIR   (the rotrule DIR, once)
+    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py baseline030         (stage 1's S1 baseline, once)
+    .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py crosscheck          (cross-channel casts, once)
+
+`cost`, `rotation`, `births` and `rotrule` refuse to overwrite an output file, and `--out` has no default: the
+stored 0.1.0 outputs (analysis/glyph-wiring-20261004) are evidence. `record2`, `baseline030` and `crosscheck`
+refuse to append a row whose input is already recorded.
+
+`baseline030` records single-frame top-1 of rotate-all and upright on the dev items of minimap-glyph-eval-0.3.0
+(analysis/minimap-glyphs-killjoy-refs-20261004/gamedata-on), the windows stage 1 runs on, as
+`glyph_channel_cost/dev_030`. `crosscheck` reads the per-cast rows of cross-channel-independence-0.1.0 (store
+analysis/cross-channel-independence-20261004/casts.jsonl, branch cross-channel-independence-20261004) and records,
+on the matches' casts of glyph-drawing abilities, the audio witness's precision and the glyph follow's (seeded at
+the self icon) as `glyph_channel_cost/cross_channel@matches`; it recomputes nothing.
 
 `rotrule` (prediction rows G1-G4) tests the two-flag rotation hypothesis (`rule_verdict`) on every minimap
 component of the raw ability-states export, against the player's rotation answers, the dev fitted angles of
@@ -65,7 +78,8 @@ import numpy as np  # noqa: E402
 
 import minimap_glyph_eval as mge  # noqa: E402
 
-VERSION = "glyph-channel-cost-0.2.0"   # 0.2.0 adds rotrule and heldout; 0.1.0's commands are unchanged
+VERSION = "glyph-channel-cost-0.2.1"   # 0.2.1: overwrite and duplicate guards, baseline030, crosscheck; 0.2.0
+#                                        added rotrule and heldout; no command's measurement changed
 STATES_TABLE = mge.STORE / "reference" / "ability-states" / "ability-states-gamedata-0.2.0.jsonl"
 PRIOR_R = 2.0
 
@@ -177,6 +191,20 @@ def stored_prior() -> dict:
 ANSWERS_ON = mge.STORE / "analysis" / "minimap-glyphs-answers-20261004" / "answers-on"
 
 
+def fresh(f: Path) -> Path:
+    """`f`, refusing when it exists: a stored output is evidence and is never overwritten."""
+    if f.exists():
+        raise SystemExit(f"{f} exists; write each run to a new --out directory")
+    return f
+
+
+def recorded(part: str, field: str, value: str) -> bool:
+    """True when the metric log holds a glyph_channel_cost/`part` row whose context `field` equals `value`."""
+    from reticle import metrics
+    return any(r.get("tool") == "glyph_channel_cost" and r.get("part") == part
+               and str((r.get("context") or {}).get(field)) == value for r in metrics.load())
+
+
 def cmd_rotation(out: Path) -> None:
     """Single-frame top-1 on the stored answers-on windows (no cache; the contaminated set, never a gate) under
     three rotation arms, then with the candidate set widened from the labelled caster's kit to the session's
@@ -226,7 +254,7 @@ def cmd_rotation(out: Path) -> None:
                            if top(kit_sc, r) == r["truth"] != top(ally_sc, r)),
             "candidate_sets": {s: w[1] for s, w in why.items()}}
         print(f"ally_set_{tag}", {k: v for k, v in rep[f'ally_set_{tag}'].items() if k != 'candidate_sets'}, flush=True)
-    json.dump(rep, open(out / "rotation.json", "w", encoding="utf-8"), indent=1, default=str)
+    json.dump(rep, open(fresh(out / "rotation.json"), "w", encoding="utf-8"), indent=1, default=str)
     print("wrote", out / "rotation.json")
 
 
@@ -376,8 +404,7 @@ def cmd_rotrule(out: Path) -> None:
         rep[tag] = {sp: mge.verdicts(sc, eng.items, sp)["top1"] for sp in ("heldout", "dev")}
         print(tag, rep[tag], flush=True)
     rep["two_flag_rotating"] = sorted(f"{a}:{b}" for a, b in rot)
-    f = out / "rotrule.json"
-    assert not f.exists(), f"{f} exists; write each run to a new directory"
+    f = fresh(out / "rotrule.json")
     json.dump(rep, open(f, "w", encoding="utf-8"), indent=1, default=str)
     print(json.dumps({k: rep[k] for k in ("components", "keys_with_component", "answers_sure", "answers_agree",
                                           "answers_agree_some_component",
@@ -420,6 +447,8 @@ def cmd_record2(rotrule_dir: Path) -> None:
     confusions, the proposer's raw recall of icon marks, and the headline under the corrected labels. Reads only;
     reruns nothing."""
     from reticle import metrics
+    if recorded("rotation_rule", "run", str(rotrule_dir)):
+        raise SystemExit(f"{rotrule_dir} is already recorded; a rerun would append duplicate rows")
     rr = json.load(open(rotrule_dir / "rotrule.json", encoding="utf-8"))
     num = lambda s: int(s.split("/")[0])  # noqa: E731
     vals = {"answers_sure": rr["answers_sure"], "answers_agree": rr["answers_agree"],
@@ -459,6 +488,55 @@ def cmd_record2(rotrule_dir: Path) -> None:
                        deps={"version": VERSION, "run": d["meta"]["version"], "matcher": d["meta"]["matcher"],
                              "follow": d["meta"]["follow"], "queue": d["meta"]["queue"]},
                        context={"file": str(f), "corrected": "labels/minimap_glyph_heldout last row per item"})
+
+
+def cmd_baseline030() -> None:
+    """Stage 1's S1 baseline: single-frame top-1 of rotate-all (`rot_pred`) and upright (`norot_pred`) on the
+    labelled dev items of minimap-glyph-eval-0.3.0, gamedata on, as stored; recorded as
+    `glyph_channel_cost/dev_030`. Reads only."""
+    from reticle import metrics
+    if recorded("dev_030", "file", str(KILLJOY_REFS_DEV)):
+        raise SystemExit(f"{KILLJOY_REFS_DEV} is already recorded as dev_030")
+    d = json.load(open(KILLJOY_REFS_DEV, encoding="utf-8"))
+    dev = [r for r in d["items"] if r["split"] == "dev" and r.get("truth") and not r.get("refused")]
+    vals = {"dev_n": len(dev), "dev_rotate_all": sum(r.get("rot_pred") == r["truth"] for r in dev),
+            "dev_upright": sum(r.get("norot_pred") == r["truth"] for r in dev)}
+    print("dev_030", json.dumps(vals))
+    metrics.record("glyph_channel_cost", part="dev_030", values=vals,
+                   deps={"version": VERSION, "eval": d["meta"]["version"], "build": d["meta"].get("build"),
+                         "gamedata": d["meta"].get("gamedata")},
+                   context={"file": str(KILLJOY_REFS_DEV), "single_frame": True, "split": "dev"})
+
+
+CROSS_CASTS = mge.STORE / "analysis" / "cross-channel-independence-20261004" / "casts.jsonl"
+GLYPH_SLOTS_SEEN = {("Sova", "C"), ("Skye", "Q"), ("Skye", "E"), ("Skye", "X")}
+
+
+def cmd_crosscheck(path: Path = CROSS_CASTS) -> None:
+    """On the matches' own casts of abilities that draw a glyph (`B_source == "glyph"`, chosen there from domain
+    facts and game data), count the audio witness's verdicts (`A`: right, wrong, refused) and the glyph follow's
+    (seeded at the self icon), overall and for Sova:C and Skye:Q/E/X; recorded as
+    `glyph_channel_cost/cross_channel@matches`. Precision is right over named (right plus wrong). Reads only."""
+    from reticle import metrics
+    if recorded("cross_channel", "file", str(path)):
+        raise SystemExit(f"{path} is already recorded as cross_channel")
+    rows = [json.loads(ln) for ln in open(path, encoding="utf-8") if ln.strip()]
+    g = [r for r in rows if r["kind"] == "match" and r["B_source"] == "glyph"]
+    sub = [r for r in g if (r["agent"], r["slot"]) in GLYPH_SLOTS_SEEN]
+
+    def counts(rs, f, tag):
+        right = sum(r[f] == "right" for r in rs)
+        wrong = sum(r[f] == "wrong" for r in rs)
+        return {f"{tag}_n": len(rs), f"{tag}_right": right, f"{tag}_wrong": wrong,
+                f"{tag}_refused": sum(r[f] == "refused" for r in rs),
+                f"{tag}_precision": round(right / (right + wrong), 4) if right + wrong else None}
+    vals = {**counts(g, "A", "audio"), **counts(sub, "A", "audio_sova_skye"), **counts(g, "glyph", "glyph_self_seed")}
+    print("cross_channel", json.dumps(vals))
+    metrics.record("glyph_channel_cost", part="cross_channel", session="matches", values=vals,
+                   deps={"version": VERSION, "casts": rows[0]["version"]},
+                   context={"file": str(path), "branch": "cross-channel-independence-20261004",
+                            "audio": "ability-audio-0.4.0 / params-0.2.6, recomputed there",
+                            "glyph": "minimap_glyph_eval follow seeded at the self icon"})
 
 
 def cmd_births(out: Path, sid: str = "c40d950031bb", n: int = 100) -> None:
@@ -505,7 +583,7 @@ def cmd_births(out: Path, sid: str = "c40d950031bb", n: int = 100) -> None:
            "best_score_quartiles": [round(float(v), 3) for v in np.percentile(best, [25, 50, 75])] if len(best) else None,
            "read_ms": {"median": round(float(np.median(read_ms)), 3), "p90": round(float(np.percentile(read_ms, 90)), 3)}}
     print(json.dumps(rep, indent=1, default=str))
-    json.dump(rep, open(out / "births.json", "w", encoding="utf-8"), indent=1, default=str)
+    json.dump(rep, open(fresh(out / "births.json"), "w", encoding="utf-8"), indent=1, default=str)
 
 
 def cmd_record(out: Path) -> None:
@@ -592,14 +670,28 @@ def cmd_table() -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", nargs="?", default="cost", choices=("cost", "rotation", "births", "record", "table",
-                                                                   "rotrule", "record2"))
+                                                                   "rotrule", "record2", "baseline030", "crosscheck"))
     ap.add_argument("--sessions", default="c40d950031bb,a06f04a0059f")
     ap.add_argument("--windows", type=int, default=10)
     ap.add_argument("--per", type=int, default=10)
-    ap.add_argument("--out", default=str(mge.STORE / "analysis" / "glyph-wiring-20261004"))
+    ap.add_argument("--out", default=None, help="output dir; required except for table, baseline030, crosscheck")
     ap.add_argument("--no-gpu", action="store_true")
     a = ap.parse_args()
+    if a.cmd == "table":
+        cmd_table()
+        return
+    if a.cmd == "baseline030":
+        cmd_baseline030()
+        return
+    if a.cmd == "crosscheck":
+        cmd_crosscheck()
+        return
+    if not a.out:
+        ap.error("--out is required for " + a.cmd)
     out = Path(a.out)
+    writes = {"cost": "cost.json", "rotation": "rotation.json", "births": "births.json", "rotrule": "rotrule.json"}
+    if a.cmd in writes:
+        fresh(out / writes[a.cmd])   # refuse before any work, not after it
     out.mkdir(parents=True, exist_ok=True)
     if a.cmd == "rotation":
         cmd_rotation(out)
@@ -609,9 +701,6 @@ def main() -> None:
         return
     if a.cmd == "record":
         cmd_record(out)
-        return
-    if a.cmd == "table":
-        cmd_table()
         return
     if a.cmd == "rotrule":
         cmd_rotrule(out)
@@ -742,7 +831,7 @@ def main() -> None:
     res["stored_prior_2hz"] = stored_prior()
     for sid, v in res["stored_prior_2hz"].items():
         print("stored 2 Hz", sid, json.dumps(v), flush=True)
-    json.dump(res, open(out / "cost.json", "w", encoding="utf-8"), indent=1, default=float)
+    json.dump(res, open(fresh(out / "cost.json"), "w", encoding="utf-8"), indent=1, default=float)
     print("wrote", out / "cost.json")
 
 
