@@ -1103,6 +1103,26 @@ def cmd_scan(args) -> int:
     want_lineup = args.lineup and not args.only
     spans = (_active_spans(store, sid, date)
              if channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark', 'ability'} else [])
+    if channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark', 'ability'} and not args.check:
+        # A side-based widget is placed before any minimap reader reads it
+        # (`widget_frame.fit_if_needed`): fitted from the crop cache and the
+        # stored rounds, and written as `widget-fit --write` writes it.
+        from . import widget_frame as wf
+        placed = wf.fit_if_needed(store, manifest)
+        if placed is not None and "refused" in placed:
+            print(f"widget     {placed['refused']}")
+        elif placed is not None:
+            print(f"widget     fitted {len(placed['segments'])} placements "
+                  f"({placed['record']['fitted_because']}) -> {placed['path']}")
+            if placed["box"] is not None and placed["box"] != placed["held"]:
+                # The stored crop cannot hold the placed widget: the cache is
+                # stale, and only the player starts a decode.
+                from .roi_cache import rewrite_command
+                raise SystemExit(
+                    f"widget     the minimap cache's crop {placed['held']} cannot hold the "
+                    f"placed widget {placed['box']}: re-decode it with "
+                    f"`{rewrite_command(sid, 'minimap', placed['cache_record'])}`, "
+                    f"then rerun this scan")
     fps = float(src["fps"])
 
     want_hud = 'hud' in channels and (args.force or not store.has_hud(sid, date))
@@ -1634,6 +1654,9 @@ def _normalise_decoded(R, manifest, store) -> None:
     refused by name, never read as an absent widget."""
     from . import widget_frame as wf
     mine = {id(r) for r in (R.mp, R.pp, R.ap, R.dp, R.bp, R.ip) if r is not None}
+    unplaced = wf.unplaced_refusal(manifest) if mine else None
+    if unplaced is not None:
+        raise SystemExit(f"minimap refused: {unplaced}")
     src = manifest["source"]
     frame = (wf.for_session(manifest, [0, 0, int(src["width"]), int(src["height"])], store.root)
              if mine else None)
@@ -3931,72 +3954,52 @@ def _tray_frames(cache, step_s: float):
 
 def cmd_widget_fit(args) -> int:
     """Fit where the session draws its minimap widget against the baked static
-    (`widget_frame`), from the stored minimap crops. Decodes no video.
+    (`widget_frame`), from the stored minimap crops and rounds. Decodes no video.
 
-    `--write` stores the placement on the manifest with its stamp, tags a
-    non-identity one `minimap:variant`, and names a capture box when the
-    profile's crop cannot hold the widget -- which makes the minimap cache
-    stale until a re-decode stores the wider crop. A previous placement is
-    kept under `minimap_widget_history`, never overwritten."""
-    import json
-
-    from . import geometry
+    `--write` stores the placement on the manifest with its stamp
+    (`widget_frame.write_placement`), tags a non-identity one
+    `minimap:variant`, and names a capture box when the crop cannot hold the
+    widget under every placement (`capture_box_for`) -- which makes the
+    minimap cache stale until a re-decode stores the wider crop. A side-based
+    session's identity fit is stored too, so the question is answered. A
+    previous placement is kept under `minimap_widget_history`, never
+    overwritten."""
     from . import widget_frame as wf
-    from .roi_cache import RoiCache
 
     store = Store(args.store)
     man = _resolve_session(store, args.session)
     sid = man["session_id"]
-    profile = get_profile(man["source_profile"])
-    cache, why = RoiCache.load(store.root, man, profile, "minimap")
-    if cache is None:
-        # A stored placement the crop cannot hold refuses the cache it would
-        # normalise; the fit reads raw crops, so read it without the placement.
-        bare = {k: v for k, v in man.items() if k != wf.MANIFEST_KEY}
-        cache, why2 = RoiCache.load(store.root, bare, profile, "minimap")
-        if cache is None:
-            raise SystemExit(f"{sid}: no minimap cache ({why}; {why2})")
-    got = wf.fit_session(man, cache, store.root, n=args.frames)
-    segs = got["segments"]
-    if not segs:
-        raise SystemExit(f"{sid}: no cached frame reached ncc {wf.MIN_NCC}")
-    with np.load(geometry.require(sid, store.root)) as z:
-        baked_roi = [int(v) for v in z["roi"]]
-    wh = (int(man["source"]["width"]), int(man["source"]["height"]))
-    variant = any(not wf.is_identity(sg["affine"], baked_roi) for sg in segs)
-    need = wf.needed_box(segs, got["shape"], wh)
-    held = got["box"]
-    fits = (need[0] >= held[0] and need[1] >= held[1]
-            and need[2] <= held[2] and need[3] <= held[3])
+    got = wf.fit_placement(store, man, n=args.frames)
+    held, need = got["held"], got["need"]
     print(f"{sid}  {man['source']['path']}")
     print(f"fitted     {got['frames']} cached frames in {held}")
-    for sg in segs:
+    for sg in got["segments"]:
         a = np.asarray(sg["affine"])
+        at = (f" (the turn that opens round {sg['switch_round']}; cached frames "
+              f"{sg['t_prev_last_ms']} then {sg['t_first_ms']} ms)"
+              if sg.get("switch_round") is not None else
+              f" (turn refused: {sg['switch_refusal']})" if sg.get("switch_refusal") else "")
         print(f"  from {sg['t0_ms']} to {sg['t1_ms']} ms: rotation {sg['rotation']}, "
               f"scale {sg['scale']:.3f}, corner ({a[0, 2]:.1f}, {a[1, 2]:.1f}), "
-              f"{sg['n']} frames, ncc >= {sg['ncc_min']:.3f}")
-    print(f"placement  {'VARIANT' if variant else 'identity'}; the whole widget needs "
+              f"{sg['n']} frames, ncc >= {sg['ncc_min']:.3f}{at}")
+    print(f"placement  {'VARIANT' if got['variant'] else 'identity'}; the whole widget needs "
           f"{need}, the cache holds {held}"
-          + ("" if fits else " -- the crop clips the widget"))
+          + ("" if got["fits"] else " -- the crop clips the widget"))
+    if got["status"] is not None:
+        print(f"asked      {got['status']['reason']}: {got['status']['detail']}")
     if not args.write:
         return 0
-    if not variant:
+    if not got["store"]:
         print("identity   nothing stored: the session reads the baked placement")
         return 0
-    box = wf.capture_box(man) if fits else need
-    rec = wf.record(segs, geometry.key_of(sid, store.root), baked_roi, box,
-                    f"roi_cache {cache.record['version']} rect {held}", got["frames"])
-    if man.get(wf.MANIFEST_KEY):
-        man.setdefault(wf.MANIFEST_KEY + "_history", []).append(man[wf.MANIFEST_KEY])
-    man[wf.MANIFEST_KEY] = rec
-    if wf.VARIANT_TAG not in man.setdefault("tags", []):
-        man["tags"].append(wf.VARIANT_TAG)
-    store.manifest_path(sid).write_text(json.dumps(man, indent=2), encoding="utf-8")
-    print(f"stored     {wf.MANIFEST_KEY} ({wf.WIDGET_FRAME_VERSION}) and tag "
-          f"{wf.VARIANT_TAG} on {store.manifest_path(sid)}")
+    path = wf.write_placement(store, man, got["record"], got["variant"])
+    print(f"stored     {wf.MANIFEST_KEY} ({wf.WIDGET_FRAME_VERSION})"
+          + (f" and tag {wf.VARIANT_TAG}" if got["variant"] else "") + f" on {path}")
+    box = got["box"]
     if box is not None and box != held:
+        from .roi_cache import rewrite_command
         print(f"capture    box {box}: the minimap cache is stale until "
-              f"`reticle scan {sid} --only roi_cache --cache-roi minimap` re-decodes it")
+              f"`{rewrite_command(sid, 'minimap', got['cache_record'])}` re-decodes it")
     return 0
 
 
