@@ -30,7 +30,9 @@ carried the game's own build string, read from the `CI server version:` line
 of `%LOCALAPPDATA%\VALORANT\Saved\Logs\ShooterGame.log` (form
 `release-13.06-shipping-18-5590001`), and the request sent a non-default
 User-Agent naming the tool. A build hash from the local product session was
-rejected. The probe is not in this repository.
+rejected. The probe is not in this repository; the player's kit for
+the uncaptured matches, `prototypes/riot_match_fetch.py`, repeats its method
+([MATCH_FETCH_KIT.md](MATCH_FETCH_KIT.md)).
 
 Three accounts' histories were read. The first held 18 matches, 2026-09-13 to
 2026-10-01 (Total 18); the second 47, 2026-09-03 to 2026-09-11 (Total 47). On

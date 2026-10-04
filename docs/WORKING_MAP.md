@@ -50,6 +50,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | VOD scan cost and reader call frequencies | `reticle usage [SESSION]`, `reticle/usage.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | Riot match records | `prototypes/riot_ground_truth.py SESSION\|--all` |
+| Fetching uncaptured Riot records (player-run) | [MATCH_FETCH_KIT.md](MATCH_FETCH_KIT.md) |
 | Experiments | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
 | Full temporal adjudication design | `docs/ADJUDICATION_DESIGN.md` |
 | The scene model: render-and-compare, all channels | [SCENE_MODEL.md](SCENE_MODEL.md) |
