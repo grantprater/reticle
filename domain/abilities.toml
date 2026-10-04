@@ -679,6 +679,36 @@ unexplained: an ability equipped and not used, or a tray misread
 """
 see = ["abilities/phoenix-blaze", "abilities/phoenix-slots"]
 
+[phoenix-blaze-no-minimap-icon]
+claim = """
+Phoenix's Blaze draws no icon on the minimap; its minimap drawing is the wall.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "phoenix:blaze"
+source = """
+the player, 2026-10-04 (chat), shown that ability-states-gamedata-0.2.0 names
+`TX_UI_Minimap_Mage_HighTideActive` the enemy-view minimap icon of Blaze's
+projectile: "I don't see the icon, but blaze does not show any icon at all"
+"""
+use = """
+search for Blaze's wall, never an icon, on a slot C drop by Phoenix; keep
+`TX_UI_Minimap_Mage_HighTideActive` out of Blaze's references
+"""
+exceptions = """
+CONFLICTS with earlier player answers, unresolved: wall-icon-path-curve
+(2026-09-26) says Blaze travels as an icon that traces the wall; the texture
+answer at answers.jsonl line 48 names `TX_UI_Minimap_Phoenix_FireWall` Blaze's;
+the visibility answers at lines 307 and 308 say a teammate's and an enemy's Blaze
+draw icon_and_shape; phoenix-blaze-duration's census saw a cast icon run ahead
+of the wall. Ask the player whether "any icon" covers the FireWall icon that
+leads the wall, or only a High Tide-style icon
+"""
+see = ["abilities/phoenix-blaze", "abilities/phoenix-minimap-objects",
+       "abilities/wall-icon-path-curve", "abilities/minimap-textures-harbor",
+       "abilities/minimap-textures-phoenix"]
+
 [phoenix-curveball-blind-screen]
 claim = """
 While Phoenix's Curveball blinds the player, the screen is a uniform
@@ -4346,8 +4376,15 @@ the player answered per texture stem, its state variants shown side by side; whi
 state the HUD draws for which viewer is not part of the answer.
 DISPUTED by game data: ability-states-gamedata-0.2.0 names
 `TX_UI_Minimap_Mage_HighTideActive` as the minimap EnemyIcon of Phoenix's Blaze
-(C, enemy view only), not High Tide's; no labelled capture shows Harbor, and the
-22 Blaze labels are shape-class, unscored; ask the player
+(C, enemy view only; Projectile_Phoenix_Q_FlameWall_ThroughWall
+BaseMinimapComponent_Parent EnemyIcon), not High Tide's; no labelled capture shows
+Harbor, and the 22 Blaze labels are shape-class, unscored. Shown the dispute
+(2026-10-04), the player keeps High Tide: Mage is Harbor's codename and HighTide
+names High Tide ("Harbor's ability name is high tide"), and Blaze draws no icon
+[domain:abilities/phoenix-blaze-no-minimap-icon]. The kept answer's key, Q,
+matches the game data's High Tide key (DefaultInput.ini Activate_Ability1 Key=Q;
+Mage_UIData Abilities Ability1), so line 44 stands and no revision row was
+appended. Open: why the Blaze projectile names a Mage texture as its EnemyIcon
 """
 
 [minimap-textures-iso]
@@ -4427,8 +4464,8 @@ state the HUD draws for which viewer is not part of the answer
 [minimap-textures-miks]
 claim = """
 Of the game's exported minimap textures, the player names these for Miks:
-`TX_UI_Minimap_Iris_C` (InActive) is Waveform's (E); `TX_UI_Minimap_Iris_C2`
-(InActive) is Waveform's (E). Keys are the tray catalogue's, not the file's
+`TX_UI_Minimap_Iris_C` (InActive) is M-pulse's (C); `TX_UI_Minimap_Iris_C2`
+(InActive) is M-pulse's (C). Keys are the tray catalogue's, not the file's
 letter.
 """
 kind = "appearance"
@@ -4437,18 +4474,22 @@ since = "2026-10-04"
 subject = "miks"
 source = """
 the player's texture answers, <store>/labels/minimap_glyph_questions/answers.jsonl
-line(s) 34, 35 (ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001)
+line(s) 363, 364 (chat revision, 2026-10-04), revising lines 34, 35
+(ask-minimap-glyphs-0.1.0, build release-13.06-shipping-18-5590001), which named
+Waveform (E). Shown that ability-states-gamedata-0.2.0 names both textures
+M-pulse's minimap images (GameObject_Thumper_Concuss and GameObject_Thumper_Heal;
+key C from DefaultInput.ini Activate_GrenadeAbility and Iris_UIData), the player
+wrote: "Ah yes I thought it was e it's actually c"
 """
 use = """
-minimap_glyph_eval.apply_answers reads the same lines as glyph references
-(minimap-glyph-eval-0.2.0)
+minimap_glyph_eval.apply_answers reads the same lines, last row per key winning;
+M-pulse's DisplayIcon (TX_UI_Iris_C1) is not exported, so the kit has no Miks C
+glyph and apply_answers drops both textures from the references (no_kit_key)
+rather than filing them under C
 """
 exceptions = """
 the player answered per texture stem, its state variants shown side by side; which
-state the HUD draws for which viewer is not part of the answer.
-DISPUTED by game data: ability-states-gamedata-0.2.0 names `TX_UI_Minimap_Iris_C`
-and `TX_UI_Minimap_Iris_C2` as M-pulse's (C) minimap images (GameObject_Thumper_Concuss
-and GameObject_Thumper_Heal), not E's; no labelled capture shows Miks; ask the player
+state the HUD draws for which viewer is not part of the answer
 """
 
 [minimap-textures-neon]

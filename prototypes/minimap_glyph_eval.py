@@ -5,6 +5,7 @@ r"""The game's minimap ability glyphs as a caster-naming channel, scored on the 
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py separate   [--out DIR]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py inventory  [--out DIR]
     .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py follow     [--out DIR] [--only sid,sid]
+    .\.venv\Scripts\python.exe prototypes\minimap_glyph_eval.py heldout    [--out DIR]
 
 `score` reads every positioned ability label (labels/ability, labels/ability_paint,
 labels/tray_object marks) from the minimap crop cache (no decode), snaps it to the
@@ -36,6 +37,18 @@ drawn, or the disc is the baked map, and decides once from up to 8 clean
 frames (follow.json, follow_misses.png). `prototypes/ask_minimap_glyphs.py`
 asks the player what these cannot derive: unproven texture mappings, what an
 ability draws on the minimap, and whether an icon rotates.
+
+`heldout` scores the matcher once, every parameter as above (probe states,
+answers on), on the held-out labelling pass
+(`label_minimap_glyph_heldout.py`; last row per item wins). Each sure mark
+named with a kit key is snapped, classified over the session agent's kit (no
+other-agent path) and followed; the follow's verdict is the matcher's. The
+headline is after_cast and control frames outside dev_session and
+near_tuned_label; those two and the audit-only frames report apart. It also
+counts the proposer's discs near the player's icon marks and away from every
+mark, raw and after the follow's gates, and audits each excluded ability
+against the self-view marks (heldout.json). Unsure, smoke, other-agent and
+typed marks are listed, never scored.
 
 Wire: no. It evaluates the game glyphs; wiring into reticle/ waits for an
 owner of ability-disc tracking (ability-icon proposes, nothing follows) and a
@@ -1497,6 +1510,241 @@ def cmd_follow(args) -> None:
     print(json.dumps(summ, indent=1))
 
 
+# ------------------------------------------------------------------ the held-out labelling pass, scored once
+
+HELDOUT_VERSION = "minimap-glyph-heldout-score-0.1.0"
+HELDOUT_OUT = STORE / "analysis" / "minimap-heldout-score-20261004"
+SNAP_R = 8.0           # cmd_score's snap reach (px x scale); detection counts a disc this near a mark as found
+ICON_MARKS = ("named", "unsure", "smoke", "other_agent")   # marks that claim an ability icon at the point
+
+
+def mark_class(m: dict) -> str:
+    """named (a kit key agent:slot), smoke, other_agent, other (typed), or unsure (an icon, ability unsure)."""
+    a = m.get("ability")
+    if a is None:
+        return "unsure"
+    if ":" in a:
+        return "named"
+    return a
+
+
+def heldout_subsets(row: dict) -> list[str]:
+    """The subsets fixed in the queue: the headline (after_cast or control, neither dev nor near a tuned label);
+    dev_session and near_tuned_label apart (they may overlap); audit-only frames apart."""
+    out = []
+    if row["kind"] == "audit_excluded":
+        out.append("audit_only")
+    elif not row["dev_session"] and not row["near_tuned_label"]:
+        out.append("headline")
+    if row["dev_session"]:
+        out.append("dev_session")
+    if row["near_tuned_label"]:
+        out.append("near_tuned_label")
+    return out
+
+
+def naming_summary(marks: list[dict], subset: str) -> dict:
+    """right / wrong / refused for the follow verdict (the matcher's final) and the single-frame verdict."""
+    M = [m for m in marks if m["class"] == "named" and subset in m["subsets"]]
+    out = {"n": len(M), "truth_outside_kit": sum(not m["truth_in_kit"] for m in M)}
+    for tag in ("follow", "base"):
+        right = sum(m.get(f"{tag}_pred") == m["truth"] for m in M)
+        refused = sum(m.get(f"{tag}_pred") is None for m in M)
+        out[tag] = {"right": right, "wrong": len(M) - right - refused, "refused": refused,
+                    "accuracy": round(right / len(M), 4) if M else None}
+    per_agent, per_ability = defaultdict(lambda: [0, 0]), defaultdict(lambda: [0, 0])
+    for m in M:
+        for d, k in ((per_agent, m["agent"]), (per_ability, f"{m['truth']} {m['truth_name']}")):
+            d[k][1] += 1
+            d[k][0] += m.get("follow_pred") == m["truth"]
+    out["per_agent"] = {k: f"{a}/{n}" for k, (a, n) in sorted(per_agent.items())}
+    out["per_ability"] = {k: f"{a}/{n}" for k, (a, n) in sorted(per_ability.items())}
+    out["confusions"] = {f"{t} -> {p}": n for (t, p), n in Counter(
+        (m["truth"], m.get("follow_pred")) for m in M if m.get("follow_pred") != m["truth"]).most_common()}
+    return out
+
+
+def detection_summary(frames_: list[dict], subset: str | None = None, kind=None, nothing=None) -> dict:
+    """Sure icon marks found by a proposer disc within SNAP_R x scale, and discs no mark explains, raw and after
+    the follow's gates (static map, ICON_SCORE) and its stored-portrait gate. A disc near an `other` mark is
+    neither found nor false."""
+    F = [f for f in frames_ if (subset is None or subset in f["subsets"]) and (kind is None or f["kind"] == kind)
+         and (nothing is None or f["nothing"] == nothing)]
+    out = {"frames": len(F), "icon_marks": sum(f["n_icon_marks"] for f in F)}
+    for g in ("raw", "gated", "gated_uncovered"):
+        out[f"found_{g}"] = sum(f[f"found_{g}"] for f in F)
+        out[f"false_{g}"] = sum(f[f"false_{g}"] for f in F)
+        out[f"false_{g}_per_frame"] = round(out[f"false_{g}"] / len(F), 3) if F else None
+    return out
+
+
+def audit_exclusions(q: dict, rows: dict) -> list[dict]:
+    """Per excluded ability: the earlier answer that excluded it, its audit frame's marks, and every sure mark in
+    the pass naming it (a self-view mark contradicts the exclusion; a spectator-view one is listed apart)."""
+    groups = defaultdict(list)
+    for e in q["excluded_casts"]:
+        groups[(e["agent"], e["slot"], e["ability"], e["why"])].append(e["key"])
+    out = []
+    for (agent, slot, name, why), casts in sorted(groups.items()):
+        key = f"{agent}:{slot}"
+        audit = [it["key"] for it in q["items"] for o in it["opportunity"]
+                 if o["role"] == "audit_excluded" and it["agent"] == agent and o["slot"] == slot]
+        audit_marks = []
+        for k in audit:
+            r = rows.get(k)
+            audit_marks.append({"item": k, "answered": r is not None, "nothing": r and r["nothing"],
+                                "item_unsure": r and r["unsure"],
+                                "marks": [] if r is None else [{"class": mark_class(m), "ability": m.get("ability"),
+                                                                "other": m.get("other"), "view": m["view"],
+                                                                "x": round(m["x"], 1), "y": round(m["y"], 1)}
+                                                               for m in r["marks"]]})
+        named = [{"item": r["key"], "kind": r["kind"], "view": m["view"], "x": round(m["x"], 1), "y": round(m["y"], 1)}
+                 for r in rows.values() if not r["unsure"] for m in r["marks"] if m.get("ability") == key]
+        out.append({"ability": key, "name": name, "excluded_by": why, "excluded_casts": len(casts),
+                    "audit_items": audit_marks, "marked_self": [n for n in named if n["view"] == "self"],
+                    "marked_other_view": [n for n in named if n["view"] != "self"],
+                    "contradicts": any(n["view"] == "self" for n in named)})
+    return out
+
+
+def cmd_heldout(args) -> None:
+    """Score the matcher, frozen at VERSION / FOLLOW_VERSION with the default states and answers, once on the
+    held-out minimap labelling pass (prototypes/label_minimap_glyph_heldout.py; last row per item wins)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import label_minimap_glyph_heldout as lab
+    from reticle import ability_icons, geometry
+    out = HELDOUT_OUT if args.out == str(OUT) else Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    build_extra(PROBE_STATES, answers=True)
+    q = lab.load_queue()
+    rows = lab.answered()
+    n_rows = sum(len(lab.read_jsonl(f)) for f in glob.glob(str(lab.LABEL_DIR / "*.jsonl")))
+    by = defaultdict(list)
+    for it in q["items"]:
+        if it["key"] in rows:
+            by[it["session_id"]].append(rows[it["key"]])
+    t0 = time.time()
+    marks_out, frames_out, unsure_items = [], [], []
+    for sid, its in sorted(by.items()):
+        c, why, _ = crop_cache(sid)
+        if c is None:
+            for r in its:
+                frames_out.append({"item": r["key"], "refused": why})
+            continue
+        cr = c.rect_of("minimap")
+        h = np.asarray(c.holds(), dtype=float)
+        held = {r["key"]: float(h[np.argmin(np.abs(h - r["t_ms"]))]) for r in its}
+        plan = {r["key"]: [float(t) for t in h[(h >= held[r["key"]]) & (h <= held[r["key"]] + FOLLOW_MS)]]
+                for r in its}
+        need = sorted({t for v in plan.values() for t in v} | set(held.values()))
+        got = {s.t_ms: s.frame[cr[1]:cr[3], cr[0]:cr[2]].copy() for s in c.samples(need, rois=["minimap"])}
+        vis = vision_rows(sid, need)
+        try:
+            st = geometry.reference_static(sid, str(STORE))
+            static_Y = luma(st if st.ndim == 3 else cv2.cvtColor(st, cv2.COLOR_GRAY2BGR))
+        except (SystemExit, Exception):  # noqa: BLE001
+            static_Y = None
+        for r in its:
+            if r["unsure"]:
+                unsure_items.append(r["key"])
+                continue
+            th = held[r["key"]]
+            subsets = heldout_subsets(r)
+            fr = {"item": r["key"], "sid": sid, "kind": r["kind"], "subsets": subsets, "nothing": r["nothing"],
+                  "t_held": th}
+            if th not in got or abs(th - r["t_ms"]) > 70:
+                fr["refused"] = "no_frame" if th not in got else f"nearest_frame_{th - r['t_ms']:.0f}ms"
+                frames_out.append(fr)
+                for i, m in enumerate(r["marks"]):
+                    marks_out.append({"item": r["key"], "i": i, "class": mark_class(m), "refused": fr["refused"],
+                                      "subsets": subsets})
+                continue
+            crop = got[th]
+            scale = crop.shape[1] / 465.0
+            Y = luma(crop)
+            agent = r["agent"]
+            keys = sorted(kit(agent))
+            kit_keys = tuple(keys)
+            terms = icon_terms(sid, crop.shape)
+            sY = static_Y if static_Y is not None and static_Y.shape == crop.shape[:2] else None
+            icons = vis.get(round(th, 3), (None, []))[1] or []
+            props = []
+            for p in (ability_icons.propose_icons(crop, terms) if terms is not None else []):
+                pp = (float(p["cx"]), float(p["cy"]))
+                s = frame_scores(Y, pp, scale, kit_keys) if keys else None
+                gated = not (sY is not None and map_like(Y, sY, pp, scale)) and s is not None and s.max() >= ICON_SCORE
+                props.append({"cx": pp[0], "cy": pp[1], "r": float(p["r"]), "gated": bool(gated),
+                              "covered": portrait_cover(pp, icons, scale)})
+            pts = []
+            for i, m in enumerate(r["marks"]):
+                x = m["x"] + (r["roi"] or cr)[0] - cr[0]
+                y = m["y"] + (r["roi"] or cr)[1] - cr[1]
+                cls = mark_class(m)
+                pts.append((x, y, cls))
+                o = {"item": r["key"], "i": i, "sid": sid, "t_ms": r["t_ms"], "t_held": th, "kind": r["kind"],
+                     "subsets": subsets, "agent": agent, "class": cls, "ability": m.get("ability"),
+                     "other": m.get("other"), "view": m["view"], "x": round(x, 2), "y": round(y, 2),
+                     "scale": scale}
+                near = [p for p in props if np.hypot(p["cx"] - x, p["cy"] - y) <= SNAP_R * scale]
+                snap = min(near, key=lambda p: np.hypot(p["cx"] - x, p["cy"] - y)) if near else None
+                if cls == "named":
+                    truth = tuple(m["ability"].rsplit(":", 1))
+                    o.update({"truth": m["ability"], "truth_name": m.get("ability_name"),
+                              "truth_in_kit": truth in keys, "kit": [f"{k[0]}:{k[1]}" for k in keys]})
+                    cx, cy = (snap["cx"], snap["cy"]) if snap else (x, y)
+                    o.update({"cx": cx, "cy": cy, "snapped": snap is not None})
+                    cl = classify(Y, cx, cy, keys, scale, rotate=True) if keys else None
+                    o["base_pred"] = cl and f"{cl['pred'][0]}:{cl['pred'][1]}"
+                    o["base_score"], o["base_margin"] = (cl["score"], cl["margin"]) if cl else (None, None)
+                    rr = {"kit": o["kit"], "scale": scale, "cx": cx, "cy": cy, "t_held": th, "rot_pred": o["base_pred"]}
+                    f = follow_item(rr, [(t, got[t]) for t in plan[r["key"]] if t in got], vis, terms, sY)
+                    o.update({"follow_pred": f["pred"], "decided_by": f["decided_by"], "n_clean": f["n_clean"],
+                              "follow_mean": f.get("mean"), "follow_margin": f.get("margin"),
+                              "n_following_cached": len(plan[r["key"]])})
+                marks_out.append(o)
+            icon_pts = [(x, y) for x, y, cls in pts if cls in ICON_MARKS]
+            all_pts = [(x, y) for x, y, _ in pts]
+            fr["n_icon_marks"] = len(icon_pts)
+            fr["proposals"] = props
+            for g, sel in (("raw", lambda p: True), ("gated", lambda p: p["gated"]),
+                           ("gated_uncovered", lambda p: p["gated"] and p["covered"] is None)):
+                P = [p for p in props if sel(p)]
+                fr[f"found_{g}"] = sum(any(np.hypot(p["cx"] - x, p["cy"] - y) <= SNAP_R * scale for p in P)
+                                       for x, y in icon_pts)
+                fr[f"false_{g}"] = sum(all(np.hypot(p["cx"] - x, p["cy"] - y) > SNAP_R * scale for x, y in all_pts)
+                                       for p in P)
+            frames_out.append(fr)
+        print(f"  {sid}: {len(its)} items, {time.time() - t0:.0f}s", flush=True)
+    F = [f for f in frames_out if not f.get("refused")]
+    summ = {"version": HELDOUT_VERSION, "matcher": VERSION, "follow": FOLLOW_VERSION, "build": BUILD,
+            "states": "probe", "answers": True, "queue": q["version"], "label_rows": n_rows, "items_answered": len(rows),
+            "rule": "last row per item wins; headline = kind after_cast or control, not dev_session, not "
+                    "near_tuned_label; the matcher's verdict is follow (base = the labelled frame alone)",
+            "candidates": "the session agent's kit (GLYPHS keys); the matcher has no other-agent path",
+            "params": {"CANVAS": [float(CANVAS[0]), float(CANVAS[-1])], "MASK_R": MASK_R, "SHIFT": SHIFT,
+                       "ROT_STEP": ROTS[1], "SNAP_R": SNAP_R, "FOLLOW_MS": FOLLOW_MS, "N_CLEAN": N_CLEAN, "OCC_R": OCC_R,
+                       "SAME_R": SAME_R, "REACH": REACH, "ICON_SCORE": ICON_SCORE, "MAP_CORR": MAP_CORR},
+            "answer_log": dict(ANSWER_LOG), "extra": {f"{k[0]}:{k[1]}": [p for _, p in v] for k, v in EXTRA.items()},
+            "unsure_items": unsure_items, "refused_frames": [f for f in frames_out if f.get("refused")],
+            "wall_s": round(time.time() - t0, 1)}
+    summ["naming"] = {s: naming_summary(marks_out, s) for s in ("headline", "dev_session", "near_tuned_label",
+                                                                 "audit_only")}
+    summ["detection"] = {"headline": detection_summary(F, "headline"),
+                         "headline_control": detection_summary(F, "headline", kind="control"),
+                         "headline_nothing": detection_summary(F, "headline", nothing=True),
+                         "all_control": detection_summary(F, kind="control"),
+                         "all_nothing": detection_summary(F, nothing=True), "all": detection_summary(F)}
+    summ["not_scored"] = {c: [{k: m.get(k) for k in ("item", "i", "kind", "subsets", "view", "x", "y", "other")}
+                              for m in marks_out if m["class"] == c] for c in ("unsure", "smoke", "other_agent", "other")}
+    summ["audit"] = audit_exclusions(q, rows)
+    json.dump({"meta": summ, "marks": marks_out, "frames": frames_out}, open(out / "heldout.json", "w"),
+              indent=1, default=float)
+    show = {k: summ[k] for k in ("naming", "detection")}
+    show["not_scored"] = {c: len(v) for c, v in summ["not_scored"].items()}
+    show["audit_contradictions"] = [a["ability"] for a in summ["audit"] if a["contradicts"]]
+    print(json.dumps(show, indent=1))
+
+
 # ------------------------------------------------------------------ texture inventory
 
 INVENTORY_VERSION = "minimap-texture-inventory-0.1.0"
@@ -1666,7 +1914,7 @@ def cmd_inventory(args) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("cmd", choices=["score", "misses", "examples", "separate", "inventory", "follow"])
+    ap.add_argument("cmd", choices=["score", "misses", "examples", "separate", "inventory", "follow", "heldout"])
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--states", default="probe", choices=["probe", "all"])
     ap.add_argument("--answers", default="on", choices=["on", "off"],
@@ -1674,7 +1922,7 @@ def main() -> None:
     ap.add_argument("--only", default=None, help="follow: comma-separated session ids (a small sample)")
     args = ap.parse_args()
     {"score": cmd_score, "misses": cmd_misses, "examples": cmd_examples, "separate": cmd_separate,
-     "inventory": cmd_inventory, "follow": cmd_follow}[args.cmd](args)
+     "inventory": cmd_inventory, "follow": cmd_follow, "heldout": cmd_heldout}[args.cmd](args)
 
 
 if __name__ == "__main__":

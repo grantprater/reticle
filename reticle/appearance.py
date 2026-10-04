@@ -13,17 +13,19 @@ still lands in the same place.
 
 Why the name is qualified
 --------------------------
-A bare `composition` already means something else here: `lineup._composition`
-reaches into `prototypes/minimap_portrait.py` for a DIFFERENT histogram, and the
-agent gallery -- every lineup score and margin -- is built with that one. This
-one shipped as `composition` for about ten minutes before `doctor`'s DUPLICATE
-check named it a fork, which is what that check is for. Two different things may
-not share a name; the fix is the name, not an exemption.
+A bare `composition` already meant something else: `prototypes/minimap_portrait`
+defined a DIFFERENT histogram, and the agent gallery -- every lineup score and
+margin -- is built with that one. This one shipped as `composition` for about
+ten minutes before `doctor`'s DUPLICATE check named it a fork, which is what
+that check is for. Two different things may not share a name; the fix is the
+name, not an exemption. The gallery's histogram now lives here as
+`portrait_composition` (2026-10-04), promoted so `lineup` no longer reaches
+into `prototypes/`.
 
-They stay two features on purpose. Every measured lineup result rests on the
-prototype one, and swapping it would move all of them at once with nobody having
-re-scored a session. `BACKLOG.md` carries the unification and what would trigger
-it.
+They stay two features on purpose. Every measured lineup result rests on
+`portrait_composition`, and swapping it would move all of them at once with
+nobody having re-scored a session. `BACKLOG.md` carries the unification and
+what would trigger it.
 
 `mask` is what makes this usable on a HUD
 ------------------------------------------
@@ -71,6 +73,28 @@ def hsv_composition(bgr: np.ndarray, mask: np.ndarray | None = None) -> np.ndarr
         return np.zeros(0, np.float32)
     hist = np.bincount(index, minlength=BINS).astype(np.float32)
     return hist / max(1.0, float(hist.sum()))
+
+
+def portrait_composition(bgr: np.ndarray, mask: np.ndarray | None = None) -> np.ndarray:
+    """The lineup gallery's colour histogram, L1-normalised and layout-free.
+
+    Promoted verbatim from `prototypes/minimap_portrait.composition`
+    (2026-10-04), which now re-exports it; every lineup score and margin rests
+    on it. It differs from `hsv_composition` in two ways that move scores, so
+    the two stay apart: it bins every kept pixel however few, and it returns
+    a zero vector of length `BINS`, never an empty one, when nothing is kept.
+    """
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    h, sa, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    keep = np.ones(h.shape, bool) if mask is None else mask
+    if not keep.any():
+        return np.zeros(BINS, np.float32)
+    hi = (h[keep].astype(int) * H_BINS // 180).clip(0, H_BINS - 1)
+    si = (sa[keep].astype(int) * S_BINS // 256).clip(0, S_BINS - 1)
+    vi = (v[keep].astype(int) * V_BINS // 256).clip(0, V_BINS - 1)
+    out = np.bincount((hi * S_BINS + si) * V_BINS + vi,
+                      minlength=BINS).astype(np.float32)
+    return out / max(1.0, out.sum())
 
 
 def detail(bgr: np.ndarray) -> float:
