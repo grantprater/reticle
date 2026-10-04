@@ -1919,9 +1919,18 @@ def analyse_killfeed(
         else:
             # Only one side can be the player, so a tie is a parse failure.
             verdict = "tie"
-        ix0, ix1 = icon_extent(white[a:z] > 0,
-                               soft(),
-                               wx0, wx1, krun[1] + 1 if krun else 0, vrun[0] if vrun else w, s)
+        # The icon's search runs between the names. A "name" run closer to
+        # the divider than ELEMENT_GAP is a piece of the icon, since every
+        # element stands further apart [domain:killfeed/killfeed-element-spacing]:
+        # Hunter's Fury's left wing tip read as a 2 px killer run at
+        # 96aa1ae9b96f 1043.5 s, and the extent stopped short of the wing.
+        # The bound then passes the run by STROKE_JOIN, as the plate-relative
+        # cut's piece of it starts a column or two before the fixed cut's.
+        lo = (0 if krun is None else krun[1] + 1 if wx0 - (krun[1] + 1) >= s.px(ELEMENT_GAP)
+              else max(0, krun[0] - s.px(STROKE_JOIN)))
+        hi = (w if vrun is None else vrun[0] if vrun[0] - wx1 >= s.px(ELEMENT_GAP)
+              else min(w, vrun[1] + 1 + s.px(STROKE_JOIN)))
+        ix0, ix1 = icon_extent(white[a:z] > 0, soft(), wx0, wx1, lo, hi, s)
         views.append(EntryView(slot, int(a), int(z), int(wx0), int(wx1),
                                killer_run=krun, victim_run=vrun,
                                kill_score=k_score, death_score=d_score,
@@ -1987,7 +1996,11 @@ PORTRAIT_ASPECT = 2.0
 # 0.18.0 (2026-10-03): `PITCH` is 39, the game's row plus spacer, not 40, so
 # a tall plate run splits and a band takes its slot on the game's grid.
 # (0.17.0 belongs to one-colour-band-20261003.)
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.18.0"
+# 0.19.0 (2026-10-04): the weapon icon's extent (`icon_extent`) moved (see
+# killfeed-weapon-0.13.0), so a one-colour banner's second-life search,
+# anchored at the icon's end, starts 1-2 px later: on 96aa1ae9b96f, 10 of
+# 1391 badge rows move `plate_x0`, and none changes `has_badge` or `reason`.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.19.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -3081,7 +3094,12 @@ def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # icon is the element ending within SEAM_ICON_GAP before the seam
 # (`_seam_icon`), else the row is null with reason `seam_no_icon`. Such views
 # were skipped with no row. Every other row is unchanged.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.12.0"
+# 0.13.0 (2026-10-04): the no_icon gate reads the icon's whole extent (the
+# plate-relative pieces, else the fixed cut over ix0..ix1), not the divider
+# piece, and runs after the plate gates; a divider joined from pieces takes
+# its rows from them (`_divider_rows`); a name run under ELEMENT_GAP from
+# the divider no longer bounds the icon's extent (`analyse_killfeed`).
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.13.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -3205,6 +3223,14 @@ def _divider_rows(white_band: np.ndarray, wx0: int, wx1: int) -> tuple[int, int]
     n, _lab, st, _ = cv2.connectedComponentsWithStats(white_band.astype(np.uint8), 8)
     rows = [(int(st[i, 1]), int(st[i, 1] + st[i, 3])) for i in range(1, n)
             if st[i, 0] == wx0 and st[i, 0] + st[i, 2] == wx1]
+    if not rows:
+        # A divider `_band_text` joined from pieces (`_stroke_groups`, a
+        # ring's pieces) is no one component: its rows are those of the
+        # pieces inside it. Without them the icon was cut at the divider:
+        # Hunter's Fury lost its left wing at 96aa1ae9b96f 1043.5 s, Paint
+        # Shells its ring at 587c15b07779 1558.0 s.
+        rows = [(int(st[i, 1]), int(st[i, 1] + st[i, 3])) for i in range(1, n)
+                if st[i, 0] >= wx0 and st[i, 0] + st[i, 2] <= wx1]
     if not rows:
         return None
     return min(r[0] for r in rows), max(r[1] for r in rows)
@@ -3545,18 +3571,18 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
                 band, green, red, white = moved, mg, mr, mw
             else:
                 dy = 0
-        crop = band[:, d0:d1]
-        cut = icon_grid(icon_white_mask(crop, s), s)
+        # The no_icon gate (ICON_MIN_TIGHT_W) reads the icon's whole extent,
+        # never the divider piece alone: Guided Salvo's divider is a 7 px
+        # piece of a 24 px icon (b7d24102a6f6 946.5 s), and the gate refused
+        # it before the extent was read. Where the plate-relative pieces are
+        # found (below) the gate reads them, so a thin icon is measured as
+        # drawn: Hot Hands at 96aa1ae9b96f 1665.0 s is 12 px wide there and
+        # 11 px under the fixed cut. A divider piece beside a portrait's edge
+        # (a06f04a0059f 1969.0 s) is still refused, as `off_plate_run`.
+        e0, e1 = (v.ix0, v.ix1) if v.ix1 > v.ix0 else (d0, d1)
+        cut = icon_grid(icon_white_mask(band[:, e0:e1], s), s)
         row = {"slot": v.slot, "y0": int(v.y0), "y1": int(v.y1), "wx0": int(v.wx0),
                "wx1": int(v.wx1), "verdict": v.verdict, "band_shift": int(dy)}
-        # A divider piece too small to be an icon stays refused: its
-        # neighbours are a portrait edge or a name, never the missing icon
-        # (a06f04a0059f 1969.0 s, a portrait's edge, gained a grid otherwise).
-        if cut is None:
-            out.append({**row, "ix0": int(d0), "ix1": int(d1), "grid": None,
-                        "aspect": None, "reason": "no_icon", "ringed": None,
-                        "ring_reason": "no_icon", "ring": None, **NO_SOFT})
-            continue
         behind = ((green | red)[:, d0:d1].sum(axis=0) >= s.px(PLATE_MIN_PX)).mean()
         if behind < PLATE_BEHIND_MIN:
             out.append({**row, "ix0": int(d0), "ix1": int(d1), "grid": None,
@@ -3593,7 +3619,7 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
             ix0, ix1 = int(xs[0]), int(xs[-1]) + 1
             cut = icon_grid(piece[:, ix0:ix1], s)
         else:
-            ix0, ix1 = d0, d1
+            ix0, ix1 = e0, e1
         row.update({"ix0": int(ix0), "ix1": int(ix1), "ringed": ringed, "ring_reason": why,
                     "ring": ({k: round(val, 3) for k, val in fit.items()} if fit else None)})
         m = s.n(SOFT_MARGIN)
