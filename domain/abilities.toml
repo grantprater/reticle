@@ -1074,6 +1074,37 @@ and keyed_047 (dae6f33f3f48 5.55 s) under
 <store>/analysis/demo-cast-census/montage/
 """
 
+[killjoy-alarmbot-minimap-texture]
+claim = """
+A deployed Alarmbot on Killjoy's own minimap draws the glyph of the game texture
+`TX_UI_Minimap_Killjoy_Q_InActive` (a front-view bot with side wings, white on the
+dark disc of [domain:abilities/killjoy-alarmbot]), not Alarmbot's DisplayIcon
+`TX_KJ_Alarm`; the two correlate weakly, so glyph correlation never assigned it.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+subject = "killjoy:alarmbot"
+source = """
+game data: ability-states-gamedata-0.2.0 (<store>/reference/ability-states) names
+the texture the minimap IconBrush of Ability_Killjoy_Q_Alarmbot
+(BaseMinimapComponent_Parent, loop phase, self and teammate views). Observed: the
+earlier positioned Alarmbot labels in dae6f33f3f48 (25.5, 28.95, 31.05, 41.7 s)
+show it, and minimap_glyph_eval 0.3.0 names all six Alarmbot labels by follow
+[metric:minimap_glyph_eval/killjoy_refs_dev#alarmbot_follow_after=6]
+"""
+use = """
+minimap_glyph_eval.apply_gamedata reads the inventory row as Alarmbot's (Q)
+reference
+"""
+exceptions = """
+the enemy view and the detecting state (`TX_UI_Minimap_Killjoy_Q_Active`, a red
+disc set by BotDetectFXC) are unobserved. In dae6f33f3f48 the glyph fits turned a
+quarter (255-285 deg) although the inventory row sets ConstantMinimap rotation
+and no bRotates; one session, unexplained
+"""
+see = ["abilities/killjoy-alarmbot", "abilities/minimap-textures-killjoy"]
+
 [astra-nebula-minimap-disc]
 claim = """
 When Astra turns a star into a Nebula, the star's yellow icon on her minimap
