@@ -7,24 +7,28 @@ The research this builds on is `docs/WIN_PROBABILITY_RESEARCH.md` on branch
 [BEHAVIOUR_MODEL_DESIGN.md](BEHAVIOUR_MODEL_DESIGN.md), whose candidate
 signatures name the lurker and the anchor.
 
-The player chose rotations and lurks as the first coaching question; he
-judges the module at first by his own rating of the moments it surfaces, and
-calls that a bad metric (the player, 2026-10-04 (chat)). Positions matter to
-him in context: not holding the angle a teammate already holds, and not
-taking the same off-angle twice into an enemy kit with flashes and stuns.
+The player chose rotations and lurks as the first coaching question. Asked
+how to judge the module, he answered "probably my rating initially, though
+that is a bad metric" (the player, 2026-10-04 (chat)). Section 0 states the
+position values he gave.
 
 ## Summary
 
-1. **Every input but one exists as stored data for 21 matches.** Ally and
-   self positions (`round_entity`), team vision and facing (`team_vision`),
-   deaths, rounds, plants, alive counts, the spike glyph, pings and ult casts
-   are stored. The missing input is **map regions**: no owner answers "which
-   callout is this position in", and `entity_spike` stores no plant site.
+1. **Ally positions, team vision, deaths, rounds and alive counts are stored
+   for 21 of the 22 match captures; several other inputs are missing or
+   thin.** Ally and self positions (`round_entity`), team vision and facing
+   (`team_vision`), deaths, rounds, plant times, alive counts, the spike
+   glyph and lineups cover those 21; 0f08b3dc3777 has no `round_entity`
+   file. Pings cover 20, smokes 4, and enemy tracks and projected entity
+   lanes 3. No owner answers "which callout is this position in"; no stored
+   event holds the plant site; the killer's position is null on every
+   stored verdict checked; facing is not keyed to the entity (section 1.1).
 2. **Callout points make poor regions.** Nearest-point cells built from the
-   valorant-api callouts put a fifth of ally positions within the ally
-   reader's error of a boundary, and still allies sit there more often
-   (section 3). Regions need drawn polygons and hysteresis; rate is not the
-   constraint.
+   valorant-api callouts put a fifth of ally positions about the ally
+   reader's p95 error from a boundary, and still allies sit there more often
+   (section 3). Regions need drawn polygons and a dead band. Whether 2 Hz
+   then suffices is stage 1's test R2; the measurement here cannot separate
+   rate from boundary flicker.
 3. **Allies are observable; enemies are censored.** Ally rotations and lurks
    can be defined on observed tracks. Enemy rotations exist only between
    sightings, so every enemy-dependent feature is a belief until in-client
@@ -36,18 +40,38 @@ taking the same off-angle twice into an enemy kit with flashes and stuns.
 5. **Nothing reaches the player before the match ends.** Post-round results
    are computed and stored, and shown only after the match (section 6).
 
+## 0. What the player values in a position
+
+Coaching values a position relative to the teammates' held angles and the
+enemy kit's utility, not as raw coordinates. In the player's words, after the
+research found raw positions add nothing measurable to round win
+probability: "positions probably matter in general much less than
+context-dependent positions: not holding the exact same angle your teammate
+already is, not choosing the same rat angle when the enemy team has flashes
+and stuns, things like that which is much harder to model" (the player,
+2026-10-04 (chat)).
+
+The module's position features therefore score relations rather than
+coordinates alone: a hold against the holds of living teammates (`duplicate_hold`, section 2.1),
+and an off-angle against the disables the enemy lineup carries
+(`off_angle_repeat`, section 2.2). Position precision is judged by whether
+these relations flip, not by coordinate error.
+
 ## 1. Definitions as events
 
 ### 1.1 What the store holds
 
 Each row names a stream the module would read, the field it uses, and where
 the field was checked (session a06f04a0059f, 2026-10-04, unless stated).
-"21" means the stream exists for all 21 captured matches; "3" means only
-5822b6646448, a06f04a0059f and bfad2778a372.
+The store holds 22 match captures, each with a Riot record. "21" means the
+stream exists for 21 of them; 0f08b3dc3777 (Summit) has no `round_entity`
+file ([metric:coaching_inputs/pose_join@a06f04a0059f#round_entity_files=21]
+of [metric:coaching_inputs/pose_join@a06f04a0059f#riot_records=22]). "3"
+means only 5822b6646448, a06f04a0059f and bfad2778a372.
 
 | Need | Stream / file | Fields checked | Sessions | Owner |
 |---|---|---|---|---|
-| Ally and self position | `events/round_entity` `observation` rows | `entity_id`, `family` (ally, self), `t_ms`, `frame_idx`, `x`, `y`, `state`, `identity_status` | 21 | `round-entity-session` |
+| Ally and self position | `events/round_entity` `observation` rows | `entity_id`, `family` (ally, self and barrier; the module reads ally and self), `t_ms`, `frame_idx`, `x`, `y`, `state`, `identity_status` | 21 | `round-entity-session` |
 | Same, in the consumer schema | `events/entity_round_entity` `pose` rows | `position.frame` (`baked:<geometry key>`), `x`, `y`; `orientation` null, reason "no pose owner keys a facing by this observation" | 3 | `entity-event` |
 | Ally facing and team vision | `events/team_vision` `frame` rows, 15 Hz | `icons[]`: `role`, `track_id`, `x`, `y`, `facing`, `eligible`, `casts`, `pose`; `observable` (packed union of eligible cones), `observable_all` | 21 | `team-vision` |
 | Enemy sightings | `events/enemy_track` `observation`, `entity`, `mark` rows | `x`, `y`, `r`, `facing`; entity `agent`, `last_seen_ms`, `end_reason`, `mark_id`; mark `onset_ms`, `last_ms` | 3 | `enemy-track-session`, `last-known-mark` |
@@ -62,7 +86,7 @@ the field was checked (session a06f04a0059f, 2026-10-04, unless stated).
 | Allied smokes | `events/smoke` `track` rows | `first_ms`, `last_ms`, `cx`, `cy`, `r` | 4 | `minimap-smoke` |
 | Lineups | `lineups/<sid>.json` | `sides`, `player` | 21 | `agent-identity` (sides), `agent-from-slot` |
 | Ability functions | `reference/abilities.json` | per ability `functions` (Blind, Flash, Concuss, Nearsight, Detain, ...), harvested from valorant-api and the wiki on 2026-09-04 | all agents | none (catalogue) |
-| Callouts | `external/valorant-api/maps.json` | per map `callouts[]`: `regionName`, `superRegionName`, `location` (game units); `xMultiplier`, `yMultiplier`, `xScalarToAdd`, `yScalarToAdd` | 13 maps | none |
+| Callouts | `external/valorant-api/maps.json` | per map `callouts[]`: `regionName`, `superRegionName`, `location` (game units); `xMultiplier`, `yMultiplier`, `xScalarToAdd`, `yScalarToAdd` | [metric:coaching_inputs/pose_join@a06f04a0059f#maps_with_callouts=16] maps, District, Drift and Kasbah among them | none |
 | Riot match records | `external/riot/*.json` `match` | `roundResults[]`: `plantSite`, `plantRoundTime`, `plantLocation`, `defuseRoundTime`, `winningTeam`, `playerStats[].kills[]` with `playerLocations[]` (`location`, `viewRadians`), `victimLocation`, `assistants`; `playerStats[]`: `stayedInSpawn`, `wasAfk`, `economy` | 22 records | scored by `prototypes/riot_ground_truth.py` (wire: no) |
 
 `prototypes/riot_ground_truth.py` (`MapFrame`, `game_to_uv`, `art_affine`)
@@ -79,8 +103,13 @@ never in a recomputing consumer:
   [domain:minimap/spike-planted-icon], which no reader matches, could supply
   it. Riot's `plantSite` scores it.
 - *Ally facing on the entity.* `team_vision` icons carry `track_id`, not the
-  `round_entity` `entity_id`; the entity pose stores no orientation. A hold
-  needs both, so the pose owner must key facing by entity.
+  `round_entity` `entity_id`; the entity pose stores no orientation. The data
+  supports the join: on a06f04a0059f,
+  [metric:coaching_inputs/pose_join@a06f04a0059f#tv_icons_joined=37254] of
+  [metric:coaching_inputs/pose_join@a06f04a0059f#tv_icons_with_facing=51445]
+  icons with a facing match a `round_entity` observation exactly on frame, x
+  and y. The gap is ownership: events are the interface, so no consumer may
+  make that join; the pose owner must key facing by entity.
 - *Killer position.* Null on every stored verdict here.
 - *Enemy tracks* exist for 3 sessions; `minimap_objects` has run on 3.
 - *Sound.* No stored event holds enemy footsteps or ability sounds; voice
@@ -251,7 +280,10 @@ observations), with nearest-point cells:
 - Median spacing between callout points: [metric:coaching_callouts/ascent@a06f04a0059f#nn_px_median=53.6]
   px, [metric:coaching_callouts/ascent@a06f04a0059f#nn_m_median=16.6] m
   (C1 held).
-- Ally observations within 7.6 px of a cell boundary:
+- Ally observations whose second-nearest callout lies less than 7.6 px
+  farther than the nearest (a gap under twice the reader's p95 error; the
+  boundary lies at least half the gap away, about 3.8 px near the line
+  joining the two callouts):
   [metric:coaching_callouts/ascent@a06f04a0059f#boundary_share_7p6px=0.2185]
   (C2 failed; predicted under 0.10). Among still allies (under 0.5 m/s
   between 2 Hz samples), [metric:coaching_callouts/ascent@a06f04a0059f#boundary_share_still_7p6px=0.2996],
@@ -265,7 +297,10 @@ observations), with nearest-point cells:
 - Sampled at 2 Hz without a dead band, the cells change
   [metric:coaching_callouts/ascent@a06f04a0059f#cell_changes_2hz=405] times
   against [metric:coaching_callouts/ascent@a06f04a0059f#cell_changes_15hz_debounced=363]
-  debounced 15 Hz changes: flicker at boundaries, not rate, adds the excess.
+  debounced 15 Hz changes. This compares 2 Hz without a dead band against
+  15 Hz with short visits removed, so it cannot separate rate from boundary
+  flicker; and 14% of visits under 0.5 s means 2 Hz can miss short visits.
+  R2 (stage 1) tests 2 Hz against 15 Hz with the same dead band.
 
 The surprise revises the plan: regions must be drawn polygons with a dead
 band, and the 2 Hz test must run on those regions. The run is recorded in
@@ -308,9 +343,9 @@ facing keyed by entity, and enemy coverage.
 
 ### 3.4 Running during play
 
-The player allows analysis to run during play on the same PC, accepts a
-cost of about 20% of frames per second, and will sit for a frame-time
-measurement (the player, 2026-10-04 (chat)). The module itself is pure
+The player allows analysis to run during play on the same PC and will sit
+for a frame-time measurement; of the cost he said "I would probably give up
+20% of FPS I guess" (the player, 2026-10-04 (chat)). The module itself is pure
 stored-data work after each round; its readers are the cost. The plan:
 measure the budget first (research doc, section 4, blocker 2: PresentMon,
 five conditions in the Range), then run readers at the rates above under it.
@@ -349,6 +384,32 @@ Until that measurement, readers cache ROIs during play and read after.
    off-angle, and for the POV belief's calibration. Replays expire at the
    next patch and need the game client open; reticle never opens it.
 
+### 4.1 Parsed replays as evaluation truth
+
+Branch `replay-truth-20261004` is parsing saved replay files; nothing it
+produces is merged, and what a parsed file holds is unverified here. If it
+yields every player's position over time, rotations gain a truth for all ten
+players, not only at Riot's kill instants:
+
+- **Ally events** score against it: `region_presence` intervals, rotation
+  exits and arrivals, and lurk distance, at every instant rather than at
+  fights, which removes the kill-instant over-sampling of item 2.
+- **Enemy events**, which the minimap censors, gain truth for the first
+  time: an enemy rotation inferred between sightings checks against the
+  enemy's actual path, and an off-angle checks against where the enemy's
+  disablers stood.
+- **Holds** score against teammates' true positions, so a missed
+  `duplicate_hold` shows as a pair the parse places together and the module
+  did not flag.
+
+The parse is truth only, never a reader input. No reader, prior, owner or
+coaching event reads it; it enters only the evaluation, stored apart and
+stamped with its own version, so an evaluation never scores the module
+against its own inputs. Positions in game units would carry into the baked
+frame through `MapFrame`, as Riot's kill positions do. Each parsed
+match must also have a live capture, aligned by kills, before it scores
+anything.
+
 ## 5. Staged plan
 
 Compute rules apply throughout: one heavy process, single-threaded, Below
@@ -362,7 +423,10 @@ peeked needs full rate; whether the capture holds team voice.
 **Stage 1. Smallest prototype on stored data** (`prototypes/rotations.py`,
 `wire: no` until an owner adopts it). Inputs: stored `round_entity`
 observations, `rounds`, `death`, roster alive counts and the spike glyph for
-the 21 matches; super-regions from valorant-api callout points carried by
+the 21 matches that have them. The prototype reads the `round_entity` event
+stream directly because projected lanes (section 1.2) exist for 3 sessions;
+the module proper reads projected lanes once stage 3 projects all 21.
+Super-regions come from valorant-api callout points carried by
 `MapFrame`, as nearest-point cells within super-region, with the 7.6 px dead
 band. Outputs to `analysis/coaching-rotations-0.1.0/`: `region_presence`,
 `team_commit`, `rotation` and `lurk` candidates with cues, and 20 review
@@ -416,8 +480,8 @@ score enemy-dependent features. Needs an observer-HUD profile and
 `clip_preflight`.
 
 **Stage 7. Live footprint.** The PresentMon session, then readers at the
-section 3.3 rates during play. Acceptance: p99 frame time within the
-player's 20% tolerance.
+section 3.3 rates during play. Acceptance: the frame rate with readers
+running falls by no more than the 20% of FPS the player offered.
 
 ## 6. What must not be shown during a match
 
