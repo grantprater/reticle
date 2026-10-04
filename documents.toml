@@ -282,6 +282,12 @@ status = "recorded"
 since = "2026-09-29"
 
 [[document]]
+path = "docs/WIN_PROBABILITY_RESEARCH.md"
+kind = "findings"
+status = "recorded"
+since = "2026-10-04"
+
+[[document]]
 path = "docs/AUDIO_ABILITY_BANK.md"
 kind = "findings"
 status = "recorded"
@@ -428,6 +434,12 @@ path = "docs/KILLFEED_PORTRAIT_SEPARABILITY.md"
 kind = "findings"
 status = "recorded"
 since = "2026-10-03"
+
+[[document]]
+path = "docs/OMEN_DARK_COVER_MISSES.md"
+kind = "findings"
+status = "recorded"
+since = "2026-10-04"
 
 [[document]]
 path = "docs/ARBITER_ARCHITECTURE.md"

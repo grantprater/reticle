@@ -1,6 +1,6 @@
 r"""Ask the player what the minimap glyph evaluation cannot derive.
 
-    .\.venv\Scripts\python.exe prototypes\ask_minimap_glyphs.py            [--kinds texture,visibility,rotation] [--by player]
+    .\.venv\Scripts\python.exe prototypes\ask_minimap_glyphs.py            [--kinds texture,visibility,rotation] [--by player] [--reask-unsure]
     .\.venv\Scripts\python.exe prototypes\ask_minimap_glyphs.py --list     (print the questions; write nothing)
 
 Three kinds of question, in this order:
@@ -17,15 +17,22 @@ Three kinds of question, in this order:
   [domain:abilities/brimstone-gauntlet-texture-belief]), and a stem whose
   only evidence of being a HUD marker is its name (no row correlates with a
   labelled crop or a DisplayIcon); `--list` prints those to glance at.
-* visibility: what does the ability draw on the minimap, an icon, a shape,
-  both or nothing? A player's own casts draw as a teammate's
-  [domain:minimap/ability-drawing-colour-by-side], and every ability that
-  draws does so for both sides, smokes excepted
-  [domain:minimap/ability-drawings-both-sides],
-  [domain:abilities/enemy-smokes-not-on-minimap]; so the sheet's caster-view
-  cell answers all three views, and one question per ability is asked only
-  where that cell is `?`, a single census vote, a split vote, a question, or
-  carries no domain fact. Abilities with a proposed texture come first.
+* visibility: what does the ability draw on one view's minimap, an icon, a
+  shape, both or nothing? Each ability decides on its own what the caster, a
+  teammate and an enemy see [domain:abilities/views-separate-per-ability], so
+  each view is its own question (`visibility:<agent>:<slot>:self|ally|enemy`;
+  `ally` is the teammate's view, the key the player's earlier answers used)
+  and no view's answer settles another's. A view is settled only by the
+  player's own answer to that view's key, or, for `self` alone, by a sheet
+  Minimap cell (the caster's view) that carries a domain fact and no `?`,
+  census vote or split. The spectator view is not asked: the player believes
+  it is the self view less the audio circle
+  [domain:minimap/spectator-view-matches-self]. The `drawing` answers given
+  under the retired prompt, which said all views draw alike, settle no view.
+  Order: abilities with a proposed texture, then those the game data
+  (`ability-states-gamedata-0.2.0`) gives a minimap drawing, then the rest;
+  per ability self, teammate, enemy. The game data's views are printed
+  beside a question as an annotation, never as its answer.
 * rotation: does the ability's icon turn with its placement, or stay
   upright? Asked for each labelled ability, showing up to eight of its crops
   the evaluation named right, each with the rotation the fit chose.
@@ -34,7 +41,8 @@ Controls (labelling-pass): digit keys pick an answer; 7 = other (type it);
 U = unsure (kept out of scoring); A = back one; Q or ESC = save and quit.
 Every answer appends one row to
 `<store>/labels/minimap_glyph_questions/answers.jsonl`, flushed at once; the
-last row for a key wins, and a rerun skips answered keys. Nothing is seeded:
+last row for a key wins, and a rerun skips answered keys (an unsure answer
+too, unless `--reask-unsure`). Nothing is seeded:
 the proposals the evaluation made are shown as text for comparison and are
 never preselected.
 
@@ -61,10 +69,14 @@ import numpy as np  # noqa: E402
 
 import minimap_glyph_eval as ev  # noqa: E402
 
-VERSION = "ask-minimap-glyphs-0.1.0"
+VERSION = "ask-minimap-glyphs-0.2.0"
 ANSWERS = ev.STORE / "labels" / "minimap_glyph_questions" / "answers.jsonl"
 SHEET = Path(__file__).resolve().parents[1] / "docs" / "ABILITY_MECHANICS_SHEET.md"
+GAMEDATA = ev.STORE / "reference" / "ability-states" / "ability-states-gamedata-0.2.0.jsonl"
 SLOTS = "CQEX"
+#: The asked views: answer-file key suffix -> the game data's view name and the words the prompt uses.
+VIEWS = {"self": ("self", "your own (the caster's)"), "ally": ("teammate", "a teammate's"),
+         "enemy": ("enemy", "an enemy's, inside vision")}
 VIEW_OPTS = {"1": "icon", "2": "shape (disc, area, line, wedge)", "3": "icon and shape", "4": "nothing",
              "7": "other (type it)"}
 ROT_OPTS = {"1": "turns to any angle with its placement", "2": "always upright",
@@ -74,16 +86,25 @@ ROT_OPTS = {"1": "turns to any angle with its placement", "2": "always upright",
 # ------------------------------------------------------------------ questions
 
 def sheet_minimap() -> dict:
-    """(agent, slot) -> (ability, the sheet's Minimap cell) for every C/Q/E/X row of the mechanics sheet."""
-    out, agent = {}, None
+    """(agent, slot) -> (ability, the sheet's Minimap cell) for every C/Q/E/X row of the mechanics sheet. Each
+    agent table's header row names its columns; the Ability and Minimap cells are found by header name, so a
+    column added to the sheet moves no answer."""
+    out, agent, col = {}, None, None
     for line in SHEET.read_text(encoding="utf-8").splitlines():
         m = re.match(r"^## (.+)$", line)
         if m:
-            agent = m.group(1).strip()
+            agent, col = m.group(1).strip(), None
+            continue
+        if not line.lstrip().startswith("|"):
             continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if agent and len(cells) >= 8 and cells[0] in SLOTS and len(cells[0]) == 1:
-            out[(agent, cells[0])] = (cells[1], cells[7])
+        if cells and cells[0] == "Slot":
+            col = {name: i for i, name in enumerate(cells)}
+            if "Minimap" not in col or "Ability" not in col:
+                raise SystemExit(f"mechanics sheet table for {agent} lacks an Ability or Minimap column")
+            continue
+        if agent and col and cells[0] in SLOTS and len(cells[0]) == 1 and len(cells) > col["Minimap"]:
+            out[(agent, cells[0])] = (cells[col["Ability"]], cells[col["Minimap"]])
     return out
 
 
@@ -111,19 +132,18 @@ TEXTURE_FACTS = {
 #: labelled crops of one ability at least LABEL_EVIDENCE, or a DisplayIcon correlation at least ICON_EVIDENCE
 #: (the inventory's own proposal thresholds, gaps ignored).
 LABEL_EVIDENCE, ICON_EVIDENCE = 0.6, 0.5
-#: Visibility facts: a player's own casts draw as a teammate's do [domain:minimap/ability-drawing-colour-by-side],
-#: every ability that draws does so for both sides, smokes excepted [domain:minimap/ability-drawings-both-sides],
-#: and an enemy's smoke is never drawn [domain:abilities/enemy-smokes-not-on-minimap]. Where the sheet decides the
-#: caster's view, the teammate's and the enemy's follow; where it does not, one question asks the drawing.
-VIEW_FACTS = ("minimap/ability-drawing-colour-by-side", "minimap/ability-drawings-both-sides",
-              "abilities/enemy-smokes-not-on-minimap")
+#: Visibility facts: each ability decides each view on its own [domain:abilities/views-separate-per-ability], so
+#: no view's answer settles another's; the spectator view is believed to be the self view less the audio circle
+#: [domain:minimap/spectator-view-matches-self] and is not asked.
+VIEW_FACTS = ("abilities/views-separate-per-ability", "minimap/spectator-view-matches-self")
 
 
 def check_facts() -> None:
-    """Every fact the pruning cites must exist; a renamed fact fails loudly rather than reopening questions."""
+    """Every fact the pruning cites must exist; a renamed fact fails loudly."""
     from reticle import domain
     facts = domain.load()
-    missing = [k for k in list(TEXTURE_FACTS.values()) + list(VIEW_FACTS) if k not in facts]
+    cited = list(TEXTURE_FACTS.values()) + list(VIEW_FACTS)
+    missing = [k for k in cited if k not in facts]
     if missing:
         raise SystemExit(f"domain facts missing: {missing}")
 
@@ -174,26 +194,75 @@ def texture_questions(inv: dict) -> list[dict]:
     return qs
 
 
-def visibility_questions(inv: dict, pruned: list | None = None) -> list[dict]:
-    """One question per ability whose caster view the sheet leaves open; the view facts (VIEW_FACTS) make the
-    teammate's and the enemy's view follow the caster's, so a decided cell asks nothing (listed in `pruned`)."""
+def gamedata_views(path: Path = GAMEDATA) -> dict:
+    """{(agent, slot): {"views": {view: {"drawn": n, "not_drawn": n, "unknown": n}}, "cues": [texture stems]}}
+    over the game data's minimap rows (a `minimap_*` cue, or a texture cue under a Minimap folder). An annotation
+    and an ordering key only: a question shows it, never takes it as the answer."""
+    out: dict = {}
+    if not path.exists():
+        return out
+    for ln in path.read_text(encoding="utf-8").splitlines():
+        if not ln.strip():
+            continue
+        r = json.loads(ln)
+        ct, cue = r.get("cue_type") or "", str(r.get("cue") or "")
+        if not (ct.startswith("minimap_") or (ct == "texture" and "/minimap" in cue.lower())):
+            continue
+        a = out.setdefault((r["agent"], r["key"]), {"views": {v: {"drawn": 0, "not_drawn": 0, "unknown": 0}
+                                                              for v, _ in VIEWS.values()}, "cues": []})
+        for v, _ in VIEWS.values():
+            val = (r.get("views") or {}).get(v)
+            a["views"][v]["drawn" if val is True else "not_drawn" if val is False else "unknown"] += 1
+        stem = cue.rsplit("/", 1)[-1].split(".")[0]
+        if stem and stem not in a["cues"]:
+            a["cues"].append(stem)
+    return out
+
+
+def gamedata_note(gd: dict | None, agent: str, slot: str, view: str | None = None) -> str:
+    """The game data's minimap views for one ability (one view, or all three), as text."""
+    a = (gd or {}).get((agent, slot))
+    if not a:
+        return "no minimap row"
+    names = [VIEWS[view][0]] if view else [v for v, _ in VIEWS.values()]
+    parts = [f"{v}: {a['views'][v]['drawn']} drawn / {a['views'][v]['not_drawn']} not / "
+             f"{a['views'][v]['unknown']} unknown" for v in names]
+    return "; ".join(parts) + f" (cues {', '.join(a['cues'][:4]) or 'none'})"
+
+
+def visibility_questions(inv: dict, pruned: list | None = None, gd: dict | None = None) -> list[dict]:
+    """One question per ability and view (self, teammate as `ally`, enemy) that nothing settles. Views are separate
+    per ability [domain:abilities/views-separate-per-ability]: no view's answer settles another's. The sheet's
+    Minimap cell is the caster's view, so a decided cell settles `self` alone (listed in `pruned`); a player's
+    answer to a view's key settles that view through the ask loop's answered keys. The game data (`gd`) orders
+    the abilities and annotates the prompt; it answers nothing."""
     sheet = sheet_minimap()
     proposed = defaultdict(list)
     for r in inv["rows"]:
         if r.get("proposed"):
             proposed[r["proposed"]].append(r["name"])
+    gd = gd or {}
     qs = []
     for (agent, slot), (ability, cell) in sorted(sheet.items()):
         key = f"{agent}:{slot}"
-        why = undecided(cell)
-        if why is None:
-            if pruned is not None:
-                pruned.append((key, ability))
-            continue
-        qs.append({"kind": "visibility", "key": f"visibility:{key}:drawing", "agent": agent, "slot": slot,
-                   "ability": ability, "view": "drawing", "rank": 0 if key in proposed else 1,
-                   "shown": {"sheet_cell": cell, "why_asked": why, "textures": proposed.get(key, [])}})
-    return sorted(qs, key=lambda q: q["rank"])
+        drawn = any(c["drawn"] for c in gd.get((agent, slot), {}).get("views", {}).values())
+        rank = 0 if key in proposed else 1 if drawn else 2 if (agent, slot) in gd else 3
+        for i, view in enumerate(VIEWS):
+            if view == "self":
+                why = undecided(cell)
+                if why is None:
+                    if pruned is not None:
+                        pruned.append((key, ability))
+                    continue
+                why = f"the sheet's caster-view cell: {why}"
+            else:
+                why = f"no answer for {VIEWS[view][1].split(',')[0]} view"
+            qs.append({"kind": "visibility", "key": f"visibility:{key}:{view}", "agent": agent, "slot": slot,
+                       "ability": ability, "view": view, "rank": rank, "order": i,
+                       "shown": {"sheet_cell": cell if view == "self" else None, "why_asked": why,
+                                 "textures": proposed.get(key, []),
+                                 "game_data": gamedata_note(gd, agent, slot, view)}})
+    return sorted(qs, key=lambda q: (q["rank"], q["agent"], q["slot"], q["order"]))
 
 
 def rotation_questions(d: dict) -> list[dict]:
@@ -294,12 +363,13 @@ def prompt(q: dict) -> str:
                 f"Evaluation's proposal, for comparison only: {sh['proposed']} {sh['status']}; "
                 f"icon correlation {sh['icon_corr']}; label correlation {sh['label_corr']}")
     if q["kind"] == "visibility":
-        who = ("the minimap (the caster's, a teammate's and, inside vision, an enemy's draw alike; an enemy's "
-               "smoke draws nothing)")
         opts = "; ".join(f"{k} = {v}" for k, v in VIEW_OPTS.items())
-        return (f"{q['agent']} {q['slot']} {q['ability']}: what does it draw on {who} while it is out?\n"
-                f"{opts}; U = unsure.\nAsked because: {sh['why_asked']}. The sheet's caster-view cell: "
-                f"{sh['sheet_cell'][:220]}\nTextures proposed for it: {sh['textures'] or 'none'}")
+        cell = f" The sheet's caster-view cell: {sh['sheet_cell'][:220]}" if sh.get("sheet_cell") else ""
+        return (f"{q['agent']} {q['slot']} {q['ability']}, {VIEWS[q['view']][1].upper()} VIEW: what does it draw on "
+                f"{VIEWS[q['view']][1]} minimap while it is out? (Views are separate per ability; answer this "
+                f"view alone.)\n{opts}; U = unsure.\nAsked because: {sh['why_asked']}.{cell}\n"
+                f"Game data for this view (an annotation, not an answer): {sh['game_data']}\n"
+                f"Textures proposed for it: {sh['textures'] or 'none'}")
     opts = "; ".join(f"{k} = {v}" for k, v in ROT_OPTS.items())
     return (f"{q['truth']} {q['ability']}: does the ringed icon turn with its placement or stay upright?\n"
             f"{opts}; U = unsure.\nThe evaluation named these right; the fit chose rotations "
@@ -321,19 +391,40 @@ def answer_text(q: dict, ch: str) -> str | None:
 # ------------------------------------------------------------------ storage
 
 def answered() -> dict:
-    """The last answer per key. Before the view facts pruned the visibility questions, the player answered a
-    teammate's view and an enemy's separately; a sure teammate's answer stands for the ability's drawing
-    question, marked `carried_from`, since the facts make the teammate's view the drawing."""
+    """The last answer per key, as written. No answer stands for another key: a view's answer never settles
+    another view [domain:abilities/views-separate-per-ability] (0.1.0 carried a teammate's answer to the retired
+    `drawing` key; 0.2.0 does not)."""
     last = {}
     if ANSWERS.exists():
         for line in ANSWERS.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 r = json.loads(line)
                 last[r["key"]] = r
-    for k, r in list(last.items()):
-        if k.startswith("visibility:") and k.endswith(":ally") and not r.get("unsure"):
-            last.setdefault(k[:-len(":ally")] + ":drawing", dict(r, carried_from=k))
     return last
+
+
+def settled(done: dict, reask_unsure: bool = False) -> dict:
+    """The keys the ask loop skips: every answered key, less the unsure ones when `reask_unsure`."""
+    return {k: r for k, r in done.items() if not (reask_unsure and r.get("unsure"))}
+
+
+def seconds_per_answer(path: Path = ANSWERS, max_gap_s: float = 120.0) -> dict:
+    """{kind: median seconds between consecutive answers of one kind by this tool}, gaps over `max_gap_s` (a
+    break) left out: the measured pace the time estimate uses."""
+    gaps, prev = defaultdict(list), None
+    if path.exists():
+        for ln in path.read_text(encoding="utf-8").splitlines():
+            if not ln.strip():
+                continue
+            r = json.loads(ln)
+            if not str(r.get("tool", "")).startswith("ask-minimap-glyphs"):
+                prev = None
+                continue
+            t = datetime.datetime.fromisoformat(r["ts"])
+            if prev and prev[0] == r["kind"] and 0 < (t - prev[1]).total_seconds() <= max_gap_s:
+                gaps[r["kind"]].append((t - prev[1]).total_seconds())
+            prev = (r["kind"], t)
+    return {k: float(np.median(v)) for k, v in gaps.items()}
 
 
 def view_differences(done: dict) -> list[tuple]:
@@ -360,13 +451,13 @@ def append(row: dict) -> None:
 
 # ------------------------------------------------------------------ UI
 
-def ask_loop(qs: list[dict], z, by: str) -> None:
+def ask_loop(qs: list[dict], z, by: str, reask_unsure: bool = False) -> None:
     import tkinter as tk
     from tkinter import simpledialog
 
     from PIL import Image, ImageTk
 
-    done = answered()
+    done = settled(answered(), reask_unsure)
     todo = [q for q in qs if q["key"] not in done]
     if not todo:
         print(f"all {len(qs)} questions answered ({ANSWERS})")
@@ -438,6 +529,7 @@ def main() -> None:
     ap.add_argument("--by", default="player")
     ap.add_argument("--out", default=str(ev.OUT))
     ap.add_argument("--list", action="store_true", help="print the questions and write nothing")
+    ap.add_argument("--reask-unsure", action="store_true", help="ask again the keys answered unsure")
     args = ap.parse_args()
     out = Path(args.out)
     inv = json.load(open(out / "inventory.json", encoding="utf-8"))
@@ -448,11 +540,11 @@ def main() -> None:
     if "texture" in kinds:
         qs += texture_questions(inv)
     if "visibility" in kinds:
-        qs += visibility_questions(inv, vis_pruned)
+        qs += visibility_questions(inv, vis_pruned, gamedata_views())
     if "rotation" in kinds:
         qs += rotation_questions(d)
     if args.list:
-        done = answered()
+        done = settled(answered(), args.reask_unsure)
         for q in qs:
             print(("done " if q["key"] in done else "open ") + q["key"])
         by_fact, glance = texture_pruned(inv)
@@ -471,12 +563,20 @@ def main() -> None:
               "a difference is a fact, not a conflict):")
         for row in dis:
             print("  " + " | ".join(str(x) for x in row))
-        print("open:", {k: sum(q["kind"] == k and q["key"] not in done for q in qs)
-                        for k in ("texture", "visibility", "rotation")})
+        opened = {k: sum(q["kind"] == k and q["key"] not in done for q in qs) for k in ("texture", "visibility",
+                                                                                      "rotation")}
+        print("open:", opened)
+        if "visibility" in kinds:
+            print("open visibility by view:", {v: sum(q["kind"] == "visibility" and q["view"] == v and q["key"] not in
+                                                      done for q in qs) for v in VIEWS})
+        pace = seconds_per_answer()
+        est = sum(n * pace.get(k, 10.0) for k, n in opened.items())
+        print(f"estimate: {est / 60:.0f} min at the measured median pace {({k: round(v, 1) for k, v in pace.items()})}"
+              " s per answer (10 s where unmeasured)")
         print({k: sum(q["kind"] == k for q in qs) for k in ("texture", "visibility", "rotation")},
               {"texture_by_fact": len(by_fact), "texture_glance": len(glance), "visibility_decided": len(vis_pruned)})
         return
-    ask_loop(qs, z, args.by)
+    ask_loop(qs, z, args.by, args.reask_unsure)
 
 
 if __name__ == "__main__":
