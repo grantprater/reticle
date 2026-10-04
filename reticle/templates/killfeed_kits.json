@@ -1,6 +1,6 @@
 {
  "about": "Killfeed-capable abilities per agent, derived by reticle/adjudication/killfeed_kits.py from the reference's ability descriptions and the killfeed facts. `kits`: damaging abilities and fact-named icons (weapon slot); `unconfirmed`: kit abilities the player believes possible; `open`: abilities neither the rule nor the player has decided; `assist_icons` and `assist_open`: the disabling rule, unused by the weapon owner.",
- "version": "killfeed-kits-0.3.0",
+ "version": "killfeed-kits-0.4.0",
  "source": {
   "reference": "reference/abilities.json",
   "harvested": "2026-09-04",
@@ -104,7 +104,7 @@
   ],
   "Killjoy": [
    "Nanoswarm",
-   "TURRET"
+   "Turret"
   ],
   "Miks": [],
   "Neon": [
