@@ -905,7 +905,7 @@ stored_consumers = ["entity_events"]
 role = ["lifecycle"]
 status = "partial"
 names_agents = true
-produces = ["session_lifetimes", "ROUND_ENTITY_VERSION", "track_gaps", "GAP_MS", "death_binding_refusal", "drop_binding_refusal", "PLAYER_FAMILIES", "PLAYER_DROP_MS"]
+produces = ["session_lifetimes", "ROUND_ENTITY_VERSION", "track_gaps", "GAP_MS", "death_binding_refusal", "drop_binding_refusal", "PLAYER_FAMILIES", "PLAYER_DROP_MS", "player_dead_spans", "SELF_TRACK_CHANNEL"]
 not_for = """
 Deciding continuity or names locally. `round_lifetimes` decides which
 observations are one entity and `adjudication.identity` names it; this maps
