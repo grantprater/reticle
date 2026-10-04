@@ -470,11 +470,14 @@ question = "Does this killfeed entry carry the circular second-life badge (Run I
 owner = "killfeed"
 role = ["detect"]
 status = "partial"
-produces = ["detect_second_life_badge", "fit_arc", "SECOND_LIFE_RUN_MIN"]
+produces = ["badge_ring", "second_life_observations", "second_life_gate", "SECOND_LIFE_AGENTS", "detect_second_life_badge", "fit_arc", "SECOND_LIFE_RUN_MIN"]
 not_for = """
 Deciding whether a death was a second life; that is
-`adjudication.death.second_life_death`, a vote over the stored reads. Only the
-player's own death entries are read today.
+`adjudication.death.entry_second_life` (an entry's own reads) and
+`second_life_death` (the player's death track), votes over the stored reads.
+Every entry whose victim the lineup admits as Phoenix or KAY/O is read, and
+the player's own deaths. `detect_second_life_badge`, the old arc fit, only
+places the victim's name end for the portrait walk.
 """
 consumers = ["adjudication.death"]
 stored_consumers = ["rounds"]
@@ -1413,7 +1416,7 @@ owner = "adjudication.death"
 stored_consumers = ["entity_events"]
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "stored_second_life", "split_second_lives", "death_key", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry", "x_shape", "minimap_x_marks", "xmark_births", "match_xmark", "stored_xmark_births"]
+produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "entry_second_life", "stored_second_life", "split_second_lives", "death_key", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry", "x_shape", "minimap_x_marks", "xmark_births", "match_xmark", "stored_xmark_births"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """

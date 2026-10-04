@@ -3289,6 +3289,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                              "kf_player_death": e["kf_player_death"],
                              "weapon_evidence": e.get("weapon_evidence"),
                              "same_side": e.get("same_side"),
+                             "second_life_vote": e.get("second_life_vote"),
                              "entry_type": e.get("entry_type"), **v.to_dict()})
                 events.extend(death_verdict_to_events(v, sid))
     with usage_step("summary_head"):
@@ -3301,6 +3302,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                 "weapons": dict(Counter((r.get("weapon_evidence") or {}).get("status", "none")
                                         for r in rows)),
                 "revives": sum(bool(r.get("is_revive")) for r in rows),
+                "second_lives": sum(bool(r.get("is_second_life")) for r in rows),
                 "collisions": len(collisions),
                 # Each entry's type (`decide_entry_type`): resolved types, and
                 # refusals by reason; which witnesses spoke for each revive.
