@@ -494,6 +494,14 @@ remains = "Every step after the probe: each saved match record aligned to the st
 waits_for = "Nothing; the alignment can start."
 
 [[document]]
+path = "docs/FRAMETIME_PROTOCOL.md"
+kind = "plan"
+status = "proposed"
+since = "2026-10-04"
+remains = "The player's 30-minute PresentMon session, its decision table from prototypes/frametime_results.py, and the copy of its folder into the store."
+waits_for = "The player's session with the game running; the kit (prototypes/live_load.py, prototypes/frametime_results.py) is ready."
+
+[[document]]
 path = "docs/MINIMAP_GLYPH_CHANNEL.md"
 kind = "plan"
 status = "proposed"
