@@ -1,11 +1,16 @@
-"""The match-fetch kit on fixture responses; nothing here touches a network.
+"""The match-fetch kit on fixture responses; nothing here leaves 127.0.0.1.
 
 The fixtures copy the shapes of the local client's token reply, the PD
-match-history page and the game log's lines; every ID is made up.
+match-history page and the game log's lines; every ID is made up, and the
+history shape comes from unofficial docs, never a recorded response. The
+opener tests run a plain-HTTP server on 127.0.0.1 only.
 """
+import http.server
 import json
+import socket
 import sys
 import tempfile
+import threading
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -36,8 +41,11 @@ def history_page(start, ids, total):
 class FakeServer:
     """Answers the URLs the kit asks for; records every request."""
 
-    def __init__(self, puuid=PUUID, details_status=None, n429=0):
+    def __init__(self, puuid=PUUID, details_status=None, n429=0,
+                 history_status=200, history_body=None):
         self.puuid = puuid
+        self.history_status = history_status
+        self.history_body = history_body
         self.calls = []
         self.details_status = details_status or {}
         self.n429 = n429
@@ -60,6 +68,12 @@ class FakeServer:
             self.n429 -= 1
             return mf.Response(429, {"Retry-After": "7"}, b"")
         if "/match-history/v1/history/" in url:
+            if self.history_status != 200:
+                return mf.Response(self.history_status,
+                                   {"Location": "https://evil.example/x"},
+                                   b"")
+            if self.history_body is not None:
+                return mf.Response(200, hdr, self.history_body)
             start = int(url.split("startIndex=")[1].split("&")[0])
             return mf.Response(200, hdr,
                                json.dumps(self.pages[start]).encode())
@@ -83,9 +97,11 @@ class Env:
         self.root = root
         self.out = self.store / "external" / mf.OUT_NAME
         self.slept = []
+        self.alive = "C:/Riot Games/Riot Client/RiotClientServices.exe"
 
     def args(self, **kw):
         a = dict(account="A", check=False, dry_run=False, limit=None,
+                 retry_missing=False,
                  interval=2.5, shard=None, store=str(self.store),
                  lockfile=str(self.root / "lockfile"),
                  game_log=str(self.root / "ShooterGame.log"))
@@ -94,7 +110,8 @@ class Env:
 
     def run(self, server, **kw):
         return mf.run_fetch(self.args(**kw), opener=server,
-                      sleep=self.slept.append, clock=lambda: 0.0)
+                            sleep=self.slept.append, clock=lambda: 0.0,
+                            alive=lambda pid: self.alive)
 
 
 class ParseTest(unittest.TestCase):
@@ -133,11 +150,41 @@ class RunTest(unittest.TestCase):
         self.assertEqual(s.calls, [])
         self.assertFalse(self.env.out.exists())
 
+    def test_check_reports_stale_lockfile(self):
+        self.env.alive = None
+        s = FakeServer()
+        self.assertEqual(self.env.run(s, check=True), 0)
+        self.assertEqual(s.calls, [])
+        with self.assertRaises(mf.FetchStop):     # a fetch refuses
+            self.env.run(s)
+        self.assertEqual(s.calls, [])
+
+    def test_this_process_is_alive(self):
+        import os
+        self.assertIsNotNone(mf.process_image(os.getpid()))
+
     def test_dry_run_writes_nothing(self):
         s = FakeServer()
         self.assertEqual(self.env.run(s, dry_run=True), 0)
         self.assertFalse(any("match-details" in u for u, _ in s.calls))
         self.assertFalse(self.env.out.exists())
+        # one local token request, then one PD request per history page
+        self.assertEqual([u.split("/")[2] for u, _ in s.calls],
+                         ["127.0.0.1:51234"] + ["pd.na.a.pvp.net"] * 2)
+
+    def test_redirect_stops(self):
+        s = FakeServer(history_status=302)
+        with self.assertRaises(mf.FetchStop):
+            self.env.run(s)
+        self.assertFalse(any("evil" in u for u, _ in s.calls))
+
+    def test_unexpected_history_shape_stops(self):
+        s = FakeServer(history_body=b'{"Matches": []}')
+        with self.assertRaises(mf.FetchStop):
+            self.env.run(s)
+        # the page that surprised is kept for inspection
+        self.assertEqual(len(list((self.env.out / "history")
+                                  .glob("*.provenance.json"))), 1)
 
     def test_fetch_saves_raw_and_provenance(self):
         s = FakeServer()
@@ -198,6 +245,25 @@ class RunTest(unittest.TestCase):
         self.env.run(s)
         self.assertFalse((self.env.out / "raw" / f"{NEW[1]}.json").exists())
         self.assertTrue((self.env.out / "raw" / f"{NEW[2]}.json").exists())
+        # a rerun remembers the 404; --retry-missing asks again
+        s2 = FakeServer()
+        self.env.run(s2)
+        self.assertFalse(any("match-details" in u for u, _ in s2.calls))
+        s3 = FakeServer()
+        self.env.run(s3, retry_missing=True)
+        self.assertEqual([u.rsplit("/", 1)[1] for u, _ in s3.calls
+                          if "match-details" in u], [NEW[1]])
+        self.assertTrue((self.env.out / "raw" / f"{NEW[1]}.json").exists())
+
+    def test_orphan_sidecar_moved_not_overwritten(self):
+        prov = self.env.out / "provenance" / f"{NEW[0]}.json"
+        prov.parent.mkdir(parents=True)
+        prov.write_bytes(b"orphan")       # a crash after the sidecar
+        self.env.run(FakeServer())
+        self.assertTrue((self.env.out / "raw" / f"{NEW[0]}.json").exists())
+        self.assertNotEqual(prov.read_bytes(), b"orphan")
+        orphans = list(prov.parent.glob(f"{NEW[0]}.orphan-*.json"))
+        self.assertEqual([o.read_bytes() for o in orphans], [b"orphan"])
 
     def test_403_stops(self):
         s = FakeServer(details_status={NEW[0]: 403})
@@ -215,6 +281,48 @@ class RunTest(unittest.TestCase):
                 other.run(FakeServer(n429=10))
             finally:
                 other.tmp.cleanup()
+
+
+class _Redirector(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.server.seen.append((self.path, self.headers.get("Authorization")))
+        if self.path == "/go":
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:"
+                             f"{self.server.server_port}/landed")
+            self.end_headers()
+        else:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"landed")
+
+    def log_message(self, *a):
+        pass
+
+
+class OpenerTest(unittest.TestCase):
+    """The real urllib opener, against a server on 127.0.0.1 only."""
+
+    def test_follows_no_redirect(self):
+        srv = http.server.HTTPServer(("127.0.0.1", 0), _Redirector)
+        srv.seen = []
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        try:
+            r = mf.urllib_opener(f"http://127.0.0.1:{srv.server_port}/go",
+                                 {"Authorization": "Bearer SECRET"})
+        finally:
+            srv.shutdown()
+            srv.server_close()
+        self.assertEqual(r.status, 302)
+        self.assertEqual([p for p, _ in srv.seen], ["/go"])
+
+    def test_refused_connection_stops(self):
+        with socket.socket() as sk:            # a port nothing listens on
+            sk.bind(("127.0.0.1", 0))
+            port = sk.getsockname()[1]
+        with self.assertRaises(mf.FetchStop):
+            mf.urllib_opener(f"https://127.0.0.1:{port}/x", {})
 
 
 if __name__ == "__main__":

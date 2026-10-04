@@ -30,8 +30,11 @@ carried the game's own build string, read from the `CI server version:` line
 of `%LOCALAPPDATA%\VALORANT\Saved\Logs\ShooterGame.log` (form
 `release-13.06-shipping-18-5590001`), and the request sent a non-default
 User-Agent naming the tool. A build hash from the local product session was
-rejected. The probe is not in this repository; the player's kit for
-the uncaptured matches, `prototypes/riot_match_fetch.py`, repeats its method
+rejected. The probe is not in this repository. The player's kit for the
+uncaptured matches, `prototypes/riot_match_fetch.py`, uses the same
+endpoints, build-string header and named User-Agent, and adds two steps from
+the unofficial docs that the probe's notes do not record: tokens from the
+local client through its lockfile, and an `X-Riot-ClientPlatform` header
 ([MATCH_FETCH_KIT.md](MATCH_FETCH_KIT.md)).
 
 Three accounts' histories were read. The first held 18 matches, 2026-09-13 to
@@ -45,8 +48,10 @@ the earlier spans were each account's play. Retention is unknown, so pull each
 new capture's record promptly.
 
 All 22 match captures have their match-details record saved in the store
-under `external/riot/` (a store path, not the repository): 22 files, 3,532
-kills in all. Each file names its session in `probe.session_id`; the store is
+under `external/riot/` (a store path, not the repository): 22 files. The
+"3,532 kills" this paragraph once gave does not reproduce; the counts are in
+[WIN_PROBABILITY_RESEARCH.md](WIN_PROBABILITY_RESEARCH.md), section 5, Data.
+Each file names its session in `probe.session_id`; the store is
 the index, and match IDs stay out of this repository.
 
 4f207c0c4e39's record, for one, is Split (`/Game/Maps/Bonsai/Bonsai`), 10

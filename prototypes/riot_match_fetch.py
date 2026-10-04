@@ -14,19 +14,26 @@ What it does
 ------------
 1. Reads the Riot client's lockfile
    (`%LOCALAPPDATA%\Riot Games\Riot Client\Config\lockfile`, form
-   `name:pid:port:password:protocol`) and asks the local client, on
-   127.0.0.1 only, for the logged-in account's access token, entitlement token
-   and PUUID (`/entitlements/v1/token`).
+   `name:pid:port:password:protocol`), checks that the lockfile's process is
+   alive, and asks the local client, on 127.0.0.1, for the logged-in
+   account's access token, entitlement token and PUUID
+   (`/entitlements/v1/token`).
 2. Reads the game's build string from the `CI server version:` line of
    `%LOCALAPPDATA%\VALORANT\Saved\Logs\ShooterGame.log` and the shard from the
-   `https://pd.<shard>.a.pvp.net` URLs in the same log. The PD API answered
-   the 2026-10-02 probe only with that build string in `X-Riot-ClientVersion`
-   and a User-Agent naming the tool (`docs/EXTERNAL_GROUND_TRUTH.md`).
+   `https://pd.<shard>.a.pvp.net` URLs in the same log.
 3. Lists the account's match history
    (`pd.<shard>.a.pvp.net/match-history/v1/history/<puuid>`, 20 a page) and
    saves each page raw.
 4. Downloads `match-details/v1/matches/<id>` for every listed match not
    already saved, oldest first, since the oldest age out first.
+
+Two parts of this method are documented from the 2026-10-02 probe
+(`docs/EXTERNAL_GROUND_TRUTH.md`): the PD endpoints, and the PD API answering
+only with the game's build string in `X-Riot-ClientVersion` and a User-Agent
+naming the tool. Two are added from the unofficial PD docs
+(valapidocs.techchrism.me) and were never run here: taking the tokens from
+the local client through the lockfile, and the `X-Riot-ClientPlatform`
+header. The probe's own code is lost, so how it got its tokens is unknown.
 
 What it writes
 --------------
@@ -43,17 +50,37 @@ Under `<store>/external/riot-pd-v1/` (a store path, never the repository):
 - `fetch_log.jsonl`: append-only, one line per request outcome.
 
 It skips every match whose ID names a file in `<store>/external/riot/` (the
-22 captured matches, `{"probe", "match"}` wrapped) or in `raw/`. It never
+22 captured matches, `{"probe", "match"}` wrapped) or in `raw/`, and every
+match an earlier run logged as 404 (`--retry-missing` asks again). It never
 overwrites: a file is written to `.part`, then hard-linked to its final name,
-which fails if the name exists. A rerun resumes where the last stopped.
+which fails if the name exists. A record's sidecar is linked before its body,
+so a crash leaves at worst a sidecar without a body; the rerun refetches that
+match and renames the orphan sidecar `<match>.orphan-<time>.json`, logging
+the rename. A rerun resumes where the last stopped.
 
 Rate and refusals
 -----------------
 One PD request per `--interval` seconds (default 2.5). HTTP 429 waits the
 `Retry-After` seconds (60 if absent) and retries up to three times, then
 stops. HTTP 401 or 403 stops the run (stale token or build string). A 404 is
-logged and skipped: the record is gone or never existed. Only the PD host and
-127.0.0.1 are contacted; the script refuses any other host.
+logged and skipped: the record is gone or never existed. A network error
+(refused connection, DNS failure, timeout) stops the run with its reason.
+
+Hosts
+-----
+The script builds URLs for two hosts only, 127.0.0.1 and
+`pd.<shard>.a.pvp.net`, and refuses to send a PD request to any other. It
+follows no redirect: a 3xx reply stops the run, so the tokens never go to a
+host the reply names. It ignores the system's proxy settings and connects
+directly.
+
+Requests
+--------
+`--check` reads local files only: the lockfile (its PID, to see whether the
+client runs), the game log and the store; it sends nothing. `--dry-run` sends
+one request to the local client, then one PD history request per 20 listed
+matches (three for a 47-match history), and writes nothing. A full run sends
+those, then one PD request per record fetched.
 
 Riot's records are an external witness, never a reader's prior; this tool
 decides nothing about the game.
@@ -111,6 +138,48 @@ class FetchStop(RuntimeError):
 
 # ---------------------------------------------------------------- local inputs
 
+def lockfile_pid(text: str) -> int:
+    """The PID field of the lockfile, read without keeping the password."""
+    parts = text.strip().split(":")
+    if len(parts) != 5 or not parts[1].isdigit():
+        raise FetchStop("lockfile is not name:pid:port:password:protocol")
+    return int(parts[1])
+
+
+def process_image(pid: int) -> str | None:
+    """The executable path of a live process `pid`, "" if unnamed, or None.
+
+    Reads the local process table only; it sends nothing.
+    """
+    if sys.platform != "win32":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return None
+        except PermissionError:
+            return ""
+        return ""
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    h = k32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+    if not h:   # access denied means a live process we may not inspect
+        return "" if ctypes.get_last_error() == 5 else None
+    try:
+        code = wintypes.DWORD()
+        if not k32.GetExitCodeProcess(h, ctypes.byref(code)) \
+                or code.value != 259:          # STILL_ACTIVE
+            return None
+        buf = ctypes.create_unicode_buffer(1024)
+        n = wintypes.DWORD(len(buf))
+        if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)):
+            return buf.value
+        return ""
+    finally:
+        k32.CloseHandle(h)
+
+
 def read_lockfile(text: str) -> dict:
     """Parse the Riot client lockfile, `name:pid:port:password:protocol`."""
     parts = text.strip().split(":")
@@ -157,20 +226,39 @@ class Response:
 Opener = Callable[[str, dict], Response]
 
 
-def urllib_opener(url: str, headers: dict) -> Response:
-    """GET through urllib; certificate checks are off for 127.0.0.1 only."""
-    host = urllib.parse.urlsplit(url).hostname or ""
-    ctx = None
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow no redirect: urllib would resend the tokens to its target."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None   # urllib then raises HTTPError with the 3xx code
+
+
+def build_opener(host: str) -> urllib.request.OpenerDirector:
+    """A direct, redirect-refusing opener; certificate checks are off for
+    127.0.0.1 only, whose Riot client presents a self-signed certificate."""
+    ctx = ssl.create_default_context()
     if host == "127.0.0.1":
-        ctx = ssl.create_default_context()
         ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE   # the Riot client's self-signed cert
+        ctx.verify_mode = ssl.CERT_NONE
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), _NoRedirect(),
+        urllib.request.HTTPSHandler(context=ctx))
+
+
+def urllib_opener(url: str, headers: dict) -> Response:
+    """GET `url`; an HTTP error returns its status, a network error stops."""
+    host = urllib.parse.urlsplit(url).hostname or ""
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+        with build_opener(host).open(req, timeout=30) as r:
             return Response(r.status, dict(r.headers.items()), r.read())
     except urllib.error.HTTPError as e:
-        return Response(e.code, dict(e.headers.items()), e.read())
+        return Response(e.code, dict((e.headers or {}).items()), e.read())
+    except (urllib.error.URLError, OSError) as e:
+        reason = getattr(e, "reason", e)
+        where = "the Riot client" if host == "127.0.0.1" else host
+        raise FetchStop(f"could not reach {where}: {reason}; files already "
+                        "written stay, and a rerun resumes") from None
 
 
 def _allowed(url: str, shard: str | None) -> bool:
@@ -188,6 +276,8 @@ def local_tokens(lock: dict, opener: Opener) -> dict:
     basic = base64.b64encode(f"riot:{lock['password']}".encode()).decode()
     r = opener(url, {"Authorization": f"Basic {basic}",
                      "User-Agent": USER_AGENT})
+    if 300 <= r.status < 400:
+        raise FetchStop(f"local client redirected ({r.status}); refusing")
     if r.status != 200:
         raise FetchStop(f"local client answered {r.status} for its tokens; "
                         "log in to the Riot client and rerun")
@@ -232,6 +322,11 @@ class Pd:
                     self.sleep(wait)
             r = self.opener(url, self.headers())
             self._last = self.clock()
+            if 300 <= r.status < 400:
+                raise FetchStop(
+                    f"{path} answered {r.status}, a redirect to "
+                    f"{_header(r.headers, 'Location')!r}; the kit follows "
+                    "none, so the tokens went nowhere else")
             if r.status != 429:
                 return url, r
             ra = _header(r.headers, "Retry-After")
@@ -289,6 +384,16 @@ def known_matches(store: Path, out: Path) -> set[str]:
     return {i for i in ids if MATCH_RE.match(i)}
 
 
+def missing_matches(out: Path) -> set[str]:
+    """Match IDs an earlier run logged as 404."""
+    path = out / "fetch_log.jsonl"
+    if not path.exists():
+        return set()
+    rows = [json.loads(s) for s in path.read_text(encoding="utf-8")
+            .splitlines() if s.strip()]
+    return {r["match"] for r in rows if r.get("outcome") == "missing"}
+
+
 def bind_account(out: Path, label: str, puuid: str, write: bool) -> None:
     """Refuse a label already bound to another PUUID, and the reverse."""
     path = out / "accounts.jsonl"
@@ -341,13 +446,20 @@ def list_history(pd: Pd, puuid: str, label: str, out: Path | None,
         d = json.loads(r.body)
         if out is not None:
             name = f"{label}-{stamp}-{page:02d}"
-            write_new(out / "history" / f"{name}.json", r.body)
             write_new(out / "history" / f"{name}.provenance.json",
                       json.dumps(sidecar(label, puuid, url, r, pd,
-                                            fetched_at), indent=1).encode())
-        got = d.get("History") or []
+                                         fetched_at), indent=1).encode())
+            write_new(out / "history" / f"{name}.json", r.body)
+        got = d.get("History") if isinstance(d, dict) else None
+        if (not isinstance(got, list) or "Total" not in d
+                or not all(isinstance(e, dict) and isinstance(
+                    e.get("MatchID"), str) for e in got)):
+            keys = sorted(d) if isinstance(d, dict) else type(d).__name__
+            raise FetchStop(f"history reply has an unexpected shape (keys "
+                            f"{keys}); the kit assumed History[].MatchID "
+                            "and Total from unofficial docs")
         entries += got
-        total = int(d.get("Total", 0))
+        total = int(d["Total"])
         if not got:
             break
         start += len(got)
@@ -378,7 +490,8 @@ def _when(e: dict) -> str:
 def fetch(pd: Pd, todo: list[dict], label: str, puuid: str, out: Path,
           limit: int | None = None) -> dict:
     """Download each planned record; returns counts by outcome."""
-    counts = {"saved": 0, "skipped_existing": 0, "missing": 0, "failed": 0}
+    counts = {"saved": 0, "skipped_existing": 0, "missing": 0, "failed": 0,
+              "orphan_sidecars_moved": 0}
     log = out / "fetch_log.jsonl"
     for i, e in enumerate(todo[:limit] if limit else todo):
         mid = e["MatchID"]
@@ -411,11 +524,18 @@ def fetch(pd: Pd, todo: list[dict], label: str, puuid: str, out: Path,
             append_line(log, {**row, "outcome": "not_json"})
             counts["failed"] += 1
             continue
+        prov = out / "provenance" / f"{mid}.json"
+        if prov.exists():   # an earlier run stopped between the two writes
+            stamp = dt.datetime.now().strftime("%Y%m%dT%H%M%S%f")
+            orphan = prov.with_name(f"{mid}.orphan-{stamp}.json")
+            os.rename(prov, orphan)   # fails rather than overwrite
+            append_line(log, {**row, "outcome": "orphan_sidecar_moved",
+                              "moved_to": orphan.name})
+            counts["orphan_sidecars_moved"] += 1
+        write_new(prov, json.dumps(sidecar(
+            label, puuid, url, r, pd, fetched_at,
+            match_id=mid, history_entry=e), indent=1).encode())
         write_new(raw, r.body)
-        write_new(out / "provenance" / f"{mid}.json",
-                  json.dumps(sidecar(
-                      label, puuid, url, r, pd, fetched_at,
-                      match_id=mid, history_entry=e), indent=1).encode())
         append_line(log, {**row, "outcome": "saved",
                           "body_sha256": hashlib.sha256(r.body).hexdigest()})
         counts["saved"] += 1
@@ -426,7 +546,8 @@ def fetch(pd: Pd, todo: list[dict], label: str, puuid: str, out: Path,
 
 def run_fetch(args, opener: Opener = urllib_opener,
         sleep: Callable[[float], None] = time.sleep,
-        clock: Callable[[], float] = time.monotonic) -> int:
+        clock: Callable[[], float] = time.monotonic,
+        alive: Callable[[int], str | None] = process_image) -> int:
     label = args.account
     if not LABEL_RE.match(label):
         raise FetchStop("--account takes 1-32 letters, digits, - or _")
@@ -438,7 +559,8 @@ def run_fetch(args, opener: Opener = urllib_opener,
                         "and log in")
     if not log_path.exists():
         raise FetchStop(f"no game log at {log_path}; launch VALORANT once")
-    lock = read_lockfile(lock_path.read_text(encoding="utf-8"))
+    pid = lockfile_pid(lock_path.read_text(encoding="utf-8"))
+    image = alive(pid)
     info = read_game_log(log_path.read_text(encoding="utf-8",
                                             errors="replace"))
     if not info["client_version"]:
@@ -446,11 +568,22 @@ def run_fetch(args, opener: Opener = urllib_opener,
                         "launch VALORANT once, then close it")
     shard = choose_shard(info["shards"], args.shard)
     known = known_matches(store, out)
+    missing = missing_matches(out)
     print(f"build {info['client_version']}, shard {shard}, "
-          f"{len(known)} match records already saved")
+          f"{len(known)} match records already saved, "
+          f"{len(missing)} logged as 404")
+    if image is None:
+        state = (f"not running: the lockfile names PID {pid}, which is "
+                 "gone (a stale lockfile)")
+    else:
+        state = f"running (PID {pid}{', ' + Path(image).name if image else ''})"
+    print(f"Riot client: {state}")
     if args.check:
-        print("check only: contacted nothing")
+        print("check only: sent nothing")
         return 0
+    if image is None:
+        raise FetchStop(f"Riot client {state}; start it and log in")
+    lock = read_lockfile(lock_path.read_text(encoding="utf-8"))
     tokens = local_tokens(lock, opener)
     puuid = tokens["puuid"]
     bind_account(out, label, puuid, write=not args.dry_run)
@@ -459,7 +592,8 @@ def run_fetch(args, opener: Opener = urllib_opener,
     stamp = dt.datetime.now().strftime("%Y%m%dT%H%M%S%f")
     entries = list_history(pd, puuid, label,
                            None if args.dry_run else out, stamp)
-    todo = plan(entries, known)
+    todo = plan(entries, known if getattr(args, "retry_missing", False)
+                else known | missing)
     span = (f"{_when(min(entries, key=lambda e: e.get('GameStartTime', 0)))}"
             f" to {_when(max(entries, key=lambda e: e.get('GameStartTime', 0)))}"
             if entries else "empty")
@@ -484,10 +618,14 @@ def main(argv: list[str] | None = None) -> int:
                          "e.g. A, B or C; bound to its PUUID on first use")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true",
-                      help="read the local files only; contact nothing")
+                      help="read the local files only; send nothing")
     mode.add_argument("--dry-run", action="store_true",
-                      help="list the history and print what would be fetched;"
-                           " write nothing")
+                      help="ask the local client for tokens and list the "
+                           "history from Riot (one PD request per 20 "
+                           "matches); print what would be fetched; write "
+                           "nothing")
+    ap.add_argument("--retry-missing", action="store_true",
+                    help="ask again for matches an earlier run logged as 404")
     ap.add_argument("--limit", type=int, default=None,
                     help="fetch at most N records this run")
     ap.add_argument("--interval", type=float, default=2.5,
