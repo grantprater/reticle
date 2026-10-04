@@ -701,7 +701,15 @@ def kitnull() -> dict:
     ranks first, split by whether that ability's exemplars are ability-shaped
     (`ability_shaped_names`). `known_kit_*` scores each ability icon against its own
     kit tier with its entry held out."""
-    from reticle.adjudication.weapon import ability_agent, ability_shaped_names
+    from reticle.adjudication.weapon import ABILITY_MAX_ASPECT, ability_agent
+
+    def ability_shaped_names(g: dict, agent: str) -> frozenset:
+        # The split this measurement was made with: an agent's names whose
+        # exemplars' median aspect is at most ABILITY_MAX_ASPECT. The owner's
+        # kit floor reads `kit_null` instead since weapon-adjudication-1.4.0.
+        nm = np.array([str(n) for n in g["names"]])
+        return frozenset(n for n in set(nm.tolist()) if ability_agent(n) == agent
+                         and float(np.median(g["aspects"][nm == n])) <= ABILITY_MAX_ASPECT)
     g = load_keyed_gallery()
     names = g["names"]
     agents = sorted({ability_agent(str(n)) for n in names if ability_agent(str(n))})
