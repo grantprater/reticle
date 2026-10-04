@@ -391,6 +391,26 @@ KIT_LOOKBACK_MS = 1500.0
 KIT_LOOKAHEAD_MS = 100.0
 
 
+def own_kit_mask(times_ms, spans, player: str | None, near_ms: float = 1000.0) -> np.ndarray:
+    """Per instant of `times_ms` (sorted), whether the nearest named span
+    (inside it is nearest) lies within `near_ms` and is `player`'s kit. All
+    False without a player agent. Vectorised by `searchsorted` over the
+    spans' starts, which `adjudicate` writes in time order within a session."""
+    t = np.asarray(times_ms, float)
+    if player is None or not len(spans):
+        return np.zeros(len(t), bool)
+    sp = sorted(spans, key=lambda s: s[0])
+    t0 = np.array([s[0] for s in sp], float)
+    t1 = np.array([s[1] for s in sp], float)
+    own = np.array([same_agent(s[2], player) is True for s in sp])
+    i = np.clip(np.searchsorted(t0, t, side="right") - 1, 0, len(sp) - 1)
+    j = np.clip(i + 1, 0, len(sp) - 1)
+    di = np.maximum(np.maximum(t0[i] - t, t - t1[i]), 0.0)
+    dj = np.maximum(np.maximum(t0[j] - t, t - t1[j]), 0.0)
+    k = np.where(dj < di, j, i)
+    return (np.minimum(di, dj) <= near_ms) & own[k]
+
+
 def kit_agents_at(times_ms, spans, lookback_ms: float = KIT_LOOKBACK_MS,
                   lookahead_ms: float = KIT_LOOKAHEAD_MS) -> list[str | None]:
     """Per instant of `times_ms`, the arbiter's agent for the kit the tray

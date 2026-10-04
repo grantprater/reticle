@@ -1145,13 +1145,14 @@ owner = "ability_timeline"
 role = ["detect", "corroborate"]
 status = "transitional"
 produces = ["build_timeline", "write_timeline", "player_tray_casts", "stored_gate_inputs",
-            "kit_windows", "round_window_of"]
+            "kit_windows", "round_window_of", "audio_session", "audio_cast_witness",
+            "AUDIO_GATE_DIR", "KIT_REFUSALS"]
 not_for = """
 A pixel detector result. A cast claim is temporal evidence from the tray and
 audio; it does not locate the ability's entity in the world, and the audio and
 tray agreeing is corroboration rather than detection.
 """
-defers_to = ["tray-kit"]
+defers_to = ["tray-kit", "ability-audio"]
 consumers = ["cli", "adjudication.ult_cast", "adjudication.ability_state"]
 exit = "`materialize_demo_casts` drives `ability_cast` and `ability_hud` from prototypes/."
 evidence = "tests/test_ability_timeline.py, tests/test_tray.py, docs/VOICE_LINES.md"
@@ -1215,13 +1216,36 @@ their reason. The harvest's counts, even where a fact confirms them
 records the conflict, nor a reading, which stands against any count; nor is a
 count above the two segments the reader interprets clamped or read by segment
 until a session shows how the tray draws it. It builds
-no entity, reads no timer bar or audio, and says nothing of allies or enemies.
+no entity, reads no timer bar, and says nothing of allies or enemies; the audio
+claim on a drop verdict is `ability-audio`'s, carried, never re-scored.
 """
 defers_to = ["agent-identity", "player-agent", "ult-cast", "ability-cast", "tray-drop",
              "tray-kit"]
 consumers = ["cli"]
 exit = "Steps 2 to 5 of docs/ABILITY_STATE_MODEL.md: audio and the timer bar as witnesses, entities, allies, then the gate's decision moves here."
 evidence = "tests/test_ability_state.py, docs/ABILITY_STATE_MODEL.md"
+
+[[entry]]
+id = "ability-audio"
+question = "Which ability of the player's kit does the audio around a tray cast sound like, and by how much over the best rival?"
+owner = "adjudication.ability_audio"
+role = ["corroborate"]
+status = "partial"
+produces = ["session_frames", "explained", "background", "ar_filter", "whiten_frames",
+            "Corpus", "class_tracks", "window_max", "cast_scores", "identify",
+            "params_path", "load_params",
+            "BMASK", "SHRINK", "TIE_MARGIN", "REFUSALS", "NONE", "PRE_S", "POST_S"]
+not_for = """
+Deciding a cast, its slot or its time: the tray drop and the gate
+(`ability-cast`) decide those, and this owner scores only the drops the gate
+passes. Nor is it an agent name: the candidate set is the player's kit, named
+by the identity arbiter's agent, and its scores are not calibrated or pooled
+into `agent-identity`. Nor does it detect casts in audio alone or say anything
+of teammates' or enemies' abilities.
+"""
+consumers = ["ability_timeline"]
+exit = "The fit (`fit_band_whitener`, `fit_ar2`, `reference_logmel`, `template`, `whiten_template`, `false_fire_peaks`, `threshold_at`, `save_params`) runs once per parameter set from prototypes/ability_audio_eval.py; a `reticle` fit command wires it, and joins `produces`, when a second set is fitted."
+evidence = "tests/test_ability_audio.py, prototypes/ability_audio_eval.py"
 
 [[entry]]
 id = "tray-icon"
@@ -1249,7 +1273,7 @@ role = ["attribute", "adjudicate"]
 status = "partial"
 names_agents = true
 produces = ["adjudicate", "read_sample", "candidate_sets", "stored_kit_witness",
-            "spectated_agent", "kit_transitions", "kit_agents_at", "same_agent",
+            "spectated_agent", "kit_transitions", "kit_agents_at", "same_agent", "own_kit_mask",
             "KIT_LOOKBACK_MS", "KIT_LOOKAHEAD_MS", "CHANNEL", "PLAYER_FIT_MIN", "KIT_FIT_MIN", "MARGIN_MIN",
             "SLOT_READ_MIN", "MIN_READ_SLOTS", "MIN_RUN", "REFUSALS"]
 not_for = """

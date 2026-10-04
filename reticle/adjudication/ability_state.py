@@ -691,6 +691,13 @@ def _fill_change(slot: str, sp: dict, sj: dict, phase: str):
     return "fall_without_a_drop", "level_fell_without_a_drop"
 
 
+#: The audio witness's fields an `audio` claim carries as evidence.
+AUDIO_FIELDS = ("best", "score", "runner_up", "runner_up_score", "margin", "threshold",
+                "reason", "verdict", "scores", "slot_referenced", "params_version")
+#: The audio witness's window opens this long before the drop (ms).
+PRE_MS = 2000.0
+
+
 def _verdict(common, slot, t, transition, *, reason=None, stood_for=None, claims=(),
              agreed=(), disagreed=(), before=None, after=None, surprise=None,
              owner_alive=None, until_ms=None, until_fact=None) -> dict:
@@ -704,7 +711,8 @@ def _verdict(common, slot, t, transition, *, reason=None, stood_for=None, claims
 
 def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
                kits: list[dict], phase_of, samples: dict, agent: dict, params: dict,
-               inputs: dict, checks: dict | None = None, spectated=()) -> list[dict]:
+               inputs: dict, checks: dict | None = None, spectated=(),
+               audio: dict | None = None) -> list[dict]:
     """The session's coverage, claim, verdict and state rows.
 
     `drops` are the stored `tray_drop` drop rows and `gate_rows` the gate's
@@ -714,7 +722,11 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
     `agent` is `player_agent_verdict`; `params` is `slot_parameters`;
     `inputs` are the input stamps; `checks` are the reproduction checks the
     caller measured; `spectated` are the stored spans of another agent's kit
-    (`_context`). Deterministic in its inputs."""
+    (`_context`); `audio` is the audio witness on the gate's casts
+    (`ability_timeline.audio_cast_witness`): each cast's verdict carries its
+    row as an `audio` claim, in `agreed` or `disagreed` only where the
+    witness named a slot, and the state never reads it. Deterministic in its
+    inputs."""
     ts = [float(t) for t in samples["t_ms"]]
     fills = np.asarray(samples["fills"], float).reshape(len(ts), len(SLOTS))
     ctx = _context(ts, samples["drawn"], samples["clean"], kits, phase_of, spectated)
@@ -723,6 +735,7 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
     death_src = {k: inputs.get(k) for k in ("hud", "death", "killfeed_portrait",
                                             "combat_report_round", "round")}
     claims, verdicts, records = [], [], []
+    heard = {(r["slot"], float(r["t_ms"])): r for r in (audio or {}).get("rows", [])}
 
     def claim(slot, t, witness, observed, since, evidence, version, depends_on=()):
         cid = f"{session_id}:{slot}:{t:.0f}:{witness}"
@@ -789,12 +802,22 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
             fell_at_t = (sb is not None and sa is not None and sa["t_ms"] == t
                          and _fell(slot, sb, sa))
             agreed, disagreed = ["tray_drop", "player_cast"], []
+            ids = [c1, c2]
+            h = heard.get((slot, t)) if g["player_cast"] else None
+            if h is not None:
+                ids.append(claim(
+                    slot, t, "audio", h.get("verdict") or f"refused:{h['reason']}",
+                    t - PRE_MS, {"stream": "ability_audio",
+                                 **{f: h.get(f) for f in AUDIO_FIELDS}},
+                    h.get("ability_audio_version"), depends_on=[c2]))
+                if h.get("verdict") is not None:
+                    (agreed if h["verdict"] == slot else disagreed).append("audio")
             if transition in ("cast", "unequip") and sb is not None and sa is not None:
                 fell = _fell(slot, sb, sa)
                 (agreed if fell == (transition == "cast") else disagreed).append("tray_fill")
             dur = transition == "cast" and par["duration_ms"]
             verdicts.append(_verdict(
-                common, slot, t, transition, reason=why, stood_for=stood, claims=[c1, c2],
+                common, slot, t, transition, reason=why, stood_for=stood, claims=ids,
                 agreed=agreed, disagreed=disagreed, before=sb, after=sa,
                 surprise=_drop_surprise(slot, transition, sb, sa, fell_at_t),
                 owner_alive=c["owner_alive"],
@@ -880,7 +903,16 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
     verdicts.sort(key=lambda r: (r["t_ms"], SLOTS.index(r["slot"]), r["transition"]))
     records.sort(key=lambda r: (r["t_first_ms"], SLOTS.index(r["slot"])))
     rows = claims + verdicts + records
-    return [_coverage(rows, ctx, params, agent, inputs, checks or {}, common, len(drops))] + rows
+    cov = _coverage(rows, ctx, params, agent, inputs, checks or {}, common, len(drops))
+    if audio is not None:
+        heard_claims = [r for r in claims if r["witness"] == "audio"]
+        cov["audio"] = {**audio["coverage"], "claims": len(heard_claims),
+                        "agreed": sum("audio" in v["agreed"] for v in verdicts),
+                        "disagreed": sum("audio" in v["disagreed"] for v in verdicts),
+                        "refused": dict(sorted(Counter(
+                            r["observed"] for r in heard_claims
+                            if r["observed"].startswith("refused:")).items()))}
+    return [cov] + rows
 
 
 def _records(slot, par, states, ts, agent, common) -> list[dict]:

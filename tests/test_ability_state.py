@@ -46,7 +46,7 @@ def _drop(t, slot, f, to):
             "cooccur": False, "across_gap": False}
 
 
-def _run(deaths=(50000.0,), params=None):
+def _run(deaths=(50000.0,), params=None, audio=None):
     ts = [i * STEP for i in range(int(64000 / STEP))]
     fills = [[_fill(s, t) for s in st.SLOTS] for t in ts]
     drops = [_drop(20000.0, "E", 1.0, 0.5), _drop(32000.0, "Q", 1.5, 1.0),
@@ -61,7 +61,8 @@ def _run(deaths=(50000.0,), params=None):
                                   "clean": [True] * len(ts)},
                          agent=agent,
                          params=params or st.slot_parameters(AGENT, KIT, FACTS),
-                         inputs={"tray_drop": "tray-test", "player_cast": "gate-test"})
+                         inputs={"tray_drop": "tray-test", "player_cast": "gate-test"},
+                         audio=audio)
     return rows
 
 
@@ -509,6 +510,46 @@ class CountsAboveTwoTest(unittest.TestCase):
         self.assertEqual((pri[("chamber", "Q")]["max_charges"],
                           pri[("chamber", "Q")]["source"]), (8, "player"))
         self.assertEqual(pri[("sova", "C")]["source"], "player")
+
+
+class AudioWitnessTest(unittest.TestCase):
+    """The audio witness rides on each cast's verdict as a claim; only a
+    named slot agrees or disagrees, and the state never reads it."""
+
+    AUDIO = {"rows": [
+        {"t_ms": 20000.0, "slot": "E", "best": "E", "score": 3.1, "runner_up": "Q",
+         "runner_up_score": 1.0, "margin": 2.1, "threshold": 1.5, "reason": None,
+         "verdict": "E", "scores": {"E": 3.1, "Q": 1.0}, "slot_referenced": True,
+         "ability_audio_version": "audio-test", "params_version": "params-test"},
+        {"t_ms": 40000.0, "slot": "X", "best": "C", "score": 2.0, "runner_up": "X",
+         "runner_up_score": 1.2, "margin": 0.8, "threshold": 1.5, "reason": None,
+         "verdict": "C", "scores": {"C": 2.0, "X": 1.2}, "slot_referenced": True,
+         "ability_audio_version": "audio-test", "params_version": "params-test"},
+        {"t_ms": 32000.0, "slot": "Q", "best": "Q", "score": 0.9, "runner_up": "E",
+         "runner_up_score": 0.5, "margin": 0.4, "threshold": 1.5, "reason": "below_null",
+         "verdict": None, "scores": {"Q": 0.9, "E": 0.5}, "slot_referenced": True,
+         "ability_audio_version": "audio-test", "params_version": "params-test"}],
+        "coverage": {"reason": None, "agent": AGENT}}
+
+    def test_the_audio_claim_agrees_disagrees_or_stays_out(self):
+        plain, heard = _run(), _run(audio=self.AUDIO)
+        casts = {r["slot"]: r for r in _verdicts(heard, "E") + _verdicts(heard, "X")
+                 + _verdicts(heard, "Q") if r["reason"] is None and "player_cast" in r["agreed"]}
+        audio_claims = {r["slot"]: r for r in heard
+                        if r["kind"] == "claim" and r["witness"] == "audio"}
+        self.assertIn("audio", casts["E"]["agreed"])
+        self.assertIn("audio", casts["X"]["disagreed"])
+        self.assertEqual(audio_claims["X"]["observed"], "C")
+        self.assertEqual(audio_claims["X"]["evidence"]["margin"], 0.8)
+        if "Q" in audio_claims:
+            self.assertEqual(audio_claims["Q"]["observed"], "refused:below_null")
+            self.assertNotIn("audio", casts.get("Q", {"agreed": []})["agreed"])
+        cov = heard[0]["audio"]
+        self.assertEqual((cov["agreed"], cov["disagreed"]), (1, 1))
+        # The state rows are the same with or without the witness.
+        states = lambda rows: [r for r in rows if r["kind"] == "state"]
+        self.assertEqual(states(plain), states(heard))
+        self.assertNotIn("audio", plain[0])
 
 
 if __name__ == "__main__":

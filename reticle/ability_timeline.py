@@ -566,6 +566,144 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     return inputs, stamps
 
 
+#: The stored audio-gate log-mel and labels, under the store root.
+AUDIO_GATE_DIR = Path("analysis") / "audio-gate" / "0.1.0"
+#: The refusals a drop gets for showing another kit than the player's: a
+#: teammate's sound at that instant, known, so never background.
+KIT_REFUSALS = ("after_kit_change", "kit_not_player", "kit_owner_unresolved")
+
+
+def audio_session(store_root, session_id: str, gate_rows: list[dict], agent: str | None,
+                  kit_spans=None, *, features_path=None, labels_path=None,
+                  span_s: tuple[float, float] | None = None) -> tuple[dict | None, str | None]:
+    """(the stored audio a cast's witness reads, None) or (None, why not).
+
+    The frames are the audio gate's stored log-mel (`AUDIO_GATE_DIR`
+    `features/<sid>.npz`) less its median. Live frames are the audio gate's
+    (alive in a live phase, at its 0.1 s step) where the log-mel window lies
+    inside the audio, and, where `kit_spans` name kits, near a span of
+    `agent`'s kit (`tray_kit.own_kit_mask`): the tray shows the player's kit
+    while the player lives. The casts are the gate's (`player_tray_casts`
+    rows with `player_cast`) on a frame the audio gate calls live. The null
+    frames are `ability_audio.background`: live, the gate's background class,
+    and no own cast, gunfire span or known other sound within
+    `ability_audio.EXPLAIN_S`; the drops refused for another kit
+    (KIT_REFUSALS) are known other sounds. `span_s` keeps only frames and
+    casts inside [start, end) s, how one session is split in two. Decodes
+    nothing."""
+    import numpy as np
+
+    from .adjudication.ability_audio import FPS, background, explained, session_frames
+    from .adjudication.tray_kit import own_kit_mask
+    root = Path(store_root)
+    fp = Path(features_path) if features_path else root / AUDIO_GATE_DIR / "features" / f"{session_id}.npz"
+    lp = Path(labels_path) if labels_path else root / AUDIO_GATE_DIR / "labels" / f"{session_id}.json"
+    if not fp.is_file():
+        return None, "no_audio_features"
+    if not lp.is_file():
+        return None, "no_audio_labels"
+    z = np.load(fp, allow_pickle=True)
+    med = z["med"] if "med" in z.files else np.median(z["L"].astype(np.float32), axis=0)
+    X = session_frames(z["L"], med)
+    n = len(X)
+    lab = json.loads(lp.read_text(encoding="utf-8"))
+    lz = np.load(lp.with_suffix(".npz"))
+    rep = int(round(float(lab["step_s"]) * FPS))
+    up = lambda a: np.concatenate([np.repeat(a, rep), np.zeros(max(0, n - rep * len(a)), a.dtype)])[:n]
+    gate_live = up(lz["live"]).astype(bool)
+    live = gate_live & z["ok"][:n].astype(bool)
+    cls = up(lz["cls"])
+    if kit_spans:
+        live &= own_kit_mask(np.arange(n) * (1000.0 / FPS), kit_spans, agent)
+    keep = np.ones(n, bool)
+    if span_s is not None:
+        keep[:] = False
+        keep[int(span_s[0] * FPS):int(span_s[1] * FPS)] = True
+        live &= keep
+    casts = []
+    for r in gate_rows:
+        k = int(r["t_ms"] / 1000.0 * FPS)
+        if r["player_cast"] and 0 <= k < n and gate_live[k] and keep[k]:
+            casts.append({"t_ms": float(r["t_ms"]), "slot": r["slot"], "frame": k})
+    others = ([float(o["t"]) for o in lab.get("known_others", [])]
+              + [r["t_ms"] / 1000.0 for r in gate_rows if r.get("reason") in KIT_REFUSALS])
+    code = explained(n, [c["t_ms"] / 1000.0 for c in casts], lab.get("fires", []), others)
+    bg = background(live, cls, code)
+    stamps = {"audio_features": str(z["version"]) if "version" in z.files else f"unstamped:{fp.name}",
+              "audio_labels": lab.get("version"), "features_path": fp.as_posix(),
+              "labels_path": lp.as_posix()}
+    return {"X": X, "live": live, "code": code, "bg": bg, "casts": casts,
+            "live_min": float(live.sum()) / (60.0 * FPS), "stamps": stamps}, None
+
+
+def audio_cast_witness(store_root, session_id: str, gate_rows: list[dict], agent: str | None,
+                       kit_spans=None, *, params=None, session=None, xp=None,
+                       **where) -> dict:
+    """The audio witness for each of the player's casts: which kit ability
+    the audio around the drop sounds like (`adjudication.ability_audio`),
+    with its scores, margin and refusal. The candidate set is the player's
+    kit, named by the identity arbiter's agent (`agent`) through the
+    parameter set's classes; a cast of a slot with no reference can only be
+    refused or named as another slot, and the row says the slot is
+    unreferenced. Returns {"rows", "coverage"}; without an agent, parameters,
+    features or labels every cast row carries the reason and no score.
+    `where` passes `features_path`, `labels_path` and `span_s` to
+    `audio_session`."""
+    from . import ult_lines
+    from .adjudication.ability_audio import (NONE, cast_scores, class_tracks, identify,
+                                             load_params, whiten_frames)
+    from .version import ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION
+    casts = [r for r in gate_rows if r["player_cast"]]
+    base = {"ability_audio_version": ABILITY_AUDIO_VERSION,
+            "params_version": ABILITY_AUDIO_PARAMS_VERSION}
+
+    def refuse(why, stamps=None):
+        return {"rows": [{**base, "t_ms": float(r["t_ms"]), "slot": r["slot"], "reason": why,
+                          "verdict": None} for r in casts],
+                "coverage": {**base, "agent": agent, "reason": why, "casts": len(casts),
+                             "inputs": stamps or {}}}
+
+    if agent is None:
+        return refuse("no_player_agent")
+    if params is None:
+        params, why = load_params(store_root, ABILITY_AUDIO_PARAMS_VERSION, agent)
+        if params is None:
+            return refuse(why)
+    if session is None:
+        session, why = audio_session(store_root, session_id, gate_rows, agent, kit_spans,
+                                     **where)
+        if session is None:
+            return refuse(why)
+    xp = xp or ult_lines.array_module()
+    Xw = whiten_frames(session["X"], params["mu"], params["P"], params["ar"])
+    tracks = class_tracks(Xw, params["templates"], params["labels"], session["bg"], xp)
+    classes = sorted(tracks, key=lambda c: ("CQEX" + NONE).find(c[0]) if c != NONE else 9)
+    sc = cast_scores(tracks, [c["frame"] for c in session["casts"]], classes)
+    ids = identify(sc, classes, params["thresholds"])
+    at = {c["t_ms"]: (c, v) for c, v in zip(session["casts"], ids)}
+    rows = []
+    for r in casts:
+        c, v = at.get(float(r["t_ms"]), (None, None))
+        if v is None:
+            rows.append({**base, "t_ms": float(r["t_ms"]), "slot": r["slot"],
+                         "reason": "audio_not_live", "verdict": None})
+            continue
+        rows.append({**base, "t_ms": c["t_ms"], "slot": c["slot"],
+                     "slot_referenced": c["slot"] in classes, **v,
+                     "agrees": None if v["verdict"] is None else v["verdict"] == c["slot"]})
+    cov = {**base, "agent": agent, "reason": None, "candidate_set": {
+               "classes": classes, "why": "the player's kit: the tray shows it while the player "
+                                          "lives, and the gate passes only drops under it; "
+                                          "`none` holds the agent's unmapped files"},
+           "params": {k: params["provenance"].get(k) for k in ("version", "reference", "fitted_at")},
+           "dev_sessions": params["dev"], "thresholds": params["thresholds"],
+           "casts": len(casts), "scored": len(ids), "null_frames": int(session["bg"].sum()),
+           "live_min": round(session["live_min"], 2), "inputs": session["stamps"],
+           "verdicts": dict(sorted(Counter(r.get("verdict") or f"refused:{r['reason']}"
+                                           for r in rows).items()))}
+    return {"rows": rows, "coverage": cov, "tracks": tracks, "session": session}
+
+
 def build_timeline(root: str | Path) -> dict:
     """Return deterministic use claims from the current evidence inventory."""
     root = Path(root).resolve()
