@@ -778,26 +778,9 @@ one `metrics.record()` at the end is the whole cost.
   frames, and this one is **player-initiated and can happen at any moment in a
   round**, which the death screen cannot.
 
-  **The shipped minimap position reader had no widget guard of any kind** until
-  `minimap-0.2.0` adopted `minimap.widget_drawn`; before it, `cmd_minimap` read
-  every frame inside an active span. Measured over all 27757 frames of
-  `a06f04a0059f` at 15 Hz:
-
-        usable()  refuses    614  (2.2%)
-        drawn()   refuses   1394  (5.0%)
-        the gap             780  (2.8%) -- kept by usable(), refused by drawn()
-        harvested from those frames:  3605 self candidates, 4178 ally
-
-  So **5% of the shipped position track was built on frames with no widget in
-  them**, and adopting `usable()` alone would recover under half of that. The
-  detections are not few: widget-absent frames yield 2.6 self candidates each,
-  because `self_rings` is looking at open scenery.
-
-  Closing it moves stored numbers, which is why it was measured first rather
-  than patched -- but 5% is far past the level at which the position track's
-  validation (the X-mark and chokepoint ground truths) can be assumed to still
-  hold, so both were re-run against the guard (`reticle/version.py`,
-  `minimap-0.2.0`).
+  `minimap-0.2.0` guards the position reader with `minimap.widget_drawn`;
+  [the archive](docs/archive/PROJECT_GUIDE-history-2026-10-04.md) records
+  the unguarded track it replaced.
 - **A dead player spectates, so the main view is not theirs.** Found while
   checking ally rendering: `9acf02f98283` 24:50 shows the combat report, "SWITCH
   PLAYER", and a teammate's first-person model. Nothing currently detects this
