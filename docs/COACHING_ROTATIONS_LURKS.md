@@ -378,18 +378,23 @@ Until that measurement, readers cache ROIs during play and read after.
 4. **Replays for enemy-dependent features.** In-client Replays show all ten
    players with no fog (research doc, section 4). The player will capture a
    current-patch Replay of a match he also captured (the player, 2026-10-04
-   (chat)); a probe is running on another branch. Aligned by kills to the
+   (chat)); section 4.1 covers the merged parser. Aligned by kills to the
    live capture, a Replay supplies continuous enemy positions: truth for
    enemy rotations, for where enemy disablers stood relative to an
-   off-angle, and for the POV belief's calibration. Replays expire at the
-   next patch and need the game client open; reticle never opens it.
+   off-angle, and for the POV belief's calibration. Watching a Replay needs
+   the game client open, and reticle never opens it; the client showed old
+   replays as "Expired or incompatible" on 2026-10-04, while stored `.vrf`
+   files parse offline.
 
 ### 4.1 Parsed replays as evaluation truth
 
-Branch `replay-truth-20261004` is parsing saved replay files; nothing it
-produces is merged, and what a parsed file holds is unverified here. If it
-yields every player's position over time, rotations gain a truth for all ten
-players, not only at Riot's kill instants:
+Master parses saved replay files with `prototypes/replay_truth.py`
+(merged from `replay-truth-20261004`; facts in `domain/replay.toml`). A
+parsed file holds all ten players' positions, height included, at the
+128 Hz server tick [domain:replay/vrf-position-stream], and each player's
+facing [domain:replay/vrf-yaw-is-view-radians]. Replays are evaluation
+truth only. Rotations therefore gain a truth for all ten players, not only
+at Riot's kill instants:
 
 - **Ally events** score against it: `region_presence` intervals, rotation
   exits and arrivals, and lurk distance, at every instant rather than at
