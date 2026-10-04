@@ -14,7 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from .killfeed import KillfeedRead, killfeed_roi, overlay_mask, read_killfeed
-from .ocr import Templates, crop_gray, read_bottom_hud, read_scoreline, scoreline_roi
+from .ocr import (Templates, crop_gray, game_font_templates, read_bottom_hud, read_scoreline,
+                  scoreline_roi)
 
 
 class HudReader:
@@ -26,7 +27,10 @@ class HudReader:
         self.src = manifest["source"]
         self.profile = profile
         self.w, self.h = int(self.src["width"]), int(self.src["height"])
-        self.templates = Templates.load(profile.name)
+        # The scoreline and bottom HUD read templates rendered from the game's
+        # fonts in the store, one set per field; the reserve keeps the mined set.
+        self.templates = game_font_templates(getattr(store, "root", None),
+                                             default=Templates.load(profile.name))
         self.roi = scoreline_roi(profile)
         self.kf_roi = killfeed_roi(profile)
         self.min_conf = args.min_confidence

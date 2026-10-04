@@ -39,8 +39,9 @@ capture, smoke or vision block): disabling. A Reveal or a movement or bullet
 barrier with no status term is undecided; anything else is not disabling.
 
 An agent's kit (`kill_kits`) is its damaging abilities with its fact-named
-icons. An agent with an undecided damage question (`open_questions`) has no
-kit the weapon owner may trust; the questions are in
+icons, each named as the weapon gallery names it (`kit_name`). An agent
+with an undecided damage question (`open_questions`) has no kit the weapon
+owner may trust; the questions are in
 docs/ABILITY_MECHANICS_SHEET.md, "Killfeed icons". The derivation is stored
 in `templates/killfeed_kits.json`, every ability with its status, the rule
 that decided it and the excerpt it decided on; `--check` re-derives it from
@@ -59,7 +60,10 @@ from typing import Optional
 # 0.2.0 (2026-10-01): agents keyed by the lineup's spelling (KAY_O).
 # 0.3.0 (2026-10-01): the player's answers (`PLAYER_ANSWERS`) decide the 21
 # abilities the rule left open; slot-Passive abilities draw no icon.
-KILLFEED_KITS_VERSION = "killfeed-kits-0.3.0"
+# 0.4.0 (2026-10-04): kit names are normalised (`kit_name`): a word the
+# reference writes in capitals is capitalised, so Killjoy's "TURRET" is the
+# gallery's "Turret" and Killjoy's kit qualifies for the kit floor.
+KILLFEED_KITS_VERSION = "killfeed-kits-0.4.0"
 
 DATA = Path(__file__).resolve().parent.parent / "templates" / "killfeed_kits.json"
 REFERENCE = "reference/abilities.json"
@@ -133,6 +137,15 @@ STATUS_TERMS = (r"\b(?:blind\w*|flash\b|concuss\w*|slow(?:s|ed|ing|ly)?\b(?!-)|n
                 r"captures?|smoke\w*|block\w* vision|vision[- ]block\w*)")
 ASSIST_UNCLEAR = (r"\b(?:reveal\w*|marked by|terror trails|barriers?|blocks? (?:bullets|character movement)|"
                   r"wall (?:trap|of energy)|places a wall|wall bursts)\b")
+
+
+def kit_name(name: str) -> str:
+    """An ability's name as the kits and the weapon gallery spell it: each
+    word the reference writes wholly in capital letters is capitalised
+    ("TURRET" -> "Turret"); a word with any lower-case letter, a digit or a
+    slash ("FRAG/ment", "NULL/cmd") is the game's own casing and stays."""
+    return " ".join(w.capitalize() if w.isalpha() and w.isupper() and len(w) > 1 else w
+                    for w in name.split(" "))
 
 
 def _sentence(text: str, m: re.Match) -> str:
@@ -212,11 +225,11 @@ def derive(reference: dict, reference_sha: Optional[str] = None) -> dict:
             abilities.append({"agent": agent, "key": ab.get("key"), "name": name,
                               "functions": ab.get("functions"), "damage": dmg, "assist": ast})
             if dmg["status"] in ("damaging", "kit_icon", "possible"):
-                kits[agent].append(name)
+                kits[agent].append(kit_name(name))
             if dmg["status"] == "possible":
-                unconfirmed.setdefault(agent, []).append(name)
+                unconfirmed.setdefault(agent, []).append(kit_name(name))
             elif dmg["status"] == "undecided":
-                opened.setdefault(agent, []).append(name)
+                opened.setdefault(agent, []).append(kit_name(name))
             if ast["status"] == "disabling":
                 assists[agent].append(name)
             elif ast["status"] == "undecided":
