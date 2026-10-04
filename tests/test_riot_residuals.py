@@ -70,10 +70,45 @@ class FragmentJoinTests(unittest.TestCase):
         first, last = _word(1, 40), _word(3, 30)
         whole = _name(first, last)
         crops = _crops(k1=whole, v1=first, k2=whole.copy(), v2=first.copy(), k3=last,
-                       k4=last.copy(), o1=_word(5, 40), o2=_word(5, 40))
+                       o1=_word(5, 40), o2=_word(5, 40))
         out = name_clusters(crops)
-        self.assertEqual(out["sides"]["ally"],
-                         [["k1", "v1", "k2", "v2", "k3", "k4"], ["o1", "o2"]])
+        self.assertEqual(out["sides"]["ally"], [["k1", "v1", "k2", "v2", "k3"], ["o1", "o2"]])
+
+    def test_a_whole_name_whose_two_words_recur_joins_neither(self):
+        # killfeed-name-cluster-0.5.0: the whole is a recurring cluster that
+        # would join two groups that do not read one name, the shape a junk
+        # crop holding two names takes, so it joins nothing.
+        first, last = _word(1, 40), _word(3, 30)
+        whole = _name(first, last)
+        crops = _crops(k1=whole, v1=first, k2=whole.copy(), v2=first.copy(), k3=last,
+                       k4=last.copy())
+        self.assertEqual(name_clusters(crops)["sides"]["ally"],
+                         [["k1", "k2"], ["v1", "v2"], ["k3", "k4"]])
+
+    def test_a_recurring_junk_crop_cannot_bridge_two_names(self):
+        a, b = _word(1, 40), _word(7, 40)
+        junk = _name(a, _word(9, 20), b)
+        crops = _crops(a1=a, a2=a.copy(), b1=b, b2=b.copy(), j1=junk, j2=junk.copy())
+        self.assertEqual(name_clusters(crops)["sides"]["ally"],
+                         [["a1", "a2"], ["b1", "b2"], ["j1", "j2"]])
+
+    def test_a_recurring_shared_word_bridges_neither(self):
+        tag = _scatter(1, 30)
+        one, two = _name(tag, _scatter(3, 60)), _name(tag, _scatter(5, 62))
+        crops = _crops(a1=one, a2=one.copy(), b1=two, b2=two.copy(), t1=tag, t2=tag.copy())
+        self.assertEqual(name_clusters(crops)["sides"]["ally"],
+                         [["a1", "a2"], ["b1", "b2"], ["t1", "t2"]])
+
+    def test_a_name_with_an_icon_on_opposite_sides_joins(self):
+        # 7010b3d62460: the victim crops of one name carry the neighbouring
+        # icon's edge on the right, the killer crops on the left; the clean
+        # crops are the left word of one and the right word of the other.
+        name, icon = _scatter(1, 40), _scatter(11, 12)
+        victim, killer = _name(name, icon), _name(icon, name)
+        crops = _crops(n1=name, v1=victim, k1=killer, n2=name.copy(), v2=victim.copy(),
+                       k2=killer.copy())
+        self.assertEqual(name_clusters(crops)["sides"]["ally"],
+                         [["n1", "v1", "k1", "n2", "v2", "k2"]])
 
     def test_a_crop_read_once_joins_the_one_name_it_links_to(self):
         first, last = _word(1, 40), _word(3, 30)

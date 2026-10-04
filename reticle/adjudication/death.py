@@ -184,11 +184,22 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # gap as their window, no time and no killer, resting on the prior's deaths
 # and the round's outcome claim (`adjudication.round_outcome`).
 # 0.35.0 (2026-10-04): name clusters join a name read whole and cut at its
-# word gap (`killfeed-name-cluster-0.4.0`); a revive drawn below a split
+# word gap (`killfeed-name-cluster-0.3.0`); a revive drawn below a split
 # track's later piece no longer blocks the merge (`same_entry`); an entry
 # whose victim side went unread takes only a roster drop no sided entry took
 # (`_match_shrinks`).
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.35.0"
+# 0.35.1 (2026-10-04): name clusters from `killfeed-name-cluster-0.5.0`: no
+# cluster joins two names through a word or junk crop. On 043bafca271a and
+# c62c2b06bcfb one killer crop read once each no longer joins its name (it
+# linked only another crop read once), so its killer rests on the portrait
+# alone, naming the same agent; beyond version stamps,
+# [metric:riot_residuals/death_rows_cc7_dff#member_count_rows=67] death rows
+# there differ from 0.35.0 in the cluster's member count and
+# [metric:riot_residuals/death_rows_cc7_dff#killer_channel_rows=2] in the
+# killer's channel; no name and no Riot score changes. `entry_victim_side`
+# owns the victim-side rule `_match_shrinks` and `adjudicate_round_deaths`
+# restated.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.35.1"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
