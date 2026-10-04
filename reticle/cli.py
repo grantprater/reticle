@@ -4639,6 +4639,14 @@ def _ability_state_values(store, done) -> dict:
     return values
 
 
+def cmd_ability_audio_fit(args) -> int:
+    """Fit or evaluate the audio witness's parameter set from stored
+    log-mel (`ability_audio_fit`); decodes only the game's reference
+    files."""
+    from .ability_audio_fit import main
+    return main(args)
+
+
 def cmd_ability_shapes(args) -> int:
     """The drawn minimap shape after each of the player's casts of an ability
     with a known form, from stored crops (`ability_shapes`). Decodes no video."""
@@ -5756,6 +5764,20 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--record", action="store_true",
                    help="score the tray-cast labels and record the numbers in notes/metrics.jsonl")
     s.set_defaults(func=cmd_ability_state)
+
+    s = sub.add_parser("ability-audio-fit",
+                       help="fit or evaluate the audio witness's parameters from stored log-mel (no capture decode)")
+    s.add_argument("--gate", help="write the gate snapshot of every session with audio labels here")
+    s.add_argument("--gate-in", help="the gate snapshot --fit and --eval read")
+    s.add_argument("--supply", action="append",
+                   help="SID=AGENT: the player's agent where the identity arbiter names none")
+    s.add_argument("--audio-dir", action="append",
+                   help="a directory with features/<sid>.npz and labels/<sid>.json the store lacks")
+    s.add_argument("--fit", help="fit the parameter set under this root (the store, or a scratch root)")
+    s.add_argument("--eval", help="evaluate the parameter set under this root")
+    s.add_argument("--agent", action="append", help="only this agent (repeatable)")
+    s.add_argument("--json", help="write the evaluation here")
+    s.set_defaults(func=cmd_ability_audio_fit)
 
     s = sub.add_parser("ability-shapes",
                        help="the drawn minimap shape after the player's casts, from stored crops (no video)")

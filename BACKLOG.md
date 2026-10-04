@@ -23,7 +23,7 @@ Evidence: every residual failure classified by cause (instrument fault, reader r
 - (e) scoreboard thumbnails (6 of 31 exported);
 - (f) base map and floor-mask checks, through the geometry builder only.
 - *Identity on 4f207c0c4e39:* the player is Iso, but the arbiter refuses (`conflicting_claims`). The tray votes Iso 96 of 145, with spectated kits voting after death: count tray identity votes only while the player lives. `self_icon` votes Phoenix on flat scores (1.453 against Raze 1.446): refuse a pairwise tie, and place the 1.15x variant widget.
-- *Audio:* params exist for 3 agents only; calibrate the LLRs before identity pools them. Unmapped folders and clipped references are in NOTES.
+- *Audio:* `ability-audio-fit-20261004` fits seven agents and calibrates the margin (`ability-audio-params-0.2.1`, held ECE 0.039). Open: masking causes 12 of 15 held misses; the gate refuses 26 of the 120 verified casts (20 as `equip_release`); the player questions in the outcome row. Unmapped folders and clipped references are in NOTES.
 - *Weapon:* the whitened open-set null (`whitened-weapon-20261003`, held).
 Acceptance: per reader, `.\.venv\Scripts\python.exe -m reticle trial --reader <reader> SESSION` on a06f04a0059f, 5822b6646448 and 4f207c0c4e39 before and after the switch, then the Riot scorer above.
 Evidence: each switched reader names its game-file source and version; same-or-better agreement with the player's labels and Riot, every changed verdict listed with its reason; 4f207c0c4e39 names Iso with no conflicting claim.
