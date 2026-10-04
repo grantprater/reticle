@@ -460,3 +460,11 @@ status = "proposed"
 since = "2026-10-02"
 remains = "Every step after the probe: each saved match record aligned to the stored killfeed, the coordinate transform's axis check, and the record scored as a channel like any other."
 waits_for = "Nothing; the alignment can start."
+
+[[document]]
+path = "docs/MINIMAP_GLYPH_CHANNEL.md"
+kind = "plan"
+status = "proposed"
+since = "2026-10-04"
+remains = "Every stage after the measurements (glyph-wiring-design-20261004 W1-W13): the per-key null and rotation on dev, the minimap_glyph reader in the ability pass, disc tracks, the glyph verdict and its identity claims, the ability_icon lane, the Riot bound and the scene-model sprite."
+waits_for = "The clean held-out score of minimap-heldout-score-20261004 (H1-H8), and the player's rotation answers."
