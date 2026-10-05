@@ -104,26 +104,27 @@ covered [metric:tray/gold-witness@riot-21#covered_after=521] of [metric:tray/gol
 Persistence as a third witness (TRAY_VERSION 0.4.0). A cream half is a
 charge partly spent or recharged [domain:hud/ability-tray-gold-charge-meaning],
 and Phoenix spends one beside a teal half with no numeral and the icon lit,
-so the countdown and icon witnesses refused
-[metric:tray/gold-persist-eval@riot-21#eye_refused_real_before=4] real Curveball
-spends. On the 21 Riot-paired sessions a gold misread lasted at most
-[metric:tray/gold-persist-eval@riot-21#false_reading_run_max=1] sample, and
-a held charge that persistence witnesses reads gold on two or more; a real
+so the countdown and icon witnesses refused real Curveball spends. Among the
+[metric:tray/gold-persist-eval@riot-21#refused_before=20] drops the other witnesses
+refused, each gold misread by eye lasted
+[metric:tray/gold-persist-eval@riot-21#false_reading_run_max=1] sample. A real
 spend can read gold for one sample too (e37fdeca944f E 426.6 s, which the
 countdown witnessed), so persistence adds a witness and takes none away. A
-gold-only drop now also fires where the spent half read gold on GOLD_PERSIST_MIN readable samples
-in a row before it (`persisted`). On the 21 Riot-paired sessions it admitted
-[metric:tray/gold-persist-eval@riot-21#newly_admitted=16] of the
-[metric:tray/gold-persist-eval@riot-21#refused_before=20] refused drops; the gate
-passed the four Curveball spends and refused the rest, of which
+gold-only drop now also fires where the spent half read gold on
+GOLD_PERSIST_MIN readable samples in a row before it (`persisted`). On the 21
+Riot-paired sessions it admitted
+[metric:tray/gold-persist-eval@riot-21#newly_admitted=16] of those 20 drops; the gate
+passed the [metric:tray/gold-persist-eval@riot-21#admitted_gate_passed=4] Curveball
+spends it admitted and refused the rest, of which
 [metric:tray/gold-persist-eval@riot-21#admitted_kit_or_round_switch=8] are by eye
 the tray switching kits or rounds over a real gold half, a transition the
 gate owns. Own casts covered
 [metric:tray/gold-persist-eval@riot-21#covered_after=525] of 610 with
-[metric:tray/gold-persist-eval@riot-21#excess_after=8] beyond Riot's counts, and at 3 or 4 samples
-[metric:tray/gold-persist-eval@riot-21#covered_k3=524]; k was chosen on the
-same drops, so the figures are in-sample. `prototypes/tray_gold_eval.py`
-reruns every rule from the crop cache and the stored gate inputs.
+[metric:tray/gold-persist-eval@riot-21#excess_after=8] beyond Riot's counts, and at
+3 or 4 samples [metric:tray/gold-persist-eval@riot-21#covered_k3=524]; k was chosen
+on the same drops, so the figures are in-sample.
+`prototypes/tray_gold_eval.py` reruns every rule from the crop cache and the
+stored gate inputs.
 
 What a drop is not. A drop is a transition, not a cast: after the player dies
 the tray shows a spectated teammate's kit, and its switch reads as several

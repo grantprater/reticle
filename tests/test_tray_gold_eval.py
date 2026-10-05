@@ -41,6 +41,13 @@ class PersistMin(unittest.TestCase):
             self.assertFalse(tray.gold_witness(self.CAND, [], {})["witnessed"])
         self.assertEqual(tray.GOLD_PERSIST_MIN, before)
 
+    def test_the_constant_is_restored_after_an_exception(self):
+        before = tray.GOLD_PERSIST_MIN
+        with self.assertRaises(RuntimeError):
+            with tge.persist_min(None):
+                raise RuntimeError("inside the rule")
+        self.assertEqual(tray.GOLD_PERSIST_MIN, before)
+
     def test_eye_key_rounds_to_a_tenth_second(self):
         self.assertEqual(tge.eye_key("s", {"slot": "E", "t_ms": 429066.67}), ("s", "E", 429.1))
 

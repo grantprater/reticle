@@ -229,8 +229,8 @@ def summarise(results: dict) -> dict:
         "false_readings": len(runs("false")),
         "false_reading_run_max": max(runs("false"), default=None),
         "real_refused_run_min": min(runs("real"), default=None),
-        "eye_refused_real_before": sum(eye[id(c)] == "real" and c["k2"]["cast"]
-                                       for c in refused_off),
+        "eye_real_gate_passed": sum(eye[id(c)] == "real" and c["k2"]["cast"]
+                                    for c in refused_off),
         "admitted_kit_or_round_switch": sum(eye[id(c)] == "switch" for c in admitted),
         "admitted_gate_passed": sum(c["k2"]["cast"] for c in admitted),
         "admitted_gate_passed_false": sum(c["k2"]["cast"] and eye[id(c)] == "false"
@@ -253,7 +253,7 @@ def record_gold_eval(summ: dict, sessions: list[str]) -> dict:
               **{f"excess_k{k}": summ[f"k{k}"]["beyond"] for k in (2, 3, 4)},
               **{f"refused_k{k}": summ[f"k{k}"]["refused"] for k in (2, 3, 4)},
               **{k: e[k] for k in ("false_readings", "false_reading_run_max",
-                                   "real_refused_run_min", "eye_refused_real_before",
+                                   "real_refused_run_min", "eye_real_gate_passed",
                                    "admitted_kit_or_round_switch", "admitted_gate_passed",
                                    "admitted_gate_passed_false")}}
     return metrics.record(
