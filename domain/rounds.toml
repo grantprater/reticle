@@ -81,23 +81,21 @@ see = ["rounds/disconnected-teammate-stays-drawn", "rounds/no-mid-round-disappea
 
 [no-mid-round-disappearance]
 claim = """
-A teammate never disappears mid-round: neither a disconnect nor an abandon
-removes them before the round ends.
+No player disappears mid-round, teammate or enemy: neither a disconnect nor
+an abandon removes them before the round ends.
 """
 kind = "rule"
 known = "player"
 since = "2026-10-04"
 source = """
 the player, 2026-10-04 (chat), on disconnected and abandoning teammates:
-"They will never just disappear mid-round though"
+"They will never just disappear mid-round though"; asked the same day
+whether it holds for enemies: "mid-round disappearances applies to
+everyone"
 """
 use = """
-a teammate lost mid-round is a death, a crowd or a reader loss, never a
-departure; the round's ally capacity holds until the round ends
-"""
-exceptions = """
-the player answered about teammates; whether an enemy can disappear
-mid-round is unasked (docs/ABILITY_MECHANICS_SHEET.md)
+a player lost mid-round is a death, a crowd or a reader loss, never a
+departure; each side's capacity holds until the round ends
 """
 see = ["rounds/disconnected-teammate-stays-drawn", "rounds/abandoned-player-not-spawned"]
 

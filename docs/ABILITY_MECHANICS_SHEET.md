@@ -70,15 +70,13 @@ cells that ask it are candidates from the catalogue's wiki function tags
 and descriptions, for the player to confirm or strike. Grenades that
 launch, and abilities that move other agents, are left out. On 2026-10-04
 the player confirmed the teleports and dashes whose cells cite a fact;
-`track.motion_for` reads them. Veto has a teleport
-[domain:abilities/veto-has-a-teleport]: which ability is it? The question
-listed Crosscut as Waylay's; the catalogue lists it as Veto's. Does
-Waylay's Refract teleport, dash, or carry her back continuously? Is
-Lightspeed's first dash horizontal? The player confirmed only that it can
-lift her [domain:abilities/waylay-vertical-lifts-above-jump]; `track` keeps
-Waylay's dash licence from before 2026-10-04 as a legacy candidate. A
-teammate never disappears mid-round
-[domain:rounds/no-mid-round-disappearance]. Does the same hold for enemies?
+`track.motion_for` reads them. Veto's teleport is Crosscut
+[domain:abilities/veto-crosscut-teleports]. Both of Lightspeed's dashes can
+be horizontal [domain:abilities/waylay-lightspeed-dashes]. Refract draws no
+teleport: the player believes it carries Waylay back continuously on
+others' minimaps [domain:abilities/waylay-refract-minimap], so `track`
+licenses nothing for it. No player, teammate or enemy, disappears mid-round
+[domain:rounds/no-mid-round-disappearance].
 
 ## Killfeed icons
 
@@ -347,7 +345,7 @@ draw an assist icon? And can a damaging ability draw one?
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Crosscut | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | split {'nothing': 1, 'compact_icon': 1} (census 2) | ? | ? | Veto has a teleport [domain:abilities/veto-has-a-teleport]; is it Crosscut? (candidate, wiki tag Teleport) |
+| C | Crosscut | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | split {'nothing': 1, 'compact_icon': 1} (census 2) | ? | ? | a teleport [domain:abilities/veto-crosscut-teleports] |
 | Q | Chokehold | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | white-tinted area, mostly circular [domain:abilities/veto-chokehold-minimap-white-area]; compact icon (census 1) | ? | persists after Veto dies [domain:abilities/veto-chokehold-persists-after-death] | the player's trip, confirmed as Chokehold [domain:abilities/veto-chokehold-minimap-white-area]. The area's radius? |
 | E | Interceptor | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE) | ? | nothing (census 1) | ? | ? | ? |
 | X | Evolution | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | ? | ? | ? | ? |
@@ -375,8 +373,8 @@ draw an assist icon? And can a damaging ability draw one?
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Saturate | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
-| Q | Lightspeed | Self-targeted | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Dash; `track` licenses a dash as a legacy candidate, no player fact) Is its first dash horizontal? [domain:abilities/movement-abilities-are-dashes-and-teleports] |
-| E | Refract | Self-targeted | 1 | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); instant; movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Mobility; speeds back to the beacon; the 2026-10-04 question listed Crosscut as Waylay's teleport by mistake, so Refract stays unasked) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| Q | Lightspeed | Self-targeted | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 1) | ? | ? | two dashes, both can be horizontal, only the first vertical [domain:abilities/waylay-lightspeed-dashes] |
+| E | Refract | Self-targeted | 1 | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); instant; movement | ? | nothing (census 1) | ? | ? | blinds her own minimap; on others' minimaps carries her back continuously, by the player's belief; no teleport, so `track` licenses nothing [domain:abilities/waylay-refract-minimap] |
 | X | Convergent Paths | Grounded AoE Self-targeted (Buff) | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | wall segments (census 1) | ? | ? | ? |
 
 ## Yoru

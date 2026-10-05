@@ -17,15 +17,23 @@ class ConfirmedFacts(unittest.TestCase):
         for (agent, ability), (kind, key) in MOVEMENT_FACTS.items():
             self.assertIn(key, facts, f"{agent} {ability}")
             self.assertEqual(facts[key].known, "player", key)
-        self.assertTrue(all(lic.confirmed for lic in movement_licences() if not lic.legacy))
+        self.assertTrue(all(lic.confirmed for lic in movement_licences()))
 
-    def test_legacy_rows_license_but_are_never_confirmed(self):
-        rows = {(lic.agent, lic.ability): lic for lic in movement_licences()
-                if lic.legacy}
-        self.assertEqual(set(rows), set(track.LEGACY_MOVEMENT))
-        self.assertFalse(any(lic.confirmed for lic in rows.values()))
-        self.assertNotIn(("Waylay", "Lightspeed"), MOVEMENT_FACTS)
+    def test_answered_rows_name_their_ability(self):
+        self.assertEqual(MOVEMENT_FACTS[("Veto", "Crosscut")],
+                         (track.TELEPORT, "abilities/veto-crosscut-teleports"))
+        self.assertEqual(MOVEMENT_FACTS[("Waylay", "Lightspeed")],
+                         (track.DASH, "abilities/waylay-lightspeed-dashes"))
+        self.assertTrue(all(ability for _agent, ability in MOVEMENT_FACTS))
+        # Refract carries Waylay back continuously, by the player's belief: no teleport.
+        self.assertNotIn(("Waylay", "Refract"), MOVEMENT_FACTS)
         self.assertEqual(motion_for("Waylay").name, "walker_dash")
+        self.assertEqual(motion_for("Veto").name, "walker_teleport")
+
+    def test_waylay_dashes_only_on_her_fact(self):
+        facts = dict(domain.load())
+        del facts[MOVEMENT_FACTS[("Waylay", "Lightspeed")][1]]
+        self.assertEqual(motion_for("Waylay", facts).name, "walker")
 
     def test_classes_follow_the_confirmed_kinds(self):
         want = {"Omen": "walker_teleport", "Yoru": "walker_teleport",

@@ -785,20 +785,15 @@ def check_movement() -> list[tuple[str, str]]:
     licenses a dash, a teleport or a speed change. A row whose fact is gone or
     is not the player's licenses nothing, silently, so it is a finding here; a
     set of confirmed kinds no motion class covers makes `track.motion_for`
-    raise, so it is an ERROR before any caller meets it. A `LEGACY_MOVEMENT`
-    row licenses its kind on no player fact; it is a finding until answered.
+    raise, so it is an ERROR before any caller meets it.
     """
     from . import track
     out = []
     for lic in track.movement_licences():
-        if lic.legacy:
-            out.append(("finding", f"{lic.agent} {lic.ability or '(agent)'} {lic.kind}: "
-                                   f"{lic.reason}; it still licenses, unconfirmed"))
-        elif not lic.confirmed:
-            out.append(("finding", f"{lic.agent} {lic.ability or '(agent)'} {lic.kind}: "
+        if not lic.confirmed:
+            out.append(("finding", f"{lic.agent} {lic.ability} {lic.kind}: "
                                    f"{lic.reason}; it licenses nothing"))
-    for agent in sorted({agent for agent, _ability in
-                         (*track.MOVEMENT_FACTS, *track.LEGACY_MOVEMENT)}):
+    for agent in sorted({agent for agent, _ability in track.MOVEMENT_FACTS}):
         try:
             track.motion_for(agent)
         except ValueError as exc:

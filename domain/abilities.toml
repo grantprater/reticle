@@ -3274,6 +3274,55 @@ docs/ABILITY_MECHANICS_SHEET.md
 """
 see = ["abilities/jett-updraft-lifts-above-jump", "abilities/raze-satchel-lifts-above-jump"]
 
+[waylay-lightspeed-dashes]
+claim = """
+Waylay's Lightspeed dashes twice. Both dashes can be horizontal; only the
+first can be vertical.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "waylay:lightspeed"
+source = """
+the player, 2026-10-04 (chat), asked whether Lightspeed's first dash is
+horizontal: "I'm not sure what about lightspeed is confirmed ... Only the
+first dash can be vertical. Both dashes can be horizontal"
+"""
+use = """
+a licensed dash of Waylay's track (`track.motion_for`); the first dash's
+lift is [domain:abilities/waylay-vertical-lifts-above-jump]
+"""
+exceptions = "how far either dash carries her is not recorded"
+see = ["abilities/waylay-vertical-lifts-above-jump", "abilities/movement-abilities-are-dashes-and-teleports"]
+
+[waylay-refract-minimap]
+claim = """
+Waylay's Refract blinds her own minimap; the player likens this to Omen's
+ult. On other players' minimaps the player believes Refract carries her back
+continuously; that part is the player's belief, not an observation.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "waylay:refract"
+source = """
+the player, 2026-10-04 (chat), asked whether Refract teleports Waylay back
+or carries her back continuously: "Refract blinds her own map like an omen
+ult, and I believe on others' maps it carries her back continuously"
+"""
+use = """
+a continuous carry-back is no teleport, so Refract licenses no
+discontinuity of Waylay's track; `track.MOVEMENT_FACTS` gives it no row
+"""
+exceptions = """
+the likeness to Omen's ult covers only the blinded own minimap: no other
+property of that ult carries over [domain:abilities/ability-rules-are-unique].
+How long the blind lasts, what the blinded minimap draws, and how fast the
+carry-back moves are not recorded. The carry-back on others' minimaps is a
+belief to test on a capture where an ally Waylay refracts
+"""
+see = ["abilities/waylay-lightspeed-dashes", "abilities/ability-rules-are-unique"]
+
 [raze-satchel-lifts-above-jump]
 claim = """
 A Raze Blast Pack (satchel) launch lifts her above the height a jump reaches,
@@ -3989,27 +4038,26 @@ its minimap drawing after the death.
 """
 see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/veto-chokehold-minimap-white-area", "abilities/ability-rules-are-unique"]
 
-[veto-has-a-teleport]
+[veto-crosscut-teleports]
 claim = """
-Veto has a teleport. Which of his abilities it is, the player did not say.
+Veto's Crosscut is a teleport.
 """
 kind = "rule"
 known = "player"
 since = "2026-10-04"
-subject = "veto:movement"
+subject = "veto:crosscut"
 source = """
 the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
 Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
 Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
 right and which dashes join it, added to it ("Jett's dash as well", "Veto
-also has a teleport") and struck no entry; "Veto also has a teleport". The list named Crosscut
-as Waylay's; the catalogue (`reticle/templates/killfeed_kits.json`) lists
-Crosscut as Veto's, tagged Teleport, so the reply may answer that slip. The
-ability is an open question in docs/ABILITY_MECHANICS_SHEET.md
+also has a teleport"); asked the same day which of Veto's abilities is the
+teleport, given that the catalogue lists Crosscut as Veto's: "Yes it's
+crosscut"
 """
 use = """
-a licensed discontinuity of Veto's track at agent level (`track.motion_for`)
-until the ability is named
+a licensed discontinuity of Veto's track (`track.motion_for`); the jump
+still needs corroboration (`reticle ownership teleport-licence`)
 """
 see = ["abilities/movement-abilities-are-dashes-and-teleports"]
 
