@@ -157,7 +157,7 @@ def _numeral_box(slot: str, temps: np.ndarray) -> tuple[int, int, int, int]:
     return x0, y0, x0 + tw + 2 * SEARCH_X, y0 + th + 2 * SEARCH_Y
 
 
-def opportunity(halves) -> list[str]:
+def read_opportunity(halves) -> list[str]:
     """The slots worth reading on one sample: C, Q or E with a half read
     empty (`halves`: the sample's 4 x 2 class indices, `tray.segment_index`)."""
     h = np.asarray(halves)
@@ -204,9 +204,9 @@ def read_slot(frame: np.ndarray, slot: str, temps: np.ndarray) -> dict | None:
 
 
 def read_sample(frame: np.ndarray, halves, font_file: str | None) -> list[dict]:
-    """The reads of one sample: each slot `opportunity` names whose box is
+    """The reads of one sample: each slot `read_opportunity` names whose box is
     lit, or a `no_font` refusal per such slot where the store holds no font."""
-    slots = opportunity(halves)
+    slots = read_opportunity(halves)
     if not slots:
         return []
     if font_file is None:

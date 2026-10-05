@@ -36,8 +36,8 @@ def _frame(text: str | None, slot: str = "E", bg=(70, 80, 120), noise: float = 3
 
 class OpportunityTest(unittest.TestCase):
     def test_only_spent_charge_slots_are_read(self):
-        self.assertEqual(tc.opportunity(EMPTY_HALVES), ["C", "E"])
-        self.assertEqual(tc.opportunity(np.zeros((4, 2), int)), [])
+        self.assertEqual(tc.read_opportunity(EMPTY_HALVES), ["C", "E"])
+        self.assertEqual(tc.read_opportunity(np.zeros((4, 2), int)), [])
 
     def test_no_font_refuses_each_slot(self):
         got = tc.read_sample(_frame(None), EMPTY_HALVES, None)

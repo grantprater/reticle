@@ -1308,7 +1308,7 @@ question = "Which numeral does the restock countdown above a C, Q or E tray slot
 owner = "tray_countdown"
 role = ["detect"]
 status = "partial"
-produces = ["FONT_RELPATH", "FONT_PT", "FONT_PX", "NUMERALS", "EMPTY", "NUMERAL_DX", "NUMERAL_CY", "READ_SLOTS", "LIT_MIN", "READ_MIN_SCORE", "READ_MIN_MARGIN", "font_path", "store_font", "templates", "value_s", "opportunity", "read_slot", "read_sample", "gold_rises", "score_against_returns"]
+produces = ["FONT_RELPATH", "FONT_PT", "FONT_PX", "NUMERALS", "EMPTY", "NUMERAL_DX", "NUMERAL_CY", "READ_SLOTS", "LIT_MIN", "READ_MIN_SCORE", "READ_MIN_MARGIN", "font_path", "store_font", "templates", "value_s", "read_opportunity", "read_slot", "read_sample", "gold_rises", "score_against_returns"]
 not_for = """
 What the numeral counts, or when a charge comes back. The reader stores one
 row per read slot-sample in the `tray_countdown` stream: a numeral, the empty
