@@ -791,9 +791,13 @@ minimap; its minimap drawing is the wall" and conflicted with the player's
 earlier answers: wall-icon-path-curve (2026-09-26), the texture answer at
 answers.jsonl line 48 (`TX_UI_Minimap_Phoenix_FireWall` is Blaze's) and the
 visibility answers at lines 307 and 308 (a teammate's and an enemy's Blaze
-draw icon_and_shape). The player's 2026-10-05 statement resolves the conflict
-for those answers; the shape-only answers at lines 462, 463 and 465 were given
-with the uncorrected claim shown
+draw icon_and_shape); phoenix-blaze-duration's census also saw a cast icon
+run ahead of the wall, pipeline evidence that never entered the claim. The
+exceptions then asked the player whether "any icon" covered the FireWall icon
+that leads the wall, or only a High Tide-style icon. The player's 2026-10-05
+statement answers that question and resolves the conflict; the shape-only
+answers at lines 462, 463 and 465 were given with the uncorrected claim shown,
+and revision rows replace them
 """
 see = ["abilities/phoenix-blaze", "abilities/phoenix-blaze-icon-leads-wall",
        "abilities/phoenix-blaze-minimap-size", "abilities/phoenix-minimap-objects",
@@ -825,10 +829,13 @@ the icon is gone, read the wall alone. An icon with no wall behind it, or a
 wall still growing with no icon, contradicts this fact
 """
 exceptions = """
-the player's statement names no view [domain:abilities/views-separate-per-ability];
-the teammate and enemy views rest also on lines 307 and 308. The caster's
-view has only the shape answer at line 465, given with the uncorrected
-phoenix-blaze-no-minimap-icon claim shown
+the player's statement names no view, so it covers the caster's, a
+teammate's and an enemy's minimap alike
+[domain:abilities/views-separate-per-ability]; the teammate and enemy views
+rest also on lines 307 and 308. The caster's view rests on this statement
+alone: its only earlier answer, shape at line 465, was given with the
+uncorrected phoenix-blaze-no-minimap-icon claim shown, and a revision row
+replaces it
 """
 see = ["abilities/phoenix-blaze", "abilities/phoenix-blaze-minimap-size",
        "abilities/wall-icon-path-curve", "abilities/phoenix-blaze-no-minimap-icon",
@@ -2228,19 +2235,22 @@ a lit wedge from no teammate's icon may be a drone's cone; which abilities
 are piloted is recorded per ability (each "piloted" fact), never by analogy
 """
 exceptions = """
-Which drones was listed as unanswered until 2026-10-05. The player's own
-words name three drones, each confirmed piloted: Sova's Owl Drone
+Which drones was listed as unanswered until 2026-10-05. The player's
+2026-10-05 answer on where abilities first appear names drones "like" three,
+as examples, not a closed list: Sova's Owl Drone
 [domain:abilities/sova-owl-drone-piloted], Tejo's Stealth Drone
-[domain:abilities/tejo-stealth-drone-piloted], and Skye's Trailblazer, the
-dog, which the player calls Skye's drone (2026-10-05)
-[domain:abilities/skye-trailblazer-piloted]. Whether a steered ability the
-player does not call a drone (Fade's Prowler [domain:abilities/fade-prowler-steered])
-has a cone is unasked. Unanswered: whether a drone's cone lights the floor as
+[domain:abilities/tejo-stealth-drone-piloted], and Skye's Trailblazer
+[domain:abilities/skye-trailblazer-piloted]; each is confirmed piloted. The
+player said the same day that Skye's drone means the dog, Trailblazer, not
+the hawk. Whether a steered ability the player does not call a drone has a
+cone is unasked: Fade's Prowler [domain:abilities/fade-prowler-steered] and
+Skye's Guiding Light, the hawk [domain:abilities/skye-guiding-light-steered]. Unanswered: whether a drone's cone lights the floor as
 a player's does, asked on docs/ABILITY_MECHANICS_SHEET.md
 """
 see = ["minimap/no-teammate-floor-circle", "abilities/ability-rules-are-unique",
        "abilities/sova-owl-drone-piloted", "abilities/tejo-stealth-drone-piloted",
-       "abilities/skye-trailblazer-piloted"]
+       "abilities/skye-trailblazer-piloted", "abilities/skye-guiding-light-steered",
+       "abilities/fade-prowler-steered"]
 
 [wall-icon-path-curve]
 claim = """

@@ -49,9 +49,10 @@ screen while the ability runs [domain:hud/controlled-entity-view-tint].
 questions.
 
 Open questions span rows. Every piloted drone has its own vision cone
-[domain:abilities/piloted-drones-have-cones]; the player names three drones,
-Sova's Owl Drone, Tejo's Stealth Drone and Skye's Trailblazer. Does a
-drone's cone light the floor like a player's? The minimap draws a self audio
+[domain:abilities/piloted-drones-have-cones]; the player gives three drones
+as examples, Sova's Owl Drone, Tejo's Stealth Drone and Skye's Trailblazer
+(the dog, not the hawk). Do Fade's Prowler and Skye's Guiding Light, steered
+but not called drones, have cones? Does a drone's cone light the floor like a player's? The minimap draws a self audio
 circle round the self icon [domain:minimap/self-audio-circle] on every
 sound, at the fixed audio range. How long does it linger after a sound? Is
 the large white circle round the Lotus A-site stack at 5822b6646448 49.50 s
