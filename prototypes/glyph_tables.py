@@ -4,6 +4,10 @@ r"""Stage 1 of docs/MINIMAP_GLYPH_CHANNEL.md: the per-key rotation policy table 
     .\.venv\Scripts\python.exe prototypes\glyph_tables.py follow --out DIR   (S1 follow, S4, the pooled null; crop cache)
     .\.venv\Scripts\python.exe prototypes\glyph_tables.py thrown --out DIR   (S5; crop cache of the match sessions)
     .\.venv\Scripts\python.exe prototypes\glyph_tables.py record --out DIR   (metric series glyph_tables/*, once)
+    .\.venv\Scripts\python.exe prototypes\glyph_tables.py bank --out NEWDIR --tables DIR   (the references, as data)
+
+`bank` writes `glyph-bank-0.1.0.npz` and `.json`: the 128 px glyphs the tables in DIR were built on, which the
+stage 2 reader (`reticle.minimap_glyph`) reads as versioned data; the reader never imports this script.
 
 `build` writes `glyph-rotation-policy-0.1.1.json` and `glyph-null-table-0.1.1.json` under DIR and `build.json`
 (the single-frame measurements S1-S3 and the instrument controls). Each command refuses an output that exists,
@@ -775,6 +779,53 @@ def cmd_thrown(out: Path, only: set | None = None) -> None:
     print(json.dumps(summ, indent=1, default=str))
 
 
+# ------------------------------------------------------------------ the reference bank the stage 2 reader reads
+
+BANK_VERSION = "glyph-bank-0.1.0"
+
+
+def cmd_bank(out: Path, tables: Path) -> None:
+    """Write the references the tables in `tables` were built on as versioned data (`glyph-bank-0.1.0.npz` and
+    `.json` under `out`): every catalogue key's 128 px glyphs, one per source (the DisplayIcon, then each export
+    texture the eval 0.3.0 dev run assigned it: correlation, the state inventory's minimap brushes and the player's
+    texture answers, `load_dev`). `reticle.minimap_glyph` reads this file and never imports this script. Refuses
+    when the answers file has moved since the tables were built."""
+    for n in (f"{BANK_VERSION}.npz", f"{BANK_VERSION}.json"):
+        gcc.fresh(out / n)
+    ptab, ntab = load_tables(tables)
+    have = sha256(mge.ANSWERS)
+    if have != ptab["provenance"]["answers"]["sha256"]:
+        raise SystemExit(f"answers moved since {ptab['version']} was built ({have}); rebuild the tables first")
+    load_dev()                                       # the references the dev run, and so the tables, used
+    keys = catalogue_keys()
+    glyphs, owner, prov = [], [], []
+    for k in keys:
+        for name, g in mge.sources(tuple(k.split(":"))):
+            glyphs.append(np.asarray(g, np.float32))
+            owner.append(k)
+            prov.append(name)
+    G = np.stack(glyphs)
+    out.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(out / f"{BANK_VERSION}.npz", glyphs=G, keys=np.array(owner), provenance=np.array(prov))
+    meta = {"version": BANK_VERSION, "generator": VERSION, "eval": mge.VERSION, "build": mge.BUILD,
+            "glyph_px": int(G.shape[1]), "keys": len(keys), "sources": len(owner),
+            "glyphs_sha256": hashlib.sha256(G.tobytes()).hexdigest(),
+            "npz_sha256": sha256(out / f"{BANK_VERSION}.npz"),
+            "matcher": {"canvas_base": [float(c) for c in mge.CANVAS], "mask_r_base": mge.MASK_R,
+                        "shift_base": mge.SHIFT, "rotations": list(mge.ROTS), "scale": "crop width / 465",
+                        "resample": "INTER_AREA to shrink the 128 px glyph to the canvas, INTER_LINEAR to turn"},
+            "references": {"states": "probe", "answers": True, "gamedata": True,
+                           "answers_file": str(mge.ANSWERS), "answers_sha256": have,
+                           "state_inventory": str(mge.STATE_INVENTORY),
+                           "state_inventory_sha256": sha256(mge.STATE_INVENTORY),
+                           "game_files": str(mge.GX)},
+            "tables": {"dir": str(tables), "policy": ptab["version"], "null": ntab["version"],
+                       "policy_sha256": sha256(tables / TABLES[0]), "null_sha256": sha256(tables / TABLES[1])},
+            "per_key_sources": dict(Counter(owner))}
+    json.dump(meta, open(out / f"{BANK_VERSION}.json", "w", encoding="utf-8"), indent=1)
+    print(json.dumps({k: v for k, v in meta.items() if k != "per_key_sources"}, indent=1))
+
+
 # ------------------------------------------------------------------ metric series
 
 
@@ -837,11 +888,17 @@ def cmd_record(out: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=("build", "follow", "thrown", "record"))
+    ap.add_argument("cmd", choices=("build", "follow", "thrown", "record", "bank"))
     ap.add_argument("--out", required=True, help="the run's directory; build creates it")
     ap.add_argument("--only", default=None, help="thrown: a sample of sessions (sid,sid), never the S5 run")
+    ap.add_argument("--tables", default=None, help="bank: the directory holding the tables it pairs with")
     a = ap.parse_args()
     out = Path(a.out)
+    if a.cmd == "bank":
+        if not a.tables:
+            raise SystemExit("bank needs --tables <the build's directory>")
+        cmd_bank(out, Path(a.tables))
+        return
     if a.cmd == "thrown":
         cmd_thrown(out, set(a.only.split(",")) if a.only else None)
         return

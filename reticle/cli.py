@@ -862,17 +862,8 @@ def _live_phase_at(store, sid, date):
     """(`gametime`'s phase at a time, None) for the ability pass's live-sample
     gate, or (None, reason) where the session has no stored HUD stream (a demo
     scanned without `hud`) or no stored rounds: the live phase is then
-    unknown and every sample is read."""
-    from . import stalls
-    if not store.hud_path(sid, date).is_file():
-        return None, "no HUD stream"
-    rs = store.read_rounds(sid, date)
-    if rs is None:
-        return None, "no rounds stream"
-    hud = store.read_hud(sid, date)
-    gt = gametime.build_session_gametime(sid, hud, rs.to_pylist(),
-                                         stall_list=stalls.for_session(store, sid, date))
-    return (lambda t: gt.game_time_at(t).phase), None
+    unknown and every sample is read (`gametime.live_phase_at`)."""
+    return gametime.live_phase_at(store, sid, date)
 
 
 def _ability_supply(store, sid, date):
@@ -1206,7 +1197,12 @@ def cmd_scan(args) -> int:
         args.force or _ability_stale(store, sid, SHAPE_STREAMS))
     want_icons = 'ability' in channels and (
         args.force or _ability_stale(store, sid, ("ability_icon",)))
-    want_ability = want_shapes or want_icons
+    # The glyph reader (`minimap_glyph`) reads the proposer's rows for the
+    # same sample: from the icon reader of this pass, or stored where the
+    # proposer is current and does not reread.
+    want_glyphs = 'ability' in channels and (
+        args.force or _ability_stale(store, sid, ("ability_glyph",)))
+    want_ability = want_shapes or want_icons or want_glyphs
     # The combat report over the whole capture at 1 Hz: a header correlation
     # per frame, rows only where a panel may be up.
     want_report = 'combat_report' in channels and (
@@ -1332,7 +1328,7 @@ def cmd_scan(args) -> int:
                 # It reads `frame[box]` alone, so the minimap cache feeds it on
                 # its own grid (`cache_resample`).
                 declare_set(dp, "minimap", profile, ctx.wh)
-        bp = ip = None
+        bp = ip = gp = None
         if want_ability:
             # The ability pass's readers ride the same pass, each under its own
             # stamp and only where it is stale; `minimap_dark` joins only where
@@ -1361,6 +1357,21 @@ def cmd_scan(args) -> int:
                 ip = icon_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray,
                                  phase_reason=phase_why)
                 declare_set(ip, "minimap", profile, ctx.wh)
+            if want_glyphs:
+                from .lineup import glyph_candidates
+                from .minimap_glyph import LiveIcons, StoredIcons, glyph_reader
+                if (ip is not None and getattr(args, "pipeline", "serial") == "staged"
+                        and getattr(args, "workers", None) != 0):
+                    raise SystemExit("the glyph reader reads the icon reader's row for the same "
+                                     "sample; a staged pass feeds them on separate threads. Run "
+                                     "the ability pass with --pipeline serial or --workers 0")
+                icons = (LiveIcons(ip) if ip is not None
+                         else StoredIcons(store.read_events("ability_icon", sid)))
+                cands, cands_from = glyph_candidates(sid, store.root)
+                if cands is None:
+                    print("ability glyphs: no stored lineup; every sample refuses as no_lineup")
+                gp = glyph_reader(ctx, spans, icons, cands, cands_from)
+                declare_set(gp, "minimap", profile, ctx.wh)
         cp = None
         if want_report:
             from .combat_report import CombatReportReader
@@ -1373,9 +1384,12 @@ def cmd_scan(args) -> int:
                                     spans=cache_spans, gate=cache_gate)
             except ValueError as exc:
                 raise SystemExit(f"--cache-roi {args.cache_roi}: {exc}")
-        readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, bp, ip, cp, xp) if r is not None]
+        # The glyph reader follows the icon reader: it reads that reader's row
+        # for the same sample (`minimap_glyph.LiveIcons`).
+        readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, bp, ip, gp, cp, xp)
+                   if r is not None]
         return SimpleNamespace(hp=hp, kp=kp, mp=mp, pp=pp, rp=rp, sp=sp, lp=lp, ap=ap,
-                               dp=dp, bp=bp, ip=ip, cp=cp, xp=xp, ctx=ctx, readers=readers)
+                               dp=dp, bp=bp, ip=ip, gp=gp, cp=cp, xp=xp, ctx=ctx, readers=readers)
 
     def live_rounds():
         try:
@@ -1610,6 +1624,13 @@ def cmd_scan(args) -> int:
             print(f"ability icons {rows[0]['frames']} samples {rows[0]['by_reason']}, "
                   f"{rows[0]['candidates']} candidates, {rows[0]['verify_lost']} verifies lost "
                   f"-> {path}")
+        if R.gp is not None:
+            rows = R.gp.events(sid, geometry.key_of(sid, store.root))
+            _record_inputs(store, sid, "ability_glyph", rows[0])
+            path = out.write_events("ability_glyph", sid, rows)
+            print(f"ability glyphs {rows[0]['frames']} samples {rows[0]['by_reason']}, disc rows "
+                  f"{rows[0]['disc_rows']}, {rows[0]['births']} births, windows "
+                  f"{rows[0]['windows']} -> {path}")
 
         if pp is not None:
             pp.finish()
@@ -6124,7 +6145,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("trial", help="rerun one reader on stored windows and diff it (writes nothing)")
     s.add_argument("session", nargs="?")
     s.add_argument("--reader", default="killfeed",
-                   choices=("killfeed", "hud", "scoreboard", "ally_icon"))
+                   choices=("killfeed", "hud", "scoreboard", "ally_icon", "ability_glyph"))
     s.add_argument("--from", dest="source", default="cache", choices=("cache", "video"),
                    help="ROI crop cache (no decode) or seeks into the capture")
     s.add_argument("--windows", default="occupied", choices=("occupied", "all"),

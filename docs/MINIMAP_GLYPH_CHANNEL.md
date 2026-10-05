@@ -729,7 +729,54 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
 2. **The reader** in the ability pass, `ability-glyph-0.1.0`; `reticle
    trial --reader ability_glyph` on a06f04a0059f, 5822b6646448
    (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`) and 4f207c0c4e39
-   (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`); gate 7.
+   (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`); gate 7. **Built,
+   gate 7 unmet at 331 px** (2026-10-05, `reticle/minimap_glyph.py`
+   [owns:ability-glyph]). It reads three versioned store files, never
+   `prototypes/`: the reference bank `glyph-bank-0.1.0` (store
+   `analysis/glyph-bank-20261005`, written by `glyph_tables.py bank` from
+   the references the stage 1 tables were built on, paired to them by
+   sha256), the policy and the null table. It scores the lineup's kits
+   (`lineup.glyph_candidates`) under the policy on every proposed disc, the
+   first birth and every tenth after it against every kit at every rotation
+   (`audit`), and a window whose best context key never clears its per-key
+   cut against every kit when it closes (`surprise`). It runs the 2 Hz arm
+   only (S4); the cache-cadence follow is not built. `plan` names
+   `ability_glyph` stale where the ability pass ran without it. Outcome rows:
+   store `notes/predictions.jsonl`, `glyph-reader-20261005`.
+   - The matcher reproduces stage 1 exactly: on the 122 eval 0.3.0 dev
+     windows the largest per-key difference from `key_scores` is
+     [metric:glyph_reader/r1#max_abs_diff_cpu=0.0] on the CPU, and S1 is
+     [metric:glyph_reader/r1#s1_reader=58] of 59. On 200 sampled disc rows
+     per trial session it matches the prototype's `frame_scores` within
+     [metric:glyph_reader/trial@4f207c0c4e39#r2_max_abs_diff=5e-05] (the
+     stored rounding), the best key on every row.
+   - Gate 7, measured in the trial: the glyph reader's feed time over the
+     icon reader's feed plus the cache read, both fed as the pass feeds them
+     (`usage.steps`). The stored pass also runs the shape reader, so this
+     ratio is an upper bound. It is
+     [metric:glyph_reader/trial@a06f04a0059f#ratio=0.036] and
+     [metric:glyph_reader/trial@5822b6646448#ratio=0.0431] at 465 px, and
+     [metric:glyph_reader/trial@4f207c0c4e39#ratio=0.1178] at 331 px
+     ([metric:glyph_reader/trial@4f207c0c4e39#ratio_without_templates=0.1]
+     without the one-time template rendering). P3 failed there. Revised
+     belief: the reader's cost is fixed per frame
+     ([metric:glyph_reader/trial@4f207c0c4e39#glyph_ms_per_frame=5.729] ms),
+     while the proposer costs about a third at 331 px, so a share bound
+     fails on small widgets until the reader gets cheaper.
+   - The surprise path took
+     [metric:glyph_reader/trial@4f207c0c4e39#r3_never_clear=1125] of
+     [metric:glyph_reader/trial@4f207c0c4e39#r3_windows=2798] windows on
+     4f207c0c4e39 (share
+     [metric:glyph_reader/trial@a06f04a0059f#r3_share=0.4583] and
+     [metric:glyph_reader/trial@5822b6646448#r3_share=0.3885] on the
+     others), fewer than the half R3 predicted: the per-key cut alone names
+     too much, as gate 3's bank rates warned.
+   - The audit's full rotated bank put its best key inside the lineup's kits
+     on [metric:glyph_reader/trial@4f207c0c4e39#r4_best_in_context=94] of
+     [metric:glyph_reader/trial@4f207c0c4e39#r4_cleared_audit_windows=164]
+     cleared windows there, against R4's 80%: a bank searched at every
+     rotation wins on noise. Audit rows need their own null before stage 3
+     compares them with context verdicts (P5).
 3. **Tracks, verdict, per-ability rules and claims** from storage; gates 4
    and 6. The ability pass first runs on the 21 matches in one batched
    corpus rerun; today `ability_icon` exists on five sessions only.
@@ -806,6 +853,8 @@ From the repository root, single-threaded, Below Normal, no decode:
 .\.venv\Scripts\python.exe prototypes\glyph_tables.py follow --out <that dir>         # follow.json: S1 follow, S4, pooled null (dev crop cache)
 .\.venv\Scripts\python.exe prototypes\glyph_tables.py thrown --out <that dir>         # thrown.json: S5 (match crop caches)
 .\.venv\Scripts\python.exe prototypes\glyph_tables.py record --out <that dir>         # glyph_tables/* metric series, once
+.\.venv\Scripts\python.exe prototypes\glyph_tables.py bank --out <new dir> --tables <that dir>  # stage 2's reference bank
+.\.venv\Scripts\python.exe -m reticle trial <sid> --reader ability_glyph --from cache   # stage 2: proposer and reader, no decode
 ```
 
 Each writing command refuses an existing output file, and `--out` has no

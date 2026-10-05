@@ -163,27 +163,34 @@ _HAND_CHECKED = ("death", "ult_cast", "tray_drop", "ability_shape", "scoreboard_
 def ability_streams() -> list[tuple[str, str, str]]:
     """(stream, stamp key, current stamp) of each stream the ability pass
     writes (`reticle scan <sid> --only ability`, `ability_scan`)."""
-    from .version import (ABILITY_FIT_VERSION, ABILITY_GATE_VERSION, ABILITY_ICON_VERSION,
-                          ABILITY_SHAPE_VERSION, ABILITY_WALL_VERSION)
+    from .version import (ABILITY_FIT_VERSION, ABILITY_GATE_VERSION, ABILITY_GLYPH_VERSION,
+                          ABILITY_ICON_VERSION, ABILITY_SHAPE_VERSION, ABILITY_WALL_VERSION)
     return [("ability_gate", "ability_gate_version", ABILITY_GATE_VERSION),
             ("ability_fit", "ability_fit_version", ABILITY_FIT_VERSION),
             ("ability_wall", "ability_wall_version", ABILITY_WALL_VERSION),
             ("ability_shape_scan", "ability_shape_scan_version", ABILITY_SHAPE_VERSION),
             ("ability_shape_audit", "ability_shape_audit_version", ABILITY_SHAPE_VERSION),
-            ("ability_icon", "ability_icon_version", ABILITY_ICON_VERSION)]
+            ("ability_icon", "ability_icon_version", ABILITY_ICON_VERSION),
+            ("ability_glyph", "ability_glyph_version", ABILITY_GLYPH_VERSION)]
 
 
 def _ability_inputs(stream: str) -> tuple[dict, tuple]:
     """(fields, upstream) of one ability-pass stream: the gate's samples feed
     every shape stream but the walls; the candidate streams also rest on the
-    candidate table, its facts' values and the stored deaths."""
+    candidate table, its facts' values and the stored deaths. The glyph
+    reader reads the proposer's rows, and its reference bank and tables
+    (`minimap_glyph.GLYPH_BANK_STAMP`)."""
     from .ability_candidates import values_digest
-    from .version import ABILITY_CANDIDATES_VERSION, ABILITY_GATE_VERSION, ABILITY_SHAPE_VERSION
+    from .minimap_glyph import GLYPH_BANK_STAMP
+    from .version import (ABILITY_CANDIDATES_VERSION, ABILITY_GATE_VERSION, ABILITY_ICON_VERSION,
+                          ABILITY_SHAPE_VERSION)
     gate = {"ability_gate_version": ABILITY_GATE_VERSION}
     cand = {"ability_shape_version": ABILITY_SHAPE_VERSION,
             "ability_candidates_version": ABILITY_CANDIDATES_VERSION,
             "appearance_values": values_digest()}
     return {"ability_gate": ({}, ()), "ability_icon": ({}, ()),
+            "ability_glyph": ({"glyph_bank": GLYPH_BANK_STAMP,
+                               "ability_icon_version": ABILITY_ICON_VERSION}, ("ability_icon",)),
             "ability_shape_scan": (gate, ("ability_gate",)),
             "ability_shape_audit": (gate, ("ability_gate",)),
             "ability_fit": ({**gate, **cand}, ("ability_gate", "death")),
@@ -636,6 +643,8 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                       "roster": _in("inputs.roster", "roster", optional=True),
                       "spans": _spans()},
         "ability_gate": {"spans": _spans(), **geo}, "ability_icon": {"spans": _spans(), **geo},
+        # The glyph reader's context set is the lineup's (`lineup.glyph_candidates`).
+        "ability_glyph": {"spans": _spans(), **geo, **_lineup_inputs()},
         "ability_shape_scan": {"shape_model": _code("ability_shape_version", ABILITY_SHAPE_VERSION),
                                "spans": _spans(), **geo},
         # The audit also runs the candidate path's fit on each sample to count
@@ -1396,11 +1405,21 @@ def stale(store, sessions: list[str]) -> dict:
                                 "how": _CACHE_READERS.get(stream, "storage")})
         # Every other stamped stream, declared with its command.
         moving = rescanned | {x["stream"] for x in derived}
+        pass_streams = {s for s, _, _ in ability_streams()}
+        stored = set(stored_streams(store, sid))
         for spec in derived_streams():
             stream = spec["stream"]
             head = (_head(store, stream, sid, b'"event_kind":"identity_distribution"') if spec.get("identity")
                     else _head(store, stream, sid))
             if head is None:
+                # A stream the ability pass gained since it last ran on this
+                # session: the pass ran, so its absence is staleness, not a
+                # stream never asked for.
+                if stream in pass_streams and pass_streams & stored:
+                    derived.append({"stream": stream, "stored": None, "current": spec["current"],
+                                    "inputs_moved": ["absent from a pass that ran"],
+                                    "how": spec["how"], "command": spec["command"].format(sid=sid)})
+                    moving.add(stream)
                 continue
             version = head.get(spec["key"])
             behind, moved, missing = recorded_stale(store, man, spec, head, memo, accepted)

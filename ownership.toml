@@ -1794,6 +1794,24 @@ candidate is a dark disc on the slab, not an ability: most come and go.
 consumers = ["cli"]
 evidence = "tests/test_ability_icons.py, tools/ability_icon_benchmark.py"
 
+[[entry]]
+id = "ability-glyph"
+question = "Which game minimap texture of the candidate kits does each proposed ability disc draw, and how well does each candidate score?"
+owner = "minimap_glyph"
+role = ["detect"]
+status = "partial"
+produces = ["GlyphData", "Templates", "score_windows", "AbilityGlyphReader", "glyph_reader", "LiveIcons", "StoredIcons"]
+not_for = """
+Finding discs (`ability-icon`); joining discs across frames into tracks
+(`ability-disc-track`); naming the ability or its caster
+(`ability-glyph-name`, `agent-identity`); smokes (`minimap-dark`) and shapes
+(`ability-shape`); choosing the candidate set beyond the lineup's verdicts,
+which it takes as a candidate set only (`lineup.glyph_candidates`). Its
+windows schedule the audit and surprise paths; they are not tracks.
+"""
+consumers = ["cli", "trial"]
+evidence = "tests/test_minimap_glyph.py; reticle trial --reader ability_glyph; docs/MINIMAP_GLYPH_CHANNEL.md stage 2"
+
 
 [[entry]]
 id = "fact-subject"

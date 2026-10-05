@@ -965,9 +965,7 @@ def patches(Yw: np.ndarray, scale: float, sh: int | None = None):
     return v[:, mask > 0].astype(np.float32)
 
 
-def zrows(A: np.ndarray) -> np.ndarray:
-    A = A - A.mean(1, keepdims=True)
-    return A / (np.linalg.norm(A, axis=1, keepdims=True) + 1e-9)
+from reticle.minimap_glyph import zrows  # noqa: E402,F401  (promoted with the stage 2 reader; same rows)
 
 
 def pearson(P, T, ctx=None):

@@ -598,6 +598,13 @@ ABILITY_GATE_VERSION = "ability-gate-0.2.0"
 # 0.3.0 (2026-09-30): radii, rim, reach and verify window are base values under
 # the transform (`geometry.map_scale`), no longer shares of the crop's width.
 ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
+# The minimap glyph reader (`minimap_glyph`, `ability_glyph` rows): each
+# proposed ability disc's masked-Pearson score against the game's minimap
+# textures of the lineup's kits, under the stage 1 rotation policy, with the
+# audit and surprise paths against every kit. Bump when the matcher, a window
+# or audit rule, or a stored field changes; the reference bank and the tables
+# carry their own stamps (`minimap_glyph.GLYPH_BANK_STAMP`).
+ABILITY_GLYPH_VERSION = "ability-glyph-0.1.0"
 # The ability tray's charge drops, written as `tray_drop` rows by `reticle
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own

@@ -160,6 +160,82 @@ def scoreboard_targets(samples: list[dict], strip_rows: list[dict] | None,
     return [x for x in t if in_spans(x, gate["spans"], starts)]
 
 
+class _AbilityGlyphPass:
+    """The ability pass as `scan` runs it where both streams are stale: the
+    icon proposer, then the glyph reader on the proposer's row for the same
+    sample (`minimap_glyph.LiveIcons`). Each feed is the named step of its
+    reader, so `usage.steps` holds both readers' time apart (gate 7)."""
+
+    name = "ability_glyph"
+
+    def __init__(self, icons, glyphs, store_root):
+        self.icons, self.glyphs, self.store_root = icons, glyphs, store_root
+
+    def feed(self, smp) -> None:
+        from .usage import step
+        with step("ability_icon"):
+            self.icons.feed(smp)
+        with step("ability_glyph"):
+            self.glyphs.feed(smp)
+
+
+def _ability_inputs(ctx):
+    """(spans, phase_at, why) as `scan`'s ability pass reads them."""
+    from .gametime import live_phase_at
+    from .segment import reader_spans
+    sid, date = ctx.session_id, ctx.manifest["ingested_at"][:10]
+    tbl = ctx.store.read_spans(sid, date)
+    if tbl is None:
+        raise SystemExit(f"no spans for session {sid} -- run `reticle segment {sid}` first")
+    spans = reader_spans(tbl.select(["state", "t_start_ms", "t_end_ms"]).to_pylist())
+    phase_at, why = live_phase_at(ctx.store, sid, date)
+    return spans, phase_at, why
+
+
+def _ability_glyph_reader(ctx):
+    from .ability_icons import icon_reader
+    from .lineup import glyph_candidates
+    from .minimap_glyph import LiveIcons, glyph_reader
+    # `scan`'s inputs: the stored spans and live phase, and the lineup's
+    # candidate set from its owner.
+    spans, phase_at, why = _ability_inputs(ctx)
+    ip = icon_reader(ctx, spans, phase_at=phase_at, phase_reason=why)
+    cands, cands_from = glyph_candidates(ctx.session_id, ctx.store.root)
+    gp = glyph_reader(ctx, spans, LiveIcons(ip), cands, cands_from)
+    return _AbilityGlyphPass(ip, gp, ctx.store.root)
+
+
+def _ability_glyph_rows(reader, sid: str) -> dict[str, list[dict]]:
+    from . import geometry
+    return {"ability_glyph": reader.glyphs.events(sid, geometry.key_of(sid, reader.store_root))}
+
+
+def _ability_timeline(store, manifest: dict, windows: str, pad_ms: float):
+    """The ability pass's 2 Hz grid over the minimap cache (`roi_cache.grid_times`
+    on each reader span, as `cache_feed` reads a resampling reader); occupied
+    keeps the samples the live phase gate admits, the opportunity to see a
+    cast disc, not the discs found."""
+    from types import SimpleNamespace
+    from .gametime import live_phase_at
+    from .profiles import get_profile
+    from .roi_cache import RoiCache, grid_times
+    from .ability_scan import LIVE_PHASES
+    sid = manifest["session_id"]
+    cache, why = RoiCache.load(store.root, manifest, get_profile(manifest["source_profile"]),
+                               "minimap")
+    if cache is None:
+        raise SystemExit(f"{sid}: no usable minimap ROI cache ({why})")
+    spans, phase_at, _ = _ability_inputs(SimpleNamespace(session_id=sid, manifest=manifest,
+                                                         store=store))
+    want = sorted({x for a, b in spans for x in grid_times(cache.t_ms, float(a), float(b), 0.5)})
+    n = len(want)
+    if windows == "occupied" and phase_at is not None:
+        want = [t for t in want if phase_at(t) in LIVE_PHASES]
+    elif windows not in ("occupied", "all"):
+        raise ValueError(f"unknown windows {windows!r}")
+    return n, want, {}
+
+
 TRIAL_READERS = {
     # reader -> (the ROI cache set its reads stay inside, build, rows, streams, timeline)
     "killfeed": ("killfeed", _killfeed_reader, _killfeed_rows,
@@ -170,10 +246,13 @@ TRIAL_READERS = {
                    _scoreboard_timeline),
     # The minimap set's first rectangle only: the ability tray is not read.
     "ally_icon": ("minimap", _ally_reader, _ally_rows, ("ally_icon",), _ally_timeline),
+    # The icon proposer and the glyph reader together, as the ability pass feeds them.
+    "ability_glyph": ("minimap", _ability_glyph_reader, _ability_glyph_rows, ("ability_glyph",),
+                      _ability_timeline),
 }
 
 #: Profile ROIs a trial decodes from its cache set, where fewer than the set's.
-TRIAL_ROIS = {"ally_icon": ("minimap",)}
+TRIAL_ROIS = {"ally_icon": ("minimap",), "ability_glyph": ("minimap",)}
 
 
 def targets(hud: dict, windows: str = "occupied", pad_ms: float = 2000.0) -> list[float]:

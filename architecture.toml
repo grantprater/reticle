@@ -50,7 +50,8 @@ modules = ["minimap", "ally_portrait", "ocr", "killfeed", "roster", "ping", "con
            "hud_reader", "scoreboard", "scoreboard_strip", "round_outcome", "glance", "track", "economy",
            "minimap_dark", "combat_report", "ability_shapes", "tray", "ult_lines",
            "tray_icons", "menu", "teardrop", "spike", "occluders", "ability_scan", "ability_icons",
-           "plant_graphic", "killfeed_numeral", "killfeed_assist", "stack_fit", "tray_countdown"]
+           "plant_graphic", "killfeed_numeral", "killfeed_assist", "stack_fit", "tray_countdown",
+           "minimap_glyph"]
 
 [orchestration]
 claim = "shared decode passes, which dispatch to readers and own no reading"
@@ -217,12 +218,24 @@ a verdict on an icon.
 from = "trial"
 to = "lineup"
 kind = "deferred"
-imports = "portrait_candidates"
+imports = "portrait_candidates, glyph_candidates"
 reason = """
 The killfeed portrait reader scores each side's admitted agents from the stored
-lineup, as `scan` builds it. A trial builds the reader `scan` would, so it asks
-the lineup's owner for that candidate set rather than restating it; it writes
-nothing.
+lineup, as `scan` builds it; the minimap glyph reader scores their kits. A
+trial builds the reader `scan` would, so it asks the lineup's owner for that
+candidate set rather than restating it; it writes nothing.
+"""
+
+[[exception]]
+from = "trial"
+to = "gametime"
+kind = "deferred"
+imports = "live_phase_at"
+reason = """
+The ability pass reads only live samples, gated by the stored game time's
+phase. A trial of the glyph reader builds the icon reader `scan` would, so it
+asks the gate's owner (`live_phase_at`, which `scan` calls too) rather than
+restating it; it writes nothing.
 """
 
 # ---------------------------------------------------------------------------
