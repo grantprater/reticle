@@ -77,6 +77,33 @@ class TestScoreboardReads(unittest.TestCase):
         labels = sr.pair_labels(states, runs)
         self.assertEqual(labels, {2: True, 3: True})
 
+    def test_variants_select_like_e(self):
+        diffs = {20: 9.0, 30: 1.0, 40: 6.0, 50: 0.5}
+        for v in sr.VARIANTS:
+            self.assertEqual(sr.select([10, 20, 30, 40, 50], v, diffs, theta=5.0), [20, 40])
+
+    def test_credit_bins_cover_the_credits_cell(self):
+        from reticle import scoreboard as sb
+        bins = sr.credit_bins()
+        self.assertTrue(bins and bins == list(range(bins[0], bins[-1] + 1)))
+        self.assertLessEqual(bins[0] / sr.NBINS, sb.CREDITS_X - sb.CREDITS_HALF)
+        self.assertGreaterEqual((bins[-1] + 1) / sr.NBINS, sb.CREDITS_X + sb.CREDITS_HALF)
+
+    def test_credit_match_by_overlap(self):
+        c = {"t_start_ms": 100.0, "t_end_ms": 500.0}
+        a = {"t_start_ms": 0.0, "t_end_ms": 150.0}
+        b = {"t_start_ms": 200.0, "t_end_ms": 600.0}
+        far = {"t_start_ms": 900.0, "t_end_ms": 950.0}
+        self.assertIs(sr.credit_match(c, [a, b, far]), b)
+        self.assertIsNone(sr.credit_match(c, [far]))
+
+    def test_n_differ_counts_gains_apart(self):
+        cmp_ = {"lineup": {"same": 2}, "credits": {"same": 5, "lost": 2, "gained": 3},
+                "local_row": {"changed": 1}, "deaths": {"same": 4, "refusal_reason_changed": 1},
+                "kd_bound": {"same": 3, "changed": 1}}
+        got = sr.n_differ(cmp_)
+        self.assertEqual((got["total"], got["lost"]), (2 + 3 + 1 + 1 + 1, 2 + 1 + 1))
+
 
 if __name__ == "__main__":
     unittest.main()
