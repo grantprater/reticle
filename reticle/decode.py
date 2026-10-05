@@ -275,6 +275,12 @@ def _sampling_spans(spans_ms, open_start: bool = False):
     return sorted(spans)
 
 
+def frame_stride(nominal_fps: float, target_hz: float) -> int:
+    """The decode-index stride `sample_frames` samples at `target_hz`: every
+    frame where the container reports no rate."""
+    return max(1, int(round(nominal_fps / target_hz))) if nominal_fps > 0 else 1
+
+
 def sample_frames(
     path: str,
     target_hz: float,
@@ -292,9 +298,7 @@ def sample_frames(
     if not cap.isOpened():
         raise SystemExit(f"could not open {path}")
 
-    stride = 1
-    if nominal_fps > 0:
-        stride = max(1, int(round(nominal_fps / target_hz)))
+    stride = frame_stride(nominal_fps, target_hz)
 
     emitted = 0
     idx = 0
@@ -491,6 +495,7 @@ def sample_multi(
     nominal_fps: float,
     requests: dict[str, tuple[float, list[tuple[float, float]] | None]],
     info: dict | None = None,
+    strides: dict[str, int] | None = None,
 ) -> Iterator[tuple[frozenset[str], Sample]]:
     """One decode, many readers. Yields `(who wants this frame, sample)`.
 
@@ -529,7 +534,20 @@ def sample_multi(
     OBS output is variable-rate -- the same reason timestamps come from the
     decoder. A gap between spans resets that reader's phase so a span's first
     frame is never held hostage by the stride of the one before it.
+
+    `strides`, when given, names whole-capture readers sampled as
+    `sample_frames` samples: every frame whose decode index is a multiple of
+    the stride, whatever its timestamp. `ingest` reads the L1 primitives on
+    that rule, so the primitives reader joins a shared pass and still stores
+    the frames a pass of its own would (`primitives.PrimitivesReader`). Such
+    a reader's `requests` entry must name the whole capture.
     """
+    strides = dict(strides or {})
+    for name, k in strides.items():
+        if name not in requests or requests[name][1] is not None:
+            raise ValueError(f"a frame-stride reader reads the whole capture: {name}")
+        if isinstance(k, bool) or not isinstance(k, int) or k < 1:
+            raise ValueError(f"frame stride for {name} must be a positive integer, not {k!r}")
     state = {}
     for name, (hz, spans) in requests.items():
         checked_spans = _sampling_spans(spans, open_start=True)
@@ -567,8 +585,10 @@ def sample_multi(
             if t_ms > stop_after:
                 break
 
-            want = set()
+            want = {name for name, k in strides.items() if idx % k == 0}
             for name, st in state.items():
+                if name in strides:
+                    continue
                 spans = st["spans"]
                 if spans is not None:
                     while st["si"] < len(spans) and t_ms > spans[st["si"]][1]:

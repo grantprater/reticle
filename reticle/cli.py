@@ -274,31 +274,155 @@ def cmd_ingest(args) -> int:
     if not rows:
         raise SystemExit("decoded zero frames -- is the file readable?")
 
-    tags = [t.strip() for t in (args.tags or "").split(",") if t.strip()]
-    # Re-ingesting must not silently drop tags recorded the first time round.
+    _write_ingest_manifest(store, fp, profile, minimap, args.hz, len(rows),
+                           _ingest_tags(args.tags, existing))
+    _write_l1(store, rows, fp, profile.name, date)
+    print(f"took       {elapsed:.1f}s  ({len(rows) / elapsed:.1f} samples/s)")
+    print(f"\nnext: reticle inspect {fp.session_id}")
+    return 0
+
+
+def cmd_ingest_match(args) -> int:
+    """A new match capture's whole ingest in two decodes, each reader once.
+
+    Before 2026-10-05 a match took five decodes run by hand: `ingest` (L1
+    primitives at 5 Hz), `scan --only hud roster scoreboard combat_report
+    --cache-roi hud`, `scan --cache-roi minimap --cache-hz 15 --cache-live`,
+    and one decode each for the killfeed panel and scoreboard crop sets,
+    which exist only because their gates read stored streams. Here:
+
+    1. **Decode 1, whole capture.** The primitives ride the HUD pass
+       (`primitives.PrimitivesReader`, on `ingest`'s own frame stride), with
+       the hud crop set and the two gated sets, each gate decided in the
+       pass from its witness (`roi_cache.KillfeedPanelLiveGate`,
+       `ScoreboardLiveGate`) and checked at the end against the gate the
+       witness's whole stream gives. L1 and L2 publish with the pass.
+    2. **Stored data.** `rounds`, then `strip` from the hud crop cache; the
+       stored strip and killfeed rows must give the gates the caches were
+       written under, or the command fails.
+    3. **Decode 2, the minimap pass**, unchanged: its readers need the
+       in-match spans `segment` cuts from the whole of L1, and its cache the
+       live rounds `gametime` fits over the whole stored HUD, so it cannot
+       join decode 1 without changing which frames its readers read.
+    4. **`ult-lines`**, which decodes the audio alone.
+
+    Every reader keeps its stamp and its stream; the pass changes no
+    definition. A step that fails stops the command, and its own message
+    says what to rerun."""
+    store = Store(args.store)
+    fp = fingerprint(args.video)
+    profile = get_profile(args.profile)
+    minimap = MinimapMode.parse(args.minimap_mode) if args.minimap_mode else profile.minimap
+    existing = next((s for s in store.sessions() if s["session_id"] == fp.session_id), None)
+    if existing and store.has_primitives(fp.session_id, _date_of(existing)) and not args.force:
+        print(f"cache hit  session {fp.session_id} is already ingested; "
+              f"`reticle plan {fp.session_id}` names what is stale; --force re-ingests")
+        return 0
+    sid = fp.session_id
+    tags = _ingest_tags(args.tags, existing)
+    # The manifest goes first, since the pass's readers read it; `n_samples`
+    # is unknown until the pass ends and is written then, at the same time.
+    _write_ingest_manifest(store, fp, profile, minimap, args.hz, None, tags,
+                           ingested_at=existing["ingested_at"] if existing else None)
+    ingested_at = store.read_manifest(sid)["ingested_at"]
+    w, h = int(fp.width), int(fp.height)
+    from .scoreboard_strip import MEASURED_WH
+    gated = ["killfeed_panel"] + (["scoreboard"] if (w, h) == MEASURED_WH else [])
+    timings: list[tuple[str, float]] = []
+
+    def step(label: str, fn) -> None:
+        print(f"\n== {label}")
+        t0 = time.perf_counter()
+        code = fn()
+        timings.append((label, time.perf_counter() - t0))
+        if code:
+            raise SystemExit(f"ingest-match stopped at {label} (exit {code})")
+
+    def scan(argv: list[str], **extra):
+        parsed = build_parser().parse_args(["--store", str(store.root), "scan", sid, *argv])
+        for k, v in extra.items():
+            setattr(parsed, k, v)
+        return parsed
+
+    force = ["--force"] if args.force else []
+    first = scan(["--only", "hud", "roster", "scoreboard", "combat_report",
+                  "--cache-roi", "hud", "--cache-gated", *gated, *force], primitives_hz=args.hz)
+    step("decode 1: primitives, HUD readers, hud/killfeed_panel/scoreboard crops",
+         lambda: cmd_scan(first))
+    n = int(store.read_primitives(sid, _date_of(store.read_manifest(sid)))["t_ms"].shape[0])
+    _write_ingest_manifest(store, fp, profile, minimap, args.hz, n, tags, ingested_at=ingested_at)
+    base = ["--store", str(store.root)]
+    step("rounds (stored data)", lambda: main(base + ["rounds", sid]))
+    step("strip (hud crop cache)", lambda: main(base + ["strip", sid]))
+    step("gates against the stored witnesses",
+         lambda: _check_live_gates(store, sid, gated, first.hz))
+    second = scan(["--cache-roi", "minimap", "--cache-hz", "15", "--cache-live", *force])
+    step("decode 2: minimap readers, minimap crops over live rounds", lambda: cmd_scan(second))
+    step("ult-lines (audio only)", lambda: main(base + ["ult-lines", sid]))
+    print("\ntook       " + ", ".join(f"{label.split(':')[0]} {dt:.0f}s" for label, dt in timings))
+    print(f"\nnext: reticle plan {sid}")
+    return 0
+
+
+def _check_live_gates(store, sid: str, gated: list[str], hz: float) -> int:
+    """Each in-pass gated set's gate against the gate its stored witness
+    gives (`roi_cache.scoreboard_gate`, `killfeed_panel_gate`): 0 where every
+    one matches. A mismatch leaves the cache in place, where `scan`'s stale
+    check (`_roi_cache_stale`) names it for the rewrite this prints."""
+    from .roi_cache import killfeed_panel_gate, rewrite_command, scoreboard_gate, stored_record
+    bad = 0
+    for name in gated:
+        rec = stored_record(store.root, sid, name)
+        if name == "scoreboard":
+            want, why = scoreboard_gate(store.read_events("scoreboard_strip", sid))
+        else:
+            want, why = killfeed_panel_gate(store.read_events("killfeed_portrait", sid), hz)
+        want = None if want is None else json.loads(json.dumps(want))
+        got = None if rec is None else rec.get("gate")
+        if rec is None or want is None or got != want:
+            bad += 1
+            why = ("no stored cache" if rec is None else f"no stored gate: {why}"
+                   if want is None else "the gates differ")
+            print(f"gate       {name}: {why}; rewrite with `{rewrite_command(sid, name)}`")
+        else:
+            print(f"gate       {name}: equal to the stored {got['witness']} gate "
+                  f"({len(got['spans'])} spans)")
+    return 1 if bad else 0
+
+
+def _ingest_tags(text: str | None, existing: dict | None) -> list[str]:
+    """The manifest's tags: those given, and those a re-ingest found stored;
+    re-ingesting must not silently drop tags recorded the first time round."""
+    tags = [t.strip() for t in (text or "").split(",") if t.strip()]
     if existing:
         tags = sorted(set(tags) | set(existing.get("tags", [])))
+    return tags
+
+
+def _write_ingest_manifest(store, fp, profile, minimap, hz: float, n_samples: int | None,
+                           tags: list[str], ingested_at: str | None = None) -> None:
     store.write_manifest(fp, profile.name, {
-        "sample_hz": args.hz,
-        "n_samples": len(rows),
+        "sample_hz": hz,
+        "n_samples": n_samples,
         "minimap_mode": minimap.as_dict(),
         "tags": tags,
-    })
-    path = store.write_primitives(rows, fp, profile.name, date)
+    }, ingested_at=ingested_at)
 
+
+def _write_l1(store, rows: list[dict], fp, profile_name: str, date: str) -> None:
+    """The L1 primitives and the L2 spans segmented from them: what `ingest`
+    writes, whether its rows came from a pass of its own or rode `scan`'s
+    (`primitives.PrimitivesReader`)."""
+    path = store.write_primitives(rows, fp, profile_name, date)
     span_ms = rows[-1]["t_ms"] - rows[0]["t_ms"]
     print(f"L1 wrote   {len(rows)} rows covering {_fmt_hms(span_ms)}")
     print(f"           {path}")
     print(f"           {path.stat().st_size / 1e6:.2f} MB  "
           f"({path.stat().st_size / max(1, len(rows)):.0f} B/sample)")
-    print(f"took       {elapsed:.1f}s  ({len(rows) / elapsed:.1f} samples/s)")
-
     cfg = SegmentConfig()
     spans = segment({k: np.array([r[k] for r in rows]) for k in rows[0]}, cfg)
     store.write_spans(spans, fp.session_id, date, cfg)
     print(f"L2 wrote   {len(spans)} spans  (segmenter {SEGMENTER_VERSION})")
-    print(f"\nnext: reticle inspect {fp.session_id}")
-    return 0
 
 
 # --------------------------------------------------------------------------- segment
@@ -1229,7 +1353,33 @@ def cmd_scan(args) -> int:
     cache_spans = _live_round_spans(store, sid, date) if args.cache_live else None
     want_cache = bool(args.cache_roi) and (args.force or _roi_cache_stale(
         store, manifest, profile, args.cache_roi, cache_hz, cache_spans, cache_gate))
-    if args.only == ["roi_cache"] and not args.cache_roi:
+    # Gated sets decided inside this pass from a reader's rows as they arrive
+    # (`roi_cache.KillfeedPanelLiveGate`, `ScoreboardLiveGate`), so the set
+    # needs no decode of its own after the witness is stored.
+    gated = list(dict.fromkeys(getattr(args, "cache_gated", None) or ()))
+    if gated:
+        if args.check:
+            raise SystemExit("--check writes nothing into the store, and --cache-gated "
+                             "writes crops there")
+        if args.pipeline != "serial":
+            raise SystemExit("--cache-gated decides each sample after its witness reader "
+                             "has read it, in the readers' order; it needs --pipeline serial")
+        if args.cache_roi in gated:
+            raise SystemExit(f"--cache-roi {args.cache_roi} and --cache-gated name one set twice")
+        if "killfeed_panel" in gated and not want_portraits:
+            raise SystemExit("--cache-gated killfeed_panel gates on the killfeed reader's rows "
+                             "in this pass, and this pass does not read them; "
+                             "--cache-roi killfeed_panel gates on the stored rows")
+        if "scoreboard" in gated:
+            from .scoreboard_strip import MEASURED_WH
+            if (int(src["width"]), int(src["height"])) != MEASURED_WH:
+                raise SystemExit("--cache-gated scoreboard gates on the strip witness, "
+                                 "measured at 1920x1080 only")
+    # `ingest-match` alone sets this: the L1 primitives ride the pass.
+    want_primitives = getattr(args, "primitives_hz", None) is not None
+    if want_primitives and args.pipeline != "serial":
+        raise SystemExit("the primitives ride a serial pass only")
+    if args.only == ["roi_cache"] and not (args.cache_roi or gated):
         raise SystemExit("--only roi_cache needs --cache-roi <roi>")
     if (args.check and (want_hud or want_portraits) and killfeed_roi(profile) is not None
             and store.read_kf_mask(sid) is None):
@@ -1238,7 +1388,7 @@ def cmd_scan(args) -> int:
     if not (want_hud or want_portraits or want_mm or want_ping or want_roster
             or want_scoreboard or want_ally or want_dark or want_ability or want_circle
             or want_report
-            or want_cache):
+            or want_cache or gated or want_primitives):
         print(f"cache hit  session {sid}: requested channels are current or disabled; "
               "--force to re-read")
         return 0
@@ -1246,7 +1396,8 @@ def cmd_scan(args) -> int:
     print(f"session    {sid}  ({src['filename']})")
     print(f"profile    {profile.name}")
     print(f"stages     " + ", ".join(
-        ([f"hud {args.hz:g} Hz, whole capture"] if want_hud else [])
+        ([f"primitives {args.primitives_hz:g} Hz, whole capture"] if want_primitives else [])
+        + ([f"hud {args.hz:g} Hz, whole capture"] if want_hud else [])
         + ([f"killfeed portraits, weapons and names {args.hz:g} Hz, whole capture"]
            if want_portraits else [])
         + ([f"minimap {args.minimap_hz:g} Hz, {len(spans)} in-match spans "
@@ -1258,7 +1409,8 @@ def cmd_scan(args) -> int:
         + ([f"minimap dark {args.dark_hz:g} Hz, in-match spans"] if want_dark else [])
         + (["ability 2 Hz, live samples of the in-match spans"] if want_ability else [])
         + (["clove circle 4 Hz, ally Clove death windows"] if want_circle else [])
-        + ([f"combat report {args.report_hz:g} Hz, whole capture"] if want_report else [])))
+        + ([f"combat report {args.report_hz:g} Hz, whole capture"] if want_report else [])
+        + ([f"{name} crops {args.hz:g} Hz, gated in the pass" for name in gated])))
 
     def build_readers():
         """The pass's readers, built from the store's inputs; the prints are theirs."""
@@ -1400,13 +1552,34 @@ def cmd_scan(args) -> int:
                                     spans=cache_spans, gate=cache_gate)
             except ValueError as exc:
                 raise SystemExit(f"--cache-roi {args.cache_roi}: {exc}")
+        pr = None
+        if want_primitives:
+            from .primitives import PrimitivesReader
+            pr = PrimitivesReader(profile, *ctx.wh, hz=args.primitives_hz, nominal_fps=fps)
+        xgs = []
+        for name in gated:
+            from .roi_cache import (CACHE_SETS, KillfeedPanelLiveGate, RoiCacheWriter,
+                                    ScoreboardLiveGate, roi_rects)
+            if name == "killfeed_panel":
+                live = KillfeedPanelLiveGate(kp, args.hz, sid)
+            else:
+                from .scoreboard_strip import ROI as STRIP_ROI
+                live = ScoreboardLiveGate(
+                    roi_rects("hud", profile, ctx.wh)[CACHE_SETS["hud"].index(STRIP_ROI)], sid)
+            try:
+                xgs.append(RoiCacheWriter(store.root, manifest, profile, name, hz=args.hz,
+                                          live_gate=live))
+            except ValueError as exc:
+                raise SystemExit(f"--cache-gated {name}: {exc}")
         # The glyph reader follows the icon reader: it reads that reader's row
-        # for the same sample (`minimap_glyph.LiveIcons`).
-        readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, bp, ip, gp, cc, cp, xp)
+        # for the same sample (`minimap_glyph.LiveIcons`). An in-pass gated
+        # writer follows its witness, `kp`, for the same reason.
+        readers = [r for r in (pr, hp, kp, mp, pp, rp, sp, lp, ap, dp, bp, ip, gp, cc, cp, xp,
+                               *xgs)
                    if r is not None]
-        return SimpleNamespace(hp=hp, kp=kp, mp=mp, pp=pp, rp=rp, sp=sp, lp=lp, ap=ap,
-                               dp=dp, bp=bp, ip=ip, gp=gp, cc=cc, cp=cp, xp=xp, ctx=ctx,
-                               readers=readers)
+        return SimpleNamespace(pr=pr, hp=hp, kp=kp, mp=mp, pp=pp, rp=rp, sp=sp, lp=lp, ap=ap,
+                               dp=dp, bp=bp, ip=ip, gp=gp, cc=cc, cp=cp, xp=xp, xgs=xgs,
+                               ctx=ctx, readers=readers)
 
     def live_rounds():
         try:
@@ -1455,7 +1628,10 @@ def cmd_scan(args) -> int:
         # (`plan.record_placement`), so `plan` names it when the placement moves.
         from .plan import record_placement
         from .widget_frame import placement_identity
-        if hp is not None:
+        if R.pr is not None:
+            if not R.pr.rows:
+                raise SystemExit("decoded zero frames -- is the file readable?")
+            _write_l1(out, R.pr.rows, _FP(src, sid), profile.name, date)
             if not hp.rows:
                 raise SystemExit("decoded zero frames -- is the file readable?")
             path = out.write_hud(hp.rows, _FP(src, sid), profile.name, date)
@@ -1598,6 +1774,15 @@ def cmd_scan(args) -> int:
                       + (f"({xp.gate['samples']} stored samples" if "samples" in xp.gate
                          else f"({xp.gate['witness_open']} witness samples open")
                       + f" in its {len(xp.gate['spans'])} spans)")
+        for xg in R.xgs:
+            name = xg.record["roi"]
+            if xg.refused is not None:
+                print(f"roi cache  {name} REFUSED: {xg.refused} -> {xg._refusal}")
+                refusals.append(name)
+                continue
+            print(f"roi cache  {len(xg._index)} {name} crops, {xg._offset / 2**20:.0f} MB, "
+                  f"{xg.gate['witness']} gate in the pass kept {len(xg._index) // len(xg.rects)} "
+                  f"of {xg.frames_offered} frames offered -> {xg.paths[0].parent}")
 
         if dp is not None:
             rows = dp.events(sid, geometry.key_of(sid, store.root))
@@ -1743,8 +1928,13 @@ def cmd_scan(args) -> int:
 
     if args.check:
         return _scan_check(scan_once, sid, args, shards)
+    refusals: list[str] = []
     usage = scan_once(store, args.pipeline, args.workers, shards, args.cv_threads)
     if usage is None:
+        return 1
+    if refusals:
+        print(f"\nrefused    {', '.join(refusals)}: the reasons are stored beside each cache; "
+              f"the pass's streams were published")
         return 1
     print(f"\nnext: reticle verify {sid}")
     return 0
@@ -6081,6 +6271,15 @@ def build_parser() -> argparse.ArgumentParser:
                         "they land in the manifest and nothing parses them.")
     s.set_defaults(func=cmd_ingest)
 
+    s = sub.add_parser("ingest-match", help="a new match's whole ingest: two video decodes "
+                                            "and the audio, every reader once")
+    s.add_argument("video"); s.add_argument("--profile", default=DEFAULT_PROFILE)
+    s.add_argument("--hz", type=float, default=5.0, help="L1 sample rate (default 5)")
+    s.add_argument("--force", action="store_true", help="re-ingest an ingested session")
+    s.add_argument("--minimap-mode", default=None, help="as for `ingest`")
+    s.add_argument("--tags", default=None, help="as for `ingest`")
+    s.set_defaults(func=cmd_ingest_match)
+
     s = sub.add_parser("segment", help="recompute spans from stored L1 (no video)")
     s.add_argument("session", nargs="?"); s.add_argument("--all", action="store_true")
     d = SegmentConfig()
@@ -6177,6 +6376,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "or the band unreadable. killfeed_panel: the strip left of the "
                         "killfeed ROI, at the HUD samples within one sample of a stored "
                         "killfeed entry")
+    s.add_argument("--cache-gated", nargs="+", choices=("killfeed_panel", "scoreboard"),
+                   default=None,
+                   help="also store these gated sets at the HUD rate, each gate decided in "
+                        "this pass from its witness as it reads (killfeed_panel: this pass's "
+                        "killfeed entries; scoreboard: the strip on each sample's centre crop) "
+                        "and checked at the end against the gate the witness's whole stream "
+                        "gives; a set that fails is refused with the reason stored beside it. "
+                        "Serial pipeline only")
     s.add_argument("--cache-hz", type=float, default=None,
                    help="rate of the ROI crops (default: the HUD rate)")
     s.add_argument("--cache-live", action="store_true",

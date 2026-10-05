@@ -400,6 +400,108 @@ def scoreboard_gate(strip_rows: list[dict], margin: int = SCOREBOARD_GATE_MARGIN
             "spans": spans}, None
 
 
+#: The most offered samples a gated writer holds undecided while its in-pass
+#: witness (`KillfeedPanelLiveGate`, `ScoreboardLiveGate`) catches up. The
+#: killfeed gate decides a sample once the pass is `pad` plus one sample past
+#: it (four samples at margin 1); the strip gate after `margin` samples (one
+#: at rule `on`). Past the bound the writer refuses the set, with the reason
+#: stored beside the cache (`refusal_path`); it never drops a frame silently.
+LIVE_GATE_MAX_PENDING = 8
+
+
+class KillfeedPanelLiveGate:
+    """`killfeed_panel_gate` decided inside the pass, from the killfeed
+    reader's rows as they arrive, instead of from the stored stream after it.
+
+    `KillfeedPortraitReader.feed` appends a sample's rows while that sample
+    is fed, and the writer is fed after it (the readers' order), so by the
+    time the writer sees the sample at `now` every killer row at or before
+    `now` is in. A sample at `t` can still be opened only by a row at most
+    `pad` after it; it is decided once `now` passes `t + pad` by one sample,
+    which holds float rounding at the edge away from the decision. The
+    decision is the stored gate's arithmetic: kept where some killer time
+    `k` has `max(k - pad, 0) <= t <= k + pad`. At the end `gate()` builds
+    the gate the stored rows would give, from the reader's own events, and
+    the writer checks every decision against it."""
+
+    witness = "killfeed_portrait"
+
+    def __init__(self, reader, hz: float, session_id: str,
+                 margin: int = KILLFEED_PANEL_GATE_MARGIN):
+        self.reader, self.session_id = reader, session_id
+        self.hz, self.margin = float(hz), int(margin)
+        self.step = 1000.0 / self.hz
+        self.pad = (self.margin + 0.5) * self.step
+        self._seen = 0
+        self._open: list[float] = []
+        self._now = -np.inf
+
+    def observe(self, smp) -> None:
+        rows = self.reader.rows
+        for row in rows[self._seen:]:
+            r = {"kind": "portrait_observation", **row}
+            if r.get("kind") == "portrait_observation" and r.get("role") in KILLFEED_PANEL_GATE_ROLES:
+                t = float(row["t_ms"])
+                if not self._open or t != self._open[-1]:
+                    self._open.append(t)
+        self._seen = len(rows)
+        self._now = float(smp.t_ms)
+
+    def _keep(self, t: float) -> bool:
+        import bisect
+        i = bisect.bisect_left(self._open, t - 2.0 * self.pad)
+        k = np.asarray(self._open[i:bisect.bisect_right(self._open, t + 2.0 * self.pad)], float)
+        return bool(np.any((np.maximum(k - self.pad, 0.0) <= t) & (t <= k + self.pad)))
+
+    def decide(self, i: int, t: float, final: bool = False) -> bool | None:
+        if not final and not self._now > t + self.pad + self.step:
+            return None
+        return self._keep(float(t))
+
+    def gate(self) -> tuple[dict | None, str | None]:
+        return killfeed_panel_gate(self.reader.events(self.session_id), self.hz, self.margin)
+
+
+class ScoreboardLiveGate:
+    """`scoreboard_gate` decided inside the pass: the round-history strip
+    witness (`scoreboard_strip.read_strip`) read on each offered sample's
+    `center` crop of the `hud` set, the crop `reticle strip` reads from the
+    stored cache, bit for bit. A sample is decided once `margin` later
+    samples are read; at rule `on` (margin 0) at once. These reads gate the
+    cache and nothing else: the stored `scoreboard_strip` stream stays
+    `reticle strip`'s, and `gate()` builds the gate its rows give."""
+
+    witness = "scoreboard_strip"
+
+    def __init__(self, rect, session_id: str, margin: int = SCOREBOARD_GATE_MARGIN):
+        self.rect = [int(v) for v in rect]
+        self.session_id, self.margin = session_id, int(margin)
+        self.reads: list[tuple[int, float, dict]] = []
+        self._opens: list[bool] = []
+
+    def observe(self, smp) -> None:
+        from .scoreboard_strip import read_strip
+        x0, y0, x1, y1 = self.rect
+        got = read_strip(smp.frame[y0:y1, x0:x1], self.rect)
+        self.reads.append((int(smp.frame_idx), float(smp.t_ms), got))
+        self._opens.append(got["verdict"] in SCOREBOARD_GATE_VERDICTS)
+
+    def decide(self, i: int, t: float, final: bool = False) -> bool | None:
+        if not final and len(self._opens) <= i + self.margin:
+            return None
+        return any(self._opens[max(0, i - self.margin):i + self.margin + 1])
+
+    def gate(self) -> tuple[dict | None, str | None]:
+        from .scoreboard_strip import strip_events
+        return scoreboard_gate(strip_events(self.session_id, self.reads, self.rect,
+                                            ROI_CACHE_VERSION), self.margin)
+
+
+def refusal_path(store_root: Path, sid: str, name: str) -> Path:
+    """Where a writer that refused set `name` stores why (`RoiCacheWriter`)."""
+    return cache_dir(store_root, name) / f"{sid}.refused.json"
+
+
 def declare_set(reader, name: str, profile, wh) -> None:
     """Give `reader` the `cache_set` `name` when its `box` is that set's first
     rectangle: its reads are `frame[box]`, so they stay inside the cached
@@ -800,10 +902,21 @@ class RoiCacheWriter:
     `finish`); the set's other rectangles keep every frame."""
 
     def __init__(self, store_root: Path, manifest: dict, profile, name: str = "killfeed",
-                 hz: float = 2.0, spans=None, gate: dict | None = None):
+                 hz: float = 2.0, spans=None, gate: dict | None = None, live_gate=None):
         wh = (int(manifest["source"]["width"]), int(manifest["source"]["height"]))
-        if gate is not None and spans is not None:
+        if (gate is not None or live_gate is not None) and spans is not None:
             raise ValueError("a gated cache rides the whole capture; it takes no spans")
+        if gate is not None and live_gate is not None:
+            raise ValueError("a cache takes a stored gate or an in-pass one, not both")
+        # An in-pass gate (`KillfeedPanelLiveGate`, `ScoreboardLiveGate`):
+        # offered samples wait in `_pending`, at most LIVE_GATE_MAX_PENDING,
+        # until the witness decides them; `_decided` keeps every decision
+        # for the check at `finish`.
+        self.live = live_gate
+        self._pending: list[tuple[int, float, int, list[np.ndarray]]] = []
+        self._decided: list[tuple[float, bool]] = []
+        self.refused: str | None = None
+        self._refusal = refusal_path(store_root, manifest["session_id"], name)
         self.rects = roi_rects(name, profile, wh, manifest)
         self.record = _cache_record(manifest, profile, name, self.rects, hz, spans, gate)
         self.name = f"roi_cache:{name}"
@@ -842,6 +955,9 @@ class RoiCacheWriter:
 
     def feed(self, smp) -> None:
         self.frames_offered += 1
+        if self.live is not None:
+            self._feed_live(smp)
+            return
         if self.gate is not None and not in_spans(smp.t_ms, self.gate["spans"], self._starts):
             return
         if self.codec == "ffv1":
@@ -869,6 +985,89 @@ class RoiCacheWriter:
             self._fh.write(b)
             self._index.append((float(smp.t_ms), int(smp.frame_idx), k, self._offset, len(b)))
             self._offset += len(b)
+
+    def _feed_live(self, smp) -> None:
+        """Hold the sample's crops until the in-pass witness decides it,
+        then store the kept ones in the order offered."""
+        if self.refused is not None:
+            return
+        self.live.observe(smp)
+        crops = [np.ascontiguousarray(smp.frame[y0:y1, x0:x1]).copy()
+                 for x0, y0, x1, y1 in self.rects]
+        self._pending.append((self.frames_offered - 1, float(smp.t_ms), int(smp.frame_idx),
+                              crops))
+        self._drain(final=False)
+        if len(self._pending) > LIVE_GATE_MAX_PENDING:
+            self.refuse(f"pending_bound: the {self.live.witness} witness left "
+                        f"{len(self._pending)} offered samples undecided, over the bound of "
+                        f"{LIVE_GATE_MAX_PENDING} (LIVE_GATE_MAX_PENDING) at {float(smp.t_ms)} ms")
+
+    def _drain(self, final: bool) -> None:
+        while self._pending:
+            i, t, frame_idx, crops = self._pending[0]
+            keep = self.live.decide(i, t, final=final)
+            if keep is None:
+                return
+            self._pending.pop(0)
+            self._decided.append((t, bool(keep)))
+            if keep:
+                self._store(t, frame_idx, crops)
+
+    def _store(self, t: float, frame_idx: int, crops: list[np.ndarray]) -> None:
+        """One kept sample's crops, one per rect, as `feed` stores them."""
+        if self.codec == "ffv1":
+            for k, crop in enumerate(crops):
+                self._write(k, t, frame_idx, crop)
+            self._count += 1
+            return
+        for k, crop in enumerate(crops):
+            ok, png = cv2.imencode(".png", crop)
+            if not ok:
+                raise ValueError(f"could not encode the crop at {t} ms")
+            b = png.tobytes()
+            self._fh.write(b)
+            self._index.append((float(t), int(frame_idx), k, self._offset, len(b)))
+            self._offset += len(b)
+
+    def refuse(self, reason: str) -> None:
+        """Stop storing this set, discard what it wrote, and store why beside
+        the cache (`refusal_path`); a stored cache of the set stays as it was.
+        The pass's other readers go on."""
+        if self.refused is not None:
+            return
+        self.refused = reason
+        self._pending.clear()
+        if self.codec == "ffv1":
+            for proc, path in zip(self._procs, self.videos):
+                proc.stdin.close()
+                proc.wait()
+                path.with_suffix(".part.mkv").unlink(missing_ok=True)
+        else:
+            self._fh.close()
+            self._part.unlink(missing_ok=True)
+        self._refusal.write_text(json.dumps({**self.record, "refused": reason,
+                                             "frames_offered": self.frames_offered},
+                                            indent=1), encoding="utf-8")
+
+    def _finish_live(self) -> None:
+        """Decide the samples still held, build the gate the witness's whole
+        stream gives, and refuse unless every decision equals it."""
+        self._drain(final=True)
+        gate, why = self.live.gate()
+        if gate is None:
+            self.refuse(f"no_gate: {why}")
+            return
+        spans = gate["spans"]
+        starts = [a for a, _ in spans]
+        bad = [t for t, keep in self._decided if keep != in_spans(t, spans, starts)]
+        if bad:
+            self.refuse(f"gate_mismatch: {len(bad)} of {len(self._decided)} in-pass decisions "
+                        f"differ from the {self.live.witness} gate built at the end, first at "
+                        f"{bad[0]} ms")
+            return
+        self.record["gate"] = json.loads(json.dumps(gate))
+        self.gate = self.record["gate"]
+        self._starts = starts
 
     def _write(self, k: int, t: float, frame_idx: int, crop: np.ndarray) -> None:
         """One crop to rect `k`'s encoder, indexed at its frame number there."""
@@ -904,6 +1103,11 @@ class RoiCacheWriter:
         self.record["thinned_rois"] = thinned
 
     def finish(self) -> None:
+        if self.live is not None and self.refused is None:
+            self._finish_live()
+        if self.refused is not None:
+            return
+        self._refusal.unlink(missing_ok=True)
         if self.codec == "ffv1":
             try:
                 self._finish_grid()

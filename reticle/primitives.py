@@ -92,3 +92,26 @@ class PrimitiveExtractor:
             self._prev_dhash[name] = h
 
         return row
+
+
+class PrimitivesReader:
+    """`PrimitiveExtractor` as a pass reader, so `ingest` rides a shared
+    decode instead of opening the capture for itself.
+
+    It samples on `ingest`'s rule, every `frame_stride`-th decoded frame
+    (`decode.sample_multi`'s `strides`), not on a timestamp stride, so its
+    rows are the rows `ingest`'s own `sample_frames` loop writes. Same
+    extractor, same stamp: joining a pass changes no definition."""
+
+    def __init__(self, profile: Profile, width: int, height: int, hz: float,
+                 nominal_fps: float):
+        self.name = "primitives"
+        self.hz = float(hz)
+        self.spans = None
+        from .decode import frame_stride
+        self.frame_stride = frame_stride(float(nominal_fps), self.hz)
+        self.extractor = PrimitiveExtractor(profile, width, height)
+        self.rows: list[dict] = []
+
+    def feed(self, smp) -> None:
+        self.rows.append(self.extractor.process(smp.frame, smp.frame_idx, smp.t_ms))

@@ -290,14 +290,17 @@ class Store:
 
     # ---------- manifests ----------
 
-    def write_manifest(self, fingerprint, profile_name: str, extra: dict | None = None) -> Path:
+    def write_manifest(self, fingerprint, profile_name: str, extra: dict | None = None,
+                       ingested_at: str | None = None) -> Path:
+        """Write the session's manifest; `ingested_at` keeps an earlier
+        write's time, and with it the date its tables are filed under."""
         path = self.manifest_path(fingerprint.session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         doc = {
             "schema_version": SCHEMA_VERSION,
             "session_id": fingerprint.session_id,
             "source_profile": profile_name,
-            "ingested_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            "ingested_at": ingested_at or _dt.datetime.now(_dt.timezone.utc).isoformat(),
             "source": fingerprint.as_dict(),
         }
         if extra:

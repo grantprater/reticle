@@ -167,7 +167,11 @@ def run(ctx: SessionContext, readers: list, progress=None, usage=None) -> int:
     backend = {}
     if usage is not None:
         usage.decode_backend = backend      # filled when the capture opens
-    frames = sample_multi(str(ctx.media), ctx.fps, req, info=backend)
+    # A reader that declares `frame_stride` takes every k-th decoded frame,
+    # as `decode.sample_frames` does (`primitives.PrimitivesReader`).
+    strides = {r.name: r.frame_stride for r in readers
+               if getattr(r, "frame_stride", None) is not None}
+    frames = sample_multi(str(ctx.media), ctx.fps, req, info=backend, strides=strides)
     for who, smp in (usage.timed_frames(frames) if usage is not None else frames):
         n += 1
         # In the readers' order, as `run_cached` feeds them: a reader may read
