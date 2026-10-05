@@ -1274,6 +1274,51 @@ meaning.
 values = { life = { smoke_duration_s = 13.5, post_death_smoke_duration_s = 5.5 }, timing = { smoke_delay_time_s = 1.0 }, size = { vision_blocking_sphere_radius_m = 4.1 }, range = { map_range_m = 55.0, map_targeting_range_m = 60.0 } }
 see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 
+[clove-ruse-after-death-game-data]
+claim = """
+The game files of build 13.06 give Clove's Ruse after death (slot E) these
+class-default values, converted from centimetres
+[domain:game_data/game-units-centimetres]: placement, throw or targeting
+range: post death map range 42.5 m; other values: post death max charges 1.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "clove:ruse after death"
+source = """
+game-extract exports of release-13.06-shipping-18-5590001 under the store's
+reference/game-files/release-13.06-shipping-18-5590001/ (sets ability-states,
+ability-data and game-data, each with its manifest and provenance); the
+ability's equippable and entities from ability-states-gamedata-0.2.0 and its
+ability folder. Each value, as stored: post_death_max_charges_n:
+ShooterGame/Content/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_PostDeath.uasset
+Default__Ability_Smonk_E_PostDeath_C.PostDeathMaxCharges = 1;
+post_death_map_range_m:
+ShooterGame/Content/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_PostDeath.uasset
+MapTargetingState_GEN_VARIABLE.MapRange = 4250.0 cm
+"""
+use = """
+the world shape, life and motion of this ability's child in the entity-state design: read
+each value through its own key, never by analogy with another ability
+"""
+exceptions = """
+Ability_Smonk_E_PostDeath is the equippable a dead Clove holds in slot E; it
+spawns GameObject_Smonk_NewSmoke_PDS, whose life is in
+[domain:game_data/clove-ruse-game-data]. The files give the post-death ability
+no cooldown of its own:
+ShooterGame/Content/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_PostDeath.uasset
+ExternalCooldown_GEN_VARIABLE.ExternalSlot = EAresItemSlot::Ability2, the slot
+ShooterGame/Content/Characters/Smonk/S0/Ability_E/Ability_Smonk_E_Base.uasset
+Default__Ability_Smonk_E_Base_C.EquippableSlot gives Ruse (inherited by
+Ability_Smonk_E_MapTargetSmokeV2, no class between overrides it), so by the
+field names a dead Clove's charge recharges on the living Ruse's cooldown
+component [domain:game_data/ability-restock-times]. These are class defaults;
+a blueprint may change a value at run time, and a field name is the designers'
+word, not a measured meaning.
+"""
+values = { range = { post_death_map_range_m = 42.5 }, other = { post_death_max_charges_n = 1 } }
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "game_data/clove-ruse-game-data", "game_data/ability-restock-times"]
+
 [clove-not-dead-yet-game-data]
 claim = """
 The game files of build 13.06 give Clove's Not Dead Yet (slot X) these

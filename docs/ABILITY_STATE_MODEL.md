@@ -785,14 +785,22 @@ Three owners now carry the cast:
   and [metric:clove_circle/registered-rule@a1a995e6b19b+e37fdeca944f#e37_registered_outside_6_7.25=4]
   of its names live outside the files' 6.0-7.25 s band; two of those four
   (born 1582.27 s and 2003.75 s, 1.75-2.47 s after a run ended) are refused
-  only by the in-sample run-end bound.
-- `ability_timeline.dead_ruse_casts` (`dead-ruse-0.1.0`, the `ability-cast`
+  only by the in-sample run-end bound (`CIRCLE_AFTER_S`, 1.25 s after the
+  end); the 2366.27 s disc was born 5.47 s after its run ended.
+- `ability_timeline.dead_ruse_casts` (`dead-ruse-0.2.0`, the `ability-cast`
   owner) counts the discs named Clove that are born in the player's dead
-  windows, one cast per birth sample
-  [domain:abilities/clove-ruse-batch-launch], bounded by the charges the
-  state model saw at the death plus the restocks
-  [domain:game_data/ability-restock-times] that could finish. `reticle
-  smokes` writes them as `dead_ruse_cast` rows.
+  windows, one cast per cloud: a dead Clove holds at most one charge
+  [domain:abilities/clove-dead-ruse-one-charge], so the living batch launch
+  does not apply. Its ledger holds the state model's charges at the death,
+  capped at the files' one [domain:game_data/clove-ruse-after-death-game-data];
+  after each spend the next charge comes no sooner than the shortest restock
+  [domain:game_data/ability-restock-times], since Ruse recharges while
+  Clove is dead but not at the death
+  [domain:abilities/clove-dead-ruse-recharges]. Each row states its basis:
+  held at the death, recharged, or unexplained (refused as
+  `beyond_charge_bound`). `reticle smokes` writes them as `dead_ruse_cast`
+  rows. `dead-ruse-0.1.0` counted one cast per birth sample, bounded by the
+  charges held plus every restock that could finish.
 
 On `a1a995e6b19b` (`C:\Users\grant\Videos\2026-09-08 13-09-13.mp4`, dev
 half), the circle drew [metric:clove_circle/dead-ruse@a1a995e6b19b#circle_runs=10]
@@ -833,6 +841,46 @@ casts still need a restock
 the charges held). Their upstream inputs stay stale: the death verdicts are
 `death-adjudication-0.34.0` and the HUD, round and ult-cast streams are
 behind the code (`reticle plan a1a995e6b19b`), so the three rest on those.
+
+**The player's answers (2026-10-05), `dead-ruse-0.2.0`.** Ruse recharges
+while Clove is dead, not at the death, and a dead Clove holds one charge at
+most. The files agree on the cap and give the dead equippable no cooldown of
+its own: it recharges on the living Ruse's component
+[domain:game_data/clove-ruse-after-death-game-data]. Rescored from storage,
+`a1a995e6b19b` keeps
+[metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#dead_casts=8] casts with
+[metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#dead_refused=0] refused:
+[metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#basis_held_at_death=5]
+held at the death,
+[metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#basis_recharged=3]
+recharged and
+[metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#basis_unexplained=0]
+unexplained (Wilson 95 percent upper bound
+[metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#unexplained_wilson_hi=0.324]).
+E stays at [metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#dead_ruse_E=40]
+of Riot's [metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#riot_E=47], the
+match at [metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#dead_ruse_covered=48]
+of [metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#riot_all=56], with
+[metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#dead_ruse_beyond=0] beyond.
+The three casts that needed a restock under `0.1.0` are all recharged: the
+455.57 s and 798.05 s casts came
+[metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#recharge_gap_455_s=44.25]
+and [metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#recharge_gap_798_s=43.5]
+s after the dead spend before them, past the 30 s bound; the 329.82 s cast
+followed a death the state model read empty, where a living restock was
+running, and the rule sets no lower bound on such a charge because the
+timer's phase is unread. Started at the death instead, the timer would leave
+that cast unexplained (15.8 s against 30 s). The cap changed nothing here:
+[metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#deaths_two_held_with_cast=0]
+of the deaths holding two charges drew a dead cast. On the ally Clove
+sessions `e37fdeca944f` and `9acf02f98283` the player is not Clove, so both
+rules write no row:
+[metric:clove_circle/dead-ruse-0.2.0@a1a995e6b19b#ally_cast_changes=0]
+changes. Still open: whether the placement preview shows while dead, whether
+a restock running at the death keeps running, and whether the timer runs
+while the one charge is held. The files also give the dead equippable a map
+range of 42.5 m against the living 55.0 m; `smoke_owner`'s circle reach still
+uses the living ranges.
 
 **Clouds or confirmations.** The gate counts a two-charge drop as one cast;
 it passed [metric:clove_circle/dead-ruse@a1a995e6b19b#two_charge_drops=2] such

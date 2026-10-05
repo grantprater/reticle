@@ -197,7 +197,7 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Pick-me-up | ? | 1 [domain:abilities/clove-pick-me-up-charges] | none within a round [domain:abilities/clove-pick-me-up-charges] | second press (ACTIVATE); triggers on enemies | ? | ? | ? | game data: buff active timer length 13 s [domain:game_data/clove-pick-me-up-game-data] | not castable in the range [domain:abilities/clove-c-and-x-need-a-target] |
 | Q | Meddle | Class 3 Projectile | 1 [domain:abilities/clove-meddle-charges] | none within a round [domain:abilities/clove-meddle-charges] | cast on FIRE | ? | nothing [domain:abilities/clove-rouse] | ? | game data: initial life span 10 s [domain:game_data/clove-meddle-game-data] | ? |
-| E | Ruse | Placement | 2 | 40 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | one bounded dark disc per cloud, at its placement [domain:abilities/clove-rouse]; while dead, the open menu draws a range circle round the death location [domain:abilities/clove-dead-smoke-range-circle] | ? | about 15 s on the minimap [domain:abilities/clove-ruse-minimap-duration] | placeable after death [domain:abilities/clove-smokes-after-death]. The range circle's radius? |
+| E | Ruse | Placement | 2; at most 1 while dead [domain:abilities/clove-dead-ruse-one-charge] | 40 s [domain:abilities/catalogue-restock-and-ult-points-confirmed]; recharges while dead, not at the death [domain:abilities/clove-dead-ruse-recharges] | cast on FIRE | ? | one bounded dark disc per cloud, at its placement [domain:abilities/clove-rouse]; while dead, the open menu draws a range circle round the death location [domain:abilities/clove-dead-smoke-range-circle] | ? | about 15 s on the minimap [domain:abilities/clove-ruse-minimap-duration] | placeable after death [domain:abilities/clove-smokes-after-death]; each dead cast is one cloud, no batch launch [domain:abilities/clove-dead-ruse-one-charge]. The range circle's radius? Does the placement preview show while dead? |
 | X | Not Dead Yet | Self-targeted | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE, REACTIVATE) | ? | ? | ? | ? | not castable in the range [domain:abilities/clove-c-and-x-need-a-target]; does Clove dim on the scoreboard before it? [domain:rounds/scoreboard-dim-is-dead] |
 
 ## Cypher
@@ -459,6 +459,7 @@ and writes nothing here.
 | Clove | C | Pick-me-up | yes |  |  |  |  |  |  |  | [domain:game_data/clove-pick-me-up-game-data] |
 | Clove | Q | Meddle | yes | yes |  |  |  | yes |  |  | [domain:game_data/clove-meddle-game-data] |
 | Clove | E | Ruse | yes | yes |  | yes |  |  |  |  | [domain:game_data/clove-ruse-game-data] |
+| Clove | E | Ruse after death |  |  |  | yes |  |  |  |  | [domain:game_data/clove-ruse-after-death-game-data] |
 | Clove | X | Not Dead Yet |  |  |  |  |  |  |  |  | [domain:game_data/clove-not-dead-yet-game-data] |
 | Cypher | C | Trapwire |  | yes |  | yes |  |  |  |  | [domain:game_data/cypher-trapwire-game-data] |
 | Cypher | E | Spycam |  |  |  | yes |  | yes |  |  | [domain:game_data/cypher-spycam-game-data] |

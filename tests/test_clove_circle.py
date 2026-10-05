@@ -8,7 +8,8 @@ import cv2
 import numpy as np
 
 from reticle import clove_circle as cc
-from reticle.ability_timeline import DEAD_RUSE_VERSION, dead_ruse_casts, held_at_deaths
+from reticle.ability_timeline import (DEAD_RUSE_BASES, DEAD_RUSE_VERSION, dead_ruse_casts,
+                                      held_at_deaths, ruse_parameters)
 from reticle.adjudication import smoke_owner
 from reticle.geometry import MapScale
 
@@ -158,26 +159,76 @@ def owner(t_s, eid, group=None, agent="Clove"):
 
 class DeadRuse(unittest.TestCase):
     ROUNDS = [{"round_no": 5, "t_start_ms": 375000.0, "t_end_ms": 487000.0}]
-    PARAMS = {"max_charges": 2, "restock_min_s": 30.0}
+    PARAMS = {"max_charges": 2, "dead_max_charges": 1, "restock_min_s": 30.0}
 
-    def test_each_birth_sample_after_the_death_is_one_cast(self):
+    def casts(self, rows, held, params=None):
+        return dead_ruse_casts("Clove", [405500.0], [], self.ROUNDS, rows, {405500.0: held},
+                               params or self.PARAMS)["rows"]
+
+    def test_each_dead_cloud_is_one_cast(self):
+        # Two discs born in one sample are two casts, not one batch.
         rows = [owner(390.0, "a"), owner(411.3, "b"), owner(455.6, "c", ["c", "d"]),
                 owner(455.6, "d", ["c", "d"]), owner(470.0, "e", agent=None)]
-        got = dead_ruse_casts("Clove", [405500.0], [], self.ROUNDS, rows, {405500.0: 2},
-                              self.PARAMS)
-        self.assertEqual([(r["t_ms"], r["clouds"]) for r in got["rows"]],
-                         [(411300.0, 1), (455600.0, 2)])
-        self.assertTrue(all(r["player_cast"] and r["dead_ruse_version"] == DEAD_RUSE_VERSION
-                            for r in got["rows"]))
+        got = self.casts(rows, 2)
+        self.assertEqual([(r["t_ms"], r["clouds"], r["rests_on"]) for r in got],
+                         [(411300.0, 1, ["b"]), (455600.0, 1, ["c"]), (455600.0, 1, ["d"])])
+        self.assertTrue(all(r["dead_ruse_version"] == DEAD_RUSE_VERSION for r in got))
+        # One charge at a time: the second cloud of the sample has none.
+        self.assertEqual([r["basis"] for r in got], ["held_at_death", "recharged", "unexplained"])
+        self.assertEqual([r["player_cast"] for r in got], [True, True, False])
 
-    def test_the_charges_held_bound_the_clouds(self):
-        rows = [owner(406.0, "a"), owner(407.0, "b"), owner(408.0, "c")]
-        got = dead_ruse_casts("Clove", [405500.0], [], self.ROUNDS, rows, {405500.0: 1},
-                              self.PARAMS)
-        # One held, one restock running: two clouds at most before 30 s pass.
-        self.assertEqual([r["player_cast"] for r in got["rows"]], [True, True, False])
-        self.assertEqual(got["rows"][2]["reason"], "beyond_charge_bound")
-        self.assertEqual([r["needs_restock"] for r in got["rows"]], [False, True, True])
+    def test_the_charges_held_count_up_to_the_cap_of_one(self):
+        got = self.casts([owner(406.0, "a"), owner(407.0, "b")], 2)
+        self.assertEqual(got[0]["charges_at_death"], 1)
+        self.assertEqual([r["basis"] for r in got], ["held_at_death", "unexplained"])
+        self.assertEqual(got[1]["reason"], "beyond_charge_bound")
+        self.assertFalse(got[1]["player_cast"])
+
+    def test_a_charge_recharges_only_a_restock_after_the_spend(self):
+        got = self.casts([owner(410.0, "a"), owner(439.0, "b"), owner(441.0, "c"),
+                          owner(460.0, "d"), owner(471.5, "e")], 1)
+        # Spent at 410.0 s: the next charge comes no sooner than 440.0 s; the
+        # 439.0 s cloud is refused and leaves the ledger as it was.
+        self.assertEqual([r["basis"] for r in got],
+                         ["held_at_death", "unexplained", "recharged", "unexplained", "recharged"])
+        self.assertEqual([r["earliest_ms"] for r in got],
+                         [405500.0, 440000.0, 440000.0, 471000.0, 471000.0])
+        self.assertEqual([r["clouds_since_death"] for r in got], [1, 2, 2, 3, 3])
+
+    def test_the_basis_is_the_reason_of_a_passed_cast(self):
+        got = self.casts([owner(410.0, "a"), owner(445.0, "b")], 1)
+        self.assertEqual([r["reason"] for r in got], ["held_at_death", "recharged"])
+        self.assertTrue(all(r["basis"] in DEAD_RUSE_BASES for r in got))
+
+    def test_an_empty_death_with_a_restock_running_has_no_lower_bound(self):
+        # Fewer than the living two held: a restock was running at the death,
+        # its phase unread, so the first charge may come at any time after it.
+        got = self.casts([owner(406.0, "a"), owner(420.0, "b")], 0)
+        self.assertEqual([r["basis"] for r in got], ["recharged", "unexplained"])
+        self.assertEqual(got[0]["earliest_ms"], 405500.0)
+        self.assertTrue(got[0]["restock_running_at_death"])
+
+    def test_an_empty_death_without_a_running_restock_waits_a_restock(self):
+        got = self.casts([owner(420.0, "a"), owner(436.0, "b")], 0,
+                         {**self.PARAMS, "max_charges": None})
+        self.assertEqual([r["basis"] for r in got], ["unexplained", "recharged"])
+        self.assertEqual(got[1]["earliest_ms"], 435500.0)
+
+    def test_an_unread_charge_count_takes_its_first_cast_as_held_unknown(self):
+        got = self.casts([owner(406.0, "a"), owner(410.0, "b"), owner(437.0, "c")], None)
+        self.assertEqual([r["basis"] for r in got], ["held_unknown", "unexplained", "recharged"])
+
+    def test_without_a_restock_time_no_cast_is_refused(self):
+        got = self.casts([owner(406.0, "a"), owner(407.0, "b")], 1,
+                         {**self.PARAMS, "restock_min_s": None})
+        self.assertEqual([r["basis"] for r in got], ["held_at_death", "recharge_unbounded"])
+        self.assertTrue(all(r["player_cast"] for r in got))
+
+    def test_the_parameters_come_from_the_facts(self):
+        p = ruse_parameters()
+        self.assertEqual((p["max_charges"], p["dead_max_charges"], p["restock_min_s"]),
+                         (2, 1, 30.0))
+        self.assertEqual(p["dead_max_charges_fact"], "game_data/clove-ruse-after-death-game-data")
 
     def test_a_revive_ends_the_dead_window(self):
         rows = [owner(420.0, "a")]
