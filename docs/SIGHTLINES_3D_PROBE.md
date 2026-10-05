@@ -8,7 +8,9 @@ the 13 with the game's, see "Body heights (0.3.0)"; `sightlines-3d-0.4.0`
 rebuilt Summit and Bind without their state-changing props, see
 "State-changing props (0.4.0)"); predictions
 `sightline-3d-20261004` S1-S5, `sightline-3d-heights-20261004` H1-H5 and
-`sightline-3d-props-20261005` P1-P5 in the store's `notes/predictions.jsonl`. The figures in the sections before
+`sightline-3d-props-20261005` P1-P5 and `wallbang-probe-20261005` W1-W5
+(`prototypes/wallbang_probe.py`, see "Wallbangs (wallbang-probe-0.1.0)") in the
+store's `notes/predictions.jsonl`. The figures in the sections before
 "Body heights (0.3.0)" are 0.1.0 and 0.2.0 runs under the placeholders: eye
 160 cm, chest 120 cm, crouch room 100 cm, jump 120 cm. It serves the coaching question of
 [COACHING_DECISION_VALUE.md](COACHING_DECISION_VALUE.md): whether a teammate
@@ -269,6 +271,210 @@ maps' 0.3.0 tables stand for 0.4.0 (`table_version`). The 0.3.0 tables stay.
 - `sightlines.py choose` still picks 3D on all 13 maps; the 0.3.0 choice is
   kept as `<store>/sightlines/choice__sightlines-3d-0.3.0.json`.
 
+## Wallbangs (wallbang-probe-0.1.0)
+
+The player asked whether these tables account for wallbangs. They do not,
+and the reach model hardly needs them to. `prototypes/wallbang_probe.py`
+took every gun kill the gate calls blocked (killer eye to victim body
+centre, exact positions, lowest floor) and asked why; predictions
+`wallbang-probe-20261005` W1-W5 in the store's `notes/predictions.jsonl`.
+
+**Answer.** Of [metric:wallbang_probe/classify/dev#gun_resolved=3281]
+development gun kills, [metric:wallbang_probe/classify/dev#blocked=323]
+have no line of sight. Only
+[metric:wallbang_probe/classify/dev#primary_a=11] of them
+([metric:wallbang_probe/classify/dev#primary_a_share=0.034]) are wallbangs
+that nothing else explains:
+[metric:wallbang_probe/classify/dev#a_share_of_gun_kills=0.0034] of all
+gun kills. The confirmation history, an instrument check, agrees:
+[metric:wallbang_probe/classify/confirm#primary_a=14] of
+[metric:wallbang_probe/classify/confirm#blocked=622] blocked,
+[metric:wallbang_probe/classify/confirm#a_share_of_gun_kills=0.0024] of
+gun kills. The blocked kills are near misses, not hidden duels.
+
+**The game's penetration data.** WallPenGlobals maps each physical surface
+to a penetration class with an EnergyReductionMultiplier
+[domain:weapons/wall-penetration-surfaces]; each gun's projectile scales
+its budget by a stopping and a power multiplier
+[domain:weapons/wall-penetration-weapons]. A crossing's surface comes from
+the hit triangle's collision section, its material's PhysMaterial and that
+material's SurfaceType; every mesh a stored line crosses, with its
+material chain, is exported to the store's
+`reference/game-files/<build>/wallpen-meshes/`. The surface stays
+unread on [metric:wallbang_probe/classify/dev#unread_crossing_share=0.0098]
+of crossings. No export gives the base distance the multipliers scale, so
+`D0` (a Medium gun through a surface of multiplier 1) is a placeholder,
+100 cm, swept below.
+
+**Classes**, by fixed precedence, each also computed alone: (e) not a gun,
+by Riot's damage type or a damage item outside the gun list, excluded
+first; (b) posture or height: another killer eye height (crouch, standing
+with offset, jump apex) to another victim target (crouched, head,
+mid-jump), or any standable floor pair; (c) position error: killer and
+victim each moved up to 42 cm, the capsule radius
+[domain:game_data/character-eye-height], at the recorded floor height, a
+move kept only when the Pawn set leaves it open; (a) wallbang at D0; (d) the
+table, by eye on renders; (f) the rest. Excluded (e) on the development
+set: [metric:wallbang_probe/classify/dev#e.Ability=80] ability,
+[metric:wallbang_probe/classify/dev#e.Bomb=12] spike,
+[metric:wallbang_probe/classify/dev#e.Melee=2] knife and
+[metric:wallbang_probe/classify/dev#e.weapon_item_not_a_gun=66] Weapon kills
+whose item is no gun.
+
+| Map | Set | Gun kills | Blocked | (b) | (c) | (a) | (d) | (f) | (a) alone | Control (a) alone |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Abyss | dev | [metric:wallbang_probe/classify/abyss#gun_resolved=82] | [metric:wallbang_probe/classify/abyss#blocked=9] | [metric:wallbang_probe/classify/abyss#primary_b=9] | [metric:wallbang_probe/classify/abyss#primary_c=0] | [metric:wallbang_probe/classify/abyss#primary_a=0] | [metric:wallbang_probe/classify/abyss#primary_d=0] | [metric:wallbang_probe/classify/abyss#primary_f=0] | [metric:wallbang_probe/classify/abyss#alone_a=8] | [metric:wallbang_probe/classify/abyss#control_alone_a=10] of [metric:wallbang_probe/classify/abyss#control_n=178] |
+| Ascent | dev | [metric:wallbang_probe/classify/ascent#gun_resolved=711] | [metric:wallbang_probe/classify/ascent#blocked=101] | [metric:wallbang_probe/classify/ascent#primary_b=65] | [metric:wallbang_probe/classify/ascent#primary_c=28] | [metric:wallbang_probe/classify/ascent#primary_a=4] | [metric:wallbang_probe/classify/ascent#primary_d=0] | [metric:wallbang_probe/classify/ascent#primary_f=4] | [metric:wallbang_probe/classify/ascent#alone_a=92] | [metric:wallbang_probe/classify/ascent#control_alone_a=145] of [metric:wallbang_probe/classify/ascent#control_n=1516] |
+| Haven | dev | [metric:wallbang_probe/classify/haven#gun_resolved=458] | [metric:wallbang_probe/classify/haven#blocked=58] | [metric:wallbang_probe/classify/haven#primary_b=34] | [metric:wallbang_probe/classify/haven#primary_c=21] | [metric:wallbang_probe/classify/haven#primary_a=1] | [metric:wallbang_probe/classify/haven#primary_d=0] | [metric:wallbang_probe/classify/haven#primary_f=2] | [metric:wallbang_probe/classify/haven#alone_a=52] | [metric:wallbang_probe/classify/haven#control_alone_a=119] of [metric:wallbang_probe/classify/haven#control_n=985] |
+| Lotus | dev | [metric:wallbang_probe/classify/lotus#gun_resolved=584] | [metric:wallbang_probe/classify/lotus#blocked=54] | [metric:wallbang_probe/classify/lotus#primary_b=37] | [metric:wallbang_probe/classify/lotus#primary_c=14] | [metric:wallbang_probe/classify/lotus#primary_a=2] | [metric:wallbang_probe/classify/lotus#primary_d=0] | [metric:wallbang_probe/classify/lotus#primary_f=1] | [metric:wallbang_probe/classify/lotus#alone_a=53] | [metric:wallbang_probe/classify/lotus#control_alone_a=62] of [metric:wallbang_probe/classify/lotus#control_n=1225] |
+| Split | dev | [metric:wallbang_probe/classify/split#gun_resolved=623] | [metric:wallbang_probe/classify/split#blocked=59] | [metric:wallbang_probe/classify/split#primary_b=34] | [metric:wallbang_probe/classify/split#primary_c=17] | [metric:wallbang_probe/classify/split#primary_a=2] | [metric:wallbang_probe/classify/split#primary_d=4] | [metric:wallbang_probe/classify/split#primary_f=2] | [metric:wallbang_probe/classify/split#alone_a=49] | [metric:wallbang_probe/classify/split#control_alone_a=65] of [metric:wallbang_probe/classify/split#control_n=1326] |
+| Summit | dev | [metric:wallbang_probe/classify/summit#gun_resolved=465] | [metric:wallbang_probe/classify/summit#blocked=21] | [metric:wallbang_probe/classify/summit#primary_b=4] | [metric:wallbang_probe/classify/summit#primary_c=16] | [metric:wallbang_probe/classify/summit#primary_a=1] | [metric:wallbang_probe/classify/summit#primary_d=0] | [metric:wallbang_probe/classify/summit#primary_f=0] | [metric:wallbang_probe/classify/summit#alone_a=20] | [metric:wallbang_probe/classify/summit#control_alone_a=61] of [metric:wallbang_probe/classify/summit#control_n=991] |
+| Sunset | dev | [metric:wallbang_probe/classify/sunset#gun_resolved=358] | [metric:wallbang_probe/classify/sunset#blocked=21] | [metric:wallbang_probe/classify/sunset#primary_b=10] | [metric:wallbang_probe/classify/sunset#primary_c=10] | [metric:wallbang_probe/classify/sunset#primary_a=1] | [metric:wallbang_probe/classify/sunset#primary_d=0] | [metric:wallbang_probe/classify/sunset#primary_f=0] | [metric:wallbang_probe/classify/sunset#alone_a=19] | [metric:wallbang_probe/classify/sunset#control_alone_a=25] of [metric:wallbang_probe/classify/sunset#control_n=757] |
+| Bind | confirm | [metric:wallbang_probe/classify/bind#gun_resolved=1676] | [metric:wallbang_probe/classify/bind#blocked=133] | [metric:wallbang_probe/classify/bind#primary_b=89] | [metric:wallbang_probe/classify/bind#primary_c=37] | [metric:wallbang_probe/classify/bind#primary_a=4] | [metric:wallbang_probe/classify/bind#primary_d=0] | [metric:wallbang_probe/classify/bind#primary_f=3] | [metric:wallbang_probe/classify/bind#alone_a=124] | [metric:wallbang_probe/classify/bind#control_alone_a=262] of [metric:wallbang_probe/classify/bind#control_n=2000] |
+| Breeze | confirm | [metric:wallbang_probe/classify/breeze#gun_resolved=325] | [metric:wallbang_probe/classify/breeze#blocked=25] | [metric:wallbang_probe/classify/breeze#primary_b=15] | [metric:wallbang_probe/classify/breeze#primary_c=7] | [metric:wallbang_probe/classify/breeze#primary_a=1] | [metric:wallbang_probe/classify/breeze#primary_d=0] | [metric:wallbang_probe/classify/breeze#primary_f=2] | [metric:wallbang_probe/classify/breeze#alone_a=19] | [metric:wallbang_probe/classify/breeze#control_alone_a=46] of [metric:wallbang_probe/classify/breeze#control_n=696] |
+| Corrode | confirm | [metric:wallbang_probe/classify/corrode#gun_resolved=1170] | [metric:wallbang_probe/classify/corrode#blocked=135] | [metric:wallbang_probe/classify/corrode#primary_b=96] | [metric:wallbang_probe/classify/corrode#primary_c=36] | [metric:wallbang_probe/classify/corrode#primary_a=1] | [metric:wallbang_probe/classify/corrode#primary_d=0] | [metric:wallbang_probe/classify/corrode#primary_f=2] | [metric:wallbang_probe/classify/corrode#alone_a=125] | [metric:wallbang_probe/classify/corrode#control_alone_a=169] of [metric:wallbang_probe/classify/corrode#control_n=2000] |
+| Fracture | confirm | [metric:wallbang_probe/classify/fracture#gun_resolved=758] | [metric:wallbang_probe/classify/fracture#blocked=132] | [metric:wallbang_probe/classify/fracture#primary_b=106] | [metric:wallbang_probe/classify/fracture#primary_c=17] | [metric:wallbang_probe/classify/fracture#primary_a=2] | [metric:wallbang_probe/classify/fracture#primary_d=0] | [metric:wallbang_probe/classify/fracture#primary_f=7] | [metric:wallbang_probe/classify/fracture#alone_a=64] | [metric:wallbang_probe/classify/fracture#control_alone_a=91] of [metric:wallbang_probe/classify/fracture#control_n=1671] |
+| Icebox | confirm | [metric:wallbang_probe/classify/icebox#gun_resolved=459] | [metric:wallbang_probe/classify/icebox#blocked=74] | [metric:wallbang_probe/classify/icebox#primary_b=55] | [metric:wallbang_probe/classify/icebox#primary_c=10] | [metric:wallbang_probe/classify/icebox#primary_a=4] | [metric:wallbang_probe/classify/icebox#primary_d=0] | [metric:wallbang_probe/classify/icebox#primary_f=5] | [metric:wallbang_probe/classify/icebox#alone_a=52] | [metric:wallbang_probe/classify/icebox#control_alone_a=43] of [metric:wallbang_probe/classify/icebox#control_n=990] |
+| Pearl | confirm | [metric:wallbang_probe/classify/pearl#gun_resolved=1362] | [metric:wallbang_probe/classify/pearl#blocked=123] | [metric:wallbang_probe/classify/pearl#primary_b=65] | [metric:wallbang_probe/classify/pearl#primary_c=42] | [metric:wallbang_probe/classify/pearl#primary_a=2] | [metric:wallbang_probe/classify/pearl#primary_d=0] | [metric:wallbang_probe/classify/pearl#primary_f=14] | [metric:wallbang_probe/classify/pearl#alone_a=95] | [metric:wallbang_probe/classify/pearl#control_alone_a=144] of [metric:wallbang_probe/classify/pearl#control_n=2000] |
+
+- On the development set (b) explains
+  [metric:wallbang_probe/classify/dev#primary_b_share=0.598], (c)
+  [metric:wallbang_probe/classify/dev#primary_c_share=0.328], (d)
+  [metric:wallbang_probe/classify/dev#primary_d=4] kills and (f)
+  [metric:wallbang_probe/classify/dev#primary_f=9]. Alone, the wallbang test
+  passes on [metric:wallbang_probe/classify/dev#alone_a_share=0.907] of
+  blocked kills against
+  [metric:wallbang_probe/classify/dev#control_alone_a_share=0.070] of the
+  blocked control pairs (the killer against every other living opponent):
+  the occluder between a killer and the victim is thin, because the victim
+  was nearly visible. Among the kills and controls that posture and position
+  do not explain, it passes on
+  [metric:wallbang_probe/classify/dev#residual_a_share=0.458] against
+  [metric:wallbang_probe/classify/dev#control_residual_a_share=0.038], so
+  the eleven are wallbangs more than chance thin walls (fewer than one
+  expected by chance). The interval rule lets an entering crossing that
+  never meets its leaving partner raise the depth until a later leaving
+  crossing, which can lengthen a later interval and so move a pair from
+  penetrable to not; no recorded run measures the effect.
+- The placeholder moves the count, not the conclusion. Wallbangs as primary
+  class at D0 25, 50, 100, 200 and 400 cm:
+  [metric:wallbang_probe/classify/dev#d25.a_primary=2],
+  [metric:wallbang_probe/classify/dev#d50.a_primary=3],
+  [metric:wallbang_probe/classify/dev#d100.a_primary=11],
+  [metric:wallbang_probe/classify/dev#d200.a_primary=17] and
+  [metric:wallbang_probe/classify/dev#d400.a_primary=20] of 323; control
+  pairs [metric:wallbang_probe/classify/dev#d25.control_a_primary=24],
+  [metric:wallbang_probe/classify/dev#d50.control_a_primary=73],
+  [metric:wallbang_probe/classify/dev#d100.control_a_primary=242],
+  [metric:wallbang_probe/classify/dev#d200.control_a_primary=630] and
+  [metric:wallbang_probe/classify/dev#d400.control_a_primary=1444] of
+  [metric:wallbang_probe/classify/dev#control_n=6978].
+- Weapons by wallbang share of their gun kills (development, D0 100 cm):
+  Bandit [metric:wallbang_probe/classify/dev#weapon.Bandit.a_primary=3] of
+  [metric:wallbang_probe/classify/dev#weapon.Bandit.gun_kills=93], Odin
+  [metric:wallbang_probe/classify/dev#weapon.Odin.a_primary=1] of
+  [metric:wallbang_probe/classify/dev#weapon.Odin.gun_kills=45], Classic
+  [metric:wallbang_probe/classify/dev#weapon.Classic.a_primary=1] of
+  [metric:wallbang_probe/classify/dev#weapon.Classic.gun_kills=148], Vandal
+  [metric:wallbang_probe/classify/dev#weapon.Vandal.a_primary=5] of
+  [metric:wallbang_probe/classify/dev#weapon.Vandal.gun_kills=1596], Phantom
+  [metric:wallbang_probe/classify/dev#weapon.Phantom.a_primary=1] of
+  [metric:wallbang_probe/classify/dev#weapon.Phantom.gun_kills=608]; every
+  other gun none. Confirmation: Odin
+  [metric:wallbang_probe/classify/confirm#weapon.Odin.a_primary=1] of
+  [metric:wallbang_probe/classify/confirm#weapon.Odin.gun_kills=79], Guardian
+  [metric:wallbang_probe/classify/confirm#weapon.Guardian.a_primary=1] of
+  [metric:wallbang_probe/classify/confirm#weapon.Guardian.gun_kills=135],
+  Vandal [metric:wallbang_probe/classify/confirm#weapon.Vandal.a_primary=11]
+  of [metric:wallbang_probe/classify/confirm#weapon.Vandal.gun_kills=2909],
+  Ghost [metric:wallbang_probe/classify/confirm#weapon.Ghost.a_primary=1] of
+  [metric:wallbang_probe/classify/confirm#weapon.Ghost.gun_kills=329]. Counts
+  this small rank nothing.
+- Twelve renders (`render`: plan and section of the line over the Weapon
+  set) cover every development kill left after (b), (c) and (a), and one
+  (a). Four Split kills sit beside the A-tower ascender rope, the rope side
+  on the lower floor and the other on the upper; raising the rope side's
+  feet partway between the floors clears every line: a player on the rope,
+  a height the floor model cannot hold. They are (d). The rest are near
+  misses the move does not reach: a victim recorded inside a cover box or
+  wall face (three), a line clipping a wall corner (two), a long line
+  through a crate stack, a line through the Ascent A-site scaffold from
+  above, a B-main wall bearing a metal cover that may be a window the table
+  keeps closed, and a Split B-tower ledge. None shows a missing or extra
+  occluder that a rebuild would fix.
+
+**Recommendation: no penetrable layer.** Wallbangs that nothing else
+explains are a third of a percent of gun kills. Post hoc, scoring "line of
+sight or penetrable" lifts the kills' share from
+[metric:wallbang_probe/classify/dev#sep.kill_los=0.902] to
+[metric:wallbang_probe/classify/dev#sep.kill_los_or_pen=0.991] and the
+controls' from [metric:wallbang_probe/classify/dev#sep.control_los=0.082] to
+[metric:wallbang_probe/classify/dev#sep.control_los_or_pen=0.146]: the
+separation gains [metric:wallbang_probe/classify/dev#sep.gain=0.025] on the
+development set and [metric:wallbang_probe/classify/confirm#sep.gain=0.009]
+on the confirmation history
+([metric:wallbang_probe/classify/confirm#sep.kill_los=0.892] to
+[metric:wallbang_probe/classify/confirm#sep.kill_los_or_pen=0.975];
+controls [metric:wallbang_probe/classify/confirm#sep.control_los=0.085] to
+[metric:wallbang_probe/classify/confirm#sep.control_los_or_pen=0.159]),
+and it comes from thin cover at near misses, which posture and position
+already explain. The layer would cost, on Ascent
+([metric:wallbang_probe/cost/ascent#cells=9650] cells,
+[metric:wallbang_probe/cost/ascent#pairs=46556425] pairs,
+[metric:wallbang_probe/cost/ascent#blocked_share=0.808] blocked; a seeded
+sample of [metric:wallbang_probe/cost/ascent#sample_pairs=199980] pairs,
+one core, Below Normal, other work on the CPU):
+
+- build: [metric:wallbang_probe/cost/ascent#layer_build_seconds=1368] s
+  against [metric:wallbang_probe/cost/ascent#table_build_seconds_same_rate=39]
+  s for the visibility table at the same rate
+  ([metric:wallbang_probe/cost/ascent#layer_over_table=35] times). On the
+  sample the crossing march took
+  [metric:wallbang_probe/cost/ascent#seconds_crossings_sample=2.4] s and the
+  surface lookup [metric:wallbang_probe/cost/ascent#seconds_surfaces_sample=3.4]
+  s, most of it reading mesh exports, which a per-triangle surface array
+  removes; [metric:wallbang_probe/cost/ascent#crossings_per_blocked_pair=9.2]
+  crossings per blocked pair.
+- bytes: a 2-bit tier mask (penetrable by Low, Medium, High)
+  [metric:wallbang_probe/cost/ascent#bytes_tier_mask_2bit=11639106], twice
+  the visibility bits'
+  [metric:wallbang_probe/cost/ascent#vis_bits_bytes=5819554]; one byte of
+  effective thickness per pair
+  [metric:wallbang_probe/cost/ascent#bytes_uint8_cost=46556425], about
+  [metric:wallbang_probe/cost/ascent#bytes_uint8_cost_zlib_estimate=30321972]
+  compressed.
+- exports: the map's [metric:wallbang_probe/cost/ascent#weapon_meshes=893]
+  Weapon-set meshes with their materials, of which
+  [metric:wallbang_probe/cost/ascent#weapon_meshes_exported=342] are
+  exported now.
+
+If coaching wants "this wall is penetrable to your gun", store one surface
+byte per Weapon triangle with each table and test the few lines a question
+asks on demand (`classify_line`). The larger gaps this probe found are in the
+floor model: Split's ropes, and players at heights between floors.
+
+**Predictions.** W1 failed: wallbangs are
+[metric:wallbang_probe/classify/dev#primary_a_share=0.034] of blocked kills,
+not 10-30%. W2 held: posture or height dominates. W3 held: the wallbang test
+alone passes [metric:wallbang_probe/classify/dev#a_enrichment=13.0] times as
+often on blocked kills as on blocked controls. W4 held:
+[metric:wallbang_probe/classify/dev#primary_f_share=0.028] unexplained. W5
+failed: the Bandit, a Medium gun, leads on
+[metric:wallbang_probe/classify/dev#weapon.Bandit.a_primary=3] kills. Three
+changes followed the first results and renders, before the recorded run:
+solid path length pairs crossings along the whole ray, not within one
+placement, and an unpaired crossing adds nothing (the first rule read
+single-sided floors as slabs metres thick); a moved point keeps the
+recorded floor height; and (d) holds the four rope kills.
+
+**Not done.** The base stopping distance and High's multiplier stay
+placeholders; component-level material overrides were not read; the
+confirmation set's (f) kills were not rendered. The killfeed draws a
+wallbang mark on the killer's plate (`reticle/killfeed.py` sees past it but
+stores nothing): that independent witness on the captured matches would
+replace the D0 placeholder with a count, and is the next step if wallbangs
+matter.
+
 ## Blockers and questions for the player
 
 - **Body heights come from the files.** That 0.1.0 and 0.2.0 found no eye
@@ -304,7 +510,8 @@ maps' 0.3.0 tables stand for 0.4.0 (`table_version`). The 0.3.0 tables stay.
     destructible's subclasses; test the class chain instead, then rebuild
     Summit and Bind.
 - **Doors and dynamic objects**: their state per round is in no Riot record.
-- **Wallbangs**: penetration needs per-surface data not read here.
+- **Wallbangs**: see "Wallbangs (wallbang-probe-0.1.0)"; the base stopping
+  distance the game's multipliers scale is native and in no export.
 - **Simple or complex traces**: which the game's weapon trace uses is not in
   the files; the sensitivity above is small.
 - **Multi-level choice**: see above.
@@ -322,6 +529,11 @@ game-extract export --paths <prop list> --out <store>/reference/game-files/<buil
 .\.venv\Scripts\python.exe prototypes\sightlines_3d.py gate --map pearl --set confirm --record
 .\.venv\Scripts\python.exe prototypes\sightlines_3d.py rebuild --map ascent --source <store>\sightlines\ascent__sightlines-3d-0.2.0.npz --record
 .\.venv\Scripts\python.exe prototypes\sightlines.py choose --record
+.\.venv\Scripts\python.exe prototypes\wallbang_probe.py rays --map ascent [--set confirm]
+.\.venv\Scripts\python.exe prototypes\wallbang_probe.py meshes --export
+.\.venv\Scripts\python.exe prototypes\wallbang_probe.py classify --record
+.\.venv\Scripts\python.exe prototypes\wallbang_probe.py render --map split --kill 19 --out <png>
+.\.venv\Scripts\python.exe prototypes\wallbang_probe.py cost --map ascent --pairs 200000 --record
 ```
 
 Each map uses its game folder (`sightlines_3d.CODENAMES`: Split is Bonsai,
