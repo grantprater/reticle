@@ -62,6 +62,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | What each ability does (the player's mechanics sheet) | `docs/ABILITY_MECHANICS_SHEET.md` |
 | Each ability's state per slot, and what it conditions | [ABILITY_STATE_MODEL.md](ABILITY_STATE_MODEL.md), `adjudication/ability_state.py` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
+| Sightlines and who can join a fight | `prototypes/sightlines_3d.py`, `prototypes/engagement_reach.py`, [SIGHTLINES_3D_PROBE.md](SIGHTLINES_3D_PROBE.md) |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
 | Visual debugging | `overlay.py`, `glance.py` |
@@ -82,25 +83,19 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only hud   # killfeed/HUD rewrite from the crop cache (--from video decodes)
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only scoreboard --cache-roi scoreboard   # decodes; crops inside the strip gate
-.\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed_panel   # decodes; strip left of the killfeed, near stored entries
+.\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed_panel   # decodes
 .\.venv\Scripts\python.exe -m reticle domain --check
 .\.venv\Scripts\python.exe -m reticle ownership [QUESTION] [--module M] [--check]
 .\.venv\Scripts\python.exe -m reticle.architecture [--graph]
 .\.venv\Scripts\python.exe -m reticle.quoted [--uncited]
 .\.venv\Scripts\python.exe -m reticle audit
 .\.venv\Scripts\python.exe -m reticle belief SESSION   # stored data only
-.\.venv\Scripts\python.exe -m reticle ability-coverage
-.\.venv\Scripts\python.exe -m reticle ability-timeline
-.\.venv\Scripts\python.exe -m reticle ability-entities
-.\.venv\Scripts\python.exe -m reticle ability-gallery
-.\.venv\Scripts\python.exe -m reticle ability-capture
-.\.venv\Scripts\python.exe -m reticle ability-phases
-.\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # decodes the audio stream only
+.\.venv\Scripts\python.exe -m reticle ability-coverage|-timeline|-entities|-gallery|-capture|-phases
+.\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # audio decode only
 .\.venv\Scripts\python.exe -m reticle ult-cast SESSION      # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-state SESSION # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-audio-fit --gate-in G.json --eval ROOT  # audio witness params; stored log-mel only
-.\.venv\Scripts\python.exe prototypes\audio_open_set.py score --scan DIR  # ungated ability events on the demos; stored detections only
-.\.venv\Scripts\python.exe prototypes\audio_open_set.py match-score --match DIR  # the frozen dev choice on the player's matches; stored detections only
+.\.venv\Scripts\python.exe prototypes\audio_open_set.py score --scan DIR | match-score --match DIR  # demos | the player's matches; stored detections only
 .\.venv\Scripts\python.exe -m reticle killstreak SESSION    # numerals vs death stream; stored data only
 .\.venv\Scripts\python.exe -m reticle assists SESSION      # assisters per death from the crop cache; no video
 .\.venv\Scripts\python.exe -m reticle acquisition-plan REQUESTS.json
@@ -118,14 +113,11 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle occluders --all
 ```
 
-Geometry is one npz per `<map>__<profile>`, never per session: resolve every
-path through `reticle/geometry.py`, never by joining a session id onto
-`store/geometry/`. A session with no `map:` tag reaches no geometry; `doctor`
-COVERAGE reports it.
+Resolve every geometry path through `reticle/geometry.py` (one npz per
+`<map>__<profile>`, never per session).
 
 For stored-data changes, prefer `segment` or `audit` (both reuse
-stored L1), `coach` or `sql`. `scan --only hud` rereads the crop cache
-(`roi_cache`) and decodes only with `--from video`. Under the default
+stored L1), `coach` or `sql`. Under the default
 `--from auto`, a span reader reads a complete round cache, else decodes
 (`roi_cache.clip_record` owns the clip). `hud`, `board` and `overlay` open the
 source video. Run a targeted test file, then `verify --tier fast`, then the
