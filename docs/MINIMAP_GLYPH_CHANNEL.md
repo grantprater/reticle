@@ -632,7 +632,10 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
      are born at the caster's icon.
    - Every other ability has no origin rule yet; gate 6 stores its
      disagreement as unexplained, never as an error. Skye's drone is
-     unnamed: whether the player meant Trailblazer or Guiding Light is asked.
+     unnamed. Trailblazer is piloted like the Owl Drone
+     [domain:abilities/skye-trailblazer-piloted] and Guiding Light is
+     steered [domain:abilities/skye-guiding-light-steered]; whether the
+     player meant one, both or neither is asked.
 
    Each distance is a game-data fact in metres. It becomes widget pixels as
    base value x widget scale x map zoom (`geometry.MapScale.px`), where the

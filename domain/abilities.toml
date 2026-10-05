@@ -7035,8 +7035,8 @@ see = ["game_data/miks-waveform-game-data", "game_data/ability-restock-times",
 
 [astra-stars-origin-global]
 claim = """
-Astra's stars are global: she places them anywhere on the map from Astral
-Form, so a star's birth on the minimap carries no origin at Astra's icon and
+Astra may set a star down anywhere on the map from Astral Form, so a
+star's birth on the minimap carries no origin at Astra's icon and
 says nothing about where she stands.
 """
 kind = "rule"
@@ -7046,7 +7046,8 @@ subject = "astra:stars"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
 different ally disagreed with their glyph's caster: each ability has its own
-origin rule, and Astra's stars are global. The game files' star placement
+origin rule, and the player called star placement map-wide. The game
+files' star placement
 cast distance [domain:game_data/astra-astral-form-cosmic-divide-game-data]
 is a class default whose start point the files do not name
 """
@@ -7061,7 +7062,7 @@ see = ["abilities/astra-nebula-global-placement", "abilities/astra-star-placed-t
 
 [chamber-trademark-origin-placed-away]
 claim = """
-Chamber's Trademark (slot C) can be placed fairly far from Chamber, so its
+Chamber may set his Trademark (slot C) down well away from himself, so its
 minimap circle need not be born at his icon. The player said this of
 Chamber's devices generally; it is recorded per device. The distance is the
 game files' targeting range [domain:game_data/chamber-trademark-game-data].
@@ -7072,8 +7073,8 @@ since = "2026-10-05"
 subject = "chamber:trademark"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
-different ally disagreed with their glyph's caster: Chamber's and Cypher's
-devices can be placed fairly far from the caster
+different ally disagreed with their glyph's caster: the player said Chamber
+and Cypher may set their devices down well away from themselves
 """
 use = """
 admit a Trademark birth up to the game-file targeting range from Chamber's
@@ -7088,7 +7089,7 @@ see = ["abilities/chamber-trademark-minimap-white-area", "game_data/chamber-trad
 
 [chamber-rendezvous-origin-placed-away]
 claim = """
-Chamber's Rendezvous (slot E) anchor can be placed fairly far from Chamber,
+Chamber may set a Rendezvous (slot E) anchor down well away from himself,
 so its minimap radius need not be born at his icon. The player said this of
 Chamber's devices generally; it is recorded per device. The distance is the
 game files' targeting range [domain:game_data/chamber-rendezvous-game-data].
@@ -7099,24 +7100,26 @@ since = "2026-10-05"
 subject = "chamber:rendezvous"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
-different ally disagreed with their glyph's caster: Chamber's and Cypher's
-devices can be placed fairly far from the caster
+different ally disagreed with their glyph's caster: the player said Chamber
+and Cypher may set their devices down well away from themselves
 """
 use = """
 admit a Rendezvous birth up to the game-file targeting range from Chamber's
 position, converted to minimap pixels; never require it at his icon
 """
 exceptions = """
-the statement named Chamber, not Rendezvous. The same placement component
-carries a longer required maximum distance from a context the files do not
-name; which distance bounds the anchor's birth is unsettled
+the statement named Chamber, not Rendezvous. How many anchors Rendezvous
+places is not recorded: the exports hold a state for a first anchor and one
+for a second. The same placement component carries a longer required
+maximum distance from a context the files do not name; which distance
+bounds an anchor's birth is unsettled
 """
 see = ["abilities/chamber-rendezvous-minimap-white-radius", "game_data/chamber-rendezvous-game-data",
        "abilities/chamber-trademark-origin-placed-away", "abilities/ability-rules-are-unique"]
 
 [cypher-trapwire-origin-placed-away]
 claim = """
-Cypher's Trapwire (slot C) can be placed fairly far from Cypher, so its
+Cypher may set his Trapwire (slot C) down well away from himself, so its
 minimap icon need not be born at his icon. The player said this of Cypher's
 devices generally; it is recorded per device. The distance is the game
 files' wire targeting distance [domain:game_data/cypher-trapwire-game-data].
@@ -7127,8 +7130,8 @@ since = "2026-10-05"
 subject = "cypher:trapwire"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
-different ally disagreed with their glyph's caster: Chamber's and Cypher's
-devices can be placed fairly far from the caster
+different ally disagreed with their glyph's caster: the player said Chamber
+and Cypher may set their devices down well away from themselves
 """
 use = """
 admit a Trapwire birth up to the game-file targeting distance from Cypher's
@@ -7141,7 +7144,7 @@ see = ["abilities/cypher-trapwire", "abilities/cypher-trapwire-minimap-glyph-tur
 
 [cypher-spycam-origin-placed-away]
 claim = """
-Cypher's Spycam (slot E) can be placed fairly far from Cypher, so its
+Cypher may set his Spycam (slot E) down well away from himself, so its
 minimap icon need not be born at his icon. The player said this of Cypher's
 devices generally; it is recorded per device. The distance is the game
 files' targeting range [domain:game_data/cypher-spycam-game-data].
@@ -7152,8 +7155,8 @@ since = "2026-10-05"
 subject = "cypher:spycam"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
-different ally disagreed with their glyph's caster: Chamber's and Cypher's
-devices can be placed fairly far from the caster
+different ally disagreed with their glyph's caster: the player said Chamber
+and Cypher may set their devices down well away from themselves
 """
 use = """
 admit a Spycam birth up to the game-file targeting range from Cypher's
@@ -7165,7 +7168,7 @@ see = ["abilities/cypher-spycam-minimap-glyph-turns", "game_data/cypher-spycam-g
 
 [cypher-cyber-cage-origin-placed-away]
 claim = """
-Cypher's Cyber Cage (slot Q) can land fairly far from Cypher, so its minimap
+Cypher's Cyber Cage (slot Q) may land well away from him, so its minimap
 icon need not be born at his icon. The player said this of Cypher's devices
 generally; it is recorded per device. The game files bound no throw range:
 the cage is a ballistic toss [domain:game_data/cypher-cyber-cage-game-data].
@@ -7176,8 +7179,8 @@ since = "2026-10-05"
 subject = "cypher:cyber cage"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
-different ally disagreed with their glyph's caster: Chamber's and Cypher's
-devices can be placed fairly far from the caster
+different ally disagreed with their glyph's caster: the player said Chamber
+and Cypher may set their devices down well away from themselves
 """
 use = """
 never require a Cyber Cage birth at Cypher's icon; with no game-file range,
@@ -7192,8 +7195,8 @@ see = ["abilities/cypher-cyber-cage-minimap-glyph-turns-belief", "game_data/cyph
 
 [reyna-leer-origin-set-distance]
 claim = """
-Reyna's Leer (slot C) appears a set distance from Reyna in the direction she
-casts it, which may be straight up; on the minimap it may therefore sit at or
+Reyna's Leer (slot C) appears at a fixed distance from Reyna along her cast
+direction, which can be vertical; on the minimap it may therefore sit at or
 near her icon. The distance is the game files' projectile trigger distance
 [domain:game_data/reyna-leer-game-data], so the eye's horizontal offset from
 Reyna is at most that distance.
@@ -7204,17 +7207,17 @@ since = "2026-10-05"
 subject = "reyna:leer"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
-different ally disagreed with their glyph's caster: the eye appears a set
-distance from Reyna, though not necessarily on the minimap, since she can
-cast it straight up
+different ally disagreed with their glyph's caster: the player said the
+eye appears at a fixed distance in the cast direction, which can be
+vertical, so the minimap may not show the offset
 """
 use = """
 admit a Leer birth from Reyna's icon out to the trigger distance, converted
 to minimap pixels, and closer when cast steeply
 """
 exceptions = """
-whether a wall stops the eye short of the trigger distance is unread; the
-observed icon sat about 25 px from Reyna's [domain:abilities/reyna-leer-minimap-icon]
+whether a wall stops the eye short of the trigger distance is unread; one
+observed offset is recorded in [domain:abilities/reyna-leer-minimap-icon]
 """
 see = ["abilities/reyna-leer-minimap-icon", "abilities/reyna-leer-global-minimap",
        "abilities/minimap-thrown-ability-icon", "game_data/reyna-leer-game-data",
@@ -7222,8 +7225,8 @@ see = ["abilities/reyna-leer-minimap-icon", "abilities/reyna-leer-global-minimap
 
 [sova-owl-drone-origin-at-caster]
 claim = """
-Sova's Owl Drone (slot C) originates at Sova's own position: its minimap icon
-is born at his icon.
+Sova's Owl Drone (slot C) starts where Sova stands: its minimap icon is
+born at his icon.
 """
 kind = "rule"
 known = "player"
@@ -7231,8 +7234,8 @@ since = "2026-10-05"
 subject = "sova:owl drone"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
-different ally disagreed with their glyph's caster: drones such as Sova's
-originate right at the casting agent's location. The game files spawn the
+different ally disagreed with their glyph's caster: the player said
+drones such as Sova's start where their caster stands. The game files spawn the
 drone with no offset at a spot found by short traces from Sova's pawn
 [domain:game_data/sova-owl-drone-game-data]
 """
@@ -7242,8 +7245,8 @@ see = ["abilities/sova-owl-drone-piloted", "abilities/sova-owl-drone-minimap-gly
 
 [tejo-stealth-drone-origin-at-caster]
 claim = """
-Tejo's Stealth Drone (slot C) originates at Tejo's own position: its minimap
-icon is born at his icon.
+Tejo's Stealth Drone (slot C) starts where Tejo stands: its minimap icon is
+born at his icon.
 """
 kind = "rule"
 known = "player"
@@ -7251,8 +7254,8 @@ since = "2026-10-05"
 subject = "tejo:stealth drone"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
-different ally disagreed with their glyph's caster: drones such as Tejo's
-originate right at the casting agent's location. The game files spawn the
+different ally disagreed with their glyph's caster: the player said
+drones such as Tejo's start where their caster stands. The game files spawn the
 drone with no offset from a firing transform they do not serialize
 [domain:game_data/tejo-stealth-drone-game-data]
 """
