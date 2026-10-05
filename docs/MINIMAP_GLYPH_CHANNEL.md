@@ -751,9 +751,17 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
      and the bank cuts held: context
      [metric:glyph_tables/build_021#bank_cut_context_cut=0.6596], full
      [metric:glyph_tables/build_021#bank_cut_full_cut=0.8219] and audit
-     [metric:glyph_tables/build_021#audit_bank_cut=0.8608], each naming
+     [metric:glyph_tables/build_021#audit_bank_cut=0.8608]. The build
+     counted each at its unrounded order statistic,
      [metric:glyph_tables/build_021#bank_cut_context_rate=0.0476] of the
-     dev no-ability discs (gate 3's bank form, at most 5%). The per-key
+     dev no-ability discs, but stored the cut rounded to nearest; as the
+     reader applies the stored cuts, the full and audit banks named
+     [metric:glyph_reader/rescore_022@dev#full_bank_named_before=4] and
+     [metric:glyph_reader/rescore_022@dev#audit_bank_named_before=4] of
+     [metric:glyph_reader/rescore_022@dev#negatives=63], over gate 3's 5%
+     (the full bank's fourth-highest score, 0.821934 at d95cfad5693a
+     39.90 s, clears its stored 0.8219). Master's 0.2.0 tables share the
+     defect. `glyph-tables-0.2.2` fixes it below. The per-key
      cuts alone still name
      [metric:glyph_tables/build_021#false_naming_context_cut=0.0952] in the
      caster's kit. S1 fell from 58 to
@@ -769,6 +777,35 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
      [metric:glyph_reader/answers_021@heldout#s1=19] after, no best key
      changed. Outcome rows: `glyph-answers-20261005` in
      `notes/predictions.jsonl`.
+   - **Cuts stored as counted** (`glyph-tables-0.2.2`, same branch; store
+     `analysis/glyph-tables-20261005e`, `analysis/glyph-bank-20261005e`).
+     `cut_at` returns the cut rounded up to 4 decimals, and every count is
+     taken at that stored value. Each cut equals 0.2.1's or rises by
+     0.0001; the policy rows and glyphs do not change. The bank cuts are
+     context [metric:glyph_tables/build_022#bank_cut_context_cut=0.6596],
+     full [metric:glyph_tables/build_022#bank_cut_full_cut=0.822] and audit
+     [metric:glyph_tables/build_022#audit_bank_cut=0.8609]; the reader's
+     matcher, rescoring the dev discs against them, names
+     [metric:glyph_reader/rescore_022@dev#context_bank_named=2],
+     [metric:glyph_reader/rescore_022@dev#full_bank_named=3] and
+     [metric:glyph_reader/rescore_022@dev#audit_bank_named=3] of 63, the
+     stored counts (full rate
+     [metric:glyph_tables/build_022#bank_cut_full_rate=0.0476]): gate 3's
+     bank form holds as applied. The per-key cuts alone name
+     [metric:glyph_tables/build_022#false_naming_context_cut=0.0794] in the
+     caster's kit and
+     [metric:glyph_tables/build_022#false_naming_full_cut=0.2063] in the
+     full set. S1 stays [metric:glyph_reader/rescore_022@dev#s1=57] of 59
+     and right items above their cut stay
+     [metric:glyph_reader/rescore_022@dev#right_above_cut=55]. Cypher:Q's
+     cut is [metric:glyph_tables/build_022#cypher_q_cut=0.5332]. In the
+     audit sample (the earlier draw, 200 context rows per session, decided
+     from the stored scores), [metric:glyph_reader/audit_022@all#context_cut_agree=600]
+     of 600 cut decisions agree (Wilson 95% lower bound
+     [metric:glyph_reader/audit_022@all#wilson95_lower=0.9936]; at most
+     0.5% disagreement by the rule of three), and no row of the three
+     trials' full context pools flips
+     ([metric:glyph_reader/audit_022@all#pool_flips=0]).
 2. **The reader** in the ability pass; `reticle trial --reader
    ability_glyph` on a06f04a0059f, 5822b6646448
    (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`) and 4f207c0c4e39
@@ -897,10 +934,10 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    and `analysis/glyph-bank-20261005c`, `ability-glyph-0.5.0`; prediction,
    amendment, correction and outcome rows `glyph-prereqs-20261005` and
    `glyph-prereqs-fix-20261005` in `notes/predictions.jsonl`; the reader
-   now reads `glyph-bank-0.3.1`, `glyph-rotation-policy-0.1.2` and
-   `glyph-null-table-0.2.1` from `analysis/glyph-bank-20261005d` and
-   `analysis/glyph-tables-20261005d`, stage 1's rebuild for the 2026-10-05
-   rotation answers, with the glyphs unchanged and `ability-glyph-0.5.0`
+   now reads `glyph-bank-0.3.2`, `glyph-rotation-policy-0.1.2` and
+   `glyph-null-table-0.2.2` from `analysis/glyph-bank-20261005e` and
+   `analysis/glyph-tables-20261005e`, stage 1's rebuild for the 2026-10-05
+   rotation answers with cuts stored as counted, with the glyphs unchanged and `ability-glyph-0.5.0`
    unchanged, since its matcher, gates, windows and fields did not move;
    `plan` sees the new `GLYPH_BANK_STAMP`):
    - **The rebuilt tables in the trials.** 200 scored context rows per
@@ -980,7 +1017,10 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
      [metric:glyph_tables/build_020#policy_median_key_cut=0.5553] at the
      policy) and the audit bank cut
      [metric:glyph_tables/build_020#audit_bank_cut=0.8608] (rate
-     [metric:glyph_tables/build_020#audit_bank_rate=0.0476]). Audit rows now
+     [metric:glyph_tables/build_020#audit_bank_rate=0.0476], counted at
+     the unrounded cut; the reader named
+     [metric:glyph_reader/rescore_022@dev#audit_bank_named_before=4] of 63
+     at the stored 0.8608, fixed in `glyph-tables-0.2.2`). Audit rows now
      store both (`best_cut`, `bank_cut`). In the trials, every audit window
      whose best key clears the audit bank cut has that key inside the
      lineup's kits ([metric:glyph_reader/trial_050@4f207c0c4e39#c2_best_in_context=8]

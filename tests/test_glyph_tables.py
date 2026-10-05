@@ -107,6 +107,17 @@ class Cut(unittest.TestCase):
         self.assertEqual(sum(v > c for v in s), 5)
         self.assertIsNone(gt.cut_at([], 0.05))
 
+    def test_the_stored_cut_keeps_the_count(self):
+        # glyph-null-table-0.2.1 stored the full bank's 0.821934 order statistic as 0.8219, under the score.
+        s = [0.9, 0.86, 0.83, 0.821934] + [0.5] * 59
+        c = gt.cut_at(s, 0.05)
+        self.assertEqual(c, 0.822)
+        self.assertEqual(round(c, 4), c)
+        self.assertEqual(sum(v > c for v in s), 3)
+        self.assertEqual(gt.stored_cut(0.8219), 0.8219)
+        self.assertEqual(gt.stored_cut(0.53305), 0.5331)
+        self.assertEqual(gt.stored_cut(0.53304), 0.5331)
+
     def test_bank_cut_holds_each_bank_and_scale_at_the_rate(self):
         import numpy as np
         keys = ["A:C", "A:Q", "B:C"]

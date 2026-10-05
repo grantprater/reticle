@@ -49,7 +49,7 @@ analysis/minimap-glyphs-killjoy-refs-20261004/gamedata-on, minimap-glyph-eval-0.
 labels/ability, labels/ability_paint and labels/tray_object of the dev sessions d95cfad5693a and dae6f33f3f48):
 every disc the player labelled as no ability, scored single frame (masked Pearson of luma, the eval's matcher)
 against every catalogue key at its policy's search size. Each key's cut sits where at most 5% of those discs
-score above it (`cut_at`): a key names a disc when its score exceeds its cut. Per key the bank's false naming
+score above it (`cut_at`, stored rounded up to 4 decimals): a key names a disc when its score exceeds its cut. Per key the bank's false naming
 adds up across keys, so each bank (the labelled caster's kit, `context`, and every key, `full`) also gets its own
 cut, overall and at each widget scale: the `cut_at` of each disc's best score within the bank, so that at most 5%
 of the discs' best keys clear it (gate 3's bank form). The table gives each bank's false-naming rate at the per-key
@@ -91,8 +91,9 @@ import glyph_channel_cost as gcc  # noqa: E402  (sets single-threaded, Below Nor
 import minimap_glyph_eval as mge  # noqa: E402
 import numpy as np  # noqa: E402
 
-VERSION = "glyph-tables-0.2.1"   # 0.2.0: the null at the full transform, unlabelled discs, the audit null
+VERSION = "glyph-tables-0.2.2"   # 0.2.0: the null at the full transform, unlabelled discs, the audit null
 #: 0.2.1: the three 2026-10-05 rotation answers; build.json compares every cut with glyph-null-table-0.2.0's.
+#: 0.2.2: `cut_at` returns the cut as stored (4 decimals, rounded up), so every count is taken at the stored cut.
 #: 0.1.1: no_component_default. The stamp versions the rows: at glyph-tables-0.2.0 the rows are unchanged and the
 #: file differs from 0.1.1's only in its provenance (generator); the bank's sha256 pairing pins each file's bytes.
 #: 0.1.2: rows Skye:X, Cypher:Q and Cypher:C decided by the player's 2026-10-05 answers (L472-L474).
@@ -101,7 +102,11 @@ POLICY_VERSION = "glyph-rotation-policy-0.1.2"
 #: `basis` map_scale), the unlabelled proposer discs of the dev sessions' exhaustive paint frames, and the audit
 #: null (`keys.<key>.audit_cut`, `banks.audit`).
 #: 0.2.1: the rule and basis of 0.2.0 over policy 0.1.2 (Cypher:Q rotated).
-NULL_VERSION = "glyph-null-table-0.2.1"
+#: 0.2.2: every cut stored rounded up to CUT_DECIMALS and every count taken at the stored cut. 0.2.1 and 0.2.0
+#: rounded to nearest after counting: the full bank's stored 0.8219 sat under its 0.821934 order statistic, so the
+#: reader named 4 of 63 dev no-ability discs (0.0635), not the 3 the table stated.
+NULL_VERSION = "glyph-null-table-0.2.2"
+CUT_DECIMALS = 4         # the decimals a stored cut keeps
 BASIS = "map_scale"
 FALSE_RATE = 0.05        # a design choice (docs/MINIMAP_GLYPH_CHANNEL.md, gate 3)
 DEV_RUN = gcc.KILLJOY_REFS_DEV.parent
@@ -273,12 +278,20 @@ def key_scores(items: list[dict], z, keys: list[str], rotating: set) -> tuple[di
 
 
 def cut_at(scores, rate: float = FALSE_RATE) -> float | None:
-    """The cut a key names above: the (m+1)-th highest null score, m = floor(rate x n), so at most m of the n
-    scores exceed it; None without scores."""
+    """The cut a key names above, as the table stores it: the (m+1)-th highest null score, m = floor(rate x n),
+    rounded up to CUT_DECIMALS (`stored_cut`), so at most m of the n scores exceed the stored value the reader
+    applies; None without scores."""
     s = np.sort(np.asarray(scores, float))[::-1]
     if not len(s):
         return None
-    return float(s[min(int(np.floor(rate * len(s))), len(s) - 1)])
+    return stored_cut(float(s[min(int(np.floor(rate * len(s))), len(s) - 1)]))
+
+
+def stored_cut(c: float) -> float:
+    """The least CUT_DECIMALS-decimal value at or above `c`. Rounding to nearest can store a cut under its order
+    statistic, and the reader, which names above the stored cut, then names that score too."""
+    r = round(c, CUT_DECIMALS)
+    return r if r >= c else round(r + 10.0 ** -CUT_DECIMALS, CUT_DECIMALS)
 
 
 def best_in(per: np.ndarray, keys: list[str], allowed: list[str]) -> tuple[str, float, float]:
@@ -1003,7 +1016,8 @@ def cmd_thrown(out: Path, only: set | None = None) -> None:
 #: 0.2.0: each source's game file (path under the export, sha256) beside its provenance; the glyphs are 0.1.0's.
 #: 0.3.0: pairs with glyph-null-table-0.2.0 (the full transform); the glyphs are 0.1.0's.
 #: 0.3.1: pairs with glyph-rotation-policy-0.1.2 and glyph-null-table-0.2.1; the glyphs are 0.1.0's.
-BANK_VERSION = "glyph-bank-0.3.1"
+#: 0.3.2: pairs with glyph-rotation-policy-0.1.2 and glyph-null-table-0.2.2 (cuts as stored); the glyphs are 0.1.0's.
+BANK_VERSION = "glyph-bank-0.3.2"
 
 
 def source_files(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:

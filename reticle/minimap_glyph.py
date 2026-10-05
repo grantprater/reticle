@@ -30,7 +30,7 @@ Inputs, as versioned data from the store, never from `prototypes/`:
   never mined captures.
 - the rotation policy (`glyph-rotation-policy-0.1.2`): per key, upright (0
   deg) or every 15 deg, each row citing what decided it.
-- the null table (`glyph-null-table-0.2.1`, `basis` map_scale): per key, the
+- the null table (`glyph-null-table-0.2.2`, `basis` map_scale): per key, the
   cut that at most 5% of the dev no-ability discs exceed at the key's policy
   search size (`cut`) and at every rotation (`audit_cut`, the audit's search
   size), and the bank cuts of the full set (every key, policy rotations) and
@@ -167,10 +167,13 @@ from .version import ABILITY_GLYPH_VERSION, ABILITY_ICON_VERSION
 #: 20261005b file (glyph-tables-0.1.1) under the same stamp, with other bytes.
 #: 20261005d (glyph-tables-0.2.1) reads the player's 2026-10-05 rotation
 #: answers: Skye:X, Cypher:Q and Cypher:C rotate; only Cypher:Q's search and
-#: cut change, and the glyphs equal 0.3.0's.
-GLYPH_DATA = {"bank": ("analysis/glyph-bank-20261005d", "glyph-bank-0.3.1"),
-              "policy": ("analysis/glyph-tables-20261005d", "glyph-rotation-policy-0.1.2"),
-              "null": ("analysis/glyph-tables-20261005d", "glyph-null-table-0.2.1")}
+#: cut change, and the glyphs equal 0.3.0's. 20261005e (glyph-tables-0.2.2)
+#: stores every cut rounded up to 4 decimals, so the stored cut keeps the
+#: count gate 3 states: 0.2.1's full bank cut, 0.8219, sat under its 0.821934
+#: order statistic and named 4 of the 63 dev no-ability discs.
+GLYPH_DATA = {"bank": ("analysis/glyph-bank-20261005e", "glyph-bank-0.3.2"),
+              "policy": ("analysis/glyph-tables-20261005e", "glyph-rotation-policy-0.1.2"),
+              "null": ("analysis/glyph-tables-20261005e", "glyph-null-table-0.2.2")}
 #: The bank and tables' stamp, which `plan` compares (`ability_glyph`'s `glyph_bank`).
 GLYPH_BANK_STAMP = "+".join(GLYPH_DATA[k][1] for k in ("bank", "policy", "null"))
 
