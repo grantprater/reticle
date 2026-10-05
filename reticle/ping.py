@@ -456,7 +456,21 @@ class PingReader:
         - ENTITY_DELETED at t1 (expiration) with deletion_reason="expired"
 
         Positions are WIDGET pixels. Entity IDs are "ping:{kind}:{index}".
+
+        A read that confirmed no ping returns one `coverage` row instead,
+        stamped `ping_version` like every other reader's head, so the stored
+        file says "read at this version, found none". An empty file carried no
+        stamp: `Store.events_version` returned None, `plan` listed the stream
+        absent and `scan` reread it on every pass (4f207c0c4e39, 2026-10-04).
+        The row has no `t_ms` and no `event_kind`; consumers that read pings
+        skip it. A read with pings writes the events alone, as before, and
+        their first event carries the stamp (`producer_version`).
         """
+        if not self.hits:
+            return [{"session_id": session_id, "kind": "coverage", "ping_version": PING_VERSION,
+                     "confirmed": 0, "unconfirmed": len(self.unconfirmed),
+                     "rejected": len(self.rejected), "frames": len(self.ts),
+                     "frames_absent": self.n_absent, "hz": self.hz}]
         events = []
         for idx, (kind, t0, t1, x, y, hue, n) in enumerate(self.hits):
             entity_id = f"ping:{kind}:{idx}"

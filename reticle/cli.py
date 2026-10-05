@@ -1589,9 +1589,9 @@ def cmd_scan(args) -> int:
 
         if pp is not None:
             pp.finish()
+            # Never empty: a read that confirmed none is one stamped coverage row.
             rows = pp.events(sid)
-            if rows:
-                _record_inputs(store, sid, "ping", rows[0])
+            _record_inputs(store, sid, "ping", rows[0])
             path = out.write_events("ping", sid, rows)
             by: dict[str, int] = {}
             for kind, *_r in pp.hits:

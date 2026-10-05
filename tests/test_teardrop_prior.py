@@ -322,13 +322,14 @@ class SelfPriorTests(unittest.TestCase):
 class PriorRefineTests(unittest.TestCase):
     def _renders(self, crop, prior):
         n = []
-        real = teardrop._correlation
+        real = teardrop._Support.ncc
 
         def count(*a, **kw):
             n.append(1)
             return real(*a, **kw)
 
-        with patch.object(teardrop, "_correlation", count):
+        # each compass step scores its probes once (`_Support.ncc`)
+        with patch.object(teardrop._Support, "ncc", count):
             fit = teardrop.fit_teardrop(crop, 46.0, 44.0, prior=prior)
         return fit, len(n)
 
