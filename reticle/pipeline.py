@@ -310,7 +310,8 @@ def _source_items(ctx, readers: list, source, usage=None):
             usage.decode_backend = backend      # filled when the capture opens
         strides = {r.name: r.frame_stride for r in readers
                    if getattr(r, "frame_stride", None) is not None}
-        items = sample_multi(str(ctx.media), ctx.fps, req, info=backend, strides=strides)
+        items = sample_multi(str(ctx.media), ctx.fps, req, info=backend,
+                             **({"strides": strides} if strides else {}))
         # `passes.run`'s order: the readers' list, as on the cache.
         return items, lambda item: (item[1], [r for r in readers if r.name in item[0]])
     rois = sorted({roi for r in readers for roi in _cache_rois(r)})
