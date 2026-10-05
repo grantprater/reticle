@@ -223,7 +223,13 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # `blinds`): a track ages only by the time it was seen, and a washed frame
 # reads no victim side. a06f04a0059f 1768.0 s: Riot's Deadlock kill, read
 # once before Skye's blind, joins the entry read faded at 1771.0 s.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.40.0"
+# 0.41.0 (2026-10-04): no entry track rises further than an entry above it
+# rose over the same interval (`checks.track_entries`, `outrises`): entries
+# expire top first and rise alike [domain:killfeed/stack-order]. At
+# 223d636bf8d2 1208.0 s the entry under the Shooting Error overlay (slot 4,
+# no divider) took a Not Dead Yet banner two slots up, and Riot's Skye death
+# read Clove on the enemy side.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.41.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster

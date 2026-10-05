@@ -557,6 +557,28 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None,
                                for t_, s_, _ in b["assigned"])
                        for bi_, b in enumerate(active) if bi_ not in retired)
 
+        def outrises(a, slot) -> bool:
+            """Whether track `a` taking `slot` would rise further than an entry
+            above it rose over the same interval. An entry rises one slot per
+            expiry above it, the oldest, topmost entry expiring first
+            [domain:killfeed/stack-order] [domain:killfeed/entry-lifetime],
+            so every entry still on screen rises alike: an entry read above
+            `a` at `a`'s last read and read again now bounds `a`'s rise. At
+            223d636bf8d2 1208.0 s an entry under the Shooting Error overlay,
+            last read in slot 4 at 1207.0 s with no divider, took a Not Dead
+            Yet banner two slots up while the entry above it rose one; the
+            banner's sides and names became its own."""
+            rise = a["slot"] - slot
+            if rise <= 1:
+                return False
+            for b in active:
+                if b is a or not b["assigned"] or b["assigned"][-1][0] != t:
+                    continue
+                then = [s_ for t_, s_, _ in b["assigned"] if t_ == a["t_last"]]
+                if then and then[0] < a["slot"] and then[0] - b["assigned"][-1][1] < rise:
+                    return True
+            return False
+
         for slot in here:
             sig = wx_at(packed, slot)
             side = _side_at(pair, slot)
@@ -564,7 +586,7 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None,
             cands = [ai for ai, a in enumerate(active)
                      # an entry never moves down the stack, nor past another
                      if ai not in used and slot <= a["slot"] and fits(a, sig, side)
-                     and not passes(a, slot)]
+                     and not passes(a, slot) and not outrises(a, slot)]
             # The nearest slot wins, unless the stack says otherwise:
             #
             #   merge  -- an entry expires and the one below rises into the
