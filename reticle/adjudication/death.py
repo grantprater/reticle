@@ -224,7 +224,10 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # entity, the identity arbiter's verdict and the icon. An `assist` stream
 # that rests on another death rule, or none, leaves `assists` unread with
 # its reason.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.37.0"
+# 0.38.0 (2026-10-04): each joined assister carries the assist verdict's
+# `name_reason`, so an unnamed portrait no agent's art clears ('portrait not
+# recognised') stays distinct from an assister unnamed for another reason.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.38.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -1409,7 +1412,8 @@ def join_assists(rows: list[dict], assist_rows: list[dict] | None) -> dict:
     the panel or the views tied), `count_min` (the lower bound), `present`
     (a panel drawn: True, False, or None unread), `count_status` and
     `count_reason`, and per assister (k counted from the killer's portrait
-    leftwards) its `entity_id`, the arbiter's `agent` and `status`, and the
+    leftwards) its `entity_id`, the arbiter's `agent` and `status`, why it
+    is unnamed (`name_reason`, None when named), and the
     `icon` with its `icon_status` and `icon_set`. A stream that rests on
     another death rule (`assist_stamp`) or holds no verdict for the death
     leaves `{"status": "unread", "reason": ...}`: never a guess. Returns
@@ -1439,6 +1443,7 @@ def join_assists(rows: list[dict], assist_rows: list[dict] | None) -> dict:
             "count_reason": a.get("count_reason"),
             "assisters": [{"k": s["k"], "entity_id": s["entity_id"], "agent": s.get("agent"),
                            "identity_status": (s.get("identity") or {}).get("status"),
+                           "name_reason": s.get("name_reason"),
                            "icon": s.get("icon"), "icon_status": s.get("icon_status"),
                            "icon_set": s.get("icon_set"), "icon_reason": s.get("icon_reason")}
                           for s in a.get("assisters", [])],

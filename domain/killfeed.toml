@@ -475,9 +475,7 @@ agents, and her assist portraits at 0.58-0.64 against 0.77-0.86; by eye her
 face sits higher and smaller. The build's `KillfeedPortrait` textures equal
 valorant-api's within 2/255; geometric, blur and gamma fits of the texture did
 not explain Astra. The assist widget sets its portrait from
-`PlayerIconsComponent.GetKillfeedIcon`. (A Chamber case once cited here,
-5822b6646448 121.5 s, was the killer art's row read 3 px off: at the right row
-Chamber scores 0.824 against the build's texture; withdrawn 2026-10-04.)
+`PlayerIconsComponent.GetKillfeedIcon`.
 """
 use = """
 a reader that matches portrait art must treat a weak best match on a known

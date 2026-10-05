@@ -60,7 +60,8 @@ Riot's assist credit on paired deaths). Versions 0.1.0-0.4.0 were chosen
 against all 21 Riot matches; from 0.5.0 the matches are split by a fixed hash
 into a dev half (10, used for choices with the player's labels) and a
 held-out half (11, scored once per version; 0.6.0 is its second use, after
-a review had named five of its cases). On the held-out half, where the
+a review had named five of its cases; 0.6.1 changes none of its 1652
+verdicts and is not scored there). On the held-out half, where the
 count is read, presence agrees with Riot's assisted kill at precision
 [metric:assist_panel/riot_held#presence_precision=0.9971] and recall
 [metric:assist_panel/riot_held#presence_recall=0.9971]; a named assister is
@@ -69,8 +70,8 @@ and the player's own assists are named at
 [metric:assist_panel/riot_held#assistant_own_recall=0.9804]. Astra on
 223d636bf8d2 is drawn from art the build's texture does not hold
 [domain:killfeed/portrait-art-variants]: of the dev half's 12 Riot Astra
-assists, [metric:assist_panel/riot_dev#assistant_astra_unrecognised=9] read
-as an unrecognised portrait, present and unnamed. The ROI's left edge cuts
+assists, [metric:assist_panel/riot_dev#assistant_astra_unrecognised=11] read
+as an unrecognised portrait, present and unnamed, and one is named. The ROI's left edge cuts
 the panel of a long killer name; those deaths keep a lower bound.
 
 Game art is loaded from the store's game-file reference (`ICON_BUILD`), never
@@ -124,7 +125,11 @@ from .killfeed_numeral import fit_scores, slot_whiteness
 # (`UNRECOGNISED`); each step stores what its best window shows
 # (`step_evidence`); an absence read within `EMPTY_VISIBLE_MIN` px of the
 # ROI's left edge is flagged (`within_visible_min`), not refused.
-KILLFEED_ASSIST_VERSION = "killfeed-assist-0.6.0"
+# 0.6.1 (2026-10-04): the drawn rule is measured at the best placement under
+# each edge prediction (with an icon, without), not only at the argmax over
+# both (`_stop_evidence` `predictions`, `drawn_by`); a step is drawn if either
+# fires.
+KILLFEED_ASSIST_VERSION = "killfeed-assist-0.6.1"
 
 #: The game build whose widgets and textures this reader draws on.
 ICON_BUILD = "release-13.06-shipping-18-5590001"
@@ -538,34 +543,67 @@ def _window_evidence(lab: np.ndarray, plate: np.ndarray, x: int, y: int, art,
     return out
 
 
-def _stop_evidence(got, names: list[str], art, lab: np.ndarray, plate: np.ndarray) -> dict:
-    """The step's best placement over the side's art, though under
-    `PRESENT_Z`: each candidate's best correlation (`art_zncc`) and what the
-    best window shows (`_window_evidence`)."""
+def _stop_evidence(got, names: list[str], art, lab: np.ndarray, plate: np.ndarray,
+                   edge: float, icon_gap: float) -> dict:
+    """The step's best placements over the side's art, though under
+    `PRESENT_Z`. The top level is the best placement over every agent and
+    both edge predictions, with each candidate's best correlation
+    (`art_zncc`) and what its window shows (`_window_evidence`), as before
+    0.6.1. `predictions` holds the same for the best placement under each
+    edge prediction alone (`icon`: an icon cell between the window and
+    `edge`, `no_icon`: none), each with its own `art_zncc` and whether the
+    drawn rule fires there (`drawn`): one prediction's placement can
+    outscore the portrait drawn at the other (223d636bf8d2 411.0 s, a no-icon
+    Skye over an iconed Astra). `drawn_by` names the prediction that fires (the higher art first),
+    or None; where one fires, the top level is that prediction's window."""
     z, xs, ya = got
     if not z.size:
         return {}
-    by, bx, ai = np.unravel_index(int(np.argmax(z)), z.shape)
-    per = z.reshape(-1, z.shape[2]).max(0)
-    ev = _window_evidence(lab, plate, int(xs[bx]), int(ya + by), art, names[int(ai)])
+    n = z.shape[2]
+    per = z.reshape(-1, n).max(0)
+    gap = float(edge) - (np.asarray(xs, np.float64) + art.w)
+    preds = {}
+    for key, mask in (("icon", gap >= icon_gap), ("no_icon", gap < icon_gap)):
+        if not mask.any():
+            continue
+        zm = z[:, mask, :]
+        by, bx, ai = np.unravel_index(int(np.argmax(zm)), zm.shape)
+        e = _window_evidence(lab, plate, int(np.asarray(xs)[mask][bx]), int(ya + by), art,
+                             names[int(ai)])
+        e["art_zncc"] = {a: round(float(v), 4) for a, v in zip(names, zm.reshape(-1, n).max(0))}
+        e["drawn"] = portrait_drawn(e)
+        preds[key] = e
+    order = sorted(preds, key=lambda k: -max(preds[k]["art_zncc"].values()))
+    fire = next((k for k in order if preds[k]["drawn"]), None)
+    pick = fire or order[0]
+    ev = {k: v for k, v in preds[pick].items() if k not in ("art_zncc", "drawn")}
     ev["art_zncc"] = {a: round(float(v), 4) for a, v in zip(names, per)}
+    ev["prediction"] = pick
+    ev["predictions"] = preds
+    ev["drawn_by"] = fire
     return ev
 
 
 #: A drawn portrait no agent's art clears (`portrait_drawn`); named nobody.
 UNRECOGNISED = "portrait not recognised"
 #: The rule that calls an unrecognised step drawn: at the side's best
-#: placement the art still correlates at `DRAWN_Z_MIN`, the window holds the
-#: plate (`plate_mean` at `DRAWN_PLATE_MIN`), and both its upper and lower
-#: edges step by `DRAWN_EDGE_MIN` (median Lab distance across the row; the
-#: portrait cell is a crisp 36 x 18 box). Chosen on the dev half's stored
-#: views (0.6.0 features): of 4140 stop steps where the read count and names
-#: equal Riot's (true absence), none fires (the nearest: art 0.42 with edges
-#: 6.7); of 34 views where Riot's Astra is unread, 30 fire (the four left are
-#: an Astra the ROI cuts to 7 columns and a frame mid-fade); of 1158
-#: recognised portraits 1034 (89%) clear the edge and plate parts. The
-#: dev half's one other firing (ff636d173b07 1054.5 s) is the player's framed
-#: Phoenix, drawn, which Riot credits.
+#: placement under either edge prediction (`_stop_evidence`), the art still
+#: correlates at `DRAWN_Z_MIN`, the window holds the plate (`plate_mean` at
+#: `DRAWN_PLATE_MIN`), and both its upper and lower edges step by
+#: `DRAWN_EDGE_MIN` (median Lab distance across the row; the portrait cell is
+#: a crisp 36 x 18 box). Chosen on the dev half's stored views (0.6.0
+#: features): of 4140 stop steps where the read count and names equal Riot's
+#: (true absence), none fires (the nearest: art 0.42 with edges 6.7); of 34
+#: views where Riot's Astra is unread, 30 fire; of 1158 recognised portraits
+#: 1034 (89%) clear the edge and plate parts. The dev half's one other firing
+#: (ff636d173b07 1054.5 s) is the player's framed Phoenix, drawn, which Riot
+#: credits. 0.6.1 measures the rule under each edge prediction: on the same
+#: dev views (4131 true-absence stops as the 0.6.0 stream stores them) it
+#: fires on none, and it fires on all 34 Astra views. In the four 0.6.0
+#: missed, the other prediction's placement outscored Astra's and covered
+#: no cell: at 223d636bf8d2 411.0 s a no-icon Skye over her iconed cell at
+#: x 18, at 1872.0-1873.0 s an iconed Skye at x 7 over her uncut no-icon
+#: cell at x 27. 0.6.0 had named a cut Astra and a fading frame.
 DRAWN_Z_MIN = 0.4
 DRAWN_PLATE_MIN = 0.05
 DRAWN_EDGE_MIN = 8.0
@@ -636,12 +674,13 @@ def read_panel(crop: np.ndarray, right: float, top: float, s: KillfeedScale, art
                     widened = f"side top {best:.3f}: none on plate at {PRESENT_Z}"
                     got, hit, cand = wide, whit, list(art.agents)
         if hit is None:
-            ev = _stop_evidence(got, names, art, lab, plate) if got is not None else {}
+            ev = (_stop_evidence(got, names, art, lab, plate, edge, s.px(ICON_GAP_MIN))
+                  if got is not None else {})
             # Absence read nearer the ROI's left edge than `EMPTY_VISIBLE_MIN`
             # is flagged as evidence; the count stands (see the constant).
             if not cut and edge < s.px(EMPTY_VISIBLE_MIN):
                 ev["within_visible_min"] = round(float(edge), 2)
-            if not cut and ev and portrait_drawn(ev):
+            if not cut and ev and ev.get("drawn_by"):
                 # Drawn, but no agent's art clears the cut: present, unnamed.
                 x = int(ev["x"])
                 gap = edge - (x + art.w)

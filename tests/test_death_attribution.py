@@ -1217,6 +1217,7 @@ class JoinAssistsDeathRule(unittest.TestCase):
                                 "identity": {"status": "resolved"}, "icon": "none",
                                 "icon_status": "read", "icon_set": None},
                                {"k": 1, "entity_id": "d1:assist:1", "agent": None,
+                                "name_reason": "portrait not recognised",
                                 "identity": {"status": "refused"}, "icon": None,
                                 "icon_status": "refused", "icon_set": None}]}]
 
@@ -1228,6 +1229,9 @@ class JoinAssistsDeathRule(unittest.TestCase):
         a = rows[0]["assists"]
         self.assertEqual((a["status"], a["count"], a["present"]), ("read", 2, True))
         self.assertEqual([s["agent"] for s in a["assisters"]], ["Sage", None])
+        # why an assister is unnamed travels with it into the death event
+        self.assertEqual([s["name_reason"] for s in a["assisters"]],
+                         [None, "portrait not recognised"])
         self.assertEqual(a["rests_on"]["assist_adjudication_version"], "assist-adjudication-x")
         self.assertNotIn("assists", rows[1])
         self.assertEqual(assist_stamp(self._stream(DEATH_ADJUDICATION_VERSION)),

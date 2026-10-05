@@ -230,6 +230,31 @@ class Unrecognised(unittest.TestCase):
         self.assertFalse(ka.portrait_drawn({**ev, "art_zncc": {"Alpha": 0.2}}))
         self.assertFalse(ka.portrait_drawn({}))
 
+    def test_drawn_rule_is_measured_under_each_edge_prediction(self):
+        # 223d636bf8d2 411.0 s: a no-icon placement over bare background
+        # outscores the iconed portrait cell it overlaps; the drawn rule
+        # must still be measured at the iconed placement.
+        art = _art()
+        edge, top = 150, 20
+        x_no = edge + ka.EDGE_NO_ICON - ka.PORTRAIT_W
+        x_ic = x_no - ka.ICON_CELL
+        crop = np.full((70, 240, 3), 90, np.uint8)
+        crop[top:top + ka.PORTRAIT_H, x_ic:x_ic + ka.PORTRAIT_W] = (150, 200, 80)
+        lab = appearance.to_lab(crop)
+        plate = ka.plate_score(crop)
+        xs = np.arange(x_ic - 3, x_no + 4)
+        ya = top - 1
+        z = np.full((3, len(xs), len(AGENTS)), 0.1, np.float32)
+        z[1, int(np.flatnonzero(xs == x_ic)[0]), 0] = 0.6      # Alpha, iconed, on the cell
+        z[0, int(np.flatnonzero(xs == x_no)[0]), 1] = 0.62     # Bravo, no icon, a row high
+        ev = ka._stop_evidence((z, xs, ya), list(AGENTS), art, lab, plate, edge,
+                               UNIT_SCALE.px(ka.ICON_GAP_MIN))
+        self.assertFalse(ev["predictions"]["no_icon"]["drawn"])
+        self.assertTrue(ev["predictions"]["icon"]["drawn"])
+        self.assertEqual((ev["drawn_by"], ev["x"], ev["y"], ev["agent"]), ("icon", x_ic, top, "Alpha"))
+        self.assertEqual(ev["art_zncc"]["Bravo"], 0.62)
+        self.assertTrue(ka.portrait_drawn(ev))
+
     def test_unrecognised_row_claims_nobody(self):
         admitted = {"named": ["Alpha"], "rivals": [], "blind": []}
         row = {"k": 0, "recognised": False, "art_zncc": {"Alpha": 0.6}, "art_candidates": "side"}
