@@ -1469,13 +1469,24 @@ def restock_rows():
         if base is not None:
             r['cites'].append(f'{asset_path(pkg)} {comp}.{field} = {fmt(base)} s')
         files = base
+        tag = read_text(pkg, comp, 'CooldownDurationTuningTag.TagName')
+        r['tagged'] = bool(tag) and tag != 'None'
         if tuning:
-            tag = read_text(pkg, comp, 'CooldownDurationTuningTag.TagName')
             files = read(*tuning)
             r['cites'].append(f'{comp}.CooldownDurationTuningTag = {tag}; {asset_path(tuning[0])} '
                               f'{tuning[1]}.{tuning[2]} = {fmt(files)} s')
         r['files'] = files
         r['toggled'] = read(pkg, comp, 'DPT_Cooldown') if has_field(pkg, comp, 'DPT_Cooldown') else None
+        r['blocked'] = None
+        if r['toggled'] is not None and r['tagged']:
+            # Comp_Ability_CooldownComponent's bytecode: AuthUpdateCooldownTimeForDPT applies DPT_Cooldown
+            # through AuthSetCooldownDuration, which refuses while IsUsingTuningTag is true, and
+            # AuthSetupCooldownDurationTuning sets that flag from the tag at BeginPlay. A tagged
+            # component's DPT value therefore never applies.
+            r['blocked'], r['toggled'] = r['toggled'], None
+            r['cites'].append(f'{comp}.DPT_Cooldown = {fmt(r["blocked"])} s, which never applies: the '
+                              f'component uses a tuning tag, and AuthSetCooldownDuration refuses a manual '
+                              f'duration while IsUsingTuningTag is set (Comp_Ability_CooldownComponent bytecode)')
         if r['toggled'] is not None:
             tog = read_text(pkg, comp, 'DPT_FeatureToggle') or default_toggle
             r['toggle'] = tog.split('::')[-1]
@@ -1523,15 +1534,25 @@ def restock_fact():
            + '; '.join(f"{label(r)}: " + '; '.join(r['cites']) for r in rows))
 
     def cat_words(rs):
-        return ', '.join(f"{label(r)} ({fmt(r['files'])} s against \"{r['catalogue']}\")" for r in rs)
+        out = []
+        for r in rs:
+            tog = (f", {fmt(r['toggled'])} s under {r['toggle']}" if r['toggled'] is not None
+                   and r['toggled'] != r['files'] else '')
+            out.append(f"{label(r)} (files {fmt(r['files'])} s{tog}; catalogue \"{r['catalogue']}\")")
+        return ', '.join(out)
     exc = []
-    if by.get('disagrees'):
-        exc.append('The catalogue disagrees with the files on ' + cat_words(by['disagrees']) + '; the files\' '
-                   'values stand [domain:abilities/game-files-outrank-player-quantities].')
-    if by.get('agrees with toggled'):
-        rs = by['agrees with toggled']
-        exc.append('The catalogue matches the toggled value, not the base, on '
-                   + ', '.join(f"{label(r)} ({r['toggle']} {fmt(r['toggled'])} s)" for r in rs) + '.')
+    differ = sorted(by.get('agrees with toggled', []) + by.get('disagrees', []), key=label)
+    if differ:
+        exc.append('The catalogue differs from the files\' base value on ' + cat_words(differ) + '. Each stands '
+                   'as a disagreement, not a supersession: an AbilityTuning row may be retuned and a feature '
+                   'toggle set on the server, neither readable from the client files, so a timed restock in a '
+                   'capture decides.')
+    blocked = [r for r in rows if r['blocked'] is not None]
+    if blocked:
+        exc.append('A DPT_Cooldown never applies on '
+                   + ', '.join(f"{label(r)} ({fmt(r['blocked'])} s)" for r in blocked)
+                   + ': each component uses a tuning tag, and the component\'s bytecode refuses a manual '
+                   'duration while IsUsingTuningTag is set.')
     toggled_base = [r for r in by.get('agrees', []) if r['toggled'] is not None and r['toggled'] != r['files']]
     if toggled_base:
         exc.append('It matches the base value, not the toggled one, on '
@@ -1559,10 +1580,6 @@ def restock_fact():
                "the component's time is the wait after a reclaim, as far as its field name says. An AbilityTuning "
                "row may be retuned on the server. These are class defaults; a field name is the designers' word, "
                "not a measured meaning.")
-    sup = ("[domain:abilities/catalogue-restock-and-ult-points-confirmed]: its restock values where the files give "
-           "a value the catalogue does not list (" + ', '.join(label(r) for r in by.get('disagrees', [])) +
-           "), by the player's ruling that game-file quantities outrank the player's and the wiki's numbers "
-           "[domain:abilities/game-files-outrank-player-quantities]; its ultimate-point costs stand")
     files_t = ', '.join(f"{r['key']} = {fmt(float(r['files']))}" for r in rows)
     tog_t = ', '.join(f"{r['key']} = {fmt(float(r['toggled']))}" for r in rows if r['toggled'] is not None)
     text = '\n'.join([
@@ -1572,7 +1589,6 @@ def restock_fact():
         'server toggle the files do not carry, and is one of the two\n"""',
         f'exceptions = {tq(" ".join(exc))}',
         f'values = {{ files_s = {{ {files_t} }}, toggled_s = {{ {tog_t} }} }}',
-        f'supersedes = {tq(sup)}',
         'see = ["abilities/catalogue-restock-and-ult-points-confirmed", '
         '"abilities/game-files-outrank-player-quantities", "abilities/gekko-abilities-drop-pickups"]']) + '\n'
     return 'ability-restock-times', text, rows

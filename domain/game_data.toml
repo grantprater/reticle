@@ -205,17 +205,15 @@ under DesignerToggleA); Astra Nova Pulse 60.0 s (45.0 s under
 DesignerToggleA); Astra Nebula / Dissipate 35.0 s (25.0 s under
 DesignerToggleA); Breach Fault Line 50.0 s (60.0 s under DesignerToggleC);
 Chamber Rendezvous 30.0 s; Clove Ruse 40.0 s (30.0 s under DesignPlaytest);
-Cypher Spycam 15.0 s; Deadlock GravNet 50.0 s; Fade Haunt 50.0 s (60.0 s under
-DesignerToggleC); Gekko Mosh Pit 15.0 s (20.0 s under DesignPlaytest); Gekko
-Wingman 15.0 s (10.0 s under DesignPlaytest); Gekko Dizzy 15.0 s (10.0 s under
-DesignPlaytest); Gekko Thrash 15.0 s; Harbor Cove 30.0 s; KAY/O ZERO/point
-50.0 s (60.0 s under DesignerToggleC); Miks Waveform 40.0 s; Omen Dark Cover
-40.0 s (30.0 s under DesignPlaytest); Sage Healing Orb 45.0 s; Skye Guiding
-Light 50.0 s; Sova Recon Bolt 50.0 s (60.0 s under DesignerToggleC); Vyse Arc
-Rose 20.0 s; Vyse Shear 20.0 s. A value in brackets is the component's
-DPT_Cooldown, which applies while the named DPT_FeatureToggle is on; the
-toggle is a server setting, so the files give both values and not which one
-plays.
+Cypher Spycam 15.0 s; Deadlock GravNet 50.0 s; Fade Haunt 50.0 s; Gekko Mosh
+Pit 15.0 s (20.0 s under DesignPlaytest); Gekko Wingman 15.0 s (10.0 s under
+DesignPlaytest); Gekko Dizzy 15.0 s; Gekko Thrash 15.0 s; Harbor Cove 30.0 s;
+KAY/O ZERO/point 50.0 s (60.0 s under DesignerToggleC); Miks Waveform 40.0 s;
+Omen Dark Cover 40.0 s (30.0 s under DesignPlaytest); Sage Healing Orb 45.0 s;
+Skye Guiding Light 50.0 s; Sova Recon Bolt 50.0 s; Vyse Arc Rose 20.0 s; Vyse
+Shear 20.0 s. A value in brackets is the component's DPT_Cooldown, which
+applies while the named DPT_FeatureToggle is on; the toggle is a server
+setting, so the files give both values and not which one plays.
 """
 kind = "measurement"
 known = "measured"
@@ -267,8 +265,10 @@ Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownDurationTuningTag =
 AbilityTuning.BountyHunter.E.Cooldown;
 ShooterGame/Content/Characters/BountyHunter/S0/Ability_E/AbilityTuning_BountyHunter_E_ReconDiveBomb.uasset
 AbilityTuning_BountyHunter_E_ReconDiveBomb.Rows.Cooldown = 50.0 s;
-Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 60.0 s under
-DPT_FeatureToggle EGameFeatureToggleName::DesignerToggleC; Gekko Mosh Pit:
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 60.0 s, which never
+applies: the component uses a tuning tag, and AuthSetCooldownDuration refuses
+a manual duration while IsUsingTuningTag is set
+(Comp_Ability_CooldownComponent bytecode); Gekko Mosh Pit:
 ShooterGame/Content/Characters/AggroBot/S0/Ability_4/Ability_Aggrobot_C_ExplodeyPatch.uasset
 Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 15.0 s;
 Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 20.0 s under
@@ -283,9 +283,10 @@ Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownDurationTuningTag =
 AbilityTuning.Aggrobot.E.Cooldown;
 ShooterGame/Content/Characters/AggroBot/S0/Ability_E/AbilityTuning_Aggrobot_E.uasset
 AbilityTuning_Aggrobot_E.Rows.DizzyCooldown = 15.0 s;
-Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 10.0 s under
-DPT_FeatureToggle EGameFeatureToggleName::DesignPlaytest (the component class
-default); Gekko Thrash:
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 10.0 s, which never
+applies: the component uses a tuning tag, and AuthSetCooldownDuration refuses
+a manual duration while IsUsingTuningTag is set
+(Comp_Ability_CooldownComponent bytecode); Gekko Thrash:
 ShooterGame/Content/Characters/AggroBot/S0/Ability_X/Ability_Aggrobot_X_RollyExplosion.uasset
 Comp_Aggrobot_X_Cooldown_GEN_VARIABLE.CooldownInSeconds = 15.0 s; Harbor Cove:
 ShooterGame/Content/Characters/Mage/S0/Ability_E/Ability_Mage_E_WorldSmoke.uasset
@@ -317,8 +318,10 @@ Comp_Ability_CooldownComponent1_GEN_VARIABLE.CooldownDurationTuningTag =
 AbilityTuning.Hunter.E.Cooldown;
 ShooterGame/Content/Characters/Hunter/S0/Ability_Q/AbilityTuning_Hunter_Q_RevealBolt.uasset
 AbilityTuning_Hunter_Q_RevealBolt.Rows.RevealBoltCooldown = 50.0 s;
-Comp_Ability_CooldownComponent1_GEN_VARIABLE.DPT_Cooldown = 60.0 s under
-DPT_FeatureToggle EGameFeatureToggleName::DesignerToggleC; Vyse Arc Rose:
+Comp_Ability_CooldownComponent1_GEN_VARIABLE.DPT_Cooldown = 60.0 s, which
+never applies: the component uses a tuning tag, and AuthSetCooldownDuration
+refuses a manual duration while IsUsingTuningTag is set
+(Comp_Ability_CooldownComponent bytecode); Vyse Arc Rose:
 ShooterGame/Content/Characters/Nox/S0/Ability_E/Ability_Nox_FlashTrap.uasset
 Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 20.0 s;
 Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 20.0 s under
@@ -332,38 +335,38 @@ an ability's restock time: `files`; where `toggled` holds a value, the live time
 server toggle the files do not carry, and is one of the two
 """
 exceptions = """
-The catalogue disagrees with the files on Deadlock GravNet (50.0 s against "60
-seconds"), Gekko Thrash (15.0 s against "20 seconds (granted by Globules )"),
-Skye Guiding Light (50.0 s against "60 seconds"); the files' values stand
-[domain:abilities/game-files-outrank-player-quantities]. The catalogue matches
-the toggled value, not the base, on Breach Fault Line (DesignerToggleC 60.0
-s), Fade Haunt (DesignerToggleC 60.0 s), Gekko Mosh Pit (DesignPlaytest 20.0
-s), KAY/O ZERO/point (DesignerToggleC 60.0 s), Sova Recon Bolt
-(DesignerToggleC 60.0 s). It matches the base value, not the toggled one, on
-Astra Gravity Well (DesignerToggleA would give 45.0 s), Clove Ruse
-(DesignPlaytest would give 30.0 s), Omen Dark Cover (DesignPlaytest would give
-30.0 s). By toggle, the catalogue: DesignPlaytest splits (1 toggled, 2 base);
-DesignerToggleA matches its base value on all 1; DesignerToggleC matches its
-toggled value on all 4. A split means the catalogue mixes dates or the toggle
-is not the whole story; the files do not say which value plays, so a timed
-restock in a capture decides. The catalogue lists no restock for Astra Nova
-Pulse, Astra Nebula / Dissipate, Chamber Rendezvous, Gekko Wingman, Gekko
-Dizzy, Harbor Cove, Vyse Shear, whose components carry one; a recall or pickup
-restock is the likely use, unread here. Gekko's restocks run through reclaimed
-globules [domain:abilities/gekko-abilities-drop-pickups]; the component's time
-is the wait after a reclaim, as far as its field name says. An AbilityTuning
-row may be retuned on the server. These are class defaults; a field name is
-the designers' word, not a measured meaning.
+The catalogue differs from the files' base value on Breach Fault Line (files
+50.0 s, 60.0 s under DesignerToggleC; catalogue "60 seconds"), Deadlock
+GravNet (files 50.0 s; catalogue "60 seconds"), Fade Haunt (files 50.0 s;
+catalogue "60 seconds"), Gekko Mosh Pit (files 15.0 s, 20.0 s under
+DesignPlaytest; catalogue "20 seconds (granted by Globules )"), Gekko Thrash
+(files 15.0 s; catalogue "20 seconds (granted by Globules )"), KAY/O
+ZERO/point (files 50.0 s, 60.0 s under DesignerToggleC; catalogue "60 seconds
+(Restock removed in Replication )"), Skye Guiding Light (files 50.0 s;
+catalogue "60 seconds"), Sova Recon Bolt (files 50.0 s; catalogue "60
+seconds"). Each stands as a disagreement, not a supersession: an AbilityTuning
+row may be retuned and a feature toggle set on the server, neither readable
+from the client files, so a timed restock in a capture decides. A DPT_Cooldown
+never applies on Fade Haunt (60.0 s), Gekko Dizzy (10.0 s), Sova Recon Bolt
+(60.0 s): each component uses a tuning tag, and the component's bytecode
+refuses a manual duration while IsUsingTuningTag is set. It matches the base
+value, not the toggled one, on Astra Gravity Well (DesignerToggleA would give
+45.0 s), Clove Ruse (DesignPlaytest would give 30.0 s), Omen Dark Cover
+(DesignPlaytest would give 30.0 s). By toggle, the catalogue: DesignPlaytest
+splits (1 toggled, 2 base); DesignerToggleA matches its base value on all 1;
+DesignerToggleC matches its toggled value on all 2. A split means the
+catalogue mixes dates or the toggle is not the whole story; the files do not
+say which value plays, so a timed restock in a capture decides. The catalogue
+lists no restock for Astra Nova Pulse, Astra Nebula / Dissipate, Chamber
+Rendezvous, Gekko Wingman, Gekko Dizzy, Harbor Cove, Vyse Shear, whose
+components carry one; a recall or pickup restock is the likely use, unread
+here. Gekko's restocks run through reclaimed globules
+[domain:abilities/gekko-abilities-drop-pickups]; the component's time is the
+wait after a reclaim, as far as its field name says. An AbilityTuning row may
+be retuned on the server. These are class defaults; a field name is the
+designers' word, not a measured meaning.
 """
-values = { files_s = { astra_gravity_well = 60.0, astra_nova_pulse = 60.0, astra_nebula_dissipate = 35.0, breach_fault_line = 50.0, chamber_rendezvous = 30.0, clove_ruse = 40.0, cypher_spycam = 15.0, deadlock_gravnet = 50.0, fade_haunt = 50.0, gekko_mosh_pit = 15.0, gekko_wingman = 15.0, gekko_dizzy = 15.0, gekko_thrash = 15.0, harbor_cove = 30.0, kayo_zero_point = 50.0, miks_waveform = 40.0, omen_dark_cover = 40.0, sage_healing_orb = 45.0, skye_guiding_light = 50.0, sova_recon_bolt = 50.0, vyse_arc_rose = 20.0, vyse_shear = 20.0 }, toggled_s = { astra_gravity_well = 45.0, astra_nova_pulse = 45.0, astra_nebula_dissipate = 25.0, breach_fault_line = 60.0, clove_ruse = 30.0, fade_haunt = 60.0, gekko_mosh_pit = 20.0, gekko_wingman = 10.0, gekko_dizzy = 10.0, harbor_cove = 30.0, kayo_zero_point = 60.0, omen_dark_cover = 30.0, sova_recon_bolt = 60.0, vyse_arc_rose = 20.0 } }
-supersedes = """
-[domain:abilities/catalogue-restock-and-ult-points-confirmed]: its restock
-values where the files give a value the catalogue does not list (Deadlock
-GravNet, Gekko Thrash, Skye Guiding Light), by the player's ruling that
-game-file quantities outrank the player's and the wiki's numbers
-[domain:abilities/game-files-outrank-player-quantities]; its ultimate-point
-costs stand
-"""
+values = { files_s = { astra_gravity_well = 60.0, astra_nova_pulse = 60.0, astra_nebula_dissipate = 35.0, breach_fault_line = 50.0, chamber_rendezvous = 30.0, clove_ruse = 40.0, cypher_spycam = 15.0, deadlock_gravnet = 50.0, fade_haunt = 50.0, gekko_mosh_pit = 15.0, gekko_wingman = 15.0, gekko_dizzy = 15.0, gekko_thrash = 15.0, harbor_cove = 30.0, kayo_zero_point = 50.0, miks_waveform = 40.0, omen_dark_cover = 40.0, sage_healing_orb = 45.0, skye_guiding_light = 50.0, sova_recon_bolt = 50.0, vyse_arc_rose = 20.0, vyse_shear = 20.0 }, toggled_s = { astra_gravity_well = 45.0, astra_nova_pulse = 45.0, astra_nebula_dissipate = 25.0, breach_fault_line = 60.0, clove_ruse = 30.0, gekko_mosh_pit = 20.0, gekko_wingman = 10.0, harbor_cove = 30.0, kayo_zero_point = 60.0, omen_dark_cover = 30.0, vyse_arc_rose = 20.0 } }
 see = ["abilities/catalogue-restock-and-ult-points-confirmed", "abilities/game-files-outrank-player-quantities", "abilities/gekko-abilities-drop-pickups"]
 
 [astra-gravity-well-game-data]

@@ -3495,7 +3495,6 @@ harvest entry and cites this fact, as ability_state does for charge counts
 with abilities/catalogue-charge-counts-confirmed; a per-ability domain fact
 still outranks the harvest. A harvest of another date is unconfirmed again
 """
-superseded_by = "game_data/ability-restock-times"
 exceptions = """
 the game files of build release-13.06-shipping-18-5590001 give a recall
 restock to three abilities whose harvest restock is none, as Gekko's pickups
@@ -6617,8 +6616,7 @@ restock, cost or charge count), the value read from the extracted game files
 is the claim. A player's or the wiki's number that disagrees with it stays on
 record as an exception, its fact marked superseded_by the game-data fact. The
 player owns the qualitative mechanics: what an ability does, how it is drawn,
-and the player's beliefs. A measured value that disagrees with a game value is
-stored as a surprise on the game-data fact, never as an override.
+and the player's beliefs.
 """
 kind = "constraint"
 known = "player"
@@ -6636,9 +6634,10 @@ disagrees with superseded_by, keeping its claim and source
 """
 exceptions = """
 a game-file value is a class default; a blueprint, an AbilityTuning row or a
-server toggle may change it at run time, and a component that carries two
-values under a feature toggle gives no single claim until a capture decides
-[domain:game_data/ability-restock-times]
+server toggle may change it at run time. Where server-side tuning could
+explain a disagreement, as for the restock times
+[domain:game_data/ability-restock-times], both numbers stand as a
+disagreement until a timed capture decides
 """
 see = ["game_data/miks-waveform-game-data", "game_data/ability-restock-times",
        "abilities/ability-rules-are-unique"]
