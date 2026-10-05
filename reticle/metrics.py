@@ -102,6 +102,16 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return (max(0.0, centre - half), min(1.0, centre + half))
 
 
+def rule_of_three(n: int) -> float | None:
+    """Upper 95% bound on a rate seen zero times in n trials: 3/n.
+
+    It rounds up `-ln(0.05)/n`, which never falls below the exact one-sided
+    bound `1 - 0.05 ** (1/n)`, so it errs wide. None when nothing was tried.
+    A dev check that sees no regression in its sample reports this bound
+    beside the zero, never the zero alone."""
+    return None if n <= 0 else min(1.0, 3.0 / n)
+
+
 def bootstrap_ci(sample, stat, n_boot: int = 2000, alpha: float = 0.05,
                  seed: int = 0) -> tuple[float, float]:
     """Percentile interval for any statistic of a resampleable sample.
