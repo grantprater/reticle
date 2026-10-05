@@ -16,11 +16,14 @@ stored ally-side death verdict whose victim is Clove (the death owner's
 verdict, taken as a gate) and runs to her round's end, her stored revive, or
 her next death, whichever comes first (`opportunity_windows`). The reader
 reads nothing outside the windows, so a session with no ally Clove costs
-nothing. A window carries a seed where a stored position gives the death
-location: for the player's own death, the stored self track's last position
-before it (`stored_windows`). A window with no seed searches the whole widget
-until it finds a circle and then continues that circle's centre, which is
-fixed at the death location; both paths are stored per row (`searched`).
+nothing. Every window searches the whole widget until it finds a circle and
+then continues that circle's centre, which is fixed at the death location;
+where the continued fit finds no circle, the whole widget is searched again.
+Each row stores which path answered (`searched`). A window records a seed
+where a stored position gives the death location: for the player's own
+death, the stored self track's last position before it (`stored_windows`).
+The search never starts from the seed; each row stores only the found
+centre's distance from it (`seed_offset`), a check on the find.
 
 The fit. The circle is a thin bright rim over the static-subtracted grey
 (the baked static [domain:capture/session-pixels-are-not-the-map]; the
@@ -35,7 +38,14 @@ rejection fits those points (`fit_rim`, after `prototypes/clove_circle.py`).
 The score is the median over rays of the rim contrast at the fitted circle,
 soft; `present` cuts it once, at `PRESENT_MIN`. A frame whose rim fit is no
 circle (rms above `RIM_RMS_MAX`), whose rim lies mostly outside the widget,
-or whose fit leaves the radius window is unread, with that reason.
+or whose fit leaves the radius window stores `present` False with that
+reason (`no_rim_fit`, `rim_outside_widget`, `fit_left_radius_window`), as
+does a frame with no candidate centre (`no_candidate`). These are the
+reader's absence outcomes: with no circle drawn, the best ring lands on
+scattered edges and its fit fails the rms cap, so `no_rim_fit`, not a bare
+`absent`, is the usual row for an empty frame. A frame the reader could not
+look at (outside the windows, no map scale, no radius fact, a geometry size
+mismatch, widget not drawn) stores `present` null with its reason.
 
 Sizes are base px at `geometry.SCALE_REF_KEY`, turned into widget px by the
 key's `geometry.MapScale`. The radius comes from the fact's

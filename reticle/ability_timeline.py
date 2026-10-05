@@ -838,7 +838,6 @@ def own_line_times(ult_rows: list[dict]) -> list[float]:
                   if r.get("kind") == "cast" and r.get("player_cast") and not r.get("rests_on"))
 
 
-#: The stored audio-gate log-mel and labels, under the store root.
 #: The rule of `dead_ruse_casts`, stamped on every row it writes.
 #: 0.1.0 (2026-10-05): a Ruse disc the smoke owner names Clove, born while the
 #: player's Clove is dead, is her cast; one per birth sample.
@@ -944,6 +943,7 @@ def dead_ruse_casts(agent: str | None, deaths_ms: list[float], revives_ms: list[
     return {"rows": rows, "windows": windows, "reason": None}
 
 
+#: The stored audio-gate log-mel and labels, under the store root.
 AUDIO_GATE_DIR = Path("analysis") / "audio-gate" / "0.1.0"
 #: The player's tray-cast labels (`prototypes/label_tray_objects.py`) and the
 #: corrections the player made to them, stored beside them, never over them.

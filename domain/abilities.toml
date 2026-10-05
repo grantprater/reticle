@@ -4011,11 +4011,9 @@ another agent's death belongs to someone else
 exceptions = """
 whether a dead Clove's Ruse follows the living rules (charges, batch launch
 [domain:abilities/clove-ruse-batch-launch], placement preview
-[domain:abilities/clove-ruse-targeting-view]) is unasked. On a1a995e6b19b
-[metric:clove_circle/dead-ruse@a1a995e6b19b#dead_needs_restock=3] of the dead
-Clove's casts exceed the charges the state model read at her death, which a
-restock while dead [domain:game_data/ability-restock-times] would explain;
-put to the player as a question on 2026-10-05
+[domain:abilities/clove-ruse-targeting-view]) is unasked; whether Ruse
+restocks while its Clove is dead is a question for the player (2026-10-05);
+the pipeline's evidence for it is in docs/ABILITY_STATE_MODEL.md
 """
 see = ["abilities/clove-rouse", "abilities/clove-dead-smoke-range-circle"]
 
