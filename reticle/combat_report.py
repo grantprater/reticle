@@ -52,6 +52,14 @@ SEARCH = (1300, 120, 1920, 960)
 
 #: Offsets from the header's top-left (hx, hy), measured on `a06f04a0059f` 187 s.
 ROW0, PITCH, MAX_ROWS = 25, 58, 5
+#: The top of a death panel's KILLED BY box, in rows from the header's top
+#: [domain:combat_report/panel-layout]; the killer's card starts 45 rows
+#: lower. Measured by eye on cached killfeed crops at hy 406, 412, 432, 436,
+#: 465 and 477 (bdfdcf009dba 310 s, e37fdeca944f 1454 s, b7d24102a6f6 1913
+#: and 1917 s, b3b9defb6fd7 1320 and 520 s): the box's top lies 168-171 rows
+#: above the header at every height. Not read here; `checks.panel_slots`
+#: places the panel over the killfeed with it.
+KILLED_BY_TOP = -170
 OUT_NUM = (-121, 6, -55, 42)             # x0, y0, x1, y1 within a row
 IN_NUM = (199, 6, 262, 42)
 OUT_HITS = (-53, 3, -37, 55)

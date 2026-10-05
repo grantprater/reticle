@@ -347,6 +347,29 @@ class UnmappableItemTest(unittest.TestCase):
         self.assertEqual(out["weapon_unmapped_riot"], 1)
 
 
+class CloveExpiryTest(unittest.TestCase):
+    """0.6.2: Clove killing Clove with her ultimate is the expiry icon."""
+    ULT = {"damageType": "Ability", "damageItem": "Ultimate"}
+
+    def test_self_kill_by_the_ult_is_the_expiry(self):
+        self.assertEqual(rg.weapon_name(self.ULT, "Clove", _Ref(), self_kill=True),
+                         ("Clove expiry", "ability"))
+        self.assertEqual(rg.weapon_name(self.ULT, "Clove", _Ref()), ("Not Dead Yet", "ability"))
+        self.assertEqual(rg.weapon_name(self.ULT, "Raze", _Ref(), self_kill=True)[0],
+                         "Showstopper")
+
+    def test_scored_right_and_legacy_restores_wrong(self):
+        agents = dict(AGENTS, b1="Clove")
+        kills = [_kill(10_000, "b1", "b1", fd=self.ULT)]
+        deaths = [_death(10_200, "Clove", "Clove", weapon="Clove expiry")]
+        pairs = rg.match_times([10_000], [10_200], 0.0, 1.0, rg.MATCH_TOL_MS)
+        for legacy, right in (((), 1), (("clove-expiry",), 0)):
+            out, _ = rg.score_deaths(kills, deaths, pairs, WHO, agents, "Blue", _Ref(), 0.0,
+                                     legacy=legacy)
+            self.assertEqual((out.get("weapon_right", 0), out.get("weapon_wrong", 0)),
+                             (right, 1 - right))
+
+
 class MinimapTruthTest(unittest.TestCase):
     """Fix 1: the victims dying at the frame's instant are drawn."""
 
