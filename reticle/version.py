@@ -611,7 +611,11 @@ ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
 # appearing over the slot, or its icon lit on the gold sample and dimming
 # after; the refused ones are stored as `unwitnessed_drop` rows. Teal drops
 # are unchanged.
-TRAY_VERSION = "tray-0.3.0"
+# 0.4.0 (2026-10-05): a third witness, `persisted`: the spent half read gold
+# on `tray.GOLD_PERSIST_MIN` readable samples in a row ending at its gold
+# sample; any one witness fires the drop. Candidates and witnesses carry
+# `gold_run`.
+TRAY_VERSION = "tray-0.4.0"
 # The tray's teal fill per slot (`tray.slot_counts`, `fills`) and the
 # fill-only drawn test, which `tray-kit` and `ability-state` record as
 # `tray_fill`. It was stamped TRAY_VERSION until tray-0.2.0 changed the drops
