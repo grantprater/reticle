@@ -13,9 +13,10 @@ ult orbs, the planted spike), with its class, spawn point, rotation, open and
 close times and the `Owner`/`Instigator` references; and the server's cast
 records (`AbilityCastsThisRound`) and ult state (`bUltimateActive`).
 
-Replay data is EVALUATION TRUTH ONLY [domain:replay/vrf-ability-actors]: never
-a reader input, never a prior, never shown during play. Nothing in `reticle/`
-reads this file or its outputs.
+Replay data NEVER FEEDS A READER, a reader's threshold or anything shown
+during play; under the use policy in `docs/EXTERNAL_GROUND_TRUTH.md` it may
+fit win-probability and coaching baselines and priors. This module uses it
+for evaluation only. Nothing in `reticle/` reads this file or its outputs.
 
 How a class is mapped to an ability, from evidence for that ability
 --------------------------------------------------------------------

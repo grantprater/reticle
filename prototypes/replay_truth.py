@@ -14,9 +14,11 @@ Apache-2.0, built from source under `<store>/tools/vrfkit`, see its NOTES.md)
 decodes it into Parquet tables. The player approved building and running it on
 2026-10-04 after hearing the Terms of Service exposure.
 
-Replay positions are EVALUATION TRUTH ONLY, like Riot's match records
-(`prototypes/riot_ground_truth.py`): never a reader input, never a prior, never
-shown during play. Nothing in `reticle/` reads this file or its outputs, and
+Replay positions, like Riot's match records (`prototypes/riot_ground_truth.py`),
+NEVER FEED A READER, a reader's threshold or anything shown during play; under
+the use policy in `docs/EXTERNAL_GROUND_TRUTH.md` they may fit win-probability
+and coaching baselines and priors. This module uses them for evaluation only.
+Nothing in `reticle/` reads this file or its outputs, and
 a score here rests on the replay; it says how far the stored streams agree
 with the server, not how a reader should decide.
 
