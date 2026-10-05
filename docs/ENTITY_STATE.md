@@ -331,7 +331,10 @@ its resolution by a later sighting is a revision row.
 slot directly (`belief.Fix`, the self channel). After the player's death a
 self fit binds to the slot the spectating witness names (`adjudication.tray_kit`,
 `kit:spectating:<agent>`), `rests_on` that witness; the assignment decides
-only where no witness exists.
+only where no witness exists. Stored `tray_kit` rows exist on four of the
+ten scored sessions (`a06f04a0059f`, `c62c2b06bcfb`, `c40d950031bb`,
+`4f207c0c4e39`); on the other six every spectated self fit goes to the
+assignment until `reticle tray-kit` writes their rows (not run here).
 
 **One unit.** Every cost is a log-likelihood per square metre: the
 Gaussian density for `fit`, `held` and the crowd core, `-log(area)` for a
@@ -342,7 +345,13 @@ refusal reasons, which are not probabilities.
 
 The stage 1 prototype (`prototypes/entity_state.py`) is the post-round
 path only: it binds fits to slots through the stored entity verdicts and
-continuity, `rests_on` those verdicts, and says so in every output.
+continuity, `rests_on` those verdicts, and says so in every output. The
+stage 2 prototype (`prototypes/entity_binding.py`, `--binding causal`)
+is the online path: one assignment per frame over every stored fit, from
+each slot's belief at `t` and each fit's own portrait, with a non-player
+column per fit; each slot carries its chain's decayed portrait evidence,
+and chains move between slots when that evidence names another
+assignment. Both modes are scored side by side (section 13).
 
 ## 3. The coordinate frame
 
@@ -583,10 +592,12 @@ Enemy slots follow the same lifecycle and belief, with weaker evidence.
   otherwise.
 - **Weak negative evidence.** Light can refuse an enemy and cannot confirm
   one (the `drawn-light` owner, `lighting.lit_mask`). A lit cell with no
-  enemy icon within one icon radius adds to the absence score, with the
-  same hiding rules as allies; an unlit cell adds nothing, since unknown is
-  not dark. Enemy regions therefore stay wide. A sharp enemy belief comes
-  only from a sighting.
+  enemy icon within one icon radius is one look of absence evidence for
+  that frame, under the same hiding rules as allies; it may exclude the
+  cell from this frame's region only, and the exclusion moves forward
+  through the dilation as section 2 states, never into a per-cell score.
+  An unlit cell gives no look, since unknown is not dark. Enemy regions
+  therefore stay wide. A sharp enemy belief comes only from a sighting.
 - **Identity.** Enemy icons carry portrait features for the arbiter
   (`identity.claims_from_minimap_icons`); the same assignment binds them to
   enemy slots, over the enemy lineup from the arbiter and the board.
@@ -973,11 +984,66 @@ code that answers them, not before.
    [metric:entity_state/riot_pool@heldout6es#reach_calibration=0.9146], and
    [metric:entity_state/riot_pool@heldout6es#has_slot_missing=8] instants
    found a living teammate's slot closed by a post-round death stamped
-   with the next round. The misses trace to bindings and round starts, not
-   to the speed bound: the next step is a causal, witnessed binding and a
-   death owner that keeps post-round deaths in their round.
-2. **The assignment in the arbiter; deaths close slots; the ally lane.**
-   Acceptance: `reticle project SESSION` (the lane validated by
+   with the next round. Those 8 kill instants sample a larger every-frame
+   gap: on `c62c2b06bcfb` the judge counted 504 of 41617 alive
+   teammate-frames with no open slot, 416 of them Sage's, closed by a
+   post-round death stamped with the next round, and 22 all-slot closures
+   at round starts; the stage 2 hunt, which skips 3 s after each buy
+   start, counts
+   [metric:entity_state/riot_pool@heldout6es_post_round#c62c2b06bcfb.hunt_no_slot=414]
+   of [metric:entity_state/riot_pool@heldout6es_post_round#c62c2b06bcfb.hunt_alive_frames=41309],
+   all Sage's. The misses trace to bindings, round starts and the fits
+   themselves, not to the speed bound: the judge, viewing held-out reach
+   misses in the crop cache, found the teammate's icon drawn at the truth
+   and fitted but bound to no slot in every checkable case, and the other
+   reach misses anchored on witnessed fits that sit on non-player drawings
+   or off the map. The next step is a causal, witnessed binding that
+   explains every fit, and a death owner that keeps post-round deaths in
+   their round.
+2. **The assignment, first as a causal prototype (2a), then in the
+   arbiter (2b); deaths close slots; the ally lane.** Stage 2a:
+   `prototypes/entity_binding.py`
+   (`entity_state.py score ... --binding causal`) assigns every stored fit
+   at each frame to a slot or to a non-player bucket with its reason
+   (section 2, Identity), from stored rows only. Acceptance:
+   `prototypes/entity_state.py score SESSION ... --binding causal` beside
+   `--binding post_round`, and `replay 9acf02f98283` in both modes.
+   Evidence: predictions B1-B4 (task entity-binding-20261004), the second
+   look at the held-out six, scored once.
+   Outcome (2026-10-04, entity-binding-0.1.0): held out, the causal
+   binding holds a living teammate on
+   [metric:entity_state/riot_pool@heldout6es_causal#calibration=0.9678] of
+   kill instants against the post-round binding's
+   [metric:entity_state/riot_pool@heldout6es_post_round#calibration=0.9355];
+   B1 (0.97) fails. A bound fit lies within 8 m of the truth on
+   [metric:entity_state/riot_pool@heldout6es_causal#fit_bound_share=0.7615]
+   (B2 holds against the ring fits'
+   [metric:entity_state/riot_pool@heldout6es_causal#ring_located_share=0.7121]);
+   no fit binds two slots (B3); reach regions have a median radius of
+   [metric:entity_state/riot_pool@heldout6es_causal#reach_radius_m_median=9.81] m
+   (B4). On the replay's every drawn frame the causal binding holds
+   [metric:entity_state/replay@9acf02f98283_causal#calibration=0.9722]
+   against [metric:entity_state/replay@9acf02f98283_post_round#calibration=0.944].
+   The every-frame hunt over Riot's alive intervals finds
+   [metric:entity_state/riot_pool@heldout6es_causal#hunt_no_slot=895] of
+   [metric:entity_state/riot_pool@heldout6es_causal#hunt_alive_frames=222010]
+   alive teammate-frames with no open slot, all from the lifecycle the two
+   modes share, and
+   [metric:entity_state/riot_pool@heldout6es_causal#hunt_no_position=2500]
+   with no fit since the round opened (post-round
+   [metric:entity_state/riot_pool@heldout6es_post_round#hunt_no_position=3939]).
+   The causal binding costs at most
+   [metric:entity_state/riot_pool@heldout6es_causal#cost_us_per_frame_max=168.76] us
+   a frame, a Python loop over frames with one solver call each. The six
+   held-out misses viewed in the crop cache: a fit on an enemy icon of the
+   same agent; a real icon explained away as a ping; an icon the reader
+   never fitted while the slot took a fit on an ability line; a swap the
+   chain evidence had not yet moved; a spectating witness that named the
+   wrong teammate; a fit on bare floor beside an ability drawing. Each of
+   these fits needs another channel to refuse it (the enemy reader, the
+   ability readers), not a sharper motion law.
+   Stage 2b, the assignment in the arbiter and the ally lane. Acceptance:
+   `reticle project SESSION` (the lane validated by
    `entity_contract`) and the full suite.
    Evidence: binding share at least the stored pieces' on unambiguous pairs.
 3. **`round_entity` as a view.** Acceptance: the Riot scorer's 0.6.2 counts
