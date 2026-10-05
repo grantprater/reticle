@@ -564,3 +564,108 @@ player, and every played agent's C, Q and E count already came from a
 per-ability fact, so the version stays `ability-state-0.3.0`. The range of a
 slot without a count still tops out at two segments; Astra's stars test that
 assumption the first time a session plays her.
+
+## Own-cast residuals against Riot (2026-10-05)
+
+`prototypes/own_cast_residuals.py` (`own-cast-residuals-0.1.0`, series
+`own_cast/residuals@riot-21`) explains the gap `prototypes/tray_gold_eval.py`
+scores: own casts covered
+[metric:own_cast/residuals@riot-21#covered=525] of
+[metric:own_cast/residuals@riot-21#riot_casts=610], with
+[metric:own_cast/residuals@riot-21#beyond=8] beyond Riot's counts. Riot's
+records hold per-match totals only, so each residual belongs to a (session,
+ability) slot, and its round is the round of the evidence that places it.
+Each missing cast takes one class from stored evidence; the module docstring
+gives the order.
+
+| Class | Casts | By ability |
+|---|---|---|
+| 1 no tray drop | [metric:own_cast/residuals@riot-21#class1=15] | Clove E [metric:own_cast/residuals@riot-21#class1_Clove_E=12], Skye Q [metric:own_cast/residuals@riot-21#class1_Skye_Q=2], Sova E [metric:own_cast/residuals@riot-21#class1_Sova_E=1] |
+| 2 witness refused | 0 | |
+| 3 gate refused | [metric:own_cast/residuals@riot-21#class3=53] | Phoenix X [metric:own_cast/residuals@riot-21#class3_Phoenix_X=14], Sova E [metric:own_cast/residuals@riot-21#class3_Sova_E=10], Sova Q [metric:own_cast/residuals@riot-21#class3_Sova_Q=6], Iso X [metric:own_cast/residuals@riot-21#class3_Iso_X=5], Skye X [metric:own_cast/residuals@riot-21#class3_Skye_X=3], ten others with one or two each |
+| 4 wrong slot | 0 | |
+| 5 Riot-side | 0 | |
+| 6 excess | [metric:own_cast/residuals@riot-21#class6=8] | Skye C [metric:own_cast/residuals@riot-21#class6_Skye_C=2], one each on Sova C, Phoenix E and Q, Skye Q, E and X |
+| 7 unexplained | [metric:own_cast/residuals@riot-21#class7=17] | Phoenix C [metric:own_cast/residuals@riot-21#class7_Phoenix_C=3], E [metric:own_cast/residuals@riot-21#class7_Phoenix_E=3] and Q [metric:own_cast/residuals@riot-21#class7_Phoenix_Q=2]; Sova E [metric:own_cast/residuals@riot-21#class7_Sova_E=3]; Clove E [metric:own_cast/residuals@riot-21#class7_Clove_E=2] and Q [metric:own_cast/residuals@riot-21#class7_Clove_Q=1]; Skye Q [metric:own_cast/residuals@riot-21#class7_Skye_Q=2] and E |
+
+**The gate's reasons.** Of the class 3 casts, co-occurrence refused
+[metric:own_cast/residuals@riot-21#gate_cooccur_among_casts=30], the death
+test [metric:own_cast/residuals@riot-21#gate_after_player_death=17], a drop
+onto an undrawn tray [metric:own_cast/residuals@riot-21#gate_forced=4], the
+round's end [metric:own_cast/residuals@riot-21#gate_phase_round_end=1] and
+the full-level test [metric:own_cast/residuals@riot-21#gate_equip_release=1].
+An own ult line places [metric:own_cast/residuals@riot-21#class3_by_line=20]
+of them; a restock numeral, the slot icon or the audio saw
+[metric:own_cast/residuals@riot-21#class3_witnessed=26] more; neither saw
+[metric:own_cast/residuals@riot-21#class3_unwitnessed=7]. Every Phoenix X
+miss is a Run it Back whose own line Riot counts and whose pips fall at its
+end [domain:abilities/phoenix-run-it-back-expiry-flash], after the killfeed
+death the gate takes for the end of his kit. The gate's second-life rule
+[domain:rounds/resurrection-mechanics] did not fire: it reads badges only
+from a current `killfeed_portrait` stream, and all five Phoenix sessions
+store `killfeed-portrait-0.18.0` against the code's 0.19.0. Clove's class 1
+casts are Ruse charges she held at a death
+[domain:abilities/clove-smokes-after-death], where the tray shows a
+spectated kit [domain:hud/tray-after-player-death]; the other three are
+falls the tray read only across refused samples longer than `GAP_S`.
+
+**Checks.** On `9acf02f98283` (`C:\Users\grant\Videos\2026-08-24
+11-55-34.mp4`), the one match with a replay, both missing casts the
+prototype names are the replay's own cast records
+[domain:replay/vrf-cast-records]: the Shock Bolt at 967.5 s (picked
+968.0 s) and the Recon Bolt at 2194.2 s (picked 2194.0 s). By eye on the
+tray strips: every class 3 pick viewed is a spend (Iso's Kill Contract
+empties X a second before the arena darkens the tray; Sova's bow glow lifts
+a neighbour bar; a Recon Bolt draws its numeral under the glow), and the
+candidate rules exclude what the eye refuted (blank samples, buy-phase and
+round-end dims, death screens, full bars under a passing glow). The rules
+were refined on those viewed cases, so the class 3 and class 7 counts are
+in-sample. Of the eight excess casts, a flash, a streak or a tint crossing
+a bar made four, a Regrowth pool counting to 00 made two
+[domain:abilities/skye-regrowth-resource-bar], and the two picks on
+`b7d24102a6f6` Q and `e37fdeca944f` E are real spends, so those slots'
+extra casts stay unplaced. Of the ten deaths at which Clove held a Ruse
+charge, the minimap drew a ring at the death marker or a large circle
+[domain:abilities/clove-dead-smoke-range-circle] after four, vanished
+within seconds after two, showed only a disc of unknown age after one, and
+showed nothing after three; so the twelve class 1 Clove casts are a bound
+from the charges, not each one seen.
+
+**Fixes, by casts recovered per unit of risk.**
+
+1. Rerun `killfeed_portrait` from the crop cache on the Phoenix sessions,
+   then the tray gate (owner `killfeed-portrait`, read through
+   `adjudication.death.stored_second_life`; the gate, `ability-cast`, is
+   unchanged). With the stored 0.18.0 badges the gate reads
+   [metric:own_cast/residuals@riot-21#cf_second_lives_second_lives=13]
+   second lives and covers
+   [metric:own_cast/residuals@riot-21#cf_second_lives_covered=538], beyond
+   [metric:own_cast/residuals@riot-21#cf_second_lives_beyond=8]. Witness:
+   Phoenix's own ult line. Risk: a rerun, no rule.
+2. Let a co-occurring drop pass on a second channel (`ability-cast`,
+   asking `tray.gold_witness`'s numeral and `ability-audio` at the drop).
+   Passing every one with a numeral or the audio covers
+   [metric:own_cast/residuals@riot-21#cf_witnessed_cooccur_covered=552] but
+   holds [metric:own_cast/residuals@riot-21#cf_witnessed_cooccur_beyond=14]
+   beyond Riot; a numeral alone, or the numeral with the audio, should trade
+   back the new excess. Iso's Kill Contract needs its own rule: X empties
+   while the tray is drawn and C and Q fall onto the dark tray after it.
+3. Count Clove's charges held at a death against the minimap's dead-Clove
+   circle and Ruse discs [domain:abilities/clove-ruse-minimap-duration]
+   (`ability-state` for the charges; a minimap reader from
+   `prototypes/clove_circle.py`, unwired). Up to twelve casts; a new reader.
+4. Pass a forced or death-lead drop that a later own ult line or a numeral
+   witnesses (`ability-cast`): Not Dead Yet's X empties on the death screen
+   before its line. Few casts, low risk.
+5. Bridge a refused run longer than `GAP_S` when the slot's numeral appears
+   or its icon dims across it (`tray-drop`), and read Trailblazer's tinted
+   view [domain:hud/controlled-entity-view-tint] by the Q icon turning red.
+6. For the excess: a gold drain on Skye's Regrowth is no spend (`ability-cast`,
+   by its resource-bar fact), and a fall with no numeral, no icon change and
+   no sound beside teal crossing the bar is no drop (`tray-drop`).
+
+Class 7 has no candidate and no time; the audio owner scores only drops the
+gate passes, so no channel looks for a cast the tray missed. Riot-side
+counting (class 5) holds no rule: no domain fact says Riot counts a cast the
+tray cannot show, and ability rules are not inferred by analogy
+[domain:abilities/ability-rules-are-unique].
