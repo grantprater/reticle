@@ -43,7 +43,7 @@ import numpy as np
 
 def _killfeed_reader(ctx):
     from pathlib import Path
-    from .killfeed import KillfeedPortraitReader
+    from .killfeed import KillfeedPortraitReader, wallbang_template
     from .killfeed_numeral import store_font
     from .lineup import portrait_candidates
     # `scan`'s inputs: the store's art and game font, and the stored lineup's candidates.
@@ -51,7 +51,8 @@ def _killfeed_reader(ctx):
     return KillfeedPortraitReader(ctx.profile, ctx.wh, mask=ctx.kf_mask(), hz=2.0, spans=None,
                                   art_dir=Path(ctx.store.root) / "reference" / "assets" / "agents",
                                   candidates=cands, candidates_from=cands_from,
-                                  font_file=store_font(ctx.store.root))
+                                  font_file=store_font(ctx.store.root),
+                                  wallbang_tpl=wallbang_template(ctx.store.root))
 
 
 def _killfeed_rows(reader, sid: str) -> dict[str, list[dict]]:
