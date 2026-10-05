@@ -99,14 +99,12 @@ first.
   player is their team's only living player and an enemy lives, from
   `winprob_reference.simulate` (living sets with revives).
 - Sides: the sides swap at halftime [domain:rounds/halftime-side-swap],
-  whose owner is `reticle/rounds.py`. That owner finds the boundary on video
-  from the scoreline and clock and exposes no rule by round index, so the
-  module applies one itself: Red attacks rounds 0 to 11 and the even
-  overtime rounds. Round 12 is the first after halftime
-  [domain:rounds/pistol-round-bank]; overtime runs in two-round cycles
-  [domain:rounds/match-end], one round on each side. The report checks the
-  rule against Riot's `winningTeamRole` and against every planter's team.
-  Moving the index rule into `rounds.py` is open.
+  whose owner is `reticle/rounds.py`. The module asks that owner's rule by
+  round number (`rounds.side_in_round`, [domain:rounds/side-by-round]) with
+  Red starting on attack: Red attacks rounds 0 to 11 and the even overtime
+  rounds. Round 12 is the first after halftime
+  [domain:rounds/pistol-round-bank]. The report checks the rule against
+  Riot's `winningTeamRole` and against every planter's team.
 - Buy bands by the team's mean loadout: eco below 2000, force from 2000,
   full from 3900, a choice. Pistol rounds are rounds 0 and 12, the first
   round and the first after halftime [domain:rounds/pistol-round-bank].

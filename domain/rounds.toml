@@ -12,6 +12,35 @@ since = "2026-09-02"
 use = "reticle/rounds.py owns the boundary; economy and belief read it, never re-derive it"
 phrases = ["halftime side swap", "side swaps at halftime"]
 
+[side-by-round]
+claim = """
+A team plays match rounds 1-12 on the side it started on and rounds 13-24 on
+the other. In overtime each cycle of two rounds opens on the starting side and
+closes on the other, so rounds 25, 27, ... are played on the starting side.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+source = """
+Riot's 22 stored match records (`external/riot/*.json` in the store), each
+team's side per round from `winningTeamRole`, with round 1's side standing in
+for the starting side: the rule is wrong on
+[metric:side_by_round/riot-22#rule_wrong=0] of
+[metric:side_by_round/riot-22#rounds=458] rounds, overtime's
+[metric:side_by_round/riot-22#ot_rounds=8] included, and puts
+[metric:side_by_round/riot-22#planter_on_rule_defence=0] of
+[metric:side_by_round/riot-22#plants=292] planters on the defending side. The
+former rule (every round past 12 swapped) was wrong on
+[metric:side_by_round/riot-22#old_rule_wrong=4], all overtime rounds 25 and 27
+"""
+use = """
+`rounds.side_in_round` from the match round (`rounds.match_round`, the score
+before the round) and the read starting side; an unread starting side leaves
+the side null with a reason
+"""
+see = ["rounds/halftime-side-swap", "rounds/match-end", "rounds/pistol-round-bank"]
+phrases = ["side by round", "overtime sides"]
+
 [agent-uniqueness]
 claim = """
 Agents are distinct WITHIN a team and not across the match. Each side fields

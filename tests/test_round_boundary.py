@@ -3,8 +3,28 @@ from __future__ import annotations
 
 import unittest
 
-from reticle.rounds import (final_round, in_round_window, match_over, place_unread_starts,
-                            round_closes, round_containing)
+from reticle.rounds import (final_round, in_round_window, match_over, match_round,
+                            place_unread_starts, round_closes, round_containing, side_in_round)
+
+
+class SideByRound(unittest.TestCase):
+    """[domain:rounds/side-by-round]: halves of 12, overtime cycles open on
+    the starting side; an unread start or round is null with a reason."""
+
+    def test_halves_and_overtime(self):
+        got = {n: side_in_round(n, "attack")[0] for n in (1, 12, 13, 24, 25, 26, 27, 28)}
+        self.assertEqual(got, {1: "attack", 12: "attack", 13: "defence", 24: "defence",
+                               25: "attack", 26: "defence", 27: "attack", 28: "defence"})
+        self.assertEqual(side_in_round(13, "defence"), ("attack", None))
+
+    def test_unread_is_null_with_a_reason(self):
+        self.assertEqual(side_in_round(5, None), (None, "starting_side_unread"))
+        self.assertEqual(side_in_round(None, "attack"), (None, "match_round_unread"))
+
+    def test_match_round_is_the_score_before_plus_one(self):
+        self.assertEqual(match_round({"round_no": 1, "score_us": 7, "score_them": 5}), 13)
+        self.assertEqual(match_round({"left_before": 12, "right_before": 12}), 25)
+        self.assertIsNone(match_round({"round_no": 3, "score_us": None, "score_them": 2}))
 
 
 def _ev(t):

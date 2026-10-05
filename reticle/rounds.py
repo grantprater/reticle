@@ -390,6 +390,46 @@ def match_over(left: int, right: int) -> bool:
     return max(left, right) >= 13 and abs(left - right) >= 2
 
 
+#: Rounds in each half of regulation [domain:rounds/side-by-round].
+HALF_ROUNDS = 12
+#: The sides a team plays: its starting side and the other one.
+SIDES = ("attack", "defence")
+
+
+def match_round(r: dict) -> int | None:
+    """A round's number in the MATCH, counted from 1: one more than the score
+    before it. `round_no` counts the capture's rounds instead, and differs
+    wherever a capture opens after the match's first round. None where the
+    score before the round went unread."""
+    us, them = r.get("score_us"), r.get("score_them")
+    if us is None or them is None:
+        us, them = r.get("left_before"), r.get("right_before")
+    return None if us is None or them is None else int(us) + int(them) + 1
+
+
+def side_in_round(match_round_no: int | None,
+                  starting_side: str | None) -> tuple[str | None, str | None]:
+    """(side, reason): the side, `attack` or `defence`, a team plays in match
+    round `match_round_no` (`match_round`) given the side it started on.
+
+    The rule [domain:rounds/side-by-round]: rounds 1-12 on the starting side,
+    13-24 on the other after the halftime swap [domain:rounds/halftime-side-swap]
+    (round 13 is the second pistol round [domain:rounds/pistol-round-bank]),
+    and in overtime [domain:rounds/match-end] each cycle of two rounds opens
+    on the starting side and closes on the other. The side is null with a
+    reason where the starting side or the round number is unread; it is
+    never defaulted."""
+    if starting_side not in SIDES:
+        return None, "starting_side_unread"
+    if match_round_no is None or match_round_no < 1:
+        return None, "match_round_unread"
+    regulation = 2 * HALF_ROUNDS
+    swapped = (HALF_ROUNDS < match_round_no <= regulation
+               or (match_round_no > regulation and (match_round_no - regulation) % 2 == 0))
+    other = SIDES[1] if starting_side == SIDES[0] else SIDES[0]
+    return (other if swapped else starting_side), None
+
+
 def final_round(t, score_left, score_right, clock_ms, rounds: list[dict]) -> dict | None:
     """The match's last round when the scoreline never showed its result.
 

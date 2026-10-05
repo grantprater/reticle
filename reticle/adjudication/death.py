@@ -3018,18 +3018,22 @@ class RoundRosterSnapshot:
     event: str
     ally_alive: int
     ally_agents: list[str]
-    ally_role: str  # "attackers" | "defenders"
+    ally_role: Optional[str]  # "attackers" | "defenders" | None (`role_reason`)
     enemy_alive: int
     enemy_agents: list[str]
-    enemy_role: str  # "attackers" | "defenders"
+    enemy_role: Optional[str]  # "attackers" | "defenders" | None (`role_reason`)
     ally_slots: dict[str, int] = field(default_factory=dict)
     enemy_slots: dict[str, int] = field(default_factory=dict)
+    role_reason: Optional[str] = None
+    match_round: Optional[int] = None
 
     def to_dict(self) -> dict:
         return {
             "t_ms": self.t_ms,
             "round_no": self.round_no,
+            "match_round": self.match_round,
             "event": self.event,
+            "role_reason": self.role_reason,
             "ally": {
                 "alive": self.ally_alive,
                 "agents": list(self.ally_agents),
@@ -3045,18 +3049,26 @@ class RoundRosterSnapshot:
         }
 
 
+#: The tracker's role words and the rounds owner's side words.
+_ROLE_SIDE = {"attackers": "attack", "defenders": "defence"}
+_SIDE_ROLE = {v: k for k, v in _ROLE_SIDE.items()}
+
+
 class LivingRosterTracker:
     """Tracks living roster state across match rounds, deaths, and revives.
 
     Maintains the canonical 5-agent sequence per side, handles survivor
-    inward packing, side-swaps at half-time (round 13), and revive re-insertion.
+    inward packing, revive re-insertion, and each side's role per round from
+    the rounds owner (`rounds.side_in_round`). `starting_role` is the ally
+    team's role in the match's first round as READ; None (no reader reads it
+    yet) leaves every role null with a reason, never a default.
     """
 
     def __init__(
         self,
         lineup: dict,
         local_player: Optional[str] = None,
-        starting_role: str = "defenders",
+        starting_role: Optional[str] = None,
     ):
         self.canonical = {
             "ally": [r["agent"] for r in lineup.get("sides", {}).get("ally", []) if r.get("agent")],
@@ -3069,23 +3081,36 @@ class LivingRosterTracker:
             "enemy": TeamRoster("enemy", self.canonical["enemy"]),
         }
         self.current_round = 0
+        self.current_match_round: Optional[int] = None
 
-    def start_round(self, round_no: int, t_start_ms: float = 0.0) -> RoundRosterSnapshot:
-        """Initialize living roster state at round start (all 10 alive)."""
+    def start_round(self, round_no: int, t_start_ms: float = 0.0,
+                    match_round: Optional[int] = None) -> RoundRosterSnapshot:
+        """Initialize living roster state at round start (all 10 alive).
+        `match_round` is the round's number in the match (`rounds.match_round`);
+        `round_no` counts the capture's rounds and decides no role."""
         self.current_round = round_no
+        self.current_match_round = match_round
         self.rosters["ally"].reset()
         self.rosters["enemy"].reset()
         return self.snapshot(t_ms=t_start_ms, event="round_start")
 
-    def role_of_side(self, side: str, round_no: int) -> str:
-        """Attacker/Defender role for side, accounting for halftime flip at round 13."""
-        is_first_half = round_no <= 12
-        if is_first_half:
-            ally_role = self.starting_role
-        else:
-            ally_role = "attackers" if self.starting_role == "defenders" else "defenders"
-        enemy_role = "attackers" if ally_role == "defenders" else "defenders"
-        return ally_role if side == "ally" else enemy_role
+    def role_and_reason(self, side: str,
+                        match_round: Optional[int]) -> tuple[Optional[str], Optional[str]]:
+        """(role, reason) of `side` in match round `match_round` by the rounds
+        owner's side rule [domain:rounds/side-by-round]; the role is None with
+        the owner's reason where the starting role or the match round is
+        unread."""
+        from ..rounds import side_in_round
+        ally, why = side_in_round(match_round, _ROLE_SIDE.get(self.starting_role))
+        if ally is None:
+            return None, why
+        mine = ally if side == "ally" else ("defence" if ally == "attack" else "attack")
+        return _SIDE_ROLE[mine], None
+
+    def role_of_side(self, side: str, match_round: Optional[int]) -> Optional[str]:
+        """Attacker/Defender role of `side` in match round `match_round`, or
+        None where it is unread (`role_and_reason`)."""
+        return self.role_and_reason(side, match_round)[0]
 
     def apply_death(self, t_ms: float, side: str, victim: str, is_second_life: bool = False) -> RoundRosterSnapshot:
         """Record death event and update living roster."""
@@ -3114,12 +3139,14 @@ class LivingRosterTracker:
             event=event,
             ally_alive=self.rosters["ally"].alive_count,
             ally_agents=self.rosters["ally"].living_sequence(),
-            ally_role=self.role_of_side("ally", self.current_round),
+            ally_role=self.role_of_side("ally", self.current_match_round),
             enemy_alive=self.rosters["enemy"].alive_count,
             enemy_agents=self.rosters["enemy"].living_sequence(),
-            enemy_role=self.role_of_side("enemy", self.current_round),
+            enemy_role=self.role_of_side("enemy", self.current_match_round),
             ally_slots=self.rosters["ally"].slot_mapping(),
             enemy_slots=self.rosters["enemy"].slot_mapping(),
+            role_reason=self.role_and_reason("ally", self.current_match_round)[1],
+            match_round=self.current_match_round,
         )
 
     def build_round_timeline(
@@ -3128,9 +3155,10 @@ class LivingRosterTracker:
         death_verdicts: list[DeathVerdict],
         t_start_ms: float = 0.0,
         revives: list[dict] = (),
+        match_round: Optional[int] = None,
     ) -> list[RoundRosterSnapshot]:
         """Build the complete chronological timeline of living roster snapshots for a round."""
-        snapshots = [self.start_round(round_no, t_start_ms)]
+        snapshots = [self.start_round(round_no, t_start_ms, match_round)]
         events = []
         for dv in death_verdicts:
             if dv.status == "resolved" and dv.victim:
@@ -3172,8 +3200,11 @@ class LivingRosterTracker:
         - t_start_ms: float
         - death_verdicts: list[DeathVerdict]
         - revives: optional list[dict]
+        - match_round: optional int, the round's number in the match
+          (`rounds.match_round`); without it every role is null
 
-        Handles round transitions, 10-player alive resets, and halftime role flips (round 13).
+        Handles round transitions, 10-player alive resets, and each side's
+        role by the rounds owner's side rule.
         """
         all_snapshots = []
         for r_info in sorted(rounds, key=lambda r: r["round_no"]):
@@ -3186,6 +3217,7 @@ class LivingRosterTracker:
                 death_verdicts=d_verdicts,
                 t_start_ms=t_start_ms,
                 revives=r_revives,
+                match_round=r_info.get("match_round"),
             )
             all_snapshots.extend(snaps)
         return all_snapshots
@@ -3246,17 +3278,19 @@ def build_round_roster_timeline(
     round_no: int,
     t_start_ms: float = 0.0,
     revives: list[dict] = (),
-    starting_role: str = "defenders",
+    starting_role: Optional[str] = None,
+    match_round: Optional[int] = None,
 ) -> list[RoundRosterSnapshot]:
     """Convenience helper to build a round's living roster timeline."""
     tracker = LivingRosterTracker(lineup, starting_role=starting_role)
-    return tracker.build_round_timeline(round_no, death_verdicts, t_start_ms, revives=revives)
+    return tracker.build_round_timeline(round_no, death_verdicts, t_start_ms, revives=revives,
+                                        match_round=match_round)
 
 
 def build_match_roster_timeline(
     lineup: dict,
     rounds: list[dict],
-    starting_role: str = "defenders",
+    starting_role: Optional[str] = None,
 ) -> list[RoundRosterSnapshot]:
     """Convenience helper to build a full match's living roster timeline."""
     tracker = LivingRosterTracker(lineup, starting_role=starting_role)

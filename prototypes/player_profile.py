@@ -39,16 +39,14 @@ Choices, not domain facts
   team within 5 s; no domain fact records a window. The report repeats the
   traded share at 3 s and 7 s.
 - Sides: the sides swap at halftime [domain:rounds/halftime-side-swap], and
-  that fact names `reticle/rounds.py` the boundary's owner. `rounds.py` finds
-  rounds on video from the scoreline and clock and exposes no rule from a
-  record's round index to a half, so there is no owner to call here: this
-  module applies the index rule itself, Red attacks rounds 0-11 and even
-  overtime rounds (24, 26, ...), Blue the rest. Round 12 is the first after
-  halftime [domain:rounds/pistol-round-bank]; overtime is played in cycles of
-  two rounds [domain:rounds/match-end], one on each side. The report checks
+  `reticle/rounds.py` owns the rule from a round's number to a side
+  [domain:rounds/side-by-round]. This module asks it
+  (`rounds.side_in_round`, by match round counted from 1, a record's
+  `roundNum` plus one) with `FIRST_ATTACKER` starting on attack: Red attacks
+  rounds 0-11 and even overtime rounds (24, 26, ...), Blue the rest. Which
+  team starts on attack is this module's choice, checked: the report scores
   the rule against Riot's `winningTeamRole` on the captured records and
-  against every planter's team, and counts the disagreements. Moving the
-  index rule into `rounds.py` is open.
+  against every planter's team, and counts the disagreements.
 - Buy bands by the team's mean loadout: eco below 2000, force from 2000 to
   3899, full from 3900; pistol rounds are rounds 0 and 12, the first round
   and the first after halftime [domain:rounds/pistol-round-bank].
@@ -94,6 +92,7 @@ sys.path.insert(0, str(HERE))
 import ladder_fetch as lf  # noqa: E402
 import riot_ground_truth as rgt  # noqa: E402
 import winprob_reference as wr  # noqa: E402
+from reticle.rounds import HALF_ROUNDS as HALF, side_in_round  # noqa: E402
 
 VERSION = "player-profile-0.2.0"
 STORE = Path("C:/Users/grant/reticle-store")
@@ -104,14 +103,14 @@ OUT_TAG = "v2"
 #: A choice: no domain fact records a trade window.
 TRADE_WINDOW_MS = 5000.0
 TRADE_SENSITIVITY_MS = (3000.0, 7000.0)
-#: The side rule, checked in the report against Riot's roles and the planters.
-#: [domain:rounds/halftime-side-swap] names reticle/rounds.py the owner of the
-#: boundary, but it exposes no rule by round index; round 12 opens the second
-#: half [domain:rounds/pistol-round-bank] and overtime alternates sides in
-#: two-round cycles [domain:rounds/match-end].
-HALF_ROUNDS = 12
-REGULATION_ROUNDS = 24
+#: The side rule is the rounds owner's (`rounds.side_in_round`,
+#: [domain:rounds/side-by-round]); round 12 (0-based) opens the second half
+#: [domain:rounds/pistol-round-bank]. Which team starts on attack is a choice
+#: here, checked in the report against Riot's roles and the planters.
+HALF_ROUNDS = HALF
 FIRST_ATTACKER = "Red"
+#: Rounds (0-based) the side-rule table covers; no match runs this long.
+SIDE_RULE_ROUNDS = 100
 #: Buy bands by the team's mean loadout, a choice.
 ECO_MAX = 2000.0
 FULL_MIN = 3900.0
@@ -322,13 +321,19 @@ def connect(T: dict[str, pa.Table]) -> duckdb.DuckDBPyConnection:
     return c
 
 
-def side_sql(round_col: str = "round") -> str:
-    """The attacking team of a round by the side rule (checked, not owned)."""
-    r = round_col
+def side_rule() -> list[str]:
+    """The attacking team of each 0-based round below `SIDE_RULE_ROUNDS`, by
+    the rounds owner's rule with `FIRST_ATTACKER` starting on attack."""
     other = "Blue" if FIRST_ATTACKER == "Red" else "Red"
-    return (f"case when {r} < {HALF_ROUNDS} or ({r} >= {REGULATION_ROUNDS} "
-            f"and ({r} - {REGULATION_ROUNDS}) % 2 = 0) then '{FIRST_ATTACKER}' "
-            f"else '{other}' end")
+    return [FIRST_ATTACKER if side_in_round(n + 1, "attack")[0] == "attack" else other
+            for n in range(SIDE_RULE_ROUNDS)]
+
+
+def side_sql(round_col: str = "round") -> str:
+    """The attacking team of a round by the rounds owner's side rule: the
+    0-based round indexes `side_rule` as a SQL list (1-based)."""
+    teams = ", ".join(f"'{t}'" for t in side_rule())
+    return f"[{teams}][{round_col} + 1]"
 
 
 def features(c: duckdb.DuckDBPyConnection, trade_ms: float = TRADE_WINDOW_MS,
@@ -1048,8 +1053,7 @@ def report_md(R: dict) -> str:
           f"- Side rule: {FIRST_ATTACKER} attacks rounds below {HALF_ROUNDS} "
           f"and even overtime rounds (halftime swap, round {HALF_ROUNDS} the "
           "first after it, overtime in two-round cycles: domain/rounds.toml "
-          "halftime-side-swap, pistol-round-bank, match-end; reticle/rounds.py "
-          "owns the boundary but exposes no rule by round index). "
+          "side-by-round, owned by `reticle.rounds.side_in_round`). "
           f"Riot's roles agree on "
           f"{sc.get('riot_agree', '-')} of {sc.get('riot_rounds', '-')} "
           f"captured rounds; the planter is on the rule's attacking team in "
