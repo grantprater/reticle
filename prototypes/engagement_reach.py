@@ -930,6 +930,17 @@ def coaching(dev, F, C, y, pr, pcf_att, pcf_def, D6) -> dict:
                                          "reach_balance": group_mean(R["balance"].astype(float), sid, mm),
                                          "share_deaths_outnumbered": group_mean(out_n.astype(float), sid, mm & lost),
                                          "wp_cost_per_fight": group_mean(np.where(out_n, R["cost"], 0.0), sid, mm)}
+    # post hoc (added after the confirmation readout): the player against
+    # lobby peers on the same side, since defence is outnumbered by structure
+    res["post_hoc_player_minus_peers_by_side"] = {}
+    for s_, sm in (("attack", R["side_att"]), ("defence", ~R["side_att"])):
+        pm, qm = groups["player"] & sm, groups["peers"] & sm
+        res["post_hoc_player_minus_peers_by_side"][s_] = {
+            "peers_reach_balance": group_mean(R["balance"].astype(float), sid, qm),
+            "peers_share_deaths_outnumbered": group_mean(out_n.astype(float), sid, qm & lost),
+            "reach_balance": diff_mean(R["balance"].astype(float), sid, pm, qm),
+            "share_deaths_outnumbered": diff_mean(out_n.astype(float), sid, pm & lost, qm & lost),
+            "wp_cost_per_fight": diff_mean(np.where(out_n, R["cost"], 0.0), sid, pm, qm)}
     res["dV_mean"] = round(float(dV.mean()), 4)
     res["pricing"] = f"V: {wr.VERSION} B1 (alive, load, side, flag), fitted with the fight's match left out"
     return res
@@ -1068,7 +1079,24 @@ def record_score(res: dict) -> None:
         v[key] = block[field]
         if block.get("ci95") is not None:
             c[key] = block["ci95"]
-    v.update({"fights": res["fights"], "matches": res["matches"], "baseline_nats": res["baseline_nats"]})
+    v.update({"fights": res["fights"], "matches": res["matches"], "baseline_nats": res["baseline_nats"],
+              "fights_on_3d_maps": res["fights_on_3d_maps"]})
+    for k in ("matches_listed", "held_out_excluded", "captured_excluded", "no_table_excluded", "admitted_rounds",
+              "planter_on_attacking_team", "planter_on_other_team"):
+        if k in res["counts"]:
+            v[f"set.{k}"] = res["counts"][k]
+    v["REACH6.able_improvement_over_z_nats"] = res["REACH6"]["able_improvement_over_z"]["mean"]
+    v["REACH6.distance_improvement_over_z_nats"] = res["REACH6"]["distance_improvement_over_z"]["mean"]
+    v["REACH5.baseline_nats"] = res["REACH5"]["baseline_nats"]
+    v["region.own_region_minus_own_exact_nats"] = res["region_precision"]["own_region_minus_own_exact"]["mean"]
+    c["region.own_region_minus_own_exact_nats"] = res["region_precision"]["own_region_minus_own_exact"]["ci95"]
+    pt = res["coaching"]["deaths_tradeable_untraded"]["player"]["share_untraded_given_able"]
+    if pt.get("n"):
+        v["coach.player.share_untraded_given_able"], c["coach.player.share_untraded_given_able"] = pt["mean"], pt["ci95"]
+    for g in ("player", "peers"):
+        b = res["coaching"]["groups"][g]["duel_win_rate"]
+        v[f"coach.{g}.duel_win_rate"], c[f"coach.{g}.duel_win_rate"] = b["mean"], b["ci95"]
+    v["coach.dV_mean"] = res["coaching"]["dV_mean"]
     put("REACH1.improvement_nats", res["REACH1"]["improvement"])
     v["REACH1.null_p95"] = res["REACH1"]["null"]["p95"]
     put("REACH2.reach_minus_radius_nats", res["REACH2"]["reach_minus_radius_gain"])
@@ -1106,6 +1134,14 @@ def record_score(res: dict) -> None:
         put(f"coach.team_minus_opponents.{k}", b, "diff")
     put("coach.player_minus_peers.share_deaths_tradeable_untraded",
         co["deaths_tradeable_untraded"]["player_minus_peers"], "diff")
+    for g in ("player", "team"):
+        for s_, b in co["by_side"][g].items():
+            for k in ("reach_balance", "share_deaths_outnumbered", "wp_cost_per_fight"):
+                if b[k].get("n"):
+                    put(f"coach.{g}.{s_}.{k}", b[k])
+    for s_, b in co.get("post_hoc_player_minus_peers_by_side", {}).items():
+        for k in ("reach_balance", "share_deaths_outnumbered", "wp_cost_per_fight"):
+            put(f"coach.post_hoc.player_minus_peers.{s_}.{k}", b[k], "diff")
     label = "development: 22 captured Riot records" if res["set"] == "dev" else \
         "confirmation: the player's own HenrikDev history, captured and held-out matches excluded"
     metrics.record("engagement_reach", part=res["set"], values=v, ci=c,
