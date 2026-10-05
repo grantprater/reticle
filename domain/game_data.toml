@@ -197,6 +197,178 @@ or a measurement (the replay's camera, or a capture).
 values = { eye = { base_eye_height_m = 0.77, crouched_eye_height_m = 0.3, standing_eye_offset_m = -0.22, crouching_eye_offset_m = -0.2 }, capsule = { radius_m = 0.42, half_height_m = 0.98, crouched_half_height_m = 0.28, crouch_compression_m = 0.2 }, nav_agent = { height_m = 1.96, radius_m = 0.42, step_height_m = 0.45 } }
 see = ["game_data/game-units-centimetres"]
 
+[ability-restock-times]
+claim = """
+The cooldown components of build 13.06 give these restock times, the seconds
+after use before a spent charge returns: Astra Gravity Well 60.0 s (45.0 s
+under DesignerToggleA); Astra Nova Pulse 60.0 s (45.0 s under
+DesignerToggleA); Astra Nebula / Dissipate 35.0 s (25.0 s under
+DesignerToggleA); Breach Fault Line 50.0 s (60.0 s under DesignerToggleC);
+Chamber Rendezvous 30.0 s; Clove Ruse 40.0 s (30.0 s under DesignPlaytest);
+Cypher Spycam 15.0 s; Deadlock GravNet 50.0 s; Fade Haunt 50.0 s; Gekko Mosh
+Pit 15.0 s (20.0 s under DesignPlaytest); Gekko Wingman 15.0 s (10.0 s under
+DesignPlaytest); Gekko Dizzy 15.0 s; Gekko Thrash 15.0 s; Harbor Cove 30.0 s;
+KAY/O ZERO/point 50.0 s (60.0 s under DesignerToggleC); Miks Waveform 40.0 s;
+Omen Dark Cover 40.0 s (30.0 s under DesignPlaytest); Sage Healing Orb 45.0 s;
+Skye Guiding Light 50.0 s; Sova Recon Bolt 50.0 s; Vyse Arc Rose 20.0 s; Vyse
+Shear 20.0 s. A value in brackets is the component's DPT_Cooldown, which
+applies while the named DPT_FeatureToggle is on; the toggle is a server
+setting, so the files give both values and not which one plays.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "abilities:restock"
+source = """
+game-extract exports of release-13.06-shipping-18-5590001, set ability-states,
+under the store's reference/game-files/release-13.06-shipping-18-5590001/; the
+catalogue is the wiki harvest reference/abilities.json (2026-09-04), infobox
+Restock. Each value, as stored: Astra Gravity Well:
+ShooterGame/Content/Characters/Rift/S0/Ability_4/BlackHole/Ability_Rift_4_BlackHole.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 60.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 45.0 s under
+DPT_FeatureToggle EGameFeatureToggleName::DesignerToggleA; Astra Nova Pulse:
+ShooterGame/Content/Characters/Rift/S0/Ability_Q/Ability_Rift_Q_FlashBurst.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 60.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 45.0 s under
+DPT_FeatureToggle EGameFeatureToggleName::DesignerToggleA; Astra Nebula /
+Dissipate:
+ShooterGame/Content/Characters/Rift/S0/Ability_E/Ability_Rift_E_TransformRift_Smoke.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 35.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 25.0 s under
+DPT_FeatureToggle EGameFeatureToggleName::DesignerToggleA; Breach Fault Line:
+ShooterGame/Content/Characters/Breach/S0/Ability_E/Ability_Breach_E_Fissure.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 50.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 60.0 s under
+DPT_FeatureToggle EGameFeatureToggleName::DesignerToggleC; Chamber Rendezvous:
+ShooterGame/Content/Characters/Deadeye/S0/Ability_E/Ability_Deadeye_E_Teleporter_Tethers.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 30.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownDurationTuningTag =
+AbilityTuning.Deadeye.E.Cooldown;
+ShooterGame/Content/Characters/Deadeye/S0/Ability_E/AbilityTuning_Deadeye_E_Teleport_Tether.uasset
+AbilityTuning_Deadeye_E_Teleport_Tether.Rows.TeleportCooldown = 30.0 s; Clove
+Ruse:
+ShooterGame/Content/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_MapTargetSmokeV2.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 40.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 30.0 s under
+DPT_FeatureToggle EGameFeatureToggleName::DesignPlaytest (the component class
+default); Cypher Spycam:
+ShooterGame/Content/Characters/Gumshoe/S0/Ability_E/Ability_Gumshoe_E_Camera.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 15.0 s; Deadlock
+GravNet: Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownDurationTuningTag
+= AbilityTuning.Cable.4.Cooldown;
+ShooterGame/Content/Characters/Cable/S0/Ability_4/AbilityTuning_Cable_4_NetToss.uasset
+AbilityTuning_Cable_4_NetToss.Rows.Cooldown = 50.0 s; Fade Haunt:
+ShooterGame/Content/Characters/BountyHunter/S0/Ability_E/Ability_E_BountyHunter_ReconDivebomb.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 50.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownDurationTuningTag =
+AbilityTuning.BountyHunter.E.Cooldown;
+ShooterGame/Content/Characters/BountyHunter/S0/Ability_E/AbilityTuning_BountyHunter_E_ReconDiveBomb.uasset
+AbilityTuning_BountyHunter_E_ReconDiveBomb.Rows.Cooldown = 50.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 60.0 s, which never
+applies: the component uses a tuning tag, and AuthSetCooldownDuration refuses
+a manual duration while IsUsingTuningTag is set
+(Comp_Ability_CooldownComponent bytecode); Gekko Mosh Pit:
+ShooterGame/Content/Characters/AggroBot/S0/Ability_4/Ability_Aggrobot_C_ExplodeyPatch.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 15.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 20.0 s under
+DPT_FeatureToggle EGameFeatureToggleName::DesignPlaytest (the component class
+default); Gekko Wingman:
+ShooterGame/Content/Characters/AggroBot/S0/Ability_Q/Ability_Q_Aggrobot_SeekerNade.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 15.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 10.0 s under
+DPT_FeatureToggle EGameFeatureToggleName::DesignPlaytest (the component class
+default); Gekko Dizzy:
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownDurationTuningTag =
+AbilityTuning.Aggrobot.E.Cooldown;
+ShooterGame/Content/Characters/AggroBot/S0/Ability_E/AbilityTuning_Aggrobot_E.uasset
+AbilityTuning_Aggrobot_E.Rows.DizzyCooldown = 15.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 10.0 s, which never
+applies: the component uses a tuning tag, and AuthSetCooldownDuration refuses
+a manual duration while IsUsingTuningTag is set
+(Comp_Ability_CooldownComponent bytecode); Gekko Thrash:
+ShooterGame/Content/Characters/AggroBot/S0/Ability_X/Ability_Aggrobot_X_RollyExplosion.uasset
+Comp_Aggrobot_X_Cooldown_GEN_VARIABLE.CooldownInSeconds = 15.0 s; Harbor Cove:
+ShooterGame/Content/Characters/Mage/S0/Ability_E/Ability_Mage_E_WorldSmoke.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 30.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 30.0 s under
+DPT_FeatureToggle EGameFeatureToggleName::DesignPlaytest (the component class
+default); KAY/O ZERO/point:
+ShooterGame/Content/Characters/Grenadier/S0/Ability_E/Ability_E_Grenadier_EMPKnife.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 50.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 60.0 s under
+DPT_FeatureToggle EGameFeatureToggleName::DesignerToggleC; Miks Waveform:
+ShooterGame/Content/Characters/Iris/S0/Ability_E/Ability_Iris_E_MT_Smoke_Production.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 40.0 s; Omen
+Dark Cover:
+ShooterGame/Content/Characters/Wraith/S0/Ability_4/Ability_Wraith_4_Smoke.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 40.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 30.0 s under
+DPT_FeatureToggle EGameFeatureToggleName::DesignPlaytest (the component class
+default); Sage Healing Orb:
+ShooterGame/Content/Characters/Thorne/S0/Ability_Q/Ability_Thorne_Q_Heal_Production_New.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 45.0 s; Skye
+Guiding Light:
+ShooterGame/Content/Characters/Guide/S0/Ability_E/Ability_Guide_E_HawkFlash.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 50.0 s; Sova
+Recon Bolt:
+ShooterGame/Content/Characters/Hunter/S0/Ability_Q/Ability_Hunter_Q_RevealBolt_Signature.uasset
+Comp_Ability_CooldownComponent1_GEN_VARIABLE.CooldownSeconds = 50.0 s;
+Comp_Ability_CooldownComponent1_GEN_VARIABLE.CooldownDurationTuningTag =
+AbilityTuning.Hunter.E.Cooldown;
+ShooterGame/Content/Characters/Hunter/S0/Ability_Q/AbilityTuning_Hunter_Q_RevealBolt.uasset
+AbilityTuning_Hunter_Q_RevealBolt.Rows.RevealBoltCooldown = 50.0 s;
+Comp_Ability_CooldownComponent1_GEN_VARIABLE.DPT_Cooldown = 60.0 s, which
+never applies: the component uses a tuning tag, and AuthSetCooldownDuration
+refuses a manual duration while IsUsingTuningTag is set
+(Comp_Ability_CooldownComponent bytecode); Vyse Arc Rose:
+ShooterGame/Content/Characters/Nox/S0/Ability_E/Ability_Nox_FlashTrap.uasset
+Comp_Ability_CooldownComponent_GEN_VARIABLE.CooldownSeconds = 20.0 s;
+Comp_Ability_CooldownComponent_GEN_VARIABLE.DPT_Cooldown = 20.0 s under
+DPT_FeatureToggle EGameFeatureToggleName::DesignPlaytest (the component class
+default); Vyse Shear:
+ShooterGame/Content/Characters/Nox/S0/Ability_Q/Ability_Nox_Wall.uasset
+AbilityCooldownComp_GEN_VARIABLE.CooldownSeconds = 20.0 s
+"""
+use = """
+an ability's restock time: `files`; where `toggled` holds a value, the live time depends on a
+server toggle the files do not carry, and is one of the two
+"""
+exceptions = """
+The catalogue differs from the files' base value on Breach Fault Line (files
+50.0 s, 60.0 s under DesignerToggleC; catalogue "60 seconds"), Deadlock
+GravNet (files 50.0 s; catalogue "60 seconds"), Fade Haunt (files 50.0 s;
+catalogue "60 seconds"), Gekko Mosh Pit (files 15.0 s, 20.0 s under
+DesignPlaytest; catalogue "20 seconds (granted by Globules )"), Gekko Thrash
+(files 15.0 s; catalogue "20 seconds (granted by Globules )"), KAY/O
+ZERO/point (files 50.0 s, 60.0 s under DesignerToggleC; catalogue "60 seconds
+(Restock removed in Replication )"), Skye Guiding Light (files 50.0 s;
+catalogue "60 seconds"), Sova Recon Bolt (files 50.0 s; catalogue "60
+seconds"). Each stands as a disagreement, not a supersession: an AbilityTuning
+row may be retuned and a feature toggle set on the server, neither readable
+from the client files, so a timed restock in a capture decides. A DPT_Cooldown
+never applies on Fade Haunt (60.0 s), Gekko Dizzy (10.0 s), Sova Recon Bolt
+(60.0 s): each component uses a tuning tag, and the component's bytecode
+refuses a manual duration while IsUsingTuningTag is set. It matches the base
+value, not the toggled one, on Astra Gravity Well (DesignerToggleA would give
+45.0 s), Clove Ruse (DesignPlaytest would give 30.0 s), Omen Dark Cover
+(DesignPlaytest would give 30.0 s). By toggle, the catalogue: DesignPlaytest
+splits (1 toggled, 2 base); DesignerToggleA matches its base value on all 1;
+DesignerToggleC matches its toggled value on all 2. A split means the
+catalogue mixes dates or the toggle is not the whole story; the files do not
+say which value plays, so a timed restock in a capture decides. The catalogue
+lists no restock for Astra Nova Pulse, Astra Nebula / Dissipate, Chamber
+Rendezvous, Gekko Wingman, Gekko Dizzy, Harbor Cove, Vyse Shear, whose
+components carry one; a recall or pickup restock is the likely use, unread
+here. Gekko's restocks run through reclaimed globules
+[domain:abilities/gekko-abilities-drop-pickups]; the component's time is the
+wait after a reclaim, as far as its field name says. An AbilityTuning row may
+be retuned on the server. These are class defaults; a field name is the
+designers' word, not a measured meaning.
+"""
+values = { files_s = { astra_gravity_well = 60.0, astra_nova_pulse = 60.0, astra_nebula_dissipate = 35.0, breach_fault_line = 50.0, chamber_rendezvous = 30.0, clove_ruse = 40.0, cypher_spycam = 15.0, deadlock_gravnet = 50.0, fade_haunt = 50.0, gekko_mosh_pit = 15.0, gekko_wingman = 15.0, gekko_dizzy = 15.0, gekko_thrash = 15.0, harbor_cove = 30.0, kayo_zero_point = 50.0, miks_waveform = 40.0, omen_dark_cover = 40.0, sage_healing_orb = 45.0, skye_guiding_light = 50.0, sova_recon_bolt = 50.0, vyse_arc_rose = 20.0, vyse_shear = 20.0 }, toggled_s = { astra_gravity_well = 45.0, astra_nova_pulse = 45.0, astra_nebula_dissipate = 25.0, breach_fault_line = 60.0, clove_ruse = 30.0, gekko_mosh_pit = 20.0, gekko_wingman = 10.0, harbor_cove = 30.0, kayo_zero_point = 60.0, omen_dark_cover = 30.0, vyse_arc_rose = 20.0 } }
+see = ["abilities/catalogue-restock-and-ult-points-confirmed", "abilities/game-files-outrank-player-quantities", "abilities/gekko-abilities-drop-pickups"]
+
 [astra-gravity-well-game-data]
 claim = """
 The game files of build 13.06 give Astra's Gravity Well (slot C) these
@@ -2671,18 +2843,23 @@ each value through its own key, never by analogy with another ability
 """
 exceptions = """
 GameObject_Iris_E_Smoke sits in the ability folder; the entity walk of
-ability-states-gamedata-0.2.0 does not reach it. The files and the player
-disagree. The player's value is 16.75 s
-[domain:abilities/miks-smoke-duration]; SmokeDuration here is 16.25 s, with a
-1.0 s delay, a 0.75 s expansion and a 1.0 s contraction. Delay, duration and
-contraction sum to 1.0 + 16.25 + 1.0 = 18.25 s, close to the 18.2 s minimap
-disc [domain:abilities/miks-smoke-minimap-disc]. Both values stand stored; the
-player has been asked which one holds. These are class defaults; a blueprint
-may change a value at run time, and a field name is the designers' word, not a
-measured meaning.
+ability-states-gamedata-0.2.0 does not reach it. The player and the wiki gave
+16.75 s [domain:abilities/miks-smoke-duration]; SmokeDuration here is 16.25 s,
+with a 1.0 s delay, a 0.75 s expansion and a 1.0 s contraction. Delay,
+duration and contraction sum to 1.0 + 16.25 + 1.0 = 18.25 s, close to the 18.2
+s minimap disc [domain:abilities/miks-smoke-minimap-disc]. The files' values
+stand [domain:abilities/game-files-outrank-player-quantities]; the 16.75 s
+stays on the player's fact as its record. These are class defaults; a
+blueprint may change a value at run time, and a field name is the designers'
+word, not a measured meaning.
 """
 values = { life = { smoke_duration_s = 16.25 }, timing = { smoke_delay_time_s = 1.0, smoke_expand_duration_s = 0.75, smoke_contract_duration_s = 1.0 }, size = { vision_blocking_sphere_radius_m = 4.1 }, range = { map_range_m = 55.5 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/miks-smoke-duration", "abilities/miks-smoke-minimap-disc"]
+supersedes = """
+[domain:abilities/miks-smoke-duration]: its 16.75 s smoke duration, by the
+player's ruling that game-file quantities outrank the player's and the wiki's
+numbers [domain:abilities/game-files-outrank-player-quantities]
+"""
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/miks-smoke-duration", "abilities/miks-smoke-minimap-disc", "abilities/game-files-outrank-player-quantities"]
 
 [miks-harmonize-game-data]
 claim = """
@@ -2761,8 +2938,8 @@ claim = """
 The game files of build 13.06 give Neon's Fast Lane (slot C) these
 class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: lifetime or active duration: wall
-duration 4.0 s; sizes: max distance 45.0 m, tunnel width 3.5 m; speeds:
-projectile speed 150.0 m/s.
+duration 4.0 s; sizes: tunnel width 3.5 m; a length the files do not settle as
+size or range: max distance 45.0 m; speeds: projectile speed 150.0 m/s.
 """
 kind = "measurement"
 known = "measured"
@@ -2789,10 +2966,13 @@ the world shape, life and motion of this ability's child in the entity-state des
 each value through its own key, never by analogy with another ability
 """
 exceptions = """
-These are class defaults; a blueprint may change a value at run time, and a
-field name is the designers' word, not a measured meaning.
+MaxDistance caps the travel of the projectile that lays the two walls; whether
+that cap is the walls' length or the throw's range is unconfirmed, so it is
+filed as unconfirmed, not as a size. These are class defaults; a blueprint may
+change a value at run time, and a field name is the designers' word, not a
+measured meaning.
 """
-values = { life = { wall_duration_s = 4.0 }, size = { max_distance_m = 45.0, tunnel_width_m = 3.5 }, speed = { projectile_speed_m_s = 150.0 } }
+values = { life = { wall_duration_s = 4.0 }, size = { tunnel_width_m = 3.5 }, unconfirmed = { max_distance_m = 45.0 }, speed = { projectile_speed_m_s = 150.0 } }
 see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 
 [neon-relay-bolt-game-data]
@@ -3027,11 +3207,18 @@ the world shape, life and motion of this ability's child in the entity-state des
 each value through its own key, never by analogy with another ability
 """
 exceptions = """
-These are class defaults; a blueprint may change a value at run time, and a
-field name is the designers' word, not a measured meaning.
+Surprise, stored: the measured minimap disc lasts 15.0 s
+[domain:abilities/omen-dark-cover], which equals delay plus duration, 0.3 +
+14.7 = 15.0 s, not InitialLifeSpan (16.0 s) nor delay, duration and
+contraction (16.0 s). Miks's disc instead spans its delay, duration and
+contraction; each ability draws by its own rule
+[domain:abilities/ability-rules-are-unique]. The files' values stand
+[domain:abilities/game-files-outrank-player-quantities]. These are class
+defaults; a blueprint may change a value at run time, and a field name is the
+designers' word, not a measured meaning.
 """
 values = { life = { smoke_duration_s = 14.7, initial_life_span_s = 16.0 }, timing = { smoke_delay_time_s = 0.3, smoke_contract_duration_s = 1.0 }, size = { vision_blocking_sphere_radius_m = 4.1 }, range = { max_distance_m = 80.0 }, speed = { projectile_speed_m_s = 64.0 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/omen-dark-cover", "abilities/game-files-outrank-player-quantities"]
 
 [omen-from-the-shadows-game-data]
 claim = """

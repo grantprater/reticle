@@ -110,6 +110,18 @@ class SchemaTests(unittest.TestCase):
                               'see = ["minimap/nope"]\n')
         self.assertTrue(any("sees 'minimap/nope'" in m for m in errors))
 
+    def test_superseded_by_must_resolve_and_be_named_back(self):
+        old = ('[a]\nclaim = "x"\nkind = "rule"\nknown = "player"\n'
+               'since = "2026-01-01"\nsuperseded_by = "minimap/b"\n')
+        errors = self._errors(old)
+        self.assertTrue(any("superseded by 'minimap/b'" in m for m in errors))
+        heir = ('[b]\nclaim = "y"\nkind = "rule"\nknown = "cited"\n'
+                'source = "s"\nsince = "2026-01-02"\n')
+        errors = self._errors(old + heir)
+        self.assertTrue(any("whose supersedes does not cite" in m for m in errors))
+        errors = self._errors(old + heir + 'supersedes = "[domain:minimap/a]"\n')
+        self.assertFalse(any("supersed" in m for m in errors))
+
 
 class CitationTests(unittest.TestCase):
     def test_a_citation_resolves_to_the_file_that_makes_it(self):
