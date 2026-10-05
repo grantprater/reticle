@@ -59,7 +59,9 @@ Per track:
      `nothing` or only a `shape` on the minimap
      (`labels/minimap_glyph_questions/answers.jsonl`, the sure `visibility`
      rows, `player_drawing`: the `drawing` view, else the teammate's view,
-     last row wins) draws no glyph, so a track whose best key is one never
+     last row wins; where the key's agent is the recording player's own
+     agent, the lineup's self slot, the player's `self` view comes first)
+     draws no glyph, so a track whose best key is one never
      names it, nor its kit: it refuses `not_drawn_per_answer`, stores the
      answer row and the appearance facts on the ability's subject, and
      stores the surprise `fact_contradicts:<key>`. The runner-up is not
@@ -68,7 +70,10 @@ Per track:
      row with `state`, as Astra's placed-inactive star) is drawn whatever its
      key's visibility answer says; the texture answer is the narrower one.
      The rule runs on the context, audit and surprise paths alike, after
-     the cut (a `below_null` track keeps that reason).
+     the cut (a `below_null` track keeps that reason). `plan` compares the
+     answers the rule reads by a digest of the ruled-out keys and the
+     texture states (`drawing_answers_stamp`), so a new answer that moves
+     either restales the verdict and an unrelated one does not.
 5. **State.** The winning texture and its game-data states are an
    observation of that ability's drawing; no lifecycle phase is inferred
    [domain:minimap/device-dim-on-deactivation].
@@ -145,22 +150,26 @@ OTHER_NO_ICON = frozenset({"visibility:Gekko:C:ally", "visibility:Gekko:E:ally"}
 NOT_DRAWN = "not_drawn_per_answer"
 
 
-def player_drawing(rows: list[dict]) -> dict:
+def player_drawing(rows: list[dict], own: bool = False) -> dict:
     """(agent, slot) -> (answer, other, key) from the player's sure visibility
     answers: the `drawing` key, else the `ally` key (the view facts make the
-    teammate's view the drawing; `ask_minimap_glyphs.answered`), last row wins."""
+    teammate's view the drawing; `ask_minimap_glyphs.answered`), last row wins.
+    With `own` (the caster is the recording player's own agent), the `self`
+    key comes first: the player answered how their own ability draws on their
+    own minimap, which the teammate's view does not ask."""
     last = {}
     for r in rows:
         last[r["key"]] = r
-    out = {}
+    rank = {"self": 0, "drawing": 1, "ally": 2} if own else {"drawing": 0, "ally": 1}
+    best: dict = {}
     for k, r in last.items():
         parts = k.split(":")
         if parts[0] != "visibility" or len(parts) != 4 or r.get("unsure"):
             continue
         _, agent, slot, view = parts
-        if view == "drawing" or (view == "ally" and (agent, slot) not in out):
-            out[(agent, slot)] = (r.get("answer"), r.get("other"), k)
-    return out
+        if view in rank and ((agent, slot) not in best or rank[view] < best[(agent, slot)][0]):
+            best[(agent, slot)] = (rank[view], (r.get("answer"), r.get("other"), k))
+    return {a: v for a, (_, v) in best.items()}
 
 
 def icon_ruled_out(answer: tuple | None) -> bool:
@@ -168,20 +177,12 @@ def icon_ruled_out(answer: tuple | None) -> bool:
     return answer is not None and (answer[0] in NO_ICON or answer[2] in OTHER_NO_ICON)
 
 
-def load_drawing_answers(store_root, keys: list[str]) -> dict:
-    """The player's drawing answers the verdict reads, from `DRAWING_ANSWERS`:
-    `not_drawn` {key: {answer, other, answer_key, row, domain_subject,
-    domain_facts}} for each bank key whose answer rules an icon out,
-    `drawn_textures` {(key, texture): {state, row}} for each sure texture
-    answer naming the state the texture draws, and `provenance`."""
-    import hashlib
-
-    from ..domain import by_subject
-    from ..domain import load as load_facts
+def _read_answers(store_root) -> tuple[list[dict], dict, bytes] | None:
+    """(rows, key -> the line of its last row, raw bytes) of `DRAWING_ANSWERS`,
+    or None where the file is absent."""
     p = Path(store_root) / DRAWING_ANSWERS
     if not p.is_file():
-        return {"not_drawn": {}, "drawn_textures": {},
-                "provenance": {"file": DRAWING_ANSWERS, "read": False}}
+        return None
     raw = p.read_bytes()
     rows, line_of = [], {}
     for n, ln in enumerate(raw.decode("utf-8").splitlines(), 1):
@@ -189,38 +190,98 @@ def load_drawing_answers(store_root, keys: list[str]) -> dict:
             r = json.loads(ln)
             rows.append(r)
             line_of[r["key"]] = n
-    drawing = player_drawing(rows)
-    cat_p = Path(store_root) / "reference" / "abilities.json"
-    cat = json.loads(cat_p.read_text(encoding="utf-8")).get("agents", {}) if cat_p.is_file() else {}
-    names = {(_agent_key(a), ab.get("key")): ab.get("name")
-             for a, v in cat.items() for ab in (v or {}).get("abilities", [])}
-    facts = load_facts()
-    not_drawn = {}
-    for k in keys:
-        agent, slot = k.split(":", 1)
-        hit = next((v for (a, s), v in drawing.items() if s == slot and _agent_key(a) == _agent_key(agent)),
-                   None)
-        if not icon_ruled_out(hit):
-            continue
-        name = names.get((_agent_key(agent), slot))
-        subject = f"{agent.lower()}:{name.lower()}" if name else None
-        cite = sorted(f"domain:{f.key}" for f in by_subject(facts, subject).values()
-                      if f.kind == "appearance") if subject else []
-        not_drawn[k] = {"answer": hit[0], "other": hit[1], "answer_key": hit[2],
-                        "row": f"{DRAWING_ANSWERS}#L{line_of[hit[2]]}",
-                        "domain_subject": subject, "domain_facts": cite}
+    return rows, line_of, raw
+
+
+def _drawn_textures(rows: list[dict]) -> dict:
+    """(key, texture) -> the last sure texture row naming the state it draws."""
     last = {}
     for r in rows:
         last[r["key"]] = r
-    drawn_textures = {}
-    for k, r in last.items():
-        if r.get("kind") == "texture" and not r.get("unsure") and r.get("state") and r.get("answer"):
-            drawn_textures[(r["answer"], k.split(":", 1)[1])] = {
-                "state": r["state"], "row": f"{DRAWING_ANSWERS}#L{line_of[k]}"}
-    return {"not_drawn": not_drawn, "drawn_textures": drawn_textures,
+    return {(r["answer"], k.split(":", 1)[1]): r for k, r in last.items()
+            if r.get("kind") == "texture" and not r.get("unsure") and r.get("state")
+            and r.get("answer")}
+
+
+def _answers_digest(rows: list[dict]) -> str:
+    """The stamp of what the verdict reads from the answers: the answers that
+    rule an icon out, in either view order, and the texture state answers.
+    An answer that moves neither leaves it unchanged."""
+    import hashlib
+    ruled = sorted({(order, a, s, v[0], v[1], v[2])
+                    for order, own in (("other", False), ("own", True))
+                    for (a, s), v in player_drawing(rows, own).items() if icon_ruled_out(v)},
+                   key=lambda x: tuple(map(str, x)))
+    tex = sorted((k, t, r["state"]) for (k, t), r in _drawn_textures(rows).items())
+    blob = json.dumps({"ruled_out": ruled, "texture_states": tex}, sort_keys=True).encode("utf-8")
+    return f"drawing-answers#{hashlib.sha256(blob).hexdigest()[:16]}"
+
+
+def drawing_answers_stamp(store_root) -> str:
+    """The stamp `plan` compares for the drawing answers the verdict read
+    (`_answers_digest`), `no_rows` where the file is absent."""
+    got = _read_answers(store_root) if store_root is not None else None
+    return _answers_digest(got[0]) if got is not None else "no_rows"
+
+
+def catalogue_names(store_root) -> dict:
+    """(agent key, slot) -> the catalogue's display name (`reference/abilities.json`)."""
+    cat_p = Path(store_root) / "reference" / "abilities.json"
+    cat = json.loads(cat_p.read_text(encoding="utf-8")).get("agents", {}) if cat_p.is_file() else {}
+    return {(_agent_key(a), ab.get("key")): ab.get("name")
+            for a, v in cat.items() for ab in (v or {}).get("abilities", [])}
+
+
+def load_drawing_answers(store_root, keys: list[str], names: dict | None = None) -> dict:
+    """The player's drawing answers the verdict reads, from `DRAWING_ANSWERS`:
+    `not_drawn` {key: {answer, other, answer_key, row, domain_subject,
+    domain_facts}} for each bank key whose answer rules an icon out when
+    another player casts it, `not_drawn_own` the same when the recording
+    player casts it (`player_drawing` with `own`), `drawn_textures`
+    {(key, texture): {state, row}} for each sure texture answer naming the
+    state the texture draws, and `provenance`, whose `stamp` is the one
+    `plan` compares (`drawing_answers_stamp`). `names` is
+    `catalogue_names(store_root)`, read here when not given."""
+    import hashlib
+
+    from ..domain import by_subject
+    from ..domain import load as load_facts
+    got = _read_answers(store_root)
+    if got is None:
+        return {"not_drawn": {}, "not_drawn_own": {}, "drawn_textures": {},
+                "provenance": {"file": DRAWING_ANSWERS, "read": False, "stamp": "no_rows"}}
+    rows, line_of, raw = got
+    names = catalogue_names(store_root) if names is None else names
+    facts = load_facts()
+
+    def ruled_out(drawing: dict) -> dict:
+        out = {}
+        for k in keys:
+            agent, slot = k.split(":", 1)
+            hit = next((v for (a, s), v in drawing.items()
+                        if s == slot and _agent_key(a) == _agent_key(agent)), None)
+            if not icon_ruled_out(hit):
+                continue
+            name = names.get((_agent_key(agent), slot))
+            subject = f"{agent.lower()}:{name.lower()}" if name else None
+            cite = sorted(f"domain:{f.key}" for f in by_subject(facts, subject).values()
+                          if f.kind == "appearance") if subject else []
+            out[k] = {"answer": hit[0], "other": hit[1], "answer_key": hit[2],
+                      "row": f"{DRAWING_ANSWERS}#L{line_of[hit[2]]}",
+                      "domain_subject": subject, "domain_facts": cite}
+        return out
+
+    not_drawn = ruled_out(player_drawing(rows))
+    not_drawn_own = ruled_out(player_drawing(rows, own=True))
+    drawn_textures = {kt: {"state": r["state"], "row": f"{DRAWING_ANSWERS}#L{line_of[r['key']]}"}
+                      for kt, r in _drawn_textures(rows).items()}
+    return {"not_drawn": not_drawn, "not_drawn_own": not_drawn_own,
+            "drawn_textures": drawn_textures,
             "provenance": {"file": DRAWING_ANSWERS, "read": True, "rows": len(rows),
                            "sha256": hashlib.sha256(raw).hexdigest()[:16],
+                           "stamp": _answers_digest(rows),
                            "not_drawn_keys": len(not_drawn),
+                           "not_drawn_own_keys": len(not_drawn_own),
                            "drawn_textures": len(drawn_textures)}}
 
 
@@ -263,19 +324,31 @@ class VerdictTables:
                     self.view_false[j, s, v] = bool(known) and not any(known)
         self.provenance = provenance
         drawing = drawing or {}
-        #: key -> the answer that rules its icon out (`load_drawing_answers`).
+        #: key -> the answer that rules its icon out when another player
+        #: casts it (`load_drawing_answers`).
         self.not_drawn: dict = dict(drawing.get("not_drawn") or {})
+        #: key -> the same when the recording player casts it; the other
+        #: players' map where a caller gives none.
+        self.not_drawn_own: dict = dict(drawing.get("not_drawn_own", self.not_drawn) or {})
         #: (key, texture) -> the texture answer naming the state it draws.
         self.drawn_textures: dict = dict(drawing.get("drawn_textures") or {})
         #: key -> the catalogue's display name.
         self.names: dict = dict(names or {})
 
-    def not_drawn_for(self, key: str | None, texture: str | None) -> dict | None:
+    def not_drawn_for(self, key: str | None, texture: str | None,
+                      own: bool = False) -> dict | None:
         """The answer that rules `key`'s icon out, unless the player named
-        `texture` with the state it draws; None where the key is drawn."""
-        if key is None or key not in self.not_drawn or (key, texture) in self.drawn_textures:
+        `texture` with the state it draws; None where the key is drawn.
+        `own`: the key's agent is the recording player's own agent, whose
+        `self` view answer comes first (`player_drawing`)."""
+        table = self.not_drawn_own if own else self.not_drawn
+        if key is None or key not in table or (key, texture) in self.drawn_textures:
             return None
-        return self.not_drawn[key]
+        return table[key]
+
+    def may_not_draw(self, key: str | None) -> bool:
+        """Whether either view order rules `key`'s icon out."""
+        return key is not None and (key in self.not_drawn or key in self.not_drawn_own)
 
     @classmethod
     def load(cls, store_root) -> "VerdictTables":
@@ -296,11 +369,8 @@ class VerdictTables:
                     tex = (r.get("cue") or "").rsplit("/", 1)[-1].split(".")[0]
                     states.setdefault((_agent_key(r.get("agent")), r.get("key"), tex), []).append(
                         {"state": r.get("state"), "phase": r.get("phase"), "views": r.get("views")})
-        drawing = load_drawing_answers(store_root, data.keys)
-        cat_p = Path(store_root) / "reference" / "abilities.json"
-        cat = json.loads(cat_p.read_text(encoding="utf-8")).get("agents", {}) if cat_p.is_file() else {}
-        by = {(_agent_key(a), ab.get("key")): ab.get("name")
-              for a, v in cat.items() for ab in (v or {}).get("abilities", [])}
+        by = catalogue_names(store_root)
+        drawing = load_drawing_answers(store_root, data.keys, names=by)
         names = {k: by.get((_agent_key(k.split(":", 1)[0]), k.split(":", 1)[1])) for k in data.keys}
         prov = {"glyph": data.provenance,
                 "states": {"version": sver, "file": f"{sdir}/{sver}.jsonl",
@@ -448,8 +518,10 @@ def _ranked(pool: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
 
 
 def _path_verdicts(tracks_n: int, rows: dict, track_of: np.ndarray, tables: VerdictTables,
-                   cut: np.ndarray, bank_cut: float | None) -> dict:
-    """The audit or surprise path's pooled verdict per track (every key)."""
+                   cut: np.ndarray, bank_cut: float | None, player: str | None = None) -> dict:
+    """The audit or surprise path's pooled verdict per track (every key);
+    `player` is the recording player's agent, whose own keys read the `self`
+    drawing answer first."""
     if rows["n"] == 0:
         return {}
     ok = np.isfinite(rows["S"])
@@ -468,14 +540,14 @@ def _path_verdicts(tracks_n: int, rows: dict, track_of: np.ndarray, tables: Verd
             why = "below_null"
         elif bank_cut is not None and not bv[c] > bank_cut:
             why = "below_bank_cut"
-        if why is None and key in tables.not_drawn:
+        if why is None and tables.may_not_draw(key):
             si = rows["SI"][(track_of == c) & ok[:, b[c]], b[c]]
             si = si[si >= 0]
             tex = None
             if len(si):
                 m = int(np.bincount(si).argmax())
                 tex = tables.sources[key][m] if m < len(tables.sources[key]) else None
-            nd = tables.not_drawn_for(key, tex)
+            nd = tables.not_drawn_for(key, tex, _is_player(key, player))
             if nd is not None:
                 why = NOT_DRAWN
         if why is None and not margin[c] > tables.tie:
@@ -487,6 +559,15 @@ def _path_verdicts(tracks_n: int, rows: dict, track_of: np.ndarray, tables: Verd
                        "samples": int(cnt[c].max()), "named": why is None, "reason": why,
                        **({"not_drawn": nd} if nd is not None else {})}
     return out
+
+
+def _is_player(key: str | None, player: str | None) -> bool:
+    """Whether `key`'s agent is the recording player's agent (`player`, the
+    lineup's self slot): the caster the player's `self` answer describes."""
+    if key is None or player is None:
+        return False
+    from .tray_kit import same_agent
+    return bool(same_agent(key.split(":", 1)[0], player))
 
 
 def adjudicate(session_id: str, glyph: dict, verify: dict | None, tables: VerdictTables,
@@ -552,9 +633,9 @@ def adjudicate(session_id: str, glyph: dict, verify: dict | None, tables: Verdic
         return {k: (v[okm] if isinstance(v, np.ndarray) and len(v) == rows["n"] else v)
                 for k, v in rows.items()} | {"n": int(okm.sum())}
     audit = _path_verdicts(T, sub(glyph["audit"], a_ok), a_track[a_ok], tables, tables.audit_cut,
-                           tables.bank_cuts.get("audit")) if glyph["audit"]["n"] else {}
+                           tables.bank_cuts.get("audit"), player) if glyph["audit"]["n"] else {}
     surprise = _path_verdicts(T, sub(glyph["surprise"], s_ok), s_track[s_ok], tables, tables.cut,
-                              tables.bank_cuts.get("full")) if glyph["surprise"]["n"] else {}
+                              tables.bank_cuts.get("full"), player) if glyph["surprise"]["n"] else {}
 
     # The candidate set, its sides and slots.
     cands = head.get("candidates") or {}
@@ -638,7 +719,7 @@ def adjudicate(session_id: str, glyph: dict, verify: dict | None, tables: Verdic
         # The player's drawing answer, after the cut and the Astra rule.
         not_drawn = None
         if reason_c in (None, "pairwise_tie") or kit_clear:
-            not_drawn = tables.not_drawn_for(key, tex)
+            not_drawn = tables.not_drawn_for(key, tex, _is_player(key, player))
             if not_drawn is not None:
                 if reason_c in (None, "pairwise_tie"):
                     reason_c = NOT_DRAWN
@@ -775,6 +856,8 @@ def adjudicate(session_id: str, glyph: dict, verify: dict | None, tables: Verdic
                         "ability_disc_track": ABILITY_DISC_TRACK_VERSION,
                         "null_table": tables.provenance["glyph"]["null"]["version"],
                         "states_table": tables.provenance["states"]["version"],
+                        "drawing_answers": (tables.provenance.get("drawing_answers")
+                                            or {}).get("stamp"),
                         **(stamps or {})},
              "wall_s": round(wall, 3)}
     track_cover = {"session_id": session_id, "ability_disc_track_version": ABILITY_DISC_TRACK_VERSION,

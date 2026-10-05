@@ -475,7 +475,13 @@ pure over stored rows:
      row and the subject's appearance facts, and stores the surprise
      `fact_contradicts:<key>`; the runner-up is not promoted. A texture the
      player named with the state it draws outranks its key's visibility
-     answer: Astra's placed-inactive star stays `pending`.
+     answer: Astra's placed-inactive star stays `pending`. From
+     `ability-glyph-name-0.3.0`, a key of the recording player's own agent
+     (the lineup's self slot) reads the player's `self` answer first, then
+     `drawing`, then `ally`; any other caster's key never reads `self`. The
+     head records a digest of the ruled-out keys and texture states
+     (`inputs.drawing_answers`), which `plan` compares, so a new answer that
+     moves either restales the verdict.
    No rule carries to another ability by analogy
    [domain:abilities/ability-rules-are-unique].
 5. **State.** The winning texture's game-data state (inactive, active,
@@ -1159,7 +1165,7 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    track carries such a key
    ([metric:glyph_stage3/matches@handful#N1_named_not_drawn=0], and
    [metric:glyph_stage3/matches@handful#N1_claims_named_not_drawn=0]
-   claims), and [metric:glyph_stage3/matches@handful#N1_refused_not_drawn=30]
+   claims), and [metric:glyph_stage3/matches@handful~2026-10-05T14:30:46#N1_refused_not_drawn=30]
    tracks refuse `not_drawn_per_answer`: the 11 the judge counted plus 19
    `pairwise_tie` tracks whose kit claim the rule now withholds. Named
    tracks fall to [metric:glyph_stage3/matches@handful#named=235]; the 147
@@ -1167,6 +1173,23 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    the cut. The numbers below are this run's. Ask the player what the
    Phoenix:C glyph on 7010b3d62460 at 405 s and 1869 s is; the verdict no
    longer decides it.
+   **The own-caster round (ability-glyph-name-0.3.0, glyph-stage3-eval-0.3.0).**
+   The verdict read only the `drawing` and `ally` answers, so a `self`
+   answer never ruled out the player's own key. Now it does (above), and
+   gate 6's tray arm reads the same own-caster map. Rerun store-only
+   (0.2.0 streams under `backups/glyph-stage3-20261005/name-0.2.0/`) into
+   `analysis/glyph-stage3-20261005/matches_own/`, prediction and outcome
+   rows `glyph-own-caster-drawing-20261005`: on 7010b3d62460 (the player
+   on Phoenix) the 9 Phoenix:X `pairwise_tie` tracks refuse
+   `not_drawn_per_answer`
+   ([metric:glyph_stage3/matches@7010b3d62460#refused_not_drawn_per_answer=18],
+   was 9); 4f207c0c4e39 and 223d636bf8d2 do not move
+   ([metric:glyph_stage3/matches@4f207c0c4e39#refused_not_drawn_per_answer=7],
+   [metric:glyph_stage3/matches@223d636bf8d2#refused_not_drawn_per_answer=14]).
+   Named tracks stay [metric:glyph_stage3/matches@handful#named=235], none
+   on a not-drawn key
+   ([metric:glyph_stage3/matches@handful#N1_named_not_drawn=0]), and
+   [metric:glyph_stage3/matches@handful#N1_refused_not_drawn=39] refuse.
    - **P4 failed.** Of tracks with a clean sample,
      [metric:glyph_stage3/matches@handful#P4_below_null=660] of
      [metric:glyph_stage3/matches@handful#P4_n=1460] refuse `below_null`
@@ -1235,7 +1258,7 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
      7010b3d62460; the arm now drops the casts of keys the player answered
      draw nothing or a shape.
    - **Gate 7 holds.** The verdict runs in at most
-     [metric:glyph_stage3/matches@handful#G7_max_wall_s=3.016] s per match.
+     [metric:glyph_stage3/matches@handful~2026-10-05T14:30:46#G7_max_wall_s=3.016] s per match.
    - **The thrown icon's track.** Of the player's glyph births after a tray
      drop, [metric:glyph_stage3/matches@handful#T1_single_fix=10] of
      [metric:glyph_stage3/matches@handful#T1_births=16] tracks hold one

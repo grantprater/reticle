@@ -734,7 +734,10 @@ ABILITY_DISC_TRACK_VERSION = "ability-disc-track-0.1.0"
 # claim (an Astra star's state answer excepted); a missing cut refuses
 # `no_cut_for_key`; a blind slot refuses only claims its side admits; rows
 # carry the display name and rest on the tray kit, policy and null stamps.
-ABILITY_GLYPH_NAME_VERSION = "ability-glyph-name-0.2.0"
+# 0.3.0: a key whose agent is the recording player's own reads the player's
+# `self` drawing answer first; the head records the answers' stamp
+# (`inputs.drawing_answers`), which `plan` compares.
+ABILITY_GLYPH_NAME_VERSION = "ability-glyph-name-0.3.0"
 # The ability tray's charge drops, written as `tray_drop` rows by `reticle
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own

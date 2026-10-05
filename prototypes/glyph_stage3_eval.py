@@ -44,7 +44,9 @@ import numpy as np  # noqa: E402
 
 #: 0.2.0: gate 6's tray arm drops keys the player answered draw nothing or a shape, and `matches` counts the
 #: named tracks that still carry one (N1, which must be 0 from ability-glyph-name-0.2.0).
-VERSION = "glyph-stage3-eval-0.2.0"
+#: 0.3.0: both read the player's own keys by the `self` answer first, as ability-glyph-name-0.3.0 does: gate 6's
+#: tray arm (the player's casts) by `not_drawn_own`, N1 by the map its row's caster selects.
+VERSION = "glyph-stage3-eval-0.3.0"
 STORE = Path(gcc.mge.STORE)
 BIRTH_R = 34.0          # px x scale: 2 x OCC_R, the crowding radius of cross-channel-independence and S5
 BIRTH_MS_ALLY = 250.0   # an ally fix this close in time to a birth stands for the caster at the birth
@@ -124,13 +126,14 @@ def player_casts(store, sid: str, player: str | None, stale_ok: bool = False) ->
 
 def drawn_keys() -> set:
     """Keys a minimap component draws (the policy table's rows not decided by `no_component_default`) and the
-    player did not answer draw nothing or a shape (`ability_glyph.load_drawing_answers`, from 0.2.0)."""
+    player did not answer draw nothing or a shape (`ability_glyph.load_drawing_answers`, from 0.2.0), read as the
+    player's own casts (`not_drawn_own`, from 0.3.0): the tray arm scores only the player's drops."""
     from reticle.adjudication.ability_glyph import load_drawing_answers
     from reticle.minimap_glyph import GLYPH_DATA
     pdir, pver = GLYPH_DATA["policy"]
     pol = json.loads((STORE / pdir / f"{pver}.json").read_text(encoding="utf-8"))
     keys = [r["key"] for r in pol["rows"]]
-    not_drawn = load_drawing_answers(STORE, keys)["not_drawn"]
+    not_drawn = load_drawing_answers(STORE, keys)["not_drawn_own"]
     return {r["key"] for r in pol["rows"] if r.get("decided_by") != "no_component_default"
             and r["key"] not in not_drawn}
 
@@ -258,10 +261,16 @@ def session_matches(store, sid: str, stale_tray: bool = False) -> tuple[dict, li
                              "jumps": sum(bool(t["jumps"]) for t in tl)}
     # N1: no named track carries a key the player answered draws nothing or a shape.
     from reticle.adjudication.ability_glyph import load_drawing_answers
-    nd = load_drawing_answers(STORE, sorted({r["best"] for r in rows if r["best"]}))["not_drawn"]
-    out["N1"] = {"named_not_drawn": sum((r["ability"] or {}).get("key") in nd for r in rows),
-                 "claims_named_not_drawn": sum(bool(r["agent"]) and r["best"] in nd and not r["pending"]
-                                               for r in rows),
+    from reticle.adjudication.tray_kit import same_agent
+    got = load_drawing_answers(STORE, sorted({r["best"] for r in rows if r["best"]}))
+
+    def nd(key):
+        """The not-drawn map the verdict reads for `key`: the self-first one for the player's own agent."""
+        own = key is not None and player is not None and same_agent(key.split(":", 1)[0], player)
+        return got["not_drawn_own" if own else "not_drawn"]
+    out["N1"] = {"named_not_drawn": sum((k := (r["ability"] or {}).get("key")) in nd(k) for r in rows),
+                 "claims_named_not_drawn": sum(bool(r["agent"]) and r["best"] in nd(r["best"])
+                                               and not r["pending"] for r in rows),
                  "refused_not_drawn": sum(r["reason"] == "not_drawn_per_answer" for r in rows),
                  "kit_claims_withheld": sum(bool(r.get("not_drawn")) for r in rows),
                  "keys": dict(Counter(r["best"] for r in rows if r.get("not_drawn")).most_common())}

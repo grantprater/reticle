@@ -1078,3 +1078,35 @@ class SpanPlanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GlyphDrawingAnswersInputTests(unittest.TestCase):
+    """The glyph verdict reads the player's drawing answers; a new answer that
+    moves what it reads restales `ability_glyph_name`, and one that does not
+    leaves it current."""
+
+    def test_a_changed_answer_restales_the_verdict(self):
+        import json
+
+        from reticle.adjudication.ability_glyph import DRAWING_ANSWERS
+        from reticle.plan import inputs_moved
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            store = _Store(root)
+            man = store.read_manifest("s")
+            p = root / DRAWING_ANSWERS
+            p.parent.mkdir(parents=True)
+
+            def answer(key, value):
+                with open(p, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps({"key": key, "kind": "visibility", "answer": value,
+                                         "unsure": False}) + "\n")
+            answer("visibility:Chamber:Q:ally", "nothing")
+            head = record_inputs(store, man, "ability_glyph_name", {})
+            self.assertTrue(head["inputs"]["drawing_answers"].startswith("drawing-answers#"))
+            self.assertEqual(inputs_moved(store, man, "ability_glyph_name", head), ([], []))
+            answer("visibility:Chamber:Q:enemy", "icon")
+            self.assertEqual(inputs_moved(store, man, "ability_glyph_name", head)[0], [])
+            answer("visibility:Chamber:Q:ally", "icon")
+            self.assertEqual(inputs_moved(store, man, "ability_glyph_name", head)[0],
+                             ["drawing_answers"])

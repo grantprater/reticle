@@ -376,3 +376,64 @@ class Loader(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _vis(key, answer, unsure=False):
+    return {"key": key, "kind": "visibility", "answer": answer, "unsure": unsure}
+
+
+class OwnCasterDrawing(unittest.TestCase):
+    """A key whose agent is the recording player's own reads the player's
+    `self` drawing answer first; any other caster's key reads `drawing`, else
+    `ally`, and never the `self` answer."""
+
+    ROWS = [_vis("visibility:Sova:Q:self", "nothing"), _vis("visibility:Sova:Q:ally", "icon"),
+            _vis("visibility:Viper:Q:self", "shape"),
+            _vis("visibility:Omen:E:ally", "nothing"), _vis("visibility:Omen:E:self", "icon")]
+
+    def test_player_drawing_reads_self_first_only_for_the_own_caster(self):
+        other, own = ag.player_drawing(self.ROWS), ag.player_drawing(self.ROWS, own=True)
+        self.assertEqual(other[("Sova", "Q")][2], "visibility:Sova:Q:ally")
+        self.assertEqual(own[("Sova", "Q")][2], "visibility:Sova:Q:self")
+        self.assertNotIn(("Viper", "Q"), other)
+        self.assertEqual(own[("Viper", "Q")][0], "shape")
+        self.assertEqual(own[("Omen", "E")][0], "icon")
+
+    def test_load_drawing_answers_keeps_both_view_orders(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / ag.DRAWING_ANSWERS
+            p.parent.mkdir(parents=True)
+            p.write_text("".join(json.dumps(r) + "\n" for r in self.ROWS), encoding="utf-8")
+            got = ag.load_drawing_answers(d, KEYS, names={})
+            self.assertEqual(got["provenance"]["stamp"], ag.drawing_answers_stamp(d))
+        self.assertEqual(sorted(got["not_drawn"]), ["Omen:E"])
+        self.assertEqual(sorted(got["not_drawn_own"]), ["Sova:Q", "Viper:Q"])
+        self.assertEqual(got["not_drawn_own"]["Sova:Q"]["row"], f"{ag.DRAWING_ANSWERS}#L1")
+
+    def test_the_self_answer_refuses_only_the_players_own_key(self):
+        nd = {"Sova:Q": dict(NOT_DRAWN["Sova:Q"], answer_key="visibility:Sova:Q:self")}
+        t = tables(drawing={"not_drawn": {}, "not_drawn_own": nd})
+        g = glyph(placed(0, 2, {"Sova:Q": (0.9, 0), "Sova:C": (0.3, 0), "Omen:E": (0.2, 0)}))
+        mine = verdicts(ag.adjudicate(SID, g, None, t, lineup(), None, "Sova"))[f"{SID}:adisc:0.0:0"]
+        self.assertEqual(mine["reason"], "not_drawn_per_answer")
+        self.assertEqual(mine["not_drawn"]["answer_key"], "visibility:Sova:Q:self")
+        # A teammate plays Sova while the player records Omen: the self answer
+        # does not describe that caster's drawing.
+        theirs = verdicts(ag.adjudicate(SID, g, None, t, lineup(), None, "Omen"))[f"{SID}:adisc:0.0:0"]
+        self.assertEqual(theirs["ability"]["key"], "Sova:Q")
+        self.assertIsNone(theirs["not_drawn"])
+
+    def test_the_stamp_moves_with_a_read_answer_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / ag.DRAWING_ANSWERS
+            p.parent.mkdir(parents=True)
+            self.assertEqual(ag.drawing_answers_stamp(d), "no_rows")
+            p.write_text("".join(json.dumps(r) + "\n" for r in self.ROWS), encoding="utf-8")
+            first = ag.drawing_answers_stamp(d)
+            with open(p, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(_vis("visibility:Raze:C:enemy", "nothing")) + "\n")
+                fh.write(json.dumps(_vis("visibility:Sova:C:ally", "icon")) + "\n")
+            self.assertEqual(ag.drawing_answers_stamp(d), first)
+            with open(p, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(_vis("visibility:Omen:E:ally", "icon")) + "\n")
+            self.assertNotEqual(ag.drawing_answers_stamp(d), first)

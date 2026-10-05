@@ -668,7 +668,10 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
         # Stage 3 of the glyph channel: the tracks read the stored glyph rows
         # (and the bank they were scored on) and the proposer's verify; the
         # verdict reads the tracks, the tray kit, the lineup's slots, and the
-        # null and states tables at the code's versions.
+        # null and states tables at the code's versions, and the player's drawing
+        # answers, compared by a digest of what the rule reads from them
+        # (`ability_glyph.drawing_answers_stamp`), so an unrelated answer does
+        # not restale it.
         "ability_disc_track": {"ability_glyph": _in("inputs.ability_glyph",
                                                     "ability_glyph#ability_glyph_version"),
                                "glyph_bank": _in("inputs.glyph_bank", "ability_glyph#glyph_bank"),
@@ -682,6 +685,8 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                "null_table": _code("inputs.null_table", GLYPH_DATA["null"][1]),
                                "states_table": _code("inputs.states_table", GLYPH_STATES_TABLE[1]),
                                "tray_kit": _in("inputs.tray_kit", "tray_kit#tray_kit_version"),
+                               "drawing_answers": _in("inputs.drawing_answers",
+                                                      "glyph_drawing_answers"),
                                **_lineup_inputs()},
         "dead_ruse_cast": {"smoke_owner": _in("inputs.smoke_owner",
                                               "smoke_owner#smoke_owner_version"),
@@ -770,7 +775,8 @@ def _probe_stream(probe: str) -> str | None:
     if "#" in probe:
         return probe.split("#", 1)[0]
     if probe in ("geometry", "lineup_file", "reliability", "catalogue", "catalogue_icons",
-                 "portrait_refs", "portrait_refs_fit", "audio_features", "audio_labels"):
+                 "portrait_refs", "portrait_refs_fit", "audio_features", "audio_labels",
+                 "glyph_drawing_answers"):
         return None
     return probe
 
@@ -971,6 +977,9 @@ def input_head(store, manifest: dict, probe: str, head: dict | None = None,
             now = f"reference/abilities.json#{reference_key(root)}"
         else:
             now = ist.NO_ROWS
+    elif probe == "glyph_drawing_answers":
+        from .adjudication.ability_glyph import drawing_answers_stamp
+        now = drawing_answers_stamp(root) if root is not None else ist.NO_ROWS
     elif probe in ("audio_features", "audio_labels"):
         from .ability_timeline import audio_input_stamps
         now = audio_input_stamps(root, sid)[probe] if root is not None else ist.NO_ROWS
