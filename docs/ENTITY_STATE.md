@@ -162,9 +162,9 @@ as the reported region.
 - **Reach:** `R(t) = v_max * (t_game - t_anchor) + r_fit`, with
   `t_game` from the game-time owner (`gametime.SessionGameTime`), so a
   capture stall does not freeze the growth. `v_max` is the character's top
-  ground speed from the game files [domain:movement/character-max-speed]:
-  675 units/s with the largest state multiplier, 1.1, so 7.425 m/s
-  [domain:movement/game-units-are-centimetres]; every weapon multiplier
+  ground speed from the game files [domain:game_data/character-movement-speeds]:
+  675 units/s with the largest state multiplier, 1.1 (Jumping), so 7.425 m/s
+  [domain:game_data/game-units-centimetres]; every weapon multiplier
   valorant-api lists is below one. The bound is the **Euclidean** disc over
   every standable cell (floor, plant and box tops). The path table
   (`prototypes/sightlines.py`) models no drops, ropes, teleporters, doors,
@@ -356,7 +356,7 @@ assignment. Both modes are scored side by side (section 13).
 ## 3. The coordinate frame
 
 **Canonical coordinates are world metres** in Riot's game frame: game
-units over 100 [domain:movement/game-units-are-centimetres], the frame
+units over 100 [domain:game_data/game-units-centimetres], the frame
 Riot's records and the replays use. Minimap pixels are a view.
 
 - **The chain.** A stored fit is a widget pixel of the session's
@@ -945,8 +945,8 @@ code that answers them, not before.
 
 1. Answered from the game files (2026-10-04): the character's top ground
    speed is 675 units/s with state multipliers 0.6, 1.1 and 0.35
-   [domain:movement/character-max-speed]. Still open: which movement state
-   the 1.1 multiplier names, and whether any agent's blueprint overrides
+   [domain:game_data/character-movement-speeds]; the 1.1 multiplier is the
+   Jumping state's. Still open: whether any agent's blueprint overrides
    the base tuning (no agent blueprint was read).
 2. Whether a disconnected teammate stays drawn on the minimap, and whether
    the roster counts him.
