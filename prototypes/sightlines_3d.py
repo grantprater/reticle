@@ -62,12 +62,14 @@ Read at import from the game-data facts, which cite `BasePawn` and
   twice CrouchedHalfHeight.
 - `JUMP_CM`, the largest floor step the walk graph joins:
   DefaultJumpTuning.MaxJumpHeight.
-- `WALKABLE_Z` stays UE's engine default walkable angle, the one placeholder:
+- `WALKABLE_Z` stays UE's engine default walkable angle, a placeholder:
   the class chain serialises no walkable angle and its native parent's
   defaults are in no export.
+- Three more heights are placeholders no field gives (`PLACEHOLDERS`):
+  `CEILING_GAP_CM`, `BLOCKER_LINE_CM` and `REGION_PROBE_CM`.
 
 No crouched eye is used: under a ceiling lower than the eye, the eye sits
-5 cm below the ceiling. `sightlines-3d-0.2.0` used placeholders throughout
+`CEILING_GAP_CM` (5 cm) below the ceiling. `sightlines-3d-0.2.0` used placeholders throughout
 (`HEIGHTS_0_2_0`); `rebuild` remakes a table from an older one's stored
 blockers and callout volumes, which do not depend on the heights, so no
 extraction reruns.
@@ -147,7 +149,16 @@ JUMP_CM = round(GAME_BODY["max_jump_cm"], 3)
 WALKABLE_Z = math.cos(math.radians(44.765))
 #: `NavAgentProps.AgentStepHeight` of BasePlayerCharacter (45 cm); recorded, not used.
 STEP_CM = round(GAME_BODY["step_cm"], 3)
-PLACEHOLDERS = ["walkable_z"]
+#: Placeholder: under a ceiling lower than EYE_CM the eye sits this far below
+#: the ceiling, standing in for the crouched eye; no field gives the gap.
+CEILING_GAP_CM = 5.0
+#: Placeholder: the walk graph tests pawn blockers on a line this far above
+#: both floors (an invisible wall, a railing); no field gives the height.
+BLOCKER_LINE_CM = 60.0
+#: Placeholder: a floor counts inside the map's callout region when the point
+#: this far above it lies in a region box; no field gives the height.
+REGION_PROBE_CM = 50.0
+PLACEHOLDERS = ["walkable_z", "ceiling_gap_cm", "blocker_line_cm", "region_probe_cm"]
 #: The heights `sightlines-3d-0.2.0` used, all placeholders; kept to read its tables.
 HEIGHTS_0_2_0 = {"eye_cm": 160.0, "body_cm": 120.0, "crouch_clear_cm": 100.0, "jump_cm": 120.0}
 GRID_CM = 100.0
@@ -526,8 +537,10 @@ def floors(caster: Caster, xy: np.ndarray, top: float = TOP_CM) -> tuple[np.ndar
 
     Downward rays from `top` record every hit; a floor is a hit on a face whose
     outward normal is walkable (nz >= WALKABLE_Z) with CROUCH_CLEAR_CM free
-    above it and, when the caster carries a region, a point 50 cm above it
-    inside one of the region's boxes (the map's callout volumes). Returns (z[n, MAX_LAYERS], clearance[n, MAX_LAYERS]), lowest first.
+    above it and, when the caster carries a region, a point REGION_PROBE_CM
+    (50 cm, a placeholder) above it inside one of the region's boxes (the
+    map's callout volumes). Returns (z[n, MAX_LAYERS], clearance[n,
+    MAX_LAYERS]), lowest first.
     """
     n = len(xy)
     z = np.full((n, MAX_LAYERS), np.nan)
@@ -556,7 +569,7 @@ def floors(caster: Caster, xy: np.ndarray, top: float = TOP_CM) -> tuple[np.ndar
             inside = (pu >= 0) & (caster.nz[np.maximum(pu, 0)] > 0.0)
             ok = (free >= CROUCH_CLEAR_CM) & ~inside
             if caster.region is not None:
-                ok &= in_region(np.column_stack([xy[wi], zh[walk] + 50.0]), caster.region)
+                ok &= in_region(np.column_stack([xy[wi], zh[walk] + REGION_PROBE_CM]), caster.region)
             room = k[wi] < MAX_LAYERS
             sel = ok & room
             z[wi[sel], k[wi[sel]]] = zh[walk][sel]
@@ -577,7 +590,8 @@ def walk_edges(cxy: np.ndarray, cz: np.ndarray, ix: np.ndarray, iy: np.ndarray, 
     Cell k stands at grid column (ix[k], iy[k]) of a `shape` grid, on layer
     lay[k] at height cz[k]. It links to a cell in each of the 8 neighbouring
     columns whose floor differs by at most JUMP_CM, unless a pawn blocker
-    crosses the line 60 cm above the two floors (an invisible wall, a railing).
+    crosses the line BLOCKER_LINE_CM (60 cm, a placeholder) above the two
+    floors (an invisible wall, a railing).
     """
     n = len(cz)
     key = (ix.astype(np.int64) * shape[1] + iy) * MAX_LAYERS + lay
@@ -600,8 +614,8 @@ def walk_edges(cxy: np.ndarray, cz: np.ndarray, ix: np.ndarray, iy: np.ndarray, 
                 cols.append(j[good])
     r = np.concatenate(rows)
     c = np.concatenate(cols)
-    a3 = np.column_stack([cxy[r], cz[r] + 60.0])
-    b3 = np.column_stack([cxy[c], cz[c] + 60.0])
+    a3 = np.column_stack([cxy[r], cz[r] + BLOCKER_LINE_CM])
+    b3 = np.column_stack([cxy[c], cz[c] + BLOCKER_LINE_CM])
     walk = ~pawn.occluded(a3, b3)
     return r[walk], c[walk]
 
@@ -610,7 +624,7 @@ def grid_cells(pawn: Caster, lo: np.ndarray, hi: np.ndarray, step: float = GRID_
     """Standable cells on a `step` grid inside [lo, hi] and the caster's region.
 
     Cells link to their 8 neighbours when the floors differ by at most JUMP_CM
-    and no pawn blocker crosses the line 60 cm above them; the components are
+    and no pawn blocker crosses the line BLOCKER_LINE_CM above them; the components are
     reported, not used to drop cells.
     """
     from scipy.sparse import coo_matrix
@@ -638,8 +652,9 @@ def grid_cells(pawn: Caster, lo: np.ndarray, hi: np.ndarray, step: float = GRID_
 
 
 def eye_points(xy: np.ndarray, z: np.ndarray, clear: np.ndarray, h: float = EYE_CM) -> np.ndarray:
-    """A point `h` above each floor, lowered under a low ceiling to 5 cm below it."""
-    hh = np.minimum(h, np.maximum(np.asarray(clear, float) - 5.0, 1.0))
+    """A point `h` above each floor, lowered under a low ceiling to
+    CEILING_GAP_CM (5 cm, a placeholder for the crouched eye) below it."""
+    hh = np.minimum(h, np.maximum(np.asarray(clear, float) - CEILING_GAP_CM, 1.0))
     return np.column_stack([xy, np.asarray(z, float) + hh])
 
 
@@ -701,8 +716,8 @@ def extractor_commit(root: Path = EXTRACTOR) -> dict:
 
 def cell_callouts(xy: np.ndarray, z: np.ndarray, reg: dict) -> np.ndarray:
     """Each cell's callout volume (index into the region names), -1 outside all:
-    the smallest volume holding the point 50 cm above the floor."""
-    p = np.column_stack([xy, np.asarray(z, float) + 50.0])
+    the smallest volume holding the point REGION_PROBE_CM above the floor."""
+    p = np.column_stack([xy, np.asarray(z, float) + REGION_PROBE_CM])
     h = np.column_stack([p, np.ones(len(p))])
     out = np.full(len(p), -1, np.int16)
     if len(reg["inv"]) == 0:
@@ -721,14 +736,21 @@ def cell_callouts(xy: np.ndarray, z: np.ndarray, reg: dict) -> np.ndarray:
 def heights() -> dict:
     """The body heights a table is built and gated with, and where each comes from."""
     return {"eye_cm": EYE_CM, "body_cm": BODY_CM, "crouch_clear_cm": CROUCH_CLEAR_CM, "jump_cm": JUMP_CM,
-            "walkable_z": WALKABLE_Z, "step_cm": STEP_CM, "placeholders": list(PLACEHOLDERS),
+            "walkable_z": WALKABLE_Z, "step_cm": STEP_CM, "ceiling_gap_cm": CEILING_GAP_CM,
+            "blocker_line_cm": BLOCKER_LINE_CM, "region_probe_cm": REGION_PROBE_CM,
+            "placeholders": list(PLACEHOLDERS),
             "sources": {"eye_cm": "CapsuleHalfHeight + BaseEyeHeight [domain:game_data/character-eye-height]",
                         "body_cm": "CapsuleHalfHeight, the capsule centre [domain:game_data/character-eye-height]",
                         "crouch_clear_cm": "2 x CrouchedHalfHeight [domain:game_data/character-eye-height]",
                         "jump_cm": "DefaultJumpTuning.MaxJumpHeight [domain:game_data/character-jump]",
                         "step_cm": "NavAgentProps.AgentStepHeight [domain:game_data/character-eye-height]",
                         "walkable_z": "placeholder: UE engine default 44.765 degrees; no field "
-                                      "[domain:game_data/character-jump]"}}
+                                      "[domain:game_data/character-jump]",
+                        "ceiling_gap_cm": "placeholder: the eye's gap below a low ceiling, for the "
+                                          "crouched eye; no field",
+                        "blocker_line_cm": "placeholder: the walk graph's pawn-blocker line; no field",
+                        "region_probe_cm": "placeholder: the callout-region probe above a floor; "
+                                           "no field"}}
 
 
 def cmd_build(a) -> int:

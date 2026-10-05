@@ -8,7 +8,9 @@ What it reads
 -------------
 The game-extract exports of build release-13.06-shipping-18-5590001 under the
 store's `reference/game-files/<build>/` (sets ability-states, ability-data,
-game-data, weapon-data, ability-pickup), one JSON file per package. `SPEC`
+game-data, weapon-data, ability-pickup), one JSON file per package, and the
+engine config `config/ShooterGame/Config/DefaultEngine.ini` (world gravity),
+exported raw by `game-extract export` with its manifest. `SPEC`
 names each ability's values by package, export and field; the value itself
 is always read from the export, never typed here. A value a class inherits
 names its `owner`, and `read` checks that the package sits in the owner's
@@ -1251,9 +1253,26 @@ def native_parent(pkg):
 FLOOR_FIELDS = ('WalkableFloorAngle', 'WalkableFloorZ', 'MaxStepHeight', 'PerchRadiusThreshold')
 
 
+INI_REL = 'config/ShooterGame/Config/DefaultEngine.ini'
+
+
+def ini_value(rel, section, key):
+    """One `key=value` of an exported engine config's `[section]`, as a float."""
+    head = None
+    with open(f'{BUILD}/{rel}', encoding='utf-8', errors='replace') as fh:
+        for line in fh:
+            t = line.strip()
+            if t.startswith('[') and t.endswith(']'):
+                head = t[1:-1]
+            elif head == section and t.split('=', 1)[0] == key:
+                return float(t.split('=', 1)[1])
+    raise KeyError(f'{rel} [{section}] {key}')
+
+
 def jump_fact(BP, BPC):
     """The player character's jump tuning, read from BasePawn's movement
-    component and inherited unchanged by BasePlayerCharacter."""
+    component and inherited unchanged by BasePlayerCharacter, beside the
+    world gravity of the engine config."""
     f = {k: read(BP, 'CharMoveComp', k, owner=BPC) for k in
          ('DefaultJumpTuning.MaxJumpHeight', 'DefaultJumpTuning.JumpTotalTime', 'JumpZVelocity', 'GravityScale',
           'AirControl')}
@@ -1263,10 +1282,14 @@ def jump_fact(BP, BPC):
     assert native, BP
     h, t, vz, gs = (f['DefaultJumpTuning.MaxJumpHeight'], f['DefaultJumpTuning.JumpTotalTime'],
                     f['JumpZVelocity'], f['GravityScale'])
+    gz = ini_value(INI_REL, '/Script/Engine.PhysicsSettings', 'DefaultGravityZ')
+    g = -gz * gs                    # the character's gravity, cm/s^2
+    rise, flight = vz * vz / (2 * g), 2 * vz / g
     claim = (f"A player character's jump tuning sets a maximum jump height of {fmt(h / 100)} m "
              f"(DefaultJumpTuning.MaxJumpHeight) and a total jump time of {fmt(t)} s; the engine fields beside it "
              f"give a jump launch speed of {fmt(vz / 100)} m/s (JumpZVelocity), a gravity scale of {fmt(gs)} and an "
-             f"air control of {fmt(f['AirControl'])}. The class chain serializes no walkable floor angle, walkable "
+             f"air control of {fmt(f['AirControl'])}. World gravity is {fmt(gz / 100)} m/s^2 "
+             f"(DefaultGravityZ). The class chain serializes no walkable floor angle, walkable "
              f"floor Z or movement step height (MaxStepHeight): those are the native class's defaults, unread; "
              f"the navigation agent's step is a separate field [domain:game_data/character-eye-height].")
     src = (f"{BUILD_ID}, set ability-states: {asset_path(BP)} CharMoveComp.DefaultJumpTuning.MaxJumpHeight = "
@@ -1275,12 +1298,16 @@ def jump_fact(BP, BPC):
            f"{asset_path(BPC)}, the parent of every agent's <Codename>_PC (its CharMoveComp overrides only "
            f"JumpOffJumpZFactor, MovementTuning, JumpLandSlowTuningV2 and NavAgentProps). Neither CharMoveComp "
            f"serializes {', '.join(FLOOR_FIELDS)}; BasePawn_C derives from the native class {native}, whose "
-           f"defaults no export carries.")
-    exc = (f"Which jump the native movement code runs is unread. A ballistic launch at JumpZVelocity under "
-           f"GravityScale reaches {fmt(h / 100)} m only if world gravity is {fmt(round(vz * vz / (2 * gs * h)))} "
-           f"cm/s^2; under the engine's default 980 cm/s^2 it would reach "
-           f"{fmt(round(vz * vz / (2 * gs * 980.0)) / 100)} m. The world gravity setting is not in the exported "
-           f"sets. Crouching in the air is native code; what it adds to a reachable ledge is not included. The walkable floor angle for sightline floors stays the engine default, a "
+           f"defaults no export carries. World gravity: {STORE_REL}/{INI_REL} "
+           f"[/Script/Engine.PhysicsSettings] DefaultGravityZ = {fmt(gz)} cm/s^2, exported raw by "
+           f"game-extract export (config/manifest.jsonl).")
+    exc = (f"Which jump the native movement code runs is unread. The following arithmetic is ours, not a "
+           f"field: a ballistic launch at JumpZVelocity under GravityScale times world gravity "
+           f"({fmt(round(g, 3) / 100)} m/s^2) rises {fmt(round(rise) / 100)} m and lasts "
+           f"{fmt(round(flight, 3))} s, which agrees with JumpTotalTime ({fmt(t)} s); MaxJumpHeight "
+           f"({fmt(h / 100)} m) sits {fmt(round(rise - h) / 100)} m under that rise, and which of the two "
+           f"limits a jump is native code. Crouching in the air is native code; what it adds to a reachable "
+           f"ledge is not included. The walkable floor angle for sightline floors stays the engine default, a "
            f"placeholder.")
     return '\n'.join([
         '[character-jump]', f'claim = {tq(claim)}', 'kind = "measurement"', 'known = "measured"',
@@ -1290,7 +1317,7 @@ def jump_fact(BP, BPC):
         f'exceptions = {tq(exc)}',
         f"values = {{ jump = {{ max_jump_height_m = {fmt(h / 100)}, jump_total_time_s = {fmt(t)}, "
         f"jump_z_velocity_m_s = {fmt(vz / 100)} }}, scale = {{ gravity_scale = {fmt(gs)}, "
-        f"air_control = {fmt(f['AirControl'])} }} }}",
+        f"air_control = {fmt(f['AirControl'])} }}, world = {{ default_gravity_z_m_s2 = {fmt(gz / 100)} }} }}",
         'see = ["game_data/game-units-centimetres", "game_data/character-eye-height"]']) + '\n'
 
 

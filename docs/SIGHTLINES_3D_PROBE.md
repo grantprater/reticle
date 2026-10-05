@@ -248,19 +248,31 @@ on the CPU:
   (0.3.0)". The walkable angle stays UE's default, a placeholder: no class
   in the chain serialises it and the native parent's defaults are in no
   export. Nothing about body heights is left to ask the player.
-- **Props of uncertain state** kept as static: Corrode's
-  `RadianiteSaltCrystal_C` and `InstancedRadianiteSaltCrystal_C`, Summit's
-  `DescentBox_v5_C`, Bind's `BP_Pot_1_C` and `BP_Pot_3_C`. Their class
-  exports were not read: the extractor stays off while a Riot process runs,
-  and Vanguard's tray (`vgtray.exe`) ran throughout. The game's index names
-  hint: `DescentBox_v5` sits in `Plummet/Blueprints/DroppableDoor/` beside a
-  movement curve (`DescentBoxMovementNormalized`) and a crush damage type
-  (`DmgType_DescentBox_Crush`), so it likely moves; `RadianiteSaltCrystal`
-  has an impact effect (`FXC_RadianiteSaltCrystalImpact`); `BP_Pot_1` sits
-  under `VFX/Blueprint/`. Exporting the three classes and reading their
-  components (a destructible or movement component) answers it from the
-  files; until then the question stands: do any of them break or move in a
-  round?
+- **Props once of uncertain state: the files answer.** The 0.3.0 tables
+  keep five prop classes as static. Their class exports (build 13.06,
+  `game-extract export` with `--script`, under the store's
+  `reference/game-files/<build>/props/` with a manifest) settle each:
+  - Corrode's `RadianiteSaltCrystal_C` (a `StaticMeshActor`) and
+    `InstancedRadianiteSaltCrystal_C` (an `Actor` on a Static scene root)
+    neither move nor break. They carry no destructible, movable, physics or
+    damage component and no movement curve; their one component,
+    `ImpactEffectsOverrideComponent`, swaps the hit effect
+    (`FXC_RadianiteSaltCrystalImpact`). Static is right.
+  - Summit's `DescentBox_v5_C` moves. It derives from the native `AresDoor`,
+    is tagged `CollapsibleDoor`, starts open, drops by `FallingOffset`
+    (Z -300 cm) along the curve `DescentBoxMovementNormalized` over
+    `DoorCloseTime` 1.75 s and resets each round; it carries a crush box, a
+    `DamageableComponent` and a `GameObjectDestructionComponent`.
+  - Bind's `BP_Pot_1_C` and `BP_Pot_3_C` break. Both derive from
+    `BP_Destructible_BASE_C` (exported beside them), whose `ReceiveAnyDamage`
+    calls `Break`: the graph hides the actor and plays a break sound. It
+    changes no collision; whether a hidden pot still blocks is native code,
+    unread. The unbroken mesh uses `BlockAll`.
+  - **Follow-up for the tables (not rebuilt):** leave out `DescentBox_v5_C`
+    and the subclasses of `BP_Destructible_BASE_C`. `STATE_CHANGING_CLASS`
+    matches class names, so it misses a door named `DescentBox` and a
+    destructible's subclasses; test the class chain instead, then rebuild
+    Summit and Bind.
 - **Doors and dynamic objects**: their state per round is in no Riot record.
 - **Wallbangs**: penetration needs per-surface data not read here.
 - **Simple or complex traces**: which the game's weapon trace uses is not in
@@ -274,6 +286,7 @@ on the CPU:
 game-extract meshes "ShooterGame/Content/Maps/Ascent/Ascent*.umap" --out <dump>
 game-extract export "ShooterGame/Content/Maps/Ascent/Ascent.umap" --out <json>
 game-extract export "ShooterGame/Config/DefaultEngine.ini" --out <ini>
+game-extract export --paths <prop list> --out <store>/reference/game-files/<build>/props --manifest <props>/manifest.jsonl --script
 .\.venv\Scripts\python.exe prototypes\sightlines_3d.py build --dump <dump> --ini <ini>\...\DefaultEngine.ini --persistent <json>\...\Ascent.json --record
 .\.venv\Scripts\python.exe prototypes\sightlines_3d.py gate --map ascent --record
 .\.venv\Scripts\python.exe prototypes\sightlines_3d.py gate --map pearl --set confirm --record

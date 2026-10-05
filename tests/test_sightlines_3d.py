@@ -75,7 +75,11 @@ class BodyHeightTest(unittest.TestCase):
     def test_heights_come_from_the_game_data_facts(self):
         # BasePawn: CapsuleHalfHeight 98, BaseEyeHeight 77, CrouchedHalfHeight 28, MaxJumpHeight 115 (cm)
         self.assertEqual((s3.EYE_CM, s3.BODY_CM, s3.CROUCH_CLEAR_CM, s3.JUMP_CM), (175.0, 98.0, 56.0, 115.0))
-        self.assertEqual(s3.heights()["placeholders"], ["walkable_z"])
+        H = s3.heights()
+        self.assertEqual(H["placeholders"], ["walkable_z", "ceiling_gap_cm", "blocker_line_cm", "region_probe_cm"])
+        # the three unlabelled heights keep their 0.3.0 values
+        self.assertEqual((H["ceiling_gap_cm"], H["blocker_line_cm"], H["region_probe_cm"]), (5.0, 60.0, 50.0))
+        self.assertTrue(all(H["sources"][k].startswith("placeholder") for k in H["placeholders"]))
 
 
 @unittest.skipUnless(HAVE_CASTER, "embreex and trimesh are not installed")

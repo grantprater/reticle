@@ -372,15 +372,19 @@ below cites its ledger row; development figures are labelled. Weapons and
 utility reach are left out.
 
 **Placeholder body heights.** Every REACH figure below, the confirmation's
-and its sensitivities, was computed on Ascent's and Split's
-`sightlines-3d-0.1.0` tables, whose body heights were placeholders: eye
-160 cm, chest 120 cm, crouch room 100 cm, jump 120 cm. The game's files give
+and its sensitivities, was computed on Ascent's and Split's tables with
+placeholder body heights: the confirmation on `sightlines-3d-0.1.0`, the
+200-shuffle null (`confirm/null200`) and the holdout sensitivity
+(`confirm/no_holdout`) on `sightlines-3d-0.2.0`. Both versions used the same
+placeholders: eye 160 cm, chest 120 cm, crouch room 100 cm, jump 120 cm. The game's files give
 eye 175 cm, body centre 98 cm, crouch room 56 cm, jump 115 cm
 ([SIGHTLINES_3D_PROBE.md](SIGHTLINES_3D_PROBE.md), "Body heights (0.3.0)").
 The confirmation set is spent, so a rerun at the game's heights is post hoc
 only, never a second confirmation; a correction row in the store's
 `notes/predictions.jsonl` records the error. Post hoc at
-`sightlines-3d-0.3.0`, with the same map choice and the same 123 matches:
+`sightlines-3d-0.3.0`, with the same map choice and the same 123 matches
+(its ledger row's part name, `confirm/heights-0.3.0`, omits the post hoc
+label; a correction row in `notes/metrics.jsonl` adds it):
 REACH1 gains
 [metric:engagement_reach/confirm/heights-0.3.0#REACH1.improvement_nats=0.00125]
 [0.00046, 0.00201] (confirmed 0.00127 [0.00048, 0.00205]), null p95

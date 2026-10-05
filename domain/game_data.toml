@@ -202,10 +202,11 @@ claim = """
 A player character's jump tuning sets a maximum jump height of 1.15 m
 (DefaultJumpTuning.MaxJumpHeight) and a total jump time of 0.675 s; the engine
 fields beside it give a jump launch speed of 7.5 m/s (JumpZVelocity), a
-gravity scale of 0.9 and an air control of 0.45. The class chain serializes no
-walkable floor angle, walkable floor Z or movement step height
-(MaxStepHeight): those are the native class's defaults, unread; the navigation
-agent's step is a separate field [domain:game_data/character-eye-height].
+gravity scale of 0.9 and an air control of 0.45. World gravity is -25.0 m/s^2
+(DefaultGravityZ). The class chain serializes no walkable floor angle,
+walkable floor Z or movement step height (MaxStepHeight): those are the native
+class's defaults, unread; the navigation agent's step is a separate field
+[domain:game_data/character-eye-height].
 """
 kind = "measurement"
 known = "measured"
@@ -222,20 +223,26 @@ every agent's <Codename>_PC (its CharMoveComp overrides only
 JumpOffJumpZFactor, MovementTuning, JumpLandSlowTuningV2 and NavAgentProps).
 Neither CharMoveComp serializes WalkableFloorAngle, WalkableFloorZ,
 MaxStepHeight, PerchRadiusThreshold; BasePawn_C derives from the native class
-/Script/ShooterGame.ShooterCharacter, whose defaults no export carries.
+/Script/ShooterGame.ShooterCharacter, whose defaults no export carries. World
+gravity:
+reference/game-files/release-13.06-shipping-18-5590001/config/ShooterGame/Config/DefaultEngine.ini
+[/Script/Engine.PhysicsSettings] DefaultGravityZ = -2500.0 cm/s^2, exported
+raw by game-extract export (config/manifest.jsonl).
 """
 use = """
 sightline walk graph: neighbouring floors join when their heights differ by at most the maximum jump height
 """
 exceptions = """
-Which jump the native movement code runs is unread. A ballistic launch at
-JumpZVelocity under GravityScale reaches 1.15 m only if world gravity is 2717
-cm/s^2; under the engine's default 980 cm/s^2 it would reach 3.19 m. The world
-gravity setting is not in the exported sets. Crouching in the air is native
-code; what it adds to a reachable ledge is not included. The walkable floor
-angle for sightline floors stays the engine default, a placeholder.
+Which jump the native movement code runs is unread. The following arithmetic
+is ours, not a field: a ballistic launch at JumpZVelocity under GravityScale
+times world gravity (22.5 m/s^2) rises 1.25 m and lasts 0.667 s, which agrees
+with JumpTotalTime (0.675 s); MaxJumpHeight (1.15 m) sits 0.1 m under that
+rise, and which of the two limits a jump is native code. Crouching in the air
+is native code; what it adds to a reachable ledge is not included. The
+walkable floor angle for sightline floors stays the engine default, a
+placeholder.
 """
-values = { jump = { max_jump_height_m = 1.15, jump_total_time_s = 0.675, jump_z_velocity_m_s = 7.5 }, scale = { gravity_scale = 0.9, air_control = 0.45 } }
+values = { jump = { max_jump_height_m = 1.15, jump_total_time_s = 0.675, jump_z_velocity_m_s = 7.5 }, scale = { gravity_scale = 0.9, air_control = 0.45 }, world = { default_gravity_z_m_s2 = -25.0 } }
 see = ["game_data/game-units-centimetres", "game_data/character-eye-height"]
 
 [ability-restock-times]
