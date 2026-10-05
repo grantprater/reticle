@@ -172,6 +172,16 @@ def round_window_of(t_ms: float, kits: list[dict]) -> dict | None:
                 None)
 
 
+#: The fields `player_tray_casts` writes on a drop row. It strips them from
+#: its input first, so a stored row judged again gets the verdict its drop
+#: alone earns: a stale `rests_on`, `line_ms` or `refused_as` never survives
+#: a run whose own lines do not pass the drop.
+GATE_FIELDS = frozenset({
+    "phase", "kit_agent", "round_ms", "first_player_death_ms", "kit_end_ms",
+    "undone_deaths", "kit_change_ms", "reason", "player_cast", "numeral",
+    "pool_gold_drop", "refused_as", "line_ms", "rests_on"})
+
+
 def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                       player_deaths_ms: list[float], *, agent: str | None = None,
                       second_lives_ms=(), revives_ms=(),
@@ -538,6 +548,9 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     it, the round's `first_player_death_ms`, the `kit_end_ms` the gate used,
     the `undone_deaths` before it, and the round's `kit_change_ms`.
     """
+    # A caller may pass full stored rows; the gate judges each drop afresh,
+    # so no field an earlier run of this gate wrote survives into the verdict.
+    drops = [{k: v for k, v in d.items() if k not in GATE_FIELDS} for d in drops]
     covered = lambda t: menu_at is not None and menu_at(t) is True
     if rounds is None:
         return [{**d, "phase": None, "round_ms": None, "first_player_death_ms": None,

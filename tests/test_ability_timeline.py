@@ -191,6 +191,26 @@ class GateDeathTests(unittest.TestCase):
         got = self._gate([gold], [], agent="Sova")
         self.assertNotIn("pool_gold_drop", got[(30000.0, "C")])
 
+    def test_a_stored_line_pass_does_not_survive_a_run_without_the_line(self):
+        # A full stored X row an earlier run passed on Phoenix's line at 43 s,
+        # judged again with no own lines: the death refuses it, and nothing
+        # the earlier run wrote comes back.
+        stored = {**_drop(52000, "X"), "across_gap": False, "kind": "drop",
+                  "player_cast": True, "reason": None, "refused_as": "after_player_death",
+                  "line_ms": 43000.0, "pool_gold_drop": True, "numeral": "restarted",
+                  "rests_on": [{"stream": "ult_cast", "owner": "adjudication.ult_cast",
+                                "t_ms": 43000.0}]}
+        r = self._gate([stored], [50000.0], agent="Phoenix")[(52000.0, "X")]
+        self.assertFalse(r["player_cast"])
+        self.assertEqual(r["reason"], "after_player_death")
+        for f in ("refused_as", "line_ms", "rests_on", "pool_gold_drop", "numeral"):
+            self.assertNotIn(f, r)
+        # The same row with the line passes again, from this run's line.
+        r = self._gate([stored], [50000.0], agent="Phoenix",
+                       own_lines_ms=[44000.0])[(52000.0, "X")]
+        self.assertTrue(r["player_cast"])
+        self.assertEqual(r["line_ms"], 44000.0)
+
     def test_every_caller_gives_a_stored_drop_one_verdict(self):
         # `reticle tray` and ability-shapes hand the gate full rows; ult-cast,
         # ability-state and the audio fit hand it DROP_FIELDS. Both must agree.

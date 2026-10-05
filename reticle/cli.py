@@ -5270,6 +5270,9 @@ def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict], agent: str |
     if drops[0].get("tray_version") != TRAY_VERSION:
         return None, "tray_drops_stale", {"tray_drop": drops[0].get("tray_version")}
     gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent)
+    # `player_x_drops` discards the own lines, so the stream records neither
+    # its own previous stamp nor its reason as an input.
+    stamps = {k: v for k, v in stamps.items() if k not in ("ult_cast", "ult_cast_reason")}
     return player_x_drops(drops, rounds=rounds, **gate), None, {"tray_drop": TRAY_VERSION,
                                                                 **stamps}
 
