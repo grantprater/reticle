@@ -392,8 +392,8 @@ Master parses saved replay files with `prototypes/replay_truth.py`
 (merged from `replay-truth-20261004`; facts in `domain/replay.toml`). A
 parsed file holds all ten players' positions, height included, at the
 128 Hz server tick [domain:replay/vrf-position-stream], and each player's
-facing [domain:replay/vrf-yaw-is-view-radians]. Replays are evaluation
-truth only. Rotations therefore gain a truth for all ten players, not only
+facing [domain:replay/vrf-yaw-is-view-radians]. This plan uses replays
+only to evaluate. Rotations therefore gain a truth for all ten players, not only
 at Riot's kill instants:
 
 - **Ally events** score against it: `region_presence` intervals, rotation
@@ -407,8 +407,12 @@ at Riot's kill instants:
   `duplicate_hold` shows as a pair the parse places together and the module
   did not flag.
 
-The parse is truth only, never a reader input. No reader, prior, owner or
-coaching event reads it; it enters only the evaluation, stored apart and
+The parse never feeds a reader, a reader's threshold or anything shown
+during play; the use policy in
+[EXTERNAL_GROUND_TRUTH.md](EXTERNAL_GROUND_TRUTH.md) lets it fit
+win-probability and coaching baselines and priors, and matches that evaluate
+a fitted model are held out from its fit. No reader, owner or coaching event of this plan reads
+it; it enters only the evaluation, stored apart and
 stamped with its own version, so an evaluation never scores the module
 against its own inputs. Positions in game units would carry into the baked
 frame through `MapFrame`, as Riot's kill positions do. Each parsed

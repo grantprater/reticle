@@ -5904,6 +5904,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="derive the current parameter set under this root from "
                         "ability_audio_fit.CALIBRATED_FROM, adding the margin calibration "
                         "fitted on its dev casts")
+    s.add_argument("--late-phase",
+                   help="derive the current parameter set under this root from "
+                        "ability_audio_fit.LATE_FROM, adding each phase group's late phase "
+                        "(templates and dev levels)")
+    s.add_argument("--late-calibrate",
+                   help="derive the current parameter set under this root from "
+                        "ability_audio_fit.LATE_CALIBRATED_FROM, adding each late phase's "
+                        "p_right calibration from its dev casts")
     s.add_argument("--agent", action="append", help="only this agent (repeatable)")
     s.add_argument("--json", help="write the evaluation here")
     s.set_defaults(func=cmd_ability_audio_fit)

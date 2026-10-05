@@ -130,6 +130,14 @@ remains = "Every stage: the stored-data prototype (R1-R5), a region owner, the p
 waits_for = "The player's answers to the plan's open questions on definitions and thresholds."
 
 [[document]]
+path = "docs/COACHING_DECISION_VALUE.md"
+kind = "design"
+status = "proposed"
+since = "2026-10-04"
+remains = "Every stage: the trade-spacing pilot, the fetched ladder and CS samples, the hierarchical transition models, POV substitution, rotation and lurk episodes, the decision_episode owner and the ladder report."
+waits_for = "The player's decisions listed in the design, and the fetcher task's records."
+
+[[document]]
 path = "docs/BEHAVIOUR_MODEL_DESIGN.md"
 kind = "design"
 status = "partial"
@@ -488,6 +496,14 @@ status = "live"
 since = "2026-10-04"
 
 [[document]]
+path = "docs/LADDER_SAMPLE.md"
+kind = "design"
+status = "proposed"
+since = "2026-10-04"
+remains = "HenrikDev's answer on sampling strangers' matches, the third account, and the crawl."
+waits_for = "The player's decision on strangers' match histories and on the sample size."
+
+[[document]]
 path = "docs/REPLAY_KEEPING.md"
 kind = "reference"
 status = "live"
@@ -500,6 +516,14 @@ status = "proposed"
 since = "2026-10-02"
 remains = "Every step after the probe: each saved match record aligned to the stored killfeed, the coordinate transform's axis check, and the record scored as a channel like any other."
 waits_for = "Nothing; the alignment can start."
+
+[[document]]
+path = "docs/CS_TRANSFER_SAMPLE.md"
+kind = "plan"
+status = "proposed"
+since = "2026-10-04"
+remains = "Every stratum but the ESEA tables: the matchmaking-rank file, the ESTA professional subset, the FACEIT level sample, and the transfer fit scored on held-out VALORANT matches."
+waits_for = "The player's approval of each download over 200 MB, a Kaggle API token, and a FACEIT Downloads API grant."
 
 [[document]]
 path = "docs/FRAMETIME_PROTOCOL.md"
