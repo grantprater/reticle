@@ -908,6 +908,144 @@ close [domain:replay/vrf-ability-actors] and each cast's slot and time
   else `none`. The score is the confusion matrix of the child's effect
   against the truth effect, and the share in agreement.
 
+### Cross-channel cast witnesses (measured 2026-10-05)
+
+`prototypes/ability_xchannel.py` (ledger `ability_xchannel/*`, not wired)
+scored every stored channel that can witness another player's cast on the
+21 Riot-recorded matches, against the replay's timed casts on 9acf02f98283
+and Riot's per-player totals elsewhere. Predictions:
+`ability-xchannel-20261005` in the store's `notes/predictions.jsonl`.
+
+**Coverage.** Every match stores audio_others peaks, `ult_cast`, deaths and
+assists; `smoke_owner` rows exist on 4 matches, `ability_fit` and
+`ability_wall` on 5, `ability_icon` (unnamed discs, no witness) on 5,
+`enemy_track` on 3. The replay match holds none of the minimap streams, so
+it scores four channels: audio_others, `ult_cast`, the killfeed and the
+assist panel.
+
+**Per channel on the replay.** Audio_others pairs
+[metric:ability_xchannel/replay@9acf02f98283#audio_others.paired=138] of
+[metric:ability_xchannel/replay@9acf02f98283#audio_others.witnesses=434]
+detections one to one across classes (precision
+[metric:ability_xchannel/replay@9acf02f98283#audio_others.precision=0.318])
+and hears [metric:ability_xchannel/replay@9acf02f98283#audio_others.other_hits=115]
+of [metric:ability_xchannel/replay@9acf02f98283#audio_others.other_casts_in_vocab=372]
+other players' casts. The ult line hears
+[metric:ability_xchannel/replay@9acf02f98283#ult_cast.other_hits=22] of
+[metric:ability_xchannel/replay@9acf02f98283#ult_cast.other_casts_in_vocab=22]
+other players' ultimates at every distance
+[domain:abilities/ult-lines-heard-by-both-teams]; its three unpaired rows
+are Chamber's, whose Tour De Force equips Riot does not count as casts
+(Riot records 0 to 2 Chamber ultimate casts a match beside his Tour De
+Force kills). The killfeed pairs
+[metric:ability_xchannel/replay@9acf02f98283#killfeed.paired=14] of
+[metric:ability_xchannel/replay@9acf02f98283#killfeed.witnesses=15] ability
+kills with a prior cast; the assist panel
+[metric:ability_xchannel/replay@9acf02f98283#assist_icon.paired=5] of
+[metric:ability_xchannel/replay@9acf02f98283#assist_icon.witnesses=5].
+Together the channels witness
+[metric:ability_xchannel/replay@9acf02f98283#any_other.hit=128] of
+[metric:ability_xchannel/replay@9acf02f98283#any_other.casts=372] other
+players' casts.
+
+**Independence.** One pair is testable on the replay, the assist panel and
+audio_others: odds ratio
+[metric:ability_xchannel/independence@9acf02f98283#replay.assist_icon-vs-audio_others.odds_ratio=4.3529],
+Fisher p [metric:ability_xchannel/independence@9acf02f98283#replay.assist_icon-vs-audio_others.fisher_p=0.24181];
+the ult line misses nothing and the killfeed has three shared kill casts.
+X2 therefore fails on its pre-registered instrument
+([metric:ability_xchannel/independence@9acf02f98283#X2_holds=0]). The
+causes are measurable per channel instead: audio_others hears
+[metric:ability_xchannel/independence@9acf02f98283#cause.audio_others.dist.0-20m.hits=41]
+of [metric:ability_xchannel/independence@9acf02f98283#cause.audio_others.dist.0-20m.casts=83]
+casts within 20 m,
+[metric:ability_xchannel/independence@9acf02f98283#cause.audio_others.dist.20-40m.hits=56]
+of [metric:ability_xchannel/independence@9acf02f98283#cause.audio_others.dist.20-40m.casts=128]
+at 20 to 40 m,
+[metric:ability_xchannel/independence@9acf02f98283#cause.audio_others.dist.40mplus.hits=18]
+of [metric:ability_xchannel/independence@9acf02f98283#cause.audio_others.dist.40mplus.casts=122]
+beyond, and none of
+[metric:ability_xchannel/independence@9acf02f98283#cause.audio_others.live.False.casts=52]
+casts while the player is dead; no other channel depends on distance. Over
+match cells (added after the pre-registration) the smoke owner and the
+assist panel miss together (Fisher p
+[metric:ability_xchannel/independence@9acf02f98283#cells.assist_icon-vs-smoke.fisher_p=0.02857],
+n [metric:ability_xchannel/independence@9acf02f98283#cells.assist_icon-vs-smoke.n=7]):
+both see only the player's team, so both miss every enemy cast. The
+correlated errors are therefore structural: team-only channels share the
+enemy side, and the two audio channels share the dead listener, though the
+ult line still heard one of one such ult.
+
+**Combination.** The dev half chose one rule per (agent, slot); on the held
+half [metric:ability_xchannel/combined#X1_passing=4] of
+[metric:ability_xchannel/combined#X1_eligible=88] classes reach count
+precision 0.8 with recall above their best single channel, all ultimates
+(Clove, Jett, Raze, Sage): X1 fails, as P1 predicted. Allies' held coverage
+rises from [metric:ability_xchannel/combined#held.ally.today_covered=261] to
+[metric:ability_xchannel/combined#held.ally.chosen_covered=794] of
+[metric:ability_xchannel/combined#held.ally.riot=2237] Riot casts against
+[metric:ability_xchannel/combined#held.ally.expected_false=369.3] expected
+false alarms, a net gain of
+[metric:ability_xchannel/combined#held.ally.net_unclipped=163.7] to
+[metric:ability_xchannel/combined#held.ally.net_prop=329.6]; enemies' from
+[metric:ability_xchannel/combined#held.enemy.today_covered=161] to
+[metric:ability_xchannel/combined#held.enemy.chosen_covered=1164] of
+[metric:ability_xchannel/combined#held.enemy.riot=2957], net
+[metric:ability_xchannel/combined#held.enemy.net_unclipped=355.0] to
+[metric:ability_xchannel/combined#held.enemy.net_prop=524.4]. These are
+upper estimates: the null corrects only absent-agent false alarms, and the
+replay's timed precision is lower. On the replay, requiring a second
+channel admits
+[metric:ability_xchannel/replay@9acf02f98283#agree.admitted=73] audio
+detections at precision
+[metric:ability_xchannel/replay@9acf02f98283#agree.precision_admitted=0.589].
+
+**Effects.** Of [metric:ability_xchannel/effects#kill.kills=105] Riot
+ability kills by other players, the killfeed names the ability on
+[metric:ability_xchannel/effects#kill.killfeed=71]. Of the 34 it misses,
+33 are weapon refusals on a death the killfeed read (`new` 19,
+`no_observation` 12, `too_few_named` 2): Showstopper, Paint Shells,
+Overdrive, Nanoswarm, Hunter's Fury, Mosh Pit, Tejo's Ability2 and three
+others. Read the refusal before tuning the gallery. A cast witness lies within 10 s
+before [metric:ability_xchannel/effects#kill.cast_witness_10s=67] kills,
+of which [metric:ability_xchannel/effects#kill.audio_chance_10s=10.3] a
+random placement of the audio detections would explain;
+[metric:ability_xchannel/effects#kill.cast_witness_no_audio_10s=30] without
+audio. The killfeed or a cast witness explains
+[metric:ability_xchannel/effects#kill.either_10s=97]. P4 (under half) fails.
+Of [metric:ability_xchannel/effects#assist.icons=138] assist-panel ability
+icons, all the team's, [metric:ability_xchannel/effects#assist.cast_witness_10s=32]
+have a cast witness within 10 s against a chance floor of
+[metric:ability_xchannel/effects#assist.audio_chance_10s=13.0].
+
+**Wiring sketch.**
+
+- *Opens a child:* the tray drop (the player); the ult line (any player's
+  X; its variant names the side); a minimap drawing or smoke owner row (the
+  team); a killfeed ability kill (the killer's slot, if no child of it is
+  live); an assist icon (the team's assister).
+- *Joins only:* an audio_others detection. At replay precision 0.318 it
+  would open two false children for each true one; it joins a child another
+  channel opened, dating it within the class window, or stays a stored
+  `candidate` the charge constraint can later promote. A second channel's
+  agreement lifts it to 0.589, still under the bar, so agreement too only
+  joins.
+- *Effects first.* The killfeed's refused ability icons are the largest
+  effect gap. Cross-reference before tuning: a refused weapon on a death
+  whose killer's live child is a damaging ability is a candidate for that
+  ability, offered to the weapon owner as a candidate set, never a verdict.
+- *Identity:* an audio class names an agent of the lineup, which the
+  arbiter's verdicts supply as the candidate set; the side comes from the
+  lineup as a gate. An agent on both sides (three of five enemies on the
+  replay) leaves two candidate parents; the child stores both and asks the
+  arbiter, which may split them with the ult line's variant, the killfeed's
+  colour or a minimap colour. The binding owner (`ability-owner`, unowned)
+  publishes claims through the arbiter and declares `rests_on` the lineup.
+- *For the player or the game files:* the hearing range of each ability's
+  cast sound for an enemy (only Sova's Recon Bolt has a fact,
+  [domain:abilities/sova-recon-bolt-landing-audible-range]); the game files
+  may answer it before the player is asked.
+
 ## 10. What this cannot do
 
 - Place a player on a floor. The minimap is a plan; levels exist only on the
