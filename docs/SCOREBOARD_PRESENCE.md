@@ -540,6 +540,11 @@ outcome. The cache records the gate (witness version, verdicts, margin and
 spans), the frames offered and the times it holds; `trial` refuses any other
 frame as `outside_gate`. A gated cache never feeds a scan.
 
+Since 2026-10-05 the gate keeps rule `on` (margin 0, the player's choice on
+`prototypes/scoreboard_reads.py`'s numbers); caches written at margin 1 are
+thinned from themselves (`roi_cache.thin_cache`) and refuse a dropped margin
+as `thinned_out`. The counts below were measured at margin 1.
+
 Over the stored rows the gate keeps
 [metric:scoreboard/cache-gate@all-sessions#gate_samples=37069] of
 [metric:scoreboard/cache-gate@all-sessions#samples=83864] samples on
