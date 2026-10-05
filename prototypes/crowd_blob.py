@@ -213,7 +213,11 @@ import crowd_region as v1  # noqa: E402  (stored-row Session, truth contexts, as
 #: 0.2.0: the self fit's parting is held `SELF_HOLD` frames like every other
 #: split condition; found on 9acf02f98283, so its split scores there are
 #: development scores (the Riot handful scores no split).
-CROWD_BLOB_VERSION = "crowd-blob-0.2.0"
+#: 0.3.0: an unread roster capacity carries the round's last read forward
+#: (`rests_on` its time) and never evicts; region rows carry members in event
+#: form and are persisted (`write_rows`); the cost counts outlines and
+#: emergence; the crop cache is read on one decoder thread.
+CROWD_BLOB_VERSION = "crowd-blob-0.3.0"
 STORE = v1.STORE
 ANALYSIS = STORE / "analysis" / "crowd-blobsplit-20261004"
 
@@ -260,6 +264,32 @@ DETECTORS = ("cc", "erode", "elong")
 
 def _below_normal() -> None:
     v1._below_normal()
+    cv2.setNumThreads(1)
+    single_thread_cache_reads()
+
+
+class _OneThreadCv2:
+    """`cv2` as `reticle.roi_cache` sees it, with every `VideoCapture` asked
+    for one decoder thread. FFmpeg's FFV1 decoder otherwise takes a thread
+    per core: 900 crops of bdfdcf009dba cost 3.7 s of CPU in 0.7 s of wall
+    time, and 3.4 s in 3.5 s with `CAP_PROP_N_THREADS` 1;
+    `OPENCV_FFMPEG_CAPTURE_OPTIONS` "threads;1" changed nothing."""
+
+    def __getattr__(self, name):
+        return getattr(cv2, name)
+
+    @staticmethod
+    def VideoCapture(path, *a):
+        if a:
+            return cv2.VideoCapture(path, *a)
+        return cv2.VideoCapture(path, cv2.CAP_FFMPEG, [cv2.CAP_PROP_N_THREADS, 1])
+
+
+def single_thread_cache_reads() -> None:
+    """Read the crop cache on one decoder thread (this process only)."""
+    from reticle import roi_cache
+    if not isinstance(roi_cache.cv2, _OneThreadCv2):
+        roi_cache.cv2 = _OneThreadCv2()
 
 
 # ----------------------------------------------------------------- pixels
@@ -481,6 +511,7 @@ def isolated_mass(S: v1.Session, px: Pixels, idx: np.ndarray, n: int = 300) -> d
             "p10": float(np.percentile(m, 10)) if m.size else None,
             "p90": float(np.percentile(m, 90)) if m.size else None,
             "p95": float(np.percentile(m, 95)) if m.size else None,
+            "p05": float(np.percentile(m, 5)) if m.size else None,
             "area_px_median": float(np.median(areas)) if areas else None}
 
 
@@ -618,6 +649,7 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
         if not ks.size:
             continue
         crowds: dict[str, dict] = {}
+        cap_last = None                      # (capacity, t of the read it rests on)
         carrier: dict[int, int] = {}         # entity -> blob carrying it this frame
         last: dict[int, tuple] = {}          # entity -> (t, x, y, observation key)
         seen: set = set()
@@ -664,6 +696,14 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
             n_icons = np.maximum(n_area, ring) + is_self
             n_ally = int((~sf).sum())
             cap = ally_capacity(roster_window(S.roster_t, S.roster_a, t), bool(sf.any()))
+            # 0.3.0: an unread capacity is unknown, not absent; the last read
+            # in the round carries forward (`rests_on` its time) and licenses
+            # entries, but only a frame whose capacity was read may evict
+            cap_read = cap is not None
+            if cap_read:
+                cap_last = (cap, t)
+            elif cap_last is not None:
+                cap = cap_last[0]
             short = None if cap is None else max(0, cap - n_ally)
             # association: pixel overlap of last frame's blobs with this frame's
             succ, pred = defaultdict(list), defaultdict(list)
@@ -795,7 +835,12 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
                     continue
                 last[e] = (-1.0, x, y, key)                 # vanished once
                 j = carrier.get(e, 0)
-                if not short or not j:
+                if not j:
+                    continue
+                if short is None:
+                    guard["entry_capacity_never_read"] += 1
+                    continue
+                if not short:
                     continue
                 cid = held.get(j)
                 if cid is None:
@@ -824,15 +869,18 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
             want = {cid: max(area_want[cid], len(c["hidden"])) for cid, c in crowds.items()}
             if crowds:
                 guard["crowd_frames"] += 1
-                guard["crowd_frames_capacity_unread"] += int(short is None)
+                guard["crowd_frames_capacity_unread"] += int(not cap_read)
+                guard["crowd_frames_capacity_carried"] += int(not cap_read and short is not None)
+                guard["crowd_frames_capacity_unknown"] += int(short is None)
             if short is not None and crowds:
                 guard["area_exceeds_shortfall"] += int(sum(area_want.values()) > short)
                 if sum(want.values()) > short:
-                    guard["capped"] += 1
+                    guard["capped" if cap_read else "over_carried_capacity_kept"] += 1
                     hid = sorted((mb["onset"], cid, e) for cid, c in crowds.items()
                                  for e, mb in c["hidden"].items())
-                    for _on, cid, e in hid[:max(0, len(hid) - short)]:
-                        end_member(crowds[cid], e, t, "count_restored")
+                    for _on, cid, e in (hid[:max(0, len(hid) - short)] if cap_read else []):
+                        end_member(crowds[cid], e, t, "count_restored",
+                                   {"end_fidx": fidx, "capacity": cap, "capacity_t": t})
                     room = short - sum(len(c["hidden"]) for c in crowds.values())
                     for cid in sorted(want, key=lambda c_: crowds[c_]["onset"]):
                         extra = min(max(0, want[cid] - len(crowds[cid]["hidden"])), max(0, room))
@@ -904,6 +952,7 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
                 cost["members"] += tc3 - tc2
                 cost["split_tests"] += tc4 - tc3
                 cost["frames"] += 1
+            tc5 = time.perf_counter()
             # emergence: ring fits in a split's pieces within the window
             for pnd in list(pending):
                 if t - pnd["t"] > EMERGE_WINDOW_MS:
@@ -916,6 +965,7 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
                         pnd["emergers"].append({"e": e, "t": t, "fidx": fidx,
                                                 "xy": (float(xs[q]), float(ys[q])),
                                                 "continued": e in pnd["members"]})
+            tc6 = time.perf_counter()
             # region rows (the blob outline, set-valued) and the audit, stored apart
             if crowds:
                 crowd_frames += 1
@@ -947,6 +997,21 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
                     "ring": int(sum(ring[j2] for j2 in comps)),
                     "self": bool(self_comp and self_comp in comps), "hidden": want.get(cid, 0),
                     "hidden_entered": [mb["e"] for mb in c["hidden"].values()],
+                    "members": [{"entity": mb["entity"], "agent": mb["agent"],
+                                 "status": "hidden", "position": {"region": cid},
+                                 "rests_on": mb["rests_on"], "since_ms": mb["onset"]}
+                                for mb in c["hidden"].values()]
+                    + [{"entity": S.ent_ids[e], "agent": S.agent[e], "status": "visible",
+                        "observation_key": keys[q]}
+                       for q, (e, l_) in enumerate(zip(ids.tolist(), lab.tolist()))
+                       if l_ in comps and not sf[q]],
+                    "elimination": ({"names": elim[cid]["names"],
+                                     "depends_on": elim[cid]["depends_on"],
+                                     "unnamed": unnamed.get(cid, 0)}
+                                    if cid in elim else None),
+                    "capacity": None if short is None else {
+                        "shortfall": short, "read": cap_read,
+                        "rests_on_t_ms": None if cap_last is None else cap_last[1]},
                     "names": sorted({nm for nm in [mb["agent"] for mb in c["hidden"].values()]
                                      + visible if nm is not None}
                                     | set(elim.get(cid, {}).get("names", []))),
@@ -957,6 +1022,9 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
                     "cx": float(F.cx[j]), "cy": float(F.cy[j]),
                     "elong": round(tests[cid]["elong"], 3)})
                 c["comps_prev"] = list(comps)
+            if timing:
+                cost["emergence"] += tc6 - tc5
+                cost["outlines"] += time.perf_counter() - tc6
             prevF, prev_t = F, t
         for cid in list(crowds):
             for e in list(crowds[cid]["hidden"]):
@@ -1161,6 +1229,7 @@ def score_replay(sid: str) -> dict:
     crowd_min = len(R["regions"]) / 15.0 / 60.0
     out["crowd_minutes"] = round(crowd_min, 2)
     out["splits"] = score_splits(seps, R["events"], r_icon, crowd_min, regions_by_f, fq, X, Y)
+    out["split_excess"] = split_chance(seps, R["events"], r_icon, crowd_min, out["splits"])
     # containment: hidden members' true positions in the outline
     ent_truth, ob_truth = v1.entity_truth(S, ctx)
     rows = [(g, e) for g in R["regions"] for e in g["hidden_entered"]]
@@ -1233,6 +1302,7 @@ def score_replay(sid: str) -> dict:
         un = np.asarray([p["unresolved_ms"] for p in P]) / 1000.0
         out["hidden_episodes"] = {"n": len(P), "by_end": dict(Counter(p["end"] for p in P)),
                                   "unresolved_s": v1._stats(un)}
+        out["evictions"] = score_evictions(P, regions_by_f, ent_truth, ctx, r_icon)
     out["events"] = dict(Counter(e["kind"] for e in R["events"]))
     out["audits"] = len(R["audits"])
     c = R["cost_s"]
@@ -1241,10 +1311,100 @@ def score_replay(sid: str) -> dict:
     out["cost_us_per_frame"]["total"] = round(sum(v for kk, v in c.items() if kk != "frames")
                                               / nf * 1e6, 1)
     out["seconds"] = round(time.time() - t0, 1)
+    write_rows(sid, R, S)
     return out
 
 
+#: Shifts, in seconds, of the chance baseline for split detection: every
+#: split event moved this far keeps its place and loses its timing.
+CHANCE_SHIFTS_S = (3.0, 6.0)
+
+
+def split_chance(seps, events, r_icon, crowd_min, scored) -> dict:
+    """Each detector's recall less its shifted-event baseline: the share a
+    detector 'detects' with every split event moved by +-3 s and +-6 s
+    (place kept), which a crowd's frequent firing at a pair's place earns
+    without timing. Only the excess is detection."""
+    sp = [e for e in events if e["kind"] == "split"]
+    base = defaultdict(dict)
+    for sh in CHANCE_SHIFTS_S:
+        for sign in (-1, 1):
+            moved = [{**e, "t": e["t"] + sign * sh * 1000.0} for e in sp]
+            for nm, v in score_splits(seps, moved, r_icon, crowd_min).items():
+                base[nm].setdefault(sh, []).append(v["detected_share"] or 0.0)
+    out = {}
+    for nm, v in scored.items():
+        d = {"detected_share": v["detected_share"]}
+        for sh in CHANCE_SHIFTS_S:
+            b = float(np.mean(base[nm].get(sh, [0.0])))
+            d[f"shift{sh:g}s_share"] = round(b, 4)
+            d[f"excess_over_shift{sh:g}s"] = round((v["detected_share"] or 0.0) - b, 4)
+        out[nm] = d
+    return out
+
+
+def score_evictions(episodes, regions_by_f, ent_truth, ctx, r_icon) -> dict:
+    """Each cap eviction (`count_restored`) against replay truth: right when
+    the evicted member stood outside its crowd's outline by more than one
+    icon radius (or was dead), wrong when inside or within it."""
+    ev = [p for p in episodes if p["end"] == "count_restored"]
+    c = Counter()
+    if not ev:
+        return dict(c)
+    Xe, Ye = v1.truth_px(ctx, np.asarray([p["end_t"] for p in ev], float))
+    for q, p in enumerate(ev):
+        j = ent_truth[p["e"]]
+        if j < 0:
+            c["no_truth"] += 1
+            continue
+        if not np.isfinite(Xe[q, j]):
+            c["right_dead"] += 1
+            continue
+        reg = [g for g in regions_by_f.get(p.get("end_fidx"), []) if g["crowd"] == p["crowd"]]
+        if not reg:
+            c["no_region"] += 1
+            continue
+        inside = inside_any(reg[0]["polys"], Xe[q, j], Ye[q, j], r_icon)
+        c["wrong_still_in" if inside else "right_outside"] += 1
+    c["evictions"] = len(ev)
+    return dict(c)
+
+
+def write_rows(sid: str, R: dict, S) -> Path:
+    """The crowds in event form, one JSON row each, in the analysis output:
+    `crowd_region` (the outline and its members, each hidden member's
+    position the region and `rests_on` its entry observation; an
+    elimination's names with `depends_on`), `crowd_member` (a hidden
+    member's episode), `crowd_event` (opened, split, merge, join, resolved,
+    vanished) and `crowd_emergence` (an emerger's name from the arbiter).
+    Audits stay apart in `crowd_audit` rows."""
+    path = ANALYSIS / f"crowds_{sid}.jsonl"
+    with path.open("w", encoding="utf-8", newline="\n") as f:
+        def put(kind, row, drop=()):
+            r = {"kind": kind, "session_id": sid, "crowd_blob_version": CROWD_BLOB_VERSION,
+                 **{k: v for k, v in row.items() if k not in drop}}
+            f.write(json.dumps(r, default=_default, separators=(",", ":")) + "\n")
+        for g in R["regions"]:
+            put("crowd_region", {**g, "t_ms": g["t"], "frame_idx": g["fidx"],
+                                 "outline": [np.round(p, 1) for p in g["polys"]]},
+                drop=("polys", "hidden_entered", "t", "fidx"))
+        for p in R["episodes"]:
+            put("crowd_member", {**p, "position": {"region": p["crowd"]}}, drop=("e",))
+        for e in R["events"]:
+            put("crowd_event", e)
+        for m in R["emergences"]:
+            put("crowd_emergence", m)
+        for a in R["audits"]:
+            put("crowd_audit", a)
+    return path
+
+
 # ----------------------------------------------------------------- truth: Riot
+
+#: The shifted-position chance baseline moves a ring-missed ally this many
+#: icon radii (four ways) and asks the same containment question.
+CHANCE_R = 3.0
+
 
 def score_riot(sid: str) -> dict:
     """At Riot kill instants: the stacked living allies the ring fits miss
@@ -1305,6 +1465,15 @@ def score_riot(sid: str) -> dict:
         for i, s in enumerate(allies):
             if not stacked[i]:
                 continue
+            if i not in ring_hit:
+                # chance: the same ally moved CHANCE_R icon radii four ways
+                for dx_, dy_ in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    xs_ = T[i, 0] + dx_ * CHANCE_R * r_icon
+                    ys_ = T[i, 1] + dy_ * CHANCE_R * r_icon
+                    c["chance_r_contains_x4"] += any(inside_any(g["polys"], xs_, ys_, r_icon)
+                                                     for g in regs)
+                    c["chance_contains_x4"] += any(inside_any(g["polys"], xs_, ys_, 0.0)
+                                                   for g in regs)
             c["stacked_allies"] += 1
             if i in ring_hit:
                 c["ring_matched"] += 1
@@ -1340,8 +1509,11 @@ def score_riot(sid: str) -> dict:
             c["crowd_name_by_elimination"] += int(right and truth_agent in reg["elim_names"])
             rows.append({"fidx": fidx, "agent": truth_agent, "in": True, "names": names,
                          "stack": in_stack, "hidden": reg["hidden"], "n_icons": reg["n_icons"]})
+    c["chance_r_contains"] = round(c.pop("chance_r_contains_x4", 0) / 4.0, 2)
+    c["chance_contains"] = round(c.pop("chance_contains_x4", 0) / 4.0, 2)
     out["kill_instants"] = dict(c)
     out["rows"] = rows
+    write_rows(sid, R, S)
     # what skipping stack_fit inside crowds would save, on this session's frames
     in_crowd = np.isin(S_all.fr_f, list({g["fidx"] for g in R["regions"]}))
     out["stack_ran"] = int(S_all.fr_ran.sum())
@@ -1350,9 +1522,11 @@ def score_riot(sid: str) -> dict:
     return out
 
 
-#: stack_fit's time on branch ally-vectorise-20261004 relative to master's
-#: (about 36% cheaper, as the brief states; not measured here).
-VECTORISED_STACK_FIT = 0.64
+#: stack_fit's time after ally-vectorise-20261004 (on master since a0383d5)
+#: relative to before: 29.9 / 55.8 ms a frame on nine cached 300-frame
+#: windows of the handful, three of them stack-heavy, as that commit
+#: measured; the stored usage predates it.
+VECTORISED_STACK_FIT = 29.9 / 55.8
 
 
 def price(sid: str, blob_us: float) -> dict:
