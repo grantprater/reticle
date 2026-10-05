@@ -143,7 +143,39 @@ ECONOMY_VERSION = "economy-0.2.0"
 # changes a verdict, an edge, a row or a named agent
 # ([metric:scoreboard/speed-batch@fixture#bar_changed_boards=0]), and the [metric:scoreboard/speed-batch@fixture#rounded_scores_differ=19] rounded scores
 # 0.12.0 moved move back.
-SCOREBOARD_VERSION = "scoreboard-0.13.0"
+# 0.14.0 (2026-10-05): kills, deaths, assists and credits read soft
+# (`scoreboard.read_numbers`): white-ink coverage against each row's plate,
+# compared with DIN Next Medium 11 cells, the player card's font, at
+# measured places per digit count and per card (`BOARD_PENS`; each number is
+# a right-justified TextBlock centred in its slot, so it stands centred),
+# each row's baseline fitted, a dead player's grey row decided at its tint.
+# The mined digit set and its 190 cut are gone. Every unread K, D and A
+# names its reason; a band over two rows' numbers refuses `two_rows`. The
+# label is decided in the distance between two digits (`ocr.Slot.margin`),
+# at the board's own cut, BOARD_LABEL_SPLIT 0.3. The table's edge is the
+# session's: after five open boards the mode edge is a prior, and a board
+# fitted more than 2 px off it refuses every number `edge_surprise`; a digit
+# one pitch beyond a number's ends refuses `missing_digit`. On 120 boards of
+# each of the 8 dev sessions, kills read
+# [metric:soft_digits/r2-board-dev#kills_stored_read=5192] -> [metric:soft_digits/r2-board-dev#kills_soft_read=9434],
+# deaths [metric:soft_digits/r2-board-dev#deaths_stored_read=4860] -> [metric:soft_digits/r2-board-dev#deaths_soft_read=9431],
+# credits [metric:soft_digits/r2-board-dev#credits_stored_read=1323] -> [metric:soft_digits/r2-board-dev#credits_soft_read=9298];
+# held (13 sessions), kills
+# [metric:soft_digits/r2-board-held#kills_stored_read=8150] -> [metric:soft_digits/r2-board-held#kills_soft_read=15285],
+# deaths [metric:soft_digits/r2-board-held#deaths_stored_read=7321] -> [metric:soft_digits/r2-board-held#deaths_soft_read=15273].
+# Held is not clean: two of its rules (`_row_shift` with BOARD_SHIFT_SPAN and
+# BOARD_SHIFT_MAX, and the tint^2 rival energy in `ocr.read_layouts`) were
+# added after viewing held 4f207c0c4e39 1682.5 s, and the edge prior after
+# the judges' held boards. Against Riot's running counts nearly every read
+# off is one or two under Riot, as the 0.13.0 reads are where they read
+# ([metric:soft_digits/r2-board-held#kills_stored_wrong=266] -> [metric:soft_digits/r2-board-held#kills_soft_wrong=577]
+# held kills). On every open board of a06f04a0059f the reads more than 2
+# off Riot fall from [metric:soft_digits/r2-board-full@a06f04a0059f#at_621d866_far=5]
+# (a whole board read as units digits, its edge fitted 8 px off, 1892.0 s)
+# to [metric:soft_digits/r2-board-full@a06f04a0059f#new_far=0]. An open board
+# costs [metric:soft_digits/r2-board-full@a06f04a0059f#ms_per_board=57.46] ms
+# in the full reader.
+SCOREBOARD_VERSION = "scoreboard-0.14.0"
 # Stored versions whose accepted openings the current reader does not
 # contradict. A consumer of VERDICTS (the lineup constraining its top bar by
 # the board) accepts these; `reticle plan` still names the rescan. 0.7.0 adds
@@ -167,10 +199,12 @@ SCOREBOARD_VERSION = "scoreboard-0.13.0"
 # board, so 0.10.0 stays applied. 0.12.0 changes only the fourth decimal of
 # a few scores and no verdict or agent ([metric:scoreboard/speed-float32@fixture#bar_changed_boards=0] boards
 # change), so 0.11.0 stays applied. 0.13.0 moves the same fourth decimals
-# back and changes no verdict, so 0.12.0 stays applied.
+# back and changes no verdict, so 0.12.0 stays applied. 0.14.0 reads only
+# the rows' numbers anew; its openings, rows, table edges and portraits are
+# 0.13.0's code, so 0.13.0 stays applied.
 SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", "scoreboard-0.8.0",
                                  "scoreboard-0.9.0", "scoreboard-0.10.0", "scoreboard-0.11.0",
-                                 "scoreboard-0.12.0", SCOREBOARD_VERSION)
+                                 "scoreboard-0.12.0", "scoreboard-0.13.0", SCOREBOARD_VERSION)
 # TESTING-PHASE WAIVER, TO REVISIT: stored stamps that `reticle plan` (and
 # every rerun input check inside it) accepts as the current stamp, as
 # {(current, stored): why}. The player decided on 2026-09-29, to iterate
@@ -328,18 +362,70 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # ff636d173b07 1247.0 s broke into three pieces, the left one read as the
 # killer's last letter, and the band went `one_colour:no_divider` on every
 # sample.
-# 0.24.0 (2026-10-05): where the plates meet at one seam, a divider's centre
+# 0.24.0 (2026-10-05): the clock, both scores and the bottom HUD read soft
+# (`ocr.read_scoreline`, `ocr.read_subfields`): white-ink coverage against
+# the local plate, compared with DIN Next cells rendered from the game font
+# at the widget's size and measured pitch (`ocr.GlyphCells`), with no cut
+# before the decision. Each TextBlock's digit cells stand at measured places
+# per digit count (`ocr.SCORE_PENS`, `ocr.CLOCK_PENS`, `ocr.BOTTOM_PENS`).
+# Each cell is decided once: digit or empty at gain 0.5 +- 0.25, and its
+# label in the distance between two digits (`ocr.Slot.margin`, a cell drawn
+# a * T_best + (1 - a) * T_d stands at 2a - 1) at LABEL_SPLIT 0.5, cuts
+# chosen on the dev half of the Riot-recorded matches; a cut of 0.4 admitted
+# [metric:soft_digits/r2-label-split-dev#full_off_cut_04=1] score misread (a
+# 3 read 8 at margin [metric:soft_digits/r2-label-split-dev#misread_margin=0.466]).
+# SCORE_INK_CUT, `ink_score`, `score_field` and the 190 cuts are gone. A
+# field drawn pale (low-health pink) is decided again at its tint, the
+# empty shield's dimmed 0 at its own floor; a magazine whose guard cell
+# holds a digit reads one place right (an energy weapon's widget). New
+# refusals: `no_widget` (a dark score field with no ink: the scoreline is
+# not drawn; the bottom fields of that frame refuse it too,
+# [metric:soft_digits/r2-nowidget-dev#fields_moved=9388] dev fields, losing
+# [metric:soft_digits/r2-nowidget-dev#reads_lost=0] reads), `missing_digit`,
+# `fused` (where `occluded` stood), `hundredths` (the SS.hh form),
+# `no_colon` and `beyond_layout`. The hud stream stores each field's reason.
+# On the 21 matches score reads rise from
+# [metric:soft_digits/r2-scoreline-all#base_reads=162507] to
+# [metric:soft_digits/r2-scoreline-all#new_reads=164971] with
+# [metric:soft_digits/r2-scoreline-all#new_full_off=0] full reads off Riot's
+# score pairs (held [metric:soft_digits/r2-scoreline-held#new_full_off=0]);
+# clock reads from [metric:soft_digits/r2-scoreline-all#base_clock=46732] to
+# [metric:soft_digits/r2-scoreline-all#new_clock=67241]. Bottom reads:
+# health [metric:soft_digits/r2-bottom-all#hp_base_reads=72495] to
+# [metric:soft_digits/r2-bottom-all#hp_new_reads=75685], shield
+# [metric:soft_digits/r2-bottom-all#shield_base_reads=53266] to
+# [metric:soft_digits/r2-bottom-all#shield_new_reads=62218], magazine
+# [metric:soft_digits/r2-bottom-all#ammo_mag_base_reads=37990] to
+# [metric:soft_digits/r2-bottom-all#ammo_mag_new_reads=39858], reserve
+# [metric:soft_digits/r2-bottom-all#ammo_reserve_base_reads=35892] to
+# [metric:soft_digits/r2-bottom-all#ammo_reserve_new_reads=39358]. Held
+# shield 18 loses [metric:soft_digits/r2-pervalue#held_shield_18_lost=0] of
+# [metric:soft_digits/r2-pervalue#held_shield_18_base=54] reads, shield 38
+# [metric:soft_digits/r2-pervalue#held_shield_38_lost=0] of
+# [metric:soft_digits/r2-pervalue#held_shield_38_base=115], health 8
+# [metric:soft_digits/r2-pervalue#held_hp_8_lost=2] of
+# [metric:soft_digits/r2-pervalue#held_hp_8_base=86], magazine 40
+# [metric:soft_digits/r2-pervalue#held_ammo_mag_40_lost=1] of
+# [metric:soft_digits/r2-pervalue#held_ammo_mag_40_base=25]; the residual
+# value-wise losses are the reserve's over textured plates and base
+# misreads. Scoreline and bottom HUD together cost
+# [metric:soft_digits/r2-hud-cost@a06f04a0059f#ms_total=2.803] ms per frame
+# against [metric:soft_digits/r2-hud-cost@a06f04a0059f#ms_base_total=2.063]
+# (alternating runs; the scoreline alone
+# [metric:soft_digits/r2-hud-cost@a06f04a0059f#ms_scoreline=1.118] against
+# [metric:soft_digits/r2-hud-cost@a06f04a0059f#ms_base_scoreline=1.125]).
+# 0.25.0 (2026-10-05): where the plates meet at one seam, a divider's centre
 # lies left of the seam with plate behind it (`killfeed.plate_behind`)
 # (`killfeed._band_text`) [domain:killfeed/weapon-cell]: a portrait's edge
 # no longer divides an ability kill whose icon the line-art pass passed over
 # (a1a995e6b19b 742.0 s and 2019.5 s, Overdrive; 5822b6646448 925.5 s,
 # Annihilation).
-# 0.25.0 (2026-10-05): a one-colour candidate run taller than one entry
+# 0.26.0 (2026-10-05): a one-colour candidate run taller than one entry
 # that starts above the first slot's top yields the resting slots inside
 # it (`killfeed._bands_from_rows`), not a PITCH split from its scenery top
 # [domain:killfeed/entry-list-layout]: Clove's Not Dead Yet expiry over a
 # warm ceiling at ff636d173b07 1247.5-1248.5 s (rows 0-183) now reads.
-HUD_VERSION = "hud-0.25.0"
+HUD_VERSION = "hud-0.26.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits
@@ -615,6 +701,54 @@ ABILITY_GATE_VERSION = "ability-gate-0.2.0"
 # 0.3.0 (2026-09-30): radii, rim, reach and verify window are base values under
 # the transform (`geometry.map_scale`), no longer shares of the crop's width.
 ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
+# The minimap glyph reader (`minimap_glyph`, `ability_glyph` rows): each
+# proposed ability disc's masked-Pearson score against the game's minimap
+# textures of the lineup's kits, under the stage 1 rotation policy, with the
+# audit and surprise paths against every kit. Bump when the matcher, a window
+# or audit rule, or a stored field changes; the reference bank and the tables
+# carry their own stamps (`minimap_glyph.GLYPH_BANK_STAMP`).
+# 0.2.0 (2026-10-05): the static and portrait gates (`static_corr`, `icon`,
+# reasons `static_like`, `on_ally_icon`); continuation by the proposer's verify
+# (`ability_icons.verified_continuations`) in place of a reach of its own;
+# audit rows store no cut; context and frame rows rest on the lineup stamp.
+# 0.3.0 (2026-10-05): the portrait gate is stage 1's `portrait_cover`, moved
+# here from the prototype, over the stored `ally_icon` fits and self icon: an ally within
+# SAME_R no longer gates (it is the followed icon), the ring to OCC_R does;
+# field `portrait` (a reason, or "no_vision_row") replaces `icon`, reasons
+# `self_portrait`, `ally_portrait`, `ally_stack` replace `on_ally_icon`.
+# 0.4.0 (2026-10-05): the matcher and every px x scale length read
+# `geometry.MapScale.scale` (widget x map zoom), the null table's new basis
+# (`glyph-null-table-0.2.0`); a frame without a MapScale is `no_map_scale`, a
+# crop whose width is not the key's widget is `geometry_size_mismatch`; the
+# `map_shown` gate (a disc that shows the baked map art under it, field
+# `map_shown`); audit rows store the full-rotation cuts (`best_cut`,
+# `bank_cut`, `above_bank_cut`), surprise rows the full bank's cut.
+# 0.5.0 (2026-10-05): `map_shown` reads the disc's body, the matcher disc
+# united with the proposer's disc of radius r, so an icon's dark rim enters
+# (0.4.0 refused four opaque icons whose footprint part fell on the white
+# glyph); the cut stays 0.73. The per-disc gate decision moves to
+# `minimap_glyph.disc_gates`; the head counts footprint size mismatches.
+ABILITY_GLYPH_VERSION = "ability-glyph-0.5.0"
+# The minimap ability-disc tracks (`adjudication.ability.disc_tracks`,
+# `ability_disc_track` rows): the stored `ability_glyph` disc rows joined by
+# the proposer's verify (each row's `rests_on`), with each track's path length,
+# first-second speed, lifetime, end reason and stored jumps. Bump when the
+# join, an end reason, the jump reach or a stored field changes.
+ABILITY_DISC_TRACK_VERSION = "ability-disc-track-0.1.0"
+# The glyph verdict (`adjudication.ability_glyph`, `ability_glyph_name` rows and
+# `ability_glyph_identity` events): per track, the pooled glyph scores over the
+# clean frames, the cut from the null table, the per-ability rules and the
+# claim on the caster. Bump when a gate, the pooling, the cut rule, a
+# per-ability rule, a refusal reason or a stored field changes; the null and
+# states tables carry their own stamps. 0.2.0: a best key the player answered
+# draws nothing or a shape refuses `not_drawn_per_answer` and withholds its kit
+# claim (an Astra star's state answer excepted); a missing cut refuses
+# `no_cut_for_key`; a blind slot refuses only claims its side admits; rows
+# carry the display name and rest on the tray kit, policy and null stamps.
+# 0.3.0: a key whose agent is the recording player's own reads the player's
+# `self` drawing answer first; the head records the answers' stamp
+# (`inputs.drawing_answers`), which `plan` compares.
+ABILITY_GLYPH_NAME_VERSION = "ability-glyph-name-0.3.0"
 # The ability tray's charge drops, written as `tray_drop` rows by `reticle
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own
@@ -684,7 +818,34 @@ MENU_VERSION = "menu-0.1.0"
 # agent `kit_owner_unresolved`. Own and other are judged against the
 # consumer's player agent, not the agent the rows were written against, so
 # rows written with no player agent still give kit changes.
-PLAYER_CAST_VERSION = "player-cast-0.8.0"
+# 0.9.0: a stored revive of the player from any reviver
+# (`adjudication.death.player_revive_times`), a teammate Sage's Resurrection
+# included, undoes the death before it for every agent, not only Clove's own
+# Not Dead Yet.
+# 0.10.0: the player's own ult line (`ult_cast` rows of the player's own class
+# that rest on no tray cast) passes an X drop refused as `forced` or
+# `after_player_death` in the agent's cast window of it, before the kit's end;
+# one line, one drop (`ability_timeline._admit_lined_x`).
+# 0.11.0: a drop read from gold halves alone in a slot a resource-bar fact
+# makes a pool (`ability_timeline.pool_slots`: Skye's Regrowth) spent no
+# charge and is `resource_pool`.
+# 0.12.0: a co-occurring drop of Sova's or Skye's E meets the charge tests
+# where the restock numeral appeared or restarted over it (the stored
+# `tray_countdown` reads, or `reticle tray`'s own pass), and the own ult line
+# overturns `cooccur_among_casts` for an X drop as it does `forced`.
+# 0.13.0: `resource_pool` withdrawn (a gold-only drop of a pool slot keeps its
+# verdict and carries `pool_gold_drop`); a revive's dead span ends at the
+# revive for a bridged drop too; only Resurrection and Clove's Not Dead Yet
+# revive the player (`adjudication.death.KIT_REVIVE_ICONS`), not NULL/cmd; a
+# drop an own line passed rests on that line (`rests_on`).
+# 0.14.0 (2026-10-05): a gold-only drop of Skye's Regrowth slot
+# (`pool_gold_drop`) spends the rest of a pool already opened and is
+# `pool_rest` (`ability_timeline.POOL_REST_SLOTS`), on the player's answer
+# [domain:abilities/skye-regrowth-gold-bar-partly-spent]; a NULL/cmd revive
+# of a KAY/O player undoes his down and keeps his kit
+# (`adjudication.death.KIT_REVIVE_ICONS`)
+# [domain:abilities/kayo-null-cmd-stabilise-restores-kit].
+PLAYER_CAST_VERSION = "player-cast-0.14.0"
 # Whose kit the ability tray shows, per sample of the stored `hud_abilities`
 # crops: the slot icons scored against the catalogue's (`tray_icons`) and read
 # against the candidate sets the lineup allows (`adjudication.tray_kit`),
@@ -764,7 +925,10 @@ SELF_ICON_VERSION = "self-icon-0.6.0"
 # rise is a `live_return` only on an ability with a restock fact
 # (`restock_facts`), elsewhere a `recharge` with the surprise
 # `gold_rise_without_a_restock_fact`; slot parameters carry `restock_fact`.
-ABILITY_STATE_VERSION = "ability-state-0.9.0"
+# 0.10.0 (2026-10-05): the gate's `pool_rest` refusal (player-cast-0.14.0)
+# stands for the rest of a Regrowth pool already counted, a `none`
+# transition, not an unknown reason.
+ABILITY_STATE_VERSION = "ability-state-0.10.0"
 # Which ability of the player's kit the audio around a tray cast sounds like:
 # a whitened matched filter over the stored audio-gate log-mel against the
 # game's own ability sounds (`adjudication.ability_audio`), read by
@@ -846,12 +1010,30 @@ ULT_LINE_VERSION = "ult-line-0.2.0"
 # selected ones; the coverage row states `vo_heard`.
 # 0.5.0: every cast and refusal row carries its round's barrier drop (`gametime`),
 # onset minus drop and a phase (buy, at_drop, live); selection is unchanged.
-ULT_CAST_VERSION = "ult-cast-0.5.0"
+# 0.6.0: the cast gate is asked with no own ult lines, and a tray cast that
+# rests on an own line (`rests_on_line`) witnesses none: it is kept as a
+# refused drop, `rests_on_own_line`.
+ULT_CAST_VERSION = "ult-cast-0.6.0"
 # Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or
 # the stored fields change -- those need pixels, so they re-decode.
 MINIMAP_DARK_VERSION = "minimap-dark-0.1.0"
+# The dead Clove's smoke-range circle (`clove_circle`), read in the ability
+# pass only inside each ally Clove's death windows and written as
+# `clove_circle` rows. It names no agent and decides no cast. Bump when the
+# search, the fit, the score, its cut or the stored fields change -- those
+# need pixels, so they reread the crop cache.
+# 0.2.0 (2026-10-05): wired from `prototypes/clove_circle.py` (clove-circle-0.1.0,
+# one capture): ring matched filter on the shrunk grey, ray fit, median rim
+# contrast cut at 10.
+# 0.3.0 (2026-10-05): a rim fit above `RIM_RMS_MAX` px rms reads no circle
+# (`no_rim_fit`); 0.2.0 called 13 of 2436 audit samples present, all fits
+# of 1.7 px rms or more.
+# 0.4.0 (2026-10-05): a circle centred on the living player's stored self
+# position is the self audio circle (`concentric_with_self`); 0.3.0 called 14
+# samples of one fresh-audit window present, each on the moving self icon.
+CLOVE_CIRCLE_VERSION = "clove-circle-0.4.0"
 # Smoke tracks recomputed from stored `minimap_dark` rows by `reticle smokes`.
 # Bump when a birth, presence or end rule in `adjudication.smokes` changes.
 # 0.2.0: sampling gaps are unobserved; onsets carry their own censoring.
@@ -866,7 +1048,9 @@ SMOKE_VERSION = "smoke-0.4.0"
 # 0.2.0 (2026-10-04): each row links the player's smoke-slot tray cast its
 # track was cast from (`cast`, `cast_ms`, `rests_on`), so the entity starts at
 # the drop and a Dark Cover's target-icon phase lies inside it.
-SMOKE_OWNER_VERSION = "smoke-owner-0.2.0"
+# 0.3.0 (2026-10-05): channel `dead_clove_circle` names a disc Clove where the
+# stored `clove_circle` stream saw her range circle round its birth.
+SMOKE_OWNER_VERSION = "smoke-owner-0.3.0"
 # Combat report reads (header score, per-row damage, hit splits, flag-word
 # correlations), written as `combat_report` rows by `reticle scan`. It stores no
 # decision. Bump when an offset, a threshold, the templates or the stored fields

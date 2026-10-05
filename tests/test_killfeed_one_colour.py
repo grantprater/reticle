@@ -65,7 +65,7 @@ class OneColourEntryTests(unittest.TestCase):
     def test_warm_scenery_above_the_first_slot_leaves_the_banner_on_the_grid(self):
         """ff636d173b07 1247.5 s, the same expiry over a warm ceiling: the
         one-colour rows run 0-183, and a PITCH split from row 0 (0-37,
-        37-73, ...) held no band on the banner at 15-49 (hud-0.24.0 and
+        37-73, ...) held no band on the banner at 15-49 (hud-0.25.0 and
         earlier). The run starts above the first slot, so the resting slots
         place its bands."""
         dropped = []

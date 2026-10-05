@@ -34,10 +34,9 @@ The gate is rerun beside the stored one with two inputs it does not read
 (`rejudge_inputs`): the second lives from the stored badge rows whatever their
 `killfeed_portrait` version (the gate reads only a current stream, and on
 2026-10-05 every Phoenix session stored 0.18.0 against the code's 0.19.0),
-and the teammate revives of the player (stored `death_verdict` revives on
-the ally side whose victim is the player's agent, from any reviver but the
-player; the gate undoes a death only for Phoenix's second life and Clove's
-own revive). A drop the
+and the revives of the player (`adjudication.death.player_revive_times`;
+before `player-cast-0.9.0` the gate undid a death only for Phoenix's second
+life and Clove's own revive, and it now reads these revives itself). A drop the
 stored gate refused as `after_player_death` that the rerun judges otherwise
 carries the rerun's reason and kit end, and the input that changed it as its
 `root`: `second_life_unread` or `teammate_revive`. The candidate tests judge
@@ -450,14 +449,13 @@ def collect_session(store, sid: str, riot: dict, cache_dir: Path | None) -> dict
     lineup = load_lineup(sid, store.root)
     agent = player_agent(lineup, sid)
     gate, _stamps = stored_gate_inputs(store, sid, date, rounds, agent)
+    # The gate reads this pass's numerals, as `reticle tray` hands it its own.
+    gate["countdown_reads"] = reads
     witness, unw = _gold_witness(cache, ts, counts, clean, real, segs, icons, reads)
     drops = tray.drops(ts, counts, clean, segs, icons, witness)
     rows = player_tray_casts(
-        drops, gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
-        second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
-        report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
-        kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
-        kit_spans=gate["kit_spans"])
+        drops, gate["phase_of"], rounds, gate["player_deaths_ms"],
+        **{k: gate[k] for k in _GATE_KW})
     # The gate rerun with the inputs it does not read: each alone names the
     # root of a death refusal it undoes; both together judge the candidate.
     rj = rejudge_inputs(store, sid, date, rounds, agent, gate["player_deaths_ms"])
@@ -611,7 +609,8 @@ def collect_session(store, sid: str, riot: dict, cache_dir: Path | None) -> dict
 CF_INPUTS = {"second_lives": ("second_lives_ms",), "teammate_revives": ("player_deaths_ms",),
              "both": ("second_lives_ms", "player_deaths_ms")}
 _GATE_KW = ("agent", "second_lives_ms", "revives_ms", "report_deaths", "kit_changes_ms",
-            "kit_returns_ms", "menu_at", "kit_spans")
+            "kit_returns_ms", "menu_at", "kit_spans", "own_lines_ms", "pool_slots",
+            "countdown_reads", "step_ms")
 
 
 def _run_gate(drops, gate: dict, rounds, over: dict, stored=None, dead=()) -> list[dict]:
@@ -642,10 +641,11 @@ def rejudge_inputs(store, sid: str, date: str, rounds: list[dict], agent,
     """The gate inputs the stored gate does not read, from storage:
     `second_lives_ms` from the stored badge rows whatever their version
     (`adjudication.death.stored_second_life` asked at the stored stream's own
-    version); `teammate_revives_ms`, the stored `death_verdict` revives on the
-    ally side whose victim is the player's agent and that are not the
-    player's own revive entry (`kf_player_kill`, which the gate already reads
-    for Clove); and `player_deaths_ms`, the stored deaths less each that such
+    version); `teammate_revives_ms`, the stored revives of the player that
+    `adjudication.death.player_revive_times` names (since `player-cast-0.9.0`
+    the gate reads the same revives itself, so removing the deaths they
+    follow changes no verdict the gate now gives); and `player_deaths_ms`,
+    the stored deaths less each that such
     a revive follows before the player's next death in its round
     (`revived_deaths_ms`), each with its revive (`dead_windows_ms`). The gate
     undoes a death only for Phoenix and Clove, so the counterfactual removes a
@@ -656,14 +656,11 @@ def rejudge_inputs(store, sid: str, date: str, rounds: list[dict], agent,
     the tray icons then read the player's own kit (`kit_read`).
     Evaluation only: nothing is stored."""
     import math
-    from reticle.adjudication.death import stored_second_life
+    from reticle.adjudication.death import player_revive_times, stored_second_life
     from reticle.rounds import in_round_window, player_second_life_times
     pr = store.read_events_kind("killfeed_portrait", sid, "second_life_observation")
     badges = stored_second_life(pr, pr[0].get("killfeed_portrait_version")) if pr else None
-    revives = sorted(float(r["t_ms"]) for r in store.read_events("death", sid)
-                     if r.get("kind") == "death_verdict" and r.get("is_revive")
-                     and r.get("side") == "ally" and agent is not None
-                     and r.get("victim") == agent and not r.get("kf_player_kill"))
+    revives = player_revive_times(store.read_events("death", sid), agent)
     ends = {r["t_end_ms"] for r in rounds}
     revived = set()
     for r in rounds:

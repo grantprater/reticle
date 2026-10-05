@@ -961,7 +961,7 @@ def _bands_from_rows(on: np.ndarray, s: "KillfeedScale",
     [domain:killfeed/slot-pitch], so its top is scenery and a PITCH
     split from it is out of phase with every entry in it. Warm ceiling
     joined a red Not Dead Yet expiry banner at ff636d173b07 1247.5-1248.5 s
-    into rows 0-183; split from row 0, no band held the banner (hud-0.25.0)."""
+    into rows 0-183; split from row 0, no band held the banner (hud-0.26.0)."""
     limit = len(on)
     runs = _join_split_runs(_row_runs(on), s)
 
@@ -2086,10 +2086,10 @@ PORTRAIT_ASPECT = 2.0
 # name (59c70f1ef720 1284.0 s, Killjoy 0.91 read as Sage 0.34; bfad2778a372
 # 1436.5-1440.5 s, Sage 0.92 read at 0.26).
 # 0.23.0 (2026-10-05): a divider's centre lies left of the seam, over plate
-# where the plates meet at one seam (`_band_text`, hud-0.24.0), so an ability
+# where the plates meet at one seam (`_band_text`, hud-0.25.0), so an ability
 # kill's portraits sit either side of its icon, not of a portrait's edge.
 # 0.24.0 (2026-10-05): a one-colour run topped by scenery above the first
-# slot yields the resting slots inside it (`_bands_from_rows`, hud-0.25.0).
+# slot yields the resting slots inside it (`_bands_from_rows`, hud-0.26.0).
 KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.24.0"
 
 #: How many columns must stay clear of plate and text before a gap is the

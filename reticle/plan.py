@@ -163,31 +163,51 @@ _HAND_CHECKED = ("death", "ult_cast", "tray_drop", "ability_shape", "scoreboard_
 def ability_streams() -> list[tuple[str, str, str]]:
     """(stream, stamp key, current stamp) of each stream the ability pass
     writes (`reticle scan <sid> --only ability`, `ability_scan`)."""
-    from .version import (ABILITY_FIT_VERSION, ABILITY_GATE_VERSION, ABILITY_ICON_VERSION,
-                          ABILITY_SHAPE_VERSION, ABILITY_WALL_VERSION)
+    from .version import (ABILITY_FIT_VERSION, ABILITY_GATE_VERSION, ABILITY_GLYPH_VERSION,
+                          ABILITY_ICON_VERSION, ABILITY_SHAPE_VERSION, ABILITY_WALL_VERSION,
+                          CLOVE_CIRCLE_VERSION)
     return [("ability_gate", "ability_gate_version", ABILITY_GATE_VERSION),
             ("ability_fit", "ability_fit_version", ABILITY_FIT_VERSION),
             ("ability_wall", "ability_wall_version", ABILITY_WALL_VERSION),
             ("ability_shape_scan", "ability_shape_scan_version", ABILITY_SHAPE_VERSION),
             ("ability_shape_audit", "ability_shape_audit_version", ABILITY_SHAPE_VERSION),
-            ("ability_icon", "ability_icon_version", ABILITY_ICON_VERSION)]
+            ("ability_icon", "ability_icon_version", ABILITY_ICON_VERSION),
+            ("ability_glyph", "ability_glyph_version", ABILITY_GLYPH_VERSION),
+            ("clove_circle", "clove_circle_version", CLOVE_CIRCLE_VERSION)]
+
+
+#: Streams the ability pass gained after it had run on stored sessions, each
+#: with the sibling stream whose presence shows the pass ran there: `stale`
+#: names such a stream absent beside its sibling. The glyph reader reads the
+#: proposer's rows, so a stored `ability_icon` is the pass it should have joined.
+PASS_ADDED = {"ability_glyph": "ability_icon", "clove_circle": "ability_icon"}
 
 
 def _ability_inputs(stream: str) -> tuple[dict, tuple]:
     """(fields, upstream) of one ability-pass stream: the gate's samples feed
     every shape stream but the walls; the candidate streams also rest on the
-    candidate table, its facts' values and the stored deaths."""
+    candidate table, its facts' values and the stored deaths. The glyph
+    reader reads the proposer's rows, the stored portraits its gate reads
+    (`ally_icon`), and its reference bank and tables
+    (`minimap_glyph.GLYPH_BANK_STAMP`)."""
     from .ability_candidates import values_digest
-    from .version import ABILITY_CANDIDATES_VERSION, ABILITY_GATE_VERSION, ABILITY_SHAPE_VERSION
+    from .minimap_glyph import GLYPH_BANK_STAMP
+    from .version import (ABILITY_CANDIDATES_VERSION, ABILITY_GATE_VERSION, ABILITY_ICON_VERSION,
+                          ABILITY_SHAPE_VERSION)
     gate = {"ability_gate_version": ABILITY_GATE_VERSION}
     cand = {"ability_shape_version": ABILITY_SHAPE_VERSION,
             "ability_candidates_version": ABILITY_CANDIDATES_VERSION,
             "appearance_values": values_digest()}
     return {"ability_gate": ({}, ()), "ability_icon": ({}, ()),
+            "ability_glyph": ({"glyph_bank": GLYPH_BANK_STAMP,
+                               "ability_icon_version": ABILITY_ICON_VERSION},
+                              ("ability_icon", "ally_icon")),
             "ability_shape_scan": (gate, ("ability_gate",)),
             "ability_shape_audit": (gate, ("ability_gate",)),
             "ability_fit": ({**gate, **cand}, ("ability_gate", "death")),
-            "ability_wall": (cand, ("death",))}[stream]
+            "ability_wall": (cand, ("death",)),
+            # The circle reads only the windows the stored deaths open.
+            "clove_circle": ({}, ("death",))}[stream]
 
 
 def derived_streams() -> list[dict]:
@@ -216,6 +236,7 @@ def derived_streams() -> list[dict]:
     from .version import ALLY_PORTRAIT_FEATURES_VERSION
     from .minimap_diagnostics import DIAGNOSTICS_VERSION
     from .minimap_lifecycle import LIFECYCLE_VERSION
+    from .ability_timeline import DEAD_RUSE_VERSION
     from .roi_cache import ROI_CACHE_VERSION
     from .round_entities import ROUND_ENTITY_VERSION
     from .round_lifetimes import ROUND_LIFETIME_VERSION
@@ -227,6 +248,7 @@ def derived_streams() -> list[dict]:
                           SMOKE_VERSION, SPIKE_CARRIER_VERSION, SPIKE_VERSION, TEAM_VISION_VERSION,
                           TEARDROP_VERSION, TRAY_COUNTDOWN_VERSION, TRAY_FILL_VERSION,
                           TRAY_KIT_VERSION, TRAY_SEGMENT_VERSION)
+    from .version import ABILITY_DISC_TRACK_VERSION, ABILITY_GLYPH_NAME_VERSION
     from .version import (ROUND_OUTCOME_CLAIM_VERSION, ROUND_OUTCOME_VERSION,
                           SCOREBOARD_STRIP_VERSION)
     roi = {"roi_cache_version": ROI_CACHE_VERSION}
@@ -275,6 +297,21 @@ def derived_streams() -> list[dict]:
          "command": "reticle smokes {sid}", "how": "storage",
          "fields": {"smoke_version": SMOKE_VERSION},
          "upstream": ("smoke", "tray_drop", "rounds")},
+        # The minimap glyph channel's stage 3 (docs/MINIMAP_GLYPH_CHANNEL.md,
+        # section 4): the disc tracks joined from the stored glyph and icon
+        # rows, and the verdict over them with its null and states tables.
+        {"stream": "ability_disc_track", "key": "ability_disc_track_version",
+         "current": ABILITY_DISC_TRACK_VERSION, "command": "reticle ability-glyphs {sid}",
+         "how": "storage", "fields": {}, "upstream": ("ability_icon", "ability_glyph")},
+        {"stream": "ability_glyph_name", "key": "ability_glyph_name_version",
+         "current": ABILITY_GLYPH_NAME_VERSION, "command": "reticle ability-glyphs {sid}",
+         "how": "storage", "fields": {},
+         "upstream": ("ability_disc_track", "ability_glyph", "tray_kit")},
+        # The player's Ruse casts while dead (`ability_timeline.dead_ruse_casts`),
+        # written beside the owners on a Clove player's session.
+        {"stream": "dead_ruse_cast", "key": "dead_ruse_version", "current": DEAD_RUSE_VERSION,
+         "command": "reticle smokes {sid}", "how": "storage", "fields": {},
+         "upstream": ("smoke_owner", "ability_state", "rounds")},
         {"stream": "combat_report_round", "key": "combat_report_round_version",
          "current": COMBAT_REPORT_ROUND_VERSION, "command": "reticle combat-report {sid}",
          "how": "storage", "fields": {"combat_report_version": COMBAT_REPORT_VERSION},
@@ -343,6 +380,8 @@ def derived_streams() -> list[dict]:
             ("combat_report_identity", "combat_report_round", "reticle combat-report {sid}",
              "storage"),
             ("smoke_owner_identity", "smoke_owner", "reticle smokes {sid}", "storage"),
+            ("ability_glyph_identity", "ability_glyph_name", "reticle ability-glyphs {sid}",
+             "storage"),
             ("tray_kit_identity", "tray_kit", "reticle tray-kit {sid}", "cache"),
             ("ult_cast_identity", "ult_cast", "reticle ult-cast {sid}", "storage"),
             ("enemy_track_identity", "enemy_track", "reticle enemy-tracks {sid}", "storage")):
@@ -438,6 +477,11 @@ NOT_INPUTS = {
     "candidate_revision": "the ally_icon candidate batch, carried on the rows built from it",
     "geometry": "round_outcome's column fit, measured from this session's cached scoreboard "
                 "crops by `fit_columns`: the reader's own output, not a baked table",
+    "ult_cast_reason": "why the gate's own ult lines went unused (`ability_timeline."
+                       "stored_own_lines`), not a stamp",
+    "pool_facts": "the keys of the domain facts that make a slot of the player's agent a pool "
+                  "(`ability_timeline.pool_slots`): a rule read from domain/*.toml, which "
+                  "moves with the gate's own stamp (`player_cast`), not a stored stream",
 }
 
 
@@ -457,7 +501,12 @@ def _gate(prefix: str = "inputs.", optional: bool = False) -> dict:
                                        "combat_report_round#combat_report_round_version",
                                        optional=optional),
             "tray_kit": _in(prefix + "tray_kit", "tray_kit#tray_kit_version", optional=optional),
-            "menu_open": _in(prefix + "menu_open", "menu_open#menu_version", optional=optional)}
+            "menu_open": _in(prefix + "menu_open", "menu_open#menu_version", optional=optional),
+            # The own ult lines that witness an X cast (`own_line_times`).
+            "ult_cast": _in(prefix + "ult_cast", "ult_cast#ult_cast_version", optional=True),
+            # The restock numerals that witness a co-occurring spend.
+            "tray_countdown": _in(prefix + "tray_countdown",
+                                  "tray_countdown#tray_countdown_version", optional=True)}
 
 
 def _lineup_inputs(prefix: str = "inputs.", file_path: str | None = None) -> dict:
@@ -482,6 +531,9 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     from .killfeed_assist import ICON_BUILD
     from .lighting import LIGHTING_VERSION
     from .version import TRAY_SEGMENT_VERSION
+    from .adjudication.ability_glyph import STATES_TABLE as GLYPH_STATES_TABLE
+    from .minimap_glyph import GLYPH_DATA
+    from .version import ABILITY_DISC_TRACK_VERSION
     from .roi_cache import ROI_CACHE_VERSION
     from .ability_candidates import values_digest
     from .version import (ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION,
@@ -531,7 +583,10 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                      "agent_identity": _code("inputs.agent_identity", AGENT_IDENTITY_VERSION),
                      "tray_drop": _in("inputs.tray_drop", "tray_drop#tray_version",
                                       optional=True),
-                     **_gate(optional=True), **_lineup_inputs()},
+                     # Its own rows feed the gate back only as lines that
+                     # rest on no tray cast, so it is not its own input.
+                     **{k: v for k, v in _gate(optional=True).items() if k != "ult_cast"},
+                     **_lineup_inputs()},
         "tray_drop": {"tray_kit": _in("tray_kit", "tray_kit#tray_kit_version"),
                       "menu_open": _in("menu_open", "menu_open#menu_version"),
                       **{k: v for k, v in _gate(optional=True).items()
@@ -610,9 +665,39 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                          "lineup": _in("inputs.lineup_view", "lineup")},
         "smoke": {"minimap_dark": _in("minimap_dark_version", "minimap_dark"),
                   "menu_open": _in("menu_open", "menu_open#menu_version"), **geo},
+        # Stage 3 of the glyph channel: the tracks read the stored glyph rows
+        # (and the bank they were scored on) and the proposer's verify; the
+        # verdict reads the tracks, the tray kit, the lineup's slots, and the
+        # null and states tables at the code's versions, and the player's drawing
+        # answers, compared by a digest of what the rule reads from them
+        # (`ability_glyph.drawing_answers_stamp`), so an unrelated answer does
+        # not restale it.
+        "ability_disc_track": {"ability_glyph": _in("inputs.ability_glyph",
+                                                    "ability_glyph#ability_glyph_version"),
+                               "glyph_bank": _in("inputs.glyph_bank", "ability_glyph#glyph_bank"),
+                               "ability_icon": _in("inputs.ability_icon",
+                                                   "ability_icon#ability_icon_version")},
+        "ability_glyph_name": {"ability_glyph": _in("inputs.ability_glyph",
+                                                    "ability_glyph#ability_glyph_version"),
+                               "glyph_bank": _in("inputs.glyph_bank", "ability_glyph#glyph_bank"),
+                               "ability_disc_track": _code("inputs.ability_disc_track",
+                                                           ABILITY_DISC_TRACK_VERSION),
+                               "null_table": _code("inputs.null_table", GLYPH_DATA["null"][1]),
+                               "states_table": _code("inputs.states_table", GLYPH_STATES_TABLE[1]),
+                               "tray_kit": _in("inputs.tray_kit", "tray_kit#tray_kit_version"),
+                               "drawing_answers": _in("inputs.drawing_answers",
+                                                      "glyph_drawing_answers"),
+                               **_lineup_inputs()},
+        "dead_ruse_cast": {"smoke_owner": _in("inputs.smoke_owner",
+                                              "smoke_owner#smoke_owner_version"),
+                           "ability_state": _in("inputs.ability_state",
+                                                "ability_state#ability_state_version"),
+                           "round": _in("inputs.round", "rounds"), **_gate()},
         "smoke_owner": {"smoke": _in("smoke_version", "smoke#smoke_version"),
                         "tray_drop": _in("inputs.tray_drop", "tray_drop#tray_version"),
                         "round": _in("inputs.round", "rounds"),
+                        "clove_circle": _in("inputs.clove_circle",
+                                            "clove_circle#clove_circle_version", optional=True),
                         **_gate(optional=True), **_lineup_inputs()},
         # The same command names the rows (`combat_report_identity`) over the
         # deaths, the killfeed portraits, the scoreboard and the lineup.
@@ -649,6 +734,12 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                       "roster": _in("inputs.roster", "roster", optional=True),
                       "spans": _spans()},
         "ability_gate": {"spans": _spans(), **geo}, "ability_icon": {"spans": _spans(), **geo},
+        # The circle's windows are the stored deaths' and rounds'
+        # (`clove_circle.stored_windows`).
+        "clove_circle": {"death": _in("inputs.death", death),
+                         "round": _in("inputs.round", "rounds"), **geo},
+        # The glyph reader's context set is the lineup's (`lineup.glyph_candidates`).
+        "ability_glyph": {"spans": _spans(), **geo, **_lineup_inputs()},
         "ability_shape_scan": {"shape_model": _code("ability_shape_version", ABILITY_SHAPE_VERSION),
                                "spans": _spans(), **geo},
         # The audit also runs the candidate path's fit on each sample to count
@@ -684,7 +775,8 @@ def _probe_stream(probe: str) -> str | None:
     if "#" in probe:
         return probe.split("#", 1)[0]
     if probe in ("geometry", "lineup_file", "reliability", "catalogue", "catalogue_icons",
-                 "portrait_refs", "portrait_refs_fit", "audio_features", "audio_labels"):
+                 "portrait_refs", "portrait_refs_fit", "audio_features", "audio_labels",
+                 "glyph_drawing_answers"):
         return None
     return probe
 
@@ -723,6 +815,11 @@ FEEDBACK = {
                          "back by death id only when they rest on this death rule "
                          "(`death.assist_stamp`); a head that joined none records why, "
                          "so deaths, then assists, then deaths once more agree",
+    ("tray_drop", "ult_cast"): "the cast gate reads the player's own ult lines that rest on "
+                               "no tray cast (`ability_timeline.own_line_times`), which "
+                               "`ult_cast` selects by score before it binds any tray cast; "
+                               "compared by the ult-cast rule, so tray, then ult-cast, "
+                               "then tray once more agree",
 }
 
 
@@ -880,6 +977,9 @@ def input_head(store, manifest: dict, probe: str, head: dict | None = None,
             now = f"reference/abilities.json#{reference_key(root)}"
         else:
             now = ist.NO_ROWS
+    elif probe == "glyph_drawing_answers":
+        from .adjudication.ability_glyph import drawing_answers_stamp
+        now = drawing_answers_stamp(root) if root is not None else ist.NO_ROWS
     elif probe in ("audio_features", "audio_labels"):
         from .ability_timeline import audio_input_stamps
         now = audio_input_stamps(root, sid)[probe] if root is not None else ist.NO_ROWS
@@ -1413,11 +1513,21 @@ def stale(store, sessions: list[str]) -> dict:
                                 "how": _CACHE_READERS.get(stream, "storage")})
         # Every other stamped stream, declared with its command.
         moving = rescanned | {x["stream"] for x in derived}
+        stored = set(stored_streams(store, sid))
         for spec in derived_streams():
             stream = spec["stream"]
             head = (_head(store, stream, sid, b'"event_kind":"identity_distribution"') if spec.get("identity")
                     else _head(store, stream, sid))
             if head is None:
+                # A stream the ability pass gained after it ran on stored
+                # sessions (`PASS_ADDED`), absent beside the sibling whose
+                # presence shows the pass ran: staleness, not a stream never
+                # asked for. Every other absent stream keeps the old rule.
+                if PASS_ADDED.get(stream) in stored:
+                    derived.append({"stream": stream, "stored": None, "current": spec["current"],
+                                    "inputs_moved": ["absent from a pass that ran"],
+                                    "how": spec["how"], "command": spec["command"].format(sid=sid)})
+                    moving.add(stream)
                 continue
             version = head.get(spec["key"])
             behind, moved, missing = recorded_stale(store, man, spec, head, memo, accepted)

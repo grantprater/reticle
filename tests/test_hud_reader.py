@@ -21,7 +21,6 @@ class HudReaderTests(unittest.TestCase):
         store = types.SimpleNamespace(read_kf_mask=lambda sid: np.ones((2, 2), dtype=bool))
         profile = types.SimpleNamespace(name="test")
         with patch("reticle.hud_reader.game_font_templates", return_value=object()), \
-                patch("reticle.hud_reader.Templates.load", return_value=object()), \
                 patch("reticle.hud_reader.scoreline_roi", return_value=(0, 0, 1, 1)), \
                 patch("reticle.hud_reader.killfeed_roi", return_value=(0, 0, 1, 1)), \
                 patch("cv2.VideoCapture", side_effect=AssertionError("video opened")):
@@ -34,7 +33,9 @@ class HudReaderTests(unittest.TestCase):
                                       score_right_reason="unreadable", confidence=.81,
                                       n_glyphs=4)
         bottom = types.SimpleNamespace(hp=None, shield=50, ammo_mag=12,
-                                       ammo_reserve=None, confidence=.63)
+                                       ammo_reserve=None, confidence=.63,
+                                       hp_reason="faint_digit", shield_reason=None,
+                                       ammo_mag_reason=None, ammo_reserve_reason="no_digits")
         kill = types.SimpleNamespace(
             entries=("entry",), player_kill=True, player_death=False,
             entry_mask=1, kill_mask=2, death_mask=4, unattributed=False,
@@ -47,7 +48,6 @@ class HudReaderTests(unittest.TestCase):
         store = types.SimpleNamespace(read_kf_mask=lambda sid: np.ones((2, 2), dtype=bool))
         profile = types.SimpleNamespace(name="test")
         with patch("reticle.hud_reader.game_font_templates", return_value=object()), \
-                patch("reticle.hud_reader.Templates.load", return_value=object()), \
                 patch("reticle.hud_reader.scoreline_roi", return_value=(0, 0, 1, 1)), \
                 patch("reticle.hud_reader.killfeed_roi", return_value=(0, 0, 1, 1)), \
                 patch("reticle.hud_reader.crop_gray", return_value=np.zeros((1, 1), dtype=np.uint8)), \
@@ -67,7 +67,9 @@ class HudReaderTests(unittest.TestCase):
             "kf_empty_bands": 2, "kf_empty_band_reason": "no_glyphs",
             "kf_dropped_bands": 1, "kf_dropped_band_reason": "one_colour:no_icon",
             "clock_reason": "unreadable", "score_left_reason": None,
-            "score_right_reason": "unreadable", "kf_ally_mask": 8,
+            "score_right_reason": "unreadable", "hp_reason": "faint_digit",
+            "shield_reason": None, "ammo_mag_reason": None,
+            "ammo_reserve_reason": "no_digits", "kf_ally_mask": 8,
             "kf_enemy_mask": 16, "kf_same_side_mask": 32, "kf_entry_wx": (10,),
             "kf_kill_wx": (20,),
             "kf_death_wx": (30,), "confidence": .81,

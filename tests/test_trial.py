@@ -207,10 +207,15 @@ class RoundCacheTest(unittest.TestCase):
         self.assertIsNone(why)
         self.assertEqual(cache.record["codec"], "ffv1")
         # Out of order, so the reader must seek back.
-        got = {s.frame_idx: s for s in cache.samples([133.4, 0.0, 66.7])}
+        got = {s.frame_idx: s for s in cache.samples([133.4, 0.0, 66.7], rois=["minimap"])}
+        x0, y0, x1, y1 = roi_rects("minimap", profile, (1920, 1080))[0]
         for i, f in enumerate(frames[:3]):
-            for x0, y0, x1, y1 in roi_rects("minimap", profile, (1920, 1080)):
-                self.assertTrue(np.array_equal(got[i].frame[y0:y1, x0:x1], f[y0:y1, x0:x1]))
+            self.assertTrue(np.array_equal(got[i].frame[y0:y1, x0:x1], f[y0:y1, x0:x1]))
+        # The tray is held on its 0.5 s grid only (`GRID_ROIS`): here the first frame.
+        x0, y0, x1, y1 = roi_rects("minimap", profile, (1920, 1080))[1]
+        (smp,) = cache.samples([0.0])
+        self.assertTrue(np.array_equal(smp.frame[y0:y1, x0:x1], frames[0][y0:y1, x0:x1]))
+        self.assertEqual(cache.refusal(66.7, ["hud_abilities"]), "thinned_out")
 
 
 class AutoSourceTest(unittest.TestCase):
@@ -443,7 +448,8 @@ class DarkCacheTest(unittest.TestCase):
         root, frames = held
         profile = get_profile("valorant-16x9")
         cache, _ = RoiCache.load(root, _manifest(), profile, "minimap")
-        got = {s.frame_idx: s for s in cache.samples([0 * 66.7, 3 * 66.7, 5 * 66.7])}
+        got = {s.frame_idx: s for s in cache.samples([0 * 66.7, 3 * 66.7, 5 * 66.7],
+                                                     rois=["minimap"])}
         self.assertEqual(sorted(got), [0, 3, 5])
         x0, y0, x1, y1 = roi_rects("minimap", profile, (1920, 1080))[0]
         for i, s in got.items():
@@ -556,19 +562,32 @@ def _strip_rows(verdicts, version=None):
 
 
 class ScoreboardGateTest(unittest.TestCase):
-    """The scoreboard set keeps the frames the strip witness offers, one
-    sample either side, and never asks the slab test."""
+    """The scoreboard set keeps the frames the strip witness offers (rule
+    `on`, no margin since 2026-10-05), and never asks the slab test."""
+
+    VERDICTS = ["absent", "absent", "present", "present", "absent", "absent", "absent",
+                "unreadable", "absent", "absent"]
 
     def test_the_gate_is_the_strip_opportunity_with_a_margin(self):
         from reticle.roi_cache import scoreboard_gate
-        gate, why = scoreboard_gate(_strip_rows(
-            ["absent", "absent", "present", "present", "absent", "absent", "absent",
-             "unreadable", "absent", "absent"]))
+        gate, why = scoreboard_gate(_strip_rows(self.VERDICTS), margin=1)
         self.assertIsNone(why)
         self.assertEqual(gate["spans"], [[500.0, 2000.0], [3000.0, 4000.0]])
         self.assertEqual((gate["samples"], gate["witness_open"], gate["witness_samples"]),
                          (7, 3, 10))
         self.assertEqual(gate["verdicts"], ["present", "unreadable"])
+        self.assertEqual(gate["rule"], "on+1")
+
+    def test_the_gate_keeps_rule_on_by_default(self):
+        from reticle.roi_cache import SCOREBOARD_GATE_MARGIN, scoreboard_gate
+        self.assertEqual(SCOREBOARD_GATE_MARGIN, 0)
+        gate, why = scoreboard_gate(_strip_rows(self.VERDICTS))
+        self.assertIsNone(why)
+        # every on-sample, and no neighbour of one
+        self.assertEqual(gate["spans"], [[1000.0, 1500.0], [3500.0, 3500.0]])
+        self.assertEqual((gate["samples"], gate["witness_open"], gate["margin_samples"]),
+                         (3, 3, 0))
+        self.assertEqual(gate["rule"], "on")
 
     def test_no_current_strip_rows_is_no_gate(self):
         from reticle.roi_cache import scoreboard_gate
@@ -607,7 +626,7 @@ class ScoreboardGateTest(unittest.TestCase):
             self.assertIn("reticle strip s1", str(no_strip.exception))
             store.write_events("scoreboard_strip", "s1", _strip_rows(["absent", "present"]))
             self.assertEqual(_scoreboard_cache_gate(store, "s1", args())["spans"],
-                             [[0.0, 500.0]])
+                             [[500.0, 500.0]])
             for bad in (args(cache_live=True), args(cache_hz=4.0)):
                 with self.assertRaises(SystemExit):
                     _scoreboard_cache_gate(store, "s1", bad)
@@ -643,6 +662,95 @@ class ScoreboardGateTest(unittest.TestCase):
             self.assertEqual((cache.holds(), cache.record["frames_offered"]), ([], 3))
             self.assertEqual(list(cache.samples([0.0, 500.0])), [])
             self.assertEqual(cache.refusal(500.0), "outside_gate")
+
+
+class ScoreboardThinTest(unittest.TestCase):
+    """A margin-1 scoreboard cache re-encoded from itself under the rule-on
+    gate (`thin_cache`) keeps every kept frame's pixels, and `RoiCache`
+    refuses the dropped margins as `thinned_out`."""
+
+    VERDICTS = ["absent", "absent", "present", "present", "absent", "absent", "absent",
+                "unreadable", "absent", "absent"]
+
+    def write_old(self, root: Path):
+        from reticle.roi_cache import scoreboard_gate
+        profile = get_profile("valorant-16x9")
+        old, _ = scoreboard_gate(_strip_rows(self.VERDICTS), margin=1)
+        rng = np.random.default_rng(11)
+        frames = [rng.integers(0, 256, (1080, 1920, 3), dtype=np.uint8)
+                  for _ in self.VERDICTS]
+        w = RoiCacheWriter(root, _manifest(), profile, "scoreboard", hz=2.0, gate=old)
+        for i, f in enumerate(frames):
+            w.feed(Sample(frame_idx=30 * i, t_ms=500.0 * i, frame=f))
+        w.finish()
+        return profile, frames
+
+    def test_thinning_keeps_rule_on_bit_for_bit_and_names_the_drops(self):
+        from reticle.roi_cache import (cache_dir, compare_thinned, scoreboard_gate,
+                                       thin_cache)
+        _needs_ffmpeg(self)
+        with tempfile.TemporaryDirectory() as root:
+            profile, frames = self.write_old(Path(root))
+            src = cache_dir(Path(root), "scoreboard")
+            dst = Path(root) / "thinning"
+            gate, _ = scoreboard_gate(_strip_rows(self.VERDICTS))
+            got = thin_cache(src, "s1", gate, dst, "test")
+            self.assertEqual((got["frames_before"], got["frames_kept"], got["frames_decoded"]),
+                             (7, 3, 7))
+            self.assertLess(got["bytes_after"], got["bytes_before"])
+            self.assertEqual(compare_thinned(src, dst, "s1"),
+                             {"checked": 3, "identical": 3, "different": 0,
+                              "extra_frames": False, "index_ok": True})
+            cache, why = RoiCache._open(dst, _manifest(), profile)
+            self.assertIsNone(why)
+            self.assertEqual(cache.holds(), [1000.0, 1500.0, 3500.0])
+            self.assertEqual(cache.record["gate"]["rule"], "on")
+            self.assertEqual(cache.record["thinned"]["gate_before"]["rule"], "on+1")
+            self.assertEqual(cache.record["frames"], 3)
+            self.assertEqual([cache.refusal(t) for t in (500.0, 1000.0, 2000.0, 3000.0,
+                                                          3500.0, 4000.0, 0.0, 2500.0)],
+                             ["thinned_out", None, "thinned_out", "thinned_out", None,
+                              "thinned_out", "outside_gate", "outside_gate"])
+            rx0, ry0, rx1, ry1 = cache.stored_rect("scoreboard")
+            # read backwards and skipping, so the reads seek
+            for smp in cache.samples([3500.0, 1000.0, 1500.0]):
+                self.assertTrue(np.array_equal(smp.frame[ry0:ry1, rx0:rx1],
+                                               frames[smp.frame_idx // 30][ry0:ry1, rx0:rx1]))
+            # the stored cache is untouched, and a thinned cache is not thinned again
+            self.assertEqual(RoiCache._open(src, _manifest(), profile)[0].holds(),
+                             [500.0 * i for i in (1, 2, 3, 4, 6, 7, 8)])
+            with self.assertRaises(ValueError):
+                thin_cache(dst, "s1", gate, Path(root) / "again", "test")
+
+    def test_thinning_refuses_to_write_over_or_to_widen(self):
+        from reticle.roi_cache import cache_dir, scoreboard_gate, thin_cache
+        _needs_ffmpeg(self)
+        with tempfile.TemporaryDirectory() as root:
+            self.write_old(Path(root))
+            src = cache_dir(Path(root), "scoreboard")
+            gate, _ = scoreboard_gate(_strip_rows(self.VERDICTS))
+            with self.assertRaises(ValueError):
+                thin_cache(src, "s1", gate, src, "test")
+            wide, _ = scoreboard_gate(_strip_rows(self.VERDICTS), margin=2)
+            with self.assertRaises(ValueError):
+                thin_cache(src, "s1", wide, Path(root) / "thinning", "test")
+
+    def test_spans_mask_is_in_spans(self):
+        from reticle.roi_cache import in_spans, spans_mask
+        spans = [[0.0, 1.0], [5.0, 6.0]]
+        t = [-1, 0, 1, 1.5, 3, 5, 6, 7]
+        self.assertEqual(spans_mask(t, spans).tolist(), [in_spans(x, spans) for x in t])
+        self.assertEqual(spans_mask(t, []).tolist(), [False] * len(t))
+
+    def test_spans_within(self):
+        from reticle.roi_cache import spans_within
+        outer = [[0.0, 2.0], [5.0, 6.0]]
+        self.assertTrue(spans_within([[0.0, 1.0], [5.0, 5.0]], outer))
+        self.assertTrue(spans_within([], outer))
+        self.assertFalse(spans_within([[1.0, 5.0]], outer))
+        self.assertFalse(spans_within([[-1.0, 0.0]], outer))
+        self.assertFalse(spans_within([[5.5, 7.0]], outer))
+        self.assertFalse(spans_within([[0.0, 0.0]], []))
 
 
 class ScoreboardCacheTrialTest(unittest.TestCase):
@@ -711,23 +819,23 @@ class ScoreboardCacheTrialTest(unittest.TestCase):
             store.write_events("scoreboard", "s1", beside.events("s1"))
             cache, why = RoiCache.load(Path(root), man, profile, "scoreboard")
             self.assertIsNone(why)
-            self.assertEqual(cache.holds(), [500.0, 1000.0, 1500.0, 2000.0, 2500.0])
+            self.assertEqual(cache.holds(), [1000.0, 1500.0, 2000.0])
             self.assertEqual(cache.record["gate"], gate)
             self.assertEqual(cache.record["frames_offered"], 8)
-            self.assertEqual(sorted(set(cache.frame_idx.tolist())), [30, 60, 90, 120, 150])
+            self.assertEqual(sorted(set(cache.frame_idx.tolist())), [60, 90, 120])
             rx0, ry0, rx1, ry1 = cache.stored_rect("scoreboard")
             for got in cache.samples(cache.holds()):
                 src = frames[got.frame_idx // 30]
                 self.assertTrue(np.array_equal(got.frame[ry0:ry1, rx0:rx1],
                                                src[ry0:ry1, rx0:rx1]))
                 self.assertEqual(int(got.frame[:, :rx0].max()), 0)
-            at = {500.0 * i for i in range(1, 6)}
+            at = {500.0 * i for i in range(2, 5)}
             line = lambda r: json.dumps(r, separators=(",", ":"), allow_nan=False)
             stored = [line(r) for r in store.read_events("scoreboard", "s1")
                       if r["kind"] != "coverage" and r["t_ms"] in at]
-            for name, want in (("occupied", {}), ("all", {"outside_gate": 3})):
+            for name, want in (("occupied", {}), ("all", {"outside_gate": 5})):
                 res = run(store, man, reader="scoreboard", source="cache", windows=name)
-                self.assertEqual((res["frames"], res["refused"]), (5, want), name)
+                self.assertEqual((res["frames"], res["refused"]), (3, want), name)
                 d = res["diff"]["scoreboard"]
                 self.assertEqual((d["only_trial"], d["only_stored"]), (0, 0), name)
                 self.assertEqual(d["same"], d["stored_rows"])

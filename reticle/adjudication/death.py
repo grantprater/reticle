@@ -1657,6 +1657,46 @@ def stored_second_life(portrait_rows: list[dict], version: str) -> list[dict] | 
     return [r for r in portrait_rows if r.get("kind") == "second_life_observation"]
 
 
+#: The revive icons (`REVIVE_ICONS`, stored as the verdict's `weapon`) whose
+#: revive returns the revived player's kit, keyed by icon: the agents it
+#: applies to, or None for any. A teammate Sage's Resurrection revives any
+#: ally, and Clove's Not Dead Yet only Clove
+#: [domain:rounds/resurrection-mechanics]. NULL/cmd's revive entry stabilises
+#: a downed KAY/O [domain:killfeed/kayo-downed-entry], and he gets his kit
+#: back as it stood before the down
+#: [domain:abilities/kayo-null-cmd-stabilise-restores-kit]; the agent is
+#: compared across the asset spelling (`tray_kit.same_agent`). Until
+#: 2026-10-05 NULL/cmd was left out, its kit an open question.
+KIT_REVIVE_ICONS = {"Resurrection": None, "Not Dead Yet": ("Clove",), "NULL/cmd": ("KAY/O",)}
+
+
+def player_revive_times(verdict_rows: list[dict], agent: str | None) -> list[float]:
+    """The instants of the stored `death_verdict` revives that brought the
+    player back, from any reviver: a revive entry names the reviver left and
+    the revived right, both of one team [domain:killfeed/revive-entries], so
+    the player is revived where an ally-side revive names `agent` as its
+    victim and its icon is one of KIT_REVIVE_ICONS that applies to `agent`.
+    Clove's Not Dead Yet is a self-revive with the player as reviver too, so
+    for a Clove player a revive on the player's own entry (`kf_player_kill`)
+    counts where its victim went unnamed. No `agent` names no victim, and
+    only that own-entry case remains. Names compare across the asset
+    spelling (`tray_kit.same_agent`: KAY/O is KAY_O)."""
+    from .tray_kit import same_agent
+    out = []
+    for r in verdict_rows:
+        if r.get("kind") != "death_verdict" or not r.get("is_revive") or r.get("t_ms") is None:
+            continue
+        icon = r.get("weapon")
+        fits = icon in KIT_REVIVE_ICONS and (KIT_REVIVE_ICONS[icon] is None or any(
+            same_agent(agent, a) for a in KIT_REVIVE_ICONS[icon]))
+        named = (agent is not None and fits and r.get("side") == "ally"
+                 and same_agent(r.get("victim"), agent) is True)
+        own = agent == "Clove" and bool(r.get("kf_player_kill"))
+        if named or own:
+            out.append(float(r["t_ms"]))
+    return sorted(out)
+
+
 def split_second_lives(deaths: list[dict], observations: list[dict] | None
                        ) -> tuple[list[dict], list[dict]]:
     """The player's killfeed death tracks split into (deaths, second lives) by

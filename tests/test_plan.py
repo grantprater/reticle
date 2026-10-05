@@ -369,14 +369,14 @@ class PlanTests(unittest.TestCase):
             self.assertIn("round_outcome_claim_version", got["inputs_moved"])
             self.assertIn("scoreboard_strip", got["inputs_moved"])
 
-    def test_the_waiver_accepts_scoreboard_0_12_0_and_names_it(self):
-        """The player's 2026-09-29 waiver: a 0.12.0 board stream, and the
-        deaths and openings read from it, are not stale under 0.13.0, and
-        `plan` names them as accepted by waiver. 0.11.0 and 0.10.0 stay stale."""
+    def test_the_0_13_0_waiver_lapses_under_0_14_0(self):
+        """The player's 2026-09-29 waiver accepted a 0.12.0 board stream as
+        0.13.0. Under 0.14.0, whose numbers read differently, it names
+        nothing: 0.13.0, 0.12.0 and older boards are all stale."""
         from reticle.adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
         from reticle.version import (SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION,
                                      STAMP_WAIVERS)
-        self.assertEqual(SCOREBOARD_VERSION, "scoreboard-0.13.0")
+        self.assertEqual(SCOREBOARD_VERSION, "scoreboard-0.14.0")
         self.assertEqual([k for k in STAMP_WAIVERS if k[0].startswith("scoreboard-")],
                          [("scoreboard-0.13.0", "scoreboard-0.12.0")])
         from reticle.roi_cache import ROI_CACHE_VERSION
@@ -387,8 +387,8 @@ class PlanTests(unittest.TestCase):
             store.events["scoreboard_presence:rows"] = [
                 {"scoreboard_presence_version": SCOREBOARD_AGENT_VERSION,
                  "scoreboard_strip_version": SCOREBOARD_STRIP_VERSION}]
-            for old, is_stale in (("scoreboard-0.12.0", False), ("scoreboard-0.11.0", True),
-                                  ("scoreboard-0.10.0", True)):
+            for old, is_stale in (("scoreboard-0.13.0", True), ("scoreboard-0.12.0", True),
+                                  ("scoreboard-0.11.0", True)):
                 store.events["scoreboard"] = [{"v": old}]
                 store.events["death:rows"][0]["inputs"]["scoreboard"] = old
                 store.events["scoreboard_presence:rows"][0]["scoreboard_version"] = old
@@ -637,6 +637,39 @@ class AbilitySupplyStaleTests(unittest.TestCase):
             self.assertFalse(_ability_stale(store, "s", ("ability_fit",)))
 
 
+class AbsentPassStreamTests(unittest.TestCase):
+    """A pass stream that reads another pass stream's rows (the glyph reader
+    reads the proposer's) is stale where the pass ran without it; a pass
+    stream with no upstream in the pass, absent, is a stream never asked for."""
+
+    def _store(self, d, stored):
+        store = _current_store(Path(d))
+        for stream in stored:
+            f = Path(d) / "events" / stream / "s.jsonl"
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("{}", encoding="utf-8")
+            store.events[stream + ":rows"] = [_declared_head(stream)]
+            store.events[stream] = [{"v": _declared_head(stream)[f"{stream}_version"]}]
+        return store
+
+    def test_the_glyph_stream_is_stale_where_the_proposer_ran(self):
+        with tempfile.TemporaryDirectory() as d:
+            derived = stale(self._store(d, ["ability_icon"]), ["s"])["s"]["derived"]
+            glyph = [x for x in derived if x["stream"] == "ability_glyph"]
+            self.assertEqual(len(glyph), 1)
+            self.assertEqual(glyph[0]["inputs_moved"], ["absent from a pass that ran"])
+            self.assertEqual(glyph[0]["command"], "reticle scan s --only ability")
+            self.assertIsNone(glyph[0]["stored"])
+
+    def test_no_absent_stream_is_named_where_the_proposer_never_ran(self):
+        with tempfile.TemporaryDirectory() as d:
+            derived = stale(self._store(d, ["ability_gate"]), ["s"])["s"]["derived"]
+            self.assertEqual([x for x in derived if x["inputs_moved"] == ["absent from a pass that ran"]],
+                             [])
+            derived = stale(self._store(d, []), ["s"])["s"]["derived"]
+            self.assertEqual(derived, [])
+
+
 class EnemyLaneStaleTests(unittest.TestCase):
     """The enemy lane: each fix is part of the `minimap_object` stamp, so a
     stream read with a fix off is stale, and the tracks and deaths built on it
@@ -686,12 +719,14 @@ class InputCycleTests(unittest.TestCase):
         self.assertEqual(input_cycles(), [])
 
     def test_the_loops_are_the_declared_feedback(self):
-        # the reliability table, and the assist verdicts the deaths join back
+        # the reliability table, the assist verdicts the deaths join back, and
+        # the own ult lines the cast gate reads
         from reticle.plan import input_cycles, input_graph
         self.assertEqual(input_cycles(input_graph(feedback=True)),
                          [["assist", "death", "assist"],
                           ["assist", "killfeed_assist", "death", "assist"],
-                          ["death", "reliability", "death"]])
+                          ["death", "reliability", "death"],
+                          ["tray_drop", "ult_cast", "tray_drop"]])
 
     def test_a_loop_is_found(self):
         from reticle.plan import input_cycles
@@ -1043,3 +1078,35 @@ class SpanPlanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GlyphDrawingAnswersInputTests(unittest.TestCase):
+    """The glyph verdict reads the player's drawing answers; a new answer that
+    moves what it reads restales `ability_glyph_name`, and one that does not
+    leaves it current."""
+
+    def test_a_changed_answer_restales_the_verdict(self):
+        import json
+
+        from reticle.adjudication.ability_glyph import DRAWING_ANSWERS
+        from reticle.plan import inputs_moved
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            store = _Store(root)
+            man = store.read_manifest("s")
+            p = root / DRAWING_ANSWERS
+            p.parent.mkdir(parents=True)
+
+            def answer(key, value):
+                with open(p, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps({"key": key, "kind": "visibility", "answer": value,
+                                         "unsure": False}) + "\n")
+            answer("visibility:Chamber:Q:ally", "nothing")
+            head = record_inputs(store, man, "ability_glyph_name", {})
+            self.assertTrue(head["inputs"]["drawing_answers"].startswith("drawing-answers#"))
+            self.assertEqual(inputs_moved(store, man, "ability_glyph_name", head), ([], []))
+            answer("visibility:Chamber:Q:enemy", "icon")
+            self.assertEqual(inputs_moved(store, man, "ability_glyph_name", head)[0], [])
+            answer("visibility:Chamber:Q:ally", "icon")
+            self.assertEqual(inputs_moved(store, man, "ability_glyph_name", head)[0],
+                             ["drawing_answers"])

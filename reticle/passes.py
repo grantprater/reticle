@@ -163,7 +163,6 @@ def run(ctx: SessionContext, readers: list, progress=None, usage=None) -> int:
         duplicates = sorted({name for name in names if names.count(name) > 1})
         raise ValueError(f"reader names must be unique: {', '.join(duplicates)}")
     req = {r.name: (r.hz, r.spans) for r in readers}
-    by_name = {r.name: r for r in readers}
     n = 0
     backend = {}
     if usage is not None:
@@ -171,8 +170,12 @@ def run(ctx: SessionContext, readers: list, progress=None, usage=None) -> int:
     frames = sample_multi(str(ctx.media), ctx.fps, req, info=backend)
     for who, smp in (usage.timed_frames(frames) if usage is not None else frames):
         n += 1
-        for name in who:
-            _feed(by_name[name], smp, usage)
+        # In the readers' order, as `run_cached` feeds them: a reader may read
+        # the row an earlier one wrote for the same sample
+        # (`minimap_glyph.LiveIcons`); `who` is a set.
+        for r in readers:
+            if r.name in who:
+                _feed(r, smp, usage)
         if progress is not None:
             progress(n, smp)
     for r in readers:
@@ -313,5 +316,7 @@ def _feed(reader, smp, usage) -> None:
 
 
 def _cache_rois(reader) -> tuple[str, ...]:
+    """The crops a pass decodes for `reader`: the ROIs it declares it reads
+    (`roi_cache.declare_set`), else its whole cache set."""
     from .roi_cache import CACHE_SETS
-    return CACHE_SETS[reader.cache_set]
+    return tuple(getattr(reader, "cache_rois", None) or CACHE_SETS[reader.cache_set])

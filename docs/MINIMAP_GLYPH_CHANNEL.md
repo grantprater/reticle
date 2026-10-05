@@ -312,7 +312,7 @@ caster's name, as for every name.
 **Where it runs.** It joins the ability pass (`reticle scan <sid> --only
 ability`), which rereads the minimap crop cache at 2 Hz on live spans, as a
 `passes.Reader`. Sharing the pass is an execution optimisation: the reader
-keeps its own stamp `ability-glyph-0.1.0`, and a change to the proposer
+keeps its own stamp (`ability-glyph-0.2.0`), and a change to the proposer
 restamps it only through its declared input. It reads the proposer's
 candidates for the same frame, never reruns the proposer, and never
 decodes video.
@@ -414,7 +414,10 @@ margin}`. An unread frame keeps its reason: `not_live`,
 (`not_for`: "tracks and lifecycles"), so the track joins there as
 `disc_tracks`, pure over stored rows: a 2 Hz birth, its follow fixes, and
 the later 2 Hz candidates its verify keeps. A track ends when the verify
-loses it (`score` None, stored) or the round ends. Track ids are
+loses it (`score` None, stored), holds it without binding a candidate, the
+next frame goes unread, or the stream ends; each end is stored with its
+reason (`TRACK_ENDS`). The join reads no rounds: the unread frames between
+rounds end every track. Track ids are
 `<sid>:adisc:<birth_t_ms>:<i>`. Each track stores its path length, its
 speed over its first second and its lifetime, the inputs the per-ability
 rules below read. A track switching objects, which the prototype saw twice,
@@ -440,9 +443,9 @@ pure over stored rows:
    its own null and its margin over the runner-up clears the tie margin;
    both come from the null table (gate 3), never a shared constant.
    Otherwise the track refuses with one reason: `below_null`,
-   `pairwise_tie`, `no_clean_frame`, `occluded`, `outside_candidate_set`
-   (the audit or surprise path named a kit outside the set),
-   `view_excluded`, `pending` (below).
+   `no_cut_for_key`, `pairwise_tie`, `no_clean_frame`, `occluded`,
+   `outside_candidate_set` (the audit or surprise path named a kit outside
+   the set), `view_excluded`, `not_drawn_per_answer` or `pending` (below).
 4. **Per-ability rules, from facts.** Each rule is the named ability's own,
    cites its fact, and runs only on tracks whose candidates include it:
    - Astra: a disc that scores best as a placed star names the track
@@ -463,6 +466,22 @@ pure over stored rows:
      applies it as base value x widget scale x map zoom, and runs only
      after the fact records the scale it was read at (or a dev
      measurement replaces it).
+   - The player's drawing answers (from `ability-glyph-name-0.2.0`): a
+     key the player answered draws `nothing` or only a `shape`
+     (`labels/minimap_glyph_questions/answers.jsonl`, read by
+     `ability_glyph.player_drawing`, the rule gate 4's queue reads too)
+     draws no glyph. A track whose best key is one refuses
+     `not_drawn_per_answer`, withholds its kit claim, stores the answer
+     row and the subject's appearance facts, and stores the surprise
+     `fact_contradicts:<key>`; the runner-up is not promoted. A texture the
+     player named with the state it draws outranks its key's visibility
+     answer: Astra's placed-inactive star stays `pending`. From
+     `ability-glyph-name-0.3.0`, a key of the recording player's own agent
+     (the lineup's self slot) reads the player's `self` answer first, then
+     `drawing`, then `ally`; any other caster's key never reads `self`. The
+     head records a digest of the ruled-out keys and texture states
+     (`inputs.drawing_answers`), which `plan` compares, so a new answer that
+     moves either restales the verdict.
    No rule carries to another ability by analogy
    [domain:abilities/ability-rules-are-unique].
 5. **State.** The winning texture's game-data state (inactive, active,
@@ -474,8 +493,10 @@ pure over stored rows:
 Output `ability_glyph_name`: per track, the ability (agent, game slot,
 display name) or `pending`, the texture and its state, the pooled scores of
 every candidate (the alternatives), margin, the rule that decided it, clean
-and skipped frames with reasons, and `rests_on` the lineup, `team_vision`,
-`tray_kit` and policy-table stamps.
+and skipped frames with reasons, and `rests_on` the lineup, the `tray_kit`
+(where it gave the views), the policy and null table stamps, and the answer
+row of a `not_drawn_per_answer` refusal. The portrait gate's `team_vision`
+is the reader's input, stamped in its own rows, not the verdict's.
 
 **The claim.** Per track whose winning kit is clear, one
 `identity.identity_claim` on channel `minimap_glyph`: the entity is the
@@ -551,10 +572,12 @@ In `reticle/plan.py`, beside the ability pass's streams:
   rotation policy table's version inside it), `ability_icon_version`;
   upstream `ability_icon`; inputs the geometry and `_lineup_inputs()`.
 - `ability_disc_track`: command `reticle ability-glyphs {sid}`, how
-  `storage`; upstream `ability_icon`, `ability_glyph`, `rounds`.
+  `storage`; upstream `ability_icon`, `ability_glyph`.
 - `ability_glyph_name`: same command, storage; fields the null table's
   version and the states table's version; upstream `ability_disc_track`,
-  `team_vision`, `tray_kit`; inputs `_lineup_inputs()`.
+  `ability_glyph`, `tray_kit`; inputs `_lineup_inputs()`. The portrait
+  cover comes from the reader's own gate, so `team_vision` is no input
+  (stage 3, below).
 - `ability_glyph_identity`: an identity stream, `producer_version` the
   aggregator's, parent `ability_glyph_name`.
 
@@ -726,13 +749,564 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    it reads upright and changes no policy. Outcome rows: store
    `notes/predictions.jsonl`, ts 2026-10-05T09:11:10Z, and the fix round's
    correction and outcome rows after it.
-2. **The reader** in the ability pass, `ability-glyph-0.1.0`; `reticle
-   trial --reader ability_glyph` on a06f04a0059f, 5822b6646448
+   - **Rebuilt for the 2026-10-05 rotation answers** (branch
+     `glyph-answers-20261005`, `glyph-tables-0.2.1`; store
+     `analysis/glyph-tables-20261005d`). The player answered that Seekers,
+     Cyber Cage and Trapwire turn
+     [domain:abilities/skye-seekers-minimap-glyph-turns-belief]
+     [domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief]
+     [domain:abilities/cypher-trapwire-minimap-glyph-turns-belief].
+     `glyph-rotation-policy-0.1.2` rotates
+     [metric:glyph_tables/policy_012#rotates=20] of
+     [metric:glyph_tables/policy_012#keys=116] keys; a player answer
+     decides [metric:glyph_tables/policy_012#by_answer=12] rows and
+     [metric:glyph_tables/policy_012#unsure=0] stay unsure. Skye:X stores
+     the table's one surprise
+     ([metric:glyph_tables/policy_012#surprises=1]): the two-flag rule
+     reads it upright. Only Cyber Cage's search changes: Skye:X and
+     Trapwire were already rotated as unsure, and Cypher:Q was upright by
+     default. In `glyph-null-table-0.2.1`
+     [metric:glyph_tables/build_021#cut_move_keys_moved=1] per-key cut
+     moved, Cypher:Q's, from
+     [metric:glyph_tables/build_021#cypher_q_cut_before=0.4367] to
+     [metric:glyph_tables/build_021#cypher_q_cut=0.5331]; no audit cut
+     moved ([metric:glyph_tables/build_021#cut_move_audit_keys_moved=0]),
+     and the bank cuts held: context
+     [metric:glyph_tables/build_021#bank_cut_context_cut=0.6596], full
+     [metric:glyph_tables/build_021#bank_cut_full_cut=0.8219] and audit
+     [metric:glyph_tables/build_021#audit_bank_cut=0.8608]. The build
+     counted each at its unrounded order statistic,
+     [metric:glyph_tables/build_021#bank_cut_context_rate=0.0476] of the
+     dev no-ability discs, but stored the cut rounded to nearest; as the
+     reader applies the stored cuts, the full and audit banks named
+     [metric:glyph_reader/rescore_022@dev#full_bank_named_before=4] and
+     [metric:glyph_reader/rescore_022@dev#audit_bank_named_before=4] of
+     [metric:glyph_reader/rescore_022@dev#negatives=63], over gate 3's 5%
+     (the full bank's fourth-highest score, 0.821934 at d95cfad5693a
+     39.90 s, clears its stored 0.8219). Master's 0.2.0 tables share the
+     defect. `glyph-tables-0.2.2` fixes it below. The per-key
+     cuts alone still name
+     [metric:glyph_tables/build_021#false_naming_context_cut=0.0952] in the
+     caster's kit. S1 fell from 58 to
+     [metric:glyph_tables/build_021#s1_single_policy=57] of
+     [metric:glyph_tables/build_021#dev_n=59]: one Trapwire item
+     (d95cfad5693a 24.60 s) now reads best as Cypher:Q, under its cut, so
+     no named decision changed. The controls reproduce
+     [metric:glyph_tables/build_021#control_rotate_all=55] and
+     [metric:glyph_tables/build_021#control_upright=35]. On the
+     [metric:glyph_reader/answers_021@heldout#n=19] held-out marks whose
+     caster's kit holds one of the three keys, the reader's matcher names
+     [metric:glyph_reader/answers_021@heldout#s1_before=19] before and
+     [metric:glyph_reader/answers_021@heldout#s1=19] after, no best key
+     changed. Outcome rows: `glyph-answers-20261005` in
+     `notes/predictions.jsonl`.
+   - **Cuts stored as counted** (`glyph-tables-0.2.2`, same branch; store
+     `analysis/glyph-tables-20261005e`, `analysis/glyph-bank-20261005e`).
+     `cut_at` returns the cut rounded up to 4 decimals, and every count is
+     taken at that stored value. Each cut equals 0.2.1's or rises by
+     0.0001; the policy rows and glyphs do not change. The bank cuts are
+     context [metric:glyph_tables/build_022#bank_cut_context_cut=0.6596],
+     full [metric:glyph_tables/build_022#bank_cut_full_cut=0.822] and audit
+     [metric:glyph_tables/build_022#audit_bank_cut=0.8609]; the reader's
+     matcher, rescoring the dev discs against them, names
+     [metric:glyph_reader/rescore_022@dev#context_bank_named=2],
+     [metric:glyph_reader/rescore_022@dev#full_bank_named=3] and
+     [metric:glyph_reader/rescore_022@dev#audit_bank_named=3] of 63, the
+     stored counts (full rate
+     [metric:glyph_tables/build_022#bank_cut_full_rate=0.0476]): gate 3's
+     bank form holds as applied. The per-key cuts alone name
+     [metric:glyph_tables/build_022#false_naming_context_cut=0.0794] in the
+     caster's kit and
+     [metric:glyph_tables/build_022#false_naming_full_cut=0.2063] in the
+     full set. S1 stays [metric:glyph_reader/rescore_022@dev#s1=57] of 59
+     and right items above their cut stay
+     [metric:glyph_reader/rescore_022@dev#right_above_cut=55]. Cypher:Q's
+     cut is [metric:glyph_tables/build_022#cypher_q_cut=0.5332]. In the
+     audit sample (the earlier draw, 200 context rows per session, decided
+     from the stored scores), [metric:glyph_reader/audit_022@all#context_cut_agree=600]
+     of 600 cut decisions agree (Wilson 95% lower bound
+     [metric:glyph_reader/audit_022@all#wilson95_lower=0.9936]; at most
+     0.5% disagreement by the rule of three), and no row of the three
+     trials' full context pools flips
+     ([metric:glyph_reader/audit_022@all#pool_flips=0]).
+2. **The reader** in the ability pass; `reticle trial --reader
+   ability_glyph` on a06f04a0059f, 5822b6646448
    (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`) and 4f207c0c4e39
-   (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`); gate 7.
+   (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`); gate 7. **Built,
+   `ability-glyph-0.2.0`, gate 7 met** (2026-10-05, `reticle/minimap_glyph.py`
+   [owns:ability-glyph]). It reads three versioned store files, never
+   `prototypes/`: the reference bank `glyph-bank-0.2.0` (store
+   `analysis/glyph-bank-20261005b`, written by `glyph_tables.py bank` from
+   the references the stage 1 tables were built on, paired to them by
+   sha256, each source with its game file and sha256; the glyphs equal
+   0.1.0's), the policy and the null table. It scores the lineup's kits
+   (`lineup.glyph_candidates`) under the policy on every ungated disc, the
+   first birth and every tenth after it against every kit at every rotation
+   (`audit`), and a window whose best context key never clears its per-key
+   cut against every kit when it closes (`surprise`). It runs the 2 Hz arm
+   only (S4); the cache-cadence follow is not built. `plan` names
+   `ability_glyph` stale where `ability_icon` is stored without it
+   (`plan.PASS_ADDED`). Outcome rows: store `notes/predictions.jsonl`,
+   `glyph-reader-20261005` (0.1.0) and `glyph-reader-fix-20261005` (0.2.0,
+   with the correction row that withdraws 0.1.0's revised beliefs).
+   - **Revisions after review (0.2.0).** The 0.1.0 reader scored every
+     proposer disc without stage 1's gates; on 4f207c0c4e39 most rows sat
+     on static map structure. Each disc row now stores `static_corr` against
+     the baked static and its nearest stored `ally_icon` portrait, and a
+     disc that is the map's (`static_like`, stage 1's MAP_CORR 0.7) or lies
+     inside a portrait (`on_ally_icon`) is neither scored nor scheduled.
+     Continuation is the proposer's verify
+     (`ability_icons.verified_continuations`), not a reach of the reader's
+     own. Context and frame rows rest on the lineup stamp. Audit rows store
+     no cut (`no_null_at_full_rotation`). The per-view gate (enemy kits only
+     their enemy-visible textures) is deferred: both sides' full kits are
+     scored, which widens the surprise and audit comparisons (R3, R4) and the
+     cost, all measured with it.
+   - The matcher reproduces stage 1 exactly: against the origin/master
+     prototype with its own normalisation, the largest per-key difference
+     on the 122 dev windows is [metric:glyph_reader/r1_020#max_abs_diff_cpu=0.0]
+     and S1 is [metric:glyph_reader/r1_020#s1_reader=58] of 59; on 200
+     scored rows per trial session it matches `frame_scores` within
+     [metric:glyph_reader/trial_020@4f207c0c4e39#r2_max_abs_diff=5.01e-05]
+     (the stored rounding), the best key on every row.
+   - The gates on 4f207c0c4e39: of the 0.1.0 trial's 12 most frequent
+     positions, a share
+     [metric:glyph_reader/trial_020@4f207c0c4e39#f1_gated_share=0.942] of
+     the rows are now gated, and the above-cut share there fell from
+     [metric:glyph_reader/trial_020@4f207c0c4e39#f1_old_above_share=0.6556]
+     to [metric:glyph_reader/trial_020@4f207c0c4e39#f1_above_share=0.0521].
+     Nearly all that remains sits at the widget's left edge, half over the
+     void, where the static correlation reads 0.64; the stage 1 rule does
+     not reach it, and a slab-only correlation did not either (probed, not
+     adopted). On the other two sessions the frequent positions are the
+     player's placed Deadlock:Q sensors, real glyphs the gate rightly keeps.
+     Births fell from 2798 to
+     [metric:glyph_reader/trial_020@4f207c0c4e39#births=933].
+   - Gate 7, as worded: in `reticle usage c40d950031bb` after one `scan
+     --only ability --from cache` (331 px; shape, icon and glyph readers
+     fed live) the glyph reader took a share
+     [metric:glyph_reader/scan_020@c40d950031bb#glyph_share_of_pass=0.0537]
+     of the pass ([metric:glyph_reader/scan_020@c40d950031bb#glyph_share_without_templates=0.0301]
+     without the one-time template build). In the trial on 4f207c0c4e39,
+     against the icon reader and the cache read alone, the ratio is
+     [metric:glyph_reader/trial_020@4f207c0c4e39#ratio=0.0635], from 0.1178
+     at 0.1.0. A trial reading the stored proposer rows (`StoredIcons`)
+     reproduced all [metric:glyph_reader/scan_020@c40d950031bb#stored_path_identical=3709]
+     rows the scan wrote live.
+   - The scale is a measured exception, held by parity, not insensitivity.
+     Rescored at the full transform (widget x zoom), the best key agrees on
+     only [metric:glyph_reader/trial_020@4f207c0c4e39#f4_best_agree_share=0.805]
+     of 200 rows at zoom 0.892 and the cut decision on
+     [metric:glyph_reader/trial_020@4f207c0c4e39#f4_cut_agree_share=0.885];
+     at zoom 1.0 both agree on every row. The null cuts hold only at the
+     basis they were measured on, the widget scale at dev zooms 0.887 and
+     1.0, which the trial sessions match. A session at another zoom needs a
+     null at its basis, or the tables rebuilt at the full transform.
+   - The surprise path takes
+     [metric:glyph_reader/trial_020@4f207c0c4e39#r3_share=0.3494],
+     [metric:glyph_reader/trial_020@a06f04a0059f#r3_share=0.5382] and
+     [metric:glyph_reader/trial_020@5822b6646448#r3_share=0.3197] of the
+     windows: the per-key cut alone still clears most windows after the
+     gates, as gate 3's bank rates warned. The audit's full rotated bank
+     puts its best key inside the lineup's kits on
+     [metric:glyph_reader/trial_020@4f207c0c4e39#r4_best_in_context=30] of
+     [metric:glyph_reader/trial_020@4f207c0c4e39#r4_cleared_audit_windows=65]
+     cleared windows there: a bank searched at every rotation wins on noise.
+     Audit rows need their own null before stage 3 compares them with
+     context verdicts (P5).
+   - **Revisions after the second review (0.3.0).** The portrait gate is
+     stage 1's `portrait_cover` itself, moved into `reticle/minimap_glyph.py`;
+     the prototype's follow calls it and reproduces stage 1 exactly (dev
+     58/59, every skip and score). The reader applies it to the stored
+     `ally_icon` fits and self icon: the stored `team_vision` puts the self
+     icon about 15 px off on the variant session. An ally fit within SAME_R
+     no longer gates its disc; the ring to OCC_R does. That regained
+     [metric:glyph_reader/trial_030@5822b6646448#regained=62] rows on
+     5822b6646448, Gekko discs with a white glyph and a teal rim, but also
+     [metric:glyph_reader/trial_030@4f207c0c4e39#regained=14] on
+     4f207c0c4e39 that are ally portraits the proposer proposed; the ring
+     gates [metric:glyph_reader/trial_030@4f207c0c4e39#newly_portrait_gated=171]
+     rows there that 0.2.0 scored. Births on 4f207c0c4e39 went from
+     [metric:glyph_reader/trial_030@4f207c0c4e39#births_before=933] to
+     [metric:glyph_reader/trial_030@4f207c0c4e39#births=844]. R1 and R2
+     hold: [metric:glyph_reader/r1_030#max_abs_diff_cpu=0.0] on the dev
+     windows, [metric:glyph_reader/trial_030@4f207c0c4e39#r2_max_abs_diff=5.0e-05]
+     on 200 trial rows. The glyph feed over the icon feed and the cache read
+     is [metric:glyph_reader/trial_030@4f207c0c4e39#ratio=0.062] on
+     4f207c0c4e39.
+   - **The void-corner disc stays scored.** The disc at (21, 91) on
+     4f207c0c4e39 is the void beside the radar ring at the variant
+     widget's corner. The baked static is placed right there; the void half
+     shows the world behind the widget, so no baked value predicts it, and
+     the static correlation over the map-art footprint alone is still
+     [metric:glyph_reader/trial_030@4f207c0c4e39#edge_onfootprint_corr_median=0.665].
+     The disc lies [metric:glyph_reader/trial_030@4f207c0c4e39#edge_footprint_share=0.195]
+     on the footprint, but real glyphs drawn over the void do too:
+     [metric:glyph_reader/trial_030@4f207c0c4e39#heldout_marks_below_half_footprint=9]
+     of [metric:glyph_reader/trial_030@4f207c0c4e39#heldout_marks=226]
+     labelled held-out marks sit under half on it. A footprint gate, not
+     built, would have removed
+     [metric:glyph_reader/trial_030@4f207c0c4e39#fpgate_births=374] of 933
+     births there and real glyph rows on 5822b6646448. Stage 3 answers it.
 3. **Tracks, verdict, per-ability rules and claims** from storage; gates 4
    and 6. The ability pass first runs on the 21 matches in one batched
    corpus rerun; today `ability_icon` exists on five sessions only.
+   Prerequisites, from stage 2's review (2026-10-05, branch
+   `glyph-prereqs-20261005`: `glyph-tables-0.2.0`, `glyph-null-table-0.2.0`
+   and `glyph-bank-0.3.0` in the store's `analysis/glyph-tables-20261005c`
+   and `analysis/glyph-bank-20261005c`, `ability-glyph-0.5.0`; prediction,
+   amendment, correction and outcome rows `glyph-prereqs-20261005` and
+   `glyph-prereqs-fix-20261005` in `notes/predictions.jsonl`; the reader
+   now reads `glyph-bank-0.3.2`, `glyph-rotation-policy-0.1.2` and
+   `glyph-null-table-0.2.2` from `analysis/glyph-bank-20261005e` and
+   `analysis/glyph-tables-20261005e`, stage 1's rebuild for the 2026-10-05
+   rotation answers with cuts stored as counted, with the glyphs unchanged and `ability-glyph-0.5.0`
+   unchanged, since its matcher, gates, windows and fields did not move;
+   `plan` sees the new `GLYPH_BANK_STAMP`):
+   - **The rebuilt tables in the trials.** 200 scored context rows per
+     session (the stage 2 F4 draw, rng 20261005, rescored from the stored
+     0.5.0 trials; master's tables reproduce every stored row) keep their
+     best key and cut decision on all 200 on 4f207c0c4e39, a06f04a0059f
+     and 5822b6646448 (Wilson 95% lower bound
+     [metric:glyph_reader/audit_021@4f207c0c4e39#context_best_agree_lo95=0.9812];
+     at most 1.5% disagreement by the rule of three): no lineup there
+     holds Cypher. The surprise rows search every key, and there rotated
+     Cyber Cage templates win on noise: of 200 surprise rows the best key
+     agrees on [metric:glyph_reader/audit_021@4f207c0c4e39#surprise_best_agree=181]
+     (95% interval [metric:glyph_reader/audit_021@4f207c0c4e39#surprise_best_agree_lo95=0.8564]
+     to [metric:glyph_reader/audit_021@4f207c0c4e39#surprise_best_agree_hi95=0.9383]),
+     [metric:glyph_reader/audit_021@a06f04a0059f#surprise_best_agree=186]
+     and [metric:glyph_reader/audit_021@5822b6646448#surprise_best_agree=193],
+     every change a new Cypher:Q best, and the per-key cut decision on
+     [metric:glyph_reader/audit_021@4f207c0c4e39#surprise_cut_agree=188],
+     [metric:glyph_reader/audit_021@a06f04a0059f#surprise_cut_agree=189]
+     and [metric:glyph_reader/audit_021@5822b6646448#surprise_cut_agree=198].
+     The full bank cut's decision agrees on every row
+     ([metric:glyph_reader/audit_021@4f207c0c4e39#surprise_bank_agree=200]
+     on each session). The prediction of 97% agreement failed; a surprise
+     verdict must read the bank cut, never the per-key cut alone.
+   - **A null at the full transform. Met.** The null table scores every
+     dev disc at `geometry.MapScale.scale` (widget x map zoom; the table's
+     `basis` map_scale) and the reader reads the same scale, so no session
+     needs a null at its own zoom. S1 names
+     [metric:glyph_tables/build_020#s1_single_policy=58] of
+     [metric:glyph_tables/build_020#dev_n=59] at the full transform (the
+     widget basis still reproduces stage 1's
+     [metric:glyph_tables/build_020#s1_single_policy_widget=58]); the median
+     key's cut moved [metric:glyph_tables/build_020#cut_move_median_abs=0.0152].
+     R1: the reader's matcher (unchanged since 0.4.0) equals the
+     prototype's at that scale
+     ([metric:glyph_reader/r1_040#max_abs_diff_cpu=0.0] on the dev windows,
+     S1 [metric:glyph_reader/r1_040#s1_reader=58]); R2: on 200 trial rows per
+     session within
+     [metric:glyph_reader/trial_050@4f207c0c4e39#r2_max_abs_diff=5.0e-05],
+     the best key on every row. F4 again, the 0.5.0 rows against 0.3.0's on
+     the same discs: at zoom 0.892 (4f207c0c4e39) the best key agrees on
+     [metric:glyph_reader/trial_050@4f207c0c4e39#f4_best_agree_share=0.6915]
+     and the cut decision on
+     [metric:glyph_reader/trial_050@4f207c0c4e39#f4_cut_agree_share=0.883];
+     at zoom 1.0 the best key on every row and the cut decision on
+     [metric:glyph_reader/trial_050@a06f04a0059f#f4_cut_agree_share=0.995]
+     (a06f04a0059f) and
+     [metric:glyph_reader/trial_050@5822b6646448#f4_cut_agree_share=0.995]
+     (5822b6646448). The prediction put 4f207c0c4e39's agreement at 75-90%
+     from stage 2's F4; it failed low, and the cause is the sample: stage
+     2's 200 rows held
+     [metric:glyph_reader/f4_sample@4f207c0c4e39#corner_rows=48] corner rows
+     that all agree, and its
+     [metric:glyph_reader/f4_sample@4f207c0c4e39#off_corner_rows=152] other
+     rows agree on
+     [metric:glyph_reader/f4_sample@4f207c0c4e39#off_corner_best_agree_share=0.7434];
+     the gated corner never enters the new sample.
+   - **Gate 3's unlabelled discs. Not met.** The null takes a proposer disc
+     no label names only from a frame the player painted exhaustively
+     (`labels/ability_paint`: the latest row per time is `exhaustive` and
+     sure), where no other icon is drawn, and only where the reader's own
+     gate decision (`minimap_glyph.disc_gates`) keeps it.
+     The [metric:glyph_tables/build_020#unlabelled_frames=12] such frames of
+     d95cfad5693a hold
+     [metric:glyph_tables/build_020#unlabelled_discs=46] proposer discs:
+     [metric:glyph_tables/build_020#unlabelled_near_label=38] lie at a
+     painted icon or labelled item and the other
+     [metric:glyph_tables/build_020#unlabelled_static_like=8] are static
+     structure the reader gates, so
+     [metric:glyph_tables/build_020#unlabelled_negatives_n=0] enter.
+     dae6f33f3f48 has no exhaustive frame, and nothing else vouches that an
+     unlabelled disc there is no ability. More exhaustive dev frames are
+     the way to meet it.
+   - **An audit null. Met.** Every key at every rotation on the same dev
+     discs: each key's `audit_cut` (median
+     [metric:glyph_tables/build_020#audit_median_key_cut=0.6675] against
+     [metric:glyph_tables/build_020#policy_median_key_cut=0.5553] at the
+     policy) and the audit bank cut
+     [metric:glyph_tables/build_020#audit_bank_cut=0.8608] (rate
+     [metric:glyph_tables/build_020#audit_bank_rate=0.0476], counted at
+     the unrounded cut; the reader named
+     [metric:glyph_reader/rescore_022@dev#audit_bank_named_before=4] of 63
+     at the stored 0.8608, fixed in `glyph-tables-0.2.2`). Audit rows now
+     store both (`best_cut`, `bank_cut`). In the trials, every audit window
+     whose best key clears the audit bank cut has that key inside the
+     lineup's kits ([metric:glyph_reader/trial_050@4f207c0c4e39#c2_best_in_context=8]
+     of [metric:glyph_reader/trial_050@4f207c0c4e39#c2_cleared=8],
+     [metric:glyph_reader/trial_050@a06f04a0059f#c2_best_in_context=15] of
+     [metric:glyph_reader/trial_050@a06f04a0059f#c2_cleared=15],
+     [metric:glyph_reader/trial_050@5822b6646448#c2_best_in_context=22] of
+     [metric:glyph_reader/trial_050@5822b6646448#c2_cleared=22]).
+   - **The void-corner disc. Met, with a stated cost.** The `map_shown`
+     gate (`reticle/minimap_glyph.py`, MAP_SHOWN): a drawn icon is an
+     opaque dark disc that hides the map art under it, so over the disc's
+     body on the footprint the crop's 10th-percentile luma over the baked
+     static's reads far under 1 on an icon and near 1 on static structure.
+     What was blind and what was not: the cut 0.73 and the percentile were
+     chosen on dev only, at the midpoint of the
+     [metric:glyph_tables/map_shown_dev#n_glyph=59] dev glyph items'
+     maximum ([metric:glyph_tables/map_shown_dev#glyph_q10_min=0.1406] to
+     [metric:glyph_tables/map_shown_dev#glyph_q10_max=0.4872]) and the
+     [metric:glyph_tables/map_shown_dev#n_static=8] static dev discs'
+     minimum ([metric:glyph_tables/map_shown_dev#static_q10_min=0.9744] to
+     [metric:glyph_tables/map_shown_dev#static_q10_max=1.0598]). The rule
+     family (judge the footprint part, never gate on footprint share) and
+     the footprint floor MAP_SHOWN_MIN_FP 0.1 were chosen knowing the
+     corner's footprint share (about 0.2) and that 9 of 226 held-out marks
+     sit under half on the footprint; dev alone does not choose the floor
+     (dev glyph items lie
+     [metric:glyph_tables/map_shown_dev#glyph_fp_share_min=0.899] or more on
+     the footprint, the static discs
+     [metric:glyph_tables/map_shown_dev#static_fp_share_min=0.427] to
+     [metric:glyph_tables/map_shown_dev#static_fp_share_max=0.483]).
+     At 0.4.0 the score read the matcher disc alone, which excludes an
+     icon's dark rim: where the footprint part fell on the white glyph it
+     read bright, and the gate refused
+     [metric:glyph_reader/strong_040@4f207c0c4e39#map_shown_gated=4] of
+     [metric:glyph_reader/strong_040@4f207c0c4e39#strong_rows=226]
+     off-corner rows 0.3.0 scored at 0.85 or more on 4f207c0c4e39, four
+     opaque icons with a white ring glyph, and
+     [metric:glyph_reader/strong_040@5822b6646448#map_shown_gated=4] of
+     [metric:glyph_reader/strong_040@5822b6646448#strong_rows=2881] on
+     5822b6646448 (a translucent grey disc). 0.5.0 reads the body, the
+     matcher disc united with the proposer's disc of radius r, so the rim
+     enters; on dev the cut stays at the midpoint (glyph items
+     [metric:glyph_tables/map_shown_dev#glyph_body_max=0.4872] at most,
+     static discs [metric:glyph_tables/map_shown_dev#static_body_min=0.9744]
+     at least), frozen before any 0.5.0 trial row was read; the family
+     itself was informed by the four 4f207c0c4e39 rows. On 4f207c0c4e39 it
+     removes all
+     [metric:glyph_reader/trial_050@4f207c0c4e39#corner_scored_before=574]
+     scored corner rows (now
+     [metric:glyph_reader/trial_050@4f207c0c4e39#corner_scored=0]) and their
+     [metric:glyph_reader/trial_050@4f207c0c4e39#corner_births_before=237]
+     births, and scores all
+     [metric:glyph_reader/trial_050@4f207c0c4e39#four_scored=4] icons the
+     0.4.0 score refused; births fell from
+     [metric:glyph_reader/trial_050@4f207c0c4e39#births_before=844] to
+     [metric:glyph_reader/trial_050@4f207c0c4e39#births=507]. One tile per
+     gated position cluster, viewed: every one is map structure (wall
+     notches, building corners, the void corner). Strong rows refused:
+     [metric:glyph_reader/trial_050@4f207c0c4e39#strong_map_shown=0],
+     [metric:glyph_reader/trial_050@5822b6646448#strong_map_shown=0] and
+     [metric:glyph_reader/trial_050@a06f04a0059f#strong_map_shown=0]. The
+     cost that remains: on 5822b6646448 it gates
+     [metric:glyph_reader/trial_050@5822b6646448#map_shown_rows=1] row, a
+     dark disc with a white glyph whose proposer disc sits on the glyph off
+     the icon's centre, so the body misses most of the rim; a translucent
+     icon still breaks the premise in principle. The margin under the cut
+     on scored rows: on 4f207c0c4e39 the median
+     [metric:glyph_reader/trial_050@4f207c0c4e39#scored_map_shown_q50=0.4872],
+     the 99th percentile
+     [metric:glyph_reader/trial_050@4f207c0c4e39#scored_map_shown_q99=0.547],
+     the maximum
+     [metric:glyph_reader/trial_050@4f207c0c4e39#scored_map_shown_max=0.6579],
+     and [metric:glyph_reader/trial_050@4f207c0c4e39#scored_map_shown_060_cut=6]
+     rows between 0.6 and the cut; the maximum on 5822b6646448
+     [metric:glyph_reader/trial_050@5822b6646448#scored_map_shown_max=0.5812]
+     and on a06f04a0059f
+     [metric:glyph_reader/trial_050@a06f04a0059f#scored_map_shown_max=0.5556].
+     The scored maximum sits closer to the cut than the dev glyph maximum.
+     The held-out falsifier, read after the freeze: at the mark position
+     [metric:glyph_reader/heldout_050@heldout#map_shown_gated=40] of
+     [metric:glyph_reader/heldout_050@heldout#marks=226] marks read at or
+     above the cut, none with a proposer disc within 8 px x scale (smokes,
+     walls, other shapes the reader never scores); of the
+     [metric:glyph_reader/heldout_050@heldout#snapped=161] marks a disc
+     snaps to, [metric:glyph_reader/heldout_050@heldout#snapped_gated=0]
+     are gated. Stage 3 reads `map_shown` beside the verdict and must keep
+     a dimmed device's track from being dropped by it; the dimmed state
+     needs its own fact first [domain:minimap/device-dim-on-deactivation].
+   - Gate 7 holds within its bound of 0.10, and the ratio varies between
+     runs: the glyph feed over the icon feed and the cache read on
+     4f207c0c4e39 is
+     [metric:glyph_reader/trial_050@4f207c0c4e39#ratio=0.0805] at 0.5.0,
+     and two runs of 0.4.0 read
+     [metric:glyph_reader/trial_040@4f207c0c4e39#ratio=0.0701] and
+     [metric:glyph_reader/gate7_repeat_040@4f207c0c4e39#ratio=0.08]
+     (0.3.0 [metric:glyph_reader/trial_040@4f207c0c4e39#ratio_before=0.0619]).
+
+   **Stage 3 results (2026-10-05, branch `glyph-stage3-20261005`).** Built:
+   `adjudication.ability.disc_tracks` (`ability-disc-track-0.1.0`),
+   `adjudication.ability_glyph` (`ability-glyph-name-0.1.0`) and
+   `reticle ability-glyphs <sid>`, which writes `ability_disc_track`,
+   `ability_glyph_name` and `ability_glyph_identity`. The handful:
+   4f207c0c4e39 (the void corner), 223d636bf8d2 (an Astra ally) and
+   7010b3d62460 (a Cypher ally), rescanned from the crop cache with
+   `--only ability` (streams backed up under the store's
+   `backups/glyph-stage3-20261005/`). Predictions and outcome rows
+   `glyph-stage3-20261005` in `notes/predictions.jsonl`; the run is the
+   store's `analysis/glyph-stage3-20261005/matches_tray/`, whose tray
+   numbers read `tray-0.1.0` drops, the only drops these matches hold.
+   **The fix round (ability-glyph-name-0.2.0, glyph-stage3-eval-0.2.0).**
+   The judge found named tracks on keys the player answered draw nothing
+   (Chamber:Q, Clove:C) or a shape (Phoenix:C); Phoenix:C's answer stands
+   beside [domain:abilities/phoenix-blaze-no-minimap-icon], Clove:C's beside
+   [domain:abilities/clove-rouse], and Chamber:Q has only the answer. The
+   verdict now refuses them (above). Rerun store-only on the same handful
+   (0.1.0 streams backed up under `backups/glyph-stage3-20261005/name-0.1.0/`)
+   into `analysis/glyph-stage3-20261005/matches_n1/`, prediction and
+   outcome rows `glyph-stage3-20261005` of 2026-10-05T20:26Z: no named
+   track carries such a key
+   ([metric:glyph_stage3/matches@handful#N1_named_not_drawn=0], and
+   [metric:glyph_stage3/matches@handful#N1_claims_named_not_drawn=0]
+   claims), and [metric:glyph_stage3/matches@handful~2026-10-05T14:30:46#N1_refused_not_drawn=30]
+   tracks refuse `not_drawn_per_answer`: the 11 the judge counted plus 19
+   `pairwise_tie` tracks whose kit claim the rule now withholds. Named
+   tracks fall to [metric:glyph_stage3/matches@handful#named=235]; the 147
+   Astra stars stay pending; P4 does not move, since the rule runs after
+   the cut. The numbers below are this run's. Ask the player what the
+   Phoenix:C glyph on 7010b3d62460 at 405 s and 1869 s is; the verdict no
+   longer decides it. *Corrected 2026-10-05 (branch
+   `blaze-and-conflicts-20261005`):* the player answered that the glyph is
+   Blaze's FireWall icon, drawn while the wall is drawn
+   [domain:abilities/phoenix-blaze-icon-leads-wall]; the no-icon fact now
+   denies only the High Tide texture. Revision rows restore icon_and_shape
+   for every Phoenix:C view, which changes the drawing-answers stamp: `plan`
+   names the Phoenix:C verdict stale, and the handful reruns from storage.
+   **The own-caster round (ability-glyph-name-0.3.0, glyph-stage3-eval-0.3.0).**
+   The verdict read only the `drawing` and `ally` answers, so a `self`
+   answer never ruled out the player's own key. Now it does (above), and
+   gate 6's tray arm reads the same own-caster map. Rerun store-only
+   (0.2.0 streams under `backups/glyph-stage3-20261005/name-0.2.0/`) into
+   `analysis/glyph-stage3-20261005/matches_own/`, prediction and outcome
+   rows `glyph-own-caster-drawing-20261005`: on 7010b3d62460 (the player
+   on Phoenix) the 9 Phoenix:X `pairwise_tie` tracks refuse
+   `not_drawn_per_answer`
+   ([metric:glyph_stage3/matches@7010b3d62460#refused_not_drawn_per_answer=18],
+   was 9); 4f207c0c4e39 and 223d636bf8d2 do not move
+   ([metric:glyph_stage3/matches@4f207c0c4e39#refused_not_drawn_per_answer=7],
+   [metric:glyph_stage3/matches@223d636bf8d2#refused_not_drawn_per_answer=14]).
+   Named tracks stay [metric:glyph_stage3/matches@handful#named=235], none
+   on a not-drawn key
+   ([metric:glyph_stage3/matches@handful#N1_named_not_drawn=0]), and
+   [metric:glyph_stage3/matches@handful#N1_refused_not_drawn=39] refuse.
+   - **P4 failed.** Of tracks with a clean sample,
+     [metric:glyph_stage3/matches@handful#P4_below_null=660] of
+     [metric:glyph_stage3/matches@handful#P4_n=1460] refuse `below_null`
+     ([metric:glyph_stage3/matches@handful#P4_share=0.4521], 95% interval
+     [metric:glyph_stage3/matches@handful#P4_wilson95_lo=0.4267] to
+     [metric:glyph_stage3/matches@handful#P4_wilson95_hi=0.4777]; per match
+     [metric:glyph_stage3/matches@4f207c0c4e39#below_null_share=0.6031],
+     [metric:glyph_stage3/matches@223d636bf8d2#below_null_share=0.2719],
+     [metric:glyph_stage3/matches@7010b3d62460#below_null_share=0.5802]).
+     The Omen clause stays unmeasured: the rule refuses `scale_unrecorded`
+     on every Omen track. Named tracks:
+     [metric:glyph_stage3/matches@4f207c0c4e39#named=48],
+     [metric:glyph_stage3/matches@223d636bf8d2#named=91] (and
+     [metric:glyph_stage3/matches@223d636bf8d2#pending=147] Astra stars) and
+     [metric:glyph_stage3/matches@7010b3d62460#named=96]. Montages of 24
+     pending tiles on 223d636bf8d2 show a star on every tile.
+   - **P5 holds on seven pairs.** Where both paths name a key they agree on
+     [metric:glyph_stage3/matches@handful#P5_agree=7] of
+     [metric:glyph_stage3/matches@handful#P5_both_named=7] (lower bound
+     [metric:glyph_stage3/matches@handful#P5_wilson95_lo=0.6457]); of
+     [metric:glyph_stage3/matches@handful#P5_audit_tracks=167] audit
+     tracks, the context path alone names
+     [metric:glyph_stage3/matches@handful#P5_context_only=17]. The audit
+     claims stay out of the aggregator: gate 3's unlabelled discs are
+     unmet, so the audit null does not yet hold (`AUDIT_NULL_HOLDS`).
+   - **A1 holds under a one-kit context set; P6 is untested on the context
+     path.** No lineup is stored for a demo, so every mark's context set is
+     the session agent's kit, and no mark is another agent's ability
+     (`other_agent_marks` 0 on every arm): a kit-clear claim cannot name
+     the wrong agent, so the agent count below holds by construction. P6
+     is shown only on the audit path's every-kit arm, 9 of 9 agent and slot
+     right on the held-out marks, too few to test it. A1 was measured with
+     one kit of candidates and says nothing yet about lineup-sized sets,
+     where the Chamber:Q namings above appeared. Stage 2's held-out marks,
+     not gate 4's fresh set, and unchanged by 0.2.0: on the dev items the slot is right on
+     [metric:glyph_stage3/marks_dev_items@marks#slot_right=53] of
+     [metric:glyph_stage3/marks_dev_items@marks#named=53]; on the held-out
+     marks of other sessions on
+     [metric:glyph_stage3/marks_heldout@marks#slot_right=82] of
+     [metric:glyph_stage3/marks_heldout@marks#named=83] (lower bound
+     [metric:glyph_stage3/marks_heldout@marks#slot_lo95=0.9349]), the agent
+     on [metric:glyph_stage3/marks_heldout@marks#agent_right=108] of
+     [metric:glyph_stage3/marks_heldout@marks#kit_clear=108] kit-clear
+     tracks. Of the marks a track covers,
+     [metric:glyph_stage3/marks_heldout@marks#named_share_of_covered=0.6194]
+     get a named track; refusals
+     [metric:glyph_stage3/marks_heldout@marks#refused_below_null=21]
+     `below_null`, [metric:glyph_stage3/marks_heldout@marks#refused_pairwise_tie=4]
+     ties, [metric:glyph_stage3/marks_heldout@marks#pending=21] Astra
+     stars pending.
+   - **Gate 6 fails on the ally fragment.** Of named or kit-clear tracks
+     born within 34 px x scale and 250 ms of a resolved ally fix, the claim
+     names that ally
+     on [metric:glyph_stage3/matches@handful#G6_ally_agree=41] and another
+     agent on [metric:glyph_stage3/matches@handful#G6_ally_disagree=49]
+     (95% interval [metric:glyph_stage3/matches@handful#G6_ally_wilson95_lo=0.3566]
+     to [metric:glyph_stage3/matches@handful#G6_ally_wilson95_hi=0.5582]).
+     The disagreements, stored in `g6_disagreements.jsonl`, are mostly
+     placed devices (Chamber anchors, Astra stars, Cypher devices) that a
+     teammate walks past: nearness at birth is no caster witness for a
+     device. Against the player's tray drop, agree
+     [metric:glyph_stage3/matches@handful#G6_tray_agree=0], disagree
+     [metric:glyph_stage3/matches@handful#G6_tray_disagree=1], unnamed
+     [metric:glyph_stage3/matches@handful#G6_tray_unnamed=15]: too few to
+     judge. At 0.1.0 the two agreements were Phoenix:C namings on
+     7010b3d62460; the arm now drops the casts of keys the player answered
+     draw nothing or a shape.
+   - **Gate 7 holds.** The verdict runs in at most
+     [metric:glyph_stage3/matches@handful~2026-10-05T14:30:46#G7_max_wall_s=3.016] s per match.
+   - **The thrown icon's track.** Of the player's glyph births after a tray
+     drop, [metric:glyph_stage3/matches@handful#T1_single_fix=10] of
+     [metric:glyph_stage3/matches@handful#T1_births=16] tracks hold one
+     fix (lower bound [metric:glyph_stage3/matches@handful#T1_wilson95_lo=0.3864]),
+     under the 70% predicted, and
+     [metric:glyph_stage3/matches@handful#T1_gated_at_birth=8] were gated
+     at birth. At 2 Hz the verify loses a moving icon by its next sample, so
+     a thrown icon's track is one fix long and the follow at the cache's
+     cadence must carry it; that follow is not built.
+   - **The void corner.** On 4f207c0c4e39,
+     [metric:glyph_stage3/matches@4f207c0c4e39#c1_tracks=295] tracks touch
+     it and [metric:glyph_stage3/matches@4f207c0c4e39#c1_named=0] are named;
+     every one is `no_clean_frame` under `map_shown` or `static_like`.
+   - **`map_shown` beside the verdict.** No named track holds a
+     `map_shown` sample
+     ([metric:glyph_stage3/matches@handful#V1_inner=0] between clean
+     samples), so no dimmed device lost its track to the gate here; the
+     dim state still needs its fact before a test can seek one.
+   - **I1 holds by construction**
+     ([metric:glyph_stage3/matches@handful#I1_changes=0] changes): it
+     compares the lineup's `agent_identity`, which never reads
+     `ability_glyph_identity`, and the hashes of identity streams this
+     command does not write, against a snapshot taken after two of the
+     three `ability_glyph` rescans. It can fail only once a consumer reads
+     the new stream.
+   - **The view gate is barely exercised.** 223d636bf8d2 and 7010b3d62460
+     hold no current `tray_kit` rows (coverage `views.reason`
+     `no_tray_kit`), so every sample there is `view_unknown`; only
+     4f207c0c4e39 applies views, and no sample leaves there
+     (`view_excluded` 0). A match with current `tray_kit` rows would test
+     the gate.
+   - **Gate 4's fresh set cannot be met from the store.** The queue
+     (`label_minimap_glyph_heldout.py --pass gate4`,
+     `minimap-glyph-gate4-queue-0.1.0`, unlabelled) excludes every session
+     a stage used and keeps five: two census demos (Clove, Viper) and three
+     matches where the player plays Phoenix or Clove. The player's answers
+     put every one of their abilities but Phoenix's X out of scope (nothing
+     or a shape), so the queue holds 20 items, 8 of them after a glyph
+     cast. Gate 4 needs captures of glyph-drawing agents that no stage has
+     used, or a match pass that asks every ally's icon with the lineup's
+     kits.
+
 4. **The lane and `reticle view`**; gate 5.
 5. **The scene model.** The glyph textures become an ability sprite in
    `docs/SCENE_MODEL.md`'s renderer, composited over the baked static at
@@ -775,8 +1349,18 @@ draft:
   [domain:minimap/spectator-view-matches-self]: the player is unsure, and
   the views gate rests on it.
 - Births per cast per ability, for the Riot bound.
-- Two rotation answers (Cypher:C, Skye:X), and the two-flag rule itself:
-  one out-of-sample answer (Killjoy:Q) supports it.
+- The two-flag rule itself: one out-of-sample answer (Killjoy:Q) supports
+  it. On 2026-10-05 the player answered three rotation questions in chat:
+  Seekers turn [domain:abilities/skye-seekers-minimap-glyph-turns-belief]
+  and Cyber Cage turns
+  [domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief], both as
+  beliefs, and later Trapwire turns with the direction it is placed
+  [domain:abilities/cypher-trapwire-minimap-glyph-turns-belief]. They are
+  appended to `answers.jsonl` (rows `rotation:Skye:X`, L472,
+  `rotation:Cypher:Q`, L473, and `rotation:Cypher:C`, L474) and named in
+  `glyph_tables.ANSWER_FACTS`; `glyph-rotation-policy-0.1.2` marks all
+  three `player_answer`, and no rotation row stays unsure. Skye:X stores a
+  surprise: the two-flag rule reads it upright.
 - Which game component draws a placed icon where an ability's components
   disagree (Deadlock:Q, Omen:E): game-data work; the player has answered
   what the icons do.
@@ -806,6 +1390,13 @@ From the repository root, single-threaded, Below Normal, no decode:
 .\.venv\Scripts\python.exe prototypes\glyph_tables.py follow --out <that dir>         # follow.json: S1 follow, S4, pooled null (dev crop cache)
 .\.venv\Scripts\python.exe prototypes\glyph_tables.py thrown --out <that dir>         # thrown.json: S5 (match crop caches)
 .\.venv\Scripts\python.exe prototypes\glyph_tables.py record --out <that dir>         # glyph_tables/* metric series, once
+.\.venv\Scripts\python.exe prototypes\glyph_tables.py bank --out <new dir> --tables <that dir>  # stage 2's reference bank
+.\.venv\Scripts\python.exe -m reticle trial <sid> --reader ability_glyph --from cache   # stage 2: proposer and reader, no decode
+.\.venv\Scripts\python.exe -m reticle ability-glyphs <sid>                              # stage 3: tracks, verdict, claims (storage only)
+.\.venv\Scripts\python.exe prototypes\glyph_stage3_eval.py matches --out <new dir> --before <identity snapshot> --stale-tray <sids>
+.\.venv\Scripts\python.exe prototypes\glyph_stage3_eval.py marks --out <that dir>     # marks.json: dev and stage 2 held-out marks (crop cache)
+.\.venv\Scripts\python.exe prototypes\glyph_stage3_eval.py record --out <that dir>    # glyph_stage3/* metric series, once
+.\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py --pass gate4 queue   # gate 4's queue, once
 ```
 
 Each writing command refuses an existing output file, and `--out` has no

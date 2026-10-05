@@ -5,7 +5,7 @@ cache (lossless PNG, no video). In both, a portrait's edge is a knife-sized
 line-art piece with name glyphs either side of it, and the first pass took it
 for the icon; the weapon reader then refused the row. The icon is drawn on
 the killer's plate [domain:killfeed/weapon-cell], so a divider's centre must
-lie left of the seam with plate behind it (hud-0.24.0).
+lie left of the seam with plate behind it (hud-0.25.0).
 """
 import unittest
 from pathlib import Path

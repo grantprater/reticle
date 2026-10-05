@@ -102,6 +102,31 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return (max(0.0, centre - half), min(1.0, centre + half))
 
 
+def rule_of_three(n: int) -> float | None:
+    """Upper 95% bound on a rate seen zero times in n trials: 3/n.
+
+    It rounds up `-ln(0.05)/n`, which never falls below the exact one-sided
+    bound `1 - 0.05 ** (1/n)`, so it errs wide. None when nothing was tried.
+    A dev check that sees no regression in its sample reports this bound
+    beside the zero, never the zero alone."""
+    return None if n <= 0 else min(1.0, 3.0 / n)
+
+
+def mcnemar_exact(broken: int, fixed: int) -> float:
+    """Two-sided exact McNemar p-value for paired outcomes: of the units that
+    flipped between two codes, `broken` went right to wrong and `fixed` wrong
+    to right. Under no change each flip is a fair coin, so the p-value is the
+    exact binomial test of `broken` in `broken + fixed` at 1/2
+    (`scipy.stats.binomtest`). 1.0 when nothing flipped. It tests the
+    direction of the flips, not their existence: one broken unit is a fact to
+    read row by row whatever the p-value says."""
+    n = int(broken) + int(fixed)
+    if n <= 0:
+        return 1.0
+    from scipy.stats import binomtest
+    return float(binomtest(int(broken), n, 0.5).pvalue)
+
+
 def bootstrap_ci(sample, stat, n_boot: int = 2000, alpha: float = 0.05,
                  seed: int = 0) -> tuple[float, float]:
     """Percentile interval for any statistic of a resampleable sample.

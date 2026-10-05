@@ -99,10 +99,12 @@ def _charge_reason(drop: dict) -> str | None:
 
 def _kit_end(window: tuple, ends: set, deaths_ms, agent: str | None,
              second_lives_ms, revives_ms, report_deaths: dict | None
-             ) -> tuple[float | None, list[list]]:
+             ) -> tuple[float | None, list[list], list[list]]:
     """(the first of the player's deaths in the round `window` that ends the
     player's kit, or None; the deaths before it that the game undid, each as
-    [t_ms, why]). `player_tray_casts` says how a death is undone."""
+    [t_ms, why]; the spans [death, revive] before it in which a teammate's
+    revive left the player dead). `player_tray_casts` says how a death is
+    undone."""
     a, z, close = window
     inside = lambda xs: sorted(e["t_first"] for e in in_round_window(
         [{"t_first": float(x)} for x in xs], a, z, close, ends))
@@ -113,13 +115,19 @@ def _kit_end(window: tuple, ends: set, deaths_ms, agent: str | None,
         counted = (report_deaths or {}).get(a)
         if counted is None or counted <= sum(t not in lives for t in deaths):
             undone.update({t: "run_it_back" for t in deaths if t in lives})
-    if agent == "Clove":
-        revives = inside(revives_ms)
-        for t, nxt in zip(deaths, deaths[1:] + [float("inf")]):
-            if any(t <= r < nxt for r in revives):
-                undone[t] = "not_dead_yet"
+    revives = inside(revives_ms)
+    dead = []
+    for t, nxt in zip(deaths, deaths[1:] + [float("inf")]):
+        back = min((r for r in revives if t <= r < nxt), default=None)
+        if t in undone or back is None:
+            continue
+        undone[t] = "not_dead_yet" if agent == "Clove" else "revived"
+        if agent != "Clove":
+            dead.append([t, back])
     end = next((t for t in deaths if t not in undone), None)
-    return end, [[t, undone[t]] for t in deaths if t in undone and (end is None or t < end)]
+    keep = lambda t: end is None or t < end
+    return (end, [[t, undone[t]] for t in deaths if t in undone and keep(t)],
+            [d for d in dead if keep(d[0])])
 
 
 def kit_windows(rounds: list[dict], player_deaths_ms: list[float], *,
@@ -129,6 +137,8 @@ def kit_windows(rounds: list[dict], player_deaths_ms: list[float], *,
     """Per stored round, in order: its `window` (start, end, close), the
     `kit_end_ms` that ends the player's kit in it or None, the
     `undone_deaths` before that end, each as [t_ms, why], the
+    `dead_spans`, the [death, revive] spans before that end in which a
+    teammate's revive left the player dead, the
     `kit_change_ms`, the round's first stored kit change
     (`adjudication.tray_kit`), or None, and the `kit_return_ms`, the first
     stored return to the player's kit after that change in the round, or None.
@@ -142,14 +152,15 @@ def kit_windows(rounds: list[dict], player_deaths_ms: list[float], *,
     out = []
     for r in rounds:
         w = (r["t_start_ms"], r["t_end_ms"], r["t_close_ms"])
-        end, undone = _kit_end(w, ends, player_deaths_ms, agent, second_lives_ms,
-                               revives_ms, report_deaths)
+        end, undone, dead = _kit_end(w, ends, player_deaths_ms, agent, second_lives_ms,
+                                     revives_ms, report_deaths)
         change = min((c["t_first"] for c in in_round_window(changes, *w, ends)), default=None)
         back = (None if change is None else
                 min((c["t_first"] for c in in_round_window(returns, *w, ends)
                      if c["t_first"] > change), default=None))
         out.append({"round_no": r.get("round_no"), "window": w, "kit_end_ms": end,
-                    "undone_deaths": undone, "kit_change_ms": change, "kit_return_ms": back})
+                    "undone_deaths": undone, "dead_spans": dead, "kit_change_ms": change,
+                    "kit_return_ms": back})
     return out
 
 
@@ -161,11 +172,23 @@ def round_window_of(t_ms: float, kits: list[dict]) -> dict | None:
                 None)
 
 
+#: The fields `player_tray_casts` writes on a drop row. It strips them from
+#: its input first, so a stored row judged again gets the verdict its drop
+#: alone earns: a stale `rests_on`, `line_ms` or `refused_as` never survives
+#: a run whose own lines do not pass the drop.
+GATE_FIELDS = frozenset({
+    "phase", "kit_agent", "round_ms", "first_player_death_ms", "kit_end_ms",
+    "undone_deaths", "kit_change_ms", "reason", "player_cast", "numeral",
+    "pool_gold_drop", "refused_as", "line_ms", "rests_on"})
+
+
 def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                       player_deaths_ms: list[float], *, agent: str | None = None,
                       second_lives_ms=(), revives_ms=(),
                       report_deaths: dict | None = None, kit_changes_ms=(),
-                      kit_returns_ms=(), menu_at=None, kit_spans=None) -> list[dict]:
+                      kit_returns_ms=(), menu_at=None, kit_spans=None,
+                      own_lines_ms=(), pool_slots=(), countdown_reads=None,
+                      step_ms: float = 500.0) -> list[dict]:
     """Which of a session's tray drops (`tray.drops`) are the local player's casts.
 
     The tray shows the player's kit only while the player lives; afterwards it
@@ -182,9 +205,8 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     death on the instant two rounds touch belongs to the round it ends.
     `player_deaths_ms` are the player's killfeed deaths
     (`rounds.player_death_times`), and `agent` is the player's agent as the
-    arbiter names it. A death ends the kit unless the game undid it, and among
-    the player's agents it undoes one for two only
-    [domain:rounds/resurrection-mechanics]:
+    arbiter names it. A death ends the kit unless the game undid it: a second
+    life or a revive [domain:rounds/resurrection-mechanics]:
 
     * **Phoenix.** A death the killfeed badge calls a second life
       (`second_lives_ms`, `rounds.player_second_life_times`) is a Run It Back
@@ -197,12 +219,40 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
       counts more deaths than the killfeed's real ones, the killfeed missed a
       real death, no instant after the second life is known to be Phoenix's,
       and the second life still ends the kit.
-    * **Clove.** Not Dead Yet needs Clove's death
-      [domain:abilities/clove-c-and-x-need-a-target], and its killfeed entry
-      is the revive itself [domain:killfeed/revive-entries]. A death followed
-      by the player's own revive entry (`revives_ms`) before her next death in
-      the round does not end her kit, so a drop between the death and the
-      revive meets the remaining tests like any other.
+    * **A revive.** A revive entry names the reviver and the revived
+      [domain:killfeed/revive-entries]: a teammate Sage's Resurrection of the
+      player, whatever the player's agent, or Clove's Not Dead Yet, which
+      needs Clove's death [domain:abilities/clove-c-and-x-need-a-target] and
+      whose entry is the revive itself. A KAY/O player downed in NULL/cmd
+      and stabilised by a teammate is revived too: the down is his
+      killfeed death, the stabilisation a NULL/cmd revive entry
+      [domain:killfeed/kayo-downed-entry], and he gets his kit back as it
+      stood before the down, with nothing refilled
+      [domain:abilities/kayo-null-cmd-stabilise-restores-kit]. His tray
+      while downed is the player's belief, empty or overlaid
+      [domain:abilities/kayo-null-cmd-downed-tray-belief], so the downed
+      span is a dead span like any other. Before `player-cast-0.14.0` no
+      fact said what stabilising returned, and the down ended his kit; the
+      stored corpus held no NULL/cmd revive on 2026-10-05, so the change
+      moved no verdict. A death followed by a revive of the
+      player (`revives_ms`, `adjudication.death.player_revive_times`) before
+      the player's next death in the round does not end the kit (`revived`,
+      or `not_dead_yet` for Clove). Clove casts Not Dead Yet while dead, so a
+      drop between her death and her revive meets the remaining tests like
+      any other. Any other player stays dead until the revive, so a drop
+      from DEATH_LEAD_MS before the death to the revive (`dead_spans` of
+      `kit_windows`) is `after_player_death`: the death screen empties the
+      tray there as at any death, and a death-screen drop let through would
+      taint the cast before it. The span ends at the revive for every drop,
+      bridged (`across_gap`) or not: from `player-cast-0.9.0` to `0.12.0` a
+      bridged drop's span ran on `tray.GAP_S` past the revive, a clause
+      chosen on one held-half drop (`b7d24102a6f6` Q 1866.5 s); the one
+      dev-half drop it reached (`b3b9defb6fd7` X 845.55 s) is refused as
+      `pips_lit` without it, so the dev half never supported it, and
+      `player-cast-0.13.0` dropped it. Before `player-cast-0.9.0` only Clove's own revive counted: on
+      `b3b9defb6fd7` and `b7d24102a6f6` a Sage revived the Skye player three
+      times and the gate refused every later cast of those rounds as
+      `after_player_death`.
 
     The tray itself is the second witness. `kit_changes_ms` are the stored kit
     changes (`adjudication.tray_kit`): the first sample of a round at which the
@@ -274,7 +324,7 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     in this order: `menu_open`, `no_rounds`, `no_round`, `after_player_death`,
     `after_kit_change`, `kit_not_player` or `kit_owner_unresolved`,
     `phase:<name>`, `forced` or `cooccur_among_casts`,
-    `partial_charge`, `pips_lit`, `equip_release`.
+    `partial_charge`, `pips_lit`, `equip_release`, `pool_rest`.
 
     *Full* is read from the drop's own `from`: the slot's teal count on the
     last clean sample before the drop over the slot's p90 clean count in the
@@ -437,10 +487,94 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     taints the others. No labelled drop changes its verdict
     ([metric:tray/cooccur-taint@all-sessions#labels_verdict_changed=0]).
 
+    *A numeral beside a co-occurring drop.* Sova's Recon Bolt and Skye's
+    Guiding Light, spent, draw a countdown numeral over the slot
+    [domain:hud/ability-tray-restock-countdown] (NUMERAL_SLOTS; the fact is
+    observed on those two only), and the numeral is read apart from the bar
+    (`tray_countdown`). So a drop of such a slot the co-occurrence test
+    refuses as `cooccur_among_casts` meets the charge tests instead where
+    the numeral witnesses it (`countdown_reads`, `tray.gold_witness` asked
+    of the drop with the sample `step_ms` before it, or `tray.GAP_S` before
+    a bridged one, as the last the spent charge read on): a numeral that
+    appeared or restarted over its slot within `tray.WITNESS_AFTER_S` after
+    (NUMERAL_SPENDS). The row keeps the verdict as `numeral`. A `forced`
+    drop stays refused, and the witnessed drop still taints its partners,
+    so the rule passes one spend of a crowd and refuses the rest. Without
+    reads (`countdown_reads` None) nothing changes. The witness was chosen
+    on the dev half of the 21 Riot-paired matches: the numeral alone, since
+    the icon's brightness is read on no stored row and the audio verdict was
+    not measured here. Scored against Riot's counts
+    (`prototypes/own_cast_gate_eval.py`), the rules since
+    `player-cast-0.8.0` raised the dev half from
+    [metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_dev_covered=239] to
+    [metric:tray/own-cast-gate@riot-21#gate_dev_covered=259] of
+    [metric:tray/own-cast-gate@riot-21#dev_riot=300] casts covered, beyond
+    held at [metric:tray/own-cast-gate@riot-21#gate_dev_beyond=2], and the
+    held half from
+    [metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_held_covered=286] to
+    [metric:tray/own-cast-gate@riot-21#gate_held_covered=300] of
+    [metric:tray/own-cast-gate@riot-21#held_riot=310], beyond from
+    [metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_held_beyond=6] to
+    [metric:tray/own-cast-gate@riot-21~2026-10-05T06:25:44#gate_held_beyond=8] at
+    `player-cast-0.13.0`, and `pool_rest` (`0.14.0`, below) brought it back to
+    [metric:tray/own-cast-gate@riot-21#gate_held_beyond=6]
+    (docs/ABILITY_STATE_MODEL.md, "The cast gate against Riot's counts").
+
+    *A gold drop of Regrowth spends a pool already counted.* A slot a
+    resource-bar fact names for the player's agent (`pool_slots`,
+    `adjudication.ability_state.pool_facts`) draws a pool, not charges:
+    Skye's Regrowth in C [domain:abilities/skye-regrowth-resource-bar]. A
+    drop read from gold halves alone (a row with the gold `witness`,
+    `tray.drops`) in such a slot carries `pool_gold_drop`. One purchase of
+    Regrowth buys a fixed total of healing
+    [domain:abilities/skye-regrowth-pool-per-purchase], and a gold Regrowth
+    bar is a pool already partly spent, so its going empty spends the rest
+    of a pool opened earlier, not a new purchase
+    [domain:abilities/skye-regrowth-gold-bar-partly-spent]. The gate counts
+    the pool at its opening, the teal drop; a gold-only drop of the slot
+    POOL_REST_SLOTS names for the agent is refused as `pool_rest`, tested
+    last, so a drop another test refuses keeps that refusal. The rule rests
+    on the player's answer of 2026-10-05, not on the drops it removes: from
+    `player-cast-0.11.0` to `0.12.0` the gate refused the same drops as
+    `resource_pool`, a rule reasoned from the gold of Recon Bolt and Guiding
+    Light and chosen on two held-half drops, and `player-cast-0.13.0`
+    withdrew it until the player answered. On the 21 Riot-paired matches it
+    refuses two drops, both held-half and both Regrowth casts over Riot's
+    count (`b7d24102a6f6` C 375.1 s and `e37fdeca944f` C 1714.0 s); covered
+    stays at [metric:tray/own-cast-gate@riot-21#gate_dev_covered=259] and
+    [metric:tray/own-cast-gate@riot-21#gate_held_covered=300], so no
+    Regrowth cast Riot counts is lost. No other pool's gold drop is
+    refused: each ability's tray rule is its own
+    [domain:abilities/ability-rules-are-unique].
+
+    *A line overturns a death or a dark tray.* The player hears their own
+    ultimate's line at the cast [domain:abilities/caster-hears-own-ult-line],
+    so an own line (`own_lines_ms`, `ult_cast` rows of the player's own
+    class that rest on no tray cast) witnesses an X cast the tray dates
+    badly. An X drop refused as `forced` (Clove's Not Dead Yet empties X on
+    the death screen, `a1a995e6b19b` 632.5 s, its line 0.98 s after) or as
+    `after_player_death` (Run It Back's pips fall at its end, when Phoenix
+    dies in it [domain:abilities/phoenix-run-it-back-expiry-flash], so
+    where the badge goes unread the drop trails the death that ends the kit)
+    or, since `player-cast-0.12.0`, as `cooccur_among_casts` (with the badge
+    read, the same drops fall beside the death screen's: `7010b3d62460`
+    586.0 s and `a06f04a0059f` 1894.0 s)
+    passes where an own line lies in the agent's cast window of it
+    (`adjudication.ult_cast.cast_window`, `in_window`), the line came before
+    the kit's end, the drop meets the charge tests, and no X drop the gate
+    passed already lies in that line's window; one line passes one drop, the
+    nearest. The row keeps the refusal as `refused_as`, the line as
+    `line_ms`, and `rests_on` names the line (`ult_cast`), so the cast never
+    witnesses that line back: `ult_cast` asks this gate with no own lines
+    and binds no tray cast that rests on one. No line, no change.
+
     Every drop comes back with `player_cast`, the first `reason` that refused
     it, the round's `first_player_death_ms`, the `kit_end_ms` the gate used,
     the `undone_deaths` before it, and the round's `kit_change_ms`.
     """
+    # A caller may pass full stored rows; the gate judges each drop afresh,
+    # so no field an earlier run of this gate wrote survives into the verdict.
+    drops = [{k: v for k, v in d.items() if k not in GATE_FIELDS} for d in drops]
     covered = lambda t: menu_at is not None and menu_at(t) is True
     if rounds is None:
         return [{**d, "phase": None, "round_ms": None, "first_player_death_ms": None,
@@ -464,11 +598,14 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
         first = (min((e["t_first"] for e in in_round_window(deaths, *rnd, ends)), default=None)
                  if rnd else None)
         end, undone = (k["kit_end_ms"], k["undone_deaths"]) if k else (None, [])
+        dead = (any(a - DEATH_LEAD_MS <= t < b for a, b in k["dead_spans"])
+                if k else False)
         change, back = (k["kit_change_ms"], k["kit_return_ms"]) if k else (None, None)
         phase = phase_of(t)
         reason = ("menu_open" if covered(t)
                   else "no_round" if rnd is None
-                  else "after_player_death" if end is not None and t >= end - DEATH_LEAD_MS
+                  else "after_player_death" if (dead or end is not None
+                                                and t >= end - DEATH_LEAD_MS)
                   else "after_kit_change" if (change is not None and t >= change
                                               and (back is None or t < back))
                   else "kit_owner_unresolved" if seen is not None and agent is None
@@ -487,9 +624,79 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
             [(r["t_ms"] / 1000.0, r["slot"], r["from"], r["to"], r["forced"]) for r in keep],
             quiet=quiet)):
         r["reason"] = ("forced" if r["forced"] else "cooccur_among_casts") if sus else why
+        if (r["reason"] == "cooccur_among_casts" and countdown_reads is not None
+                and NUMERAL_SLOTS.get(agent) == r["slot"]):
+            seen = _numeral_witness(r, countdown_reads, step_ms)
+            r["numeral"] = seen
+            if seen in NUMERAL_SPENDS:
+                r["reason"] = why
+    for r in rows:
+        if r["slot"] in pool_slots and "witness" in r:
+            r["pool_gold_drop"] = True
+            if r["reason"] is None and POOL_REST_SLOTS.get(agent) == r["slot"]:
+                r["reason"] = "pool_rest"
+    _admit_lined_x(rows, own_lines_ms, agent)
     for r in rows:
         r["player_cast"] = r["reason"] is None
     return rows
+
+
+#: The pool slot whose gold-only drop spends the rest of a pool already
+#: opened, by agent (`player_tray_casts`, `pool_rest`): Skye's Regrowth
+#: [domain:abilities/skye-regrowth-gold-bar-partly-spent]. No other pool's
+#: gold is a recorded fact [domain:abilities/ability-rules-are-unique].
+POOL_REST_SLOTS = {"Skye": "C"}
+#: The restock numeral's verdicts (`tray.gold_witness`'s `countdown`) that
+#: witness a spend of the slot it is drawn over.
+NUMERAL_SPENDS = ("restarted", "appeared")
+#: The slots whose restock numeral witnesses a spend, by agent: the two
+#: abilities the countdown was observed on, Sova's Recon Bolt and Skye's
+#: Guiding Light [domain:hud/ability-tray-restock-countdown]. Over Skye's Q a
+#: numeral shows that does not count down, and no other ability's numeral is
+#: a recorded fact [domain:abilities/ability-rules-are-unique].
+NUMERAL_SLOTS = {"Sova": "E", "Skye": "E"}
+
+
+def _numeral_witness(drop: dict, reads: list[dict], step_ms: float) -> str:
+    """The restock numeral's verdict on `drop` (`tray.gold_witness`'s
+    `countdown`), asked with the sample `step_ms` before it as the last the
+    spent charge read on, or `tray.GAP_S` before for a bridged drop."""
+    back = 1000.0 * tray.GAP_S if drop.get("across_gap") else step_ms
+    tb = drop["t_ms"] - back
+    return tray.gold_witness({"t_ms": drop["t_ms"], "slot": drop["slot"], "t_before_ms": tb,
+                              "t_gold_ms": tb, "gold_run": None}, reads, {})["countdown"]
+
+
+#: The refusals a player's own ult line can overturn for an X drop
+#: (`_admit_lined_x`): the tray was undrawn at the drop, the drop fell at the
+#: death that ended the kit, or another slot fell beside it.
+LINE_ADMITS = ("forced", "after_player_death", "cooccur_among_casts")
+
+
+def _admit_lined_x(rows: list[dict], own_lines_ms, agent: str | None) -> None:
+    """Pass, in place, the X drops `player_tray_casts` refused as one of
+    LINE_ADMITS where the player's own ult line witnesses the cast. Each row
+    passed keeps its refusal as `refused_as`, names the line as `line_ms`
+    and rests on it (`rests_on`). `player_tray_casts` gives the rule."""
+    from .adjudication.ult_cast import cast_window, in_window
+    if not own_lines_ms:
+        return
+    win = cast_window(agent)
+    xs = [r for r in rows if r["slot"] == ULT_SLOT]
+    taken = [r["t_ms"] for r in xs if r["reason"] is None]
+    for line in sorted(float(t) for t in own_lines_ms):
+        if any(in_window(line, t, win) for t in taken):
+            continue
+        near = [r for r in xs if r["reason"] in LINE_ADMITS and in_window(line, r["t_ms"], win)
+                and (r["kit_end_ms"] is None or line < r["kit_end_ms"])
+                and _charge_reason(r) is None]
+        if not near:
+            continue
+        r = min(near, key=lambda r: (abs(r["t_ms"] - line), r["t_ms"]))
+        r.update({"refused_as": r["reason"], "reason": None, "line_ms": line,
+                  "rests_on": [{"stream": "ult_cast", "owner": "adjudication.ult_cast",
+                                "t_ms": line}]})
+        taken.append(r["t_ms"])
 
 
 def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
@@ -500,8 +707,9 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     The phase is `gametime`'s over the stored HUD, and the deaths are the HUD's
     killfeed tracks. Second lives come from the stored badge reads, which only
     a current `killfeed_portrait` stream carries
-    (`adjudication.death.stored_second_life`). Revives are the player's own
-    revive entries among the stored `death` verdicts. The report's death
+    (`adjudication.death.stored_second_life`). Revives are the stored `death`
+    verdicts that revive the player, from any reviver
+    (`adjudication.death.player_revive_times`). The report's death
     counts are the stored `combat_report_round` rows where a report was read.
     The kit changes and the named kit spans are the stored `tray_kit` rows
     (`adjudication.tray_kit.stored_kit_witness`), used only where they are
@@ -510,10 +718,18 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     `agent` the spans are still handed on, so the gate refuses a drop under
     a named kit as `kit_owner_unresolved`. The menu witness is the stored `menu_open` rows
     (`menu.stored_menu`), used only where current; otherwise `menu_at` is None
-    and the stamp says why.
+    and the stamp says why. The player's own ult lines are the stored
+    `ult_cast` rows `own_line_times` keeps, used only where they are at
+    ULT_CAST_VERSION; otherwise none come back and `ult_cast_reason` says
+    why. `ult_cast` reads this gate in turn, but asks it with no own lines
+    (`adjudication.ult_cast.player_x_drops`), so the stream never reads its
+    own output. The restock
+    numeral reads are the stored `tray_countdown` rows where current
+    (`stored_countdown`); `reticle tray` writes them in the pass that writes
+    the drops and hands its own reads to the gate instead.
     """
     from . import gametime, stalls
-    from .adjudication.death import stored_second_life
+    from .adjudication.death import player_revive_times, stored_second_life
     from .adjudication.tray_kit import stored_kit_witness
     from .killfeed import KILLFEED_PORTRAIT_VERSION
     from .menu import stored_menu
@@ -535,8 +751,7 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
         "player_deaths_ms": player_death_times(hud),
         "agent": agent,
         "second_lives_ms": player_second_life_times(hud, badges),
-        "revives_ms": sorted(float(r["t_ms"]) for r in verdicts
-                             if r.get("is_revive") and r.get("kf_player_kill")),
+        "revives_ms": player_revive_times(verdicts, agent),
         "report_deaths": {float(r["t_start_ms"]): int(r["deaths"]) for r in report
                           if r.get("verdict_source") == "combat_report"
                           and r.get("deaths") is not None},
@@ -548,6 +763,9 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
                            else None)
     menu, menu_stamp = stored_menu(store, session_id)
     inputs["menu_at"] = menu.at if menu is not None else None
+    inputs["own_lines_ms"], lines_why = stored_own_lines(store, session_id)
+    inputs["pool_slots"], pools = pool_slots(agent)
+    inputs["countdown_reads"], inputs["step_ms"] = stored_countdown(store, session_id)
     # Each stored input's own stamp, read from its first row (`no_rows` where
     # none is stored), used or not: `plan` compares these with the stored
     # heads, so a stream written after this read makes the result stale.
@@ -562,8 +780,217 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
                                                  "combat_report_round_version"),
               "tray_kit": kit["version"] or NO_ROWS, "tray_kit_reason": kit["reason"],
               "tray_kit_own_basis": kit["own_basis"],
-              "menu_open": menu_stamp}
+              "menu_open": menu_stamp,
+              "ult_cast": event_stamp(store, "ult_cast", session_id, "ult_cast_version"),
+              "ult_cast_reason": lines_why,
+              "pool_facts": pools,
+              "tray_countdown": event_stamp(store, "tray_countdown", session_id,
+                                            "tray_countdown_version")}
     return inputs, stamps
+
+
+def stored_countdown(store, session_id: str) -> tuple[list[dict] | None, float]:
+    """(the stored restock numeral reads, `tray_countdown` rows of kind
+    `read`, or None where the stream is absent or not at
+    TRAY_COUNTDOWN_VERSION; the sample step in ms of the pass that read
+    them, from their coverage row, 500 where none is stored)."""
+    from .version import TRAY_COUNTDOWN_VERSION
+    rows = store.read_events("tray_countdown", session_id)
+    current = bool(rows) and rows[0].get("tray_countdown_version") == TRAY_COUNTDOWN_VERSION
+    cov = [r for r in rows if r.get("kind") == "coverage"]
+    step = float(cov[0].get("step_s") or 0.5) if cov else 0.5
+    return ([r for r in rows if r.get("kind") == "read"] if current else None), 1000.0 * step
+
+
+def stored_own_lines(store, session_id: str) -> tuple[list[float], str | None]:
+    """(the player's own ult lines among the stored `ult_cast` rows
+    (`own_line_times`), or none where the stream is absent or not at
+    ULT_CAST_VERSION; None, `no_ult_cast` or `ult_cast_stale`)."""
+    from .version import ULT_CAST_VERSION
+    rows = store.read_events("ult_cast", session_id)
+    if not rows:
+        return [], "no_ult_cast"
+    if rows[0].get("ult_cast_version") != ULT_CAST_VERSION:
+        return [], "ult_cast_stale"
+    return own_line_times(rows), None
+
+
+def pool_slots(agent: str | None) -> tuple[tuple[str, ...], list[str]]:
+    """(the slots of `agent` that a resource-bar fact makes a pool, the facts'
+    keys), by `adjudication.ability_state.pool_facts` over `domain/*.toml`;
+    none without an agent."""
+    if agent is None:
+        return (), []
+    from . import domain
+    from .adjudication.ability_state import _agent_key, pool_facts
+    hits = sorted((slot, key) for (a, slot), key in pool_facts(domain.load()).items()
+                  if a == _agent_key(agent))
+    return tuple(s for s, _k in hits), [k for _s, k in hits]
+
+
+def own_line_times(ult_rows: list[dict]) -> list[float]:
+    """The instants of the player's own ult lines among a session's stored
+    `ult_cast` rows: casts of the player's own class (`player_cast`) that
+    rest on nothing (`rests_on` empty). A line the adjudicator selected
+    because a tray X cast witnessed it rests on the gate and never witnesses
+    the gate back."""
+    return sorted(float(r["t_ms"]) for r in ult_rows
+                  if r.get("kind") == "cast" and r.get("player_cast") and not r.get("rests_on"))
+
+
+#: The rule of `dead_ruse_casts`, stamped on every row it writes.
+#: 0.1.0 (2026-10-05): a Ruse disc the smoke owner names Clove, born while the
+#: player's Clove is dead, is her cast; one per birth sample.
+#: 0.2.0 (2026-10-05): each dead cloud is one cast; a dead Clove holds at most
+#: one charge and recharges it no sooner than the restock after a spend; each
+#: cast states its basis [domain:abilities/clove-dead-ruse-one-charge]
+#: [domain:abilities/clove-dead-ruse-recharges].
+DEAD_RUSE_VERSION = "dead-ruse-0.2.0"
+#: The agent and slot a dead caster still spends
+#: [domain:abilities/clove-smokes-after-death] [domain:abilities/no-cast-while-dead].
+DEAD_RUSE = ("Clove", "E")
+#: The restock fact the charge bound reads.
+RESTOCK_FACT = "game_data/ability-restock-times"
+#: The files' fact for the equippable a dead Clove holds: its charge cap, and
+#: that it recharges on the living Ruse's cooldown component.
+DEAD_CAP_FACT = "game_data/clove-ruse-after-death-game-data"
+#: A cast's basis: a charge held at the death, one recharged while dead, or
+#: none the ledger explains (refused); `held_unknown` where the state model
+#: read no charge count at the death, `recharge_unbounded` where no restock
+#: time or cap is known.
+DEAD_RUSE_BASES = ("held_at_death", "recharged", "unexplained", "held_unknown",
+                   "recharge_unbounded")
+
+
+def ruse_parameters(facts: dict | None = None) -> dict:
+    """The charge bound's inputs from the domain facts: Ruse's living charge
+    count (`adjudication.ability_state.charge_facts`), a dead Clove's charge
+    cap (`DEAD_CAP_FACT`, the files' PostDeathMaxCharges, which the player's
+    answer agrees with [domain:abilities/clove-dead-ruse-one-charge]) and the
+    shortest restock in seconds (`game_data/ability-restock-times`, the lesser
+    of the files' value and the toggled one, since the files do not say which
+    plays)."""
+    from .adjudication.ability_state import charge_facts
+    if facts is None:
+        from .domain import load
+        facts = load()
+    got = charge_facts(facts).get(("clove", DEAD_RUSE[1])) or {}
+    f = facts.get(RESTOCK_FACT)
+    vals = (f.values or {}) if f is not None else {}
+    restock = [v for v in ((vals.get("files_s") or {}).get("clove_ruse"),
+                           (vals.get("toggled_s") or {}).get("clove_ruse")) if v]
+    c = facts.get(DEAD_CAP_FACT)
+    cap = ((c.values or {}).get("other") or {}).get("post_death_max_charges_n") if c else None
+    return {"max_charges": got.get("max_charges"), "charges_fact": got.get("fact"),
+            "dead_max_charges": None if cap is None else int(cap),
+            "dead_max_charges_fact": DEAD_CAP_FACT if cap is not None else None,
+            "restock_min_s": min(restock) if restock else None,
+            "restock_fact": RESTOCK_FACT if restock else None}
+
+
+def held_at_deaths(state_rows: list[dict], slot: str = DEAD_RUSE[1]) -> dict[float, int | None]:
+    """{death t_ms: charges the slot held} from the state model's
+    `owner_death` verdicts (`adjudication.ability_state`)."""
+    out = {}
+    for r in state_rows:
+        if r.get("kind") == "verdict" and r.get("transition") == "owner_death" \
+                and r.get("slot") == slot:
+            n = (r.get("before") or {}).get("charges")
+            out[float(r["t_ms"])] = None if n is None else int(n)
+    return out
+
+
+def dead_ruse_casts(agent: str | None, deaths_ms: list[float], revives_ms: list[float],
+                    rounds: list[dict], owner_rows: list[dict],
+                    held: dict[float, int | None] | None = None,
+                    params: dict | None = None) -> dict:
+    """The player's Ruse casts while dead, from the discs the smoke owner
+    names Clove (`adjudication.smoke_owner`, whose `dead_clove_circle`
+    channel reads the range circle). The tray shows a spectated kit after
+    the death [domain:hud/tray-after-player-death], so these casts have no
+    drop; this rule is their witness.
+
+    A dead window runs from each death to the round's end or the revive
+    after it. Every named disc born inside it belongs to the player's Clove,
+    who is the side's one Clove [domain:rounds/agent-uniqueness]. Each disc
+    is one cast: a dead Clove holds at most one charge
+    [domain:abilities/clove-dead-ruse-one-charge], so the living batch
+    launch [domain:abilities/clove-ruse-batch-launch] does not apply.
+
+    The ledger: at the death she holds the state model's charges (`held`) up
+    to `dead_max_charges`. Ruse recharges while she is dead, not at the death
+    [domain:abilities/clove-dead-ruse-recharges], so after each spend the
+    next charge comes no sooner than `restock_min_s` later. With no charge
+    held at the death, the first comes no sooner than the death where a
+    living restock was running (fewer than `max_charges` held: the dead
+    ability recharges on the living Ruse's cooldown component
+    [domain:game_data/clove-ruse-after-death-game-data], whose timer's phase
+    is unread), else `restock_min_s` after it. A held charge is assumed not
+    to advance the timer, as the player has not said it does. Each row
+    states its `basis` (DEAD_RUSE_BASES) and, while it passes, carries it
+    as `reason`; a cast before any charge is `unexplained` and refused as
+    `beyond_charge_bound`. Without a restock time or cap no cast is
+    refused: a cast that needs a recharge is `recharge_unbounded`.
+
+    Returns {"rows", "windows", "reason"}; reason is None, or why no row
+    could be made (`not_clove`, `no_deaths`)."""
+    params = params or {}
+    if agent != DEAD_RUSE[0]:
+        return {"rows": [], "windows": [], "reason": "not_clove"}
+    if not deaths_ms:
+        return {"rows": [], "windows": [], "reason": "no_deaths"}
+    named = sorted((r for r in owner_rows if r.get("kind") == "smoke_owner"
+                    and r.get("agent") == DEAD_RUSE[0]),
+                   key=lambda r: (float(r["first_ms"]), str(r["entity_id"])))
+    live_max, cap = params.get("max_charges"), params.get("dead_max_charges")
+    rs = params.get("restock_min_s")
+    bounded = bool(rs) and cap is not None
+    rows, windows = [], []
+    for d in sorted(float(t) for t in deaths_ms):
+        rnd = next((r for r in rounds if r.get("t_start_ms") is not None
+                    and float(r["t_start_ms"]) <= d <= float(r.get("t_end_ms") or -1)), None)
+        if rnd is None:
+            continue
+        end = min([float(rnd["t_end_ms"])] + [float(v) for v in revives_ms if float(v) > d])
+        h = (held or {}).get(d)
+        running = None if h is None or live_max is None else h < live_max
+        have = None if h is None else (min(h, cap) if cap is not None else h)
+        windows.append({"death_ms": d, "end_ms": end, "held": h, "charges_at_death": have,
+                        "restock_running_at_death": running, "round_no": rnd.get("round_no")})
+        # `stock` counts the charges still held from the death; `ready` is
+        # when the next recharged charge can come, None while none is due.
+        stock = have
+        ready = (d if running else d + 1000.0 * rs) if bounded and have == 0 else None
+        seen, spent = set(), 0
+        for r in named:
+            b = float(r["first_ms"])
+            if not d < b <= end or r["entity_id"] in seen:
+                continue
+            seen.add(r["entity_id"])
+            earliest = None
+            if stock is None:
+                basis, stock = "held_unknown", 0
+            elif stock > 0:
+                basis, earliest, stock = "held_at_death", d, stock - 1
+            elif not bounded:
+                basis = "recharge_unbounded"
+            elif ready is not None and b > ready:
+                basis, earliest, ready = "recharged", ready, None
+            else:
+                basis, earliest = "unexplained", ready
+            ok = basis != "unexplained"
+            if ok:
+                spent += 1
+                if bounded and ready is None:
+                    ready = b + 1000.0 * rs
+            rows.append({"slot": DEAD_RUSE[1], "t_ms": b, "player_cast": ok,
+                         "basis": basis, "reason": basis if ok else "beyond_charge_bound",
+                         "witness": "dead_ruse", "death_ms": d, "window_end_ms": end,
+                         "clouds": 1, "clouds_since_death": spent + (0 if ok else 1),
+                         "held_at_death": h, "charges_at_death": have,
+                         "restock_running_at_death": running, "earliest_ms": earliest,
+                         "rests_on": [r["entity_id"]], "dead_ruse_version": DEAD_RUSE_VERSION})
+    return {"rows": rows, "windows": windows, "reason": None}
 
 
 #: The stored audio-gate log-mel and labels, under the store root.

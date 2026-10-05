@@ -398,7 +398,7 @@ pair read turning to one gold and one empty half in one sample was a switch
 to another player's kit
 """
 see = ["hud/ability-tray-restocked-charge-gold", "hud/ability-tray-gold-on-other-kits",
-       "hud/ability-tray-gold-under-a-blind"]
+       "hud/ability-tray-gold-under-a-blind", "abilities/skye-regrowth-gold-bar-partly-spent"]
 
 [ability-tray-gold-under-a-blind]
 claim = """

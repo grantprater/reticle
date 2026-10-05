@@ -862,17 +862,8 @@ def _live_phase_at(store, sid, date):
     """(`gametime`'s phase at a time, None) for the ability pass's live-sample
     gate, or (None, reason) where the session has no stored HUD stream (a demo
     scanned without `hud`) or no stored rounds: the live phase is then
-    unknown and every sample is read."""
-    from . import stalls
-    if not store.hud_path(sid, date).is_file():
-        return None, "no HUD stream"
-    rs = store.read_rounds(sid, date)
-    if rs is None:
-        return None, "no rounds stream"
-    hud = store.read_hud(sid, date)
-    gt = gametime.build_session_gametime(sid, hud, rs.to_pylist(),
-                                         stall_list=stalls.for_session(store, sid, date))
-    return (lambda t: gt.game_time_at(t).phase), None
+    unknown and every sample is read (`gametime.live_phase_at`)."""
+    return gametime.live_phase_at(store, sid, date)
 
 
 def _ability_supply(store, sid, date):
@@ -1131,7 +1122,8 @@ def cmd_scan(args) -> int:
     want_lineup = args.lineup and not args.only
     spans = (_reader_spans(store, sid, date)
              if channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark', 'ability'} else [])
-    if channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark', 'ability'} and not args.check:
+    if (channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark', 'ability', 'clove_circle'}
+            and not args.check):
         # A side-based widget is placed before any minimap reader reads it
         # (`widget_frame.fit_if_needed`): fitted from the crop cache and the
         # stored rounds, and written as `widget-fit --write` writes it.
@@ -1206,7 +1198,16 @@ def cmd_scan(args) -> int:
         args.force or _ability_stale(store, sid, SHAPE_STREAMS))
     want_icons = 'ability' in channels and (
         args.force or _ability_stale(store, sid, ("ability_icon",)))
-    want_ability = want_shapes or want_icons
+    # The glyph reader (`minimap_glyph`) reads the proposer's rows for the
+    # same sample: from the icon reader of this pass, or stored where the
+    # proposer is current and does not reread.
+    want_glyphs = 'ability' in channels and (
+        args.force or _ability_stale(store, sid, ("ability_glyph",)))
+    want_ability = want_shapes or want_icons or want_glyphs
+    # The dead Clove's range circle rides the ability pass, read only inside
+    # each ally Clove's death windows (`clove_circle.stored_windows`).
+    want_circle = bool(channels & {'ability', 'clove_circle'}) and (
+        args.force or _ability_stale(store, sid, ("clove_circle",)))
     # The combat report over the whole capture at 1 Hz: a header correlation
     # per frame, rows only where a panel may be up.
     want_report = 'combat_report' in channels and (
@@ -1235,7 +1236,8 @@ def cmd_scan(args) -> int:
         raise SystemExit("--check: no stored killfeed mask, and the HUD readers would "
                          "decode the capture to measure one")
     if not (want_hud or want_portraits or want_mm or want_ping or want_roster
-            or want_scoreboard or want_ally or want_dark or want_ability or want_report
+            or want_scoreboard or want_ally or want_dark or want_ability or want_circle
+            or want_report
             or want_cache):
         print(f"cache hit  session {sid}: requested channels are current or disabled; "
               "--force to re-read")
@@ -1255,6 +1257,7 @@ def cmd_scan(args) -> int:
         + ([f"ally icons {args.ally_hz:g} Hz, in-match spans"] if want_ally else [])
         + ([f"minimap dark {args.dark_hz:g} Hz, in-match spans"] if want_dark else [])
         + (["ability 2 Hz, live samples of the in-match spans"] if want_ability else [])
+        + (["clove circle 4 Hz, ally Clove death windows"] if want_circle else [])
         + ([f"combat report {args.report_hz:g} Hz, whole capture"] if want_report else [])))
 
     def build_readers():
@@ -1334,7 +1337,7 @@ def cmd_scan(args) -> int:
                 # It reads `frame[box]` alone, so the minimap cache feeds it on
                 # its own grid (`cache_resample`).
                 declare_set(dp, "minimap", profile, ctx.wh)
-        bp = ip = None
+        bp = ip = gp = None
         if want_ability:
             # The ability pass's readers ride the same pass, each under its own
             # stamp and only where it is stale; `minimap_dark` joins only where
@@ -1363,6 +1366,30 @@ def cmd_scan(args) -> int:
                 ip = icon_reader(ctx, spans, phase_at=phase_at, floor=floor, sgray=sgray,
                                  phase_reason=phase_why)
                 declare_set(ip, "minimap", profile, ctx.wh)
+            if want_glyphs:
+                from .lineup import glyph_candidates
+                from .minimap_glyph import LiveIcons, StoredIcons, check_pass, glyph_reader
+                check_pass(ip is not None, getattr(args, "pipeline", "serial"),
+                           getattr(args, "workers", None))
+                icons = (LiveIcons(ip) if ip is not None
+                         else StoredIcons(store.read_events("ability_icon", sid)))
+                cands, cands_from = glyph_candidates(sid, store.root)
+                if cands is None:
+                    print("ability glyphs: no stored lineup; every sample refuses as no_lineup")
+                gp = glyph_reader(ctx, spans, icons, cands, cands_from)
+                declare_set(gp, "minimap", profile, ctx.wh)
+        cc = None
+        if want_circle:
+            from .clove_circle import circle_reader, stored_windows
+            from .roi_cache import declare_set
+            wins, win_inputs = stored_windows(store, sid)
+            if wins is None:
+                print(f"clove circle skipped: {win_inputs['reason']}")
+            else:
+                cc = circle_reader(ctx, wins, win_inputs,
+                                   floor=mp.floor if mp is not None else None,
+                                   sgray=mp.sgray if mp is not None else None)
+                declare_set(cc, "minimap", profile, ctx.wh)
         cp = None
         if want_report:
             from .combat_report import CombatReportReader
@@ -1375,9 +1402,13 @@ def cmd_scan(args) -> int:
                                     spans=cache_spans, gate=cache_gate)
             except ValueError as exc:
                 raise SystemExit(f"--cache-roi {args.cache_roi}: {exc}")
-        readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, bp, ip, cp, xp) if r is not None]
+        # The glyph reader follows the icon reader: it reads that reader's row
+        # for the same sample (`minimap_glyph.LiveIcons`).
+        readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, bp, ip, gp, cc, cp, xp)
+                   if r is not None]
         return SimpleNamespace(hp=hp, kp=kp, mp=mp, pp=pp, rp=rp, sp=sp, lp=lp, ap=ap,
-                               dp=dp, bp=bp, ip=ip, cp=cp, xp=xp, ctx=ctx, readers=readers)
+                               dp=dp, bp=bp, ip=ip, gp=gp, cc=cc, cp=cp, xp=xp, ctx=ctx,
+                               readers=readers)
 
     def live_rounds():
         try:
@@ -1612,6 +1643,19 @@ def cmd_scan(args) -> int:
             print(f"ability icons {rows[0]['frames']} samples {rows[0]['by_reason']}, "
                   f"{rows[0]['candidates']} candidates, {rows[0]['verify_lost']} verifies lost "
                   f"-> {path}")
+        if R.cc is not None:
+            rows = R.cc.events(sid, geometry.key_of(sid, store.root))
+            _record_inputs(store, sid, "clove_circle", rows[0])
+            path = out.write_events("clove_circle", sid, rows)
+            print(f"clove circle {rows[0]['frames']} samples in {len(rows[0]['windows'])} "
+                  f"windows {rows[0]['by_reason']} -> {path}")
+        if R.gp is not None:
+            rows = R.gp.events(sid, geometry.key_of(sid, store.root))
+            _record_inputs(store, sid, "ability_glyph", rows[0])
+            path = out.write_events("ability_glyph", sid, rows)
+            print(f"ability glyphs {rows[0]['frames']} samples {rows[0]['by_reason']}, disc rows "
+                  f"{rows[0]['disc_rows']}, {rows[0]['births']} births, windows "
+                  f"{rows[0]['windows']} -> {path}")
 
         if pp is not None:
             pp.finish()
@@ -1714,7 +1758,7 @@ def _normalise_decoded(R, manifest, store) -> None:
     normalised by `RoiCache.samples`. A placement the frame cannot hold is
     refused by name, never read as an absent widget."""
     from . import widget_frame as wf
-    mine = {id(r) for r in (R.mp, R.pp, R.ap, R.dp, R.bp, R.ip) if r is not None}
+    mine = {id(r) for r in (R.mp, R.pp, R.ap, R.dp, R.bp, R.ip, R.cc) if r is not None}
     unplaced = wf.unplaced_refusal(manifest) if mine else None
     if unplaced is not None:
         raise SystemExit(f"minimap refused: {unplaced}")
@@ -1948,7 +1992,7 @@ def cmd_board(args) -> int:
     if not media.is_file():
         raise SystemExit(f"source media has moved: {media}")
 
-    templates = Templates.load(profile.name)
+    templates = game_font_templates(store.root)
     hud = store.read_hud(sid, _date_of(manifest))
     tracked = None
     if hud is not None:
@@ -2347,7 +2391,7 @@ def cmd_overlay(args) -> int:
     if t_to <= t_from:
         raise SystemExit(f"empty range: {_fmt_hms(t_from)} to {_fmt_hms(t_to)}")
 
-    templates = game_font_templates(store.root, default=Templates.load(profile.name))
+    templates = game_font_templates(store.root)
     kf_roi = killfeed_roi(profile)
 
     print(f"session    {sid}  ({src['filename']})")
@@ -3687,15 +3731,99 @@ def cmd_project(args) -> int:
 
 def cmd_trial(args) -> int:
     """One reader over part of one session, diffed against the stored streams.
-    Writes nothing. `--from cache` decodes nothing."""
-    from .trial import run
+    Writes nothing to the store; `--rows-out DIR` writes the trial's event rows
+    as `DIR/events/<stream>/<sid>.jsonl`, the layout a scorer's `--*-from DIR`
+    reads. `--from cache` decodes nothing. `--windows-file` and `--sample`
+    bound it to windows (`dev_sample`), over every session they name unless
+    one is given, and total the sessions."""
+    from . import dev_sample
     store = Store(args.store)
-    manifest = _resolve_session(store, args.session)
+    files, sample = getattr(args, "windows_file", None) or [], getattr(args, "sample", False)
+    if not files and not sample:
+        res = _trial_one(store, _resolve_session(store, args.session), args, None,
+                         args.windows or "occupied")
+        return 0 if res["ok"] else 1
+    spans = dev_sample.spans_ms(dev_sample.load(files, sample))
+    if args.session:
+        sid = _resolve_session(store, args.session)["session_id"]
+        spans = {sid: spans.get(sid, [])}
+    tot = {"frames": 0, "seconds": 0.0, "same": 0, "only_trial": 0, "only_stored": 0}
+    ok = True
+    for sid in sorted(spans):
+        res = _trial_one(store, store.read_manifest(sid), args, spans[sid], args.windows or "all")
+        tot["frames"] += res["frames"]
+        tot["seconds"] += res["seconds"]
+        ok &= res["ok"]
+        for d in res["diff"].values():
+            for k in ("same", "only_trial", "only_stored"):
+                tot[k] += d[k]
+    print(f"{len(spans)} sessions ({'sample ' + dev_sample.DEV_SAMPLE_VERSION if sample else ''}"
+          f"{' + ' if sample and files else ''}{', '.join(map(str, files))}): {tot['frames']} "
+          f"frames in {tot['seconds']:.1f} s; rows {tot['same']} same, {tot['only_trial']} only "
+          f"in trial, {tot['only_stored']} only stored")
+    return 0 if ok else 1
+
+
+def cmd_dev_sample(args) -> int:
+    """The dev loop's windows: the declared sample, or targeted windows around
+    a residual list or the stored rows where a changed code path fires.
+    Prints them, or writes a windows file for `trial --windows-file`. Reads
+    stored rounds and streams only."""
+    from . import dev_sample as ds
+    store = Store(args.store)
+    if args.check:
+        moved = ds.drift(ds.SAMPLE, ds.build_from_store(store))
+        print(f"{ds.DEV_SAMPLE_VERSION}: {len(ds.SAMPLE)} windows, {len(moved)} moved by the "
+              f"stored rounds")
+        for ln in moved:
+            print(f"  {ln}")
+        return 1 if moved else 0
+    if args.residuals or args.stream:
+        res = [x for f in args.residuals or [] for x in ds.read_residuals(f)]
+        if args.extend:
+            # only the windows the existing targets do not already cover
+            old = [w for f in args.extend for w in ds.read_windows(f)]
+            wins = ds.new_targets(old, res, args.pad)
+            label = f"new targets beyond {len(old)} windows"
+        else:
+            wins = ds.targets_from_residuals(res, args.pad)
+            label = "targeted"
+        if args.stream:
+            sids = ([_resolve_session(store, x)["session_id"] for x in args.session]
+                    if args.session else list(ds.MATCHES))
+            wins += ds.targets_from_stream(store, sids, args.stream, ds.parse_where(args.where),
+                                           args.pad)
+        wins = ds.join_windows(wins)
+    else:
+        wins, label = list(ds.SAMPLE), ds.DEV_SAMPLE_VERSION
+    secs = sum(w.t1 - w.t0 for w in wins)
+    print(f"{label}: {len(wins)} windows over {len({w.session for w in wins})} sessions, "
+          f"{secs / 60:.1f} min of capture")
+    if args.out:
+        print(f"  -> {ds.write_windows(args.out, wins)}")
+    else:
+        print(ds.format_windows(wins), end="")
+    return 0
+
+
+def _trial_one(store, manifest: dict, args, spans, windows: str) -> dict:
+    """`trial.run` on one session and its printed diff."""
+    from .trial import run
     between = getattr(args, "between", None)
     res = run(store, manifest, reader=args.reader, source=args.source,
-              windows=args.windows, pad_ms=args.pad_ms,
-              between=None if between is None else (between[0] * 1000.0, between[1] * 1000.0))
-    print(f"{res['session_id']}: {args.reader} from {args.source}, {args.windows} windows: "
+              windows=windows, pad_ms=args.pad_ms,
+              between=None if between is None else (between[0] * 1000.0, between[1] * 1000.0),
+              spans=spans)
+    if getattr(args, "rows_out", None):
+        for stream, rows in res["rows"].items():
+            if stream == "hud":
+                continue        # a table, not an event stream
+            p = Path(args.rows_out) / "events" / stream / f"{res['session_id']}.jsonl"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("".join(json.dumps(x, separators=(",", ":")) + "\n" for x in rows),
+                         encoding="utf-8")
+    print(f"{res['session_id']}: {args.reader} from {args.source}, {windows} windows"
+          f"{'' if spans is None else f' in {len(spans)} spans'}: "
           f"{res['frames']} of {res['timeline']} timeline frames in {res['seconds']} s")
     if res["refused"]:
         print(f"  refused {sum(res['refused'].values())} of {res['asked']} frames asked, "
@@ -3727,7 +3855,8 @@ def cmd_trial(args) -> int:
     from .usage import format_steps
     for line in format_steps(used["steps"], feed["total_ns"]):
         print(line)
-    return 0 if ok else 1
+    res["ok"] = ok
+    return res
 
 
 def _latest_loso() -> dict:
@@ -3984,7 +4113,46 @@ def cmd_smokes(args) -> int:
     print(f"{sid}: team smoke agents {cov['team_smoke_agents']}, player {cov['player_agent']}; "
           f"{cov['named']} of {cov['tracks']} named {cov['by_agent']}, by rule {cov['by_rule']}; "
           f"refused {cov['refused']} -> {res['out']}")
+    dead = _dead_ruse(store, sid, res["rows"], cov["player_agent"])
+    if dead is not None:
+        h = dead[0]
+        print(f"{sid}: {h['casts']} Ruse casts while dead ({h['clouds']} clouds) over "
+              f"{h['windows']} dead windows, {h['refused']} beyond the charge bound, "
+              f"by basis {h['bases']} -> {dead[1]}")
     return 0
+
+
+def _dead_ruse(store, sid: str, owner_rows: list[dict], player: str | None):
+    """Write the `dead_ruse_cast` rows (`ability_timeline.dead_ruse_casts`)
+    where the player's agent is Clove: the gate's stored deaths and revives,
+    the state model's charges at each death, and the owners just named.
+    Returns (head, path), or None for any other agent."""
+    from .ability_timeline import (DEAD_RUSE, DEAD_RUSE_VERSION, dead_ruse_casts,
+                                   held_at_deaths, ruse_parameters, stored_gate_inputs)
+    if player != DEAD_RUSE[0]:
+        return None
+    man = store.read_manifest(sid)
+    date = _date_of(man)
+    table = store.read_rounds(sid, date)
+    rounds = table.to_pylist() if table is not None else []
+    gate, stamps = stored_gate_inputs(store, sid, date, rounds, player)
+    state = store.read_events("ability_state", sid)
+    params = ruse_parameters()
+    got = dead_ruse_casts(player, gate["player_deaths_ms"], gate["revives_ms"], rounds,
+                          owner_rows, held_at_deaths(state), params)
+    head = {"session_id": sid, "dead_ruse_version": DEAD_RUSE_VERSION, "kind": "coverage",
+            "reason": got["reason"], "windows": len(got["windows"]),
+            "casts": sum(r["player_cast"] for r in got["rows"]),
+            "clouds": sum(r["clouds"] for r in got["rows"] if r["player_cast"]),
+            "refused": sum(not r["player_cast"] for r in got["rows"]),
+            "bases": dict(sorted(Counter(r["basis"] for r in got["rows"]).items())),
+            "dead_windows": got["windows"], "parameters": params,
+            "inputs": {**stamps, "smoke_owner": owner_rows[0].get("smoke_owner_version"),
+                       "ability_state": (state[0].get("ability_state_version")
+                                         if state else None)}}
+    _record_inputs(store, sid, "dead_ruse_cast", head)
+    rows = [head] + [{"session_id": sid, "kind": "cast", **r} for r in got["rows"]]
+    return head, store.write_events("dead_ruse_cast", sid, rows)
 
 
 def _smoke_owners(store, sid: str, smoke_rows: list[dict], hz: float) -> dict:
@@ -4015,7 +4183,21 @@ def _smoke_owners(store, sid: str, smoke_rows: list[dict], hz: float) -> dict:
             rounds = table.to_pylist() if table is not None else []
             gate, stamps = stored_gate_inputs(store, sid, _date_of(man), rounds, player)
             casts, why = player_smoke_casts(drops, rounds, **gate), None
-    res = adjudicate(sid, smoke_rows, lineup, hz=hz, tray_casts=casts, tray_reason=why)
+    # The dead Clove's range circle, where the ability pass stored it current.
+    from .version import CLOVE_CIRCLE_VERSION
+    circle_rows, circle_why = None, None
+    if "Clove" in team:
+        got = store.read_events("clove_circle", sid)
+        stamp = got[0].get("clove_circle_version") if got else None
+        if stamp == CLOVE_CIRCLE_VERSION:
+            circle_rows = got
+            stamps = {**stamps, "clove_circle": stamp}
+        else:
+            circle_why = "no_circle_stream" if not got else f"circle_stream_stale {stamp}"
+    else:
+        circle_why = "no_team_clove"
+    res = adjudicate(sid, smoke_rows, lineup, hz=hz, tray_casts=casts, tray_reason=why,
+                     circle_rows=circle_rows, circle_reason=circle_why)
     # The stored inputs the owners were named over: the gate's where it ran,
     # then the drops, rounds and lineup view (`plan.stream_inputs`).
     head = res["rows"][0]
@@ -4024,6 +4206,61 @@ def _smoke_owners(store, sid: str, smoke_rows: list[dict], hz: float) -> dict:
     out = store.write_events("smoke_owner", sid, res["rows"])
     store.write_events("smoke_owner_identity", sid, res["events"])
     return {**res, "out": out}
+
+
+def cmd_ability_glyphs(args) -> int:
+    """The minimap ability-disc tracks (`adjudication.ability.disc_tracks`),
+    the glyph verdict on each and the claim on its caster
+    (`adjudication.ability_glyph`), from the stored `ability_glyph` and
+    `ability_icon` rows, the stored tray kit and the lineup. Writes
+    `ability_disc_track`, `ability_glyph_name` and `ability_glyph_identity`.
+    Decodes no video."""
+    import time
+
+    from .adjudication.ability_glyph import (VerdictTables, adjudicate, load_glyph_rows,
+                                             load_icon_verify, stale_reason)
+    from .adjudication.tray_kit import stored_kit_witness
+    from .adjudication.ult_cast import player_agent
+    from .lineup import load_lineup
+
+    t0 = time.perf_counter()
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    path = store.events_path("ability_glyph", sid)
+    if not path.is_file():
+        raise SystemExit(f"{sid}: no ability_glyph rows -- run `reticle scan {sid} --only ability --from cache`")
+    with open(path, "rb") as fh:
+        head = json.loads(fh.readline() or b"{}")
+    why = stale_reason(head)
+    if why:
+        raise SystemExit(f"{sid}: {why} -- run `reticle scan {sid} --only ability --from cache` "
+                         f"before trusting a verdict")
+    tables = VerdictTables.load(store.root)
+    glyph = load_glyph_rows(path, tables.keys)
+    verify = load_icon_verify(store.events_path("ability_icon", sid))
+    lineup = load_lineup(sid, store.root)
+    player = player_agent(lineup, sid)
+    kit = stored_kit_witness(store.read_events("tray_kit", sid), agent=player)
+    res = adjudicate(sid, glyph, verify, tables, lineup,
+                     kit["spans"] if kit["reason"] is None else None, player,
+                     kit_reason=kit["reason"],
+                     stamps={"tray_kit": kit["version"]} if kit.get("version") else None)
+    cov, tcov = res["rows"][0], res["tracks"][0]
+    cov["wall_s_command"] = round(time.perf_counter() - t0, 3)
+    print(f"{sid}: {tcov['tracks']} tracks (ends {tcov['ends']}, {tcov['jumps']} with a jump); "
+          f"{cov['with_clean_sample']} with a clean sample: {cov['named']} named, {cov['pending']} "
+          f"pending, {cov['agents_named']} casters named; refused {cov['refused']}; audit "
+          f"{cov['audit']['named']} of {cov['audit']['tracks']} named, {cov['audit']['agree_with_context']} "
+          f"agree; {cov['wall_s_command']} s")
+    if args.dry:
+        return 0
+    _record_inputs(store, sid, "ability_disc_track", tcov)
+    _record_inputs(store, sid, "ability_glyph_name", cov)
+    p1 = store.write_events("ability_disc_track", sid, res["tracks"])
+    p2 = store.write_events("ability_glyph_name", sid, res["rows"])
+    p3 = store.write_events("ability_glyph_identity", sid, res["events"])
+    print(f"-> {p1}\n-> {p2}\n-> {p3}")
+    return 0
 
 
 def _cache_grid(t_ms, t0: float, t1: float, step_s: float) -> list[float]:
@@ -4256,13 +4493,17 @@ def cmd_tray(args) -> int:
             with usage_step("gate_inputs"):
                 gate, stamps = stored_gate_inputs(store, sid, date, rounds,
                                                   player_agent(load_lineup(sid, store.root), sid))
+            # The gate reads this pass's numerals, which this command stores.
+            stamps["tray_countdown"] = TRAY_COUNTDOWN_VERSION
             with usage_step("player_tray_casts"):
                 rows = player_tray_casts(
                     drops, gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
                     second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                     report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
                     kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
-                    kit_spans=gate["kit_spans"])
+                    kit_spans=gate["kit_spans"], own_lines_ms=gate["own_lines_ms"],
+                    pool_slots=gate["pool_slots"], countdown_reads=reads,
+                    step_ms=1000.0 * args.step)
         common = {"session_id": sid, "tray_version": TRAY_VERSION,
                   "player_cast_version": PLAYER_CAST_VERSION, "step_s": args.step}
         why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
@@ -4906,12 +5147,14 @@ def cmd_ability_state(args) -> int:
             gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent["agent"])
         with usage_step("gate_rows"):
             gate_rows = player_tray_casts(
-                [{k: r[k] for k in DROP_FIELDS} for r in drops], gate["phase_of"], rounds,
+                [{k: r[k] for k in DROP_FIELDS if k in r} for r in drops], gate["phase_of"], rounds,
                 gate["player_deaths_ms"], agent=gate["agent"],
                 second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                 report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
                 kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
-                kit_spans=gate["kit_spans"])
+                kit_spans=gate["kit_spans"], own_lines_ms=gate["own_lines_ms"],
+                pool_slots=gate["pool_slots"], countdown_reads=gate["countdown_reads"],
+                step_ms=gate["step_ms"])
         with usage_step("kit_windows"):
             kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
                                second_lives_ms=gate["second_lives_ms"],
@@ -5134,7 +5377,9 @@ def cmd_ability_shapes(args) -> int:
                          second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                          report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
                          kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
-                         kit_spans=gate["kit_spans"])
+                         kit_spans=gate["kit_spans"], own_lines_ms=gate["own_lines_ms"],
+                         pool_slots=gate["pool_slots"], countdown_reads=gate["countdown_reads"],
+                         step_ms=gate["step_ms"])
                      if d["player_cast"] and kit.get(d["slot"]) in ability_candidates.TABLE]
         with usage_step("cache_load"):
             cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
@@ -5264,6 +5509,9 @@ def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict], agent: str |
     if drops[0].get("tray_version") != TRAY_VERSION:
         return None, "tray_drops_stale", {"tray_drop": drops[0].get("tray_version")}
     gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent)
+    # `player_x_drops` discards the own lines, so the stream records neither
+    # its own previous stamp nor its reason as an input.
+    stamps = {k: v for k, v in stamps.items() if k not in ("ult_cast", "ult_cast_reason")}
     return player_x_drops(drops, rounds=rounds, **gate), None, {"tray_drop": TRAY_VERSION,
                                                                 **stamps}
 
@@ -5506,7 +5754,7 @@ def cmd_refine(args) -> int:
         raise SystemExit("cached killfeed mask is missing; run hud first (refine will not calibrate across the capture)")
     reader = _HudPass(store, manifest, profile,
                       argparse.Namespace(min_confidence=0.82, min_margin=0.05, hz=0))
-    assets = [Templates.path_for(profile.name), *map(Path, game_font_templates(store.root).files),
+    assets = [*map(Path, game_font_templates(store.root).files),
               me_template_path(profile.name),
               store.kf_mask_path(manifest['session_id'])]
     plan['reader_configuration'] = dict(hud_version=HUD_VERSION, min_confidence=0.82,
@@ -5902,7 +6150,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "(docs/ALLY_ICON_RESAMPLE.md)")
     s.add_argument("--only", nargs="+",
                    choices=("hud", "minimap", "ping", "roster", "scoreboard",
-                            "ally_icon", "minimap_dark", "ability", "combat_report", "roi_cache"),
+                            "ally_icon", "minimap_dark", "ability", "clove_circle",
+                            "combat_report", "roi_cache"),
                    help="run only these readers through the shared pass; roster-only needs no minimap geometry")
     s.add_argument("--report-hz", type=float, default=1.0,
                    help="combat report rate, whole capture (default 1)")
@@ -6134,16 +6383,46 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("trial", help="rerun one reader on stored windows and diff it (writes nothing)")
     s.add_argument("session", nargs="?")
     s.add_argument("--reader", default="killfeed",
-                   choices=("killfeed", "hud", "scoreboard", "ally_icon"))
+                   choices=("killfeed", "hud", "scoreboard", "ally_icon", "ability_glyph",
+                            "clove_circle"))
     s.add_argument("--from", dest="source", default="cache", choices=("cache", "video"),
                    help="ROI crop cache (no decode) or seeks into the capture")
-    s.add_argument("--windows", default="occupied", choices=("occupied", "all"),
+    s.add_argument("--windows", default=None, choices=("occupied", "all"),
                    help="frames near a stored killfeed entry (scoreboard: inside the strip "
-                        "gate; ally_icon: widget drawn), or the whole timeline")
+                        "gate; ally_icon: widget drawn), or the whole timeline (default: "
+                        "occupied, or all inside --windows-file and --sample)")
+    s.add_argument("--windows-file", action="append", default=None, metavar="CSV",
+                   help="only frames inside these windows (session,t0,t1,reason; seconds); "
+                        "repeat for more; every session named unless SESSION is given")
+    s.add_argument("--sample", action="store_true",
+                   help="add the declared dev sample's windows (reticle dev-sample)")
     s.add_argument("--pad-ms", type=float, default=2000.0)
     s.add_argument("--between", type=float, nargs=2, default=None, metavar=("T0", "T1"),
                    help="only frames between T0 and T1 seconds, such as one round")
+    s.add_argument("--rows-out", default=None, metavar="DIR",
+                   help="write the trial's event rows to DIR/events/<stream>/<sid>.jsonl "
+                        "(outside the store), for a scorer to read")
     s.set_defaults(func=cmd_trial)
+
+    s = sub.add_parser("dev-sample", help="the dev loop's declared sample, or targeted windows "
+                                          "around residuals or stored rows (writes a windows "
+                                          "file for trial)")
+    s.add_argument("--out", default=None, metavar="CSV", help="write the windows file here")
+    s.add_argument("--check", action="store_true",
+                   help="rebuild the sample from the stored rounds and report drift")
+    s.add_argument("--residuals", action="append", default=None, metavar="CSV",
+                   help="a residual list (session,t[,reason]; seconds): a window around each")
+    s.add_argument("--stream", default=None,
+                   help="a stored stream: a window around each row matching --where")
+    s.add_argument("--where", action="append", default=None, metavar="FIELD[=VALUE]",
+                   help="row filter for --stream (VALUE as JSON; dotted fields; bare = truthy)")
+    s.add_argument("--session", action="append", default=None,
+                   help="sessions for --stream (default: the Riot-paired matches)")
+    s.add_argument("--pad", type=float, default=15.0, help="seconds either side of a target")
+    s.add_argument("--extend", action="append", default=None, metavar="CSV",
+                   help="windows already run: write only windows around --residuals they "
+                        "do not cover with --pad to spare")
+    s.set_defaults(func=cmd_dev_sample)
 
     s = sub.add_parser("killstreak", help="killstreak numerals against the death stream's "
                                           "per-round kill index (no video)")
@@ -6164,6 +6443,13 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("smokes", help="smoke tracks and who cast them, from stored minimap_dark rows (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_smokes)
+
+    s = sub.add_parser("ability-glyphs", help="minimap ability-disc tracks, the glyph verdict on each and "
+                                              "the claim on its caster, from stored ability_glyph rows "
+                                              "(no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--dry", action="store_true", help="print the verdict; write no stream")
+    s.set_defaults(func=cmd_ability_glyphs)
 
     s = sub.add_parser("menu", help="whether the game's menu covers the HUD, from stored crops (no video)")
     s.add_argument("session", nargs="?")

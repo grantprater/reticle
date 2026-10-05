@@ -177,7 +177,7 @@ def draw(frame: np.ndarray, t_ms: float, frame_idx: int, ctx: OverlayContext) ->
     sr = read_scoreline(crop_gray(frame, sroi, W, H), ctx.templates,
                         ctx.min_confidence, ctx.min_margin)
     br = read_bottom_hud(frame, prof, ctx.templates, W, H,
-                         ctx.min_confidence, ctx.min_margin)
+                         ctx.min_confidence, ctx.min_margin, scoreline=sr)
 
     def fmt(v, unit=""):
         return "--" if v is None else f"{v}{unit}"

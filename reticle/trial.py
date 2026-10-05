@@ -6,6 +6,8 @@ A reader change is checked where it can matter, not over the whole capture:
   trial writes has a stored counterpart to compare with;
 * `windows="occupied"` keeps only frames within `pad_ms` of a frame whose
   stored killfeed mask holds an entry; `"all"` keeps the whole timeline;
+* `spans` keeps only frames inside a windows file's spans: the dev loop's
+  targeted windows and declared sample (`dev_sample`);
 * `source="video"` seeks to each run of frames (`decode.seek_at`) instead of
   decoding from the file start; `source="cache"` reads the ROI crops
   (`roi_cache`) and decodes nothing.
@@ -161,6 +163,115 @@ def scoreboard_targets(samples: list[dict], strip_rows: list[dict] | None,
     return [x for x in t if in_spans(x, gate["spans"], starts)]
 
 
+class _AbilityGlyphPass:
+    """The ability pass as `scan` runs it where both streams are stale: the
+    icon proposer, then the glyph reader on the proposer's row for the same
+    sample (`minimap_glyph.LiveIcons`). Each feed is the named step of its
+    reader, so `usage.steps` holds both readers' time apart (gate 7)."""
+
+    name = "ability_glyph"
+
+    def __init__(self, icons, glyphs, store_root):
+        self.icons, self.glyphs, self.store_root = icons, glyphs, store_root
+
+    def feed(self, smp) -> None:
+        from .usage import step
+        with step("ability_icon"):
+            self.icons.feed(smp)
+        with step("ability_glyph"):
+            self.glyphs.feed(smp)
+
+
+def _ability_inputs(ctx):
+    """(spans, phase_at, why) as `scan`'s ability pass reads them."""
+    from .gametime import live_phase_at
+    from .segment import reader_spans
+    sid, date = ctx.session_id, ctx.manifest["ingested_at"][:10]
+    tbl = ctx.store.read_spans(sid, date)
+    if tbl is None:
+        raise SystemExit(f"no spans for session {sid} -- run `reticle segment {sid}` first")
+    spans = reader_spans(tbl.select(["state", "t_start_ms", "t_end_ms"]).to_pylist())
+    phase_at, why = live_phase_at(ctx.store, sid, date)
+    return spans, phase_at, why
+
+
+def _ability_glyph_reader(ctx):
+    from .ability_icons import icon_reader
+    from .lineup import glyph_candidates
+    from .minimap_glyph import LiveIcons, glyph_reader
+    # `scan`'s inputs: the stored spans and live phase, and the lineup's
+    # candidate set from its owner.
+    spans, phase_at, why = _ability_inputs(ctx)
+    ip = icon_reader(ctx, spans, phase_at=phase_at, phase_reason=why)
+    cands, cands_from = glyph_candidates(ctx.session_id, ctx.store.root)
+    gp = glyph_reader(ctx, spans, LiveIcons(ip), cands, cands_from)
+    return _AbilityGlyphPass(ip, gp, ctx.store.root)
+
+
+def _ability_glyph_rows(reader, sid: str) -> dict[str, list[dict]]:
+    from . import geometry
+    return {"ability_glyph": reader.glyphs.events(sid, geometry.key_of(sid, reader.store_root))}
+
+
+def _ability_timeline(store, manifest: dict, windows: str, pad_ms: float):
+    """The ability pass's 2 Hz grid over the minimap cache (`roi_cache.grid_times`
+    on each reader span, as `cache_feed` reads a resampling reader); occupied
+    keeps the samples the live phase gate admits, the opportunity to see a
+    cast disc, not the discs found."""
+    from types import SimpleNamespace
+    from .gametime import live_phase_at
+    from .profiles import get_profile
+    from .roi_cache import RoiCache, grid_times
+    from .ability_scan import LIVE_PHASES
+    sid = manifest["session_id"]
+    cache, why = RoiCache.load(store.root, manifest, get_profile(manifest["source_profile"]),
+                               "minimap")
+    if cache is None:
+        raise SystemExit(f"{sid}: no usable minimap ROI cache ({why})")
+    spans, phase_at, _ = _ability_inputs(SimpleNamespace(session_id=sid, manifest=manifest,
+                                                         store=store))
+    want = sorted({x for a, b in spans for x in grid_times(cache.t_ms, float(a), float(b), 0.5)})
+    n = len(want)
+    if windows == "occupied" and phase_at is not None:
+        want = [t for t in want if phase_at(t) in LIVE_PHASES]
+    elif windows not in ("occupied", "all"):
+        raise ValueError(f"unknown windows {windows!r}")
+    return n, want, {}
+
+
+def _clove_circle_reader(ctx):
+    from .clove_circle import circle_reader, stored_windows
+    # `scan`'s inputs: the opportunity windows from the stored deaths.
+    wins, inputs = stored_windows(ctx.store, ctx.session_id)
+    return circle_reader(ctx, wins or [], inputs)
+
+
+def _clove_circle_rows(reader, sid: str) -> dict[str, list[dict]]:
+    return {"clove_circle": reader.events(sid, reader.geometry_key)}
+
+
+def _clove_circle_timeline(store, manifest: dict, windows: str, pad_ms: float):
+    """The circle reader's 4 Hz grid over the minimap cache
+    (`roi_cache.grid_times`): occupied keeps the opportunity windows, each an
+    ally Clove's death to her round's end (`clove_circle.stored_windows`),
+    never the circles found; all keeps every cached round."""
+    from .clove_circle import stored_windows
+    from .profiles import get_profile
+    from .roi_cache import RoiCache, grid_times
+    sid = manifest["session_id"]
+    cache, why = RoiCache.load(store.root, manifest, get_profile(manifest["source_profile"]),
+                               "minimap")
+    if cache is None:
+        raise SystemExit(f"{sid}: no usable minimap ROI cache ({why})")
+    if windows not in ("occupied", "all"):
+        raise ValueError(f"unknown windows {windows!r}")
+    wins, _ = stored_windows(store, sid)
+    spans = ([(w["t0_ms"], w["t1_ms"]) for w in wins or []] if windows == "occupied"
+             else (cache.record.get("spans") or []))
+    want = sorted({x for a, b in spans for x in grid_times(cache.t_ms, float(a), float(b), 0.25)})
+    return len(want), want, {}
+
+
 TRIAL_READERS = {
     # reader -> (the ROI cache set its reads stay inside, build, rows, streams, timeline)
     "killfeed": ("killfeed", _killfeed_reader, _killfeed_rows,
@@ -171,10 +282,17 @@ TRIAL_READERS = {
                    _scoreboard_timeline),
     # The minimap set's first rectangle only: the ability tray is not read.
     "ally_icon": ("minimap", _ally_reader, _ally_rows, ("ally_icon",), _ally_timeline),
+    # The icon proposer and the glyph reader together, as the ability pass feeds them.
+    "ability_glyph": ("minimap", _ability_glyph_reader, _ability_glyph_rows, ("ability_glyph",),
+                      _ability_timeline),
+    # The dead Clove's range circle, inside her death windows only.
+    "clove_circle": ("minimap", _clove_circle_reader, _clove_circle_rows, ("clove_circle",),
+                     _clove_circle_timeline),
 }
 
 #: Profile ROIs a trial decodes from its cache set, where fewer than the set's.
-TRIAL_ROIS = {"ally_icon": ("minimap",)}
+TRIAL_ROIS = {"ally_icon": ("minimap",), "ability_glyph": ("minimap",),
+              "clove_circle": ("minimap",)}
 
 
 def targets(hud: dict, windows: str = "occupied", pad_ms: float = 2000.0) -> list[float]:
@@ -261,9 +379,13 @@ def diff_table(new: list[dict], stored: dict, at: set[float]) -> dict:
 
 def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
         windows: str = "occupied", pad_ms: float = 2000.0,
-        between: tuple[float, float] | None = None) -> dict:
+        between: tuple[float, float] | None = None,
+        spans: list[tuple[float, float]] | None = None) -> dict:
     """`between` (t0_ms, t1_ms), inclusive, bounds the trial to one slice of
-    the timeline, such as a round; the diff compares only frames inside it."""
+    the timeline, such as a round; `spans`, a list of such slices (a windows
+    file's, `dev_sample.spans_ms`), bounds it to their union. The reader is
+    fed the kept frames in time order across the gaps, as `"occupied"`
+    feeds it; the diff compares only frames inside."""
     from .decode import seek_at
     from .passes import SessionContext
     from .usage import CallTimes, StepRecorder
@@ -279,6 +401,10 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
     n_timeline, want, stored_idx = timeline(store, manifest, windows, pad_ms)
     if between is not None:
         want = [t for t in want if between[0] <= t <= between[1]]
+    if spans is not None:
+        from .dev_sample import in_spans
+        keep = in_spans(want, spans)
+        want = [t for t, k in zip(want, keep) if k]
     r = build(ctx)
     t0 = time.perf_counter()
     cache = None
@@ -321,7 +447,8 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
     diffs = {s: (diff_table(rows[s], hud, at) if s == "hud"
                  else diff(rows[s], store.read_events(s, sid), at)) for s in streams}
     out = {"session_id": sid, "reader": reader, "source": source, "windows": windows,
-           "pad_ms": pad_ms, "between": between, "timeline": n_timeline, "frames": len(read),
+           "pad_ms": pad_ms, "between": between,
+           "spans": None if spans is None else len(spans), "timeline": n_timeline, "frames": len(read),
            "asked": len(want), "refused": dict(sorted(refused.items())),
            "frame_idx_moved": moved_idx, "seconds": round(seconds, 1), "diff": diffs,
            "rows": rows,

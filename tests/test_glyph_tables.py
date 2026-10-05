@@ -107,6 +107,17 @@ class Cut(unittest.TestCase):
         self.assertEqual(sum(v > c for v in s), 5)
         self.assertIsNone(gt.cut_at([], 0.05))
 
+    def test_the_stored_cut_keeps_the_count(self):
+        # glyph-null-table-0.2.1 stored the full bank's 0.821934 order statistic as 0.8219, under the score.
+        s = [0.9, 0.86, 0.83, 0.821934] + [0.5] * 59
+        c = gt.cut_at(s, 0.05)
+        self.assertEqual(c, 0.822)
+        self.assertEqual(round(c, 4), c)
+        self.assertEqual(sum(v > c for v in s), 3)
+        self.assertEqual(gt.stored_cut(0.8219), 0.8219)
+        self.assertEqual(gt.stored_cut(0.53305), 0.5331)
+        self.assertEqual(gt.stored_cut(0.53304), 0.5331)
+
     def test_bank_cut_holds_each_bank_and_scale_at_the_rate(self):
         import numpy as np
         keys = ["A:C", "A:Q", "B:C"]
@@ -131,6 +142,104 @@ class Cut(unittest.TestCase):
         self.assertEqual((p["thrown_named"], p["self_right"], p["self_wrong"], p["self_refused"]), (4, 1, 2, 1))
         self.assertEqual((p["both_named"], p["both_right"], p["both_wrong"], p["thrown_only_right"],
                           p["self_only_right"]), (3, 1, 1, 1, 0))
+
+    def test_items_move_to_the_full_transform_and_a_wrong_widget_refuses(self):
+        """A: the null is measured at widget x map zoom (geometry.MapScale.scale)."""
+        from unittest import mock
+        from reticle import geometry
+        ms = geometry.MapScale("ascent__valorant-16x9", 0.71183, 0.8871, "test")
+        items = [{"sid": "d95cfad5693a", "scale": 331 / 465.0}]
+        with mock.patch.object(geometry, "map_scale_of", return_value=ms):
+            prov = gt.to_map_scale(items)
+            self.assertAlmostEqual(items[0]["scale"], ms.scale)
+            self.assertAlmostEqual(items[0]["widget_scale"], 331 / 465.0)
+            self.assertEqual(prov["d95cfad5693a"]["map_zoom"], 0.8871)
+            gt.to_map_scale(items)                        # idempotent: it reads the kept widget scale
+            self.assertAlmostEqual(items[0]["scale"], ms.scale)
+            with self.assertRaises(SystemExit):
+                gt.to_map_scale([{"sid": "d95cfad5693a", "scale": 1.0}])
+        with mock.patch.object(geometry, "map_scale_of", return_value=None):
+            with self.assertRaises(SystemExit):
+                gt.to_map_scale([{"sid": "x", "scale": 1.0}])
+
+    def test_the_audit_null_reads_every_key_and_holds_its_bank_at_the_rate(self):
+        """C: per-key cuts and one bank cut at the audit's search size."""
+        import numpy as np
+        keys = ["A:C", "A:Q", "B:C"]
+        rng = np.random.default_rng(1)
+        neg = [{"win_index": i} for i in range(60)]
+        sc = {i: rng.random(3).astype(np.float32) for i in range(60)}
+        sc[100] = np.array([0.1, 0.99, 0.2], np.float32)
+        pos = [{"win_index": 100, "truth": "A:Q"}]
+        a = gt.audit_null(neg, pos, sc, keys)
+        self.assertEqual(sorted(a["keys"]), keys)
+        self.assertLessEqual(a["bank_cut"]["rate"], 0.05)
+        self.assertEqual(a["bank_cut"]["named"], 3)
+        self.assertEqual(a["bank_cut"]["glyph_items_named_right_cut"], 1)
+
+    def test_gate3_counts_unlabelled_discs_only_when_some_entered(self):
+        bank = {"false_naming_rate_cut": 0.1, "bank_cut": {"rate": 0.04, "by_scale": {"1.0": {"rate": 0.04}}}}
+        nt = {"banks": {"context": bank, "full": bank, "audit": {"bank_cut": {"rate": 0.04}}},
+              "negatives": {"by_source": {"ability": 63}}}
+        self.assertFalse(gt.gate3(nt)["unlabelled_proposer_discs"])
+        nt["negatives"]["by_source"][gt.UNLABELLED_SRC] = 4
+        g = gt.gate3(nt)
+        self.assertTrue(g["unlabelled_proposer_discs"])
+        self.assertEqual(g["unlabelled_n"], 4)
+
+    def test_only_exhaustive_paint_frames_vouch_for_unlabelled_discs(self):
+        """B: a proposer disc no label names is a negative only on a frame the
+        player painted exhaustively; the latest row per time decides, so a
+        later non-exhaustive or unsure row retracts an exhaustive one."""
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "ability_paint"
+            p.mkdir()
+            rows = [{"kind": "frame", "t_ms": 0, "exhaustive": True, "icons": []},
+                    {"kind": "frame", "t_ms": 0, "exhaustive": True, "icons": [{"x": 1, "y": 2}]},
+                    {"kind": "frame", "t_ms": 500, "exhaustive": False, "icons": []},
+                    {"kind": "frame", "t_ms": 900, "exhaustive": True, "unsure": True, "icons": []},
+                    {"kind": "frame", "t_ms": 1400, "exhaustive": True, "icons": []},
+                    {"kind": "frame", "t_ms": 1400, "exhaustive": False, "icons": []},     # retracted
+                    {"kind": "frame", "t_ms": 1900, "exhaustive": True, "icons": []},
+                    {"kind": "frame", "t_ms": 1900, "exhaustive": True, "unsure": True, "icons": []}]
+            (p / "s1.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            with mock.patch.object(gt.mge, "LABELS", Path(d)):
+                got = gt.exhaustive_paint_frames("s1")
+                self.assertEqual(sorted(got), [0.0])
+                self.assertEqual(got[0.0]["icons"], [{"x": 1, "y": 2}])
+                self.assertEqual(gt.exhaustive_paint_frames("none"), {})
+
+    def test_a_later_sure_answer_revises_an_unsure_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "answers.jsonl"
+            rows = [ans("Cypher:C", unsure=True), ans("Skye:X", unsure=True),
+                    ans("Skye:X", "rotates"), ans("Cypher:Q", "rotates"), ans("Cypher:C", "rotates")]
+            p.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            a = gt.rotation_answer_rows(p)
+        got = {r["key"]: r for r in gt.policy_rows(["Cypher:C", "Cypher:Q", "Skye:X"], a,
+                                                   {"Cypher:C": "rotates", "Skye:X": "upright"}, {})}
+        self.assertEqual({k: (r["policy"], r["decided_by"], r["answer"]["line"]) for k, r in got.items()},
+                         {"Cypher:C": ("rotates", "player_answer", 5), "Cypher:Q": ("rotates", "player_answer", 4),
+                          "Skye:X": ("rotates", "player_answer", 3)})
+        self.assertEqual(got["Cypher:C"]["domain"], "abilities/cypher-trapwire-minimap-glyph-turns-belief")
+        self.assertIsNone(got["Cypher:C"]["surprise"])                 # the rule reads it turning too
+        self.assertIsNone(got["Cypher:Q"]["surprise"])                 # no component: no rule to contradict
+        self.assertIn("contradicts the two-flag rule", got["Skye:X"]["surprise"])
+
+    def test_cut_moves_names_each_moved_key_and_bank(self):
+        def tab(cq, ctx):
+            return {"version": "v", "keys": {"A:C": {"cut": 0.5, "audit_cut": 0.7}, "B:Q": {"cut": cq, "audit_cut": 0.6}},
+                    "banks": {b: {"bank_cut": {"cut": c}} for b, c in (("context", ctx), ("full", 0.8), ("audit", 0.86))}}
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "old.json"
+            p.write_text(json.dumps(tab(0.4367, 0.66)), encoding="utf-8")
+            m = gt.cut_moves(p, tab(0.5331, 0.66), ["A:C", "B:Q"])
+            self.assertIsNone(gt.cut_moves(Path(d) / "absent.json", tab(0.5, 0.6), ["A:C"]))
+        self.assertEqual(m["moved"], {"B:Q": {"old": 0.4367, "new": 0.5331}})
+        self.assertEqual(m["audit_moved"], {})
+        self.assertEqual(m["max_abs"], 0.0964)
+        self.assertEqual(m["bank_cut"]["context"], {"old": 0.66, "new": 0.66})
 
     def test_every_answer_fact_exists(self):
         text = (ROOT / "domain" / "abilities.toml").read_text(encoding="utf-8")

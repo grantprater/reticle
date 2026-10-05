@@ -370,6 +370,33 @@ ab('Clove', 'E', 'Ruse', [
     V('range', 'MapRange', 'cm', SM + 'Ability_E/MapTargetSmoke/Ability_Smonk_E_MapTargetSmokeV2', 'MapTargetingState_GEN_VARIABLE', 'MapRange'),
     V('range', 'MapTargetingRange', 'cm', SM + 'Ability_E/MapTargetSmoke/Ability_Smonk_E_MapTargetSmokeV2', 'MapTargetingState_GEN_VARIABLE', 'MapTargetingRange'),
 ], note='the radius is GameObject_NewSmokeZone_Parent\'s sphere, inherited by GameObject_Smonk_NewSmoke')
+SM_E = SM + 'Ability_E/'
+SM_PD = SM_E + 'MapTargetSmoke/Ability_Smonk_E_PostDeath'
+
+
+def _clove_dead_cooldown(rows):
+    """The dead Ruse's cooldown, by reference: its ExternalCooldown names an
+    item slot, and the living Ruse's base class sits in that slot."""
+    ext = read_text(SM_PD, 'ExternalCooldown_GEN_VARIABLE', 'ExternalSlot')
+    base, live = SM_E + 'Ability_Smonk_E_Base', SM_E + 'MapTargetSmoke/Ability_Smonk_E_MapTargetSmokeV2'
+    slot = read_text(base, DEF(base), 'EquippableSlot')
+    if base not in class_chain(live) or has_field(live, DEF(live), 'EquippableSlot', any_type=True):
+        raise ValueError('Ability_Smonk_E_MapTargetSmokeV2 does not inherit its slot from Ability_Smonk_E_Base')
+    if not ext or ext != slot:
+        raise ValueError(f'post-death ExternalSlot {ext} is not the living Ruse slot {slot}')
+    return (f"The files give the post-death ability no cooldown of its own: {asset_path(SM_PD)} "
+            f"ExternalCooldown_GEN_VARIABLE.ExternalSlot = {ext}, the slot {asset_path(base)} "
+            f"{DEF(base)}.EquippableSlot gives Ruse (inherited by Ability_Smonk_E_MapTargetSmokeV2, no class "
+            f"between overrides it), so by the field names a dead Clove's charge recharges on the living "
+            f"Ruse's cooldown component [domain:game_data/ability-restock-times].")
+
+
+ab('Clove', 'E', 'Ruse after death', [
+    V('other', 'PostDeathMaxCharges', 'n', SM_PD, DEF(SM_PD), 'PostDeathMaxCharges'),
+    V('range', 'post-death MapRange', 'cm', SM_PD, 'MapTargetingState_GEN_VARIABLE', 'MapRange'),
+], note='Ability_Smonk_E_PostDeath is the equippable a dead Clove holds in slot E; it spawns '
+        'GameObject_Smonk_NewSmoke_PDS, whose life is in [domain:game_data/clove-ruse-game-data]',
+   extra=_clove_dead_cooldown, see=['game_data/clove-ruse-game-data', 'game_data/ability-restock-times'])
 ab('Clove', 'X', 'Not Dead Yet', [
     V('duration', 'RepositioningState TimerLength', 's', SM + 'Ability_X/ReactiveRes/Ability_Smonk_X_ReactiveRes_Engineering', 'RepositioningState_GEN_VARIABLE', 'TimerLength'),
     V('duration', 'FightingState AssistTimeAllowance', 's', SM + 'Ability_X/ReactiveRes/Ability_Smonk_X_ReactiveRes_Engineering', 'FightingState_WaitForKillOrAssist_GEN_VARIABLE', 'AssistTimeAllowance'),

@@ -195,8 +195,9 @@ class StagedEqualsSerialTests(unittest.TestCase):
                               if any(a <= t <= b for a, b in spans)])
 
     def test_workers_0_feeds_in_the_serial_order_on_video(self):
-        # `passes.run` feeds in the order of the set `sample_multi` yields,
-        # here the reverse of the list's; inline feeding must match it.
+        # `passes.run` feeds in the readers' list order, whatever order the
+        # set `sample_multi` yields (here the reverse), so a reader may read
+        # an earlier reader's row for the sample; inline feeding matches it.
         log = []
 
         class Logs(Collect):
@@ -212,7 +213,7 @@ class StagedEqualsSerialTests(unittest.TestCase):
             run(ctx, [Logs("a"), Logs("b")])
             serial, log[:] = list(log), []
             run_staged(ctx, [Logs("a"), Logs("b")], None, workers=0)
-        self.assertEqual(serial, ["b", "a"] * 3)
+        self.assertEqual(serial, ["a", "b"] * 3)
         self.assertEqual(log, serial)
 
     def test_a_video_source_feeds_whoever_sample_multi_names(self):
