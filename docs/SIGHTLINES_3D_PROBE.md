@@ -294,9 +294,9 @@ gun kills. The blocked kills are near misses, not hidden duels.
 
 **The game's penetration data.** WallPenGlobals maps each physical surface
 to a penetration class with an EnergyReductionMultiplier
-[domain:game_data/wall-penetration-surfaces]; each gun's projectile scales
+[domain:weapons/wall-penetration-surfaces]; each gun's projectile scales
 its budget by a stopping and a power multiplier
-[domain:game_data/wall-penetration-weapons]. A crossing's surface comes from
+[domain:weapons/wall-penetration-weapons]. A crossing's surface comes from
 the hit triangle's collision section, its material's PhysMaterial and that
 material's SurfaceType; every mesh a stored line crosses, with its
 material chain, is exported to the store's

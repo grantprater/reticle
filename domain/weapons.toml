@@ -150,3 +150,94 @@ the player gave no price figure, magazine, damage, fire rate or release date;
 phrases = ["warden rifle", "new gun warden"]
 see = ["weapons/magazine-and-reserve", "weapons/per-weapon-properties",
        "killfeed/warden-icon"]
+
+[wall-penetration-surfaces]
+claim = """
+A bullet's loss through a wall depends on the surface it hits. The game maps
+each physical surface type to a penetration class, and each class sets an
+EnergyReductionMultiplier: FullyPenetrable 0.0 (Water, Flesh, BrokenGlass,
+CarpetOnWood, Cloth, CarpetOnConcrete), VeryLow 0.2 (Glass, CrunchyLeaves,
+GlassFloor), Low 0.25 (Dirt, Grass, Snow, GarbageBag, Sand), Moderate 0.333
+(Gravel, Wood, EtherGlass, PlasticHollow, WoodPuddle), High, which sets no
+value (the default surface, Concrete, Linoleum, ConcretePuddle, Thorns, Mud,
+Tree, Ice, ShootinRangeTarget, CobbleStone, CeramicTile), VeryHigh 2.0 (Metal,
+MetalThin, MetalNonResonant, MetalPipe) and Impenetrable 100000 (Impenetrable,
+BubbleCage, CFabric, GoldenRipple). A global penetration curve falls from 1.0
+at 0 through 0.9 at 1, 0.6 at 25, 0.5 at 50 and 0.3 at 99 to 0.0 at 100.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-05"
+subject = "weapons:wall penetration"
+source = """
+release-13.06-shipping-18-5590001, exported to the store's
+reference/game-files/<build>/wallpen/ (manifest beside it):
+ShooterGame/Content/Globals/WallPenGlobals.uasset (AresWallPenetrationGlobals:
+WallPenetrationType[0..38] indexed by EPhysicalSurface, GlobalPenetrationCurve);
+ShooterGame/Content/Equippables/Guns/_Core/WallPenetration/WallPen_*.uasset
+(AresWallPenetration.EnergyReductionMultiplier);
+ShooterGame/Content/Environment/PhysicalMaterials/M_*.uasset
+(PhysicalMaterial.SurfaceType); surface names from
+config/ShooterGame/Config/DefaultEngine.ini PhysicalSurfaces. The class schema
+(FModel's usmap for 13.06): AresWallPenetration holds
+EnergyReductionMultiplier, bParticipatesInAirDropoff, bShowsRicochet and
+DebugWallPenetrationTypeName.
+"""
+use = """
+the surface class of a sightline's occluders, for a wallbang test; a surface
+reaches a hit through the hit triangle's material PhysMaterial, else the mesh
+BodySetup's, else SurfaceType_Default (the engine's rule)
+"""
+exceptions = """
+WallPen_High serialises no EnergyReductionMultiplier: its value is the native
+class default, unread; FullyPenetrable serialises its 0.0, so the default is
+not zero, and the ladder 0.2 < 0.25 < 0.333 < High < 2.0 suggests 1.0. The
+base distance or energy the multipliers scale, and the curve's axis unit, are
+native and in no export. Whether Valorant's native trace takes a hit's surface
+by the engine's rule is unread; component-level material overrides were not
+read.
+"""
+values = { energy_reduction = { fully_penetrable = 0.0, very_low = 0.2, low = 0.25, moderate = 0.333, very_high = 2.0, impenetrable = 100000.0 }, curve = { x = [0.0, 1.0, 25.0, 50.0, 99.0, 100.0], y = [1.0, 0.9, 0.6, 0.5, 0.3, 0.0] } }
+see = ["weapons/wall-penetration-weapons"]
+
+[wall-penetration-weapons]
+claim = """
+Each gun's projectile carries a WallPenetrationComponent whose
+PenetrationPowerMultiplier and StoppingDistanceMultiplier scale its wall
+penetration; a field a projectile leaves unset keeps the component's native
+default. The UI tier (WeaponStatUIData.WallPenetration) follows them. Low:
+Classic, Frenzy, Spectre, Bucky and Judge set power 0.8 and stopping 0.5;
+Shorty and Stinger set stopping 0.5 only. Medium: Vandal, Phantom, Bulldog,
+Warden, Marshal, Ghost and Bandit set neither. High: Sheriff, Guardian,
+Operator, Outlaw and Ares set power 1.2 and stopping 1.5; Odin's two
+projectiles split them, power 1.2 on its primary-fire projectile and stopping
+1.5 on the other.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-05"
+subject = "weapons:wall penetration"
+source = """
+release-13.06-shipping-18-5590001, set weapon-data: each gun folder's
+projectile class (for example
+ShooterGame/Content/Equippables/Guns/Sidearms/Revolver/Projectile_Revolver.uasset),
+WallPenetrationComponent_GEN_VARIABLE; the parent
+ShooterGame/Content/Equippables/Guns/_Core/Projectile_Gun.uasset (store
+reference/game-files/<build>/wallpen/) sets neither field; UI tiers from each
+gun's UIData class and valorant-api weaponStats.wallPenetration. The usmap
+schema of WallPenetrationComponent holds only these two multipliers,
+bApplyPostPenetrationAirDropoff, PostPenetrationAirDropoffDistance and the
+impact effects.
+"""
+use = """
+a weapon's penetration budget relative to a Medium gun, for a wallbang test
+"""
+exceptions = """
+The base stopping distance and penetration power the multipliers scale are
+native and in no export, so no field gives the wall thickness a gun passes;
+which multiplier gates passage and which scales damage is unread, and so is the
+native default an unset field keeps (a Medium gun's value). The
+pre-blast Bucky projectile sets both to 0.0.
+"""
+values = { low = { power = 0.8, stopping = 0.5 }, high = { power = 1.2, stopping = 1.5 } }
+see = ["weapons/wall-penetration-surfaces"]

@@ -35,9 +35,9 @@ Classes, by fixed precedence (each is also computed alone)
 - (a) wallbang: the occluders on the eye-to-body or eye-to-head line are
   penetrable by the kill's weapon: each solid interval's path length times
   its surface's EnergyReductionMultiplier
-  [domain:game_data/wall-penetration-surfaces] sums to at most `D0_CM` x
+  [domain:weapons/wall-penetration-surfaces] sums to at most `D0_CM` x
   the weapon tier's StoppingDistanceMultiplier
-  [domain:game_data/wall-penetration-weapons], and no surface on the line is
+  [domain:weapons/wall-penetration-weapons], and no surface on the line is
   Impenetrable. Solid intervals pair entering and leaving crossings along the
   whole ray (`intervals`): the maps' architecture is single-sided shells, so
   a wall's outer face and inner face are often different meshes, and a
@@ -49,8 +49,8 @@ Classes, by fixed precedence (each is also computed alone)
 
 Where the game stores penetration
 ---------------------------------
-The facts and their asset paths: [domain:game_data/wall-penetration-surfaces]
-and [domain:game_data/wall-penetration-weapons]. This probe reads the
+The facts and their asset paths: [domain:weapons/wall-penetration-surfaces]
+and [domain:weapons/wall-penetration-weapons]. This probe reads the
 exports themselves: `WallPenGlobals`, the `WallPen_*` classes, the physical
 materials and `Projectile_Gun` from the store's
 `reference/game-files/<build>/wallpen/`, the projectiles from `weapon-data`,
