@@ -1208,7 +1208,16 @@ def _cli_reads_writes(path: Path) -> dict[str, tuple[set[str], set[str]]]:
     """function -> (streams it writes, stored inputs it reads), for each
     top-level function of `path`, with the reads of the module's own helpers
     it calls folded in. Only literal stream names count."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return {name: (set(w), set(r))
+            for name, (w, r) in _cli_analysis(path.read_text(encoding="utf-8")).items()}
+
+
+@functools.lru_cache(maxsize=2)
+def _cli_analysis(text: str) -> dict[str, tuple[frozenset[str], frozenset[str]]]:
+    """`_cli_reads_writes` of one source text. Parsing `cli.py` is nearly all
+    of `check_inputs`' cost and the answer depends only on the text, so one
+    process parses each version once."""
+    tree = ast.parse(text)
     direct: dict[str, tuple[set[str], set[str], set[str]]] = {}
     for fn in tree.body:
         if not isinstance(fn, ast.FunctionDef):
@@ -1241,7 +1250,7 @@ def _cli_reads_writes(path: Path) -> dict[str, tuple[set[str], set[str]]]:
                 r |= reach(c, seen)
         return r
 
-    return {n: (w, reach(n, {n})) for n, (w, _, _) in direct.items()}
+    return {n: (frozenset(w), frozenset(reach(n, {n}))) for n, (w, _, _) in direct.items()}
 
 
 def check_inputs(store: Path) -> list[tuple[str, str]]:
