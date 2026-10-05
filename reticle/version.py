@@ -571,7 +571,17 @@ ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own
 # stamp, PLAYER_CAST_VERSION.
-TRAY_VERSION = "tray-0.1.0"
+# 0.2.0 (2026-10-05): a teal or gold half going empty is a drop (`by`
+# halves), with both samples' half classes as evidence; the tray is drawn
+# where every C, Q and E half reads as a bar class under read slot icons
+# (`tray.drawn_mask`), so a drop onto an all-spent tray is not `forced`.
+TRAY_VERSION = "tray-0.2.0"
+# The tray's teal fill per slot (`tray.slot_counts`, `fills`) and the
+# fill-only drawn test, which `tray-kit` and `ability-state` record as
+# `tray_fill`. It was stamped TRAY_VERSION until tray-0.2.0 changed the drops
+# only; bump when a teal constant, the guard rows or the fill normalisation
+# change.
+TRAY_FILL_VERSION = "tray-0.1.0"
 # The tray bar's half classes (`tray.segment_scores`, `segment_classes`): each
 # half of each bar scored softly against teal, gold and the empty grey, and
 # cut once (`SEG_MIN`). `reticle tray` writes them beside the drops as
@@ -625,6 +635,12 @@ PLAYER_CAST_VERSION = "player-cast-0.8.0"
 # events as `tray_kit_identity`. Bump when the icon geometry, a threshold, the
 # candidate-set rule, the span rule or the stored fields change.
 TRAY_KIT_VERSION = "tray-kit-0.1.0"
+# The restock countdown numeral above a C, Q or E tray slot (`tray_countdown`),
+# written as `tray_countdown` rows by `reticle tray` in the tray's shared pass
+# over the stored crops. Bump when the font, its size, the placement, the
+# candidate set, a threshold or a stored field changes.
+# 0.1.0 (2026-10-05): first reader, DIN Next Regular at 16 px.
+TRAY_COUNTDOWN_VERSION = "tray-countdown-0.1.0"
 # The player's minimap self icon, its portrait scored against every agent's
 # art on stored minimap crops where the roster reads all five allies alive
 # (`self_icon`), written as `self_icon` rows by `reticle self-icon`; the
@@ -686,7 +702,12 @@ SELF_ICON_VERSION = "self-icon-0.6.0"
 # (`segments_disagree_with_fill`); a live-phase rise that adds a gold half
 # with no player kill near it is a `live_return`; state rows carry `gold` and
 # the run's `halves`.
-ABILITY_STATE_VERSION = "ability-state-0.8.0"
+# 0.9.0: the drops read halves (tray-0.2.0), so spending a gold charge is a
+# drop; a sample is drawn by the half classes under read slot icons; a gold
+# rise is a `live_return` only on an ability with a restock fact
+# (`restock_facts`), elsewhere a `recharge` with the surprise
+# `gold_rise_without_a_restock_fact`; slot parameters carry `restock_fact`.
+ABILITY_STATE_VERSION = "ability-state-0.9.0"
 # Which ability of the player's kit the audio around a tray cast sounds like:
 # a whitened matched filter over the stored audio-gate log-mel against the
 # game's own ability sounds (`adjudication.ability_audio`), read by

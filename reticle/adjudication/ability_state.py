@@ -104,9 +104,27 @@ on the six Skye sessions Guiding Light's median was
 with no gold half the level moved on
 [metric:tray_segments/regression@all-sessions#nogold_level_changed=44] of
 [metric:tray_segments/regression@all-sessions#nogold_readable_slot_samples=68130]
-readable slot-samples. A fall that takes a gold half stores no
-drop, since the drops read teal; it stays `fall_without_a_drop` with its own
-surprise reason.
+readable slot-samples. A live return needs a restock fact for the slot's
+ability (`restock_facts`): gold was also seen on kits with none, and a gold
+rise there is a `recharge` with its own surprise. The tray reader stores a
+drop where a teal or gold half goes empty (`tray.drops`), so spending a
+returned charge is a drop the gate judges; a fall that takes a gold half
+with no drop stored (a half unreadable on the later sample, or a fall across
+a gap) stays `fall_without_a_drop` with its own surprise reason.
+
+**The tray drawn.** A sample is drawn where some slot's teal fill shows
+the tray, or every C, Q and E half reads as a bar class while the slot
+icons witness the tray (`tray.drawn_mask`), which the command hands in as
+`samples["drawn"]`. An all-spent tray (3694746e4e54 778.5-828.5 s) is drawn,
+so a gold return onto it is read. On the 21 Riot-paired sessions, against
+teal-only drops and the fill's drawn test, the gold falls with no drop went
+from [metric:ability_state/gold@riot-21#gold_fell_without_a_drop_before=12] to
+[metric:ability_state/gold@riot-21#gold_fell_without_a_drop_after=0]; the live returns on
+Recon Bolt and Guiding Light from
+[metric:ability_state/gold@riot-21#live_return_restock_abilities_before=12] to
+[metric:ability_state/gold@riot-21#live_return_after=15]; and
+[metric:ability_state/gold@riot-21#gold_rise_without_a_restock_fact_after=4] gold rises on
+Phoenix's and Clove's kits became surprises.
 
 **The reading against the count.** A half bar is the one observation of a
 slot's segments: a count that draws a segment at half agrees with it, a
@@ -451,15 +469,34 @@ def duration_facts(facts: dict) -> dict:
     return out
 
 
+def restock_facts(facts: dict) -> dict:
+    """{(agent key, ability key): fact key} from every fact in
+    `domain/abilities.toml` whose id ends in `-restock` or
+    `-restock-observed`: the ability's spent charge comes back by itself
+    within the round [domain:abilities/sova-recon-bolt-restock-observed].
+    The subject is `<agent>:<ability>`. A gold rise is a `live_return` only
+    on an ability one of these names (`_fill_change`)."""
+    out = {}
+    for key, f in sorted(facts.items()):
+        if (f.domain != "abilities" or ":" not in f.subject
+                or not (f.id.endswith("-restock") or f.id.endswith("-restock-observed"))):
+            continue
+        who, what = f.subject.split(":", 1)
+        out.setdefault((_agent_key(who), _agent_key(what)), key)
+    return out
+
+
 def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
                     catalogue: dict | None = None, catalogue_path: str = CATALOGUE_PATH) -> dict:
     """Per slot: the ability, `max_charges` with its source (`charge_priors`),
     the fact or catalogue entry it came from or the reason it is unread, any
-    conflict between a fact and the catalogue, and a duration with its fact
-    where one exists. A catalogue count applies only where the catalogue
-    names the kit's ability in that slot."""
+    conflict between a fact and the catalogue, a duration with its fact
+    where one exists, and the restock fact (`restock_facts`) or the reason
+    there is none. A catalogue count applies only where the catalogue names
+    the kit's ability in that slot."""
     priors = charge_priors(facts, catalogue=catalogue, path=catalogue_path)
     durations = duration_facts(facts)
+    restocks = restock_facts(facts)
     a = _agent_key(agent)
     out = {}
     for slot in SLOTS:
@@ -469,9 +506,10 @@ def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
                "max_charges_known": None, "max_charges_catalogue": None,
                "max_charges_prior_reason": None, "max_charges_conflict": None,
                "duration_ms": None, "duration_about": None, "duration_fact": None,
-               "duration_reason": None}
+               "duration_reason": None, "restock_fact": None, "restock_reason": None}
         if agent is None:
             row["max_charges_reason"] = row["duration_reason"] = "no_player_agent"
+            row["restock_reason"] = "no_player_agent"
             out[slot] = row
             continue
         got = priors.get((a, slot))
@@ -511,6 +549,9 @@ def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
             row["duration_about"] = d["about"]
         else:
             row["duration_reason"] = f"no-fact:{a}:{slot}:duration"
+        row["restock_fact"] = restocks.get((a, _agent_key(ability))) if ability else None
+        if row["restock_fact"] is None:
+            row["restock_reason"] = f"no-fact:{a}:{slot}:restock"
         out[slot] = row
     return out
 
@@ -727,14 +768,20 @@ def _drop_surprise(slot: str, transition: str, sb, sa, fell_at_t: bool) -> str |
     return None
 
 
-def _fill_change(slot: str, sp: dict, sj: dict, phase: str, kill: bool | None = None):
+def _fill_change(slot: str, sp: dict, sj: dict, phase: str, kill: bool | None = None,
+                 restock: str | None = None):
     """(transition, surprise or None) for a change between two consecutive
     readable samples of one round that no drop covers, or None. A rise in a
     live phase that adds a gold half with no player kill near it (`kill`
     False; None where the kills went unread) is a `live_return`
-    [domain:hud/ability-tray-restocked-charge-gold]; any other rise outside
-    the buy phase stays a `recharge`. A fall that takes a gold half has no
-    drop to cover it, since the tray reader's drops read teal only."""
+    [domain:hud/ability-tray-restocked-charge-gold] on an ability with a
+    restock fact (`restock`, `restock_facts`); on any other ability it stays
+    a `recharge` with the surprise `gold_rise_without_a_restock_fact`, since
+    gold was seen on other kits' slots and what it means there is the
+    player's to say. Any other rise outside the buy phase stays a
+    `recharge`. A fall that takes a gold half where the tray reader stored
+    no drop (a half it could not read, or a fall across a gap) stays a
+    surprise."""
     if not sp["equipped"] and sj["equipped"]:
         dry = slot != ULT_SLOT and sp["charges_range"][1] < 1
         return "equip", ("equip_without_a_charge" if dry else None)
@@ -756,6 +803,8 @@ def _fill_change(slot: str, sp: dict, sj: dict, phase: str, kill: bool | None = 
         if phase == "buy_phase":
             return "buy", None
         if gj > gp and phase in CAST_PHASES and kill is False:
+            if restock is None:
+                return "recharge", "gold_rise_without_a_restock_fact"
             return "live_return", None
         return "recharge", None
     if gj < gp:
@@ -926,7 +975,8 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
                         kills[(kills >= ts[p] - RETURN_KILL_MS) & (kills <= t)])
                 kill = None if near is None or not len(near) else float(near[-1])
                 change = _fill_change(slot, sp, sj, ctx[j]["phase"],
-                                      kill=None if kills is None else kill is not None)
+                                      kill=None if kills is None else kill is not None,
+                                      restock=par.get("restock_fact"))
                 stood = None
             if change is None:
                 continue
@@ -940,7 +990,8 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
                 ev.update({"halves_before": sp["halves"], "halves_after": sj["halves"],
                            "gold_before": sp["gold"], "gold_after": sj["gold"],
                            "player_kill_ms": kill,
-                           "kills": "unread" if kills is None else "read"})
+                           "kills": "unread" if kills is None else "read",
+                           "restock_fact": par.get("restock_fact")})
             cid = claim(slot, t, "tray_fill", transition, ts[p], ev,
                         inputs.get("tray_segment") if "halves_after" in ev
                         else inputs.get("tray_fill"))

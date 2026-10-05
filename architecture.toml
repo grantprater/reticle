@@ -50,7 +50,7 @@ modules = ["minimap", "ally_portrait", "ocr", "killfeed", "roster", "ping", "con
            "hud_reader", "scoreboard", "scoreboard_strip", "round_outcome", "glance", "track", "economy",
            "minimap_dark", "combat_report", "ability_shapes", "tray", "ult_lines",
            "tray_icons", "menu", "teardrop", "spike", "occluders", "ability_scan", "ability_icons",
-           "plant_graphic", "killfeed_numeral", "killfeed_assist", "stack_fit"]
+           "plant_graphic", "killfeed_numeral", "killfeed_assist", "stack_fit", "tray_countdown"]
 
 [orchestration]
 claim = "shared decode passes, which dispatch to readers and own no reading"

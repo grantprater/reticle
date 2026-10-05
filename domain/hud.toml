@@ -318,9 +318,10 @@ c62c2b06bcfb 514.0 s and 1291.6 s. In Lab the gold segment's median is about
 """
 use = """
 the tray reader classes each bar half as teal, gold, empty or unreadable
-(`tray.segment_classes`), and the state model counts a gold half as a charge
-and calls a live-phase rise that adds one a live return
-(`adjudication.ability_state`)
+(`tray.segment_classes`) and stores a drop where a teal or gold half goes
+empty (`tray.drops`); the state model counts a gold half as a charge and
+calls a live-phase rise that adds one a live return on an ability with a
+restock fact (`adjudication.ability_state`)
 """
 exceptions = """
 read by hand on these three abilities only. The tray reader's half classes
@@ -336,6 +337,71 @@ here
 see = ["hud/ability-tray-charge-segments", "hud/ability-tray-restock-countdown",
        "abilities/sova-recon-bolt-restock-observed",
        "abilities/skye-guiding-light-restock-observed"]
+
+[ability-tray-gold-on-other-kits]
+claim = """
+Gold bar segments were also seen on slots other than Recon Bolt's and Guiding
+Light's. On Jett's Tailwind (slot E), a gold segment showed 27 to 29 s after a
+spend on 59c70f1ef720 at 1665.0 s and 2570.5 s, for one 0.5 s sample each
+before the bar read empty again. Slot E read one teal and one gold half on
+a06f04a0059f from 120.0 to 122.0 s, and both halves gold on 3694746e4e54
+from 1563.0 s, a spectated kit. On the player's own kits a gold half rose in
+a live phase on Phoenix's Curveball (slot E, 7010b3d62460 1335.0 s) and on
+Clove's Meddle (slot Q, a1a995e6b19b 1297.1 s) and Ruse (slot E, a1a995e6b19b
+1341.5 s and 1893.0 s), and a gold Regrowth bar (Skye, slot C) went empty on
+b7d24102a6f6 at 375.1 s and e37fdeca944f at 1714.0 s. These are observations
+only; what gold means on each of these abilities is not known.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-05"
+subject = "hud:ability tray"
+source = """
+the tray reader's half classes (`tray.segment_classes`, tray-segment-0.1.0) on
+the stored hud_abilities crops (roi_cache, no decode) of the 21 Riot-paired
+sessions; the Jett attributions and the 3694746e4e54 spectated kit are hand
+reads of those crops by the tray-gold task (2026-10-04); the own-kit rises are
+the state model's gold rises (`adjudication.ability_state`, ability-state-0.9.0)
+"""
+use = """
+the state model calls a gold rise a live return only on an ability with a
+restock fact; on these abilities it stores the rise as a recharge with the
+surprise `gold_rise_without_a_restock_fact`. The player's questions are in
+docs/ABILITY_MECHANICS_SHEET.md
+"""
+see = ["hud/ability-tray-restocked-charge-gold", "abilities/ability-rules-are-unique",
+       "abilities/skye-regrowth-resource-bar"]
+
+[ability-tray-restock-countdown-font]
+claim = """
+The restock countdown numeral draws in DIN Next Regular at a 16 px em at
+1080p (12 points at Slate's 96/72 px per point), centred about 36 px right of
+slot E's centre and 980.5 px down. Numerals also counted down over other
+slots at that offset: over slot C from '60' (223d636bf8d2 248.5 s) and over
+slot Q from '14' (5822b6646448 419.6 s).
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-10-05"
+subject = "hud:ability tray"
+source = """
+every DIN Next weight in the game files (release-13.06-shipping-18-5590001,
+fonts) at em sizes 10 to 24 px, fitted to the nine hand reads of
+[domain:hud/ability-tray-restock-countdown]: Regular at 16 px scored a mean of
+[metric:tray_countdown/font@nine-hand-reads#regular_16_mean=0.9], Medium
+[metric:tray_countdown/font@nine-hand-reads#medium_16_mean=0.848] and Heavy
+[metric:tray_countdown/font@nine-hand-reads#heavy_15_mean=0.695]; the
+placement from the reads' fitted centres on 9acf02f98283 and c62c2b06bcfb;
+the other slots' numerals from `tray_countdown` reads on the 21 Riot-paired
+sessions
+"""
+use = "`tray_countdown` renders its candidates in this font, size and placement"
+exceptions = """
+the placement was measured over slot E only; over Skye's Q a numeral sits
+further right [domain:hud/ability-tray-restock-countdown]. What the numerals
+over C and Q count is unasked
+"""
+see = ["hud/ability-tray-restock-countdown", "hud/digit-fonts"]
 
 [ability-tray-restock-countdown]
 claim = """

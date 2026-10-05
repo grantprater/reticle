@@ -245,6 +245,83 @@ class SegmentTest(unittest.TestCase):
                              (2000.0, 2000.0, ["gold", "gold"])])
         self.assertEqual(sum(r["samples"] for r in rows), 4 * 4)
 
+    def test_classes_over_many_samples_match_one_at_a_time(self):
+        a = tray.segment_scores(_halves(["teal", "gold", "empty", "empty"] * 2))
+        b = tray.segment_scores(_halves(["streak"] * 2 + ["teal"] * 6))
+        many = np.stack([a, b, np.zeros_like(a)])
+        self.assertEqual(tray.segment_classes(many), [tray.segment_classes(x) for x in many])
+
+
+def _drop_frame(cols, teal_x=1.0) -> np.ndarray:
+    """A frame of bar halves `cols` with the ult bar lit to `teal_x`, so the
+    teal fill sees the tray where `teal_x` is high."""
+    f = _halves(cols)
+    cx = tray.SLOT_X0 + tray.SLOT_DX * 3
+    if teal_x:
+        f[tray.BAR_Y0:tray.BAR_Y1, cx - tray.BAR_HALF:cx + tray.BAR_HALF] = SEG_BGR["teal"]
+    return f
+
+
+def _read(frames):
+    counts, clean = zip(*(tray.slot_counts(f) for f in frames))
+    scores = np.stack([tray.segment_scores(f) for f in frames])
+    return np.array(counts, float), np.array(clean, bool), scores
+
+
+class HalfDropTest(unittest.TestCase):
+    EMPTY3 = ["empty"] * 6
+
+    def test_spending_a_gold_charge_is_a_drop(self):
+        # E holds a returned (gold) charge and spends it: the teal fill never
+        # moves, the halves do.
+        frames = [_drop_frame(["empty"] * 4 + ["gold", "gold"] + ["teal", "teal"])] * 3 \
+            + [_drop_frame(self.EMPTY3 + ["teal", "teal"])] * 3
+        counts, clean, scores = _read(frames)
+        ts = [500.0 * (i + 1) for i in range(len(frames))]
+        self.assertEqual(tray.drops(ts, counts, clean), [])
+        got = tray.drops(ts, counts, clean, scores, np.ones(len(frames), bool))
+        self.assertEqual([(d["t_ms"], d["slot"], d["by"], d["spent_halves"]) for d in got],
+                         [(2000.0, "E", ["halves"], ["gold", "gold"])])
+        self.assertEqual(got[0]["halves_from"], ["gold", "gold"])
+        self.assertFalse(got[0]["forced"])
+
+    def test_an_all_spent_tray_is_drawn_where_its_icons_read(self):
+        # C, Q and E empty and the ult dark: no teal anywhere.
+        frames = [_drop_frame(self.EMPTY3 + ["empty", "empty"], teal_x=0)] * 2
+        counts, clean, scores = _read(frames)
+        f = tray.fills(counts, clean)
+        h = tray.segment_index(scores)
+        self.assertFalse(tray.drawn_mask(f).any())
+        self.assertTrue(tray.halves_readable(h).all())
+        self.assertFalse(tray.drawn_mask(f, h).any())          # halves alone: no
+        self.assertTrue(tray.drawn_mask(f, h, [True, True]).all())
+        self.assertFalse(tray.drawn_mask(f, h, [False, False]).any())
+        self.assertTrue(tray.drawn(f[0], h[0], True))
+
+    def test_a_gold_half_is_held_across_a_streak(self):
+        # The bow glow hides E on the sample before the spend; the gold half
+        # compares as it last read.
+        gold = ["empty"] * 4 + ["gold", "gold"] + ["teal", "teal"]
+        streak = ["empty"] * 4 + ["streak", "streak"] + ["teal", "teal"]
+        frames = [_drop_frame(gold)] * 2 + [_drop_frame(streak)] \
+            + [_drop_frame(self.EMPTY3 + ["teal", "teal"])] * 2
+        counts, clean, scores = _read(frames)
+        ts = [500.0 * (i + 1) for i in range(len(frames))]
+        got = tray.drops(ts, counts, clean, scores, np.ones(len(frames), bool))
+        self.assertEqual([(d["t_ms"], d["slot"], d["halves_from"]) for d in got],
+                         [(2000.0, "E", ["gold", "gold"])])
+
+    def test_the_drops_without_halves_are_the_teal_drops(self):
+        rows = [(1.0, 1.0, 1.0, 1.0)] * 3 + [(0.0, 1.0, 1.0, 1.0)] * 3
+        frames = [_frame(r) for r in rows]
+        counts, clean, scores = _read(frames)
+        ts = [1000.0 * (i + 1) for i in range(len(rows))]
+        plain = tray.drops(ts, counts, clean)
+        with_halves = tray.drops(ts, counts, clean, scores, np.ones(len(rows), bool))
+        self.assertEqual([(d["t_ms"], d["slot"]) for d in plain], [(4000.0, "C")])
+        self.assertEqual([{k: d[k] for k in plain[0]} for d in with_halves], plain)
+        self.assertEqual(with_halves[0]["by"], ["fill"])
+
 
 if __name__ == "__main__":
     unittest.main()
