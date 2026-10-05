@@ -98,6 +98,8 @@ class TemplateTests(unittest.TestCase):
             {"agent": "Gekko", "ability": "Thrash", "section": "Ally Cast", "file": "G__t__ally-cast__1.mp3"},
             {"agent": "Gekko", "ability": "Thrash", "section": "Enemy Cast", "file": "G__t__enemy-cast__1.mp3"},
             {"agent": "Gekko", "ability": "Thrash", "section": "Ally Recast", "file": "G__t__ally-recast__1.mp3"},
+            # A second ability of the same agent under a non-ult section.
+            {"agent": "Gekko", "ability": "Wingman", "section": "Cast", "file": "G__w__cast__1.mp3"},
             {"agent": "KAY/O", "ability": "NULL/cmd", "section": "Ally Cast", "file": "K__n__ally-cast__1.mp3"},
             {"agent": "Sova", "ability": "Hunter's Fury", "section": "Ally Cast", "file": "S__h__ally-cast__1.mp3"}]
         got = ul.harvested_ults(rows, have={"Sova"})
