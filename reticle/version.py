@@ -328,7 +328,32 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # ff636d173b07 1247.0 s broke into three pieces, the left one read as the
 # killer's last letter, and the band went `one_colour:no_divider` on every
 # sample.
-HUD_VERSION = "hud-0.23.0"
+# 0.24.0 (2026-10-05): the clock and both scores read soft
+# (`ocr.read_scoreline`): white-ink coverage against the local plate,
+# compared with DIN Next cells rendered from the game font at the widget's
+# size and measured pitch (`ocr.GlyphCells`), with no cut before the
+# decision. Each TextBlock is centred, so its digit cells stand at measured
+# places (`ocr.SCORE_PENS`, `ocr.CLOCK_PENS`); each cell is decided once,
+# digit or empty at gain 0.5 +- 0.25 and its label at margin 0.15, cuts
+# chosen on the dev half of the Riot-recorded matches. SCORE_INK_CUT,
+# `ink_score` and `score_field` are gone, and the clock's 190 cut with them.
+# New refusals: `no_widget` (a dark score field with no ink: the scoreline
+# is not drawn, 4413 of 87789 frames, menus and agent select),
+# `missing_digit`, `fused` (a digit with ink beside it its cell does not
+# explain, where `occluded` stood), `hundredths` (the SS.hh form) and
+# `no_colon`. On the 21 matches score reads rise from
+# [metric:soft_digits/scoreline-riot-21#base_reads=162507] to
+# [metric:soft_digits/scoreline-riot-21#new_reads=165215] with no score value
+# changed and [metric:soft_digits/scoreline-riot-21#new_full_off=0] full reads
+# off Riot's score pairs (held [metric:soft_digits/scoreline-held#new_full_off=0]);
+# clock reads rise from [metric:soft_digits/scoreline-riot-21#base_clock=46732]
+# to [metric:soft_digits/scoreline-riot-21#new_clock=67676], two changed
+# values (b3b9defb6fd7 308.0 s, 0:28 to the 0:20 shown) and four base reads
+# of the hundredths form refused. A read costs
+# [metric:soft_digits/scoreline-cost@a06f04a0059f#ms_a06f04a0059f=1.755] ms
+# per frame on a06f04a0059f against
+# [metric:soft_digits/scoreline-cost@a06f04a0059f#ms_base_a06f04a0059f=1.027].
+HUD_VERSION = "hud-0.24.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits

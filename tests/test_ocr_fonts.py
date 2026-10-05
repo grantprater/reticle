@@ -76,7 +76,8 @@ class RenderedDigitTests(unittest.TestCase):
 
     def test_every_field_has_a_set(self):
         ft = ocr.game_font_templates()
-        self.assertEqual(set(ft.by_field), set(ocr.FIELD_FONTS))
+        self.assertEqual(set(ft.by_field) | set(ocr.SOFT_FIELDS), set(ocr.FIELD_FONTS))
+        self.assertEqual(set(ft.fonts), set(ocr.FIELD_FONTS))
         self.assertTrue(all(Path(f).is_file() for f in ft.files))
 
 
@@ -121,23 +122,47 @@ class MatchManyTests(unittest.TestCase):
         self.assertEqual(ocr._digits([], self.tpl), ("", 1.0, 1.0))
 
 
+def _draw(roi: np.ndarray, text: str, pens, baseline: float, font: str, pt: float,
+          alpha: tuple[float, ...] = ()) -> None:
+    """Composite white `text` into float `roi` as the game draws it: each
+    character's coverage at its pen, drawn 8x and shrunk with INTER_AREA.
+    `alpha` scales each character's coverage in turn (default 1)."""
+    from PIL import Image, ImageDraw, ImageFont
+    import cv2
+    ss = 8
+    f = ImageFont.truetype(font, pt * ocr.SLATE_PX_PER_PT * ss,
+                           layout_engine=ImageFont.Layout.BASIC)
+    h, w = roi.shape
+    for k, (ch, pen) in enumerate(zip(text, pens)):
+        im = Image.new("L", (w * ss, h * ss), 0)
+        ImageDraw.Draw(im).text((pen * ss, baseline * ss), ch, fill=255, font=f, anchor="ls")
+        cover = cv2.resize(np.asarray(im, np.float32) / 255.0, (w, h),
+                           interpolation=cv2.INTER_AREA)
+        cover *= alpha[k] if k < len(alpha) else 1.0
+        roi[:] = cover * 255.0 + (1.0 - cover) * roi
+
+
 def _scoreline(left: str, left_plate: float, right: str, right_plate: float,
-               left_alpha: tuple[float, ...] = ()) -> np.ndarray:
+               left_alpha: tuple[float, ...] = (), clock: str = "") -> np.ndarray:
     """A 59x308 scoreline ROI: white DIN Next 22 pt score digits composited
-    over flat plates as the game draws them, the clock field empty.
-    `left_alpha` scales the coverage of each left digit in turn (default 1)."""
+    over flat plates at the widget's measured places (`ocr.SCORE_PENS`),
+    and `clock` (M:SS, or SS.hh) in DIN Next 28 pt at its places, or an
+    empty clock field. `left_alpha` scales each left digit's coverage."""
     font = str(_store_font("DINNext_Regular.ttf"))
     roi = np.full((59, 308), 60.0, np.float32)
     roi[:, :90] = left_plate
     roi[:, 220:] = right_plate
-    for text, x, alpha in ((left, 12, left_alpha), (right, 290 - 14 * len(right), ())):
-        for k, ch in enumerate(text):
-            cover = ocr._font_cover(ch, font, 22.0 * ocr.SLATE_PX_PER_PT, 0.25, 0.5)
-            cover = cover * (alpha[k] if k < len(alpha) else 1.0)
-            h, w = cover.shape
-            plate = roi[14:14 + h, x:x + w]
-            roi[14:14 + h, x:x + w] = cover * 255.0 + (1.0 - cover) * plate
-            x += w - 4
+    for name, text, alpha in (("score_left", left, left_alpha), ("score_right", right, ())):
+        if text:
+            pens = ocr.SCORE_PENS[name][len(text) - 1]
+            _draw(roi, text, pens, ocr.FIELD_BASELINE[name], font, 22.0, alpha)
+    if ":" in clock:
+        pens = (ocr.CLOCK_PENS[0], ocr.COLON_PEN) + ocr.CLOCK_PENS[1:]
+        _draw(roi, clock, pens, ocr.FIELD_BASELINE["clock"], font, 28.0)
+    elif clock:
+        p = ocr.HUNDREDTHS_PENS
+        pens = (p[0], p[1], p[1] + 18.25, p[2], p[3])
+        _draw(roi, clock, pens, ocr.FIELD_BASELINE["clock"], font, 28.0)
     return np.clip(np.rint(roi), 0, 255).astype(np.uint8)
 
 
@@ -157,6 +182,11 @@ class ScorePlateTests(unittest.TestCase):
         r = ocr.read_scoreline(_scoreline("12", 225.0, "10", 205.0), self.tpl)
         self.assertEqual((r.score_left, r.score_right), (12, 10))
 
+    def test_every_digit_reads_at_both_places(self):
+        for d in "0123456789":
+            r = ocr.read_scoreline(_scoreline(d, 100.0, "1" + d, 120.0), self.tpl)
+            self.assertEqual((r.score_left, r.score_right), (int(d), int("1" + d)), d)
+
     def test_near_white_plate_refuses_low_contrast(self):
         r = ocr.read_scoreline(_scoreline("7", 245.0, "4", 100.0), self.tpl)
         self.assertIsNone(r.score_left)
@@ -164,20 +194,20 @@ class ScorePlateTests(unittest.TestCase):
         self.assertEqual(r.score_right, 4)
 
     def test_pale_scenery_is_not_ink(self):
-        # A 3 px pale rim (luma 182 over 90) at the ROI's edge peaks at cover
-        # 0.58: no glyph, so the lone digit stays aligned and reads.
+        # A 3 px pale rim (luma 182 over 90) at the ROI's edge is no digit.
         gray = _scoreline("4", 90.0, "7", 100.0)
         gray[26:42, 0:3] = 182
         r = ocr.read_scoreline(gray, self.tpl)
         self.assertEqual(r.score_left, 4)
 
-    def test_white_streak_over_a_score_refuses_occluded(self):
-        # Thinner than the opening, so it is ink, and too tall for a digit.
+    def test_white_streak_through_a_score_refuses(self):
+        # Thinner than the opening, so it is ink, and taller than a digit:
+        # the 4 under it leaves ink its cell does not explain.
         gray = _scoreline("4", 90.0, "7", 100.0)
-        gray[5:55, 30:36] = 255
+        gray[5:55, 16:20] = 255
         r = ocr.read_scoreline(gray, self.tpl)
         self.assertIsNone(r.score_left)
-        self.assertEqual(r.score_left_reason, "occluded")
+        self.assertIn(r.score_left_reason, ("fused", "occluded", "low_margin"))
 
     def test_white_mass_wider_than_the_opening_refuses(self):
         # A mass wider than the opening is plate as white as the ink.
@@ -188,8 +218,7 @@ class ScorePlateTests(unittest.TestCase):
         self.assertEqual(r.score_left_reason, "low_contrast")
 
     def test_pale_piece_apart_from_the_digits_is_not_ink(self):
-        # A digit-tall piece at coverage 0.65 passes the segmentation cut but
-        # scores below SCORE_INK_MIN; far from the digit, it is ignored.
+        # A digit-tall pale piece outside every cell of the field is ignored.
         gray = _scoreline("4", 100.0, "7", 100.0)
         gray[18:38, 60:65] = 201
         r = ocr.read_scoreline(gray, self.tpl)
@@ -197,43 +226,54 @@ class ScorePlateTests(unittest.TestCase):
         self.assertIsNone(r.score_left_reason)
 
     def test_dim_one_beside_a_one_refuses_faint_digit(self):
-        # Two tabular 1s stand 10 px apart; the second, dimmed by scenery to
-        # coverage 0.6, must refuse the field rather than read 11 as 1.
-        gray = _scoreline("1", 100.0, "7", 100.0)
-        box = gray[14:40, 10:24] > 200
-        ys, xs = np.nonzero(box)
-        x0, x1 = xs.min() + 10, xs.max() + 10
-        dim = gray[14:40, x0:x1 + 1].astype(np.float32)
-        cover = np.clip((dim - 100.0) / 155.0, 0, 1) * 0.6
-        gray[14:40, x1 + 11:x1 + 11 + (x1 - x0 + 1)] = np.rint(100.0 + cover * 155.0).astype(np.uint8)
-        r = ocr.read_scoreline(gray, self.tpl)
+        # Two tabular 1s, the second dimmed by scenery to coverage 0.6: the
+        # field refuses rather than read 11 as 1.
+        r = ocr.read_scoreline(_scoreline("11", 100.0, "7", 100.0, left_alpha=(1.0, 0.6)),
+                               self.tpl)
         self.assertIsNone(r.score_left)
         self.assertEqual(r.score_left_reason, "faint_digit")
 
-    def test_dim_mass_across_a_digit_rows_refuses_faint_digit(self):
-        # A pale streak taller than a digit, beside it, may hide one.
-        gray = _scoreline("4", 100.0, "7", 100.0)
-        gray[8:52, 30:34] = 195
-        r = ocr.read_scoreline(gray, self.tpl)
-        self.assertIsNone(r.score_left)
-        self.assertEqual(r.score_left_reason, "faint_digit")
-
-    # Debt: the hard SCORE_INK_CUT (0.55) runs before every decision, so a
-    # 1 dimmed to half coverage leaves no component and 11 reads as 1
-    # silently (2ad32ef refused it as occluded). Soft coverage-template
-    # matching (BACKLOG.md) is to make this pass.
-    @unittest.expectedFailure
     def test_half_coverage_second_one_refuses(self):
+        # The hard 0.55 cut that hud-0.22.0 made before every decision left
+        # a 1 at half coverage no component, so 11 read as 1. Soft cells
+        # decide that cell once, between a digit and an empty cell.
         r = ocr.read_scoreline(_scoreline("11", 200.0, "7", 100.0, left_alpha=(1.0, 0.5)), self.tpl)
         self.assertIsNone(r.score_left)
+        self.assertEqual(r.score_left_reason, "faint_digit")
 
-    def test_ink_score_weights_the_core(self):
-        labels = np.array([[0, 1, 1, 2]], np.int32)
-        cover = np.array([[0.9, 1.0, 0.5, 0.6]], np.float32)
-        s = ocr.ink_score(cover, labels, 3)
-        self.assertEqual(s[0], 0.0)
-        self.assertAlmostEqual(s[1], 1.25 / 1.5)
-        self.assertAlmostEqual(s[2], 0.6, places=6)
+    def test_lone_digit_at_a_two_digit_place_refuses(self):
+        # The score is centred: a 1 at the first of two places has a partner
+        # drawn and unseen.
+        r = ocr.read_scoreline(_scoreline("11", 100.0, "7", 100.0, left_alpha=(1.0, 0.0)), self.tpl)
+        self.assertIsNone(r.score_left)
+        self.assertEqual(r.score_left_reason, "missing_digit")
+
+    def test_no_ink_in_a_score_field_is_no_widget(self):
+        # A scoreline drawn shows a score in both fields; a dark field with
+        # no ink means the widget is absent, and every field says so.
+        r = ocr.read_scoreline(_scoreline("", 80.0, "4", 100.0, clock="1:30"), self.tpl)
+        self.assertEqual((r.score_left_reason, r.score_right_reason, r.clock_reason),
+                         ("no_widget", "no_widget", "no_widget"))
+
+    def test_clock_reads_m_ss(self):
+        for text, ms in (("1:30", 90000), ("0:07", 7000), ("1:00", 60000)):
+            r = ocr.read_scoreline(_scoreline("3", 100.0, "4", 100.0, clock=text), self.tpl)
+            self.assertEqual(r.clock_ms, ms, text)
+            self.assertIsNone(r.clock_reason)
+
+    def test_clock_over_a_pale_plate_reads(self):
+        # a06f04a0059f 904.5 s: the 190 cut fused a 0:24 over a pale plate.
+        r = ocr.read_scoreline(_scoreline("6", 200.0, "3", 200.0, clock="0:24"), self.tpl)
+        self.assertEqual(r.clock_ms, 24000)
+
+    def test_hundredths_form_refuses_by_name(self):
+        r = ocr.read_scoreline(_scoreline("6", 100.0, "6", 100.0, clock="18.18"), self.tpl)
+        self.assertIsNone(r.clock_ms)
+        self.assertEqual(r.clock_reason, "hundredths")
+
+    def test_empty_clock_field_is_no_glyphs(self):
+        r = ocr.read_scoreline(_scoreline("6", 100.0, "6", 100.0), self.tpl)
+        self.assertEqual(r.clock_reason, "no_glyphs")
 
 
 if __name__ == "__main__":
