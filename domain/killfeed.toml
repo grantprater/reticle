@@ -1354,3 +1354,42 @@ the game textures for these two abilities' kill icons, beside the ones
 export holds no texture for them predates this export
 """
 see = ["killfeed/ability-kill-icon-texture", "killfeed/jett-blade-storm-icon"]
+
+[wallbang-mark]
+claim = """
+The killfeed draws a wallbang mark on an entry whose kill passed through a
+surface: the texture TX_Kilfeed_WallPen, 64 x 64, a white bullet striking a
+wall with four burst strokes, drawn unmirrored in a 24 x 24 px box (1080p, UI
+scale 1) with 5 px padding either side. It belongs to the killer's
+participant, whose elements run portrait, name, ultimate, assist, weapon,
+wallbang, headshot, so the mark sits after the weapon-slot icon and before the
+headshot mark, on the killer's plate.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-05"
+source = """
+game build release-13.06-shipping-18-5590001:
+hud-layout/ShooterGame/Content/UI/InGame/HUD/KillCallout/KillFeed_Assists/KillFeed_Participant.json
+(`WallPenImage`, brush TX_Kilfeed_WallPen 64 x 64, no render transform, in
+`WallPenScaleBox` (DownOnly) inside `WallPenSizeBox` (MaxDesiredWidth and
+MaxDesiredHeight 24), `MainContainer` slot 6 with padding 5 + 5; the
+container's slots in order: Overlay_0, DynamicConfigSwitcher, UltimateOverlay,
+AssistSizeBox, WeaponSizeBox, WallPenSizeBox, HeadshotSizeBox). The export
+holds the texture once, deduplicated by sha256 (a55d0cd9) as
+<store>/reference/game-files/release-13.06-shipping-18-5590001/killfeed-icons/ShooterGame/Content/UI/InGame/HUD/KillCallout/Assets/TX_Hud_ThroughWalls_S.png
+(killfeed-icons/manifest.jsonl, status dedup). Seen by eye at 3694746e4e54
+220.0 s, slot 0, "Articuno [Bandit] [mark] eeee". That it means a bullet
+through a wall is the widget's name and the eye reading, not a player
+statement
+"""
+use = """
+`killfeed.wallbang_mark` matches this texture in each weapon-slot row, softly,
+between the icon's end and the plate seam
+"""
+exceptions = """
+the box's size at other UI scales follows the widget scale, untested; whether
+an ability or a melee kill can carry the mark is unread
+"""
+phrases = ["wallbang mark", "wall penetration icon in the killfeed"]
+see = ["killfeed/headshot-icon", "killfeed/weapon-cell", "weapons/wall-penetration-surfaces"]

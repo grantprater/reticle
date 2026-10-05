@@ -1333,6 +1333,7 @@ def cmd_scan(args) -> int:
         if want_portraits:
             # The art ZNCC scores each side's admitted agents from the stored
             # lineup, or every agent with art before any lineup exists.
+            from .killfeed import wallbang_template
             from .killfeed_numeral import store_font
             from .lineup import portrait_candidates
             cands, cands_from = portrait_candidates(sid, store.root)
@@ -1340,7 +1341,8 @@ def cmd_scan(args) -> int:
                 profile, ctx.wh, mask=ctx.kf_mask(), hz=args.hz, spans=None,
                 art_dir=Path(store.root) / "reference" / "assets" / "agents",
                 candidates=cands, candidates_from=cands_from,
-                font_file=store_font(store.root))
+                font_file=store_font(store.root),
+                wallbang_tpl=wallbang_template(store.root))
         # Pings ride whatever pass is already happening -- they never justify a
         # decode of their own, which is why this is on by default and why it takes
         # the floor mask the minimap half has already paid for rather than

@@ -414,7 +414,18 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # (alternating runs; the scoreline alone
 # [metric:soft_digits/r2-hud-cost@a06f04a0059f#ms_scoreline=1.118] against
 # [metric:soft_digits/r2-hud-cost@a06f04a0059f#ms_base_scoreline=1.125]).
-HUD_VERSION = "hud-0.24.0"
+# 0.25.0 (2026-10-05): where the plates meet at one seam, a divider's centre
+# lies left of the seam with plate behind it (`killfeed.plate_behind`)
+# (`killfeed._band_text`) [domain:killfeed/weapon-cell]: a portrait's edge
+# no longer divides an ability kill whose icon the line-art pass passed over
+# (a1a995e6b19b 742.0 s and 2019.5 s, Overdrive; 5822b6646448 925.5 s,
+# Annihilation).
+# 0.26.0 (2026-10-05): a one-colour candidate run taller than one entry
+# that starts above the first slot's top yields the resting slots inside
+# it (`killfeed._bands_from_rows`), not a PITCH split from its scenery top
+# [domain:killfeed/entry-list-layout]: Clove's Not Dead Yet expiry over a
+# warm ceiling at ff636d173b07 1247.5-1248.5 s (rows 0-183) now reads.
+HUD_VERSION = "hud-0.26.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits

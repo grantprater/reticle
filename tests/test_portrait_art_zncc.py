@@ -298,6 +298,30 @@ class ArtZnccTests(unittest.TestCase):
         # nothing within the gap: no name
         self.assertIsNone(killfeed.killer_name_end(wb, 300, (353, 368), UNIT_SCALE))
 
+    def test_a_dropped_final_descender_extends_the_killer_run(self):
+        # 59c70f1ef720 1284.0 s, slot 2: "Killjo" on baseline 22 ends 38 px
+        # before the divider at 299; the text mask dropped the final y, whose
+        # descender reaches row 25. The y continues the run, and the start
+        # walk still reaches the K.
+        wb = np.zeros((34, 420), np.uint8)
+        for x0, w in ((229, 8), (239, 2), (243, 2), (247, 3), (255, 7)):
+            wb[12:22, x0:x0 + w] = 1
+        wb[15:25, 251:254] = 1          # the j, a descender
+        wb[15:25, 264:269] = 1          # the y, a descender
+        for x0 in (364, 372, 380):
+            wb[15:22, x0:x0 + 6] = 1    # the victim's name
+        view = killfeed.EntryView(slot=2, y0=0, y1=34, wx0=299, wx1=327,
+                                  killer_run=(229, 261), victim_run=(364, 386))
+        run = killfeed.killer_name_run(wb, view, UNIT_SCALE)
+        self.assertEqual(run, (229, 268))
+        self.assertEqual(killfeed.killer_name_start(wb, run, UNIT_SCALE), 229)
+        # alone, the y's baseline stops the walk at the y (0.21.0's fault)
+        self.assertEqual(killfeed.killer_name_start(wb, (264, 268), UNIT_SCALE), 264)
+        # a run far from the gap's letter still gives way to it (7010b3d62460 1020.0 s)
+        far = killfeed.EntryView(slot=0, y0=0, y1=34, wx0=299, wx1=327,
+                                 killer_run=(144, 145), victim_run=(364, 386))
+        self.assertEqual(killfeed.killer_name_run(wb, far, UNIT_SCALE), (264, 268))
+
     def test_a_killer_starts_at_its_plate_and_falls_back_to_its_box(self):
         crop = self._crop(killer="Echo", killer_x0=60)
         got = art_view(crop, "killer", 72, 8, True, UNIT_SCALE, self.dir, plate_x0=60.2)

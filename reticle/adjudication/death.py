@@ -245,7 +245,12 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # 223d636bf8d2 1208.0 s the entry under the Shooting Error overlay (slot 4,
 # no divider) took a Not Dead Yet banner two slots up, and Riot's Skye death
 # read Clove on the enemy side.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.41.0"
+# 0.42.0 (2026-10-05): each death carries `wallbang`, True, False or None,
+# from its entry's weapon answer (`weapon.entry_wallbang`,
+# weapon-adjudication-1.9.0) [domain:killfeed/wallbang-mark], with the
+# answer in `metadata["wallbang"]` and on the ENTITY_DELETED event. No
+# other field changes.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.42.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -1944,6 +1949,9 @@ class DeathVerdict:
     killer: Optional[str] = None
     death_cause: str = "gun"  # "gun" | "ability" | "environmental" | "melee" | "other"
     weapon: Optional[str] = None
+    # Did the kill pass through a wall: the entry's wallbang mark, read by
+    # `weapon.entry_wallbang`; None where unread.
+    wallbang: Optional[bool] = None
     location: Optional[tuple[float, float]] = None
     killer_location: Optional[tuple[float, float]] = None
     status: str = "abstained"  # "resolved" | "abstained" | "disagreement"
@@ -1964,6 +1972,7 @@ class DeathVerdict:
             "killer": self.killer,
             "death_cause": self.death_cause,
             "weapon": self.weapon,
+            "wallbang": self.wallbang,
             "location": list(self.location) if self.location else None,
             "killer_location": list(self.killer_location) if self.killer_location else None,
             "status": self.status,
@@ -2356,6 +2365,7 @@ def adjudicate_death(
     victim_name_claim: Optional[dict] = None,
     killer_name_claim: Optional[dict] = None,
     weapon_rests_on: Optional[list] = None,
+    wallbang: Optional[dict] = None,
 ) -> DeathVerdict:
     """Adjudicate victim identity, killer, and location for one death instant.
 
@@ -2581,6 +2591,7 @@ def adjudicate_death(
         killer=killer,
         death_cause=death_cause,
         weapon=weapon,
+        wallbang=(wallbang or {}).get("wallbang"),
         location=location,
         killer_location=killer_location,
         status=status,
@@ -2596,6 +2607,7 @@ def adjudicate_death(
             "named_votes": named_votes,
             "identity": identity,
             "killer_identity": killer_identity,
+            "wallbang": wallbang,
         },
     )
 
@@ -3011,6 +3023,7 @@ def adjudicate_round_deaths(
             is_second_life=is_second_life,
             is_revive=is_revive,
             weapon_rests_on=(kf.get("weapon_evidence") or {}).get("rests_on"),
+            wallbang=(kf.get("weapon_evidence") or {}).get("wallbang"),
         )
         if xmark is not None:
             verdict.metadata["xmark"] = xmark
@@ -3056,6 +3069,7 @@ def death_verdict_to_events(verdict: DeathVerdict, session_id: str) -> list[dict
             "killer": verdict.killer,
             "death_cause": verdict.death_cause,
             "weapon": verdict.weapon,
+            "wallbang": verdict.wallbang,
             "location": list(verdict.location) if verdict.location else None,
             "killer_location": list(verdict.killer_location) if verdict.killer_location else None,
             "status": verdict.status,

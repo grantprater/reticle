@@ -628,6 +628,47 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    ally fragment and against the player's tray drop; disagreements are
    stored, never averaged, and the agreement rate joins the reliability
    table. Agreement is consistency, not accuracy.
+
+   **Per-ability origin rules (for gate 6's next revision).** The nearest
+   ally at a birth is no origin rule: each ability has its own
+   [domain:abilities/ability-rules-are-unique]. Stage 3's first gate 6 run
+   disagreed most on Chamber and Cypher devices and Astra stars born near a
+   different ally, and the player answered on 2026-10-05 with these rules,
+   which the next revision applies per ability and no other:
+
+   - Astra's stars carry no origin at Astra
+     [domain:abilities/astra-stars-origin-global]; gate 6 skips the
+     proximity check for them.
+   - Chamber's Trademark and Rendezvous
+     [domain:abilities/chamber-trademark-origin-placed-away],
+     [domain:abilities/chamber-rendezvous-origin-placed-away] and Cypher's
+     Trapwire and Spycam [domain:abilities/cypher-trapwire-origin-placed-away],
+     [domain:abilities/cypher-spycam-origin-placed-away] may be born up to
+     their game-file targeting range from the caster; Rendezvous places one
+     anchor. Cyber Cage
+     [domain:abilities/cypher-cyber-cage-origin-placed-away] has no range in
+     the files; its birth stays unbounded until one is measured.
+   - Reyna's Leer [domain:abilities/reyna-leer-origin-set-distance] passes
+     through walls and always travels its game-file trigger distance in 3D;
+     it is born that distance x cos(cast pitch) from Reyna, so at most the
+     full distance, nearer when cast steeply, and never short for a wall.
+   - Sova's Owl Drone [domain:abilities/sova-owl-drone-origin-at-caster],
+     Tejo's Stealth Drone [domain:abilities/tejo-stealth-drone-origin-at-caster],
+     Skye's Trailblazer [domain:abilities/skye-trailblazer-origin-at-caster]
+     and Skye's Guiding Light
+     [domain:abilities/skye-guiding-light-origin-at-caster] are born at the
+     caster's icon.
+   - Every other ability has no origin rule yet; gate 6 stores its
+     disagreement as unexplained, never as an error.
+
+   Each distance is a game-data fact in metres. It becomes widget pixels as
+   base value x widget scale x map zoom (`geometry.MapScale.px`), where the
+   base value is the metres in base pixels at `geometry.SCALE_REF_KEY` for
+   that map; world drawings follow the zoom
+   [domain:minimap/world-drawings-follow-map-zoom]. The base pixels per
+   metre are not yet a recorded fact: the next revision measures them per
+   map from a drawing whose game-file size is known, before it applies any
+   bound. Gate 6's code is unchanged until stage 3 merges.
 7. **Cost.** `reticle usage <sid>` on the fast handful: the reader adds at
    most 10% to the ability pass's wall time, and the verdict runs under
    one minute per match from storage (design choices).
