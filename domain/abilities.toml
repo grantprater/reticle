@@ -7167,3 +7167,307 @@ disagreement until a timed capture decides
 """
 see = ["game_data/miks-waveform-game-data", "game_data/ability-restock-times",
        "abilities/ability-rules-are-unique"]
+
+[astra-stars-origin-global]
+claim = """
+Astra may set a star down anywhere on the map from Astral Form, so a
+star's birth on the minimap carries no origin at Astra's icon and
+says nothing about where she stands.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "astra:stars"
+source = """
+the player, 2026-10-05 (chat), answering why minimap icons born near a
+different ally disagreed with their glyph's caster: each ability has its own
+origin rule, and the player called star placement map-wide. The game
+files' star placement
+cast distance [domain:game_data/astra-astral-form-cosmic-divide-game-data]
+is a class default whose start point the files do not name
+"""
+use = """
+never attribute a star, or a smoke, concuss or well turned from one, to the
+ally nearest its birth; the star's caster comes from its glyph and the
+team's Astra, not from proximity
+"""
+see = ["abilities/astra-nebula-global-placement", "abilities/astra-star-placed-then-turned",
+       "abilities/astra-star-ally-minimap-glyph", "abilities/astra-stars-shared",
+       "game_data/astra-astral-form-cosmic-divide-game-data", "abilities/ability-rules-are-unique"]
+
+[chamber-trademark-origin-placed-away]
+claim = """
+Chamber may set his Trademark (slot C) down well away from himself, so its
+minimap circle need not be born at his icon. The player said this of
+Chamber's devices generally; it is recorded per device. The distance is the
+game files' targeting range [domain:game_data/chamber-trademark-game-data].
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "chamber:trademark"
+source = """
+the player, 2026-10-05 (chat), answering why minimap icons born near a
+different ally disagreed with their glyph's caster: the player said Chamber
+and Cypher may set their devices down well away from themselves
+"""
+use = """
+admit a Trademark birth up to the game-file targeting range from Chamber's
+position, converted to minimap pixels; never require it at his icon
+"""
+exceptions = """
+the statement named Chamber, not Trademark; whether the range differs in
+practice from the class default is unmeasured
+"""
+see = ["abilities/chamber-trademark-minimap-white-area", "game_data/chamber-trademark-game-data",
+       "abilities/chamber-rendezvous-origin-placed-away", "abilities/ability-rules-are-unique"]
+
+[chamber-rendezvous-origin-placed-away]
+claim = """
+Chamber's Rendezvous (slot E) places one anchor, and Chamber may set it down
+well away from himself, so its minimap radius need not be born at his icon.
+The player said the second of these of Chamber's devices generally; it is
+recorded per device. The distance is the game files' targeting range
+[domain:game_data/chamber-rendezvous-game-data].
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "chamber:rendezvous"
+source = """
+the player, 2026-10-05 (chat), answering why minimap icons born near a
+different ally disagreed with their glyph's caster: the player said Chamber
+and Cypher may set their devices down well away from themselves; the
+player, 2026-10-05 (chat), later the same day: Rendezvous places one anchor
+today
+"""
+use = """
+admit a Rendezvous birth up to the game-file targeting range from Chamber's
+position, converted to minimap pixels; never require it at his icon
+"""
+exceptions = """
+the placement statement named Chamber, not Rendezvous. The exports hold a
+state for a first anchor and one for a second; why they do is not recorded.
+The same placement component carries a required max distance from context
+of 37.5 m [domain:game_data/chamber-rendezvous-game-data], a game-file
+value whose measuring point the files do not name; which distance bounds
+an anchor's birth is unsettled
+"""
+see = ["abilities/chamber-rendezvous-minimap-white-radius", "game_data/chamber-rendezvous-game-data",
+       "abilities/chamber-trademark-origin-placed-away",
+       "abilities/chamber-rendezvous-replace-repeatedly-belief", "abilities/ability-rules-are-unique"]
+
+[chamber-rendezvous-replace-repeatedly-belief]
+claim = """
+The player believes, unsure, that Chamber can pick up his Rendezvous (slot
+E) and place it again more than twice in one round.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-05"
+subject = "chamber:rendezvous"
+source = "the player, 2026-10-05 (chat), stated as unsure"
+use = """
+the ability state model sets no cap on Rendezvous pickups within a round
+from this belief; each return waits the recall cooldown
+[domain:abilities/chamber-rendezvous-recall-cooldown], and a capture that
+counts a round's re-placements tests the belief
+"""
+exceptions = "unsure; no capture and no game-file field counts the re-placements"
+see = ["abilities/deployed-pickup-returns-charge", "abilities/chamber-deployed-util-pickup",
+       "abilities/chamber-rendezvous-recall-cooldown", "abilities/chamber-trademark-recall-cooldown",
+       "abilities/chamber-rendezvous-recall-any-distance",
+       "abilities/chamber-rendezvous-origin-placed-away", "abilities/ability-rules-are-unique"]
+
+[cypher-trapwire-origin-placed-away]
+claim = """
+Cypher may set his Trapwire (slot C) down well away from himself, so its
+minimap icon need not be born at his icon. The player said this of Cypher's
+devices generally; it is recorded per device. The distance is the game
+files' wire targeting distance [domain:game_data/cypher-trapwire-game-data].
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "cypher:trapwire"
+source = """
+the player, 2026-10-05 (chat), answering why minimap icons born near a
+different ally disagreed with their glyph's caster: the player said Chamber
+and Cypher may set their devices down well away from themselves
+"""
+use = """
+admit a Trapwire birth up to the game-file targeting distance from Cypher's
+position, converted to minimap pixels; never require it at his icon
+"""
+exceptions = "the statement named Cypher, not Trapwire"
+see = ["abilities/cypher-trapwire", "abilities/cypher-trapwire-minimap-glyph-turns-belief",
+       "game_data/cypher-trapwire-game-data", "abilities/cypher-spycam-origin-placed-away",
+       "abilities/cypher-cyber-cage-origin-placed-away", "abilities/ability-rules-are-unique"]
+
+[cypher-spycam-origin-placed-away]
+claim = """
+Cypher may set his Spycam (slot E) down well away from himself, so its
+minimap icon need not be born at his icon. The player said this of Cypher's
+devices generally; it is recorded per device. The distance is the game
+files' targeting range [domain:game_data/cypher-spycam-game-data].
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "cypher:spycam"
+source = """
+the player, 2026-10-05 (chat), answering why minimap icons born near a
+different ally disagreed with their glyph's caster: the player said Chamber
+and Cypher may set their devices down well away from themselves
+"""
+use = """
+admit a Spycam birth up to the game-file targeting range from Cypher's
+position, converted to minimap pixels; never require it at his icon
+"""
+exceptions = "the statement named Cypher, not Spycam"
+see = ["abilities/cypher-spycam-minimap-glyph-turns", "game_data/cypher-spycam-game-data",
+       "abilities/cypher-trapwire-origin-placed-away", "abilities/ability-rules-are-unique"]
+
+[cypher-cyber-cage-origin-placed-away]
+claim = """
+Cypher's Cyber Cage (slot Q) may land well away from him, so its minimap
+icon need not be born at his icon. The player said this of Cypher's devices
+generally; it is recorded per device. The game files bound no throw range:
+the cage is a ballistic toss [domain:game_data/cypher-cyber-cage-game-data].
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "cypher:cyber cage"
+source = """
+the player, 2026-10-05 (chat), answering why minimap icons born near a
+different ally disagreed with their glyph's caster: the player said Chamber
+and Cypher may set their devices down well away from themselves
+"""
+use = """
+never require a Cyber Cage birth at Cypher's icon; with no game-file range,
+bound it by the throw's travel or leave it unbounded
+"""
+exceptions = """
+the statement named Cypher, not Cyber Cage; how far a toss carries is
+unknown, since the exports hold only the projectile's speed
+"""
+see = ["abilities/cypher-cyber-cage-minimap-glyph-turns-belief", "game_data/cypher-cyber-cage-game-data",
+       "abilities/cypher-trapwire-origin-placed-away", "abilities/ability-rules-are-unique"]
+
+[reyna-leer-origin-set-distance]
+claim = """
+Reyna's Leer (slot C) passes through walls and always travels the same
+distance in 3D, the game files' projectile trigger distance of 10 m
+[domain:game_data/reyna-leer-game-data]; only the pitch Reyna casts it at
+changes where it sits. Its horizontal, minimap offset from Reyna is therefore
+10 m x cos(pitch): the full 10 m when cast level, at or near her icon when
+cast steeply. No wall stops it short.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "reyna:leer"
+source = """
+the player, 2026-10-05 (chat), answering why minimap icons born near a
+different ally disagreed with their glyph's caster: the player said the
+eye appears at a fixed distance in the cast direction, which can be
+vertical, so the minimap may not show the offset; the player, 2026-10-05
+(chat), later: Leer passes through walls, always travels the same 3D
+distance, and only the cast angle changes where it sits
+"""
+use = """
+admit a Leer birth from Reyna's icon out to the trigger distance x
+cos(pitch), converted to minimap pixels; the minimap shows no pitch, so the
+bound is the full trigger distance; never shorten it for a wall
+"""
+exceptions = """
+the trigger distance is a class default a blueprint may change at run time;
+one observed offset is recorded in [domain:abilities/reyna-leer-minimap-icon]
+"""
+see = ["abilities/reyna-leer-minimap-icon", "abilities/reyna-leer-global-minimap",
+       "abilities/minimap-thrown-ability-icon", "game_data/reyna-leer-game-data",
+       "abilities/ability-rules-are-unique"]
+
+[sova-owl-drone-origin-at-caster]
+claim = """
+Sova's Owl Drone (slot C) starts where Sova stands: its minimap icon is
+born at his icon.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "sova:owl drone"
+source = """
+the player, 2026-10-05 (chat), answering why minimap icons born near a
+different ally disagreed with their glyph's caster: the player said
+drones such as Sova's start where their caster stands. The game-data fact
+files the drone's zero spawn offset and the short spawn-spot traces from
+Sova's pawn as unconfirmed values
+[domain:game_data/sova-owl-drone-game-data]
+"""
+use = "bind an Owl Drone birth to the ally whose icon it leaves"
+see = ["abilities/sova-owl-drone-piloted", "abilities/sova-owl-drone-minimap-glyph-upright",
+       "game_data/sova-owl-drone-game-data", "abilities/ability-rules-are-unique"]
+
+[skye-trailblazer-origin-at-caster]
+claim = """
+Skye's Trailblazer (slot Q) starts where Skye stands: its minimap icon is
+born at her icon.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "skye:trailblazer"
+source = """
+the player, 2026-10-05 (chat), asked which ability they meant by Skye's
+drone: the player named the dog, Trailblazer, and said it begins at Skye's
+location. The game-data fact files the pawn's zero spawn offset and the
+short spawn-spot trace from Skye's pawn as unconfirmed values
+[domain:game_data/skye-trailblazer-game-data]
+"""
+use = "bind a Trailblazer birth to the ally whose icon it leaves"
+see = ["abilities/skye-trailblazer-piloted", "abilities/skye-trailblazer-minimap-glyph-upright",
+       "abilities/skye-trailblazer-enemy-minimap-glyph",
+       "game_data/skye-trailblazer-game-data", "abilities/ability-rules-are-unique"]
+
+[skye-guiding-light-origin-at-caster]
+claim = """
+Skye's Guiding Light (slot E) starts where Skye stands: its minimap icon is
+born at her icon.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "skye:guiding light"
+source = """
+the player, 2026-10-05 (chat), asked which ability they meant by Skye's
+drone: beside naming Trailblazer, the player said Guiding Light also
+begins at Skye's location. The game-data fact cites no spawn offset for the
+bird [domain:game_data/skye-guiding-light-game-data]
+"""
+use = "bind a Guiding Light birth to the ally whose icon it leaves"
+see = ["abilities/skye-guiding-light-steered", "abilities/skye-guiding-light-minimap-icon",
+       "abilities/skye-guiding-light-minimap-glyph-upright",
+       "game_data/skye-guiding-light-game-data", "abilities/ability-rules-are-unique"]
+
+[tejo-stealth-drone-origin-at-caster]
+claim = """
+Tejo's Stealth Drone (slot C) starts where Tejo stands: its minimap icon is
+born at his icon.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "tejo:stealth drone"
+source = """
+the player, 2026-10-05 (chat), answering why minimap icons born near a
+different ally disagreed with their glyph's caster: the player said
+drones such as Tejo's start where their caster stands. The game-data fact
+files the drone's zero spawn offset as an unconfirmed value; the firing
+transform it spawns from is not serialized
+[domain:game_data/tejo-stealth-drone-game-data]
+"""
+use = "bind a Stealth Drone birth to the ally whose icon it leaves"
+see = ["abilities/tejo-stealth-drone-piloted", "abilities/minimap-textures-tejo",
+       "game_data/tejo-stealth-drone-game-data", "abilities/ability-rules-are-unique"]
