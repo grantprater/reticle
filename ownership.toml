@@ -1614,11 +1614,12 @@ evidence = "tests/test_weapon_attribution.py, tests/test_entry_witnesses.py"
 
 [[entry]]
 id = "scoreboard-row-agent"
-question = "Which agent does a Tab scoreboard row show, and has the game dimmed it as dead?"
+question = "Which agent does a Tab scoreboard row show, has the game dimmed it as dead, and which of its K/D/A counts stand?"
 owner = "adjudication.scoreboard"
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["SCOREBOARD_AGENT_VERSION", "scoreboard_openings", "side_state", "enemy_rows_from"]
+produces = ["SCOREBOARD_AGENT_VERSION", "scoreboard_openings", "side_state", "enemy_rows_from",
+            "row_counts", "COUNT_FIELDS"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """
