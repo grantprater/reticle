@@ -8,7 +8,10 @@ Owns [owns:ability-glyph]. Stage 2 of `docs/MINIMAP_GLYPH_CHANNEL.md`
 pass at 2 Hz on live samples and stores, per proposed disc and frame, how
 well each candidate kit's game textures score there. It names nothing: the
 tracks, the verdict and the identity claims are stage 3's
-(`ability-disc-track`, `ability-glyph-name`, `agent-identity`).
+(`ability-disc-track`, `ability-glyph-name`, `agent-identity`). A score's
+label ("Agent:Slot") and a row's `best` and `second` keys are observations
+of which texture fits, never a name; only `ability-glyph-name`, through the
+aggregator, names an agent.
 
 Why. A thrown or placed ability draws a dark disc with a white glyph on the
 minimap [domain:abilities/minimap-thrown-ability-icon]; the glyph is the
@@ -18,12 +21,13 @@ the proposer's candidates for the same frame and never reruns it.
 
 Inputs, as versioned data from the store, never from `prototypes/`:
 
-- the reference bank (`glyph-bank-0.1.0`, written by
+- the reference bank (`GLYPH_DATA["bank"]`, written by
   `prototypes/glyph_tables.py bank`): each catalogue key's 128 px glyphs,
   the ability's DisplayIcon and the exported minimap textures the stage 1
   tables were built on (the state inventory's minimap brushes and the
   player's texture answers, [domain:abilities/minimap-textures-deadlock]
-  and its siblings). Game files, never mined captures.
+  and its siblings), each with its game file's path and sha256. Game files,
+  never mined captures.
 - the rotation policy (`glyph-rotation-policy-0.1.1`): per key, upright (0
   deg) or every 15 deg, each row citing what decided it.
 - the null table (`glyph-null-table-0.1.1`): per key, the cut that at most
@@ -38,38 +42,70 @@ inside an r = 8.5 px x scale disc, masked Pearson over every template and
 every centre within +-3 px (round(3 x scale) below scale 1), never
 binarised [domain:capture/capture-resolution]. Each glyph shrinks to a
 canvas of 11-22 px x scale with `INTER_AREA` and turns with `INTER_LINEAR`.
-The scale is the crop's width against `minimap.REF_WIDGET_W`, the widget
-scale the stage 1 tables were measured at; the canvas search spans the map
-zoom. All discs of a frame score in one matrix product, on the GPU when
-cupy and a CUDA device are present (`RETICLE_GLYPH=cpu` forces numpy).
+All discs of a frame score in one matrix product, on the GPU when cupy and
+a CUDA device are present (`RETICLE_GLYPH=cpu` forces numpy).
+
+The scale, a measured exception to the one transform. The matcher's scale
+is `minimap.widget_scale` alone, not `geometry.MapScale.scale` (widget x
+map zoom) as [domain:minimap/icons-follow-map-zoom] would have it: the null
+table's cuts were measured on that basis (dev sessions at zoom 0.887 and
+1.0), and a cut holds only at the matcher it was measured with. The canvas
+search (11-22 px) spans the zoom's change in drawn size; the mask radius
+and the shift do not follow it. Falsifier: rescored at the full transform,
+the best key or the above-cut decision changes on more than 5% of scored
+rows (`glyph_reader/scale@<sid>` records both). A null remeasured at the
+full transform under a new table version ends the exception.
+
+Gates from other channels, before any scheduling (stage 1's follow gates,
+`prototypes/minimap_glyph_eval.py` `map_like` and `portrait_cover`): each
+disc row stores `static_corr`, the masked Pearson of the crop's luma with
+the baked static's (`ctx.map_reference()`, keyed by (map, profile), never a
+session median [domain:capture/session-pixels-are-not-the-map]) inside the
+matcher's disc, and `icon`, the nearest stored `ally_icon` portrait or self
+icon of the same frame (`ally-candidates`: distance, radius, family). A
+disc whose `static_corr` reaches MAP_CORR is the map's (`static_like`); one
+whose centre lies inside a stored portrait is that portrait
+(`on_ally_icon`). Neither is scored, opens a window, or enters the audit or
+surprise paths; the row keeps its reason and its measurements. Where a
+gate's input is missing (no stored stream, a size mismatch) the disc is
+scored and the head says why the gate is unknown.
 
 Candidate sets. Continue the prior: the context set is the match lineup's
 kits, both sides, as `lineup.glyph_candidates` admits them (named slots,
 each refused slot's best guess as a rival), scored under the policy
-rotations on every disc. The full set, every agent's kit, runs on two paths
-only, each row marked by `set`:
+rotations on every ungated disc. Each context row and read frame row
+declares `rests_on` the lineup stamp, so the verdict never counts the
+lineup again. The full set, every agent's kit, runs on two paths only, each
+row marked by `set`:
 
 - the audit: the first birth and every AUDIT_EVERY-th after it (a cadence
   fixed in advance, a design choice), scored against every kit, every key
   rotated, on each frame of its window. It measures what the lineup prior
-  and the rotation policy hide.
+  and the rotation policy hide. No null exists at that search size, so its
+  rows store `best_cut` and `above_cut` null (`no_null_at_full_rotation`).
 - the surprise: a window whose best context key never clears that key's
   null cut is rescored against every kit, policy rotations, when it
   closes. Never an audit sample.
 
-Windows. A birth is a disc no open window continues: the Hungarian
-assignment (`scipy.optimize.linear_sum_assignment`) of this frame's discs
-to the open windows' last fixes within the prototype follow's reach (4 px +
-2 per missed frame, at most 24, x scale). A window schedules the audit and
-the surprise for WINDOW_MS after its birth; each fix `rests_on` the fix
-before. A window is an execution schedule, not a track: `adjudication.ability`
-joins discs into tracks from the stored rows. An unread frame ends every
-window, as the proposer's verify restarts there.
+The plan's per-view gate (each kit's textures as its view allows, from
+`ability-states-gamedata-0.2.0`) is not built: both sides' full kits are
+scored (`docs/MINIMAP_GLYPH_CHANNEL.md`, stage 2's revisions).
+
+Windows. Continuation is the proposer's: a disc continues the previous
+sample's disc whose stored verify binds to it
+(`ability_icons.verified_continuations`), and its row `rests_on` that disc.
+A birth is an ungated disc that continues no windowed disc. A window
+schedules the audit and the surprise for WINDOW_MS after its birth; when
+its schedule ends it still absorbs its disc for as long as the verify keeps
+it, so a disc that persists past WINDOW_MS is never born again. The
+verify's loss, a gated disc, or an unread frame ends a window. A window is
+an execution schedule, not a track: `adjudication.ability` joins discs into
+tracks from the stored rows.
 
 Not done here (stage 3 or later): the follow at the cache's cadence (stage
 1's S4 measured the 2 Hz arm equal on dev, 0 points apart), per-view texture
-gating from the state inventory (the verdict's gate), the Deadlock:Q wall
-normals, naming, and claims.
+gating from the state inventory, the Deadlock:Q wall normals, naming, and
+claims.
 """
 from __future__ import annotations
 
@@ -81,12 +117,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .minimap import REF_WIDGET_W
+from .ability_icons import verified_continuations
+from .minimap import widget_scale
 from .usage import step as usage_step
 from .version import ABILITY_GLYPH_VERSION, ABILITY_ICON_VERSION
 
 #: The store files the reader reads: (directory under the store, version).
-GLYPH_DATA = {"bank": ("analysis/glyph-bank-20261005", "glyph-bank-0.1.0"),
+GLYPH_DATA = {"bank": ("analysis/glyph-bank-20261005b", "glyph-bank-0.2.0"),
               "policy": ("analysis/glyph-tables-20261005b", "glyph-rotation-policy-0.1.1"),
               "null": ("analysis/glyph-tables-20261005b", "glyph-null-table-0.1.1")}
 #: The bank and tables' stamp, which `plan` compares (`ability_glyph`'s `glyph_bank`).
@@ -101,8 +138,10 @@ ROTATIONS = tuple(range(0, 360, 15))
 FLAT_STD = 1e-3
 #: Window rules (design choices, docs/MINIMAP_GLYPH_CHANNEL.md section 2).
 WINDOW_MS = 3000.0
-REACH_BASE = (4.0, 2.0, 24.0)
 AUDIT_EVERY = 10
+#: A disc whose luma correlates this well with the baked static's is the
+#: map's (stage 1's follow gate, `prototypes/minimap_glyph_eval.py` MAP_CORR).
+MAP_CORR = 0.7
 SETS = ("context", "audit", "surprise")
 
 
@@ -119,7 +158,7 @@ class GlyphData:
     """The reference bank, the rotation policy and the null table, loaded and
     checked against each other."""
 
-    def __init__(self, keys, sources, rotating, cuts, provenance):
+    def __init__(self, keys, sources, rotating, cuts, provenance, files=None):
         #: Catalogue keys ("Agent:Slot"), sorted.
         self.keys: list[str] = keys
         #: key -> [(provenance, 128 px glyph)], the DisplayIcon first.
@@ -129,6 +168,8 @@ class GlyphData:
         #: key -> its per-key null cut (overall).
         self.cuts: dict[str, float] = cuts
         self.provenance: dict = provenance
+        #: key -> [(game file under the export, sha256)], one per source.
+        self.files: dict[str, list[tuple[str, str]]] = files or {}
 
     @classmethod
     def load(cls, store_root) -> "GlyphData":
@@ -160,9 +201,13 @@ class GlyphData:
             glyphs = z["glyphs"].astype(np.float32)
             owner = [str(k) for k in z["keys"]]
             prov = [str(p) for p in z["provenance"]]
+            fls = [str(f) for f in z["files"]]
+            fsha = [str(h) for h in z["file_sha256"]]
         sources: dict = {}
-        for g, k, p in zip(glyphs, owner, prov):
+        files: dict = {}
+        for g, k, p, f, h in zip(glyphs, owner, prov, fls, fsha):
             sources.setdefault(k, []).append((p, g))
+            files.setdefault(k, []).append((f, h))
         keys = sorted(sources)
         rows = {r["key"]: r for r in pol["rows"]}
         if set(rows) != set(keys):
@@ -181,7 +226,7 @@ class GlyphData:
             "null": {"version": nver, "file": f"{ndir}/{nver}.json", "sha256": shas["null"],
                      "rate": nul.get("rate"), "cut": "per key, overall (`keys.<key>.cut`)",
                      "tie_margin": (nul.get("tie_margin") or {}).get("value")}}
-        return cls(keys, sources, rotating, cuts, provenance)
+        return cls(keys, sources, rotating, cuts, provenance, files)
 
     def keys_of(self, agents) -> list[str]:
         """The bank's keys of these agents' kits."""
@@ -363,16 +408,113 @@ class StoredIcons:
         return self.by_t.get(float(smp.t_ms))
 
 
+class StoredAllyIcons:
+    """Each frame's stored portraits from the `ally_icon` stream
+    (`ally-candidates`): every icon row's centre and radius, and the frame
+    row's self icon. Held as columns sorted by frame; positions only, never
+    a verdict on who is drawn."""
+
+    def __init__(self, frame_idx, cx, cy, r, family, version):
+        f = np.asarray(frame_idx, np.int64).reshape(-1)
+        o = np.argsort(f, kind="stable")
+        self._f = f[o]
+        self._xyr = np.stack([np.asarray(cx, float).reshape(-1), np.asarray(cy, float).reshape(-1),
+                              np.asarray(r, float).reshape(-1)], 1)[o]
+        self._fam = np.asarray(family, object).reshape(-1)[o]
+        self.version = version
+
+    @classmethod
+    def from_rows(cls, rows: list[dict]) -> "StoredAllyIcons":
+        """From stored `coverage`, `frame` and `icon` rows, as a test writes them."""
+        head = next((r for r in rows if r.get("kind") == "coverage"), {})
+        f, x, y, rr, fam = [], [], [], [], []
+        for r in rows:
+            if r.get("kind") == "icon" and r.get("cx") is not None:
+                f.append(r["frame_idx"])
+                x.append(r["cx"])
+                y.append(r["cy"])
+                rr.append(r.get("r") or 0.0)
+                fam.append(r.get("family") or "icon")
+            elif r.get("kind") == "frame" and r.get("self"):
+                f.append(r["frame_idx"])
+                x.append(r["self"][0])
+                y.append(r["self"][1])
+                rr.append(r["self"][2] if len(r["self"]) > 2 else 0.0)
+                fam.append("self")
+        return cls(f, x, y, rr, fam, head.get("ally_icon_version"))
+
+    @classmethod
+    def from_store(cls, store, session_id: str):
+        """(StoredAllyIcons, None), or (None, reason) with no stream. Parses
+        only the columns it reads (`pyarrow.json`, one thread)."""
+        import pyarrow as pa
+        import pyarrow.compute as pc
+        import pyarrow.json as pj
+        path = store.events_path("ally_icon", session_id)
+        if not path.is_file():
+            return None, "no ally_icon stream"
+        with open(path, "rb") as fh:
+            head = json.loads(fh.readline() or b"{}")
+        if head.get("kind") != "coverage":
+            return None, "ally_icon stream has no coverage row"
+        schema = pa.schema([("kind", pa.string()), ("frame_idx", pa.int64()), ("cx", pa.float64()),
+                            ("cy", pa.float64()), ("r", pa.float64()), ("family", pa.string()),
+                            ("self", pa.list_(pa.float64()))])
+        t = pj.read_json(path, read_options=pj.ReadOptions(use_threads=False, block_size=1 << 24),
+                         parse_options=pj.ParseOptions(explicit_schema=schema,
+                                                       unexpected_field_behavior="ignore"))
+        kind = t.column("kind")
+        ic = t.filter(pc.and_(pc.equal(kind, "icon"), pc.is_valid(t.column("cx"))))
+        fr = t.filter(pc.and_(pc.equal(kind, "frame"), pc.is_valid(t.column("self"))))
+        selfs = fr.column("self").combine_chunks()
+        offs = np.asarray(selfs.offsets.to_numpy(), np.int64)
+        vals = np.asarray(selfs.values.to_numpy(zero_copy_only=False), float)
+        ln = np.diff(offs)
+        keep = ln >= 2
+        at = offs[:-1][keep]
+        sr = np.where(ln[keep] > 2, vals[np.minimum(at + 2, max(len(vals) - 1, 0))], 0.0) \
+            if len(vals) else np.zeros(0)
+        f = np.concatenate([ic.column("frame_idx").to_numpy(),
+                            np.asarray(fr.column("frame_idx").to_numpy(), np.int64)[keep]])
+        x = np.concatenate([ic.column("cx").to_numpy(), vals[at] if len(vals) else np.zeros(0)])
+        y = np.concatenate([ic.column("cy").to_numpy(), vals[at + 1] if len(vals) else np.zeros(0)])
+        r = np.concatenate([ic.column("r").fill_null(0.0).to_numpy(), sr])
+        fam = np.concatenate([np.asarray(ic.column("family").fill_null("icon").to_numpy(
+            zero_copy_only=False), object), np.full(int(keep.sum()), "self", object)])
+        return cls(f, x, y, r, fam, head.get("ally_icon_version")), None
+
+    def near(self, frame_idx: int, xy: np.ndarray):
+        """Per disc: (distance to the nearest stored icon of this frame, its
+        radius, its family); NaN, NaN and None where the frame stores none."""
+        lo, hi = np.searchsorted(self._f, [int(frame_idx), int(frame_idx) + 1])
+        n = len(xy)
+        if hi <= lo or n == 0:
+            return np.full(n, np.nan), np.full(n, np.nan), [None] * n
+        a = self._xyr[lo:hi]
+        d = np.hypot(xy[:, None, 0] - a[None, :, 0], xy[:, None, 1] - a[None, :, 1])
+        j = d.argmin(1)
+        return d[np.arange(n), j], a[j, 2], self._fam[lo:hi][j].tolist()
+
+
 # ------------------------------------------------------------------ the reader
 
 
 class _Window:
-    __slots__ = ("id", "birth_t", "x", "y", "last", "missed", "audit", "cleared", "open", "pending")
+    __slots__ = ("id", "birth_t", "last", "audit", "cleared", "open", "pending")
 
-    def __init__(self, wid, t, x, y, disc, audit):
-        self.id, self.birth_t, self.x, self.y, self.last = wid, t, x, y, disc
-        self.missed, self.audit, self.cleared, self.open = 0, audit, False, True
+    def __init__(self, wid, t, disc, audit):
+        self.id, self.birth_t, self.last = wid, t, disc
+        self.audit, self.cleared, self.open = audit, False, True
         self.pending: list = []
+
+
+def _static_luma(img: np.ndarray | None) -> np.ndarray | None:
+    """The baked static's luma (YCrCb Y), as the matcher reads the crop's."""
+    if img is None:
+        return None
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    return cv2.cvtColor(img[..., :3], cv2.COLOR_BGR2YCrCb)[..., 0].astype(np.float32)
 
 
 class AbilityGlyphReader:
@@ -383,7 +525,9 @@ class AbilityGlyphReader:
 
     def __init__(self, data: GlyphData, box, session_id: str, candidates: dict | None,
                  candidates_from: str | None, icons, hz: float = 2.0, spans=None, ms=None,
-                 name: str = "ability_glyph", audit_every: int = AUDIT_EVERY):
+                 name: str = "ability_glyph", audit_every: int = AUDIT_EVERY,
+                 static=None, static_reason: str | None = "no baked static given",
+                 allies=None, allies_reason: str | None = "no ally_icon rows given"):
         self.name, self.hz, self.spans = name, hz, spans
         self.frames_from = "video"
         self.cv_threads = 1
@@ -395,11 +539,21 @@ class AbilityGlyphReader:
         agents = [a for side in (candidates or {}).values() for a in side["agents"]]
         self.context_keys = data.keys_of(agents)
         self.agents_without_keys = sorted({a for a in agents if not data.keys_of([a])})
+        #: The gates' inputs: the baked static's luma (crop-sized) and the
+        #: stored portraits; None with a reason where absent.
+        self.static_y = _static_luma(static)
+        self.static_reason = None if static is not None else static_reason
+        self.allies = allies
+        self.allies_reason = None if allies is not None else allies_reason
+        self.static_mismatch = 0
         self.xp, self.scorer = _backend()
         self._tm: dict = {}
-        self._windows: list[_Window] = []
+        #: The last read sample: its time, and each candidate's window and disc id.
+        self._prev: dict | None = None
+        self._open: list[_Window] = []
         self.births = 0
         self.n_windows = {"audit": 0, "surprise": 0}
+        self.continued = {"verified": 0, "lost": 0}
         self.rows: list[dict] = []
 
     # The template sets, built once per scale.
@@ -427,10 +581,16 @@ class AbilityGlyphReader:
         b = tm.keys[int(o[0])]
         sec = tm.keys[int(o[1])] if len(o) > 1 else None
         margin = float(best[o[0]] - (best[o[1]] if len(o) > 1 else -1.0))
-        cut = self.data.cuts.get(b)
-        return {**base, "set": which, "scores": scores, "best": b, "second": sec,
-                "margin": round(margin, 4), "best_cut": cut,
-                "above_cut": None if cut is None else bool(float(best[o[0]]) > cut)}
+        out = {**base, "set": which, "scores": scores, "best": b, "second": sec,
+               "margin": round(margin, 4)}
+        if which == "audit":
+            # The null table holds no cut for a search at every key rotated.
+            out.update(best_cut=None, above_cut=None, cut_reason="no_null_at_full_rotation")
+        else:
+            cut = self.data.cuts.get(b)
+            out.update(best_cut=cut, above_cut=None if cut is None else bool(float(best[o[0]]) > cut),
+                       cut_reason=None if cut is not None else "no_cut_for_key")
+        return out
 
     def _close(self, win: _Window, why: str) -> None:
         """End a window's schedule: rescore it against every kit when its
@@ -451,9 +611,38 @@ class AbilityGlyphReader:
                                        "surprise", tm, best[j], targ[j], sarg[j]))
 
     def _end_all(self, why: str) -> None:
-        for w in self._windows:
+        for w in self._open:
             self._close(w, why)
-        self._windows = []
+        self._open = []
+        self._prev = None
+
+    def _gates(self, y, xy, wins, ok, tm, frame_idx):
+        """Per disc: (static_corr, icon distance, icon radius, icon family,
+        gate reason or None), vectorised over the frame's discs."""
+        n = len(xy)
+        corr = np.full(n, np.nan)
+        if self.static_y is not None and n:
+            if self.static_y.shape != y.shape:
+                self.static_mismatch += 1
+            else:
+                sw, sok = disc_windows(self.static_y, xy, tm.w, 0)
+                both = ok & sok
+                if both.any():
+                    a = wins[both][:, tm.sh:tm.sh + tm.w, tm.sh:tm.sh + tm.w][:, tm.mask]
+                    b = sw[both][:, tm.mask]
+                    c = (zrows(a) * zrows(b)).sum(1)
+                    c[b.std(1) < FLAT_STD] = np.nan
+                    corr[both] = c
+        if self.allies is not None:
+            d, rad, fam = self.allies.near(frame_idx, xy)
+        else:
+            d, rad, fam = np.full(n, np.nan), np.full(n, np.nan), [None] * n
+        why = np.full(n, None, object)
+        on_icon = np.nan_to_num(d, nan=np.inf) <= np.nan_to_num(rad, nan=-1.0)
+        why[on_icon] = "on_ally_icon"
+        why[np.nan_to_num(corr, nan=-2.0) >= MAP_CORR] = "static_like"
+        why[~ok] = "off_crop"
+        return corr, d, rad, fam, why.tolist()
 
     def feed(self, smp) -> None:
         t = float(smp.t_ms)
@@ -469,98 +658,100 @@ class AbilityGlyphReader:
         elif ir.get("reason"):
             reason = ir["reason"]
         if reason is not None:
-            self.rows.append({**row, "reason": reason, "discs": None, "births": None})
+            self.rows.append({**row, "reason": reason, "discs": None, "births": None, "rests_on": []})
             self._end_all(reason)
             return
         x0, y0, x1, y1 = self.box
         crop = smp.frame[y0:y1, x0:x1]
-        scale = crop.shape[1] / REF_WIDGET_W
+        scale = widget_scale(crop.shape[1])
         cands = ir.get("candidates") or []
         with usage_step("luma"):
             y = cv2.cvtColor(crop, cv2.COLOR_BGR2YCrCb)[..., 0].astype(np.float32)
         tm = self.templates("context", scale)
         xy = np.array([[c["cx"], c["cy"]] for c in cands], float).reshape(-1, 2)
         wins, ok = disc_windows(y, xy, tm.w, tm.sh)
-        # Windows whose schedule ran out close before this frame links.
-        for w in self._windows:
-            if w.open and t - w.birth_t > WINDOW_MS:
+        with usage_step("gates"):
+            corr, icon_d, icon_r, icon_f, gate = self._gates(y, xy, wins, ok, tm, smp.frame_idx)
+        # The proposer's verify decides continuation (`ability-icon`).
+        prev = self._prev
+        ver = ir.get("verify")
+        cont: dict = {}
+        if prev is not None and ver is not None and float(ver.get("of_t_ms", -1.0)) == prev["t"]:
+            cont = verified_continuations(ver, cands)
+        # Windows whose schedule ran out close before this frame's discs join them.
+        for w in self._open:
+            if t - w.birth_t > WINDOW_MS:
                 self._close(w, "window_end")
-        with usage_step("link"):
-            link = self._link(xy, scale)
         births = 0
         bases = []
+        now_win: dict = {}
+        lineup = [self.candidates_from] if self.candidates_from else []
         for i, c in enumerate(cands):
-            win = link.get(i)
-            disc = self._disc_id(t, i)
+            pi = cont.get(i) if prev is not None else None
+            rests = [] if pi is None else [prev["disc"][pi]]
+            base = {"kind": "disc", "t_ms": t, "frame_idx": int(smp.frame_idx),
+                    "disc": self._disc_id(t, i), "i": i, "cx": c["cx"], "cy": c["cy"], "r": c["r"],
+                    "scale": round(scale, 5),
+                    "static_corr": None if np.isnan(corr[i]) else round(float(corr[i]), 4),
+                    "icon": None if np.isnan(icon_d[i]) else
+                    {"d": round(float(icon_d[i]), 3), "r": round(float(icon_r[i]), 3),
+                     "family": icon_f[i]}}
+            if gate[i] is not None:
+                self.rows.append({**base, "set": "context", "reason": gate[i], "window": None,
+                                  "birth": False, "rests_on": rests, "scores": None})
+                continue
+            win = None if pi is None else prev["win"].get(pi)
             if win is None:
                 self.births += 1
                 births += 1
                 audit = (self.births - 1) % self.audit_every == 0
-                win = _Window(f"{self.sid}:aglyph:{round(t, 3)}:{i}", t, c["cx"], c["cy"], disc, audit)
+                win = _Window(f"{self.sid}:aglyph:{round(t, 3)}:{i}", t, base["disc"], audit)
                 if audit:
                     self.n_windows["audit"] += 1
-                self._windows.append(win)
-                rests = []
+                self._open.append(win)
             else:
-                rests = [win.last]
-                win.x, win.y, win.last, win.missed = c["cx"], c["cy"], disc, 0
-            bases.append(({"kind": "disc", "t_ms": t, "frame_idx": int(smp.frame_idx), "disc": disc,
-                           "i": i, "cx": c["cx"], "cy": c["cy"], "r": c["r"], "scale": round(scale, 5),
-                           "window": win.id, "birth": not rests, "rests_on": rests}, win))
+                self.continued["verified"] += 1
+                win.last = base["disc"]
+            now_win[i] = win
+            base.update(window=win.id, birth=win.birth_t == t, rests_on=rests)
+            bases.append((i, base, win))
+        alive = {id(w) for w in now_win.values()}
+        for w in self._open:
+            if id(w) not in alive:
+                self.continued["lost"] += 1
+                self._close(w, "lost")
+        self._open = [w for w in self._open if id(w) in alive]
+        idx = np.array([i for i, _, _ in bases], np.int64)
         with usage_step("context"):
-            best, targ, sarg = score_windows(wins[ok], tm)
-        jj = np.cumsum(ok) - 1
+            best, targ, sarg = score_windows(wins[idx], tm)
         audit_i = []
-        for i, (base, win) in enumerate(bases):
-            if not ok[i]:
-                self.rows.append({**base, "set": "context", "reason": "off_crop", "scores": None})
-                continue
-            j = int(jj[i])
-            r = self._row({**base, "reason": None}, "context", tm, best[j], targ[j], sarg[j])
-            self.rows.append(r)
-            if win.open:
-                if r["above_cut"]:
-                    win.cleared, win.pending = True, []
-                elif not win.cleared:
-                    win.pending.append(({**base, "reason": None}, scale, wins[i]))
-                if win.audit:
-                    audit_i.append(i)
+        with usage_step("rows"):
+            for j, (i, base, win) in enumerate(bases):
+                r = self._row({**base, "reason": None, "rests_on": base["rests_on"] + lineup},
+                              "context", tm, best[j], targ[j], sarg[j])
+                self.rows.append(r)
+                if win.open:
+                    if r["above_cut"]:
+                        win.cleared, win.pending = True, []
+                    elif not win.cleared:
+                        win.pending.append(({**base, "reason": None}, scale, wins[i]))
+                    if win.audit:
+                        audit_i.append((i, base))
         if audit_i:
             ta = self.templates("audit", scale)
             with usage_step("audit"):
-                ba, ta_arg, sa_arg = score_windows(wins[audit_i], ta)
-            for j, i in enumerate(audit_i):
-                self.rows.append(self._row({**bases[i][0], "reason": None}, "audit", ta,
+                ba, ta_arg, sa_arg = score_windows(wins[[i for i, _ in audit_i]], ta)
+            for j, (_, base) in enumerate(audit_i):
+                self.rows.append(self._row({**base, "reason": None}, "audit", ta,
                                            ba[j], ta_arg[j], sa_arg[j]))
-        # A window no disc continued: its reach widens while its schedule runs;
-        # after it, the window ends.
-        seen = {id(w) for _, w in bases}
-        keep = []
-        for w in self._windows:
-            if id(w) in seen:
-                keep.append(w)
-            elif w.open:
-                w.missed += 1
-                keep.append(w)
-        self._windows = keep
-        self.rows.append({**row, "reason": None, "discs": len(cands), "births": births})
-
-    def _link(self, xy: np.ndarray, scale: float) -> dict[int, _Window]:
-        """{disc index: the window it continues}: the Hungarian assignment of
-        this frame's discs to the windows' last fixes within reach."""
-        from scipy.optimize import linear_sum_assignment
-        ws = self._windows
-        if not ws or not len(xy):
-            return {}
-        last = np.array([[w.x, w.y] for w in ws], float)
-        reach = np.minimum(REACH_BASE[0] + REACH_BASE[1] * np.array([w.missed for w in ws]),
-                           REACH_BASE[2]) * scale
-        d = np.hypot(last[:, None, 0] - xy[None, :, 0], last[:, None, 1] - xy[None, :, 1])
-        ok = d <= reach[:, None]
-        if not ok.any():
-            return {}
-        r, c = linear_sum_assignment(np.where(ok, d, 1e9))
-        return {int(j): ws[int(i)] for i, j in zip(r, c) if ok[i, j]}
+        self._prev = {"t": t, "win": now_win,
+                      "disc": {i: self._disc_id(t, i) for i in range(len(cands))}}
+        gated: dict = {}
+        for g in gate:
+            if g is not None:
+                gated[g] = gated.get(g, 0) + 1
+        self.rows.append({**row, "reason": None, "discs": len(cands), "births": births,
+                          "scored": len(bases), "gated": gated, "rests_on": lineup})
 
     def finish(self) -> None:
         """Close the open windows (idempotent)."""
@@ -584,6 +775,7 @@ class AbilityGlyphReader:
                 "frames": sum(r["kind"] == "frame" for r in self.rows),
                 "frames_from": self.frames_from, "by_reason": by, "disc_rows": sets,
                 "births": self.births, "windows": dict(self.n_windows),
+                "continued": dict(self.continued),
                 "ability_icon_version": getattr(self.icons, "version", None),
                 "ability_icon_source": getattr(self.icons, "source", None),
                 "glyph_bank": GLYPH_BANK_STAMP, "glyph_data": self.data.provenance,
@@ -593,23 +785,45 @@ class AbilityGlyphReader:
                             "flat_std": FLAT_STD,
                             "resample": "INTER_AREA to shrink each 128 px glyph to its canvas; "
                                         "INTER_LINEAR to turn it",
-                            "scale": f"crop width / {REF_WIDGET_W:g} (the stage 1 tables' basis)",
+                            "scale": "minimap.widget_scale(crop width): the null table's basis, a "
+                                     "measured exception to the full transform (map_scale), "
+                                     "falsified by glyph_reader/scale",
                             "scales": scales, "scorer": self.scorer},
+                "gates": {"static": {"rule": "masked Pearson of the crop's luma with the baked static's "
+                                             "(geometry by (map, profile)) inside the matcher's disc; "
+                                             "static_like at or above map_corr",
+                                     "map_corr": MAP_CORR,
+                                     "from": "prototypes/minimap_glyph_eval.py MAP_CORR (stage 1's follow)",
+                                     "unknown": self.static_reason,
+                                     "size_mismatch_frames": self.static_mismatch},
+                          "ally_icon": {"rule": "the disc's centre inside a stored ally_icon icon or "
+                                                "the frame's self icon (distance <= its r)",
+                                        "ally_icon_version": getattr(self.allies, "version", None),
+                                        "unknown": self.allies_reason}},
                 "candidates": self.candidates, "candidates_from": self.candidates_from,
                 "context": {"keys": self.context_keys, "rotate": "policy",
                             "why": "the match lineup's kits, both sides (lineup.glyph_candidates: named "
                                    "slots, refused slots' best guesses as rivals): continue the prior",
+                            "rests_on": self.candidates_from,
+                            "per_view_gate": "not built: both sides' full kits",
                             "agents_without_keys": self.agents_without_keys},
                 "audit": {"every": self.audit_every, "keys": "every bank key", "rotate": "all",
                           "rule": "the first birth and every audit_every-th after it, through its window; "
-                                  "a cadence fixed in advance"},
+                                  "a cadence fixed in advance",
+                          "cut": "none: no null at full rotation (best_cut and above_cut null)"},
                 "surprise": {"keys": "every bank key", "rotate": "policy",
                              "rule": "a window whose best context key never exceeds that key's per-key "
                                      "null cut is rescored when it closes; never an audit sample"},
-                "window": {"ms": WINDOW_MS, "reach_base": list(REACH_BASE),
-                           "rule": "Hungarian assignment of each frame's discs to open windows' last "
-                                   "fixes within reach x scale; a schedule, not a track"},
-                "textures": {k: [p for p, _ in self.data.sources[k]] for k in self.data.keys},
+                "window": {"ms": WINDOW_MS,
+                           "rule": "continuation by the proposer's verify (ability_icons."
+                                   "verified_continuations); a birth is an ungated disc that continues "
+                                   "no windowed disc; after window ms the schedule ends and the window "
+                                   "still absorbs its disc; the verify's loss, a gated disc or an unread "
+                                   "frame ends it; a schedule, not a track"},
+                "textures": {k: [{"provenance": p, "file": f, "sha256": h} for (p, _), (f, h) in
+                                 zip(self.data.sources[k], self.data.files.get(k) or
+                                     [(None, None)] * len(self.data.sources[k]))]
+                             for k in self.data.keys},
                 "map_scale": None if self.ms is None else self.ms.provenance()}
         clip = getattr(self, "spans_clip", None)
         if clip is not None:
@@ -620,14 +834,32 @@ class AbilityGlyphReader:
         return [head] + [{**common, **r} for r in body]
 
 
+def check_pass(icons_live: bool, pipeline: str, workers) -> None:
+    """Refuse a staged pass that feeds the glyph reader beside the icon
+    reader whose row it reads for the same sample (`LiveIcons`): with
+    `workers` other than 0 each reader runs on its own thread."""
+    if icons_live and pipeline == "staged" and workers != 0:
+        raise SystemExit("the glyph reader reads the icon reader's row for the same sample; a "
+                         "staged pass feeds them on separate threads. Run the ability pass with "
+                         "--pipeline serial or --workers 0")
+
+
 def glyph_reader(ctx, spans, icons, candidates, candidates_from, hz: float = 2.0,
                  data: GlyphData | None = None) -> AbilityGlyphReader:
     """The `AbilityGlyphReader` `scan` and `trial` build for a session, over
     the profile's minimap ROI, with the candidate set the caller took from
-    the lineup's owner (`lineup.glyph_candidates`)."""
+    the lineup's owner (`lineup.glyph_candidates`), the baked static of the
+    session's geometry key and the stored `ally_icon` portraits (the gates)."""
     from . import geometry
     from .minimap import minimap_roi_px
     box = minimap_roi_px(ctx.profile, *ctx.wh)
+    try:
+        static, static_why = ctx.map_reference(), None
+    except (SystemExit, FileNotFoundError, KeyError, ValueError) as exc:
+        static, static_why = None, f"no baked static: {exc}"
+    allies, allies_why = StoredAllyIcons.from_store(ctx.store, ctx.session_id)
     return AbilityGlyphReader(data or GlyphData.load(ctx.store.root), box, ctx.session_id,
                               candidates, candidates_from, icons, hz=hz, spans=spans,
-                              ms=geometry.map_scale_of(ctx.session_id, ctx.store.root))
+                              ms=geometry.map_scale_of(ctx.session_id, ctx.store.root),
+                              static=static, static_reason=static_why,
+                              allies=allies, allies_reason=allies_why)

@@ -6,7 +6,8 @@ r"""Stage 1 of docs/MINIMAP_GLYPH_CHANNEL.md: the per-key rotation policy table 
     .\.venv\Scripts\python.exe prototypes\glyph_tables.py record --out DIR   (metric series glyph_tables/*, once)
     .\.venv\Scripts\python.exe prototypes\glyph_tables.py bank --out NEWDIR --tables DIR   (the references, as data)
 
-`bank` writes `glyph-bank-0.1.0.npz` and `.json`: the 128 px glyphs the tables in DIR were built on, which the
+`bank` writes `glyph-bank-0.2.0.npz` and `.json`: the 128 px glyphs the tables in DIR were built on, each with its
+game file and sha256, which the
 stage 2 reader (`reticle.minimap_glyph`) reads as versioned data; the reader never imports this script.
 
 `build` writes `glyph-rotation-policy-0.1.1.json` and `glyph-null-table-0.1.1.json` under DIR and `build.json`
@@ -781,11 +782,36 @@ def cmd_thrown(out: Path, only: set | None = None) -> None:
 
 # ------------------------------------------------------------------ the reference bank the stage 2 reader reads
 
-BANK_VERSION = "glyph-bank-0.1.0"
+#: 0.2.0: each source's game file (path under the export, sha256) beside its provenance; the glyphs are 0.1.0's.
+BANK_VERSION = "glyph-bank-0.2.0"
+
+
+def source_files(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """(game file under the export, its sha256) of each (key, provenance) source: the DisplayIcon's png, an
+    answer's file, or a correlation or game-data marker's png found by its unique name under the export."""
+    index: dict = {}
+    for f in mge.GX.rglob("*.png"):
+        index.setdefault(f.name, []).append(f)
+    out = []
+    for key, prov in sources:
+        kind, _, rest = prov.partition(":")
+        if kind == "icon":
+            f = Path(mge.GLYPHS[tuple(key.split(":"))]["file"])
+        elif kind == "answer":
+            f = mge.GX / rest.split(":", 1)[1]
+        else:                                        # "1306:<name> corr .." and "gamedata:<name> <inv> <row>"
+            name = rest.split(" ")[0]
+            hits = index.get(name) or index.get(name + ".png") or []
+            if len(hits) != 1:
+                raise SystemExit(f"{key} {prov!r}: {len(hits)} export files named {name}")
+            f = hits[0]
+        f = f.resolve()
+        out.append((f.relative_to(mge.GX.resolve()).as_posix(), sha256(f)))
+    return out
 
 
 def cmd_bank(out: Path, tables: Path) -> None:
-    """Write the references the tables in `tables` were built on as versioned data (`glyph-bank-0.1.0.npz` and
+    """Write the references the tables in `tables` were built on as versioned data (`glyph-bank-0.2.0.npz` and
     `.json` under `out`): every catalogue key's 128 px glyphs, one per source (the DisplayIcon, then each export
     texture the eval 0.3.0 dev run assigned it: correlation, the state inventory's minimap brushes and the player's
     texture answers, `load_dev`). `reticle.minimap_glyph` reads this file and never imports this script. Refuses
@@ -805,8 +831,10 @@ def cmd_bank(out: Path, tables: Path) -> None:
             owner.append(k)
             prov.append(name)
     G = np.stack(glyphs)
+    files = source_files(list(zip(owner, prov)))
     out.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(out / f"{BANK_VERSION}.npz", glyphs=G, keys=np.array(owner), provenance=np.array(prov))
+    np.savez_compressed(out / f"{BANK_VERSION}.npz", glyphs=G, keys=np.array(owner), provenance=np.array(prov),
+                        files=np.array([f for f, _ in files]), file_sha256=np.array([h for _, h in files]))
     meta = {"version": BANK_VERSION, "generator": VERSION, "eval": mge.VERSION, "build": mge.BUILD,
             "glyph_px": int(G.shape[1]), "keys": len(keys), "sources": len(owner),
             "glyphs_sha256": hashlib.sha256(G.tobytes()).hexdigest(),
@@ -821,9 +849,11 @@ def cmd_bank(out: Path, tables: Path) -> None:
                            "game_files": str(mge.GX)},
             "tables": {"dir": str(tables), "policy": ptab["version"], "null": ntab["version"],
                        "policy_sha256": sha256(tables / TABLES[0]), "null_sha256": sha256(tables / TABLES[1])},
-            "per_key_sources": dict(Counter(owner))}
+            "per_key_sources": dict(Counter(owner)),
+            "sources": [{"key": k, "provenance": pv, "file": f, "sha256": h}
+                        for k, pv, (f, h) in zip(owner, prov, files)]}
     json.dump(meta, open(out / f"{BANK_VERSION}.json", "w", encoding="utf-8"), indent=1)
-    print(json.dumps({k: v for k, v in meta.items() if k != "per_key_sources"}, indent=1))
+    print(json.dumps({k: v for k, v in meta.items() if k not in ("per_key_sources", "sources")}, indent=1))
 
 
 # ------------------------------------------------------------------ metric series

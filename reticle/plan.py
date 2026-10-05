@@ -174,11 +174,19 @@ def ability_streams() -> list[tuple[str, str, str]]:
             ("ability_glyph", "ability_glyph_version", ABILITY_GLYPH_VERSION)]
 
 
+#: Streams the ability pass gained after it had run on stored sessions, each
+#: with the sibling stream whose presence shows the pass ran there: `stale`
+#: names such a stream absent beside its sibling. The glyph reader reads the
+#: proposer's rows, so a stored `ability_icon` is the pass it should have joined.
+PASS_ADDED = {"ability_glyph": "ability_icon"}
+
+
 def _ability_inputs(stream: str) -> tuple[dict, tuple]:
     """(fields, upstream) of one ability-pass stream: the gate's samples feed
     every shape stream but the walls; the candidate streams also rest on the
     candidate table, its facts' values and the stored deaths. The glyph
-    reader reads the proposer's rows, and its reference bank and tables
+    reader reads the proposer's rows, the stored portraits its gate reads
+    (`ally_icon`), and its reference bank and tables
     (`minimap_glyph.GLYPH_BANK_STAMP`)."""
     from .ability_candidates import values_digest
     from .minimap_glyph import GLYPH_BANK_STAMP
@@ -190,7 +198,8 @@ def _ability_inputs(stream: str) -> tuple[dict, tuple]:
             "appearance_values": values_digest()}
     return {"ability_gate": ({}, ()), "ability_icon": ({}, ()),
             "ability_glyph": ({"glyph_bank": GLYPH_BANK_STAMP,
-                               "ability_icon_version": ABILITY_ICON_VERSION}, ("ability_icon",)),
+                               "ability_icon_version": ABILITY_ICON_VERSION},
+                              ("ability_icon", "ally_icon")),
             "ability_shape_scan": (gate, ("ability_gate",)),
             "ability_shape_audit": (gate, ("ability_gate",)),
             "ability_fit": ({**gate, **cand}, ("ability_gate", "death")),
@@ -1405,17 +1414,17 @@ def stale(store, sessions: list[str]) -> dict:
                                 "how": _CACHE_READERS.get(stream, "storage")})
         # Every other stamped stream, declared with its command.
         moving = rescanned | {x["stream"] for x in derived}
-        pass_streams = {s for s, _, _ in ability_streams()}
         stored = set(stored_streams(store, sid))
         for spec in derived_streams():
             stream = spec["stream"]
             head = (_head(store, stream, sid, b'"event_kind":"identity_distribution"') if spec.get("identity")
                     else _head(store, stream, sid))
             if head is None:
-                # A stream the ability pass gained since it last ran on this
-                # session: the pass ran, so its absence is staleness, not a
-                # stream never asked for.
-                if stream in pass_streams and pass_streams & stored:
+                # A stream the ability pass gained after it ran on stored
+                # sessions (`PASS_ADDED`), absent beside the sibling whose
+                # presence shows the pass ran: staleness, not a stream never
+                # asked for. Every other absent stream keeps the old rule.
+                if PASS_ADDED.get(stream) in stored:
                     derived.append({"stream": stream, "stored": None, "current": spec["current"],
                                     "inputs_moved": ["absent from a pass that ran"],
                                     "how": spec["how"], "command": spec["command"].format(sid=sid)})

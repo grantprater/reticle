@@ -604,7 +604,11 @@ ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
 # audit and surprise paths against every kit. Bump when the matcher, a window
 # or audit rule, or a stored field changes; the reference bank and the tables
 # carry their own stamps (`minimap_glyph.GLYPH_BANK_STAMP`).
-ABILITY_GLYPH_VERSION = "ability-glyph-0.1.0"
+# 0.2.0 (2026-10-05): the static and portrait gates (`static_corr`, `icon`,
+# reasons `static_like`, `on_ally_icon`); continuation by the proposer's verify
+# (`ability_icons.verified_continuations`) in place of a reach of its own;
+# audit rows store no cut; context and frame rows rest on the lineup stamp.
+ABILITY_GLYPH_VERSION = "ability-glyph-0.2.0"
 # The ability tray's charge drops, written as `tray_drop` rows by `reticle
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own

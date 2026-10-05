@@ -1359,12 +1359,9 @@ def cmd_scan(args) -> int:
                 declare_set(ip, "minimap", profile, ctx.wh)
             if want_glyphs:
                 from .lineup import glyph_candidates
-                from .minimap_glyph import LiveIcons, StoredIcons, glyph_reader
-                if (ip is not None and getattr(args, "pipeline", "serial") == "staged"
-                        and getattr(args, "workers", None) != 0):
-                    raise SystemExit("the glyph reader reads the icon reader's row for the same "
-                                     "sample; a staged pass feeds them on separate threads. Run "
-                                     "the ability pass with --pipeline serial or --workers 0")
+                from .minimap_glyph import LiveIcons, StoredIcons, check_pass, glyph_reader
+                check_pass(ip is not None, getattr(args, "pipeline", "serial"),
+                           getattr(args, "workers", None))
                 icons = (LiveIcons(ip) if ip is not None
                          else StoredIcons(store.read_events("ability_icon", sid)))
                 cands, cands_from = glyph_candidates(sid, store.root)

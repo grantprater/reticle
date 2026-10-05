@@ -53,16 +53,29 @@ def _crop(glyph=None, rot=0, at=(200, 220), canvas=16, n=465, noise_seed=3):
 
 
 class _Icons:
-    """The proposer's row for a sample: a stub of `LiveIcons`."""
+    """The proposer's row for a sample: a stub of `LiveIcons`, with the
+    verify of the previous read sample's discs where they still hold
+    (`lost` names the previous indices whose verify fails)."""
     version, source = "icon-proposer-test", "stub"
 
     def __init__(self, discs, reason=None):
         self.discs, self.reason = discs, reason
+        self.lost: set = set()
+        self._prev = None
 
     def at(self, smp):
-        return {"t_ms": smp.t_ms, "reason": self.reason,
-                "candidates": None if self.reason else [{"cx": x, "cy": y, "r": 10.0}
-                                                        for x, y in self.discs]}
+        if self.reason:
+            self._prev = None
+            return {"t_ms": smp.t_ms, "reason": self.reason, "candidates": None, "verify": None}
+        cands = [{"cx": x, "cy": y, "r": 10.0} for x, y in self.discs]
+        ver = None
+        if self._prev is not None:
+            t0, prev = self._prev
+            ver = {"of_t_ms": t0, "rows": [{"of": k, "cx": c["cx"], "cy": c["cy"], "r": c["r"],
+                                            "score": None if k in self.lost else 0.5}
+                                           for k, c in enumerate(prev)]}
+        self._prev = (float(smp.t_ms), cands)
+        return {"t_ms": smp.t_ms, "reason": None, "candidates": cands, "verify": ver}
 
 
 def _reader(data, icons, cands=None, **kw):
@@ -137,7 +150,7 @@ class ReaderTest(unittest.TestCase):
         r = _reader(data, icons, audit_every=2)
         blank = _crop(None)
         r.feed(_smp(blank, 0.0, 0))                      # birth 1: audit, below null
-        r.feed(_smp(blank, 500.0, 1))                    # continues the window
+        r.feed(_smp(blank, 500.0, 1))                    # the verify continues the window
         icons.reason = "not_live"
         r.feed(_smp(blank, 1000.0, 2))                   # unread: the window ends -> surprise
         icons.reason = None
@@ -148,7 +161,7 @@ class ReaderTest(unittest.TestCase):
         self.assertEqual([f["reason"] for f in frames], [None, None, "not_live", None])
         ctx = [x for x in body if x["kind"] == "disc" and x["set"] == "context"]
         self.assertEqual([x["birth"] for x in ctx], [True, False, True])
-        self.assertEqual(ctx[1]["rests_on"], [ctx[0]["disc"]])
+        self.assertEqual(ctx[1]["rests_on"], [ctx[0]["disc"], "lineup test"])
         self.assertEqual(ctx[1]["window"], ctx[0]["window"])
         self.assertEqual(ctx[0]["disc"], "ability_icon:s0:0.0:0")
         self.assertEqual(sum(x.get("set") == "audit" for x in body), 2)
@@ -158,6 +171,101 @@ class ReaderTest(unittest.TestCase):
         self.assertEqual(ctx[2]["best"], "Alpha:Q")
         self.assertEqual(head["births"], 2)
         self.assertEqual(head["windows"], {"audit": 1, "surprise": 1})
+
+    def test_a_lost_verify_ends_the_window_and_the_disc_is_born_again(self):
+        icons = _Icons([(200, 220)])
+        r = _reader(_data(), icons)
+        blank = _crop(None)
+        r.feed(_smp(blank, 0.0, 0))
+        icons.lost = {0}                                  # the proposer's verify loses the disc
+        r.feed(_smp(blank, 500.0, 1))
+        ctx = [x for x in r.rows if x["kind"] == "disc" and x["set"] == "context"]
+        self.assertEqual([x["birth"] for x in ctx], [True, True])
+        self.assertNotEqual(ctx[0]["window"], ctx[1]["window"])
+        self.assertEqual(r.continued, {"verified": 0, "lost": 1})
+
+    def test_a_window_past_its_schedule_still_absorbs_its_disc(self):
+        """After WINDOW_MS the window's audit and surprise stop, and the disc
+        the verify keeps is never born again."""
+        icons = _Icons([(200, 220)])
+        r = _reader(_data(), icons, audit_every=1)
+        blank = _crop(None)
+        for k in range(10):                               # 0 .. 4.5 s at 2 Hz
+            r.feed(_smp(blank, 500.0 * k, k))
+        ctx = [x for x in r.rows if x["kind"] == "disc" and x["set"] == "context"]
+        self.assertEqual(sum(x["birth"] for x in ctx), 1)
+        self.assertEqual(len({x["window"] for x in ctx}), 1)
+        audits = [x for x in r.rows if x.get("set") == "audit"]
+        self.assertEqual([x["t_ms"] for x in audits], [500.0 * k for k in range(7)])
+        r.finish()
+        sur = [x for x in r.rows if x.get("set") == "surprise"]
+        self.assertEqual(len(sur), 7)                     # the scheduled frames only
+        self.assertTrue(all(x["surprise_reason"].endswith("window_end") for x in sur))
+
+    def test_audit_rows_store_no_cut(self):
+        r = _reader(_data(), _Icons([(200, 220)]))
+        r.feed(_smp(_crop(_glyph("bar")), 0.0))
+        audit = next(x for x in r.rows if x.get("set") == "audit")
+        self.assertIsNone(audit["best_cut"])
+        self.assertIsNone(audit["above_cut"])
+        self.assertEqual(audit["cut_reason"], "no_null_at_full_rotation")
+        self.assertEqual(audit["rests_on"], [])           # the full set rests on no lineup
+
+    def test_context_and_frame_rows_rest_on_the_lineup(self):
+        r = _reader(_data(), _Icons([(200, 220)]))
+        r.feed(_smp(_crop(_glyph("arrow")), 0.0))
+        ctx = next(x for x in r.rows if x.get("set") == "context")
+        frame = next(x for x in r.rows if x["kind"] == "frame")
+        self.assertIn("lineup test", ctx["rests_on"])
+        self.assertEqual(frame["rests_on"], ["lineup test"])
+
+    def test_a_disc_the_baked_static_draws_is_gated(self):
+        """Stage 1's map_like: a disc whose luma correlates with the baked
+        static's is the map's; it is not scored and opens no window."""
+        img = _crop(_glyph("bar"))                        # a wall notch the map draws, as a test
+        r = _reader(_data(), _Icons([(200, 220)]), static=img.copy())
+        r.feed(_smp(img, 0.0))
+        row = next(x for x in r.rows if x["kind"] == "disc")
+        self.assertEqual(row["reason"], "static_like")
+        self.assertGreaterEqual(row["static_corr"], M.MAP_CORR)
+        self.assertIsNone(row["scores"])
+        self.assertIsNone(row["window"])
+        self.assertEqual(r.births, 0)
+        self.assertFalse(any(x.get("set") in ("audit", "surprise") for x in r.rows))
+        # A glyph disc on a map that draws a flat floor there is scored.
+        r2 = _reader(_data(), _Icons([(200, 220)]), static=_crop(None, at=(60, 60)))
+        r2.feed(_smp(_crop(_glyph("arrow")), 0.0))
+        row2 = next(x for x in r2.rows if x["kind"] == "disc")
+        self.assertIsNone(row2["reason"])
+        self.assertLess(row2["static_corr"], M.MAP_CORR)
+
+    def test_a_disc_inside_a_stored_portrait_is_gated(self):
+        allies = M.StoredAllyIcons.from_rows([
+            {"kind": "coverage", "ally_icon_version": "ally-icon-test"},
+            {"kind": "frame", "frame_idx": 0, "self": [100.0, 100.0, 7.0]},
+            {"kind": "icon", "frame_idx": 0, "cx": 203.0, "cy": 221.0, "r": 6.0, "family": "ally"},
+            {"kind": "icon", "frame_idx": 1, "cx": 330.0, "cy": 330.0, "r": 6.0, "family": "ally"}])
+        r = _reader(_data(), _Icons([(200, 220), (100, 104), (330, 330)]), allies=allies)
+        r.feed(_smp(_crop(_glyph("arrow")), 0.0, 0))
+        rows = sorted((x for x in r.rows if x["kind"] == "disc" and x["set"] == "context"),
+                      key=lambda x: x["i"])
+        self.assertEqual([x["reason"] for x in rows], ["on_ally_icon", "on_ally_icon", None])
+        self.assertEqual(rows[1]["icon"]["family"], "self")
+        self.assertAlmostEqual(rows[0]["icon"]["d"], float(np.hypot(3, 1)), places=3)
+        head = r.events("s0", "k")[0]
+        self.assertEqual(head["gates"]["ally_icon"]["ally_icon_version"], "ally-icon-test")
+        frame = next(x for x in r.rows if x["kind"] == "frame")
+        self.assertEqual(frame["gated"], {"on_ally_icon": 2})
+
+    def test_missing_gate_inputs_are_named_not_guessed(self):
+        r = _reader(_data(), _Icons([(200, 220)]))
+        r.feed(_smp(_crop(_glyph("arrow")), 0.0))
+        row = next(x for x in r.rows if x["kind"] == "disc")
+        self.assertIsNone(row["static_corr"])
+        self.assertIsNone(row["icon"])
+        head = r.events("s0", "k")[0]
+        self.assertTrue(head["gates"]["static"]["unknown"])
+        self.assertTrue(head["gates"]["ally_icon"]["unknown"])
 
     def test_provenance_fields_present(self):
         r = _reader(_data(), _Icons([(200, 220)]))
@@ -192,6 +300,96 @@ class ReaderTest(unittest.TestCase):
         live = M.LiveIcons(ip)
         self.assertIsNotNone(live.at(_smp(None, 500.0)))
         self.assertIsNone(live.at(_smp(None, 1000.0)))
+
+    def test_stored_icons_reads_the_stored_rows_and_their_stamp(self):
+        rows = [{"kind": "coverage", "ability_icon_version": "icon-proposer-0.3.0"},
+                {"kind": "frame", "t_ms": 500.0, "reason": None, "candidates": [], "verify": None},
+                {"kind": "frame", "t_ms": 1000.0, "reason": "not_live", "candidates": None}]
+        st = M.StoredIcons(rows)
+        self.assertEqual(st.version, "icon-proposer-0.3.0")
+        self.assertEqual(st.source, "stored")
+        self.assertEqual(st.at(_smp(None, 500.0))["candidates"], [])
+        self.assertEqual(st.at(_smp(None, 1000.0))["reason"], "not_live")
+        self.assertIsNone(st.at(_smp(None, 1500.0)))
+
+    def test_the_stored_path_reads_as_the_live_path(self):
+        """A reader over the stored proposer rows writes the rows a reader fed
+        live writes."""
+        img = _crop(_glyph("arrow"))
+        live = _Icons([(200, 220)])
+        stored = [{"kind": "coverage", "ability_icon_version": "icon-proposer-test"}]
+        held = {}
+        a = _reader(_data(), SimpleNamespace(at=lambda s: held[s.t_ms], version="icon-proposer-test",
+                                             source="stub"))
+        for k in range(3):
+            smp = _smp(img, 500.0 * k, k)
+            held[smp.t_ms] = live.at(smp)
+            stored.append({"kind": "frame", **held[smp.t_ms]})
+            a.feed(smp)
+        b = _reader(_data(), M.StoredIcons(stored))
+        for k in range(3):
+            b.feed(_smp(img, 500.0 * k, k))
+
+        def strip(rows):
+            return [{k: v for k, v in x.items() if k != "ability_icon_source"} for x in rows]
+
+        self.assertEqual(strip(a.events("s0", "k")[1:]), strip(b.events("s0", "k")[1:]))
+        self.assertEqual(b.events("s0", "k")[0]["ability_icon_source"], "stored")
+
+    def test_a_staged_pass_with_the_live_icon_reader_refuses(self):
+        with self.assertRaises(SystemExit):
+            M.check_pass(True, "staged", None)
+        with self.assertRaises(SystemExit):
+            M.check_pass(True, "staged", 2)
+        M.check_pass(True, "staged", 0)
+        M.check_pass(True, "serial", None)
+        M.check_pass(False, "staged", 2)                  # stored proposer rows: nothing to race
+
+
+class ContinuationTest(unittest.TestCase):
+    """`ability_icons.verified_continuations`, the proposer's answer."""
+
+    def test_a_held_verify_binds_the_overlapping_candidate(self):
+        from reticle.ability_icons import verified_continuations
+        ver = {"of_t_ms": 0.0, "rows": [{"of": 0, "cx": 50, "cy": 50, "r": 8.0, "score": 0.6},
+                                        {"of": 1, "cx": 90, "cy": 90, "r": 8.0, "score": None},
+                                        {"of": 2, "cx": 140, "cy": 20, "r": 8.0, "score": 0.5}]}
+        cands = [{"cx": 141, "cy": 21, "r": 8.0}, {"cx": 90, "cy": 90, "r": 8.0},
+                 {"cx": 52, "cy": 49, "r": 8.0}, {"cx": 300, "cy": 300, "r": 8.0}]
+        self.assertEqual(verified_continuations(ver, cands), {0: 2, 2: 0})
+        self.assertEqual(verified_continuations(None, cands), {})
+        self.assertEqual(verified_continuations(ver, []), {})
+
+
+class LineupCandidatesTest(unittest.TestCase):
+    """`lineup.glyph_candidates`: the set the reader takes from the lineup's owner."""
+
+    def test_named_rivals_and_blind(self):
+        from unittest import mock
+
+        from reticle import lineup
+        stored = {"sides": {
+            "ally": [{"slot": 0, "agent": "Sova"}, {"slot": 1, "agent": "Cypher"},
+                     {"slot": 2, "agent": None, "best_guess": "Jett"},
+                     {"slot": 3, "agent": None, "best_guess": None}, {"slot": 4, "agent": "Omen"}],
+            "enemy": [{"slot": k, "agent": a} for k, a in enumerate(
+                ("Reyna", "Killjoy", "Skye", "Sage", "KAY/O"))]}}
+        with mock.patch.object(lineup, "load_lineup", return_value=stored), \
+                mock.patch.object(lineup, "view_stamp", return_value="v1"):
+            got, frm = lineup.glyph_candidates("s0", "store")
+        self.assertEqual(frm, "lineup v1")
+        self.assertEqual(got["ally"]["agents"], {"Cypher": "named", "Jett": "rival", "Omen": "named",
+                                                 "Sova": "named"})
+        self.assertEqual(got["ally"]["blind"], 1)
+        self.assertEqual(got["enemy"]["blind"], 0)
+        self.assertEqual(set(got["enemy"]["agents"].values()), {"named"})
+
+    def test_no_lineup(self):
+        from unittest import mock
+
+        from reticle import lineup
+        with mock.patch.object(lineup, "load_lineup", return_value=None):
+            self.assertEqual(lineup.glyph_candidates("s0", "store"), (None, None))
 
 
 @unittest.skipUnless((STORE / M.GLYPH_DATA["bank"][0]).is_dir(), "no stored glyph bank")
