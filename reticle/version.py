@@ -675,7 +675,10 @@ MENU_VERSION = "menu-0.1.0"
 # that rest on no tray cast) passes an X drop refused as `forced` or
 # `after_player_death` in the agent's cast window of it, before the kit's end;
 # one line, one drop (`ability_timeline._admit_lined_x`).
-PLAYER_CAST_VERSION = "player-cast-0.10.0"
+# 0.11.0: a drop read from gold halves alone in a slot a resource-bar fact
+# makes a pool (`ability_timeline.pool_slots`: Skye's Regrowth) spent no
+# charge and is `resource_pool`.
+PLAYER_CAST_VERSION = "player-cast-0.11.0"
 # Whose kit the ability tray shows, per sample of the stored `hud_abilities`
 # crops: the slot icons scored against the catalogue's (`tray_icons`) and read
 # against the candidate sets the lineup allows (`adjudication.tray_kit`),

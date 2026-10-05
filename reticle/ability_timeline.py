@@ -177,7 +177,7 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                       second_lives_ms=(), revives_ms=(),
                       report_deaths: dict | None = None, kit_changes_ms=(),
                       kit_returns_ms=(), menu_at=None, kit_spans=None,
-                      own_lines_ms=()) -> list[dict]:
+                      own_lines_ms=(), pool_slots=()) -> list[dict]:
     """Which of a session's tray drops (`tray.drops`) are the local player's casts.
 
     The tray shows the player's kit only while the player lives; afterwards it
@@ -464,6 +464,18 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     taints the others. No labelled drop changes its verdict
     ([metric:tray/cooccur-taint@all-sessions#labels_verdict_changed=0]).
 
+    *A pool has no charges.* A slot a resource-bar fact names for the
+    player's agent (`pool_slots`, `adjudication.ability_state.pool_facts`)
+    draws a pool, not charges: Skye's Regrowth in C
+    [domain:abilities/skye-regrowth-resource-bar]. A gold half is a charge
+    returned [domain:hud/ability-tray-restocked-charge-gold], so a drop read
+    from gold halves alone (a row with the gold `witness`, `tray.drops`)
+    spent no charge there and is `resource_pool`, named after every other
+    test. The two the gate passed on the 21 Riot-paired matches before
+    `player-cast-0.11.0` (`b7d24102a6f6` 375.1 s and `e37fdeca944f` 1714.0 s)
+    each fell from a teal fill of 0, each in a slot already holding all of
+    Riot's Regrowth casts. A teal drop of the bar stays a cast.
+
     *A line overturns a death or a dark tray.* The player hears their own
     ultimate's line at the cast [domain:abilities/caster-hears-own-ult-line],
     so an own line (`own_lines_ms`, `ult_cast` rows of the player's own
@@ -536,6 +548,9 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
             [(r["t_ms"] / 1000.0, r["slot"], r["from"], r["to"], r["forced"]) for r in keep],
             quiet=quiet)):
         r["reason"] = ("forced" if r["forced"] else "cooccur_among_casts") if sus else why
+    for r in keep:
+        if r["reason"] is None and r["slot"] in pool_slots and "witness" in r:
+            r["reason"] = "resource_pool"
     _admit_lined_x(rows, own_lines_ms, agent)
     for r in rows:
         r["player_cast"] = r["reason"] is None
@@ -631,6 +646,7 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     menu, menu_stamp = stored_menu(store, session_id)
     inputs["menu_at"] = menu.at if menu is not None else None
     inputs["own_lines_ms"] = own_line_times(store.read_events("ult_cast", session_id))
+    inputs["pool_slots"], pools = pool_slots(agent)
     # Each stored input's own stamp, read from its first row (`no_rows` where
     # none is stored), used or not: `plan` compares these with the stored
     # heads, so a stream written after this read makes the result stale.
@@ -646,9 +662,22 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
               "tray_kit": kit["version"] or NO_ROWS, "tray_kit_reason": kit["reason"],
               "tray_kit_own_basis": kit["own_basis"],
               "menu_open": menu_stamp,
-              "ult_cast": event_stamp(store, "ult_cast", session_id, "ult_cast_version")}
+              "ult_cast": event_stamp(store, "ult_cast", session_id, "ult_cast_version"),
+              "pool_facts": pools}
     return inputs, stamps
 
+
+def pool_slots(agent: str | None) -> tuple[tuple[str, ...], list[str]]:
+    """(the slots of `agent` that a resource-bar fact makes a pool, the facts'
+    keys), by `adjudication.ability_state.pool_facts` over `domain/*.toml`;
+    none without an agent."""
+    if agent is None:
+        return (), []
+    from . import domain
+    from .adjudication.ability_state import _agent_key, pool_facts
+    hits = sorted((slot, key) for (a, slot), key in pool_facts(domain.load()).items()
+                  if a == _agent_key(agent))
+    return tuple(s for s, _k in hits), [k for _s, k in hits]
 
 
 def own_line_times(ult_rows: list[dict]) -> list[float]:

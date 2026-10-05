@@ -178,6 +178,21 @@ class GateDeathTests(unittest.TestCase):
                          own_lines_ms=[60000.0])
         self.assertEqual(got[(60000.0, "X")]["reason"], "forced")
 
+    def test_a_gold_only_drop_of_a_pool_slot_spends_no_charge(self):
+        gold = {**_drop(30000, "C", frm=0.0, to=0.0), "witness": {"witnessed": True}}
+        got = self._gate([gold, _drop(40000, "C")], [], agent="Skye", pool_slots=("C",))
+        self.assertEqual(got[(30000.0, "C")]["reason"], "resource_pool")
+        # A teal drop of the bar stays a cast, and another kit's gold drop too.
+        self.assertTrue(got[(40000.0, "C")]["player_cast"])
+        got = self._gate([gold], [], agent="Sova")
+        self.assertTrue(got[(30000.0, "C")]["player_cast"])
+
+    def test_pool_slots_come_from_the_resource_bar_facts(self):
+        from reticle.ability_timeline import pool_slots
+        self.assertEqual(pool_slots("Skye"), (("C",), ["abilities/skye-regrowth-resource-bar"]))
+        self.assertEqual(pool_slots("Sova"), ((), []))
+        self.assertEqual(pool_slots(None), ((), []))
+
     def test_own_line_times_keep_lines_that_rest_on_no_tray_cast(self):
         from reticle.ability_timeline import own_line_times
         rows = [{"kind": "cast", "player_cast": True, "t_ms": 5.0, "rests_on": []},
