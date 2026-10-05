@@ -79,6 +79,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from reticle import geometry, metrics, widget_frame  # noqa: E402
+# The ray profile and the shape fit were promoted to `reticle.clove_circle`
+# (clove-circle-0.2.0 on); this record's numbers were measured with its own
+# copy at clove-circle-0.1.0, which iterated the fit four times.
+from reticle.clove_circle import fit_rim, ray_profile as profile  # noqa: E402,F401
 
 cv2.setNumThreads(1)
 VID = "C:/Users/grant/Videos/2026-09-28 14-18-06.mp4"
@@ -140,47 +144,12 @@ class Frame:
         return (self.A @ np.array([x, y, 1.0])).tolist()
 
 
-def profile(d, c, rs, ang=ANG):
-    xs = (c[0] + np.outer(np.cos(ang), rs)).astype(np.float32)
-    ys = (c[1] + np.outer(np.sin(ang), rs)).astype(np.float32)
-    return cv2.remap(d.astype(np.float32), xs, ys, cv2.INTER_LINEAR,
-                     borderMode=cv2.BORDER_CONSTANT, borderValue=float("nan"))
-
-
 def ringscore(d, c, r):
     """Median over rays of (just inside the rim) - (just outside it)."""
     v = profile(d, c, np.array([r - 3, r - 1, r + 2, r + 4]))
     with np.errstate(all="ignore"):
         s = np.nanmean(v[:, :2], 1) - np.nanmean(v[:, 2:], 1)
         return float(np.nanmedian(s))
-
-
-def circfit(x, y):
-    a = np.c_[2 * x, 2 * y, np.ones_like(x)]
-    s = np.linalg.lstsq(a, x * x + y * y, rcond=None)[0]
-    return s[0], s[1], float(np.sqrt(s[2] + s[0] ** 2 + s[1] ** 2))
-
-
-def fit_circle(d, c0, r0, win=12.0, iters=4):
-    """Edge points on rays (steepest outward drop), least-squares circle."""
-    c, r = np.array(c0, float), float(r0)
-    for _ in range(iters):
-        rs = np.arange(r - win, r + win, 0.25)
-        v = profile(d, c, rs)
-        g = -(v[:, 4:] - v[:, :-4])
-        ok = np.isfinite(g).all(1)
-        k = np.argmax(np.where(np.isfinite(g), g, -1e9), 1)
-        re, amp = rs[k + 2], g[np.arange(len(k)), k]
-        x, y = c[0] + re * np.cos(ANG), c[1] + re * np.sin(ANG)
-        m = ok & (amp > np.nanpercentile(amp[ok], 30))
-        for _ in range(3):
-            cx, cy, rr = circfit(x[m], y[m])
-            res = np.hypot(x - cx, y - cy) - rr
-            m = ok & (np.abs(res) < max(1.5, 2.5 * np.std(res[m]))) & (amp > 0)
-        c, r, win = np.array([cx, cy]), rr, max(3.5, win / 2)
-    res = np.hypot(x - c[0], y - c[1]) - r
-    return {"cx": float(c[0]), "cy": float(c[1]), "r": float(r),
-            "rms": float(np.sqrt(np.mean(res[m] ** 2))), "inliers": float(m.mean())}
 
 
 def free_search(d, radii=np.arange(84, 96, 2.0), step=4.0):
@@ -260,11 +229,11 @@ def main(argv=None):
 
     # Fit on the first frame of the menu's full view, then everywhere drawn.
     i58 = int(round((58.0 - 45.0) * 20))
-    ref = fit_circle(diffs[i58], (122.0, 195.0), 90.0)
+    ref = fit_rim(diffs[i58], (122.0, 195.0), 90.0, 12.0, iters=4)
     c0, r0 = (ref["cx"], ref["cy"]), ref["r"]
     score = np.array([ringscore(d, c0, r0) for d in diffs])
     drawn = (score > 10) & ~blank
-    fits = [dict(fit_circle(diffs[i], c0, r0), t=float(ts[i])) for i in np.nonzero(drawn)[0]]
+    fits = [dict(fit_rim(diffs[i], c0, r0, 12.0, iters=4), t=float(ts[i])) for i in np.nonzero(drawn)[0]]
     R = np.array([f["r"] for f in fits])
     CX = np.array([f["cx"] for f in fits])
     CY = np.array([f["cy"] for f in fits])
@@ -286,7 +255,7 @@ def main(argv=None):
             continue
         sat = cv2.GaussianBlur(cv2.cvtColor(b, cv2.COLOR_BGR2HSV)[..., 1].astype(np.float32), (0, 0), 0.6)
         s0 = (sfits[-1]["cx"], sfits[-1]["cy"]) if sfits else (122.5, 195.0)
-        f = dict(fit_circle(sat, s0, 6.0, win=3.5), t=float(ts[i]))
+        f = dict(fit_rim(sat, s0, 6.0, 3.5, iters=4), t=float(ts[i]))
         sfits.append(f)
         last_alive = f
     self_r = float(np.median([f["r"] for f in sfits]))

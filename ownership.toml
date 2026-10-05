@@ -309,6 +309,28 @@ consumers = ["cli"]
 stored_consumers = ["adjudication.smokes"]
 
 [[entry]]
+id = "clove-circle"
+question = "Is the dead Clove's smoke-range circle drawn on this minimap sample, and where, while an ally Clove is dead?"
+owner = "clove_circle"
+role = ["detect"]
+status = "partial"
+produces = ["CloveCircleReader", "circle_reader", "stored_windows", "opportunity_windows",
+            "fit_rim", "ray_profile", "kasa_circle", "ring_score", "RingSearch", "fact_radius",
+            "CIRCLE_FACT", "PRESENT_MIN", "RADIUS_WINDOW", "RADIUS_WINDOW_MEASURED", "RIM_RMS_MAX", "SELF_TOL_BASE",
+            "SELF_DT_MS", "stored_self_track", "self_position_at"]
+not_for = """
+Naming the smoke's caster or deciding a cast: a present circle is evidence
+`smoke-owner` weighs (`dead_clove_circle`) and `ability-cast` counts the
+player's dead casts from the discs it names. Nor is it the self audio circle
+[domain:minimap/self-audio-circle] or any other agent's range. The windows
+are an opportunity gate from the stored death verdicts, never the circles
+found.
+"""
+consumers = ["cli", "trial"]
+stored_consumers = ["adjudication.smoke_owner"]
+evidence = "tests/test_clove_circle.py; reticle trial --reader clove_circle"
+
+[[entry]]
 id = "minimap-smoke"
 question = "Where and when is a smoke drawn on the player's minimap?"
 owner = "adjudication.smokes"
@@ -333,7 +355,9 @@ names_agents = true
 produces = ["adjudicate", "lifetime_verdict", "tray_verdict", "cast_groups",
             "tolerance_s", "window", "SMOKE_ABILITY", "NO_BULK", "LIFETIME_S",
             "CAST_WINDOW_S", "NOT_A_PLAYER_CAST", "CHANNELS", "player_smoke_casts",
-            "smoke_entity_id", "cast_links", "drop_id"]
+            "smoke_entity_id", "cast_links", "drop_id", "circle_verdict", "circle_samples",
+            "circle_id", "circle_runs", "circle_reach", "CIRCLE_AGENT", "CIRCLE_RUN_GAP_S",
+            "CIRCLE_LINGER_S", "CIRCLE_AFTER_S", "RANGE_FACT"]
 not_for = """
 Finding or timing the smoke (`minimap-smoke`), enemy smokes (not drawn on the
 player's minimap), or deciding a name itself: each rule is a claim through
@@ -1291,7 +1315,8 @@ status = "transitional"
 produces = ["build_timeline", "write_timeline", "player_tray_casts", "stored_gate_inputs",
             "kit_windows", "round_window_of", "audio_session", "audio_cast_witness",
             "AUDIO_GATE_DIR", "KIT_REFUSALS", "tray_object_labels", "TRAY_OBJECT_DIR",
-            "TRAY_OBJECT_CORRECTIONS_DIR", "CORRECTED_FIELDS"]
+            "TRAY_OBJECT_CORRECTIONS_DIR", "CORRECTED_FIELDS", "dead_ruse_casts",
+            "held_at_deaths", "ruse_parameters", "DEAD_RUSE", "DEAD_RUSE_VERSION", "RESTOCK_FACT"]
 not_for = """
 A pixel detector result. A cast claim is temporal evidence from the tray and
 audio; it does not locate the ability's entity in the world, and the audio and

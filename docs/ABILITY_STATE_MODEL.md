@@ -732,8 +732,9 @@ a bound from the charges, not each one seen.
 4. Count Clove's charges held at a death against the minimap's dead-Clove
    circle and Ruse discs [domain:abilities/clove-ruse-minimap-duration]
    (`ability-state` for the charges; a minimap reader from
-   `prototypes/clove_circle.py`, unwired). Up to [metric:own_cast/residuals@riot-21#class1_Clove_E=12] casts; a
-   new reader.
+   `prototypes/clove_circle.py`). Up to [metric:own_cast/residuals@riot-21#class1_Clove_E=12] casts; a
+   new reader. Built on 2026-10-05: [metric:clove_circle/dead-ruse@a1a995e6b19b#dead_casts=8]
+   casts recovered, none beyond Riot; see "Fix 4, built" below.
 5. Pass a forced or death-lead drop that a later own ult line or a numeral
    witnesses (`ability-cast`): Not Dead Yet's X empties on the death screen
    before its line, and Phoenix X misses include forced drops after a
@@ -754,6 +755,151 @@ gate passes, so no channel looks for a cast the tray missed. Riot-side
 counting (class 5) holds no rule: no domain fact says Riot counts a cast the
 tray cannot show, and ability rules are not inferred by analogy
 [domain:abilities/ability-rules-are-unique].
+
+### Fix 4, built: Ruse casts while dead (2026-10-05)
+
+A dead Clove still places Ruse smokes
+[domain:abilities/clove-smokes-after-death], and her tray then shows a
+spectated kit [domain:hud/tray-after-player-death], so the gate sees no drop.
+Three owners now carry the cast:
+
+- `clove_circle` (`clove-circle-0.4.0`, `[owns:clove-circle]`) reads the
+  range circle [domain:abilities/clove-dead-smoke-range-circle] in the ability
+  pass over the minimap crop cache, only from each stored ally-side Clove
+  death to her round's end or revive. It fits the circle as a shape: a ring
+  matched filter on the shrunk static-subtracted grey, then a ray edge fit; it
+  scores the median rim contrast and cuts once. It names no agent.
+- `adjudication.smoke_owner` (`smoke-owner-0.3.0`) gains the channel
+  `dead_clove_circle`: a disc born as a circle run ends, within the circle's
+  reach, is Clove's. The reach is the map targeting range over the map range
+  [domain:game_data/clove-ruse-game-data], since which range the circle draws
+  is unknown. The run must end from 1.25 s before the birth to 1.0 s after
+  it, a window set in-sample on `a1a995e6b19b`. That rule replaced the
+  pre-registered one (any present sample from 10 s before to 1 s after the
+  birth, the disc inside the circle) without a revision row; the ledger's
+  correction row of 2026-10-05 records it. Over the stored rows the
+  registered rule names
+  [metric:clove_circle/registered-rule@a1a995e6b19b+e37fdeca944f#e37_registered_named=8]
+  discs on `e37fdeca944f` against the shipped rule's
+  [metric:clove_circle/registered-rule@a1a995e6b19b+e37fdeca944f#e37_shipped_named=4],
+  and [metric:clove_circle/registered-rule@a1a995e6b19b+e37fdeca944f#e37_registered_outside_6_7.25=4]
+  of its names live outside the files' 6.0-7.25 s band; two of those four
+  (born 1582.27 s and 2003.75 s, 1.75-2.47 s after a run ended) are refused
+  only by the in-sample run-end bound.
+- `ability_timeline.dead_ruse_casts` (`dead-ruse-0.1.0`, the `ability-cast`
+  owner) counts the discs named Clove that are born in the player's dead
+  windows, one cast per birth sample
+  [domain:abilities/clove-ruse-batch-launch], bounded by the charges the
+  state model saw at the death plus the restocks
+  [domain:game_data/ability-restock-times] that could finish. `reticle
+  smokes` writes them as `dead_ruse_cast` rows.
+
+On `a1a995e6b19b` (`C:\Users\grant\Videos\2026-09-08 13-09-13.mp4`, dev
+half), the circle drew [metric:clove_circle/dead-ruse@a1a995e6b19b#circle_runs=10]
+runs in the death windows, at radius
+[metric:clove_circle/dead-ruse@a1a995e6b19b#circle_r_px=151.63] px (sd
+[metric:clove_circle/dead-ruse@a1a995e6b19b#circle_r_sd=0.024] px); a disc
+ended [metric:clove_circle/dead-ruse@a1a995e6b19b#circle_discs_named=8] of them,
+and by eye the other two closed with no disc. Those discs lived
+[metric:clove_circle/dead-ruse@a1a995e6b19b#circle_disc_life_min=5.5] to
+[metric:clove_circle/dead-ruse@a1a995e6b19b#circle_disc_life_max=6.75] s,
+against a living Ruse disc's 15 s [domain:abilities/clove-ruse-minimap-duration]:
+the files give a post-death smoke its own, shorter life
+[domain:game_data/clove-ruse-game-data]. The rule adds
+[metric:clove_circle/dead-ruse@a1a995e6b19b#dead_casts=8] E casts. E goes from
+[metric:clove_circle/dead-ruse@a1a995e6b19b#gate_E=32] to
+[metric:clove_circle/dead-ruse@a1a995e6b19b#dead_ruse_E=40] of Riot's
+[metric:clove_circle/dead-ruse@a1a995e6b19b#riot_E=47], and the match from
+[metric:clove_circle/dead-ruse@a1a995e6b19b#gate_covered=40] to
+[metric:clove_circle/dead-ruse@a1a995e6b19b#dead_ruse_covered=48] of
+[metric:clove_circle/dead-ruse@a1a995e6b19b#riot_all=56] covered, with
+[metric:clove_circle/dead-ruse@a1a995e6b19b#dead_ruse_beyond=0] beyond. Of the
+[metric:clove_circle/dead-ruse@a1a995e6b19b#deaths_charge_held=10] deaths at
+which the state model saw a Ruse charge, holding
+[metric:clove_circle/dead-ruse@a1a995e6b19b#charges_held=12], casts followed
+[metric:clove_circle/dead-ruse@a1a995e6b19b#deaths_charge_held_with_cast=5]. Of
+the eight casts, [metric:clove_circle/dead-ruse@a1a995e6b19b#dead_within_held=5]
+fit the charges held and
+[metric:clove_circle/dead-ruse@a1a995e6b19b#dead_needs_restock=3] need a
+restock while dead: a second cast after each of two one-charge deaths, and
+one after a death the state model read empty. These counts first came from a
+stale state model (`ability-state-0.6.0` over `tray-0.1.0`). Rerun from
+storage and the crop cache at the code's versions (`reticle tray`, `reticle
+ability-state`, `reticle smokes`; `ability-state-0.10.0` over `tray-0.4.0`),
+the charges held at all 19 deaths are unchanged, and
+[metric:clove_circle/dead-ruse-refresh@a1a995e6b19b#dead_needs_restock=3]
+casts still need a restock
+([metric:clove_circle/dead-ruse-refresh@a1a995e6b19b#dead_within_held=5] fit
+the charges held). Their upstream inputs stay stale: the death verdicts are
+`death-adjudication-0.34.0` and the HUD, round and ult-cast streams are
+behind the code (`reticle plan a1a995e6b19b`), so the three rest on those.
+
+**Clouds or confirmations.** The gate counts a two-charge drop as one cast;
+it passed [metric:clove_circle/dead-ruse@a1a995e6b19b#two_charge_drops=2] such
+drops here. Counted as clouds, E goes from
+[metric:clove_circle/dead-ruse@a1a995e6b19b#gate_E_clouds=34] to
+[metric:clove_circle/dead-ruse@a1a995e6b19b#dead_ruse_E_clouds=42]; counted as
+confirmations, from 32 to 40. Both stay under Riot's 47, so this match
+cannot tell which Riot counts, and it is the only Riot-paired match with a
+Clove player. The question goes to the player.
+
+**Ally Cloves.** The circle reads every ally Clove's death. On Sunset
+`e37fdeca944f` the small widget draws it at
+[metric:clove_circle/ally@e37fdeca944f+9acf02f98283#sunset_r_px=96.88] px,
+[metric:clove_circle/ally@e37fdeca944f+9acf02f98283#sunset_base_radius=151.6]
+base px against the bigmap's
+[metric:clove_circle/dead-ruse@a1a995e6b19b#circle_base_radius=152.09]; its
+[metric:clove_circle/ally@e37fdeca944f+9acf02f98283#sunset_runs=8] runs include
+the 1795.08 s circle the player saw, and the owner names
+[metric:clove_circle/ally@e37fdeca944f+9acf02f98283#sunset_discs_named=4]
+discs Clove. On Ascent `9acf02f98283`, measured with Lotus's radius as the
+stand-in, the radius is
+[metric:clove_circle/ally@e37fdeca944f+9acf02f98283#ascent_base_radius=137.19]
+base px over [metric:clove_circle/ally@e37fdeca944f+9acf02f98283#ascent_runs=8]
+runs, none closed by a disc. The fact's `values.base_radius` stores the
+three maps.
+
+**Audit.** Each sample was declared before it was read. At
+`clove-circle-0.2.0`, 30 ally deaths on Riot-paired matches with no ally Clove
+(seed 20261005) drew false circles in
+[metric:clove_circle/audit@riot-21#v020_s1_deaths_false_windows=9] windows,
+every one a loose fit; `0.3.0` reads a rim fit above 1.0 px rms as no circle.
+A fresh 30 (seed 20261006) drew one window of the player's own audio circle
+[domain:minimap/self-audio-circle]; `0.4.0` refuses a circle centred on the
+living player's stored self position. A third fresh 30 (seed 20261007) read
+[metric:clove_circle/audit@riot-21#v040_s3_deaths_false_samples=0] false
+samples of [metric:clove_circle/audit@riot-21#v040_s3_deaths_samples=2344],
+in [metric:clove_circle/audit@riot-21#v040_s3_deaths_false_windows=0] windows
+(Wilson 95 percent upper bound
+[metric:clove_circle/audit@riot-21#v040_s3_deaths_wilson_hi=0.114] per
+window; rule of three
+[metric:clove_circle/audit@riot-21#v040_s3_deaths_rule3=0.1]). These death
+windows are the only out-of-sample control. The living
+Clove's targeting view drew none in the
+[metric:clove_circle/audit@riot-21#v040_targeting_all_windows=32] windows of
+her gate-passed E casts (upper bound
+[metric:clove_circle/audit@riot-21#v040_targeting_all_wilson_hi=0.107]); those
+windows lie on `a1a995e6b19b`, where the rms cap and the run-end window were
+set, so they are a same-session, in-sample control.
+Rerun at `0.4.0`, the second sample's audio-circle window keeps
+[metric:clove_circle/audit@riot-21#v040_s2_deaths_false_samples=2] samples
+the self track missed. Of the
+[metric:clove_circle/audit@riot-21#zero_charge_deaths=7] deaths with no charge
+held, one drew a circle, and a disc followed it; these deaths are also on
+`a1a995e6b19b`, in-sample, and that window holds the targeted 329.8 s disc. False casts need a false
+circle and a disc born as it ends; on the non-Clove matches none can arise, as
+the channel asks for a Clove on the team.
+
+The reader costs
+[metric:clove_circle/dead-ruse@a1a995e6b19b#feed_ms=24.6] ms per sample on the
+bigmap widget and only inside the windows. The fit, the rms cap, the run-end
+window and the reach were set on `a1a995e6b19b`, in-sample. The third audit's
+30 death windows and the two ally matches are out of sample; the targeting
+windows and the zero-charge deaths are not. No ally Clove match tested yet has
+a competing smoke agent whose disc is born near a run end inside the run-end
+window. Not built: `ability_state` reads no
+`dead_ruse_cast` row, so its charge ledger after a death is unchanged; the
+gate's own eval scores the casts through `own_cast_gate_eval.py --dead-ruse`.
 
 ## The cast gate against Riot's counts (2026-10-05)
 
