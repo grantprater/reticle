@@ -97,7 +97,7 @@ class PlanTests(unittest.TestCase):
             self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": [], "waived": [],
                                          "declined": [],
                                          "unchecked": [], "held": [], "unrecorded": [],
-                                         "widget": None, "placement": {}})
+                                         "widget": None, "placement": {}, "caches": []})
             self.assertEqual(render(plan), "nothing stale over 1 sessions")
 
     def test_a_per_side_session_without_a_placement_is_named(self):
