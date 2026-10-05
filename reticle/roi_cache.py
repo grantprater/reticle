@@ -71,7 +71,33 @@ drops. Every tray reader reads a 0.5 s grid of the cached times
 [metric:tray_gate/projection@corpus-21#tray_samples=394414] cached tray
 samples, about [metric:tray_gate/projection@corpus-21#grid_tray_gb=1.32] GB
 at the same bytes a frame, which a tray set at the readers' rate would hold
-without losing a row they read; untested.
+without losing a row they read.
+
+**The tray is held on its readers' grid** (the player, 2026-10-05). Over
+round spans the writer stores the tray (`GRID_ROIS`) only at the cached
+times `grid_keep` names: `grid_times` at 0.5 s on each span, the rule
+`reticle tray`, `tray-kit`, `menu` and `ability-state` read by. A streaming
+`GridPicker` decides each frame as it arrives, and `finish` checks its picks
+against `grid_keep` over every stored time, failing rather than storing
+other frames. The minimap rectangle keeps every frame, and a whole-capture
+cache (a demo) keeps every tray frame, since prototypes refine drops
+between grid samples there. The record stamps each thinned ROI under
+`thinned_rois` (`GRID_THIN_VERSION`, rule, step, frames kept, by whom).
+A read that names the tray at a time the cache holds only the minimap
+refuses: `refusal(t, rois)` says `thinned_out`, and `samples` raises
+`ThinnedOut` rather than paste a black or neighbouring crop; asking no
+ROIs asks them all. A pass reader declared on the set (`declare_set`) asks
+the minimap alone (`cache_rois`). Stored caches are thinned from themselves
+by `grid_thin_rect`, driven per session by `prototypes/tray_thin.py
+migrate`, which replaces a stored tray file only where every kept frame
+reads back bit for bit and every tray reader writes the same rows on the
+thinned cache as on the full one, and refuses a session whose files are
+open or being rewritten (`busy`). On a declared sample of three matches the
+readers wrote [metric:tray_thin/migrate-check@sample-3#rows_compared=24360]
+rows on each cache and [metric:tray_thin/migrate-check@sample-3#rows_differ=0]
+differed; over the 21 matches the thinning frees
+[metric:tray_thin/projection@corpus-58#gb_freed=7.519] of the
+[metric:tray_thin/projection@corpus-58#gb_round=8.839] GB of tray files.
 
 **The killfeed panel strip is gated on an entry.** Its one rectangle
 (`killfeed_panel_rect`) is the strip immediately left of the killfeed ROI,
@@ -173,6 +199,29 @@ GRAB_MAX = 8
 #: and every one read back bit for bit, irregular seeks included
 #: ([metric:killfeed_panel/cache-window@043bafca271a#seek_bit_equal_ffv1=52] of 52).
 CODECS = {"minimap": "ffv1", "scoreboard": "ffv1", "killfeed_panel": "ffv1"}
+
+#: Profile ROIs a set stores only on its readers' grid, with the grid's step
+#: in seconds: the ability tray, which `reticle tray`, `tray-kit`, `menu`
+#: and `ability-state` read at 0.5 s (`grid_times` on each cache span), while
+#: the minimap beside it keeps the set's rate. Only a cache written over
+#: round spans thins (`grid_keep`); a whole-capture cache (a demo) keeps
+#: every frame.
+GRID_ROIS = {"minimap": {"hud_abilities": 0.5}}
+#: The stamp a grid-thinned ROI carries in its record (`thinned_rois`).
+GRID_THIN_VERSION = "roi-grid-thin-0.1.0"
+
+
+class ThinnedOut(ValueError):
+    """A reader named a grid-thinned ROI at a time the cache holds other
+    crops for but not that one (`GRID_ROIS`): the frame was dropped, never
+    replaced by a neighbour. `reason` is `thinned_out`."""
+
+    reason = "thinned_out"
+
+    def __init__(self, roi: str, t_ms: float, step_s: float | None):
+        super().__init__(f"thinned_out: the cache holds {roi} only on its {step_s} s grid, "
+                         f"not at {float(t_ms)} ms")
+        self.roi, self.t_ms = roi, float(t_ms)
 
 
 def ffmpeg_path() -> str:
@@ -354,9 +403,12 @@ def scoreboard_gate(strip_rows: list[dict], margin: int = SCOREBOARD_GATE_MARGIN
 def declare_set(reader, name: str, profile, wh) -> None:
     """Give `reader` the `cache_set` `name` when its `box` is that set's first
     rectangle: its reads are `frame[box]`, so they stay inside the cached
-    set only where the box IS the profile's ROI."""
+    set only where the box IS the profile's ROI. Its `cache_rois` name that
+    ROI alone, so a pass decodes no crop it never reads, such as a tray
+    the cache holds only on its grid (`GRID_ROIS`)."""
     if list(reader.box) == roi_rects(name, profile, wh)[0]:
         reader.cache_set = name
+        reader.cache_rois = (CACHE_SETS[name][0],)
 
 
 def grid_times(t_ms, t0: float, t1: float, step_s: float) -> list[float]:
@@ -373,6 +425,74 @@ def grid_times(t_ms, t0: float, t1: float, step_s: float) -> list[float]:
         return []
     want = np.arange(t[0], t[-1] + 1, step_s * 1000.0)
     return [float(x) for x in t[np.unique(np.searchsorted(t, want).clip(0, len(t) - 1))]]
+
+
+def grid_keep(t_ms, spans, step_s: float) -> np.ndarray:
+    """The cached times a grid-thinned ROI keeps (`GRID_ROIS`): the union
+    over the cache's round `spans` of `grid_times` at `step_s`, the times
+    `cli._tray_samples` and `cli._tray_frames` read, sorted."""
+    got = {x for a, b in spans for x in grid_times(t_ms, float(a), float(b), step_s)}
+    return np.asarray(sorted(got), float)
+
+
+class GridPicker:
+    """`grid_keep` decided as frames arrive, for a writer that cannot hold a
+    round's crops: `offer(t)` returns the times now known to be kept, in
+    order, the frame at `t` included where a grid point lies in (previous
+    frame, t]. A span's last frame is kept also where the grid's final point
+    lies past it (`grid_times` clips that point to it); that is known only
+    when a later frame or `close()` ends the span, so the picker holds that
+    one frame back (`pending`). Grid points are numpy's `arange` values,
+    `t0 + i * ((t0 + step) - t0)`, so the picks equal `grid_times` exactly;
+    the writer checks them against `grid_keep` when it finishes."""
+
+    def __init__(self, spans, step_s: float):
+        self.spans = [(float(a), float(b)) for a, b in spans]
+        self.step = float(step_s) * 1000.0
+        # Per span: first time, grid delta, next grid index, last time seen.
+        self.state = [None] * len(self.spans)
+        self.pending: float | None = None
+
+    def _in(self, t: float) -> list[int]:
+        return [i for i, (a, b) in enumerate(self.spans) if a <= t <= b]
+
+    def _edge(self, i: int, t_last: float) -> bool:
+        t0, _d, k, _ = self.state[i]
+        n = len(np.arange(t0, t_last + 1, self.step))
+        return k < n
+
+    def offer(self, t: float) -> list[float]:
+        t = float(t)
+        out: list[float] = []
+        if self.pending is not None:
+            p, self.pending = self.pending, None
+            # The pending frame was a span's last where `t` left that span.
+            if any(self._edge(i, p) for i in self._in(p) if not self.spans[i][0] <= t <= self.spans[i][1]):
+                out.append(p)
+        picked = False
+        last_in = False
+        for i in self._in(t):
+            st = self.state[i]
+            if st is None:
+                st = [t, (t + self.step) - t, 0, t]
+            t0, d, k, _ = st
+            while t0 + k * d <= t:
+                k += 1
+                picked = True
+            self.state[i] = [t0, d, k, t]
+            last_in = True
+        if picked:
+            out.append(t)
+        elif last_in:
+            self.pending = t
+        return out
+
+    def close(self) -> list[float]:
+        """The pending frame where it is kept as its span's last."""
+        if self.pending is None:
+            return []
+        p, self.pending = self.pending, None
+        return [p] if any(self._edge(i, p) for i in self._in(p)) else []
 
 
 def nearest_times(t_ms, asked, held, step_s: float) -> list[float]:
@@ -673,7 +793,11 @@ class RoiCacheWriter:
     With a `gate` (`scoreboard_gate`), it is offered every frame at its rate
     and stores only those inside the gate's spans, so the frames it holds are
     the ones a whole-capture reader at that rate reads: spans of its own
-    would restart the stride at each span, on other frames."""
+    would restart the stride at each span, on other frames.
+
+    Over round `spans`, a ROI in `GRID_ROIS` (the tray) is stored only on
+    its readers' grid (`GridPicker`, checked against `grid_keep` at
+    `finish`); the set's other rectangles keep every frame."""
 
     def __init__(self, store_root: Path, manifest: dict, profile, name: str = "killfeed",
                  hz: float = 2.0, spans=None, gate: dict | None = None):
@@ -687,6 +811,13 @@ class RoiCacheWriter:
         self.gate = self.record.get("gate")
         self._starts = None if self.gate is None else [a for a, _ in self.gate["spans"]]
         self.frames_offered = 0
+        # Grid-thinned rects: rect index -> (ROI, step, picker); a held-back
+        # crop (`GridPicker.pending`) waits in `_held` until its span ends.
+        grid = GRID_ROIS.get(name, {}) if spans is not None and self.record["codec"] == "ffv1" else {}
+        self._grid = {CACHE_SETS[name].index(roi): (roi, step, GridPicker(spans, step))
+                      for roi, step in grid.items()}
+        self._held: dict[int, tuple[float, int, np.ndarray]] = {}
+        self._counts = [0] * len(self.rects)
         d = cache_dir(store_root, name)
         d.mkdir(parents=True, exist_ok=True)
         sid = manifest["session_id"]
@@ -714,9 +845,20 @@ class RoiCacheWriter:
         if self.gate is not None and not in_spans(smp.t_ms, self.gate["spans"], self._starts):
             return
         if self.codec == "ffv1":
+            t = float(smp.t_ms)
             for k, ((x0, y0, x1, y1), proc) in enumerate(zip(self.rects, self._procs)):
-                proc.stdin.write(np.ascontiguousarray(smp.frame[y0:y1, x0:x1]).tobytes())
-                self._index.append((float(smp.t_ms), int(smp.frame_idx), k, self._count, 0))
+                crop = np.ascontiguousarray(smp.frame[y0:y1, x0:x1])
+                if k in self._grid:
+                    held = self._held.pop(k, None)
+                    for kept in self._grid[k][2].offer(t):
+                        if kept == t:
+                            self._write(k, t, int(smp.frame_idx), crop)
+                        elif held is not None and kept == held[0]:
+                            self._write(k, *held)
+                    if self._grid[k][2].pending == t:
+                        self._held[k] = (t, int(smp.frame_idx), crop.copy())
+                    continue
+                self._write(k, t, int(smp.frame_idx), crop)
             self._count += 1
             return
         for k, (x0, y0, x1, y1) in enumerate(self.rects):
@@ -728,13 +870,54 @@ class RoiCacheWriter:
             self._index.append((float(smp.t_ms), int(smp.frame_idx), k, self._offset, len(b)))
             self._offset += len(b)
 
+    def _write(self, k: int, t: float, frame_idx: int, crop: np.ndarray) -> None:
+        """One crop to rect `k`'s encoder, indexed at its frame number there."""
+        self._procs[k].stdin.write(crop.tobytes())
+        self._index.append((t, frame_idx, k, self._counts[k], 0))
+        self._counts[k] += 1
+
+    def _finish_grid(self) -> None:
+        """Write each grid rect's held-back crop where its span's end keeps
+        it, then check the kept times against `grid_keep` over every stored
+        time: a writer that kept other frames than the readers read fails
+        here, never silently. Records the thinning under `thinned_rois`."""
+        for k, (roi, step, picker) in self._grid.items():
+            held = self._held.pop(k, None)
+            for kept in picker.close():
+                if held is not None and kept == held[0]:
+                    self._write(k, *held)
+        if not self._grid:
+            return
+        rows = np.array(self._index, dtype=np.float64).reshape(-1, 5)
+        every = rows[:, 0][rows[:, 2] == 0]
+        thinned = {}
+        for k, (roi, step, _picker) in self._grid.items():
+            got = np.sort(rows[:, 0][rows[:, 2] == k])
+            want = grid_keep(every, self.spans, step)
+            if not np.array_equal(got, want):
+                raise RuntimeError(f"the {roi} grid kept {len(got)} frames where grid_keep keeps "
+                                   f"{len(want)}; the writer's picks are not the readers' grid")
+            thinned[roi] = {"version": GRID_THIN_VERSION, "rule": "grid_keep", "step_s": step,
+                            "spans": "record", "frames_kept": int(len(got)),
+                            "frames_set": int(len(np.unique(every))),
+                            "by": "RoiCacheWriter"}
+        self.record["thinned_rois"] = thinned
+
     def finish(self) -> None:
         if self.codec == "ffv1":
-            for proc, path in zip(self._procs, self.videos):
+            try:
+                self._finish_grid()
+            except Exception:
+                for proc, path in zip(self._procs, self.videos):
+                    proc.stdin.close()
+                    proc.wait()
+                    path.with_suffix(".part.mkv").unlink(missing_ok=True)
+                raise
+            for k, (proc, path) in enumerate(zip(self._procs, self.videos)):
                 proc.stdin.close()
                 code = proc.wait()
                 part = path.with_suffix(".part.mkv")
-                if self._count == 0:
+                if self._counts[k] == 0:
                     # A gate that kept nothing: no video, and an empty index.
                     part.unlink(missing_ok=True)
                     path.unlink(missing_ok=True)
@@ -746,7 +929,9 @@ class RoiCacheWriter:
         else:
             self._fh.close()
             self._part.replace(self.paths[0])
-        np.save(self.paths[1], np.array(self._index, dtype=np.float64).reshape(-1, 5))
+        idx = np.array(self._index, dtype=np.float64).reshape(-1, 5)
+        # A held-back grid crop is indexed after the frame that ended its span.
+        np.save(self.paths[1], idx[np.lexsort((idx[:, 2], idx[:, 0]))] if self._grid else idx)
         frames = len({t for t, *_ in self._index})
         self.paths[2].write_text(json.dumps({**self.record, "frames": frames,
                                              "frames_offered": self.frames_offered,
@@ -768,6 +953,23 @@ class RoiCache:
     #: The session's widget placement (`widget_frame.for_session`), or None
     #: where it reads the baked one; `samples` normalises minimap pixels by it.
     widget: object = None
+    #: Rect index -> video file, where a rect is read from beside the store
+    #: (`with_index`, a thinned copy checked before it replaces the stored one).
+    video_paths: dict | None = None
+
+    def thinned(self, roi: str) -> dict | None:
+        """The record of `roi`'s grid thinning (`GRID_ROIS`), or None where
+        the cache holds it at every frame."""
+        return (self.record.get("thinned_rois") or {}).get(roi)
+
+    def with_index(self, idx: np.ndarray, record: dict, video_paths: dict) -> "RoiCache":
+        """This cache read through another index and record, with the rects
+        in `video_paths` read from those files: a thinned copy checked
+        beside the stored cache, whose placement it shares."""
+        return RoiCache(record, idx[:, 0], idx[:, 1].astype(int), idx[:, 2].astype(int),
+                        idx[:, 3].astype(np.int64), idx[:, 4].astype(np.int64), self.blob,
+                        widget=self.widget, video_paths={**(self.video_paths or {}),
+                                                         **video_paths})
 
     @classmethod
     def _open(cls, d: Path, manifest: dict, profile, raw: bool = False):
@@ -848,14 +1050,31 @@ class RoiCache:
         """The times the cache holds a frame at, in order."""
         return sorted(self._index_by_t())
 
-    def refusal(self, t_ms: float) -> str | None:
+    def _missing_grid(self, t_ms: float, rois) -> str | None:
+        """The first grid-thinned ROI of `rois` the cache holds no crop of
+        at `t_ms`, a time it holds other crops at; None where there is none."""
+        rows = self._index_by_t().get(float(t_ms))
+        if not rows or not self.record.get("thinned_rois"):
+            return None
+        held = CACHE_SETS[self.record["roi"]]
+        have = {int(self.rect[i]) for i in rows}
+        for roi in rois:
+            if self.thinned(roi) is not None and roi in held and held.index(roi) not in have:
+                return roi
+        return None
+
+    def refusal(self, t_ms: float, rois=None) -> str | None:
         """None where the cache holds a frame at `t_ms`; else why it holds
         none: `thinned_out` (the gate it was written under kept a frame there
-        and `thin_cache` dropped it), `outside_gate` (its gate kept no sample
+        and `thin_cache` dropped it, or `rois` names a grid-thinned ROI,
+        `GRID_ROIS`, off its grid), `outside_gate` (its gate kept no sample
         there),
         `outside_cache_spans` (it was written over spans that miss it), or
         `not_cached` (no frame was stored at that time)."""
         if float(t_ms) in self._index_by_t():
+            if rois is not None and self._missing_grid(
+                    t_ms, CACHE_SETS[rois] if isinstance(rois, str) else rois) is not None:
+                return "thinned_out"
             return None
         gate = self.record.get("gate")
         if gate is not None and not in_spans(t_ms, gate["spans"]):
@@ -908,6 +1127,19 @@ class RoiCache:
         keep = (set(range(len(held))) if rois is None
                 else {held.index(r) for r in rois if r in held})
         self._index_by_t()
+        if self.record.get("thinned_rois"):
+            # A grid-thinned ROI asked off its grid refuses the read: its
+            # crop was dropped, and no neighbour or black stands in for it.
+            targets_ms = list(targets_ms)
+            tg = np.asarray(targets_ms, float)
+            some = np.isin(tg, self.t_ms)
+            for k in sorted(keep):
+                if self.thinned(held[k]) is None:
+                    continue
+                bad = some & ~np.isin(tg, self.t_ms[self.rect == k])
+                if bad.any():
+                    raise ThinnedOut(held[k], float(tg[np.argmax(bad)]),
+                                     self.thinned(held[k]).get("step_s"))
         w, h = self.record["wh"]
         if self.record.get("codec") == "ffv1":
             yield from self._video_samples(targets_ms, keep, w, h)
@@ -939,8 +1171,9 @@ class RoiCache:
                 for i in got:
                     k, n = int(self.rect[i]), int(self.offset[i])
                     if k not in caps:
-                        caps[k] = cv2.VideoCapture(str(self.blob.with_name(
-                            self.blob.name.replace(".bin", f".r{k}.mkv"))))
+                        caps[k] = cv2.VideoCapture(str((self.video_paths or {}).get(k) or
+                                                       self.blob.with_name(self.blob.name.replace(
+                                                           ".bin", f".r{k}.mkv"))))
                         pos[k] = 0
                     if pos[k] < n <= pos[k] + GRAB_MAX:
                         # A seek costs about 38 ms (`GRAB_MAX`); a short skip is cheaper grabbed.
@@ -1158,23 +1391,36 @@ def thin_cache(src: Path, sid: str, gate: dict, dst: Path, tool: str) -> dict:
             "bytes_after": int(size)}
 
 
-def compare_thinned(src: Path, dst: Path, sid: str) -> dict:
-    """Every frame of the thinned cache in `dst` against the stored one in
-    `src`, read in order and compared bit for bit: `identical`, `different`,
-    `extra_frames` (the thinned video runs past its index) and `index_ok`
-    (each kept row's time and frame are a stored row's)."""
-    old, new = np.load(Path(src) / f"{sid}.idx.npy"), np.load(Path(dst) / f"{sid}.idx.npy")
+def _rect_rows(idx: np.ndarray, rect: int) -> np.ndarray:
+    """The index rows of one rect in its video's frame order; a four-column
+    index (one rect, no rect column) is rect 0's."""
+    if idx.shape[1] == 4:
+        idx = np.insert(idx, 2, 0, axis=1)
+    rows = idx[idx[:, 2] == rect]
+    return rows[np.argsort(rows[:, 3], kind="stable")]
+
+
+def compare_thinned(src: Path, dst: Path, sid: str, rect: int = 0) -> dict:
+    """Every frame of rect `rect` of the thinned cache in `dst` against the
+    stored one in `src`, read in order and compared bit for bit:
+    `identical`, `different`, `extra_frames` (the thinned video runs past
+    its index) and `index_ok` (each kept row's time and frame are a stored
+    row's, and each video's frames are its rows, in time order)."""
+    old = _rect_rows(np.load(Path(src) / f"{sid}.idx.npy"), rect)
+    new = _rect_rows(np.load(Path(dst) / f"{sid}.idx.npy"), rect)
     j = np.searchsorted(old[:, 0], new[:, 0]).clip(0, max(len(old) - 1, 0))
     index_ok = bool(len(old) or not len(new)) and bool(
         np.all(old[j, 0] == new[:, 0]) and np.all(old[j, 1] == new[:, 1])
-        and np.all(np.diff(old[:, 0]) > 0))
+        and np.all(np.diff(old[:, 0]) > 0)
+        and np.array_equal(old[:, 3], np.arange(len(old)))
+        and np.array_equal(new[:, 3], np.arange(len(new))))
     keep = set(j.tolist()) if index_ok else set()
     same = differ = 0
     extra = False
     if len(new):
-        a = cv2.VideoCapture(str(Path(src) / f"{sid}.r0.mkv"), cv2.CAP_FFMPEG,
+        a = cv2.VideoCapture(str(Path(src) / f"{sid}.r{rect}.mkv"), cv2.CAP_FFMPEG,
                              [cv2.CAP_PROP_N_THREADS, 1])
-        b = cv2.VideoCapture(str(Path(dst) / f"{sid}.r0.mkv"), cv2.CAP_FFMPEG,
+        b = cv2.VideoCapture(str(Path(dst) / f"{sid}.r{rect}.mkv"), cv2.CAP_FFMPEG,
                              [cv2.CAP_PROP_N_THREADS, 1])
         try:
             for i in range(len(old)):
@@ -1191,3 +1437,85 @@ def compare_thinned(src: Path, dst: Path, sid: str) -> dict:
             b.release()
     return {"checked": int(len(new)), "identical": same, "different": differ,
             "extra_frames": extra, "index_ok": bool(index_ok)}
+
+
+def grid_thin_rect(src: Path, sid: str, roi: str, dst: Path, tool: str) -> dict:
+    """Re-encode one grid-thinned ROI's video (`GRID_ROIS`) of the stored
+    cache of `sid` in directory `src` to the frames its readers' grid reads
+    (`grid_keep` over the record's round spans), into directory `dst`, never
+    over `src`. No capture is decoded: the rect's cached frames are decoded
+    in order, one thread, and the kept ones piped to the writer's encoder
+    (`ffv1_command`); FFV1 is lossless, so a kept frame keeps its pixels.
+    The other rects' videos are not copied: the new index keeps their rows
+    unchanged, so the copy is read beside the stored files
+    (`RoiCache.with_index`) until it replaces them.
+
+    Writes `{sid}.r{k}.mkv`, `{sid}.idx.npy` and `{sid}.json` into `dst`; the
+    record carries `thinned_rois[roi]`: the stamp, the rule, the step, the
+    tool, and the frames and bytes before and kept."""
+    src, dst = Path(src), Path(dst)
+    if src.resolve() == dst.resolve():
+        raise ValueError("grid_thin_rect writes beside the cache, never over it")
+    rec = json.loads((src / f"{sid}.json").read_text(encoding="utf-8"))
+    step = GRID_ROIS.get(rec["roi"], {}).get(roi)
+    if step is None:
+        raise ValueError(f"{sid}: {roi} is not a grid-thinned ROI of the {rec['roi']} set")
+    if rec.get("codec") != "ffv1":
+        raise ValueError(f"{sid}: grid_thin_rect re-encodes FFV1 caches")
+    if not rec.get("spans"):
+        raise ValueError(f"{sid}: a whole-capture cache keeps every {roi} frame")
+    if (rec.get("thinned_rois") or {}).get(roi) is not None:
+        raise ValueError(f"{sid}: {roi} is already thinned")
+    k = CACHE_SETS[rec["roi"]].index(roi)
+    idx = np.load(src / f"{sid}.idx.npy")
+    if idx.shape[1] == 4:
+        idx = np.insert(idx, 2, 0, axis=1)
+    rows = _rect_rows(idx, k)
+    if not np.array_equal(rows[:, 3], np.arange(len(rows))):
+        raise ValueError(f"{sid}: rect {k}'s rows are not its video's frames in order")
+    want = grid_keep(idx[:, 0], rec["spans"], step)
+    keep = np.isin(rows[:, 0], want)
+    if int(keep.sum()) != len(want):
+        raise ValueError(f"{sid}: the stored {roi} rows miss {len(want) - int(keep.sum())} "
+                         f"grid times")
+    dst.mkdir(parents=True, exist_ok=True)
+    video, out = src / f"{sid}.r{k}.mkv", dst / f"{sid}.r{k}.mkv"
+    x0, y0, x1, y1 = rec["rects"][k]
+    n_in = 0
+    part = out.with_suffix(".part.mkv")
+    proc = subprocess.Popen(ffv1_command(ffmpeg_path(), x1 - x0, y1 - y0, rec["hz"], part,
+                                         threads=1), stdin=subprocess.PIPE)
+    cap = cv2.VideoCapture(str(video), cv2.CAP_FFMPEG, [cv2.CAP_PROP_N_THREADS, 1])
+    try:
+        while True:
+            ok, crop = cap.read()
+            if not ok:
+                break
+            if n_in < len(keep) and keep[n_in]:
+                proc.stdin.write(np.ascontiguousarray(crop).tobytes())
+            n_in += 1
+    finally:
+        cap.release()
+        proc.stdin.close()
+        code = proc.wait()
+    if code != 0 or n_in != len(rows):
+        part.unlink(missing_ok=True)
+        raise RuntimeError(f"{sid}: decoded {n_in} of {len(rows)} cached {roi} frames, "
+                           f"ffmpeg exit {code}")
+    part.replace(out)
+    kept = rows[keep].copy()
+    kept[:, 3] = np.arange(len(kept))
+    new_idx = np.concatenate([idx[idx[:, 2] != k], kept])
+    new_idx = new_idx[np.lexsort((new_idx[:, 2], new_idx[:, 0]))]
+    np.save(dst / f"{sid}.idx.npy", new_idx)
+    size, before = int(out.stat().st_size), int(video.stat().st_size)
+    record = {**rec, "thinned_rois": {**(rec.get("thinned_rois") or {}), roi: {
+        "version": GRID_THIN_VERSION, "rule": "grid_keep", "step_s": step, "spans": "record",
+        "frames_kept": int(keep.sum()), "frames_set": int(len(np.unique(idx[:, 0]))),
+        "by": tool, "frames_before": int(len(rows)), "bytes_before": before,
+        "bytes_after": size}}}
+    if rec.get("bytes") is not None:
+        record["bytes"] = int(rec["bytes"]) - before + size
+    (dst / f"{sid}.json").write_text(json.dumps(record, indent=1), encoding="utf-8")
+    return {"rect": k, "frames_before": int(len(rows)), "frames_kept": int(keep.sum()),
+            "frames_decoded": n_in, "bytes_before": before, "bytes_after": size}

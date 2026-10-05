@@ -183,7 +183,7 @@ def omen_smoke_tracks(store) -> tuple[list[dict] | None, str]:
                               ref=ref, box=minimap_roi_px(profile, *ctx.wh), hz=4.0)
     t = cache.t_ms
     for smp in cache.samples(_cache_grid(t, float(np.min(t)), float(np.max(t)), 1 / reader.hz),
-                             rois="minimap"):
+                             rois=["minimap"]):
         reader.feed(smp)
     rows = [json.loads(json.dumps(r, allow_nan=False))
             for r in reader.events(OMEN_DEMO, geometry.key_of(OMEN_DEMO, store.root))]
