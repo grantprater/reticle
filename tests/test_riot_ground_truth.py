@@ -540,5 +540,67 @@ class AmbiguousPairsTest(unittest.TestCase):
         self.assertEqual(rg.ambiguous_pairs(truth, got, pr, 3.9), [False])
 
 
+def _score_in(kills, deaths, windows):
+    pairs = rg.match_times([k["gameTime"] for k in kills], [d["t_ms"] for d in deaths],
+                           0.0, 1.0, rg.MATCH_TOL_MS)
+    out, rows = rg.score_deaths(kills, deaths, pairs, WHO, AGENTS, "Blue", _Ref(), 0.0,
+                                windows=windows)
+    return out, rows
+
+
+class WindowedScoreTest(unittest.TestCase):
+    """Scoring restricted to windows: pairing over the match, counting inside."""
+
+    KILLS = [_kill(10_000, "b1", "a1"), _kill(60_000, "b2", "a2"), _kill(120_000, "a1", "b1")]
+    DEATHS = [_death(10_300, "Raze", "Jett", "enemy"), _death(60_400, "Omen", "Sova", "enemy"),
+              _death(90_000, "Sova", "Omen", "ally")]       # 90 s: no Riot kill
+
+    def test_only_kills_and_deaths_inside_count(self):
+        out, rows = _score_in(self.KILLS, self.DEATHS, [(0.0, 30_000.0)])
+        self.assertEqual((out["riot_kills"], out["stored_deaths"], out["matched"]), (1, 1, 1))
+        self.assertEqual([r["t_ms"] for r in rows], [10_300])
+        out, _ = _score_in(self.KILLS, self.DEATHS, [(80_000.0, 130_000.0)])
+        self.assertEqual((out["riot_kills"], out["missed"], out["false_deaths"]), (1, 1, 1))
+        self.assertEqual([x["reason"] for x in out["residuals"]], ["false_death", "missed"])
+
+    def test_pair_across_the_edge_follows_its_kill(self):
+        # the kill at 60.0 s is inside, its first killfeed sample at 60.4 s is not
+        out, _ = _score_in(self.KILLS, self.DEATHS, [(59_000.0, 60_100.0)])
+        self.assertEqual((out["riot_kills"], out["stored_deaths"], out["matched"]), (1, 1, 1))
+        self.assertEqual(out.get("false_deaths"), 0)
+
+    def test_no_windows_is_the_whole_match(self):
+        whole, _ = _score_in(self.KILLS, self.DEATHS, None)
+        every, _ = _score_in(self.KILLS, self.DEATHS, [(0.0, 1e9)])
+        for k in ("riot_kills", "stored_deaths", "matched", "missed", "false_deaths",
+                  "victim_right", "killer_right"):
+            self.assertEqual(whole[k], every[k], k)
+        self.assertIn("pairs_time_kept", whole)
+        self.assertNotIn("pairs_time_kept", every)    # whole-match statistics stay out
+
+    def test_residuals_name_wrong_and_refused(self):
+        deaths = [_death(10_300, "Raze", "Sova", "enemy"), _death(60_400, None, "Sova", "enemy")]
+        out, _ = _score_in(self.KILLS[:2], deaths, [(0.0, 1e9)])
+        self.assertEqual([(x["t_ms"], x["reason"]) for x in out["residuals"]],
+                         [(10_300.0, "killer_wrong"), (60_400.0, "victim_refused")])
+
+    def test_window_rates_intervals_and_rule_of_three(self):
+        D = {"riot_kills": 300, "matched": 299, "stored_deaths": 299, "missed": 1,
+             "false_deaths": 0, "victim_right": 290, "victim_wrong": 0, "victim_refused": 9,
+             "killer_right": 280, "killer_wrong": 2, "killer_refused": 10, "weapon_right": 299,
+             "weapon_wrong": 0, "weapon_refused": 0, "side_right": 299, "side_wrong": 0}
+        by = {r["name"]: r for r in rg.window_rates(D)}
+        self.assertAlmostEqual(by["recall"]["rate"], 299 / 300)
+        self.assertLess(by["recall"]["lo"], 299 / 300)
+        self.assertGreater(by["recall"]["hi"], 299 / 300)
+        self.assertAlmostEqual(by["false_deaths"]["rule_of_three"], 3 / 299)
+        self.assertIsNone(by["missed"]["rule_of_three"])          # one was seen
+        self.assertIsNone(by["recall"]["rule_of_three"])          # not a regression
+        self.assertEqual((by["killer_wrong"]["k"], by["killer_wrong"]["n"]), (2, 282))
+        self.assertEqual(by["killer_refused"]["n"], 292)
+        self.assertEqual(by["weapon_right_of_named"]["hi"], 1.0)   # all seen: exactly 1
+        self.assertEqual(by["false_deaths"]["lo"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

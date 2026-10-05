@@ -5,6 +5,8 @@ r"""Score stored outputs against Riot's own match records.
     .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py SESSION --list-misses
     .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py SESSION --derive-rounds cache --no-minimap
     .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --all --offline --ult-only [--record] [--no-sweep]
+    .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --sample [--windows-file CSV] --deaths-from DIR --offline
+    .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --all --offline --residuals-out CSV
 
 Why this exists
 ---------------
@@ -246,6 +248,21 @@ so the victim of every kill at that `gameTime` joins at its
 `victimLocation`. The death turns the icon into its X at the same place, one
 thing for reading [domain:minimap/death-icon-becomes-mark]. Victims of
 earlier kills stay out.
+
+Windows: the dev loop's tier
+------------------------------
+`--windows-file` and `--sample` (`reticle.dev_sample`) score only the Riot
+kills whose aligned time, and the unpaired stored deaths whose `t_ms`, lie
+inside the windows. Alignment and pairing still run over the whole match,
+so a window edge never splits a pair; the counting rule is `score_deaths`'s
+own, over the kept kills. Each rate prints with its Wilson 95% interval
+(`metrics.wilson`) and each regression count seen zero times with its
+rule-of-three bound (`metrics.rule_of_three`). K/D, rounds, assists, the
+minimap and the inferred deaths stay whole-match measures, so the windowed
+run skips K/D and the minimap and prints the deaths alone.
+`--residuals-out` writes every miss, false death and wrong or refused name
+as a residual list (`session,t,reason`) that `reticle dev-sample
+--residuals` turns into targeted windows.
 
 `--legacy` restores any 0.1.0 rule (victim, second-life, pairing, self-kill)
 or the 0.2.0 time-only pairing (`order`) so each fix's effect can be
@@ -936,7 +953,9 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
     out["deaths"], out["death_rows"] = score_deaths(kills, kill_like, pairs, who, agent_of,
                                                      my_team, ref, a, legacy=legacy,
                                                      match_tol=opts.match_tol,
-                                                     stalls=stall_spans)
+                                                     stalls=stall_spans,
+                                                     windows=(getattr(opts, "windows_ms", None)
+                                                              or {}).get(sid))
     # -- deaths a capture stall swallowed, inferred from the round's end (0.3.3)
     paired_ms = {r["riot_game_ms"] for r in out["death_rows"]}
     out["inferred_deaths"] = score_inferred(
@@ -1564,8 +1583,34 @@ def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
     return out, stats, amb
 
 
+def restrict_to_windows(kills, deaths, pairs, clustered, a, spans):
+    """The kills whose aligned time (`a + gameTime`) lies inside `spans`
+    ((t0_ms, t1_ms), inclusive), their pairs, and the stored deaths paired
+    with them or, unpaired, inside the spans; indices renumbered. Pairing ran
+    over the whole match first, so no window edge splits a pair."""
+    from reticle.dev_sample import in_spans
+    keep_i = [i for i, ok in enumerate(in_spans([a + k["gameTime"] for k in kills], spans)) if ok]
+    paired_j, kept_i = {p[1] for p in pairs}, set(keep_i)
+    kept_pairs = [p for p in pairs if p[0] in kept_i]
+    unp = [j for j, ok in enumerate(in_spans([float(d["t_ms"]) for d in deaths], spans))
+           if ok and j not in paired_j]
+    keep_j = sorted({p[1] for p in kept_pairs} | set(unp))
+    ni = {i: n for n, i in enumerate(keep_i)}
+    nj = {j: n for n, j in enumerate(keep_j)}
+    pairs = [(ni[p[0]], nj[p[1]], *p[2:]) for p in kept_pairs]
+    if isinstance(clustered, dict):
+        clustered = {ni[i]: v for i, v in clustered.items() if i in ni}
+    else:
+        clustered = {ni[i] for i in clustered if i in ni}
+    return [kills[i] for i in keep_i], [deaths[j] for j in keep_j], pairs, clustered
+
+
 def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=(),
-                 match_tol=MATCH_TOL_MS, stalls=None) -> tuple[dict, list]:
+                 match_tol=MATCH_TOL_MS, stalls=None, windows=None) -> tuple[dict, list]:
+    """Pair the match's kills and stored deaths and count the outcomes.
+    `windows` (spans in ms) counts only those inside them
+    (`restrict_to_windows`); the whole-match pairing statistics then stay out.
+    `residuals` lists every counted failure by capture time."""
     legacy = set(legacy or ())
     expiry = "clove-expiry" not in legacy
     if "pairing" in legacy:
@@ -1578,8 +1623,13 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
     else:
         pairs, pstats, clustered = pair_deaths_in_order(kills, deaths, agent_of, a, match_tol,
                                                         stalls=stalls, legacy=legacy)
+    if windows is not None:
+        kills, deaths, pairs, clustered = restrict_to_windows(kills, deaths, pairs, clustered, a,
+                                                              windows)
+        pstats = {}
     out = {"riot_kills": len(kills), "stored_deaths": len(deaths), "matched": len(pairs)}
     out.update(pstats)
+    resid = []
     # 0.3.2: an unpaired kill inside a stall span had no sample to draw on
     paired_i = {p[0] for p in pairs}
     unobs = [(i, in_stall(a + kills[i]["gameTime"], stalls)) for i in range(len(kills))
@@ -1626,6 +1676,7 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
                 if not amb:
                     c[f"{role}_refused_unamb"] += 1
                 reasons[role][_refusal_of_identity(idm) or s.get("reason") or "none"] += 1
+                resid.append((s["t_ms"], f"{role}_refused"))
             elif canon(got) == canon(truth):
                 # a pair the stored names chose cannot witness those names
                 if by_name:
@@ -1638,11 +1689,14 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
                 c[f"{role}_wrong"] += 1
                 if not amb:
                     c[f"{role}_wrong_unamb"] += 1
+                resid.append((s["t_ms"], f"{role}_wrong"))
         if by_name and v_side is not None and s.get("side") == v_side:
             # the victim name that chose the pair all but fixes its side
             c["side_paired_by_name"] += 1
         elif v_side is not None and s.get("side") in ("ally", "enemy"):
             c["side_right" if s["side"] == v_side else "side_wrong"] += 1
+            if s["side"] != v_side:
+                resid.append((s["t_ms"], "side_wrong"))
             if not amb:
                 c["side_right_unamb" if s["side"] == v_side else "side_wrong_unamb"] += 1
         c["ambiguous_pairs"] += int(amb)
@@ -1656,6 +1710,7 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
         elif got is None:
             c["weapon_refused"] += 1
             reasons["weapon"][we.get("reason") or we.get("status") or "none"] += 1
+            resid.append((s["t_ms"], "weapon_refused"))
         elif canon(got) == canon(wtrue) or (wkind in ("bomb", "fall")
                                              and canon(got) == "environmental"):
             # The gallery's one name for the spike and fall icons
@@ -1664,6 +1719,7 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
         else:
             c["weapon_wrong"] += 1
             wcross[(wtrue, got)] += 1
+            resid.append((s["t_ms"], "weapon_wrong"))
         rows.append({"t_ms": s["t_ms"], "dt_ms": round(dt), "round": k["round"] + 1,
                      "victim": [v_true, s.get("victim")], "killer": [kl_true, s.get("killer")],
                      "weapon": [wtrue, got], "side": [v_side, s.get("side")], "ambiguous": amb,
@@ -1701,6 +1757,8 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
     out["jitter_ms"] = _summ(jitter)
     out["misses"] = misses
     out["false"] = false
+    resid += [(x["t_ms"], "missed") for x in misses] + [(x["t_ms"], "false_death") for x in false]
+    out["residuals"] = [{"t_ms": float(t), "reason": why} for t, why in sorted(resid)]
     return out, rows
 
 
@@ -2245,6 +2303,53 @@ def record_metrics(P: dict, results: list[dict], conv: str | None) -> list[str]:
         metrics.record("riot_truth", part="session", session=r["session"], values=sv, deps=deps,
                        context={"stored_versions": sorted(r.get("versions", {}).values())})
     return toks
+
+
+def _sample_label() -> str:
+    from reticle.dev_sample import DEV_SAMPLE_VERSION
+    return DEV_SAMPLE_VERSION
+
+
+def write_residuals(path, results: list[dict]) -> int:
+    """Every session's `residuals` as a residual list, CSV `session,t,reason`
+    with `t` in seconds of capture time."""
+    import csv
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with p.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow(("session", "t", "reason"))
+        for r in results:
+            for x in (r.get("deaths") or {}).get("residuals", []):
+                w.writerow((r["session"], f"{x['t_ms'] / 1000.0:.3f}", x["reason"]))
+                n += 1
+    return n
+
+
+def record_window(P: dict, results: list[dict], args, label: str) -> None:
+    """A windowed run as `riot_truth_window/deaths`, its intervals under `ci`."""
+    import hashlib
+    from reticle import metrics
+    from reticle.dev_sample import format_windows, load
+    wins = load(args.windows_file, args.sample)
+    vals = {k: v for k, v in P["deaths"].items() if isinstance(v, int)}
+    rates = window_rates(P["deaths"])
+    # rates beside the counts, never in their place: `victim_wrong` stays the count
+    vals.update({f"{r['name']}_rate": (round(r["rate"], 4) if r["rate"] is not None else None)
+                 for r in rates})
+    vals.update({f"{r['name']}_rule_of_three": round(r["rule_of_three"], 4)
+                 for r in rates if r["rule_of_three"] is not None})
+    metrics.record("riot_truth_window", part="deaths", values=vals,
+                   deps={"riot_truth": RIOT_TRUTH_VERSION, "match_tol_ms": args.match_tol,
+                         "windows": label,
+                         "windows_sha256": hashlib.sha256(format_windows(wins).encode())
+                         .hexdigest()[:16],
+                         "deaths_from": "trial rows" if args.deaths_from else "store"},
+                   context={"sessions": sorted(r["session"] for r in results if "deaths" in r),
+                            "windows": len(wins)},
+                   ci={f"{r['name']}_rate": (round(r["lo"], 4), round(r["hi"], 4)) for r in rates},
+                   run_id=args.run_id)
 
 
 def stream_versions(store_root: Path, sid: str, death_versions: list | None = None) -> dict:
@@ -3102,6 +3207,55 @@ def print_session(r: dict, list_misses: bool):
                   f"ambiguous={w['ambiguous']} {w['death_id']}")
 
 
+#: (name, numerator keys, denominator keys, a regression when seen):
+#: each rate of a windowed run, k of n.
+WINDOW_RATES = (
+    ("recall", ("matched",), ("riot_kills",), False),
+    ("precision", ("matched",), ("stored_deaths",), False),
+    ("missed", ("missed",), ("riot_kills",), True),
+    ("false_deaths", ("false_deaths",), ("stored_deaths",), True),
+    ("victim_right_of_named", ("victim_right",), ("victim_right", "victim_wrong"), False),
+    ("victim_wrong", ("victim_wrong",), ("victim_right", "victim_wrong"), True),
+    ("victim_refused", ("victim_refused",), ("matched",), True),
+    ("killer_right_of_named", ("killer_right",), ("killer_right", "killer_wrong"), False),
+    ("killer_wrong", ("killer_wrong",), ("killer_right", "killer_wrong"), True),
+    ("killer_refused", ("killer_refused",), ("killer_right", "killer_wrong", "killer_refused"),
+     True),
+    ("weapon_right_of_named", ("weapon_right",), ("weapon_right", "weapon_wrong"), False),
+    ("weapon_wrong", ("weapon_wrong",), ("weapon_right", "weapon_wrong"), True),
+    ("weapon_refused", ("weapon_refused",), ("weapon_right", "weapon_wrong", "weapon_refused"),
+     True),
+    ("side_wrong", ("side_wrong",), ("side_right", "side_wrong"), True),
+)
+
+
+def window_rates(D: dict) -> list[dict]:
+    """Each `WINDOW_RATES` rate over pooled death counts `D`: k, n, the rate,
+    its Wilson 95% interval and, for a regression seen zero times, the
+    rule-of-three bound 3/n."""
+    from reticle.metrics import rule_of_three, wilson
+    out = []
+    for name, num, den, regression in WINDOW_RATES:
+        k = sum(int(D.get(x) or 0) for x in num)
+        n = sum(int(D.get(x) or 0) for x in den)
+        lo, hi = wilson(k, n)
+        # all or none seen: the open end is exact, not a float a hair inside it
+        lo, hi = (0.0 if k == 0 else lo), (1.0 if n and k == n else hi)
+        out.append({"name": name, "k": k, "n": n, "rate": k / n if n else None,
+                    "lo": lo, "hi": hi, "regression": regression,
+                    "rule_of_three": rule_of_three(n) if regression and k == 0 else None})
+    return out
+
+
+def print_window_rates(P: dict, label: str) -> None:
+    print(f"\n==== WINDOWED over {P['sessions']} sessions ({label})")
+    for r in window_rates(P["deaths"]):
+        r3 = f"; zero seen, rule of three < {r['rule_of_three']:.4f}" if r["rule_of_three"] else ""
+        rate = "-" if r["rate"] is None else f"{r['rate']:.4f}"
+        print(f"  {r['name']:22s} {r['k']:>5}/{r['n']:<5} {rate}  Wilson 95% "
+              f"[{r['lo']:.4f}, {r['hi']:.4f}]{r3}")
+
+
 def print_pool(P: dict, conv):
     d = P["deaths"]
     print("\n==== POOLED over", P["sessions"], "sessions")
@@ -3210,7 +3364,23 @@ def main(argv=None) -> int:
                          "no minimap, no status)")
     ap.add_argument("--no-sweep", action="store_true",
                     help="skip the ultimates block's threshold sweep")
+    ap.add_argument("--windows-file", action="append", default=None, metavar="CSV",
+                    help="score only Riot kills and stored deaths inside these windows "
+                         "(session,t0,t1,reason; seconds); repeat for more")
+    ap.add_argument("--sample", action="store_true",
+                    help="add the declared dev sample's windows (reticle.dev_sample)")
+    ap.add_argument("--residuals-out", default=None, metavar="CSV",
+                    help="write every miss, false death and wrong or refused name as "
+                         "session,t,reason (a residual list for `reticle dev-sample --residuals`)")
+    ap.add_argument("--run-id", default=None, help="run id for --record of a windowed run")
     args = ap.parse_args(argv)
+    args.windows_ms = None
+    if args.windows_file or args.sample:
+        from reticle import dev_sample
+        args.windows_ms = dev_sample.spans_ms(dev_sample.load(args.windows_file, args.sample))
+        args.no_minimap, args.no_status = True, True
+        if args.ult:
+            ap.error("--ult scores whole matches; drop it with windows")
     if args.ult_only:
         args.ult, args.no_minimap, args.no_status = True, True, True
     args.podcast = _podcast_sessions() if args.ult else set()
@@ -3226,6 +3396,8 @@ def main(argv=None) -> int:
     recs = riot_records(root)
     idents = identify_player(recs, root)
     sids = sorted(recs) if args.all else args.sessions
+    if args.windows_ms is not None:
+        sids = [s for s in (sids or sorted(recs)) if s in args.windows_ms]
     status_by = {}
     if not args.no_status:
         from reticle import status
@@ -3267,6 +3439,21 @@ def main(argv=None) -> int:
                 print(t)
         if args.ult_only:
             return 0
+    if args.residuals_out:
+        n = write_residuals(args.residuals_out, results)
+        print(f"{n} residuals -> {args.residuals_out}")
+    if args.windows_ms is not None:
+        P = pool(results, None)
+        label = " + ".join(([f"sample {_sample_label()}"] if args.sample else [])
+                           + list(args.windows_file or []))
+        print_window_rates(P, label)
+        if args.json:
+            Path(args.json).write_text(json.dumps({"pool": P, "rates": window_rates(P["deaths"]),
+                                                   "sessions": results}, indent=1, default=str),
+                                       encoding="utf-8")
+        if args.record:
+            record_window(P, results, args, label)
+        return 0
     conv = args.facing
     P = pool(results, None)
     if conv == "auto":
