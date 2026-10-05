@@ -1,6 +1,7 @@
 r"""Sightlines in 3D from the game's own collision: a feasibility probe.
 
     .\.venv\Scripts\python.exe prototypes\sightlines_3d.py build --dump DIR --ini FILE --persistent FILE [--map ascent]
+    .\.venv\Scripts\python.exe prototypes\sightlines_3d.py rebuild --map ascent --source OLDER.npz [--record]
     .\.venv\Scripts\python.exe prototypes\sightlines_3d.py gate [--map ascent] [--set dev|confirm] [--record]
     .\.venv\Scripts\python.exe prototypes\sightlines_3d.py --self-test
 
@@ -46,19 +47,30 @@ respawning plates and shootables, destructibles and breakables), read off each
 map's dump. Foliage, glass and invisible walls stay in or out by their own
 collision profile, never by name.
 
-Placeholders (questions for the player)
----------------------------------------
-The game files hold no eye or crouch height: `BasePlayerCharacter` serialises
-only `NavAgentProps` (radius 42, height 196, step 45 cm) and the mesh offset
-(-100 cm); its movement component (`CharMoveComp`, `ShooterCharacterMovement`)
-serialises speeds and friction, no walkable angle, crouch height or jump
-velocity; the capsule is native. Two values in the files are not the
-player's and are not used: the CDO's `TargetEyeHeightProportion` 0.7 (what it
-is a proportion of is not in the files) and `DefaultEngine.ini`'s
-`RecastNavMesh` agent (height 144, max height 160, max slope 44 degrees, step
-35 cm), which builds the bots' navigation mesh. `EYE_CM`, `CHEST_CM`,
-`CROUCH_CLEAR_CM`, `WALKABLE_Z` (UE's engine default walkable angle) and
-`JUMP_CM` are stated placeholders until the player answers.
+Body heights
+------------
+Read at import from the game-data facts, which cite `BasePawn` and
+`BasePlayerCharacter` [domain:game_data/character-eye-height]
+[domain:game_data/character-jump]:
+
+- `EYE_CM`, the standing eye: CapsuleHalfHeight plus BaseEyeHeight, the
+  engine convention the fact states. StandingEyeOffset is left out; its use
+  is unread.
+- `BODY_CM`, the target on the victim: the capsule's centre. No field names
+  a chest.
+- `CROUCH_CLEAR_CM`, the free height a floor needs: the crouched capsule,
+  twice CrouchedHalfHeight.
+- `JUMP_CM`, the largest floor step the walk graph joins:
+  DefaultJumpTuning.MaxJumpHeight.
+- `WALKABLE_Z` stays UE's engine default walkable angle, the one placeholder:
+  the class chain serialises no walkable angle and its native parent's
+  defaults are in no export.
+
+No crouched eye is used: under a ceiling lower than the eye, the eye sits
+5 cm below the ceiling. `sightlines-3d-0.2.0` used placeholders throughout
+(`HEIGHTS_0_2_0`); `rebuild` remakes a table from an older one's stored
+blockers and callout volumes, which do not depend on the heights, so no
+extraction reruns.
 
 Tables
 ------
@@ -96,18 +108,48 @@ for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
 
 import numpy as np  # noqa: E402
 
-VERSION = "sightlines-3d-0.2.0"
+VERSION = "sightlines-3d-0.3.0"
 STORE = Path(os.environ.get("RETICLE_STORE", "C:/Users/grant/reticle-store"))
 EXTRACTOR = STORE / "tools" / "game-extract"
+REPO = Path(__file__).resolve().parents[1]
 
-#: Placeholders: no game file holds them (see the module docstring).
-EYE_CM = 160.0
-CHEST_CM = 120.0
-CROUCH_CLEAR_CM = 100.0
-WALKABLE_Z = math.cos(math.radians(44.765))  # UE engine default walkable angle
-JUMP_CM = 120.0
-#: `NavAgentProps.AgentStepHeight` of BasePlayerCharacter (game files).
-STEP_CM = 45.0
+
+def _game_body() -> dict:
+    """The player character's body values, read from the game-data facts
+    [domain:game_data/character-eye-height] [domain:game_data/character-jump]
+    and converted to cm."""
+    import tomllib
+    facts = tomllib.loads((REPO / "domain" / "game_data.toml").read_text(encoding="utf-8"))
+    eye, jump = facts["character-eye-height"]["values"], facts["character-jump"]["values"]
+    return {"capsule_half_cm": 100.0 * eye["capsule"]["half_height_m"],
+            "base_eye_cm": 100.0 * eye["eye"]["base_eye_height_m"],
+            "crouched_half_cm": 100.0 * eye["capsule"]["crouched_half_height_m"],
+            "step_cm": 100.0 * eye["nav_agent"]["step_height_m"],
+            "max_jump_cm": 100.0 * jump["jump"]["max_jump_height_m"]}
+
+
+GAME_BODY = _game_body()
+#: The standing eye above the floor: the capsule's half-height plus
+#: BaseEyeHeight, the engine convention the fact states (175 cm); the
+#: StandingEyeOffset (-22 cm) is left out, as its use is unread.
+EYE_CM = round(GAME_BODY["capsule_half_cm"] + GAME_BODY["base_eye_cm"], 3)
+#: The target on the victim: the capsule's centre, its half-height above the
+#: floor (98 cm). No field names a chest; 0.2.0 aimed at a 120 cm placeholder.
+BODY_CM = round(GAME_BODY["capsule_half_cm"], 3)
+#: Free height a floor needs: the crouched capsule, twice CrouchedHalfHeight (56 cm).
+CROUCH_CLEAR_CM = round(2.0 * GAME_BODY["crouched_half_cm"], 3)
+#: Neighbouring floors join in the walk graph when they differ by at most the
+#: maximum jump height, DefaultJumpTuning.MaxJumpHeight (115 cm).
+JUMP_CM = round(GAME_BODY["max_jump_cm"], 3)
+#: Placeholder: UE's engine default walkable angle. The player's class chain
+#: serializes no WalkableFloorAngle or WalkableFloorZ; its native parent's
+#: default is in no export [domain:game_data/character-jump].
+WALKABLE_Z = math.cos(math.radians(44.765))
+#: `NavAgentProps.AgentStepHeight` of BasePlayerCharacter (45 cm); recorded, not used.
+STEP_CM = round(GAME_BODY["step_cm"], 3)
+PLACEHOLDERS = ["walkable_z"]
+#: The heights `sightlines-3d-0.2.0` used, all placeholders; kept to read its tables.
+HEIGHTS_0_2_0 = {"eye_cm": 160.0, "body_cm": 120.0, "crouch_clear_cm": 100.0, "jump_cm": 120.0}
 GRID_CM = 100.0
 #: UE render triangles wind the other way from the right-handed cross product:
 #: over Ascent, 142 of 142 first downward hits on render triangles (|nz| > 0.5)
@@ -676,6 +718,19 @@ def cell_callouts(xy: np.ndarray, z: np.ndarray, reg: dict) -> np.ndarray:
     return out
 
 
+def heights() -> dict:
+    """The body heights a table is built and gated with, and where each comes from."""
+    return {"eye_cm": EYE_CM, "body_cm": BODY_CM, "crouch_clear_cm": CROUCH_CLEAR_CM, "jump_cm": JUMP_CM,
+            "walkable_z": WALKABLE_Z, "step_cm": STEP_CM, "placeholders": list(PLACEHOLDERS),
+            "sources": {"eye_cm": "CapsuleHalfHeight + BaseEyeHeight [domain:game_data/character-eye-height]",
+                        "body_cm": "CapsuleHalfHeight, the capsule centre [domain:game_data/character-eye-height]",
+                        "crouch_clear_cm": "2 x CrouchedHalfHeight [domain:game_data/character-eye-height]",
+                        "jump_cm": "DefaultJumpTuning.MaxJumpHeight [domain:game_data/character-jump]",
+                        "step_cm": "NavAgentProps.AgentStepHeight [domain:game_data/character-eye-height]",
+                        "walkable_z": "placeholder: UE engine default 44.765 degrees; no field "
+                                      "[domain:game_data/character-jump]"}}
+
+
 def cmd_build(a) -> int:
     quiet()
     t0 = time.perf_counter()
@@ -686,10 +741,39 @@ def cmd_build(a) -> int:
     levels = streamed_levels(persistent, mname, available)
     B = build_blockers(Path(a.dump), profiles, levels, complex_all=a.complex_all)
     t1 = time.perf_counter()
-    T = B["tris"]
-    wcast = Caster(T[B["weapon"]])
-    pcast = Caster(T[B["pawn"]])
     reg = region_boxes(B["instances"], B["meshes"])
+    src_meta = [{"level": r["level"], "actor": r.get("actor"), "actor_class": r.get("actor_class"),
+                 "mesh": r["mesh"].rsplit("/", 1)[-1]} for r in B["instances"]]
+    base = {"levels": levels, "counts": B["counts"], "complex_all": a.complex_all, "mesh_kinds": B["mesh_kinds"],
+            "source": {"dump": str(a.dump), "ini": str(a.ini), "persistent": str(a.persistent),
+                       "build": a.build, "extractor": extractor_commit(),
+                       "extractor_command": 'game-extract meshes "ShooterGame/Content/Maps/<Map>/<Map>*.umap"'}}
+    return finish_build(a, B["tris"], B["weapon"], B["pawn"], B["src"], src_meta, reg, base, t0, t1)
+
+
+def cmd_rebuild(a) -> int:
+    """A table from an older table's stored blockers and callout volumes, with
+    this version's body heights. The blocker set does not depend on the
+    heights, so no extraction reruns; the provenance names the source table."""
+    quiet()
+    t0 = time.perf_counter()
+    src_path = Path(a.source)
+    D = load(a.map, src_path)
+    old = D["provenance"]
+    if old.get("map") != a.map:
+        raise SystemExit(f"{src_path} holds {old.get('map')}, not {a.map}")
+    base = {k: old[k] for k in ("levels", "counts", "complex_all", "mesh_kinds", "source")}
+    base["rebuilt_from"] = {"path": str(src_path), "version": old.get("version"),
+                            "heights": {k: old.get(k) for k in ("eye_cm", "chest_cm", "crouch_clear_cm",
+                                                                 "walkable_z", "jump_cm")}}
+    t1 = time.perf_counter()
+    return finish_build(a, D["tris"], D["weapon"], D["pawn"], D["src"], D["src_meta"], D["region"], base, t0, t1)
+
+
+def finish_build(a, T, weapon, pawn, src, src_meta, reg, base: dict, t0: float, t1: float) -> int:
+    """Grid, walk graph, callouts and the visibility table over a blocker set; write and record."""
+    wcast = Caster(T[weapon])
+    pcast = Caster(T[pawn])
     pcast.region = reg
     t2 = time.perf_counter()
     # grid bounds: the callout volumes' corners
@@ -705,27 +789,26 @@ def cmd_build(a) -> int:
     G = grid_cells(pcast, lo, hi)
     t3 = time.perf_counter()
     callout = cell_callouts(G["xy"], G["z"], reg)
-    eyes = eye_points(G["xy"], G["z"], G["clear"])
+    eyes = eye_points(G["xy"], G["z"], G["clear"], EYE_CM)
     bits = table(wcast, eyes) if not a.no_table else np.zeros(0, np.uint8)
     t4 = time.perf_counter()
-    prov = {"version": VERSION, "map": a.map, "levels": levels, "counts": B["counts"], "complex_all": a.complex_all,
-            "mesh_kinds": B["mesh_kinds"], "eye_cm": EYE_CM, "chest_cm": CHEST_CM,
-            "crouch_clear_cm": CROUCH_CLEAR_CM, "walkable_z": WALKABLE_Z, "jump_cm": JUMP_CM,
-            "grid_cm": GRID_CM, "placeholders": ["eye_cm", "chest_cm", "crouch_clear_cm", "walkable_z", "jump_cm"],
-            "source": {"dump": str(a.dump), "ini": str(a.ini), "persistent": str(a.persistent),
-                       "build": a.build, "extractor": extractor_commit(),
-                       "extractor_command": 'game-extract meshes "ShooterGame/Content/Maps/<Map>/<Map>*.umap"'},
+    H = heights()
+    prov = {"version": VERSION, "map": a.map,
+            **{k: base[k] for k in ("levels", "counts", "complex_all", "mesh_kinds")},
+            **{k: H[k] for k in ("eye_cm", "body_cm", "crouch_clear_cm", "walkable_z", "jump_cm")},
+            "grid_cm": GRID_CM, "placeholders": H["placeholders"], "height_sources": H["sources"],
+            "source": base["source"],
             "step_cm": STEP_CM, "step_cm_source": "BasePlayerCharacter CharMoveComp NavAgentProps.AgentStepHeight",
             "walk_edges": int(len(G["walk_r"])), "cells_in_callout": int((callout >= 0).sum()),
             "seconds": {"blockers": t1 - t0, "bvh": t2 - t1, "grid": t3 - t2, "table": t4 - t3},
             "n_cells": int(len(G["z"])), "n_standable": G["n_standable"], "n_components": G["n_components"],
             "largest_component_share": G["largest_component_share"],
-            "n_tris": int(len(T)), "n_weapon_tris": int(B["weapon"].sum()), "n_pawn_tris": int(B["pawn"].sum())}
-    src_meta = [{"level": r["level"], "actor": r.get("actor"), "actor_class": r.get("actor_class"),
-                 "mesh": r["mesh"].rsplit("/", 1)[-1]} for r in B["instances"]]
+            "n_tris": int(len(T)), "n_weapon_tris": int(weapon.sum()), "n_pawn_tris": int(pawn.sum())}
+    if "rebuilt_from" in base:
+        prov["rebuilt_from"] = base["rebuilt_from"]
     op = Path(a.out) if a.out else out_path(a.map)
     op.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(op, tris=T, weapon=B["weapon"], pawn=B["pawn"], src=B["src"],
+    np.savez_compressed(op, tris=T, weapon=weapon, pawn=pawn, src=src,
                         src_meta=json.dumps(src_meta), cell_xy=G["xy"], cell_z=G["z"], cell_clear=G["clear"],
                         cell_ix=G["ix"], cell_iy=G["iy"], cell_layer=G["layer"], cell_component=G["component"], grid_lo=lo, grid_hi=hi,
                         vis_bits=bits, walk_r=G["walk_r"], walk_c=G["walk_c"], cell_callout=callout,
@@ -739,12 +822,15 @@ def cmd_build(a) -> int:
         vals = {k: prov[k] for k in ("n_cells", "n_components", "largest_component_share", "n_tris",
                                      "n_weapon_tris", "n_pawn_tris", "bytes")}
         vals.update({f"seconds_{k}": v for k, v in prov["seconds"].items()})
+        vals["seconds_total"] = sum(prov["seconds"].values())
         vals["pairs"] = prov["n_cells"] * (prov["n_cells"] - 1) // 2
         vals["placements_kept"] = prov["counts"]["kept"]
         metrics.record("sightlines_3d", part=f"build/{a.map}", values=vals,
-                       deps={"version": VERSION, "geometry": a.build, "grid_cm": GRID_CM, "eye_cm": EYE_CM,
-                             "extractor": prov["source"]["extractor"]["commit"]},
-                       context={"out": str(op), "levels": len(levels)},
+                       deps={"version": VERSION, "geometry": prov["source"].get("build"), "grid_cm": GRID_CM,
+                             "eye_cm": EYE_CM, "body_cm": BODY_CM, "crouch_clear_cm": CROUCH_CLEAR_CM,
+                             "jump_cm": JUMP_CM, "extractor": (prov["source"].get("extractor") or {}).get("commit")},
+                       context={"out": str(op), "levels": len(prov["levels"]),
+                                "rebuilt_from": (prov.get("rebuilt_from") or {}).get("version")},
                        note="one core (affinity), Below Normal; timings shared the CPU with other workflows")
     return 0
 
@@ -953,10 +1039,10 @@ def cmd_gate(a) -> int:
     vf, vcl = pick_floor(vz, vc)
     ok = ~np.isnan(kf) & ~np.isnan(vf)
     eye = eye_points(kxy[ok], kf[ok], kcl[ok], EYE_CM)
-    chest = eye_points(vxy[ok], vf[ok], vcl[ok], CHEST_CM)
+    body = eye_points(vxy[ok], vf[ok], vcl[ok], BODY_CM)
     head = eye_points(vxy[ok], vf[ok], vcl[ok], EYE_CM)
     los = np.full(len(gun), np.nan)
-    los[ok] = (~wcast.occluded(eye, chest)).astype(float)
+    los[ok] = (~wcast.occluded(eye, body)).astype(float)
     los_head = np.full(len(gun), np.nan)
     los_head[ok] = (~wcast.occluded(eye, head)).astype(float)
     # post hoc: any standable floor pair (an upper bound over the multi-level choice)
@@ -970,7 +1056,7 @@ def cmd_gate(a) -> int:
             if not g.any():
                 continue
             e = eye_points(kxy[idx][g], zz[g], kc[idx, li][g], EYE_CM)
-            c = eye_points(vxy[idx][g], zc[g], vc[idx, lj][g], CHEST_CM)
+            c = eye_points(vxy[idx][g], zc[g], vc[idx, lj][g], BODY_CM)
             acc[np.flatnonzero(g)] |= ~wcast.occluded(e, c)
     any_pair[idx] = acc
     l2 = los_2d(gun, ok, a.map) if a.set == "dev" else np.full(len(gun), np.nan)
@@ -981,7 +1067,7 @@ def cmd_gate(a) -> int:
     ok2 = ~np.isnan(kf2) & ~np.isnan(vf2)
     los_comp = np.full(len(gun), np.nan)
     los_comp[ok2] = ~wcast.occluded(eye_points(kxy[ok2], kf2[ok2], kcl2[ok2], EYE_CM),
-                                     eye_points(vxy[ok2], vf2[ok2], vcl2[ok2], CHEST_CM))
+                                     eye_points(vxy[ok2], vf2[ok2], vcl2[ok2], BODY_CM))
     # post hoc control: the killer against every other living opponent at the same instant
     ci = np.array([i for i, k in enumerate(gun) for _ in k["others_xy"]], np.int64)
     oxy = np.array([o for k in gun for o in k["others_xy"]], float).reshape(-1, 2)
@@ -989,7 +1075,7 @@ def cmd_gate(a) -> int:
     of, ocl = pick_floor(oz, oc)
     okc = ok[ci] & ~np.isnan(of)
     ctrl3 = ~wcast.occluded(eye_points(kxy[ci[okc]], kf[ci[okc]], kcl[ci[okc]], EYE_CM),
-                            eye_points(oxy[okc], of[okc], ocl[okc], CHEST_CM))
+                            eye_points(oxy[okc], of[okc], ocl[okc], BODY_CM))
     ctrl_kills = [dict(gun[i], victim_xy=tuple(oxy[j])) for j, i in enumerate(ci)]
     ctrl2 = los_2d(ctrl_kills, okc, a.map) if a.set == "dev" else np.full(len(ctrl_kills), np.nan)
     res = {
@@ -1020,7 +1106,7 @@ def cmd_gate(a) -> int:
         rows = []
         for i in dis[: a.disagreements]:
             e = eye_points(kxy[i:i + 1], kf[i:i + 1], kcl[i:i + 1], EYE_CM)[0]
-            c = eye_points(vxy[i:i + 1], vf[i:i + 1], vcl[i:i + 1], CHEST_CM)[0]
+            c = eye_points(vxy[i:i + 1], vf[i:i + 1], vcl[i:i + 1], BODY_CM)[0]
             d = c - e
             L = float(np.linalg.norm(d))
             prim, t = wcast.first_hit(e[None], (d / L)[None])
@@ -1051,8 +1137,9 @@ def cmd_gate(a) -> int:
         metrics.record("sightlines_3d", part=part, values=vals,
                        deps={"version": VERSION, "geometry": D["provenance"].get("source", {}).get("build"),
                              "extractor": D["provenance"].get("source", {}).get("extractor", {}).get("commit"),
-                             "eye_cm": EYE_CM, "chest_cm": CHEST_CM},
-                       context={"placeholders": D["provenance"]["placeholders"], "set": a.set},
+                             "eye_cm": EYE_CM, "body_cm": BODY_CM},
+                       context={"placeholders": D["provenance"]["placeholders"], "set": a.set,
+                                "table_version": D["provenance"].get("version")},
                        note=note)
     return 0
 
@@ -1127,6 +1214,13 @@ def main(argv=None) -> int:
     b.add_argument("--no-table", action="store_true")
     b.add_argument("--record", action="store_true")
     b.add_argument("--complex-all", action="store_true", help="post hoc: every mesh traces its render triangles")
+    r = sub.add_parser("rebuild", help="a table from an older table's blockers, with this version's heights")
+    r.add_argument("--map", default="ascent")
+    r.add_argument("--source", required=True,
+                   help="the older table, e.g. <store>/sightlines/<map>__sightlines-3d-0.2.0.npz")
+    r.add_argument("--out")
+    r.add_argument("--no-table", action="store_true")
+    r.add_argument("--record", action="store_true")
     g = sub.add_parser("gate")
     g.add_argument("--map", default="ascent")
     g.add_argument("--record", action="store_true")
@@ -1139,6 +1233,8 @@ def main(argv=None) -> int:
         return _self_test()
     if a.cmd == "build":
         return cmd_build(a)
+    if a.cmd == "rebuild":
+        return cmd_rebuild(a)
     if a.cmd == "gate":
         return cmd_gate(a)
     ap.print_help()

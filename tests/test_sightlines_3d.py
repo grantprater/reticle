@@ -71,6 +71,13 @@ class ProfileTest(unittest.TestCase):
         np.testing.assert_allclose(v, [0, 1, 0], atol=1e-12)
 
 
+class BodyHeightTest(unittest.TestCase):
+    def test_heights_come_from_the_game_data_facts(self):
+        # BasePawn: CapsuleHalfHeight 98, BaseEyeHeight 77, CrouchedHalfHeight 28, MaxJumpHeight 115 (cm)
+        self.assertEqual((s3.EYE_CM, s3.BODY_CM, s3.CROUCH_CLEAR_CM, s3.JUMP_CM), (175.0, 98.0, 56.0, 115.0))
+        self.assertEqual(s3.heights()["placeholders"], ["walkable_z"])
+
+
 @unittest.skipUnless(HAVE_CASTER, "embreex and trimesh are not installed")
 class RoomTest(unittest.TestCase):
     def test_self_test_room(self):

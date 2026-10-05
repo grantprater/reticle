@@ -85,7 +85,7 @@ collision. `load(map)` returns the 3D table (`Sightlines3D`, the same
 interface) where `<store>/sightlines/choice.json` says 3D, else the 2D one;
 `load(map, kind="2d")` and `kind="3d"` ask for one. `choose` writes the file:
 3D where the 3D probe's instrument gate (ledger `sightlines_3d/gate/<map>`,
-this version's rows: killer eye to victim chest at exact positions on the
+this version's rows: killer eye to victim body at exact positions on the
 development gun kills) beats the 2D map's share on the same kills, the rule
 `engagement_reach` fixed before its confirmation; 2D otherwise; 3D on a map
 with no baked 2D geometry, where it is the only instrument (its instrument

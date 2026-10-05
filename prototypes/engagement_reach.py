@@ -43,7 +43,7 @@ map with baked geometry) and the 3D map from the game's collision
 the two maps built then). The rule, fixed after the development gate ran and
 before any confirmation feature, fit or score: use the 3D map where the 3D
 probe's instrument gate (its ledger row `sightlines_3d/gate/<map>`: line of
-sight killer eye to victim chest at exact positions, development gun kills)
+sight killer eye to victim at exact positions, development gun kills)
 beats the 2D map's on the same kills; else the 2D map. `gate` also measures
 the cell tables the reach features actually read (killer cell to victim
 cell, strict and one-cell-tolerant in 2D, strict in 3D) with a control (the

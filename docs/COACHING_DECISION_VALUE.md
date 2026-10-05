@@ -371,6 +371,25 @@ history's schema and counts at 02:59-03:00Z, before that row. Each number
 below cites its ledger row; development figures are labelled. Weapons and
 utility reach are left out.
 
+**Placeholder body heights.** Every REACH figure below, the confirmation's
+and its sensitivities, was computed on Ascent's and Split's
+`sightlines-3d-0.1.0` tables, whose body heights were placeholders: eye
+160 cm, chest 120 cm, crouch room 100 cm, jump 120 cm. The game's files give
+eye 175 cm, body centre 98 cm, crouch room 56 cm, jump 115 cm
+([SIGHTLINES_3D_PROBE.md](SIGHTLINES_3D_PROBE.md), "Body heights (0.3.0)").
+The confirmation set is spent, so a rerun at the game's heights is post hoc
+only, never a second confirmation; a correction row in the store's
+`notes/predictions.jsonl` records the error. Post hoc at
+`sightlines-3d-0.3.0`, with the same map choice and the same 123 matches:
+REACH1 gains
+[metric:engagement_reach/confirm/heights-0.3.0#REACH1.improvement_nats=0.00125]
+[0.00046, 0.00201] (confirmed 0.00127 [0.00048, 0.00205]), null p95
+[metric:engagement_reach/confirm/heights-0.3.0#REACH1.null_p95=0.00007];
+REACH2's reach minus radius is
+[metric:engagement_reach/confirm/heights-0.3.0#REACH2.reach_minus_radius_nats=0.00113]
+[0.00042, 0.00186] (confirmed 0.00116 [0.00043, 0.00192]). Neither verdict
+moves: REACH1 fails the bar, REACH2 holds.
+
 **Sets.** Development: the captured records,
 [metric:engagement_reach/dev#fights=3324] gun fights. Confirmation: of
 [metric:engagement_reach/confirm#set.matches_listed=170] parsed matches, the
@@ -390,9 +409,9 @@ planters stand on that team, against
 collision ([SIGHTLINES_3D_PROBE.md](SIGHTLINES_3D_PROBE.md)); the other five
 maps use the 2D minimap map. The rule follows the probe's gate on the same
 development kills: Ascent 3D
-[metric:sightlines_3d/gate/ascent#los3d_share_on_2d_set=0.869] against 2D
+[metric:sightlines_3d/gate/ascent~2026-10-04T22:11:13#los3d_share_on_2d_set=0.869] against 2D
 [metric:sightlines_3d/gate/ascent#los2d_share=0.549], Split
-[metric:sightlines_3d/gate/split#los3d_share_on_2d_set=0.911] against
+[metric:sightlines_3d/gate/split~2026-10-04T22:11:22#los3d_share_on_2d_set=0.911] against
 [metric:sightlines_3d/gate/split#los2d_share=0.707]. On the cell tables the
 features read, Ascent's 3D cell line of sight holds for
 [metric:engagement_reach/gate#ascent.los3d_strict=0.8695] of gun kills

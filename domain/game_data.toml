@@ -186,7 +186,7 @@ overriding them; a game-wide name search (game-extract whorefs) finds
 BaseEyeHeight serialized in no other player-character package.
 """
 use = """
-sightline eye height: the standing value under the stated convention; no crouched value
+sightline eye height: the standing value under the stated convention; no crouched value. Crouch room above a floor: the crouched capsule, twice CrouchedHalfHeight
 """
 exceptions = """
 The standing eye height of 1.75 m is the engine convention's sum, not a field,
@@ -196,6 +196,47 @@ or a measurement (the replay's camera, or a capture).
 """
 values = { eye = { base_eye_height_m = 0.77, crouched_eye_height_m = 0.3, standing_eye_offset_m = -0.22, crouching_eye_offset_m = -0.2 }, capsule = { radius_m = 0.42, half_height_m = 0.98, crouched_half_height_m = 0.28, crouch_compression_m = 0.2 }, nav_agent = { height_m = 1.96, radius_m = 0.42, step_height_m = 0.45 } }
 see = ["game_data/game-units-centimetres"]
+
+[character-jump]
+claim = """
+A player character's jump tuning sets a maximum jump height of 1.15 m
+(DefaultJumpTuning.MaxJumpHeight) and a total jump time of 0.675 s; the engine
+fields beside it give a jump launch speed of 7.5 m/s (JumpZVelocity), a
+gravity scale of 0.9 and an air control of 0.45. The class chain serializes no
+walkable floor angle, walkable floor Z or movement step height
+(MaxStepHeight): those are the native class's defaults, unread; the navigation
+agent's step is a separate field [domain:game_data/character-eye-height].
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "movement:jump"
+source = """
+release-13.06-shipping-18-5590001, set ability-states:
+ShooterGame/Content/Characters/_Core/BasePawn.uasset
+CharMoveComp.DefaultJumpTuning.MaxJumpHeight = 115.0 cm,
+.DefaultJumpTuning.JumpTotalTime = 0.675 s, .JumpZVelocity = 750.0 cm/s,
+.GravityScale = 0.9, .AirControl = 0.45; inherited unchanged by
+ShooterGame/Content/Characters/_Core/BasePlayerCharacter.uasset, the parent of
+every agent's <Codename>_PC (its CharMoveComp overrides only
+JumpOffJumpZFactor, MovementTuning, JumpLandSlowTuningV2 and NavAgentProps).
+Neither CharMoveComp serializes WalkableFloorAngle, WalkableFloorZ,
+MaxStepHeight, PerchRadiusThreshold; BasePawn_C derives from the native class
+/Script/ShooterGame.ShooterCharacter, whose defaults no export carries.
+"""
+use = """
+sightline walk graph: neighbouring floors join when their heights differ by at most the maximum jump height
+"""
+exceptions = """
+Which jump the native movement code runs is unread. A ballistic launch at
+JumpZVelocity under GravityScale reaches 1.15 m only if world gravity is 2717
+cm/s^2; under the engine's default 980 cm/s^2 it would reach 3.19 m. The world
+gravity setting is not in the exported sets. Crouching in the air is native
+code; what it adds to a reachable ledge is not included. The walkable floor
+angle for sightline floors stays the engine default, a placeholder.
+"""
+values = { jump = { max_jump_height_m = 1.15, jump_total_time_s = 0.675, jump_z_velocity_m_s = 7.5 }, scale = { gravity_scale = 0.9, air_control = 0.45 } }
+see = ["game_data/game-units-centimetres", "game_data/character-eye-height"]
 
 [astra-gravity-well-game-data]
 claim = """
