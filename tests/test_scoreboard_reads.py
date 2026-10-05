@@ -1,9 +1,12 @@
 """prototypes/scoreboard_reads.py on synthetic rows: openings from the strip
 alone, the frame-selection rules, thinning, and the threshold fit."""
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
@@ -103,6 +106,47 @@ class TestScoreboardReads(unittest.TestCase):
                 "kd_bound": {"same": 3, "changed": 1}}
         got = sr.n_differ(cmp_)
         self.assertEqual((got["total"], got["lost"]), (2 + 3 + 1 + 1 + 1, 2 + 1 + 1))
+
+
+class _FakeCap:
+    def __init__(self, frames):
+        self.frames = list(frames)
+
+    def read(self):
+        return (True, self.frames.pop(0)) if self.frames else (False, None)
+
+    def release(self):
+        pass
+
+
+class TestWriteFramesRect(unittest.TestCase):
+    def test_nonzero_rect_top_writes_board_rows(self):
+        # Each crop row encodes its absolute frame row; a cache rect starting
+        # at frame row 150 must still yield board_y()'s frame rows.
+        y0, y1 = sr.board_y()
+        top, h = 150, 1080 - 150
+        rows = (np.arange(h) + top).astype(np.uint16)
+        crop = np.zeros((h, 400, 3), np.uint8)
+        crop[:, :, 0] = (rows & 255)[:, None]
+        crop[:, :, 1] = (rows >> 8)[:, None]
+        cache, cap = sr.CACHE, sr._cap
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "s.json").write_text(json.dumps({"rects": [[535, top, 400, h]]}))
+            np.save(d / "s.idx.npy", np.array([[0.0, 7, 0, 0, 0], [500.0, 8, 0, 1, 0]]))
+            out = d / "out"
+            out.mkdir()
+            try:
+                sr.CACHE, sr._cap = d, (lambda p: _FakeCap([crop, crop]))
+                names = sr._write_frames("s", {8}, "c", out)
+            finally:
+                sr.CACHE, sr._cap = cache, cap
+            self.assertEqual(names, ["c_f8.png"])
+            im = cv2.imread(str(out / names[0]))
+        got = im[:, 0, 0].astype(int) + 256 * im[:, 0, 1].astype(int)
+        self.assertEqual(im.shape[0], y1 - y0)
+        self.assertEqual(int(got[0]), y0)
+        self.assertEqual(int(got[-1]), y1 - 1)
 
 
 if __name__ == "__main__":
