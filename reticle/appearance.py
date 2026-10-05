@@ -159,6 +159,8 @@ class ArtTiles:
         self.index = {a: i for i, a in enumerate(self.agents)}
         self.h, self.w = int(lab.shape[1]), int(lab.shape[2])
         self.margin = int(margin)
+        #: The shrunk alpha itself, border included: where the plate shows.
+        self.alpha = alpha.astype(np.float32)
         weight = alpha.astype(np.float32).copy()
         m = self.margin
         if m > 0:
@@ -215,8 +217,19 @@ def killfeed_art(art_dir, h: int, w: int, margin: int = ART_INNER_MARGIN) -> Art
     key = (str(art_dir), int(h), int(w), int(margin))
     if key in _ART_CACHE:
         return _ART_CACHE[key]
+    paths = {p.name[:-len("_killfeed_portrait.png")]: p
+             for p in sorted(Path(art_dir).glob("*_killfeed_portrait.png"))}
+    tiles = art_tiles(paths, h, w, margin)
+    _ART_CACHE[key] = tiles
+    return tiles
+
+
+def art_tiles(paths: dict, h: int, w: int, margin: int = ART_INNER_MARGIN) -> ArtTiles | None:
+    """`ArtTiles` of {agent: RGBA png path}, each shrunk to h x w (INTER_AREA
+    on alpha-premultiplied colour), in the dict's order; None when no path
+    holds RGBA art. Not cached: `killfeed_art` and its callers cache."""
     agents, labs, alphas = [], [], []
-    for p in sorted(Path(art_dir).glob("*_killfeed_portrait.png")):
+    for agent, p in paths.items():
         im = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
         if im is None or im.ndim != 3 or im.shape[2] != 4:
             continue
@@ -227,10 +240,8 @@ def killfeed_art(art_dir, h: int, w: int, margin: int = ART_INNER_MARGIN) -> Art
         col = np.clip(pm / np.maximum(al, 1e-3)[:, :, None], 0, 1).astype(np.float32)
         labs.append(cv2.cvtColor(col, cv2.COLOR_BGR2Lab))
         alphas.append(al)
-        agents.append(p.name[:-len("_killfeed_portrait.png")])
-    tiles = ArtTiles(agents, np.stack(labs), np.stack(alphas), margin) if agents else None
-    _ART_CACHE[key] = tiles
-    return tiles
+        agents.append(agent)
+    return ArtTiles(agents, np.stack(labs), np.stack(alphas), margin) if agents else None
 
 
 def art_zncc(region_lab: np.ndarray, art: ArtTiles, candidates,

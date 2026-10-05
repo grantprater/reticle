@@ -31,6 +31,74 @@ none. It is the constraint reticle/lineup.py's verdict already applies with
 refused slots wrongly across the 19 stored lineups
 """
 
+[disconnected-teammate-stays-drawn]
+claim = """
+A teammate who disconnects stays drawn on the minimap and counted on the
+roster.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+source = """
+the player, 2026-10-04 (chat), asked whether a disconnected teammate stays
+drawn on the minimap and counted on the roster: "Yes, though if they abandon
+they no longer spawn at the beginning of the round. They will never just
+disappear mid-round though"
+"""
+use = """
+a teammate's disconnect alone never removes them from the minimap or the
+roster
+"""
+exceptions = """
+how a disconnected teammate's icon moves or looks, and whether its cone
+stays drawn, is unasked
+"""
+see = ["rounds/abandoned-player-not-spawned", "rounds/no-mid-round-disappearance"]
+
+[abandoned-player-not-spawned]
+claim = """
+A player who abandons the match no longer spawns at the start of later
+rounds.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+source = """
+the player, 2026-10-04 (chat), answering whether a disconnected teammate
+stays drawn and counted: "if they abandon they no longer spawn at the
+beginning of the round"
+"""
+use = """
+a team's head count may fall only at a round start, when an abandoned
+player is not spawned
+"""
+exceptions = """
+how the roster and the scoreboard show an abandoned player is unasked; how
+the abandon pays credits is unknown [domain:rounds/leaver-compensation]
+"""
+see = ["rounds/disconnected-teammate-stays-drawn", "rounds/no-mid-round-disappearance",
+       "rounds/leaver-compensation"]
+
+[no-mid-round-disappearance]
+claim = """
+No player disappears mid-round, teammate or enemy: neither a disconnect nor
+an abandon removes them before the round ends.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+source = """
+the player, 2026-10-04 (chat), on disconnected and abandoning teammates:
+"They will never just disappear mid-round though"; asked the same day
+whether it holds for enemies: "mid-round disappearances applies to
+everyone"
+"""
+use = """
+a player lost mid-round is a death, a crowd or a reader loss, never a
+departure; each side's capacity holds until the round ends
+"""
+see = ["rounds/disconnected-teammate-stays-drawn", "rounds/abandoned-player-not-spawned"]
+
 [resurrection-mechanics]
 claim = """
 Only four agents possess resurrection, second-life, or stabilization mechanics:
@@ -49,6 +117,83 @@ kind = "rule"
 known = "player"
 since = "2026-09-12"
 use = "reticle/adjudication/death.py conditions living roster state transitions, second life flags, and ability icon matching against this closed four-agent set"
+
+[sage-resurrection-revives-at-body]
+claim = """
+An ally Sage resurrects with Resurrection comes back at their body.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "sage:resurrection"
+source = """
+the player, 2026-10-04 (chat), asked where the revived player stands for
+each revive: "Sage: at the body"
+"""
+use = """
+a revived ally's icon reappears at that ally's death mark
+[domain:minimap/ally-death-mark], never elsewhere
+"""
+see = ["rounds/resurrection-mechanics", "killfeed/revive-entries", "minimap/ally-death-mark"]
+
+[clove-not-dead-yet-revives-at-body]
+claim = """
+Clove revived by Not Dead Yet comes back at her body.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "clove:not dead yet"
+source = """
+the player, 2026-10-04 (chat), asked where the revived player stands for
+each revive: "clove: at the body"
+"""
+use = """
+a Not Dead Yet revive reappears at Clove's death place; its expiry is a
+death there [domain:rounds/clove-revive-expiry-entry]
+"""
+see = ["rounds/resurrection-mechanics", "rounds/clove-revive-expiry-entry",
+       "rounds/riot-records-clove-expiry"]
+
+[phoenix-run-it-back-returns-to-cast-point]
+claim = """
+When Run it Back ends, Phoenix comes back where he cast the ult.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "phoenix:run it back"
+source = """
+the player, 2026-10-04 (chat), asked where the revived player stands for
+each revive: "phoenix: where he cast the ult"; the player's earlier review
+of the expiry flash also placed the effigy at the cast point
+[domain:abilities/phoenix-run-it-back-expiry-flash]
+"""
+use = """
+Phoenix's icon after Run it Back continues from the cast point, not from
+where the ult ended: a licensed teleport
+[domain:abilities/phoenix-run-it-back-teleports]
+"""
+see = ["rounds/resurrection-mechanics", "abilities/phoenix-run-it-back-expiry-flash",
+       "abilities/phoenix-run-it-back-teleports", "rounds/run-it-back-in-report"]
+
+[kayo-revived-at-body]
+claim = """
+A downed KAY/O whom a teammate revives comes back at his body.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "kay/o:null/cmd"
+source = """
+the player, 2026-10-04 (chat), asked where the revived player stands for
+each revive: "kayo: at the body"
+"""
+use = """
+a revived KAY/O continues from where he was downed
+"""
+see = ["rounds/resurrection-mechanics", "killfeed/kayo-downed-entry",
+       "rounds/scoreboard-dim-is-dead"]
 
 
 [scoreboard-dead-dimmed]

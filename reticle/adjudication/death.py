@@ -218,7 +218,16 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # in slot 5 neither begins an entry (b7d24102a6f6 1580.5 s, 1582.0 s) nor
 # becomes the first read of a real one (b7d24102a6f6 1581.5 s, b3b9defb6fd7
 # 1661.5 s). Without a current combat_report stream no read is set aside.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.36.0"
+# 0.37.0 (2026-10-04): each death verdict carries `assists`, joined by
+# `death_id` from the stored `assist` stream (`join_assists`): the panel's
+# count or lower bound, whether a panel was drawn, and per assister its
+# entity, the identity arbiter's verdict and the icon. An `assist` stream
+# that rests on another death rule, or none, leaves `assists` unread with
+# its reason.
+# 0.38.0 (2026-10-04): each joined assister carries the assist verdict's
+# `name_reason`, so an unnamed portrait no agent's art clears ('portrait not
+# recognised') stays distinct from an assister unnamed for another reason.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.38.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -1373,6 +1382,76 @@ def panel_aside(times, report: list[dict] | None, roi_y0: float):
     hz = next((r.get("hz") for r in report if r.get("kind") == "coverage"), None) or 1.0
     pt, top = death_panel_tops(report)
     return panel_slots(times, pt, top, roi_y0, 500.0 / float(hz))
+
+
+#: Why a verdict's `assists` is unread.
+ASSISTS_NO_STREAM = "no_assist_stream"
+ASSISTS_STALE = "assist_rests_on_other_death_rule"
+ASSISTS_NO_ROW = "no_assist_verdict"
+
+
+def assist_stamp(assist_rows: list[dict] | None) -> str:
+    """The `assist` stream's stamp as the death stream records it
+    (`inputs.assist`): the stream's adjudication stamp when it rests on this
+    death rule, else why it was not joined."""
+    head = next((r for r in assist_rows or [] if r.get("kind") == "summary"), None)
+    if not assist_rows or head is None:
+        return "no_rows"
+    if (head.get("inputs") or {}).get("death") != DEATH_ADJUDICATION_VERSION:
+        return f"stale:{(head.get('inputs') or {}).get('death')}"
+    return head.get("assist_adjudication_version") or "unstamped"
+
+
+def join_assists(rows: list[dict], assist_rows: list[dict] | None) -> dict:
+    """Add `assists` to every `death_verdict` row, from the stored `assist`
+    stream's verdict with the same `death_id`: the death owner carries it,
+    `adjudication.assist` reads the panel and `adjudication.identity` names
+    the assisters. Pure over stored rows; the panel is never reread here.
+
+    `assists` holds the panel's `count` (None where the killfeed crop cut
+    the panel or the views tied), `count_min` (the lower bound), `present`
+    (a panel drawn: True, False, or None unread), `count_status` and
+    `count_reason`, and per assister (k counted from the killer's portrait
+    leftwards) its `entity_id`, the arbiter's `agent` and `status`, why it
+    is unnamed (`name_reason`, None when named), and the
+    `icon` with its `icon_status` and `icon_set`. A stream that rests on
+    another death rule (`assist_stamp`) or holds no verdict for the death
+    leaves `{"status": "unread", "reason": ...}`: never a guess. Returns
+    the counts of joined and unread rows."""
+    stamp = assist_stamp(assist_rows)
+    by = {r["death_id"]: r for r in assist_rows or [] if r.get("kind") == "assist_verdict"}
+    n = Counter()
+    for row in rows:
+        if row.get("kind") != "death_verdict":
+            continue
+        if stamp == "no_rows" or stamp.startswith("stale:"):
+            why = ASSISTS_NO_STREAM if stamp == "no_rows" else ASSISTS_STALE
+            row["assists"] = {"status": "unread", "reason": why, "stamp": stamp}
+            n[why] += 1
+            continue
+        a = by.get(row["death_id"])
+        if a is None:
+            row["assists"] = {"status": "unread", "reason": ASSISTS_NO_ROW, "stamp": stamp}
+            n[ASSISTS_NO_ROW] += 1
+            continue
+        status = ("read" if a.get("count") is not None
+                  else "lower_bound" if a.get("present") else "refused")
+        row["assists"] = {
+            "status": status, "stamp": stamp,
+            "count": a.get("count"), "count_min": a.get("count_min"),
+            "present": a.get("present"), "count_status": a.get("count_status"),
+            "count_reason": a.get("count_reason"),
+            "assisters": [{"k": s["k"], "entity_id": s["entity_id"], "agent": s.get("agent"),
+                           "identity_status": (s.get("identity") or {}).get("status"),
+                           "name_reason": s.get("name_reason"),
+                           "icon": s.get("icon"), "icon_status": s.get("icon_status"),
+                           "icon_set": s.get("icon_set"), "icon_reason": s.get("icon_reason")}
+                          for s in a.get("assisters", [])],
+            "rests_on": {"assist_adjudication_version": stamp,
+                         "killfeed_assist_version": (a.get("rests_on") or {})
+                         .get("killfeed_assist_version")}}
+        n[status] += 1
+    return dict(n)
 
 
 def session_entries(hud: dict, second_life: list[dict] | None = None,

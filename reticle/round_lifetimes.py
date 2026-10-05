@@ -197,6 +197,11 @@ def ally_capacity(alive_ally, self_seen: bool, spectated: bool = False) -> int |
     `alive_ally` is one roster read or several (a caller's window of reads);
     the largest read stands, because the count drops at a death while the
     dying teammate's icon may still show. None reads are unread, not zero.
+    A disconnected teammate stays drawn and counted
+    [domain:rounds/disconnected-teammate-stays-drawn], and nobody leaves
+    mid-round [domain:rounds/no-mid-round-disappearance]; an abandon lowers
+    the count only at a later round's start
+    [domain:rounds/abandoned-player-not-spawned].
     """
     reads = alive_ally if isinstance(alive_ally, (list, tuple)) else [alive_ally]
     reads = [int(v) for v in reads if v is not None]

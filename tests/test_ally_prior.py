@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from prototypes.ally_prior import (SPAWN_MS, Cells, Track, _explain, ring_cover_at,
-                                   window_blob)
+from prototypes.ally_prior import (SPAWN_MS, TELEPORT_AGENTS, Cells, Track, _explain,
+                                   ring_cover_at, window_blob)
 
 
 def ring(shape, cx, cy, r_in=5.0, r_out=6.6):
@@ -65,13 +65,21 @@ class Rules(unittest.TestCase):
         self.assertGreater(SPAWN_MS, 1000.0)
         got = _explain(10000.0, 0, 0, "Omen", "unexplained_teal", [], casts, 0.0)
         self.assertEqual(got["why"], "ally_ult_cast")
-        self.assertTrue(got["candidate_only"])
+        self.assertEqual(got["licence"], "teleport")
+        casts["ult"] = [(9000.0, "Waylay"), (9000.0, "Sage")]
+        got = _explain(10000.0, 0, 0, "Sage", "unexplained_teal", [], casts, 0.0)
+        self.assertEqual((got["cast_agent"], got["licence"]), ("Sage", "revive"))
+        casts["ult"] = [(9000.0, "Omen")]
         lost = Track("L", 1.0, 1.0, 0.0, "k", 0, "Sage", None, "round_start")
         lost.status, lost.t_conf = "lost", 18000.0
         got = _explain(20000.0, 0, 0, "Sage", "unexplained_teal", [lost], casts, 0.0)
         self.assertEqual(got["why"], "reacquired")
         got = _explain(40000.0, 0, 0, "Jett", "unexplained_teal", [], casts, 0.0)
         self.assertEqual(got["why"], "unexplained")
+
+    def test_teleport_agents_are_the_owners_confirmed_set(self):
+        # Waylay's Crosscut was a slip in the question: Crosscut is Veto's.
+        self.assertEqual(TELEPORT_AGENTS, ("Chamber", "Omen", "Phoenix", "Veto", "Yoru"))
 
 
 if __name__ == "__main__":

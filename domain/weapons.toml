@@ -36,6 +36,28 @@ kind = "rule"
 known = "player"
 since = "2026-09-24"
 
+[weapon-run-and-walk-speeds]
+claim = """
+Each weapon sets its own running and walking speed. The player expects the
+differences to matter little. The values are on the wiki and in the game
+files.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+source = """
+the player, 2026-10-04 (chat), answering which dashes join the teleport
+list: "There are also weapon-specific running and walking speeds that
+probably don't matter that much, but they are on the wiki and in the game
+files"
+"""
+use = """
+the run ceiling `minimap.RUN_PX` is one measured value for every weapon; the
+per-weapon values are being extracted from the game files into their own
+facts and are not recorded here
+"""
+see = ["weapons/per-weapon-properties"]
+
 [sheriff-shot-lingering-fade]
 claim = """
 A Sheriff shot has a fading tail that lingers well after the shot.

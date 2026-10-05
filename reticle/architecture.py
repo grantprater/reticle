@@ -45,6 +45,7 @@ churn on every edit and be maintained by nobody.
 from __future__ import annotations
 
 import ast
+import hashlib
 import tomllib
 from pathlib import Path
 
@@ -76,11 +77,43 @@ def modules(root: Path | None = None, package: str = "reticle") -> dict[str, Pat
     return out
 
 
-def _parse_source(path: Path) -> ast.Module | None:
-    try:
-        return ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-    except SyntaxError:
-        return None
+#: Per-file scan results, keyed on the scan, the file's bytes and the scan's
+#: arguments. `doctor` and the repository tests ask these questions of the
+#: same modules several times in one process, and parsing is the cost. Only
+#: the small results stay, never the trees, so a long process holds no ASTs
+#: for the collector to walk; an edited file has new bytes and a new key.
+_RESULTS: dict[tuple, list | set] = {}
+#: The last file parsed, so several scans of one file share one parse.
+_TREE: list[tuple[bytes, ast.Module | None]] = []
+
+
+def _memo(kind: str, path: Path, extra, compute):
+    """`compute(tree)` for the file at `path`, once per distinct content: a
+    fresh copy of the cached list or set. `tree` is None for a file that
+    does not parse."""
+    data = Path(path).read_bytes()
+    digest = hashlib.blake2b(data, digest_size=20).digest()
+    key = (kind, digest, extra)
+    if key not in _RESULTS:
+        if _TREE and _TREE[0][0] == digest:
+            tree = _TREE[0][1]
+        else:
+            # As `read_text` reads: replaced errors, universal newlines.
+            text = data.decode("utf-8", errors="replace")
+            text = text.replace("\r\n", "\n").replace("\r", "\n")
+            try:
+                tree = ast.parse(text)
+            except SyntaxError:
+                tree = None
+            _TREE[:] = [(digest, tree)]
+        _RESULTS[key] = compute(tree)
+    value = _RESULTS[key]
+    return type(value)(value)
+
+
+def _forget_tree() -> None:
+    """Drop the last parsed tree once a scan of every module is done."""
+    _TREE.clear()
 
 
 def sibling_imports(path: Path, package: str = "reticle",
@@ -98,9 +131,10 @@ def sibling_imports(path: Path, package: str = "reticle",
     means `adjudication.ability` and `from ..ability_timeline` means the
     top-level module of that name.
     """
-    tree = parsed if parsed is not None else _parse_source(path)
-    if tree is None:
-        return []
+    if parsed is None:
+        return _memo("sibling", path, (package, within), lambda tree: [] if tree is None
+                     else sibling_imports(path, package, within, tree))
+    tree = parsed
     out: list[tuple[str, int, bool]] = []
 
     here = f"{within}." if within else ""
@@ -148,11 +182,11 @@ def foreign_imports(path: Path, tree_name: str = "prototypes",
     check blind to it would bless the pattern that evades it. So a bare import
     of any name that is a module in the other tree counts.
     """
-    parsed = parsed if parsed is not None else _parse_source(path)
-    if parsed is None:
-        return []
     if stems is None:
         stems = frozenset(p.stem for p in (ROOT / tree_name).glob("*.py"))
+    if parsed is None:
+        return _memo("foreign", path, (tree_name, stems), lambda tree: [] if tree is None
+                     else foreign_imports(path, tree_name, stems, tree))
     out = []
     for node in ast.walk(parsed):
         if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
@@ -212,11 +246,11 @@ def foreign_loads(path: Path, tree_name: str = "prototypes",
     tree's module names. A path built from no string constant is beyond a
     static check.
     """
-    parsed = parsed if parsed is not None else _parse_source(path)
-    if parsed is None:
-        return []
     if stems is None:
         stems = frozenset(p.stem for p in (ROOT / tree_name).glob("*.py"))
+    if parsed is None:
+        return _memo("loads", path, (tree_name, stems), lambda tree: [] if tree is None
+                     else foreign_loads(path, tree_name, stems, tree))
 
     def path_part(text: str) -> bool:
         return tree_name in text.replace("\\", "/").split("/")
@@ -229,13 +263,14 @@ def foreign_loads(path: Path, tree_name: str = "prototypes",
         if isinstance(node, ast.Call):
             func = node.func
             args = list(node.args) + [k.value for k in node.keywords]
-            texts = [t for a in args for t in _strings(a)]
             if (isinstance(func, ast.Attribute) and _is_sys_path(func.value)
                     and func.attr in _PATH_MUTATORS):
+                texts = [t for a in args for t in _strings(a)]
                 hit = [t for t in texts if path_part(t)]
                 if hit:
                     out.append((f"sys.path.{func.attr}({hit[0]!r})", node.lineno))
             elif _callee(func) in _LOADERS:
+                texts = [t for a in args for t in _strings(a)]
                 hit = [t for t in texts if names_tree(t)]
                 if hit:
                     out.append((f"{_callee(func)}({hit[0]!r})", node.lineno))
@@ -286,7 +321,16 @@ def verify(data: dict | None = None,
     order, index = data["_order"], data["_index"]
     paths = modules(base)
     present = set(paths)
-    parsed = {module: _parse_source(path) for module, path in paths.items()}
+    # Resolve the other tree's module names against the root being VERIFIED,
+    # not the module's own. Passing a root and then reading the real repo made
+    # the bare-import case pass vacuously under test.
+    stems = frozenset(p.stem for p in (base / "prototypes").glob("*.py"))
+    # Both scans of a module in one pass, so they share its parse.
+    siblings, crossings_of = {}, {}
+    for module in sorted(present):
+        siblings[module] = sibling_imports(paths[module], within=module.rpartition(".")[0])
+        crossings_of[module] = foreign_imports(paths[module], stems=stems)
+    _forget_tree()
     out: list[tuple[str, str]] = []
 
     for module in data["_duplicated"]:
@@ -301,9 +345,7 @@ def verify(data: dict | None = None,
     blessed = _blessed(data)
     used: set[tuple[str, str]] = set()
     for module in sorted(present & set(index)):
-        within = module.rpartition(".")[0]
-        for target, line, deferred in sibling_imports(
-                paths[module], within=within, parsed=parsed[module]):
+        for target, line, deferred in siblings[module]:
             if target == module or target not in index:
                 continue
             if index[target] <= index[module]:
@@ -333,19 +375,15 @@ def verify(data: dict | None = None,
     auditors = set(trees.get("auditor", []))
     allowed = set(trees.get("allow", []))
     seen_allowed: set[str] = set()
-    # Resolve the other tree's module names against the root being VERIFIED,
-    # not the module's own. Passing a root and then reading the real repo made
-    # the bare-import case pass vacuously under test.
-    stems = frozenset(p.stem for p in (base / "prototypes").glob("*.py"))
     for module in sorted(present):
-        crossings = foreign_imports(paths[module], stems=stems, parsed=parsed[module])
+        crossings = crossings_of[module]
         if not crossings:
             continue
         file = f"reticle/{module.replace('.', '/')}.py"
         if module in auditors:
             seen_allowed.add(module)
             continue
-        loads = foreign_loads(paths[module], stems=stems, parsed=parsed[module])
+        loads = foreign_loads(paths[module], stems=stems)
         if loads:
             # A path change or a load by string is never allowed: it makes
             # every later bare import resolve into the other tree.
@@ -391,9 +429,10 @@ def consumer_uses(path: Path, parsed: ast.Module | None = None, *,
     directory -- `/ "events"`, a join over `"events"`, or a literal starting
     `events/`. Docstrings are prose, not paths, and are skipped.
     """
-    tree = parsed if parsed is not None else _parse_source(path)
-    if tree is None:
-        return []
+    if parsed is None:
+        return _memo("consumer", path, (calls, imports), lambda tree: [] if tree is None
+                     else consumer_uses(path, tree, calls=calls, imports=imports))
+    tree = parsed
     docstrings = {id(n.value) for n in ast.walk(tree)
                   if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)}
     out: list[tuple[str, int]] = []
@@ -429,9 +468,10 @@ def consumer_uses(path: Path, parsed: ast.Module | None = None, *,
 
 def ledger_calls(path: Path, parsed: ast.Module | None = None) -> list[int]:
     """Line numbers of every call to `ledger`, by attribute or by name."""
-    tree = parsed if parsed is not None else _parse_source(path)
-    if tree is None:
-        return []
+    if parsed is None:
+        return _memo("ledger", path, None, lambda tree: [] if tree is None
+                     else ledger_calls(path, tree))
+    tree = parsed
     return sorted(node.lineno for node in ast.walk(tree)
                   if isinstance(node, ast.Call) and (
                       (isinstance(node.func, ast.Attribute) and node.func.attr == "ledger")
@@ -490,13 +530,12 @@ def verify_consumers(data: dict | None = None,
         path = paths.get(module)
         if path is None:
             continue
-        parsed = _parse_source(path)
         within = module.rpartition(".")[0]
         found: list[tuple[str, int]] = []
-        for target, line, _deferred in sibling_imports(path, within=within, parsed=parsed):
+        for target, line, _deferred in sibling_imports(path, within=within):
             if target != through and target in index and order[index[target]] in forbidden:
                 found.append((f"import:{target}", line))
-        found += consumer_uses(path, parsed, calls=calls, imports=foreign)
+        found += consumer_uses(path, calls=calls, imports=foreign)
         for use, line in sorted(set(found), key=lambda u: (u[1], u[0])):
             ex = exemptions.get((module, use))
             if ex is not None:
@@ -519,6 +558,7 @@ def verify_consumers(data: dict | None = None,
         for line in ledger_calls(path):
             out.append(("ERROR", f"`{module}` calls `ledger` at line {line} and is "
                                  f"not in the [consumers] review list"))
+    _forget_tree()
     return out
 
 

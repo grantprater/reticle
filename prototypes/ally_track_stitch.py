@@ -213,14 +213,6 @@ def diagnose(sids) -> dict:
 
 # ---------------------------------------------------------------- step 2
 
-def motion_for(agent: str) -> track.Motion:
-    """The `track.CLASSES` walker class whose note names the agent."""
-    for name in ("walker_teleport", "walker_dash"):
-        if agent and agent.lower() in track.CLASSES[name].note.lower():
-            return track.CLASSES[name]
-    return track.CLASSES["walker"]
-
-
 def compatible(piece_obs, track_obs, motion, scale, sep):
     """(kind, why): kind is 'join', 'duplicate' or None (excluded)."""
     tol = track.association_tolerance(scale)
@@ -270,7 +262,7 @@ def stitch_round(d: dict, ps: list[dict]) -> dict:
             best = max(E.values()) if E else 0.0
             kin, why = {}, {}
             for a in d["names"]:
-                k, w = compatible(p["obs"], tobs[a], motion_for(a), d["scale"], sep)
+                k, w = compatible(p["obs"], tobs[a], track.motion_for(a), d["scale"], sep)
                 why[a] = w
                 if k:
                     kin[a] = k

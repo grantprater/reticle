@@ -1,6 +1,7 @@
 """The round viewer consumes stored events only, and decides nothing."""
 import ast
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -85,18 +86,38 @@ ROUND = {"round_no": 1, "t_start_ms": 0.0, "t_close_ms": 65000.0}
 class Loader(unittest.TestCase):
     """The lanes of `test_entity_events`' store, projected, then loaded."""
 
-    def setUp(self):
+    #: Tests that change the store: each gets a private copy of it.
+    WRITES = {"test_absent_stream_and_unprojected_lane_are_named_not_empty",
+              "test_a_stale_lane_is_drawn_and_says_so",
+              "test_marks_cite_the_nearest_stored_event_and_are_never_seeded"}
+
+    @classmethod
+    def setUpClass(cls):
         from reticle import entity_events as ee
-        self.tmp = tempfile.TemporaryDirectory()
-        self.store = build_store(Path(self.tmp.name))
+        cls.shared = tempfile.TemporaryDirectory()
+        cls.shared_store = build_store(Path(cls.shared.name))
         for lane in ee.PROJECTED:
-            ee.project_lane(self.store, SID, lane, stale={})
-        _write(self.store, "ping", SID, [
+            ee.project_lane(cls.shared_store, SID, lane, stale={})
+        _write(cls.shared_store, "ping", SID, [
             {"kind": "danger", "t_ms": 1200, "x": 5, "y": 6, "lifetime_s": 2.0,
              "ping_version": "ping-9"}])
 
+    @classmethod
+    def tearDownClass(cls):
+        cls.shared.cleanup()
+
+    def setUp(self):
+        if self._testMethodName in self.WRITES:
+            self.tmp = tempfile.TemporaryDirectory()
+            shutil.copytree(self.shared.name, self.tmp.name, dirs_exist_ok=True)
+            self.store = Store(Path(self.tmp.name))
+        else:
+            self.tmp = None
+            self.store = self.shared_store
+
     def tearDown(self):
-        self.tmp.cleanup()
+        if self.tmp is not None:
+            self.tmp.cleanup()
 
     def load(self):
         return ve.load(self.store, self.store.read_manifest(SID), 0.0, 65000.0, ROUND)
