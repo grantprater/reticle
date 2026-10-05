@@ -33,10 +33,11 @@ wins, each row's line cited, each answer a domain fact, `ANSWER_FACTS`:
 [domain:abilities/killjoy-alarmbot-minimap-glyph-turns] [domain:abilities/deadlock-sonic-sensor-square-follows-wall]
 [domain:abilities/deadlock-gravnet-minimap-glyph-upright] [domain:abilities/reyna-leer-minimap-glyph-upright]
 [domain:abilities/skye-guiding-light-minimap-glyph-upright] [domain:abilities/skye-trailblazer-minimap-glyph-upright]
-[domain:abilities/sova-owl-drone-minimap-glyph-upright], and from the table after 0.1.1
-[domain:abilities/skye-seekers-minimap-glyph-turns-belief] [domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief],
-the player's beliefs); Deadlock:Q, "normal to the wall", is
-searched at every rotation because no sonic-square wall fit is in master; an unsure answer (Cypher:C; Skye:X until 0.1.1) is
+[domain:abilities/sova-owl-drone-minimap-glyph-upright], and from 0.1.2
+[domain:abilities/skye-seekers-minimap-glyph-turns-belief] [domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief]
+[domain:abilities/cypher-trapwire-minimap-glyph-turns-belief]); Deadlock:Q, "normal to the wall", is
+searched at every rotation because no sonic-square wall fit is in master; an unsure answer (none from 0.1.2;
+Cypher:C and Skye:X until 0.1.1) is
 searched at every rotation with the reason `unsure_pending_player`; every other key follows the two-flag rule
 (`glyph_channel_cost.rule_verdict` over the raw export's minimap components, `rule_per_key`): upright when every
 component reads upright; every rotation when any component turns, the components disagree (`mixed`) or a
@@ -117,9 +118,10 @@ ANSWER_FACTS = {"Cypher:E": "abilities/cypher-spycam-minimap-glyph-turns",
                 "Skye:E": "abilities/skye-guiding-light-minimap-glyph-upright",
                 "Skye:Q": "abilities/skye-trailblazer-minimap-glyph-upright",
                 "Sova:C": "abilities/sova-owl-drone-minimap-glyph-upright",
-                # Answered 2026-10-05 (answers.jsonl#L472, L473); the next table version reads them.
+                # Answered 2026-10-05 (answers.jsonl#L472, L473, L474); glyph-rotation-policy-0.1.2 reads them.
                 "Skye:X": "abilities/skye-seekers-minimap-glyph-turns-belief",
-                "Cypher:Q": "abilities/cypher-cyber-cage-minimap-glyph-turns-belief"}
+                "Cypher:Q": "abilities/cypher-cyber-cage-minimap-glyph-turns-belief",
+                "Cypher:C": "abilities/cypher-trapwire-minimap-glyph-turns-belief"}
 WALL_NORMAL = "normal to the wall"
 TABLES = (f"{POLICY_VERSION}.json", f"{NULL_VERSION}.json")
 

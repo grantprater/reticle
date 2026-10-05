@@ -2100,8 +2100,8 @@ labels/minimap_glyph_questions/answers.jsonl#L472, row rotation:Skye:X,
 answer rotates, revising the unsure row at L354
 """
 use = """
-the next glyph rotation policy table after glyph-rotation-policy-0.1.1
-(prototypes/glyph_tables.py) searches Skye:X at every rotation, decided by
+glyph-rotation-policy-0.1.2 (prototypes/glyph_tables.py), the table after
+0.1.1, searches Skye:X at every rotation, decided by
 this answer; the two-flag rule reads upright, so the row stores a surprise
 """
 see = ["abilities/ability-rules-are-unique"]
@@ -2122,16 +2122,40 @@ labels/minimap_glyph_questions/answers.jsonl#L473, row rotation:Cypher:Q,
 answer rotates
 """
 use = """
-the next glyph rotation policy table after glyph-rotation-policy-0.1.1
+glyph-rotation-policy-0.1.2, the table after glyph-rotation-policy-0.1.1,
 searches Cypher:Q at every rotation, decided by this answer; 0.1.1 searched
 it upright by default (no minimap component draws it)
 """
 exceptions = """
 the question named Cyber Cage (Cypher:Q). It does not answer the unsure
-rotation row for Trapwire (Cypher:C, answers.jsonl#L346), which stays
-pending
+rotation row for Trapwire (Cypher:C, answers.jsonl#L346); the player
+answered that row later the same day
+[domain:abilities/cypher-trapwire-minimap-glyph-turns-belief]
 """
-see = ["abilities/ability-rules-are-unique"]
+see = ["abilities/ability-rules-are-unique", "abilities/cypher-trapwire-minimap-glyph-turns-belief"]
+
+[cypher-trapwire-minimap-glyph-turns-belief]
+claim = """
+The player says Cypher's Trapwire icon on the minimap turns with the
+direction the wire is placed: its glyph is not drawn upright.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-05"
+subject = "cypher:trapwire"
+source = """
+the player, 2026-10-05 (chat), answered without a hedge; recorded as
+labels/minimap_glyph_questions/answers.jsonl#L474, row rotation:Cypher:C,
+answer rotates, revising the unsure row at L346. The Cyber Cage answer
+[domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief] left this
+row pending; the id keeps the -belief form of its sibling
+"""
+use = """
+glyph-rotation-policy-0.1.2 (prototypes/glyph_tables.py) searches Cypher:C
+at every rotation, decided by this answer; 0.1.1 searched it at every
+rotation as unsure_pending_player, so its search size does not change
+"""
+see = ["abilities/ability-rules-are-unique", "abilities/cypher-cyber-cage-minimap-glyph-turns-belief"]
 
 [piloted-drones-have-cones]
 claim = """
