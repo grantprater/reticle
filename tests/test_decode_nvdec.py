@@ -56,40 +56,49 @@ def _clip(directory: str) -> str | None:
 class NvdecExactnessTests(unittest.TestCase):
     """Frames, indices and timestamps match OpenCV's, where NVDEC exists."""
 
+    @classmethod
+    def setUpClass(cls):
+        # One encode serves both tests, which only read the clip; launching
+        # ffmpeg alone costs most of a second here.
+        cls._dir = tempfile.TemporaryDirectory()
+        cls.clip = _clip(cls._dir.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._dir.cleanup()
+
     def test_sample_multi_is_byte_identical_to_opencv(self):
-        with tempfile.TemporaryDirectory() as d:
-            clip = _clip(d)
-            if clip is None:
-                self.skipTest("ffmpeg with libx264 unavailable")
-            try:
-                decode._NvdecCapture(clip).release()
-            except Exception as exc:  # no CUDA device or PyAV without CUDA
-                self.skipTest(f"NVDEC unavailable: {exc}")
-            req = {"a": (7.0, None), "b": (30.0, [(300.0, 900.0)])}
-            runs = {}
-            for mode in ("cpu", "nvdec"):
-                with patch.dict(os.environ, {"RETICLE_DECODE": mode}):
-                    runs[mode] = [(who, s.frame_idx, s.t_ms, s.frame.tobytes())
-                                  for who, s in decode.sample_multi(clip, 60.0, req)]
-            self.assertGreater(len(runs["cpu"]), 20)
-            self.assertEqual(runs["cpu"], runs["nvdec"])
+        clip = self.clip
+        if clip is None:
+            self.skipTest("ffmpeg with libx264 unavailable")
+        try:
+            decode._NvdecCapture(clip).release()
+        except Exception as exc:  # no CUDA device or PyAV without CUDA
+            self.skipTest(f"NVDEC unavailable: {exc}")
+        req = {"a": (7.0, None), "b": (30.0, [(300.0, 900.0)])}
+        runs = {}
+        for mode in ("cpu", "nvdec"):
+            with patch.dict(os.environ, {"RETICLE_DECODE": mode}):
+                runs[mode] = [(who, s.frame_idx, s.t_ms, s.frame.tobytes())
+                              for who, s in decode.sample_multi(clip, 60.0, req)]
+        self.assertGreater(len(runs["cpu"]), 20)
+        self.assertEqual(runs["cpu"], runs["nvdec"])
 
     def test_release_mid_stream_stops_the_decoder(self):
-        with tempfile.TemporaryDirectory() as d:
-            clip = _clip(d)
-            if clip is None:
-                self.skipTest("ffmpeg with libx264 unavailable")
-            try:
-                cap = decode._NvdecCapture(clip)
-            except Exception as exc:
-                self.skipTest(f"NVDEC unavailable: {exc}")
-            self.assertTrue(cap.grab())
-            ok, frame = cap.retrieve()
-            self.assertTrue(ok)
-            self.assertEqual(frame.shape, (240, 320, 3))
-            self.assertTrue(frame.flags.writeable)
-            cap.release()
-            self.assertIsNone(cap._thread)
+        clip = self.clip
+        if clip is None:
+            self.skipTest("ffmpeg with libx264 unavailable")
+        try:
+            cap = decode._NvdecCapture(clip)
+        except Exception as exc:
+            self.skipTest(f"NVDEC unavailable: {exc}")
+        self.assertTrue(cap.grab())
+        ok, frame = cap.retrieve()
+        self.assertTrue(ok)
+        self.assertEqual(frame.shape, (240, 320, 3))
+        self.assertTrue(frame.flags.writeable)
+        cap.release()
+        self.assertIsNone(cap._thread)
 
 
 if __name__ == "__main__":

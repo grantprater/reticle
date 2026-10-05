@@ -292,6 +292,8 @@ class ShardTests(unittest.TestCase):
                          [("cands#0", 5), ("cands#1", 4)])
         self.assertTrue(all(u["max_queued"] is not None for u in got.units))
 
+    # The revision is git's answer, two subprocesses; this test never reads it.
+    @patch("reticle.usage.code_revision", lambda root=None: {"sha": "0000000", "dirty": False})
     def test_shards_share_their_readers_usage(self):
         manifest = {"session_id": "s", "source": {"content_key": "k"}}
         staged = Candidates()

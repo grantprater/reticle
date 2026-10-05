@@ -81,6 +81,7 @@ class MotionClass(str, Enum):
     WALKER = "walker"
     WALKER_DASH = "walker_dash"
     WALKER_TELEPORT = "walker_teleport"
+    WALKER_SPEED = "walker_speed"
     PILOTED = "piloted"
     FIXED_ROTATOR = "fixed_rotator"
     STATIC = "static"

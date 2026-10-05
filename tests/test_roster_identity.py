@@ -3,7 +3,8 @@ import unittest
 
 import numpy as np
 
-from prototypes.roster_identity import assign_alive, shrink_events
+from prototypes.roster_identity import assign_alive
+from reticle.adjudication.death import shrink_events
 from reticle.roster import N_SLOTS
 
 #: Five agents, five orthogonal one-hot "compositions". Orthogonal so the
