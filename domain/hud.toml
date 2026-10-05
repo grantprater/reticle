@@ -294,6 +294,82 @@ it joins the tray's fixed ROI in the shared decode pass
 see = ["hud/ability-tray-charge-segments", "hud/tray-slot-icons",
        "abilities/deployed-pickup-returns-charge", "abilities/recharge-kinds"]
 
+[ability-tray-restocked-charge-gold]
+claim = """
+On Sova's Recon Bolt (slot E) and Skye's Guiding Light (slot E), a charge that
+comes back by itself after a spend, about 50 s later, is drawn as a pale gold
+(cream) bar segment, not the teal of a charge held from the buy phase. A
+Guiding Light bar can show one teal and one gold segment at once. Skye's
+Regrowth (slot C) bar was also seen gold: teal at 1963.0 s and gold at
+2012.5 s on bfad2778a372, and gold at 396.1 s on e37fdeca944f.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+subject = "hud:ability tray"
+source = """
+hand reads of the stored hud_abilities crops (roi_cache, no decode) at the
+restock measurement's spends (prototypes/restock_measure.py, CROP_READS):
+Recon Bolt gold at 9acf02f98283 1902.0 s, 59c70f1ef720 1322.0 s and
+043bafca271a 1062.0 s; Guiding Light gold at bfad2778a372 2012.5 s,
+c62c2b06bcfb 514.0 s and 1291.6 s. In Lab the gold segment's median is about
+(91, -2, 26) against the teal's (91, -56, 22), on seven sessions
+(`tray.SEG_LAB`)
+"""
+use = """
+the tray reader classes each bar half as teal, gold, empty or unreadable
+(`tray.segment_classes`), and the state model counts a gold half as a charge
+and calls a live-phase rise that adds one a live return
+(`adjudication.ability_state`)
+"""
+exceptions = """
+read by hand on these three abilities only. The tray reader's half classes
+also find gold on other kits' slot E (a06f04a0059f 121.0 s beside a teal
+half and 342.0 s; bdfdcf009dba 319.5 s beside a running '35' countdown and
+585.0 s; 3694746e4e54 1563.5 s), some of them spectated kits; which ability,
+whose and what returned them were not checked, and nothing here says how any
+other ability draws a returned charge [domain:abilities/ability-rules-are-unique]. What gold
+means beyond "came back during the round", why Regrowth turned gold, and when
+a gold segment turns teal again are the player's to answer; none is inferred
+here
+"""
+see = ["hud/ability-tray-charge-segments", "hud/ability-tray-restock-countdown",
+       "abilities/sova-recon-bolt-restock-observed",
+       "abilities/skye-guiding-light-restock-observed"]
+
+[ability-tray-restock-countdown]
+claim = """
+After a Sova Recon Bolt or Skye Guiding Light spend, the tray draws a white
+numeral above the right of the slot's icon that counts down to the charge's
+return: '50' on the sample of the spend, whole seconds above one second and
+tenths below (for example '10', '1', '0.4'), until the returned charge's gold
+segment appears.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+subject = "hud:ability tray"
+source = """
+hand reads of the stored hud_abilities crops (roi_cache, no decode):
+9acf02f98283 '50' at 1851.0 s, '10' at 1891.0 s, '1' at 1900.0 s;
+043bafca271a '50' at 1011.5 s, '0.4' at 1061.0 s; bfad2778a372 '50' at
+1963.0 s; c62c2b06bcfb '0.6' at 512.5 s, '0.7' at 1290.7 s, '0.1' at
+1291.2 s. The numeral sits about 1042-1060 px across and 978-992 px down
+for slot E at 1920x1080, its centre about 35 px right of the slot's
+"""
+use = """
+a reader of the numeral would date a return to the tenth of a second; none
+exists yet (the tray's half classes date it to the 0.5 s sample)
+"""
+exceptions = """
+observed on these two abilities only [domain:abilities/ability-rules-are-unique].
+Over Skye's Q a numeral also shows that was not seen counting down ('100'
+and '30' on bfad2778a372 at 1963.0 and 2014.0 s, '26' at both 396.1 and
+396.6 s on e37fdeca944f), placed further right of its slot (centre about
+58 px); what it counts is unasked
+"""
+see = ["hud/ability-tray-cooling-charge-timer", "hud/ability-tray-restocked-charge-gold"]
+
 [scoreboard-strip-updates-next-round]
 claim = """
 The history strip, its round-in-play triangles included, redraws a decided

@@ -461,6 +461,7 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_WEAPON_VERSION
     from .killfeed_assist import ICON_BUILD
     from .lighting import LIGHTING_VERSION
+    from .version import TRAY_SEGMENT_VERSION
     from .roi_cache import ROI_CACHE_VERSION
     from .ability_candidates import values_digest
     from .version import (ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION,
@@ -549,6 +550,8 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                           "round": _in("inputs.round", "rounds"),
                           "catalogue": _in("inputs.catalogue", "catalogue"),
                           "tray_fill": _code("inputs.tray_fill", TRAY_VERSION),
+                          # The bar's half classes it rereads beside the fills.
+                          "tray_segment": _code("inputs.tray_segment", TRAY_SEGMENT_VERSION),
                           "roi_cache": _code("inputs.roi_cache", ROI_CACHE_VERSION),
                           "agent_identity": _code("inputs.agent_identity", AGENT_IDENTITY_VERSION),
                           # The audio witness (`audio_cast_witness`): its rule,
@@ -1085,7 +1088,8 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
     from .version import (ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
                           COMBAT_REPORT_ROUND_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
                           ROUND_VERSION, SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION,
-                          SPIKE_VERSION, TEARDROP_VERSION, TRAY_VERSION, ULT_LINE_VERSION)
+                          SPIKE_VERSION, TEARDROP_VERSION, TRAY_SEGMENT_VERSION, TRAY_VERSION,
+                          ULT_LINE_VERSION)
     gate = {"player_cast": ("player_cast_version", PLAYER_CAST_VERSION)}
     tray = {"tray_drop": ("tray_version", TRAY_VERSION)}
     roi = {"roi_cache": ("roi_cache_version", ROI_CACHE_VERSION)}
@@ -1110,7 +1114,8 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
     return {
         "death": {k: ("inputs." + k, v) for k, v in death.items()},
         "ult_cast": {k: ("inputs." + k, v) for k, v in ult.items()},
-        "tray_drop": gate,
+        # The stream's `segments` rows carry the half classes' own stamp.
+        "tray_drop": {**gate, "tray_segment": ("tray_segment_version", TRAY_SEGMENT_VERSION)},
         "ability_shape": {**gate, **tray},
         "scoreboard_strip": roi,
         "scoreboard_presence": {"scoreboard_strip": ("scoreboard_strip_version",
