@@ -619,7 +619,19 @@ ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
 # SAME_R no longer gates (it is the followed icon), the ring to OCC_R does;
 # field `portrait` (a reason, or "no_vision_row") replaces `icon`, reasons
 # `self_portrait`, `ally_portrait`, `ally_stack` replace `on_ally_icon`.
-ABILITY_GLYPH_VERSION = "ability-glyph-0.3.0"
+# 0.4.0 (2026-10-05): the matcher and every px x scale length read
+# `geometry.MapScale.scale` (widget x map zoom), the null table's new basis
+# (`glyph-null-table-0.2.0`); a frame without a MapScale is `no_map_scale`, a
+# crop whose width is not the key's widget is `geometry_size_mismatch`; the
+# `map_shown` gate (a disc that shows the baked map art under it, field
+# `map_shown`); audit rows store the full-rotation cuts (`best_cut`,
+# `bank_cut`, `above_bank_cut`), surprise rows the full bank's cut.
+# 0.5.0 (2026-10-05): `map_shown` reads the disc's body, the matcher disc
+# united with the proposer's disc of radius r, so an icon's dark rim enters
+# (0.4.0 refused four opaque icons whose footprint part fell on the white
+# glyph); the cut stays 0.73. The per-disc gate decision moves to
+# `minimap_glyph.disc_gates`; the head counts footprint size mismatches.
+ABILITY_GLYPH_VERSION = "ability-glyph-0.5.0"
 # The ability tray's charge drops, written as `tray_drop` rows by `reticle
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own

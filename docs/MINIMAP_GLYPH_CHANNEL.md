@@ -848,16 +848,164 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
 3. **Tracks, verdict, per-ability rules and claims** from storage; gates 4
    and 6. The ability pass first runs on the 21 matches in one batched
    corpus rerun; today `ability_icon` exists on five sessions only.
-   Prerequisites, from stage 2's review:
-   - **A null at the full transform.** The scale exception's falsifier
-     fired (F4, above): the null table is remeasured at widget x zoom under
-     a new table version, and the reader moves to `geometry.MapScale.scale`,
-     before any verdict is read on a session away from the dev zooms.
-   - **The void-corner disc.** The reader still scores the disc at
-     (21, 91) on 4f207c0c4e39, the void beside the radar ring at the
-     variant widget's corner (stage 2's 0.3.0 revision). The null table's
-     negatives hold no such disc; stage 3 adds them to the null, or finds a
-     second channel that refuses them, before a track there can name.
+   Prerequisites, from stage 2's review (2026-10-05, branch
+   `glyph-prereqs-20261005`: `glyph-tables-0.2.0`, `glyph-null-table-0.2.0`
+   and `glyph-bank-0.3.0` in the store's `analysis/glyph-tables-20261005c`
+   and `analysis/glyph-bank-20261005c`, `ability-glyph-0.5.0`; prediction,
+   amendment, correction and outcome rows `glyph-prereqs-20261005` and
+   `glyph-prereqs-fix-20261005` in `notes/predictions.jsonl`):
+   - **A null at the full transform. Met.** The null table scores every
+     dev disc at `geometry.MapScale.scale` (widget x map zoom; the table's
+     `basis` map_scale) and the reader reads the same scale, so no session
+     needs a null at its own zoom. S1 names
+     [metric:glyph_tables/build_020#s1_single_policy=58] of
+     [metric:glyph_tables/build_020#dev_n=59] at the full transform (the
+     widget basis still reproduces stage 1's
+     [metric:glyph_tables/build_020#s1_single_policy_widget=58]); the median
+     key's cut moved [metric:glyph_tables/build_020#cut_move_median_abs=0.0152].
+     R1: the reader's matcher (unchanged since 0.4.0) equals the
+     prototype's at that scale
+     ([metric:glyph_reader/r1_040#max_abs_diff_cpu=0.0] on the dev windows,
+     S1 [metric:glyph_reader/r1_040#s1_reader=58]); R2: on 200 trial rows per
+     session within
+     [metric:glyph_reader/trial_050@4f207c0c4e39#r2_max_abs_diff=5.0e-05],
+     the best key on every row. F4 again, the 0.5.0 rows against 0.3.0's on
+     the same discs: at zoom 0.892 (4f207c0c4e39) the best key agrees on
+     [metric:glyph_reader/trial_050@4f207c0c4e39#f4_best_agree_share=0.6915]
+     and the cut decision on
+     [metric:glyph_reader/trial_050@4f207c0c4e39#f4_cut_agree_share=0.883];
+     at zoom 1.0 the best key on every row and the cut decision on
+     [metric:glyph_reader/trial_050@a06f04a0059f#f4_cut_agree_share=0.995]
+     (a06f04a0059f) and
+     [metric:glyph_reader/trial_050@5822b6646448#f4_cut_agree_share=0.995]
+     (5822b6646448). The prediction put 4f207c0c4e39's agreement at 75-90%
+     from stage 2's F4; it failed low, and the cause is the sample: stage
+     2's 200 rows held
+     [metric:glyph_reader/f4_sample@4f207c0c4e39#corner_rows=48] corner rows
+     that all agree, and its
+     [metric:glyph_reader/f4_sample@4f207c0c4e39#off_corner_rows=152] other
+     rows agree on
+     [metric:glyph_reader/f4_sample@4f207c0c4e39#off_corner_best_agree_share=0.7434];
+     the gated corner never enters the new sample.
+   - **Gate 3's unlabelled discs. Not met.** The null takes a proposer disc
+     no label names only from a frame the player painted exhaustively
+     (`labels/ability_paint`: the latest row per time is `exhaustive` and
+     sure), where no other icon is drawn, and only where the reader's own
+     gate decision (`minimap_glyph.disc_gates`) keeps it.
+     The [metric:glyph_tables/build_020#unlabelled_frames=12] such frames of
+     d95cfad5693a hold
+     [metric:glyph_tables/build_020#unlabelled_discs=46] proposer discs:
+     [metric:glyph_tables/build_020#unlabelled_near_label=38] lie at a
+     painted icon or labelled item and the other
+     [metric:glyph_tables/build_020#unlabelled_static_like=8] are static
+     structure the reader gates, so
+     [metric:glyph_tables/build_020#unlabelled_negatives_n=0] enter.
+     dae6f33f3f48 has no exhaustive frame, and nothing else vouches that an
+     unlabelled disc there is no ability. More exhaustive dev frames are
+     the way to meet it.
+   - **An audit null. Met.** Every key at every rotation on the same dev
+     discs: each key's `audit_cut` (median
+     [metric:glyph_tables/build_020#audit_median_key_cut=0.6675] against
+     [metric:glyph_tables/build_020#policy_median_key_cut=0.5553] at the
+     policy) and the audit bank cut
+     [metric:glyph_tables/build_020#audit_bank_cut=0.8608] (rate
+     [metric:glyph_tables/build_020#audit_bank_rate=0.0476]). Audit rows now
+     store both (`best_cut`, `bank_cut`). In the trials, every audit window
+     whose best key clears the audit bank cut has that key inside the
+     lineup's kits ([metric:glyph_reader/trial_050@4f207c0c4e39#c2_best_in_context=8]
+     of [metric:glyph_reader/trial_050@4f207c0c4e39#c2_cleared=8],
+     [metric:glyph_reader/trial_050@a06f04a0059f#c2_best_in_context=15] of
+     [metric:glyph_reader/trial_050@a06f04a0059f#c2_cleared=15],
+     [metric:glyph_reader/trial_050@5822b6646448#c2_best_in_context=22] of
+     [metric:glyph_reader/trial_050@5822b6646448#c2_cleared=22]).
+   - **The void-corner disc. Met, with a stated cost.** The `map_shown`
+     gate (`reticle/minimap_glyph.py`, MAP_SHOWN): a drawn icon is an
+     opaque dark disc that hides the map art under it, so over the disc's
+     body on the footprint the crop's 10th-percentile luma over the baked
+     static's reads far under 1 on an icon and near 1 on static structure.
+     What was blind and what was not: the cut 0.73 and the percentile were
+     chosen on dev only, at the midpoint of the
+     [metric:glyph_tables/map_shown_dev#n_glyph=59] dev glyph items'
+     maximum ([metric:glyph_tables/map_shown_dev#glyph_q10_min=0.1406] to
+     [metric:glyph_tables/map_shown_dev#glyph_q10_max=0.4872]) and the
+     [metric:glyph_tables/map_shown_dev#n_static=8] static dev discs'
+     minimum ([metric:glyph_tables/map_shown_dev#static_q10_min=0.9744] to
+     [metric:glyph_tables/map_shown_dev#static_q10_max=1.0598]). The rule
+     family (judge the footprint part, never gate on footprint share) and
+     the footprint floor MAP_SHOWN_MIN_FP 0.1 were chosen knowing the
+     corner's footprint share (about 0.2) and that 9 of 226 held-out marks
+     sit under half on the footprint; dev alone does not choose the floor
+     (dev glyph items lie
+     [metric:glyph_tables/map_shown_dev#glyph_fp_share_min=0.899] or more on
+     the footprint, the static discs
+     [metric:glyph_tables/map_shown_dev#static_fp_share_min=0.427] to
+     [metric:glyph_tables/map_shown_dev#static_fp_share_max=0.483]).
+     At 0.4.0 the score read the matcher disc alone, which excludes an
+     icon's dark rim: where the footprint part fell on the white glyph it
+     read bright, and the gate refused
+     [metric:glyph_reader/strong_040@4f207c0c4e39#map_shown_gated=4] of
+     [metric:glyph_reader/strong_040@4f207c0c4e39#strong_rows=226]
+     off-corner rows 0.3.0 scored at 0.85 or more on 4f207c0c4e39, four
+     opaque icons with a white ring glyph, and
+     [metric:glyph_reader/strong_040@5822b6646448#map_shown_gated=4] of
+     [metric:glyph_reader/strong_040@5822b6646448#strong_rows=2881] on
+     5822b6646448 (a translucent grey disc). 0.5.0 reads the body, the
+     matcher disc united with the proposer's disc of radius r, so the rim
+     enters; on dev the cut stays at the midpoint (glyph items
+     [metric:glyph_tables/map_shown_dev#glyph_body_max=0.4872] at most,
+     static discs [metric:glyph_tables/map_shown_dev#static_body_min=0.9744]
+     at least), frozen before any 0.5.0 trial row was read; the family
+     itself was informed by the four 4f207c0c4e39 rows. On 4f207c0c4e39 it
+     removes all
+     [metric:glyph_reader/trial_050@4f207c0c4e39#corner_scored_before=574]
+     scored corner rows (now
+     [metric:glyph_reader/trial_050@4f207c0c4e39#corner_scored=0]) and their
+     [metric:glyph_reader/trial_050@4f207c0c4e39#corner_births_before=237]
+     births, and scores all
+     [metric:glyph_reader/trial_050@4f207c0c4e39#four_scored=4] icons the
+     0.4.0 score refused; births fell from
+     [metric:glyph_reader/trial_050@4f207c0c4e39#births_before=844] to
+     [metric:glyph_reader/trial_050@4f207c0c4e39#births=507]. One tile per
+     gated position cluster, viewed: every one is map structure (wall
+     notches, building corners, the void corner). Strong rows refused:
+     [metric:glyph_reader/trial_050@4f207c0c4e39#strong_map_shown=0],
+     [metric:glyph_reader/trial_050@5822b6646448#strong_map_shown=0] and
+     [metric:glyph_reader/trial_050@a06f04a0059f#strong_map_shown=0]. The
+     cost that remains: on 5822b6646448 it gates
+     [metric:glyph_reader/trial_050@5822b6646448#map_shown_rows=1] row, a
+     dark disc with a white glyph whose proposer disc sits on the glyph off
+     the icon's centre, so the body misses most of the rim; a translucent
+     icon still breaks the premise in principle. The margin under the cut
+     on scored rows: on 4f207c0c4e39 the median
+     [metric:glyph_reader/trial_050@4f207c0c4e39#scored_map_shown_q50=0.4872],
+     the 99th percentile
+     [metric:glyph_reader/trial_050@4f207c0c4e39#scored_map_shown_q99=0.547],
+     the maximum
+     [metric:glyph_reader/trial_050@4f207c0c4e39#scored_map_shown_max=0.6579],
+     and [metric:glyph_reader/trial_050@4f207c0c4e39#scored_map_shown_060_cut=6]
+     rows between 0.6 and the cut; the maximum on 5822b6646448
+     [metric:glyph_reader/trial_050@5822b6646448#scored_map_shown_max=0.5812]
+     and on a06f04a0059f
+     [metric:glyph_reader/trial_050@a06f04a0059f#scored_map_shown_max=0.5556].
+     The scored maximum sits closer to the cut than the dev glyph maximum.
+     The held-out falsifier, read after the freeze: at the mark position
+     [metric:glyph_reader/heldout_050@heldout#map_shown_gated=40] of
+     [metric:glyph_reader/heldout_050@heldout#marks=226] marks read at or
+     above the cut, none with a proposer disc within 8 px x scale (smokes,
+     walls, other shapes the reader never scores); of the
+     [metric:glyph_reader/heldout_050@heldout#snapped=161] marks a disc
+     snaps to, [metric:glyph_reader/heldout_050@heldout#snapped_gated=0]
+     are gated. Stage 3 reads `map_shown` beside the verdict and must keep
+     a dimmed device's track from being dropped by it; the dimmed state
+     needs its own fact first [domain:minimap/device-dim-on-deactivation].
+   - Gate 7 holds within its bound of 0.10, and the ratio varies between
+     runs: the glyph feed over the icon feed and the cache read on
+     4f207c0c4e39 is
+     [metric:glyph_reader/trial_050@4f207c0c4e39#ratio=0.0805] at 0.5.0,
+     and two runs of 0.4.0 read
+     [metric:glyph_reader/trial_040@4f207c0c4e39#ratio=0.0701] and
+     [metric:glyph_reader/gate7_repeat_040@4f207c0c4e39#ratio=0.08]
+     (0.3.0 [metric:glyph_reader/trial_040@4f207c0c4e39#ratio_before=0.0619]).
 4. **The lane and `reticle view`**; gate 5.
 5. **The scene model.** The glyph textures become an ability sprite in
    `docs/SCENE_MODEL.md`'s renderer, composited over the baked static at
