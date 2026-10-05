@@ -61,6 +61,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | What each ability does (the player's mechanics sheet) | `docs/ABILITY_MECHANICS_SHEET.md` |
 | Each ability's state per slot, and what it conditions | [ABILITY_STATE_MODEL.md](ABILITY_STATE_MODEL.md), `adjudication/ability_state.py` |
 | Coaching/review adapter | `coaching.py`, `review.py`, `docs/IMPLEMENTATION_PLAN.md` |
+| 3D sightlines from the game's collision (who can swing, trade, support) | `prototypes/sightlines_3d.py`, [SIGHTLINES_3D_PROBE.md](SIGHTLINES_3D_PROBE.md) |
 | Economy ledger and prediction design | `economy.py`, `tests/test_economy.py`, `docs/ECONOMY_AND_PREDICTION_DESIGN.md` |
 | Dense evidence for selected reviews | `refinement.py`, `refine.py`, `tests/test_refine*.py` |
 | Visual debugging | `overlay.py`, `glance.py` |
