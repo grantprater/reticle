@@ -1,0 +1,705 @@
+r"""The 2D sightline map: a walkable grid, line of sight, path distances, regions.
+
+    .\.venv\Scripts\python.exe prototypes\sightlines.py build [MAP ...]     # bake every dev map
+    .\.venv\Scripts\python.exe prototypes\sightlines.py info
+    .\.venv\Scripts\python.exe prototypes\sightlines.py gate [--record] [--renders DIR]
+    .\.venv\Scripts\python.exe prototypes\sightlines.py coverage            # maps lacking geometry
+
+Why this exists
+---------------
+Coaching asks whether a fight was taken on the best available terms, and
+"a teammate could join" is not "a teammate stood near": joining means
+standing in, or a short walk from, a cell that sees the fight. Counting
+players within a radius cannot say that. This file builds, per map, the
+tables that can: which cells see which, how far each cell walks to each, and
+two region graphs over the walkable floor. `prototypes/decision_value.py`
+reads them; nothing in `reticle/` does.
+
+Inputs: baked geometry only
+---------------------------
+Static map values come from the baked `(map, profile)` npz
+[domain:capture/session-pixels-are-not-the-map]: `labels` (FLOOR and PLANT
+are floor) and `occ` (`reticle.occluders`: WALL and BOX stop a ray), composed
+by the owner `reticle.cone.passable_from`. The profile is the `-bigmap`
+variant where one is baked (a finer pixel: 0.28-0.31 m against 0.42-0.49 m),
+else `valorant-16x9`; `summit__valorant-16x9-crop75` places at IoU 0.663,
+under `reticle.geometry.MIN_ART_FIT`, and is never used. Riot world positions
+reach widget pixels through `riot_ground_truth.map_frame_for_geometry` (the
+crossed axes are [domain:replay/vrf-minimap-axes-cross]); the whole chain is
+affine, so it is fitted once from three points and inverted.
+
+The grid
+--------
+Cells are `CELL_M` = 1 m squares, axis-aligned in Riot world coordinates
+(Riot units read as centimetres, as `riot_ground_truth` states; no
+`domain/*.toml` table records it). A cell's walkable share is the passable
+mask box-filtered over one cell's width in pixels (the area filter) and
+sampled at the cell centre with linear interpolation; a cell is walkable at
+share >= `WALK_SHARE`, the one cut. Each walkable cell has a representative
+pixel: the passable pixel nearest its centre (`scipy.ndimage`'s exact
+distance transform).
+
+Line of sight
+-------------
+Two cells see each other when the segment between their representative pixels
+crosses only passable pixels, sampled every `STEP_PX` pixel and rounded to the
+nearest pixel as `reticle.cone.raycast` does; the occluder lines are sealed to
+4-connected, so no sample pair steps through one. Steps run in chunks and only
+the segments still alive continue (vectorised in numpy). This is a 2D test:
+a SHORT box blocks here although a jumping player sees over it, and floors at
+different heights see each other wherever the plan does. The instrument gate
+(`gate`) measures how often a gun kill has a line here.
+
+Paths
+-----
+The walk graph joins 8-neighbour walkable cells whose representative pixels
+see each other (so a one-pixel wall between two cells cuts the edge), weighted
+by the centres' distance. `scipy.sparse.csgraph.dijkstra` gives all-pairs path
+distances, stored as uint16 decimetres (`UNREACHABLE` where no path exists).
+One-way drops and ropes are not modelled: the graph is symmetric and 2D.
+
+Regions
+-------
+- **Callout regions**: valorant-api's callouts (`maps.json`, the cached map
+  data `winprob_reference` reads). Each walkable cell joins the callout
+  nearest along the path metric.
+- **Sightline regions**: each cell's visibility row, L2-normalised, is
+  reduced by a truncated SVD (`scipy.sparse.linalg.svds`, `SVD_K`
+  components) and clustered by k-means (`scipy.cluster.vq.kmeans2`, k = the
+  map's callout count, fixed seed). Each cluster splits into its connected
+  pieces on the walk graph, and a piece under `MIN_REGION_CELLS` merges into
+  the neighbour it shares the most boundary edges with.
+
+Two regions are adjacent when a walk-graph edge joins them.
+
+Cache
+-----
+`<store>/sightlines/<geometry key>.npz`, stamped with `VERSION`, the
+geometry's `occ_built_by` and `lines_built_by`, and this file's source hash.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import os
+import sys
+import time
+from collections import Counter
+from pathlib import Path
+
+for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+    os.environ.setdefault(_v, "1")
+
+import cv2  # noqa: E402
+import numpy as np  # noqa: E402
+from scipy import ndimage, sparse  # noqa: E402
+from scipy.sparse import csgraph  # noqa: E402
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))
+
+import riot_ground_truth as rgt  # noqa: E402
+from reticle.cone import passable_from  # noqa: E402
+from reticle.minimap import FLOOR, PLANT  # noqa: E402
+
+cv2.setNumThreads(1)
+
+VERSION = "sightlines-0.1.0"
+STORE = Path("C:/Users/grant/reticle-store")
+OUT_DIR = STORE / "sightlines"
+
+#: One cell's side in metres, and Riot units per metre (units read as cm).
+CELL_M = 1.0
+UNITS_PER_M = 100.0
+#: A cell is walkable at this box-filtered passable share or more.
+WALK_SHARE = 0.5
+#: Line-of-sight sample spacing in widget pixels, and steps per chunk.
+STEP_PX = 0.5
+STEP_CHUNK = 24
+#: Segments per vectorised batch.
+PAIR_BATCH = 400_000
+#: Path distances are stored in decimetres; this marks no path.
+UNREACHABLE = np.uint16(65535)
+#: Sightline regions: SVD components, k-means seed, smallest region (cells).
+SVD_K = 24
+KMEANS_SEED = 0
+MIN_REGION_CELLS = 25
+#: A position more than this far from its cell's centre is off the walkable grid.
+OFF_GRID_M = 1.5
+
+#: The dev maps, and which baked profile each uses (see the docstring).
+PROFILE_ORDER = ("valorant-16x9-bigmap", "valorant-16x9")
+
+
+def _below_normal() -> None:
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            k = ctypes.windll.kernel32
+            k.SetPriorityClass(k.GetCurrentProcess(), 0x00004000)
+    except Exception:  # noqa: BLE001 -- best effort
+        pass
+
+
+def source_hash() -> str:
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
+
+
+def geometry_key(mname: str, store: Path = STORE) -> str | None:
+    for prof in PROFILE_ORDER:
+        if (store / "geometry" / f"{mname}__{prof}.npz").is_file():
+            return f"{mname}__{prof}"
+    return None
+
+
+def reference(store: Path = STORE) -> rgt.Reference:
+    return rgt.Reference(store / "external" / "valorant-api", fetch=False)
+
+
+def map_info(ref: rgt.Reference, mname: str) -> dict:
+    for m in ref.maps.values():
+        if rgt.canon(m["displayName"]) == rgt.canon(mname):
+            return m
+    raise KeyError(mname)
+
+
+def world_affine(mf) -> np.ndarray:
+    """2x3 affine from Riot world units to widget px (the chain is affine)."""
+    p0 = np.array(mf.to_px(0.0, 0.0))
+    px = np.array(mf.to_px(1000.0, 0.0))
+    py = np.array(mf.to_px(0.0, 1000.0))
+    return np.column_stack([(px - p0) / 1000.0, (py - p0) / 1000.0, p0])
+
+
+def apply_affine(A: np.ndarray, xy: np.ndarray) -> np.ndarray:
+    xy = np.asarray(xy, float)
+    return xy @ A[:, :2].T + A[:, 2]
+
+
+# ----------------------------------------------------------------- line of sight
+
+def segments_clear(passable: np.ndarray, a: np.ndarray, b: np.ndarray,
+                   step_px: float = STEP_PX) -> np.ndarray:
+    """For each segment a[i] -> b[i] (widget px, float), whether every sample
+    on it lands on a passable pixel. Vectorised; dead segments drop out."""
+    h, w = passable.shape
+    a = np.asarray(a, np.float64)
+    b = np.asarray(b, np.float64)
+    m = len(a)
+    out = np.zeros(m, bool)
+    if m == 0:
+        return out
+    d = b - a
+    n = np.maximum(1, np.ceil(np.hypot(d[:, 0], d[:, 1]) / step_px)).astype(np.int64)
+    flat = passable.ravel()
+    live = np.arange(m)
+    k0 = 0
+    nmax = int(n.max())
+    while live.size and k0 <= nmax:
+        k1 = min(nmax + 1, k0 + STEP_CHUNK)
+        ks = np.arange(k0, k1, dtype=np.float64)
+        nl = n[live]
+        f = np.minimum(ks[None, :] / nl[:, None], 1.0)
+        xi = np.rint(a[live, 0, None] + d[live, 0, None] * f).astype(np.int64)
+        yi = np.rint(a[live, 1, None] + d[live, 1, None] * f).astype(np.int64)
+        inb = (xi >= 0) & (xi < w) & (yi >= 0) & (yi < h)
+        np.clip(xi, 0, w - 1, out=xi)
+        np.clip(yi, 0, h - 1, out=yi)
+        ok = (flat[yi * w + xi] & inb).all(axis=1)
+        done = ok & (nl < k1)
+        out[live[done]] = True
+        live = live[ok & ~done]
+        k0 = k1
+    return out
+
+
+# ----------------------------------------------------------------- build
+
+def build_map(mname: str, ref: rgt.Reference, store: Path = STORE, log=print) -> dict:
+    key = geometry_key(mname, store)
+    if key is None:
+        raise SystemExit(f"no baked geometry for {mname}")
+    gp = store / "geometry" / f"{key}.npz"
+    mi = map_info(ref, mname)
+    mf, why = rgt.map_frame_for_geometry(gp, mname, mi, store)
+    if mf is None:
+        raise SystemExit(f"{key}: {why}")
+    with np.load(gp) as z:
+        labels, occ = z["labels"], z["occ"]
+        stamps = {k: str(z[k]) for k in ("occ_built_by", "lines_built_by", "occ_version",
+                                          "occ_validation", "shade_built_by", "built_by")
+                  if k in z.files}
+    floor = np.isin(labels, (FLOOR, PLANT))
+    passable = passable_from(labels, floor, occ)
+    A = world_affine(mf)
+    Ainv = cv2.invertAffineTransform(A.astype(np.float64))
+    px_per_m = mf.px_per_unit * UNITS_PER_M
+    t0 = time.time()
+
+    # grid over the passable pixels' world extent
+    ys, xs = np.nonzero(passable)
+    corners = apply_affine(Ainv, np.column_stack([xs, ys]).astype(float))
+    cu = CELL_M * UNITS_PER_M
+    x0, y0 = corners.min(0) - cu
+    x1, y1 = corners.max(0) + cu
+    nx, ny = int(math.ceil((x1 - x0) / cu)), int(math.ceil((y1 - y0) / cu))
+    gx, gy = np.meshgrid(x0 + (np.arange(nx) + 0.5) * cu, y0 + (np.arange(ny) + 0.5) * cu)
+    cpx = apply_affine(A, np.column_stack([gx.ravel(), gy.ravel()]))
+    k = max(1, int(round(CELL_M * px_per_m)))
+    share = cv2.boxFilter(passable.astype(np.float32), -1, (k, k), normalize=True,
+                          borderType=cv2.BORDER_CONSTANT)
+    sh = cv2.remap(share, cpx[:, 0].astype(np.float32).reshape(ny, nx),
+                   cpx[:, 1].astype(np.float32).reshape(ny, nx), cv2.INTER_LINEAR,
+                   borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
+    walk = sh >= WALK_SHARE
+    # representative pixel: the passable pixel nearest the cell centre
+    _dist, (iy, ix) = ndimage.distance_transform_edt(~passable, return_indices=True)
+    cyi = np.clip(np.rint(cpx[:, 1]).astype(int), 0, passable.shape[0] - 1)
+    cxi = np.clip(np.rint(cpx[:, 0]).astype(int), 0, passable.shape[1] - 1)
+    rep = np.column_stack([ix[cyi, cxi], iy[cyi, cxi]]).astype(np.float64)
+    rep_off = np.hypot(rep[:, 0] - cpx[:, 0], rep[:, 1] - cpx[:, 1])
+    walk &= (rep_off <= 0.75 * CELL_M * px_per_m).reshape(ny, nx)
+    cell_of = np.full(ny * nx, -1, np.int32)
+    flat_ids = np.flatnonzero(walk.ravel())
+    N = len(flat_ids)
+    cell_of[flat_ids] = np.arange(N, dtype=np.int32)
+    cell_xy = np.column_stack([gx.ravel()[flat_ids], gy.ravel()[flat_ids]])
+    cell_rep = rep[flat_ids]
+    log(f"{key}: grid {ny}x{nx}, {N} walkable cells, {px_per_m:.2f} px/m, k={k}")
+
+    # walk graph: 8-neighbours whose representatives see each other
+    r, c = np.divmod(flat_ids, nx)
+    ei, ej, ew = [], [], []
+    for dr, dc in ((0, 1), (1, 0), (1, 1), (1, -1)):
+        rr, cc = r + dr, c + dc
+        ok = (rr >= 0) & (rr < ny) & (cc >= 0) & (cc < nx)
+        nb = np.full(N, -1, np.int64)
+        nb[ok] = cell_of[rr[ok] * nx + cc[ok]]
+        src = np.flatnonzero(nb >= 0)
+        dst = nb[src]
+        clear = segments_clear(passable, cell_rep[src], cell_rep[dst])
+        ei.append(src[clear]); ej.append(dst[clear])
+        ew.append(np.full(int(clear.sum()), CELL_M * math.hypot(dr, dc)))
+    ei, ej, ew = np.concatenate(ei), np.concatenate(ej), np.concatenate(ew)
+    G = sparse.coo_matrix((np.r_[ew, ew], (np.r_[ei, ej], np.r_[ej, ei])), shape=(N, N)).tocsr()
+    ncomp, comp = csgraph.connected_components(G, directed=False)
+    big = np.bincount(comp).max()
+    log(f"  walk graph {len(ei)} edges, {ncomp} components, largest {big}/{N}")
+
+    # all-pairs line of sight (upper triangle, then mirrored)
+    los = np.zeros((N, N), bool)
+    rows_per = max(1, PAIR_BATCH // max(N, 1))
+    t1 = time.time()
+    for i0 in range(0, N, rows_per):
+        i1 = min(N, i0 + rows_per)
+        ii, jj = np.meshgrid(np.arange(i0, i1), np.arange(i0, N), indexing="ij")
+        keep = jj > ii
+        ii, jj = ii[keep], jj[keep]
+        clear = segments_clear(passable, cell_rep[ii], cell_rep[jj])
+        los[ii[clear], jj[clear]] = True
+    los |= los.T
+    np.fill_diagonal(los, True)
+    log(f"  line of sight: {los.mean():.4f} of pairs, {time.time() - t1:.0f} s")
+
+    # all-pairs path distances, uint16 decimetres
+    t1 = time.time()
+    dist = np.empty((N, N), np.uint16)
+    for i0 in range(0, N, 256):
+        i1 = min(N, i0 + 256)
+        dd = csgraph.dijkstra(G, directed=False, indices=np.arange(i0, i1))
+        fin = np.isfinite(dd)
+        q = np.where(fin, np.minimum(np.rint(dd * 10.0), 65534), 65535)
+        dist[i0:i1] = q.astype(np.uint16)
+    log(f"  path distances {time.time() - t1:.0f} s")
+
+    # callout regions
+    co = [c for c in (mi.get("callouts") or [])]
+    co_names = [f"{c['superRegionName']}:{c['regionName']}" for c in co]
+    co_xy = np.array([[c["location"]["x"], c["location"]["y"]] for c in co], float)
+    co_cell = nearest_cells(cell_xy, co_xy)[0]
+    dco = dist[:, co_cell].astype(np.int64)
+    reg_c = dco.argmin(1).astype(np.int32)
+    reg_c[dco.min(1) >= int(UNREACHABLE)] = -1
+    adj_c = region_adjacency(reg_c, ei, ej, len(co))
+
+    # sightline regions
+    reg_s, sinfo = sight_regions(los, G, ei, ej, len(co))
+    adj_s = region_adjacency(reg_s, ei, ej, int(reg_s.max()) + 1)
+    log(f"  regions: {len(co)} callouts, {int(reg_s.max()) + 1} sightline regions "
+        f"({time.time() - t0:.0f} s total)")
+    return {"version": np.array(VERSION), "source": np.array(source_hash()),
+            "map": np.array(mname), "key": np.array(key),
+            "geometry_stamps": np.array(json.dumps(stamps, sort_keys=True)),
+            "cell_m": np.array(CELL_M), "units_per_m": np.array(UNITS_PER_M),
+            "walk_share": np.array(WALK_SHARE), "step_px": np.array(STEP_PX),
+            "origin": np.array([x0, y0]), "shape": np.array([ny, nx]),
+            "affine": A, "px_per_m": np.array(px_per_m),
+            "cell_of": cell_of.reshape(ny, nx), "cell_xy": cell_xy, "cell_rep": cell_rep,
+            "comp": comp.astype(np.int32), "edges": np.column_stack([ei, ej]).astype(np.int32),
+            "los_bits": np.packbits(los, axis=1), "n_cells": np.array(N),
+            "dist_dm": dist,
+            "callout_names": np.array(co_names), "callout_cells": co_cell.astype(np.int32),
+            "region_callout": reg_c, "adj_callout": adj_c,
+            "region_sight": reg_s, "adj_sight": adj_s,
+            "sight_method": np.array(json.dumps(sinfo, sort_keys=True))}
+
+
+def nearest_cells(cell_xy: np.ndarray, xy: np.ndarray):
+    """Nearest walkable cell to each world point, and the distance in metres."""
+    from scipy.spatial import cKDTree
+    d, i = cKDTree(cell_xy).query(np.asarray(xy, float).reshape(-1, 2))
+    return i.astype(np.int64), d / UNITS_PER_M
+
+
+def region_adjacency(reg: np.ndarray, ei: np.ndarray, ej: np.ndarray, n: int) -> np.ndarray:
+    a, b = reg[ei], reg[ej]
+    k = (a >= 0) & (b >= 0) & (a != b)
+    adj = np.zeros((n, n), bool)
+    adj[a[k], b[k]] = True
+    adj |= adj.T
+    np.fill_diagonal(adj, True)
+    return adj
+
+
+def sight_regions(los: np.ndarray, G, ei, ej, k: int) -> tuple[np.ndarray, dict]:
+    from scipy.cluster.vq import kmeans2
+    from scipy.sparse.linalg import svds
+    N = los.shape[0]
+    V = sparse.csr_matrix(los, dtype=np.float32)
+    nrm = np.sqrt(np.asarray(V.sum(1)).ravel())
+    V = sparse.diags(1.0 / np.maximum(nrm, 1e-9)) @ V
+    kk = min(SVD_K, N - 2)
+    U, S, _ = svds(V, k=kk, random_state=KMEANS_SEED)
+    E = U * S
+    E /= np.maximum(np.linalg.norm(E, axis=1, keepdims=True), 1e-9)
+    _cent, lab = kmeans2(E.astype(np.float64), k, seed=KMEANS_SEED, minit="++")
+    # split clusters into connected pieces on the walk graph
+    same = lab[ei] == lab[ej]
+    H = sparse.coo_matrix((np.ones(int(same.sum())), (ei[same], ej[same])), shape=(N, N))
+    _n, piece = csgraph.connected_components(H, directed=False)
+    piece = piece.astype(np.int64)
+    # merge small pieces into the neighbour sharing the most boundary edges
+    merges = 0
+    for _ in range(200):
+        size = np.bincount(piece)
+        small = size < MIN_REGION_CELLS
+        small[size == 0] = False
+        if not small.any():
+            break
+        a, b = piece[ei], piece[ej]
+        cross = a != b
+        a, b = np.r_[a[cross], b[cross]], np.r_[b[cross], a[cross]]
+        cand = small[a] & ~small[b]
+        if not cand.any():
+            cand = small[a]
+            if not cand.any():
+                break
+        M = sparse.coo_matrix((np.ones(int(cand.sum())), (a[cand], b[cand])),
+                              shape=(len(size), len(size))).tocsr()
+        best = np.asarray(M.argmax(1)).ravel()
+        has = np.asarray(M.max(1).todense()).ravel() > 0
+        tgt = np.arange(len(size))
+        movers = np.flatnonzero(small & has)
+        # move only pieces whose target is not itself moving this round
+        movers = movers[~np.isin(best[movers], movers)] if len(movers) > 1 else movers
+        if not len(movers):
+            movers = np.flatnonzero(small & has)[:1]
+        tgt[movers] = best[movers]
+        piece = tgt[piece]
+        merges += len(movers)
+    _u, reg = np.unique(piece, return_inverse=True)
+    info = {"method": "L2-normalised visibility rows; truncated SVD; k-means on unit embeddings; "
+                      "split into walk-graph components; merge pieces under MIN_REGION_CELLS",
+            "svd_k": kk, "kmeans_k": k, "seed": KMEANS_SEED, "min_region_cells": MIN_REGION_CELLS,
+            "merges": int(merges)}
+    return reg.astype(np.int32), info
+
+
+# ----------------------------------------------------------------- load and query
+
+class Sightlines:
+    """One map's cached tables."""
+
+    def __init__(self, path: Path):
+        z = np.load(path, allow_pickle=False)
+        self.path = path
+        self.version = str(z["version"])
+        self.key = str(z["key"])
+        self.map = str(z["map"])
+        self.A = z["affine"]
+        self.origin = z["origin"]
+        self.shape = tuple(int(v) for v in z["shape"])
+        self.cell_of = z["cell_of"]
+        self.cell_xy = z["cell_xy"]
+        self.cell_rep = z["cell_rep"]
+        self.N = int(z["n_cells"])
+        self.los_bits = z["los_bits"]
+        self.dist_dm = z["dist_dm"]
+        self.edges = z["edges"]
+        self.comp = z["comp"]
+        self.region = {"callout": z["region_callout"], "sight": z["region_sight"]}
+        self.adj = {"callout": z["adj_callout"], "sight": z["adj_sight"]}
+        self.callout_names = [str(s) for s in z["callout_names"]]
+        self.stamps = json.loads(str(z["geometry_stamps"]))
+        from scipy.spatial import cKDTree
+        self._tree = cKDTree(self.cell_xy)
+
+    def cells(self, xy) -> tuple[np.ndarray, np.ndarray]:
+        """Nearest walkable cell per world point, and its distance (m)."""
+        d, i = self._tree.query(np.asarray(xy, float).reshape(-1, 2))
+        return i.astype(np.int64), d / UNITS_PER_M
+
+    def los_rows(self, q: np.ndarray) -> np.ndarray:
+        return np.unpackbits(self.los_bits[np.asarray(q, np.int64)], axis=1, count=self.N).astype(bool)
+
+    def los(self, i, j) -> np.ndarray:
+        i = np.asarray(i, np.int64)
+        j = np.asarray(j, np.int64)
+        byte = self.los_bits[i, j >> 3]
+        return ((byte >> (7 - (j & 7))) & 1).astype(bool)
+
+    def dist_m(self, i, j) -> np.ndarray:
+        d = self.dist_dm[np.asarray(i, np.int64), np.asarray(j, np.int64)].astype(np.float64)
+        return np.where(d >= int(UNREACHABLE), np.inf, d / 10.0)
+
+    def reach_m(self, p: np.ndarray, q: np.ndarray, batch: int = 2048) -> np.ndarray:
+        """Path metres from cell p[i] to the nearest cell that sees cell q[i]."""
+        p = np.asarray(p, np.int64)
+        q = np.asarray(q, np.int64)
+        out = np.full(len(p), np.inf)
+        for b0 in range(0, len(p), batch):
+            sl = slice(b0, b0 + batch)
+            vis = self.los_rows(q[sl])
+            d = self.dist_dm[p[sl]].astype(np.int32)
+            d = np.where(vis, d, int(UNREACHABLE)).min(1)
+            out[sl] = np.where(d >= int(UNREACHABLE), np.inf, d / 10.0)
+        return out
+
+    def near_region(self, graph: str, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """Whether cell a[i] lies in the same or an adjacent region as cell b[i]."""
+        ra = self.region[graph][np.asarray(a, np.int64)]
+        rb = self.region[graph][np.asarray(b, np.int64)]
+        ok = (ra >= 0) & (rb >= 0)
+        out = np.zeros(len(ra), bool)
+        out[ok] = self.adj[graph][ra[ok], rb[ok]]
+        return out
+
+
+def table_path(mname: str, store: Path = STORE) -> Path | None:
+    key = geometry_key(mname, store)
+    return None if key is None else OUT_DIR / f"{key}.npz"
+
+
+_CACHE: dict[str, Sightlines] = {}
+
+
+def load(mname: str, store: Path = STORE) -> Sightlines | None:
+    p = table_path(mname.lower(), store)
+    if p is None or not p.is_file():
+        return None
+    if mname not in _CACHE:
+        s = Sightlines(p)
+        if s.version != VERSION:
+            raise SystemExit(f"{p} is {s.version}, this file is {VERSION}: rebuild it")
+        _CACHE[mname] = s
+    return _CACHE[mname]
+
+
+def dev_maps(store: Path = STORE) -> Counter:
+    ref = reference(store)
+    recs = rgt.riot_records(store)
+    return Counter(ref.map_of(d["match"]["matchInfo"]["mapId"])["displayName"].lower()
+                   for d in recs.values())
+
+
+# ----------------------------------------------------------------- the instrument gate
+
+def gun_kills(store: Path = STORE):
+    """Every development-set gun kill: (sid, map, killer xy, victim xy, round)."""
+    ref = reference(store)
+    rows = []
+    for sid, d in sorted(rgt.riot_records(store).items()):
+        mname = ref.map_of(d["match"]["matchInfo"]["mapId"])["displayName"].lower()
+        for k in d["match"]["kills"]:
+            if ((k.get("finishingDamage") or {}).get("damageType")) != "Weapon":
+                continue
+            kl = next((p["location"] for p in k.get("playerLocations") or ()
+                       if p["subject"] == k["killer"]), None)
+            vl = k.get("victimLocation")
+            if kl is None or vl is None or k["killer"] == k["victim"]:
+                rows.append((sid, mname, None, None, k.get("round"), k.get("roundTime")))
+                continue
+            rows.append((sid, mname, (kl["x"], kl["y"]), (vl["x"], vl["y"]), k.get("round"),
+                         k.get("roundTime")))
+    return rows
+
+
+def gate(args) -> dict:
+    rows = gun_kills()
+    by_map: dict[str, list] = {}
+    for r in rows:
+        by_map.setdefault(r[1], []).append(r)
+    res, fails = {}, []
+    for mname, rs in sorted(by_map.items()):
+        S = load(mname)
+        if S is None:
+            res[mname] = {"no_table": len(rs)}
+            continue
+        ok = [r for r in rs if r[2] is not None]
+        K = np.array([r[2] for r in ok], float)
+        V = np.array([r[3] for r in ok], float)
+        ck, dk = S.cells(K)
+        cv, dv = S.cells(V)
+        los = S.los(ck, cv)
+        # the 3x3 neighbourhood of both ends: a one-cell tolerance on position
+        nb = np.zeros(len(ok), bool)
+        ny, nx = S.shape
+        for end_from, end_to in ((K, cv), (V, ck)):
+            g = np.floor((end_from - S.origin) / 100.0).astype(int)
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    rr, cc = g[:, 1] + dy, g[:, 0] + dx
+                    inb = (rr >= 0) & (rr < ny) & (cc >= 0) & (cc < nx)
+                    cid = np.full(len(ok), -1)
+                    cid[inb] = S.cell_of[rr[inb], cc[inb]]
+                    has = cid >= 0
+                    nb[has] |= S.los(cid[has], end_to[has])
+        nb |= los
+        off = (dk > OFF_GRID_M) | (dv > OFF_GRID_M)
+        dm = np.hypot(*(K - V).T) / UNITS_PER_M
+        res[mname] = {"gun_kills": len(rs), "with_positions": len(ok),
+                      "los": int(los.sum()), "los_share": round(float(los.mean()), 4),
+                      "los_share_one_cell_tolerance": round(float(nb.mean()), 4),
+                      "off_grid_end": int(off.sum()),
+                      "los_share_on_grid": round(float(los[~off].mean()), 4) if (~off).any() else None,
+                      "median_kill_m": round(float(np.median(dm)), 1),
+                      "median_kill_m_failed": round(float(np.median(dm[~los])), 1) if (~los).any() else None}
+        for i in np.flatnonzero(~los):
+            fails.append((mname, ok[i], int(ck[i]), int(cv[i]), float(dk[i]), float(dv[i]),
+                          bool(nb[i]), float(dm[i])))
+    tot = {k: sum(v.get(k, 0) for v in res.values() if isinstance(v, dict))
+           for k in ("gun_kills", "with_positions", "los", "off_grid_end")}
+    tot["los_share"] = round(tot["los"] / max(1, tot["with_positions"]), 4)
+    res["all"] = tot
+    print(json.dumps(res, indent=1))
+    if args.renders:
+        render_failures(fails, Path(args.renders), args.n_renders)
+    if args.record:
+        from reticle import metrics
+        vals = {f"{m}.los_share": v["los_share"] for m, v in res.items()
+                if m != "all" and "los_share" in v}
+        vals.update({f"{m}.gun_kills": v["with_positions"] for m, v in res.items()
+                     if m != "all" and "with_positions" in v})
+        vals.update({f"{m}.los_share_one_cell": v["los_share_one_cell_tolerance"]
+                     for m, v in res.items() if m != "all" and "los_share" in v})
+        vals.update({"all.los_share": tot["los_share"], "all.gun_kills": tot["with_positions"],
+                     "all.off_grid_end": tot["off_grid_end"]})
+        stamps = {m: load(m).stamps.get("occ_built_by") for m in res if m != "all" and load(m)}
+        metrics.record("sightlines", part="gate", values=vals,
+                       deps={"version": VERSION, "source": source_hash(), "cell_m": CELL_M,
+                             "walk_share": WALK_SHARE, "step_px": STEP_PX,
+                             "keys": sorted(load(m).key for m in res if m != "all" and load(m)),
+                             "occ_built_by": stamps},
+                       context={"set": "development: the 22 captured Riot records",
+                                "gun_kill": "finishingDamage.damageType == Weapon, killer != victim"},
+                       note="2D line of sight between the killer's and victim's cells at the kill instant")
+    return res
+
+
+def render_failures(fails, out: Path, n: int) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(7)
+    pick = rng.choice(len(fails), size=min(n, len(fails)), replace=False) if fails else []
+    lines = []
+    for j, i in enumerate(sorted(pick)):
+        mname, r, ck, cv, dk, dv, nb, dm = fails[i]
+        S = load(mname)
+        with np.load(STORE / "geometry" / f"{S.key}.npz") as z:
+            img = cv2.cvtColor(z["static"], cv2.COLOR_RGB2BGR) if z["static"].ndim == 3 else z["static"]
+            labels, occ = z["labels"], z["occ"]
+        img = img.copy()
+        passable = passable_from(labels, np.isin(labels, (FLOOR, PLANT)), occ)
+        tint = img.copy()
+        tint[~passable] = (tint[~passable] * 0.35).astype(np.uint8)
+        tint[occ == 1] = (0, 0, 255)
+        tint[occ == 2] = (0, 165, 255)
+        sc = 3
+        big = cv2.resize(tint, None, fx=sc, fy=sc, interpolation=cv2.INTER_NEAREST)  # display only
+        pk = apply_affine(S.A, np.array([r[2]]))[0] * sc
+        pv = apply_affine(S.A, np.array([r[3]]))[0] * sc
+        rk, rv = S.cell_rep[ck] * sc, S.cell_rep[cv] * sc
+        cv2.line(big, tuple(int(v) for v in rk), tuple(int(v) for v in rv), (255, 255, 0), 1)
+        cv2.circle(big, tuple(int(v) for v in pk), 6, (0, 255, 0), 2)
+        cv2.circle(big, tuple(int(v) for v in pv), 6, (255, 0, 255), 2)
+        name = f"fail_{j:02d}_{mname}.png"
+        cv2.imwrite(str(out / name), big)
+        lines.append(f"{name}: map {mname}, round {r[4]}, roundTime {r[5]} ms, kill distance {dm:.1f} m, "
+                     f"snap killer {dk:.2f} m victim {dv:.2f} m, one-cell tolerance clears: {nb}")
+    (out / "index.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"rendered {len(lines)} failures to {out}")
+
+
+# ----------------------------------------------------------------- confirmation-set maps
+
+def coverage() -> dict:
+    """Maps the confirmation set uses that have no baked geometry, with match
+    counts; the held-out replay matches are excluded and counted."""
+    import pyarrow.parquet as pq
+    held = {f["file"].rsplit(".", 1)[0] for f in
+            json.loads((STORE / "external" / "replays" / "manifest.json").read_text(encoding="utf-8"))["files"]
+            if not f.get("capture_session")}
+    t = pq.read_table(STORE / "external" / "ladder" / "henrikdev" / "v4" / "parsed" / "ladder-parse-0.2.0"
+                      / "matches.parquet", columns=["match_id", "map", "captured"]).to_pylist()
+    riot = {json.loads(p.read_text(encoding="utf-8"))["match"]["matchInfo"]["matchId"]
+            for p in (STORE / "external" / "riot").glob("*.json")}
+    keep = [r for r in t if r["match_id"] not in held and r["match_id"] not in riot and not r["captured"]]
+    c = Counter(r["map"].lower() for r in keep)
+    out = {"matches_listed": len(t), "held_out_excluded": sum(r["match_id"] in held for r in t),
+           "captured_excluded": sum((r["match_id"] in riot) or bool(r["captured"]) for r in t),
+           "matches": len(keep), "per_map": dict(sorted(c.items())),
+           "no_geometry": {m: n for m, n in sorted(c.items()) if geometry_key(m) is None}}
+    out["no_geometry_matches"] = sum(out["no_geometry"].values())
+    print(json.dumps(out, indent=1))
+    return out
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    b = sub.add_parser("build")
+    b.add_argument("maps", nargs="*")
+    sub.add_parser("info")
+    g = sub.add_parser("gate")
+    g.add_argument("--record", action="store_true")
+    g.add_argument("--renders", default=None)
+    g.add_argument("--n-renders", type=int, default=10)
+    sub.add_parser("coverage")
+    args = ap.parse_args(argv)
+    _below_normal()
+    if args.cmd == "build":
+        ref = reference()
+        maps = args.maps or sorted(dev_maps())
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        for m in maps:
+            t = build_map(m, ref)
+            p = OUT_DIR / f"{str(t['key'])}.npz"
+            np.savez_compressed(p, **t)
+            print(f"  wrote {p} ({p.stat().st_size / 1e6:.1f} MB)")
+    elif args.cmd == "info":
+        for p in sorted(OUT_DIR.glob("*.npz")):
+            S = Sightlines(p)
+            print(f"{p.name}: {S.version}, {S.N} cells, {p.stat().st_size / 1e6:.1f} MB, "
+                  f"{len(S.callout_names)} callouts, {int(S.region['sight'].max()) + 1} sightline regions, "
+                  f"largest component {np.bincount(S.comp).max()}")
+    elif args.cmd == "gate":
+        gate(args)
+    elif args.cmd == "coverage":
+        coverage()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
