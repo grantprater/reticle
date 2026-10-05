@@ -860,13 +860,19 @@ question = "Is this discontinuity a licensed teleport or a broken track?"
 owner = "track"
 role = ["constrain"]
 status = "shipped"
-produces = ["corroborates_teleport", "is_teleport", "Corroboration"]
+produces = ["corroborates_teleport", "is_teleport", "Corroboration", "MOVEMENT_FACTS", "MOVEMENT_LICENCE_VERSION"]
 not_for = """
 Deciding from distance alone. A teleport needs an icon, a cone, audio or an
 observed destination to corroborate it; distance-only is an explicitly marked
-fallback and nothing may launder it into a licence.
+fallback and nothing may launder it into a licence. Licensing an agent from a
+wiki tag or a prose list: `motion_for` grants only what a player-known domain
+fact holds, and a speed change (Neon's High Gear) is never a jump.
+`motion_for` and `movement_licences` read MOVEMENT_FACTS; no stored stream
+picks a motion class by agent yet, so they wait for one (doctor MOVEMENT
+checks the table meanwhile).
 """
 consumers = ["minimap_lifecycle"]
+evidence = "tests/test_track_movement.py"
 
 [[entry]]
 id = "minimap-origin"

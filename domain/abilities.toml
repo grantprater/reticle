@@ -40,6 +40,50 @@ subject = "omen:dark cover"
 use = "expected gap before a spent slot E charge refills; replaces a 30 s value the HUD measurement stated"
 see = ["abilities/omen-tray-charges"]
 
+[omen-shrouded-step-teleports]
+claim = """
+Omen's Shrouded Step is a teleport.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "omen:shrouded step"
+source = """
+the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
+Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
+Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
+right and which dashes join it, added to it ("Jett's dash as well", "Veto
+also has a teleport") and struck no entry; the reply confirms the entry by adding to the list without
+objecting to it
+"""
+use = """
+a licensed discontinuity of the caster's track (`track.motion_for`); the
+jump still needs corroboration (`reticle ownership teleport-licence`)
+"""
+see = ["abilities/omen-from-the-shadows-teleports", "abilities/movement-abilities-are-dashes-and-teleports"]
+
+[omen-from-the-shadows-teleports]
+claim = """
+Omen's From the Shadows is a teleport.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "omen:from the shadows"
+source = """
+the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
+Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
+Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
+right and which dashes join it, added to it ("Jett's dash as well", "Veto
+also has a teleport") and struck no entry; the reply confirms the entry by adding to the list without
+objecting to it
+"""
+use = """
+a licensed discontinuity of the caster's track (`track.motion_for`); the
+jump still needs corroboration (`reticle ownership teleport-licence`)
+"""
+see = ["abilities/omen-shrouded-step-teleports", "abilities/movement-abilities-are-dashes-and-teleports"]
+
 [killjoy-alarmbot]
 claim = """
 Killjoy's Alarmbot is a deployable device in slot Q that hunts down enemies in
@@ -295,6 +339,32 @@ subject = "neon:fast lane"
 source = "prototypes/ability_hud.py measured on f1cf160b213d"
 use = "ability_hud.slot_counts at slot C (index 0)"
 see = ["abilities/neon-fast-lane"]
+
+[neon-high-gear-is-speed-not-dash]
+claim = """
+Neon's High Gear, her E, makes her run faster than normal; it is not a dash.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "neon:high gear"
+source = """
+the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
+Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
+Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
+right and which dashes join it, added to it ("Jett's dash as well", "Veto
+also has a teleport") and struck no entry; "Neon e causes her to run faster than normal, but
+it's not a dash"
+"""
+use = """
+a raised run ceiling for Neon's track (`track.motion_for`), never a dash or a
+jump
+"""
+exceptions = """
+how much faster is not recorded; the game-data extraction is reading
+movement values into its own facts
+"""
+see = ["abilities/movement-abilities-are-dashes-and-teleports"]
 
 [clove-ruse-batch-launch]
 claim = """
@@ -1043,6 +1113,50 @@ and keyed_128 (5a63cc4fecfc 18.567 s) under
 """
 see = ["abilities/minimap-thrown-ability-icon"]
 
+[yoru-gatecrash-teleports]
+claim = """
+Yoru's GATECRASH is a teleport.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "yoru:gatecrash"
+source = """
+the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
+Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
+Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
+right and which dashes join it, added to it ("Jett's dash as well", "Veto
+also has a teleport") and struck no entry; the reply confirms the entry by adding to the list without
+objecting to it
+"""
+use = """
+a licensed discontinuity of the caster's track (`track.motion_for`); the
+jump still needs corroboration (`reticle ownership teleport-licence`)
+"""
+see = ["abilities/yoru-gatecrash-minimap-icon", "abilities/movement-abilities-are-dashes-and-teleports"]
+
+[yoru-dimensional-drift-teleports]
+claim = """
+Yoru's DIMENSIONAL DRIFT is a teleport.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "yoru:dimensional drift"
+source = """
+the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
+Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
+Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
+right and which dashes join it, added to it ("Jett's dash as well", "Veto
+also has a teleport") and struck no entry; the reply confirms the entry by adding to the list without
+objecting to it
+"""
+use = """
+a licensed discontinuity of the caster's track (`track.motion_for`); the
+jump still needs corroboration (`reticle ownership teleport-licence`)
+"""
+see = ["abilities/yoru-gatecrash-teleports", "abilities/movement-abilities-are-dashes-and-teleports"]
+
 [vyse-razorvine-minimap-icon]
 claim = """
 A Razorvine shows on Vyse's minimap as a dark icon, about 16-20 px, with a white
@@ -1468,6 +1582,29 @@ the flash; the X pips are no witness of the cast. The first census's Run it
 Back row (481336df9adb, 34.5 s) is windowed on the pips' fall
 """
 see = ["hud/ability-timer-bar", "abilities/phoenix-minimap-objects", "rounds/run-it-back-in-report"]
+
+[phoenix-run-it-back-teleports]
+claim = """
+Phoenix's Run it Back is a teleport.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "phoenix:run it back"
+source = """
+the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
+Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
+Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
+right and which dashes join it, added to it ("Jett's dash as well", "Veto
+also has a teleport") and struck no entry; the reply confirms the entry by adding to the list without
+objecting to it
+"""
+use = """
+a licensed discontinuity of the caster's track (`track.motion_for`); the
+jump still needs corroboration (`reticle ownership teleport-licence`)
+"""
+see = ["rounds/phoenix-run-it-back-returns-to-cast-point", "abilities/phoenix-run-it-back-expiry-flash",
+       "abilities/movement-abilities-are-dashes-and-teleports"]
 
 [range-one-cast-per-round]
 claim = """
@@ -3065,6 +3202,54 @@ while Updraft lifts the caster. No magnitude: never infer one by analogy
 """
 see = ["abilities/waylay-vertical-lifts-above-jump", "abilities/raze-satchel-lifts-above-jump"]
 
+[jett-tailwind-is-a-horizontal-dash]
+claim = """
+Jett's Tailwind, her E, is a dash, and it is horizontal.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "jett:tailwind"
+source = """
+the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
+Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
+Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
+right and which dashes join it, added to it ("Jett's dash as well", "Veto
+also has a teleport") and struck no entry; "Jett's dash as well. Updraft is vertical, her e is
+horizontal"
+"""
+use = """
+a licensed dash of Jett's track (`track.motion_for`): the minimap shows it
+as a fast continuous step
+"""
+exceptions = """
+its distance and speed are not recorded; the game-data extraction is
+reading movement values into its own facts
+"""
+see = ["abilities/jett-updraft-is-vertical", "abilities/movement-abilities-are-dashes-and-teleports"]
+
+[jett-updraft-is-vertical]
+claim = """
+Jett's Updraft moves her vertically.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "jett:updraft"
+source = """
+the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
+Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
+Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
+right and which dashes join it, added to it ("Jett's dash as well", "Veto
+also has a teleport") and struck no entry; "Jett's dash as well. Updraft is vertical, her e is
+horizontal"
+"""
+use = """
+Updraft licenses no horizontal step on the minimap; its height is
+[domain:abilities/jett-updraft-lifts-above-jump]
+"""
+see = ["abilities/jett-tailwind-is-a-horizontal-dash", "abilities/jett-updraft-lifts-above-jump"]
+
 [waylay-vertical-lifts-above-jump]
 claim = """
 Waylay's vertical movement ability is Lightspeed. Only its first dash can
@@ -3106,6 +3291,33 @@ a boosted caster state for the height model
 analogy
 """
 see = ["abilities/jett-updraft-lifts-above-jump", "abilities/waylay-vertical-lifts-above-jump"]
+
+[raze-blast-pack-acts-as-dash]
+claim = """
+Raze's Blast Pack (satchel) can act as a dash: it adds an impulse that
+depends on the satchel's angle relative to Raze and on her current velocity.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "raze:blast-pack"
+source = """
+the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
+Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
+Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
+right and which dashes join it, added to it ("Jett's dash as well", "Veto
+also has a teleport") and struck no entry; "Raze satchel can act as sort of a dash, it adds an
+impulse that is dependent on the satchel's relative angle and raze's current
+velocity"
+"""
+use = """
+a licensed dash of Raze's track (`track.motion_for`)
+"""
+exceptions = """
+the impulse's size is not recorded; its direction follows the satchel's
+angle, so it need not point where Raze runs
+"""
+see = ["abilities/raze-satchel-lifts-above-jump", "abilities/movement-abilities-are-dashes-and-teleports"]
 
 [killjoy-lockdown-global-minimap]
 claim = """
@@ -3556,6 +3768,28 @@ the minimap is unmeasured; the radius is said to show also once deactivated
 see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead",
        "abilities/chamber-rendezvous-minimap-white-radius", "abilities/ability-rules-are-unique"]
 
+[chamber-rendezvous-teleports]
+claim = """
+Chamber's Rendezvous is a teleport.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "chamber:rendezvous"
+source = """
+the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
+Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
+Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
+right and which dashes join it, added to it ("Jett's dash as well", "Veto
+also has a teleport") and struck no entry; the reply confirms the entry by adding to the list without
+objecting to it
+"""
+use = """
+a licensed discontinuity of the caster's track (`track.motion_for`); the
+jump still needs corroboration (`reticle ownership teleport-licence`)
+"""
+see = ["abilities/chamber-rendezvous-persists-after-death", "abilities/movement-abilities-are-dashes-and-teleports"]
+
 [chamber-trademark-persists-after-death]
 claim = """
 Chamber's Trademark lasts the round once deployed and persists after Chamber
@@ -3754,6 +3988,30 @@ still be incomplete. Whether it persists deactivated, drawn dim
 its minimap drawing after the death.
 """
 see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/veto-chokehold-minimap-white-area", "abilities/ability-rules-are-unique"]
+
+[veto-has-a-teleport]
+claim = """
+Veto has a teleport. Which of his abilities it is, the player did not say.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "veto:movement"
+source = """
+the player, 2026-10-04 (chat), shown the teleport list "Omen Shrouded
+Step and From the Shadows, Yoru Gatecrash and Dimensional Drift, Chamber
+Rendezvous, Phoenix Run it Back, Waylay Crosscut" and asked whether it is
+right and which dashes join it, added to it ("Jett's dash as well", "Veto
+also has a teleport") and struck no entry; "Veto also has a teleport". The list named Crosscut
+as Waylay's; the catalogue (`reticle/templates/killfeed_kits.json`) lists
+Crosscut as Veto's, tagged Teleport, so the reply may answer that slip. The
+ability is an open question in docs/ABILITY_MECHANICS_SHEET.md
+"""
+use = """
+a licensed discontinuity of Veto's track at agent level (`track.motion_for`)
+until the ability is named
+"""
+see = ["abilities/movement-abilities-are-dashes-and-teleports"]
 
 [viper-poison-cloud-persists-after-death]
 claim = """
