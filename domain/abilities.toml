@@ -2265,6 +2265,74 @@ source = "player, 2026-09-27 (chat); the wiki harvest agrees (charges 2, restock
 use = "adjudication.ability_state.charge_facts: max_charges for (skye, E)"
 see = ["abilities/recharge-kinds"]
 
+[sova-recon-bolt-restock-observed]
+claim = """
+A spent Sova Recon Bolt charge comes back by itself about 50 seconds after the
+spend, not 60: on three timed spends the returned charge appears between
+49.85 and 50.45 s after the spend at the narrowest and within 49.0 to 50.5 s
+on each.
+"""
+kind = "measurement"
+known = "observed"
+since = "2026-10-04"
+subject = "sova:recon bolt"
+source = """
+hand reads of the stored hud_abilities crops (roi_cache, no decode), bounded
+by the countdown's last reading and the first gold sample
+[domain:hud/ability-tray-restock-countdown]
+[domain:hud/ability-tray-restocked-charge-gold]: 9acf02f98283 spend
+1850.5-1851.0 s, '1' at 1900.0 s, gold at 1902.0 s; 59c70f1ef720 spend
+1271.5-1272.5 s, '50' at 1272.5 s, gold at 1322.0 s; 043bafca271a spend
+1011.0-1011.5 s, '50' at 1011.5 s, '0.4' at 1061.0 s, gold at 1062.0 s
+(prototypes/restock_measure.py CROP_READS; ledger restock_measure/recon_bolt).
+Every bound excludes 60 s
+"""
+use = """
+the expected gap before a spent Recon Bolt returns during the round; the state
+model calls such a return a live return
+"""
+supersedes = """
+[domain:abilities/catalogue-restock-and-ult-points-confirmed], for Sova's
+Recon Bolt only: the wiki harvest's Restock of 60 seconds. The timed capture
+agrees with the game files' 50.0 s [domain:game_data/ability-restock-times]
+"""
+see = ["abilities/sova-recon-bolt-charges", "abilities/recharge-kinds",
+       "abilities/game-files-outrank-player-quantities"]
+
+[skye-guiding-light-restock-observed]
+claim = """
+A spent Skye Guiding Light charge comes back by itself about 50 seconds after
+the spend, not 60: on three timed spends the returned charge appears between
+49.98 and 50.0 s after the spend at the narrowest and within 49.0 to 50.58 s
+on each.
+"""
+kind = "measurement"
+known = "observed"
+since = "2026-10-04"
+subject = "skye:guiding light"
+source = """
+hand reads of the stored hud_abilities crops (roi_cache, no decode), bounded
+by the countdown's last reading and the first gold sample
+[domain:hud/ability-tray-restock-countdown]
+[domain:hud/ability-tray-restocked-charge-gold]: bfad2778a372 spend
+1962.5-1963.0 s, '50' at 1963.0 s, gold at 2012.5 s; c62c2b06bcfb spend
+462.57-463.07 s, '0.6' at 512.5 s, gold at 514.0 s; c62c2b06bcfb spend
+1241.0-1242.05 s, '0.7' at 1290.7 s, '0.1' at 1291.2 s, gold at 1291.6 s
+(prototypes/restock_measure.py CROP_READS; ledger
+restock_measure/guiding_light). Every bound excludes 60 s
+"""
+use = """
+the expected gap before a spent Guiding Light charge returns during the round;
+whether a second spend during a restock restarts the timer is unmeasured
+"""
+supersedes = """
+[domain:abilities/catalogue-restock-and-ult-points-confirmed], for Skye's
+Guiding Light only: the wiki harvest's Restock of 60 seconds. The timed
+capture agrees with the game files' 50.0 s [domain:game_data/ability-restock-times]
+"""
+see = ["abilities/skye-guiding-light-charges", "abilities/recharge-kinds",
+       "abilities/game-files-outrank-player-quantities"]
+
 [recharge-kinds]
 claim = """
 An ability that comes back within a round restocks in one of two ways: over
@@ -3506,13 +3574,19 @@ Cyber Cage picked up in the buy phase and a Trapwire picked up in the round
 also return a charge (abilities/killjoy-nanoswarm-pickup-buy-phase-only,
 abilities/cypher-cyber-cage-pickup-buy-phase-only,
 abilities/cypher-trapwire-temporary-charge). The harvest's "none" stands for
-spent charges these facts do not return
+spent charges these facts do not return. The harvest's 60 s restock for Sova's
+Recon Bolt and Skye's Guiding Light is superseded by a timed capture that
+reads about 50 s, as the game files give
+(abilities/sova-recon-bolt-restock-observed,
+abilities/skye-guiding-light-restock-observed); the player's confirmation
+above stays on record as given
 """
 see = ["abilities/recharge-kinds", "abilities/catalogue-charge-counts-confirmed",
        "abilities/ult-charge-pips", "abilities/ability-rules-are-unique",
        "abilities/gekko-abilities-drop-pickups", "abilities/deployed-pickup-returns-charge",
        "abilities/killjoy-alarmbot-recall-cooldown", "abilities/chamber-trademark-recall-cooldown",
-       "abilities/chamber-rendezvous-recall-cooldown"]
+       "abilities/chamber-rendezvous-recall-cooldown", "abilities/sova-recon-bolt-restock-observed",
+       "abilities/skye-guiding-light-restock-observed"]
 
 [skye-regrowth-channelled]
 claim = """

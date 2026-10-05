@@ -4037,16 +4037,22 @@ def _tray_spans(cache) -> list[list[float]]:
     return [[float(np.min(cache.t_ms)), float(np.max(cache.t_ms))]] if len(cache.t_ms) else []
 
 
-def _tray_samples(cache, step_s: float) -> tuple[list, list, list, list]:
+def _tray_samples(cache, step_s: float, segments: bool = False) -> tuple:
     """The tray's slot counts on the crop cache's grid, span by span
     (`_tray_spans`): (times, counts, clean, real). A refused row separates two
-    spans, so no drop is read across two rounds; `real` is False on it."""
+    spans, so no drop is read across two rounds; `real` is False on it. With
+    `segments`, a fifth list holds each sample's half scores
+    (`tray.segment_scores`, zeros on a separator)."""
     from . import tray
-    ts, counts, clean, real = [], [], [], []
+    ts, counts, clean, real, segs = [], [], [], [], []
+    blank = np.zeros((len(tray.SLOT_KEYS), 2, len(tray.SEG_CLASSES)))
     for a, b in _tray_spans(cache):
         for smp in cache.samples(_cache_grid(cache.t_ms, a, b, step_s), rois=["hud_abilities"]):
             with usage_step("slot_counts"):
                 c, ok = tray.slot_counts(smp.frame)
+            if segments:
+                with usage_step("segment_scores"):
+                    segs.append(tray.segment_scores(smp.frame))
             ts.append(float(smp.t_ms))
             counts.append(c)
             clean.append(ok)
@@ -4055,7 +4061,9 @@ def _tray_samples(cache, step_s: float) -> tuple[list, list, list, list]:
         counts.append([0, 0, 0, 0])
         clean.append(False)
         real.append(False)
-    return ts, counts, clean, real
+        if segments:
+            segs.append(blank)
+    return (ts, counts, clean, real, segs) if segments else (ts, counts, clean, real)
 
 
 def cmd_menu(args) -> int:
@@ -4123,7 +4131,7 @@ def cmd_tray(args) -> int:
     from .lineup import load_lineup
     from .menu import stored_menu
     from .roi_cache import RoiCache
-    from .version import PLAYER_CAST_VERSION, TRAY_VERSION
+    from .version import PLAYER_CAST_VERSION, TRAY_SEGMENT_VERSION, TRAY_VERSION
 
     store = Store(args.store)
     for sid in _sessions_arg(store, args):
@@ -4138,7 +4146,7 @@ def cmd_tray(args) -> int:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
             continue
         with usage_step("tray_samples"):
-            ts, counts, clean, real = _tray_samples(cache, args.step)
+            ts, counts, clean, real, segs = _tray_samples(cache, args.step, segments=True)
         with usage_step("drops"):
             drops = tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool))
         date = _date_of(man)
@@ -4174,9 +4182,20 @@ def cmd_tray(args) -> int:
                                 if k not in ("tray_kit", "menu_open")},
                      "drops": len(rows), "player_casts": sum(r["player_cast"] for r in rows),
                      "refused_reasons": dict(sorted(why_not.items()))}]
+        with usage_step("segment_runs"):
+            seg_rows = tray.segment_runs(ts, np.asarray(segs), real)
+        halves = Counter()
+        for r in seg_rows:
+            for h in r["halves"]:
+                halves[h] += r["samples"]
+        out_rows[0].update({"tray_segment_version": TRAY_SEGMENT_VERSION,
+                            "segment_runs": len(seg_rows),
+                            "half_samples": dict(sorted(halves.items()))})
         with usage_step("write"):
             _record_inputs(store, sid, "tray_drop", out_rows[0])
             out_rows += [{**common, "kind": "drop", **r} for r in rows]
+            out_rows += [{**common, "tray_segment_version": TRAY_SEGMENT_VERSION, **r}
+                         for r in seg_rows]
             out = store.write_events("tray_drop", sid, out_rows)
         print(f"{sid}: {len(rows)} drops, {out_rows[0]['player_casts']} the player's casts; "
               f"refused {dict(why_not)} -> {out}")
@@ -4683,7 +4702,8 @@ def cmd_ability_state(args) -> int:
     from .adjudication.ult_cast import DROP_FIELDS
     from .lineup import load_lineup
     from .roi_cache import RoiCache
-    from .version import ABILITY_STATE_VERSION, PLAYER_CAST_VERSION, TRAY_VERSION
+    from .version import (ABILITY_STATE_VERSION, PLAYER_CAST_VERSION, TRAY_SEGMENT_VERSION,
+                          TRAY_VERSION)
 
     store = Store(args.store)
     facts = domain.load()
@@ -4704,9 +4724,11 @@ def cmd_ability_state(args) -> int:
         if cov is None:
             print(f"{sid}: no tray_drop rows -- skipped")
             continue
-        if cov.get("tray_version") != TRAY_VERSION:
-            print(f"{sid}: tray_drop is {cov.get('tray_version')}, code is {TRAY_VERSION} "
-                  f"-- rerun `reticle tray`; skipped")
+        if (cov.get("tray_version"), cov.get("tray_segment_version")) != (
+                TRAY_VERSION, TRAY_SEGMENT_VERSION):
+            print(f"{sid}: tray_drop is {cov.get('tray_version')} / "
+                  f"{cov.get('tray_segment_version')}, code is {TRAY_VERSION} / "
+                  f"{TRAY_SEGMENT_VERSION} -- rerun `reticle tray`; skipped")
             continue
         man = store.read_manifest(sid)
         cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
@@ -4715,9 +4737,14 @@ def cmd_ability_state(args) -> int:
             continue
         drops = [r for r in stored if r.get("kind") == "drop"]
         with usage_step("tray_samples"):
-            ts, counts, clean, real = _tray_samples(cache, cov["step_s"])
+            ts, counts, clean, real, segs = _tray_samples(cache, cov["step_s"], segments=True)
             counts, clean = np.asarray(counts, float), np.asarray(clean, bool)
+            segs = np.asarray(segs, float)
         t_read = time.perf_counter() - t0
+        # The reread must give the stored half classes too.
+        seg_key = lambda r: (r["slot"], r["t_first_ms"], r["t_last_ms"], tuple(r["halves"]))
+        segments_mismatch = len(set(map(seg_key, tray.segment_runs(ts, segs, real)))
+                                ^ {seg_key(r) for r in stored if r.get("kind") == "segments"})
         # The reread must give the stored drops, or the fills are not theirs.
         key = lambda r: tuple(r[k] for k in ("t_ms", "slot", "from", "to", "forced",
                                               "cooccur", "across_gap"))
@@ -4727,6 +4754,11 @@ def cmd_ability_state(args) -> int:
         with usage_step("fills"):
             fills = tray.fills(counts, clean)
         keep = np.asarray(real, bool)
+        halves = [tray.segment_classes(sc) for sc in segs[keep]]
+        # The player's own kills, which a live return must not follow.
+        kills_ms = sorted(float(r.get("t_ms", r.get("t_first_ms")))
+                          for r in store.read_events_kind("death", sid, "death_verdict")
+                          if r.get("kf_player_kill") and not r.get("is_revive"))
         date = _date_of(man)
         rounds = store.read_rounds(sid, date)
         round_version = (rounds.schema.metadata or {}).get(b"round_version", b"").decode() or None
@@ -4760,7 +4792,8 @@ def cmd_ability_state(args) -> int:
         kit = player_kit(agent["agent"], store.root) if catalogue is not None else {}
         inputs = {**stamps, "tray_drop": cov["tray_version"], "catalogue": cat_stamp,
                   "tray_drop_player_cast": cov.get("player_cast_version"),
-                  "tray_fill": TRAY_VERSION, "roi_cache": cache.record.get("version"),
+                  "tray_fill": TRAY_VERSION, "tray_segment": TRAY_SEGMENT_VERSION,
+                  "roi_cache": cache.record.get("version"),
                   "round": round_version, "lineup": (lineup or {}).get("version"),
                   "agent_identity": agent["adjudication_version"],
                   "ability_audio": audio["coverage"]["ability_audio_version"],
@@ -4768,6 +4801,7 @@ def cmd_ability_state(args) -> int:
                   "audio_features": audio["coverage"]["inputs"].get("audio_features"),
                   "audio_labels": audio["coverage"]["inputs"].get("audio_labels")}
         checks = {"step_s": cov["step_s"], "drops_reread_mismatch": reread_mismatch,
+                  "segments_reread_mismatch": segments_mismatch,
                   "gate_stored_mismatch": sum(
                       (a["reason"], a["player_cast"]) != (b.get("reason"), b.get("player_cast"))
                       for a, b in zip(gate_rows, drops)),
@@ -4776,7 +4810,9 @@ def cmd_ability_state(args) -> int:
             rows = adjudicate(
                 sid, drops=drops, gate_rows=gate_rows, kits=kits, phase_of=gate["phase_of"],
                 samples={"t_ms": [t for t, r in zip(ts, real) if r], "fills": fills[keep],
-                         "drawn": [tray.drawn(f) for f in fills[keep]], "clean": clean[keep]},
+                         "drawn": [tray.drawn(f) for f in fills[keep]], "clean": clean[keep],
+                         "halves": halves},
+                kills_ms=kills_ms,
                 agent=agent, params=slot_parameters(agent["agent"], kit, facts, catalogue=catalogue),
                 inputs=inputs, checks=checks, spectated=spectated, audio=audio)
         rows[0]["checks"]["wall_s"] = round(time.perf_counter() - t0, 1)

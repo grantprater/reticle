@@ -199,5 +199,52 @@ class StripCropTest(unittest.TestCase):
         self.assertEqual(tray.STRIP_X, (751, 1166))
 
 
+#: Pixel colours read off stored crops (BGR): the teal bar, a returned charge's
+#: gold, the empty bar's grey and a cyan screen streak over a bar.
+SEG_BGR = {"teal": (178, 255, 106), "gold": (181, 225, 245), "empty": (146, 151, 151),
+           "streak": (170, 165, 100)}
+
+
+def _halves(cols) -> np.ndarray:
+    """A frame whose eight bar halves are painted `cols` (slot-major, left first)."""
+    f = np.zeros((1080, 1920, 3), np.uint8)
+    for k in range(4):
+        cx = tray.SLOT_X0 + tray.SLOT_DX * k
+        for side, (a, b) in enumerate(((cx - 32, cx), (cx + 1, cx + 33))):
+            f[1038:1052, a:b] = SEG_BGR[cols[2 * k + side]]
+    return f
+
+
+class SegmentTest(unittest.TestCase):
+    def test_each_half_takes_its_class(self):
+        cols = ["teal", "gold", "empty", "empty", "gold", "gold", "teal", "teal"]
+        got = tray.segment_classes(tray.segment_scores(_halves(cols)))
+        self.assertEqual(got, [cols[0:2], cols[2:4], cols[4:6], cols[6:8]])
+
+    def test_a_streak_is_unreadable(self):
+        cols = ["streak", "streak", "teal", "teal", "empty", "empty", "teal", "teal"]
+        got = tray.segment_classes(tray.segment_scores(_halves(cols)))
+        self.assertEqual(got[0], ["unreadable", "unreadable"])
+
+    def test_gold_under_bright_scenery_is_not_gold(self):
+        """The empty bar is translucent: a bright flash behind it reads gold."""
+        cols = ["teal", "teal", "teal", "teal", "gold", "gold", "teal", "teal"]
+        f = _halves(cols)
+        f[tray.SEG_GUARD_Y[0]:tray.SEG_GUARD_Y[1]] = (235, 250, 255)
+        got = tray.segment_classes(tray.segment_scores(f))
+        self.assertEqual(got[2], ["unreadable", "unreadable"])
+        self.assertEqual(got[1], ["teal", "teal"])
+
+    def test_runs_keep_the_classes_and_break_at_separators(self):
+        a = tray.segment_scores(_halves(["teal"] * 8))
+        b = tray.segment_scores(_halves(["teal"] * 4 + ["gold", "gold"] + ["teal"] * 2))
+        scores = np.stack([a, a, b, np.zeros_like(a), b])
+        rows = tray.segment_runs([0, 500, 1000, 1010, 2000], scores, [1, 1, 1, 0, 1])
+        e = [(r["t_first_ms"], r["t_last_ms"], r["halves"]) for r in rows if r["slot"] == "E"]
+        self.assertEqual(e, [(0.0, 500.0, ["teal", "teal"]), (1000.0, 1000.0, ["gold", "gold"]),
+                             (2000.0, 2000.0, ["gold", "gold"])])
+        self.assertEqual(sum(r["samples"] for r in rows), 4 * 4)
+
+
 if __name__ == "__main__":
     unittest.main()
