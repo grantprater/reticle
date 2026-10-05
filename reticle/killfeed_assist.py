@@ -17,9 +17,12 @@ from the killer art's left edge leftwards, one assister at a time, never over
 the whole row. The edge is first checked against the killer's own art
 (`check_anchor`): the killfeed reader's priors are scored with the death
 verdict's killer (or, unnamed, the side's five), and where none confirms it
-the search widens to the entry's band. A disagreement with the killfeed
-reader's first prior is stored (`upstream_disagrees`) for its owner; the
-killfeed reader itself is not changed here. Each step scores the side's
+the search widens to the entry's band, then to every row of the crop (the
+reader's row can be a portrait off). A disagreement with the killfeed
+reader's first prior is stored (`upstream_disagrees`, `upstream_row_off`)
+for its owner; the killfeed reader itself is not changed here. A view whose
+edge no killer art confirms refuses its count (`anchor_unverified`): a walk
+from the wrong place reads an absence it never saw. Each step scores the side's
 portrait art (`appearance.art_zncc`, the art shrunk to the brush's 36 x 18
 with `INTER_AREA`) at every column where the assister's right edge can sit:
 against the panel's right end with no icon, or one icon cell (16 px) further
@@ -32,9 +35,14 @@ Before reading absence the step tries, on the player's side, the same art
 with the player's yellow frame unweighted (`FRAME_MARGIN`,
 [domain:killfeed/self-yellow-frame]), then every agent with art (the surprise
 path): a portrait that only an agent outside the side matches is stored as
-present with `widened`, and its agent stays for the arbiter to refuse. A step
-whose search the ROI's left edge cuts stops with `count` None and
-`count_min`.
+present with `widened`, and its agent stays for the arbiter to refuse. A
+step no art clears but whose best window shows a drawn portrait cell (the
+plate and crisp upper and lower edges, `portrait_drawn`) is an assister no
+agent's art recognises: it counts, and names nobody (`UNRECOGNISED`);
+presence and identity are separate questions. A step whose search the
+ROI's left edge cuts stops with `count` None and `count_min`; an absence read
+within `EMPTY_VISIBLE_MIN` of that edge is flagged. Up to four assisters is the
+player's belief [domain:killfeed/assist-panel-four-assisters-belief].
 
 **Icons.** An icon cell is read as soft whiteness (each pixel's least channel
 over 255: the white glyph over the translucent plate) against the game's
@@ -51,17 +59,19 @@ ability: `adjudication.assist` restricts the scores to the assister's kit.
 Riot's assist credit on paired deaths). Versions 0.1.0-0.4.0 were chosen
 against all 21 Riot matches; from 0.5.0 the matches are split by a fixed hash
 into a dev half (10, used for choices with the player's labels) and a
-held-out half (11, scored once per version). On the held-out half, where the
+held-out half (11, scored once per version; 0.6.0 is its second use, after
+a review had named five of its cases). On the held-out half, where the
 count is read, presence agrees with Riot's assisted kill at precision
-[metric:assist_panel/riot_held#presence_precision=0.997] and recall
-[metric:assist_panel/riot_held#presence_recall=0.9795]; a named assister is
-one Riot credits at [metric:assist_panel/riot_held#assister_precision=0.9943],
+[metric:assist_panel/riot_held#presence_precision=0.9971] and recall
+[metric:assist_panel/riot_held#presence_recall=0.9971]; a named assister is
+one Riot credits at [metric:assist_panel/riot_held#assister_precision=0.9944],
 and the player's own assists are named at
 [metric:assist_panel/riot_held#assistant_own_recall=0.9804]. Astra on
-223d636bf8d2 is drawn from variant art [domain:killfeed/portrait-art-variants]:
-every Astra assist on the dev half is missed
-([metric:assist_panel/riot_dev#assistant_astra_recall=0.0]). The ROI's left
-edge cuts the panel of a long killer name; those deaths keep a lower bound.
+223d636bf8d2 is drawn from art the build's texture does not hold
+[domain:killfeed/portrait-art-variants]: of the dev half's 12 Riot Astra
+assists, [metric:assist_panel/riot_dev#assistant_astra_unrecognised=9] read
+as an unrecognised portrait, present and unnamed. The ROI's left edge cuts
+the panel of a long killer name; those deaths keep a lower bound.
 
 Game art is loaded from the store's game-file reference (`ICON_BUILD`), never
 copied into this repository: the portraits are each agent UIData's
@@ -104,7 +114,17 @@ from .killfeed_numeral import fit_scores, slot_whiteness
 # disagreement with the killfeed reader's anchor is stored. A step no side
 # portrait fills is scored again with the player's yellow frame unweighted
 # (`FRAME_MARGIN`) on the player's side. The stream opens with a summary row.
-KILLFEED_ASSIST_VERSION = "killfeed-assist-0.5.0"
+# 0.6.0 (2026-10-04): where the priors and the band hold no killer art, the
+# killer's art is searched over every row of the crop (`ANCHOR_ROWS`, the
+# peak nearest the prior's row); the upstream row error is stored
+# (`upstream_row_off`). A view whose anchor stays unverified or unchecked
+# refuses its count (`anchor_unverified`, `anchor_unchecked`) and keeps its
+# walk as `unverified_read`. A step no agent's art clears but which shows a
+# drawn portrait cell (`portrait_drawn`) counts as an unnamed assister
+# (`UNRECOGNISED`); each step stores what its best window shows
+# (`step_evidence`); an absence read within `EMPTY_VISIBLE_MIN` px of the
+# ROI's left edge is flagged (`within_visible_min`), not refused.
+KILLFEED_ASSIST_VERSION = "killfeed-assist-0.6.0"
 
 #: The game build whose widgets and textures this reader draws on.
 ICON_BUILD = "release-13.06-shipping-18-5590001"
@@ -191,6 +211,10 @@ ICON_SURPRISE = 0.5
 
 #: Refusals and stops.
 REFUSE_NO_ANCHOR = "no_killer_art"
+#: The killer's art confirmed no prior, in the band or any row.
+REFUSE_UNVERIFIED = "anchor_unverified"
+#: Neither the death's killer nor the killer's side is known to check with.
+REFUSE_UNCHECKED = "anchor_unchecked"
 STOP_ABSENT = "no_portrait"
 STOP_CUT = "cut_by_roi"
 STOP_FULL = "max_slots"
@@ -483,6 +507,93 @@ def _pick(z, xs, ya, names, art, plate):
     return None, best_z
 
 
+def _window_evidence(lab: np.ndarray, plate: np.ndarray, x: int, y: int, art,
+                     agent: str) -> dict:
+    """What one portrait window (left column `x`, top row `y`, ROI px) shows
+    besides the art: the mean plate membership over its visible columns
+    (`plate_mean`), the share over `agent`'s transparent pixels
+    (`plate_trans`, None where the art shows too little plate), and the
+    median Lab step across the window's lower and upper edges
+    (`edge_bottom`, `edge_top`; the portrait cell has a crisp lower edge
+    [domain:killfeed/assist-panel-layout])."""
+    h, w = lab.shape[:2]
+    a = max(0, int(x))
+    b = min(w, int(x) + art.w)
+    out = {"x": int(x), "y": int(y), "agent": agent, "plate_mean": None, "plate_trans": None,
+           "edge_bottom": None, "edge_top": None}
+    if b - a < 2 or y < 0 or y + art.h > h:
+        return out
+    out["plate_mean"] = round(float(plate[y:y + art.h, a:b].mean()), 4)
+    if agent is not None and agent in art.index:
+        tr = _transparency(art)[art.index[agent]][:, a - int(x):b - int(x)]
+        tot = float(tr.sum())
+        if tot >= PLATE_AREA_MIN * tr.size:
+            out["plate_trans"] = round(float((tr * plate[y:y + art.h, a:b]).sum() / tot), 4)
+    if y + art.h < h:
+        d = np.linalg.norm(lab[y + art.h, a:b] - lab[y + art.h - 1, a:b], axis=-1)
+        out["edge_bottom"] = round(float(np.median(d)), 3)
+    if y >= 1:
+        d = np.linalg.norm(lab[y, a:b] - lab[y - 1, a:b], axis=-1)
+        out["edge_top"] = round(float(np.median(d)), 3)
+    return out
+
+
+def _stop_evidence(got, names: list[str], art, lab: np.ndarray, plate: np.ndarray) -> dict:
+    """The step's best placement over the side's art, though under
+    `PRESENT_Z`: each candidate's best correlation (`art_zncc`) and what the
+    best window shows (`_window_evidence`)."""
+    z, xs, ya = got
+    if not z.size:
+        return {}
+    by, bx, ai = np.unravel_index(int(np.argmax(z)), z.shape)
+    per = z.reshape(-1, z.shape[2]).max(0)
+    ev = _window_evidence(lab, plate, int(xs[bx]), int(ya + by), art, names[int(ai)])
+    ev["art_zncc"] = {a: round(float(v), 4) for a, v in zip(names, per)}
+    return ev
+
+
+#: A drawn portrait no agent's art clears (`portrait_drawn`); named nobody.
+UNRECOGNISED = "portrait not recognised"
+#: The rule that calls an unrecognised step drawn: at the side's best
+#: placement the art still correlates at `DRAWN_Z_MIN`, the window holds the
+#: plate (`plate_mean` at `DRAWN_PLATE_MIN`), and both its upper and lower
+#: edges step by `DRAWN_EDGE_MIN` (median Lab distance across the row; the
+#: portrait cell is a crisp 36 x 18 box). Chosen on the dev half's stored
+#: views (0.6.0 features): of 4140 stop steps where the read count and names
+#: equal Riot's (true absence), none fires (the nearest: art 0.42 with edges
+#: 6.7); of 34 views where Riot's Astra is unread, 30 fire (the four left are
+#: an Astra the ROI cuts to 7 columns and a frame mid-fade); of 1158
+#: recognised portraits 1034 (89%) clear the edge and plate parts. The
+#: dev half's one other firing (ff636d173b07 1054.5 s) is the player's framed
+#: Phoenix, drawn, which Riot credits.
+DRAWN_Z_MIN = 0.4
+DRAWN_PLATE_MIN = 0.05
+DRAWN_EDGE_MIN = 8.0
+#: How far (base px) a step's right end must lie inside the ROI's left edge
+#: for its absence to be seen. On 400 recognised portraits in uncut steps
+#: (dev half, 40 per match) the ROI's left edge was moved over every column:
+#: each portrait was still found while its step's right end lay at least
+#: 22 px (no icon) or 46 px (icon) inside; 48 keeps 2 px beyond the worst.
+#: The window rule (`ART_MIN_VISIBLE`) already reads absence from 38 px, so
+#: this rule calls no cut step empty: 4f207c0c4e39 1783.0 s (right end about
+#: 27 px inside) stays cut, since an iconed second assister there would show
+#: 10 of its 36 columns. Enforcing it the other way (cutting steps at 38-47
+#: px) withdrew 88 dev reads, 79 agreeing with Riot and 9 not (6 of them
+#: zeros Riot credits), so it is not enforced: an absence read inside it
+#: carries `within_visible_min` for review.
+EMPTY_VISIBLE_MIN = 48
+
+
+def portrait_drawn(ev: dict) -> bool:
+    """Whether a step whose art clears no agent still shows a drawn portrait
+    cell (`DRAWN_Z_MIN`, `DRAWN_PLATE_MIN`, `DRAWN_EDGE_MIN`)."""
+    z = max((ev.get("art_zncc") or {}).values(), default=None)
+    pm, eb, et = ev.get("plate_mean"), ev.get("edge_bottom"), ev.get("edge_top")
+    if z is None or pm is None or eb is None or et is None:
+        return False
+    return z >= DRAWN_Z_MIN and pm >= DRAWN_PLATE_MIN and min(eb, et) >= DRAWN_EDGE_MIN
+
+
 def read_panel(crop: np.ndarray, right: float, top: float, s: KillfeedScale, art,
                candidates: list[str], icon_temps: dict | None = None,
                icons_admitted: list[str] | None = None, framed_art=None,
@@ -525,22 +636,47 @@ def read_panel(crop: np.ndarray, right: float, top: float, s: KillfeedScale, art
                     widened = f"side top {best:.3f}: none on plate at {PRESENT_Z}"
                     got, hit, cand = wide, whit, list(art.agents)
         if hit is None:
+            ev = _stop_evidence(got, names, art, lab, plate) if got is not None else {}
+            # Absence read nearer the ROI's left edge than `EMPTY_VISIBLE_MIN`
+            # is flagged as evidence; the count stands (see the constant).
+            if not cut and edge < s.px(EMPTY_VISIBLE_MIN):
+                ev["within_visible_min"] = round(float(edge), 2)
+            if not cut and ev and portrait_drawn(ev):
+                # Drawn, but no agent's art clears the cut: present, unnamed.
+                x = int(ev["x"])
+                gap = edge - (x + art.w)
+                row = {"k": k, "x": x, "y": int(ev["y"]), "gap": round(float(gap), 2),
+                       "agent_at_best": None, "recognised": False,
+                       "unrecognised_reason": UNRECOGNISED, "step_evidence": ev,
+                       "plate_share": ev.get("plate_trans"),
+                       "art_zncc": ev.get("art_zncc", {}), "art_candidates": "side",
+                       "widened": None, "frame": None, "art_margin": art.margin,
+                       "visible": round(min(1.0, (x + art.w) / art.w), 3),
+                       "icon": gap >= s.px(ICON_GAP_MIN)}
+                if row["icon"] and icon_temps:
+                    iy = row["y"] + (art.h - s.px(ICON_PX)) / 2.0
+                    row.update(read_icon(crop, x + art.w, iy, s, icon_temps, icons_admitted or []))
+                out.append(row)
+                edge = float(x)
+                continue
             stop = {"reason": STOP_CUT if cut else STOP_ABSENT, "k": k,
-                    "best_z": round(best, 4)}
+                    "best_z": round(best, 4), **ev}
             break
         z, xs, ya = got
         ai, by, bx, zbest, share = hit
         per = z.reshape(-1, z.shape[2]).max(0)
         x = int(xs[bx])
         gap = edge - (x + used.w)
-        row = {"k": k, "x": x, "y": int(ya + by), "gap": round(float(gap), 2),
-               "agent_at_best": cand[ai],
+        y = int(ya + by)
+        row = {"k": k, "x": x, "y": y, "gap": round(float(gap), 2),
+               "agent_at_best": cand[ai], "recognised": True,
                "plate_share": None if share is None else round(share, 3),
                "art_zncc": {a: round(float(v), 4) for a, v in zip(cand, per)},
                "art_candidates": "all" if widened else "side", "widened": widened,
                "frame": frame, "art_margin": used.margin,
                "visible": round(min(1.0, (x + used.w) / used.w), 3),
-               "icon": gap >= s.px(ICON_GAP_MIN)}
+               "icon": gap >= s.px(ICON_GAP_MIN),
+               "step_evidence": _window_evidence(lab, plate, x, y, used, cand[ai])}
         if row["icon"] and icon_temps:
             iy = row["y"] + (used.h - s.px(ICON_PX)) / 2.0
             row.update(read_icon(crop, x + used.w, iy, s, icon_temps, icons_admitted or []))
@@ -579,8 +715,11 @@ def view_anchor(row: dict) -> tuple[float, str] | None:
 #: Anchor checks (`check_anchor`).
 ANCHOR_VERIFIED = "verified"
 ANCHOR_LOCAL = "local"
+ANCHOR_ROWS = "all_rows"
 ANCHOR_UNVERIFIED = "unverified"
 ANCHOR_NO_KILLER = "no_killer"
+#: Anchors the killer's art placed: a view reads its panel from these only.
+ANCHOR_CHECKED = (ANCHOR_VERIFIED, ANCHOR_LOCAL, ANCHOR_ROWS)
 
 
 def _killer_z(lab: np.ndarray, kart, killers: list[str], x_lo: int, x_hi: int, y_lo: int,
@@ -625,8 +764,8 @@ def check_anchor(crop: np.ndarray, row: dict, s: KillfeedScale, kart,
     top = row.get("art_y0")
     out = {"killer": killer, "killer_candidates": None, "killer_at_best": None,
            "priors": [{"prior": src, "x": round(x, 2)} for x, src in priors],
-           "local": None, "status": None, "x": None, "y": top, "prior": None,
-           "upstream_disagrees": None}
+           "local": None, "rows": None, "status": None, "x": None, "y": top, "prior": None,
+           "upstream_disagrees": None, "upstream_row_off": None}
     if not priors or top is None:
         out["status"] = REFUSE_NO_ANCHOR
         return out
@@ -672,10 +811,100 @@ def check_anchor(crop: np.ndarray, row: dict, s: KillfeedScale, kart,
             out.update(status=ANCHOR_LOCAL, x=float(got[1]), y=int(got[2]), prior="killer_art",
                        killer_at_best=got[3])
         else:
-            out.update(status=ANCHOR_UNVERIFIED, x=first_x, prior=first_src)
+            # The band holds no killer art: the upstream row can be a whole
+            # portrait off (c62c2b06bcfb 400.5 s: art_y0 0-2, Reyna at 15).
+            # Search every row of the crop and keep the peak nearest the prior.
+            rows = _killer_rows(lab, kart, killers, int(top))
+            out["rows"] = rows
+            if rows["pick"] is not None:
+                p = rows["pick"]
+                out.update(status=ANCHOR_ROWS, x=float(p["x"]), y=int(p["y"]), prior="killer_art",
+                           killer_at_best=p["agent"])
+            else:
+                out.update(status=ANCHOR_UNVERIFIED, x=first_x, prior=first_src)
     out["upstream_disagrees"] = bool(abs(out["x"] - first_x) > EDGE_SEARCH)
+    out["upstream_row_off"] = (int(out["y"]) - int(top)
+                               if out["status"] in (ANCHOR_LOCAL, ANCHOR_ROWS) else None)
     out["x"] = round(float(out["x"]), 2)
     return out
+
+
+#: The all-rows killer search (`_killer_rows`) screens the crop and the art
+#: both shrunk by `ROWS_SHRINK` (`INTER_AREA`), keeping rows whose best
+#: screened correlation reaches `ROWS_SCREEN_Z`, then scores each screened
+#: peak at full size within `ROWS_REFINE` px; only the full-size score is cut
+#: at `killfeed.ART_SURPRISE_Z`. The screen is chosen, not measured, below
+#: that cut so a peak the shrink blurs is still refined.
+ROWS_SHRINK = 2
+ROWS_SCREEN_Z = 0.35
+ROWS_REFINE = 3
+#: A peak further than half the 39 px slot pitch [domain:killfeed/slot-pitch]
+#: from the prior's row is another entry's killer and is never picked. On
+#: the first 0.6.0 run, unbounded, 83 views took an all-rows peak at a
+#: median 39 px (up to 179 px) from the prior: another entry with the same
+#: killer, whose panel is not this death's. The review's five cases lie 3-15
+#: px off.
+ROWS_PICK_MAX = 19
+
+_SHRUNK: dict = {}
+
+
+def _shrunk_tiles(kart) -> "appearance.ArtTiles":
+    """`kart` shrunk by `ROWS_SHRINK` (`INTER_AREA` on its Lab and alpha),
+    cached per art set."""
+    key = id(kart)
+    if key not in _SHRUNK:
+        f = ROWS_SHRINK
+        h, w = max(4, kart.h // f), max(4, kart.w // f)
+        lab = np.stack([cv2.resize(t, (w, h), interpolation=cv2.INTER_AREA) for t in kart._lab])
+        alpha = np.stack([cv2.resize(a, (w, h), interpolation=cv2.INTER_AREA)
+                          for a in kart.alpha])
+        _SHRUNK[key] = (kart, appearance.ArtTiles(kart.agents, lab, alpha,
+                                                  max(0, kart.margin // f)))
+    return _SHRUNK[key][1]
+
+
+def _killer_rows(lab: np.ndarray, kart, killers: list[str], top: int) -> dict:
+    """The killer's art over every row of the crop, for a view whose priors
+    and band hold none (`check_anchor`, `ANCHOR_ROWS`). Every row is screened
+    at `ROWS_SHRINK` (`ROWS_SCREEN_Z`); each run of screened rows is one
+    peak, scored at full size about its best (`ROWS_REFINE`) and kept at
+    `killfeed.ART_SURPRISE_Z`. The peak nearest the prior's row `top`, within
+    `ROWS_PICK_MAX`, is picked (an entry above or below can hold the same
+    killer), ties to the higher correlation. Returns {"peaks": [...], "pick":
+    peak or None}."""
+    h, w = lab.shape[:2]
+    if h < kart.h or w < kart.w:
+        return {"peaks": [], "pick": None}
+    f = ROWS_SHRINK
+    small = _shrunk_tiles(kart)
+    lab_s = cv2.resize(lab, (w // f, h // f), interpolation=cv2.INTER_AREA)
+    hs, ws = lab_s.shape[:2]
+    hits = []
+    for y in range(0, hs - small.h + 1):
+        g = _killer_z(lab_s, small, killers, 0, ws, y, y)
+        if g is not None and g[0] >= ROWS_SCREEN_Z:
+            hits.append((y, g))
+    runs, cur = [], []
+    for y, g in hits:
+        if cur and y - cur[-1][0] > 1:
+            runs.append(cur)
+            cur = []
+        cur.append((y, g))
+    if cur:
+        runs.append(cur)
+    peaks = []
+    for run in runs:
+        _y, g0 = max(run, key=lambda t: t[1][0])
+        r = ROWS_REFINE
+        g = _killer_z(lab, kart, killers, f * g0[1] - r, f * g0[1] + r,
+                      f * g0[2] - r, f * g0[2] + r)
+        if g is not None and g[0] >= ART_SURPRISE_Z:
+            peaks.append({"x": int(g[1]), "y": int(g[2]), "z": round(float(g[0]), 4),
+                          "agent": g[3], "screen_z": round(float(g0[0]), 4)})
+    near = [p for p in peaks if abs(p["y"] - top) <= ROWS_PICK_MAX]
+    pick = min(near, key=lambda p: (abs(p["y"] - top), -p["z"])) if near else None
+    return {"peaks": peaks, "pick": pick}
 
 
 def assist_observation(crop: np.ndarray, killer_row: dict, s: KillfeedScale, art,
@@ -697,10 +926,10 @@ def assist_observation(crop: np.ndarray, killer_row: dict, s: KillfeedScale, art
     if chk["status"] == REFUSE_NO_ANCHOR or art is None:
         return {**base, "count": None, "count_min": 0, "assisters": [],
                 "reason": REFUSE_NO_ANCHOR, "anchor_check": chk}
+    checked = chk["status"] in ANCHOR_CHECKED
     # A checked edge is read alone; an unchecked one falls back through the
     # reader's priors while each reads no panel, as before the check.
-    tries = ([(chk["x"], chk["prior"], chk["y"])]
-             if chk["status"] in (ANCHOR_VERIFIED, ANCHOR_LOCAL)
+    tries = ([(chk["x"], chk["prior"], chk["y"])] if checked
              else [(x, src, killer_row["art_y0"]) for x, src in view_anchors(killer_row)])
     tried = []
     for x, src, y in tries:
@@ -711,8 +940,19 @@ def assist_observation(crop: np.ndarray, killer_row: dict, s: KillfeedScale, art
             break
     rests = [{"prior": src, "x": round(x, 2), "art_y0": y,
               "observation_key": killer_row.get("observation_key")}]
-    if chk["status"] in (ANCHOR_VERIFIED, ANCHOR_LOCAL):
+    if checked:
         rests.append({"death_killer": killer, "death_id": death_id} if killer
                      else {"lineup_side": list(side or [])})
-    return {**base, **got, "reason": got["stop"]["reason"] if got["count"] is None else None,
+        return {**base, **got, "reason": got["stop"]["reason"] if got["count"] is None else None,
+                "rests_on": rests, "priors_tried": tried, "anchor_check": chk}
+    # No killer art confirms the edge: whatever the walk read from it is kept
+    # as evidence, never as a count or an assister (a panel walked from the
+    # wrong place reads absence it never saw).
+    why = REFUSE_UNCHECKED if chk["status"] == ANCHOR_NO_KILLER else REFUSE_UNVERIFIED
+    return {**base, "count": None, "count_min": 0, "assisters": [], "stop": {"reason": why},
+            "reason": why, "unverified_read": {"count": got["count"],
+                                               "count_min": got["count_min"],
+                                               "stop": got["stop"],
+                                               "agents": [a["agent_at_best"]
+                                                          for a in got["assisters"]]},
             "rests_on": rests, "priors_tried": tried, "anchor_check": chk}

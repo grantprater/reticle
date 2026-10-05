@@ -13,7 +13,6 @@ dissent, and a tie refuses as `count_tie`. Zero is a reading: the kill drew
 no panel. Where the ROI cut every view, the assisters each view found before
 the cut stand as a lower bound (`count_min`, the least over the views): they
 are named and read like the rest, and `present` is True; `count` stays None.
-
 **Agents.** Every assister is an entity, `<death_id>:assist:<k>` with k
 counted from the killer's portrait leftwards, and each view's portrait
 scores become one `identity_claim` on channel `killfeed_assist`, decided by
@@ -24,8 +23,15 @@ admitted agent and rival by `identity.PORTRAIT_MARGIN_MIN`; else it abstains
 with its reason. An assister found only on the reader's surprise path (an
 agent outside the side's lineup) abstains as `outside_side`.
 
+A portrait the reader found drawn but no agent's art recognised
+(`killfeed_assist.UNRECOGNISED`) counts toward the panel and claims no agent:
+its `name_reason` is 'portrait not recognised', never absence.
+
 **Icons.** An assister drawn with no icon reads `none`
-[domain:killfeed/assist-without-icon]. A drawn icon is named from the
+[domain:killfeed/assist-without-icon], as a gun damage assist draws
+[domain:killfeed/gun-damage-assist-no-icon]. Any assist-earning ability may
+draw its icon, by the player's belief
+[domain:killfeed/assist-earning-ability-icon-belief]. A drawn icon is named from the
 pooled scores (mean over the views that read the cell) in three widening
 sets, each a fact or a stored decision: first the assister's disabling and
 undecided abilities (`killfeed_kits` `assist_icons`, `assist_open`)
@@ -46,7 +52,7 @@ from collections import Counter, defaultdict
 from . import killfeed_kits
 from .identity import (AGENT_IDENTITY_VERSION, PORTRAIT_MARGIN_MIN, AgentIdentityArbiter,
                        identity_claim, side_candidates)
-from ..killfeed_assist import KILLFEED_ASSIST_VERSION, PRESENT_Z
+from ..killfeed_assist import KILLFEED_ASSIST_VERSION, PRESENT_Z, UNRECOGNISED
 
 # 0.1.0 (2026-10-04): first adjudication.
 # 0.2.0 (2026-10-04): a cut panel keeps its lower bound (`count_min`,
@@ -54,7 +60,10 @@ from ..killfeed_assist import KILLFEED_ASSIST_VERSION, PRESENT_Z
 # 0.3.0 (2026-10-04): a view's claim evidence carries the portrait's frame
 # (`self` for the player's yellow frame) and the art margin it was scored at;
 # the stream opens with a summary row of its inputs.
-ASSIST_ADJUDICATION_VERSION = "assist-adjudication-0.3.0"
+# 0.4.0 (2026-10-04): a view's unrecognised portrait (`killfeed_assist`
+# `recognised` False) claims no agent, with reason 'portrait not recognised';
+# each assister stores why it is unnamed (`name_reason`).
+ASSIST_ADJUDICATION_VERSION = "assist-adjudication-0.4.0"
 
 CHANNEL = "killfeed_assist"
 #: An icon is named when its pooled score reaches this and leads the next
@@ -92,6 +101,8 @@ def view_claim(row: dict, entity_id: str, admitted: dict, observed_at_ms: float)
           "blind": admitted["blind"]}
     kw = dict(channel=CHANNEL, observed_at_ms=observed_at_ms,
               source_version=KILLFEED_ASSIST_VERSION, evidence=ev)
+    if row.get("recognised") is False:
+        return identity_claim(entity_id, None, reason=UNRECOGNISED, **kw)
     if row.get("art_candidates") == "all":
         return identity_claim(entity_id, None, reason="outside_side", **kw)
     if admitted["blind"]:
@@ -123,6 +134,10 @@ def pool_count(views: list[dict]) -> dict:
                 "count_reason": (refused.most_common(1)[0][0] if refused else "no_views"),
                 "count_min": low, "present": True if low > 0 else None}
     ranked = votes.most_common()
+    # Cut views do not vote, even where their lower bound exceeds the vote:
+    # refusing such votes (tried 2026-10-04 for 223d636bf8d2 409.5 s, where
+    # two cut views hold Astra's unrecognised portrait and one full view
+    # reads 0) made 15 dev deaths present, 7 of them with no Riot assist.
     if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
         return {"count": None, "count_status": "refused", "count_reason": "count_tie",
                 "count_votes": {str(k): n for k, n in ranked}, "count_min": 0,
@@ -216,8 +231,13 @@ def adjudicate_death(verdict: dict, views: list[dict], lineup: dict | None,
         agent = ident.get("agent") if ident.get("status") == "resolved" else None
         icon_views = [a for _v, a in mine if a.get("icon")]
         has_icon = Counter(bool(a.get("icon")) for _v, a in mine)
+        unrec = sum(a.get("recognised") is False for _v, a in mine)
         ast = {"k": k, "entity_id": eid, "agent": agent, "identity": ident,
-               "icon_drawn_votes": {str(b): c for b, c in has_icon.items()}}
+               "icon_drawn_votes": {str(b): c for b, c in has_icon.items()},
+               # why no name: every view drew a portrait no agent's art cleared
+               "name_reason": (None if agent else UNRECOGNISED if mine and unrec == len(mine)
+                               else ident.get("reason") or ident.get("status")),
+               "unrecognised_views": unrec}
         if not mine:
             ast.update(icon=None, icon_status="refused", icon_reason="no_views")
         elif has_icon[True] < has_icon[False]:

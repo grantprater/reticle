@@ -1202,6 +1202,52 @@ class ReviveEntryTest(unittest.TestCase):
         self.assertEqual(claims[1]["reason"], "revive_in_interval")
 
 
+class JoinAssistsDeathRule(unittest.TestCase):
+    """`join_assists` carries the assist stream's verdicts only when the
+    stream rests on this death rule; otherwise every death stays unread with
+    the reason, never a guessed count."""
+
+    def _stream(self, death_rule):
+        return [{"kind": "summary", "assist_adjudication_version": "assist-adjudication-x",
+                 "inputs": {"death": death_rule}},
+                {"kind": "assist_verdict", "death_id": "d1", "count": 2, "count_min": 2,
+                 "present": True, "count_status": "read", "count_reason": None,
+                 "rests_on": {"killfeed_assist_version": "killfeed-assist-x"},
+                 "assisters": [{"k": 0, "entity_id": "d1:assist:0", "agent": "Sage",
+                                "identity": {"status": "resolved"}, "icon": "none",
+                                "icon_status": "read", "icon_set": None},
+                               {"k": 1, "entity_id": "d1:assist:1", "agent": None,
+                                "identity": {"status": "refused"}, "icon": None,
+                                "icon_status": "refused", "icon_set": None}]}]
+
+    def test_joined_when_the_death_version_matches(self):
+        from reticle.adjudication.death import assist_stamp, join_assists
+        rows = [{"kind": "death_verdict", "death_id": "d1"}, {"kind": "round"}]
+        got = join_assists(rows, self._stream(DEATH_ADJUDICATION_VERSION))
+        self.assertEqual(got, {"read": 1})
+        a = rows[0]["assists"]
+        self.assertEqual((a["status"], a["count"], a["present"]), ("read", 2, True))
+        self.assertEqual([s["agent"] for s in a["assisters"]], ["Sage", None])
+        self.assertEqual(a["rests_on"]["assist_adjudication_version"], "assist-adjudication-x")
+        self.assertNotIn("assists", rows[1])
+        self.assertEqual(assist_stamp(self._stream(DEATH_ADJUDICATION_VERSION)),
+                         "assist-adjudication-x")
+
+    def test_unread_with_reason_when_the_death_version_differs(self):
+        from reticle.adjudication.death import ASSISTS_STALE, assist_stamp, join_assists
+        # a stream read over master's death rule before this one (0.36.0)
+        old = "death-adjudication-0.36.0"
+        self.assertNotEqual(old, DEATH_ADJUDICATION_VERSION)
+        rows = [{"kind": "death_verdict", "death_id": "d1"}]
+        got = join_assists(rows, self._stream(old))
+        self.assertEqual(got, {ASSISTS_STALE: 1})
+        a = rows[0]["assists"]
+        self.assertEqual((a["status"], a["reason"], a["stamp"]),
+                         ("unread", ASSISTS_STALE, f"stale:{old}"))
+        self.assertNotIn("count", a)
+        self.assertEqual(assist_stamp(self._stream(old)), f"stale:{old}")
+
+
 class EntryFollowTests(unittest.TestCase):
     """An entry rises as older ones expire; its views follow it by its key."""
 

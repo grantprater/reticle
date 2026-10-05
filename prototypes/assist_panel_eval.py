@@ -98,6 +98,12 @@ def score_riot(store: Store, sids: list[str]) -> tuple[dict, list[dict]]:
             # and lower bounds both count; refusals without a bound do not.
             if v["count"] is not None or v.get("present"):
                 found = {canon(a["agent"]) for a in v["assisters"] if a["agent"]}
+                # unnamed slots drawn with no agent's art clearing the cut
+                unrec = sum(1 for a in v["assisters"]
+                            if not a["agent"] and a.get("name_reason") == "portrait not recognised")
+                c["assister_unrecognised"] += unrec
+                missing = [s_ for s_ in (k.get("assistants") or [])
+                           if canon(agent_of.get(s_)) not in found]
                 for s_ in (k.get("assistants") or []):
                     ag = canon(agent_of.get(s_))
                     grp = "own" if me and s_ == me else "others"
@@ -106,9 +112,20 @@ def score_riot(store: Store, sids: list[str]) -> tuple[dict, list[dict]]:
                     if ag == "astra":
                         c["assistant_astra"] += 1
                         c["assistant_astra_found"] += int(ag in found)
+                        if ag not in found:
+                            # an unrecognised slot can stand for Astra when
+                            # no more Riot assistants are missing than slots
+                            c["assistant_astra_unrecognised" if unrec and len(missing) <= unrec
+                              else "assistant_astra_absent"] += 1
+                    elif ag not in found and unrec:
+                        c["assistant_other_missing_with_unrecognised"] += 1
             elif truth and v.get("count_reason") == "cut_by_roi":
                 c["riot_assisted_cut_unread"] += 1
                 c[f"cut_unread@{sid}"] += 1
+            if v["count"] is None and not v.get("present"):
+                for s_ in (k.get("assistants") or []):
+                    if canon(agent_of.get(s_)) == "astra":
+                        c["assistant_astra_refused"] += 1
             c[f"riot_n{len(truth)}"] += 1
             row = {"session": sid, "death_id": v["death_id"], "t_ms": v["t_ms"],
                    "riot": truth, "count": v["count"], "count_status": v["count_status"],

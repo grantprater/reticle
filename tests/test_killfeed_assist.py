@@ -108,6 +108,16 @@ class Adjudicate(unittest.TestCase):
                               {"count": None, "count_min": 2, "reason": "cut_by_roi"}])
         self.assertEqual(cut["count_min"], 1)
         self.assertTrue(cut["present"])
+        # cut views never vote, even with a bound above the vote
+        below = adj.pool_count([{"count": None, "count_min": 1, "reason": "cut_by_roi"},
+                                {"count": 0}, {"count": None, "count_min": 1,
+                                               "reason": "cut_by_roi"}])
+        self.assertEqual(below["count"], 0)
+        # an unverified view refuses and does not vote
+        unv = adj.pool_count([{"count": None, "count_min": 0, "reason": "anchor_unverified"},
+                              {"count": None, "count_min": 0, "reason": "anchor_unverified"}])
+        self.assertEqual((unv["count"], unv["count_reason"], unv["present"]),
+                         (None, "anchor_unverified", None))
 
     def test_icon_sets_widen(self):
         got = adj.decide_icon({"Alpha/Smoke": 0.8, "Alpha/Heal": 0.3}, "Alpha", [], KITS)
@@ -177,6 +187,65 @@ class CheckAnchor(unittest.TestCase):
         self.assertEqual((got["killer_candidates"], got["killer_at_best"]), ("side", "Bravo"))
         none = ka.check_anchor(self.crop, row, UNIT_SCALE, self.kart, None, [])
         self.assertEqual((none["status"], none["x"]), (ka.ANCHOR_NO_KILLER, 60))
+
+
+class AllRowsAnchor(unittest.TestCase):
+    """A prior whose row is a portrait off: the band holds no killer art, so
+    every row is searched and the upstream row error is stored."""
+
+    def setUp(self):
+        self.kart = _tiles(34, 68, 4, seed=5)
+        rng = np.random.default_rng(3)
+        crop = rng.normal(90, 6, (130, 300, 3)).astype(np.float32)
+        crop[60:94, 150:218] = self.kart.bgr[self.kart.index["Bravo"]] * 255.0
+        self.crop = np.clip(crop, 0, 255).astype(np.uint8)
+
+    def test_row_off_prior_is_found_in_all_rows(self):
+        row = {"art_x0": 60, "art_reason": None, "art_y0": 45}
+        got = ka.check_anchor(self.crop, row, UNIT_SCALE, self.kart, "Bravo")
+        self.assertEqual((got["status"], got["x"], got["y"]), (ka.ANCHOR_ROWS, 150.0, 60))
+        self.assertEqual(got["upstream_row_off"], 15)
+        self.assertTrue(got["upstream_disagrees"])
+
+    def test_absent_killer_stays_unverified_and_refuses(self):
+        row = {"t_ms": 0.0, "art_x0": 60, "art_reason": None, "art_y0": 45,
+               "observation_key": "k"}
+        art = _art()
+        got = ka.assist_observation(self.crop, row, UNIT_SCALE, art, list(AGENTS), None, [],
+                                    "d", killer="Alpha", kart=self.kart)
+        self.assertEqual(got["anchor_check"]["status"], ka.ANCHOR_UNVERIFIED)
+        self.assertIsNone(got["count"])
+        self.assertEqual(got["reason"], ka.REFUSE_UNVERIFIED)
+        self.assertEqual(got["assisters"], [])
+        self.assertIn("unverified_read", got)
+
+
+class Unrecognised(unittest.TestCase):
+    def test_drawn_rule_needs_art_plate_and_both_edges(self):
+        ev = {"art_zncc": {"Alpha": 0.6}, "plate_mean": 0.25, "edge_bottom": 30.0,
+              "edge_top": 20.0}
+        self.assertTrue(ka.portrait_drawn(ev))
+        self.assertFalse(ka.portrait_drawn({**ev, "edge_top": 3.0}))
+        self.assertFalse(ka.portrait_drawn({**ev, "plate_mean": 0.0}))
+        self.assertFalse(ka.portrait_drawn({**ev, "art_zncc": {"Alpha": 0.2}}))
+        self.assertFalse(ka.portrait_drawn({}))
+
+    def test_unrecognised_row_claims_nobody(self):
+        admitted = {"named": ["Alpha"], "rivals": [], "blind": []}
+        row = {"k": 0, "recognised": False, "art_zncc": {"Alpha": 0.6}, "art_candidates": "side"}
+        c = adj.view_claim(row, "e", admitted, 0.0)
+        self.assertIsNone(c["agent"])
+        self.assertEqual(c["reason"], ka.UNRECOGNISED)
+
+    def test_absence_near_roi_edge_is_flagged(self):
+        art = _art()
+        right = ka.EMPTY_VISIBLE_MIN - 4 + ka.PORTRAIT_W + 1
+        # one assister whose left edge lies just inside EMPTY_VISIBLE_MIN
+        got = ka.read_panel(_scene(art, [("Bravo", False)], right=right), right, 20,
+                            UNIT_SCALE, art, list(AGENTS))
+        self.assertEqual(got["count"], 1)
+        self.assertEqual(got["stop"]["reason"], ka.STOP_ABSENT)
+        self.assertIn("within_visible_min", got["stop"])
 
 
 class FramedPortrait(unittest.TestCase):
