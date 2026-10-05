@@ -199,6 +199,37 @@ class Cut(unittest.TestCase):
                 self.assertEqual(got[0.0]["icons"], [{"x": 1, "y": 2}])
                 self.assertEqual(gt.exhaustive_paint_frames("none"), {})
 
+    def test_a_later_sure_answer_revises_an_unsure_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "answers.jsonl"
+            rows = [ans("Cypher:C", unsure=True), ans("Skye:X", unsure=True),
+                    ans("Skye:X", "rotates"), ans("Cypher:Q", "rotates"), ans("Cypher:C", "rotates")]
+            p.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            a = gt.rotation_answer_rows(p)
+        got = {r["key"]: r for r in gt.policy_rows(["Cypher:C", "Cypher:Q", "Skye:X"], a,
+                                                   {"Cypher:C": "rotates", "Skye:X": "upright"}, {})}
+        self.assertEqual({k: (r["policy"], r["decided_by"], r["answer"]["line"]) for k, r in got.items()},
+                         {"Cypher:C": ("rotates", "player_answer", 5), "Cypher:Q": ("rotates", "player_answer", 4),
+                          "Skye:X": ("rotates", "player_answer", 3)})
+        self.assertEqual(got["Cypher:C"]["domain"], "abilities/cypher-trapwire-minimap-glyph-turns-belief")
+        self.assertIsNone(got["Cypher:C"]["surprise"])                 # the rule reads it turning too
+        self.assertIsNone(got["Cypher:Q"]["surprise"])                 # no component: no rule to contradict
+        self.assertIn("contradicts the two-flag rule", got["Skye:X"]["surprise"])
+
+    def test_cut_moves_names_each_moved_key_and_bank(self):
+        def tab(cq, ctx):
+            return {"version": "v", "keys": {"A:C": {"cut": 0.5, "audit_cut": 0.7}, "B:Q": {"cut": cq, "audit_cut": 0.6}},
+                    "banks": {b: {"bank_cut": {"cut": c}} for b, c in (("context", ctx), ("full", 0.8), ("audit", 0.86))}}
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "old.json"
+            p.write_text(json.dumps(tab(0.4367, 0.66)), encoding="utf-8")
+            m = gt.cut_moves(p, tab(0.5331, 0.66), ["A:C", "B:Q"])
+            self.assertIsNone(gt.cut_moves(Path(d) / "absent.json", tab(0.5, 0.6), ["A:C"]))
+        self.assertEqual(m["moved"], {"B:Q": {"old": 0.4367, "new": 0.5331}})
+        self.assertEqual(m["audit_moved"], {})
+        self.assertEqual(m["max_abs"], 0.0964)
+        self.assertEqual(m["bank_cut"]["context"], {"old": 0.66, "new": 0.66})
+
     def test_every_answer_fact_exists(self):
         text = (ROOT / "domain" / "abilities.toml").read_text(encoding="utf-8")
         ids = set(re.findall(r"^\[([a-z0-9-]+)\]", text, re.M))

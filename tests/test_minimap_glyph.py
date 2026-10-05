@@ -1,6 +1,7 @@
 """The minimap glyph reader (`minimap_glyph`, `ability_glyph` rows)."""
 from __future__ import annotations
 
+import json
 import os
 import unittest
 from pathlib import Path
@@ -593,6 +594,19 @@ class GameTextureTest(unittest.TestCase):
 
     def setUp(self):
         os.environ["RETICLE_GLYPH"] = "cpu"
+
+    def test_the_stored_policy_reads_the_2026_10_05_rotation_answers(self):
+        # [domain:abilities/skye-seekers-minimap-glyph-turns-belief]
+        # [domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief]
+        # [domain:abilities/cypher-trapwire-minimap-glyph-turns-belief]
+        data = M.GlyphData.load(STORE)
+        self.assertLessEqual({"Skye:X", "Cypher:Q", "Cypher:C"}, data.rotating)
+        pdir, pver = M.GLYPH_DATA["policy"]
+        pol = json.loads((STORE / pdir / f"{pver}.json").read_text(encoding="utf-8"))
+        rows = {r["key"]: r for r in pol["rows"]}
+        for k in ("Skye:X", "Cypher:Q", "Cypher:C"):
+            self.assertEqual(rows[k]["decided_by"], "player_answer", k)
+        self.assertNotIn("unsure_pending_player", pol["decided_by"])
 
     def test_a_game_texture_at_a_known_rotation_returns_its_key(self):
         data = M.GlyphData.load(STORE)
