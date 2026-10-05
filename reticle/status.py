@@ -111,18 +111,18 @@ def stored_versions(root: Path) -> dict[str, collections.Counter]:
     # store holding pings at two definitions now says so.
     # The round outcomes are read from the crop cache by `reticle
     # round-outcome`, and the deaths rest on them; list their stamps too.
-    for stream, key in (("ping", "ping_version"), ("round_outcome", "round_outcome_version")):
+    # The stamp is the store's answer (`Store.events_version`), the one `plan`
+    # and `scan` act on; reading `ping_version` here alone called every
+    # formal-event ping file "(no rows)".
+    store = Store(root)
+    for stream in ("ping", "round_outcome"):
         c = collections.Counter()
         d = root / "events" / stream
         if d.is_dir():
             for f in sorted(d.glob("*.jsonl")):
-                v = None
                 try:
-                    for ln in f.read_text(encoding="utf-8").splitlines():
-                        if ln.strip():
-                            v = json.loads(ln).get(key)
-                            break
-                except Exception:
+                    v = store.events_version(stream, f.stem)
+                except OSError:
                     v = "unreadable"
                 c[v or "(no rows)"] += 1
         out[stream] = c

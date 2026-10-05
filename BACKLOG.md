@@ -5,10 +5,11 @@ This file orders work; each open item carries an `Acceptance:` command and an `E
 ## Agreed order (2026-10-04)
 
 **1. Close the remaining failures against Riot's match records.** Pooled over 21 matches the store misses [metric:riot_truth/deaths#missed=3] kills, cannot observe [metric:riot_truth/deaths#unobservable=12] inside a stall and holds [metric:riot_truth/deaths#false_deaths=7] false deaths; [metric:riot_truth/deaths#victim_refused=25] victims, [metric:riot_truth/deaths#killer_refused=28] killers and [metric:riot_truth/deaths#weapon_refused=65] weapons stay refused. Riot records [metric:riot_truth/rounds#plant_riot_only=27] plants the store lacks, [metric:riot_truth/rounds#plant_riot_only_post_decision=18] after the round was decided [domain:rounds/post-round-plant-no-graphic]. Read each refusal's stored reason before changing a reader. Threads:
-- In-round stall gaps need the roster-difference design: 11 of 16 stall rows end the round inside the gap.
-- The entry-tracker weld at 223d636bf8d2 (`C:\Users\grant\Videos\2026-08-23 20-09-01.mp4`) 1206 s.
-- New false deaths at 9acf02f98283 (`C:\Users\grant\Videos\2026-08-24 11-55-34.mp4`) 968.5 s and a06f04a0059f (`C:\Users\grant\Videos\2026-08-26 09-56-37.mp4`) 35.5 s.
-- The Not Dead Yet miss at ff636d173b07 (`C:\Users\grant\Videos\2026-08-24 18-47-51.mp4`) 1246.6 s.
+- `riot-residuals-20261004` (unmerged, `death-adjudication-0.35.1`, `killfeed-name-cluster-0.5.1`, `riot-truth-0.6.1`) fixes the name split at bfad2778a372, the split track across a revive at 9acf02f98283 968.5 s, the shared roster drop at b7d24102a6f6 1582.0 s and bdfdcf009dba 1704.5 s, and pairs deaths drawn at a stall's release; its commit body carries the before and after and the cause of every residual.
+- In-round stall gaps: the roster-difference design and its predictions are in [STALL_ROSTER_DIFFERENCE.md](docs/STALL_ROSTER_DIFFERENCE.md).
+- The entry at 223d636bf8d2 (`C:\Users\grant\Videos\2026-08-23 20-09-01.mp4`) 1206 s: the Shooting Error graph covers slot 4's victim plate; the track reads the wrong side and name.
+- a06f04a0059f (`C:\Users\grant\Videos\2026-08-26 09-56-37.mp4`) 1768-1771 s: Skye's blind screen [domain:abilities/skye-guiding-light-blind-screen] hides the killfeed for 2.5 s; the tracker drops the one-sample onset and restarts the entry on a faded frame that reads the wrong side. The tracker needs blind spans as it has stall spans [domain:abilities/phoenix-curveball-blind-screen].
+- The Not Dead Yet expiry at ff636d173b07 (`C:\Users\grant\Videos\2026-08-24 18-47-51.mp4`) 1246.6 s: the one-colour band reader drops the entry on every sample (`one_colour:no_divider`, `one_colour:no_icon`).
 - The killstreak numeral [domain:killfeed/killstreak-indicator] flags an extra Reyna kill at 4f207c0c4e39 (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`) 2195 s.
 - Declare the `killstreak_witness` stream in `plan`.
 - Earlier threads (killfeed box crop faults, KAY/O downs, the queue follow, post-round plants) keep their texts in the [10-04 archive](docs/archive/BACKLOG-through-2026-10-04.md).

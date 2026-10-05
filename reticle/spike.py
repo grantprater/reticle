@@ -263,8 +263,9 @@ def _glyph_yellowness() -> tuple[np.ndarray, float]:
 def spike_yellowness(crop: np.ndarray) -> np.ndarray:
     """min(R, G) - B, clipped at 0: the spike's saturated yellow is high,
     grey floor and teal are near 0."""
-    b, g, r = (c.astype(np.int16) for c in cv2.split(crop))
-    return np.clip(np.minimum(r, g) - b, 0, 255).astype(np.float32)
+    b, g, r = cv2.split(crop)
+    # uint8 arithmetic saturates at 0, which is the clip
+    return cv2.subtract(cv2.min(r, g), b).astype(np.float32)
 
 
 @lru_cache(maxsize=64)
@@ -317,8 +318,13 @@ def drawn_boxes(width_px: float, scale: float | None = None) -> dict[str, list[f
 
 def _fit(y: np.ndarray, boxes: dict[str, list[float]], rotation: int = 0):
     """Per state, the best correlation, its amplitude and drawn box at every
-    pixel of `y` (-1 where the window does not fit)."""
-    y2 = y * y
+    pixel of `y` (-1 where the window does not fit).
+
+    The window's standard deviation under each template comes from one pair
+    of integral images (float64) shared by every template, not from two
+    correlations with a flat kernel per template."""
+    s1, s2 = cv2.integral2(np.ascontiguousarray(y, np.float32), sdepth=cv2.CV_64F,
+                           sqdepth=cv2.CV_64F)
     out = {}
     for state, sides in boxes.items():
         best = None
@@ -327,14 +333,15 @@ def _fit(y: np.ndarray, boxes: dict[str, list[float]], rotation: int = 0):
             if t.shape[0] > y.shape[0] or t.shape[1] > y.shape[1]:
                 continue
             ncc = cv2.matchTemplate(y, t, cv2.TM_CCOEFF_NORMED)
-            k = np.full_like(t, 1.0 / t.size)
-            mu = cv2.matchTemplate(y, k, cv2.TM_CCORR)
-            sd = np.sqrt(np.maximum(cv2.matchTemplate(y2, k, cv2.TM_CCORR) - mu * mu, 0))
-            amp = ncc * sd / float(t.std())
-            p = t.shape[0] // 2
-            pad = ((p, y.shape[0] - ncc.shape[0] - p), (p, y.shape[1] - ncc.shape[1] - p))
-            ncc = np.pad(ncc, pad, constant_values=-1)
-            amp = np.pad(amp, pad)
+            sd = _window_sd(s1, s2, *t.shape)
+            amp = ncc * sd / _template_std(s, _base_down(state, rotation))
+            # each map at its window's centre pixel: -1 and 0 where none fits
+            p, (hh, ww) = t.shape[0] // 2, ncc.shape
+            ncc_full = np.full(y.shape, -1, ncc.dtype)
+            amp_full = np.zeros(y.shape, amp.dtype)
+            ncc_full[p:p + hh, p:p + ww] = ncc
+            amp_full[p:p + hh, p:p + ww] = amp
+            ncc, amp = ncc_full, amp_full
             if best is None:
                 best = [ncc, amp, np.full(y.shape, s, np.float32)]
             else:
@@ -343,6 +350,23 @@ def _fit(y: np.ndarray, boxes: dict[str, list[float]], rotation: int = 0):
                         np.where(w, s, best[2])]
         out[state] = best
     return out
+
+
+@lru_cache(maxsize=64)
+def _template_std(box: float, base_down: bool) -> float:
+    """`glyph_template`'s standard deviation, as `_fit` divides by it."""
+    return float(glyph_template(box, base_down).std())
+
+
+def _window_sd(s1: np.ndarray, s2: np.ndarray, th: int, tw: int) -> np.ndarray:
+    """The standard deviation over every `th` x `tw` window that fits, from
+    `cv2.integral2`'s sum and squared sum: `matchTemplate`'s valid layout,
+    as float32."""
+    def box(s):
+        return s[th:, tw:] - s[:-th, tw:] - s[th:, :-tw] + s[:-th, :-tw]
+    n = float(th * tw)
+    mu = box(s1) / n
+    return np.sqrt(np.maximum(box(s2) / n - mu * mu, 0)).astype(np.float32)
 
 
 def glyph_gate(ncc: float, amp: float) -> str | None:
@@ -376,10 +400,13 @@ def glyph_fits(crop: np.ndarray, support: np.ndarray | None = None,
         return []
     drawn = drawn_boxes(crop.shape[1], scale)
     reach = int(np.ceil(max(drawn["dropped"]))) + 4
-    n, _lab, st, _cen = cv2.connectedComponentsWithStats(seeds, 8)
+    # The seeds' components, labelled inside the seeds' bounding box only.
+    bx, by, _bw, _bh = cv2.boundingRect(seeds)
+    n, _lab, st, _cen = cv2.connectedComponentsWithStats(seeds[by:by + _bh, bx:bx + _bw], 8)
     boxes = []
     for i in range(1, n):
         x, yy, w, h = st[i, :4]
+        x, yy = x + bx, yy + by
         boxes.append([max(0, x - reach), max(0, yy - reach),
                       min(crop.shape[1], x + w + reach), min(crop.shape[0], yy + h + reach)])
     boxes = _merge_windows(boxes)
