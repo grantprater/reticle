@@ -3,6 +3,7 @@ r"""Sightlines in 3D from the game's own collision: a feasibility probe.
     .\.venv\Scripts\python.exe prototypes\sightlines_3d.py build --dump DIR --ini FILE --persistent FILE [--map ascent]
     .\.venv\Scripts\python.exe prototypes\sightlines_3d.py rebuild --map ascent --source OLDER.npz [--record]
     .\.venv\Scripts\python.exe prototypes\sightlines_3d.py gate [--map ascent] [--set dev|confirm] [--record]
+    .\.venv\Scripts\python.exe prototypes\sightlines_3d.py state-props [--version sightlines-3d-0.3.0]
     .\.venv\Scripts\python.exe prototypes\sightlines_3d.py --self-test
 
 Why this exists
@@ -46,6 +47,23 @@ always-loaded levels; their actor classes leave them out
 respawning plates and shootables, destructibles and breakables), read off each
 map's dump. Foliage, glass and invisible walls stay in or out by their own
 collision profile, never by name.
+
+A class name misses a subclass named for its art, so `state_changing` also
+walks each placed class's parents through the class exports under the store's
+`reference/game-files/<build>/props/` (`class_index`). A subclass of
+`BP_Destructible_BASE_C` (its ReceiveAnyDamage calls Break: Bind's BP_Pot_1_C
+and BP_Pot_3_C) is left out, and so is a door on the native `AresDoor` whose
+default object is tagged `CollapsibleDoor` (Summit's DescentBox_v5_C starts
+open and drops 300 cm over 1.75 s each round). A class with no export keeps
+the name test alone; `state-props` lists, per map, what the test removes from
+a stored table and which kept classes' chains it could not read.
+
+Versions
+--------
+`sightlines-3d-0.4.0` changed only the maps whose blocker set held such a
+prop (`REBUILT`); every other map's 0.3.0 table holds the same blockers,
+heights and grid, and stands for 0.4.0 (`table_version`, `out_path`). A
+map's gate rows carry its table's version.
 
 Body heights
 ------------
@@ -110,10 +128,19 @@ for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
 
 import numpy as np  # noqa: E402
 
-VERSION = "sightlines-3d-0.3.0"
+VERSION = "sightlines-3d-0.4.0"
+#: The version before; a map outside `REBUILT` keeps its table of that version.
+PREVIOUS = "sightlines-3d-0.3.0"
+#: The maps whose 0.3.0 blocker set held a placement the class-chain test
+#: leaves out (`state-props` over the 0.3.0 tables): only their tables changed.
+REBUILT = frozenset({"bind", "summit"})
+GAME_BUILD = "release-13.06-shipping-18-5590001"
 STORE = Path(os.environ.get("RETICLE_STORE", "C:/Users/grant/reticle-store"))
 EXTRACTOR = STORE / "tools" / "game-extract"
 REPO = Path(__file__).resolve().parents[1]
+#: Class exports (`game-extract export`): each blueprint class's parent and its
+#: default object's tags.
+PROPS = STORE / "reference" / "game-files" / GAME_BUILD / "props"
 
 
 def _game_body() -> dict:
@@ -180,6 +207,12 @@ LEFT_OUT_ACTOR_PREFIX = ("SpawnBarrier",)
 #: BP_Breakable_Simple_*_C. Ascent's and Split's always-loaded levels hold none
 #: outside `Gameplay_Dynamic`, so their tables are unchanged by this rule.
 STATE_CHANGING_CLASS = re.compile(r"Door|Drawbridge|^Switch_|WindowShield|^Respawning|Destructible|Breakable")
+#: Parents whose subclasses change state in a round, read from their exports:
+#: BP_Destructible_BASE_C's ReceiveAnyDamage calls Break.
+STATE_CHANGING_ANCESTOR = frozenset({"BP_Destructible_BASE_C"})
+#: A class on this native door whose default object carries this tag collapses
+#: in a round: DescentBox_v5_C drops 300 cm over 1.75 s, with a crush box.
+COLLAPSIBLE_DOOR = ("AresDoor", "CollapsibleDoor")
 BOMB_MODE_LEVEL = re.compile(r"_(Mode_BombMode|Modes_BombMode|BombGameMode_Only)$")
 QUERY_ENABLED = {"QueryOnly", "QueryAndPhysics", "ProbeOnly", "QueryAndProbe"}
 #: Display name -> the game's map folder (valorant-api `mapUrl`).
@@ -385,6 +418,69 @@ def place(local: np.ndarray, mats: np.ndarray) -> np.ndarray:
     return w.reshape(-1, 3, 3)
 
 
+# ------------------------------------------------------------------ state-changing classes
+
+def class_index(root: Path = PROPS) -> dict[str, dict]:
+    """Blueprint class -> its parent's name and path and its default object's
+    Tags (None where the default object sets none), from the class exports."""
+    out: dict[str, dict] = {}
+    if not root.is_dir():
+        return out
+    for f in sorted(root.rglob("*.json")):
+        try:
+            rows = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(rows, list):
+            continue
+        tags = None
+        for e in rows:
+            if str(e.get("Name", "")).startswith("Default__") and "Tags" in (e.get("Properties") or {}):
+                tags = [str(t) for t in e["Properties"]["Tags"]]
+        for e in rows:
+            if e.get("Type") != "BlueprintGeneratedClass":
+                continue
+            sup = e.get("Super") or e.get("SuperStruct") or {}
+            m = re.search(r"'([^']+)'", str(sup.get("ObjectName") or ""))
+            out[str(e["Name"])] = {"super": m.group(1) if m else None,
+                                   "super_path": str(sup.get("ObjectPath") or ""), "tags": tags,
+                                   "file": f.relative_to(root).as_posix()}
+    return out
+
+
+def class_chain(cls: str, index: dict) -> tuple[list[str], bool]:
+    """The class and its parents, nearest first, and whether the walk reached a
+    native (`/Script/`) class; False where a parent's export is missing."""
+    chain = [cls]
+    while chain[-1] in index:
+        row = index[chain[-1]]
+        if not row["super"] or row["super"] in chain:
+            return chain, False
+        chain.append(row["super"])
+        if row["super_path"].startswith("/Script/"):
+            return chain, True
+    return chain, False
+
+
+def state_changing(cls: str, index: dict) -> str | None:
+    """Why a placement of this class changes state in a round, or None: its
+    name (`STATE_CHANGING_CLASS`), a state-changing parent, or a collapsible
+    door (`COLLAPSIBLE_DOOR`), the tags read from the nearest default object
+    in the chain that sets them."""
+    if STATE_CHANGING_CLASS.search(cls):
+        return "class name"
+    chain, _ = class_chain(cls, index)
+    for c in chain[1:]:
+        if c in STATE_CHANGING_ANCESTOR:
+            return f"subclass of {c}"
+    base, tag = COLLAPSIBLE_DOOR
+    if base in chain:
+        tags = next((index[c]["tags"] for c in chain if c in index and index[c]["tags"] is not None), None) or []
+        if tag in tags:
+            return f"{base} tagged {tag}"
+    return None
+
+
 # ------------------------------------------------------------------ blockers
 
 def streamed_levels(persistent: dict | list, map_name: str, available=None) -> list[str]:
@@ -402,8 +498,9 @@ def streamed_levels(persistent: dict | list, map_name: str, available=None) -> l
 
 
 def build_blockers(dump: Path, profiles: dict, levels: list[str], complex_all: bool = False,
-                   render_winding: int = RENDER_WINDING) -> dict:
+                   render_winding: int = RENDER_WINDING, classes: dict | None = None) -> dict:
     """World triangles with per-triangle Weapon/Pawn blocking flags and their source."""
+    classes = class_index() if classes is None else classes
     inst = [json.loads(l) for l in (dump / "instances.jsonl").read_text(encoding="utf-8").splitlines() if l]
     meshes = {m["mesh"]: m for m in (json.loads(l) for l in (dump / "meshes.jsonl").read_text(encoding="utf-8").splitlines() if l)}
     blob = (dump / "render.bin").read_bytes()
@@ -422,7 +519,7 @@ def build_blockers(dump: Path, profiles: dict, levels: list[str], complex_all: b
             counts["actor_left_out"] += 1
             flags.append(None)
             continue
-        if STATE_CHANGING_CLASS.search(str(r.get("actor_class") or "")):
+        if state_changing(str(r.get("actor_class") or ""), classes):
             counts["state_left_out"] += 1
             state_classes[str(r["actor_class"])] = state_classes.get(str(r["actor_class"]), 0) + 1
             flags.append(None)
@@ -690,8 +787,14 @@ def visible(bits: np.ndarray, i: np.ndarray, j: np.ndarray, n: int) -> np.ndarra
 
 # ------------------------------------------------------------------ commands
 
-def out_path(map_name: str) -> Path:
-    return STORE / "sightlines" / f"{map_name}__{VERSION}.npz"
+def table_version(map_name: str) -> str:
+    """The version whose table stands for the map at this `VERSION`."""
+    return VERSION if map_name in REBUILT else PREVIOUS
+
+
+def out_path(map_name: str, version: str | None = None) -> Path:
+    """The map's table: of `version`, else of the version that stands for it."""
+    return STORE / "sightlines" / f"{map_name}__{version or table_version(map_name)}.npz"
 
 
 def extractor_commit(root: Path = EXTRACTOR) -> dict:
@@ -784,12 +887,68 @@ def cmd_rebuild(a) -> int:
     old = D["provenance"]
     if old.get("map") != a.map:
         raise SystemExit(f"{src_path} holds {old.get('map')}, not {a.map}")
-    base = {k: old[k] for k in ("levels", "counts", "complex_all", "mesh_kinds", "source")}
+    base = {k: old[k] for k in ("levels", "complex_all", "mesh_kinds", "source")}
     base["rebuilt_from"] = {"path": str(src_path), "version": old.get("version"),
                             "heights": {k: old.get(k) for k in ("eye_cm", "chest_cm", "crouch_clear_cm",
                                                                  "walkable_z", "jump_cm")}}
+    drop = state_props(D, class_index())
+    counts = dict(old["counts"], state_classes=dict(old["counts"].get("state_classes") or {}))
+    for cls, row in drop["left_out"].items():
+        counts["state_classes"][cls] = counts["state_classes"].get(cls, 0) + row["placements"]
+        counts["state_left_out"] += row["placements"]
+        counts["kept"] -= row["placements"]
+    base["counts"] = counts
+    base["rebuild_left_out"] = drop["left_out"]
+    keep = ~np.isin(D["src"], np.asarray(drop["placements"], np.int64))
     t1 = time.perf_counter()
-    return finish_build(a, D["tris"], D["weapon"], D["pawn"], D["src"], D["src_meta"], D["region"], base, t0, t1)
+    return finish_build(a, D["tris"][keep], D["weapon"][keep], D["pawn"][keep], D["src"][keep], D["src_meta"],
+                        D["region"], base, t0, t1)
+
+
+def state_props(D: dict, classes: dict) -> dict:
+    """The placements in a stored table's blockers whose class `state_changing`
+    leaves out, by class with the reason, and the kept classes whose parent
+    chain stops at a missing export (the test read only their names)."""
+    meta = D["src_meta"]
+    src = np.asarray(D["src"])
+    used, n_tris = np.unique(src, return_counts=True)
+    left: dict[str, dict] = {}
+    placements: list[int] = []
+    unread: dict[str, int] = {}
+    for i, n in zip(used.tolist(), n_tris.tolist()):
+        cls = str(meta[i].get("actor_class") or "")
+        why = state_changing(cls, classes)
+        if why:
+            row = left.setdefault(cls, {"reason": why, "placements": 0, "triangles": 0,
+                                        "chain": class_chain(cls, classes)[0]})
+            row["placements"] += 1
+            row["triangles"] += int(n)
+            placements.append(i)
+        elif cls in classes and not class_chain(cls, classes)[1]:
+            unread[cls] = unread.get(cls, 0) + 1
+    return {"left_out": left, "placements": placements, "unread_chain": unread}
+
+
+def cmd_state_props(a) -> int:
+    """Per map, what `state_changing` removes from the stored tables of `--version`."""
+    quiet()
+    classes = class_index()
+    out = {"version": VERSION, "tables": a.version, "classes_read": len(classes), "maps": {}}
+    for m in sorted(CODENAMES):
+        p = out_path(m, a.version)
+        if not p.is_file():
+            out["maps"][m] = None
+            continue
+        D = load(m, p)
+        r = state_props(D, classes)
+        meta = D["src_meta"]
+        placed = {str(meta[i].get("actor_class") or "") for i in np.unique(D["src"]).tolist()}
+        out["maps"][m] = {"left_out": r["left_out"], "unread_chain": r["unread_chain"],
+                          "blueprint_classes_without_export": sorted(c for c in placed - set(classes)
+                                                                     if c.endswith("_C"))}
+    out["changed"] = sorted(m for m, r in out["maps"].items() if r and r["left_out"])
+    print(json.dumps(out, indent=1))
+    return 0
 
 
 def finish_build(a, T, weapon, pawn, src, src_meta, reg, base: dict, t0: float, t1: float) -> int:
@@ -828,7 +987,11 @@ def finish_build(a, T, weapon, pawn, src, src_meta, reg, base: dict, t0: float, 
             "n_tris": int(len(T)), "n_weapon_tris": int(weapon.sum()), "n_pawn_tris": int(pawn.sum())}
     if "rebuilt_from" in base:
         prov["rebuilt_from"] = base["rebuilt_from"]
-    op = Path(a.out) if a.out else out_path(a.map)
+    if "rebuild_left_out" in base:
+        prov["rebuild_left_out"] = base["rebuild_left_out"]
+    prov["state_classes_from"] = {"props": str(PROPS), "rule": "STATE_CHANGING_CLASS, STATE_CHANGING_ANCESTOR "
+                                                                "and COLLAPSIBLE_DOOR over class_chain"}
+    op = Path(a.out) if a.out else out_path(a.map, VERSION)
     op.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(op, tris=T, weapon=weapon, pawn=pawn, src=src,
                         src_meta=json.dumps(src_meta), cell_xy=G["xy"], cell_z=G["z"], cell_clear=G["clear"],
@@ -1100,8 +1263,9 @@ def cmd_gate(a) -> int:
                             eye_points(oxy[okc], of[okc], ocl[okc], BODY_CM))
     ctrl_kills = [dict(gun[i], victim_xy=tuple(oxy[j])) for j, i in enumerate(ci)]
     ctrl2 = los_2d(ctrl_kills, okc, a.map) if a.set == "dev" else np.full(len(ctrl_kills), np.nan)
+    tver = D["provenance"].get("version") or VERSION
     res = {
-        "version": VERSION, "map": a.map, "set": a.set, "matches": len(per), "kills": len(kills),
+        "version": tver, "map": a.map, "set": a.set, "matches": len(per), "kills": len(kills),
         "dev_matches": len(per) if a.set == "dev" else 0, "dev_kills": len(kills) if a.set == "dev" else 0,
         "held_out_excluded": 0, "exclusions": exclusions, "frames": fs,
         "positions": int(len(allpos)),
@@ -1157,7 +1321,7 @@ def cmd_gate(a) -> int:
             "instrument check only on confirmation-history kills (no development kills on this map; no hypothesis "
             "scored); held-out replay, captured and ladder holdout matches excluded; control_* post hoc")
         metrics.record("sightlines_3d", part=part, values=vals,
-                       deps={"version": VERSION, "geometry": D["provenance"].get("source", {}).get("build"),
+                       deps={"version": tver, "geometry": D["provenance"].get("source", {}).get("build"),
                              "extractor": D["provenance"].get("source", {}).get("extractor", {}).get("commit"),
                              "eye_cm": EYE_CM, "body_cm": BODY_CM},
                        context={"placeholders": D["provenance"]["placeholders"], "set": a.set,
@@ -1231,7 +1395,7 @@ def main(argv=None) -> int:
     b.add_argument("--dump", required=True)
     b.add_argument("--ini", required=True)
     b.add_argument("--persistent", required=True)
-    b.add_argument("--build", default="release-13.06-shipping-18-5590001")
+    b.add_argument("--build", default=GAME_BUILD)
     b.add_argument("--out")
     b.add_argument("--no-table", action="store_true")
     b.add_argument("--record", action="store_true")
@@ -1250,6 +1414,8 @@ def main(argv=None) -> int:
                    help="confirm: an instrument check on the confirmation history, for maps without development kills")
     g.add_argument("--disagreements", type=int, default=10)
     g.add_argument("--npz", help="a built table other than the store default")
+    sp = sub.add_parser("state-props", help="per map, the placements the state-changing test removes from stored tables")
+    sp.add_argument("--version", default=PREVIOUS, help="the tables to read")
     a = ap.parse_args(argv)
     if a.self_test:
         return _self_test()
@@ -1259,6 +1425,8 @@ def main(argv=None) -> int:
         return cmd_rebuild(a)
     if a.cmd == "gate":
         return cmd_gate(a)
+    if a.cmd == "state-props":
+        return cmd_state_props(a)
     ap.print_help()
     return 2
 

@@ -58,8 +58,8 @@ over (slot, frame):
   disc. The core is scored apart and never stands as the region;
 * `reach`: the Euclidean disc of `R = v_max * (t - t_fix) + r_fit` round the
   last fix of the round. `v_max` is the character's top ground speed from
-  the game files [domain:movement/character-max-speed] in metres
-  [domain:movement/game-units-are-centimetres]. Negative evidence is off
+  the game files [domain:game_data/character-movement-speeds] in metres
+  [domain:game_data/game-units-centimetres]. Negative evidence is off
   (`p_det = 0`): the stored reader records neither its search nor a floor
   residual;
 * `unanchored`: no fix since the round opened; the region is the map.
@@ -201,18 +201,21 @@ def _below_normal() -> None:
 
 
 def v_max_m_s() -> float:
-    """The top ground speed the game's movement tuning allows, in m/s
-    [domain:movement/character-max-speed], [domain:movement/game-units-are-centimetres]."""
+    """The top speed the game's movement tuning allows, in m/s
+    [domain:game_data/character-movement-speeds]: the base top speed times
+    the largest state multiplier, 6.75 x 1.1 = 7.425 m/s. The 1.1 is the
+    Jumping state's multiplier, the largest of the states; running's is
+    unserialized and taken as 1. The bound is a reach ceiling, not the run
+    speed (6.75 m/s)."""
     from reticle import domain
-    facts = domain.load()
-    sp = facts["movement/character-max-speed"].values
-    u = facts["movement/game-units-are-centimetres"].values["units_per_m"]
-    return float(sp["max_speed_units"]) * max(1.0, *sp["state_max_speed_multipliers"]) / float(u)
+    sp = domain.load()["game_data/character-movement-speeds"].values
+    return float(sp["speed"]["base_max_speed_m_s"]) * max(1.0, *sp["state_multiplier"].values())
 
 
 def units_per_m() -> float:
+    """Game units per metre [domain:game_data/game-units-centimetres]."""
     from reticle import domain
-    return float(domain.load()["movement/game-units-are-centimetres"].values["units_per_m"])
+    return float(domain.load()["game_data/game-units-centimetres"].values["units_per_m"])
 
 
 # ----------------------------------------------------------------- the belief law (pure)

@@ -36,6 +36,7 @@ falling and launches (jump pads, ropes, abilities) are not ground movement
 and are not bounded here
 """
 see = ["movement/game-units-are-centimetres"]
+superseded_by = "game_data/character-movement-speeds"
 
 [game-units-are-centimetres]
 claim = """
@@ -47,6 +48,7 @@ agent is 42 units in radius and 196 units tall.
 kind = "geometry"
 known = "cited"
 since = "2026-10-04"
+superseded_by = "game_data/game-units-centimetres"
 values = { units_per_m = 100.0, agent_radius_units = 42.0, agent_height_units = 196.0 }
 source = """
 Unreal Engine's documented unit convention (1 unit = 1 cm); the agent
