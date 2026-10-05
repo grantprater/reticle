@@ -2042,7 +2042,14 @@ PORTRAIT_ASPECT = 2.0
 # 7010b3d62460 1020.0 s) now read their killer at z 0.82-0.91 on the band's
 # row; before, the art search widened and its best window, a noise peak,
 # put `art_y0` 3-13 rows off, or no killer row was written.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.21.0"
+# 0.22.0 (2026-10-05): a `killer_name_end` letter within NAME_GAP of the
+# killer run's end extends the run instead of replacing it. The text mask
+# drops a name's final descender ("Killjo|y", "Master Oogwga|y"), which then
+# sat in the gap on the NAME_BASE_ROW pass; taken alone its descender
+# baseline stopped `killer_name_start` at the y, and the art box sat on the
+# name (59c70f1ef720 1284.0 s, Killjoy 0.91 read as Sage 0.34; bfad2778a372
+# 1436.5-1440.5 s, Sage 0.92 read at 0.26).
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.22.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -2420,6 +2427,27 @@ def killer_name_end(white_band: np.ndarray, wx0: int, victim_run,
     return None
 
 
+def killer_name_run(white_band: np.ndarray, view: "EntryView",
+                    s: "KillfeedScale" = UNIT_SCALE) -> tuple[int, int] | None:
+    """The killer's name run the portrait reader walks from: the view's run,
+    unless it ends further than `ONE_COLOUR_KILLER_GAP` before the divider,
+    where `killer_name_end`'s letter inside the gap takes its place.
+
+    A letter within NAME_GAP of the run's end continues the name, so the run
+    extends to it instead (0.22.0). The text mask drops a final descender
+    ("Killjo|y" at 59c70f1ef720 1284.0 s, "Master Oogwga|y" at bfad2778a372
+    1436.5 s): taken alone, the y's descender baseline stopped
+    `killer_name_start` at the y and the art box sat on the name."""
+    krun = view.killer_run
+    if not (view.wx1 > view.wx0 and view.victim_run and (
+            krun is None or view.wx0 - krun[1] > s.px(ONE_COLOUR_KILLER_GAP))):
+        return krun
+    end = killer_name_end(white_band, view.wx0, view.victim_run, s)
+    if end is not None and krun is not None and 0 <= end[0] - krun[1] <= s.px(NAME_GAP):
+        return krun[0], end[1]
+    return end or krun
+
+
 #: The names' baseline row inside a correctly placed entry band: the median
 #: over 146 player-labelled killer crops, whose rows 22-24 all fit the face.
 NAME_BASE_ROW = 23
@@ -2782,12 +2810,9 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
         # the baseline, run ending 37 px before the divider) leaves the run
         # the name. A killer's name the text mask lost ("jay" at
         # 5822b6646448 544.5 s, no run) leaves its portrait to that letter,
-        # or else to the plate's left end, found left of the divider.
-        krun = view.killer_run
-        if view.wx1 > view.wx0 and view.victim_run and (
-                krun is None or view.wx0 - krun[1] > s.px(ONE_COLOUR_KILLER_GAP)):
-            krun = (killer_name_end(white[view.y0:view.y1], view.wx0, view.victim_run, s)
-                    or krun)
+        # or else to the plate's left end, found left of the divider
+        # (`killer_name_run`).
+        krun = killer_name_run(white[view.y0:view.y1], view, s)
         if not (view.victim_run and (krun or view.wx1 > view.wx0)):
             continue
         bh = view.y1 - view.y0
