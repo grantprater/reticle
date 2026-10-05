@@ -68,6 +68,37 @@ class Missing(unittest.TestCase):
         self.assertEqual([(i["class"], i["cause"], i["t_ms"]) for i in items],
                          [(1, "guard_rows_flooded", 64000.0), (7, "no_drop_no_witness", None)])
 
+    def test_a_death_refusal_the_rerun_gate_passes_is_a_candidate_with_its_root(self):
+        # The stored gate ended the kit at 80 s; a teammate's revive the gate
+        # does not read returned the player, and the rerun passes the drop.
+        rows = [row(10),
+                row(90, slot="Q", reason="after_player_death", kit_end_ms=80000.0,
+                    root="teammate_revive", rejudged_reason=None, rejudged_kit_end_ms=None,
+                    kit="Skye")]
+        items = ocr.attribute_slot(slot(rows, riot=1, slot_key="Q", agent="Skye",
+                                        others=[row(10)]) | {"ours": 0})
+        self.assertEqual([(i["class"], i["cause"], i["evidence"]["root"]) for i in items],
+                         [(3, "after_player_death", "teammate_revive")])
+
+    def test_a_death_refusal_past_the_stored_kit_end_without_a_root_stays_out(self):
+        rows = [row(10),
+                row(90, slot="Q", reason="after_player_death", kit_end_ms=80000.0,
+                    spend_witness=["countdown"], kit="Skye")]
+        items = ocr.attribute_slot(slot(rows, riot=1, slot_key="Q", agent="Skye") | {"ours": 0})
+        self.assertEqual([i["class"] for i in items], [7])
+
+    def test_a_rejudged_drop_meets_the_rerun_gates_other_refusal(self):
+        # The rerun refuses it as co-occurring: two other slots falling on
+        # the same sample make it the tray, not a cast.
+        r = row(90, slot="C", reason="after_player_death", kit_end_ms=80000.0,
+                root="second_life_unread", rejudged_reason="cooccur_among_casts",
+                rejudged_kit_end_ms=None, kit="Phoenix")
+        others = [row(90, slot="Q", reason="after_player_death", kit="Phoenix"),
+                  row(90.2, slot="E", reason="after_player_death", kit="Phoenix")]
+        items = ocr.attribute_slot(slot([r], riot=1, slot_key="C", agent="Phoenix",
+                                        others=others))
+        self.assertEqual([i["class"] for i in items], [7])
+
     def test_a_drop_beside_another_slots_excess_cast_is_a_wrong_slot(self):
         rows = [row(10), row(50, reason="cooccur_among_casts", spend_witness=["icon"])]
         items = ocr.attribute_slot(slot(rows, riot=2, excess_casts=[("Q", 50500.0)]))
@@ -89,6 +120,13 @@ class Extra(unittest.TestCase):
         self.assertEqual([(i["cause"], i["t_ms"]) for i in items],
                          [("gold_persisted_only", 30000.0)])
 
+    def test_an_excess_pick_the_eye_calls_a_spend_is_unplaced(self):
+        rows = [row(1000.0, slot="C"), row(1774.0, slot="C")]
+        s = slot(rows, riot=1, slot_key="C") | {"session": "043bafca271a"}
+        items = ocr.attribute_slot(s)
+        self.assertEqual([(i["t_ms"], i["evidence"]["eye"], i["unplaced"]) for i in items],
+                         [(1774000.0, "real_spend", True)])
+
 
 class Summary(unittest.TestCase):
     def test_counts_per_class_ability_and_gate_reason(self):
@@ -101,6 +139,19 @@ class Summary(unittest.TestCase):
         self.assertEqual(got["by_class"], {1: 1, 3: 2, 6: 1})
         self.assertEqual(got["gate_reasons"], {"forced": 2})
         self.assertEqual(got["by_class_ability"][3], {"Clove:X": 2})
+
+    def test_class3_roots_and_the_rerun_reason(self):
+        ev = {"root": "teammate_revive", "rejudged_reason": None}
+        items = [{"kind": "missing", "class": 3, "cause": "after_player_death", "agent": "Skye",
+                  "slot": "Q", "evidence": ev},
+                 {"kind": "missing", "class": 3, "cause": "forced", "agent": "Iso", "slot": "X"},
+                 {"kind": "extra", "class": 6, "cause": "no_flag", "agent": "Sova", "slot": "C",
+                  "evidence": {"eye": "real_spend"}, "unplaced": True}]
+        got = ocr.summarise(items)
+        self.assertEqual(got["class3_roots"], {"teammate_revive": 1, "none": 1})
+        self.assertEqual(got["class3_root_ability"]["teammate_revive"], {"Skye:Q": 1})
+        self.assertEqual(got["class3_rejudged"], {"teammate_revive->None": 1})
+        self.assertEqual((got["class6_eye"], got["extra_unplaced"]), ({"real_spend": 1}, 1))
 
 
 if __name__ == "__main__":

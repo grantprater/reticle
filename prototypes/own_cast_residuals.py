@@ -30,6 +30,19 @@ lit icon dims) and the audio's verdict (`ability_audio.cast_verdicts` under
 the agent's stored parameters). Decodes no video and writes nothing to the
 store but the optional metrics row.
 
+The gate is rerun beside the stored one with two inputs it does not read
+(`rejudge_inputs`): the second lives from the stored badge rows whatever their
+`killfeed_portrait` version (the gate reads only a current stream, and on
+2026-10-05 every Phoenix session stored 0.18.0 against the code's 0.19.0),
+and the teammate revives of the player (stored `death_verdict` revives on
+the ally side whose victim is the player's agent, from any reviver but the
+player; the gate undoes a death only for Phoenix's second life and Clove's
+own revive). A drop the
+stored gate refused as `after_player_death` that the rerun judges otherwise
+carries the rerun's reason and kit end, and the input that changed it as its
+`root`: `second_life_unread` or `teammate_revive`. The candidate tests judge
+it by the rerun's reason; its cause stays the stored gate's reason.
+
 Each missing cast takes ONE class, by the first evidence that holds, in this
 order (`attribute_slot`):
 
@@ -39,12 +52,15 @@ order (`attribute_slot`):
    there that emptied the slot, nearest the line (class 3, its gate reason),
    a gold drop the witness refused (class 2), else no drop (class 1);
 2. a refused drop of the slot under the player's own kit by the icons that
-   could be a cast (`attribute_slot`, `solo`): not refused for its phase; a
-   death refusal only in the second before the kit's end and with a numeral
-   or the audio; a landing at the full level only with a spend witness; a
+   could be a cast (`attribute_slot`, `solo`): one the rerun gate passes; not
+   refused for its phase; a death refusal only in the second before the
+   kit's end (the rerun's, where a root undid the stored one) and with a
+   numeral or the audio; a landing at the full level only with a spend witness; a
    drop onto an undrawn tray only with no other slot falling within
    `tray.SUSPECT_S`; else fewer than two other slots falling on the same or
-   the next sample (`SAME_SAMPLE_MS`). Those with a spend witness or the
+   the next sample (`SAME_SAMPLE_MS`; `_others_falling`, this classifier's
+   rule, not `tray.flag_suspect`, which marks a drop with any other slot
+   falling within `tray.SUSPECT_S`). Those with a spend witness or the
    audio rank first: class 3;
 3. a gold-only drop the witness refused (`tray.gold_witness`): class 2;
 4. a charge held at the player's death, where the agent spends while dead
@@ -61,10 +77,18 @@ passed in another slot that holds more casts than Riot's becomes class 4.
 No Riot-side rule (class 5) is held: no domain fact on 2026-10-05 says Riot's
 count records a cast the tray cannot show (`RIOT_SIDE`). Each excess cast
 (class 6) is the gated cast of the slot that the stored evidence trusts
-least (`excess_order`). Where a slot holds more candidates than casts
+least (`excess_order`); `EXCESS_EYE` holds the eye's label of each pick on
+the tray strip, and a pick the eye calls a real spend leaves its slot's
+extra cast unplaced. Where a slot holds more candidates than casts
 missing, which candidate stands for the cast is a ranking, not a
 measurement; each item carries the count left over
 (`slot_candidates_unused`).
+
+The candidate tests, their ranking (`spent_first`), the excess ranking
+(`excess_order`) and `_others_falling` are this prototype's own classifier
+rules, refined on tray strips viewed by eye; the gate, the drops, the
+witnesses, the kit read and the scoring (`tray_gold_eval.score_slots`,
+`total`) are their owners'.
 """
 from __future__ import annotations
 
@@ -83,7 +107,7 @@ for _k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-OWN_CAST_RESIDUALS_VERSION = "own-cast-residuals-0.1.0"
+OWN_CAST_RESIDUALS_VERSION = "own-cast-residuals-0.2.0"
 CLASSES = {1: "no_tray_drop", 2: "witness_refused", 3: "gate_refused", 4: "wrong_slot",
            5: "riot_side", 6: "excess", 7: "unexplained"}
 #: The window round an own ult line in which a gated X cast is its cast: the
@@ -105,9 +129,11 @@ STATE_FALLS = ("fall_without_a_drop", "unlit_without_a_drop")
 #: window would call that cast a transition.
 SAME_SAMPLE_MS = 600.0
 #: A fall without a drop this soon after a cast or a taken drop of its slot is
-#: that cast read late: Trailblazer's tint on b3b9defb6fd7 lit the empty Q bar
-#: from 343.1 s, and the state model read it full until 346.6 s and empty at
-#: 350.6 s.
+#: that cast read late. On b3b9defb6fd7, by eye, the Q bar was full with a
+#: white fox icon from 343.98 s to 346.48 s and grey from 346.98 s, the icon
+#: tinted red as Trailblazer flew: a spend at about 346.9 s. The state model,
+#: its guard rows flooded, read the slot full at 346.6 s and empty only at
+#: 350.6 s, 3.7 s after the spend.
 FALL_SAME_MS = 5000.0
 #: The slots a dead caster still spends, by agent: the agent from
 #: `ability_candidates.CASTS_WHILE_DEAD`, the slot from its fact. After the
@@ -115,12 +141,34 @@ FALL_SAME_MS = 5000.0
 #: so such a cast has no drop; the charges the state model saw held at the
 #: death bound how many there can be.
 SPENT_WHILE_DEAD = {"Clove": ("E", "abilities/clove-smokes-after-death")}
+#: The eye's label of each excess pick (session, slot, time in s rounded to
+#: 0.1) on its tray strip, 2026-10-05: a real spend leaves the slot's extra
+#: cast unplaced; the others name what made the false drop. 043bafca271a C
+#: 1774.0 s: the C bar teal to 1773.5 s, then grey with no refill to the
+#: round's end (Owl Drone).
+EXCESS_EYE = {
+    ("043bafca271a", "C", 1774.0): "real_spend",
+    ("b7d24102a6f6", "Q", 1062.5): "real_spend",
+    ("e37fdeca944f", "E", 1441.5): "real_spend",
+    ("b7d24102a6f6", "C", 375.1): "regrowth_pool",
+    ("e37fdeca944f", "C", 1714.0): "regrowth_pool",
+    ("5822b6646448", "E", 1279.5): "flash_streak_or_tint",
+    ("a06f04a0059f", "Q", 1412.5): "flash_streak_or_tint",
+    ("bfad2778a372", "X", 405.6): "flash_streak_or_tint",
+}
+#: The roots `rejudge_inputs` names, by the gate input each supplies.
+ROOTS = {"second_lives_ms": "second_life_unread", "player_deaths_ms": "teammate_revive"}
 
 
 # ---------------------------------------------------------------- attribution
 
-def _loud(row: dict, rows: list[dict], near_ms: float, full_level: float) -> int:
-    """Other slots' drops within `near_ms` of `row`, a release not counted."""
+def _others_falling(row: dict, rows: list[dict], near_ms: float, full_level: float) -> int:
+    """Other slots' drops within `near_ms` of `row`, a release from above the
+    full level not counted. A rule of this classifier, not
+    `tray.flag_suspect`: that marks a drop with ANY other slot falling within
+    `tray.SUSPECT_S` among the drops; this counts them, so `solo` can tell a
+    fall of the whole tray (two or more on the same or the next sample) from
+    a cast beside one other."""
     return sum(1 for y in rows if y["slot"] != row["slot"]
                and abs(y["t_ms"] - row["t_ms"]) <= near_ms
                and not (y.get("reason") == "equip_release" and y["from"] > full_level))
@@ -146,8 +194,10 @@ def attribute_slot(s: dict, near_ms: float = 1500.0, full_level: float = 1.0,
     items = []
     if deficit < 0:
         for r in excess_order(s)[:-deficit]:
+            eye = _excess_eye(s.get("session"), s.get("slot"), r["t_ms"])
             items.append({"kind": "extra", "class": 6, "cause": r["why"], "t_ms": r["t_ms"],
-                          "evidence": r["evidence"]})
+                          "evidence": r["evidence"] | {"eye": eye},
+                          "unplaced": eye == "real_spend"})
         return items
     if deficit == 0:
         return items
@@ -198,11 +248,17 @@ def attribute_slot(s: dict, near_ms: float = 1500.0, full_level: float = 1.0,
         # 942.5 s) were the whole tray dimming as the phase began, and the
         # round-end ones (223d636bf8d2 577.5 s, 3694746e4e54 334.1 s) a blank
         # sample, with the tray dimming at the round's end beside them.
-        if r["reason"].startswith("phase:"):
+        reason = _eff(r)
+        if reason is None:
+            # The gate rerun with the second lives and teammate revives it
+            # does not read passes it: the stored gate's death refusal is
+            # the whole cause (`root`).
+            return True
+        if reason.startswith("phase:"):
             return False
         wit = r.get("spend_witness") or []
         heard = r.get("audio") == r["slot"]
-        if r["reason"] == "after_player_death":
+        if reason == "after_player_death":
             # Before the kit's end only, with a numeral read over the slot
             # after it, or heard with the icon dimming: the death screen
             # blanks the tray and dims its icons in that second
@@ -211,7 +267,7 @@ def attribute_slot(s: dict, near_ms: float = 1500.0, full_level: float = 1.0,
             # as Q, was the death screen too), while 223d636bf8d2 943.5 s, a
             # Recon Bolt 1 s before the death, drew its numeral, its icon
             # dimmed and the audio named E.
-            if r["t_ms"] >= (r.get("kit_end_ms") or 0.0):
+            if r["t_ms"] >= (_eff_kit_end(r) or 0.0):
                 return False
             numeral = (r.get("spend_evidence") or {}).get("countdown") in (
                 "appeared", "restarted", "unread_before")
@@ -229,9 +285,9 @@ def attribute_slot(s: dict, near_ms: float = 1500.0, full_level: float = 1.0,
             # The tray is undrawn after a forced drop, so every icon dims:
             # only a numeral or the audio witnesses it (4f207c0c4e39
             # 1048.6 s, the tray gone with no other witness, by eye no cast).
-            return (_loud(r, s["all_rows"], near_ms, full_level) == 0
+            return (_others_falling(r, s["all_rows"], near_ms, full_level) == 0
                     and ("countdown" in wit or heard))
-        return _loud(r, s["all_rows"], same_ms, full_level) < 2
+        return _others_falling(r, s["all_rows"], same_ms, full_level) < 2
 
     def spent_first(r):
         # A drop that left its slot below the full level spent a charge; one
@@ -245,7 +301,7 @@ def attribute_slot(s: dict, near_ms: float = 1500.0, full_level: float = 1.0,
         a = r.get("audio")
         heard = 0 if a == r["slot"] else 2 if a else 1
         seen = bool(r.get("spend_witness")) or a == r["slot"]
-        return (not seen, r["reason"] == "after_player_death", r["to"] >= full_after, heard,
+        return (not seen, _eff(r) == "after_player_death", r["to"] >= full_after, heard,
                 r["t_ms"])
 
     def same_cast(t):
@@ -259,7 +315,7 @@ def attribute_slot(s: dict, near_ms: float = 1500.0, full_level: float = 1.0,
     own = [r for r in rows if not r["player_cast"] and id(r) not in used and solo(r)
            and r.get("kit_read") == s["agent"] and r["reason"] not in ("menu_open", "no_round")]
     unread = [r for r in rows if not r["player_cast"] and id(r) not in used and solo(r)
-              and r.get("kit_read") is None and r["reason"] not in NOT_OWN]
+              and r.get("kit_read") is None and _eff(r) not in NOT_OWN]
     gold = [u for u in s["unwitnessed"] if id(u) not in used
             and u.get("kit_read") in (s["agent"], None) and u.get("eye") in (None, "real")]
     tested = [r for r in rows if r["reason"] is not None or r["player_cast"]]
@@ -313,6 +369,22 @@ def attribute_slot(s: dict, near_ms: float = 1500.0, full_level: float = 1.0,
     return items
 
 
+def _excess_eye(sid, slot, t_ms: float):
+    """The `EXCESS_EYE` label of an excess pick within 0.3 s, or None."""
+    return next((v for (s2, k, t), v in EXCESS_EYE.items()
+                 if s2 == sid and k == slot and abs(1000.0 * t - t_ms) <= 300.0), None)
+
+
+def _eff(r: dict):
+    """The gate's reason for a refused row as the rerun gate judges it: the
+    rerun's where a `root` changed it, else the stored gate's."""
+    return r["rejudged_reason"] if r.get("root") else r["reason"]
+
+
+def _eff_kit_end(r: dict):
+    return r.get("rejudged_kit_end_ms") if r.get("root") else r.get("kit_end_ms")
+
+
 def excess_order(s: dict) -> list[dict]:
     """The slot's gated casts, the least trusted first: an X cast with no own
     ult line near it where the session has lines, a gold-only cast that no
@@ -344,7 +416,8 @@ def _witness_cause(u: dict) -> str:
 def _row_evidence(r: dict) -> dict:
     keep = ("slot", "from", "to", "reason", "by", "spent_halves", "across_gap", "forced",
             "phase", "kit_end_ms", "kit_read", "kit_read_reason", "round_no", "gold_run",
-            "audio", "audio_best", "spend_witness", "spend_evidence")
+            "audio", "audio_best", "spend_witness", "spend_evidence", "root",
+            "rejudged_reason", "rejudged_kit_end_ms")
     ev = {k: r[k] for k in keep if k in r}
     if "witness" in r:
         w = r["witness"]
@@ -385,6 +458,28 @@ def collect_session(store, sid: str, riot: dict, cache_dir: Path | None) -> dict
         report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
         kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
         kit_spans=gate["kit_spans"])
+    # The gate rerun with the inputs it does not read: each alone names the
+    # root of a death refusal it undoes; both together judge the candidate.
+    rj = rejudge_inputs(store, sid, date, rounds, agent, gate["player_deaths_ms"])
+    variants = {name: _run_gate(drops, gate, rounds, {k: rj[k] for k in keys},
+                                rows if "player_deaths_ms" in keys else None,
+                                rj["dead_windows_ms"])
+                for name, keys in CF_INPUTS.items()}
+    at = {name: {(r["slot"], r["t_ms"]): r for r in v} for name, v in variants.items()}
+
+    def changed(alt, r):
+        return alt is not None and (alt["reason"], alt.get("kit_end_ms")) != (r["reason"],
+                                                                             r.get("kit_end_ms"))
+    for r in rows:
+        if r["reason"] != "after_player_death":
+            continue
+        key = (r["slot"], r["t_ms"])
+        if not changed(at["both"].get(key), r):
+            continue
+        r["root"] = "+".join(ROOTS[CF_INPUTS[n][0]] for n in ("second_lives", "teammate_revives")
+                             if changed(at[n].get(key), r)) or "both_inputs"
+        r["rejudged_reason"] = at["both"][key]["reason"]
+        r["rejudged_kit_end_ms"] = at["both"][key].get("kit_end_ms")
     ts_arr = np.asarray(ts, float)
     f = tray.fills(np.asarray(counts, float), np.asarray(clean, bool))
     dr = tray.drawn_mask(f, tray.segment_index(segs), icons)
@@ -500,15 +595,89 @@ def collect_session(store, sid: str, riot: dict, cache_dir: Path | None) -> dict
             "tray_state": tray_state, "full_level": FULL_LEVEL, "full_after": FULL_AFTER_MIN,
             "empty_max": EMPTY_MAX, "near_ms": 1000.0 * tray.SUSPECT_S,
             "rounds": rounds}
-    gate_args = (drops, gate["phase_of"], rounds, gate["player_deaths_ms"])
-    gate_kw = {k: gate[k] for k in ("agent", "second_lives_ms", "revives_ms", "report_deaths",
-                                     "kit_changes_ms", "kit_returns_ms", "menu_at", "kit_spans")}
     return {"agent": agent, "slots": slots, "audio": audio_why, "date": date,
-            "gate_args": gate_args, "gate_kw": gate_kw, "rows": rows,
+            "variants": variants, "rows": rows,
             "gate_inputs": {"second_lives": len(gate["second_lives_ms"]),
                             "revives": len(gate["revives_ms"]),
                             "kit_spans": gate["kit_spans"] is not None,
-                            "player_deaths": len(gate["player_deaths_ms"])}}
+                            "player_deaths": len(gate["player_deaths_ms"]),
+                            "stored_second_lives": len(rj["second_lives_ms"]),
+                            "teammate_revives_ms": rj["teammate_revives_ms"],
+                            "revived_deaths_ms": rj["revived_deaths_ms"]}}
+
+
+#: The counterfactual gate runs: each names the gate inputs `rejudge_inputs`
+#: replaces.
+CF_INPUTS = {"second_lives": ("second_lives_ms",), "teammate_revives": ("player_deaths_ms",),
+             "both": ("second_lives_ms", "player_deaths_ms")}
+_GATE_KW = ("agent", "second_lives_ms", "revives_ms", "report_deaths", "kit_changes_ms",
+            "kit_returns_ms", "menu_at", "kit_spans")
+
+
+def _run_gate(drops, gate: dict, rounds, over: dict, stored=None, dead=()) -> list[dict]:
+    """`player_tray_casts` over the stored gate inputs with `over` replacing
+    some of them. Where a revived death is removed (`stored` given), a drop
+    from the death's lead (`ability_timeline.DEATH_LEAD_MS`) to the revive
+    keeps the stored gate's row: the kit ends at the death and resumes at the
+    revive, and the death screen's drops stay refused. The window opens
+    `tray.SUSPECT_S` earlier, because the gate marks a passing drop that
+    falls beside another (`tray.flag_suspect`), and a death-screen drop the
+    removed death let through would taint the cast before it (b7d24102a6f6
+    Q 1857.0 s, a Trailblazer spent 1.5 s before the death)."""
+    from reticle import tray
+    from reticle.ability_timeline import DEATH_LEAD_MS, player_tray_casts
+    g = gate | over
+    rows = player_tray_casts(drops, g["phase_of"], rounds, g["player_deaths_ms"],
+                             **{k: g[k] for k in _GATE_KW})
+    if stored is None:
+        return rows
+    old = {(r["slot"], r["t_ms"]): r for r in stored}
+    return [old.get((r["slot"], r["t_ms"]), r)
+            if any(d - DEATH_LEAD_MS - 1000.0 * tray.SUSPECT_S <= r["t_ms"] < v for d, v in dead)
+            else r for r in rows]
+
+
+def rejudge_inputs(store, sid: str, date: str, rounds: list[dict], agent,
+                   deaths_ms: list[float]) -> dict:
+    """The gate inputs the stored gate does not read, from storage:
+    `second_lives_ms` from the stored badge rows whatever their version
+    (`adjudication.death.stored_second_life` asked at the stored stream's own
+    version); `teammate_revives_ms`, the stored `death_verdict` revives on the
+    ally side whose victim is the player's agent and that are not the
+    player's own revive entry (`kf_player_kill`, which the gate already reads
+    for Clove); and `player_deaths_ms`, the stored deaths less each that such
+    a revive follows before the player's next death in its round
+    (`revived_deaths_ms`), each with its revive (`dead_windows_ms`). The gate
+    undoes a death only for Phoenix and Clove, so the counterfactual removes a
+    revived death from its input and keeps the stored rows from the death to
+    the revive (`_run_gate`). A
+    Resurrection returns the ally alive [domain:rounds/resurrection-mechanics]
+    and draws an entry naming the revived [domain:killfeed/revive-entries];
+    the tray icons then read the player's own kit (`kit_read`).
+    Evaluation only: nothing is stored."""
+    import math
+    from reticle.adjudication.death import stored_second_life
+    from reticle.rounds import in_round_window, player_second_life_times
+    pr = store.read_events_kind("killfeed_portrait", sid, "second_life_observation")
+    badges = stored_second_life(pr, pr[0].get("killfeed_portrait_version")) if pr else None
+    revives = sorted(float(r["t_ms"]) for r in store.read_events("death", sid)
+                     if r.get("kind") == "death_verdict" and r.get("is_revive")
+                     and r.get("side") == "ally" and agent is not None
+                     and r.get("victim") == agent and not r.get("kf_player_kill"))
+    ends = {r["t_end_ms"] for r in rounds}
+    revived = set()
+    for r in rounds:
+        w = (r["t_start_ms"], r["t_end_ms"], r["t_close_ms"])
+        ds = sorted(e["t_first"] for e in in_round_window([{"t_first": t} for t in deaths_ms],
+                                                          *w, ends))
+        rv = [e["t_first"] for e in in_round_window([{"t_first": t} for t in revives], *w, ends)]
+        for t, nxt in zip(ds, ds[1:] + [math.inf]):
+            if any(t <= x < nxt for x in rv):
+                revived.add(t)
+    return {"second_lives_ms": player_second_life_times(store.read_hud(sid, date), badges),
+            "player_deaths_ms": [t for t in deaths_ms if t not in revived],
+            "teammate_revives_ms": revives, "revived_deaths_ms": sorted(revived),
+            "dead_windows_ms": sorted((t, min(x for x in revives if x >= t)) for t in revived)}
 
 
 def _audio_at(store, sid: str, rows: list[dict], agent, kit_spans, ask: list[dict]):
@@ -540,39 +709,33 @@ def _audio_at(store, sid: str, rows: list[dict], agent, kit_spans, ask: list[dic
     return None
 
 
-def counterfactuals(store, sid: str, riot: dict, ev: dict) -> dict:
-    """Two fixes measured against Riot's counts, per session: `second_lives`
-    reruns the gate with the second lives read from the stored badge rows
-    whatever their version (the gate reads only a current stream, and on
-    2026-10-05 the store held killfeed-portrait-0.18.0 against the code's
-    0.19.0); `witnessed_cooccur` passes a drop the co-occurrence test refused
-    under the player's own kit where a restock numeral appeared or restarted
-    over its slot or the audio named its slot. Each is {"covered",
-    "beyond"}; evaluation only, nothing stored."""
-    from reticle.ability_timeline import player_tray_casts
-    from reticle.adjudication.death import stored_second_life
-    from reticle.rounds import player_second_life_times
+def counterfactuals(sid: str, riot: dict, ev: dict) -> dict:
+    """Fixes measured against Riot's counts, per session, each as the gate's
+    casts per slot scored by `tray_gold_eval.score_slots`: `second_lives`,
+    `teammate_revives` and `both` rerun the gate with the inputs
+    `rejudge_inputs` supplies; `witnessed_cooccur` passes a drop the
+    co-occurrence test refused under the player's own kit where a restock
+    numeral appeared or restarted over its slot or the audio named its slot.
+    Each is {"slots": score_slots's result, "changes": the slots whose count
+    moved, as {session, agent, slot, riot, ours, then}}; evaluation only,
+    nothing stored."""
     import tray_gold_eval as tge
-
-    def scored(ours):
-        return {"covered": sum(min(ours.get(k, 0), riot[k]) for k in tge.SLOTS),
-                "beyond": sum(max(0, ours.get(k, 0) - riot[k]) for k in tge.SLOTS)}
-    out = {}
-    kw = dict(ev["gate_kw"])
-    pr = store.read_events_kind("killfeed_portrait", sid, "second_life_observation")
-    badges = stored_second_life(pr, pr[0].get("killfeed_portrait_version")) if pr else None
-    kw["second_lives_ms"] = player_second_life_times(store.read_hud(sid, ev["date"]), badges)
-    rows = player_tray_casts(*ev["gate_args"], **kw)
-    out["second_lives"] = scored(Counter(r["slot"] for r in rows if r["player_cast"]))
-    out["second_lives"]["second_lives"] = len(kw["second_lives_ms"])
-    ours = Counter(r["slot"] for r in ev["rows"] if r["player_cast"])
+    base = Counter(r["slot"] for r in ev["rows"] if r["player_cast"])
+    runs = {name: Counter(r["slot"] for r in rows if r["player_cast"])
+            for name, rows in ev["variants"].items()}
+    ours = Counter(base)
     for r in ev["rows"]:
         if (r["reason"] == "cooccur_among_casts" and r.get("kit_read") == ev["agent"]
                 and ("countdown" in (r.get("spend_witness") or [])
                      or r.get("audio") == r["slot"])):
             ours[r["slot"]] += 1
-    out["witnessed_cooccur"] = scored(ours)
-    return out
+    runs["witnessed_cooccur"] = ours
+    return {name: {"slots": tge.score_slots(got, riot),
+                   "changes": [{"session": sid, "agent": ev["agent"], "slot": k,
+                                "riot": int(riot[k]), "ours": base.get(k, 0),
+                                "then": got.get(k, 0)}
+                               for k in riot if got.get(k, 0) != base.get(k, 0)]}
+            for name, got in runs.items()}
 
 
 # ---------------------------------------------------------------- summary
@@ -584,9 +747,11 @@ def summarise(items: list[dict]) -> dict:
     gate = [i for i in miss if i["class"] == 3]
     by_line = [i for i in gate if i.get("how") == "ult_line"]
     rest = [i for i in gate if i.get("how") != "ult_line"]
-    by_ability = defaultdict(Counter)
+    by_ability, roots = defaultdict(Counter), defaultdict(Counter)
     for i in items:
         by_ability[i["class"]][f"{i['agent']}:{i['slot']}"] += 1
+    for i in gate:
+        roots[_root(i)][f"{i['agent']}:{i['slot']}"] += 1
     return {"missing": len(miss), "extra": len(extra),
             "by_class": dict(sorted(Counter(i["class"] for i in items).items())),
             "by_class_ability": {c: dict(v.most_common()) for c, v in sorted(by_ability.items())},
@@ -602,7 +767,29 @@ def summarise(items: list[dict]) -> dict:
             "class3_unwitnessed": sum(1 for i in rest if not _seen(i)),
             "class3_unwitnessed_with_spare_candidates": sum(
                 1 for i in rest if not _seen(i)
-                and (i.get("evidence") or {}).get("slot_candidates_unused"))}
+                and (i.get("evidence") or {}).get("slot_candidates_unused")),
+            # The class 3 casts by the gate input the stored gate did not
+            # read (`root`), each with the rerun gate's reason for its drop.
+            "class3_roots": dict(Counter(_root(i) for i in gate).most_common()),
+            "class3_root_ability": {r: dict(v.most_common()) for r, v in sorted(roots.items())},
+            "class3_rejudged": dict(Counter(_rejudged(i) for i in gate
+                                            if _root(i) != "none").most_common()),
+            "class3_rejudged_ability": dict(Counter(
+                f"{_rejudged(i)}|{i['agent']}:{i['slot']}" for i in gate
+                if _root(i) != "none").most_common()),
+            "class3_cause_ability": dict(Counter(
+                f"{i['cause']}|{i['agent']}:{i['slot']}" for i in gate).most_common()),
+            "class6_eye": dict(Counter(str((i.get("evidence") or {}).get("eye"))
+                                       for i in extra).most_common()),
+            "extra_unplaced": sum(1 for i in extra if i.get("unplaced"))}
+
+
+def _rejudged(item: dict) -> str:
+    return f"{_root(item)}->{(item.get('evidence') or {}).get('rejudged_reason')}"
+
+
+def _root(item: dict) -> str:
+    return (item.get("evidence") or {}).get("root") or "none"
 
 
 def _seen(item: dict) -> bool:
@@ -646,8 +833,21 @@ def record_residuals(summ: dict, sessions: list[str], scored: dict) -> dict:
     from reticle import metrics
     from reticle.version import PLAYER_CAST_VERSION, TRAY_KIT_VERSION, TRAY_VERSION
     values = {**scored, "missing": summ["missing"], "extra": summ["extra"],
+              "extra_unplaced": summ["extra_unplaced"],
               **{f"cf_{name}_{k}": n for name, got in summ["counterfactual"].items()
                  for k, n in got.items()},
+              **{f"cf_{c['cf']}_{c['session']}_{c['slot']}_{k}": c[k]
+                 for c in summ["cf_changes"] for k in ("covered_gain", "beyond_gain")},
+              **{f"class3_root_{_token_key(k)}": n for k, n in summ["class3_roots"].items()},
+              **{f"class3_root_{_token_key(r)}_{_token_key(a)}": n
+                 for r, per in summ["class3_root_ability"].items() for a, n in per.items()},
+              **{f"class3_rejudged_{_token_key(k)}": n
+                 for k, n in summ["class3_rejudged"].items()},
+              **{f"class3_rejudged_{_token_key(k)}": n
+                 for k, n in summ["class3_rejudged_ability"].items()},
+              **{f"class3_gate_{_token_key(k)}": n
+                 for k, n in summ["class3_cause_ability"].items()},
+              **{f"class6_eye_{_token_key(k)}": n for k, n in summ["class6_eye"].items()},
               **{k: summ[k] for k in ("class3_by_line", "class3_witnessed", "class3_unwitnessed",
                                       "class3_unwitnessed_with_spare_candidates")},
               **{f"class{c}": n for c, n in summ["by_class"].items()},
@@ -665,7 +865,9 @@ def record_residuals(summ: dict, sessions: list[str], scored: dict) -> dict:
         context={"sessions": sessions, "script": "prototypes/own_cast_residuals.py --record",
                  "inputs": "minimap crop cache through reticle tray's pass at the wired "
                            f"GOLD_PERSIST_MIN; stored gate inputs, ult_cast and ability_state; "
-                           "slot icons read by tray_kit.read_sample; no decode",
+                           "slot icons read by tray_kit.read_sample; the gate rerun with the "
+                           "stored second lives at any killfeed_portrait version and the "
+                           "stored teammate revives of the player (rejudge_inputs); no decode",
                  "truth": "Riot match records stats.abilityCasts (own subject), per match, "
                           "evaluation only",
                  "slots": list(tge.SLOTS)},
@@ -689,16 +891,21 @@ def main(argv=None) -> int:
     from reticle.store import Store
     store = Store(tge.STORE)
     truth = tge.riot_casts()
-    items, gates, scored, cf = [], {}, Counter(), defaultdict(Counter)
+    items, gates, base, cf, changes = [], {}, [], defaultdict(list), []
     for sid in args.sessions:
         t0 = time.perf_counter()
-        ev = collect_session(store, sid, truth[sid]["casts"], args.cache)
+        riot = truth[sid]["casts"]
+        ev = collect_session(store, sid, riot, args.cache)
         gates[sid] = ev["gate_inputs"]
-        for name, got in counterfactuals(store, sid, truth[sid]["casts"], ev).items():
-            cf[name].update(got)
-        for s in ev["slots"].values():
-            scored.update({"riot_casts": s["riot"], "covered": min(s["ours"], s["riot"]),
-                           "beyond": max(0, s["ours"] - s["riot"])})
+        base.append(tge.score_slots({k: s["ours"] for k, s in ev["slots"].items()}, riot))
+        for name, got in counterfactuals(sid, riot, ev).items():
+            cf[name].append(got["slots"])
+            for c in got["changes"]:
+                was, now = tge.score_slots({c["slot"]: c["ours"]}, {c["slot"]: c["riot"]}),                     tge.score_slots({c["slot"]: c["then"]}, {c["slot"]: c["riot"]})
+                changes.append(c | {"cf": name, "covered_gain": now[c["slot"]]["covered"]
+                                    - was[c["slot"]]["covered"],
+                                    "beyond_gain": now[c["slot"]]["beyond"]
+                                    - was[c["slot"]]["beyond"]})
         mine = []
         for k, s in ev["slots"].items():
             for it in attribute_slot(s, s["near_ms"], s["full_level"],
@@ -720,8 +927,16 @@ def main(argv=None) -> int:
                                         "minimap")
             view(cache, mine, args.view, sid)
     summ = summarise(items)
-    summ["scored"] = dict(scored)
-    summ["counterfactual"] = {k: dict(v) for k, v in cf.items()}
+    tot = tge.total(base)
+    scored = {"riot_casts": tot["riot"], "covered": tot["covered"], "beyond": tot["beyond"]}
+    summ["scored"] = scored
+    summ["counterfactual"] = {k: {n: v for n, v in tge.total(got).items() if n != "riot"}
+                              for k, got in cf.items()}
+    summ["counterfactual"]["second_lives"]["second_lives"] = sum(
+        g["stored_second_lives"] for g in gates.values())
+    summ["counterfactual"]["teammate_revives"]["revived_deaths"] = sum(
+        len(g["revived_deaths_ms"]) for g in gates.values())
+    summ["cf_changes"] = changes
     print(json.dumps(summ, indent=1))
     if args.json:
         args.json.write_text(json.dumps({"summary": summ, "gate_inputs": gates,
