@@ -218,6 +218,22 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # in slot 5 neither begins an entry (b7d24102a6f6 1580.5 s, 1582.0 s) nor
 # becomes the first read of a real one (b7d24102a6f6 1581.5 s, b3b9defb6fd7
 # 1661.5 s). Without a current combat_report stream no read is set aside.
+# 0.37.0 (2026-10-04): each death verdict carries `assists`, joined by
+# `death_id` from the stored `assist` stream (`join_assists`): the panel's
+# count or lower bound, whether a panel was drawn, and per assister its
+# entity, the identity arbiter's verdict and the icon. An `assist` stream
+# that rests on another death rule, or none, leaves `assists` unread with
+# its reason.
+# 0.38.0 (2026-10-04): each joined assister carries the assist verdict's
+# `name_reason`, so an unnamed portrait no agent's art clears ('portrait not
+# recognised') stays distinct from an assister unnamed for another reason.
+# 0.39.0 (2026-10-05): the scoreboard death witness (`scoreboard_death_claims`)
+# no longer needs the victim lit on the last board before its killfeed entry.
+# Where that interval counts fewer newly dimmed agents than deaths, the lower
+# board moves back to the last one before the side's latest dim change, and
+# the count is taken again over the wider interval; the narrow refusal stays
+# in the claim's evidence (`widened`). 043bafca271a 474.5 s: Waylay was dim at
+# 474.0 s, before the entry's first read, and was refused.
 # 0.40.0 (2026-10-04): a blind hides the killfeed without expiring an entry
 # (`blinds.for_session`, blinds-0.1.0; `checks.track_entries` given
 # `blinds`): a track ages only by the time it was seen, and a washed frame
@@ -731,6 +747,19 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
     [domain:rounds/scoreboard-relights-after-top-bar], so such an
     opening carries the previous round's dead; the witness skips it on that
     side and counts the skips in the evidence.
+
+    A killfeed entry's first read can lag the board's dimming: the entry's
+    onset is the first sample that READ it, and a feed hidden or unread for a
+    sample or two puts it after a board that already dims the victim
+    (043bafca271a 474.5 s: Waylay dim at 474.0 s, where the feed read empty).
+    So where the interval counts fewer newly dimmed agents than deaths and no
+    revive intervened, the lower board moves back once: to the last usable
+    board before the side's latest dim change, the last reading on which the
+    agent who dimmed there was still lit, often in an earlier opening. The
+    count is taken again over the wider interval, every killfeed death in it
+    included, and must still match; the narrow interval's refusal and board
+    stay in the evidence (`widened`). A side whose dim set never changed
+    before the death keeps the narrow refusal.
     """
     from .scoreboard import SCOREBOARD_AGENT_VERSION, side_state
     accepted = [o for o in openings if o["accepted"]]
@@ -757,77 +786,111 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
                                else "no_accepted_opening_after")
             continue
         lo, hi = before[-1], after[0]
-        was, now = side_state(lo, side), side_state(hi, side)
-        newly = now["dim"] - was["dim"]
-        revived = was["dim"] - now["dim"]
-        deaths = [j for j, e in enumerate(entries)
-                  if e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) <= hi["t_ms"]
-                  and not _second_life(j, entries, second_life) and not revive_entry(e)]
-        claim["evidence"] = {
-            "opening_before": {"t_ms": lo["t_ms"], "frame_idx": lo["frame_idx"],
-                               "dim": sorted(was["dim"])},
-            "opening_after": {"t_ms": hi["t_ms"], "frame_idx": hi["frame_idx"],
-                              "dim": sorted(now["dim"])},
-            "newly_dim": sorted(newly),
-            "revived": sorted(revived),
-            "interval_deaths": [float(entries[j]["t_ms"]) for j in deaths],
-            "skipped_contradicted": sum(lo["t_ms"] < t < hi["t_ms"] for t, s in contradicted
-                                        if s == side),
-            "observation_keys": [s["observation_key"] for s in hi["rows"]
-                                 if s["team"] == side and s["agent"] in newly],
-        }
-        given = [named.get(j) for j in deaths if named.get(j)]
-        repeated = sorted({a for a in given if given.count(a) > 1})
-        if repeated:
-            claim["collision"] = {
-                "side": side, "opening_before_ms": lo["t_ms"], "opening_after_ms": hi["t_ms"],
-                "newly_dim": sorted(newly), "agents": repeated,
-                "deaths": [{"t_ms": float(entries[j]["t_ms"]), "slot": entries[j].get("slot"),
-                            "agent": named.get(j), "witnesses": (witnesses or {}).get(j, [])}
-                           for j in deaths]}
-        # A revived agent can die again before the next opening and stay dim
-        # at both ends (b3b9defb6fd7 1289.5 s, Skye), so the difference no
-        # longer counts the interval's deaths.
-        revives = [float(e["t_ms"]) for e in entries if revive_entry(e)
-                   and e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) <= hi["t_ms"]]
-        if revives:
-            claim["evidence"]["interval_revives"] = revives
-            claim["reason"] = "revive_in_interval"
-        elif len(newly) != len(deaths):
-            claim["reason"] = (f"newly_dim_{len(newly)}_disagrees_with_"
-                               f"killfeed_deaths_{len(deaths)}")
-        elif len(newly) == 1:
-            claim["agent"] = next(iter(newly))
-        else:
-            others = [j for j in deaths if j != i]
-            names = [named.get(j) for j in others]
-            claim["evidence"]["by_elimination"] = [
-                {"t_ms": float(entries[j]["t_ms"]), "agent": named.get(j)} for j in others]
-            if repeated:
-                claim["reason"] = f"elimination_collision {repeated}"
-                if named.get(i) in repeated:
-                    claim["contest"] = {
-                        "reason": "contested_by_collision",
-                        "alternatives": [{"agent": named[i],
-                                          "witnesses": (witnesses or {}).get(i, [])}] + [
-                            {"agent": a, "witnesses": [["scoreboard_dim", a]],
-                             "observation_keys": [s["observation_key"] for s in hi["rows"]
-                                                  if s["team"] == side and s["agent"] == a]}
-                            for a in sorted(newly - set(given))],
-                        "implicated": list(COLLISION_IMPLICATED)}
-            elif not all(names):
-                claim["reason"] = f"interval_unordered {sorted(newly)}"
-            elif not set(names) <= newly or len(set(names)) != len(names):
-                claim["reason"] = (f"other_names_not_in_newly_dim {sorted(names)} "
-                                   f"vs {sorted(newly)}")
-            else:
-                left = newly - set(names)
-                if len(left) == 1:
-                    claim["agent"] = next(iter(left))
-                    claim["depends_on_entries"] = others
-                else:
-                    claim["reason"] = f"interval_unordered {sorted(left)}"
+        claim.update(_board_interval(i, entries, lo, hi, side, named, second_life,
+                                     contradicted, witnesses))
+        ev = claim["evidence"]
+        if (claim["agent"] is None and "interval_revives" not in ev
+                and len(ev["newly_dim"]) < len(ev["interval_deaths"])):
+            # The victim may have dimmed before the entry's first read: count
+            # again from the last board before the side's latest dim change.
+            dim = side_state(lo, side)["dim"]
+            earlier = [o for o in before[:-1] if side_state(o, side)["dim"] != dim]
+            if earlier:
+                narrow = {k: claim.pop(k) for k in ("reason", "evidence", "collision",
+                                                    "contest", "depends_on_entries")
+                          if k in claim}
+                claim.update(_board_interval(i, entries, earlier[-1], hi, side, named,
+                                             second_life, contradicted, witnesses))
+                claim["evidence"]["widened"] = {
+                    "reason": narrow["reason"],
+                    "opening_before": narrow["evidence"]["opening_before"],
+                    "newly_dim": narrow["evidence"]["newly_dim"],
+                    "interval_deaths": narrow["evidence"]["interval_deaths"],
+                    "collision": narrow.get("collision")}
     return claims
+
+
+def _board_interval(i: int, entries: list[dict], lo: dict, hi: dict, side: str,
+                    named: dict[int, str | None], second_life: set[int],
+                    contradicted: set[tuple[float, str]],
+                    witnesses: dict[int, list] | None) -> dict:
+    """`scoreboard_death_claims`' verdict for entry `i` over the interval
+    (`lo`, `hi`] between two accepted openings: `agent`, `reason`,
+    `evidence` and, where they apply, `collision`, `contest` and
+    `depends_on_entries`."""
+    from .scoreboard import side_state
+    claim = {"agent": None, "reason": None}
+    was, now = side_state(lo, side), side_state(hi, side)
+    newly = now["dim"] - was["dim"]
+    revived = was["dim"] - now["dim"]
+    deaths = [j for j, e in enumerate(entries)
+              if e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) <= hi["t_ms"]
+              and not _second_life(j, entries, second_life) and not revive_entry(e)]
+    claim["evidence"] = {
+        "opening_before": {"t_ms": lo["t_ms"], "frame_idx": lo["frame_idx"],
+                           "dim": sorted(was["dim"])},
+        "opening_after": {"t_ms": hi["t_ms"], "frame_idx": hi["frame_idx"],
+                          "dim": sorted(now["dim"])},
+        "newly_dim": sorted(newly),
+        "revived": sorted(revived),
+        "interval_deaths": [float(entries[j]["t_ms"]) for j in deaths],
+        "skipped_contradicted": sum(lo["t_ms"] < t < hi["t_ms"] for t, s in contradicted
+                                    if s == side),
+        "observation_keys": [s["observation_key"] for s in hi["rows"]
+                             if s["team"] == side and s["agent"] in newly],
+    }
+    given = [named.get(j) for j in deaths if named.get(j)]
+    repeated = sorted({a for a in given if given.count(a) > 1})
+    if repeated:
+        claim["collision"] = {
+            "side": side, "opening_before_ms": lo["t_ms"], "opening_after_ms": hi["t_ms"],
+            "newly_dim": sorted(newly), "agents": repeated,
+            "deaths": [{"t_ms": float(entries[j]["t_ms"]), "slot": entries[j].get("slot"),
+                        "agent": named.get(j), "witnesses": (witnesses or {}).get(j, [])}
+                       for j in deaths]}
+    # A revived agent can die again before the next opening and stay dim
+    # at both ends (b3b9defb6fd7 1289.5 s, Skye), so the difference no
+    # longer counts the interval's deaths.
+    revives = [float(e["t_ms"]) for e in entries if revive_entry(e)
+               and e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) <= hi["t_ms"]]
+    if revives:
+        claim["evidence"]["interval_revives"] = revives
+        claim["reason"] = "revive_in_interval"
+    elif len(newly) != len(deaths):
+        claim["reason"] = (f"newly_dim_{len(newly)}_disagrees_with_"
+                           f"killfeed_deaths_{len(deaths)}")
+    elif len(newly) == 1:
+        claim["agent"] = next(iter(newly))
+    else:
+        others = [j for j in deaths if j != i]
+        names = [named.get(j) for j in others]
+        claim["evidence"]["by_elimination"] = [
+            {"t_ms": float(entries[j]["t_ms"]), "agent": named.get(j)} for j in others]
+        if repeated:
+            claim["reason"] = f"elimination_collision {repeated}"
+            if named.get(i) in repeated:
+                claim["contest"] = {
+                    "reason": "contested_by_collision",
+                    "alternatives": [{"agent": named[i],
+                                      "witnesses": (witnesses or {}).get(i, [])}] + [
+                        {"agent": a, "witnesses": [["scoreboard_dim", a]],
+                         "observation_keys": [s["observation_key"] for s in hi["rows"]
+                                              if s["team"] == side and s["agent"] == a]}
+                        for a in sorted(newly - set(given))],
+                    "implicated": list(COLLISION_IMPLICATED)}
+        elif not all(names):
+            claim["reason"] = f"interval_unordered {sorted(newly)}"
+        elif not set(names) <= newly or len(set(names)) != len(names):
+            claim["reason"] = (f"other_names_not_in_newly_dim {sorted(names)} "
+                               f"vs {sorted(newly)}")
+        else:
+            left = newly - set(names)
+            if len(left) == 1:
+                claim["agent"] = next(iter(left))
+                claim["depends_on_entries"] = others
+            else:
+                claim["reason"] = f"interval_unordered {sorted(left)}"
+    return claim
 
 
 def board_collisions(session_id: str, round_no, claims: list[dict]) -> list[dict]:
@@ -1384,6 +1447,76 @@ def panel_aside(times, report: list[dict] | None, roi_y0: float):
     hz = next((r.get("hz") for r in report if r.get("kind") == "coverage"), None) or 1.0
     pt, top = death_panel_tops(report)
     return panel_slots(times, pt, top, roi_y0, 500.0 / float(hz))
+
+
+#: Why a verdict's `assists` is unread.
+ASSISTS_NO_STREAM = "no_assist_stream"
+ASSISTS_STALE = "assist_rests_on_other_death_rule"
+ASSISTS_NO_ROW = "no_assist_verdict"
+
+
+def assist_stamp(assist_rows: list[dict] | None) -> str:
+    """The `assist` stream's stamp as the death stream records it
+    (`inputs.assist`): the stream's adjudication stamp when it rests on this
+    death rule, else why it was not joined."""
+    head = next((r for r in assist_rows or [] if r.get("kind") == "summary"), None)
+    if not assist_rows or head is None:
+        return "no_rows"
+    if (head.get("inputs") or {}).get("death") != DEATH_ADJUDICATION_VERSION:
+        return f"stale:{(head.get('inputs') or {}).get('death')}"
+    return head.get("assist_adjudication_version") or "unstamped"
+
+
+def join_assists(rows: list[dict], assist_rows: list[dict] | None) -> dict:
+    """Add `assists` to every `death_verdict` row, from the stored `assist`
+    stream's verdict with the same `death_id`: the death owner carries it,
+    `adjudication.assist` reads the panel and `adjudication.identity` names
+    the assisters. Pure over stored rows; the panel is never reread here.
+
+    `assists` holds the panel's `count` (None where the killfeed crop cut
+    the panel or the views tied), `count_min` (the lower bound), `present`
+    (a panel drawn: True, False, or None unread), `count_status` and
+    `count_reason`, and per assister (k counted from the killer's portrait
+    leftwards) its `entity_id`, the arbiter's `agent` and `status`, why it
+    is unnamed (`name_reason`, None when named), and the
+    `icon` with its `icon_status` and `icon_set`. A stream that rests on
+    another death rule (`assist_stamp`) or holds no verdict for the death
+    leaves `{"status": "unread", "reason": ...}`: never a guess. Returns
+    the counts of joined and unread rows."""
+    stamp = assist_stamp(assist_rows)
+    by = {r["death_id"]: r for r in assist_rows or [] if r.get("kind") == "assist_verdict"}
+    n = Counter()
+    for row in rows:
+        if row.get("kind") != "death_verdict":
+            continue
+        if stamp == "no_rows" or stamp.startswith("stale:"):
+            why = ASSISTS_NO_STREAM if stamp == "no_rows" else ASSISTS_STALE
+            row["assists"] = {"status": "unread", "reason": why, "stamp": stamp}
+            n[why] += 1
+            continue
+        a = by.get(row["death_id"])
+        if a is None:
+            row["assists"] = {"status": "unread", "reason": ASSISTS_NO_ROW, "stamp": stamp}
+            n[ASSISTS_NO_ROW] += 1
+            continue
+        status = ("read" if a.get("count") is not None
+                  else "lower_bound" if a.get("present") else "refused")
+        row["assists"] = {
+            "status": status, "stamp": stamp,
+            "count": a.get("count"), "count_min": a.get("count_min"),
+            "present": a.get("present"), "count_status": a.get("count_status"),
+            "count_reason": a.get("count_reason"),
+            "assisters": [{"k": s["k"], "entity_id": s["entity_id"], "agent": s.get("agent"),
+                           "identity_status": (s.get("identity") or {}).get("status"),
+                           "name_reason": s.get("name_reason"),
+                           "icon": s.get("icon"), "icon_status": s.get("icon_status"),
+                           "icon_set": s.get("icon_set"), "icon_reason": s.get("icon_reason")}
+                          for s in a.get("assisters", [])],
+            "rests_on": {"assist_adjudication_version": stamp,
+                         "killfeed_assist_version": (a.get("rests_on") or {})
+                         .get("killfeed_assist_version")}}
+        n[status] += 1
+    return dict(n)
 
 
 def session_entries(hud: dict, second_life: list[dict] | None = None,
@@ -2965,18 +3098,22 @@ class RoundRosterSnapshot:
     event: str
     ally_alive: int
     ally_agents: list[str]
-    ally_role: str  # "attackers" | "defenders"
+    ally_role: Optional[str]  # "attackers" | "defenders" | None (`role_reason`)
     enemy_alive: int
     enemy_agents: list[str]
-    enemy_role: str  # "attackers" | "defenders"
+    enemy_role: Optional[str]  # "attackers" | "defenders" | None (`role_reason`)
     ally_slots: dict[str, int] = field(default_factory=dict)
     enemy_slots: dict[str, int] = field(default_factory=dict)
+    role_reason: Optional[str] = None
+    match_round: Optional[int] = None
 
     def to_dict(self) -> dict:
         return {
             "t_ms": self.t_ms,
             "round_no": self.round_no,
+            "match_round": self.match_round,
             "event": self.event,
+            "role_reason": self.role_reason,
             "ally": {
                 "alive": self.ally_alive,
                 "agents": list(self.ally_agents),
@@ -2992,18 +3129,26 @@ class RoundRosterSnapshot:
         }
 
 
+#: The tracker's role words and the rounds owner's side words.
+_ROLE_SIDE = {"attackers": "attack", "defenders": "defence"}
+_SIDE_ROLE = {v: k for k, v in _ROLE_SIDE.items()}
+
+
 class LivingRosterTracker:
     """Tracks living roster state across match rounds, deaths, and revives.
 
     Maintains the canonical 5-agent sequence per side, handles survivor
-    inward packing, side-swaps at half-time (round 13), and revive re-insertion.
+    inward packing, revive re-insertion, and each side's role per round from
+    the rounds owner (`rounds.side_in_round`). `starting_role` is the ally
+    team's role in the match's first round as READ; None (no reader reads it
+    yet) leaves every role null with a reason, never a default.
     """
 
     def __init__(
         self,
         lineup: dict,
         local_player: Optional[str] = None,
-        starting_role: str = "defenders",
+        starting_role: Optional[str] = None,
     ):
         self.canonical = {
             "ally": [r["agent"] for r in lineup.get("sides", {}).get("ally", []) if r.get("agent")],
@@ -3016,23 +3161,36 @@ class LivingRosterTracker:
             "enemy": TeamRoster("enemy", self.canonical["enemy"]),
         }
         self.current_round = 0
+        self.current_match_round: Optional[int] = None
 
-    def start_round(self, round_no: int, t_start_ms: float = 0.0) -> RoundRosterSnapshot:
-        """Initialize living roster state at round start (all 10 alive)."""
+    def start_round(self, round_no: int, t_start_ms: float = 0.0,
+                    match_round: Optional[int] = None) -> RoundRosterSnapshot:
+        """Initialize living roster state at round start (all 10 alive).
+        `match_round` is the round's number in the match (`rounds.match_round`);
+        `round_no` counts the capture's rounds and decides no role."""
         self.current_round = round_no
+        self.current_match_round = match_round
         self.rosters["ally"].reset()
         self.rosters["enemy"].reset()
         return self.snapshot(t_ms=t_start_ms, event="round_start")
 
-    def role_of_side(self, side: str, round_no: int) -> str:
-        """Attacker/Defender role for side, accounting for halftime flip at round 13."""
-        is_first_half = round_no <= 12
-        if is_first_half:
-            ally_role = self.starting_role
-        else:
-            ally_role = "attackers" if self.starting_role == "defenders" else "defenders"
-        enemy_role = "attackers" if ally_role == "defenders" else "defenders"
-        return ally_role if side == "ally" else enemy_role
+    def role_and_reason(self, side: str,
+                        match_round: Optional[int]) -> tuple[Optional[str], Optional[str]]:
+        """(role, reason) of `side` in match round `match_round` by the rounds
+        owner's side rule [domain:rounds/side-by-round]; the role is None with
+        the owner's reason where the starting role or the match round is
+        unread."""
+        from ..rounds import side_in_round
+        ally, why = side_in_round(match_round, _ROLE_SIDE.get(self.starting_role))
+        if ally is None:
+            return None, why
+        mine = ally if side == "ally" else ("defence" if ally == "attack" else "attack")
+        return _SIDE_ROLE[mine], None
+
+    def role_of_side(self, side: str, match_round: Optional[int]) -> Optional[str]:
+        """Attacker/Defender role of `side` in match round `match_round`, or
+        None where it is unread (`role_and_reason`)."""
+        return self.role_and_reason(side, match_round)[0]
 
     def apply_death(self, t_ms: float, side: str, victim: str, is_second_life: bool = False) -> RoundRosterSnapshot:
         """Record death event and update living roster."""
@@ -3061,12 +3219,14 @@ class LivingRosterTracker:
             event=event,
             ally_alive=self.rosters["ally"].alive_count,
             ally_agents=self.rosters["ally"].living_sequence(),
-            ally_role=self.role_of_side("ally", self.current_round),
+            ally_role=self.role_of_side("ally", self.current_match_round),
             enemy_alive=self.rosters["enemy"].alive_count,
             enemy_agents=self.rosters["enemy"].living_sequence(),
-            enemy_role=self.role_of_side("enemy", self.current_round),
+            enemy_role=self.role_of_side("enemy", self.current_match_round),
             ally_slots=self.rosters["ally"].slot_mapping(),
             enemy_slots=self.rosters["enemy"].slot_mapping(),
+            role_reason=self.role_and_reason("ally", self.current_match_round)[1],
+            match_round=self.current_match_round,
         )
 
     def build_round_timeline(
@@ -3075,9 +3235,10 @@ class LivingRosterTracker:
         death_verdicts: list[DeathVerdict],
         t_start_ms: float = 0.0,
         revives: list[dict] = (),
+        match_round: Optional[int] = None,
     ) -> list[RoundRosterSnapshot]:
         """Build the complete chronological timeline of living roster snapshots for a round."""
-        snapshots = [self.start_round(round_no, t_start_ms)]
+        snapshots = [self.start_round(round_no, t_start_ms, match_round)]
         events = []
         for dv in death_verdicts:
             if dv.status == "resolved" and dv.victim:
@@ -3119,8 +3280,11 @@ class LivingRosterTracker:
         - t_start_ms: float
         - death_verdicts: list[DeathVerdict]
         - revives: optional list[dict]
+        - match_round: optional int, the round's number in the match
+          (`rounds.match_round`); without it every role is null
 
-        Handles round transitions, 10-player alive resets, and halftime role flips (round 13).
+        Handles round transitions, 10-player alive resets, and each side's
+        role by the rounds owner's side rule.
         """
         all_snapshots = []
         for r_info in sorted(rounds, key=lambda r: r["round_no"]):
@@ -3133,6 +3297,7 @@ class LivingRosterTracker:
                 death_verdicts=d_verdicts,
                 t_start_ms=t_start_ms,
                 revives=r_revives,
+                match_round=r_info.get("match_round"),
             )
             all_snapshots.extend(snaps)
         return all_snapshots
@@ -3193,17 +3358,19 @@ def build_round_roster_timeline(
     round_no: int,
     t_start_ms: float = 0.0,
     revives: list[dict] = (),
-    starting_role: str = "defenders",
+    starting_role: Optional[str] = None,
+    match_round: Optional[int] = None,
 ) -> list[RoundRosterSnapshot]:
     """Convenience helper to build a round's living roster timeline."""
     tracker = LivingRosterTracker(lineup, starting_role=starting_role)
-    return tracker.build_round_timeline(round_no, death_verdicts, t_start_ms, revives=revives)
+    return tracker.build_round_timeline(round_no, death_verdicts, t_start_ms, revives=revives,
+                                        match_round=match_round)
 
 
 def build_match_roster_timeline(
     lineup: dict,
     rounds: list[dict],
-    starting_role: str = "defenders",
+    starting_role: Optional[str] = None,
 ) -> list[RoundRosterSnapshot]:
     """Convenience helper to build a full match's living roster timeline."""
     tracker = LivingRosterTracker(lineup, starting_role=starting_role)

@@ -117,6 +117,8 @@ class ReconciliationTests(unittest.TestCase):
         self.assertFalse(moving['over_long'][0]['inside_frozen_frame'])
         self.assertEqual(moving['over_long_inside_frozen'], 0)
 
+    # The revision is git's answer, two subprocesses; this test never reads it.
+    @patch("reticle.usage.code_revision", lambda root=None: {"sha": "0000000", "dirty": False})
     def test_roster_only_scan_uses_shared_pass_without_geometry_or_hud(self):
         with tempfile.TemporaryDirectory() as d:
             store = Store(d)

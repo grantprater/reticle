@@ -36,7 +36,19 @@ SCHEMA_VERSION = 1
 # stream the old run rule still marks a plant (`plant_source = clock_run`) and
 # every other round is null, never False. Over the 21 Riot-scored matches:
 # plants found by both 212 -> 251, Riot only 68 -> 27, store only 8 -> 0.
-ROUND_VERSION = "round-0.8.0"
+# 0.9.0 (2026-10-04): a round whose buy-phase reset went unread starts one
+# median post-round gap after the previous end (`start_source = post_round_gap`,
+# `rounds.place_unread_starts`), not at the score increment, so the previous
+# round closes there and keeps its post-round events. Over the 21 Riot-scored
+# matches the 7 post-round deaths stamped with the next round all move to their
+# own round; no other death moves; 89 of 439 starts move 7-8 s later.
+# 0.10.0 (2026-10-05): where the last clock reading before a round's end is
+# stale (a stored plant_graphic sample between it and the next reading, or the
+# two more than ROUND_START_JUMP_MS apart) and no upward jump is read, the next
+# round starts at the first buy-phase reading after the end
+# (`start_source = buy_clock_after_unread`). 76 of the 89 post_round_gap starts
+# on the 21 Riot-scored matches become read starts; no clock_reset start moves.
+ROUND_VERSION = "round-0.10.0"
 # The planted-spike graphic in the scoreline's clock field, read from the hud
 # crop cache (`plant_graphic`). 0.1.0 (2026-10-02): red coverage of the clock
 # field less twice its white ink, cut at 0.2.
@@ -285,6 +297,31 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # [metric:game_font_digits/compare_production@c40d950031bb#score_right_lost=5]
 # [metric:game_font_digits/compare_production@4f207c0c4e39#clock_ms_lost=4]
 # (prototypes/game_font_digits.py compare --production).
+# 0.22.0 (2026-10-05): the two score fields read white ink against their own
+# plate (`ocr.score_field`): coverage (luma - plate) / (255 - plate) over a
+# grey opening, cut hard at SCORE_INK_CUT into components (a cut that still
+# decides which dim digits exist; BACKLOG.md carries its removal); each
+# component's whiteness is scored (`ocr.ink_score`, the coverage-weighted
+# mean coverage) and cut at SCORE_INK_MIN, where it becomes a glyph, a
+# blocker or a faint neighbour; no raw-luma gate. Bright scenery behind the
+# plate no longer fuses with the digits into masses refused as `occluded`;
+# a plate too near white to show a digit refuses `low_contrast`, and a
+# sub-ink component spanning a read digit's rows beside it refuses
+# `faint_digit`. The clock keeps the 190 cut. `n_glyphs` counts the glyphs
+# inside the three fields. Oversize score ink of any area blocks. All
+# figures are in-sample: the rules were tuned on the 21 Riot-recorded
+# matches. There score reads rise from 2ad32ef's 122257 to 162507
+# [metric:scoreline_soft/riot-21-soft#reads=162507], with 79479 full reads
+# [metric:scoreline_soft/riot-21-soft#full_reads=79479], none off Riot's
+# score sequence [metric:scoreline_soft/riot-21-soft#full_off_riot=0]. On
+# the fixed handful one old read changes, a correction
+# [metric:scoreline_soft/handful-soft#changed=1], and 20 of 16016 become
+# refusals [metric:scoreline_soft/handful-soft#lost=20]. A scoreline read
+# costs 0.93 ms per frame on a06f04a0059f
+# [metric:scoreline_soft/cost-soft#ms_a06f04a0059f=0.927] against 0.57 ms
+# before [metric:scoreline_soft/cost-soft#ms_2ad32ef_a06f04a0059f=0.574]. Of the occluded score samples before the small-jump unread round
+# starts, 141 of 163 read both scores
+# [metric:scoreline_soft/unread-reset-windows-soft#both_read=141].
 # 0.23.0 (2026-10-04): a one-colour band's divider widens over every
 # glyph-sized piece under NAME_GAP from it (`killfeed._element_box`)
 # [domain:killfeed/killfeed-element-spacing]: Clove's Not Dead Yet expiry at
@@ -571,7 +608,35 @@ ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own
 # stamp, PLAYER_CAST_VERSION.
-TRAY_VERSION = "tray-0.1.0"
+# 0.2.0 (2026-10-05): a teal or gold half going empty is a drop (`by`
+# halves), with both samples' half classes as evidence; the tray is drawn
+# where every C, Q and E half reads as a bar class under read slot icons
+# (`tray.drawn_mask`), so a drop onto an all-spent tray is not `forced`.
+# 0.3.0 (2026-10-05): a gold-only drop fires only on a second channel's
+# witness (`tray.gold_witness`): the restock countdown restarting or
+# appearing over the slot, or its icon lit on the gold sample and dimming
+# after; the refused ones are stored as `unwitnessed_drop` rows. Teal drops
+# are unchanged.
+# 0.4.0 (2026-10-05): a third witness, `persisted`: the spent half read gold
+# on `tray.GOLD_PERSIST_MIN` readable samples in a row ending at its gold
+# sample; any one witness fires the drop. Candidates and witnesses carry
+# `gold_run`.
+TRAY_VERSION = "tray-0.4.0"
+# The tray's teal fill per slot (`tray.slot_counts`, `fills`) and the
+# fill-only drawn test, which `tray-kit` and `ability-state` record as
+# `tray_fill`. It was stamped TRAY_VERSION until tray-0.2.0 changed the drops
+# only; bump when a teal constant, the guard rows or the fill normalisation
+# change.
+TRAY_FILL_VERSION = "tray-0.1.0"
+# The tray bar's half classes (`tray.segment_scores`, `segment_classes`): each
+# half of each bar scored softly against teal, gold and the empty grey, and
+# cut once (`SEG_MIN`). `reticle tray` writes them beside the drops as
+# run-length `segments` rows of the `tray_drop` stream, and ability_state
+# reads them. A stamp of its own, so the fill and drop rule (TRAY_VERSION),
+# and the streams that read only the fill, keep theirs. Bump when a class
+# centre, spread, the core geometry, the cut or a stored field changes.
+# 0.1.0 (2026-10-04): first reader; the client draws a returned charge gold.
+TRAY_SEGMENT_VERSION = "tray-segment-0.1.0"
 # Whether the game's menu covers the HUD, per sample of the stored crops, written
 # as `menu_open` rows by `reticle menu`: the tab strip in the `hud` cache and
 # the CLOSE SETTINGS button in the tray crop (`menu`). Bump when a fit, a
@@ -616,6 +681,12 @@ PLAYER_CAST_VERSION = "player-cast-0.8.0"
 # events as `tray_kit_identity`. Bump when the icon geometry, a threshold, the
 # candidate-set rule, the span rule or the stored fields change.
 TRAY_KIT_VERSION = "tray-kit-0.1.0"
+# The restock countdown numeral above a C, Q or E tray slot (`tray_countdown`),
+# written as `tray_countdown` rows by `reticle tray` in the tray's shared pass
+# over the stored crops. Bump when the font, its size, the placement, the
+# candidate set, a threshold or a stored field changes.
+# 0.1.0 (2026-10-05): first reader, DIN Next Regular at 16 px.
+TRAY_COUNTDOWN_VERSION = "tray-countdown-0.1.0"
 # The player's minimap self icon, its portrait scored against every agent's
 # art on stored minimap crops where the roster reads all five allies alive
 # (`self_icon`), written as `self_icon` rows by `reticle self-icon`; the
@@ -671,7 +742,18 @@ SELF_ICON_VERSION = "self-icon-0.6.0"
 # 0.7.0: the audio claim carries the witness's `phase` (a phase group's
 # release and landing evidence, `ability-audio-0.4.0`); its verdict may be
 # refused `bolt_unknown` or `landing_tie`.
-ABILITY_STATE_VERSION = "ability-state-0.7.0"
+# 0.8.0: the tray's half classes (TRAY_SEGMENT_VERSION). A C, Q or E level
+# counts gold halves, the charge the client draws when it comes back; a level
+# whose teal halves disagree with the fill is unread and held
+# (`segments_disagree_with_fill`); a live-phase rise that adds a gold half
+# with no player kill near it is a `live_return`; state rows carry `gold` and
+# the run's `halves`.
+# 0.9.0: the drops read halves (tray-0.2.0), so spending a gold charge is a
+# drop; a sample is drawn by the half classes under read slot icons; a gold
+# rise is a `live_return` only on an ability with a restock fact
+# (`restock_facts`), elsewhere a `recharge` with the surprise
+# `gold_rise_without_a_restock_fact`; slot parameters carry `restock_fact`.
+ABILITY_STATE_VERSION = "ability-state-0.9.0"
 # Which ability of the player's kit the audio around a tray cast sounds like:
 # a whitened matched filter over the stored audio-gate log-mel against the
 # game's own ability sounds (`adjudication.ability_audio`), read by
@@ -806,7 +888,11 @@ COMBAT_REPORT_VERSION = "combat-report-0.4.0"
 #        portrait cluster an earlier death panel of the round bound, and the
 #        one row left to the one death left in the window; a death opens at
 #        most one death panel, so a repeated read with no later death reopens.
-COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.10.0"
+# 0.11.0: a panel's round is the rounds owner's (`rounds.round_containing`,
+#        the post-round period up to the next buy phase) instead of a fixed
+#        8 s past the round's end; a summary within SUMMARY_WINDOW_MS after
+#        the last stored round's close reports that round.
+COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.11.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

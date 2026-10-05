@@ -357,18 +357,35 @@ class DeathAttributionTests(unittest.TestCase):
         tracker = LivingRosterTracker(lineup, starting_role="defenders")
 
         # First half (rounds 1-12): ally is defenders, enemy is attackers
-        snap4 = tracker.start_round(4)
+        snap4 = tracker.start_round(4, match_round=4)
         self.assertEqual(snap4.ally_role, "defenders")
         self.assertEqual(snap4.enemy_role, "attackers")
 
-        snap12 = tracker.start_round(12)
+        snap12 = tracker.start_round(12, match_round=12)
         self.assertEqual(snap12.ally_role, "defenders")
         self.assertEqual(snap12.enemy_role, "attackers")
 
-        # Second half (round 13+): roles flip
-        snap13 = tracker.start_round(13)
+        # Second half (rounds 13-24): roles flip
+        snap13 = tracker.start_round(13, match_round=13)
         self.assertEqual(snap13.ally_role, "attackers")
         self.assertEqual(snap13.enemy_role, "defenders")
+
+        # Overtime [domain:rounds/side-by-round]: each cycle opens on the
+        # starting side, so 25 and 27 are the first half's roles.
+        for n, ally in ((24, "attackers"), (25, "defenders"), (26, "attackers"),
+                        (27, "defenders"), (28, "attackers")):
+            self.assertEqual(tracker.start_round(n, match_round=n).ally_role, ally, n)
+
+        # The capture's round number decides nothing without the match's.
+        snap = tracker.start_round(13)
+        self.assertIsNone(snap.ally_role)
+        self.assertEqual(snap.role_reason, "match_round_unread")
+
+    def test_unread_starting_role_is_null_with_a_reason(self):
+        lineup = {"sides": {"ally": [{"agent": "Phoenix"}], "enemy": [{"agent": "Skye"}]}}
+        snap = LivingRosterTracker(lineup).start_round(1, match_round=1)
+        self.assertEqual((snap.ally_role, snap.enemy_role), (None, None))
+        self.assertEqual(snap.role_reason, "starting_side_unread")
 
     def test_ally_death_location_always_observable_for_ability_or_environmental(self):
         """Ally deaths are always observable via minimap blue X marks [domain:minimap/ally-death-mark]."""
@@ -746,6 +763,8 @@ class DeathAttributionTests(unittest.TestCase):
                 ],
             },
         ]
+        for r in rounds_input:
+            r["match_round"] = r["round_no"]
 
         timeline = build_match_roster_timeline(lineup, rounds_input, starting_role="defenders")
         self.assertGreater(len(timeline), 4)
@@ -905,6 +924,46 @@ class ScoreboardDimWitnessTest(unittest.TestCase):
         claims = scoreboard_death_claims([{"t_ms": 2000.0, "side": "ally"}], openings, {})
         self.assertEqual(claims[0]["agent"], "Deadlock")
         self.assertEqual(claims[0]["evidence"]["newly_dim"], ["Deadlock"])
+
+    def test_a_victim_dim_before_its_entry_counts_from_the_last_lit_board(self):
+        from reticle.adjudication.death import scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        # 043bafca271a 474.5 s: the board at 474.0 s already dims the victim,
+        # whose entry the feed first read at 474.5 s; 472.5 s still shows him lit.
+        openings = scoreboard_openings(self.board(1000.0) + self.board(3000.0, dim={"Deadlock"})
+                                       + self.board(4000.0, dim={"Deadlock"}))
+        claims = scoreboard_death_claims([{"t_ms": 3500.0, "side": "ally"}], openings, {})
+        self.assertEqual(claims[0]["agent"], "Deadlock")
+        ev = claims[0]["evidence"]
+        self.assertEqual(ev["opening_before"]["t_ms"], 1000.0)
+        self.assertTrue(ev["widened"]["reason"].startswith("newly_dim_0"))
+        self.assertEqual(ev["widened"]["opening_before"]["t_ms"], 3000.0)
+        # The wider interval counts every death in it: two deaths, one dim.
+        two = scoreboard_death_claims([{"t_ms": 2000.0, "side": "ally"},
+                                       {"t_ms": 3500.0, "side": "ally"}], openings, {})
+        self.assertIsNone(two[1]["agent"])
+        self.assertEqual(two[1]["reason"], "newly_dim_1_disagrees_with_killfeed_deaths_2")
+        # A side whose dim set never changed keeps the narrow refusal.
+        flat = scoreboard_openings(self.board(1000.0, dim={"Deadlock"})
+                                   + self.board(3000.0, dim={"Deadlock"}))
+        kept = scoreboard_death_claims([{"t_ms": 3500.0, "side": "ally"}],
+                                       flat + scoreboard_openings(
+                                           self.board(4000.0, dim={"Deadlock"})), {})
+        self.assertTrue(kept[0]["reason"].startswith("newly_dim_0"))
+        self.assertNotIn("widened", kept[0]["evidence"])
+
+    def test_a_dimmed_rows_counts_are_unread_with_their_reason(self):
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        rows = self.board(1000.0, dim={"Deadlock"})
+        for r in rows:
+            r.update(kills=1, deaths=12, assists=None)
+        got = {s["agent"]: s for s in scoreboard_openings(rows)[0]["rows"]}
+        dead = got["Deadlock"]
+        self.assertEqual([dead[k] for k in ("kills", "deaths", "assists")], [None] * 3)
+        self.assertEqual(dead["counts_reason"], "dimmed_row_unread")
+        self.assertEqual(dead["counts_raw"]["deaths"], 12)
+        lit = next(s for a, s in got.items() if a != "Deadlock")
+        self.assertEqual((lit["deaths"], lit["counts_reason"]), (12, "digit_cell_unread"))
 
     def test_a_board_the_roster_contradicts_is_skipped_with_its_reason(self):
         from reticle.adjudication.death import scoreboard_death_claims
@@ -1200,6 +1259,56 @@ class ReviveEntryTest(unittest.TestCase):
         claims = scoreboard_death_claims(es, scoreboard_openings(rows), {})
         self.assertEqual(claims[1]["agent"], None)
         self.assertEqual(claims[1]["reason"], "revive_in_interval")
+
+
+class JoinAssistsDeathRule(unittest.TestCase):
+    """`join_assists` carries the assist stream's verdicts only when the
+    stream rests on this death rule; otherwise every death stays unread with
+    the reason, never a guessed count."""
+
+    def _stream(self, death_rule):
+        return [{"kind": "summary", "assist_adjudication_version": "assist-adjudication-x",
+                 "inputs": {"death": death_rule}},
+                {"kind": "assist_verdict", "death_id": "d1", "count": 2, "count_min": 2,
+                 "present": True, "count_status": "read", "count_reason": None,
+                 "rests_on": {"killfeed_assist_version": "killfeed-assist-x"},
+                 "assisters": [{"k": 0, "entity_id": "d1:assist:0", "agent": "Sage",
+                                "identity": {"status": "resolved"}, "icon": "none",
+                                "icon_status": "read", "icon_set": None},
+                               {"k": 1, "entity_id": "d1:assist:1", "agent": None,
+                                "name_reason": "portrait not recognised",
+                                "identity": {"status": "refused"}, "icon": None,
+                                "icon_status": "refused", "icon_set": None}]}]
+
+    def test_joined_when_the_death_version_matches(self):
+        from reticle.adjudication.death import assist_stamp, join_assists
+        rows = [{"kind": "death_verdict", "death_id": "d1"}, {"kind": "round"}]
+        got = join_assists(rows, self._stream(DEATH_ADJUDICATION_VERSION))
+        self.assertEqual(got, {"read": 1})
+        a = rows[0]["assists"]
+        self.assertEqual((a["status"], a["count"], a["present"]), ("read", 2, True))
+        self.assertEqual([s["agent"] for s in a["assisters"]], ["Sage", None])
+        # why an assister is unnamed travels with it into the death event
+        self.assertEqual([s["name_reason"] for s in a["assisters"]],
+                         [None, "portrait not recognised"])
+        self.assertEqual(a["rests_on"]["assist_adjudication_version"], "assist-adjudication-x")
+        self.assertNotIn("assists", rows[1])
+        self.assertEqual(assist_stamp(self._stream(DEATH_ADJUDICATION_VERSION)),
+                         "assist-adjudication-x")
+
+    def test_unread_with_reason_when_the_death_version_differs(self):
+        from reticle.adjudication.death import ASSISTS_STALE, assist_stamp, join_assists
+        # a stream read over master's death rule before this one (0.36.0)
+        old = "death-adjudication-0.36.0"
+        self.assertNotEqual(old, DEATH_ADJUDICATION_VERSION)
+        rows = [{"kind": "death_verdict", "death_id": "d1"}]
+        got = join_assists(rows, self._stream(old))
+        self.assertEqual(got, {ASSISTS_STALE: 1})
+        a = rows[0]["assists"]
+        self.assertEqual((a["status"], a["reason"], a["stamp"]),
+                         ("unread", ASSISTS_STALE, f"stale:{old}"))
+        self.assertNotIn("count", a)
+        self.assertEqual(assist_stamp(self._stream(old)), f"stale:{old}")
 
 
 class EntryFollowTests(unittest.TestCase):

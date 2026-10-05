@@ -367,7 +367,9 @@ def for_session(session_id: str, store, ms: MapScale | None = None, seed_at=None
                 and r.get("side") in ("ally", "enemy")):
             revives.setdefault(int(r["round_no"]), []).append(
                 {"t_ms": float(r["t_ms"]), "side": r["side"], "agent": r["victim"]})
+    from .rounds import match_round
     info = [{"round_no": int(r["round_no"]), "t_start_ms": float(r["t_start_ms"]),
+             "match_round": match_round(r),
              "death_verdicts": [v for v in by.get(int(r["round_no"]), []) if not v.is_revive],
              "revives": revives.get(int(r["round_no"]), [])} for r in rounds]
     snaps = build_match_roster_timeline(lineup, info)

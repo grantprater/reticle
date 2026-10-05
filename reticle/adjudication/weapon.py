@@ -13,6 +13,7 @@ Owns [owns:killfeed-weapon].
 from __future__ import annotations
 
 import math
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -86,7 +87,12 @@ from .killfeed_kits import kill_kits, open_questions
 # holds the whole icon is matched softly, registered at native px over the
 # sub-pixel phases, against the game icons (`soft_scores`), and may be
 # named only with a square-texture (ability-slot) icon (`soft_name`).
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.7.0"
+# 1.8.0 (2026-10-05): `bind_entry`'s box-width test skips a collapsed
+# divider (ENTRY_BOX_MIN_W): such rows neither set the median nor fail it.
+# Four such frames of a Nanoswarm kill (a06f04a0059f 34.5 s) set the median
+# at 0 px and dropped the two frames whose whole 20 px icon the soft match
+# names.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.8.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns in the
 #: reference-art path (`extract_icon_observation`, `estimate_weapon_class`);
@@ -1201,6 +1207,10 @@ def _gun_class(name: str) -> Optional[str]:
 ENTRY_MIN_NAMED = 2           # frames that must name the entry's icon
 ENTRY_MIN_SHARE = 0.8         # of those, the share the top name must hold
 ENTRY_BOX_TOL = 2             # px an entry's icon box width may vary over its life
+#: A divider at most this wide has collapsed: the reader found no box there
+#: (a06f04a0059f 34.5 s, Nanoswarm: wx0 = wx1 = 385 on four frames, a 20 px
+#: box on the other two), so its width says nothing of the entry's box.
+ENTRY_BOX_MIN_W = 1
 
 
 def bind_entry(entry: dict, observations: list[dict]) -> list[dict]:
@@ -1234,32 +1244,94 @@ def bind_entry(entry: dict, observations: list[dict]) -> list[dict]:
 
     sig = entry.get("sig")
     by_frame: dict[float, dict[int, dict]] = {}
+    off_sig: dict[float, dict[int, dict]] = {}
     for o in observations:
         if (o.get("kind") == "weapon_icon_observation" and o.get("grid")
-                and entry["t_first"] <= o["t_ms"] <= entry["t_last"]
-                and (sig is None or abs(o["wx0"] - sig) <= KF_SIG_TOL)):
-            by_frame.setdefault(float(o["t_ms"]), {})[o["slot"]] = o
+                and entry["t_first"] <= o["t_ms"] <= entry["t_last"]):
+            on = sig is None or abs(o["wx0"] - sig) <= KF_SIG_TOL
+            (by_frame if on else off_sig).setdefault(float(o["t_ms"]), {})[o["slot"]] = o
     reads = {float(t): int(s) for t, s in entry.get("reads") or ()}
     if not reads:
         return _bind_without_reads(entry["slot"], by_frame)
-    path, slot = [], entry["slot"]
+    path, slot, slot_at = [], entry["slot"], {}
     for t in sorted(by_frame):
         here = by_frame[t]
         if t in reads:
             slot = reads[t]
             if slot in here:
                 path.append(here[slot])
+                slot_at[t] = slot
             continue
         for s in (slot, slot - 1):
             if s in here:
                 slot = s
                 path.append(here[s])
+                slot_at[t] = s
                 break
     if not path:
         return []
+    own = {id(o) for o in path}
+    if off_sig:
+        path = _bind_off_sig(path, slot_at, off_sig, reads)
     widths = np.array([o["wx1"] - o["wx0"] for o in path], dtype=np.float64)
-    keep = np.abs(widths - np.median(widths)) <= ENTRY_BOX_TOL
+    # A collapsed divider (wx1 - wx0 <= ENTRY_BOX_MIN_W) carries no box
+    # width, so it neither sets the median nor fails the test; the median is
+    # the on-column rows', or the added rows' when none of those has a box
+    # (weapon-adjudication-1.8.0).
+    boxed = widths > ENTRY_BOX_MIN_W
+    if not boxed.any():
+        return path
+    on = np.array([id(o) in own for o in path])
+    ref = widths[boxed & on] if (boxed & on).any() else widths[boxed]
+    keep = ~boxed | (np.abs(widths - np.median(ref)) <= ENTRY_BOX_TOL)
     return [o for o, k in zip(path, keep) if k]
+
+
+#: A row off the entry's divider column binds at a frame the path left empty
+#: when its icon extent covers at least this share of the narrower of it and
+#: the path's own extent (`_bind_off_sig`).
+ENTRY_EXTENT_OVERLAP = 0.5
+
+
+def _extent(o: dict) -> tuple[float, float]:
+    """A row's icon extent (ix0..ix1), else its divider box."""
+    a, b = o.get("ix0"), o.get("ix1")
+    return (float(o["wx0"]), float(o["wx1"])) if a is None or b is None else (float(a), float(b))
+
+
+def _bind_off_sig(path: list[dict], slot_at: dict[float, int],
+                  off_sig: dict[float, dict[int, dict]], reads: dict[float, int]) -> list[dict]:
+    """`path` with rows whose divider lies off the entry's column (`sig`)
+    added at frames the path holds no row: the divider column moves with the
+    reader's cut of the icon (a06f04a0059f 34.5 s, Nanoswarm: a collapsed
+    divider at 385 px on four frames, a whole 354-374 px cut on the two the
+    HUD track did not read), while the icon itself stays put. Such a row
+    binds in the frame's track slot, else the slot the path last held or
+    the one above, when its icon extent overlaps the path's extent
+    (ENTRY_EXTENT_OVERLAP) (weapon-adjudication-1.8.0)."""
+    ext = np.array([_extent(o) for o in path], dtype=np.float64)
+    lo, hi = float(ext[:, 0].min()), float(ext[:, 1].max())
+    held = sorted(slot_at)
+    added = []
+    for t in sorted(off_sig):
+        if t in slot_at:
+            continue
+        if t in reads:
+            tries = (reads[t],)
+        else:
+            k = bisect_right(held, t) - 1
+            s = slot_at[held[k]] if k >= 0 else slot_at[held[0]]
+            tries = (s, s - 1)
+        for s in tries:
+            o = off_sig[t].get(s)
+            if o is None:
+                continue
+            a, b = _extent(o)
+            inter = min(b, hi) - max(a, lo)
+            if inter >= ENTRY_EXTENT_OVERLAP * max(1.0, min(b - a, hi - lo)):
+                added.append(o)
+                break
+    return sorted(path + added, key=lambda o: o["t_ms"]) if added else path
 
 
 def _bind_without_reads(slot: int, by_frame: dict[float, dict[int, dict]]) -> list[dict]:

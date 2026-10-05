@@ -3,7 +3,85 @@ from __future__ import annotations
 
 import unittest
 
-from reticle.rounds import final_round, in_round_window, match_over, round_closes
+from reticle.rounds import (_clock_reset_after, _reset_after, final_round, in_round_window,
+                            match_over, match_round, place_unread_starts, round_bounds,
+                            round_closes, round_containing, side_in_round, starting_side)
+
+
+class SideByRound(unittest.TestCase):
+    """[domain:rounds/side-by-round]: halves of 12, overtime cycles open on
+    the starting side; an unread start or round is null with a reason."""
+
+    def test_halves_and_overtime(self):
+        got = {n: side_in_round(n, "attack")[0] for n in (1, 12, 13, 24, 25, 26, 27, 28)}
+        self.assertEqual(got, {1: "attack", 12: "attack", 13: "defence", 24: "defence",
+                               25: "attack", 26: "defence", 27: "attack", 28: "defence"})
+        self.assertEqual(side_in_round(13, "defence"), ("attack", None))
+
+    def test_unread_is_null_with_a_reason(self):
+        self.assertEqual(side_in_round(5, None), (None, "starting_side_unread"))
+        self.assertEqual(side_in_round(None, "attack"), (None, "match_round_unread"))
+
+    def test_match_round_is_the_score_before_plus_one(self):
+        self.assertEqual(match_round({"round_no": 1, "score_us": 7, "score_them": 5}), 13)
+        self.assertEqual(match_round({"left_before": 12, "right_before": 12}), 25)
+        self.assertIsNone(match_round({"round_no": 3, "score_us": None, "score_them": 2}))
+
+
+
+def _frame(t, slot=0, carried=True):
+    """A stored `spike` frame: our marker in `slot` (None: no marker) and a
+    carried glyph on our minimap or none."""
+    glyphs = [{"reason": None, "state": "carried", "cx": 10.0, "cy": 10.0}] if carried else []
+    return {"kind": "frame", "t_ms": float(t), "reason": None, "rotation": 0, "icons": [],
+            "glyphs": glyphs, "marker": {"slot": slot, "reason": None if slot is not None else "no_marker"}}
+
+
+def _round(n, a, z, before):
+    return {"round_no": n, "t_start_ms": float(a), "t_end_ms": float(z),
+            "score_us": before, "score_them": 0}
+
+
+class StartingSide(unittest.TestCase):
+    """`starting_side` reads only what the attackers produce: an agreed
+    carrier frame or a planter slot, through the side rule; it refuses on a
+    conflict or no evidence, never defaulting."""
+
+    HEAD = {"kind": "coverage", "widget_scale": 1.0}
+
+    def test_attack_in_the_second_half_means_a_defence_start(self):
+        rounds = [_round(1, 0, 100, 0), _round(2, 110, 200, 12)]   # match rounds 1 and 13
+        spike = [self.HEAD, _frame(150)]
+        carrier = [{"kind": "round", "round_no": 2, "spike_planted": True, "planter_slot": {"slot": 0}}]
+        got = starting_side(rounds, spike, carrier)
+        self.assertEqual((got["starting_side"], got["reason"]), ("defence", None))
+        self.assertEqual({v["channel"] for v in got["votes"]}, {"carrier", "planter"})
+
+    def test_one_channel_alone_votes_nothing(self):
+        rounds = [_round(1, 0, 100, 0)]
+        spike = [self.HEAD, _frame(50, slot=None), _frame(60, carried=False)]
+        got = starting_side(rounds, spike, [{"kind": "round", "round_no": 1, "planter_slot": None}])
+        self.assertEqual((got["starting_side"], got["reason"]), (None, "no_attack_evidence"))
+
+    def test_conflict_refuses_and_stores_the_rounds(self):
+        rounds = [_round(1, 0, 100, 0), _round(2, 110, 200, 12)]
+        spike = [self.HEAD, _frame(50), _frame(150)]
+        got = starting_side(rounds, spike, [{"kind": "round", "round_no": 1, "planter_slot": None}])
+        self.assertEqual((got["starting_side"], got["reason"]), (None, "starting_side_conflict"))
+        self.assertEqual(got["disagreements"][-1]["rounds"], {"attack": [1], "defence": [2]})
+
+    def test_cross_channel_disagreements_are_stored(self):
+        rounds = [_round(1, 0, 100, 0), _round(2, 110, 200, 1)]
+        spike = [self.HEAD, _frame(50)]
+        carrier = [{"kind": "round", "round_no": 1, "spike_planted": True, "planter_slot": None},
+                   {"kind": "round", "round_no": 2, "spike_planted": True, "planter_slot": {"slot": 1}}]
+        got = starting_side(rounds, spike, carrier)
+        self.assertEqual(got["starting_side"], "attack")
+        self.assertEqual([d["check"] for d in got["disagreements"]],
+                         ["carrier_without_planter", "planter_without_agreed_carrier"])
+
+    def test_missing_streams_refuse(self):
+        self.assertEqual(starting_side([_round(1, 0, 100, 0)], None, [])["reason"], "spike_unread")
 
 
 def _ev(t):
@@ -37,6 +115,134 @@ class RoundBoundary(unittest.TestCase):
                   {"t_start_ms": 107.0, "t_end_ms": 200.0},
                   {"t_start_ms": 209.0, "t_end_ms": 300.0}]
         self.assertEqual(round_closes(rounds), [107.0, 209.0, 308.0])
+
+
+class UnreadStart(unittest.TestCase):
+    """A round whose buy-phase reset went unread starts one median post-round
+    gap after the previous end, so the previous round keeps its post-round
+    events (`place_unread_starts`, round-0.9.0)."""
+
+    def _rounds(self):
+        return [{"t_start_ms": 0.0, "t_end_ms": 100.0, "start_source": "capture_start"},
+                {"t_start_ms": 107.0, "t_end_ms": 200.0, "start_source": "clock_reset"},
+                {"t_start_ms": 200.0, "t_end_ms": 300.0, "start_source": "score_increment"},
+                {"t_start_ms": 309.0, "t_end_ms": 400.0, "start_source": "clock_reset"}]
+
+    def test_the_unread_start_moves_one_median_gap_and_says_so(self):
+        rounds = place_unread_starts(self._rounds())
+        self.assertEqual([r["t_start_ms"] for r in rounds], [0.0, 107.0, 208.0, 309.0])
+        self.assertEqual(rounds[2]["start_source"], "post_round_gap")
+        self.assertEqual(rounds[0]["start_source"], "capture_start")
+
+    def test_a_post_round_event_stays_in_the_round_just_decided(self):
+        rounds = place_unread_starts(self._rounds())
+        for r, c in zip(rounds, round_closes(rounds)):
+            r["t_close_ms"] = c
+        self.assertEqual(round_containing(203.0, rounds)["t_end_ms"], 200.0)
+        self.assertEqual(round_containing(200.0, rounds)["t_end_ms"], 200.0)   # the decisive event
+        self.assertEqual(round_containing(208.0, rounds)["t_end_ms"], 300.0)
+        self.assertEqual(round_containing(150.0, rounds)["t_end_ms"], 200.0)   # unchanged
+
+    def test_without_a_read_reset_the_score_increment_start_stays(self):
+        rounds = [{"t_start_ms": 0.0, "t_end_ms": 100.0, "start_source": "capture_start"},
+                  {"t_start_ms": 100.0, "t_end_ms": 200.0, "start_source": "score_increment"}]
+        place_unread_starts(rounds)
+        self.assertEqual((rounds[1]["t_start_ms"], rounds[1]["start_source"]),
+                         (100.0, "score_increment"))
+
+    def test_the_start_never_passes_the_rounds_own_end(self):
+        rounds = [{"t_start_ms": 0.0, "t_end_ms": 100.0, "start_source": "capture_start"},
+                  {"t_start_ms": 130.0, "t_end_ms": 200.0, "start_source": "clock_reset"},
+                  {"t_start_ms": 200.0, "t_end_ms": 210.0, "start_source": "score_increment"}]
+        place_unread_starts(rounds)
+        self.assertEqual(rounds[2]["t_start_ms"], 210.0)
+
+
+_HELD = {  # stored death first-seen times after a round's end -> the round Riot puts them in
+    "c62c2b06bcfb": {109000.0: 1, 326000.0: 3, 328500.0: 3},
+    "59c70f1ef720": {984500.0: 10},
+}
+
+
+def _stored_hud(sid):
+    from reticle.store import DEFAULT_STORE, Store
+    store = Store(DEFAULT_STORE)
+    try:
+        man = store.read_manifest(sid)
+    except Exception:
+        return None
+    path = store.hud_path(sid, man["ingested_at"][:10])
+    if not path.exists():
+        return None
+    import pyarrow.parquet as pq
+    return pq.read_table(path)
+
+
+class StartAfterPlant(unittest.TestCase):
+    """The buy-phase start after a planted round: the graphic hides the clock,
+    so the last reading before the end is the pre-plant round clock, and no
+    buy reading jumps above it."""
+
+    def _planted(self, post_round=None):
+        """A round clock to 70 s, the graphic for 30 s across the end at 40 s,
+        an optional post-round countdown, then a buy clock from 28 s down."""
+        t, clock, graphic = [], [], {}
+        for k in range(20):                        # live clock 80 -> 70.5 s
+            t.append(k * 500.0); clock.append(80000.0 - k * 500)
+        for k in range(20, 80):                    # the graphic, clock unread
+            t.append(k * 500.0); clock.append(None)
+            graphic[k * 500.0] = {"score": 1.0}
+        for v in (post_round or []):
+            t.append(t[-1] + 500.0); clock.append(v)
+        for k in range(10):                        # buy clock 28 s down
+            t.append(t[-1] + 500.0); clock.append(28000.0 - k * 500)
+        return t, clock, graphic
+
+    def test_the_first_buy_reading_starts_the_round(self):
+        t, clock, graphic = self._planted()
+        first_buy = t[clock.index(28000.0)]
+        self.assertEqual(_reset_after(t, clock, 30000.0, graphic),
+                         (first_buy, "buy_clock_after_unread"))
+        self.assertEqual(_clock_reset_after(t, clock, 30000.0, graphic), first_buy)
+
+    def test_an_unread_stretch_alone_marks_the_reading_stale(self):
+        t, clock, _ = self._planted()
+        self.assertEqual(_reset_after(t, clock, 30000.0)[1], "buy_clock_after_unread")
+
+    def test_a_read_jump_still_wins(self):
+        t, clock, graphic = self._planted(post_round=[3000.0, 2500.0])
+        self.assertEqual(_reset_after(t, clock, 30000.0, graphic),
+                         (t[clock.index(28000.0)], "clock_reset"))
+
+    def test_a_fresh_reading_without_a_jump_stays_unread(self):
+        """The buy clock already showing when the increment is read: no
+        stretch, no graphic, so the start stays unread."""
+        t = [k * 500.0 for k in range(20)]
+        clock = [28000.0 - k * 500 for k in range(20)]
+        self.assertIsNone(_reset_after(t, clock, 2000.0, {}))
+
+    def test_round_bounds_labels_the_start(self):
+        t, clock, graphic = self._planted()
+        left = [0 if x <= 30000.0 else 1 for x in t]
+        left[-1] = 2                               # the next round ends
+        rounds = round_bounds(t, left, [0] * len(t), clock, graphic)
+        self.assertEqual(len(rounds), 2)
+        self.assertEqual(rounds[0]["t_end_ms"], t[left.index(1)])
+        self.assertEqual((rounds[1]["t_start_ms"], rounds[1]["start_source"]),
+                         (t[clock.index(28000.0)], "buy_clock_after_unread"))
+
+
+@unittest.skipUnless(all(_stored_hud(s) is not None for s in _HELD), "no stored HUD for the held sessions")
+class StoredPostRoundDeaths(unittest.TestCase):
+    """Regression on stored rows: the post-round deaths that carried the NEXT
+    round's number on the two held-out sessions fall in their own round."""
+
+    def test_post_round_deaths_carry_their_own_round(self):
+        from reticle.rounds import build_rounds
+        for sid, want in _HELD.items():
+            rounds = build_rounds(_stored_hud(sid))
+            got = {t: round_containing(t, rounds)["round_no"] for t in want}
+            self.assertEqual(got, want, sid)
 
 
 

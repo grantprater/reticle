@@ -606,5 +606,124 @@ class LabelCorrectionTest(unittest.TestCase):
                           after[0]["label_cast_of_drop"]), ("Q", "C", False))
 
 
+def _halves_at(slot: str, t: float, streak: bool = False) -> list[str]:
+    """The bar's half classes in the synthetic round: E spends its right charge
+    at 20 s and the client draws it back gold at 45 s; C is empty from 10 s,
+    and a streak at 12 s lifts its teal count without drawing a teal half."""
+    if slot == "E":
+        return (["teal", "teal"] if t < 20000 else ["teal", "empty"] if t < 45000
+                else ["teal", "gold"])
+    if slot == "C":
+        if t < 10000:
+            return ["teal", "teal"]
+        return ["unreadable", "empty"] if streak and t == 12000 else ["empty", "empty"]
+    return ["teal", "teal"] if _fill(slot, t) >= 1.0 else ["empty", "empty"]
+
+
+#: The facts of `FACTS` and a restock fact for Twin Shot, which a live return needs.
+RESTOCK_FACTS = {**FACTS, "abilities/tester-twin-shot-restock-observed": Fact(
+    domain="abilities", id="tester-twin-shot-restock-observed", kind="measurement",
+    known="observed", since="2026-10-05", subject="tester:twin shot",
+    claim="A spent Twin Shot charge comes back by itself about 25 seconds after the spend.")}
+
+
+def _run_halves(kills_ms=(), streak=False, facts=None):
+    ts = [i * STEP for i in range(int(64000 / STEP))]
+
+    def fill(slot, t):
+        if slot == "C":
+            return 1.0 if t < 10000 else 0.5 if streak and t == 12000 else 0.0
+        return _fill(slot, t)
+
+    fills = [[fill(s, t) for s in st.SLOTS] for t in ts]
+    halves = [[_halves_at(s, t, streak) for s in st.SLOTS] for t in ts]
+    drops = [_drop(10000.0, "C", 1.0, 0.0), _drop(20000.0, "E", 1.0, 0.5),
+             _drop(32000.0, "Q", 1.5, 1.0), _drop(40000.0, "X", 1.0, 0.0)]
+    gate = player_tray_casts([dict(d) for d in drops], _phase, ROUNDS, [50000.0], agent=AGENT)
+    kits = kit_windows(ROUNDS, [50000.0], agent=AGENT)
+    agent = {"agent": AGENT, "entity_id": "s:ally:slot:0", "status": "resolved",
+             "reason": None, "adjudication_version": "test"}
+    return st.adjudicate("s", drops=drops, gate_rows=gate, kits=kits, phase_of=_phase,
+                         samples={"t_ms": ts, "fills": fills, "drawn": [True] * len(ts),
+                                  "clean": [True] * len(ts), "halves": halves},
+                         agent=agent,
+                         params=st.slot_parameters(AGENT, KIT, facts or RESTOCK_FACTS),
+                         inputs={"tray_drop": "tray-test", "player_cast": "gate-test",
+                                 "tray_segment": "seg-test"},
+                         kills_ms=list(kills_ms))
+
+
+class GoldHalvesTest(unittest.TestCase):
+    def test_a_gold_half_counts_as_a_charge(self):
+        rows = _run_halves()
+        s = _state_at(rows, "E", 46000.0)
+        self.assertEqual((s["level"], s["gold"], s["charges"]), (1.0, 1, 2))
+
+    def test_a_gold_rise_with_no_kill_is_a_live_return(self):
+        rows = _run_halves()
+        got = _verdicts(rows, "E", "live_return")
+        self.assertEqual([v["t_ms"] for v in got], [45000.0])
+        claim = next(r for r in rows if r["kind"] == "claim" and r["claim_id"] in got[0]["claims"])
+        self.assertEqual(claim["evidence"]["halves_after"], ["teal", "gold"])
+        self.assertEqual(claim["source_version"], "seg-test")
+        self.assertEqual(claim["evidence"]["restock_fact"],
+                         "abilities/tester-twin-shot-restock-observed")
+        self.assertEqual(rows[0]["by_transition"].get("live_return"), 1)
+
+    def test_a_gold_rise_without_a_restock_fact_is_a_surprise(self):
+        # Gold was seen on kits with no recorded restock: the rise is no
+        # live return there, and the surprise names why.
+        rows = _run_halves(facts=FACTS)
+        self.assertEqual(_verdicts(rows, "E", "live_return"), [])
+        rise = _verdicts(rows, "E", "recharge")
+        self.assertEqual([(v["t_ms"], v["surprise_reason"]) for v in rise],
+                         [(45000.0, "gold_rise_without_a_restock_fact")])
+        self.assertEqual(st.slot_parameters(AGENT, KIT, FACTS)["E"]["restock_reason"],
+                         "no-fact:tester:E:restock")
+
+    def test_a_kill_before_the_rise_keeps_it_a_recharge(self):
+        rows = _run_halves(kills_ms=[43500.0])
+        self.assertEqual(_verdicts(rows, "E", "live_return"), [])
+        rise = _verdicts(rows, "E", "recharge")
+        self.assertEqual(len(rise), 1)
+        claim = next(r for r in rows if r["kind"] == "claim" and r["claim_id"] in rise[0]["claims"])
+        self.assertEqual(claim["evidence"]["player_kill_ms"], 43500.0)
+
+    def test_unread_kills_make_no_live_return(self):
+        # The same round with the kills unread: the rise stays a recharge.
+        rows = st.adjudicate("s", **_adjudicate_args(), kills_ms=None)
+        self.assertEqual(_verdicts(rows, "E", "live_return"), [])
+        self.assertEqual(len(_verdicts(rows, "E", "recharge")), 1)
+
+    def test_a_streak_that_lifts_the_fill_is_held_not_a_return(self):
+        rows = _run_halves(streak=True)
+        s = _state_at(rows, "C", 12000.0)
+        self.assertEqual((s["level"], s["level_reason"], s["held_level"]),
+                         (None, st.SEGMENTS_DISAGREE, 0.0))
+        self.assertEqual(_verdicts(rows, "C", "recharge"), [])
+        self.assertEqual(_verdicts(rows, "C", "fall_without_a_drop"), [])
+        self.assertEqual(rows[0]["segments_disagree_slot_samples"], 1)
+
+
+def _adjudicate_args() -> dict:
+    """The keyword inputs `_run_halves` passes, rebuilt for a variant."""
+    ts = [i * STEP for i in range(int(64000 / STEP))]
+    drops = [_drop(10000.0, "C", 1.0, 0.0), _drop(20000.0, "E", 1.0, 0.5),
+             _drop(32000.0, "Q", 1.5, 1.0), _drop(40000.0, "X", 1.0, 0.0)]
+    fills = [[(1.0 if t < 10000 else 0.0) if s == "C" else _fill(s, t) for s in st.SLOTS]
+             for t in ts]
+    return {"drops": drops,
+            "gate_rows": player_tray_casts([dict(d) for d in drops], _phase, ROUNDS, [50000.0],
+                                           agent=AGENT),
+            "kits": kit_windows(ROUNDS, [50000.0], agent=AGENT), "phase_of": _phase,
+            "samples": {"t_ms": ts, "fills": fills, "drawn": [True] * len(ts),
+                        "clean": [True] * len(ts),
+                        "halves": [[_halves_at(s, t) for s in st.SLOTS] for t in ts]},
+            "agent": {"agent": AGENT, "entity_id": "s:ally:slot:0", "status": "resolved",
+                      "reason": None, "adjudication_version": "test"},
+            "params": st.slot_parameters(AGENT, KIT, RESTOCK_FACTS),
+            "inputs": {"tray_drop": "tray-test", "player_cast": "gate-test"}}
+
+
 if __name__ == "__main__":
     unittest.main()

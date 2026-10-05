@@ -601,24 +601,32 @@ def angle_err(a: float, b: float) -> float:
 
 def map_frame_for(sid: str, man: dict, ref: Reference, d: dict, store_root: Path,
                   swap: bool = True) -> tuple[MapFrame | None, str | None]:
-    import numpy as np
-    import cv2
     from reticle import geometry
 
     gp = geometry.path_of(sid, store_root)
     if gp is None or not gp.is_file():
         return None, "no_geometry"
+    mname = geometry.map_of(sid, store_root)
+    mi = ref.map_of(d["match"]["matchInfo"]["mapId"])
+    return map_frame_for_geometry(gp, mname, mi, store_root, swap)
+
+
+def map_frame_for_geometry(gp: Path, mname: str, mi: dict, store_root: Path,
+                           swap: bool = True) -> tuple[MapFrame | None, str | None]:
+    """The MapFrame of one baked geometry npz `gp` of map `mname`, whose
+    valorant-api entry is `mi`; no session needed (`prototypes/sightlines.py`)."""
+    import numpy as np
+    import cv2
+
     with np.load(gp) as z:
         if "shade_fit" not in z.files:
             return None, "no_shade_fit"
         fit = [float(v) for v in z["shade_fit"]]
         shape = z["labels"].shape
-    mname = geometry.map_of(sid, store_root)
     art = cv2.imread(str(Path(store_root) / "reference" / "maps" / f"{mname}.png"),
                      cv2.IMREAD_UNCHANGED)
     if art is None:
         return None, "no_art"
-    mi = ref.map_of(d["match"]["matchInfo"]["mapId"])
     if canon(mi["displayName"]) != canon(mname):
         return None, f"map_mismatch:{mi['displayName']}!={mname}"
     sys.path.insert(0, str(Path(__file__).resolve().parent))

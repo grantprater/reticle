@@ -290,33 +290,69 @@ ROUND_START_WINDOW_MS = 45_000
 BUY_CLOCK_MAX_MS = 45_000
 
 
-def _clock_reset_after(t, clock, after_ms):
-    """The first upward clock JUMP after `after_ms` -- the buy-phase reset.
+def _clock_reset_after(t, clock, after_ms, graphic: dict[float, dict] | None = None):
+    """The first upward clock JUMP after `after_ms` -- the buy-phase reset --
+    or, where no jump is read and the last reading is stale, the first
+    buy-phase reading.
 
     Detected as a JUMP rather than as a value in a band, because the band is
     not reliably observed: on `587c15b07779` the round ending at 157.5 s has
     its buy-phase clock first read at **16 s**, the earlier part of it lost to
     a frozen frame. The jump is present either way.
+
+    The jump compares each reading with the last one before it, so it needs
+    that reading to be the clock as it stood at the round's end. After a plant
+    it is not: the planted-spike graphic replaces the digits
+    [domain:hud/planted-spike-replaces-clock], the reader refuses them, and the
+    last reading is the pre-plant round clock, above every buy-phase clock
+    [domain:rounds/buy-phase-barriers]. Over the 21 Riot-scored matches 76 of
+    89 unread resets were this
+    [metric:unread_reset_causes/riot-21#stale_reading_after_plant=76]. So the
+    reading before the end is STALE where a stored `plant_graphic` sample
+    (`graphic`, keyed by time) shows the graphic between it and the next
+    reading, or where the two readings stand more than ROUND_START_JUMP_MS
+    apart, the most a countdown may fall unread before the jump test compares
+    a value the clock no longer shows. There the start is the first reading
+    after the end at or below BUY_CLOCK_MAX_MS, labelled
+    `buy_clock_after_unread`. A found jump always wins, so no reset the jump
+    test reads moves. `_reset_after` returns the time with its label; this
+    wrapper keeps the time alone.
     """
-    prev = None
-    for i in range(len(t)):
-        if t[i] <= after_ms:
-            if clock[i] is not None:
-                prev = clock[i]
-            continue
-        if t[i] - after_ms > ROUND_START_WINDOW_MS:
-            break
-        c = clock[i]
-        if c is None:
-            continue
-        if (prev is not None and c > prev + ROUND_START_JUMP_MS
-                and c <= BUY_CLOCK_MAX_MS):
-            return float(t[i])
-        prev = c
+    got = _reset_after(t, clock, after_ms, graphic)
+    return got[0] if got is not None else None
+
+
+def _reset_after(t, clock, after_ms, graphic=None) -> tuple[float, str] | None:
+    """`(t_ms, start_source)` of the buy-phase start after `after_ms`, or
+    None; see `_clock_reset_after`. Vectorised over the window's readings."""
+    tt = np.asarray(t, dtype=float)
+    cc = np.asarray(clock, dtype=float)          # None reads as NaN
+    read = ~np.isnan(cc)
+    lo = int(np.searchsorted(tt, after_ms, side="right"))
+    hi = int(np.searchsorted(tt, after_ms + ROUND_START_WINDOW_MS, side="right"))
+    before = np.flatnonzero(read[:lo])
+    after = lo + np.flatnonzero(read[lo:hi])
+    if not len(after):
+        return None
+    idx = np.concatenate([before[-1:], after])
+    v = cc[idx]
+    jump = (v[1:] > v[:-1] + ROUND_START_JUMP_MS) & (v[1:] <= BUY_CLOCK_MAX_MS)
+    if jump.any():
+        return float(tt[idx[1:][np.argmax(jump)]]), "clock_reset"
+    if not len(before):
+        return None
+    p, n = int(before[-1]), int(after[0])
+    stale = tt[n] - tt[p] > ROUND_START_JUMP_MS
+    if not stale and graphic is not None:
+        from .plant_graphic import shows_graphic
+        stale = any(shows_graphic(graphic.get(float(x))) for x in tt[p + 1:n])
+    buy = after[cc[after] <= BUY_CLOCK_MAX_MS]
+    if stale and len(buy):
+        return float(tt[buy[0]]), "buy_clock_after_unread"
     return None
 
 
-def round_bounds(t, score_left, score_right, clock_ms=None):
+def round_bounds(t, score_left, score_right, clock_ms=None, graphic=None):
     """Rounds read off the scoreline: one ends when the total climbs by one.
 
     Guarded against the scoreline's known misreads. `ocr.py` drops a transient
@@ -351,6 +387,10 @@ def round_bounds(t, score_left, score_right, clock_ms=None):
     which rule produced it in `start_source` rather than being silently
     indistinguishable. That field also carries the fallback taken when no reset
     is found, which must stay countable rather than disappear into the total.
+
+    `graphic` is the stored `plant_graphic` samples by time; given them, a
+    start after a plant may be the first buy-phase reading
+    (`buy_clock_after_unread`, see `_clock_reset_after`).
     """
     out = []
     prev = None
@@ -374,10 +414,9 @@ def round_bounds(t, score_left, score_right, clock_ms=None):
                 "won_left": bool(a == pa + 1),
                 "start_source": source,
             })
-            reset = (_clock_reset_after(t, clock_ms, float(t[i]))
+            reset = (_reset_after(t, clock_ms, float(t[i]), graphic)
                      if clock_ms is not None else None)
-            start = reset if reset is not None else float(t[i])
-            source = "clock_reset" if reset is not None else "score_increment"
+            start, source = reset if reset is not None else (float(t[i]), "score_increment")
         if (a, b) != prev:
             prev = (a, b)
     return out
@@ -390,7 +429,132 @@ def match_over(left: int, right: int) -> bool:
     return max(left, right) >= 13 and abs(left - right) >= 2
 
 
-def final_round(t, score_left, score_right, clock_ms, rounds: list[dict]) -> dict | None:
+#: Rounds in each half of regulation [domain:rounds/side-by-round].
+HALF_ROUNDS = 12
+#: The sides a team plays: its starting side and the other one.
+SIDES = ("attack", "defence")
+
+
+def match_round(r: dict) -> int | None:
+    """A round's number in the MATCH, counted from 1: one more than the score
+    before it. `round_no` counts the capture's rounds instead, and differs
+    wherever a capture opens after the match's first round. None where the
+    score before the round went unread."""
+    us, them = r.get("score_us"), r.get("score_them")
+    if us is None or them is None:
+        us, them = r.get("left_before"), r.get("right_before")
+    return None if us is None or them is None else int(us) + int(them) + 1
+
+
+def side_in_round(match_round_no: int | None,
+                  starting_side: str | None) -> tuple[str | None, str | None]:
+    """(side, reason): the side, `attack` or `defence`, a team plays in match
+    round `match_round_no` (`match_round`) given the side it started on.
+
+    The rule [domain:rounds/side-by-round]: rounds 1-12 on the starting side,
+    13-24 on the other after the halftime swap [domain:rounds/halftime-side-swap]
+    (round 13 is the second pistol round [domain:rounds/pistol-round-bank]),
+    and in overtime [domain:rounds/match-end] each cycle of two rounds opens
+    on the starting side and closes on the other. The side is null with a
+    reason where the starting side or the round number is unread; it is
+    never defaulted."""
+    if starting_side not in SIDES:
+        return None, "starting_side_unread"
+    if match_round_no is None or match_round_no < 1:
+        return None, "match_round_unread"
+    regulation = 2 * HALF_ROUNDS
+    swapped = (HALF_ROUNDS < match_round_no <= regulation
+               or (match_round_no > regulation and (match_round_no - regulation) % 2 == 0))
+    other = SIDES[1] if starting_side == SIDES[0] else SIDES[0]
+    return (other if swapped else starting_side), None
+
+
+
+def starting_side(rounds: list[dict], spike_rows: list[dict] | None,
+                  carrier_rows: list[dict] | None) -> dict:
+    """The side the player's team started the match on, read from stored
+    evidence only the attacking side produces, never defaulted.
+
+    Two channels, each a vote that the player's team ATTACKS a round:
+
+    * `carrier`: a stored `spike` frame inside the round (`t_start_ms` to
+      `t_end_ms`, the span `spike_carrier` uses) on which our roster marker
+      and a carried glyph on our minimap agree (`spike_carrier.frame_state`).
+      Only the attackers hold the spike, and only our own carrier is drawn
+      [domain:minimap/spike-carrier-overlay] [domain:hud/spike-carrier-marker].
+      A frame where one of the two says carried is `spike_carrier`'s stored
+      disagreement and votes nothing.
+    * `planter`: the round's stored `spike_carrier` row names a planter slot,
+      our marker read before a plant the scoreline graphic timed. It rests on
+      the marker channel (`rests_on`), so it adds the plant's time, not an
+      independent carrier witness.
+
+    Each vote implies a starting side through `side_in_round` at the round's
+    `match_round`; a vote whose match round is unread implies nothing. One
+    implied side is the answer. Implications on both sides refuse
+    `starting_side_conflict`; no vote refuses `no_attack_evidence`; absent
+    streams refuse `spike_unread`. `disagreements` stores the rounds behind a
+    conflict and the cross-channel disagreements: `planter_without_agreed_carrier`
+    (a planter slot, no agreed carrier frame) and `carrier_without_planter`
+    (an agreed carrier and a plant, no planter slot).
+
+    Returns `{"starting_side", "reason", "votes", "disagreements"}`."""
+    out = {"starting_side": None, "reason": None, "votes": [], "disagreements": []}
+    if not spike_rows or not carrier_rows:
+        out["reason"] = "spike_unread"
+        return out
+    from .adjudication.spike_carrier import frame_state
+    head = spike_rows[0]
+    sc = float(head.get("widget_scale") or 1.0)
+    agreed = np.asarray(sorted(
+        st["t_ms"] for st in (frame_state(r, sc) for r in spike_rows[1:]
+                              if r.get("kind") == "frame")
+        if st["slot"] is not None and st["glyph"] == "carried"), float)
+    planters = {c.get("round_no"): c for c in carrier_rows if c.get("kind") == "round"}
+    implied: dict[str, list[int]] = {s: [] for s in SIDES}
+    for r in rounds:
+        a, z = r.get("t_start_ms"), r.get("t_end_ms")
+        if a is None or z is None:
+            continue
+        n = match_round(r)
+        frames = int(np.count_nonzero((agreed >= a) & (agreed <= z)))
+        crow = planters.get(r.get("round_no")) or {}
+        planter = crow.get("planter_slot") is not None
+        if planter and not frames:
+            out["disagreements"].append({"round_no": r.get("round_no"),
+                                         "check": "planter_without_agreed_carrier"})
+        if frames and crow.get("spike_planted") and not planter:
+            out["disagreements"].append({"round_no": r.get("round_no"),
+                                         "check": "carrier_without_planter"})
+        for channel, voted in (("carrier", frames > 0), ("planter", planter)):
+            if not voted:
+                continue
+            # Attacking in a round played on the starting side means the
+            # team started on attack; otherwise it started on defence.
+            start, why = side_in_round(n, "attack")
+            vote = {"round_no": r.get("round_no"), "match_round": n, "channel": channel,
+                    "implies": start, "reason": why}
+            if channel == "carrier":
+                vote["frames"] = frames
+            else:
+                vote["rests_on"] = "carrier"
+            out["votes"].append(vote)
+            if start is not None:
+                implied[start].append(r.get("round_no"))
+    sides = [s for s in SIDES if implied[s]]
+    if len(sides) == 1:
+        out["starting_side"] = sides[0]
+    elif sides:
+        out["reason"] = "starting_side_conflict"
+        out["disagreements"].append({"check": "starting_side_conflict",
+                                     "rounds": {s: sorted(set(v)) for s, v in implied.items()}})
+    else:
+        out["reason"] = "no_attack_evidence"
+    return out
+
+
+def final_round(t, score_left, score_right, clock_ms, rounds: list[dict],
+                graphic: dict[float, dict] | None = None) -> dict | None:
     """The match's last round when the scoreline never showed its result.
 
     The score increment ends every other round, but at match end the scoreline
@@ -414,15 +578,16 @@ def final_round(t, score_left, score_right, clock_ms, rounds: list[dict]) -> dic
               if match_over(a, b)]
     if len(ending) != 1 or clock_ms is None:
         return None
-    start = _clock_reset_after(t, clock_ms, last["t_end_ms"])
-    if start is None:
+    got = _reset_after(t, clock_ms, last["t_end_ms"], graphic)
+    if got is None:
         return None
+    start, source = got
     read = [float(t[i]) for i in range(len(t))
             if t[i] > start and score_left[i] is not None and score_right[i] is not None]
     if not read:
         return None
     return {"t_start_ms": start, "t_end_ms": read[-1], "left_before": left,
-            "right_before": right, "won_left": ending[0], "start_source": "clock_reset",
+            "right_before": right, "won_left": ending[0], "start_source": source,
             "end_source": "match_end_rule"}
 
 
@@ -533,6 +698,37 @@ def round_containing(t_ms: float, rounds: list[dict]) -> dict | None:
         e, r["t_start_ms"], r["t_end_ms"], r["t_close_ms"], ends)), None)
 
 
+def place_unread_starts(rounds: list[dict]) -> list[dict]:
+    """Start each round whose buy-phase reset went unread one median post-round
+    gap after the previous round's end, and label it `post_round_gap`.
+
+    Without a reset, `round_bounds` starts the next round AT the score
+    increment, so its close (`round_closes`) is the end itself and every event
+    of the post-round period [domain:rounds/post-round-period] fell into the
+    NEXT round. Against Riot's records over the 21 scored matches, all 7
+    post-round deaths stamped with the wrong round followed such a start, and
+    none followed a read reset; with this rule those 7 deaths move to their own
+    round [metric:round_no_post_round/riot-21#changed=7], no post-round death
+    is wrong [metric:round_no_post_round/riot-21#post_wrong=0] and no other
+    death moves [metric:round_no_post_round/riot-21#changed_not_post_fix=0].
+
+    The gap is the session's median over rounds whose reset was read (the
+    estimate `round_closes` already uses for the last round's tail); a session
+    with no read reset keeps the score-increment start. The start never passes
+    the round's own end. Edits `rounds` in place and returns it.
+    """
+    gaps = [n["t_start_ms"] - p["t_end_ms"] for p, n in zip(rounds, rounds[1:])
+            if n.get("start_source") == "clock_reset" and n["t_start_ms"] > p["t_end_ms"]]
+    if not gaps:
+        return rounds
+    gap = float(np.median(gaps))
+    for p, n in zip(rounds, rounds[1:]):
+        if n.get("start_source") == "score_increment":
+            n["t_start_ms"] = min(p["t_end_ms"] + gap, n["t_end_ms"])
+            n["start_source"] = "post_round_gap"
+    return rounds
+
+
 def round_closes(rounds: list[dict]) -> list[float]:
     """Each round's close: the next round's start, and for the last round one
     median post-round gap after its end (its own end where no gap is seen)."""
@@ -562,12 +758,13 @@ def build_rounds(table, second_life: list[dict] | None = None,
     div = lambda c: table.column(c).to_pylist() if c in names else None
 
     sl, sr = table.column("score_left").to_pylist(), table.column("score_right").to_pylist()
-    rounds = round_bounds(t, sl, sr, clock)
+    rounds = round_bounds(t, sl, sr, clock, plant_graphic)
     for r in rounds:
         r["end_source"] = "score_increment"
-    last = final_round(t, sl, sr, clock, rounds)
+    last = final_round(t, sl, sr, clock, rounds, plant_graphic)
     if last is not None:
         rounds.append(last)
+    place_unread_starts(rounds)
     kills = merge_split_tracks(_tracks(t, table.column("kf_kill_mask").to_pylist(), div("kf_kill_wx")))
     deaths = merge_split_tracks(_tracks(t, table.column("kf_death_mask").to_pylist(), div("kf_death_wx")))
     from .adjudication.death import split_second_lives

@@ -28,9 +28,12 @@ def _run(t0, t1, rows, step=1000):
 
 
 ROUNDS = [
-    {"round_no": 1, "t_start_ms": 0.0, "t_end_ms": 100000.0, "player_kills": 1, "player_deaths": 1},
-    {"round_no": 2, "t_start_ms": 100000.0, "t_end_ms": 200000.0, "player_kills": 0, "player_deaths": 1},
-    {"round_no": 3, "t_start_ms": 208000.0, "t_end_ms": 300000.0, "player_kills": 2, "player_deaths": 0},
+    {"round_no": 1, "t_start_ms": 0.0, "t_end_ms": 100000.0, "t_close_ms": 100000.0,
+     "player_kills": 1, "player_deaths": 1},
+    {"round_no": 2, "t_start_ms": 100000.0, "t_end_ms": 200000.0, "t_close_ms": 208000.0,
+     "player_kills": 0, "player_deaths": 1},
+    {"round_no": 3, "t_start_ms": 208000.0, "t_end_ms": 300000.0, "t_close_ms": 308000.0,
+     "player_kills": 2, "player_deaths": 0},
 ]
 
 
@@ -105,11 +108,33 @@ class Rounds(unittest.TestCase):
         # Round 2 ends exactly where round 3 would begin had there been no
         # gap; the boundary itself must still step back (a strict < did not).
         rounds = [dict(r) for r in ROUNDS]
-        rounds[2]["t_start_ms"] = 200000.0
+        rounds[2]["t_start_ms"] = rounds[1]["t_close_ms"] = 200000.0
         frames = _run(210000, 214000, [_row("160", "0", oh="100", killed=0.95)])
         ps = adj.panels(frames, death_times=[])
         adj.assign_rounds(ps, rounds)
         self.assertEqual((ps[0]["kind"], ps[0]["round_no"]), ("summary", 2))
+
+    def test_post_round_panel_belongs_to_the_round_the_owner_names(self):
+        # Round 2's post-round period runs to 215 s, past the former fixed 8 s
+        # tail; `rounds.round_containing` keeps a panel there in round 2.
+        rounds = [dict(r) for r in ROUNDS]
+        rounds[1]["t_close_ms"] = rounds[2]["t_start_ms"] = 215000.0
+        frames = _run(212000, 214000, [_row("160", "0", oh="100", killed=0.95)])
+        ps = adj.panels(frames, death_times=[])
+        adj.assign_rounds(ps, rounds)
+        self.assertEqual(ps[0]["round_no"], 2)
+
+    def test_summary_after_the_last_stored_round_reports_it(self):
+        # A capture cut in the next round's buy phase stores no next round;
+        # the summary shown there is the last round's.
+        frames = _run(310000, 314000, [_row("160", "0", oh="100", killed=0.95)])
+        ps = adj.panels(frames, death_times=[])
+        adj.assign_rounds(ps, ROUNDS)
+        self.assertEqual((ps[0]["kind"], ps[0]["round_no"]), ("summary", 3))
+        late = adj.panels(_run(400000, 404000, [_row("160", "0", oh="100", killed=0.95)]),
+                          death_times=[])
+        adj.assign_rounds(late, ROUNDS)
+        self.assertIsNone(late[0]["round_no"])
 
     def test_counts_sit_beside_the_stored_rounds_and_keep_disagreements(self):
         frames = (_run(60000, 70000, [_row("160", "65", oh="100", ih="010", killed=0.95,

@@ -11,6 +11,7 @@ ground-truth labels, testing:
 """
 from __future__ import annotations
 
+import copy
 import json
 import unittest
 from pathlib import Path
@@ -82,21 +83,36 @@ class RoundIdentityE2ETests(unittest.TestCase):
         cls.date = "2026-08-26"
         cls.round_no = 4
 
+        # Without the private session every test here would error in this
+        # method; skip instead, naming what is missing.
+        if not cls.store.rounds_path(cls.session_id, cls.date).is_file():
+            raise unittest.SkipTest(f"needs the rounds table of {cls.session_id}")
+        labels = cls.store.root / "labels" / "minimap_agent" / f"{cls.session_id}.jsonl"
+        if not labels.is_file():
+            raise unittest.SkipTest(f"needs {labels}")
+
         cls.t_start_ms, cls.t_end_ms, _ = load_round_bounds(
             cls.store, cls.session_id, cls.date, cls.round_no
         )
         cls.sightings = load_minimap_labels(
             cls.store, cls.session_id, cls.t_start_ms, cls.t_end_ms
         )
-        cls.sightings_with_crops = extract_crops_for_sightings(
-            cls.store, cls.session_id, cls.sightings
-        )
+        try:
+            cls.sightings_with_crops = extract_crops_for_sightings(
+                cls.store, cls.session_id, cls.sightings
+            )
+        except FileNotFoundError as exc:  # neither the minimap fixture nor the video
+            raise unittest.SkipTest(str(exc))
         assign_spatial_tracks(cls.sightings_with_crops)
         cls.gallery = load_identity_gallery(cls.store.root, surfaces=MINIMAP_SURFACES)
 
     def test_round4_bounds_and_sightings_ingestion(self):
         """Verify round boundaries and ground-truth label ingestion."""
-        self.assertEqual(self.t_start_ms, 232000.0)
+        # round-0.10.0: round 3 was planted, so its last clock reading is the
+        # pre-plant clock and no reset jump is read; round 4 starts at its
+        # first buy-phase reading, 239.0 s (0.9.0 placed it one median
+        # post-round gap after round 3's end at 232.0 s, 239.5 s).
+        self.assertEqual(self.t_start_ms, 239000.0)
         self.assertEqual(self.t_end_ms, 351000.0)
         self.assertEqual(len(self.sightings), 25)
 
@@ -226,6 +242,26 @@ class RoundIdentityE2ETests(unittest.TestCase):
             self.assertIn("distribution", event["identity_distribution"])
             self.assertEqual(event["metadata"]["status"], "resolved")
 
+    #: The round's killfeed entries, extracted once per class: the death
+    #: tests ask the same question of the same fixture, and the extraction is
+    #: about 10 s of each. Filled on first use inside a test, so
+    #: NEEDS_KF_FIXTURE still skips without the fixture.
+    _kf_entries = None
+
+    def _round4_kf(self):
+        """The round's killfeed entries against the source's lineup, a copy
+        per caller: `adjudicate_round_deaths` writes `is_second_life` and
+        `badge` into an entry's claim on the badge path."""
+        cls = type(self)
+        if cls._kf_entries is None:
+            hud = self.store.read_hud(self.session_id, self.date).to_pydict()
+            cls._kf_entries = extract_round_killfeed_entries(
+                hud, self.t_start_ms, self.t_end_ms,
+                store=self.store, session_id=self.session_id,
+                active_lineup=round4_lineup(), gallery=self.gallery,
+            )
+        return copy.deepcopy(cls._kf_entries)
+
     def _round4_deaths(self):
         """Death verdicts from the killfeed fixture, the roster and the
         minimap tracks, against the source's lineup."""
@@ -253,13 +289,8 @@ class RoundIdentityE2ETests(unittest.TestCase):
                 })
 
         # Ingest HUD reads and Roster series with live killfeed portrait classification
-        hud = self.store.read_hud(self.session_id, self.date).to_pydict()
         roster = self.store.read_roster(self.session_id, self.date).to_pylist()
-        kf_entries = extract_round_killfeed_entries(
-            hud, self.t_start_ms, self.t_end_ms,
-            store=self.store, session_id=self.session_id,
-            active_lineup=oracle_lineup, gallery=self.gallery,
-        )
+        kf_entries = self._round4_kf()
         r4_roster = [r for r in roster if self.t_start_ms <= r["t_ms"] <= self.t_end_ms]
 
         death_verdicts = adjudicate_round_deaths(
@@ -347,36 +378,14 @@ class RoundIdentityE2ETests(unittest.TestCase):
         self.assertEqual(skye_id_event["source_channel"], "adjudication.identity")
 
     @NEEDS_KF_FIXTURE
-    @unittest.expectedFailure
-    def test_round4_gun_kill_locations(self):
-        """Every gun kill should carry a death and a killer location.
-
-        Expected to fail: no channel this harness feeds observes where anyone
-        died or stood, and `reticle deaths` stores no location either. The
-        coordinates this test once asserted came from the 2026-09-12 fixture,
-        which recorded no source for them (Jett's matched Deadlock's X mark to
-        0.3 px), and the death-round4 contract refused fixture locations.
-        """
-        death_verdicts, _ = self._round4_deaths()
-        for dv in death_verdicts:
-            self.assertIsNotNone(dv.location, f"{dv.death_id} has no death location")
-            self.assertIsNotNone(dv.killer_location, f"{dv.death_id} has no killer location")
-
-
-    @NEEDS_KF_FIXTURE
     def test_round4_living_roster_timeline_and_slot_tracking(self):
         """Verify the complete Round 4 living roster timeline, survivor inward packing, and slot mapping."""
         from reticle.adjudication.death import build_round_roster_timeline, LivingRosterTracker
 
         oracle_lineup = round4_lineup()
 
-        hud = self.store.read_hud(self.session_id, self.date).to_pydict()
         roster = self.store.read_roster(self.session_id, self.date).to_pylist()
-        kf_entries = extract_round_killfeed_entries(
-            hud, self.t_start_ms, self.t_end_ms,
-            store=self.store, session_id=self.session_id,
-            active_lineup=oracle_lineup, gallery=self.gallery,
-        )
+        kf_entries = self._round4_kf()
         r4_roster = [r for r in roster if self.t_start_ms <= r["t_ms"] <= self.t_end_ms]
 
         death_verdicts = adjudicate_round_deaths(

@@ -204,10 +204,12 @@ def derived_streams() -> list[dict]:
     `adjudication.identity`'s verdicts, stamped `producer_version`, and are
     written by `parent`'s command. `how` is what the command reads.
     """
+    from .adjudication.assist import ASSIST_ADJUDICATION_VERSION
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
     from .adjudication.identity import AGENT_IDENTITY_VERSION
     from .adjudication.killstreak import KILLSTREAK_WITNESS_VERSION
     from .enemy_tracks import ENEMY_TRACK_VERSION
+    from .killfeed_assist import KILLFEED_ASSIST_VERSION
     from .killfeed_numeral import KILLFEED_NUMERAL_VERSION
     from .lighting import LIGHTING_VERSION
     from .minimap_objects import minimap_object_version
@@ -223,7 +225,8 @@ def derived_streams() -> list[dict]:
                           COMBAT_REPORT_VERSION, ICON_TEARDROP_VERSION, MENU_VERSION,
                           MINIMAP_DARK_VERSION, PLANT_GRAPHIC_VERSION, SMOKE_OWNER_VERSION,
                           SMOKE_VERSION, SPIKE_CARRIER_VERSION, SPIKE_VERSION, TEAM_VISION_VERSION,
-                          TEARDROP_VERSION, TRAY_KIT_VERSION, TRAY_VERSION)
+                          TEARDROP_VERSION, TRAY_COUNTDOWN_VERSION, TRAY_FILL_VERSION,
+                          TRAY_KIT_VERSION, TRAY_SEGMENT_VERSION)
     from .version import (ROUND_OUTCOME_CLAIM_VERSION, ROUND_OUTCOME_VERSION,
                           SCOREBOARD_STRIP_VERSION)
     roi = {"roi_cache_version": ROI_CACHE_VERSION}
@@ -278,7 +281,13 @@ def derived_streams() -> list[dict]:
          "upstream": ("combat_report", "rounds", "death")},
         {"stream": "tray_kit", "key": "tray_kit_version", "current": TRAY_KIT_VERSION,
          "command": "reticle tray-kit {sid}", "how": "cache",
-         "fields": {"inputs.tray_fill": TRAY_VERSION, "inputs.roi_cache": ROI_CACHE_VERSION},
+         "fields": {"inputs.tray_fill": TRAY_FILL_VERSION, "inputs.roi_cache": ROI_CACHE_VERSION},
+         "upstream": ()},
+        # The restock countdown joins the tray's pass (`reticle tray`).
+        {"stream": "tray_countdown", "key": "tray_countdown_version",
+         "current": TRAY_COUNTDOWN_VERSION, "command": "reticle tray {sid}", "how": "cache",
+         "fields": {"inputs.roi_cache": ROI_CACHE_VERSION,
+                    "inputs.tray_segment": TRAY_SEGMENT_VERSION},
          "upstream": ()},
         {"stream": "ability_light", "key": "ability_light_version",
          "current": ABILITY_LIGHT_VERSION, "command": "reticle ability-light {sid}",
@@ -291,6 +300,19 @@ def derived_streams() -> list[dict]:
          "fields": {**roi, "teardrop_version": TEARDROP_VERSION,
                     "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION},
          "upstream": ()},
+        # The assist panel [domain:killfeed/assist-panel], reread from the
+        # killfeed crop cache on the stored deaths' killer views; its summary
+        # row records its inputs.
+        {"stream": "killfeed_assist", "key": "killfeed_assist_version",
+         "current": KILLFEED_ASSIST_VERSION, "command": "reticle assists {sid}", "how": "cache",
+         "fields": {"inputs.roi_cache": ROI_CACHE_VERSION},
+         "upstream": ("killfeed_portrait", "death")},
+        {"stream": "assist", "key": "assist_adjudication_version",
+         "current": ASSIST_ADJUDICATION_VERSION, "command": "reticle assists {sid}",
+         "how": "cache",
+         "fields": {"inputs.killfeed_assist": KILLFEED_ASSIST_VERSION,
+                    "inputs.agent_identity": AGENT_IDENTITY_VERSION},
+         "upstream": ("killfeed_assist", "death")},
         {"stream": "enemy_track", "key": "enemy_track_version", "current": ENEMY_TRACK_VERSION,
          "command": "reticle enemy-tracks {sid}", "how": "storage",
          "fields": {"minimap_object_version": minimap_object_version(),
@@ -387,10 +409,11 @@ def _spans() -> dict:
 SPAN_READERS = ("minimap", "ping", "ally_icon", "minimap_dark")
 
 
-def _code(path: str, stamp: str, *, optional: bool = False) -> dict:
+def _code(path: str, stamp: str, *, optional: bool = False, before: str | None = None) -> dict:
     """A rule's stamp the stream records beside its inputs: compared with the
-    code's `stamp`, not with anything stored."""
-    return _in(path, "=" + stamp, optional=optional)
+    code's `stamp`, not with anything stored. `before`, as for `_in`: what a
+    head written before the stamp was recorded is compared as."""
+    return _in(path, "=" + stamp, optional=optional, before=before)
 
 
 #: Keys a stream's head records that are not stored-input stamps, and why
@@ -454,14 +477,18 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     """stream -> {input name: declared input}, for every stream that reads a
     stored input. The name is what `plan` reports as moved."""
     from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .adjudication.killfeed_kits import KILLFEED_KITS_VERSION
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_WEAPON_VERSION
+    from .killfeed_assist import ICON_BUILD
     from .lighting import LIGHTING_VERSION
+    from .version import TRAY_SEGMENT_VERSION
     from .roi_cache import ROI_CACHE_VERSION
     from .ability_candidates import values_digest
     from .version import (ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION,
                           ABILITY_CANDIDATES_VERSION, ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION,
                           ICON_POSE_PRIOR_VERSION, STACK_FIT_VERSION,
-                          ICON_TEARDROP_VERSION, TEARDROP_VERSION, TRAY_VERSION)
+                          ICON_TEARDROP_VERSION, ROUND_VERSION, TEARDROP_VERSION,
+                          TRAY_FILL_VERSION)
     geo ={"geometry": _in("geometry_built_by", "geometry")}
     death = "death#death_adjudication_version"
     return {
@@ -484,6 +511,10 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                   # record none.
                   "combat_report": _in("inputs.combat_report", "combat_report", optional=True),
                   "roster": _in("inputs.roster", "roster"),
+                  # The assist verdicts the deaths join (`join_assists`); a head
+                  # records `stale:<death rule>` or `no_rows` where it joined none.
+                  "assist": _in("inputs.assist", "assist#assist_adjudication_version",
+                                optional=True),
                   "reliability_table": _in("inputs.reliability_table", "reliability"),
                   # How each round ended: read only at the code's stamps, and
                   # heads before death-adjudication-0.34.0 record none.
@@ -538,7 +569,11 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                                        "tray_drop#player_cast_version"),
                           "round": _in("inputs.round", "rounds"),
                           "catalogue": _in("inputs.catalogue", "catalogue"),
-                          "tray_fill": _code("inputs.tray_fill", TRAY_VERSION),
+                          "tray_fill": _code("inputs.tray_fill", TRAY_FILL_VERSION),
+                          # The bar's half classes it rereads beside the fills.
+                          "tray_segment": _code("inputs.tray_segment", TRAY_SEGMENT_VERSION),
+                          # The icon set the drawn test asks (`cli._tray_icon_witness`).
+                          "tray_icons": _in("inputs.tray_icons", "catalogue_icons"),
                           "roi_cache": _code("inputs.roi_cache", ROI_CACHE_VERSION),
                           "agent_identity": _code("inputs.agent_identity", AGENT_IDENTITY_VERSION),
                           # The audio witness (`audio_cast_witness`): its rule,
@@ -560,7 +595,13 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                           "roster": _in("inputs.roster", "roster")},
         # The teammates' poses are the stored ally reader's (team-vision-0.7.0).
         "team_vision": {"ally_icon": _in("inputs.ally_icon", "ally_icon"), **geo},
-        "round_entity": {"menu_open": _in("menu_open", "menu_open#menu_version"),
+        # `reticle lifetimes` builds the rounds in memory from the stored HUD
+        # (`rounds.build_rounds`) rather than reading the round table, so the
+        # round rule is a code stamp; a head written before it was recorded
+        # read an unknown rule and is stale.
+        "round_entity": {"round_rule": _code("inputs.round_rule", ROUND_VERSION,
+                                             before="unrecorded"),
+                         "menu_open": _in("menu_open", "menu_open#menu_version"),
                          "hud": _in("inputs.hud", "hud"), "roster": _in("inputs.roster", "roster"),
                          "ally_icon": _in("inputs.ally_icon", "ally_icon"),
                          "death": _in("inputs.death", death),
@@ -616,6 +657,18 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                                      ABILITY_SHAPE_VERSION),
                                 "candidate_fit": _code("ability_fit_version", ABILITY_FIT_VERSION),
                                 **geo},
+        # The assist panel [domain:killfeed/assist-panel] reads the stored
+        # deaths' killer views and the killfeed reader's anchors, matched to
+        # one game build's art; its verdicts rest on the same deaths and name
+        # icons from the kits table.
+        "killfeed_assist": {"death": _in("inputs.death", death),
+                            "killfeed_portrait": _in("inputs.killfeed_portrait",
+                                                     "killfeed_portrait"),
+                            "game_build": _code("inputs.game_build", ICON_BUILD),
+                            **_lineup_inputs()},
+        "assist": {"death": _in("inputs.death", death),
+                   "killfeed_kits": _code("inputs.killfeed_kits", KILLFEED_KITS_VERSION),
+                   **_lineup_inputs()},
         "enemy_track": {"minimap_object": _in("minimap_object_version",
                                               "minimap_object#minimap_object_version"),
                         "death": _in("death_adjudication_version", death),
@@ -666,6 +719,10 @@ FEEDBACK = {
                                     "deaths and weigh the name clusters; compared by the "
                                     "death rule they were measured on "
                                     "(`reliability.built_from`)",
+    ("death", "assist"): "the assist verdicts are read over the stored deaths and joined "
+                         "back by death id only when they rest on this death rule "
+                         "(`death.assist_stamp`); a head that joined none records why, "
+                         "so deaths, then assists, then deaths once more agree",
 }
 
 
@@ -1054,7 +1111,8 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
     from .version import (ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
                           COMBAT_REPORT_ROUND_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
                           ROUND_VERSION, SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION,
-                          SPIKE_VERSION, TEARDROP_VERSION, TRAY_VERSION, ULT_LINE_VERSION)
+                          SPIKE_VERSION, TEARDROP_VERSION, TRAY_SEGMENT_VERSION, TRAY_VERSION,
+                          ULT_LINE_VERSION)
     gate = {"player_cast": ("player_cast_version", PLAYER_CAST_VERSION)}
     tray = {"tray_drop": ("tray_version", TRAY_VERSION)}
     roi = {"roi_cache": ("roi_cache_version", ROI_CACHE_VERSION)}
@@ -1082,7 +1140,8 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
     return {
         "death": {k: ("inputs." + k, v) for k, v in death.items()},
         "ult_cast": {k: ("inputs." + k, v) for k, v in ult.items()},
-        "tray_drop": gate,
+        # The stream's `segments` rows carry the half classes' own stamp.
+        "tray_drop": {**gate, "tray_segment": ("tray_segment_version", TRAY_SEGMENT_VERSION)},
         "ability_shape": {**gate, **tray},
         "scoreboard_strip": roi,
         "scoreboard_presence": {"scoreboard_strip": ("scoreboard_strip_version",

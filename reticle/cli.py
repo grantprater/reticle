@@ -3540,6 +3540,12 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                           for e, v, why in r.get("refused", [])]
         inferred = ([{**common, "kind": "inferred_death", **x} for x in stalled["inferred"]]
                     + [{**common, "kind": "inferred_death_refusal", **x} for x in stalled["refused"]])
+    # Who assisted each kill: the stored `assist` verdicts, joined by death id
+    # when they rest on this death rule (`join_assists`).
+    with usage_step("assists"):
+        from .adjudication.death import assist_stamp, join_assists
+        assist_rows = store.read_events("assist", sid) if store.has_events("assist", sid) else None
+        assists_joined = join_assists(rows, assist_rows)
     with usage_step("summary_head"):
         collisions = [{**common, **c} for r in res["rounds"] for c in r.get("collisions", [])]
         status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
@@ -3575,6 +3581,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                 "xmarks": dict(Counter(f"{r.get('side')}:{(r['metadata'].get('xmark') or {}).get('status', 'none')}"
                                        for r in rows)),
                 "xmark_births": None if births is None else len(births),
+                "assists": assists_joined,
                 # The stored HUD table's own stamp, not the code's: the deaths
                 # read the table, whatever stamp it holds.
                 "inputs": {"hud": (hud.schema.metadata or {}).get(b"hud_version", b"").decode()
@@ -3601,7 +3608,10 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                            "combat_report": report_version if panel is not None else None,
                            "round_outcome": ROUND_OUTCOME_VERSION if claims is not None else None,
                            "round_outcome_claim": (ROUND_OUTCOME_CLAIM_VERSION
-                                                   if claims is not None else None)}}
+                                                   if claims is not None else None),
+                           # The assist verdicts joined: their stamp when they
+                           # rest on this death rule, else why not.
+                           "assist": assist_stamp(assist_rows)}}
     return {"head": head, "rows": rows, "collisions": collisions, "events": events,
             "set_aside": set_aside + inferred, "inferred": inferred, "result": res,
             "n_rounds": len(rounds)}
@@ -3802,6 +3812,142 @@ def cmd_killstreak(args) -> int:
     return 0
 
 
+#: Views of each killfeed entry the assist panel is read on: spread over the
+#: entry's observed life. The panel is drawn with the entry, so a few views
+#: give the count a vote without reading every frame.
+ASSIST_VIEWS_PER_ENTRY = 3
+
+
+def assist_session(store: Store, sid: str, per_entry: int = ASSIST_VIEWS_PER_ENTRY,
+                   verdicts: list[dict] | None = None) -> tuple[list[dict], list[dict], dict]:
+    """Read the assist panel on every stored killfeed entry of a session from
+    the crop cache, then adjudicate it: (observation rows, verdict rows, cost).
+
+    Opportunity-gated: only death verdicts' killer views are read, `per_entry`
+    of each, placed by their `killfeed_portrait` killer rows. The candidates
+    are the killer's side from the lineup (`adjudication.assist.side_admitted`);
+    the icons admitted are those agents' kits and the panel's own icons.
+    Decodes no video: a session with no `hud` crop cache refuses."""
+    from .adjudication import assist as adj
+    from .adjudication import killfeed_kits
+    from .killfeed import KillfeedScale
+    from . import killfeed_assist as ka
+    from .lineup import load_lineup
+    from .roi_cache import RoiCache
+
+    t_start = time.perf_counter()
+    man = store.read_manifest(sid)
+    prof = get_profile(man["source_profile"])
+    cache, why = RoiCache.load(store.root, man, prof, "killfeed")
+    if cache is None:
+        raise SystemExit(f"{sid}: no killfeed crop cache ({why}) -- assists read no video")
+    if verdicts is None:
+        verdicts = [r for r in store.read_events("death", sid) if r.get("kind") == "death_verdict"]
+    killers = {r["observation_key"]: r for r in store.read_events("killfeed_portrait", sid)
+               if r.get("kind") == "portrait_observation" and r.get("role") == "killer"}
+    lineup = load_lineup(sid, store.root)
+    s = KillfeedScale.for_capture(int(man["source"]["width"]), int(man["source"]["height"]))
+    art = ka.portrait_art(store.root, s)
+    framed = ka.portrait_art(store.root, s, ka.FRAME_MARGIN)
+    kart = ka.killer_art(store.root, s)
+    temps = ka.icon_templates(str(store.root), s.scale)
+    by_t: dict[float, list] = {}
+    sides: dict[int, list[str]] = {}
+    for v in verdicts:
+        keys = [o["observation_key"] for c in ((v.get("metadata") or {}).get("killer_identity")
+                                               or {}).get("claims", [])
+                if c.get("channel") == "killfeed_portrait"
+                for o in (c.get("evidence") or {}).get("observations", [])]
+        rows = sorted((killers[k] for k in set(keys) if k in killers
+                       and ka.view_anchor(killers[k]) is not None), key=lambda r: r["t_ms"])
+        admitted = adj.side_admitted(lineup, adj.killer_side(v))
+        sides[id(v)] = list(admitted["named"])
+        cands = list(admitted["named"]) + [r for r in admitted["rivals"] if r]
+        icons = [n for n in temps if n.split("/", 1)[0] in cands or n.startswith("assist:")]
+        if not rows:
+            by_t.setdefault(None, []).append((v, None, cands, icons))
+            continue
+        n = min(per_entry, len(rows))
+        picks = sorted({int(round((i + 1) * len(rows) / (n + 1))) - 1 for i in range(n)})
+        for i in picks:
+            by_t.setdefault(float(rows[max(0, i)]["t_ms"]), []).append(
+                (v, rows[max(0, i)], cands, icons))
+    obs = [{"session_id": sid, "kind": "assist_observation",
+            "killfeed_assist_version": ka.KILLFEED_ASSIST_VERSION, "death_id": v["death_id"],
+            "t_ms": v.get("t_ms"), "count": None, "count_min": 0, "assisters": [],
+            "reason": ka.REFUSE_NO_ANCHOR} for v, _r, _c, _i in by_t.pop(None, [])]
+    x0, y0, x1, y1 = cache.rect_of("killfeed")
+    t_read = t_cache = 0.0
+    tc = time.perf_counter()
+    for smp in cache.samples(sorted(by_t), rois="killfeed"):
+        t_cache += time.perf_counter() - tc
+        crop = smp.frame[y0:y1, x0:x1]
+        for v, row, cands, icons in by_t[smp.t_ms]:
+            tr = time.perf_counter()
+            # The player's yellow frame can only be drawn on the player's side.
+            o = ka.assist_observation(crop, row, s, art, cands, temps, icons, v["death_id"],
+                                      killer=v.get("killer"), kart=kart, side=sides[id(v)],
+                                      framed_art=framed if adj.killer_side(v) == "ally" else None)
+            t_read += time.perf_counter() - tr
+            obs.append({"session_id": sid, **o})
+        tc = time.perf_counter()
+    kits = killfeed_kits.load()
+    rows = adj.adjudicate_session(verdicts, obs, lineup, kits)
+    for r in rows:
+        r["session_id"] = sid
+    views = sum(1 for o in obs if o.get("killer_key"))
+    cost = {"deaths": len(verdicts), "views": views, "read_s": round(t_read, 3),
+            "cache_s": round(t_cache, 3), "total_s": round(time.perf_counter() - t_start, 3),
+            "read_ms_per_view": round(1000 * t_read / max(1, views), 2),
+            "read_ms_per_entry": round(1000 * t_read / max(1, len(verdicts)), 2)}
+    from .lineup import view_stamp
+    from .roi_cache import ROI_CACHE_VERSION
+    _paths, art_prov = ka.game_portrait_paths(str(store.root))
+    _icons, icon_prov = ka.icon_art(str(store.root))
+    inputs = {"death": next((v.get("death_adjudication_version") for v in verdicts), None),
+              "killfeed_portrait": store.events_version("killfeed_portrait", sid),
+              "roi_cache": ROI_CACHE_VERSION, "lineup": (lineup or {}).get("version"),
+              "lineup_view": view_stamp(sid, store.root), "game_build": ka.ICON_BUILD}
+    anchors = Counter((o.get("anchor_check") or {}).get("status") for o in obs
+                      if o.get("killer_key"))
+    disagree = sum(bool((o.get("anchor_check") or {}).get("upstream_disagrees")) for o in obs)
+    obs.insert(0, {"session_id": sid, "kind": "summary",
+                   "killfeed_assist_version": ka.KILLFEED_ASSIST_VERSION, "inputs": inputs,
+                   "art": {k: v for k, v in art_prov.items() if k != "missing"},
+                   "icons": {k: v for k, v in icon_prov.items() if k != "missing"},
+                   "anchor_checks": dict(anchors), "upstream_anchor_disagrees": disagree,
+                   "cost": cost})
+    rows.insert(0, {"session_id": sid, "kind": "summary",
+                    "assist_adjudication_version": adj.ASSIST_ADJUDICATION_VERSION,
+                    "inputs": {"killfeed_assist": ka.KILLFEED_ASSIST_VERSION,
+                               "death": inputs["death"],
+                               "agent_identity": adj.AGENT_IDENTITY_VERSION,
+                               "killfeed_kits": kits.get("version"),
+                               "lineup": inputs["lineup"],
+                               "lineup_view": inputs["lineup_view"]},
+                    "summary": adj.summary(rows)})
+    return obs, rows, cost
+
+
+def cmd_assists(args) -> int:
+    """The killfeed assist panel [domain:killfeed/assist-panel] on every stored
+    entry: how many assisters, who (claims to the identity arbiter) and which
+    ability icon (`killfeed_assist`, `adjudication.assist`). Writes the
+    `killfeed_assist` (views) and `assist` (per death) streams; alters no
+    death. Decodes no video: it reads the crop cache."""
+    from .adjudication import assist as adj
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    obs, rows, cost = assist_session(store, sid, args.views)
+    summ = adj.summary(rows)
+    print(f"{sid}: {cost['deaths']} deaths, {cost['views']} views; {summ}")
+    print(f"  cost: {cost}")
+    p1 = store.write_events("killfeed_assist", sid, obs)
+    p2 = store.write_events("assist", sid, rows)
+    print(f"-> {p1}\n-> {p2}")
+    return 0
+
+
 def cmd_smokes(args) -> int:
     """Smoke tracks from stored `minimap_dark` rows, and the ally agent who
     cast each (`adjudication.smoke_owner`). Decodes no video."""
@@ -3899,16 +4045,30 @@ def _tray_spans(cache) -> list[list[float]]:
     return [[float(np.min(cache.t_ms)), float(np.max(cache.t_ms))]] if len(cache.t_ms) else []
 
 
-def _tray_samples(cache, step_s: float) -> tuple[list, list, list, list]:
+def _tray_samples(cache, step_s: float, segments: bool = False, countdown: bool = False,
+                  countdown_font: str | None = None) -> tuple:
     """The tray's slot counts on the crop cache's grid, span by span
     (`_tray_spans`): (times, counts, clean, real). A refused row separates two
-    spans, so no drop is read across two rounds; `real` is False on it."""
-    from . import tray
-    ts, counts, clean, real = [], [], [], []
+    spans, so no drop is read across two rounds; `real` is False on it. With
+    `segments`, a fifth list holds each sample's half scores
+    (`tray.segment_scores`, zeros on a separator). With `countdown` (which
+    needs `segments`), a sixth list holds the restock countdown reads of the
+    same samples (`tray_countdown.read_sample`, in `countdown_font`), each
+    with its `t_ms`: the reader joins this pass rather than rereading."""
+    from . import tray, tray_countdown
+    ts, counts, clean, real, segs, reads = [], [], [], [], [], []
+    blank = np.zeros((len(tray.SLOT_KEYS), 2, len(tray.SEG_CLASSES)))
     for a, b in _tray_spans(cache):
         for smp in cache.samples(_cache_grid(cache.t_ms, a, b, step_s), rois=["hud_abilities"]):
             with usage_step("slot_counts"):
                 c, ok = tray.slot_counts(smp.frame)
+            if segments:
+                with usage_step("segment_scores"):
+                    segs.append(tray.segment_scores(smp.frame))
+            if countdown:
+                with usage_step("tray_countdown"):
+                    reads += [{"t_ms": float(smp.t_ms), **r} for r in tray_countdown.read_sample(
+                        smp.frame, tray.segment_index(segs[-1]), countdown_font)]
             ts.append(float(smp.t_ms))
             counts.append(c)
             clean.append(ok)
@@ -3917,7 +4077,75 @@ def _tray_samples(cache, step_s: float) -> tuple[list, list, list, list]:
         counts.append([0, 0, 0, 0])
         clean.append(False)
         real.append(False)
-    return ts, counts, clean, real
+        if segments:
+            segs.append(blank)
+    if countdown:
+        return ts, counts, clean, real, segs, reads
+    return (ts, counts, clean, real, segs) if segments else (ts, counts, clean, real)
+
+
+def _tray_icon_witness(cache, store_root, ts, counts, clean, segs) -> tuple:
+    """(icons, ask, stamp): whether the slot icons witness a drawn tray, read
+    only on the samples where the teal fill finds no tray and every C, Q and
+    E half reads as a bar class (`tray.halves_readable`), the opportunity
+    `tray.drawn_mask` asks it for; False elsewhere. A slot reads where any
+    agent's catalogue icon scores `tray_kit.SLOT_READ_MIN` or more
+    (`tray_icons.slot_scores`), and the tray is witnessed on
+    `tray_kit.MIN_READ_SLOTS` slots. Every agent is scored: the question is
+    whether a kit is drawn, the player's or a spectated teammate's, not
+    whose, so no lineup verdict is assumed. `stamp` names the icon set."""
+    from . import tray, tray_icons
+    from .adjudication.tray_kit import MIN_READ_SLOTS, SLOT_READ_MIN
+    counts, clean = np.asarray(counts, float), np.asarray(clean, bool)
+    fill_drawn = tray.drawn_mask(tray.fills(counts, clean))
+    ask = ~fill_drawn & tray.halves_readable(tray.segment_index(segs))
+    icons = np.zeros(len(ts), bool)
+    want = {float(ts[i]): int(i) for i in np.flatnonzero(ask)}
+    stamp = f"reference/abilities.json#{tray_icons.reference_key(store_root)}"
+    if not want:
+        return icons, ask, stamp
+    refs = tray_icons.load_slot_icons(store_root)
+    agents = sorted(refs)
+    for smp in cache.samples(sorted(want), rois=["hud_abilities"]):
+        with usage_step("tray_icon_witness"):
+            sc = tray_icons.slot_scores(tray_icons.slot_patches(smp.frame), refs, agents)
+            icons[want[float(smp.t_ms)]] = (
+                int((np.nanmax(sc, axis=0) >= SLOT_READ_MIN).sum()) >= MIN_READ_SLOTS)
+    return icons, ask, stamp
+
+
+def _gold_witness(cache, ts, counts, clean, real, segs, icons, reads) -> tuple:
+    """(witness, unwitnessed): each gold-only drop (`tray.gold_candidates`)
+    judged by `tray.gold_witness` against the countdown reads of this pass and
+    the slot icons' brightness (`tray_icons.slot_brightness`), read only on
+    the candidate's gold sample and the samples up to `tray.WITNESS_AFTER_S`
+    after it. `witness` is keyed by `(t_ms, slot)` for `tray.drops`; each
+    witness stores the brightness it read (`icon_samples`, [t_ms, value] of
+    the drop's slot), so the verdict reruns from the stored row.
+    `unwitnessed` holds the refused candidates with their witness."""
+    from . import tray, tray_icons
+    cands = tray.gold_candidates(ts, np.asarray(counts, float), np.asarray(clean, bool),
+                                 np.asarray(segs), icons)
+    if not cands:
+        return {}, []
+    grid = np.asarray(ts, float)[np.asarray(real, bool)]
+    span = 1000.0 * tray.WITNESS_AFTER_S
+    times = [sorted({c["t_gold_ms"], *grid[(grid >= c["t_ms"]) & (grid <= c["t_ms"] + span)].tolist()})
+             for c in cands]
+    bright = {}
+    for smp in cache.samples(sorted(set().union(*map(set, times))), rois=["hud_abilities"]):
+        bright[float(smp.t_ms)] = [round(float(v), 1)
+                                   for v in tray_icons.slot_brightness(smp.frame)]
+    witness, unwitnessed = {}, []
+    for c, tt in zip(cands, times):
+        k = tray.SLOT_KEYS.index(c["slot"])
+        icon = {t: bright[t] for t in tt if t in bright}
+        w = {**tray.gold_witness(c, reads, icon),
+             "icon_samples": [[t, v[k]] for t, v in sorted(icon.items())]}
+        witness[(c["t_ms"], c["slot"])] = w
+        if not w["witnessed"]:
+            unwitnessed.append({**c, "witness": w})
+    return witness, unwitnessed
 
 
 def cmd_menu(args) -> int:
@@ -3984,10 +4212,13 @@ def cmd_tray(args) -> int:
     from .adjudication.ult_cast import player_agent
     from .lineup import load_lineup
     from .menu import stored_menu
+    from . import tray_countdown
     from .roi_cache import RoiCache
-    from .version import PLAYER_CAST_VERSION, TRAY_VERSION
+    from .version import (PLAYER_CAST_VERSION, TRAY_COUNTDOWN_VERSION, TRAY_SEGMENT_VERSION,
+                          TRAY_VERSION)
 
     store = Store(args.store)
+    font = tray_countdown.store_font(store.root)
     for sid in _sessions_arg(store, args):
         man = store.read_manifest(sid)
         src = man["source"]
@@ -4000,9 +4231,14 @@ def cmd_tray(args) -> int:
             print(f"{sid}: no minimap crop cache ({why}) -- skipped")
             continue
         with usage_step("tray_samples"):
-            ts, counts, clean, real = _tray_samples(cache, args.step)
+            ts, counts, clean, real, segs, reads = _tray_samples(
+                cache, args.step, segments=True, countdown=True, countdown_font=font)
+        icons, asked, icon_stamp = _tray_icon_witness(cache, store.root, ts, counts, clean, segs)
+        with usage_step("gold_witness"):
+            witness, unwitnessed = _gold_witness(cache, ts, counts, clean, real, segs, icons, reads)
         with usage_step("drops"):
-            drops = tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool))
+            drops = tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool),
+                               np.asarray(segs), icons, witness)
         date = _date_of(man)
         table = store.read_rounds(sid, date)
         if table is None:
@@ -4036,12 +4272,60 @@ def cmd_tray(args) -> int:
                                 if k not in ("tray_kit", "menu_open")},
                      "drops": len(rows), "player_casts": sum(r["player_cast"] for r in rows),
                      "refused_reasons": dict(sorted(why_not.items()))}]
+        with usage_step("segment_runs"):
+            seg_rows = tray.segment_runs(ts, np.asarray(segs), real)
+        halves = Counter()
+        for r in seg_rows:
+            for h in r["halves"]:
+                halves[h] += r["samples"]
+        out_rows[0].update({"tray_segment_version": TRAY_SEGMENT_VERSION,
+                            "segment_runs": len(seg_rows),
+                            "half_samples": dict(sorted(halves.items())),
+                            "tray_icons": icon_stamp,
+                            "icon_witness": {"asked": int(asked.sum()),
+                                             "read": int(icons.sum())},
+                            "drops_by": dict(sorted(Counter(
+                                "+".join(r["by"]) for r in drops).items())),
+                            "gold_only": {"candidates": len(witness),
+                                          "unwitnessed": len(unwitnessed),
+                                          "by": dict(sorted(Counter(
+                                              "+".join(w["by"]) for w in witness.values()
+                                              if w["witnessed"]).items()))}})
         with usage_step("write"):
             _record_inputs(store, sid, "tray_drop", out_rows[0])
             out_rows += [{**common, "kind": "drop", **r} for r in rows]
+            # Gold-only drops no second channel saw: kept, never a drop.
+            out_rows += [{**common, "kind": "unwitnessed_drop", **r} for r in unwitnessed]
+            out_rows += [{**common, "tray_segment_version": TRAY_SEGMENT_VERSION, **r}
+                         for r in seg_rows]
             out = store.write_events("tray_drop", sid, out_rows)
+            cd_common = {"session_id": sid, "tray_countdown_version": TRAY_COUNTDOWN_VERSION}
+            outcome = Counter("read" if r["numeral"] else "empty" if r["numeral"] == ""
+                              else r["reason"] for r in reads)
+            cd_rows = [{**cd_common, "kind": "coverage", "step_s": args.step,
+                        "font": tray_countdown.FONT_RELPATH if font else None,
+                        "font_reason": None if font else tray_countdown.REFUSE_NO_FONT,
+                        "font_px": tray_countdown.FONT_PX, "slot_reads": len(reads),
+                        "outcomes": dict(sorted(outcome.items())),
+                        "read_by_slot": dict(sorted(Counter(
+                            r["slot"] for r in reads if r["numeral"]).items())),
+                        "inputs": {"roi_cache": cache.record.get("version"),
+                                   "tray_segment": TRAY_SEGMENT_VERSION}}]
+            # The reads against the gold rises the half classes show: a check
+            # of one raw stream against another, decided nowhere.
+            checks = tray_countdown.score_against_returns(reads, tray_countdown.gold_rises(
+                ts, tray.segment_index(np.asarray(segs)), real, args.step))
+            watched = [c for c in checks if c["read"] is not None
+                       and c["t_ms"] - c["read"]["t_ms"] <= 3000.0]
+            cd_rows[0]["against_gold_rises"] = {
+                "gold_rises": len(checks), "watched_within_3s": len(watched),
+                "last_read_under_1s": sum(c["read"]["value_s"] < 1.0 for c in watched),
+                "zero_in_interval": sum(bool(c["agrees"]) for c in watched)}
+            cd_rows += [{**cd_common, "kind": "read", **r} for r in reads]
+            cd_rows += [{**cd_common, "kind": "gold_rise_check", **c} for c in checks]
+            cd_out = store.write_events("tray_countdown", sid, cd_rows)
         print(f"{sid}: {len(rows)} drops, {out_rows[0]['player_casts']} the player's casts; "
-              f"refused {dict(why_not)} -> {out}")
+              f"refused {dict(why_not)} -> {out}; countdown {dict(outcome)} -> {cd_out}")
     return 0
 
 
@@ -4374,7 +4658,7 @@ def cmd_tray_kit(args) -> int:
     from .adjudication.tray_kit import adjudicate, candidate_sets, read_sample
     from .lineup import load_lineup
     from .roi_cache import RoiCache
-    from .version import TRAY_KIT_VERSION, TRAY_VERSION
+    from .version import TRAY_FILL_VERSION, TRAY_KIT_VERSION, TRAY_VERSION
 
     store = Store(args.store)
     icons = tray_icons.load_slot_icons(store.root)
@@ -4423,7 +4707,7 @@ def cmd_tray_kit(args) -> int:
             drawn = tray.drawn(fills[i])
             samples.append({"t_ms": t, "cache_span": span_of[i], "drawn": drawn,
                             **read_sample(drawn, score, sets, all_agents)})
-        inputs = {"roi_cache": cache.record.get("version"), "tray_fill": TRAY_VERSION,
+        inputs = {"roi_cache": cache.record.get("version"), "tray_fill": TRAY_FILL_VERSION,
                   "lineup": (lineup or {}).get("version"),
                   "board_state": (lineup or {}).get("board_state"),
                   "catalogue": f"reference/abilities.json#{ref_key}"}
@@ -4545,7 +4829,8 @@ def cmd_ability_state(args) -> int:
     from .adjudication.ult_cast import DROP_FIELDS
     from .lineup import load_lineup
     from .roi_cache import RoiCache
-    from .version import ABILITY_STATE_VERSION, PLAYER_CAST_VERSION, TRAY_VERSION
+    from .version import (ABILITY_STATE_VERSION, PLAYER_CAST_VERSION, TRAY_FILL_VERSION,
+                          TRAY_SEGMENT_VERSION, TRAY_VERSION)
 
     store = Store(args.store)
     facts = domain.load()
@@ -4566,9 +4851,11 @@ def cmd_ability_state(args) -> int:
         if cov is None:
             print(f"{sid}: no tray_drop rows -- skipped")
             continue
-        if cov.get("tray_version") != TRAY_VERSION:
-            print(f"{sid}: tray_drop is {cov.get('tray_version')}, code is {TRAY_VERSION} "
-                  f"-- rerun `reticle tray`; skipped")
+        if (cov.get("tray_version"), cov.get("tray_segment_version")) != (
+                TRAY_VERSION, TRAY_SEGMENT_VERSION):
+            print(f"{sid}: tray_drop is {cov.get('tray_version')} / "
+                  f"{cov.get('tray_segment_version')}, code is {TRAY_VERSION} / "
+                  f"{TRAY_SEGMENT_VERSION} -- rerun `reticle tray`; skipped")
             continue
         man = store.read_manifest(sid)
         cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
@@ -4577,18 +4864,35 @@ def cmd_ability_state(args) -> int:
             continue
         drops = [r for r in stored if r.get("kind") == "drop"]
         with usage_step("tray_samples"):
-            ts, counts, clean, real = _tray_samples(cache, cov["step_s"])
+            ts, counts, clean, real, segs = _tray_samples(cache, cov["step_s"], segments=True)
             counts, clean = np.asarray(counts, float), np.asarray(clean, bool)
+            segs = np.asarray(segs, float)
+        icons, _asked, _stamp = _tray_icon_witness(cache, store.root, ts, counts, clean, segs)
         t_read = time.perf_counter() - t0
+        # The reread must give the stored half classes too.
+        seg_key = lambda r: (r["slot"], r["t_first_ms"], r["t_last_ms"], tuple(r["halves"]))
+        segments_mismatch = len(set(map(seg_key, tray.segment_runs(ts, segs, real)))
+                                ^ {seg_key(r) for r in stored if r.get("kind") == "segments"})
         # The reread must give the stored drops, or the fills are not theirs.
         key = lambda r: tuple(r[k] for k in ("t_ms", "slot", "from", "to", "forced",
                                               "cooccur", "across_gap"))
+        # The gold-only drops' witnesses are read from frames by `reticle
+        # tray`; the reread takes them as stored.
+        witness = {(r["t_ms"], r["slot"]): r["witness"] for r in stored
+                   if r.get("kind") in ("drop", "unwitnessed_drop") and r.get("witness")}
         with usage_step("reread_check"):
-            reread_mismatch = len(set(map(key, tray.drops(ts, counts, clean)))
+            reread_mismatch = len(set(map(key, tray.drops(ts, counts, clean, segs, icons,
+                                                          witness)))
                                   ^ set(map(key, drops)))
         with usage_step("fills"):
             fills = tray.fills(counts, clean)
         keep = np.asarray(real, bool)
+        halves = tray.segment_classes(segs[keep])
+        drawn = tray.drawn_mask(fills, tray.segment_index(segs), icons)[keep]
+        # The player's own kills, which a live return must not follow.
+        kills_ms = sorted(float(r.get("t_ms", r.get("t_first_ms")))
+                          for r in store.read_events_kind("death", sid, "death_verdict")
+                          if r.get("kf_player_kill") and not r.get("is_revive"))
         date = _date_of(man)
         rounds = store.read_rounds(sid, date)
         round_version = (rounds.schema.metadata or {}).get(b"round_version", b"").decode() or None
@@ -4622,7 +4926,9 @@ def cmd_ability_state(args) -> int:
         kit = player_kit(agent["agent"], store.root) if catalogue is not None else {}
         inputs = {**stamps, "tray_drop": cov["tray_version"], "catalogue": cat_stamp,
                   "tray_drop_player_cast": cov.get("player_cast_version"),
-                  "tray_fill": TRAY_VERSION, "roi_cache": cache.record.get("version"),
+                  "tray_fill": TRAY_FILL_VERSION, "tray_segment": TRAY_SEGMENT_VERSION,
+                  "tray_icons": _stamp,
+                  "roi_cache": cache.record.get("version"),
                   "round": round_version, "lineup": (lineup or {}).get("version"),
                   "agent_identity": agent["adjudication_version"],
                   "ability_audio": audio["coverage"]["ability_audio_version"],
@@ -4630,6 +4936,7 @@ def cmd_ability_state(args) -> int:
                   "audio_features": audio["coverage"]["inputs"].get("audio_features"),
                   "audio_labels": audio["coverage"]["inputs"].get("audio_labels")}
         checks = {"step_s": cov["step_s"], "drops_reread_mismatch": reread_mismatch,
+                  "segments_reread_mismatch": segments_mismatch,
                   "gate_stored_mismatch": sum(
                       (a["reason"], a["player_cast"]) != (b.get("reason"), b.get("player_cast"))
                       for a, b in zip(gate_rows, drops)),
@@ -4638,7 +4945,9 @@ def cmd_ability_state(args) -> int:
             rows = adjudicate(
                 sid, drops=drops, gate_rows=gate_rows, kits=kits, phase_of=gate["phase_of"],
                 samples={"t_ms": [t for t, r in zip(ts, real) if r], "fills": fills[keep],
-                         "drawn": [tray.drawn(f) for f in fills[keep]], "clean": clean[keep]},
+                         "drawn": drawn.tolist(), "clean": clean[keep],
+                         "halves": halves},
+                kills_ms=kills_ms,
                 agent=agent, params=slot_parameters(agent["agent"], kit, facts, catalogue=catalogue),
                 inputs=inputs, checks=checks, spectated=spectated, audio=audio)
         rows[0]["checks"]["wall_s"] = round(time.perf_counter() - t0, 1)
@@ -5838,6 +6147,13 @@ def build_parser() -> argparse.ArgumentParser:
                                           "per-round kill index (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_killstreak)
+
+    s = sub.add_parser("assists", help="the killfeed assist panel on every stored entry: "
+                                       "count, assisters, ability icons (crop cache, no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--views", type=int, default=ASSIST_VIEWS_PER_ENTRY,
+                   help="views read per entry")
+    s.set_defaults(func=cmd_assists)
 
     s = sub.add_parser("reliability", help="identity channel reliability per agent (no video)")
     s.add_argument("--top", type=int, default=12)

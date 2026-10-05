@@ -84,6 +84,51 @@ empty bar none (`charges_of`). An unreadable slot keeps the range
 A regain of charges, within a round or between rounds, is recorded where the
 tray shows it and never inferred.
 
+**The bar's halves.** The tray reader also classes each half of a bar as
+teal, gold, empty or unreadable (`tray.segment_classes`). The client draws a
+charge that came back during the round as a gold segment
+[domain:hud/ability-tray-restocked-charge-gold], which the teal fill cannot
+see, so a C, Q or E level is the teal and gold halves over two wherever the
+teal halves agree with the fill's level; where they disagree (a screen streak
+lifting the teal count), the level is unread (`SEGMENTS_DISAGREE`) and the
+charges are held. A rise in a live phase that adds a gold half, with no
+player kill within `RETURN_KILL_MS` before it, is a `live_return`; its claim
+carries both samples' halves and the kill check as evidence. What gold means
+beyond that is the player's to say. Over the eight Sova sessions every Recon
+Bolt spend watched for 51.5 s returned within 49 to 51.5 s
+([metric:tray_segments/recon_bolt@all-sessions#t1_returned_49_51_5=7] of
+[metric:tray_segments/recon_bolt@all-sessions#t1_watched_51_5=7]), the
+returns' median at [metric:tray_segments/recon_bolt@all-sessions#median_s=50.0] s;
+on the six Skye sessions Guiding Light's median was
+[metric:tray_segments/guiding_light@all-sessions#median_s=49.73] s. On samples
+with no gold half the level moved on
+[metric:tray_segments/regression@all-sessions#nogold_level_changed=44] of
+[metric:tray_segments/regression@all-sessions#nogold_readable_slot_samples=68130]
+readable slot-samples. A live return needs a restock fact for the slot's
+ability (`restock_facts`): gold was also seen on kits with none, and a gold
+rise there is a `recharge` with its own surprise. The tray reader stores a
+drop where a teal or gold half goes empty (`tray.drops`), a gold-only one
+only where the countdown or the slot icon witnessed it or the spent half
+read gold on `tray.GOLD_PERSIST_MIN` readable samples in a row before it
+(`tray.gold_witness`), so spending a returned charge is a drop the gate
+judges; a fall that takes a gold half with no drop stored (an unwitnessed
+gold drop, a half unreadable on the later sample, or a fall across a gap)
+stays `fall_without_a_drop` with its own surprise reason.
+
+**The tray drawn.** A sample is drawn where some slot's teal fill shows
+the tray, or every C, Q and E half reads as a bar class while the slot
+icons witness the tray (`tray.drawn_mask`), which the command hands in as
+`samples["drawn"]`. An all-spent tray (3694746e4e54 778.5-828.5 s) is drawn,
+so a gold return onto it is read. On the 21 Riot-paired sessions, against
+teal-only drops and the fill's drawn test, the gold falls with no drop went
+from [metric:ability_state/gold@riot-21#gold_fell_without_a_drop_before=12] to
+[metric:ability_state/gold@riot-21#gold_fell_without_a_drop_after=0]; the live returns on
+Recon Bolt and Guiding Light from
+[metric:ability_state/gold@riot-21#live_return_restock_abilities_before=12] to
+[metric:ability_state/gold@riot-21#live_return_after=15]; and
+[metric:ability_state/gold@riot-21#gold_rise_without_a_restock_fact_after=4] gold rises on
+Phoenix's and Clove's kits became surprises.
+
 **The reading against the count.** A half bar is the one observation of a
 slot's segments: a count that draws a segment at half agrees with it, a
 one-charge count disagrees. The coverage row counts both per slot
@@ -168,6 +213,21 @@ X_LIT_MIN = 0.5
 #: ([metric:ability_state/step1@all-sessions-seven-facts#release_from_at_equip_min=120] of
 #: [metric:ability_state/step1@all-sessions-seven-facts#release_drops=121]).
 EQUIP_MIN = 1.2
+#: Why a C, Q or E level is unread where the bar's half classes
+#: (`tray.segment_classes`) disagree with the fill: the teal halves, as
+#: halves of the bar, are not the fill's level. A cyan screen streak over the
+#: bar lifts the teal count without drawing a teal half (`96aa1ae9b96f`
+#: 672.0 s, `e37fdeca944f` 396.6 s); the charges are held from the slot's
+#: last reading, as an equip holds them.
+SEGMENTS_DISAGREE = "segments_disagree_with_fill"
+#: Why a level is unread where a half is unreadable beside a gold half, or
+#: while the slot held gold: the hidden half's gold is not known.
+GOLD_HALF_UNREAD = "half_unreadable_beside_gold"
+#: A player kill this long before a rise's earlier sample, or within its
+#: interval, keeps the rise from being a live return (ms): a charge returned
+#: on kills [domain:abilities/recharge-kinds] is then not ruled out. The
+#: restock measurement's window (`prototypes/restock_measure.py`, KILL_S).
+RETURN_KILL_MS = 3000.0
 #: The most segments the reader interprets on a C, Q or E bar: a two-charge
 #: slot draws two [domain:hud/ability-tray-charge-segments]. It bounds the
 #: drawing the reader can read, not a slot's charges: Brimstone's Sky Smoke
@@ -412,15 +472,34 @@ def duration_facts(facts: dict) -> dict:
     return out
 
 
+def restock_facts(facts: dict) -> dict:
+    """{(agent key, ability key): fact key} from every fact in
+    `domain/abilities.toml` whose id ends in `-restock` or
+    `-restock-observed`: the ability's spent charge comes back by itself
+    within the round [domain:abilities/sova-recon-bolt-restock-observed].
+    The subject is `<agent>:<ability>`. A gold rise is a `live_return` only
+    on an ability one of these names (`_fill_change`)."""
+    out = {}
+    for key, f in sorted(facts.items()):
+        if (f.domain != "abilities" or ":" not in f.subject
+                or not (f.id.endswith("-restock") or f.id.endswith("-restock-observed"))):
+            continue
+        who, what = f.subject.split(":", 1)
+        out.setdefault((_agent_key(who), _agent_key(what)), key)
+    return out
+
+
 def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
                     catalogue: dict | None = None, catalogue_path: str = CATALOGUE_PATH) -> dict:
     """Per slot: the ability, `max_charges` with its source (`charge_priors`),
     the fact or catalogue entry it came from or the reason it is unread, any
-    conflict between a fact and the catalogue, and a duration with its fact
-    where one exists. A catalogue count applies only where the catalogue
-    names the kit's ability in that slot."""
+    conflict between a fact and the catalogue, a duration with its fact
+    where one exists, and the restock fact (`restock_facts`) or the reason
+    there is none. A catalogue count applies only where the catalogue names
+    the kit's ability in that slot."""
     priors = charge_priors(facts, catalogue=catalogue, path=catalogue_path)
     durations = duration_facts(facts)
+    restocks = restock_facts(facts)
     a = _agent_key(agent)
     out = {}
     for slot in SLOTS:
@@ -430,9 +509,10 @@ def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
                "max_charges_known": None, "max_charges_catalogue": None,
                "max_charges_prior_reason": None, "max_charges_conflict": None,
                "duration_ms": None, "duration_about": None, "duration_fact": None,
-               "duration_reason": None}
+               "duration_reason": None, "restock_fact": None, "restock_reason": None}
         if agent is None:
             row["max_charges_reason"] = row["duration_reason"] = "no_player_agent"
+            row["restock_reason"] = "no_player_agent"
             out[slot] = row
             continue
         got = priors.get((a, slot))
@@ -472,6 +552,9 @@ def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
             row["duration_about"] = d["about"]
         else:
             row["duration_reason"] = f"no-fact:{a}:{slot}:duration"
+        row["restock_fact"] = restocks.get((a, _agent_key(ability))) if ability else None
+        if row["restock_fact"] is None:
+            row["restock_reason"] = f"no-fact:{a}:{slot}:restock"
         out[slot] = row
     return out
 
@@ -556,22 +639,34 @@ def _context(ts, drawn, clean, kits, phase_of, spectated=()) -> list[dict]:
     return out
 
 
-def _reading(slot: str, f: float) -> dict:
-    """What one readable sample says of one slot, before charges are held."""
+def _reading(slot: str, f: float, halves=None) -> dict:
+    """What one readable sample says of one slot, before charges are held.
+    `halves` are the bar's two half classes (`tray.segment_classes`), or None
+    where the caller read none: the level is then the fill's alone."""
     f = float(f)
     if slot == ULT_SLOT:
         lit = f >= X_LIT_MIN
         return {"level": 1.0 if lit else 0.0, "equipped": lit and f >= EQUIP_MIN,
-                "castable": lit}
+                "castable": lit, "gold": None, "why": None}
     if f >= EQUIP_MIN:
-        return {"level": None, "equipped": True, "castable": None}
-    return {"level": 1.0 if f >= LEVEL_FULL_MIN else 0.5 if f > HALF_MIN else 0.0,
-            "equipped": False, "castable": None}
+        return {"level": None, "equipped": True, "castable": None, "gold": None,
+                "why": "equipped:teal_over_the_bar"}
+    level = 1.0 if f >= LEVEL_FULL_MIN else 0.5 if f > HALF_MIN else 0.0
+    if halves is None:
+        return {"level": level, "equipped": False, "castable": None, "gold": None, "why": None}
+    teal, gold = list(halves).count("teal"), list(halves).count("gold")
+    if teal / 2 != level:
+        # The fill's teal is not the bar's: a streak or flash over the slot.
+        return {"level": None, "equipped": False, "castable": None, "gold": None,
+                "why": SEGMENTS_DISAGREE}
+    return {"level": (teal + gold) / 2, "equipped": False, "castable": None, "gold": gold,
+            "why": None}
 
 
-def _state(slot, par, ctx, f, held, active_until) -> dict:
+def _state(slot, par, ctx, f, held, active_until, halves=None) -> dict:
     """The state of one slot at one sample. `held` is the slot's last
-    unequipped reading in the round, which an equip keeps."""
+    unequipped reading in the round, which an equip keeps, and so does a
+    reading whose halves disagree with the fill (`SEGMENTS_DISAGREE`)."""
     base = {"owner_alive": ctx["owner_alive"], "owner_life": ctx["owner_life"],
             "round": ctx["round"], "phase": ctx["phase"]}
     cap = par["max_charges"] or MAX_SEGMENTS_READ
@@ -584,30 +679,38 @@ def _state(slot, par, ctx, f, held, active_until) -> dict:
     if ctx["unreadable"]:
         return {**base, **pips, "readable": [], "unreadable_reason": ctx["unreadable"],
                 "level": None, "level_reason": ctx["unreadable"], "held_level": None,
-                "fill": None, "charges": None,
+                "fill": None, "halves": None, "gold": None, "charges": None,
                 "charges_reason": par["max_charges_reason"] if ult else ctx["unreadable"],
                 "charges_range": None if ult else [0, cap],
                 "mode": "unreadable", "castable": None,
                 "castable_reason": ctx["unreadable"] if ult else "not_an_ult_slot",
                 "equipped": None, "until_ms": None, "until_reason": ctx["unreadable"]}
-    r = _reading(slot, f)
-    held_level = None
+    r = _reading(slot, f, halves)
+    if (not ult and r["level"] is not None and halves is not None
+            and tray.SEG_UNREADABLE in halves and (r["gold"] or (held or {}).get("gold"))):
+        # An unreadable half beside gold, or where the slot held gold, may hide
+        # a gold charge: the gold count is unread, so the level is held.
+        r = {**r, "level": None, "gold": None, "why": GOLD_HALF_UNREAD}
+    held_level, gold = None, r["gold"]
     if ult:
         charges, why, rng = None, par["max_charges_reason"], None
-    elif r["equipped"]:
+    elif r["level"] is None:
         if held is None:
-            charges, why, rng = None, "equipped_before_a_reading_this_round", [0, cap]
+            charges, why, rng = None, (
+                "equipped_before_a_reading_this_round" if r["equipped"]
+                else f"{r['why']}_before_a_reading_this_round"), [0, cap]
         else:
             charges, why, rng = held["charges"], held["charges_reason"], list(held["charges_range"])
-            held_level = held["level"]
+            held_level, gold = held["level"], held["gold"]
     else:
         charges, why, rng = charges_of(r["level"], par["max_charges"], par["max_charges_reason"])
     active = active_until is not None and ctx["t"] <= active_until
     mode = "equipped" if r["equipped"] else "active" if active else "idle"
     return {**base, **pips, "readable": ["tray"], "unreadable_reason": None,
-            "level": r["level"],
-            "level_reason": "equipped:teal_over_the_bar" if r["level"] is None else None,
-            "held_level": held_level, "fill": round(float(f), 3), "charges": charges,
+            "level": r["level"], "level_reason": r["why"],
+            "held_level": held_level, "fill": round(float(f), 3),
+            "halves": list(halves) if halves is not None and not ult else None,
+            "gold": gold, "charges": charges,
             "charges_reason": why, "charges_range": rng, "mode": mode,
             "castable": r["castable"], "castable_reason": None if ult else "not_an_ult_slot",
             "equipped": r["equipped"],
@@ -616,12 +719,13 @@ def _state(slot, par, ctx, f, held, active_until) -> dict:
 
 
 #: The fields of a state that make it the same state; a record is a run of them.
-_KEY = ("round", "phase", "readable", "unreadable_reason", "level", "held_level", "charges",
-        "charges_reason", "charges_range", "mode", "castable", "equipped", "owner_alive",
-        "owner_life", "until_ms")
+_KEY = ("round", "phase", "readable", "unreadable_reason", "level", "level_reason",
+        "held_level", "gold", "charges", "charges_reason", "charges_range", "mode", "castable",
+        "equipped", "owner_alive", "owner_life", "until_ms")
 #: The state fields a verdict's before and after carry.
-_SNAP = ("level", "held_level", "fill", "charges", "charges_range", "charges_source", "mode",
-         "castable", "equipped", "owner_alive", "readable", "unreadable_reason")
+_SNAP = ("level", "level_reason", "held_level", "fill", "halves", "gold", "charges",
+         "charges_range", "charges_source", "mode", "castable", "equipped", "owner_alive",
+         "readable", "unreadable_reason")
 
 
 def _snap(states: list[dict], i: int | None, ts) -> dict | None:
@@ -667,9 +771,20 @@ def _drop_surprise(slot: str, transition: str, sb, sa, fell_at_t: bool) -> str |
     return None
 
 
-def _fill_change(slot: str, sp: dict, sj: dict, phase: str):
+def _fill_change(slot: str, sp: dict, sj: dict, phase: str, kill: bool | None = None,
+                 restock: str | None = None):
     """(transition, surprise or None) for a change between two consecutive
-    readable samples of one round that no drop covers, or None."""
+    readable samples of one round that no drop covers, or None. A rise in a
+    live phase that adds a gold half with no player kill near it (`kill`
+    False; None where the kills went unread) is a `live_return`
+    [domain:hud/ability-tray-restocked-charge-gold] on an ability with a
+    restock fact (`restock`, `restock_facts`); on any other ability it stays
+    a `recharge` with the surprise `gold_rise_without_a_restock_fact`, since
+    gold was seen on other kits' slots and what it means there is the
+    player's to say. Any other rise outside the buy phase stays a
+    `recharge`. A fall that takes a gold half where the tray reader stored
+    no drop (a half it could not read, or a fall across a gap) stays a
+    surprise."""
     if not sp["equipped"] and sj["equipped"]:
         dry = slot != ULT_SLOT and sp["charges_range"][1] < 1
         return "equip", ("equip_without_a_charge" if dry else None)
@@ -686,8 +801,17 @@ def _fill_change(slot: str, sp: dict, sj: dict, phase: str):
     lp, lj = _level(sp), _level(sj)
     if lp is None or lj is None or lp == lj:
         return None
+    gp, gj = sp.get("gold") or 0, sj.get("gold") or 0
     if lj > lp:
-        return ("buy" if phase == "buy_phase" else "recharge"), None
+        if phase == "buy_phase":
+            return "buy", None
+        if gj > gp and phase in CAST_PHASES and kill is False:
+            if restock is None:
+                return "recharge", "gold_rise_without_a_restock_fact"
+            return "live_return", None
+        return "recharge", None
+    if gj < gp:
+        return "fall_without_a_drop", "gold_charge_fell_without_a_drop"
     return "fall_without_a_drop", "level_fell_without_a_drop"
 
 
@@ -714,13 +838,18 @@ def _verdict(common, slot, t, transition, *, reason=None, stood_for=None, claims
 def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
                kits: list[dict], phase_of, samples: dict, agent: dict, params: dict,
                inputs: dict, checks: dict | None = None, spectated=(),
-               audio: dict | None = None) -> list[dict]:
+               audio: dict | None = None, kills_ms=None) -> list[dict]:
     """The session's coverage, claim, verdict and state rows.
 
     `drops` are the stored `tray_drop` drop rows and `gate_rows` the gate's
     verdicts on them (`player_tray_casts`), in the same order; `kits` are
     `ability_timeline.kit_windows`; `samples` holds the tray's real samples
-    (no separator rows): `t_ms`, `fills` (n x 4), `drawn` and `clean`;
+    (no separator rows): `t_ms`, `fills` (n x 4), `drawn` and `clean`, and
+    optionally `halves`, each sample's half classes (n x 4 x 2,
+    `tray.segment_classes`), without which a level is the fill's alone;
+    `kills_ms` are the player's kills (`ability_timeline.stored_gate_inputs`),
+    none of which may fall in a rise's interval or `RETURN_KILL_MS` before it
+    for the rise to be a live return (None: unread, and no rise is one);
     `agent` is `player_agent_verdict`; `params` is `slot_parameters`;
     `inputs` are the input stamps; `checks` are the reproduction checks the
     caller measured; `spectated` are the stored spans of another agent's kit
@@ -731,6 +860,8 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
     inputs."""
     ts = [float(t) for t in samples["t_ms"]]
     fills = np.asarray(samples["fills"], float).reshape(len(ts), len(SLOTS))
+    halves = samples.get("halves")
+    kills = None if kills_ms is None else np.sort(np.asarray(kills_ms, float))
     ctx = _context(ts, samples["drawn"], samples["clean"], kits, phase_of, spectated)
     at = {t: i for i, t in enumerate(ts)}
     common = {"session_id": session_id, "ability_state_version": ABILITY_STATE_VERSION}
@@ -763,7 +894,8 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
                 held, active_until = None, None
             if c["t"] in casts_at and par["duration_ms"]:
                 active_until = c["t"] + par["duration_ms"]
-            s = _state(slot, par, c, fills[i, k], held, active_until)
+            s = _state(slot, par, c, fills[i, k], held, active_until,
+                       None if halves is None else halves[i][k])
             if s["readable"] and not s["equipped"] and slot != ULT_SLOT:
                 held = s
             states.append(s)
@@ -842,15 +974,30 @@ def adjudicate(session_id: str, *, drops: list[dict], gate_rows: list[dict],
                           else ("fall_between_rounds", None))
                 stood = "a regain or loss between rounds, observed, per ability"
             else:
-                change, stood = _fill_change(slot, sp, sj, ctx[j]["phase"]), None
+                near = (None if kills is None else
+                        kills[(kills >= ts[p] - RETURN_KILL_MS) & (kills <= t)])
+                kill = None if near is None or not len(near) else float(near[-1])
+                change = _fill_change(slot, sp, sj, ctx[j]["phase"],
+                                      kill=None if kills is None else kill is not None,
+                                      restock=par.get("restock_fact"))
+                stood = None
             if change is None:
                 continue
             transition, surprise = change
-            cid = claim(slot, t, "tray_fill", transition, ts[p],
-                        {"stream": "hud_abilities crops", "t_before_ms": ts[p],
-                         "fill_before": sp["fill"], "fill_after": sj["fill"],
-                         "round_before": sp["round"], "round_after": sj["round"]},
-                        inputs.get("tray_fill"))
+            ev = {"stream": "hud_abilities crops", "t_before_ms": ts[p],
+                  "fill_before": sp["fill"], "fill_after": sj["fill"],
+                  "round_before": sp["round"], "round_after": sj["round"]}
+            gold_seen = transition in ("live_return", "recharge") or (
+                surprise == "gold_charge_fell_without_a_drop")
+            if gold_seen and ctx[p]["round"] == ctx[j]["round"]:
+                ev.update({"halves_before": sp["halves"], "halves_after": sj["halves"],
+                           "gold_before": sp["gold"], "gold_after": sj["gold"],
+                           "player_kill_ms": kill,
+                           "kills": "unread" if kills is None else "read",
+                           "restock_fact": par.get("restock_fact")})
+            cid = claim(slot, t, "tray_fill", transition, ts[p], ev,
+                        inputs.get("tray_segment") if "halves_after" in ev
+                        else inputs.get("tray_fill"))
             verdicts.append(_verdict(common, slot, t, transition, stood_for=stood,
                                      claims=[cid], agreed=["tray_fill"],
                                      before=_snap(states, p, ts), after=_snap(states, j, ts),
@@ -934,9 +1081,13 @@ def _records(slot, par, states, ts, agent, common) -> list[dict]:
                     "t_first_ms": ts[i], "t_last_ms": ts[j], "samples": j - i + 1,
                     "readable": s["readable"], "unreadable_reason": s["unreadable_reason"],
                     "level": s["level"], "level_reason": s["level_reason"],
-                    "held_level": s["held_level"],
+                    "held_level": s["held_level"], "gold": s["gold"],
                     "fills": ({"min": min(got), "median": round(float(np.median(got)), 3),
                                "max": max(got)} if got else None),
+                    # The half classes the run's samples read, and how many each.
+                    "halves": (dict(sorted(Counter(
+                        "/".join(states[m]["halves"]) for m in range(i, j + 1)
+                        if states[m]["halves"] is not None).items())) or None),
                     "charges": s["charges"], "charges_reason": s["charges_reason"],
                     "charges_range": s["charges_range"], "charges_source": s["charges_source"],
                     "max_charges": par["max_charges"],
@@ -991,6 +1142,14 @@ def _coverage(rows, ctx, params, agent, inputs, checks, common, n_drops) -> dict
                    and c["unreadable"] == "kit_frozen:after_player_death" for c in ctx),
                "samples_after_kit_change_only": sum(
                    c["owner_life"] == "dead:kit_witness" for c in ctx)},
+           # The bar's half classes on readable C, Q and E samples: those
+           # with a gold half, and those whose halves disagree with the fill.
+           "gold_readable_slot_samples": sum(r["samples"] for r in cqe_readable
+                                             if r["level"] is not None and r["gold"]),
+           "segments_disagree_slot_samples": sum(r["samples"] for r in cqe_readable
+                                                 if r["level_reason"] == SEGMENTS_DISAGREE),
+           "gold_half_unread_slot_samples": sum(r["samples"] for r in cqe_readable
+                                                if r["level_reason"] == GOLD_HALF_UNREAD),
            "charges_unread_readable_slot_samples": dict(sorted(Counter(
                ("no-fact" if (r["charges_reason"] or "").startswith("no-fact")
                 else r["charges_reason"]) for r in cqe_readable for _ in range(r["samples"])
@@ -1062,7 +1221,7 @@ def invariant_violations(rows: list[dict]) -> dict:
     casts = [v for v in verdicts if v["transition"] == "cast"]
     cqe = [v for v in casts if v["slot"] != ULT_SLOT and v["before"]]
     x = [v for v in casts if v["slot"] == ULT_SLOT]
-    changes = ("cast", "equip", "unequip", "recharge", "buy", "ult_ready",
+    changes = ("cast", "equip", "unequip", "recharge", "live_return", "buy", "ult_ready",
                "fall_without_a_drop", "unlit_without_a_drop")
     return {
         # 1. charges stay within [0, max_charges]; a cast needs a charge.

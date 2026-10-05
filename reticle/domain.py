@@ -84,7 +84,7 @@ KNOWN = frozenset({"player", "measured", "observed", "inferred", "cited"})
 
 REQUIRED = ("claim", "kind", "known", "since")
 OPTIONAL = ("use", "exceptions", "source", "see", "phrases", "supersedes",
-            "depends_on", "subject", "given", "states", "values")
+            "superseded_by", "depends_on", "subject", "given", "states", "values")
 
 #: The kinds a fact may carry `values` on: numbers a reader consumes, such as
 #: an ability drawing's base radius. A rule's numbers stay in its claim.
@@ -137,6 +137,11 @@ class Fact:
     depends_on: tuple[str, ...] = ()
     phrases: tuple[str, ...] = ()
     supersedes: str = ""
+    #: The fact whose claim now stands in place of this one's, in whole or in
+    #: part; that fact's `supersedes` names this one and says which part. The
+    #: superseded fact keeps its claim and source unedited, as the record of
+    #: what was believed and who said it.
+    superseded_by: str = ""
     subject: str = ""
     given: str = ""
     #: A lifecycle fact's states, in order: the vocabulary `entity_contract`
@@ -221,6 +226,7 @@ def load(domain_dir: Path | None = None) -> dict[str, Fact]:
                 see=_str_tuple(body.get("see")),
                 phrases=_str_tuple(body.get("phrases")),
                 supersedes=str(body.get("supersedes", "")).strip(),
+                superseded_by=str(body.get("superseded_by", "")).strip(),
                 subject=str(body.get("subject", "")).strip(),
                 given=str(body.get("given", "")).strip(),
                 states=_str_tuple(body.get("states")),
@@ -290,7 +296,8 @@ def citations(root: Path | None = None) -> dict[str, list[str]]:
 
 
 def restatements(facts: dict[str, Fact],
-                 root: Path | None = None) -> dict[str, list[str]]:
+                 root: Path | None = None,
+                 cited: dict[str, list[str]] | None = None) -> dict[str, list[str]]:
     """Files that carry a fact's own phrasing without citing it.
 
     This is the migration signal, and the phrase list is authored by hand for
@@ -299,7 +306,8 @@ def restatements(facts: dict[str, Fact],
     behind a fuzzy similarity score nobody set.
     """
     base = Path(root) if root else ROOT
-    cited = citations(base)
+    # `validate` passes the citations it already found under the same root.
+    cited = citations(base) if cited is None else cited
     out: dict[str, list[str]] = {}
     # A phrase belongs to a fact, but the source files do not change while
     # this check runs. Read each candidate once instead of once per fact.
@@ -363,6 +371,16 @@ def validate(facts: dict[str, Fact],
             if reference not in facts:
                 out.append(("ERROR", f"{key} depends on '{reference}', which is "
                                      f"not a registered fact"))
+        if fact.superseded_by:
+            heir = facts.get(fact.superseded_by)
+            if heir is None:
+                out.append(("ERROR", f"{key} is superseded by "
+                                     f"'{fact.superseded_by}', which is not a "
+                                     f"registered fact"))
+            elif f"[domain:{key}]" not in heir.supersedes:
+                out.append(("ERROR", f"{key} is superseded by {heir.key}, whose "
+                                     f"supersedes does not cite [domain:{key}] -- "
+                                     f"the heir must say what it replaces"))
         if fact.known in GIVEN and fact.depends_on:
             out.append(("ERROR", f"{key} is {fact.known}, which is GIVEN, and "
                                  f"declares depends_on -- a fact someone told us "
@@ -405,7 +423,7 @@ def validate(facts: dict[str, Fact],
         out.append(("WARN", f"{len(unused)} fact(s) nothing cites -- the "
                             f"lost-in-the-shuffle failure: {', '.join(unused)}"))
 
-    for key, paths in sorted(restatements(facts, base).items()):
+    for key, paths in sorted(restatements(facts, base, cited).items()):
         out.append(("WARN", f"{key} is restated without citation in "
                             f"{', '.join(paths)}; cite {facts[key].cite} "
                             f"instead of repeating it"))
@@ -448,6 +466,7 @@ def render(facts: dict[str, Fact], domain: str | None = None,
                              ("EXCEPTIONS", fact.exceptions),
                              ("SOURCE", fact.source),
                              ("SUPERSEDES", fact.supersedes),
+                             ("SUPERSEDED BY", fact.superseded_by),
                              ("RESTS ON", ", ".join(fact.depends_on)),
                              ("SEE", ", ".join(fact.see)),
                              ("CITED BY", ", ".join(users) or "NOTHING")):

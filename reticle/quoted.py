@@ -184,16 +184,27 @@ def latest_pass(rows: list[dict]) -> dict[tuple[str, str], dict]:
     return out
 
 
-def _pinned(cite: dict, rows: list[dict]) -> list[dict]:
-    """The `pass` rows of the citation's series and session that its `~<run>` names."""
-    pin = cite["run"]
-    out = []
+def _passes(rows: list[dict]) -> dict[tuple[str, str], list[dict]]:
+    """The `pass` rows by (series, session), in ledger order."""
+    out: dict[tuple[str, str], list[dict]] = {}
     for row in rows:
         if row.get("status") != metrics.PASS:
             continue
         tool, part, session = metrics.key(row)
-        if (f"{tool}/{part}" if part else tool) != cite["series"] or session != cite["session"]:
-            continue
+        out.setdefault((f"{tool}/{part}" if part else tool, session), []).append(row)
+    return out
+
+
+def _pinned(cite: dict, rows: list[dict],
+            passes: dict[tuple[str, str], list[dict]] | None = None) -> list[dict]:
+    """The `pass` rows of the citation's series and session that its `~<run>` names.
+
+    `passes` is `_passes(rows)`, which a caller resolving many citations
+    builds once instead of scanning the whole ledger per citation."""
+    pin = cite["run"]
+    passes = _passes(rows) if passes is None else passes
+    out = []
+    for row in passes.get((cite["series"], cite["session"]), ()):
         ids = [str(row.get(k) or "") for k in ("usage_run_id", "run_id")]
         if row.get("at") == pin or any(i and i.startswith(pin) for i in ids):
             out.append(row)
@@ -218,6 +229,7 @@ def verify(root: Path | None = None,
     base = Path(root) if root else ROOT
     rows = metrics.load() if rows is None else rows
     index = latest_pass(rows)
+    passes = _passes(rows)
     found = citations(base)
     out: list[tuple[str, str]] = []
     cited: set[str] = set()
@@ -225,7 +237,7 @@ def verify(root: Path | None = None,
     for cite in found:
         where = f"{cite['file']}:{cite['line']}"
         if cite["run"]:
-            pinned = _pinned(cite, rows)
+            pinned = _pinned(cite, rows, passes)
             if len(pinned) != 1:
                 out.append(("ERROR", f"{where} pins metric `{cite['series']}` "
                                      f"@{cite['session'] or '-'} to run "
