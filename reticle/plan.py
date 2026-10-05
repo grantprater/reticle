@@ -204,8 +204,11 @@ def derived_streams() -> list[dict]:
     `adjudication.identity`'s verdicts, stamped `producer_version`, and are
     written by `parent`'s command. `how` is what the command reads.
     """
+    from .adjudication.death import DEATH_ADJUDICATION_VERSION
     from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .adjudication.killstreak import KILLSTREAK_WITNESS_VERSION
     from .enemy_tracks import ENEMY_TRACK_VERSION
+    from .killfeed_numeral import KILLFEED_NUMERAL_VERSION
     from .lighting import LIGHTING_VERSION
     from .minimap_objects import minimap_object_version
     from .version import ALLY_PORTRAIT_FEATURES_VERSION
@@ -294,6 +297,15 @@ def derived_streams() -> list[dict]:
                     "round_lifetime_version": ROUND_LIFETIME_VERSION,
                     "agent_identity_version": AGENT_IDENTITY_VERSION},
          "upstream": ("minimap_object", "death", "rounds")},
+        # The killstreak numeral against the death stream's kill index: a
+        # check over two stored streams, rerun from storage. Its summary row
+        # records both inputs' stamps.
+        {"stream": "killstreak_witness", "key": "killstreak_witness_version",
+         "current": KILLSTREAK_WITNESS_VERSION, "command": "reticle killstreak {sid}",
+         "how": "storage",
+         "fields": {"inputs.killfeed_numeral": KILLFEED_NUMERAL_VERSION,
+                    "inputs.death": DEATH_ADJUDICATION_VERSION},
+         "upstream": ("death",)},
     ]
     # The ability pass's streams reread the minimap crop cache, each under its
     # own stamp; a stream that reads the gate's samples records the gate's
