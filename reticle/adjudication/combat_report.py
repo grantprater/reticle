@@ -345,6 +345,126 @@ def round_verdicts(stream: list[dict], rounds: list[dict]) -> dict:
         for r in got}}
 
 
+#: The per-round fields `round_frames` checks its kept frames reproduce:
+#: what `round_verdicts` hands a consumer.
+VERDICT_FIELDS = ("kills", "deaths", "assists", "kills_verdict", "deaths_verdict",
+                  "verdict_source")
+#: How stable a candidate frame is, best first: both neighbouring samples
+#: read the same, one does, or neither (`round_frames`).
+STABILITY = ("interior", "pair", "single")
+
+
+def _owned_rounds(frames: list[dict], rounds: list[dict], death_times: list[float]
+                  ) -> tuple[list[dict], dict[float, dict]]:
+    """The panels of `frames` with their rounds, and each episode's panel
+    keyed by the episode's first time: a panel's own or one of its reopens."""
+    ps = panels(frames, death_times)
+    assign_rounds(ps, rounds)
+    return ps, {t0: p for p in ps for t0 in [p["start_ms"]] + p["reopens"]}
+
+
+def _verdicts(frames: list[dict], rounds: list[dict], death_times: list[float]
+              ) -> tuple[dict, dict[float, int | None]]:
+    """Per round, the `VERDICT_FIELDS` the panels of `frames` give; and per
+    frame time, the round its panel was assigned to."""
+    ps, owner = _owned_rounds(frames, rounds, death_times)
+    got = {r["round_no"]: tuple(r[f] for f in VERDICT_FIELDS) for r in round_counts(ps, rounds)}
+    where = {}
+    for e in episodes(frames):
+        p = owner.get(e[0]["t_ms"])
+        for f in e:
+            where[f["t_ms"]] = None if p is None else p["round_no"]
+    return got, where
+
+
+def round_frames(frames: list[dict], rounds: list[dict], death_times: list[float]) -> list[dict]:
+    """Per round, the one stored frame that holds its report, or none and why.
+
+    The combat report does not change within a round (the player,
+    2026-10-05; [domain:combat_report/frozen-after-death]), so one frame of
+    its most complete panel carries the round's report. Candidates are the
+    frames of the episodes this module assigns to the round (`panels`,
+    `assign_rounds`) that read their episode's modal damage and hit texts
+    (`frame_read`) and its voted flags. They rank by stability
+    (`STABILITY`: both neighbouring samples read the same, then one, then
+    neither), then by row count, then the round summary first
+    [domain:combat_report/round-summary] (a frame at or after the round's
+    end, earliest first), then the frozen post-death panel, earliest first,
+    so the frame opens near the death that `near_death` binds.
+
+    The choice is checked against this module: the kept frames alone must
+    give every round the verdict all the frames give (`VERDICT_FIELDS`), and
+    each kept frame must land in its own round. A round that fails moves to
+    its next candidate until none fails or it has none left; it then keeps
+    its best and says `reproduces: false`. A round with no candidate keeps
+    nothing, with the reason."""
+    frames = sorted((r for r in frames if r.get("kind") == "frame"), key=lambda r: r["t_ms"])
+    rounds = sorted(rounds, key=lambda r: r["t_start_ms"])
+    by_no = {r["round_no"]: r for r in rounds}
+    t_all = np.asarray([r["t_ms"] for r in frames], float)
+    step = float(np.median(np.diff(t_all))) if len(t_all) > 1 else 1000.0
+    ps, owner = _owned_rounds(frames, rounds, death_times)
+    cands: dict[int, list[tuple[tuple, dict, dict]]] = {}
+    for e in episodes(frames):
+        p = owner.get(e[0]["t_ms"])
+        read, shown = _vote(e)
+        if p is None or p["round_no"] is None or not read:
+            continue
+        rnd = by_no[p["round_no"]]
+        flags = [_flags(shown, k) for k in range(len(read))]
+        ok = np.array([frame_read(f) == read
+                       and [_flags([f], k) for k in range(len(read))] == flags for f in e])
+        t = np.asarray([f["t_ms"] for f in e], float)
+        near = np.diff(t) <= 1.5 * step
+        left = np.r_[False, ok[:-1] & near]
+        right = np.r_[ok[1:] & near, False]
+        tier = np.where(left & right, 0, np.where(left | right, 1, 2))
+        for i in np.flatnonzero(ok):
+            summary = bool(t[i] >= rnd["t_end_ms"])
+            key = (int(tier[i]), -len(read), 0 if summary else 1, float(t[i]))
+            cands.setdefault(p["round_no"], []).append((key, e[i], {
+                "stability": STABILITY[int(tier[i])], "rows": len(read),
+                "shown": "summary" if summary else "in_round",
+                "episode_ms": [float(t[0]), float(t[-1])], "panel_ms": p["start_ms"]}))
+    for v in cands.values():
+        v.sort(key=lambda c: c[0])
+    want, _ = _verdicts(frames, rounds, death_times)
+    pick = {no: 0 for no in cands}
+    while True:
+        kept = sorted((cands[no][k][1] for no, k in pick.items()), key=lambda r: r["t_ms"])
+        got, where = _verdicts(kept, rounds, death_times)
+        bad = {no for no, k in pick.items()
+               if got.get(no) != want.get(no) or where.get(cands[no][k][1]["t_ms"]) != no}
+        move = [no for no in bad if pick[no] + 1 < len(cands[no])]
+        if not move:
+            break
+        for no in move:
+            pick[no] += 1
+    if bad:
+        # A round that never reproduced keeps its best candidate; the check
+        # reruns on the frames kept.
+        for no in bad:
+            pick[no] = 0
+        kept = sorted((cands[no][k][1] for no, k in pick.items()), key=lambda r: r["t_ms"])
+        got, where = _verdicts(kept, rounds, death_times)
+        bad = {no for no, k in pick.items()
+               if got.get(no) != want.get(no) or where.get(cands[no][k][1]["t_ms"]) != no}
+    reason = {r["round_no"]: r["reason"] for r in round_counts(ps, rounds)}
+    out = []
+    for r in rounds:
+        no = r["round_no"]
+        if no not in cands:
+            out.append({"round_no": no, "t_ms": None, "frame_idx": None,
+                        "reason": reason.get(no) or "no frame reads its panel's modal read"})
+            continue
+        k = pick[no]
+        _key, f, info = cands[no][k]
+        out.append({"round_no": no, "t_ms": float(f["t_ms"]), "frame_idx": int(f["frame_idx"]),
+                    "reason": None, **info, "candidates": len(cands[no]), "rank": k,
+                    "reproduces": no not in bad})
+    return out
+
+
 #: Thumbnail correlation joining two rows to one player.
 PORTRAIT_SAME = 0.8
 #: No kill happens this early in a round, so reads before it are "before".
