@@ -1933,6 +1933,158 @@ is unmeasured
 """
 see = ["abilities/deadlock-sonic-sensor-minimap-white-area", "abilities/ability-rules-are-unique"]
 
+[cypher-spycam-minimap-glyph-turns]
+claim = """
+Cypher's Spycam icon on the minimap turns: its glyph is not drawn upright.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "cypher:spycam"
+source = """
+the player, 2026-10-04 (labels/minimap_glyph_questions/answers.jsonl#L347,
+row rotation:Cypher:E, answer rotates)
+"""
+use = """
+glyph-rotation-policy-0.1.0 (prototypes/glyph_tables.py) searches Cypher:E
+at every rotation
+"""
+see = ["abilities/ability-rules-are-unique"]
+
+[omen-dark-cover-minimap-glyph-turns]
+claim = """
+Omen's placed Dark Cover marker on the minimap turns: its glyph is not
+drawn upright.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "omen:dark cover"
+source = """
+the player, 2026-10-04 (labels/minimap_glyph_questions/answers.jsonl#L350,
+row rotation:Omen:E, answer rotates)
+"""
+use = """
+glyph-rotation-policy-0.1.0 searches Omen:E at every rotation
+"""
+exceptions = """
+the game data's components disagree: the targeting component reads turns
+and FXC_Wraith_4_ChargeMarker_Parent sets no rotation flag; which component
+draws the placed marker is unread
+"""
+see = ["abilities/omen-dark-cover-minimap-phases", "abilities/ability-rules-are-unique"]
+
+[killjoy-alarmbot-minimap-glyph-turns]
+claim = """
+Killjoy's Alarmbot icon on the minimap turns: its glyph is not drawn
+upright.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "killjoy:alarmbot"
+source = """
+the player, 2026-10-04 (labels/minimap_glyph_questions/answers.jsonl#L369,
+row rotation:Killjoy:Q, "Yes it turns")
+"""
+use = """
+glyph-rotation-policy-0.1.0 searches Killjoy:Q at every rotation
+"""
+see = ["abilities/killjoy-alarmbot-minimap-texture", "abilities/ability-rules-are-unique"]
+
+[deadlock-gravnet-minimap-glyph-upright]
+claim = """
+Deadlock's GravNet icon on the minimap stays upright.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "deadlock:gravnet"
+source = """
+the player, 2026-10-04 (labels/minimap_glyph_questions/answers.jsonl#L348,
+row rotation:Deadlock:C, answer upright)
+"""
+use = """
+glyph-rotation-policy-0.1.0 searches Deadlock:C at 0 deg only
+"""
+exceptions = """
+the game data sets bRotates on its minimap component; the two-flag rotation
+hypothesis reads upright
+"""
+see = ["abilities/ability-rules-are-unique"]
+
+[reyna-leer-minimap-glyph-upright]
+claim = """
+Reyna's Leer icon on the minimap stays upright.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "reyna:leer"
+source = """
+the player, 2026-10-04 (labels/minimap_glyph_questions/answers.jsonl#L351,
+row rotation:Reyna:C, answer upright)
+"""
+use = """
+glyph-rotation-policy-0.1.0 searches Reyna:C at 0 deg only
+"""
+exceptions = """
+the game data sets bRotates on its minimap component; the two-flag rotation
+hypothesis reads upright
+"""
+see = ["abilities/ability-rules-are-unique"]
+
+[skye-guiding-light-minimap-glyph-upright]
+claim = """
+Skye's Guiding Light icon on the minimap stays upright.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "skye:guiding light"
+source = """
+the player, 2026-10-04 (labels/minimap_glyph_questions/answers.jsonl#L352,
+row rotation:Skye:E, answer upright)
+"""
+use = """
+glyph-rotation-policy-0.1.0 searches Skye:E at 0 deg only
+"""
+see = ["abilities/skye-guiding-light-minimap-icon", "abilities/ability-rules-are-unique"]
+
+[skye-trailblazer-minimap-glyph-upright]
+claim = """
+Skye's Trailblazer icon on the minimap stays upright.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "skye:trailblazer"
+source = """
+the player, 2026-10-04 (labels/minimap_glyph_questions/answers.jsonl#L353,
+row rotation:Skye:Q, answer upright)
+"""
+use = """
+glyph-rotation-policy-0.1.0 searches Skye:Q at 0 deg only
+"""
+see = ["abilities/ability-rules-are-unique"]
+
+[sova-owl-drone-minimap-glyph-upright]
+claim = """
+Sova's Owl Drone icon on the minimap stays upright.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "sova:owl drone"
+source = """
+the player, 2026-10-04 (labels/minimap_glyph_questions/answers.jsonl#L355,
+row rotation:Sova:C, answer upright)
+"""
+use = """
+glyph-rotation-policy-0.1.0 searches Sova:C at 0 deg only
+"""
+see = ["abilities/ability-rules-are-unique"]
+
 [piloted-drones-have-cones]
 claim = """
 Every piloted drone has its own vision cone.

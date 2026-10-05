@@ -353,12 +353,10 @@ def near_zero(a: int, tol: int = 15) -> bool:
     return min(a % 360, 360 - a % 360) <= tol
 
 
-def cmd_rotrule(out: Path) -> None:
-    """The two-flag rotation hypothesis (prediction rows G1-G4): its verdict per catalogue key from the raw
-    export's minimap components, checked against the player's rotation answers and the dev fitted angles, and its
-    per-key policy scored single frame on the contaminated answers-on windows beside an upright control."""
-    comps = minimap_components()
-    tk = texture_keys()
+def rule_per_key(comps: list[dict], tk: dict) -> tuple[dict, dict]:
+    """({key: [component evidence]}, {key: two-flag verdict}): each catalogue key's minimap components, joined by
+    the textures they name (`texture_keys`), and the rule's verdict over them; one verdict when every component
+    agrees, `mixed` otherwise. A key no component draws has no entry."""
     per_key: dict = {}
     for c in comps:
         for t in c["textures"]:
@@ -366,6 +364,15 @@ def cmd_rotrule(out: Path) -> None:
                 per_key.setdefault(k, []).append({**{x: c[x] for x in ("pkg", "component", "bRotates", "RotationSpace",
                                                                        "RotationSource", "verdict")}, "texture": t})
     verdict = {k: (lambda v: v.pop() if len(v) == 1 else "mixed")({r["verdict"] for r in rs}) for k, rs in per_key.items()}
+    return per_key, verdict
+
+
+def cmd_rotrule(out: Path) -> None:
+    """The two-flag rotation hypothesis (prediction rows G1-G4): its verdict per catalogue key from the raw
+    export's minimap components, checked against the player's rotation answers and the dev fitted angles, and its
+    per-key policy scored single frame on the contaminated answers-on windows beside an upright control."""
+    comps = minimap_components()
+    per_key, verdict = rule_per_key(comps, texture_keys())
     ans = rotation_answers()
     ang = fitted_angles()
     check = {}

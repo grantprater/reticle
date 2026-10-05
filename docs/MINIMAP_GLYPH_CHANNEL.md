@@ -228,9 +228,10 @@ follow's starting reach at the drop frame, 4 px times the widget scale
 on 4f207c0c4e39 (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`), the Iso:Q
 cast at `t_ms` 232500 in the store's
 `analysis/cross-channel-independence-20261004/casts.jsonl`, where audio named
-Q and the follow kept the self icon and named Iso:E. Stage 1 seeds the
-follow from the thrown icon: the proposer's birth near the caster after the
-drop, as the reader's birth rule already does, never the self position.
+Q and the follow kept the self icon and named Iso:E. Stage 1 seeded the
+follow from the thrown icon instead (the proposer's birth near the caster
+after the drop) and precision did not rise (section 6, S5): the seed is not
+the whole cause.
 
 **Audio can label the player's own glyphs.** On the same casts the audio
 witness (`ability-audio` [owns:ability-audio], ability-audio-0.4.0, params
@@ -605,53 +606,76 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    the clean held-out score (H1-H8, K5); the rotation answers; the
    two-flag test (G1-G4, with its correction row); the cross-channel
    independence measurement; S1's baseline on the eval 0.3.0 windows.
-1. **Rotation policy and null table on dev. Ready to build.** Inputs are
-   settled: the answers, the raw export, the dev windows of eval 0.3.0
-   (`analysis/minimap-glyphs-killjoy-refs-20261004`, gamedata on). Build, in
-   `prototypes/`, the policy table (`glyph-rotation-policy-0.1.0`, section
-   2) and the null table (gate 3) from dev only, and compare the 2 Hz follow
-   with the cache-cadence follow on dev. Every follow is seeded at the
-   thrown icon (the proposer's birth near the caster after the tray drop),
-   never at the self icon (section 1). The player's own glyph casts on dev
-   sessions may add borrowed labels from the audio witness and the tray
-   drop, each with `rests_on` both (section 1); a fit made from them (the
-   null table's cut, the 2 Hz against cache-cadence comparison) is scored
-   only on the player's own labels, so S2 to S4 count only those. The two
-   unsure keys (Cypher:C, Skye:X) go to the player through `prototypes/ask_minimap_glyphs.py`; until
-   answered the table rotates them and says why. Which component draws a
-   placed Deadlock:Q or Omen:E icon is read from the game data; the table
-   follows the player's answers for both. Predictions, logged in the store
-   (`glyph-wiring-design-fix-20261004`) before the build runs:
-   - S1: with the policy table, single-frame top-1 on the eval 0.3.0 dev
-     windows is at least
-     [metric:glyph_channel_cost/dev_030#dev_rotate_all=55] of
-     [metric:glyph_channel_cost/dev_030#dev_n=59], rotate-all's score on
-     the same windows, and the follow at least
-     [metric:minimap_glyph_eval/killjoy_refs_dev#dev_follow_after=58] of
-     [metric:minimap_glyph_eval/killjoy_refs_dev#dev_n=59]; falsified below
-     rotate-all's score single frame, or below the follow's. The policy's
-     [metric:glyph_channel_cost/rotation_rule#dev_policy=53] was measured
-     on the eval 0.2.0 windows, where rotate-all scored
-     [metric:glyph_channel_cost/rotation#dev_rotate_all=51], so it is no
-     baseline here.
-   - S2: at the per-key cut (at most 5% false naming on dev non-ability
-     discs), at least 80% of right dev glyph items clear their key's null;
-     falsified below 60%.
-   - S3: rotated keys' cuts sit above upright keys' by at least 0.03 in
-     median; falsified if the two medians lie within 0.01, which would make
-     a per-bank null enough.
-   - S4: the 2 Hz follow names within 3 points of the cache-cadence follow
-     on dev.
-   - S5: seeded at the thrown icon, the follow's named precision on the
-     matches' own glyph casts exceeds the self seed's
-     [metric:glyph_channel_cost/cross_channel@matches#glyph_self_seed_precision=0.5798];
-     falsified at or below it.
-   Acceptance: `prototypes\glyph_channel_cost.py rotrule --out <new dir>`
-   reproduces the 0.2.0 counts, and the new table builder's command writes
-   both tables with version, build, answers line numbers and dev session
-   list, rerunnable from storage; `doctor` shows 0 errors. Evidence: the
-   prediction and outcome rows, the metric series each quoted number cites,
-   and both tables' provenance naming no held-out label.
+1. **Rotation policy and null table on dev. Done** (2026-10-05,
+   `prototypes/glyph_tables.py`, `glyph-tables-0.1.0`, wire: no; store
+   `analysis/glyph-tables-20261005`). `build` writes both tables from storage
+   alone: the policy table (`glyph-rotation-policy-0.1.0`), one row per
+   catalogue key, [metric:glyph_tables/policy#keys=116] keys,
+   [metric:glyph_tables/policy#rotates=19] rotated, of which
+   [metric:glyph_tables/policy#by_answer=9] rows a player answer decides
+   (each citing its `answers.jsonl` line and a new domain fact, such as
+   [domain:abilities/cypher-spycam-minimap-glyph-turns]),
+   [metric:glyph_tables/policy#unsure=2] unsure keys (Cypher:C, Skye:X)
+   rotated with the reason `unsure_pending_player`, and the rest the two-flag
+   rule's; no answer contradicts the rule. Deadlock:Q is searched at every
+   rotation, since no wall fit is in master. The null table
+   (`glyph-null-table-0.1.0`) scores the
+   [metric:glyph_tables/build#negatives_n=63] dev discs the player labelled
+   no ability against every key at its policy's search size, single frame;
+   each key's cut lets at most 5% of them exceed it. Both tables carry the
+   build, the answers file's hash and lines, the dev sessions (d95cfad5693a,
+   dae6f33f3f48) and the 31 held-out pass sessions they did not use; the
+   builder refuses any item outside the dev split or the eval's label
+   sources. The dev sessions are Cypher and Killjoy demos, so no borrowed
+   audio label exists there and none entered. On the eval 0.3.0 dev windows:
+   - S1 held: single frame with the policy table named
+     [metric:glyph_tables/build#s1_single_policy=58] of
+     [metric:glyph_tables/build#dev_n=59] (rotate-all control
+     [metric:glyph_tables/build#control_rotate_all=55], upright
+     [metric:glyph_tables/build#control_upright=35], both reproducing the
+     stored run), the follow [metric:glyph_tables/follow#policy_cache_right=58]
+     (rotate-all control [metric:glyph_tables/follow#rotate_all_cache_right=58]).
+   - S2 held: [metric:glyph_tables/build#s2_clear=55] of
+     [metric:glyph_tables/build#s2_right=58] right items clear their key's
+     cut ([metric:glyph_tables/build#s2_share=0.9483]); pooled over the
+     follow, [metric:glyph_tables/follow#pooled_policy_cache_s2_share=0.9828].
+   - S3 held: the rotated keys' median cut is
+     [metric:glyph_tables/build#s3_median_cut_rotated=0.6678], the upright
+     keys' [metric:glyph_tables/build#s3_median_cut_upright=0.5242]; a
+     per-bank null would not do.
+   - S4 held: the 2 Hz follow named
+     [metric:glyph_tables/follow#policy_2hz_right=58], the cache-cadence
+     follow 58, [metric:glyph_tables/follow#s4_points=0.0] points apart. The
+     placed dev icons do not move; a thrown icon at 2 Hz is untested.
+   - S5 failed. Seeded at the thrown icon's birth (a disc absent 0.5 s
+     before the drop, 17-34 px x scale from the caster, within 1.5 s), the
+     rotate-all follow named [metric:glyph_tables/thrown@matches#rotate_all_right=36]
+     right and [metric:glyph_tables/thrown@matches#rotate_all_wrong=29] wrong,
+     precision [metric:glyph_tables/thrown@matches#rotate_all_precision=0.5538],
+     not above the self seed's
+     [metric:glyph_tables/thrown@matches#self_seed_stored_precision=0.5798],
+     and refused [metric:glyph_tables/thrown@matches#rotate_all_refused=161]
+     of the 226 casts, most for finding no birth. The policy arm reads
+     [metric:glyph_tables/thrown@matches#policy_precision=0.5968]. Revised
+     belief: section 1 named the seed as the cause of the self seed's errors;
+     the seed alone does not explain them. The birth rule is an untuned design
+     guess (one match, 043bafca271a, holds cached frames 500 ms apart);
+     stage 3 must find the
+     thrown icon's track before it can name it, and the label path stays
+     closed until a seed beats 0.58.
+   The per-key cut alone falsely names
+   [metric:glyph_tables/build#false_naming_context_cut=0.0794] of the dev
+   no-ability discs in the caster's kit and
+   [metric:glyph_tables/build#false_naming_full_cut=0.3016] in the full set;
+   with the dev tie margin (the largest margin of a wrong dev item) the
+   verdict names [metric:glyph_tables/build#false_naming_context_verdict=0.0159]
+   and [metric:glyph_tables/build#false_naming_full_verdict=0.0317]. The
+   null rests on 63 discs at two widget scales; per-scale cuts are stored
+   but not used. `glyph_channel_cost.py rotrule` reproduces the 0.2.0 counts
+   except one key: Miks:C joins (46 keys with a component, against 45)
+   because a later extraction gave it a DisplayIcon; it reads upright and
+   changes no policy. Outcome row: store `notes/predictions.jsonl`, ts
+   2026-10-05T09:11:10Z.
 2. **The reader** in the ability pass, `ability-glyph-0.1.0`; `reticle
    trial --reader ability_glyph` on a06f04a0059f, 5822b6646448
    (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`) and 4f207c0c4e39
@@ -728,6 +752,10 @@ From the repository root, single-threaded, Below Normal, no decode:
 .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py record2 --out <rotrule dir>  # rotation_rule, heldout_020, heldout_030
 .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py baseline030               # dev_030: S1's baseline on eval 0.3.0 dev
 .\.venv\Scripts\python.exe prototypes\glyph_channel_cost.py crosscheck                # cross_channel@matches: audio and self-seed precision
+.\.venv\Scripts\python.exe prototypes\glyph_tables.py build --out <new dir>           # stage 1: both tables and build.json (storage only)
+.\.venv\Scripts\python.exe prototypes\glyph_tables.py follow --out <that dir>         # follow.json: S1 follow, S4, pooled null (dev crop cache)
+.\.venv\Scripts\python.exe prototypes\glyph_tables.py thrown --out <that dir>         # thrown.json: S5 (match crop caches)
+.\.venv\Scripts\python.exe prototypes\glyph_tables.py record --out <that dir>         # glyph_tables/* metric series, once
 ```
 
 Each writing command refuses an existing output file, and `--out` has no

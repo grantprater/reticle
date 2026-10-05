@@ -1388,12 +1388,15 @@ def window_patches(Y: np.ndarray, p, scale: float, sh: int):
 
 
 _fbanks: dict = {}
+#: The follow's rotation arm: True searches every key at every rotation (follow-0.2.0, the default); "policy"
+#: rotates only the keys in ROTATING (prototypes/glyph_tables.py sets both from glyph-rotation-policy-0.1.0).
+FOLLOW_ROTATE = True
 
 
 def kit_bank(scale: float, kit_keys: tuple):
-    k = (round(scale, 3), kit_keys)
+    k = (round(scale, 3), kit_keys, FOLLOW_ROTATE if FOLLOW_ROTATE is True else ("policy", frozenset(ROTATING)))
     if k not in _fbanks:
-        T, meta = bank(scale, list(kit_keys), rotate=True)
+        T, meta = bank(scale, list(kit_keys), rotate=FOLLOW_ROTATE)
         _fbanks[k] = (zrows(T), np.array([kit_keys.index(m[0]) for m in meta]))
     return _fbanks[k]
 
