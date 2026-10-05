@@ -195,6 +195,29 @@ players; scores here measure agreement with it, not accuracy per cast.
   false. The per-round figures are `chamber_line`'s. Two 0.5.0 --record rows
   came from different builds; 0.5.1 restamps the same figures.
 
+0.6.0: ambiguous minimap pairs
+------------------------------
+Teammates match stored pieces by distance alone, so where two teammates
+stand together the distance cannot say which one a piece shows. A matched
+pair is ambiguous when another Riot teammate drawn in that frame lies within
+`AMBIGUOUS_MARGIN_M` of the paired one, measured from the piece:
+`d_other - d_paired < AMBIGUOUS_MARGIN_M` (in widget pixels through the map
+frame's scale). Like the deaths' `_unamb` counts, identity scores only the
+unambiguous pairs: `id_right`, `id_wrong` and `id_refused` count those,
+and `id_ambiguous` counts the rest, split by what the 0.5.1 scorer called
+them (`id_ambiguous_right`, `_wrong`, `_refused`), so the 0.5.1 counts are
+the sums. Position counts are unchanged: the rule moves no pair. The margin
+was fixed before measuring at about the pooled position error's 95th
+percentile (3.8 px at about 2.28 px per metre, riot-truth-0.3.3), rounded up.
+
+0.6.1: a stored death drawn at a stall's release (`released`) pairs with a
+leftover Riot kill inside that stall whose names do not disagree
+(`_release_pass`, `how = "stall_release"`); such a kill is matched, not
+unobservable, and its names count as paired by name, never right.
+`--legacy release` restores 0.6.0. The rule carried the stamp
+riot-truth-0.4.2 and then 0.5.2 on its branch, before 0.5.0, 0.5.1 and 0.6.0
+reached it.
+
 What the scorer reads stale (0.3.1)
 -----------------------------------
 * `status` reads second lives under the running code's
@@ -236,7 +259,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-RIOT_TRUTH_VERSION = "riot-truth-0.5.1"
+RIOT_TRUTH_VERSION = "riot-truth-0.6.1"
 STORE = Path.home() / "reticle-store"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -258,7 +281,7 @@ NAME_PAIR_TOL_MS = 5000.0
 #: second-life, pairing and self-kill rules, and `order`, the 0.2.0 time-only
 #: pairing (`pairing` wins where both are named), and `stall`, the 0.3.1
 #: scoring that reads no stall span.
-LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill", "order", "stall")
+LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill", "order", "stall", "release")
 #: The minimap read time relative to the killfeed-fitted offset. The fit's
 #: offset includes about half a killfeed step of sampling lag plus the feed's
 #: render delay. Measured with `--scan-lag` on the self icon (three sessions,
@@ -268,6 +291,9 @@ MINIMAP_LAG_MS = -450.0
 FRAME_TOL_MS = 70.0
 #: Teammate gate in metres (Riot units are centimetres).
 GATE_M = 8.0
+#: A minimap pair is ambiguous when another teammate lies within this many
+#: metres of the paired one's distance from the piece (0.6.0).
+AMBIGUOUS_MARGIN_M = 2.0
 
 ABILITY_SLOT = {"Ability1": "Ability1", "Ability2": "Ability2",
                 "GrenadeAbility": "Grenade", "Ultimate": "Ultimate"}
@@ -792,6 +818,26 @@ def greedy_pairs(a_pts, b_pts, gate):
     return out
 
 
+def ambiguous_pairs(truth_px, got_px, pairs, margin_px: float) -> list[bool]:
+    """Per (i, j, dist) pair: does another truth point lie within `margin_px`
+    of the paired one's distance from piece j (0.6.0)?
+
+    The pairing is by distance alone, so a piece between two teammates whose
+    distances differ by less than the position error could show either.
+    """
+    if not pairs:
+        return []
+    import numpy as np
+    T = np.asarray(truth_px, dtype=float).reshape(-1, 2)
+    G = np.asarray(got_px, dtype=float).reshape(-1, 2)
+    ii = np.fromiter((p[0] for p in pairs), dtype=int, count=len(pairs))
+    jj = np.fromiter((p[1] for p in pairs), dtype=int, count=len(pairs))
+    d = np.linalg.norm(G[jj][:, None, :] - T[None, :, :], axis=2)  # pairs x truth
+    d1 = d[np.arange(len(pairs)), ii]
+    d[np.arange(len(pairs)), ii] = np.inf
+    return ((d.min(axis=1) - d1) < margin_px).tolist() if T.shape[0] > 1 else [False] * len(pairs)
+
+
 def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Path,
                   status_rec: dict | None, opts) -> dict:
     from reticle.store import Store
@@ -1124,6 +1170,56 @@ def _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms, stalls=None) -> 
             _assign(ni, nj, {e: -big - mid * ka + abs(d) for e, (d, ka) in left.items()})]
 
 
+def _release_pass(kills, deaths, agent_of, x, t, out) -> list:
+    """Pass 4 (0.6.1): a stored death the stall rule drew at a stall's release
+    (its `released` span) pairs with a leftover Riot kill inside that span
+    whose names do not disagree with it, most agreeing names then least |dt|
+    first. Its names rest on no time agreement, so like the name pass it
+    never counts a name right.
+
+    The pair may trail the kill by more than an entry's life of about 5.0 s
+    [domain:killfeed/entry-lifetime], because that life runs from the
+    entry's arrival on the picture and a stall shows no arrival: its frames
+    repeat one picture while time passes (`reticle.stalls`). The first frame
+    to show the entry is the release, so its first-seen time trails the kill
+    by up to the stall's length, and the pass bounds the kill by the stall
+    span, not by the lifetime. The stored frame times show both cases:
+
+    * b3b9defb6fd7 (C:/Users/grant/Videos/2026-08-23 18-24-15.mp4): the
+      round clock reads 42 s from 1331.0 s to 1339.5 s and 33 s at 1340.0 s,
+      so game time ran through the 1331.4-1339.6 s stall. No sample from
+      1331.0 s to 1339.0 s reads an entry; the 1339.5 s sample, clock still
+      frozen, reads one, and 1340.0 s none. Riot's Waylay kill falls at
+      1332.7 s, 6.75 s before that sighting. The victim went unnamed, so the
+      name pass had nothing to agree on.
+    * bfad2778a372 (C:/Users/grant/Videos/2026-08-24 14-45-35.mp4): the
+      clock holds 82 s through 615.0 s inside the 588.2-616.0 s stall; the
+      Sage death is read from 616.5 s to 620.0 s, 5.68 s to 9.2 s after
+      Riot's kill at 610.8 s. It outlived the kill by over 5.0 s, so its
+      life ran from the release, not from the kill."""
+    used_i = {i for i, *_ in out}
+    used_j = {j for _i, j, *_ in out}
+    cand = {}
+    for j, s in enumerate(deaths):
+        span = s.get("released")
+        if j in used_j or not span:
+            continue
+        a, b = float(span["t_start_ms"]), float(span["t_end_ms"])
+        for i in range(len(kills)):
+            if i in used_i or not a <= x[i] <= b:
+                continue
+            k = kills[i]
+            if s.get("victim") is not None and canon(s["victim"]) != canon(agent_of.get(k["victim"])):
+                continue
+            v, kl = _name_agree(k, s, agent_of)
+            if kl is False:
+                continue
+            cand[(i, j)] = (t[j] - x[i], int(v) + int(bool(kl)))
+    return [(i, j, cand[(i, j)][0], "stall_release") for i, j in
+            _assign(len(kills), len(deaths),
+                    {e: -1e12 - 1e7 * ag + abs(d) for e, (d, ag) in cand.items()})]
+
+
 def pair_deaths(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
                 name_tol_ms=NAME_PAIR_TOL_MS) -> tuple[list, dict]:
     """The 0.2.0 pairing, kept for `--legacy order`: Riot kills to stored
@@ -1321,7 +1417,7 @@ def _order_consistent(match, kills, deaths, contra=frozenset()) -> bool:
 
 
 def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
-                         name_tol_ms=NAME_PAIR_TOL_MS, stalls=None) -> tuple[list, dict, dict]:
+                         name_tol_ms=NAME_PAIR_TOL_MS, stalls=None, legacy=()) -> tuple[list, dict, dict]:
     """Riot kills to stored deaths in three passes (0.3.0): `(i, j, dt, how)`
     as `pair_deaths`, its stats, and {kill index: reason} for the pairs whose
     order the record leaves unknown (`order_ambiguity`).
@@ -1404,8 +1500,10 @@ def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
     out = [(i, j, t[j] - x[i], "time" if pairs.get(i) == j else "name_reassigned")
            for i, j in sorted(named.items())]
     out += _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms, stalls)
+    if "release" not in legacy:
+        out += _release_pass(kills, deaths, agent_of, x, t, out)
     amb = {i: kill_amb.get(i) or death_amb.get(j) for i, j, _d, how in out
-           if how != "name_pass" and (i in kill_amb or j in death_amb)}
+           if how not in ("name_pass", "stall_release") and (i in kill_amb or j in death_amb)}
 
     near_all = {(i, j): t[j] - x[i] for i in range(ni) for j in range(nj)
                 if abs(t[j] - x[i]) <= tol_ms}
@@ -1428,6 +1526,7 @@ def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
              "pairs_time_kept": sum(1 for p in out if p[3] == "time"),
              "pairs_name_reassigned": sum(1 for p in out if p[3] == "name_reassigned"),
              "pairs_name_pass": sum(1 for p in out if p[3] == "name_pass"),
+             "pairs_stall_release": sum(1 for p in out if p[3] == "stall_release"),
              "ambiguous_kill_order_tie": sum(1 for v in amb.values() if v == "kill_order_tie"),
              "ambiguous_death_order_unknown": sum(1 for v in amb.values()
                                                   if v == "death_order_unknown"),
@@ -1452,7 +1551,7 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
         clustered = _ambiguous(pairs, kills)
     else:
         pairs, pstats, clustered = pair_deaths_in_order(kills, deaths, agent_of, a, match_tol,
-                                                        stalls=stalls)
+                                                        stalls=stalls, legacy=legacy)
     out = {"riot_kills": len(kills), "stored_deaths": len(deaths), "matched": len(pairs)}
     out.update(pstats)
     # 0.3.2: an unpaired kill inside a stall span had no sample to draw on
@@ -1685,8 +1784,10 @@ def score_minimap(sid, store_root, kills, a, mf: MapFrame, who, agent_of, me, my
     fts = sorted((t, f) for f, (t, _d) in frames.items())
     ft = [t for t, _ in fts]
     gate = GATE_M * 100.0 * mf.px_per_unit
+    margin_px = AMBIGUOUS_MARGIN_M * 100.0 * mf.px_per_unit
     out = {"px_per_m": round(mf.px_per_unit * 100.0, 3), "gate_px": round(gate, 2),
-           "lag_ms": lag}
+           "ambiguous_margin_px": round(margin_px, 2), "lag_ms": lag}
+    amb_rows = []
 
     def frame_at(t):
         k = bisect.bisect_left(ft, t)
@@ -1802,19 +1903,27 @@ def score_minimap(sid, store_root, kills, a, mf: MapFrame, who, agent_of, me, my
                     reader_fac[name].append(angle_err(tdeg, own[j][2]))
         if not has_tracker:
             continue
-        for i, j, dd in pr:
+        amb = ambiguous_pairs(truth_px, got_px, pr, margin_px)
+        for (i, j, dd), is_amb in zip(pr, amb):
             s, o = allies[i], pieces[j]
             pos_err.append(dd)
             ent = ents.get(o.get("entity_id")) or {}
             got = ent.get("agent")
             truth = agent_of.get(s)
-            if got is None:
-                c["id_refused"] += 1
-                id_reasons[ent.get("identity_status") or "no_entity_row"] += 1
-            elif canon(got) == canon(truth):
-                c["id_right"] += 1
+            res = ("refused" if got is None
+                   else "right" if canon(got) == canon(truth) else "wrong")
+            if is_amb:
+                # another teammate stands about as close: distance cannot say
+                # which one the piece shows, so identity is not scored (0.6.0)
+                c["id_ambiguous"] += 1
+                c[f"id_ambiguous_{res}"] += 1
+                if len(amb_rows) < 400:
+                    amb_rows.append({"t_ms": round(t), "frame": f, "entity": o.get("entity_id"),
+                                     "truth": truth, "named": got, "outcome": res})
             else:
-                c["id_wrong"] += 1
+                c[f"id_{res}"] += 1
+                if res == "refused":
+                    id_reasons[ent.get("identity_status") or "no_entity_row"] += 1
             fdeg = facing.get(o.get("observation_key"))
             if locs[s]["viewRadians"] is None:
                 # a victim's record carries no view angle
@@ -1844,6 +1953,7 @@ def score_minimap(sid, store_root, kills, a, mf: MapFrame, who, agent_of, me, my
     out.update(c)
     out["miss_rows"] = miss_rows
     out["victim_rows"] = victim_rows
+    out["ambiguous_rows"] = amb_rows
     m2m = 1.0 / (mf.px_per_unit * 100.0)
     out["pos_err_px"] = _summ(pos_err)
     out["pos_err_m"] = None if not pos_err else round(statistics.median(pos_err) * m2m, 2)
@@ -1987,7 +2097,8 @@ def pool(results: list[dict], conv: str | None) -> dict:
                       "reader_matched", "reader_matched_any", "reader_icons",
                       "missed_outside_widget", "missed_stacked",
                       "store_pieces", "matched", "missed", "phantom", "id_right", "id_wrong",
-                      "id_refused", "facing_unread", "enemy_frames", "enemy_store",
+                      "id_refused", "id_ambiguous", "id_ambiguous_right", "id_ambiguous_wrong",
+                      "id_ambiguous_refused", "facing_unread", "enemy_frames", "enemy_store",
                       "enemy_matched", "enemy_unmatched_store", "truth_victims_added",
                       "truth_victims_added_ally", "truth_victims_matched", "facing_no_truth"):
                 C[k] += mm.get(k, 0)
@@ -2089,7 +2200,8 @@ def record_metrics(P: dict, results: list[dict], conv: str | None) -> list[str]:
         metrics.record("riot_truth", part=f"minimap/{grp}", values=v, deps=deps, context=ctx)
         for f in ("pos_err_px_median", "pos_err_px_p95", "self_err_px_median", "riot_allies",
                   "tracker_riot_allies", "matched", "missed", "missed_stacked", "phantom",
-                  "id_right", "id_wrong", "id_refused", "facing_err_median", "facing_within_30",
+                  "id_right", "id_wrong", "id_refused", "id_ambiguous", "id_ambiguous_right",
+                  "id_ambiguous_wrong", "id_ambiguous_refused", "facing_err_median", "facing_within_30",
                   "reader_matched", "reader_pos_err_px_median", "reader_facing_err_median",
                   "reader_facing_within_30", "enemy_matched", "enemy_store", "enemy_err_px_median"):
             if f in v:
@@ -2934,7 +3046,10 @@ def print_session(r: dict, list_misses: bool):
                   f"{mm.get('missed_stacked', 0)}; reader matched {mm.get('reader_matched', 0)}, with refused "
                   f"{mm.get('reader_matched_any', 0)}); pos err {mm['pos_err_px']} ({mm['pos_err_m']} m); self err "
                   f"{mm['self_err_px']} ({mm['self_err_m']} m); id R/W/ref {mm.get('id_right', 0)}/"
-                  f"{mm.get('id_wrong', 0)}/{mm.get('id_refused', 0)}")
+                  f"{mm.get('id_wrong', 0)}/{mm.get('id_refused', 0)} unambiguous; ambiguous "
+                  f"{mm.get('id_ambiguous', 0)} (R/W/ref {mm.get('id_ambiguous_right', 0)}/"
+                  f"{mm.get('id_ambiguous_wrong', 0)}/{mm.get('id_ambiguous_refused', 0)}, margin "
+                  f"{mm.get('ambiguous_margin_px')} px)")
             best = sorted(((v or {}).get("median", 999), n) for n, v in mm["facing_by_convention"].items())
             print(f"   facing medians by convention {best[:3]}")
             if mm.get("enemy_frames"):
@@ -3008,7 +3123,9 @@ def print_pool(P: dict, conv):
               f"matched {G.get('matched')} missed {G.get('missed')} phantom {G.get('phantom')} reader "
               f"{G.get('reader_matched')}/{G.get('reader_matched_any')} of {G.get('reader_icons')} icons; missed outside "
               f"widget {G.get('missed_outside_widget', 0)} stacked {G.get('missed_stacked', 0)}; id R/W/ref "
-              f"{G.get('id_right')}/{G.get('id_wrong')}/{G.get('id_refused')} pos {G['pos_err_px']} self "
+              f"{G.get('id_right')}/{G.get('id_wrong')}/{G.get('id_refused')} (unambiguous pairs; "
+              f"ambiguous {G.get('id_ambiguous', 0)}: R/W/ref {G.get('id_ambiguous_right', 0)}/"
+              f"{G.get('id_ambiguous_wrong', 0)}/{G.get('id_ambiguous_refused', 0)}) pos {G['pos_err_px']} self "
               f"{G['self_err_px']} enemy {G['enemy_err_px']} ({G.get('enemy_matched')}/{G.get('enemy_store')}) "
               f"facing best {best[:2]} within30 {G.get('facing_within_30')} id refusals {G['id_refusal_reasons']}")
         print(f"  dying victims added to the truth {G.get('truth_victims_added', 0)} (allies "

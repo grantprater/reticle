@@ -732,6 +732,21 @@ def _ring_at(red, grey, cov, x0, y0, r):
             "lobe": _lobe_from(reach, r)}
 
 
+_RING_KERNELS: dict[int, np.ndarray] = {}
+
+
+def _ring_kernel(r: int) -> np.ndarray:
+    """`coverage_surface`'s kernel for radius `r`: the ring's points, each
+    1 / their count. Built once per radius; never mutated."""
+    k = _RING_KERNELS.get(r)
+    if k is None:
+        pts, _ = _offsets(r)
+        k = np.zeros((2 * r + 1, 2 * r + 1), np.float32)
+        k[pts[:, 1] + r, pts[:, 0] + r] = 1.0 / len(pts)
+        _RING_KERNELS[r] = k
+    return k
+
+
 def coverage_surface(red, r_min, r_max):
     """Per pixel, the best circumference coverage over radii, and that radius.
 
@@ -744,10 +759,7 @@ def coverage_surface(red, r_min, r_max):
     best = np.full(kf.shape, -1.0, np.float32)
     rad = np.zeros(kf.shape, np.int32)
     for r in range(r_min, r_max + 1):
-        pts, _ = _offsets(r)
-        k = np.zeros((2 * r + 1, 2 * r + 1), np.float32)
-        k[pts[:, 1] + r, pts[:, 0] + r] = 1.0 / len(pts)
-        c = cv2.filter2D(kf, -1, k, borderType=cv2.BORDER_CONSTANT)
+        c = cv2.filter2D(kf, -1, _ring_kernel(r), borderType=cv2.BORDER_CONSTANT)
         up = c > best
         best[up], rad[up] = c[up], r
     return best, rad

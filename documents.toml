@@ -122,6 +122,14 @@ implemented_by = ["owns:position-belief", "cmd:belief"]
 remains = "The graph solver and `reticle adjudicate` were never built; docs/ARBITER_ARCHITECTURE.md proposes to replace them with channel arbiters and a staged aggregator."
 
 [[document]]
+path = "docs/COACHING_ROTATIONS_LURKS.md"
+kind = "plan"
+status = "proposed"
+since = "2026-10-04"
+remains = "Every stage: the stored-data prototype (R1-R5), a region owner, the plant site and entity-keyed facing, holds and duplicates, the enemy kit, Replay truth and the live footprint."
+waits_for = "The player's answers to the plan's open questions on definitions and thresholds."
+
+[[document]]
 path = "docs/BEHAVIOUR_MODEL_DESIGN.md"
 kind = "design"
 status = "partial"
@@ -192,6 +200,14 @@ status = "proposed"
 since = "2026-09-28"
 remains = "E3 (read the teardrop tip), then the sampler."
 waits_for = "team_vision storing pose windows, and a teardrop reader or the player's tip labels."
+
+[[document]]
+path = "docs/STALL_ROSTER_DIFFERENCE.md"
+kind = "design"
+status = "proposed"
+since = "2026-10-04"
+remains = "The roster-difference rule for capture stalls a round outlives, unbuilt."
+waits_for = "BACKLOG item 1's stall thread; the ally icons or a scoreboard opening to name the dead."
 
 [[document]]
 path = "docs/MINIMAP_OBJECTS_DESIGN.md"
@@ -472,12 +488,26 @@ status = "live"
 since = "2026-10-04"
 
 [[document]]
+path = "docs/REPLAY_KEEPING.md"
+kind = "reference"
+status = "live"
+since = "2026-10-04"
+
+[[document]]
 path = "docs/EXTERNAL_GROUND_TRUTH.md"
 kind = "plan"
 status = "proposed"
 since = "2026-10-02"
 remains = "Every step after the probe: each saved match record aligned to the stored killfeed, the coordinate transform's axis check, and the record scored as a channel like any other."
 waits_for = "Nothing; the alignment can start."
+
+[[document]]
+path = "docs/FRAMETIME_PROTOCOL.md"
+kind = "plan"
+status = "proposed"
+since = "2026-10-04"
+remains = "The player's 30-minute PresentMon session, its decision table from prototypes/frametime_results.py, and the copy of its folder into the store."
+waits_for = "The player's session with the game running; the kit (prototypes/live_load.py, prototypes/frametime_results.py) is ready."
 
 [[document]]
 path = "docs/MINIMAP_GLYPH_CHANNEL.md"

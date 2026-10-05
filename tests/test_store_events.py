@@ -98,5 +98,138 @@ class TruncatedEventsTests(unittest.TestCase):
         self.assertTrue(decode["ping"]["stored"].startswith("incomplete"))
 
 
+def _ping_events(n=3):
+    """The rows `PingReader.events` writes: formal entity events, stamped
+    `producer_version`, with no `ping_version` key."""
+    from reticle.ping import PingReader
+    pr = object.__new__(PingReader)
+    pr.hz = 10.0
+    pr.hits = [("standard", 1.0 + 10 * i, 8.0 + 10 * i, 100, 120, 79, 70) for i in range(n)]
+    return pr.events(SID)
+
+
+class FormalEventStampTests(unittest.TestCase):
+    """`ping` writes formal entity events; their stamp is `producer_version`.
+    Reading only `ping_version` made a fresh ping stream read as absent, so
+    `plan` listed it absent and `scan` reread it on every pass (b3b9defb6fd7,
+    2026-10-04)."""
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.store = Store(self._dir.name)
+
+    def tearDown(self):
+        self._dir.cleanup()
+
+    def test_a_formal_ping_stream_reads_at_its_producer_version(self):
+        rows = _ping_events()
+        self.assertNotIn("ping_version", rows[0])
+        self.store.write_events("ping", SID, rows)
+        self.assertEqual(self.store.events_version("ping", SID), PING_VERSION)
+
+    def test_a_formal_last_row_at_another_stamp_is_not_current(self):
+        rows = _ping_events()
+        rows[-1]["producer_version"] = "ping-0.0.1"
+        self.store.write_events("ping", SID, rows)
+        self.assertTrue(self.store.events_version("ping", SID).startswith("incomplete"))
+
+    def test_another_channels_producer_version_is_not_this_streams_stamp(self):
+        rows = _ping_events()
+        for r in rows:
+            r["source_channel"] = "minimap"
+        self.store.write_events("ping", SID, rows)
+        self.assertIsNone(self.store.events_version("ping", SID))
+
+    def test_plan_compares_the_formal_stamp_and_lists_the_stream_current(self):
+        from reticle.plan import compared_paths
+        self.assertIn("producer_version", compared_paths()["ping"])
+        (self.store.root / "manifests").mkdir()
+        self.store.manifest_path(SID).write_text(
+            json.dumps({"session_id": SID, "ingested_at": "2026-09-28T00:00:00"}),
+            encoding="utf-8")
+        self.store.write_events("ping", SID, _ping_events())
+        got = stale(self.store, [SID])[SID]
+        self.assertNotIn("ping", got["absent"])
+        self.assertNotIn("ping", [d["stream"] for d in got["decode"]])
+
+
+def _ping_read(hits):
+    """The real `PingReader.events` output of a finished read with `hits`."""
+    from reticle.ping import PingReader
+    pr = PingReader(None, (0, 0, 100, 100), hz=10.0)
+    pr.hits = hits
+    pr.ts = [0.1 * i for i in range(50)]
+    pr.unconfirmed, pr.rejected, pr.n_absent = [("standard",)], [], 3
+    return pr.events(SID)
+
+
+class EmptyPingReadTests(unittest.TestCase):
+    """A ping read that confirmed none is stored as a read, with its stamp and
+    its inputs. Its file used to be empty: no stamp, so `plan` listed the
+    stream absent and `scan` reread it on every pass (4f207c0c4e39,
+    2026-10-04). A session never read still has no file and no stamp."""
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.store = Store(self._dir.name)
+        (self.store.root / "manifests").mkdir()
+        self.store.manifest_path(SID).write_text(
+            json.dumps({"session_id": SID, "ingested_at": "2026-09-28T00:00:00"}),
+            encoding="utf-8")
+
+    def tearDown(self):
+        self._dir.cleanup()
+
+    def write(self, rows):
+        from reticle.cli import _record_inputs
+        _record_inputs(self.store, SID, "ping", rows[0])
+        return self.store.write_events("ping", SID, rows)
+
+    def plan(self):
+        got = stale(self.store, [SID])[SID]
+        return got["absent"], [d["stream"] for d in got["decode"]]
+
+    def test_an_empty_read_is_one_stamped_coverage_row(self):
+        rows = _ping_read([])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["kind"], "coverage")
+        self.assertEqual(rows[0]["ping_version"], PING_VERSION)
+        self.assertEqual((rows[0]["confirmed"], rows[0]["unconfirmed"], rows[0]["frames"],
+                          rows[0]["frames_absent"]), (0, 1, 50, 3))
+        self.assertNotIn("t_ms", rows[0])
+        self.assertNotIn("event_kind", rows[0])
+
+    def test_an_empty_read_is_current_and_records_its_inputs(self):
+        self.write(_ping_read([]))
+        self.assertEqual(self.store.events_version("ping", SID), PING_VERSION)
+        head = self.store.read_events("ping", SID)[0]
+        self.assertIn("spans", head.get("metadata", {}))
+        absent, decode = self.plan()
+        self.assertNotIn("ping", absent)
+        self.assertNotIn("ping", decode)
+
+    def test_a_read_with_pings_writes_its_events_alone(self):
+        rows = _ping_read([("standard", 1.0, 8.0, 100, 120, 79, 70)])
+        self.assertEqual([r["event_kind"] for r in rows], ["entity_state", "entity_deleted"])
+        self.write(rows)
+        self.assertEqual(self.store.events_version("ping", SID), PING_VERSION)
+        absent, decode = self.plan()
+        self.assertNotIn("ping", absent)
+        self.assertNotIn("ping", decode)
+
+    def test_an_unread_session_and_an_old_empty_file_stay_unstamped(self):
+        self.assertIsNone(self.store.events_version("ping", SID))
+        self.assertIn("ping", self.plan()[0])
+        self.store.write_events("ping", SID, [])      # what scan wrote before the fix
+        self.assertIsNone(self.store.events_version("ping", SID))
+        self.assertIn("ping", self.plan()[0])
+
+    def test_status_reads_the_stores_stamp(self):
+        from reticle.status import stored_versions
+        self.write(_ping_read([]))
+        self.store.write_events("ping", "s1", _ping_read([("standard", 1.0, 8.0, 1, 2, 79, 70)]))
+        self.assertEqual(stored_versions(self.store.root)["ping"], {PING_VERSION: 2})
+
+
 if __name__ == "__main__":
     unittest.main()
