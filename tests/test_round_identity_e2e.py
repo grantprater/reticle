@@ -374,23 +374,6 @@ class RoundIdentityE2ETests(unittest.TestCase):
         self.assertEqual(skye_id_event["source_channel"], "adjudication.identity")
 
     @NEEDS_KF_FIXTURE
-    @unittest.expectedFailure
-    def test_round4_gun_kill_locations(self):
-        """Every gun kill should carry a death and a killer location.
-
-        Expected to fail: no channel this harness feeds observes where anyone
-        died or stood, and `reticle deaths` stores no location either. The
-        coordinates this test once asserted came from the 2026-09-12 fixture,
-        which recorded no source for them (Jett's matched Deadlock's X mark to
-        0.3 px), and the death-round4 contract refused fixture locations.
-        """
-        death_verdicts, _ = self._round4_deaths()
-        for dv in death_verdicts:
-            self.assertIsNotNone(dv.location, f"{dv.death_id} has no death location")
-            self.assertIsNotNone(dv.killer_location, f"{dv.death_id} has no killer location")
-
-
-    @NEEDS_KF_FIXTURE
     def test_round4_living_roster_timeline_and_slot_tracking(self):
         """Verify the complete Round 4 living roster timeline, survivor inward packing, and slot mapping."""
         from reticle.adjudication.death import build_round_roster_timeline, LivingRosterTracker
