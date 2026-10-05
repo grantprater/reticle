@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from reticle import minimap_glyph as M
+from reticle.geometry import MapScale
 from reticle.version import ABILITY_GLYPH_VERSION
 
 STORE = Path(os.environ.get("RETICLE_STORE", Path.home() / "reticle-store"))
@@ -82,6 +83,7 @@ def _reader(data, icons, cands=None, **kw):
     cands = {"ally": {"agents": {"Alpha": "named"}, "blind": 0},
              "enemy": {"agents": {"Charlie": "rival"}, "blind": 0}} if cands is None else cands
     kw.setdefault("hz", 2.0)
+    kw.setdefault("ms", MapScale.at(1.0))
     return M.AbilityGlyphReader(data, (0, 0, 465, 465), "s0", cands, "lineup test", icons, **kw)
 
 
@@ -202,14 +204,101 @@ class ReaderTest(unittest.TestCase):
         self.assertEqual(len(sur), 7)                     # the scheduled frames only
         self.assertTrue(all(x["surprise_reason"].endswith("window_end") for x in sur))
 
-    def test_audit_rows_store_no_cut(self):
+    def test_audit_rows_without_an_audit_null_store_no_cut(self):
         r = _reader(_data(), _Icons([(200, 220)]))
         r.feed(_smp(_crop(_glyph("bar")), 0.0))
         audit = next(x for x in r.rows if x.get("set") == "audit")
         self.assertIsNone(audit["best_cut"])
         self.assertIsNone(audit["above_cut"])
+        self.assertIsNone(audit["bank_cut"])
         self.assertEqual(audit["cut_reason"], "no_null_at_full_rotation")
         self.assertEqual(audit["rests_on"], [])           # the full set rests on no lineup
+
+    def test_audit_rows_read_the_full_rotation_null(self):
+        """C: the audit searches every key at every rotation, so it reads the
+        cuts measured at that size (`audit_cut`, the audit bank cut), never the
+        policy's; a surprise row reads the full bank's cut."""
+        data = _data()
+        data.audit_cuts = {k: 0.95 for k in data.keys}
+        data.bank_cuts = {"audit": 0.97, "full": 0.5}
+        r = _reader(data, _Icons([(200, 220)]))
+        r.feed(_smp(_crop(_glyph("bar")), 0.0))
+        audit = next(x for x in r.rows if x.get("set") == "audit")
+        ctx = next(x for x in r.rows if x.get("set") == "context")
+        self.assertEqual(audit["best_cut"], 0.95)
+        self.assertEqual(audit["bank_cut"], 0.97)
+        self.assertEqual(audit["above_bank_cut"], audit["scores"][audit["best"]][0] > 0.97)
+        self.assertIsNone(audit["cut_reason"])
+        self.assertEqual(ctx["best_cut"], 0.6)            # the policy's per-key cut
+        self.assertIsNone(ctx["bank_cut"])                # the context set is no table bank
+        data.cuts = {k: 0.999 for k in data.keys}         # nothing clears: the window goes to surprise
+        r2 = _reader(data, _Icons([(200, 220)]))
+        r2.feed(_smp(_crop(_glyph("bar")), 0.0))
+        r2.finish()
+        sur = next(x for x in r2.rows if x.get("set") == "surprise")
+        self.assertEqual((sur["best_cut"], sur["bank_cut"]), (0.999, 0.5))
+
+    def test_the_matcher_reads_the_full_transform(self):
+        """A: every px x scale length reads geometry.MapScale.scale (widget x
+        map zoom); a frame without one, or with a crop of another widget, is
+        unread with its reason."""
+        from reticle.geometry import MapScale
+        ms = MapScale("k", 1.0, 0.8, "test")
+        r = _reader(_data(), _Icons([(200, 220)]), ms=ms)
+        r.feed(_smp(_crop(_glyph("arrow"), canvas=13), 0.0))
+        row = next(x for x in r.rows if x["kind"] == "disc" and x["set"] == "context")
+        self.assertEqual(row["scale"], 0.8)
+        self.assertEqual(row["best"], "Alpha:E")
+        self.assertIn(0.8, r.events("s0", "k")[0]["matcher"]["scales"])
+        r2 = _reader(_data(), _Icons([(200, 220)]), ms=None)
+        r2.feed(_smp(_crop(_glyph("arrow")), 0.0))
+        self.assertEqual(r2.rows[-1]["reason"], "no_map_scale")
+        r3 = _reader(_data(), _Icons([(200, 220)]), ms=MapScale("k", 0.71183, 0.8871, "test"))
+        r3.feed(_smp(_crop(_glyph("arrow")), 0.0))         # a 465 px crop under a 331 px key
+        self.assertEqual(r3.rows[-1]["reason"], "geometry_size_mismatch")
+        self.assertFalse(any(x["kind"] == "disc" for x in r2.rows + r3.rows))
+
+    def test_a_disc_that_shows_the_map_art_is_gated(self):
+        """D: a drawn icon is an opaque dark disc that hides the map art under
+        it. A dark patch the crop shares with the baked static (the void
+        corner's static structure) reads map_shown near 1 and is gated; a
+        glyph disc over the same footprint hides the floor and is scored."""
+        static = _crop(None, at=(60, 60))                 # a floor of luma about 140 at (200, 220)
+        static[:, :203] = 20                              # the void left of x = 203, as the bake holds it
+        cv2.rectangle(static, (203, 214), (215, 228), (235, 235, 235), -1)    # a bright building corner
+        fp = np.zeros(static.shape[:2], np.uint8)
+        fp[:, 203:] = 1                                   # the map art: floor and building
+        img = static.copy()
+        world = np.random.default_rng(7).uniform(150, 255, (465, 203, 1))
+        img[:, :203] = world.astype(np.uint8)             # the world behind the widget, unpredictable
+        cv2.circle(img, (196, 220), 4, (30, 30, 30), -1)  # a dark patch of it the proposer reads
+        r = _reader(_data(), _Icons([(200, 220)]), static=static, footprint=fp)
+        r.feed(_smp(img, 0.0))
+        row = next(x for x in r.rows if x["kind"] == "disc")
+        self.assertLess(row["static_corr"], M.MAP_CORR)  # stage 1's gate does not reach it
+        self.assertGreaterEqual(row["map_shown"], M.MAP_SHOWN)
+        self.assertEqual(row["reason"], "map_shown")
+        self.assertEqual(r.births, 0)
+        r2 = _reader(_data(), _Icons([(200, 220)]), static=static, footprint=fp)
+        r2.feed(_smp(_crop(_glyph("arrow")), 0.0))
+        row2 = next(x for x in r2.rows if x["kind"] == "disc" and x["set"] == "context")
+        self.assertLess(row2["map_shown"], M.MAP_SHOWN)
+        self.assertIsNone(row2["reason"])
+        head = r2.events("s0", "k")[0]
+        self.assertEqual(head["gates"]["map_shown"]["cut"], M.MAP_SHOWN)
+
+    def test_map_shown_does_not_judge_a_disc_off_the_footprint(self):
+        """A glyph drawn over the void hides nothing the bake predicts: under
+        MAP_SHOWN_MIN_FP of the disc on the footprint, map_shown is null."""
+        w, _, mask = M.window_geometry(1.0)
+        crop = np.full((2, w, w), 140.0, np.float32)
+        static = np.full((2, w, w), 140.0, np.float32)
+        fp = np.zeros((2, w, w), np.float32)
+        fp[1] = 1.0
+        shown, share = M.map_shown(crop, static, fp, mask)
+        self.assertTrue(np.isnan(shown[0]))
+        self.assertAlmostEqual(float(shown[1]), 1.0)
+        self.assertEqual((float(share[0]), float(share[1])), (0.0, 1.0))
 
     def test_context_and_frame_rows_rest_on_the_lineup(self):
         r = _reader(_data(), _Icons([(200, 220)]))

@@ -6,13 +6,25 @@ r"""Stage 1 of docs/MINIMAP_GLYPH_CHANNEL.md: the per-key rotation policy table 
     .\.venv\Scripts\python.exe prototypes\glyph_tables.py record --out DIR   (metric series glyph_tables/*, once)
     .\.venv\Scripts\python.exe prototypes\glyph_tables.py bank --out NEWDIR --tables DIR   (the references, as data)
 
-`bank` writes `glyph-bank-0.2.0.npz` and `.json`: the 128 px glyphs the tables in DIR were built on, each with its
+`bank` writes `glyph-bank-0.3.0.npz` and `.json`: the 128 px glyphs the tables in DIR were built on, each with its
 game file and sha256, which the
 stage 2 reader (`reticle.minimap_glyph`) reads as versioned data; the reader never imports this script.
 
-`build` writes `glyph-rotation-policy-0.1.1.json` and `glyph-null-table-0.1.1.json` under DIR and `build.json`
+`build` writes `glyph-rotation-policy-0.1.1.json` and `glyph-null-table-0.2.0.json` under DIR and `build.json`
 (the single-frame measurements S1-S3 and the instrument controls). Each command refuses an output that exists,
-so a rerun goes to a new DIR; `follow`, `thrown` and `record` read the tables `build` wrote in the same DIR.
+so a rerun goes to a new DIR; `follow`, `thrown` and `record` read the tables `build` wrote in the same DIR. `build`
+reads the dev crop cache for the unlabelled discs (no decode); `follow` and `thrown` still score at the widget scale
+(minimap-glyph-follow-0.2.0) and were not rerun at 0.2.0.
+
+**0.2.0, the stage 3 prerequisites** (glyph-prereqs-20261005). Every null score is taken at the item's session's
+`geometry.MapScale.scale` (widget x map zoom; `to_map_scale`, the table's `basis` map_scale), so the reader's one
+transform reads cuts measured at its own basis; the instrument controls still run at the widget scale and must
+reproduce stage 1 (58, 55 and 35 of 59). Beside the labelled no-ability discs, the null takes the proposer discs of
+the dev sessions' exhaustive paint frames that no painted icon or labelled item explains and the reader's own gates
+keep (`unlabelled_negatives`, source `paint_exhaustive_unlabelled`): the player painted every icon on those frames,
+so such a disc is no ability. Only d95cfad5693a holds such frames; dae6f33f3f48 has none, and no other evidence
+vouches for an unlabelled disc there. The audit null (`audit_null`) scores the same discs against every key at every
+rotation: each key's `audit_cut` and the audit bank's cut.
 
 **The policy table** (`policy_rows`), one row per catalogue key (the game's DisplayIcon keys, slots C, Q, E, X):
 a sure player rotation answer decides (labels/minimap_glyph_questions/answers.jsonl, `rotation:*` rows, last row
@@ -76,9 +88,13 @@ import glyph_channel_cost as gcc  # noqa: E402  (sets single-threaded, Below Nor
 import minimap_glyph_eval as mge  # noqa: E402
 import numpy as np  # noqa: E402
 
-VERSION = "glyph-tables-0.1.1"
-POLICY_VERSION = "glyph-rotation-policy-0.1.1"   # 0.1.1: no_component_default
-NULL_VERSION = "glyph-null-table-0.1.1"       # 0.1.1: bank cuts (gate 3), fuller provenance
+VERSION = "glyph-tables-0.2.0"   # 0.2.0: the null at the full transform, unlabelled discs, the audit null
+POLICY_VERSION = "glyph-rotation-policy-0.1.1"   # 0.1.1: no_component_default (rows unchanged at 0.2.0)
+#: 0.1.1: bank cuts (gate 3), fuller provenance. 0.2.0: every score at geometry.MapScale.scale (widget x map zoom,
+#: `basis` map_scale), the unlabelled proposer discs of the dev sessions' exhaustive paint frames, and the audit
+#: null (`keys.<key>.audit_cut`, `banks.audit`).
+NULL_VERSION = "glyph-null-table-0.2.0"
+BASIS = "map_scale"
 FALSE_RATE = 0.05        # a design choice (docs/MINIMAP_GLYPH_CHANNEL.md, gate 3)
 DEV_RUN = gcc.KILLJOY_REFS_DEV.parent
 HELDOUT_LABELS = mge.LABELS / "minimap_glyph_heldout"
@@ -233,7 +249,7 @@ def key_scores(items: list[dict], z, keys: list[str], rotating: set) -> tuple[di
             T, meta = mge.bank(r["scale"], tk, rotate="policy")
             banks[s] = (mge.zrows(T), np.array([idx[m[0]] for m in meta]))
             sizes[s] = {keys[i]: int(n) for i, n in enumerate(np.bincount(banks[s][1], minlength=len(keys)))}
-        P = mge.patches(z["Y"][r["win_index"]], r["scale"])
+        P = mge.patches(r["Yw"] if "Yw" in r else z["Y"][r["win_index"]], r["scale"])
         if P is None:
             continue
         Tz, owner = banks[s]
@@ -269,13 +285,16 @@ def null_table(neg: list[dict], pos: list[dict], sc: dict, sizes: dict, keys: li
     """Per key: the no-ability discs' score distribution and the cut (`cut_at`), overall and per widget scale;
     per bank: the false-naming rate at the cuts and the margin distributions; the tie margin."""
     neg = [r for r in neg if r["win_index"] in sc]
-    out = {"version": NULL_VERSION, "policy_version": POLICY_VERSION, "rate": FALSE_RATE,
+    out = {"version": NULL_VERSION, "policy_version": POLICY_VERSION, "rate": FALSE_RATE, "basis": BASIS,
+           "basis_rule": "every px x scale length (mask, shift, canvas) at geometry.MapScale.scale of the item's "
+                         "session: widget scale x map zoom, one transform",
            "rule": "a key names a disc when its score exceeds its cut; the cut is the (m+1)-th highest score of "
                    "the dev no-ability discs against that key, m = floor(rate x n)",
            "score": "single frame: masked Pearson of luma, r = 8.5 px x scale, +-3 px centre, canvas 11-22 px x "
                     "scale, the key's policy rotations (minimap-glyph-eval-0.3.0's matcher)",
            "negatives": {"n": len(neg), "by_session": dict(Counter(r["sid"] for r in neg)),
-                         "by_scale": dict(Counter(str(round(r["scale"], 4)) for r in neg))},
+                         "by_scale": dict(Counter(str(round(r["scale"], 4)) for r in neg)),
+                         "by_source": dict(Counter(r["src"] for r in neg))},
            "keys": {}}
     M = np.array([sc[r["win_index"]] for r in neg])
     scales = sorted({round(r["scale"], 3) for r in neg})
@@ -360,14 +379,159 @@ def bank_cut(neg: list[dict], pos: list[dict], sc: dict, keys: list[str], bank: 
 
 def gate3(ntab: dict) -> dict:
     """Which parts of gate 3 (docs/MINIMAP_GLYPH_CHANNEL.md section 5) this null table meets, from its own fields."""
-    b = ntab["banks"]
+    b = {k: v for k, v in ntab["banks"].items() if k in ("context", "full")}
+    n_un = (ntab["negatives"].get("by_source") or {}).get(UNLABELLED_SRC, 0)
     return {"bank_cut_at_most_rate": all(b[k]["bank_cut"]["rate"] <= FALSE_RATE for k in b),
             "per_scale_bank_cut_at_most_rate": all(v["rate"] <= FALSE_RATE for k in b for v in b[k]["bank_cut"]["by_scale"].values()),
             "per_key_cut_bank_rate_at_most_rate": all(b[k]["false_naming_rate_cut"] <= FALSE_RATE for k in b),
-            "unlabelled_proposer_discs": False,
-            "pooled_score": "follow.json pooled_null (labelled no-ability discs only)",
-            "note": "the per-key cuts alone do not hold a bank at the rate; the bank cut does by construction. No "
-                    "unlabelled proposer disc enters the null, so gate 3 is met only on labelled no-ability discs"}
+            "unlabelled_proposer_discs": n_un > 0,
+            "unlabelled_n": n_un,
+            "pooled_score": "follow.json pooled_null (labelled no-ability discs only; not rerun at 0.2.0)",
+            "note": "the per-key cuts alone do not hold a bank at the rate; the bank cut does by construction. "
+                    "Unlabelled proposer discs come only from frames the player painted exhaustively "
+                    "(`unlabelled_negatives`); a disc the reader's gates refuse never reaches a cut and stays out"}
+
+
+UNLABELLED_SRC = "paint_exhaustive_unlabelled"
+
+
+def to_map_scale(items: list[dict]) -> dict:
+    """Rescale every item to its session's geometry.MapScale.scale in place (`widget_scale` keeps the crop's);
+    refuses an item whose crop width disagrees with the key's widget. Returns {sid: MapScale provenance}."""
+    from reticle import geometry
+    ms = {}
+    for r in items:
+        if r["sid"] not in ms:
+            m = geometry.map_scale_of(r["sid"], str(mge.STORE))
+            if m is None:
+                raise SystemExit(f"{r['sid']}: no geometry.MapScale")
+            ms[r["sid"]] = m
+        m = ms[r["sid"]]
+        ws = r.get("widget_scale", r["scale"])
+        if abs(ws - m.widget_scale) > 1e-3:
+            raise SystemExit(f"{r['sid']}: crop scale {ws} is not the key's widget scale {m.widget_scale}")
+        r["widget_scale"], r["scale"], r["map_zoom"] = ws, m.scale, m.map_zoom
+    return {s: m.provenance() for s, m in ms.items()}
+
+
+def exhaustive_paint_frames(sid: str) -> dict:
+    """{t_ms: the latest exhaustive `frame` row of labels/ability_paint at that time}: the frames on which the player
+    painted every ability icon, so a proposer disc no painted icon explains is no ability."""
+    p = mge.LABELS / "ability_paint" / f"{sid}.jsonl"
+    out = {}
+    if not p.exists():
+        return out
+    for ln in open(p, encoding="utf-8"):
+        if ln.strip():
+            r = json.loads(ln)
+            if r.get("kind") == "frame" and r.get("exhaustive") and not r.get("unsure"):
+                out[float(r["t_ms"])] = r
+    return out
+
+
+def unlabelled_negatives(dev_items: list[dict], dev: set) -> tuple[list[dict], dict]:
+    """(items, report): proposer discs (`ability_icons.propose_icons`) of the dev sessions' exhaustive paint frames
+    that lie farther than SNAP_R x scale from every painted icon (the self icon included) and every labelled dev item
+    of that frame, and that the reader's own gates (`reticle.minimap_glyph`: static_like, map_shown, the painted
+    self icon's portrait cover) do not refuse. Each is a no-ability disc no label names: the player's exhaustive
+    paint says nothing else is drawn there. Each item carries its luma window (`Yw`, WIN half-size) and the
+    session's caster kit as its context bank. Scale is geometry.MapScale.scale."""
+    import cv2
+    from reticle import ability_icons, geometry
+    from reticle import minimap_glyph as G
+    items, rep = [], {"rule": "exhaustive paint frames only (labels/ability_paint `exhaustive` true); farther than "
+                              "SNAP_R x MapScale.scale from every painted icon and labelled item; not gated by the "
+                              "reader's static_like, map_shown or self-portrait rules",
+                      "snap_r": mge.SNAP_R, "sessions": {}}
+    for sid in sorted(dev):
+        frames_ = exhaustive_paint_frames(sid)
+        kits = {tuple(r["kit"]) for r in dev_items if r["sid"] == sid and r.get("kit")}
+        s_rep = {"frames": len(frames_), "discs": 0, "near_label": 0, "gated": Counter(), "kept": 0,
+                 "kit": [list(k) for k in sorted(kits)]}
+        rep["sessions"][sid] = s_rep
+        if not frames_:
+            continue
+        if len(kits) != 1:
+            raise SystemExit(f"{sid}: the dev items name {len(kits)} kits; an unlabelled disc's context is unknown")
+        kit = list(next(iter(kits)))
+        c, why, _ = mge.crop_cache(sid)
+        cr = c.rect_of("minimap")
+        ms = geometry.map_scale_of(sid, str(mge.STORE))
+        st = geometry.reference_static(sid, str(mge.STORE))
+        sY = mge.luma(st if st.ndim == 3 else cv2.cvtColor(st, cv2.COLOR_GRAY2BGR))
+        fp = geometry.footprint(sid, str(mge.STORE), shape=st.shape[:2])
+        fr = mge.frames(sid, sorted(frames_))
+        w, sh, mask = G.window_geometry(ms.scale)
+        for t, prow in sorted(frames_.items()):
+            th, crop = fr[t]
+            roi = prow["roi"]
+            painted = [(i["x"] + roi[0] - cr[0], i["y"] + roi[1] - cr[1], i["category_id"]) for i in prow["icons"]]
+            lab = [(r["cx"], r["cy"]) for r in dev_items if r["sid"] == sid and abs(r["t_held"] - th) < 1.0]
+            Y = mge.luma(crop)
+            tm = mge.icon_terms(sid, crop.shape)
+            for q in ability_icons.propose_icons(crop, tm):
+                s_rep["discs"] += 1
+                x, y = float(q["cx"]), float(q["cy"])
+                near = [np.hypot(x - a, y - b) for a, b, _ in painted] + [np.hypot(x - a, y - b) for a, b in lab]
+                if near and min(near) <= mge.SNAP_R * ms.scale:
+                    s_rep["near_label"] += 1
+                    continue
+                xy = np.array([[x, y]])
+                cw, ok = G.disc_windows(Y, xy, w, 0)
+                sw, sok = G.disc_windows(sY, xy, w, 0)
+                gate = None
+                if not (ok[0] and sok[0]):
+                    gate = "off_crop"
+                else:
+                    a, b = cw[:, mask], sw[:, mask]
+                    corr = float((G.zrows(a) * G.zrows(b)).sum())
+                    shown = np.nan
+                    if fp is not None:
+                        fw, _ = G.disc_windows(fp.astype(np.float32), xy, w, 0)
+                        shown = float(G.map_shown(cw, sw, fw, mask)[0][0])
+                    cov = G.portrait_covers(xy, ["self" for p in painted if p[2] == "world:self"],
+                                            [(p[0], p[1]) for p in painted if p[2] == "world:self"], ms.scale)[0]
+                    if b.std() >= G.FLAT_STD and corr >= G.MAP_CORR:
+                        gate = "static_like"
+                    elif not np.isnan(shown) and shown >= G.MAP_SHOWN:
+                        gate = "map_shown"
+                    elif cov is not None:
+                        gate = cov
+                if gate is not None:
+                    s_rep["gated"][gate] += 1
+                    continue
+                ix, iy = int(round(x)), int(round(y))
+                Yw = np.full((2 * mge.WIN + 1, 2 * mge.WIN + 1), np.nan, np.float32)
+                ya, xa = max(0, iy - mge.WIN), max(0, ix - mge.WIN)
+                sub = Y[ya:iy + mge.WIN + 1, xa:ix + mge.WIN + 1]
+                Yw[ya - (iy - mge.WIN):ya - (iy - mge.WIN) + sub.shape[0],
+                   xa - (ix - mge.WIN):xa - (ix - mge.WIN) + sub.shape[1]] = sub
+                items.append({"sid": sid, "t_ms": t, "t_held": th, "cx": x, "cy": y, "r": float(q["r"]),
+                              "cat": "NOT", "split": "dev", "src": UNLABELLED_SRC, "kit": kit,
+                              "scale": crop.shape[1] / 465.0, "win_index": f"u{len(items)}", "Yw": Yw})
+                s_rep["kept"] += 1
+        s_rep["gated"] = dict(s_rep["gated"])
+    rep["n"] = len(items)
+    return items, rep
+
+
+def audit_null(neg: list[dict], pos: list[dict], sc: dict, keys: list[str]) -> dict:
+    """The audit's null: every key at every rotation (the audit path's search size). Per key, the `cut_at` of the
+    no-ability discs' scores; for the bank (every key), the `cut_at` of each disc's best score, and the dev glyph
+    items whose best key over every kit is right and clears it."""
+    neg = [r for r in neg if r["win_index"] in sc]
+    M = np.array([sc[r["win_index"]] for r in neg])
+    per = {k: round(cut_at(M[:, j]), 4) for j, k in enumerate(keys)}
+    best = M.max(1)
+    c = cut_at(best)
+    right = [r for r in pos if r["win_index"] in sc and best_in(sc[r["win_index"]], keys, keys)[0] == r["truth"]]
+    clear = [r for r in right if best_in(sc[r["win_index"]], keys, keys)[1] > c]
+    return {"keys": per, "bank_cut": {"rule": "a disc is named when its best score over every key at every rotation "
+                                              "exceeds the bank cut", "cut": round(c, 4), "n": int(len(best)),
+                                      "named": int((best > c).sum()), "rate": round(float((best > c).mean()), 4),
+                                      **q(best), "glyph_items_best_right": len(right),
+                                      "glyph_items_named_right_cut": len(clear), "glyph_items": len(pos)},
+            "median_key_cut": round(float(np.median(list(per.values()))), 4)}
 
 
 def load_dev():
@@ -411,25 +575,63 @@ def cmd_build(out: Path) -> None:
         "counts": dict(Counter(r["policy"] for r in rows)), "decided_by": dict(Counter(r["decided_by"] for r in rows)),
         "surprises": [r["key"] for r in rows if r["surprise"]], "components": len(comps),
         "provenance": prov, "rows": rows}
-    sc, sizes = key_scores(neg + pos, z, keys, rotating)
-    ntab = null_table(neg, pos, sc, sizes, keys, policy)
-    ntab["provenance"] = prov
-    cut = {k: ntab["keys"][k]["cut"] for k in keys}
 
     def top1(scores):
         return sum(best_in(scores[r["win_index"]], keys, r["kit"])[0] == r["truth"] for r in pos if r["win_index"] in scores)
-    right = [r for r in pos if r["win_index"] in sc and best_in(sc[r["win_index"]], keys, r["kit"])[0] == r["truth"]]
-    clear = [r for r in right if sc[r["win_index"]][keys.index(r["truth"])] > cut[r["truth"]]]
+    # The instrument, at the widget-scale basis stage 1 measured on: it must reproduce stage 1 (58, 55, 35 of 59).
     kit_keys = sorted({k for r in pos + neg for k in r["kit"]})
+    sc_w, _ = key_scores(pos, z, keys, rotating)
     sc_all, _ = key_scores(pos, z, kit_keys, set(kit_keys))
     sc_up, _ = key_scores(pos, z, kit_keys, set())
+    s1_widget = top1(sc_w)
+    # The tables, at the full transform (widget x map zoom), with the unlabelled discs and the audit null.
+    ms_prov = to_map_scale(neg + pos)
+    unl, unl_rep = unlabelled_negatives(neg + pos, mge.DEV)
+    to_map_scale(unl)
+    prov["map_scale"] = ms_prov
+    prov["unlabelled_negatives"] = {k: v for k, v in unl_rep.items()}
+    negs = neg + unl
+    sc, sizes = key_scores(negs + pos, z, keys, rotating)
+    ntab = null_table(negs, pos, sc, sizes, keys, policy)
+    sc_a, sizes_a = key_scores(negs + pos, z, keys, set(keys))
+    aud = audit_null(negs, pos, sc_a, keys)
+    for k in keys:
+        ntab["keys"][k]["audit_cut"] = aud["keys"][k]
+        ntab["keys"][k]["audit_templates"] = {str(s): sizes_a[s][k] for s in sizes_a}
+    ntab["banks"]["audit"] = {"n": aud["bank_cut"]["n"], "bank_cut": aud["bank_cut"],
+                              "median_key_cut": aud["median_key_cut"]}
+    ntab["gate3"] = gate3(ntab)
+    ntab["provenance"] = prov
+    cut = {k: ntab["keys"][k]["cut"] for k in keys}
+    # B2: the labelled-only bank cuts read on the unlabelled discs.
+    lab_only = {b: cut_at([best_in(sc[r["win_index"]], keys, r["kit"] if b == "context" else keys)[1]
+                           for r in neg if r["win_index"] in sc]) for b in ("context", "full")}
+    unl_named = {b: sum(best_in(sc[r["win_index"]], keys, r["kit"] if b == "context" else keys)[1] > lab_only[b]
+                        for r in unl if r["win_index"] in sc) for b in lab_only}
+    prev = Path(mge.STORE) / "analysis" / "glyph-tables-20261005b" / "glyph-null-table-0.1.1.json"
+    moves = None
+    if prev.exists():
+        old = json.load(open(prev, encoding="utf-8"))
+        dv = [abs(cut[k] - old["keys"][k]["cut"]) for k in keys if k in old["keys"]]
+        moves = {"from": str(prev), "median_abs": round(float(np.median(dv)), 4), "max_abs": round(float(max(dv)), 4),
+                 "keys": len(dv), "bank_cut_from": {b: old["banks"][b]["bank_cut"]["cut"] for b in ("context", "full")}}
+    right = [r for r in pos if r["win_index"] in sc and best_in(sc[r["win_index"]], keys, r["kit"])[0] == r["truth"]]
+    clear = [r for r in right if sc[r["win_index"]][keys.index(r["truth"])] > cut[r["truth"]]]
     rot_cuts = [cut[k] for k in keys if policy[k] == "rotates"]
     up_cuts = [cut[k] for k in keys if policy[k] == "upright"]
     default = {r["key"] for r in rows if r["decided_by"] == NO_COMPONENT}
     up_ev_cuts = [cut[k] for k in keys if policy[k] == "upright" and k not in default]
-    bc = {b: ntab["banks"][b]["bank_cut"] for b in ntab["banks"]}
-    m = {"version": VERSION, "dev_n": len(pos), "negatives_n": len(neg),
-         "s1_single_policy": top1(sc), "control_rotate_all": sum(
+    bc = {b: ntab["banks"][b]["bank_cut"] for b in ("context", "full")}
+    m = {"version": VERSION, "basis": BASIS, "map_scale": ms_prov, "dev_n": len(pos), "negatives_n": len(negs),
+         "labelled_negatives_n": len(neg), "unlabelled_negatives_n": len(unl), "unlabelled": unl_rep,
+         "b2_labelled_only_bank_cut": {b: round(v, 4) for b, v in lab_only.items()},
+         "b2_unlabelled_named_at_labelled_only_cut": unl_named,
+         "cut_move": moves,
+         "audit": {"bank_cut": aud["bank_cut"], "median_key_cut": aud["median_key_cut"],
+                   "median_policy_key_cut": round(float(np.median(list(cut.values()))), 4)},
+         "s1_single_policy_widget": s1_widget,
+         "s1_single_policy": top1(sc), "control_basis": "widget scale (stage 1's), the instrument check",
+         "control_rotate_all": sum(
              best_in(sc_all[r["win_index"]], kit_keys, r["kit"])[0] == r["truth"] for r in pos if r["win_index"] in sc_all),
          "control_upright": sum(
              best_in(sc_up[r["win_index"]], kit_keys, r["kit"])[0] == r["truth"] for r in pos if r["win_index"] in sc_up),
@@ -452,8 +654,9 @@ def cmd_build(out: Path) -> None:
          "gate3": ntab["gate3"],
          "s1_wrong": [f"{r['sid']} {r['t_ms'] / 1000:.2f}s {r['truth']} -> {best_in(sc[r['win_index']], keys, r['kit'])[0]}"
                       for r in pos if r["win_index"] in sc and r not in right],
-         "false_naming": {f"{b}_{w}": ntab["banks"][b][f"false_naming_rate_{w}"] for b in ntab["banks"] for w in ("cut", "verdict")},
-         "named_right_verdict": {b: ntab["banks"][b]["glyph_items_named_right_verdict"] for b in ntab["banks"]},
+         "false_naming": {f"{b}_{w}": ntab["banks"][b][f"false_naming_rate_{w}"] for b in ("context", "full")
+                          for w in ("cut", "verdict")},
+         "named_right_verdict": {b: ntab["banks"][b]["glyph_items_named_right_verdict"] for b in ("context", "full")},
          "wall_s": round(time.time() - t0, 1)}
     out.mkdir(parents=True, exist_ok=True)
     for name, obj in ((TABLES[0], ptab), (TABLES[1], ntab), ("build.json", m)):
@@ -783,7 +986,8 @@ def cmd_thrown(out: Path, only: set | None = None) -> None:
 # ------------------------------------------------------------------ the reference bank the stage 2 reader reads
 
 #: 0.2.0: each source's game file (path under the export, sha256) beside its provenance; the glyphs are 0.1.0's.
-BANK_VERSION = "glyph-bank-0.2.0"
+#: 0.3.0: pairs with glyph-null-table-0.2.0 (the full transform); the glyphs are 0.1.0's.
+BANK_VERSION = "glyph-bank-0.3.0"
 
 
 def source_files(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -840,7 +1044,7 @@ def cmd_bank(out: Path, tables: Path) -> None:
             "glyphs_sha256": hashlib.sha256(G.tobytes()).hexdigest(),
             "npz_sha256": sha256(out / f"{BANK_VERSION}.npz"),
             "matcher": {"canvas_base": [float(c) for c in mge.CANVAS], "mask_r_base": mge.MASK_R,
-                        "shift_base": mge.SHIFT, "rotations": list(mge.ROTS), "scale": "crop width / 465",
+                        "shift_base": mge.SHIFT, "rotations": list(mge.ROTS), "scale": "geometry.MapScale.scale (widget x map zoom)",
                         "resample": "INTER_AREA to shrink the 128 px glyph to the canvas, INTER_LINEAR to turn"},
             "references": {"states": "probe", "answers": True, "gamedata": True,
                            "answers_file": str(mge.ANSWERS), "answers_sha256": have,

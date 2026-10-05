@@ -30,8 +30,12 @@ Inputs, as versioned data from the store, never from `prototypes/`:
   never mined captures.
 - the rotation policy (`glyph-rotation-policy-0.1.1`): per key, upright (0
   deg) or every 15 deg, each row citing what decided it.
-- the null table (`glyph-null-table-0.1.1`): per key, the cut that at most
-  5% of the dev no-ability discs exceed at the key's policy search size.
+- the null table (`glyph-null-table-0.2.0`, `basis` map_scale): per key, the
+  cut that at most 5% of the dev no-ability discs exceed at the key's policy
+  search size (`cut`) and at every rotation (`audit_cut`, the audit's search
+  size), and the bank cuts of the full set (every key, policy rotations) and
+  of the audit (every key, every rotation), all measured at the full
+  transform.
 
 `GlyphData.load` checks each file's version and the bank's pairing with the
 tables (their sha256 as the bank recorded them), and the stream's head
@@ -45,22 +49,15 @@ canvas of 11-22 px x scale with `INTER_AREA` and turns with `INTER_LINEAR`.
 All discs of a frame score in one matrix product, on the GPU when cupy and
 a CUDA device are present (`RETICLE_GLYPH=cpu` forces numpy).
 
-The scale, a measured exception to the one transform. The matcher's scale
-is `minimap.widget_scale` alone, not `geometry.MapScale.scale` (widget x
-map zoom) as [domain:minimap/icons-follow-map-zoom] would have it: the null
-table's cuts were measured on that basis (dev sessions at zoom 0.887 and
-1.0), and a cut holds only at the matcher it was measured with. The canvas
-search (11-22 px) spans the zoom's change in drawn size; the mask radius
-and the shift do not follow it. The falsifier fired: rescored at the full
-transform on 4f207c0c4e39 (zoom 0.892), the best key changed on 19.5% of
-200 scored rows and the above-cut decision on 11.5%, over its 5% bound
-(`glyph_reader/trial_020`, F4); at zoom 1.0 both agreed on every row. The
-exception stands for now only because the trial sessions sit at the null
-table's dev zooms (0.892 against 0.887, and 1.0), so the cuts are read at
-the basis they were measured on. A session at another zoom has no valid
-cut. A null remeasured at the full transform under a new table version
-ends the exception; `docs/MINIMAP_GLYPH_CHANNEL.md` makes it a stage 3
-prerequisite.
+The scale: one transform. Every px x scale length (mask, shift, canvas, the
+portrait radii) reads `geometry.MapScale.scale`, widget x map zoom
+[domain:minimap/icons-follow-map-zoom], the basis the null table was
+measured on (`glyph-null-table-0.2.0`); `GlyphData.load` refuses a table on
+another basis. Up to 0.3.0 the matcher read the widget scale alone, a
+measured exception whose falsifier fired (stage 2's F4: at zoom 0.892 the
+best key changed on 19.5% of 200 rows); the table's remeasure ended it. A
+frame with no MapScale is unread (`no_map_scale`), and so is a crop whose
+width is not the key's widget (`geometry_size_mismatch`).
 
 Gates from other channels, before any scheduling (stage 1's follow gates,
 `prototypes/minimap_glyph_eval.py` `map_like` and `portrait_cover`): each
@@ -82,13 +79,23 @@ missing (no stored stream, a size mismatch, no stored row for the frame:
 `portrait` "no_vision_row") the disc is scored and the head says why the
 gate is unknown.
 
-Not gated: the static disc at (21, 91) on 4f207c0c4e39, the variant
-widget's top-left corner, where the void behind the widget reads as a dark
-disc beside the radar ring. The baked static is placed right there; the
-disc lies 80% off the map art's footprint (`geometry.footprint`), yet so do
-real glyphs drawn over the void: 9 of the 226 labelled held-out glyph marks
-sit less than half on the footprint, so a footprint gate would drop them.
-Stage 3's tracks and the null table must answer it (`docs/MINIMAP_GLYPH_CHANNEL.md`).
+The map-shown gate (`map_shown`, MAP_SHOWN). A drawn ability icon is an
+opaque dark disc: it hides the map art under it. Static structure the
+proposer reads as a disc shows that art. Over the matcher disc's pixels on
+the baked footprint (`geometry.footprint`, by (map, profile)), the crop's
+10th-percentile luma over the baked static's is the disc's `map_shown`;
+at or above MAP_SHOWN the disc is the map's (reason `map_shown`), neither
+scored nor scheduled. It answers the void-corner disc at (21, 91) on
+4f207c0c4e39, where the void behind the variant widget reads as a dark disc
+beside a building corner and the radar ring: its void half shows the world,
+which no baked value predicts, so its static correlation stays under
+MAP_CORR, but its footprint half shows the building as baked. A real glyph
+drawn half over the void hides the footprint part it covers, and a disc
+with under MAP_SHOWN_MIN_FP of its disc on the footprint is not judged; a
+footprint-share gate would have dropped such glyphs. The rule and its cut
+were chosen on dev only (MAP_SHOWN's comment); its effect on the corner and
+on the held-out marks, read after it was frozen, is in
+`docs/MINIMAP_GLYPH_CHANNEL.md` (stage 3 prerequisites).
 
 Candidate sets. Continue the prior: the context set is the match lineup's
 kits, both sides, as `lineup.glyph_candidates` admits them (named slots,
@@ -101,11 +108,14 @@ row marked by `set`:
 - the audit: the first birth and every AUDIT_EVERY-th after it (a cadence
   fixed in advance, a design choice), scored against every kit, every key
   rotated, on each frame of its window. It measures what the lineup prior
-  and the rotation policy hide. No null exists at that search size, so its
-  rows store `best_cut` and `above_cut` null (`no_null_at_full_rotation`).
+  and the rotation policy hide. Its rows read the null measured at that
+  search size: `best_cut` is the key's `audit_cut`, `bank_cut` the audit
+  bank's cut (null with `no_null_at_full_rotation` where the table holds
+  none).
 - the surprise: a window whose best context key never clears that key's
   null cut is rescored against every kit, policy rotations, when it
-  closes. Never an audit sample.
+  closes; its rows carry the full bank's cut as `bank_cut`. Never an audit
+  sample.
 
 The plan's per-view gate (each kit's textures as its view allows, from
 `ability-states-gamedata-0.2.0`) is not built: both sides' full kits are
@@ -143,9 +153,9 @@ from .usage import step as usage_step
 from .version import ABILITY_GLYPH_VERSION, ABILITY_ICON_VERSION
 
 #: The store files the reader reads: (directory under the store, version).
-GLYPH_DATA = {"bank": ("analysis/glyph-bank-20261005b", "glyph-bank-0.2.0"),
-              "policy": ("analysis/glyph-tables-20261005b", "glyph-rotation-policy-0.1.1"),
-              "null": ("analysis/glyph-tables-20261005b", "glyph-null-table-0.1.1")}
+GLYPH_DATA = {"bank": ("analysis/glyph-bank-20261005c", "glyph-bank-0.3.0"),
+              "policy": ("analysis/glyph-tables-20261005c", "glyph-rotation-policy-0.1.1"),
+              "null": ("analysis/glyph-tables-20261005c", "glyph-null-table-0.2.0")}
 #: The bank and tables' stamp, which `plan` compares (`ability_glyph`'s `glyph_bank`).
 GLYPH_BANK_STAMP = "+".join(GLYPH_DATA[k][1] for k in ("bank", "policy", "null"))
 
@@ -162,6 +172,18 @@ AUDIT_EVERY = 10
 #: A disc whose luma correlates this well with the baked static's is the
 #: map's (stage 1's follow gate, `prototypes/minimap_glyph_eval.py` MAP_CORR).
 MAP_CORR = 0.7
+#: The map-shown gate (module docstring): a drawn icon is an opaque dark disc
+#: that hides the map art under it. Over the matcher disc on the baked
+#: footprint, the crop's MAP_SHOWN_Q-th percentile luma over the baked
+#: static's; a disc at or above MAP_SHOWN shows the map and is the map's.
+#: Chosen on dev only (`glyph-prereqs-20261005`, the frozen-rule row): the
+#: 59 dev glyph items read 0.14-0.49, the 8 unlabelled static discs of
+#: d95cfad5693a's exhaustive paint frames 0.97-1.06; MAP_SHOWN is their
+#: midpoint, rounded. Under MAP_SHOWN_MIN_FP of the disc on the footprint the
+#: gate does not judge (a glyph over the void hides nothing the bake predicts).
+MAP_SHOWN = 0.73
+MAP_SHOWN_Q = 10
+MAP_SHOWN_MIN_FP = 0.1
 SETS = ("context", "audit", "surprise")
 
 
@@ -178,7 +200,8 @@ class GlyphData:
     """The reference bank, the rotation policy and the null table, loaded and
     checked against each other."""
 
-    def __init__(self, keys, sources, rotating, cuts, provenance, files=None):
+    def __init__(self, keys, sources, rotating, cuts, provenance, files=None, audit_cuts=None,
+                 bank_cuts=None):
         #: Catalogue keys ("Agent:Slot"), sorted.
         self.keys: list[str] = keys
         #: key -> [(provenance, 128 px glyph)], the DisplayIcon first.
@@ -190,6 +213,11 @@ class GlyphData:
         self.provenance: dict = provenance
         #: key -> [(game file under the export, sha256)], one per source.
         self.files: dict[str, list[tuple[str, str]]] = files or {}
+        #: key -> its null cut at every rotation (the audit's search size).
+        self.audit_cuts: dict[str, float] = audit_cuts or {}
+        #: bank -> its bank cut: "full" (every key, policy rotations: the
+        #: surprise's search) and "audit" (every key, every rotation).
+        self.bank_cuts: dict[str, float] = bank_cuts or {}
 
     @classmethod
     def load(cls, store_root) -> "GlyphData":
@@ -234,6 +262,11 @@ class GlyphData:
             raise ValueError("the policy table and the bank hold different keys")
         rotating = {k for k, r in rows.items() if r["policy"] == "rotates"}
         cuts = {k: float(v["cut"]) for k, v in nul["keys"].items() if v.get("cut") is not None}
+        audit_cuts = {k: float(v["audit_cut"]) for k, v in nul["keys"].items() if v.get("audit_cut") is not None}
+        bank_cuts = {b: float(nul["banks"][b]["bank_cut"]["cut"]) for b in ("full", "audit")
+                     if (nul.get("banks") or {}).get(b, {}).get("bank_cut", {}).get("cut") is not None}
+        if nul.get("basis") != "map_scale":
+            raise ValueError(f"{nul_p}: basis {nul.get('basis')!r}, expected 'map_scale' (widget x zoom)")
         provenance = {
             "stamp": GLYPH_BANK_STAMP,
             "bank": {"version": bver, "file": f"{bdir}/{bver}.npz", "sha256": shas["bank_npz"],
@@ -244,9 +277,11 @@ class GlyphData:
             "policy": {"version": pver, "file": f"{pdir}/{pver}.json", "sha256": shas["policy"],
                        "decided_by": pol.get("decided_by"), "rotating": sorted(rotating)},
             "null": {"version": nver, "file": f"{ndir}/{nver}.json", "sha256": shas["null"],
-                     "rate": nul.get("rate"), "cut": "per key, overall (`keys.<key>.cut`)",
+                     "rate": nul.get("rate"), "basis": nul.get("basis"),
+                     "cut": "per key, overall (`keys.<key>.cut`); audit rows `keys.<key>.audit_cut`",
+                     "bank_cuts": bank_cuts,
                      "tie_margin": (nul.get("tie_margin") or {}).get("value")}}
-        return cls(keys, sources, rotating, cuts, provenance, files)
+        return cls(keys, sources, rotating, cuts, provenance, files, audit_cuts, bank_cuts)
 
     def keys_of(self, agents) -> list[str]:
         """The bank's keys of these agents' kits."""
@@ -394,6 +429,30 @@ def score_windows(wins: np.ndarray, tm: Templates) -> tuple[np.ndarray, np.ndarr
     targ = np.minimum.reduceat(idx, tm.starts, axis=1)
     sarg = np.take_along_axis(a, targ, 1)
     return best, targ, sarg
+
+
+def map_shown(crop_w: np.ndarray, static_w: np.ndarray, fp_w: np.ndarray, mask: np.ndarray
+              ) -> tuple[np.ndarray, np.ndarray]:
+    """Per disc: (map_shown score, footprint share of the matcher disc).
+    `crop_w`, `static_w` and `fp_w` are (n, W, W) luma, baked-static luma and
+    footprint windows on the disc centres; the score is the crop's
+    MAP_SHOWN_Q-th percentile luma over the static's (floored at 1) on the
+    disc's footprint pixels, NaN where under MAP_SHOWN_MIN_FP of the disc lies
+    on the footprint. An opaque icon reads far under 1; map art reads near 1."""
+    n = len(crop_w)
+    if n == 0:
+        return np.zeros(0), np.zeros(0)
+    on = (fp_w[:, mask] > 0)
+    share = on.mean(1)
+    a = np.where(on, crop_w[:, mask], np.nan)
+    b = np.where(on, static_w[:, mask], np.nan)
+    ok = share >= MAP_SHOWN_MIN_FP
+    out = np.full(n, np.nan)
+    if ok.any():
+        qa = np.nanpercentile(a[ok], MAP_SHOWN_Q, axis=1)
+        qb = np.nanpercentile(b[ok], MAP_SHOWN_Q, axis=1)
+        out[ok] = qa / np.maximum(qb, 1.0)
+    return out, share
 
 
 # ------------------------------------------------------------------ the proposer's rows for a frame
@@ -593,7 +652,8 @@ class AbilityGlyphReader:
                  candidates_from: str | None, icons, hz: float = 2.0, spans=None, ms=None,
                  name: str = "ability_glyph", audit_every: int = AUDIT_EVERY,
                  static=None, static_reason: str | None = "no baked static given",
-                 portraits=None, portraits_reason: str | None = "no ally_icon rows given"):
+                 portraits=None, portraits_reason: str | None = "no ally_icon rows given",
+                 footprint=None, footprint_reason: str | None = "no footprint given"):
         self.name, self.hz, self.spans = name, hz, spans
         self.frames_from = "video"
         self.cv_threads = 1
@@ -612,6 +672,9 @@ class AbilityGlyphReader:
         self.portraits = portraits
         self.portraits_reason = None if portraits is not None else portraits_reason
         self.static_mismatch = 0
+        #: The baked footprint (map art), crop-sized, for the map-shown gate.
+        self.footprint = None if footprint is None else (np.asarray(footprint) > 0).astype(np.float32)
+        self.footprint_reason = None if footprint is not None else footprint_reason
         #: Read frames whose discs the portrait gate could not judge (no stored row).
         self.no_vision_row = 0
         self.xp, self.scorer = _backend()
@@ -651,13 +714,19 @@ class AbilityGlyphReader:
         margin = float(best[o[0]] - (best[o[1]] if len(o) > 1 else -1.0))
         out = {**base, "set": which, "scores": scores, "best": b, "second": sec,
                "margin": round(margin, 4)}
-        if which == "audit":
-            # The null table holds no cut for a search at every key rotated.
-            out.update(best_cut=None, above_cut=None, cut_reason="no_null_at_full_rotation")
-        else:
-            cut = self.data.cuts.get(b)
-            out.update(best_cut=cut, above_cut=None if cut is None else bool(float(best[o[0]]) > cut),
-                       cut_reason=None if cut is not None else "no_cut_for_key")
+        top = float(best[o[0]])
+        # Each set reads the cuts measured at its own search size: context and
+        # surprise the per-key cut at the policy's rotations, audit the per-key
+        # cut at every rotation. The bank cut fits only a search the table
+        # measured as a bank: surprise (every key, policy) and audit (every key,
+        # every rotation); the context set (both sides' kits) is no table bank.
+        cut = (self.data.audit_cuts if which == "audit" else self.data.cuts).get(b)
+        out.update(best_cut=cut, above_cut=None if cut is None else bool(top > cut),
+                   cut_reason=None if cut is not None else
+                   ("no_null_at_full_rotation" if which == "audit" else "no_cut_for_key"))
+        bank = {"audit": "audit", "surprise": "full"}.get(which)
+        bc = None if bank is None else self.data.bank_cuts.get(bank)
+        out.update(bank_cut=bc, above_bank_cut=None if bc is None else bool(top > bc))
         return out
 
     def _close(self, win: _Window, why: str) -> None:
@@ -685,11 +754,13 @@ class AbilityGlyphReader:
         self._prev = None
 
     def _gates(self, y, xy, wins, ok, tm, frame_idx, scale):
-        """Per disc: (static_corr, portrait cover reason or None, gate reason
-        or None), vectorised over the frame's discs; `portrait` is
-        "no_vision_row" where the stored stream has no row for the frame."""
+        """Per disc: (static_corr, map_shown, portrait cover reason or None,
+        gate reason or None), vectorised over the frame's discs; `portrait` is
+        "no_vision_row" where the stored stream has no row for the frame. The
+        gate reason's order: off_crop, static_like, map_shown, then the cover."""
         n = len(xy)
         corr = np.full(n, np.nan)
+        shown = np.full(n, np.nan)
         if self.static_y is not None and n:
             if self.static_y.shape != y.shape:
                 self.static_mismatch += 1
@@ -697,11 +768,15 @@ class AbilityGlyphReader:
                 sw, sok = disc_windows(self.static_y, xy, tm.w, 0)
                 both = ok & sok
                 if both.any():
-                    a = wins[both][:, tm.sh:tm.sh + tm.w, tm.sh:tm.sh + tm.w][:, tm.mask]
+                    core = wins[both][:, tm.sh:tm.sh + tm.w, tm.sh:tm.sh + tm.w]
+                    a = core[:, tm.mask]
                     b = sw[both][:, tm.mask]
                     c = (zrows(a) * zrows(b)).sum(1)
                     c[b.std(1) < FLAT_STD] = np.nan
                     corr[both] = c
+                    if self.footprint is not None and self.footprint.shape == y.shape:
+                        fw, _ = disc_windows(self.footprint, xy[both], tm.w, 0)
+                        shown[both] = map_shown(core, sw[both], fw, tm.mask)[0]
         cover: list = [None] * n
         unread = False
         if self.portraits is not None and n:
@@ -712,9 +787,10 @@ class AbilityGlyphReader:
             else:
                 cover = portrait_covers(xy, got[0], got[1], scale)
         why = np.asarray(cover, object)
+        why[np.nan_to_num(shown, nan=-2.0) >= MAP_SHOWN] = "map_shown"
         why[np.nan_to_num(corr, nan=-2.0) >= MAP_CORR] = "static_like"
         why[~ok] = "off_crop"
-        return corr, ("no_vision_row" if unread else cover), why.tolist()
+        return corr, shown, ("no_vision_row" if unread else cover), why.tolist()
 
     def feed(self, smp) -> None:
         t = float(smp.t_ms)
@@ -729,13 +805,18 @@ class AbilityGlyphReader:
             reason = "no_ability_icon_row"
         elif ir.get("reason"):
             reason = ir["reason"]
+        elif self.ms is None:
+            reason = "no_map_scale"
+        x0, y0, x1, y1 = self.box
+        crop = smp.frame[y0:y1, x0:x1]
+        if reason is None and abs(widget_scale(crop.shape[1]) - self.ms.widget_scale) > 1e-3:
+            reason = "geometry_size_mismatch"
         if reason is not None:
             self.rows.append({**row, "reason": reason, "discs": None, "births": None, "rests_on": []})
             self._end_all(reason)
             return
-        x0, y0, x1, y1 = self.box
-        crop = smp.frame[y0:y1, x0:x1]
-        scale = widget_scale(crop.shape[1])
+        # One transform: base px x widget scale x map zoom (`geometry.MapScale`).
+        scale = self.ms.scale
         cands = ir.get("candidates") or []
         with usage_step("luma"):
             y = cv2.cvtColor(crop, cv2.COLOR_BGR2YCrCb)[..., 0].astype(np.float32)
@@ -743,7 +824,7 @@ class AbilityGlyphReader:
         xy = np.array([[c["cx"], c["cy"]] for c in cands], float).reshape(-1, 2)
         wins, ok = disc_windows(y, xy, tm.w, tm.sh)
         with usage_step("gates"):
-            corr, cover, gate = self._gates(y, xy, wins, ok, tm, smp.frame_idx, scale)
+            corr, shown, cover, gate = self._gates(y, xy, wins, ok, tm, smp.frame_idx, scale)
         # The proposer's verify decides continuation (`ability-icon`).
         prev = self._prev
         ver = ir.get("verify")
@@ -765,6 +846,7 @@ class AbilityGlyphReader:
                     "disc": self._disc_id(t, i), "i": i, "cx": c["cx"], "cy": c["cy"], "r": c["r"],
                     "scale": round(scale, 5),
                     "static_corr": None if np.isnan(corr[i]) else round(float(corr[i]), 4),
+                    "map_shown": None if np.isnan(shown[i]) else round(float(shown[i]), 4),
                     "portrait": cover if isinstance(cover, str) else cover[i]}
             if gate[i] is not None:
                 self.rows.append({**base, "set": "context", "reason": gate[i], "window": None,
@@ -855,9 +937,8 @@ class AbilityGlyphReader:
                             "flat_std": FLAT_STD,
                             "resample": "INTER_AREA to shrink each 128 px glyph to its canvas; "
                                         "INTER_LINEAR to turn it",
-                            "scale": "minimap.widget_scale(crop width): the null table's basis, a "
-                                     "measured exception to the full transform (map_scale), "
-                                     "falsified by glyph_reader/scale",
+                            "scale": "geometry.MapScale.scale (widget x map zoom), the null table's "
+                                     "basis (glyph-null-table-0.2.0 `basis` map_scale)",
                             "scales": scales, "scorer": self.scorer},
                 "gates": {"static": {"rule": "masked Pearson of the crop's luma with the baked static's "
                                              "(geometry by (map, profile)) inside the matcher's disc; "
@@ -866,6 +947,15 @@ class AbilityGlyphReader:
                                      "from": "prototypes/minimap_glyph_eval.py MAP_CORR (stage 1's follow)",
                                      "unknown": self.static_reason,
                                      "size_mismatch_frames": self.static_mismatch},
+                          "map_shown": {"rule": "the crop's q-th percentile luma over the baked static's "
+                                                "(floored at 1) on the matcher disc's footprint pixels; "
+                                                "map_shown at or above the cut; not judged under min_fp of "
+                                                "the disc on the footprint",
+                                        "cut": MAP_SHOWN, "q": MAP_SHOWN_Q, "min_fp": MAP_SHOWN_MIN_FP,
+                                        "from": "glyph-prereqs-20261005 (dev only: frozen-rule row in the "
+                                                "store's notes/predictions.jsonl)",
+                                        "footprint": "geometry.footprint by (map, profile)",
+                                        "unknown": self.footprint_reason or self.static_reason},
                           "portrait": {"rule": "stage 1's portrait_cover over the frame's stored "
                                                "ally_icon fits (allies, no barriers) and self icon: the "
                                                "self icon within occ_r, an ally "
@@ -887,8 +977,10 @@ class AbilityGlyphReader:
                 "audit": {"every": self.audit_every, "keys": "every bank key", "rotate": "all",
                           "rule": "the first birth and every audit_every-th after it, through its window; "
                                   "a cadence fixed in advance",
-                          "cut": "none: no null at full rotation (best_cut and above_cut null)"},
+                          "cut": "per key at every rotation (best_cut, the table's audit_cut) and the "
+                                 "audit bank cut (bank_cut: every key, every rotation)"},
                 "surprise": {"keys": "every bank key", "rotate": "policy",
+                             "cut": "per key at the policy (best_cut) and the full bank cut (bank_cut)",
                              "rule": "a window whose best context key never exceeds that key's per-key "
                                      "null cut is rescored when it closes; never an audit sample"},
                 "window": {"ms": WINDOW_MS,
@@ -935,8 +1027,13 @@ def glyph_reader(ctx, spans, icons, candidates, candidates_from, hz: float = 2.0
     except (SystemExit, FileNotFoundError, KeyError, ValueError) as exc:
         static, static_why = None, f"no baked static: {exc}"
     portraits, portraits_why = StoredPortraits.from_store(ctx.store, ctx.session_id)
+    fp, fp_why = None, static_why
+    if static is not None:
+        fp = geometry.footprint(ctx.session_id, ctx.store.root, shape=static.shape[:2])
+        fp_why = None if fp is not None else "geometry.footprint is None: this map's art is not fetched"
     return AbilityGlyphReader(data or GlyphData.load(ctx.store.root), box, ctx.session_id,
                               candidates, candidates_from, icons, hz=hz, spans=spans,
                               ms=geometry.map_scale_of(ctx.session_id, ctx.store.root),
                               static=static, static_reason=static_why,
-                              portraits=portraits, portraits_reason=portraits_why)
+                              portraits=portraits, portraits_reason=portraits_why,
+                              footprint=fp, footprint_reason=fp_why)

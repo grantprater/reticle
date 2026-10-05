@@ -132,6 +132,68 @@ class Cut(unittest.TestCase):
         self.assertEqual((p["both_named"], p["both_right"], p["both_wrong"], p["thrown_only_right"],
                           p["self_only_right"]), (3, 1, 1, 1, 0))
 
+    def test_items_move_to_the_full_transform_and_a_wrong_widget_refuses(self):
+        """A: the null is measured at widget x map zoom (geometry.MapScale.scale)."""
+        from unittest import mock
+        from reticle import geometry
+        ms = geometry.MapScale("ascent__valorant-16x9", 0.71183, 0.8871, "test")
+        items = [{"sid": "d95cfad5693a", "scale": 331 / 465.0}]
+        with mock.patch.object(geometry, "map_scale_of", return_value=ms):
+            prov = gt.to_map_scale(items)
+            self.assertAlmostEqual(items[0]["scale"], ms.scale)
+            self.assertAlmostEqual(items[0]["widget_scale"], 331 / 465.0)
+            self.assertEqual(prov["d95cfad5693a"]["map_zoom"], 0.8871)
+            gt.to_map_scale(items)                        # idempotent: it reads the kept widget scale
+            self.assertAlmostEqual(items[0]["scale"], ms.scale)
+            with self.assertRaises(SystemExit):
+                gt.to_map_scale([{"sid": "d95cfad5693a", "scale": 1.0}])
+        with mock.patch.object(geometry, "map_scale_of", return_value=None):
+            with self.assertRaises(SystemExit):
+                gt.to_map_scale([{"sid": "x", "scale": 1.0}])
+
+    def test_the_audit_null_reads_every_key_and_holds_its_bank_at_the_rate(self):
+        """C: per-key cuts and one bank cut at the audit's search size."""
+        import numpy as np
+        keys = ["A:C", "A:Q", "B:C"]
+        rng = np.random.default_rng(1)
+        neg = [{"win_index": i} for i in range(60)]
+        sc = {i: rng.random(3).astype(np.float32) for i in range(60)}
+        sc[100] = np.array([0.1, 0.99, 0.2], np.float32)
+        pos = [{"win_index": 100, "truth": "A:Q"}]
+        a = gt.audit_null(neg, pos, sc, keys)
+        self.assertEqual(sorted(a["keys"]), keys)
+        self.assertLessEqual(a["bank_cut"]["rate"], 0.05)
+        self.assertEqual(a["bank_cut"]["named"], 3)
+        self.assertEqual(a["bank_cut"]["glyph_items_named_right_cut"], 1)
+
+    def test_gate3_counts_unlabelled_discs_only_when_some_entered(self):
+        bank = {"false_naming_rate_cut": 0.1, "bank_cut": {"rate": 0.04, "by_scale": {"1.0": {"rate": 0.04}}}}
+        nt = {"banks": {"context": bank, "full": bank, "audit": {"bank_cut": {"rate": 0.04}}},
+              "negatives": {"by_source": {"ability": 63}}}
+        self.assertFalse(gt.gate3(nt)["unlabelled_proposer_discs"])
+        nt["negatives"]["by_source"][gt.UNLABELLED_SRC] = 4
+        g = gt.gate3(nt)
+        self.assertTrue(g["unlabelled_proposer_discs"])
+        self.assertEqual(g["unlabelled_n"], 4)
+
+    def test_only_exhaustive_paint_frames_vouch_for_unlabelled_discs(self):
+        """B: a proposer disc no label names is a negative only on a frame the
+        player painted exhaustively; the latest row per time wins."""
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "ability_paint"
+            p.mkdir()
+            rows = [{"kind": "frame", "t_ms": 0, "exhaustive": True, "icons": []},
+                    {"kind": "frame", "t_ms": 0, "exhaustive": True, "icons": [{"x": 1, "y": 2}]},
+                    {"kind": "frame", "t_ms": 500, "exhaustive": False, "icons": []},
+                    {"kind": "frame", "t_ms": 900, "exhaustive": True, "unsure": True, "icons": []}]
+            (p / "s1.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            with mock.patch.object(gt.mge, "LABELS", Path(d)):
+                got = gt.exhaustive_paint_frames("s1")
+                self.assertEqual(sorted(got), [0.0])
+                self.assertEqual(got[0.0]["icons"], [{"x": 1, "y": 2}])
+                self.assertEqual(gt.exhaustive_paint_frames("none"), {})
+
     def test_every_answer_fact_exists(self):
         text = (ROOT / "domain" / "abilities.toml").read_text(encoding="utf-8")
         ids = set(re.findall(r"^\[([a-z0-9-]+)\]", text, re.M))
