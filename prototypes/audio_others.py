@@ -2,6 +2,7 @@ r"""Can the game's own ability sounds witness casts by OTHER players?
 
     .\.venv\Scripts\python.exe prototypes\audio_others.py inventory
     .\.venv\Scripts\python.exe prototypes\audio_others.py scan [SESSION ...]
+    .\.venv\Scripts\python.exe prototypes\audio_others.py side-extra [SESSION ...]
     .\.venv\Scripts\python.exe prototypes\audio_others.py report [--record] [--json OUT]
                                                          [--sightlines PY]
 
@@ -71,6 +72,32 @@ detection's first peak. Whether the vote tells the caster's side is
 measured, never assumed: on the replay match by paired casts, and on every
 match where the agent plays one side only.
 
+The export's side tokens (manifest folder, tokens): both tokens in Astra
+Ultimate, Cypher E, Q and X, Deadlock C, Killjoy Ability1, Reyna E, Sova Q,
+Veto C, E and X, Vyse X, Waylay E and Yoru E; Enemy only in Chamber C, Fade
+C, Gekko E and Q, Harbor E, Iso E, Killjoy Ultimate, Miks Q, Neon X, Raze E,
+Tejo C, Vyse E and Q, Waylay X and Yoru X; Ally only in Deadlock Q, Iso X,
+KAY/O X, Reyna X and Tejo E. No Viper file carries a token. The wired
+reference rule drops Cypher's E-folder (`abile_*_loop`) and Q-folder
+(`Camera_*Possess_3P_*`) pairs as tying to no single ability; `side-extra`
+scores them anyway, each pair in the class its folder's kept files name
+(E folder: C, Trapwire; Q folder: E, Spycam), and stores both tracks' maxima
+at the stored peaks. The scan's side tracks are maxima over each token's
+templates, so a class with more templates on one side leans to that side
+(Killjoy Q 1 ally : 7 enemy, Deadlock E 2 : 1); the headline vote counts
+balanced classes only (equal counts), the unbalanced ones apart.
+
+Ranking and gain
+----------------
+On the replay match each class is ranked by precision (paired over all its
+detections, any caster of that agent) and recall (paired live casts of
+other players over those casts) together; a class whose references are
+weapon files (`Wp_*`, e.g. Chamber Q Headhunter: bullet whiz, fire, equip)
+detects shots heard, not casts, so its precision and recall against Riot's
+casts measure the wrong event. The gain over today's coverage is a range:
+the unclipped sum of gained less expected false alarms, and gained times
+the share of detections not expected false.
+
 Outputs
 -------
 `<store>/analysis/audio-others-20261004/` holds the template bank, one peak
@@ -100,7 +127,9 @@ import numpy as np  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-AUDIO_OTHERS_VERSION = "audio-others-proto-0.1.0"
+#: 0.2.0: the gain as a range, balanced side classes, Cypher's dropped side
+#: pairs (`side-extra`), classes ranked by precision and recall.
+AUDIO_OTHERS_VERSION = "audio-others-proto-0.2.0"
 STORE = Path.home() / "reticle-store"
 OUT = STORE / "analysis" / "audio-others-20261004"
 #: The parameter set whose pooled whitener the scan reuses.
@@ -247,6 +276,62 @@ def class_keys(cls: str, groups: dict[str, list[str]]) -> list[str]:
     return list(groups.get(cls, [cls]))
 
 
+def net_gain(gained, expected_false, detections) -> tuple[float, float]:
+    """(unclipped, proportional) net gain of one row: gained less the false
+    alarms expected, and gained times the share of detections not expected
+    false (0 without detections). Neither clips at zero."""
+    g, ef, d = float(gained), float(expected_false), float(detections)
+    return g - ef, (g * (1.0 - ef / d) if d > 0 else 0.0)
+
+
+def side_summary(votes: dict, counts: dict) -> dict:
+    """The side vote's agreement with the caster's side: per class
+    ((agent, class) -> {'ally': n templates, 'enemy': n}), pooled over all
+    classes and over balanced classes (equal template counts) only. `votes`
+    is {(agent, class, side, vote): n}; a None vote counts nowhere."""
+    per = {}
+    for (a, c, side, vote), n in votes.items():
+        if vote is None:
+            continue
+        r = per.setdefault((a, c), {"agree": 0, "voted": 0})
+        r["voted"] += n
+        r["agree"] += n * (vote == side)
+    out = {"per_class": {}}
+    pools = {"all": [0, 0], "balanced": [0, 0], "unbalanced": [0, 0]}
+    for (a, c), r in sorted(per.items()):
+        k = counts.get((a, c), {})
+        bal = bool(k) and k.get("ally") == k.get("enemy")
+        out["per_class"][f"{a}|{c}"] = dict(r, ally_templates=k.get("ally"),
+                                            enemy_templates=k.get("enemy"), balanced=bal,
+                                            share=round(r["agree"] / r["voted"], 4))
+        for p in ("all", "balanced" if bal else "unbalanced"):
+            pools[p][0] += r["agree"]
+            pools[p][1] += r["voted"]
+    for p, (ag, vo) in pools.items():
+        out[p] = {"agree": ag, "voted": vo, "share": round(ag / vo, 4) if vo else None}
+    return out
+
+
+def rank_classes(per_class: dict, weapon_share: dict | None = None) -> list[dict]:
+    """Replay classes ranked by precision, then recall, with F1 beside: per
+    class its detections, paired (precision's numerator), live casts by
+    other players and those paired (recall). A class with no detections or
+    no such casts has None for the missing ratio and ranks last."""
+    rows = []
+    for k, v in per_class.items():
+        d, p = v["detections"], v["paired"]
+        t, pl = v["truth_live_others"], v.get("paired_live_others", 0)
+        prec = p / d if d else None
+        rec = pl / t if t else None
+        f1 = (2 * prec * rec / (prec + rec) if prec is not None and rec is not None
+              and prec + rec > 0 else (0.0 if prec is not None and rec is not None else None))
+        rows.append({"class": k, "detections": d, "paired": p, "precision": prec,
+                     "live_others": t, "paired_live_others": pl, "recall": rec,
+                     "f1": f1, "weapon_share": (weapon_share or {}).get(k, 0.0)})
+    return sorted(rows, key=lambda r: (r["precision"] is None, -(r["precision"] or 0.0),
+                                       r["recall"] is None, -(r["recall"] or 0.0), r["class"]))
+
+
 # ----------------------------------------------------------------- the bank
 
 def whitener(store: Path = STORE) -> dict:
@@ -316,6 +401,119 @@ def bank_labels(bank: dict) -> tuple[list[str], dict[str, list[int]]]:
             for s in SIDES:
                 extra[f"{cls}|{s}"] = by[s]
     return labels, extra
+
+
+def dropped_side_pairs(bank: dict, manifest_rows: list[dict]) -> dict[str, dict[str, list[str]]]:
+    """{class: {'ally': files, 'enemy': files}} of the agent's side-token files
+    the reference rule left out, each in the class most of its folder's kept
+    files name; only classes with both tokens. A folder with no kept file
+    names no class and its files stay out."""
+    kept = {r["flac"] for r in bank["rows"]}
+    folder_cls = defaultdict(Counter)
+    for r in bank["rows"]:
+        folder_cls[Path(r["flac"]).parent.as_posix()][r["class"]] += 1
+    out = defaultdict(lambda: {s: [] for s in SIDES})
+    for r in manifest_rows:
+        f = r["flac"]
+        sd = side_token(f)
+        if r.get("agent") != bank["manifest_agent"] or f in kept or sd is None:
+            continue
+        cnt = folder_cls.get(Path(f).parent.as_posix())
+        if not cnt:
+            continue
+        cls = sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+        out[cls][sd].append(f)
+    return {c: {s: sorted(v[s]) for s in SIDES} for c, v in sorted(out.items())
+            if all(v[s] for s in SIDES)}
+
+
+def side_extra(sids: list[str], store: Path = STORE) -> dict:
+    """Score the side pairs the reference rule dropped (`dropped_side_pairs`)
+    over each session's stored audio where the agent plays, and store both
+    tokens' track maxima within half a second of the class's stored peaks
+    (`<OUT>/side-extra/<sid>.npz`), as the scan stores its side tracks."""
+    from reticle import ability_audio_fit as fit
+    from reticle.adjudication import ability_audio as aa
+    from reticle.ult_lines import array_module
+    _below_normal()
+    xp = array_module()
+    W = whitener(store)
+    inv = inventory(store)
+    man = [json.loads(x) for x in (store / fit.MANIFEST).read_text(encoding="utf-8").splitlines()
+           if x.strip()]
+    agents = sorted({a for r in inv.values() if r["lineup"] for v in r["lineup"].values()
+                     for a in v if a}, key=canon)
+    pairs = {}
+    for a in agents:
+        p = bank_path(a, W)
+        if not p.is_file():
+            continue
+        dp = dropped_side_pairs(json.loads(str(np.load(p, allow_pickle=False)["meta"])), man)
+        if dp:
+            pairs[a] = dp
+    temps, labels = {}, {}
+    for a, dp in pairs.items():
+        temps[a], labels[a] = [], []
+        for cls, by in dp.items():
+            for sd in SIDES:
+                for f in by[sd]:
+                    T = aa.template(aa.reference_logmel(store / fit.REF_DIR / f))
+                    if T is None:
+                        continue
+                    temps[a].append(aa.whiten_template(T, W["P"], W["ar"]))
+                    labels[a].append(f"{cls}|{sd}")
+    present = _absent(inv)
+    todo = sids or sorted(s for s in present if any(canon(a) in present[s] for a in pairs))
+    half = aa.FPS // 2
+    d = OUT / "side-extra"
+    d.mkdir(parents=True, exist_ok=True)
+    done = {}
+    for sid in todo:
+        got = load_peaks(sid)
+        if got is None:
+            print(sid, "no stored peaks")
+            continue
+        pk = got[0]
+        s, why = session_audio(sid, store)
+        if s is None:
+            print(sid, "no audio:", why)
+            continue
+        w0 = time.time()
+        Xw = aa.whiten_frames(s["X"], W["mu"], W["P"], W["ar"])
+        arrays, keys = {}, []
+        for a in pairs:
+            if canon(a) not in present.get(sid, set()) or not temps[a]:
+                continue
+            tr = aa.class_tracks(Xw, temps[a], labels[a], s["bg"], xp)
+            for cls in pairs[a]:
+                if (a, cls) not in pk or not all(f"{cls}|{sd}" in tr for sd in SIDES):
+                    continue
+                f = pk[(a, cls)]["frame"].astype(np.int64)
+                i = len(keys)
+                keys.append([a, cls])
+                for sd in SIDES:
+                    arrays[f"{i}__{sd}"] = aa.range_max(tr[f"{cls}|{sd}"], f - half, f + half + 1)
+        meta = {"version": AUDIO_OTHERS_VERSION, "whitener": W["version"],
+                "whitener_sha256": W["sha256"], "xp": xp.__name__, "s": round(time.time() - w0, 2),
+                "pairs": {a: v for a, v in pairs.items() if canon(a) in present.get(sid, set())}}
+        np.savez_compressed(d / f"{sid}.npz", keys=json.dumps(keys), meta=json.dumps(meta), **arrays)
+        done[sid] = {"keys": keys, "s": meta["s"]}
+        print(f"{sid}: {keys} ({meta['s']:.1f} s, {xp.__name__})", flush=True)
+        del Xw
+    return {"pairs": pairs, "sessions": done}
+
+
+def load_side_extra(sid: str) -> tuple[dict, dict] | None:
+    """({(agent, class): {'ally': maxima, 'enemy': maxima}}, meta) of a
+    session's stored `side-extra` file, aligned to its stored peaks."""
+    p = OUT / "side-extra" / f"{sid}.npz"
+    if not p.is_file():
+        return None
+    z = np.load(p, allow_pickle=False)
+    out = {}
+    for i, (a, c) in enumerate(json.loads(str(z["keys"]))):
+        out[(a, c)] = {sd: z[f"{i}__{sd}"] for sd in SIDES}
+    return out, json.loads(str(z["meta"]))
 
 
 def bank_path(agent: str, W: dict) -> Path:
@@ -657,9 +855,11 @@ def evaluate_replay(rc: dict, pk: dict, live: np.ndarray, thr: dict, banks_meta:
                 if vote is not None:
                     c.setdefault("side_votes", []).append(vote)
         live_o = [i for i in tru if casts[i]["live"] and casts[i]["side"] != "self"]
+        live_set = set(live_o)
         per[(agent, cls)] = {
             "agent": agent, "class": cls, "keys": keys, "thr": t, "detections": int(len(idx)),
             "paired": len(prs), "unpaired": int(len(idx) - len(paired_det)),
+            "paired_live_others": sum(1 for _i, j, _d in prs if tru[j] in live_set),
             "fa_per_min": round((len(idx) - len(paired_det)) / live_min, 4) if live_min else None,
             "truth": len(tru), "truth_live_others": len(live_o),
             "dt_median_s": (round(float(np.median([d for _i, _j, d in prs])), 3) if prs else None)}
@@ -843,11 +1043,30 @@ def gain_rows(loaded: dict, thr: dict, banks_meta: dict, cat, merge: int,
     out = []
     for (side, agent, slot), a in acc.items():
         g = a["with_audio"] - a["today"]
+        unclipped, prop = net_gain(g, a["expected_false"], a["detections"])
         out.append({"side": side, "agent": agent, "slot": slot, "ability": cat.name(agent, slot),
                     **a, "expected_false": round(a["expected_false"], 1), "gained": g,
-                    "gained_net": round(max(0.0, g - a["expected_false"]), 1)})
-    return sorted(out, key=lambda r: (-r["gained_net"], -r["gained"], r["side"], str(r["agent"]),
+                    "net_unclipped": round(unclipped, 1), "net_prop": round(prop, 1)})
+    return sorted(out, key=lambda r: (-r["net_prop"], -r["gained"], r["side"], str(r["agent"]),
                                       r["slot"]))
+
+
+def gain_totals(rows: list[dict]) -> dict:
+    """Per side: Riot's casts, today's, with audio, gained, expected false
+    alarms and the net gain's range (`net_unclipped`, `net_prop`) summed over
+    every row; `negative_rows` counts rows whose unclipped net is below zero."""
+    tot = defaultdict(Counter)
+    for r in rows:
+        t = tot[r["side"]]
+        for k in ("riot", "today", "with_audio", "gained", "detections"):
+            t[k] += r[k]
+        t["expected_false"] += r["expected_false"]
+        t["net_unclipped"] += r["net_unclipped"]
+        t["net_prop"] += r["net_prop"]
+        t["rows"] += 1
+        t["negative_rows"] += r["net_unclipped"] < 0
+    return {sd: {k: (round(v, 1) if isinstance(v, float) else v) for k, v in t.items()}
+            for sd, t in sorted(tot.items())}
 
 
 def build_report(store: Path = STORE, sightlines_py: str | None = None) -> dict:
@@ -867,6 +1086,26 @@ def build_report(store: Path = STORE, sightlines_py: str | None = None) -> dict:
     for a in agents:
         p = bank_path(a, W)
         banks_meta[a] = json.loads(str(np.load(p, allow_pickle=False)["meta"]))
+    # template counts per side track, the scan's and the dropped pairs'
+    counts, extra_src = {}, {}
+    for a, m in banks_meta.items():
+        _labels, extra = bank_labels(m)
+        for k, ix in extra.items():
+            cls, sd = k.split("|")
+            counts.setdefault((a, cls), {})[sd] = len(ix)
+    for sid, (pk, _l, _m) in loaded.items():
+        got = load_side_extra(sid)
+        if got is None:
+            continue
+        sx, smeta = got
+        for (a, cls), v in sx.items():
+            row = pk.get((a, cls))
+            if row is None or "ally" in row or len(v["ally"]) != len(row["frame"]):
+                continue
+            row.update(v)
+            extra_src[(a, cls)] = "dropped_pair"
+            files = smeta["pairs"][a][cls]
+            counts[(a, cls)] = {sd: len(files[sd]) for sd in SIDES}
     cat = load_catalogue(store)
     # A2: every class's held absent-agent rate
     held = [v["held_fa_per_min"] for v in thr.values() if v["held_fa_per_min"] is not None]
@@ -898,6 +1137,12 @@ def build_report(store: Path = STORE, sightlines_py: str | None = None) -> dict:
                                              near_recall=(round(v["near_detected"] / v["near"], 4)
                                                           if v["near"] else None))
                             for (a, k), v in sorted(rows.items())},
+            "ranked": rank_classes(
+                {f"{a}|{c}": v for (a, c), v in ev["per_class"].items()},
+                {f"{a}|{c}": round(float(np.mean([Path(r["flac"]).name.lower().startswith("wp_")
+                                                  for r in banks_meta[a]["rows"]
+                                                  if r["class"] == c])), 4)
+                 for (a, c) in ev["per_class"]}),
             "A1": a1_verdict(rows), "distance": distance_curve(rc["casts"]),
             "side_votes": dict(Counter(f"{c['agent']}|{c['key']}|{c['side']}|{v}"
                                        for c in rc["casts"] for v in c.get("side_votes", []))),
@@ -908,11 +1153,13 @@ def build_report(store: Path = STORE, sightlines_py: str | None = None) -> dict:
     rows, votes = riot_compare(loaded, inv, thr, banks_meta, cat, merge, store)
     rep["riot"] = rows
     rep["side_votes_one_side"] = {"|".join(map(str, k)): v for k, v in sorted(votes.items(), key=str)}
-    agree = sum(n for (_a, _c, side, vote), n in votes.items() if vote == side)
-    voted = sum(n for (_a, _c, _s, vote), n in votes.items() if vote is not None)
-    rep["side_agreement"] = {"agree": agree, "voted": voted,
-                             "share": round(agree / voted, 4) if voted else None}
+    scan_votes = {k: n for k, n in votes.items() if (k[0], k[1]) not in extra_src}
+    drop_votes = {k: n for k, n in votes.items() if (k[0], k[1]) in extra_src}
+    rep["side_agreement"] = side_summary(scan_votes, counts)
+    rep["side_agreement_dropped_pairs"] = side_summary(drop_votes, counts)
+    rep["side_agreement_all_balanced"] = side_summary(votes, counts)["balanced"]
     rep["gain"] = gain_rows(loaded, thr, banks_meta, cat, merge, store)
+    rep["gain_totals"] = gain_totals(rep["gain"])
     cost = [m for _pk, _l, m in loaded.values()]
     am = sum(m["audio_min"] for m in cost)
     rep["cost"] = {"audio_min": round(am, 1), "templates": cost[0]["templates"] if cost else None,
@@ -929,7 +1176,9 @@ def record_ledger(rep: dict) -> list[str]:
             "code": metrics.fingerprint(detections, detection_index, threshold_for, pair,
                                         side_vote, thresholds, evaluate_replay, ability_rows,
                                         a1_verdict, distance_curve, chance_floor, riot_compare, gain_rows,
-                                        session_peaks, bank_labels, FLOOR=FLOOR, MERGE_S=MERGE_S,
+                                        session_peaks, bank_labels, net_gain, gain_totals,
+                                        side_summary, rank_classes, dropped_side_pairs, side_extra,
+                                        FLOOR=FLOOR, MERGE_S=MERGE_S,
                                         PAIR_PRE_S=PAIR_PRE_S, PAIR_POST_S=PAIR_POST_S,
                                         NULL_FF_PER_MIN=NULL_FF_PER_MIN)}
     ctx = {"sessions": len(rep["sessions"]), "dev": rep["dev"], "held": rep["held"]}
@@ -973,32 +1222,42 @@ def record_ledger(rep: dict) -> list[str]:
         for k, x in rp["per_class"].items():
             kk = k.replace(" ", "_").replace("/", "_").replace("|", ":")
             va[f"{kk}.fa_per_min"] = x["fa_per_min"]
+            va[f"{kk}.class_detections"] = x["detections"]
+            va[f"{kk}.class_paired"] = x["paired"]
+            va[f"{kk}.class_live_others"] = x["truth_live_others"]
+            va[f"{kk}.class_paired_live_others"] = x["paired_live_others"]
         metrics.record("audio_others", part="replay_abilities", session=REPLAY_SESSION,
                        values=va, deps=deps, context=ctx)
         out.append(f"audio_others/replay_abilities@{REPLAY_SESSION}")
     g = {}
     for r in rep["gain"]:
-        if r["gained_net"] <= 0:
+        if not r["gained"] and not r["expected_false"]:
             continue
         k = f"{r['side']}:{r['agent']}:{r['slot']}".replace(" ", "_").replace("/", "_")
-        g[f"{k}.gained"] = r["gained"]
-        g[f"{k}.gained_net"] = r["gained_net"]
-        g[f"{k}.expected_false"] = r["expected_false"]
-        g[f"{k}.riot"] = r["riot"]
-        g[f"{k}.today"] = r["today"]
-    tot = Counter()
-    for r in rep["gain"]:
-        tot[f"{r['side']}.riot"] += r["riot"]
-        tot[f"{r['side']}.today"] += r["today"]
-        tot[f"{r['side']}.with_audio"] += r["with_audio"]
-        tot[f"{r['side']}.gained_net"] += r["gained_net"]
-    metrics.record("audio_others", part="gain", values={**dict(tot), **g}, deps=deps, context=ctx)
+        for f in ("gained", "detections", "expected_false", "net_unclipped", "net_prop",
+                  "riot", "today"):
+            g[f"{k}.{f}"] = r[f]
+    tot = {f"{sd}.{k}": v for sd, t in rep["gain_totals"].items() for k, v in t.items()}
+    metrics.record("audio_others", part="gain", values={**tot, **g}, deps=deps,
+                   context=dict(ctx, net="a range: net_unclipped = gained - expected_false; "
+                                "net_prop = gained * (1 - expected_false / detections)"))
     out.append("audio_others/gain")
     metrics.record("audio_others", part="cost", values={k: v for k, v in rep["cost"].items()
                                                         if not isinstance(v, list)},
                    deps=deps, context=dict(ctx, xp=rep["cost"]["xp"]))
     out.append("audio_others/cost")
-    sv = Counter({"agree": rep["side_agreement"]["agree"], "voted": rep["side_agreement"]["voted"]})
+    sv = Counter()
+    for name, s in (("scan", rep["side_agreement"]), ("dropped", rep["side_agreement_dropped_pairs"])):
+        for pool in ("all", "balanced", "unbalanced"):
+            sv[f"{name}.{pool}.agree"] = s[pool]["agree"]
+            sv[f"{name}.{pool}.voted"] = s[pool]["voted"]
+    sv["all_balanced.agree"] = rep["side_agreement_all_balanced"]["agree"]
+    sv["all_balanced.voted"] = rep["side_agreement_all_balanced"]["voted"]
+    for s in (rep["side_agreement"], rep["side_agreement_dropped_pairs"]):
+        for k, x in s["per_class"].items():
+            kk = k.replace("/", "_").replace("|", ":")
+            sv[f"{kk}.ally_templates"] = x["ally_templates"]
+            sv[f"{kk}.enemy_templates"] = x["enemy_templates"]
     for k, n in rep["side_votes_one_side"].items():
         a_, c_, side, vote = k.split("|")
         sv[f"{a_.replace('/', '_')}:{c_}.{side}.vote_{vote}"] += n
@@ -1025,6 +1284,8 @@ def main(argv=None) -> int:
     sub.add_parser("inventory")
     sp = sub.add_parser("scan")
     sp.add_argument("sessions", nargs="*")
+    xs = sub.add_parser("side-extra")
+    xs.add_argument("sessions", nargs="*")
     rp = sub.add_parser("report")
     rp.add_argument("--record", action="store_true")
     rp.add_argument("--json", type=Path)
@@ -1038,6 +1299,9 @@ def main(argv=None) -> int:
         OUT.mkdir(parents=True, exist_ok=True)
         (OUT / f"scan-cost-{time.strftime('%Y%m%dT%H%M%S')}.json").write_text(
             json.dumps(res, indent=1, default=_default), encoding="utf-8")
+    elif a.cmd == "side-extra":
+        res = side_extra(a.sessions)
+        print(json.dumps(res["sessions"], default=_default))
     else:
         rep = build_report(sightlines_py=a.sightlines)
         path = a.json or OUT / "report.json"

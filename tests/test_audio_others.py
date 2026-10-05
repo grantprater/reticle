@@ -77,6 +77,57 @@ class Rules(unittest.TestCase):
         self.assertEqual(labels, ["Q", "Q", "Q", "E"])
         self.assertEqual(extra, {"Q|ally": [0], "Q|enemy": [1]})
 
+    def test_net_gain_is_a_range_and_never_clips(self):
+        self.assertEqual(ao.net_gain(10, 4.0, 20), (6.0, 8.0))
+        # more false alarms expected than gained: both go negative, not zero
+        u, p = ao.net_gain(2, 5.0, 4)
+        self.assertEqual(u, -3.0)
+        self.assertAlmostEqual(p, -0.5)
+        self.assertEqual(ao.net_gain(0, 3.0, 0), (-3.0, 0.0))
+
+    def test_side_summary_pools_balanced_classes_apart(self):
+        votes = {("K", "Q", "ally", "enemy"): 9, ("K", "Q", "ally", "ally"): 1,
+                 ("S", "E", "ally", "ally"): 3, ("S", "E", "enemy", "ally"): 1,
+                 ("S", "E", "enemy", None): 5}
+        counts = {("K", "Q"): {"ally": 1, "enemy": 7}, ("S", "E"): {"ally": 1, "enemy": 1}}
+        s = ao.side_summary(votes, counts)
+        self.assertEqual(s["all"], {"agree": 4, "voted": 14, "share": round(4 / 14, 4)})
+        self.assertEqual(s["balanced"], {"agree": 3, "voted": 4, "share": 0.75})
+        self.assertEqual(s["unbalanced"]["voted"], 10)
+        self.assertFalse(s["per_class"]["K|Q"]["balanced"])
+        self.assertEqual(ao.side_summary({}, {})["balanced"]["share"], None)
+
+    def test_rank_classes_by_precision_then_recall(self):
+        per = {"A|Q": {"detections": 10, "paired": 5, "truth_live_others": 4, "paired_live_others": 1},
+               "B|E": {"detections": 4, "paired": 2, "truth_live_others": 2, "paired_live_others": 2},
+               "C|C": {"detections": 2, "paired": 2, "truth_live_others": 0, "paired_live_others": 0},
+               "D|X": {"detections": 0, "paired": 0, "truth_live_others": 3, "paired_live_others": 0}}
+        r = ao.rank_classes(per, {"A|Q": 0.5})
+        self.assertEqual([x["class"] for x in r], ["C|C", "B|E", "A|Q", "D|X"])
+        self.assertIsNone(r[0]["recall"])
+        self.assertAlmostEqual(r[1]["f1"], 2 * 0.5 * 1.0 / 1.5)
+        self.assertEqual(r[2]["weapon_share"], 0.5)
+        self.assertIsNone(r[3]["precision"])
+
+    def test_dropped_side_pairs_take_their_folders_class(self):
+        bank = {"manifest_agent": "Cypher",
+                "rows": [{"flac": "Cypher/E/Tripwire_1.flac", "class": "C"},
+                         {"flac": "Cypher/Q/Camera_1.flac", "class": "E"},
+                         {"flac": "Cypher/Q/Camera_2.flac", "class": "E"},
+                         {"flac": "Cypher/Q/place.flac", "class": "C"}]}
+        man = [{"agent": "Cypher", "flac": "Cypher/E/abile_ally_loop.flac"},
+               {"agent": "Cypher", "flac": "Cypher/E/abile_enemy_loop.flac"},
+               {"agent": "Cypher", "flac": "Cypher/Q/Possess_3P_Ally.flac"},
+               {"agent": "Cypher", "flac": "Cypher/Q/Possess_3P_Enemy.flac"},
+               {"agent": "Cypher", "flac": "Cypher/X/only_Enemy.flac"},
+               {"agent": "Sova", "flac": "Sova/E/x_Ally.flac"},
+               {"agent": "Cypher", "flac": "Cypher/E/Tripwire_1.flac"}]
+        got = ao.dropped_side_pairs(bank, man)
+        self.assertEqual(got, {"C": {"ally": ["Cypher/E/abile_ally_loop.flac"],
+                                     "enemy": ["Cypher/E/abile_enemy_loop.flac"]},
+                               "E": {"ally": ["Cypher/Q/Possess_3P_Ally.flac"],
+                                     "enemy": ["Cypher/Q/Possess_3P_Enemy.flac"]}})
+
 
 class Scan(unittest.TestCase):
     def test_injected_sound_is_a_peak_of_its_class_only(self):
