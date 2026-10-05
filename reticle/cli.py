@@ -3489,6 +3489,11 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
         # tracks of one entry are timed outside the stall. Unknown (no
         # primitives) is passed as None and changes nothing.
         stall_spans = stalls.for_session(store, sid, date)
+        # Blinds: a flash's wash hides the killfeed without expiring an entry.
+        # Unknown (no primitives, or none with the killfeed's edge column)
+        # is passed as None and changes nothing.
+        from . import blinds as blind_rule
+        blind_spans = blind_rule.for_session(store, sid, date)
         # The player's death panel covers the killfeed's lowest slots when it
         # stands high (`adjudication.death.panel_aside`); a stale or missing
         # combat_report stream sets no read aside.
@@ -3511,7 +3516,8 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
             source_version=KILLFEED_PORTRAIT_VERSION,
             second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION),
             weapon_observations=weapons, name_observations=names, reliability=rel,
-            xmarks=births, store_root=store.root, stalls=stall_spans, panel=panel)
+            xmarks=births, store_root=store.root, stalls=stall_spans, panel=panel,
+            blinds=blind_spans)
     # How each round ended (`round_outcome_claim` rows at the code's stamps):
     # a round that ended by elimination inside a stall's gap kills the losing
     # side's living members there. Missing or stale claims refuse every
@@ -3574,6 +3580,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                 "merged": dict(Counter(m["rule"] for m in res.get("merges", []))),
                 "refused_entries": dict(Counter(x["reason"] for x in res.get("refusals", []))),
                 "stalls": None if stall_spans is None else len(stall_spans),
+                "blinds": None if blind_spans is None else len(blind_spans),
                 # Deaths a stall swallowed, inferred from the round's end.
                 "inferred_deaths": len(stalled["inferred"]),
                 "inferred_refusals": dict(Counter(x["refusal"] for x in stalled["refused"])),
@@ -3615,6 +3622,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                            "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION,
                            "reliability": RELIABILITY_VERSION if rel is not None else None,
                            "stalls": stalls.STALL_VERSION if stall_spans is not None else None,
+                           "blinds": blind_rule.BLIND_VERSION if blind_spans is not None else None,
                            "combat_report": report_version if panel is not None else None,
                            "round_outcome": ROUND_OUTCOME_VERSION if claims is not None else None,
                            "round_outcome_claim": (ROUND_OUTCOME_CLAIM_VERSION

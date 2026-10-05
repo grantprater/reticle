@@ -49,6 +49,19 @@ class OneColourEntryTests(unittest.TestCase):
         self.assertIs(v.killer_ally, False)
         self.assertIs(v.victim_ally, False)
 
+    def test_a_not_dead_yet_expiry_divides_at_its_whole_icon(self):
+        """ff636d173b07 1247.0 s, MommysMethpipe -> MommysMethpipe, Clove's
+        Not Dead Yet expiring: a red banner whose icon breaks into three
+        pieces. The left piece sits on the names' baseline touching the rest,
+        and read as the killer's last letter (`one_colour:no_divider`)."""
+        dropped = []
+        got = _entries(_views("ff636d173b07_12470.png", dropped))
+        self.assertEqual(len(got), 1, dropped)
+        v = got[0]
+        self.assertEqual(v.slot, 0)
+        self.assertEqual((v.wx0, v.wx1), (245, 267))
+        self.assertIs(v.victim_ally, False)
+
     def test_two_one_colour_banners_stack_and_scenery_joins_the_lower(self):
         """4f207c0c4e39 1582.0 s: a red and a teal spike banner. The teal one
         runs into a teal sign below it (53 rows), and the slot grid places it."""

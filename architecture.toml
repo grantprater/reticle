@@ -42,7 +42,7 @@ modules = ["decode", "store", "geometry", "input_stamps"]
 
 [primitives]
 claim = "per-frame primitives and the spans built from them"
-modules = ["primitives", "segment", "stalls", "synth"]
+modules = ["primitives", "segment", "stalls", "blinds", "synth"]
 
 [readers]
 claim = "pixels in, one observation out; no reader knows another"

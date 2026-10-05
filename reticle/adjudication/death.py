@@ -234,7 +234,18 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # the count is taken again over the wider interval; the narrow refusal stays
 # in the claim's evidence (`widened`). 043bafca271a 474.5 s: Waylay was dim at
 # 474.0 s, before the entry's first read, and was refused.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.39.0"
+# 0.40.0 (2026-10-04): a blind hides the killfeed without expiring an entry
+# (`blinds.for_session`, blinds-0.1.0; `checks.track_entries` given
+# `blinds`): a track ages only by the time it was seen, and a washed frame
+# reads no victim side. a06f04a0059f 1768.0 s: Riot's Deadlock kill, read
+# once before Skye's blind, joins the entry read faded at 1771.0 s.
+# 0.41.0 (2026-10-04): no entry track rises further than an entry above it
+# rose over the same interval (`checks.track_entries`, `outrises`): entries
+# expire top first and rise alike [domain:killfeed/stack-order]. At
+# 223d636bf8d2 1208.0 s the entry under the Shooting Error overlay (slot 4,
+# no divider) took a Not Dead Yet banner two slots up, and Riot's Skye death
+# read Clove on the enemy side.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.41.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -1509,7 +1520,8 @@ def join_assists(rows: list[dict], assist_rows: list[dict] | None) -> dict:
 
 
 def session_entries(hud: dict, second_life: list[dict] | None = None,
-                    stalls: list[dict] | None = None, panel=None) -> list[dict]:
+                    stalls: list[dict] | None = None, panel=None,
+                    blinds: list[dict] | None = None) -> list[dict]:
     """One dict per counted killfeed entry track over the whole session, from
     stored HUD columns only: first-seen time, the slot it appeared in, the
     victim's plate side there, whether it is the player's kill or death, and
@@ -1519,7 +1531,11 @@ def session_entries(hud: dict, second_life: list[dict] | None = None,
     drawn at a stall's release (`checks.track_entries`); such an entry carries
     `released`, the span. `panel`, parallel to the HUD's samples, holds the
     killfeed slots the player's death panel covers (`checks.panel_slots`);
-    a read there joins no entry. None sets no read aside.
+    a read there joins no entry. None sets no read aside. `blinds`, the
+    session's blind spans (`blinds.for_session`), hide the killfeed without
+    expiring an entry (`checks.track_entries`); a washed sample reads no
+    victim side, here as there, and an entry tracked across a span carries
+    `blinded`, the spans. None hides nothing.
 
     Tracked over the session, not per round: a death on a round's last sample
     is a one-frame track inside the round and would be refused. The player's
@@ -1530,10 +1546,18 @@ def session_entries(hud: dict, second_life: list[dict] | None = None,
     from ..checks import KF_SIG_TOL, merge_split_tracks, track_entries
     t = hud["t_ms"]
     at = {x: i for i, x in enumerate(t)}
+    if blinds:
+        # A washed frame shows the plates one colour: its sides are unread.
+        from ..blinds import inside
+        washed = inside(blinds, t)
+        hud = dict(hud)
+        for c in ("kf_ally_mask", "kf_enemy_mask", "kf_same_side_mask"):
+            if hud.get(c):
+                hud[c] = [0 if w else v for w, v in zip(washed, hud[c])]
     col = lambda c: hud.get(c) or [None] * len(t)
     mine = {kind: merge_split_tracks([e for e in track_entries(t, hud[f"kf_{kind}_mask"],
                                                                 col(f"kf_{kind}_wx"),
-                                                                stalls=stalls)
+                                                                stalls=stalls, blinds=blinds)
                                       if e["counted"]])
             for kind in ("kill", "death")}
     # Stored from hud-0.15.0; an older table reads no entry's plates as one side.
@@ -1545,7 +1569,8 @@ def session_entries(hud: dict, second_life: list[dict] | None = None,
     # A read under the player's death panel joins no entry (`checks.panel_slots`).
     tracks = [e for e in track_entries(t, hud["kf_entry_mask"], col("kf_entry_wx"),
                                        flags={"same_side": same} if same else None,
-                                       sides=sides, stalls=stalls, panel=panel)
+                                       sides=sides, stalls=stalls, panel=panel,
+                                       blinds=blinds)
               if e["counted"]]
     # A player track belongs to the entry on screen when it was first seen
     # whose divider agrees, the latest such onset first (the attribution can
@@ -1598,7 +1623,8 @@ def session_entries(hud: dict, second_life: list[dict] | None = None,
                                   2 * e["flag_hits"].get("same_side", 0) > e["n_obs"]),
                     "player_track": None if dt is None else (dt["t_first"], dt["t_last"]),
                     "claim": None, "location": None, "killer_location": None,
-                    **({"released": e["released"]} if e.get("released") else {})})
+                    **({"released": e["released"]} if e.get("released") else {}),
+                    **({"blinded": e["blinded"]} if e.get("blinded") else {})})
     # Each entry's own badge rows decide its second life (`entry_second_life`);
     # the player's death track's window vote (`second_life_death`) stands in
     # only where none was read at the entry's views. 587c15b07779 1294.5 s:
@@ -3364,12 +3390,13 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                               reliability: dict | None = None,
                               xmarks: list[dict] | None = None,
                               store_root=None, stalls: list[dict] | None = None,
-                              panel=None) -> dict:
+                              panel=None, blinds: list[dict] | None = None) -> dict:
     """Every round's deaths from stored data only; decodes no video.
 
     `panel`, parallel to the HUD's samples, holds the killfeed slots the
     player's death panel covers (`panel_aside`); `session_entries` walks
-    around those reads. None sets none aside.
+    around those reads. None sets none aside. `blinds`, the session's blind
+    spans, hide the killfeed without expiring an entry (`session_entries`).
 
     `stalls`, the session's capture-stall spans, count entries drawn at a
     stall's release (`session_entries`) and discount stall time when two
@@ -3408,7 +3435,7 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
     from ..checks import sample_step_ms
     hud, roster = hud_table.to_pydict(), roster_table.to_pylist()
     player_agent = (lineup.get("player") or {}).get("agent")
-    entries = session_entries(hud, second_life, stalls=stalls, panel=panel)
+    entries = session_entries(hud, second_life, stalls=stalls, panel=panel, blinds=blinds)
     step_ms = sample_step_ms(hud["t_ms"])
 
     def settle(rounds: list[dict]) -> dict:

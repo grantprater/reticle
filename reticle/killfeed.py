@@ -1293,6 +1293,28 @@ def _soft_stroke_groups(soft: np.ndarray, line: int, s: "KillfeedScale") -> list
     return _stroke_groups(st, set(range(1, n)), lambda i: bool(glyph[i]), s)
 
 
+def _element_box(b: tuple[int, int], cand, st: np.ndarray,
+                 s: "KillfeedScale") -> tuple[int, int]:
+    """Divider box `b` widened over every glyph-sized piece (`cand`) whose
+    column gap to it is under NAME_GAP: a gap that narrow joins two pieces of
+    one element, and the killer's name ends 6 px or more before the icon
+    [domain:killfeed/killfeed-element-spacing]. Clove's Not Dead Yet expiry
+    icon at ff636d173b07 1247.0 s breaks into three pieces; the left one,
+    10 x 11 px on the names' baseline and touching the others, read as the
+    killer's name's last letter 13 px from the rest of it, and the band went
+    `one_colour:no_divider`."""
+    x0, x1 = b
+    gap = s.px(NAME_GAP)
+    grew = True
+    while grew:
+        grew = False
+        for i in cand:
+            a0, a1 = int(st[i, 0]), int(st[i, 0] + st[i, 2])
+            if (a0 < x0 or a1 > x1) and a0 < x1 + gap and a1 > x0 - gap:
+                x0, x1, grew = min(x0, a0), max(x1, a1), True
+    return x0, x1
+
+
 def _band_text(
     white: np.ndarray, usable: np.ndarray | None = None, plates=None,
     value: np.ndarray | None = None, s: "KillfeedScale" = UNIT_SCALE,
@@ -1464,6 +1486,8 @@ def _band_text(
                                 max([int(st[m, 0] + st[m, 2]) for m in keep]
                                     + [a1, int(round(fit["cx"] + fit["r"]))]))
                             break
+            if one_colour:
+                boxes[i] = _element_box(boxes[i], cand, st, s)
         return boxes[i]
 
     divides = lambda i, left, right: ((left < box(i)[0]).any()
@@ -2000,7 +2024,25 @@ PORTRAIT_ASPECT = 2.0
 # killfeed-weapon-0.13.0), so a one-colour banner's second-life search,
 # anchored at the icon's end, starts 1-2 px later: on 96aa1ae9b96f, 10 of
 # 1391 badge rows move `plate_x0`, and none changes `has_badge` or `reason`.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.19.0"
+# 0.20.0 (2026-10-04): a one-colour band's divider widens over a glyph-sized
+# piece under NAME_GAP from it (`_element_box`, hud-0.23.0), so a Not Dead Yet
+# expiry whose icon breaks into pieces is an entry with portraits.
+# 0.21.0 (2026-10-04): a killer run ending further than
+# ONE_COLOUR_KILLER_GAP before the divider gives way to a letter on the
+# victim's baseline inside that gap (`killer_name_end`): the text mask
+# had kept the assist panel's or the numeral's specks and lost the name, so
+# the name start sat on the panel and `band_shift` moved the band by the
+# specks' baseline. Without such a letter the run stands (an unread mark
+# lies between name and icon). The plate edge is searched again left of
+# the divider when none lies left of the name start, and in the killer's
+# own plate colour (`plate_left_edge` given `killer_ally`) only where both
+# colours find none; a view with no killer name reads its portrait from
+# that edge. The assist review's five killer
+# views (5822b6646448 121.5, 544.5, 1415.0 s, c62c2b06bcfb 400.5 s,
+# 7010b3d62460 1020.0 s) now read their killer at z 0.82-0.91 on the band's
+# row; before, the art search widened and its best window, a noise peak,
+# put `art_y0` 3-13 rows off, or no killer row was written.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.21.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -2202,11 +2244,13 @@ class EntryAnchors:
             e["arts"].append((int(fields["art_x0"]), bool(prior)))
 
 
-def plate_score(crop: np.ndarray) -> np.ndarray:
+def plate_score(crop: np.ndarray, ally: bool | None = None) -> np.ndarray:
     """Each pixel's soft plate membership, 0..1: the green and red plate
     windows of `_plate_masks` (hue, saturation, value) with linear ramps in
-    place of their cuts, the larger of the two. Scored softly so the plate
-    edge can be placed between pixels; the cut comes once, at the edge."""
+    place of their cuts, the larger of the two, or the green window alone
+    for an ally plate (`ally` True) and the red alone for an enemy's. Scored
+    softly so the plate edge can be placed between pixels; the cut comes
+    once, at the edge."""
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV).astype(np.float32)
     hh, ss, vv = hsv[..., 0], hsv[..., 1], hsv[..., 2]
 
@@ -2217,11 +2261,12 @@ def plate_score(crop: np.ndarray) -> np.ndarray:
     green = (up(hh, GREEN_H[0], 6) * (1 - up(hh, GREEN_H[1], 6))
              * up(ss, GREEN_S[0], 12) * (1 - up(ss, GREEN_S[1], 12)) * val)
     red = (np.maximum(1 - up(hh, RED_H_LO, 6), up(hh, RED_H_HI, 6)) * up(ss, RED_S_MIN, 12) * val)
-    return np.maximum(green, red)
+    return green if ally is True else red if ally is False else np.maximum(green, red)
 
 
 def plate_left_edge(band_bgr: np.ndarray, hi: int,
-                    s: "KillfeedScale" = UNIT_SCALE) -> tuple[float, float] | None:
+                    s: "KillfeedScale" = UNIT_SCALE,
+                    ally: bool | None = None) -> tuple[float, float] | None:
     """The entry plate's left end in one band's crop, left of column `hi`:
     (edge, score), the edge
     in column-boundary coordinates (pixel c spans c..c+1) to a sub-pixel, or
@@ -2235,7 +2280,12 @@ def plate_left_edge(band_bgr: np.ndarray, hi: int,
     (`plate_score`) from `PLATE_EDGE_SIDE` columns left to as many right;
     the score is the lesser half, so the assist panel, which fills only the
     top 18 rows [domain:killfeed/assist-panel-layout], and the killstreak
-    numeral in the bottom half do not score. The leftmost boundary that
+    numeral in the bottom half do not score. `ally`, the plate's side where
+    read, scores that plate's colour alone: over teal scenery a red plate's
+    end rose in neither colour's share (5822b6646448 544.5 s). The caller
+    tries it only where both colours find no edge, since a plate fading
+    toward the other hue ends in both colours' share. The leftmost
+    boundary that
     reaches `PLATE_EDGE_MIN` is the edge; a parabola through the Lab step
     places it between pixels. Matrix work over the columns; nothing loops per
     pixel.
@@ -2246,7 +2296,7 @@ def plate_left_edge(band_bgr: np.ndarray, hi: int,
     if h < 4 or hi <= 2 * k:
         return None
     band = appearance.to_lab(band_bgr[:, :hi + k])
-    plate = plate_score(band_bgr[:, :hi + k])
+    plate = plate_score(band_bgr[:, :hi + k], ally)
     step = np.linalg.norm(band[:, 1:] - band[:, :-1], axis=2)                 # boundary c+1
     halves = (slice(0, h // 2), slice(h // 2, h))
     scores = []
@@ -2347,6 +2397,27 @@ def _name_glyphs(white_band: np.ndarray, run: tuple[int, int] | None,
     inside = [i for i in glyph if run and st[i, 0] >= run[0] and st[i, 0] + st[i, 2] - 1 <= run[1]]
     base = int(np.median([st[i, 1] + st[i, 3] for i in inside])) if inside else None
     return st, glyph, base
+
+
+def killer_name_end(white_band: np.ndarray, wx0: int, victim_run,
+                    s: "KillfeedScale" = UNIT_SCALE) -> tuple[int, int] | None:
+    """The last glyph of the killer's name, as a run, from the band's white
+    ink where the text mask lost the name: the rightmost glyph-sized piece
+    ending inside `ONE_COLOUR_KILLER_GAP` before the divider `wx0`, on the
+    victim name's baseline [domain:killfeed/killfeed-element-spacing], else
+    on a placed band's (`NAME_BASE_ROW`): the run that lost the killer's
+    name may hold no victim name either (7010b3d62460 1020.0 s, a run on the
+    headshot mark, baseline 14). None without such a piece.
+    `killer_name_start` walks left from it."""
+    st, glyph, vbase = _name_glyphs(white_band, victim_run, s)
+    lo, tol = wx0 - s.px(ONE_COLOUR_KILLER_GAP), s.px(NAME_BASE_TOL)
+    for base in dict.fromkeys(b for b in (vbase, s.n(NAME_BASE_ROW)) if b is not None):
+        near = [i for i in glyph if lo <= st[i, 0] + st[i, 2] - 1 < wx0
+                and abs(int(st[i, 1] + st[i, 3]) - base) <= tol]
+        if near:
+            i = max(near, key=lambda i: st[i, 0] + st[i, 2])
+            return int(st[i, 0]), int(st[i, 0] + st[i, 2] - 1)
+    return None
 
 
 #: The names' baseline row inside a correctly placed entry band: the median
@@ -2699,7 +2770,25 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
 
     out: list[dict] = []
     for view in views:
-        if not (view.killer_run and view.victim_run):
+        # The killer's name ends 6-29 px before the icon
+        # [domain:killfeed/killfeed-element-spacing] (`ONE_COLOUR_KILLER_GAP`).
+        # Where the text mask kept the assist panel's or a killstreak
+        # numeral's specks and lost the name, the run sat on the panel: a
+        # 1 px run at 144 for a divider at 253 (7010b3d62460 1020.0 s) moved
+        # the band 10 rows up by its "baseline" and put the art search on the
+        # panel. A run further off than the gap gives way only to a letter on
+        # the victim's baseline inside the gap (`killer_name_end`): an
+        # unread mark between name and icon (96aa1ae9b96f 770.5 s, 10 x 15 px below
+        # the baseline, run ending 37 px before the divider) leaves the run
+        # the name. A killer's name the text mask lost ("jay" at
+        # 5822b6646448 544.5 s, no run) leaves its portrait to that letter,
+        # or else to the plate's left end, found left of the divider.
+        krun = view.killer_run
+        if view.wx1 > view.wx0 and view.victim_run and (
+                krun is None or view.wx0 - krun[1] > s.px(ONE_COLOUR_KILLER_GAP)):
+            krun = (killer_name_end(white[view.y0:view.y1], view.wx0, view.victim_run, s)
+                    or krun)
+        if not (view.victim_run and (krun or view.wx1 > view.wx0)):
             continue
         bh = view.y1 - view.y0
         if bh < s.px(PORTRAIT_MIN_BAND_H):
@@ -2715,14 +2804,14 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                             own_ink(white[view.y0:view.y1], name1), bh)
         # The portraits are cut from the rows the names place the entry at
         # (`band_shift`); the columns stay read from the band as found.
-        dy = band_shift(white[view.y0:view.y1], view.killer_run, view.victim_run, s)
+        dy = band_shift(white[view.y0:view.y1], krun, view.victim_run, s) if krun else 0
         py0 = min(max(0, view.y0 + dy), max(0, h - bh))
         py1 = py0 + bh
         band = crop[py0:py1]
         furniture = green[py0:py1] | red[py0:py1] | (white[py0:py1] > 0)
         wide = int(round(PORTRAIT_ASPECT * bh))
-        name0 = killer_name_start(white[view.y0:view.y1], view.killer_run, s)
-        for role, start, step in (("killer", name0 - 1, -1),
+        name0 = killer_name_start(white[view.y0:view.y1], krun, s) if krun else None
+        for role, start, step in (("killer", None if name0 is None else name0 - 1, -1),
                                   ("victim", name1 + 1, +1)):
             if role == "killer":
                 # In Valorant's layout [killer portrait][killer name], the killer
@@ -2742,17 +2831,35 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                 # anchor, so it needs no gap past the name.
                 plate_fields, plate_x0, pe, ent, anc = {}, None, None, None, None
                 # the art ends KILLER_ART_FROM_NAME before the name starts
-                box_xf = (name0 - s.px(KILLER_ART_FROM_NAME)
+                box_xf = (None if name0 is None else name0 - s.px(KILLER_ART_FROM_NAME)
                           - int(round(PORTRAIT_ASPECT * s.n(ART_TILE_H))))
-                box_x0 = int(round(box_xf)) if role == "killer" else None
+                box_x0 = int(round(box_xf)) if role == "killer" and box_xf is not None else None
                 if role == "killer":
                     # The entry's anchor first (`EntryAnchors`); the plate
                     # edge is measured until the anchor holds ANCHOR_VIEWS.
                     ent = anchors.entry(view, s) if anchors is not None else None
                     anc = EntryAnchors.anchor(ent)
                     if anc is None or anc["views"] < ANCHOR_VIEWS:
-                        hi = min(name0, view.wx0 if view.wx1 > view.wx0 else name0) - 1
-                        pe = plate_left_edge(crop[py0:py1], hi, s)
+                        divider = view.wx0 if view.wx1 > view.wx0 else None
+                        his = [min(x for x in (name0, divider) if x is not None) - 1]
+                        # A name start read on the assist panel left of the
+                        # plate (5822b6646448 121.5 s: a 2 px run at 164, the
+                        # plate's left end at 178) hides the edge; the plate
+                        # ends left of the divider whatever the name read.
+                        if divider is not None and divider - 1 not in his:
+                            his.append(divider - 1)
+                        # Both plate colours first; the killer's side alone
+                        # only where they find no edge. A teal plate fading
+                        # to olive over sand ends in both colours' share and
+                        # in neither alone (a06f04a0059f 1333.0 s, slot 1:
+                        # the edge at 45 both ways, 103 on teal alone).
+                        tries = [(hi, None) for hi in his]
+                        if view.killer_ally is not None:
+                            tries += [(hi, view.killer_ally) for hi in his]
+                        for hi, side in tries:
+                            pe = plate_left_edge(crop[py0:py1], hi, s, side)
+                            if pe is not None:
+                                break
                     if pe is not None:
                         plate_x0 = pe[0] + s.px(KILLER_ART_FROM_PLATE)
                         plate_fields = {"plate_left": round(pe[0], 2),
@@ -2762,7 +2869,7 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                                   entry_x0=None if anc is None
                                   else anc["x"] + s.px(KILLER_ART_FROM_PLATE))
                 fields.update(plate_fields)
-                if role == "killer":
+                if role == "killer" and box_xf is not None:
                     EntryAnchors.seed(ent, box_xf, s)
                 if ent is not None:
                     fields["entry"] = ent["entry"]
@@ -3105,7 +3212,9 @@ def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # extent covering the divider: 0.13.0's pieces cut Nanoswarm's dotted
 # outline (a06f04a0059f 892.5 s) from 327-349 to 331-345, and the soft
 # registered match's whole-icon gate failed on the dots left in the margin.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.14.0"
+# 0.15.0 (2026-10-04): a one-colour band's divider widens over a glyph-sized
+# piece under NAME_GAP from it; see the portrait stamp.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.15.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -3678,7 +3787,9 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # Shells) divides by the plate-relative cut (`_soft_stroke_groups`).
 # 0.6.0 (2026-10-03): `PITCH` is 39; see the portrait stamp. (0.5.0 belongs to
 # one-colour-band-20261003.)
-KILLFEED_NAME_VERSION = "killfeed-name-0.6.0"
+# 0.7.0 (2026-10-04): a one-colour band's divider widens over a glyph-sized
+# piece under NAME_GAP from it; see the portrait stamp.
+KILLFEED_NAME_VERSION = "killfeed-name-0.7.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15
