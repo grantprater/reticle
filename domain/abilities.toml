@@ -2144,7 +2144,552 @@ player, 2026-09-27 (chat): "There are two kinds of recharges as well, time and
 kills." The counts are from reference/abilities.json (infobox Restock).
 """
 use = "the ability state model's recharge transition needs the kind per ability before it dates a refill"
-see = ["abilities/ability-rules-are-unique", "abilities/omen-dark-cover-restock"]
+exceptions = """
+the player added a third return on 2026-10-04: picking up deployed utility,
+for Killjoy, Cypher and Chamber (abilities/deployed-pickup-returns-charge and
+the per-agent facts it sees)
+"""
+see = ["abilities/ability-rules-are-unique", "abilities/omen-dark-cover-restock",
+       "abilities/deployed-pickup-returns-charge", "abilities/killjoy-deployed-util-pickup",
+       "abilities/cypher-deployed-util-pickup", "abilities/chamber-deployed-util-pickup"]
+
+[killjoy-deployed-util-pickup]
+claim = """
+Killjoy can pick up any of her deployed utility and so regain its charge. She
+must be fairly close to it, and she can deploy it again after a cooldown.
+Which of her abilities are deployed utility, and each one's distance and
+cooldown, are facts per ability.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "killjoy"
+source = """
+player, 2026-10-04 (chat): "Pickup recharges for killjoy, cypher, and chamber
+are real. They have to be fairly close, the distance might be in the
+gamefiles, and can pick up any of their deployed util and redeploy it after a
+cooldown". Earlier the same day: "There are ways to refresh charges for some
+abilities, which should be in domain notes."
+"""
+use = """
+the ability state model: a Killjoy slot's charge may return within a round by
+pickup, usable after that ability's cooldown
+"""
+see = ["abilities/deployed-pickup-returns-charge", "abilities/killjoy-pickup-abilities-gamefile",
+       "abilities/recharge-kinds"]
+
+[cypher-deployed-util-pickup]
+claim = """
+Cypher can pick up any of his deployed utility and so regain its charge. He
+must be fairly close to it, and he can deploy it again after a cooldown.
+Which of his abilities are deployed utility, and each one's distance and
+cooldown, are facts per ability.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "cypher"
+source = """
+player, 2026-10-04 (chat): "Pickup recharges for killjoy, cypher, and chamber
+are real. They have to be fairly close, the distance might be in the
+gamefiles, and can pick up any of their deployed util and redeploy it after a
+cooldown"
+"""
+use = """
+the ability state model: a Cypher slot's charge may return within a round by
+pickup, usable after that ability's cooldown
+"""
+see = ["abilities/deployed-pickup-returns-charge", "abilities/cypher-pickup-abilities-gamefile",
+       "abilities/recharge-kinds"]
+
+[chamber-deployed-util-pickup]
+claim = """
+Chamber can pick up any of his deployed utility and so regain its charge. He
+must be fairly close to it, and he can deploy it again after a cooldown.
+Which of his abilities are deployed utility, and each one's distance and
+cooldown, are facts per ability.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "chamber"
+source = """
+player, 2026-10-04 (chat): "Pickup recharges for killjoy, cypher, and chamber
+are real. They have to be fairly close, the distance might be in the
+gamefiles, and can pick up any of their deployed util and redeploy it after a
+cooldown"
+"""
+use = """
+the ability state model: a Chamber slot's charge may return within a round by
+pickup, usable after that ability's cooldown
+"""
+exceptions = """
+the game files give Chamber's two deployed abilities a RECALL usable that is
+not distance-limited (abilities/chamber-trademark-recall-distance,
+abilities/chamber-rendezvous-recall-distance); how close he must be is a
+question for the player in the mechanics sheet
+"""
+see = ["abilities/deployed-pickup-returns-charge", "abilities/chamber-pickup-abilities-gamefile",
+       "abilities/recharge-kinds"]
+
+[deployed-pickup-returns-charge]
+claim = """
+For an ability whose own fact says its owner can pick it up, the charge
+constraint on ability instances has a return transition: the pickup closes
+the deployed instance and returns its charge to the slot, and that charge is
+usable only after the ability's cooldown. A cast opens an instance and spends
+a charge; a pickup is the one transition that closes an instance and gives
+the charge back. No ability gains this transition by analogy; it holds only
+where a per-ability fact gives it.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-10-04"
+subject = "abilities:tray"
+source = """
+player, 2026-10-04 (chat), as quoted in abilities/killjoy-deployed-util-pickup;
+the game files of build release-13.06-shipping-18-5590001 show the
+cooldown: a pickup of ALARMBOT, TURRET, Spycam, Trademark or Rendezvous after
+the RoundStarting phase starts the ability's cooldown, and one within it
+regains the charge at once (the per-ability facts)
+"""
+use = """
+adjudication.ability_state: a rise of a slot's level within a round may be a
+pickup; the model needs a returned-but-cooling state and the cooldown per
+ability before it dates the charge as castable
+"""
+exceptions = """
+whether the tray draws the returned charge during its cooldown is not
+recorded. The game files show phase-dependent behaviour the player's
+statement does not mention: Nanoswarm and Cyber Cage are picked up only in
+RoundStarting, and Trapwire picked up after RoundStarting adds a temporary
+charge with no cooldown in its blueprint
+"""
+see = ["abilities/ability-rules-are-unique", "abilities/recharge-kinds",
+       "abilities/killjoy-deployed-util-pickup", "abilities/cypher-deployed-util-pickup",
+       "abilities/chamber-deployed-util-pickup"]
+
+[killjoy-pickup-abilities-gamefile]
+claim = """
+In build release-13.06-shipping-18-5590001 the deployed actors of three of
+Killjoy's abilities carry a pickup interaction: ALARMBOT (Q) and TURRET (E),
+whose abilities derive from Ability_Killjoy_Recallable_Deployable_Base and
+whose pawns implement CanPickup, at any phase; Nanoswarm (C), whose swarm's
+usable picks it up only in the RoundStarting phase and detonates it in any
+other. Lockdown's (X) bomb carries no usable component.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-10-04"
+subject = "killjoy"
+source = """
+game files, build release-13.06-shipping-18-5590001, exported with the
+store's tools/game-extract (--script) to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl, manifest-2.jsonl, manifest-3.jsonl; path lists paths*.txt)
+and the earlier ability-data set: Ability_Killjoy_Q_Alarmbot and
+Ability_Killjoy_E_Turret (Super = Ability_Killjoy_Recallable_Deployable_Base_C,
+CharacterAbilityStatisticsComponent.ReclaimableAbility = true),
+Pawn_Killjoy_Q_StealthAlarmbot and Pawn_Killjoy_E_Turret (function CanPickup),
+Projectile_Killjoy_4_RemoteBees_MultiDetonate (ExecuteUbergraph statements
+2261-2415 and 6463-6513), GameObject_Killjoy_X_Bomb ("Pickup" appears only
+as a collision channel)
+"""
+use = "which Killjoy slots the pickup return applies to (abilities/deployed-pickup-returns-charge)"
+see = ["abilities/killjoy-deployed-util-pickup", "abilities/killjoy-alarmbot-recall-cooldown",
+       "abilities/killjoy-turret-recall-cooldown", "abilities/killjoy-nanoswarm-pickup-distance"]
+
+[killjoy-alarmbot-recall-cooldown]
+claim = """
+A recalled ALARMBOT (Q) restocks after 20 s outside the RoundStarting phase,
+and at once within it. Killjoy's recallable base class, on a recall, sets the
+ability's cooldown to CooldownOnRecall and starts it; the Alarmbot does not
+override CooldownOnRecall. In RoundStarting the recall regains the charge at
+once (EquipmentCharge.RegainCharges(1)) with no cooldown.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "killjoy:alarmbot"
+source = """
+game files, build release-13.06-shipping-18-5590001:
+ShooterGame/Content/Characters/Killjoy/S0/Shared/Ability_Killjoy_Recallable_Deployable_Base.uasset,
+Default__Ability_Killjoy_Recallable_Deployable_Base_C.CooldownOnRecall = 20.0
+(seconds), read by its function ReplenishCharge (statements 177-515: Reclaimed
+selects CooldownOnRecall, else CooldownOnDestroy, then
+Comp_Ability_CooldownComponent.AuthSetCooldownDuration and
+AuthAttemptToStartCooldown); the phase test compares EAresGamePhase to 3,
+RoundStarting in the build's VALORANT_13.06_zs.usmap. Exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest-2.jsonl)
+"""
+exceptions = """
+the pickup distance is not in the blueprint data: the pawn's CanPickup tests
+only that the user is the owner and alive, the pawn's UsableComponent is
+created outside the exported blueprints, and neither the pawn, BasePawn nor
+BaseAIPawn sets a UseDistance. MaxDistanceBeforeDisable = 4000.0 on the pawn's
+Comp_GameObject_DisableOwnerDistance is the range at which the bot disables,
+not a pickup range. Ability_Killjoy_Q_Alarmbot also sets CooldownOnDestroy =
+0.0 and a variable "Pickup Cooldown" = 7.0 that no exported bytecode reads
+"""
+use = "the cooldown a returned Alarmbot charge waits before it is castable"
+values = { recall_cooldown_s = 20.0 }
+see = ["abilities/killjoy-deployed-util-pickup", "abilities/killjoy-pickup-abilities-gamefile"]
+
+[killjoy-turret-recall-cooldown]
+claim = """
+A recalled TURRET (E) restocks after 20 s outside the RoundStarting phase,
+and at once within it. Killjoy's recallable base class, on a recall, sets the
+ability's cooldown to CooldownOnRecall and starts it; the Turret does not
+override CooldownOnRecall. In RoundStarting the recall regains the charge at
+once (EquipmentCharge.RegainCharges(1)) with no cooldown.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "killjoy:turret"
+source = """
+game files, build release-13.06-shipping-18-5590001:
+ShooterGame/Content/Characters/Killjoy/S0/Shared/Ability_Killjoy_Recallable_Deployable_Base.uasset,
+Default__Ability_Killjoy_Recallable_Deployable_Base_C.CooldownOnRecall = 20.0
+(seconds), read by its function ReplenishCharge as for the Alarmbot;
+ShooterGame/Content/Characters/Killjoy/S0/Ability_E/Ability_Killjoy_E_Turret.uasset
+sets only CooldownOnDestroy = 60.0. Exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl, manifest-2.jsonl)
+"""
+exceptions = """
+the pickup distance is not in the blueprint data, as for the Alarmbot
+(Pawn_Killjoy_E_Turret.CanPickup tests owner and alive only;
+MaxDistanceBeforeDisable = 4000.0 is the disable range). The 20 s recall and
+60 s destroyed values match the catalogue's restock cell
+"""
+use = "the cooldown a returned Turret charge waits before it is castable"
+values = { recall_cooldown_s = 20.0 }
+see = ["abilities/killjoy-deployed-util-pickup", "abilities/killjoy-pickup-abilities-gamefile"]
+
+[killjoy-nanoswarm-pickup-distance]
+claim = """
+A placed Nanoswarm (C) can be picked up only in the RoundStarting phase,
+within 400 engine units of the user's view location; the pickup regains the
+charge at once, with no cooldown. In any other phase the same usable
+detonates the swarm from any distance.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "killjoy:nanoswarm"
+source = """
+game files, build release-13.06-shipping-18-5590001:
+ShooterGame/Content/Characters/Killjoy/S0/Ability_4/Projectile_Killjoy_4_RemoteBees_MultiDetonate.uasset,
+Default__Projectile_Killjoy_4_RemoteBees_MultiDetonate_C.PickUpDistance =
+400.0 (engine units), squared into PickUpDistanceSquared; the use test
+(ExecuteUbergraph statements 6463-6513) passes when the phase is not
+RoundStarting (EAresGamePhase 3) or Vector_DistanceSquared(user view
+location, swarm) <= PickUpDistanceSquared; the use handler (statements
+2261-2415) regains one charge (RegainCharges(1)), emits
+EquippableEvent_AbilityReclaimedEvent and plays FXC_Killjoy_4_Trap_Pickup in
+RoundStarting, and detonates otherwise. Usable_GEN_VARIABLE:
+bIgnoreDistanceCheck = true, UseMessage2Text "DETONATE". Exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl)
+"""
+exceptions = """
+the engine unit's length in VALORANT is not recorded here; Unreal's default
+is a centimetre. The player said any deployed utility can be picked up in a
+round; the game files limit the Nanoswarm's pickup to RoundStarting (a
+question in the mechanics sheet)
+"""
+use = "whether a Nanoswarm charge can return within a round"
+values = { pickup_distance_uu = 400.0 }
+see = ["abilities/killjoy-deployed-util-pickup", "abilities/killjoy-pickup-abilities-gamefile"]
+
+[cypher-pickup-abilities-gamefile]
+claim = """
+In build release-13.06-shipping-18-5590001 the deployed actors of three of
+Cypher's abilities carry a pickup interaction: Trapwire (C) and Spycam (E),
+whose usables prompt PICK UP, at any phase; Cyber Cage (Q), whose usable
+picks it up only in the RoundStarting phase and activates it in any other.
+Neural Theft (X) deploys no actor with a usable.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-10-04"
+subject = "cypher"
+source = """
+game files, build release-13.06-shipping-18-5590001, exported with the
+store's tools/game-extract (--script) to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl) and the earlier ability-data set:
+GameObject_Gumshoe_4_TripWire (Usable_PickUp_GEN_VARIABLE, "PICK UP"),
+Pawn_Gumshoe_E_PossessableCamera (Usable_GEN_VARIABLE, "PICK UP"),
+GameObject_Gumshoe_Q_CageTrap (Usable_GEN_VARIABLE "DETONATE", function
+EvaluateCanUse), and the Ability_X folder (Ability_Gumshoe_X_Interrogate,
+Ability_Gumshoe_X_InterrogateV2, GameObject_Gumshoe_X_InterrogateHat), whose
+assets name no usable component
+"""
+use = "which Cypher slots the pickup return applies to (abilities/deployed-pickup-returns-charge)"
+see = ["abilities/cypher-deployed-util-pickup", "abilities/cypher-trapwire-pickup-distance",
+       "abilities/cypher-spycam-pickup-distance", "abilities/cypher-spycam-pickup-cooldown",
+       "abilities/cypher-cyber-cage-pickup-distance"]
+
+[cypher-trapwire-pickup-distance]
+claim = """
+A placed Trapwire (C) can be picked up within a UseDistance of 2700 engine
+units, by its owner, while it is deployed and holds no enemy. The pickup
+regains the charge at once in the RoundStarting phase and adds one temporary
+charge in any other phase; the blueprint starts no cooldown on either path.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "cypher:trapwire"
+source = """
+game files, build release-13.06-shipping-18-5590001:
+ShooterGame/Content/Characters/Gumshoe/S0/Ability_4/GameObject_Gumshoe_4_TripWire.uasset,
+Usable_PickUp_GEN_VARIABLE.UseDistance = 2700.0 (engine units; also
+UsableTunings.PC.LookBased and RangeBased), UseMessage2Text "PICK UP"; its
+CanUse event (ExecuteUbergraph statements 7960-8163) tests the same
+instigator, not EnemyInTrap, and Deployed.
+ShooterGame/Content/Characters/Gumshoe/S0/Ability_4/Ability_Gumshoe_4_TripWire.uasset,
+event RecoverTripwire (ExecuteUbergraph statements 3732-4969): with the game
+rule UseAllAbilityCooldowns (EGameRuleBoolName 40) off, EAresGamePhase 3
+(RoundStarting) calls EquipmentCharge.RegainCharges(1), any other phase
+EquipmentCharge.AddTemporaryCharges(1). Exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl)
+"""
+exceptions = """
+the use test that applies UseDistance is native code, not in the export, and
+bDistanceLimitedUsable keeps its native default; 2700 units is far for the
+player's "fairly close" if a unit is a centimetre (a question in the
+mechanics sheet). What a temporary charge does at the round's end is not read
+"""
+use = "the range within which Cypher's position can explain a Trapwire charge's return"
+values = { pickup_use_distance_uu = 2700.0 }
+see = ["abilities/cypher-deployed-util-pickup", "abilities/cypher-pickup-abilities-gamefile"]
+
+[cypher-spycam-pickup-distance]
+claim = """
+A placed Spycam (E) can be picked up within a UseDistance of 2500 engine
+units.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "cypher:spycam"
+source = """
+game files, build release-13.06-shipping-18-5590001:
+ShooterGame/Content/Characters/Gumshoe/S0/Ability_E/Pawn_Gumshoe_E_PossessableCamera.uasset,
+Usable_GEN_VARIABLE.UseDistance = 2500.0 (engine units; also
+UsableTunings.PC.LookBased and RangeBased, bUseComplexForLineOfSight = true),
+UseMessage2Text "PICK UP". Exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl)
+"""
+exceptions = """
+the use test that applies UseDistance is native code, not in the export;
+2500 units is far for the player's "fairly close" if a unit is a centimetre
+(a question in the mechanics sheet)
+"""
+use = "the range within which Cypher's position can explain a Spycam charge's return"
+values = { pickup_use_distance_uu = 2500.0 }
+see = ["abilities/cypher-deployed-util-pickup", "abilities/cypher-spycam-pickup-cooldown"]
+
+[cypher-spycam-pickup-cooldown]
+claim = """
+A picked-up Spycam (E) restocks after 15 s in the InRound and RoundEnding
+phases; in any other phase the pickup replenishes the charge at once.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "cypher:spycam"
+source = """
+game files, build release-13.06-shipping-18-5590001:
+ShooterGame/Content/Characters/Gumshoe/S0/Ability_E/Ability_Gumshoe_E_Camera.uasset,
+Default__Ability_Gumshoe_E_Camera_C.RecoverCooldown = 15.0 (seconds); the
+recover path (ExecuteUbergraph statements 2587-3478) tests EAresGamePhase 4 or
+5 (InRound, RoundEnding) and, with the game rule UseAllAbilityCooldowns off,
+calls Comp_Ability_CooldownComponent.AuthSetCooldownDuration(RecoverCooldown)
+and AuthAttemptToStartCooldown; other phases call EquipmentCharge.Replenish(1)
+when below the maximum. Pawn_Gumshoe_E_PossessableCamera sets
+DestroyedCooldown = 60.0 and RefundOnDestroyed = true. Exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl)
+"""
+exceptions = "the 15 s recovered and 60 s destroyed values match the catalogue's restock cell"
+use = "the cooldown a returned Spycam charge waits before it is castable"
+values = { pickup_cooldown_s = 15.0 }
+see = ["abilities/cypher-deployed-util-pickup", "abilities/cypher-spycam-pickup-distance"]
+
+[cypher-cyber-cage-pickup-distance]
+claim = """
+A placed Cyber Cage (Q) can be picked up only in the RoundStarting phase,
+within 400 engine units of the user's view location; the pickup regains the
+charge at once, with no cooldown. In any other phase the same usable
+activates the cage from any distance.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "cypher:cyber cage"
+source = """
+game files, build release-13.06-shipping-18-5590001:
+ShooterGame/Content/Characters/Gumshoe/S0/Ability_Q/GameObject_Gumshoe_Q_CageTrap.uasset,
+Default__GameObject_Gumshoe_Q_CageTrap_C.PickUpDistance = 400.0 (engine
+units); function EvaluateCanUse passes when the user is alive and the owner,
+IsUsable holds, and the phase is not RoundStarting (EAresGamePhase 3) or
+Vector_DistanceSquared(user view location, cage) <= PickUpDistanceSquared; the
+use handler (ExecuteUbergraph statements 917-1222) calls RegainCharges(1) in
+RoundStarting. Usable_GEN_VARIABLE: bIgnoreDistanceCheck = true,
+UseMessage2Text "DETONATE". Exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl)
+"""
+exceptions = """
+the player said any deployed utility can be picked up in a round; the game
+files limit the Cyber Cage's pickup to RoundStarting (a question in the
+mechanics sheet)
+"""
+use = "whether a Cyber Cage charge can return within a round"
+values = { pickup_distance_uu = 400.0 }
+see = ["abilities/cypher-deployed-util-pickup", "abilities/cypher-pickup-abilities-gamefile"]
+
+[chamber-pickup-abilities-gamefile]
+claim = """
+In build release-13.06-shipping-18-5590001 the deployed actors of two of
+Chamber's abilities carry a recall interaction: Trademark (C) and Rendezvous
+(E), whose usables prompt RECALL. Headhunter (Q) and Tour De Force (X) are
+guns and deploy no actor with a usable.
+"""
+kind = "rule"
+known = "measured"
+since = "2026-10-04"
+subject = "chamber"
+source = """
+game files, build release-13.06-shipping-18-5590001, exported with the
+store's tools/game-extract (--script) to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl) and the earlier ability-data set: GameObject_Deadeye_E_Trap
+and GameObject_Deadeye_E_Teleporter_Tether (Usable_GEN_VARIABLE,
+UseMessage2Text "RECALL"); Ability_Q and Ability_X hold Gun_ assets and no
+usable
+"""
+use = "which Chamber slots the pickup return applies to (abilities/deployed-pickup-returns-charge)"
+see = ["abilities/chamber-deployed-util-pickup", "abilities/chamber-trademark-recall-distance",
+       "abilities/chamber-trademark-recall-cooldown", "abilities/chamber-rendezvous-recall-distance",
+       "abilities/chamber-rendezvous-recall-cooldown"]
+
+[chamber-trademark-recall-distance]
+claim = """
+Trademark's (C) RECALL usable has a UseDistance of 5000 engine units and is
+not distance-limited (bDistanceLimitedUsable false); no exported blueprint
+tests Chamber's distance to the trap.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "chamber:trademark"
+source = """
+game files, build release-13.06-shipping-18-5590001:
+ShooterGame/Content/Characters/Deadeye/S0/Ability_4/GameObject_Deadeye_E_Trap.uasset,
+Usable_GEN_VARIABLE.UseDistance = 5000.0 (engine units; also
+UsableTunings.PC.LookBased and RangeBased), bDistanceLimitedUsable = false,
+bRequireLineOfSight = false, UseMessage2Text "RECALL"; the class declares
+PickUpDistance but its default is unset and no bytecode reads it. Exported
+to <store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl)
+"""
+exceptions = """
+the player said Chamber must be fairly close; how the native use test applies
+UseDistance with bDistanceLimitedUsable false is not in the export (a question
+in the mechanics sheet)
+"""
+use = "the range within which Chamber's position can explain a Trademark recall"
+values = { recall_use_distance_uu = 5000.0 }
+see = ["abilities/chamber-deployed-util-pickup", "abilities/chamber-trademark-recall-cooldown"]
+
+[chamber-trademark-recall-cooldown]
+claim = """
+A recalled Trademark (C) restocks after 30 s outside the RoundStarting
+phase, and at once within it.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "chamber:trademark"
+source = """
+game files, build release-13.06-shipping-18-5590001:
+ShooterGame/Content/Characters/Deadeye/S0/Ability_4/Ability_Deadeye_4_Trap.uasset,
+ExecuteUbergraph statements 1300-1752: in EAresGamePhase 3 (RoundStarting)
+EquipmentCharge.RegainCharges(1); otherwise
+Comp_Ability_CooldownComponent.AuthSetCooldownDuration with the constant 30.0
+(seconds, a literal in the bytecode) and AuthAttemptToStartCooldown. The CDO
+also holds RecallCooldown = 30.0 and DestroyedCooldown = 999.0, which no
+exported bytecode reads. Exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl)
+"""
+use = "the cooldown a returned Trademark charge waits before it is castable"
+values = { recall_cooldown_s = 30.0 }
+see = ["abilities/chamber-deployed-util-pickup", "abilities/chamber-trademark-recall-distance"]
+
+[chamber-rendezvous-recall-distance]
+claim = """
+Rendezvous's (E) RECALL usable has a UseDistance of 6000 engine units and is
+not distance-limited (bDistanceLimitedUsable false); no exported blueprint
+tests Chamber's distance to the anchor.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "chamber:rendezvous"
+source = """
+game files, build release-13.06-shipping-18-5590001:
+ShooterGame/Content/Characters/Deadeye/S0/Ability_E/GameObject_Deadeye_E_Teleporter_Tether.uasset,
+Usable_GEN_VARIABLE.UseDistance = 6000.0 (engine units; also
+UsableTunings.PC.LookBased and RangeBased), bDistanceLimitedUsable = false,
+bRequireLineOfSight = false, UseMessage2Text "RECALL". Exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup/
+(manifest.jsonl)
+"""
+exceptions = """
+the player said Chamber must be fairly close; how the native use test applies
+UseDistance with bDistanceLimitedUsable false is not in the export (a question
+in the mechanics sheet)
+"""
+use = "the range within which Chamber's position can explain a Rendezvous recall"
+values = { recall_use_distance_uu = 6000.0 }
+see = ["abilities/chamber-deployed-util-pickup", "abilities/chamber-rendezvous-recall-cooldown"]
+
+[chamber-rendezvous-recall-cooldown]
+claim = """
+A recalled Rendezvous (E) restocks after 30 s outside the RoundStarting
+phase.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "chamber:rendezvous"
+source = """
+game files, build release-13.06-shipping-18-5590001:
+ShooterGame/Content/Characters/Deadeye/S0/Ability_E/AbilityTuning_Deadeye_E_Teleport_Tether.uasset,
+row TeleportCooldownAfterReclaim (tag AbilityTuning.Deadeye.E.CooldownAfterReclaim)
+FloatValue = 30.0 (seconds); Ability_Deadeye_E_Teleporter_Tethers.uasset,
+ExecuteUbergraph statements 285-397: when EAresGamePhase is not 3
+(RoundStarting), "Start Cooldown" with that tag. Exported to
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-data/
+and ability-pickup/ (manifest.jsonl)
+"""
+exceptions = """
+what a recall in RoundStarting does to the charge is not read; the same table
+holds TeleportCooldown = 30.0 and TeleportCooldownInPreRound = 3.0, the
+teleport's own cooldowns
+"""
+use = "the cooldown a returned Rendezvous charge waits before it is castable"
+values = { recall_cooldown_s = 30.0 }
+see = ["abilities/chamber-deployed-util-pickup", "abilities/chamber-rendezvous-recall-distance"]
 
 [sova-owl-drone-charges]
 claim = """
