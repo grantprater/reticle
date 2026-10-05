@@ -290,33 +290,69 @@ ROUND_START_WINDOW_MS = 45_000
 BUY_CLOCK_MAX_MS = 45_000
 
 
-def _clock_reset_after(t, clock, after_ms):
-    """The first upward clock JUMP after `after_ms` -- the buy-phase reset.
+def _clock_reset_after(t, clock, after_ms, graphic: dict[float, dict] | None = None):
+    """The first upward clock JUMP after `after_ms` -- the buy-phase reset --
+    or, where no jump is read and the last reading is stale, the first
+    buy-phase reading.
 
     Detected as a JUMP rather than as a value in a band, because the band is
     not reliably observed: on `587c15b07779` the round ending at 157.5 s has
     its buy-phase clock first read at **16 s**, the earlier part of it lost to
     a frozen frame. The jump is present either way.
+
+    The jump compares each reading with the last one before it, so it needs
+    that reading to be the clock as it stood at the round's end. After a plant
+    it is not: the planted-spike graphic replaces the digits
+    [domain:hud/planted-spike-replaces-clock], the reader refuses them, and the
+    last reading is the pre-plant round clock, above every buy-phase clock
+    [domain:rounds/buy-phase-barriers]. Over the 21 Riot-scored matches 76 of
+    89 unread resets were this
+    [metric:unread_reset_causes/riot-21#stale_reading_after_plant=76]. So the
+    reading before the end is STALE where a stored `plant_graphic` sample
+    (`graphic`, keyed by time) shows the graphic between it and the next
+    reading, or where the two readings stand more than ROUND_START_JUMP_MS
+    apart, the most a countdown may fall unread before the jump test compares
+    a value the clock no longer shows. There the start is the first reading
+    after the end at or below BUY_CLOCK_MAX_MS, labelled
+    `buy_clock_after_unread`. A found jump always wins, so no reset the jump
+    test reads moves. `_reset_after` returns the time with its label; this
+    wrapper keeps the time alone.
     """
-    prev = None
-    for i in range(len(t)):
-        if t[i] <= after_ms:
-            if clock[i] is not None:
-                prev = clock[i]
-            continue
-        if t[i] - after_ms > ROUND_START_WINDOW_MS:
-            break
-        c = clock[i]
-        if c is None:
-            continue
-        if (prev is not None and c > prev + ROUND_START_JUMP_MS
-                and c <= BUY_CLOCK_MAX_MS):
-            return float(t[i])
-        prev = c
+    got = _reset_after(t, clock, after_ms, graphic)
+    return got[0] if got is not None else None
+
+
+def _reset_after(t, clock, after_ms, graphic=None) -> tuple[float, str] | None:
+    """`(t_ms, start_source)` of the buy-phase start after `after_ms`, or
+    None; see `_clock_reset_after`. Vectorised over the window's readings."""
+    tt = np.asarray(t, dtype=float)
+    cc = np.asarray(clock, dtype=float)          # None reads as NaN
+    read = ~np.isnan(cc)
+    lo = int(np.searchsorted(tt, after_ms, side="right"))
+    hi = int(np.searchsorted(tt, after_ms + ROUND_START_WINDOW_MS, side="right"))
+    before = np.flatnonzero(read[:lo])
+    after = lo + np.flatnonzero(read[lo:hi])
+    if not len(after):
+        return None
+    idx = np.concatenate([before[-1:], after])
+    v = cc[idx]
+    jump = (v[1:] > v[:-1] + ROUND_START_JUMP_MS) & (v[1:] <= BUY_CLOCK_MAX_MS)
+    if jump.any():
+        return float(tt[idx[1:][np.argmax(jump)]]), "clock_reset"
+    if not len(before):
+        return None
+    p, n = int(before[-1]), int(after[0])
+    stale = tt[n] - tt[p] > ROUND_START_JUMP_MS
+    if not stale and graphic is not None:
+        from .plant_graphic import shows_graphic
+        stale = any(shows_graphic(graphic.get(float(x))) for x in tt[p + 1:n])
+    buy = after[cc[after] <= BUY_CLOCK_MAX_MS]
+    if stale and len(buy):
+        return float(tt[buy[0]]), "buy_clock_after_unread"
     return None
 
 
-def round_bounds(t, score_left, score_right, clock_ms=None):
+def round_bounds(t, score_left, score_right, clock_ms=None, graphic=None):
     """Rounds read off the scoreline: one ends when the total climbs by one.
 
     Guarded against the scoreline's known misreads. `ocr.py` drops a transient
@@ -351,6 +387,10 @@ def round_bounds(t, score_left, score_right, clock_ms=None):
     which rule produced it in `start_source` rather than being silently
     indistinguishable. That field also carries the fallback taken when no reset
     is found, which must stay countable rather than disappear into the total.
+
+    `graphic` is the stored `plant_graphic` samples by time; given them, a
+    start after a plant may be the first buy-phase reading
+    (`buy_clock_after_unread`, see `_clock_reset_after`).
     """
     out = []
     prev = None
@@ -374,10 +414,9 @@ def round_bounds(t, score_left, score_right, clock_ms=None):
                 "won_left": bool(a == pa + 1),
                 "start_source": source,
             })
-            reset = (_clock_reset_after(t, clock_ms, float(t[i]))
+            reset = (_reset_after(t, clock_ms, float(t[i]), graphic)
                      if clock_ms is not None else None)
-            start = reset if reset is not None else float(t[i])
-            source = "clock_reset" if reset is not None else "score_increment"
+            start, source = reset if reset is not None else (float(t[i]), "score_increment")
         if (a, b) != prev:
             prev = (a, b)
     return out
@@ -514,7 +553,8 @@ def starting_side(rounds: list[dict], spike_rows: list[dict] | None,
     return out
 
 
-def final_round(t, score_left, score_right, clock_ms, rounds: list[dict]) -> dict | None:
+def final_round(t, score_left, score_right, clock_ms, rounds: list[dict],
+                graphic: dict[float, dict] | None = None) -> dict | None:
     """The match's last round when the scoreline never showed its result.
 
     The score increment ends every other round, but at match end the scoreline
@@ -538,15 +578,16 @@ def final_round(t, score_left, score_right, clock_ms, rounds: list[dict]) -> dic
               if match_over(a, b)]
     if len(ending) != 1 or clock_ms is None:
         return None
-    start = _clock_reset_after(t, clock_ms, last["t_end_ms"])
-    if start is None:
+    got = _reset_after(t, clock_ms, last["t_end_ms"], graphic)
+    if got is None:
         return None
+    start, source = got
     read = [float(t[i]) for i in range(len(t))
             if t[i] > start and score_left[i] is not None and score_right[i] is not None]
     if not read:
         return None
     return {"t_start_ms": start, "t_end_ms": read[-1], "left_before": left,
-            "right_before": right, "won_left": ending[0], "start_source": "clock_reset",
+            "right_before": right, "won_left": ending[0], "start_source": source,
             "end_source": "match_end_rule"}
 
 
@@ -717,10 +758,10 @@ def build_rounds(table, second_life: list[dict] | None = None,
     div = lambda c: table.column(c).to_pylist() if c in names else None
 
     sl, sr = table.column("score_left").to_pylist(), table.column("score_right").to_pylist()
-    rounds = round_bounds(t, sl, sr, clock)
+    rounds = round_bounds(t, sl, sr, clock, plant_graphic)
     for r in rounds:
         r["end_source"] = "score_increment"
-    last = final_round(t, sl, sr, clock, rounds)
+    last = final_round(t, sl, sr, clock, rounds, plant_graphic)
     if last is not None:
         rounds.append(last)
     place_unread_starts(rounds)

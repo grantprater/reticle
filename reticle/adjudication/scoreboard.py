@@ -111,6 +111,37 @@ def _row_state(row: dict) -> tuple[str | None, bool | None, str | None]:
     return None, None, f"gain_between_bands {gain:.3f}"
 
 
+#: The K/D/A fields of a row, as `row_counts` gives them.
+COUNT_FIELDS = ("kills", "deaths", "assists")
+
+
+def row_counts(row: dict, dim: bool | None) -> dict:
+    """A stored row's kills, deaths and assists as this module stands behind
+    them, with `counts_reason` saying why a count is null, and the reader's
+    own values under `counts_raw`.
+
+    **A dimmed row's counts are unread.** The reader binarises each digit
+    cell at the lit table's contrast, and a dimmed (dead) row
+    [domain:rounds/scoreboard-dead-dimmed] mostly yields no digits at all:
+    its deaths read null on all but a handful of dim rows on four sessions.
+    The few it did read contradict themselves (043bafca271a, ally Jett
+    dimmed 1395.0-1405.0 s: deaths 2, then 2, then 12), so none is taken: a
+    death that dimmed a row is counted from the next lit opening, never
+    guessed as the last lit count plus one. A lit row's null count is the
+    reader's refusal (`digit_cell_unread`); a row whose dim state the gate
+    refused is `row_state_unknown`.
+    """
+    raw = {k: row.get(k) for k in COUNT_FIELDS}
+    if dim is True:
+        return {**{k: None for k in COUNT_FIELDS}, "counts_reason": "dimmed_row_unread",
+                "counts_raw": raw}
+    if dim is None:
+        return {**{k: None for k in COUNT_FIELDS}, "counts_reason": "row_state_unknown",
+                "counts_raw": raw}
+    return {**raw, "counts_reason": ("digit_cell_unread" if None in raw.values() else None),
+            "counts_raw": raw}
+
+
 def _slab_samples(board_rows: list[dict], grid: set[int]) -> tuple[dict[int, dict], str | None]:
     """The slab test's verdict per sample frame, from its stored rows, and
     where its closed samples come from.
@@ -269,6 +300,7 @@ def scoreboard_openings(rows: list[dict], *, strip_rows: list[dict] | None = Non
                            "entity_id": entity,
                            "display_row": row["display_row"], "team": row["team"],
                            "agent": None, "dim": dim, "reason": reason,
+                           **row_counts(row, dim),
                            "score": row.get("portrait_agent_score"),
                            "margin": row.get("portrait_agent_margin"),
                            "gain": row.get("portrait_gain"),

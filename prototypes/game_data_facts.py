@@ -1671,6 +1671,14 @@ def restock_fact():
                "the component's time is the wait after a reclaim, as far as its field name says. An AbilityTuning "
                "row may be retuned on the server. These are class defaults; a field name is the designers' word, "
                "not a measured meaning.")
+    # A timed capture's verdicts on the disagreements, recorded as facts of
+    # their own; the rest stand as disagreements.
+    exc.append("A timed capture has since decided two of these disagreements in the files' favour: Sova "
+               "Recon Bolt and Skye Guiding Light restock in about 50 s on the tray's countdown and "
+               "returned charge, each timed on three spends "
+               "[domain:abilities/sova-recon-bolt-restock-observed] "
+               "[domain:abilities/skye-guiding-light-restock-observed]; the catalogue's 60 s is "
+               "superseded for those two only, and the rest stand as disagreements.")
     files_t = ', '.join(f"{r['key']} = {fmt(float(r['files']))}" for r in rows)
     tog_t = ', '.join(f"{r['key']} = {fmt(float(r['toggled']))}" for r in rows if r['toggled'] is not None)
     text = '\n'.join([
