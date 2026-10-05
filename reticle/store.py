@@ -436,6 +436,15 @@ class Store:
             "shield": pa.array(col("shield"), type=pa.int16()),
             "ammo_mag": pa.array(col("ammo_mag"), type=pa.int16()),
             "ammo_reserve": pa.array(col("ammo_reserve"), type=pa.int16()),
+            # WHY each bottom field is null, as `ocr.read_subfields` names it.
+            "hp_reason": pa.array([r.get("hp_reason") for r in rows],
+                                  type=pa.dictionary(pa.int8(), pa.string())),
+            "shield_reason": pa.array([r.get("shield_reason") for r in rows],
+                                      type=pa.dictionary(pa.int8(), pa.string())),
+            "ammo_mag_reason": pa.array([r.get("ammo_mag_reason") for r in rows],
+                                        type=pa.dictionary(pa.int8(), pa.string())),
+            "ammo_reserve_reason": pa.array([r.get("ammo_reserve_reason") for r in rows],
+                                            type=pa.dictionary(pa.int8(), pa.string())),
             "confidence": pa.array(col("confidence"), type=pa.float64()),
             "bottom_confidence": pa.array(col("bottom_confidence"), type=pa.float64()),
             # Killfeed (stage 02). Entry count plus whether the local player is

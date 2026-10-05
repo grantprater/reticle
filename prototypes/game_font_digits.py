@@ -694,7 +694,18 @@ def scoreboard_compare(args) -> dict:
     return report
 
 
+#: The binary digit sets this prototype compares were removed when every
+#: digit reader moved to soft cells (soft-digits-20261005: the scoreline at
+#: 5c90bef, the bottom HUD and the scoreboard after it). It last ran at the
+#: commit before, 5c90bef^; its metrics cite that code.
+RETIRED_AT = "5c90bef"
+
+
 def main(argv=None) -> int:
+    print(f"game_font_digits.py reads the binary digit sets "
+          f"(ocr.drop_odd_siblings, scoreboard.Templates, scoreboard._read_cell_detail) "
+          f"removed at {RETIRED_AT}; run it in a worktree at {RETIRED_AT}^.", file=sys.stderr)
+    return 2
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("census")

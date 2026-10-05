@@ -610,7 +610,7 @@ question = "What do the score and the bottom HUD read this frame?"
 owner = "ocr"
 role = ["detect"]
 status = "shipped"
-produces = ["read_scoreline", "read_bottom_hud", "segment_glyphs", "score_field", "ink_cover", "ink_score"]
+produces = ["read_scoreline", "read_bottom_hud", "segment_glyphs", "ink_cover", "GlyphCells", "slot_verdict"]
 not_for = """
 Player identity, and confidence in a reading. OCR confidence is evidence
 QUALITY; a transient leading `1` on a scoreline stays an OCR finding rather

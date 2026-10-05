@@ -143,7 +143,39 @@ ECONOMY_VERSION = "economy-0.2.0"
 # changes a verdict, an edge, a row or a named agent
 # ([metric:scoreboard/speed-batch@fixture#bar_changed_boards=0]), and the [metric:scoreboard/speed-batch@fixture#rounded_scores_differ=19] rounded scores
 # 0.12.0 moved move back.
-SCOREBOARD_VERSION = "scoreboard-0.13.0"
+# 0.14.0 (2026-10-05): kills, deaths, assists and credits read soft
+# (`scoreboard.read_numbers`): white-ink coverage against each row's plate,
+# compared with DIN Next Medium 11 cells, the player card's font, at
+# measured places per digit count and per card (`BOARD_PENS`; each number is
+# a right-justified TextBlock centred in its slot, so it stands centred),
+# each row's baseline fitted, a dead player's grey row decided at its tint.
+# The mined digit set and its 190 cut are gone. Every unread K, D and A
+# names its reason; a band over two rows' numbers refuses `two_rows`. The
+# label is decided in the distance between two digits (`ocr.Slot.margin`),
+# at the board's own cut, BOARD_LABEL_SPLIT 0.3. The table's edge is the
+# session's: after five open boards the mode edge is a prior, and a board
+# fitted more than 2 px off it refuses every number `edge_surprise`; a digit
+# one pitch beyond a number's ends refuses `missing_digit`. On 120 boards of
+# each of the 8 dev sessions, kills read
+# [metric:soft_digits/r2-board-dev#kills_stored_read=5192] -> [metric:soft_digits/r2-board-dev#kills_soft_read=9434],
+# deaths [metric:soft_digits/r2-board-dev#deaths_stored_read=4860] -> [metric:soft_digits/r2-board-dev#deaths_soft_read=9431],
+# credits [metric:soft_digits/r2-board-dev#credits_stored_read=1323] -> [metric:soft_digits/r2-board-dev#credits_soft_read=9298];
+# held (13 sessions), kills
+# [metric:soft_digits/r2-board-held#kills_stored_read=8150] -> [metric:soft_digits/r2-board-held#kills_soft_read=15285],
+# deaths [metric:soft_digits/r2-board-held#deaths_stored_read=7321] -> [metric:soft_digits/r2-board-held#deaths_soft_read=15273].
+# Held is not clean: two of its rules (`_row_shift` with BOARD_SHIFT_SPAN and
+# BOARD_SHIFT_MAX, and the tint^2 rival energy in `ocr.read_layouts`) were
+# added after viewing held 4f207c0c4e39 1682.5 s, and the edge prior after
+# the judges' held boards. Against Riot's running counts nearly every read
+# off is one or two under Riot, as the 0.13.0 reads are where they read
+# ([metric:soft_digits/r2-board-held#kills_stored_wrong=266] -> [metric:soft_digits/r2-board-held#kills_soft_wrong=577]
+# held kills). On every open board of a06f04a0059f the reads more than 2
+# off Riot fall from [metric:soft_digits/r2-board-full@a06f04a0059f#at_621d866_far=5]
+# (a whole board read as units digits, its edge fitted 8 px off, 1892.0 s)
+# to [metric:soft_digits/r2-board-full@a06f04a0059f#new_far=0]. An open board
+# costs [metric:soft_digits/r2-board-full@a06f04a0059f#ms_per_board=57.46] ms
+# in the full reader.
+SCOREBOARD_VERSION = "scoreboard-0.14.0"
 # Stored versions whose accepted openings the current reader does not
 # contradict. A consumer of VERDICTS (the lineup constraining its top bar by
 # the board) accepts these; `reticle plan` still names the rescan. 0.7.0 adds
@@ -167,10 +199,12 @@ SCOREBOARD_VERSION = "scoreboard-0.13.0"
 # board, so 0.10.0 stays applied. 0.12.0 changes only the fourth decimal of
 # a few scores and no verdict or agent ([metric:scoreboard/speed-float32@fixture#bar_changed_boards=0] boards
 # change), so 0.11.0 stays applied. 0.13.0 moves the same fourth decimals
-# back and changes no verdict, so 0.12.0 stays applied.
+# back and changes no verdict, so 0.12.0 stays applied. 0.14.0 reads only
+# the rows' numbers anew; its openings, rows, table edges and portraits are
+# 0.13.0's code, so 0.13.0 stays applied.
 SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", "scoreboard-0.8.0",
                                  "scoreboard-0.9.0", "scoreboard-0.10.0", "scoreboard-0.11.0",
-                                 "scoreboard-0.12.0", SCOREBOARD_VERSION)
+                                 "scoreboard-0.12.0", "scoreboard-0.13.0", SCOREBOARD_VERSION)
 # TESTING-PHASE WAIVER, TO REVISIT: stored stamps that `reticle plan` (and
 # every rerun input check inside it) accepts as the current stamp, as
 # {(current, stored): why}. The player decided on 2026-09-29, to iterate
@@ -328,7 +362,59 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # ff636d173b07 1247.0 s broke into three pieces, the left one read as the
 # killer's last letter, and the band went `one_colour:no_divider` on every
 # sample.
-HUD_VERSION = "hud-0.23.0"
+# 0.24.0 (2026-10-05): the clock, both scores and the bottom HUD read soft
+# (`ocr.read_scoreline`, `ocr.read_subfields`): white-ink coverage against
+# the local plate, compared with DIN Next cells rendered from the game font
+# at the widget's size and measured pitch (`ocr.GlyphCells`), with no cut
+# before the decision. Each TextBlock's digit cells stand at measured places
+# per digit count (`ocr.SCORE_PENS`, `ocr.CLOCK_PENS`, `ocr.BOTTOM_PENS`).
+# Each cell is decided once: digit or empty at gain 0.5 +- 0.25, and its
+# label in the distance between two digits (`ocr.Slot.margin`, a cell drawn
+# a * T_best + (1 - a) * T_d stands at 2a - 1) at LABEL_SPLIT 0.5, cuts
+# chosen on the dev half of the Riot-recorded matches; a cut of 0.4 admitted
+# [metric:soft_digits/r2-label-split-dev#full_off_cut_04=1] score misread (a
+# 3 read 8 at margin [metric:soft_digits/r2-label-split-dev#misread_margin=0.466]).
+# SCORE_INK_CUT, `ink_score`, `score_field` and the 190 cuts are gone. A
+# field drawn pale (low-health pink) is decided again at its tint, the
+# empty shield's dimmed 0 at its own floor; a magazine whose guard cell
+# holds a digit reads one place right (an energy weapon's widget). New
+# refusals: `no_widget` (a dark score field with no ink: the scoreline is
+# not drawn; the bottom fields of that frame refuse it too,
+# [metric:soft_digits/r2-nowidget-dev#fields_moved=9388] dev fields, losing
+# [metric:soft_digits/r2-nowidget-dev#reads_lost=0] reads), `missing_digit`,
+# `fused` (where `occluded` stood), `hundredths` (the SS.hh form),
+# `no_colon` and `beyond_layout`. The hud stream stores each field's reason.
+# On the 21 matches score reads rise from
+# [metric:soft_digits/r2-scoreline-all#base_reads=162507] to
+# [metric:soft_digits/r2-scoreline-all#new_reads=164971] with
+# [metric:soft_digits/r2-scoreline-all#new_full_off=0] full reads off Riot's
+# score pairs (held [metric:soft_digits/r2-scoreline-held#new_full_off=0]);
+# clock reads from [metric:soft_digits/r2-scoreline-all#base_clock=46732] to
+# [metric:soft_digits/r2-scoreline-all#new_clock=67241]. Bottom reads:
+# health [metric:soft_digits/r2-bottom-all#hp_base_reads=72495] to
+# [metric:soft_digits/r2-bottom-all#hp_new_reads=75685], shield
+# [metric:soft_digits/r2-bottom-all#shield_base_reads=53266] to
+# [metric:soft_digits/r2-bottom-all#shield_new_reads=62218], magazine
+# [metric:soft_digits/r2-bottom-all#ammo_mag_base_reads=37990] to
+# [metric:soft_digits/r2-bottom-all#ammo_mag_new_reads=39858], reserve
+# [metric:soft_digits/r2-bottom-all#ammo_reserve_base_reads=35892] to
+# [metric:soft_digits/r2-bottom-all#ammo_reserve_new_reads=39358]. Held
+# shield 18 loses [metric:soft_digits/r2-pervalue#held_shield_18_lost=0] of
+# [metric:soft_digits/r2-pervalue#held_shield_18_base=54] reads, shield 38
+# [metric:soft_digits/r2-pervalue#held_shield_38_lost=0] of
+# [metric:soft_digits/r2-pervalue#held_shield_38_base=115], health 8
+# [metric:soft_digits/r2-pervalue#held_hp_8_lost=2] of
+# [metric:soft_digits/r2-pervalue#held_hp_8_base=86], magazine 40
+# [metric:soft_digits/r2-pervalue#held_ammo_mag_40_lost=1] of
+# [metric:soft_digits/r2-pervalue#held_ammo_mag_40_base=25]; the residual
+# value-wise losses are the reserve's over textured plates and base
+# misreads. Scoreline and bottom HUD together cost
+# [metric:soft_digits/r2-hud-cost@a06f04a0059f#ms_total=2.803] ms per frame
+# against [metric:soft_digits/r2-hud-cost@a06f04a0059f#ms_base_total=2.063]
+# (alternating runs; the scoreline alone
+# [metric:soft_digits/r2-hud-cost@a06f04a0059f#ms_scoreline=1.118] against
+# [metric:soft_digits/r2-hud-cost@a06f04a0059f#ms_base_scoreline=1.125]).
+HUD_VERSION = "hud-0.24.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits

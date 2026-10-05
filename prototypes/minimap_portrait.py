@@ -750,13 +750,13 @@ def cmd_eval(args):
 
 
 def cmd_mine_sb(args):
-    from reticle.ocr import Templates
+    from reticle.ocr import game_font_templates
     from reticle.scoreboard import load_agent_icons
     man = json.loads((STORE / "manifests" / f"{args.session}.json").read_text())
     src = man["source"]
     prof = get_profile(man["source_profile"])
     cap = cv2.VideoCapture(src["path"])
-    found = mine_scoreboard(cap, Templates.load(prof.name), profile_name=prof.name,
+    found = mine_scoreboard(cap, game_font_templates(), profile_name=prof.name,
                             icons=load_agent_icons(STORE))
     cap.release()
     if found is None:

@@ -14,8 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .killfeed import KillfeedRead, killfeed_roi, overlay_mask, read_killfeed
-from .ocr import (Templates, crop_gray, game_font_templates, read_bottom_hud, read_scoreline,
-                  scoreline_roi)
+from .ocr import crop_gray, game_font_templates, read_bottom_hud, read_scoreline, scoreline_roi
 
 
 class HudReader:
@@ -27,10 +26,9 @@ class HudReader:
         self.src = manifest["source"]
         self.profile = profile
         self.w, self.h = int(self.src["width"]), int(self.src["height"])
-        # The scoreline and bottom HUD read templates rendered from the game's
-        # fonts in the store, one set per field; the reserve keeps the mined set.
-        self.templates = game_font_templates(getattr(store, "root", None),
-                                             default=Templates.load(profile.name))
+        # The scoreline and bottom HUD read soft cells rendered from the
+        # game's fonts in the store, one font per field.
+        self.templates = game_font_templates(getattr(store, "root", None))
         self.roi = scoreline_roi(profile)
         self.kf_roi = killfeed_roi(profile)
         self.min_conf = args.min_confidence
@@ -73,7 +71,7 @@ class HudReader:
         r = read_scoreline(crop_gray(smp.frame, self.roi, w, h), self.templates,
                            self.min_conf, self.min_margin)
         b = read_bottom_hud(smp.frame, self.profile, self.templates, w, h,
-                            self.min_conf, self.min_margin)
+                            self.min_conf, self.min_margin, scoreline=r)
         kf = (read_killfeed(smp.frame, self.kf_roi, w, h, self.kf_mask,
                             self.profile.name)
               if self.kf_roi is not None else KillfeedRead(0, (), False, False))
@@ -93,6 +91,8 @@ class HudReader:
             "kf_dropped_band_reason": kf.dropped_band_reason,
             "clock_reason": r.clock_reason,
             "score_left_reason": r.score_left_reason, "score_right_reason": r.score_right_reason,
+            "hp_reason": b.hp_reason, "shield_reason": b.shield_reason,
+            "ammo_mag_reason": b.ammo_mag_reason, "ammo_reserve_reason": b.ammo_reserve_reason,
             "kf_ally_mask": kf.ally_mask, "kf_enemy_mask": kf.enemy_mask,
             "kf_same_side_mask": kf.same_side_mask,
             "kf_entry_wx": kf.entry_dividers, "kf_kill_wx": kf.kill_dividers,

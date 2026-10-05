@@ -18,7 +18,7 @@ Evidence: every residual failure classified by cause (instrument fault, reader r
 - (a) the game's minimap ability markers as a caster-naming channel; an earlier probe named 164 of 192 held-out labels, the gallery 2 of 192; the [plan](docs/MINIMAP_GLYPH_CHANNEL.md)'s stage 2 reader is on `glyph-reader-20261005`;
 - (b) the game composite (container, tint, layers) for self, ally and stacked icons, replacing the calibration in `ally-portrait-refs-1.0.0`, whose art already equals the game textures;
 - (c) ult voice lines (`game-vo-20261003`, in progress);
-- (d) fonts (Tungsten-Bold, DINNext_Bold) for OCR digits, combat-report words and the killfeed "Me";
+- (d) fonts: HUD and board digits read DIN Next on `soft-digits-20261005`; left are combat-report words (Tungsten-Bold) and the killfeed "Me";
 - (e) scoreboard thumbnails (6 of 31 exported);
 - (f) base map and floor-mask checks, through the geometry builder only.
 - *Identity on 4f207c0c4e39:* the player is Iso, but the arbiter refuses (`conflicting_claims`). The tray votes Iso 96 of 145, with spectated kits voting after death: count tray identity votes only while the player lives. `self_icon` votes Phoenix on flat scores (1.453 against Raze 1.446): refuse a pairwise tie, and place the 1.15x variant widget.
@@ -35,9 +35,9 @@ Evidence: zero labelled icons lost; Riot misses in stacks fall with phantoms no 
 
 Full texts are in the dated archives.
 
-- **Soft digit templates** (2026-10-05): match score, clock, bottom-HUD and scoreboard digits against coverage templates, dropping `SCORE_INK_CUT` and `normalise`'s re-binarisation. Name the missing widget (c40d950031bb 23.0 s refuses `low_contrast`); split fused from `occluded` (a06f04a0059f 904.5 s, 9acf02f98283 1547.0 s, b7d24102a6f6 1961.5 s).
-Acceptance: `pytest tests	est_ocr_fonts.py`, its expected failure passing, then the Riot scorer.
-Evidence: 0 scores off Riot; reads at least hud-0.22.0's.
+- **Soft digit templates** (2026-10-05), on `soft-digits-20261005` (`hud-0.24.0`, `scoreboard-0.14.0`), merge next: scores, clock, bottom HUD and board numbers read soft against DIN Next cells; [metric:soft_digits/r2-scoreline-all#new_full_off=0] scores off Riot; a board fitted off the session's edge refuses `edge_surprise`. Open: residual refusals of legible values (the reserve over textured plates, low_margin; scores 3 over the spike icon, 11 fused); the combat report still re-binarises in `normalise`; then rescan hud and scoreboard through `plan`.
+Acceptance: `.\.venv\Scripts\python.exe -m pytest tests\test_ocr_fonts.py tests\test_scoreboard.py`, then the Riot scorer.
+Evidence: 0 scores off Riot; reads at least hud-0.23.0's and scoreboard-0.13.0's; every changed board value viewed.
 
 - **Ability identification pass** (2026-10-03): name the ability behind a killfeed weapon-slot icon, then ability attribution generally; remove `classify_killfeed_icon`'s `active_agent` narrowing. Riot ability kills now match [metric:riot_truth/deaths#matched_kind_ability=75] of [metric:riot_truth/deaths#riot_kind_ability=77].
 - **Icon descriptors, proven on the killfeed first** (2026-10-01).
