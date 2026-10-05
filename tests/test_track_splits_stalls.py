@@ -193,6 +193,16 @@ class DeathPanelTests(unittest.TestCase):
         self.assertEqual(t.tolist(), [0.0])
         self.assertEqual(top.tolist(), [266.0])
 
+    def test_any_row_may_flag_and_unplaced_or_rowless_frames_show_none(self):
+        second = self.frame(500.0, 430)
+        second["rows"] = [{"in_word": {"KILLED YOU": 0.1}}, {}, {"in_word": {"KILLED YOU": 0.9}}]
+        frames = [self.frame(0.0, None), second, {"kind": "frame", "t_ms": 1000.0, "header": 0.9,
+                                                  "hy": 400}, self.frame(1500.0, 401, header=None)]
+        t, top = death_panel_tops(frames)
+        self.assertEqual(t.tolist(), [500.0])
+        self.assertEqual(top.tolist(), [260.0])
+        self.assertEqual([x.tolist() for x in death_panel_tops([])], [[], []])
+
     def test_the_panel_covers_the_slots_below_its_top(self):
         # Top at row 266 (hy 436): slot 5 rests at 81 + 15 + 195 = 291, slot 4 at 252.
         got = panel_slots([0.0, 500.0, 2000.0], [0.0, 1000.0], [266.0, 266.0], self.ROI_Y0, 500.0)

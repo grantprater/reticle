@@ -99,13 +99,24 @@ def death_panel_tops(frames: list[dict]) -> tuple[np.ndarray, np.ndarray]:
     the player survived (b3b9defb6fd7 430 s, 1770 s) flags no KILLED YOU and
     draws neither. `checks.panel_slots` places the panel over the killfeed."""
     from ..combat_report import KILLED_BY_TOP
-    shown = [r for r in frames
-             if r.get("kind") == "frame" and (r.get("header") or 0) >= HEADER_MIN
-             and r.get("hy") is not None
-             and any((row.get("in_word") or {}).get("KILLED YOU", 0) >= FLAG_MIN
-                     for row in r.get("rows") or ())]
-    return (np.array([r["t_ms"] for r in shown], dtype=float),
-            np.array([r["hy"] + KILLED_BY_TOP for r in shown], dtype=float))
+    fr = [r for r in frames if r.get("kind") == "frame"]
+    n = len(fr)
+    if not n:
+        return np.zeros(0), np.zeros(0)
+    # Stored rows are dicts; gather each field once into flat arrays, then
+    # decide with numpy. A frame's rows are flattened with their frame index.
+    header = np.fromiter((r.get("header") or 0 for r in fr), dtype=float, count=n)
+    hy = np.array([r.get("hy") for r in fr], dtype=float)          # None -> nan
+    cand = np.flatnonzero((header >= HEADER_MIN) & ~np.isnan(hy))
+    rows = [fr[i].get("rows") or () for i in cand]
+    counts = np.fromiter(map(len, rows), dtype=np.int64, count=len(cand))
+    flag = np.fromiter(((row.get("in_word") or {}).get("KILLED YOU", 0)
+                        for rs in rows for row in rs), dtype=float, count=int(counts.sum()))
+    best = np.full(len(cand), -np.inf)
+    np.maximum.at(best, np.repeat(np.arange(len(cand)), counts), flag)
+    shown = cand[best >= FLAG_MIN]
+    t = np.fromiter((fr[i]["t_ms"] for i in shown), dtype=float, count=len(shown))
+    return t, hy[shown] + KILLED_BY_TOP
 
 
 def frame_read(r: dict) -> tuple:
