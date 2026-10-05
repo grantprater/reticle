@@ -42,7 +42,13 @@ SCHEMA_VERSION = 1
 # round closes there and keeps its post-round events. Over the 21 Riot-scored
 # matches the 7 post-round deaths stamped with the next round all move to their
 # own round; no other death moves; 89 of 439 starts move 7-8 s later.
-ROUND_VERSION = "round-0.9.0"
+# 0.10.0 (2026-10-05): where the last clock reading before a round's end is
+# stale (a stored plant_graphic sample between it and the next reading, or the
+# two more than ROUND_START_JUMP_MS apart) and no upward jump is read, the next
+# round starts at the first buy-phase reading after the end
+# (`start_source = buy_clock_after_unread`). 76 of the 89 post_round_gap starts
+# on the 21 Riot-scored matches become read starts; no clock_reset start moves.
+ROUND_VERSION = "round-0.10.0"
 # The planted-spike graphic in the scoreline's clock field, read from the hud
 # crop cache (`plant_graphic`). 0.1.0 (2026-10-02): red coverage of the clock
 # field less twice its white ink, cut at 0.2.
@@ -291,7 +297,32 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # [metric:game_font_digits/compare_production@c40d950031bb#score_right_lost=5]
 # [metric:game_font_digits/compare_production@4f207c0c4e39#clock_ms_lost=4]
 # (prototypes/game_font_digits.py compare --production).
-HUD_VERSION = "hud-0.21.0"
+# 0.22.0 (2026-10-05): the two score fields read white ink against their own
+# plate (`ocr.score_field`): coverage (luma - plate) / (255 - plate) over a
+# grey opening, cut hard at SCORE_INK_CUT into components (a cut that still
+# decides which dim digits exist; BACKLOG.md carries its removal); each
+# component's whiteness is scored (`ocr.ink_score`, the coverage-weighted
+# mean coverage) and cut at SCORE_INK_MIN, where it becomes a glyph, a
+# blocker or a faint neighbour; no raw-luma gate. Bright scenery behind the
+# plate no longer fuses with the digits into masses refused as `occluded`;
+# a plate too near white to show a digit refuses `low_contrast`, and a
+# sub-ink component spanning a read digit's rows beside it refuses
+# `faint_digit`. The clock keeps the 190 cut. `n_glyphs` counts the glyphs
+# inside the three fields. Oversize score ink of any area blocks. All
+# figures are in-sample: the rules were tuned on the 21 Riot-recorded
+# matches. There score reads rise from 2ad32ef's 122257 to 162507
+# [metric:scoreline_soft/riot-21-soft#reads=162507], with 79479 full reads
+# [metric:scoreline_soft/riot-21-soft#full_reads=79479], none off Riot's
+# score sequence [metric:scoreline_soft/riot-21-soft#full_off_riot=0]. On
+# the fixed handful one old read changes, a correction
+# [metric:scoreline_soft/handful-soft#changed=1], and 20 of 16016 become
+# refusals [metric:scoreline_soft/handful-soft#lost=20]. A scoreline read
+# costs 0.93 ms per frame on a06f04a0059f
+# [metric:scoreline_soft/cost-soft#ms_a06f04a0059f=0.927] against 0.57 ms
+# before [metric:scoreline_soft/cost-soft#ms_2ad32ef_a06f04a0059f=0.574]. Of the occluded score samples before the small-jump unread round
+# starts, 141 of 163 read both scores
+# [metric:scoreline_soft/unread-reset-windows-soft#both_read=141].
+HUD_VERSION = "hud-0.22.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits

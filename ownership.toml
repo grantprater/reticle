@@ -594,7 +594,7 @@ question = "What do the score and the bottom HUD read this frame?"
 owner = "ocr"
 role = ["detect"]
 status = "shipped"
-produces = ["read_scoreline", "read_bottom_hud", "segment_glyphs"]
+produces = ["read_scoreline", "read_bottom_hud", "segment_glyphs", "score_field", "ink_cover", "ink_score"]
 not_for = """
 Player identity, and confidence in a reading. OCR confidence is evidence
 QUALITY; a transient leading `1` on a scoreline stays an OCR finding rather
@@ -1633,11 +1633,12 @@ evidence = "tests/test_weapon_attribution.py, tests/test_entry_witnesses.py"
 
 [[entry]]
 id = "scoreboard-row-agent"
-question = "Which agent does a Tab scoreboard row show, and has the game dimmed it as dead?"
+question = "Which agent does a Tab scoreboard row show, has the game dimmed it as dead, and which of its K/D/A counts stand?"
 owner = "adjudication.scoreboard"
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["SCOREBOARD_AGENT_VERSION", "scoreboard_openings", "side_state", "enemy_rows_from"]
+produces = ["SCOREBOARD_AGENT_VERSION", "scoreboard_openings", "side_state", "enemy_rows_from",
+            "row_counts", "COUNT_FIELDS"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """
