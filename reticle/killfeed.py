@@ -1490,8 +1490,26 @@ def _band_text(
                 boxes[i] = _element_box(boxes[i], cand, st, s)
         return boxes[i]
 
+    # CROSS-REFERENCE: the icon is drawn on the killer's plate, centred in a
+    # cell that ends at the seam [domain:killfeed/weapon-cell], so where the plates meet at
+    # one seam a divider's centre lies left of the seam, and plate lies
+    # behind its columns: the weapon reader's own `no_plate` test
+    # (`plate_behind`), asked here rather than restated. Without the gate the
+    # line-art pass took a portrait's edge for the icon: the victim's left of
+    # Overdrive's thin strokes at a1a995e6b19b 742.0 s (420-426, past the
+    # seam at 339), the killer's right beside Annihilation over bright sky
+    # at 5822b6646448 925.5 s (214-221, no plate behind). The weapon reader
+    # then refused both (`off_plate_run`, `no_plate`). The plate runs cannot
+    # bound the icon's left: a gun icon's white columns are not plate
+    # columns, so the killer's run starts inside the icon (3694746e4e54
+    # 296.0 s: icon 150-245, run from 201), and gating on the run moved 69
+    # of 169 sampled gun icons onto the cell's empty right end.
+    on_plate = lambda b: (seam is None
+                          or ((b[0] + b[1]) / 2 < seam
+                              and plate_behind(*plates, b[0], b[1], s) >= PLATE_BEHIND_MIN))
     divides = lambda i, left, right: ((left < box(i)[0]).any()
                                       and (right > box(i)[1]).any()
+                                      and on_plate(box(i))
                                       and (not one_colour or spaced(box(i))))
     if one_colour or thin:
         on_base = np.array([abs(int(st[i, 1] + st[i, 3]) - line) <= s.px(BASELINE_TOL)
@@ -2049,7 +2067,10 @@ PORTRAIT_ASPECT = 2.0
 # baseline stopped `killer_name_start` at the y, and the art box sat on the
 # name (59c70f1ef720 1284.0 s, Killjoy 0.91 read as Sage 0.34; bfad2778a372
 # 1436.5-1440.5 s, Sage 0.92 read at 0.26).
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.22.0"
+# 0.23.0 (2026-10-05): a divider's centre lies left of the seam, over plate
+# where the plates meet at one seam (`_band_text`, hud-0.24.0), so an ability
+# kill's portraits sit either side of its icon, not of a portrait's edge.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.23.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -3239,7 +3260,11 @@ def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # registered match's whole-icon gate failed on the dots left in the margin.
 # 0.15.0 (2026-10-04): a one-colour band's divider widens over a glyph-sized
 # piece under NAME_GAP from it; see the portrait stamp.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.15.0"
+# 0.16.0 (2026-10-05): a divider's centre lies left of the seam, over plate
+# where the plates meet at one seam; see the portrait stamp. Overdrive
+# (a1a995e6b19b 742.0 s) and Annihilation (5822b6646448 925.5 s) were
+# refused `off_plate_run` and `no_plate` at a portrait's edge.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.16.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -3521,6 +3546,15 @@ RING_CY_SEARCH = 3.0
 PLATE_BEHIND_MIN = 0.5
 
 
+def plate_behind(green: np.ndarray, red: np.ndarray, d0: int, d1: int,
+                 s: "KillfeedScale" = UNIT_SCALE) -> float:
+    """Share of columns `d0..d1` holding PLATE_MIN_PX or more plate pixels:
+    the weapon reader's `no_plate` test, which `_band_text` asks of a
+    divider candidate where the plates meet at one seam."""
+    cols = (green | red)[:, int(d0):int(d1)].sum(axis=0) >= s.px(PLATE_MIN_PX)
+    return float(cols.mean()) if cols.size else 0.0
+
+
 def ring_fit(icon_band: np.ndarray, cx0: float, height: int,
              usable: np.ndarray | None = None, s: "KillfeedScale" = UNIT_SCALE) -> dict | None:
     """The circle round a weapon-slot icon that the most angles of ink lie on.
@@ -3730,8 +3764,7 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
         cut = icon_grid(icon_white_mask(band[:, e0:e1], s), s)
         row = {"slot": v.slot, "y0": int(v.y0), "y1": int(v.y1), "wx0": int(v.wx0),
                "wx1": int(v.wx1), "verdict": v.verdict, "band_shift": int(dy)}
-        behind = ((green | red)[:, d0:d1].sum(axis=0) >= s.px(PLATE_MIN_PX)).mean()
-        if behind < PLATE_BEHIND_MIN:
+        if plate_behind(green, red, d0, d1, s) < PLATE_BEHIND_MIN:
             out.append({**row, "ix0": int(d0), "ix1": int(d1), "grid": None,
                         "aspect": None, "reason": "no_plate", "ringed": None,
                         "ring_reason": "no_plate", "ring": None, **NO_SOFT})
@@ -3814,7 +3847,9 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # one-colour-band-20261003.)
 # 0.7.0 (2026-10-04): a one-colour band's divider widens over a glyph-sized
 # piece under NAME_GAP from it; see the portrait stamp.
-KILLFEED_NAME_VERSION = "killfeed-name-0.7.0"
+# 0.8.0 (2026-10-05): a divider's centre lies left of the seam, over plate
+# where the plates meet at one seam; see the portrait stamp.
+KILLFEED_NAME_VERSION = "killfeed-name-0.8.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15
