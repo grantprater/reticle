@@ -955,12 +955,19 @@ def _bands_from_rows(on: np.ndarray, s: "KillfeedScale",
     """`_entry_bands`' runs, split and padding over a row mask; `fixed` bands
     bound the padding as neighbours and are not returned. With `grid`, a run
     too tall for one entry and too short for two yields the resting slots
-    that lie inside it (`_rest_slots`) instead of nothing."""
+    that lie inside it (`_rest_slots`) instead of nothing, and so does a
+    taller run that starts above the first slot's top: the entries' box
+    starts there [domain:killfeed/entry-list-layout]
+    [domain:killfeed/slot-pitch], so its top is scenery and a PITCH
+    split from it is out of phase with every entry in it. Warm ceiling
+    joined a red Not Dead Yet expiry banner at ff636d173b07 1247.5-1248.5 s
+    into rows 0-183; split from row 0, no band held the banner (hud-0.25.0)."""
     limit = len(on)
     runs = _join_split_runs(_row_runs(on), s)
 
     split: list[tuple[int, int]] = []
     lo, hi = s.px(MIN_BAND_H), s.px(MAX_BAND_H)
+    above = s.px(FIRST_Y) - s.px(BASELINE_TOL)
     for (a, z) in runs:
         h = z - a
         k = max(1, int(round(h / s.px(PITCH))))
@@ -969,6 +976,8 @@ def _bands_from_rows(on: np.ndarray, s: "KillfeedScale",
                 split.append((a, z))
             elif grid and h > hi:
                 split.extend(_rest_slots(a, z, s))
+        elif grid and a < above:
+            split.extend(_rest_slots(a, z, s))
         else:
             step = h / k
             for m in range(k):
@@ -2079,7 +2088,9 @@ PORTRAIT_ASPECT = 2.0
 # 0.23.0 (2026-10-05): a divider's centre lies left of the seam, over plate
 # where the plates meet at one seam (`_band_text`, hud-0.24.0), so an ability
 # kill's portraits sit either side of its icon, not of a portrait's edge.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.23.0"
+# 0.24.0 (2026-10-05): a one-colour run topped by scenery above the first
+# slot yields the resting slots inside it (`_bands_from_rows`, hud-0.25.0).
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.24.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -3273,7 +3284,9 @@ def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # where the plates meet at one seam; see the portrait stamp. Overdrive
 # (a1a995e6b19b 742.0 s) and Annihilation (5822b6646448 925.5 s) were
 # refused `off_plate_run` and `no_plate` at a portrait's edge.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.16.0"
+# 0.17.0 (2026-10-05): a one-colour run topped by scenery yields the resting
+# slots inside it; see the portrait stamp.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.17.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -3858,7 +3871,9 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # piece under NAME_GAP from it; see the portrait stamp.
 # 0.8.0 (2026-10-05): a divider's centre lies left of the seam, over plate
 # where the plates meet at one seam; see the portrait stamp.
-KILLFEED_NAME_VERSION = "killfeed-name-0.8.0"
+# 0.9.0 (2026-10-05): a one-colour run topped by scenery yields the resting
+# slots inside it; see the portrait stamp.
+KILLFEED_NAME_VERSION = "killfeed-name-0.9.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15
