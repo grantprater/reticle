@@ -12,6 +12,39 @@ from reticle.roi_cache import RoiCache, RoiCacheWriter, roi_rects
 from reticle.trial import diff, targets
 
 
+#: One FFV1 minimap cache of 6 random 1080p frames at 15 Hz, written on first
+#: use and shared by the tests that read it back: each writer launches one
+#: ffmpeg per rectangle, most of a second each here.
+_FFV1: dict = {}
+
+
+def _ffv1_minimap_cache():
+    """(cache root, frames), or None without ffmpeg."""
+    if "root" not in _FFV1:
+        from reticle.roi_cache import ffmpeg_path
+        try:
+            ffmpeg_path()
+        except SystemExit:
+            return None
+        profile = get_profile("valorant-16x9")
+        rng = np.random.default_rng(3)
+        frames = [rng.integers(0, 255, (1080, 1920, 3), dtype=np.uint8) for _ in range(6)]
+        tmp = tempfile.TemporaryDirectory()
+        w = RoiCacheWriter(Path(tmp.name), _manifest(), profile, "minimap", hz=15.0,
+                           spans=[[0.0, 1000.0]])
+        for i, f in enumerate(frames):
+            w.feed(Sample(frame_idx=i, t_ms=i * 66.7, frame=f))
+        w.finish()
+        _FFV1.update(tmp=tmp, root=Path(tmp.name), frames=frames)
+    return _FFV1["root"], _FFV1["frames"]
+
+
+def tearDownModule():
+    if "tmp" in _FFV1:
+        _FFV1["tmp"].cleanup()
+    _FFV1.clear()
+
+
 def _manifest(sid="s1", key="k1"):
     return {"session_id": sid, "source_profile": "valorant-16x9",
             "source": {"width": 1920, "height": 1080, "content_key": key}}
@@ -165,28 +198,19 @@ class RoundCacheTest(unittest.TestCase):
                 self.assertIn("outside the cache's spans", why)
 
     def test_ffv1_cache_round_trip_is_lossless(self):
-        from reticle.roi_cache import ffmpeg_path
-        try:
-            ffmpeg_path()
-        except SystemExit:
+        held = _ffv1_minimap_cache()
+        if held is None:
             self.skipTest("ffmpeg not installed")
+        root, frames = held
         profile = get_profile("valorant-16x9")
-        man = _manifest()
-        rng = np.random.default_rng(2)
-        frames = [rng.integers(0, 255, (1080, 1920, 3), dtype=np.uint8) for _ in range(3)]
-        with tempfile.TemporaryDirectory() as root:
-            w = RoiCacheWriter(Path(root), man, profile, "minimap", hz=15.0, spans=[[0.0, 1000.0]])
-            for i, f in enumerate(frames):
-                w.feed(Sample(frame_idx=i, t_ms=i * 66.7, frame=f))
-            w.finish()
-            cache, why = RoiCache.load(Path(root), man, profile, "minimap")
-            self.assertIsNone(why)
-            self.assertEqual(cache.record["codec"], "ffv1")
-            # Out of order, so the reader must seek.
-            got = {s.frame_idx: s for s in cache.samples([133.4, 0.0, 66.7])}
-            for i, f in enumerate(frames):
-                for x0, y0, x1, y1 in roi_rects("minimap", profile, (1920, 1080)):
-                    self.assertTrue(np.array_equal(got[i].frame[y0:y1, x0:x1], f[y0:y1, x0:x1]))
+        cache, why = RoiCache.load(root, _manifest(), profile, "minimap")
+        self.assertIsNone(why)
+        self.assertEqual(cache.record["codec"], "ffv1")
+        # Out of order, so the reader must seek back.
+        got = {s.frame_idx: s for s in cache.samples([133.4, 0.0, 66.7])}
+        for i, f in enumerate(frames[:3]):
+            for x0, y0, x1, y1 in roi_rects("minimap", profile, (1920, 1080)):
+                self.assertTrue(np.array_equal(got[i].frame[y0:y1, x0:x1], f[y0:y1, x0:x1]))
 
 
 class AutoSourceTest(unittest.TestCase):
@@ -413,26 +437,17 @@ class DarkCacheTest(unittest.TestCase):
         self.assertEqual(reader.events("s1", None)[0]["frames_from"], "roi-cache-0.1.0")
 
     def test_ffv1_short_skips_are_grabbed_and_exact(self):
-        from reticle.roi_cache import ffmpeg_path
-        try:
-            ffmpeg_path()
-        except SystemExit:
+        held = _ffv1_minimap_cache()
+        if held is None:
             self.skipTest("ffmpeg not installed")
+        root, frames = held
         profile = get_profile("valorant-16x9")
-        rng = np.random.default_rng(3)
-        frames = [rng.integers(0, 255, (1080, 1920, 3), dtype=np.uint8) for _ in range(6)]
-        with tempfile.TemporaryDirectory() as root:
-            w = RoiCacheWriter(Path(root), _manifest(), profile, "minimap", hz=15.0,
-                               spans=[[0.0, 1000.0]])
-            for i, f in enumerate(frames):
-                w.feed(Sample(frame_idx=i, t_ms=i * 66.7, frame=f))
-            w.finish()
-            cache, _ = RoiCache.load(Path(root), _manifest(), profile, "minimap")
-            got = {s.frame_idx: s for s in cache.samples([0 * 66.7, 3 * 66.7, 5 * 66.7])}
-            self.assertEqual(sorted(got), [0, 3, 5])
-            x0, y0, x1, y1 = roi_rects("minimap", profile, (1920, 1080))[0]
-            for i, s in got.items():
-                self.assertTrue(np.array_equal(s.frame[y0:y1, x0:x1], frames[i][y0:y1, x0:x1]))
+        cache, _ = RoiCache.load(root, _manifest(), profile, "minimap")
+        got = {s.frame_idx: s for s in cache.samples([0 * 66.7, 3 * 66.7, 5 * 66.7])}
+        self.assertEqual(sorted(got), [0, 3, 5])
+        x0, y0, x1, y1 = roi_rects("minimap", profile, (1920, 1080))[0]
+        for i, s in got.items():
+            self.assertTrue(np.array_equal(s.frame[y0:y1, x0:x1], frames[i][y0:y1, x0:x1]))
 
 
 class AllyCacheTest(unittest.TestCase):
