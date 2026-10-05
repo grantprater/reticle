@@ -207,13 +207,24 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 #   21 Riot matches.
 # `entry_victim_side` owns the victim-side rule `_match_shrinks` and
 # `adjudicate_round_deaths` restated.
-# 0.36.0 (2026-10-04): each death verdict carries `assists`, joined by
+# (A death-adjudication-0.35.0 on branch weapon-reader-20261004, never on
+# master, meant `checks.stack_apart`, withdrawn: a slot run under two empty
+# slots was set aside, which set aside real entries
+# rising mid-stack too (e37fdeca944f 1263.5 s, 96aa1ae9b96f 582.5 s,
+# bdfdcf009dba 875.0 s) and moved their death times 0.5-1.0 s late.
+# 0.36.0 (2026-10-04): an entry track takes no read in a slot the player's
+# death panel covers (`checks.panel_slots` over the stored `combat_report`
+# frames, `adjudication.combat_report.death_panel_tops`), so the panel's card
+# in slot 5 neither begins an entry (b7d24102a6f6 1580.5 s, 1582.0 s) nor
+# becomes the first read of a real one (b7d24102a6f6 1581.5 s, b3b9defb6fd7
+# 1661.5 s). Without a current combat_report stream no read is set aside.
+# 0.37.0 (2026-10-04): each death verdict carries `assists`, joined by
 # `death_id` from the stored `assist` stream (`join_assists`): the panel's
 # count or lower bound, whether a panel was drawn, and per assister its
 # entity, the identity arbiter's verdict and the icon. An `assist` stream
 # that rests on another death rule, or none, leaves `assists` unread with
 # its reason.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.36.0"
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.37.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -1356,6 +1367,20 @@ def death_key(session_id: str, t_ms: float, slot: int) -> str:
     return f"death:{session_id}:{int(float(t_ms))}:{int(slot)}"
 
 
+def panel_aside(times, report: list[dict] | None, roi_y0: float):
+    """Per HUD sample, the killfeed slots (bit mask) the player's death panel
+    covers, from the stored `combat_report` rows (`report`) and the killfeed
+    ROI's top row `roi_y0`; None when no report is given. A sample takes the
+    panel frames within half the report's sample step (`checks.panel_slots`)."""
+    if report is None:
+        return None
+    from ..checks import panel_slots
+    from .combat_report import death_panel_tops
+    hz = next((r.get("hz") for r in report if r.get("kind") == "coverage"), None) or 1.0
+    pt, top = death_panel_tops(report)
+    return panel_slots(times, pt, top, roi_y0, 500.0 / float(hz))
+
+
 #: Why a verdict's `assists` is unread.
 ASSISTS_NO_STREAM = "no_assist_stream"
 ASSISTS_STALE = "assist_rests_on_other_death_rule"
@@ -1425,7 +1450,7 @@ def join_assists(rows: list[dict], assist_rows: list[dict] | None) -> dict:
 
 
 def session_entries(hud: dict, second_life: list[dict] | None = None,
-                    stalls: list[dict] | None = None) -> list[dict]:
+                    stalls: list[dict] | None = None, panel=None) -> list[dict]:
     """One dict per counted killfeed entry track over the whole session, from
     stored HUD columns only: first-seen time, the slot it appeared in, the
     victim's plate side there, whether it is the player's kill or death, and
@@ -1433,7 +1458,9 @@ def session_entries(hud: dict, second_life: list[dict] | None = None,
     entry as it rises and seed `entry_follow` where its first slot shows no
     portrait. `stalls`, the session's capture-stall spans, count an entry
     drawn at a stall's release (`checks.track_entries`); such an entry carries
-    `released`, the span.
+    `released`, the span. `panel`, parallel to the HUD's samples, holds the
+    killfeed slots the player's death panel covers (`checks.panel_slots`);
+    a read there joins no entry. None sets no read aside.
 
     Tracked over the session, not per round: a death on a round's last sample
     is a one-frame track inside the round and would be refused. The player's
@@ -1456,9 +1483,10 @@ def session_entries(hud: dict, second_life: list[dict] | None = None,
     # two entries that held one slot in turn and keep a revive whole.
     sides = (list(zip(hud["kf_ally_mask"], hud["kf_enemy_mask"], same or [None] * len(t)))
              if hud.get("kf_ally_mask") and hud.get("kf_enemy_mask") else None)
+    # A read under the player's death panel joins no entry (`checks.panel_slots`).
     tracks = [e for e in track_entries(t, hud["kf_entry_mask"], col("kf_entry_wx"),
                                        flags={"same_side": same} if same else None,
-                                       sides=sides, stalls=stalls)
+                                       sides=sides, stalls=stalls, panel=panel)
               if e["counted"]]
     # A player track belongs to the entry on screen when it was first seen
     # whose divider agrees, the latest such onset first (the attribution can
@@ -3242,8 +3270,13 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
                               name_observations: list[dict] | None = None,
                               reliability: dict | None = None,
                               xmarks: list[dict] | None = None,
-                              store_root=None, stalls: list[dict] | None = None) -> dict:
+                              store_root=None, stalls: list[dict] | None = None,
+                              panel=None) -> dict:
     """Every round's deaths from stored data only; decodes no video.
+
+    `panel`, parallel to the HUD's samples, holds the killfeed slots the
+    player's death panel covers (`panel_aside`); `session_entries` walks
+    around those reads. None sets none aside.
 
     `stalls`, the session's capture-stall spans, count entries drawn at a
     stall's release (`session_entries`) and discount stall time when two
@@ -3282,7 +3315,7 @@ def adjudicate_session_deaths(session_id: str, rounds: list[dict], hud_table, ro
     from ..checks import sample_step_ms
     hud, roster = hud_table.to_pydict(), roster_table.to_pylist()
     player_agent = (lineup.get("player") or {}).get("agent")
-    entries = session_entries(hud, second_life, stalls=stalls)
+    entries = session_entries(hud, second_life, stalls=stalls, panel=panel)
     step_ms = sample_step_ms(hud["t_ms"])
 
     def settle(rounds: list[dict]) -> dict:

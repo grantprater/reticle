@@ -89,6 +89,36 @@ def episodes(frames: list[dict]) -> list[list[dict]]:
     return out
 
 
+def death_panel_tops(frames: list[dict]) -> tuple[np.ndarray, np.ndarray]:
+    """Times (ms) and screen tops (rows) of the stored frames that show a death
+    panel: the header found (HEADER_MIN) and a row flagging KILLED YOU
+    (FLAG_MIN). Only the player's death opens one
+    [domain:combat_report/appears-on-death], and only a death panel draws
+    the KILLED BY box and the killer's card, whose top lies
+    `combat_report.KILLED_BY_TOP` rows above the header: a summary for a round
+    the player survived (b3b9defb6fd7 430 s, 1770 s) flags no KILLED YOU and
+    draws neither. `checks.panel_slots` places the panel over the killfeed."""
+    from ..combat_report import KILLED_BY_TOP
+    fr = [r for r in frames if r.get("kind") == "frame"]
+    n = len(fr)
+    if not n:
+        return np.zeros(0), np.zeros(0)
+    # Stored rows are dicts; gather each field once into flat arrays, then
+    # decide with numpy. A frame's rows are flattened with their frame index.
+    header = np.fromiter((r.get("header") or 0 for r in fr), dtype=float, count=n)
+    hy = np.array([r.get("hy") for r in fr], dtype=float)          # None -> nan
+    cand = np.flatnonzero((header >= HEADER_MIN) & ~np.isnan(hy))
+    rows = [fr[i].get("rows") or () for i in cand]
+    counts = np.fromiter(map(len, rows), dtype=np.int64, count=len(cand))
+    flag = np.fromiter(((row.get("in_word") or {}).get("KILLED YOU", 0)
+                        for rs in rows for row in rs), dtype=float, count=int(counts.sum()))
+    best = np.full(len(cand), -np.inf)
+    np.maximum.at(best, np.repeat(np.arange(len(cand)), counts), flag)
+    shown = cand[best >= FLAG_MIN]
+    t = np.fromiter((fr[i]["t_ms"] for i in shown), dtype=float, count=len(shown))
+    return t, hy[shown] + KILLED_BY_TOP
+
+
 def frame_read(r: dict) -> tuple:
     """A frame's damage and hit texts per row: the unit panels vote on."""
     return tuple(tuple(row[f]["text"] for f in FIELDS) for row in r["rows"])

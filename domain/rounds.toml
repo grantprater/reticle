@@ -196,6 +196,28 @@ cast before it, never by the entry alone
 """
 phrases = ["clove revive expired", "me killed me"]
 
+[riot-records-clove-expiry]
+claim = """
+Riot's match record keeps a Not Dead Yet expiry as a kill whose killer and
+victim are the same Clove and whose finishing damage is the Ability item
+Ultimate: the ult's own item, not a separate expiry item. The killfeed draws
+that death with the broken butterfly [domain:rounds/clove-revive-expiry-entry].
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+source = """
+the two Riot kills of the 21 matches with Clove's Ultimate as finishing damage
+(prototypes/riot_ground_truth.py --json, riot-truth-0.6.1): 223d636bf8d2 at
+2352.0 s (enemy Clove) and 59c70f1ef720 at 1849.5 s (ally Clove), each paired
+by time with a Clove -> Clove entry; both crops (roi_cache killfeed, viewed
+2026-10-04) show the broken butterfly, no ring
+"""
+use = """
+score a Riot self-kill by Clove's Ultimate as the expiry icon, never as the Not
+Dead Yet revive icon
+"""
+
 [buy-phase-barriers]
 claim = """
 A round opens with a buy phase that ends when the spawn barriers drop. The
