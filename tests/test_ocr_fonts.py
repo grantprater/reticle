@@ -21,64 +21,95 @@ class LeadingZeroTests(unittest.TestCase):
         self.assertFalse(ocr._leading_zero("0"))
         self.assertFalse(ocr._leading_zero("100"))
 
-    def test_bottom_field_refuses_two_zeros(self):
-        # Two glyph-shaped zeros in the health field: "00" is no number the HUD draws.
-        gray = np.zeros((65, 165), np.uint8)
-        gray[19:53, 87:109] = 255
-        gray[19:53, 112:132] = 255
-        blank = ocr.Templates(["0", "1"], np.stack([np.ones((20, 12), np.float32),
-                                                   np.zeros((20, 12), np.float32)]))
-        spec = [s for s in ocr.BOTTOM_FIELDS["hud_hp"] if s.name == "hp"]
-        vals, _occ, _conf = ocr.read_subfields(gray, spec, blank, 0.5, 0.0)
-        self.assertIsNone(vals["hp"])
-
-
-class FieldTemplatesTests(unittest.TestCase):
-    def test_templates_for_picks_the_field_set(self):
-        a = ocr.Templates(["1"], np.zeros((1, 20, 12), np.float32))
-        b = ocr.Templates(["2"], np.zeros((1, 20, 12), np.float32))
-        ft = ocr.FieldTemplates({"clock": a, "hp": b}, ())
-        self.assertIs(ocr.templates_for(ft, "clock"), a)
-        self.assertIs(ocr.templates_for(ft, "hp"), b)
-        self.assertIs(ocr.templates_for(a, "hp"), a)
-
-    def test_field_without_font_reads_the_default(self):
-        a = ocr.Templates(["1"], np.zeros((1, 20, 12), np.float32))
-        mined = ocr.Templates(["2"], np.zeros((1, 20, 12), np.float32))
-        ft = ocr.FieldTemplates({"clock": a}, (), default=mined)
-        self.assertIs(ocr.templates_for(ft, "ammo_reserve"), mined)
-        with self.assertRaises(KeyError):
-            ocr.FieldTemplates({"clock": a}, ())["ammo_reserve"]
-
-    def test_displaced_glyph_is_misaligned_and_bloom_is_not(self):
-        g = lambda y, h: ocr.Glyph(0, y, 8, h, np.zeros((20, 12), np.float32))
-        # a06f04a0059f 1689.5 s: debris 3 px low at its top and 5 px at its bottom.
-        self.assertTrue(ocr._misaligned([g(21, 22), g(18, 20)]))
-        # Bloom grows one edge: the top moves 4 px, the bottom stays.
-        self.assertFalse(ocr._misaligned([g(14, 24), g(18, 20)]))
-        self.assertFalse(ocr._misaligned([g(18, 20)]))
 
 
 @unittest.skipIf(_store_font("DINNext_Regular.ttf") is None, "store game fonts absent")
-class RenderedDigitTests(unittest.TestCase):
-    def test_off_grid_phase_reads_its_own_digit(self):
-        # A phase between the grid's, at a cut between the set's, still reads
-        # as its digit with the reader's margin.
-        font = str(_store_font("DINNext_Regular.ttf"))
-        tpl = ocr.font_digit_templates(font, 28.0)
-        self.assertEqual(sorted(set(tpl.labels)), list("0123456789"))
-        for d in "0123456789":
-            cover = ocr._font_cover(d, font, 28.0 * ocr.SLATE_PX_PER_PT, 0.125, 0.375)
-            bm = ocr._cut_glyph(cover, 0.62)
-            label, score, margin = tpl.match(ocr.Glyph(0, 0, 12, 20, bm))
-            self.assertEqual(label, d)
-            self.assertGreaterEqual(margin, 0.05)
-
-    def test_every_field_has_a_set(self):
+class GlyphCellTests(unittest.TestCase):
+    def test_every_field_has_a_font(self):
         ft = ocr.game_font_templates()
-        self.assertEqual(set(ft.by_field) | set(ocr.SOFT_FIELDS), set(ocr.FIELD_FONTS))
         self.assertEqual(set(ft.fonts), set(ocr.FIELD_FONTS))
         self.assertTrue(all(Path(f).is_file() for f in ft.files))
+
+    def test_off_grid_phase_reads_its_own_digit(self):
+        # A pen between the cells' quarter-pixel phases still reads its digit
+        # with the label margin, and as a full digit.
+        font = str(_store_font("DINNext_Regular.ttf"))
+        cells = ocr.font_cells(font, round(28.0 * ocr.SLATE_PX_PER_PT, 3))
+        for d in "0123456789":
+            roi = np.zeros((70, 60), np.float32)
+            _draw(roi, d, (20.125,), 45.375, font, 28.0)
+            pc, px, py = ocr.pad_cover(roi / 255.0, cells)
+            s = ocr.slot_at(pc, cells, ocr._top_left(20.125 + px, 0),
+                            ocr._top_left(45.375 + py, cells.base))
+            self.assertEqual(s.label, d)
+            self.assertGreaterEqual(s.margin, ocr.LABEL_MARGIN)
+            self.assertGreater(s.gain, 0.9)
+            self.assertEqual(ocr.slot_verdict(s), "digit")
+
+    def test_empty_cell_is_empty(self):
+        font = str(_store_font("DINNext_Regular.ttf"))
+        cells = ocr.font_cells(font, round(28.0 * ocr.SLATE_PX_PER_PT, 3))
+        pc, px, py = ocr.pad_cover(np.zeros((70, 60), np.float32), cells)
+        s = ocr.slot_at(pc, cells, 20 + px, 20 + py)
+        self.assertEqual(ocr.slot_verdict(s), "empty")
+
+
+def _bottom(roi_name: str, field: str, text: str, plate: float = 70.0,
+            alpha: tuple[float, ...] = ()) -> np.ndarray:
+    """A 65 px bottom-HUD ROI (165 or 144 wide) with `text` in `field`'s
+    font at its measured pens over a flat plate."""
+    w = 165 if roi_name == "hud_hp" else 144
+    roi = np.full((65, w), plate, np.float32)
+    name, pt = ocr.FIELD_FONTS[field]
+    pens = ocr.BOTTOM_PENS[field][len(text) - 1]
+    _draw(roi, text, pens, ocr.BOTTOM_BASELINE[field], str(_store_font(name)), pt, alpha)
+    return np.clip(np.rint(roi), 0, 255).astype(np.uint8)
+
+
+@unittest.skipIf(_store_font("DINNext_Medium.ttf") is None, "store game fonts absent")
+class BottomHudTests(unittest.TestCase):
+    def read(self, roi_name, field, gray):
+        spec = [s for s in ocr.BOTTOM_FIELDS[roi_name] if s.name == field]
+        why = {}
+        vals, _occ, _conf = ocr.read_subfields(gray, spec, ocr.game_font_templates(), reasons=why)
+        return vals[field], why.get(field)
+
+    def test_health_reads_at_every_width(self):
+        for text in ("7", "87", "100"):
+            self.assertEqual(self.read("hud_hp", "hp", _bottom("hud_hp", "hp", text)),
+                             (int(text), None))
+
+    def test_low_health_pink_reads(self):
+        # The game draws health pink under low health: gain 0.69 against
+        # white cells (b7d24102a6f6 1453.5 s).
+        gray = _bottom("hud_hp", "hp", "28", alpha=(0.69, 0.69))
+        self.assertEqual(self.read("hud_hp", "hp", gray), (28, None))
+
+    def test_one_faint_digit_of_a_tinted_number_refuses(self):
+        gray = _bottom("hud_hp", "hp", "28", alpha=(0.69, 0.35))
+        value, why = self.read("hud_hp", "hp", gray)
+        self.assertIsNone(value)
+        self.assertIsNotNone(why)
+
+    def test_reserve_one_reads(self):
+        # The reserve's 1 (4x14 px) fell under MIN_AREA, and 31 read as 3.
+        for text in ("31", "51", "200"):
+            gray = _bottom("hud_ammo", "ammo_reserve", text)
+            self.assertEqual(self.read("hud_ammo", "ammo_reserve", gray), (int(text), None))
+
+    def test_magazine_reads_right_justified(self):
+        for text in ("5", "25", "100"):
+            gray = _bottom("hud_ammo", "ammo_mag", text)
+            self.assertEqual(self.read("hud_ammo", "ammo_mag", gray), (int(text), None))
+
+    def test_shield(self):
+        for text in ("5", "25", "50"):
+            gray = _bottom("hud_hp", "shield", text)
+            self.assertEqual(self.read("hud_hp", "shield", gray), (int(text), None))
+
+    def test_empty_field_refuses_no_digits(self):
+        gray = np.full((65, 165), 70, np.uint8)
+        self.assertEqual(self.read("hud_hp", "hp", gray), (None, "no_digits"))
 
 
 class MatchManyTests(unittest.TestCase):
@@ -117,9 +148,6 @@ class MatchManyTests(unittest.TestCase):
         labels, _scores, margins = tpl.match_many(a[None])
         self.assertEqual(labels, ["1"])
         self.assertAlmostEqual(margins[0], 6 / 240)
-
-    def test_no_glyphs(self):
-        self.assertEqual(ocr._digits([], self.tpl), ("", 1.0, 1.0))
 
 
 def _draw(roi: np.ndarray, text: str, pens, baseline: float, font: str, pt: float,

@@ -2345,7 +2345,7 @@ def cmd_overlay(args) -> int:
     if t_to <= t_from:
         raise SystemExit(f"empty range: {_fmt_hms(t_from)} to {_fmt_hms(t_to)}")
 
-    templates = game_font_templates(store.root, default=Templates.load(profile.name))
+    templates = game_font_templates(store.root)
     kf_roi = killfeed_roi(profile)
 
     print(f"session    {sid}  ({src['filename']})")
@@ -5515,7 +5515,7 @@ def cmd_refine(args) -> int:
         raise SystemExit("cached killfeed mask is missing; run hud first (refine will not calibrate across the capture)")
     reader = _HudPass(store, manifest, profile,
                       argparse.Namespace(min_confidence=0.82, min_margin=0.05, hz=0))
-    assets = [Templates.path_for(profile.name), *map(Path, game_font_templates(store.root).files),
+    assets = [*map(Path, game_font_templates(store.root).files),
               me_template_path(profile.name),
               store.kf_mask_path(manifest['session_id'])]
     plan['reader_configuration'] = dict(hud_version=HUD_VERSION, min_confidence=0.82,

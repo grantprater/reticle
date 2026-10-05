@@ -353,6 +353,29 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # [metric:soft_digits/scoreline-cost@a06f04a0059f#ms_a06f04a0059f=1.755] ms
 # per frame on a06f04a0059f against
 # [metric:soft_digits/scoreline-cost@a06f04a0059f#ms_base_a06f04a0059f=1.027].
+# Then the bottom HUD read soft the same way (`ocr.read_subfields`): health,
+# shield, magazine and reserve at measured pen places per digit count
+# (`ocr.BOTTOM_PENS`), the reserve on DIN Next Regular in place of its mined
+# set, a field drawn pale (low-health pink) decided again at its tint, and a
+# magazine drawn beyond its layouts refused `beyond_layout`. The hud stream
+# stores each field's refusal reason. Reads on the 21 matches: health
+# [metric:soft_digits/bottom-all#hp_base_reads=72495] to
+# [metric:soft_digits/bottom-all#hp_new_reads=75288], shield
+# [metric:soft_digits/bottom-all#shield_base_reads=53266] to
+# [metric:soft_digits/bottom-all#shield_new_reads=56292], magazine
+# [metric:soft_digits/bottom-all#ammo_mag_base_reads=37990] to
+# [metric:soft_digits/bottom-all#ammo_mag_new_reads=39823], reserve
+# [metric:soft_digits/bottom-all#ammo_reserve_base_reads=35892] to
+# [metric:soft_digits/bottom-all#ammo_reserve_new_reads=39474]; isolated
+# reserve values (unlike both equal neighbours) fall from
+# [metric:soft_digits/bottom-all#ammo_reserve_base_isolated=209] to
+# [metric:soft_digits/bottom-all#ammo_reserve_new_isolated=17]. Slots now sit
+# at their measured pens with no search; the scoreline reads
+# [metric:soft_digits/scoreline-final-all#new_reads=165216] scores, still
+# [metric:soft_digits/scoreline-final-all#new_full_off=0] off Riot. Scoreline
+# and bottom HUD together cost
+# [metric:soft_digits/hud-cost@a06f04a0059f#ms_total=2.298] ms per frame
+# against [metric:soft_digits/hud-cost@a06f04a0059f#ms_base_total=1.973].
 HUD_VERSION = "hud-0.24.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and

@@ -18,16 +18,22 @@ sub-pixel phases, are compared with it at the places the centred TextBlocks
 put their digits (`SCORE_PENS`, `CLOCK_PENS`). Each cell is decided once,
 digit or empty, and which digit (`slot_verdict`); nothing is cut before
 that decision. On the 21 Riot-recorded matches it reads
-[metric:soft_digits/scoreline-riot-21#new_reads=165215] scores with
-[metric:soft_digits/scoreline-riot-21#new_full_off=0] full reads off Riot's
-round scores, and [metric:soft_digits/scoreline-riot-21#new_clock=67676]
+[metric:soft_digits/scoreline-final-all#new_reads=165216] scores with
+[metric:soft_digits/scoreline-final-all#new_full_off=0] full reads off Riot's
+round scores, and [metric:soft_digits/scoreline-final-all#new_clock=67684]
 clocks.
 
-The bottom HUD still thresholds at 190, cuts connected components, filters
-them by glyph geometry and matches each, normalised to a fixed grid, against
-binary sets rendered from the same fonts (`game_font_templates`, cut at
-FONT_COVER_CUTS); the mined set (`Templates.load`, `reticle glyphs`) remains
-for the ammo reserve (`RESERVE_FONT`), the scoreboard and the combat report.
+The bottom HUD reads the same way (`read_subfields`): health, shield,
+magazine and reserve each have measured pen places per digit count
+(`BOTTOM_PENS`), the layout explaining the most ink wins, and a field drawn
+at a lower tint (low-health pink) is decided again at that tint. Every
+refusal names its reason (`BottomRead.*_reason`). On the same matches health
+reads [metric:soft_digits/bottom-all#hp_new_reads=75288] frames, shield
+[metric:soft_digits/bottom-all#shield_new_reads=56292], magazine
+[metric:soft_digits/bottom-all#ammo_mag_new_reads=39823] and reserve
+[metric:soft_digits/bottom-all#ammo_reserve_new_reads=39474]. The mined
+binary set (`Templates.load`, `reticle glyphs`) remains for the scoreboard
+and the combat report.
 
 What this reads: the top-centre scoreline (the round clock and both team
 scores) and the bottom HUD (health, shield, magazine, reserve).
@@ -361,112 +367,33 @@ FIELD_FONTS = {
     "hp": ("DINNext_Medium.ttf", 36.0),
     "shield": ("DINNext_Medium.ttf", 14.0),
     "ammo_mag": ("DINNext_Medium.ttf", 36.0),
+    "ammo_reserve": ("DINNext_Regular.ttf", 16.0),
 }
-#: The reserve's font: DIN Next Regular 16 pt. Not read with it yet: the
-#: reserve's 1 (4x14 px, 19 lit) falls under MIN_AREA, and the rendered 3
-#: then reads 31 as 3 with confidence where the mined set refuses
-#: (4f207c0c4e39 128.0 and 1208.0 s), so the reserve keeps the mined set.
-RESERVE_FONT = ("DINNext_Regular.ttf", 16.0)
 #: Each field's tracking, px at 1080p, from its TextBlock's `Font.Tracking`
 #: in the widget data (TimerLine1 -2, HealthText -2, LoadedAmmo -2,
 #: ReserveAmmo -1; TeamScore none). Slate's own unit would be 1/1000 em
 #: (-0.07 px on the clock); the clock's seconds digits stand 18.0-18.25 px
-#: apart against an advance of 20.25 on the dev crops, so the value reads as
-#: px.
+#: apart against an advance of 20.25 on the dev crops, and health's 24.0-24.25
+#: against 26.38, so the value reads as px. The readers place cells at
+#: measured pens (SCORE_PENS, CLOCK_PENS, BOTTOM_PENS); the pitch serves the
+#: layout searches that measure them.
 FIELD_TRACKING = {"clock": -2.0, "hp": -2.0, "ammo_mag": -2.0, "ammo_reserve": -1.0}
-#: The fields read against soft cells (`GlyphCells`) rather than binary sets.
-SOFT_FIELDS = ("clock", "score_left", "score_right")
 #: Glyphs are drawn this many times larger, then shrunk with `INTER_AREA`.
 FONT_SUPERSAMPLE = 8
 #: Sub-pixel phases per axis.
 FONT_PHASES = 4
-#: Coverage above which a rendered pixel is glyph. White text over a plate of
-#: luma b passes the 190 cut where coverage exceeds (190 - b) / (255 - b);
-#: these four cover plates from about 100 (0.4) to 170 (0.85).
-FONT_COVER_CUTS = (0.4, 0.55, 0.7, 0.85)
 #: Empty rows a soft cell keeps above the digits' top and below their baseline.
 CELL_MARGIN = 1
-#: A rendered digit whose largest piece is shorter than this share of its ink
-#: is broken by the cut and makes no template.
-BROKEN_GLYPH_H = 0.85
-
-
-def _font_cover(ch: str, font_file: str, px: float, dx: float, dy: float) -> np.ndarray:
-    """`ch` white on black at `px` px per em, offset (dx, dy) px, as float32
-    coverage: drawn FONT_SUPERSAMPLE times larger, shrunk with INTER_AREA."""
-    from PIL import Image, ImageDraw, ImageFont
-    ss = FONT_SUPERSAMPLE
-    font = ImageFont.truetype(font_file, px * ss, layout_engine=ImageFont.Layout.BASIC)
-    left, top, right, bottom = font.getbbox(ch)
-    pad = 2 * ss
-    w = int(np.ceil((right - left + 2 * pad) / ss)) * ss
-    h = int(np.ceil((bottom - top + 2 * pad) / ss)) * ss
-    im = Image.new("L", (w, h), 0)
-    ImageDraw.Draw(im).text((pad - left + dx * ss, pad - top + dy * ss), ch, fill=255, font=font)
-    a = np.asarray(im, np.float32) / 255.0
-    return cv2.resize(a, (w // ss, h // ss), interpolation=cv2.INTER_AREA)
-
-
-def _cut_glyph(cover: np.ndarray, cut: float) -> np.ndarray | None:
-    """A rendered glyph as the reader sees one: cut once, its largest
-    component's box, `normalise`. None where the cut breaks the digit: a
-    largest piece shorter than BROKEN_GLYPH_H of the ink's height is a
-    fragment, and a fragment template would let a cut-off digit match."""
-    binary = (cover > cut).astype(np.uint8) * 255
-    n, _, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
-    if n < 2:
-        return None
-    i = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    x, y, w, h = (int(v) for v in stats[i, :4])
-    rows = np.nonzero(binary.any(axis=1))[0]
-    if h < BROKEN_GLYPH_H * (rows[-1] - rows[0] + 1):
-        return None
-    return normalise(binary[y:y + h, x:x + w])
-
-
-@lru_cache(maxsize=None)
-def font_digit_templates(font_file: str, pt: float) -> Templates:
-    """Digits 0-9 of one font file at `pt` points: every distinct glyph over
-    FONT_PHASES x FONT_PHASES phases and FONT_COVER_CUTS."""
-    px = pt * SLATE_PX_PER_PT
-    labels: list[str] = []
-    maps: list[np.ndarray] = []
-    seen: set[tuple[str, bytes]] = set()
-    for d in "0123456789":
-        for j in range(FONT_PHASES):
-            for i in range(FONT_PHASES):
-                cover = _font_cover(d, font_file, px, i / FONT_PHASES, j / FONT_PHASES)
-                for cut in FONT_COVER_CUTS:
-                    bm = _cut_glyph(cover, cut)
-                    if bm is None or (d, bm.tobytes()) in seen:
-                        continue
-                    seen.add((d, bm.tobytes()))
-                    labels.append(d)
-                    maps.append(bm)
-    return Templates(labels, np.array(maps, np.float32))
 
 
 class FieldTemplates:
-    """Each field's game font: `fonts` maps a field to its font file and
-    point size, read as soft cells (`cells`); `by_field` holds the binary
-    sets the fields not yet read softly match. A field with neither reads
-    `default` (the mined set). `files` names the font files read, for
-    provenance."""
+    """Each HUD field's game font: `fonts` maps a field to its font file and
+    point size, read as soft cells (`cells`). `files` names the font files
+    read, for provenance."""
 
-    def __init__(self, by_field: dict[str, Templates], files: tuple[str, ...],
-                 default: Templates | None = None,
-                 fonts: dict[str, tuple[str, float]] | None = None):
-        self.by_field = dict(by_field)
+    def __init__(self, fonts: dict[str, tuple[str, float]], files: tuple[str, ...]):
+        self.fonts = dict(fonts)
         self.files = files
-        self.default = default
-        self.fonts = dict(fonts or {})
-
-    def __getitem__(self, field: str) -> Templates:
-        if field in self.by_field:
-            return self.by_field[field]
-        if self.default is None:
-            raise KeyError(f"no templates for field {field!r}")
-        return self.default
 
     def cells(self, field: str, scale: float = 1.0, chars: str = "0123456789") -> GlyphCells:
         """`field`'s font at its widget's size times `scale` (the HUD's
@@ -483,22 +410,20 @@ def font_dir(store_root=None) -> Path:
     return Path(store_root) / FONT_DIR
 
 
-def game_font_templates(store_root=None, default: Templates | None = None) -> FieldTemplates:
-    """Each `FIELD_FONTS` field's templates from the store's game fonts, and
-    `default` for every other field. A missing font stops the reader: no
-    mined fallback is read under the font's version."""
+def game_font_templates(store_root=None) -> FieldTemplates:
+    """Each `FIELD_FONTS` field's font from the store's game fonts. A
+    missing font stops the reader: no mined fallback is read under the
+    font's version."""
     root = font_dir(store_root)
-    by_field, files, fonts = {}, set(), {}
+    fonts, files = {}, set()
     for field, (name, pt) in FIELD_FONTS.items():
         path = root / name
         if not path.is_file():
             raise SystemExit(f"game font missing: {path}\n"
                              "extract the game's fonts into the store's game-file reference")
-        if field not in SOFT_FIELDS:
-            by_field[field] = font_digit_templates(str(path), pt)
         fonts[field] = (str(path), pt)
         files.add(str(path))
-    return FieldTemplates(by_field, tuple(sorted(files)), default, fonts)
+    return FieldTemplates(fonts, tuple(sorted(files)))
 
 
 class GlyphCells:
@@ -582,10 +507,12 @@ class Slot:
 
 
 def slot_at(cover: np.ndarray, cells: GlyphCells, x0: int, y0: int,
-            reach: int = 0) -> Slot | None:
+            reach: int = 0, tint: float = 1.0) -> Slot | None:
     """The slot whose integer cell top-left is near (x0, y0): every digit at
     every phase over the cells at x0-1-reach..x0+reach and y0-1..y0, the
-    best placement per digit. None where every cell leaves the cover."""
+    best placement per digit. `tint` is the coverage the text is drawn at
+    (1 for white): the cells are scaled by it, so every Slot measure is
+    relative to text of that tint. None where every cell leaves the cover."""
     h, w = cells.h, cells.w
     H, W = cover.shape
     wins, where = [], []
@@ -600,7 +527,8 @@ def slot_at(cover: np.ndarray, cells: GlyphCells, x0: int, y0: int,
         return None
     win = np.asarray(wins, np.float64)
     wsq = (win * win).sum(axis=1)
-    cost = wsq[:, None] - 2.0 * win @ cells.flat.T + cells.energy[None, :]
+    energy = cells.energy * (tint * tint)
+    cost = wsq[:, None] - 2.0 * tint * (win @ cells.flat.T) + energy[None, :]
     nd, p = len(cells.digits), FONT_PHASES * FONT_PHASES
     per = cost.reshape(len(wins), nd, p).transpose(1, 0, 2).reshape(nd, -1)
     arg = per.argmin(axis=1)
@@ -608,7 +536,7 @@ def slot_at(cover: np.ndarray, cells: GlyphCells, x0: int, y0: int,
     order = np.argsort(best, kind="stable")
     d0 = int(order[0])
     wi, ph = divmod(int(arg[d0]), p)
-    e = float(cells.energy.reshape(nd, p)[d0, ph])
+    e = float(energy.reshape(nd, p)[d0, ph])
     j, i = divmod(ph, FONT_PHASES)
     x, y = where[wi]
     return Slot(x=x + i / FONT_PHASES, y=y + cells.base + j / FONT_PHASES,
@@ -693,50 +621,92 @@ HUNDREDTHS_PENS = (112.75, 130.75, 155.5, 173.5)
 #: The colon's pen: one digit pitch right of the minute's.
 COLON_PEN = 140.0
 FIELD_BASELINE = {"score_left": 39.0, "score_right": 38.25, "clock": 38.75}
-#: Pixels either way, at 1080p, a slot's pen is searched about its place.
-PEN_REACH = 1
+#: Whole pixels, at 1080p, a slot's cell origin is searched beyond the two
+#: origins about its pen (`slot_at` reach): 0 searches the pen within
+#: about 0.9 px either way at quarter-pixel phases, where the measured pens
+#: stand within a quarter pixel.
+PEN_REACH = 0
 
 
 def _slot(cover: np.ndarray, cells: GlyphCells, pad: tuple[int, int], pen: float,
-          baseline: float, scale: float) -> Slot | None:
+          baseline: float, scale: float, tint: float = 1.0) -> Slot | None:
     px, py = pad
     return slot_at(cover, cells, _top_left(pen * scale + px, 0),
                    _top_left(baseline * scale + py, cells.base),
-                   max(0, int(round(PEN_REACH * scale))))
+                   max(0, int(round(PEN_REACH * scale))), tint)
+
+
+def read_layouts(cover: np.ndarray, cells: GlyphCells, layouts, baseline: float,
+                 scale: float, tinted: bool = False, guards=()) -> tuple[str, list[Slot], str | None]:
+    """One field over the padded cover: every layout's cells at their
+    measured pens (px at 1080p, a layout per digit count), the layout that
+    explains the most ink taken and its cells decided (`slot_verdict`).
+
+    Returns the text, the layout's slots and the refusal or None:
+    `no_digits` where no layout explains any ink; `faint_digit` where a cell
+    a pitch or more beside the layout taken (where a left- or
+    right-justified number grows) is faint; `low_margin` where another
+    layout explains within LABEL_MARGIN of a digit's energy as much; the
+    first verdict of the layout taken that is neither digit nor empty; else
+    `missing_digit` (a digit at a place whose layout needs a partner that
+    stands empty) or `no_digits`.
+
+    `tinted` admits text drawn in a tint, as the game draws health in pink
+    under low health: the layout taken at white sets the tint, the highest
+    gain among its cells (at least TINT_MIN), and every cell is decided
+    again against cells drawn at that tint. One TextBlock draws one colour,
+    so a cell fainter than its siblings stays faint.
+
+    `guards` are pens no layout uses; ink drawn as fully as a digit at one
+    (gain at least 0.5 + SOFT_MARGIN, whatever its label) means the
+    widget draws the number elsewhere, and the field refuses
+    `beyond_layout`."""
+    pad = (cells.w, cells.h)
+    pens = sorted({p for lay in layouts for p in lay})
+    at = {p: _slot(cover, cells, pad, p, baseline, scale) for p in pens}
+    if any(v is None for v in at.values()):
+        return "", [], "no_digits"
+    ex = [sum(at[p].explained for p in lay) for lay in layouts]
+    k = int(np.argmax(ex))
+    tint = 1.0
+    if tinted:
+        got = min(1.0, max(at[p].gain for p in layouts[k]))
+        if TINT_MIN <= got < 1.0 - SOFT_MARGIN:
+            tint = got
+            at = {p: _slot(cover, cells, pad, p, baseline, scale, tint) for p in pens}
+            ex = [sum(at[p].explained for p in lay) for lay in layouts]
+            k = int(np.argmax(ex))
+    lay = [at[p] for p in layouts[k]]
+    if ex[k] <= 0:
+        return "", lay, "no_digits"
+    pitch = cells.pitch[cells.digits[0]] / scale
+    for g in guards:
+        gs = _slot(cover, cells, pad, g, baseline, scale, tint)
+        if gs is not None and gs.gain >= 0.5 + SOFT_MARGIN:
+            return "", lay, "beyond_layout"
+    beside = [at[p] for p in pens if all(abs(p - q) >= 0.8 * pitch for q in layouts[k])]
+    if any(slot_verdict(v) == "faint_digit" for v in beside):
+        return "", lay, "faint_digit"
+    rival = max((e for i, e in enumerate(ex) if i != k), default=-np.inf)
+    if ex[k] - rival < LABEL_MARGIN * float(cells.digit_energy.mean()):
+        return "", lay, "low_margin"
+    verdicts = [slot_verdict(v) for v in lay]
+    bad = next((v for v in verdicts if v not in ("digit", "empty")), None)
+    if bad is not None:
+        return "", lay, bad
+    if "empty" in verdicts:
+        # A digit at a place whose layout needs a partner: the text is
+        # centred or justified, so its partner is drawn and unseen.
+        return "", lay, "no_digits" if "digit" not in verdicts else "missing_digit"
+    return "".join(v.label for v in lay), lay, None
 
 
 def read_score_slots(cover: np.ndarray, cells: GlyphCells, field: str, scale: float
                      ) -> tuple[str, list[Slot], str | None]:
     """One score field over the padded cover: the one-digit cell and the
-    two-digit pair at their measured places (SCORE_PENS), the layout that
-    explains more ink taken, its cells decided (`slot_verdict`). Returns
-    the text, the layout's slots and the refusal or None: `no_digits` where
-    neither layout explains any ink, `low_margin` where they explain it
-    within LABEL_MARGIN of a digit's energy of each other, the first
-    verdict of the layout taken that is neither digit nor empty, else
-    `missing_digit` (one digit at a two-digit place) or `no_digits`."""
-    one, two = SCORE_PENS[field]
-    pad = (cells.w, cells.h)
-    base = FIELD_BASELINE[field]
-    layouts = [[_slot(cover, cells, pad, p, base, scale) for p in pens] for pens in (one, two)]
-    if any(s is None for lay in layouts for s in lay):
-        return "", [], "no_digits"
-    ex = [sum(s.explained for s in lay) for lay in layouts]
-    k = int(ex[1] > ex[0])
-    lay = layouts[k]
-    if ex[k] <= 0:
-        return "", lay, "no_digits"
-    if abs(ex[1] - ex[0]) < LABEL_MARGIN * float(cells.digit_energy.mean()):
-        return "", lay, "low_margin"
-    verdicts = [slot_verdict(s) for s in lay]
-    bad = next((v for v in verdicts if v not in ("digit", "empty")), None)
-    if bad is not None:
-        return "", lay, bad
-    if "empty" in verdicts:
-        # A digit at a two-digit place with an empty partner: the text is
-        # centred, so its partner is drawn and unseen.
-        return "", lay, "no_digits" if "digit" not in verdicts else "missing_digit"
-    return "".join(s.label for s in lay), lay, None
+    two-digit pair at their measured places (SCORE_PENS), as
+    `read_layouts` decides them."""
+    return read_layouts(cover, cells, SCORE_PENS[field], FIELD_BASELINE[field], scale)
 
 
 def char_presence(cover: np.ndarray, cells: GlyphCells, ch: str, x0: int, y0: int,
@@ -805,34 +775,11 @@ def read_clock_slots(cover: np.ndarray, cells: GlyphCells, scale: float
     return "", [s for s, v in zip(slots, verdicts) if v == "digit"], f"{digits}_glyphs"
 
 
-def templates_for(templates: "Templates | FieldTemplates", field: str) -> Templates:
-    """The templates one field reads against: its own from a `FieldTemplates`,
-    else the one set every field shares."""
-    return templates[field] if isinstance(templates, FieldTemplates) else templates
-
-
 def _leading_zero(text: str) -> bool:
     """A number this HUD draws never starts with 0 unless it is 0: two zeros
     read where a bright mass swallowed the leading 1 of 100 (a06f04a0059f
     31.5 s) are no reading."""
     return len(text) > 1 and text[0] == "0"
-
-
-#: Digits one TextBlock draws share their top and bottom rows. A glyph whose
-#: top and bottom both sit more than this (1080p px) off its siblings' is
-#: displaced debris: a 7x22 stripe at the scoreline ROI's edge, 3 px low at
-#: its top and 5 px at its bottom, read 9 as 19 (a06f04a0059f 1689.5 s). Bloom
-#: on a digit moves one edge only, so either edge alone refuses nothing.
-MAX_EDGE_SPREAD = 2
-
-
-def _misaligned(glyphs: list[Glyph]) -> bool:
-    if len(glyphs) < 2:
-        return False
-    tops = [g.y for g in glyphs]
-    bottoms = [g.y + g.h for g in glyphs]
-    return (max(tops) - min(tops) > MAX_EDGE_SPREAD
-            and max(bottoms) - min(bottoms) > MAX_EDGE_SPREAD)
 
 
 # --------------------------------------------------------------------------- fields
@@ -878,33 +825,7 @@ class ScorelineRead:
         )
 
 
-def drop_odd_siblings(glyphs: list[Glyph]) -> list[Glyph]:
-    """Remove glyphs whose height disagrees with the field's median height.
-
-    A no-op for a field of one glyph, and for the normal case where every digit
-    in a field is the same size. What it removes is fragments left behind when
-    a bright mass merges with a digit.
-    """
-    if len(glyphs) < 2:
-        return glyphs
-    median = float(np.median([g.h for g in glyphs]))
-    if median <= 0:
-        return glyphs
-    return [
-        g for g in glyphs
-        if SIBLING_MIN_RATIO <= g.h / median <= SIBLING_MAX_RATIO
-    ]
-
-
-def _digits(glyphs: list[Glyph], templates: Templates) -> tuple[str, float, float]:
-    """Concatenated labels plus the weakest score and weakest margin seen."""
-    if not glyphs:
-        return "", 1.0, 1.0
-    labels, scores, margins = templates.match_many(np.stack([g.bitmap for g in glyphs]))
-    return ("".join(labels), min(1.0, float(scores.min())), min(1.0, float(margins.min())))
-
-
-def _soft_templates(templates: "Templates | FieldTemplates") -> FieldTemplates:
+def _soft_templates(templates: "FieldTemplates | None") -> FieldTemplates:
     """`templates` where it carries the game fonts, else the store's."""
     if isinstance(templates, FieldTemplates) and templates.fonts:
         return templates
@@ -1136,6 +1057,38 @@ class BottomRead:
     ammo_reserve: int | None = None
     confidence: float = 0.0
     occluded: tuple[str, ...] = ()
+    # WHY each field is None, as `read_subfields` names it, or None when read.
+    hp_reason: str | None = None
+    shield_reason: str | None = None
+    ammo_mag_reason: str | None = None
+    ammo_reserve_reason: str | None = None
+
+
+#: The lowest tint a bottom field's text is read at (`read_layouts`): the
+#: game draws health pink under low health, at gain 0.69 against white
+#: cells (b7d24102a6f6 1453.5 s, 587c15b07779 1129.0 s, viewed).
+TINT_MIN = 0.5
+#: The bottom HUD's ROIs are this tall at 1080p; pens scale with them.
+BOTTOM_AT_H = 65
+#: Where each bottom field's digits stand, pen x in px of its ROI at 1080p
+#: for one, two and three digits, and the baseline; measured on the dev
+#: half's crops hud-0.23.0 read (every pen within a quarter pixel from the
+#: 5th to the 95th percentile). Health and the shield are centred, the
+#: magazine right-justified (`LoadedAmmo`, `ETextJustify::Right`; an Odin's
+#: 100 starts left of the ROI, which cuts its 1), the reserve left-justified.
+BOTTOM_PENS = {
+    "hp": ((87.25,), (75.25, 99.25), (60.75, 84.75, 109.0)),
+    "shield": ((34.75,), (29.5, 40.0)),
+    "ammo_mag": ((45.25,), (21.25, 45.25), (-2.75, 21.25, 45.25)),
+    "ammo_reserve": ((97.75,), (97.75, 107.5), (97.75, 107.5, 117.0)),
+}
+BOTTOM_BASELINE = {"hp": 51.75, "shield": 42.75, "ammo_mag": 52.5, "ammo_reserve": 43.75}
+#: Pens where no layout of the field stands, checked for a digit
+#: (`read_layouts` guards): some weapons draw the magazine a digit further
+#: right with an icon in the reserve's place (a1a995e6b19b 739.0-742.0 s, a
+#: 40 that the right-justified layouts read as 4). Elsewhere the guard
+#: cell holds the separator bars, at gain 0.28 (dev, every 4th crop).
+BOTTOM_GUARDS = {"ammo_mag": (69.5,)}
 
 
 def read_subfields(
@@ -1144,58 +1097,58 @@ def read_subfields(
     templates: "Templates | FieldTemplates",
     min_confidence: float = 0.82,
     min_margin: float = 0.05,
+    reasons: dict | None = None,
 ) -> tuple[dict[str, int | None], tuple[str, ...], float]:
-    """Read every sub-field of one ROI. Returns (values, occluded, confidence)."""
-    binary, raw = _raw_components(gray_roi)
-    h_roi = max(1, gray_roi.shape[0])
-    w_roi = max(1, gray_roi.shape[1])
+    """Read every sub-field of one ROI. Returns (values, occluded, confidence).
 
+    Each field reads soft, as the scoreline does: white-ink coverage against
+    the local plate (`ink_cover`) compared with the field's DIN Next cells
+    (`FieldTemplates.cells`) at its measured places (BOTTOM_PENS), decided
+    by `read_layouts`. A field whose cells stand over a plate too near white
+    refuses `low_contrast`. `reasons`, when given, receives each refused
+    field's reason; `min_confidence` and `min_margin` bind no field."""
+    ft = _soft_templates(templates)
+    h = gray_roi.shape[0]
+    scale = h / BOTTOM_AT_H
+    cover, room = ink_cover(gray_roi)
+    cover = cover.astype(np.float32)
     values: dict[str, int | None] = {}
     occluded: list[str] = []
     confidences: list[float] = []
 
+    def refuse(name: str, why: str) -> None:
+        values[name] = None
+        if reasons is not None:
+            reasons[name] = why
+        if why in ("occluded", "fused"):
+            occluded.append(name)
+
     for spec in fields:
-        candidates: list[Glyph] = []
-        blocked = False
-        for x, y, w, h, area in raw:
-            cx = (x + w / 2.0) / w_roi
-            if not (spec.x0 <= cx < spec.x1):
-                continue
-            hf = h / h_roi
-            in_band = spec.h_lo <= hf <= spec.h_hi
-            if in_band and area >= MIN_AREA and w / max(1, h) <= MAX_ASPECT:
-                candidates.append(
-                    Glyph(x=x, y=y, w=w, h=h, bitmap=normalise(binary[y : y + h, x : x + w]))
-                )
-            elif area >= BLOCKER_MIN_AREA:
-                # Something substantial overlaps this field that is not a digit:
-                # a mass covering it, or two digits fused into one blob. Either
-                # way a digit may be missing, so refuse rather than report what
-                # the survivors spell.
-                blocked = True
-
-        if blocked:
-            occluded.append(spec.name)
-            values[spec.name] = None
+        cells = ft.cells(spec.name, scale)
+        pens = [p for lay in BOTTOM_PENS[spec.name] for p in lay]
+        base = BOTTOM_BASELINE[spec.name] * scale
+        r0, r1 = max(0, int(base) - cells.base), max(0, int(base) - cells.base + cells.h)
+        c0 = max(0, int(min(pens) * scale))
+        c1 = max(c0, int(np.ceil(max(pens) * scale)) + cells.w)
+        band = room[r0:r1, c0:c1]
+        if band.size and float(band.min()) < SCORE_CONTRAST_MIN:
+            refuse(spec.name, "low_contrast")
             continue
-
-        candidates.sort(key=lambda g: g.x)
-        candidates = drop_odd_siblings(candidates)
-        if not candidates or len(candidates) > spec.max_digits:
-            values[spec.name] = None
+        pc, _px, _py = pad_cover(cover, cells)
+        text, slots, why = read_layouts(pc, cells, BOTTOM_PENS[spec.name][:spec.max_digits],
+                                        BOTTOM_BASELINE[spec.name], scale, tinted=True,
+                                        guards=BOTTOM_GUARDS.get(spec.name, ()))
+        if why is not None:
+            refuse(spec.name, why)
             continue
-
-        text, worst, margin = _digits(candidates, templates_for(templates, spec.name))
-        if (not text.isdigit() or _leading_zero(text) or _misaligned(candidates)
-                or worst < min_confidence
-                or margin < min_margin):
-            values[spec.name] = None
+        if _leading_zero(text):
+            refuse(spec.name, "leading_zero")
             continue
         value = int(text)
         if not (spec.lo <= value <= spec.hi):
-            values[spec.name] = None
+            refuse(spec.name, "out_of_range")
             continue
-        confidences.append(worst)
+        confidences.append(min(1.0 - v.fit for v in slots))
         values[spec.name] = value
 
     return values, tuple(occluded), (min(confidences) if confidences else 0.0)
@@ -1221,6 +1174,7 @@ def read_bottom_hud(
     values: dict[str, int | None] = {}
     occluded: list[str] = []
     confidences: list[float] = []
+    reasons: dict[str, str] = {}
 
     for roi_name, fields in BOTTOM_FIELDS.items():
         roi = by_name.get(roi_name)
@@ -1228,7 +1182,7 @@ def read_bottom_hud(
             continue
         vals, occ, conf = read_subfields(
             crop_gray(frame, roi, width, height), fields, templates,
-            min_confidence, min_margin,
+            min_confidence, min_margin, reasons,
         )
         values.update(vals)
         occluded.extend(occ)
@@ -1242,4 +1196,8 @@ def read_bottom_hud(
         ammo_reserve=values.get("ammo_reserve"),
         confidence=min(confidences) if confidences else 0.0,
         occluded=tuple(occluded),
+        hp_reason=reasons.get("hp"),
+        shield_reason=reasons.get("shield"),
+        ammo_mag_reason=reasons.get("ammo_mag"),
+        ammo_reserve_reason=reasons.get("ammo_reserve"),
     )
