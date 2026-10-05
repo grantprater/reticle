@@ -37,7 +37,8 @@ Sample, by opportunity only; no detector output chooses an item.
   (`labels/minimap_glyph_questions/answers.jsonl`, the `drawing` key, else
   the `ally` key, the last sure row winning) says it draws `nothing` or only a
   `shape`, or words to that effect (`OTHER_NO_ICON`); an unsure or missing
-  answer keeps it. Every agent and ability with a minimap icon in the demos
+  answer keeps it. The rule is `reticle.adjudication.ability_glyph.player_drawing`
+  and `icon_ruled_out`, which the glyph verdict reads too. Every agent and ability with a minimap icon in the demos
   is covered.
 * Those answers name the ally and enemy views only; the demos are the self
   view. That self draws as ally draws
@@ -177,6 +178,9 @@ import numpy as np  # noqa: E402
 
 cv2.setNumThreads(1)
 
+from reticle.adjudication.ability_glyph import (NO_ICON, OTHER_NO_ICON,  # noqa: E402,F401
+                                                icon_ruled_out, player_drawing)
+
 VERSION = "minimap-glyph-heldout-labels-0.1.0"
 QUEUE_VERSION = "minimap-glyph-heldout-queue-0.2.0"
 STORE = Path("C:/Users/grant/reticle-store")
@@ -189,9 +193,6 @@ CONTROL_S = -1.0              # one control frame this long before a session's f
 AUDIT_S = 1.0                 # the audit frame after an excluded ability's earliest cast
 BEFORE_S = -1.0               # the comparison frame, relative to the item's cast
 TUNED_WINDOW_MS = (-500.0, 3500.0)   # an item this near a tuned label is flagged near_tuned_label
-NO_ICON = {"nothing", "shape"}       # the player's drawing answers that rule an icon out
-#: `other` answers whose words rule an icon out ("nothing, then the green/blue tint ... where gekko can pick it up").
-OTHER_NO_ICON = {"visibility:Gekko:C:ally", "visibility:Gekko:E:ally"}
 SECONDS_PER_ITEM = 10.0      # estimate: the click tools' mean ~6 s per item (tray_object, demo_cast_class), plus naming
 BUDGET_MIN = 45.0
 SLOTS = "CQEX"
@@ -238,28 +239,11 @@ def read_jsonl(path) -> list[dict]:
     return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
 
-def player_drawing(rows: list[dict]) -> dict:
-    """(agent, slot) -> (answer, other, key) from the player's sure visibility answers: the `drawing` key, else the
-    `ally` key (the view facts make the teammate's view the drawing; `ask_minimap_glyphs.answered`), last row wins."""
-    last = {}
-    for r in rows:
-        last[r["key"]] = r
-    out = {}
-    for k, r in last.items():
-        parts = k.split(":")
-        if parts[0] != "visibility" or len(parts) != 4 or r.get("unsure"):
-            continue
-        _, agent, slot, view = parts
-        if view == "drawing" or (view == "ally" and (agent, slot) not in out):
-            out[(agent, slot)] = (r.get("answer"), r.get("other"), k)
-    return out
-
-
 def icon_scope(drawing: dict, agent: str, slot: str) -> tuple[bool, str]:
     a = drawing.get((agent, slot))
     if a is None:
         return True, "no sure answer"
-    if a[0] in NO_ICON or a[2] in OTHER_NO_ICON:
+    if icon_ruled_out(a):
         return False, f"player: {a[0]}{' - ' + a[1] if a[1] else ''} ({a[2]})"
     return True, f"player: {a[0]}{' - ' + a[1] if a[1] else ''} ({a[2]})"
 

@@ -42,7 +42,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import glyph_channel_cost as gcc  # noqa: E402  (sets single-threaded, Below Normal)
 import numpy as np  # noqa: E402
 
-VERSION = "glyph-stage3-eval-0.1.0"
+#: 0.2.0: gate 6's tray arm drops keys the player answered draw nothing or a shape, and `matches` counts the
+#: named tracks that still carry one (N1, which must be 0 from ability-glyph-name-0.2.0).
+VERSION = "glyph-stage3-eval-0.2.0"
 STORE = Path(gcc.mge.STORE)
 BIRTH_R = 34.0          # px x scale: 2 x OCC_R, the crowding radius of cross-channel-independence and S5
 BIRTH_MS_ALLY = 250.0   # an ally fix this close in time to a birth stands for the caster at the birth
@@ -121,11 +123,16 @@ def player_casts(store, sid: str, player: str | None, stale_ok: bool = False) ->
 
 
 def drawn_keys() -> set:
-    """Keys a minimap component draws (the policy table's rows not decided by `no_component_default`)."""
+    """Keys a minimap component draws (the policy table's rows not decided by `no_component_default`) and the
+    player did not answer draw nothing or a shape (`ability_glyph.load_drawing_answers`, from 0.2.0)."""
+    from reticle.adjudication.ability_glyph import load_drawing_answers
     from reticle.minimap_glyph import GLYPH_DATA
     pdir, pver = GLYPH_DATA["policy"]
     pol = json.loads((STORE / pdir / f"{pver}.json").read_text(encoding="utf-8"))
-    return {r["key"] for r in pol["rows"] if r.get("decided_by") != "no_component_default"}
+    keys = [r["key"] for r in pol["rows"]]
+    not_drawn = load_drawing_answers(STORE, keys)["not_drawn"]
+    return {r["key"] for r in pol["rows"] if r.get("decided_by") != "no_component_default"
+            and r["key"] not in not_drawn}
 
 
 def session_matches(store, sid: str, stale_tray: bool = False) -> tuple[dict, list[dict]]:
@@ -249,6 +256,15 @@ def session_matches(store, sid: str, stale_tray: bool = False) -> tuple[dict, li
     out["tracks_overall"] = {"single_fix": sum(t["fixes"] == 1 for t in tl),
                              "single_fix_clean": sum(t["fixes"] == 1 and t["scored_fixes"] == 1 for t in tl),
                              "jumps": sum(bool(t["jumps"]) for t in tl)}
+    # N1: no named track carries a key the player answered draws nothing or a shape.
+    from reticle.adjudication.ability_glyph import load_drawing_answers
+    nd = load_drawing_answers(STORE, sorted({r["best"] for r in rows if r["best"]}))["not_drawn"]
+    out["N1"] = {"named_not_drawn": sum((r["ability"] or {}).get("key") in nd for r in rows),
+                 "claims_named_not_drawn": sum(bool(r["agent"]) and r["best"] in nd and not r["pending"]
+                                               for r in rows),
+                 "refused_not_drawn": sum(r["reason"] == "not_drawn_per_answer" for r in rows),
+                 "kit_claims_withheld": sum(bool(r.get("not_drawn")) for r in rows),
+                 "keys": dict(Counter(r["best"] for r in rows if r.get("not_drawn")).most_common())}
     out["named_keys"] = dict(Counter((r["ability"] or {}).get("key") for r in rows if r["ability"]).most_common())
     out["agents"] = dict(Counter(r["agent"] for r in rows if r["agent"]).most_common())
     return out, dis
@@ -283,7 +299,8 @@ def cmd_matches(out: Path, sids: list[str], before: Path, stale_tray: bool = Fal
         r["I1"] = identity_check(snap, sid)
         res[sid] = r
         dis += d
-        print(sid, json.dumps({k: r[k] for k in ("P4", "P5", "G6", "T1", "V1", "C1", "I1")})[:1600], flush=True)
+        print(sid, json.dumps({k: r[k] for k in ("N1", "P4", "P5", "G6", "T1", "V1", "C1", "I1")})[:1800],
+              flush=True)
     tot = {}
     for k in ("below_null", "n"):
         tot[f"P4_{k}"] = sum(res[s]["P4"][k] for s in sids)
@@ -303,6 +320,9 @@ def cmd_matches(out: Path, sids: list[str], before: Path, stale_tray: bool = Fal
     tot["T1_wilson95"] = wilson95(tot["T1_single_fix"], tot["T1_births"])
     tot["G7_max_wall_s"] = max(res[s]["wall_s_command"] for s in sids)
     tot["I1_changes"] = sum(res[s]["I1"]["changes"] for s in sids)
+    for k in ("named_not_drawn", "claims_named_not_drawn", "refused_not_drawn", "kit_claims_withheld"):
+        tot[f"N1_{k}"] = sum(res[s]["N1"][k] for s in sids)
+    tot["named"] = sum(res[s]["named"] for s in sids)
     tot["V1_inner"] = sum(res[s]["V1"]["map_shown_between_clean_samples"] for s in sids)
     payload = {"version": VERSION, "sessions": sids, "per_session": res, "total": tot,
                "params": {"BIRTH_R": BIRTH_R, "BIRTH_MS_ALLY": BIRTH_MS_ALLY, "THROWN_MS": THROWN_MS}}
@@ -582,7 +602,8 @@ def cmd_record(out: Path) -> None:
              "t1_births": r["T1"].get("births", 0), "t1_single_fix": r["T1"].get("single_fix", 0),
              "v1_named_with_map_shown": r["V1"]["named_with_map_shown_sample"],
              "c1_tracks": r["C1"]["tracks"], "c1_named": r["C1"]["named"],
-             "i1_changes": r["I1"]["changes"]}
+             "i1_changes": r["I1"]["changes"],
+             **{f"n1_{k}": v2 for k, v2 in r["N1"].items() if k != "keys"}}
         v |= {f"refused_{k}": n for k, n in r["refused"].items()}
         v |= {f"refused_clean_{k}": n for k, n in r["refused_with_clean_sample"].items()}
         metrics.record("glyph_stage3", part="matches", session=sid, values=v, deps=deps, context=ctx)

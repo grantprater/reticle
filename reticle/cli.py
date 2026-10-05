@@ -4146,7 +4146,8 @@ def cmd_ability_glyphs(args) -> int:
     kit = stored_kit_witness(store.read_events("tray_kit", sid), agent=player)
     res = adjudicate(sid, glyph, verify, tables, lineup,
                      kit["spans"] if kit["reason"] is None else None, player,
-                     kit_reason=kit["reason"])
+                     kit_reason=kit["reason"],
+                     stamps={"tray_kit": kit["version"]} if kit.get("version") else None)
     cov, tcov = res["rows"][0], res["tracks"][0]
     cov["wall_s_command"] = round(time.perf_counter() - t0, 3)
     print(f"{sid}: {tcov['tracks']} tracks (ends {tcov['ends']}, {tcov['jumps']} with a jump); "

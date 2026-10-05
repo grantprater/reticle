@@ -1863,7 +1863,8 @@ status = "partial"
 names_agents = true
 produces = ["adjudicate", "VerdictTables", "load_glyph_rows", "load_icon_verify", "frame_views",
             "stale_reason", "CHANNEL", "AUDIT_CHANNEL", "AUDIT_NULL_HOLDS", "ASTRA_STAR",
-            "OMEN_RULE_REFUSAL", "REFUSALS", "STATES_TABLE"]
+            "OMEN_RULE_REFUSAL", "REFUSALS", "STATES_TABLE", "player_drawing", "icon_ruled_out",
+            "load_drawing_answers", "DRAWING_ANSWERS", "NO_ICON", "OTHER_NO_ICON", "NOT_DRAWN"]
 defers_to = ["agent-identity", "tray-kit", "ability-disc-track", "ability-glyph"]
 not_for = """
 Deciding the caster's name, which the aggregator decides from the claim

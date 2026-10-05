@@ -729,8 +729,12 @@ ABILITY_DISC_TRACK_VERSION = "ability-disc-track-0.1.0"
 # clean frames, the cut from the null table, the per-ability rules and the
 # claim on the caster. Bump when a gate, the pooling, the cut rule, a
 # per-ability rule, a refusal reason or a stored field changes; the null and
-# states tables carry their own stamps.
-ABILITY_GLYPH_NAME_VERSION = "ability-glyph-name-0.1.0"
+# states tables carry their own stamps. 0.2.0: a best key the player answered
+# draws nothing or a shape refuses `not_drawn_per_answer` and withholds its kit
+# claim (an Astra star's state answer excepted); a missing cut refuses
+# `no_cut_for_key`; a blind slot refuses only claims its side admits; rows
+# carry the display name and rest on the tray kit, policy and null stamps.
+ABILITY_GLYPH_NAME_VERSION = "ability-glyph-name-0.2.0"
 # The ability tray's charge drops, written as `tray_drop` rows by `reticle
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own

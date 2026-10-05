@@ -16,7 +16,7 @@ KEYS = ["Astra:C", "Astra:X", "Omen:E", "Omen:Q", "Sova:C", "Sova:Q", "Viper:Q"]
 STAR = "answer:labels/x.jsonl#L367:minimap/TX_Astra_Minimap_PassiveBlack.png"
 
 
-def tables(tie=0.1):
+def tables(tie=0.1, drawing=None):
     states = {("astra", "X", "TX_Astra_Minimap_PassiveBlack"): [
         {"state": "SetSelected", "phase": "targeting",
          "views": {"self": True, "teammate": False, "enemy": False, "spectator": False}}]}
@@ -25,7 +25,17 @@ def tables(tie=0.1):
     return ag.VerdictTables(KEYS, {k: 0.5 for k in KEYS}, {k: 0.6 for k in KEYS},
                             {"full": 0.7, "audit": 0.8}, tie, sources, states,
                             {"glyph": {"null": {"version": "null-test"}},
-                             "states": {"version": "states-test"}})
+                             "states": {"version": "states-test"}}, drawing=drawing,
+                            names={"Sova:C": "Owl Drone"})
+
+
+NOT_DRAWN = {"Sova:Q": {"answer": "nothing", "other": None, "answer_key": "visibility:Sova:Q:ally",
+                        "row": "labels/q/answers.jsonl#L9", "domain_subject": "sova:shock bolt",
+                        "domain_facts": []},
+             "Astra:X": {"answer": "shape", "other": None, "answer_key": "visibility:Astra:X:ally",
+                         "row": "labels/q/answers.jsonl#L4", "domain_subject": None, "domain_facts": []}}
+STAR_STATE = {("Astra:X", "TX_Astra_Minimap_PassiveBlack"): {"state": "placed-inactive star",
+                                                              "row": "labels/q/answers.jsonl#L7"}}
 
 
 def lineup(ally=("Astra", "Omen", "Sova", "Reyna", "Sage"),
@@ -237,6 +247,69 @@ class Verdict(unittest.TestCase):
         self.assertEqual(cov["audit"]["agree_with_context"], 1)
         self.assertFalse(cov["audit"]["in_aggregator"])
 
+    def test_a_key_the_player_says_draws_nothing_never_names(self):
+        g = glyph(placed(0, 2, {"Sova:Q": (0.9, 0), "Sova:C": (0.3, 0), "Omen:E": (0.2, 0)}))
+        res = ag.adjudicate(SID, g, None, tables(drawing={"not_drawn": NOT_DRAWN}), lineup(), None, "Sova")
+        v = verdicts(res)[f"{SID}:adisc:0.0:0"]
+        self.assertEqual(v["reason"], "not_drawn_per_answer")
+        self.assertIsNone(v["ability"])
+        self.assertFalse(v["kit_clear"])
+        self.assertIsNone(v["agent"])
+        self.assertEqual(v["claim_reason"], "not_drawn_per_answer")
+        self.assertIn("fact_contradicts:Sova:Q", v["surprises"])
+        self.assertEqual(v["not_drawn"]["row"], "labels/q/answers.jsonl#L9")
+        self.assertIn("labels/q/answers.jsonl#L9", v["rests_on"])
+        self.assertEqual(res["rows"][0]["not_drawn"]["refused"], 1)
+        # The runner-up is not promoted, and a drawn key still names.
+        g = glyph(placed(0, 2, {"Sova:C": (0.9, 0), "Sova:Q": (0.3, 0), "Omen:E": (0.2, 0)}))
+        v = verdicts(ag.adjudicate(SID, g, None, tables(drawing={"not_drawn": NOT_DRAWN}), lineup(), None,
+                                   "Sova"))[f"{SID}:adisc:0.0:0"]
+        self.assertEqual(v["ability"], {"agent": "Sova", "slot": "C", "key": "Sova:C", "name": "Owl Drone"})
+        self.assertIsNone(v["not_drawn"])
+
+    def test_a_texture_state_answer_outranks_its_keys_visibility_answer(self):
+        star = {"Astra:X": (0.8, 1), "Astra:C": (0.4, 0), "Sova:C": (0.3, 0)}
+        t = tables(drawing={"not_drawn": NOT_DRAWN, "drawn_textures": STAR_STATE})
+        v = verdicts(ag.adjudicate(SID, glyph(placed(0, 3, star)), None, t, lineup(), None,
+                                   "Sova"))[f"{SID}:adisc:0.0:0"]
+        self.assertEqual(v["pending"], "Astra:star")
+        self.assertEqual(v["agent"], "Astra")
+        # The same key on its display icon has no state answer: not drawn.
+        icon = {"Astra:X": (0.8, 0), "Astra:C": (0.4, 0), "Sova:C": (0.3, 0)}
+        v = verdicts(ag.adjudicate(SID, glyph(placed(0, 3, icon)), None, t, lineup(), None,
+                                   "Sova"))[f"{SID}:adisc:0.0:0"]
+        self.assertEqual(v["reason"], "not_drawn_per_answer")
+        self.assertIsNone(v["agent"])
+
+    def test_the_audit_path_refuses_a_key_not_drawn(self):
+        spec = placed(0, 2, {"Sova:C": (0.9, 0), "Omen:E": (0.2, 0)})
+        full = {k: (0.2, 0) for k in KEYS}
+        full["Sova:Q"] = (0.95, 0)
+        g = glyph(spec, audit=[(t, i, p, "", full, xy) for t, i, p, _, _, xy in spec])
+        res = ag.adjudicate(SID, g, None, tables(drawing={"not_drawn": NOT_DRAWN}), lineup(), None, "Sova")
+        v = verdicts(res)[f"{SID}:adisc:0.0:0"]
+        self.assertFalse(v["audit"]["named"])
+        self.assertEqual(v["audit"]["reason"], "not_drawn_per_answer")
+        self.assertIsNone(v["audit_claim"])
+
+    def test_a_missing_cut_refuses_no_cut_for_key(self):
+        t = tables()
+        t.cut[t.index["Sova:C"]] = np.nan
+        g = glyph(placed(0, 2, {"Sova:C": (0.9, 0), "Omen:E": (0.2, 0)}))
+        v = verdicts(ag.adjudicate(SID, g, None, t, lineup(), None, "Sova"))[f"{SID}:adisc:0.0:0"]
+        self.assertEqual(v["reason"], "no_cut_for_key")
+
+    def test_a_blind_slot_on_another_side_leaves_the_claim(self):
+        c = cands()
+        c["enemy"]["blind"] = 1
+        g = glyph(placed(0, 2, {"Sova:C": (0.9, 0), "Omen:E": (0.2, 0)}), candidates=c)
+        v = verdicts(self.run_(g))[f"{SID}:adisc:0.0:0"]
+        self.assertEqual(v["agent"], "Sova")
+        # No side admits Viper: a blind slot anywhere may hold it.
+        g = glyph(placed(0, 2, {"Viper:Q": (0.9, 0), "Sova:C": (0.2, 0)}), candidates=c)
+        v = verdicts(self.run_(g))[f"{SID}:adisc:0.0:0"]
+        self.assertEqual(v["claim_reason"], "blind_slot")
+
     def test_the_cut_comes_from_the_tables(self):
         g = glyph(placed(0, 2, {"Sova:C": (0.6, 0), "Omen:E": (0.2, 0)}))
         t = tables()
@@ -272,6 +345,29 @@ class Loader(unittest.TestCase):
         self.assertTrue(np.isnan(c["S"][1]).all())
         self.assertEqual(got["audit"]["n"], 0)
         self.assertEqual(list(got["frames"]["t_ms"]), [0.0, 500.0])
+
+    def test_load_drawing_answers_reads_the_last_sure_answer(self):
+        rows = [{"key": "visibility:Sova:Q:ally", "kind": "visibility", "answer": "icon", "unsure": False},
+                {"key": "visibility:Sova:Q:ally", "kind": "visibility", "answer": "nothing", "unsure": False},
+                {"key": "visibility:Sova:C:ally", "kind": "visibility", "answer": "shape", "unsure": True},
+                {"key": "visibility:Omen:E:ally", "kind": "visibility", "answer": "shape", "unsure": False},
+                {"key": "visibility:Omen:E:drawing", "kind": "visibility", "answer": "icon", "unsure": False},
+                {"key": "visibility:Astra:X:ally", "kind": "visibility", "answer": "shape", "unsure": False},
+                {"key": "texture:TX_Astra_Minimap_PassiveBlack", "kind": "texture", "answer": "Astra:X",
+                 "unsure": False, "state": "placed-inactive star"}]
+        cat = {"agents": {"Sova": {"abilities": [{"key": "Q", "name": "Shock Bolt"}]}}}
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / ag.DRAWING_ANSWERS
+            p.parent.mkdir(parents=True)
+            p.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            (Path(d) / "reference").mkdir()
+            (Path(d) / "reference" / "abilities.json").write_text(json.dumps(cat), encoding="utf-8")
+            got = ag.load_drawing_answers(d, KEYS)
+        self.assertEqual(sorted(got["not_drawn"]), ["Astra:X", "Sova:Q"])
+        self.assertEqual(got["not_drawn"]["Sova:Q"]["row"], f"{ag.DRAWING_ANSWERS}#L2")
+        self.assertEqual(got["not_drawn"]["Sova:Q"]["domain_subject"], "sova:shock bolt")
+        self.assertEqual(list(got["drawn_textures"]), [("Astra:X", "TX_Astra_Minimap_PassiveBlack")])
+        self.assertEqual(got["provenance"]["rows"], 7)
 
     def test_a_stale_bank_refuses(self):
         self.assertIsNotNone(ag.stale_reason({"ability_glyph_version": "ability-glyph-0.5.0",
