@@ -265,7 +265,13 @@ ab('Astra', 'X', 'Astral Form / Cosmic Divide', [
       'Default__StateComponent_Rift_X_WallTargeting_FreeTarget_C', 'MaxCastDistance'),
     V('minimap', 'Cosmic Divide minimap Size', 'cm', RIFT + 'Ability_X/WorldTargeting/GlobalWall/GameObject_Rift_X_GlobalWall',
       'BaseMinimapComponent_Parent_GEN_VARIABLE', 'Size.X'),
-], missing=['wall length and height: GameObject_Rift_X_GlobalWall holds no extent field', 'star placement range'])
+    V('range', 'star placement MaxCastDistance', 'cm', RIFT + 'Ability_X/WorldTargeting/StateComponent_Rift_X_NavMeshTargeting',
+      'Default__StateComponent_Rift_X_NavMeshTargeting_C', 'MaxCastDistance'),
+], missing=['wall length and height: GameObject_Rift_X_GlobalWall holds no extent field'],
+   note=('the star-placing ability Ability_Rift_X_PlaceMarkers_WorldTargeting holds a StateComponent_Rift_X_NavMeshTargeting '
+         'instance that sets TargetingOffset but not MaxCastDistance, so the class default holds; the files do not name '
+         'the point the distance counts from'),
+   see=['abilities/astra-stars-origin-global'])
 
 # ---------------------------------------------------------------- Breach
 BR = C + 'Breach/S0/'
@@ -337,12 +343,17 @@ ab('Chamber', 'C', 'Trademark', [
     D(DE + 'Ability_4/Patch_Deadeye_E_Slow_Large', 'ClampedRadius', role='size', unit='cm', key='slow field ClampedRadius'),
     V('range', 'TargetingRange', 'cm', DE + 'Ability_4/Ability_Deadeye_4_Trap', 'PlacementTargetingState_GEN_VARIABLE', 'TargetingRange'),
     V('minimap', 'MinimapTriggerRange Size', 'cm', DE + 'Ability_4/GameObject_Deadeye_E_Trap', 'MinimapTriggerRange_GEN_VARIABLE', 'Size.X'),
-])
+], see=['abilities/chamber-trademark-origin-placed-away'])
 ab('Chamber', 'E', 'Rendezvous', [
     V('move', 'TeleportRadius', 'cm', DE + 'Ability_E/AbilityTuning_Deadeye_E_Teleport_Tether', 'AbilityTuning_Deadeye_E_Teleport_Tether', 'Rows.TeleportRadius'),
     V('range', 'TargetingRange', 'cm', DE + 'Ability_E/Ability_Deadeye_E_Teleporter_Tethers', 'StateComponent_PlacementTargeting_RequiredDistanceFromContext_GEN_VARIABLE', 'TargetingRange'),
     V('minimap', 'Minimap_ActivationRange Size', 'cm', DE + 'Ability_E/GameObject_Deadeye_E_Teleporter_Tether', 'Minimap_ActivationRange_GEN_VARIABLE', 'Size.X'),
-], missing=['duration (a placed anchor persists; no lifetime field)'])
+    V('unconfirmed', 'RequiredMaxDistanceFromContext', 'cm', DE + 'Ability_E/Ability_Deadeye_E_Teleporter_Tethers',
+      'StateComponent_PlacementTargeting_RequiredDistanceFromContext_GEN_VARIABLE', 'RequiredMaxDistanceFromContext'),
+], missing=['duration (a placed anchor persists; no lifetime field)'],
+   note=('RequiredMaxDistanceFromContext sits on the same placement component as TargetingRange; which context it '
+         'counts from (the first anchor or Chamber) the files do not settle'),
+   see=['abilities/chamber-rendezvous-origin-placed-away'])
 ab('Chamber', 'Q', 'Headhunter', [
     V('other', 'Capacity', 'n', DE + 'Ability_Q/AbilityTuning_Deadeye_Q_Pistol', 'AbilityTuning_Deadeye_Q_Pistol', 'Rows.Capacity'),
 ], missing=['duration and geometry: a gun, which places nothing'])
@@ -381,12 +392,12 @@ ab('Cypher', 'C', 'Trapwire', [
     V('size', 'MaxWireLength', 'cm', GU + 'Ability_4/AbilityTuning_Gumshoe_4_TripWire', 'AbilityTuning_Gumshoe_4_TripWire', 'Rows.MaxWireLength'),
     V('range', 'WireTargetingDistance', 'cm', GU + 'Ability_4/AbilityTuning_Gumshoe_4_TripWire', 'AbilityTuning_Gumshoe_4_TripWire', 'Rows.WireTargetingDistance'),
     D(GU + 'Ability_4/GameObject_Gumshoe_4_TripWire', 'ArmTime'),
-], missing=['duration (the wire persists; no lifetime field)'])
+], missing=['duration (the wire persists; no lifetime field)'], see=['abilities/cypher-trapwire-origin-placed-away'])
 ab('Cypher', 'E', 'Spycam', [
     V('range', 'TargetingRange', 'cm', GU + 'Ability_E/Ability_Gumshoe_E_Camera', 'PlaceCamera_GEN_VARIABLE', 'TargetingRange'),
     V('speed', 'dart ProjectileSpeed', 'cm_s', GU + 'Ability_E/Projectile_Gumshoe_E_CameraTrackingDart', FSM, 'ProjectileSpeed'),
     D(GU + 'Ability_E/GameObject_RemovableObject_GumshoeTrackingDart', 'PingMarkedTargetDelay'),
-], missing=['camera duration (persists; no lifetime field)'])
+], missing=['camera duration (persists; no lifetime field)'], see=['abilities/cypher-spycam-origin-placed-away'])
 ab('Cypher', 'Q', 'Cyber Cage', [
     D(GU + 'Ability_Q/Zone_Gumshoe_Q_Cage', 'SustainTime'),
     D(GU + 'Ability_Q/Zone_Gumshoe_Q_Cage', 'DeployTime'),
@@ -395,7 +406,8 @@ ab('Cypher', 'Q', 'Cyber Cage', [
     V('size', 'Capsule radius', 'cm', GU + 'Ability_Q/Zone_Gumshoe_Q_Cage', 'Capsule_GEN_VARIABLE', 'CapsuleRadius'),
     V('size', 'Capsule half-height', 'cm', GU + 'Ability_Q/Zone_Gumshoe_Q_Cage', 'Capsule_GEN_VARIABLE', 'CapsuleHalfHeight'),
     V('speed', 'ProjectileSpeed', 'cm_s', GU + 'Ability_Q/Projectile_Gumshoe_Q_CageTrap', FSM, 'ProjectileSpeed'),
-])
+], missing=['throw range (a ballistic toss from Projectile_TossBase; no range field)'],
+   see=['abilities/cypher-cyber-cage-origin-placed-away'])
 ab('Cypher', 'X', 'Neural Theft', [
     V('range', 'CorpseTargeting Radius', 'cm', GU + 'Ability_X/Ability_Gumshoe_X_InterrogateV2', 'CorpseTargetingStateComponent_GEN_VARIABLE', 'Radius'),
     V('duration', 'Reveal Delay', 's', GU + 'Ability_X/GameObject_Gumshoe_X_InterrogateHat', 'Default__GameObject_Gumshoe_X_InterrogateHat_C', 'Reveal Delay'),
@@ -792,7 +804,7 @@ ab('Reyna', 'C', 'Leer', [
     V('range', 'TriggerDistance', 'cm', VA + 'Ability_4/Projectile_Vampire_4_NearsightAoE', 'Comp_Projectile_MaximumRange_GEN_VARIABLE', 'TriggerDistance'),
     V('speed', 'ProjectileSpeed', 'cm_s', VA + 'Ability_4/Projectile_Vampire_4_NearsightAoE', 'Comp_Projectile_FloatCurveMovement_GEN_VARIABLE', 'ProjectileSpeed'),
     D(VA + 'Ability_4/GameObject_Vampire_4_NearsightAOE_Source', 'Radius', role='size', unit='cm'),
-])
+], see=['abilities/reyna-leer-origin-set-distance'])
 ab('Reyna', 'Q', 'Devour', [
     D(VA + 'Ability_Q/GameObject_Vampire_Q_Heal_HealPool_Parent', 'OrbLifetimeDuration', key='soul orb OrbLifetimeDuration'),
     D(VA + 'Ability_Q/GameObject_Vampire_Q_Heal_HealPool_Parent', 'FullHealTime'),
@@ -827,6 +839,8 @@ ab('Sage', 'X', 'Resurrection', [
 ], missing=['duration: a revive, no lifetime'])
 
 # ---------------------------------------------------------------- Skye
+TRACE_NOTE = ("the spawn-spot traces start from the caster pawn's transform (bUsePawnTransform); whether the {} spawns "
+              "at a trace's end the files do not settle")
 GD = C + 'Guide/S0/'
 ab('Skye', 'C', 'Regrowth', [
     V('size', 'OverlapSphere radius', 'cm', GD + 'Ability_4/GameObject_Guide_4_Heal_AOE', 'OverlapSphere_GEN_VARIABLE', 'SphereRadius'),
@@ -837,7 +851,9 @@ ab('Skye', 'Q', 'Trailblazer', [
     V('speed', 'MovementTuning.BaseValues.MaxSpeed', 'cm_s', GD + 'Ability_Q/Pawn_Guide_Q_PossessableScout', 'CharMoveComp', 'MovementTuning.BaseValues.MaxSpeed'),
     V('size', 'ConcussionRange', 'cm', GD + 'Ability_Q/Pawn_Guide_Q_PossessableScout', 'Comp_Actor_ConcussionExplosion_AtLocation_GEN_VARIABLE', 'ConcussionRange'),
     V('range', 'attack Radius', 'cm', GD + 'Ability_Q/Ability_Guide_Q_PossessableScout_ScoutAbilities', 'ActorTargetingState_Attack_GEN_VARIABLE', 'Radius'),
-])
+    V('unconfirmed', 'spawn spot trace TargetOffset.X', 'cm', GD + 'Ability_Q/Ability_Guide_Q_PossessableScout', 'FindSpawnSpotState_GEN_VARIABLE', 'Traces[0].TargetOffset.X'),
+    V('unconfirmed', 'spawned pawn Offset.Translation.X', 'cm', GD + 'Ability_Q/Ability_Guide_Q_PossessableScout', 'SpawnActorState_GEN_VARIABLE', 'SpawnedActors[0].Offset.Translation.X'),
+], note=TRACE_NOTE.format('pawn'))
 ab('Skye', 'E', 'Guiding Light', [
     D(GD + 'Ability_E/Projectile_Guide_E_HawkFlash', 'Duration'),
     V('speed', 'ProjectileSpeed', 'cm_s', GD + 'Ability_E/Projectile_Guide_E_HawkFlash', FSM, 'ProjectileSpeed'),
@@ -859,7 +875,10 @@ ab('Sova', 'C', 'Owl Drone', [
        (HU + 'Ability_E/Drone/Pawn_Hunter_E_Drone', 'CharMoveComp', 'MovementTuning.DefaultStateMultipliers[5].MaxSpeed')],
       note='index 5 of EAresMovementType is Flying (usmap enum); the product is arithmetic'),
     D(HU + 'Ability_E/Drone/GameObject_Hunter_E_Drone_RevealDart', 'InitialLifeSpan', key='dart InitialLifeSpan'),
-])
+    V('unconfirmed', 'spawn spot trace TargetOffset.X', 'cm', HU + 'Ability_E/Drone/Ability_Hunter_E_DeployDrone', 'FindSpawnSpotState_GEN_VARIABLE', 'Traces[0].TargetOffset.X'),
+    V('unconfirmed', 'spawn spot trace TargetOffset.Z', 'cm', HU + 'Ability_E/Drone/Ability_Hunter_E_DeployDrone', 'FindSpawnSpotState_GEN_VARIABLE', 'Traces[0].TargetOffset.Z'),
+    V('unconfirmed', 'spawned drone Offset.Translation.X', 'cm', HU + 'Ability_E/Drone/Ability_Hunter_E_DeployDrone', 'SpawnActorState_GEN_VARIABLE', 'SpawnedActors[0].Offset.Translation.X'),
+], note=TRACE_NOTE.format('drone'), see=['abilities/sova-owl-drone-origin-at-caster'])
 ab('Sova', 'Q', 'Shock Bolt', [
     V('size', 'ExplosiveBoltOuterRadius', 'cm', HU + 'Ability_4/AbilityTuning_Hunter_4_BoltExplosive', 'AbilityTuning_Hunter_4_BoltExplosive', 'Rows.ExplosiveBoltOuterRadius'),
     V('size', 'ExplosiveBoltInnerRadius', 'cm', HU + 'Ability_4/AbilityTuning_Hunter_4_BoltExplosive', 'AbilityTuning_Hunter_4_BoltExplosive', 'Rows.ExplosiveBoltInnerRadius'),
@@ -888,7 +907,9 @@ ab('Tejo', 'C', 'Stealth Drone', [
     D(CW + 'Ability_4/GameObject_Cashew_4_SonarPing', 'MaxSonarRadius', role='size', unit='cm'),
     V('range', 'SightRadius', 'cm', CW + 'Ability_4/Pawn_Cashew_4_Spider_LockOn', 'AISenseConfig_Sight_1', 'SightRadius'),
     V('speed', 'MovementTuning.BaseValues.MaxSpeed (inherited)', 'cm_s', BPAWN, 'CharMoveComp', 'MovementTuning.BaseValues.MaxSpeed', owner=CW + 'Ability_4/Pawn_Cashew_4_Spider_LockOn'),
-])
+    V('unconfirmed', 'spawned drone Offset.Translation.X', 'cm', CW + 'Ability_4/Ability_Cashew_4_Spider_LockOn', 'SpawnActorState_GEN_VARIABLE', 'SpawnedActors[0].Offset.Translation.X'),
+], missing=['spawn distance: the spawn transform comes from GetFiringTransformState, which serializes no offset, and no spawn-spot search is exported'],
+   see=['abilities/tejo-stealth-drone-origin-at-caster'])
 ab('Tejo', 'Q', 'Special Delivery', [
     D(CW + 'Ability_Q/GameObject_Cashew_Q_ShellShockGrenade', 'Explosion Radius', role='size', unit='cm'),
     D(CW + 'Ability_Q/GameObject_Cashew_Q_ShellShockGrenade', 'ConcussDuration', role='other'),
