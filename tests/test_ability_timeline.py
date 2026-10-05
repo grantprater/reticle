@@ -84,9 +84,9 @@ class GateDeathTests(unittest.TestCase):
 
     def test_an_ordinary_death_ends_the_kit(self):
         got = self._gate([_drop(20000, "E"), _drop(52000, "X")], [50000.0], agent="Sova",
-                         second_lives_ms=[50000.0], revives_ms=[51000.0])
+                         second_lives_ms=[50000.0])
         self.assertTrue(got[(20000.0, "E")]["player_cast"])
-        # A badge or a revive undoes nothing for an agent without the mechanic.
+        # A badge undoes nothing for an agent without the mechanic.
         self.assertEqual(got[(52000.0, "X")]["reason"], "after_player_death")
         self.assertEqual(got[(52000.0, "X")]["kit_end_ms"], 50000.0)
 
@@ -124,6 +124,38 @@ class GateDeathTests(unittest.TestCase):
         got = self._gate([_drop(50000, "X", forced=True)], [50000.0, 70000.0], agent="Clove",
                          revives_ms=[51500.0])
         self.assertEqual(got[(50000.0, "X")]["reason"], "forced")
+
+    def test_a_teammate_revive_returns_the_kit_after_the_player_was_dead(self):
+        # A Sage revives the Sova player at 58 s: dead from the death (less
+        # the lead) to the revive, alive with the kit after it.
+        drops = [_drop(49500, "C"), _drop(54000, "E"), _drop(62000, "Q"),
+                 _drop(80000, "X")]
+        got = self._gate(drops, [50000.0, 79000.0], agent="Sova", revives_ms=[58000.0])
+        for k in ((49500.0, "C"), (54000.0, "E"), (80000.0, "X")):
+            self.assertEqual(got[k]["reason"], "after_player_death")
+        self.assertTrue(got[(62000.0, "Q")]["player_cast"])
+        self.assertEqual(got[(62000.0, "Q")]["undone_deaths"], [[50000.0, "revived"]])
+        self.assertEqual(got[(62000.0, "Q")]["kit_end_ms"], 79000.0)
+        # A drop bridged across refused samples within GAP_S of the revive may
+        # compare with a sample read while the player was dead.
+        bridged = {**_drop(60000, "Q"), "across_gap": True}
+        got = self._gate([bridged, _drop(60000, "E")], [50000.0], agent="Sova",
+                         revives_ms=[58000.0])
+        self.assertEqual(got[(60000.0, "Q")]["reason"], "after_player_death")
+        self.assertTrue(got[(60000.0, "E")]["player_cast"])
+
+    def test_player_revive_times_names_the_player_as_the_revived(self):
+        from reticle.adjudication.death import player_revive_times
+        v = lambda t, **kw: {"kind": "death_verdict", "is_revive": True, "t_ms": t, **kw}
+        rows = [v(1.0, side="ally", victim="Skye", killer="Sage"),
+                v(2.0, side="enemy", victim="Skye", killer="Sage"),
+                v(3.0, side="ally", victim="Raze", killer="Sage"),
+                v(4.0, side="ally", victim=None, killer="Clove", kf_player_kill=True),
+                {"kind": "death_verdict", "t_ms": 5.0, "side": "ally", "victim": "Skye"}]
+        self.assertEqual(player_revive_times(rows, "Skye"), [1.0])
+        # Clove's own entry counts for a Clove player even with the victim unread.
+        self.assertEqual(player_revive_times(rows, "Clove"), [4.0])
+        self.assertEqual(player_revive_times(rows, None), [])
 
     def test_clove_without_a_revive_entry_is_dead(self):
         got = self._gate([_drop(50500, "X")], [50000.0], agent="Clove")

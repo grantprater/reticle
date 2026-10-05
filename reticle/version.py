@@ -667,7 +667,11 @@ MENU_VERSION = "menu-0.1.0"
 # agent `kit_owner_unresolved`. Own and other are judged against the
 # consumer's player agent, not the agent the rows were written against, so
 # rows written with no player agent still give kit changes.
-PLAYER_CAST_VERSION = "player-cast-0.8.0"
+# 0.9.0: a stored revive of the player from any reviver
+# (`adjudication.death.player_revive_times`), a teammate Sage's Resurrection
+# included, undoes the death before it for every agent, not only Clove's own
+# Not Dead Yet.
+PLAYER_CAST_VERSION = "player-cast-0.9.0"
 # Whose kit the ability tray shows, per sample of the stored `hud_abilities`
 # crops: the slot icons scored against the catalogue's (`tray_icons`) and read
 # against the candidate sets the lineup allows (`adjudication.tray_kit`),

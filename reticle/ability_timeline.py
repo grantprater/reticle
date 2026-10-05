@@ -99,10 +99,12 @@ def _charge_reason(drop: dict) -> str | None:
 
 def _kit_end(window: tuple, ends: set, deaths_ms, agent: str | None,
              second_lives_ms, revives_ms, report_deaths: dict | None
-             ) -> tuple[float | None, list[list]]:
+             ) -> tuple[float | None, list[list], list[list]]:
     """(the first of the player's deaths in the round `window` that ends the
     player's kit, or None; the deaths before it that the game undid, each as
-    [t_ms, why]). `player_tray_casts` says how a death is undone."""
+    [t_ms, why]; the spans [death, revive] before it in which a teammate's
+    revive left the player dead). `player_tray_casts` says how a death is
+    undone."""
     a, z, close = window
     inside = lambda xs: sorted(e["t_first"] for e in in_round_window(
         [{"t_first": float(x)} for x in xs], a, z, close, ends))
@@ -113,13 +115,19 @@ def _kit_end(window: tuple, ends: set, deaths_ms, agent: str | None,
         counted = (report_deaths or {}).get(a)
         if counted is None or counted <= sum(t not in lives for t in deaths):
             undone.update({t: "run_it_back" for t in deaths if t in lives})
-    if agent == "Clove":
-        revives = inside(revives_ms)
-        for t, nxt in zip(deaths, deaths[1:] + [float("inf")]):
-            if any(t <= r < nxt for r in revives):
-                undone[t] = "not_dead_yet"
+    revives = inside(revives_ms)
+    dead = []
+    for t, nxt in zip(deaths, deaths[1:] + [float("inf")]):
+        back = min((r for r in revives if t <= r < nxt), default=None)
+        if t in undone or back is None:
+            continue
+        undone[t] = "not_dead_yet" if agent == "Clove" else "revived"
+        if agent != "Clove":
+            dead.append([t, back])
     end = next((t for t in deaths if t not in undone), None)
-    return end, [[t, undone[t]] for t in deaths if t in undone and (end is None or t < end)]
+    keep = lambda t: end is None or t < end
+    return (end, [[t, undone[t]] for t in deaths if t in undone and keep(t)],
+            [d for d in dead if keep(d[0])])
 
 
 def kit_windows(rounds: list[dict], player_deaths_ms: list[float], *,
@@ -129,6 +137,8 @@ def kit_windows(rounds: list[dict], player_deaths_ms: list[float], *,
     """Per stored round, in order: its `window` (start, end, close), the
     `kit_end_ms` that ends the player's kit in it or None, the
     `undone_deaths` before that end, each as [t_ms, why], the
+    `dead_spans`, the [death, revive] spans before that end in which a
+    teammate's revive left the player dead, the
     `kit_change_ms`, the round's first stored kit change
     (`adjudication.tray_kit`), or None, and the `kit_return_ms`, the first
     stored return to the player's kit after that change in the round, or None.
@@ -142,14 +152,15 @@ def kit_windows(rounds: list[dict], player_deaths_ms: list[float], *,
     out = []
     for r in rounds:
         w = (r["t_start_ms"], r["t_end_ms"], r["t_close_ms"])
-        end, undone = _kit_end(w, ends, player_deaths_ms, agent, second_lives_ms,
-                               revives_ms, report_deaths)
+        end, undone, dead = _kit_end(w, ends, player_deaths_ms, agent, second_lives_ms,
+                                     revives_ms, report_deaths)
         change = min((c["t_first"] for c in in_round_window(changes, *w, ends)), default=None)
         back = (None if change is None else
                 min((c["t_first"] for c in in_round_window(returns, *w, ends)
                      if c["t_first"] > change), default=None))
         out.append({"round_no": r.get("round_no"), "window": w, "kit_end_ms": end,
-                    "undone_deaths": undone, "kit_change_ms": change, "kit_return_ms": back})
+                    "undone_deaths": undone, "dead_spans": dead, "kit_change_ms": change,
+                    "kit_return_ms": back})
     return out
 
 
@@ -182,9 +193,8 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     death on the instant two rounds touch belongs to the round it ends.
     `player_deaths_ms` are the player's killfeed deaths
     (`rounds.player_death_times`), and `agent` is the player's agent as the
-    arbiter names it. A death ends the kit unless the game undid it, and among
-    the player's agents it undoes one for two only
-    [domain:rounds/resurrection-mechanics]:
+    arbiter names it. A death ends the kit unless the game undid it: a second
+    life or a revive [domain:rounds/resurrection-mechanics]:
 
     * **Phoenix.** A death the killfeed badge calls a second life
       (`second_lives_ms`, `rounds.player_second_life_times`) is a Run It Back
@@ -197,12 +207,28 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
       counts more deaths than the killfeed's real ones, the killfeed missed a
       real death, no instant after the second life is known to be Phoenix's,
       and the second life still ends the kit.
-    * **Clove.** Not Dead Yet needs Clove's death
-      [domain:abilities/clove-c-and-x-need-a-target], and its killfeed entry
-      is the revive itself [domain:killfeed/revive-entries]. A death followed
-      by the player's own revive entry (`revives_ms`) before her next death in
-      the round does not end her kit, so a drop between the death and the
-      revive meets the remaining tests like any other.
+    * **A revive.** A revive entry names the reviver and the revived
+      [domain:killfeed/revive-entries]: a teammate Sage's Resurrection of the
+      player, whatever the player's agent, or Clove's Not Dead Yet, which
+      needs Clove's death [domain:abilities/clove-c-and-x-need-a-target] and
+      whose entry is the revive itself. A death followed by a revive of the
+      player (`revives_ms`, `adjudication.death.player_revive_times`) before
+      the player's next death in the round does not end the kit (`revived`,
+      or `not_dead_yet` for Clove). Clove casts Not Dead Yet while dead, so a
+      drop between her death and her revive meets the remaining tests like
+      any other. Any other player stays dead until the revive, so a drop
+      from DEATH_LEAD_MS before the death to the revive (`dead_spans` of
+      `kit_windows`) is `after_player_death`: the death screen empties the
+      tray there as at any death, and a death-screen drop let through would
+      taint the cast before it. A drop bridged across refused samples
+      (`across_gap`) compares with a clean sample up to `tray.GAP_S` before
+      it, so the span runs on GAP_S past the revive for it: at
+      `b7d24102a6f6` 1866.5 s, 2.0 s after a Sage revive, a Q drop from 0.90
+      bridged the revive's cyan flash while the Q icon stayed dim and its
+      bar empty since the Trailblazer cast at 1857.0 s. Before `player-cast-0.9.0` only Clove's own revive counted: on
+      `b3b9defb6fd7` and `b7d24102a6f6` a Sage revived the Skye player three
+      times and the gate refused every later cast of those rounds as
+      `after_player_death`.
 
     The tray itself is the second witness. `kit_changes_ms` are the stored kit
     changes (`adjudication.tray_kit`): the first sample of a round at which the
@@ -464,11 +490,17 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
         first = (min((e["t_first"] for e in in_round_window(deaths, *rnd, ends)), default=None)
                  if rnd else None)
         end, undone = (k["kit_end_ms"], k["undone_deaths"]) if k else (None, [])
+        # A bridged drop compares with a clean sample up to GAP_S before it,
+        # which may fall while the player was still dead.
+        bridge = 1000.0 * tray.GAP_S if d.get("across_gap") else 0.0
+        dead = (any(a - DEATH_LEAD_MS <= t < b + bridge for a, b in k["dead_spans"])
+                if k else False)
         change, back = (k["kit_change_ms"], k["kit_return_ms"]) if k else (None, None)
         phase = phase_of(t)
         reason = ("menu_open" if covered(t)
                   else "no_round" if rnd is None
-                  else "after_player_death" if end is not None and t >= end - DEATH_LEAD_MS
+                  else "after_player_death" if (dead or end is not None
+                                                and t >= end - DEATH_LEAD_MS)
                   else "after_kit_change" if (change is not None and t >= change
                                               and (back is None or t < back))
                   else "kit_owner_unresolved" if seen is not None and agent is None
@@ -500,8 +532,9 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     The phase is `gametime`'s over the stored HUD, and the deaths are the HUD's
     killfeed tracks. Second lives come from the stored badge reads, which only
     a current `killfeed_portrait` stream carries
-    (`adjudication.death.stored_second_life`). Revives are the player's own
-    revive entries among the stored `death` verdicts. The report's death
+    (`adjudication.death.stored_second_life`). Revives are the stored `death`
+    verdicts that revive the player, from any reviver
+    (`adjudication.death.player_revive_times`). The report's death
     counts are the stored `combat_report_round` rows where a report was read.
     The kit changes and the named kit spans are the stored `tray_kit` rows
     (`adjudication.tray_kit.stored_kit_witness`), used only where they are
@@ -513,7 +546,7 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     and the stamp says why.
     """
     from . import gametime, stalls
-    from .adjudication.death import stored_second_life
+    from .adjudication.death import player_revive_times, stored_second_life
     from .adjudication.tray_kit import stored_kit_witness
     from .killfeed import KILLFEED_PORTRAIT_VERSION
     from .menu import stored_menu
@@ -535,8 +568,7 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
         "player_deaths_ms": player_death_times(hud),
         "agent": agent,
         "second_lives_ms": player_second_life_times(hud, badges),
-        "revives_ms": sorted(float(r["t_ms"]) for r in verdicts
-                             if r.get("is_revive") and r.get("kf_player_kill")),
+        "revives_ms": player_revive_times(verdicts, agent),
         "report_deaths": {float(r["t_start_ms"]): int(r["deaths"]) for r in report
                           if r.get("verdict_source") == "combat_report"
                           and r.get("deaths") is not None},
