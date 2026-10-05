@@ -12,6 +12,10 @@ per-glyph template matching both exact and free. The pipeline is:
     threshold -> connected components -> filter by glyph geometry
               -> normalise each blob to a fixed grid -> nearest template
 
+The two score fields replace the fixed threshold with white-ink coverage
+against their own plate (`score_field`), since scenery behind the plate can
+lift it past the clock's cut.
+
 The scoreline, health, shield and magazine match against templates rendered
 from the game's own font files (`game_font_templates`), one set per field: the widget
 data names each field's face and point size, and the store's game-file
@@ -83,6 +87,67 @@ MAX_ASPECT = 0.75
 # translucent plate; 190 separates cleanly on every frame sampled so far.
 THRESHOLD = 190
 
+# The two score fields do not use that cut. Their plates sit at the screen's
+# top edge, where sky and pale walls show through the semi-transparent plate
+# [domain:minimap/transparency] and lift its luma past 190: the cut then
+# fuses scenery and digits into full-height masses (266x59 px, area 10316)
+# that the blocker rule refused as `occluded` over fully legible scores, for
+# 4.5-43 s before a round's end on 11 of 439 Riot-recorded rounds
+# [metric:unread_reset_causes/riot-21-occluded-recheck#occluded_samples_graphic_absent=161].
+# The digits are near-opaque white (cores at luma 249-255 over any plate),
+# so a pixel of luma I over a plate of luma b shows ink coverage
+# (I - b) / (255 - b) -- the model the font templates are rendered by. `b` is
+# the plate's own local background: a grey opening with a square wider than a
+# stroke (~3 px) and narrower than the plate's scenery, which removes the
+# digits and keeps both bright scenery and the dark chrome lines.
+SCORE_BG_KERNEL = 9
+#: The ROI height (1080p) SCORE_BG_KERNEL is measured at; it scales with it.
+SCORE_BG_AT_H = 59
+#: Coverage above which a pixel joins a component; over a plate of luma 100
+#: it is the 190 cut. This is a hard cut before every decision, not only the
+#: bitmap the binary font templates match: it sets each component's extent,
+#: truncates the pixels `ink_score` averages to c > 0.55, and decides whether
+#: a component exists at all. A digit whose coverage never reaches 0.55 (a
+#: 1 dimmed to half coverage over a pale plate) leaves no component, so no
+#: rule sees it and 11 reads as 1 silently. That breaks "score softly, cut
+#: once"; it is inherited debt, carried in BACKLOG.md (soft coverage
+#: templates) and pinned by an expected-failure test.
+SCORE_INK_CUT = 0.55
+#: A component is white ink where its ink score, the coverage-weighted mean
+#: coverage sum(c^2) / sum(c) over its pixels (`ink_score`), reaches this.
+#: It is the one cut on whiteness, made where `score_field` decides glyph,
+#: blocker (`occluded`) or faint neighbour (`faint_digit`); no raw-luma gate
+#: precedes it. Digit components score 0.85-0.95; pale scenery pieces that
+#: read 5 as 15 and 1 as 11 score 0.66-0.67 (a06f04a0059f 1376.0 s,
+#: c40d950031bb 843.5 s). At SCORE_FAINT_GAP 12, cuts 0.75, 0.78 and 0.80
+#: all kept every full read on Riot's score pairs on the 19 dev Riot
+#: matches (every 4th crop, in-sample), with 0 decreases
+#: [metric:scoreline_soft/riot-dev-sweep-gap12#cut_078_full_off_riot=0];
+#: 0.78 sits between them.
+SCORE_INK_MIN = 0.78
+#: The score digits stand 19-21 px tall at 1080p (DIN Next 22 pt); taller
+#: ink is a digit fused with scenery, and blocks: a 7 fused with a door's
+#: lit edge stood 11x30 and matched 1 (e37fdeca944f 908.0 s).
+SCORE_MAX_H = 24
+#: A plate within this much luma of white cannot show a white digit: a field
+#: whose digit rows hold such a plate refuses `low_contrast`, since a digit
+#: there could stand unseen beside the ones read.
+SCORE_CONTRAST_MIN = 16.0
+#: The score digits' rows, as fractions of the ROI height.
+SCORE_BAND_Y = (0.25, 0.80)
+#: A component that passes SCORE_INK_CUT but scores below SCORE_INK_MIN,
+#: spanning a read digit's rows (to MAX_EDGE_SPREAD) and lying within this
+#: many px of it, may hide a digit: a dim digit, or a digit fused with pale
+#: scenery. The field refuses `faint_digit` rather than read 11 as 1. The
+#: widest gap between a field's digits is between two tabular 1s: 10 px
+#: (boxes at x 5-11 and 21-27, ff636d173b07 2350.0 s) or 11 px when the
+#: second 1 rounds a pixel right (x 22-27, 9acf02f98283 1865.0 s and
+#: a1a995e6b19b 2085.0 s, which read 11 as 1 at 10); 12 px adds a pixel.
+SCORE_FAINT_GAP = 12
+#: A field's components are cut from its columns and this share of the ROI's
+#: width either side, so a digit at a field's edge stays whole.
+FIELD_PAD = 0.05
+
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 
@@ -102,7 +167,12 @@ class Glyph:
 
 
 def normalise(patch: np.ndarray) -> np.ndarray:
-    """Scale a binary glyph patch into the fixed grid."""
+    """Scale a binary glyph patch into the fixed grid.
+
+    The INTER_AREA shrink is re-binarised (> 0) before the binary template
+    match: binarising before matching, against the rule to read pixels as
+    samples of a smooth image. Inherited debt; BACKLOG.md carries soft
+    coverage-template matching to replace it."""
     resized = cv2.resize(
         patch.astype(np.uint8), (GLYPH_W, GLYPH_H), interpolation=cv2.INTER_AREA
     )
@@ -129,7 +199,7 @@ def _raw_components(
 
 
 def _components(
-    gray: np.ndarray, threshold: int = THRESHOLD
+    gray: np.ndarray, threshold: int = THRESHOLD, x0: int = 0, width: int | None = None
 ) -> tuple[list[Glyph], list[tuple[float, float]]]:
     """Split thresholded components into glyphs and occlusion blockers.
 
@@ -138,27 +208,35 @@ def _components(
     height, width and area envelope of a HUD digit is not a glyph. The colon in
     the clock fails the height test and is dropped too -- field assignment uses
     x position, not the colon, so nothing depends on it.
+
+    `gray` may be a column slice of the ROI starting at `x0`, of an ROI
+    `width` wide; positions come back in the ROI's frame.
     """
     binary, raw = _raw_components(gray, threshold)
-    count = len(raw) + 1
-    stats = [None] + [(r[0], r[1], r[2], r[3], r[4]) for r in raw]
-    width = max(1, gray.shape[1])
+    return _split(binary, raw, gray.shape[1] if width is None else width, x0)
 
+
+def _split(binary: np.ndarray, raw: list[tuple[int, int, int, int, int]],
+           width: int, x0: int = 0, blocker_min_area: int = BLOCKER_MIN_AREA,
+           max_h: int = MAX_H) -> tuple[list[Glyph], list[tuple[float, float]]]:
+    """`_components`' geometry rule over one binary mask and its components,
+    the mask's column 0 standing at ROI column `x0` of an ROI `width` wide."""
+    width = max(1, width)
     glyphs: list[Glyph] = []
     blockers: list[tuple[float, float]] = []
-    for i in range(1, count):
-        x, y, w, h, area = (int(v) for v in stats[i])
-        oversize = (h > MAX_H or w > MAX_W) and area >= BLOCKER_MIN_AREA
+    for x, y, w, h, area in raw:
+        oversize = (h > max_h or w > MAX_W) and area >= blocker_min_area
         fused = h >= MIN_H and w / max(1, h) > MAX_ASPECT
         if oversize or fused:
             # Either way a digit is missing from this field -- swallowed by the
             # mass, or fused into the blob. Mark the span so the field refuses
             # rather than reporting whatever the survivors happen to spell.
-            blockers.append((x / width, (x + w) / width))
+            blockers.append(((x + x0) / width, (x + x0 + w) / width))
             continue
-        if not (MIN_H <= h <= MAX_H) or w > MAX_W or area < MIN_AREA:
+        if not (MIN_H <= h <= max_h) or w > MAX_W or area < MIN_AREA:
             continue
-        glyphs.append(Glyph(x=x, y=y, w=w, h=h, bitmap=normalise(binary[y : y + h, x : x + w])))
+        glyphs.append(Glyph(x=x + x0, y=y, w=w, h=h,
+                            bitmap=normalise(binary[y : y + h, x : x + w])))
 
     glyphs.sort(key=lambda g: g.x)
     return glyphs, blockers
@@ -167,6 +245,87 @@ def _components(
 def segment_glyphs(gray: np.ndarray, threshold: int = THRESHOLD) -> list[Glyph]:
     """Glyph-shaped components in a grayscale ROI, left to right."""
     return _components(gray, threshold)[0]
+
+
+def ink_cover(gray: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """White-ink coverage of every pixel against its local plate, and the
+    plate's room below white (255 - plate luma), both float32.
+
+    The plate is the grey opening of `gray` by a square of SCORE_BG_KERNEL px
+    at a SCORE_BG_AT_H px tall ROI, scaled with the ROI's height; the
+    coverage divides by at least SCORE_CONTRAST_MIN, so a near-white plate
+    does not turn noise into ink."""
+    k = max(3, int(round(SCORE_BG_KERNEL * gray.shape[0] / SCORE_BG_AT_H)) | 1)
+    square = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
+    plate = cv2.morphologyEx(gray, cv2.MORPH_OPEN, square).astype(np.float32)
+    room = 255.0 - plate
+    cover = (gray.astype(np.float32) - plate) / np.maximum(room, SCORE_CONTRAST_MIN)
+    return np.clip(cover, 0.0, 1.0), room
+
+
+def ink_score(cover: np.ndarray, labels: np.ndarray, count: int) -> np.ndarray:
+    """Each component's soft white-ink score: its coverage-weighted mean
+    coverage, sum(c^2) / sum(c) over its pixels of `labels`, so the core
+    counts more than the antialiased rim; label 0 scores 0. The labels come
+    from the SCORE_INK_CUT mask, so the mean is truncated to c > 0.55."""
+    on = labels > 0
+    lab = labels[on].astype(np.intp)
+    c = cover[on].astype(np.float64)
+    s1 = np.bincount(lab, c, count)
+    s2 = np.bincount(lab, c * c, count)
+    score = s2 / np.maximum(s1, 1e-9)
+    score[0] = 0.0
+    return score
+
+
+def score_field(gray: np.ndarray, lo: float, hi: float
+                ) -> tuple[list[Glyph], list[tuple[float, float]], bool, bool]:
+    """One score field of the scoreline ROI `gray`, spanning [lo, hi) of its
+    width: glyphs and blockers, with positions in the ROI's frame; whether
+    its digit rows hold a plate too near white for a white digit to show
+    (SCORE_CONTRAST_MIN); and whether a component too dim to be ink stands
+    beside a read digit across its rows (SCORE_FAINT_GAP).
+
+    `ink_cover` is cut hard at SCORE_INK_CUT into components; that cut
+    decides each component's extent and whether a dim digit exists at all
+    (see SCORE_INK_CUT), and `normalise` binarises the glyph bitmap again
+    before matching. Whiteness is then scored per component (`ink_score`,
+    over the pixels above SCORE_INK_CUT only) and cut at SCORE_INK_MIN,
+    where each component is decided: ink of a digit's shape is a glyph, other ink a blocker, and
+    sub-ink beside a digit refuses the field. A blocker is white ink no
+    digit's shape explains: a mass over the field, or two digits fused.
+    Any oversize ink of MIN_AREA blocks,
+    not only BLOCKER_MIN_AREA: a white streak fused with a thin 1 makes a
+    7x42 mass of area 102, and dropping it read 11 as 1 (4f207c0c4e39
+    2038.0 s). The cover is taken over the field and FIELD_PAD of the ROI's
+    width either side."""
+    h, w = gray.shape
+    x0 = max(0, int((lo - FIELD_PAD) * w))
+    x1 = min(w, int(np.ceil((hi + FIELD_PAD) * w)))
+    cover, room = ink_cover(gray[:, x0:x1])
+    binary = (cover > SCORE_INK_CUT).astype(np.uint8) * 255
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
+    ink = ink_score(cover, labels, count) >= SCORE_INK_MIN
+    ink[0] = False
+    raw = [tuple(int(v) for v in stats[i]) for i in np.nonzero(ink)[0]]
+    glyphs, blockers = _split(binary, raw, w, x0, blocker_min_area=MIN_AREA,
+                              max_h=SCORE_MAX_H)
+    band = room[int(SCORE_BAND_Y[0] * h):int(np.ceil(SCORE_BAND_Y[1] * h)),
+                max(0, int(lo * w) - x0):int(np.ceil(hi * w)) - x0]
+    pale = bool(band.size) and float(band.min()) < SCORE_CONTRAST_MIN
+    read = [g for g in glyphs if lo <= g.cx / max(1, w) < hi]
+    sub = ~ink & (stats[:, cv2.CC_STAT_AREA] >= MIN_AREA) & (stats[:, cv2.CC_STAT_HEIGHT] >= MIN_H)
+    sub[0] = False
+    dim = stats[sub]
+    faint = False
+    if read and len(dim):
+        fx = dim[:, 0:1] + x0
+        fy, fw, fh = dim[:, 1:2], dim[:, 2:3], dim[:, 3:4]
+        gx, gy, gw, gh = (np.array([[getattr(g, k) for g in read]]) for k in "xywh")
+        rows = (fy <= gy + MAX_EDGE_SPREAD) & (fy + fh >= gy + gh - MAX_EDGE_SPREAD)
+        near = np.maximum(fx - gx - gw, gx - fx - fw) <= SCORE_FAINT_GAP
+        faint = bool((rows & near).any())
+    return glyphs, blockers, pale, faint
 
 
 class Templates:
@@ -457,6 +616,7 @@ FIELD_BOUNDS = {
     "clock": (0.30, 0.70),
     "score_right": (0.75, 1.00),
 }
+SCORE_FIELDS = ("score_left", "score_right")
 
 
 @dataclass(frozen=True)
@@ -540,16 +700,27 @@ def read_scoreline(
     two, and nothing else does. The reader is unchanged by it; see
     `reticle.census`.
     """
-    glyphs, blockers = _components(frame_gray_roi)
+    # The clock reads the 190 cut over its own columns; each score field reads
+    # ink against its plate (`score_field`).
     width = frame_gray_roi.shape[1]
+    lo, hi = FIELD_BOUNDS["clock"]
+    c0 = max(0, int((lo - FIELD_PAD) * width))
+    c1 = min(width, int(np.ceil((hi + FIELD_PAD) * width)))
+    source = {"clock": _components(frame_gray_roi[:, c0:c1], x0=c0, width=width)}
+    pale: set[str] = set()
+    faint: set[str] = set()
+    for name in SCORE_FIELDS:
+        g, b, low, dim = score_field(frame_gray_roi, *FIELD_BOUNDS[name])
+        source[name] = (g, b)
+        if low:
+            pale.add(name)
+        if dim:
+            faint.add(name)
 
-    buckets: dict[str, list[Glyph]] = {k: [] for k in FIELD_BOUNDS}
-    for g in glyphs:
-        f = g.cx / max(1, width)
-        for name, (lo, hi) in FIELD_BOUNDS.items():
-            if lo <= f < hi:
-                buckets[name].append(g)
-                break
+    buckets: dict[str, list[Glyph]] = {}
+    for name, (lo, hi) in FIELD_BOUNDS.items():
+        buckets[name] = [g for g in source[name][0] if lo <= g.cx / max(1, width) < hi]
+    glyphs = [g for v in buckets.values() for g in v]
 
     # Discard debris before any counting, so the digit-count rules below are
     # applied to glyphs that are actually digits.
@@ -560,8 +731,10 @@ def read_scoreline(
     occluded = tuple(
         name
         for name, (lo, hi) in FIELD_BOUNDS.items()
-        if any(bx0 < hi and bx1 > lo for bx0, bx1 in blockers)
+        if any(bx0 < hi and bx1 > lo for bx0, bx1 in source[name][1])
     )
+    # A score plate too near white to show a digit may hide one beside the
+    # digits read: a `pale` field refuses `low_contrast`.
 
     confidences: list[float] = []
 
@@ -578,6 +751,12 @@ def read_scoreline(
             census.saw(name)
         if name in occluded:
             refuse(name, "occluded")
+            return None
+        if name in pale:
+            refuse(name, "low_contrast")
+            return None
+        if name in faint:
+            refuse(name, "faint_digit")
             return None
         text, worst, margin = _digits(buckets[name], templates_for(templates, name))
         if not text or not text.isdigit():

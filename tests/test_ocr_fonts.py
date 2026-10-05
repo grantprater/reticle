@@ -121,5 +121,120 @@ class MatchManyTests(unittest.TestCase):
         self.assertEqual(ocr._digits([], self.tpl), ("", 1.0, 1.0))
 
 
+def _scoreline(left: str, left_plate: float, right: str, right_plate: float,
+               left_alpha: tuple[float, ...] = ()) -> np.ndarray:
+    """A 59x308 scoreline ROI: white DIN Next 22 pt score digits composited
+    over flat plates as the game draws them, the clock field empty.
+    `left_alpha` scales the coverage of each left digit in turn (default 1)."""
+    font = str(_store_font("DINNext_Regular.ttf"))
+    roi = np.full((59, 308), 60.0, np.float32)
+    roi[:, :90] = left_plate
+    roi[:, 220:] = right_plate
+    for text, x, alpha in ((left, 12, left_alpha), (right, 290 - 14 * len(right), ())):
+        for k, ch in enumerate(text):
+            cover = ocr._font_cover(ch, font, 22.0 * ocr.SLATE_PX_PER_PT, 0.25, 0.5)
+            cover = cover * (alpha[k] if k < len(alpha) else 1.0)
+            h, w = cover.shape
+            plate = roi[14:14 + h, x:x + w]
+            roi[14:14 + h, x:x + w] = cover * 255.0 + (1.0 - cover) * plate
+            x += w - 4
+    return np.clip(np.rint(roi), 0, 255).astype(np.uint8)
+
+
+@unittest.skipIf(_store_font("DINNext_Regular.ttf") is None, "store game fonts absent")
+class ScorePlateTests(unittest.TestCase):
+    def setUp(self):
+        self.tpl = ocr.game_font_templates()
+
+    def test_scores_read_over_a_bright_plate(self):
+        # Sky behind the plate lifts it past the 190 cut, which fused plate
+        # and digits into one mass that refused as `occluded`.
+        r = ocr.read_scoreline(_scoreline("7", 215.0, "4", 100.0), self.tpl)
+        self.assertEqual((r.score_left, r.score_right), (7, 4))
+        self.assertIsNone(r.score_left_reason)
+
+    def test_two_digits_over_a_bright_plate(self):
+        r = ocr.read_scoreline(_scoreline("12", 225.0, "10", 205.0), self.tpl)
+        self.assertEqual((r.score_left, r.score_right), (12, 10))
+
+    def test_near_white_plate_refuses_low_contrast(self):
+        r = ocr.read_scoreline(_scoreline("7", 245.0, "4", 100.0), self.tpl)
+        self.assertIsNone(r.score_left)
+        self.assertEqual(r.score_left_reason, "low_contrast")
+        self.assertEqual(r.score_right, 4)
+
+    def test_pale_scenery_is_not_ink(self):
+        # A 3 px pale rim (luma 182 over 90) at the ROI's edge peaks at cover
+        # 0.58: no glyph, so the lone digit stays aligned and reads.
+        gray = _scoreline("4", 90.0, "7", 100.0)
+        gray[26:42, 0:3] = 182
+        r = ocr.read_scoreline(gray, self.tpl)
+        self.assertEqual(r.score_left, 4)
+
+    def test_white_streak_over_a_score_refuses_occluded(self):
+        # Thinner than the opening, so it is ink, and too tall for a digit.
+        gray = _scoreline("4", 90.0, "7", 100.0)
+        gray[5:55, 30:36] = 255
+        r = ocr.read_scoreline(gray, self.tpl)
+        self.assertIsNone(r.score_left)
+        self.assertEqual(r.score_left_reason, "occluded")
+
+    def test_white_mass_wider_than_the_opening_refuses(self):
+        # A mass wider than the opening is plate as white as the ink.
+        gray = _scoreline("4", 90.0, "7", 100.0)
+        gray[5:55, 0:40] = 255
+        r = ocr.read_scoreline(gray, self.tpl)
+        self.assertIsNone(r.score_left)
+        self.assertEqual(r.score_left_reason, "low_contrast")
+
+    def test_pale_piece_apart_from_the_digits_is_not_ink(self):
+        # A digit-tall piece at coverage 0.65 passes the segmentation cut but
+        # scores below SCORE_INK_MIN; far from the digit, it is ignored.
+        gray = _scoreline("4", 100.0, "7", 100.0)
+        gray[18:38, 60:65] = 201
+        r = ocr.read_scoreline(gray, self.tpl)
+        self.assertEqual(r.score_left, 4)
+        self.assertIsNone(r.score_left_reason)
+
+    def test_dim_one_beside_a_one_refuses_faint_digit(self):
+        # Two tabular 1s stand 10 px apart; the second, dimmed by scenery to
+        # coverage 0.6, must refuse the field rather than read 11 as 1.
+        gray = _scoreline("1", 100.0, "7", 100.0)
+        box = gray[14:40, 10:24] > 200
+        ys, xs = np.nonzero(box)
+        x0, x1 = xs.min() + 10, xs.max() + 10
+        dim = gray[14:40, x0:x1 + 1].astype(np.float32)
+        cover = np.clip((dim - 100.0) / 155.0, 0, 1) * 0.6
+        gray[14:40, x1 + 11:x1 + 11 + (x1 - x0 + 1)] = np.rint(100.0 + cover * 155.0).astype(np.uint8)
+        r = ocr.read_scoreline(gray, self.tpl)
+        self.assertIsNone(r.score_left)
+        self.assertEqual(r.score_left_reason, "faint_digit")
+
+    def test_dim_mass_across_a_digit_rows_refuses_faint_digit(self):
+        # A pale streak taller than a digit, beside it, may hide one.
+        gray = _scoreline("4", 100.0, "7", 100.0)
+        gray[8:52, 30:34] = 195
+        r = ocr.read_scoreline(gray, self.tpl)
+        self.assertIsNone(r.score_left)
+        self.assertEqual(r.score_left_reason, "faint_digit")
+
+    # Debt: the hard SCORE_INK_CUT (0.55) runs before every decision, so a
+    # 1 dimmed to half coverage leaves no component and 11 reads as 1
+    # silently (2ad32ef refused it as occluded). Soft coverage-template
+    # matching (BACKLOG.md) is to make this pass.
+    @unittest.expectedFailure
+    def test_half_coverage_second_one_refuses(self):
+        r = ocr.read_scoreline(_scoreline("11", 200.0, "7", 100.0, left_alpha=(1.0, 0.5)), self.tpl)
+        self.assertIsNone(r.score_left)
+
+    def test_ink_score_weights_the_core(self):
+        labels = np.array([[0, 1, 1, 2]], np.int32)
+        cover = np.array([[0.9, 1.0, 0.5, 0.6]], np.float32)
+        s = ocr.ink_score(cover, labels, 3)
+        self.assertEqual(s[0], 0.0)
+        self.assertAlmostEqual(s[1], 1.25 / 1.5)
+        self.assertAlmostEqual(s[2], 0.6, places=6)
+
+
 if __name__ == "__main__":
     unittest.main()
