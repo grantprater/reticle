@@ -821,6 +821,61 @@ def _killfeed_panel_cache_gate(store, sid, args) -> dict:
     return gate
 
 
+def _combat_report_cache_gate(store, sid, date, args) -> tuple[dict, object]:
+    """The gate a combat report crop cache is written under, one frame per
+    round (`roi_cache.combat_report_gate`), and the check the writer runs
+    at its finish when the combat report reader rides the same pass.
+
+    The owner of the panels' rounds names each round's frame
+    (`adjudication.combat_report.round_frames`) from the stored
+    `combat_report` rows at the current stamp, the stored rounds and the
+    player's deaths. Refuses a request the set cannot hold: the crops ride
+    the reader's own frames, the whole capture at `--report-hz`. A capture
+    with none of those stored has no frame to name yet."""
+    from .adjudication.combat_report import round_frames
+    from .roi_cache import combat_report_gate
+    from .rounds import player_death_times
+    if args.cache_live:
+        raise SystemExit("--cache-roi combat_report rides the combat report reader over the "
+                         "whole capture; it takes no --cache-live")
+    if args.cache_hz is not None and float(args.cache_hz) != float(args.report_hz):
+        raise SystemExit("--cache-roi combat_report stores the combat report reader's frames, "
+                         "at --report-hz; it takes no other --cache-hz")
+    rows = store.read_events("combat_report", sid)
+    got = rows[0].get("combat_report_version") if rows else None
+    rounds = store.read_rounds(sid, date)
+    why = (f"the stored combat_report rows are at {got}, current is {COMBAT_REPORT_VERSION}"
+           if got != COMBAT_REPORT_VERSION else
+           "no stored rounds" if rounds is None else None)
+    if why is None and float(rows[0].get("hz") or args.report_hz) != float(args.report_hz):
+        why = f"the stored combat_report rows are at {rows[0].get('hz')} Hz, not --report-hz"
+    if why is not None:
+        raise SystemExit(f"--cache-roi combat_report keeps one frame per round, named from the "
+                         f"stored combat_report rows and rounds: {why}; run `reticle scan {sid}` "
+                         f"and `reticle rounds {sid}` first")
+    rounds = rounds.to_pylist()
+    deaths = player_death_times(store.read_hud(sid, date))
+    choice = round_frames(rows, rounds, deaths)
+    gate, why = combat_report_gate(choice, rows, args.report_hz)
+    if gate is None:
+        raise SystemExit(f"--cache-roi combat_report: {why}")
+
+    def recheck(reader) -> dict:
+        """The same choice from the reader's rows in this pass: the frames
+        kept rest on stored rows, so a reader that now reads them otherwise
+        is recorded, never hidden."""
+        def per_round(ch):
+            out = {}
+            for c in ch:
+                out.setdefault(c["round_no"], set()).add(c["t_ms"])
+            return out
+        a, b = per_round(choice), per_round(round_frames(reader.events(sid), rounds, deaths))
+        differ = sorted(no for no in set(a) | set(b) if a.get(no) != b.get(no))
+        return {"rows": "this_pass", "rounds": len(a), "same_frame": len(a) - len(differ),
+                "differ": differ}
+    return gate, recheck
+
+
 #: How long before each barrier drop a live-round cache starts: the last
 #: buy-phase second shows the starting positions and everything placed in the
 #: buy phase [domain:rounds/buy-phase-barriers].
@@ -1241,10 +1296,17 @@ def cmd_scan(args) -> int:
     # strip gate (`roi_cache.scoreboard_gate`), so it rides at --hz.
     # The killfeed panel strip keeps the HUD samples near a stored killfeed
     # entry (`roi_cache.killfeed_panel_gate`).
-    cache_gate = (_scoreboard_cache_gate(store, sid, args) if args.cache_roi == "scoreboard"
-                  else _killfeed_panel_cache_gate(store, sid, args)
-                  if args.cache_roi == "killfeed_panel" else None)
-    cache_hz = args.cache_hz or args.hz
+    # The combat report set keeps one frame per round, named from the stored
+    # combat report rows and rounds (`roi_cache.combat_report_gate`).
+    cache_recheck = None
+    if args.cache_roi == "combat_report":
+        cache_gate, cache_recheck = _combat_report_cache_gate(store, sid, date, args)
+    else:
+        cache_gate = (_scoreboard_cache_gate(store, sid, args) if args.cache_roi == "scoreboard"
+                      else _killfeed_panel_cache_gate(store, sid, args)
+                      if args.cache_roi == "killfeed_panel" else None)
+    cache_hz = (args.report_hz if args.cache_roi == "combat_report"
+                else args.cache_hz or args.hz)
     cache_spans = _live_round_spans(store, sid, date) if args.cache_live else None
     want_cache = bool(args.cache_roi) and (args.force or _roi_cache_stale(
         store, manifest, profile, args.cache_roi, cache_hz, cache_spans, cache_gate))
@@ -1421,6 +1483,9 @@ def cmd_scan(args) -> int:
                                     spans=cache_spans, gate=cache_gate)
             except ValueError as exc:
                 raise SystemExit(f"--cache-roi {args.cache_roi}: {exc}")
+            if cache_recheck is not None and cp is not None:
+                # The reader precedes the writer, so its rows are whole at finish.
+                xp.recheck = lambda: cache_recheck(cp)
         # The glyph reader follows the icon reader: it reads that reader's row
         # for the same sample (`minimap_glyph.LiveIcons`).
         readers = [r for r in (hp, kp, mp, pp, rp, sp, lp, ap, dp, bp, ip, gp, cc, cp, xp)
@@ -1730,6 +1795,10 @@ def cmd_scan(args) -> int:
         cache, why = choose_source(R.readers)
         if cache is None:
             _normalise_decoded(R, manifest, store)
+        elif R.cp is not None and cache.record.get("gate") is not None:
+            # A gated set: each frame its gate dropped is stored as a refusal.
+            from .roi_cache import unheld_frames
+            R.cp.refuse_unheld(cache.record, unheld_frames(cache))
         from .usage import ScanUsage
         usage = ScanUsage(manifest, profile.name, R.readers,
                           f"cache:{cache.record['version']}" if cache is not None else "video")
@@ -3367,6 +3436,13 @@ def _combat_report_identity(store, sid, date, rows, rounds, death_times) -> None
     from .checks import track_entries
     from .lineup import load_lineup
 
+    why = adj.thinned(rows)
+    if why is not None:
+        # Naming binds a row to the death its panel opened at; the kept
+        # frames carry no panel's opening. The stored names stand.
+        print(f"  identity: the combat_report stream is {why}; rows stay unnamed and "
+              f"nothing is written")
+        return
     lineup = load_lineup(sid, store.root)
     if not lineup or not lineup.get("sides", {}).get("enemy"):
         print(f"  identity: no stored lineup for {sid}; rows stay unnamed")
@@ -3545,10 +3621,17 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
         report_version = store.events_version("combat_report", sid)
         roi = killfeed_roi(get_profile(manifest["source_profile"]))
         panel = None
-        if report_version == COMBAT_REPORT_VERSION and roi is not None:
+        report = (store.read_events("combat_report", sid)
+                  if report_version == COMBAT_REPORT_VERSION and roi is not None else None)
+        from .adjudication.combat_report import thinned
+        if report is not None and thinned(report) is not None:
+            # The one-frame-per-round crop set gives each round its counts,
+            # not the death panel's timing.
+            print(f"{sid}: no killfeed read is set aside under the death panel; the "
+                  f"combat_report stream is {thinned(report)}")
+        elif report is not None:
             wh = (int(manifest["source"]["width"]), int(manifest["source"]["height"]))
-            panel = panel_aside(hud.column("t_ms").to_pylist(), store.read_events("combat_report", sid),
-                                roi.pixels(*wh)[1])
+            panel = panel_aside(hud.column("t_ms").to_pylist(), report, roi.pixels(*wh)[1])
         else:
             print(f"{sid}: no combat_report stream at {COMBAT_REPORT_VERSION}; no killfeed read is "
                   f"set aside under the death panel -- run `reticle scan {sid} --only combat_report`")
@@ -6213,14 +6296,16 @@ def build_parser() -> argparse.ArgumentParser:
                         "cache, when the cache holds every live round -- else decode; "
                         "cache: refuse to decode; video: always decode")
     s.add_argument("--cache-roi", choices=("killfeed", "hud", "minimap", "scoreboard",
-                                           "killfeed_panel"),
+                                           "killfeed_panel", "combat_report"),
                    help="also store lossless crops of this ROI at the HUD rate, for "
                         "`reticle trial --from cache`; `--only roi_cache` stores only them. "
                         "scoreboard: the scoreboard reader's region, at its frames within "
                         "one sample of a stored strip sample that reads the board present "
                         "or the band unreadable. killfeed_panel: the strip left of the "
                         "killfeed ROI, at the HUD samples within one sample of a stored "
-                        "killfeed entry")
+                        "killfeed entry. combat_report: the combat report reader's region, "
+                        "one frame per round, named from the stored combat_report rows and "
+                        "rounds; `--only combat_report --from cache` rereads it")
     s.add_argument("--cache-hz", type=float, default=None,
                    help="rate of the ROI crops (default: the HUD rate)")
     s.add_argument("--cache-live", action="store_true",

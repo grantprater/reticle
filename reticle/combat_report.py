@@ -101,6 +101,29 @@ FLAG_WORDS = {"KILLED": "flag_killed", "KILLED YOU": "flag_killed_you",
 SLOT_WORDS = {"ALLY": "word_ally"}
 
 
+def reader_roi(wh: tuple[int, int]) -> list[int]:
+    """The frame region (x0, y0, x1, y1) that holds every pixel this reader
+    reads: each header position `SEARCH` admits, widened by every field
+    offset in any of `MAX_ROWS` rows, flag fields padded by `FLAG_PAD`, cut
+    at the frame. The crop cache stores this region (`roi_cache`, set
+    `combat_report`). Another frame size has no region: the reader refuses
+    it per frame."""
+    if tuple(int(v) for v in wh) != FRAME_WH:
+        raise ValueError(f"the combat report reader reads {FRAME_WH[0]}x{FRAME_WH[1]} only, "
+                         f"not {wh[0]}x{wh[1]}")
+    th, tw = load_templates()[0].shape[:2]
+    pad = lambda b: (b[0] - FLAG_PAD, b[1] - FLAG_PAD, b[2] + FLAG_PAD, b[3] + FLAG_PAD)
+    boxes = np.array([(0, 0, tw, th), OUT_NUM, IN_NUM, OUT_HITS, IN_HITS, pad(OUT_FLAG),
+                      pad(IN_FLAG), pad(ALLY_FIELD), ROW_PORTRAIT, ROW_BAND], float)
+    top = np.array([0] + [ROW0] * 9, float)
+    x0, y0, x1, y1 = SEARCH
+    last = ROW0 + (MAX_ROWS - 1) * PITCH
+    w, h = FRAME_WH
+    return [int(max(0, x0 + boxes[:, 0].min())), int(max(0, y0 + (top + boxes[:, 1]).min())),
+            int(min(w, x1 - tw + boxes[:, 2].max())),
+            int(min(h, y1 - th + max(th, last + boxes[1:, 3].max())))]
+
+
 def load_templates(path: Path = TEMPLATE_FILE) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     with np.load(path, allow_pickle=False) as z:
         return z["header"], {w: z[k] for w, k in FLAG_WORDS.items()}
@@ -239,7 +262,18 @@ def read_rows(gray, hx, hy, tpl: ocr.Templates, words, frame=None, slot_words=No
 
 class CombatReportReader:
     """`passes.Reader` storing the header score and, where a panel may be up,
-    every row's reads. It decides nothing."""
+    every row's reads. It decides nothing.
+
+    Its reads stay inside `reader_roi`, the crop cache's `combat_report` set,
+    which holds one frame per round (`roi_cache.combat_report_gate`). Fed
+    from that set (`--from cache`), it stores each frame the set dropped as a
+    refusal with the set's reason (`refuse_unheld`), never as a frame with
+    no panel."""
+
+    #: The crop cache set its reads stay inside (`roi_cache.CACHE_SETS`).
+    cache_set = "combat_report"
+    #: It may read a gated cache: a time the gate dropped is stored as a refusal.
+    reads_gate = True
 
     def __init__(self, digits: ocr.Templates, hz: float = 1.0, spans=None,
                  name: str = "combat_report"):
@@ -248,6 +282,17 @@ class CombatReportReader:
         self.header, self.words = load_templates()
         self.slot_words = load_slot_words()
         self.rows: list[dict] = []
+        self.unheld: list[dict] = []
+        self.cache_record: dict | None = None
+
+    def refuse_unheld(self, record: dict, unheld) -> None:
+        """Feed from a gated crop cache: `unheld` holds `(t_ms, frame_idx,
+        reason)` for each frame of the cache's timeline it holds no crop for
+        (`roi_cache.unheld_frames`); each is stored as a frame with a null
+        header and that reason. `record` is the cache's, kept as provenance."""
+        self.cache_record = record
+        self.unheld = [{"kind": "frame", "frame_idx": int(fi), "t_ms": float(t), "header": None,
+                        "reason": str(why)} for t, fi, why in unheld]
 
     def feed(self, smp) -> None:
         row = {"kind": "frame", "frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms)}
@@ -267,6 +312,13 @@ class CombatReportReader:
         common = {"session_id": session_id, "source": "combat_report",
                   "combat_report_version": COMBAT_REPORT_VERSION}
         read = sum("rows" in r for r in self.rows)
+        rows = self.rows
         head = {**common, "kind": "coverage", "hz": self.hz, "frames": len(self.rows),
                 "rows_read": read, "templates": provenance()}
-        return [head] + [{**common, **r} for r in self.rows]
+        if self.cache_record is not None:
+            rows = sorted(self.rows + self.unheld, key=lambda r: r["t_ms"])
+            rec = self.cache_record
+            head.update({"frames": len(rows), "frames_from": rec["version"],
+                         "cache_set": rec["roi"], "cache_gate": rec.get("gate"),
+                         "frames_refused": len(self.unheld)})
+        return [head] + [{**common, **r} for r in rows]

@@ -38,7 +38,9 @@ witness (`scoreboard_strip`) reads the board present or cannot read the band.
 The gate never asks the slab test, whose opens are the reader's own outcome.
 The record keeps the gate, its `rule` named (`gate_rule`), and
 `RoiCache.refusal` says why a time outside it is not held. A gated cache
-never feeds a scan (`cache_for`): it holds the frames `reticle trial` reads.
+feeds a scan only under `--from cache` and only readers that declare
+`reads_gate` (`cache_for`); the scoreboard set holds the frames `reticle
+trial` reads.
 
 **Rule `on`** (the player, 2026-10-05): the margin is 0, every strip
 on-sample and no neighbour. Caches written at margin 1 are thinned from
@@ -116,6 +118,24 @@ about [metric:killfeed_panel/gate-projection#mb_ffv1=301] MB as FFV1, from the
 stored rows. `RoiCache.load_union` reads it with the `hud` set as one
 cache, so a reader of the wider killfeed (`WIDE_ROIS`) gets both crops
 pasted into one frame, and the gate's refusal at a time outside it.
+
+**The combat report set keeps one frame per round.** The report does not
+change within a round (the player, 2026-10-05), so the set holds, per round,
+the one frame of its most complete panel that the owner of the panels'
+rounds names (`adjudication.combat_report.round_frames`) from the stored
+`combat_report` rows, the stored rounds and the player's deaths: the round
+summary where it shows, else the frozen post-death panel, from inside a run
+of frames that read the same. Its one rectangle is the region the combat
+report reader reads (`combat_report.reader_roi`). The writer rides the
+reader's own frames (whole capture, `--report-hz`), keeps the named frames
+(`combat_report_gate`) and stores the timeline it was offered
+(`TIMELINE_SETS`), so `scan --only combat_report --from cache` rereads each
+kept panel with no video and stores every other frame as a refusal,
+`thinned_out` (`unheld_frames`), never as a frame with no panel. A round
+whose panels read different damage keeps one frame per read. The reread
+stream gives each round its counts but not the death panel's timing, so
+the consumers of that timing refuse it
+(`adjudication.combat_report.thinned`).
 """
 from __future__ import annotations
 
@@ -150,11 +170,14 @@ CACHE_SETS = {
     # The strip left of the killfeed ROI (`DERIVED_ROIS`), at the HUD samples
     # the killfeed entry gate keeps (`killfeed_panel_gate`).
     "killfeed_panel": ("killfeed_panel",),
+    # The combat report reader's region (`DERIVED_ROIS`), one frame per round
+    # (`combat_report_gate`).
+    "combat_report": ("combat_report",),
 }
 
 #: Cache ROIs that are not profile ROIs: each is computed from the profile
 #: and the frame size by the reader that owns the region.
-DERIVED_ROIS = ("scoreboard", "killfeed_panel")
+DERIVED_ROIS = ("scoreboard", "killfeed_panel", "combat_report")
 
 #: Regions wider than one stored set, read through `RoiCache.load_union`:
 #: each is the bounding box of ROIs held by the sets named with it.
@@ -198,7 +221,13 @@ GRAB_MAX = 8
 #: against [metric:killfeed_panel/cache-window@043bafca271a#kb_per_sample_png=27.4] as PNG,
 #: and every one read back bit for bit, irregular seeks included
 #: ([metric:killfeed_panel/cache-window@043bafca271a#seek_bit_equal_ffv1=52] of 52).
-CODECS = {"minimap": "ffv1", "scoreboard": "ffv1", "killfeed_panel": "ffv1"}
+CODECS = {"minimap": "ffv1", "scoreboard": "ffv1", "killfeed_panel": "ffv1",
+          "combat_report": "ffv1"}
+
+#: Gated sets that store the timeline their writer was offered
+#: (`{sid}.offered.npy`), so a reader fed from them refuses each frame the
+#: gate dropped by its time (`unheld_frames`).
+TIMELINE_SETS = ("combat_report",)
 
 #: Profile ROIs a set stores only on its readers' grid, with the grid's step
 #: in seconds: the ability tray, which `reticle tray`, `tray-kit`, `menu`
@@ -276,6 +305,9 @@ def derived_rect(roi: str, profile, wh: tuple[int, int]) -> list[int]:
     owns the region; ValueError where the capture places none."""
     if roi == "killfeed_panel":
         return killfeed_panel_rect(profile, wh)
+    if roi == "combat_report":
+        from .combat_report import reader_roi as report_roi
+        return report_roi(wh)
     if roi != "scoreboard":
         raise ValueError(f"no derived ROI named {roi!r}; have {list(DERIVED_ROIS)}")
     from .scoreboard import reader_roi, strip_rect
@@ -398,6 +430,33 @@ def scoreboard_gate(strip_rows: list[dict], margin: int = SCOREBOARD_GATE_MARGIN
             "witness_samples": len(samples), "witness_open": int(sum(opens)),
             "samples": sum(in_spans(r["t_ms"], spans, starts) for r in samples),
             "spans": spans}, None
+
+
+def combat_report_gate(choice: list[dict], report_rows: list[dict], hz: float
+                       ) -> tuple[dict | None, str | None]:
+    """The combat report set's gate from the owner's per-round choice
+    (`adjudication.combat_report.round_frames`) over the stored
+    `combat_report` rows, or None and why there is none.
+
+    Each kept round's frame opens a span a quarter sample either side of its
+    time, so the writer, offered every frame at the reader's rate, keeps that
+    frame alone. The record carries the choice, every round included: a
+    round with no frame keeps its reason. A time outside the spans is
+    refused as `thinned_out` (`refuse_as`): the gate saw it and dropped it."""
+    from .version import COMBAT_REPORT_FRAMES_VERSION
+    if not report_rows:
+        return None, "no stored combat_report rows"
+    frames = [r for r in report_rows if r.get("kind") == "frame"]
+    if not frames:
+        return None, "the stored combat_report rows hold no frames"
+    pad = 0.25 * 1000.0 / float(hz)
+    kept = sorted(float(c["t_ms"]) for c in choice if c.get("t_ms") is not None)
+    return {"witness": "combat_report",
+            "witness_version": report_rows[0].get("combat_report_version"),
+            "rule": "one_per_round", "version": COMBAT_REPORT_FRAMES_VERSION,
+            "hz": float(hz), "witness_samples": len(frames), "samples": len(kept),
+            "refuse_as": "thinned_out", "rounds": json.loads(json.dumps(choice)),
+            "spans": [[t - pad, t + pad] for t in kept]}, None
 
 
 def declare_set(reader, name: str, profile, wh) -> None:
@@ -672,7 +731,7 @@ def choose_source(store_root: Path, manifest: dict, profile, readers, mode: str,
                      + ("" if skipped is None else
                         f"; {sum(b - a for a, b in skipped) / 1000.0:.0f} s of its spans "
                         f"left unread, recorded as spans_skipped"))
-    cache, why = cache_for(store_root, manifest, profile, readers)
+    cache, why = cache_for(store_root, manifest, profile, readers, gated_ok=mode == "cache")
     if cache is None and mode == "auto" and before:
         for r, spans in before:
             r.spans = spans
@@ -742,8 +801,9 @@ def holding_sets(need) -> list[str]:
 #: declare (`cache_set`, `declare_set`, set where `scan` builds them): the HUD
 #: reader and the killfeed portraits read `hud` and `killfeed`, the roster
 #: `hud`, the minimap readers `minimap`. A channel absent here has a reader
-#: that declares no set (pings, the scoreboard, the combat report), so its
-#: pass decodes.
+#: that declares no set (pings, the scoreboard), so its pass decodes, or one
+#: that reads only a gated set: the combat report reader reads its
+#: one-frame-per-round set under `--from cache` (`cache_for`'s `gated_ok`).
 SCAN_CHANNEL_SETS = {
     "hud": ("hud", "killfeed"),
     "roster": ("hud",),
@@ -777,7 +837,8 @@ def channel_cache(store_root: Path, manifest: dict, profile, channel: str
     return None, why
 
 
-def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiCache | None", str]:
+def cache_for(store_root: Path, manifest: dict, profile, readers,
+              gated_ok: bool = False) -> tuple["RoiCache | None", str]:
     """The cache that can feed this whole pass, or None and why it cannot.
 
     A pass is fed from the cache only when EVERY reader declares a
@@ -793,6 +854,11 @@ def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiC
     times are the cache's frames, not the ones a decode's stride would pick;
     a `"nearest"` reader takes the cached frame nearest each of them
     (`nearest_times`).
+
+    A gated cache holds only the frames its gate kept. It feeds a pass only
+    with `gated_ok` (`--from cache`) and only where every reader declares
+    `reads_gate`: such a reader stores each frame the gate dropped as a
+    refusal (`unheld_frames`), never as a frame with nothing in it.
     """
     need: set[str] = set()
     for r in readers:
@@ -809,7 +875,8 @@ def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiC
         if cache is None:
             why = reason or why
             continue
-        if cache.record.get("gate") is not None:
+        if cache.record.get("gate") is not None and not (
+                gated_ok and all(getattr(r, "reads_gate", False) for r in readers)):
             # It holds the frames its gate kept, not every frame at its rate.
             return None, (f"the {cache.record['roi']} cache holds only the samples its "
                           f"{cache.record['gate']['witness']} gate kept")
@@ -857,6 +924,12 @@ class RoiCacheWriter:
         self.gate = self.record.get("gate")
         self._starts = None if self.gate is None else [a for a, _ in self.gate["spans"]]
         self.frames_offered = 0
+        # `(t_ms, frame_idx)` of every frame offered, for a `TIMELINE_SETS` set.
+        self._offered: list[tuple[float, int]] | None = [] if name in TIMELINE_SETS else None
+        #: Called at `finish` where set: a dict it returns is recorded as
+        #: `gate_recheck` (the scan checks the gate's witness rows against
+        #: the same reader's rows in this pass).
+        self.recheck = None
         # Grid-thinned rects: rect index -> (ROI, step, picker); a held-back
         # crop (`GridPicker.pending`) waits in `_held` until its span ends.
         grid = GRID_ROIS.get(name, {}) if spans is not None and self.record["codec"] == "ffv1" else {}
@@ -869,6 +942,7 @@ class RoiCacheWriter:
         sid = manifest["session_id"]
         self.codec = self.record["codec"]
         self.paths = (d / f"{sid}.bin", d / f"{sid}.idx.npy", d / f"{sid}.json")
+        self.offered_path = d / f"{sid}.offered.npy"
         # One row per frame per rectangle: t_ms, frame_idx, rect, offset, length;
         # for video, offset is the frame's number in its rect's file.
         self._index: list[tuple[float, int, int, int, int]] = []
@@ -888,6 +962,8 @@ class RoiCacheWriter:
 
     def feed(self, smp) -> None:
         self.frames_offered += 1
+        if self._offered is not None:
+            self._offered.append((float(smp.t_ms), int(smp.frame_idx)))
         if self.gate is not None and not in_spans(smp.t_ms, self.gate["spans"], self._starts):
             return
         if self.codec == "ffv1":
@@ -949,9 +1025,26 @@ class RoiCacheWriter:
                             "by": "RoiCacheWriter"}
         self.record["thinned_rois"] = thinned
 
+    def _finish_rounds(self) -> None:
+        """For a gate that names its frames per round (`combat_report_gate`),
+        check the writer kept exactly those frames: a chosen frame this pass
+        never offered (another timeline than the stored rows') fails here,
+        never silently. Records `recheck`'s answer as `gate_recheck`."""
+        if self.gate is None or self.gate.get("rule") != "one_per_round":
+            return
+        want = np.sort([float(c["t_ms"]) for c in self.gate["rounds"] if c.get("t_ms") is not None])
+        got = np.unique(np.asarray([r[0] for r in self._index], float))
+        if not np.array_equal(want, got):
+            missing = sorted(set(want.tolist()) - set(got.tolist()))
+            raise RuntimeError(f"the {self.record['roi']} gate names {len(want)} frames and the "
+                               f"writer kept {len(got)}; not offered: {missing[:5]}")
+        if self.recheck is not None:
+            self.record["gate_recheck"] = json.loads(json.dumps(self.recheck()))
+
     def finish(self) -> None:
         if self.codec == "ffv1":
             try:
+                self._finish_rounds()
                 self._finish_grid()
             except Exception:
                 for proc, path in zip(self._procs, self.videos):
@@ -979,6 +1072,8 @@ class RoiCacheWriter:
         # A held-back grid crop is indexed after the frame that ended its span.
         np.save(self.paths[1], idx[np.lexsort((idx[:, 2], idx[:, 0]))] if self._grid else idx)
         frames = len({t for t, *_ in self._index})
+        if self._offered is not None:
+            np.save(self.offered_path, np.asarray(self._offered, np.float64).reshape(-1, 2))
         self.paths[2].write_text(json.dumps({**self.record, "frames": frames,
                                              "frames_offered": self.frames_offered,
                                              "bytes": self._offset}, indent=1),
@@ -1124,6 +1219,10 @@ class RoiCache:
             return None
         gate = self.record.get("gate")
         if gate is not None and not in_spans(t_ms, gate["spans"]):
+            if gate.get("refuse_as"):
+                # A gate that saw every frame and dropped this one
+                # (`combat_report_gate`).
+                return gate["refuse_as"]
             before = (self.record.get("thinned") or {}).get("gate_before")
             if before is not None and in_spans(t_ms, before["spans"]):
                 return "thinned_out"
@@ -1132,6 +1231,12 @@ class RoiCache:
         if spans is not None and not any(a <= float(t_ms) <= b for a, b in spans):
             return "outside_cache_spans"
         return "not_cached"
+
+    def offered(self) -> np.ndarray | None:
+        """`(t_ms, frame_idx)` of every frame the writer was offered, in
+        order, for a set in `TIMELINE_SETS`; None where none was stored."""
+        path = self.blob.with_name(self.blob.name.replace(".bin", ".offered.npy"))
+        return np.load(path) if path.is_file() else None
 
     def stored_rect(self, roi: str) -> list[int]:
         """The pixel rectangle one profile ROI's crops were stored from."""
@@ -1338,6 +1443,32 @@ class RoiCacheUnion:
                     x0, y0, x1, y1 = p.rect_of(roi)
                     frame[y0:y1, x0:x1] = smp.frame[y0:y1, x0:x1]
             yield Sample(frame_idx=got[0].frame_idx, t_ms=got[0].t_ms, frame=frame)
+
+
+def unheld_frames(cache) -> list[tuple[float, int, str]]:
+    """`(t_ms, frame_idx, reason)` of each frame on a gated cache's offered
+    timeline (`RoiCache.offered`) that it holds no crop for, in order, with
+    `RoiCache.refusal`'s reason. A prefix of a cache (`pipeline.PrefixCache`)
+    answers for its frames before its limit only. ValueError where the
+    cache stored no timeline."""
+    base = getattr(cache, "cache", cache)
+    off = base.offered()
+    if off is None:
+        raise ValueError(f"the {base.record['roi']} cache stored no offered timeline; a reader "
+                         f"fed from it cannot refuse the frames its gate dropped")
+    until = getattr(cache, "until_ms", None)
+    keep = ~np.isin(off[:, 0], base.t_ms)
+    if until is not None:
+        keep &= off[:, 0] < until
+    t, fi = off[keep, 0], off[keep, 1].astype(int)
+    # `RoiCache.refusal` over the array.
+    gate = base.record.get("gate") or {}
+    before = (base.record.get("thinned") or {}).get("gate_before")
+    in_gate = spans_mask(t, gate["spans"]) if gate else np.ones(len(t), bool)
+    was = spans_mask(t, before["spans"]) if before else np.zeros(len(t), bool)
+    out = gate.get("refuse_as") or np.where(was, "thinned_out", "outside_gate")
+    why = np.where(in_gate, "not_cached", out)
+    return list(zip(t.tolist(), fi.tolist(), why.tolist()))
 
 
 def spans_mask(t_ms, spans) -> np.ndarray:
