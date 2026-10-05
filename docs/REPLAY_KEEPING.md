@@ -1,8 +1,10 @@
 # Keeping each match's replay
 
 Status: live, 2026-10-04. A protocol for the player and for the agents that
-parse what the player keeps. The replay is evaluation truth only: no reader
-reads it, no prior rests on it, nothing shows it during play.
+parse what the player keeps. No reader or reader's threshold reads the
+replay and nothing shows it during play; it may fit win-probability and
+coaching baselines and priors under the use policy in
+[EXTERNAL_GROUND_TRUTH.md](EXTERNAL_GROUND_TRUTH.md).
 
 ## Why
 
