@@ -92,7 +92,12 @@ The same replay holds ability actors, casts and ults with their casters for
 the classes its census maps [domain:replay/vrf-ability-actors]; `prototypes/replay_abilities.py` scores
 the stored ability streams against them, and
 [REPLAY_KEEPING.md](REPLAY_KEEPING.md) says how to keep each match's replay.
-Evaluation truth only: never a reader input, a prior or a display in play.
+
+**Use policy.** This is the policy's one home. Riot's match records, replays,
+HenrikDev's records and public datasets may fit win-probability and coaching
+baselines and priors ([COACHING_DECISION_VALUE.md](COACHING_DECISION_VALUE.md));
+they never feed a reader, a reader's threshold or anything shown during play;
+matches that evaluate a fitted model are held out from its fit.
 
 **HenrikDev's unofficial API.** It mirrors Riot's match schema. Whether it
 still serves the corpus's past matches is unconfirmed.
