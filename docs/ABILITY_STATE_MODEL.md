@@ -564,3 +564,58 @@ player, and every played agent's C, Q and E count already came from a
 per-ability fact, so the version stays `ability-state-0.3.0`. The range of a
 slot without a count still tops out at two segments; Astra's stars test that
 assumption the first time a session plays her.
+
+### The cast gate against Riot's counts (2026-10-05)
+
+Riot's match records count the player's casts per ability, which scores the
+gate's own casts on the 21 Riot-paired matches: covered is the lesser of
+ours and Riot's per session and ability, beyond is ours over Riot's. Riot's
+counts are evaluation truth only. The rules were chosen on a dev half fixed
+before measuring (sha1 of `own-cast-gate:` and the session, even = dev) and
+reported on the held half apart. At `player-cast-0.8.0` the gate covered
+[metric:tray/own-cast-gate@riot-21#baseline_dev_covered=239] of
+[metric:tray/own-cast-gate@riot-21#dev_riot=300] dev casts with
+[metric:tray/own-cast-gate@riot-21#baseline_dev_beyond=2] beyond, and
+[metric:tray/own-cast-gate@riot-21#baseline_held_covered=286] of
+[metric:tray/own-cast-gate@riot-21#held_riot=310] held casts with
+[metric:tray/own-cast-gate@riot-21#baseline_held_beyond=6] beyond. Four
+rules followed, each a transition the state model names:
+
+- `player-cast-0.9.0`, *revived*: a teammate Sage's revive of the player
+  undoes the death before it, as Clove's own Not Dead Yet did
+  [domain:killfeed/revive-entries]; the player stays dead until the revive.
+  Dev [metric:tray/own-cast-gate@riot-21#a_dev_covered=241], held
+  [metric:tray/own-cast-gate@riot-21#a_held_covered=288], nothing new beyond.
+- `player-cast-0.10.0`, *a line witnesses the ult*: the player's own ult
+  line [domain:abilities/caster-hears-own-ult-line] passes an X drop the
+  tray dates badly, on a dark tray or at the death that ends the kit (Run
+  It Back's pips fall at its end
+  [domain:abilities/phoenix-run-it-back-expiry-flash]). Dev
+  [metric:tray/own-cast-gate@riot-21#c_dev_covered=254], held
+  [metric:tray/own-cast-gate@riot-21#c_held_covered=291], nothing new beyond.
+- `player-cast-0.11.0`, *a pool has no charges*: a gold-only drop of Skye's
+  Regrowth spends none [domain:abilities/skye-regrowth-resource-bar]. Held
+  beyond falls to [metric:tray/own-cast-gate@riot-21#d_held_beyond=4].
+- `player-cast-0.12.0`, *a numeral witnesses a spend*: a co-occurring drop of
+  Recon Bolt or Guiding Light passes where its restock numeral appeared or
+  restarted [domain:hud/ability-tray-restock-countdown], and the own line
+  clears a co-occurring X drop. Dev
+  [metric:tray/own-cast-gate@riot-21#e_dev_covered=259] with
+  [metric:tray/own-cast-gate@riot-21#e_dev_beyond=2] beyond, held
+  [metric:tray/own-cast-gate@riot-21#e_held_covered=300] with
+  [metric:tray/own-cast-gate@riot-21#e_held_beyond=5] beyond; the one new
+  held excess is a real Recon Bolt by eye, so the slot's extra cast lies
+  elsewhere.
+
+The stored `killfeed_portrait` streams are a version behind, so the gate
+reads no second life anywhere. Re-read at the current version from the crop
+cache, they give [metric:tray/own-cast-gate@riot-21#b_second_lives=13]
+second lives on the five Phoenix matches, which recover
+[metric:tray/own-cast-gate@riot-21#b_phoenix_x=8] Phoenix X and
+[metric:tray/own-cast-gate@riot-21#b_phoenix_cqe=5] C, Q and E casts with
+nothing new beyond. With them the gate covers
+[metric:tray/own-cast-gate@riot-21#final_b_dev_covered=263] dev and
+[metric:tray/own-cast-gate@riot-21#final_b_held_covered=301] held casts, with
+[metric:tray/own-cast-gate@riot-21#final_b_dev_beyond=2] and
+[metric:tray/own-cast-gate@riot-21#final_b_held_beyond=5] beyond, once a
+corpus refresh stores those streams.

@@ -481,7 +481,18 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     reads (`countdown_reads` None) nothing changes. The witness was chosen
     on the dev half of the 21 Riot-paired matches: the numeral alone, since
     the icon's brightness is read on no stored row and the audio verdict was
-    not measured here.
+    not measured here. Scored against Riot's counts, the four rules since
+    `player-cast-0.8.0` raised the dev half from
+    [metric:tray/own-cast-gate@riot-21#baseline_dev_covered=239] to
+    [metric:tray/own-cast-gate@riot-21#e_dev_covered=259] of
+    [metric:tray/own-cast-gate@riot-21#dev_riot=300] casts covered, beyond
+    held at [metric:tray/own-cast-gate@riot-21#e_dev_beyond=2], and the held
+    half from [metric:tray/own-cast-gate@riot-21#baseline_held_covered=286] to
+    [metric:tray/own-cast-gate@riot-21#e_held_covered=300] of
+    [metric:tray/own-cast-gate@riot-21#held_riot=310], beyond from
+    [metric:tray/own-cast-gate@riot-21#baseline_held_beyond=6] to
+    [metric:tray/own-cast-gate@riot-21#e_held_beyond=5]
+    (docs/ABILITY_STATE_MODEL.md, "The cast gate against Riot's counts").
 
     *A pool has no charges.* A slot a resource-bar fact names for the
     player's agent (`pool_slots`, `adjudication.ability_state.pool_facts`)
