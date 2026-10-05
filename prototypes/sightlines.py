@@ -465,18 +465,52 @@ class Sightlines:
         d = self.dist_dm[np.asarray(i, np.int64), np.asarray(j, np.int64)].astype(np.float64)
         return np.where(d >= int(UNREACHABLE), np.inf, d / 10.0)
 
-    def reach_m(self, p: np.ndarray, q: np.ndarray, batch: int = 2048) -> np.ndarray:
-        """Path metres from cell p[i] to the nearest cell that sees cell q[i]."""
-        p = np.asarray(p, np.int64)
-        q = np.asarray(q, np.int64)
-        out = np.full(len(p), np.inf)
-        for b0 in range(0, len(p), batch):
-            sl = slice(b0, b0 + batch)
-            vis = self.los_rows(q[sl])
-            d = self.dist_dm[p[sl]].astype(np.int32)
-            d = np.where(vis, d, int(UNREACHABLE)).min(1)
-            out[sl] = np.where(d >= int(UNREACHABLE), np.inf, d / 10.0)
+    def neighbourhood(self, xy) -> np.ndarray:
+        """(M, 9) walkable cells of the 3x3 block round each world point's
+        grid cell, -1 where a block cell is not walkable; column 4 is the
+        point's own grid cell, and the nearest walkable cell fills it when
+        that is not walkable."""
+        xy = np.asarray(xy, float).reshape(-1, 2)
+        ny, nx = self.shape
+        g = np.floor((xy - self.origin) / (CELL_M * UNITS_PER_M)).astype(np.int64)
+        dy, dx = np.meshgrid((-1, 0, 1), (-1, 0, 1), indexing="ij")
+        rr = g[:, 1, None] + dy.ravel()[None, :]
+        cc = g[:, 0, None] + dx.ravel()[None, :]
+        inb = (rr >= 0) & (rr < ny) & (cc >= 0) & (cc < nx)
+        out = np.full(rr.shape, -1, np.int64)
+        out[inb] = self.cell_of[rr[inb], cc[inb]]
+        own = self.cells(xy)[0]
+        out[:, 4] = np.where(out[:, 4] >= 0, out[:, 4], own)
         return out
+
+    def los_near(self, xy_a, xy_b) -> np.ndarray:
+        """Line of sight with a one-cell tolerance: some cell of a's 3x3 block
+        sees b's cell, or a's cell sees some cell of b's block. The baked
+        geometry places Riot positions within about a metre
+        ([metric:replay_truth/score#ally_err_px_median=1.55] px on the widget)."""
+        na, nb = self.neighbourhood(xy_a), self.neighbourhood(xy_b)
+        out = np.zeros(len(na), bool)
+        for col in range(9):
+            for src, dst in ((na[:, col], nb[:, 4]), (nb[:, col], na[:, 4])):
+                has = src >= 0
+                out[has] |= self.los(src[has], dst[has])
+        return out
+
+    def vis_near(self, xy) -> np.ndarray:
+        """(M, N) cells that see some cell of each point's 3x3 block."""
+        nb = self.neighbourhood(xy)
+        vis = np.zeros((len(nb), self.N), bool)
+        for col in range(9):
+            has = nb[:, col] >= 0
+            vis[has] |= self.los_rows(nb[has, col])
+        return vis
+
+    def reach_m(self, p: np.ndarray, vis: np.ndarray) -> np.ndarray:
+        """Path metres from cell p[i] to the nearest cell of the boolean row
+        vis[i] (a visibility set, from `vis_near` or `los_rows`)."""
+        p = np.asarray(p, np.int64)
+        d = np.where(vis, self.dist_dm[p].astype(np.int32), int(UNREACHABLE)).min(1)
+        return np.where(d >= int(UNREACHABLE), np.inf, d / 10.0)
 
     def near_region(self, graph: str, a: np.ndarray, b: np.ndarray) -> np.ndarray:
         """Whether cell a[i] lies in the same or an adjacent region as cell b[i]."""
@@ -518,22 +552,27 @@ def dev_maps(store: Path = STORE) -> Counter:
 # ----------------------------------------------------------------- the instrument gate
 
 def gun_kills(store: Path = STORE):
-    """Every development-set gun kill: (sid, map, killer xy, victim xy, round)."""
+    """Every development-set gun kill: (sid, map, killer xy, victim xy, round,
+    roundTime, the killer's other living enemies' xy)."""
     ref = reference(store)
     rows = []
     for sid, d in sorted(rgt.riot_records(store).items()):
         mname = ref.map_of(d["match"]["matchInfo"]["mapId"])["displayName"].lower()
+        team = {p["subject"]: p["teamId"] for p in d["match"]["players"]}
         for k in d["match"]["kills"]:
             if ((k.get("finishingDamage") or {}).get("damageType")) != "Weapon":
                 continue
-            kl = next((p["location"] for p in k.get("playerLocations") or ()
-                       if p["subject"] == k["killer"]), None)
+            locs = k.get("playerLocations") or ()
+            kl = next((p["location"] for p in locs if p["subject"] == k["killer"]), None)
             vl = k.get("victimLocation")
             if kl is None or vl is None or k["killer"] == k["victim"]:
-                rows.append((sid, mname, None, None, k.get("round"), k.get("roundTime")))
+                rows.append((sid, mname, None, None, k.get("round"), k.get("roundTime"), []))
                 continue
+            enemies = [(p["location"]["x"], p["location"]["y"]) for p in locs
+                       if p["subject"] not in (k["killer"], k["victim"])
+                       and team.get(p["subject"]) != team.get(k["killer"])]
             rows.append((sid, mname, (kl["x"], kl["y"]), (vl["x"], vl["y"]), k.get("round"),
-                         k.get("roundTime")))
+                         k.get("roundTime"), enemies))
     return rows
 
 
@@ -555,26 +594,41 @@ def gate(args) -> dict:
         cv, dv = S.cells(V)
         los = S.los(ck, cv)
         # the 3x3 neighbourhood of both ends: a one-cell tolerance on position
-        nb = np.zeros(len(ok), bool)
-        ny, nx = S.shape
-        for end_from, end_to in ((K, cv), (V, ck)):
-            g = np.floor((end_from - S.origin) / 100.0).astype(int)
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    rr, cc = g[:, 1] + dy, g[:, 0] + dx
-                    inb = (rr >= 0) & (rr < ny) & (cc >= 0) & (cc < nx)
-                    cid = np.full(len(ok), -1)
-                    cid[inb] = S.cell_of[rr[inb], cc[inb]]
-                    has = cid >= 0
-                    nb[has] |= S.los(cid[has], end_to[has])
-        nb |= los
+        nb = S.los_near(K, V) | los
+        # specificity control: the killer against his other living enemies
+        ci = np.array([i for i, r in enumerate(ok) for _ in r[6]], int)
+        CE = np.array([e for r in ok for e in r[6]], float).reshape(-1, 2)
+        ctrl = S.los(ck[ci], S.cells(CE)[0]) if len(ci) else np.zeros(0, bool)
+        ctrl_nb = (S.los_near(K[ci], CE) | ctrl) if len(ci) else np.zeros(0, bool)
         off = (dk > OFF_GRID_M) | (dv > OFF_GRID_M)
         dm = np.hypot(*(K - V).T) / UNITS_PER_M
+        # post hoc diagnostics, at the exact positions rather than cells: the
+        # same mask, and the mask with boxes opened (walls only)
+        variants = {}
+        with np.load(STORE / "geometry" / f"{S.key}.npz") as z:
+            labels, occ = z["labels"], z["occ"]
+        fl = np.isin(labels, (FLOOR, PLANT))
+        for vname, bb in (("exact", True), ("exact_walls_only", False)):
+            pm = passable_from(labels, fl, occ, boxes_block=bb)
+            _d, (iy, ix) = ndimage.distance_transform_edt(~pm, return_indices=True)
+
+            def snap(p, pm=pm, iy=iy, ix=ix):
+                q = np.rint(p).astype(int)
+                q[:, 0] = q[:, 0].clip(0, pm.shape[1] - 1)
+                q[:, 1] = q[:, 1].clip(0, pm.shape[0] - 1)
+                return np.column_stack([ix[q[:, 1], q[:, 0]], iy[q[:, 1], q[:, 0]]]).astype(float)
+            variants[vname] = segments_clear(pm, snap(apply_affine(S.A, K)), snap(apply_affine(S.A, V)))
         res[mname] = {"gun_kills": len(rs), "with_positions": len(ok),
                       "los": int(los.sum()), "los_share": round(float(los.mean()), 4),
                       "los_share_one_cell_tolerance": round(float(nb.mean()), 4),
                       "off_grid_end": int(off.sum()),
                       "los_share_on_grid": round(float(los[~off].mean()), 4) if (~off).any() else None,
+                      "control_pairs": int(len(ci)),
+                      "control_los_share": round(float(ctrl.mean()), 4) if len(ci) else None,
+                      "control_los_share_one_cell_tolerance": round(float(ctrl_nb.mean()), 4) if len(ci) else None,
+                      "post_hoc_exact_share": round(float(variants["exact"].mean()), 4),
+                      "post_hoc_exact_walls_only_share": round(float(variants["exact_walls_only"].mean()), 4),
+                      "post_hoc_cells_or_walls_only_one_cell": round(float((nb | variants["exact_walls_only"]).mean()), 4),
                       "median_kill_m": round(float(np.median(dm)), 1),
                       "median_kill_m_failed": round(float(np.median(dm[~los])), 1) if (~los).any() else None}
         for i in np.flatnonzero(~los):
@@ -583,6 +637,15 @@ def gate(args) -> dict:
     tot = {k: sum(v.get(k, 0) for v in res.values() if isinstance(v, dict))
            for k in ("gun_kills", "with_positions", "los", "off_grid_end")}
     tot["los_share"] = round(tot["los"] / max(1, tot["with_positions"]), 4)
+    mv = [v for v in res.values() if isinstance(v, dict) and "los_share" in v]
+    for key, wkey in (("los_share_one_cell_tolerance", "with_positions"),
+                      ("post_hoc_exact_walls_only_share", "with_positions"),
+                      ("post_hoc_cells_or_walls_only_one_cell", "with_positions"),
+                      ("control_los_share", "control_pairs"),
+                      ("control_los_share_one_cell_tolerance", "control_pairs")):
+        w = sum(v[wkey] for v in mv)
+        tot[key] = round(sum(v[key] * v[wkey] for v in mv) / max(1, w), 4)
+    tot["control_pairs"] = sum(v["control_pairs"] for v in mv)
     res["all"] = tot
     print(json.dumps(res, indent=1))
     if args.renders:
@@ -597,6 +660,11 @@ def gate(args) -> dict:
                      for m, v in res.items() if m != "all" and "los_share" in v})
         vals.update({"all.los_share": tot["los_share"], "all.gun_kills": tot["with_positions"],
                      "all.off_grid_end": tot["off_grid_end"]})
+        vals.update({f"all.{k}": tot[k] for k in (
+            "los_share_one_cell_tolerance", "control_los_share", "control_los_share_one_cell_tolerance",
+            "control_pairs")})
+        vals.update({f"post_hoc:all.{k}": tot[k] for k in (
+            "post_hoc_exact_walls_only_share", "post_hoc_cells_or_walls_only_one_cell")})
         stamps = {m: load(m).stamps.get("occ_built_by") for m in res if m != "all" and load(m)}
         metrics.record("sightlines", part="gate", values=vals,
                        deps={"version": VERSION, "source": source_hash(), "cell_m": CELL_M,
@@ -634,6 +702,10 @@ def render_failures(fails, out: Path, n: int) -> None:
         cv2.line(big, tuple(int(v) for v in rk), tuple(int(v) for v in rv), (255, 255, 0), 1)
         cv2.circle(big, tuple(int(v) for v in pk), 6, (0, 255, 0), 2)
         cv2.circle(big, tuple(int(v) for v in pv), 6, (255, 0, 255), 2)
+        # crop round the segment, 40 widget px of margin
+        lo = np.floor(np.minimum(pk, pv) - 40 * sc).astype(int).clip(0)
+        hi = np.ceil(np.maximum(pk, pv) + 40 * sc).astype(int)
+        big = big[lo[1]:hi[1], lo[0]:hi[0]]
         name = f"fail_{j:02d}_{mname}.png"
         cv2.imwrite(str(out / name), big)
         lines.append(f"{name}: map {mname}, round {r[4]}, roundTime {r[5]} ms, kill distance {dm:.1f} m, "
