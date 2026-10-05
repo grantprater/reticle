@@ -238,6 +238,23 @@ class WeaponAttributionTests(unittest.TestCase):
         old = bind_entry({"t_first": 0, "t_last": 2500, "slot": 0, "sig": 200}, rows)
         self.assertEqual([o["t_ms"] for o in old], [0])   # without reads: the 1.5.0 rule
 
+    def test_bind_entry_takes_an_off_column_cut_of_the_same_icon(self):
+        """A collapsed divider on the track's column sets no box width, and a
+        whole cut of the same icon off that column binds where the track did
+        not read (a06f04a0059f 34.5 s); a row elsewhere in the slot does not."""
+        from reticle.adjudication.weapon import bind_entry
+
+        def row(t, wx0, wx1, ix0, ix1, slot=1):
+            return {"kind": "weapon_icon_observation", "grid": "g", "t_ms": float(t),
+                    "slot": slot, "wx0": wx0, "wx1": wx1, "ix0": ix0, "ix1": ix1}
+        rows = [row(t, 385, 385, 357, 370) for t in (0, 500, 1500, 2000)]
+        rows += [row(1000, 354, 374, 354, 374), row(2500, 354, 374, 354, 374)]
+        rows += [row(3000, 200, 260, 200, 260)]              # another icon, same slot
+        entry = {"t_first": 0, "t_last": 3000, "slot": 1, "sig": 385,
+                 "reads": [(0.0, 1), (500.0, 1), (1500.0, 1), (2000.0, 1)]}
+        bound = bind_entry(entry, rows)
+        self.assertEqual([o["t_ms"] for o in bound], [0, 500, 1000, 1500, 2000, 2500])
+
     @staticmethod
     def _soft_row(img, ix0, ix1, m=3):
         from reticle.killfeed import soft_patch
