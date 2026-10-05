@@ -83,15 +83,26 @@ class RoundIdentityE2ETests(unittest.TestCase):
         cls.date = "2026-08-26"
         cls.round_no = 4
 
+        # Without the private session every test here would error in this
+        # method; skip instead, naming what is missing.
+        if not cls.store.rounds_path(cls.session_id, cls.date).is_file():
+            raise unittest.SkipTest(f"needs the rounds table of {cls.session_id}")
+        labels = cls.store.root / "labels" / "minimap_agent" / f"{cls.session_id}.jsonl"
+        if not labels.is_file():
+            raise unittest.SkipTest(f"needs {labels}")
+
         cls.t_start_ms, cls.t_end_ms, _ = load_round_bounds(
             cls.store, cls.session_id, cls.date, cls.round_no
         )
         cls.sightings = load_minimap_labels(
             cls.store, cls.session_id, cls.t_start_ms, cls.t_end_ms
         )
-        cls.sightings_with_crops = extract_crops_for_sightings(
-            cls.store, cls.session_id, cls.sightings
-        )
+        try:
+            cls.sightings_with_crops = extract_crops_for_sightings(
+                cls.store, cls.session_id, cls.sightings
+            )
+        except FileNotFoundError as exc:  # neither the minimap fixture nor the video
+            raise unittest.SkipTest(str(exc))
         assign_spatial_tracks(cls.sightings_with_crops)
         cls.gallery = load_identity_gallery(cls.store.root, surfaces=MINIMAP_SURFACES)
 
