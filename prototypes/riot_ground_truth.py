@@ -210,6 +210,14 @@ the sums. Position counts are unchanged: the rule moves no pair. The margin
 was fixed before measuring at about the pooled position error's 95th
 percentile (3.8 px at about 2.28 px per metre, riot-truth-0.3.3), rounded up.
 
+0.6.1: a stored death drawn at a stall's release (`released`) pairs with a
+leftover Riot kill inside that stall whose names do not disagree
+(`_release_pass`, `how = "stall_release"`); such a kill is matched, not
+unobservable, and its names count as paired by name, never right.
+`--legacy release` restores 0.6.0. The rule carried the stamp
+riot-truth-0.4.2 and then 0.5.2 on its branch, before 0.5.0, 0.5.1 and 0.6.0
+reached it.
+
 What the scorer reads stale (0.3.1)
 -----------------------------------
 * `status` reads second lives under the running code's
@@ -251,7 +259,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-RIOT_TRUTH_VERSION = "riot-truth-0.6.0"
+RIOT_TRUTH_VERSION = "riot-truth-0.6.1"
 STORE = Path.home() / "reticle-store"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -273,7 +281,7 @@ NAME_PAIR_TOL_MS = 5000.0
 #: second-life, pairing and self-kill rules, and `order`, the 0.2.0 time-only
 #: pairing (`pairing` wins where both are named), and `stall`, the 0.3.1
 #: scoring that reads no stall span.
-LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill", "order", "stall")
+LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill", "order", "stall", "release")
 #: The minimap read time relative to the killfeed-fitted offset. The fit's
 #: offset includes about half a killfeed step of sampling lag plus the feed's
 #: render delay. Measured with `--scan-lag` on the self icon (three sessions,
@@ -1162,6 +1170,56 @@ def _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms, stalls=None) -> 
             _assign(ni, nj, {e: -big - mid * ka + abs(d) for e, (d, ka) in left.items()})]
 
 
+def _release_pass(kills, deaths, agent_of, x, t, out) -> list:
+    """Pass 4 (0.6.1): a stored death the stall rule drew at a stall's release
+    (its `released` span) pairs with a leftover Riot kill inside that span
+    whose names do not disagree with it, most agreeing names then least |dt|
+    first. Its names rest on no time agreement, so like the name pass it
+    never counts a name right.
+
+    The pair may trail the kill by more than an entry's life of about 5.0 s
+    [domain:killfeed/entry-lifetime], because that life runs from the
+    entry's arrival on the picture and a stall shows no arrival: its frames
+    repeat one picture while time passes (`reticle.stalls`). The first frame
+    to show the entry is the release, so its first-seen time trails the kill
+    by up to the stall's length, and the pass bounds the kill by the stall
+    span, not by the lifetime. The stored frame times show both cases:
+
+    * b3b9defb6fd7 (C:/Users/grant/Videos/2026-08-23 18-24-15.mp4): the
+      round clock reads 42 s from 1331.0 s to 1339.5 s and 33 s at 1340.0 s,
+      so game time ran through the 1331.4-1339.6 s stall. No sample from
+      1331.0 s to 1339.0 s reads an entry; the 1339.5 s sample, clock still
+      frozen, reads one, and 1340.0 s none. Riot's Waylay kill falls at
+      1332.7 s, 6.75 s before that sighting. The victim went unnamed, so the
+      name pass had nothing to agree on.
+    * bfad2778a372 (C:/Users/grant/Videos/2026-08-24 14-45-35.mp4): the
+      clock holds 82 s through 615.0 s inside the 588.2-616.0 s stall; the
+      Sage death is read from 616.5 s to 620.0 s, 5.68 s to 9.2 s after
+      Riot's kill at 610.8 s. It outlived the kill by over 5.0 s, so its
+      life ran from the release, not from the kill."""
+    used_i = {i for i, *_ in out}
+    used_j = {j for _i, j, *_ in out}
+    cand = {}
+    for j, s in enumerate(deaths):
+        span = s.get("released")
+        if j in used_j or not span:
+            continue
+        a, b = float(span["t_start_ms"]), float(span["t_end_ms"])
+        for i in range(len(kills)):
+            if i in used_i or not a <= x[i] <= b:
+                continue
+            k = kills[i]
+            if s.get("victim") is not None and canon(s["victim"]) != canon(agent_of.get(k["victim"])):
+                continue
+            v, kl = _name_agree(k, s, agent_of)
+            if kl is False:
+                continue
+            cand[(i, j)] = (t[j] - x[i], int(v) + int(bool(kl)))
+    return [(i, j, cand[(i, j)][0], "stall_release") for i, j in
+            _assign(len(kills), len(deaths),
+                    {e: -1e12 - 1e7 * ag + abs(d) for e, (d, ag) in cand.items()})]
+
+
 def pair_deaths(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
                 name_tol_ms=NAME_PAIR_TOL_MS) -> tuple[list, dict]:
     """The 0.2.0 pairing, kept for `--legacy order`: Riot kills to stored
@@ -1359,7 +1417,7 @@ def _order_consistent(match, kills, deaths, contra=frozenset()) -> bool:
 
 
 def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
-                         name_tol_ms=NAME_PAIR_TOL_MS, stalls=None) -> tuple[list, dict, dict]:
+                         name_tol_ms=NAME_PAIR_TOL_MS, stalls=None, legacy=()) -> tuple[list, dict, dict]:
     """Riot kills to stored deaths in three passes (0.3.0): `(i, j, dt, how)`
     as `pair_deaths`, its stats, and {kill index: reason} for the pairs whose
     order the record leaves unknown (`order_ambiguity`).
@@ -1442,8 +1500,10 @@ def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
     out = [(i, j, t[j] - x[i], "time" if pairs.get(i) == j else "name_reassigned")
            for i, j in sorted(named.items())]
     out += _name_pass(kills, deaths, agent_of, x, t, out, name_tol_ms, stalls)
+    if "release" not in legacy:
+        out += _release_pass(kills, deaths, agent_of, x, t, out)
     amb = {i: kill_amb.get(i) or death_amb.get(j) for i, j, _d, how in out
-           if how != "name_pass" and (i in kill_amb or j in death_amb)}
+           if how not in ("name_pass", "stall_release") and (i in kill_amb or j in death_amb)}
 
     near_all = {(i, j): t[j] - x[i] for i in range(ni) for j in range(nj)
                 if abs(t[j] - x[i]) <= tol_ms}
@@ -1466,6 +1526,7 @@ def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
              "pairs_time_kept": sum(1 for p in out if p[3] == "time"),
              "pairs_name_reassigned": sum(1 for p in out if p[3] == "name_reassigned"),
              "pairs_name_pass": sum(1 for p in out if p[3] == "name_pass"),
+             "pairs_stall_release": sum(1 for p in out if p[3] == "stall_release"),
              "ambiguous_kill_order_tie": sum(1 for v in amb.values() if v == "kill_order_tie"),
              "ambiguous_death_order_unknown": sum(1 for v in amb.values()
                                                   if v == "death_order_unknown"),
@@ -1490,7 +1551,7 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
         clustered = _ambiguous(pairs, kills)
     else:
         pairs, pstats, clustered = pair_deaths_in_order(kills, deaths, agent_of, a, match_tol,
-                                                        stalls=stalls)
+                                                        stalls=stalls, legacy=legacy)
     out = {"riot_kills": len(kills), "stored_deaths": len(deaths), "matched": len(pairs)}
     out.update(pstats)
     # 0.3.2: an unpaired kill inside a stall span had no sample to draw on
