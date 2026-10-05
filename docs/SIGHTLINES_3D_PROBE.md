@@ -346,13 +346,16 @@ whose item is no gun.
   blocked kills against
   [metric:wallbang_probe/classify/dev#control_alone_a_share=0.070] of the
   blocked control pairs (the killer against every other living opponent):
-  the occluder between a killer and his victim is thin, because the victim
+  the occluder between a killer and the victim is thin, because the victim
   was nearly visible. Among the kills and controls that posture and position
   do not explain, it passes on
   [metric:wallbang_probe/classify/dev#residual_a_share=0.458] against
   [metric:wallbang_probe/classify/dev#control_residual_a_share=0.038], so
   the eleven are wallbangs more than chance thin walls (fewer than one
-  expected by chance).
+  expected by chance). The interval rule lets an entering crossing that
+  never meets its leaving partner raise the depth until a later leaving
+  crossing, which can lengthen a later interval and so move a pair from
+  penetrable to not; no recorded run measures the effect.
 - The placeholder moves the count, not the conclusion. Wallbangs as primary
   class at D0 25, 50, 100, 200 and 400 cm:
   [metric:wallbang_probe/classify/dev#d25.a_primary=2],

@@ -179,6 +179,8 @@ def surface_table() -> tuple[np.ndarray, list[str], dict]:
     names, erm = [], []
     for i in range(39):
         k = "WallPenetrationType" if i == 0 else f"WallPenetrationType[{i}]"
+        # WallPenGlobals leaves index 38 unset (37 named surfaces after Default);
+        # an unset entry reads as High here, an assumption no export confirms
         c = g[k]["AssetPathName"].split(".")[-1].removesuffix("_C") if k in g else "WallPen_High"
         names.append(c)
         erm.append(cls[c])
@@ -299,10 +301,14 @@ def segment_hits(caster: s3.Caster, a: np.ndarray, b: np.ndarray, max_hits: int 
 def intervals(ray: np.ndarray, t: np.ndarray, group: np.ndarray, facing: np.ndarray, L: np.ndarray):
     """Solid path length per crossing, from outward-wound crossings.
 
-    Within each (ray, placement) group a running depth counts entering minus
-    leaving crossings, never below zero; the segment from a crossing to the
-    group's next one lies inside when the depth after it is positive, and its
-    length belongs to that crossing's triangle. A leaving crossing with none
+    Along each ray (every caller passes one group per ray: the maps'
+    architecture is single-sided shells, so a wall's outer and inner faces are
+    often different meshes) a running depth counts entering minus leaving
+    crossings, never below zero; the segment from a crossing to the ray's
+    next one lies inside when the depth after it is positive, and its length
+    belongs to that crossing's triangle. An entering crossing whose leaving
+    partner the ray never meets still raises the depth until a later leaving
+    crossing, so it can lengthen a later interval. A leaving crossing with none
     open (a single-sided surface seen from behind) and an entering one never
     left (a single-sided surface, or a target inside a solid) add no length
     and set `open_surface`: the ray is never assumed to start inside a solid."""
@@ -480,7 +486,7 @@ def cmd_rays(a) -> int:
     srcs, fidx = np.unique(D["src"], return_index=True)
     first[srcs] = fidx
     local = full - first[src]
-    seglen, open_s = intervals(ray, t, src, facing, L)
+    seglen, open_s = intervals(ray, t, np.zeros_like(src), facing, L)
     OUT.mkdir(parents=True, exist_ok=True)
     nk = len(bi)
     res = {

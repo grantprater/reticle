@@ -193,9 +193,10 @@ WallPen_High serialises no EnergyReductionMultiplier: its value is the native
 class default, unread; FullyPenetrable serialises its 0.0, so the default is
 not zero, and the ladder 0.2 < 0.25 < 0.333 < High < 2.0 suggests 1.0. The
 base distance or energy the multipliers scale, and the curve's axis unit, are
-native and in no export. Whether Valorant's native trace takes a hit's surface
-by the engine's rule is unread; component-level material overrides were not
-read.
+native and in no export. WallPenetrationType has 39 entries and leaves the
+last (index 38, beyond the 37 named surfaces) unset; what an unset entry
+means is unread. Whether Valorant's native trace takes a hit's surface by the
+engine's rule is unread; component-level material overrides were not read.
 """
 values = { energy_reduction = { fully_penetrable = 0.0, very_low = 0.2, low = 0.25, moderate = 0.333, very_high = 2.0, impenetrable = 100000.0 }, curve = { x = [0.0, 1.0, 25.0, 50.0, 99.0, 100.0], y = [1.0, 0.9, 0.6, 0.5, 0.3, 0.0] } }
 see = ["weapons/wall-penetration-weapons"]
