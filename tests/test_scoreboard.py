@@ -141,6 +141,39 @@ class ScoreboardTests(unittest.TestCase):
         self.assertEqual({r.y1 - r.y0 for r in board.rows[:5]}, {20})
         self.assertEqual({r.y1 - r.y0 for r in board.rows[5:]}, {20})
 
+    def test_an_edge_off_the_session_prior_reads_no_number(self):
+        green = np.zeros((300, 700), bool)
+        red = np.zeros_like(green)
+        green[10:110, 50:650] = True
+        red[160:260, 50:650] = True
+        frame = np.zeros((300, 700, 3), np.uint8)
+        with patch("reticle.scoreboard._slabs", return_value=(green, red)), \
+                patch("reticle.scoreboard.read_numbers", return_value=_numbers()):
+            near = read_scoreboard(frame, _FONTS, 0, 0, x0_prior=None)
+            x0 = near.x0
+            near = read_scoreboard(frame, _FONTS, 0, 0, x0_prior=x0)
+            far = read_scoreboard(frame, _FONTS, 0, 0, x0_prior=x0 + 8)
+        self.assertTrue(far.open_)
+        self.assertEqual({r.kills_reason for r in far.rows}, {"edge_surprise"})
+        self.assertTrue(all(r.kills is None for r in far.rows))
+        self.assertNotIn("edge_surprise", {r.kills_reason for r in near.rows})
+
+    def test_the_reader_passes_the_mode_edge_once_it_has_seen_enough(self):
+        board = ScoreboardRead(True, (), 572, 900)
+        got = []
+
+        def fake(*args, **kw):
+            got.append(kw.get("x0_prior"))
+            return board
+        with patch("reticle.scoreboard.ocr.game_font_templates", return_value=object()), \
+                patch("reticle.scoreboard.read_scoreboard", side_effect=fake), \
+                patch("reticle.scoreboard.portrait_observations", return_value=[]):
+            reader = ScoreboardReader("test")
+            for i in range(sb.BOARD_EDGE_PRIOR_N + 1):
+                reader.feed(types.SimpleNamespace(
+                    frame=np.zeros((30, 600, 3), np.uint8), frame_idx=i, t_ms=500.0 * i))
+        self.assertEqual(got, [None] * sb.BOARD_EDGE_PRIOR_N + [572])
+
     def test_red_inside_the_ally_block_is_not_the_enemy_block(self):
         green = np.zeros((300, 700), bool)
         red = np.zeros_like(green)

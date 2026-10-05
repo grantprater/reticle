@@ -35,7 +35,7 @@ Evidence: zero labelled icons lost; Riot misses in stacks fall with phantoms no 
 
 Full texts are in the dated archives.
 
-- **Soft digit templates** (2026-10-05), on `soft-digits-20261005` (`hud-0.24.0`, `scoreboard-0.14.0`), merge next: scores, clock, bottom HUD and board numbers read soft against DIN Next cells; [metric:soft_digits/scoreline-final-all#new_full_off=0] scores off Riot. Open: the board's six held misreads where the table stands 3-4 px off its fitted edge (5822b6646448 1586.0 s, c40d950031bb 549.5 s); the combat report still re-binarises in `normalise`; then rescan hud and scoreboard through `plan`.
+- **Soft digit templates** (2026-10-05), on `soft-digits-20261005` (`hud-0.24.0`, `scoreboard-0.14.0`), merge next: scores, clock, bottom HUD and board numbers read soft against DIN Next cells; [metric:soft_digits/r2-scoreline-all#new_full_off=0] scores off Riot; a board fitted off the session's edge refuses `edge_surprise`. Open: residual refusals of legible values (the reserve over textured plates, low_margin; scores 3 over the spike icon, 11 fused); the combat report still re-binarises in `normalise`; then rescan hud and scoreboard through `plan`.
 Acceptance: `.\.venv\Scripts\python.exe -m pytest tests\test_ocr_fonts.py tests\test_scoreboard.py`, then the Riot scorer.
 Evidence: 0 scores off Riot; reads at least hud-0.23.0's and scoreboard-0.13.0's; every changed board value viewed.
 

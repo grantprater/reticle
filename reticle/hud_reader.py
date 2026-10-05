@@ -71,7 +71,7 @@ class HudReader:
         r = read_scoreline(crop_gray(smp.frame, self.roi, w, h), self.templates,
                            self.min_conf, self.min_margin)
         b = read_bottom_hud(smp.frame, self.profile, self.templates, w, h,
-                            self.min_conf, self.min_margin)
+                            self.min_conf, self.min_margin, scoreline=r)
         kf = (read_killfeed(smp.frame, self.kf_roi, w, h, self.kf_mask,
                             self.profile.name)
               if self.kf_roi is not None else KillfeedRead(0, (), False, False))

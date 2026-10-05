@@ -42,7 +42,7 @@ class GlyphCellTests(unittest.TestCase):
             s = ocr.slot_at(pc, cells, ocr._top_left(20.125 + px, 0),
                             ocr._top_left(45.375 + py, cells.base))
             self.assertEqual(s.label, d)
-            self.assertGreaterEqual(s.margin, ocr.LABEL_MARGIN)
+            self.assertGreaterEqual(s.margin, ocr.LABEL_SPLIT)
             self.assertGreater(s.gain, 0.9)
             self.assertEqual(ocr.slot_verdict(s), "digit")
 
@@ -106,6 +106,47 @@ class BottomHudTests(unittest.TestCase):
         for text in ("5", "25", "50"):
             gray = _bottom("hud_hp", "shield", text)
             self.assertEqual(self.read("hud_hp", "shield", gray), (int(text), None))
+
+    def test_shield_eights_read(self):
+        # In the 8's own energy a 0 stood at most 0.23 away, under the old
+        # 0.15 cut with noise: every 18 and 38 refused low_margin.
+        for text in ("8", "18", "38"):
+            gray = _bottom("hud_hp", "shield", text)
+            self.assertEqual(self.read("hud_hp", "shield", gray), (int(text), None))
+
+    def test_empty_shield_dim_zero_reads(self):
+        # The empty shield's widget dims, its 0 at gain about 0.3.
+        gray = _bottom("hud_hp", "shield", "0", alpha=(0.3,))
+        self.assertEqual(self.read("hud_hp", "shield", gray), (0, None))
+
+    def test_absent_widget_refuses_no_widget(self):
+        spec = ocr.BOTTOM_FIELDS["hud_hp"]
+        why = {}
+        vals, _occ, _conf = ocr.read_subfields(_bottom("hud_hp", "hp", "87"), spec,
+                                               ocr.game_font_templates(), reasons=why, absent=True)
+        self.assertEqual(vals, {"shield": None, "hp": None})
+        self.assertEqual(why, {"shield": "no_widget", "hp": "no_widget"})
+
+    def test_shifted_magazine_reads_forty(self):
+        # Some weapons draw the magazine one place right, an icon in the
+        # reserve's place (a1a995e6b19b 739.0 s): 40 reads 40, not 4.
+        roi = np.full((65, 144), 70.0, np.float32)
+        name, pt = ocr.FIELD_FONTS["ammo_mag"]
+        _draw(roi, "40", (45.25, 69.5), ocr.BOTTOM_BASELINE["ammo_mag"], str(_store_font(name)), pt)
+        gray = np.clip(np.rint(roi), 0, 255).astype(np.uint8)
+        self.assertEqual(self.read("hud_ammo", "ammo_mag", gray), (40, None))
+
+    def test_digit_beyond_the_layout_end_refuses(self):
+        roi = np.full((65, 144), 70.0, np.float32)
+        name, pt = ocr.FIELD_FONTS["ammo_mag"]
+        _draw(roi, "40", (45.25, 69.5), ocr.BOTTOM_BASELINE["ammo_mag"], str(_store_font(name)), pt)
+        gray = np.clip(np.rint(roi), 0, 255).astype(np.uint8)
+        cells = ocr.game_font_templates().cells("ammo_mag", 1.0)
+        cover, _ = ocr.ink_cover(gray)
+        pc, _px, _py = ocr.pad_cover(cover.astype(np.float32), cells)
+        _text, _slots, why = ocr.read_layouts(pc, cells, ((45.25,),), ocr.BOTTOM_BASELINE["ammo_mag"],
+                                              1.0, ends=True)
+        self.assertEqual(why, "missing_digit")
 
     def test_empty_field_refuses_no_digits(self):
         gray = np.full((65, 165), 70, np.uint8)

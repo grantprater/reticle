@@ -177,7 +177,6 @@ BOARD_BASELINE = 21.75
 #: A second digit-tall window in a row's band holding this share of the
 #: best window's ink is another row's numbers (`_row_baseline`).
 ROW_RIVAL = 0.5
-#: The board's font size in px at 1080p (Medium 11 pt).
 #: Half the columns, px at 1080p, a number's ink centroid is taken over
 #: (`_row_shift`): two digits and a pixel either side; and the most a row's
 #: numbers may stand off their pens.
@@ -186,12 +185,14 @@ BOARD_SHIFT_MAX = 4.0
 #: Whole px at 1080p each cell is searched beyond its pen, across and down
 #: from the fitted baseline: the table's edge is fitted per frame to a pixel.
 BOARD_REACH = (1, 1)
-#: Which digit (`ocr.slot_verdict`): at 11 pt a 0 and an 8 differ by the
-#: 8's waist alone, so the label margin is the board's own: on the dev
-#: half, cells agreeing with scoreboard-0.13.0's read stand at margin 0.108
-#: and above at the 0.1 % quantile, and those it disagreed with on a
-#: settled board below 0.08.
-BOARD_LABEL_MARGIN = 0.10
+#: Which digit (`ocr.slot_verdict`, `ocr.Slot.margin` read in the distance
+#: between two digits): the board's own cut, a cell at least 0.65 of the way
+#: from the nearest other digit to its label. At 11 pt the cells blur
+#: towards their neighbours: on the dev half (120 boards a session) no read
+#: at any cut from 0 to 0.5 changed from scoreboard-0.13.0's or stood more
+#: than 2 off Riot's running count, and ocr.LABEL_SPLIT's 0.5 refused 6 %
+#: of kills and 18 % of credits that 0.3 reads.
+BOARD_LABEL_SPLIT = 0.3
 #: A digit's residual (`ocr.Slot.fit`) cut: on the dev half 99 % of read
 #: cells leave at most 0.114 of their energy; a 9 and a 6 placed 3 px off
 #: their baseline (587c15b07779 638.5 s, bfad2778a372 1873.5 s, before each
@@ -199,6 +200,14 @@ BOARD_LABEL_MARGIN = 0.10
 BOARD_FIT = 0.25
 #: Rows of the frame read above and below a row's band.
 BOARD_PAD = 4
+#: The table's left edge is the board's to the session: once
+#: BOARD_EDGE_PRIOR_N open boards have fitted it, their mode is the prior,
+#: and a board whose fitted edge stands more than BOARD_EDGE_TOL px (1080p)
+#: off it is a surprise whose numbers refuse `edge_surprise`. At 8 px off
+#: (a06f04a0059f 1892.0 s, 580 against 572) the centred pens read every
+#: two-digit number as its units digit.
+BOARD_EDGE_PRIOR_N = 5
+BOARD_EDGE_TOL = 2.0
 #: The local plate's opening square at 1080p (`ocr.ink_cover`): wider than
 #: a stroke, narrower than nothing the board draws behind its digits.
 BOARD_PLATE_KERNEL = 7
@@ -578,7 +587,9 @@ def _row_shift(cover: np.ndarray, cells: "ocr.GlyphCells", base: float, shift: f
     column's centre whatever its digit count; the median over the columns
     holding ink, quarter-pixel, within BOARD_SHIFT_MAX. The table's edge is
     fitted per frame to a few px (4f207c0c4e39 1682.5 s stood 3.5 px off),
-    more than a cell's search reaches."""
+    more than a cell's search reaches. This rule and its two constants were
+    added after viewing that board, a held one: the held board numbers rest
+    on it and are not clean."""
     r1 = int(round(base))
     r0 = max(0, r1 - (cells.base - ocr.CELL_MARGIN))
     got = []
@@ -641,10 +652,11 @@ def read_numbers(gray: np.ndarray, x0: int, a: int, z: int,
             out[name] = Number(None, "low_contrast")
             continue
         text, slots, why = ocr.read_layouts(pc, cells, layouts, base, scale, tinted=True,
-                                            reach=BOARD_REACH, label_margin=BOARD_LABEL_MARGIN,
+                                            reach=BOARD_REACH, label_margin=BOARD_LABEL_SPLIT,
                                             # The credit sign stands left of
                                             # every credit layout.
-                                            beside=name != "credits", fit_cut=BOARD_FIT)
+                                            beside=name != "credits", fit_cut=BOARD_FIT,
+                                            ends=True)
         if why is not None:
             out[name] = Number(None, why)
             continue
@@ -671,6 +683,7 @@ def read_scoreboard(
     strip_rect: tuple[int, int, int, int] | None = None,
     icons: dict | None = None,
     cache: "PortraitCache | None" = None,
+    x0_prior: int | None = None,
 ) -> ScoreboardRead:
     """Read every row's K/D/A, and say which row is the local player's.
 
@@ -685,6 +698,9 @@ def read_scoreboard(
     (`load_agent_icons`); without `icons` such a board closes. A closed board
     says which test closed it (`ScoreboardRead.reason`). `cache`
     (`PortraitCache`) reuses the scores of a portrait already scored.
+    `x0_prior` is the session's table edge (`ScoreboardReader`): a fitted
+    edge more than BOARD_EDGE_TOL px off it reads no number, each refusing
+    `edge_surprise`.
     `templates` carries the board's font (`ocr.game_font_templates`);
     `min_confidence` and `min_margin` belonged to the mined digit set and
     bind no soft read."""
@@ -784,8 +800,10 @@ def read_scoreboard(
     scale = H / 1080.0
     cells = templates.cells("board", scale)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    surprise = x0_prior is not None and abs(x0 - x0_prior) > BOARD_EDGE_TOL * scale
     for a, z, team in bands:
-        n = read_numbers(gray, x0, a, z, cells, scale, team)
+        n = ({name: Number(None, "edge_surprise") for name in BOARD_FIELDS} if surprise
+             else read_numbers(gray, x0, a, z, cells, scale, team))
         cr = n["credits"]
         rows.append(Row(team=team, y0=int(a), y1=int(z),
                         kills=n["kills"].value, deaths=n["deaths"].value,
@@ -1254,6 +1272,8 @@ class ScoreboardReader:
         # a closed board is an observation too, and a second presence witness
         # (`scoreboard_strip`) is reconciled with it sample by sample.
         self.samples: list[dict] = []
+        # The table edges open boards fitted, for the edge prior.
+        self.edges_seen: Counter = Counter()
 
     def feed(self, sample) -> None:
         self.frames_offered += 1
@@ -1261,9 +1281,13 @@ class ScoreboardReader:
         rect = strip_rect(self.profile_name, w, h)
         if rect is not None and self.roi is None:
             self.roi = [int(v) for v in reader_roi(rect, h)]
+        prior = (self.edges_seen.most_common(1)[0][0]
+                 if sum(self.edges_seen.values()) >= BOARD_EDGE_PRIOR_N else None)
         board = read_scoreboard(sample.frame, self.templates,
                                 self.min_confidence, self.min_margin, rect, self.icons,
-                                self.portrait_cache)
+                                self.portrait_cache, x0_prior=prior)
+        if board.open_:
+            self.edges_seen[board.x0] += 1
         self.samples.append({"frame_idx": int(sample.frame_idx), "t_ms": float(sample.t_ms),
                              "open": board.open_, "reason": board.reason,
                              "anchor": board.anchor, "strip": board.strip,
