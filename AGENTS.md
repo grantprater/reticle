@@ -133,6 +133,9 @@ what "I rebuilt the geometry while my experiment read it" states.
   never by analogy; the questions live in
   [`docs/ABILITY_MECHANICS_SHEET.md`](docs/ABILITY_MECHANICS_SHEET.md), and a
   census verifies an answer with a targeted demo, never discovers it.
+  Quantities come from the extracted game files first; the player owns
+  qualitative mechanics (player, 2026-10-04)
+  [domain:abilities/game-files-outrank-player-quantities].
 - Before a perceptual experiment, log falsifiable predictions in the store's
   `notes/predictions.jsonl`; inspect source images before measuring. On the
   first failed perceptual approach, build the tool that asks the player.
