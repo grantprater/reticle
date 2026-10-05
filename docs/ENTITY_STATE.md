@@ -934,25 +934,53 @@ other players' casts. The ult line hears
 [metric:ability_xchannel/replay@9acf02f98283#ult_cast.other_hits=22] of
 [metric:ability_xchannel/replay@9acf02f98283#ult_cast.other_casts_in_vocab=22]
 other players' ultimates at every distance
-[domain:abilities/ult-lines-heard-by-both-teams]; its three unpaired rows
-are Chamber's, whose Tour De Force equips Riot does not count as casts
-(Riot records 0 to 2 Chamber ultimate casts a match beside his Tour De
-Force kills). The killfeed pairs
-[metric:ability_xchannel/replay@9acf02f98283#killfeed.paired=14] of
-[metric:ability_xchannel/replay@9acf02f98283#killfeed.witnesses=15] ability
-kills with a prior cast; the assist panel
-[metric:ability_xchannel/replay@9acf02f98283#assist_icon.paired=5] of
-[metric:ability_xchannel/replay@9acf02f98283#assist_icon.witnesses=5].
+[domain:abilities/ult-lines-heard-by-both-teams]. Its
+[metric:ability_xchannel/replay@9acf02f98283#ult_cast.unpaired.chamber.witnesses=3] unpaired rows are
+Chamber's: the replay export's cast list holds
+[metric:ability_xchannel/replay@9acf02f98283#ult_cast.unpaired.chamber.export_casts=0] Chamber ultimates, so
+they have no cast to pair with. Riot's record of this match also counts
+[metric:ability_xchannel/replay@9acf02f98283#ult_cast.unpaired.chamber.riot_casts=0]. Across matches, Riot
+records 0 to 2 Chamber ultimate casts a match beside his Tour De Force
+kills; that undercount is a separate observation.
+
+The killfeed rows of the ability category on the replay are not all kills.
+Of [metric:ability_xchannel/replay@9acf02f98283#effect.killfeed.all.witnesses=15],
+[metric:ability_xchannel/replay@9acf02f98283#effect.killfeed.kind.revive.witnesses=5] are Clove's Not Dead
+Yet self-revives [domain:killfeed/revive-entries], cast witnesses that pair
+with her ultimate
+([metric:ability_xchannel/replay@9acf02f98283#effect.killfeed.kind.revive.paired_10s=5] within 10 s).
+[metric:ability_xchannel/replay@9acf02f98283#effect.killfeed.ability.kill.Headhunter.witnesses=7] are Chamber
+Headhunter kills, which Riot does not count as ability kills. The remaining
+three are a Blade Storm, a Turret and a Tour De Force kill. Riot records
+[metric:ability_xchannel/replay@9acf02f98283#riot_other_kills=7] ability kills by other players on this
+match, and [metric:ability_xchannel/replay@9acf02f98283#riot_other_kills_prior_cast=6] follow a cast of that
+player and slot. The killfeed's kills pair with a prior cast
+[metric:ability_xchannel/replay@9acf02f98283#effect.killfeed.kind.kill.paired_60s=9] of
+[metric:ability_xchannel/replay@9acf02f98283#effect.killfeed.kind.kill.witnesses=10] times within 60 s,
+against a chance floor of
+[metric:ability_xchannel/replay@9acf02f98283#effect.killfeed.kind.kill.chance_60s=2.26] (a witness placed at
+random in the match's rounds); within 10 s
+[metric:ability_xchannel/replay@9acf02f98283#effect.killfeed.kind.kill.paired_10s=7], floor
+[metric:ability_xchannel/replay@9acf02f98283#effect.killfeed.kind.kill.chance_10s=0.48]. The assist panel's
+icons pair [metric:ability_xchannel/replay@9acf02f98283#effect.assist_icon.all.paired_60s=5] of
+[metric:ability_xchannel/replay@9acf02f98283#effect.assist_icon.all.witnesses=5] within 60 s, but the floor
+there is [metric:ability_xchannel/replay@9acf02f98283#effect.assist_icon.all.chance_60s=2.49], half of them;
+within 10 s [metric:ability_xchannel/replay@9acf02f98283#effect.assist_icon.all.paired_10s=3] pair against a
+floor of [metric:ability_xchannel/replay@9acf02f98283#effect.assist_icon.all.chance_10s=0.53]. The 60 s
+window is loose for the panel; read it at 10 s.
 Together the channels witness
 [metric:ability_xchannel/replay@9acf02f98283#any_other.hit=128] of
 [metric:ability_xchannel/replay@9acf02f98283#any_other.casts=372] other
 players' casts.
 
 **Independence.** One pair is testable on the replay, the assist panel and
-audio_others: odds ratio
-[metric:ability_xchannel/independence@9acf02f98283#replay.assist_icon-vs-audio_others.odds_ratio=4.3529],
-Fisher p [metric:ability_xchannel/independence@9acf02f98283#replay.assist_icon-vs-audio_others.fisher_p=0.24181];
-the ult line misses nothing and the killfeed has three shared kill casts.
+audio_others. The panel draws only the player's team's assists (the corpus
+holds no enemy assist icon), so its opportunities are allies' casts only:
+over [metric:ability_xchannel/independence@9acf02f98283#replay.assist_icon-vs-audio_others.n=68] shared casts the
+odds ratio is
+[metric:ability_xchannel/independence@9acf02f98283#replay.assist_icon-vs-audio_others.odds_ratio=5.6471], Fisher p
+[metric:ability_xchannel/independence@9acf02f98283#replay.assist_icon-vs-audio_others.fisher_p=0.18653]. The ult
+line misses nothing and the killfeed has three shared kill casts.
 X2 therefore fails on its pre-registered instrument
 ([metric:ability_xchannel/independence@9acf02f98283#X2_holds=0]). The
 causes are measurable per channel instead: audio_others hears
@@ -967,34 +995,49 @@ of [metric:ability_xchannel/independence@9acf02f98283#cause.audio_others.dist.40
 beyond, and none of
 [metric:ability_xchannel/independence@9acf02f98283#cause.audio_others.live.False.casts=52]
 casts while the player is dead; no other channel depends on distance. Over
-match cells (added after the pre-registration) the smoke owner and the
-assist panel miss together (Fisher p
-[metric:ability_xchannel/independence@9acf02f98283#cells.assist_icon-vs-smoke.fisher_p=0.02857],
-n [metric:ability_xchannel/independence@9acf02f98283#cells.assist_icon-vs-smoke.n=7]):
-both see only the player's team, so both miss every enemy cast. The
-correlated errors are therefore structural: team-only channels share the
-enemy side, and the two audio channels share the dead listener, though the
-ult line still heard one of one such ult.
+match cells (added after the pre-registration) version 0.1.0 found the smoke
+owner and the assist panel missing together; that came from counting enemy
+cells against a team-only panel. Limited to allies' cells the pair has
+[metric:ability_xchannel/independence@9acf02f98283#cells.assist_icon-vs-smoke.n=4] cells and no test, and no cell
+pair is correlated. The one structural correlation left is the dead
+listener, shared by the two audio channels, though the ult line still heard
+one of one such ult.
 
-**Combination.** The dev half chose one rule per (agent, slot); on the held
-half [metric:ability_xchannel/combined#X1_passing=4] of
-[metric:ability_xchannel/combined#X1_eligible=88] classes reach count
-precision 0.8 with recall above their best single channel, all ultimates
-(Clove, Jett, Raze, Sage): X1 fails, as P1 predicted. Allies' held coverage
-rises from [metric:ability_xchannel/combined#held.ally.today_covered=261] to
-[metric:ability_xchannel/combined#held.ally.chosen_covered=794] of
-[metric:ability_xchannel/combined#held.ally.riot=2237] Riot casts against
-[metric:ability_xchannel/combined#held.ally.expected_false=369.3] expected
-false alarms, a net gain of
-[metric:ability_xchannel/combined#held.ally.net_unclipped=163.7] to
-[metric:ability_xchannel/combined#held.ally.net_prop=329.6]; enemies' from
-[metric:ability_xchannel/combined#held.enemy.today_covered=161] to
-[metric:ability_xchannel/combined#held.enemy.chosen_covered=1164] of
-[metric:ability_xchannel/combined#held.enemy.riot=2957], net
-[metric:ability_xchannel/combined#held.enemy.net_unclipped=355.0] to
-[metric:ability_xchannel/combined#held.enemy.net_prop=524.4]. These are
-upper estimates: the null corrects only absent-agent false alarms, and the
-replay's timed precision is lower. On the replay, requiring a second
+**Combination.** The dev half chose one rule per (agent, slot). Version
+0.1.0 corrected the dev half's audio share with the HELD absent-agent
+false-alarm rate, a leak into the rule choice; version 0.2.0 uses the dev
+half's own rate, cross-fitted leave one session out because the dev
+threshold was fitted on the same sessions. On the held half
+[metric:ability_xchannel/combined#X1_passing=4] of [metric:ability_xchannel/combined#X1_eligible=88] classes reach
+count precision 0.8 with recall above their best single channel, all
+ultimates (Clove, Jett, Raze, Sage): X1 fails, as P1 predicted.
+
+Where no rule reaches 0.8 on dev, the choice falls back to the most precise
+rule below the bar, and most classes fall back to audio_others alone
+([metric:ability_xchannel/combined#held.all.classes.audio_others=50] classes). The combined gain
+is therefore mostly audio_others alone. Over all classes, allies' held
+coverage rises from [metric:ability_xchannel/combined#held.all.total.ally.today_covered=261] to
+[metric:ability_xchannel/combined#held.all.total.ally.chosen_covered=697] of
+[metric:ability_xchannel/combined#held.all.total.ally.riot=2237] Riot casts against
+[metric:ability_xchannel/combined#held.all.total.ally.expected_false=314.1] expected false
+alarms, a net gain of [metric:ability_xchannel/combined#held.all.total.ally.net_unclipped=121.9]
+to [metric:ability_xchannel/combined#held.all.total.ally.net_prop=274.9]; enemies' from
+[metric:ability_xchannel/combined#held.all.total.enemy.today_covered=161] to
+[metric:ability_xchannel/combined#held.all.total.enemy.chosen_covered=1164] of
+[metric:ability_xchannel/combined#held.all.total.enemy.riot=2957], net
+[metric:ability_xchannel/combined#held.all.total.enemy.net_unclipped=355.0] to
+[metric:ability_xchannel/combined#held.all.total.enemy.net_prop=524.4]. Of the gained casts,
+audio_others alone gives [metric:ability_xchannel/combined#held.all.rule.audio_others.ally.gained=397]
+of [metric:ability_xchannel/combined#held.all.total.ally.gained=436] (allies) and
+[metric:ability_xchannel/combined#held.all.rule.audio_others.enemy.gained=943] of
+[metric:ability_xchannel/combined#held.all.total.enemy.gained=1003] (enemies). Counting only the
+classes whose dev rule passes the bar (the others keep today's count),
+allies gain [metric:ability_xchannel/combined#held.passing.total.ally.gained=39] against
+[metric:ability_xchannel/combined#held.passing.total.ally.expected_false=21.8] expected false
+alarms and enemies [metric:ability_xchannel/combined#held.passing.total.enemy.gained=60] against
+[metric:ability_xchannel/combined#held.passing.total.enemy.expected_false=20.1], nearly all from
+the union rule. Every figure is an upper estimate: the null corrects only
+absent-agent false alarms, and the replay's timed precision is lower. On the replay, requiring a second
 channel admits
 [metric:ability_xchannel/replay@9acf02f98283#agree.admitted=73] audio
 detections at precision

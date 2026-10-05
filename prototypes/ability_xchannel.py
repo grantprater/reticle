@@ -45,7 +45,11 @@ channels (`killfeed`, `assist_icon`) pair one to one with the latest such
 cast at most `EFFECT_LOOKBACK_S` before the witness (and `EFFECT_AFTER_S`
 after, for a stamp that leads). Per (agent, slot, side): casts, live casts,
 each channel's hits, recall, and per (agent, slot) each channel's witnesses,
-paired witnesses (precision) and the median offset.
+paired witnesses (precision) and the median offset. `effect_floor` sets each
+effect channel's pairings, at 60 s and 10 s, beside the pairings a witness
+placed at random in the match's rounds would make, and splits the killfeed
+into kills and revives: a revive [domain:killfeed/revive-entries] is a cast
+witness, never a kill.
 
 Independence
 ------------
@@ -53,8 +57,9 @@ Only channels that can witness another player and hold stored rows on the
 session take part (`present_channels`): a stream the store lacks is no
 witness, never a miss. Per channel pair (A, B), over the casts both could
 witness (`opportunity`: other players' casts in classes the channel names,
-`vocab`, the (agent, slot) pairs it witnessed anywhere in the corpus;
-audio_others: the classes with a threshold; the killfeed only the casts
+`vocab`, the (agent, slot) pairs it witnessed anywhere in the corpus,
+of the sides it sees (`CHANNEL_SIDES`: the assist panel only the player's
+team); audio_others: the classes with a threshold; the killfeed only the casts
 that killed, a Riot ability kill paired to the latest prior cast of that
 killer and slot): the 2x2 table of misses, P(miss A), P(miss A | miss B),
 the odds ratio and Fisher's exact test (`scipy.stats.fisher_exact`), pooled
@@ -81,12 +86,17 @@ audio_others detection only where another channel witnesses the same cell
 within `AGREE_S`, or an effect within `EFFECT_LOOKBACK_S` after it in the
 same round). The dev half (`audio_others.dev_half`) picks per class the rule with the most casts
 covered among rules whose dev precision reaches `PREC_BAR`, else the most
-precise rule; the held half scores it. Count precision is covered /
-witnessed (covered = min(witnessed, Riot) per cell), an UPPER bound; the
-audio share is corrected by `audio_others`' held absent-agent false-alarm
-rate (expected false = rate x live minutes; for `agree`, times the chance a
-random time falls within another witness's window), and the precision
-reported is the smaller of the two.
+precise rule even below the bar (`choice_passes_bar` says which); the held
+half scores it. Count precision is covered / witnessed (covered =
+min(witnessed, Riot) per cell), an UPPER bound; the audio share is corrected
+by an absent-agent false-alarm rate (expected false = rate x live minutes;
+for `agree`, times the chance a random time falls within another witness's
+window), and the precision reported is the smaller of the two. The dev half
+takes the dev rate, cross-fitted leave one session out
+(`dev_crossfit_fa`), so the dev rule choice never sees held data; the held
+half takes `audio_others`' held rate. Version 0.1.0 used the held rate on
+both halves, a leak. `gain_report` gives the gains per chosen rule, over all
+classes and over only the classes whose dev rule reaches the bar.
 
 X1: held precision >= PREC_BAR for at least X1_MIN_CLASSES classes with at
 least X1_MIN_RIOT held Riot casts, each with held recall above its best
@@ -130,7 +140,7 @@ import numpy as np  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ABILITY_XCHANNEL_VERSION = "ability-xchannel-proto-0.1.0"
+ABILITY_XCHANNEL_VERSION = "ability-xchannel-proto-0.2.0"
 STORE = Path.home() / "reticle-store"
 OUT = STORE / "analysis" / "ability-xchannel-20261005"
 REPLAY_SESSION = "9acf02f98283"
@@ -152,6 +162,10 @@ PREC_BAR = 0.8
 X1_MIN_CLASSES, X1_MIN_RIOT = 10, 5
 FISHER_P = 0.05
 OTHER_SIDES = ("ally", "enemy")
+#: The other players' sides a team-only channel can see: the assist panel
+#: (the corpus holds no enemy assist icon, `witness_inventory`). The smoke
+#: owner and the minimap fits are not limited here.
+CHANNEL_SIDES = {"assist_icon": ("ally",)}
 
 
 def _below_normal() -> None:
@@ -344,12 +358,44 @@ def audio_context(store: Path = STORE) -> dict:
     inv = ao.inventory(store)
     loaded = {sid: got for sid in inv if (got := ao.load_peaks(sid)) is not None}
     merge = int(round(ao.MERGE_S * FPS))
-    thr = ao.thresholds(loaded, ao._absent(inv), merge)
+    present = ao._absent(inv)
+    thr = ao.thresholds(loaded, present, merge)
     W = ao.whitener(store)
     agents = sorted({a for _s, (pk, _l, _m) in loaded.items() for a, _c in pk}, key=canon)
     banks = {a: json.loads(str(np.load(ao.bank_path(a, W), allow_pickle=False)["meta"]))
              for a in agents}
-    return {"inv": inv, "loaded": loaded, "merge": merge, "thr": thr, "banks": banks, "fps": FPS}
+    return {"inv": inv, "loaded": loaded, "merge": merge, "thr": thr, "banks": banks, "fps": FPS,
+            "dev_fa": dev_crossfit_fa(loaded, present, merge)}
+
+
+def dev_crossfit_fa(loaded: dict, present: dict[str, set[str]], merge: int) -> dict:
+    """Per (agent, class): the dev half's own absent-agent false-alarm rate,
+    cross-fitted leave one session out. Each dev absent-agent session is
+    scored at the threshold `audio_others.threshold_for` fits on the OTHER
+    dev absent-agent sessions, since the full dev threshold was fitted on
+    every one of them; the rate is the false alarms over the scored live
+    minutes. Held sessions never enter: the dev precision and the dev rule
+    choice rest on dev data alone."""
+    ao = _ao()
+    keys = sorted({k for pk, _l, _m in loaded.values() for k in pk})
+    out = {}
+    for agent, cls in keys:
+        null = [(sid, pk[(agent, cls)], meta["live_min"]) for sid, (pk, _live, meta) in loaded.items()
+                if ao.dev_half(sid) and canon(agent) not in present.get(sid, set())
+                and (agent, cls) in pk]
+        n_fa, minutes, folds = 0, 0.0, 0
+        for i, (_sid, r, live_min) in enumerate(null):
+            rest = [(x["frame"], x["value"]) for j, (_s, x, _m) in enumerate(null) if j != i]
+            rest_min = sum(m for j, (_s, _x, m) in enumerate(null) if j != i)
+            t = ao.threshold_for(rest, rest_min, ao.NULL_FF_PER_MIN, merge)
+            if t is None:
+                continue
+            n_fa += len(ao.detections(r["frame"], r["value"], t, merge))
+            minutes += live_min
+            folds += 1
+        out[(agent, cls)] = {"dev_cv_fa": n_fa, "dev_cv_min": round(minutes, 2), "folds": folds,
+                             "dev_cv_fa_per_min": round(n_fa / minutes, 4) if minutes > 0 else None}
+    return out
 
 
 def audio_witnesses(sid: str, ctx: dict, cat) -> list[dict]:
@@ -510,6 +556,8 @@ def score_replay(sess: dict, rc: dict, aw: list[dict], cat, vocab: dict) -> dict
     for c in casts:
         c["hits"] = {}
     wits = sess["witnesses"] + aw
+    spans = sess.get("round_spans") or []
+    effect_pairs, unpaired_ult = {}, {}
     by_ch = defaultdict(list)
     for w in wits:
         if w["t_ms"] is None:
@@ -530,6 +578,18 @@ def score_replay(sess: dict, rc: dict, aw: list[dict], cat, vocab: dict) -> dict
             paired_w[i] = dt
             if ch == "audio_others":
                 ws[i]["_cast"] = j
+        if ch in EFFECT_CHANNELS:
+            effect_pairs[ch] = effect_floor(ws, wl, paired_w, tc, spans)
+        if ch == "ult_cast":
+            for i, (w, (_t, cells)) in enumerate(zip(ws, wl)):
+                if i in paired_w:
+                    continue
+                u = unpaired_ult.setdefault(canon(w.get("agent")), {
+                    "witnesses": 0,
+                    "export_casts": sum(cell in cells for _t2, cell in tc),
+                    "riot_casts": sum(p["casts"]["Ultimate"] for p in players
+                                      if any(s == p["subject"] for s, _sl in cells))})
+                u["witnesses"] += 1
         for i, (w, (_t, cells)) in enumerate(zip(ws, wl)):
             ags = {canon(agent_of[s]) for s, _sl in cells}
             sls = {sl for _s, sl in cells}
@@ -586,7 +646,7 @@ def score_replay(sess: dict, rc: dict, aw: list[dict], cat, vocab: dict) -> dict
     for ch in chans:
         ws = sum(v["witnesses"] for k, v in prec.items() if k.startswith(ch + "|"))
         pw = sum(v["paired"] for k, v in prec.items() if k.startswith(ch + "|"))
-        el = [c for c in casts if c["side"] in OTHER_SIDES
+        el = [c for c in casts if c["side"] in CHANNEL_SIDES.get(ch, OTHER_SIDES)
               and (canon(c["agent"]), c["slot"]) in vocab.get(ch, set())]
         tot[ch] = {"witnesses": ws, "paired": pw, "precision": round(pw / ws, 4) if ws else None,
                    "other_casts_in_vocab": len(el),
@@ -600,7 +660,46 @@ def score_replay(sess: dict, rc: dict, aw: list[dict], cat, vocab: dict) -> dict
         for w in ws:
             w.pop("_cast", None)
     return {"casts": casts, "recall": rec, "precision": prec, "channels": tot,
-            "side_of": side_of, "agree": dict(agree)}
+            "side_of": side_of, "agree": dict(agree), "effect_pairs": effect_pairs,
+            "unpaired_ult_cast": unpaired_ult}
+
+
+def effect_floor(ws: list[dict], wl: list[tuple[float, set]], paired_w: dict,
+                 tc: list[tuple[float, tuple]], spans: list[tuple[float, float]],
+                 lookbacks=(EFFECT_LOOKBACK_S, 10.0), draws: int = 2000, seed: int = 0) -> dict:
+    """An effect channel's replay pairings beside their CHANCE FLOOR, per
+    witness kind (`kill`, `revive`: the killfeed's revives and second lives
+    are cast witnesses, never kills [domain:killfeed/revive-entries];
+    `icon` for the assist panel) and per ability. Per lookback, `paired` is
+    the witnesses paired at most that far after their cast; `chance` the sum
+    over witnesses of the probability that a cast of one of its candidate
+    cells lies in [t - lookback, t + EFFECT_AFTER_S] for t drawn uniformly
+    over the match's rounds (`spans`, s), ignoring the one-to-one rule (so
+    an upper floor)."""
+    rng = np.random.default_rng(seed)
+    sp = np.asarray(spans, float).reshape(-1, 2)
+    ln = np.clip(sp[:, 1] - sp[:, 0], 0.0, None)
+    u = None
+    if len(sp) and ln.sum() > 0:
+        x = rng.uniform(0.0, ln.sum(), draws)
+        k = np.searchsorted(np.cumsum(ln), x, side="right")
+        k = np.minimum(k, len(sp) - 1)
+        u = sp[k, 0] + x - np.concatenate([[0.0], np.cumsum(ln)[:-1]])[k]
+    out = defaultdict(lambda: defaultdict(float))
+    for i, (w, (_t, cells)) in enumerate(zip(ws, wl)):
+        kind = ("kill" if w.get("kill") else "revive") if "kill" in w else "icon"
+        tcs = np.array([t for t, cell in tc if cell in cells], float)
+        for key in ("all", f"kind.{kind}", f"ability.{kind}.{w.get('ability')}"):
+            o = out[key]
+            o["witnesses"] += 1
+            for lb in lookbacks:
+                tag = f"{int(lb)}s"
+                o[f"paired_{tag}"] += int(i in paired_w and paired_w[i] <= lb)
+                if u is not None and len(tcs):
+                    d = u[:, None] - tcs[None, :]
+                    o[f"chance_{tag}"] += float(((d >= -EFFECT_AFTER_S) & (d <= lb)).any(1).mean())
+    return {k: {f: (round(v, 2) if isinstance(v, float) and not v.is_integer() else int(v))
+                for f, v in o.items()} for k, o in sorted(out.items())}
 
 
 def cast_strata(c: dict) -> dict[str, str]:
@@ -612,8 +711,10 @@ def cast_strata(c: dict) -> dict[str, str]:
 
 def opportunity(ch: str, casts: list[dict], vocab: dict, kill_casts: set) -> list[dict]:
     """The casts a channel could witness: other players' casts in its
-    vocabulary; for the killfeed, only those that killed."""
-    el = [c for c in casts if c["side"] in OTHER_SIDES
+    vocabulary, of the sides it can see (`CHANNEL_SIDES`); for the killfeed,
+    only those that killed."""
+    sides = CHANNEL_SIDES.get(ch, OTHER_SIDES)
+    el = [c for c in casts if c["side"] in sides
           and (canon(c["agent"]), c["slot"]) in vocab.get(ch, set())]
     if ch == "killfeed":
         el = [c for c in el if id(c) in kill_casts]
@@ -712,6 +813,8 @@ def cell_independence(sessions: list[dict], vocab: dict, present: dict, channels
                 continue
             el = [r for r in rows if a in present[r["session"]] and b in present[r["session"]]
                   and r["cls"] in vocab.get(a, set()) and r["cls"] in vocab.get(b, set())
+                  and r["side"] in CHANNEL_SIDES.get(a, OTHER_SIDES)
+                  and r["side"] in CHANNEL_SIDES.get(b, OTHER_SIDES)
                   and ("killfeed" not in (a, b) or r["kill"])]
             if len(el) < 4:
                 out[f"{a}~{b}"] = {"n": len(el), "refused": "fewer_than_4_cells"}
@@ -784,18 +887,30 @@ def count_level(sessions: list[dict], ctx: dict, cat, single_channels: list[str]
         aw = s["audio_w"]
         cw = cell_witnesses(s, aw)
         live_min = ctx["loaded"][sid][2]["live_min"] if sid in ctx["loaded"] else 0.0
-        # the audio false alarms per cell: each class's held absent-agent rate
+        # the audio false alarms per cell. Dev: each class's dev absent-agent
+        # rate, cross-fitted (`dev_crossfit_fa`), so the dev precision and the
+        # rule choice never see held data; a class with an audio threshold and
+        # no dev rate leaves the cell's audio precision unmeasured. Held: the
+        # held absent-agent rate (`audio_others.thresholds`), evaluation only.
         rate_cell = defaultdict(float)
+        unmeasured = set()
         for (agent, cls), v in ctx["thr"].items():
-            r = v.get("held_fa_per_min")
-            if r is None:
+            if v.get("thr") is None:
                 continue
+            if half == "dev":
+                r = (ctx["dev_fa"].get((agent, cls)) or {}).get("dev_cv_fa_per_min")
+            else:
+                r = v.get("held_fa_per_min")
             keys = ao.class_keys(cls, ctx["banks"][agent]["groups"])
             slots = [cat.by_key.get((canon(agent), k)) for k in keys]
             if len(slots) != 1 or not slots[0]:
                 continue
             for p in s["players"]:
                 if canon(p["agent"]) == canon(agent):
+                    if r is None:
+                        if half == "dev":
+                            unmeasured.add((p["subject"], slots[0]))
+                        continue
                     rate_cell[(p["subject"], slots[0])] += r
         for p in s["players"]:
             if p["side"] not in OTHER_SIDES:
@@ -824,13 +939,16 @@ def count_level(sessions: list[dict], ctx: dict, cat, single_channels: list[str]
                         frac = min(1.0, span_s / max(1.0, live_min * 60.0))
                         ef = min(ef_all * frac, na)
                     a = acc.setdefault((half, canon(p["agent"]), p["agent"], slot, rule),
-                                       {"cells": [], "ef": 0.0, "side_cells": defaultdict(list)})
+                                       {"cells": [], "ef": 0.0, "side_cells": defaultdict(list),
+                                        "unmeasured": 0})
                     a["cells"].append((n, riot))
                     a["side_cells"][p["side"]].append((n, riot))
                     a["ef"] += ef
+                    a["unmeasured"] += int(bool(na) and cell in unmeasured)
                 acc.setdefault((half, canon(p["agent"]), p["agent"], slot, "_ws"),
                                {"cells": [], "ef": 0.0, "side_cells": defaultdict(list)}
-                               )["cells"].append((ws, riot, rate_cell.get(cell, 0.0) * live_min))
+                               )["cells"].append((ws, riot, rate_cell.get(cell, 0.0) * live_min,
+                                                  cell in unmeasured, p["side"]))
     classes = sorted({(k[1], k[2], k[3]) for k in acc}, key=lambda x: (x[0], x[2]))
     seen, out = set(), []
     for ca, agent, slot in classes:
@@ -848,6 +966,10 @@ def count_level(sessions: list[dict], ctx: dict, cat, single_channels: list[str]
                 sc = count_score(a["cells"])
                 sc["expected_false_audio"] = round(a["ef"], 2)
                 sc["precision"] = precision_estimate(sc, a["ef"])
+                if a["unmeasured"]:
+                    # audio counted where the dev half has no absent-agent rate
+                    sc["precision"] = None
+                    sc["unmeasured_cells"] = a["unmeasured"]
                 sc["by_side"] = {sd: count_score(v) for sd, v in a["side_cells"].items()}
                 row[half][rule] = sc
         # hi_union: the channels whose DEV precision reaches the bar
@@ -859,18 +981,26 @@ def count_level(sessions: list[dict], ctx: dict, cat, single_channels: list[str]
             a = acc.get((half, ca, agent, slot, "_ws"))
             if a is None:
                 continue
-            cells, ef = [], 0.0
+            cells, ef, unm = [], 0.0, 0
             sides = defaultdict(list)
-            for ws, riot, efc in a["cells"]:
+            for ws, riot, efc, um, sd in a["cells"]:
                 n, na = rule_count("hi_union", ws, hi)
                 cells.append((n, riot))
+                sides[sd].append((n, riot))
                 ef += min(efc, na) if na else 0.0
+                unm += int(bool(na) and um)
             sc = count_score(cells)
             sc["expected_false_audio"] = round(ef, 2)
-            sc["precision"] = precision_estimate(sc, ef)
+            sc["precision"] = None if unm else precision_estimate(sc, ef)
+            if unm:
+                sc["unmeasured_cells"] = unm
+            sc["by_side"] = {sd: count_score(v) for sd, v in sides.items()}
             row[half]["hi_union"] = sc
         dev_ok = {r: s for r, s in row["dev"].items() if s["witnessed"]}
         row["choice"] = choose_rule(dev_ok)
+        # choose_rule falls back to the most precise rule below the bar
+        row["choice_passes_bar"] = bool(row["choice"] and dev_ok[row["choice"]]["precision"] is not None
+                                        and dev_ok[row["choice"]]["precision"] >= PREC_BAR)
         held = row["held"]
         single = [held[r]["recall"] for r in single_channels
                   if r in held and held[r]["recall"] is not None and held[r]["witnessed"]]
@@ -886,16 +1016,16 @@ def count_level(sessions: list[dict], ctx: dict, cat, single_channels: list[str]
     return {"classes": out, "today": tot}
 
 
-def gain_totals(classes: list[dict], half: str = "held") -> dict:
+def gain_totals(classes: list[dict], half: str = "held", keep=None) -> dict:
     """Per side on one half: Riot, today's covered (`today`, every channel
     but audio_others), the chosen rule's covered (today's where a class has
-    no choice), gained, the audio false alarms the chosen rule admits, and
-    the net gain as an unclipped range (`gained - expected_false`, and
-    `gained * (1 - expected_false / witnessed)`)."""
+    no choice, or `keep(row)` is false), gained, the audio false alarms the
+    chosen rule admits, and the net gain as an unclipped range
+    (`gained - expected_false`, and `gained * (1 - expected_false / witnessed)`)."""
     out = defaultdict(Counter)
     for r in classes:
         today = (r[half].get("today") or {}).get("by_side") or {}
-        ch = r["choice"] if r["choice"] in r[half] else "today"
+        ch = r["choice"] if r["choice"] in r[half] and (keep is None or keep(r)) else "today"
         sc = r[half].get(ch) or {}
         chosen = sc.get("by_side") or {}
         tot_w = sc.get("witnessed") or 0
@@ -920,6 +1050,25 @@ def gain_totals(classes: list[dict], half: str = "held") -> dict:
                        recall_today=round(o["today_covered"] / o["riot"], 4) if o["riot"] else None,
                        recall_chosen=round(o["chosen_covered"] / o["riot"], 4) if o["riot"] else None)
     return res
+
+
+def gain_report(classes: list[dict], half: str = "held") -> dict:
+    """The gain totals two ways, `all` classes and only `passing` classes
+    (whose dev rule reaches PREC_BAR; the rest keep today's count), each
+    with the gain per chosen rule (`by_rule`: only that rule's classes
+    change) and the count of classes per rule."""
+    out = {}
+    for scope, keep in (("all", None), ("passing", lambda r: r["choice_passes_bar"])):
+        rules = sorted({r["choice"] for r in classes if r["choice"]
+                        and (keep is None or keep(r))})
+        out[scope] = {
+            "total": gain_totals(classes, half, keep),
+            "classes": {ru: sum(r["choice"] == ru and (keep is None or keep(r)) for r in classes)
+                        for ru in rules},
+            "by_rule": {ru: gain_totals(classes, half, lambda r, ru=ru, keep=keep: r["choice"] == ru
+                                        and (keep is None or keep(r)))
+                        for ru in rules}}
+    return out
 
 
 # ----------------------------------------------------------------- effects
@@ -1066,6 +1215,8 @@ def build_report(store: Path = STORE, los: str = "2d") -> dict:
             return r["round_no"] if r else None
 
         s["round_of"] = round_of
+        s["round_spans"] = [(r["t_start_ms"] / 1000.0, r["t_end_ms"] / 1000.0) for r in rounds
+                            if r.get("t_start_ms") is not None and r.get("t_end_ms") is not None]
         s["audio_w"] = audio_witnesses(s["session"], ctx, cat)
         got = ctx["loaded"].get(s["session"])
         s["live_min"] = got[2]["live_min"] if got else 0.0
@@ -1120,6 +1271,13 @@ def build_report(store: Path = STORE, los: str = "2d") -> dict:
             "independence": independence(casts, vocab, kill_casts, present[REPLAY_SESSION]),
             "miss_by_cause": miss_by_cause(casts, vocab, kill_casts, present[REPLAY_SESSION]),
             "kills": kill_rows,
+            "riot_other_kills": sum(1 for k in rk["kills"]
+                                    if sc["side_of"].get(k["killer"]) in OTHER_SIDES),
+            "riot_other_kills_prior_cast": sum(1 for k, r in zip(rk["kills"], kill_rows)
+                                               if sc["side_of"].get(k["killer"]) in OTHER_SIDES
+                                               and not r.get("no_prior_cast")),
+            "effect_pairs": sc["effect_pairs"],
+            "unpaired_ult_cast": sc["unpaired_ult_cast"],
             "any_other": {"casts": sum(c["side"] in OTHER_SIDES for c in casts),
                           "hit": sum(c["side"] in OTHER_SIDES and bool(c["hits"]) for c in casts),
                           "hit_cast_channel": sum(c["side"] in OTHER_SIDES and bool(
@@ -1140,8 +1298,9 @@ def build_report(store: Path = STORE, los: str = "2d") -> dict:
                  "n_passing": len(passing),
                  "eligible": sum(1 for r in cl["classes"]
                                  if r["held"].get("union", {}).get("riot", 0) >= X1_MIN_RIOT)}
-    rep["gain_held"] = gain_totals(cl["classes"], "held")
-    rep["gain_dev"] = gain_totals(cl["classes"], "dev")
+    rep["gain_held"] = gain_report(cl["classes"], "held")
+    rep["gain_dev"] = gain_report(cl["classes"], "dev")
+    rep["dev_fa"] = {f"{a}|{c}": v for (a, c), v in sorted(ctx["dev_fa"].items())}
     other_capable = set().union(*present.values())
     rep["cell_independence"] = cell_independence(sessions, vocab, present, other_capable)
     rep["effects"] = effects(sessions, cat, store)
@@ -1159,6 +1318,8 @@ def record_ledger(rep: dict) -> list[str]:
                                         gain_totals, effects, cast_strata, opportunity,
                                         miss_by_cause, cell_independence, cell_witnesses,
                                         present_channels, stored_ability_kills, riot_kills_capture,
+                                        dev_crossfit_fa, gain_report, effect_floor,
+                                        CHANNEL_SIDES=CHANNEL_SIDES,
                                         WINDOW_S=WINDOW_S, AGREE_S=AGREE_S, PREC_BAR=PREC_BAR,
                                         EFFECT_LOOKBACK_S=EFFECT_LOOKBACK_S)}
     ctx = {"sessions": len(rep["sessions"]), "dev": rep["dev"], "held": rep["held"]}
@@ -1183,6 +1344,15 @@ def record_ledger(rep: dict) -> list[str]:
             v[f"any_other.{f}"] = n
         for f, n in rp["agree"].items():
             v[f"agree.{f}"] = n
+        for ch, x in rp["effect_pairs"].items():
+            for key, y in x.items():
+                for f, n in y.items():
+                    v[f"effect.{ch}.{kk(key)}.{f}"] = n
+        v["riot_other_kills"] = rp["riot_other_kills"]
+        v["riot_other_kills_prior_cast"] = rp["riot_other_kills_prior_cast"]
+        for a, x in rp["unpaired_ult_cast"].items():
+            for f, n in x.items():
+                v[f"ult_cast.unpaired.{kk(a)}.{f}"] = n
         metrics.record("ability_xchannel", part="replay", session=REPLAY_SESSION, values=v,
                        deps=deps, context=dict(ctx, los_basis=rp["los_basis"]))
         out.append(f"ability_xchannel/replay@{REPLAY_SESSION}")
@@ -1219,15 +1389,26 @@ def record_ledger(rep: dict) -> list[str]:
         k = kk(f"{r['agent']}:{r['slot']}")
         if r["choice"]:
             vc[f"{k}.choice_{r['choice']}"] = 1
+            vc[f"{k}.choice_passes_bar"] = int(r["choice_passes_bar"])
         h = r["held_choice"]
         if h:
             vc[f"{k}.held_recall"] = h["recall"]
             vc[f"{k}.held_precision"] = h["precision"]
         vc[f"{k}.held_best_single_recall"] = r["held_best_single_recall"]
     for half in ("held", "dev"):
-        for sd, x in rep[f"gain_{half}"].items():
-            for f, n in x.items():
-                vc[f"{half}.{sd}.{f}"] = round(n, 4) if isinstance(n, float) else n
+        for scope, g in rep[f"gain_{half}"].items():
+            for ru, n in g["classes"].items():
+                vc[f"{half}.{scope}.classes.{ru}"] = n
+            for part, tots in [("total", g["total"])] + [(f"rule.{ru}", t)
+                                                       for ru, t in g["by_rule"].items()]:
+                for sd, x in tots.items():
+                    for f, n in x.items():
+                        vc[f"{half}.{scope}.{part}.{sd}.{f}"] = (round(n, 4) if isinstance(n, float)
+                                                                 else n)
+    fa = [x["dev_cv_fa_per_min"] for x in rep["dev_fa"].values() if x["dev_cv_fa_per_min"] is not None]
+    vc["dev_fa.classes_measured"] = len(fa)
+    vc["dev_fa.classes_unmeasured"] = len(rep["dev_fa"]) - len(fa)
+    vc["dev_fa.median_per_min"] = round(float(np.median(fa)), 4) if fa else None
     for k, x in rep["count_level"]["today"].items():
         vc[f"today.{k}.covered"] = x["today_covered"]
         vc[f"today.{k}.riot"] = x["riot"]

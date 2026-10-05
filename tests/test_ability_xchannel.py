@@ -121,6 +121,10 @@ class Independence(unittest.TestCase):
         self.assertEqual(len(ax.opportunity("ult_cast", casts, vocab, set())), 1)
         # the killfeed's opportunities are only the casts that killed
         self.assertEqual(ax.opportunity("killfeed", casts, vocab, {id(casts[2])}), [casts[2]])
+        # the assist panel sees only the player's team
+        casts.append({"agent": "Raze", "slot": "Ultimate", "side": "ally", "hits": {}})
+        vocab["assist_icon"] = {("raze", "Ultimate")}
+        self.assertEqual(ax.opportunity("assist_icon", casts, vocab, set()), [casts[3]])
 
     def test_independence_over_shared_opportunities(self):
         rng = np.random.default_rng(1)
@@ -201,6 +205,58 @@ class Combination(unittest.TestCase):
         # a class without a choice keeps today's count
         row2 = {"choice": None, "held": row["held"]}
         self.assertEqual(ax.gain_totals([row2], "held")["enemy"]["gained"], 0)
+
+
+    def test_gain_report_by_rule_and_bar(self):
+        today = {"by_side": {"enemy": {"riot": 10, "covered": 1, "witnessed": 1}}}
+        rows = [{"choice": "audio_others", "choice_passes_bar": False,
+                 "held": {"today": today, "audio_others": {
+                     "witnessed": 8, "expected_false_audio": 4.0,
+                     "by_side": {"enemy": {"riot": 10, "covered": 6, "witnessed": 8}}}}},
+                {"choice": "union", "choice_passes_bar": True,
+                 "held": {"today": today, "union": {
+                     "witnessed": 3, "expected_false_audio": 0.0,
+                     "by_side": {"enemy": {"riot": 10, "covered": 3, "witnessed": 3}}}}}]
+        g = ax.gain_report(rows, "held")
+        self.assertEqual(g["all"]["total"]["enemy"]["gained"], 7)
+        self.assertEqual(g["all"]["by_rule"]["audio_others"]["enemy"]["gained"], 5)
+        self.assertEqual(g["passing"]["total"]["enemy"]["gained"], 2)
+        self.assertEqual(g["passing"]["classes"], {"union": 1})
+
+
+class DevRate(unittest.TestCase):
+    def test_crossfit_scores_each_session_at_the_others_threshold(self):
+        # three dev absent-agent sessions of one class; each held-out one is
+        # scored at the threshold the other two fix
+        sids, k = [], 0
+        while len(sids) < 3:
+            sid = f"s{k}"
+            k += 1
+            if ax._ao().dev_half(sid):
+                sids.append(sid)
+        fr = np.arange(0, 60000, 600)
+        loaded = {sid: ({("Raze", "c"): {"frame": fr, "value": np.full(len(fr), 2.0)}}, None,
+                        {"live_min": 10.0}) for sid in sids}
+        got = ax.dev_crossfit_fa(loaded, {sid: {"sova"} for sid in sids}, 300)[("Raze", "c")]
+        self.assertEqual(got["folds"], 3)
+        self.assertAlmostEqual(got["dev_cv_min"], 30.0)
+        # a session of the agent's own match is no null
+        got2 = ax.dev_crossfit_fa(loaded, {sids[0]: {"raze"}}, 300)[("Raze", "c")]
+        self.assertEqual(got2["folds"], 2)
+
+
+class EffectFloor(unittest.TestCase):
+    def test_kinds_and_floor(self):
+        c = ("a1", "Ultimate")
+        ws = [{"kill": True, "ability": "X"}, {"kill": False, "ability": "Y"}]
+        wl = [(50.0, {c}), (90.0, {c})]
+        tc = [(45.0, c), (89.9, c)]
+        out = ax.effect_floor(ws, wl, {0: 5.0, 1: 0.1}, tc, [(0.0, 100.0)], draws=4000)
+        self.assertEqual(out["kind.kill"]["witnesses"], 1)
+        self.assertEqual(out["kind.revive"]["paired_10s"], 1)
+        self.assertEqual(out["all"]["paired_60s"], 2)
+        # two casts in 100 s: a random time has one within [t-10, t+1] about 22% of the time
+        self.assertAlmostEqual(out["all"]["chance_10s"] / 2, 0.22, delta=0.03)
 
 
 if __name__ == "__main__":
