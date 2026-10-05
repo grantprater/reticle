@@ -239,33 +239,89 @@ class ReaderTest(unittest.TestCase):
         self.assertIsNone(row2["reason"])
         self.assertLess(row2["static_corr"], M.MAP_CORR)
 
-    def test_a_disc_inside_a_stored_portrait_is_gated(self):
-        allies = M.StoredAllyIcons.from_rows([
-            {"kind": "coverage", "ally_icon_version": "ally-icon-test"},
-            {"kind": "frame", "frame_idx": 0, "self": [100.0, 100.0, 7.0]},
-            {"kind": "icon", "frame_idx": 0, "cx": 203.0, "cy": 221.0, "r": 6.0, "family": "ally"},
-            {"kind": "icon", "frame_idx": 1, "cx": 330.0, "cy": 330.0, "r": 6.0, "family": "ally"}])
-        r = _reader(_data(), _Icons([(200, 220), (100, 104), (330, 330)]), allies=allies)
+    def test_portrait_cover_is_stage_1s_rule(self):
+        """Stage 1's `portrait_cover`, as the prototype's follow called it:
+        the self icon within OCC_R, an ally in the ring SAME_R..OCC_R, two
+        allies within SAME_R; an ally within SAME_R is the icon itself."""
+        sc = 0.5
+        cov = M.portrait_cover
+        self.assertEqual(cov((0, 0), [("self", 8.0, 0.0)], sc), "self_portrait")
+        self.assertIsNone(cov((0, 0), [("self", 8.6, 0.0)], sc))           # past OCC_R x scale
+        self.assertIsNone(cov((0, 0), [("ally", 1.0, 0.0)], sc))           # the followed icon itself
+        self.assertEqual(cov((0, 0), [("ally", 1.3, 0.0)], sc), "ally_portrait")
+        self.assertEqual(cov((0, 0), [("ally", 1.0, 0.0), ("ally", 0.0, 1.0)], sc), "ally_stack")
+        self.assertIsNone(cov((0, 0), [], sc))
+        # The first covering icon in stored order names the reason.
+        self.assertEqual(cov((0, 0), [("ally", 4.0, 0.0), ("self", 1.0, 0.0)], sc), "ally_portrait")
+        self.assertEqual(cov((0, 0), [("ally", 1.0, 0.0), ("self", 4.0, 0.0)], sc), "self_portrait")
+        got = M.portrait_covers([(0, 0), (100, 100)], ["ally", "self"], [(4.0, 0.0), (100.0, 101.0)], sc)
+        self.assertEqual(got, ["ally_portrait", "self_portrait"])
+
+    def _portraits(self, icons_by_frame):
+        """Stored `ally_icon` rows: an ally fit is an `icon` row, the self
+        icon the frame row's `self`, and a barrier is furniture."""
+        rows = [{"kind": "coverage", "ally_icon_version": "ally-icon-test"}]
+        for f, icons in icons_by_frame.items():
+            me = next(([x, y, 7.0] for r, x, y in icons if r == "self"), None)
+            rows.append({"kind": "frame", "frame_idx": f, "self": me})
+            rows += [{"kind": "icon", "frame_idx": f, "cx": x, "cy": y, "r": 6.0, "family": r}
+                     for r, x, y in icons if r != "self"]
+        return M.StoredPortraits.from_rows(rows)
+
+    def test_an_ally_fit_on_the_disc_does_not_gate_it(self):
+        """The 0.2.0 regression: a dark disc with a white glyph that the ally
+        reader fits as a portrait sits within SAME_R of that fit; stage 1's
+        rule keeps it, and gates the disc a portrait in the ring covers."""
+        por = self._portraits({0: [("ally", 201.0, 221.0), ("ally", 112.0, 104.0), ("self", 330.0, 340.0),
+                                   ("barrier", 60.0, 401.0)]})
+        r = _reader(_data(), _Icons([(200, 220), (100, 104), (330, 330), (60, 400)]), portraits=por)
         r.feed(_smp(_crop(_glyph("arrow")), 0.0, 0))
         rows = sorted((x for x in r.rows if x["kind"] == "disc" and x["set"] == "context"),
                       key=lambda x: x["i"])
-        self.assertEqual([x["reason"] for x in rows], ["on_ally_icon", "on_ally_icon", None])
-        self.assertEqual(rows[1]["icon"]["family"], "self")
-        self.assertAlmostEqual(rows[0]["icon"]["d"], float(np.hypot(3, 1)), places=3)
+        self.assertEqual(M.widget_scale(465), 1.0)        # the rule's lengths in px here
+        self.assertEqual([x["reason"] for x in rows], [None, "ally_portrait", "self_portrait", None])
+        self.assertIsNone(rows[0]["portrait"])
+        self.assertIsNotNone(rows[0]["scores"])
         head = r.events("s0", "k")[0]
-        self.assertEqual(head["gates"]["ally_icon"]["ally_icon_version"], "ally-icon-test")
+        self.assertEqual(head["gates"]["portrait"]["ally_icon_version"], "ally-icon-test")
+        self.assertEqual((head["gates"]["portrait"]["occ_r"], head["gates"]["portrait"]["same_r"]),
+                         (M.OCC_R, M.SAME_R))
         frame = next(x for x in r.rows if x["kind"] == "frame")
-        self.assertEqual(frame["gated"], {"on_ally_icon": 2})
+        self.assertEqual(frame["gated"], {"ally_portrait": 1, "self_portrait": 1})
+
+    def test_a_frame_the_vision_stream_does_not_hold_is_scored_and_named(self):
+        por = self._portraits({5: [("self", 200.0, 220.0)]})
+        r = _reader(_data(), _Icons([(200, 220)]), portraits=por)
+        r.feed(_smp(_crop(_glyph("arrow")), 0.0, 0))
+        row = next(x for x in r.rows if x["kind"] == "disc")
+        self.assertIsNone(row["reason"])
+        self.assertEqual(row["portrait"], "no_vision_row")
+        self.assertEqual(r.events("s0", "k")[0]["gates"]["portrait"]["no_vision_row_frames"], 1)
+
+    def test_a_glyph_disc_half_over_the_void_is_scored(self):
+        """No footprint gate (the module docstring): a real glyph drawn over
+        the void is opaque, so a disc half off the map art is still scored
+        where the static does not draw it."""
+        static = _crop(None, at=(60, 60))
+        static[:, :200] = 20                             # the void left of x = 200, as the static holds it
+        img = _crop(_glyph("arrow"))
+        img[:, :190] = 70                                # the world behind the widget, another shade
+        r = _reader(_data(), _Icons([(200, 220)]), static=static)
+        r.feed(_smp(img, 0.0))
+        row = next(x for x in r.rows if x["kind"] == "disc")
+        self.assertIsNone(row["reason"])
+        self.assertLess(row["static_corr"], M.MAP_CORR)
+        self.assertEqual(row["best"], "Alpha:E")
 
     def test_missing_gate_inputs_are_named_not_guessed(self):
         r = _reader(_data(), _Icons([(200, 220)]))
         r.feed(_smp(_crop(_glyph("arrow")), 0.0))
         row = next(x for x in r.rows if x["kind"] == "disc")
         self.assertIsNone(row["static_corr"])
-        self.assertIsNone(row["icon"])
+        self.assertIsNone(row["portrait"])
         head = r.events("s0", "k")[0]
         self.assertTrue(head["gates"]["static"]["unknown"])
-        self.assertTrue(head["gates"]["ally_icon"]["unknown"])
+        self.assertTrue(head["gates"]["portrait"]["unknown"])
 
     def test_provenance_fields_present(self):
         r = _reader(_data(), _Icons([(200, 220)]))

@@ -811,9 +811,53 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
      cleared windows there: a bank searched at every rotation wins on noise.
      Audit rows need their own null before stage 3 compares them with
      context verdicts (P5).
+   - **Revisions after the second review (0.3.0).** The portrait gate is
+     stage 1's `portrait_cover` itself, moved into `reticle/minimap_glyph.py`;
+     the prototype's follow calls it and reproduces stage 1 exactly (dev
+     58/59, every skip and score). The reader applies it to the stored
+     `ally_icon` fits and self icon: the stored `team_vision` puts the self
+     icon about 15 px off on the variant session. An ally fit within SAME_R
+     no longer gates its disc; the ring to OCC_R does. That regained
+     [metric:glyph_reader/trial_030@5822b6646448#regained=62] rows on
+     5822b6646448, Gekko discs with a white glyph and a teal rim, but also
+     [metric:glyph_reader/trial_030@4f207c0c4e39#regained=14] on
+     4f207c0c4e39 that are ally portraits the proposer proposed; the ring
+     gates [metric:glyph_reader/trial_030@4f207c0c4e39#newly_portrait_gated=171]
+     rows there that 0.2.0 scored. Births on 4f207c0c4e39 went from
+     [metric:glyph_reader/trial_030@4f207c0c4e39#births_before=933] to
+     [metric:glyph_reader/trial_030@4f207c0c4e39#births=844]. R1 and R2
+     hold: [metric:glyph_reader/r1_030#max_abs_diff_cpu=0.0] on the dev
+     windows, [metric:glyph_reader/trial_030@4f207c0c4e39#r2_max_abs_diff=5.0e-05]
+     on 200 trial rows. The glyph feed over the icon feed and the cache read
+     is [metric:glyph_reader/trial_030@4f207c0c4e39#ratio=0.062] on
+     4f207c0c4e39.
+   - **The void-corner disc stays scored.** The disc at (21, 91) on
+     4f207c0c4e39 is the void beside the radar ring at the variant
+     widget's corner. The baked static is placed right there; the void half
+     shows the world behind the widget, so no baked value predicts it, and
+     the static correlation over the map-art footprint alone is still
+     [metric:glyph_reader/trial_030@4f207c0c4e39#edge_onfootprint_corr_median=0.665].
+     The disc lies [metric:glyph_reader/trial_030@4f207c0c4e39#edge_footprint_share=0.195]
+     on the footprint, but real glyphs drawn over the void do too:
+     [metric:glyph_reader/trial_030@4f207c0c4e39#heldout_marks_below_half_footprint=9]
+     of [metric:glyph_reader/trial_030@4f207c0c4e39#heldout_marks=226]
+     labelled held-out marks sit under half on it. A footprint gate, not
+     built, would have removed
+     [metric:glyph_reader/trial_030@4f207c0c4e39#fpgate_births=374] of 933
+     births there and real glyph rows on 5822b6646448. Stage 3 answers it.
 3. **Tracks, verdict, per-ability rules and claims** from storage; gates 4
    and 6. The ability pass first runs on the 21 matches in one batched
    corpus rerun; today `ability_icon` exists on five sessions only.
+   Prerequisites, from stage 2's review:
+   - **A null at the full transform.** The scale exception's falsifier
+     fired (F4, above): the null table is remeasured at widget x zoom under
+     a new table version, and the reader moves to `geometry.MapScale.scale`,
+     before any verdict is read on a session away from the dev zooms.
+   - **The void-corner disc.** The reader still scores the disc at
+     (21, 91) on 4f207c0c4e39, the void beside the radar ring at the
+     variant widget's corner (stage 2's 0.3.0 revision). The null table's
+     negatives hold no such disc; stage 3 adds them to the null, or finds a
+     second channel that refuses them, before a track there can name.
 4. **The lane and `reticle view`**; gate 5.
 5. **The scene model.** The glyph textures become an ability sprite in
    `docs/SCENE_MODEL.md`'s renderer, composited over the baked static at

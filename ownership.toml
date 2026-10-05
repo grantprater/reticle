@@ -1800,14 +1800,15 @@ question = "Which game minimap texture of the candidate kits does each proposed 
 owner = "minimap_glyph"
 role = ["detect"]
 status = "partial"
-produces = ["GlyphData", "Templates", "score_windows", "AbilityGlyphReader", "glyph_reader", "LiveIcons", "StoredIcons", "StoredAllyIcons", "check_pass"]
+produces = ["GlyphData", "Templates", "score_windows", "AbilityGlyphReader", "glyph_reader", "LiveIcons", "StoredIcons", "StoredPortraits", "portrait_covers", "check_pass"]
 defers_to = ["ability-icon", "ally-candidates", "map-geometry"]
 not_for = """
 Finding discs (`ability-icon`) or deciding which disc continues which: the
 proposer's verify answers that (`ability_icons.verified_continuations`), and
 the reader's windows only schedule the audit and surprise paths on it; they
 are not tracks (`ability-disc-track`). Posing or naming portraits
-(`ally-candidates`): the gate reads their stored positions only. Naming the
+(`ally-candidates`): the gate reads the stored `ally_icon` fits' and self
+icon's positions only, under stage 1's `portrait_cover`. Naming the
 ability or its caster (`ability-glyph-name`, `agent-identity`): a score's
 "Agent:Slot" label and a row's `best` and `second` keys are observations of
 which texture fits, not names, so the entry declares no `names_agents`.

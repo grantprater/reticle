@@ -608,7 +608,12 @@ ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
 # reasons `static_like`, `on_ally_icon`); continuation by the proposer's verify
 # (`ability_icons.verified_continuations`) in place of a reach of its own;
 # audit rows store no cut; context and frame rows rest on the lineup stamp.
-ABILITY_GLYPH_VERSION = "ability-glyph-0.2.0"
+# 0.3.0 (2026-10-05): the portrait gate is stage 1's `portrait_cover`, moved
+# here from the prototype, over the stored `ally_icon` fits and self icon: an ally within
+# SAME_R no longer gates (it is the followed icon), the ring to OCC_R does;
+# field `portrait` (a reason, or "no_vision_row") replaces `icon`, reasons
+# `self_portrait`, `ally_portrait`, `ally_stack` replace `on_ally_icon`.
+ABILITY_GLYPH_VERSION = "ability-glyph-0.3.0"
 # The ability tray's charge drops, written as `tray_drop` rows by `reticle
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own

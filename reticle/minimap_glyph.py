@@ -51,24 +51,44 @@ map zoom) as [domain:minimap/icons-follow-map-zoom] would have it: the null
 table's cuts were measured on that basis (dev sessions at zoom 0.887 and
 1.0), and a cut holds only at the matcher it was measured with. The canvas
 search (11-22 px) spans the zoom's change in drawn size; the mask radius
-and the shift do not follow it. Falsifier: rescored at the full transform,
-the best key or the above-cut decision changes on more than 5% of scored
-rows (`glyph_reader/scale@<sid>` records both). A null remeasured at the
-full transform under a new table version ends the exception.
+and the shift do not follow it. The falsifier fired: rescored at the full
+transform on 4f207c0c4e39 (zoom 0.892), the best key changed on 19.5% of
+200 scored rows and the above-cut decision on 11.5%, over its 5% bound
+(`glyph_reader/trial_020`, F4); at zoom 1.0 both agreed on every row. The
+exception stands for now only because the trial sessions sit at the null
+table's dev zooms (0.892 against 0.887, and 1.0), so the cuts are read at
+the basis they were measured on. A session at another zoom has no valid
+cut. A null remeasured at the full transform under a new table version
+ends the exception; `docs/MINIMAP_GLYPH_CHANNEL.md` makes it a stage 3
+prerequisite.
 
 Gates from other channels, before any scheduling (stage 1's follow gates,
 `prototypes/minimap_glyph_eval.py` `map_like` and `portrait_cover`): each
 disc row stores `static_corr`, the masked Pearson of the crop's luma with
 the baked static's (`ctx.map_reference()`, keyed by (map, profile), never a
 session median [domain:capture/session-pixels-are-not-the-map]) inside the
-matcher's disc, and `icon`, the nearest stored `ally_icon` portrait or self
-icon of the same frame (`ally-candidates`: distance, radius, family). A
-disc whose `static_corr` reaches MAP_CORR is the map's (`static_like`); one
-whose centre lies inside a stored portrait is that portrait
-(`on_ally_icon`). Neither is scored, opens a window, or enters the audit or
-surprise paths; the row keeps its reason and its measurements. Where a
-gate's input is missing (no stored stream, a size mismatch) the disc is
-scored and the head says why the gate is unknown.
+matcher's disc, and `portrait`, stage 1's cover reason from the frame's
+stored portraits (`StoredPortraits`: the `ally_icon` fits and self icon,
+`ally-candidates`; stage 1 read `team_vision`, which is stale on the
+variant session). `portrait_cover` lives here and the prototype calls it: the self icon covers within OCC_R; an ally covers
+in the ring SAME_R..OCC_R, never within SAME_R, where the ally reader's fit
+is the followed icon itself (a dark disc with a white glyph and a teal rim
+fits as a portrait); two allies within SAME_R are a stack. A disc whose
+`static_corr` reaches MAP_CORR is the map's (`static_like`); a covered one
+keeps the cover's reason (`self_portrait`, `ally_portrait`, `ally_stack`).
+Neither is scored, opens a window, or enters the audit or surprise paths;
+the row keeps its reason and its measurements. Where a gate's input is
+missing (no stored stream, a size mismatch, no stored row for the frame:
+`portrait` "no_vision_row") the disc is scored and the head says why the
+gate is unknown.
+
+Not gated: the static disc at (21, 91) on 4f207c0c4e39, the variant
+widget's top-left corner, where the void behind the widget reads as a dark
+disc beside the radar ring. The baked static is placed right there; the
+disc lies 80% off the map art's footprint (`geometry.footprint`), yet so do
+real glyphs drawn over the void: 9 of the 226 labelled held-out glyph marks
+sit less than half on the footprint, so a footprint gate would drop them.
+Stage 3's tracks and the null table must answer it (`docs/MINIMAP_GLYPH_CHANNEL.md`).
 
 Candidate sets. Continue the prior: the context set is the match lineup's
 kits, both sides, as `lineup.glyph_candidates` admits them (named slots,
@@ -408,44 +428,92 @@ class StoredIcons:
         return self.by_t.get(float(smp.t_ms))
 
 
-class StoredAllyIcons:
-    """Each frame's stored portraits from the `ally_icon` stream
-    (`ally-candidates`): every icon row's centre and radius, and the frame
-    row's self icon. Held as columns sorted by frame; positions only, never
-    a verdict on who is drawn."""
+#: Stage 1's portrait cover (`prototypes/minimap_glyph_eval.py` follow,
+#: minimap-glyph-follow-0.2.0), px x the matcher's scale. A portrait centre
+#: within OCC_R touches the r = 8.5 scoring disc (a portrait's r is about
+#: 8.5); an ally detection within SAME_R is the followed icon itself, which
+#: the ally reader fits as a moving disc, so it does not cover it.
+OCC_R = 17.0
+SAME_R = 2.5
 
-    def __init__(self, frame_idx, cx, cy, r, family, version):
+
+def portrait_covers(xy, roles, ixy, scale: float) -> list:
+    """Per disc at `xy` (n x 2): why a stored portrait covers it, or None.
+    `roles` and `ixy` (m x 2) are one frame's stored portraits, in
+    their stored order. The self icon always covers within OCC_R; an ally
+    covers in the ring SAME_R..OCC_R; two allies within SAME_R are a stack
+    (one of them is the icon itself). The first covering icon in stored
+    order names the reason, as stage 1's loop does."""
+    xy = np.asarray(xy, float).reshape(-1, 2)
+    ixy = np.asarray(ixy, float).reshape(-1, 2)
+    n = len(xy)
+    if n == 0 or len(ixy) == 0:
+        return [None] * n
+    is_self = np.asarray([r == "self" for r in roles], bool)
+    d = np.hypot(xy[:, None, 0] - ixy[None, :, 0], xy[:, None, 1] - ixy[None, :, 1])
+    near = d <= OCC_R * scale
+    cover = near & (is_self[None, :] | (d > SAME_R * scale))
+    first = cover.argmax(1)
+    same = (near & ~is_self[None, :] & (d <= SAME_R * scale)).sum(1)
+    out = np.where(cover.any(1), np.where(is_self[first], "self_portrait", "ally_portrait"),
+                   np.where(same > 1, "ally_stack", None))
+    return [None if v is None else str(v) for v in out.tolist()]
+
+
+def portrait_cover(p, icons, scale) -> str | None:
+    """Why a stored portrait covers the icon at p, or None: `icons` is
+    [(role, x, y)], one frame's stored portraits (stage 1's call, on `team_vision`)."""
+    icons = list(icons)
+    return portrait_covers([p], [i[0] for i in icons], [(i[1], i[2]) for i in icons], scale)[0]
+
+
+class StoredPortraits:
+    """Each frame's stored portraits as roles and positions, the input
+    stage 1's `portrait_cover` reads: the `ally_icon` stream's teammate fits
+    (role `ally`; a `barrier` row is furniture and is left out, as
+    `team_vision.StoredAllyPoses` leaves it) and the frame row's self icon
+    (role `self`), allies first, as `team_vision` lists them. Stage 1 read
+    `team_vision`; the reader reads its source, `ally_icon` (`ally-candidates`),
+    because the stored `team_vision` predates the variant widget's placement
+    on 4f207c0c4e39 (its self icon sits about 15 px from the self portrait the
+    0.2.0 rows found there) and lacks the self icon on frames `ally_icon`
+    holds. Positions and roles only, never a verdict on who is drawn."""
+
+    def __init__(self, frame_idx, roles, x, y, frames, version):
         f = np.asarray(frame_idx, np.int64).reshape(-1)
         o = np.argsort(f, kind="stable")
         self._f = f[o]
-        self._xyr = np.stack([np.asarray(cx, float).reshape(-1), np.asarray(cy, float).reshape(-1),
-                              np.asarray(r, float).reshape(-1)], 1)[o]
-        self._fam = np.asarray(family, object).reshape(-1)[o]
+        self._role = np.asarray(roles, object).reshape(-1)[o]
+        self._xy = np.stack([np.asarray(x, float).reshape(-1), np.asarray(y, float).reshape(-1)], 1)[o]
+        #: The frames the stream holds a row for (a frame with no icons is read).
+        self.frames = np.unique(np.asarray(frames, np.int64))
         self.version = version
 
     @classmethod
-    def from_rows(cls, rows: list[dict]) -> "StoredAllyIcons":
-        """From stored `coverage`, `frame` and `icon` rows, as a test writes them."""
+    def from_rows(cls, rows: list[dict]) -> "StoredPortraits":
+        """From stored `ally_icon` `coverage`, `frame` and `icon` rows, as a test writes them."""
         head = next((r for r in rows if r.get("kind") == "coverage"), {})
-        f, x, y, rr, fam = [], [], [], [], []
+        f, role, x, y, frames, selfs = [], [], [], [], [], []
         for r in rows:
-            if r.get("kind") == "icon" and r.get("cx") is not None:
+            if r.get("kind") == "frame":
+                frames.append(r["frame_idx"])
+                if r.get("self") and len(r["self"]) >= 2:
+                    selfs.append((r["frame_idx"], r["self"][0], r["self"][1]))
+            elif r.get("kind") == "icon" and r.get("cx") is not None and r.get("family") != "barrier":
                 f.append(r["frame_idx"])
+                role.append("ally")
                 x.append(r["cx"])
                 y.append(r["cy"])
-                rr.append(r.get("r") or 0.0)
-                fam.append(r.get("family") or "icon")
-            elif r.get("kind") == "frame" and r.get("self"):
-                f.append(r["frame_idx"])
-                x.append(r["self"][0])
-                y.append(r["self"][1])
-                rr.append(r["self"][2] if len(r["self"]) > 2 else 0.0)
-                fam.append("self")
-        return cls(f, x, y, rr, fam, head.get("ally_icon_version"))
+        for fi, sx, sy in selfs:
+            f.append(fi)
+            role.append("self")
+            x.append(sx)
+            y.append(sy)
+        return cls(f, role, x, y, frames, head.get("ally_icon_version"))
 
     @classmethod
     def from_store(cls, store, session_id: str):
-        """(StoredAllyIcons, None), or (None, reason) with no stream. Parses
+        """(StoredPortraits, None), or (None, reason) with no stream. Parses
         only the columns it reads (`pyarrow.json`, one thread)."""
         import pyarrow as pa
         import pyarrow.compute as pc
@@ -458,42 +526,40 @@ class StoredAllyIcons:
         if head.get("kind") != "coverage":
             return None, "ally_icon stream has no coverage row"
         schema = pa.schema([("kind", pa.string()), ("frame_idx", pa.int64()), ("cx", pa.float64()),
-                            ("cy", pa.float64()), ("r", pa.float64()), ("family", pa.string()),
+                            ("cy", pa.float64()), ("family", pa.string()),
                             ("self", pa.list_(pa.float64()))])
         t = pj.read_json(path, read_options=pj.ReadOptions(use_threads=False, block_size=1 << 24),
                          parse_options=pj.ParseOptions(explicit_schema=schema,
                                                        unexpected_field_behavior="ignore"))
         kind = t.column("kind")
-        ic = t.filter(pc.and_(pc.equal(kind, "icon"), pc.is_valid(t.column("cx"))))
-        fr = t.filter(pc.and_(pc.equal(kind, "frame"), pc.is_valid(t.column("self"))))
-        selfs = fr.column("self").combine_chunks()
+        fam = t.column("family").fill_null("icon")
+        ic = t.filter(pc.and_(pc.and_(pc.equal(kind, "icon"), pc.is_valid(t.column("cx"))),
+                              pc.not_equal(fam, "barrier")))
+        fr = t.filter(pc.equal(kind, "frame"))
+        frames = np.asarray(fr.column("frame_idx").to_numpy(), np.int64)
+        fs = fr.filter(pc.is_valid(fr.column("self")))
+        selfs = fs.column("self").combine_chunks()
         offs = np.asarray(selfs.offsets.to_numpy(), np.int64)
         vals = np.asarray(selfs.values.to_numpy(zero_copy_only=False), float)
-        ln = np.diff(offs)
-        keep = ln >= 2
+        keep = np.diff(offs) >= 2
         at = offs[:-1][keep]
-        sr = np.where(ln[keep] > 2, vals[np.minimum(at + 2, max(len(vals) - 1, 0))], 0.0) \
-            if len(vals) else np.zeros(0)
-        f = np.concatenate([ic.column("frame_idx").to_numpy(),
-                            np.asarray(fr.column("frame_idx").to_numpy(), np.int64)[keep]])
+        n_ic = ic.num_rows
+        f = np.concatenate([np.asarray(ic.column("frame_idx").to_numpy(), np.int64),
+                            np.asarray(fs.column("frame_idx").to_numpy(), np.int64)[keep]])
         x = np.concatenate([ic.column("cx").to_numpy(), vals[at] if len(vals) else np.zeros(0)])
         y = np.concatenate([ic.column("cy").to_numpy(), vals[at + 1] if len(vals) else np.zeros(0)])
-        r = np.concatenate([ic.column("r").fill_null(0.0).to_numpy(), sr])
-        fam = np.concatenate([np.asarray(ic.column("family").fill_null("icon").to_numpy(
-            zero_copy_only=False), object), np.full(int(keep.sum()), "self", object)])
-        return cls(f, x, y, r, fam, head.get("ally_icon_version")), None
+        roles = np.concatenate([np.full(n_ic, "ally", object), np.full(int(keep.sum()), "self", object)])
+        return cls(f, roles, x, y, frames, head.get("ally_icon_version")), None
 
-    def near(self, frame_idx: int, xy: np.ndarray):
-        """Per disc: (distance to the nearest stored icon of this frame, its
-        radius, its family); NaN, NaN and None where the frame stores none."""
-        lo, hi = np.searchsorted(self._f, [int(frame_idx), int(frame_idx) + 1])
-        n = len(xy)
-        if hi <= lo or n == 0:
-            return np.full(n, np.nan), np.full(n, np.nan), [None] * n
-        a = self._xyr[lo:hi]
-        d = np.hypot(xy[:, None, 0] - a[None, :, 0], xy[:, None, 1] - a[None, :, 1])
-        j = d.argmin(1)
-        return d[np.arange(n), j], a[j, 2], self._fam[lo:hi][j].tolist()
+    def at(self, frame_idx: int):
+        """(roles, xy) of this frame's stored icons, or None where the stream
+        holds no row for the frame."""
+        k = int(frame_idx)
+        j = np.searchsorted(self.frames, k)
+        if j >= len(self.frames) or self.frames[j] != k:
+            return None
+        lo, hi = np.searchsorted(self._f, [k, k + 1])
+        return self._role[lo:hi].tolist(), self._xy[lo:hi]
 
 
 # ------------------------------------------------------------------ the reader
@@ -527,7 +593,7 @@ class AbilityGlyphReader:
                  candidates_from: str | None, icons, hz: float = 2.0, spans=None, ms=None,
                  name: str = "ability_glyph", audit_every: int = AUDIT_EVERY,
                  static=None, static_reason: str | None = "no baked static given",
-                 allies=None, allies_reason: str | None = "no ally_icon rows given"):
+                 portraits=None, portraits_reason: str | None = "no ally_icon rows given"):
         self.name, self.hz, self.spans = name, hz, spans
         self.frames_from = "video"
         self.cv_threads = 1
@@ -543,9 +609,11 @@ class AbilityGlyphReader:
         #: stored portraits; None with a reason where absent.
         self.static_y = _static_luma(static)
         self.static_reason = None if static is not None else static_reason
-        self.allies = allies
-        self.allies_reason = None if allies is not None else allies_reason
+        self.portraits = portraits
+        self.portraits_reason = None if portraits is not None else portraits_reason
         self.static_mismatch = 0
+        #: Read frames whose discs the portrait gate could not judge (no stored row).
+        self.no_vision_row = 0
         self.xp, self.scorer = _backend()
         self._tm: dict = {}
         #: The last read sample: its time, and each candidate's window and disc id.
@@ -616,9 +684,10 @@ class AbilityGlyphReader:
         self._open = []
         self._prev = None
 
-    def _gates(self, y, xy, wins, ok, tm, frame_idx):
-        """Per disc: (static_corr, icon distance, icon radius, icon family,
-        gate reason or None), vectorised over the frame's discs."""
+    def _gates(self, y, xy, wins, ok, tm, frame_idx, scale):
+        """Per disc: (static_corr, portrait cover reason or None, gate reason
+        or None), vectorised over the frame's discs; `portrait` is
+        "no_vision_row" where the stored stream has no row for the frame."""
         n = len(xy)
         corr = np.full(n, np.nan)
         if self.static_y is not None and n:
@@ -633,16 +702,19 @@ class AbilityGlyphReader:
                     c = (zrows(a) * zrows(b)).sum(1)
                     c[b.std(1) < FLAT_STD] = np.nan
                     corr[both] = c
-        if self.allies is not None:
-            d, rad, fam = self.allies.near(frame_idx, xy)
-        else:
-            d, rad, fam = np.full(n, np.nan), np.full(n, np.nan), [None] * n
-        why = np.full(n, None, object)
-        on_icon = np.nan_to_num(d, nan=np.inf) <= np.nan_to_num(rad, nan=-1.0)
-        why[on_icon] = "on_ally_icon"
+        cover: list = [None] * n
+        unread = False
+        if self.portraits is not None and n:
+            got = self.portraits.at(frame_idx)
+            if got is None:
+                unread = True
+                self.no_vision_row += 1
+            else:
+                cover = portrait_covers(xy, got[0], got[1], scale)
+        why = np.asarray(cover, object)
         why[np.nan_to_num(corr, nan=-2.0) >= MAP_CORR] = "static_like"
         why[~ok] = "off_crop"
-        return corr, d, rad, fam, why.tolist()
+        return corr, ("no_vision_row" if unread else cover), why.tolist()
 
     def feed(self, smp) -> None:
         t = float(smp.t_ms)
@@ -671,7 +743,7 @@ class AbilityGlyphReader:
         xy = np.array([[c["cx"], c["cy"]] for c in cands], float).reshape(-1, 2)
         wins, ok = disc_windows(y, xy, tm.w, tm.sh)
         with usage_step("gates"):
-            corr, icon_d, icon_r, icon_f, gate = self._gates(y, xy, wins, ok, tm, smp.frame_idx)
+            corr, cover, gate = self._gates(y, xy, wins, ok, tm, smp.frame_idx, scale)
         # The proposer's verify decides continuation (`ability-icon`).
         prev = self._prev
         ver = ir.get("verify")
@@ -693,9 +765,7 @@ class AbilityGlyphReader:
                     "disc": self._disc_id(t, i), "i": i, "cx": c["cx"], "cy": c["cy"], "r": c["r"],
                     "scale": round(scale, 5),
                     "static_corr": None if np.isnan(corr[i]) else round(float(corr[i]), 4),
-                    "icon": None if np.isnan(icon_d[i]) else
-                    {"d": round(float(icon_d[i]), 3), "r": round(float(icon_r[i]), 3),
-                     "family": icon_f[i]}}
+                    "portrait": cover if isinstance(cover, str) else cover[i]}
             if gate[i] is not None:
                 self.rows.append({**base, "set": "context", "reason": gate[i], "window": None,
                                   "birth": False, "rests_on": rests, "scores": None})
@@ -796,10 +866,17 @@ class AbilityGlyphReader:
                                      "from": "prototypes/minimap_glyph_eval.py MAP_CORR (stage 1's follow)",
                                      "unknown": self.static_reason,
                                      "size_mismatch_frames": self.static_mismatch},
-                          "ally_icon": {"rule": "the disc's centre inside a stored ally_icon icon or "
-                                                "the frame's self icon (distance <= its r)",
-                                        "ally_icon_version": getattr(self.allies, "version", None),
-                                        "unknown": self.allies_reason}},
+                          "portrait": {"rule": "stage 1's portrait_cover over the frame's stored "
+                                               "ally_icon fits (allies, no barriers) and self icon: the "
+                                               "self icon within occ_r, an ally "
+                                               "in the ring same_r..occ_r, or two allies within same_r "
+                                               "(px x the matcher's scale)",
+                                       "occ_r": OCC_R, "same_r": SAME_R,
+                                       "from": "prototypes/minimap_glyph_eval.py follow "
+                                               "(minimap-glyph-follow-0.2.0), which calls this function",
+                                       "ally_icon_version": getattr(self.portraits, "version", None),
+                                       "unknown": self.portraits_reason,
+                                       "no_vision_row_frames": self.no_vision_row}},
                 "candidates": self.candidates, "candidates_from": self.candidates_from,
                 "context": {"keys": self.context_keys, "rotate": "policy",
                             "why": "the match lineup's kits, both sides (lineup.glyph_candidates: named "
@@ -857,9 +934,9 @@ def glyph_reader(ctx, spans, icons, candidates, candidates_from, hz: float = 2.0
         static, static_why = ctx.map_reference(), None
     except (SystemExit, FileNotFoundError, KeyError, ValueError) as exc:
         static, static_why = None, f"no baked static: {exc}"
-    allies, allies_why = StoredAllyIcons.from_store(ctx.store, ctx.session_id)
+    portraits, portraits_why = StoredPortraits.from_store(ctx.store, ctx.session_id)
     return AbilityGlyphReader(data or GlyphData.load(ctx.store.root), box, ctx.session_id,
                               candidates, candidates_from, icons, hz=hz, spans=spans,
                               ms=geometry.map_scale_of(ctx.session_id, ctx.store.root),
                               static=static, static_reason=static_why,
-                              allies=allies, allies_reason=allies_why)
+                              portraits=portraits, portraits_reason=portraits_why)
