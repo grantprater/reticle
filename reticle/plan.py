@@ -460,13 +460,13 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_WEAPON_VERSION
     from .killfeed_assist import ICON_BUILD
     from .lighting import LIGHTING_VERSION
+    from .version import TRAY_SEGMENT_VERSION
     from .roi_cache import ROI_CACHE_VERSION
     from .ability_candidates import values_digest
     from .version import (ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION,
                           ABILITY_CANDIDATES_VERSION, ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION,
                           ICON_POSE_PRIOR_VERSION, STACK_FIT_VERSION,
-                          ICON_TEARDROP_VERSION, TEARDROP_VERSION, TRAY_SEGMENT_VERSION,
-                          TRAY_VERSION)
+                          ICON_TEARDROP_VERSION, TEARDROP_VERSION, TRAY_VERSION)
     geo ={"geometry": _in("geometry_built_by", "geometry")}
     death = "death#death_adjudication_version"
     return {
