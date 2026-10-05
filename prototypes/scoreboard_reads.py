@@ -935,7 +935,7 @@ def cmd_eval(args) -> int:
     if args.record:
         if args.half != "all":
             raise SystemExit("--record needs the full run (--half all)")
-        record(summary, cal)
+        record_summary(summary, cal)
     return 0
 
 
@@ -983,7 +983,7 @@ def cmd_posthoc(args) -> int:
     return 0
 
 
-def record(summary: dict, cal: dict) -> None:
+def record_summary(summary: dict, cal: dict) -> None:
     from reticle import metrics
     deps = {"tool": READS_VERSION,
             "rules": "a0,a,b,c,d,e fixed 2026-10-04; e_cal,e_cred dev-calibrated",
