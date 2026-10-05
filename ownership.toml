@@ -175,6 +175,22 @@ rather than deciding on its own that a missing observation means death.
 consumers = ["doctor", "team_vision"]
 evidence = "tests/test_stalls.py"
 
+[[entry]]
+id = "blind-screen"
+question = "Did a flash's wash hide the HUD in these frames?"
+owner = "blinds"
+role = ["constrain"]
+status = "partial"
+produces = ["spans", "for_session", "inside", "hidden_ms"]
+not_for = """
+Which ability blinded the player, or that the player was blinded at all where
+the wash spares the HUD. A span says the killfeed and minimap could not be
+seen, not that an entry expired or an icon left -- a consumer joins it and
+ages its tracks without the hidden time.
+"""
+consumers = ["checks", "adjudication.death", "cli"]
+evidence = "tests/test_blinds.py"
+
 # ---------------------------------------------------------------------------
 # Readers: pixels in, one observation out
 # ---------------------------------------------------------------------------

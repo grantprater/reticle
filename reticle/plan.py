@@ -1036,6 +1036,7 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
     from .minimap_objects import minimap_object_version
     from .roi_cache import ROI_CACHE_VERSION
+    from .blinds import BLIND_VERSION
     from .stalls import STALL_VERSION
     from .version import (ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
                           COMBAT_REPORT_ROUND_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
@@ -1057,7 +1058,10 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
              "reliability": RELIABILITY_VERSION,
              # The stall rule over the stored motion and clock; the deaths it
              # infers come from the stalls (recorded None where unread).
-             "stalls": STALL_VERSION}
+             "stalls": STALL_VERSION,
+             # The blind rule over the stored primitives: a wash hides the
+             # killfeed without expiring an entry (recorded None where unread).
+             "blinds": BLIND_VERSION}
     ult = {"ult_line": ULT_LINE_VERSION, "round": ROUND_VERSION, "tray_drop": TRAY_VERSION,
            "hud": HUD_VERSION, "player_cast": PLAYER_CAST_VERSION,
            "death": DEATH_ADJUDICATION_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
