@@ -293,6 +293,28 @@ def admits(motion: Motion, dist_px: float, dt_s: float, scale: float = 1.0,
     return (False, f"exceeds {motion.max_px_s:g} px/s")
 
 
+def admits_many(motion: Motion, dist_px, dt_s, scale: float = 1.0) -> np.ndarray:
+    """`admits(motion, d, t, scale)[0]` for each pair of `dist_px` and `dt_s`,
+    as one boolean array, with no lifetime and no evidence.
+
+    The same rule as `admits`, in its order, evaluated over arrays: a
+    caller judging many steps of one class asks here rather than looping the
+    scalar form. With no evidence a teleport class falls back to
+    `TELEPORT_PX`, as `admits` does."""
+    d = np.asarray(dist_px, dtype=float)
+    t = np.asarray(dt_s, dtype=float)
+    d, t = np.broadcast_arrays(d, t)
+    if motion.max_px_s is None:
+        moved = d <= 1.5 * scale
+    else:
+        moved = d <= motion.max_px_s * scale * t
+        if motion.may_dash:
+            moved |= d <= DASH_PX_S * scale * t
+        if motion.may_teleport:
+            moved |= d >= TELEPORT_PX * scale
+    return np.where(t <= 0, d == 0, moved)
+
+
 def association_tolerance(scale: float = 1.0,
                           position_error_px: float = FIT_ERR_PX,
                           r_a: float | None = None,

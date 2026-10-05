@@ -242,21 +242,36 @@ see = ["rounds/post-round-period", "hud/planted-spike-replaces-clock",
 
 [plant-credits]
 claim = """
-A plant awards 200 credits to each member of the planting team, a post-round
-plant included.
+A plant awards 300 credits to each member of the attacking team and nothing to
+the defenders, a post-round plant included.
 """
-kind = "lifecycle"
-known = "player"
-since = "2026-10-03"
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
 source = """
-player, 2026-10-03 (chat), answering how post-round plants are witnessed: "There
-is also 200 credits added for each member of the planted team."
+Riot's 22 stored match records (`external/riot/*.json` in the store), replayed
+through `reticle.economy.EconomyTracker` by `prototypes/riot_economy.py`: each
+round's wallet is `remaining + spent`, compared per team. With 300, the replay reproduces [metric:riot_economy/team_rounds#regular_ok=815] of
+[metric:riot_economy/team_rounds#regular_n=816] regular team-rounds, carrying [metric:riot_economy/team_rounds#ok_plant_payments=1310]
+plant payments; with 200 it reproduces [metric:riot_economy/team_rounds#plant_200_regular_ok=553]. The
+records hold [metric:riot_economy/team_rounds#post_round_plants=25] post-round plants among
+[metric:riot_economy/team_rounds#plant_rounds=292] plant rounds. Asked "plant reward 300", the third of eleven numbered
+questions (2026-10-04, chat), the player answered "3. Yes".
 """
 use = """
-scoreboard credits can witness a plant: the planting team's credits rise by
-this amount
+scoreboard credits can witness a plant: each attacker's credits rise by this
+amount. `rounds.spike_planted` excludes post-round plants, so the ledger takes
+plants from the plant witnesses, not from it. `EconomyRules.plant_reward`
+holds the value
 """
-see = ["rounds/post-round-plant-no-graphic", "rounds/scoreboard-credit-snapshot"]
+supersedes = """
+the player's statement of 2026-10-03 (chat), answering how post-round plants
+are witnessed: "There is also 200 credits added for each member of the planted
+team." Riot's records pay 300; the 200 figure was recorded here from
+2026-10-03 to 2026-10-04
+"""
+see = ["rounds/post-round-plant-no-graphic", "rounds/scoreboard-credit-snapshot",
+       "rounds/credit-ledger-rules"]
 
 [post-round-plant-sound]
 claim = """
@@ -299,7 +314,231 @@ credits between two openings are a ledger of income and purchases; an ally's
 purchases are visible, an enemy's are an inference
 """
 exceptions = """
-the rules themselves are not recorded here: the player holds them, and none has
-been stated into a domain table
+the rules are recorded one per table from Riot's records
+[domain:rounds/credit-ledger-rules]
 """
-see = ["rounds/plant-credits"]
+see = ["rounds/plant-credits", "rounds/credit-ledger-rules"]
+
+[credit-ledger-rules]
+claim = """
+A team's credits follow the reset banks, round rewards, kill rewards, plant
+rewards and purchases, under one cap: [domain:rounds/pistol-round-bank],
+[domain:rounds/halftime-credit-reset], [domain:rounds/overtime-bank],
+[domain:rounds/loss-ladder], [domain:rounds/survival-loss-reward],
+[domain:rounds/defuse-reward], [domain:rounds/credit-cap] and
+[domain:rounds/plant-credits]. Two more paths move credits outside these
+rules, and the ledger does not model them: an AFK round's withheld reward
+goes to teammates [domain:rounds/afk-round-reward], and an abandon brings
+leaver compensation [domain:rounds/leaver-compensation]. One player's
+`remaining + spent` can exceed the cap, so the rules are checked on team
+totals, not on each wallet.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+source = """
+Riot's 22 stored match records (`external/riot/*.json` in the store), replayed
+through `reticle.economy.EconomyTracker` by `prototypes/riot_economy.py`: each
+round's wallet is `remaining + spent`, compared per team. The owner's rules reproduce [metric:riot_economy/team_rounds#regular_ok=815] of [metric:riot_economy/team_rounds#regular_n=816]
+regular team-rounds; the miss settles a round with an AFK player
+[domain:rounds/afk-round-reward]. A kill reward of 150 instead of 200
+reproduces [metric:riot_economy/team_rounds#kill_150_regular_ok=29]
+"""
+use = """
+reticle/economy.py owns the ledger (ownership `credit-ledger`); ask it, never restate
+a rule. Compare team totals: `remaining + spent` is no single player's wallet
+once a teammate drops or sells
+"""
+exceptions = """
+the records span game versions 13.04 to 13.06; a patch may change any value
+"""
+see = ["rounds/scoreboard-credit-snapshot"]
+
+[pistol-round-bank]
+claim = """
+Both pistol rounds, the first round and the first round after halftime, open
+with 800 credits for every player, whatever the player held before.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+source = """
+Riot's 22 stored match records (`external/riot/*.json` in the store), replayed
+through `reticle.economy.EconomyTracker` by `prototypes/riot_economy.py`: each
+round's wallet is `remaining + spent`, compared per team: [metric:riot_economy/team_rounds#match_start_ok=44] of [metric:riot_economy/team_rounds#match_start_n=44] match-start and
+[metric:riot_economy/team_rounds#halftime_ok=40] of [metric:riot_economy/team_rounds#halftime_n=40] halftime team-rounds open at 800 per
+player
+"""
+use = "`EconomyRules.starting_credits`; `EconomyTracker.reset_period` applies it"
+see = ["rounds/halftime-credit-reset", "rounds/credit-ledger-rules"]
+
+[halftime-credit-reset]
+claim = """
+At halftime every wallet resets to the pistol bank and both teams' loss
+streaks reset, so the first loss after halftime pays the first step of the
+loss ladder.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+source = """
+Riot's 22 stored match records (`external/riot/*.json` in the store), replayed
+through `reticle.economy.EconomyTracker` by `prototypes/riot_economy.py`: each
+round's wallet is `remaining + spent`, compared per team: [metric:riot_economy/team_rounds#halftime_ok=40] of [metric:riot_economy/team_rounds#halftime_n=40] halftime team-rounds open at
+800 per player; the round after the halftime pistol round reproduces in
+[metric:riot_economy/team_rounds#ok_post_halftime_rows=39] of 40 team-rounds with the streak reset, the miss
+the AFK round [domain:rounds/afk-round-reward]
+"""
+use = "`EconomyTracker.reset_period(round, \"halftime\")`"
+see = ["rounds/halftime-side-swap", "rounds/pistol-round-bank", "rounds/loss-ladder"]
+
+[overtime-bank]
+claim = """
+Every overtime round opens with 5,000 credits for every player, whatever the
+player held before.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+source = """
+Riot's 22 stored match records (`external/riot/*.json` in the store), replayed
+through `reticle.economy.EconomyTracker` by `prototypes/riot_economy.py`: each
+round's wallet is `remaining + spent`, compared per team: [metric:riot_economy/team_rounds#overtime_ok=16] of [metric:riot_economy/team_rounds#overtime_n=16] overtime team-rounds open at
+5,000 per player; the former 800 default reproduced
+[metric:riot_economy/team_rounds#overtime_800_overtime_ok=0]
+"""
+use = "`EconomyRules.overtime_credits`; `EconomyTracker.reset_period(round, \"overtime\")`"
+see = ["rounds/credit-ledger-rules"]
+
+[loss-ladder]
+claim = """
+A losing player is paid 1,900 for the team's first consecutive loss, 2,400 for
+the second and 2,900 for the third and every later one. A win resets the
+streak, and so does halftime.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+source = """
+Riot's 22 stored match records (`external/riot/*.json` in the store), replayed
+through `reticle.economy.EconomyTracker` by `prototypes/riot_economy.py`: each
+round's wallet is `remaining + spent`, compared per team: reproduced team-rounds carry [metric:riot_economy/team_rounds#ok_loss_streak_1_payments=1014],
+[metric:riot_economy/team_rounds#ok_loss_streak_2_payments=535] and [metric:riot_economy/team_rounds#ok_loss_streak_3_payments=249]
+payments at the three steps; a flat 1,900 reproduces
+[metric:riot_economy/team_rounds#flat_loss_1900_regular_ok=610]
+"""
+use = "`EconomyRules.loss_rewards`"
+see = ["rounds/halftime-credit-reset", "rounds/survival-loss-reward"]
+
+[survival-loss-reward]
+claim = """
+A losing attacker alive at the end of a round lost without a plant, and a
+losing defender alive after the spike detonates, are paid 1,000 instead of the
+loss ladder. A spike death is a death.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+source = """
+Riot's 22 stored match records (`external/riot/*.json` in the store), replayed
+through `reticle.economy.EconomyTracker` by `prototypes/riot_economy.py`: each
+round's wallet is `remaining + spent`, compared per team: reproduced team-rounds carry [metric:riot_economy/team_rounds#ok_survival_payments=9] survival
+payments; paying them 1,900 instead reproduces
+[metric:riot_economy/team_rounds#survival_1900_regular_ok=807]. Survival is read from Riot's kills, spike
+deaths included
+"""
+use = """
+`economy.survival_penalty`; the ledger takes `survived` from death events,
+never the scoreboard's death column
+"""
+see = ["rounds/loss-ladder"]
+
+[defuse-reward]
+claim = """
+A defuse pays nothing beyond the round win: no defuse reward exists.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+source = """
+Riot's 22 stored match records (`external/riot/*.json` in the store), replayed
+through `reticle.economy.EconomyTracker` by `prototypes/riot_economy.py`: each
+round's wallet is `remaining + spent`, compared per team: [metric:riot_economy/team_rounds#ok_defuse_winner_rows=79] team-rounds settling a defuse for the
+defusing team reproduce with no defuse reward
+"""
+use = "`EconomyRules` carries no defuse reward"
+see = ["rounds/credit-ledger-rules"]
+
+[credit-cap]
+claim = """
+No player holds more than 9,000 credits; every reward past the cap is lost,
+kill rewards during the round included.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+source = """
+Riot's 22 stored match records (`external/riot/*.json` in the store), replayed
+through `reticle.economy.EconomyTracker` by `prototypes/riot_economy.py`: each
+round's wallet is `remaining + spent`, compared per team: no `remaining` exceeds [metric:riot_economy/team_rounds#max_remaining=9000]; reproduced team-rounds
+carry [metric:riot_economy/team_rounds#ok_capped_payments=132] payments the cap truncates; without the cap
+the replay reproduces [metric:riot_economy/team_rounds#no_cap_regular_ok=735]
+"""
+use = "`EconomyRules.credit_cap`"
+see = ["rounds/credit-ledger-rules"]
+
+[afk-round-reward]
+claim = """
+A player flagged AFK for a round (`wasAfk` in Riot's round stats) is paid no
+round reward for it; each active teammate is paid a share of the withheld
+reward on top of their own.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-04"
+source = """
+Riot's 22 stored match records (`external/riot/*.json` in the store), replayed
+through `reticle.economy.EconomyTracker` by `prototypes/riot_economy.py`: each
+round's wallet is `remaining + spent`, compared per team. Two player-rounds carry `wasAfk`. The AFK players' wallets fell short of
+the ledger by [metric:riot_economy/team_rounds#afk_own_residual_min=-3000] (a win reward) and
+[metric:riot_economy/team_rounds#afk_own_residual_max=-2400] (a second-step loss reward); every teammate
+gained between [metric:riot_economy/team_rounds#afk_teammate_residual_min=600] and
+[metric:riot_economy/team_rounds#afk_teammate_residual_max=700]. 2,400 split four ways is 600 each, so that
+team's total balanced; 3,000 paid 700 each, 200 short of an even split, the one
+regular miss ([metric:riot_economy/team_rounds#afk_rows_ok=1] of [metric:riot_economy/team_rounds#afk_rows=2] AFK team-rounds reproduce)
+"""
+use = """
+the ledger does not model it; a team-round settling an AFK round is a known
+miss, not a rule failure
+"""
+exceptions = """
+two instances: the share's rule (an even split rounded down to 100, or
+another) is unmeasured. Neither player abandoned the match
+[domain:rounds/leaver-compensation]
+"""
+see = ["rounds/leaver-compensation", "rounds/credit-ledger-rules"]
+
+[leaver-compensation]
+claim = """
+When a player abandons the match there is leaver compensation. How it pays
+credits is unknown.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+source = """
+the player, 2026-10-04 (chat): "If they've abandoned the game there is leaver
+compensation, I don't recall how they get credits". No stored Riot record holds an abandon: [metric:riot_economy/team_rounds#players_multi_period=0] players
+carry a second participation period and [metric:riot_economy/team_rounds#players_short_rounds=0] played
+fewer rounds than their match's other players, so the credit mechanics stay
+unmeasured
+"""
+use = """
+none until measured; a match with a leaver is outside the ledger's reproduced
+rules
+"""
+exceptions = """
+the AFK-round transfer [domain:rounds/afk-round-reward] may be related; nothing
+shows it is the same mechanism
+"""
+see = ["rounds/afk-round-reward", "rounds/credit-ledger-rules"]

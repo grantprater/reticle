@@ -548,6 +548,43 @@ class AssignAllyPiecesTests(unittest.TestCase):
         self.assertEqual(out["a"]["evidence_sum"]["Breach"], 4.0)
         self.assertEqual(out["b"]["agent"], "Breach")
 
+    def test_a_spectated_piece_takes_the_name_its_neighbours_leave(self):
+        """agent-identity-0.11.0: a piece with `candidates` and no claims is
+        named by elimination and depends on the pieces that named the rest."""
+        names = ["Breach", "Miks", "Reyna"]
+        pieces = {"a": {"round": 1, "claims": _piece_claims(3, {"Breach": 2, "Miks": -1, "Reyna": -1})},
+                  "b": {"round": 1, "claims": _piece_claims(3, {"Breach": -1, "Miks": 2, "Reyna": -1})},
+                  "s": {"round": 1, "t": [0.0], "claims": [], "candidates": names}}
+        out = self.assign(pieces, {(1, 0.0): {"a", "b", "s"}})
+        self.assertEqual([out[p]["agent"] for p in "abs"], ["Breach", "Miks", "Reyna"])
+        self.assertEqual(out["s"]["depends_on"], ["a", "b"])
+        self.assertEqual(out["s"]["evidence_sum"], {})
+        self.assertEqual(out["a"]["depends_on"], [])
+
+    def test_a_spectated_piece_with_two_names_left_is_refused(self):
+        pieces = {"a": {"round": 1, "claims": _piece_claims(3, {"Breach": 2, "Miks": -1, "Reyna": -1})},
+                  "s": {"round": 1, "t": [0.0], "claims": [],
+                        "candidates": ["Breach", "Miks", "Reyna"]}}
+        out = self.assign(pieces, {(1, 0.0): {"a", "s"}})
+        self.assertEqual(out["a"]["agent"], "Breach")
+        self.assertIsNone(out["s"]["agent"])
+        self.assertTrue(out["s"]["reason"].startswith("elimination leaves"))
+
+    def test_a_spectated_piece_never_takes_a_name_from_evidence(self):
+        pieces = {"a": {"round": 1, "claims": _piece_claims(1, {"Breach": 0.01, "Miks": -1})},
+                  "s": {"round": 1, "t": [0.0], "claims": [], "candidates": ["Breach"]}}
+        out = self.assign(pieces, {(1, 0.0): {"a", "s"}})
+        self.assertIsNone(out["s"]["agent"])
+        self.assertEqual(out["s"]["reason"], "constraints leave no teammate")
+
+    def test_a_dead_teammate_leaves_a_spectated_piece_one_name(self):
+        pieces = {"s": {"round": 1, "t": [5000.0], "claims": [],
+                        "candidates": ["Breach", "Miks"]}}
+        dead = {1: {"Breach": [(3000.0, 9000.0, "dead")]}}
+        out = self.assign(pieces, {(1, 5000.0): {"s"}}, dead=dead)
+        self.assertEqual(out["s"]["agent"], "Miks")
+        self.assertEqual(out["s"]["depends_on"], [])
+
     def test_a_refusal_the_bar_caused_names_the_bar(self):
         pieces = {"a": {"round": 1, "t": [5000.0],
                         "claims": _piece_claims(2, {"Breach": 2, "Miks": -1})}}

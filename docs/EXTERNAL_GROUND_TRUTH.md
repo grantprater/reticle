@@ -48,8 +48,10 @@ the earlier spans were each account's play. Retention is unknown, so pull each
 new capture's record promptly.
 
 All 22 match captures have their match-details record saved in the store
-under `external/riot/` (a store path, not the repository): 22 files. The
-"3,532 kills" this paragraph once gave does not reproduce; the counts are in
+under `external/riot/` (a store path, not the repository): 22 files,
+[metric:riot_economy/team_rounds#kills=3459] kill events in all, [metric:riot_economy/team_rounds#spike_kills=12] of them spike deaths (an earlier count here,
+3,532, does not reproduce). [metric:riot_economy/team_rounds#competitive_matches=20] are competitive and
+[metric:riot_economy/team_rounds#unrated_matches=2] unrated (0f08b3dc3777 and b3b9defb6fd7). The remaining counts are in
 [WIN_PROBABILITY_RESEARCH.md](WIN_PROBABILITY_RESEARCH.md), section 5, Data.
 Each file names its session in `probe.session_id`; the store is
 the index, and match IDs stay out of this repository.
@@ -68,8 +70,14 @@ ult points), `round_phase`, and the player's own health and abilities. No
 positions and no in-round time; `spike_planted` was removed on 2025-01-30.
 
 **In-game replays.** The client keeps `.vrf` files in
-`%LOCALAPPDATA%\VALORANT\Saved\Demos` and rotates them; 15 are preserved in
-the store under `external/replays/`. vrfkit, built from source with the
+`%LOCALAPPDATA%\VALORANT\Saved\Demos` and rotates them; 15 sat there on
+2026-10-04, and those 15 are preserved in the store under `external/replays/`.
+They are readable offline: the file is not encrypted, and its uncompressed
+event chunks carry deaths, plants, defuses and round starts
+[domain:replay/vrf-container]. In b03fecd3 the replay's 180 deaths pair one to
+one, in time order, with Riot's 180 kills (the store's
+`notes/predictions.jsonl` outcome rows for `replay-vrf-probe-20261004` and
+`replay-vrf-verify-20261004`). vrfkit, built from source with the
 player's approval (2026-10-04), decodes every player's position and view at
 the server tick [domain:replay/vrf-position-stream], and
 `prototypes/replay_truth.py` checks each parse against Riot's record before
@@ -105,7 +113,10 @@ other:
 - roster: the match's ten agents and sides against the lineup reader;
 - round boundaries: round count, plant and defuse times against `rounds`;
 - positions and facing at kill instants: `playerLocations` against the
-  minimap tracks and teardrop facings at that frame.
+  minimap tracks and teardrop facings at that frame;
+- credits: every round's `playerEconomies` against `economy.EconomyTracker`,
+  replayed by `prototypes/riot_economy.py`; the rules it measured are domain
+  facts [domain:rounds/credit-ledger-rules].
 
 Store disagreements beside agreements. The record is evidence about the match,
 never a reader's prior: a result it shaped declares `rests_on`.

@@ -50,7 +50,20 @@ class CreditRange:
 
 @dataclass(frozen=True)
 class EconomyRules:
+    """The credit rules, each recorded from Riot's match records
+    [domain:rounds/credit-ledger-rules]: the pistol bank
+    [domain:rounds/pistol-round-bank], reset at halftime
+    [domain:rounds/halftime-credit-reset]; the overtime bank
+    [domain:rounds/overtime-bank]; the cap [domain:rounds/credit-cap]; the loss
+    ladder [domain:rounds/loss-ladder]; the survival reward
+    [domain:rounds/survival-loss-reward]; the plant reward
+    [domain:rounds/plant-credits]. A defuse pays nothing
+    [domain:rounds/defuse-reward]. Not modelled: the AFK-round transfer
+    [domain:rounds/afk-round-reward] and leaver compensation
+    [domain:rounds/leaver-compensation].
+    """
     starting_credits: int = 800
+    overtime_credits: int = 5000
     credit_cap: int = 9000
     win_reward: int = 3000
     loss_rewards: tuple[int, ...] = (1900, 2400, 2900)
@@ -175,10 +188,19 @@ class EconomyTracker:
     def reset_period(self, round_no: int, reason: str,
                      credits: int | None = None, t_ms: float | None = None,
                      source_ids: tuple[str, ...] = ()) -> None:
-        """Apply a known match-start, halftime, overtime or observed reset."""
+        """Apply a known match-start, halftime, overtime or observed reset.
+
+        Without ``credits``, overtime assigns ``overtime_credits`` and every
+        other reset ``starting_credits``.
+        """
         if reason not in ("match_start", "halftime", "overtime", "observed_reset"):
             raise ValueError("unsupported reset reason")
-        value = self.rules.starting_credits if credits is None else credits
+        if credits is not None:
+            value = credits
+        elif reason == "overtime":
+            value = self.rules.overtime_credits
+        else:
+            value = self.rules.starting_credits
         if not 0 <= value <= self.rules.credit_cap:
             raise ValueError("reset credits outside ruleset bounds")
         for player, before in self.balances.items():

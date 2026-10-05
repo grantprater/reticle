@@ -224,11 +224,13 @@ as a batched full grid cuts it 3-4x, and Amdahl caps the gain near 4x.
 Since Patch 11.06 (https://playvalorant.com/en-us/news/dev/replays-everything-you-need-to-know,
 2025-09-16, verified) the client keeps Replays of the player's own games on
 the current patch, with all ten first-person views, speeds up to 8x, and a
-minimap that cannot hide enemies. `docs/EXTERNAL_GROUND_TRUTH.md` says replays
-"cannot be exported"; that line is stale, because 15 `.vrf` files sit in
-`%LOCALAPPDATA%\VALORANT\Saved\Demos`. A replay capture would give fog-free
-enemy positions for post-game coaching without inference. It needs the game
-client open and expires at the next patch. OP.GG already sells replay-based
+minimap that cannot hide enemies. The client stores them as local `.vrf` files
+in `%LOCALAPPDATA%\VALORANT\Saved\Demos` (`docs/EXTERNAL_GROUND_TRUTH.md`,
+"In-game replays"). A replay capture would give fog-free enemy positions for
+post-game coaching without inference. Watching one needs the game client
+open. On 2026-10-04 the player found older replays listed as "Expired or
+incompatible" in the client, yet the stored `.vrf` files span builds
+11.11-13.04 and parse offline [domain:replay/vrf-container]. OP.GG already sells replay-based
 analysis (https://op.gg/valorant/replay, retrieved 2026-10-04; features as
 advertised, untested).
 

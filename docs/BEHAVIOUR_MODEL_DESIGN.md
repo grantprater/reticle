@@ -176,6 +176,10 @@ Hypotheses for the player to define or reject, not domain facts:
 | entry | first contact or first death of the round, most often |
 | anchor | holds one site across rounds, rotates late |
 
+The player chose rotations and lurks as the first coaching question
+(2026-10-04); [COACHING_ROTATIONS_LURKS.md](COACHING_ROTATIONS_LURKS.md)
+plans them as events.
+
 ## Order
 
 1. **Foundation (in progress):** identity-bearing killfeed events, then
