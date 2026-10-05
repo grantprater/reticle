@@ -2237,10 +2237,8 @@ claim = """
 For an ability whose own fact says its owner can pick it up, the charge
 constraint on ability instances has a return transition: the pickup closes
 the deployed instance and returns its charge to the slot, and that charge is
-usable only after the ability's cooldown. A cast opens an instance and spends
-a charge; a pickup is the one transition that closes an instance and gives
-the charge back. No ability gains this transition by analogy; it holds only
-where a per-ability fact gives it.
+usable after a cooldown. No ability gains this transition by analogy; it
+holds only where a per-ability fact gives it.
 """
 kind = "constraint"
 known = "player"
@@ -2260,10 +2258,22 @@ ability before it dates the charge as castable
 """
 exceptions = """
 whether the tray draws the returned charge during its cooldown is not
-recorded. The game files show phase-dependent behaviour the player's
-statement does not mention: Nanoswarm and Cyber Cage are picked up only in
-RoundStarting, and Trapwire picked up after RoundStarting adds a temporary
-charge with no cooldown in its blueprint
+recorded. The game files show behaviour the player's statement does not
+mention. During RoundStarting (EAresGamePhase 3) a pickup returns the charge
+at once, with no cooldown (abilities/killjoy-alarmbot-recall-cooldown,
+abilities/killjoy-turret-recall-cooldown, abilities/cypher-spycam-pickup-cooldown,
+abilities/chamber-trademark-recall-cooldown,
+abilities/chamber-rendezvous-recall-cooldown). Nanoswarm and Cyber Cage are
+picked up only in RoundStarting (abilities/killjoy-nanoswarm-pickup-distance,
+abilities/cypher-cyber-cage-pickup-distance), and Trapwire picked up after
+RoundStarting adds a temporary charge with no cooldown in its blueprint
+(abilities/cypher-trapwire-pickup-distance). Destruction also returns a
+charge: Killjoy's recallable base class falls back to CooldownOnDestroy when
+the deployable was not reclaimed (Turret 60 s), and the Spycam pawn sets
+RefundOnDestroyed with a 60 s DestroyedCooldown; the catalogue's restock
+cell reads "60 s (Destroyed)" for both
+(abilities/killjoy-turret-recall-cooldown, abilities/cypher-spycam-pickup-cooldown,
+abilities/catalogue-restock-and-ult-points-confirmed)
 """
 see = ["abilities/ability-rules-are-unique", "abilities/recharge-kinds",
        "abilities/killjoy-deployed-util-pickup", "abilities/cypher-deployed-util-pickup",
