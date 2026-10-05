@@ -24,6 +24,8 @@ lines that rest on nothing are selected by score alone, and ult-cast-0.6.0
 changed only how tray casts bind, not that selection. Decodes no video.
 
 Runs. `gate` is the gate over those inputs; `no_lines` drops the own lines;
+with `--dead-ruse`, `dead_ruse` adds the stored Ruse casts a dead Clove
+player made (`dead_ruse_cast`, `ability_timeline.dead_ruse_casts`);
 with `--second-lives FILE`, `reread` replaces the stored second lives with
 the file's (`--reread-second-lives` writes it: `killfeed_portrait` re-read at
 the current version from the crop cache by `reticle.trial`, in memory). The
@@ -77,7 +79,7 @@ def drops_of(store, sid: str, cache_dir: Path, drops_dir: Path) -> tuple[list[di
 
 
 def gate_runs(store, sid: str, cache_dir: Path, drops_dir: Path,
-              second_lives: dict | None) -> dict:
+              second_lives: dict | None, dead_ruse: bool = False) -> dict:
     """{run: the gate's rows} for one session (see the module docstring)."""
     from reticle.ability_timeline import own_line_times, player_tray_casts, stored_gate_inputs
     from reticle.adjudication.ult_cast import player_agent
@@ -101,6 +103,15 @@ def gate_runs(store, sid: str, cache_dir: Path, drops_dir: Path,
         kw = {k: v for k, v in g.items() if k not in ("phase_of", "player_deaths_ms")}
         out[name] = player_tray_casts([dict(d) for d in drops], g["phase_of"], rounds,
                                       g["player_deaths_ms"], **kw)
+    if dead_ruse:
+        # The gate's casts plus the stored Ruse casts while dead
+        # (`ability_timeline.dead_ruse_casts`, `dead_ruse_cast` rows), at the
+        # code's stamp only; a session with none adds none.
+        from reticle.ability_timeline import DEAD_RUSE_VERSION
+        dead = store.read_events("dead_ruse_cast", sid)
+        ok = bool(dead) and dead[0].get("dead_ruse_version") == DEAD_RUSE_VERSION
+        out["dead_ruse"] = out["gate"] + ([r for r in dead if r.get("kind") == "cast"]
+                                          if ok else [])
     return out
 
 
@@ -186,6 +197,8 @@ def main(argv=None) -> int:
     ap.add_argument("--second-lives", type=Path, help="a --reread-second-lives file")
     ap.add_argument("--reread-second-lives", type=Path, metavar="OUT")
     ap.add_argument("--json", type=Path, help="write the per-drop rows here")
+    ap.add_argument("--dead-ruse", action="store_true",
+                    help="also score the gate plus the stored dead_ruse_cast rows")
     ap.add_argument("--record", action="store_true", help="append the metrics row")
     args = ap.parse_args(argv)
     try:
@@ -206,7 +219,8 @@ def main(argv=None) -> int:
     results = {}
     for sid in sids:
         t0 = time.perf_counter()
-        results[sid] = gate_runs(store, sid, args.cache, args.drops or args.cache / "drops", lives)
+        results[sid] = gate_runs(store, sid, args.cache, args.drops or args.cache / "drops", lives,
+                                 dead_ruse=args.dead_ruse)
         print(sid, truth[sid]["agent"], half(sid), f"{time.perf_counter() - t0:.1f}s",
               flush=True)
     summ = score(results, truth)
@@ -215,7 +229,8 @@ def main(argv=None) -> int:
             print(f"{name} {h}: covered {t['covered']} of {t['riot']}, beyond {t['beyond']}")
     if args.json:
         keep = ("t_ms", "slot", "from", "to", "forced", "reason", "player_cast", "kit_end_ms",
-                "undone_deaths", "numeral", "refused_as", "line_ms", "pool_gold_drop")
+                "undone_deaths", "numeral", "refused_as", "line_ms", "pool_gold_drop",
+                "witness", "clouds", "death_ms")
         args.json.write_text(json.dumps(
             {sid: {"half": half(sid), "riot": truth[sid]["casts"],
                    "runs": {n: [{k: r[k] for k in keep if k in r} for r in rows]
