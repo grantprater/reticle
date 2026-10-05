@@ -13,7 +13,8 @@ The design doc's §6 is the argument; this is the code. The one idea: **a
 motion model belongs to an IDENTITY, not to the tracker.** A single
 constant-velocity prior -- which is what the plan first proposed -- would fight
 the truth for exactly the entities that matter here. A Cypher cam rotates and
-never translates. A teleport is a LEGAL discontinuity for five agents. A ping
+never translates. A teleport is a LEGAL discontinuity for the agents the
+player confirmed (`motion_for`). A ping
 is static with a lifetime measured to 0.1 s. One prior calls all three faults.
 
 What this is not
@@ -39,6 +40,11 @@ Every number here is recorded elsewhere in the repo and cited
 Nothing below was invented for this file, which is the point of §6's
 inventory: the invariants existed and nothing consumed them.
 
+Which agents may dash, teleport or outrun `RUN_PX` is read from the domain
+facts the player confirmed (`MOVEMENT_FACTS`, `motion_for`), never from a
+list in prose: a listed ability whose fact is missing or not the player's
+stays a candidate and licenses nothing.
+
 Owns [owns:teleport-licence] and [owns:track-continuation].
 """
 
@@ -48,12 +54,15 @@ import argparse
 import math
 import sys
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 import numpy as np
 
 #: Top speed of a real track, widget px/s. `minimap.RUN_PX`, measured rather
 #: than derived -- every filtered track sits under it and every misdetection
 #: blew far past it. Imported rather than restated so there is one definition.
+#: One value for every weapon, though each weapon sets its own run and walk
+#: speed [domain:weapons/weapon-run-and-walk-speeds].
 from .minimap import FIT_ERR_PX, MIN_ICON_SEPARATION_PX, RUN_PX
 
 #: Ping lifetimes, seconds. `ping.LIFETIME_S`, exact to 0.1 s at a 10 Hz
@@ -66,8 +75,14 @@ from .ping import LIFETIME_S
 #: there (1486 of 14438 frames; 33 differ beyond ids). Equal cost, a tie.
 TRACK_VERSION = "track-0.3.1"
 
+#: The movement licence's own stamp (`MOVEMENT_FACTS`, `motion_for`). Apart
+#: from `TRACK_VERSION` because no stored stream picks a class by agent yet:
+#: the tracker's streams run the plain walker class, so a licence change
+#: restamps nothing they wrote.
+MOVEMENT_LICENCE_VERSION = "movement-licence-0.1.0"
+
 #: A dash is continuous motion that nonetheless clears the walk ceiling over a
-#: sample interval. Jett, Neon and Waylay's Q. **This is a bound, not a
+#: sample interval: the confirmed dashes in `MOVEMENT_FACTS`. **This is a bound, not a
 #: measurement**, and `prototypes/jump_census.py` has since shown it cannot be
 #: turned into one from data in hand:
 #:
@@ -108,6 +123,13 @@ DASH_PX_S = RUN_PX * 4.0
 #: `TELEPORT_ASSUMED` so the assumption is countable rather than invisible.
 TELEPORT_PX = 200.0
 
+#: A speed change raises the run ceiling by an amount not yet recorded:
+#: Neon's High Gear runs faster than normal and is not a dash
+#: [domain:abilities/neon-high-gear-is-speed-not-dash]. Until the game-data
+#: extraction records the multiplier, the ceiling is the dash bound, and a
+#: step admitted only by it is reported `SPEED_UNMEASURED`, never `WEAK`.
+SPEED_PX_S = DASH_PX_S
+
 
 @dataclass(frozen=True)
 class Motion:
@@ -121,6 +143,7 @@ class Motion:
     max_px_s: float | None          # None: never translates
     may_dash: bool = False          # brief excursion up to DASH_PX_S
     may_teleport: bool = False      # a legal discontinuity, any distance
+    may_speed: bool = False         # runs faster than RUN_PX, up to SPEED_PX_S
     rotates: bool = False           # bearing may change with origin fixed
     lifetime_s: float | None = None  # hard expiry, seconds
     note: str = ""
@@ -132,14 +155,17 @@ CLASSES: dict[str, Motion] = {
     # Anything a person walks. The ceiling is the measured one.
     "walker": Motion("walker", RUN_PX,
                      note="a player on foot; RUN_PX is measured"),
-    # Jett, Neon, Waylay. Continuous, but over the gate at a 15 Hz sample.
+    # The confirmed dashes. Continuous, but over the gate at a 15 Hz sample.
     "walker_dash": Motion("walker_dash", RUN_PX, may_dash=True,
-                          note="Jett, Neon, Waylay Q -- and Waylay's first "
-                               "dash can go UPWARD, which the minimap cannot "
-                               "show at all"),
-    # Omen x2, Chamber, Veto, Waylay E, Yoru E. A jump here is CORRECT.
+                          note="an agent with a confirmed dash (`motion_for`)"),
+    # The confirmed teleports. A jump here is CORRECT.
     "walker_teleport": Motion("walker_teleport", RUN_PX, may_teleport=True,
-                              note="Omen x2, Chamber, Veto, Waylay E, Yoru E"),
+                              note="an agent with a confirmed teleport "
+                                   "(`motion_for`)"),
+    # A speed change: faster running, no jump.
+    "walker_speed": Motion("walker_speed", RUN_PX, may_speed=True,
+                           note="an agent whose confirmed ability raises the "
+                                "run ceiling (`motion_for`)"),
     # Sova drone, Fade prowler, Skye dog and birds, Tejo drone. Motion is
     # representative in the demo corpus because the player flew them deliberately.
     "piloted": Motion("piloted", RUN_PX, rotates=True,
@@ -181,6 +207,10 @@ WEAK = "weak"
 #: the two: the distance rule is known to refuse most real teleports and to
 #: admit phantoms at the same distances. Count these; do not trust them.
 TELEPORT_ASSUMED = "teleport_assumed"
+
+#: A step admitted only because a class MAY run faster (`SPEED_PX_S`, a bound
+#: until the multiplier is recorded). Count these as `WEAK` is counted.
+SPEED_UNMEASURED = "speed_unmeasured"
 
 #: What a corroborated teleport needs, and why each half is required.
 #:
@@ -278,6 +308,8 @@ def admits(motion: Motion, dist_px: float, dt_s: float, scale: float = 1.0,
         return (True, "within walking distance")
     if motion.may_dash and dist_px <= DASH_PX_S * scale * dt_s:
         return (True, WEAK)
+    if motion.may_speed and dist_px <= SPEED_PX_S * scale * dt_s:
+        return (True, SPEED_UNMEASURED)
     if motion.may_teleport and evidence is not None:
         ok, why = corroborates_teleport(evidence)
         if ok:
@@ -310,6 +342,8 @@ def admits_many(motion: Motion, dist_px, dt_s, scale: float = 1.0) -> np.ndarray
         moved = d <= motion.max_px_s * scale * t
         if motion.may_dash:
             moved |= d <= DASH_PX_S * scale * t
+        if motion.may_speed:
+            moved |= d <= SPEED_PX_S * scale * t
         if motion.may_teleport:
             moved |= d >= TELEPORT_PX * scale
     return np.where(t <= 0, d == 0, moved)
@@ -356,6 +390,97 @@ def is_teleport(why: str) -> bool:
     joined here because the no-interpolation consequence is the same.
     """
     return why == TELEPORT_ASSUMED or why.startswith("teleport corroborated")
+
+
+#: Movement kinds a fact may license. `vertical` licenses no horizontal step:
+#: the minimap is a plan view, so a vertical move changes nothing it draws.
+TELEPORT, DASH, SPEED, VERTICAL = "teleport", "dash", "speed", "vertical"
+
+#: One row per (agent, ability) the player was asked about, naming the kind
+#: and the domain fact that confirms it. The row is the question; the fact is
+#: the answer, and `movement_licences` grants nothing a fact does not hold.
+#: Each ability is its own row [domain:abilities/ability-rules-are-unique]:
+#: never add one by analogy with a sibling. Waylay's Refract has no row: the
+#: player believes it carries her back continuously on others' minimaps
+#: [domain:abilities/waylay-refract-minimap], which is no teleport, and a belief
+#: licenses nothing.
+MOVEMENT_FACTS: dict[tuple[str, str], tuple[str, str]] = {
+    ("Omen", "Shrouded Step"): (TELEPORT, "abilities/omen-shrouded-step-teleports"),
+    ("Omen", "From the Shadows"): (TELEPORT, "abilities/omen-from-the-shadows-teleports"),
+    ("Yoru", "GATECRASH"): (TELEPORT, "abilities/yoru-gatecrash-teleports"),
+    ("Yoru", "DIMENSIONAL DRIFT"): (TELEPORT, "abilities/yoru-dimensional-drift-teleports"),
+    ("Chamber", "Rendezvous"): (TELEPORT, "abilities/chamber-rendezvous-teleports"),
+    ("Phoenix", "Run it Back"): (TELEPORT, "abilities/phoenix-run-it-back-teleports"),
+    ("Veto", "Crosscut"): (TELEPORT, "abilities/veto-crosscut-teleports"),
+    ("Jett", "Tailwind"): (DASH, "abilities/jett-tailwind-is-a-horizontal-dash"),
+    ("Jett", "Updraft"): (VERTICAL, "abilities/jett-updraft-is-vertical"),
+    ("Raze", "Blast Pack"): (DASH, "abilities/raze-blast-pack-acts-as-dash"),
+    ("Waylay", "Lightspeed"): (DASH, "abilities/waylay-lightspeed-dashes"),
+    ("Neon", "High Gear"): (SPEED, "abilities/neon-high-gear-is-speed-not-dash"),
+}
+
+#: The class each set of confirmed horizontal kinds selects.
+_KIND_CLASS = {
+    frozenset(): "walker",
+    frozenset({DASH}): "walker_dash",
+    frozenset({TELEPORT}): "walker_teleport",
+    frozenset({SPEED}): "walker_speed",
+}
+
+
+@dataclass(frozen=True)
+class Licence:
+    """One `MOVEMENT_FACTS` row, read against the domain registry."""
+
+    agent: str
+    ability: str
+    kind: str
+    fact: str
+    confirmed: bool
+    reason: str
+
+
+@lru_cache(maxsize=1)
+def _registry():
+    from .domain import load
+    return load()
+
+
+def movement_licences(facts=None) -> tuple[Licence, ...]:
+    """Every `MOVEMENT_FACTS` row, confirmed only when its fact exists and the
+    player gave it (`known = "player"`). `facts` defaults to `domain.load()`.
+    An unconfirmed row keeps its reason and licenses nothing."""
+    facts = _registry() if facts is None else facts
+    out = []
+    for (agent, ability), (kind, key) in MOVEMENT_FACTS.items():
+        fact = facts.get(key)
+        if fact is None:
+            ok, why = False, f"no fact {key}"
+        elif fact.known != "player":
+            ok, why = False, f"{key} is known '{fact.known}', not the player's"
+        else:
+            ok, why = True, f"confirmed by [domain:{key}]"
+        out.append(Licence(agent, ability, kind, key, ok, why))
+    return tuple(out)
+
+
+def motion_for(agent: str | None, facts=None) -> Motion:
+    """The walker class an agent's CONFIRMED movement licenses.
+
+    Case-insensitive on the agent's name; an unknown or missing agent walks.
+    A confirmed teleport selects `may_teleport`, a dash `may_dash`, a speed
+    change `may_speed`; `vertical` adds nothing. Two kinds with no class in
+    `CLASSES` raise, so a new combination is added to the table, not guessed.
+    """
+    if not agent:
+        return CLASSES["walker"]
+    name = agent.strip().lower()
+    kinds = frozenset(lic.kind for lic in movement_licences(facts)
+                      if lic.confirmed and lic.agent.lower() == name
+                      and lic.kind != VERTICAL)
+    if kinds not in _KIND_CLASS:
+        raise ValueError(f"{agent}: no motion class for {sorted(kinds)}")
+    return CLASSES[_KIND_CLASS[kinds]]
 
 
 def explain(dist_px: float, dt_s: float, scale: float = 1.0) -> dict[str, str]:
@@ -1126,11 +1251,12 @@ def main(argv=None) -> int:
     if a.self_test:
         return _self_test()
     print(f"{len(CLASSES)} motion classes, RUN_PX={RUN_PX:g} widget px/s\n")
-    print(f"{'class':<20}{'max px/s':>10}{'dash':>6}{'tele':>6}{'rot':>5}"
+    print(f"{'class':<20}{'max px/s':>10}{'dash':>6}{'tele':>6}{'fast':>6}{'rot':>5}"
           f"{'life':>7}")
     for name, m in CLASSES.items():
         print(f"{name:<20}{'--' if m.max_px_s is None else f'{m.max_px_s:g}':>10}"
               f"{'y' if m.may_dash else '':>6}{'y' if m.may_teleport else '':>6}"
+              f"{'y' if m.may_speed else '':>6}"
               f"{'y' if m.rotates else '':>5}"
               f"{'--' if m.lifetime_s is None else f'{m.lifetime_s:g}s':>7}")
     return 0

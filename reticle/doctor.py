@@ -779,6 +779,30 @@ def check_domain() -> list[tuple[str, str]]:
     return out
 
 
+def check_movement() -> list[tuple[str, str]]:
+    """The teleport-licence owner's movement table against the domain facts.
+
+    `track.MOVEMENT_FACTS` names, per agent and ability, the fact that
+    licenses a dash, a teleport or a speed change. A row whose fact is gone or
+    is not the player's licenses nothing, silently, so it is a finding here; a
+    set of confirmed kinds no motion class covers makes `track.motion_for`
+    raise, so it is an ERROR before any caller meets it.
+    """
+    from . import track
+    out = []
+    for lic in track.movement_licences():
+        if not lic.confirmed:
+            out.append(("finding", f"{lic.agent} {lic.ability} {lic.kind}: "
+                                   f"{lic.reason}; it licenses nothing"))
+    for agent in sorted({agent for agent, _ability in track.MOVEMENT_FACTS}):
+        try:
+            track.motion_for(agent)
+        except ValueError as exc:
+            out.append((ERROR, f"track.motion_for: {exc} -- add the class to "
+                               f"track's table, never guess one"))
+    return out
+
+
 def check_layer() -> list[tuple[str, str]]:
     """The declared topological order of `reticle/`, verified against the code.
 
@@ -1353,6 +1377,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("UNCALLED", check_uncalled),
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),
+              ("MOVEMENT", check_movement),
               ("LAYER", check_layer), ("CONSUMER", check_consumer),
               ("OWNERSHIP", check_ownership),
               ("QUOTED", lambda: check_quoted(store)),

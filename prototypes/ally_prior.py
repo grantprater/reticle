@@ -71,12 +71,12 @@ Per frame
 * **The audit.** A full read (ring fits and the stored stack fit) every
   `AUDIT_MS` at a fixed phase, stored apart; it never updates the prior.
 
-Which abilities move or create an ally icon is not recorded as a fact:
-`domain/abilities.toml` [domain:abilities/movement-abilities-are-dashes-and-teleports]
-lists no teleports ("no list is recorded here"); the mechanics sheet's
-candidates (wiki tag Teleport; each waits for the player) are
-`TELEPORT_CANDIDATES`. The revives are recorded
-[domain:rounds/resurrection-mechanics].
+Which abilities relocate an ally icon is the teleport-licence owner's
+answer (`reticle ownership teleport-licence`): `TELEPORT_AGENTS` are the
+agents `track.movement_licences` confirms a teleport for, from the player's
+facts of 2026-10-04 [domain:abilities/movement-abilities-are-dashes-and-teleports].
+The revives are recorded [domain:rounds/resurrection-mechanics]; Sage's
+revives at the body [domain:rounds/sage-resurrection-revives-at-body].
 
 Scoring (truth is evaluation only; the reader reads pixels and stored rows)
 --------------------------------------------------------------------------
@@ -169,6 +169,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import crowd_blob as cb  # noqa: E402  (pixels, blobs, isolated mass, split tests)
 import crowd_region as v1  # noqa: E402  (stored-row Session, truth contexts)
 from ally_rate import DISC_R, Windows  # noqa: E402  (the teal-change cue)
+from reticle import track  # noqa: E402  (the teleport-licence owner)
 
 #: 0.1.0 (2026-10-04): the design fixed in the store's `notes/predictions.jsonl`
 #: (task crowd-blobsplit-20261004, prior-first) before any truth was read.
@@ -176,7 +177,11 @@ from ally_rate import DISC_R, Windows  # noqa: E402  (the teal-change cue)
 #: the full roster blocks continues the track its stored verdict names, else
 #: a weak prior, else the stalest held track; 0.1.0 tried only weak priors,
 #: and 63 of 151 lost allies there had a stored ring fit the prior left.
-ALLY_PRIOR_VERSION = "ally-prior-0.2.0"
+#: 0.3.0 (2026-10-04): the teleport agents come from the owner's confirmed
+#: facts (`track.movement_licences`), not a candidate list: Veto joins,
+#: Waylay leaves (the list's "Waylay Crosscut" is Veto's ability), and an
+#: explained spawn names its licence instead of `candidate_only`.
+ALLY_PRIOR_VERSION = "ally-prior-0.3.0"
 STORE = v1.STORE
 ANALYSIS = STORE / "analysis" / "ally-prior-20261004"
 
@@ -220,15 +225,18 @@ STALE_MS = 3000.0
 SPAWN_MS = 3000.0
 REACQ_MS = 5000.0
 CAST_MS = 4000.0
-#: Abilities that may move or create an ally icon, as candidates only
-#: (docs/ABILITY_MECHANICS_SHEET.md, wiki tag Teleport or "returns to the
-#: marker"; none recorded as a fact) and the recorded revives
-#: [domain:rounds/resurrection-mechanics]. Only ultimates have a stored
-#: cast for a teammate (`ult_cast`); a teammate's basic abilities have none.
-TELEPORT_CANDIDATES = {"Omen": ("Shrouded Step", "From the Shadows"),
-                       "Yoru": ("GATECRASH", "DIMENSIONAL DRIFT"),
-                       "Chamber": ("Rendezvous",), "Phoenix": ("Run it Back",),
-                       "Waylay": ("Crosscut",)}
+#: Agents with a confirmed teleport, asked of the owner (`track`), and the
+#: recorded revives [domain:rounds/resurrection-mechanics]. Only ultimates
+#: have a stored cast for a teammate (`ult_cast`); a teammate's basic
+#: abilities have none, so an agent's ult cast stands for its window.
+#: A revived ally stands up at the body for Sage, Clove and KAY/O
+#: [domain:rounds/sage-resurrection-revives-at-body]
+#: [domain:rounds/clove-not-dead-yet-revives-at-body]
+#: [domain:rounds/kayo-revived-at-body], and Phoenix at his cast point
+#: [domain:rounds/phoenix-run-it-back-returns-to-cast-point]; `_explain`
+#: does not yet test the place.
+TELEPORT_AGENTS = tuple(sorted({lic.agent for lic in track.movement_licences()
+                                if lic.confirmed and lic.kind == track.TELEPORT}))
 REVIVE_AGENTS = ("Sage", "Phoenix", "Clove", "KAY/O")
 STATUSES = ("fit", "held", "cover", "predicted", "crowd")
 
@@ -968,9 +976,9 @@ def _explain(t, x, y, name, why, lost, casts, t0r) -> dict:
         return {"why": "reacquired", "lost_track": tr.id, "lost_ms": round(t - tr.t_conf),
                 "lost_d_px": round(math.hypot(tr.x - x, tr.y - y), 1)}
     for tc, ag in casts["ult"]:
-        if 0 <= t - tc <= CAST_MS and ag in set(TELEPORT_CANDIDATES) | set(REVIVE_AGENTS):
+        if 0 <= t - tc <= CAST_MS and ag in set(TELEPORT_AGENTS) | set(REVIVE_AGENTS):
             return {"why": "ally_ult_cast", "cast_t": tc, "cast_agent": ag,
-                    "candidate_only": ag in TELEPORT_CANDIDATES}
+                    "licence": "teleport" if ag in TELEPORT_AGENTS else "revive"}
     for tv in casts["revive"]:
         if 0 <= t - tv <= CAST_MS:
             return {"why": "revive", "revive_t": tv}

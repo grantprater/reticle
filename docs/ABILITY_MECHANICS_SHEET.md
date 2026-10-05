@@ -68,7 +68,15 @@ Dashes and teleports move an agent farther than running
 [domain:abilities/movement-abilities-are-dashes-and-teleports]; the Notes
 cells that ask it are candidates from the catalogue's wiki function tags
 and descriptions, for the player to confirm or strike. Grenades that
-launch, and abilities that move other agents, are left out.
+launch, and abilities that move other agents, are left out. On 2026-10-04
+the player confirmed the teleports and dashes whose cells cite a fact;
+`track.motion_for` reads them. Veto's teleport is Crosscut
+[domain:abilities/veto-crosscut-teleports]. Both of Lightspeed's dashes can
+be horizontal [domain:abilities/waylay-lightspeed-dashes]. Refract draws no
+teleport: the player believes it carries Waylay back continuously on
+others' minimaps [domain:abilities/waylay-refract-minimap], so `track`
+licenses nothing for it. No player, teammate or enemy, disappears mid-round
+[domain:rounds/no-mid-round-disappearance].
 Killjoy, Cypher and Chamber pick up deployed utility
 [domain:abilities/killjoy-deployed-util-pickup]
 [domain:abilities/cypher-deployed-util-pickup]
@@ -161,7 +169,7 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Trademark | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | white-tinted area, mostly circular [domain:abilities/chamber-trademark-minimap-white-area]; compact icon (census 1) | ? | the round; persists deactivated after Chamber dies [domain:abilities/chamber-trademark-persists-after-death] | the player's trip, confirmed as Trademark at Sunset e37fdeca944f 1795.08 s, top mid [domain:abilities/chamber-trademark-minimap-white-area]. The area's radius? Recall restocks after 30 s [domain:abilities/chamber-trademark-recall-cooldown]; its RECALL usable is not distance-limited (5000 units) [domain:abilities/chamber-trademark-recall-distance], and Chamber need not be close (player 2026-10-04) [domain:abilities/chamber-trademark-recall-any-distance]. |
 | Q | Headhunter | Hitscan | 8 [domain:abilities/chamber-headhunter-charges] | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | ? |
-| E | Rendezvous | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); movement | ? | nothing (census 1) | ? | the round; persists deactivated after Chamber dies [domain:abilities/chamber-rendezvous-persists-after-death] | moves its agent farther than running? (candidate, wiki tag Teleport) [domain:abilities/movement-abilities-are-dashes-and-teleports]. Recall restocks after 30 s [domain:abilities/chamber-rendezvous-recall-cooldown]; its RECALL usable is not distance-limited (6000 units) [domain:abilities/chamber-rendezvous-recall-distance], and Chamber need not be close (player 2026-10-04) [domain:abilities/chamber-rendezvous-recall-any-distance]. |
+| E | Rendezvous | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); movement | ? | nothing (census 1) | ? | the round; persists deactivated after Chamber dies [domain:abilities/chamber-rendezvous-persists-after-death] | a teleport [domain:abilities/chamber-rendezvous-teleports]. Recall restocks after 30 s [domain:abilities/chamber-rendezvous-recall-cooldown]; its RECALL usable is not distance-limited (6000 units) [domain:abilities/chamber-rendezvous-recall-distance], and Chamber need not be close (player 2026-10-04) [domain:abilities/chamber-rendezvous-recall-any-distance]. |
 | X | Tour De Force | Hitscan | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (ACTIVATE) | ? | nothing (census 1) | ? | ? | equipping spends the ult, buy phase included [domain:abilities/chamber-tour-de-force-equip-spends-ult]; allies hear the line at the equip [domain:abilities/chamber-tour-de-force-ally-line-at-equip], enemies at the barrier drop [domain:abilities/chamber-tour-de-force-enemy-line-at-drop]. Does Tour De Force carry into the next round when Chamber survives? |
 
 ## Clove
@@ -232,8 +240,8 @@ draw an assist icon? And can a damaging ability draw one?
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Cloudburst | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE); instant | ? | dark disc (census 2) | ? | see [domain:abilities/jett-cloudburst-duration] | ? |
-| Q | Updraft | Self-targeted | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant; movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Dash; upward) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
-| E | Tailwind | Self-targeted | 1 | 2 kills (1 in Escalation) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE, RE-USE); movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Dash) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| Q | Updraft | Self-targeted | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant; movement | ? | nothing (census 1) | ? | ? | vertical, no horizontal step [domain:abilities/jett-updraft-is-vertical] |
+| E | Tailwind | Self-targeted | 1 | 2 kills (1 in Escalation) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE, RE-USE); movement | ? | nothing (census 1) | ? | ? | a horizontal dash [domain:abilities/jett-tailwind-is-a-horizontal-dash] |
 | X | Blade Storm | ? | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | nothing (census 1) | ? | ? | no line heard in a buy phase [domain:abilities/jett-blade-storm-line-not-in-buy-phase]. Can Blade Storm be cast in the buy phase, and if so, when do allies and enemies hear its line? |
 
 ## KAY/O
@@ -269,17 +277,17 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Fast Lane | Missile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | wall segments (census 1) | ? | ? | ? |
 | Q | Relay Bolt | Class 5 Projectile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant | ? | compact icon (census 1) | ? | ? | ? |
-| E | High Gear | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant; movement | ? | nothing (census 2) | an edge overlay, this or Overdrive? [domain:hud/neon-edge-overlay] | ? | moves its agent farther than running? (candidate, wiki tag Dash) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| E | High Gear | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | instant; movement | ? | nothing (census 2) | an edge overlay, this or Overdrive? [domain:hud/neon-edge-overlay] | ? | runs faster than normal, not a dash [domain:abilities/neon-high-gear-is-speed-not-dash]; how much faster? |
 | X | Overdrive | Hitscan | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | movement | ? | nothing (census 1) | an edge overlay, this or High Gear? [domain:hud/neon-edge-overlay] | ? | moves its agent farther than running? (candidate, possible; regains a slide charge) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
 
 ## Omen
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Shrouded Step | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 4, {'nothing': 3, 'unsure': 1}) | ? | ? | moves its agent farther than running? (candidate, wiki tag Teleport) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| C | Shrouded Step | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 4, {'nothing': 3, 'unsure': 1}) | ? | ? | a teleport [domain:abilities/omen-shrouded-step-teleports] |
 | Q | Paranoia | Missile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | travelling icon [domain:abilities/omen-paranoia-minimap-icon] | ? | ? | ? |
 | E | Dark Cover | Missile | 2 | 40 s after use [domain:abilities/omen-dark-cover-restock] | cast on FIRE | ? | dark disc in phases [domain:abilities/omen-dark-cover-minimap-phases] | ? | ? | global placement [domain:abilities/omen-dark-cover-global-placement] |
-| X | From the Shadows | Placement | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | movement | ? | other (census 2) | ? | ? | moves its agent farther than running? (candidate, wiki tag Teleport) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| X | From the Shadows | Placement | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | movement | ? | other (census 2) | ? | ? | a teleport [domain:abilities/omen-from-the-shadows-teleports] |
 
 ## Phoenix
 
@@ -288,14 +296,14 @@ draw an assist icon? And can a damaging ability draw one?
 | C | Blaze | Missile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE) | ? | orange wall [domain:abilities/phoenix-blaze], no icon (disputed) [domain:abilities/phoenix-blaze-no-minimap-icon] | ? | 8 s, from the cast or the wall's completion? [domain:abilities/phoenix-blaze-duration] | ongoing sound [domain:abilities/ability-sound-phases] |
 | Q | Hot Hands | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 [domain:abilities/phoenix-hot-hands-charges] | none within a round [domain:abilities/phoenix-hot-hands-charges] | cast on FIRE | ? | nothing (census 2) | ? | ? | ongoing sound on the ground [domain:abilities/ability-sound-phases] |
 | E | Curveball | Missile | 2 [domain:abilities/phoenix-curveball-charges] | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing [domain:abilities/phoenix-minimap-objects] | ? | ? | ? |
-| X | Run it Back | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | nothing (census 1) | ? | about 10 s [domain:abilities/phoenix-run-it-back-expiry-flash] | X pips never fall; timer bar under the crosshair [domain:hud/ability-timer-bar]; moves its agent farther than running? (candidate, possible; returns Phoenix to the marker) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| X | Run it Back | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | nothing (census 1) | ? | about 10 s [domain:abilities/phoenix-run-it-back-expiry-flash] | X pips never fall; timer bar under the crosshair [domain:hud/ability-timer-bar]; a teleport back to the cast point [domain:abilities/phoenix-run-it-back-teleports] [domain:rounds/phoenix-run-it-back-returns-to-cast-point] |
 
 ## Raze
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Boom Bot | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1) | ? | ? | ? |
-| Q | Blast Pack | Class 1 Projectile | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE); instant | ? | nothing (census 2) | ? | ? | moves its agent farther than running? (candidate, wiki tag Dash) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| Q | Blast Pack | Class 1 Projectile | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE); instant | ? | nothing (census 2) | ? | ? | can act as a dash, an impulse from the satchel's angle and her velocity [domain:abilities/raze-blast-pack-acts-as-dash] |
 | E | Paint Shells | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 | X | Showstopper | Missile | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 
@@ -348,7 +356,7 @@ draw an assist icon? And can a damaging ability draw one?
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Crosscut | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | split {'nothing': 1, 'compact_icon': 1} (census 2) | ? | ? | moves its agent farther than running? (candidate, wiki tag Teleport) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| C | Crosscut | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | split {'nothing': 1, 'compact_icon': 1} (census 2) | ? | ? | a teleport [domain:abilities/veto-crosscut-teleports] |
 | Q | Chokehold | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | white-tinted area, mostly circular [domain:abilities/veto-chokehold-minimap-white-area]; compact icon (census 1) | ? | persists after Veto dies [domain:abilities/veto-chokehold-persists-after-death] | the player's trip, confirmed as Chokehold [domain:abilities/veto-chokehold-minimap-white-area]. The area's radius? |
 | E | Interceptor | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE) | ? | nothing (census 1) | ? | ? | ? |
 | X | Evolution | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | ? | ? | ? | ? |
@@ -376,8 +384,8 @@ draw an assist icon? And can a damaging ability draw one?
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Saturate | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
-| Q | Lightspeed | Self-targeted | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Dash) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
-| E | Refract | Self-targeted | 1 | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); instant; movement | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, wiki tag Mobility; speeds back to the beacon) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| Q | Lightspeed | Self-targeted | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | movement | ? | nothing (census 1) | ? | ? | two dashes, both can be horizontal, only the first vertical [domain:abilities/waylay-lightspeed-dashes] |
+| E | Refract | Self-targeted | 1 | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (REACTIVATE); instant; movement | ? | nothing (census 1) | ? | ? | blinds her own minimap; on others' minimaps carries her back continuously, by the player's belief; no teleport, so `track` licenses nothing [domain:abilities/waylay-refract-minimap] |
 | X | Convergent Paths | Grounded AoE Self-targeted (Buff) | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | wall segments (census 1) | ? | ? | ? |
 
 ## Yoru
@@ -386,5 +394,5 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | FAKEOUT | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1); an extra player icon [domain:abilities/yoru-fakeout-player-icon] | ? | ? | ? |
 | Q | BLINDSIDE | Class 3 Projectile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
-| E | GATECRASH | Grounded Object (Mobile tether) Placement (Stationary tether) | 2 | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | travelling icon [domain:abilities/yoru-gatecrash-minimap-icon] | ? | ? | moves its agent farther than running? (candidate, wiki tag Teleport) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
-| X | DIMENSIONAL DRIFT | ? | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (REACTIVATE) | ? | nothing (census 1) | ? | ? | moves its agent farther than running? (candidate, possible; drifts unseen) [domain:abilities/movement-abilities-are-dashes-and-teleports] |
+| E | GATECRASH | Grounded Object (Mobile tether) Placement (Stationary tether) | 2 | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE); movement | ? | travelling icon [domain:abilities/yoru-gatecrash-minimap-icon] | ? | ? | a teleport [domain:abilities/yoru-gatecrash-teleports] |
+| X | DIMENSIONAL DRIFT | ? | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (REACTIVATE) | ? | nothing (census 1) | ? | ? | a teleport [domain:abilities/yoru-dimensional-drift-teleports] |
