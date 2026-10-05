@@ -55,9 +55,9 @@ about one percent absolute, while the full run's error rates are fractions
 of a percent. A change adding ten errors across the corpus can pass the
 sample's intervals unseen.
 So a change is compared with its base kill by kill inside the same windows
-(`prototypes/riot_ground_truth.py --compare-deaths`): every outcome that
-flips is listed, and any broken one is a fact to read, whatever the
-intervals say. Errors outside the windows stay unseen; the targets carry the
+(`prototypes/riot_ground_truth.py --compare-deaths`): every outcome Riot's
+record scores that flips is listed, and any broken one is a fact to read,
+whatever the intervals say. Errors outside the windows stay unseen; the targets carry the
 places a change is expected to move, and the full run stays the acceptance.
 
 Targets from both codes. Score the base over the whole corpus once and make
