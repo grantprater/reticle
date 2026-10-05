@@ -630,3 +630,20 @@ class RingedDividerTests(unittest.TestCase):
         value[white] = (0, 0, 255)
         _text, wx0, wx1 = killfeed._band_text(white, value=value, s=killfeed.UNIT_SCALE)
         self.assertEqual((wx0, wx1), (233, 310))
+
+
+class DividerJoinedTests(unittest.TestCase):
+    """A divider joined from pieces is told from one of a single component
+    (`_divider_joined`), so only the former's extent covers it."""
+
+    def test_one_component_is_not_joined(self):
+        white = np.zeros((34, 120), dtype=bool)
+        white[10:24, 40:70] = True
+        self.assertFalse(killfeed._divider_joined(white, 40, 70))
+
+    def test_pieces_spanning_the_divider_are_joined(self):
+        # Nanoswarm's dotted outline in miniature: dots beside a body.
+        white = np.zeros((34, 120), dtype=bool)
+        white[12:14, 40:42] = True
+        white[10:24, 44:62] = True
+        self.assertTrue(killfeed._divider_joined(white, 40, 62))

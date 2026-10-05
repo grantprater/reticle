@@ -3093,13 +3093,19 @@ def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # 0.12.0 (2026-10-04): an entry divided at its plate seam gets a row: the
 # icon is the element ending within SEAM_ICON_GAP before the seam
 # (`_seam_icon`), else the row is null with reason `seam_no_icon`. Such views
-# were skipped with no row. Every other row is unchanged.
+# were skipped with no row. Every other row is unchanged. (Where the element
+# is found but too thin, the row refuses `no_icon`, as 3 of the 4 null seam
+# rows on the nine sessions of the 2026-10-04 check do.)
 # 0.13.0 (2026-10-04): the no_icon gate reads the icon's whole extent (the
 # plate-relative pieces, else the fixed cut over ix0..ix1), not the divider
 # piece, and runs after the plate gates; a divider joined from pieces takes
 # its rows from them (`_divider_rows`); a name run under ELEMENT_GAP from
 # the divider no longer bounds the icon's extent (`analyse_killfeed`).
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.13.0"
+# 0.14.0 (2026-10-04): a row whose divider is joined from pieces keeps an
+# extent covering the divider: 0.13.0's pieces cut Nanoswarm's dotted
+# outline (a06f04a0059f 892.5 s) from 327-349 to 331-345, and the soft
+# registered match's whole-icon gate failed on the dots left in the margin.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.14.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -3217,6 +3223,13 @@ def slot_white_mask(band: np.ndarray, green_band: np.ndarray, red_band: np.ndarr
     is `plate_whiteness`'s result when the caller already holds it."""
     w, ok = whiteness if whiteness is not None else plate_whiteness(band, green_band, red_band, s)
     return np.where(ok[None, :], w >= PLATE_WHITE_CUT, icon_white_mask(band, s))
+
+
+def _divider_joined(white_band: np.ndarray, wx0: int, wx1: int) -> bool:
+    """Whether the divider wx0..wx1 is joined from pieces: no one component
+    of the text cut spans exactly its columns (`_divider_rows`)."""
+    n, _lab, st, _ = cv2.connectedComponentsWithStats(white_band.astype(np.uint8), 8)
+    return not bool(((st[1:n, 0] == wx0) & (st[1:n, 0] + st[1:n, 2] == wx1)).any())
 
 
 def _divider_rows(white_band: np.ndarray, wx0: int, wx1: int) -> tuple[int, int] | None:
@@ -3597,7 +3610,7 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
             continue
         w, ok = plate_whiteness(band, green, red, s)
         icon = slot_white_mask(band, green, red, s, whiteness=(w, ok))
-        ix0, ix1 = (v.ix0, v.ix1) if v.ix1 > v.ix0 else (d0, d1)
+        ix0, ix1 = e0, e1
         # A seam view has no divider piece; its icon crosses the band's middle half.
         bh = v.y1 - v.y0
         rows = (bh // 4, bh - bh // 4) if seam else _divider_rows(white > 0, v.wx0, v.wx1)
@@ -3618,6 +3631,17 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
             xs = np.nonzero(piece.any(axis=0))[0]
             ix0, ix1 = int(xs[0]), int(xs[-1]) + 1
             cut = icon_grid(piece[:, ix0:ix1], s)
+            if not stripped and not seam and _divider_joined(white > 0, v.wx0, v.wx1):
+                # A divider joined from pieces (`_stroke_groups`) is the
+                # icon's ink under the text cut, never a name merged with it,
+                # so the stored extent, which the soft patch's window and the
+                # soft match's whole-icon gate read, still covers it. The
+                # plate-relative cut misses Nanoswarm's faint outline dots
+                # (a06f04a0059f 892.5 s: pieces 331-345, divider 327-349),
+                # and the dots left in the patch's margin failed the gate.
+                # A divider of one component keeps the pieces' extent: it can
+                # hold a name merged with the icon (b7d24102a6f6 1729.5 s).
+                ix0, ix1 = min(ix0, d0), max(ix1, d1)
         else:
             ix0, ix1 = e0, e1
         row.update({"ix0": int(ix0), "ix1": int(ix1), "ringed": ringed, "ring_reason": why,

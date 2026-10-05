@@ -89,6 +89,25 @@ def episodes(frames: list[dict]) -> list[list[dict]]:
     return out
 
 
+def death_panel_tops(frames: list[dict]) -> tuple[np.ndarray, np.ndarray]:
+    """Times (ms) and screen tops (rows) of the stored frames that show a death
+    panel: the header found (HEADER_MIN) and a row flagging KILLED YOU
+    (FLAG_MIN). Only the player's death opens one
+    [domain:combat_report/appears-on-death], and only a death panel draws
+    the KILLED BY box and the killer's card, whose top lies
+    `combat_report.KILLED_BY_TOP` rows above the header: a summary for a round
+    the player survived (b3b9defb6fd7 430 s, 1770 s) flags no KILLED YOU and
+    draws neither. `checks.panel_slots` places the panel over the killfeed."""
+    from ..combat_report import KILLED_BY_TOP
+    shown = [r for r in frames
+             if r.get("kind") == "frame" and (r.get("header") or 0) >= HEADER_MIN
+             and r.get("hy") is not None
+             and any((row.get("in_word") or {}).get("KILLED YOU", 0) >= FLAG_MIN
+                     for row in r.get("rows") or ())]
+    return (np.array([r["t_ms"] for r in shown], dtype=float),
+            np.array([r["hy"] + KILLED_BY_TOP for r in shown], dtype=float))
+
+
 def frame_read(r: dict) -> tuple:
     """A frame's damage and hit texts per row: the unit panels vote on."""
     return tuple(tuple(row[f]["text"] for f in FIELDS) for row in r["rows"])
