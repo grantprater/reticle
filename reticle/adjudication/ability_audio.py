@@ -59,7 +59,13 @@ higher from `post_s` after the release, cut at the next own cast's drop,
 is `best_ref`, its margin over the other's `margin_ref`. Neither landing
 track at its level refuses `bolt_unknown` with no `best_ref` (a bolt, but
 which is unknown); a landing margin under TIE_MARGIN refuses
-`landing_tie`. The parameter set declares each group, its landing files
+`landing_tie`. A member may have a late phase too (from
+`ability-audio-params-0.2.7`, the Recon Bolt's scan pulse, louder than its
+landing [domain:abilities/sova-recon-bolt-pulse-louder]): where no landing
+is heard, one member's late track at its level names the bolt, without a
+margin; from `ability-audio-params-0.2.8` its `p_right` weighs the late
+track's false-fire rate on dev against its dev hit rate (`late_p_right`).
+The parameter set declares each group, its landing and late files
 and levels; Sova's bolts share their release
 [domain:abilities/sova-bolts-share-release-sound]. `cast_verdicts` is the
 one decision the witness and the fit tool both call.
@@ -86,8 +92,10 @@ abilities' montages play is left out (`shared_reference_mask`).
 `reticle ability-audio-fit` (`ability_audio_fit`) fits them and scores the
 held sessions through `ability_timeline.audio_cast_witness`; its
 `--calibrate` derives a set with the margin calibration
-(`save_calibrated`). Every function here but `reference_logmel`,
-`load_params`, `save_params` and `save_calibrated` is pure.
+(`save_calibrated`); its `--late-phase` derives a set with each phase
+group's late phase added (`save_with_templates`). Every function here but
+`reference_logmel`, `load_params`, `save_params`, `save_calibrated` and
+`save_with_templates` is pure.
 """
 from __future__ import annotations
 
@@ -131,6 +139,11 @@ NONE = "none"
 REFUSALS = ("none_wins", "below_null", "pairwise_tie", "bolt_unknown", "landing_tie")
 #: A phase group's landing track for member slot S is named LANDING + S.
 LANDING = "landing:"
+#: A phase group's late-phase track for member slot S is named LATE + S: its
+#: templates carry that name as their class, so no kit class holds them.
+LATE = "late:"
+#: The track names that are a phase group's later phases, not kit classes.
+PHASE_TRACKS = (LANDING, LATE)
 #: The false fires per live minute a class threshold allows on dev.
 THRESHOLD_FF_PER_MIN = 1.0
 #: Two peaks of a track count as one false fire within this (frames).
@@ -539,7 +552,7 @@ def kit_view(tracks: dict, groups=()) -> dict:
     each phase group's members and its shared class (the group's name)
     merged into one family track, their maximum. Without groups, the class
     tracks."""
-    out = {k: v for k, v in tracks.items() if not k.startswith(LANDING)}
+    out = {k: v for k, v in tracks.items() if not k.startswith(PHASE_TRACKS)}
     for g in groups or ():
         parts = [out.pop(c) for c in [*g["members"], g["name"]] if c in out]
         if parts:
@@ -553,7 +566,7 @@ def kit_classes(classes, groups=()) -> list[str]:
     merged = {m: g["name"] for g in groups or () for m in g["members"]}
     out = []
     for c in classes:
-        if c.startswith(LANDING):
+        if c.startswith(PHASE_TRACKS):
             continue
         k = merged.get(c, c)
         if k not in out:
@@ -565,7 +578,8 @@ def referenced_slots(classes, groups=()) -> set[str]:
     """The slots a cast can be named as: the kit classes but `none` and the
     group names, and every group's members."""
     names = {g["name"] for g in groups or ()}
-    return ({c for c in classes if c != NONE and c not in names and not c.startswith(LANDING)}
+    return ({c for c in classes if c != NONE and c not in names
+             and not c.startswith(PHASE_TRACKS)}
             | {m for g in groups or () for m in g["members"]})
 
 
@@ -599,18 +613,31 @@ def phase_scores(tracks: dict, group: dict, frames, neighbours) -> dict:
     the maximum of the group's shared-class track (the release) inside the
     cast's window (`clip_bounds`); then each member's landing track's
     maximum from `post_s[0]` to `post_s[1]` s after the release, cut at the
-    next own cast's drop. Returns {"release": frames, "release_score",
-    "window": (lo, hi) frames, "landing": {slot: scores}}. Vectorised."""
+    next own cast's drop. Where the group declares late phases
+    (`late_levels`), each such member's late track's maximum from
+    `late_post_s[0]` to `late_post_s[1]` s after the release, cut the same
+    way. Returns {"release": frames, "release_score", "window": (lo, hi)
+    frames, "landing": {slot: scores}, "late_window", "late": {slot:
+    scores}}. Vectorised."""
     f = np.asarray(frames, np.int64)
     lo, hi = clip_bounds(f, neighbours)
     rel = tracks[group["name"]]
     r = window_argmax(rel, lo, hi)
-    a = r + int(round(group["post_s"][0] * FPS))
-    b = np.minimum(r + int(round(group["post_s"][1] * FPS)), next_neighbour(f, neighbours))
-    b = np.maximum(b, a + 1)
+    nxt = next_neighbour(f, neighbours)
+
+    def window(post):
+        a = r + int(round(post[0] * FPS))
+        b = np.minimum(r + int(round(post[1] * FPS)), nxt)
+        return a, np.maximum(b, a + 1)
+
+    a, b = window(group["post_s"])
+    late = group.get("late_levels") or {}
+    la, lb = window(group["late_post_s"]) if late else (a, b)
     return {"release": r, "release_score": np.asarray(rel, np.float32)[np.clip(r, 0, len(rel) - 1)],
             "window": (a, b),
-            "landing": {s: range_max(tracks[f"{LANDING}{s}"], a, b) for s in group["members"]}}
+            "landing": {s: range_max(tracks[f"{LANDING}{s}"], a, b) for s in group["members"]},
+            "late_window": (la, lb),
+            "late": {s: range_max(tracks[f"{LATE}{s}"], la, lb) for s in late}}
 
 
 def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
@@ -627,9 +654,15 @@ def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
     at its level (the group's `levels`) refuses `bolt_unknown` with
     `best_ref` None (a bolt, but which is unknown), and a landing margin
     under `tie_margin` refuses `landing_tie`, each after the kit-level
-    refusals. The verdict is `best_ref` unless refused. `p_right` maps
-    `margin_ref` through the set's calibration. Decisions vectorised; rows
-    are their record."""
+    refusals. A group may declare a late phase per member (`late_levels`,
+    e.g. the Recon Bolt's scan pulse): where no landing is heard and exactly
+    one member's late track reaches its level, that member is `best_ref` and
+    the verdict, with no margin; a heard landing is never overruled by it.
+    Its `p_right` comes from the group's `late_calibration` for that member
+    (`late_p_right`, from `ability-audio-params-0.2.8`; without one it is
+    None, `late_phase_only`). The verdict is `best_ref` unless refused.
+    Otherwise `p_right` maps `margin_ref` through the set's calibration.
+    Decisions vectorised; rows are their record."""
     groups = params.get("groups") or []
     kt = kit_view(tracks, groups)
     classes = kit_classes(list(kt), groups)
@@ -641,6 +674,7 @@ def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
     margin_ref = np.asarray(margin_ref, float).copy()
     reason = np.array([v["reason"] or "" for v in ids], object)
     phase = [None] * len(ids)
+    p_late = np.full(len(ids), np.nan)
     for g in groups:
         rows = np.flatnonzero(best_ref == g["name"])
         if not len(rows):
@@ -656,10 +690,28 @@ def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
         lm = top - (L[k, o[:, 1]] if len(mem) > 1 else np.nan)
         pick = np.array(mem, object)[o[:, 0]]
         unk = ~heard
-        best_ref[rows] = np.where(unk, None, pick)
+        # The late phase names a bolt no landing names: exactly one member's
+        # late track at its level.
+        lmem = list(ph["late"])
+        if lmem:
+            LL = np.stack([ph["late"][m] for m in lmem], axis=1)
+            llev = np.array([float(g["late_levels"][m]) for m in lmem])
+            lh = LL >= llev
+            late_ok = unk & (lh.sum(axis=1) == 1)
+            lpick = np.array(lmem, object)[np.argmax(lh, axis=1)]
+        else:
+            late_ok = np.zeros(len(rows), bool)
+            lpick = np.full(len(rows), None, object)
+        best_ref[rows] = np.where(late_ok, lpick, np.where(unk, None, pick))
+        lcal = g.get("late_calibration") or {}
+        for m in lmem:
+            q = late_ok & (lpick == m)
+            if lcal.get(m) and q.any():
+                w_s = (ph["late_window"][1][q] - ph["late_window"][0][q]) / FPS
+                p_late[rows[q]] = late_p_right(w_s, lcal[m])
         margin_ref[rows] = np.where(unk, np.nan, lm)
         free = reason[rows] == ""
-        reason[rows] = np.where(free & unk, "bolt_unknown",
+        reason[rows] = np.where(free & unk & ~late_ok, "bolt_unknown",
                                 np.where(free & ~unk & (lm < tie_margin), "landing_tie",
                                          reason[rows]))
         r4 = lambda v: None if not np.isfinite(v) else round(float(v), 4)
@@ -672,8 +724,17 @@ def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
                         "levels": {m: r4(lev[q]) for q, m in enumerate(mem)},
                         "heard": bool(heard[j]), "pick": None if unk[j] else pick[j],
                         "margin": r4(lm[j]), "basis": g.get("basis")}
+            if lmem:
+                phase[i].update(
+                    late_window_s=[round(float(ph["late_window"][0][j]) / FPS, 2),
+                                   round(float(ph["late_window"][1][j]) / FPS, 2)],
+                    late={m: r4(LL[j, q]) for q, m in enumerate(lmem)},
+                    late_levels={m: r4(llev[q]) for q, m in enumerate(lmem)},
+                    late_pick=lpick[j] if late_ok[j] else None)
     cal = params.get("calibration")
     pr = p_right(margin_ref, cal["w"]) if cal else np.full(len(ids), np.nan)
+    is_late = np.isfinite(p_late)
+    pr = np.where(is_late, p_late, pr)
     out = []
     for i, v in enumerate(ids):
         why = reason[i] or None
@@ -684,11 +745,34 @@ def cast_verdicts(tracks: dict, frames, neighbours, params: dict,
                     "margin_ref": None if not np.isfinite(margin_ref[i]) else round(float(margin_ref[i]), 4),
                     "p_right": None if not np.isfinite(p) else round(float(p), 4),
                     "p_right_reason": (None if np.isfinite(p) else "no_calibration" if not cal
+                                       else "late_phase_only" if phase[i] and phase[i].get("late_pick")
                                        else "bolt_unknown" if phase[i] and not phase[i]["heard"]
                                        else "no_referenced_rival"),
-                    "calibration_basis": cal["basis"] if cal else None,
+                    "calibration_basis": ("late_phase" if is_late[i]
+                                          else cal["basis"] if cal else None),
                     "phase": phase[i]})
     return out
+
+
+def late_p_right(window_s, cal: dict) -> np.ndarray:
+    """P(the bolt is the member | its late phase reached its level and no
+    landing was heard), per cast, from a member's `late_calibration`
+    (fitted on dev, `ability_audio_fit.late_calibration`):
+
+        p = pi h / (pi h + (1 - pi) f),  f = 1 - exp(-r w)
+
+    `f` is the chance the late track fires falsely in the cast's late window
+    of `window_s` seconds at the level's false-fire rate `r`
+    (`ff_per_min`, on dev's unexplained live frames); `h` = (k + 1) / (n + 2)
+    of `hit` [k, n], the dev share of the member's releases whose late track
+    reached its level; `pi` = (k + 1) / (n + 2) of `prior` [k, n], the dev
+    share of the group's releases with no landing heard that were the
+    member. Vectorised."""
+    w = np.asarray(window_s, float)
+    f = 1.0 - np.exp(-float(cal["ff_per_min"]) / 60.0 * np.clip(w, 0.0, None))
+    h = (cal["hit"][0] + 1.0) / (cal["hit"][1] + 2.0)
+    pi = (cal["prior"][0] + 1.0) / (cal["prior"][1] + 2.0)
+    return pi * h / (pi * h + (1.0 - pi) * f)
 
 
 def logistic(x: np.ndarray, y: np.ndarray, l2: float = CALIB_L2, iters: int = 50) -> np.ndarray:
@@ -817,6 +901,40 @@ def save_calibrated(store_root, src_version: str, version: str, calibration: dic
     prov.update(version=version,
                 derived_from={"version": src_version, "params_npz_sha256": sha},
                 calibration={**note, "pooled": calibration["pooled"]})
+    (d / "provenance.json").write_text(json.dumps(prov, indent=1), encoding="utf-8")
+    return d
+
+
+def save_with_templates(store_root, src_version: str, version: str, added: dict,
+                        note: dict, note_key: str = "late_phase") -> Path:
+    """Write set `version`: set `src_version`'s arrays and provenance, with
+    per agent in `added` ({agent: {"templates", "labels", "files",
+    "groups"}}) the templates appended after the source's (their classes and
+    file rows likewise) and its phase groups replaced; every other array
+    copied unchanged. The provenance names the source and its arrays'
+    sha256 (`derived_from`) and carries `note` under `note_key`. Refuses to
+    overwrite."""
+    import hashlib
+    src, d = params_path(store_root, src_version), params_path(store_root, version)
+    if d.exists():
+        raise FileExistsError(f"{d} exists; a parameter set is never overwritten")
+    prov = json.loads((src / "provenance.json").read_text(encoding="utf-8"))
+    sha = hashlib.sha256((src / "params.npz").read_bytes()).hexdigest()
+    with np.load(src / "params.npz") as z:
+        arrays = {k: z[k] for k in z.files}
+    for agent, a in added.items():
+        m = prov["agents"][agent]
+        k = m["key"]
+        arrays[f"{k}__T"] = np.concatenate([arrays[f"{k}__T"], *a["templates"]]).astype(np.float32)
+        arrays[f"{k}__lens"] = np.concatenate([arrays[f"{k}__lens"],
+                                               [t.shape[0] for t in a["templates"]]]).astype(int)
+        m["classes"] = list(m["classes"]) + list(a["labels"])
+        m["files"] = list(m["files"]) + list(a["files"])
+        m["groups"] = a["groups"]
+    d.mkdir(parents=True)
+    np.savez(d / "params.npz", **arrays)
+    prov.update(version=version, derived_from={"version": src_version, "params_npz_sha256": sha},
+                **{note_key: note})
     (d / "provenance.json").write_text(json.dumps(prov, indent=1), encoding="utf-8")
     return d
 
