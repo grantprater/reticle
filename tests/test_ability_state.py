@@ -620,7 +620,14 @@ def _halves_at(slot: str, t: float, streak: bool = False) -> list[str]:
     return ["teal", "teal"] if _fill(slot, t) >= 1.0 else ["empty", "empty"]
 
 
-def _run_halves(kills_ms=(), streak=False):
+#: The facts of `FACTS` and a restock fact for Twin Shot, which a live return needs.
+RESTOCK_FACTS = {**FACTS, "abilities/tester-twin-shot-restock-observed": Fact(
+    domain="abilities", id="tester-twin-shot-restock-observed", kind="measurement",
+    known="observed", since="2026-10-05", subject="tester:twin shot",
+    claim="A spent Twin Shot charge comes back by itself about 25 seconds after the spend.")}
+
+
+def _run_halves(kills_ms=(), streak=False, facts=None):
     ts = [i * STEP for i in range(int(64000 / STEP))]
 
     def fill(slot, t):
@@ -639,7 +646,8 @@ def _run_halves(kills_ms=(), streak=False):
     return st.adjudicate("s", drops=drops, gate_rows=gate, kits=kits, phase_of=_phase,
                          samples={"t_ms": ts, "fills": fills, "drawn": [True] * len(ts),
                                   "clean": [True] * len(ts), "halves": halves},
-                         agent=agent, params=st.slot_parameters(AGENT, KIT, FACTS),
+                         agent=agent,
+                         params=st.slot_parameters(AGENT, KIT, facts or RESTOCK_FACTS),
                          inputs={"tray_drop": "tray-test", "player_cast": "gate-test",
                                  "tray_segment": "seg-test"},
                          kills_ms=list(kills_ms))
@@ -658,7 +666,20 @@ class GoldHalvesTest(unittest.TestCase):
         claim = next(r for r in rows if r["kind"] == "claim" and r["claim_id"] in got[0]["claims"])
         self.assertEqual(claim["evidence"]["halves_after"], ["teal", "gold"])
         self.assertEqual(claim["source_version"], "seg-test")
+        self.assertEqual(claim["evidence"]["restock_fact"],
+                         "abilities/tester-twin-shot-restock-observed")
         self.assertEqual(rows[0]["by_transition"].get("live_return"), 1)
+
+    def test_a_gold_rise_without_a_restock_fact_is_a_surprise(self):
+        # Gold was seen on kits with no recorded restock: the rise is no
+        # live return there, and the surprise names why.
+        rows = _run_halves(facts=FACTS)
+        self.assertEqual(_verdicts(rows, "E", "live_return"), [])
+        rise = _verdicts(rows, "E", "recharge")
+        self.assertEqual([(v["t_ms"], v["surprise_reason"]) for v in rise],
+                         [(45000.0, "gold_rise_without_a_restock_fact")])
+        self.assertEqual(st.slot_parameters(AGENT, KIT, FACTS)["E"]["restock_reason"],
+                         "no-fact:tester:E:restock")
 
     def test_a_kill_before_the_rise_keeps_it_a_recharge(self):
         rows = _run_halves(kills_ms=[43500.0])
@@ -700,7 +721,7 @@ def _adjudicate_args() -> dict:
                         "halves": [[_halves_at(s, t) for s in st.SLOTS] for t in ts]},
             "agent": {"agent": AGENT, "entity_id": "s:ally:slot:0", "status": "resolved",
                       "reason": None, "adjudication_version": "test"},
-            "params": st.slot_parameters(AGENT, KIT, FACTS),
+            "params": st.slot_parameters(AGENT, KIT, RESTOCK_FACTS),
             "inputs": {"tray_drop": "tray-test", "player_cast": "gate-test"}}
 
 

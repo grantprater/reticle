@@ -1292,7 +1292,8 @@ question = "When did a slot of the ability tray lose a charge, and is the readin
 owner = "tray"
 role = ["detect"]
 status = "partial"
-produces = ["slot_counts", "fills", "drawn", "casts", "flag_suspect", "drops"]
+produces = ["slot_counts", "fills", "drawn", "casts", "flag_suspect", "drops", "gold_candidates",
+            "gold_witness"]
 not_for = """
 Whose cast it was. After the player dies the tray shows a spectated teammate's
 kit, so a drop is a transition, not the player's cast; `ability-cast`
@@ -1301,6 +1302,24 @@ refusal, never zero charges.
 """
 consumers = ["cli", "adjudication.ability_state"]
 evidence = "tests/test_tray.py, prototypes/tray_suspect_reasons.py"
+
+[[entry]]
+id = "tray-restock-countdown"
+question = "Which numeral does the restock countdown above a C, Q or E tray slot show, if any?"
+owner = "tray_countdown"
+role = ["detect"]
+status = "partial"
+produces = ["FONT_RELPATH", "FONT_PT", "FONT_PX", "NUMERALS", "EMPTY", "NUMERAL_DX", "NUMERAL_CY", "READ_SLOTS", "LIT_MIN", "READ_MIN_SCORE", "READ_MIN_MARGIN", "font_path", "store_font", "templates", "value_s", "read_opportunity", "read_slot", "read_sample", "gold_rises", "score_against_returns"]
+not_for = """
+What the numeral counts, or when a charge comes back. The reader stores one
+row per read slot-sample in the `tray_countdown` stream: a numeral, the empty
+box, or None with a reason, placed by the offset measured over slot E
+(`rests_on`). The meaning of a numeral on each ability is the player's
+(docs/ABILITY_MECHANICS_SHEET.md); a return is the state model's
+(`ability-state`), which does not read this stream yet.
+"""
+consumers = ["cli"]
+evidence = "tests/test_tray_countdown.py"
 
 [[entry]]
 id = "menu-open"
@@ -1390,7 +1409,7 @@ owner = "tray_icons"
 role = ["detect"]
 status = "partial"
 produces = ["catalogue", "reference_key", "icon_template", "load_slot_icons", "slot_patches", "match_icon",
-            "slot_scores", "ICON_PX", "ICON_CY", "SHIFT_PX", "SLOT_KEYS"]
+            "slot_scores", "slot_brightness", "ICON_PX", "ICON_CY", "SHIFT_PX", "SLOT_KEYS"]
 not_for = """
 Deciding whose kit the tray shows, or naming anyone: it returns a score per
 agent and slot against any set it is handed, and `tray-kit` chooses the set and

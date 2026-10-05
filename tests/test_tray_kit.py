@@ -84,6 +84,22 @@ class Matcher(unittest.TestCase):
         self.assertTrue((sc[0] > sc[1]).all())
         self.assertTrue(np.isnan(sc[2, 1:]).all())
 
+    def test_slot_brightness_follows_the_icon_gain(self):
+        # C lit (white), Q dimmed, E absent, over the same dark background.
+        frame = np.full((1080, 1920, 3), 40, np.uint8)
+        half = PX // 2
+        for k, gain in enumerate((210.0, 90.0, 0.0, 0.0)):
+            cx = tray.SLOT_X0 + tray.SLOT_DX * k
+            y0, x0 = tray_icons.ICON_CY - half, cx - half
+            roi = frame[y0:y0 + PX, x0:x0 + PX].astype(np.float32)
+            roi += gain * _tpl("ring")[:, :, None]
+            frame[y0:y0 + PX, x0:x0 + PX] = np.clip(roi, 0, 255).astype(np.uint8)
+        got = tray_icons.slot_brightness(frame)
+        self.assertEqual(got.shape, (4,))
+        self.assertGreaterEqual(got[0], tray.ICON_LIT_MIN)
+        self.assertLessEqual(got[1], tray.ICON_DIM_MAX)
+        self.assertAlmostEqual(got[2], 40.0, delta=1.0)
+
     def test_catalogue_reads_the_reference_file_and_renames_kayo(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

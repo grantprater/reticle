@@ -222,7 +222,8 @@ def derived_streams() -> list[dict]:
                           COMBAT_REPORT_VERSION, ICON_TEARDROP_VERSION, MENU_VERSION,
                           MINIMAP_DARK_VERSION, PLANT_GRAPHIC_VERSION, SMOKE_OWNER_VERSION,
                           SMOKE_VERSION, SPIKE_CARRIER_VERSION, SPIKE_VERSION, TEAM_VISION_VERSION,
-                          TEARDROP_VERSION, TRAY_KIT_VERSION, TRAY_VERSION)
+                          TEARDROP_VERSION, TRAY_COUNTDOWN_VERSION, TRAY_FILL_VERSION,
+                          TRAY_KIT_VERSION, TRAY_SEGMENT_VERSION)
     from .version import (ROUND_OUTCOME_CLAIM_VERSION, ROUND_OUTCOME_VERSION,
                           SCOREBOARD_STRIP_VERSION)
     roi = {"roi_cache_version": ROI_CACHE_VERSION}
@@ -277,7 +278,13 @@ def derived_streams() -> list[dict]:
          "upstream": ("combat_report", "rounds", "death")},
         {"stream": "tray_kit", "key": "tray_kit_version", "current": TRAY_KIT_VERSION,
          "command": "reticle tray-kit {sid}", "how": "cache",
-         "fields": {"inputs.tray_fill": TRAY_VERSION, "inputs.roi_cache": ROI_CACHE_VERSION},
+         "fields": {"inputs.tray_fill": TRAY_FILL_VERSION, "inputs.roi_cache": ROI_CACHE_VERSION},
+         "upstream": ()},
+        # The restock countdown joins the tray's pass (`reticle tray`).
+        {"stream": "tray_countdown", "key": "tray_countdown_version",
+         "current": TRAY_COUNTDOWN_VERSION, "command": "reticle tray {sid}", "how": "cache",
+         "fields": {"inputs.roi_cache": ROI_CACHE_VERSION,
+                    "inputs.tray_segment": TRAY_SEGMENT_VERSION},
          "upstream": ()},
         {"stream": "ability_light", "key": "ability_light_version",
          "current": ABILITY_LIGHT_VERSION, "command": "reticle ability-light {sid}",
@@ -468,7 +475,7 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                           ABILITY_CANDIDATES_VERSION, ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION,
                           ICON_POSE_PRIOR_VERSION, STACK_FIT_VERSION,
                           ICON_TEARDROP_VERSION, ROUND_VERSION, TEARDROP_VERSION,
-                          TRAY_VERSION)
+                          TRAY_FILL_VERSION)
     geo ={"geometry": _in("geometry_built_by", "geometry")}
     death = "death#death_adjudication_version"
     return {
@@ -549,9 +556,11 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                                        "tray_drop#player_cast_version"),
                           "round": _in("inputs.round", "rounds"),
                           "catalogue": _in("inputs.catalogue", "catalogue"),
-                          "tray_fill": _code("inputs.tray_fill", TRAY_VERSION),
+                          "tray_fill": _code("inputs.tray_fill", TRAY_FILL_VERSION),
                           # The bar's half classes it rereads beside the fills.
                           "tray_segment": _code("inputs.tray_segment", TRAY_SEGMENT_VERSION),
+                          # The icon set the drawn test asks (`cli._tray_icon_witness`).
+                          "tray_icons": _in("inputs.tray_icons", "catalogue_icons"),
                           "roi_cache": _code("inputs.roi_cache", ROI_CACHE_VERSION),
                           "agent_identity": _code("inputs.agent_identity", AGENT_IDENTITY_VERSION),
                           # The audio witness (`audio_cast_witness`): its rule,
