@@ -6,11 +6,11 @@ r"""Stage 1 of docs/MINIMAP_GLYPH_CHANNEL.md: the per-key rotation policy table 
     .\.venv\Scripts\python.exe prototypes\glyph_tables.py record --out DIR   (metric series glyph_tables/*, once)
     .\.venv\Scripts\python.exe prototypes\glyph_tables.py bank --out NEWDIR --tables DIR   (the references, as data)
 
-`bank` writes `glyph-bank-0.3.0.npz` and `.json`: the 128 px glyphs the tables in DIR were built on, each with its
+`bank` writes `glyph-bank-0.3.1.npz` and `.json`: the 128 px glyphs the tables in DIR were built on, each with its
 game file and sha256, which the
 stage 2 reader (`reticle.minimap_glyph`) reads as versioned data; the reader never imports this script.
 
-`build` writes `glyph-rotation-policy-0.1.1.json` and `glyph-null-table-0.2.0.json` under DIR and `build.json`
+`build` writes `glyph-rotation-policy-0.1.2.json` and `glyph-null-table-0.2.1.json` under DIR and `build.json`
 (the single-frame measurements S1-S3 and the instrument controls). Each command refuses an output that exists,
 so a rerun goes to a new DIR; `follow`, `thrown` and `record` read the tables `build` wrote in the same DIR. `build`
 reads the dev crop cache for the unlabelled discs (no decode); `follow` and `thrown` still score at the widget scale
@@ -33,10 +33,11 @@ wins, each row's line cited, each answer a domain fact, `ANSWER_FACTS`:
 [domain:abilities/killjoy-alarmbot-minimap-glyph-turns] [domain:abilities/deadlock-sonic-sensor-square-follows-wall]
 [domain:abilities/deadlock-gravnet-minimap-glyph-upright] [domain:abilities/reyna-leer-minimap-glyph-upright]
 [domain:abilities/skye-guiding-light-minimap-glyph-upright] [domain:abilities/skye-trailblazer-minimap-glyph-upright]
-[domain:abilities/sova-owl-drone-minimap-glyph-upright], and from the table after 0.1.1
-[domain:abilities/skye-seekers-minimap-glyph-turns-belief] [domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief],
-the player's beliefs); Deadlock:Q, "normal to the wall", is
-searched at every rotation because no sonic-square wall fit is in master; an unsure answer (Cypher:C; Skye:X until 0.1.1) is
+[domain:abilities/sova-owl-drone-minimap-glyph-upright], and from 0.1.2
+[domain:abilities/skye-seekers-minimap-glyph-turns-belief] [domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief]
+[domain:abilities/cypher-trapwire-minimap-glyph-turns-belief]); Deadlock:Q, "normal to the wall", is
+searched at every rotation because no sonic-square wall fit is in master; an unsure answer (none from 0.1.2;
+Cypher:C and Skye:X until 0.1.1) is
 searched at every rotation with the reason `unsure_pending_player`; every other key follows the two-flag rule
 (`glyph_channel_cost.rule_verdict` over the raw export's minimap components, `rule_per_key`): upright when every
 component reads upright; every rotation when any component turns, the components disagree (`mixed`) or a
@@ -48,7 +49,7 @@ analysis/minimap-glyphs-killjoy-refs-20261004/gamedata-on, minimap-glyph-eval-0.
 labels/ability, labels/ability_paint and labels/tray_object of the dev sessions d95cfad5693a and dae6f33f3f48):
 every disc the player labelled as no ability, scored single frame (masked Pearson of luma, the eval's matcher)
 against every catalogue key at its policy's search size. Each key's cut sits where at most 5% of those discs
-score above it (`cut_at`): a key names a disc when its score exceeds its cut. Per key the bank's false naming
+score above it (`cut_at`, stored rounded up to 4 decimals): a key names a disc when its score exceeds its cut. Per key the bank's false naming
 adds up across keys, so each bank (the labelled caster's kit, `context`, and every key, `full`) also gets its own
 cut, overall and at each widget scale: the `cut_at` of each disc's best score within the bank, so that at most 5%
 of the discs' best keys clear it (gate 3's bank form). The table gives each bank's false-naming rate at the per-key
@@ -90,14 +91,22 @@ import glyph_channel_cost as gcc  # noqa: E402  (sets single-threaded, Below Nor
 import minimap_glyph_eval as mge  # noqa: E402
 import numpy as np  # noqa: E402
 
-VERSION = "glyph-tables-0.2.0"   # 0.2.0: the null at the full transform, unlabelled discs, the audit null
+VERSION = "glyph-tables-0.2.2"   # 0.2.0: the null at the full transform, unlabelled discs, the audit null
+#: 0.2.1: the three 2026-10-05 rotation answers; build.json compares every cut with glyph-null-table-0.2.0's.
+#: 0.2.2: `cut_at` returns the cut as stored (4 decimals, rounded up), so every count is taken at the stored cut.
 #: 0.1.1: no_component_default. The stamp versions the rows: at glyph-tables-0.2.0 the rows are unchanged and the
 #: file differs from 0.1.1's only in its provenance (generator); the bank's sha256 pairing pins each file's bytes.
-POLICY_VERSION = "glyph-rotation-policy-0.1.1"
+#: 0.1.2: rows Skye:X, Cypher:Q and Cypher:C decided by the player's 2026-10-05 answers (L472-L474).
+POLICY_VERSION = "glyph-rotation-policy-0.1.2"
 #: 0.1.1: bank cuts (gate 3), fuller provenance. 0.2.0: every score at geometry.MapScale.scale (widget x map zoom,
 #: `basis` map_scale), the unlabelled proposer discs of the dev sessions' exhaustive paint frames, and the audit
 #: null (`keys.<key>.audit_cut`, `banks.audit`).
-NULL_VERSION = "glyph-null-table-0.2.0"
+#: 0.2.1: the rule and basis of 0.2.0 over policy 0.1.2 (Cypher:Q rotated).
+#: 0.2.2: every cut stored rounded up to CUT_DECIMALS and every count taken at the stored cut. 0.2.1 and 0.2.0
+#: rounded to nearest after counting: the full bank's stored 0.8219 sat under its 0.821934 order statistic, so the
+#: reader named 4 of 63 dev no-ability discs (0.0635), not the 3 the table stated.
+NULL_VERSION = "glyph-null-table-0.2.2"
+CUT_DECIMALS = 4         # the decimals a stored cut keeps
 BASIS = "map_scale"
 FALSE_RATE = 0.05        # a design choice (docs/MINIMAP_GLYPH_CHANNEL.md, gate 3)
 DEV_RUN = gcc.KILLJOY_REFS_DEV.parent
@@ -117,9 +126,10 @@ ANSWER_FACTS = {"Cypher:E": "abilities/cypher-spycam-minimap-glyph-turns",
                 "Skye:E": "abilities/skye-guiding-light-minimap-glyph-upright",
                 "Skye:Q": "abilities/skye-trailblazer-minimap-glyph-upright",
                 "Sova:C": "abilities/sova-owl-drone-minimap-glyph-upright",
-                # Answered 2026-10-05 (answers.jsonl#L472, L473); the next table version reads them.
+                # Answered 2026-10-05 (answers.jsonl#L472, L473, L474); glyph-rotation-policy-0.1.2 reads them.
                 "Skye:X": "abilities/skye-seekers-minimap-glyph-turns-belief",
-                "Cypher:Q": "abilities/cypher-cyber-cage-minimap-glyph-turns-belief"}
+                "Cypher:Q": "abilities/cypher-cyber-cage-minimap-glyph-turns-belief",
+                "Cypher:C": "abilities/cypher-trapwire-minimap-glyph-turns-belief"}
 WALL_NORMAL = "normal to the wall"
 TABLES = (f"{POLICY_VERSION}.json", f"{NULL_VERSION}.json")
 
@@ -268,12 +278,20 @@ def key_scores(items: list[dict], z, keys: list[str], rotating: set) -> tuple[di
 
 
 def cut_at(scores, rate: float = FALSE_RATE) -> float | None:
-    """The cut a key names above: the (m+1)-th highest null score, m = floor(rate x n), so at most m of the n
-    scores exceed it; None without scores."""
+    """The cut a key names above, as the table stores it: the (m+1)-th highest null score, m = floor(rate x n),
+    rounded up to CUT_DECIMALS (`stored_cut`), so at most m of the n scores exceed the stored value the reader
+    applies; None without scores."""
     s = np.sort(np.asarray(scores, float))[::-1]
     if not len(s):
         return None
-    return float(s[min(int(np.floor(rate * len(s))), len(s) - 1)])
+    return stored_cut(float(s[min(int(np.floor(rate * len(s))), len(s) - 1)]))
+
+
+def stored_cut(c: float) -> float:
+    """The least CUT_DECIMALS-decimal value at or above `c`. Rounding to nearest can store a cut under its order
+    statistic, and the reader, which names above the stored cut, then names that score too."""
+    r = round(c, CUT_DECIMALS)
+    return r if r >= c else round(r + 10.0 ** -CUT_DECIMALS, CUT_DECIMALS)
 
 
 def best_in(per: np.ndarray, keys: list[str], allowed: list[str]) -> tuple[str, float, float]:
@@ -527,6 +545,29 @@ def audit_null(neg: list[dict], pos: list[dict], sc: dict, keys: list[str]) -> d
             "median_key_cut": round(float(np.median(list(per.values()))), 4)}
 
 
+#: The null table this build's cuts are compared with (`cut_moves`): master's before the 2026-10-05 answers.
+PREV_NULL = Path(mge.STORE) / "analysis" / "glyph-tables-20261005c" / "glyph-null-table-0.2.0.json"
+
+
+def cut_moves(prev: Path, ntab: dict, keys: list[str]) -> dict | None:
+    """How this null table's cuts differ from `prev`'s: the median and largest per-key move, each key whose per-key
+    or audit cut moved (old, new), and each bank cut (old, new). None when `prev` is absent."""
+    if not Path(prev).exists():
+        return None
+    old = json.load(open(prev, encoding="utf-8"))
+    both = [k for k in keys if k in old["keys"]]
+    dv = [abs(ntab["keys"][k]["cut"] - old["keys"][k]["cut"]) for k in both]
+    moved = {k: {"old": old["keys"][k]["cut"], "new": ntab["keys"][k]["cut"]}
+             for k in both if ntab["keys"][k]["cut"] != old["keys"][k]["cut"]}
+    amoved = {k: {"old": old["keys"][k].get("audit_cut"), "new": ntab["keys"][k].get("audit_cut")}
+              for k in both if ntab["keys"][k].get("audit_cut") != old["keys"][k].get("audit_cut")}
+    banks = {b: {"old": old["banks"][b]["bank_cut"]["cut"], "new": ntab["banks"][b]["bank_cut"]["cut"]}
+             for b in ("context", "full", "audit") if b in old["banks"] and b in ntab["banks"]}
+    return {"from": str(prev), "from_version": old.get("version"), "median_abs": round(float(np.median(dv)), 4),
+            "max_abs": round(float(max(dv)), 4), "keys": len(dv), "moved": moved, "audit_moved": amoved,
+            "bank_cut": banks}
+
+
 def load_dev():
     """(items.json, windows) of the eval 0.3.0 dev run, with the references (gamedata, answers) it was built on."""
     d, z = mge.load_scores(DEV_RUN)
@@ -601,13 +642,7 @@ def cmd_build(out: Path) -> None:
                            for r in neg if r["win_index"] in sc]) for b in ("context", "full")}
     unl_named = {b: sum(best_in(sc[r["win_index"]], keys, r["kit"] if b == "context" else keys)[1] > lab_only[b]
                         for r in unl if r["win_index"] in sc) for b in lab_only}
-    prev = Path(mge.STORE) / "analysis" / "glyph-tables-20261005b" / "glyph-null-table-0.1.1.json"
-    moves = None
-    if prev.exists():
-        old = json.load(open(prev, encoding="utf-8"))
-        dv = [abs(cut[k] - old["keys"][k]["cut"]) for k in keys if k in old["keys"]]
-        moves = {"from": str(prev), "median_abs": round(float(np.median(dv)), 4), "max_abs": round(float(max(dv)), 4),
-                 "keys": len(dv), "bank_cut_from": {b: old["banks"][b]["bank_cut"]["cut"] for b in ("context", "full")}}
+    moves = cut_moves(PREV_NULL, ntab, keys)
     right = [r for r in pos if r["win_index"] in sc and best_in(sc[r["win_index"]], keys, r["kit"])[0] == r["truth"]]
     clear = [r for r in right if sc[r["win_index"]][keys.index(r["truth"])] > cut[r["truth"]]]
     rot_cuts = [cut[k] for k in keys if policy[k] == "rotates"]
@@ -980,7 +1015,9 @@ def cmd_thrown(out: Path, only: set | None = None) -> None:
 
 #: 0.2.0: each source's game file (path under the export, sha256) beside its provenance; the glyphs are 0.1.0's.
 #: 0.3.0: pairs with glyph-null-table-0.2.0 (the full transform); the glyphs are 0.1.0's.
-BANK_VERSION = "glyph-bank-0.3.0"
+#: 0.3.1: pairs with glyph-rotation-policy-0.1.2 and glyph-null-table-0.2.1; the glyphs are 0.1.0's.
+#: 0.3.2: pairs with glyph-rotation-policy-0.1.2 and glyph-null-table-0.2.2 (cuts as stored); the glyphs are 0.1.0's.
+BANK_VERSION = "glyph-bank-0.3.2"
 
 
 def source_files(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -1008,7 +1045,7 @@ def source_files(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
 
 
 def cmd_bank(out: Path, tables: Path) -> None:
-    """Write the references the tables in `tables` were built on as versioned data (`glyph-bank-0.2.0.npz` and
+    """Write the references the tables in `tables` were built on as versioned data (`glyph-bank-0.3.1.npz` and
     `.json` under `out`): every catalogue key's 128 px glyphs, one per source (the DisplayIcon, then each export
     texture the eval 0.3.0 dev run assigned it: correlation, the state inventory's minimap brushes and the player's
     texture answers, `load_dev`). `reticle.minimap_glyph` reads this file and never imports this script. Refuses

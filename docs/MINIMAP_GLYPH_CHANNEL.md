@@ -726,6 +726,86 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    it reads upright and changes no policy. Outcome rows: store
    `notes/predictions.jsonl`, ts 2026-10-05T09:11:10Z, and the fix round's
    correction and outcome rows after it.
+   - **Rebuilt for the 2026-10-05 rotation answers** (branch
+     `glyph-answers-20261005`, `glyph-tables-0.2.1`; store
+     `analysis/glyph-tables-20261005d`). The player answered that Seekers,
+     Cyber Cage and Trapwire turn
+     [domain:abilities/skye-seekers-minimap-glyph-turns-belief]
+     [domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief]
+     [domain:abilities/cypher-trapwire-minimap-glyph-turns-belief].
+     `glyph-rotation-policy-0.1.2` rotates
+     [metric:glyph_tables/policy_012#rotates=20] of
+     [metric:glyph_tables/policy_012#keys=116] keys; a player answer
+     decides [metric:glyph_tables/policy_012#by_answer=12] rows and
+     [metric:glyph_tables/policy_012#unsure=0] stay unsure. Skye:X stores
+     the table's one surprise
+     ([metric:glyph_tables/policy_012#surprises=1]): the two-flag rule
+     reads it upright. Only Cyber Cage's search changes: Skye:X and
+     Trapwire were already rotated as unsure, and Cypher:Q was upright by
+     default. In `glyph-null-table-0.2.1`
+     [metric:glyph_tables/build_021#cut_move_keys_moved=1] per-key cut
+     moved, Cypher:Q's, from
+     [metric:glyph_tables/build_021#cypher_q_cut_before=0.4367] to
+     [metric:glyph_tables/build_021#cypher_q_cut=0.5331]; no audit cut
+     moved ([metric:glyph_tables/build_021#cut_move_audit_keys_moved=0]),
+     and the bank cuts held: context
+     [metric:glyph_tables/build_021#bank_cut_context_cut=0.6596], full
+     [metric:glyph_tables/build_021#bank_cut_full_cut=0.8219] and audit
+     [metric:glyph_tables/build_021#audit_bank_cut=0.8608]. The build
+     counted each at its unrounded order statistic,
+     [metric:glyph_tables/build_021#bank_cut_context_rate=0.0476] of the
+     dev no-ability discs, but stored the cut rounded to nearest; as the
+     reader applies the stored cuts, the full and audit banks named
+     [metric:glyph_reader/rescore_022@dev#full_bank_named_before=4] and
+     [metric:glyph_reader/rescore_022@dev#audit_bank_named_before=4] of
+     [metric:glyph_reader/rescore_022@dev#negatives=63], over gate 3's 5%
+     (the full bank's fourth-highest score, 0.821934 at d95cfad5693a
+     39.90 s, clears its stored 0.8219). Master's 0.2.0 tables share the
+     defect. `glyph-tables-0.2.2` fixes it below. The per-key
+     cuts alone still name
+     [metric:glyph_tables/build_021#false_naming_context_cut=0.0952] in the
+     caster's kit. S1 fell from 58 to
+     [metric:glyph_tables/build_021#s1_single_policy=57] of
+     [metric:glyph_tables/build_021#dev_n=59]: one Trapwire item
+     (d95cfad5693a 24.60 s) now reads best as Cypher:Q, under its cut, so
+     no named decision changed. The controls reproduce
+     [metric:glyph_tables/build_021#control_rotate_all=55] and
+     [metric:glyph_tables/build_021#control_upright=35]. On the
+     [metric:glyph_reader/answers_021@heldout#n=19] held-out marks whose
+     caster's kit holds one of the three keys, the reader's matcher names
+     [metric:glyph_reader/answers_021@heldout#s1_before=19] before and
+     [metric:glyph_reader/answers_021@heldout#s1=19] after, no best key
+     changed. Outcome rows: `glyph-answers-20261005` in
+     `notes/predictions.jsonl`.
+   - **Cuts stored as counted** (`glyph-tables-0.2.2`, same branch; store
+     `analysis/glyph-tables-20261005e`, `analysis/glyph-bank-20261005e`).
+     `cut_at` returns the cut rounded up to 4 decimals, and every count is
+     taken at that stored value. Each cut equals 0.2.1's or rises by
+     0.0001; the policy rows and glyphs do not change. The bank cuts are
+     context [metric:glyph_tables/build_022#bank_cut_context_cut=0.6596],
+     full [metric:glyph_tables/build_022#bank_cut_full_cut=0.822] and audit
+     [metric:glyph_tables/build_022#audit_bank_cut=0.8609]; the reader's
+     matcher, rescoring the dev discs against them, names
+     [metric:glyph_reader/rescore_022@dev#context_bank_named=2],
+     [metric:glyph_reader/rescore_022@dev#full_bank_named=3] and
+     [metric:glyph_reader/rescore_022@dev#audit_bank_named=3] of 63, the
+     stored counts (full rate
+     [metric:glyph_tables/build_022#bank_cut_full_rate=0.0476]): gate 3's
+     bank form holds as applied. The per-key cuts alone name
+     [metric:glyph_tables/build_022#false_naming_context_cut=0.0794] in the
+     caster's kit and
+     [metric:glyph_tables/build_022#false_naming_full_cut=0.2063] in the
+     full set. S1 stays [metric:glyph_reader/rescore_022@dev#s1=57] of 59
+     and right items above their cut stay
+     [metric:glyph_reader/rescore_022@dev#right_above_cut=55]. Cypher:Q's
+     cut is [metric:glyph_tables/build_022#cypher_q_cut=0.5332]. In the
+     audit sample (the earlier draw, 200 context rows per session, decided
+     from the stored scores), [metric:glyph_reader/audit_022@all#context_cut_agree=600]
+     of 600 cut decisions agree (Wilson 95% lower bound
+     [metric:glyph_reader/audit_022@all#wilson95_lower=0.9936]; at most
+     0.5% disagreement by the rule of three), and no row of the three
+     trials' full context pools flips
+     ([metric:glyph_reader/audit_022@all#pool_flips=0]).
 2. **The reader** in the ability pass; `reticle trial --reader
    ability_glyph` on a06f04a0059f, 5822b6646448
    (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`) and 4f207c0c4e39
@@ -853,7 +933,35 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    and `glyph-bank-0.3.0` in the store's `analysis/glyph-tables-20261005c`
    and `analysis/glyph-bank-20261005c`, `ability-glyph-0.5.0`; prediction,
    amendment, correction and outcome rows `glyph-prereqs-20261005` and
-   `glyph-prereqs-fix-20261005` in `notes/predictions.jsonl`):
+   `glyph-prereqs-fix-20261005` in `notes/predictions.jsonl`; the reader
+   now reads `glyph-bank-0.3.2`, `glyph-rotation-policy-0.1.2` and
+   `glyph-null-table-0.2.2` from `analysis/glyph-bank-20261005e` and
+   `analysis/glyph-tables-20261005e`, stage 1's rebuild for the 2026-10-05
+   rotation answers with cuts stored as counted, with the glyphs unchanged and `ability-glyph-0.5.0`
+   unchanged, since its matcher, gates, windows and fields did not move;
+   `plan` sees the new `GLYPH_BANK_STAMP`):
+   - **The rebuilt tables in the trials.** 200 scored context rows per
+     session (the stage 2 F4 draw, rng 20261005, rescored from the stored
+     0.5.0 trials; master's tables reproduce every stored row) keep their
+     best key and cut decision on all 200 on 4f207c0c4e39, a06f04a0059f
+     and 5822b6646448 (Wilson 95% lower bound
+     [metric:glyph_reader/audit_021@4f207c0c4e39#context_best_agree_lo95=0.9812];
+     at most 1.5% disagreement by the rule of three): no lineup there
+     holds Cypher. The surprise rows search every key, and there rotated
+     Cyber Cage templates win on noise: of 200 surprise rows the best key
+     agrees on [metric:glyph_reader/audit_021@4f207c0c4e39#surprise_best_agree=181]
+     (95% interval [metric:glyph_reader/audit_021@4f207c0c4e39#surprise_best_agree_lo95=0.8564]
+     to [metric:glyph_reader/audit_021@4f207c0c4e39#surprise_best_agree_hi95=0.9383]),
+     [metric:glyph_reader/audit_021@a06f04a0059f#surprise_best_agree=186]
+     and [metric:glyph_reader/audit_021@5822b6646448#surprise_best_agree=193],
+     every change a new Cypher:Q best, and the per-key cut decision on
+     [metric:glyph_reader/audit_021@4f207c0c4e39#surprise_cut_agree=188],
+     [metric:glyph_reader/audit_021@a06f04a0059f#surprise_cut_agree=189]
+     and [metric:glyph_reader/audit_021@5822b6646448#surprise_cut_agree=198].
+     The full bank cut's decision agrees on every row
+     ([metric:glyph_reader/audit_021@4f207c0c4e39#surprise_bank_agree=200]
+     on each session). The prediction of 97% agreement failed; a surprise
+     verdict must read the bank cut, never the per-key cut alone.
    - **A null at the full transform. Met.** The null table scores every
      dev disc at `geometry.MapScale.scale` (widget x map zoom; the table's
      `basis` map_scale) and the reader reads the same scale, so no session
@@ -909,7 +1017,10 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
      [metric:glyph_tables/build_020#policy_median_key_cut=0.5553] at the
      policy) and the audit bank cut
      [metric:glyph_tables/build_020#audit_bank_cut=0.8608] (rate
-     [metric:glyph_tables/build_020#audit_bank_rate=0.0476]). Audit rows now
+     [metric:glyph_tables/build_020#audit_bank_rate=0.0476], counted at
+     the unrounded cut; the reader named
+     [metric:glyph_reader/rescore_022@dev#audit_bank_named_before=4] of 63
+     at the stored 0.8608, fixed in `glyph-tables-0.2.2`). Audit rows now
      store both (`best_cut`, `bank_cut`). In the trials, every audit window
      whose best key clears the audit bank cut has that key inside the
      lineup's kits ([metric:glyph_reader/trial_050@4f207c0c4e39#c2_best_in_context=8]
@@ -1048,20 +1159,18 @@ draft:
   [domain:minimap/spectator-view-matches-self]: the player is unsure, and
   the views gate rests on it.
 - Births per cast per ability, for the Riot bound.
-- One rotation answer (Cypher:C, Trapwire), and the two-flag rule itself:
-  one out-of-sample answer (Killjoy:Q) supports it. On 2026-10-05 the
-  player answered two rotation questions in chat, both as beliefs:
+- The two-flag rule itself: one out-of-sample answer (Killjoy:Q) supports
+  it. On 2026-10-05 the player answered three rotation questions in chat:
   Seekers turn [domain:abilities/skye-seekers-minimap-glyph-turns-belief]
   and Cyber Cage turns
-  [domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief]. They
-  are appended to `answers.jsonl` (rows `rotation:Skye:X`, L472, and
-  `rotation:Cypher:Q`, L473) and named in `glyph_tables.ANSWER_FACTS`;
-  `glyph-rotation-policy-0.1.1` and the bank the ability pass reads predate
-  them, and the next table version marks both `player_answer`. Skye:X then
-  stores a surprise: the two-flag rule reads it upright. The chat question
-  named Cyber Cage (Cypher:Q), so the Trapwire row (Cypher:C) stays
-  `unsure_pending_player`. `glyph_tables bank` refuses until the tables are
-  rebuilt, since the answers file moved.
+  [domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief], both as
+  beliefs, and later Trapwire turns with the direction it is placed
+  [domain:abilities/cypher-trapwire-minimap-glyph-turns-belief]. They are
+  appended to `answers.jsonl` (rows `rotation:Skye:X`, L472,
+  `rotation:Cypher:Q`, L473, and `rotation:Cypher:C`, L474) and named in
+  `glyph_tables.ANSWER_FACTS`; `glyph-rotation-policy-0.1.2` marks all
+  three `player_answer`, and no rotation row stays unsure. Skye:X stores a
+  surprise: the two-flag rule reads it upright.
 - Which game component draws a placed icon where an ability's components
   disagree (Deadlock:Q, Omen:E): game-data work; the player has answered
   what the icons do.
