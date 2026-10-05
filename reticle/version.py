@@ -293,19 +293,21 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # (prototypes/game_font_digits.py compare --production).
 # 0.22.0 (2026-10-05): the two score fields read white ink against their own
 # plate (`ocr.score_field`): coverage (luma - plate) / (255 - plate) over a
-# grey opening, cut once at SCORE_INK_CUT, and a component is ink only where
-# it reaches SCORE_INK_PEAK. Bright scenery behind the plate no longer fuses
-# with the digits into masses refused as `occluded`; a plate too near white
-# to show a digit refuses `low_contrast`, a new reason. The clock keeps the
-# 190 cut. `n_glyphs` counts the glyphs inside the three fields. Oversize
-# score ink of any area blocks, and a faint digit-shaped neighbour of a read
-# digit refuses `faint_digit`, so a lost leading 1 never reads 11 as 1. On
-# the 21 Riot-recorded matches score reads rise from 122257
-# [metric:scoreline_soft/riot-21#old_reads=122257] to 162689
-# [metric:scoreline_soft/riot-21#new_reads=162689], no full read leaves
-# Riot's score sequence [metric:scoreline_soft/riot-21#new_full_off_riot=0],
-# and the 9 changed values are corrections
-# [metric:scoreline_soft/riot-21#changed=9]. Of the occluded score samples
+# grey opening, segmented at SCORE_INK_CUT into template bitmaps; each
+# component's whiteness is scored softly (`ocr.ink_score`, the
+# coverage-weighted mean coverage) and cut once, at SCORE_INK_MIN, where it
+# becomes a glyph, a blocker or a faint neighbour; no raw-luma gate. Bright
+# scenery behind the plate no longer fuses with the digits into masses
+# refused as `occluded`; a plate too near white to show a digit refuses
+# `low_contrast`, and a sub-ink component spanning a read digit's rows
+# beside it refuses `faint_digit`, so a dim or fused leading 1 never reads
+# 11 as 1. The clock keeps the 190 cut. `n_glyphs` counts the glyphs inside
+# the three fields. Oversize score ink of any area blocks. The first cut of
+# this version read 122257 -> 162689 score values on the 21 Riot-recorded
+# matches [metric:scoreline_soft/riot-21#new_reads=162689] with no full read
+# off Riot's score sequence [metric:scoreline_soft/riot-21#new_full_off_riot=0];
+# its gates and the soft score that replaced them were tuned on those
+# matches, so these are in-sample figures. Of the occluded score samples
 # before the small-jump unread round starts, 141 of 163 read both scores
 # [metric:scoreline_soft/unread-reset-windows#both_read=141].
 HUD_VERSION = "hud-0.22.0"

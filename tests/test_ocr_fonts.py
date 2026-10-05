@@ -184,6 +184,45 @@ class ScorePlateTests(unittest.TestCase):
         self.assertIsNone(r.score_left)
         self.assertEqual(r.score_left_reason, "low_contrast")
 
+    def test_pale_piece_apart_from_the_digits_is_not_ink(self):
+        # A digit-tall piece at coverage 0.65 passes the segmentation cut but
+        # scores below SCORE_INK_MIN; far from the digit, it is ignored.
+        gray = _scoreline("4", 100.0, "7", 100.0)
+        gray[18:38, 60:65] = 201
+        r = ocr.read_scoreline(gray, self.tpl)
+        self.assertEqual(r.score_left, 4)
+        self.assertIsNone(r.score_left_reason)
+
+    def test_dim_one_beside_a_one_refuses_faint_digit(self):
+        # Two tabular 1s stand 10 px apart; the second, dimmed by scenery to
+        # coverage 0.6, must refuse the field rather than read 11 as 1.
+        gray = _scoreline("1", 100.0, "7", 100.0)
+        box = gray[14:40, 10:24] > 200
+        ys, xs = np.nonzero(box)
+        x0, x1 = xs.min() + 10, xs.max() + 10
+        dim = gray[14:40, x0:x1 + 1].astype(np.float32)
+        cover = np.clip((dim - 100.0) / 155.0, 0, 1) * 0.6
+        gray[14:40, x1 + 11:x1 + 11 + (x1 - x0 + 1)] = np.rint(100.0 + cover * 155.0).astype(np.uint8)
+        r = ocr.read_scoreline(gray, self.tpl)
+        self.assertIsNone(r.score_left)
+        self.assertEqual(r.score_left_reason, "faint_digit")
+
+    def test_dim_mass_across_a_digit_rows_refuses_faint_digit(self):
+        # A pale streak taller than a digit, beside it, may hide one.
+        gray = _scoreline("4", 100.0, "7", 100.0)
+        gray[8:52, 30:34] = 195
+        r = ocr.read_scoreline(gray, self.tpl)
+        self.assertIsNone(r.score_left)
+        self.assertEqual(r.score_left_reason, "faint_digit")
+
+    def test_ink_score_weights_the_core(self):
+        labels = np.array([[0, 1, 1, 2]], np.int32)
+        cover = np.array([[0.9, 1.0, 0.5, 0.6]], np.float32)
+        s = ocr.ink_score(cover, labels, 3)
+        self.assertEqual(s[0], 0.0)
+        self.assertAlmostEqual(s[1], 1.25 / 1.5)
+        self.assertAlmostEqual(s[2], 0.6, places=6)
+
 
 if __name__ == "__main__":
     unittest.main()

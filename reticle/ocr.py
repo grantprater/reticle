@@ -103,17 +103,20 @@ THRESHOLD = 190
 SCORE_BG_KERNEL = 9
 #: The ROI height (1080p) SCORE_BG_KERNEL is measured at; it scales with it.
 SCORE_BG_AT_H = 59
-#: Coverage above which a pixel is ink: one cut, inside the template set's
-#: FONT_COVER_CUTS (0.4-0.85); over a plate of luma 100 it is the 190 cut.
+#: Coverage above which a pixel joins a component's bitmap. This is the
+#: segmentation the binary font templates match (rendered at FONT_COVER_CUTS
+#: 0.4-0.85), not an ink decision; over a plate of luma 100 it is the 190 cut.
 SCORE_INK_CUT = 0.55
-#: A component is white ink only where its core reaches both this coverage
-#: and SCORE_INK_WHITE luma. Digit cores read luma 249-255 and coverage
-#: 0.88-1.0 over plates up to luma 230; the ROI's bright left rim peaks at
-#: coverage 0.58 (luma 188), and pale scenery pieces that read 5 as 15 and 1
-#: as 11 peak at 0.82 and luma 241 and 232 (a06f04a0059f 1376.0 s,
-#: c40d950031bb 843.5 s).
-SCORE_INK_PEAK = 0.8
-SCORE_INK_WHITE = 245
+#: A component is white ink where its ink score, the coverage-weighted mean
+#: coverage sum(c^2) / sum(c) over its pixels (`ink_score`), reaches this.
+#: It is the one cut on whiteness, made where `score_field` decides glyph,
+#: blocker (`occluded`) or faint neighbour (`faint_digit`); no raw-luma gate
+#: precedes it. Digit components score 0.85-0.95; pale scenery pieces that
+#: read 5 as 15 and 1 as 11 score 0.66-0.67 (a06f04a0059f 1376.0 s,
+#: c40d950031bb 843.5 s). Cuts 0.75, 0.78 and 0.80 all kept every full read
+#: on Riot's score pairs on 19 dev Riot matches (2026-10-05, every 4th
+#: crop), with 0 decreases; 0.78 sits between them.
+SCORE_INK_MIN = 0.78
 #: The score digits stand 19-21 px tall at 1080p (DIN Next 22 pt); taller
 #: ink is a digit fused with scenery, and blocks: a 7 fused with a door's
 #: lit edge stood 11x30 and matched 1 (e37fdeca944f 908.0 s).
@@ -124,11 +127,15 @@ SCORE_MAX_H = 24
 SCORE_CONTRAST_MIN = 16.0
 #: The score digits' rows, as fractions of the ROI height.
 SCORE_BAND_Y = (0.25, 0.80)
-#: A component that passes the cut but is no white ink, of a digit's height,
-#: whose top and bottom sit within MAX_EDGE_SPREAD of a read digit's and whose
-#: box lies within this many px of it, may be a digit too faint to trust: the
-#: field refuses `faint_digit` rather than read 11 as 1.
-SCORE_FAINT_GAP = 8
+#: A component that passes SCORE_INK_CUT but scores below SCORE_INK_MIN,
+#: spanning a read digit's rows (to MAX_EDGE_SPREAD) and lying within this
+#: many px of it, may hide a digit: a dim digit, or a digit fused with pale
+#: scenery. The field refuses `faint_digit` rather than read 11 as 1. The
+#: widest gap between a field's digits is between two tabular 1s: 10 px
+#: (boxes at x 5-11 and 21-27, ff636d173b07 2350.0 s) or 11 px when the
+#: second 1 rounds a pixel right (x 22-27, 9acf02f98283 1865.0 s and
+#: a1a995e6b19b 2085.0 s, which read 11 as 1 at 10); 12 px adds a pixel.
+SCORE_FAINT_GAP = 12
 #: A field's components are cut from its columns and this share of the ROI's
 #: width either side, so a digit at a field's edge stays whole.
 FIELD_PAD = 0.05
@@ -243,17 +250,35 @@ def ink_cover(gray: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return np.clip(cover, 0.0, 1.0), room
 
 
+def ink_score(cover: np.ndarray, labels: np.ndarray, count: int) -> np.ndarray:
+    """Each component's soft white-ink score: its coverage-weighted mean
+    coverage, sum(c^2) / sum(c) over its pixels of `labels`, so the core
+    counts more than the antialiased rim; label 0 scores 0."""
+    on = labels > 0
+    lab = labels[on].astype(np.intp)
+    c = cover[on].astype(np.float64)
+    s1 = np.bincount(lab, c, count)
+    s2 = np.bincount(lab, c * c, count)
+    score = s2 / np.maximum(s1, 1e-9)
+    score[0] = 0.0
+    return score
+
+
 def score_field(gray: np.ndarray, lo: float, hi: float
                 ) -> tuple[list[Glyph], list[tuple[float, float]], bool, bool]:
     """One score field of the scoreline ROI `gray`, spanning [lo, hi) of its
-    width: glyphs and blockers cut once from `ink_cover` at SCORE_INK_CUT,
-    under `_components`' geometry rule, with positions in the ROI's frame;
-    and whether its digit rows hold a plate too near white for a white digit
-    to show (SCORE_CONTRAST_MIN); and whether a faint digit-shaped component
-    stands beside a digit (SCORE_FAINT_GAP). Only components whose core
-    reaches SCORE_INK_PEAK and SCORE_INK_WHITE are ink, so a blocker here is
-    white ink no digit's shape explains: a mass over the field, or two
-    digits fused. Any oversize ink of MIN_AREA blocks,
+    width: glyphs and blockers, with positions in the ROI's frame; whether
+    its digit rows hold a plate too near white for a white digit to show
+    (SCORE_CONTRAST_MIN); and whether a component too dim to be ink stands
+    beside a read digit across its rows (SCORE_FAINT_GAP).
+
+    `ink_cover` is segmented at SCORE_INK_CUT into the bitmaps the binary
+    font templates match. Whiteness is then scored softly per component
+    (`ink_score`) and cut once, at SCORE_INK_MIN, where each component is
+    decided: ink of a digit's shape is a glyph, other ink a blocker, and
+    sub-ink beside a digit refuses the field. A blocker is white ink no
+    digit's shape explains: a mass over the field, or two digits fused.
+    Any oversize ink of MIN_AREA blocks,
     not only BLOCKER_MIN_AREA: a white streak fused with a thin 1 makes a
     7x42 mass of area 102, and dropping it read 11 as 1 (4f207c0c4e39
     2038.0 s). The cover is taken over the field and FIELD_PAD of the ROI's
@@ -264,11 +289,7 @@ def score_field(gray: np.ndarray, lo: float, hi: float
     cover, room = ink_cover(gray[:, x0:x1])
     binary = (cover > SCORE_INK_CUT).astype(np.uint8) * 255
     count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
-    core = np.zeros(count, bool)
-    core[labels[cover >= SCORE_INK_PEAK]] = True
-    white = np.zeros(count, bool)
-    white[labels[gray[:, x0:x1] >= SCORE_INK_WHITE]] = True
-    ink = core & white
+    ink = ink_score(cover, labels, count) >= SCORE_INK_MIN
     ink[0] = False
     raw = [tuple(int(v) for v in stats[i]) for i in np.nonzero(ink)[0]]
     glyphs, blockers = _split(binary, raw, w, x0, blocker_min_area=MIN_AREA,
@@ -277,14 +298,17 @@ def score_field(gray: np.ndarray, lo: float, hi: float
                 max(0, int(lo * w) - x0):int(np.ceil(hi * w)) - x0]
     pale = bool(band.size) and float(band.min()) < SCORE_CONTRAST_MIN
     read = [g for g in glyphs if lo <= g.cx / max(1, w) < hi]
+    sub = ~ink & (stats[:, cv2.CC_STAT_AREA] >= MIN_AREA) & (stats[:, cv2.CC_STAT_HEIGHT] >= MIN_H)
+    sub[0] = False
+    dim = stats[sub]
     faint = False
-    for i in np.nonzero(~ink[1:])[0] + 1:
-        x, y, fw, fh, area = (int(v) for v in stats[i])
-        if not (MIN_H <= fh <= SCORE_MAX_H) or area < MIN_AREA:
-            continue
-        x += x0
-        faint |= any(abs(y - g.y) <= MAX_EDGE_SPREAD and abs(y + fh - g.y - g.h) <= MAX_EDGE_SPREAD
-                     and max(x - g.x - g.w, g.x - x - fw) <= SCORE_FAINT_GAP for g in read)
+    if read and len(dim):
+        fx = dim[:, 0:1] + x0
+        fy, fw, fh = dim[:, 1:2], dim[:, 2:3], dim[:, 3:4]
+        gx, gy, gw, gh = (np.array([[getattr(g, k) for g in read]]) for k in "xywh")
+        rows = (fy <= gy + MAX_EDGE_SPREAD) & (fy + fh >= gy + gh - MAX_EDGE_SPREAD)
+        near = np.maximum(fx - gx - gw, gx - fx - fw) <= SCORE_FAINT_GAP
+        faint = bool((rows & near).any())
     return glyphs, blockers, pale, faint
 
 
