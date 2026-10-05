@@ -1293,6 +1293,28 @@ def _soft_stroke_groups(soft: np.ndarray, line: int, s: "KillfeedScale") -> list
     return _stroke_groups(st, set(range(1, n)), lambda i: bool(glyph[i]), s)
 
 
+def _element_box(b: tuple[int, int], cand, st: np.ndarray,
+                 s: "KillfeedScale") -> tuple[int, int]:
+    """Divider box `b` widened over every glyph-sized piece (`cand`) whose
+    column gap to it is under NAME_GAP: a gap that narrow joins two pieces of
+    one element, and the killer's name ends 6 px or more before the icon
+    [domain:killfeed/killfeed-element-spacing]. Clove's Not Dead Yet expiry
+    icon at ff636d173b07 1247.0 s breaks into three pieces; the left one,
+    10 x 11 px on the names' baseline and touching the others, read as the
+    killer's name's last letter 13 px from the rest of it, and the band went
+    `one_colour:no_divider`."""
+    x0, x1 = b
+    gap = s.px(NAME_GAP)
+    grew = True
+    while grew:
+        grew = False
+        for i in cand:
+            a0, a1 = int(st[i, 0]), int(st[i, 0] + st[i, 2])
+            if (a0 < x0 or a1 > x1) and a0 < x1 + gap and a1 > x0 - gap:
+                x0, x1, grew = min(x0, a0), max(x1, a1), True
+    return x0, x1
+
+
 def _band_text(
     white: np.ndarray, usable: np.ndarray | None = None, plates=None,
     value: np.ndarray | None = None, s: "KillfeedScale" = UNIT_SCALE,
@@ -1464,6 +1486,8 @@ def _band_text(
                                 max([int(st[m, 0] + st[m, 2]) for m in keep]
                                     + [a1, int(round(fit["cx"] + fit["r"]))]))
                             break
+            if one_colour:
+                boxes[i] = _element_box(boxes[i], cand, st, s)
         return boxes[i]
 
     divides = lambda i, left, right: ((left < box(i)[0]).any()
@@ -2000,7 +2024,10 @@ PORTRAIT_ASPECT = 2.0
 # killfeed-weapon-0.13.0), so a one-colour banner's second-life search,
 # anchored at the icon's end, starts 1-2 px later: on 96aa1ae9b96f, 10 of
 # 1391 badge rows move `plate_x0`, and none changes `has_badge` or `reason`.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.19.0"
+# 0.20.0 (2026-10-04): a one-colour band's divider widens over a glyph-sized
+# piece under NAME_GAP from it (`_element_box`, hud-0.23.0), so a Not Dead Yet
+# expiry whose icon breaks into pieces is an entry with portraits.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.20.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -3105,7 +3132,9 @@ def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # extent covering the divider: 0.13.0's pieces cut Nanoswarm's dotted
 # outline (a06f04a0059f 892.5 s) from 327-349 to 331-345, and the soft
 # registered match's whole-icon gate failed on the dots left in the margin.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.14.0"
+# 0.15.0 (2026-10-04): a one-colour band's divider widens over a glyph-sized
+# piece under NAME_GAP from it; see the portrait stamp.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.15.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -3678,7 +3707,9 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # Shells) divides by the plate-relative cut (`_soft_stroke_groups`).
 # 0.6.0 (2026-10-03): `PITCH` is 39; see the portrait stamp. (0.5.0 belongs to
 # one-colour-band-20261003.)
-KILLFEED_NAME_VERSION = "killfeed-name-0.6.0"
+# 0.7.0 (2026-10-04): a one-colour band's divider widens over a glyph-sized
+# piece under NAME_GAP from it; see the portrait stamp.
+KILLFEED_NAME_VERSION = "killfeed-name-0.7.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15
