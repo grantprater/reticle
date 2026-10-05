@@ -586,8 +586,9 @@ The game files of build 13.06 give Astra's Astral Form / Cosmic Divide (slot
 X) these class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: lifetime or active duration: up
 duration 16.0 s; other timings: star creation warmup time 3.0 s; placement,
-throw or targeting range: cosmic divide max cast distance 100.0 m; minimap
-component size, in world units: cosmic divide minimap size 250.0 m.
+throw or targeting range: cosmic divide max cast distance 100.0 m, star
+placement max cast distance 300.0 m; minimap component size, in world units:
+cosmic divide minimap size 250.0 m.
 """
 kind = "measurement"
 known = "measured"
@@ -609,7 +610,10 @@ ShooterGame/Content/Characters/Rift/S0/Ability_X/WorldTargeting/StateComponent_R
 Default__StateComponent_Rift_X_WallTargeting_FreeTarget_C.MaxCastDistance =
 10000.0 cm; cosmic_divide_minimap_size_m:
 ShooterGame/Content/Characters/Rift/S0/Ability_X/WorldTargeting/GlobalWall/GameObject_Rift_X_GlobalWall.uasset
-BaseMinimapComponent_Parent_GEN_VARIABLE.Size.X = 25000.0 cm
+BaseMinimapComponent_Parent_GEN_VARIABLE.Size.X = 25000.0 cm;
+star_placement_max_cast_distance_m:
+ShooterGame/Content/Characters/Rift/S0/Ability_X/WorldTargeting/StateComponent_Rift_X_NavMeshTargeting.uasset
+Default__StateComponent_Rift_X_NavMeshTargeting_C.MaxCastDistance = 30000.0 cm
 """
 use = """
 the world shape, life and motion of this ability's child in the entity-state design: read
@@ -618,12 +622,15 @@ each value through its own key, never by analogy with another ability
 exceptions = """
 Not found in the equippable, its entities, their parent classes or the ability
 folder: wall length and height: GameObject_Rift_X_GlobalWall holds no extent
-field; star placement range. These are class defaults; a blueprint may change
-a value at run time, and a field name is the designers' word, not a measured
-meaning.
+field. The star-placing ability Ability_Rift_X_PlaceMarkers_WorldTargeting
+holds a StateComponent_Rift_X_NavMeshTargeting instance that sets
+TargetingOffset but not MaxCastDistance, so the class default holds; the files
+do not name the point the distance counts from. These are class defaults; a
+blueprint may change a value at run time, and a field name is the designers'
+word, not a measured meaning.
 """
-values = { life = { up_duration_s = 16.0 }, timing = { star_creation_warmup_time_s = 3.0 }, range = { cosmic_divide_max_cast_distance_m = 100.0 }, minimap = { cosmic_divide_minimap_size_m = 250.0 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+values = { life = { up_duration_s = 16.0 }, timing = { star_creation_warmup_time_s = 3.0 }, range = { cosmic_divide_max_cast_distance_m = 100.0, star_placement_max_cast_distance_m = 300.0 }, minimap = { cosmic_divide_minimap_size_m = 250.0 } }
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/astra-stars-origin-global"]
 
 [breach-aftershock-game-data]
 claim = """
@@ -1038,15 +1045,17 @@ These are class defaults; a blueprint may change a value at run time, and a
 field name is the designers' word, not a measured meaning.
 """
 values = { life = { slow_field_fire_active_duration_s = 6.0 }, timing = { initial_arm_time_s = 2.0 }, size = { detection_radius2d_m = 10.0, slow_field_clamped_radius_m = 6.0 }, range = { targeting_range_m = 12.0 }, minimap = { minimap_trigger_range_size_m = 20.0 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/chamber-trademark-origin-placed-away"]
 
 [chamber-rendezvous-game-data]
 claim = """
 The game files of build 13.06 give Chamber's Rendezvous (slot E) these
 class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: placement, throw or targeting
-range: targeting range 8.5 m; caster movement: teleport radius 18.0 m; minimap
-component size, in world units: minimap activation range size 18.0 m.
+range: targeting range 8.5 m; a length the files do not settle as size or
+range: required max distance from context 37.5 m; caster movement: teleport
+radius 18.0 m; minimap component size, in world units: minimap activation
+range size 18.0 m.
 """
 kind = "measurement"
 known = "measured"
@@ -1065,7 +1074,11 @@ ShooterGame/Content/Characters/Deadeye/S0/Ability_E/Ability_Deadeye_E_Teleporter
 StateComponent_PlacementTargeting_RequiredDistanceFromContext_GEN_VARIABLE.TargetingRange
 = 850.0 cm; minimap_activation_range_size_m:
 ShooterGame/Content/Characters/Deadeye/S0/Ability_E/GameObject_Deadeye_E_Teleporter_Tether.uasset
-Minimap_ActivationRange_GEN_VARIABLE.Size.X = 1800.0 cm
+Minimap_ActivationRange_GEN_VARIABLE.Size.X = 1800.0 cm;
+required_max_distance_from_context_m:
+ShooterGame/Content/Characters/Deadeye/S0/Ability_E/Ability_Deadeye_E_Teleporter_Tethers.uasset
+StateComponent_PlacementTargeting_RequiredDistanceFromContext_GEN_VARIABLE.RequiredMaxDistanceFromContext
+= 3750.0 cm
 """
 use = """
 the world shape, life and motion of this ability's child in the entity-state design: read
@@ -1073,12 +1086,14 @@ each value through its own key, never by analogy with another ability
 """
 exceptions = """
 Not found in the equippable, its entities, their parent classes or the ability
-folder: duration (a placed anchor persists; no lifetime field). These are
-class defaults; a blueprint may change a value at run time, and a field name
-is the designers' word, not a measured meaning.
+folder: duration (a placed anchor persists; no lifetime field).
+RequiredMaxDistanceFromContext sits on the same placement component as
+TargetingRange; which context it counts from (the first anchor or Chamber) the
+files do not settle. These are class defaults; a blueprint may change a value
+at run time, and a field name is the designers' word, not a measured meaning.
 """
-values = { range = { targeting_range_m = 8.5 }, move = { teleport_radius_m = 18.0 }, minimap = { minimap_activation_range_size_m = 18.0 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+values = { range = { targeting_range_m = 8.5 }, unconfirmed = { required_max_distance_from_context_m = 37.5 }, move = { teleport_radius_m = 18.0 }, minimap = { minimap_activation_range_size_m = 18.0 } }
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/chamber-rendezvous-origin-placed-away"]
 
 [chamber-headhunter-game-data]
 claim = """
@@ -1393,7 +1408,7 @@ defaults; a blueprint may change a value at run time, and a field name is the
 designers' word, not a measured meaning.
 """
 values = { timing = { arm_time_s = 1.5 }, size = { max_wire_length_m = 15.0 }, range = { wire_targeting_distance_m = 20.0 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/cypher-trapwire-origin-placed-away"]
 
 [cypher-spycam-game-data]
 claim = """
@@ -1434,7 +1449,7 @@ defaults; a blueprint may change a value at run time, and a field name is the
 designers' word, not a measured meaning.
 """
 values = { timing = { ping_marked_target_delay_s = 2.0 }, range = { targeting_range_m = 20.0 }, speed = { dart_projectile_speed_m_s = 200.0 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/cypher-spycam-origin-placed-away"]
 
 [cypher-cyber-cage-game-data]
 claim = """
@@ -1475,11 +1490,13 @@ the world shape, life and motion of this ability's child in the entity-state des
 each value through its own key, never by analogy with another ability
 """
 exceptions = """
-These are class defaults; a blueprint may change a value at run time, and a
-field name is the designers' word, not a measured meaning.
+Not found in the equippable, its entities, their parent classes or the ability
+folder: throw range (a ballistic toss from Projectile_TossBase; no range
+field). These are class defaults; a blueprint may change a value at run time,
+and a field name is the designers' word, not a measured meaning.
 """
 values = { life = { sustain_time_s = 6.4 }, timing = { deploy_time_s = 0.35, contract_time_s = 0.5 }, size = { cage_radius_m = 3.45, capsule_radius_m = 3.35, capsule_half_height_m = 3.63 }, speed = { projectile_speed_m_s = 20.0 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/cypher-cyber-cage-origin-placed-away"]
 
 [cypher-neural-theft-game-data]
 claim = """
@@ -3736,7 +3753,7 @@ These are class defaults; a blueprint may change a value at run time, and a
 field name is the designers' word, not a measured meaning.
 """
 values = { life = { initial_life_span_s = 2.0 }, size = { radius_m = 400.0 }, range = { trigger_distance_m = 10.0 }, speed = { projectile_speed_m_s = 22.5 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/reyna-leer-origin-set-distance"]
 
 [reyna-devour-game-data]
 claim = """
@@ -4036,8 +4053,10 @@ The game files of build 13.06 give Skye's Trailblazer (slot Q) these
 class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: lifetime or active duration:
 possess duration timer length 6.0 s; sizes: concussion range 3.5 m; placement,
-throw or targeting range: attack radius 12.5 m; speeds: movement tuning base
-values max speed 6.5 m/s.
+throw or targeting range: attack radius 12.5 m; a length the files do not
+settle as size or range: spawn spot trace target offset x 0.75 m, spawned pawn
+offset translation x 0.0 m; speeds: movement tuning base values max speed 6.5
+m/s.
 """
 kind = "measurement"
 known = "measured"
@@ -4059,18 +4078,26 @@ ShooterGame/Content/Characters/Guide/S0/Ability_Q/Pawn_Guide_Q_PossessableScout.
 Comp_Actor_ConcussionExplosion_AtLocation_GEN_VARIABLE.ConcussionRange = 350.0
 cm; attack_radius_m:
 ShooterGame/Content/Characters/Guide/S0/Ability_Q/Ability_Guide_Q_PossessableScout_ScoutAbilities.uasset
-ActorTargetingState_Attack_GEN_VARIABLE.Radius = 1250.0 cm
+ActorTargetingState_Attack_GEN_VARIABLE.Radius = 1250.0 cm;
+spawn_spot_trace_target_offset_x_m:
+ShooterGame/Content/Characters/Guide/S0/Ability_Q/Ability_Guide_Q_PossessableScout.uasset
+FindSpawnSpotState_GEN_VARIABLE.Traces[0].TargetOffset.X = 75.0 cm;
+spawned_pawn_offset_translation_x_m:
+ShooterGame/Content/Characters/Guide/S0/Ability_Q/Ability_Guide_Q_PossessableScout.uasset
+SpawnActorState_GEN_VARIABLE.SpawnedActors[0].Offset.Translation.X = 0.0 cm
 """
 use = """
 the world shape, life and motion of this ability's child in the entity-state design: read
 each value through its own key, never by analogy with another ability
 """
 exceptions = """
-These are class defaults; a blueprint may change a value at run time, and a
-field name is the designers' word, not a measured meaning.
+The spawn-spot traces start from the caster pawn's transform
+(bUsePawnTransform); whether the pawn spawns at a trace's end the files do not
+settle. These are class defaults; a blueprint may change a value at run time,
+and a field name is the designers' word, not a measured meaning.
 """
-values = { life = { possess_duration_timer_length_s = 6.0 }, size = { concussion_range_m = 3.5 }, range = { attack_radius_m = 12.5 }, speed = { movement_tuning_base_values_max_speed_m_s = 6.5 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+values = { life = { possess_duration_timer_length_s = 6.0 }, size = { concussion_range_m = 3.5 }, range = { attack_radius_m = 12.5 }, unconfirmed = { spawn_spot_trace_target_offset_x_m = 0.75, spawned_pawn_offset_translation_x_m = 0.0 }, speed = { movement_tuning_base_values_max_speed_m_s = 6.5 } }
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/skye-trailblazer-origin-at-caster"]
 
 [skye-guiding-light-game-data]
 claim = """
@@ -4111,7 +4138,7 @@ These are class defaults; a blueprint may change a value at run time, and a
 field name is the designers' word, not a measured meaning.
 """
 values = { life = { duration_s = 2.0 }, size = { flash_radius_m = 50.0 }, speed = { projectile_speed_m_s = 18.0 }, other = { flash_max_duration_s = 1.25 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/skye-guiding-light-origin-at-caster"]
 
 [skye-seekers-game-data]
 claim = """
@@ -4155,9 +4182,11 @@ claim = """
 The game files of build 13.06 give Sova's Owl Drone (slot C) these
 class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: lifetime or active duration: drone
-duration timer length 7.0 s; other timings: dart initial life span 7.0 s;
-speeds: base values max speed x default state multipliers 5 max speed 4.875
-m/s.
+duration timer length 7.0 s; other timings: dart initial life span 7.0 s; a
+length the files do not settle as size or range: spawn spot trace target
+offset x 0.75 m, spawn spot trace target offset z 1.25 m, spawned drone offset
+translation x 0.0 m; speeds: base values max speed x default state multipliers
+5 max speed 4.875 m/s.
 """
 kind = "measurement"
 known = "measured"
@@ -4178,18 +4207,29 @@ ShooterGame/Content/Characters/Hunter/S0/Ability_E/Drone/Pawn_Hunter_E_Drone.uas
 CharMoveComp.MovementTuning.DefaultStateMultipliers[5].MaxSpeed = 325.0
 (unitless multiplier); dart_initial_life_span_s:
 ShooterGame/Content/Characters/Hunter/S0/Ability_E/Drone/GameObject_Hunter_E_Drone_RevealDart.uasset
-Default__GameObject_Hunter_E_Drone_RevealDart_C.InitialLifeSpan = 7.0 s
+Default__GameObject_Hunter_E_Drone_RevealDart_C.InitialLifeSpan = 7.0 s;
+spawn_spot_trace_target_offset_x_m:
+ShooterGame/Content/Characters/Hunter/S0/Ability_E/Drone/Ability_Hunter_E_DeployDrone.uasset
+FindSpawnSpotState_GEN_VARIABLE.Traces[0].TargetOffset.X = 75.0 cm;
+spawn_spot_trace_target_offset_z_m:
+ShooterGame/Content/Characters/Hunter/S0/Ability_E/Drone/Ability_Hunter_E_DeployDrone.uasset
+FindSpawnSpotState_GEN_VARIABLE.Traces[0].TargetOffset.Z = 125.0 cm;
+spawned_drone_offset_translation_x_m:
+ShooterGame/Content/Characters/Hunter/S0/Ability_E/Drone/Ability_Hunter_E_DeployDrone.uasset
+SpawnActorState_GEN_VARIABLE.SpawnedActors[0].Offset.Translation.X = 0.0 cm
 """
 use = """
 the world shape, life and motion of this ability's child in the entity-state design: read
 each value through its own key, never by analogy with another ability
 """
 exceptions = """
-These are class defaults; a blueprint may change a value at run time, and a
-field name is the designers' word, not a measured meaning.
+The spawn-spot traces start from the caster pawn's transform
+(bUsePawnTransform); whether the drone spawns at a trace's end the files do
+not settle. These are class defaults; a blueprint may change a value at run
+time, and a field name is the designers' word, not a measured meaning.
 """
-values = { life = { drone_duration_timer_length_s = 7.0 }, timing = { dart_initial_life_span_s = 7.0 }, speed = { base_values_max_speed_x_default_state_multipliers_5_max_speed_m_s = 4.875 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+values = { life = { drone_duration_timer_length_s = 7.0 }, timing = { dart_initial_life_span_s = 7.0 }, unconfirmed = { spawn_spot_trace_target_offset_x_m = 0.75, spawn_spot_trace_target_offset_z_m = 1.25, spawned_drone_offset_translation_x_m = 0.0 }, speed = { base_values_max_speed_x_default_state_multipliers_5_max_speed_m_s = 4.875 } }
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/sova-owl-drone-origin-at-caster"]
 
 [sova-shock-bolt-game-data]
 claim = """
@@ -4331,8 +4371,9 @@ The game files of build 13.06 give Tejo's Stealth Drone (slot C) these
 class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: lifetime or active duration: drone
 lifetime 6.0 s; sizes: max sonar radius 16.0 m; placement, throw or targeting
-range: sight radius 18.0 m; speeds: movement tuning base values max speed 6.3
-m/s.
+range: sight radius 18.0 m; a length the files do not settle as size or range:
+spawned drone offset translation x 0.0 m; speeds: movement tuning base values
+max speed 6.3 m/s.
 """
 kind = "measurement"
 known = "measured"
@@ -4355,18 +4396,24 @@ AISenseConfig_Sight_1.SightRadius = 1800.0 cm;
 movement_tuning_base_values_max_speed_m_s:
 ShooterGame/Content/Characters/_Core/BasePawn.uasset
 CharMoveComp.MovementTuning.BaseValues.MaxSpeed = 630.0 cm/s (inherited by
-Pawn_Cashew_4_Spider_LockOn, no class between overrides it)
+Pawn_Cashew_4_Spider_LockOn, no class between overrides it);
+spawned_drone_offset_translation_x_m:
+ShooterGame/Content/Characters/Cashew/S0/Ability_4/Ability_Cashew_4_Spider_LockOn.uasset
+SpawnActorState_GEN_VARIABLE.SpawnedActors[0].Offset.Translation.X = 0.0 cm
 """
 use = """
 the world shape, life and motion of this ability's child in the entity-state design: read
 each value through its own key, never by analogy with another ability
 """
 exceptions = """
-These are class defaults; a blueprint may change a value at run time, and a
-field name is the designers' word, not a measured meaning.
+Not found in the equippable, its entities, their parent classes or the ability
+folder: spawn distance: the spawn transform comes from
+GetFiringTransformState, which serializes no offset, and no spawn-spot search
+is exported. These are class defaults; a blueprint may change a value at run
+time, and a field name is the designers' word, not a measured meaning.
 """
-values = { life = { drone_lifetime_s = 6.0 }, size = { max_sonar_radius_m = 16.0 }, range = { sight_radius_m = 18.0 }, speed = { movement_tuning_base_values_max_speed_m_s = 6.3 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+values = { life = { drone_lifetime_s = 6.0 }, size = { max_sonar_radius_m = 16.0 }, range = { sight_radius_m = 18.0 }, unconfirmed = { spawned_drone_offset_translation_x_m = 0.0 }, speed = { movement_tuning_base_values_max_speed_m_s = 6.3 } }
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/tejo-stealth-drone-origin-at-caster"]
 
 [tejo-special-delivery-game-data]
 claim = """

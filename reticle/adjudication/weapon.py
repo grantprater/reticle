@@ -8,12 +8,13 @@ Differentiates:
 2. Agent lethal abilities (e.g. Breach Aftershock, Raze Showstopper, Sova Shock Bolt);
 3. Environmental death icons (e.g. falling off Abyss).
 
-Owns [owns:killfeed-weapon].
+Owns [owns:killfeed-weapon] and [owns:killfeed-wallbang].
 """
 from __future__ import annotations
 
 import math
 from bisect import bisect_right
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -23,7 +24,7 @@ import numpy as np
 
 # The icon's white mask and its normalised grid are measurements, so the reader
 # layer owns them; this module names what they describe.
-from ..killfeed import ICON_GRID, icon_grid, icon_white_mask
+from ..killfeed import ICON_GRID, WALLBANG_CUT, icon_grid, icon_white_mask
 from ..usage import step
 from .killfeed_kits import kill_kits, open_questions
 
@@ -92,7 +93,11 @@ from .killfeed_kits import kill_kits, open_questions
 # Four such frames of a Nanoswarm kill (a06f04a0059f 34.5 s) set the median
 # at 0 px and dropped the two frames whose whole 20 px icon the soft match
 # names.
-WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.8.0"
+# 1.9.0 (2026-10-05): each entry's answer carries `wallbang`
+# (`entry_wallbang`): the median of its bound rows' wallbang-mark scores
+# (killfeed-weapon-0.18.0) cut once at the reader's WALLBANG_CUT
+# [domain:killfeed/wallbang-mark]. No name changes.
+WEAPON_ADJUDICATION_VERSION = "weapon-adjudication-1.9.0"
 
 #: Aspect ratio and width thresholds separating abilities from guns in the
 #: reference-art path (`extract_icon_observation`, `estimate_weapon_class`);
@@ -1616,6 +1621,29 @@ def observation_scale(observations: list[dict]) -> float:
     return 1.0
 
 
+def entry_wallbang(bound: list[dict]) -> dict:
+    """Did the entry's kill pass through a wall? One answer per entry from
+    its bound `killfeed_weapon` rows (`bind_entry`), each carrying the
+    wallbang mark's soft score [domain:killfeed/wallbang-mark].
+
+    The score is the median over the rows that read one, so a view fading in
+    or out moves it little; the decision cuts it once at the reader's
+    `WALLBANG_CUT`. Rows with no room for the mark between icon and seam
+    (`no_room`) and none read: False. Nothing read: None, with the commonest
+    reason among the rows (`no_observation` when none is bound)."""
+    scores = [float(o["wallbang_score"]) for o in bound if o.get("wallbang_score") is not None]
+    out = {"cut": WALLBANG_CUT, "views": len(scores)}
+    if scores:
+        med = float(np.median(scores))
+        return dict(out, wallbang=med >= WALLBANG_CUT, score=round(med, 4),
+                    max=round(max(scores), 4), reason=None)
+    why = Counter(o.get("wallbang_reason") for o in bound if o.get("wallbang_reason"))
+    if why.get("no_room"):
+        return dict(out, wallbang=False, score=None, max=None, reason="no_room")
+    return dict(out, wallbang=None, score=None, max=None,
+                reason=why.most_common(1)[0][0] if why else "no_observation")
+
+
 def entry_weapon(entry: dict, observations: list[dict],
                  gallery: Optional[dict] = None, agents=None,
                  actor: Optional[dict] = None, key: Optional[str] = None,
@@ -1672,6 +1700,7 @@ def entry_weapon(entry: dict, observations: list[dict],
         out["actor"] = {k: actor.get(k) for k in ("agent", "entity_id", "role", "channels")}
     bound = bind_entry(entry, observations)
     out["observations"] = len(bound)
+    out["wallbang"] = entry_wallbang(bound)
     if not bound:
         return dict(out, named=0, names={}, frame_reasons={}, reason="no_observation",
                     rests_on=[], surprise=False)

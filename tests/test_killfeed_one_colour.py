@@ -62,6 +62,20 @@ class OneColourEntryTests(unittest.TestCase):
         self.assertEqual((v.wx0, v.wx1), (245, 267))
         self.assertIs(v.victim_ally, False)
 
+    def test_warm_scenery_above_the_first_slot_leaves_the_banner_on_the_grid(self):
+        """ff636d173b07 1247.5 s, the same expiry over a warm ceiling: the
+        one-colour rows run 0-183, and a PITCH split from row 0 (0-37,
+        37-73, ...) held no band on the banner at 15-49 (hud-0.25.0 and
+        earlier). The run starts above the first slot, so the resting slots
+        place its bands."""
+        dropped = []
+        got = _entries(_views("ff636d173b07_12475.png", dropped))
+        self.assertEqual(len(got), 1, dropped)
+        v = got[0]
+        self.assertEqual((v.slot, v.y0, v.y1), (0, 15, 49))
+        self.assertEqual((v.wx0, v.wx1), (245, 267))
+        self.assertTrue(all(a >= 15 for _slot, a, _z, _why in dropped), dropped)
+
     def test_two_one_colour_banners_stack_and_scenery_joins_the_lower(self):
         """4f207c0c4e39 1582.0 s: a red and a teal spike banner. The teal one
         runs into a teal sign below it (53 rows), and the slot grid places it."""

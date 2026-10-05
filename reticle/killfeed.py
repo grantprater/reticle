@@ -955,12 +955,19 @@ def _bands_from_rows(on: np.ndarray, s: "KillfeedScale",
     """`_entry_bands`' runs, split and padding over a row mask; `fixed` bands
     bound the padding as neighbours and are not returned. With `grid`, a run
     too tall for one entry and too short for two yields the resting slots
-    that lie inside it (`_rest_slots`) instead of nothing."""
+    that lie inside it (`_rest_slots`) instead of nothing, and so does a
+    taller run that starts above the first slot's top: the entries' box
+    starts there [domain:killfeed/entry-list-layout]
+    [domain:killfeed/slot-pitch], so its top is scenery and a PITCH
+    split from it is out of phase with every entry in it. Warm ceiling
+    joined a red Not Dead Yet expiry banner at ff636d173b07 1247.5-1248.5 s
+    into rows 0-183; split from row 0, no band held the banner (hud-0.26.0)."""
     limit = len(on)
     runs = _join_split_runs(_row_runs(on), s)
 
     split: list[tuple[int, int]] = []
     lo, hi = s.px(MIN_BAND_H), s.px(MAX_BAND_H)
+    above = s.px(FIRST_Y) - s.px(BASELINE_TOL)
     for (a, z) in runs:
         h = z - a
         k = max(1, int(round(h / s.px(PITCH))))
@@ -969,6 +976,8 @@ def _bands_from_rows(on: np.ndarray, s: "KillfeedScale",
                 split.append((a, z))
             elif grid and h > hi:
                 split.extend(_rest_slots(a, z, s))
+        elif grid and a < above:
+            split.extend(_rest_slots(a, z, s))
         else:
             step = h / k
             for m in range(k):
@@ -1490,8 +1499,35 @@ def _band_text(
                 boxes[i] = _element_box(boxes[i], cand, st, s)
         return boxes[i]
 
+    # CROSS-REFERENCE: the icon is drawn on the killer's plate, centred in a
+    # cell that ends at the seam [domain:killfeed/weapon-cell], so where the plates meet at
+    # one seam a divider's centre lies left of the seam, and plate lies
+    # behind its columns: the weapon reader's own `no_plate` test
+    # (`plate_behind`), asked here rather than restated. Without the gate the
+    # line-art pass took a portrait's edge for the icon: the victim's left of
+    # Overdrive's thin strokes at a1a995e6b19b 742.0 s (420-426, past the
+    # seam at 339), the killer's right beside Annihilation over bright sky
+    # at 5822b6646448 925.5 s (214-221, no plate behind). The weapon reader
+    # then refused both (`off_plate_run`, `no_plate`). The plate runs cannot
+    # bound the icon's left: a gun icon's white columns are not plate
+    # columns, so the killer's run starts inside the icon (3694746e4e54
+    # 296.0 s: icon 150-245, run from 201), and gating on the run moved 69
+    # of 169 sampled gun icons onto the cell's empty right end. The gate
+    # holds only where the runs change colour once and the seam has name
+    # glyphs on the baseline either side: green scenery left of a red plate
+    # put `plate_seam` at the scenery's edge at 5822b6646448 1415.0 s (101,
+    # the true seam at 339), and a warm wall left of a one-colour Clove
+    # entry put it at 175 at e37fdeca944f 861.0 s, both names right of it;
+    # the gate refused the rifle and the ring.
+    runs = _plate_runs(*plates, s) if seam is not None else []
+    one_seam = (sum(a[0] != b[0] for a, b in zip(runs, runs[1:])) == 1
+                and bool((named < seam).any()) and bool((named > seam).any()))
+    on_plate = lambda b: (not one_seam
+                          or ((b[0] + b[1]) / 2 < seam
+                              and plate_behind(*plates, b[0], b[1], s) >= PLATE_BEHIND_MIN))
     divides = lambda i, left, right: ((left < box(i)[0]).any()
                                       and (right > box(i)[1]).any()
+                                      and on_plate(box(i))
                                       and (not one_colour or spaced(box(i))))
     if one_colour or thin:
         on_base = np.array([abs(int(st[i, 1] + st[i, 3]) - line) <= s.px(BASELINE_TOL)
@@ -2042,7 +2078,19 @@ PORTRAIT_ASPECT = 2.0
 # 7010b3d62460 1020.0 s) now read their killer at z 0.82-0.91 on the band's
 # row; before, the art search widened and its best window, a noise peak,
 # put `art_y0` 3-13 rows off, or no killer row was written.
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.21.0"
+# 0.22.0 (2026-10-05): a `killer_name_end` letter within NAME_GAP of the
+# killer run's end extends the run instead of replacing it. The text mask
+# drops a name's final descender ("Killjo|y", "Master Oogwga|y"), which then
+# sat in the gap on the NAME_BASE_ROW pass; taken alone its descender
+# baseline stopped `killer_name_start` at the y, and the art box sat on the
+# name (59c70f1ef720 1284.0 s, Killjoy 0.91 read as Sage 0.34; bfad2778a372
+# 1436.5-1440.5 s, Sage 0.92 read at 0.26).
+# 0.23.0 (2026-10-05): a divider's centre lies left of the seam, over plate
+# where the plates meet at one seam (`_band_text`, hud-0.25.0), so an ability
+# kill's portraits sit either side of its icon, not of a portrait's edge.
+# 0.24.0 (2026-10-05): a one-colour run topped by scenery above the first
+# slot yields the resting slots inside it (`_bands_from_rows`, hud-0.26.0).
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.24.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -2420,6 +2468,27 @@ def killer_name_end(white_band: np.ndarray, wx0: int, victim_run,
     return None
 
 
+def killer_name_run(white_band: np.ndarray, view: "EntryView",
+                    s: "KillfeedScale" = UNIT_SCALE) -> tuple[int, int] | None:
+    """The killer's name run the portrait reader walks from: the view's run,
+    unless it ends further than `ONE_COLOUR_KILLER_GAP` before the divider,
+    where `killer_name_end`'s letter inside the gap takes its place.
+
+    A letter within NAME_GAP of the run's end continues the name, so the run
+    extends to it instead (0.22.0). The text mask drops a final descender
+    ("Killjo|y" at 59c70f1ef720 1284.0 s, "Master Oogwga|y" at bfad2778a372
+    1436.5 s): taken alone, the y's descender baseline stopped
+    `killer_name_start` at the y and the art box sat on the name."""
+    krun = view.killer_run
+    if not (view.wx1 > view.wx0 and view.victim_run and (
+            krun is None or view.wx0 - krun[1] > s.px(ONE_COLOUR_KILLER_GAP))):
+        return krun
+    end = killer_name_end(white_band, view.wx0, view.victim_run, s)
+    if end is not None and krun is not None and 0 <= end[0] - krun[1] <= s.px(NAME_GAP):
+        return krun[0], end[1]
+    return end or krun
+
+
 #: The names' baseline row inside a correctly placed entry band: the median
 #: over 146 player-labelled killer crops, whose rows 22-24 all fit the face.
 NAME_BASE_ROW = 23
@@ -2782,12 +2851,9 @@ def portrait_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
         # the baseline, run ending 37 px before the divider) leaves the run
         # the name. A killer's name the text mask lost ("jay" at
         # 5822b6646448 544.5 s, no run) leaves its portrait to that letter,
-        # or else to the plate's left end, found left of the divider.
-        krun = view.killer_run
-        if view.wx1 > view.wx0 and view.victim_run and (
-                krun is None or view.wx0 - krun[1] > s.px(ONE_COLOUR_KILLER_GAP)):
-            krun = (killer_name_end(white[view.y0:view.y1], view.wx0, view.victim_run, s)
-                    or krun)
+        # or else to the plate's left end, found left of the divider
+        # (`killer_name_run`).
+        krun = killer_name_run(white[view.y0:view.y1], view, s)
         if not (view.victim_run and (krun or view.wx1 > view.wx0)):
             continue
         bh = view.y1 - view.y0
@@ -3214,7 +3280,19 @@ def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # registered match's whole-icon gate failed on the dots left in the margin.
 # 0.15.0 (2026-10-04): a one-colour band's divider widens over a glyph-sized
 # piece under NAME_GAP from it; see the portrait stamp.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.15.0"
+# 0.16.0 (2026-10-05): a divider's centre lies left of the seam, over plate
+# where the plates meet at one seam; see the portrait stamp. Overdrive
+# (a1a995e6b19b 742.0 s) and Annihilation (5822b6646448 925.5 s) were
+# refused `off_plate_run` and `no_plate` at a portrait's edge.
+# 0.17.0 (2026-10-05): a one-colour run topped by scenery yields the resting
+# slots inside it; see the portrait stamp.
+# 0.18.0 (2026-10-05): each row carries the wallbang mark's soft score
+# (`wallbang_score`, ZNCC of the game texture against the plate-relative
+# whiteness between the icon's end and the plate seam), its column
+# (`wallbang_x`) and the decision cut once at WALLBANG_CUT (`wallbang`, None
+# with `wallbang_reason` where unread) [domain:killfeed/wallbang-mark].
+# Every 0.17.0 field is unchanged.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.18.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -3496,6 +3574,15 @@ RING_CY_SEARCH = 3.0
 PLATE_BEHIND_MIN = 0.5
 
 
+def plate_behind(green: np.ndarray, red: np.ndarray, d0: int, d1: int,
+                 s: "KillfeedScale" = UNIT_SCALE) -> float:
+    """Share of columns `d0..d1` holding PLATE_MIN_PX or more plate pixels:
+    the weapon reader's `no_plate` test, which `_band_text` asks of a
+    divider candidate where the plates meet at one seam."""
+    cols = (green | red)[:, int(d0):int(d1)].sum(axis=0) >= s.px(PLATE_MIN_PX)
+    return float(cols.mean()) if cols.size else 0.0
+
+
 def ring_fit(icon_band: np.ndarray, cx0: float, height: int,
              usable: np.ndarray | None = None, s: "KillfeedScale" = UNIT_SCALE) -> dict | None:
     """The circle round a weapon-slot icon that the most angles of ink lie on.
@@ -3601,8 +3688,67 @@ def _centroid(w: np.ndarray, piece: np.ndarray) -> list[float] | None:
     return [round(float((wt * xs).sum() / tot), 3), round(float((wt * ys).sum() / tot), 3)]
 
 
+#: The wallbang mark's texture [domain:killfeed/wallbang-mark]: the export
+#: holds TX_Kilfeed_WallPen once, deduplicated by content into this path.
+WALLBANG_TEXTURE = ("reference/game-files/release-13.06-shipping-18-5590001/killfeed-icons/"
+                    "ShooterGame/Content/UI/InGame/HUD/KillCallout/Assets/TX_Hud_ThroughWalls_S.png")
+#: The mark's drawn box, base px (`WallPenSizeBox`), and the rows searched
+#: either side of the box centred in the band.
+WALLBANG_BOX = 24
+WALLBANG_DY = 3
+#: The decision on the soft score (ZNCC of the drawn texture against the
+#: band's plate-relative whiteness), cut once. Set between the marked and
+#: unmarked entries viewed on the 21 Riot-recorded matches (2026-10-05).
+WALLBANG_CUT = 0.6
+
+
+def wallbang_template(store_root) -> np.ndarray | None:
+    """The mark's texture coverage (alpha / 255, float32, 64 x 64) from the
+    store's game files, or None when the store lacks it (each row then
+    refuses as `no_template`)."""
+    p = Path(store_root) / WALLBANG_TEXTURE
+    rgba = cv2.imread(str(p), cv2.IMREAD_UNCHANGED) if p.is_file() else None
+    if rgba is None or rgba.ndim != 3 or rgba.shape[2] != 4:
+        return None
+    return rgba[:, :, 3].astype(np.float32) / 255.0
+
+
+def wallbang_mark(whiteness: np.ndarray, x0: int, x1: int, template: np.ndarray | None,
+                  s: "KillfeedScale" = UNIT_SCALE) -> dict:
+    """The wallbang mark's soft score on one entry band [domain:killfeed/wallbang-mark].
+
+    The texture is shrunk to its drawn box (`WALLBANG_BOX` x the capture's
+    scale, `INTER_AREA`) and matched (`cv2.matchTemplate`, normalised
+    cross-correlation) against the band's plate-relative whiteness, clipped
+    to 0..1, over columns `x0..x1` (the icon's end to the plate seam, where
+    the killer's participant draws the mark) and the rows of a box centred in
+    the band, `WALLBANG_DY` either way. The score is the best match; the
+    decision cuts it once at `WALLBANG_CUT`. Too narrow a span holds no mark
+    (`no_room`, False); a missing texture refuses (`no_template`, None)."""
+    out = {"wallbang": None, "wallbang_score": None, "wallbang_x": None,
+           "wallbang_reason": "no_template"}
+    if template is None:
+        return out
+    n = max(1, s.n(WALLBANG_BOX))
+    h = whiteness.shape[0]
+    r0 = (h - n) // 2
+    a, z = max(0, r0 - s.n(WALLBANG_DY)), min(h, r0 + n + s.n(WALLBANG_DY))
+    x0, x1 = max(0, int(x0)), min(whiteness.shape[1], int(x1))
+    if x1 - x0 < n or z - a < n:
+        return dict(out, wallbang=False, wallbang_reason="no_room")
+    tpl = cv2.resize(template, (n, n), interpolation=cv2.INTER_AREA)
+    region = np.clip(whiteness[a:z, x0:x1], 0.0, 1.0).astype(np.float32)
+    zncc = np.nan_to_num(cv2.matchTemplate(region, tpl, cv2.TM_CCOEFF_NORMED), nan=0.0)
+    _, best, _, at = cv2.minMaxLoc(zncc)
+    return {"wallbang": bool(best >= WALLBANG_CUT), "wallbang_score": round(float(best), 4),
+            "wallbang_x": int(x0 + at[0]), "wallbang_reason": None}
+
+
 #: The 0.6.0 fields of a row refused before its slot pieces are cut.
 NO_SOFT = {"ring_stripped": None, "soft": None, "centroid": None, "slot_geom": None}
+#: The wallbang fields of a row that reads no mark; its reason says why.
+NO_WALLBANG = {"wallbang": None, "wallbang_score": None, "wallbang_x": None,
+               "wallbang_reason": None}
 #: The verdicts of a view `_band_text` divided between two names: an entry,
 #: whose weapon slot always gets a row, described or refused with a reason.
 ENTRY_VERDICTS = ("kill", "death", "other", "tie")
@@ -3610,7 +3756,8 @@ ENTRY_VERDICTS = ("kill", "death", "other", "tie")
 
 def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: int,
                              views: "list[EntryView]", *,
-                             scale: "KillfeedScale | None" = None) -> list[dict]:
+                             scale: "KillfeedScale | None" = None,
+                             wallbang_tpl: np.ndarray | None = None) -> list[dict]:
     """Each entry's weapon-slot descriptor: the packed grid and aspect, never a name.
 
     Naming the icon is `adjudication.weapon`'s; a consumer binds these rows to an
@@ -3654,6 +3801,11 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
     a06f04a0059f 34.5 s and Razorvine at b3b9defb6fd7 1575.0 s were absent,
     not refused. A band refused before any divider is no entry, and its
     reason stays the view's.
+
+    Each row also carries the wallbang mark's soft score and its decision
+    (`wallbang_mark`, the texture `wallbang_tpl` from `wallbang_template`)
+    [domain:killfeed/wallbang-mark]: `wallbang` True, False, or None with
+    `wallbang_reason` where unread (no template, a refused row, no seam).
     """
     s = scale or KillfeedScale.for_capture(width, height)
     x0, y0, x1, y1 = roi.pixels(width, height)
@@ -3705,8 +3857,7 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
         cut = icon_grid(icon_white_mask(band[:, e0:e1], s), s)
         row = {"slot": v.slot, "y0": int(v.y0), "y1": int(v.y1), "wx0": int(v.wx0),
                "wx1": int(v.wx1), "verdict": v.verdict, "band_shift": int(dy)}
-        behind = ((green | red)[:, d0:d1].sum(axis=0) >= s.px(PLATE_MIN_PX)).mean()
-        if behind < PLATE_BEHIND_MIN:
+        if plate_behind(green, red, d0, d1, s) < PLATE_BEHIND_MIN:
             out.append({**row, "ix0": int(d0), "ix1": int(d1), "grid": None,
                         "aspect": None, "reason": "no_plate", "ringed": None,
                         "ring_reason": "no_plate", "ring": None, **NO_SOFT})
@@ -3763,11 +3914,22 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
                                "box": [round(c / s.scale, 3) for c in (ix0, v.y0 + dy, ix1, v.y1 + dy)],
                                "plate_h": round(plate_height(green, red) / s.scale, 3),
                                "scale": s.provenance()}}
+        # The wallbang mark lies between the icon's end and the plate seam
+        # (the victim's name start on a band with no seam).
+        end = v.wx0 if seam else plate_seam(green, red, s)
+        if end is None and v.victim_run:
+            end = v.victim_run[0]
+        extra.update(wallbang_mark(w, ix1, end, wallbang_tpl, s) if end is not None
+                     else dict(NO_WALLBANG, wallbang_reason="no_seam"))
         if cut is None:
             out.append({**row, "grid": None, "aspect": None, "reason": "no_icon", **extra})
         else:
             out.append({**row, "grid": np.packbits(cut[0].astype(bool)).tobytes().hex(),
                         "aspect": round(float(cut[1]), 4), "reason": None, **extra})
+    # A row refused before its pieces were cut reads no mark, for its reason.
+    for r in out:
+        if "wallbang" not in r:
+            r.update(NO_WALLBANG, wallbang_reason=r["reason"])
     return out
 
 
@@ -3789,7 +3951,11 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # one-colour-band-20261003.)
 # 0.7.0 (2026-10-04): a one-colour band's divider widens over a glyph-sized
 # piece under NAME_GAP from it; see the portrait stamp.
-KILLFEED_NAME_VERSION = "killfeed-name-0.7.0"
+# 0.8.0 (2026-10-05): a divider's centre lies left of the seam, over plate
+# where the plates meet at one seam; see the portrait stamp.
+# 0.9.0 (2026-10-05): a one-colour run topped by scenery yields the resting
+# slots inside it; see the portrait stamp.
+KILLFEED_NAME_VERSION = "killfeed-name-0.9.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15
@@ -3938,7 +4104,7 @@ class KillfeedPortraitReader:
     """
 
     def __init__(self, profile, wh, mask=None, hz=2.0, spans=None, art_dir=None,
-                 candidates=None, candidates_from=None, font_file=None):
+                 candidates=None, candidates_from=None, font_file=None, wallbang_tpl=None):
         self.profile = profile
         self.w, self.h = wh
         # The store's agent art, for the art ZNCC (`art_view`); None stores none.
@@ -3970,6 +4136,9 @@ class KillfeedPortraitReader:
         # it each killer row is stored refused as `no_font`.
         self.font_file = None if font_file is None else str(font_file)
         self.numerals: list[dict] = []
+        # The wallbang mark's game texture (`wallbang_template`); without it
+        # each weapon row stores the mark unread as `no_template`.
+        self.wallbang_tpl = wallbang_tpl
         self.frames_offered = 0
         # Each entry's killer portrait column, carried across frames.
         self.anchors = EntryAnchors()
@@ -3998,7 +4167,7 @@ class KillfeedPortraitReader:
                                     **b})
         with usage_step("weapon"):
             for row in weapon_icon_observations(smp.frame, self.roi, self.w, self.h, views,
-                                                scale=s):
+                                                scale=s, wallbang_tpl=self.wallbang_tpl):
                 self.weapons.append({"frame_idx": int(smp.frame_idx), "t_ms": float(smp.t_ms),
                                      **row})
         with usage_step("portraits"):
