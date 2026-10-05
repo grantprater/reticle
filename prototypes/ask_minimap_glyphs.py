@@ -34,7 +34,9 @@ Three kinds of question, in this order:
   another key (`STATEMENT_ROWS`) that contradicts an answer reopens the key,
   both statements shown, until the player answers with them in view: the
   player's sure "icon and shape" for Blaze's teammate and enemy views
-  reopens, contradicted by [domain:abilities/phoenix-blaze-no-minimap-icon].
+  reopened, contradicted by [domain:abilities/phoenix-blaze-no-minimap-icon],
+  until the player corrected that fact on 2026-10-05
+  [domain:abilities/phoenix-blaze-icon-leads-wall].
   `--list` prints the open keys first, each reopened one with its reason,
   then the views the facts settle. The spectator view is not asked: the
   player believes it is the self view less the audio circle
@@ -173,9 +175,9 @@ VIEW_STATEMENT_FACTS = {
            {"views": "drawn on the caster's minimap",
             "drawn": "Ruse is the only Clove ability that draws anything there"})
           for s, n in (("C", "Pick-me-up"), ("Q", "Meddle"), ("X", "Not Dead Yet"))]],
-    "abilities/phoenix-blaze-no-minimap-icon": [
-        ("Phoenix", "C", "Blaze", None, {"icon": False, "shape": True},
-         {"icon": "draws no icon on the minimap", "shape": "its minimap drawing is the wall"})],
+    "abilities/phoenix-blaze-icon-leads-wall": [
+        ("Phoenix", "C", "Blaze", None, {"icon": True, "shape": True},
+         {"icon": "draws its icon", "shape": "the flame wall trails behind it"})],
     "abilities/phoenix-blaze": [
         ("Phoenix", "C", "Blaze", None, {"shape": True}, {"shape": "drawn as a smooth curve"})],
     "abilities/gekko-wingman-minimap-icon": [

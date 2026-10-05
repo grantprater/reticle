@@ -49,8 +49,10 @@ screen while the ability runs [domain:hud/controlled-entity-view-tint].
 questions.
 
 Open questions span rows. Every piloted drone has its own vision cone
-[domain:abilities/piloted-drones-have-cones]. Which drones, and does a
-drone's cone light the floor like a player's? The minimap draws a self audio
+[domain:abilities/piloted-drones-have-cones]; the player gives three drones
+as examples, Sova's Owl Drone, Tejo's Stealth Drone and Skye's Trailblazer
+(the dog, not the hawk). Do Fade's Prowler and Skye's Guiding Light, steered
+but not called drones, have cones? Does a drone's cone light the floor like a player's? The minimap draws a self audio
 circle round the self icon [domain:minimap/self-audio-circle] on every
 sound, at the fixed audio range. How long does it linger after a sound? Is
 the large white circle round the Lotus A-site stack at 5822b6646448 49.50 s
@@ -312,7 +314,7 @@ draw an assist icon? And can a damaging ability draw one?
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Blaze | Missile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE) | ? | orange wall [domain:abilities/phoenix-blaze], no icon (disputed) [domain:abilities/phoenix-blaze-no-minimap-icon] | ? | 8 s, from the cast or the wall's completion? [domain:abilities/phoenix-blaze-duration] | ongoing sound [domain:abilities/ability-sound-phases] |
+| C | Blaze | Missile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE) | ? | FireWall icon leading the orange wall while the wall is drawn, then the wall alone [domain:abilities/phoenix-blaze-icon-leads-wall] [domain:abilities/phoenix-blaze] | ? | 8 s, from the cast or the wall's completion? [domain:abilities/phoenix-blaze-duration] | ongoing sound [domain:abilities/ability-sound-phases] |
 | Q | Hot Hands | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 [domain:abilities/phoenix-hot-hands-charges] | none within a round [domain:abilities/phoenix-hot-hands-charges] | cast on FIRE | ? | nothing (census 2) | ? | game data: fire active duration 4.2 s [domain:game_data/phoenix-hot-hands-game-data] | ongoing sound on the ground [domain:abilities/ability-sound-phases] |
 | E | Curveball | Missile | 2 [domain:abilities/phoenix-curveball-charges] | 2 kills [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing [domain:abilities/phoenix-minimap-objects] | ? | ? | ? |
 | X | Run it Back | Self-targeted | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | nothing (census 1) | ? | about 10 s [domain:abilities/phoenix-run-it-back-expiry-flash] | X pips never fall; timer bar under the crosshair [domain:hud/ability-timer-bar]; a teleport back to the cast point [domain:abilities/phoenix-run-it-back-teleports] [domain:rounds/phoenix-run-it-back-returns-to-cast-point] |

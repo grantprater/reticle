@@ -1211,7 +1211,13 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    Astra stars stay pending; P4 does not move, since the rule runs after
    the cut. The numbers below are this run's. Ask the player what the
    Phoenix:C glyph on 7010b3d62460 at 405 s and 1869 s is; the verdict no
-   longer decides it.
+   longer decides it. *Corrected 2026-10-05 (branch
+   `blaze-and-conflicts-20261005`):* the player answered that the glyph is
+   Blaze's FireWall icon, drawn while the wall is drawn
+   [domain:abilities/phoenix-blaze-icon-leads-wall]; the no-icon fact now
+   denies only the High Tide texture. Revision rows restore icon_and_shape
+   for every Phoenix:C view, which changes the drawing-answers stamp: `plan`
+   names the Phoenix:C verdict stale, and the handful reruns from storage.
    **The own-caster round (ability-glyph-name-0.3.0, glyph-stage3-eval-0.3.0).**
    The verdict read only the `drawing` and `ally` answers, so a `self`
    answer never ruled out the player's own key. Now it does (above), and

@@ -153,7 +153,7 @@ MINIMAP_SOURCE = {
     ("Sova", "Q"): ("not_drawn", "[domain:abilities/sova-shock-bolt-minimap-none]"),
     ("Sova", "E"): ("shape", "[domain:abilities/sova-recon-bolt-minimap-ring]"),
     ("Sova", "X"): ("shape", "[domain:abilities/sova-hunters-fury-minimap-beam]"),
-    ("Phoenix", "C"): ("shape", "[domain:abilities/phoenix-blaze] [domain:abilities/phoenix-blaze-no-minimap-icon]"),
+    ("Phoenix", "C"): ("shape", "[domain:abilities/phoenix-blaze] [domain:abilities/phoenix-blaze-icon-leads-wall]: the icon shows only while the wall is drawn"),
     ("Phoenix", "Q"): ("not_drawn", "[domain:abilities/phoenix-minimap-objects]"),
     ("Phoenix", "E"): ("not_drawn", "[domain:abilities/phoenix-minimap-objects]"),
     ("Phoenix", "X"): ("not_drawn", "[domain:abilities/phoenix-minimap-objects]"),
