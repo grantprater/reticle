@@ -95,6 +95,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle belief SESSION   # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-coverage|-timeline|-entities|-gallery|-capture|-phases
 .\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # audio decode only
+.\.venv\Scripts\python.exe -m reticle retire SESSION [--commit]  # never deletes
 .\.venv\Scripts\python.exe -m reticle ult-cast SESSION      # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-state SESSION # stored data only
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only clove_circle --from cache   # dead Clove's range circle
@@ -109,7 +110,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle fidelity-check          # opens media
 .\.venv\Scripts\python.exe -m reticle minimap-objects SESSION  # crop cache only
 .\.venv\Scripts\python.exe -m reticle enemy-tracks SESSION
-.\.venv\Scripts\python.exe -m reticle project SESSION --lane round_entity --lane death --lane spike --lane enemy  # stored data only
+.\.venv\Scripts\python.exe -m reticle project SESSION --lane round_entity|death|spike|enemy  # stored data only
 .\.venv\Scripts\python.exe -m reticle view SESSION --round N|--gaps  # stored events and lanes
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
 .\.venv\Scripts\python.exe tools\wipe_scout.py SESSION   # stored data only
@@ -125,7 +126,7 @@ For stored-data changes, prefer `segment` or `audit` (stored
 L1), `coach` or `sql`. Under the default
 `--from auto`, a span reader reads a complete round cache, else decodes.
 `hud`, `board` and `overlay` open the
-source video. Run a targeted test file, then `verify --tier fast`, then the
+source video. Run a targeted test file, `verify --tier fast`, then the
 full suite.
 `refine` previews stored windows; `--execute` reads them into separate dense
 evidence, given a cached killfeed mask.

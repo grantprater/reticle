@@ -363,6 +363,50 @@ def check_manifest(store: Path) -> list[tuple[str, str]]:
     return out
 
 
+def check_source(store: Path) -> list[tuple[str, str]]:
+    """Each session's capture is on disk, or retired with its audio kept.
+
+    A retired session (`video_retired`, written by `reticle retire`) has no
+    video: `plan` reports its video steps as `source_retired`, and the audio
+    readers read the retained file (`audio_source`). The retained file must
+    be on disk at the size and sha256 the manifest recorded, or the session
+    has lost its audio: an ERROR. A capture gone without a retirement is a
+    WARN; so is a retired capture still on disk, with the command that
+    deletes it."""
+    from .audio_source import retirement, video_state
+    from .retire import deletion_command, sha256_file
+    man = store / "manifests"
+    if not man.is_dir():
+        return []
+    out, missing = [], []
+    for f in sorted(man.glob("*.json")):
+        try:
+            m = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        state = video_state(m)
+        if state == "missing":
+            missing.append(f.stem)
+            continue
+        if state == "present":
+            continue
+        a = (retirement(m) or {}).get("audio") or {}
+        p = Path(a.get("path") or "")
+        p = p if p.is_absolute() else store / p
+        if not p.is_file():
+            out.append((ERROR, f"{f.stem}: video retired, retained audio missing at {p}"))
+        elif p.stat().st_size != a.get("bytes") or sha256_file(p) != a.get("sha256"):
+            out.append((ERROR, f"{f.stem}: retained audio {p} differs from the bytes or sha256 "
+                               "the manifest recorded"))
+        if state == "retired_present":
+            out.append((WARN, f"{f.stem}: video retired and still on disk; the player deletes "
+                              f"it with {deletion_command(m)}"))
+    if missing:
+        out.append((WARN, f"{len(missing)} session(s) lost their capture with no retirement "
+                          f"recorded (`reticle retire`): {' '.join(missing)}"))
+    return out
+
+
 def check_orphan() -> list[tuple[str, str]]:
     """Prototypes named by no other file and by no document.
 
@@ -1396,6 +1440,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("LINES", lambda: check_lines(store)),
               ("COVERAGE", lambda: check_coverage(store)),
               ("MANIFEST", lambda: check_manifest(store)),
+              ("SOURCE", lambda: check_source(store)),
               ("FURNITURE", lambda: check_furniture(store)),
               ("STALL", lambda: check_stalls(store)),
               ("INPUTS", lambda: check_inputs(store)))

@@ -41,6 +41,44 @@ session -- and an entity-identity task routed here is routed wrong.
 stored_consumers = ["store"]
 
 [[entry]]
+id = "session-audio-source"
+question = "Which file holds a session's audio track: the capture, or its retained audio?"
+owner = "audio_source"
+role = ["assign"]
+status = "shipped"
+produces = ["audio_source", "video_state", "video_present", "retirement",
+            "retained_audio_path", "RETAINED_AUDIO_DIR", "RETAINED_SUFFIX"]
+not_for = """
+Reading the audio (`ult-line`, the audio gate) or deciding that a capture may
+be retired (`video-retirement`). It names the capture while it is on disk and
+the retained file the manifest's `video_retired` records after; a session with
+neither gets no path and the reason. It never opens video frames: regions
+outside the crop caches come from future sessions, not from retained video.
+"""
+consumers = ["cli", "plan", "status", "doctor", "retire", "round_view"]
+evidence = "tests/test_retire.py"
+
+[[entry]]
+id = "video-retirement"
+question = "May this capture's video be deleted, and is its retained audio the same audio?"
+owner = "retire"
+role = ["adjudicate"]
+status = "partial"
+produces = ["retire", "preconditions", "plan_steps", "kept_replays", "pending_labels",
+            "audio_split_roles", "extract_audio", "stream_meta", "framemd5", "check_alignment",
+            "cache_spans", "reader_checks", "deletion_command", "AUDIO_READERS"]
+not_for = """
+Deleting anything: it prints the command that deletes the capture and the
+player runs it. Nor does it keep any video, a frame or a crop outside the
+cached ROIs, or delete a crop cache. Nor does it decide which file a reader
+decodes (`session-audio-source`). Its role refusals read the owners (`plan`,
+`dev_sample`, the replay manifest, the label sets); `--force-reason` passes
+them and the row stores both.
+"""
+consumers = ["cli", "doctor"]
+evidence = "tests/test_retire.py, reticle retire --audio-dir (dry run)"
+
+[[entry]]
 id = "extraction-profile"
 question = "Which ROI layout and widget scale does this source use?"
 owner = "profiles"

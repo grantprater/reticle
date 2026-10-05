@@ -1556,11 +1556,49 @@ def stale(store, sessions: list[str]) -> dict:
                     | {s["stream"] for s in derived_streams()} | _lane_streams())
         unchecked = [{"stream": s, "why": UNSTAMPED.get(s, "undeclared: no check in plan")}
                      for s in stored_streams(store, sid) if s not in declared]
+        caches = cache_work(store, man)
+        decode, derived, widget, caches, retired = source_retired(sid, man, decode, derived,
+                                                                  widget, caches)
         out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived,
                     "declined": declined,
                     "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded,
-                    "widget": widget, "placement": placed, "caches": cache_work(store, man)}
+                    "widget": widget, "placement": placed, "caches": caches,
+                    "source_retired": retired}
     return out
+
+
+def source_retired(sid: str, manifest: dict, decode: list, derived: list, widget, caches: list):
+    """(decode, derived, widget, caches, retired): on a session whose video
+    is retired and gone (`audio_source.video_state`), every step that opens
+    the capture moves to `retired`, reason `source_retired`, and is never
+    proposed. A reader stream counts, since `scan` opens the capture even
+    where a crop cache could feed it; the `audio` channel stays, since
+    `ult-lines` reads the retained audio."""
+    from .audio_source import video_state
+    if video_state(manifest) != "retired":
+        return decode, derived, widget, caches, []
+    retired = []
+    keep_decode = []
+    for s in decode:
+        if s["channel"] in ACCEPT:
+            keep_decode.append(s)
+        else:
+            retired.append({"stream": s["stream"], "command": f"reticle scan {sid} --only "
+                            f"{s['channel']}", "reason": "source_retired"})
+    keep_derived = []
+    for d in derived:
+        if d.get("how") == "decode":
+            retired.append({"stream": d["stream"], "command": d["command"],
+                            "reason": "source_retired"})
+        else:
+            keep_derived.append(d)
+    if widget and "cache" in widget:
+        retired.append({"stream": "roi_cache:minimap", "command": widget["cache"]["command"],
+                        "reason": "source_retired"})
+        widget = {k: v for k, v in widget.items() if k != "cache"} or None
+    retired += [{"stream": f"roi_cache:{c['set']}", "command": c["command"],
+                 "reason": "source_retired"} for c in caches]
+    return keep_decode, keep_derived, widget, [], retired
 
 
 #: Crop cache sets a session should hold, each where the stored inputs it is
@@ -1847,6 +1885,16 @@ def render(plan: dict) -> str:
                     f"gated on stored {c['witness']} rows; the player starts this decode)")].append(sid)
     lines += [f"decode   {text} for {' '.join(sids)}"
               for (_s, _r, text), sids in sorted(caches.items())]
+    # Steps that need a video the player retired (`source_retired`): named,
+    # never proposed.
+    gone: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for sid, p in plan.items():
+        for r in p.get("source_retired") or ():
+            command = re.sub(rf"(?<![\w-]){re.escape(sid)}(?![\w-])", "<sid>", r["command"])
+            gone[(command, r["stream"])].append(sid)
+    waived_lines += [f"retired  {command}   ({stream}: source_retired, the video was retired "
+                     f"and its audio kept; not proposed) for {' '.join(sids)}"
+                     for (command, stream), sids in sorted(gone.items())]
     if not by_channel and not derived:
         return "\n".join(lines + [f"nothing stale over {len(plan)} sessions"] + waived_lines)
     for ch, sids in sorted(by_channel.items()):

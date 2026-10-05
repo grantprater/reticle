@@ -84,6 +84,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 with contextlib.redirect_stdout(io.StringIO()):
     import audio_probe
 
+from reticle.audio_source import audio_path  # noqa: E402  which file holds the audio
+
 STORE = Path.home() / "reticle-store"
 CACHE = STORE / "analysis" / "audio_channel"
 VERSION = "audio-channel-0.1.0"
@@ -107,7 +109,7 @@ PAIRS = {
 
 def _source(sid: str) -> str:
     man = json.loads((STORE / "manifests" / f"{sid}.json").read_text(encoding="utf-8"))
-    return man["source"]["path"]
+    return audio_path(man, STORE)
 
 
 def witness(sid: str, step_s: float = 0.1) -> tuple[np.ndarray, np.ndarray]:

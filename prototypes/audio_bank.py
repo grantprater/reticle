@@ -183,6 +183,8 @@ sys.path.insert(0, str(ROOT / "prototypes"))
 with contextlib.redirect_stdout(io.StringIO()):
     import audio_channel  # noqa: E402  the front end's mel filterbank
 
+from reticle.audio_source import audio_path  # noqa: E402  which file holds the audio
+
 STORE = Path.home() / "reticle-store"
 OUT = STORE / "analysis" / "audio-bank"
 VERSION = "audio-bank-0.2.0"
@@ -611,7 +613,7 @@ def _merge(anchors: list[float], dur: float | None = None) -> list[tuple[float, 
 
 def _extract(sid: str, items: list[dict]) -> None:
     """Fill `A`, `med`, `pad` on each item (anchor `t`) from one capture."""
-    path = _manifest(sid)["source"]["path"]
+    path = audio_path(_manifest(sid), STORE)
     spans = _merge([it["t"] for it in items])
     got = list(read_spans(path, spans))
     for it in items:
@@ -844,14 +846,14 @@ def inventory() -> dict:
 
 def _dur(sid: str) -> float:
     import av
-    with av.open(_manifest(sid)["source"]["path"]) as c:
+    with av.open(audio_path(_manifest(sid), STORE)) as c:
         st = c.streams.audio[0]
         return float(st.duration * st.time_base) if st.duration else c.duration / 1e6
 
 
 def _extract_demo(sid: str, items: list[dict], dur: float) -> None:
     """A demo is short, so its whole audio decodes once."""
-    path = _manifest(sid)["source"]["path"]
+    path = audio_path(_manifest(sid), STORE)
     t0, x, filled, rate = next(read_spans(path, [(0.0, dur)]))
     for it in items:
         it["A"], it["med"], it["pad"] = features(x, filled, rate, t0, it["t"])

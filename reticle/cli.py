@@ -1091,6 +1091,11 @@ def cmd_scan(args) -> int:
 
     media = Path(src["path"])
     if not media.is_file():
+        from .audio_source import video_state
+        if video_state(manifest) == "retired":
+            raise SystemExit(f"{sid}: source_retired -- the video was retired "
+                             f"({manifest['video_retired']['at']}); its audio is kept, and "
+                             "scan needs the video")
         raise SystemExit(
             f"source media has moved: {media}\n"
             "the manifest records where it was at ingest time"
@@ -5442,6 +5447,7 @@ def cmd_ult_lines(args) -> int:
     """Peaks of the official ultimate voice lines in each capture's audio
     (`ult_lines`). Decodes the audio stream only, in memory; no video frame."""
     from . import ult_lines
+    from .audio_source import audio_source
     from .version import ULT_LINE_VERSION
 
     store = Store(args.store)
@@ -5471,12 +5477,13 @@ def cmd_ult_lines(args) -> int:
                 and head.get("templates_key") == declared["key"] and not head.get("reason")):
             print(f"{sid}: current at {ULT_LINE_VERSION} -- pass --force to reread")
             continue
-        media = Path(src["path"])
-        if not media.is_file():
-            print(f"{sid}: source media has moved: {media} -- skipped, nothing written")
+        got = audio_source(man, store.root)
+        if got["path"] is None:
+            print(f"{sid}: no audio source ({got['reason']}) -- skipped, nothing written")
             continue
         try:
-            info, peaks = ult_lines.read_capture(str(media), templates, xp=xp)
+            info, peaks = ult_lines.read_capture(got["path"], templates, xp=xp)
+            info["audio_source"] = got["kind"]
         except (IndexError, ValueError) as e:
             reason = "no_audio_stream" if isinstance(e, IndexError) else str(e)
             out = store.write_events("ult_line", sid, [{
@@ -5491,6 +5498,30 @@ def cmd_ult_lines(args) -> int:
         print(f"{sid}: {len(rows) - 1} peaks over {info['n_frames'] * ult_lines.HOP / 60:.1f} min "
               f"(decode {info['decode_s']} s, score {info['score_s']} s, {info['backend']}) -> {out}")
     return 0
+
+
+def cmd_retire(args) -> int:
+    """Keep a capture's audio track by stream copy, prove it equal to the
+    capture's for every audio reader and aligned with the crop caches, and,
+    with --commit, mark the manifest `video_retired` (`retire`). Never
+    deletes the capture: prints the command that does."""
+    from . import retire
+    retire.retire_priority()
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    row = retire.retire(store, sid, commit=args.commit, force_reason=args.force_reason,
+                        audio_dir=args.audio_dir, check_readers=not args.no_readers)
+    print(retire.retire_summary(row))
+    if args.row:
+        Path(args.row).write_text(json.dumps(row, indent=1, default=str), encoding="utf-8")
+        print(f"row -> {args.row}")
+    if row["status"] == "dry_run_verified":
+        force = (f" --force-reason \"{args.force_reason}\"" if args.force_reason else
+                 " --force-reason \"<why the refusals above may be overridden>\""
+                 if row["preconditions"]["refusals"] else "")
+        print(f"  commit   reticle retire {sid} --commit{force}")
+        print(f"  then     {retire.deletion_command(store.read_manifest(sid))}   (the player runs it)")
+    return 0 if row["status"] in ("retired", "dry_run_verified") else 1
 
 
 def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict], agent: str | None):
@@ -6569,6 +6600,21 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--check-manifest", action="store_true",
                    help="compare the declared templates with the assets, and read nothing")
     s.set_defaults(func=cmd_ult_lines)
+
+    s = sub.add_parser("retire",
+                       help="keep a capture's audio by stream copy, verify it, and with --commit "
+                            "mark the video retired (never deletes)")
+    s.add_argument("session")
+    s.add_argument("--commit", action="store_true",
+                   help="move the audio into the store, record the row and mark the manifest")
+    s.add_argument("--force-reason", default=None,
+                   help="why the run proceeds past the precondition refusals")
+    s.add_argument("--audio-dir", default=None,
+                   help="dry run: where the extracted audio goes (default: a temporary folder)")
+    s.add_argument("--row", default=None, help="write the full row as JSON here")
+    s.add_argument("--no-readers", action="store_true",
+                   help="skip the reader comparison (a dry run of the alignment only)")
+    s.set_defaults(func=cmd_retire)
 
     s = sub.add_parser("ult-cast",
                        help="ultimate casts, side and round from stored voice-line peaks (storage only)")

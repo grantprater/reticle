@@ -18,9 +18,11 @@ from reticle.store import Store
 ROOT = Path(__file__).resolve().parents[1]
 CONSUMER = ("round_view", "view_events")
 #: The lower modules a consumer may name: the store, the capture layout, the
-#: event contract, and `entity_events`, the door the lanes are read through.
+#: event contract, `entity_events`, the door the lanes are read through, and
+#: `audio_source`, which names the file that holds the capture's sound.
 #: Nothing that reads pixels, tracks, or adjudicates.
-ALLOWED = {"store", "profiles", "view_events", "events", "version", "entity_events"}
+ALLOWED = {"store", "profiles", "view_events", "events", "version", "entity_events",
+           "audio_source"}
 READ_THROUGH = "entity_events"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
