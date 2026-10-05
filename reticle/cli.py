@@ -812,6 +812,25 @@ def _scoreboard_cache_gate(store, sid, args) -> dict:
     return gate
 
 
+def _killfeed_panel_cache_gate(store, sid, args) -> dict:
+    """The gate a killfeed panel crop cache is written under, from the
+    stored killfeed_portrait rows (`roi_cache.killfeed_panel_gate`); refuses
+    a request the set cannot hold. The strip rides the HUD rate over the
+    whole capture, on the `hud` set's timeline, so `load_union` pairs them."""
+    from .roi_cache import killfeed_panel_gate
+    if args.cache_live:
+        raise SystemExit("--cache-roi killfeed_panel rides the HUD timeline over the whole "
+                         "capture; it takes no --cache-live")
+    if args.cache_hz is not None and float(args.cache_hz) != float(args.hz):
+        raise SystemExit("--cache-roi killfeed_panel stores the HUD samples, at --hz; it "
+                         "takes no other --cache-hz")
+    gate, why = killfeed_panel_gate(store.read_events("killfeed_portrait", sid), args.hz)
+    if gate is None:
+        raise SystemExit(f"--cache-roi killfeed_panel gates on the killfeed entries: {why}; "
+                         f"run `reticle scan {sid} --only hud` first")
+    return gate
+
+
 #: How long before each barrier drop a live-round cache starts: the last
 #: buy-phase second shows the starting positions and everything placed in the
 #: buy phase [domain:rounds/buy-phase-barriers].
@@ -1200,8 +1219,11 @@ def cmd_scan(args) -> int:
     # its crops sit on the HUD timeline's timestamps.
     # The scoreboard set keeps the scoreboard reader's frames inside the
     # strip gate (`roi_cache.scoreboard_gate`), so it rides at --hz.
-    cache_gate = (_scoreboard_cache_gate(store, sid, args)
-                  if args.cache_roi == "scoreboard" else None)
+    # The killfeed panel strip keeps the HUD samples near a stored killfeed
+    # entry (`roi_cache.killfeed_panel_gate`).
+    cache_gate = (_scoreboard_cache_gate(store, sid, args) if args.cache_roi == "scoreboard"
+                  else _killfeed_panel_cache_gate(store, sid, args)
+                  if args.cache_roi == "killfeed_panel" else None)
     cache_hz = args.cache_hz or args.hz
     cache_spans = _live_round_spans(store, sid, date) if args.cache_live else None
     want_cache = bool(args.cache_roi) and (args.force or _roi_cache_stale(
@@ -1541,8 +1563,10 @@ def cmd_scan(args) -> int:
                   f"{xp._offset / 2**20:.0f} MB -> {xp.paths[0].parent}")
             if xp.gate is not None:
                 print(f"           {xp.gate['witness']} gate kept {len(xp._index)} of "
-                      f"{xp.frames_offered} frames offered ({xp.gate['samples']} "
-                      f"stored samples in its {len(xp.gate['spans'])} spans)")
+                      f"{xp.frames_offered} frames offered "
+                      + (f"({xp.gate['samples']} stored samples" if "samples" in xp.gate
+                         else f"({xp.gate['witness_open']} witness samples open")
+                      + f" in its {len(xp.gate['spans'])} spans)")
 
         if dp is not None:
             rows = dp.events(sid, geometry.key_of(sid, store.root))
@@ -5724,12 +5748,15 @@ def build_parser() -> argparse.ArgumentParser:
                         "-- a span reader over a round cache reads the rounds only, as with "
                         "cache, when the cache holds every live round -- else decode; "
                         "cache: refuse to decode; video: always decode")
-    s.add_argument("--cache-roi", choices=("killfeed", "hud", "minimap", "scoreboard"),
+    s.add_argument("--cache-roi", choices=("killfeed", "hud", "minimap", "scoreboard",
+                                           "killfeed_panel"),
                    help="also store lossless crops of this ROI at the HUD rate, for "
                         "`reticle trial --from cache`; `--only roi_cache` stores only them. "
                         "scoreboard: the scoreboard reader's region, at its frames within "
                         "one sample of a stored strip sample that reads the board present "
-                        "or the band unreadable")
+                        "or the band unreadable. killfeed_panel: the strip left of the "
+                        "killfeed ROI, at the HUD samples within one sample of a stored "
+                        "killfeed entry")
     s.add_argument("--cache-hz", type=float, default=None,
                    help="rate of the ROI crops (default: the HUD rate)")
     s.add_argument("--cache-live", action="store_true",
