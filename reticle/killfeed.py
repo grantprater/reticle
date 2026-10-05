@@ -1512,8 +1512,17 @@ def _band_text(
     # bound the icon's left: a gun icon's white columns are not plate
     # columns, so the killer's run starts inside the icon (3694746e4e54
     # 296.0 s: icon 150-245, run from 201), and gating on the run moved 69
-    # of 169 sampled gun icons onto the cell's empty right end.
-    on_plate = lambda b: (seam is None
+    # of 169 sampled gun icons onto the cell's empty right end. The gate
+    # holds only where the runs change colour once and the seam has name
+    # glyphs on the baseline either side: green scenery left of a red plate
+    # put `plate_seam` at the scenery's edge at 5822b6646448 1415.0 s (101,
+    # the true seam at 339), and a warm wall left of a one-colour Clove
+    # entry put it at 175 at e37fdeca944f 861.0 s, both names right of it;
+    # the gate refused the rifle and the ring.
+    runs = _plate_runs(*plates, s) if seam is not None else []
+    one_seam = (sum(a[0] != b[0] for a, b in zip(runs, runs[1:])) == 1
+                and bool((named < seam).any()) and bool((named > seam).any()))
+    on_plate = lambda b: (not one_seam
                           or ((b[0] + b[1]) / 2 < seam
                               and plate_behind(*plates, b[0], b[1], s) >= PLATE_BEHIND_MIN))
     divides = lambda i, left, right: ((left < box(i)[0]).any()

@@ -63,6 +63,17 @@ class AbilityDividerTests(unittest.TestCase):
         self.assertTrue(v.wx0 <= 160 and 230 <= v.wx1 <= 250, (v.wx0, v.wx1))
         self.assertIsNone(rows[0]["reason"])
 
+    def test_scenery_of_the_other_colour_leaves_the_rifle_ungated(self):
+        """5822b6646448 1415.0 s, jay [Vandal, headshot] Me: green scenery
+        left of the red plate puts the plate seam at its edge (101; the true
+        seam at 339); the runs change colour twice, so the gate stays off
+        and the rifle (209-286) divides."""
+        views, rows = _read("5822b6646448_14150.png")
+        self.assertEqual(len(views), 1)
+        v = views[0]
+        self.assertEqual((v.wx0, v.wx1), (209, 286))
+        self.assertIsNone(rows[0]["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()
