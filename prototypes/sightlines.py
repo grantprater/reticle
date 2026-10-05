@@ -4,6 +4,7 @@ r"""The 2D sightline map: a walkable grid, line of sight, path distances, region
     .\.venv\Scripts\python.exe prototypes\sightlines.py info
     .\.venv\Scripts\python.exe prototypes\sightlines.py gate [--record] [--renders DIR]
     .\.venv\Scripts\python.exe prototypes\sightlines.py coverage            # maps lacking geometry
+    .\.venv\Scripts\python.exe prototypes\sightlines.py choose [--record]   # 2D or 3D per map
 
 Why this exists
 ---------------
@@ -76,6 +77,29 @@ Cache
 -----
 `<store>/sightlines/<geometry key>.npz`, stamped with `VERSION`, the
 geometry's `occ_built_by` and `lines_built_by`, and this file's source hash.
+
+2D or 3D per map (`load`, `choose`)
+-----------------------------------
+`prototypes/sightlines_3d.py` builds a 3D table per map from the game's
+collision. `load(map)` returns the 3D table (`Sightlines3D`, the same
+interface) where `<store>/sightlines/choice.json` says 3D, else the 2D one;
+`load(map, kind="2d")` and `kind="3d"` ask for one. `choose` writes the file:
+3D where the 3D probe's instrument gate (ledger `sightlines_3d/gate/<map>`,
+this version's rows: killer eye to victim chest at exact positions on the
+development gun kills) beats the 2D map's share on the same kills, the rule
+`engagement_reach` fixed before its confirmation; 2D otherwise; 3D on a map
+with no baked 2D geometry, where it is the only instrument (its instrument
+check on confirmation kills, `sightlines_3d/gate_confirm/<map>`, is recorded
+beside). Each map's choice names its reason and the gate rows it read.
+
+`Sightlines3D` places a position on the lowest standable cell of its 1 m grid
+column (the probe's pre-registered floor rule), else the nearest column's;
+its visibility is the table's eye-to-eye bit, strict; its walk graph is the
+table's cached edges weighted by 3D centre distance, all pairs by
+`scipy.sparse.csgraph.dijkstra` in memory (one-way drops not modelled). Its
+callout regions are the 2D table's, joined by (x, y), where a 2D table
+exists, else the game's own callout volumes (`cell_callout`), two volumes
+adjacent when a walk edge joins them.
 """
 from __future__ import annotations
 
@@ -530,7 +554,8 @@ def table_path(mname: str, store: Path = STORE) -> Path | None:
 _CACHE: dict[str, Sightlines] = {}
 
 
-def load(mname: str, store: Path = STORE) -> Sightlines | None:
+def load_2d(mname: str, store: Path = STORE) -> Sightlines | None:
+    """The map's 2D table, or None."""
     p = table_path(mname.lower(), store)
     if p is None or not p.is_file():
         return None
@@ -540,6 +565,203 @@ def load(mname: str, store: Path = STORE) -> Sightlines | None:
             raise SystemExit(f"{p} is {s.version}, this file is {VERSION}: rebuild it")
         _CACHE[mname] = s
     return _CACHE[mname]
+
+
+CHOICE_PATH = OUT_DIR / "choice.json"
+_CACHE3: dict[str, "Sightlines3D"] = {}
+
+
+def load_3d(mname: str, log=print) -> "Sightlines3D | None":
+    """The map's 3D table behind the 2D interface, or None."""
+    import sightlines_3d as s3
+    mname = mname.lower()
+    if mname not in _CACHE3:
+        if not s3.out_path(mname).is_file():
+            return None
+        _CACHE3[mname] = Sightlines3D(mname, log=log)
+    return _CACHE3[mname]
+
+
+def choice(path: Path = CHOICE_PATH) -> dict:
+    """Per map: {"kind": "2d" | "3d", "why": ...}, as `choose` wrote it; {} before."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))["maps"]
+    except (OSError, KeyError, ValueError):
+        return {}
+
+
+def load(mname: str, store: Path = STORE, kind: str | None = None):
+    """The map's sightline table: `kind` "2d" or "3d", else the recorded
+    choice (`choice.json`), else 2D. None when the chosen table is missing."""
+    mname = mname.lower()
+    if kind is None:
+        kind = choice().get(mname, {}).get("kind", "2d")
+    return load_3d(mname) if kind == "3d" else load_2d(mname, store)
+
+
+class Sightlines3D(Sightlines):
+    """A 3D sightline table (`sightlines_3d`) behind the 2D table's interface."""
+
+    def __init__(self, mname: str, log=print):
+        import sightlines_3d as s3
+        from scipy.sparse import coo_matrix
+        from scipy.sparse.csgraph import connected_components, dijkstra
+        from scipy.spatial import cKDTree
+        t0 = time.time()
+        D = s3.load(mname)
+        S2 = load_2d(mname)
+        self.path = s3.out_path(mname)
+        self.version = s3.VERSION
+        self.key = f"{mname}__{s3.VERSION}"
+        self.map = mname
+        xy = D["cell_xy"].astype(np.float64)
+        z = D["cell_z"].astype(np.float64)
+        ix, iy, lay = D["cell_ix"].astype(np.int64), D["cell_iy"].astype(np.int64), D["cell_layer"].astype(np.int64)
+        lo, hi = D["grid_lo"], D["grid_hi"]
+        shape = (len(np.arange(lo[0] + s3.GRID_CM / 2, hi[0], s3.GRID_CM)),
+                 len(np.arange(lo[1] + s3.GRID_CM / 2, hi[1], s3.GRID_CM)))
+        N = len(z)
+        self.N = N
+        self.cell_xy, self.cell_z = xy, z
+        self.lo, self.gshape = lo, shape
+        # visibility: the packed upper triangle into full packed rows
+        tri = np.unpackbits(D["vis_bits"], count=N * (N - 1) // 2).astype(bool)
+        M = np.zeros((N, N), bool)
+        M[np.triu(np.ones((N, N), bool), 1)] = tri
+        del tri
+        M |= M.T
+        np.fill_diagonal(M, True)
+        self.los_bits = np.packbits(M, axis=1)
+        del M
+        # walk graph: the table's cached edges, else rebuilt from the pawn blockers
+        if "walk_r" in D:
+            r, c = D["walk_r"].astype(np.int64), D["walk_c"].astype(np.int64)
+            edges_from = "cached"
+        else:
+            r, c = s3.walk_edges(xy, z, ix, iy, lay, shape, s3.Caster(D["tris"][D["pawn"]]))
+            edges_from = "rebuilt"
+        w = np.linalg.norm(np.column_stack([xy[r] - xy[c], z[r] - z[c]]), axis=1) / UNITS_PER_M
+        G = sparse.coo_matrix((w, (r, c)), shape=(N, N)).tocsr()
+        ncomp, lab = connected_components(G, directed=False)
+        stored = D["cell_component"]
+        pairs = len(set(zip(lab.tolist(), stored.tolist())))
+        self.edges_check = {"edges": int(len(r)), "from": edges_from, "components": int(ncomp),
+                            "stored_components": int(len(np.unique(stored))),
+                            "partition_matches_stored": bool(pairs == ncomp == len(np.unique(stored)))}
+        self.edges = np.column_stack([r, c])
+        self.comp = lab
+        dm = np.empty((N, N), np.uint16)
+        for b0 in range(0, N, 512):
+            d = dijkstra(G, directed=False, indices=np.arange(b0, min(N, b0 + 512)))
+            dm[b0:b0 + 512] = np.where(np.isfinite(d), np.minimum(np.round(d * 10.0), int(UNREACHABLE) - 1),
+                                       int(UNREACHABLE)).astype(np.uint16)
+        self.dist_dm = dm
+        # the lowest cell of each grid column
+        colkey = ix * shape[1] + iy
+        order = np.lexsort((z, colkey))
+        first = order[np.r_[True, colkey[order][1:] != colkey[order][:-1]]]
+        self._colkey, self._colcell = colkey[first], first
+        self._tree3 = cKDTree(xy[first])
+        self._tree = self._tree3
+        if S2 is not None:
+            # callout regions from the 2D table, by (x, y)
+            c2 = S2.cells(xy)[0]
+            self.region = {"callout": S2.region["callout"][c2]}
+            self.adj = {"callout": S2.adj["callout"]}
+            self.callout_names = S2.callout_names
+            regions_from = S2.key
+        else:
+            reg = D["cell_callout"].astype(np.int64) if "cell_callout" in D else np.full(N, -1)
+            R = len(D["region"]["names"])
+            adj = np.eye(R, dtype=bool)
+            ok = (reg[r] >= 0) & (reg[c] >= 0)
+            adj[reg[r][ok], reg[c][ok]] = True
+            adj |= adj.T
+            self.region = {"callout": reg}
+            self.adj = {"callout": adj}
+            self.callout_names = list(D["region"]["names"])
+            regions_from = "callout volumes (sightlines_3d cell_callout)"
+        self.stamps = {"sightlines_3d": s3.VERSION, "provenance_build": D["provenance"].get("source", {}).get("build"),
+                       "extractor": D["provenance"].get("source", {}).get("extractor", {}).get("commit"),
+                       "regions_from": regions_from}
+        self.seconds = round(time.time() - t0, 1)
+        log(f"[sightlines-3d] {mname}: {N} cells, {len(r)} edges ({edges_from}), {ncomp} components, {self.seconds} s")
+
+    def cells(self, xy) -> tuple[np.ndarray, np.ndarray]:
+        """The lowest standable cell of each point's grid column (else the
+        nearest column's), and the point's distance (m) to its centre."""
+        import sightlines_3d as s3
+        xy = np.asarray(xy, float).reshape(-1, 2)
+        g = np.floor((xy - self.lo[None, :2]) / s3.GRID_CM).astype(np.int64)
+        inb = (g[:, 0] >= 0) & (g[:, 0] < self.gshape[0]) & (g[:, 1] >= 0) & (g[:, 1] < self.gshape[1])
+        k = g[:, 0] * self.gshape[1] + g[:, 1]
+        pos = np.clip(np.searchsorted(self._colkey, k), 0, len(self._colkey) - 1)
+        hit = inb & (self._colkey[pos] == k)
+        _d, near = self._tree3.query(xy)
+        cell = np.where(hit, self._colcell[pos], self._colcell[near]).astype(np.int64)
+        return cell, np.linalg.norm(xy - self.cell_xy[cell], axis=1) / UNITS_PER_M
+
+    def los_near(self, xy_a, xy_b) -> np.ndarray:
+        """Strict: the 3D table needs no registration tolerance."""
+        return self.los(self.cells(xy_a)[0], self.cells(xy_b)[0])
+
+    def vis_near(self, xy) -> np.ndarray:
+        return self.los_rows(self.cells(xy)[0])
+
+
+def _gate_row(tool: str, part: str, version: str) -> dict | None:
+    """The latest pass row of a ledger series written by `version`."""
+    from reticle import metrics
+    rows = [r for r in metrics.load() if r.get("tool") == tool and r.get("part") == part
+            and r.get("status") == "pass" and (r.get("deps") or {}).get("version") == version]
+    return rows[-1] if rows else None
+
+
+def choose(args=None) -> dict:
+    """2D or 3D per map (see the module docstring); writes `choice.json`."""
+    import sightlines_3d as s3
+    out = {"rule": "3d where sightlines_3d/gate/<map> (this sightlines_3d version, development gun kills, exact "
+                   "positions) gives los3d_share_on_2d_set > los2d_share; 2d otherwise; 3d where no 2D table exists",
+           "sightlines": VERSION, "sightlines_3d": s3.VERSION, "maps": {}}
+    for m in sorted(s3.CODENAMES):
+        has2, has3 = table_path(m) is not None and table_path(m).is_file(), s3.out_path(m).is_file()
+        g = _gate_row("sightlines_3d", f"gate/{m}", s3.VERSION) if has3 else None
+        gc = _gate_row("sightlines_3d", f"gate_confirm/{m}", s3.VERSION) if has3 else None
+        row = {"has_2d": has2, "has_3d": has3}
+        if g:
+            v = g["values"]
+            row["gate"] = {"at": g["at"], "los3d_share_on_2d_set": v.get("los3d_share_on_2d_set"),
+                           "los2d_share": v.get("los2d_share"), "los2d_n": v.get("los2d_n"),
+                           "control_los3d_share": v.get("control_los3d_share"),
+                           "control_los2d_share": v.get("control_los2d_share")}
+        if gc:
+            v = gc["values"]
+            row["instrument_check"] = {"at": gc["at"], "set": "confirmation history, instrument check only",
+                                       "gun_kills_resolved": v.get("gun_kills_resolved"),
+                                       "los3d_share": v.get("los3d_share"),
+                                       "control_los3d_share": v.get("control_los3d_share")}
+        if has3 and not has2:
+            row["kind"], row["why"] = "3d", "no baked 2D geometry: the 3D table is the only instrument"
+        elif has3 and has2 and g and g["values"].get("los2d_share") is not None:
+            beats = g["values"]["los3d_share_on_2d_set"] > g["values"]["los2d_share"]
+            row["kind"] = "3d" if beats else "2d"
+            row["why"] = "the 3D gate beats 2D on the same development kills" if beats else \
+                "the 3D gate does not beat 2D on the same development kills"
+        elif has2:
+            row["kind"], row["why"] = "2d", "no 3D table or no 3D development gate of this version"
+        else:
+            row["kind"], row["why"] = None, "no table"
+        out["maps"][m] = row
+    print(json.dumps(out, indent=1))
+    CHOICE_PATH.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    if args is not None and getattr(args, "record", False):
+        from reticle import metrics
+        vals = {f"{m}.uses_3d": int(r["kind"] == "3d") for m, r in out["maps"].items() if r["kind"]}
+        metrics.record("sightlines", part="choice", values=vals,
+                       deps={"version": VERSION, "sightlines_3d": s3.VERSION, "source": source_hash()},
+                       context={"rule": out["rule"], "path": str(CHOICE_PATH)},
+                       note="per-map 2D/3D choice that sightlines.load reads")
+    return out
 
 
 def dev_maps(store: Path = STORE) -> Counter:
@@ -583,7 +805,7 @@ def gate(args) -> dict:
         by_map.setdefault(r[1], []).append(r)
     res, fails = {}, []
     for mname, rs in sorted(by_map.items()):
-        S = load(mname)
+        S = load_2d(mname)
         if S is None:
             res[mname] = {"no_table": len(rs)}
             continue
@@ -665,11 +887,11 @@ def gate(args) -> dict:
             "control_pairs")})
         vals.update({f"post_hoc:all.{k}": tot[k] for k in (
             "post_hoc_exact_walls_only_share", "post_hoc_cells_or_walls_only_one_cell")})
-        stamps = {m: load(m).stamps.get("occ_built_by") for m in res if m != "all" and load(m)}
+        stamps = {m: load_2d(m).stamps.get("occ_built_by") for m in res if m != "all" and load_2d(m)}
         metrics.record("sightlines", part="gate", values=vals,
                        deps={"version": VERSION, "source": source_hash(), "cell_m": CELL_M,
                              "walk_share": WALK_SHARE, "step_px": STEP_PX,
-                             "keys": sorted(load(m).key for m in res if m != "all" and load(m)),
+                             "keys": sorted(load_2d(m).key for m in res if m != "all" and load_2d(m)),
                              "occ_built_by": stamps},
                        context={"set": "development: the 22 captured Riot records",
                                 "gun_kill": "finishingDamage.damageType == Weapon, killer != victim"},
@@ -684,7 +906,7 @@ def render_failures(fails, out: Path, n: int) -> None:
     lines = []
     for j, i in enumerate(sorted(pick)):
         mname, r, ck, cv, dk, dv, nb, dm = fails[i]
-        S = load(mname)
+        S = load_2d(mname)
         with np.load(STORE / "geometry" / f"{S.key}.npz") as z:
             img = cv2.cvtColor(z["static"], cv2.COLOR_RGB2BGR) if z["static"].ndim == 3 else z["static"]
             labels, occ = z["labels"], z["occ"]
@@ -749,6 +971,8 @@ def main(argv=None) -> int:
     g.add_argument("--renders", default=None)
     g.add_argument("--n-renders", type=int, default=10)
     sub.add_parser("coverage")
+    ch = sub.add_parser("choose")
+    ch.add_argument("--record", action="store_true")
     args = ap.parse_args(argv)
     _below_normal()
     if args.cmd == "build":
@@ -770,6 +994,8 @@ def main(argv=None) -> int:
         gate(args)
     elif args.cmd == "coverage":
         confirmation_maps()
+    elif args.cmd == "choose":
+        choose(args)
     return 0
 
 

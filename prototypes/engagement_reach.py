@@ -3,6 +3,7 @@ r"""Engagement reach: who can join a fight, confirmed on the player's own histor
     .\.venv\Scripts\python.exe prototypes\engagement_reach.py gate [--record]
     .\.venv\Scripts\python.exe prototypes\engagement_reach.py score --set dev [--record]
     .\.venv\Scripts\python.exe prototypes\engagement_reach.py score --set confirm [--record]
+    .\.venv\Scripts\python.exe prototypes\engagement_reach.py score --set confirm --tag T [--exclude-holdout] [--shuffles N] [--record]
     .\.venv\Scripts\python.exe prototypes\engagement_reach.py fidelity [--record]
 
 Why this exists
@@ -29,14 +30,18 @@ Sets
   pattern every planted round of both sets follows (checked in
   `ladder_records`, which counts planters on the other team). The player is
   the match's `is_owner` row. Matches on maps without a sightline table are
-  excluded and counted.
+  excluded and counted. The confirmation run kept the ladder's one-in-five
+  `holdout` matches (22 of its 123); `--exclude-holdout` drops them, a post
+  hoc sensitivity. `--tag` writes `score_<set>_<tag>.json` and the ledger part
+  `<set>/<tag>`, so a rerun never overwrites the confirmation's files.
 
 The sightline map per map (`gate`)
 ----------------------------------
 Two instruments exist: the 2D minimap map (`prototypes/sightlines.py`, every
 map with baked geometry) and the 3D map from the game's collision
-(`prototypes/sightlines_3d.py`, built for Ascent and Split only). The rule,
-fixed before any confirmation data was read: use the 3D map where the 3D
+(`prototypes/sightlines_3d.py`; the confirmation used it on Ascent and Split,
+the two maps built then). The rule, fixed after the development gate ran and
+before any confirmation feature, fit or score: use the 3D map where the 3D
 probe's instrument gate (its ledger row `sightlines_3d/gate/<map>`: line of
 sight killer eye to victim chest at exact positions, development gun kills)
 beats the 2D map's on the same kills; else the 2D map. `gate` also measures
@@ -44,22 +49,14 @@ the cell tables the reach features actually read (killer cell to victim
 cell, strict and one-cell-tolerant in 2D, strict in 3D) with a control (the
 killer against the victim's other living teammates), and writes
 `<out>/gate.json`, which `score` and `fidelity` read. A stricter table rule
-(3D strict above both 2D shares), written first, is reported as post hoc.
+(3D strict above both 2D shares), written first and replaced after this gate
+ran, would have kept Split on 2D; it is reported as post hoc. `gate.json`
+stays as the confirmation read it: 3D tables built later for other maps do
+not enter this analysis.
 
-`Map3D` adapts a 3D table to the 2D interface (`cells`, `los_rows`,
-`vis_near`, `reach_m`, `near_region`):
-- a position takes the lowest standable cell of its 1 m grid column, the
-  probe's pre-registered floor rule; a column without a cell takes the
-  nearest column's lowest cell;
-- visibility is the table's eye-to-eye bit, strict (Riot positions are game
-  world coordinates, so the one-cell registration tolerance of the 2D map has
-  no cause here);
-- walking uses `sightlines_3d.walk_edges` (8 neighbours, floors within the
-  jump placeholder, no pawn blocker), weighted by the 3D centre distance, all
-  pairs by `scipy.sparse.csgraph.dijkstra`, held in memory as uint16
-  decimetres; one-way drops are not modelled (the graph is symmetric);
-- callout regions are the 2D table's, joined by the cell's (x, y): a region
-  is a floor-plan notion and the 3D build has none of its own.
+`Map3D` is `sightlines.Sightlines3D` (see its module docstring): lowest
+standable cell of the grid column, strict eye-to-eye visibility, the table's
+walk graph, callout regions from the 2D table by (x, y).
 
 Models (parameters chosen on dev by `decision_value.py reach`)
 -------------------------------------------------------------
@@ -178,9 +175,12 @@ def attacking_team(n: np.ndarray) -> np.ndarray:
     return np.where((n < 12) | ((n >= 24) & (n % 2 == 0)), "Red", "Blue")
 
 
-def ladder_records(maps_with_table: set[str] | None = None) -> tuple[dict, dict, dict]:
+def ladder_records(maps_with_table: set[str] | None = None,
+                   exclude_holdout: bool = False) -> tuple[dict, dict, dict]:
     """(records, me, counts): Riot-shaped records keyed by match id, the
-    player's pseudonym per match, and what was excluded and why."""
+    player's pseudonym per match, and what was excluded and why. With
+    `exclude_holdout`, the ladder's `holdout` matches (docs/LADDER_SAMPLE.md)
+    drop out last, counted as `holdout_excluded`."""
     import pyarrow.parquet as pq
     T = {n: pq.read_table(LADDER / f"{n}.parquet").to_pylist()
          for n in ("matches", "players", "rounds", "economy", "kills", "positions")}
@@ -201,6 +201,8 @@ def ladder_records(maps_with_table: set[str] | None = None) -> tuple[dict, dict,
         elif maps_with_table is not None and m["map"].lower() not in maps_with_table:
             counts[f"no_table_excluded:{m['map'].lower()}"] += 1
             counts["no_table_excluded"] += 1
+        elif exclude_holdout and m["holdout"]:
+            counts["holdout_excluded"] += 1
         else:
             keep[mid] = m
     by = {k: defaultdict(list) for k in ("players", "rounds", "economy", "kills")}
@@ -265,91 +267,7 @@ def ladder_records(maps_with_table: set[str] | None = None) -> tuple[dict, dict,
 
 # ----------------------------------------------------------------- the 3D map
 
-class Map3D(sl.Sightlines):
-    """A 3D sightline table (`sightlines_3d`) behind the 2D table's interface."""
-
-    def __init__(self, mname: str, log=print):
-        from scipy.sparse import coo_matrix
-        from scipy.sparse.csgraph import connected_components, dijkstra
-        from scipy.spatial import cKDTree
-        t0 = time.time()
-        D = s3.load(mname)
-        S2 = sl.load(mname)
-        self.path = s3.out_path(mname)
-        self.version = s3.VERSION
-        self.key = f"{mname}__{s3.VERSION}"
-        self.map = mname
-        xy = D["cell_xy"].astype(np.float64)
-        z = D["cell_z"].astype(np.float64)
-        ix, iy, lay = D["cell_ix"].astype(np.int64), D["cell_iy"].astype(np.int64), D["cell_layer"].astype(np.int64)
-        lo, hi = D["grid_lo"], D["grid_hi"]
-        shape = (len(np.arange(lo[0] + s3.GRID_CM / 2, hi[0], s3.GRID_CM)),
-                 len(np.arange(lo[1] + s3.GRID_CM / 2, hi[1], s3.GRID_CM)))
-        N = len(z)
-        self.N = N
-        self.cell_xy, self.cell_z = xy, z
-        self.lo, self.gshape = lo, shape
-        # visibility: the packed upper triangle into full packed rows
-        tri = np.unpackbits(D["vis_bits"], count=N * (N - 1) // 2).astype(bool)
-        M = np.zeros((N, N), bool)
-        M[np.triu(np.ones((N, N), bool), 1)] = tri
-        del tri
-        M |= M.T
-        np.fill_diagonal(M, True)
-        self.los_bits = np.packbits(M, axis=1)
-        del M
-        # walk graph
-        pawn = s3.Caster(D["tris"][D["pawn"]])
-        r, c = s3.walk_edges(xy, z, ix, iy, lay, shape, pawn)
-        w = np.linalg.norm(np.column_stack([xy[r] - xy[c], z[r] - z[c]]), axis=1) / sl.UNITS_PER_M
-        G = coo_matrix((w, (r, c)), shape=(N, N)).tocsr()
-        ncomp, lab = connected_components(G, directed=False)
-        stored = D["cell_component"]
-        pairs = len(set(zip(lab.tolist(), stored.tolist())))
-        self.edges_check = {"edges": int(len(r)), "components": int(ncomp),
-                            "stored_components": int(len(np.unique(stored))),
-                            "partition_matches_stored": bool(pairs == ncomp == len(np.unique(stored)))}
-        dm = np.empty((N, N), np.uint16)
-        for b0 in range(0, N, 512):
-            d = dijkstra(G, directed=False, indices=np.arange(b0, min(N, b0 + 512)))
-            dm[b0:b0 + 512] = np.where(np.isfinite(d), np.minimum(np.round(d * 10.0), UNREACHABLE - 1),
-                                       UNREACHABLE).astype(np.uint16)
-        self.dist_dm = dm
-        # the lowest cell of each grid column
-        colkey = ix * shape[1] + iy
-        order = np.lexsort((z, colkey))
-        first = order[np.r_[True, colkey[order][1:] != colkey[order][:-1]]]
-        self._colkey, self._colcell = colkey[first], first
-        self._tree3 = cKDTree(xy[first])
-        # callout regions from the 2D table, by (x, y)
-        c2 = S2.cells(xy)[0]
-        self.region = {"callout": S2.region["callout"][c2]}
-        self.adj = {"callout": S2.adj["callout"]}
-        self.callout_names = S2.callout_names
-        self.stamps = {"sightlines_3d": s3.VERSION, "provenance_build": D["provenance"].get("source", {}).get("build"),
-                       "regions_from": S2.key}
-        self.seconds = round(time.time() - t0, 1)
-        log(f"[map3d] {mname}: {N} cells, {len(r)} edges, {ncomp} components, {self.seconds} s")
-
-    def cells(self, xy) -> tuple[np.ndarray, np.ndarray]:
-        """The lowest standable cell of each point's grid column (else the
-        nearest column's), and the point's distance (m) to its centre."""
-        xy = np.asarray(xy, float).reshape(-1, 2)
-        g = np.floor((xy - self.lo[None, :2]) / s3.GRID_CM).astype(np.int64)
-        inb = (g[:, 0] >= 0) & (g[:, 0] < self.gshape[0]) & (g[:, 1] >= 0) & (g[:, 1] < self.gshape[1])
-        k = g[:, 0] * self.gshape[1] + g[:, 1]
-        pos = np.clip(np.searchsorted(self._colkey, k), 0, len(self._colkey) - 1)
-        hit = inb & (self._colkey[pos] == k)
-        _d, near = self._tree3.query(xy)
-        cell = np.where(hit, self._colcell[pos], self._colcell[near]).astype(np.int64)
-        return cell, np.linalg.norm(xy - self.cell_xy[cell], axis=1) / sl.UNITS_PER_M
-
-    def los_near(self, xy_a, xy_b) -> np.ndarray:
-        """Strict: the 3D table needs no registration tolerance."""
-        return self.los(self.cells(xy_a)[0], self.cells(xy_b)[0])
-
-    def vis_near(self, xy) -> np.ndarray:
-        return self.los_rows(self.cells(xy)[0])
+Map3D = sl.Sightlines3D
 
 
 _TABLES: dict[tuple[str, str], object] = {}
@@ -360,9 +278,9 @@ def table(mname: str, kind: str):
     key = (mname, kind)
     if key not in _TABLES:
         if kind == "3d":
-            _TABLES[key] = Map3D(mname) if s3.out_path(mname).is_file() and sl.load(mname) is not None else None
+            _TABLES[key] = Map3D(mname) if s3.out_path(mname).is_file() and sl.load_2d(mname) is not None else None
         else:
-            _TABLES[key] = sl.load(mname)
+            _TABLES[key] = sl.load_2d(mname)
     return _TABLES[key]
 
 
@@ -403,8 +321,8 @@ def gate(args) -> dict:
            "rule": "3d where the 3D probe's instrument gate (ledger sightlines_3d/gate/<map>, exact positions, "
                    "development gun kills) beats the 2D map's on the same kills; else 2d",
            "maps": {}, "choice": {}}
-    for mname in sorted(set(F.map.tolist()) | {m for m in s3.CODENAMES if sl.load(m) is not None}):
-        S2 = sl.load(mname)
+    for mname in sorted(set(F.map.tolist()) | {m for m in s3.CODENAMES if sl.load_2d(m) is not None}):
+        S2 = sl.load_2d(mname)
         if S2 is None:
             continue
         fm = np.flatnonzero(F.map == mname)
@@ -466,10 +384,10 @@ def gate(args) -> dict:
 
 # ----------------------------------------------------------------- features
 
-def load_set(name: str, loader_maps: set[str]):
+def load_set(name: str, loader_maps: set[str], exclude_holdout: bool = False):
     if name == "dev":
         return dv.Dev(), {"set": "development: 22 captured Riot records"}
-    records, me, counts = ladder_records(loader_maps)
+    records, me, counts = ladder_records(loader_maps, exclude_holdout=exclude_holdout)
     dev = dv.Dev(records=records, me=me)
     counts["admitted_rounds"] = dev.R
     counts["round_admission"] = {k: v for k, v in dev.why.items() if not k.startswith("note_")}
@@ -659,10 +577,13 @@ def lomo_cf(X, Xcfs, y, groups, pen):
 def score(args) -> dict:
     t0 = time.time()
     loader, choice, g = chosen_loader()
-    dev, counts = load_set(args.set, set(choice))
+    exclude_holdout = bool(getattr(args, "exclude_holdout", False))
+    tag = getattr(args, "tag", None)
+    dev, counts = load_set(args.set, set(choice), exclude_holdout=exclude_holdout)
     F = dv.Fights(dev)
     keep_maps = _maps_of(loader, dev)
-    res = {"version": VERSION, "source": source_hash(), "set": args.set, "counts": counts,
+    res = {"version": VERSION, "source": source_hash(), "set": args.set, "tag": tag,
+           "exclude_holdout": exclude_holdout, "counts": counts,
            "map_choice": choice, "params": {"swing_s": SWING_S, "trade_t": TRADE_T, "radius_r": RADIUS_R,
                                             "node": NODE_GRAPH, "plant_t": PLANT_T},
            "held_out_excluded_by_dev": len(dev.held_excluded), "fights": F.n,
@@ -761,7 +682,8 @@ def score(args) -> dict:
     res["coaching"] = coaching(dev, F, C, y, pr, pcf_att, pcf_def, D6)
     res["seconds"] = round(time.time() - t0, 1)
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / f"score_{args.set}.json").write_text(json.dumps(res, indent=1, default=_js), encoding="utf-8")
+    name = f"score_{args.set}" + (f"_{tag}" if tag else "")
+    (OUT / f"{name}.json").write_text(json.dumps(res, indent=1, default=_js), encoding="utf-8")
     print(json.dumps({k: res[k] for k in ("set", "fights", "matches", "baseline_nats", "REACH1", "REACH2", "REACH3",
                                          "REACH4", "REACH5", "REACH6", "region_precision")}, indent=1, default=_js))
     if args.record:
@@ -1081,8 +1003,8 @@ def record_score(res: dict) -> None:
             c[key] = block["ci95"]
     v.update({"fights": res["fights"], "matches": res["matches"], "baseline_nats": res["baseline_nats"],
               "fights_on_3d_maps": res["fights_on_3d_maps"]})
-    for k in ("matches_listed", "held_out_excluded", "captured_excluded", "no_table_excluded", "admitted_rounds",
-              "planter_on_attacking_team", "planter_on_other_team"):
+    for k in ("matches_listed", "held_out_excluded", "captured_excluded", "no_table_excluded", "holdout_excluded",
+              "admitted_rounds", "planter_on_attacking_team", "planter_on_other_team"):
         if k in res["counts"]:
             v[f"set.{k}"] = res["counts"][k]
     v["REACH6.able_improvement_over_z_nats"] = res["REACH6"]["able_improvement_over_z"]["mean"]
@@ -1099,6 +1021,9 @@ def record_score(res: dict) -> None:
     v["coach.dV_mean"] = res["coaching"]["dV_mean"]
     put("REACH1.improvement_nats", res["REACH1"]["improvement"])
     v["REACH1.null_p95"] = res["REACH1"]["null"]["p95"]
+    v["REACH1.null_mean"] = res["REACH1"]["null"]["mean"]
+    v["REACH1.null_n"] = res["REACH1"]["null"]["n"]
+    v["REACH1.null_share_ge_observed"] = res["REACH1"]["null"]["share_ge_observed"]
     put("REACH2.reach_minus_radius_nats", res["REACH2"]["reach_minus_radius_gain"])
     put("REACH2.radius_improvement_nats", res["REACH2"]["radius_improvement"])
     put("REACH3.own_improvement_nats", res["REACH3"]["own_improvement"])
@@ -1144,7 +1069,10 @@ def record_score(res: dict) -> None:
             put(f"coach.post_hoc.player_minus_peers.{s_}.{k}", b[k], "diff")
     label = "development: 22 captured Riot records" if res["set"] == "dev" else \
         "confirmation: the player's own HenrikDev history, captured and held-out matches excluded"
-    metrics.record("engagement_reach", part=res["set"], values=v, ci=c,
+    if res.get("exclude_holdout"):
+        label += "; post hoc sensitivity: the ladder's holdout matches excluded as well"
+    part = res["set"] + (f"/{res['tag']}" if res.get("tag") else "")
+    metrics.record("engagement_reach", part=part, values=v, ci=c,
                    deps={"version": VERSION, "source": res["source"], "params": res["params"],
                          "map_choice": res["map_choice"], "sightlines": sl.VERSION, "sightlines_3d": s3.VERSION,
                          "value_model": wr.VERSION + " B1", "shuffles": res["REACH1"]["null"]["n"], "boot": BOOT},
@@ -1161,6 +1089,9 @@ def main(argv=None) -> int:
     s.add_argument("--set", choices=("dev", "confirm"), required=True)
     s.add_argument("--record", action="store_true")
     s.add_argument("--shuffles", type=int, default=SHUFFLES)
+    s.add_argument("--exclude-holdout", action="store_true",
+                   help="post hoc: drop the ladder's holdout matches as well")
+    s.add_argument("--tag", default=None, help="suffix for the results file and the ledger part")
     f = sub.add_parser("fidelity")
     f.add_argument("--record", action="store_true")
     args = ap.parse_args(argv)

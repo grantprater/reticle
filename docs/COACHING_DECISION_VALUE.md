@@ -335,6 +335,17 @@ all with N = 10 s:
 If P1 fails while P2 holds, test path distance next. If P4 fails, reader
 coverage, not sample size, blocks this behaviour.
 
+**Disclosure.** P1-P4 were reworded after the two `decision_value/pilot_power`
+count runs had been read: commit feb1a0b followed the first run and d68ecc6
+the second. The changes: P1's slope moved from "dying traded, negative" to
+"dying untraded, positive" under the new competing outcomes, and its trade-rate
+clause was limited to deaths with a living teammate; P2 counts per episode,
+not per death; P3 names the player's offsets; P4 moved from his deaths to
+the episode instants; P5 moved to S2. The count runs gave episode, death and
+trade counts and the power figures above; no distance slope, log loss or
+offset was fitted before the rewording. The prediction row (02:30:10Z) logs
+the reworded text; a correction row in the ledger records this.
+
 ## 8. What it cannot do
 
 - Value a policy no one in the band plays (positivity).
@@ -354,9 +365,11 @@ coverage, not sample size, blocks this behaviour.
 join a fight once on the player's own competitive history. `decision_value.py
 reach` had fixed its parameters on the 22 captured records: swing 2 m, trade
 5 m, callout nodes, radius 5 m, plant 5 m. Predictions REACH1-REACH6 went
-into the store's `notes/predictions.jsonl` before the history was read. Each
-number below cites its ledger row; development figures are labelled.
-Weapons and utility reach are left out.
+into the store's `notes/predictions.jsonl` (03:13:59Z) before any feature,
+fit or score touched the history; the confirmation agent had read the
+history's schema and counts at 02:59-03:00Z, before that row. Each number
+below cites its ledger row; development figures are labelled. Weapons and
+utility reach are left out.
 
 **Sets.** Development: the captured records,
 [metric:engagement_reach/dev#fights=3324] gun fights. Confirmation: of
@@ -390,10 +403,50 @@ against the 2D table's tolerant
 control (the killer against the victim's other living teammates) is lower,
 [metric:engagement_reach/gate#split.control3d_strict=0.0829] against
 [metric:engagement_reach/gate#split.control2d_tolerant=0.1092]. A stricter
-table rule, written first and set aside after the gate ran (post hoc), would
-have kept Split on 2D. The 3D map's walk graph, rebuilt from the stored
-cells, reproduces the stored components exactly. One-way drops are not
-modelled.
+table rule, written first and set aside after this development gate ran,
+would have kept Split on 2D; the rule the prediction row logs is the
+replacement, and a correction row in the ledger says so. The 3D map's walk
+graph, rebuilt from the stored cells, reproduces the stored components
+exactly. One-way drops are not modelled.
+
+**Holdout disclosure.** The ladder sample flags one match in five as
+`holdout` ([LADDER_SAMPLE.md](LADDER_SAMPLE.md): a match that evaluates a
+fitted model stays out of its fit). Of the 123 confirmation matches,
+[metric:engagement_reach/confirm/no_holdout#set.holdout_excluded=22] carry
+the flag, and the confirmation fitted on them. This analysis touched them; it
+persisted no model, so no stored fit carries them forward. A post hoc
+sensitivity reruns REACH1-REACH6 without them
+([metric:engagement_reach/confirm/no_holdout#matches=101] matches,
+[metric:engagement_reach/confirm/no_holdout#fights=14729] fights). Every
+verdict stands: REACH1 gains
+[metric:engagement_reach/confirm/no_holdout#REACH1.improvement_nats=0.0011]
+[0.00028, 0.00199]; REACH2 holds at
+[metric:engagement_reach/confirm/no_holdout#REACH2.reach_minus_radius_nats=0.00103]
+[0.00024, 0.00187]; REACH3's share is
+[metric:engagement_reach/confirm/no_holdout#REACH3.own_share=0.38] [-0.72,
+0.93]; REACH4 holds for defenders,
+[metric:engagement_reach/confirm/no_holdout#REACH4.coef_def_per_player=-0.139]
+[-0.183, -0.083], not for attackers,
+[metric:engagement_reach/confirm/no_holdout#REACH4.coef_att_per_player=0.0284]
+[-0.008, 0.066]; REACH5 gains
+[metric:engagement_reach/confirm/no_holdout#REACH5.improvement_nats=0.00683]
+[0.0007, 0.0125], under the bar; REACH6's difference is
+[metric:engagement_reach/confirm/no_holdout#REACH6.able_minus_distance_nats=0.00332]
+[-0.0025, 0.0092]. One reading weakens: REACH5's defender direction,
+[metric:engagement_reach/confirm/no_holdout#REACH5.coef_def_reach_per_player=-0.1448]
+[-0.366, 0.027], no longer excludes 0.
+
+**Shuffle null.** The confirmation's null used 20 position permutations
+(p95 +0.00006); an independent check with 8 came out all negative (p95
+-0.00007). Rerun with 200 permutations (same seed; every other figure
+reproduced exactly): mean
+[metric:engagement_reach/confirm/null200#REACH1.null_mean=-0.00016], p95
+[metric:engagement_reach/confirm/null200#REACH1.null_p95=0.00002], and
+[metric:engagement_reach/confirm/null200#REACH1.null_share_ge_observed=0.0]
+of the 200 reach the observed
+[metric:engagement_reach/confirm/null200#REACH1.improvement_nats=0.00127].
+REACH1's gain clears its null by a wide margin whichever null is used; it
+fails only the 0.01 bar.
 
 **Predictions** (confirmation, development beside):
 
@@ -481,8 +534,13 @@ intervals resample matches):
   [metric:engagement_reach/fidelity#own_count_equal_share=0.5546] of
   instants.
 
-**Not done.** Weapons and utility reach (per ability) stay out. The 3D map
-covers Ascent and Split only; eye height, crouch height, walkable slope and
+**Not done.** Weapons and utility reach (per ability) stay out. This
+confirmation read the 3D map on Ascent and Split only. 3D tables now exist
+for all 13 maps of the history, and `sightlines.load` picks 3D on each
+([SIGHTLINES_3D_PROBE.md](SIGHTLINES_3D_PROBE.md), "Every map in the
+player's history"). The confirmation set is spent, so no hypothesis was
+rerun on the six new maps; the matches the player records from now on are
+the next confirmation set. Eye height, crouch height, walkable slope and
 jump height are the probe's placeholders, and doors, wallbangs and one-way
 drops are not modelled. No propensity guard gates the coaching cost; the
 confirmation set is one player's lobbies, so the peers are his matchmaking

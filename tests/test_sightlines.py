@@ -67,5 +67,32 @@ class FitTest(unittest.TestCase):
         self.assertLessEqual(r["ci95"][0], r["ci95"][1])
 
 
+class ChoiceTest(unittest.TestCase):
+    def test_missing_choice_file_reads_empty(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(sl.choice(Path(d) / "choice.json"), {})
+
+    def test_choice_file_round_trip(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "choice.json"
+            p.write_text(json.dumps({"maps": {"ascent": {"kind": "3d", "why": "x"}}}), encoding="utf-8")
+            self.assertEqual(sl.choice(p)["ascent"]["kind"], "3d")
+
+    def test_explicit_kind_skips_the_choice(self):
+        calls = []
+        old2, old3 = sl.load_2d, sl.load_3d
+        try:
+            sl.load_2d = lambda m, store=sl.STORE: calls.append(("2d", m)) or "two"
+            sl.load_3d = lambda m, log=print: calls.append(("3d", m)) or "three"
+            self.assertEqual(sl.load("Ascent", kind="2d"), "two")
+            self.assertEqual(sl.load("ascent", kind="3d"), "three")
+        finally:
+            sl.load_2d, sl.load_3d = old2, old3
+        self.assertEqual(calls, [("2d", "ascent"), ("3d", "ascent")])
+
+
 if __name__ == "__main__":
     unittest.main()

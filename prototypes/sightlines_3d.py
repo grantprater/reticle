@@ -1,7 +1,7 @@
 r"""Sightlines in 3D from the game's own collision: a feasibility probe.
 
     .\.venv\Scripts\python.exe prototypes\sightlines_3d.py build --dump DIR --ini FILE --persistent FILE [--map ascent]
-    .\.venv\Scripts\python.exe prototypes\sightlines_3d.py gate [--map ascent] [--record]
+    .\.venv\Scripts\python.exe prototypes\sightlines_3d.py gate [--map ascent] [--set dev|confirm] [--record]
     .\.venv\Scripts\python.exe prototypes\sightlines_3d.py --self-test
 
 Why this exists
@@ -34,26 +34,50 @@ collision LOD's triangles (sections with collision on); any other mesh with its
 simple shapes (boxes, convex hulls, spheres, capsules). Sight uses the Weapon
 set; floors use the Pawn set.
 
-Kept: every always-loaded sublevel plus the bomb-mode level. Left out:
+Kept: every always-loaded sublevel plus the bomb-mode level (named
+`_Mode_BombMode`, `_Modes_BombMode` or `_BombGameMode_Only` by map). Left out:
 `Gameplay_Dynamic` (doors, window shields, switch boxes, respawning plates:
 state changes in a round), `Greybox` (dynamic, not streamed in a match), the
-other mode levels, and spawn barriers (they fall at round start). Foliage,
-glass and invisible walls stay in or out by their own collision profile, never
-by name.
+other mode levels, and spawn barriers (they fall at round start). Maps
+without a `Gameplay_Dynamic` level place their state-changing props in
+always-loaded levels; their actor classes leave them out
+(`STATE_CHANGING_CLASS`: doors, the drawbridge, switches, window shields,
+respawning plates and shootables, destructibles and breakables), read off each
+map's dump. Foliage, glass and invisible walls stay in or out by their own
+collision profile, never by name.
 
 Placeholders (questions for the player)
 ---------------------------------------
 The game files hold no eye or crouch height: `BasePlayerCharacter` serialises
 only `NavAgentProps` (radius 42, height 196, step 45 cm) and the mesh offset
-(-100 cm). `EYE_CM`, `CHEST_CM`, `CROUCH_CLEAR_CM`, `WALKABLE_Z` (UE's engine
-default walkable angle) and `JUMP_CM` are stated placeholders until the player
-answers.
+(-100 cm); its movement component (`CharMoveComp`, `ShooterCharacterMovement`)
+serialises speeds and friction, no walkable angle, crouch height or jump
+velocity; the capsule is native. Two values in the files are not the
+player's and are not used: the CDO's `TargetEyeHeightProportion` 0.7 (what it
+is a proportion of is not in the files) and `DefaultEngine.ini`'s
+`RecastNavMesh` agent (height 144, max height 160, max slope 44 degrees, step
+35 cm), which builds the bots' navigation mesh. `EYE_CM`, `CHEST_CM`,
+`CROUCH_CLEAR_CM`, `WALKABLE_Z` (UE's engine default walkable angle) and
+`JUMP_CM` are stated placeholders until the player answers.
+
+Tables
+------
+`<store>/sightlines/<map>__<VERSION>.npz`, one per map, beside the 2D tables
+(`prototypes/sightlines.py`). Each carries the blockers, the standable cells,
+the packed eye-to-eye visibility bits, the walk graph's edges (`walk_r`,
+`walk_c`: a few MB in all; the all-pairs path distances are not cached, at
+N x N uint16 they run to hundreds of MB a map), each cell's callout volume
+(`cell_callout`, -1 outside every volume) and a provenance stamp naming the
+game build and the extractor commit that dumped the meshes.
 
 Data rules
 ----------
 The 22 captured matches' Riot records are the development set; the gate
-reads only those on the probed map. Nothing here is a reader input or shown
-during play; `wire = no` in the prediction row.
+reads only those on the probed map. A map without development kills is gated
+on the confirmation history's kills (`--set confirm`) as an instrument check
+only: no hypothesis is scored, and the held-out replay matches, the captured
+matches and the ladder's `holdout` matches stay out. Nothing here is a reader
+input or shown during play; `wire = no` in the prediction row.
 """
 from __future__ import annotations
 
@@ -72,8 +96,9 @@ for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
 
 import numpy as np  # noqa: E402
 
-VERSION = "sightlines-3d-0.1.0"
+VERSION = "sightlines-3d-0.2.0"
 STORE = Path(os.environ.get("RETICLE_STORE", "C:/Users/grant/reticle-store"))
+EXTRACTOR = STORE / "tools" / "game-extract"
 
 #: Placeholders: no game file holds them (see the module docstring).
 EYE_CM = 160.0
@@ -95,6 +120,14 @@ TOP_CM = 20000.0
 
 LEFT_OUT_LEVEL_SUFFIX = ("_Gameplay_Dynamic", "_Greybox")
 LEFT_OUT_ACTOR_PREFIX = ("SpawnBarrier",)
+#: Actor classes whose collision changes inside a round, found in the 13 maps'
+#: always-loaded levels: TimedDoorEvac_C, Drawbridge_C, DroppableDoorCover_C,
+#: Switch_BlackMarket_2_C, Switch_HiddenTemple_C, WindowShield_C,
+#: RespawningWallPlate_C, RespawningPlummetShootable_C, BP_Destructible_BASE_C,
+#: BP_Breakable_Simple_*_C. Ascent's and Split's always-loaded levels hold none
+#: outside `Gameplay_Dynamic`, so their tables are unchanged by this rule.
+STATE_CHANGING_CLASS = re.compile(r"Door|Drawbridge|^Switch_|WindowShield|^Respawning|Destructible|Breakable")
+BOMB_MODE_LEVEL = re.compile(r"_(Mode_BombMode|Modes_BombMode|BombGameMode_Only)$")
 QUERY_ENABLED = {"QueryOnly", "QueryAndPhysics", "ProbeOnly", "QueryAndProbe"}
 #: Display name -> the game's map folder (valorant-api `mapUrl`).
 CODENAMES = {"ascent": "Ascent", "split": "Bonsai", "haven": "Triad", "bind": "Duality", "icebox": "Port",
@@ -301,15 +334,17 @@ def place(local: np.ndarray, mats: np.ndarray) -> np.ndarray:
 
 # ------------------------------------------------------------------ blockers
 
-def streamed_levels(persistent: dict | list, map_name: str) -> list[str]:
-    """Sublevels a match loads: the always-loaded set plus the bomb mode."""
+def streamed_levels(persistent: dict | list, map_name: str, available=None) -> list[str]:
+    """Sublevels a match loads: the always-loaded set plus the bomb mode, whose
+    name `available` (the dump's level names) settles when given."""
     names = []
     for e in persistent:
         if e.get("Type") == "LevelStreamingAlwaysLoaded":
             w = (e.get("Properties") or {}).get("WorldAsset") or {}
             p = w.get("AssetPathName", "") if isinstance(w, dict) else str(w)
             names.append(p.rsplit(".", 1)[-1])
-    names.append(f"{map_name}_Mode_BombMode")
+    bomb = sorted(n for n in (available or ()) if n.startswith(map_name + "_") and BOMB_MODE_LEVEL.search(n))
+    names.extend(bomb or [f"{map_name}_Mode_BombMode"])
     return sorted(set(names))
 
 
@@ -320,8 +355,9 @@ def build_blockers(dump: Path, profiles: dict, levels: list[str], complex_all: b
     meshes = {m["mesh"]: m for m in (json.loads(l) for l in (dump / "meshes.jsonl").read_text(encoding="utf-8").splitlines() if l)}
     blob = (dump / "render.bin").read_bytes()
     keep_lv = set(levels)
-    counts = {"placements": len(inst), "level_left_out": 0, "actor_left_out": 0,
+    counts = {"placements": len(inst), "level_left_out": 0, "actor_left_out": 0, "state_left_out": 0,
               "no_query": 0, "kept": 0}
+    state_classes: dict[str, int] = {}
     groups: dict[tuple, list[int]] = {}
     flags = []
     for i, r in enumerate(inst):
@@ -331,6 +367,11 @@ def build_blockers(dump: Path, profiles: dict, levels: list[str], complex_all: b
             continue
         if str(r.get("actor_class") or "").startswith(LEFT_OUT_ACTOR_PREFIX):
             counts["actor_left_out"] += 1
+            flags.append(None)
+            continue
+        if STATE_CHANGING_CLASS.search(str(r.get("actor_class") or "")):
+            counts["state_left_out"] += 1
+            state_classes[str(r["actor_class"])] = state_classes.get(str(r["actor_class"]), 0) + 1
             flags.append(None)
             continue
         body = body_of(r, (meshes.get(r["mesh"]) or {}).get("default_instance"))
@@ -368,6 +409,7 @@ def build_blockers(dump: Path, profiles: dict, levels: list[str], complex_all: b
         cfl.append(np.full(len(w), used_complex))
         src.append(np.repeat(np.asarray(ids, np.int32), len(loc)))
     T = np.concatenate(tris)
+    counts["state_classes"] = state_classes
     return {"tris": T, "weapon": np.concatenate(wfl), "pawn": np.concatenate(pfl),
             "src": np.concatenate(src), "complex": np.concatenate(cfl), "counts": counts, "mesh_kinds": kinds,
             "instances": inst, "meshes": meshes}
@@ -545,7 +587,8 @@ def grid_cells(pawn: Caster, lo: np.ndarray, hi: np.ndarray, step: float = GRID_
     ncomp, lab = connected_components(g, directed=False)
     sizes = np.bincount(lab)
     keep = np.ones(n, bool)  # every standable cell in the region; components only reported
-    return {"xy": xy[col[keep]].astype(np.float32), "z": cz[keep].astype(np.float32),
+    return {"walk_r": r.astype(np.int32), "walk_c": c.astype(np.int32),
+            "xy": xy[col[keep]].astype(np.float32), "z": cz[keep].astype(np.float32),
             "clear": clr[col, lay][keep].astype(np.float32), "ix": ix[keep].astype(np.int32),
             "iy": iy[keep].astype(np.int32), "layer": lay[keep].astype(np.int8),
             "grid_lo": lo, "grid_hi": hi, "n_standable": int(n), "n_components": int(ncomp),
@@ -591,7 +634,46 @@ def visible(bits: np.ndarray, i: np.ndarray, j: np.ndarray, n: int) -> np.ndarra
 # ------------------------------------------------------------------ commands
 
 def out_path(map_name: str) -> Path:
-    return STORE / "geometry3d" / f"{map_name}__{VERSION}.npz"
+    return STORE / "sightlines" / f"{map_name}__{VERSION}.npz"
+
+
+def extractor_commit(root: Path = EXTRACTOR) -> dict:
+    """The extractor repository's HEAD commit, read from its repository files."""
+    g = root / ".git"
+    try:
+        head = (g / "HEAD").read_text(encoding="utf-8").strip()
+        if head.startswith("ref: "):
+            ref = head[5:]
+            f = g / ref
+            if f.is_file():
+                sha = f.read_text(encoding="utf-8").strip()
+            else:
+                packed = (g / "packed-refs").read_text(encoding="utf-8").splitlines()
+                sha = next(ln.split()[0] for ln in packed if ln.endswith(" " + ref))
+        else:
+            sha = head
+        return {"repo": "reticle-store/tools/game-extract", "commit": sha}
+    except (OSError, StopIteration):
+        return {"repo": "reticle-store/tools/game-extract", "commit": None}
+
+
+def cell_callouts(xy: np.ndarray, z: np.ndarray, reg: dict) -> np.ndarray:
+    """Each cell's callout volume (index into the region names), -1 outside all:
+    the smallest volume holding the point 50 cm above the floor."""
+    p = np.column_stack([xy, np.asarray(z, float) + 50.0])
+    h = np.column_stack([p, np.ones(len(p))])
+    out = np.full(len(p), -1, np.int16)
+    if len(reg["inv"]) == 0:
+        return out
+    scale = np.linalg.norm(np.linalg.inv(reg["inv"])[:, :3, :3], axis=2)
+    vol = np.prod(np.abs(reg["hi"] - reg["lo"]) * scale, axis=1)
+    best = np.full(len(p), np.inf)
+    for k in range(len(reg["inv"])):
+        loc = (h @ reg["inv"][k])[:, :3]
+        inside = ((loc >= reg["lo"][k]) & (loc <= reg["hi"][k])).all(1) & (vol[k] < best)
+        out[inside] = k
+        best[inside] = vol[k]
+    return out
 
 
 def cmd_build(a) -> int:
@@ -600,7 +682,8 @@ def cmd_build(a) -> int:
     profiles = parse_profiles(Path(a.ini).read_text(encoding="utf-8", errors="replace"))
     persistent = json.loads(Path(a.persistent).read_text(encoding="utf-8"))
     mname = CODENAMES[a.map]
-    levels = streamed_levels(persistent, mname)
+    available = {json.loads(ln)["level"] for ln in (Path(a.dump) / "instances.jsonl").read_text(encoding="utf-8").splitlines() if ln}
+    levels = streamed_levels(persistent, mname, available)
     B = build_blockers(Path(a.dump), profiles, levels, complex_all=a.complex_all)
     t1 = time.perf_counter()
     T = B["tris"]
@@ -621,6 +704,7 @@ def cmd_build(a) -> int:
     hi = np.ceil(pts[:, :2].max(0) / GRID_CM) * GRID_CM
     G = grid_cells(pcast, lo, hi)
     t3 = time.perf_counter()
+    callout = cell_callouts(G["xy"], G["z"], reg)
     eyes = eye_points(G["xy"], G["z"], G["clear"])
     bits = table(wcast, eyes) if not a.no_table else np.zeros(0, np.uint8)
     t4 = time.perf_counter()
@@ -629,7 +713,10 @@ def cmd_build(a) -> int:
             "crouch_clear_cm": CROUCH_CLEAR_CM, "walkable_z": WALKABLE_Z, "jump_cm": JUMP_CM,
             "grid_cm": GRID_CM, "placeholders": ["eye_cm", "chest_cm", "crouch_clear_cm", "walkable_z", "jump_cm"],
             "source": {"dump": str(a.dump), "ini": str(a.ini), "persistent": str(a.persistent),
-                       "build": a.build},
+                       "build": a.build, "extractor": extractor_commit(),
+                       "extractor_command": 'game-extract meshes "ShooterGame/Content/Maps/<Map>/<Map>*.umap"'},
+            "step_cm": STEP_CM, "step_cm_source": "BasePlayerCharacter CharMoveComp NavAgentProps.AgentStepHeight",
+            "walk_edges": int(len(G["walk_r"])), "cells_in_callout": int((callout >= 0).sum()),
             "seconds": {"blockers": t1 - t0, "bvh": t2 - t1, "grid": t3 - t2, "table": t4 - t3},
             "n_cells": int(len(G["z"])), "n_standable": G["n_standable"], "n_components": G["n_components"],
             "largest_component_share": G["largest_component_share"],
@@ -641,7 +728,8 @@ def cmd_build(a) -> int:
     np.savez_compressed(op, tris=T, weapon=B["weapon"], pawn=B["pawn"], src=B["src"],
                         src_meta=json.dumps(src_meta), cell_xy=G["xy"], cell_z=G["z"], cell_clear=G["clear"],
                         cell_ix=G["ix"], cell_iy=G["iy"], cell_layer=G["layer"], cell_component=G["component"], grid_lo=lo, grid_hi=hi,
-                        vis_bits=bits, region_inv=reg["inv"], region_lo=reg["lo"], region_hi=reg["hi"],
+                        vis_bits=bits, walk_r=G["walk_r"], walk_c=G["walk_c"], cell_callout=callout,
+                        region_inv=reg["inv"], region_lo=reg["lo"], region_hi=reg["hi"],
                         region_names=json.dumps(reg["names"]), provenance=json.dumps(prov))
     prov["bytes"] = op.stat().st_size
     print(json.dumps(prov, indent=1))
@@ -654,7 +742,8 @@ def cmd_build(a) -> int:
         vals["pairs"] = prov["n_cells"] * (prov["n_cells"] - 1) // 2
         vals["placements_kept"] = prov["counts"]["kept"]
         metrics.record("sightlines_3d", part=f"build/{a.map}", values=vals,
-                       deps={"version": VERSION, "geometry": a.build, "grid_cm": GRID_CM, "eye_cm": EYE_CM},
+                       deps={"version": VERSION, "geometry": a.build, "grid_cm": GRID_CM, "eye_cm": EYE_CM,
+                             "extractor": prov["source"]["extractor"]["commit"]},
                        context={"out": str(op), "levels": len(levels)},
                        note="one core (affinity), Below Normal; timings shared the CPU with other workflows")
     return 0
@@ -736,7 +825,31 @@ def dev_kills(map_name: str) -> tuple[list[dict], dict]:
     """Development-set kills on `map_name` (the 22 captured matches' Riot records)."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import riot_ground_truth as rg
-    recs = rg.riot_records(STORE)
+    return kills_of(rg.riot_records(STORE), map_name)
+
+
+def confirm_kills(map_name: str) -> tuple[list[dict], dict, dict]:
+    """Confirmation-history kills on `map_name`, for an instrument check only.
+
+    `engagement_reach.ladder_records` drops the held-out replay matches and the
+    captured ones; the ladder's `holdout` matches (one in five, docs/LADDER_SAMPLE.md)
+    are dropped here as well. Returns (kills, per-match counts, exclusions)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import engagement_reach as er
+    import pyarrow.parquet as pq
+    records, _me, counts = er.ladder_records({map_name})
+    hold = {r["match_id"] for r in pq.read_table(er.LADDER / "matches.parquet",
+                                                 columns=["match_id", "holdout"]).to_pylist() if r["holdout"]}
+    kept = {k: v for k, v in records.items() if k not in hold}
+    ex = {"matches_on_map": len(records), "holdout_excluded": len(records) - len(kept),
+          "held_out_replay_excluded_all_maps": counts.get("held_out_excluded", 0),
+          "captured_excluded_all_maps": counts.get("captured_excluded", 0)}
+    out, per = kills_of({k: {"match": v["match"]} for k, v in kept.items()}, map_name)
+    return out, per, ex
+
+
+def kills_of(recs: dict, map_name: str) -> tuple[list[dict], dict]:
+    """Kills on `map_name` from Riot-shaped records."""
     out, per = [], {}
     for sid, d in recs.items():
         m = d["match"]
@@ -821,7 +934,11 @@ def cmd_gate(a) -> int:
     wcast = Caster(T[D["weapon"]])
     pcast = Caster(T[D["pawn"]])
     pcast.region = D["region"]
-    kills, per = dev_kills(a.map)
+    exclusions = {}
+    if a.set == "dev":
+        kills, per = dev_kills(a.map)
+    else:
+        kills, per, exclusions = confirm_kills(a.map)
     allpos = np.array([p for k in kills for p in k["all_xy"]], float)
     fs = frame_scores(pcast, allpos)
     # the frame: identity (S1); every number below uses it
@@ -856,7 +973,7 @@ def cmd_gate(a) -> int:
             c = eye_points(vxy[idx][g], zc[g], vc[idx, lj][g], CHEST_CM)
             acc[np.flatnonzero(g)] |= ~wcast.occluded(e, c)
     any_pair[idx] = acc
-    l2 = los_2d(gun, ok, a.map)
+    l2 = los_2d(gun, ok, a.map) if a.set == "dev" else np.full(len(gun), np.nan)
     both = ok & ~np.isnan(l2)
     # post hoc: the multi-level choice by walkable component
     kf2, kcl2 = pick_floor_component(kxy, kz, kc, D)
@@ -874,10 +991,11 @@ def cmd_gate(a) -> int:
     ctrl3 = ~wcast.occluded(eye_points(kxy[ci[okc]], kf[ci[okc]], kcl[ci[okc]], EYE_CM),
                             eye_points(oxy[okc], of[okc], ocl[okc], CHEST_CM))
     ctrl_kills = [dict(gun[i], victim_xy=tuple(oxy[j])) for j, i in enumerate(ci)]
-    ctrl2 = los_2d(ctrl_kills, okc, a.map)
+    ctrl2 = los_2d(ctrl_kills, okc, a.map) if a.set == "dev" else np.full(len(ctrl_kills), np.nan)
     res = {
-        "version": VERSION, "map": a.map, "dev_matches": len(per), "dev_kills": len(kills),
-        "held_out_excluded": 0, "frames": fs,
+        "version": VERSION, "map": a.map, "set": a.set, "matches": len(per), "kills": len(kills),
+        "dev_matches": len(per) if a.set == "dev" else 0, "dev_kills": len(kills) if a.set == "dev" else 0,
+        "held_out_excluded": 0, "exclusions": exclusions, "frames": fs,
         "positions": int(len(allpos)),
         "on_floor_identity": float((~np.isnan(floors(pcast, allpos)[0]).all(1)).mean()),
         "within_1m_identity": float((~np.isnan(z_all).all(1)).mean()),
@@ -893,7 +1011,7 @@ def cmd_gate(a) -> int:
         "los3d_component_floor_share": float(np.nanmean(los_comp)),
         "control_pairs": int(okc.sum()),
         "control_los3d_share": float(ctrl3.mean()) if len(ctrl3) else None,
-        "control_los2d_share": float(np.nanmean(ctrl2[okc])) if okc.any() else None,
+        "control_los2d_share": float(np.nanmean(ctrl2[okc])) if okc.any() and a.set == "dev" else None,
         "seconds": time.perf_counter() - t0,
     }
     print(json.dumps(res, indent=1))
@@ -924,11 +1042,18 @@ def cmd_gate(a) -> int:
         for fname, s in fs.items():
             vals[f"frame_{fname}_on_floor"] = s["on_floor"]
             vals[f"frame_{fname}_within_1m"] = s["within_1m"]
-        metrics.record("sightlines_3d", part=f"gate/{a.map}", values=vals,
+        vals.update({f"exclusions.{k}": v for k, v in exclusions.items()})
+        part = f"gate/{a.map}" if a.set == "dev" else f"gate_confirm/{a.map}"
+        note = ("development set only (22 captured matches); post-hoc: los3d_head_share, los3d_any_pair_share, "
+                "los3d_component_floor_share, control_*") if a.set == "dev" else (
+            "instrument check only on confirmation-history kills (no development kills on this map; no hypothesis "
+            "scored); held-out replay, captured and ladder holdout matches excluded; control_* post hoc")
+        metrics.record("sightlines_3d", part=part, values=vals,
                        deps={"version": VERSION, "geometry": D["provenance"].get("source", {}).get("build"),
+                             "extractor": D["provenance"].get("source", {}).get("extractor", {}).get("commit"),
                              "eye_cm": EYE_CM, "chest_cm": CHEST_CM},
-                       context={"placeholders": D["provenance"]["placeholders"]},
-                       note="development set only (22 captured matches); post-hoc: los3d_head_share, los3d_any_pair_share, los3d_component_floor_share, control_*")
+                       context={"placeholders": D["provenance"]["placeholders"], "set": a.set},
+                       note=note)
     return 0
 
 
@@ -1005,6 +1130,8 @@ def main(argv=None) -> int:
     g = sub.add_parser("gate")
     g.add_argument("--map", default="ascent")
     g.add_argument("--record", action="store_true")
+    g.add_argument("--set", choices=("dev", "confirm"), default="dev",
+                   help="confirm: an instrument check on the confirmation history, for maps without development kills")
     g.add_argument("--disagreements", type=int, default=10)
     g.add_argument("--npz", help="a built table other than the store default")
     a = ap.parse_args(argv)
