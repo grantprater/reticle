@@ -4035,7 +4035,9 @@ another agent's death belongs to someone else
 exceptions = """
 whether a dead Clove's Ruse follows the living rules (charges, batch launch
 [domain:abilities/clove-ruse-batch-launch], placement preview
-[domain:abilities/clove-ruse-targeting-view]) is unasked
+[domain:abilities/clove-ruse-targeting-view]) is unasked; whether Ruse
+restocks while its Clove is dead is a question for the player (2026-10-05);
+the pipeline's evidence for it is in docs/ABILITY_STATE_MODEL.md
 """
 see = ["abilities/clove-rouse", "abilities/clove-dead-smoke-range-circle"]
 
@@ -4078,6 +4080,8 @@ Measurement, 2026-09-29, by `prototypes/clove_circle.py` on
 Radius [metric:clove_circle/measure@2026-09-28_14-18-06#r_baked=89.73] baked-widget px on Lotus = [metric:clove_circle/measure@2026-09-28_14-18-06#r_over_self_r=11.68] x the self-icon rim
 radius ([metric:clove_circle/measure@2026-09-28_14-18-06#self_r_baked=7.68] px), constant while drawn (sd [metric:clove_circle/measure@2026-09-28_14-18-06#r_sd=0.013] px over [metric:clove_circle/measure@2026-09-28_14-18-06#n_drawn=59]
 frames); no world units, since the store holds no world-to-minimap transform.
+`values.base_radius.lotus` is that radius in base px: 89.73 over Lotus's
+`geometry.map_scale` 0.63695 (2026-10-05).
 Centre [metric:clove_circle/measure@2026-09-28_14-18-06#offset_self_last=0.51] px from the self icon at the last live frame and [metric:clove_circle/measure@2026-09-28_14-18-06#offset_x_first=0.56] px from the
 death X when it first appears; the X then drifts with the body and the circle
 does not. Timing: death [metric:clove_circle/measure@2026-09-28_14-18-06#t_death=47.9] s; circle appears [metric:clove_circle/measure@2026-09-28_14-18-06#t_appear=57.083] s, [metric:clove_circle/measure@2026-09-28_14-18-06#lead_over_view_s=0.67] s before
@@ -4086,6 +4090,19 @@ the targeting view ([metric:clove_circle/measure@2026-09-28_14-18-06#t_view_open
 inside that last [metric:clove_circle/measure@2026-09-28_14-18-06#linger_s=0.65] s, so the end may follow the switch rather than a timer.
 Control at 157.8 s (Clove alive, view open): no circle, best in-widget ring
 score [metric:clove_circle/measure@2026-09-28_14-18-06#control_free_max=3.9] against [metric:clove_circle/measure@2026-09-28_14-18-06#positive_free_min=22.6] on drawn frames.
+
+Measurement, 2026-10-05, by the wired reader `clove_circle` (clove-circle-0.4.0)
+over the minimap crop cache. On Sunset bigmap a1a995e6b19b the radius is
+[metric:clove_circle/dead-ruse@a1a995e6b19b#circle_r_px=151.63] px, sd
+[metric:clove_circle/dead-ruse@a1a995e6b19b#circle_r_sd=0.024] px, so
+`base_radius.sunset` is that over the key's scale; on the small Sunset widget of
+e37fdeca944f it is [metric:clove_circle/ally@e37fdeca944f+9acf02f98283#sunset_base_radius=151.6]
+base px, and on Ascent 9acf02f98283
+[metric:clove_circle/ally@e37fdeca944f+9acf02f98283#ascent_base_radius=137.19].
+One world size draws a different base radius per map, as Chamber's Trademark
+does [domain:abilities/chamber-trademark-minimap-white-area]. Every disc the
+dead Clove placed was born as a circle run ended, and some runs ended with no
+disc: the menu also closes without a placement.
 """
 use = """
 the circle's appearance is a witness that a dead Clove is placing a smoke,
@@ -4096,15 +4113,17 @@ adjudication.smoke_owner as evidence rather than restating its rule
 an audio circle [domain:minimap/self-audio-circle] or an ult
 """
 exceptions = """
-the circle is measured on one cast only; its radius has no world units; the
-end may follow the camera switch rather than a timer. Whether the circle
-outlasts placement on other casts is unmeasured. Nothing here extends to another
-agent's smoke menu [domain:abilities/ability-rules-are-unique]
+the timing is measured on one Lotus cast and the radius on three maps; the
+radius has no world units, and which of the two ranges in the files
+[domain:game_data/clove-ruse-game-data] the circle draws is unknown. The end
+may follow the camera switch rather than a timer. Nothing here extends to
+another agent's smoke menu [domain:abilities/ability-rules-are-unique]
 """
 supersedes = """
 [domain:abilities/skye-seekers-minimap-large-circle-belief], the player's
 earlier reading of the same Sunset circle as Skye's ult
 """
+values = { base_radius = { ascent = 137.19, lotus = 140.87, sunset = 152.08 } }
 see = ["abilities/clove-smokes-after-death", "abilities/clove-ruse-targeting-view",
        "abilities/skye-seekers-minimap-large-circle-belief", "abilities/smoke-attribution",
        "abilities/omen-dark-cover-global-placement", "abilities/astra-nebula-global-placement"]

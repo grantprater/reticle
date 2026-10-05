@@ -1005,6 +1005,21 @@ ULT_CAST_VERSION = "ult-cast-0.6.0"
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or
 # the stored fields change -- those need pixels, so they re-decode.
 MINIMAP_DARK_VERSION = "minimap-dark-0.1.0"
+# The dead Clove's smoke-range circle (`clove_circle`), read in the ability
+# pass only inside each ally Clove's death windows and written as
+# `clove_circle` rows. It names no agent and decides no cast. Bump when the
+# search, the fit, the score, its cut or the stored fields change -- those
+# need pixels, so they reread the crop cache.
+# 0.2.0 (2026-10-05): wired from `prototypes/clove_circle.py` (clove-circle-0.1.0,
+# one capture): ring matched filter on the shrunk grey, ray fit, median rim
+# contrast cut at 10.
+# 0.3.0 (2026-10-05): a rim fit above `RIM_RMS_MAX` px rms reads no circle
+# (`no_rim_fit`); 0.2.0 called 13 of 2436 audit samples present, all fits
+# of 1.7 px rms or more.
+# 0.4.0 (2026-10-05): a circle centred on the living player's stored self
+# position is the self audio circle (`concentric_with_self`); 0.3.0 called 14
+# samples of one fresh-audit window present, each on the moving self icon.
+CLOVE_CIRCLE_VERSION = "clove-circle-0.4.0"
 # Smoke tracks recomputed from stored `minimap_dark` rows by `reticle smokes`.
 # Bump when a birth, presence or end rule in `adjudication.smokes` changes.
 # 0.2.0: sampling gaps are unobserved; onsets carry their own censoring.
@@ -1019,7 +1034,9 @@ SMOKE_VERSION = "smoke-0.4.0"
 # 0.2.0 (2026-10-04): each row links the player's smoke-slot tray cast its
 # track was cast from (`cast`, `cast_ms`, `rests_on`), so the entity starts at
 # the drop and a Dark Cover's target-icon phase lies inside it.
-SMOKE_OWNER_VERSION = "smoke-owner-0.2.0"
+# 0.3.0 (2026-10-05): channel `dead_clove_circle` names a disc Clove where the
+# stored `clove_circle` stream saw her range circle round its birth.
+SMOKE_OWNER_VERSION = "smoke-owner-0.3.0"
 # Combat report reads (header score, per-row damage, hit splits, flag-word
 # correlations), written as `combat_report` rows by `reticle scan`. It stores no
 # decision. Bump when an offset, a threshold, the templates or the stored fields

@@ -316,5 +316,7 @@ def _feed(reader, smp, usage) -> None:
 
 
 def _cache_rois(reader) -> tuple[str, ...]:
+    """The crops a pass decodes for `reader`: the ROIs it declares it reads
+    (`roi_cache.declare_set`), else its whole cache set."""
     from .roi_cache import CACHE_SETS
-    return CACHE_SETS[reader.cache_set]
+    return tuple(getattr(reader, "cache_rois", None) or CACHE_SETS[reader.cache_set])

@@ -838,6 +838,111 @@ def own_line_times(ult_rows: list[dict]) -> list[float]:
                   if r.get("kind") == "cast" and r.get("player_cast") and not r.get("rests_on"))
 
 
+#: The rule of `dead_ruse_casts`, stamped on every row it writes.
+#: 0.1.0 (2026-10-05): a Ruse disc the smoke owner names Clove, born while the
+#: player's Clove is dead, is her cast; one per birth sample.
+DEAD_RUSE_VERSION = "dead-ruse-0.1.0"
+#: The agent and slot a dead caster still spends
+#: [domain:abilities/clove-smokes-after-death] [domain:abilities/no-cast-while-dead].
+DEAD_RUSE = ("Clove", "E")
+#: The restock fact the charge bound reads.
+RESTOCK_FACT = "game_data/ability-restock-times"
+
+
+def ruse_parameters(facts: dict | None = None) -> dict:
+    """The charge bound's inputs from the domain facts: Ruse's charge count
+    (`adjudication.ability_state.charge_facts`) and its shortest restock in
+    seconds (`game_data/ability-restock-times`, the lesser of the files' value
+    and the toggled one, since the files do not say which plays)."""
+    from .adjudication.ability_state import charge_facts
+    if facts is None:
+        from .domain import load
+        facts = load()
+    got = charge_facts(facts).get(("clove", DEAD_RUSE[1])) or {}
+    f = facts.get(RESTOCK_FACT)
+    vals = (f.values or {}) if f is not None else {}
+    restock = [v for v in ((vals.get("files_s") or {}).get("clove_ruse"),
+                           (vals.get("toggled_s") or {}).get("clove_ruse")) if v]
+    return {"max_charges": got.get("max_charges"), "charges_fact": got.get("fact"),
+            "restock_min_s": min(restock) if restock else None,
+            "restock_fact": RESTOCK_FACT if restock else None}
+
+
+def held_at_deaths(state_rows: list[dict], slot: str = DEAD_RUSE[1]) -> dict[float, int | None]:
+    """{death t_ms: charges the slot held} from the state model's
+    `owner_death` verdicts (`adjudication.ability_state`)."""
+    out = {}
+    for r in state_rows:
+        if r.get("kind") == "verdict" and r.get("transition") == "owner_death" \
+                and r.get("slot") == slot:
+            n = (r.get("before") or {}).get("charges")
+            out[float(r["t_ms"])] = None if n is None else int(n)
+    return out
+
+
+def dead_ruse_casts(agent: str | None, deaths_ms: list[float], revives_ms: list[float],
+                    rounds: list[dict], owner_rows: list[dict],
+                    held: dict[float, int | None] | None = None,
+                    params: dict | None = None) -> dict:
+    """The player's Ruse casts while dead, from the discs the smoke owner
+    names Clove (`adjudication.smoke_owner`, whose `dead_clove_circle`
+    channel reads the range circle). The tray shows a spectated kit after
+    the death [domain:hud/tray-after-player-death], so these casts have no
+    drop; this rule is their witness.
+
+    A dead window runs from each death to the round's end or the revive
+    after it. Every named disc born inside it belongs to the player's Clove,
+    who is the side's one Clove [domain:rounds/agent-uniqueness]. Discs born
+    in one sample with both onsets observed (the owner's `cast_group`) are
+    one confirmation [domain:abilities/clove-ruse-batch-launch]: one row,
+    with `clouds` its discs. The charges held at the death (`held`, the
+    state model's) bound the clouds: held, plus one restock running where
+    fewer than `max_charges` were held, plus one per `restock_min_s` since
+    the death. Whether Ruse restocks while its Clove is dead is unasked, so
+    each row says whether it needs one (`needs_restock`); a cast beyond the
+    bound is refused as `beyond_charge_bound`.
+
+    Returns {"rows", "windows", "reason"}; reason is None, or why no row
+    could be made (`not_clove`, `no_deaths`)."""
+    params = params or {}
+    if agent != DEAD_RUSE[0]:
+        return {"rows": [], "windows": [], "reason": "not_clove"}
+    if not deaths_ms:
+        return {"rows": [], "windows": [], "reason": "no_deaths"}
+    named = sorted((r for r in owner_rows if r.get("kind") == "smoke_owner"
+                    and r.get("agent") == DEAD_RUSE[0]), key=lambda r: float(r["first_ms"]))
+    m, rs = params.get("max_charges"), params.get("restock_min_s")
+    rows, windows = [], []
+    for d in sorted(float(t) for t in deaths_ms):
+        rnd = next((r for r in rounds if r.get("t_start_ms") is not None
+                    and float(r["t_start_ms"]) <= d <= float(r.get("t_end_ms") or -1)), None)
+        if rnd is None:
+            continue
+        end = min([float(rnd["t_end_ms"])] + [float(v) for v in revives_ms if float(v) > d])
+        h = (held or {}).get(d)
+        windows.append({"death_ms": d, "end_ms": end, "held": h, "round_no": rnd.get("round_no")})
+        seen, spent = set(), 0
+        for r in named:
+            b = float(r["first_ms"])
+            if not d < b <= end or r["entity_id"] in seen:
+                continue
+            group = [e for e in (r.get("cast_group") or [r["entity_id"]])]
+            seen.update(group)
+            spent += len(group)
+            bound = None
+            if h is not None and m is not None and rs:
+                bound = h + (1 if h < m else 0) + int((b - d) / (1000.0 * rs))
+            ok = bound is None or spent <= bound
+            rows.append({"slot": DEAD_RUSE[1], "t_ms": b, "player_cast": ok,
+                         "reason": None if ok else "beyond_charge_bound",
+                         "witness": "dead_ruse", "death_ms": d, "window_end_ms": end,
+                         "clouds": len(group), "clouds_since_death": spent,
+                         "held_at_death": h, "charge_bound": bound,
+                         "needs_restock": None if h is None else spent > h,
+                         "rests_on": group, "dead_ruse_version": DEAD_RUSE_VERSION})
+    return {"rows": rows, "windows": windows, "reason": None}
+
+
 #: The stored audio-gate log-mel and labels, under the store root.
 AUDIO_GATE_DIR = Path("analysis") / "audio-gate" / "0.1.0"
 #: The player's tray-cast labels (`prototypes/label_tray_objects.py`) and the

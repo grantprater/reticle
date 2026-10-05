@@ -6,7 +6,7 @@ owner is not for.
 
 ## Start here
 
-1. `git status --short` — preserve existing work.
+1. `git status --short`: preserve existing work.
 2. Read [`AGENTS.md`](../AGENTS.md), then [NOTES.md](../NOTES.md) (the current
    handoff), then the task in [BACKLOG.md](../BACKLOG.md)
 3. Run `doctor` and `status` (commands below).
@@ -79,10 +79,10 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle verify --tier fast
 .\.venv\Scripts\python.exe -m reticle status
 .\.venv\Scripts\python.exe -m reticle plan [SESSION]
-.\.venv\Scripts\python.exe -m reticle trial [SESSION] --reader killfeed|hud|scoreboard|ally_icon|ability_glyph [--sample] [--windows-file CSV]
-.\.venv\Scripts\python.exe -m reticle dev-sample [--residuals CSV|--stream S --where F=V] --out CSV
+.\.venv\Scripts\python.exe -m reticle trial [SESSION] --reader killfeed|hud|scoreboard|ally_icon|ability_glyph|clove_circle [--sample] [--windows-file CSV] [--rows-out DIR]
+.\.venv\Scripts\python.exe -m reticle dev-sample [--residuals CSV] [--stream S --where F=V] [--extend CSV] --out CSV
 .\.venv\Scripts\python.exe prototypes\killfeed_trial_deaths.py --sample [--windows-file CSV] --out DIR
-.\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --sample [--windows-file CSV] --deaths-from DIR --offline
+.\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --sample [--windows-file CSV] --deaths-from BASE [--compare-deaths BRANCH] --offline
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only hud   # from the crop cache
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only scoreboard --cache-roi scoreboard   # decodes
@@ -97,10 +97,12 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # audio decode only
 .\.venv\Scripts\python.exe -m reticle ult-cast SESSION      # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-state SESSION # stored data only
+.\.venv\Scripts\python.exe -m reticle scan SESSION --only clove_circle --from cache   # dead Clove's range circle
+.\.venv\Scripts\python.exe -m reticle smokes SESSION     # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-audio-fit --gate-in G.json --eval ROOT  # stored log-mel only
 .\.venv\Scripts\python.exe prototypes\audio_open_set.py score --scan DIR | match-score --match DIR  # stored detections only
-.\.venv\Scripts\python.exe -m reticle killstreak SESSION    # numerals vs death stream; stored data only
-.\.venv\Scripts\python.exe -m reticle assists SESSION      # assisters per death from the crop cache; no video
+.\.venv\Scripts\python.exe -m reticle killstreak SESSION    # stored data only
+.\.venv\Scripts\python.exe -m reticle assists SESSION      # crop cache only
 .\.venv\Scripts\python.exe -m reticle acquisition-plan REQUESTS.json
 .\.venv\Scripts\python.exe -m reticle capabilities
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID
@@ -119,15 +121,14 @@ Module names are relative to `reticle/` unless a directory is shown.
 Resolve every geometry path through `reticle/geometry.py` (one npz per
 `<map>__<profile>`, never per session).
 
-For stored-data changes, prefer `segment` or `audit` (both reuse
-stored L1), `coach` or `sql`. Under the default
-`--from auto`, a span reader reads a complete round cache, else decodes
-(`roi_cache.clip_record` owns the clip). `hud`, `board` and `overlay` open the
+For stored-data changes, prefer `segment` or `audit` (stored
+L1), `coach` or `sql`. Under the default
+`--from auto`, a span reader reads a complete round cache, else decodes.
+`hud`, `board` and `overlay` open the
 source video. Run a targeted test file, then `verify --tier fast`, then the
-full suite across module boundaries.
-`refine` previews stored windows; `--execute` reads their merged intervals
-into separate dense evidence, given current provenance and a cached killfeed
-mask. Repeated `--review-id`s combine windows; limits refuse.
+full suite.
+`refine` previews stored windows; `--execute` reads them into separate dense
+evidence, given a cached killfeed mask.
 
 ## Rules
 

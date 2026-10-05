@@ -13,9 +13,14 @@ drift, and only a new version changes the windows.
 How the rounds were chosen (`build`):
 
 * by opportunity, never by outcome: every stored round the HUD saw start
-  (`start_source` other than `capture_start`, so the pre-game lobby of round
-  1 stays out) and close is a candidate; nothing a reader wrote, and no
-  record of where a reader erred, enters the choice;
+  and close is a candidate; nothing a reader wrote, and no record of where
+  a reader erred, enters the choice;
+* round 1 is excluded whole, not trimmed to its buy phase. The round table
+  opens round 1 at the capture's first sample (`start_source`
+  `capture_start`, `t_start_ms` 0 in all 21 matches), which may hold the
+  menu or start inside the round (`rounds.round_bounds`), and it stores no
+  buy-phase start from which a window could begin. Sampling round 1 needs
+  that start in the round table first;
 * stratified by match, which fixes the map, the profile and the widget
   scale (the 1.15x variant `4f207c0c4e39` and `b3b9defb6fd7` among them),
   and by half: one round from rounds 2-12 and one from round 13 on
@@ -40,7 +45,29 @@ A windows file is CSV with the header `session,t0,t1,reason`, times in
 seconds of capture time, `#` lines ignored. `targets_from_residuals` and
 `targets_from_stream` write the targeted half: windows around a residual
 list (`session,t[,reason]`) or around stored rows where a changed code path
-fires.
+fires. `reticle dev-sample` takes both at once (`--residuals CSV ...
+--stream S --where F=V`) and joins every window they name into one set.
+
+Resolution. The sample holds 309 Riot kills
+[metric:riot_truth_window/deaths~devs-master-sample-r2#riot_kills=309]; an
+unpaired Wilson interval or a rule-of-three bound over that many resolves
+about one percent absolute, while the full run's error rates are fractions
+of a percent. A change adding ten errors across the corpus can pass the
+sample's intervals unseen.
+So a change is compared with its base kill by kill inside the same windows
+(`prototypes/riot_ground_truth.py --compare-deaths`): every outcome Riot's
+record scores that flips is listed, and any broken one is a fact to read,
+whatever the intervals say. Errors outside the windows stay unseen; the targets carry the
+places a change is expected to move, and the full run stays the acceptance.
+
+Targets from both codes. Score the base over the whole corpus once and make
+targets from its residuals; score the branch in those windows and the
+sample with `--compare-deaths`, writing `--residuals-out` (the union of both
+codes' residuals, each tagged by the codes that left it); then
+`reticle dev-sample --residuals UNION.csv --extend TARGETS.csv` writes the
+windows around residuals the windows already held do not cover with their
+padding. Rerun the trial and the score on those and repeat until it writes
+none (`new_targets`).
 """
 from __future__ import annotations
 
@@ -306,9 +333,30 @@ def read_residuals(path) -> list[tuple[str, float, str]]:
 
 
 def targets_from_residuals(residuals, pad_s: float = 15.0) -> list[Window]:
-    """A window of +-pad_s around each residual, overlapping ones joined."""
+    """A window of +-pad_s around each residual, overlapping ones joined.
+    Residuals from several lists (both codes' residuals) pass as one."""
     return _join_windows([Window(s, t - pad_s, t + pad_s, why or "residual")
-                    for s, t, why in residuals])
+                          for s, t, why in residuals])
+
+
+def new_targets(existing: Iterable[Window], residuals, pad_s: float = 15.0) -> list[Window]:
+    """Windows around the residuals whose own +-pad_s window no existing
+    window holds whole: a residual outside every window, or so near an edge
+    that the reader's context was cut. Empty when the windows already cover
+    every residual; the targeted loop stops there."""
+    by: dict[str, list[tuple[float, float]]] = {}
+    for w in existing:
+        by.setdefault(w.session, []).append((w.t0, w.t1))
+    spans = {sid: merge(v) for sid, v in by.items()}
+    fresh = [(s, t, why) for s, t, why in residuals
+             if not any(a <= max(0.0, t - pad_s) and t + pad_s <= b for a, b in spans.get(s, []))]
+    return targets_from_residuals(fresh, pad_s)
+
+
+def join_windows(windows: Iterable[Window]) -> list[Window]:
+    """Windows of one or many sources as one set: overlapping ones in a
+    session joined, their reasons kept."""
+    return _join_windows(list(windows))
 
 
 def _match(row: dict, where: dict) -> bool:

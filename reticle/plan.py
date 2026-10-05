@@ -164,21 +164,23 @@ def ability_streams() -> list[tuple[str, str, str]]:
     """(stream, stamp key, current stamp) of each stream the ability pass
     writes (`reticle scan <sid> --only ability`, `ability_scan`)."""
     from .version import (ABILITY_FIT_VERSION, ABILITY_GATE_VERSION, ABILITY_GLYPH_VERSION,
-                          ABILITY_ICON_VERSION, ABILITY_SHAPE_VERSION, ABILITY_WALL_VERSION)
+                          ABILITY_ICON_VERSION, ABILITY_SHAPE_VERSION, ABILITY_WALL_VERSION,
+                          CLOVE_CIRCLE_VERSION)
     return [("ability_gate", "ability_gate_version", ABILITY_GATE_VERSION),
             ("ability_fit", "ability_fit_version", ABILITY_FIT_VERSION),
             ("ability_wall", "ability_wall_version", ABILITY_WALL_VERSION),
             ("ability_shape_scan", "ability_shape_scan_version", ABILITY_SHAPE_VERSION),
             ("ability_shape_audit", "ability_shape_audit_version", ABILITY_SHAPE_VERSION),
             ("ability_icon", "ability_icon_version", ABILITY_ICON_VERSION),
-            ("ability_glyph", "ability_glyph_version", ABILITY_GLYPH_VERSION)]
+            ("ability_glyph", "ability_glyph_version", ABILITY_GLYPH_VERSION),
+            ("clove_circle", "clove_circle_version", CLOVE_CIRCLE_VERSION)]
 
 
 #: Streams the ability pass gained after it had run on stored sessions, each
 #: with the sibling stream whose presence shows the pass ran there: `stale`
 #: names such a stream absent beside its sibling. The glyph reader reads the
 #: proposer's rows, so a stored `ability_icon` is the pass it should have joined.
-PASS_ADDED = {"ability_glyph": "ability_icon"}
+PASS_ADDED = {"ability_glyph": "ability_icon", "clove_circle": "ability_icon"}
 
 
 def _ability_inputs(stream: str) -> tuple[dict, tuple]:
@@ -203,7 +205,9 @@ def _ability_inputs(stream: str) -> tuple[dict, tuple]:
             "ability_shape_scan": (gate, ("ability_gate",)),
             "ability_shape_audit": (gate, ("ability_gate",)),
             "ability_fit": ({**gate, **cand}, ("ability_gate", "death")),
-            "ability_wall": (cand, ("death",))}[stream]
+            "ability_wall": (cand, ("death",)),
+            # The circle reads only the windows the stored deaths open.
+            "clove_circle": ({}, ("death",))}[stream]
 
 
 def derived_streams() -> list[dict]:
@@ -232,6 +236,7 @@ def derived_streams() -> list[dict]:
     from .version import ALLY_PORTRAIT_FEATURES_VERSION
     from .minimap_diagnostics import DIAGNOSTICS_VERSION
     from .minimap_lifecycle import LIFECYCLE_VERSION
+    from .ability_timeline import DEAD_RUSE_VERSION
     from .roi_cache import ROI_CACHE_VERSION
     from .round_entities import ROUND_ENTITY_VERSION
     from .round_lifetimes import ROUND_LIFETIME_VERSION
@@ -302,6 +307,11 @@ def derived_streams() -> list[dict]:
          "current": ABILITY_GLYPH_NAME_VERSION, "command": "reticle ability-glyphs {sid}",
          "how": "storage", "fields": {},
          "upstream": ("ability_disc_track", "ability_glyph", "tray_kit")},
+        # The player's Ruse casts while dead (`ability_timeline.dead_ruse_casts`),
+        # written beside the owners on a Clove player's session.
+        {"stream": "dead_ruse_cast", "key": "dead_ruse_version", "current": DEAD_RUSE_VERSION,
+         "command": "reticle smokes {sid}", "how": "storage", "fields": {},
+         "upstream": ("smoke_owner", "ability_state", "rounds")},
         {"stream": "combat_report_round", "key": "combat_report_round_version",
          "current": COMBAT_REPORT_ROUND_VERSION, "command": "reticle combat-report {sid}",
          "how": "storage", "fields": {"combat_report_version": COMBAT_REPORT_VERSION},
@@ -673,9 +683,16 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                "states_table": _code("inputs.states_table", GLYPH_STATES_TABLE[1]),
                                "tray_kit": _in("inputs.tray_kit", "tray_kit#tray_kit_version"),
                                **_lineup_inputs()},
+        "dead_ruse_cast": {"smoke_owner": _in("inputs.smoke_owner",
+                                              "smoke_owner#smoke_owner_version"),
+                           "ability_state": _in("inputs.ability_state",
+                                                "ability_state#ability_state_version"),
+                           "round": _in("inputs.round", "rounds"), **_gate()},
         "smoke_owner": {"smoke": _in("smoke_version", "smoke#smoke_version"),
                         "tray_drop": _in("inputs.tray_drop", "tray_drop#tray_version"),
                         "round": _in("inputs.round", "rounds"),
+                        "clove_circle": _in("inputs.clove_circle",
+                                            "clove_circle#clove_circle_version", optional=True),
                         **_gate(optional=True), **_lineup_inputs()},
         # The same command names the rows (`combat_report_identity`) over the
         # deaths, the killfeed portraits, the scoreboard and the lineup.
@@ -712,6 +729,10 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                       "roster": _in("inputs.roster", "roster", optional=True),
                       "spans": _spans()},
         "ability_gate": {"spans": _spans(), **geo}, "ability_icon": {"spans": _spans(), **geo},
+        # The circle's windows are the stored deaths' and rounds'
+        # (`clove_circle.stored_windows`).
+        "clove_circle": {"death": _in("inputs.death", death),
+                         "round": _in("inputs.round", "rounds"), **geo},
         # The glyph reader's context set is the lineup's (`lineup.glyph_candidates`).
         "ability_glyph": {"spans": _spans(), **geo, **_lineup_inputs()},
         "ability_shape_scan": {"shape_model": _code("ability_shape_version", ABILITY_SHAPE_VERSION),
