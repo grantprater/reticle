@@ -7224,10 +7224,11 @@ see = ["abilities/chamber-trademark-minimap-white-area", "game_data/chamber-trad
 
 [chamber-rendezvous-origin-placed-away]
 claim = """
-Chamber may set a Rendezvous (slot E) anchor down well away from himself,
-so its minimap radius need not be born at his icon. The player said this of
-Chamber's devices generally; it is recorded per device. The distance is the
-game files' targeting range [domain:game_data/chamber-rendezvous-game-data].
+Chamber's Rendezvous (slot E) places one anchor, and Chamber may set it down
+well away from himself, so its minimap radius need not be born at his icon.
+The player said the second of these of Chamber's devices generally; it is
+recorded per device. The distance is the game files' targeting range
+[domain:game_data/chamber-rendezvous-game-data].
 """
 kind = "rule"
 known = "player"
@@ -7236,21 +7237,47 @@ subject = "chamber:rendezvous"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
 different ally disagreed with their glyph's caster: the player said Chamber
-and Cypher may set their devices down well away from themselves
+and Cypher may set their devices down well away from themselves; the
+player, 2026-10-05 (chat), later the same day: Rendezvous places one anchor
+today
 """
 use = """
 admit a Rendezvous birth up to the game-file targeting range from Chamber's
 position, converted to minimap pixels; never require it at his icon
 """
 exceptions = """
-the statement named Chamber, not Rendezvous. How many anchors Rendezvous
-places is not recorded: the exports hold a state for a first anchor and one
-for a second. The same placement component carries a longer required
-maximum distance from a context the files do not name; which distance
-bounds an anchor's birth is unsettled
+the placement statement named Chamber, not Rendezvous. The exports hold a
+state for a first anchor and one for a second; why they do is not recorded.
+The same placement component carries a required max distance from context
+of 37.5 m [domain:game_data/chamber-rendezvous-game-data], a game-file
+value whose measuring point the files do not name; which distance bounds
+an anchor's birth is unsettled
 """
 see = ["abilities/chamber-rendezvous-minimap-white-radius", "game_data/chamber-rendezvous-game-data",
-       "abilities/chamber-trademark-origin-placed-away", "abilities/ability-rules-are-unique"]
+       "abilities/chamber-trademark-origin-placed-away",
+       "abilities/chamber-rendezvous-replace-repeatedly-belief", "abilities/ability-rules-are-unique"]
+
+[chamber-rendezvous-replace-repeatedly-belief]
+claim = """
+The player believes, unsure, that Chamber can pick up his Rendezvous (slot
+E) and place it again more than twice in one round.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-05"
+subject = "chamber:rendezvous"
+source = "the player, 2026-10-05 (chat), stated as unsure"
+use = """
+the ability state model sets no cap on Rendezvous pickups within a round
+from this belief; each return waits the recall cooldown
+[domain:abilities/chamber-rendezvous-recall-cooldown], and a capture that
+counts a round's re-placements tests the belief
+"""
+exceptions = "unsure; no capture and no game-file field counts the re-placements"
+see = ["abilities/deployed-pickup-returns-charge", "abilities/chamber-deployed-util-pickup",
+       "abilities/chamber-rendezvous-recall-cooldown", "abilities/chamber-trademark-recall-cooldown",
+       "abilities/chamber-rendezvous-recall-any-distance",
+       "abilities/chamber-rendezvous-origin-placed-away", "abilities/ability-rules-are-unique"]
 
 [cypher-trapwire-origin-placed-away]
 claim = """
@@ -7330,11 +7357,12 @@ see = ["abilities/cypher-cyber-cage-minimap-glyph-turns-belief", "game_data/cyph
 
 [reyna-leer-origin-set-distance]
 claim = """
-Reyna's Leer (slot C) appears at a fixed distance from Reyna along her cast
-direction, which can be vertical; on the minimap it may therefore sit at or
-near her icon. The distance is the game files' projectile trigger distance
-[domain:game_data/reyna-leer-game-data], so the eye's horizontal offset from
-Reyna is at most that distance.
+Reyna's Leer (slot C) passes through walls and always travels the same
+distance in 3D, the game files' projectile trigger distance of 10 m
+[domain:game_data/reyna-leer-game-data]; only the pitch Reyna casts it at
+changes where it sits. Its horizontal, minimap offset from Reyna is therefore
+10 m x cos(pitch): the full 10 m when cast level, at or near her icon when
+cast steeply. No wall stops it short.
 """
 kind = "rule"
 known = "player"
@@ -7344,15 +7372,18 @@ source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
 different ally disagreed with their glyph's caster: the player said the
 eye appears at a fixed distance in the cast direction, which can be
-vertical, so the minimap may not show the offset
+vertical, so the minimap may not show the offset; the player, 2026-10-05
+(chat), later: Leer passes through walls, always travels the same 3D
+distance, and only the cast angle changes where it sits
 """
 use = """
-admit a Leer birth from Reyna's icon out to the trigger distance, converted
-to minimap pixels, and closer when cast steeply
+admit a Leer birth from Reyna's icon out to the trigger distance x
+cos(pitch), converted to minimap pixels; the minimap shows no pitch, so the
+bound is the full trigger distance; never shorten it for a wall
 """
 exceptions = """
-whether a wall stops the eye short of the trigger distance is unread; one
-observed offset is recorded in [domain:abilities/reyna-leer-minimap-icon]
+the trigger distance is a class default a blueprint may change at run time;
+one observed offset is recorded in [domain:abilities/reyna-leer-minimap-icon]
 """
 see = ["abilities/reyna-leer-minimap-icon", "abilities/reyna-leer-global-minimap",
        "abilities/minimap-thrown-ability-icon", "game_data/reyna-leer-game-data",
@@ -7370,8 +7401,9 @@ subject = "sova:owl drone"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
 different ally disagreed with their glyph's caster: the player said
-drones such as Sova's start where their caster stands. The game files spawn the
-drone with no offset at a spot found by short traces from Sova's pawn
+drones such as Sova's start where their caster stands. The game-data fact
+files the drone's zero spawn offset and the short spawn-spot traces from
+Sova's pawn as unconfirmed values
 [domain:game_data/sova-owl-drone-game-data]
 """
 use = "bind an Owl Drone birth to the ally whose icon it leaves"
@@ -7390,8 +7422,9 @@ subject = "skye:trailblazer"
 source = """
 the player, 2026-10-05 (chat), asked which ability they meant by Skye's
 drone: the player named the dog, Trailblazer, and said it begins at Skye's
-location. The game files spawn the pawn with no offset at a spot found by
-short traces from Skye's pawn [domain:game_data/skye-trailblazer-game-data]
+location. The game-data fact files the pawn's zero spawn offset and the
+short spawn-spot trace from Skye's pawn as unconfirmed values
+[domain:game_data/skye-trailblazer-game-data]
 """
 use = "bind a Trailblazer birth to the ally whose icon it leaves"
 see = ["abilities/skye-trailblazer-piloted", "abilities/skye-trailblazer-minimap-glyph-upright",
@@ -7430,8 +7463,9 @@ subject = "tejo:stealth drone"
 source = """
 the player, 2026-10-05 (chat), answering why minimap icons born near a
 different ally disagreed with their glyph's caster: the player said
-drones such as Tejo's start where their caster stands. The game files spawn the
-drone with no offset from a firing transform they do not serialize
+drones such as Tejo's start where their caster stands. The game-data fact
+files the drone's zero spawn offset as an unconfirmed value; the firing
+transform it spawns from is not serialized
 [domain:game_data/tejo-stealth-drone-game-data]
 """
 use = "bind a Stealth Drone birth to the ally whose icon it leaves"

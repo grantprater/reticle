@@ -644,12 +644,14 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
      [domain:abilities/chamber-rendezvous-origin-placed-away] and Cypher's
      Trapwire and Spycam [domain:abilities/cypher-trapwire-origin-placed-away],
      [domain:abilities/cypher-spycam-origin-placed-away] may be born up to
-     their game-file targeting range from the caster. Cyber Cage
+     their game-file targeting range from the caster; Rendezvous places one
+     anchor. Cyber Cage
      [domain:abilities/cypher-cyber-cage-origin-placed-away] has no range in
      the files; its birth stays unbounded until one is measured.
-   - Reyna's Leer [domain:abilities/reyna-leer-origin-set-distance] is born
-     at most its game-file trigger distance from Reyna, nearer when cast
-     steeply.
+   - Reyna's Leer [domain:abilities/reyna-leer-origin-set-distance] passes
+     through walls and always travels its game-file trigger distance in 3D;
+     it is born that distance x cos(cast pitch) from Reyna, so at most the
+     full distance, nearer when cast steeply, and never short for a wall.
    - Sova's Owl Drone [domain:abilities/sova-owl-drone-origin-at-caster],
      Tejo's Stealth Drone [domain:abilities/tejo-stealth-drone-origin-at-caster],
      Skye's Trailblazer [domain:abilities/skye-trailblazer-origin-at-caster]
