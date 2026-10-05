@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import unittest
 
-from reticle.rounds import (final_round, in_round_window, match_over, match_round,
-                            place_unread_starts, round_closes, round_containing, side_in_round,
-                            starting_side)
+from reticle.rounds import (_clock_reset_after, _reset_after, final_round, in_round_window,
+                            match_over, match_round, place_unread_starts, round_bounds,
+                            round_closes, round_containing, side_in_round, starting_side)
 
 
 class SideByRound(unittest.TestCase):
@@ -176,6 +176,60 @@ def _stored_hud(sid):
         return None
     import pyarrow.parquet as pq
     return pq.read_table(path)
+
+
+class StartAfterPlant(unittest.TestCase):
+    """The buy-phase start after a planted round: the graphic hides the clock,
+    so the last reading before the end is the pre-plant round clock, and no
+    buy reading jumps above it."""
+
+    def _planted(self, post_round=None):
+        """A round clock to 70 s, the graphic for 30 s across the end at 40 s,
+        an optional post-round countdown, then a buy clock from 28 s down."""
+        t, clock, graphic = [], [], {}
+        for k in range(20):                        # live clock 80 -> 70.5 s
+            t.append(k * 500.0); clock.append(80000.0 - k * 500)
+        for k in range(20, 80):                    # the graphic, clock unread
+            t.append(k * 500.0); clock.append(None)
+            graphic[k * 500.0] = {"score": 1.0}
+        for v in (post_round or []):
+            t.append(t[-1] + 500.0); clock.append(v)
+        for k in range(10):                        # buy clock 28 s down
+            t.append(t[-1] + 500.0); clock.append(28000.0 - k * 500)
+        return t, clock, graphic
+
+    def test_the_first_buy_reading_starts_the_round(self):
+        t, clock, graphic = self._planted()
+        first_buy = t[clock.index(28000.0)]
+        self.assertEqual(_reset_after(t, clock, 30000.0, graphic),
+                         (first_buy, "buy_clock_after_unread"))
+        self.assertEqual(_clock_reset_after(t, clock, 30000.0, graphic), first_buy)
+
+    def test_an_unread_stretch_alone_marks_the_reading_stale(self):
+        t, clock, _ = self._planted()
+        self.assertEqual(_reset_after(t, clock, 30000.0)[1], "buy_clock_after_unread")
+
+    def test_a_read_jump_still_wins(self):
+        t, clock, graphic = self._planted(post_round=[3000.0, 2500.0])
+        self.assertEqual(_reset_after(t, clock, 30000.0, graphic),
+                         (t[clock.index(28000.0)], "clock_reset"))
+
+    def test_a_fresh_reading_without_a_jump_stays_unread(self):
+        """The buy clock already showing when the increment is read: no
+        stretch, no graphic, so the start stays unread."""
+        t = [k * 500.0 for k in range(20)]
+        clock = [28000.0 - k * 500 for k in range(20)]
+        self.assertIsNone(_reset_after(t, clock, 2000.0, {}))
+
+    def test_round_bounds_labels_the_start(self):
+        t, clock, graphic = self._planted()
+        left = [0 if x <= 30000.0 else 1 for x in t]
+        left[-1] = 2                               # the next round ends
+        rounds = round_bounds(t, left, [0] * len(t), clock, graphic)
+        self.assertEqual(len(rounds), 2)
+        self.assertEqual(rounds[0]["t_end_ms"], t[left.index(1)])
+        self.assertEqual((rounds[1]["t_start_ms"], rounds[1]["start_source"]),
+                         (t[clock.index(28000.0)], "buy_clock_after_unread"))
 
 
 @unittest.skipUnless(all(_stored_hud(s) is not None for s in _HELD), "no stored HUD for the held sessions")

@@ -42,7 +42,13 @@ SCHEMA_VERSION = 1
 # round closes there and keeps its post-round events. Over the 21 Riot-scored
 # matches the 7 post-round deaths stamped with the next round all move to their
 # own round; no other death moves; 89 of 439 starts move 7-8 s later.
-ROUND_VERSION = "round-0.9.0"
+# 0.10.0 (2026-10-05): where the last clock reading before a round's end is
+# stale (a stored plant_graphic sample between it and the next reading, or the
+# two more than ROUND_START_JUMP_MS apart) and no upward jump is read, the next
+# round starts at the first buy-phase reading after the end
+# (`start_source = buy_clock_after_unread`). 76 of the 89 post_round_gap starts
+# on the 21 Riot-scored matches become read starts; no clock_reset start moves.
+ROUND_VERSION = "round-0.10.0"
 # The planted-spike graphic in the scoreline's clock field, read from the hud
 # crop cache (`plant_graphic`). 0.1.0 (2026-10-02): red coverage of the clock
 # field less twice its white ink, cut at 0.2.
