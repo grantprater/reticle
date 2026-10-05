@@ -212,7 +212,7 @@ def sample_step_ms(times, default: float = 500.0) -> float:
     return float(np.median(d)) if d.size else float(default)
 
 
-def _weld_cuts(ts, sigs, step: float, lo: int, hi: int) -> list[tuple[int, str]]:
+def _weld_cuts(ts, sigs, step: float, lo: int, hi: int, hidden=None) -> list[tuple[int, str]]:
     """Where to cut reads `lo:hi` of one track into entries that each fit one
     life [domain:killfeed/entry-lifetime]: `(index, rule)` pairs, the cut
     falling before `ts[index]`.
@@ -232,17 +232,23 @@ def _weld_cuts(ts, sigs, step: float, lo: int, hi: int) -> list[tuple[int, str]]
 
     A gapless track that is not two full lives is a held feed or a misread
     [domain:killfeed/post-round-kill-persists], and stays whole.
+
+    `hidden(t0, t1)`, the time a blind hid the killfeed between two reads
+    (`blinds.hidden_ms`), does not count toward a gap: the slot was not
+    seen, so it did not miss. None hides nothing.
     """
     life, tol = KF_ENTRY_LIFE_MS, KF_ENTRY_LIFE_TOL_MS
     span = lambda a, b: ts[b - 1] - ts[a]
     if span(lo, hi) <= life + tol:
         return []
     fits = lambda a, b: span(a, b) <= life + tol
-    gaps = [k for k in range(lo + 1, hi) if ts[k] - ts[k - 1] > 1.5 * step]
+    seen = lambda k: ts[k] - ts[k - 1] - (hidden(ts[k - 1], ts[k]) if hidden else 0.0)
+    gaps = [k for k in range(lo + 1, hi) if seen(k) > 1.5 * step]
     if gaps:
         k = max([g for g in gaps if fits(lo, g) and fits(g, hi)] or gaps,
-                key=lambda g: (ts[g] - ts[g - 1], -g))
-        return _weld_cuts(ts, sigs, step, lo, k) + [(k, "gap")] + _weld_cuts(ts, sigs, step, k, hi)
+                key=lambda g: (seen(g), -g))
+        return (_weld_cuts(ts, sigs, step, lo, k, hidden) + [(k, "gap")]
+                + _weld_cuts(ts, sigs, step, k, hi, hidden))
     full = lambda a, b: life - tol <= span(a, b) + step <= life + tol
     cands = [k for k in range(lo + 1, hi) if full(lo, k) and full(k, hi)]
     if not cands:
@@ -257,13 +263,13 @@ def _weld_cuts(ts, sigs, step: float, lo: int, hi: int) -> list[tuple[int, str]]
     return [(k, "divider" if step_px(k) >= 1 else "life")]
 
 
-def _split_weld(track: dict, step: float, use_sides: bool) -> list[dict]:
+def _split_weld(track: dict, step: float, use_sides: bool, hidden=None) -> list[dict]:
     """`track` cut at `_weld_cuts`, each piece rebuilt from its own reads; the
     pieces carry `weld = {"t_first", "cuts": [(t, rule), ...]}` naming the
     welded track and every cut made in it."""
     reads = track.pop("_reads")
     ts = [t for t, _, _ in track["assigned"]]
-    cuts = _weld_cuts(ts, [r[0] for r in reads], step, 0, len(ts))
+    cuts = _weld_cuts(ts, [r[0] for r in reads], step, 0, len(ts), hidden)
     if not cuts:
         return [track]
     weld = {"t_first": track["t_first"], "cuts": [(ts[k], rule) for k, rule in cuts]}
@@ -346,7 +352,7 @@ def _released(t_first: float, stall_spans, step: float) -> dict | None:
 
 
 def track_entries(times, masks, dividers=None, flags=None, sides=None,
-                  stalls=None, panel=None) -> list[dict]:
+                  stalls=None, panel=None, blinds=None) -> list[dict]:
     """Follow each entry across frames; one dict per distinct entry.
 
     Returns every track, including the ones the bars refuse, with `counted`
@@ -440,12 +446,30 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None,
     the panel's card in slot 5 began a track that the next entry, read in
     slot 1, joined as risen (b7d24102a6f6 1581.5 s), and began a phantom
     entry of its own (1582.0 s). None walks every detection.
+
+    **A blind hides the killfeed; it expires nothing.** `blinds`, the
+    session's blind spans (`blinds.for_session`), are time the walk did not
+    see: a track ages only by the time outside them, and `_weld_cuts` counts
+    no gap a blind covers. A washed frame shows an entry faded, its plates
+    one colour, so a read inside a span keeps its slot and divider but reads
+    no victim side. At a06f04a0059f an entry read once at 1768.0 s (slot 1,
+    divider 186, ally victim) was hidden 1768.4-1771.2 s and read at
+    1771.0 s faded, side enemy; the walk refused the onset as `single_frame`
+    and began a new entry, enemy side, at 1771.0 s. A track whose reads
+    straddle a span carries `blinded`, the spans. None hides nothing.
     """
     active: list[dict] = []
     done: list[dict] = []
     times = list(times)
     step = sample_step_ms(times)
     gap = min(KF_TRACK_GAP_MS, KF_TRACK_GAP_STEPS * step)
+    hidden = None
+    if blinds:
+        from .blinds import hidden_ms, inside
+        hidden = lambda t0, t1: hidden_ms(blinds, t0, t1)
+        if sides is not None:
+            washed = inside(blinds, times)
+            sides = [None if w else pair for w, pair in zip(washed, sides)]
     panel_tracks: list[dict] = []
     if panel is not None:
         m = np.nan_to_num(np.asarray(masks, dtype=float)).astype(np.int64)
@@ -465,7 +489,8 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None,
         prev_t = times[i - 1] if i else None
         keep = []
         for a in active:
-            (keep if t - a["t_last"] <= gap else done).append(a)
+            unseen = t - a["t_last"] - (hidden(a["t_last"], t) if hidden else 0.0)
+            (keep if unseen <= gap else done).append(a)
         active = keep
         used: set[int] = set()
         retired: set[int] = set()
@@ -532,6 +557,28 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None,
                                for t_, s_, _ in b["assigned"])
                        for bi_, b in enumerate(active) if bi_ not in retired)
 
+        def outrises(a, slot) -> bool:
+            """Whether track `a` taking `slot` would rise further than an entry
+            above it rose over the same interval. An entry rises one slot per
+            expiry above it, the oldest, topmost entry expiring first
+            [domain:killfeed/stack-order] [domain:killfeed/entry-lifetime],
+            so every entry still on screen rises alike: an entry read above
+            `a` at `a`'s last read and read again now bounds `a`'s rise. At
+            223d636bf8d2 1208.0 s an entry under the Shooting Error overlay,
+            last read in slot 4 at 1207.0 s with no divider, took a Not Dead
+            Yet banner two slots up while the entry above it rose one; the
+            banner's sides and names became its own."""
+            rise = a["slot"] - slot
+            if rise <= 1:
+                return False
+            for b in active:
+                if b is a or not b["assigned"] or b["assigned"][-1][0] != t:
+                    continue
+                then = [s_ for t_, s_, _ in b["assigned"] if t_ == a["t_last"]]
+                if then and then[0] < a["slot"] and then[0] - b["assigned"][-1][1] < rise:
+                    return True
+            return False
+
         for slot in here:
             sig = wx_at(packed, slot)
             side = _side_at(pair, slot)
@@ -539,7 +586,7 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None,
             cands = [ai for ai, a in enumerate(active)
                      # an entry never moves down the stack, nor past another
                      if ai not in used and slot <= a["slot"] and fits(a, sig, side)
-                     and not passes(a, slot)]
+                     and not passes(a, slot) and not outrises(a, slot)]
             # The nearest slot wins, unless the stack says otherwise:
             #
             #   merge  -- an entry expires and the one below rises into the
@@ -598,9 +645,16 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None,
             done.extend(active[ai] for ai in sorted(retired))
             active = [a for ai, a in enumerate(active) if ai not in retired]
     done.extend(active)
-    done = [p for a in done for p in _split_weld(a, step, use_sides)]
+    done = [p for a in done for p in _split_weld(a, step, use_sides, hidden)]
     done.sort(key=lambda a: a["t_first"])
     for a in done:
+        if hidden:
+            ts_ = [t_ for t_, _, _ in a["assigned"]]
+            crossed = [dict(b) for b in blinds
+                       if any(t0 < b["t_end_ms"] and b["t_start_ms"] < t1
+                              for t0, t1 in zip(ts_, ts_[1:]))]
+            if crossed:
+                a["blinded"] = crossed
         a["span_ms"] = a["t_last"] - a["t_first"]
         # `span + 2*step` is the longest life this track is consistent with,
         # so a sampler is never refused for resolution it does not have.

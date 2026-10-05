@@ -263,6 +263,41 @@ class ArtZnccTests(unittest.TestCase):
         self.assertIsNotNone(got)
         self.assertAlmostEqual(got[0], 50.5, delta=0.3)
 
+    def test_a_red_plate_over_teal_scenery_ends_where_red_begins(self):
+        # 5822b6646448 544.5 s: a red killer plate over teal scenery; both
+        # colours count as plate unless the plate's own side is given
+        h, w = 34, 200
+        crop = np.full((h, w, 3), (139, 175, 110), np.uint8)   # teal scene, read there
+        crop[:, 80:] = (60, 60, 220)                           # red plate, BGR
+        self.assertIsNone(killfeed.plate_left_edge(crop, 150, UNIT_SCALE))
+        got = killfeed.plate_left_edge(crop, 150, UNIT_SCALE, ally=False)
+        self.assertIsNotNone(got)
+        self.assertAlmostEqual(got[0], 80.0, delta=0.6)
+
+    def test_a_plate_fading_to_olive_ends_in_both_colours_share(self):
+        # a06f04a0059f 1333.0 s, slot 1: a teal plate fading to olive over
+        # sand; both colours find its end at 45, teal alone only at 103, so
+        # `portrait_observations` tries the side's colour last
+        band = cv2.imread(str(Path(__file__).parent / "data" / "killfeed_plate"
+                              / "a06f04a0059f_13330_slot1.png"))
+        both = killfeed.plate_left_edge(band, 185, UNIT_SCALE)
+        teal = killfeed.plate_left_edge(band, 185, UNIT_SCALE, ally=True)
+        self.assertAlmostEqual(both[0], 45.0, delta=1.0)
+        self.assertGreater(teal[0], 90.0)
+
+    def test_the_killers_last_letter_is_read_off_the_ink_by_the_divider(self):
+        # 7010b3d62460 1020.0 s: "Raze" on baseline 23 ending 21 px before
+        # the divider at 253; specks of the assist panel far left, and a
+        # victim run on the headshot mark whose baseline is 14
+        wb = np.zeros((34, 400), np.uint8)
+        for x0, w in ((200, 8), (210, 6), (218, 6), (225, 7)):
+            wb[15:23, x0:x0 + w] = 1
+        wb[8:13, 144:146] = 1
+        wb[5:14, 353:360] = 1
+        self.assertEqual(killfeed.killer_name_end(wb, 253, (353, 368), UNIT_SCALE), (225, 231))
+        # nothing within the gap: no name
+        self.assertIsNone(killfeed.killer_name_end(wb, 300, (353, 368), UNIT_SCALE))
+
     def test_a_killer_starts_at_its_plate_and_falls_back_to_its_box(self):
         crop = self._crop(killer="Echo", killer_x0=60)
         got = art_view(crop, "killer", 72, 8, True, UNIT_SCALE, self.dir, plate_x0=60.2)

@@ -322,7 +322,13 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # before [metric:scoreline_soft/cost-soft#ms_2ad32ef_a06f04a0059f=0.574]. Of the occluded score samples before the small-jump unread round
 # starts, 141 of 163 read both scores
 # [metric:scoreline_soft/unread-reset-windows-soft#both_read=141].
-HUD_VERSION = "hud-0.22.0"
+# 0.23.0 (2026-10-04): a one-colour band's divider widens over every
+# glyph-sized piece under NAME_GAP from it (`killfeed._element_box`)
+# [domain:killfeed/killfeed-element-spacing]: Clove's Not Dead Yet expiry at
+# ff636d173b07 1247.0 s broke into three pieces, the left one read as the
+# killer's last letter, and the band went `one_colour:no_divider` on every
+# sample.
+HUD_VERSION = "hud-0.23.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits
