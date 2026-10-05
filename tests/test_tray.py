@@ -341,6 +341,50 @@ class HalfDropTest(unittest.TestCase):
         self.assertEqual([(d["t_ms"], d["slot"], d["halves_from"]) for d in got],
                          [(2000.0, "E", ["gold", "gold"])])
 
+    def test_a_gold_run_counts_readable_samples_before_the_drop(self):
+        # Phoenix's Curveball: cream beside teal, a streak over the cream on
+        # one sample, then the cream half empties with the teal one left.
+        cream = ["empty"] * 4 + ["teal", "gold"] + ["teal", "teal"]
+        streak = ["empty"] * 4 + ["teal", "flash"] + ["teal", "teal"]
+        spent = ["empty"] * 4 + ["teal", "empty"] + ["teal", "teal"]
+        frames = [_drop_frame(cream)] * 2 + [_drop_frame(streak)] + [_drop_frame(cream)]             + [_drop_frame(spent)] * 2
+        counts, clean, scores = _read(frames)
+        ts = [500.0 * (i + 1) for i in range(len(frames))]
+        icons = np.ones(len(frames), bool)
+        cands = tray.gold_candidates(ts, counts, clean, scores, icons)
+        self.assertEqual([(c["t_ms"], c["t_gold_ms"], c["gold_run"]) for c in cands],
+                         [(2500.0, 2000.0, 3)])
+        w = tray.gold_witness(cands[0], [], {})
+        self.assertEqual((w["witnessed"], w["by"], w["gold_run"]), (True, ["persisted"], 3))
+
+    def test_a_one_sample_gold_reading_is_no_run(self):
+        # c62c2b06bcfb 216.5 s: an orange weapon behind the spent bar reads
+        # gold for one sample.
+        empty = self.EMPTY3 + ["teal", "teal"]
+        flash = ["empty"] * 4 + ["gold", "empty"] + ["teal", "teal"]
+        frames = [_drop_frame(empty)] * 2 + [_drop_frame(flash)] + [_drop_frame(empty)] * 2
+        counts, clean, scores = _read(frames)
+        ts = [500.0 * (i + 1) for i in range(len(frames))]
+        cands = tray.gold_candidates(ts, counts, clean, scores, np.ones(len(frames), bool))
+        self.assertEqual([(c["t_ms"], c["gold_run"]) for c in cands], [(2000.0, 1)])
+        w = tray.gold_witness(cands[0], [], {})
+        self.assertEqual((w["witnessed"], w["by"]), (False, []))
+
+    def test_gold_runs_stop_at_another_class_an_undrawn_sample_or_a_gap(self):
+        G, T, E = (tray.SEG_CLASSES.index(c) for c in ("gold", "teal", "empty"))
+        U = len(tray.SEG_CLASSES)                                  # unreadable
+        col = [G, G, T, G, U, G, G, G, G, G]
+        h = np.full((len(col), 4, 2), E)
+        h[:, 2, 1] = col
+        ts = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 9.0, 9.5]
+        good = np.ones(len(col), bool)
+        dr = good.copy()
+        dr[6] = good[6] = False                                   # undrawn
+        runs = tray._gold_runs(ts, h, good, dr)[:, 2, 1].tolist()
+        # teal ends a run; the unreadable sample is skipped; the undrawn one
+        # ends it; a 5 s gap starts a new one.
+        self.assertEqual(runs, [1, 2, 0, 1, 0, 2, 0, 1, 1, 2])
+
     def test_the_drops_without_halves_are_the_teal_drops(self):
         rows = [(1.0, 1.0, 1.0, 1.0)] * 3 + [(0.0, 1.0, 1.0, 1.0)] * 3
         frames = [_frame(r) for r in rows]

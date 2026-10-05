@@ -101,6 +101,24 @@ one, which leave the icon lit and draw no numeral. The player's casts
 covered [metric:tray/gold-witness@riot-21#covered_after=521] of [metric:tray/gold-witness@riot-21#riot_casts=610], with
 [metric:tray/gold-witness@riot-21#excess_after=8] beyond Riot's counts.
 
+Persistence as a third witness (TRAY_VERSION 0.4.0). A cream half is a
+charge partly spent or recharged [domain:hud/ability-tray-gold-charge-meaning],
+and Phoenix spends one beside a teal half with no numeral and the icon lit,
+so the countdown and icon witnesses refused
+[metric:tray/gold-persist@riot-21#eye_refused_real_before=4] real Curveball
+spends. A misread is a sample long; a held charge is not. A gold-only drop now
+also fires where the spent half read gold on GOLD_PERSIST_MIN readable samples
+in a row before it (`persisted`). On the 21 Riot-paired sessions it admitted
+[metric:tray/gold-persist@riot-21#newly_admitted=16] of the
+[metric:tray/gold-persist@riot-21#refused_before=20] refused drops; the gate
+passed the four Curveball spends and refused the rest, of which
+[metric:tray/gold-persist@riot-21#admitted_kit_or_round_switch=8] are by eye
+the tray switching kits or rounds over a real gold half, a transition the
+gate owns. Own casts covered
+[metric:tray/gold-persist@riot-21#covered_after=525] of 610 with
+[metric:tray/gold-persist@riot-21#excess_after=8] beyond Riot's counts; k was
+chosen on the same drops, so the figures are in-sample.
+
 What a drop is not. A drop is a transition, not a cast: after the player dies
 the tray shows a spectated teammate's kit, and its switch reads as several
 slots emptying at once. `casts` flags a drop that lands on the first refused
@@ -150,6 +168,18 @@ WITNESS_BEFORE_S = GAP_S
 #: 1.5 s.
 ICON_LIT_MIN = 200.0
 ICON_DIM_MAX = 160.0
+#: The persistence witness (`gold_witness`, `_gold_runs`): the fewest
+#: consecutive readable samples on which the spent half read gold, ending at
+#: its gold sample. Chosen in-sample on the
+#: [metric:tray/gold-persist@riot-21#gold_only_candidates=83] gold-only drops of
+#: the 21 Riot-paired sessions as one more than the longest run of a gold
+#: reading false by eye: the four such misreads (a warm flash or a bright
+#: object behind an empty bar) each read gold on
+#: [metric:tray/gold-persist@riot-21#false_reading_run_max=1] sample, and the
+#: shortest real cream spend the other witnesses refused read gold on
+#: [metric:tray/gold-persist@riot-21#real_refused_run_min=2]
+#: (ff636d173b07 1052.5 s).
+GOLD_PERSIST_MIN = 2
 
 
 #: The strip `slot_counts` reads: the four bars and their guard rows, from the
@@ -414,6 +444,32 @@ def _held_halves(ts, h: np.ndarray, good: np.ndarray, dr: np.ndarray) -> tuple:
     return held.reshape(h.shape), np.where(valid, src, -1).reshape(h.shape)
 
 
+def _gold_runs(ts, h: np.ndarray, good: np.ndarray, dr: np.ndarray) -> np.ndarray:
+    """Per sample and half, the length of the run of readable samples on
+    which the half read gold, ending at that sample (0 where it does not read
+    gold). A readable sample is clean and drawn (`good`) with the half read as
+    teal, gold or empty; a sample where the half is unreadable is skipped. An
+    undrawn sample, another class, or a gap of more than GAP_S between
+    readable samples ends the run."""
+    n = len(h)
+    flat = np.asarray(h).reshape(n, -1)
+    idx = np.arange(n)[:, None]
+    ts = np.asarray(ts, float)
+    readable = good[:, None] & (flat < len(SEG_CLASSES))
+    gold = readable & (flat == _GOLD)
+    cum = np.cumsum(gold, axis=0)
+    prev = np.maximum.accumulate(np.where(readable, idx, -1), axis=0)
+    prev = np.vstack([np.full((1, flat.shape[1]), -1), prev[:-1]])
+    gap = readable & (prev >= 0) & (ts[:, None] - ts[np.maximum(prev, 0)] > GAP_S)
+    hard = (readable & ~gold) | (~dr)[:, None]
+    brk = hard | gap
+    # A run counts the gold after a hard break, and from a gap break on.
+    base = np.where(hard, cum, cum - gold)
+    last = np.maximum.accumulate(np.where(brk, idx, -1), axis=0)
+    floor = np.where(last >= 0, np.take_along_axis(base, np.maximum(last, 0), axis=0), 0)
+    return np.where(gold, cum - floor, 0).reshape(h.shape)
+
+
 def _events(ts, f: np.ndarray, clean: np.ndarray, halves=None, icons=None) -> list[dict]:
     """The drops between the compared samples (`_compare_pairs`), in time and
     slot order: a slot whose teal fill fell by `CAST_DROP` or more (`by` fill),
@@ -423,7 +479,9 @@ def _events(ts, f: np.ndarray, clean: np.ndarray, halves=None, icons=None) -> li
     classes that went empty. `icons` are the slot icon witness `drawn_mask`
     reads. A drop by halves alone of which no teal half went empty is
     `gold_only`, and carries `g`, the sample its gold last read on: it fires
-    only on a second channel's witness (`gold_witness`, `drops`).
+    only on a witness (`gold_witness`, `drops`), and carries `run`, the
+    longest gold run (`_gold_runs`) of a spent gold half, ending at the
+    sample its gold last read on.
 
     A gold half compares as it last read (`_held_halves`): Sova's bow glow
     leaves a half unreadable on the sample before the spend
@@ -444,6 +502,7 @@ def _events(ts, f: np.ndarray, clean: np.ndarray, halves=None, icons=None) -> li
         held, src = _held_halves(ts, h, dr & clean, dr)
         h_from = np.where(held == _GOLD, held, h)                # gold held, else as read
         g_from = np.where(held == _GOLD, src, np.arange(len(h))[:, None, None])
+        runs = _gold_runs(ts, h, dr & clean, dr)
         went = (h[b] == _EMPTY) & np.isin(h_from[a], _HALF_DROP_FROM)  # (pairs, 4, 2)
         by_half[:, :_CHARGE_SLOTS] = went[:, :_CHARGE_SLOTS].any(axis=-1)
     out = []
@@ -460,7 +519,9 @@ def _events(ts, f: np.ndarray, clean: np.ndarray, halves=None, icons=None) -> li
                        "spent_halves": _SEG_NAMES[hp[spent]].tolist()})
             if ev["by"] == ["halves"] and not (spent & (hp == _TEAL)).any():
                 ev["gold_only"] = True
-                ev["g"] = int(g_from[p, k][spent & (hp == _GOLD)].max())
+                gs = spent & (hp == _GOLD)
+                ev["g"] = int(g_from[p, k][gs].max())
+                ev["run"] = int(runs[g_from[p, k][gs], k, np.nonzero(gs)[0]].max())
         out.append(ev)
     return out
 
@@ -497,15 +558,17 @@ def flag_suspect(ev: list[tuple], quiet=None) -> list[tuple]:
 def gold_candidates(ts_ms, counts: np.ndarray, clean: np.ndarray, scores,
                     icons=None) -> list[dict]:
     """The gold-only drops (`_events`) that wait on a witness, as
-    `{"t_ms", "slot", "t_before_ms", "t_gold_ms", "halves_from", "halves_to",
-    "spent_halves"}`: the drop's sample, the sample it compares with, and the
-    sample its gold half last read on. `gold_witness` judges each and `drops`
-    fires the witnessed ones."""
+    `{"t_ms", "slot", "t_before_ms", "t_gold_ms", "gold_run", "halves_from",
+    "halves_to", "spent_halves"}`: the drop's sample, the sample it compares
+    with, the sample its gold half last read on, and the readable samples in a
+    row that read it gold up to there (`_gold_runs`). `gold_witness` judges
+    each and `drops` fires the witnessed ones."""
     ts = [t / 1000.0 for t in ts_ms]
     clean = np.asarray(clean, bool)
     ev = _events(ts, fills(counts, clean), clean, segment_index(scores), icons)
     return [{"t_ms": float(ts_ms[e["i"]]), "slot": e["slot"],
              "t_before_ms": float(ts_ms[e["p"]]), "t_gold_ms": float(ts_ms[e["g"]]),
+             "gold_run": e["run"],
              **{k: e[k] for k in ("halves_from", "halves_to", "spent_halves")}}
             for e in ev if e.get("gold_only")]
 
@@ -534,9 +597,15 @@ def gold_witness(cand: dict, reads: list[dict], icon: dict) -> dict:
       a slot holding a charge draws it, and dims (`ICON_DIM_MAX`) within
       `WITNESS_AFTER_S` after the drop, as a slot spent to empty draws it.
 
-    A gold charge spent beside a teal one leaves the icon lit, and an ability
-    with no restock draws no numeral, so such a drop finds no witness and does
-    not fire. Each channel is cut once, here."""
+    - `persisted`: the spent half read gold on `GOLD_PERSIST_MIN` or more
+      readable samples in a row ending at its gold sample (`gold_run`,
+      `_gold_runs`). A gold charge spent beside a teal one leaves the icon
+      lit, and Phoenix's Curveball draws no numeral after it
+      (587c15b07779 1140.0 s); a returned charge reads gold for as long as it
+      is held, and a bright object passing behind an empty bar reads gold for
+      a sample.
+
+    Any one witness fires the drop. Each channel is cut once, here."""
     k = SLOT_KEYS.index(cand["slot"])
     t, tb, tg = cand["t_ms"], cand["t_before_ms"], cand["t_gold_ms"]
     mine = sorted((r for r in reads if r["slot"] == cand["slot"]), key=lambda r: r["t_ms"])
@@ -563,9 +632,11 @@ def gold_witness(cand: dict, reads: list[dict], icon: dict) -> dict:
         ic = "dim_on_gold"
     else:
         ic = "dimmed" if least <= ICON_DIM_MAX else "stayed_lit"
+    run = cand.get("gold_run")
     by = [w for w, on in (("countdown", cd in ("restarted", "appeared")),
-                          ("icon", ic == "dimmed")) if on]
-    return {"witnessed": bool(by), "by": by, "countdown": cd,
+                          ("icon", ic == "dimmed"),
+                          ("persisted", run is not None and run >= GOLD_PERSIST_MIN)) if on]
+    return {"witnessed": bool(by), "by": by, "countdown": cd, "gold_run": run,
             "numeral_before": None if last is None else last["numeral"],
             "numeral_after": None if first is None else first["numeral"],
             "icon": ic, "icon_on_gold": on_gold, "icon_least_after": least}
