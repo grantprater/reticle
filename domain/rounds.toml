@@ -31,12 +31,19 @@ for the starting side: the rule is wrong on
 [metric:side_by_round/riot-22#planter_on_rule_defence=0] of
 [metric:side_by_round/riot-22#plants=292] planters on the defending side. The
 former rule (every round past 12 swapped) was wrong on
-[metric:side_by_round/riot-22#old_rule_wrong=4], all overtime rounds 25 and 27
+[metric:side_by_round/riot-22#old_rule_wrong=4], all overtime rounds 25 and 27.
+The 458 rounds leave out Riot's
+[metric:side_by_round/riot-22-surrendered#surrendered=9] Surrendered rounds,
+whose `winningTeamRole` names no side; with them the rule disagrees
+on [metric:side_by_round/riot-22-surrendered#rule_wrong_with_surrendered=2] of
+[metric:side_by_round/riot-22-surrendered#rounds=467], match 67399dfc's
+Surrendered rounds 13 and 14.
 """
 use = """
 `rounds.side_in_round` from the match round (`rounds.match_round`, the score
-before the round) and the read starting side; an unread starting side leaves
-the side null with a reason
+before the round) and the starting side `rounds.starting_side` reads from the
+attackers' own evidence (our agreed spike carrier, our planter); an unread
+starting side leaves the side null with a reason
 """
 see = ["rounds/halftime-side-swap", "rounds/match-end", "rounds/pistol-round-bank"]
 phrases = ["side by round", "overtime sides"]

@@ -1145,9 +1145,6 @@ NOT_DONE = [
     "Ability casts are match totals; Riot and HenrikDev give no per-round "
     "cast counts here, so casts are not split by side or tied to kills, and "
     "the side tables carry no cast metric.",
-    "The side rule by round index is applied here, not called: "
-    "reticle/rounds.py owns the halftime boundary but exposes no rule by "
-    "round index.",
     "Assists per cast is a ratio of totals, not cast-to-assist attribution.",
     "No adjustment for multiple comparisons beyond ranking on interval width.",
     "No per-peer statistics, by design; no comparison against other lobbies.",

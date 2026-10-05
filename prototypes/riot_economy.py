@@ -54,6 +54,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from reticle.economy import EconomyRules, EconomyTracker, RoundEconomyInput  # noqa: E402
+from reticle.rounds import side_in_round  # noqa: E402
 
 STORE = Path.home() / "reticle-store"
 HALF = 12          # rounds per half before overtime, 0-indexed boundary
@@ -81,23 +82,27 @@ def _teams(m: dict) -> dict[str, tuple[str, ...]]:
 def _attackers(m: dict, teams: dict) -> dict[int, str]:
     """The attacking team per round, from any round's winner and role.
 
-    Sides swap at the halftime boundary and every overtime round."""
+    The side rule is the rounds owner's (`rounds.side_in_round`, by match
+    round counted from 1 [domain:rounds/side-by-round]); Riot's `roundNum`
+    counts from 0. The first round naming its winner's role fixes the team
+    that started on attack."""
     names = sorted(teams)
+
+    def other(t):
+        return next(x for x in names if x != t)
+
+    def starts_on_attack(n: int) -> bool:
+        return side_in_round(n + 1, "attack")[0] == "attack"
+
     first = None
     for r in m["roundResults"]:
         role, win = r.get("winningTeamRole"), r.get("winningTeam")
         if role in ("Attacker", "Defender") and win in teams:
-            att = win if role == "Attacker" else next(t for t in names if t != win)
-            n = r["roundNum"]
-            swaps = (n >= HALF) + max(0, n - OVERTIME + 1)
-            first = att if swaps % 2 == 0 else next(t for t in names if t != att)
+            att = win if role == "Attacker" else other(win)
+            first = att if starts_on_attack(r["roundNum"]) else other(att)
             break
-    out = {}
-    for r in m["roundResults"]:
-        n = r["roundNum"]
-        swaps = (n >= HALF) + max(0, n - OVERTIME + 1)
-        out[n] = first if swaps % 2 == 0 else next(t for t in names if t != first)
-    return out
+    return {r["roundNum"]: first if starts_on_attack(r["roundNum"]) else other(first)
+            for r in m["roundResults"]}
 
 
 def _wallets(r: dict) -> dict[str, int]:

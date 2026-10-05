@@ -4,7 +4,8 @@ from __future__ import annotations
 import unittest
 
 from reticle.rounds import (final_round, in_round_window, match_over, match_round,
-                            place_unread_starts, round_closes, round_containing, side_in_round)
+                            place_unread_starts, round_closes, round_containing, side_in_round,
+                            starting_side)
 
 
 class SideByRound(unittest.TestCase):
@@ -25,6 +26,62 @@ class SideByRound(unittest.TestCase):
         self.assertEqual(match_round({"round_no": 1, "score_us": 7, "score_them": 5}), 13)
         self.assertEqual(match_round({"left_before": 12, "right_before": 12}), 25)
         self.assertIsNone(match_round({"round_no": 3, "score_us": None, "score_them": 2}))
+
+
+
+def _frame(t, slot=0, carried=True):
+    """A stored `spike` frame: our marker in `slot` (None: no marker) and a
+    carried glyph on our minimap or none."""
+    glyphs = [{"reason": None, "state": "carried", "cx": 10.0, "cy": 10.0}] if carried else []
+    return {"kind": "frame", "t_ms": float(t), "reason": None, "rotation": 0, "icons": [],
+            "glyphs": glyphs, "marker": {"slot": slot, "reason": None if slot is not None else "no_marker"}}
+
+
+def _round(n, a, z, before):
+    return {"round_no": n, "t_start_ms": float(a), "t_end_ms": float(z),
+            "score_us": before, "score_them": 0}
+
+
+class StartingSide(unittest.TestCase):
+    """`starting_side` reads only what the attackers produce: an agreed
+    carrier frame or a planter slot, through the side rule; it refuses on a
+    conflict or no evidence, never defaulting."""
+
+    HEAD = {"kind": "coverage", "widget_scale": 1.0}
+
+    def test_attack_in_the_second_half_means_a_defence_start(self):
+        rounds = [_round(1, 0, 100, 0), _round(2, 110, 200, 12)]   # match rounds 1 and 13
+        spike = [self.HEAD, _frame(150)]
+        carrier = [{"kind": "round", "round_no": 2, "spike_planted": True, "planter_slot": {"slot": 0}}]
+        got = starting_side(rounds, spike, carrier)
+        self.assertEqual((got["starting_side"], got["reason"]), ("defence", None))
+        self.assertEqual({v["channel"] for v in got["votes"]}, {"carrier", "planter"})
+
+    def test_one_channel_alone_votes_nothing(self):
+        rounds = [_round(1, 0, 100, 0)]
+        spike = [self.HEAD, _frame(50, slot=None), _frame(60, carried=False)]
+        got = starting_side(rounds, spike, [{"kind": "round", "round_no": 1, "planter_slot": None}])
+        self.assertEqual((got["starting_side"], got["reason"]), (None, "no_attack_evidence"))
+
+    def test_conflict_refuses_and_stores_the_rounds(self):
+        rounds = [_round(1, 0, 100, 0), _round(2, 110, 200, 12)]
+        spike = [self.HEAD, _frame(50), _frame(150)]
+        got = starting_side(rounds, spike, [{"kind": "round", "round_no": 1, "planter_slot": None}])
+        self.assertEqual((got["starting_side"], got["reason"]), (None, "starting_side_conflict"))
+        self.assertEqual(got["disagreements"][-1]["rounds"], {"attack": [1], "defence": [2]})
+
+    def test_cross_channel_disagreements_are_stored(self):
+        rounds = [_round(1, 0, 100, 0), _round(2, 110, 200, 1)]
+        spike = [self.HEAD, _frame(50)]
+        carrier = [{"kind": "round", "round_no": 1, "spike_planted": True, "planter_slot": None},
+                   {"kind": "round", "round_no": 2, "spike_planted": True, "planter_slot": {"slot": 1}}]
+        got = starting_side(rounds, spike, carrier)
+        self.assertEqual(got["starting_side"], "attack")
+        self.assertEqual([d["check"] for d in got["disagreements"]],
+                         ["carrier_without_planter", "planter_without_agreed_carrier"])
+
+    def test_missing_streams_refuse(self):
+        self.assertEqual(starting_side([_round(1, 0, 100, 0)], None, [])["reason"], "spike_unread")
 
 
 def _ev(t):
