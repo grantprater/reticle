@@ -560,5 +560,118 @@ class Report(unittest.TestCase):
             self.assertEqual(pj["hours_at_polite_rate"], [1.2, 2.4])
 
 
+class OwnHistory(unittest.TestCase):
+    """The player's own accounts: lookup, whole-list paging, holes."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = Path(self.tmp.name)
+        self.out = self.store / "v4"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def lister(self, depth, offset=0, old_from=None, calls=None):
+        """A v4 list of `depth` matches; index i is match 100 + i + offset.
+        From index `old_from` on, matches start in 2025."""
+        def reply(url, headers):
+            if calls is not None:
+                calls.append(url)
+            q = dict(lf.urllib.parse.parse_qsl(url.split("?", 1)[1]))
+            start, size = int(q.get("start", 0)), int(q["size"])
+            ms = [match(100 + i + offset, [1] + list(range(20 + i, 29 + i)),
+                        started="2025-03-01T00:00:00Z"
+                        if old_from is not None and i >= old_from
+                        else "2026-09-20T12:00:00Z")
+                  for i in range(start, min(start + size, depth))]
+            return lf.Response(200, {}, body(ms))
+        return reply
+
+    def test_register_all_dates_tags_instead_of_dropping(self):
+        old = match(1, list(range(1, 11)), started="2025-01-01T00:00:00Z")
+        unr = match(2, list(range(1, 11)), queue="unrated")
+        st = lf.State(since="2026-01-01")
+        c = lf.register(st, [old, unr], "owner", set())
+        self.assertEqual((c["new"], c["out_of_scope"]), (0, 2))
+        st = lf.State(since="2026-01-01")
+        c = lf.register(st, [old, unr], "owner", set(), all_dates=True,
+                        expand=False)
+        self.assertEqual((c["new"], c["out_of_window_kept"],
+                          c["out_of_scope"]), (1, 1, 1))   # queue still out
+        m = st.matches[mid(1)]
+        self.assertFalse(m["in_window"])
+        self.assertEqual(m["season"], "e11a1")
+        self.assertEqual(st.frontier, [])                  # no snowball
+
+    def test_pages_the_whole_list_from_the_stored_prefix(self):
+        st = lf.State(since="2026-01-01")
+        c = Clock()
+        calls = []
+        rep = self.lister(23, old_from=15, calls=calls)
+        cl = lf.Client(KEY, st, lf.Politeness(), rep, c.sleep, c)
+        # a dry run stored indices 0..5 and a probe at 20
+        lf.fetch_list(cl, st, self.out, puuid(1), 6)
+        lf.fetch_list(cl, st, self.out, puuid(1), 1, start=20, kind="probe")
+        calls.clear()
+        h = lf.owner_history(cl, st, self.out, "A", puuid(1), 8, set(),
+                             all_dates=True)
+        starts = [p["start"] for p in h["pages"]]
+        self.assertEqual(starts, [5, 13, 21])   # one index of overlap
+        self.assertEqual(h["depth"], 23)
+        self.assertFalse(h["shifted"])
+        self.assertEqual(h["pages"][0]["agree"], 1)
+        self.assertEqual(h["pages"][1]["agree"], 1)   # the probe at 20
+        self.assertEqual(len(h["ids"]), 23)
+        self.assertEqual(len(st.matches), 23)
+        self.assertEqual(sum(not m["in_window"] for m in st.matches.values()),
+                         8)
+        self.assertEqual(h["registered_from_raw"]["new"], 7)
+        self.assertEqual(st.frontier, [])
+        for u in calls:              # only the owner's list, competitive
+            self.assertIn(f"/{puuid(1)}?", u)
+            self.assertIn("mode=competitive", u)
+        # parse keeps the old matches, tagged
+        ms = lf.stored_matches(self.out, st)
+        t = lf.parse_matches(ms, b"0" * 16, {puuid(1)}, set(), st.since)
+        self.assertEqual(t["matches"].num_rows, 23)
+        self.assertEqual(sum(t["matches"]["in_window"].to_pylist()), 15)
+
+    def test_a_shifted_list_restarts_from_zero(self):
+        st = lf.State(since="2026-01-01")
+        c = Clock()
+        cl = lf.Client(KEY, st, lf.Politeness(), self.lister(12), c.sleep, c)
+        lf.fetch_list(cl, st, self.out, puuid(1), 6)
+        cl.opener = self.lister(13, offset=-1)   # one new match on top
+        h = lf.owner_history(cl, st, self.out, "A", puuid(1), 8, set())
+        self.assertTrue(h["shifted"])
+        self.assertEqual([p["start"] for p in h["pages"]], [5, 0, 8])
+        self.assertEqual(h["depth"], 13)
+
+    def test_lookup_and_seeds(self):
+        self.assertEqual(lf.account_path("a b#N/A"),
+                         "/valorant/v2/account/a%20b/N%2FA")
+        with self.assertRaises(lf.Stop):
+            lf.account_path("nohash")
+        rep = lf.Response(200, {}, json.dumps(
+            {"status": 200, "data": {"puuid": puuid(7), "region": "na",
+                                     "name": "x", "tag": "y"}}).encode())
+        cl, op, c, st = client([rep])
+        r = lf.lookup_account(cl, st, self.out, "x#y")
+        self.assertEqual((r["puuid"], r["region"]), (puuid(7), "na"))
+        self.assertEqual(lf.read_manifest(self.out)[0]["kind"], "account")
+        lf.write_seeds(self.store, [{"label": "C", "puuid": puuid(7)}])
+        lf.write_seeds(self.store, [{"label": "A", "puuid": puuid(1)}])
+        self.assertEqual(lf.owner_accounts(self.store),
+                         {"A": puuid(1), "C": puuid(7)})
+
+    def test_holes(self):
+        cap = [{"match_id": mid(1), "queue": "competitive", "started_ms": 1},
+               {"match_id": mid(2), "queue": "competitive", "started_ms": 2},
+               {"match_id": mid(3), "queue": "unrated", "started_ms": 3}]
+        h = lf.holes([mid(1), mid(9)], cap)
+        self.assertEqual((h["captured"], h["listed"], h["missing"]),
+                         (2, 1, [mid(2)]))
+
+
 if __name__ == "__main__":
     unittest.main()

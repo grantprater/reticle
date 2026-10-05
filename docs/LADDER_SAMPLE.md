@@ -83,10 +83,15 @@ come from the dashboard (<https://docs.henrikdev.xyz/general/auth.md>).
    `C:\Users\grant\reticle-store\external\ladder\henrikdev\api_key`. It
    sends the key only in the `Authorization` header and never prints, logs
    or copies it.
-4. Add the third account to `external\ladder\owner_seeds.json` in the store,
-   as `[{"label": "C", "puuid": "..."}]`. The fetcher finds two accounts in
-   the store: the recurring accounts `riot_ground_truth.identify_player`
-   names, plus any the fetch kit binds in `accounts.jsonl`.
+4. `lookup` resolves the player's Riot IDs, kept in the store's
+   `external\ladder\owner_riot_ids.json`, through
+   `/valorant/v2/account/{name}/{tag}` (one call each, through the limiter)
+   and writes `external\ladder\owner_seeds.json` as
+   `[{"label": "A", "puuid": "...", ...}]`, labelled A, B, C in that file's
+   order. Before it, the fetcher found two accounts in the store: the
+   recurring accounts `riot_ground_truth.identify_player` names, plus any
+   the fetch kit binds in `accounts.jsonl`. Accounts A and B are those two;
+   C is the one the store lacked.
 
 ## Politeness
 
@@ -221,6 +226,48 @@ competitive list ends.
   own history alone gives about 124 matches at that rank, past the 90-day
   window; listing it costs about one unit a match.
 
+## Own history
+
+The player approved fetching their own three accounts' records and held
+any crawl past them (2026-10-04). `lookup` resolved the three Riot IDs:
+A and B are the two accounts the store held, C the one it lacked. `history
+--all-dates` then paged each account's whole competitive list, eight
+matches a page, on 2026-10-04.
+
+| Account | List depth | New records parsed | In window | Captured, listed | Holes | Units |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | [metric:ladder_fetch/own_history#list_depth_A=110] | [metric:ladder_fetch/own_history#parsed_matches_A=107] | [metric:ladder_fetch/own_history#in_window_A=39] | [metric:ladder_fetch/own_history#captured_listed_A=3] of [metric:ladder_fetch/own_history#captured_competitive_A=3] | [metric:ladder_fetch/own_history#holes_A=0] | [metric:ladder_fetch/own_history#units_A=58.0] |
+| B | [metric:ladder_fetch/own_history#list_depth_B=61] | [metric:ladder_fetch/own_history#parsed_matches_B=45] | [metric:ladder_fetch/own_history#in_window_B=15] | [metric:ladder_fetch/own_history#captured_listed_B=16] of [metric:ladder_fetch/own_history#captured_competitive_B=16] | [metric:ladder_fetch/own_history#holes_B=0] | [metric:ladder_fetch/own_history#units_B=41.0] |
+| C | [metric:ladder_fetch/own_history#list_depth_C=19] | [metric:ladder_fetch/own_history#parsed_matches_C=18] | [metric:ladder_fetch/own_history#in_window_C=14] | [metric:ladder_fetch/own_history#captured_listed_C=1] of [metric:ladder_fetch/own_history#captured_competitive_C=1] | [metric:ladder_fetch/own_history#holes_C=0] | [metric:ladder_fetch/own_history#units_C=18.0] |
+
+- The sample holds [metric:ladder_fetch/own_history#matches=170] parsed
+  matches, from May 2024 to October 2026;
+  [metric:ladder_fetch/own_history#in_window=68] start inside the 90-day
+  window. The captured matches stay in `external/riot` and are not
+  parsed again.
+- Lobbies: [metric:ladder_fetch/own_history#lobby_Silver=89] Silver,
+  [metric:ladder_fetch/own_history#lobby_Gold=66] Gold,
+  [metric:ladder_fetch/own_history#lobby_Bronze=10] Bronze and
+  [metric:ladder_fetch/own_history#lobby_Platinum=5] Platinum.
+- [metric:ladder_fetch/own_history#kills=26204] kills carry
+  [metric:ladder_fetch/own_history#kill_positions_per_kill=5.73] positions
+  each, as in the dry run.
+- [metric:ladder_fetch/own_history#history_calls=29] list calls spent
+  [metric:ladder_fetch/own_history#history_units=117.0] units in
+  [metric:ladder_fetch/own_history#history_wall_s=1029] s; the lookups,
+  [metric:ladder_fetch/own_history#account_units=5.0] units. An uncached
+  page of eight cost nine units; a page HenrikDev held cost one.
+- The lists changed between the dry run and this run, 25 minutes apart.
+  A paged 110 deep, not 82, and B 61, not 42. The first six matches kept
+  their indices, but the dry run's index 20 moved to 49 on A and 39 on B:
+  matches were inserted mid-list, not added on top. `history` saw the
+  overlap disagree and repaged each account from index 0. The dry run's
+  apparent hole, a March match at index 20 while August matches existed,
+  is gone: every captured competitive match is now listed. HenrikDev
+  probably filled its store after the dry run's requests, so a later
+  request may list more. No hole remained, so the stored-matches
+  endpoint (`stored-matches`) was not called.
+
 ## Size
 
 Measured on the dry run's v4 records:
@@ -272,13 +319,25 @@ yield too few, merge Immortal and Radiant.
 `prototypes/ladder_fetch.py` lists them in its docstring: `status`, `window`,
 `seed --owners`, `seed --leaderboard`, `dry-run` (the player's accounts only,
 at most 20 match records, 24 calls and 120 units), `crawl`, `parse`,
-`measure-riot`, `measure-v4 [--record]` and `project [--units-per-record U]`.
+`measure-riot`, `measure-v4 [--record]`, `project [--units-per-record U]`, `lookup`,
+`history [--all-dates] [--labels A,B]`, `stored-matches --label A` and
+`measure-history [--record]`.
+
+`history` pages each owner account's whole competitive list and nothing
+else: it reads only the owner seeds, never the frontier, and adds no lobby
+player to it. It starts one index before the end of the stored prefix, so
+the overlapping match shows whether the list shifted; a shift restarts the
+account from index 0 once. `--all-dates` keeps matches older than the
+window instead of dropping them, and registers the dry run's out-of-window
+probe matches from raw without a new request. The parser drops no match by
+date; since `ladder-parse-0.2.0` the `matches` table carries `in_window`
+beside `season`, `game_version` and `started_at`.
 
 ## Not done
 
 - No crawl past the player's own accounts: it waits for the player's
   decision on the open question above.
-- The third account is not in the store, so the dry run covered two.
-- The player's full own history (about 124 matches) is not fetched; the dry
-  run's 20-record budget stopped it.
+- No second pass over the owner lists checks whether they grow again (see
+  "Own history").
+- No model is fitted on the owner history.
 - No Counter-Strike data; a CS baseline needs its own source and terms.
