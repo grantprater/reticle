@@ -410,8 +410,8 @@ at Riot's kill instants:
 The parse never feeds a reader, a reader's threshold or anything shown
 during play; the use policy in
 [EXTERNAL_GROUND_TRUTH.md](EXTERNAL_GROUND_TRUTH.md) lets it fit
-win-probability and coaching baselines and priors, held out from any match
-that evaluates them. No reader, owner or coaching event of this plan reads
+win-probability and coaching baselines and priors, and matches that evaluate
+a fitted model are held out from its fit. No reader, owner or coaching event of this plan reads
 it; it enters only the evaluation, stored apart and
 stamped with its own version, so an evaluation never scores the module
 against its own inputs. Positions in game units would carry into the baked

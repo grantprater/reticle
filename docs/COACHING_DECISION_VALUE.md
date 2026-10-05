@@ -34,8 +34,11 @@ events, regions, acceptance by labels) and
 
 An **episode** opens at a decision instant t_d, fixed before its outcome can be
 seen and triggered whether or not the player acted. Riot records hold
-`playerLocations` only at kill, plant and defuse instants, so every t_d is one
-of those instants; any player's kill serves as the clock.
+`playerLocations` only at kill, plant and defuse instants, so every episode
+fitted on Riot records opens at one of those instants; any player's kill
+serves as the clock. Rotation lag (cue to leaving) and first contact need
+movement between those instants, so they wait for reticle's POV streams or
+replays (S5).
 
 | Decision | Trigger t_d | Context c (the choice) | Alternatives |
 |---|---|---|---|
@@ -57,9 +60,11 @@ of those instants; any player's kill serves as the clock.
 - **Abilities** split the same way: sending a dog into a group is a decision;
   whether it led to a kill is an ability effect, read from the assist panel
   [domain:killfeed/assist-panel] once that stream merges.
-- `PROJECT_GUIDE.md` L417 lists positioning under mechanics. This design files
-  position relative to teammates and cues under decisions and leaves aim and
-  peeks under mechanics; the player decides (§3).
+- **Ruling.** Position relative to teammates and cues is a decision; how an
+  angle is cleared or swung is mechanics, probably beyond minimap fidelity and
+  left to a future screen-analysis channel. For coaching, this ruling
+  supersedes `PROJECT_GUIDE.md` L417, which lists positioning under
+  mechanics; that file keeps former guidance verbatim and stays unedited.
 
 ## 2. Estimator
 
@@ -72,8 +77,8 @@ with plant
 The point-of-view (POV) version marginalises the round filter's posterior over z.
 
 **Transitions.** Bayesian hazards P(o | z, c; θ) with competing outcomes.
-A trade-spacing episode ends within N s in one of three: the player dies
-untraded, dies and is traded within 5 s, or survives; a multinomial logistic
+A trade-spacing episode ends within N s (N = 10, fixed in §7) in one of
+three: the player dies untraded, dies and is traded within 5 s, or survives; a multinomial logistic
 fits them jointly, so spacing is priced through the chance of dying as well
 as the chance of being traded. Other episodes use: next kill ours, retake
 before the defuse landmark, next round's loadout class after a save.
@@ -102,11 +107,10 @@ M_e = Σ_o [P(o|z,c_e; θ_me)   − P(o|z,c_e;  θ_band)] · ΔV(o,z)   mechanic
 ε_e = ΔV_realised − Σ_o P(o|z,c_e; θ_me) · ΔV(o,z)               luck
 ```
 
-A baseline fitted with the player inside it absorbs his skill, a bias
-https://arxiv.org/abs/2401.09940 documents; that paper corrects it by
-multicalibration, while this design's own remedy is to leave the player out
-of θ_band. c_ref is a named alternative or the band's propensity-weighted
-typical context in z. Where the best choice depends on aim (taking a 1v1), D
+A baseline fitted with the player inside absorbs his skill
+(https://arxiv.org/abs/2401.09940 corrects this by multicalibration); this
+design leaves the player out of θ_band. c_ref is a named alternative or the
+band's propensity-weighted typical context in z. Where the best choice depends on aim (taking a 1v1), D
 is also shown at θ_me as a sensitivity line. M absorbs teammates' and
 opponents' skill too, so it reads "duel results against expectation", never
 "aim".
@@ -135,13 +139,11 @@ declares `rests_on`.
 budgets; this design names only what the models need from them.
 
 - `docs/LADDER_SAMPLE.md` (branch `ladder-fetch-20261004`): a polite
-  HenrikDev fetcher, the player's own accounts first. The snowball beyond his
-  own matches waits on his decision about HenrikDev's README, which disallows
-  "Big analytic projects" and asks for user consent.
+  HenrikDev fetcher, the player's own accounts first, then the ladder sample
+  (ruling 1 below).
 - `docs/CS_TRANSFER_SAMPLE.md` (branch `cs-scout-20261004`): the ESEA tables
-  already in the store's `external/cs/kaggle_mm_mirror`, an ESTA sample, the
-  Kaggle ranked-matchmaking set and 100 ESTA demos, proposed under a 2 GB
-  budget; FACEIT deferred.
+  already in the store's `external/cs/kaggle_mm_mirror` and the samples of
+  ruling 5.
 
 | Source | Holds (verified 2026-10-04) | Size | Use |
 |---|---|---|---|
@@ -149,7 +151,7 @@ budgets; this design names only what the models need from them.
 | HenrikDev ladder sample | Riot's schema relayed; field names unconfirmed | per `LADDER_SAMPLE.md` | fit θ_val and θ_band |
 | CS samples | per `CS_TRANSFER_SAMPLE.md` | 2 GB bound | θ_shape; CS skill gradient |
 | VLR.gg and the VLR-scraped Kaggle VCT set | round winner, buy class, first kills; no kill timeline or positions | — | not used: VLR forbids compiling its data (https://www.vlr.gg/terms) |
-| Own replays (15 `.vrf`) | all ten players at 128 Hz between kills | 15 | recommended held out (decisions) |
+| Own replays (15 `.vrf`) | all ten players at 128 Hz between kills | 15 | the 14 uncaptured: held out to test models |
 
 Riot's VAL-MATCH-V1 refuses personal apps
 (https://developer.riotgames.com/docs/valorant).
@@ -178,36 +180,40 @@ time-to-kill values. Pro data transfers the coarse economy shape only.
   one; patch enters as an effect, never a pool boundary; a patch that changes
   the economy rules is checked against [domain:rounds/credit-ledger-rules].
 
-**Splits.** (a) The 21 captured matches with records never enter a production
-fit; they evaluate the POV estimator and the card. The pilot alone fits on
-them, leaving one match out. (b) The player's uncaptured matches fit θ_me up
+**Splits.** (a) The 22 captured matches never enter a production fit; they
+evaluate the POV estimator and the card. The pilot alone fits on them,
+leaving one match out. (b) The player's uncaptured matches fit θ_me up
 to a play-order cutoff; the last 20% evaluate it. (c) The ladder sample splits
 by player; no match containing the player enters θ_val or θ_band. (d) CS never
 evaluates a VALORANT model. Each fitted table stamps its split manifest's
 digest, its source digests and its version.
 
-### Player decisions needed
+### Player decisions
 
-1. **HenrikDev consent.** Its README disallows "Big analytic projects" and
-   asks for user consent; ask its operator before the snowball goes past the
-   player's own matches (`LADDER_SAMPLE.md`).
-2. **Replays.** Whether the 14 uncaptured replays fit models or stay held out
-   as the only continuous-movement truth. Recommended: held out.
-3. **The VLR-scraped Kaggle VCT set.** Recommended: skip; VLR's terms forbid
-   compiling its data.
-4. **Positioning.** Whether position relative to teammates is a decision or
-   mechanics: `PROJECT_GUIDE.md` L417 lists positioning under mechanics; this
-   design treats it as a decision.
-5. **Lurk and rotation definitions.** The open questions in
+Ruled:
+
+1. **HenrikDev ladder sample.** Under 2000 matches, pseudonymised, never
+   published, for comparison with the player's own games
+   (`docs/LADDER_SAMPLE.md` on branch `ladder-fetch-20261004`).
+2. **Replays.** The 14 uncaptured replays stay held out to test models.
+3. **The VLR-scraped Kaggle VCT set.** Not used.
+4. **Positioning.** Position relative to teammates and cues is a decision;
+   angle technique is mechanics (§1).
+5. **CS data.** The Kaggle ranked-matchmaking set and 100 ESTA pro demos,
+   under the 2 GB bound (`docs/CS_TRANSFER_SAMPLE.md`); FACEIT deferred.
+
+Open:
+
+6. **Lurk and rotation definitions.** The open questions in
    COACHING_ROTATIONS_LURKS.md.
-6. **Labels.** Whether the player's labels tune ranking weights or only
+7. **Labels.** Whether the player's labels tune ranking weights or only
    accept.
 
 ## 4. Observations and fidelity
 
 Episodes need state at decision instants only, at 2 Hz. A 0.5 s lag costs
 [metric:winprob_reference/alive_lag#B3_phase_clock.lag_0.5s.bits=0.00715]
-bits. A lurker sitting behind a wall costs nothing between instants.
+bits.
 
 | Need | Stream | Accuracy |
 |---|---|---|
@@ -225,9 +231,8 @@ branch; engagements without a kill need self-HP drops.
 **Interface.** A future owner emits `decision_episode` events (t_d, z, c,
 reference, D, M, ε, intervals, agreement, `rests_on`, the fitted table's
 version); `reticle view` reads only those. Episodes compute after each round;
-the card renders after the match, never after a round
-(COACHING_ROTATIONS_LURKS.md: compute after each round, display after the
-match).
+the card renders after the match, never after a round, as
+COACHING_ROTATIONS_LURKS.md rules.
 
 ## 5. What the player sees
 
@@ -238,14 +243,6 @@ The numbers below are illustrative, not measured.
   band dies untraded from this state 30% of the time; at your spacing, 52%.
   Decision −0.03 WP [−0.05, −0.01], 0.88 agreement. Duel: lost one expected at
   47%; within expectation, not coached."
-- **Rotation, round 9, Haven defence.** "Left C 6.5 s after the killfeed showed
-  two allies dead at A. At plant you stood 31 m from A Site. Leaving 3 s
-  earlier raises the band's retake estimate by 0.04 [0.00, 0.08], 0.71
-  agreement: uncertain."
-- **Lurk, round 12, Bind attack.** "Took a 1v2 at A Short 6 s before the B
-  execute, 40 m from the nearest teammate. Untraded. Decision −0.04 [−0.09,
-  +0.01]: uncertain. Compared with holding until the execute (band propensity
-  0.34)."
 - **Match card.** The three confident episodes with the largest |D|, each
   beside a same-z control chosen blind to outcome, for the player to label.
   Season lines are shrunk ("lurk spacing −0.4 rounds per match against your
@@ -273,8 +270,8 @@ repository venv.
 | S1 | Fetch (`ladder-fetch-20261004`, `cs-scout-20261004`) | the fetchers' manifest reports | Band counts meet §3 or are reported short; HenrikDev-to-PD diff clean on 3 own matches; ids in the store only |
 | S2 | Hierarchical transition and propensity models | `decision_value.py fit` | Held-out log loss on held-out ladder players and on the player's held-out 20% beats the band-free model, with a bootstrap interval; τ with intervals; separation: on held-out ladder players, the per-player correlation of mean D and mean M has a 95% interval inside ±0.3, set before the run; split digest in deps |
 | S3 | CS transference | `decision_value.py transfer` | Learning curve on band data: CS prior against a flat prior at 1-50 matches, with the crossing point reported whichever way it falls; CS skill gradient against band gradient |
-| S4 | POV substitution on the 21 captured matches, at the same kill instants as S0 | `decision_value.py pov` | Reticle-feature model within 0.005 nats of the record-feature model; coverage reported |
-| S5 | Rotation and lurk episodes | after COACHING_ROTATIONS_LURKS R1-R5 and a plant-site field | Retake model from `plantPlayerLocations` resolves defenders' distance (interval excludes 0) |
+| S4 | POV substitution on the 22 captured matches, at the same kill instants as S0 | `decision_value.py pov` | Reticle-feature model within 0.005 nats of the record-feature model; coverage reported |
+| S5 | Rotation, lurk and first-contact episodes | after COACHING_ROTATIONS_LURKS R1-R5 and a plant-site field | Retake model from `plantPlayerLocations` resolves defenders' distance (interval excludes 0) |
 | S6 | `decision_episode` owner and card | `reticle view <sid>` | The player labels surfaced episodes against controls; a bar the player sets beforehand |
 | S7 | Skill-ladder report | `decision_value.py ladder` | Per-band coefficients with intervals; a monotone trend is claimed only where intervals separate |
 
@@ -282,32 +279,41 @@ repository venv.
 
 The 22 stored Riot records, single-threaded, seconds of compute. Leave one
 match out, so every evaluated match is held out from the fit that scores it;
-production fits exclude these captured matches. Episodes open at every kill
-instant with the player and at least one teammate alive
-([metric:decision_value/pilot_power#kill_instants_player_alive_with_teammate=1849]
-on the [metric:decision_value/pilot_power#matches_identified=21] matches that
-identify the player). Context is the nearest living teammate's distance from
-that instant's `playerLocations` (the player's team only). Outcomes within N s
-compete: dies untraded, dies traded within 5 s (revived victims removed),
-survives. Fit them jointly given distance and z with a player offset, price
-D and M with ΔV from `winprob_reference`, then substitute reticle's teammate
-positions at the same instants on the captured matches (S4).
+production fits exclude these captured matches. The player is found by
+`riot_ground_truth.identify_player`, then `resolve_lineup_player`, which names
+him in [metric:decision_value/pilot_power#matches_by_lineup_agent=1] record
+(4f207c0c4e39) by the lineup's agent; episodes there declare
+`rests_on: lineup.player`. Episodes open at every kill instant with the player
+and at least one teammate alive
+([metric:decision_value/pilot_power#kill_instants_player_alive_with_teammate=1907]
+on all [metric:decision_value/pilot_power#matches_identified=22] records).
+Context is the nearest living teammate's distance from that instant's
+`playerLocations` (the player's team only). Outcomes within N = 10 s, fixed
+now, compete: dies untraded, dies traded within 5 s (revived victims
+removed), survives; a death after 10 s counts as survival. Episodes from kills
+less than 10 s apart overlap and share outcomes; the bootstrap resamples whole
+matches, so it absorbs that correlation. Fit the outcomes jointly given
+distance and z with a player offset, price D and M with ΔV from
+`winprob_reference`, then substitute reticle's teammate positions at the same
+instants on the captured matches (S4).
 
 **Power.** The player has
-[metric:decision_value/pilot_power#player_deaths=309] deaths in the records,
-[metric:decision_value/pilot_power#deaths_with_living_teammate=266] with a
+[metric:decision_value/pilot_power#player_deaths=329] deaths in the records,
+[metric:decision_value/pilot_power#deaths_with_living_teammate=286] with a
 living teammate, of which
-[metric:decision_value/pilot_power#traded_5s_of_those=43] were traded within
+[metric:decision_value/pilot_power#traded_5s_of_those=45] were traded within
 5 s. On those deaths the trade offset's standard error is about
-[metric:decision_value/pilot_power#offset_se_logit=0.167] logit, so only an
-offset beyond about ±[metric:decision_value/pilot_power#detectable_offset_logit=0.326]
-logit is detectable. A per-match correlation over 21 matches has a 95%
-half-width of about
-[metric:decision_value/pilot_power#match_r_halfwidth_95_n21=0.432], and mean
+[metric:decision_value/pilot_power#offset_se_logit=0.162] logit, so an offset
+under about ±[metric:decision_value/pilot_power#significance_offset_logit=0.318]
+logit cannot reach significance, and 80% power needs about
+±[metric:decision_value/pilot_power#power80_offset_logit=0.455] logit. A
+per-match correlation over 22 matches has a 95% half-width of about
+[metric:decision_value/pilot_power#match_r_halfwidth_95_n22=0.422], and mean
 D and mean M share the player offset by construction, so the pilot does not
 test whether D and M separate; S2 does.
 
-**Planned predictions**, to log in `notes/predictions.jsonl` before the run:
+**Planned predictions**, to log in `notes/predictions.jsonl` before the run,
+all with N = 10 s:
 
 - **P1.** The distance slope on dying untraded is positive and its 95%
   interval excludes 0. Among deaths with a living teammate, the nearest
@@ -316,10 +322,12 @@ test whether D and M separate; S2 does.
 - **P2.** Distance improves held-out log loss over z alone by at least 0.01
   nats per episode, with a bootstrap interval that excludes 0.
 - **P3.** The player's offsets' intervals span 0.
-- **P4.** At the player's deaths with at least one living teammate in the
-  record, reticle's teammate positions place at least one ally at 70% or more
-  of them. The model on reticle's positions sits within 0.005 nats of the
-  record-position model.
+- **P4.** At the episode instants (kill instants with the player and at
+  least one teammate alive in the record), reticle's teammate positions place
+  at least one living ally at 70% or more of them. The same share at the
+  player's deaths with a living teammate is reported as a second line. The
+  model on reticle's positions sits within 0.005 nats of the record-position
+  model.
 
 If P1 fails while P2 holds, test path distance next. If P4 fails, reader
 coverage, not sample size, blocks this behaviour.
@@ -330,7 +338,6 @@ coverage, not sample size, blocks this behaviour.
 - Price information or distraction that leaves no transition, such as a lurker
   holding three defenders' attention.
 - Value utility beyond its effect on transitions, or comms at all.
-- Give confident verdicts on most single moments.
 - Coach teammates' decisions, or predict how opponents adapt to a changed
   policy (https://arxiv.org/abs/1812.05170).
 - Claim causes beyond "no unmeasured confounding given (z, c)".
