@@ -4115,8 +4115,8 @@ def cmd_smokes(args) -> int:
     if dead is not None:
         h = dead[0]
         print(f"{sid}: {h['casts']} Ruse casts while dead ({h['clouds']} clouds) over "
-              f"{h['windows']} dead windows, {h['refused']} beyond the charge bound "
-              f"-> {dead[1]}")
+              f"{h['windows']} dead windows, {h['refused']} beyond the charge bound, "
+              f"by basis {h['bases']} -> {dead[1]}")
     return 0
 
 
@@ -4143,6 +4143,7 @@ def _dead_ruse(store, sid: str, owner_rows: list[dict], player: str | None):
             "casts": sum(r["player_cast"] for r in got["rows"]),
             "clouds": sum(r["clouds"] for r in got["rows"] if r["player_cast"]),
             "refused": sum(not r["player_cast"] for r in got["rows"]),
+            "bases": dict(sorted(Counter(r["basis"] for r in got["rows"]).items())),
             "dead_windows": got["windows"], "parameters": params,
             "inputs": {**stamps, "smoke_owner": owner_rows[0].get("smoke_owner_version"),
                        "ability_state": (state[0].get("ability_state_version")

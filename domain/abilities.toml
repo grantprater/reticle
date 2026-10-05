@@ -203,7 +203,13 @@ since = "2026-09-23"
 subject = "clove:ruse"
 source = "prototypes/ability_hud.py measured on 28f53bfddbbe"
 use = "ability_hud.slot_counts at slot E (index 2)"
-see = ["abilities/clove-rouse"]
+exceptions = """
+the two charges are the living Clove's; a dead Clove holds at most one
+[domain:abilities/clove-dead-ruse-one-charge], recharged while she is dead
+[domain:abilities/clove-dead-ruse-recharges]
+"""
+see = ["abilities/clove-rouse", "abilities/clove-dead-ruse-one-charge",
+       "abilities/clove-dead-ruse-recharges"]
 
 [phoenix-blaze]
 claim = """
@@ -377,6 +383,11 @@ known = "player"
 since = "2026-09-23"
 subject = "clove:ruse"
 use = "a two-charge slot drop at one instant is one Ruse cast, not two"
+exceptions = """
+only while Clove lives: a dead Clove holds at most one charge, so each dead
+cast is one cloud [domain:abilities/clove-dead-ruse-one-charge]
+"""
+see = ["abilities/clove-dead-ruse-one-charge", "abilities/clove-smokes-after-death"]
 
 [clove-ruse-targeting-view]
 claim = """
@@ -4090,13 +4101,65 @@ a Ruse cloud can appear after its Clove's death; a smoke placed after
 another agent's death belongs to someone else
 """
 exceptions = """
-whether a dead Clove's Ruse follows the living rules (charges, batch launch
-[domain:abilities/clove-ruse-batch-launch], placement preview
-[domain:abilities/clove-ruse-targeting-view]) is unasked; whether Ruse
-restocks while its Clove is dead is a question for the player (2026-10-05);
-the pipeline's evidence for it is in docs/ABILITY_STATE_MODEL.md
+a dead Clove's Ruse does not follow the living charge rules: it recharges
+while she is dead but not at the death
+[domain:abilities/clove-dead-ruse-recharges], and she holds at most one
+charge, so each dead cast places one cloud
+[domain:abilities/clove-dead-ruse-one-charge]; whether the placement preview
+[domain:abilities/clove-ruse-targeting-view] shows while dead is unasked
 """
-see = ["abilities/clove-rouse", "abilities/clove-dead-smoke-range-circle"]
+see = ["abilities/clove-rouse", "abilities/clove-dead-smoke-range-circle",
+       "abilities/clove-dead-ruse-recharges", "abilities/clove-dead-ruse-one-charge"]
+
+[clove-dead-ruse-recharges]
+claim = """
+A dead Clove's Ruse does not restock at the moment of her death, but its
+charges recharge while she stays dead, up to her dead cap of one
+[domain:abilities/clove-dead-ruse-one-charge].
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "clove:ruse"
+source = """
+the player, 2026-10-05 (chat), paraphrased, answering whether Ruse restocks
+while its Clove is dead
+"""
+use = """
+after a dead Clove spends her charge, another can come only after a recharge;
+the death itself adds none. The recharge time is the files'
+[domain:game_data/clove-ruse-after-death-game-data]
+[domain:game_data/ability-restock-times]
+"""
+exceptions = """
+whether a restock already running at the death keeps running, and whether the
+timer advances while she holds her one charge, are unasked
+"""
+see = ["abilities/clove-smokes-after-death", "abilities/clove-tray-charges",
+       "abilities/clove-ruse-batch-launch", "abilities/clove-dead-ruse-one-charge"]
+
+[clove-dead-ruse-one-charge]
+claim = """
+A dead Clove holds at most one Ruse charge, so each Ruse cast she makes while
+dead places one cloud; the living two-cloud batch launch
+[domain:abilities/clove-ruse-batch-launch] does not apply while she is dead.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "clove:ruse"
+source = """
+the player, 2026-10-05 (chat), paraphrased, answering how many Ruse charges a
+dead Clove holds; the files agree (PostDeathMaxCharges 1,
+[domain:game_data/clove-ruse-after-death-game-data])
+"""
+use = """
+count each cloud a dead Clove places as one cast; the charges held at her
+death count only up to one
+"""
+see = ["abilities/clove-smokes-after-death", "abilities/clove-tray-charges",
+       "abilities/clove-ruse-batch-launch", "abilities/clove-dead-ruse-recharges",
+       "game_data/clove-ruse-after-death-game-data"]
 
 [clove-dead-smoke-range-circle]
 claim = """

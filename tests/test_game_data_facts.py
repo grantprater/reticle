@@ -92,7 +92,7 @@ class Regeneration(unittest.TestCase):
         gd._cache.clear()
         text, cov = gd.render()
         self.assertEqual(text, gd.FACTS.read_text(encoding='utf-8'))
-        self.assertEqual(len(cov), 116)
+        self.assertEqual(len(cov), 117)
 
 
 if __name__ == '__main__':
