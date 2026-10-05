@@ -389,10 +389,11 @@ def _spans() -> dict:
 SPAN_READERS = ("minimap", "ping", "ally_icon", "minimap_dark")
 
 
-def _code(path: str, stamp: str, *, optional: bool = False) -> dict:
+def _code(path: str, stamp: str, *, optional: bool = False, before: str | None = None) -> dict:
     """A rule's stamp the stream records beside its inputs: compared with the
-    code's `stamp`, not with anything stored."""
-    return _in(path, "=" + stamp, optional=optional)
+    code's `stamp`, not with anything stored. `before`, as for `_in`: what a
+    head written before the stamp was recorded is compared as."""
+    return _in(path, "=" + stamp, optional=optional, before=before)
 
 
 #: Keys a stream's head records that are not stored-input stamps, and why
@@ -465,7 +466,8 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     from .version import (ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION,
                           ABILITY_CANDIDATES_VERSION, ABILITY_FIT_VERSION, ABILITY_SHAPE_VERSION,
                           ICON_POSE_PRIOR_VERSION, STACK_FIT_VERSION,
-                          ICON_TEARDROP_VERSION, TEARDROP_VERSION, TRAY_VERSION)
+                          ICON_TEARDROP_VERSION, ROUND_VERSION, TEARDROP_VERSION,
+                          TRAY_VERSION)
     geo ={"geometry": _in("geometry_built_by", "geometry")}
     death = "death#death_adjudication_version"
     return {
@@ -568,7 +570,13 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                           "roster": _in("inputs.roster", "roster")},
         # The teammates' poses are the stored ally reader's (team-vision-0.7.0).
         "team_vision": {"ally_icon": _in("inputs.ally_icon", "ally_icon"), **geo},
-        "round_entity": {"menu_open": _in("menu_open", "menu_open#menu_version"),
+        # `reticle lifetimes` builds the rounds in memory from the stored HUD
+        # (`rounds.build_rounds`) rather than reading the round table, so the
+        # round rule is a code stamp; a head written before it was recorded
+        # read an unknown rule and is stale.
+        "round_entity": {"round_rule": _code("inputs.round_rule", ROUND_VERSION,
+                                             before="unrecorded"),
+                         "menu_open": _in("menu_open", "menu_open#menu_version"),
                          "hud": _in("inputs.hud", "hud"), "roster": _in("inputs.roster", "roster"),
                          "ally_icon": _in("inputs.ally_icon", "ally_icon"),
                          "death": _in("inputs.death", death),
