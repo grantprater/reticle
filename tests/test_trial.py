@@ -207,10 +207,15 @@ class RoundCacheTest(unittest.TestCase):
         self.assertIsNone(why)
         self.assertEqual(cache.record["codec"], "ffv1")
         # Out of order, so the reader must seek back.
-        got = {s.frame_idx: s for s in cache.samples([133.4, 0.0, 66.7])}
+        got = {s.frame_idx: s for s in cache.samples([133.4, 0.0, 66.7], rois=["minimap"])}
+        x0, y0, x1, y1 = roi_rects("minimap", profile, (1920, 1080))[0]
         for i, f in enumerate(frames[:3]):
-            for x0, y0, x1, y1 in roi_rects("minimap", profile, (1920, 1080)):
-                self.assertTrue(np.array_equal(got[i].frame[y0:y1, x0:x1], f[y0:y1, x0:x1]))
+            self.assertTrue(np.array_equal(got[i].frame[y0:y1, x0:x1], f[y0:y1, x0:x1]))
+        # The tray is held on its 0.5 s grid only (`GRID_ROIS`): here the first frame.
+        x0, y0, x1, y1 = roi_rects("minimap", profile, (1920, 1080))[1]
+        (smp,) = cache.samples([0.0])
+        self.assertTrue(np.array_equal(smp.frame[y0:y1, x0:x1], frames[0][y0:y1, x0:x1]))
+        self.assertEqual(cache.refusal(66.7, ["hud_abilities"]), "thinned_out")
 
 
 class AutoSourceTest(unittest.TestCase):
@@ -443,7 +448,8 @@ class DarkCacheTest(unittest.TestCase):
         root, frames = held
         profile = get_profile("valorant-16x9")
         cache, _ = RoiCache.load(root, _manifest(), profile, "minimap")
-        got = {s.frame_idx: s for s in cache.samples([0 * 66.7, 3 * 66.7, 5 * 66.7])}
+        got = {s.frame_idx: s for s in cache.samples([0 * 66.7, 3 * 66.7, 5 * 66.7],
+                                                     rois=["minimap"])}
         self.assertEqual(sorted(got), [0, 3, 5])
         x0, y0, x1, y1 = roi_rects("minimap", profile, (1920, 1080))[0]
         for i, s in got.items():

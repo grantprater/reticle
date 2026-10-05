@@ -700,7 +700,7 @@ def sheet(out: Path, a: float, b: float, per_kind: int = 8, seed: int = 0,
             for tt in at_t:
                 j = int(np.argmin(np.abs(ts - tt)))
                 want.append(float(ts[j]))
-            got = {s.t_ms: s.frame for s in cache.samples(sorted(set(want)), rois="minimap")}
+            got = {s.t_ms: s.frame for s in cache.samples(sorted(set(want)), rois=["minimap"])}
             row = []
             for t in want:
                 fr = got.get(t)
