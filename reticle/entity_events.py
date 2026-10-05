@@ -67,7 +67,7 @@ from .entity_contract import (ENTITY_CONTRACT_VERSION, LEDGER_SUFFIX, NO_ESTIMAT
 #: The arbiter every naming lane rests on; a change to it rebuilds each lane
 #: whose `names` is true (plan section 3, "Version stamp and staleness").
 #: Pinned to `adjudication.identity.AGENT_IDENTITY_VERSION` by a test.
-NAME_ARBITER = "agent-identity-0.10.0"
+NAME_ARBITER = "agent-identity-0.11.0"
 
 #: The lanes, in the plan's order: minimap and screen lanes first, audio
 #: last. `inputs` are the stored streams each reads; a lane waiting on an
