@@ -56,7 +56,13 @@ so a restock never raises the stored fill. The two crops of the short
 "returns" show a cyan screen streak over the bar with the countdown still
 running (`96aa1ae9b96f` 672.0 s, '38'; `e37fdeca944f` 396.6 s, '29'). The
 crops (`CROP_READS`) measure both restocks at 50 s, within half a second, on
-three spends each, and the countdown reads '50' on the spend sample.
+three spends each, and the countdown reads '50' on the spend sample. Those
+reads are now facts [domain:abilities/sova-recon-bolt-restock-observed]
+[domain:abilities/skye-guiding-light-restock-observed]
+[domain:hud/ability-tray-restock-countdown], and the tray reader classes the
+gold segment (`tray.segment_classes`), so `ability_state` stores a live
+return from `ability-state-0.8.0`. This prototype still pairs `recharge`
+verdicts only; it predates the `live_return` transition.
 """
 from __future__ import annotations
 

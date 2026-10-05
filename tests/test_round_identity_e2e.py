@@ -108,9 +108,11 @@ class RoundIdentityE2ETests(unittest.TestCase):
 
     def test_round4_bounds_and_sightings_ingestion(self):
         """Verify round boundaries and ground-truth label ingestion."""
-        # round-0.9.0: round 4's buy-phase reset is unread, so it starts one
-        # median post-round gap (7.5 s) after round 3's end at 232.0 s.
-        self.assertEqual(self.t_start_ms, 239500.0)
+        # round-0.10.0: round 3 was planted, so its last clock reading is the
+        # pre-plant clock and no reset jump is read; round 4 starts at its
+        # first buy-phase reading, 239.0 s (0.9.0 placed it one median
+        # post-round gap after round 3's end at 232.0 s, 239.5 s).
+        self.assertEqual(self.t_start_ms, 239000.0)
         self.assertEqual(self.t_end_ms, 351000.0)
         self.assertEqual(len(self.sightings), 25)
 

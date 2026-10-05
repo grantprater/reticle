@@ -227,7 +227,14 @@ from .weapon import caster_claim, classify_killfeed_icon, entry_weapon
 # 0.38.0 (2026-10-04): each joined assister carries the assist verdict's
 # `name_reason`, so an unnamed portrait no agent's art clears ('portrait not
 # recognised') stays distinct from an assister unnamed for another reason.
-DEATH_ADJUDICATION_VERSION = "death-adjudication-0.38.0"
+# 0.39.0 (2026-10-05): the scoreboard death witness (`scoreboard_death_claims`)
+# no longer needs the victim lit on the last board before its killfeed entry.
+# Where that interval counts fewer newly dimmed agents than deaths, the lower
+# board moves back to the last one before the side's latest dim change, and
+# the count is taken again over the wider interval; the narrow refusal stays
+# in the claim's evidence (`widened`). 043bafca271a 474.5 s: Waylay was dim at
+# 474.0 s, before the entry's first read, and was refused.
+DEATH_ADJUDICATION_VERSION = "death-adjudication-0.39.0"
 
 #: Channels an elimination collision implicates: the two killfeed readings
 #: that repeated a name, the board that dimmed another agent, and the roster
@@ -729,6 +736,19 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
     [domain:rounds/scoreboard-relights-after-top-bar], so such an
     opening carries the previous round's dead; the witness skips it on that
     side and counts the skips in the evidence.
+
+    A killfeed entry's first read can lag the board's dimming: the entry's
+    onset is the first sample that READ it, and a feed hidden or unread for a
+    sample or two puts it after a board that already dims the victim
+    (043bafca271a 474.5 s: Waylay dim at 474.0 s, where the feed read empty).
+    So where the interval counts fewer newly dimmed agents than deaths and no
+    revive intervened, the lower board moves back once: to the last usable
+    board before the side's latest dim change, the last reading on which the
+    agent who dimmed there was still lit, often in an earlier opening. The
+    count is taken again over the wider interval, every killfeed death in it
+    included, and must still match; the narrow interval's refusal and board
+    stay in the evidence (`widened`). A side whose dim set never changed
+    before the death keeps the narrow refusal.
     """
     from .scoreboard import SCOREBOARD_AGENT_VERSION, side_state
     accepted = [o for o in openings if o["accepted"]]
@@ -755,77 +775,111 @@ def scoreboard_death_claims(entries: list[dict], openings: list[dict],
                                else "no_accepted_opening_after")
             continue
         lo, hi = before[-1], after[0]
-        was, now = side_state(lo, side), side_state(hi, side)
-        newly = now["dim"] - was["dim"]
-        revived = was["dim"] - now["dim"]
-        deaths = [j for j, e in enumerate(entries)
-                  if e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) <= hi["t_ms"]
-                  and not _second_life(j, entries, second_life) and not revive_entry(e)]
-        claim["evidence"] = {
-            "opening_before": {"t_ms": lo["t_ms"], "frame_idx": lo["frame_idx"],
-                               "dim": sorted(was["dim"])},
-            "opening_after": {"t_ms": hi["t_ms"], "frame_idx": hi["frame_idx"],
-                              "dim": sorted(now["dim"])},
-            "newly_dim": sorted(newly),
-            "revived": sorted(revived),
-            "interval_deaths": [float(entries[j]["t_ms"]) for j in deaths],
-            "skipped_contradicted": sum(lo["t_ms"] < t < hi["t_ms"] for t, s in contradicted
-                                        if s == side),
-            "observation_keys": [s["observation_key"] for s in hi["rows"]
-                                 if s["team"] == side and s["agent"] in newly],
-        }
-        given = [named.get(j) for j in deaths if named.get(j)]
-        repeated = sorted({a for a in given if given.count(a) > 1})
-        if repeated:
-            claim["collision"] = {
-                "side": side, "opening_before_ms": lo["t_ms"], "opening_after_ms": hi["t_ms"],
-                "newly_dim": sorted(newly), "agents": repeated,
-                "deaths": [{"t_ms": float(entries[j]["t_ms"]), "slot": entries[j].get("slot"),
-                            "agent": named.get(j), "witnesses": (witnesses or {}).get(j, [])}
-                           for j in deaths]}
-        # A revived agent can die again before the next opening and stay dim
-        # at both ends (b3b9defb6fd7 1289.5 s, Skye), so the difference no
-        # longer counts the interval's deaths.
-        revives = [float(e["t_ms"]) for e in entries if revive_entry(e)
-                   and e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) <= hi["t_ms"]]
-        if revives:
-            claim["evidence"]["interval_revives"] = revives
-            claim["reason"] = "revive_in_interval"
-        elif len(newly) != len(deaths):
-            claim["reason"] = (f"newly_dim_{len(newly)}_disagrees_with_"
-                               f"killfeed_deaths_{len(deaths)}")
-        elif len(newly) == 1:
-            claim["agent"] = next(iter(newly))
-        else:
-            others = [j for j in deaths if j != i]
-            names = [named.get(j) for j in others]
-            claim["evidence"]["by_elimination"] = [
-                {"t_ms": float(entries[j]["t_ms"]), "agent": named.get(j)} for j in others]
-            if repeated:
-                claim["reason"] = f"elimination_collision {repeated}"
-                if named.get(i) in repeated:
-                    claim["contest"] = {
-                        "reason": "contested_by_collision",
-                        "alternatives": [{"agent": named[i],
-                                          "witnesses": (witnesses or {}).get(i, [])}] + [
-                            {"agent": a, "witnesses": [["scoreboard_dim", a]],
-                             "observation_keys": [s["observation_key"] for s in hi["rows"]
-                                                  if s["team"] == side and s["agent"] == a]}
-                            for a in sorted(newly - set(given))],
-                        "implicated": list(COLLISION_IMPLICATED)}
-            elif not all(names):
-                claim["reason"] = f"interval_unordered {sorted(newly)}"
-            elif not set(names) <= newly or len(set(names)) != len(names):
-                claim["reason"] = (f"other_names_not_in_newly_dim {sorted(names)} "
-                                   f"vs {sorted(newly)}")
-            else:
-                left = newly - set(names)
-                if len(left) == 1:
-                    claim["agent"] = next(iter(left))
-                    claim["depends_on_entries"] = others
-                else:
-                    claim["reason"] = f"interval_unordered {sorted(left)}"
+        claim.update(_board_interval(i, entries, lo, hi, side, named, second_life,
+                                     contradicted, witnesses))
+        ev = claim["evidence"]
+        if (claim["agent"] is None and "interval_revives" not in ev
+                and len(ev["newly_dim"]) < len(ev["interval_deaths"])):
+            # The victim may have dimmed before the entry's first read: count
+            # again from the last board before the side's latest dim change.
+            dim = side_state(lo, side)["dim"]
+            earlier = [o for o in before[:-1] if side_state(o, side)["dim"] != dim]
+            if earlier:
+                narrow = {k: claim.pop(k) for k in ("reason", "evidence", "collision",
+                                                    "contest", "depends_on_entries")
+                          if k in claim}
+                claim.update(_board_interval(i, entries, earlier[-1], hi, side, named,
+                                             second_life, contradicted, witnesses))
+                claim["evidence"]["widened"] = {
+                    "reason": narrow["reason"],
+                    "opening_before": narrow["evidence"]["opening_before"],
+                    "newly_dim": narrow["evidence"]["newly_dim"],
+                    "interval_deaths": narrow["evidence"]["interval_deaths"],
+                    "collision": narrow.get("collision")}
     return claims
+
+
+def _board_interval(i: int, entries: list[dict], lo: dict, hi: dict, side: str,
+                    named: dict[int, str | None], second_life: set[int],
+                    contradicted: set[tuple[float, str]],
+                    witnesses: dict[int, list] | None) -> dict:
+    """`scoreboard_death_claims`' verdict for entry `i` over the interval
+    (`lo`, `hi`] between two accepted openings: `agent`, `reason`,
+    `evidence` and, where they apply, `collision`, `contest` and
+    `depends_on_entries`."""
+    from .scoreboard import side_state
+    claim = {"agent": None, "reason": None}
+    was, now = side_state(lo, side), side_state(hi, side)
+    newly = now["dim"] - was["dim"]
+    revived = was["dim"] - now["dim"]
+    deaths = [j for j, e in enumerate(entries)
+              if e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) <= hi["t_ms"]
+              and not _second_life(j, entries, second_life) and not revive_entry(e)]
+    claim["evidence"] = {
+        "opening_before": {"t_ms": lo["t_ms"], "frame_idx": lo["frame_idx"],
+                           "dim": sorted(was["dim"])},
+        "opening_after": {"t_ms": hi["t_ms"], "frame_idx": hi["frame_idx"],
+                          "dim": sorted(now["dim"])},
+        "newly_dim": sorted(newly),
+        "revived": sorted(revived),
+        "interval_deaths": [float(entries[j]["t_ms"]) for j in deaths],
+        "skipped_contradicted": sum(lo["t_ms"] < t < hi["t_ms"] for t, s in contradicted
+                                    if s == side),
+        "observation_keys": [s["observation_key"] for s in hi["rows"]
+                             if s["team"] == side and s["agent"] in newly],
+    }
+    given = [named.get(j) for j in deaths if named.get(j)]
+    repeated = sorted({a for a in given if given.count(a) > 1})
+    if repeated:
+        claim["collision"] = {
+            "side": side, "opening_before_ms": lo["t_ms"], "opening_after_ms": hi["t_ms"],
+            "newly_dim": sorted(newly), "agents": repeated,
+            "deaths": [{"t_ms": float(entries[j]["t_ms"]), "slot": entries[j].get("slot"),
+                        "agent": named.get(j), "witnesses": (witnesses or {}).get(j, [])}
+                       for j in deaths]}
+    # A revived agent can die again before the next opening and stay dim
+    # at both ends (b3b9defb6fd7 1289.5 s, Skye), so the difference no
+    # longer counts the interval's deaths.
+    revives = [float(e["t_ms"]) for e in entries if revive_entry(e)
+               and e.get("side") == side and lo["t_ms"] < float(e["t_ms"]) <= hi["t_ms"]]
+    if revives:
+        claim["evidence"]["interval_revives"] = revives
+        claim["reason"] = "revive_in_interval"
+    elif len(newly) != len(deaths):
+        claim["reason"] = (f"newly_dim_{len(newly)}_disagrees_with_"
+                           f"killfeed_deaths_{len(deaths)}")
+    elif len(newly) == 1:
+        claim["agent"] = next(iter(newly))
+    else:
+        others = [j for j in deaths if j != i]
+        names = [named.get(j) for j in others]
+        claim["evidence"]["by_elimination"] = [
+            {"t_ms": float(entries[j]["t_ms"]), "agent": named.get(j)} for j in others]
+        if repeated:
+            claim["reason"] = f"elimination_collision {repeated}"
+            if named.get(i) in repeated:
+                claim["contest"] = {
+                    "reason": "contested_by_collision",
+                    "alternatives": [{"agent": named[i],
+                                      "witnesses": (witnesses or {}).get(i, [])}] + [
+                        {"agent": a, "witnesses": [["scoreboard_dim", a]],
+                         "observation_keys": [s["observation_key"] for s in hi["rows"]
+                                              if s["team"] == side and s["agent"] == a]}
+                        for a in sorted(newly - set(given))],
+                    "implicated": list(COLLISION_IMPLICATED)}
+        elif not all(names):
+            claim["reason"] = f"interval_unordered {sorted(newly)}"
+        elif not set(names) <= newly or len(set(names)) != len(names):
+            claim["reason"] = (f"other_names_not_in_newly_dim {sorted(names)} "
+                               f"vs {sorted(newly)}")
+        else:
+            left = newly - set(names)
+            if len(left) == 1:
+                claim["agent"] = next(iter(left))
+                claim["depends_on_entries"] = others
+            else:
+                claim["reason"] = f"interval_unordered {sorted(left)}"
+    return claim
 
 
 def board_collisions(session_id: str, round_no, claims: list[dict]) -> list[dict]:

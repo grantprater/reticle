@@ -1358,6 +1358,7 @@ def movement_facts():
         f'exceptions = {tq(exc)}',
         f'values = {{ speed = {{ base_max_speed_m_s = {fmt(base / 100)} }}, state_multiplier = {{ walking = {fmt(walk)}, '
         f'jumping = {fmt(jump)}, crouching = {fmt(crouch)}, on_ascender = {fmt(asc)} }} }}',
+        f"supersedes = {tq('[domain:movement/character-max-speed]: its base top speed and state multipliers, read from the same BasePlayerCharacter export of this build; this fact names the 1.1 state Jumping, which that fact left unread')}",
         'see = ["game_data/game-units-centimetres", "game_data/weapon-run-speed-multipliers"]']) + '\n'))
     # weapons
     W = '/Game/Equippables/Guns/'
@@ -1458,9 +1459,11 @@ def movement_facts():
     unit = '\n'.join([
         '[game-units-centimetres]',
         f'claim = {tq("The game files measure lengths in Unreal units, one centimetre each, and speeds in centimetres per second. A player capsule 1.96 m tall and a 6.75 m/s run fit that unit [domain:game_data/character-eye-height] [domain:game_data/character-movement-speeds].")}',
-        'kind = "rule"', 'known = "cited"', f'since = "{SINCE}"', 'subject = "game files:units"',
+        'kind = "geometry"', 'known = "cited"', f'since = "{SINCE}"', 'subject = "game files:units"',
         f'source = {tq("Unreal Engine documentation: one Unreal unit is one centimetre by default; VALORANT is built on Unreal Engine (the export JSON carries engine class names such as CharacterMovementComponent fields and UScriptClass). No VALORANT file states the unit.")}',
         'use = "divide a game-file length by 100 for metres"',
+        'values = { units_per_m = 100.0 }',
+        f"supersedes = {tq('[domain:movement/game-units-are-centimetres]: the unit, one game unit to the centimetre and 100 to the metre; the navigation agent dimensions it gave are in [domain:game_data/character-eye-height]')}",
         'see = ["game_data/character-eye-height", "game_data/character-movement-speeds"]']) + '\n'
     out.insert(0, ('game-units-centimetres', unit))
     return out
@@ -1668,6 +1671,14 @@ def restock_fact():
                "the component's time is the wait after a reclaim, as far as its field name says. An AbilityTuning "
                "row may be retuned on the server. These are class defaults; a field name is the designers' word, "
                "not a measured meaning.")
+    # A timed capture's verdicts on the disagreements, recorded as facts of
+    # their own; the rest stand as disagreements.
+    exc.append("A timed capture has since decided two of these disagreements in the files' favour: Sova "
+               "Recon Bolt and Skye Guiding Light restock in about 50 s on the tray's countdown and "
+               "returned charge, each timed on three spends "
+               "[domain:abilities/sova-recon-bolt-restock-observed] "
+               "[domain:abilities/skye-guiding-light-restock-observed]; the catalogue's 60 s is "
+               "superseded for those two only, and the rest stand as disagreements.")
     files_t = ', '.join(f"{r['key']} = {fmt(float(r['files']))}" for r in rows)
     tog_t = ', '.join(f"{r['key']} = {fmt(float(r['toggled']))}" for r in rows if r['toggled'] is not None)
     text = '\n'.join([

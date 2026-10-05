@@ -85,7 +85,8 @@ collision. `load(map)` returns the 3D table (`Sightlines3D`, the same
 interface) where `<store>/sightlines/choice.json` says 3D, else the 2D one;
 `load(map, kind="2d")` and `kind="3d"` ask for one. `choose` writes the file:
 3D where the 3D probe's instrument gate (ledger `sightlines_3d/gate/<map>`,
-this version's rows: killer eye to victim body at exact positions on the
+the rows of the map's standing table version, `sightlines_3d.table_version`:
+killer eye to victim body at exact positions on the
 development gun kills) beats the 2D map's share on the same kills, the rule
 `engagement_reach` fixed before its confirmation; 2D otherwise; 3D on a map
 with no baked 2D geometry, where it is the only instrument (its instrument
@@ -611,8 +612,8 @@ class Sightlines3D(Sightlines):
         D = s3.load(mname)
         S2 = load_2d(mname)
         self.path = s3.out_path(mname)
-        self.version = s3.VERSION
-        self.key = f"{mname}__{s3.VERSION}"
+        self.version = s3.table_version(mname)
+        self.key = f"{mname}__{self.version}"
         self.map = mname
         xy = D["cell_xy"].astype(np.float64)
         z = D["cell_z"].astype(np.float64)
@@ -681,7 +682,7 @@ class Sightlines3D(Sightlines):
             self.adj = {"callout": adj}
             self.callout_names = list(D["region"]["names"])
             regions_from = "callout volumes (sightlines_3d cell_callout)"
-        self.stamps = {"sightlines_3d": s3.VERSION, "provenance_build": D["provenance"].get("source", {}).get("build"),
+        self.stamps = {"sightlines_3d": self.version, "provenance_build": D["provenance"].get("source", {}).get("build"),
                        "extractor": D["provenance"].get("source", {}).get("extractor", {}).get("commit"),
                        "regions_from": regions_from}
         self.seconds = round(time.time() - t0, 1)
@@ -720,14 +721,15 @@ def _gate_row(tool: str, part: str, version: str) -> dict | None:
 def choose(args=None) -> dict:
     """2D or 3D per map (see the module docstring); writes `choice.json`."""
     import sightlines_3d as s3
-    out = {"rule": "3d where sightlines_3d/gate/<map> (this sightlines_3d version, development gun kills, exact "
+    out = {"rule": "3d where sightlines_3d/gate/<map> (the map's table version, development gun kills, exact "
                    "positions) gives los3d_share_on_2d_set > los2d_share; 2d otherwise; 3d where no 2D table exists",
            "sightlines": VERSION, "sightlines_3d": s3.VERSION, "maps": {}}
     for m in sorted(s3.CODENAMES):
         has2, has3 = table_path(m) is not None and table_path(m).is_file(), s3.out_path(m).is_file()
-        g = _gate_row("sightlines_3d", f"gate/{m}", s3.VERSION) if has3 else None
-        gc = _gate_row("sightlines_3d", f"gate_confirm/{m}", s3.VERSION) if has3 else None
-        row = {"has_2d": has2, "has_3d": has3}
+        tv = s3.table_version(m)
+        g = _gate_row("sightlines_3d", f"gate/{m}", tv) if has3 else None
+        gc = _gate_row("sightlines_3d", f"gate_confirm/{m}", tv) if has3 else None
+        row = {"has_2d": has2, "has_3d": has3, "table_version": tv}
         if g:
             v = g["values"]
             row["gate"] = {"at": g["at"], "los3d_share_on_2d_set": v.get("los3d_share_on_2d_set"),

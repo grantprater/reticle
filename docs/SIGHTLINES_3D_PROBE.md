@@ -4,9 +4,11 @@ Status: findings, recorded 2026-10-04. Code: `prototypes/sightlines_3d.py`
 (the probe ran `sightlines-3d-0.1.0` on Ascent and Split; `sightlines-3d-0.2.0`
 built all 13 maps of the player's history, see "Every map in the player's
 history"; both used placeholder body heights; `sightlines-3d-0.3.0` rebuilt
-the 13 with the game's, see "Body heights (0.3.0)"); predictions
-`sightline-3d-20261004` S1-S5 and `sightline-3d-heights-20261004` H1-H5 in
-the store's `notes/predictions.jsonl`. The figures in the sections before
+the 13 with the game's, see "Body heights (0.3.0)"; `sightlines-3d-0.4.0`
+rebuilt Summit and Bind without their state-changing props, see
+"State-changing props (0.4.0)"); predictions
+`sightline-3d-20261004` S1-S5, `sightline-3d-heights-20261004` H1-H5 and
+`sightline-3d-props-20261005` P1-P5 in the store's `notes/predictions.jsonl`. The figures in the sections before
 "Body heights (0.3.0)" are 0.1.0 and 0.2.0 runs under the placeholders: eye
 160 cm, chest 120 cm, crouch room 100 cm, jump 120 cm. It serves the coaching question of
 [COACHING_DECISION_VALUE.md](COACHING_DECISION_VALUE.md): whether a teammate
@@ -155,9 +157,9 @@ then the whole build's.
 | Haven | 30.6 MB | [metric:sightlines_3d/build/haven~2026-10-04T22:04:58#bytes=19421705] | [metric:sightlines_3d/build/haven~2026-10-04T22:04:58#seconds_table=12.2] (20) | [metric:sightlines_3d/build/haven~2026-10-04T22:04:58#n_cells=7979] | development | [metric:sightlines_3d/gate/haven~2026-10-04T22:11:37#los3d_share=0.888] of 466 | [metric:sightlines_3d/gate/haven#los2d_share=0.646] | [metric:sightlines_3d/gate/haven~2026-10-04T22:11:37#control_los3d_share=0.083] (2D [metric:sightlines_3d/gate/haven#control_los2d_share=0.069]) |
 | Lotus | 25.2 MB | [metric:sightlines_3d/build/lotus~2026-10-04T22:08:16#bytes=10723383] | [metric:sightlines_3d/build/lotus~2026-10-04T22:08:16#seconds_table=14.1] (18) | [metric:sightlines_3d/build/lotus~2026-10-04T22:08:16#n_cells=9271] | development | [metric:sightlines_3d/gate/lotus~2026-10-04T22:11:42#los3d_share=0.909] of 596 | [metric:sightlines_3d/gate/lotus#los2d_share=0.750] | [metric:sightlines_3d/gate/lotus~2026-10-04T22:11:42#control_los3d_share=0.088] (2D [metric:sightlines_3d/gate/lotus#control_los2d_share=0.070]) |
 | Split | 32.5 MB | [metric:sightlines_3d/build/split~2026-10-04T22:04:26#bytes=14255580] | [metric:sightlines_3d/build/split~2026-10-04T22:04:26#seconds_table=32.3] (40) | [metric:sightlines_3d/build/split~2026-10-04T22:04:26#n_cells=13893] | development | [metric:sightlines_3d/gate/split~2026-10-04T22:11:22#los3d_share=0.911] of 631 | [metric:sightlines_3d/gate/split#los2d_share=0.707] | [metric:sightlines_3d/gate/split#control_los3d_share=0.085] (2D [metric:sightlines_3d/gate/split#control_los2d_share=0.070]) |
-| Summit | 46.8 MB | [metric:sightlines_3d/build/summit~2026-10-04T22:10:20#bytes=24365963] | [metric:sightlines_3d/build/summit~2026-10-04T22:10:20#seconds_table=9.3] (17) | [metric:sightlines_3d/build/summit~2026-10-04T22:10:20#n_cells=7037] | development | [metric:sightlines_3d/gate/summit#los3d_share=0.897] of 465 | [metric:sightlines_3d/gate/summit#los2d_share=0.767] (3D on the same 330: [metric:sightlines_3d/gate/summit#los3d_share_on_2d_set=0.882]) | [metric:sightlines_3d/gate/summit#control_los3d_share=0.071] (2D [metric:sightlines_3d/gate/summit#control_los2d_share=0.052]) |
+| Summit | 46.8 MB | [metric:sightlines_3d/build/summit~2026-10-04T22:10:20#bytes=24365963] | [metric:sightlines_3d/build/summit~2026-10-04T22:10:20#seconds_table=9.3] (17) | [metric:sightlines_3d/build/summit~2026-10-04T22:10:20#n_cells=7037] | development | [metric:sightlines_3d/gate/summit~2026-10-04T22:11:48#los3d_share=0.897] of 465 | [metric:sightlines_3d/gate/summit~2026-10-04T22:11:48#los2d_share=0.767] (3D on the same 330: [metric:sightlines_3d/gate/summit~2026-10-04T22:11:48#los3d_share_on_2d_set=0.882]) | [metric:sightlines_3d/gate/summit~2026-10-04T22:11:48#control_los3d_share=0.071] (2D [metric:sightlines_3d/gate/summit~2026-10-04T22:11:48#control_los2d_share=0.052]) |
 | Sunset | 32.8 MB | [metric:sightlines_3d/build/sunset~2026-10-04T22:08:42#bytes=19731613] | [metric:sightlines_3d/build/sunset~2026-10-04T22:08:42#seconds_table=9.3] (17) | [metric:sightlines_3d/build/sunset~2026-10-04T22:08:42#n_cells=7598] | development | [metric:sightlines_3d/gate/sunset~2026-10-04T22:11:55#los3d_share=0.947] of 376 | [metric:sightlines_3d/gate/sunset#los2d_share=0.779] | [metric:sightlines_3d/gate/sunset#control_los3d_share=0.080] (2D [metric:sightlines_3d/gate/sunset#control_los2d_share=0.067]) |
-| Bind | 27.9 MB | [metric:sightlines_3d/build/bind~2026-10-04T22:05:24#bytes=12575753] | [metric:sightlines_3d/build/bind#seconds_table=10.6] (17) | [metric:sightlines_3d/build/bind~2026-10-04T22:05:24#n_cells=8287] | confirmation, instrument check | [metric:sightlines_3d/gate_confirm/bind~2026-10-04T22:12:10#los3d_share=0.926] of 1690 | no 2D table | [metric:sightlines_3d/gate_confirm/bind~2026-10-04T22:12:10#control_los3d_share=0.113] |
+| Bind | 27.9 MB | [metric:sightlines_3d/build/bind~2026-10-04T22:05:24#bytes=12575753] | [metric:sightlines_3d/build/bind~2026-10-04T22:05:24#seconds_table=10.6] (17) | [metric:sightlines_3d/build/bind~2026-10-04T22:05:24#n_cells=8287] | confirmation, instrument check | [metric:sightlines_3d/gate_confirm/bind~2026-10-04T22:12:10#los3d_share=0.926] of 1690 | no 2D table | [metric:sightlines_3d/gate_confirm/bind~2026-10-04T22:12:10#control_los3d_share=0.113] |
 | Breeze | 26.8 MB | [metric:sightlines_3d/build/breeze~2026-10-04T22:06:47#bytes=10973428] | [metric:sightlines_3d/build/breeze~2026-10-04T22:06:47#seconds_table=29.8] (36) | [metric:sightlines_3d/build/breeze~2026-10-04T22:06:47#n_cells=13436] | confirmation, instrument check | [metric:sightlines_3d/gate_confirm/breeze~2026-10-04T22:12:15#los3d_share=0.925] of 333 | no 2D table | [metric:sightlines_3d/gate_confirm/breeze#control_los3d_share=0.065] |
 | Corrode | 44.1 MB | [metric:sightlines_3d/build/corrode~2026-10-04T22:10:45#bytes=22593046] | [metric:sightlines_3d/build/corrode~2026-10-04T22:10:45#seconds_table=8.7] (16) | [metric:sightlines_3d/build/corrode~2026-10-04T22:10:45#n_cells=7456] | confirmation, instrument check | [metric:sightlines_3d/gate_confirm/corrode~2026-10-04T22:12:23#los3d_share=0.905] of 1190 | no 2D table | [metric:sightlines_3d/gate_confirm/corrode~2026-10-04T22:12:23#control_los3d_share=0.077] |
 | Fracture | 26.4 MB | [metric:sightlines_3d/build/fracture~2026-10-04T22:07:26#bytes=15549819] | [metric:sightlines_3d/build/fracture~2026-10-04T22:07:26#seconds_table=24.5] (31) | [metric:sightlines_3d/build/fracture~2026-10-04T22:07:26#n_cells=11455] | confirmation, instrument check | [metric:sightlines_3d/gate_confirm/fracture~2026-10-04T22:12:32#los3d_share=0.836] of 780 | no 2D table | [metric:sightlines_3d/gate_confirm/fracture~2026-10-04T22:12:32#control_los3d_share=0.067] |
@@ -216,9 +218,9 @@ on the CPU:
 | Haven | [metric:sightlines_3d/build/haven#n_cells=8287] (7979) | 19.5 | [metric:sightlines_3d/build/haven#seconds_table=10.7] (14) | development | [metric:sightlines_3d/gate/haven#los3d_share=0.873] of 466 (0.888) | [metric:sightlines_3d/gate/haven#los3d_head_share=0.921] | [metric:sightlines_3d/gate/haven#control_los3d_share=0.082] (0.083) |
 | Lotus | [metric:sightlines_3d/build/lotus#n_cells=9398] (9271) | 10.8 | [metric:sightlines_3d/build/lotus#seconds_table=11.4] (13) | development | [metric:sightlines_3d/gate/lotus#los3d_share=0.906] of 596 (0.909) | [metric:sightlines_3d/gate/lotus#los3d_head_share=0.955] | [metric:sightlines_3d/gate/lotus#control_los3d_share=0.086] (0.088) |
 | Split | [metric:sightlines_3d/build/split#n_cells=14143] (13893) | 14.3 | [metric:sightlines_3d/build/split#seconds_table=23.8] (27) | development | [metric:sightlines_3d/gate/split#los3d_share=0.905] of 631 (0.911) | [metric:sightlines_3d/gate/split#los3d_head_share=0.933] | [metric:sightlines_3d/gate/split#control_los3d_share=0.085] (0.085) |
-| Summit | [metric:sightlines_3d/build/summit#n_cells=7107] (7037) | 24.4 | [metric:sightlines_3d/build/summit#seconds_table=7.7] (11) | development | [metric:sightlines_3d/gate/summit#los3d_share=0.897] of 465 (0.897) | [metric:sightlines_3d/gate/summit#los3d_head_share=0.897] | [metric:sightlines_3d/gate/summit#control_los3d_share=0.071] (0.071) |
+| Summit | [metric:sightlines_3d/build/summit~2026-10-04T23:25:16#n_cells=7107] (7037) | 24.4 | [metric:sightlines_3d/build/summit~2026-10-04T23:25:16#seconds_table=7.7] (11) | development | [metric:sightlines_3d/gate/summit~2026-10-04T23:28:51#los3d_share=0.897] of 465 (0.897) | [metric:sightlines_3d/gate/summit~2026-10-04T23:28:51#los3d_head_share=0.897] | [metric:sightlines_3d/gate/summit~2026-10-04T23:28:51#control_los3d_share=0.071] (0.071) |
 | Sunset | [metric:sightlines_3d/build/sunset#n_cells=7622] (7598) | 19.7 | [metric:sightlines_3d/build/sunset#seconds_table=7.4] (11) | development | [metric:sightlines_3d/gate/sunset#los3d_share=0.944] of 376 (0.947) | [metric:sightlines_3d/gate/sunset#los3d_head_share=0.965] | [metric:sightlines_3d/gate/sunset#control_los3d_share=0.080] (0.080) |
-| Bind | [metric:sightlines_3d/build/bind#n_cells=8570] (8287) | 12.6 | [metric:sightlines_3d/build/bind#seconds_table=10.6] (14) | confirmation, instrument check | [metric:sightlines_3d/gate_confirm/bind#los3d_share=0.921] of 1690 (0.926) | [metric:sightlines_3d/gate_confirm/bind#los3d_head_share=0.949] | [metric:sightlines_3d/gate_confirm/bind#control_los3d_share=0.112] (0.113) |
+| Bind | [metric:sightlines_3d/build/bind~2026-10-04T23:26:25#n_cells=8570] (8287) | 12.6 | [metric:sightlines_3d/build/bind~2026-10-04T23:26:25#seconds_table=10.6] (14) | confirmation, instrument check | [metric:sightlines_3d/gate_confirm/bind~2026-10-04T23:29:11#los3d_share=0.921] of 1690 (0.926) | [metric:sightlines_3d/gate_confirm/bind~2026-10-04T23:29:11#los3d_head_share=0.949] | [metric:sightlines_3d/gate_confirm/bind~2026-10-04T23:29:11#control_los3d_share=0.112] (0.113) |
 | Breeze | [metric:sightlines_3d/build/breeze#n_cells=13632] (13436) | 11.0 | [metric:sightlines_3d/build/breeze#seconds_table=27.6] (30) | confirmation, instrument check | [metric:sightlines_3d/gate_confirm/breeze#los3d_share=0.922] of 333 (0.925) | [metric:sightlines_3d/gate_confirm/breeze#los3d_head_share=0.940] | [metric:sightlines_3d/gate_confirm/breeze#control_los3d_share=0.065] (0.065) |
 | Corrode | [metric:sightlines_3d/build/corrode#n_cells=7528] (7456) | 22.6 | [metric:sightlines_3d/build/corrode#seconds_table=8.8] (12) | confirmation, instrument check | [metric:sightlines_3d/gate_confirm/corrode#los3d_share=0.887] of 1190 (0.905) | [metric:sightlines_3d/gate_confirm/corrode#los3d_head_share=0.945] | [metric:sightlines_3d/gate_confirm/corrode#control_los3d_share=0.075] (0.077) |
 | Fracture | [metric:sightlines_3d/build/fracture#n_cells=11738] (11455) | 15.6 | [metric:sightlines_3d/build/fracture#seconds_table=22.4] (26) | confirmation, instrument check | [metric:sightlines_3d/gate_confirm/fracture#los3d_share=0.823] of 780 (0.836) | [metric:sightlines_3d/gate_confirm/fracture#los3d_head_share=0.855] | [metric:sightlines_3d/gate_confirm/fracture#control_los3d_share=0.064] (0.067) |
@@ -238,6 +240,34 @@ on the CPU:
   kept as `<store>/sightlines/choice__sightlines-3d-0.2.0.json`.
 - H1-H5 held. The REACH rerun at 0.3.0 is in
   [COACHING_DECISION_VALUE.md](COACHING_DECISION_VALUE.md) section 9.
+
+## State-changing props (0.4.0)
+
+The 0.3.0 class-name test missed two props named for their art: Summit's
+DescentBox_v5_C, on the native AresDoor and tagged CollapsibleDoor, which
+starts open and drops 300 cm over 1.75 s each round with a crush box; and
+Bind's BP_Pot_1_C and BP_Pot_3_C, children of BP_Destructible_BASE_C, whose
+ReceiveAnyDamage calls Break. `state_changing` now also walks each placed
+class's parents through the class exports under the store's
+`reference/game-files/<build>/props/`. Every blueprint class kept in the 13
+0.3.0 tables has an export and a chain that reaches a native class;
+`state-props` over those tables leaves out 6 placements on Summit (1878
+triangles) and 4 on Bind (1800) and nothing on the other 11 maps. Only
+Summit and Bind were rebuilt, from their 0.3.0 tables' blockers; the other
+maps' 0.3.0 tables stand for 0.4.0 (`table_version`). The 0.3.0 tables stay.
+
+| Map | Cells (0.3.0) | Table bytes (0.3.0) | Build s, table | Gate set | 3D line of sight (0.3.0) | 3D control (0.3.0) |
+|---|---|---|---|---|---|---|
+| Summit | [metric:sightlines_3d/build/summit~2026-10-05T00:20:51#n_cells=7061] (7107) | [metric:sightlines_3d/build/summit~2026-10-05T00:20:51#bytes=24378984] (24378780) | [metric:sightlines_3d/build/summit~2026-10-05T00:20:51#seconds_table=8.9] (7.7) | development | [metric:sightlines_3d/gate/summit~2026-10-05T00:21:28#los3d_share=0.955] of 465 (0.897); on the 2D set [metric:sightlines_3d/gate/summit~2026-10-05T00:21:28#los3d_share_on_2d_set=0.945] (0.882) | [metric:sightlines_3d/gate/summit~2026-10-05T00:21:28#control_los3d_share=0.078] (0.071) |
+| Bind | [metric:sightlines_3d/build/bind~2026-10-05T00:21:07#n_cells=8563] (8570) | [metric:sightlines_3d/build/bind~2026-10-05T00:21:07#bytes=12601148] (12620121) | [metric:sightlines_3d/build/bind~2026-10-05T00:21:07#seconds_table=11.0] (10.6) | confirmation, instrument check | [metric:sightlines_3d/gate_confirm/bind~2026-10-05T00:21:44#los3d_share=0.921] of 1690 (0.921) | [metric:sightlines_3d/gate_confirm/bind~2026-10-05T00:21:44#control_los3d_share=0.112] (0.112) |
+
+- Summit's line of sight rose 0.058 against a P3 prediction of under 0.01:
+  the descent boxes stood across 27 of the 465 kills' sightlines. The
+  control rose 0.007, so hit minus control widens to 0.88. Bind's pots stand
+  across none of its 1690 kills.
+- Cells fell by 46 on Summit and 7 on Bind.
+- `sightlines.py choose` still picks 3D on all 13 maps; the 0.3.0 choice is
+  kept as `<store>/sightlines/choice__sightlines-3d-0.3.0.json`.
 
 ## Blockers and questions for the player
 

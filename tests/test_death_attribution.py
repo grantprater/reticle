@@ -925,6 +925,46 @@ class ScoreboardDimWitnessTest(unittest.TestCase):
         self.assertEqual(claims[0]["agent"], "Deadlock")
         self.assertEqual(claims[0]["evidence"]["newly_dim"], ["Deadlock"])
 
+    def test_a_victim_dim_before_its_entry_counts_from_the_last_lit_board(self):
+        from reticle.adjudication.death import scoreboard_death_claims
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        # 043bafca271a 474.5 s: the board at 474.0 s already dims the victim,
+        # whose entry the feed first read at 474.5 s; 472.5 s still shows him lit.
+        openings = scoreboard_openings(self.board(1000.0) + self.board(3000.0, dim={"Deadlock"})
+                                       + self.board(4000.0, dim={"Deadlock"}))
+        claims = scoreboard_death_claims([{"t_ms": 3500.0, "side": "ally"}], openings, {})
+        self.assertEqual(claims[0]["agent"], "Deadlock")
+        ev = claims[0]["evidence"]
+        self.assertEqual(ev["opening_before"]["t_ms"], 1000.0)
+        self.assertTrue(ev["widened"]["reason"].startswith("newly_dim_0"))
+        self.assertEqual(ev["widened"]["opening_before"]["t_ms"], 3000.0)
+        # The wider interval counts every death in it: two deaths, one dim.
+        two = scoreboard_death_claims([{"t_ms": 2000.0, "side": "ally"},
+                                       {"t_ms": 3500.0, "side": "ally"}], openings, {})
+        self.assertIsNone(two[1]["agent"])
+        self.assertEqual(two[1]["reason"], "newly_dim_1_disagrees_with_killfeed_deaths_2")
+        # A side whose dim set never changed keeps the narrow refusal.
+        flat = scoreboard_openings(self.board(1000.0, dim={"Deadlock"})
+                                   + self.board(3000.0, dim={"Deadlock"}))
+        kept = scoreboard_death_claims([{"t_ms": 3500.0, "side": "ally"}],
+                                       flat + scoreboard_openings(
+                                           self.board(4000.0, dim={"Deadlock"})), {})
+        self.assertTrue(kept[0]["reason"].startswith("newly_dim_0"))
+        self.assertNotIn("widened", kept[0]["evidence"])
+
+    def test_a_dimmed_rows_counts_are_unread_with_their_reason(self):
+        from reticle.adjudication.scoreboard import scoreboard_openings
+        rows = self.board(1000.0, dim={"Deadlock"})
+        for r in rows:
+            r.update(kills=1, deaths=12, assists=None)
+        got = {s["agent"]: s for s in scoreboard_openings(rows)[0]["rows"]}
+        dead = got["Deadlock"]
+        self.assertEqual([dead[k] for k in ("kills", "deaths", "assists")], [None] * 3)
+        self.assertEqual(dead["counts_reason"], "dimmed_row_unread")
+        self.assertEqual(dead["counts_raw"]["deaths"], 12)
+        lit = next(s for a, s in got.items() if a != "Deadlock")
+        self.assertEqual((lit["deaths"], lit["counts_reason"]), (12, "digit_cell_unread"))
+
     def test_a_board_the_roster_contradicts_is_skipped_with_its_reason(self):
         from reticle.adjudication.death import scoreboard_death_claims
         from reticle.adjudication.scoreboard import scoreboard_openings

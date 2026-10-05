@@ -1031,8 +1031,13 @@ def record_summary(summary: dict, cal: dict) -> None:
 
 
 def _write_frames(sid: str, frames: set[int], prefix: str, out: Path) -> list[str]:
-    """Write the cached crops at `frames` (board rows only) as PNG in `out`."""
+    """Write the cached crops at `frames` (board rows only) as PNG in `out`.
+
+    `board_y` gives frame rows; the crop starts at the cache rect's top, so
+    the slice subtracts it, as `small_frames` does."""
+    rec = json.loads((CACHE / f"{sid}.json").read_text(encoding="utf-8"))
     idx = np.load(CACHE / f"{sid}.idx.npy")
+    y0r = rec["rects"][0][1]
     y0, y1 = board_y()
     names = []
     cap = _cap(CACHE / f"{sid}.r0.mkv")
@@ -1041,7 +1046,7 @@ def _write_frames(sid: str, frames: set[int], prefix: str, out: Path) -> list[st
             ok, crop = cap.read()
             if ok and int(f) in frames:
                 name = f"{prefix}_f{int(f)}.png"
-                cv2.imwrite(str(out / name), crop[y0:y1])
+                cv2.imwrite(str(out / name), crop[max(0, y0 - y0r):y1 - y0r])
                 names.append(name)
     finally:
         cap.release()
