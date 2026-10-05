@@ -76,13 +76,16 @@ Module names are relative to `reticle/` unless a directory is shown.
 
 ```powershell
 .\.venv\Scripts\python.exe -m reticle doctor
-.\.venv\Scripts\python.exe -m reticle verify --tier fast   # default sanity check
+.\.venv\Scripts\python.exe -m reticle verify --tier fast
 .\.venv\Scripts\python.exe -m reticle status
-.\.venv\Scripts\python.exe -m reticle plan [SESSION]      # stale streams, least work
-.\.venv\Scripts\python.exe -m reticle trial SESSION --reader killfeed|hud|scoreboard|ally_icon|ability_glyph|clove_circle [--from video]
+.\.venv\Scripts\python.exe -m reticle plan [SESSION]
+.\.venv\Scripts\python.exe -m reticle trial [SESSION] --reader killfeed|hud|scoreboard|ally_icon|ability_glyph|clove_circle [--sample] [--windows-file CSV]
+.\.venv\Scripts\python.exe -m reticle dev-sample [--residuals CSV|--stream S --where F=V] --out CSV
+.\.venv\Scripts\python.exe prototypes\killfeed_trial_deaths.py --sample [--windows-file CSV] --out DIR
+.\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --sample [--windows-file CSV] --deaths-from DIR --offline
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed
-.\.venv\Scripts\python.exe -m reticle scan SESSION --only hud   # killfeed/HUD rewrite from the crop cache (--from video decodes)
-.\.venv\Scripts\python.exe -m reticle scan SESSION --only scoreboard --cache-roi scoreboard   # decodes; crops inside the strip gate
+.\.venv\Scripts\python.exe -m reticle scan SESSION --only hud   # from the crop cache
+.\.venv\Scripts\python.exe -m reticle scan SESSION --only scoreboard --cache-roi scoreboard   # decodes
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed_panel   # decodes
 .\.venv\Scripts\python.exe -m reticle domain --check
 .\.venv\Scripts\python.exe -m reticle ownership [QUESTION] [--module M] [--check]
@@ -94,10 +97,10 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # audio decode only
 .\.venv\Scripts\python.exe -m reticle ult-cast SESSION      # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-state SESSION # stored data only
-.\.venv\Scripts\python.exe -m reticle scan SESSION --only clove_circle --from cache   # dead Clove's range circle in her death windows
-.\.venv\Scripts\python.exe -m reticle smokes SESSION     # smoke tracks, owners, a Clove player's casts while dead; stored data only
-.\.venv\Scripts\python.exe -m reticle ability-audio-fit --gate-in G.json --eval ROOT  # audio witness params; stored log-mel only
-.\.venv\Scripts\python.exe prototypes\audio_open_set.py score --scan DIR | match-score --match DIR  # demos | the player's matches; stored detections only
+.\.venv\Scripts\python.exe -m reticle scan SESSION --only clove_circle --from cache   # dead Clove's range circle
+.\.venv\Scripts\python.exe -m reticle smokes SESSION     # smoke owners, casts while dead; stored data only
+.\.venv\Scripts\python.exe -m reticle ability-audio-fit --gate-in G.json --eval ROOT  # stored log-mel only
+.\.venv\Scripts\python.exe prototypes\audio_open_set.py score --scan DIR | match-score --match DIR  # stored detections only
 .\.venv\Scripts\python.exe -m reticle killstreak SESSION    # numerals vs death stream; stored data only
 .\.venv\Scripts\python.exe -m reticle assists SESSION      # assisters per death from the crop cache; no video
 .\.venv\Scripts\python.exe -m reticle acquisition-plan REQUESTS.json
@@ -124,10 +127,9 @@ stored L1), `coach` or `sql`. Under the default
 (`roi_cache.clip_record` owns the clip). `hud`, `board` and `overlay` open the
 source video. Run a targeted test file, then `verify --tier fast`, then the
 full suite across module boundaries.
-`refine` previews stored windows; `--execute` reads only their merged intervals
-into separate dense evidence. It requires current provenance and a cached
-killfeed mask. Repeated `--review-id`s combine windows; limits refuse, never
-truncate.
+`refine` previews stored windows; `--execute` reads their merged intervals
+into separate dense evidence, given current provenance and a cached killfeed
+mask. Repeated `--review-id`s combine windows; limits refuse.
 
 ## Rules
 

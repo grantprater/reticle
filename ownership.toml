@@ -1899,7 +1899,7 @@ modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
            "doctor", "status", "fidelity", "overlay", "review",
            "ability_capture", "ability_entities", "ability_gallery",
            "ability_phases", "events", "candidate_evidence",
-           "plan", "input_stamps", "trial", "roi_cache", "pipeline", "documents", "tiers", "clipserve",
+           "plan", "input_stamps", "trial", "dev_sample", "roi_cache", "pipeline", "documents", "tiers", "clipserve",
            "view_events", "round_view", "entity_contract", "ability_audio_fit"]
 
 [[entry]]

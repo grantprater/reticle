@@ -6,6 +6,8 @@ A reader change is checked where it can matter, not over the whole capture:
   trial writes has a stored counterpart to compare with;
 * `windows="occupied"` keeps only frames within `pad_ms` of a frame whose
   stored killfeed mask holds an entry; `"all"` keeps the whole timeline;
+* `spans` keeps only frames inside a windows file's spans: the dev loop's
+  targeted windows and declared sample (`dev_sample`);
 * `source="video"` seeks to each run of frames (`decode.seek_at`) instead of
   decoding from the file start; `source="cache"` reads the ROI crops
   (`roi_cache`) and decodes nothing.
@@ -376,9 +378,13 @@ def diff_table(new: list[dict], stored: dict, at: set[float]) -> dict:
 
 def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
         windows: str = "occupied", pad_ms: float = 2000.0,
-        between: tuple[float, float] | None = None) -> dict:
+        between: tuple[float, float] | None = None,
+        spans: list[tuple[float, float]] | None = None) -> dict:
     """`between` (t0_ms, t1_ms), inclusive, bounds the trial to one slice of
-    the timeline, such as a round; the diff compares only frames inside it."""
+    the timeline, such as a round; `spans`, a list of such slices (a windows
+    file's, `dev_sample.spans_ms`), bounds it to their union. The reader is
+    fed the kept frames in time order across the gaps, as `"occupied"`
+    feeds it; the diff compares only frames inside."""
     from .decode import seek_at
     from .passes import SessionContext
     from .usage import CallTimes, StepRecorder
@@ -394,6 +400,10 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
     n_timeline, want, stored_idx = timeline(store, manifest, windows, pad_ms)
     if between is not None:
         want = [t for t in want if between[0] <= t <= between[1]]
+    if spans is not None:
+        from .dev_sample import in_spans
+        keep = in_spans(want, spans)
+        want = [t for t, k in zip(want, keep) if k]
     r = build(ctx)
     t0 = time.perf_counter()
     cache = None
@@ -436,7 +446,8 @@ def run(store, manifest: dict, reader: str = "killfeed", source: str = "video",
     diffs = {s: (diff_table(rows[s], hud, at) if s == "hud"
                  else diff(rows[s], store.read_events(s, sid), at)) for s in streams}
     out = {"session_id": sid, "reader": reader, "source": source, "windows": windows,
-           "pad_ms": pad_ms, "between": between, "timeline": n_timeline, "frames": len(read),
+           "pad_ms": pad_ms, "between": between,
+           "spans": None if spans is None else len(spans), "timeline": n_timeline, "frames": len(read),
            "asked": len(want), "refused": dict(sorted(refused.items())),
            "frame_idx_moved": moved_idx, "seconds": round(seconds, 1), "diff": diffs,
            "rows": rows,

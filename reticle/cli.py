@@ -3729,15 +3729,83 @@ def cmd_project(args) -> int:
 
 def cmd_trial(args) -> int:
     """One reader over part of one session, diffed against the stored streams.
-    Writes nothing. `--from cache` decodes nothing."""
-    from .trial import run
+    Writes nothing. `--from cache` decodes nothing. `--windows-file` and
+    `--sample` bound it to windows (`dev_sample`), over every session they
+    name unless one is given, and total the sessions."""
+    from . import dev_sample
     store = Store(args.store)
-    manifest = _resolve_session(store, args.session)
+    files, sample = getattr(args, "windows_file", None) or [], getattr(args, "sample", False)
+    if not files and not sample:
+        res = _trial_one(store, _resolve_session(store, args.session), args, None,
+                         args.windows or "occupied")
+        return 0 if res["ok"] else 1
+    spans = dev_sample.spans_ms(dev_sample.load(files, sample))
+    if args.session:
+        sid = _resolve_session(store, args.session)["session_id"]
+        spans = {sid: spans.get(sid, [])}
+    tot = {"frames": 0, "seconds": 0.0, "same": 0, "only_trial": 0, "only_stored": 0}
+    ok = True
+    for sid in sorted(spans):
+        res = _trial_one(store, store.read_manifest(sid), args, spans[sid], args.windows or "all")
+        tot["frames"] += res["frames"]
+        tot["seconds"] += res["seconds"]
+        ok &= res["ok"]
+        for d in res["diff"].values():
+            for k in ("same", "only_trial", "only_stored"):
+                tot[k] += d[k]
+    print(f"{len(spans)} sessions ({'sample ' + dev_sample.DEV_SAMPLE_VERSION if sample else ''}"
+          f"{' + ' if sample and files else ''}{', '.join(map(str, files))}): {tot['frames']} "
+          f"frames in {tot['seconds']:.1f} s; rows {tot['same']} same, {tot['only_trial']} only "
+          f"in trial, {tot['only_stored']} only stored")
+    return 0 if ok else 1
+
+
+def cmd_dev_sample(args) -> int:
+    """The dev loop's windows: the declared sample, or targeted windows around
+    a residual list or the stored rows where a changed code path fires.
+    Prints them, or writes a windows file for `trial --windows-file`. Reads
+    stored rounds and streams only."""
+    from . import dev_sample as ds
+    store = Store(args.store)
+    if args.check:
+        moved = ds.drift(ds.SAMPLE, ds.build_from_store(store))
+        print(f"{ds.DEV_SAMPLE_VERSION}: {len(ds.SAMPLE)} windows, {len(moved)} moved by the "
+              f"stored rounds")
+        for ln in moved:
+            print(f"  {ln}")
+        return 1 if moved else 0
+    if args.residuals or args.stream:
+        wins = []
+        for f in args.residuals or []:
+            wins += ds.targets_from_residuals(ds.read_residuals(f), args.pad)
+        if args.stream:
+            sids = ([_resolve_session(store, x)["session_id"] for x in args.session]
+                    if args.session else list(ds.MATCHES))
+            wins += ds.targets_from_stream(store, sids, args.stream, ds.parse_where(args.where),
+                                           args.pad)
+        label = "targeted"
+    else:
+        wins, label = list(ds.SAMPLE), ds.DEV_SAMPLE_VERSION
+    secs = sum(w.t1 - w.t0 for w in wins)
+    print(f"{label}: {len(wins)} windows over {len({w.session for w in wins})} sessions, "
+          f"{secs / 60:.1f} min of capture")
+    if args.out:
+        print(f"  -> {ds.write_windows(args.out, wins)}")
+    else:
+        print(ds.format_windows(wins), end="")
+    return 0
+
+
+def _trial_one(store, manifest: dict, args, spans, windows: str) -> dict:
+    """`trial.run` on one session and its printed diff."""
+    from .trial import run
     between = getattr(args, "between", None)
     res = run(store, manifest, reader=args.reader, source=args.source,
-              windows=args.windows, pad_ms=args.pad_ms,
-              between=None if between is None else (between[0] * 1000.0, between[1] * 1000.0))
-    print(f"{res['session_id']}: {args.reader} from {args.source}, {args.windows} windows: "
+              windows=windows, pad_ms=args.pad_ms,
+              between=None if between is None else (between[0] * 1000.0, between[1] * 1000.0),
+              spans=spans)
+    print(f"{res['session_id']}: {args.reader} from {args.source}, {windows} windows"
+          f"{'' if spans is None else f' in {len(spans)} spans'}: "
           f"{res['frames']} of {res['timeline']} timeline frames in {res['seconds']} s")
     if res["refused"]:
         print(f"  refused {sum(res['refused'].values())} of {res['asked']} frames asked, "
@@ -3769,7 +3837,8 @@ def cmd_trial(args) -> int:
     from .usage import format_steps
     for line in format_steps(used["steps"], feed["total_ns"]):
         print(line)
-    return 0 if ok else 1
+    res["ok"] = ok
+    return res
 
 
 def _latest_loso() -> dict:
@@ -6244,13 +6313,36 @@ def build_parser() -> argparse.ArgumentParser:
                             "clove_circle"))
     s.add_argument("--from", dest="source", default="cache", choices=("cache", "video"),
                    help="ROI crop cache (no decode) or seeks into the capture")
-    s.add_argument("--windows", default="occupied", choices=("occupied", "all"),
+    s.add_argument("--windows", default=None, choices=("occupied", "all"),
                    help="frames near a stored killfeed entry (scoreboard: inside the strip "
-                        "gate; ally_icon: widget drawn), or the whole timeline")
+                        "gate; ally_icon: widget drawn), or the whole timeline (default: "
+                        "occupied, or all inside --windows-file and --sample)")
+    s.add_argument("--windows-file", action="append", default=None, metavar="CSV",
+                   help="only frames inside these windows (session,t0,t1,reason; seconds); "
+                        "repeat for more; every session named unless SESSION is given")
+    s.add_argument("--sample", action="store_true",
+                   help="add the declared dev sample's windows (reticle dev-sample)")
     s.add_argument("--pad-ms", type=float, default=2000.0)
     s.add_argument("--between", type=float, nargs=2, default=None, metavar=("T0", "T1"),
                    help="only frames between T0 and T1 seconds, such as one round")
     s.set_defaults(func=cmd_trial)
+
+    s = sub.add_parser("dev-sample", help="the dev loop's declared sample, or targeted windows "
+                                          "around residuals or stored rows (writes a windows "
+                                          "file for trial)")
+    s.add_argument("--out", default=None, metavar="CSV", help="write the windows file here")
+    s.add_argument("--check", action="store_true",
+                   help="rebuild the sample from the stored rounds and report drift")
+    s.add_argument("--residuals", action="append", default=None, metavar="CSV",
+                   help="a residual list (session,t[,reason]; seconds): a window around each")
+    s.add_argument("--stream", default=None,
+                   help="a stored stream: a window around each row matching --where")
+    s.add_argument("--where", action="append", default=None, metavar="FIELD[=VALUE]",
+                   help="row filter for --stream (VALUE as JSON; dotted fields; bare = truthy)")
+    s.add_argument("--session", action="append", default=None,
+                   help="sessions for --stream (default: the Riot-paired matches)")
+    s.add_argument("--pad", type=float, default=15.0, help="seconds either side of a target")
+    s.set_defaults(func=cmd_dev_sample)
 
     s = sub.add_parser("killstreak", help="killstreak numerals against the death stream's "
                                           "per-round kill index (no video)")
