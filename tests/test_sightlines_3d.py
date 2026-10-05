@@ -57,6 +57,36 @@ class ProfileTest(unittest.TestCase):
         self.assertTrue(all(s3.STATE_CHANGING_CLASS.search(c) for c in out))
         self.assertFalse(any(s3.STATE_CHANGING_CLASS.search(c) for c in keep))
 
+    def test_state_changing_walks_the_class_chain(self):
+        """The class name misses a pot or a descent box; the chain catches them."""
+        idx = {
+            "BP_Destructible_BASE_C": {"super": "Actor", "super_path": "/Script/Engine", "tags": None},
+            "BP_Pot_1_C": {"super": "BP_Destructible_BASE_C", "super_path": "/Game/VFX/Blueprint/BP_Destructible_BASE.0",
+                           "tags": None},
+            "DescentBox_v5_C": {"super": "AresDoor", "super_path": "/Script/ShooterGame",
+                                "tags": ["TargetingLandmark", "LevelGeometryGameObject", "CollapsibleDoor"]},
+            "Plain_Door_v1_C": {"super": "AresDoor", "super_path": "/Script/ShooterGame", "tags": None},
+            "Fixed_Box_C": {"super": "AresDoorlike", "super_path": "/Script/ShooterGame", "tags": ["CollapsibleDoor"]},
+            "Child_Of_Descent_C": {"super": "DescentBox_v5_C", "super_path": "/Game/X.0", "tags": None},
+            "Tree_3_ConiferLarge_BP_C": {"super": "Actor", "super_path": "/Script/Engine", "tags": None},
+            "Orphan_C": {"super": "Missing_C", "super_path": "/Game/Missing.0", "tags": None},
+        }
+        self.assertEqual(s3.state_changing("BP_Pot_1_C", idx), "subclass of BP_Destructible_BASE_C")
+        self.assertEqual(s3.state_changing("DescentBox_v5_C", idx), "AresDoor tagged CollapsibleDoor")
+        self.assertEqual(s3.state_changing("Child_Of_Descent_C", idx), "AresDoor tagged CollapsibleDoor")
+        self.assertEqual(s3.state_changing("BP_Destructible_BASE_C", idx), "class name")
+        self.assertIsNone(s3.state_changing("Fixed_Box_C", idx))
+        self.assertIsNone(s3.state_changing("Tree_3_ConiferLarge_BP_C", idx))
+        self.assertIsNone(s3.state_changing("BP_Pot_9_C", {}))
+        self.assertEqual(s3.class_chain("BP_Pot_1_C", idx), (["BP_Pot_1_C", "BP_Destructible_BASE_C", "Actor"], True))
+        self.assertEqual(s3.class_chain("Orphan_C", idx), (["Orphan_C", "Missing_C"], False))
+
+    def test_unchanged_maps_keep_the_previous_table(self):
+        self.assertEqual(s3.table_version("summit"), s3.VERSION)
+        self.assertEqual(s3.table_version("ascent"), s3.PREVIOUS)
+        self.assertTrue(s3.out_path("ascent").name.endswith(f"__{s3.PREVIOUS}.npz"))
+        self.assertTrue(s3.out_path("ascent", s3.VERSION).name.endswith(f"__{s3.VERSION}.npz"))
+
     def test_cell_callouts_take_the_smallest_volume(self):
         big, small = np.eye(4), np.eye(4)
         big[0, 0] = big[1, 1] = big[2, 2] = 10.0
