@@ -39,6 +39,24 @@ The gate never asks the slab test, whose opens are the reader's own outcome.
 The record keeps the gate, and `RoiCache.refusal` says why a time outside it
 is not held. A gated cache never feeds a scan (`cache_for`): it holds the
 frames `reticle trial` reads.
+
+**The killfeed panel strip is gated on an entry.** Its one rectangle
+(`killfeed_panel_rect`) is the strip immediately left of the killfeed ROI,
+`KILLFEED_PANEL_BASE_PX` wide at 1080p (scaled by `killfeed.KillfeedScale`,
+the killfeed's one transform), over the ROI's rows: the assist panel
+[domain:killfeed/assist-panel] that the killfeed ROI's left edge cuts is
+drawn there. It rides the HUD rate over the
+whole capture, on the `hud` set's timeline, and keeps a sample only within
+`KILLFEED_PANEL_GATE_MARGIN` samples of one where the stored
+`killfeed_portrait` stream holds a killer row (`killfeed_panel_gate`): an
+assist panel is drawn only beside an entry. The gate never asks the panel,
+the outcome. Over the 21 matches an entry is on screen at
+[metric:killfeed_panel/gate-projection#open_share=0.2642] of the HUD samples and
+the gate keeps [metric:killfeed_panel/gate-projection#kept_share=0.3027] of them,
+about [metric:killfeed_panel/gate-projection#mb_ffv1=301] MB as FFV1, from the
+stored rows. `RoiCache.load_union` reads it with the `hud` set as one
+cache, so a reader of the wider killfeed (`WIDE_ROIS`) gets both crops
+pasted into one frame, and the gate's refusal at a time outside it.
 """
 from __future__ import annotations
 
@@ -70,11 +88,27 @@ CACHE_SETS = {
     # The Tab scoreboard reader's region (`DERIVED_ROIS`), at the frames the
     # strip gate keeps (`scoreboard_gate`).
     "scoreboard": ("scoreboard",),
+    # The strip left of the killfeed ROI (`DERIVED_ROIS`), at the HUD samples
+    # the killfeed entry gate keeps (`killfeed_panel_gate`).
+    "killfeed_panel": ("killfeed_panel",),
 }
 
 #: Cache ROIs that are not profile ROIs: each is computed from the profile
 #: and the frame size by the reader that owns the region.
-DERIVED_ROIS = ("scoreboard",)
+DERIVED_ROIS = ("scoreboard", "killfeed_panel")
+
+#: Regions wider than one stored set, read through `RoiCache.load_union`:
+#: each is the bounding box of ROIs held by the sets named with it.
+WIDE_ROIS = {"killfeed_wide": (("hud", "killfeed_panel"), ("killfeed_panel", "killfeed"))}
+
+#: The killfeed panel strip's width at 1080p. 637 deaths over the 21 matches
+#: had their assist panel cut by the killfeed ROI's left edge; the widest
+#: credited panel ran 143 px past it (assist round 2, 2026-10-04).
+KILLFEED_PANEL_BASE_PX = 143
+#: Samples either side of a sample with a killfeed entry that open the gate.
+KILLFEED_PANEL_GATE_MARGIN = 1
+#: The killfeed_portrait roles whose rows mark an entry on screen.
+KILLFEED_PANEL_GATE_ROLES = ("killer",)
 
 #: Samples either side of a strip sample that opens the scoreboard gate.
 SCOREBOARD_GATE_MARGIN = 1
@@ -92,7 +126,13 @@ GRAB_MAX = 8
 #: a06f04a0059f its crops (848x1080) take
 #: [metric:scoreboard/cache-window@a06f04a0059f#kb_per_frame_ffv1=345.0] kB a frame against
 #: [metric:scoreboard/cache-window@a06f04a0059f#kb_per_frame_png=857.0] as PNG.
-CODECS = {"minimap": "ffv1", "scoreboard": "ffv1"}
+#: The killfeed panel strip is FFV1 for size too: over two decoded minutes
+#: of 043bafca271a its gated crops (143x265) take
+#: [metric:killfeed_panel/cache-window@043bafca271a#kb_per_sample_ffv1=11.3] kB a sample
+#: against [metric:killfeed_panel/cache-window@043bafca271a#kb_per_sample_png=27.4] as PNG,
+#: and every one read back bit for bit, irregular seeks included
+#: ([metric:killfeed_panel/cache-window@043bafca271a#seek_bit_equal_ffv1=52] of 52).
+CODECS = {"minimap": "ffv1", "scoreboard": "ffv1", "killfeed_panel": "ffv1"}
 
 
 def ffmpeg_path() -> str:
@@ -133,6 +173,8 @@ def roi_rects(name: str, profile, wh: tuple[int, int],
 def derived_rect(roi: str, profile, wh: tuple[int, int]) -> list[int]:
     """The pixel rectangle of a `DERIVED_ROIS` entry, from the reader that
     owns the region; ValueError where the capture places none."""
+    if roi == "killfeed_panel":
+        return killfeed_panel_rect(profile, wh)
     if roi != "scoreboard":
         raise ValueError(f"no derived ROI named {roi!r}; have {list(DERIVED_ROIS)}")
     from .scoreboard import reader_roi, strip_rect
@@ -141,6 +183,53 @@ def derived_rect(roi: str, profile, wh: tuple[int, int]) -> list[int]:
         raise ValueError(f"profile {profile.name} at {wh[0]}x{wh[1]} gives no strip rectangle, "
                          f"so the scoreboard reader reads the whole frame and no region holds it")
     return [int(v) for v in reader_roi(rect, int(wh[1]))]
+
+
+def killfeed_panel_rect(profile, wh: tuple[int, int]) -> list[int]:
+    """The strip immediately left of the profile's killfeed ROI, over its
+    rows: `KILLFEED_PANEL_BASE_PX` at 1080p through the killfeed's one scale
+    (`KillfeedScale.for_capture`), cut at the frame's left edge."""
+    from .killfeed import KillfeedScale, killfeed_roi
+    roi = killfeed_roi(profile)
+    if roi is None:
+        raise ValueError(f"profile {profile.name} has no killfeed ROI to place the panel strip by")
+    x0, y0, _x1, y1 = (int(v) for v in roi.pixels(int(wh[0]), int(wh[1])))
+    w = KillfeedScale.for_capture(int(wh[0]), int(wh[1])).n(KILLFEED_PANEL_BASE_PX)
+    if x0 <= 0 or w <= 0:
+        raise ValueError(f"profile {profile.name} at {wh[0]}x{wh[1]} puts the killfeed ROI at "
+                         f"the frame's left edge; no strip lies left of it")
+    return [max(0, x0 - w), y0, x0, y1]
+
+
+def killfeed_panel_gate(portrait_rows: list[dict], hz: float,
+                        margin: int = KILLFEED_PANEL_GATE_MARGIN
+                        ) -> tuple[dict | None, str | None]:
+    """The killfeed panel set's gate from a session's stored
+    `killfeed_portrait` rows, or None and why there is none.
+
+    The gate is an opportunity: an entry on screen, which the killfeed
+    reader's killer rows (`KILLFEED_PANEL_GATE_ROLES`, refused rows
+    included: a refused description is still an entry) mark at their
+    sample. Each such time opens the span `margin` samples of the cache's
+    rate either side, plus half a sample, so on the HUD grid it holds exactly
+    `margin` neighbours however the timestamps jitter. The witness's stamp is
+    recorded, not required: its entry rows are what the stored stream
+    says, and a reader asking outside them gets the refusal."""
+    if not portrait_rows:
+        return None, "no stored killfeed_portrait rows"
+    got = portrait_rows[0].get("killfeed_portrait_version")
+    t = np.unique(np.asarray([float(r["t_ms"]) for r in portrait_rows
+                              if r.get("kind") == "portrait_observation"
+                              and r.get("role") in KILLFEED_PANEL_GATE_ROLES], float))
+    step = 1000.0 / float(hz)
+    pad = (int(margin) + 0.5) * step
+    lo, hi = np.maximum(t - pad, 0.0), t + pad
+    first = np.flatnonzero(np.r_[True, lo[1:] > hi[:-1]]) if len(t) else np.zeros(0, int)
+    last = np.r_[first[1:] - 1, len(t) - 1] if len(t) else first
+    spans = np.stack([lo[first], hi[last]], axis=1).tolist() if len(t) else []
+    return {"witness": "killfeed_portrait", "witness_version": got,
+            "roles": list(KILLFEED_PANEL_GATE_ROLES), "margin_samples": int(margin),
+            "hz": float(hz), "witness_open": int(len(t)), "spans": spans}, None
 
 
 def gate_spans(t_ms, open_, margin: int) -> list[list[float]]:
@@ -808,3 +897,104 @@ class RoiCache:
         finally:
             for c in caps.values():
                 c.release()
+
+    @classmethod
+    def load_union(cls, store_root: Path, manifest: dict, profile, names
+                   ) -> tuple["RoiCacheUnion | None", str | None]:
+        """The sets `names` (or a `WIDE_ROIS` name) read as one cache, or
+        None and why: a part that will not load, or parts written at
+        different rates, whose timelines differ."""
+        if isinstance(names, str):
+            names = WIDE_ROIS[names][0]
+        parts = []
+        for name in names:
+            got, why = cls.load(store_root, manifest, profile, name)
+            if got is None:
+                return None, f"{name}: {why}"
+            parts.append(got)
+        if len({float(p.record["hz"]) for p in parts}) > 1:
+            return None, "the sets were written at different rates: " + ", ".join(
+                f"{n} {p.record['hz']} Hz" for n, p in zip(names, parts))
+        return RoiCacheUnion(parts), None
+
+
+@dataclass
+class RoiCacheUnion:
+    """Stored sets read as one cache (`RoiCache.load_union`): a time is held
+    only where every part asked holds a frame, the same decoded frame, and
+    `samples` pastes each part's crops into one black frame. A reader of a
+    region wider than one set (`WIDE_ROIS`) runs on it unchanged."""
+
+    parts: list[RoiCache]
+
+    @property
+    def record(self) -> dict:
+        """The first part's record, with every part's under `parts`."""
+        return {**self.parts[0].record, "parts": [p.record for p in self.parts]}
+
+    def _part_rois(self, rois) -> list[tuple[RoiCache, list[str]]]:
+        """Each part with the profile ROIs of `rois` it holds; `rois` is a
+        `WIDE_ROIS` name, a set name, a list of ROIs, or None for all."""
+        if isinstance(rois, str):
+            rois = WIDE_ROIS[rois][1] if rois in WIDE_ROIS else CACHE_SETS[rois]
+        out = []
+        for p in self.parts:
+            held = CACHE_SETS[p.record["roi"]]
+            want = list(held) if rois is None else [r for r in rois if r in held]
+            if want:
+                out.append((p, want))
+        return out
+
+    def rect_of(self, roi: str) -> list[int]:
+        """Where a reader finds `roi` in the frames `samples` yields; a
+        `WIDE_ROIS` name is the bounding box of its ROIs."""
+        if roi in WIDE_ROIS:
+            rs = np.array([self.rect_of(r) for r in WIDE_ROIS[roi][1]])
+            return [int(rs[:, 0].min()), int(rs[:, 1].min()),
+                    int(rs[:, 2].max()), int(rs[:, 3].max())]
+        for p in self.parts:
+            if roi in CACHE_SETS[p.record["roi"]]:
+                return p.rect_of(roi)
+        raise KeyError(f"no part of this cache holds {roi!r}")
+
+    @staticmethod
+    def _frame_at(p: RoiCache, t: float) -> int | None:
+        i = p._index_by_t().get(float(t))
+        return None if not i else int(p.frame_idx[i[0]])
+
+    def refusal(self, t_ms: float, rois=None) -> str | None:
+        """None where every part asked holds the same frame at `t_ms`; else
+        the first refusing part's `RoiCache.refusal` (`outside_gate` where
+        the killfeed panel gate kept no sample), or `frame_mismatch` where
+        the parts hold different frames at that time."""
+        parts = self._part_rois(rois)
+        for p, _ in parts:
+            why = p.refusal(t_ms)
+            if why is not None:
+                return why
+        if len({self._frame_at(p, t_ms) for p, _ in parts}) > 1:
+            return "frame_mismatch"
+        return None
+
+    def holds(self, rois=None) -> list[float]:
+        """The times every part asked holds one frame at, in order."""
+        parts = self._part_rois(rois)
+        common = set(parts[0][0].holds())
+        for p, _ in parts[1:]:
+            common &= set(p.holds())
+        return sorted(t for t in common if self.refusal(t, rois) is None)
+
+    def samples(self, targets_ms: list[float], rois=None):
+        """A Sample per target every part asked holds (`refusal` None), in
+        target order: each part's crops pasted into one black frame. A
+        target outside is skipped, never yielded black; ask `refusal`."""
+        parts = self._part_rois(rois)
+        held = [float(t) for t in targets_ms if self.refusal(t, rois) is None]
+        streams = [p.samples(held, want) for p, want in parts]
+        for got in zip(*streams):
+            frame = got[0].frame
+            for (p, want), smp in zip(parts[1:], got[1:]):
+                for roi in want:
+                    x0, y0, x1, y1 = p.rect_of(roi)
+                    frame[y0:y1, x0:x1] = smp.frame[y0:y1, x0:x1]
+            yield Sample(frame_idx=got[0].frame_idx, t_ms=got[0].t_ms, frame=frame)
