@@ -519,6 +519,43 @@ stored_consumers = ["adjudication.killstreak"]
 evidence = "tests/test_killfeed_numeral.py"
 
 [[entry]]
+id = "killfeed-assist-panel"
+question = "What does a killfeed entry's assist panel draw: how many assister portraits, whose art each matches, and which icon sits beside each?"
+owner = "killfeed_assist"
+role = ["detect"]
+status = "partial"
+produces = ["KILLFEED_ASSIST_VERSION", "ICON_BUILD", "PORTRAIT_W", "PORTRAIT_H", "ICON_PX", "ICON_PAD", "ICON_CELL", "MAX_ASSISTERS", "PRESENT_Z", "PLATE_SHARE_MIN", "ART_MIN_VISIBLE", "ICON_SURPRISE", "GENERIC_ICONS", "FRAME_MARGIN", "UIDATA_SKIP", "icon_art", "icon_templates", "game_portrait_paths", "portrait_art", "killer_art", "read_icon", "read_panel", "view_anchors", "view_anchor", "check_anchor", "assist_observation"]
+not_for = """
+Naming an assister or an ability. The reader stores, per view of a stored
+killer, the panel's count (or a cut with its lower bound), each portrait's art
+correlation against the agents its caller admits and each icon cell's scores
+against the game's icons, in the `killfeed_assist` stream. Who assisted is the
+identity arbiter's, and which ability `kill-assists`' (`adjudication.assist`).
+It never finds entries: it reads only where `killfeed-portrait` placed a killer.
+"""
+stored_consumers = ["adjudication.assist"]
+evidence = "tests/test_killfeed_assist.py"
+
+[[entry]]
+id = "kill-assists"
+question = "Who assisted each kill, by the killfeed's assist panel, and with which ability icon?"
+owner = "adjudication.assist"
+role = ["adjudicate"]
+status = "partial"
+names_agents = true
+produces = ["ASSIST_ADJUDICATION_VERSION", "CHANNEL", "ICON_READ", "ICON_MARGIN", "NONE_ICON", "killer_side", "side_admitted", "view_claim", "pool_count", "decide_icon", "adjudicate_death", "adjudicate_session", "summary"]
+not_for = """
+Altering a death or its killer. The verdicts go to the `assist` stream keyed by
+`death_id`; the death owner (`death-victim`) joins them as `assists`. Each
+assister's name is `adjudication.identity`'s verdict over this channel's
+claims; which abilities can draw an icon is `killfeed-kits`'. Riot's assist
+credit is evaluation truth only (`prototypes/assist_panel_eval.py`).
+"""
+defers_to = ["agent-identity", "killfeed-kits", "killfeed-assist-panel"]
+stored_consumers = ["adjudication.death"]
+evidence = "tests/test_killfeed_assist.py"
+
+[[entry]]
 id = "killstreak-kill-index"
 question = "Does each killfeed entry's killstreak numeral agree with its killer's kill index in the round, as the death stream counts it?"
 owner = "adjudication.killstreak"
@@ -860,13 +897,19 @@ question = "Is this discontinuity a licensed teleport or a broken track?"
 owner = "track"
 role = ["constrain"]
 status = "shipped"
-produces = ["corroborates_teleport", "is_teleport", "Corroboration"]
+produces = ["corroborates_teleport", "is_teleport", "Corroboration", "MOVEMENT_FACTS", "MOVEMENT_LICENCE_VERSION"]
 not_for = """
 Deciding from distance alone. A teleport needs an icon, a cone, audio or an
 observed destination to corroborate it; distance-only is an explicitly marked
-fallback and nothing may launder it into a licence.
+fallback and nothing may launder it into a licence. Licensing an agent from a
+wiki tag or a prose list: `motion_for` grants only what a player-known domain
+fact holds, and a speed change (Neon's High Gear) is never a jump.
+`motion_for` and `movement_licences` read MOVEMENT_FACTS; no stored stream
+picks a motion class by agent yet, so they wait for one (doctor MOVEMENT
+checks the table meanwhile).
 """
 consumers = ["minimap_lifecycle"]
+evidence = "tests/test_track_movement.py"
 
 [[entry]]
 id = "minimap-origin"
@@ -1537,7 +1580,7 @@ owner = "adjudication.death"
 stored_consumers = ["entity_events"]
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "entry_second_life", "stored_second_life", "split_second_lives", "death_key", "panel_aside", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry", "x_shape", "minimap_x_marks", "xmark_births", "match_xmark", "stored_xmark_births"]
+produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "entry_second_life", "stored_second_life", "split_second_lives", "death_key", "panel_aside", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry", "x_shape", "minimap_x_marks", "xmark_births", "match_xmark", "stored_xmark_births", "assist_stamp", "join_assists"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """

@@ -46,12 +46,16 @@ the icons left of the killer portrait at 284.5 s on a06f04a0059f are this
 panel; `killfeed` owns the killer crop and must stop at the panel's edge
 """
 exceptions = """
-the player has seen at most two assisters and does not know whether two is the
-limit. Whether a damage assist by a gun draws a gun icon, and how two assisters'
-portraits and icons are ordered, are not known
+the player has seen at most two assisters; up to four is the player's belief
+[domain:killfeed/assist-panel-four-assisters-belief]. A gun damage assist draws
+no icon [domain:killfeed/gun-damage-assist-no-icon]. How two assisters'
+portraits and icons are ordered, and why Riot credits assists the panel never
+draws, are not known (the player, 2026-10-04: "No idea", "I don't know")
 """
 phrases = ["assist panel", "assist icon left of the killer"]
-see = ["killfeed/disabling-ability-assist-icon"]
+see = ["killfeed/disabling-ability-assist-icon", "killfeed/gun-damage-assist-no-icon",
+       "killfeed/assist-panel-four-assisters-belief",
+       "killfeed/assist-earning-ability-icon-belief"]
 
 [damaging-ability-kill-icon]
 claim = """
@@ -326,6 +330,46 @@ a06f04a0059f 185.0 s and 1423.0 s, 223d636bf8d2 823.5 s, 3694746e4e54
 """
 see = ["killfeed/assist-panel"]
 
+[assist-panel-widget]
+claim = """
+The assist panel is the widget `KillFeed_AssisterPortraits`: one horizontal
+box of four `WBP_KillFeedAssister` slots, each an `AssistPortrait` image drawn
+at 36 x 18 px and an `EquippableImage` at 14 x 14 px, centred with 2 px of
+padding to its right, collapsed until set. The row right-aligns the panel at
+the top of `LeftOverhang`, the killstreak numeral at its bottom. The panel's
+own textures include generic assist icons (`TX_Kilfeed_Assist_Buff`,
+`_Damage`, `_Utility`) and `TX_Assist_Resurrection`. A `BackgroundBlur` and
+the `KillFeedGradient` material sit behind the slots; when the local player
+assisted (`bLocalPlayerIsAssister`), `MeBorder` draws over them: a border in
+`M_UI_KillfeedBorder` tinted E7EC77 and the `TX_Killfeed_MeBorder` chevron at
+its left.
+"""
+kind = "geometry"
+known = "observed"
+since = "2026-10-04"
+source = """
+game build release-13.06-shipping-18-5590001: hud-layout/ShooterGame/Content/UI/InGame/HUD/KillCallout/KillFeed_Assists/KillFeed_AssisterPortraits.json
+(`HorizontalBox_18`, four `WBP_KillFeedAssister` slots),
+WBP_KillFeedAssister.json (`AssistPortrait` ImageSize 36 x 18,
+`EquippableImage` 14 x 14, Visibility Collapsed, slot padding Right 2),
+KillFeedRow.json (`LeftOverhang` slots HAlign_Right, the panel VAlign_Top);
+textures in killfeed-icons/.../KillFeed_Assists/Textures/KillfeedIcons/.
+On 81 labelled assisted entries the drawn portrait's right edge sat 1 px left
+of the killer art with no icon and 16-17 px left with one
+"""
+use = """
+`killfeed_assist` places each assister from these sizes; four slots bound
+`MAX_ASSISTERS`. That the game fills more than two, and when it draws a
+generic icon, is not observed
+"""
+exceptions = """
+a widget with four slots does not show that four assisters are ever drawn;
+Riot credits three assistants on 6 of 3459 kills, and one such kill showed
+three portraits. The generic icons were not seen drawn on the 21 matches
+"""
+phrases = ["assist panel widget", "four assister slots", "assist portrait size"]
+see = ["killfeed/assist-panel", "killfeed/assist-panel-layout"]
+
 [assist-without-icon]
 claim = """
 An assister drawn with no ability icon beside the portrait most likely
@@ -340,6 +384,66 @@ the player, 2026-09-25, asked about a06f04a0059f 185.0 s (Killjoy and Omen
 assisting, no icons) and 7010b3d62460 877.0 s (Phoenix, no icon)
 """
 use = "an icon-less assister is not an unread icon; label it 'No icon', not unknown"
+see = ["killfeed/gun-damage-assist-no-icon"]
+
+[gun-damage-assist-no-icon]
+claim = """
+A gun damage assist draws the assister's portrait in the assist panel with no
+ability icon beside it.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+source = """
+the player, 2026-10-04, asked what a gun damage assist draws: "portrait with
+no ability icon"
+"""
+use = """
+`adjudication.assist` reads an assister drawn with no icon as `none`, not as an
+unread icon [domain:killfeed/assist-without-icon]
+"""
+see = ["killfeed/assist-panel", "killfeed/assist-without-icon"]
+
+[assist-panel-four-assisters-belief]
+claim = """
+BELIEF, not observed: the assist panel can draw up to four assisters, though
+four would be rare.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+source = """
+the player, 2026-10-04, asked whether two is the most assister portraits: "It
+could be four I don't know. I don't see why it couldn't be 4, though that'd be
+rare if so". The widget holds four slots [domain:killfeed/assist-panel-widget]
+"""
+use = """
+a reader walks up to four assisters (`killfeed_assist.MAX_ASSISTERS`) and
+treats more than two as rare, never impossible
+"""
+exceptions = "the player's belief; three portraits were seen once, four never"
+see = ["killfeed/assist-panel", "killfeed/assist-panel-widget"]
+
+[assist-earning-ability-icon-belief]
+claim = """
+BELIEF, not observed: any ability that earns an assist can draw its icon in
+the assist panel.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+source = """
+the player, 2026-10-04, asked whether any assist-earning ability draws its
+icon: "Yes I think so"
+"""
+use = """
+`adjudication.assist` names an icon from the assister's whole kit after its
+disabling abilities [domain:killfeed/disabling-ability-assist-icon], never
+refusing an icon only because the ability is not disabling
+"""
+exceptions = "the player's belief; which abilities earn assists is not asked here"
+see = ["killfeed/assist-panel", "killfeed/disabling-ability-assist-icon",
+       "abilities/ability-rules-are-unique"]
 
 [self-yellow-frame]
 claim = """
@@ -354,6 +458,39 @@ the player, 2026-09-25 ("probably me assisting yes, yellow is typically
 self"), asked about 223d636bf8d2 349.0 s, b7d24102a6f6 265.5 s and
 bfad2778a372 921.5 s
 """
+
+[portrait-art-variants]
+claim = """
+Astra's killfeed portrait in 223d636bf8d2 is drawn from art other than her
+`KillfeedPortrait` texture in the extracted build, in the killer's position and
+in the assist panel. Where the drawn art comes from is not known.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+source = """
+223d636bf8d2 (build 13.04): Astra's killer views correlate with her
+`TX_Killfeed_Astra` at a median 0.753 against 0.85-0.89 for the match's other
+agents, and her assist portraits at 0.58-0.64 against 0.77-0.86; by eye her
+face sits higher and smaller. The build's `KillfeedPortrait` textures equal
+valorant-api's within 2/255; geometric, blur and gamma fits of the texture did
+not explain Astra. The assist widget sets its portrait from
+`PlayerIconsComponent.GetKillfeedIcon`.
+"""
+use = """
+a reader that matches portrait art must treat a weak best match on a known
+agent as possibly a variant, not as absence; ask the player before adding art
+"""
+exceptions = """
+whether the variant is a cosmetic, agent mastery or an older patch's art is not
+known. The patch question is untested: Astra plays in one of the 21 matches,
+on release-13.04, and the extracted build is release-13.06; the control agents
+(Sage, Omen) score alike on 13.04, 13.05 and 13.06, so no general art change
+between those versions shows. Testing it needs an Astra capture on 13.06, or
+13.04's texture
+"""
+phrases = ["killfeed portrait variant", "alternate killfeed portrait"]
+see = ["killfeed/assist-panel-widget"]
 
 [stack-order]
 claim = """

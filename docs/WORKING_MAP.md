@@ -44,11 +44,12 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Layers and blessed upward edges | `architecture.toml`, `reticle/architecture.py` |
 | A quoted figure and its run | `reticle/quoted.py`, `reticle/metrics.py` |
 | Which documents are live, and what reaches them | `documents.toml`, `reticle/documents.py`, `doctor` DOCS |
-| Scan cost and live frame-rate cost | `reticle usage [SESSION]`, `reticle/usage.py`, [FRAMETIME_PROTOCOL.md](FRAMETIME_PROTOCOL.md) |
+| Scan cost and live frame-rate cost | `reticle usage [SESSION]`, `reticle/usage.py`, [FRAMETIME_PROTOCOL.md](FRAMETIME_PROTOCOL.md); per-reader CPU per second of play from stored usage: `prototypes/runtime_budget.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
 | External truth | `prototypes/riot_ground_truth.py`, `replay_truth.py`, `replay_abilities.py`, [REPLAY_KEEPING.md](REPLAY_KEEPING.md) |
 | Player-run Riot fetch | [MATCH_FETCH_KIT.md](MATCH_FETCH_KIT.md) |
 | Ladder match sample (fit only) | `prototypes/ladder_fetch.py`, [LADDER_SAMPLE.md](LADDER_SAMPLE.md) |
+| The player's profile against lobby peers (private output) | `prototypes/player_profile.py`, [PLAYER_PROFILE.md](PLAYER_PROFILE.md) |
 | Experiments | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
 | The scene model (render-and-compare) | [SCENE_MODEL.md](SCENE_MODEL.md) |
 | Events consumers read | [ENTITY_EVENTS.md](ENTITY_EVENTS.md) |
@@ -103,6 +104,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe prototypes\audio_open_set.py score --scan DIR  # ungated ability events on the demos; stored detections only
 .\.venv\Scripts\python.exe prototypes\audio_open_set.py match-score --match DIR  # the frozen dev choice on the player's matches; stored detections only
 .\.venv\Scripts\python.exe -m reticle killstreak SESSION    # numerals vs death stream; stored data only
+.\.venv\Scripts\python.exe -m reticle assists SESSION      # assisters per death from the crop cache; no video
 .\.venv\Scripts\python.exe -m reticle acquisition-plan REQUESTS.json
 .\.venv\Scripts\python.exe -m reticle capabilities
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID

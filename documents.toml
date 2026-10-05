@@ -510,6 +510,12 @@ remains = "HenrikDev's answer on sampling strangers' matches, the third account,
 waits_for = "The player's decision on strangers' match histories and on the sample size."
 
 [[document]]
+path = "docs/PLAYER_PROFILE.md"
+kind = "reference"
+status = "live"
+since = "2026-10-04"
+
+[[document]]
 path = "docs/REPLAY_KEEPING.md"
 kind = "reference"
 status = "live"

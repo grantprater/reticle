@@ -290,7 +290,8 @@ def citations(root: Path | None = None) -> dict[str, list[str]]:
 
 
 def restatements(facts: dict[str, Fact],
-                 root: Path | None = None) -> dict[str, list[str]]:
+                 root: Path | None = None,
+                 cited: dict[str, list[str]] | None = None) -> dict[str, list[str]]:
     """Files that carry a fact's own phrasing without citing it.
 
     This is the migration signal, and the phrase list is authored by hand for
@@ -299,7 +300,8 @@ def restatements(facts: dict[str, Fact],
     behind a fuzzy similarity score nobody set.
     """
     base = Path(root) if root else ROOT
-    cited = citations(base)
+    # `validate` passes the citations it already found under the same root.
+    cited = citations(base) if cited is None else cited
     out: dict[str, list[str]] = {}
     # A phrase belongs to a fact, but the source files do not change while
     # this check runs. Read each candidate once instead of once per fact.
@@ -405,7 +407,7 @@ def validate(facts: dict[str, Fact],
         out.append(("WARN", f"{len(unused)} fact(s) nothing cites -- the "
                             f"lost-in-the-shuffle failure: {', '.join(unused)}"))
 
-    for key, paths in sorted(restatements(facts, base).items()):
+    for key, paths in sorted(restatements(facts, base, cited).items()):
         out.append(("WARN", f"{key} is restated without citation in "
                             f"{', '.join(paths)}; cite {facts[key].cite} "
                             f"instead of repeating it"))
