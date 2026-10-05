@@ -2175,8 +2175,19 @@ use = """
 the ability state model: a Killjoy slot's charge may return within a round by
 pickup, usable after that ability's cooldown
 """
+exceptions = """
+Not any: she picks up a Nanoswarm only in the buy phase, so a Nanoswarm
+returns no charge during the round
+(abilities/killjoy-nanoswarm-pickup-buy-phase-only). "Fairly close" is
+unmeasured: the player does not know how close she must be to pick up an
+Alarmbot or a Turret, and the game data holds no distance
+(abilities/killjoy-alarmbot-pickup-distance-player,
+abilities/killjoy-turret-pickup-distance-player)
+"""
 see = ["abilities/deployed-pickup-returns-charge", "abilities/killjoy-pickup-abilities-gamefile",
-       "abilities/recharge-kinds"]
+       "abilities/recharge-kinds", "abilities/killjoy-nanoswarm-pickup-buy-phase-only",
+       "abilities/killjoy-alarmbot-pickup-distance-player",
+       "abilities/killjoy-turret-pickup-distance-player"]
 
 [cypher-deployed-util-pickup]
 claim = """
@@ -2199,8 +2210,22 @@ use = """
 the ability state model: a Cypher slot's charge may return within a round by
 pickup, usable after that ability's cooldown
 """
+exceptions = """
+Not any: he picks up a Cyber Cage only in the buy phase, so a Cyber Cage
+returns no charge during the round
+(abilities/cypher-cyber-cage-pickup-buy-phase-only). Not "fairly close": the
+player's answer 3 on 2026-10-04 withdrew it; he picks up a Trapwire within
+2700 units and a Spycam within 2500
+(abilities/cypher-trapwire-pickup-distance-confirmed,
+abilities/cypher-spycam-pickup-distance-confirmed). Not always after a
+cooldown: a Trapwire picked up during the round returns a temporary charge he
+can place again at once, with no wait (abilities/cypher-trapwire-temporary-charge)
+"""
 see = ["abilities/deployed-pickup-returns-charge", "abilities/cypher-pickup-abilities-gamefile",
-       "abilities/recharge-kinds"]
+       "abilities/recharge-kinds", "abilities/cypher-cyber-cage-pickup-buy-phase-only",
+       "abilities/cypher-trapwire-pickup-distance-confirmed",
+       "abilities/cypher-spycam-pickup-distance-confirmed",
+       "abilities/cypher-trapwire-temporary-charge"]
 
 [chamber-deployed-util-pickup]
 claim = """
@@ -2227,11 +2252,21 @@ exceptions = """
 Chamber need not be close: the player confirmed on 2026-10-04 that his
 recall of Trademark or Rendezvous is not distance-limited, as the game files
 say (abilities/chamber-trademark-recall-any-distance,
-abilities/chamber-rendezvous-recall-any-distance); "fairly close" holds for
-Killjoy and Cypher only
+abilities/chamber-rendezvous-recall-any-distance). "Fairly close" is
+confirmed for no agent: the player's answer 3 on 2026-10-04 withdrew it for Cypher, whose
+pickup distances are confirmed at 2700 units for Trapwire and 2500 for Spycam
+(abilities/cypher-trapwire-pickup-distance-confirmed,
+abilities/cypher-spycam-pickup-distance-confirmed), and the player does not
+know Killjoy's distance (abilities/killjoy-alarmbot-pickup-distance-player,
+abilities/killjoy-turret-pickup-distance-player)
 """
 see = ["abilities/deployed-pickup-returns-charge", "abilities/chamber-pickup-abilities-gamefile",
-       "abilities/recharge-kinds"]
+       "abilities/recharge-kinds", "abilities/chamber-trademark-recall-any-distance",
+       "abilities/chamber-rendezvous-recall-any-distance",
+       "abilities/cypher-trapwire-pickup-distance-confirmed",
+       "abilities/cypher-spycam-pickup-distance-confirmed",
+       "abilities/killjoy-alarmbot-pickup-distance-player",
+       "abilities/killjoy-turret-pickup-distance-player"]
 
 [deployed-pickup-returns-charge]
 claim = """
