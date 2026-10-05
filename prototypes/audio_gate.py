@@ -92,6 +92,7 @@ with contextlib.redirect_stdout(io.StringIO()):
     import audio_bank  # noqa: E402  the front end, the bank, Below Normal priority
 from reticle import ult_lines  # noqa: E402  the audio decode and the log-mel front end
 from reticle.ult_lines import decode_mono, log_mel  # noqa: E402
+from reticle.audio_source import audio_path  # noqa: E402  which file holds the audio
 
 
 def _idle_priority() -> None:
@@ -309,7 +310,7 @@ def cmd_features(sids: list[str], force: bool = False) -> None:
             print(f"  {sid}: cached")
             continue
         t = time.time()
-        x, filled, rate = decode_mono(man["source"]["path"])
+        x, filled, rate = decode_mono(audio_path(man, STORE))
         td = time.time() - t
         if not have or force:
             L, ok, rms = logmel(x, filled, rate)

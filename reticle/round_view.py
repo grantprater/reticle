@@ -1005,7 +1005,9 @@ def main(args, store, manifest) -> int:
         return 0
     labels = Path(args.labels) / f"{sid}.jsonl" if args.labels else ve.round_review_path(store, sid)
     marks = Marks(labels, sid)
-    audio = Audio(str(media), enabled=not args.no_audio, volume=args.volume)
+    from .audio_source import audio_source
+    sound = audio_source(manifest, store.root)["path"] or str(media)
+    audio = Audio(sound, enabled=not args.no_audio, volume=args.volume)
     print(f"audio      {audio.status}")
     print(f"marks      {labels} ({len(marks.live())} standing)")
     player = Player(src, loaded, geo, marks, audio, shot_dir, args.scale,

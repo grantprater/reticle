@@ -96,6 +96,8 @@ sys.path.insert(0, str(ROOT / "prototypes"))
 import voice_lines as vl  # noqa: E402  lineup classing, live time, own casts, the threshold rule
 from reticle import ult_lines as ul  # noqa: E402  the reader: template cut, decode, GCC-PHAT, peaks
 
+from reticle.audio_source import audio_source  # noqa: E402  which file holds the audio
+
 STORE = vl.STORE
 VERSION = "ult-ready-lines-0.1.0"
 TAG = VERSION.rsplit("-", 1)[1]
@@ -174,9 +176,10 @@ def cmd_score(sids: list[str], force: bool = False) -> dict:
                 and head.get("templates_key") == key and head.get("content_key") == src["content_key"]):
             print(f"{sid}: current -- pass --force to reread")
             continue
-        media = Path(src["path"])
-        if not media.is_file():
-            runs[sid] = {"refused": f"source media has moved: {media}"}
+        got = audio_source(vl._manifest(sid), STORE)
+        media = got["path"]
+        if media is None:
+            runs[sid] = {"refused": f"no audio source: {got['reason']}"}
             print(f"{sid}: {runs[sid]['refused']}")
             _write_json(SUMMARY, summary)
             continue

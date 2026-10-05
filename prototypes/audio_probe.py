@@ -98,6 +98,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from ability_eval import join, STORE                              # noqa: E402
+from reticle.audio_source import audio_path  # noqa: E402  which file holds the audio
 
 SR = 48000
 N_FFT = 1024
@@ -297,7 +298,7 @@ def main() -> int:
     sid = args.session
 
     man = json.loads((STORE / "manifests" / f"{sid}.json").read_text())
-    path = man["source"]["path"]
+    path = audio_path(man, STORE)
     x, rate = decode(path, args.t0, args.seconds)
     dur = len(x) / rate
     peak = float(np.abs(x).max())
