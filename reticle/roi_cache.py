@@ -731,6 +731,52 @@ def _cache_record(manifest: dict, profile, name: str, rects, hz: float, spans=No
     return rec
 
 
+def holding_sets(need) -> list[str]:
+    """The `CACHE_SETS` names whose ROIs include every ROI in `need`, the
+    smallest first: the sets `cache_for` tries for a pass."""
+    return sorted((n for n, rs in CACHE_SETS.items() if set(need) <= set(rs)),
+                  key=lambda n: len(CACHE_SETS[n]))
+
+
+#: The crop cache sets each `reticle scan --only <channel>` pass's readers
+#: declare (`cache_set`, `declare_set`, set where `scan` builds them): the HUD
+#: reader and the killfeed portraits read `hud` and `killfeed`, the roster
+#: `hud`, the minimap readers `minimap`. A channel absent here has a reader
+#: that declares no set (pings, the scoreboard, the combat report), so its
+#: pass decodes.
+SCAN_CHANNEL_SETS = {
+    "hud": ("hud", "killfeed"),
+    "roster": ("hud",),
+    "minimap": ("minimap",),
+    "ally_icon": ("minimap",),
+    "minimap_dark": ("minimap",),
+}
+
+
+def channel_cache(store_root: Path, manifest: dict, profile, channel: str
+                  ) -> tuple[str | None, str]:
+    """The stored, ungated cache set that holds every ROI a `scan --only
+    <channel>` pass reads, or None and why. The store-only half of
+    `cache_for`: `plan` asks it before proposing a cache-fed reread of a
+    session whose video is retired; `scan` still decides with the readers'
+    rates and spans, and refuses `source_retired_no_cache` where they do
+    not fit."""
+    sets = SCAN_CHANNEL_SETS.get(channel)
+    if sets is None:
+        return None, f"a {channel} reader reads outside any cached ROI set"
+    need = set().union(*(CACHE_SETS[s] for s in sets))
+    why = "no_cache"
+    for name in holding_sets(need):
+        cache, reason = RoiCache.load(store_root, manifest, profile, name)
+        if cache is None:
+            why = reason or why
+        elif cache.record.get("gate") is not None:
+            why = f"the {name} cache holds only the samples its gate kept"
+        else:
+            return name, f"the {name} cache ({cache.record['version']}) holds its ROIs"
+    return None, why
+
+
 def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiCache | None", str]:
     """The cache that can feed this whole pass, or None and why it cannot.
 
@@ -754,11 +800,11 @@ def cache_for(store_root: Path, manifest: dict, profile, readers) -> tuple["RoiC
         if s is None:
             return None, f"{r.name} reads outside any cached ROI set"
         need |= set(CACHE_SETS[s])
-    names = [n for n, rs in CACHE_SETS.items() if need <= set(rs)]
+    names = holding_sets(need)
     if not names:
         return None, f"no cached set holds {sorted(need)}"
     why = "no_cache"
-    for name in sorted(names, key=lambda n: len(CACHE_SETS[n])):
+    for name in names:
         cache, reason = RoiCache.load(store_root, manifest, profile, name)
         if cache is None:
             why = reason or why

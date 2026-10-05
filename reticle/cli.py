@@ -621,12 +621,7 @@ def cmd_hud(args) -> int:
         print("           pass --force to re-read")
         return 0
 
-    media = Path(src["path"])
-    if not media.is_file():
-        raise SystemExit(
-            f"source media has moved: {media}\n"
-            "the manifest records where it was at ingest time"
-        )
+    media = _capture_or_exit(manifest)
 
     print(f"session    {sid}  ({src['filename']})")
     print(f"profile    {profile.name}  ({HUD_VERSION})")
@@ -714,12 +709,7 @@ def cmd_minimap(args) -> int:
 
     spans = _reader_spans(store, sid, date)
 
-    media = Path(src["path"])
-    if not media.is_file():
-        raise SystemExit(
-            f"source media has moved: {media}\n"
-            "the manifest records where it was at ingest time"
-        )
+    media = _capture_or_exit(manifest)
     fps = float(src["fps"])
     print(f"session    {sid}  ({src['filename']})")
     print(f"profile    {profile.name}  ({MINIMAP_VERSION})")
@@ -936,6 +926,22 @@ def _parse_shards(specs) -> dict[str, int]:
     return {name: k for name, k in out.items() if k > 1}
 
 
+def _capture_or_exit(manifest: dict) -> Path:
+    """The capture's path, or SystemExit: `source_retired` where the player
+    retired the video (`audio_source.video_state`), else the moved-media
+    message."""
+    from .audio_source import video_state
+    media = Path(manifest["source"]["path"])
+    if media.is_file():
+        return media
+    if video_state(manifest) == "retired":
+        raise SystemExit(f"{manifest['session_id']}: source_retired -- the video was retired "
+                         f"({manifest['video_retired'].get('at')}); its audio and crop caches "
+                         "are kept, and this command needs the video")
+    raise SystemExit(f"source media has moved: {media}\n"
+                     "the manifest records where it was at ingest time")
+
+
 def _scan_pass(ctx, readers, cache, progress, usage, pipeline, workers, shards, cv_threads):
     """One pass over the chosen source: `(frames, None)` serial, `(frames, StagedRun)` staged.
 
@@ -1090,16 +1096,24 @@ def cmd_scan(args) -> int:
     profile = get_profile(manifest["source_profile"])
 
     media = Path(src["path"])
+    # A session whose video the player retired (`audio_source.video_state`)
+    # keeps its crop caches as the evidence: the pass reads them, and nothing
+    # that needs the decoded frames runs.
+    retired = False
     if not media.is_file():
         from .audio_source import video_state
-        if video_state(manifest) == "retired":
-            raise SystemExit(f"{sid}: source_retired -- the video was retired "
-                             f"({manifest['video_retired']['at']}); its audio is kept, and "
-                             "scan needs the video")
-        raise SystemExit(
-            f"source media has moved: {media}\n"
-            "the manifest records where it was at ingest time"
-        )
+        if video_state(manifest) != "retired":
+            _capture_or_exit(manifest)
+        retired = True
+        at = manifest["video_retired"].get("at")
+        if args.frames_from == "video":
+            raise SystemExit(f"{sid}: source_retired -- the video was retired ({at}); "
+                             "--from video needs it, and the crop cache is what remains")
+        if args.cache_roi:
+            raise SystemExit(f"{sid}: source_retired -- the video was retired ({at}); "
+                             f"--cache-roi {args.cache_roi} writes crops from it")
+        args.frames_from = "cache"
+        print(f"source     retired ({at}): the pass reads the crop cache only")
     shards = _parse_shards(args.shard)
     if args.pipeline == "serial" and (shards or args.workers is not None):
         raise SystemExit("--workers and --shard need --pipeline staged")
@@ -1430,6 +1444,9 @@ def cmd_scan(args) -> int:
                                    args.frames_from, live_rounds)
         for line in notes:
             print(line)
+        if cache is None and retired:
+            raise SystemExit(f"{sid}: source_retired_no_cache -- the video was retired and "
+                             f"no stored crop cache feeds this pass: {why}")
         if cache is None and args.frames_from == "cache":
             raise SystemExit(f"--from cache: {why}")
         # A clipped stream must say which spans it left unread; one that
@@ -1991,9 +2008,7 @@ def cmd_board(args) -> int:
     sid = manifest["session_id"]
     src = manifest["source"]
     profile = get_profile(manifest["source_profile"])
-    media = Path(src["path"])
-    if not media.is_file():
-        raise SystemExit(f"source media has moved: {media}")
+    media = _capture_or_exit(manifest)
 
     templates = game_font_templates(store.root)
     hud = store.read_hud(sid, _date_of(manifest))
@@ -2377,12 +2392,7 @@ def cmd_overlay(args) -> int:
     sid = manifest["session_id"]
     src = manifest["source"]
     profile = get_profile(manifest["source_profile"])
-    media = Path(src["path"])
-    if not media.is_file():
-        raise SystemExit(
-            f"source media has moved: {media}\n"
-            "the manifest records where it was at ingest time"
-        )
+    media = _capture_or_exit(manifest)
 
     w, h = int(src["width"]), int(src["height"])
     fps = float(src["fps"] or 60.0)
@@ -5775,6 +5785,7 @@ def cmd_refine(args) -> int:
         return 0
     media = Path(plan['source_path'])
     if not media.is_file():
+        _capture_or_exit(manifest)
         raise SystemExit(f"source media has moved: {media}")
     if content_key(media) != manifest['source'].get('content_key'):
         raise SystemExit("source identity changed; refinement requires the original capture")

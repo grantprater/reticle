@@ -363,14 +363,15 @@ def check_manifest(store: Path) -> list[tuple[str, str]]:
     return out
 
 
-def check_source(store: Path) -> list[tuple[str, str]]:
+def check_source(store: Path, verbose: bool = False) -> list[tuple[str, str]]:
     """Each session's capture is on disk, or retired with its audio kept.
 
     A retired session (`video_retired`, written by `reticle retire`) has no
     video: `plan` reports its video steps as `source_retired`, and the audio
     readers read the retained file (`audio_source`). The retained file must
-    be on disk at the size and sha256 the manifest recorded, or the session
-    has lost its audio: an ERROR. A capture gone without a retirement is a
+    be on disk at the size the manifest recorded, and under `--verbose` at
+    its sha256 too (about 50 MB read per session, so not on every run), or
+    the session has lost its audio: an ERROR. A capture gone without a retirement is a
     WARN; so is a retired capture still on disk, with the command that
     deletes it."""
     from .audio_source import retirement, video_state
@@ -395,9 +396,12 @@ def check_source(store: Path) -> list[tuple[str, str]]:
         p = p if p.is_absolute() else store / p
         if not p.is_file():
             out.append((ERROR, f"{f.stem}: video retired, retained audio missing at {p}"))
-        elif p.stat().st_size != a.get("bytes") or sha256_file(p) != a.get("sha256"):
-            out.append((ERROR, f"{f.stem}: retained audio {p} differs from the bytes or sha256 "
-                               "the manifest recorded"))
+        elif p.stat().st_size != a.get("bytes"):
+            out.append((ERROR, f"{f.stem}: retained audio {p} differs from the bytes the "
+                               "manifest recorded"))
+        elif verbose and sha256_file(p) != a.get("sha256"):
+            out.append((ERROR, f"{f.stem}: retained audio {p} differs from the sha256 the "
+                               "manifest recorded"))
         if state == "retired_present":
             out.append((WARN, f"{f.stem}: video retired and still on disk; the player deletes "
                               f"it with {deletion_command(m)}"))
@@ -1440,7 +1444,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("LINES", lambda: check_lines(store)),
               ("COVERAGE", lambda: check_coverage(store)),
               ("MANIFEST", lambda: check_manifest(store)),
-              ("SOURCE", lambda: check_source(store)),
+              ("SOURCE", lambda: check_source(store, verbose)),
               ("FURNITURE", lambda: check_furniture(store)),
               ("STALL", lambda: check_stalls(store)),
               ("INPUTS", lambda: check_inputs(store)))

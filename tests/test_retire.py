@@ -110,8 +110,8 @@ def test_preconditions_refuse_by_name_and_commit_writes_nothing(tmp_path, monkey
     video = _capture(tmp_path / "cap.mp4")
     store = _store(tmp_path, video)
     root = store.root
-    monkeypatch.setattr(retire, "plan_steps", lambda store, sid: [
-        {"step": "scan --only hud", "stream": "hud", "why": "scan opens the capture"}])
+    monkeypatch.setattr(retire, "plan_steps", lambda store, sid: ([
+        {"step": "scan --only ping", "stream": "ping", "why": "scan decodes the capture"}], []))
     (root / "external" / "replays").mkdir(parents=True)
     (root / "external" / "replays" / "manifest.json").write_text(json.dumps(
         {"files": [{"file": "r.vrf", "capture_session": SID}]}), encoding="utf-8")
@@ -131,6 +131,7 @@ def test_preconditions_refuse_by_name_and_commit_writes_nothing(tmp_path, monkey
                        "pending_labels"]
     pend = got["refusals"][-1]["detail"][0]
     assert pend["set"] == "probe_set" and pend["unanswered"] == 1
+    assert got["labels"] == {"checked": ["probe_set"], "unchecked": []}
     before = store.manifest_path(SID).read_bytes()
     row = retire.retire(store, SID, commit=True)
     assert row["status"] == "refused" and row["reasons"] == reasons
@@ -142,7 +143,7 @@ def test_preconditions_refuse_by_name_and_commit_writes_nothing(tmp_path, monkey
 def test_commit_marks_the_manifest_and_the_owner_then_names_the_retained_file(tmp_path, monkeypatch):
     video = _capture(tmp_path / "cap.mp4")
     store = _store(tmp_path, video)
-    monkeypatch.setattr(retire, "plan_steps", lambda store, sid: [])
+    monkeypatch.setattr(retire, "plan_steps", lambda store, sid: ([], []))
     monkeypatch.setattr(retire, "reader_checks", lambda *a, **k: {"ok": True})
     man = store.read_manifest(SID)
     assert asrc.audio_source(man, store.root) == {"path": str(video), "kind": "video",
@@ -156,6 +157,7 @@ def test_commit_marks_the_manifest_and_the_owner_then_names_the_retained_file(tm
     final = asrc.retained_audio_path(store.root, SID)
     assert final.is_file() and rec["audio"]["sha256"] == retire.sha256_file(final)
     assert rec["audio"]["path"] == (asrc.RETAINED_AUDIO_DIR / final.name).as_posix()
+    assert rec["audio"]["video_start_s"] == row["video_audio"]["video_start_s"] is not None
     assert asrc.video_state(man) == "retired_present"
     assert asrc.audio_source(man, store.root)["kind"] == "video"
     log = (store.root / retire.RETIREMENT_LOG).read_bytes()
@@ -169,7 +171,12 @@ def test_commit_marks_the_manifest_and_the_owner_then_names_the_retained_file(tm
     assert retire.retire(store, SID, commit=True, force_reason="again")["status"] == "refused"
     from reticle.doctor import ERROR, check_source
     assert check_source(store.root) == []
-    final.write_bytes(final.read_bytes()[:-1] + b"\0")
+    # Every run compares the size; only --verbose reads the sha256.
+    good = final.read_bytes()
+    final.write_bytes(good[:-1] + b"\0")
+    assert check_source(store.root) == []
+    assert [sev for sev, _ in check_source(store.root, verbose=True)] == [ERROR]
+    final.write_bytes(good[:-1])
     assert [sev for sev, _ in check_source(store.root)] == [ERROR]
 
 
@@ -189,8 +196,9 @@ def test_audio_source_reasons(tmp_path):
     assert asrc.audio_source(man, tmp_path)["kind"] == "retained_audio"
 
 
-def test_plan_reports_source_retired_and_proposes_nothing_that_needs_the_video(tmp_path):
+def test_plan_keeps_cache_fed_rereads_and_retires_what_needs_the_video(tmp_path):
     decode = [{"stream": "hud", "channel": "hud", "stored": "a", "current": "b", "trial": "hud"},
+              {"stream": "ping", "channel": "ping", "stored": "a", "current": "b", "trial": None},
               {"stream": "ult_line", "channel": "audio", "stored": "a", "current": "b",
                "trial": None}]
     derived = [{"stream": "ability_light", "how": "decode", "command": f"reticle ability-light {SID}",
@@ -199,21 +207,126 @@ def test_plan_reports_source_retired_and_proposes_nothing_that_needs_the_video(t
                 "stored": "a", "current": "b", "inputs_moved": []}]
     caches = [{"set": "killfeed_panel", "reason": "missing", "witness": "killfeed_portrait",
                "command": f"reticle scan {SID} --only roi_cache --cache-roi killfeed_panel"}]
+    feeds = lambda ch: ("hud", "the hud cache holds its ROIs") if ch == "hud" else (
+        None, f"a {ch} reader reads outside any cached ROI set")
     present = {"session_id": SID, "source": {"path": __file__}}
-    assert plan.source_retired(SID, present, decode, derived, None, caches)[4] == []
+    assert plan.source_retired(SID, present, decode, derived, None, caches, feeds)[4] == []
     gone = {"session_id": SID, "source": {"path": str(tmp_path / "gone.mp4")},
             "video_retired": {"at": "2026-10-05"}}
     d, dv, w, c, r = plan.source_retired(SID, gone, decode, derived,
                                          {"cache": {"command": "x", "reason": "stale_rects"}},
-                                         caches)
-    assert [s["stream"] for s in d] == ["ult_line"]
+                                         caches, feeds)
+    assert [(s["stream"], s.get("from_cache")) for s in d] == [("hud", "hud"), ("ult_line", None)]
     assert [s["stream"] for s in dv] == ["death"]
     assert w is None and c == []
-    assert {x["stream"] for x in r} == {"hud", "ability_light", "roi_cache:minimap",
+    assert {x["stream"] for x in r} == {"ping", "ability_light", "roi_cache:minimap",
                                         "roi_cache:killfeed_panel"}
     assert all(x["reason"] == "source_retired" for x in r)
     text = plan.render({SID: {"decode": d, "derived": dv, "absent": [], "waived": [],
                               "declined": [], "unchecked": [], "held": [], "unrecorded": [],
                               "widget": w, "placement": {}, "caches": c, "source_retired": r}})
-    assert "source_retired" in text and "reticle scan <sid> --only hud" in text
+    assert "accept reticle scan <sid> --only hud --from cache" in text
+    assert "retired  reticle scan <sid> --only ping" in text and "source_retired" in text
     assert "accept reticle ult-lines" in text
+
+
+def test_channel_cache_names_no_set_for_a_channel_whose_readers_decode(tmp_path):
+    from reticle.profiles import get_profile
+    from reticle.roi_cache import SCAN_CHANNEL_SETS, channel_cache
+    man = {"session_id": SID, "source_profile": "valorant-16x9",
+           "source": {"path": "x", "content_key": "k", "width": 1920, "height": 1080}}
+    prof = get_profile("valorant-16x9")
+    assert channel_cache(tmp_path, man, prof, "scoreboard")[0] is None
+    assert channel_cache(tmp_path, man, prof, "hud") == (None, "no_cache")
+    assert set(SCAN_CHANNEL_SETS) == {"hud", "roster", "minimap", "ally_icon", "minimap_dark"}
+
+
+def test_the_roster_declares_the_set_scan_channel_sets_names_for_it():
+    from reticle.profiles import get_profile
+    from reticle.roi_cache import SCAN_CHANNEL_SETS
+    from reticle.roster import RosterReader
+    r = RosterReader(get_profile("valorant-16x9"), (1920, 1080))
+    assert (r.cache_set,) == SCAN_CHANNEL_SETS["roster"]
+
+
+def _retired_store(tmp_path):
+    store = Store(tmp_path / "store")
+    man = {"session_id": "s", "ingested_at": "2026-09-07", "source_profile": "valorant-16x9",
+           "source": {"path": str(tmp_path / "gone.mp4"), "filename": "gone.mp4",
+                      "content_key": "k", "width": 1920, "height": 1080, "fps": 60,
+                      "duration_ms": 1000},
+           "video_retired": {"at": "2026-10-05T00:00:00+00:00"}}
+    store.manifest_path("s").parent.mkdir(parents=True)
+    store.manifest_path("s").write_text(json.dumps(man), encoding="utf-8")
+    return store
+
+
+def test_scan_on_a_retired_session_reads_the_crop_cache(tmp_path, monkeypatch):
+    """The video is gone: the pass reads the crop cache, and refuses by name
+    where no cache feeds it or a flag needs the video."""
+    import contextlib
+    import io
+    from types import SimpleNamespace
+    from reticle import cli, roi_cache
+    store = _retired_store(tmp_path)
+    monkeypatch.setattr("reticle.usage.code_revision", lambda root=None: {"sha": "0", "dirty": False})
+    monkeypatch.setattr(cli, "_HudPass", lambda *a, **k: (_ for _ in ()).throw(AssertionError("hud")))
+    asked = []
+
+    def choose(root, manifest, profile, readers, mode, live_rounds):
+        asked.append(mode)
+        return SimpleNamespace(record={"version": "roi-cache-test", "roi": "hud"}), "hud cache", []
+
+    def one_pass(ctx, readers, cache, progress, usage, *rest):
+        assert cache is not None and [r.name for r in readers] == ["roster"]
+        readers[0].rows = [dict(frame_idx=0, t_ms=0, alive_ally=5, alive_enemy=5,
+                                detail_ally=[30.0] * 5, detail_enemy=[30.0] * 5)]
+        return 1, None
+
+    monkeypatch.setattr(roi_cache, "choose_source", choose)
+    monkeypatch.setattr(cli, "_scan_pass", one_pass)
+    monkeypatch.setattr(cli, "passes_run", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("decoded a retired capture")))
+    args = cli.build_parser().parse_args(["--store", str(store.root), "scan", "s", "--only", "roster"])
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        assert cli.cmd_scan(args) == 0
+    assert asked == ["cache"] and "retired" in out.getvalue()
+    assert store.has_roster("s", "2026-09-07")
+    monkeypatch.setattr(roi_cache, "choose_source", lambda *a: (None, "no_cache", []))
+    args = cli.build_parser().parse_args(["--store", str(store.root), "scan", "s", "--only",
+                                          "roster", "--force"])
+    with pytest.raises(SystemExit, match="source_retired_no_cache"), \
+            contextlib.redirect_stdout(io.StringIO()):
+        cli.cmd_scan(args)
+    for flags in (["--from", "video"], ["--cache-roi", "hud"]):
+        args = cli.build_parser().parse_args(["--store", str(store.root), "scan", "s",
+                                              "--only", "roster", "--force"] + flags)
+        with pytest.raises(SystemExit, match="source_retired"):
+            cli.cmd_scan(args)
+
+
+def test_commands_that_need_the_video_say_source_retired(tmp_path):
+    from reticle import cli
+    store = _retired_store(tmp_path)
+    with pytest.raises(SystemExit, match="source_retired"):
+        cli._capture_or_exit(store.read_manifest("s"))
+    man = store.read_manifest("s")
+    del man["video_retired"]
+    with pytest.raises(SystemExit, match="source media has moved"):
+        cli._capture_or_exit(man)
+
+
+def test_label_coverage_names_the_sets_the_rule_cannot_read(tmp_path):
+    labels = tmp_path / "labels"
+    (labels / "indexed").mkdir(parents=True)
+    (labels / "indexed" / "index.json").write_text("{}", encoding="utf-8")
+    (labels / "loose").mkdir()
+    (labels / "loose" / "items.jsonl").write_text(json.dumps({"key": f"{SID}|3.0"}) + "\n",
+                                                  encoding="utf-8")
+    (labels / "crops").mkdir()
+    (labels / "crops" / f"{SID}_12.png").write_bytes(b"\x89PNG")
+    (labels / "other").mkdir()
+    (labels / "other" / "items.jsonl").write_text("{}\n", encoding="utf-8")
+    got = retire.label_coverage(tmp_path, SID)
+    assert got["checked"] == ["indexed"]
+    assert [(u["set"], u["files"]) for u in got["unchecked"]] == [("crops", 1), ("loose", 1)]

@@ -16,15 +16,20 @@ What one run does, per session:
 
 1. Preconditions (`preconditions`), each read from its owner and refused by
    name: `plan_needs_video` (`plan.stale` names a step that decodes the
-   capture: a reader stream `scan` rereads, which opens the video even where a
-   crop cache could feed it, a `decode` stream, a crop-cache re-decode);
+   capture: a reader stream no stored crop cache feeds
+   (`roi_cache.channel_cache`), a `decode` stream, a crop-cache re-decode; a
+   stream the cache feeds is listed as `cache_fed`, since `scan` rereads it
+   from the cache once the video is gone);
    `kept_replay` (the replay manifest `external/replays/manifest.json` names
    the session as a replay's `capture_session`); `dev_sample` and
    `held_out_window` (`dev_sample.MATCHES`, `dev_sample.HELD_OUT_WINDOWS`);
    `pending_labels` (a label set under `labels/<set>/` whose `index.json`
    names the session and whose asked items, `ask.json` or `queue.json`, the
    set's answers `labels/<set>.jsonl` have not all answered; a set with no
-   item list is pending while no answer names the session). The ability-audio
+   item list is pending while no answer names the session). The rule reads
+   only sets with an `index.json`; every other set whose files or file names
+   name the session is reported `unchecked` beside the refusals, by name, for
+   the player to judge. The ability-audio
    split (`ability_audio` parameters' `split`) is reported as a role the
    retained audio keeps, not refused: the fit reads only the stored log-mel.
    `--force-reason` names why the run proceeds past refusals; the row stores
@@ -125,18 +130,31 @@ def sha256_file(path) -> str:
 # Preconditions
 # ---------------------------------------------------------------------------
 
-def plan_steps(store, sid: str) -> list[dict]:
-    """The steps `plan.stale` names for `sid` that need the capture."""
+def plan_steps(store, sid: str) -> tuple[list[dict], list[dict]]:
+    """(steps that need the capture, steps a crop cache feeds) of `plan.stale`
+    for `sid`. A reader stream whose channel a stored crop cache feeds
+    (`roi_cache.channel_cache`) rereads from the cache after the video is
+    gone (`plan.source_retired`), so it does not refuse."""
     from .plan import ACCEPT, stale
+    from .profiles import get_profile
+    from .roi_cache import channel_cache
     p = stale(store, [sid])[sid]
-    out = []
+    man = store.read_manifest(sid)
+    profile = get_profile(man["source_profile"])
+    memo: dict[str, tuple[str | None, str]] = {}
+    out, fed = [], []
     for s in p["decode"]:
         if s["channel"] in ACCEPT:
             continue     # `ult-lines` reads the retained audio (`audio_source`)
-        out.append({"step": f"scan --only {s['channel']}", "stream": s["stream"],
-                    "why": "scan opens the capture"
-                           + (f" (a trial reads the crop cache: {s['trial']})" if s.get("trial")
-                              else "")})
+        if s["channel"] not in memo:
+            memo[s["channel"]] = channel_cache(store.root, man, profile, s["channel"])
+        held, why = memo[s["channel"]]
+        step = {"step": f"scan --only {s['channel']}", "stream": s["stream"]}
+        if held is not None:
+            fed.append({**step, "step": step["step"] + " --from cache", "cache": held,
+                        "why": why})
+        else:
+            out.append({**step, "why": f"scan decodes the capture: {why}"})
     out += [{"step": d["command"], "stream": d["stream"], "why": "decodes the capture"}
             for d in p["derived"] if d.get("how") == "decode"]
     w = p.get("widget") or {}
@@ -145,7 +163,7 @@ def plan_steps(store, sid: str) -> list[dict]:
                     "why": f"minimap crop cache {w['cache']['reason']}"})
     out += [{"step": c["command"], "stream": f"roi_cache:{c['set']}",
              "why": f"{c['set']} crop cache {c['reason']}"} for c in p.get("caches") or ()]
-    return out
+    return out, fed
 
 
 def kept_replays(store_root, sid: str) -> list[str]:
@@ -200,6 +218,40 @@ def pending_labels(store_root, sid: str) -> list[dict]:
     return out
 
 
+#: The text files `label_coverage` searches for a session id in a set it
+#: cannot read; image and media files are matched by name only.
+LABEL_TEXT_SUFFIXES = (".json", ".jsonl", ".csv", ".txt", ".toml")
+
+
+def label_coverage(store_root, sid: str) -> dict:
+    """{"checked": [...], "unchecked": [...]}: the label sets `pending_labels`
+    reads (an `index.json`), and each other set that names `sid` in a text
+    file (`LABEL_TEXT_SUFFIXES`) or a file name, with how many files do. The
+    rule cannot say whether an unchecked set still asks about the session
+    or shows frames from its video; the row names the set for the player."""
+    root = Path(store_root) / "labels"
+    checked, unchecked = [], []
+    if not root.is_dir():
+        return {"checked": checked, "unchecked": unchecked}
+    key = sid.encode("ascii")
+    for d in sorted(p for p in root.iterdir() if p.is_dir()):
+        if (d / "index.json").is_file():
+            checked.append(d.name)
+            continue
+        hits = 0
+        for f in d.rglob("*"):
+            if not f.is_file():
+                continue
+            if sid in f.name:
+                hits += 1
+            elif f.suffix.lower() in LABEL_TEXT_SUFFIXES and key in f.read_bytes():
+                hits += 1
+        if hits:
+            unchecked.append({"set": d.name, "files": hits,
+                              "why": "no index.json: pending_labels cannot read it"})
+    return {"checked": checked, "unchecked": unchecked}
+
+
 def audio_split_roles(store_root, sid: str) -> list[str]:
     """The ability-audio split roles of `sid` (`agent:dev|held`), which the
     retained audio keeps."""
@@ -215,7 +267,9 @@ def audio_split_roles(store_root, sid: str) -> list[str]:
 
 
 def preconditions(store, manifest: dict) -> dict:
-    """{"refusals": [...], "kept_by_audio": [...]}: why the video may not go yet."""
+    """{"refusals": [...], "kept_by_audio": [...], "cache_fed": [...], "labels": {...}}:
+    why the video may not go yet, the rereads the crop caches carry after it
+    goes, and which label sets the rule read and which it could not."""
     from . import dev_sample
     sid = manifest["session_id"]
     refusals = []
@@ -225,7 +279,7 @@ def preconditions(store, manifest: dict) -> dict:
     if retirement(manifest):
         refusals.append({"reason": "already_retired", "owner": "manifest",
                          "detail": retirement(manifest).get("at")})
-    steps = plan_steps(store, sid)
+    steps, fed = plan_steps(store, sid)
     if steps:
         refusals.append({"reason": "plan_needs_video", "owner": "plan.stale",
                          "detail": steps})
@@ -249,7 +303,8 @@ def preconditions(store, manifest: dict) -> dict:
     kept = [{"role": r, "owner": "ability_audio parameters split",
              "why": "the fit reads the stored log-mel, which the retained audio rebuilds"}
             for r in audio_split_roles(store.root, sid)]
-    return {"refusals": refusals, "kept_by_audio": kept}
+    return {"refusals": refusals, "kept_by_audio": kept, "cache_fed": fed,
+            "labels": label_coverage(store.root, sid)}
 
 
 # ---------------------------------------------------------------------------
@@ -632,7 +687,10 @@ def record_retirement(store, man: dict, row: dict) -> None:
         "audio": {k: a.get(k) for k in ("path", "codec", "profile", "sample_rate", "channels",
                                         "layout", "time_base", "start_pts", "start_s",
                                         "duration_pts", "duration_s", "bytes", "sha256")}
-                 | {"version": RETAINED_AUDIO_VERSION},
+                 | {"version": RETAINED_AUDIO_VERSION,
+                    # The capture's video stream start: audio t minus this is
+                    # video t, kept here since the video goes.
+                    "video_start_s": row["video_audio"].get("video_start_s")},
         "verification": {"retire_version": RETIRE_VERSION, "alignment_ok": row["alignment"]["ok"],
                          "readers_ok": row["readers"]["ok"],
                          "packets": row["alignment"]["packets"],
@@ -658,6 +716,19 @@ def retire_summary(row: dict) -> str:
         lines.append(f"  refused  {r['reason']} ({r['owner']}): {d}")
     for k in row["preconditions"]["kept_by_audio"]:
         lines.append(f"  kept     {k['role']} ({k['owner']}): {k['why']}")
+    fed: dict[str, list[str]] = {}
+    for x in row["preconditions"].get("cache_fed") or ():
+        fed.setdefault(f"{x['step']} ({x['cache']} cache)", []).append(x["stream"])
+    for step, streams in fed.items():
+        lines.append(f"  cache    {step}: {', '.join(streams)} reread from the crop cache "
+                     "after the video goes")
+    lab = row["preconditions"].get("labels")
+    if lab is not None:
+        lines.append(f"  labels   checked {len(lab['checked'])} sets with an index "
+                     f"({', '.join(lab['checked']) or 'none'})")
+        for u in lab["unchecked"]:
+            lines.append(f"  labels   unchecked {u['set']}: {u['files']} file(s) name the "
+                         f"session; {u['why']}")
     if row.get("force_reason"):
         lines.append(f"  forced   {row['force_reason']}")
     if "audio" in row:

@@ -204,6 +204,7 @@ with contextlib.redirect_stdout(io.StringIO()):
     import audio_probe  # noqa: E402
     import sound_bank  # noqa: E402
     import sound_demo  # noqa: E402
+from reticle.audio_source import audio_path  # noqa: E402  which file holds the audio
 
 VERSION = "sound-match-0.1.0"
 STORE = Path.home() / "reticle-store"
@@ -226,7 +227,9 @@ def decode(force: bool = False) -> None:
     if WAV.is_file() and not force:
         print(f"{WAV} exists; not decoding again")
         return
-    x, rate = audio_probe.decode(CAPTURE)
+    man = json.loads((STORE / "manifests" / f"{SESSION}.json").read_text(encoding="utf-8"))
+    # The capture, or its retained audio once the video is retired (`audio_source`).
+    x, rate = audio_probe.decode(audio_path(man, STORE))
     peak = float(np.abs(x).max())
     clipped = int((np.abs(x) > 1.0).sum())
     q = np.clip(np.round(x * 32767.0), -32768, 32767).astype("<i2")
@@ -239,7 +242,6 @@ def decode(force: bool = False) -> None:
         w.setframerate(int(rate))
         w.writeframes(q.tobytes())
     tmp.replace(WAV)
-    man = json.loads((STORE / "manifests" / f"{SESSION}.json").read_text(encoding="utf-8"))
     meta = {"version": VERSION, "session_id": SESSION, "source_path": CAPTURE,
             "content_key": man["source"]["content_key"], "rate": int(rate),
             "frames": int(len(q)), "duration_s": len(q) / rate, "peak": peak,
