@@ -1221,7 +1221,7 @@ _INPUT_READS = {"read_hud": {"hud"}, "read_roster": {"roster"}, "read_minimap": 
                 # the player-cast gate's stored inputs (`ability_timeline`)
                 "stored_gate_inputs": {"hud", "killfeed_portrait", "death",
                                        "combat_report_round", "tray_kit", "menu_open",
-                                       "ult_cast"},
+                                       "ult_cast", "tray_countdown"},
                 # rounds built in memory: the round rule is an input, compared
                 # as a code stamp (`plan._code` on `ROUND_VERSION`)
                 "build_rounds": {"round_rule"}}

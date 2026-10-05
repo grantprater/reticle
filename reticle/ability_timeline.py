@@ -177,7 +177,8 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                       second_lives_ms=(), revives_ms=(),
                       report_deaths: dict | None = None, kit_changes_ms=(),
                       kit_returns_ms=(), menu_at=None, kit_spans=None,
-                      own_lines_ms=(), pool_slots=()) -> list[dict]:
+                      own_lines_ms=(), pool_slots=(), countdown_reads=None,
+                      step_ms: float = 500.0) -> list[dict]:
     """Which of a session's tray drops (`tray.drops`) are the local player's casts.
 
     The tray shows the player's kit only while the player lives; afterwards it
@@ -464,6 +465,24 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     taints the others. No labelled drop changes its verdict
     ([metric:tray/cooccur-taint@all-sessions#labels_verdict_changed=0]).
 
+    *A numeral beside a co-occurring drop.* Sova's Recon Bolt and Skye's
+    Guiding Light, spent, draw a countdown numeral over the slot
+    [domain:hud/ability-tray-restock-countdown] (NUMERAL_SLOTS; the fact is
+    observed on those two only), and the numeral is read apart from the bar
+    (`tray_countdown`). So a drop of such a slot the co-occurrence test
+    refuses as `cooccur_among_casts` meets the charge tests instead where
+    the numeral witnesses it (`countdown_reads`, `tray.gold_witness` asked
+    of the drop with the sample `step_ms` before it, or `tray.GAP_S` before
+    a bridged one, as the last the spent charge read on): a numeral that
+    appeared or restarted over its slot within `tray.WITNESS_AFTER_S` after
+    (NUMERAL_SPENDS). The row keeps the verdict as `numeral`. A `forced`
+    drop stays refused, and the witnessed drop still taints its partners,
+    so the rule passes one spend of a crowd and refuses the rest. Without
+    reads (`countdown_reads` None) nothing changes. The witness was chosen
+    on the dev half of the 21 Riot-paired matches: the numeral alone, since
+    the icon's brightness is read on no stored row and the audio verdict was
+    not measured here.
+
     *A pool has no charges.* A slot a resource-bar fact names for the
     player's agent (`pool_slots`, `adjudication.ability_state.pool_facts`)
     draws a pool, not charges: Skye's Regrowth in C
@@ -485,6 +504,9 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     `after_player_death` (Run It Back's pips fall at its end, when Phoenix
     dies in it [domain:abilities/phoenix-run-it-back-expiry-flash], so
     where the badge goes unread the drop trails the death that ends the kit)
+    or, since `player-cast-0.12.0`, as `cooccur_among_casts` (with the badge
+    read, the same drops fall beside the death screen's: `7010b3d62460`
+    586.0 s and `a06f04a0059f` 1894.0 s)
     passes where an own line lies in the agent's cast window of it
     (`adjudication.ult_cast.cast_window`, `in_window`), the line came before
     the kit's end, the drop meets the charge tests, and no X drop the gate
@@ -548,6 +570,12 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
             [(r["t_ms"] / 1000.0, r["slot"], r["from"], r["to"], r["forced"]) for r in keep],
             quiet=quiet)):
         r["reason"] = ("forced" if r["forced"] else "cooccur_among_casts") if sus else why
+        if (r["reason"] == "cooccur_among_casts" and countdown_reads is not None
+                and NUMERAL_SLOTS.get(agent) == r["slot"]):
+            seen = _numeral_witness(r, countdown_reads, step_ms)
+            r["numeral"] = seen
+            if seen in NUMERAL_SPENDS:
+                r["reason"] = why
     for r in keep:
         if r["reason"] is None and r["slot"] in pool_slots and "witness" in r:
             r["reason"] = "resource_pool"
@@ -557,10 +585,31 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     return rows
 
 
+#: The restock numeral's verdicts (`tray.gold_witness`'s `countdown`) that
+#: witness a spend of the slot it is drawn over.
+NUMERAL_SPENDS = ("restarted", "appeared")
+#: The slots whose restock numeral witnesses a spend, by agent: the two
+#: abilities the countdown was observed on, Sova's Recon Bolt and Skye's
+#: Guiding Light [domain:hud/ability-tray-restock-countdown]. Over Skye's Q a
+#: numeral shows that does not count down, and no other ability's numeral is
+#: a recorded fact [domain:abilities/ability-rules-are-unique].
+NUMERAL_SLOTS = {"Sova": "E", "Skye": "E"}
+
+
+def _numeral_witness(drop: dict, reads: list[dict], step_ms: float) -> str:
+    """The restock numeral's verdict on `drop` (`tray.gold_witness`'s
+    `countdown`), asked with the sample `step_ms` before it as the last the
+    spent charge read on, or `tray.GAP_S` before for a bridged drop."""
+    back = 1000.0 * tray.GAP_S if drop.get("across_gap") else step_ms
+    tb = drop["t_ms"] - back
+    return tray.gold_witness({"t_ms": drop["t_ms"], "slot": drop["slot"], "t_before_ms": tb,
+                              "t_gold_ms": tb, "gold_run": None}, reads, {})["countdown"]
+
+
 #: The refusals a player's own ult line can overturn for an X drop
-#: (`_admit_lined_x`): the tray was undrawn at the drop, or the drop fell at
-#: the death that ended the kit.
-LINE_ADMITS = ("forced", "after_player_death")
+#: (`_admit_lined_x`): the tray was undrawn at the drop, the drop fell at the
+#: death that ended the kit, or another slot fell beside it.
+LINE_ADMITS = ("forced", "after_player_death", "cooccur_among_casts")
 
 
 def _admit_lined_x(rows: list[dict], own_lines_ms, agent: str | None) -> None:
@@ -608,7 +657,10 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     (`menu.stored_menu`), used only where current; otherwise `menu_at` is None
     and the stamp says why. The player's own ult lines are the stored
     `ult_cast` rows `own_line_times` keeps; `ult_cast` reads this gate in
-    turn, but only lines that rest on no tray cast come back.
+    turn, but only lines that rest on no tray cast come back. The restock
+    numeral reads are the stored `tray_countdown` rows where current
+    (`stored_countdown`); `reticle tray` writes them in the pass that writes
+    the drops and hands its own reads to the gate instead.
     """
     from . import gametime, stalls
     from .adjudication.death import player_revive_times, stored_second_life
@@ -647,6 +699,7 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     inputs["menu_at"] = menu.at if menu is not None else None
     inputs["own_lines_ms"] = own_line_times(store.read_events("ult_cast", session_id))
     inputs["pool_slots"], pools = pool_slots(agent)
+    inputs["countdown_reads"], inputs["step_ms"] = stored_countdown(store, session_id)
     # Each stored input's own stamp, read from its first row (`no_rows` where
     # none is stored), used or not: `plan` compares these with the stored
     # heads, so a stream written after this read makes the result stale.
@@ -663,8 +716,23 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
               "tray_kit_own_basis": kit["own_basis"],
               "menu_open": menu_stamp,
               "ult_cast": event_stamp(store, "ult_cast", session_id, "ult_cast_version"),
-              "pool_facts": pools}
+              "pool_facts": pools,
+              "tray_countdown": event_stamp(store, "tray_countdown", session_id,
+                                            "tray_countdown_version")}
     return inputs, stamps
+
+
+def stored_countdown(store, session_id: str) -> tuple[list[dict] | None, float]:
+    """(the stored restock numeral reads, `tray_countdown` rows of kind
+    `read`, or None where the stream is absent or not at
+    TRAY_COUNTDOWN_VERSION; the sample step in ms of the pass that read
+    them, from their coverage row, 500 where none is stored)."""
+    from .version import TRAY_COUNTDOWN_VERSION
+    rows = store.read_events("tray_countdown", session_id)
+    current = bool(rows) and rows[0].get("tray_countdown_version") == TRAY_COUNTDOWN_VERSION
+    cov = [r for r in rows if r.get("kind") == "coverage"]
+    step = float(cov[0].get("step_s") or 0.5) if cov else 0.5
+    return ([r for r in rows if r.get("kind") == "read"] if current else None), 1000.0 * step
 
 
 def pool_slots(agent: str | None) -> tuple[tuple[str, ...], list[str]]:

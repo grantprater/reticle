@@ -446,7 +446,10 @@ def _gate(prefix: str = "inputs.", optional: bool = False) -> dict:
             "tray_kit": _in(prefix + "tray_kit", "tray_kit#tray_kit_version", optional=optional),
             "menu_open": _in(prefix + "menu_open", "menu_open#menu_version", optional=optional),
             # The own ult lines that witness an X cast (`own_line_times`).
-            "ult_cast": _in(prefix + "ult_cast", "ult_cast#ult_cast_version", optional=True)}
+            "ult_cast": _in(prefix + "ult_cast", "ult_cast#ult_cast_version", optional=True),
+            # The restock numerals that witness a co-occurring spend.
+            "tray_countdown": _in(prefix + "tray_countdown",
+                                  "tray_countdown#tray_countdown_version", optional=True)}
 
 
 def _lineup_inputs(prefix: str = "inputs.", file_path: str | None = None) -> dict:

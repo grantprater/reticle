@@ -4246,6 +4246,8 @@ def cmd_tray(args) -> int:
             with usage_step("gate_inputs"):
                 gate, stamps = stored_gate_inputs(store, sid, date, rounds,
                                                   player_agent(load_lineup(sid, store.root), sid))
+            # The gate reads this pass's numerals, which this command stores.
+            stamps["tray_countdown"] = TRAY_COUNTDOWN_VERSION
             with usage_step("player_tray_casts"):
                 rows = player_tray_casts(
                     drops, gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
@@ -4253,7 +4255,8 @@ def cmd_tray(args) -> int:
                     report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
                     kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
                     kit_spans=gate["kit_spans"], own_lines_ms=gate["own_lines_ms"],
-                    pool_slots=gate["pool_slots"])
+                    pool_slots=gate["pool_slots"], countdown_reads=reads,
+                    step_ms=1000.0 * args.step)
         common = {"session_id": sid, "tray_version": TRAY_VERSION,
                   "player_cast_version": PLAYER_CAST_VERSION, "step_s": args.step}
         why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
@@ -4903,7 +4906,8 @@ def cmd_ability_state(args) -> int:
                 report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
                 kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
                 kit_spans=gate["kit_spans"], own_lines_ms=gate["own_lines_ms"],
-                pool_slots=gate["pool_slots"])
+                pool_slots=gate["pool_slots"], countdown_reads=gate["countdown_reads"],
+                step_ms=gate["step_ms"])
         with usage_step("kit_windows"):
             kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
                                second_lives_ms=gate["second_lives_ms"],
@@ -5127,7 +5131,8 @@ def cmd_ability_shapes(args) -> int:
                          report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
                          kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
                          kit_spans=gate["kit_spans"], own_lines_ms=gate["own_lines_ms"],
-                         pool_slots=gate["pool_slots"])
+                         pool_slots=gate["pool_slots"], countdown_reads=gate["countdown_reads"],
+                         step_ms=gate["step_ms"])
                      if d["player_cast"] and kit.get(d["slot"]) in ability_candidates.TABLE]
         with usage_step("cache_load"):
             cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")

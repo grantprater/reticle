@@ -193,6 +193,38 @@ class GateDeathTests(unittest.TestCase):
         self.assertEqual(pool_slots("Sova"), ((), []))
         self.assertEqual(pool_slots(None), ((), []))
 
+    def test_a_restock_numeral_witnesses_a_cooccurring_spend(self):
+        # E and C fall in one sample; a numeral appears over E only.
+        drops = [_drop(30000, "E"), _drop(30000, "C")]
+        reads = [{"t_ms": 30000.0, "slot": "E", "numeral": "50", "value_s": 50.0}]
+        got = self._gate(drops, [], agent="Sova", countdown_reads=reads)
+        self.assertTrue(got[(30000.0, "E")]["player_cast"])
+        self.assertEqual(got[(30000.0, "E")]["numeral"], "appeared")
+        self.assertEqual(got[(30000.0, "C")]["reason"], "cooccur_among_casts")
+        # No reads, or a slot whose numeral is no recorded spend witness.
+        got = self._gate(drops, [], agent="Sova")
+        self.assertEqual(got[(30000.0, "E")]["reason"], "cooccur_among_casts")
+        q = [{**reads[0], "slot": "Q"}]
+        got = self._gate([_drop(30000, "Q"), _drop(30000, "C")], [], agent="Skye",
+                         countdown_reads=q)
+        self.assertEqual(got[(30000.0, "Q")]["reason"], "cooccur_among_casts")
+        # A numeral that keeps counting is no new spend.
+        cont = [{"t_ms": 29000.0, "slot": "E", "numeral": "20", "value_s": 20.0},
+                {"t_ms": 30000.0, "slot": "E", "numeral": "19", "value_s": 19.0}]
+        got = self._gate(drops, [], agent="Sova", countdown_reads=cont)
+        self.assertEqual(got[(30000.0, "E")]["numeral"], "continued")
+        self.assertEqual(got[(30000.0, "E")]["reason"], "cooccur_among_casts")
+        # The charge tests still apply after the numeral.
+        got = self._gate([_drop(30000, "E", frm=1.3, to=0.98), _drop(30000, "C")], [],
+                         agent="Sova", countdown_reads=reads)
+        self.assertEqual(got[(30000.0, "E")]["reason"], "equip_release")
+
+    def test_an_own_line_witnesses_a_cooccurring_x_drop(self):
+        drops = [_drop(30000, "X"), _drop(30500, "C")]
+        got = self._gate(drops, [], agent="Skye", own_lines_ms=[29600.0])
+        self.assertEqual(got[(30000.0, "X")]["refused_as"], "cooccur_among_casts")
+        self.assertEqual(got[(30500.0, "C")]["reason"], "cooccur_among_casts")
+
     def test_own_line_times_keep_lines_that_rest_on_no_tray_cast(self):
         from reticle.ability_timeline import own_line_times
         rows = [{"kind": "cast", "player_cast": True, "t_ms": 5.0, "rests_on": []},
