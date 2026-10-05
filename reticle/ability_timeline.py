@@ -841,19 +841,35 @@ def own_line_times(ult_rows: list[dict]) -> list[float]:
 #: The rule of `dead_ruse_casts`, stamped on every row it writes.
 #: 0.1.0 (2026-10-05): a Ruse disc the smoke owner names Clove, born while the
 #: player's Clove is dead, is her cast; one per birth sample.
-DEAD_RUSE_VERSION = "dead-ruse-0.1.0"
+#: 0.2.0 (2026-10-05): each dead cloud is one cast; a dead Clove holds at most
+#: one charge and recharges it no sooner than the restock after a spend; each
+#: cast states its basis [domain:abilities/clove-dead-ruse-one-charge]
+#: [domain:abilities/clove-dead-ruse-recharges].
+DEAD_RUSE_VERSION = "dead-ruse-0.2.0"
 #: The agent and slot a dead caster still spends
 #: [domain:abilities/clove-smokes-after-death] [domain:abilities/no-cast-while-dead].
 DEAD_RUSE = ("Clove", "E")
 #: The restock fact the charge bound reads.
 RESTOCK_FACT = "game_data/ability-restock-times"
+#: The files' fact for the equippable a dead Clove holds: its charge cap, and
+#: that it recharges on the living Ruse's cooldown component.
+DEAD_CAP_FACT = "game_data/clove-ruse-after-death-game-data"
+#: A cast's basis: a charge held at the death, one recharged while dead, or
+#: none the ledger explains (refused); `held_unknown` where the state model
+#: read no charge count at the death, `recharge_unbounded` where no restock
+#: time or cap is known.
+DEAD_RUSE_BASES = ("held_at_death", "recharged", "unexplained", "held_unknown",
+                   "recharge_unbounded")
 
 
 def ruse_parameters(facts: dict | None = None) -> dict:
-    """The charge bound's inputs from the domain facts: Ruse's charge count
-    (`adjudication.ability_state.charge_facts`) and its shortest restock in
-    seconds (`game_data/ability-restock-times`, the lesser of the files' value
-    and the toggled one, since the files do not say which plays)."""
+    """The charge bound's inputs from the domain facts: Ruse's living charge
+    count (`adjudication.ability_state.charge_facts`), a dead Clove's charge
+    cap (`DEAD_CAP_FACT`, the files' PostDeathMaxCharges, which the player's
+    answer agrees with [domain:abilities/clove-dead-ruse-one-charge]) and the
+    shortest restock in seconds (`game_data/ability-restock-times`, the lesser
+    of the files' value and the toggled one, since the files do not say which
+    plays)."""
     from .adjudication.ability_state import charge_facts
     if facts is None:
         from .domain import load
@@ -863,7 +879,11 @@ def ruse_parameters(facts: dict | None = None) -> dict:
     vals = (f.values or {}) if f is not None else {}
     restock = [v for v in ((vals.get("files_s") or {}).get("clove_ruse"),
                            (vals.get("toggled_s") or {}).get("clove_ruse")) if v]
+    c = facts.get(DEAD_CAP_FACT)
+    cap = ((c.values or {}).get("other") or {}).get("post_death_max_charges_n") if c else None
     return {"max_charges": got.get("max_charges"), "charges_fact": got.get("fact"),
+            "dead_max_charges": None if cap is None else int(cap),
+            "dead_max_charges_fact": DEAD_CAP_FACT if cap is not None else None,
             "restock_min_s": min(restock) if restock else None,
             "restock_fact": RESTOCK_FACT if restock else None}
 
@@ -892,15 +912,25 @@ def dead_ruse_casts(agent: str | None, deaths_ms: list[float], revives_ms: list[
 
     A dead window runs from each death to the round's end or the revive
     after it. Every named disc born inside it belongs to the player's Clove,
-    who is the side's one Clove [domain:rounds/agent-uniqueness]. Discs born
-    in one sample with both onsets observed (the owner's `cast_group`) are
-    one confirmation [domain:abilities/clove-ruse-batch-launch]: one row,
-    with `clouds` its discs. The charges held at the death (`held`, the
-    state model's) bound the clouds: held, plus one restock running where
-    fewer than `max_charges` were held, plus one per `restock_min_s` since
-    the death. Whether Ruse restocks while its Clove is dead is unasked, so
-    each row says whether it needs one (`needs_restock`); a cast beyond the
-    bound is refused as `beyond_charge_bound`.
+    who is the side's one Clove [domain:rounds/agent-uniqueness]. Each disc
+    is one cast: a dead Clove holds at most one charge
+    [domain:abilities/clove-dead-ruse-one-charge], so the living batch
+    launch [domain:abilities/clove-ruse-batch-launch] does not apply.
+
+    The ledger: at the death she holds the state model's charges (`held`) up
+    to `dead_max_charges`. Ruse recharges while she is dead, not at the death
+    [domain:abilities/clove-dead-ruse-recharges], so after each spend the
+    next charge comes no sooner than `restock_min_s` later. With no charge
+    held at the death, the first comes no sooner than the death where a
+    living restock was running (fewer than `max_charges` held: the dead
+    ability recharges on the living Ruse's cooldown component
+    [domain:game_data/clove-ruse-after-death-game-data], whose timer's phase
+    is unread), else `restock_min_s` after it. A held charge is assumed not
+    to advance the timer, as the player has not said it does. Each row
+    states its `basis` (DEAD_RUSE_BASES) and, while it passes, carries it
+    as `reason`; a cast before any charge is `unexplained` and refused as
+    `beyond_charge_bound`. Without a restock time or cap no cast is
+    refused: a cast that needs a recharge is `recharge_unbounded`.
 
     Returns {"rows", "windows", "reason"}; reason is None, or why no row
     could be made (`not_clove`, `no_deaths`)."""
@@ -910,8 +940,11 @@ def dead_ruse_casts(agent: str | None, deaths_ms: list[float], revives_ms: list[
     if not deaths_ms:
         return {"rows": [], "windows": [], "reason": "no_deaths"}
     named = sorted((r for r in owner_rows if r.get("kind") == "smoke_owner"
-                    and r.get("agent") == DEAD_RUSE[0]), key=lambda r: float(r["first_ms"]))
-    m, rs = params.get("max_charges"), params.get("restock_min_s")
+                    and r.get("agent") == DEAD_RUSE[0]),
+                   key=lambda r: (float(r["first_ms"]), str(r["entity_id"])))
+    live_max, cap = params.get("max_charges"), params.get("dead_max_charges")
+    rs = params.get("restock_min_s")
+    bounded = bool(rs) and cap is not None
     rows, windows = [], []
     for d in sorted(float(t) for t in deaths_ms):
         rnd = next((r for r in rounds if r.get("t_start_ms") is not None
@@ -920,26 +953,43 @@ def dead_ruse_casts(agent: str | None, deaths_ms: list[float], revives_ms: list[
             continue
         end = min([float(rnd["t_end_ms"])] + [float(v) for v in revives_ms if float(v) > d])
         h = (held or {}).get(d)
-        windows.append({"death_ms": d, "end_ms": end, "held": h, "round_no": rnd.get("round_no")})
+        running = None if h is None or live_max is None else h < live_max
+        have = None if h is None else (min(h, cap) if cap is not None else h)
+        windows.append({"death_ms": d, "end_ms": end, "held": h, "charges_at_death": have,
+                        "restock_running_at_death": running, "round_no": rnd.get("round_no")})
+        # `stock` counts the charges still held from the death; `ready` is
+        # when the next recharged charge can come, None while none is due.
+        stock = have
+        ready = (d if running else d + 1000.0 * rs) if bounded and have == 0 else None
         seen, spent = set(), 0
         for r in named:
             b = float(r["first_ms"])
             if not d < b <= end or r["entity_id"] in seen:
                 continue
-            group = [e for e in (r.get("cast_group") or [r["entity_id"]])]
-            seen.update(group)
-            spent += len(group)
-            bound = None
-            if h is not None and m is not None and rs:
-                bound = h + (1 if h < m else 0) + int((b - d) / (1000.0 * rs))
-            ok = bound is None or spent <= bound
+            seen.add(r["entity_id"])
+            earliest = None
+            if stock is None:
+                basis, stock = "held_unknown", 0
+            elif stock > 0:
+                basis, earliest, stock = "held_at_death", d, stock - 1
+            elif not bounded:
+                basis = "recharge_unbounded"
+            elif ready is not None and b > ready:
+                basis, earliest, ready = "recharged", ready, None
+            else:
+                basis, earliest = "unexplained", ready
+            ok = basis != "unexplained"
+            if ok:
+                spent += 1
+                if bounded and ready is None:
+                    ready = b + 1000.0 * rs
             rows.append({"slot": DEAD_RUSE[1], "t_ms": b, "player_cast": ok,
-                         "reason": None if ok else "beyond_charge_bound",
+                         "basis": basis, "reason": basis if ok else "beyond_charge_bound",
                          "witness": "dead_ruse", "death_ms": d, "window_end_ms": end,
-                         "clouds": len(group), "clouds_since_death": spent,
-                         "held_at_death": h, "charge_bound": bound,
-                         "needs_restock": None if h is None else spent > h,
-                         "rests_on": group, "dead_ruse_version": DEAD_RUSE_VERSION})
+                         "clouds": 1, "clouds_since_death": spent + (0 if ok else 1),
+                         "held_at_death": h, "charges_at_death": have,
+                         "restock_running_at_death": running, "earliest_ms": earliest,
+                         "rests_on": [r["entity_id"]], "dead_ruse_version": DEAD_RUSE_VERSION})
     return {"rows": rows, "windows": windows, "reason": None}
 
 

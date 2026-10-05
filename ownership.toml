@@ -1316,7 +1316,8 @@ produces = ["build_timeline", "write_timeline", "player_tray_casts", "stored_gat
             "kit_windows", "round_window_of", "audio_session", "audio_cast_witness",
             "AUDIO_GATE_DIR", "KIT_REFUSALS", "tray_object_labels", "TRAY_OBJECT_DIR",
             "TRAY_OBJECT_CORRECTIONS_DIR", "CORRECTED_FIELDS", "dead_ruse_casts",
-            "held_at_deaths", "ruse_parameters", "DEAD_RUSE", "DEAD_RUSE_VERSION", "RESTOCK_FACT"]
+            "held_at_deaths", "ruse_parameters", "DEAD_RUSE", "DEAD_RUSE_VERSION", "RESTOCK_FACT",
+            "DEAD_CAP_FACT", "DEAD_RUSE_BASES"]
 not_for = """
 A pixel detector result. A cast claim is temporal evidence from the tray and
 audio; it does not locate the ability's entity in the world, and the audio and
