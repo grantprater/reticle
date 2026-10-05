@@ -17,7 +17,15 @@ class ConfirmedFacts(unittest.TestCase):
         for (agent, ability), (kind, key) in MOVEMENT_FACTS.items():
             self.assertIn(key, facts, f"{agent} {ability}")
             self.assertEqual(facts[key].known, "player", key)
-        self.assertTrue(all(lic.confirmed for lic in movement_licences()))
+        self.assertTrue(all(lic.confirmed for lic in movement_licences() if not lic.legacy))
+
+    def test_legacy_rows_license_but_are_never_confirmed(self):
+        rows = {(lic.agent, lic.ability): lic for lic in movement_licences()
+                if lic.legacy}
+        self.assertEqual(set(rows), set(track.LEGACY_MOVEMENT))
+        self.assertFalse(any(lic.confirmed for lic in rows.values()))
+        self.assertNotIn(("Waylay", "Lightspeed"), MOVEMENT_FACTS)
+        self.assertEqual(motion_for("Waylay").name, "walker_dash")
 
     def test_classes_follow_the_confirmed_kinds(self):
         want = {"Omen": "walker_teleport", "Yoru": "walker_teleport",

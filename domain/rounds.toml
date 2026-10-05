@@ -46,8 +46,8 @@ they no longer spawn at the beginning of the round. They will never just
 disappear mid-round though"
 """
 use = """
-a disconnect never lowers the round's ally capacity; a teammate's icon or
-roster slot that persists is that teammate, not a stale read
+a teammate's disconnect alone never removes them from the minimap or the
+roster
 """
 exceptions = """
 how a disconnected teammate's icon moves or looks, and whether its cone
@@ -81,7 +81,7 @@ see = ["rounds/disconnected-teammate-stays-drawn", "rounds/no-mid-round-disappea
 
 [no-mid-round-disappearance]
 claim = """
-A player never disappears mid-round: neither a disconnect nor an abandon
+A teammate never disappears mid-round: neither a disconnect nor an abandon
 removes them before the round ends.
 """
 kind = "rule"
@@ -94,6 +94,10 @@ the player, 2026-10-04 (chat), on disconnected and abandoning teammates:
 use = """
 a teammate lost mid-round is a death, a crowd or a reader loss, never a
 departure; the round's ally capacity holds until the round ends
+"""
+exceptions = """
+the player answered about teammates; whether an enemy can disappear
+mid-round is unasked (docs/ABILITY_MECHANICS_SHEET.md)
 """
 see = ["rounds/disconnected-teammate-stays-drawn", "rounds/abandoned-player-not-spawned"]
 

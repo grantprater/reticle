@@ -413,9 +413,18 @@ MOVEMENT_FACTS: dict[tuple[str, str | None], tuple[str, str]] = {
     ("Jett", "Tailwind"): (DASH, "abilities/jett-tailwind-is-a-horizontal-dash"),
     ("Jett", "Updraft"): (VERTICAL, "abilities/jett-updraft-is-vertical"),
     ("Raze", "Blast Pack"): (DASH, "abilities/raze-blast-pack-acts-as-dash"),
-    # The player named Lightspeed's dashes on 2026-09-30, the first upward.
-    ("Waylay", "Lightspeed"): (DASH, "abilities/waylay-vertical-lifts-above-jump"),
     ("Neon", "High Gear"): (SPEED, "abilities/neon-high-gear-is-speed-not-dash"),
+}
+
+#: Licences the tracker granted before `MOVEMENT_FACTS` existed, kept so its
+#: behaviour holds, each resting on NO player fact. A row here licenses its
+#: kind but is never `confirmed`; doctor's MOVEMENT check reports it until the
+#: player answers and the row moves to `MOVEMENT_FACTS` or is struck. Waylay's
+#: Lightspeed was in `walker_dash` from the wiki tag Dash; the player said only
+#: that its first dash can lift her [domain:abilities/waylay-vertical-lifts-above-jump],
+#: and the mechanics sheet asks whether that dash is horizontal.
+LEGACY_MOVEMENT: dict[tuple[str, str | None], tuple[str, str]] = {
+    ("Waylay", "Lightspeed"): (DASH, "legacy candidate (wiki tag Dash), rests on no player fact"),
 }
 
 #: The class each set of confirmed horizontal kinds selects.
@@ -437,6 +446,7 @@ class Licence:
     fact: str
     confirmed: bool
     reason: str
+    legacy: bool = False
 
 
 @lru_cache(maxsize=1)
@@ -448,7 +458,8 @@ def _registry():
 def movement_licences(facts=None) -> tuple[Licence, ...]:
     """Every `MOVEMENT_FACTS` row, confirmed only when its fact exists and the
     player gave it (`known = "player"`). `facts` defaults to `domain.load()`.
-    An unconfirmed row keeps its reason and licenses nothing."""
+    An unconfirmed row keeps its reason and licenses nothing. `LEGACY_MOVEMENT`
+    rows follow, never confirmed and marked `legacy`."""
     facts = _registry() if facts is None else facts
     out = []
     for (agent, ability), (kind, key) in MOVEMENT_FACTS.items():
@@ -460,6 +471,8 @@ def movement_licences(facts=None) -> tuple[Licence, ...]:
         else:
             ok, why = True, f"confirmed by [domain:{key}]"
         out.append(Licence(agent, ability, kind, key, ok, why))
+    for (agent, ability), (kind, why) in LEGACY_MOVEMENT.items():
+        out.append(Licence(agent, ability, kind, "", False, why, legacy=True))
     return tuple(out)
 
 
@@ -468,14 +481,16 @@ def motion_for(agent: str | None, facts=None) -> Motion:
 
     Case-insensitive on the agent's name; an unknown or missing agent walks.
     A confirmed teleport selects `may_teleport`, a dash `may_dash`, a speed
-    change `may_speed`; `vertical` adds nothing. Two kinds with no class in
+    change `may_speed`; `vertical` adds nothing. A `LEGACY_MOVEMENT` row
+    licenses its kind too, unconfirmed, so the tracker's older behaviour holds. Two kinds with no class in
     `CLASSES` raise, so a new combination is added to the table, not guessed.
     """
     if not agent:
         return CLASSES["walker"]
     name = agent.strip().lower()
     kinds = frozenset(lic.kind for lic in movement_licences(facts)
-                      if lic.confirmed and lic.agent.lower() == name and lic.kind != VERTICAL)
+                      if (lic.confirmed or lic.legacy) and lic.agent.lower() == name
+                      and lic.kind != VERTICAL)
     if kinds not in _KIND_CLASS:
         raise ValueError(f"{agent}: no motion class for {sorted(kinds)}")
     return CLASSES[_KIND_CLASS[kinds]]

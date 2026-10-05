@@ -3219,12 +3219,12 @@ also has a teleport") and struck no entry; "Jett's dash as well. Updraft is vert
 horizontal"
 """
 use = """
-a licensed dash of Jett's track (`track.motion_for`): the minimap shows it
-as a fast continuous step
+a licensed dash of Jett's track (`track.motion_for`)
 """
 exceptions = """
 its distance and speed are not recorded; the game-data extraction is
-reading movement values into its own facts
+reading movement values into its own facts. How the minimap draws it is
+unasked
 """
 see = ["abilities/jett-updraft-is-vertical", "abilities/movement-abilities-are-dashes-and-teleports"]
 
@@ -4121,7 +4121,9 @@ a reachability bar yields to a dash or a teleport of an agent in the
 lineup; the candidates in docs/ABILITY_MECHANICS_SHEET.md come from the
 catalogue's wiki function tags (Dash, Teleport, Mobility) and its
 descriptions, and each waits for the player's confirmation. `track` owns the
-licence (`reticle ownership teleport-licence`)
+licence (`reticle ownership teleport-licence`). Since 2026-10-04 the player's
+answers stand as per-ability facts, which `track.MOVEMENT_FACTS` names, each
+citing the fact it rests on
 """
 exceptions = """
 the candidate list is derived, not answered. Whether speed boosts count is
