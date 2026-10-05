@@ -16,7 +16,8 @@ from types import SimpleNamespace
 
 from reticle.adjudication.death import (merge_split_entries, refuse_unwitnessed,
                                         same_entry, unwitnessed_entry)
-from reticle.checks import track_entries
+from reticle.adjudication.combat_report import death_panel_tops
+from reticle.checks import panel_slots, track_entries
 from reticle.stalls import frozen_clock_runs, spans
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
@@ -168,6 +169,69 @@ class ScorerStallTests(unittest.TestCase):
         self.assertIs(rg.in_stall(5000.0, stall), stall[0])
         self.assertIsNone(rg.in_stall(13000.0, stall))
         self.assertIsNone(rg.in_stall(5000.0, None))
+
+
+class DeathPanelTests(unittest.TestCase):
+    """A read under the player's death panel is no entry (`checks.panel_slots`)."""
+
+    # b7d24102a6f6 1580.5-1585.0 s in miniature: the panel's card reads in
+    # slot 5; a new entry arrives in slot 0, a second in 1.
+    MASKS = [32, 32, 33, 35, 35, 35, 3, 35, 3, 1]
+    T = [500.0 * i for i in range(10)]
+    ROI_Y0 = 81            # the killfeed ROI's top at 1080p (0.075 of the height)
+
+    @staticmethod
+    def frame(t, hy, killed_you=0.96, header=0.97):
+        return {"kind": "frame", "t_ms": t, "header": header, "hy": hy,
+                "rows": [{"in_word": {"KILLED YOU": killed_you, "KILLED": 0.2}}]}
+
+    def test_only_a_death_panel_has_a_top(self):
+        frames = [{"kind": "coverage", "hz": 1.0}, self.frame(0.0, 436),
+                  self.frame(1000.0, 412, killed_you=0.19),     # a survived round's summary
+                  self.frame(2000.0, 436, header=0.34)]         # no panel
+        t, top = death_panel_tops(frames)
+        self.assertEqual(t.tolist(), [0.0])
+        self.assertEqual(top.tolist(), [266.0])
+
+    def test_any_row_may_flag_and_unplaced_or_rowless_frames_show_none(self):
+        second = self.frame(500.0, 430)
+        second["rows"] = [{"in_word": {"KILLED YOU": 0.1}}, {}, {"in_word": {"KILLED YOU": 0.9}}]
+        frames = [self.frame(0.0, None), second, {"kind": "frame", "t_ms": 1000.0, "header": 0.9,
+                                                  "hy": 400}, self.frame(1500.0, 401, header=None)]
+        t, top = death_panel_tops(frames)
+        self.assertEqual(t.tolist(), [500.0])
+        self.assertEqual(top.tolist(), [260.0])
+        self.assertEqual([x.tolist() for x in death_panel_tops([])], [[], []])
+
+    def test_the_panel_covers_the_slots_below_its_top(self):
+        # Top at row 266 (hy 436): slot 5 rests at 81 + 15 + 195 = 291, slot 4 at 252.
+        got = panel_slots([0.0, 500.0, 2000.0], [0.0, 1000.0], [266.0, 266.0], self.ROI_Y0, 500.0)
+        self.assertEqual(got.tolist(), [32, 32, 0])
+        # Top at row 236 (hy 406) covers slots 4 and 5; at 295 (hy 465) none.
+        self.assertEqual(panel_slots([0.0], [0.0], [236.0], self.ROI_Y0, 500.0).tolist(), [48])
+        self.assertEqual(panel_slots([0.0], [0.0], [295.0], self.ROI_Y0, 500.0).tolist(), [0])
+        self.assertEqual(panel_slots([0.0], [], [], self.ROI_Y0, 500.0).tolist(), [0])
+
+    def test_panel_reads_join_no_entry_and_stay_visible(self):
+        panel = panel_slots(self.T, [0.0, 1000.0, 2000.0, 3000.0, 4000.0], [266.0] * 5,
+                            self.ROI_Y0, 500.0)
+        tracks = track_entries(self.T, self.MASKS, panel=panel)
+        counted = [(a["t_first"], a["slot_first"]) for a in tracks if a["counted"]]
+        self.assertEqual(counted, [(1000.0, 0), (1500.0, 1)])
+        self.assertTrue(all(a["refused"] == "death_panel" for a in tracks if a["slot_first"] == 5))
+        # Without the panel, its run is an entry.
+        self.assertIn((0.0, 5), [(a["t_first"], a["slot_first"])
+                                 for a in track_entries(self.T, self.MASKS) if a["counted"]])
+
+    def test_an_entry_rising_mid_stack_is_untouched(self):
+        # e37fdeca944f 1263.5 s in miniature: two entries read in slots 2-3
+        # under empty slots, then at rest in 0-1; a panel stands low (hy 536).
+        t = [500.0 * i for i in range(6)]
+        masks = [0, 12, 3, 3, 3, 3]
+        panel = panel_slots(t, [0.0, 1000.0, 2000.0], [366.0] * 3, self.ROI_Y0, 500.0)
+        self.assertEqual(panel.tolist(), [0] * 6)
+        self.assertEqual([(a["t_first"], a["slot_first"]) for a in track_entries(t, masks, panel=panel)],
+                         [(a["t_first"], a["slot_first"]) for a in track_entries(t, masks)])
 
 
 if __name__ == "__main__":

@@ -9,6 +9,16 @@ r"""Fetch a small, polite, rank-stratified sample of ranked VALORANT matches.
     .\.venv\Scripts\python.exe prototypes\ladder_fetch.py measure-riot [--out DIR]
     .\.venv\Scripts\python.exe prototypes\ladder_fetch.py measure-v4 [--record]
     .\.venv\Scripts\python.exe prototypes\ladder_fetch.py project
+    .\.venv\Scripts\python.exe prototypes\ladder_fetch.py lookup
+    .\.venv\Scripts\python.exe prototypes\ladder_fetch.py --list-size 8 history --all-dates
+    .\.venv\Scripts\python.exe prototypes\ladder_fetch.py stored-matches --label A
+    .\.venv\Scripts\python.exe prototypes\ladder_fetch.py measure-history [--record]
+
+`lookup` resolves the player's Riot IDs (store file `owner_riot_ids.json`) to
+PUUIDs, one account call each, into `owner_seeds.json`. `history` pages each
+owner account's whole competitive list and nothing else: it reads only
+`owner_accounts`, never the frontier, and adds no lobby player to it.
+`--all-dates` keeps matches before the window, tagged `in_window` false.
 
 `docs/LADDER_SAMPLE.md` holds the source, its terms, the politeness settings,
 the storage, the schema, the strata and the use.
@@ -124,8 +134,8 @@ import pyarrow as pa  # noqa: E402
 import pyarrow.compute as pc  # noqa: E402
 import pyarrow.parquet as pq  # noqa: E402
 
-VERSION = "ladder-fetch-0.2.0"
-PARSER_VERSION = "ladder-parse-0.1.0"
+VERSION = "ladder-fetch-0.3.0"
+PARSER_VERSION = "ladder-parse-0.2.0"   # 0.2.0: matches.in_window
 HOST = "api.henrikdev.xyz"
 BASE = f"https://{HOST}"
 API_VERSION = "v4"
@@ -225,6 +235,8 @@ class State:
     matches: dict[str, dict] = field(default_factory=dict)
     duplicates_seen: int = 0
     out_of_scope_seen: int = 0
+    #: per owner label: the competitive list as paged (`history`)
+    histories: dict[str, dict] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path) -> "State":
@@ -756,11 +768,24 @@ def matches_of(body: bytes) -> list[dict]:
     return [m for m in (data or []) if isinstance(m, dict)]
 
 
-def register(state: State, ms: list[dict], kind: str, known: set[str]) -> dict:
-    """Record a reply's matches; return counts. Expands the frontier."""
-    c = {"new": 0, "duplicate": 0, "out_of_scope": 0, "frontier_added": 0}
+#: reasons `match_in_window` gives that `all_dates` keeps, tagged
+DATE_REASONS = ("before_window", "season")
+
+
+def register(state: State, ms: list[dict], kind: str, known: set[str],
+             all_dates: bool = False, expand: bool = True) -> dict:
+    """Record a reply's matches; return counts.
+
+    `all_dates` keeps a competitive, completed match outside the date or
+    season window, tagged `in_window: False` with its season and game
+    version, instead of dropping it. `expand` adds the lobby's players to the
+    frontier; the owner history passes False.
+    """
+    c = {"new": 0, "duplicate": 0, "out_of_scope": 0, "frontier_added": 0,
+         "out_of_window_kept": 0}
     for m in ms:
-        mid = (m.get("metadata") or {}).get("match_id")
+        md = m.get("metadata") or {}
+        mid = md.get("match_id")
         if not mid:
             continue
         if mid in state.matches or mid in known:
@@ -768,15 +793,20 @@ def register(state: State, ms: list[dict], kind: str, known: set[str]) -> dict:
             state.duplicates_seen += 1
             continue
         ok, why = match_in_window(m, state)
-        if not ok:
+        if not ok and not (all_dates and why in DATE_REASONS):
             c["out_of_scope"] += 1
             state.out_of_scope_seen += 1
             continue
         players = m.get("players") or []
         tiers = [(p.get("tier") or {}).get("name") for p in players]
         state.matches[mid] = {"stratum": match_stratum(tiers), "via": kind,
-                              "started_ms": started_ms(m)}
+                              "started_ms": started_ms(m), "in_window": ok,
+                              "season": (md.get("season") or {}).get("short"),
+                              "game_version": md.get("game_version")}
         c["new"] += 1
+        c["out_of_window_kept"] += not ok
+        if not expand:
+            continue
         c["frontier_added"] += add_frontier(state, [
             {"puuid": p["puuid"], "kind": "snowball",
              "stratum": stratum((p.get("tier") or {}).get("name")),
@@ -944,6 +974,242 @@ def seed_leaderboard(client: Client, state: State, out: Path, pages: int,
     return added
 
 
+# ---------------------------------------------------------------- owners
+
+def seeds_path(store: Path) -> Path:
+    return Path(store) / "external" / "ladder" / "owner_seeds.json"
+
+
+def owner_riot_ids(store: Path) -> dict[str, str]:
+    """The player's Riot IDs, label -> `name#tag`, labelled A, B, C in the
+    order of `external/ladder/owner_riot_ids.json` (store only)."""
+    p = Path(store) / "external" / "ladder" / "owner_riot_ids.json"
+    if not p.is_file():
+        return {}
+    ids = json.loads(p.read_text(encoding="utf-8")).get("riot_ids") or []
+    return {chr(ord("A") + i): r for i, r in enumerate(ids)}
+
+
+def account_path(riot_id: str) -> str:
+    name, sep, tag = riot_id.rpartition("#")
+    if not sep or not name or not tag:
+        raise Stop("a Riot ID reads name#tag")
+    q = lambda s: urllib.parse.quote(s, safe="")   # noqa: E731
+    return f"/valorant/v2/account/{q(name)}/{q(tag)}"
+
+
+def lookup_account(client: Client, state: State, out: Path, riot_id: str
+                   ) -> dict:
+    """One account call; the reply's PUUID and region, stored raw."""
+    fetched_at = now_iso()
+    rel, r = client.get(account_path(riot_id))
+    save_raw(out, state, "account", rel, r, fetched_at, [], cost=client.last)
+    client.save()
+    if r.status in (401, 403):
+        raise Stop(f"HTTP {r.status}: the key is missing, wrong or revoked")
+    if r.status != 200:
+        return {"status": r.status}
+    d = json.loads(r.body).get("data") or {}
+    return {"status": 200, "puuid": d.get("puuid"), "region": d.get("region"),
+            "account_level": d.get("account_level")}
+
+
+def write_seeds(store: Path, rows: list[dict]) -> None:
+    """Merge `rows` ({label, puuid, ...}) into the owner seeds by label."""
+    p = seeds_path(store)
+    have = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else []
+    by = {r["label"]: r for r in have}
+    for r in rows:
+        by[r["label"]] = {**by.get(r["label"], {}), **r}
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(json.dumps(sorted(by.values(), key=lambda r: r["label"]),
+                              indent=1), encoding="utf-8")
+    os.replace(tmp, p)
+
+
+def owner_accounts(store: Path) -> dict[str, str]:
+    """`owner_puuids` with each PUUID once, the first label kept."""
+    out, seen = {}, set()
+    for label, p in owner_puuids(store).items():
+        if p not in seen:
+            seen.add(p)
+            out[label] = p
+    return out
+
+
+def list_rows(out: Path, puuid: str) -> list[tuple[int, dict]]:
+    """Stored competitive-list replies for `puuid`: (start index, row)."""
+    rows = []
+    for row in read_manifest(out):
+        u = urllib.parse.urlsplit(row.get("endpoint") or "")
+        if row.get("kind") not in ("list", "probe", "history") or \
+                row.get("status") != 200 or \
+                "/v4/by-puuid/matches/" not in u.path or \
+                not u.path.endswith("/" + puuid):
+            continue
+        q = urllib.parse.parse_qs(u.query)
+        rows.append((int(q.get("start", ["0"])[0]), row))
+    return rows
+
+
+def indexed_ids(out: Path, puuid: str) -> dict[int, str]:
+    """List index -> match id, from every stored list reply of `puuid`."""
+    ids: dict[int, str] = {}
+    for start, row in list_rows(out, puuid):
+        for i, m in enumerate(row.get("match_ids") or []):
+            if m:
+                ids.setdefault(start + i, m)
+    return ids
+
+
+def register_stored(out: Path, state: State, puuid: str, known: set[str],
+                    all_dates: bool) -> dict:
+    """Register the matches `puuid`'s stored list replies hold; no network.
+
+    A dry run's probe matches outside the window sit in raw unregistered;
+    with `all_dates` they join the sample, tagged, without a new request.
+    """
+    tot = {"new": 0, "out_of_window_kept": 0}
+    for _, row in list_rows(out, puuid):
+        if not row.get("file"):
+            continue
+        ms = matches_of(gzip.decompress((out / "raw" / row["file"])
+                                        .read_bytes()))
+        c = register(state, ms, "owner", known, all_dates=all_dates,
+                     expand=False)
+        for k in tot:
+            tot[k] += c[k]
+    return tot
+
+
+def owner_history(client: Client, state: State, out: Path, label: str,
+                  puuid: str, size: int, known: set[str],
+                  all_dates: bool = True, max_pages: int = 100) -> dict:
+    """Page one owner's whole competitive list, `size` at a time.
+
+    Starts one index before the end of the stored contiguous prefix, so the
+    overlap shows whether the list shifted since; a shift restarts from 0
+    once. A page shorter than `size` ends the list. Only the PUUIDs of
+    `owner_accounts` reach this function; it never touches the frontier.
+    """
+    reg = register_stored(out, state, puuid, known, all_dates)
+    ids = indexed_ids(out, puuid)
+    prefix = 0
+    while prefix in ids:
+        prefix += 1
+    start = max(0, prefix - 1)
+    h = {"pages": [], "shifted": False, "registered_from_raw": reg,
+         "stored_indices": len(ids)}
+    restarted = False
+    for _ in range(max_pages):
+        n = fit_size(client, size)   # the measured cost may have grown
+        fetched_at = now_iso()
+        rel, r = client.get(list_path(state, puuid),
+                            {"mode": "competitive", "size": n,
+                             **({"start": start} if start else {})},
+                            n_matches=n)
+        ms = matches_of(r.body) if r.status == 200 else []
+        got = [(m.get("metadata") or {}).get("match_id") for m in ms]
+        save_raw(out, state, "history", rel, r, fetched_at, got,
+                 cost=client.last)
+        if r.status in (401, 403):
+            client.save()
+            raise Stop(f"HTTP {r.status}: the key is missing, wrong or "
+                       "revoked")
+        page = {"start": start, "size": n, "status": r.status, "n": len(ms),
+                "units": client.last.get("units")}
+        if r.status != 200:
+            h["pages"].append(page)
+            break
+        agree = [ids[start + i] == g for i, g in enumerate(got)
+                 if start + i in ids]
+        page["agree"], page["disagree"] = sum(agree), len(agree) - sum(agree)
+        c = register(state, ms, "owner", known, all_dates=all_dates,
+                     expand=False)
+        page.update({k: c[k] for k in ("new", "duplicate", "out_of_scope",
+                                        "out_of_window_kept")})
+        h["pages"].append(page)
+        if page["disagree"] and not restarted:
+            h["shifted"], restarted, start = True, True, 0
+            ids = {}
+            continue
+        for i, g in enumerate(got):
+            ids[start + i] = g
+        client.save()
+        if len(ms) < n:
+            break
+        start += len(ms)
+    depth = 0
+    while depth in ids:
+        depth += 1
+    h.update(depth=depth, ids=[ids[i] for i in range(depth)],
+             gaps=sorted(i for i in ids if i >= depth))
+    state.histories[label] = h
+    client.save()
+    return h
+
+
+def stored_matches_path(state: State, puuid: str) -> str:
+    return f"/valorant/v1/by-puuid/stored-matches/{state.region}/{puuid}"
+
+
+def fetch_stored(client: Client, state: State, out: Path, puuid: str,
+                 size: int = 25, max_pages: int = 10) -> list[dict]:
+    """HenrikDev's stored-matches list for `puuid`, page by page: summaries
+    ({meta, stats, teams}), not match records. Every reply is stored raw."""
+    rows: list[dict] = []
+    for page in range(1, max_pages + 1):
+        fetched_at = now_iso()
+        rel, r = client.get(stored_matches_path(state, puuid),
+                            {"mode": "competitive", "page": page,
+                             "size": size})
+        data = (json.loads(r.body).get("data") or []) if r.status == 200 \
+            else []
+        save_raw(out, state, "stored", rel, r, fetched_at,
+                 [(d.get("meta") or {}).get("id") for d in data],
+                 cost=client.last)
+        client.save()
+        if r.status in (401, 403):
+            raise Stop(f"HTTP {r.status}: the key is missing, wrong or "
+                       "revoked")
+        if r.status != 200:
+            break
+        rows.extend(data)
+        if len(data) < size:
+            break
+    return rows
+
+
+def captured_by_owner(store: Path, owners: dict[str, str]
+                      ) -> dict[str, list[dict]]:
+    """Per owner label, the stored Riot records (`external/riot`) the
+    account played: match id, queue and start."""
+    out: dict[str, list[dict]] = {k: [] for k in owners}
+    inv = {p: k for k, p in owners.items()}
+    for f in sorted((Path(store) / "external" / "riot").glob("*.json")):
+        m = json.loads(f.read_text(encoding="utf-8"))
+        m = m.get("match", m)
+        mi = m["matchInfo"]
+        for p in m["players"]:
+            if p["subject"] in inv:
+                out[inv[p["subject"]]].append({
+                    "match_id": mi["matchId"], "queue": mi.get("queueID"),
+                    "started_ms": mi.get("gameStartMillis")})
+    return out
+
+
+def holes(history_ids: list[str], captured: list[dict]) -> dict:
+    """Captured competitive matches the owner's list never returned, and
+    how many of them fall inside the list's own date span."""
+    comp = [c for c in captured if c["queue"] == "competitive"]
+    listed = set(history_ids)
+    miss = [c for c in comp if c["match_id"] not in listed]
+    return {"captured": len(comp), "listed": len(comp) - len(miss),
+            "missing": [c["match_id"] for c in miss],
+            "missing_started_ms": [c["started_ms"] for c in miss]}
+
+
 # ---------------------------------------------------------------- parsing
 
 def _col(arr: pa.Array, *path: str) -> pa.Array:
@@ -997,8 +1263,14 @@ def _strata(tier_name: pa.Array) -> pa.Array:
 
 
 def parse_matches(ms: list[dict], salt: bytes, owners: set[str],
-                  captured: set[str]) -> dict[str, pa.Table]:
+                  captured: set[str], since: str | None = None
+                  ) -> dict[str, pa.Table]:
     """Six tables from v4 match objects; every PUUID pseudonymised.
+
+    `matches.in_window` is True when the match started on or after `since`
+    (an ISO date; None keeps every match in the window). The parser drops no
+    match by date: the owner history keeps older ones, tagged by
+    `in_window`, `season`, `game_version` and `started_at`.
 
     Arrow infers one nested type for the batch and every column is a struct
     field or a list flatten over it; no per-row Python.
@@ -1051,6 +1323,9 @@ def parse_matches(ms: list[dict], salt: bytes, owners: set[str],
     hold = pa.array([int(hashlib.sha256(x.encode()).hexdigest(), 16)
                      % HOLDOUT_MOD == 0 for x in mids.to_pylist()])  # per match
     cap = pc.is_in(mids, pa.array(sorted(captured), pa.string()))
+    started = _col(md, "started_at").cast(pa.string())
+    in_window = pa.array([True] * len(ms)) if not since else \
+        pc.fill_null(pc.greater_equal(started, pa.scalar(since)), False)
     matches = pa.table({
         "match_id": mids, "map": _col(md, "map", "name"),
         "map_id": _col(md, "map", "id"),
@@ -1066,7 +1341,7 @@ def parse_matches(ms: list[dict], salt: bytes, owners: set[str],
         "winning_team": winning_team,
         "stratum": pa.array(med, pa.string()),
         "has_owner": has_owner, "captured": cap,
-        "holdout": pc.or_(hold, cap)})
+        "holdout": pc.or_(hold, cap), "in_window": in_window})
 
     # rounds
     rd, rpar = _explode(_col(M, "rounds"))
@@ -1193,7 +1468,7 @@ def stored_matches(out: Path, state: State) -> list[dict]:
     seen, ms = set(), []
     for row in read_manifest(out):
         if row.get("status") != 200 or not row.get("file") or \
-                row["kind"] not in ("list", "match", "probe"):
+                row["kind"] not in ("list", "match", "probe", "history"):
             continue
         body = gzip.decompress((out / "raw" / row["file"]).read_bytes())
         for m in matches_of(body):
@@ -1324,7 +1599,7 @@ def measure(ms: list[dict], bodies: list[bytes], tables_dir: Path,
 def calls_of(out: Path) -> list[dict]:
     """Manifest rows of calls that list matches, with their match counts."""
     return [r for r in read_manifest(out)
-            if r.get("kind") in ("list", "probe", "match")]
+            if r.get("kind") in ("list", "probe", "match", "history")]
 
 
 def measure_v4(out: Path, tables_dir: Path, salt: bytes, owners: set[str],
@@ -1399,6 +1674,66 @@ def measure_v4(out: Path, tables_dir: Path, salt: bytes, owners: set[str],
         "kill_positions": kill_pos,
         "kill_positions_per_kill": kill_pos / max(tables["kills"].num_rows, 1),
         "parse_s": parse_s}
+
+
+def measure_history(out: Path, store: Path, state: State) -> dict:
+    """The owner history as stored: per account and in all.
+
+    Reads the parsed tables (`parse` first), the state's paged lists and
+    the manifest; no network. Holes compare each account's list with the
+    stored Riot records the account played.
+    """
+    where = out / "parsed" / PARSER_VERSION
+    t = {k: pq.read_table(where / f"{k}.parquet")
+         for k in ("matches", "players", "kills", "positions")}
+    m = t["matches"]
+    owners = owner_accounts(store)
+    cap = captured_by_owner(store, owners)
+    acc = {}
+    for label, h in state.histories.items():
+        ids = set(h.get("ids") or [])
+        sel = pc.is_in(m["match_id"], pa.array(sorted(ids), pa.string()))
+        mm = m.filter(sel)
+        hl = holes(h.get("ids") or [], cap.get(label, []))
+        acc[label] = {
+            "list_depth": h.get("depth"), "shifted": h.get("shifted"),
+            "parsed_matches": mm.num_rows,
+            "in_window": int(pc.sum(mm["in_window"]).as_py() or 0),
+            "first": pc.min(mm["started_at"]).as_py(),
+            "last": pc.max(mm["started_at"]).as_py(),
+            "pages": len(h.get("pages") or []),
+            "units": sum(p.get("units") or 0 for p in h.get("pages") or []),
+            "captured_competitive": hl["captured"],
+            "captured_listed": hl["listed"],
+            "holes": len(hl["missing"]),
+            "hole_ids": hl["missing"],
+            "hole_started_ms": hl["missing_started_ms"]}
+    own = t["players"].filter(t["players"]["is_owner"])
+    rows = [r for r in read_manifest(out) if r.get("kind") in
+            ("history", "account", "stored")]
+    span = {}
+    for k in ("history", "account", "stored"):
+        ts = [dt.datetime.fromisoformat(r["fetched_at"]) for r in rows
+              if r["kind"] == k]
+        if ts:
+            span[k] = {"calls": len(ts), "units": sum(
+                r.get("units") or 0 for r in rows if r["kind"] == k),
+                "wall_s": (max(ts) - min(ts)).total_seconds()}
+    n_k = t["kills"].num_rows
+    kp = int(pc.sum(pc.equal(t["positions"]["event"], "kill")).as_py() or 0)
+    vc = lambda col: {d["values"]: d["counts"]   # noqa: E731
+                      for d in pc.value_counts(col).to_pylist()}
+    return {
+        "matches": m.num_rows, "accounts": acc,
+        "in_window": int(pc.sum(m["in_window"]).as_py() or 0),
+        "first": pc.min(m["started_at"]).as_py(),
+        "last": pc.max(m["started_at"]).as_py(),
+        "by_season": vc(m["season"]), "lobby_stratum": vc(m["stratum"]),
+        "owner_tier": vc(own["tier_name"]),
+        "rounds": int(pc.sum(m["rounds"]).as_py() or 0),
+        "kills": n_k, "kill_positions": kp,
+        "kill_positions_per_kill": kp / max(n_k, 1),
+        "calls": span, "since": state.since}
 
 
 #: The snowball's share of a list's records that are new, in-window matches:
@@ -1492,6 +1827,23 @@ def main(argv: list[str] | None = None) -> int:
     pj = sub.add_parser("project")
     pj.add_argument("--units-per-record", type=float, default=None)
     pj.add_argument("--base-units", type=float, default=None)
+    sub.add_parser("lookup", help="resolve owner_riot_ids.json to PUUIDs "
+                   "(one account call each) into owner_seeds.json")
+    hi = sub.add_parser("history", help="page the player's own accounts' "
+                        "whole competitive lists; never another player's")
+    hi.add_argument("--labels", default=None,
+                    help="comma-separated owner labels; default all")
+    hi.add_argument("--all-dates", action="store_true",
+                    help="keep matches outside the date window, tagged "
+                    "in_window false, instead of dropping them")
+    sm = sub.add_parser("stored-matches", help="HenrikDev's stored-matches "
+                        "list for one owner account")
+    sm.add_argument("--label", required=True)
+    sm.add_argument("--size", type=int, default=25)
+    sm.add_argument("--pages", type=int, default=4)
+    mh = sub.add_parser("measure-history")
+    mh.add_argument("--record", action="store_true",
+                    help="append the figures to the metrics log")
     w = sub.add_parser("window")
     w.add_argument("--since", default=None)
     w.add_argument("--seasons", default=None)
@@ -1607,6 +1959,128 @@ def main(argv: list[str] | None = None) -> int:
                   f"{state.units_total:.0f} units, {len(state.matches)} "
                   f"matches in the sample")
             return 0
+        if a.cmd == "lookup":
+            ids = owner_riot_ids(store)
+            if not ids:
+                print("no external/ladder/owner_riot_ids.json")
+                return 2
+            before = owner_accounts(store)
+            have = set(before.values())
+            seeded = {r["label"] for r in (json.loads(seeds_path(store)
+                      .read_text(encoding="utf-8"))
+                      if seeds_path(store).is_file() else [])
+                      if r.get("puuid")}
+            cl = client()
+            rows = []
+            for label, rid in ids.items():
+                if label in seeded:
+                    print(f"  {label}: already seeded")
+                    continue
+                r = lookup_account(cl, state, out, rid)
+                if r["status"] != 200 or not r.get("puuid"):
+                    print(f"  {label}: HTTP {r['status']}, no PUUID")
+                    continue
+                prior = [k for k, p in before.items() if p == r["puuid"]]
+                rows.append({"label": label, "riot_id": rid,
+                             "puuid": r["puuid"], "region": r["region"],
+                             "looked_up_at": now_iso(),
+                             "was_in_store_as": prior[0] if prior else None})
+                print(f"  {label}: region {r['region']}; "
+                      + (f"the store held it as {prior[0]}" if r["puuid"]
+                         in have else "the store lacked it")
+                      + f"; {cl.last.get('units')} units")
+            if rows:
+                write_seeds(store, rows)
+            state.save(spath)
+            return 0
+        if a.cmd == "history":
+            owners = owner_accounts(store)
+            if a.labels:
+                want = a.labels.split(",")
+                owners = {k: v for k, v in owners.items() if k in want}
+            cl = client()
+            known = known_riot_matches(store)
+            size = fit_size(cl, pol.list_size)
+            for label, p in owners.items():
+                t0 = time.monotonic()
+                n0 = len(state.matches)
+                h = owner_history(cl, state, out, label, p, size, known,
+                                  all_dates=a.all_dates)
+                h["wall_s"] = round(time.monotonic() - t0, 1)
+                state.save(spath)
+                print(f"  {label}: {len(h['pages'])} pages of {size}, depth "
+                      f"{h['depth']}, {len(state.matches) - n0} matches "
+                      f"added ({h['registered_from_raw']['new']} from raw), "
+                      f"shifted {h['shifted']}, "
+                      f"{sum(x.get('units') or 0 for x in h['pages']):.0f} "
+                      f"units, {h['wall_s']:.0f} s")
+            print(f"history: {len(state.matches)} matches stored; "
+                  f"{state.requests_total} calls, {state.units_total:.0f} "
+                  "units in all")
+            return 0
+        if a.cmd == "stored-matches":
+            owners = owner_accounts(store)
+            if a.label not in owners:
+                print(f"no owner labelled {a.label}")
+                return 2
+            cl = client()
+            rows = fetch_stored(cl, state, out, owners[a.label], a.size,
+                                a.pages)
+            h = state.histories.get(a.label) or {}
+            cap = captured_by_owner(store, owners).get(a.label, [])
+            miss = set(holes(h.get("ids") or [], cap)["missing"])
+            ids = {(d.get("meta") or {}).get("id") for d in rows}
+            res = {"rows": len(rows), "holes": len(miss),
+                   "holes_in_stored": len(miss & ids),
+                   "listed_in_stored": len(set(h.get("ids") or []) & ids)}
+            h["stored_matches"] = res
+            state.histories[a.label] = h
+            state.save(spath)
+            print(f"  {a.label}: {res}")
+            return 0
+        if a.cmd == "measure-history":
+            res = measure_history(out, store, state)
+            res.update(measured_at=now_iso(), fetcher=VERSION,
+                       parser=PARSER_VERSION)
+            mpath = out / "measure" / "own_history.json"
+            mpath.parent.mkdir(parents=True, exist_ok=True)
+            mpath.write_text(json.dumps(res, indent=1), encoding="utf-8")
+            print(json.dumps({k: v for k, v in res.items() if k != "accounts"},
+                             indent=1))
+            for k, v in res["accounts"].items():   # counts only, no ids
+                print(k, {x: y for x, y in v.items()
+                          if x not in ("hole_ids", "hole_started_ms")})
+            if a.record:
+                sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+                from reticle import metrics
+                vals = {"matches": res["matches"],
+                        "in_window": res["in_window"],
+                        "rounds": res["rounds"], "kills": res["kills"],
+                        "kill_positions": res["kill_positions"],
+                        "kill_positions_per_kill":
+                            round(res["kill_positions_per_kill"], 2)}
+                for k, c in res["calls"].items():
+                    vals[f"{k}_calls"] = c["calls"]
+                    vals[f"{k}_units"] = round(c["units"], 1)
+                    vals[f"{k}_wall_s"] = round(c["wall_s"])
+                for k, v in res["accounts"].items():
+                    for x in ("list_depth", "parsed_matches", "in_window",
+                              "captured_competitive", "captured_listed",
+                              "holes", "units"):
+                        vals[f"{x}_{k}"] = v[x]
+                for s, n in res["lobby_stratum"].items():
+                    vals[f"lobby_{s or 'none'}"] = n
+                metrics.record(
+                    "ladder_fetch", part="own_history", values=vals,
+                    deps={"fetcher": VERSION, "parser": PARSER_VERSION,
+                          "records": "external/ladder/henrikdev/v4"},
+                    context={"source": "HenrikDev v4, the player's own "
+                             "accounts' whole competitive lists",
+                             "first": res["first"], "last": res["last"],
+                             "since": res["since"],
+                             "by_season": res["by_season"],
+                             "owner_tier": res["owner_tier"]})
+            return 0
         if a.cmd == "crawl":
             r = crawl(client(), state, out, pol, known_riot_matches(store),
                       max_requests=a.max_requests)
@@ -1620,7 +2094,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             tables = parse_matches(ms, salt_of(out),
                                    set(owner_puuids(store).values()),
-                                   known_riot_matches(store))
+                                   known_riot_matches(store), state.since)
             sizes = write_tables(tables, out / "parsed" / PARSER_VERSION)
             print(f"parsed {len(ms)} matches: " + ", ".join(
                 f"{k} {t.num_rows} rows" for k, t in tables.items())

@@ -3447,6 +3447,21 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
         # tracks of one entry are timed outside the stall. Unknown (no
         # primitives) is passed as None and changes nothing.
         stall_spans = stalls.for_session(store, sid, date)
+        # The player's death panel covers the killfeed's lowest slots when it
+        # stands high (`adjudication.death.panel_aside`); a stale or missing
+        # combat_report stream sets no read aside.
+        from .adjudication.death import panel_aside
+        from .killfeed import killfeed_roi
+        report_version = store.events_version("combat_report", sid)
+        roi = killfeed_roi(get_profile(manifest["source_profile"]))
+        panel = None
+        if report_version == COMBAT_REPORT_VERSION and roi is not None:
+            wh = (int(manifest["source"]["width"]), int(manifest["source"]["height"]))
+            panel = panel_aside(hud.column("t_ms").to_pylist(), store.read_events("combat_report", sid),
+                                roi.pixels(*wh)[1])
+        else:
+            print(f"{sid}: no combat_report stream at {COMBAT_REPORT_VERSION}; no killfeed read is "
+                  f"set aside under the death panel -- run `reticle scan {sid} --only combat_report`")
     with usage_step("adjudicate"):
         res = adjudicate_session_deaths(
             sid, rounds, hud, store.read_roster(sid, date), portraits,
@@ -3454,7 +3469,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
             source_version=KILLFEED_PORTRAIT_VERSION,
             second_life=stored_second_life(portraits, KILLFEED_PORTRAIT_VERSION),
             weapon_observations=weapons, name_observations=names, reliability=rel,
-            xmarks=births, store_root=store.root, stalls=stall_spans)
+            xmarks=births, store_root=store.root, stalls=stall_spans, panel=panel)
     # How each round ended (`round_outcome_claim` rows at the code's stamps):
     # a round that ended by elimination inside a stall's gap kills the losing
     # side's living members there. Missing or stale claims refuse every
@@ -3551,6 +3566,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                            "lineup": lineup.get("version"), "agent_identity": AGENT_IDENTITY_VERSION,
                            "reliability": RELIABILITY_VERSION if rel is not None else None,
                            "stalls": stalls.STALL_VERSION if stall_spans is not None else None,
+                           "combat_report": report_version if panel is not None else None,
                            "round_outcome": ROUND_OUTCOME_VERSION if claims is not None else None,
                            "round_outcome_claim": (ROUND_OUTCOME_CLAIM_VERSION
                                                    if claims is not None else None)}}

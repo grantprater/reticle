@@ -299,6 +299,43 @@ def _split_weld(track: dict, step: float, use_sides: bool) -> list[dict]:
     return pieces
 
 
+def panel_slots(times, panel_t, panel_top, roi_y0: float, reach_ms: float) -> np.ndarray:
+    """Per sample of `times`, the killfeed slots (bit mask) a death panel
+    covers: each slot whose resting top (`roi_y0` + `killfeed.FIRST_Y` +
+    `killfeed.REST_PITCH` * slot, 1080p px) lies at or below the panel's top
+    at a panel frame within `reach_ms` of the sample.
+
+    `panel_t` and `panel_top` are the frames that show a death panel and the
+    screen row of its top (`adjudication.combat_report.death_panel_tops`).
+    The combat report draws its KILLED BY header and the killer's card below
+    the killfeed [domain:combat_report/panel-layout]; when it stands high
+    enough, the card's red bar at the killfeed ROI's foot reads as an entry
+    band in slot 5 (b7d24102a6f6 1575.0-1588.5 s, b3b9defb6fd7 1650.5-1663.0 s,
+    the panel's top at screen row 266). A slot the panel covers holds the
+    panel, never a stack entry; a sample with no panel frame within reach
+    covers none."""
+    from .killfeed import FIRST_Y, MAX_SLOTS, REST_PITCH
+    t = np.asarray(times, dtype=float)
+    pt = np.asarray(panel_t, dtype=float)
+    top = np.asarray(panel_top, dtype=float)
+    out = np.zeros(len(t), dtype=np.int64)
+    if not len(t) or not len(pt):
+        return out
+    order = np.argsort(pt, kind="stable")
+    pt, top = pt[order], top[order]
+    lo = np.searchsorted(pt, t - reach_ms, side="left")
+    hi = np.searchsorted(pt, t + reach_ms, side="right")
+    # The highest panel top (least row) among the frames in reach of each sample.
+    best = np.full(len(t), np.inf)
+    for k in range(int((hi - lo).max())):
+        j = lo + k
+        ok = j < hi
+        best[ok] = np.minimum(best[ok], top[j[ok]])
+    slot_top = roi_y0 + FIRST_Y + REST_PITCH * np.arange(MAX_SLOTS)
+    covered = slot_top[None, :] >= best[:, None]
+    return (covered.astype(np.int64) << np.arange(MAX_SLOTS)).sum(axis=1)
+
+
 def _released(t_first: float, stall_spans, step: float) -> dict | None:
     """The stall span whose end lies within one sample of `t_first`, or None:
     a track first read there was on screen while the source stood still."""
@@ -309,7 +346,7 @@ def _released(t_first: float, stall_spans, step: float) -> dict | None:
 
 
 def track_entries(times, masks, dividers=None, flags=None, sides=None,
-                  stalls=None) -> list[dict]:
+                  stalls=None, panel=None) -> list[dict]:
     """Follow each entry across frames; one dict per distinct entry.
 
     Returns every track, including the ones the bars refuse, with `counted`
@@ -395,12 +432,27 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None,
     frozen picture (a06f04a0059f 702.0 s after a stall from 692.6 s; Riot's
     kill at 696.9 s). Such a track carries `released`, the span. None keeps
     the bars for every track.
+
+    **The death panel is no entry.** `panel`, parallel to `times`, holds per
+    sample the slots a death panel covers (`panel_slots`); a detection there
+    joins no entry. Each run of such detections in one slot comes back as its
+    own track, refused `death_panel`, so the reads stay visible. Without it
+    the panel's card in slot 5 began a track that the next entry, read in
+    slot 1, joined as risen (b7d24102a6f6 1581.5 s), and began a phantom
+    entry of its own (1582.0 s). None walks every detection.
     """
     active: list[dict] = []
     done: list[dict] = []
     times = list(times)
     step = sample_step_ms(times)
     gap = min(KF_TRACK_GAP_MS, KF_TRACK_GAP_STEPS * step)
+    panel_tracks: list[dict] = []
+    if panel is not None:
+        m = np.nan_to_num(np.asarray(masks, dtype=float)).astype(np.int64)
+        aside = np.asarray(panel, dtype=np.int64) & m
+        if aside.any():
+            panel_tracks = _panel_tracks(times, aside, dividers, sides)
+            masks = (m & ~aside).tolist()
     if dividers is None:
         dividers = [None] * len(times)
     flags = flags or {}
@@ -563,7 +615,34 @@ def track_entries(times, masks, dividers=None, flags=None, sides=None,
             else None
         )
         a["counted"] = a["refused"] is None
+    if panel_tracks:
+        done = sorted(done + panel_tracks, key=lambda a: a["t_first"])
     return done
+
+
+def _panel_tracks(times, aside, dividers, sides) -> list[dict]:
+    """One refused track per run of consecutive samples in which a slot's
+    detection lies under the death panel (`panel_slots`), in `track_entries`'
+    shape."""
+    step = sample_step_ms(times)
+    out = []
+    for s in range(6):
+        here = ((aside >> s) & 1).astype(np.int8)
+        edge = np.diff(np.concatenate(([0], here, [0])))
+        for a, b in zip(np.flatnonzero(edge == 1), np.flatnonzero(edge == -1)):
+            ts = [times[i] for i in range(a, b)]
+            sigs = [wx_at(dividers[i], s) if dividers is not None else None for i in range(a, b)]
+            tr = {"t_first": ts[0], "t_last": ts[-1], "slot": s, "slot_first": s,
+                  "n_obs": len(ts), "sig": next((x for x in reversed(sigs) if x), None),
+                  "flag_hits": {}, "assigned": [(t, s, "death_panel") for t in ts],
+                  "span_ms": ts[-1] - ts[0], "life_ms": ts[-1] - ts[0] + 2 * step,
+                  "refused": "death_panel", "counted": False}
+            if sides is not None:
+                tr["side"] = next((x for x in (_side_at(sides[i], s) for i in range(b - 1, a - 1, -1))
+                                   if x is not None), None)
+                tr["one_colour"] = any(_same_at(sides[i], s) for i in range(a, b))
+            out.append(tr)
+    return out
 
 
 def entry_presence(times, masks, dividers=None) -> list[dict]:

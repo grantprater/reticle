@@ -351,7 +351,7 @@ question = "How many kills, deaths and assists did the player get in each round,
 owner = "adjudication.combat_report"
 role = ["adjudicate"]
 status = "partial"
-produces = ["episodes", "panels", "assign_rounds", "round_counts", "events", "frame_read", "portrait_clusters", "scoreboard_bound", "name_rows", "round_verdicts", "bind_deaths", "ally_bound"]
+produces = ["episodes", "panels", "assign_rounds", "round_counts", "events", "frame_read", "portrait_clusters", "scoreboard_bound", "name_rows", "round_verdicts", "bind_deaths", "ally_bound", "death_panel_tops"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """
@@ -1062,7 +1062,7 @@ question = "Do the stored HUD reads contradict each other?"
 owner = "checks"
 role = ["constrain", "corroborate"]
 status = "shipped"
-produces = ["check_hud", "track_entries", "player_events"]
+produces = ["check_hud", "track_entries", "panel_slots", "player_events"]
 not_for = """
 Choosing which channel is right. A check surfaces the disagreement; silently
 picking a winner destroys the evidence that something is wrong.
@@ -1537,7 +1537,7 @@ owner = "adjudication.death"
 stored_consumers = ["entity_events"]
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "entry_second_life", "stored_second_life", "split_second_lives", "death_key", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry", "x_shape", "minimap_x_marks", "xmark_births", "match_xmark", "stored_xmark_births"]
+produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "entry_second_life", "stored_second_life", "split_second_lives", "death_key", "panel_aside", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry", "x_shape", "minimap_x_marks", "xmark_births", "match_xmark", "stored_xmark_births"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """

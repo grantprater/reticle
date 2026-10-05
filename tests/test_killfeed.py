@@ -223,6 +223,34 @@ class IconExtentTests(unittest.TestCase):
         white, icon = self._band()
         self.assertEqual(killfeed.icon_extent(white, icon, 90, 90, 20, 170), (90, 90))
 
+    def test_a_seam_divider_takes_the_element_before_the_seam(self):
+        icon = np.zeros((34, 200), dtype=bool)
+        icon[11:23, 60:66] = True                  # a small two-piece ability mark,
+        icon[11:23, 68:77] = True                  # 13 px before the seam at 90
+        icon[12:24, 20:40] = True                  # the killer's name, far off
+        self.assertEqual(killfeed.icon_extent(icon, icon, 90, 90, 0, 200), (60, 77))
+
+    def test_a_seam_divider_too_far_from_any_element_has_no_icon(self):
+        icon = np.zeros((34, 200), dtype=bool)
+        icon[11:23, 30:50] = True                  # 40 px before the seam
+        self.assertEqual(killfeed.icon_extent(icon, icon, 90, 90, 0, 200), (90, 90))
+
+    def test_a_headshot_mark_at_the_seam_is_no_icon(self):
+        icon = np.zeros((34, 200), dtype=bool)
+        icon[9:25, 35:61] = True                   # the gun, 11 px before the mark
+        for x0 in range(72, 96, 3):                # eight pieces, 23 px wide, 16 tall
+            icon[9:25, x0:x0 + 2] = True
+        icon[9:25, 94:95] = True
+        self.assertEqual(killfeed.icon_extent(icon, icon, 105, 105, 0, 200), (105, 105))
+
+    def test_a_divider_joined_from_pieces_grows_to_its_icon(self):
+        white = np.zeros((20, 200), dtype=bool)
+        white[5:15, 82:88] = True                  # two pieces `_band_text` joined
+        white[5:15, 90:100] = True                 # into one divider, 82..100
+        icon = white.copy()
+        icon[3:17, 76:79] = True                   # a faint arc only the plate cut keeps
+        self.assertEqual(killfeed.icon_extent(white, icon, 82, 100, 20, 170), (76, 100))
+
     def test_pieces_closer_than_the_element_gap_join(self):
         white, icon = self._band()
         gap = killfeed.ELEMENT_GAP
@@ -602,3 +630,20 @@ class RingedDividerTests(unittest.TestCase):
         value[white] = (0, 0, 255)
         _text, wx0, wx1 = killfeed._band_text(white, value=value, s=killfeed.UNIT_SCALE)
         self.assertEqual((wx0, wx1), (233, 310))
+
+
+class DividerJoinedTests(unittest.TestCase):
+    """A divider joined from pieces is told from one of a single component
+    (`_divider_joined`), so only the former's extent covers it."""
+
+    def test_one_component_is_not_joined(self):
+        white = np.zeros((34, 120), dtype=bool)
+        white[10:24, 40:70] = True
+        self.assertFalse(killfeed._divider_joined(white, 40, 70))
+
+    def test_pieces_spanning_the_divider_are_joined(self):
+        # Nanoswarm's dotted outline in miniature: dots beside a body.
+        white = np.zeros((34, 120), dtype=bool)
+        white[12:14, 40:42] = True
+        white[10:24, 44:62] = True
+        self.assertTrue(killfeed._divider_joined(white, 40, 62))

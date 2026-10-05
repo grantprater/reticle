@@ -466,6 +466,10 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                   "minimap_object": _in("inputs.minimap_object",
                                         "minimap_object#minimap_object_version", optional=True),
                   "ally_icon": _in("inputs.ally_icon", "ally_icon", optional=True),
+                  # The death panel's reads set aside (`panel_aside`): read only
+                  # at the code's stamp; heads before death-adjudication-0.36.0
+                  # record none.
+                  "combat_report": _in("inputs.combat_report", "combat_report", optional=True),
                   "roster": _in("inputs.roster", "roster"),
                   "reliability_table": _in("inputs.reliability_table", "reliability"),
                   # How each round ended: read only at the code's stamps, and

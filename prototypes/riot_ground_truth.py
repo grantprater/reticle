@@ -218,6 +218,12 @@ unobservable, and its names count as paired by name, never right.
 riot-truth-0.4.2 and then 0.5.2 on its branch, before 0.5.0, 0.5.1 and 0.6.0
 reached it.
 
+0.6.2: a self-kill whose finishing damage is Clove's ultimate is the Not Dead
+Yet expiry, and its truth name is `Clove expiry`, the icon the killfeed draws
+for it (`SELF_KILL_ABILITY`) [domain:rounds/riot-records-clove-expiry]; 0.6.1
+called it Not Dead Yet, the icon of the self-revive entry, which is no death
+[domain:killfeed/revive-entries]. `--legacy clove-expiry` restores 0.6.1.
+
 What the scorer reads stale (0.3.1)
 -----------------------------------
 * `status` reads second lives under the running code's
@@ -259,7 +265,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-RIOT_TRUTH_VERSION = "riot-truth-0.6.1"
+RIOT_TRUTH_VERSION = "riot-truth-0.6.2"
 STORE = Path.home() / "reticle-store"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -281,7 +287,8 @@ NAME_PAIR_TOL_MS = 5000.0
 #: second-life, pairing and self-kill rules, and `order`, the 0.2.0 time-only
 #: pairing (`pairing` wins where both are named), and `stall`, the 0.3.1
 #: scoring that reads no stall span.
-LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill", "order", "stall", "release")
+LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill", "order", "stall", "release",
+                "clove-expiry")
 #: The minimap read time relative to the killfeed-fitted offset. The fit's
 #: offset includes about half a killfeed step of sampling lag plus the feed's
 #: render delay. Measured with `--scan-lag` on the self icon (three sessions,
@@ -297,6 +304,12 @@ AMBIGUOUS_MARGIN_M = 2.0
 
 ABILITY_SLOT = {"Ability1": "Ability1", "Ability2": "Ability2",
                 "GrenadeAbility": "Grenade", "Ultimate": "Ultimate"}
+#: Riot's ability slot, on a self-kill, as the name of the icon the killfeed
+#: draws for that death: Riot records Clove's Not Dead Yet expiry as Clove
+#: killing Clove with her ultimate, and the killfeed draws the broken butterfly
+#: the gallery calls Clove expiry [domain:rounds/riot-records-clove-expiry]
+#: (0.6.2; `--legacy clove-expiry` restores 0.6.1).
+SELF_KILL_ABILITY = {"Clove_Ultimate": "Clove expiry"}
 #: Names that mean one thing under two spellings.
 SAME_NAME = {"melee": "tactical knife", "tactical knife": "tactical knife"}
 
@@ -338,14 +351,16 @@ class Reference:
         return self.maps[map_id]
 
 
-def weapon_name(fd: dict, killer_agent: str | None, ref: Reference) -> tuple[str | None, str]:
+def weapon_name(fd: dict, killer_agent: str | None, ref: Reference,
+                self_kill: bool = False) -> tuple[str | None, str]:
     """Riot's finishing damage as the name our gallery uses, and its kind.
 
     Kinds: `weapon`, `ability`, `melee`, `bomb`, `fall`, or `unmapped` for a
     weapon item valorant-api does not list (agent weapons such as Chamber's
     and Neon's), which is cross-tabulated but not scored. The unmapped name
     carries the full item id, so the report lists what no cached table names;
-    no mapping is guessed by hand.
+    no mapping is guessed by hand. On a self-kill (`self_kill`) an ability in
+    `SELF_KILL_ABILITY` names the death its own icon draws (0.6.2).
     """
     from reticle.adjudication.weapon import ABILITY_CANONICAL_NAMES
 
@@ -359,6 +374,8 @@ def weapon_name(fd: dict, killer_agent: str | None, ref: Reference) -> tuple[str
     if dt == "Ability":
         slot = ABILITY_SLOT.get(item)
         stem = (killer_agent or "").replace("/", "_")
+        if self_kill and slot and f"{stem}_{slot}" in SELF_KILL_ABILITY:
+            return SELF_KILL_ABILITY[f"{stem}_{slot}"], "ability"
         name = ABILITY_CANONICAL_NAMES.get(f"{stem}_{slot}") if slot else None
         return (name or f"unmapped:{killer_agent}:{item}"), ("ability" if name else "unmapped")
     if dt == "Melee":
@@ -1550,6 +1567,7 @@ def pair_deaths_in_order(kills, deaths, agent_of, a, tol_ms=MATCH_TOL_MS,
 def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=(),
                  match_tol=MATCH_TOL_MS, stalls=None) -> tuple[dict, list]:
     legacy = set(legacy or ())
+    expiry = "clove-expiry" not in legacy
     if "pairing" in legacy:
         pairs, clustered = reorder_clusters(pairs, kills, deaths, agent_of, a, match_tol)
         pairs = [(i, j, dt, "time") for i, j, dt in pairs]
@@ -1583,7 +1601,7 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
     unmappable = Counter()
     for i, k in enumerate(kills):
         kl = agent_of.get(k["killer"]) if k.get("killer") else None
-        wname, kind = weapon_name(k.get("finishingDamage"), kl, ref)
+        wname, kind = weapon_name(k.get("finishingDamage"), kl, ref, expiry and is_self_kill(k))
         c[f"riot_kind_{kind}"] += 1
         c[f"matched_kind_{kind}"] += int(i in got_i)
         if kind == "unmapped":
@@ -1628,7 +1646,8 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
             if not amb:
                 c["side_right_unamb" if s["side"] == v_side else "side_wrong_unamb"] += 1
         c["ambiguous_pairs"] += int(amb)
-        wtrue, wkind = weapon_name(k.get("finishingDamage"), kl_true, ref)
+        wtrue, wkind = weapon_name(k.get("finishingDamage"), kl_true, ref,
+                                   expiry and is_self_kill(k))
         we = s.get("weapon_evidence") or {}
         got = s.get("weapon")
         if wkind == "unmapped":
@@ -1668,7 +1687,8 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
                        "victim_side": None if my_team is None else
                        ("ally" if who[k["victim"]]["teamId"] == my_team else "enemy"),
                        "weapon": weapon_name(k.get("finishingDamage"),
-                                             agent_of.get(k.get("killer")), ref)[0]})
+                                             agent_of.get(k.get("killer")), ref,
+                                             expiry and is_self_kill(k))[0]})
     false = [{"t_ms": deaths[j]["t_ms"], "death_id": deaths[j].get("death_id"),
               "victim": deaths[j].get("victim"), "killer": deaths[j].get("killer"),
               "side": deaths[j].get("side"), "second_life": deaths[j].get("is_second_life"),
