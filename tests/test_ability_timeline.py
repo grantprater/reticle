@@ -180,16 +180,53 @@ class GateDeathTests(unittest.TestCase):
                          own_lines_ms=[60000.0])
         self.assertEqual(got[(60000.0, "X")]["reason"], "forced")
 
-    def test_a_gold_only_drop_of_a_pool_slot_is_marked_not_judged(self):
-        # What a gold Regrowth bar going empty means is the player's to answer,
-        # so the gate keeps the verdict and marks the drop.
+    def test_a_gold_only_regrowth_drop_spends_the_rest_of_a_counted_pool(self):
+        # A gold Regrowth bar is a partly spent pool, so its going empty is no
+        # new purchase [domain:abilities/skye-regrowth-gold-bar-partly-spent]:
+        # the teal drop that opened the pool is the cast.
         gold = {**_drop(30000, "C", frm=1.0, to=0.0), "witness": {"witnessed": True}}
-        got = self._gate([gold, _drop(40000, "C")], [], agent="Skye", pool_slots=("C",))
-        self.assertTrue(got[(30000.0, "C")]["player_cast"])
+        got = self._gate([_drop(20000, "C"), gold], [], agent="Skye", pool_slots=("C",))
+        self.assertTrue(got[(20000.0, "C")]["player_cast"])
+        self.assertNotIn("pool_gold_drop", got[(20000.0, "C")])
+        r = got[(30000.0, "C")]
+        self.assertTrue(r["pool_gold_drop"])
+        self.assertFalse(r["player_cast"])
+        self.assertEqual(r["reason"], "pool_rest")
+        # An earlier refusal keeps its name: pool_rest is tested last.
+        got = self._gate([gold], [], agent="Skye", pool_slots=("C",),
+                         menu_at=lambda t: True)
+        self.assertEqual(got[(30000.0, "C")]["reason"], "menu_open")
+        # Only Regrowth's gold is a recorded fact: a pool slot of another
+        # agent is marked, not refused, and a slot no pool fact names is
+        # neither.
+        got = self._gate([gold], [], agent="Viper", pool_slots=("C",))
         self.assertTrue(got[(30000.0, "C")]["pool_gold_drop"])
-        self.assertNotIn("pool_gold_drop", got[(40000.0, "C")])
+        self.assertTrue(got[(30000.0, "C")]["player_cast"])
         got = self._gate([gold], [], agent="Sova")
         self.assertNotIn("pool_gold_drop", got[(30000.0, "C")])
+        self.assertTrue(got[(30000.0, "C")]["player_cast"])
+
+    def test_ability_state_names_what_pool_rest_stood_for(self):
+        from reticle.adjudication.ability_state import STOOD_FOR
+        self.assertEqual(STOOD_FOR["pool_rest"][0], "none")
+
+    def test_a_stabilised_kayo_keeps_his_kit(self):
+        # Downed at 50 s, stabilised by a teammate's NULL/cmd revive at 56 s
+        # [domain:abilities/kayo-null-cmd-stabilise-restores-kit]: dead while
+        # downed, his kit back after it.
+        from reticle.adjudication.death import player_revive_times
+        v = {"kind": "death_verdict", "is_revive": True, "t_ms": 56000.0, "side": "ally",
+             "killer": "Jett", "victim": "KAY_O", "weapon": "NULL/cmd"}
+        for agent in ("KAY/O", "KAY_O"):
+            revives = player_revive_times([v], agent)
+            self.assertEqual(revives, [56000.0])
+            got = self._gate([_drop(53000, "E"), _drop(60000, "Q")], [50000.0], agent=agent,
+                             revives_ms=revives)
+            self.assertEqual(got[(53000.0, "E")]["reason"], "after_player_death")
+            self.assertTrue(got[(60000.0, "Q")]["player_cast"])
+            self.assertEqual(got[(60000.0, "Q")]["undone_deaths"], [[50000.0, "revived"]])
+        # NULL/cmd stabilises only KAY/O.
+        self.assertEqual(player_revive_times([{**v, "victim": "Jett"}], "Jett"), [])
 
     def test_a_stored_line_pass_does_not_survive_a_run_without_the_line(self):
         # A full stored X row an earlier run passed on Phoenix's line at 43 s,
@@ -295,11 +332,11 @@ class GateDeathTests(unittest.TestCase):
         # Clove's own entry counts for a Clove player even with the victim unread.
         self.assertEqual(player_revive_times(rows, "Clove"), [4.0, 6.0])
         self.assertEqual(player_revive_times(rows, None), [])
-        # A KAY/O stabilised from NULL/cmd, or a revive with its icon unread,
-        # is no revive that returns the kit.
+        # A KAY/O stabilised from NULL/cmd returns his kit; a revive with its
+        # icon unread does not.
         kayo = [v(7.0, side="ally", victim="KAY/O", killer="Sage", weapon="NULL/cmd"),
                 v(8.0, side="ally", victim="KAY/O", killer="Sage", weapon=None)]
-        self.assertEqual(player_revive_times(kayo, "KAY/O"), [])
+        self.assertEqual(player_revive_times(kayo, "KAY/O"), [7.0])
 
     def test_clove_without_a_revive_entry_is_dead(self):
         got = self._gate([_drop(50500, "X")], [50000.0], agent="Clove")

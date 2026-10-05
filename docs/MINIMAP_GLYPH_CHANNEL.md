@@ -1048,8 +1048,20 @@ draft:
   [domain:minimap/spectator-view-matches-self]: the player is unsure, and
   the views gate rests on it.
 - Births per cast per ability, for the Riot bound.
-- Two rotation answers (Cypher:C, Skye:X), and the two-flag rule itself:
-  one out-of-sample answer (Killjoy:Q) supports it.
+- One rotation answer (Cypher:C, Trapwire), and the two-flag rule itself:
+  one out-of-sample answer (Killjoy:Q) supports it. On 2026-10-05 the
+  player answered two rotation questions in chat, both as beliefs:
+  Seekers turn [domain:abilities/skye-seekers-minimap-glyph-turns-belief]
+  and Cyber Cage turns
+  [domain:abilities/cypher-cyber-cage-minimap-glyph-turns-belief]. They
+  are appended to `answers.jsonl` (rows `rotation:Skye:X`, L472, and
+  `rotation:Cypher:Q`, L473) and named in `glyph_tables.ANSWER_FACTS`;
+  `glyph-rotation-policy-0.1.1` and the bank the ability pass reads predate
+  them, and the next table version marks both `player_answer`. Skye:X then
+  stores a surprise: the two-flag rule reads it upright. The chat question
+  named Cyber Cage (Cypher:Q), so the Trapwire row (Cypher:C) stays
+  `unsure_pending_player`. `glyph_tables bank` refuses until the tables are
+  rebuilt, since the answers file moved.
 - Which game component draws a placed icon where an ability's components
   disagree (Deadlock:Q, Omen:E): game-data work; the player has answered
   what the icons do.

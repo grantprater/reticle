@@ -223,9 +223,18 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
       [domain:killfeed/revive-entries]: a teammate Sage's Resurrection of the
       player, whatever the player's agent, or Clove's Not Dead Yet, which
       needs Clove's death [domain:abilities/clove-c-and-x-need-a-target] and
-      whose entry is the revive itself. A KAY/O stabilised from NULL/cmd's
-      downed state is no revive here: how his tray draws while downed is
-      no recorded fact, and the mechanics sheet asks it. A death followed by a revive of the
+      whose entry is the revive itself. A KAY/O player downed in NULL/cmd
+      and stabilised by a teammate is revived too: the down is his
+      killfeed death, the stabilisation a NULL/cmd revive entry
+      [domain:killfeed/kayo-downed-entry], and he gets his kit back as it
+      stood before the down, with nothing refilled
+      [domain:abilities/kayo-null-cmd-stabilise-restores-kit]. His tray
+      while downed is the player's belief, empty or overlaid
+      [domain:abilities/kayo-null-cmd-downed-tray-belief], so the downed
+      span is a dead span like any other. Before `player-cast-0.14.0` no
+      fact said what stabilising returned, and the down ended his kit; the
+      stored corpus held no NULL/cmd revive on 2026-10-05, so the change
+      moved no verdict. A death followed by a revive of the
       player (`revives_ms`, `adjudication.death.player_revive_times`) before
       the player's next death in the round does not end the kit (`revived`,
       or `not_dead_yet` for Clove). Clove casts Not Dead Yet while dead, so a
@@ -315,7 +324,7 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     in this order: `menu_open`, `no_rounds`, `no_round`, `after_player_death`,
     `after_kit_change`, `kit_not_player` or `kit_owner_unresolved`,
     `phase:<name>`, `forced` or `cooccur_among_casts`,
-    `partial_charge`, `pips_lit`, `equip_release`.
+    `partial_charge`, `pips_lit`, `equip_release`, `pool_rest`.
 
     *Full* is read from the drop's own `from`: the slot's teal count on the
     last clean sample before the drop over the slot's p90 clean count in the
@@ -506,22 +515,37 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     [metric:tray/own-cast-gate@riot-21#gate_held_covered=300] of
     [metric:tray/own-cast-gate@riot-21#held_riot=310], beyond from
     [metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_held_beyond=6] to
-    [metric:tray/own-cast-gate@riot-21#gate_held_beyond=8]
+    [metric:tray/own-cast-gate@riot-21~2026-10-05T06:25:44#gate_held_beyond=8] at
+    `player-cast-0.13.0`, and `pool_rest` (`0.14.0`, below) brought it back to
+    [metric:tray/own-cast-gate@riot-21#gate_held_beyond=6]
     (docs/ABILITY_STATE_MODEL.md, "The cast gate against Riot's counts").
 
-    *A gold drop of a pool is marked, not judged.* A slot a resource-bar
-    fact names for the player's agent (`pool_slots`,
+    *A gold drop of Regrowth spends a pool already counted.* A slot a
+    resource-bar fact names for the player's agent (`pool_slots`,
     `adjudication.ability_state.pool_facts`) draws a pool, not charges:
-    Skye's Regrowth in C [domain:abilities/skye-regrowth-resource-bar]. Why
-    Regrowth turns gold is the player's to answer
-    [domain:hud/ability-tray-restocked-charge-gold], and what a gold Regrowth
-    bar going empty means is a question on the mechanics sheet. So a drop
-    read from gold halves alone (a row with the gold `witness`,
-    `tray.drops`) in such a slot keeps its verdict and carries
-    `pool_gold_drop`, for the answer to judge. From `player-cast-0.11.0` to
-    `0.12.0` the gate refused it as `resource_pool`, a rule reasoned from
-    the gold of Recon Bolt and Guiding Light and chosen on two held-half
-    drops; `player-cast-0.13.0` withdrew it.
+    Skye's Regrowth in C [domain:abilities/skye-regrowth-resource-bar]. A
+    drop read from gold halves alone (a row with the gold `witness`,
+    `tray.drops`) in such a slot carries `pool_gold_drop`. One purchase of
+    Regrowth buys a fixed total of healing
+    [domain:abilities/skye-regrowth-pool-per-purchase], and a gold Regrowth
+    bar is a pool already partly spent, so its going empty spends the rest
+    of a pool opened earlier, not a new purchase
+    [domain:abilities/skye-regrowth-gold-bar-partly-spent]. The gate counts
+    the pool at its opening, the teal drop; a gold-only drop of the slot
+    POOL_REST_SLOTS names for the agent is refused as `pool_rest`, tested
+    last, so a drop another test refuses keeps that refusal. The rule rests
+    on the player's answer of 2026-10-05, not on the drops it removes: from
+    `player-cast-0.11.0` to `0.12.0` the gate refused the same drops as
+    `resource_pool`, a rule reasoned from the gold of Recon Bolt and Guiding
+    Light and chosen on two held-half drops, and `player-cast-0.13.0`
+    withdrew it until the player answered. On the 21 Riot-paired matches it
+    refuses two drops, both held-half and both Regrowth casts over Riot's
+    count (`b7d24102a6f6` C 375.1 s and `e37fdeca944f` C 1714.0 s); covered
+    stays at [metric:tray/own-cast-gate@riot-21#gate_dev_covered=259] and
+    [metric:tray/own-cast-gate@riot-21#gate_held_covered=300], so no
+    Regrowth cast Riot counts is lost. No other pool's gold drop is
+    refused: each ability's tray rule is its own
+    [domain:abilities/ability-rules-are-unique].
 
     *A line overturns a death or a dark tray.* The player hears their own
     ultimate's line at the cast [domain:abilities/caster-hears-own-ult-line],
@@ -609,12 +633,19 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     for r in rows:
         if r["slot"] in pool_slots and "witness" in r:
             r["pool_gold_drop"] = True
+            if r["reason"] is None and POOL_REST_SLOTS.get(agent) == r["slot"]:
+                r["reason"] = "pool_rest"
     _admit_lined_x(rows, own_lines_ms, agent)
     for r in rows:
         r["player_cast"] = r["reason"] is None
     return rows
 
 
+#: The pool slot whose gold-only drop spends the rest of a pool already
+#: opened, by agent (`player_tray_casts`, `pool_rest`): Skye's Regrowth
+#: [domain:abilities/skye-regrowth-gold-bar-partly-spent]. No other pool's
+#: gold is a recorded fact [domain:abilities/ability-rules-are-unique].
+POOL_REST_SLOTS = {"Skye": "C"}
 #: The restock numeral's verdicts (`tray.gold_witness`'s `countdown`) that
 #: witness a spend of the slot it is drawn over.
 NUMERAL_SPENDS = ("restarted", "appeared")
