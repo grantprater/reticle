@@ -49,6 +49,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | External truth | `prototypes/riot_ground_truth.py`, `replay_truth.py`, `replay_abilities.py`, [REPLAY_KEEPING.md](REPLAY_KEEPING.md) |
 | Player-run Riot fetch | [MATCH_FETCH_KIT.md](MATCH_FETCH_KIT.md) |
 | Ladder match sample (fit only) | `prototypes/ladder_fetch.py`, [LADDER_SAMPLE.md](LADDER_SAMPLE.md) |
+| The player's profile against lobby peers (private output) | `prototypes/player_profile.py`, [PLAYER_PROFILE.md](PLAYER_PROFILE.md) |
 | Experiments | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
 | The scene model (render-and-compare) | [SCENE_MODEL.md](SCENE_MODEL.md) |
 | Events consumers read | [ENTITY_EVENTS.md](ENTITY_EVENTS.md) |
