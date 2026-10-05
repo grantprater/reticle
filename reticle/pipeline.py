@@ -48,9 +48,11 @@ threads that toggle races, so a staged pass with `workers >= 1` sets the
 count once for the pass -- one thread unless the caller names another --
 restores it afterwards, and refuses a reader that declares a different count.
 `workers=0` feeds inline through `passes._feed`, toggles included, in the
-serial path's order: list order on the cache, as `run_cached` feeds, and the
-order of the frozenset `sample_multi` yields on video, as `passes.run` feeds.
-It therefore reproduces the serial path exactly on either source.
+serial path's order: the readers' list order, as `run_cached` and
+`passes.run` feed. It therefore reproduces the serial path exactly on either
+source. With `workers >= 1` each reader runs on its own thread, so a reader
+that reads another's row for the same sample (`minimap_glyph.LiveIcons`)
+cannot ride it; `scan` refuses that pairing.
 
 **Workers.** `workers` caps how many feeds run at once, through a semaphore;
 every reader or shard still gets its own thread and FIFO, so `workers=1`
@@ -303,13 +305,12 @@ def _source_items(ctx, readers: list, source, usage=None):
     if source is None:
         from .decode import sample_multi
         req = {r.name: (r.hz, r.spans) for r in readers}
-        by_name = {r.name: r for r in readers}
         backend = {}
         if usage is not None:
             usage.decode_backend = backend      # filled when the capture opens
         items = sample_multi(str(ctx.media), ctx.fps, req, info=backend)
-        # `passes.run`'s order: the frozenset's, not the list's.
-        return items, lambda item: (item[1], [by_name[name] for name in item[0]])
+        # `passes.run`'s order: the readers' list, as on the cache.
+        return items, lambda item: (item[1], [r for r in readers if r.name in item[0]])
     rois = sorted({roi for r in readers for roi in _cache_rois(r)})
     for r in readers:
         r.frames_from = source.record["version"]

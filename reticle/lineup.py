@@ -223,6 +223,29 @@ def portrait_candidates(session: str, store) -> tuple[dict | None, str | None]:
     return out, f"lineup {view_stamp(session, store)}"
 
 
+def glyph_candidates(session: str, store) -> tuple[dict | None, str | None]:
+    """The agents whose kits the minimap glyph reader (`minimap_glyph`)
+    scores per side, each with why it is in the set, and the lineup stamp:
+    ({side: {"agents": {agent: "named" | "rival"}, "blind": n}},
+    "lineup <view_stamp>"), or (None, None) when no lineup is stored.
+
+    The same admission as `portrait_candidates` (`identity.side_candidates`):
+    named slots, and each refused slot's best guess as a rival. `blind`
+    counts refused slots with no guess, whose kit the set cannot hold. A
+    CANDIDATE SET, never a verdict."""
+    from .adjudication.identity import side_candidates
+    lineup = load_lineup(session, store)
+    if not lineup:
+        return None, None
+    out = {}
+    for side, rows in (lineup.get("sides") or {}).items():
+        split = side_candidates(rows)
+        agents = {a: "rival" for a in split["rivals"] if a}
+        agents.update({a: "named" for a in split["named"] if a})
+        out[side] = {"agents": dict(sorted(agents.items())), "blind": len(split["blind"])}
+    return out, f"lineup {view_stamp(session, store)}"
+
+
 def _version_key(stamp: str | None) -> tuple[int, ...] | None:
     """`scoreboard-0.13.0` as (0, 13, 0); None for anything else."""
     tail = (stamp or "").rpartition("-")[2]

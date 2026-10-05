@@ -79,7 +79,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle verify --tier fast   # default sanity check
 .\.venv\Scripts\python.exe -m reticle status
 .\.venv\Scripts\python.exe -m reticle plan [SESSION]      # stale streams, least work
-.\.venv\Scripts\python.exe -m reticle trial SESSION --reader killfeed|hud|scoreboard [--from video]
+.\.venv\Scripts\python.exe -m reticle trial SESSION --reader killfeed|hud|scoreboard|ally_icon|ability_glyph [--from video]
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only hud   # killfeed/HUD rewrite from the crop cache (--from video decodes)
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only scoreboard --cache-roi scoreboard   # decodes; crops inside the strip gate

@@ -77,6 +77,10 @@ RADIUS_STEP = 1.0
 VERIFY_HALF_BASE = _b(2.0)
 #: At most this many candidates are stored per sample, best first.
 MAX_CANDIDATES = 40
+#: Two discs whose centres lie closer than this share of their radii's sum
+#: are one disc: the full search suppresses the weaker, and a verified disc
+#: binds to the candidate it overlaps (`verified_continuations`).
+OVERLAP = 0.8
 
 
 class IconTerms:
@@ -134,7 +138,7 @@ def propose_icons(img: np.ndarray, terms: IconTerms, min_score: float = ICON_MIN
     keep: list[dict] = []
     for i in order:
         x, y, r = int(xs[i]), int(ys[i]), float(arg[ys[i], xs[i]])
-        if any(np.hypot(x - c["cx"], y - c["cy"]) < 0.8 * (r + c["r"]) for c in keep):
+        if any(np.hypot(x - c["cx"], y - c["cy"]) < OVERLAP * (r + c["r"]) for c in keep):
             continue
         keep.append({"cx": x, "cy": y, "r": r, "score": float(best[y, x])})
     h, w = dark.shape
@@ -190,6 +194,29 @@ def verify_icons(img: np.ndarray, terms: IconTerms, tracks: list[dict], half: in
         out.append({"cx": x, "cy": y, "r": r, "score": sc if sc >= min_score else None})
     return out
 
+
+def verified_continuations(verify: dict | None, candidates: list[dict] | None) -> dict[int, int]:
+    """{this sample's candidate index: the previous sample's candidate index
+    it continues}, from one stored `ability_icon` frame row: each verify row
+    whose score holds (`verify_icons`) binds to the candidate of the same
+    sample it overlaps (OVERLAP, the full search's own suppression rule),
+    one to one, nearest first (`scipy.optimize.linear_sum_assignment`). A
+    lost verify (`score` None) continues nothing; a candidate no verify binds
+    is new to this sample. Pure over the stored row, so a reader of the
+    stream asks this rather than linking discs by a reach of its own."""
+    rows = [v for v in ((verify or {}).get("rows") or ()) if v.get("score") is not None]
+    cands = candidates or []
+    if not rows or not cands:
+        return {}
+    from scipy.optimize import linear_sum_assignment
+    v = np.array([[r["cx"], r["cy"], r["r"]] for r in rows], float)
+    c = np.array([[x["cx"], x["cy"], x["r"]] for x in cands], float)
+    d = np.hypot(v[:, None, 0] - c[None, :, 0], v[:, None, 1] - c[None, :, 1])
+    ok = d < OVERLAP * (v[:, None, 2] + c[None, :, 2])
+    if not ok.any():
+        return {}
+    i, j = linear_sum_assignment(np.where(ok, d, 1e9))
+    return {int(b): int(rows[a]["of"]) for a, b in zip(i, j) if ok[a, b]}
 
 
 class AbilityIconReader:

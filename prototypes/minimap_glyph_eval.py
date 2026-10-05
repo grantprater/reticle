@@ -965,9 +965,7 @@ def patches(Yw: np.ndarray, scale: float, sh: int | None = None):
     return v[:, mask > 0].astype(np.float32)
 
 
-def zrows(A: np.ndarray) -> np.ndarray:
-    A = A - A.mean(1, keepdims=True)
-    return A / (np.linalg.norm(A, axis=1, keepdims=True) + 1e-9)
+from reticle.minimap_glyph import zrows  # noqa: E402,F401  (promoted with the stage 2 reader; same rows)
 
 
 def pearson(P, T, ctx=None):
@@ -1332,8 +1330,8 @@ def cmd_separate(args) -> None:
 FOLLOW_VERSION = "minimap-glyph-follow-0.2.0"
 FOLLOW_MS = 3000.0     # how far after the label the object is followed
 N_CLEAN = 8            # the decision stops after this many unoccluded frames
-OCC_R = 17.0           # a portrait centre within this (px x scale) touches the r = 8.5 scoring disc (portrait r ~8.5)
-SAME_R = 2.5           # an ally detection this close is the followed icon itself (the ally reader fits moving discs)
+# OCC_R, SAME_R and portrait_cover live in the glyph reader's owner (one rule for stage 1 and the reader).
+from reticle.minimap_glyph import OCC_R, SAME_R, portrait_cover  # noqa: E402,F401
 REACH = (4.0, 2.0, 24.0)  # a disc may move this far (px x scale) from the last fix: base + per frame since, cap
 ICON_SCORE = 0.4       # the best kit score (label-free) a proposed disc needs to count as the followed icon
 MAP_CORR = 0.7         # a proposed disc whose luma correlates this well with the baked static is map, not icon
@@ -1357,22 +1355,6 @@ def vision_rows(sid: str, times) -> dict:
         out[round(float(r["t_ms"]), 3)] = (r.get("widget"), [(i["role"], float(i["x"]), float(i["y"]))
                                                              for i in (r.get("icons") or [])])
     return out
-
-
-def portrait_cover(p, icons, scale) -> str | None:
-    """Why a stored portrait covers the icon at p, or None. The self icon always counts; an ally detection counts
-    in the ring SAME_R..OCC_R, or when two sit on the icon (one of them is the icon itself)."""
-    same = 0
-    for role, x, y in icons:
-        d = float(np.hypot(x - p[0], y - p[1]))
-        if d > OCC_R * scale:
-            continue
-        if role == "self":
-            return "self_portrait"
-        if d > SAME_R * scale:
-            return "ally_portrait"
-        same += 1
-    return "ally_stack" if same > 1 else None
 
 
 def window_patches(Y: np.ndarray, p, scale: float, sh: int):
