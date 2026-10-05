@@ -60,7 +60,10 @@ nothing hidden.
   never exceed the roster's shortfall (`round_lifetimes.ally_capacity` over
   `roster_window`, less the frame's ring fits); the guard counts the crowd
   frames where mass alone would exceed it (an ally ability drawn in team
-  colour inflates a blob). Hidden members with no entry track stay unnamed,
+  colour inflates a blob). An unread capacity (0.3.0) is unknown: the
+  round's last read carries forward, `rests_on` its time, licensing entries
+  but never evicting; only a frame whose capacity was read evicts
+  (`count_restored`). Hidden members with no entry track stay unnamed,
   reason `no_entry_track`, unless the lineup (the four most-observed names
   of the stored entity verdicts) less the dead, the visible and the entered
   leaves exactly as many names as unnamed members in one crowd: then
@@ -100,91 +103,95 @@ hidden members' true positions in the outline; identity at emergence; cost.
 `riot`: at Riot kill instants on the fixed handful, the stacked living
 allies the ring fits miss (crowd-region-0.2.0's count), against tracked
 crowds built with the stored stack-fit members removed, their member names,
-and the stored stack fit. `price`: stack_fit's stored time against the blob
-step's cost, on the session's stored ally-icon usage.
+and the stored stack fit, with a shifted-position chance baseline (the
+ally moved `CHANCE_R` radii four ways). Split recall is quoted only as its
+excess over the same events shifted +-3 s and +-6 s (`split_chance`); cap
+evictions are scored against the replay (`score_evictions`). `price`:
+stack_fit's stored time against the blob step's cost, on the session's
+stored ally-icon usage. Both `replay` and `riot` persist the crowds in
+event form (`write_rows`, `crowds_<sid>.jsonl` in the analysis output).
+bdfdcf009dba is both the calibration session and one of the three Riot
+sessions, so its Riot scores are not independent of the cuts.
 
-Outcome (2026-10-04)
---------------------
+Outcome (2026-10-04, crowd-blob-0.3.0)
+--------------------------------------
 Inputs: the stored streams copied by crowd-region-0.2.0 (`--events-from`).
 On 9acf02f98283 `round_entity` rests on ally-icon-0.9.3 while `ally_icon` is
 0.12.0: positions, entities and names come from `round_entity`; the
 `ally_icon` frame rows serve only as the clock. The handful's streams are
 consistent (ally-icon-0.11.0).
 
-*Split detection* (9acf02f98283, the only capture with a replay; 167 true
-separations). As fixed in advance (0.1.0), held two frames, `cc` detected
-[metric:crowd_blob/replay_prereg@9acf02f98283#cc_detected_share=0.4012],
-`erode` [metric:crowd_blob/replay_prereg@9acf02f98283#erode_detected_share=0.4371]
-and `elong` [metric:crowd_blob/replay_prereg@9acf02f98283#elong_detected_share=0.4551]
-within 0.5 s, at median latencies near zero, with
-[metric:crowd_blob/replay_prereg@9acf02f98283#cc_false_per_crowd_minute=26.671]
-to [metric:crowd_blob/replay_prereg@9acf02f98283#elong_false_per_crowd_minute=29.635]
-unmatched splits per crowd-minute. Most unmatched `cc` splits
-were the self fit flickering at a blob's edge; 0.2.0 holds that parting two
-frames (a development change on the scored session): `cc`
-[metric:crowd_blob/replay@9acf02f98283#cc_detected_share=0.3653] at
-[metric:crowd_blob/replay@9acf02f98283#cc_false_per_crowd_minute=21.436] per
-crowd-minute, `erode`
-[metric:crowd_blob/replay@9acf02f98283#erode_detected_share=0.4311] at
-[metric:crowd_blob/replay@9acf02f98283#erode_false_per_crowd_minute=24.399],
-`elong` [metric:crowd_blob/replay@9acf02f98283#elong_detected_share=0.4431]
-at [metric:crowd_blob/replay@9acf02f98283#elong_false_per_crowd_minute=24.399].
-At one frame `elong` detects
-[metric:crowd_blob/replay@9acf02f98283#elong_at1_detected_share=0.6946]
-(median latency [metric:crowd_blob/replay@9acf02f98283#elong_at1_latency_median_s=0.0] s;
-[metric:crowd_blob/replay@9acf02f98283#elong_at1_detected_share_in_crowd=0.7527]
-of the [metric:crowd_blob/replay@9acf02f98283#in_crowd_separations=93]
-separations whose pair stood in a tracked crowd) at
-[metric:crowd_blob/replay@9acf02f98283#elong_at1_false_per_crowd_minute=45.538]
-false per crowd-minute, and `cc`
-[metric:crowd_blob/replay@9acf02f98283#cc_at1_detected_share=0.5329]. The
-remaining unmatched splits are icons adjacent but never within one diameter
-(the blur joins them), separations shorter than the truth's five-frame hold,
-and fragments of one icon.
+*Riot kill instants* (the fixed handful; bdfdcf009dba also calibrated the
+cuts). Of [metric:crowd_blob/riot_pool@fixed3#ring_missed=87] stacked
+living allies the ring fits miss, the pre-registered measure (0.1.0's P1,
+strictly inside a crowd's outline, predicted 40) holds
+[metric:crowd_blob/riot_pool@fixed3#crowd_contains=10]; those crowds list
+the ally's name for [metric:crowd_blob/riot_pool@fixed3#crowd_name_listed=6];
+[metric:crowd_blob/riot_pool@fixed3#neither=67] lie in neither a crowd nor
+stack_fit (crowd-region-0.2.0: [metric:crowd_region/riot_pool@fixed3#neither=47]).
+P1 failed. Post hoc, not pre-registered: within one icon radius of the
+outline the crowds hold [metric:crowd_blob/riot_pool@fixed3#crowd_r_contains=54]
+and name [metric:crowd_blob/riot_pool@fixed3#crowd_r_name_listed=29]
+(neither: [metric:crowd_blob/riot_pool@fixed3#crowd_r_neither=31]); the
+same allies moved three radii four ways score
+[metric:crowd_blob/riot_pool_chance@fixed3#chance_r_contains=20.25] by chance
+(strictly inside: [metric:crowd_blob/riot_pool_chance@fixed3#chance_contains=6.25]).
 
-*Containment.* A hidden member's true position lies inside the blob outline
-on [metric:crowd_blob/replay@9acf02f98283#containment_entered=0.3382] of
-member-frames and within one icon radius of it on
-[metric:crowd_blob/replay@9acf02f98283#containment_entered_within_r=0.8591];
-a truly hidden stacked teammate (no ring fit within the gate) lies inside a
-crowd's outline on
-[metric:crowd_blob/replay@9acf02f98283#containment_stacked_hidden=0.1667]
-and within one radius on
-[metric:crowd_blob/replay@9acf02f98283#containment_stacked_hidden_within_r=0.571].
-Inspected crops show why the strict outline misses: most such teammates are
-visible icons the ring fit missed, drawn beside the crowd in their own blob.
+*Split detection* (9acf02f98283, the only capture with a replay;
+[metric:crowd_blob/replay@9acf02f98283#true_separations=167] true
+separations). Shifting every split event +-3 s keeps its place and loses
+its timing, yet still "detects" a share; only the excess is detection.
+`elong` at one frame detects
+[metric:crowd_blob/replay@9acf02f98283#elong_at1_detected_share=0.7485],
+[metric:crowd_blob/replay@9acf02f98283#elong_at1_shift3s_share=0.3712] when
+shifted 3 s, an excess of
+[metric:crowd_blob/replay@9acf02f98283#elong_at1_excess_over_shift3s=0.3773]
+(over 6 s [metric:crowd_blob/replay@9acf02f98283#elong_at1_excess_over_shift6s=0.5689]),
+the largest, at
+[metric:crowd_blob/replay@9acf02f98283#elong_at1_false_per_crowd_minute=44.42]
+unmatched splits per crowd-minute. Held two frames: `cc`
+[metric:crowd_blob/replay@9acf02f98283#cc_excess_over_shift3s=0.1677],
+`erode` [metric:crowd_blob/replay@9acf02f98283#erode_excess_over_shift3s=0.2036],
+`elong` [metric:crowd_blob/replay@9acf02f98283#elong_excess_over_shift3s=0.2454]
+over the 3 s shift. The 6 s shift scores lower than the 3 s shift
+(`cc` [metric:crowd_blob/replay@9acf02f98283#cc_shift6s_share=0.0808]
+against [metric:crowd_blob/replay@9acf02f98283#cc_shift3s_share=0.2036]):
+separations cluster in time, so the 3 s shift is the stricter baseline.
 
-*Riot kill instants* (the fixed handful, held out). Of
-[metric:crowd_blob/riot_pool@fixed3#ring_missed=87] stacked living allies the
-ring fits miss, a crowd's outline holds
-[metric:crowd_blob/riot_pool@fixed3#crowd_contains=10] (predicted 40) and
-lies within one radius of
-[metric:crowd_blob/riot_pool@fixed3#crowd_r_contains=51]; those crowds list
-the ally's name for [metric:crowd_blob/riot_pool@fixed3#crowd_r_name_listed=26].
-Stored stack-fit members match
-[metric:crowd_blob/riot_pool@fixed3#stack_matched=16], of which only
-[metric:crowd_blob/riot_pool@fixed3#crowd_r_stack_only=2] lie outside every
-crowd; [metric:crowd_blob/riot_pool@fixed3#crowd_r_neither=34] lie in
-neither (crowd-region-0.2.0:
-[metric:crowd_region/riot_pool@fixed3#neither=47]). Mass alone would exceed
-the roster's shortfall on
-[metric:crowd_blob/replay@9acf02f98283#area_exceeds_shortfall_share=0.0837]
-of 9acf02f98283's crowd frames. Identity at emergence:
-[metric:crowd_blob/replay@9acf02f98283#emergence_right=43] right,
-[metric:crowd_blob/replay@9acf02f98283#emergence_wrong=16] wrong, and the
-crowd's claim changed no stored name, as in crowd-region-0.2.0.
+*Capacity.* The roster capacity was unread on
+[metric:crowd_blob/replay@9acf02f98283#capacity_unread_share=0.3196] of
+[metric:crowd_blob/replay@9acf02f98283#crowd_frames=8368] crowd frames; the
+round's last read carried
+[metric:crowd_blob/replay@9acf02f98283#capacity_carried_frames=2634] of them
+and [metric:crowd_blob/replay@9acf02f98283#capacity_unknown_frames=40] stayed
+unknown. Carrying it licensed more entries, and the read frames then
+evicted more: [metric:crowd_blob/replay@9acf02f98283#evictions=237] cap
+evictions, of which the replay shows
+[metric:crowd_blob/replay@9acf02f98283#evictions_wrong_still_in=181] wrong
+(the member within one radius of the outline) and
+[metric:crowd_blob/replay@9acf02f98283#evictions_right=48] right (outside or
+dead). The cap, as the shortfall less the frame's ring fits, evicts wrongly;
+it should flag the excess as a surprise, not evict.
 
-*Cost.* The blob step, association, membership and split tests cost
-[metric:crowd_blob/replay@9acf02f98283#cost_us_per_frame=1988.3] us a frame
-single-threaded on 9acf02f98283's cached frames (the reader's teal key, a small
-part of it, is already paid). On bdfdcf009dba's stored usage stack_fit is
-[metric:crowd_blob/price@bdfdcf009dba#stack_fit_share=0.5813] of the
-ally-icon reader's feed; replacing it with crowds saves
-[metric:crowd_blob/price@bdfdcf009dba#saved_share=0.554] of the reader
-([metric:crowd_blob/price@bdfdcf009dba#saved_ms_per_frame=42.48] ms a frame),
-and [metric:crowd_blob/price@bdfdcf009dba#saved_share_vectorised=0.4359]
-once stack_fit is about 36% cheaper (branch ally-vectorise-20261004, not
-measured here).
+*Containment.* A hidden member's true position lies inside the outline on
+[metric:crowd_blob/replay@9acf02f98283#containment_entered=0.331] of
+member-frames and within one radius on
+[metric:crowd_blob/replay@9acf02f98283#containment_entered_within_r=0.8505].
+
+*Cost.* Blobs, association, membership, split tests, outlines
+([metric:crowd_blob/replay@9acf02f98283#cost_outlines_us=29.4] us) and
+emergence ([metric:crowd_blob/replay@9acf02f98283#cost_emergence_us=19.4] us)
+cost [metric:crowd_blob/replay@9acf02f98283#cost_us_per_frame=1533.3] us a
+frame single-threaded on 9acf02f98283's cached frames (0.2.0 measured 1988.3
+under other load). On bdfdcf009dba's stored usage stack_fit is
+[metric:crowd_blob/price@bdfdcf009dba#stack_fit_share=0.5813] of the reader;
+replacing it with crowds at 1533.3 us saves
+[metric:crowd_blob/price@bdfdcf009dba#saved_share=0.5613]
+([metric:crowd_blob/price@bdfdcf009dba#saved_ms_per_frame=43.04] ms a frame;
+at 1988.3 us the same arithmetic gives 0.5554 and 42.59 ms), and
+[metric:crowd_blob/price@bdfdcf009dba#saved_share_vectorised=0.3992] with
+master's vectorised stack_fit (29.9 / 55.8 of its old time, as ally-vectorise
+measured). The prior-first reader (`ally_prior.py`) supersedes this design.
 """
 from __future__ import annotations
 

@@ -87,6 +87,62 @@ tracks with no Riot ally within one radius or the gate; the share of
 frames that read nothing beyond the cheap check. The stored ring fits alone
 are the baseline. `replay`: the same over every frame of a capture with a
 replay, and the surprise log.
+
+Outcome (2026-10-04)
+--------------------
+Inputs: stored streams copied to the scratchpad (`--events-from`); the
+held-out sessions store ally-icon-0.9.3 for both `ally_icon` and
+`round_entity` (no stack fit stored), the handful ally-icon-0.11.0 for
+both; on 9acf02f98283 `round_entity` rests on ally-icon-0.9.3 while
+`ally_icon` is 0.12.0 (positions and names from `round_entity`, the clock
+and barrier rows from `ally_icon`). Pre-registered at 41ecda3 (0.1.0);
+0.2.0 is a development revision on the dev handful, and the held-out
+sessions were scored once, with 0.2.0.
+
+*Held out* (six Riot matches chosen by a fixed hash before measuring): of
+[metric:ally_prior/riot_pool@heldout6#living_allies=2156] living teammates
+at kill instants the prior locates
+[metric:ally_prior/riot_pool@heldout6#located_share=0.8678] (carried
+[metric:ally_prior/riot_pool@heldout6#carried_share=0.7236], in a crowd
+within one radius [metric:ally_prior/riot_pool@heldout6#crowd_within_r_share=0.1442],
+strictly inside [metric:ally_prior/riot_pool@heldout6#crowd_strict_share=0.0552])
+against the stored ring fits'
+[metric:ally_prior/riot_pool@heldout6#ring_located_share=0.7968]; it loses
+[metric:ally_prior/riot_pool@heldout6#lost_share=0.1322]. Carried names are
+right on [metric:ally_prior/riot_pool@heldout6#carried_name_right_share=0.8865];
+[metric:ally_prior/riot_pool@heldout6#phantom_gate_share=0.0644] of carried
+tracks have no teammate within 8 m. The cue alone reads
+[metric:ally_prior/riot_pool@heldout6#cheap_frame_share=0.4838] of frames;
+[metric:ally_prior/riot_pool@heldout6#surprises_unexplained=150] of
+[metric:ally_prior/riot_pool@heldout6#surprises=916] spawns stay unexplained.
+Priced on each session's stored usage the reader costs at most
+[metric:ally_prior/riot_pool@heldout6#priced_share_max=0.3852] of the full
+reader (0.9.3 usage has no stack fit, so the full reader there is cheaper).
+
+*Development.* Dev Riot pool: located
+[metric:ally_prior/riot_pool@dev3#located_share=0.8448] against ring fits
+[metric:ally_prior/riot_pool@dev3#ring_located_share=0.776] and ring plus
+stack fits [metric:ally_prior/riot_pool@dev3#ring_stack_located_share=0.8284].
+9acf02f98283 replay, every frame: located
+[metric:ally_prior/replay@9acf02f98283#located_share=0.8523] against ring
+fits [metric:ally_prior/replay@9acf02f98283#ring_located_share=0.8066],
+carried position error median
+[metric:ally_prior/replay@9acf02f98283#position_error_median_m=0.92] m,
+[metric:ally_prior/replay@9acf02f98283#surprises_unexplained=18] of
+[metric:ally_prior/replay@9acf02f98283#surprises=155] spawns unexplained.
+Continuity is a poor identity witness at emergence: on 9acf02f98283 the
+member's entry place and heading alone named
+[metric:ally_prior/replay_emergence@9acf02f98283#emergence_continuity_only_right=120]
+emergers right and
+[metric:ally_prior/replay_emergence@9acf02f98283#emergence_continuity_only_wrong=132]
+wrong, and the arbiter with it
+([metric:ally_prior/replay_emergence@9acf02f98283#emergence_arbiter_right=194] right,
+[metric:ally_prior/replay_emergence@9acf02f98283#emergence_arbiter_wrong=57] wrong)
+did worse than the stored verdict alone
+([metric:ally_prior/replay_emergence@9acf02f98283#emergence_stored_verdict_only_right=260] right,
+[metric:ally_prior/replay_emergence@9acf02f98283#emergence_stored_verdict_only_wrong=39] wrong);
+a wired reader should let
+continuity abstain unless the stored verdict is missing.
 """
 from __future__ import annotations
 
