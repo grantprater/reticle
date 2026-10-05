@@ -534,7 +534,7 @@ def bind_entities(S, slots: list[dict], player_slot, open_: np.ndarray, seg_star
     return {"X": X, "Y": Y, "obs": obs, "has": occ, "how": how, "counts": dict(c)}
 
 
-def build(sid: str) -> dict:
+def build_slots(sid: str) -> dict:
     """Slots and beliefs for one session from stored rows; timed."""
     import crowd_region as v1
     t_load = time.process_time()
@@ -672,7 +672,7 @@ def riot_context(sid: str) -> dict:
 def score_riot(sid: str, G: dict | None = None) -> dict:
     """Every living teammate at each Riot kill instant against its slot."""
     import riot_ground_truth as rg
-    G = G or build(sid)
+    G = G or build_slots(sid)
     if "refused" in G:
         return {"session": sid, "refused": G["refused"]}
     S, B = G["S"], G["B"]
@@ -774,7 +774,7 @@ def score_replay(sid: str, G: dict | None = None) -> dict:
     """Every living teammate on every drawn frame against its slot (replay truth)."""
     import replay_truth as rt
     import crowd_region as v1
-    G = G or build(sid)
+    G = G or build_slots(sid)
     if "refused" in G:
         return {"session": sid, "refused": G["refused"]}
     S = G["S"]
@@ -909,7 +909,7 @@ def main(argv=None) -> int:
                 results.append(r)
                 continue
             t0 = time.time()
-            G = build(sid)
+            G = build_slots(sid)
             r = score_riot(sid, G)
             if "refused" not in G:
                 r["storage"] = _store_record(sid, G)
@@ -925,14 +925,14 @@ def main(argv=None) -> int:
         _write(ANALYSIS / f"pool_{args.pool}.json", P)
         print(json.dumps(P, default=_default, indent=1)[:6000])
         if args.record:
-            record(P, args.pool)
+            record_pool(P, args.pool)
     else:
         p = ANALYSIS / f"replay_{args.session}.json"
         if p.is_file() and not args.force:
             r = json.loads(p.read_text(encoding="utf-8"))
         else:
             t0 = time.time()
-            G = build(args.session)
+            G = build_slots(args.session)
             r = score_replay(args.session, G)
             r["seconds"] = round(time.time() - t0, 1)
             _write(p, r)
@@ -947,7 +947,7 @@ def _deps() -> dict:
             "conflict_share": CONFLICT_SHARE}
 
 
-def _flat(score: dict) -> dict:
+def _flat_scores(score: dict) -> dict:
     f = {"n": score["n"], "calibration": score["calibration"],
          "calibration_tol1m": score.get("calibration_tol1m"),
          "has_slot_share": score["has_slot_share"], "fit_located_share": score["fit_located_share"]}
@@ -970,10 +970,10 @@ def _flat(score: dict) -> dict:
     return f
 
 
-def record(P: dict, name: str) -> None:
+def record_pool(P: dict, name: str) -> None:
     from reticle import metrics
-    flat = _flat(P["teammates"])
-    flat.update({f"all_{k}": v for k, v in _flat(P["all_living_allies"]).items()})
+    flat = _flat_scores(P["teammates"])
+    flat.update({f"all_{k}": v for k, v in _flat_scores(P["all_living_allies"]).items()})
     flat["cost_us_per_frame_max"] = P["cost"]["total_us_per_frame_max"]
     flat["record_bytes_per_frame"] = P["cost"]["record_bytes_per_frame"]
     metrics.record("entity_state", part="riot_pool", session=name, values=flat, deps=_deps(),
@@ -983,7 +983,7 @@ def record(P: dict, name: str) -> None:
 
 def record_replay(r: dict) -> None:
     from reticle import metrics
-    flat = _flat(r["scores"]["teammates"])
+    flat = _flat_scores(r["scores"]["teammates"])
     flat["cost_us_per_frame"] = r["cost"]["total_us_per_frame"]
     metrics.record("entity_state", part="replay", session=r["session"], values=flat,
                    deps=_deps(), context={})
