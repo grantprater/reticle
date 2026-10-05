@@ -8,8 +8,10 @@ threshold and nothing shown during play.
 
 ## Privacy
 
-The player's statistics are private. The run writes `profile.json` and
-`report.md` only to `<store>/analysis/player-profile-20261004/`. This file
+The player's statistics are private. The run writes `profile-v2.json` and
+`report-v2.md` only to `<store>/analysis/player-profile-20261004/`, beside
+the first run's `profile.json` and `report.md`, and refuses to overwrite an
+existing file. This file
 and the code carry no player numbers. Account ids, Riot IDs, match ids and
 pseudonyms stay in the store, and peers appear only pooled, never one by
 one.
@@ -61,7 +63,7 @@ forty metrics, about two intervals exclude zero by chance alone.
 | trade | `traded_share_3s`, `traded_share_7s` | the same at 3 s and 7 s |
 | trade | `untraded_deaths_per_round`, `trades_per_round` | per round |
 | spacing | `near_mate_m`, `near_mate_m_untraded` | nearest listed teammate at death (m) / deaths with one listed |
-| spacing | `isolated_death_share` | deaths with no listed teammate within `ISOLATED_CM` / the same denominator |
+| spacing | `isolated_death_share` | deaths with every listed teammate beyond `ISOLATED_CM` / deaths with at least one listed teammate |
 | clutch | `clutch_rate` | rounds in a 1vX / rounds |
 | clutch | `clutch_win`, `clutch_win_1v1`, `clutch_win_1v2plus` | won / attempted |
 | postplant | `plants_per_attack_round`, `defuses_per_defense_plant` | per round on that side |
@@ -78,7 +80,10 @@ Pooled utility compares agents unlike the player's, so it is not ranked; by
 agent, the peers are those who played the same agent.
 
 Groups: side (round level), map, agent, account, season, month, lobby rank
-band (the parser's `stratum`) and source, for the headline metrics.
+band (the parser's `stratum`) and source, for the headline metrics. Casts are
+match totals, so the side group, which splits a match, carries no cast
+metric: the first run booked each match's casts on whichever side row sorted
+first.
 
 ## Definitions and choices
 
@@ -93,11 +98,18 @@ band (the parser's `stratum`) and source, for the headline metrics.
 - Clutch: the first kill state before the round's decision where the
   player is their team's only living player and an enemy lives, from
   `winprob_reference.simulate` (living sets with revives).
-- Sides: Red attacks rounds 0 to 11 and the even overtime rounds. No owner
-  states the boundary by round index; the report checks the rule against
-  Riot's `winningTeamRole` and against every planter's team.
+- Sides: the sides swap at halftime [domain:rounds/halftime-side-swap],
+  whose owner is `reticle/rounds.py`. That owner finds the boundary on video
+  from the scoreline and clock and exposes no rule by round index, so the
+  module applies one itself: Red attacks rounds 0 to 11 and the even
+  overtime rounds. Round 12 is the first after halftime
+  [domain:rounds/pistol-round-bank]; overtime runs in two-round cycles
+  [domain:rounds/match-end], one round on each side. The report checks the
+  rule against Riot's `winningTeamRole` and against every planter's team.
+  Moving the index rule into `rounds.py` is open.
 - Buy bands by the team's mean loadout: eco below 2000, force from 2000,
-  full from 3900; pistol rounds are the first of each half. A choice.
+  full from 3900, a choice. Pistol rounds are rounds 0 and 12, the first
+  round and the first after halftime [domain:rounds/pistol-round-bank].
 
 ## Command
 

@@ -38,12 +38,22 @@ Choices, not domain facts
 - `TRADE_WINDOW_MS`: a death is traded when its killer dies to the victim's
   team within 5 s; no domain fact records a window. The report repeats the
   traded share at 3 s and 7 s.
-- Sides: Red attacks rounds 0-11 and even overtime rounds (24, 26, ...), Blue
-  the rest. No owner states the boundary by round index; the report checks
+- Sides: the sides swap at halftime [domain:rounds/halftime-side-swap], and
+  that fact names `reticle/rounds.py` the boundary's owner. `rounds.py` finds
+  rounds on video from the scoreline and clock and exposes no rule from a
+  record's round index to a half, so there is no owner to call here: this
+  module applies the index rule itself, Red attacks rounds 0-11 and even
+  overtime rounds (24, 26, ...), Blue the rest. Round 12 is the first after
+  halftime [domain:rounds/pistol-round-bank]; overtime is played in cycles of
+  two rounds [domain:rounds/match-end], one on each side. The report checks
   the rule against Riot's `winningTeamRole` on the captured records and
-  against every planter's team, and counts the disagreements.
+  against every planter's team, and counts the disagreements. Moving the
+  index rule into `rounds.py` is open.
 - Buy bands by the team's mean loadout: eco below 2000, force from 2000 to
-  3899, full from 3900; pistol rounds are the first of each half.
+  3899, full from 3900; pistol rounds are rounds 0 and 12, the first round
+  and the first after halftime [domain:rounds/pistol-round-bank].
+- Ability casts are match totals (Riot and HenrikDev count no casts per
+  round), so a group that splits a match, `side`, carries no cast metric.
 - `ISOLATED_CM` is `winprob_reference.ISOLATED_CM`.
 
 Privacy
@@ -85,14 +95,20 @@ import ladder_fetch as lf  # noqa: E402
 import riot_ground_truth as rgt  # noqa: E402
 import winprob_reference as wr  # noqa: E402
 
-VERSION = "player-profile-0.1.0"
+VERSION = "player-profile-0.2.0"
 STORE = Path("C:/Users/grant/reticle-store")
 OUT_NAME = "player-profile-20261004"
+#: Output file suffix; a run never overwrites an earlier run's files.
+OUT_TAG = "v2"
 
 #: A choice: no domain fact records a trade window.
 TRADE_WINDOW_MS = 5000.0
 TRADE_SENSITIVITY_MS = (3000.0, 7000.0)
 #: The side rule, checked in the report against Riot's roles and the planters.
+#: [domain:rounds/halftime-side-swap] names reticle/rounds.py the owner of the
+#: boundary, but it exposes no rule by round index; round 12 opens the second
+#: half [domain:rounds/pistol-round-bank] and overtime alternates sides in
+#: two-round cycles [domain:rounds/match-end].
 HALF_ROUNDS = 12
 REGULATION_ROUNDS = 24
 FIRST_ATTACKER = "Red"
@@ -413,6 +429,7 @@ def features(c: duckdb.DuckDBPyConnection, trade_ms: float = TRADE_WINDOW_MS,
       (e.team = e.winning_team)::int won, 1 rounds, e.lv,
       tm.s / tm.n team_mean_lv,
       case when tm.n > 1 then (tm.s - e.lv) / (tm.n - 1) end mates_mean_lv,
+      -- [domain:rounds/pistol-round-bank]: round 0 and the first after halftime
       case when e.round in (0, {HALF_ROUNDS}) then 'pistol'
            when tm.s / tm.n < {ECO_MAX} then 'eco'
            when tm.s / tm.n < {FULL_MIN} then 'force'
@@ -562,7 +579,7 @@ METRICS = [
     ("trades_per_round", "trade", "trades", "rounds", "round", "Trades made per round", True),
     ("near_mate_m", "spacing", "dist_sum / 100", "dist_n", "round", "Distance to the nearest listed teammate at death (m)", True),
     ("near_mate_m_untraded", "spacing", "dist_u_sum / 100", "dist_u_n", "round", "Distance to the nearest teammate at an untraded death (m)", True),
-    ("isolated_death_share", "spacing", "isolated", "dist_n", "round", f"Deaths with no teammate within {ISOLATED_CM / 100:.0f} m", True),
+    ("isolated_death_share", "spacing", "isolated", "dist_n", "round", f"Deaths with every listed teammate beyond {ISOLATED_CM / 100:.0f} m, among deaths with at least one listed teammate", True),
     ("clutch_rate", "clutch", "clutch", "rounds", "round", "Rounds in a 1vX", True),
     ("clutch_win", "clutch", "clutch_won", "clutch", "round", "1vX rounds won", True),
     ("clutch_win_1v1", "clutch", "clutch_won * (clutch_x = 1)::int", "clutch * (clutch_x = 1)::int", "round", "1v1 rounds won", True),
@@ -620,7 +637,7 @@ HYPOTHESES = {
     "trades_per_round": ("trades teammates more than the lobby", "trades teammates less than the lobby: test whether the player is in trade range of the entry"),
     "near_mate_m": ("dies farther from the nearest teammate than the lobby: a spacing or lurk hypothesis", "dies closer to a teammate than the lobby"),
     "near_mate_m_untraded": ("untraded deaths happen farther from a teammate than the lobby's: the lurk or rotation leaves no trade", "untraded deaths happen close to a teammate: the trade partner did not convert"),
-    "isolated_death_share": ("dies with no teammate nearby more often than the lobby: a spacing, rotation or lurk-timing hypothesis", "dies isolated less often than the lobby"),
+    "isolated_death_share": ("dies with every listed teammate far away more often than the lobby: a spacing, rotation or lurk-timing hypothesis", "dies with every listed teammate far away less often than the lobby"),
     "clutch_rate": ("ends up last alive more often than the lobby: test whether that is lurk position or late rotation", "is last alive less often"),
     "clutch_win": ("wins 1vX more than the lobby", "wins 1vX less than the lobby: test the decision in the clutch (time, info, spike)"),
     "clutch_win_1v1": ("wins 1v1 more than the lobby", "wins 1v1 less than the lobby"),
@@ -841,6 +858,14 @@ def per_match(S: dict, names) -> list[dict]:
 
 GROUPS = ("side", "map", "agent", "account", "season", "month", "stratum",
           "source")
+#: Metrics read from match totals: the records count ability casts per match,
+#: not per round, so these have no value on part of a match.
+MATCH_TOTALS = tuple(n for n, _f, _num, _den, lvl, _t, _r in METRICS
+                     if lvl == "cast")
+#: Groups that split a match into parts; they carry no MATCH_TOTALS metric.
+#: `sums` books a match's casts on its first side row, so a side split would
+#: credit every cast to whichever side sorts first.
+SPLITS_MATCH = ("side",)
 TREND_GROUPS = ("season", "month", "stratum", "account")
 TREND_METRICS = ("kd", "opening_involvement", "traded_share",
                  "isolated_death_share", "casts_per_round")
@@ -873,7 +898,10 @@ def profile(S: dict, boot: int = BOOT) -> dict:
             extra = (("casts_per_round", "assists_per_cast")
                      + tuple(f"casts_{s}_per_round" for s in CAST_SLOTS)
                      if g == "agent" else ())
-            for n in HEADLINE + extra:
+            names = HEADLINE + extra
+            if g in SPLITS_MATCH:
+                names = tuple(n for n in names if n not in MATCH_TOTALS)
+            for n in names:
                 r = compare(S, n, gm, boot=boot, W_cache=W)
                 grouped[g][v][n] = r | {"low_n": low_n(r)}
     return {"pooled": pooled, "grouped": grouped}
@@ -1018,16 +1046,23 @@ def report_md(R: dict) -> str:
           f"- Trade window {TRADE_WINDOW_MS / 1000:.0f} s, a choice (no domain "
           "fact records one); 3 s and 7 s are reported beside it.",
           f"- Side rule: {FIRST_ATTACKER} attacks rounds below {HALF_ROUNDS} "
-          f"and even overtime rounds. Riot's roles agree on "
+          f"and even overtime rounds (halftime swap, round {HALF_ROUNDS} the "
+          "first after it, overtime in two-round cycles: domain/rounds.toml "
+          "halftime-side-swap, pistol-round-bank, match-end; reticle/rounds.py "
+          "owns the boundary but exposes no rule by round index). "
+          f"Riot's roles agree on "
           f"{sc.get('riot_agree', '-')} of {sc.get('riot_rounds', '-')} "
           f"captured rounds; the planter is on the rule's attacking team in "
           f"{sc['planter_on_attack']} of {sc['plant_rounds']} plants.",
           f"- Buy bands by the team's mean loadout: eco < {ECO_MAX:.0f}, force "
-          f"< {FULL_MIN:.0f}, full otherwise; pistol rounds 0 and "
-          f"{HALF_ROUNDS}. A choice.",
-          f"- Isolated: no listed teammate within {ISOLATED_CM / 100:.0f} m "
-          "(`winprob_reference.ISOLATED_CM`). A kill lists only some players, "
-          "so a missing teammate may be alive and unlisted.",
+          f"< {FULL_MIN:.0f}, full otherwise, a choice; pistol rounds 0 and "
+          f"{HALF_ROUNDS}, the first round and the first after halftime "
+          "(domain/rounds.toml pistol-round-bank).",
+          f"- Isolated: every listed teammate beyond {ISOLATED_CM / 100:.0f} m "
+          "(`winprob_reference.ISOLATED_CM`), over deaths with at least one "
+          "listed teammate. A kill lists only some players, so a missing "
+          "teammate may be alive and unlisted, and deaths with none listed "
+          "are left out of numerator and denominator alike.",
           "- Same-agent peers: the peers' ratio on each agent the player "
           "played, weighted by the player's denominator on it (the lobby with "
           "the player's agent mix). Grouped tables leave it empty.",
@@ -1087,7 +1122,9 @@ def report_md(R: dict) -> str:
         L.append("")
     L += ["## By group", "",
           "Headline metrics per group; for `agent`, the peers are those on "
-          "the same agent, and utility casts compare like with like.", ""]
+          "the same agent, and utility casts compare like with like. "
+          "Casts are match totals, so `side`, which splits a match, carries "
+          "no cast metric.", ""]
     for g, vals in G.items():
         L += [f"### by {g}", ""]
         for v, ms in vals.items():
@@ -1102,7 +1139,11 @@ NOT_DONE = [
     "No spatial decision model: rotations and lurks are seen only through "
     "deaths' distance to teammates and trades, not paths between kills.",
     "Ability casts are match totals; Riot and HenrikDev give no per-round "
-    "cast counts here, so casts are not split by side or tied to kills.",
+    "cast counts here, so casts are not split by side or tied to kills, and "
+    "the side tables carry no cast metric.",
+    "The side rule by round index is applied here, not called: "
+    "reticle/rounds.py owns the halftime boundary but exposes no rule by "
+    "round index.",
     "Assists per cast is a ratio of totals, not cast-to-assist attribution.",
     "No adjustment for multiple comparisons beyond ranking on interval width.",
     "No per-peer statistics, by design; no comparison against other lobbies.",
@@ -1126,10 +1167,18 @@ def run_profile(store: Path, out: Path, boot: int = BOOT) -> dict:
          "profile": prof, "strongest": strongest(prof["pooled"]),
          "per_match": per_match(S, HEADLINE), "not_done": NOT_DONE}
     out.mkdir(parents=True, exist_ok=True)
-    (out / "profile.json").write_text(json.dumps(R, indent=1, default=str),
-                                      encoding="utf-8")
-    (out / "report.md").write_text(report_md(R), encoding="utf-8")
+    pj, rm = out_paths(out)
+    for p in (pj, rm):
+        if p.exists():
+            raise FileExistsError(f"{p} exists; never overwrite a run")
+    pj.write_text(json.dumps(R, indent=1, default=str), encoding="utf-8")
+    rm.write_text(report_md(R), encoding="utf-8")
     return R
+
+
+def out_paths(out: Path) -> tuple[Path, Path]:
+    """This version's profile and report files, beside earlier runs'."""
+    return out / f"profile-{OUT_TAG}.json", out / f"report-{OUT_TAG}.md"
 
 
 def main(argv=None) -> int:
@@ -1144,7 +1193,7 @@ def main(argv=None) -> int:
     R = run_profile(a.store, out, a.boot)
     print(f"{VERSION}: {R['coverage']['owner_matches']} matches with the "
           f"player, {R['coverage']['owner_rounds']} rounds; wrote "
-          f"{out / 'profile.json'} and {out / 'report.md'}")
+          f"{' and '.join(str(p) for p in out_paths(out))}")
     return 0
 
 

@@ -231,6 +231,21 @@ class Metrics(unittest.TestCase):
         self.assertAlmostEqual(P["offsync_buy"]["owner"], 1 / 1)
         self.assertTrue(P["kd"]["low_n"])
 
+    def test_side_group_has_no_cast_metric(self):
+        c, _ = built()
+        G = pp.profile(pp.sums(c), boot=20)["grouped"]
+        self.assertIn("casts_per_round", pp.MATCH_TOTALS)
+        for v in G["side"].values():
+            self.assertFalse(set(v) & set(pp.MATCH_TOTALS))
+            self.assertIn("kd", v)
+        for v in G["agent"].values():
+            self.assertIn("casts_per_round", v)
+
+    def test_out_paths_keep_earlier_runs(self):
+        pj, rm = pp.out_paths(Path("x"))
+        self.assertNotEqual(pj.name, "profile.json")
+        self.assertNotEqual(rm.name, "report.md")
+
     def test_casts_counted_once_per_match(self):
         c, _ = built([match_one()])
         S = pp.sums(c)
