@@ -1487,7 +1487,7 @@ role = ["attribute", "adjudicate"]
 status = "partial"
 names_agents = true
 produces = ["adjudicate", "template_class", "lineup_sides", "player_agent", "round_of",
-            "THRESHOLD", "cast_window", "CAST_WINDOW", "OWN_WINDOW_S", "player_x_drops",
+            "THRESHOLD", "cast_window", "CAST_WINDOW", "OWN_WINDOW_S", "player_x_drops", "rests_on_line",
             "in_window", "nearest_cast", "drop_phase", "DROP_WINDOW_S"]
 not_for = """
 Deciding which tray drops are the player's casts. It asks `ability-cast`
@@ -1615,7 +1615,7 @@ owner = "adjudication.death"
 stored_consumers = ["entity_events"]
 role = ["attribute", "adjudicate"]
 status = "partial"
-produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "entry_second_life", "stored_second_life", "split_second_lives", "death_key", "panel_aside", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry", "x_shape", "minimap_x_marks", "xmark_births", "match_xmark", "stored_xmark_births", "assist_stamp", "join_assists"]
+produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "entry_second_life", "stored_second_life", "player_revive_times", "KIT_REVIVE_ICONS", "split_second_lives", "death_key", "panel_aside", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry", "x_shape", "minimap_x_marks", "xmark_births", "match_xmark", "stored_xmark_births", "assist_stamp", "join_assists"]
 names_agents = true
 defers_to = ["agent-identity"]
 not_for = """

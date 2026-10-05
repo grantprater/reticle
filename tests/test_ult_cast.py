@@ -272,6 +272,24 @@ class TrayBindingTests(unittest.TestCase):
         self.assertEqual([(r["t_ms"], r["player_cast"], r["reason"]) for r in got],
                          [(50000.0, True, None), (65000.0, False, "after_player_death")])
 
+    def test_a_drop_an_own_line_passed_never_witnesses_its_own_line(self):
+        # ult-cast asks the gate with no own lines, so its stored lines never
+        # pass the drop that would then witness them.
+        stored = [{"kind": "drop", "t_ms": 50000.0, "slot": "X", "from": 1.0, "to": 0.0,
+                   "suspect": True, "forced": True, "cooccur": False, "across_gap": False}]
+        got = uc.player_x_drops(stored, lambda t: "round_live", ROUNDS, [], agent="Sova",
+                                own_lines_ms=[50400.0])
+        self.assertEqual([(r["player_cast"], r["reason"]) for r in got], [(False, "forced")])
+        # A cast handed in already resting on that line binds as no witness.
+        lined = _cast(50400.0, refused_as="forced", line_ms=50000.0,
+                      rests_on=[{"stream": "ult_cast", "owner": "adjudication.ult_cast",
+                                 "t_ms": 50000.0}])
+        res = uc.adjudicate("s", _stored(_peak(50.0, "Sova", "ally", 0.20)), self.lu, ROUNDS,
+                            "round-test", tray_drops=[lined])
+        own = next(r for r in res["rows"] if r.get("class") == "own")
+        self.assertIsNone(own["tray_witness"])
+        self.assertEqual(own["tray_refused"]["reason"], "rests_on_own_line")
+
 
 class BurstTests(unittest.TestCase):
     """Three or more selections within BURST_S are one sound."""

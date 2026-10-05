@@ -180,7 +180,9 @@ def evaluate(store, sid: str, riot: dict, cache_dir: Path | None = None) -> dict
             second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
             report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
             kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
-            kit_spans=gate["kit_spans"])
+            kit_spans=gate["kit_spans"], own_lines_ms=gate["own_lines_ms"],
+            pool_slots=gate["pool_slots"], countdown_reads=reads,
+            step_ms=gate["step_ms"])
         cast = Counter(r["slot"] for r in rows if r["player_cast"])
         gold_cast = {(r["t_ms"], r["slot"]) for r in rows if r["player_cast"] and "witness" in r}
         for key, w in witness.items():

@@ -673,7 +673,27 @@ MENU_VERSION = "menu-0.1.0"
 # agent `kit_owner_unresolved`. Own and other are judged against the
 # consumer's player agent, not the agent the rows were written against, so
 # rows written with no player agent still give kit changes.
-PLAYER_CAST_VERSION = "player-cast-0.8.0"
+# 0.9.0: a stored revive of the player from any reviver
+# (`adjudication.death.player_revive_times`), a teammate Sage's Resurrection
+# included, undoes the death before it for every agent, not only Clove's own
+# Not Dead Yet.
+# 0.10.0: the player's own ult line (`ult_cast` rows of the player's own class
+# that rest on no tray cast) passes an X drop refused as `forced` or
+# `after_player_death` in the agent's cast window of it, before the kit's end;
+# one line, one drop (`ability_timeline._admit_lined_x`).
+# 0.11.0: a drop read from gold halves alone in a slot a resource-bar fact
+# makes a pool (`ability_timeline.pool_slots`: Skye's Regrowth) spent no
+# charge and is `resource_pool`.
+# 0.12.0: a co-occurring drop of Sova's or Skye's E meets the charge tests
+# where the restock numeral appeared or restarted over it (the stored
+# `tray_countdown` reads, or `reticle tray`'s own pass), and the own ult line
+# overturns `cooccur_among_casts` for an X drop as it does `forced`.
+# 0.13.0: `resource_pool` withdrawn (a gold-only drop of a pool slot keeps its
+# verdict and carries `pool_gold_drop`); a revive's dead span ends at the
+# revive for a bridged drop too; only Resurrection and Clove's Not Dead Yet
+# revive the player (`adjudication.death.KIT_REVIVE_ICONS`), not NULL/cmd; a
+# drop an own line passed rests on that line (`rests_on`).
+PLAYER_CAST_VERSION = "player-cast-0.13.0"
 # Whose kit the ability tray shows, per sample of the stored `hud_abilities`
 # crops: the slot icons scored against the catalogue's (`tray_icons`) and read
 # against the candidate sets the lineup allows (`adjudication.tray_kit`),
@@ -835,7 +855,10 @@ ULT_LINE_VERSION = "ult-line-0.2.0"
 # selected ones; the coverage row states `vo_heard`.
 # 0.5.0: every cast and refusal row carries its round's barrier drop (`gametime`),
 # onset minus drop and a phase (buy, at_drop, live); selection is unchanged.
-ULT_CAST_VERSION = "ult-cast-0.5.0"
+# 0.6.0: the cast gate is asked with no own ult lines, and a tray cast that
+# rests on an own line (`rests_on_line`) witnesses none: it is kept as a
+# refused drop, `rests_on_own_line`.
+ULT_CAST_VERSION = "ult-cast-0.6.0"
 # Grey dark minimap floor and icon-occluded pixels, packed per sampled frame,
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or
