@@ -74,7 +74,30 @@ class Costs(unittest.TestCase):
         b = rb.budget(970.0, 1200.0)
         self.assertTrue(b["pace_ok"])
         self.assertFalse(b["in_round_ok"])
-        self.assertFalse(rb.budget(990.0, 900.0)["pace_ok"])
+        # pace = min(1, 1000 / X): 0.98 holds up to X = 1000 / 0.98, about 1020.
+        self.assertTrue(rb.budget(1010.0, 900.0)["pace_ok"])
+        self.assertAlmostEqual(rb.budget(1010.0, 900.0)["pace"], 1000 / 1010)
+        self.assertFalse(rb.budget(1030.0, 900.0)["pace_ok"])
+        self.assertAlmostEqual(b["pace_limit_ms_per_s"], 1000 / 0.98)
+
+    def test_fastest_mean(self):
+        b = [0, 0, 0, 0, 10, 10, 0, 0, 0]          # ten in [2, 5) ms, ten in [5, 10)
+        self.assertAlmostEqual(rb.fastest_mean_ms(b, UPPER, 10**9, 10), 3.5)
+        # The five fastest of [2, 5): spread evenly, mean 2 + 3 * 5 / 20.
+        self.assertAlmostEqual(rb.fastest_mean_ms(b, UPPER, 10**9, 5), 2.75)
+        self.assertAlmostEqual(rb.fastest_mean_ms(b, UPPER, 10**9, 20), (3.5 + 7.5) / 2)
+        self.assertIsNone(rb.fastest_mean_ms(b, UPPER, 10**9, 21))
+        self.assertIsNone(rb.fastest_mean_ms(b, UPPER, 10**9, 0))
+
+    def test_killfeed_split_bounds(self):
+        # 15 empty calls in [2, 5) ms, 5 non-empty at 100 ms each.
+        f = feed(20, 15 * 3.5 + 5 * 100.0, [0, 0, 0, 0, 15, 0, 0, 5, 0], 100.0, hz=2.0)
+        f["bucket_upper_ns"] = UPPER
+        got = rb.killfeed_split(f, rows=40, empty_rows=30)
+        self.assertAlmostEqual(got["empty_ms_lower"], 3.5)
+        self.assertAlmostEqual(got["nonempty_ms_upper"], 100.0)
+        self.assertAlmostEqual(got["nonempty_share"], 0.25)
+        self.assertIsNone(rb.killfeed_split(f, rows=40, empty_rows=0))
 
 
 class Selection(unittest.TestCase):
@@ -138,6 +161,13 @@ class EndToEnd(unittest.TestCase):
         self.assertAlmostEqual(a["post_game_cpu_s"], 100.0)
         self.assertAlmostEqual(a["round_gap_s"]["median"], 10.0)
         self.assertTrue(a["budget"]["pace_ok"])
+        # Uncalibrated: hud at its usage wall, 20 ms/s.
+        self.assertAlmostEqual(a["live_uncalibrated_ms_per_s"], 20.0 + 75.0)
+        self.assertAlmostEqual(a["live_uncalibrated_in_round_ms_per_s"], 20.0 + 150.0)
+        # The harness level timed hud and ally_icon only.
+        h = a["harness"]
+        self.assertEqual(h["readers"], ["ally_icon", "hud"])
+        self.assertAlmostEqual(h["corpus_charged_ms_per_s"], 115.0)
         rows = rb.ledger_values(a, rb.top_changes(a, []))
         self.assertEqual(rows["live"]["matches"], 1)
         self.assertIn("ally_icon_ms_per_s", rows["readers"])

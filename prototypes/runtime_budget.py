@@ -16,9 +16,12 @@ shown mid-match, post-round and post-game work allowed after
 are at most 20% AND the load harness keeps pace on one Below Normal thread
 (stored over wall seconds at least 0.98, call lateness p95 at most 1 s). The
 FPS cost needs the player's session and is unmeasured. The pace and lag rules
-are computable: the mean live load must stay under 980 ms of CPU per second of
-play, and the load inside a round under 1000, since a round lasts far longer
-than the 1 s of lateness the lag rule allows.
+are computable. One thread replays a second of play holding X ms of CPU in
+X / 1000 s, so pace = min(1, 1000 / X), and pace >= 0.98 holds while X is at
+most 1000 / 0.98 =
+[metric:runtime_budget/live@corpus-21#pace_limit_ms_per_s=1020.4] ms per
+second of play. The load inside a round must stay under 1000, since a round
+lasts far longer than the 1 s of lateness the lag rule allows.
 
 Method
 ------
@@ -42,9 +45,14 @@ over the usage wall of the same reader on that session it gives cpu/wall
 (killfeed) to [metric:runtime_budget/readers@corpus-21#ping_cpu_over_wall=1.82]
 (ping), and each reader is charged the larger of wall and calibrated CPU. One
 session calibrates all 21; `ability` and `ability_icon` (5 matches),
-`combat_report` (1) and `tray` (`live_load` only) carry no calibration.
+`combat_report` (1) and `tray` (`live_load` only) carry no calibration. The
+ratio mixes three things: the scan's OpenCV pool spread one call over several
+threads (wall under CPU), other load slowed the scan (wall over CPU), and
+`live_load` timed a 120 s window while usage averages the whole capture
+(window content). It is no measured one-thread conversion, so every total
+below is given both charged and uncalibrated (usage wall).
 
-Results, 2026-10-04 (runtime-budget-0.1.0)
+Results, 2026-10-04 (runtime-budget-0.2.0)
 -----------------------------------------
 Live: feeds the minimap and HUD state while it is visible. Charged CPU ms per
 second of play, mean over matches; the gate is the share of play it reads.
@@ -75,16 +83,48 @@ the HUD set [metric:runtime_budget/live@corpus-21#hud_ms_per_s=274.3]. Today's
 live set needs [metric:runtime_budget/live@corpus-21#mean_share_of_one_thread=1.46]
 threads on average and
 [metric:runtime_budget/live@corpus-21#in_round_share_of_one_thread=2.31] inside
-a round: it fails both computable rules. The harness agrees: its `full`
-level demanded 1.48 cores on a 120 s window (`full_bn.json` beside the
-`live_load` logs).
+a round (pace [metric:runtime_budget/live@corpus-21#pace=0.6858]). Uncalibrated,
+at the usage wall, it needs
+[metric:runtime_budget/live@corpus-21#live_uncalibrated_ms_per_s=1064.2] ms/s
+(pace [metric:runtime_budget/live@corpus-21#uncalibrated_pace=0.9396]) and
+[metric:runtime_budget/live@corpus-21#live_uncalibrated_in_round_ms_per_s=1659.3]
+inside a round. Either way it fails both computable rules, the uncalibrated
+mean by [metric:runtime_budget/live@corpus-21#live_uncalibrated_ms_per_s=1064.2]
+against the [metric:runtime_budget/live@corpus-21#pace_limit_ms_per_s=1020.4]
+limit.
+
+The harness's `full` level (`full_bn.json` beside the `live_load` logs) is no
+independent check: it supplies the calibration, and it timed only `ally_icon`,
+`hud`, `killfeed`, `minimap`, `minimap_dark`, `ping` and `tray`, omitting
+`ability`, `ability_icon`, `scoreboard`, `roster` and `combat_report`. On its
+120 s window of 043bafca271a its readers took
+[metric:runtime_budget/live@corpus-21#harness_readers_ms_per_s=1396.3] ms/s
+([metric:runtime_budget/live@corpus-21#harness_demand_ms_per_s=1483.6] with
+frame reads and the audio witness). This estimate, on the same seven readers,
+charges [metric:runtime_budget/live@corpus-21#harness_corpus_charged_ms_per_s=1224.2]
+over the corpus
+([metric:runtime_budget/live@corpus-21#harness_corpus_uncalibrated_ms_per_s=830.2]
+uncalibrated, [metric:runtime_budget/live@corpus-21#harness_corpus_charged_in_round_ms_per_s=1966.8]
+inside a round) and
+[metric:runtime_budget/live@corpus-21#harness_session_charged_ms_per_s=1070.9]
+over the whole of 043bafca271a
+([metric:runtime_budget/live@corpus-21#harness_session_uncalibrated_ms_per_s=723.8]
+uncalibrated, [metric:runtime_budget/live@corpus-21#harness_session_charged_in_round_ms_per_s=1827.9]
+inside a round).
 
 Gated on opportunity. The minimap readers run only inside their spans (gates
 above). The killfeed panel holds an entry in
-[metric:killfeed_panel/gate-projection#open_share=0.2642] of HUD samples, but
-the reader reads every sample; an empty panel costs
-[metric:killfeed_prior/cost@5822b6646448#ms_portrait_reader_0_entries=5.25] ms
-and one entry [metric:killfeed_prior/cost@5822b6646448#ms_portrait_reader_1_entry=55.77].
+[metric:runtime_budget/live@corpus-21#killfeed_nonempty_share=0.2668] of
+stored HUD samples (today's rows, all 21 matches), but the reader reads every
+sample. Today's scans split by those rows: an empty panel costs at least
+[metric:runtime_budget/live@corpus-21#killfeed_empty_ms_lower=11.58] ms (the
+mean of that many fastest calls), a non-empty one at most
+[metric:runtime_budget/live@corpus-21#killfeed_nonempty_ms_upper=181.6] (usage
+wall); [metric:runtime_budget/live@corpus-21#killfeed_entries_one_share_of_nonempty=0.6663]
+of non-empty samples hold one entry, but the histograms cannot price one entry
+alone. The `weapon` step's fastest bucket counts the same empty samples to
+within [metric:runtime_budget/live@corpus-21#killfeed_weapon_step_join_gap_max=0.0028]
+of a match's rows.
 The scoreboard is open in [metric:scoreboard/openings@all-sessions#open_fraction=0.322]
 of samples; an open read costs
 [metric:scoreboard/speed-batch@a06f04a0059f#ms_open_mean_cur=55.2] ms and a
@@ -119,15 +159,21 @@ The five largest live costs
    [metric:riot_truth/minimap/all#riot_allies=10445] living teammates at kill
    frames and named [metric:riot_truth/minimap/all#id_right=6561] right,
    [metric:riot_truth/minimap/all#id_wrong=792] wrong. Cheapest cut: 15 to 5
-   Hz. On the player's labels 5 Hz names
+   Hz. If a 5 Hz call costs what a 15 Hz call does, it saves
+   [metric:runtime_budget/top5@corpus-21#rank1_saving_ms_per_s=566.7] ms/s
+   (the per-call estimate). The only measured rate change is older and wider:
+   on ally-icon-0.5.0 (2026-09-29; the reader is now ally-icon-0.12.0) the
+   whole minimap fidelity pass, not the reader alone, took
+   [metric:ally_rate/speed@a06f04a0059f#speedup_cpu=1.74] times less CPU at
+   5 Hz, which would save
+   [metric:runtime_budget/top5@corpus-21#rank1_pass_ratio_saving_ms_per_s=361.5].
+   On the player's labels that build at 5 Hz named
    [metric:ally_rate/labels@five-sessions#right_5=40] of
-   [metric:ally_rate/labels@five-sessions#labels=57] as 15 Hz does
-   ([metric:ally_rate/labels@five-sessions#right_15=40]; wrong
-   [metric:ally_rate/labels@five-sessions#wrong_5=1] against
-   [metric:ally_rate/labels@five-sessions#wrong_15=0]) for
-   [metric:ally_rate/speed@a06f04a0059f#speedup_cpu=1.74] times less CPU:
-   saves [metric:runtime_budget/top5@corpus-21#rank1_saving_ms_per_s=361.5] ms/s.
-   Prior-first `ally-prior-0.2.0` costs at most
+   [metric:ally_rate/labels@five-sessions#labels=57] right as 15 Hz did
+   ([metric:ally_rate/labels@five-sessions#right_15=40]) but named
+   [metric:ally_rate/labels@five-sessions#wrong_5=1] wrong against
+   [metric:ally_rate/labels@five-sessions#wrong_15=0]; today's reader is
+   unmeasured at 5 Hz. Prior-first `ally-prior-0.2.0` costs at most
    [metric:ally_prior/riot_pool@heldout6#priced_share_max=0.3852] of the full
    reader and locates [metric:ally_prior/riot_pool@heldout6#located_share=0.8678]
    of held-out teammates against the ring fits'
@@ -139,13 +185,15 @@ The five largest live costs
    [metric:riot_truth/deaths#weapon_right_of_named=0.9997] of those named.
    Cheapest cut: read a non-empty panel only when it changed;
    [metric:killfeed_prior/derived@eight#unchanged_share_nonempty=0.567] of
-   non-empty samples are unchanged. Saves at most
-   [metric:runtime_budget/top5@corpus-21#rank2_saving_ms_per_s=70.3] ms/s (the
+   non-empty samples are unchanged (killfeed-queue-0.1.0 bands, 2026-10-02).
+   At today's non-empty upper bound it saves at most
+   [metric:runtime_budget/top5@corpus-21#rank2_saving_ms_per_s=64.2] ms/s (the
    change test that replaces the read is unpriced).
-3. `ability_icon` buys ability icons on the minimap: it finds
+3. `ability_icon` buys ability icons on the minimap: icon-proposer-0.2.0
+   (2026-09-30; the reader is now icon-proposer-0.3.0) found
    [metric:ability_icons/bench@player-labels#hits=123] of
-   [metric:ability_icons/bench@player-labels#targets=151] labelled targets.
-   Cheapest cut: verify a tracked icon
+   [metric:ability_icons/bench@player-labels#targets=151] labelled targets;
+   0.3.0 is unbenched. Cheapest cut, also priced on 0.2.0: verify a tracked icon
    ([metric:ability_detection/icon-verify@223d636bf8d2#verify_ms=3.2] ms) instead
    of proposing afresh ([metric:ability_detection/icon-verify@223d636bf8d2#full_ms=47.3]);
    the corpus cost model prices tracking at
@@ -162,11 +210,13 @@ The five largest live costs
    [metric:riot_truth/rounds#riot_rounds=439]. It marks no usage steps, so no
    cut can be priced; mark its steps first.
 
-The four priced cuts leave
-[metric:runtime_budget/top5@corpus-21#after_cuts_ms_per_s=921.5] ms/s, or
-[metric:runtime_budget/top5@corpus-21#after_best_cuts_ms_per_s=760.4] with
-prior-first teammates: both under the pace rule. Inside a round they leave
-[metric:runtime_budget/top5@corpus-21#after_best_cuts_in_round_ms_per_s=1126.9],
+The four priced cuts, the ally cut at its per-call estimate, leave
+[metric:runtime_budget/top5@corpus-21#after_cuts_ms_per_s=722.4] ms/s, under
+the pace limit; prior-first teammates save less than the per-call 5 Hz
+estimate, so the best cuts leave the same
+[metric:runtime_budget/top5@corpus-21#after_best_cuts_ms_per_s=722.4]. Inside a
+round they leave
+[metric:runtime_budget/top5@corpus-21#after_best_cuts_in_round_ms_per_s=1051.6],
 still over one thread. The next cut defers work rather than speeding it: nothing
 is shown mid-match, so a reader whose crops are cached live can read them after
 the round. The crop caches cost
@@ -194,9 +244,12 @@ What this does not measure
 The FPS cost (the player's session); screen capture, which the harness stands
 in for with crop-cache reads; GPU time; per-second percentiles (usage keeps
 per-call histograms, not per-second traces, so p95 here is over matches or
-over calls); accuracy at the cut rates beyond the ally labels; the change
-test that would replace killfeed reads. The calibration rests on one session
-whose scan ran beside other load.
+over calls); accuracy at the cut rates, since the ally labels and the 1.74x
+pass ratio were measured on ally-icon-0.5.0; ability_icon accuracy on
+icon-proposer-0.3.0; a one-entry killfeed read alone; the change test that
+would replace killfeed reads. The calibration rests on one session whose scan
+ran beside other load, and mixes pool parallelism, contention and window
+content; the uncalibrated totals bracket it.
 """
 from __future__ import annotations
 
@@ -213,7 +266,7 @@ for _k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
 
 import numpy as np  # noqa: E402
 
-RUNTIME_BUDGET_VERSION = "runtime-budget-0.1.0"
+RUNTIME_BUDGET_VERSION = "runtime-budget-0.2.0"
 STORE = Path("C:/Users/grant/reticle-store")
 REPO = Path(__file__).resolve().parents[1]
 LIVE_LOAD_DIR = "analysis/live-load-0.1.0-20261004"
@@ -256,10 +309,14 @@ POST_ROUND = ("deaths", "lifetimes", "assists", "ult-cast", "combat-report", "tr
               "enemy-tracks", "ability-shapes")
 POST_GAME = ("vision", "self-icon", "tray-kit")
 #: One Below Normal thread: the protocol's pace rule (stored over wall seconds
-#: at least 0.98) and lag rule (p95 lateness at most 1 s) hold only while
-#: the live load stays under one core.
+#: at least 0.98) and lag rule (p95 lateness at most 1 s).
 ONE_THREAD_MS_PER_S = 1000.0
 PACE_MIN = 0.98
+#: One thread replays a second of play in X / 1000 s for X ms of CPU, so pace
+#: = min(1, 1000 / X), and pace >= `PACE_MIN` holds while X <= 1000 / 0.98.
+PACE_LIMIT_MS_PER_S = ONE_THREAD_MS_PER_S / PACE_MIN
+#: `live_load` timing rows that are not live readers.
+HARNESS_NON_READERS = ("source", "audio")
 
 
 def below_normal() -> None:
@@ -395,15 +452,63 @@ def change_only_saving(ms_per_s: float, open_share: float, empty_ms: float, hz: 
     return hz * open_share * unchanged_share_nonempty * max(0.0, nonempty_ms)
 
 
+def fastest_mean_ms(buckets, upper_ns, max_ns: int, k: float) -> float | None:
+    """The mean of the `k` fastest calls in a usage histogram, ms.
+
+    Calls spread evenly inside each closed bucket (capped at `max_ns`); the
+    open bucket counts at its lower edge. No set of `k` calls has a smaller
+    mean, up to that within-bucket spread. None for k <= 0 or k > calls.
+    """
+    counts = np.asarray(buckets, dtype=np.float64)
+    if k <= 0 or k > counts.sum():
+        return None
+    upper = np.asarray(upper_ns, np.float64)
+    lo = np.concatenate(([0.0], upper))
+    hi = np.minimum(np.concatenate((upper, upper[-1:])), max(float(max_ns), 0.0))
+    hi = np.maximum(hi, lo)
+    before = np.concatenate(([0.0], np.cumsum(counts)[:-1]))
+    take = np.clip(k - before, 0.0, counts)
+    safe = np.where(counts > 0, counts, 1.0)
+    total_ns = (take * (lo + (hi - lo) * take / (2.0 * safe))).sum()
+    return float(total_ns / k) / 1e6
+
+
+def killfeed_split(feed: dict, rows: int, empty_rows: int) -> dict | None:
+    """One scan's killfeed call cost split by an empty or a non-empty panel.
+
+    `rows` and `empty_rows` count the stored HUD samples and those with no
+    killfeed entry. The empty mean is the mean of that many fastest calls (a
+    lower bound), so the non-empty mean the remaining time leaves is an upper
+    bound. None when the panel is never or always empty.
+    """
+    f = feed["feed"]
+    n = f["count"]
+    if not n or not rows:
+        return None
+    n0 = empty_rows * n / rows
+    if n0 <= 0 or n0 >= n:
+        return None
+    empty = fastest_mean_ms(f["buckets"], feed["bucket_upper_ns"], f["max_ns"], n0)
+    if empty is None:
+        return None
+    total_ms = f["total_ns"] / 1e6
+    return {"mean_call_ms": total_ms / n, "empty_ms_lower": empty,
+            "nonempty_ms_upper": (total_ms - empty * n0) / (n - n0),
+            "nonempty_share": (n - n0) / n}
+
+
 def budget(live_ms_per_s: float, in_round_ms_per_s: float) -> dict:
-    """The protocol's computable limits: one Below Normal thread keeps pace at
-    a mean under `PACE_MIN` of a core, and stays under 1 s late only while
-    the load inside a round is under one core (a round runs far longer than
-    the 1 s of lateness the lag rule allows, so the gaps cannot repay it)."""
+    """The protocol's computable limits. One Below Normal thread keeps pace
+    (pace = min(1, 1000 / X) at least `PACE_MIN`) while the mean load X stays
+    at most `PACE_LIMIT_MS_PER_S`, and stays under 1 s late only while the
+    load inside a round is under one core (a round runs far longer than the
+    1 s of lateness the lag rule allows, so the gaps cannot repay it)."""
     return {"one_thread_ms_per_s": ONE_THREAD_MS_PER_S,
+            "pace_limit_ms_per_s": PACE_LIMIT_MS_PER_S,
             "mean_share": live_ms_per_s / ONE_THREAD_MS_PER_S,
             "in_round_share": in_round_ms_per_s / ONE_THREAD_MS_PER_S,
-            "pace_ok": live_ms_per_s <= PACE_MIN * ONE_THREAD_MS_PER_S,
+            "pace": min(1.0, ONE_THREAD_MS_PER_S / live_ms_per_s) if live_ms_per_s else 1.0,
+            "pace_ok": live_ms_per_s <= PACE_LIMIT_MS_PER_S,
             "in_round_ok": in_round_ms_per_s <= ONE_THREAD_MS_PER_S}
 
 
@@ -433,8 +538,18 @@ def load_store(store: Path) -> dict:
     live = {}
     for f in glob.glob(str(store / LIVE_LOAD_DIR / "*.json")):
         live[Path(f).stem] = json.loads(Path(f).read_text(encoding="utf-8"))
+    # Killfeed entries per stored HUD sample: the panel's empty share.
+    kf = {}
+    for sid in rounds:
+        paths = glob.glob(str(store / "l1" / "hud" / "date=*" / f"session={sid}" / "hud.parquet"))
+        if paths:
+            e = pq.read_table(paths[0], columns=["kf_entries"]).column(0).to_numpy(
+                zero_copy_only=False)
+            e = np.nan_to_num(np.asarray(e, dtype=np.float64))
+            kf[sid] = {"rows": int(e.size), "empty": int((e == 0).sum()),
+                       "one": int((e == 1).sum()), "multi": int((e >= 2).sum())}
     return {"durations": durations, "rounds": rounds, "usage": usage, "metrics": metrics,
-            "live_load": live}
+            "live_load": live, "kf_entries": kf}
 
 
 def metric(rows: list[dict], series: str, session: str, field: str):
@@ -446,6 +561,29 @@ def metric(rows: list[dict], series: str, session: str, field: str):
                 and (r.get("session") or "") == session and r.get("status") == "pass"):
             got = r["values"].get(field, got)
     return got
+
+
+def metric_deps(rows: list[dict], series: str, session: str) -> dict:
+    """The latest pass row's `deps` for `tool/part@session`: the versions the
+    cited evidence was measured on."""
+    tool, _, part = series.partition("/")
+    got = {}
+    for r in rows:
+        if (r.get("tool") == tool and (r.get("part") or "") == part
+                and (r.get("session") or "") == session and r.get("status") == "pass"):
+            got = {**(r.get("deps") or {}), "at": r.get("at")}
+    return got
+
+
+def current_versions() -> dict:
+    """Today's reader versions, to set beside the evidence's."""
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from reticle import version as v
+    except ImportError:
+        return {}
+    return {"ally_icon": v.ALLY_ICON_VERSION, "ability_icon": v.ABILITY_ICON_VERSION}
 
 
 # --------------------------------------------------------------------------- analysis
@@ -473,6 +611,7 @@ def measure_budget(data: dict) -> dict:
     readers = {}
     by_session: dict[str, dict[str, float]] = {s: {} for s in matches}
     in_round_by_session: dict[str, dict[str, float]] = {s: {} for s in matches}
+    uncal_by_session: dict[str, dict[str, float]] = {s: {} for s in matches}
     for name, spec in LIVE.items():
         per = {s: feed_cost(feeds[(s, name)], durations[s], spec["hz"])
                for s in matches if (s, name) in feeds}
@@ -480,10 +619,13 @@ def measure_budget(data: dict) -> dict:
             continue
         ratio = calib.get(name, {}).get("cpu_over_wall")
         k = max(1.0, ratio or 1.0)      # charge the larger of wall and calibrated CPU
+        in_round_wall = {}
         for s, c in per.items():
+            in_round_wall[s] = (c["mean_call_ms"] * spec["hz"] if spec["gate"] == "spans"
+                                else c["ms_per_s"])
+            uncal_by_session[s][name] = c["ms_per_s"]
             by_session[s][name] = c["ms_per_s"] * k
-            in_round_by_session[s][name] = (c["mean_call_ms"] * spec["hz"] * k
-                                            if spec["gate"] == "spans" else c["ms_per_s"] * k)
+            in_round_by_session[s][name] = in_round_wall[s] * k
         ms = across(c["ms_per_s"] for c in per.values())
         readers[name] = {
             **spec, "sessions": len(per),
@@ -498,6 +640,8 @@ def measure_budget(data: dict) -> dict:
             "charged_p95_ms_per_s": ms["p95"] * k,
             "charged_in_round_ms_per_s": across(in_round_by_session[s][name]
                                                 for s in per)["mean"],
+            "uncalibrated_ms_per_s": ms["mean"],
+            "uncalibrated_in_round_ms_per_s": across(in_round_wall.values())["mean"],
         }
 
     # The price of deferring: the crop-cache writers at their scan rates.
@@ -520,7 +664,8 @@ def measure_budget(data: dict) -> dict:
                              "mean_call_ms": {"n": 1, "mean": r["cpu_ms_per_call"]},
                              "ms_per_s": {"n": 1, "mean": v, "p95": v}, "cpu_over_wall": None,
                              "charged_ms_per_s": v, "charged_p95_ms_per_s": v,
-                             "charged_in_round_ms_per_s": v}
+                             "charged_in_round_ms_per_s": v, "uncalibrated_ms_per_s": v,
+                             "uncalibrated_in_round_ms_per_s": v}
 
     # Scoreboard per opening: stored open share and per-call costs by state.
     sb_open = metric(M, "scoreboard/openings", "all-sessions", "open_fraction")
@@ -533,10 +678,38 @@ def measure_budget(data: dict) -> dict:
                                strip_ms) if None not in (sb_open, sb_ms_open, sb_ms_closed)
                   else None)
 
-    # Killfeed: the share of HUD samples with an entry and the cost by entries.
-    kf_open = metric(M, "killfeed_panel/gate-projection", "", "open_share")
-    kf_empty = metric(M, "killfeed_prior/cost", "5822b6646448", "ms_portrait_reader_0_entries")
+    # Killfeed, restated from today's scans: each match's latest scan split
+    # by the stored HUD rows' entry counts into empty and non-empty calls.
+    # The `weapon` step reads no entry on an empty panel, so its fastest
+    # bucket counts the empty calls too: a check on the row join.
     kf_unchanged = metric(M, "killfeed_prior/derived", "eight", "unchanged_share_nonempty")
+    kf_rows = data.get("kf_entries") or {}
+    kf_hz = LIVE["killfeed_portrait"]["hz"]
+    kf_split, kf_join_gap = {}, []
+    for s in matches:
+        f = feeds.get((s, "killfeed_portrait"))
+        c = kf_rows.get(s)
+        if not f or not c:
+            continue
+        sp = killfeed_split(f, c["rows"], c["empty"])
+        if sp is None:
+            continue
+        sp["entries_one_share_of_nonempty"] = c["one"] / max(c["one"] + c["multi"], 1)
+        if kf_unchanged is not None:
+            sp["change_only_saving_ms_per_s"] = change_only_saving(
+                sp["mean_call_ms"] * kf_hz, sp["nonempty_share"], sp["empty_ms_lower"], kf_hz,
+                kf_unchanged)
+        kf_split[s] = sp
+        wb = ((f.get("steps") or {}).get("weapon") or {}).get("buckets")
+        if wb and c["rows"] == f["feed"]["count"]:
+            kf_join_gap.append(abs(wb[0] - c["empty"]) / c["rows"])
+    killfeed = {"matches": len(kf_split), "unchanged_share_nonempty": kf_unchanged,
+                "weapon_step_join_gap_max": max(kf_join_gap) if kf_join_gap else None}
+    for key in ("nonempty_share", "empty_ms_lower", "nonempty_ms_upper",
+                "entries_one_share_of_nonempty", "change_only_saving_ms_per_s"):
+        killfeed[key] = across(v.get(key) for v in kf_split.values())["mean"]
+    killfeed["recorded"] = sorted({feeds[(s, "killfeed_portrait")]["recorded_at"][:10]
+                                   for s in kf_split})
 
     # Audio witness at each round end (post-round): live_load's one call.
     audio = (full.get("by_reader") or {}).get("audio")
@@ -581,6 +754,8 @@ def measure_budget(data: dict) -> dict:
     # The live total, the load inside a round, and the budget.
     live = readers
     total = sum(r["charged_ms_per_s"] for r in live.values())
+    total_uncal = sum(r["uncalibrated_ms_per_s"] for r in live.values())
+    in_round_uncal = sum(r["uncalibrated_in_round_ms_per_s"] for r in live.values())
     # Per match: readers a match never ran add their corpus mean, so every
     # match carries the whole live set.
     def per_match(table, field):
@@ -601,14 +776,41 @@ def measure_budget(data: dict) -> dict:
                      "ms_per_s_at_15hz": es_us * LIVE["minimap"]["hz"] / 1000.0}
                     if es_us is not None else None)
 
+    # The harness's `full` level, set beside this estimate on the same readers.
+    # Not an independent check: the calibration ratios come from that file.
+    harness = None
+    hb = full.get("by_reader") or {}
+    if hb:
+        h_names = sorted(LIVE_LOAD_NAMES.get(n, n) for n in hb if n not in HARNESS_NON_READERS)
+        same = [n for n in h_names if n in live]
+        cal = CALIBRATION_SESSION
+
+        def on_cal(table, field):
+            return sum(table.get(cal, {}).get(n, live[n][field]) for n in same)
+        harness = {
+            "session": full.get("session_id"), "window_s": full.get("window_s"),
+            "readers": h_names,
+            "omits": sorted(set(live) - set(h_names)),
+            "demand_ms_per_s": 1000.0 * (full.get("demand_cores") or 0.0),
+            "readers_ms_per_s": 1000.0 * sum(r.get("demand_cores") or 0.0
+                                             for n, r in hb.items()
+                                             if n not in HARNESS_NON_READERS),
+            "corpus_charged_ms_per_s": sum(live[n]["charged_ms_per_s"] for n in same),
+            "corpus_uncalibrated_ms_per_s": sum(live[n]["uncalibrated_ms_per_s"] for n in same),
+            "corpus_charged_in_round_ms_per_s": sum(live[n]["charged_in_round_ms_per_s"]
+                                                    for n in same),
+            "session_charged_ms_per_s": on_cal(by_session, "charged_ms_per_s"),
+            "session_uncalibrated_ms_per_s": on_cal(uncal_by_session, "uncalibrated_ms_per_s"),
+            "session_charged_in_round_ms_per_s": on_cal(in_round_by_session,
+                                                        "charged_in_round_ms_per_s"),
+        }
+
     ranked = sorted(live.items(), key=lambda kv: -kv[1]["charged_ms_per_s"])
     return {"version": RUNTIME_BUDGET_VERSION, "matches": matches, "n_matches": len(matches),
             "excluded_long_sessions": sorted(s for s, d in durations.items()
                                              if d > MATCH_MIN_S and s not in matches),
             "play_s": play_s, "rounds": n_rounds, "calibration": calib,
-            "readers": readers, "scoreboard": scoreboard,
-            "killfeed": {"open_share": kf_open, "empty_ms": kf_empty,
-                         "unchanged_share_nonempty": kf_unchanged},
+            "readers": readers, "scoreboard": scoreboard, "killfeed": killfeed,
             "audio_ms_per_s": audio_ms_per_s,
             "audio_ms_per_round_end": audio["cpu_ms_per_call"] if audio else None,
             "post": post_summary, "post_round_cpu_s": post_round_cpu,
@@ -617,9 +819,13 @@ def measure_budget(data: dict) -> dict:
             "live_ms_per_s": total, "live_p95_ms_per_s": total_p95,
             "live_in_round_ms_per_s": in_round,
             "live_in_round_p95_ms_per_s": in_round_matches["p95"],
+            "live_uncalibrated_ms_per_s": total_uncal,
+            "live_uncalibrated_in_round_ms_per_s": in_round_uncal,
             "minimap_ms_per_s": minimap_total, "hud_ms_per_s": hud_total,
             "entity_state": entity_state, "cache_writers": cache,
             "budget": budget(total, in_round),
+            "budget_uncalibrated": budget(total_uncal, in_round_uncal),
+            "harness": harness,
             "harness_demand_cores": {k: v.get("demand_cores")
                                      for k, v in data["live_load"].items()},
             "ranked": [n for n, _ in ranked]}
@@ -630,7 +836,9 @@ def top_changes(a: dict, M: list[dict]) -> list[dict]:
     R = a["readers"]
     out = []
 
-    def add(name, buys, change, saving_ms, then=None, then_ms=None):
+    current = current_versions()
+
+    def add(name, buys, change, saving_ms, then=None, then_ms=None, **extra):
         r = R[name]
         out.append({"reader": name, "ms_per_s": r["charged_ms_per_s"],
                     "in_round_ms_per_s": r["charged_in_round_ms_per_s"], "buys": buys,
@@ -638,7 +846,8 @@ def top_changes(a: dict, M: list[dict]) -> list[dict]:
                     "saving_share": (saving_ms / r["charged_ms_per_s"]
                                      if saving_ms is not None and r["charged_ms_per_s"]
                                      else None),
-                    "then": then, "then_saving_ms_per_s": then_ms})
+                    "then": then, "then_saving_ms_per_s": then_ms,
+                    "current_version": current.get(name), **extra})
 
     speed = metric(M, "ally_rate/speed", "a06f04a0059f", "speedup_cpu")
     price = metric(M, "ally_prior/riot_pool", "heldout6", "priced_share_max")
@@ -650,27 +859,34 @@ def top_changes(a: dict, M: list[dict]) -> list[dict]:
         r = R[name]
         ms = r["charged_ms_per_s"]
         if name == "ally_icon":
+            # Per call: the reader's own cost scales with its rate, if a 5 Hz
+            # call costs what a 15 Hz call does. The 1.74x is the whole
+            # minimap fidelity pass on ally-icon-0.5.0, kept beside it.
+            ev = metric_deps(M, "ally_rate/labels", "five-sessions")
             add(name, "teammate positions and names on the minimap",
-                "rate 15 to 5 Hz (same labelled names)",
-                ms * (1 - 1 / speed) if speed else None,
+                "rate 15 to 5 Hz (per-call estimate; 1 wrong name against 0 on the labels)",
+                ms * (1 - 5 / 15),
                 "prior-first ally-prior-0.2.0 at its priced share of the full reader",
-                ms * (1 - price) if price else None)
+                ms * (1 - price) if price else None,
+                pass_ratio_saving_ms_per_s=ms * (1 - 1 / speed) if speed else None,
+                evidence_version=ev.get("ally_icon_version"), evidence_at=ev.get("at"))
         elif name == "killfeed_portrait":
+            k = max(1.0, r.get("cpu_over_wall") or 1.0)
+            got = kf.get("change_only_saving_ms_per_s")
             add(name, "every kill's victim, killer and weapon",
                 "read a non-empty panel only when it changed (prior-first)",
-                change_only_saving(r["ms_per_s"]["mean"], kf["open_share"], kf["empty_ms"],
-                                   r["hz"], kf["unchanged_share_nonempty"])
-                * max(1.0, r.get("cpu_over_wall") or 1.0)
-                if None not in (kf["open_share"], kf["empty_ms"], kf["unchanged_share_nonempty"])
-                else None)
+                got * k if got is not None else None,
+                evidence_version="today's scans", evidence_at=",".join(kf.get("recorded") or []))
         elif name == "scoreboard":
             add(name, "credits, KDA and agents per opening",
                 "cache the crop while open and read it after the round",
                 ms - (sb["ms_per_s"] - sb["open_ms_per_s"]) if sb else None)
         elif name == "ability_icon":
+            ev = metric_deps(M, "ability_icons/bench", "player-labels")
             add(name, "ability icons on the minimap",
                 "verify tracked icons instead of proposing every frame",
-                ms * (1 - icon_tracked / icon_full) if icon_full and icon_tracked else None)
+                ms * (1 - icon_tracked / icon_full) if icon_full and icon_tracked else None,
+                evidence_version=ev.get("ability_icon_version"), evidence_at=ev.get("at"))
         elif name == "ability":
             add(name, "ability shapes on the minimap", "share the icon gate; unmeasured", None)
         elif name == "hud":
@@ -712,7 +928,27 @@ def ledger_values(a: dict, changes: list[dict]) -> dict[str, dict]:
             "mean_share_of_one_thread": r4(a["budget"]["mean_share"]),
             "in_round_share_of_one_thread": r4(a["budget"]["in_round_share"]),
             "pace_ok": int(a["budget"]["pace_ok"]), "in_round_ok": int(a["budget"]["in_round_ok"]),
+            "pace": r4(a["budget"]["pace"]),
+            "pace_limit_ms_per_s": r4(a["budget"]["pace_limit_ms_per_s"]),
+            "live_uncalibrated_ms_per_s": r4(a["live_uncalibrated_ms_per_s"]),
+            "live_uncalibrated_in_round_ms_per_s": r4(a["live_uncalibrated_in_round_ms_per_s"]),
+            "uncalibrated_pace": r4(a["budget_uncalibrated"]["pace"]),
+            "uncalibrated_pace_ok": int(a["budget_uncalibrated"]["pace_ok"]),
+            "uncalibrated_in_round_ok": int(a["budget_uncalibrated"]["in_round_ok"]),
             "audio_ms_per_s": r4(a["audio_ms_per_s"])}
+    kf = a["killfeed"]
+    for key in ("matches", "nonempty_share", "empty_ms_lower", "nonempty_ms_upper",
+                "entries_one_share_of_nonempty", "weapon_step_join_gap_max"):
+        if kf.get(key) is not None:
+            live[f"killfeed_{key}"] = r4(kf[key])
+    h = a.get("harness")
+    if h:
+        for key in ("demand_ms_per_s", "readers_ms_per_s", "corpus_charged_ms_per_s",
+                    "corpus_uncalibrated_ms_per_s", "corpus_charged_in_round_ms_per_s",
+                    "session_charged_ms_per_s", "session_uncalibrated_ms_per_s",
+                    "session_charged_in_round_ms_per_s"):
+            live[f"harness_{key}"] = r4(h[key])
+        live["harness_omitted_readers"] = len(h["omits"])
     if a["scoreboard"]:
         live.update({f"scoreboard_{k}": r4(v) for k, v in a["scoreboard"].items()})
     if a["entity_state"]:
@@ -735,6 +971,8 @@ def ledger_values(a: dict, changes: list[dict]) -> dict[str, dict]:
         top[f"rank{i}_saving_ms_per_s"] = r4(c["saving_ms_per_s"])
         if c["then_saving_ms_per_s"] is not None:
             top[f"rank{i}_then_saving_ms_per_s"] = r4(c["then_saving_ms_per_s"])
+        if c.get("pass_ratio_saving_ms_per_s") is not None:
+            top[f"rank{i}_pass_ratio_saving_ms_per_s"] = r4(c["pass_ratio_saving_ms_per_s"])
     cuts = sum(c["saving_ms_per_s"] or 0 for c in changes)
     best = sum(max(c["saving_ms_per_s"] or 0, c["then_saving_ms_per_s"] or 0) for c in changes)
     top["after_cuts_ms_per_s"] = r4(a["live_ms_per_s"] - cuts)
@@ -767,8 +1005,14 @@ def report(a: dict, changes: list[dict]) -> str:
              f" in-round {a['live_in_round_ms_per_s']:.0f} (p95 match "
              f"{a['live_in_round_p95_ms_per_s']:.0f});"
              f" minimap {a['minimap_ms_per_s']:.0f}, HUD {a['hud_ms_per_s']:.0f};"
-             f" one thread = {b['one_thread_ms_per_s']:.0f}: pace_ok {b['pace_ok']},"
+             f" one thread = {b['one_thread_ms_per_s']:.0f}, pace limit"
+             f" {b['pace_limit_ms_per_s']:.0f}: pace {b['pace']:.2f} ok {b['pace_ok']},"
              f" in-round ok {b['in_round_ok']}")
+    u = a["budget_uncalibrated"]
+    L.append(f"uncalibrated (usage wall): {a['live_uncalibrated_ms_per_s']:.0f} ms/s mean,"
+             f" in-round {a['live_uncalibrated_in_round_ms_per_s']:.0f}: pace {u['pace']:.2f}"
+             f" ok {u['pace_ok']}, in-round ok {u['in_round_ok']}")
+    L.append(f"harness full level (not independent: it supplies the calibration): {a['harness']}")
     L.append(f"entity state: {a['entity_state']}")
     L.append("crop-cache writers (the price of deferring): " + ", ".join(
         f"{k} {v['hz']:g} Hz {v['mean_call_ms']:.2f} ms/call {v['ms_per_s']:.2f} ms/s "
@@ -792,7 +1036,12 @@ def report(a: dict, changes: list[dict]) -> str:
         L.append(f"top: {c['reader']:18s} {c['ms_per_s']:7.1f} ms/s  buys {c['buys']}; "
                  f"{c['change']}: saves {c['saving_ms_per_s'] or 0:.1f} ms/s"
                  + (f"; then {c['then']}: saves {c['then_saving_ms_per_s']:.1f} ms/s"
-                    if c["then_saving_ms_per_s"] is not None else ""))
+                    if c["then_saving_ms_per_s"] is not None else "")
+                 + (f"; pass ratio {c['pass_ratio_saving_ms_per_s']:.1f} ms/s"
+                    if c.get("pass_ratio_saving_ms_per_s") is not None else "")
+                 + (f"; evidence {c.get('evidence_version')} ({c.get('evidence_at')}),"
+                    f" reader now {c.get('current_version')}"
+                    if c.get("evidence_version") else ""))
     return "\n".join(L)
 
 
