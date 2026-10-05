@@ -66,8 +66,12 @@ class PolicyRows(unittest.TestCase):
         self.assertEqual(self.rows["Gekko:Q"]["policy"], "rotates")       # mixed
         self.assertEqual(self.rows["Phoenix:C"]["policy"], "rotates")     # undetermined
         self.assertEqual(self.rows["Sova:E"]["policy"], "upright")
-        self.assertEqual((self.rows["Sova:Q"]["policy"], self.rows["Sova:Q"]["reason"]),
-                         ("upright", "two_flag_rule:no_component"))
+        self.assertEqual(self.rows["Sova:E"]["decided_by"], "two_flag_rule")
+
+    def test_a_key_no_component_draws_is_an_unverified_default(self):
+        r = self.rows["Sova:Q"]
+        self.assertEqual((r["policy"], r["decided_by"]), ("upright", "no_component_default"))
+        self.assertIn("unverified", r["reason"])
 
 
 class Provenance(unittest.TestCase):
@@ -76,9 +80,12 @@ class Provenance(unittest.TestCase):
 
     def test_fields_present_and_no_heldout_session(self):
         dev = {"d95cfad5693a", "dae6f33f3f48"}
-        p = gt.table_provenance({}, [self.item("d95cfad5693a"), self.item("dae6f33f3f48", src="paint")], dev, [347, 369])
+        p = gt.table_provenance({}, [self.item("d95cfad5693a"), self.item("dae6f33f3f48", src="paint")], dev, [347, 369],
+                                ["043bafca271a"], ["043bafca271a", "4f207c0c4e39"])
         for f in ("generator", "build", "answers", "gamedata", "dev_sessions", "dev_run", "heldout_sessions"):
             self.assertIn(f, p)
+        self.assertEqual(p["heldout_sessions"]["eval_heldout_split"], ["043bafca271a"])
+        self.assertEqual(p["heldout_sessions"]["s5_match_sessions"], ["043bafca271a", "4f207c0c4e39"])
         self.assertEqual(p["answers"]["lines"], [347, 369])
         self.assertEqual(p["dev_sessions"], sorted(dev))
         self.assertEqual(p["heldout_sessions_used"], [])
@@ -86,9 +93,10 @@ class Provenance(unittest.TestCase):
 
     def test_refuses_an_item_from_outside_the_dev_sessions(self):
         dev = {"d95cfad5693a"}
-        for bad in (self.item("29eff6920e8f", split="heldout"), self.item("d95cfad5693a", src="minimap_glyph_heldout")):
+        for bad in (self.item("29eff6920e8f", split="heldout"), self.item("d95cfad5693a", src="minimap_glyph_heldout"),
+                    self.item("043bafca271a")):
             with self.assertRaises(SystemExit):
-                gt.table_provenance({}, [bad], dev, [])
+                gt.table_provenance({}, [bad], dev, [], ["043bafca271a"], [])
 
 
 class Cut(unittest.TestCase):
@@ -98,6 +106,31 @@ class Cut(unittest.TestCase):
         self.assertEqual(c, 94.0)
         self.assertEqual(sum(v > c for v in s), 5)
         self.assertIsNone(gt.cut_at([], 0.05))
+
+    def test_bank_cut_holds_each_bank_and_scale_at_the_rate(self):
+        import numpy as np
+        keys = ["A:C", "A:Q", "B:C"]
+        rng = np.random.default_rng(0)
+        neg = [{"win_index": i, "scale": 1.0 if i < 40 else 1.15, "kit": ["A:C", "A:Q"]} for i in range(80)]
+        sc = {i: rng.random(3).astype(np.float32) for i in range(80)}
+        best = np.array([max(sc[i][:2]) for i in range(80)])
+        b = gt.bank_cut(neg, [], sc, keys, "context", best)
+        self.assertLessEqual(b["rate"], 0.05)
+        self.assertEqual(b["named"], 4)
+        self.assertEqual(sorted(b["by_scale"]), ["1.0", "1.15"])
+        self.assertTrue(all(v["rate"] <= 0.05 for v in b["by_scale"].values()))
+
+    def test_paired_counts_the_self_seed_on_casts_the_thrown_seed_named(self):
+        rows = [{"self_seed": "right", "rotate_all": {"outcome": "right"}},
+                {"self_seed": "wrong", "rotate_all": {"outcome": "right"}},
+                {"self_seed": "wrong", "rotate_all": {"outcome": "wrong"}},
+                {"self_seed": "refused", "rotate_all": {"outcome": "wrong"}},
+                {"self_seed": "right", "rotate_all": {"outcome": "refused"}},
+                {"refused": "no_thrown_birth"}]
+        p = gt.paired(rows)
+        self.assertEqual((p["thrown_named"], p["self_right"], p["self_wrong"], p["self_refused"]), (4, 1, 2, 1))
+        self.assertEqual((p["both_named"], p["both_right"], p["both_wrong"], p["thrown_only_right"],
+                          p["self_only_right"]), (3, 1, 1, 1, 0))
 
     def test_every_answer_fact_exists(self):
         text = (ROOT / "domain" / "abilities.toml").read_text(encoding="utf-8")

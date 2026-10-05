@@ -5,7 +5,7 @@ r"""Stage 1 of docs/MINIMAP_GLYPH_CHANNEL.md: the per-key rotation policy table 
     .\.venv\Scripts\python.exe prototypes\glyph_tables.py thrown --out DIR   (S5; crop cache of the match sessions)
     .\.venv\Scripts\python.exe prototypes\glyph_tables.py record --out DIR   (metric series glyph_tables/*, once)
 
-`build` writes `glyph-rotation-policy-0.1.0.json` and `glyph-null-table-0.1.0.json` under DIR and `build.json`
+`build` writes `glyph-rotation-policy-0.1.1.json` and `glyph-null-table-0.1.1.json` under DIR and `build.json`
 (the single-frame measurements S1-S3 and the instrument controls). Each command refuses an output that exists,
 so a rerun goes to a new DIR; `follow`, `thrown` and `record` read the tables `build` wrote in the same DIR.
 
@@ -20,24 +20,30 @@ wins, each row's line cited, each answer a domain fact, `ANSWER_FACTS`:
 searched at every rotation because no sonic-square wall fit is in master; an unsure answer (Cypher:C, Skye:X) is
 searched at every rotation with the reason `unsure_pending_player`; every other key follows the two-flag rule
 (`glyph_channel_cost.rule_verdict` over the raw export's minimap components, `rule_per_key`): upright when every
-component reads upright, and when no component draws the key (vacuously all upright); every rotation when any
-component turns, the components disagree (`mixed`) or a RotationSource the rule does not read leaves it
-`undetermined`. A sure answer the rule contradicts is stored on its row as a surprise against the hypothesis.
+component reads upright; every rotation when any component turns, the components disagree (`mixed`) or a
+RotationSource the rule does not read leaves it `undetermined`. A key no minimap component draws is upright by
+default, unverified (`decided_by` `no_component_default`), never a rule decision. A sure answer the rule contradicts is stored on its row as a surprise against the hypothesis.
 
 **The null table** (`null_table`), from the eval 0.3.0 dev windows only (store
 analysis/minimap-glyphs-killjoy-refs-20261004/gamedata-on, minimap-glyph-eval-0.3.0, gamedata and answers on;
 labels/ability, labels/ability_paint and labels/tray_object of the dev sessions d95cfad5693a and dae6f33f3f48):
 every disc the player labelled as no ability, scored single frame (masked Pearson of luma, the eval's matcher)
 against every catalogue key at its policy's search size. Each key's cut sits where at most 5% of those discs
-score above it (`cut_at`): a key names a disc when its score exceeds its cut. The table also gives each bank's
-false-naming rate (the labelled caster's kit, `context`, and every key, `full`), the margin distributions and the
-tie margin. The dev sessions are demos of Cypher and Killjoy: no audio-borrowed label exists on them (the label
+score above it (`cut_at`): a key names a disc when its score exceeds its cut. Per key the bank's false naming
+adds up across keys, so each bank (the labelled caster's kit, `context`, and every key, `full`) also gets its own
+cut, overall and at each widget scale: the `cut_at` of each disc's best score within the bank, so that at most 5%
+of the discs' best keys clear it (gate 3's bank form). The table gives each bank's false-naming rate at the per-key
+cuts, at the bank cut and with the tie margin, the margin distributions, the tie margin, and `gate3`, which parts
+of gate 3 this table meets and which it does not (no unlabelled proposer disc enters; the follow's pooled bank cut
+is in follow.json). The dev sessions are demos of Cypher and Killjoy: no audio-borrowed label exists on them (the label
 path covers only the player's own Sova and Skye casts), so none enters.
 
 **No held-out label enters either table.** The held-out sessions are every session of the held-out labelling
-pass (labels/minimap_glyph_heldout) other than the two dev sessions, and every session of the eval's own held-out
-split. `table_provenance` lists the dev sessions, names the held-out ones, and asserts that every scored item is a dev
-item from the eval's label sources; the builder reads labels/minimap_glyph_heldout only for its file names.
+pass (labels/minimap_glyph_heldout) other than the two dev sessions (`heldout_pass`), and every session of the
+eval's own held-out split (`eval_heldout_split`: each session of the eval's label sources outside dev).
+`table_provenance` lists the dev sessions, names the held-out ones and the match sessions stage 1's S5 used
+(`s5_match_sessions`, which gate 4's fresh set excludes), and asserts that every scored item is a dev item from
+the eval's label sources; the builder reads labels/minimap_glyph_heldout only for its file names.
 
 `follow` reruns the eval's follow (`minimap_glyph_eval.follow_item`, minimap-glyph-follow-0.2.0) on the dev
 positives and no-ability discs with the policy table's rotations, at the crop cache's cadence and over the 2 Hz
@@ -65,14 +71,16 @@ import glyph_channel_cost as gcc  # noqa: E402  (sets single-threaded, Below Nor
 import minimap_glyph_eval as mge  # noqa: E402
 import numpy as np  # noqa: E402
 
-VERSION = "glyph-tables-0.1.0"
-POLICY_VERSION = "glyph-rotation-policy-0.1.0"
-NULL_VERSION = "glyph-null-table-0.1.0"
+VERSION = "glyph-tables-0.1.1"
+POLICY_VERSION = "glyph-rotation-policy-0.1.1"   # 0.1.1: no_component_default
+NULL_VERSION = "glyph-null-table-0.1.1"       # 0.1.1: bank cuts (gate 3), fuller provenance
 FALSE_RATE = 0.05        # a design choice (docs/MINIMAP_GLYPH_CHANNEL.md, gate 3)
 DEV_RUN = gcc.KILLJOY_REFS_DEV.parent
 HELDOUT_LABELS = mge.LABELS / "minimap_glyph_heldout"
 EVAL_SOURCES = {"ability", "paint", "tray_object"}
 UNSURE = "unsure_pending_player"
+NO_COMPONENT = "no_component_default"
+NO_COMPONENT_REASON = "no minimap component draws this key; upright by default, unverified"
 TWO_HZ_MS = 500.0        # the ability pass's cadence
 #: Each sure rotation answer's domain fact (domain/abilities.toml); the table cites it beside the answer's line.
 ANSWER_FACTS = {"Cypher:E": "abilities/cypher-spycam-minimap-glyph-turns",
@@ -141,6 +149,8 @@ def policy_rows(keys: list[str], answers: dict, verdicts: dict, evidence: dict) 
         elif a and a["answer"] is not None:
             row.update(policy="rotates", decided_by="player_answer_unread",
                        reason=f"answer {a['answer']!r} ({a.get('other')!r}) has no reading here; every rotation")
+        elif v == "no_component":
+            row.update(policy="upright", decided_by=NO_COMPONENT, reason=NO_COMPONENT_REASON)
         else:
             row.update(policy=rp, decided_by="two_flag_rule", reason=f"two_flag_rule:{v}")
         if row["decided_by"] == "player_answer" and k in verdicts and rp != row["policy"]:
@@ -150,21 +160,43 @@ def policy_rows(keys: list[str], answers: dict, verdicts: dict, evidence: dict) 
     return rows
 
 
-def heldout_sessions(dev: set) -> dict:
-    """The held-out sessions: the held-out labelling pass's (file names only, never read) and the eval's split."""
+def eval_heldout_split(dev: set) -> list[str]:
+    """The eval's own held-out split: every session of its label sources (`minimap_glyph_eval.load_items`) outside
+    dev. The labels are read for their session ids only; none is scored."""
+    return sorted({it["sid"] for it in mge.load_items() if it["sid"] not in dev})
+
+
+def s5_match_sessions(path: Path = None) -> list[str]:
+    """The match sessions stage 1's S5 (`thrown`) used: every session of a glyph cast in the cross-channel casts."""
+    p = Path(path or gcc.CROSS_CASTS)
+    if not p.exists():
+        return []
+    rows = [json.loads(ln) for ln in open(p, encoding="utf-8") if ln.strip()]
+    return sorted({r["sid"] for r in rows if r.get("kind") == "match" and r.get("B_source") == "glyph"})
+
+
+def heldout_sessions(dev: set, eval_split: list[str] | None = None, s5: list[str] | None = None) -> dict:
+    """The held-out sessions: the held-out labelling pass's (file names only, never read), the eval's own held-out
+    split, and the match sessions S5 used (not held out from the tables, which never read them; listed so gate 4's
+    fresh set excludes them)."""
     hp = sorted(p.stem for p in HELDOUT_LABELS.glob("*.jsonl") if p.stem not in dev)
     return {"heldout_pass": hp, "heldout_pass_dir": str(HELDOUT_LABELS),
+            "eval_heldout_split": sorted(eval_split) if eval_split is not None else eval_heldout_split(dev),
+            "s5_match_sessions": sorted(s5) if s5 is not None else s5_match_sessions(),
             "note": "the held-out pass also labelled the two dev sessions (its dev_session subset); those rows are "
-                    "never read: the dev items come from labels/ability, ability_paint and tray_object"}
+                    "never read: the dev items come from labels/ability, ability_paint and tray_object. "
+                    "s5_match_sessions are used by stage 1 (S5) and excluded from gate 4's fresh set"}
 
 
-def table_provenance(answers: dict, dev_items: list[dict], dev: set, used_lines: list[int]) -> dict:
+def table_provenance(answers: dict, dev_items: list[dict], dev: set, used_lines: list[int],
+                     eval_split: list[str] | None = None, s5: list[str] | None = None) -> dict:
     """What both tables rest on, with the proof that no held-out label enters: every item is a dev item from the
     eval's own label sources, and no item's session is held out."""
-    ho = heldout_sessions(dev)
+    ho = heldout_sessions(dev, eval_split, s5)
     sids = sorted({r["sid"] for r in dev_items})
+    held = set(ho["heldout_pass"]) | set(ho["eval_heldout_split"])
     bad = [r for r in dev_items if r["sid"] not in dev or r["split"] != "dev" or r["src"] not in EVAL_SOURCES
-           or r["sid"] in ho["heldout_pass"]]
+           or r["sid"] in held]
     if bad:
         raise SystemExit(f"{len(bad)} non-dev items reached the tables, e.g. {bad[0]['sid']} {bad[0]['t_ms']}")
     return {"generator": VERSION, "build": mge.BUILD, "eval": mge.VERSION,
@@ -266,10 +298,11 @@ def null_table(neg: list[dict], pos: list[dict], sc: dict, sizes: dict, keys: li
                                  "names only above it", "wrong_items": len(wrong)}
     out["banks"] = {}
     for bank in ("context", "full"):
-        named, verdict, margins = Counter(), Counter(), []
+        named, verdict, margins, best = Counter(), Counter(), [], []
         for r in neg:
             b, s, m = best_in(sc[r["win_index"]], keys, r["kit"] if bank == "context" else keys)
             margins.append(m)
+            best.append(s)
             if s > cut[b]:
                 named[b] += 1
                 if tie is None or m > tie:
@@ -283,8 +316,53 @@ def null_table(neg: list[dict], pos: list[dict], sc: dict, sizes: dict, keys: li
                               "false_named_verdict": sum(verdict.values()),
                               "false_naming_rate_verdict": round(sum(verdict.values()) / max(len(neg), 1), 4),
                               "named_as_verdict": dict(verdict), "negative_margin": q(margins),
-                              "glyph_items_named_right_verdict": len(pos_named), "glyph_items": len(pos)}
+                              "glyph_items_named_right_verdict": len(pos_named), "glyph_items": len(pos),
+                              "bank_cut": bank_cut(neg, pos, sc, keys, bank, np.array(best))}
+    out["gate3"] = gate3(out)
     return out
+
+
+def bank_cut(neg: list[dict], pos: list[dict], sc: dict, keys: list[str], bank: str, best: np.ndarray) -> dict:
+    """Gate 3's bank form: one cut for the bank, the `cut_at` of each no-ability disc's best score within the bank,
+    so at most FALSE_RATE of the discs' best keys clear it; overall and at each widget scale (each scale's discs
+    against their own cut). Beside it, the dev glyph items the bank's best key names right above the cut."""
+    c = cut_at(best)
+    scl = np.array([round(r["scale"], 3) for r in neg])
+    by = {}
+    for s in sorted(set(scl.tolist())):
+        m = scl == s
+        cs = cut_at(best[m])
+        by[str(s)] = {"n": int(m.sum()), "cut": round(cs, 4), "named": int((best[m] > cs).sum()),
+                      "rate": round(float((best[m] > cs).mean()), 4),
+                      "allowed": int(np.floor(FALSE_RATE * m.sum()))}
+    per_scale_named = sum(v["named"] for v in by.values())
+    cut_of = {k: v["cut"] for k, v in by.items()}
+    pz = [r for r in pos if r["win_index"] in sc]
+    right_cut, right_scale = 0, 0
+    for r in pz:
+        b, s, _ = best_in(sc[r["win_index"]], keys, r["kit"] if bank == "context" else keys)
+        if b == r["truth"]:
+            right_cut += s > c
+            cs = cut_of.get(str(round(r["scale"], 3)))
+            right_scale += cs is not None and s > cs
+    return {"rule": "a disc is named when its best score within the bank exceeds the bank cut",
+            "cut": round(c, 4), "n": int(len(best)), "named": int((best > c).sum()),
+            "rate": round(float((best > c).mean()), 4), "by_scale": by,
+            "per_scale_named": per_scale_named, "per_scale_rate": round(per_scale_named / max(len(best), 1), 4),
+            "glyph_items_named_right_cut": int(right_cut), "glyph_items_named_right_per_scale": int(right_scale),
+            "glyph_items": len(pz)}
+
+
+def gate3(ntab: dict) -> dict:
+    """Which parts of gate 3 (docs/MINIMAP_GLYPH_CHANNEL.md section 5) this null table meets, from its own fields."""
+    b = ntab["banks"]
+    return {"bank_cut_at_most_rate": all(b[k]["bank_cut"]["rate"] <= FALSE_RATE for k in b),
+            "per_scale_bank_cut_at_most_rate": all(v["rate"] <= FALSE_RATE for k in b for v in b[k]["bank_cut"]["by_scale"].values()),
+            "per_key_cut_bank_rate_at_most_rate": all(b[k]["false_naming_rate_cut"] <= FALSE_RATE for k in b),
+            "unlabelled_proposer_discs": False,
+            "pooled_score": "follow.json pooled_null (labelled no-ability discs only)",
+            "note": "the per-key cuts alone do not hold a bank at the rate; the bank cut does by construction. No "
+                    "unlabelled proposer disc enters the null, so gate 3 is met only on labelled no-ability discs"}
 
 
 def load_dev():
@@ -342,6 +420,9 @@ def cmd_build(out: Path) -> None:
     sc_up, _ = key_scores(pos, z, kit_keys, set())
     rot_cuts = [cut[k] for k in keys if policy[k] == "rotates"]
     up_cuts = [cut[k] for k in keys if policy[k] == "upright"]
+    default = {r["key"] for r in rows if r["decided_by"] == NO_COMPONENT}
+    up_ev_cuts = [cut[k] for k in keys if policy[k] == "upright" and k not in default]
+    bc = {b: ntab["banks"][b]["bank_cut"] for b in ntab["banks"]}
     m = {"version": VERSION, "dev_n": len(pos), "negatives_n": len(neg),
          "s1_single_policy": top1(sc), "control_rotate_all": sum(
              best_in(sc_all[r["win_index"]], kit_keys, r["kit"])[0] == r["truth"] for r in pos if r["win_index"] in sc_all),
@@ -357,6 +438,13 @@ def cmd_build(out: Path) -> None:
          "s3_median_cut_rotated": round(float(np.median(rot_cuts)), 4),
          "s3_median_cut_upright": round(float(np.median(up_cuts)), 4),
          "s3_gap": round(float(np.median(rot_cuts) - np.median(up_cuts)), 4),
+         "s3_upright_keys_with_component": len(up_ev_cuts),
+         "s3_median_cut_upright_with_component": round(float(np.median(up_ev_cuts)), 4),
+         "no_component_default": len(default),
+         "bank_cut": {b: {k: v[k] for k in ("cut", "named", "rate", "per_scale_named", "per_scale_rate",
+                                             "glyph_items_named_right_cut", "glyph_items_named_right_per_scale")}
+                      | {"by_scale": v["by_scale"]} for b, v in bc.items()},
+         "gate3": ntab["gate3"],
          "s1_wrong": [f"{r['sid']} {r['t_ms'] / 1000:.2f}s {r['truth']} -> {best_in(sc[r['win_index']], keys, r['kit'])[0]}"
                       for r in pos if r["win_index"] in sc and r not in right],
          "false_naming": {f"{b}_{w}": ntab["banks"][b][f"false_naming_rate_{w}"] for b in ntab["banks"] for w in ("cut", "verdict")},
@@ -489,9 +577,18 @@ def cmd_follow(out: Path) -> None:
         clear = [r for r in right if r["truth"] in cuts and Rp[r["win_index"]]["mean"][r["truth"]] > cuts[r["truth"]]["cut"]]
         named = sum(1 for r in neg if R[r["win_index"]]["decided_by"] == "follow" and
                     R[r["win_index"]]["mean"][R[r["win_index"]]["pred"]] > cuts[R[r["win_index"]]["pred"]]["cut"])
+        best = np.array([max(R[r["win_index"]]["mean"].values()) for r in neg
+                         if R[r["win_index"]]["decided_by"] == "follow" and R[r["win_index"]]["mean"]])
+        bcut = cut_at(best)
+        bclear = [r for r in right if Rp[r["win_index"]]["mean"][r["truth"]] > bcut] if bcut is not None else []
         pooled[a] = {"keys": cuts, "negatives_followed": sum(R[r["win_index"]]["decided_by"] == "follow" for r in neg),
                      "false_named_context": named, "right": len(right), "clear": len(clear),
-                     "s2_share": round(len(clear) / max(len(right), 1), 4)}
+                     "s2_share": round(len(clear) / max(len(right), 1), 4),
+                     "bank_cut_context": {"cut": None if bcut is None else round(bcut, 4), "n": int(len(best)),
+                                          "named": int((best > bcut).sum()) if bcut is not None else 0,
+                                          "rate": round(float((best > bcut).mean()), 4) if bcut is not None else None,
+                                          "right_clear": len(bclear),
+                                          "s2_share": round(len(bclear) / max(len(right), 1), 4)}}
     rep["pooled_null"] = pooled
     rep["wall_s"] = round(time.time() - t0, 1)
     json.dump(rep, open(out / "follow.json", "w", encoding="utf-8"), indent=1, default=str)
@@ -536,6 +633,22 @@ def thrown_seed(ref_discs, frames, self_at, vis, terms, kit_keys, scale, static_
             dc, x, y, s = min(cand)
             return t, (float(x), float(y)), s
     return None, "no_thrown_birth"
+
+
+def paired(rows: list[dict], arm: str = "rotate_all") -> dict:
+    """The self seed's stored outcome on the casts the thrown seed (`arm`) named, and the two seeds' outcomes where
+    both named: does the thrown seed fix the casts the self seed got wrong?"""
+    named = [x for x in rows if (x.get(arm) or {}).get("outcome") in ("right", "wrong")]
+    selfc = Counter(x["self_seed"] for x in named)
+    both = [x for x in named if x["self_seed"] in ("right", "wrong")]
+    pair = Counter(f"self_{x['self_seed']}__thrown_{x[arm]['outcome']}" for x in both)
+    return {"arm": arm, "thrown_named": len(named), "self_right": selfc["right"], "self_wrong": selfc["wrong"],
+            "self_refused": selfc["refused"],
+            "self_precision": round(selfc["right"] / (selfc["right"] + selfc["wrong"]), 4)
+            if selfc["right"] + selfc["wrong"] else None,
+            "both_named": len(both), "both_right": pair["self_right__thrown_right"],
+            "both_wrong": pair["self_wrong__thrown_wrong"], "self_only_right": pair["self_right__thrown_wrong"],
+            "thrown_only_right": pair["self_wrong__thrown_right"]}
 
 
 def cmd_thrown(out: Path, only: set | None = None) -> None:
@@ -646,6 +759,7 @@ def cmd_thrown(out: Path, only: set | None = None) -> None:
     selfc = Counter(r["glyph"] for r in casts)
     summ["self_seed_stored"] = {"right": selfc["right"], "wrong": selfc["wrong"], "refused": selfc["refused"],
                                 "precision": round(selfc["right"] / (selfc["right"] + selfc["wrong"]), 4)}
+    summ["paired"] = paired(res)
     summ["refusals"] = dict(Counter(x["refused"] for x in res if x.get("refused")))
     summ["by_key"] = {}
     for x in res:
@@ -679,14 +793,21 @@ def cmd_record(out: Path) -> None:
         "keys": len(ptab["rows"]), "rotates": ptab["counts"].get("rotates", 0),
         "upright": ptab["counts"].get("upright", 0),
         "by_answer": ptab["decided_by"].get("player_answer", 0), "unsure": ptab["decided_by"].get(UNSURE, 0),
-        "by_rule": ptab["decided_by"].get("two_flag_rule", 0), "surprises": len(ptab["surprises"])},
+        "by_rule": ptab["decided_by"].get("two_flag_rule", 0), "no_component_default": ptab["decided_by"].get(NO_COMPONENT, 0),
+        "surprises": len(ptab["surprises"])},
         deps=deps, context=ctx)
     metrics.record("glyph_tables", part="build", values={
         k: b[k] for k in ("dev_n", "negatives_n", "s1_single_policy", "control_rotate_all", "control_upright",
                           "s2_right", "s2_clear", "s2_share", "s3_rotated_keys", "s3_upright_keys",
                           "s3_median_cut_rotated", "s3_median_cut_upright", "s3_gap")} |
         {f"false_naming_{k}": v for k, v in b["false_naming"].items()} |
-        {f"named_right_verdict_{k}": v for k, v in b["named_right_verdict"].items()},
+        {f"named_right_verdict_{k}": v for k, v in b["named_right_verdict"].items()} |
+        {k: b[k] for k in ("s3_upright_keys_with_component", "s3_median_cut_upright_with_component")} |
+        {f"bank_cut_{bk}_{k}": v[k] for bk, v in b["bank_cut"].items()
+         for k in ("cut", "named", "rate", "per_scale_rate", "glyph_items_named_right_cut",
+                   "glyph_items_named_right_per_scale")} |
+        {f"bank_cut_{bk}_scale_{sk.replace('.', 'p')}_{k}": sv[k] for bk, v in b["bank_cut"].items()
+         for sk, sv in v["by_scale"].items() for k in ("n", "cut")},
         deps=deps, context=ctx,
         controls=[{"name": "rotate-all reproduces the eval 0.3.0 dev rot_pred (55/59)",
                    "observed": b["control_rotate_all"], "expected": b["control_expected"]["rotate_all"], "tol": 0},
@@ -698,6 +819,7 @@ def cmd_record(out: Path) -> None:
         for a, p in f["pooled_null"].items():
             v |= {f"pooled_{a}_s2_share": p["s2_share"], f"pooled_{a}_clear": p["clear"], f"pooled_{a}_right": p["right"],
                   f"pooled_{a}_false_named": p["false_named_context"], f"pooled_{a}_negatives": p["negatives_followed"]}
+            v |= {f"pooled_{a}_bank_cut_context_{k}": p["bank_cut_context"][k] for k in ("cut", "named", "rate", "s2_share")}
         metrics.record("glyph_tables", part="follow", values=v, deps=deps | {"follow": f["follow"]}, context=ctx,
                        controls=[{"name": "rotate-all follow reproduces minimap_glyph_eval/killjoy_refs_dev (58/59)",
                                   "observed": f["arms"]["rotate_all_cache"]["right"], "expected": 58, "tol": 0}])
@@ -705,6 +827,7 @@ def cmd_record(out: Path) -> None:
         t = json.load(open(out / "thrown.json", encoding="utf-8"))["summary"]
         v = {f"{a}_{k}": t[a][k] for a in ("rotate_all", "policy", "self_seed_stored")
              for k in ("right", "wrong", "refused", "precision")}
+        v |= {f"paired_{k}": val for k, val in t["paired"].items() if k != "arm"}
         metrics.record("glyph_tables", part="thrown", session="matches", values=v, deps=deps,
                        context=ctx | {"casts": str(gcc.CROSS_CASTS)},
                        controls=[{"name": "stored self seed precision (glyph_channel_cost/cross_channel@matches)",
