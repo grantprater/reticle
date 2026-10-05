@@ -637,6 +637,39 @@ class AbilitySupplyStaleTests(unittest.TestCase):
             self.assertFalse(_ability_stale(store, "s", ("ability_fit",)))
 
 
+class AbsentPassStreamTests(unittest.TestCase):
+    """A pass stream that reads another pass stream's rows (the glyph reader
+    reads the proposer's) is stale where the pass ran without it; a pass
+    stream with no upstream in the pass, absent, is a stream never asked for."""
+
+    def _store(self, d, stored):
+        store = _current_store(Path(d))
+        for stream in stored:
+            f = Path(d) / "events" / stream / "s.jsonl"
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("{}", encoding="utf-8")
+            store.events[stream + ":rows"] = [_declared_head(stream)]
+            store.events[stream] = [{"v": _declared_head(stream)[f"{stream}_version"]}]
+        return store
+
+    def test_the_glyph_stream_is_stale_where_the_proposer_ran(self):
+        with tempfile.TemporaryDirectory() as d:
+            derived = stale(self._store(d, ["ability_icon"]), ["s"])["s"]["derived"]
+            glyph = [x for x in derived if x["stream"] == "ability_glyph"]
+            self.assertEqual(len(glyph), 1)
+            self.assertEqual(glyph[0]["inputs_moved"], ["absent from a pass that ran"])
+            self.assertEqual(glyph[0]["command"], "reticle scan s --only ability")
+            self.assertIsNone(glyph[0]["stored"])
+
+    def test_no_absent_stream_is_named_where_the_proposer_never_ran(self):
+        with tempfile.TemporaryDirectory() as d:
+            derived = stale(self._store(d, ["ability_gate"]), ["s"])["s"]["derived"]
+            self.assertEqual([x for x in derived if x["inputs_moved"] == ["absent from a pass that ran"]],
+                             [])
+            derived = stale(self._store(d, []), ["s"])["s"]["derived"]
+            self.assertEqual(derived, [])
+
+
 class EnemyLaneStaleTests(unittest.TestCase):
     """The enemy lane: each fix is part of the `minimap_object` stamp, so a
     stream read with a fix off is stale, and the tracks and deaths built on it

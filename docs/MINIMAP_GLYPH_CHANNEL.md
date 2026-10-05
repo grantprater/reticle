@@ -312,7 +312,7 @@ caster's name, as for every name.
 **Where it runs.** It joins the ability pass (`reticle scan <sid> --only
 ability`), which rereads the minimap crop cache at 2 Hz on live spans, as a
 `passes.Reader`. Sharing the pass is an execution optimisation: the reader
-keeps its own stamp `ability-glyph-0.1.0`, and a change to the proposer
+keeps its own stamp (`ability-glyph-0.2.0`), and a change to the proposer
 restamps it only through its declared input. It reads the proposer's
 candidates for the same frame, never reruns the proposer, and never
 decodes video.
@@ -726,13 +726,138 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    it reads upright and changes no policy. Outcome rows: store
    `notes/predictions.jsonl`, ts 2026-10-05T09:11:10Z, and the fix round's
    correction and outcome rows after it.
-2. **The reader** in the ability pass, `ability-glyph-0.1.0`; `reticle
-   trial --reader ability_glyph` on a06f04a0059f, 5822b6646448
+2. **The reader** in the ability pass; `reticle trial --reader
+   ability_glyph` on a06f04a0059f, 5822b6646448
    (`C:\Users\grant\Videos\2026-08-26 12-38-38.mp4`) and 4f207c0c4e39
-   (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`); gate 7.
+   (`C:\Users\grant\Videos\2026-09-27 19-40-58.mp4`); gate 7. **Built,
+   `ability-glyph-0.2.0`, gate 7 met** (2026-10-05, `reticle/minimap_glyph.py`
+   [owns:ability-glyph]). It reads three versioned store files, never
+   `prototypes/`: the reference bank `glyph-bank-0.2.0` (store
+   `analysis/glyph-bank-20261005b`, written by `glyph_tables.py bank` from
+   the references the stage 1 tables were built on, paired to them by
+   sha256, each source with its game file and sha256; the glyphs equal
+   0.1.0's), the policy and the null table. It scores the lineup's kits
+   (`lineup.glyph_candidates`) under the policy on every ungated disc, the
+   first birth and every tenth after it against every kit at every rotation
+   (`audit`), and a window whose best context key never clears its per-key
+   cut against every kit when it closes (`surprise`). It runs the 2 Hz arm
+   only (S4); the cache-cadence follow is not built. `plan` names
+   `ability_glyph` stale where `ability_icon` is stored without it
+   (`plan.PASS_ADDED`). Outcome rows: store `notes/predictions.jsonl`,
+   `glyph-reader-20261005` (0.1.0) and `glyph-reader-fix-20261005` (0.2.0,
+   with the correction row that withdraws 0.1.0's revised beliefs).
+   - **Revisions after review (0.2.0).** The 0.1.0 reader scored every
+     proposer disc without stage 1's gates; on 4f207c0c4e39 most rows sat
+     on static map structure. Each disc row now stores `static_corr` against
+     the baked static and its nearest stored `ally_icon` portrait, and a
+     disc that is the map's (`static_like`, stage 1's MAP_CORR 0.7) or lies
+     inside a portrait (`on_ally_icon`) is neither scored nor scheduled.
+     Continuation is the proposer's verify
+     (`ability_icons.verified_continuations`), not a reach of the reader's
+     own. Context and frame rows rest on the lineup stamp. Audit rows store
+     no cut (`no_null_at_full_rotation`). The per-view gate (enemy kits only
+     their enemy-visible textures) is deferred: both sides' full kits are
+     scored, which widens the surprise and audit comparisons (R3, R4) and the
+     cost, all measured with it.
+   - The matcher reproduces stage 1 exactly: against the origin/master
+     prototype with its own normalisation, the largest per-key difference
+     on the 122 dev windows is [metric:glyph_reader/r1_020#max_abs_diff_cpu=0.0]
+     and S1 is [metric:glyph_reader/r1_020#s1_reader=58] of 59; on 200
+     scored rows per trial session it matches `frame_scores` within
+     [metric:glyph_reader/trial_020@4f207c0c4e39#r2_max_abs_diff=5.01e-05]
+     (the stored rounding), the best key on every row.
+   - The gates on 4f207c0c4e39: of the 0.1.0 trial's 12 most frequent
+     positions, a share
+     [metric:glyph_reader/trial_020@4f207c0c4e39#f1_gated_share=0.942] of
+     the rows are now gated, and the above-cut share there fell from
+     [metric:glyph_reader/trial_020@4f207c0c4e39#f1_old_above_share=0.6556]
+     to [metric:glyph_reader/trial_020@4f207c0c4e39#f1_above_share=0.0521].
+     Nearly all that remains sits at the widget's left edge, half over the
+     void, where the static correlation reads 0.64; the stage 1 rule does
+     not reach it, and a slab-only correlation did not either (probed, not
+     adopted). On the other two sessions the frequent positions are the
+     player's placed Deadlock:Q sensors, real glyphs the gate rightly keeps.
+     Births fell from 2798 to
+     [metric:glyph_reader/trial_020@4f207c0c4e39#births=933].
+   - Gate 7, as worded: in `reticle usage c40d950031bb` after one `scan
+     --only ability --from cache` (331 px; shape, icon and glyph readers
+     fed live) the glyph reader took a share
+     [metric:glyph_reader/scan_020@c40d950031bb#glyph_share_of_pass=0.0537]
+     of the pass ([metric:glyph_reader/scan_020@c40d950031bb#glyph_share_without_templates=0.0301]
+     without the one-time template build). In the trial on 4f207c0c4e39,
+     against the icon reader and the cache read alone, the ratio is
+     [metric:glyph_reader/trial_020@4f207c0c4e39#ratio=0.0635], from 0.1178
+     at 0.1.0. A trial reading the stored proposer rows (`StoredIcons`)
+     reproduced all [metric:glyph_reader/scan_020@c40d950031bb#stored_path_identical=3709]
+     rows the scan wrote live.
+   - The scale is a measured exception, held by parity, not insensitivity.
+     Rescored at the full transform (widget x zoom), the best key agrees on
+     only [metric:glyph_reader/trial_020@4f207c0c4e39#f4_best_agree_share=0.805]
+     of 200 rows at zoom 0.892 and the cut decision on
+     [metric:glyph_reader/trial_020@4f207c0c4e39#f4_cut_agree_share=0.885];
+     at zoom 1.0 both agree on every row. The null cuts hold only at the
+     basis they were measured on, the widget scale at dev zooms 0.887 and
+     1.0, which the trial sessions match. A session at another zoom needs a
+     null at its basis, or the tables rebuilt at the full transform.
+   - The surprise path takes
+     [metric:glyph_reader/trial_020@4f207c0c4e39#r3_share=0.3494],
+     [metric:glyph_reader/trial_020@a06f04a0059f#r3_share=0.5382] and
+     [metric:glyph_reader/trial_020@5822b6646448#r3_share=0.3197] of the
+     windows: the per-key cut alone still clears most windows after the
+     gates, as gate 3's bank rates warned. The audit's full rotated bank
+     puts its best key inside the lineup's kits on
+     [metric:glyph_reader/trial_020@4f207c0c4e39#r4_best_in_context=30] of
+     [metric:glyph_reader/trial_020@4f207c0c4e39#r4_cleared_audit_windows=65]
+     cleared windows there: a bank searched at every rotation wins on noise.
+     Audit rows need their own null before stage 3 compares them with
+     context verdicts (P5).
+   - **Revisions after the second review (0.3.0).** The portrait gate is
+     stage 1's `portrait_cover` itself, moved into `reticle/minimap_glyph.py`;
+     the prototype's follow calls it and reproduces stage 1 exactly (dev
+     58/59, every skip and score). The reader applies it to the stored
+     `ally_icon` fits and self icon: the stored `team_vision` puts the self
+     icon about 15 px off on the variant session. An ally fit within SAME_R
+     no longer gates its disc; the ring to OCC_R does. That regained
+     [metric:glyph_reader/trial_030@5822b6646448#regained=62] rows on
+     5822b6646448, Gekko discs with a white glyph and a teal rim, but also
+     [metric:glyph_reader/trial_030@4f207c0c4e39#regained=14] on
+     4f207c0c4e39 that are ally portraits the proposer proposed; the ring
+     gates [metric:glyph_reader/trial_030@4f207c0c4e39#newly_portrait_gated=171]
+     rows there that 0.2.0 scored. Births on 4f207c0c4e39 went from
+     [metric:glyph_reader/trial_030@4f207c0c4e39#births_before=933] to
+     [metric:glyph_reader/trial_030@4f207c0c4e39#births=844]. R1 and R2
+     hold: [metric:glyph_reader/r1_030#max_abs_diff_cpu=0.0] on the dev
+     windows, [metric:glyph_reader/trial_030@4f207c0c4e39#r2_max_abs_diff=5.0e-05]
+     on 200 trial rows. The glyph feed over the icon feed and the cache read
+     is [metric:glyph_reader/trial_030@4f207c0c4e39#ratio=0.062] on
+     4f207c0c4e39.
+   - **The void-corner disc stays scored.** The disc at (21, 91) on
+     4f207c0c4e39 is the void beside the radar ring at the variant
+     widget's corner. The baked static is placed right there; the void half
+     shows the world behind the widget, so no baked value predicts it, and
+     the static correlation over the map-art footprint alone is still
+     [metric:glyph_reader/trial_030@4f207c0c4e39#edge_onfootprint_corr_median=0.665].
+     The disc lies [metric:glyph_reader/trial_030@4f207c0c4e39#edge_footprint_share=0.195]
+     on the footprint, but real glyphs drawn over the void do too:
+     [metric:glyph_reader/trial_030@4f207c0c4e39#heldout_marks_below_half_footprint=9]
+     of [metric:glyph_reader/trial_030@4f207c0c4e39#heldout_marks=226]
+     labelled held-out marks sit under half on it. A footprint gate, not
+     built, would have removed
+     [metric:glyph_reader/trial_030@4f207c0c4e39#fpgate_births=374] of 933
+     births there and real glyph rows on 5822b6646448. Stage 3 answers it.
 3. **Tracks, verdict, per-ability rules and claims** from storage; gates 4
    and 6. The ability pass first runs on the 21 matches in one batched
    corpus rerun; today `ability_icon` exists on five sessions only.
+   Prerequisites, from stage 2's review:
+   - **A null at the full transform.** The scale exception's falsifier
+     fired (F4, above): the null table is remeasured at widget x zoom under
+     a new table version, and the reader moves to `geometry.MapScale.scale`,
+     before any verdict is read on a session away from the dev zooms.
+   - **The void-corner disc.** The reader still scores the disc at
+     (21, 91) on 4f207c0c4e39, the void beside the radar ring at the
+     variant widget's corner (stage 2's 0.3.0 revision). The null table's
+     negatives hold no such disc; stage 3 adds them to the null, or finds a
+     second channel that refuses them, before a track there can name.
 4. **The lane and `reticle view`**; gate 5.
 5. **The scene model.** The glyph textures become an ability sprite in
    `docs/SCENE_MODEL.md`'s renderer, composited over the baked static at
@@ -806,6 +931,8 @@ From the repository root, single-threaded, Below Normal, no decode:
 .\.venv\Scripts\python.exe prototypes\glyph_tables.py follow --out <that dir>         # follow.json: S1 follow, S4, pooled null (dev crop cache)
 .\.venv\Scripts\python.exe prototypes\glyph_tables.py thrown --out <that dir>         # thrown.json: S5 (match crop caches)
 .\.venv\Scripts\python.exe prototypes\glyph_tables.py record --out <that dir>         # glyph_tables/* metric series, once
+.\.venv\Scripts\python.exe prototypes\glyph_tables.py bank --out <new dir> --tables <that dir>  # stage 2's reference bank
+.\.venv\Scripts\python.exe -m reticle trial <sid> --reader ability_glyph --from cache   # stage 2: proposer and reader, no decode
 ```
 
 Each writing command refuses an existing output file, and `--out` has no

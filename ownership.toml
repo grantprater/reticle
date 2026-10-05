@@ -1800,15 +1800,40 @@ question = "Where on a sampled minimap crop are dark compact discs an ability ic
 owner = "ability_icons"
 role = ["detect"]
 status = "partial"
-produces = ["IconTerms", "propose_icons", "verify_icons", "AbilityIconReader", "icon_reader"]
+produces = ["IconTerms", "propose_icons", "verify_icons", "verified_continuations", "AbilityIconReader", "icon_reader"]
 not_for = """
 Naming the ability, its kind, its side or its caster (`ability-owner`,
 `agent-identity`); tracks and lifecycles (`adjudication.ability`); teal rings
 and beams (`ability-shape`, `ability-gate`); smokes (`minimap-dark`). A
 candidate is a dark disc on the slab, not an ability: most come and go.
 """
-consumers = ["cli"]
+consumers = ["cli", "minimap_glyph"]
 evidence = "tests/test_ability_icons.py, tools/ability_icon_benchmark.py"
+
+[[entry]]
+id = "ability-glyph"
+question = "Which game minimap texture of the candidate kits does each proposed ability disc draw, and how well does each candidate score?"
+owner = "minimap_glyph"
+role = ["detect"]
+status = "partial"
+produces = ["GlyphData", "Templates", "score_windows", "AbilityGlyphReader", "glyph_reader", "LiveIcons", "StoredIcons", "StoredPortraits", "portrait_covers", "check_pass"]
+defers_to = ["ability-icon", "ally-candidates", "map-geometry"]
+not_for = """
+Finding discs (`ability-icon`) or deciding which disc continues which: the
+proposer's verify answers that (`ability_icons.verified_continuations`), and
+the reader's windows only schedule the audit and surprise paths on it; they
+are not tracks (`ability-disc-track`). Posing or naming portraits
+(`ally-candidates`): the gate reads the stored `ally_icon` fits' and self
+icon's positions only, under stage 1's `portrait_cover`. Naming the
+ability or its caster (`ability-glyph-name`, `agent-identity`): a score's
+"Agent:Slot" label and a row's `best` and `second` keys are observations of
+which texture fits, not names, so the entry declares no `names_agents`.
+Smokes (`minimap-dark`) and shapes (`ability-shape`). Choosing the candidate
+set beyond the lineup's verdicts, which it takes as a candidate set only
+(`lineup.glyph_candidates`).
+"""
+consumers = ["cli", "trial"]
+evidence = "tests/test_minimap_glyph.py; reticle trial --reader ability_glyph; docs/MINIMAP_GLYPH_CHANNEL.md stage 2"
 
 
 [[entry]]

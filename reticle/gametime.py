@@ -439,3 +439,21 @@ def build_session_gametime(
         discontinuities=discontinuities,
         stalls=stalls,
     )
+
+
+def live_phase_at(store, sid: str, date: str):
+    """(this session's phase at a time, None) for the ability pass's
+    live-sample gate, or (None, reason) where the session has no stored HUD
+    stream (a demo scanned without `hud`) or no stored rounds: the live phase
+    is then unknown and every sample is read. `scan` and `trial` both ask
+    this, so a trial gates the samples `scan` gates."""
+    from . import stalls as stall_rows
+    if not store.hud_path(sid, date).is_file():
+        return None, "no HUD stream"
+    rs = store.read_rounds(sid, date)
+    if rs is None:
+        return None, "no rounds stream"
+    hud = store.read_hud(sid, date)
+    gt = build_session_gametime(sid, hud, rs.to_pylist(),
+                                stall_list=stall_rows.for_session(store, sid, date))
+    return (lambda t: gt.game_time_at(t).phase), None
