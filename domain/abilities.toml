@@ -7306,6 +7306,46 @@ use = "bind an Owl Drone birth to the ally whose icon it leaves"
 see = ["abilities/sova-owl-drone-piloted", "abilities/sova-owl-drone-minimap-glyph-upright",
        "game_data/sova-owl-drone-game-data", "abilities/ability-rules-are-unique"]
 
+[skye-trailblazer-origin-at-caster]
+claim = """
+Skye's Trailblazer (slot Q) starts where Skye stands: its minimap icon is
+born at her icon.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "skye:trailblazer"
+source = """
+the player, 2026-10-05 (chat), asked which ability they meant by Skye's
+drone: the player named the dog, Trailblazer, and said it begins at Skye's
+location. The game files spawn the pawn with no offset at a spot found by
+short traces from Skye's pawn [domain:game_data/skye-trailblazer-game-data]
+"""
+use = "bind a Trailblazer birth to the ally whose icon it leaves"
+see = ["abilities/skye-trailblazer-piloted", "abilities/skye-trailblazer-minimap-glyph-upright",
+       "abilities/skye-trailblazer-enemy-minimap-glyph",
+       "game_data/skye-trailblazer-game-data", "abilities/ability-rules-are-unique"]
+
+[skye-guiding-light-origin-at-caster]
+claim = """
+Skye's Guiding Light (slot E) starts where Skye stands: its minimap icon is
+born at her icon.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "skye:guiding light"
+source = """
+the player, 2026-10-05 (chat), asked which ability they meant by Skye's
+drone: beside naming Trailblazer, the player said Guiding Light also
+begins at Skye's location. The game-data fact cites no spawn offset for the
+bird [domain:game_data/skye-guiding-light-game-data]
+"""
+use = "bind a Guiding Light birth to the ally whose icon it leaves"
+see = ["abilities/skye-guiding-light-steered", "abilities/skye-guiding-light-minimap-icon",
+       "abilities/skye-guiding-light-minimap-glyph-upright",
+       "game_data/skye-guiding-light-game-data", "abilities/ability-rules-are-unique"]
+
 [tejo-stealth-drone-origin-at-caster]
 claim = """
 Tejo's Stealth Drone (slot C) starts where Tejo stands: its minimap icon is

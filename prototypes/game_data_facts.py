@@ -880,13 +880,13 @@ ab('Skye', 'Q', 'Trailblazer', [
     V('range', 'attack Radius', 'cm', GD + 'Ability_Q/Ability_Guide_Q_PossessableScout_ScoutAbilities', 'ActorTargetingState_Attack_GEN_VARIABLE', 'Radius'),
     V('unconfirmed', 'spawn spot trace TargetOffset.X', 'cm', GD + 'Ability_Q/Ability_Guide_Q_PossessableScout', 'FindSpawnSpotState_GEN_VARIABLE', 'Traces[0].TargetOffset.X'),
     V('unconfirmed', 'spawned pawn Offset.Translation.X', 'cm', GD + 'Ability_Q/Ability_Guide_Q_PossessableScout', 'SpawnActorState_GEN_VARIABLE', 'SpawnedActors[0].Offset.Translation.X'),
-], note=TRACE_NOTE.format('pawn'))
+], note=TRACE_NOTE.format('pawn'), see=['abilities/skye-trailblazer-origin-at-caster'])
 ab('Skye', 'E', 'Guiding Light', [
     D(GD + 'Ability_E/Projectile_Guide_E_HawkFlash', 'Duration'),
     V('speed', 'ProjectileSpeed', 'cm_s', GD + 'Ability_E/Projectile_Guide_E_HawkFlash', FSM, 'ProjectileSpeed'),
     D(GD + 'Ability_E/GameObject_Guide_E_HawkFlash_FlashSource', 'Radius', role='size', unit='cm', key='flash Radius'),
     V('other', 'flash MaxDuration', 's', GD + 'Ability_E/GameObject_Guide_E_HawkFlash_FlashSource', 'FlashbangExplosion_GEN_VARIABLE', 'MaxDuration'),
-])
+], see=['abilities/skye-guiding-light-origin-at-caster'])
 ab('Skye', 'X', 'Seekers', [
     D(GD + 'Ability_X/Pawn_Guide_X_Pack', 'FollowDuration'),
     V('speed', 'MovementTuning.BaseValues.MaxSpeed', 'cm_s', GD + 'Ability_X/Pawn_Guide_X_Pack', 'CharMoveComp', 'MovementTuning.BaseValues.MaxSpeed'),

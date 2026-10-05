@@ -4097,7 +4097,7 @@ settle. These are class defaults; a blueprint may change a value at run time,
 and a field name is the designers' word, not a measured meaning.
 """
 values = { life = { possess_duration_timer_length_s = 6.0 }, size = { concussion_range_m = 3.5 }, range = { attack_radius_m = 12.5 }, unconfirmed = { spawn_spot_trace_target_offset_x_m = 0.75, spawned_pawn_offset_translation_x_m = 0.0 }, speed = { movement_tuning_base_values_max_speed_m_s = 6.5 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/skye-trailblazer-origin-at-caster"]
 
 [skye-guiding-light-game-data]
 claim = """
@@ -4138,7 +4138,7 @@ These are class defaults; a blueprint may change a value at run time, and a
 field name is the designers' word, not a measured meaning.
 """
 values = { life = { duration_s = 2.0 }, size = { flash_radius_m = 50.0 }, speed = { projectile_speed_m_s = 18.0 }, other = { flash_max_duration_s = 1.25 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/skye-guiding-light-origin-at-caster"]
 
 [skye-seekers-game-data]
 claim = """

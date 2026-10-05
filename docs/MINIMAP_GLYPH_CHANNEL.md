@@ -650,15 +650,14 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
    - Reyna's Leer [domain:abilities/reyna-leer-origin-set-distance] is born
      at most its game-file trigger distance from Reyna, nearer when cast
      steeply.
-   - Sova's Owl Drone [domain:abilities/sova-owl-drone-origin-at-caster] and
-     Tejo's Stealth Drone [domain:abilities/tejo-stealth-drone-origin-at-caster]
-     are born at the caster's icon.
+   - Sova's Owl Drone [domain:abilities/sova-owl-drone-origin-at-caster],
+     Tejo's Stealth Drone [domain:abilities/tejo-stealth-drone-origin-at-caster],
+     Skye's Trailblazer [domain:abilities/skye-trailblazer-origin-at-caster]
+     and Skye's Guiding Light
+     [domain:abilities/skye-guiding-light-origin-at-caster] are born at the
+     caster's icon.
    - Every other ability has no origin rule yet; gate 6 stores its
-     disagreement as unexplained, never as an error. Skye's drone is
-     unnamed. Trailblazer is piloted like the Owl Drone
-     [domain:abilities/skye-trailblazer-piloted] and Guiding Light is
-     steered [domain:abilities/skye-guiding-light-steered]; whether the
-     player meant one, both or neither is asked.
+     disagreement as unexplained, never as an error.
 
    Each distance is a game-data fact in metres. It becomes widget pixels as
    base value x widget scale x map zoom (`geometry.MapScale.px`), where the
