@@ -1,6 +1,7 @@
 # In-client replay files (.vrf): what the file holds and how its clock and
 # angles relate to Riot's match records. Facts about the format, not about any
-# reader. Replays are evaluation truth only (prototypes/replay_truth.py).
+# reader. Parsed by prototypes/replay_truth.py; policy on their use lives in
+# docs/EXTERNAL_GROUND_TRUTH.md.
 # Schema and the citation form: reticle/domain.py.
 
 [vrf-container]
@@ -181,8 +182,7 @@ pawns. Class paths checked against the game-file index of
 release-13.06-shipping-18-5590001
 """
 use = """
-evaluation truth only (prototypes/replay_abilities.py); never a reader input or
-a prior
+read through the census of prototypes/replay_abilities.py
 """
 exceptions = """
 an actor's open is not always the cast: Chamber's cast records pair a new
