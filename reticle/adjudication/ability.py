@@ -6,6 +6,13 @@ Human component identity can support a parent edge.  It cannot prove that
 several components form one physical entity.
 
 Owns [owns:ability-hypothesis].
+
+It also joins the minimap ability discs into tracks, `disc_tracks` [owns:ability-disc-track]
+(stage 3 of `docs/MINIMAP_GLYPH_CHANNEL.md`, "Disc tracks"): pure over the
+stored `ability_glyph` disc rows, whose `rests_on` carries the proposer's
+verify link (`ability_icons.verified_continuations`), and the stored
+`ability_icon` verify rows, which say why a track ended. It reads no pixels
+and names nothing.
 """
 from __future__ import annotations
 
@@ -880,4 +887,166 @@ def predict_ability_births(tray_casts: list[dict],
                 "gated_candidates": [],
             })
     return out
+
+
+# ------------------------------------------------------------------ minimap disc tracks
+
+#: A step between two fixes of one track longer than this (px x MapScale.scale)
+#: is a stored surprise: the verify bound another object, or a moving one. It
+#: is the stage 1 follow's starting reach (`prototypes/minimap_glyph_eval.py`
+#: REACH[0], 4 px x scale), a design choice; the verify itself searches only
+#: VERIFY_HALF_BASE about its last fix, so a placed icon steps far less.
+JUMP_REACH_BASE = 4.0
+#: The span over which a track's first-second speed is read (ms after its birth).
+FIRST_SECOND_MS = 1000.0
+#: Why a track ended, in the order `disc_tracks` decides it.
+TRACK_ENDS = ("stream_end", "frame_unread:<reason>", "verify_lost", "verify_held_unbound",
+              "no_verify_row")
+
+
+def disc_tracks(session_id: str, discs: dict, frames: dict, verify: dict | None) -> dict:
+    """Join a session's stored minimap ability discs into tracks.
+
+    Pure over stored rows, vectorised (`scipy.sparse.csgraph`):
+
+    - `discs`: arrays over the `ability_glyph` context disc rows, one per
+      proposed disc and sample: `t_ms`, `i`, `disc` (its id), `pred` (the
+      disc it continues, from its `rests_on`; '' for none), `cx`, `cy`,
+      `scale` (MapScale.scale) and `reason` (the reader's gate; '' where
+      scored). The link is the proposer's verify, as the reader stored it;
+      this function adds no reach of its own, so a gated sample never ends a
+      track: a dimmed device stays one object while the verify holds it.
+    - `frames`: arrays over the stream's frame rows, `t_ms` and `reason`
+      ('' where read).
+    - `verify`: arrays over the stored `ability_icon` verify rows, `t_ms` (the
+      sample that verified), `of` (the disc's index in the sample before) and
+      `lost` (its `score` None); None where no proposer stream is given.
+
+    Each track stores its path length, its displacement and speed over its
+    first second and its lifetime, in crop px and in base px (px over the
+    fix's scale). `onset` says why its birth is one: `observed` (the sample
+    before was read and continued no disc into it), `after_unread:<reason>`
+    or `stream_start`. `end` says why it ended: `verify_lost` (the stored
+    verify's `score` is None), `verify_held_unbound`, `frame_unread:<reason>`
+    (the next sample is unread: not live, widget not drawn, the round over),
+    `no_verify_row` or `stream_end`. A step past JUMP_REACH_BASE x scale is a
+    stored surprise (`jump_past_reach`), never a split.
+
+    Returns {"track": per disc row, its track's index; "tracks": one dict per
+    track, in birth order}."""
+    import numpy as np
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    t = np.asarray(discs["t_ms"], float)
+    n = len(t)
+    if n == 0:
+        return {"track": np.zeros(0, np.int64), "tracks": []}
+    ii = np.asarray(discs["i"], np.int64)
+    ids = np.asarray(discs["disc"], object).astype(str)
+    pred = np.asarray(discs["pred"], object).astype(str)
+    cx = np.asarray(discs["cx"], float)
+    cy = np.asarray(discs["cy"], float)
+    scale = np.asarray(discs["scale"], float)
+    why = np.asarray(discs["reason"], object).astype(str)
+
+    by_id = np.argsort(ids, kind="stable")
+    sorted_ids = ids[by_id]
+    pos = np.clip(np.searchsorted(sorted_ids, pred), 0, n - 1)
+    linked = (pred != "") & (sorted_ids[pos] == pred)
+    src = np.flatnonzero(linked)
+    dst = by_id[pos[linked]]
+    graph = coo_matrix((np.ones(len(src)), (src, dst)), shape=(n, n))
+    ncomp, comp = connected_components(graph, directed=False)
+
+    so = np.lexsort((ii, t, comp))
+    cs = comp[so]
+    starts = np.r_[0, np.flatnonzero(np.diff(cs)) + 1]
+    ends = np.r_[starts[1:], n]
+    birth, last = so[starts], so[ends - 1]
+    nfix = ends - starts
+    # Number the tracks in birth order.
+    rank = np.lexsort((ii[birth], t[birth]))
+    new_of = np.empty(ncomp, np.int64)
+    new_of[cs[starts][rank]] = np.arange(ncomp)
+    track = new_of[comp]
+
+    seg_of = np.searchsorted(starts, np.arange(n), side="right") - 1
+    same = cs[1:] == cs[:-1]
+    step = np.hypot(np.diff(cx[so]), np.diff(cy[so]))
+    step_base = step / scale[so][1:]
+    path_px = np.bincount(seg_of[1:][same], weights=step[same], minlength=ncomp)
+    path_base = np.bincount(seg_of[1:][same], weights=step_base[same], minlength=ncomp)
+    jump = np.r_[False, same & (step > JUMP_REACH_BASE * scale[so][1:])]
+    step = np.r_[0.0, step]
+
+    t0 = t[birth]
+    within = (t[so] - t0[seg_of]) <= FIRST_SECOND_MS
+    lw = so[np.maximum.reduceat(np.where(within, np.arange(n), -1), starts)]
+    disp_px = np.hypot(cx[lw] - cx[birth], cy[lw] - cy[birth])
+    disp_base = disp_px / scale[birth]
+    dt1 = t[lw] - t0
+    speed = np.where(dt1 > 0, disp_base / np.where(dt1 > 0, dt1, 1.0) * 1000.0, np.nan)
+    scored = np.add.reduceat((why[so] == "").astype(np.int64), starts)
+
+    ft = np.asarray(frames["t_ms"], float)
+    fr = np.asarray(frames["reason"], object).astype(str)
+    fo = np.argsort(ft, kind="stable")
+    ft, fr = ft[fo], fr[fo]
+    nf = len(ft)
+    if nf:
+        kp = np.searchsorted(ft, t0, side="left") - 1
+        rp = fr[np.clip(kp, 0, None)]
+        onset = np.where(kp < 0, "stream_start",
+                         np.where(rp == "", "observed", np.char.add("after_unread:", rp)))
+        kn = np.searchsorted(ft, t[last], side="right")
+        nxt = np.clip(kn, 0, nf - 1)
+        end = np.where(kn >= nf, "stream_end",
+                       np.where(fr[nxt] != "", np.char.add("frame_unread:", fr[nxt]),
+                                "no_verify_row")).astype(object)
+    else:
+        onset = np.full(ncomp, "stream_start")
+        end = np.full(ncomp, "stream_end", dtype=object)
+        nxt = np.zeros(ncomp, np.int64)
+    if verify is not None and len(verify["t_ms"]) and nf:
+        # One key per (verifying sample, verified index): t x 64 + index is
+        # exact in float64 for any t_ms the stream stores and < 64 candidates.
+        vkey = np.asarray(verify["t_ms"], float) * 64.0 + np.asarray(verify["of"], float)
+        vlost = np.asarray(verify["lost"], bool)
+        vo = np.argsort(vkey, kind="stable")
+        vkey, vlost = vkey[vo], vlost[vo]
+        want = ft[nxt] * 64.0 + ii[last]
+        kv = np.clip(np.searchsorted(vkey, want), 0, len(vkey) - 1)
+        hit = (vkey[kv] == want) & (end == "no_verify_row")
+        end[hit] = np.where(vlost[kv[hit]], "verify_lost", "verify_held_unbound")
+
+    cut = starts[1:]
+    f_t, f_i, f_x, f_y = (np.split(a[so], cut) for a in (t, ii, cx, cy))
+    f_r, f_s, f_d = (np.split(a[so], cut) for a in (why, scale, ids))
+    f_j, f_st = np.split(jump, cut), np.split(step, cut)
+    rows: list = [None] * ncomp
+    for c in range(ncomp):
+        b = birth[c]
+        tid = f"{session_id}:adisc:{round(float(t[b]), 3)}:{int(ii[b])}"
+        jumps = [{"t_ms": float(f_t[c][j]), "step_px": round(float(f_st[c][j]), 2),
+                  "reach_px": round(float(JUMP_REACH_BASE * f_s[c][j]), 2)}
+                 for j in np.flatnonzero(f_j[c])]
+        rows[int(new_of[cs[starts[c]]])] = {
+            "kind": "track", "track": tid, "entity_id": tid,
+            "birth_ms": float(t[b]), "last_ms": float(t[last[c]]),
+            "lifetime_ms": round(float(t[last[c]] - t[b]), 3),
+            "fixes": int(nfix[c]), "scored_fixes": int(scored[c]),
+            "birth_xy": [float(cx[b]), float(cy[b])], "scale": float(scale[b]),
+            "path_px": round(float(path_px[c]), 3), "path_base": round(float(path_base[c]), 3),
+            "first_second": {"dt_ms": round(float(dt1[c]), 3), "disp_px": round(float(disp_px[c]), 3),
+                             "disp_base": round(float(disp_base[c]), 3),
+                             "speed_base_per_s": None if not np.isfinite(speed[c])
+                             else round(float(speed[c]), 3)},
+            "onset": str(onset[c]), "end": str(end[c]),
+            "jumps": jumps, "surprises": ["jump_past_reach"] if jumps else [],
+            "fix": {"t_ms": f_t[c].tolist(), "i": f_i[c].tolist(), "cx": f_x[c].tolist(),
+                    "cy": f_y[c].tolist(), "reason": [r or None for r in f_r[c].tolist()],
+                    "disc": f_d[c].tolist()},
+        }
+    return {"track": track, "tracks": rows}
 
