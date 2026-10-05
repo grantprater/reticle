@@ -328,7 +328,13 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # ff636d173b07 1247.0 s broke into three pieces, the left one read as the
 # killer's last letter, and the band went `one_colour:no_divider` on every
 # sample.
-HUD_VERSION = "hud-0.23.0"
+# 0.24.0 (2026-10-05): where the plates meet at one seam, a divider's centre
+# lies left of the seam with plate behind it (`killfeed.plate_behind`)
+# (`killfeed._band_text`) [domain:killfeed/weapon-cell]: a portrait's edge
+# no longer divides an ability kill whose icon the line-art pass passed over
+# (a1a995e6b19b 742.0 s and 2019.5 s, Overdrive; 5822b6646448 925.5 s,
+# Annihilation).
+HUD_VERSION = "hud-0.24.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits
