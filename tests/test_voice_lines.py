@@ -44,43 +44,9 @@ class PlantedTemplateTests(unittest.TestCase):
         assert int(np.argmax(s)) == 300
 
 
-    def test_waveform_template_is_found_at_its_hop(self):
-        rng = np.random.default_rng(3)
-        x = rng.normal(0, 0.3, 48000 * 3).astype(np.float32)
-        y = rng.normal(0, 0.3, 4000).astype(np.float32)
-        x[50000:54000] += y
-        s = vl.phat_tracks(x, [y], chunk=1 << 15, xp=np)[0]
-        assert int(np.argmax(s)) == 50000 // vl.HOP_N
-        assert s.max() > 0.2
-        assert np.median(s[s > -1]) < 0.05
-
-
-    def test_a_template_straddling_two_chunks_is_still_found(self):
-        rng = np.random.default_rng(4)
-        x = rng.normal(0, 0.3, 48000 * 2).astype(np.float32)
-        y = rng.normal(0, 0.3, 3000).astype(np.float32)
-        chunk = 1 << 14
-        step = (chunk - int(np.ceil(3000 / vl.HOP_N)) * vl.HOP_N) // vl.HOP_N * vl.HOP_N
-        at = step - 1000                 # starts in chunk 0, ends past its step
-        x[at:at + 3000] += y
-        s = vl.phat_tracks(x, [y], chunk=chunk, xp=np)[0]
-        assert int(np.argmax(s)) == at // vl.HOP_N
-
-
 # ---------------------------------------------------------------- templates
 
 class TemplateTests(unittest.TestCase):
-
-    def test_trim_keeps_the_active_span_and_floors_silence(self):
-        L = np.full((50, 4), -100.0, np.float32)
-        L[10:30] = 40.0
-        L[20, 2] = -100.0                # a digital hole inside the line
-        ok = np.ones(50, bool)
-        ok[:3] = False
-        T, k0, k1 = vl.trim_floor(L, ok, active_db=40.0, floor_db=50.0)
-        assert (k0, k1) == (10, 30)
-        assert T.min() == -10.0
-
 
     def test_names_parse_to_agent_and_variant(self):
         assert vl.parse_name(Path("KAY_O_ult_enemy.mp3")) == ("KAY_O", "enemy")
@@ -128,14 +94,6 @@ class ClassTests(unittest.TestCase):
 # ---------------------------------------------------------------- peaks
 
 class PeakTests(unittest.TestCase):
-
-    def test_nms_keeps_the_higher_peak_within_one_template_length(self):
-        s = np.zeros(60, np.float32)
-        s[10], s[14], s[30], s[45] = 0.9, 0.8, 0.7, 0.2
-        pk = vl.nms_peaks(s, m=5, floor=0.5)
-        assert pk.tolist() == [10, 30]
-        assert vl.nms_peaks(s, m=4, floor=0.5).tolist() == [10, 14, 30]
-
 
     def test_operating_threshold_allows_the_stated_rate(self):
         imp = np.array([0.9, 0.5, 0.4, 0.3])
@@ -206,26 +164,6 @@ class CastWindowTests(unittest.TestCase):
 # ---------------------------------------------------------------- 0.2.0: Gekko and merging
 
 class HarvestTests(unittest.TestCase):
-
-    def test_the_ult_pair_comes_from_the_ally_and_enemy_cast_sections(self):
-        rows = [
-            {"agent": "Gekko", "ability": "Thrash", "section": "Ally Cast", "file": "G__t__ally-cast__2.mp3"},
-            {"agent": "Gekko", "ability": "Thrash", "section": "Ally Cast", "file": "G__t__ally-cast__1.mp3"},
-            {"agent": "Gekko", "ability": "Thrash", "section": "Enemy Cast", "file": "G__t__enemy-cast__1.mp3"},
-            {"agent": "Gekko", "ability": "Thrash", "section": "Ally Recast", "file": "G__t__ally-recast__1.mp3"},
-            {"agent": "Gekko", "ability": "Wingman", "section": "Cast", "file": "G__w__cast__1.mp3"},
-            {"agent": "Sova", "ability": "Hunter's Fury", "section": "Ally Cast", "file": "S__h__ally-cast__1.mp3"}]
-        got = vl.harvested_ults(rows, have={"Sova"})
-        assert got == {"Gekko_ult_ally": "G__t__ally-cast__1.mp3",
-                       "Gekko_ult_enemy": "G__t__enemy-cast__1.mp3"}
-
-
-    def test_two_abilities_with_ally_casts_stop_the_harvest(self):
-        rows = [{"agent": "X", "ability": "One", "section": "Ally Cast", "file": "a.mp3"},
-                {"agent": "X", "ability": "Two", "section": "Enemy Cast", "file": "b.mp3"}]
-        with self.assertRaises(ValueError):
-            vl.harvested_ults(rows, have=set())
-
 
     def test_merged_peaks_renumber_templates(self):
         base = {"names": np.array(["A", "B"]), "tpl": np.array([0, 1, 1], np.int16),

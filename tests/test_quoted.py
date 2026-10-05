@@ -256,21 +256,27 @@ class ExemptionTests(unittest.TestCase):
 class RepositoryQuotesTests(unittest.TestCase):
     """The real prose, which must stay honest on every run."""
 
+    @classmethod
+    def setUpClass(cls):
+        # One scan of the repository and the metrics ledger serves all four
+        # tests, which only filter the lists.
+        cls.problems = quoted.verify()
+        cls.cites = quoted.citations()
+
     def test_no_quoted_figure_in_the_repo_is_dangling(self):
-        problems = quoted.verify()
-        self.assertEqual([m for lv, m in problems if lv == "ERROR"], [])
+        self.assertEqual([m for lv, m in self.problems if lv == "ERROR"], [])
 
     def test_no_quoted_figure_in_the_repo_is_stale(self):
-        stale = [m for lv, m in quoted.verify() if "stale" in m]
+        stale = [m for lv, m in self.problems if "stale" in m]
         self.assertEqual(stale, [])
 
     def test_the_repo_actually_cites_something(self):
         """A check with nothing to check would pass forever."""
-        self.assertGreater(len(quoted.citations()), 0)
+        self.assertGreater(len(self.cites), 0)
 
     def test_this_module_does_not_count_as_a_citer(self):
         self.assertIn("reticle/quoted.py", quoted.EXAMPLE_ONLY)
-        for cite in quoted.citations():
+        for cite in self.cites:
             self.assertNotIn(cite["file"], quoted.EXAMPLE_ONLY)
 
 

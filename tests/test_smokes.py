@@ -38,6 +38,7 @@ class SmokeTracks(unittest.TestCase):
         got = smokes.tracks(rows, KNOWN)
         self.assertEqual(len(got), 1)
         self.assertEqual(got[0]["end_status"], "observed")
+        self.assertEqual(got[0]["onset_status"], "observed")
         self.assertAlmostEqual(got[0]["life_s"], 17.75, places=2)
 
     def test_an_undrawn_widget_neither_ages_nor_ends_a_track(self):
@@ -92,8 +93,8 @@ class SmokeTracks(unittest.TestCase):
                                        cover if t < 8 else None))
         got = smokes.tracks(rows, KNOWN)
         self.assertEqual(got[0]["onset_status"], "censored:unobserved")
-        clear = session(lambda t: frame(t * 1000, d if 5 <= t < 23 else None))
-        self.assertEqual(smokes.tracks(clear, KNOWN)[0]["onset_status"], "observed")
+        # The same smoke with no icon over it has an observed onset:
+        # test_an_observed_smoke_has_one_track_and_its_lifetime.
 
     def test_a_partly_covered_smoke_born_as_an_icon_leaves_has_a_censored_onset(self):
         d = disc(200, 200, 12)

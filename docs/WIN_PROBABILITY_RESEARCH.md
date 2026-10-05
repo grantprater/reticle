@@ -639,6 +639,129 @@ profile for live spectating; an enemy regional belief; more Riot records.
 - **Overconfidence.** An omniscient-trained model fed point estimates of
   hidden enemy loadout will be overconfident unless the filter marginalises.
 
+## 10. The ladder fitted on the player's own history
+
+Run 2026-10-04 by `prototypes/winprob_ladder.py` 0.1.0 (results in the
+store's `analysis/winprob-ladder-0.1.0-20261004/results.json`; predictions
+W1-W5 under task `winprob-ladder-20261004` in `notes/predictions.jsonl`,
+logged before the evaluation sets were scored).
+
+**Sets.** FIT holds the player's parsed competitive history
+(`ladder-parse-0.2.0`) minus the ladder's one-in-five `holdout` split, the
+captured matches and the uncaptured kept replays:
+[metric:winprob/own_admission#split.FIT_matches=140] matches,
+[metric:winprob/own_admission#FIT.admitted=2815] of
+[metric:winprob/own_admission#FIT.rounds_listed=2933] rounds admitted
+([metric:winprob/own_admission#FIT.excluded.afk_or_penalized=100] with an
+AFK or penalised player, [metric:winprob/own_admission#FIT.excluded.surrendered=18]
+surrendered). E1 is the 22 captured Riot records
+([metric:winprob/own_admission#E1.admitted=454] rounds, the reference's).
+E2 is the holdout split's other matches:
+[metric:winprob/own_admission#E2.matches=28] matches,
+[metric:winprob/own_admission#E2.admitted=532] of
+[metric:winprob/own_admission#E2.rounds_listed=553] rounds. Of the
+[metric:winprob/own_admission#split.kept_replays_uncaptured=14] kept replays
+held for the final test, [metric:winprob/own_admission#split.kept_replay_final_test=2]
+are in the parsed history; both are excluded from everything. The v4 records
+name no attacking side; Red attacks rounds 0-11, Blue 12-23, and overtime
+alternates from Red. No planter contradicted that rule and the reference's
+event simulation named HenrikDev's winner on every admitted round. A stopped
+earlier run had registered predictions with the holdout split inside FIT; a
+correction row supersedes it.
+
+**The ladder on evaluation** (1 s grid, round-weighted nats; fit once on FIT,
+match-bootstrap 95% intervals over evaluation matches):
+
+| Model | E1 (22 Riot) | E2 (28 holdout) | Pooled | Reference, 22-record LOMO |
+|---|---|---|---|---|
+| Gambler's ruin | [metric:winprob/own_eval/E1_G#B0_gamblers_ruin.logloss_nats=0.56719] | [metric:winprob/own_eval/E2_G#B0_gamblers_ruin.logloss_nats=0.56633] | [metric:winprob/own_eval/pooled_G#B0_gamblers_ruin.logloss_nats=0.56673] | 0.5672 |
+| Alive | [metric:winprob/own_eval/E1_G#M1_alive.logloss_nats=0.49845] | [metric:winprob/own_eval/E2_G#M1_alive.logloss_nats=0.48549] | [metric:winprob/own_eval/pooled_G#M1_alive.logloss_nats=0.49146] | 0.5028 |
+| B1: alive, load, side, plant flag | [metric:winprob/own_eval/E1_G#B1_plant_flag.logloss_nats=0.47848] | [metric:winprob/own_eval/E2_G#B1_plant_flag.logloss_nats=0.44391] | [metric:winprob/own_eval/pooled_G#B1_plant_flag.logloss_nats=0.45983] | 0.4839 |
+| B3: phase clocks | [metric:winprob/own_eval/E1_G#B3_phase_clock.logloss_nats=0.47874] | [metric:winprob/own_eval/E2_G#B3_phase_clock.logloss_nats=0.44118] | [metric:winprob/own_eval/pooled_G#B3_phase_clock.logloss_nats=0.45847] | 0.4871 |
+
+- **W1 held.** B1 beats the gambler's ruin by
+  [metric:winprob/own_eval/pooled_G#step:B0_gamblers_ruin->B1_plant_flag.nats=0.1069]
+  nats pooled (interval 0.091 to 0.123), by
+  [metric:winprob/own_eval/E1_G#step:B0_gamblers_ruin->B1_plant_flag.nats=0.08871]
+  on E1 and [metric:winprob/own_eval/E2_G#step:B0_gamblers_ruin->B1_plant_flag.nats=0.12242]
+  on E2. On E1 the own-history fit scores 0.005 nats better than the
+  reference's leave-one-match-out fit on the same 454 rounds; the gambler's
+  ruin, fitted to nothing, reproduces the reference's 0.5672 exactly.
+- **W2 held.** B1's ECE (ten bins) is
+  [metric:winprob/own_eval/pooled_G#B1_plant_flag.ece=0.01184] pooled,
+  [metric:winprob/own_eval/E1_G#B1_plant_flag.ece=0.02096] on E1 and
+  [metric:winprob/own_eval/E2_G#B1_plant_flag.ece=0.02819] on E2. The
+  bootstrap interval (0.012 to 0.033) sits above the point: ECE is biased
+  upward on resamples. The largest bin gap is the lowest bin (predicted
+  0.041, observed 0.024).
+- The plant flag pays here, unlike on the 22 records:
+  [metric:winprob/own_eval/pooled_G#step:M3_alive_load_side->B1_plant_flag.nats=0.00437]
+  pooled (0.001 to 0.007). The phase clocks add
+  [metric:winprob/own_eval/pooled_G#step:B1_plant_flag->B3_phase_clock.nats=0.00136]
+  (0.0002 to 0.0026), resolved on E2 alone and not on E1. Map by side stays
+  unresolved: [metric:winprob/own_eval/pooled_G#step:M3_alive_load_side->M4_alive_load_mapside.nats=0.00107].
+
+**Economy.** `load` is the living players' `loadout_value`, attacker minus
+defender; `credits` the living players' `remaining`, the credits unspent
+after the buy phase. Both come from the per-round economy table, Riot's
+`playerEconomies` on E1.
+
+- **W3 held, all of it from loadout.** Load and credits together add
+  [metric:winprob/own_eval/pooled_G#step:E0_alive_side_flag->E3_load_credits.nats=0.02612]
+  nats over alive, side and flag (0.017 to 0.035); load alone adds
+  [metric:winprob/own_eval/pooled_G#step:E0_alive_side_flag->E1_load.nats=0.02612],
+  and credits beyond load add
+  [metric:winprob/own_eval/pooled_G#step:E1_load->E3_load_credits.nats=-0.0]
+  (−0.0007 to 0.0007). Credits alone add
+  [metric:winprob/own_eval/pooled_G#step:E0_alive_side_flag->E2_credits.nats=0.00471]:
+  unspent money proxies the loadout and adds nothing once it is known.
+
+**Counter-Strike transfer** (round starts and kill states, model alive, side
+and plant flag; matchmaking = the Kaggle tables, skill 7-16; pro = ESTA):
+
+- Fitted on CS alone, the model scores
+  [metric:winprob/cs_transfer#kaggle_mm.pooled.cs_only.nats=0.46502]
+  (matchmaking) and [metric:winprob/cs_transfer#esta.pooled.cs_only.nats=0.46425]
+  (pro) on pooled VALORANT evaluation states, against
+  [metric:winprob/cs_transfer#kaggle_mm.pooled.val_only.nats=0.4634] for the
+  same model fitted on all 140 FIT matches; the gap,
+  [metric:winprob/cs_transfer#kaggle_mm.pooled.val_minus_cs.nats=0.00162],
+  is unresolved (−0.002 to 0.005). Coarse-state win probability transfers
+  from CS almost whole, though the coefficients differ (CS weighs the alive
+  difference more and the ratio less, and its side term is larger).
+- **W4 held.** Shrinking toward the matchmaking coefficients, with the
+  strength chosen by leave-one-match-out, gains
+  [metric:winprob/cs_curve#n5.kaggle_mm.gain.nats=0.02619] nats at 5
+  VALORANT matches (0.019 to 0.033),
+  [metric:winprob/cs_curve#n10.kaggle_mm.gain.nats=0.0135] at 10 (0.009 to
+  0.018), [metric:winprob/cs_curve#n20.kaggle_mm.gain.nats=0.00438] at 20
+  (0.001 to 0.008), [metric:winprob/cs_curve#n40.kaggle_mm.gain.nats=0.00138]
+  at 40 (−0.0006 to 0.0034) and
+  [metric:winprob/cs_curve#nall.kaggle_mm.gain.nats=0.0004] at all 140
+  (−0.0003 to 0.0010). The pro prior gives the same curve. **The CS prior pays
+  up to about 20 VALORANT matches** and costs nothing after; at 5 and 10 the
+  leave-one-match-out choice usually picks the strongest prior tried.
+
+**Rank bands** (B1 on FIT, Bronze/Silver
+[metric:winprob/rank_bands/G_B1#bronze_silver.matches=81] matches against
+Gold/Platinum [metric:winprob/rank_bands/G_B1#gold_platinum.matches=59];
+1,000 match-bootstrap refits per band):
+
+- **W5 failed, on the side term only.** The alive, loadout and plant
+  coefficients agree within their intervals. The attacker intercept differs by
+  [metric:winprob/rank_bands/G_B1#diff.side=-0.2072] (−0.35 to −0.06): near
+  zero in Bronze/Silver lobbies, −0.21 in Gold/Platinum, where attackers win
+  less from an equal state. Kill states agree (−0.18, interval −0.34 to
+  −0.02). Five coefficients were tested, so one exclusion is weak evidence;
+  map pool and patch also differ between the bands and were not controlled.
+  The coarse shape matches the CS finding; the side term may not.
+
+The CS figures are scored on K0 states (round starts and kills), since the
+matchmaking tables carry no clock. Not done: the learning curve on E1 and E2
+apart (pooled only), recalibration, a per-map or per-patch control of the
+side difference, and any use of the 14 kept replays, which stay held for the
+final test.
+
 ## What this research did not do
 
 It ran no decode, no uncontended timing and no footprint measurement. It
