@@ -502,6 +502,14 @@ remains = "Every step after the probe: each saved match record aligned to the st
 waits_for = "Nothing; the alignment can start."
 
 [[document]]
+path = "docs/CS_TRANSFER_SAMPLE.md"
+kind = "plan"
+status = "proposed"
+since = "2026-10-04"
+remains = "Every stratum but the ESEA tables: the matchmaking-rank file, the ESTA professional subset, the FACEIT level sample, and the transfer fit scored on held-out VALORANT matches."
+waits_for = "The player's approval of each download over 200 MB, a Kaggle API token, and a FACEIT Downloads API grant."
+
+[[document]]
 path = "docs/FRAMETIME_PROTOCOL.md"
 kind = "plan"
 status = "proposed"
