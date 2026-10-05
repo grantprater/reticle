@@ -57,7 +57,6 @@ GAP_MS = 3000.0
 #: every rule that ties a panel to a death (`near_death`).
 DEATH_BEFORE_MS, DEATH_AFTER_MS = 5000.0, 4000.0
 SUMMARY_WINDOW_MS = 45000.0
-ROUND_TAIL_MS = 8000.0       # a panel this long after a round's end still belongs to it
 FIELDS = ("out", "in", "out_hits", "in_hits")
 
 
@@ -201,14 +200,33 @@ def panels(frames: list[dict], death_times: list[float]) -> list[dict]:
 
 def assign_rounds(ps: list[dict], rounds: list[dict]) -> None:
     """Set each panel's `round_no` and `kind` in place; null with a reason
-    where no round contains it."""
+    where no round contains it.
+
+    The round containing a panel's opening is the rounds owner's
+    (`rounds.round_containing` over `build_rounds` rows, which carry
+    `t_close_ms`): the post-round period belongs to the round just decided
+    [domain:rounds/post-round-period], up to the next buy phase. Until
+    combat-report-round-0.11.0 this module kept its own window, a fixed 8 s
+    past the round's end, which disagreed with the owner wherever the
+    post-round gap was not 8 s.
+
+    The panel's own rule is the summary step: a summary shows in the next
+    buy phase [domain:combat_report/round-summary], so one that opens early
+    in a round (within `SUMMARY_WINDOW_MS` of its start) reports the previous
+    round, and one that opens within that window after the LAST stored
+    round's close reports that round, whose next round the capture cut off
+    before its score changed (`75a55a296d3b` 1230 s, in round 13's buy
+    phase after round 12)."""
+    from ..rounds import round_containing
     rounds = sorted(rounds, key=lambda r: r["t_start_ms"])
     for p in ps:
         t0 = p["start_ms"]
-        cur = [r for r in rounds if r["t_start_ms"] <= t0 <= r["t_end_ms"] + ROUND_TAIL_MS]
-        rnd = cur[-1] if cur else None
+        rnd = round_containing(t0, rounds)
         p["kind"] = "death" if p["at_death"] else "summary"
-        if rnd is not None and not p["at_death"] and t0 - rnd["t_start_ms"] < SUMMARY_WINDOW_MS:
+        if (rnd is None and not p["at_death"] and rounds
+                and 0 <= t0 - rounds[-1]["t_close_ms"] < SUMMARY_WINDOW_MS):
+            rnd = rounds[-1]
+        elif rnd is not None and not p["at_death"] and t0 - rnd["t_start_ms"] < SUMMARY_WINDOW_MS:
             prev = [r for r in rounds if r["t_end_ms"] <= rnd["t_start_ms"]]
             # A round's rows do not change between the death and its end
             # [domain:combat_report/frozen-after-death], so the summary of a

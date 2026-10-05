@@ -1220,7 +1220,10 @@ _INPUT_READS = {"read_hud": {"hud"}, "read_roster": {"roster"}, "read_minimap": 
                 "rounds_path": {"rounds"}, "read_rounds": {"rounds"}, "load_lineup": {"lineup"},
                 # the player-cast gate's stored inputs (`ability_timeline`)
                 "stored_gate_inputs": {"hud", "killfeed_portrait", "death",
-                                       "combat_report_round", "tray_kit", "menu_open"}}
+                                       "combat_report_round", "tray_kit", "menu_open"},
+                # rounds built in memory: the round rule is an input, compared
+                # as a code stamp (`plan._code` on `ROUND_VERSION`)
+                "build_rounds": {"round_rule"}}
 
 #: `cli.py` helpers whose reads feed no stored stream, and why.
 _INPUT_READ_EXEMPT = {
@@ -1306,6 +1309,7 @@ def check_inputs(store: Path) -> list[tuple[str, str]]:
     records -- the store half sees only what was recorded.
     """
     from reticle import plan
+    from reticle.version import ROUND_VERSION
     out: list[tuple[str, str]] = []
     declared = plan.stream_inputs()
     specs = {s["stream"]: s for s in plan.derived_streams()}
@@ -1326,6 +1330,8 @@ def check_inputs(store: Path) -> list[tuple[str, str]]:
                 if any(d["probe"] in ("lineup", "lineup_file")
                        for d in declared.get(x, {}).values()):
                     allowed.add("lineup")
+                if any(d["probe"] == "=" + ROUND_VERSION for d in declared.get(x, {}).values()):
+                    allowed.add("round_rule")
         extra = sorted(reads - allowed)
         if extra:
             out.append((ERROR, f"cli.{fn} writes {', '.join(sorted(mine))} and reads "

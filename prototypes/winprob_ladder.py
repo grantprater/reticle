@@ -71,6 +71,7 @@ sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
 import winprob_reference as wr  # noqa: E402
+from reticle.rounds import side_in_round  # noqa: E402
 
 VERSION = "winprob-ladder-0.1.0"
 STORE = wr.STORE
@@ -78,7 +79,6 @@ PARSED = STORE / "external" / "ladder" / "henrikdev" / "v4" / "parsed" / "ladder
 CS_DIR = STORE / "external" / "cs"
 REPLAYS = STORE / "external" / "replays" / "manifest.json"
 OUT = STORE / "analysis" / "winprob-ladder-0.1.0-20261004"
-REGULATION = 24
 ECE_BINS = 10
 LAMBDAS = (1.0, 3.0, 10.0, 30.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
 CURVE_SIZES = (5, 10, 20, 40)
@@ -102,13 +102,11 @@ NOT_EXCLUSIONS = ("plant_after_decision",)
 # ----------------------------------------------------------------- adapter
 
 def attacker_team(round_num: int) -> str:
-    """The attacking team of a v4 round (0-based): Red attacks the first half,
-    Blue the second, and overtime rounds alternate starting with Red."""
-    if round_num < REGULATION // 2:
-        return "Red"
-    if round_num < REGULATION:
-        return "Blue"
-    return "Red" if (round_num - REGULATION) % 2 == 0 else "Blue"
+    """The attacking team of a v4 round (0-based). v4 names no starting side;
+    Red is taken to start on attack, and the rounds owner's side rule
+    (`rounds.side_in_round`, by match round counted from 1
+    [domain:rounds/side-by-round]) gives every later round."""
+    return "Red" if side_in_round(round_num + 1, "attack")[0] == "attack" else "Blue"
 
 
 def load_tables(parsed: Path = PARSED) -> dict[str, list[dict]]:

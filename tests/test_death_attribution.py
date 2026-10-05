@@ -357,18 +357,35 @@ class DeathAttributionTests(unittest.TestCase):
         tracker = LivingRosterTracker(lineup, starting_role="defenders")
 
         # First half (rounds 1-12): ally is defenders, enemy is attackers
-        snap4 = tracker.start_round(4)
+        snap4 = tracker.start_round(4, match_round=4)
         self.assertEqual(snap4.ally_role, "defenders")
         self.assertEqual(snap4.enemy_role, "attackers")
 
-        snap12 = tracker.start_round(12)
+        snap12 = tracker.start_round(12, match_round=12)
         self.assertEqual(snap12.ally_role, "defenders")
         self.assertEqual(snap12.enemy_role, "attackers")
 
-        # Second half (round 13+): roles flip
-        snap13 = tracker.start_round(13)
+        # Second half (rounds 13-24): roles flip
+        snap13 = tracker.start_round(13, match_round=13)
         self.assertEqual(snap13.ally_role, "attackers")
         self.assertEqual(snap13.enemy_role, "defenders")
+
+        # Overtime [domain:rounds/side-by-round]: each cycle opens on the
+        # starting side, so 25 and 27 are the first half's roles.
+        for n, ally in ((24, "attackers"), (25, "defenders"), (26, "attackers"),
+                        (27, "defenders"), (28, "attackers")):
+            self.assertEqual(tracker.start_round(n, match_round=n).ally_role, ally, n)
+
+        # The capture's round number decides nothing without the match's.
+        snap = tracker.start_round(13)
+        self.assertIsNone(snap.ally_role)
+        self.assertEqual(snap.role_reason, "match_round_unread")
+
+    def test_unread_starting_role_is_null_with_a_reason(self):
+        lineup = {"sides": {"ally": [{"agent": "Phoenix"}], "enemy": [{"agent": "Skye"}]}}
+        snap = LivingRosterTracker(lineup).start_round(1, match_round=1)
+        self.assertEqual((snap.ally_role, snap.enemy_role), (None, None))
+        self.assertEqual(snap.role_reason, "starting_side_unread")
 
     def test_ally_death_location_always_observable_for_ability_or_environmental(self):
         """Ally deaths are always observable via minimap blue X marks [domain:minimap/ally-death-mark]."""
@@ -746,6 +763,8 @@ class DeathAttributionTests(unittest.TestCase):
                 ],
             },
         ]
+        for r in rounds_input:
+            r["match_round"] = r["round_no"]
 
         timeline = build_match_roster_timeline(lineup, rounds_input, starting_role="defenders")
         self.assertGreater(len(timeline), 4)

@@ -1071,8 +1071,8 @@ owner = "rounds"
 stored_consumers = ["entity_events"]
 role = ["lifecycle", "adjudicate"]
 status = "partial"
-produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events", "in_round_window", "round_containing", "place_unread_starts", "plant_state"]
-defers_to = ["planted-spike-graphic"]
+produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events", "in_round_window", "round_containing", "place_unread_starts", "plant_state", "match_round", "side_in_round", "starting_side"]
+defers_to = ["planted-spike-graphic", "spike-carrier"]
 not_for = """
 Player identity. A side is a round state. About 20% of coaching events still sit
 near an uncertain boundary, and plant inference that reads a FUTURE clock gap is

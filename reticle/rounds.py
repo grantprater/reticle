@@ -390,6 +390,130 @@ def match_over(left: int, right: int) -> bool:
     return max(left, right) >= 13 and abs(left - right) >= 2
 
 
+#: Rounds in each half of regulation [domain:rounds/side-by-round].
+HALF_ROUNDS = 12
+#: The sides a team plays: its starting side and the other one.
+SIDES = ("attack", "defence")
+
+
+def match_round(r: dict) -> int | None:
+    """A round's number in the MATCH, counted from 1: one more than the score
+    before it. `round_no` counts the capture's rounds instead, and differs
+    wherever a capture opens after the match's first round. None where the
+    score before the round went unread."""
+    us, them = r.get("score_us"), r.get("score_them")
+    if us is None or them is None:
+        us, them = r.get("left_before"), r.get("right_before")
+    return None if us is None or them is None else int(us) + int(them) + 1
+
+
+def side_in_round(match_round_no: int | None,
+                  starting_side: str | None) -> tuple[str | None, str | None]:
+    """(side, reason): the side, `attack` or `defence`, a team plays in match
+    round `match_round_no` (`match_round`) given the side it started on.
+
+    The rule [domain:rounds/side-by-round]: rounds 1-12 on the starting side,
+    13-24 on the other after the halftime swap [domain:rounds/halftime-side-swap]
+    (round 13 is the second pistol round [domain:rounds/pistol-round-bank]),
+    and in overtime [domain:rounds/match-end] each cycle of two rounds opens
+    on the starting side and closes on the other. The side is null with a
+    reason where the starting side or the round number is unread; it is
+    never defaulted."""
+    if starting_side not in SIDES:
+        return None, "starting_side_unread"
+    if match_round_no is None or match_round_no < 1:
+        return None, "match_round_unread"
+    regulation = 2 * HALF_ROUNDS
+    swapped = (HALF_ROUNDS < match_round_no <= regulation
+               or (match_round_no > regulation and (match_round_no - regulation) % 2 == 0))
+    other = SIDES[1] if starting_side == SIDES[0] else SIDES[0]
+    return (other if swapped else starting_side), None
+
+
+
+def starting_side(rounds: list[dict], spike_rows: list[dict] | None,
+                  carrier_rows: list[dict] | None) -> dict:
+    """The side the player's team started the match on, read from stored
+    evidence only the attacking side produces, never defaulted.
+
+    Two channels, each a vote that the player's team ATTACKS a round:
+
+    * `carrier`: a stored `spike` frame inside the round (`t_start_ms` to
+      `t_end_ms`, the span `spike_carrier` uses) on which our roster marker
+      and a carried glyph on our minimap agree (`spike_carrier.frame_state`).
+      Only the attackers hold the spike, and only our own carrier is drawn
+      [domain:minimap/spike-carrier-overlay] [domain:hud/spike-carrier-marker].
+      A frame where one of the two says carried is `spike_carrier`'s stored
+      disagreement and votes nothing.
+    * `planter`: the round's stored `spike_carrier` row names a planter slot,
+      our marker read before a plant the scoreline graphic timed. It rests on
+      the marker channel (`rests_on`), so it adds the plant's time, not an
+      independent carrier witness.
+
+    Each vote implies a starting side through `side_in_round` at the round's
+    `match_round`; a vote whose match round is unread implies nothing. One
+    implied side is the answer. Implications on both sides refuse
+    `starting_side_conflict`; no vote refuses `no_attack_evidence`; absent
+    streams refuse `spike_unread`. `disagreements` stores the rounds behind a
+    conflict and the cross-channel disagreements: `planter_without_agreed_carrier`
+    (a planter slot, no agreed carrier frame) and `carrier_without_planter`
+    (an agreed carrier and a plant, no planter slot).
+
+    Returns `{"starting_side", "reason", "votes", "disagreements"}`."""
+    out = {"starting_side": None, "reason": None, "votes": [], "disagreements": []}
+    if not spike_rows or not carrier_rows:
+        out["reason"] = "spike_unread"
+        return out
+    from .adjudication.spike_carrier import frame_state
+    head = spike_rows[0]
+    sc = float(head.get("widget_scale") or 1.0)
+    agreed = np.asarray(sorted(
+        st["t_ms"] for st in (frame_state(r, sc) for r in spike_rows[1:]
+                              if r.get("kind") == "frame")
+        if st["slot"] is not None and st["glyph"] == "carried"), float)
+    planters = {c.get("round_no"): c for c in carrier_rows if c.get("kind") == "round"}
+    implied: dict[str, list[int]] = {s: [] for s in SIDES}
+    for r in rounds:
+        a, z = r.get("t_start_ms"), r.get("t_end_ms")
+        if a is None or z is None:
+            continue
+        n = match_round(r)
+        frames = int(np.count_nonzero((agreed >= a) & (agreed <= z)))
+        crow = planters.get(r.get("round_no")) or {}
+        planter = crow.get("planter_slot") is not None
+        if planter and not frames:
+            out["disagreements"].append({"round_no": r.get("round_no"),
+                                         "check": "planter_without_agreed_carrier"})
+        if frames and crow.get("spike_planted") and not planter:
+            out["disagreements"].append({"round_no": r.get("round_no"),
+                                         "check": "carrier_without_planter"})
+        for channel, voted in (("carrier", frames > 0), ("planter", planter)):
+            if not voted:
+                continue
+            # Attacking in a round played on the starting side means the
+            # team started on attack; otherwise it started on defence.
+            start, why = side_in_round(n, "attack")
+            vote = {"round_no": r.get("round_no"), "match_round": n, "channel": channel,
+                    "implies": start, "reason": why}
+            if channel == "carrier":
+                vote["frames"] = frames
+            else:
+                vote["rests_on"] = "carrier"
+            out["votes"].append(vote)
+            if start is not None:
+                implied[start].append(r.get("round_no"))
+    sides = [s for s in SIDES if implied[s]]
+    if len(sides) == 1:
+        out["starting_side"] = sides[0]
+    elif sides:
+        out["reason"] = "starting_side_conflict"
+        out["disagreements"].append({"check": "starting_side_conflict",
+                                     "rounds": {s: sorted(set(v)) for s, v in implied.items()}})
+    else:
+        out["reason"] = "no_attack_evidence"
+    return out
+
+
 def final_round(t, score_left, score_right, clock_ms, rounds: list[dict]) -> dict | None:
     """The match's last round when the scoreline never showed its result.
 

@@ -806,7 +806,11 @@ COMBAT_REPORT_VERSION = "combat-report-0.4.0"
 #        portrait cluster an earlier death panel of the round bound, and the
 #        one row left to the one death left in the window; a death opens at
 #        most one death panel, so a repeated read with no later death reopens.
-COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.10.0"
+# 0.11.0: a panel's round is the rounds owner's (`rounds.round_containing`,
+#        the post-round period up to the next buy phase) instead of a fixed
+#        8 s past the round's end; a summary within SUMMARY_WINDOW_MS after
+#        the last stored round's close reports that round.
+COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.11.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.
