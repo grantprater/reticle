@@ -192,10 +192,12 @@ SCOREBOARD_VERSION = "scoreboard-0.14.0"
 # board, so 0.10.0 stays applied. 0.12.0 changes only the fourth decimal of
 # a few scores and no verdict or agent ([metric:scoreboard/speed-float32@fixture#bar_changed_boards=0] boards
 # change), so 0.11.0 stays applied. 0.13.0 moves the same fourth decimals
-# back and changes no verdict, so 0.12.0 stays applied.
+# back and changes no verdict, so 0.12.0 stays applied. 0.14.0 reads only
+# the rows' numbers anew; its openings, rows, table edges and portraits are
+# 0.13.0's code, so 0.13.0 stays applied.
 SCOREBOARD_VERDICT_COMPATIBLE = ("scoreboard-0.6.0", "scoreboard-0.7.0", "scoreboard-0.8.0",
                                  "scoreboard-0.9.0", "scoreboard-0.10.0", "scoreboard-0.11.0",
-                                 "scoreboard-0.12.0", SCOREBOARD_VERSION)
+                                 "scoreboard-0.12.0", "scoreboard-0.13.0", SCOREBOARD_VERSION)
 # TESTING-PHASE WAIVER, TO REVISIT: stored stamps that `reticle plan` (and
 # every rerun input check inside it) accepts as the current stamp, as
 # {(current, stored): why}. The player decided on 2026-09-29, to iterate
