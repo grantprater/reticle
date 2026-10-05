@@ -7,6 +7,7 @@ r"""How many Tab scoreboard frames each opening needs, measured on stored rows.
     .\.venv\Scripts\python.exe prototypes\scoreboard_reads.py posthoc --out DIR [--record]
     .\.venv\Scripts\python.exe prototypes\scoreboard_reads.py crops --out DIR [--n 6]
     .\.venv\Scripts\python.exe prototypes\scoreboard_reads.py thin-check --rule on --out COPYDIR SID
+    .\.venv\Scripts\python.exe prototypes\scoreboard_reads.py migrate --out DIR [--replace] [--record] [SID ...]
 
 The player (2026-10-04): "It probably literally only needs one read per
 scoreboard opening honestly". The scoreboard crop cache holds every 2 Hz
@@ -60,7 +61,19 @@ the stored streams; `calibrate` fixes the variants' thresholds on the dev
 half first; `crops` writes the cached frames behind the first
 disagreements for inspection.
 
-Owns nothing: a measurement. Wire: no (the player decides on the numbers).
+**The migration** (`migrate`, approved by the player 2026-10-05: thin by
+rule `on`). New captures are gated at margin 0 (`roi_cache.SCOREBOARD_GATE_MARGIN`);
+each stored margin-1 cache is re-encoded from itself, no capture decoded,
+by `roi_cache.thin_cache` into `MIGRATE_DIR`, and replaces the stored cache
+only where every check passes (`migrate_session`): the stored gate is the
+margin-1 gate of the stored strip rows, the margin-0 gate keeps exactly
+rule `on`'s frames, every kept frame reads back bit for bit, `RoiCache`
+serves the copy with `thinned_out` and `outside_gate` refusals, and every
+consumer output above equals all frames'. A failed session keeps its cache.
+This is the one command here that writes the store beyond ledger rows.
+
+Owns nothing: a measurement and a one-time migration. Wire: no (the player
+decides on the numbers).
 """
 from __future__ import annotations
 
@@ -1106,6 +1119,231 @@ def cmd_thin_check(args) -> int:
     return 0
 
 
+# ------------------------------------------------------------------ migration
+
+#: Where `migrate` writes each thinned cache before it replaces the stored one.
+MIGRATE_DIR = CACHE.parent / f"{CACHE.name}.thinning"
+#: Free bytes the store's drive keeps through a migration.
+MIN_FREE = 15e9
+#: Every this many held times one is asked of both caches through
+#: `RoiCache.samples`, so the thinned file is read with seeks.
+SEEK_EVERY = 5
+
+
+def _gate_core(g: dict | None) -> dict | None:
+    """A gate record without the `rule` name, which records written before it
+    lack: what two gates must share to be the same gate."""
+    return None if g is None else {k: v for k, v in g.items() if k != "rule"}
+
+
+def load_checks(sid: str, src: Path, dst: Path, man: dict, strip_rows: list[dict]) -> dict:
+    """The thinned cache in `dst` read through `RoiCache` beside the stored
+    one in `src`: it loads, holds exactly its index times, refuses every
+    dropped time as `thinned_out` and every strip sample outside the old gate
+    as `outside_gate`, and every `SEEK_EVERY`th held time yields the stored
+    cache's pixels."""
+    from reticle.profiles import get_profile
+    from reticle.roi_cache import RoiCache
+    prof = get_profile(man["source_profile"])
+    new, why = RoiCache._open(dst, man, prof)
+    old, why_old = RoiCache._open(src, man, prof)
+    if new is None or old is None:
+        return {"ok": False, "load": why or why_old}
+    held = new.holds()
+    dropped = sorted(set(old.holds()) - set(held))
+    before = old.record["gate"]["spans"]
+    from reticle.roi_cache import spans_mask
+    st = np.array(sorted(float(r["t_ms"]) for r in strip_rows if r.get("kind") == "sample"))
+    outside = st[~spans_mask(st, before)] if len(st) else st
+    ref = Counter(new.refusal(t) for t in dropped)
+    ref_held = Counter(new.refusal(t) for t in held)
+    ref_out = Counter(new.refusal(float(t)) for t in outside)
+    asked = held[::SEEK_EVERY]
+    seek_same = sum(np.array_equal(a.frame, b.frame) and a.frame_idx == b.frame_idx
+                    for a, b in zip(new.samples(asked), old.samples(asked)))
+    out = {"held": len(held), "dropped": len(dropped),
+           "refusal_dropped": dict(ref), "refusal_held": dict(ref_held),
+           "refusal_outside_old_gate": dict(ref_out), "seek_asked": len(asked),
+           "seek_same": int(seek_same)}
+    out["ok"] = (ref == Counter({"thinned_out": len(dropped)})
+                 and ref_held == Counter({None: len(held)})
+                 and ref_out == Counter({"outside_gate": len(outside)})
+                 and seek_same == len(asked))
+    return out
+
+
+def consumer_checks(sid: str, kept: set[int]) -> dict:
+    """Every consumer output (`outputs`) on the stored rows thinned to the
+    frames the thinned cache holds, against all frames: `ok` only where none
+    differs (`n_differ` total 0, gains included)."""
+    from reticle.reconciliation import board_alive_auditor
+    s = load(sid)
+    runs = strip_runs(s["board"], s["strip"])
+    audit = board_alive_auditor(s["hud"], s["roster"])
+    enemy = enemy_named(sid)
+    base = outputs(s["board"], s, audit, enemy, runs)
+    got = outputs(thin_rows(s["board"], kept), s, audit, enemy, runs)
+    c = compare(base, got, runs)
+    d = n_differ(c)
+    return {"ok": d["total"] == 0, "differ": d, "lineup": c["lineup"], "credits": c["credits"],
+            "local_row": c["local_row"], "deaths": c["deaths"], "kd_bound": c["kd_bound"],
+            "credit_examples": c["credit_examples"][:8], "death_examples": c["death_examples"][:8]}
+
+
+def _swap_in(sid: str, src: Path, dst: Path) -> list[tuple[Path, Path]]:
+    """Move the stored cache files aside (`.pre-thin`) and the thinned ones
+    into `src`; returns (stored, aside) pairs for `_restore`."""
+    names = [f"{sid}.json", f"{sid}.idx.npy", f"{sid}.r0.mkv"]
+    aside = []
+    for n in names:
+        if (src / n).is_file():
+            os.replace(src / n, src / f"{n}.pre-thin")
+            aside.append((src / n, src / f"{n}.pre-thin"))
+    for n in names:
+        if (dst / n).is_file():
+            os.replace(dst / n, src / n)
+    return aside
+
+
+def _restore(aside: list[tuple[Path, Path]]) -> None:
+    for path, back in aside:
+        os.replace(back, path)
+
+
+def migrate_session(sid: str, replace: bool) -> dict:
+    """Thin one session's scoreboard cache to rule `on` beside the store
+    (`MIGRATE_DIR`), check it, and with `replace` put it in place of the
+    stored cache. Every check must pass before the stored cache is touched:
+    the stored gate is the margin-1 strip gate the stored strip rows give,
+    the margin-0 gate keeps exactly rule `on`'s frames, every kept frame
+    reads back bit for bit, `RoiCache` serves it with the right refusals, and
+    every consumer output equals all frames'. A failed session keeps its
+    cache and its thinned copy is removed."""
+    import shutil
+    from reticle.roi_cache import (compare_thinned, scoreboard_gate, spans_mask,
+                                   stored_record, thin_cache)
+    from reticle.store import Store
+    st = Store(STORE)
+    rec = stored_record(STORE, sid, "scoreboard")
+    res = {"sid": sid, "frames_before": rec.get("frames"),
+           "bytes_before": int((CACHE / f"{sid}.r0.mkv").stat().st_size)
+           if (CACHE / f"{sid}.r0.mkv").is_file() else 0, "replaced": False}
+    if rec.get("thinned") is not None:
+        return {**res, "status": "already_thinned"}
+    strip, board = st.read_events("scoreboard_strip", sid), st.read_events("scoreboard", sid)
+    old_gate, why = scoreboard_gate(strip, margin=1)
+    if old_gate is None or _gate_core(old_gate) != _gate_core(rec.get("gate")):
+        return {**res, "status": "failed", "failed": "stored_gate",
+                "why": why or "the stored gate is not the margin-1 gate of the stored strip rows"}
+    gate, why = scoreboard_gate(strip)
+    idx = np.load(CACHE / f"{sid}.idx.npy")
+    gate_frames = set(idx[spans_mask(idx[:, 0], gate["spans"]), 1].astype(int).tolist())
+    on_frames = {f for r in strip_runs(board, strip) for f in select(r["frames"], "on")}
+    res["frames_rule_on"] = len(on_frames)
+    if gate_frames != on_frames:
+        return {**res, "status": "failed", "failed": "gate_is_not_rule_on",
+                "only_gate": len(gate_frames - on_frames), "only_rule": len(on_frames - gate_frames)}
+    free = shutil.disk_usage(STORE).free
+    if free - res["bytes_before"] < MIN_FREE:
+        return {**res, "status": "failed", "failed": "disk", "free": free}
+    try:
+        res.update(thin_cache(CACHE, sid, gate, MIGRATE_DIR, f"{READS_VERSION} migrate"))
+        res["bits"] = compare_thinned(CACHE, MIGRATE_DIR, sid)
+        b = res["bits"]
+        bits_ok = (b["index_ok"] and not b["extra_frames"] and b["different"] == 0
+                   and b["identical"] == b["checked"] == res["frames_kept"])
+        man = st.read_manifest(sid)
+        res["load"] = load_checks(sid, CACHE, MIGRATE_DIR, man, strip)
+        kept = set(np.load(MIGRATE_DIR / f"{sid}.idx.npy")[:, 1].astype(int).tolist())
+        res["consumers"] = consumer_checks(sid, kept)
+        failed = [k for k, ok in (("bits", bits_ok), ("load", res["load"]["ok"]),
+                                  ("consumers", res["consumers"]["ok"])) if not ok]
+        if failed:
+            return {**res, "status": "failed", "failed": ",".join(failed)}
+        if not replace:
+            return {**res, "status": "checked"}
+        aside = _swap_in(sid, CACHE, MIGRATE_DIR)
+        try:
+            from reticle.profiles import get_profile
+            from reticle.roi_cache import RoiCache
+            got, why = RoiCache.load(STORE, man, get_profile(man["source_profile"]), "scoreboard")
+            if (got is None or got.record.get("thinned") is None
+                    or got.holds() != sorted(float(t) for t in idx[spans_mask(idx[:, 0],
+                                                                              gate["spans"]), 0])):
+                raise RuntimeError(f"the swapped cache does not load as thinned: {why}")
+        except Exception:
+            for n in (f"{sid}.json", f"{sid}.idx.npy", f"{sid}.r0.mkv"):
+                if (CACHE / n).is_file():
+                    os.replace(CACHE / n, MIGRATE_DIR / n)
+            _restore(aside)
+            raise
+        for _path, back in aside:
+            back.unlink()
+        res["replaced"] = True
+        return {**res, "status": "replaced"}
+    finally:
+        for n in (f"{sid}.json", f"{sid}.idx.npy", f"{sid}.r0.mkv", f"{sid}.r0.part.mkv"):
+            (MIGRATE_DIR / n).unlink(missing_ok=True)
+
+
+def cmd_migrate(args) -> int:
+    """Thin each session's stored scoreboard cache to rule `on`, one session
+    at a time (`migrate_session`), and record a ledger row per session and
+    one for the run."""
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for sid in args.sessions or sessions():
+        t0 = time.time()
+        r = migrate_session(sid, args.replace)
+        r["seconds"] = round(time.time() - t0, 1)
+        rows.append(r)
+        (out / f"{sid}.migrate.json").write_text(json.dumps(r, indent=1, default=str),
+                                                 encoding="utf-8")
+        print(json.dumps({k: r.get(k) for k in ("sid", "status", "failed", "frames_before",
+                                                "frames_kept", "bytes_before", "bytes_after",
+                                                "seconds")}), flush=True)
+        if args.record:
+            from reticle import metrics
+            c = r.get("consumers") or {}
+            metrics.record("scoreboard_reads",
+                           part="migrate-on" if args.replace else "migrate-check-on", session=sid,
+                           deps={"tool": READS_VERSION, "rule": "on",
+                                 "procedure": "roi_cache.thin_cache, FFV1 level 3 bgr0"},
+                           context={"status": r["status"], "failed": r.get("failed"),
+                                    "differ": c.get("differ"), "credits": c.get("credits"),
+                                    "load": {k: v for k, v in (r.get("load") or {}).items()
+                                             if k != "ok"}},
+                           values={"frames_before": r.get("frames_before") or 0,
+                                   "frames_kept": r.get("frames_kept") or 0,
+                                   "bytes_before": r.get("bytes_before") or 0,
+                                   "bytes_after": r.get("bytes_after") or 0,
+                                   "replaced": int(bool(r.get("replaced"))),
+                                   "outputs_differ": (c.get("differ") or {}).get("total", 0)})
+    done = [r for r in rows if r.get("replaced")]
+    passed = [r for r in rows if r["status"] in ("checked", "replaced")]
+    total = {"sessions": len(rows), "passed": len(passed), "replaced": len(done),
+             "failed": sum(r["status"] == "failed" for r in rows),
+             "bytes_all": sum(r["bytes_before"] for r in rows),
+             "bytes_freed": sum(r["bytes_before"] - r.get("bytes_after", 0) for r in done),
+             "bytes_freed_if_passed_replaced": sum(r["bytes_before"] - r.get("bytes_after", 0)
+                                                   for r in passed),
+             "bytes_freed_if_all_replaced": sum(r["bytes_before"] - r.get("bytes_after", 0)
+                                                for r in rows if "bytes_after" in r)}
+    print(json.dumps(total))
+    if args.record:
+        from reticle import metrics
+        metrics.record("scoreboard_reads", part="migrate-on" if args.replace else "migrate-check-on",
+                       session=f"corpus-{len(rows)}",
+                       deps={"tool": READS_VERSION, "rule": "on"},
+                       values={**total, "gb_freed": round(total["bytes_freed"] / 1e9, 3),
+                               "gb_freed_if_passed_replaced":
+                                   round(total["bytes_freed_if_passed_replaced"] / 1e9, 3)},
+                       context={"failed_sessions": [r["sid"] for r in rows
+                                                    if r["status"] == "failed"]})
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1133,12 +1371,18 @@ def main(argv=None) -> int:
     t.add_argument("--record", action="store_true")
     t.add_argument("--pixels", help="the pixels/calibrate output directory (rule e)")
     t.add_argument("session")
+    m = sub.add_parser("migrate")
+    m.add_argument("--out", required=True, help="per-session check results (JSON)")
+    m.add_argument("--replace", action="store_true",
+                   help="put each checked thinned cache in place of the stored one")
+    m.add_argument("--record", action="store_true")
+    m.add_argument("sessions", nargs="*")
     args = p.parse_args(argv)
     below_normal()
     return {"pixels": cmd_pixels, "calibrate": cmd_calibrate, "eval": cmd_eval,
             "posthoc": cmd_posthoc,
             "crops": cmd_crops,
-            "thin-check": cmd_thin_check}[args.cmd](args)
+            "thin-check": cmd_thin_check, "migrate": cmd_migrate}[args.cmd](args)
 
 
 if __name__ == "__main__":

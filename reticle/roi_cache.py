@@ -36,9 +36,42 @@ those inside the gate (`scoreboard_gate`): samples within
 `SCOREBOARD_GATE_MARGIN` samples of one where the stored round-history strip
 witness (`scoreboard_strip`) reads the board present or cannot read the band.
 The gate never asks the slab test, whose opens are the reader's own outcome.
-The record keeps the gate, and `RoiCache.refusal` says why a time outside it
-is not held. A gated cache never feeds a scan (`cache_for`): it holds the
-frames `reticle trial` reads.
+The record keeps the gate, its `rule` named (`gate_rule`), and
+`RoiCache.refusal` says why a time outside it is not held. A gated cache
+never feeds a scan (`cache_for`): it holds the frames `reticle trial` reads.
+
+**Rule `on`** (the player, 2026-10-05): the margin is 0, every strip
+on-sample and no neighbour. Caches written at margin 1 are thinned from
+themselves, no capture decoded (`thin_cache`, driven per session by
+`prototypes/scoreboard_reads.py migrate`, which replaces a stored cache only
+where its kept frames read back bit for bit and every consumer output equals
+all frames'). A thinned record keeps the gate it was written under in
+`thinned.gate_before`, so a dropped margin is refused as `thinned_out`, not
+`outside_gate`.
+
+**The tray takes no alive gate.** The tray (`hud_abilities`) is the second
+rectangle of the `minimap` set, its own file, not part of the `hud` set:
+[metric:tray_gate/projection@corpus-21#tray_gb=8.839] GB of the
+[metric:tray_gate/projection@corpus-21#set_gb=31.559] GB set over the 21
+matches (`prototypes/tray_gate.py`). A gate on the player alive in a round
+(stored rounds and the death owner's verdicts, buy phase in, 1 s margins)
+keeps [metric:tray_gate/projection@corpus-21#kept_share=0.6571] of its
+samples and would save
+[metric:tray_gate/projection@corpus-21#saved_gb_gate=3.031] GB, but the
+samples it drops show the spectated teammate's kit, the evidence `tray_kit`
+names teammates by: it would drop
+[metric:tray_gate/projection@corpus-21#tray_kit_identity__row_dropped=238] of
+[metric:tray_gate/projection@corpus-21#tray_kit_identity__row_total=332]
+stored `tray_kit_identity` rows and
+[metric:tray_gate/projection@corpus-21#tray_drop__drop_dropped=1478] of
+[metric:tray_gate/projection@corpus-21#tray_drop__drop_total=3502] tray
+drops. Every tray reader reads a 0.5 s grid of the cached times
+(`grid_times`); that grid holds
+[metric:tray_gate/projection@corpus-21#grid_samples=58887] of the
+[metric:tray_gate/projection@corpus-21#tray_samples=394414] cached tray
+samples, about [metric:tray_gate/projection@corpus-21#grid_tray_gb=1.32] GB
+at the same bytes a frame, which a tray set at the readers' rate would hold
+without losing a row they read; untested.
 
 **The killfeed panel strip is gated on an entry.** Its one rectangle
 (`killfeed_panel_rect`) is the strip immediately left of the killfeed ROI,
@@ -110,8 +143,15 @@ KILLFEED_PANEL_GATE_MARGIN = 1
 #: The killfeed_portrait roles whose rows mark an entry on screen.
 KILLFEED_PANEL_GATE_ROLES = ("killer",)
 
-#: Samples either side of a strip sample that opens the scoreboard gate.
-SCOREBOARD_GATE_MARGIN = 1
+#: Samples either side of a strip sample that opens the scoreboard gate. The
+#: player chose rule `on` (2026-10-05): every on-sample and no margin. Over
+#: the held half of the 21 matches the margin-1 caches held
+#: [metric:scoreboard_reads/posthoc-on@held-half#cache_frames=24206] frames and
+#: rule `on` keeps [metric:scoreboard_reads/posthoc-on@held-half#frames=18049]
+#: (`prototypes/scoreboard_reads.py`, `posthoc`).
+SCOREBOARD_GATE_MARGIN = 0
+#: The name a gate record carries for the frames it keeps (`gate_rule`).
+SCOREBOARD_GATE_RULE = "on"
 #: The strip verdicts that open the gate: the board is seen, or the band is
 #: too dark for the witness to say it is not there.
 SCOREBOARD_GATE_VERDICTS = ("present", "unreadable")
@@ -145,6 +185,18 @@ def ffmpeg_path() -> str:
     for p in sorted(base.glob("**/ffmpeg.exe")):
         return str(p)
     raise SystemExit("ffmpeg not found: install it (winget install Gyan.FFmpeg)")
+
+
+def ffv1_command(ff: str, w: int, h: int, hz: float, out: Path,
+                 threads: int | None = None) -> list[str]:
+    """The ffmpeg command that writes one rect's FFV1 cache video from
+    `bgr24` frames piped on stdin: the writer's, and `thin_cache`'s with
+    `threads` 1."""
+    cmd = [ff, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24",
+           "-s", f"{int(w)}x{int(h)}", "-r", str(hz), "-i", "-"]
+    if threads is not None:
+        cmd += ["-threads", str(int(threads))]
+    return cmd + ["-c:v", "ffv1", "-level", "3", "-pix_fmt", "bgr0", str(out)]
 
 
 def roi_rects(name: str, profile, wh: tuple[int, int],
@@ -262,6 +314,13 @@ def in_spans(t: float, spans, starts=None) -> bool:
     return i >= 0 and float(t) <= spans[i][1]
 
 
+def gate_rule(margin: int) -> str:
+    """The name of the frames a scoreboard gate at `margin` keeps: `on`
+    (`SCOREBOARD_GATE_RULE`, every strip on-sample) or `on+N`, N samples
+    either side as well. A record written before the field held `on+1`."""
+    return SCOREBOARD_GATE_RULE if int(margin) == 0 else f"{SCOREBOARD_GATE_RULE}+{int(margin)}"
+
+
 def scoreboard_gate(strip_rows: list[dict], margin: int = SCOREBOARD_GATE_MARGIN
                     ) -> tuple[dict | None, str | None]:
     """The scoreboard set's gate from a session's stored `scoreboard_strip`
@@ -285,7 +344,7 @@ def scoreboard_gate(strip_rows: list[dict], margin: int = SCOREBOARD_GATE_MARGIN
     opens = [r["verdict"] in SCOREBOARD_GATE_VERDICTS for r in samples]
     spans = gate_spans([r["t_ms"] for r in samples], opens, margin)
     starts = [a for a, _ in spans]
-    return {"witness": "scoreboard_strip", "witness_version": got,
+    return {"witness": "scoreboard_strip", "witness_version": got, "rule": gate_rule(margin),
             "verdicts": list(SCOREBOARD_GATE_VERDICTS), "margin_samples": int(margin),
             "witness_samples": len(samples), "witness_open": int(sum(opens)),
             "samples": sum(in_spans(r["t_ms"], spans, starts) for r in samples),
@@ -644,10 +703,7 @@ class RoiCacheWriter:
             for (x0, y0, x1, y1), path in zip(self.rects, self.videos):
                 part = path.with_suffix(".part.mkv")
                 self._procs.append(subprocess.Popen(
-                    [ff, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24",
-                     "-s", f"{x1 - x0}x{y1 - y0}", "-r", str(hz), "-i", "-",
-                     "-c:v", "ffv1", "-level", "3", "-pix_fmt", "bgr0", str(part)],
-                    stdin=subprocess.PIPE))
+                    ffv1_command(ff, x1 - x0, y1 - y0, hz, part), stdin=subprocess.PIPE))
             self._count = 0
         else:
             self._part = self.paths[0].with_suffix(".bin.part")
@@ -794,13 +850,18 @@ class RoiCache:
 
     def refusal(self, t_ms: float) -> str | None:
         """None where the cache holds a frame at `t_ms`; else why it holds
-        none: `outside_gate` (its gate kept no sample there),
+        none: `thinned_out` (the gate it was written under kept a frame there
+        and `thin_cache` dropped it), `outside_gate` (its gate kept no sample
+        there),
         `outside_cache_spans` (it was written over spans that miss it), or
         `not_cached` (no frame was stored at that time)."""
         if float(t_ms) in self._index_by_t():
             return None
         gate = self.record.get("gate")
         if gate is not None and not in_spans(t_ms, gate["spans"]):
+            before = (self.record.get("thinned") or {}).get("gate_before")
+            if before is not None and in_spans(t_ms, before["spans"]):
+                return "thinned_out"
             return "outside_gate"
         spans = self.record.get("spans")
         if spans is not None and not any(a <= float(t_ms) <= b for a, b in spans):
@@ -998,3 +1059,135 @@ class RoiCacheUnion:
                     x0, y0, x1, y1 = p.rect_of(roi)
                     frame[y0:y1, x0:x1] = smp.frame[y0:y1, x0:x1]
             yield Sample(frame_idx=got[0].frame_idx, t_ms=got[0].t_ms, frame=frame)
+
+
+def spans_mask(t_ms, spans) -> np.ndarray:
+    """Per time in `t_ms`, whether it lies in one of the closed `spans`
+    (sorted, disjoint): `in_spans` over an array."""
+    t = np.asarray(t_ms, float)
+    if not len(spans):
+        return np.zeros(t.shape, bool)
+    s = np.asarray(spans, float)
+    i = np.searchsorted(s[:, 0], t, side="right") - 1
+    ok = i >= 0
+    out = np.zeros(t.shape, bool)
+    out[ok] = t[ok] <= s[i[ok], 1]
+    return out
+
+
+def spans_within(inner, outer) -> bool:
+    """Whether every closed span of `inner` lies inside one span of `outer`
+    (both sorted, disjoint)."""
+    if not len(inner):
+        return True
+    if not len(outer):
+        return False
+    a, o = np.asarray(inner, float), np.asarray(outer, float)
+    i = np.searchsorted(o[:, 0], a[:, 0], side="right") - 1
+    ok = i >= 0
+    return bool(ok.all() and np.all(a[:, 1] <= o[i, 1]))
+
+
+def thin_cache(src: Path, sid: str, gate: dict, dst: Path, tool: str) -> dict:
+    """Re-encode the gated FFV1 cache of `sid` in directory `src` under a
+    narrower `gate` (a `scoreboard_gate` record) into directory `dst`, never
+    over `src`. No capture is decoded: the cached frames are decoded in
+    order, one thread, and those inside `gate` piped to the writer's own
+    encoder (`ffv1_command`). FFV1 is lossless, so a kept frame keeps its
+    pixels; packets are not remuxed, since a cached frame depends on the
+    coder state of the frames before it.
+
+    The new index keeps each kept row's time and frame, renumbered; the new
+    record carries `gate` and `thinned`: the rule, the tool, the gate it was
+    written under (`gate_before`, which `RoiCache.refusal` reads to say
+    `thinned_out`), and the frames and bytes before and kept."""
+    src, dst = Path(src), Path(dst)
+    if src.resolve() == dst.resolve():
+        raise ValueError("thin_cache writes beside the cache, never over it")
+    rec = json.loads((src / f"{sid}.json").read_text(encoding="utf-8"))
+    if rec.get("codec") != "ffv1" or len(rec["rects"]) != 1:
+        raise ValueError(f"{sid}: thin_cache re-encodes one-rect FFV1 caches")
+    before = rec.get("gate")
+    if before is None:
+        raise ValueError(f"{sid}: the cache has no gate to thin under")
+    if rec.get("thinned") is not None:
+        raise ValueError(f"{sid}: the cache is already thinned; thin the original")
+    if not spans_within(gate["spans"], before["spans"]):
+        raise ValueError(f"{sid}: the new gate reaches outside the gate the cache was written under")
+    idx = np.load(src / f"{sid}.idx.npy")
+    keep = spans_mask(idx[:, 0], gate["spans"])
+    dst.mkdir(parents=True, exist_ok=True)
+    video, out = src / f"{sid}.r0.mkv", dst / f"{sid}.r0.mkv"
+    x0, y0, x1, y1 = rec["rects"][0]
+    n_in = 0
+    if keep.any():
+        part = out.with_suffix(".part.mkv")
+        proc = subprocess.Popen(ffv1_command(ffmpeg_path(), x1 - x0, y1 - y0, rec["hz"], part,
+                                             threads=1), stdin=subprocess.PIPE)
+        cap = cv2.VideoCapture(str(video), cv2.CAP_FFMPEG, [cv2.CAP_PROP_N_THREADS, 1])
+        try:
+            while True:
+                ok, crop = cap.read()
+                if not ok:
+                    break
+                if n_in < len(keep) and keep[n_in]:
+                    proc.stdin.write(np.ascontiguousarray(crop).tobytes())
+                n_in += 1
+        finally:
+            cap.release()
+            proc.stdin.close()
+            code = proc.wait()
+        if code != 0 or n_in != len(idx):
+            part.unlink(missing_ok=True)
+            raise RuntimeError(f"{sid}: decoded {n_in} of {len(idx)} cached frames, "
+                               f"ffmpeg exit {code}")
+        part.replace(out)
+    new_idx = idx[keep].copy()
+    new_idx[:, 3] = np.arange(len(new_idx))
+    np.save(dst / f"{sid}.idx.npy", new_idx)
+    size = out.stat().st_size if out.is_file() else 0
+    record = {**rec, "gate": json.loads(json.dumps(gate)), "frames": int(keep.sum()),
+              "bytes": int(size),
+              "thinned": {"rule": gate.get("rule"), "tool": tool,
+                          "gate_before": before, "frames_before": int(len(idx)),
+                          "bytes_before": int(video.stat().st_size) if video.is_file() else 0,
+                          "frames_kept": int(keep.sum())}}
+    (dst / f"{sid}.json").write_text(json.dumps(record, indent=1), encoding="utf-8")
+    return {"frames_before": int(len(idx)), "frames_kept": int(keep.sum()),
+            "frames_decoded": n_in, "bytes_before": record["thinned"]["bytes_before"],
+            "bytes_after": int(size)}
+
+
+def compare_thinned(src: Path, dst: Path, sid: str) -> dict:
+    """Every frame of the thinned cache in `dst` against the stored one in
+    `src`, read in order and compared bit for bit: `identical`, `different`,
+    `extra_frames` (the thinned video runs past its index) and `index_ok`
+    (each kept row's time and frame are a stored row's)."""
+    old, new = np.load(Path(src) / f"{sid}.idx.npy"), np.load(Path(dst) / f"{sid}.idx.npy")
+    j = np.searchsorted(old[:, 0], new[:, 0]).clip(0, max(len(old) - 1, 0))
+    index_ok = bool(len(old) or not len(new)) and bool(
+        np.all(old[j, 0] == new[:, 0]) and np.all(old[j, 1] == new[:, 1])
+        and np.all(np.diff(old[:, 0]) > 0))
+    keep = set(j.tolist()) if index_ok else set()
+    same = differ = 0
+    extra = False
+    if len(new):
+        a = cv2.VideoCapture(str(Path(src) / f"{sid}.r0.mkv"), cv2.CAP_FFMPEG,
+                             [cv2.CAP_PROP_N_THREADS, 1])
+        b = cv2.VideoCapture(str(Path(dst) / f"{sid}.r0.mkv"), cv2.CAP_FFMPEG,
+                             [cv2.CAP_PROP_N_THREADS, 1])
+        try:
+            for i in range(len(old)):
+                ok1, x = a.read()
+                if i in keep:
+                    ok2, y = b.read()
+                    if ok1 and ok2 and np.array_equal(x, y):
+                        same += 1
+                    else:
+                        differ += 1
+            extra = bool(b.read()[0])
+        finally:
+            a.release()
+            b.release()
+    return {"checked": int(len(new)), "identical": same, "different": differ,
+            "extra_frames": extra, "index_ok": bool(index_ok)}

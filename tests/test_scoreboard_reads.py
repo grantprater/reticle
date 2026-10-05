@@ -149,5 +149,84 @@ class TestWriteFramesRect(unittest.TestCase):
         self.assertEqual(int(got[-1]), y1 - 1)
 
 
+class TestMigrateChecks(unittest.TestCase):
+    """The migration's checks on a synthetic cache: a correct thinned copy
+    passes `load_checks`, one whose record lost its old gate fails, and a
+    swap restores the stored files exactly."""
+
+    VERDICTS = ["absent", "absent", "present", "absent", "absent", "absent", "unreadable",
+                "absent", "absent"]
+
+    def setUp(self):
+        from reticle.roi_cache import ffmpeg_path
+        try:
+            ffmpeg_path()
+        except SystemExit:
+            self.skipTest("ffmpeg not installed")
+
+    def _cache(self, root: Path):
+        from reticle.decode import Sample
+        from reticle.profiles import get_profile
+        from reticle.roi_cache import RoiCacheWriter, cache_dir, scoreboard_gate
+        from reticle.version import SCOREBOARD_STRIP_VERSION
+        strip = [{"scoreboard_strip_version": SCOREBOARD_STRIP_VERSION, "kind": "sample",
+                  "frame_idx": 30 * i, "t_ms": 500.0 * i, "verdict": v}
+                 for i, v in enumerate(self.VERDICTS)]
+        man = {"session_id": "s1", "source_profile": "valorant-16x9",
+               "source": {"width": 1920, "height": 1080, "content_key": "k1"}}
+        old, _ = scoreboard_gate(strip, margin=1)
+        rng = np.random.default_rng(3)
+        w = RoiCacheWriter(root, man, get_profile("valorant-16x9"), "scoreboard", hz=2.0,
+                           gate=old)
+        for i in range(len(self.VERDICTS)):
+            w.feed(Sample(frame_idx=30 * i, t_ms=500.0 * i,
+                          frame=rng.integers(0, 256, (1080, 1920, 3), dtype=np.uint8)))
+        w.finish()
+        return cache_dir(root, "scoreboard"), man, strip
+
+    def test_load_checks_pass_a_true_copy_and_fail_a_lost_gate(self):
+        from reticle.roi_cache import scoreboard_gate, thin_cache
+        with tempfile.TemporaryDirectory() as tmp:
+            src, man, strip = self._cache(Path(tmp))
+            dst = Path(tmp) / "thinning"
+            thin_cache(src, "s1", scoreboard_gate(strip)[0], dst, "test")
+            got = sr.load_checks("s1", src, dst, man, strip)
+            self.assertTrue(got["ok"], got)
+            self.assertEqual((got["held"], got["dropped"]), (2, 4))
+            self.assertEqual(got["refusal_dropped"], {"thinned_out": 4})
+            self.assertEqual(got["refusal_outside_old_gate"], {"outside_gate": 3})
+            rec = json.loads((dst / "s1.json").read_text(encoding="utf-8"))
+            del rec["thinned"]["gate_before"]
+            (dst / "s1.json").write_text(json.dumps(rec), encoding="utf-8")
+            bad = sr.load_checks("s1", src, dst, man, strip)
+            self.assertFalse(bad["ok"])
+            self.assertEqual(bad["refusal_dropped"], {"outside_gate": 4})
+
+    def test_gate_core_ignores_only_the_rule_name(self):
+        a = {"witness": "scoreboard_strip", "spans": [[0.0, 1.0]], "rule": "on+1"}
+        self.assertEqual(sr._gate_core(a), sr._gate_core({k: v for k, v in a.items()
+                                                          if k != "rule"}))
+        self.assertNotEqual(sr._gate_core(a), sr._gate_core({**a, "spans": [[0.0, 2.0]]}))
+
+    def test_swap_and_restore(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src, dst = Path(tmp) / "src", Path(tmp) / "dst"
+            src.mkdir()
+            dst.mkdir()
+            for n in ("s.json", "s.idx.npy", "s.r0.mkv"):
+                (src / n).write_text("old " + n)
+                (dst / n).write_text("new " + n)
+            aside = sr._swap_in("s", src, dst)
+            self.assertEqual((src / "s.json").read_text(), "new s.json")
+            self.assertEqual((src / "s.json.pre-thin").read_text(), "old s.json")
+            self.assertFalse(any(dst.iterdir()))
+            for n in ("s.json", "s.idx.npy", "s.r0.mkv"):
+                (src / n).unlink()
+            sr._restore(aside)
+            self.assertEqual(sorted(p.name for p in src.iterdir()),
+                             ["s.idx.npy", "s.json", "s.r0.mkv"])
+            self.assertEqual((src / "s.r0.mkv").read_text(), "old s.r0.mkv")
+
+
 if __name__ == "__main__":
     unittest.main()
