@@ -979,10 +979,10 @@ code that answers them, not before.
    mode.
    Outcome (2026-10-04, entity-state-0.2.0): held out, the region holds a
    living teammate on
-   [metric:entity_state/riot_pool@heldout6es#calibration=0.9355] of kill
+   [metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#calibration=0.9355] of kill
    instants, short of 0.98; reach regions hold
-   [metric:entity_state/riot_pool@heldout6es#reach_calibration=0.9146], and
-   [metric:entity_state/riot_pool@heldout6es#has_slot_missing=8] instants
+   [metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#reach_calibration=0.9146], and
+   [metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#has_slot_missing=8] instants
    found a living teammate's slot closed by a post-round death stamped
    with the next round. Those 8 kill instants sample a larger every-frame
    gap: on `c62c2b06bcfb` the judge counted 504 of 41617 alive
@@ -1010,9 +1010,10 @@ code that answers them, not before.
    `--binding post_round`, and `replay 9acf02f98283` in both modes.
    Evidence: predictions B1-B4 (task entity-binding-20261004), the second
    look at the held-out six, scored once.
-   Outcome (2026-10-04, entity-binding-0.1.0): held out, the causal
-   binding holds a living teammate on
-   [metric:entity_state/riot_pool@heldout6es_causal#calibration=0.9678] of
+   Outcome (2026-10-04, entity-binding-0.1.1, the causal-leak correction
+   of 0.1.0: no tray_kit lookahead, off-map self fits refused; a
+   correction, not a third look): held out, the causal binding holds a living teammate on
+   [metric:entity_state/riot_pool@heldout6es_causal#calibration=0.9689] of
    kill instants against the post-round binding's
    [metric:entity_state/riot_pool@heldout6es_post_round#calibration=0.9355];
    B1 (0.97) fails. A bound fit lies within 8 m of the truth on
@@ -1021,7 +1022,8 @@ code that answers them, not before.
    [metric:entity_state/riot_pool@heldout6es_causal#ring_located_share=0.7121]);
    no fit binds two slots (B3); reach regions have a median radius of
    [metric:entity_state/riot_pool@heldout6es_causal#reach_radius_m_median=9.81] m
-   (B4). On the replay's every drawn frame the causal binding holds
+   (B4). On the replay's every drawn frame the causal binding (0.1.0,
+   before the correction) holds
    [metric:entity_state/replay@9acf02f98283_causal#calibration=0.9722]
    against [metric:entity_state/replay@9acf02f98283_post_round#calibration=0.944].
    The every-frame hunt over Riot's alive intervals finds
@@ -1033,7 +1035,7 @@ code that answers them, not before.
    with no fit since the round opened (post-round
    [metric:entity_state/riot_pool@heldout6es_post_round#hunt_no_position=3939]).
    The causal binding costs at most
-   [metric:entity_state/riot_pool@heldout6es_causal#cost_us_per_frame_max=168.76] us
+   [metric:entity_state/riot_pool@heldout6es_causal#cost_us_per_frame_max=174.88] us
    a frame, a Python loop over frames with one solver call each. The six
    held-out misses viewed in the crop cache: a fit on an enemy icon of the
    same agent; a real icon explained away as a ping; an icon the reader

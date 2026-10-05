@@ -88,19 +88,19 @@ Pre-registered at 0.1.0; 0.2.0 is one development revision on the dev
 scores (a death closes only inside its own round; only witnessed fits
 anchor a reach region). Held out (six Riot matches chosen by a fixed hash
 before measuring, scored once), of
-[metric:entity_state/riot_pool@heldout6es#n=1799] living teammates at kill
+[metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#n=1799] living teammates at kill
 instants, the reported region holds the truth on
-[metric:entity_state/riot_pool@heldout6es#calibration=0.9355], short of the
-0.98 target: fit [metric:entity_state/riot_pool@heldout6es#fit_calibration=0.9503],
-crowd [metric:entity_state/riot_pool@heldout6es#crowd_calibration=0.9722]
-(its core alone [metric:entity_state/riot_pool@heldout6es#crowd_core_calibration=0.75]),
-reach [metric:entity_state/riot_pool@heldout6es#reach_calibration=0.9146] with
-a median radius of [metric:entity_state/riot_pool@heldout6es#reach_radius_m_median=10.38] m.
-[metric:entity_state/riot_pool@heldout6es#has_slot_missing=8] living-teammate
+[metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#calibration=0.9355], short of the
+0.98 target: fit [metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#fit_calibration=0.9503],
+crowd [metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#crowd_calibration=0.9722]
+(its core alone [metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#crowd_core_calibration=0.75]),
+reach [metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#reach_calibration=0.9146] with
+a median radius of [metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#reach_radius_m_median=10.38] m.
+[metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#has_slot_missing=8] living-teammate
 instants found their slot closed: two post-round deaths carry the next
 round's `round_no` where that round's start fell back to the score
 increment. Fits lie a median
-[metric:entity_state/riot_pool@heldout6es#fit_point_err_m_median=0.54] m from
+[metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#fit_point_err_m_median=0.54] m from
 the truth. On the replay's every drawn frame the teammates' calibration is
 [metric:entity_state/replay@9acf02f98283#calibration=0.944], reach
 [metric:entity_state/replay@9acf02f98283#reach_calibration=0.912]. A third of
@@ -115,16 +115,17 @@ round starts; the stage 2a hunt, which skips 3 s after each buy start,
 counts [metric:entity_state/riot_pool@heldout6es_post_round#c62c2b06bcfb.hunt_no_slot=414]
 of [metric:entity_state/riot_pool@heldout6es_post_round#c62c2b06bcfb.hunt_alive_frames=41309].
 The belief law costs at most
-[metric:entity_state/riot_pool@heldout6es#cost_us_per_frame_max=5.49] us a
+[metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#cost_us_per_frame_max=5.49] us a
 frame as a post-round batch and
-[metric:entity_state/riot_pool@heldout6es#record_bytes_per_frame=120] bytes a
+[metric:entity_state/riot_pool@heldout6es~2026-10-04T22:29:59#record_bytes_per_frame=120] bytes a
 frame raw.
 
 Outcome (2026-10-04, entity-state-0.3.0, stage 2a)
 --------------------------------------------------
-The second look at the held-out six, scored once per mode: the causal
-binding holds a living teammate on
-[metric:entity_state/riot_pool@heldout6es_causal#calibration=0.9678] of kill
+The second look at the held-out six, scored once per mode, and the causal
+mode rescored once after the entity-binding-0.1.1 causal-leak correction
+(a correction, not a third look): the causal binding holds a living teammate on
+[metric:entity_state/riot_pool@heldout6es_causal#calibration=0.9689] of kill
 instants, the post-round binding on
 [metric:entity_state/riot_pool@heldout6es_post_round#calibration=0.9355]
 (unchanged from 0.2.0). Its outcome, the every-frame hunt and the viewed
@@ -834,7 +835,8 @@ def rests_on(G: dict) -> list[str]:
         sp = (G.get("spect") or {}).get("reason")
         return ["ally_icon fits (all, causal, per frame)", "identity.rendered_art_scores per fit",
                 "identity.teammate_fit_refusal", "ping and spike events", "baked geometry labels",
-                "tray_kit spectating witness" + (f" (unused: {sp})" if sp else "")] + common
+                (G.get("spect") or {}).get("rests_on", "tray_kit spectating witness")
+                + (f" (unused: {sp})" if sp else "")] + common
     return ["round_entity entity verdicts (post-round, pooled)"] + common
 
 

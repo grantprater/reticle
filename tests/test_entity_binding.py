@@ -118,13 +118,143 @@ class SelfFitTest(unittest.TestCase):
         self.assertEqual(bound, [eb.HOW_ASSIGNED_SPECTATED])
         self.assertEqual(out["counts"]["self_offered_to_assignment"], 1)
 
+    def test_off_map_self_fit_binds_no_spectated_slot(self):
+        # the player is dead and the tray names slot 3, but the self fit sits
+        # on background art off the map
+        F = 2
+        frames = [[(5.0, 5.0, Z, (), True)], [(90.0, 90.0, Z, ("off_map",), True)]]
+        open_ = np.ones((5, F), bool)
+        open_[0, :] = False
+        out = _bind(_fits(frames, F), F, open_=open_, spect=np.array([3, 3]))
+        self.assertEqual(out["how"][3, 0], eb.HOW_SPECTATE)
+        self.assertFalse(out["has"][:, 1].any())
+        self.assertEqual(out["np_bucket"][1], "off_map")
+        self.assertEqual(out["counts"]["self_off_map"], 1)
+
+
+def _same_up_to(test, full, cut, keys_full, keys_cut, n):
+    """The published state of frames [0, n) agrees: X, Y, has, how, wit and
+    each bound fit's observation key."""
+    for name in ("has", "how", "wit"):
+        np.testing.assert_array_equal(full[name][:, :n], cut[name][:, :n], err_msg=name)
+    for name in ("X", "Y"):
+        np.testing.assert_array_equal(full[name][:, :n], cut[name][:, :n], err_msg=name)
+    kf = np.where(full["obs"][:, :n] >= 0, keys_full[np.maximum(full["obs"][:, :n], 0)], None)
+    kc = np.where(cut["obs"][:, :n] >= 0, keys_cut[np.maximum(cut["obs"][:, :n], 0)], None)
+    test.assertTrue((kf == kc).all(), "observation keys differ")
+
+
+class SyntheticTruncationTest(unittest.TestCase):
+    """Causality on synthetic fits: the fits after frame `n` change nothing
+    published at or before it."""
+
+    def test_later_fits_change_no_earlier_frame(self):
+        rng = np.random.default_rng(7)
+        F, n = 120, 70
+        frames = []
+        for k in range(F):
+            fr = [(float(10 * s + rng.normal(0, 0.3)), float(rng.normal(0, 0.3)),
+                   _llr(s, float(rng.uniform(-1, 2))), (), False) for s in range(1, 5)]
+            fr += [(float(rng.uniform(0, 60)), float(rng.uniform(-20, 20)), Z,
+                    ("ping",) if rng.random() < 0.5 else (), False)]
+            fr.append((float(rng.uniform(0, 5)), 0.0, Z, (), True))
+            frames.append(fr)
+        open_ = np.ones((5, F), bool)
+        open_[0, 40:] = False                              # the player dies
+        spect = np.where(np.arange(F) >= 40, 2, -1)
+        full = _bind(_fits(frames, F), F, open_=open_, spect=spect)
+        cut_frames = frames[:n + 1] + [[] for _ in range(F - n - 1)]
+        cut = _bind(_fits(cut_frames, F), F, open_=open_, spect=spect)
+        keys = lambda fr: np.asarray([f"{k}:{j}" for k, x in enumerate(fr) for j in range(len(x))],
+                                     object)
+        _same_up_to(self, full, cut, keys(frames), keys(cut_frames), n + 1)
+
+
+@unittest.skipUnless((STORE / "events" / "ally_icon" / f"{DEV}.jsonl").is_file(),
+                     "no stored ally_icon rows for the dev session")
+class StoredTruncationTest(unittest.TestCase):
+    """Causality on `a06f04a0059f`'s stored rows: the binding's own inputs
+    (the `ally_icon`, `ping`, `spike` and `tray_kit` rows) cut at time T
+    publish the same X, Y, has, how, wit and observation keys for every frame
+    up to T as the whole session does.
+
+    T lies 50 ms before a teammate's `tray_kit` span starts, where the
+    owner's default `KIT_LOOKAHEAD_MS` would read the span early. The cut
+    span rows keep their stored agent (pooled over the whole span, the
+    disclosed post-round verdict); the lineup and the slots' lifecycle come
+    from their owners, uncut."""
+
+    def test_rows_after_t_change_no_earlier_frame(self):
+        from unittest import mock
+
+        from prototypes import entity_state as es
+        import crowd_region as v1                       # on the path entity_state sets
+        from reticle.adjudication.tray_kit import same_agent, stored_kit_witness
+        from reticle.store import Store
+
+        sid = DEV
+        S = v1.Session(sid)
+        L = es.lineup_slots(sid)
+        (_, to_m, m_per_px), _ = es.world_frame(sid)
+        v_max = es.v_max_m_s()
+        r_icon = float(S.r) * m_per_px
+        r_fit = r_icon + v_max * float(np.median(np.diff(S.fr_t))) / 1000.0
+        life = es.lifecycle(sid, S, L["slots"])
+        read = Store.read_events
+        w = stored_kit_witness(read(Store(STORE), "tray_kit", sid), agent=L["player_agent"])
+        mates = [s for s in w["spans"] if same_agent(s[2], L["player_agent"]) is False
+                 and s[0] > S.fr_t[0] + 60_000]
+        self.assertTrue(mates, "no teammate tray_kit span to cut before")
+        T = mates[len(mates) // 2][0] - 50.0
+        t_of = dict(zip(S.fr_f.tolist(), S.fr_t.tolist()))
+
+        def cut_rows(store, kind, session_id):
+            rows = read(store, kind, session_id)
+            if session_id != sid:
+                return rows
+            if kind == "ally_icon":
+                return [r for r in rows if "frame_idx" not in r
+                        or t_of.get(int(r["frame_idx"]), np.inf) <= T]
+            if kind in ("ping", "spike"):
+                return [r for r in rows if "t_ms" not in r or float(r["t_ms"]) <= T]
+            if kind == "tray_kit":
+                out = []
+                for r in rows:
+                    if r.get("kind") == "span":
+                        if float(r["t_first_ms"]) > T:
+                            continue
+                        r = {**r, "t_last_ms": min(float(r["t_last_ms"]), T)}
+                    elif "t_ms" in r and float(r["t_ms"]) > T:
+                        continue
+                    out.append(r)
+                return out
+            return rows
+
+        def run():
+            fits = eb.load_fits(sid, S, L["slots"], L["player_slot"], to_m, float(S.r))
+            spect = eb.spectated_slots(sid, S, L["slots"], L["player_agent"])
+            b = eb.causal_bind(S.fr_t, fits, life["open"], life["seg_start"], L["player_slot"],
+                               spect["slot"], r_fit=r_fit, v_max=v_max,
+                               log_area=math.log(fits["map_px"] * m_per_px ** 2),
+                               r_dup_m=2.0 * r_icon, margin_min=fits["margin_min"])
+            return b, fits["key"], spect
+
+        full, kf, sf = run()
+        with mock.patch.object(Store, "read_events", cut_rows):
+            cut, kc, sc = run()
+        n = int(np.searchsorted(S.fr_t, T, side="right"))
+        np.testing.assert_array_equal(sf["slot"][:n], sc["slot"][:n])
+        _same_up_to(self, full, cut, kf, kc, n)
+        self.assertIn("post-round", sf["rests_on"])
+
 
 @unittest.skipUnless((STORE / "events" / "ally_icon" / f"{DEV}.jsonl").is_file(),
                      "no stored ally_icon rows for the dev session")
 class StoredRowRegressionTest(unittest.TestCase):
     """`a06f04a0059f` (dev) from stored rows, against the run of 2026-10-04
-    (entity-binding-0.1.0 on ally-icon-0.11.0): 57430 fits, 54474 bound, the
-    rest explained, none bound twice."""
+    (entity-binding-0.1.1 on ally-icon-0.11.0, after the causal fix: no kit
+    lookahead, off-map self fits refused): 57430 fits, 54423 bound (54474
+    before the fix), the rest explained, none bound twice."""
 
     def test_dev_session_binding(self):
         from prototypes import entity_state as es
@@ -134,7 +264,7 @@ class StoredRowRegressionTest(unittest.TestCase):
         c = G["bind"]["counts"]
         self.assertEqual(c["fit_bound_twice"], 0)
         self.assertEqual(c["fits"], 57430)
-        self.assertEqual(c["fits_bound"], 54474)
+        self.assertEqual(c["fits_bound"], 54423)
         self.assertEqual(c["fits_bound"] + sum(G["bind"]["np_by_reason"].values()), c["fits"])
         self.assertEqual(G["bind"]["np_by_reason"]["ability_glyph"], 2050)
 

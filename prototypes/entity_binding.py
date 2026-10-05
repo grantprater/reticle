@@ -55,8 +55,11 @@ While the player's slot is open the self fit binds to it directly (the self
 channel). After the player's death the self icon draws the spectated
 teammate [domain:minimap/self-icon-shows-spectated]: the self fit binds to
 the slot of the agent whose kit the tray shows then
-(`adjudication.tray_kit.stored_kit_witness`, `kit_agents_at`), `rests_on`
-that witness. Where no current `tray_kit` row names a teammate's kit, the
+(`adjudication.tray_kit.stored_kit_witness`, `kit_agents_at` with no
+lookahead), `rests_on` that witness, whose span agents are pooled over each
+whole span (a post-round `tray_kit` verdict, disclosed). A self fit off the
+map binds no spectated slot; it enters the assignment with its `off_map`
+reason. Where no current `tray_kit` row names a teammate's kit, the
 self fit enters the assignment as an ordinary fit with no portrait term
 (`via_spectated`), and the gap is counted.
 
@@ -80,22 +83,25 @@ least `SWAP_MIN` nats over the current one, the chains move: each slot
 takes the motion state and evidence of the chain its evidence names. Frames
 already bound stay as published; the move changes only what follows.
 
-Outcome (2026-10-04, entity-binding-0.1.0)
+Outcome (2026-10-04, entity-binding-0.1.1)
 ------------------------------------------
 Developed on the dev sessions only (`3694746e4e54`, `a06f04a0059f`,
 `bdfdcf009dba`, `9acf02f98283`): chains, the relocation cap and the
 chain-confirmed portrait witness came from the dev misses; the parameters
-were fixed in an amendment row before the held-out score. Dev:
+were fixed in an amendment row before the held-out score. Dev (0.1.0):
 [metric:entity_state/riot_pool@dev4_causal#calibration=0.9657] against the
 post-round [metric:entity_state/riot_pool@dev4_post_round#calibration=0.9521].
-The held-out six, a second look, scored once:
-[metric:entity_state/riot_pool@heldout6es_causal#calibration=0.9678]
+The held-out six, a second look, scored once, then rescored once after
+the 0.1.1 correction of a causal leak a review found (the spectating witness
+read `tray_kit` spans 100 ms ahead; off-map self fits could bind the
+spectated slot), a correction and not a third look:
+[metric:entity_state/riot_pool@heldout6es_causal#calibration=0.9689]
 (post-round [metric:entity_state/riot_pool@heldout6es_post_round#calibration=0.9355]),
 short of the 0.97 gate; the 8 kill instants the death owner's next-round
 stamp closes are among the misses. By kind: fit
-[metric:entity_state/riot_pool@heldout6es_causal#fit_calibration=0.9791],
-fit_unnamed [metric:entity_state/riot_pool@heldout6es_causal#fit_unnamed_calibration=0.9712],
-reach [metric:entity_state/riot_pool@heldout6es_causal#reach_calibration=0.9488]
+[metric:entity_state/riot_pool@heldout6es_causal#fit_calibration=0.9801],
+fit_unnamed [metric:entity_state/riot_pool@heldout6es_causal#fit_unnamed_calibration=0.9711],
+reach [metric:entity_state/riot_pool@heldout6es_causal#reach_calibration=0.9524]
 (median radius [metric:entity_state/riot_pool@heldout6es_causal#reach_radius_m_median=9.81] m),
 crowd [metric:entity_state/riot_pool@heldout6es_causal#crowd_calibration=0.973].
 By session it runs from
@@ -105,22 +111,22 @@ A bound fit lies within 8 m of the truth on
 [metric:entity_state/riot_pool@heldout6es_causal#fit_bound_share=0.7615] of
 living-teammate instants, against the ring fits'
 [metric:entity_state/riot_pool@heldout6es_causal#ring_located_share=0.7121];
-no frame binds one fit to two slots. The replay's every drawn frame:
+no frame binds one fit to two slots. The replay's every drawn frame (0.1.0, before the correction):
 [metric:entity_state/replay@9acf02f98283_causal#calibration=0.9722]
 (post-round [metric:entity_state/replay@9acf02f98283_post_round#calibration=0.944]).
 
 Non-player fits on the held-out six, by reason: `ability_glyph`
 [metric:entity_state/riot_pool@heldout6es_causal#non_player_ability_glyph=18743],
-`unexplained` [metric:entity_state/riot_pool@heldout6es_causal#non_player_unexplained=7299],
-`off_map` [metric:entity_state/riot_pool@heldout6es_causal#non_player_off_map=1434],
-`ping` [metric:entity_state/riot_pool@heldout6es_causal#non_player_ping=1377],
-`duplicate` [metric:entity_state/riot_pool@heldout6es_causal#non_player_duplicate=597],
+`unexplained` [metric:entity_state/riot_pool@heldout6es_causal#non_player_unexplained=7290],
+`off_map` [metric:entity_state/riot_pool@heldout6es_causal#non_player_off_map=1492],
+`ping` [metric:entity_state/riot_pool@heldout6es_causal#non_player_ping=1376],
+`duplicate` [metric:entity_state/riot_pool@heldout6es_causal#non_player_duplicate=596],
 `not_a_teammate` [metric:entity_state/riot_pool@heldout6es_causal#non_player_not_a_teammate=71],
 `spike` [metric:entity_state/riot_pool@heldout6es_causal#non_player_spike=51].
 The binding costs a median
-[metric:entity_state/riot_pool@heldout6es_causal#cost_us_per_frame_median=133.72] us
+[metric:entity_state/riot_pool@heldout6es_causal#cost_us_per_frame_median=152.2] us
 a frame and at most
-[metric:entity_state/riot_pool@heldout6es_causal#cost_us_per_frame_max=168.76],
+[metric:entity_state/riot_pool@heldout6es_causal#cost_us_per_frame_max=174.88],
 a Python loop over frames with one solver call each.
 
 Six held-out misses viewed in the minimap crop cache: a ring fit on an
@@ -131,6 +137,12 @@ the chain evidence had not yet moved; a spectating witness that named the
 wrong teammate; a fit on bare floor beside an ability drawing. Most need a
 second channel to refuse the fit (the enemy reader, the ability readers),
 cross-referenced before any cost is tuned.
+
+Follow-ups for the next confirmation set (the held-out six are spent; new
+matches from 2026-10-05), none tuned here: the ping bonus (6 nats within two
+icon radii) explains real teammates away as pings; portrait evidence counts
+twice, in the per-frame cost and in the chain sum; a chain-confirmed
+portrait witness can be confidently wrong.
 """
 from __future__ import annotations
 
@@ -145,7 +157,10 @@ STORE = Path.home() / "reticle-store"
 
 #: 0.1.0 (2026-10-04): the causal binding as pre-registered (store
 #: `notes/predictions.jsonl`, task entity-binding-20261004).
-ENTITY_BINDING_VERSION = "entity-binding-0.1.0"
+#: 0.1.1 (2026-10-04): the causal-leak correction: the spectating witness
+#: reads `kit_agents_at` with no lookahead, and a self fit off the map binds
+#: no spectated slot; no cost or parameter changed.
+ENTITY_BINDING_VERSION = "entity-binding-0.1.1"
 
 #: Weight of the portrait log ratio against the motion term, and its clip:
 #: one fit's portrait never outweighs a motion surprise of more than
@@ -292,7 +307,8 @@ def load_fits(sid: str, S, slots: list[dict], player_slot, to_m, r_px: float) ->
     H, W = off.shape
     xi = np.clip(np.round(cx).astype(int), 0, W - 1)
     yi = np.clip(np.round(cy).astype(int), 0, H - 1)
-    flags = {"off_map": off[yi, xi] & ~is_self,
+    # the self fit too: off the map it draws no teammate, spectated or not
+    flags = {"off_map": off[yi, xi],
              "ability_glyph": (reason == "interior_is_map") & ~is_self,
              "not_a_teammate": not_mate & ~is_self}
     near = 2.0 * r_px
@@ -337,19 +353,30 @@ def load_fits(sid: str, S, slots: list[dict], player_slot, to_m, r_px: float) ->
             "references_version": (refs or {}).get("version")}
 
 
+#: What the spectating witness rests on, declared with every result.
+SPECTATE_RESTS_ON = ("tray_kit spectating witness (kit_agents_at lookahead 0 ms; each span's agent "
+                     "pooled over the whole span: a post-round tray_kit verdict)")
+
+
 def spectated_slots(sid: str, S, slots: list[dict], player_agent) -> dict:
     """(F,) slot index of the teammate whose kit the tray shows at each frame,
     -1 where it shows the player's kit or none, from the stored `tray_kit`
     rows (`stored_kit_witness`, `kit_agents_at`), with the witness's reason
-    when it gives nothing."""
+    when it gives nothing.
+
+    Causal per instant: a span holds from its first sample on
+    (`lookahead_ms=0`, never the owner's default `KIT_LOOKAHEAD_MS`). Each
+    span's agent, though, is the `tray_kit` arbiter's verdict pooled over the
+    whole span, a post-round verdict; `rests_on` discloses it."""
     from reticle.adjudication.tray_kit import kit_agents_at, same_agent, stored_kit_witness
     from reticle.store import Store
     F = S.fr_t.size
     out = np.full(F, -1, np.int64)
     w = stored_kit_witness(Store(STORE).read_events("tray_kit", sid), agent=player_agent)
     if w.get("reason") or not w["spans"]:
-        return {"slot": out, "reason": w.get("reason") or "no_spans", "version": w.get("version")}
-    agents = kit_agents_at(S.fr_t, w["spans"])
+        return {"slot": out, "reason": w.get("reason") or "no_spans", "version": w.get("version"),
+                "rests_on": SPECTATE_RESTS_ON}
+    agents = kit_agents_at(S.fr_t, w["spans"], lookahead_ms=0.0)
     by = {}
     for k, s in enumerate(slots):
         if s.get("agent"):
@@ -360,7 +387,8 @@ def spectated_slots(sid: str, S, slots: list[dict], player_agent) -> dict:
         k = by.get(str(a).strip().lower().replace("/", "").replace("_", ""))
         if k is not None:
             out[i] = k
-    return {"slot": out, "reason": None, "version": w.get("version"), "own_basis": w.get("own_basis")}
+    return {"slot": out, "reason": None, "version": w.get("version"), "own_basis": w.get("own_basis"),
+            "rests_on": SPECTATE_RESTS_ON}
 
 
 # ----------------------------------------------------------------- the causal loop
@@ -391,6 +419,7 @@ def causal_bind(t_ms: np.ndarray, fits: dict, open_: np.ndarray, seg_start: np.n
     np_cost = log_area + K_NP - bonus
     start = fits["start"]
     is_self = fits["is_self"]
+    off_map = fits["flags"]["off_map"]
     mates = np.asarray([k != player_slot for k in range(5)])
     # per-slot state: last bound fit (any binding) for the motion prior
     px = np.zeros(5)
@@ -421,6 +450,8 @@ def causal_bind(t_ms: np.ndarray, fits: dict, open_: np.ndarray, seg_start: np.n
             target = None
             if player_slot is not None and op[player_slot]:
                 target, h, w = player_slot, HOW_SELF, WITNESS_SELF
+            elif off_map[i]:                              # background art: no teammate drawn
+                c["self_off_map"] += 1
             elif spect[k] >= 0 and op[spect[k]] and free[spect[k]]:
                 target, h, w = int(spect[k]), HOW_SPECTATE, WITNESS_SPECTATE
                 c["self_spectate_bound"] += 1
