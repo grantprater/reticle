@@ -97,7 +97,7 @@ class PlanTests(unittest.TestCase):
             self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": [], "waived": [],
                                          "declined": [],
                                          "unchecked": [], "held": [], "unrecorded": [],
-                                         "widget": None, "placement": {}})
+                                         "widget": None, "placement": {}, "caches": []})
             self.assertEqual(render(plan), "nothing stale over 1 sessions")
 
     def test_a_per_side_session_without_a_placement_is_named(self):
@@ -677,10 +677,13 @@ class InputCycleTests(unittest.TestCase):
         from reticle.plan import input_cycles
         self.assertEqual(input_cycles(), [])
 
-    def test_the_one_loop_is_the_declared_feedback(self):
+    def test_the_loops_are_the_declared_feedback(self):
+        # the reliability table, and the assist verdicts the deaths join back
         from reticle.plan import input_cycles, input_graph
         self.assertEqual(input_cycles(input_graph(feedback=True)),
-                         [["death", "reliability", "death"]])
+                         [["assist", "death", "assist"],
+                          ["assist", "killfeed_assist", "death", "assist"],
+                          ["death", "reliability", "death"]])
 
     def test_a_loop_is_found(self):
         from reticle.plan import input_cycles

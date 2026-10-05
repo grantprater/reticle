@@ -812,6 +812,25 @@ def _scoreboard_cache_gate(store, sid, args) -> dict:
     return gate
 
 
+def _killfeed_panel_cache_gate(store, sid, args) -> dict:
+    """The gate a killfeed panel crop cache is written under, from the
+    stored killfeed_portrait rows (`roi_cache.killfeed_panel_gate`); refuses
+    a request the set cannot hold. The strip rides the HUD rate over the
+    whole capture, on the `hud` set's timeline, so `load_union` pairs them."""
+    from .roi_cache import killfeed_panel_gate
+    if args.cache_live:
+        raise SystemExit("--cache-roi killfeed_panel rides the HUD timeline over the whole "
+                         "capture; it takes no --cache-live")
+    if args.cache_hz is not None and float(args.cache_hz) != float(args.hz):
+        raise SystemExit("--cache-roi killfeed_panel stores the HUD samples, at --hz; it "
+                         "takes no other --cache-hz")
+    gate, why = killfeed_panel_gate(store.read_events("killfeed_portrait", sid), args.hz)
+    if gate is None:
+        raise SystemExit(f"--cache-roi killfeed_panel gates on the killfeed entries: {why}; "
+                         f"run `reticle scan {sid} --only hud` first")
+    return gate
+
+
 #: How long before each barrier drop a live-round cache starts: the last
 #: buy-phase second shows the starting positions and everything placed in the
 #: buy phase [domain:rounds/buy-phase-barriers].
@@ -1200,8 +1219,11 @@ def cmd_scan(args) -> int:
     # its crops sit on the HUD timeline's timestamps.
     # The scoreboard set keeps the scoreboard reader's frames inside the
     # strip gate (`roi_cache.scoreboard_gate`), so it rides at --hz.
-    cache_gate = (_scoreboard_cache_gate(store, sid, args)
-                  if args.cache_roi == "scoreboard" else None)
+    # The killfeed panel strip keeps the HUD samples near a stored killfeed
+    # entry (`roi_cache.killfeed_panel_gate`).
+    cache_gate = (_scoreboard_cache_gate(store, sid, args) if args.cache_roi == "scoreboard"
+                  else _killfeed_panel_cache_gate(store, sid, args)
+                  if args.cache_roi == "killfeed_panel" else None)
     cache_hz = args.cache_hz or args.hz
     cache_spans = _live_round_spans(store, sid, date) if args.cache_live else None
     want_cache = bool(args.cache_roi) and (args.force or _roi_cache_stale(
@@ -1541,8 +1563,10 @@ def cmd_scan(args) -> int:
                   f"{xp._offset / 2**20:.0f} MB -> {xp.paths[0].parent}")
             if xp.gate is not None:
                 print(f"           {xp.gate['witness']} gate kept {len(xp._index)} of "
-                      f"{xp.frames_offered} frames offered ({xp.gate['samples']} "
-                      f"stored samples in its {len(xp.gate['spans'])} spans)")
+                      f"{xp.frames_offered} frames offered "
+                      + (f"({xp.gate['samples']} stored samples" if "samples" in xp.gate
+                         else f"({xp.gate['witness_open']} witness samples open")
+                      + f" in its {len(xp.gate['spans'])} spans)")
 
         if dp is not None:
             rows = dp.events(sid, geometry.key_of(sid, store.root))
@@ -3510,6 +3534,12 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                           for e, v, why in r.get("refused", [])]
         inferred = ([{**common, "kind": "inferred_death", **x} for x in stalled["inferred"]]
                     + [{**common, "kind": "inferred_death_refusal", **x} for x in stalled["refused"]])
+    # Who assisted each kill: the stored `assist` verdicts, joined by death id
+    # when they rest on this death rule (`join_assists`).
+    with usage_step("assists"):
+        from .adjudication.death import assist_stamp, join_assists
+        assist_rows = store.read_events("assist", sid) if store.has_events("assist", sid) else None
+        assists_joined = join_assists(rows, assist_rows)
     with usage_step("summary_head"):
         collisions = [{**common, **c} for r in res["rounds"] for c in r.get("collisions", [])]
         status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
@@ -3544,6 +3574,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                 "xmarks": dict(Counter(f"{r.get('side')}:{(r['metadata'].get('xmark') or {}).get('status', 'none')}"
                                        for r in rows)),
                 "xmark_births": None if births is None else len(births),
+                "assists": assists_joined,
                 # The stored HUD table's own stamp, not the code's: the deaths
                 # read the table, whatever stamp it holds.
                 "inputs": {"hud": (hud.schema.metadata or {}).get(b"hud_version", b"").decode()
@@ -3569,7 +3600,10 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                            "combat_report": report_version if panel is not None else None,
                            "round_outcome": ROUND_OUTCOME_VERSION if claims is not None else None,
                            "round_outcome_claim": (ROUND_OUTCOME_CLAIM_VERSION
-                                                   if claims is not None else None)}}
+                                                   if claims is not None else None),
+                           # The assist verdicts joined: their stamp when they
+                           # rest on this death rule, else why not.
+                           "assist": assist_stamp(assist_rows)}}
     return {"head": head, "rows": rows, "collisions": collisions, "events": events,
             "set_aside": set_aside + inferred, "inferred": inferred, "result": res,
             "n_rounds": len(rounds)}
@@ -3767,6 +3801,142 @@ def cmd_killstreak(args) -> int:
         sid, rows, numerals[0].get("killfeed_numeral_version"),
         deaths[0].get("death_adjudication_version") if deaths else None))
     print(f"-> {path}")
+    return 0
+
+
+#: Views of each killfeed entry the assist panel is read on: spread over the
+#: entry's observed life. The panel is drawn with the entry, so a few views
+#: give the count a vote without reading every frame.
+ASSIST_VIEWS_PER_ENTRY = 3
+
+
+def assist_session(store: Store, sid: str, per_entry: int = ASSIST_VIEWS_PER_ENTRY,
+                   verdicts: list[dict] | None = None) -> tuple[list[dict], list[dict], dict]:
+    """Read the assist panel on every stored killfeed entry of a session from
+    the crop cache, then adjudicate it: (observation rows, verdict rows, cost).
+
+    Opportunity-gated: only death verdicts' killer views are read, `per_entry`
+    of each, placed by their `killfeed_portrait` killer rows. The candidates
+    are the killer's side from the lineup (`adjudication.assist.side_admitted`);
+    the icons admitted are those agents' kits and the panel's own icons.
+    Decodes no video: a session with no `hud` crop cache refuses."""
+    from .adjudication import assist as adj
+    from .adjudication import killfeed_kits
+    from .killfeed import KillfeedScale
+    from . import killfeed_assist as ka
+    from .lineup import load_lineup
+    from .roi_cache import RoiCache
+
+    t_start = time.perf_counter()
+    man = store.read_manifest(sid)
+    prof = get_profile(man["source_profile"])
+    cache, why = RoiCache.load(store.root, man, prof, "killfeed")
+    if cache is None:
+        raise SystemExit(f"{sid}: no killfeed crop cache ({why}) -- assists read no video")
+    if verdicts is None:
+        verdicts = [r for r in store.read_events("death", sid) if r.get("kind") == "death_verdict"]
+    killers = {r["observation_key"]: r for r in store.read_events("killfeed_portrait", sid)
+               if r.get("kind") == "portrait_observation" and r.get("role") == "killer"}
+    lineup = load_lineup(sid, store.root)
+    s = KillfeedScale.for_capture(int(man["source"]["width"]), int(man["source"]["height"]))
+    art = ka.portrait_art(store.root, s)
+    framed = ka.portrait_art(store.root, s, ka.FRAME_MARGIN)
+    kart = ka.killer_art(store.root, s)
+    temps = ka.icon_templates(str(store.root), s.scale)
+    by_t: dict[float, list] = {}
+    sides: dict[int, list[str]] = {}
+    for v in verdicts:
+        keys = [o["observation_key"] for c in ((v.get("metadata") or {}).get("killer_identity")
+                                               or {}).get("claims", [])
+                if c.get("channel") == "killfeed_portrait"
+                for o in (c.get("evidence") or {}).get("observations", [])]
+        rows = sorted((killers[k] for k in set(keys) if k in killers
+                       and ka.view_anchor(killers[k]) is not None), key=lambda r: r["t_ms"])
+        admitted = adj.side_admitted(lineup, adj.killer_side(v))
+        sides[id(v)] = list(admitted["named"])
+        cands = list(admitted["named"]) + [r for r in admitted["rivals"] if r]
+        icons = [n for n in temps if n.split("/", 1)[0] in cands or n.startswith("assist:")]
+        if not rows:
+            by_t.setdefault(None, []).append((v, None, cands, icons))
+            continue
+        n = min(per_entry, len(rows))
+        picks = sorted({int(round((i + 1) * len(rows) / (n + 1))) - 1 for i in range(n)})
+        for i in picks:
+            by_t.setdefault(float(rows[max(0, i)]["t_ms"]), []).append(
+                (v, rows[max(0, i)], cands, icons))
+    obs = [{"session_id": sid, "kind": "assist_observation",
+            "killfeed_assist_version": ka.KILLFEED_ASSIST_VERSION, "death_id": v["death_id"],
+            "t_ms": v.get("t_ms"), "count": None, "count_min": 0, "assisters": [],
+            "reason": ka.REFUSE_NO_ANCHOR} for v, _r, _c, _i in by_t.pop(None, [])]
+    x0, y0, x1, y1 = cache.rect_of("killfeed")
+    t_read = t_cache = 0.0
+    tc = time.perf_counter()
+    for smp in cache.samples(sorted(by_t), rois="killfeed"):
+        t_cache += time.perf_counter() - tc
+        crop = smp.frame[y0:y1, x0:x1]
+        for v, row, cands, icons in by_t[smp.t_ms]:
+            tr = time.perf_counter()
+            # The player's yellow frame can only be drawn on the player's side.
+            o = ka.assist_observation(crop, row, s, art, cands, temps, icons, v["death_id"],
+                                      killer=v.get("killer"), kart=kart, side=sides[id(v)],
+                                      framed_art=framed if adj.killer_side(v) == "ally" else None)
+            t_read += time.perf_counter() - tr
+            obs.append({"session_id": sid, **o})
+        tc = time.perf_counter()
+    kits = killfeed_kits.load()
+    rows = adj.adjudicate_session(verdicts, obs, lineup, kits)
+    for r in rows:
+        r["session_id"] = sid
+    views = sum(1 for o in obs if o.get("killer_key"))
+    cost = {"deaths": len(verdicts), "views": views, "read_s": round(t_read, 3),
+            "cache_s": round(t_cache, 3), "total_s": round(time.perf_counter() - t_start, 3),
+            "read_ms_per_view": round(1000 * t_read / max(1, views), 2),
+            "read_ms_per_entry": round(1000 * t_read / max(1, len(verdicts)), 2)}
+    from .lineup import view_stamp
+    from .roi_cache import ROI_CACHE_VERSION
+    _paths, art_prov = ka.game_portrait_paths(str(store.root))
+    _icons, icon_prov = ka.icon_art(str(store.root))
+    inputs = {"death": next((v.get("death_adjudication_version") for v in verdicts), None),
+              "killfeed_portrait": store.events_version("killfeed_portrait", sid),
+              "roi_cache": ROI_CACHE_VERSION, "lineup": (lineup or {}).get("version"),
+              "lineup_view": view_stamp(sid, store.root), "game_build": ka.ICON_BUILD}
+    anchors = Counter((o.get("anchor_check") or {}).get("status") for o in obs
+                      if o.get("killer_key"))
+    disagree = sum(bool((o.get("anchor_check") or {}).get("upstream_disagrees")) for o in obs)
+    obs.insert(0, {"session_id": sid, "kind": "summary",
+                   "killfeed_assist_version": ka.KILLFEED_ASSIST_VERSION, "inputs": inputs,
+                   "art": {k: v for k, v in art_prov.items() if k != "missing"},
+                   "icons": {k: v for k, v in icon_prov.items() if k != "missing"},
+                   "anchor_checks": dict(anchors), "upstream_anchor_disagrees": disagree,
+                   "cost": cost})
+    rows.insert(0, {"session_id": sid, "kind": "summary",
+                    "assist_adjudication_version": adj.ASSIST_ADJUDICATION_VERSION,
+                    "inputs": {"killfeed_assist": ka.KILLFEED_ASSIST_VERSION,
+                               "death": inputs["death"],
+                               "agent_identity": adj.AGENT_IDENTITY_VERSION,
+                               "killfeed_kits": kits.get("version"),
+                               "lineup": inputs["lineup"],
+                               "lineup_view": inputs["lineup_view"]},
+                    "summary": adj.summary(rows)})
+    return obs, rows, cost
+
+
+def cmd_assists(args) -> int:
+    """The killfeed assist panel [domain:killfeed/assist-panel] on every stored
+    entry: how many assisters, who (claims to the identity arbiter) and which
+    ability icon (`killfeed_assist`, `adjudication.assist`). Writes the
+    `killfeed_assist` (views) and `assist` (per death) streams; alters no
+    death. Decodes no video: it reads the crop cache."""
+    from .adjudication import assist as adj
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    obs, rows, cost = assist_session(store, sid, args.views)
+    summ = adj.summary(rows)
+    print(f"{sid}: {cost['deaths']} deaths, {cost['views']} views; {summ}")
+    print(f"  cost: {cost}")
+    p1 = store.write_events("killfeed_assist", sid, obs)
+    p2 = store.write_events("assist", sid, rows)
+    print(f"-> {p1}\n-> {p2}")
     return 0
 
 
@@ -5578,12 +5748,15 @@ def build_parser() -> argparse.ArgumentParser:
                         "-- a span reader over a round cache reads the rounds only, as with "
                         "cache, when the cache holds every live round -- else decode; "
                         "cache: refuse to decode; video: always decode")
-    s.add_argument("--cache-roi", choices=("killfeed", "hud", "minimap", "scoreboard"),
+    s.add_argument("--cache-roi", choices=("killfeed", "hud", "minimap", "scoreboard",
+                                           "killfeed_panel"),
                    help="also store lossless crops of this ROI at the HUD rate, for "
                         "`reticle trial --from cache`; `--only roi_cache` stores only them. "
                         "scoreboard: the scoreboard reader's region, at its frames within "
                         "one sample of a stored strip sample that reads the board present "
-                        "or the band unreadable")
+                        "or the band unreadable. killfeed_panel: the strip left of the "
+                        "killfeed ROI, at the HUD samples within one sample of a stored "
+                        "killfeed entry")
     s.add_argument("--cache-hz", type=float, default=None,
                    help="rate of the ROI crops (default: the HUD rate)")
     s.add_argument("--cache-live", action="store_true",
@@ -5803,6 +5976,13 @@ def build_parser() -> argparse.ArgumentParser:
                                           "per-round kill index (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_killstreak)
+
+    s = sub.add_parser("assists", help="the killfeed assist panel on every stored entry: "
+                                       "count, assisters, ability icons (crop cache, no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--views", type=int, default=ASSIST_VIEWS_PER_ENTRY,
+                   help="views read per entry")
+    s.set_defaults(func=cmd_assists)
 
     s = sub.add_parser("reliability", help="identity channel reliability per agent (no video)")
     s.add_argument("--top", type=int, default=12)

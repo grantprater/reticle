@@ -13,10 +13,42 @@ import numpy as np
 from reticle.passes import run_cached
 from unittest import mock
 
-from reticle import cli
+from reticle import cli, usage
 from reticle.store import Store
 from reticle.usage import (BUCKET_LIMITS_NS, CallTimes, CommandUsage, ScanUsage,
                            StepRecorder, format_usage, load, step, usage_level)
+
+#: Every ScanUsage and CommandUsage asks git for the revision, two
+#: subprocesses at about 0.1 s; no test here reads the value, so the module
+#: answers with a fixed one. RevisionTest calls the real function.
+FIXED_REVISION = {"sha": "0000000", "dirty": False}
+REAL_REVISION = usage.code_revision
+_revision = mock.patch.object(usage, "code_revision", lambda root=None: dict(FIXED_REVISION))
+
+
+def setUpModule():
+    _revision.start()
+
+
+def tearDownModule():
+    _revision.stop()
+
+
+class RevisionTest(unittest.TestCase):
+    """The real `code_revision`, which the module patch replaces elsewhere."""
+
+    def test_the_revision_names_a_sha_and_whether_the_tree_is_dirty(self):
+        got = REAL_REVISION()
+        if got.get("sha") is None:
+            self.skipTest(f"git unavailable here: {got.get('reason')}")
+        self.assertIsInstance(got["sha"], str)
+        self.assertTrue(got["sha"])
+        self.assertIsInstance(got["dirty"], bool)
+
+    def test_a_failed_git_is_null_with_a_reason(self):
+        with mock.patch.object(usage.subprocess, "run", side_effect=OSError("no git")):
+            got = REAL_REVISION()
+        self.assertEqual(got, {"sha": None, "dirty": None, "reason": "git failed: OSError"})
 
 
 class Reader:

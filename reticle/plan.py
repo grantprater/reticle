@@ -204,8 +204,10 @@ def derived_streams() -> list[dict]:
     `adjudication.identity`'s verdicts, stamped `producer_version`, and are
     written by `parent`'s command. `how` is what the command reads.
     """
+    from .adjudication.assist import ASSIST_ADJUDICATION_VERSION
     from .adjudication.identity import AGENT_IDENTITY_VERSION
     from .enemy_tracks import ENEMY_TRACK_VERSION
+    from .killfeed_assist import KILLFEED_ASSIST_VERSION
     from .lighting import LIGHTING_VERSION
     from .minimap_objects import minimap_object_version
     from .version import ALLY_PORTRAIT_FEATURES_VERSION
@@ -288,6 +290,19 @@ def derived_streams() -> list[dict]:
          "fields": {**roi, "teardrop_version": TEARDROP_VERSION,
                     "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION},
          "upstream": ()},
+        # The assist panel [domain:killfeed/assist-panel], reread from the
+        # killfeed crop cache on the stored deaths' killer views; its summary
+        # row records its inputs.
+        {"stream": "killfeed_assist", "key": "killfeed_assist_version",
+         "current": KILLFEED_ASSIST_VERSION, "command": "reticle assists {sid}", "how": "cache",
+         "fields": {"inputs.roi_cache": ROI_CACHE_VERSION},
+         "upstream": ("killfeed_portrait", "death")},
+        {"stream": "assist", "key": "assist_adjudication_version",
+         "current": ASSIST_ADJUDICATION_VERSION, "command": "reticle assists {sid}",
+         "how": "cache",
+         "fields": {"inputs.killfeed_assist": KILLFEED_ASSIST_VERSION,
+                    "inputs.agent_identity": AGENT_IDENTITY_VERSION},
+         "upstream": ("killfeed_assist", "death")},
         {"stream": "enemy_track", "key": "enemy_track_version", "current": ENEMY_TRACK_VERSION,
          "command": "reticle enemy-tracks {sid}", "how": "storage",
          "fields": {"minimap_object_version": minimap_object_version(),
@@ -441,7 +456,9 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     """stream -> {input name: declared input}, for every stream that reads a
     stored input. The name is what `plan` reports as moved."""
     from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .adjudication.killfeed_kits import KILLFEED_KITS_VERSION
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_WEAPON_VERSION
+    from .killfeed_assist import ICON_BUILD
     from .lighting import LIGHTING_VERSION
     from .roi_cache import ROI_CACHE_VERSION
     from .ability_candidates import values_digest
@@ -471,6 +488,10 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                   # record none.
                   "combat_report": _in("inputs.combat_report", "combat_report", optional=True),
                   "roster": _in("inputs.roster", "roster"),
+                  # The assist verdicts the deaths join (`join_assists`); a head
+                  # records `stale:<death rule>` or `no_rows` where it joined none.
+                  "assist": _in("inputs.assist", "assist#assist_adjudication_version",
+                                optional=True),
                   "reliability_table": _in("inputs.reliability_table", "reliability"),
                   # How each round ended: read only at the code's stamps, and
                   # heads before death-adjudication-0.34.0 record none.
@@ -603,6 +624,18 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                                      ABILITY_SHAPE_VERSION),
                                 "candidate_fit": _code("ability_fit_version", ABILITY_FIT_VERSION),
                                 **geo},
+        # The assist panel [domain:killfeed/assist-panel] reads the stored
+        # deaths' killer views and the killfeed reader's anchors, matched to
+        # one game build's art; its verdicts rest on the same deaths and name
+        # icons from the kits table.
+        "killfeed_assist": {"death": _in("inputs.death", death),
+                            "killfeed_portrait": _in("inputs.killfeed_portrait",
+                                                     "killfeed_portrait"),
+                            "game_build": _code("inputs.game_build", ICON_BUILD),
+                            **_lineup_inputs()},
+        "assist": {"death": _in("inputs.death", death),
+                   "killfeed_kits": _code("inputs.killfeed_kits", KILLFEED_KITS_VERSION),
+                   **_lineup_inputs()},
         "enemy_track": {"minimap_object": _in("minimap_object_version",
                                               "minimap_object#minimap_object_version"),
                         "death": _in("death_adjudication_version", death),
@@ -653,6 +686,10 @@ FEEDBACK = {
                                     "deaths and weigh the name clusters; compared by the "
                                     "death rule they were measured on "
                                     "(`reliability.built_from`)",
+    ("death", "assist"): "the assist verdicts are read over the stored deaths and joined "
+                         "back by death id only when they rest on this death rule "
+                         "(`death.assist_stamp`); a head that joined none records why, "
+                         "so deaths, then assists, then deaths once more agree",
 }
 
 
@@ -1373,7 +1410,36 @@ def stale(store, sessions: list[str]) -> dict:
         out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived,
                     "declined": declined,
                     "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded,
-                    "widget": widget, "placement": placed}
+                    "widget": widget, "placement": placed, "caches": cache_work(store, man)}
+    return out
+
+
+#: Crop cache sets a session should hold, each where the stored inputs it is
+#: written from exist: the stored crop cache set it pairs with, and the
+#: stream its gate reads. The killfeed panel strip pairs with the `hud` set
+#: (`roi_cache.WIDE_ROIS`) and gates on `killfeed_portrait`.
+EXPECTED_CACHES = {"killfeed_panel": ("hud", "killfeed_portrait")}
+
+
+def cache_work(store, manifest: dict) -> list[dict]:
+    """Each expected crop cache set (`EXPECTED_CACHES`) the session lacks or
+    cannot load, with why and the decode that writes it, which only the
+    player starts."""
+    from .profiles import get_profile
+    from .roi_cache import RoiCache, rewrite_command, stored_record
+    sid = manifest["session_id"]
+    out = []
+    for name, (pair, witness) in EXPECTED_CACHES.items():
+        if stored_record(store.root, sid, pair) is None or not store.has_events(witness, sid):
+            continue
+        if stored_record(store.root, sid, name) is None:
+            why = "missing"
+        else:
+            why = RoiCache.load(store.root, manifest, get_profile(manifest["source_profile"]),
+                                name)[1]
+        if why is not None:
+            out.append({"set": name, "reason": why, "witness": witness,
+                        "command": rewrite_command(sid, name)})
     return out
 
 
@@ -1623,6 +1689,15 @@ def render(plan: dict) -> str:
         for why, streams in why_of.items():
             lines.append(f"reread   {', '.join(streams)} of {sid}   (placement_moved: {why}; "
                          f"each is listed below with input {WIDGET_INPUT})")
+    # Crop cache sets a session lacks (`cache_work`): a decode the player starts.
+    caches: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+    for sid, p in plan.items():
+        for c in p.get("caches") or ():
+            command = re.sub(rf"(?<![\w-]){re.escape(sid)}(?![\w-])", "<sid>", c["command"])
+            caches[(c["set"], c["reason"], f"{command}   ({c['set']} crop cache {c['reason']}; "
+                    f"gated on stored {c['witness']} rows; the player starts this decode)")].append(sid)
+    lines += [f"decode   {text} for {' '.join(sids)}"
+              for (_s, _r, text), sids in sorted(caches.items())]
     if not by_channel and not derived:
         return "\n".join(lines + [f"nothing stale over {len(plan)} sessions"] + waived_lines)
     for ch, sids in sorted(by_channel.items()):
