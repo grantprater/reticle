@@ -35,8 +35,9 @@ and refuse as `outside_kit` with `drawn` recording what the cell matched
 best. The icon rests on the assister's verdict (`depends_on`); an assister
 with no verdict is read against the side's kits and says so.
 
-The kill owner (`adjudication.death`) does not yet carry this; each verdict is
-keyed by `death_id` for it to join (`assists` in `docs/WORKING_MAP.md`).
+Each verdict is keyed by `death_id`; the kill owner (`adjudication.death`,
+`join_assists`) carries it as the death verdict's `assists` when the stream
+rests on the death rule it was read over.
 """
 from __future__ import annotations
 

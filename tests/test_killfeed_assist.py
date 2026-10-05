@@ -135,5 +135,105 @@ class Adjudicate(unittest.TestCase):
         self.assertEqual(adj.killer_side({"side": "ally", "same_side": True}), "ally")
 
 
+def _tiles(h: int, w: int, margin: int, seed: int = 0) -> appearance.ArtTiles:
+    """The three synthetic agents at any tile size, keeping their BGR."""
+    rng = np.random.default_rng(seed)
+    bgr = []
+    for _ in AGENTS:
+        base = rng.uniform(0.15, 0.85, (h // 3 + 1, w // 3 + 1, 3)).astype(np.float32)
+        bgr.append(cv2.resize(base, (w, h), interpolation=cv2.INTER_LINEAR))
+    lab = np.stack([cv2.cvtColor(b, cv2.COLOR_BGR2Lab) for b in bgr])
+    tiles = appearance.ArtTiles(AGENTS, lab, np.ones((len(AGENTS), h, w), np.float32), margin)
+    tiles.bgr = bgr
+    return tiles
+
+
+class CheckAnchor(unittest.TestCase):
+    """The killer art's left edge is checked against the killer's own art."""
+
+    def setUp(self):
+        self.kart = _tiles(34, 68, 4, seed=5)
+        rng = np.random.default_rng(2)
+        self.crop = rng.normal(90, 6, (60, 300, 3)).astype(np.float32)
+        self.crop[10:44, 150:218] = self.kart.bgr[self.kart.index["Bravo"]] * 255.0
+        self.crop = np.clip(self.crop, 0, 255).astype(np.uint8)
+
+    def test_confirmed_prior_is_verified(self):
+        row = {"art_x0": 151, "art_reason": None, "art_y0": 10}
+        got = ka.check_anchor(self.crop, row, UNIT_SCALE, self.kart, "Bravo")
+        self.assertEqual(got["status"], ka.ANCHOR_VERIFIED)
+        self.assertEqual(got["x"], 150.0)
+        self.assertFalse(got["upstream_disagrees"])
+
+    def test_misplaced_prior_widens_and_is_stored(self):
+        row = {"art_x0": 60, "art_reason": None, "art_y0": 10}
+        got = ka.check_anchor(self.crop, row, UNIT_SCALE, self.kart, "Bravo")
+        self.assertEqual((got["status"], got["x"]), (ka.ANCHOR_LOCAL, 150.0))
+        self.assertTrue(got["upstream_disagrees"])
+
+    def test_unnamed_killer_searches_the_side(self):
+        row = {"art_x0": 60, "art_reason": None, "art_y0": 10}
+        got = ka.check_anchor(self.crop, row, UNIT_SCALE, self.kart, None, ["Alpha", "Bravo"])
+        self.assertEqual((got["killer_candidates"], got["killer_at_best"]), ("side", "Bravo"))
+        none = ka.check_anchor(self.crop, row, UNIT_SCALE, self.kart, None, [])
+        self.assertEqual((none["status"], none["x"]), (ka.ANCHOR_NO_KILLER, 60))
+
+
+class FramedPortrait(unittest.TestCase):
+    def test_framed_path_marks_the_self_frame(self):
+        art = _art()
+        framed = appearance.ArtTiles(art.agents, art._lab, art.alpha, ka.FRAME_MARGIN)
+        crop = _scene(art, [("Charlie", False)])
+        x = 150 + ka.EDGE_NO_ICON - ka.PORTRAIT_W
+        yellow = np.array([30, 236, 231], np.uint8)        # E7EC77 in BGR
+        for r in (20, 21, 22, 35, 36, 37):
+            crop[r, x:x + ka.PORTRAIT_W] = yellow
+        for c in (0, 1, 2, ka.PORTRAIT_W - 3, ka.PORTRAIT_W - 2, ka.PORTRAIT_W - 1):
+            crop[20:20 + ka.PORTRAIT_H, x + c] = yellow
+        plain = ka.read_panel(crop, 150, 20, UNIT_SCALE, art, list(AGENTS))
+        got = ka.read_panel(crop, 150, 20, UNIT_SCALE, art, list(AGENTS), framed_art=framed)
+        self.assertEqual(got["count"], 1)
+        a = got["assisters"][0]
+        self.assertEqual(max(a["art_zncc"], key=a["art_zncc"].get), "Charlie")
+        self.assertEqual(plain["count"], 0)      # the frame hides it at ART_MARGIN
+        self.assertEqual(a["frame"], "self")
+
+
+class JoinAssists(unittest.TestCase):
+    def _assist(self, death_rule):
+        from reticle.adjudication import death
+        return [{"kind": "summary", "assist_adjudication_version": adj.ASSIST_ADJUDICATION_VERSION,
+                 "inputs": {"death": death_rule or death.DEATH_ADJUDICATION_VERSION}},
+                {"kind": "assist_verdict", "death_id": "d1", "count": 1, "count_min": 1,
+                 "present": True, "count_status": "read", "count_reason": None,
+                 "rests_on": {"killfeed_assist_version": ka.KILLFEED_ASSIST_VERSION},
+                 "assisters": [{"k": 0, "entity_id": "d1:assist:0", "agent": "Alpha",
+                                "identity": {"status": "resolved"}, "icon": "none",
+                                "icon_status": "read", "icon_set": None}]},
+                {"kind": "assist_verdict", "death_id": "d2", "count": None, "count_min": 1,
+                 "present": True, "count_status": "refused", "count_reason": "cut_by_roi",
+                 "assisters": []}]
+
+    def test_join_by_death_id(self):
+        from reticle.adjudication import death
+        rows = [{"kind": "death_verdict", "death_id": d} for d in ("d1", "d2", "d3")]
+        got = death.join_assists(rows, self._assist(None))
+        self.assertEqual(got, {"read": 1, "lower_bound": 1, death.ASSISTS_NO_ROW: 1})
+        self.assertEqual(rows[0]["assists"]["assisters"][0]["agent"], "Alpha")
+        self.assertEqual(rows[1]["assists"]["count_min"], 1)
+        self.assertEqual(rows[2]["assists"]["status"], "unread")
+        self.assertEqual(death.assist_stamp(self._assist(None)), adj.ASSIST_ADJUDICATION_VERSION)
+
+    def test_stale_or_missing_stream_is_unread(self):
+        from reticle.adjudication import death
+        rows = [{"kind": "death_verdict", "death_id": "d1"}]
+        death.join_assists(rows, self._assist("death-adjudication-0.1.0"))
+        self.assertEqual(rows[0]["assists"]["reason"], death.ASSISTS_STALE)
+        self.assertTrue(death.assist_stamp(self._assist("death-adjudication-0.1.0"))
+                        .startswith("stale:"))
+        death.join_assists(rows, None)
+        self.assertEqual(rows[0]["assists"]["reason"], death.ASSISTS_NO_STREAM)
+
+
 if __name__ == "__main__":
     unittest.main()

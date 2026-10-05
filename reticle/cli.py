@@ -3495,6 +3495,12 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                           for e, v, why in r.get("refused", [])]
         inferred = ([{**common, "kind": "inferred_death", **x} for x in stalled["inferred"]]
                     + [{**common, "kind": "inferred_death_refusal", **x} for x in stalled["refused"]])
+    # Who assisted each kill: the stored `assist` verdicts, joined by death id
+    # when they rest on this death rule (`join_assists`).
+    with usage_step("assists"):
+        from .adjudication.death import assist_stamp, join_assists
+        assist_rows = store.read_events("assist", sid) if store.has_events("assist", sid) else None
+        assists_joined = join_assists(rows, assist_rows)
     with usage_step("summary_head"):
         collisions = [{**common, **c} for r in res["rounds"] for c in r.get("collisions", [])]
         status = lambda key, role: Counter((r["metadata"].get(key) or {}).get("status", "none")
@@ -3529,6 +3535,7 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                 "xmarks": dict(Counter(f"{r.get('side')}:{(r['metadata'].get('xmark') or {}).get('status', 'none')}"
                                        for r in rows)),
                 "xmark_births": None if births is None else len(births),
+                "assists": assists_joined,
                 # The stored HUD table's own stamp, not the code's: the deaths
                 # read the table, whatever stamp it holds.
                 "inputs": {"hud": (hud.schema.metadata or {}).get(b"hud_version", b"").decode()
@@ -3553,7 +3560,10 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
                            "stalls": stalls.STALL_VERSION if stall_spans is not None else None,
                            "round_outcome": ROUND_OUTCOME_VERSION if claims is not None else None,
                            "round_outcome_claim": (ROUND_OUTCOME_CLAIM_VERSION
-                                                   if claims is not None else None)}}
+                                                   if claims is not None else None),
+                           # The assist verdicts joined: their stamp when they
+                           # rest on this death rule, else why not.
+                           "assist": assist_stamp(assist_rows)}}
     return {"head": head, "rows": rows, "collisions": collisions, "events": events,
             "set_aside": set_aside + inferred, "inferred": inferred, "result": res,
             "n_rounds": len(rounds)}
@@ -3842,13 +3852,14 @@ def assist_session(store: Store, sid: str, per_entry: int = ASSIST_VIEWS_PER_ENT
             "cache_s": round(t_cache, 3), "total_s": round(time.perf_counter() - t_start, 3),
             "read_ms_per_view": round(1000 * t_read / max(1, views), 2),
             "read_ms_per_entry": round(1000 * t_read / max(1, len(verdicts)), 2)}
+    from .lineup import view_stamp
     from .roi_cache import ROI_CACHE_VERSION
     _paths, art_prov = ka.game_portrait_paths(str(store.root))
     _icons, icon_prov = ka.icon_art(str(store.root))
     inputs = {"death": next((v.get("death_adjudication_version") for v in verdicts), None),
               "killfeed_portrait": store.events_version("killfeed_portrait", sid),
               "roi_cache": ROI_CACHE_VERSION, "lineup": (lineup or {}).get("version"),
-              "game_build": ka.ICON_BUILD}
+              "lineup_view": view_stamp(sid, store.root), "game_build": ka.ICON_BUILD}
     anchors = Counter((o.get("anchor_check") or {}).get("status") for o in obs
                       if o.get("killer_key"))
     disagree = sum(bool((o.get("anchor_check") or {}).get("upstream_disagrees")) for o in obs)
@@ -3864,7 +3875,8 @@ def assist_session(store: Store, sid: str, per_entry: int = ASSIST_VIEWS_PER_ENT
                                "death": inputs["death"],
                                "agent_identity": adj.AGENT_IDENTITY_VERSION,
                                "killfeed_kits": kits.get("version"),
-                               "lineup": inputs["lineup"]},
+                               "lineup": inputs["lineup"],
+                               "lineup_view": inputs["lineup_view"]},
                     "summary": adj.summary(rows)})
     return obs, rows, cost
 

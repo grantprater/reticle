@@ -13,21 +13,28 @@ The icon starts collapsed, so an assister with no icon is a portrait alone
 
 **What this reads.** Only entries the killfeed reader found: for each view of
 an entry's killer (a `killfeed_portrait` killer row), the panel is searched
-from the killer art's left edge (the row's entry anchor, else its art window)
-leftwards, one assister at a time, never over the whole row. Each step scores
-the side's portrait art (`appearance.art_zncc`, the art shrunk to the brush's
-36 x 18 with `INTER_AREA`) at every column where the assister's right edge can
-sit: against the panel's right end with no icon, or one icon cell (16 px)
-further left. The best placement says whether an icon cell lies between the
-portrait and the panel's right end; the next assister ends where this one
-begins.
+from the killer art's left edge leftwards, one assister at a time, never over
+the whole row. The edge is first checked against the killer's own art
+(`check_anchor`): the killfeed reader's priors are scored with the death
+verdict's killer (or, unnamed, the side's five), and where none confirms it
+the search widens to the entry's band. A disagreement with the killfeed
+reader's first prior is stored (`upstream_disagrees`) for its owner; the
+killfeed reader itself is not changed here. Each step scores the side's
+portrait art (`appearance.art_zncc`, the art shrunk to the brush's 36 x 18
+with `INTER_AREA`) at every column where the assister's right edge can sit:
+against the panel's right end with no icon, or one icon cell (16 px) further
+left. The best placement says whether an icon cell lies between the portrait
+and the panel's right end; the next assister ends where this one begins.
 
 **Absence is a reading.** Where no candidate's art correlates at
-`PRESENT_Z` the step reads "no assister": the panel holds `count` assisters. Before
-reading absence the step widens to every agent with art (the surprise path):
-a portrait that only an agent outside the side matches is stored as present
-with `widened`, and its agent stays for the arbiter to refuse. A step whose
-search the ROI's left edge cuts stops with `count` None and `count_min`.
+`PRESENT_Z` the step reads "no assister": the panel holds `count` assisters.
+Before reading absence the step tries, on the player's side, the same art
+with the player's yellow frame unweighted (`FRAME_MARGIN`,
+[domain:killfeed/self-yellow-frame]), then every agent with art (the surprise
+path): a portrait that only an agent outside the side matches is stored as
+present with `widened`, and its agent stays for the arbiter to refuse. A step
+whose search the ROI's left edge cuts stops with `count` None and
+`count_min`.
 
 **Icons.** An icon cell is read as soft whiteness (each pixel's least channel
 over 255: the white glyph over the translucent plate) against the game's
@@ -40,20 +47,25 @@ killer's side, from the lineup) and the panel's own generic icons
 `ICON_SURPRISE`, it widens to every ability icon in the build. It names no
 ability: `adjudication.assist` restricts the scores to the assister's kit.
 
-**Measured** (`prototypes/assist_panel_eval.py`, 21 matches, 3 views per
-entry, against Riot's assist credit on paired deaths). Where the count is
-read, the panel's presence agrees with Riot's assisted kill at precision
-[metric:assist_panel/riot#presence_precision=0.9958] and recall
-[metric:assist_panel/riot#presence_recall=0.9572]; a named assister is one
-Riot credits at [metric:assist_panel/riot#assister_precision=0.996]. Every
-Astra assist is missed: her art scores under `PRESENT_Z` at this size. The
-ROI's left edge cuts the panel of a long killer name; those deaths keep a
-lower bound ([metric:assist_panel/riot#lower_bound=257] deaths, each one Riot
-credits).
+**Measured** (`prototypes/assist_panel_eval.py`, 3 views per entry, against
+Riot's assist credit on paired deaths). Versions 0.1.0-0.4.0 were chosen
+against all 21 Riot matches; from 0.5.0 the matches are split by a fixed hash
+into a dev half (10, used for choices with the player's labels) and a
+held-out half (11, scored once per version). On the held-out half, where the
+count is read, presence agrees with Riot's assisted kill at precision
+[metric:assist_panel/riot_held#presence_precision=0.997] and recall
+[metric:assist_panel/riot_held#presence_recall=0.9795]; a named assister is
+one Riot credits at [metric:assist_panel/riot_held#assister_precision=0.9943],
+and the player's own assists are named at
+[metric:assist_panel/riot_held#assistant_own_recall=0.9804]. Astra on
+223d636bf8d2 is drawn from variant art [domain:killfeed/portrait-art-variants]:
+every Astra assist on the dev half is missed
+([metric:assist_panel/riot_dev#assistant_astra_recall=0.0]). The ROI's left
+edge cuts the panel of a long killer name; those deaths keep a lower bound.
 
 Game art is loaded from the store's game-file reference (`ICON_BUILD`), never
-copied into this repository; the portrait art is the killfeed owner's
-(`appearance.killfeed_art`).
+copied into this repository: the portraits are each agent UIData's
+`KillfeedPortrait` (`game_portrait_paths`).
 
 Owns [owns:killfeed-assist-panel].
 """
@@ -117,14 +129,19 @@ ART_MARGIN = 2
 #: `TX_Killfeed_MeBorder` chevron) over the panel when the local player
 #: assisted (`KillFeed_AssisterPortraits`, `bLocalPlayerIsAssister`)
 #: [domain:killfeed/self-yellow-frame]; the frame covers about three pixels
-#: of the portrait's edge. On the dev half's five self-framed misses the
-#: player's agent scored 0.60-0.64 at `ART_MARGIN` and 0.77-0.80 with 3.
+#: of the portrait's edge. On three of the dev half's five self-framed
+#: misses (ff636d173b07 233.0 s and 2073.0 s, a1a995e6b19b 1231.0 s) the
+#: player's agent scored 0.57-0.66 at 2 px and 0.74-0.80 at 3 px over
+#: brush sizes 34-36 px wide; the framed path's picks on the dev half had a
+#: median correlation of 0.70 (15 views). Chosen on the dev half.
 FRAME_MARGIN = 3
 
 # Where an assister's right edge sits, relative to the right end it abuts
 # (the killer art's left edge, or the previous assister's left edge). On 81
 # labelled assisted entries the portrait's right edge sat -1 px (0 to -2)
-# from the killer art's left edge with no icon, -16 to -17 with one.
+# from the killer art's left edge with no icon, -16 to -17 with one. Against
+# checked anchors (`check_anchor`) on five dev matches the first assister's
+# edge sat at 0 (no icon) and -16 (icon), each +-1: inside the search.
 #: The right edge's search, base px either side of the two predictions.
 EDGE_NO_ICON = -1
 EDGE_ICON = EDGE_NO_ICON - ICON_CELL
@@ -141,7 +158,10 @@ ICON_GAP_MIN = ICON_CELL / 2
 #: picks with the gate off scored 0.695 at the 5th percentile where a
 #: portrait was drawn, and up to 0.648 (one at 0.725) on background, most
 #: of those from the all-agent widening; 0.65 kept 230 of 240 true picks and
-#: 1 of 55 false. Riot's records are the held-out check.
+#: 1 of 55 false. It was chosen after 0.1.0's Riot score (0.5 failed its
+#: registered precision), so Riot's 21 matches were dev data for it; the
+#: held-out half of `prototypes/assist_panel_eval.py`'s split checks it from
+#: 0.5.0 on.
 PRESENT_Z = 0.65
 
 #: The least soft plate share (`killfeed.plate_score`) over a portrait's
@@ -156,7 +176,7 @@ PLATE_AREA_MIN = 0.08
 #: The fewest art columns (base px) inside the ROI a cut assist window is
 #: scored on: half the brush. The killer's 22 of 68 columns
 #: (`killfeed.ART_MIN_VISIBLE`) was measured on the larger tile; half is
-#: chosen, not measured, and Riot's records check it.
+#: chosen, not measured; the held-out half checks it.
 ART_MIN_VISIBLE = PORTRAIT_W // 2
 #: Placements over PRESENT_Z checked for the plate, best first.
 PICK_MAX = 24
@@ -189,7 +209,7 @@ def icon_build_dir(store_root) -> Path:
     return Path(store_root) / "reference" / "game-files" / ICON_BUILD
 
 
-def _props(path: Path) -> list[dict]:
+def _export_props(path: Path) -> list[dict]:
     """Every export's `Properties` in one exported package JSON."""
     if not path.is_file():
         return []
@@ -197,7 +217,7 @@ def _props(path: Path) -> list[dict]:
 
 
 def _display_name(path: Path) -> str | None:
-    for p in _props(path):
+    for p in _export_props(path):
         name = (p.get("DisplayName") or {}).get("LocalizedString")
         if name:
             return name
@@ -245,7 +265,7 @@ def game_portrait_paths(store_root: str) -> tuple[dict, dict]:
     d = icon_build_dir(store_root)
     out, missing = {}, []
     for code, agent in _agent_names(store_root).items():
-        for p in _props(_characters(store_root) / code / f"{code}_UIData.json"):
+        for p in _export_props(_characters(store_root) / code / f"{code}_UIData.json"):
             ref = (p.get("KillfeedPortrait") or {}).get("ObjectPath")
             if not ref:
                 continue
@@ -275,7 +295,7 @@ def icon_art(store_root: str) -> tuple[dict, dict]:
         for f in sorted((chars / code).rglob("*UIData_*.json")):
             if f.name == f"{code}_UIData.json":
                 continue
-            for p in _props(f):
+            for p in _export_props(f):
                 ref = (p.get("DisplayIcon") or {}).get("ObjectPath")
                 ability = (p.get("DisplayName") or {}).get("LocalizedString")
                 if not ref or not ability:

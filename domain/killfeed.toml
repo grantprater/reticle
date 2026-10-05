@@ -334,7 +334,11 @@ at 36 x 18 px and an `EquippableImage` at 14 x 14 px, centred with 2 px of
 padding to its right, collapsed until set. The row right-aligns the panel at
 the top of `LeftOverhang`, the killstreak numeral at its bottom. The panel's
 own textures include generic assist icons (`TX_Kilfeed_Assist_Buff`,
-`_Damage`, `_Utility`) and `TX_Assist_Resurrection`.
+`_Damage`, `_Utility`) and `TX_Assist_Resurrection`. A `BackgroundBlur` and
+the `KillFeedGradient` material sit behind the slots; when the local player
+assisted (`bLocalPlayerIsAssister`), `MeBorder` draws over them: a border in
+`M_UI_KillfeedBorder` tinted E7EC77 and the `TX_Killfeed_MeBorder` chevron at
+its left.
 """
 kind = "geometry"
 known = "observed"
@@ -390,6 +394,33 @@ the player, 2026-09-25 ("probably me assisting yes, yellow is typically
 self"), asked about 223d636bf8d2 349.0 s, b7d24102a6f6 265.5 s and
 bfad2778a372 921.5 s
 """
+
+[portrait-art-variants]
+claim = """
+Some players' killfeed portraits are drawn from art other than their agent's
+`KillfeedPortrait` texture, in the killer's position and in the assist panel.
+Where the drawn art comes from is not known.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-04"
+source = """
+223d636bf8d2 (build 13.04): Astra's killer views correlate with her
+`TX_Killfeed_Astra` at a median 0.753 against 0.85-0.89 for the match's other
+agents, and her assist portraits at 0.58-0.64 against 0.77-0.86; by eye her
+face sits higher and smaller. 5822b6646448 121.5-123.5 s: the killer's Chamber
+faces forward with level glasses and scores 0.37 against `TX_Killfeed_Chamber`.
+The build's `KillfeedPortrait` textures equal valorant-api's within 2/255;
+geometric, blur and gamma fits of the texture did not explain Astra. The assist
+widget sets its portrait from `PlayerIconsComponent.GetKillfeedIcon`
+"""
+use = """
+a reader that matches portrait art must treat a weak best match on a known
+agent as possibly a variant, not as absence; ask the player before adding art
+"""
+exceptions = "whether the variants are cosmetics, agent mastery or an older patch's art is unasked"
+phrases = ["killfeed portrait variant", "alternate killfeed portrait"]
+see = ["killfeed/assist-panel-widget"]
 
 [stack-order]
 claim = """
