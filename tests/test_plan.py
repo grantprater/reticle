@@ -9,7 +9,8 @@ import pyarrow.parquet as pq
 
 from reticle.adjudication.death import DEATH_ADJUDICATION_VERSION
 from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
-from reticle.plan import derived_streams, reader_streams, record_inputs, render, stale
+from reticle.plan import (derived_streams, reader_streams, record_inputs, render, stale,
+                          stream_inputs)
 from reticle.version import (ABILITY_SHAPE_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
                             ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION)
 
@@ -524,7 +525,10 @@ def _declared_head(stream: str) -> dict:
     """A first row of `stream` current in every stamp `plan` declares for it."""
     spec = next(s for s in derived_streams() if s["stream"] == stream)
     head = {spec["key"]: spec["current"]}
-    for path, value in spec["fields"].items():
+    # A rule stamp declared as an input (`plan._code`) at the code's stamp.
+    codes = {d["path"]: d["probe"][1:] for d in stream_inputs().get(stream, {}).values()
+             if d["probe"].startswith("=")}
+    for path, value in {**spec["fields"], **codes}.items():
         *parents, leaf = path.split(".")
         at = head
         for part in parents:
