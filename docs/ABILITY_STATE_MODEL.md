@@ -565,7 +565,197 @@ per-ability fact, so the version stays `ability-state-0.3.0`. The range of a
 slot without a count still tops out at two segments; Astra's stars test that
 assumption the first time a session plays her.
 
-### The cast gate against Riot's counts (2026-10-05)
+## Own-cast residuals against Riot (2026-10-05)
+
+`prototypes/own_cast_residuals.py` (`own-cast-residuals-0.2.0`, series
+`own_cast/residuals@riot-21`) explains the gap `prototypes/tray_gold_eval.py`
+scores: own casts covered [metric:own_cast/residuals@riot-21#covered=525] of [metric:own_cast/residuals@riot-21#riot_casts=610], with [metric:own_cast/residuals@riot-21#beyond=8] beyond
+Riot's counts. Riot's records hold per-match totals only, so each residual
+belongs to a (session, ability) slot, and its round is the round of the
+evidence that places it. Each missing cast takes one class from stored
+evidence; the module docstring gives the order.
+
+The gate's death test reads two inputs short. It reads second lives only
+from a current `killfeed_portrait` stream, and every Phoenix session stores
+`killfeed-portrait-0.18.0` against the code's 0.19.0, so no Run it Back
+death is undone. It undoes a death for Phoenix's second life and Clove's own
+revive only, so a teammate Sage's Resurrection of the player
+[domain:rounds/resurrection-mechanics] still ends the kit; the stored
+`death_verdict` rows name [metric:own_cast/residuals@riot-21#cf_teammate_revives_revived_deaths=3] such revives,
+on `b3b9defb6fd7` (844.5 s and 1287.0 s) and `b7d24102a6f6` (1864.5 s). The
+prototype reruns the gate with both inputs (`rejudge_inputs`): a drop the
+stored gate refused as `after_player_death` that the rerun judges otherwise
+carries the input that changed it as its root, and the candidate tests judge
+it by the rerun's reason.
+
+| Class | Casts | By ability |
+|---|---|---|
+| 1 no tray drop | [metric:own_cast/residuals@riot-21#class1=15] | Clove E [metric:own_cast/residuals@riot-21#class1_Clove_E=12], Skye Q [metric:own_cast/residuals@riot-21#class1_Skye_Q=2], Sova E [metric:own_cast/residuals@riot-21#class1_Sova_E=1] |
+| 2 witness refused | 0 | |
+| 3 gate refused, a second life the gate did not read | [metric:own_cast/residuals@riot-21#class3_root_second_life_unread=20] | Phoenix X [metric:own_cast/residuals@riot-21#class3_root_second_life_unread_Phoenix_X=12], C [metric:own_cast/residuals@riot-21#class3_root_second_life_unread_Phoenix_C=3], E [metric:own_cast/residuals@riot-21#class3_root_second_life_unread_Phoenix_E=3], Q [metric:own_cast/residuals@riot-21#class3_root_second_life_unread_Phoenix_Q=2] |
+| 3 gate refused, a teammate's revive of the player | [metric:own_cast/residuals@riot-21#class3_root_teammate_revive=4] | Skye Q [metric:own_cast/residuals@riot-21#class3_root_teammate_revive_Skye_Q=2], E [metric:own_cast/residuals@riot-21#class3_root_teammate_revive_Skye_E=1], X [metric:own_cast/residuals@riot-21#class3_root_teammate_revive_Skye_X=1] |
+| 3 gate refused, its own rules | [metric:own_cast/residuals@riot-21#class3_root_none=40] | Sova E [metric:own_cast/residuals@riot-21#class3_root_none_Sova_E=10], Sova Q [metric:own_cast/residuals@riot-21#class3_root_none_Sova_Q=6], Iso X [metric:own_cast/residuals@riot-21#class3_root_none_Iso_X=5], Phoenix X [metric:own_cast/residuals@riot-21#class3_root_none_Phoenix_X=2], eleven others with one or two each |
+| 4 wrong slot | 0 | |
+| 5 Riot-side | 0 | |
+| 6 excess | [metric:own_cast/residuals@riot-21#class6=8] | Skye C [metric:own_cast/residuals@riot-21#class6_Skye_C=2], one each on Sova C, Phoenix E and Q, Skye Q, E and X |
+| 7 unexplained | [metric:own_cast/residuals@riot-21#class7=6] | Sova E [metric:own_cast/residuals@riot-21#class7_Sova_E=3], Clove E [metric:own_cast/residuals@riot-21#class7_Clove_E=2], Clove Q [metric:own_cast/residuals@riot-21#class7_Clove_Q=1] |
+
+Class 3 holds [metric:own_cast/residuals@riot-21#class3=64] in all.
+
+**The gate's reasons.** Of the class 3 casts, the death test refused
+[metric:own_cast/residuals@riot-21#gate_after_player_death=28], co-occurrence [metric:own_cast/residuals@riot-21#gate_cooccur_among_casts=30], a drop
+onto an undrawn tray [metric:own_cast/residuals@riot-21#gate_forced=4], the round's end [metric:own_cast/residuals@riot-21#gate_phase_round_end=1]
+and the full-level test [metric:own_cast/residuals@riot-21#gate_equip_release=1]. An own ult line places
+[metric:own_cast/residuals@riot-21#class3_by_line=20] of them; a restock numeral, the slot icon or the audio saw
+[metric:own_cast/residuals@riot-21#class3_witnessed=37] more; neither saw [metric:own_cast/residuals@riot-21#class3_unwitnessed=7].
+
+**The death inputs, rejudged.** With the stored second lives the rerun gate
+passes [metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__None=13] of the
+[metric:own_cast/residuals@riot-21#class3_root_second_life_unread=20] second-life casts: Phoenix X
+[metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__None_Phoenix_X=8], C
+[metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__None_Phoenix_C=2], Q
+[metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__None_Phoenix_Q=2] and E
+[metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__None_Phoenix_E=1]. It refuses the rest on
+another test: co-occurrence
+[metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__cooccur_among_casts=4], a forced drop
+[metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__forced=2] and a partial charge
+[metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__partial_charge=1]. With the teammate
+revives it passes all [metric:own_cast/residuals@riot-21#class3_rejudged_teammate_revive__None=4] revive casts.
+Of the [metric:own_cast/residuals@riot-21#class3_gate_after_player_death_Phoenix_X=14] Phoenix X misses, all
+refused by the death test and placed by his own lines, the second lives
+recover [metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__None_Phoenix_X=8] and the rest
+stay missing: co-occurrence
+[metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__cooccur_among_casts_Phoenix_X=2], a
+forced drop after a second life
+[metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__forced_Phoenix_X=1], a partial charge
+[metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__partial_charge_Phoenix_X=1], and
+[metric:own_cast/residuals@riot-21#class3_root_none_Phoenix_X=2] forced drops 1 to 3 s after a death that no
+stored badge calls a second life (`5822b6646448` 1415.5 s, `587c15b07779`
+1551.5 s). So the forced-drop rule explains only the forced ones among
+them, not every one.
+
+Per slot, against Riot, the gate fed the stored second lives covers
+[metric:own_cast/residuals@riot-21#cf_second_lives_covered=538] and holds [metric:own_cast/residuals@riot-21#cf_second_lives_beyond=8] beyond, reading
+[metric:own_cast/residuals@riot-21#cf_second_lives_second_lives=13] second lives:
+
+| Session | Slot | Covered gained | Beyond gained |
+|---|---|---|---|
+| `5822b6646448` | Phoenix Q | [metric:own_cast/residuals@riot-21#cf_second_lives_5822b6646448_Q_covered_gain=1] | [metric:own_cast/residuals@riot-21#cf_second_lives_5822b6646448_Q_beyond_gain=0] |
+| `5822b6646448` | Phoenix X | [metric:own_cast/residuals@riot-21#cf_second_lives_5822b6646448_X_covered_gain=1] | [metric:own_cast/residuals@riot-21#cf_second_lives_5822b6646448_X_beyond_gain=0] |
+| `7010b3d62460` | Phoenix C | [metric:own_cast/residuals@riot-21#cf_second_lives_7010b3d62460_C_covered_gain=1] | [metric:own_cast/residuals@riot-21#cf_second_lives_7010b3d62460_C_beyond_gain=0] |
+| `7010b3d62460` | Phoenix Q | [metric:own_cast/residuals@riot-21#cf_second_lives_7010b3d62460_Q_covered_gain=1] | [metric:own_cast/residuals@riot-21#cf_second_lives_7010b3d62460_Q_beyond_gain=0] |
+| `7010b3d62460` | Phoenix X | [metric:own_cast/residuals@riot-21#cf_second_lives_7010b3d62460_X_covered_gain=1] | [metric:own_cast/residuals@riot-21#cf_second_lives_7010b3d62460_X_beyond_gain=0] |
+| `a06f04a0059f` | Phoenix X | [metric:own_cast/residuals@riot-21#cf_second_lives_a06f04a0059f_X_covered_gain=2] | [metric:own_cast/residuals@riot-21#cf_second_lives_a06f04a0059f_X_beyond_gain=0] |
+| `ff636d173b07` | Phoenix C | [metric:own_cast/residuals@riot-21#cf_second_lives_ff636d173b07_C_covered_gain=1] | [metric:own_cast/residuals@riot-21#cf_second_lives_ff636d173b07_C_beyond_gain=0] |
+| `ff636d173b07` | Phoenix E | [metric:own_cast/residuals@riot-21#cf_second_lives_ff636d173b07_E_covered_gain=1] | [metric:own_cast/residuals@riot-21#cf_second_lives_ff636d173b07_E_beyond_gain=0] |
+| `ff636d173b07` | Phoenix X | [metric:own_cast/residuals@riot-21#cf_second_lives_ff636d173b07_X_covered_gain=4] | [metric:own_cast/residuals@riot-21#cf_second_lives_ff636d173b07_X_beyond_gain=0] |
+
+The gate fed the teammate revives covers [metric:own_cast/residuals@riot-21#cf_teammate_revives_covered=529] and
+holds [metric:own_cast/residuals@riot-21#cf_teammate_revives_beyond=9] beyond. The kit ends at the death and
+resumes at the revive, so the rerun keeps the stored rows from
+`tray.SUSPECT_S` before the death's lead to the revive; without that window
+the death screen's drops, let through, tainted the Trailblazer `b7d24102a6f6`
+spent at 1857.0 s:
+
+| Session | Slot | Covered gained | Beyond gained |
+|---|---|---|---|
+| `b3b9defb6fd7` | Skye Q | [metric:own_cast/residuals@riot-21#cf_teammate_revives_b3b9defb6fd7_Q_covered_gain=2] | [metric:own_cast/residuals@riot-21#cf_teammate_revives_b3b9defb6fd7_Q_beyond_gain=0] |
+| `b7d24102a6f6` | Skye E | [metric:own_cast/residuals@riot-21#cf_teammate_revives_b7d24102a6f6_E_covered_gain=1] | [metric:own_cast/residuals@riot-21#cf_teammate_revives_b7d24102a6f6_E_beyond_gain=0] |
+| `b7d24102a6f6` | Skye X | [metric:own_cast/residuals@riot-21#cf_teammate_revives_b7d24102a6f6_X_covered_gain=1] | [metric:own_cast/residuals@riot-21#cf_teammate_revives_b7d24102a6f6_X_beyond_gain=0] |
+| `b7d24102a6f6` | Skye Q | [metric:own_cast/residuals@riot-21#cf_teammate_revives_b7d24102a6f6_Q_covered_gain=0] | [metric:own_cast/residuals@riot-21#cf_teammate_revives_b7d24102a6f6_Q_beyond_gain=1] |
+
+The new Skye Q cast on `b7d24102a6f6` is a false drop at 1866.5 s: by eye the
+Q bar is grey from 1857.0 s to 1868.0 s, and the revive's cyan flash over
+the tray at 1864.5 s is the only change. Both inputs together cover
+[metric:own_cast/residuals@riot-21#cf_both_covered=542], beyond [metric:own_cast/residuals@riot-21#cf_both_beyond=9].
+
+**Checks.** On `9acf02f98283` (`C:\Users\grant\Videos\2026-08-24
+11-55-34.mp4`), the one match with a replay, both missing casts the
+prototype names are the replay's own cast records
+[domain:replay/vrf-cast-records]: the Shock Bolt at 967.5 s (picked
+968.0 s) and the Recon Bolt at 2194.2 s (picked 2194.0 s). By eye on the
+tray strips: every class 3 pick viewed is a spend (Iso's Kill Contract
+empties X a second before the arena darkens the tray; Sova's bow glow lifts
+a neighbour bar; a Recon Bolt draws its numeral under the glow; Run it
+Back's pips and Blaze's bar empty after the second life; a revived Skye's Q
+bar empties at 857.5 s on `b3b9defb6fd7`), and the candidate rules exclude
+what the eye refuted (blank samples, buy-phase and round-end dims, death
+screens, full bars under a passing glow). The rules were refined on those
+viewed cases, so the class 3 and class 7 counts are in-sample. Of the
+[metric:own_cast/residuals@riot-21#class6=8] excess casts, the eye (`EXCESS_EYE`) calls
+[metric:own_cast/residuals@riot-21#class6_eye_flash_streak_or_tint=3] a flash, a streak or a tint crossing a
+bar, [metric:own_cast/residuals@riot-21#class6_eye_regrowth_pool=2] a Regrowth pool counting to 00
+[domain:abilities/skye-regrowth-resource-bar], and
+[metric:own_cast/residuals@riot-21#class6_eye_real_spend=3] real spends: `b7d24102a6f6` Q, `e37fdeca944f` E and
+`043bafca271a` C at 1774.0 s, an Owl Drone whose bar is teal to 1773.5 s and
+grey with no refill to the round's end. Those [metric:own_cast/residuals@riot-21#extra_unplaced=3] slots' extra
+casts stay unplaced. Of the ten deaths at which Clove held a Ruse charge,
+the minimap drew a ring at the death marker or a large circle
+[domain:abilities/clove-dead-smoke-range-circle] after four, vanished
+within seconds after two, showed only a disc of unknown age after one, and
+showed nothing after three; so the [metric:own_cast/residuals@riot-21#class1_Clove_E=12] class 1 Clove casts are
+a bound from the charges, not each one seen.
+
+**Fixes, by casts recovered per unit of risk.**
+
+1. Rerun `killfeed_portrait` from the crop cache on the Phoenix sessions,
+   then the tray gate (owner `killfeed-portrait`, read through
+   `adjudication.death.stored_second_life`; the gate, `ability-cast`, is
+   unchanged). It recovers [metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__None=13]
+   casts with no new excess (covered [metric:own_cast/residuals@riot-21#cf_second_lives_covered=538], beyond
+   [metric:own_cast/residuals@riot-21#cf_second_lives_beyond=8]): Phoenix X
+   [metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__None_Phoenix_X=8], C
+   [metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__None_Phoenix_C=2], Q
+   [metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__None_Phoenix_Q=2] and E
+   [metric:own_cast/residuals@riot-21#class3_rejudged_second_life_unread__None_Phoenix_E=1], per the table
+   above. Witness: Phoenix's own ult
+   line. Risk: a rerun, no rule.
+2. Undo a death that a teammate's revive follows (`ability-cast`, through
+   `stored_gate_inputs`): take the stored `death_verdict` revives whose
+   victim is the player's agent on the ally side, from any reviver, and end
+   the kit at the death and resume it at the revive, as the gate does for
+   Clove's own revive. It recovers
+   [metric:own_cast/residuals@riot-21#class3_rejudged_teammate_revive__None=4] casts and adds
+   [metric:own_cast/residuals@riot-21#cf_teammate_revives_b7d24102a6f6_Q_beyond_gain=1] false drop (covered
+   [metric:own_cast/residuals@riot-21#cf_teammate_revives_covered=529], beyond [metric:own_cast/residuals@riot-21#cf_teammate_revives_beyond=9]); a
+   drop in the second after the revive's flash wants the numeral or the
+   audio. Witness: the death adjudication. Risk: a new gate input with a
+   stored witness.
+3. Let a co-occurring drop pass on a second channel (`ability-cast`,
+   asking `tray.gold_witness`'s numeral and `ability-audio` at the drop).
+   Passing every one with a numeral or the audio covers
+   [metric:own_cast/residuals@riot-21#cf_witnessed_cooccur_covered=552] but holds [metric:own_cast/residuals@riot-21#cf_witnessed_cooccur_beyond=14]
+   beyond Riot; a numeral alone, or the numeral with the audio, should trade
+   back the new excess. It also takes the Phoenix casts that fixes 1 and 2
+   leave co-occurring. Iso's Kill Contract needs its own rule: X empties
+   while the tray is drawn and C and Q fall onto the dark tray after it.
+4. Count Clove's charges held at a death against the minimap's dead-Clove
+   circle and Ruse discs [domain:abilities/clove-ruse-minimap-duration]
+   (`ability-state` for the charges; a minimap reader from
+   `prototypes/clove_circle.py`, unwired). Up to [metric:own_cast/residuals@riot-21#class1_Clove_E=12] casts; a
+   new reader.
+5. Pass a forced or death-lead drop that a later own ult line or a numeral
+   witnesses (`ability-cast`): Not Dead Yet's X empties on the death screen
+   before its line, and Phoenix X misses include forced drops after a
+   second life and at deaths no stored badge calls a second life. Few casts, low risk.
+6. Bridge a refused run longer than `GAP_S` when the slot's numeral appears
+   or its icon dims across it (`tray-drop`), and read Trailblazer's tinted
+   view [domain:hud/controlled-entity-view-tint] by the Q icon turning red.
+7. For the excess: a gold drain on Skye's Regrowth is no spend
+   (`ability-cast`, by its resource-bar fact), and a fall with no numeral,
+   no icon change and no sound beside teal crossing the bar is no drop
+   (`tray-drop`). Together they remove the [metric:own_cast/residuals@riot-21#class6_eye_regrowth_pool=2]
+   Regrowth picks and the [metric:own_cast/residuals@riot-21#class6_eye_flash_streak_or_tint=3] crossing ones
+   of the [metric:own_cast/residuals@riot-21#class6=8] excess casts; the other [metric:own_cast/residuals@riot-21#class6_eye_real_spend=3] are real
+   spends whose slots' extra casts no pick explains.
+
+Class 7 has no candidate and no time; the audio owner scores only drops the
+gate passes, so no channel looks for a cast the tray missed. Riot-side
+counting (class 5) holds no rule: no domain fact says Riot counts a cast the
+tray cannot show, and ability rules are not inferred by analogy
+[domain:abilities/ability-rules-are-unique].
+
+## The cast gate against Riot's counts (2026-10-05)
 
 Riot's match records count the player's casts per ability, which scores the
 gate's own casts on the 21 Riot-paired matches: covered is the lesser of
