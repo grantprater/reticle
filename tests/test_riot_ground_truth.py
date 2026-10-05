@@ -2,6 +2,7 @@
 import math
 import random
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -540,11 +541,11 @@ class AmbiguousPairsTest(unittest.TestCase):
         self.assertEqual(rg.ambiguous_pairs(truth, got, pr, 3.9), [False])
 
 
-def _score_in(kills, deaths, windows):
+def _score_in(kills, deaths, windows, a=0.0, window_a=None):
     pairs = rg.match_times([k["gameTime"] for k in kills], [d["t_ms"] for d in deaths],
-                           0.0, 1.0, rg.MATCH_TOL_MS)
-    out, rows = rg.score_deaths(kills, deaths, pairs, WHO, AGENTS, "Blue", _Ref(), 0.0,
-                                windows=windows)
+                           a, 1.0, rg.MATCH_TOL_MS)
+    out, rows = rg.score_deaths(kills, deaths, pairs, WHO, AGENTS, "Blue", _Ref(), a,
+                                windows=windows, window_a=window_a)
     return out, rows
 
 
@@ -600,6 +601,149 @@ class WindowedScoreTest(unittest.TestCase):
         self.assertEqual(by["killer_refused"]["n"], 292)
         self.assertEqual(by["weapon_right_of_named"]["hi"], 1.0)   # all seen: exactly 1
         self.assertEqual(by["false_deaths"]["lo"], 0.0)
+
+
+def _session(kills, deaths, windows=None, sid="s1", a=0.0, window_a=None):
+    out, rows = _score_in(kills, deaths, windows, a, window_a)
+    return {"session": sid, "deaths": out, "death_rows": rows}
+
+
+class PairedFlipsTest(unittest.TestCase):
+    """Two codes' deaths over the same kills: every flip, each way."""
+
+    KILLS = [_kill(10_000, "b1", "a1"), _kill(60_000, "b2", "a2"), _kill(120_000, "a1", "b1")]
+    # code A: kill 1's victim wrong, kill 2 right, kill 3 missed, a false death at 90 s
+    A = [_death(10_300, "Omen", "Jett", "enemy"), _death(60_400, "Omen", "Sova", "enemy"),
+         _death(90_000, "Sova", "Omen", "ally")]
+    # code B: kill 1 right, kill 2's killer refused, kill 3 paired right, no false death
+    B = [_death(10_300, "Raze", "Jett", "enemy"), _death(60_400, "Omen", None, "enemy"),
+         _death(120_200, "Jett", "Raze", "ally")]
+
+    def test_fixed_and_broken_each_way(self):
+        F = rg.paired_flips([_session(self.KILLS, self.A)], [_session(self.KILLS, self.B)])
+        self.assertEqual((F["units"], F["fixed"], F["broken"], F["changed"]), (4, 3, 1, 0))
+        how = {(x["key"][0], x["key"][2]): x["how"] for x in F["rows"]}
+        self.assertEqual(how, {("kill", 10_000): "fixed", ("kill", 60_000): "broken",
+                               ("kill", 120_000): "fixed", ("false", 90_000.0): "fixed"})
+        self.assertEqual(F["fields"]["victim"], {"fixed": 1, "broken": 0, "p": 1.0})
+        self.assertEqual(F["fields"]["killer"]["broken"], 1)
+        self.assertEqual(F["fields"]["detected"]["fixed"], 1)
+        self.assertEqual(F["fields"]["false_death"]["fixed"], 1)
+        self.assertAlmostEqual(F["p"], 0.625)          # 1 broken of 4 flips: 2 * 5/16
+        broken = [x for x in F["rows"] if x["how"] == "broken"][0]
+        self.assertEqual(broken["a"]["killer"], "right")
+        self.assertEqual(broken["b"]["killer"], "refused")
+
+    def test_same_code_flips_nothing(self):
+        S = _session(self.KILLS, self.A)
+        F = rg.paired_flips([S], [S])
+        self.assertEqual((F["fixed"], F["broken"], F["changed"], F["p"]), (0, 0, 0, 1.0))
+
+    def test_a_moved_time_is_a_change_not_a_flip(self):
+        moved = [dict(d, t_ms=d["t_ms"] + 500) if d["t_ms"] == 60_400 else d for d in self.A]
+        F = rg.paired_flips([_session(self.KILLS, self.A)], [_session(self.KILLS, moved)])
+        self.assertEqual((F["fixed"], F["broken"], F["changed"]), (0, 0, 1))
+
+    def test_windows_keep_only_units_inside(self):
+        w = [(0.0, 30_000.0)]
+        F = rg.paired_flips([_session(self.KILLS, self.A, w)], [_session(self.KILLS, self.B, w)])
+        self.assertEqual((F["units"], F["fixed"], F["broken"]), (1, 1, 0))
+
+    def test_a_moved_false_death_is_one_changed_unit(self):
+        a = [_death(10_300, "Raze", "Jett", "enemy"), _death(1_000_000, "Sova", "Omen", "ally")]
+        b = [_death(10_300, "Raze", "Jett", "enemy"), _death(1_000_500, "Sova", "Omen", "ally")]
+        F = rg.paired_flips([_session(self.KILLS[:1], a)], [_session(self.KILLS[:1], b)])
+        self.assertEqual((F["units"], F["fixed"], F["broken"], F["changed"]), (2, 0, 0, 1))
+        row = F["rows"][0]
+        self.assertEqual((row["a_t_ms"], row["b_t_ms"]), (1_000_000.0, 1_000_500.0))
+
+    def test_false_deaths_at_one_time_pair_one_to_one(self):
+        # two slots die falsely at one instant under A; B keeps only Sage's
+        a = [_death(500_000, "Jett", "Omen", "ally", death_id="dj"),
+             _death(500_000, "Sage", "Omen", "ally", death_id="ds")]
+        b = [_death(500_000, "Sage", "Omen", "ally", death_id="ds")]
+        F = rg.paired_flips([_session([], a)], [_session([], b)])
+        self.assertEqual((F["units"], F["fixed"], F["broken"], F["changed"]), (2, 1, 0, 0))
+        fixed = [x for x in F["rows"] if x["how"] == "fixed"][0]
+        self.assertEqual(fixed["a_row"][1], "Jett")
+        self.assertIsNone(fixed["b_row"])
+        # and the reverse direction breaks one
+        F = rg.paired_flips([_session([], b)], [_session([], a)])
+        self.assertEqual((F["fixed"], F["broken"]), (0, 1))
+
+    def test_a_false_death_crossing_a_window_edge_stays_false(self):
+        w = [(0.0, 95_000.0)]
+        a = [_death(94_500, "Sova", "Omen", "ally")]
+        b = [_death(95_500, "Sova", "Omen", "ally")]
+        F = rg.paired_flips([_session([], a, w)], [_session([], b, w)])
+        self.assertEqual((F["units"], F["fixed"], F["broken"], F["changed"]), (1, 0, 0, 1))
+        self.assertEqual(F["crossed_edge"][0]["b_t_ms"], 95_500.0)
+        F = rg.paired_flips([_session([], b, w)], [_session([], a, w)])
+        self.assertEqual((F["units"], F["fixed"], F["broken"], F["changed"]), (1, 0, 0, 1))
+        # a false death far outside the windows is gone, not moved
+        far = [_death(400_000, "Sova", "Omen", "ally")]
+        F = rg.paired_flips([_session([], a, w)], [_session([], far, w)])
+        self.assertEqual((F["fixed"], F["broken"], F["changed"]), (1, 0, 0))
+
+    def test_both_codes_take_code_a_alignment_for_the_windows(self):
+        kills = [_kill(29_900, "b1", "a1")]
+        w = [(0.0, 30_000.0)]
+        a = [_death(30_100, "Raze", "Jett", "enemy")]
+        b = [_death(30_300, "Raze", None, "enemy")]       # code B aligns 200 ms later
+        own = rg.paired_flips([_session(kills, a, w, a=0.0)],
+                              [_session(kills, b, w, a=200.0)])
+        self.assertEqual((own["units"], len(own["edge"])), (0, 1))    # B's kill fell out
+        self.assertEqual(own["edge"][0]["in"], "a")
+        F = rg.paired_flips([_session(kills, a, w, a=0.0)],
+                            [_session(kills, b, w, a=200.0, window_a=0.0)])
+        self.assertEqual((F["units"], F["broken"], len(F["edge"])), (1, 1, 0))
+
+    def test_union_residuals_tagged_by_code(self):
+        a, b = _session(self.KILLS, self.A), _session(self.KILLS, self.B)
+        with tempfile.TemporaryDirectory() as d:
+            n = rg.write_residuals(Path(d) / "u.csv", [a], [b])
+            lines = (Path(d) / "u.csv").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines[0], "session,t,reason")
+        self.assertEqual(n, len(lines) - 1)
+        self.assertIn("s1,10.300,victim_wrong [a]", lines)
+        self.assertIn("s1,60.400,killer_refused [b]", lines)
+        self.assertIn("s1,90.000,false_death [a]", lines)
+
+
+class MinimapWindowRatesTest(unittest.TestCase):
+    """The ally rates' round interval: clustered rounds widen it past Wilson's."""
+
+    def test_round_interval_covers_and_widens(self):
+        # half the rounds read every ally, half read none: strongly clustered
+        rounds = {str(i): {"riot_allies": 10, "reader_matched": 10 if i % 2 else 0,
+                           "reader_matched_any": 10 if i % 2 else 0,
+                           "reader_icons": 10 if i % 2 else 0, "kill_frames": 2}
+                  for i in range(20)}
+        r = {"session": "s1", "minimap": {"riot_allies": 200, "reader_matched": 100,
+                                          "reader_matched_any": 100, "reader_icons": 100,
+                                          "kill_frames": 40, "reader_by_round": rounds}}
+        M = rg.minimap_window_rates([r])
+        rec = {x["name"]: x for x in M["rates"]}["reader_recall"]
+        self.assertEqual(M["rounds"], 20)
+        self.assertAlmostEqual(rec["rate"], 0.5)
+        self.assertLess(rec["round_lo"], 0.5)
+        self.assertGreater(rec["round_hi"], 0.5)
+        self.assertGreater(rec["round_hi"] - rec["round_lo"], 1.5 * (rec["hi"] - rec["lo"]))
+        # fixed draws: the same rows give the same interval
+        again = {x["name"]: x for x in rg.minimap_window_rates([r])["rates"]}["reader_recall"]
+        self.assertEqual((again["round_lo"], again["round_hi"]), (rec["round_lo"], rec["round_hi"]))
+
+
+class McNemarTest(unittest.TestCase):
+
+    def test_exact_values(self):
+        from reticle.metrics import mcnemar_exact
+        self.assertEqual(mcnemar_exact(0, 0), 1.0)
+        self.assertAlmostEqual(mcnemar_exact(0, 5), 2 / 32)
+        self.assertAlmostEqual(mcnemar_exact(1, 9), 22 / 1024)
+        self.assertAlmostEqual(mcnemar_exact(9, 1), 22 / 1024)
+        self.assertAlmostEqual(mcnemar_exact(0, 9), 2 / 512)
+        self.assertEqual(mcnemar_exact(3, 3), 1.0)
 
 
 if __name__ == "__main__":

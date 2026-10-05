@@ -160,5 +160,52 @@ class IntervalTest(unittest.TestCase):
         self.assertAlmostEqual(hi, 0.5962, places=4)
 
 
+class UnionTargetsTest(unittest.TestCase):
+    """Targets from both codes' residuals, and only the new ones."""
+
+    def test_residual_lists_join_as_one(self):
+        a = [("s1", 100.0, "missed [a]"), ("s2", 50.0, "victim_wrong [a]")]
+        b = [("s1", 110.0, "killer_refused [b]")]
+        w = ds.targets_from_residuals(a + b, pad_s=15.0)
+        self.assertEqual([(x.session, x.t0, x.t1) for x in w],
+                         [("s1", 85.0, 125.0), ("s2", 35.0, 65.0)])
+        self.assertEqual(w[0].reason, "missed [a]; killer_refused [b]")
+
+    def test_new_targets_only_beyond_the_windows(self):
+        old = [ds.Window("s1", 85.0, 125.0, "missed [a]")]
+        res = [("s1", 100.0, "inside with room"),          # held whole: no window
+               ("s1", 120.0, "near the edge"),             # its +-15 s spills past 125
+               ("s3", 10.0, "elsewhere")]                  # outside every window
+        new = ds.new_targets(old, res, pad_s=15.0)
+        self.assertEqual([(x.session, x.t0, x.t1, x.reason) for x in new],
+                         [("s1", 105.0, 135.0, "near the edge"), ("s3", 0.0, 25.0, "elsewhere")])
+        self.assertEqual(ds.new_targets(old + new, res, pad_s=15.0), [])   # the loop stops
+
+    def test_cli_unions_lists_and_extends(self):
+        from reticle.cli import build_parser
+        with tempfile.TemporaryDirectory() as d:
+            a, b, old, out = (Path(d) / x for x in ("a.csv", "b.csv", "old.csv", "out.csv"))
+            a.write_text("session,t,reason\ns1,100.0,missed [a]\n", encoding="utf-8")
+            b.write_text("session,t,reason\ns1,110.0,killer_refused [b]\n", encoding="utf-8")
+            ds.write_windows(old, [ds.Window("s1", 85.0, 115.0, "missed [a]")])
+            args = build_parser().parse_args(
+                ["--store", d, "dev-sample", "--residuals", str(a), "--residuals", str(b),
+                 "--out", str(out)])
+            args.func(args)
+            self.assertEqual([(w.t0, w.t1) for w in ds.read_windows(out)], [(85.0, 125.0)])
+            args = build_parser().parse_args(
+                ["--store", d, "dev-sample", "--residuals", str(a), "--residuals", str(b),
+                 "--extend", str(old), "--out", str(out)])
+            args.func(args)
+            self.assertEqual([(w.t0, w.t1, w.reason) for w in ds.read_windows(out)],
+                             [(95.0, 125.0, "killer_refused [b]")])
+
+    def test_join_windows_merges_sources(self):
+        w = ds.join_windows([ds.Window("s1", 0.0, 10.0, "a"), ds.Window("s1", 5.0, 20.0, "b"),
+                             ds.Window("s2", 0.0, 1.0, "c")])
+        self.assertEqual([(x.session, x.t0, x.t1, x.reason) for x in w],
+                         [("s1", 0.0, 20.0, "a; b"), ("s2", 0.0, 1.0, "c")])
+
+
 if __name__ == "__main__":
     unittest.main()
