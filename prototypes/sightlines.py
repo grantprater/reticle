@@ -155,7 +155,7 @@ def geometry_key(mname: str, store: Path = STORE) -> str | None:
     return None
 
 
-def reference(store: Path = STORE) -> rgt.Reference:
+def api_reference(store: Path = STORE) -> rgt.Reference:
     return rgt.Reference(store / "external" / "valorant-api", fetch=False)
 
 
@@ -543,7 +543,7 @@ def load(mname: str, store: Path = STORE) -> Sightlines | None:
 
 
 def dev_maps(store: Path = STORE) -> Counter:
-    ref = reference(store)
+    ref = api_reference(store)
     recs = rgt.riot_records(store)
     return Counter(ref.map_of(d["match"]["matchInfo"]["mapId"])["displayName"].lower()
                    for d in recs.values())
@@ -554,7 +554,7 @@ def dev_maps(store: Path = STORE) -> Counter:
 def gun_kills(store: Path = STORE):
     """Every development-set gun kill: (sid, map, killer xy, victim xy, round,
     roundTime, the killer's other living enemies' xy)."""
-    ref = reference(store)
+    ref = api_reference(store)
     rows = []
     for sid, d in sorted(rgt.riot_records(store).items()):
         mname = ref.map_of(d["match"]["matchInfo"]["mapId"])["displayName"].lower()
@@ -716,7 +716,7 @@ def render_failures(fails, out: Path, n: int) -> None:
 
 # ----------------------------------------------------------------- confirmation-set maps
 
-def coverage() -> dict:
+def confirmation_maps() -> dict:
     """Maps the confirmation set uses that have no baked geometry, with match
     counts; the held-out replay matches are excluded and counted."""
     import pyarrow.parquet as pq
@@ -752,7 +752,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     _below_normal()
     if args.cmd == "build":
-        ref = reference()
+        ref = api_reference()
         maps = args.maps or sorted(dev_maps())
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         for m in maps:
@@ -769,7 +769,7 @@ def main(argv=None) -> int:
     elif args.cmd == "gate":
         gate(args)
     elif args.cmd == "coverage":
-        coverage()
+        confirmation_maps()
     return 0
 
 
