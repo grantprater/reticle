@@ -326,6 +326,42 @@ a06f04a0059f 185.0 s and 1423.0 s, 223d636bf8d2 823.5 s, 3694746e4e54
 """
 see = ["killfeed/assist-panel"]
 
+[assist-panel-widget]
+claim = """
+The assist panel is the widget `KillFeed_AssisterPortraits`: one horizontal
+box of four `WBP_KillFeedAssister` slots, each an `AssistPortrait` image drawn
+at 36 x 18 px and an `EquippableImage` at 14 x 14 px, centred with 2 px of
+padding to its right, collapsed until set. The row right-aligns the panel at
+the top of `LeftOverhang`, the killstreak numeral at its bottom. The panel's
+own textures include generic assist icons (`TX_Kilfeed_Assist_Buff`,
+`_Damage`, `_Utility`) and `TX_Assist_Resurrection`.
+"""
+kind = "geometry"
+known = "observed"
+since = "2026-10-04"
+source = """
+game build release-13.06-shipping-18-5590001: hud-layout/ShooterGame/Content/UI/InGame/HUD/KillCallout/KillFeed_Assists/KillFeed_AssisterPortraits.json
+(`HorizontalBox_18`, four `WBP_KillFeedAssister` slots),
+WBP_KillFeedAssister.json (`AssistPortrait` ImageSize 36 x 18,
+`EquippableImage` 14 x 14, Visibility Collapsed, slot padding Right 2),
+KillFeedRow.json (`LeftOverhang` slots HAlign_Right, the panel VAlign_Top);
+textures in killfeed-icons/.../KillFeed_Assists/Textures/KillfeedIcons/.
+On 81 labelled assisted entries the drawn portrait's right edge sat 1 px left
+of the killer art with no icon and 16-17 px left with one
+"""
+use = """
+`killfeed_assist` places each assister from these sizes; four slots bound
+`MAX_ASSISTERS`. That the game fills more than two, and when it draws a
+generic icon, is not observed
+"""
+exceptions = """
+a widget with four slots does not show that four assisters are ever drawn;
+Riot credits three assistants on 6 of 3459 kills, and one such kill showed
+three portraits. The generic icons were not seen drawn on the 21 matches
+"""
+phrases = ["assist panel widget", "four assister slots", "assist portrait size"]
+see = ["killfeed/assist-panel", "killfeed/assist-panel-layout"]
+
 [assist-without-icon]
 claim = """
 An assister drawn with no ability icon beside the portrait most likely

@@ -159,6 +159,8 @@ class ArtTiles:
         self.index = {a: i for i, a in enumerate(self.agents)}
         self.h, self.w = int(lab.shape[1]), int(lab.shape[2])
         self.margin = int(margin)
+        #: The shrunk alpha itself, border included: where the plate shows.
+        self.alpha = alpha.astype(np.float32)
         weight = alpha.astype(np.float32).copy()
         m = self.margin
         if m > 0:

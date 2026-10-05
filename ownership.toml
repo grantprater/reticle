@@ -519,6 +519,42 @@ stored_consumers = ["adjudication.killstreak"]
 evidence = "tests/test_killfeed_numeral.py"
 
 [[entry]]
+id = "killfeed-assist-panel"
+question = "What does a killfeed entry's assist panel draw: how many assister portraits, whose art each matches, and which icon sits beside each?"
+owner = "killfeed_assist"
+role = ["detect"]
+status = "partial"
+produces = ["KILLFEED_ASSIST_VERSION", "ICON_BUILD", "PORTRAIT_W", "PORTRAIT_H", "ICON_PX", "ICON_PAD", "ICON_CELL", "MAX_ASSISTERS", "PRESENT_Z", "PLATE_SHARE_MIN", "ART_MIN_VISIBLE", "ICON_SURPRISE", "GENERIC_ICONS", "icon_art", "icon_templates", "portrait_art", "read_icon", "read_panel", "view_anchors", "view_anchor", "assist_observation"]
+not_for = """
+Naming an assister or an ability. The reader stores, per view of a stored
+killer, the panel's count (or a cut with its lower bound), each portrait's art
+correlation against the agents its caller admits and each icon cell's scores
+against the game's icons, in the `killfeed_assist` stream. Who assisted is the
+identity arbiter's, and which ability `kill-assists`' (`adjudication.assist`).
+It never finds entries: it reads only where `killfeed-portrait` placed a killer.
+"""
+stored_consumers = ["adjudication.assist"]
+evidence = "tests/test_killfeed_assist.py"
+
+[[entry]]
+id = "kill-assists"
+question = "Who assisted each kill, by the killfeed's assist panel, and with which ability icon?"
+owner = "adjudication.assist"
+role = ["adjudicate"]
+status = "partial"
+names_agents = true
+produces = ["ASSIST_ADJUDICATION_VERSION", "CHANNEL", "ICON_READ", "ICON_MARGIN", "NONE_ICON", "killer_side", "side_admitted", "view_claim", "pool_count", "decide_icon", "adjudicate_death", "adjudicate_session", "summary"]
+not_for = """
+Altering a death or its killer. The verdicts go to the `assist` stream keyed by
+`death_id`; the death owner (`death-victim`) does not yet carry them. Each
+assister's name is `adjudication.identity`'s verdict over this channel's
+claims; which abilities can draw an icon is `killfeed-kits`'. Riot's assist
+credit is evaluation truth only (`prototypes/assist_panel_eval.py`).
+"""
+defers_to = ["agent-identity", "killfeed-kits", "killfeed-assist-panel"]
+evidence = "tests/test_killfeed_assist.py"
+
+[[entry]]
 id = "killstreak-kill-index"
 question = "Does each killfeed entry's killstreak numeral agree with its killer's kill index in the round, as the death stream counts it?"
 owner = "adjudication.killstreak"

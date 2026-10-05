@@ -3754,6 +3754,108 @@ def cmd_killstreak(args) -> int:
     return 0
 
 
+#: Views of each killfeed entry the assist panel is read on: spread over the
+#: entry's observed life. The panel is drawn with the entry, so a few views
+#: give the count a vote without reading every frame.
+ASSIST_VIEWS_PER_ENTRY = 3
+
+
+def assist_session(store: Store, sid: str, per_entry: int = ASSIST_VIEWS_PER_ENTRY,
+                   verdicts: list[dict] | None = None) -> tuple[list[dict], list[dict], dict]:
+    """Read the assist panel on every stored killfeed entry of a session from
+    the crop cache, then adjudicate it: (observation rows, verdict rows, cost).
+
+    Opportunity-gated: only death verdicts' killer views are read, `per_entry`
+    of each, placed by their `killfeed_portrait` killer rows. The candidates
+    are the killer's side from the lineup (`adjudication.assist.side_admitted`);
+    the icons admitted are those agents' kits and the panel's own icons.
+    Decodes no video: a session with no `hud` crop cache refuses."""
+    from .adjudication import assist as adj
+    from .adjudication import killfeed_kits
+    from .killfeed import KillfeedScale
+    from . import killfeed_assist as ka
+    from .lineup import load_lineup
+    from .roi_cache import RoiCache
+
+    t_start = time.perf_counter()
+    man = store.read_manifest(sid)
+    prof = get_profile(man["source_profile"])
+    cache, why = RoiCache.load(store.root, man, prof, "killfeed")
+    if cache is None:
+        raise SystemExit(f"{sid}: no killfeed crop cache ({why}) -- assists read no video")
+    if verdicts is None:
+        verdicts = [r for r in store.read_events("death", sid) if r.get("kind") == "death_verdict"]
+    killers = {r["observation_key"]: r for r in store.read_events("killfeed_portrait", sid)
+               if r.get("kind") == "portrait_observation" and r.get("role") == "killer"}
+    lineup = load_lineup(sid, store.root)
+    s = KillfeedScale.for_capture(int(man["source"]["width"]), int(man["source"]["height"]))
+    art = ka.portrait_art(Path(store.root) / "reference" / "assets" / "agents", s)
+    temps = ka.icon_templates(str(store.root), s.scale)
+    by_t: dict[float, list] = {}
+    for v in verdicts:
+        keys = [o["observation_key"] for c in ((v.get("metadata") or {}).get("killer_identity")
+                                               or {}).get("claims", [])
+                if c.get("channel") == "killfeed_portrait"
+                for o in (c.get("evidence") or {}).get("observations", [])]
+        rows = sorted((killers[k] for k in set(keys) if k in killers
+                       and ka.view_anchor(killers[k]) is not None), key=lambda r: r["t_ms"])
+        admitted = adj.side_admitted(lineup, adj.killer_side(v))
+        cands = list(admitted["named"]) + [r for r in admitted["rivals"] if r]
+        icons = [n for n in temps if n.split("/", 1)[0] in cands or n.startswith("assist:")]
+        if not rows:
+            by_t.setdefault(None, []).append((v, None, cands, icons))
+            continue
+        n = min(per_entry, len(rows))
+        picks = sorted({int(round((i + 1) * len(rows) / (n + 1))) - 1 for i in range(n)})
+        for i in picks:
+            by_t.setdefault(float(rows[max(0, i)]["t_ms"]), []).append(
+                (v, rows[max(0, i)], cands, icons))
+    obs = [{"session_id": sid, "kind": "assist_observation",
+            "killfeed_assist_version": ka.KILLFEED_ASSIST_VERSION, "death_id": v["death_id"],
+            "t_ms": v.get("t_ms"), "count": None, "count_min": 0, "assisters": [],
+            "reason": ka.REFUSE_NO_ANCHOR} for v, _r, _c, _i in by_t.pop(None, [])]
+    x0, y0, x1, y1 = cache.rect_of("killfeed")
+    t_read = t_cache = 0.0
+    tc = time.perf_counter()
+    for smp in cache.samples(sorted(by_t), rois="killfeed"):
+        t_cache += time.perf_counter() - tc
+        crop = smp.frame[y0:y1, x0:x1]
+        for v, row, cands, icons in by_t[smp.t_ms]:
+            tr = time.perf_counter()
+            o = ka.assist_observation(crop, row, s, art, cands, temps, icons, v["death_id"])
+            t_read += time.perf_counter() - tr
+            obs.append({"session_id": sid, **o})
+        tc = time.perf_counter()
+    rows = adj.adjudicate_session(verdicts, obs, lineup, killfeed_kits.load())
+    for r in rows:
+        r["session_id"] = sid
+    views = sum(1 for o in obs if o.get("killer_key"))
+    cost = {"deaths": len(verdicts), "views": views, "read_s": round(t_read, 3),
+            "cache_s": round(t_cache, 3), "total_s": round(time.perf_counter() - t_start, 3),
+            "read_ms_per_view": round(1000 * t_read / max(1, views), 2),
+            "read_ms_per_entry": round(1000 * t_read / max(1, len(verdicts)), 2)}
+    return obs, rows, cost
+
+
+def cmd_assists(args) -> int:
+    """The killfeed assist panel [domain:killfeed/assist-panel] on every stored
+    entry: how many assisters, who (claims to the identity arbiter) and which
+    ability icon (`killfeed_assist`, `adjudication.assist`). Writes the
+    `killfeed_assist` (views) and `assist` (per death) streams; alters no
+    death. Decodes no video: it reads the crop cache."""
+    from .adjudication import assist as adj
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    obs, rows, cost = assist_session(store, sid, args.views)
+    summ = adj.summary(rows)
+    print(f"{sid}: {len(rows)} deaths, {cost['views']} views; {summ}")
+    print(f"  cost: {cost}")
+    p1 = store.write_events("killfeed_assist", sid, obs)
+    p2 = store.write_events("assist", sid, rows)
+    print(f"-> {p1}\n-> {p2}")
+    return 0
+
+
 def cmd_smokes(args) -> int:
     """Smoke tracks from stored `minimap_dark` rows, and the ally agent who
     cast each (`adjudication.smoke_owner`). Decodes no video."""
@@ -5787,6 +5889,13 @@ def build_parser() -> argparse.ArgumentParser:
                                           "per-round kill index (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_killstreak)
+
+    s = sub.add_parser("assists", help="the killfeed assist panel on every stored entry: "
+                                       "count, assisters, ability icons (crop cache, no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--views", type=int, default=ASSIST_VIEWS_PER_ENTRY,
+                   help="views read per entry")
+    s.set_defaults(func=cmd_assists)
 
     s = sub.add_parser("reliability", help="identity channel reliability per agent (no video)")
     s.add_argument("--top", type=int, default=12)
