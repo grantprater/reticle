@@ -1373,7 +1373,36 @@ def stale(store, sessions: list[str]) -> dict:
         out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived,
                     "declined": declined,
                     "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded,
-                    "widget": widget, "placement": placed}
+                    "widget": widget, "placement": placed, "caches": cache_work(store, man)}
+    return out
+
+
+#: Crop cache sets a session should hold, each where the stored inputs it is
+#: written from exist: the stored crop cache set it pairs with, and the
+#: stream its gate reads. The killfeed panel strip pairs with the `hud` set
+#: (`roi_cache.WIDE_ROIS`) and gates on `killfeed_portrait`.
+EXPECTED_CACHES = {"killfeed_panel": ("hud", "killfeed_portrait")}
+
+
+def cache_work(store, manifest: dict) -> list[dict]:
+    """Each expected crop cache set (`EXPECTED_CACHES`) the session lacks or
+    cannot load, with why and the decode that writes it, which only the
+    player starts."""
+    from .profiles import get_profile
+    from .roi_cache import RoiCache, rewrite_command, stored_record
+    sid = manifest["session_id"]
+    out = []
+    for name, (pair, witness) in EXPECTED_CACHES.items():
+        if stored_record(store.root, sid, pair) is None or not store.has_events(witness, sid):
+            continue
+        if stored_record(store.root, sid, name) is None:
+            why = "missing"
+        else:
+            why = RoiCache.load(store.root, manifest, get_profile(manifest["source_profile"]),
+                                name)[1]
+        if why is not None:
+            out.append({"set": name, "reason": why, "witness": witness,
+                        "command": rewrite_command(sid, name)})
     return out
 
 
@@ -1623,6 +1652,15 @@ def render(plan: dict) -> str:
         for why, streams in why_of.items():
             lines.append(f"reread   {', '.join(streams)} of {sid}   (placement_moved: {why}; "
                          f"each is listed below with input {WIDGET_INPUT})")
+    # Crop cache sets a session lacks (`cache_work`): a decode the player starts.
+    caches: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+    for sid, p in plan.items():
+        for c in p.get("caches") or ():
+            command = re.sub(rf"(?<![\w-]){re.escape(sid)}(?![\w-])", "<sid>", c["command"])
+            caches[(c["set"], c["reason"], f"{command}   ({c['set']} crop cache {c['reason']}; "
+                    f"gated on stored {c['witness']} rows; the player starts this decode)")].append(sid)
+    lines += [f"decode   {text} for {' '.join(sids)}"
+              for (_s, _r, text), sids in sorted(caches.items())]
     if not by_channel and not derived:
         return "\n".join(lines + [f"nothing stale over {len(plan)} sessions"] + waived_lines)
     for ch, sids in sorted(by_channel.items()):
