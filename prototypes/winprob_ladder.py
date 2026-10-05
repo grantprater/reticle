@@ -2,6 +2,7 @@ r"""Round win probability fitted on the player's own competitive history.
 
     .\.venv\Scripts\python.exe prototypes\winprob_ladder.py prepare          # sets, admission, FIT-only LOMO
     .\.venv\Scripts\python.exe prototypes\winprob_ladder.py evaluate [--record] [--boot N]
+    .\.venv\Scripts\python.exe prototypes\winprob_ladder.py record              # rows of a finished run
 
 Why this exists
 ---------------
@@ -495,7 +496,7 @@ def column_names(spec) -> list[str]:
 
 # ----------------------------------------------------------------- main
 
-def build(tables=None):
+def build_sets(tables=None):
     """FIT, E1, E2 rounds and the admission counts. Scores nothing."""
     ref = wr.rgt.Reference(STORE / "external" / "valorant-api", fetch=False)
     url_of = {m["uuid"]: url for url, m in ref.maps.items()}
@@ -543,7 +544,7 @@ def build(tables=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("stage", choices=("prepare", "evaluate"))
+    ap.add_argument("stage", choices=("prepare", "evaluate", "record"))
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--boot", type=int, default=2000)
     ap.add_argument("--band-boot", type=int, default=1000)
@@ -557,8 +558,11 @@ def main(argv=None):
         pass
     t0 = time.time()
     out = Path(args.out)
+    if args.stage == "record":  # the metrics rows of a finished evaluate run
+        record_results(json.loads((out / "results.json").read_text(encoding="utf-8")))
+        return
     out.mkdir(parents=True, exist_ok=True)
-    sets, adm, strata = build()
+    sets, adm, strata = build_sets()
     print(json.dumps(adm, indent=1), flush=True)
     data = {k: state_sets(v) for k, v in sets.items()}
     maps = sorted({r["map"] for r in sets["FIT"]})
