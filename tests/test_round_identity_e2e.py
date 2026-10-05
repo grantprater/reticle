@@ -11,6 +11,7 @@ ground-truth labels, testing:
 """
 from __future__ import annotations
 
+import copy
 import json
 import unittest
 from pathlib import Path
@@ -226,6 +227,26 @@ class RoundIdentityE2ETests(unittest.TestCase):
             self.assertIn("distribution", event["identity_distribution"])
             self.assertEqual(event["metadata"]["status"], "resolved")
 
+    #: The round's killfeed entries, extracted once per class: the death
+    #: tests ask the same question of the same fixture, and the extraction is
+    #: about 10 s of each. Filled on first use inside a test, so
+    #: NEEDS_KF_FIXTURE still skips without the fixture.
+    _kf_entries = None
+
+    def _round4_kf(self):
+        """The round's killfeed entries against the source's lineup, a copy
+        per caller: `adjudicate_round_deaths` writes `is_second_life` and
+        `badge` into an entry's claim on the badge path."""
+        cls = type(self)
+        if cls._kf_entries is None:
+            hud = self.store.read_hud(self.session_id, self.date).to_pydict()
+            cls._kf_entries = extract_round_killfeed_entries(
+                hud, self.t_start_ms, self.t_end_ms,
+                store=self.store, session_id=self.session_id,
+                active_lineup=round4_lineup(), gallery=self.gallery,
+            )
+        return copy.deepcopy(cls._kf_entries)
+
     def _round4_deaths(self):
         """Death verdicts from the killfeed fixture, the roster and the
         minimap tracks, against the source's lineup."""
@@ -253,13 +274,8 @@ class RoundIdentityE2ETests(unittest.TestCase):
                 })
 
         # Ingest HUD reads and Roster series with live killfeed portrait classification
-        hud = self.store.read_hud(self.session_id, self.date).to_pydict()
         roster = self.store.read_roster(self.session_id, self.date).to_pylist()
-        kf_entries = extract_round_killfeed_entries(
-            hud, self.t_start_ms, self.t_end_ms,
-            store=self.store, session_id=self.session_id,
-            active_lineup=oracle_lineup, gallery=self.gallery,
-        )
+        kf_entries = self._round4_kf()
         r4_roster = [r for r in roster if self.t_start_ms <= r["t_ms"] <= self.t_end_ms]
 
         death_verdicts = adjudicate_round_deaths(
@@ -370,13 +386,8 @@ class RoundIdentityE2ETests(unittest.TestCase):
 
         oracle_lineup = round4_lineup()
 
-        hud = self.store.read_hud(self.session_id, self.date).to_pydict()
         roster = self.store.read_roster(self.session_id, self.date).to_pylist()
-        kf_entries = extract_round_killfeed_entries(
-            hud, self.t_start_ms, self.t_end_ms,
-            store=self.store, session_id=self.session_id,
-            active_lineup=oracle_lineup, gallery=self.gallery,
-        )
+        kf_entries = self._round4_kf()
         r4_roster = [r for r in roster if self.t_start_ms <= r["t_ms"] <= self.t_end_ms]
 
         death_verdicts = adjudicate_round_deaths(
