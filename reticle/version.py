@@ -48,7 +48,9 @@ PLANT_GRAPHIC_VERSION = "plant-graphic-0.1.0"
 COACH_VERSION = "coach-0.3.0"
 # Pure credit-ledger rules and interval semantics. This does not stamp a credit
 # detector: no such observation channel exists yet.
-ECONOMY_VERSION = "economy-0.1.0"
+# 0.2.0 (2026-10-04): an overtime reset assigns `overtime_credits` (5000), not
+# the pistol bank (800); Riot's records open every overtime round at 5000.
+ECONOMY_VERSION = "economy-0.2.0"
 # Context-free Tab-scoreboard row observations: K/D/A, credits, highlight,
 # geometry, portrait composition and raw agent-art scores. Identity is
 # adjudicated downstream.

@@ -1082,7 +1082,10 @@ def compared_paths() -> dict[str, set[str]]:
     (`hand_code_fields`, `derived_streams`' fields). `doctor` INPUTS reads it."""
     out: dict[str, set[str]] = defaultdict(set)
     for stream, *_ in reader_streams():
-        out[stream].add(f"{stream}_version")
+        # A reader that writes formal entity events (`ping`) carries its stamp
+        # as `producer_version`, which `Store.events_version` reads in place
+        # of the absent `<stream>_version`.
+        out[stream] |= {f"{stream}_version", "producer_version"}
     for stream, (key, _, _) in _hand_specs().items():
         out[stream].add(key)
     for stream, fields in hand_code_fields().items():
