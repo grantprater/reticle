@@ -176,7 +176,8 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                       player_deaths_ms: list[float], *, agent: str | None = None,
                       second_lives_ms=(), revives_ms=(),
                       report_deaths: dict | None = None, kit_changes_ms=(),
-                      kit_returns_ms=(), menu_at=None, kit_spans=None) -> list[dict]:
+                      kit_returns_ms=(), menu_at=None, kit_spans=None,
+                      own_lines_ms=()) -> list[dict]:
     """Which of a session's tray drops (`tray.drops`) are the local player's casts.
 
     The tray shows the player's kit only while the player lives; afterwards it
@@ -463,6 +464,22 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     taints the others. No labelled drop changes its verdict
     ([metric:tray/cooccur-taint@all-sessions#labels_verdict_changed=0]).
 
+    *A line overturns a death or a dark tray.* The player hears their own
+    ultimate's line at the cast [domain:abilities/caster-hears-own-ult-line],
+    so an own line (`own_lines_ms`, `ult_cast` rows of the player's own
+    class that rest on no tray cast) witnesses an X cast the tray dates
+    badly. An X drop refused as `forced` (Clove's Not Dead Yet empties X on
+    the death screen, `a1a995e6b19b` 632.5 s, its line 0.98 s after) or as
+    `after_player_death` (Run It Back's pips fall at its end, when Phoenix
+    dies in it [domain:abilities/phoenix-run-it-back-expiry-flash], so
+    where the badge goes unread the drop trails the death that ends the kit)
+    passes where an own line lies in the agent's cast window of it
+    (`adjudication.ult_cast.cast_window`, `in_window`), the line came before
+    the kit's end, the drop meets the charge tests, and no X drop the gate
+    passed already lies in that line's window; one line passes one drop, the
+    nearest. The row keeps the refusal as `refused_as` and the line as
+    `line_ms`. No line, no change.
+
     Every drop comes back with `player_cast`, the first `reason` that refused
     it, the round's `first_player_death_ms`, the `kit_end_ms` the gate used,
     the `undone_deaths` before it, and the round's `kit_change_ms`.
@@ -519,9 +536,40 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
             [(r["t_ms"] / 1000.0, r["slot"], r["from"], r["to"], r["forced"]) for r in keep],
             quiet=quiet)):
         r["reason"] = ("forced" if r["forced"] else "cooccur_among_casts") if sus else why
+    _admit_lined_x(rows, own_lines_ms, agent)
     for r in rows:
         r["player_cast"] = r["reason"] is None
     return rows
+
+
+#: The refusals a player's own ult line can overturn for an X drop
+#: (`_admit_lined_x`): the tray was undrawn at the drop, or the drop fell at
+#: the death that ended the kit.
+LINE_ADMITS = ("forced", "after_player_death")
+
+
+def _admit_lined_x(rows: list[dict], own_lines_ms, agent: str | None) -> None:
+    """Pass, in place, the X drops `player_tray_casts` refused as one of
+    LINE_ADMITS where the player's own ult line witnesses the cast. Each row
+    passed keeps its refusal as `refused_as` and names the line as
+    `line_ms`. `player_tray_casts` gives the rule."""
+    from .adjudication.ult_cast import cast_window, in_window
+    if not own_lines_ms:
+        return
+    win = cast_window(agent)
+    xs = [r for r in rows if r["slot"] == ULT_SLOT]
+    taken = [r["t_ms"] for r in xs if r["reason"] is None]
+    for line in sorted(float(t) for t in own_lines_ms):
+        if any(in_window(line, t, win) for t in taken):
+            continue
+        near = [r for r in xs if r["reason"] in LINE_ADMITS and in_window(line, r["t_ms"], win)
+                and (r["kit_end_ms"] is None or line < r["kit_end_ms"])
+                and _charge_reason(r) is None]
+        if not near:
+            continue
+        r = min(near, key=lambda r: (abs(r["t_ms"] - line), r["t_ms"]))
+        r.update({"refused_as": r["reason"], "reason": None, "line_ms": line})
+        taken.append(r["t_ms"])
 
 
 def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
@@ -543,7 +591,9 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     `agent` the spans are still handed on, so the gate refuses a drop under
     a named kit as `kit_owner_unresolved`. The menu witness is the stored `menu_open` rows
     (`menu.stored_menu`), used only where current; otherwise `menu_at` is None
-    and the stamp says why.
+    and the stamp says why. The player's own ult lines are the stored
+    `ult_cast` rows `own_line_times` keeps; `ult_cast` reads this gate in
+    turn, but only lines that rest on no tray cast come back.
     """
     from . import gametime, stalls
     from .adjudication.death import player_revive_times, stored_second_life
@@ -580,6 +630,7 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
                            else None)
     menu, menu_stamp = stored_menu(store, session_id)
     inputs["menu_at"] = menu.at if menu is not None else None
+    inputs["own_lines_ms"] = own_line_times(store.read_events("ult_cast", session_id))
     # Each stored input's own stamp, read from its first row (`no_rows` where
     # none is stored), used or not: `plan` compares these with the stored
     # heads, so a stream written after this read makes the result stale.
@@ -594,8 +645,20 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
                                                  "combat_report_round_version"),
               "tray_kit": kit["version"] or NO_ROWS, "tray_kit_reason": kit["reason"],
               "tray_kit_own_basis": kit["own_basis"],
-              "menu_open": menu_stamp}
+              "menu_open": menu_stamp,
+              "ult_cast": event_stamp(store, "ult_cast", session_id, "ult_cast_version")}
     return inputs, stamps
+
+
+
+def own_line_times(ult_rows: list[dict]) -> list[float]:
+    """The instants of the player's own ult lines among a session's stored
+    `ult_cast` rows: casts of the player's own class (`player_cast`) that
+    rest on nothing (`rests_on` empty). A line the adjudicator selected
+    because a tray X cast witnessed it rests on the gate and never witnesses
+    the gate back."""
+    return sorted(float(r["t_ms"]) for r in ult_rows
+                  if r.get("kind") == "cast" and r.get("player_cast") and not r.get("rests_on"))
 
 
 #: The stored audio-gate log-mel and labels, under the store root.

@@ -144,6 +144,49 @@ class GateDeathTests(unittest.TestCase):
         self.assertEqual(got[(60000.0, "Q")]["reason"], "after_player_death")
         self.assertTrue(got[(60000.0, "E")]["player_cast"])
 
+    def test_an_own_ult_line_overturns_a_death_or_a_dark_tray_for_x(self):
+        # Run It Back unread: the pips fall 2 s after the death that ends the
+        # kit, 9 s after Phoenix's own line.
+        got = self._gate([_drop(52000, "X")], [50000.0], agent="Phoenix",
+                         own_lines_ms=[43000.0])
+        r = got[(52000.0, "X")]
+        self.assertTrue(r["player_cast"])
+        self.assertEqual((r["refused_as"], r["line_ms"]), ("after_player_death", 43000.0))
+        # No line, or a line after the kit's end, overturns nothing.
+        for lines in ([], [51000.0]):
+            got = self._gate([_drop(52000, "X")], [50000.0], agent="Phoenix",
+                             own_lines_ms=lines)
+            self.assertEqual(got[(52000.0, "X")]["reason"], "after_player_death")
+        # Clove empties X on the death screen; her line follows within 1.5 s.
+        got = self._gate([_drop(60000, "X", forced=True)], [], agent="Clove",
+                         own_lines_ms=[61000.0])
+        self.assertEqual(got[(60000.0, "X")]["refused_as"], "forced")
+        # Outside the window (1.5 s for any agent but Phoenix) it stays refused.
+        got = self._gate([_drop(60000, "X", forced=True)], [], agent="Sova",
+                         own_lines_ms=[62000.0])
+        self.assertEqual(got[(60000.0, "X")]["reason"], "forced")
+        # One line passes one drop, and none where a passed X drop holds it.
+        got = self._gate([_drop(60000, "X", forced=True), _drop(60500, "X", forced=True)], [],
+                         agent="Sova", own_lines_ms=[60400.0])
+        self.assertEqual(sum(r["player_cast"] for r in got.values()), 1)
+        self.assertTrue(got[(60500.0, "X")]["player_cast"])
+        got = self._gate([_drop(30000, "X"), _drop(30500, "X", forced=True)], [],
+                         agent="Sova", own_lines_ms=[30200.0])
+        self.assertEqual(got[(30500.0, "X")]["reason"], "forced")
+        # The charge tests still apply: a part-charged slot is no cast.
+        got = self._gate([_drop(60000, "X", forced=True, frm=0.5)], [], agent="Sova",
+                         own_lines_ms=[60000.0])
+        self.assertEqual(got[(60000.0, "X")]["reason"], "forced")
+
+    def test_own_line_times_keep_lines_that_rest_on_no_tray_cast(self):
+        from reticle.ability_timeline import own_line_times
+        rows = [{"kind": "cast", "player_cast": True, "t_ms": 5.0, "rests_on": []},
+                {"kind": "cast", "player_cast": True, "t_ms": 6.0,
+                 "rests_on": [{"stream": "tray_drop"}]},
+                {"kind": "cast", "player_cast": False, "t_ms": 7.0, "rests_on": []},
+                {"kind": "refusal", "t_ms": 8.0}]
+        self.assertEqual(own_line_times(rows), [5.0])
+
     def test_player_revive_times_names_the_player_as_the_revived(self):
         from reticle.adjudication.death import player_revive_times
         v = lambda t, **kw: {"kind": "death_verdict", "is_revive": True, "t_ms": t, **kw}
