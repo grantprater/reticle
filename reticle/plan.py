@@ -205,9 +205,12 @@ def derived_streams() -> list[dict]:
     written by `parent`'s command. `how` is what the command reads.
     """
     from .adjudication.assist import ASSIST_ADJUDICATION_VERSION
+    from .adjudication.death import DEATH_ADJUDICATION_VERSION
     from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .adjudication.killstreak import KILLSTREAK_WITNESS_VERSION
     from .enemy_tracks import ENEMY_TRACK_VERSION
     from .killfeed_assist import KILLFEED_ASSIST_VERSION
+    from .killfeed_numeral import KILLFEED_NUMERAL_VERSION
     from .lighting import LIGHTING_VERSION
     from .minimap_objects import minimap_object_version
     from .version import ALLY_PORTRAIT_FEATURES_VERSION
@@ -316,6 +319,16 @@ def derived_streams() -> list[dict]:
                     "round_lifetime_version": ROUND_LIFETIME_VERSION,
                     "agent_identity_version": AGENT_IDENTITY_VERSION},
          "upstream": ("minimap_object", "death", "rounds")},
+        # The killstreak numeral [domain:killfeed/killstreak-indicator]
+        # against the death stream's kill index: a
+        # check over two stored streams, rerun from storage. Its summary row
+        # records both inputs' stamps.
+        {"stream": "killstreak_witness", "key": "killstreak_witness_version",
+         "current": KILLSTREAK_WITNESS_VERSION, "command": "reticle killstreak {sid}",
+         "how": "storage",
+         "fields": {"inputs.killfeed_numeral": KILLFEED_NUMERAL_VERSION,
+                    "inputs.death": DEATH_ADJUDICATION_VERSION},
+         "upstream": ("death", "killfeed_numeral")},
     ]
     # The ability pass's streams reread the minimap crop cache, each under its
     # own stamp; a stream that reads the gate's samples records the gate's
@@ -1093,6 +1106,7 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
     from .minimap_objects import minimap_object_version
     from .roi_cache import ROI_CACHE_VERSION
+    from .blinds import BLIND_VERSION
     from .stalls import STALL_VERSION
     from .version import (ALLY_ICON_VERSION, ALLY_PORTRAIT_FEATURES_VERSION,
                           COMBAT_REPORT_ROUND_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
@@ -1115,7 +1129,10 @@ def hand_code_fields() -> dict[str, dict[str, tuple[str, str]]]:
              "reliability": RELIABILITY_VERSION,
              # The stall rule over the stored motion and clock; the deaths it
              # infers come from the stalls (recorded None where unread).
-             "stalls": STALL_VERSION}
+             "stalls": STALL_VERSION,
+             # The blind rule over the stored primitives: a wash hides the
+             # killfeed without expiring an entry (recorded None where unread).
+             "blinds": BLIND_VERSION}
     ult = {"ult_line": ULT_LINE_VERSION, "round": ROUND_VERSION, "tray_drop": TRAY_VERSION,
            "hud": HUD_VERSION, "player_cast": PLAYER_CAST_VERSION,
            "death": DEATH_ADJUDICATION_VERSION, "killfeed_portrait": KILLFEED_PORTRAIT_VERSION,
