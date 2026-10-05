@@ -213,7 +213,9 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
       [domain:killfeed/revive-entries]: a teammate Sage's Resurrection of the
       player, whatever the player's agent, or Clove's Not Dead Yet, which
       needs Clove's death [domain:abilities/clove-c-and-x-need-a-target] and
-      whose entry is the revive itself. A death followed by a revive of the
+      whose entry is the revive itself. A KAY/O stabilised from NULL/cmd's
+      downed state is no revive here: how his tray draws while downed is
+      no recorded fact, and the mechanics sheet asks it. A death followed by a revive of the
       player (`revives_ms`, `adjudication.death.player_revive_times`) before
       the player's next death in the round does not end the kit (`revived`,
       or `not_dead_yet` for Clove). Clove casts Not Dead Yet while dead, so a
@@ -222,12 +224,13 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
       from DEATH_LEAD_MS before the death to the revive (`dead_spans` of
       `kit_windows`) is `after_player_death`: the death screen empties the
       tray there as at any death, and a death-screen drop let through would
-      taint the cast before it. A drop bridged across refused samples
-      (`across_gap`) compares with a clean sample up to `tray.GAP_S` before
-      it, so the span runs on GAP_S past the revive for it: at
-      `b7d24102a6f6` 1866.5 s, 2.0 s after a Sage revive, a Q drop from 0.90
-      bridged the revive's cyan flash while the Q icon stayed dim and its
-      bar empty since the Trailblazer cast at 1857.0 s. Before `player-cast-0.9.0` only Clove's own revive counted: on
+      taint the cast before it. The span ends at the revive for every drop,
+      bridged (`across_gap`) or not: from `player-cast-0.9.0` to `0.12.0` a
+      bridged drop's span ran on `tray.GAP_S` past the revive, a clause
+      chosen on one held-half drop (`b7d24102a6f6` Q 1866.5 s); the one
+      dev-half drop it reached (`b3b9defb6fd7` X 845.55 s) is refused as
+      `pips_lit` without it, so the dev half never supported it, and
+      `player-cast-0.13.0` dropped it. Before `player-cast-0.9.0` only Clove's own revive counted: on
       `b3b9defb6fd7` and `b7d24102a6f6` a Sage revived the Skye player three
       times and the gate refused every later cast of those rounds as
       `after_player_death`.
@@ -481,30 +484,34 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     reads (`countdown_reads` None) nothing changes. The witness was chosen
     on the dev half of the 21 Riot-paired matches: the numeral alone, since
     the icon's brightness is read on no stored row and the audio verdict was
-    not measured here. Scored against Riot's counts, the four rules since
+    not measured here. Scored against Riot's counts
+    (`prototypes/own_cast_gate_eval.py`), the rules since
     `player-cast-0.8.0` raised the dev half from
-    [metric:tray/own-cast-gate@riot-21#baseline_dev_covered=239] to
-    [metric:tray/own-cast-gate@riot-21#e_dev_covered=259] of
+    [metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_dev_covered=239] to
+    [metric:tray/own-cast-gate@riot-21#gate_dev_covered=259] of
     [metric:tray/own-cast-gate@riot-21#dev_riot=300] casts covered, beyond
-    held at [metric:tray/own-cast-gate@riot-21#e_dev_beyond=2], and the held
-    half from [metric:tray/own-cast-gate@riot-21#baseline_held_covered=286] to
-    [metric:tray/own-cast-gate@riot-21#e_held_covered=300] of
+    held at [metric:tray/own-cast-gate@riot-21#gate_dev_beyond=2], and the
+    held half from
+    [metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_held_covered=286] to
+    [metric:tray/own-cast-gate@riot-21#gate_held_covered=300] of
     [metric:tray/own-cast-gate@riot-21#held_riot=310], beyond from
-    [metric:tray/own-cast-gate@riot-21#baseline_held_beyond=6] to
-    [metric:tray/own-cast-gate@riot-21#e_held_beyond=5]
+    [metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_held_beyond=6] to
+    [metric:tray/own-cast-gate@riot-21#gate_held_beyond=8]
     (docs/ABILITY_STATE_MODEL.md, "The cast gate against Riot's counts").
 
-    *A pool has no charges.* A slot a resource-bar fact names for the
-    player's agent (`pool_slots`, `adjudication.ability_state.pool_facts`)
-    draws a pool, not charges: Skye's Regrowth in C
-    [domain:abilities/skye-regrowth-resource-bar]. A gold half is a charge
-    returned [domain:hud/ability-tray-restocked-charge-gold], so a drop read
-    from gold halves alone (a row with the gold `witness`, `tray.drops`)
-    spent no charge there and is `resource_pool`, named after every other
-    test. The two the gate passed on the 21 Riot-paired matches before
-    `player-cast-0.11.0` (`b7d24102a6f6` 375.1 s and `e37fdeca944f` 1714.0 s)
-    each fell from a teal fill of 0, each in a slot already holding all of
-    Riot's Regrowth casts. A teal drop of the bar stays a cast.
+    *A gold drop of a pool is marked, not judged.* A slot a resource-bar
+    fact names for the player's agent (`pool_slots`,
+    `adjudication.ability_state.pool_facts`) draws a pool, not charges:
+    Skye's Regrowth in C [domain:abilities/skye-regrowth-resource-bar]. Why
+    Regrowth turns gold is the player's to answer
+    [domain:hud/ability-tray-restocked-charge-gold], and what a gold Regrowth
+    bar going empty means is a question on the mechanics sheet. So a drop
+    read from gold halves alone (a row with the gold `witness`,
+    `tray.drops`) in such a slot keeps its verdict and carries
+    `pool_gold_drop`, for the answer to judge. From `player-cast-0.11.0` to
+    `0.12.0` the gate refused it as `resource_pool`, a rule reasoned from
+    the gold of Recon Bolt and Guiding Light and chosen on two held-half
+    drops; `player-cast-0.13.0` withdrew it.
 
     *A line overturns a death or a dark tray.* The player hears their own
     ultimate's line at the cast [domain:abilities/caster-hears-own-ult-line],
@@ -522,8 +529,10 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
     (`adjudication.ult_cast.cast_window`, `in_window`), the line came before
     the kit's end, the drop meets the charge tests, and no X drop the gate
     passed already lies in that line's window; one line passes one drop, the
-    nearest. The row keeps the refusal as `refused_as` and the line as
-    `line_ms`. No line, no change.
+    nearest. The row keeps the refusal as `refused_as`, the line as
+    `line_ms`, and `rests_on` names the line (`ult_cast`), so the cast never
+    witnesses that line back: `ult_cast` asks this gate with no own lines
+    and binds no tray cast that rests on one. No line, no change.
 
     Every drop comes back with `player_cast`, the first `reason` that refused
     it, the round's `first_player_death_ms`, the `kit_end_ms` the gate used,
@@ -552,10 +561,7 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
         first = (min((e["t_first"] for e in in_round_window(deaths, *rnd, ends)), default=None)
                  if rnd else None)
         end, undone = (k["kit_end_ms"], k["undone_deaths"]) if k else (None, [])
-        # A bridged drop compares with a clean sample up to GAP_S before it,
-        # which may fall while the player was still dead.
-        bridge = 1000.0 * tray.GAP_S if d.get("across_gap") else 0.0
-        dead = (any(a - DEATH_LEAD_MS <= t < b + bridge for a, b in k["dead_spans"])
+        dead = (any(a - DEATH_LEAD_MS <= t < b for a, b in k["dead_spans"])
                 if k else False)
         change, back = (k["kit_change_ms"], k["kit_return_ms"]) if k else (None, None)
         phase = phase_of(t)
@@ -587,9 +593,9 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
             r["numeral"] = seen
             if seen in NUMERAL_SPENDS:
                 r["reason"] = why
-    for r in keep:
-        if r["reason"] is None and r["slot"] in pool_slots and "witness" in r:
-            r["reason"] = "resource_pool"
+    for r in rows:
+        if r["slot"] in pool_slots and "witness" in r:
+            r["pool_gold_drop"] = True
     _admit_lined_x(rows, own_lines_ms, agent)
     for r in rows:
         r["player_cast"] = r["reason"] is None
@@ -626,8 +632,8 @@ LINE_ADMITS = ("forced", "after_player_death", "cooccur_among_casts")
 def _admit_lined_x(rows: list[dict], own_lines_ms, agent: str | None) -> None:
     """Pass, in place, the X drops `player_tray_casts` refused as one of
     LINE_ADMITS where the player's own ult line witnesses the cast. Each row
-    passed keeps its refusal as `refused_as` and names the line as
-    `line_ms`. `player_tray_casts` gives the rule."""
+    passed keeps its refusal as `refused_as`, names the line as `line_ms`
+    and rests on it (`rests_on`). `player_tray_casts` gives the rule."""
     from .adjudication.ult_cast import cast_window, in_window
     if not own_lines_ms:
         return
@@ -643,7 +649,9 @@ def _admit_lined_x(rows: list[dict], own_lines_ms, agent: str | None) -> None:
         if not near:
             continue
         r = min(near, key=lambda r: (abs(r["t_ms"] - line), r["t_ms"]))
-        r.update({"refused_as": r["reason"], "reason": None, "line_ms": line})
+        r.update({"refused_as": r["reason"], "reason": None, "line_ms": line,
+                  "rests_on": [{"stream": "ult_cast", "owner": "adjudication.ult_cast",
+                                "t_ms": line}]})
         taken.append(r["t_ms"])
 
 
@@ -667,8 +675,11 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
     a named kit as `kit_owner_unresolved`. The menu witness is the stored `menu_open` rows
     (`menu.stored_menu`), used only where current; otherwise `menu_at` is None
     and the stamp says why. The player's own ult lines are the stored
-    `ult_cast` rows `own_line_times` keeps; `ult_cast` reads this gate in
-    turn, but only lines that rest on no tray cast come back. The restock
+    `ult_cast` rows `own_line_times` keeps, used only where they are at
+    ULT_CAST_VERSION; otherwise none come back and `ult_cast_reason` says
+    why. `ult_cast` reads this gate in turn, but asks it with no own lines
+    (`adjudication.ult_cast.player_x_drops`), so the stream never reads its
+    own output. The restock
     numeral reads are the stored `tray_countdown` rows where current
     (`stored_countdown`); `reticle tray` writes them in the pass that writes
     the drops and hands its own reads to the gate instead.
@@ -708,7 +719,7 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
                            else None)
     menu, menu_stamp = stored_menu(store, session_id)
     inputs["menu_at"] = menu.at if menu is not None else None
-    inputs["own_lines_ms"] = own_line_times(store.read_events("ult_cast", session_id))
+    inputs["own_lines_ms"], lines_why = stored_own_lines(store, session_id)
     inputs["pool_slots"], pools = pool_slots(agent)
     inputs["countdown_reads"], inputs["step_ms"] = stored_countdown(store, session_id)
     # Each stored input's own stamp, read from its first row (`no_rows` where
@@ -727,6 +738,7 @@ def stored_gate_inputs(store, session_id: str, date: str, rounds: list[dict],
               "tray_kit_own_basis": kit["own_basis"],
               "menu_open": menu_stamp,
               "ult_cast": event_stamp(store, "ult_cast", session_id, "ult_cast_version"),
+              "ult_cast_reason": lines_why,
               "pool_facts": pools,
               "tray_countdown": event_stamp(store, "tray_countdown", session_id,
                                             "tray_countdown_version")}
@@ -744,6 +756,19 @@ def stored_countdown(store, session_id: str) -> tuple[list[dict] | None, float]:
     cov = [r for r in rows if r.get("kind") == "coverage"]
     step = float(cov[0].get("step_s") or 0.5) if cov else 0.5
     return ([r for r in rows if r.get("kind") == "read"] if current else None), 1000.0 * step
+
+
+def stored_own_lines(store, session_id: str) -> tuple[list[float], str | None]:
+    """(the player's own ult lines among the stored `ult_cast` rows
+    (`own_line_times`), or none where the stream is absent or not at
+    ULT_CAST_VERSION; None, `no_ult_cast` or `ult_cast_stale`)."""
+    from .version import ULT_CAST_VERSION
+    rows = store.read_events("ult_cast", session_id)
+    if not rows:
+        return [], "no_ult_cast"
+    if rows[0].get("ult_cast_version") != ULT_CAST_VERSION:
+        return [], "ult_cast_stale"
+    return own_line_times(rows), None
 
 
 def pool_slots(agent: str | None) -> tuple[tuple[str, ...], list[str]]:

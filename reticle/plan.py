@@ -425,6 +425,8 @@ NOT_INPUTS = {
     "candidate_revision": "the ally_icon candidate batch, carried on the rows built from it",
     "geometry": "round_outcome's column fit, measured from this session's cached scoreboard "
                 "crops by `fit_columns`: the reader's own output, not a baked table",
+    "ult_cast_reason": "why the gate's own ult lines went unused (`ability_timeline."
+                       "stored_own_lines`), not a stamp",
     "pool_facts": "the keys of the domain facts that make a slot of the player's agent a pool "
                   "(`ability_timeline.pool_slots`): a rule read from domain/*.toml, which "
                   "moves with the gate's own stamp (`player_cast`), not a stored stream",

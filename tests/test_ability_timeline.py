@@ -136,13 +136,12 @@ class GateDeathTests(unittest.TestCase):
         self.assertTrue(got[(62000.0, "Q")]["player_cast"])
         self.assertEqual(got[(62000.0, "Q")]["undone_deaths"], [[50000.0, "revived"]])
         self.assertEqual(got[(62000.0, "Q")]["kit_end_ms"], 79000.0)
-        # A drop bridged across refused samples within GAP_S of the revive may
-        # compare with a sample read while the player was dead.
+        # The span ends at the revive for a bridged drop too.
         bridged = {**_drop(60000, "Q"), "across_gap": True}
-        got = self._gate([bridged, _drop(60000, "E")], [50000.0], agent="Sova",
+        got = self._gate([bridged, _drop(64000, "E")], [50000.0], agent="Sova",
                          revives_ms=[58000.0])
-        self.assertEqual(got[(60000.0, "Q")]["reason"], "after_player_death")
-        self.assertTrue(got[(60000.0, "E")]["player_cast"])
+        self.assertTrue(got[(60000.0, "Q")]["player_cast"])
+        self.assertTrue(got[(64000.0, "E")]["player_cast"])
 
     def test_an_own_ult_line_overturns_a_death_or_a_dark_tray_for_x(self):
         # Run It Back unread: the pips fall 2 s after the death that ends the
@@ -152,6 +151,9 @@ class GateDeathTests(unittest.TestCase):
         r = got[(52000.0, "X")]
         self.assertTrue(r["player_cast"])
         self.assertEqual((r["refused_as"], r["line_ms"]), ("after_player_death", 43000.0))
+        # The pass rests on the line, which the gate declares.
+        self.assertEqual(r["rests_on"], [{"stream": "ult_cast", "owner": "adjudication.ult_cast",
+                                          "t_ms": 43000.0}])
         # No line, or a line after the kit's end, overturns nothing.
         for lines in ([], [51000.0]):
             got = self._gate([_drop(52000, "X")], [50000.0], agent="Phoenix",
@@ -178,14 +180,39 @@ class GateDeathTests(unittest.TestCase):
                          own_lines_ms=[60000.0])
         self.assertEqual(got[(60000.0, "X")]["reason"], "forced")
 
-    def test_a_gold_only_drop_of_a_pool_slot_spends_no_charge(self):
-        gold = {**_drop(30000, "C", frm=0.0, to=0.0), "witness": {"witnessed": True}}
+    def test_a_gold_only_drop_of_a_pool_slot_is_marked_not_judged(self):
+        # What a gold Regrowth bar going empty means is the player's to answer,
+        # so the gate keeps the verdict and marks the drop.
+        gold = {**_drop(30000, "C", frm=1.0, to=0.0), "witness": {"witnessed": True}}
         got = self._gate([gold, _drop(40000, "C")], [], agent="Skye", pool_slots=("C",))
-        self.assertEqual(got[(30000.0, "C")]["reason"], "resource_pool")
-        # A teal drop of the bar stays a cast, and another kit's gold drop too.
-        self.assertTrue(got[(40000.0, "C")]["player_cast"])
-        got = self._gate([gold], [], agent="Sova")
         self.assertTrue(got[(30000.0, "C")]["player_cast"])
+        self.assertTrue(got[(30000.0, "C")]["pool_gold_drop"])
+        self.assertNotIn("pool_gold_drop", got[(40000.0, "C")])
+        got = self._gate([gold], [], agent="Sova")
+        self.assertNotIn("pool_gold_drop", got[(30000.0, "C")])
+
+    def test_every_caller_gives_a_stored_drop_one_verdict(self):
+        # `reticle tray` and ability-shapes hand the gate full rows; ult-cast,
+        # ability-state and the audio fit hand it DROP_FIELDS. Both must agree.
+        from reticle.adjudication.ult_cast import DROP_FIELDS
+        stored = [{**_drop(30000, "C", frm=1.0, to=0.0), "across_gap": False,
+                   "witness": {"witnessed": True}, "kind": "drop", "player_cast": True,
+                   "reason": None, "phase": "round_live", "kit_end_ms": None},
+                  {**_drop(30000, "E"), "across_gap": False, "kind": "drop"},
+                  {**_drop(52000, "X"), "across_gap": True, "kind": "drop",
+                   "player_cast": False, "reason": "stale"},
+                  {**_drop(70000, "Q", frm=0.5), "across_gap": False, "kind": "drop"}]
+        kw = dict(agent="Skye", pool_slots=("C",), own_lines_ms=[51500.0],
+                  revives_ms=[49000.0])
+        keys = ("player_cast", "reason", "pool_gold_drop", "refused_as", "line_ms", "rests_on")
+        full = self._gate([dict(r) for r in stored], [48000.0], **kw)
+        cut = self._gate([{k: r[k] for k in DROP_FIELDS if k in r} for r in stored],
+                         [48000.0], **kw)
+        self.assertEqual(full.keys(), cut.keys())
+        for k in full:
+            self.assertEqual({f: full[k].get(f) for f in keys},
+                             {f: cut[k].get(f) for f in keys}, k)
+        self.assertTrue(full[(30000.0, "C")]["pool_gold_drop"])
 
     def test_pool_slots_come_from_the_resource_bar_facts(self):
         from reticle.ability_timeline import pool_slots
@@ -237,15 +264,22 @@ class GateDeathTests(unittest.TestCase):
     def test_player_revive_times_names_the_player_as_the_revived(self):
         from reticle.adjudication.death import player_revive_times
         v = lambda t, **kw: {"kind": "death_verdict", "is_revive": True, "t_ms": t, **kw}
-        rows = [v(1.0, side="ally", victim="Skye", killer="Sage"),
-                v(2.0, side="enemy", victim="Skye", killer="Sage"),
-                v(3.0, side="ally", victim="Raze", killer="Sage"),
-                v(4.0, side="ally", victim=None, killer="Clove", kf_player_kill=True),
-                {"kind": "death_verdict", "t_ms": 5.0, "side": "ally", "victim": "Skye"}]
+        res, ndy = dict(killer="Sage", weapon="Resurrection"), dict(weapon="Not Dead Yet")
+        rows = [v(1.0, side="ally", victim="Skye", **res),
+                v(2.0, side="enemy", victim="Skye", **res),
+                v(3.0, side="ally", victim="Raze", **res),
+                v(4.0, side="ally", victim=None, killer="Clove", kf_player_kill=True, **ndy),
+                {"kind": "death_verdict", "t_ms": 5.0, "side": "ally", "victim": "Skye"},
+                v(6.0, side="ally", victim="Clove", killer="Clove", **ndy)]
         self.assertEqual(player_revive_times(rows, "Skye"), [1.0])
         # Clove's own entry counts for a Clove player even with the victim unread.
-        self.assertEqual(player_revive_times(rows, "Clove"), [4.0])
+        self.assertEqual(player_revive_times(rows, "Clove"), [4.0, 6.0])
         self.assertEqual(player_revive_times(rows, None), [])
+        # A KAY/O stabilised from NULL/cmd, or a revive with its icon unread,
+        # is no revive that returns the kit.
+        kayo = [v(7.0, side="ally", victim="KAY/O", killer="Sage", weapon="NULL/cmd"),
+                v(8.0, side="ally", victim="KAY/O", killer="Sage", weapon=None)]
+        self.assertEqual(player_revive_times(kayo, "KAY/O"), [])
 
     def test_clove_without_a_revive_entry_is_dead(self):
         got = self._gate([_drop(50500, "X")], [50000.0], agent="Clove")

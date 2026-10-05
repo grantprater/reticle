@@ -1626,20 +1626,35 @@ def stored_second_life(portrait_rows: list[dict], version: str) -> list[dict] | 
     return [r for r in portrait_rows if r.get("kind") == "second_life_observation"]
 
 
+#: The revive icons (`REVIVE_ICONS`, stored as the verdict's `weapon`) whose
+#: revive returns the revived player's kit, keyed by icon: the agents it
+#: applies to, or None for any. A teammate Sage's Resurrection revives any
+#: ally, and Clove's Not Dead Yet only Clove
+#: [domain:rounds/resurrection-mechanics]. NULL/cmd is left out: a KAY/O
+#: stabilised from his downed state [domain:killfeed/kayo-downed-entry] is no
+#: recorded case of a tray that returns, and the mechanics sheet asks it.
+KIT_REVIVE_ICONS = {"Resurrection": None, "Not Dead Yet": ("Clove",)}
+
+
 def player_revive_times(verdict_rows: list[dict], agent: str | None) -> list[float]:
     """The instants of the stored `death_verdict` revives that brought the
     player back, from any reviver: a revive entry names the reviver left and
     the revived right, both of one team [domain:killfeed/revive-entries], so
     the player is revived where an ally-side revive names `agent` as its
-    victim. Clove's Not Dead Yet is a self-revive with the player as reviver
-    too, so for a Clove player a revive on the player's own entry
-    (`kf_player_kill`) counts where its victim went unnamed. No `agent`
-    names no victim, and only that own-entry case remains."""
+    victim and its icon is one of KIT_REVIVE_ICONS that applies to `agent`.
+    Clove's Not Dead Yet is a self-revive with the player as reviver too, so
+    for a Clove player a revive on the player's own entry (`kf_player_kill`)
+    counts where its victim went unnamed. No `agent` names no victim, and
+    only that own-entry case remains."""
     out = []
     for r in verdict_rows:
         if r.get("kind") != "death_verdict" or not r.get("is_revive") or r.get("t_ms") is None:
             continue
-        named = agent is not None and r.get("side") == "ally" and r.get("victim") == agent
+        icon = r.get("weapon")
+        fits = icon in KIT_REVIVE_ICONS and (KIT_REVIVE_ICONS[icon] is None
+                                             or agent in KIT_REVIVE_ICONS[icon])
+        named = (agent is not None and fits and r.get("side") == "ally"
+                 and r.get("victim") == agent)
         own = agent == "Clove" and bool(r.get("kf_player_kill"))
         if named or own:
             out.append(float(r["t_ms"]))

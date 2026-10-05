@@ -4900,7 +4900,7 @@ def cmd_ability_state(args) -> int:
             gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent["agent"])
         with usage_step("gate_rows"):
             gate_rows = player_tray_casts(
-                [{k: r[k] for k in DROP_FIELDS} for r in drops], gate["phase_of"], rounds,
+                [{k: r[k] for k in DROP_FIELDS if k in r} for r in drops], gate["phase_of"], rounds,
                 gate["player_deaths_ms"], agent=gate["agent"],
                 second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                 report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
