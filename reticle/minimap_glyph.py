@@ -81,21 +81,29 @@ gate is unknown.
 
 The map-shown gate (`map_shown`, MAP_SHOWN). A drawn ability icon is an
 opaque dark disc: it hides the map art under it. Static structure the
-proposer reads as a disc shows that art. Over the matcher disc's pixels on
-the baked footprint (`geometry.footprint`, by (map, profile)), the crop's
-10th-percentile luma over the baked static's is the disc's `map_shown`;
-at or above MAP_SHOWN the disc is the map's (reason `map_shown`), neither
-scored nor scheduled. It answers the void-corner disc at (21, 91) on
-4f207c0c4e39, where the void behind the variant widget reads as a dark disc
-beside a building corner and the radar ring: its void half shows the world,
-which no baked value predicts, so its static correlation stays under
-MAP_CORR, but its footprint half shows the building as baked. A real glyph
-drawn half over the void hides the footprint part it covers, and a disc
-with under MAP_SHOWN_MIN_FP of its disc on the footprint is not judged; a
-footprint-share gate would have dropped such glyphs. The rule and its cut
-were chosen on dev only (MAP_SHOWN's comment); its effect on the corner and
-on the held-out marks, read after it was frozen, is in
-`docs/MINIMAP_GLYPH_CHANNEL.md` (stage 3 prerequisites).
+proposer reads as a disc shows that art. Over the disc's body (the matcher
+disc united with the proposer's disc of radius r, so an icon's dark rim
+enters) on the baked footprint (`geometry.footprint`, by (map, profile)),
+the crop's 10th-percentile luma over the baked static's is the disc's
+`map_shown`; at or above MAP_SHOWN the disc is the map's (reason
+`map_shown`), neither scored nor scheduled. It answers the void-corner disc
+at (21, 91) on 4f207c0c4e39, where the void behind the variant widget reads
+as a dark disc beside a building corner and the radar ring: its void half
+shows the world, which no baked value predicts, so its static correlation
+stays under MAP_CORR, but its footprint half shows the building as baked.
+A real glyph drawn half over the void hides the footprint part it covers,
+and a disc with under MAP_SHOWN_MIN_FP of its body on the footprint is not
+judged. The rule family (judge the footprint part, never gate on footprint
+share) and MAP_SHOWN_MIN_FP were chosen knowing the corner's footprint
+share (about 0.2) and the 0.3.0 docstring's held-out count (9 of 226
+held-out marks under half on the footprint); only the cut and the
+percentile are dev-only (MAP_SHOWN's comment). At 0.4.0 the score read
+the matcher disc alone, which excludes the dark rim, and refused four
+opaque icons on 4f207c0c4e39 whose footprint part fell on the white glyph;
+0.5.0 reads the body. A translucent icon (a grey disc the map shows
+through) still breaks the premise. Its effect on the corner and on the
+held-out marks is in `docs/MINIMAP_GLYPH_CHANNEL.md` (stage 3
+prerequisites).
 
 Candidate sets. Continue the prior: the context set is the match lineup's
 kits, both sides, as `lineup.glyph_candidates` admits them (named slots,
@@ -153,6 +161,10 @@ from .usage import step as usage_step
 from .version import ABILITY_GLYPH_VERSION, ABILITY_ICON_VERSION
 
 #: The store files the reader reads: (directory under the store, version).
+#: A version stamps a table's rows; the file's bytes and provenance are pinned
+#: by the bank's sha256 pairing, which `GlyphData.load` checks. The policy
+#: file in 20261005c (generator glyph-tables-0.2.0) holds the rows of the
+#: 20261005b file (glyph-tables-0.1.1) under the same stamp, with other bytes.
 GLYPH_DATA = {"bank": ("analysis/glyph-bank-20261005c", "glyph-bank-0.3.0"),
               "policy": ("analysis/glyph-tables-20261005c", "glyph-rotation-policy-0.1.1"),
               "null": ("analysis/glyph-tables-20261005c", "glyph-null-table-0.2.0")}
@@ -173,14 +185,18 @@ AUDIT_EVERY = 10
 #: map's (stage 1's follow gate, `prototypes/minimap_glyph_eval.py` MAP_CORR).
 MAP_CORR = 0.7
 #: The map-shown gate (module docstring): a drawn icon is an opaque dark disc
-#: that hides the map art under it. Over the matcher disc on the baked
+#: that hides the map art under it. Over the disc's body on the baked
 #: footprint, the crop's MAP_SHOWN_Q-th percentile luma over the baked
 #: static's; a disc at or above MAP_SHOWN shows the map and is the map's.
-#: Chosen on dev only (`glyph-prereqs-20261005`, the frozen-rule row): the
-#: 59 dev glyph items read 0.14-0.49, the 8 unlabelled static discs of
-#: d95cfad5693a's exhaustive paint frames 0.97-1.06; MAP_SHOWN is their
-#: midpoint, rounded. Under MAP_SHOWN_MIN_FP of the disc on the footprint the
-#: gate does not judge (a glyph over the void hides nothing the bake predicts).
+#: The cut and the percentile were chosen on dev only: MAP_SHOWN is the
+#: midpoint of the dev glyph items' maximum and the static dev discs'
+#: minimum, rounded (the frozen-rule rows `glyph-prereqs-20261005` and
+#: `glyph-prereqs-fix-20261005`; the ranges, with metric tokens, in
+#: `docs/MINIMAP_GLYPH_CHANNEL.md`, stage 3 prerequisites). Under
+#: MAP_SHOWN_MIN_FP of the body on the footprint the gate does not judge (a
+#: glyph over the void hides nothing the bake predicts); that value was set
+#: under the 4f207c0c4e39 corner's footprint share, not on dev, where any
+#: value up to the static discs' share fits.
 MAP_SHOWN = 0.73
 MAP_SHOWN_Q = 10
 MAP_SHOWN_MIN_FP = 0.1
@@ -431,28 +447,100 @@ def score_windows(wins: np.ndarray, tm: Templates) -> tuple[np.ndarray, np.ndarr
     return best, targ, sarg
 
 
-def map_shown(crop_w: np.ndarray, static_w: np.ndarray, fp_w: np.ndarray, mask: np.ndarray
+def map_shown(y: np.ndarray, static_y: np.ndarray, footprint: np.ndarray, xy, r, scale: float
               ) -> tuple[np.ndarray, np.ndarray]:
-    """Per disc: (map_shown score, footprint share of the matcher disc).
-    `crop_w`, `static_w` and `fp_w` are (n, W, W) luma, baked-static luma and
-    footprint windows on the disc centres; the score is the crop's
-    MAP_SHOWN_Q-th percentile luma over the static's (floored at 1) on the
-    disc's footprint pixels, NaN where under MAP_SHOWN_MIN_FP of the disc lies
-    on the footprint. An opaque icon reads far under 1; map art reads near 1."""
-    n = len(crop_w)
+    """Per disc at `xy` (n x 2): (map_shown score, footprint share of its body).
+    `y`, `static_y` and `footprint` are the crop's luma, the baked static's
+    luma and the baked footprint, all crop-sized. A disc's body is the union
+    of the matcher disc (MASK_R_BASE x scale) and the proposer's disc of
+    radius `r` (crop px; NaN or None for none), about the matcher's integer
+    centre, so an icon's dark rim, outside the matcher disc, enters. The
+    score is the crop's MAP_SHOWN_Q-th percentile luma over the static's
+    (floored at 1) on the body's footprint pixels, NaN where under
+    MAP_SHOWN_MIN_FP of the body lies on the footprint; a pixel off the crop
+    counts as off the footprint. An opaque icon reads far under 1; map art
+    reads near 1."""
+    xy = np.asarray(xy, float).reshape(-1, 2)
+    n = len(xy)
     if n == 0:
         return np.zeros(0), np.zeros(0)
-    on = (fp_w[:, mask] > 0)
-    share = on.mean(1)
-    a = np.where(on, crop_w[:, mask], np.nan)
-    b = np.where(on, static_w[:, mask], np.nan)
+    rr = np.full(n, np.nan) if r is None else np.asarray(r, float).reshape(-1)
+    rad = np.fmax(MASK_R_BASE * scale, rr)
+    h = int(np.ceil(rad.max()))
+    w = 2 * h + 1
+    pad = ((h, h), (h, h))
+    yp = np.pad(np.asarray(y, np.float32), pad)
+    sp = np.pad(np.asarray(static_y, np.float32), pad)
+    fpp = np.pad((np.asarray(footprint) > 0).astype(np.float32), pad)
+    c = xy + h
+    cw, _ = disc_windows(yp, c, w, 0)
+    sw, _ = disc_windows(sp, c, w, 0)
+    fw, _ = disc_windows(fpp, c, w, 0)
+    g = np.arange(w) - h
+    body = np.hypot(g[None, :], g[:, None])[None] <= rad[:, None, None]
+    on = body & (fw > 0)
+    share = on.sum((1, 2)) / body.sum((1, 2))
     ok = share >= MAP_SHOWN_MIN_FP
     out = np.full(n, np.nan)
     if ok.any():
-        qa = np.nanpercentile(a[ok], MAP_SHOWN_Q, axis=1)
-        qb = np.nanpercentile(b[ok], MAP_SHOWN_Q, axis=1)
+        a = np.where(on[ok], cw[ok], np.nan).reshape(int(ok.sum()), -1)
+        b = np.where(on[ok], sw[ok], np.nan).reshape(int(ok.sum()), -1)
+        qa = np.nanpercentile(a, MAP_SHOWN_Q, axis=1)
+        qb = np.nanpercentile(b, MAP_SHOWN_Q, axis=1)
         out[ok] = qa / np.maximum(qb, 1.0)
     return out, share
+
+
+def disc_gates(y: np.ndarray, xy, r, scale: float, static_y: np.ndarray | None = None,
+               footprint: np.ndarray | None = None, portraits=None) -> dict:
+    """The reader's per-disc gate decision, the one rule its callers ask
+    (`AbilityGlyphReader` per frame; `prototypes/glyph_tables.py`
+    `unlabelled_negatives`, for "a disc the reader's gates keep"). For the
+    discs at `xy` (n x 2, crop px) with proposer radii `r` (or None) on the
+    crop luma `y`, at MapScale.scale `scale`:
+
+    - `ok`: the matcher's window (W plus the shift each side) lies on the crop;
+    - `static_corr`: masked Pearson of the crop's luma with the baked static's
+      inside the matcher disc, NaN where the static is flat or missing;
+    - `map_shown`, `fp_share`: `map_shown` over the disc's body;
+    - `cover`: `portrait_covers` over `portraits`, (roles, xy) of the frame's
+      stored portraits, or None where no portrait input is given;
+    - `why`: the gate reason or None, in this order: off_crop, static_like
+      (static_corr at or above MAP_CORR), map_shown (at or above MAP_SHOWN),
+      then the cover's reason;
+    - `static_mismatch`, `footprint_mismatch`: the input was given at another
+      size than the crop, so that gate is unknown."""
+    xy = np.asarray(xy, float).reshape(-1, 2)
+    n = len(xy)
+    w, sh, mask = window_geometry(scale)
+    _, ok = disc_windows(y, xy, w, sh)
+    corr = np.full(n, np.nan)
+    shown = np.full(n, np.nan)
+    share = np.full(n, np.nan)
+    s_mis = static_y is not None and static_y.shape != y.shape
+    f_mis = footprint is not None and footprint.shape[:2] != y.shape
+    if static_y is not None and not s_mis and n:
+        cw, cok = disc_windows(y, xy, w, 0)
+        sw, sok = disc_windows(static_y, xy, w, 0)
+        both = ok & cok & sok
+        if both.any():
+            a = cw[both][:, mask]
+            b = sw[both][:, mask]
+            c = (zrows(a) * zrows(b)).sum(1)
+            c[b.std(1) < FLAT_STD] = np.nan
+            corr[both] = c
+            if footprint is not None and not f_mis:
+                rb = None if r is None else np.asarray(r, float).reshape(-1)[both]
+                shown[both], share[both] = map_shown(y, static_y, footprint, xy[both], rb, scale)
+    cover: list = [None] * n
+    if portraits is not None and n:
+        cover = portrait_covers(xy, portraits[0], portraits[1], scale)
+    why = np.asarray(cover, object)
+    why[np.nan_to_num(shown, nan=-2.0) >= MAP_SHOWN] = "map_shown"
+    why[np.nan_to_num(corr, nan=-2.0) >= MAP_CORR] = "static_like"
+    why[~ok] = "off_crop"
+    return {"ok": ok, "static_corr": corr, "map_shown": shown, "fp_share": share, "cover": cover,
+            "why": why.tolist(), "static_mismatch": bool(s_mis), "footprint_mismatch": bool(f_mis)}
 
 
 # ------------------------------------------------------------------ the proposer's rows for a frame
@@ -675,6 +763,8 @@ class AbilityGlyphReader:
         #: The baked footprint (map art), crop-sized, for the map-shown gate.
         self.footprint = None if footprint is None else (np.asarray(footprint) > 0).astype(np.float32)
         self.footprint_reason = None if footprint is not None else footprint_reason
+        #: Read frames whose footprint was given at another size (the gate unknown).
+        self.footprint_mismatch = 0
         #: Read frames whose discs the portrait gate could not judge (no stored row).
         self.no_vision_row = 0
         self.xp, self.scorer = _backend()
@@ -753,44 +843,24 @@ class AbilityGlyphReader:
         self._open = []
         self._prev = None
 
-    def _gates(self, y, xy, wins, ok, tm, frame_idx, scale):
+    def _gates(self, y, xy, r, frame_idx, scale):
         """Per disc: (static_corr, map_shown, portrait cover reason or None,
-        gate reason or None), vectorised over the frame's discs; `portrait` is
-        "no_vision_row" where the stored stream has no row for the frame. The
-        gate reason's order: off_crop, static_like, map_shown, then the cover."""
+        gate reason or None), from the module's `disc_gates`; `portrait` is
+        "no_vision_row" where the stored stream has no row for the frame. Counts
+        the frames whose static or footprint was given at another size."""
         n = len(xy)
-        corr = np.full(n, np.nan)
-        shown = np.full(n, np.nan)
-        if self.static_y is not None and n:
-            if self.static_y.shape != y.shape:
-                self.static_mismatch += 1
-            else:
-                sw, sok = disc_windows(self.static_y, xy, tm.w, 0)
-                both = ok & sok
-                if both.any():
-                    core = wins[both][:, tm.sh:tm.sh + tm.w, tm.sh:tm.sh + tm.w]
-                    a = core[:, tm.mask]
-                    b = sw[both][:, tm.mask]
-                    c = (zrows(a) * zrows(b)).sum(1)
-                    c[b.std(1) < FLAT_STD] = np.nan
-                    corr[both] = c
-                    if self.footprint is not None and self.footprint.shape == y.shape:
-                        fw, _ = disc_windows(self.footprint, xy[both], tm.w, 0)
-                        shown[both] = map_shown(core, sw[both], fw, tm.mask)[0]
-        cover: list = [None] * n
-        unread = False
+        got, unread = None, False
         if self.portraits is not None and n:
             got = self.portraits.at(frame_idx)
             if got is None:
                 unread = True
                 self.no_vision_row += 1
-            else:
-                cover = portrait_covers(xy, got[0], got[1], scale)
-        why = np.asarray(cover, object)
-        why[np.nan_to_num(shown, nan=-2.0) >= MAP_SHOWN] = "map_shown"
-        why[np.nan_to_num(corr, nan=-2.0) >= MAP_CORR] = "static_like"
-        why[~ok] = "off_crop"
-        return corr, shown, ("no_vision_row" if unread else cover), why.tolist()
+        g = disc_gates(y, xy, r, scale, static_y=self.static_y, footprint=self.footprint, portraits=got)
+        if n and g["static_mismatch"]:
+            self.static_mismatch += 1
+        if n and g["footprint_mismatch"] and not g["static_mismatch"]:
+            self.footprint_mismatch += 1
+        return (g["static_corr"], g["map_shown"], ("no_vision_row" if unread else g["cover"]), g["why"])
 
     def feed(self, smp) -> None:
         t = float(smp.t_ms)
@@ -822,9 +892,10 @@ class AbilityGlyphReader:
             y = cv2.cvtColor(crop, cv2.COLOR_BGR2YCrCb)[..., 0].astype(np.float32)
         tm = self.templates("context", scale)
         xy = np.array([[c["cx"], c["cy"]] for c in cands], float).reshape(-1, 2)
-        wins, ok = disc_windows(y, xy, tm.w, tm.sh)
+        wins, _ = disc_windows(y, xy, tm.w, tm.sh)
+        rad = np.array([c.get("r", np.nan) for c in cands], float).reshape(-1)
         with usage_step("gates"):
-            corr, shown, cover, gate = self._gates(y, xy, wins, ok, tm, smp.frame_idx, scale)
+            corr, shown, cover, gate = self._gates(y, xy, rad, smp.frame_idx, scale)
         # The proposer's verify decides continuation (`ability-icon`).
         prev = self._prev
         ver = ir.get("verify")
@@ -948,14 +1019,17 @@ class AbilityGlyphReader:
                                      "unknown": self.static_reason,
                                      "size_mismatch_frames": self.static_mismatch},
                           "map_shown": {"rule": "the crop's q-th percentile luma over the baked static's "
-                                                "(floored at 1) on the matcher disc's footprint pixels; "
-                                                "map_shown at or above the cut; not judged under min_fp of "
-                                                "the disc on the footprint",
+                                                "(floored at 1) on the footprint pixels of the disc's body "
+                                                "(the matcher disc united with the proposer's disc of radius "
+                                                "r); map_shown at or above the cut; not judged under min_fp "
+                                                "of the body on the footprint",
                                         "cut": MAP_SHOWN, "q": MAP_SHOWN_Q, "min_fp": MAP_SHOWN_MIN_FP,
-                                        "from": "glyph-prereqs-20261005 (dev only: frozen-rule row in the "
-                                                "store's notes/predictions.jsonl)",
+                                        "from": "glyph-prereqs-fix-20261005 (cut on dev only; min_fp informed "
+                                                "by the 4f207c0c4e39 corner: amendment row in the store's "
+                                                "notes/predictions.jsonl)",
                                         "footprint": "geometry.footprint by (map, profile)",
-                                        "unknown": self.footprint_reason or self.static_reason},
+                                        "unknown": self.footprint_reason or self.static_reason,
+                                        "size_mismatch_frames": self.footprint_mismatch},
                           "portrait": {"rule": "stage 1's portrait_cover over the frame's stored "
                                                "ally_icon fits (allies, no barriers) and self icon: the "
                                                "self icon within occ_r, an ally "

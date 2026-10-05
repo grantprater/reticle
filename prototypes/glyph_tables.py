@@ -89,7 +89,9 @@ import minimap_glyph_eval as mge  # noqa: E402
 import numpy as np  # noqa: E402
 
 VERSION = "glyph-tables-0.2.0"   # 0.2.0: the null at the full transform, unlabelled discs, the audit null
-POLICY_VERSION = "glyph-rotation-policy-0.1.1"   # 0.1.1: no_component_default (rows unchanged at 0.2.0)
+#: 0.1.1: no_component_default. The stamp versions the rows: at glyph-tables-0.2.0 the rows are unchanged and the
+#: file differs from 0.1.1's only in its provenance (generator); the bank's sha256 pairing pins each file's bytes.
+POLICY_VERSION = "glyph-rotation-policy-0.1.1"
 #: 0.1.1: bank cuts (gate 3), fuller provenance. 0.2.0: every score at geometry.MapScale.scale (widget x map zoom,
 #: `basis` map_scale), the unlabelled proposer discs of the dev sessions' exhaustive paint frames, and the audit
 #: null (`keys.<key>.audit_cut`, `banks.audit`).
@@ -415,33 +417,35 @@ def to_map_scale(items: list[dict]) -> dict:
 
 
 def exhaustive_paint_frames(sid: str) -> dict:
-    """{t_ms: the latest exhaustive `frame` row of labels/ability_paint at that time}: the frames on which the player
-    painted every ability icon, so a proposer disc no painted icon explains is no ability."""
+    """{t_ms: the latest `frame` row of labels/ability_paint at that time, where that row is exhaustive and sure}: the
+    frames on which the player painted every ability icon, so a proposer disc no painted icon explains is no ability.
+    The latest row decides, so a later non-exhaustive or unsure row retracts an earlier exhaustive one."""
     p = mge.LABELS / "ability_paint" / f"{sid}.jsonl"
-    out = {}
+    latest = {}
     if not p.exists():
-        return out
+        return latest
     for ln in open(p, encoding="utf-8"):
         if ln.strip():
             r = json.loads(ln)
-            if r.get("kind") == "frame" and r.get("exhaustive") and not r.get("unsure"):
-                out[float(r["t_ms"])] = r
-    return out
+            if r.get("kind") == "frame":
+                latest[float(r["t_ms"])] = r
+    return {t: r for t, r in latest.items() if r.get("exhaustive") and not r.get("unsure")}
 
 
 def unlabelled_negatives(dev_items: list[dict], dev: set) -> tuple[list[dict], dict]:
     """(items, report): proposer discs (`ability_icons.propose_icons`) of the dev sessions' exhaustive paint frames
     that lie farther than SNAP_R x scale from every painted icon (the self icon included) and every labelled dev item
-    of that frame, and that the reader's own gates (`reticle.minimap_glyph`: static_like, map_shown, the painted
-    self icon's portrait cover) do not refuse. Each is a no-ability disc no label names: the player's exhaustive
-    paint says nothing else is drawn there. Each item carries its luma window (`Yw`, WIN half-size) and the
+    of that frame, and that the reader's own gate decision (`reticle.minimap_glyph.disc_gates`, its owner, over the
+    baked static and footprint and the painted self icon as the frame's portrait) does not refuse. Each is a
+    no-ability disc no label names: the player's exhaustive paint says nothing else is drawn there. Each item carries its luma window (`Yw`, WIN half-size) and the
     session's caster kit as its context bank. Scale is geometry.MapScale.scale."""
     import cv2
     from reticle import ability_icons, geometry
     from reticle import minimap_glyph as G
     items, rep = [], {"rule": "exhaustive paint frames only (labels/ability_paint `exhaustive` true); farther than "
                               "SNAP_R x MapScale.scale from every painted icon and labelled item; not gated by the "
-                              "reader's static_like, map_shown or self-portrait rules",
+                              "reader's gate decision (reticle.minimap_glyph.disc_gates: static_like, map_shown, "
+                              "the painted self icon's portrait cover)",
                       "snap_r": mge.SNAP_R, "sessions": {}}
     for sid in sorted(dev):
         frames_ = exhaustive_paint_frames(sid)
@@ -461,7 +465,6 @@ def unlabelled_negatives(dev_items: list[dict], dev: set) -> tuple[list[dict], d
         sY = mge.luma(st if st.ndim == 3 else cv2.cvtColor(st, cv2.COLOR_GRAY2BGR))
         fp = geometry.footprint(sid, str(mge.STORE), shape=st.shape[:2])
         fr = mge.frames(sid, sorted(frames_))
-        w, sh, mask = G.window_geometry(ms.scale)
         for t, prow in sorted(frames_.items()):
             th, crop = fr[t]
             roi = prow["roi"]
@@ -476,27 +479,12 @@ def unlabelled_negatives(dev_items: list[dict], dev: set) -> tuple[list[dict], d
                 if near and min(near) <= mge.SNAP_R * ms.scale:
                     s_rep["near_label"] += 1
                     continue
-                xy = np.array([[x, y]])
-                cw, ok = G.disc_windows(Y, xy, w, 0)
-                sw, sok = G.disc_windows(sY, xy, w, 0)
-                gate = None
-                if not (ok[0] and sok[0]):
-                    gate = "off_crop"
-                else:
-                    a, b = cw[:, mask], sw[:, mask]
-                    corr = float((G.zrows(a) * G.zrows(b)).sum())
-                    shown = np.nan
-                    if fp is not None:
-                        fw, _ = G.disc_windows(fp.astype(np.float32), xy, w, 0)
-                        shown = float(G.map_shown(cw, sw, fw, mask)[0][0])
-                    cov = G.portrait_covers(xy, ["self" for p in painted if p[2] == "world:self"],
-                                            [(p[0], p[1]) for p in painted if p[2] == "world:self"], ms.scale)[0]
-                    if b.std() >= G.FLAT_STD and corr >= G.MAP_CORR:
-                        gate = "static_like"
-                    elif not np.isnan(shown) and shown >= G.MAP_SHOWN:
-                        gate = "map_shown"
-                    elif cov is not None:
-                        gate = cov
+                selfs = [(p[0], p[1]) for p in painted if p[2] == "world:self"]
+                g = G.disc_gates(Y, [[x, y]], [float(q["r"])], ms.scale, static_y=sY, footprint=fp,
+                                 portraits=(["self"] * len(selfs), selfs))
+                if g["static_mismatch"] or g["footprint_mismatch"] or fp is None:
+                    raise SystemExit(f"{sid}: the baked static or footprint does not fit the crop; the gates are unknown")
+                gate = g["why"][0]
                 if gate is not None:
                     s_rep["gated"][gate] += 1
                     continue

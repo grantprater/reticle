@@ -178,7 +178,8 @@ class Cut(unittest.TestCase):
 
     def test_only_exhaustive_paint_frames_vouch_for_unlabelled_discs(self):
         """B: a proposer disc no label names is a negative only on a frame the
-        player painted exhaustively; the latest row per time wins."""
+        player painted exhaustively; the latest row per time decides, so a
+        later non-exhaustive or unsure row retracts an exhaustive one."""
         from unittest import mock
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "ability_paint"
@@ -186,7 +187,11 @@ class Cut(unittest.TestCase):
             rows = [{"kind": "frame", "t_ms": 0, "exhaustive": True, "icons": []},
                     {"kind": "frame", "t_ms": 0, "exhaustive": True, "icons": [{"x": 1, "y": 2}]},
                     {"kind": "frame", "t_ms": 500, "exhaustive": False, "icons": []},
-                    {"kind": "frame", "t_ms": 900, "exhaustive": True, "unsure": True, "icons": []}]
+                    {"kind": "frame", "t_ms": 900, "exhaustive": True, "unsure": True, "icons": []},
+                    {"kind": "frame", "t_ms": 1400, "exhaustive": True, "icons": []},
+                    {"kind": "frame", "t_ms": 1400, "exhaustive": False, "icons": []},     # retracted
+                    {"kind": "frame", "t_ms": 1900, "exhaustive": True, "icons": []},
+                    {"kind": "frame", "t_ms": 1900, "exhaustive": True, "unsure": True, "icons": []}]
             (p / "s1.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
             with mock.patch.object(gt.mge, "LABELS", Path(d)):
                 got = gt.exhaustive_paint_frames("s1")

@@ -289,16 +289,66 @@ class ReaderTest(unittest.TestCase):
 
     def test_map_shown_does_not_judge_a_disc_off_the_footprint(self):
         """A glyph drawn over the void hides nothing the bake predicts: under
-        MAP_SHOWN_MIN_FP of the disc on the footprint, map_shown is null."""
-        w, _, mask = M.window_geometry(1.0)
-        crop = np.full((2, w, w), 140.0, np.float32)
-        static = np.full((2, w, w), 140.0, np.float32)
-        fp = np.zeros((2, w, w), np.float32)
-        fp[1] = 1.0
-        shown, share = M.map_shown(crop, static, fp, mask)
+        MAP_SHOWN_MIN_FP of the body on the footprint, map_shown is null; a
+        pixel off the crop counts as off the footprint."""
+        y = np.full((60, 60), 140.0, np.float32)
+        static = np.full((60, 60), 140.0, np.float32)
+        fp = np.zeros((60, 60), np.uint8)
+        fp[:, 30:] = 1
+        shown, share = M.map_shown(y, static, fp, [[10, 30], [45, 30], [59, 30]], None, 1.0)
         self.assertTrue(np.isnan(shown[0]))
         self.assertAlmostEqual(float(shown[1]), 1.0)
         self.assertEqual((float(share[0]), float(share[1])), (0.0, 1.0))
+        self.assertAlmostEqual(float(share[2]), 0.5, delta=0.05)    # half the body lies off the crop
+
+    def test_map_shown_reads_the_icons_dark_rim(self):
+        """0.5.0: the body is the matcher disc united with the proposer's disc
+        of radius r. An opaque icon whose footprint part falls on its white
+        glyph reads near the map under the matcher disc alone, and far under
+        it once its dark rim (outside the matcher disc) enters."""
+        n = 80
+        static = np.full((n, n), 120.0, np.float32)
+        fp = np.zeros((n, n), np.uint8)
+        fp[:, 46:] = 1                                   # the footprint holds only the icon's right side
+        y = np.full((n, n), 60.0, np.float32)            # the world behind the widget
+        cv2.circle(y, (40, 40), 12, 25.0, -1)            # the icon's dark body, r 12
+        cv2.circle(y, (40, 40), 9, 230.0, -1)            # its white glyph, wider than the matcher disc
+        cv2.circle(y, (40, 40), 3, 25.0, -1)
+        old, _ = M.map_shown(y, static, fp, [[40, 40]], None, 1.0)
+        new, share = M.map_shown(y, static, fp, [[40, 40]], [12.0], 1.0)
+        self.assertGreaterEqual(float(old[0]), M.MAP_SHOWN)        # 0.4.0's score refused it
+        self.assertLess(float(new[0]), M.MAP_SHOWN)
+        self.assertGreater(float(share[0]), M.MAP_SHOWN_MIN_FP)
+        small, _ = M.map_shown(y, static, fp, [[40, 40]], [4.0], 1.0)
+        self.assertEqual(float(small[0]), float(old[0]))           # a disc under the matcher r reads as before
+
+    def test_the_gate_decision_is_one_function(self):
+        """`disc_gates` is the rule the reader and the table builder ask; its
+        order is off_crop, static_like, map_shown, then the cover."""
+        static = _crop(None, at=(60, 60))
+        fp = np.ones(static.shape[:2], np.uint8)
+        fp[280:320, 280:320] = 0                         # off the map art: map_shown does not judge there
+        img = _crop(_glyph("arrow"), noise_seed=5)
+        img[30:90, 30:90] = static[30:90, 30:90]          # the static's own disc, as the bake draws it
+        sY = M._static_luma(static)
+        y = M._static_luma(img)
+        xy = [[200, 220], [60, 73], [2, 2], [300, 300]]      # (60, 73): the static disc's edge
+        g = M.disc_gates(y, xy, [10.0] * 4, 1.0, static_y=sY, footprint=fp,
+                         portraits=(["self"], [(305.0, 300.0)]))
+        self.assertEqual(g["why"], [None, "static_like", "off_crop", "self_portrait"])
+        self.assertFalse(g["static_mismatch"] or g["footprint_mismatch"])
+        g2 = M.disc_gates(y, xy, None, 1.0, static_y=sY, footprint=fp[:100])
+        self.assertTrue(g2["footprint_mismatch"])
+        self.assertTrue(np.isnan(g2["map_shown"]).all())
+
+    def test_a_footprint_of_another_size_is_counted(self):
+        static = _crop(None, at=(60, 60))
+        fp = np.ones((100, 100), np.uint8)
+        r = _reader(_data(), _Icons([(200, 220)]), static=static, footprint=fp)
+        r.feed(_smp(_crop(_glyph("arrow")), 0.0))
+        row = next(x for x in r.rows if x["kind"] == "disc" and x["set"] == "context")
+        self.assertIsNone(row["map_shown"])
+        self.assertEqual(r.events("s0", "k")[0]["gates"]["map_shown"]["size_mismatch_frames"], 1)
 
     def test_context_and_frame_rows_rest_on_the_lineup(self):
         r = _reader(_data(), _Icons([(200, 220)]))
