@@ -11,7 +11,8 @@ from reticle.adjudication.death import DEATH_ADJUDICATION_VERSION
 from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
 from reticle.plan import derived_streams, reader_streams, record_inputs, render, stale
 from reticle.version import (ABILITY_SHAPE_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
-                            ROUND_VERSION, TRAY_VERSION, ULT_CAST_VERSION, ULT_LINE_VERSION)
+                            ROUND_VERSION, TRAY_SEGMENT_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
+                            ULT_LINE_VERSION)
 
 
 class _Store:
@@ -86,6 +87,7 @@ def _tray_drops(store) -> None:
     """Current tray drops, for a cast binding that read them."""
     from reticle.version import MENU_VERSION
     store.events["tray_drop:rows"] = [{"tray_version": TRAY_VERSION,
+                                       "tray_segment_version": TRAY_SEGMENT_VERSION,
                                        "player_cast_version": PLAYER_CAST_VERSION,
                                        "tray_kit": "no_rows", "menu_open": MENU_VERSION}]
 
@@ -252,7 +254,8 @@ class PlanTests(unittest.TestCase):
     def test_a_gate_change_stales_the_stored_verdicts_and_the_shapes(self):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
-            store.events["tray_drop:rows"] = [{"tray_version": TRAY_VERSION}]
+            store.events["tray_drop:rows"] = [{"tray_version": TRAY_VERSION,
+                                               "tray_segment_version": TRAY_SEGMENT_VERSION}]
             store.events["ability_shape:rows"] = [{"ability_shape_version": ABILITY_SHAPE_VERSION,
                                                    "tray_version": TRAY_VERSION}]
             derived = stale(store, ["s"])["s"]["derived"]
@@ -306,6 +309,7 @@ class PlanTests(unittest.TestCase):
             store.events["ult_cast:rows"][0]["inputs"].update(tray_drop=TRAY_VERSION,
                                                               hud=HUD_VERSION, player_cast=old)
             store.events["tray_drop:rows"] = [{"tray_version": TRAY_VERSION,
+                                               "tray_segment_version": TRAY_SEGMENT_VERSION,
                                                "player_cast_version": old}]
             store.events["ability_shape:rows"] = [{"ability_shape_version": ABILITY_SHAPE_VERSION,
                                                    "tray_version": TRAY_VERSION,

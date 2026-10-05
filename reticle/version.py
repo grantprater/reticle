@@ -572,6 +572,15 @@ ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
 # changes; the gate that decides which drops are the player's has its own
 # stamp, PLAYER_CAST_VERSION.
 TRAY_VERSION = "tray-0.1.0"
+# The tray bar's half classes (`tray.segment_scores`, `segment_classes`): each
+# half of each bar scored softly against teal, gold and the empty grey, and
+# cut once (`SEG_MIN`). `reticle tray` writes them beside the drops as
+# run-length `segments` rows of the `tray_drop` stream, and ability_state
+# reads them. A stamp of its own, so the fill and drop rule (TRAY_VERSION),
+# and the streams that read only the fill, keep theirs. Bump when a class
+# centre, spread, the core geometry, the cut or a stored field changes.
+# 0.1.0 (2026-10-04): first reader; the client draws a returned charge gold.
+TRAY_SEGMENT_VERSION = "tray-segment-0.1.0"
 # Whether the game's menu covers the HUD, per sample of the stored crops, written
 # as `menu_open` rows by `reticle menu`: the tab strip in the `hud` cache and
 # the CLOSE SETTINGS button in the tray crop (`menu`). Bump when a fit, a
@@ -671,7 +680,13 @@ SELF_ICON_VERSION = "self-icon-0.6.0"
 # 0.7.0: the audio claim carries the witness's `phase` (a phase group's
 # release and landing evidence, `ability-audio-0.4.0`); its verdict may be
 # refused `bolt_unknown` or `landing_tie`.
-ABILITY_STATE_VERSION = "ability-state-0.7.0"
+# 0.8.0: the tray's half classes (TRAY_SEGMENT_VERSION). A C, Q or E level
+# counts gold halves, the charge the client draws when it comes back; a level
+# whose teal halves disagree with the fill is unread and held
+# (`segments_disagree_with_fill`); a live-phase rise that adds a gold half
+# with no player kill near it is a `live_return`; state rows carry `gold` and
+# the run's `halves`.
+ABILITY_STATE_VERSION = "ability-state-0.8.0"
 # Which ability of the player's kit the audio around a tray cast sounds like:
 # a whitened matched filter over the stored audio-gate log-mel against the
 # game's own ability sounds (`adjudication.ability_audio`), read by

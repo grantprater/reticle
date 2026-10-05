@@ -59,6 +59,16 @@ A drop that leaves the slot at its full level
 teal released, an ability equipped and not used (player, 2026-09-27); the
 cast owner (`ability_timeline.player_tray_casts`) decides what a drop is.
 
+The bar's colour, by halves. A charge that comes back during the round is
+drawn gold, not teal [domain:hud/ability-tray-restocked-charge-gold], so the
+teal count never rises for it. `segment_scores` scores each half of each bar
+softly against teal, gold and the empty bar's grey, and `segment_classes`
+cuts once: a half is teal, gold, empty or unreadable (a streak or flash over
+the bar). The drops and fills stay teal (TRAY_VERSION); the classes carry
+their own stamp (TRAY_SEGMENT_VERSION) and are stored as run-length
+`segments` rows (`segment_runs`), which the state model reads to count a gold
+charge and to tell a returned charge from a streak.
+
 What a drop is not. A drop is a transition, not a cast: after the player dies
 the tray shows a spectated teammate's kit, and its switch reads as several
 slots emptying at once. `casts` flags a drop that lands on the first refused
@@ -97,6 +107,118 @@ GAP_S = 3.0
 #: geometry above. The tray module reads 1920x1080 only, so nothing scales.
 STRIP_Y = (min(BAR_Y0, *(a for a, _ in GUARD_Y)), max(BAR_Y1, *(b for _, b in GUARD_Y)))
 STRIP_X = (SLOT_X0 - BAR_HALF, SLOT_X0 + SLOT_DX * (len(SLOT_KEYS) - 1) + BAR_HALF)
+
+#: The bar's halves, read by colour (`segment_scores`). The core of each half:
+#: rows 1041-1049 and 4 to 26 px either side of the slot centre, inside the
+#: trapezoid's narrowest row and clear of the gap between two segments.
+SEG_Y = (1041, 1050)
+SEG_DX = (4, 26)
+#: The classes a half is scored against, and their colour in CIE Lab (L 0-100).
+#: Teal and gold are the medians of the halves' median colour on the drawn,
+#: clean samples of seven sessions (3694746e4e54, a06f04a0059f, bdfdcf009dba,
+#: 96aa1ae9b96f, e37fdeca944f, bfad2778a372, 9acf02f98283; 103,572 halves),
+#: whose (a, b) histogram holds three clusters: teal (72,735 halves, p5 to p95
+#: within one unit), gold (the returned charge
+#: [domain:hud/ability-tray-restocked-charge-gold]) and the empty bar's grey.
+#: The empty bar is translucent: over orange, sand or blue scenery it takes
+#: the tint (L 55-82, b up to 14), so its centre sits at the grey's middle and
+#: its spread is wide. Swept on five sessions' 11,735 drawn samples, the
+#: grey's spread (L, a, b) of (14, 7, 7) left 5.3% of C, Q and E halves
+#: unreadable, (18, 10, 10) 2.0% and (20, 12, 12) 1.4%; the gold count (1,360
+#: halves) and the halves whose teal disagrees with the fill (36 of 35,149
+#: unequipped slot-samples) did not move.
+SEG_CLASSES = ("teal", "gold", "empty")
+SEG_LAB = np.array([[90.7, -55.7, 22.2], [91.3, -2.3, 25.7], [68.0, 2.0, 4.0]], np.float32)
+#: Each class's spread per Lab axis: a pixel's membership is
+#: exp(-0.5 * sum(((lab - centre) / sigma) ** 2)), so a pixel one sigma off on
+#: every axis keeps 0.22.
+SEG_SIGMA = np.array([[10.0, 10.0, 10.0], [10.0, 8.0, 8.0], [20.0, 12.0, 12.0]], np.float32)
+#: The scenery rows just above the bar, and the lightness (Lab L) at which
+#: gold is half believed. The empty bar is translucent, so a bright warm
+#: flash behind it reads as gold: on 043bafca271a 940.5 s and c40d950031bb
+#: 900.0 s and 901.5 s an explosion lit the scenery above slot E to L 87-99
+#: while its countdown still ran, and the empty halves scored gold 0.54-0.72;
+#: above the six returned charges cropped by hand the scenery read L 2-48
+#: and the gold 0.95-0.99. Gold is weighed by a logistic in that lightness
+#: (`SEG_GUARD_SPAN` wide), as the guard rows refuse a teal-flooded frame.
+SEG_GUARD_Y = (1030, 1037)
+SEG_GUARD_L = 80.0
+SEG_GUARD_SPAN = 5.0
+#: The least winning score (a half's mean membership) read as a class; below
+#: it the half is `unreadable` (a screen streak or flash over the bar).
+SEG_MIN = 0.5
+SEG_UNREADABLE = "unreadable"
+
+
+def _half_columns() -> np.ndarray:
+    """The frame columns of the eight half cores, slot by slot, left then right."""
+    w = np.arange(SEG_DX[0], SEG_DX[1] + 1)
+    return np.concatenate([c for k in range(len(SLOT_KEYS))
+                           for c in (SLOT_X0 + SLOT_DX * k - w[::-1], SLOT_X0 + SLOT_DX * k + w)])
+
+
+_SEG_COLS = _half_columns()
+_SEG_X = (int(_SEG_COLS.min()), int(_SEG_COLS.max()) + 1)
+
+
+def segment_scores(frame: np.ndarray) -> np.ndarray:
+    """Each bar half's soft score against `SEG_CLASSES`: a (4, 2, 3) array of
+    slot x half (left, right) x class, each the mean over the half's core of
+    the pixels' membership (`SEG_SIGMA`). Nothing is thresholded before the
+    mean; `segment_classes` cuts once, at the decision. Reads the cores as
+    float Lab, with no resample."""
+    strip = frame[SEG_GUARD_Y[0]:SEG_Y[1], _SEG_X[0]:_SEG_X[1]]
+    both = np.ascontiguousarray(strip[:, _SEG_COLS - _SEG_X[0]], dtype=np.float32)
+    lab = cv2.cvtColor(both * np.float32(1.0 / 255.0), cv2.COLOR_BGR2Lab)
+    guard, lab = lab[:SEG_GUARD_Y[1] - SEG_GUARD_Y[0]], lab[SEG_Y[0] - SEG_GUARD_Y[0]:]
+    z = (lab[None, :, :, :] - SEG_LAB[:, None, None, :]) / SEG_SIGMA[:, None, None, :]
+    member = np.exp(-0.5 * np.einsum("cyxk,cyxk->cyx", z, z)).mean(axis=1)  # (class, column)
+    out = member.reshape(len(SEG_CLASSES), len(SLOT_KEYS), 2, -1).mean(axis=-1).transpose(1, 2, 0)
+    # The scenery above each half: bright scenery behind the translucent empty
+    # bar reads as gold, so gold is weighed by how dim the scenery is.
+    light = guard[:, :, 0].mean(axis=0).reshape(len(SLOT_KEYS), 2, -1).mean(axis=-1)
+    out[:, :, 1] /= 1.0 + np.exp((light - SEG_GUARD_L) / SEG_GUARD_SPAN)
+    return out
+
+
+def segment_classes(scores: np.ndarray) -> list[list[str]]:
+    """The class of each half from `segment_scores`: the best-scoring class at
+    `SEG_MIN` or more, else `unreadable`. The one cut."""
+    pick = np.where(scores.max(axis=-1) >= SEG_MIN, scores.argmax(axis=-1), len(SEG_CLASSES))
+    return _SEG_NAMES[pick].tolist()
+
+
+_SEG_NAMES = np.array(SEG_CLASSES + (SEG_UNREADABLE,))
+
+
+def segment_runs(ts_ms, scores: np.ndarray, real) -> list[dict]:
+    """The half classes as stored rows: per slot, one `segments` row per run of
+    real samples whose two halves keep their classes, with the run's median
+    score per class and half and its least winning score per half. `scores`
+    are `segment_scores` per sample (n x 4 x 2 x 3); a sample whose `real` is
+    False (a span separator) ends every run. The classes per sample are
+    recoverable from the runs; the scores are summarised."""
+    ts = np.asarray(ts_ms, float)
+    real = np.asarray(real, bool)
+    sc = np.asarray(scores, float).reshape(len(ts), len(SLOT_KEYS), 2, len(SEG_CLASSES))
+    pick = np.where(sc.max(axis=-1) >= SEG_MIN, sc.argmax(axis=-1), len(SEG_CLASSES))
+    out = []
+    for k, slot in enumerate(SLOT_KEYS):
+        key = np.where(real, pick[:, k, 0] * 8 + pick[:, k, 1], -1)
+        cut = np.flatnonzero(np.diff(key)) + 1
+        for a, b in zip(np.r_[0, cut], np.r_[cut, len(key)]):
+            if key[a] < 0:
+                continue
+            run = sc[a:b, k]
+            win = run.max(axis=-1)
+            out.append({"kind": "segments", "slot": slot, "t_first_ms": float(ts[a]),
+                        "t_last_ms": float(ts[b - 1]), "samples": int(b - a),
+                        "halves": _SEG_NAMES[pick[a, k]].tolist(),
+                        "score_median": {c: np.round(np.median(run[:, :, i], axis=0), 3).tolist()
+                                         for i, c in enumerate(SEG_CLASSES)},
+                        "win_min": np.round(win.min(axis=0), 3).tolist()})
+    out.sort(key=lambda r: (r["t_first_ms"], SLOT_KEYS.index(r["slot"])))
+    return out
 
 
 def slot_counts(frame: np.ndarray) -> tuple[list[int], bool]:
