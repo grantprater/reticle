@@ -112,6 +112,8 @@ with contextlib.redirect_stdout(io.StringIO()):
     import ability_hud
     import audio_probe
 
+from reticle.audio_source import audio_path  # noqa: E402  which file holds the audio
+
 STORE = pathlib.Path.home() / "reticle-store"
 
 #: RMS bin. 50 ms is short against every ability sound measured (0.45-4.40 s)
@@ -155,7 +157,7 @@ def load(sid, step_s=0.1):
     man = json.loads((STORE / "manifests" / f"{sid}.json").read_text(encoding="utf-8"))
     ts, counts, clean = ability_hud.scan(sid, step_s=step_s)
     casts = ability_hud.casts(ts, counts, clean)
-    x, rate = audio_probe.decode(man["source"]["path"])
+    x, rate = audio_probe.decode(audio_path(man, STORE))
     return casts, x, rate
 
 

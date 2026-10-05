@@ -999,6 +999,17 @@ ABILITY_AUDIO_PARAMS_VERSION = "ability-audio-params-0.2.8"
 # 0.2.0: the templates are the game's own English lines (vo-ref-0.1.0, each
 # agent's ultimate announcement event), not the wiki MP3s.
 ULT_LINE_VERSION = "ult-line-0.2.0"
+# A retired capture's audio track, kept by stream copy (`ffmpeg -vn -c:a
+# copy`, no re-encode) under `<store>/audio/<version>/<sid>.m4a` by `reticle
+# retire` (`retire`), with a sidecar of its codec, rate, channels, start pts,
+# duration and sha256. Bump when the container, the copy command or the
+# sidecar's fields change.
+RETAINED_AUDIO_VERSION = "retained-audio-0.1.0"
+# The retirement check and its row (`retire`): the preconditions read from
+# their owners, the alignment of the retained audio with the capture and the
+# crop caches, and every audio reader's output compared between the two
+# files. Bump when a check, a tolerance or the row's fields change.
+RETIRE_VERSION = "retire-0.1.0"
 # Ultimate casts selected, classed and named from stored `ult_line` peaks, the
 # lineup and the rounds table by `reticle ult-cast` (`adjudication.ult_cast`),
 # with own lines bound to the player's X casts from `tray_drop`. Bump when the

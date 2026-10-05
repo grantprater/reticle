@@ -46,8 +46,9 @@ what "I rebuilt the geometry while my experiment read it" states.
 - Every independent detector/table has its own version stamp and provenance.
   Recomputable rules use stored data and never decode video; rebuild stale
   cached geometry before trusting derived measurements.
-- Never copy raw media; lossless crops of a fixed reader ROI (`roi_cache`) are
-  not a copy (player, 2026-09-25). New readers join shared decode passes; gate
+- Never copy raw media; lossless `roi_cache` crops of fixed reader ROIs and
+  retired captures' stream-copied audio are not copies (player, 2026-09-25,
+  2026-10-05). New readers join shared decode passes; gate
   dense sampling on opportunity, not outcome. Never silently overwrite evidence.
 - A shared decode pass is an execution optimization, not a shared definition: a
   change to one detector never restamps another stream or a rule recomputed from
@@ -98,8 +99,8 @@ what "I rebuilt the geometry while my experiment read it" states.
   Precedent: `ally_icons` scored against the roster turned +0.99 phantom
   teammates per frame into -0.15 with the detector unchanged. Agreement is
   consistency, not accuracy; store the disagreements.
-- Measure a known baseline before structural edits, then rerun the real command
-  and confirm a known result. A parse check alone is not verification.
+- Measure a baseline before structural edits, then rerun the real command
+  and confirm a known result; a parse check is not verification.
 - Hold beliefs about the system as uncertain, updated on evidence.
   Before acting on an assumption about an owner, a detector or a mechanic, check
   it or state its falsifier. Spend effort where uncertainty is largest and cheap
@@ -192,13 +193,13 @@ QUOTED skips `docs/archive/`; DOMAIN checks only citations there.
 
 ## Running
 
-Always use the repository venv:
+Use the repository venv:
 
 ```powershell
 .\.venv\Scripts\python.exe -m reticle <command>
 ```
 
-At pickup, run `doctor` and inspect `status`.
+At pickup, run `doctor` and `status`.
 
 ## Guide routes
 

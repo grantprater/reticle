@@ -621,12 +621,7 @@ def cmd_hud(args) -> int:
         print("           pass --force to re-read")
         return 0
 
-    media = Path(src["path"])
-    if not media.is_file():
-        raise SystemExit(
-            f"source media has moved: {media}\n"
-            "the manifest records where it was at ingest time"
-        )
+    media = _capture_or_exit(manifest)
 
     print(f"session    {sid}  ({src['filename']})")
     print(f"profile    {profile.name}  ({HUD_VERSION})")
@@ -714,12 +709,7 @@ def cmd_minimap(args) -> int:
 
     spans = _reader_spans(store, sid, date)
 
-    media = Path(src["path"])
-    if not media.is_file():
-        raise SystemExit(
-            f"source media has moved: {media}\n"
-            "the manifest records where it was at ingest time"
-        )
+    media = _capture_or_exit(manifest)
     fps = float(src["fps"])
     print(f"session    {sid}  ({src['filename']})")
     print(f"profile    {profile.name}  ({MINIMAP_VERSION})")
@@ -991,6 +981,22 @@ def _parse_shards(specs) -> dict[str, int]:
     return {name: k for name, k in out.items() if k > 1}
 
 
+def _capture_or_exit(manifest: dict) -> Path:
+    """The capture's path, or SystemExit: `source_retired` where the player
+    retired the video (`audio_source.video_state`), else the moved-media
+    message."""
+    from .audio_source import video_state
+    media = Path(manifest["source"]["path"])
+    if media.is_file():
+        return media
+    if video_state(manifest) == "retired":
+        raise SystemExit(f"{manifest['session_id']}: source_retired -- the video was retired "
+                         f"({manifest['video_retired'].get('at')}); its audio and crop caches "
+                         "are kept, and this command needs the video")
+    raise SystemExit(f"source media has moved: {media}\n"
+                     "the manifest records where it was at ingest time")
+
+
 def _scan_pass(ctx, readers, cache, progress, usage, pipeline, workers, shards, cv_threads):
     """One pass over the chosen source: `(frames, None)` serial, `(frames, StagedRun)` staged.
 
@@ -1145,12 +1151,24 @@ def cmd_scan(args) -> int:
     profile = get_profile(manifest["source_profile"])
 
     media = Path(src["path"])
-    # `--from cache` decodes nothing, so a retired capture can still be reread.
-    if not media.is_file() and args.frames_from != "cache":
-        raise SystemExit(
-            f"source media has moved: {media}\n"
-            "the manifest records where it was at ingest time"
-        )
+    # A session whose video the player retired (`audio_source.video_state`)
+    # keeps its crop caches as the evidence: the pass reads them, and nothing
+    # that needs the decoded frames runs.
+    retired = False
+    if not media.is_file():
+        from .audio_source import video_state
+        if video_state(manifest) != "retired":
+            _capture_or_exit(manifest)
+        retired = True
+        at = manifest["video_retired"].get("at")
+        if args.frames_from == "video":
+            raise SystemExit(f"{sid}: source_retired -- the video was retired ({at}); "
+                             "--from video needs it, and the crop cache is what remains")
+        if args.cache_roi:
+            raise SystemExit(f"{sid}: source_retired -- the video was retired ({at}); "
+                             f"--cache-roi {args.cache_roi} writes crops from it")
+        args.frames_from = "cache"
+        print(f"source     retired ({at}): the pass reads the crop cache only")
     shards = _parse_shards(args.shard)
     if args.pipeline == "serial" and (shards or args.workers is not None):
         raise SystemExit("--workers and --shard need --pipeline staged")
@@ -1493,6 +1511,9 @@ def cmd_scan(args) -> int:
                                    args.frames_from, live_rounds)
         for line in notes:
             print(line)
+        if cache is None and retired:
+            raise SystemExit(f"{sid}: source_retired_no_cache -- the video was retired and "
+                             f"no stored crop cache feeds this pass: {why}")
         if cache is None and args.frames_from == "cache":
             raise SystemExit(f"--from cache: {why}")
         # A clipped stream must say which spans it left unread; one that
@@ -2058,9 +2079,7 @@ def cmd_board(args) -> int:
     sid = manifest["session_id"]
     src = manifest["source"]
     profile = get_profile(manifest["source_profile"])
-    media = Path(src["path"])
-    if not media.is_file():
-        raise SystemExit(f"source media has moved: {media}")
+    media = _capture_or_exit(manifest)
 
     templates = game_font_templates(store.root)
     hud = store.read_hud(sid, _date_of(manifest))
@@ -2444,12 +2463,7 @@ def cmd_overlay(args) -> int:
     sid = manifest["session_id"]
     src = manifest["source"]
     profile = get_profile(manifest["source_profile"])
-    media = Path(src["path"])
-    if not media.is_file():
-        raise SystemExit(
-            f"source media has moved: {media}\n"
-            "the manifest records where it was at ingest time"
-        )
+    media = _capture_or_exit(manifest)
 
     w, h = int(src["width"]), int(src["height"])
     fps = float(src["fps"] or 60.0)
@@ -5528,6 +5542,7 @@ def cmd_ult_lines(args) -> int:
     """Peaks of the official ultimate voice lines in each capture's audio
     (`ult_lines`). Decodes the audio stream only, in memory; no video frame."""
     from . import ult_lines
+    from .audio_source import audio_source
     from .version import ULT_LINE_VERSION
 
     store = Store(args.store)
@@ -5557,12 +5572,13 @@ def cmd_ult_lines(args) -> int:
                 and head.get("templates_key") == declared["key"] and not head.get("reason")):
             print(f"{sid}: current at {ULT_LINE_VERSION} -- pass --force to reread")
             continue
-        media = Path(src["path"])
-        if not media.is_file():
-            print(f"{sid}: source media has moved: {media} -- skipped, nothing written")
+        got = audio_source(man, store.root)
+        if got["path"] is None:
+            print(f"{sid}: no audio source ({got['reason']}) -- skipped, nothing written")
             continue
         try:
-            info, peaks = ult_lines.read_capture(str(media), templates, xp=xp)
+            info, peaks = ult_lines.read_capture(got["path"], templates, xp=xp)
+            info["audio_source"] = got["kind"]
         except (IndexError, ValueError) as e:
             reason = "no_audio_stream" if isinstance(e, IndexError) else str(e)
             out = store.write_events("ult_line", sid, [{
@@ -5577,6 +5593,30 @@ def cmd_ult_lines(args) -> int:
         print(f"{sid}: {len(rows) - 1} peaks over {info['n_frames'] * ult_lines.HOP / 60:.1f} min "
               f"(decode {info['decode_s']} s, score {info['score_s']} s, {info['backend']}) -> {out}")
     return 0
+
+
+def cmd_retire(args) -> int:
+    """Keep a capture's audio track by stream copy, prove it equal to the
+    capture's for every audio reader and aligned with the crop caches, and,
+    with --commit, mark the manifest `video_retired` (`retire`). Never
+    deletes the capture: prints the command that does."""
+    from . import retire
+    retire.retire_priority()
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    row = retire.retire(store, sid, commit=args.commit, force_reason=args.force_reason,
+                        audio_dir=args.audio_dir, check_readers=not args.no_readers)
+    print(retire.retire_summary(row))
+    if args.row:
+        Path(args.row).write_text(json.dumps(row, indent=1, default=str), encoding="utf-8")
+        print(f"row -> {args.row}")
+    if row["status"] == "dry_run_verified":
+        force = (f" --force-reason \"{args.force_reason}\"" if args.force_reason else
+                 " --force-reason \"<why the refusals above may be overridden>\""
+                 if row["preconditions"]["refusals"] else "")
+        print(f"  commit   reticle retire {sid} --commit{force}")
+        print(f"  then     {retire.deletion_command(store.read_manifest(sid))}   (the player runs it)")
+    return 0 if row["status"] in ("retired", "dry_run_verified") else 1
 
 
 def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict], agent: str | None):
@@ -5830,6 +5870,7 @@ def cmd_refine(args) -> int:
         return 0
     media = Path(plan['source_path'])
     if not media.is_file():
+        _capture_or_exit(manifest)
         raise SystemExit(f"source media has moved: {media}")
     if content_key(media) != manifest['source'].get('content_key'):
         raise SystemExit("source identity changed; refinement requires the original capture")
@@ -6657,6 +6698,21 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--check-manifest", action="store_true",
                    help="compare the declared templates with the assets, and read nothing")
     s.set_defaults(func=cmd_ult_lines)
+
+    s = sub.add_parser("retire",
+                       help="keep a capture's audio by stream copy, verify it, and with --commit "
+                            "mark the video retired (never deletes)")
+    s.add_argument("session")
+    s.add_argument("--commit", action="store_true",
+                   help="move the audio into the store, record the row and mark the manifest")
+    s.add_argument("--force-reason", default=None,
+                   help="why the run proceeds past the precondition refusals")
+    s.add_argument("--audio-dir", default=None,
+                   help="dry run: where the extracted audio goes (default: a temporary folder)")
+    s.add_argument("--row", default=None, help="write the full row as JSON here")
+    s.add_argument("--no-readers", action="store_true",
+                   help="skip the reader comparison (a dry run of the alignment only)")
+    s.set_defaults(func=cmd_retire)
 
     s = sub.add_parser("ult-cast",
                        help="ultimate casts, side and round from stored voice-line peaks (storage only)")

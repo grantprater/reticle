@@ -150,6 +150,8 @@ from reticle.ult_lines import (decode_template, harvested_ults, nms_peaks,  # no
 #: lines to the tray; 0.2.0 measured it here.
 from reticle.adjudication.ult_cast import CAST_WINDOW, OWN_WINDOW_S, cast_window  # noqa: E402
 
+from reticle.audio_source import audio_path  # noqa: E402  which file holds the audio
+
 STORE = ag.STORE
 VERSION = "voice-lines-0.2.0"
 #: Every recorded part name carries this; 0.1.0 recorded bare names
@@ -471,7 +473,7 @@ def session_tracks(F: str, sid: str, f: dict, temps: list[dict],
     info = {"n_frames": n}
     if F == "F-B":
         td = time.time()
-        x, filled, rate = ag.decode_mono(_manifest(sid)["source"]["path"])
+        x, filled, rate = ag.decode_mono(audio_path(_manifest(sid), STORE))
         info["decode_s"] = round(time.time() - td, 1)
         if rate != RATE:
             raise SystemExit(f"{sid}: audio at {rate} Hz, templates at {RATE}")

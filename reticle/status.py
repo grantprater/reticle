@@ -37,6 +37,7 @@ import sys
 from pathlib import Path
 
 from . import geometry
+from .audio_source import video_state
 from .checks import KNOWN_KD, player_events
 from .store import DEFAULT_STORE, Store
 from .version import (HUD_VERSION, MINIMAP_VERSION, PING_VERSION, ROSTER_VERSION,
@@ -173,6 +174,8 @@ def collect(store: Store) -> dict:
             "cohort": cohort(man),
             "known": KNOWN_KD.get(sid),
             "labels": dict(label_rows.get(sid, {})),
+            # The capture on disk, or retired with its audio kept (`audio_source`).
+            "video": video_state(man),
         }
         # Rounds are cheap and recomputed rather than trusted: the parquet may
         # predate a change to rounds.py, and a stale table is exactly what this
@@ -335,6 +338,12 @@ def render(data: dict, markdown: bool = False) -> str:
     missing = [s["sid"] for s in ss if not s["hud"]]
     if missing:
         L.append(f"No HUD L1 (never `reticle hud`): {', '.join(missing)}")
+    for state, text in (("retired", "Video retired, audio kept (source_retired: no decode)"),
+                        ("retired_present", "Video retired, not yet deleted"),
+                        ("missing", "Video missing, no retirement recorded")):
+        got = [s["sid"] for s in ss if s.get("video") == state]
+        if got:
+            L.append(f"{text}: {', '.join(got)}")
     errs = [(s["sid"], s["error"]) for s in ss if s.get("error")]
     for sid, e in errs:
         L.append(f"ERROR building rounds for {sid}: {e}")
