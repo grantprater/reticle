@@ -274,6 +274,8 @@ STOOD_FOR = {
     "partial_charge": ("none", "the ult bar was not full before the fall: no cast"),
     "pips_lit": ("none", "the ult stayed castable: the bar did not empty"),
     "equip_release": ("unequip", "an equipped ability released: nothing spent"),
+    "pool_rest": ("none", "the rest of a Regrowth pool the gate counted at its opening: "
+                          "no new purchase [domain:abilities/skye-regrowth-gold-bar-partly-spent]"),
 }
 
 

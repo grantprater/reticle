@@ -721,7 +721,14 @@ MENU_VERSION = "menu-0.1.0"
 # revive for a bridged drop too; only Resurrection and Clove's Not Dead Yet
 # revive the player (`adjudication.death.KIT_REVIVE_ICONS`), not NULL/cmd; a
 # drop an own line passed rests on that line (`rests_on`).
-PLAYER_CAST_VERSION = "player-cast-0.13.0"
+# 0.14.0 (2026-10-05): a gold-only drop of Skye's Regrowth slot
+# (`pool_gold_drop`) spends the rest of a pool already opened and is
+# `pool_rest` (`ability_timeline.POOL_REST_SLOTS`), on the player's answer
+# [domain:abilities/skye-regrowth-gold-bar-partly-spent]; a NULL/cmd revive
+# of a KAY/O player undoes his down and keeps his kit
+# (`adjudication.death.KIT_REVIVE_ICONS`)
+# [domain:abilities/kayo-null-cmd-stabilise-restores-kit].
+PLAYER_CAST_VERSION = "player-cast-0.14.0"
 # Whose kit the ability tray shows, per sample of the stored `hud_abilities`
 # crops: the slot icons scored against the catalogue's (`tray_icons`) and read
 # against the candidate sets the lineup allows (`adjudication.tray_kit`),
@@ -801,7 +808,10 @@ SELF_ICON_VERSION = "self-icon-0.6.0"
 # rise is a `live_return` only on an ability with a restock fact
 # (`restock_facts`), elsewhere a `recharge` with the surprise
 # `gold_rise_without_a_restock_fact`; slot parameters carry `restock_fact`.
-ABILITY_STATE_VERSION = "ability-state-0.9.0"
+# 0.10.0 (2026-10-05): the gate's `pool_rest` refusal (player-cast-0.14.0)
+# stands for the rest of a Regrowth pool already counted, a `none`
+# transition, not an unknown reason.
+ABILITY_STATE_VERSION = "ability-state-0.10.0"
 # Which ability of the player's kit the audio around a tray cast sounds like:
 # a whitened matched filter over the stored audio-gate log-mel against the
 # game's own ability sounds (`adjudication.ability_audio`), read by

@@ -773,7 +773,10 @@ from the gold of other abilities, which the domain leaves to the player
 ran a revive's dead span on past the revive for a bridged drop, chosen from
 a held eye check at `b7d24102a6f6` 1866.5 s; the one dev drop it reached the
 gate refuses anyway. The figures this section first printed for the held
-half rested on both, and are not clean held figures.
+half rested on both, and are not clean held figures. `player-cast-0.14.0`
+refuses the same two Regrowth drops as `pool_rest`, on the player's answer
+of 2026-10-05 [domain:abilities/skye-regrowth-gold-bar-partly-spent], not on
+the held measurement.
 
 At `player-cast-0.8.0` the gate covered
 [metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_dev_covered=239] of
@@ -782,14 +785,16 @@ At `player-cast-0.8.0` the gate covered
 [metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_held_covered=286] of
 [metric:tray/own-cast-gate@riot-21#held_riot=310] held casts with
 [metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_held_beyond=6] beyond.
-The rules that stand at `player-cast-0.13.0`, each a transition the state
+The rules that stand at `player-cast-0.14.0`, each a transition the state
 model names:
 
 - *revived* (`0.9.0`): a teammate Sage's Resurrection of the player undoes
   the death before it, as Clove's own Not Dead Yet did
   [domain:killfeed/revive-entries]; the player stays dead until the revive.
-  KAY/O's NULL/cmd is left out: how his tray draws while downed is a
-  question on the mechanics sheet.
+  Since `0.14.0` a NULL/cmd stabilisation of a KAY/O player counts too: he
+  gets his kit back as before the down
+  [domain:abilities/kayo-null-cmd-stabilise-restores-kit]. The stored
+  corpus holds no NULL/cmd revive, so no verdict moved.
 - *a line witnesses the ult* (`0.10.0`, `0.12.0`): the player's own ult
   line [domain:abilities/caster-hears-own-ult-line] passes an X drop the
   tray dates badly, on a dark tray, at the death that ends the kit (Run It
@@ -800,20 +805,25 @@ model names:
 - *a numeral witnesses a spend* (`0.12.0`): a co-occurring drop of Recon
   Bolt or Guiding Light passes where its restock numeral appeared or
   restarted [domain:hud/ability-tray-restock-countdown].
+- *the rest of a pool* (`0.14.0`): a gold-only drop of Skye's Regrowth
+  spends the rest of a pool the gate counted at its opening, and is
+  refused as `pool_rest` [domain:abilities/skye-regrowth-gold-bar-partly-spent].
 
 With them the gate covers
 [metric:tray/own-cast-gate@riot-21#gate_dev_covered=259] dev casts with
 [metric:tray/own-cast-gate@riot-21#gate_dev_beyond=2] beyond, and
 [metric:tray/own-cast-gate@riot-21#gate_held_covered=300] held casts with
-[metric:tray/own-cast-gate@riot-21#gate_held_beyond=8] beyond. Without the
+[metric:tray/own-cast-gate@riot-21#gate_held_beyond=6] beyond. Without the
 own lines, dev falls to
 [metric:tray/own-cast-gate@riot-21#no_lines_dev_covered=246] and held to
-[metric:tray/own-cast-gate@riot-21#no_lines_held_covered=296]. Of the held
-excess, two are the Regrowth drops the pool rule had refused; each now
-carries `pool_gold_drop` until the player says what a gold Regrowth bar
-going empty means. One is the bridged Q drop at `b7d24102a6f6` 1866.5 s,
-and one is a Recon Bolt at `59c70f1ef720` 2544.5 s that is real by eye, so
-that slot's extra cast lies elsewhere. The other four were beyond at
+[metric:tray/own-cast-gate@riot-21#no_lines_held_covered=296]. At
+`player-cast-0.13.0` held was
+[metric:tray/own-cast-gate@riot-21~2026-10-05T06:25:44#gate_held_beyond=8]
+beyond; the two that `pool_rest` removed were the Regrowth drops at
+`b7d24102a6f6` 375.1 s and `e37fdeca944f` 1714.0 s. Of the held excess
+left, one is the bridged Q drop at `b7d24102a6f6` 1866.5 s, and one is a
+Recon Bolt at `59c70f1ef720` 2544.5 s that is real by eye, so that slot's
+extra cast lies elsewhere. The other four were beyond at
 `player-cast-0.8.0`.
 
 The stored `killfeed_portrait` streams are a version behind, so the gate
@@ -824,5 +834,5 @@ second lives on the five Phoenix matches. Fed to the gate, they raise dev to
 [metric:tray/own-cast-gate@riot-21#reread_dev_covered=263] with
 [metric:tray/own-cast-gate@riot-21#reread_dev_beyond=2] beyond and held to
 [metric:tray/own-cast-gate@riot-21#reread_held_covered=301] with
-[metric:tray/own-cast-gate@riot-21#reread_held_beyond=8] beyond, once a
+[metric:tray/own-cast-gate@riot-21#reread_held_beyond=6] beyond, once a
 corpus refresh stores those streams.

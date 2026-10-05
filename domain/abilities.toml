@@ -2085,6 +2085,54 @@ glyph-rotation-policy-0.1.0 searches Sova:C at 0 deg only
 """
 see = ["abilities/ability-rules-are-unique"]
 
+[skye-seekers-minimap-glyph-turns-belief]
+claim = """
+The player believes Skye's Seekers icon on the minimap turns with its
+placement: its glyph is not drawn upright.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-05"
+subject = "skye:seekers"
+source = """
+the player, 2026-10-05 (chat), stated as a belief; recorded as
+labels/minimap_glyph_questions/answers.jsonl#L472, row rotation:Skye:X,
+answer rotates, revising the unsure row at L354
+"""
+use = """
+the next glyph rotation policy table after glyph-rotation-policy-0.1.1
+(prototypes/glyph_tables.py) searches Skye:X at every rotation, decided by
+this answer; the two-flag rule reads upright, so the row stores a surprise
+"""
+see = ["abilities/ability-rules-are-unique"]
+
+[cypher-cyber-cage-minimap-glyph-turns-belief]
+claim = """
+The player believes Cypher's Cyber Cage icon on the minimap turns with its
+placement. The icon is small, so its rotation changes a template match
+little.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-05"
+subject = "cypher:cyber cage"
+source = """
+the player, 2026-10-05 (chat), stated as a belief; recorded as
+labels/minimap_glyph_questions/answers.jsonl#L473, row rotation:Cypher:Q,
+answer rotates
+"""
+use = """
+the next glyph rotation policy table after glyph-rotation-policy-0.1.1
+searches Cypher:Q at every rotation, decided by this answer; 0.1.1 searched
+it upright by default (no minimap component draws it)
+"""
+exceptions = """
+the question named Cyber Cage (Cypher:Q). It does not answer the unsure
+rotation row for Trapwire (Cypher:C, answers.jsonl#L346), which stays
+pending
+"""
+see = ["abilities/ability-rules-are-unique"]
+
 [piloted-drones-have-cones]
 claim = """
 Every piloted drone has its own vision cone.
@@ -3365,7 +3413,81 @@ since = "2026-09-27"
 subject = "skye:regrowth"
 source = "player, 2026-09-27 (chat): a resource bar, not rechargeable, distinct from Viper's"
 use = "the state model reads Skye's C level as a pool fraction, never a charge count; a partial bar is not a half charge"
-see = ["abilities/skye-regrowth-no-tray-drop", "abilities/viper-fuel-bar-recharges", "abilities/recharge-kinds"]
+see = ["abilities/skye-regrowth-no-tray-drop", "abilities/viper-fuel-bar-recharges", "abilities/recharge-kinds",
+       "abilities/skye-regrowth-pool-per-purchase", "abilities/skye-regrowth-gold-bar-partly-spent"]
+
+[skye-regrowth-pool-per-purchase]
+claim = """
+One purchase of Skye's Regrowth buys a fixed total amount of healing: the
+pool. Skye spends it over one or more channels until it is gone; the pool is
+not one channel.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "skye:regrowth"
+source = "the player, 2026-10-05 (chat), answering why the Regrowth bar turns gold"
+use = """
+the cast gate counts a Regrowth purchase's first spend as the cast; a later
+spend of the same pool is no new cast (`ability_timeline.player_tray_casts`,
+`pool_rest`)
+"""
+see = ["abilities/skye-regrowth-resource-bar", "abilities/skye-regrowth-gold-bar-partly-spent",
+       "abilities/ability-rules-are-unique"]
+
+[skye-regrowth-gold-bar-partly-spent]
+claim = """
+Skye's Regrowth bar drawn gold marks a pool already partly spent. A gold
+Regrowth bar draining to empty spends the rest of a pool opened earlier, not
+a new purchase.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-05"
+subject = "skye:regrowth"
+source = "the player, 2026-10-05 (chat), answering what a gold Regrowth bar going empty means"
+use = """
+a drop read from gold halves alone in Skye's C slot (`pool_gold_drop`) is
+refused as `pool_rest` by `ability_timeline.player_tray_casts`: it spends a
+pool the gate counted at its opening
+"""
+see = ["hud/ability-tray-gold-charge-meaning", "abilities/skye-regrowth-pool-per-purchase",
+       "abilities/skye-regrowth-resource-bar"]
+
+[kayo-null-cmd-downed-tray-belief]
+claim = """
+The player believes that while KAY/O lies downed in NULL/cmd his ability
+tray empties or shows a special overlay. Not observed on a capture.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-05"
+subject = "kay/o:null/cmd"
+source = "the player, 2026-10-05 (chat), stated as a belief"
+use = """
+the cast gate treats the downed span as the player's dead span: a tray drop
+between the down and the stabilisation is `after_player_death`; a belief to
+check on the first stored KAY/O down, not a measured drawing
+"""
+see = ["killfeed/kayo-downed-entry", "abilities/kayo-null-cmd-stabilise-restores-kit"]
+
+[kayo-null-cmd-stabilise-restores-kit]
+claim = """
+A downed KAY/O whom a teammate stabilises gets his kit back as it stood
+before the down: the charges he held return, and nothing is refilled.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+subject = "kay/o:null/cmd"
+source = "the player, 2026-10-05 (chat)"
+use = """
+`adjudication.death.KIT_REVIVE_ICONS` counts a NULL/cmd revive of a KAY/O
+player as a revive, so the gate (`ability_timeline.player_tray_casts`) does
+not end his kit at the down and the state model keeps the kit as it was
+"""
+see = ["killfeed/kayo-downed-entry", "killfeed/revive-entries", "abilities/kayo-null-cmd-downed-tray-belief",
+       "abilities/ability-rules-are-unique"]
 
 [viper-fuel-bar-recharges]
 claim = """
