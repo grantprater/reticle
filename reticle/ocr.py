@@ -103,9 +103,15 @@ THRESHOLD = 190
 SCORE_BG_KERNEL = 9
 #: The ROI height (1080p) SCORE_BG_KERNEL is measured at; it scales with it.
 SCORE_BG_AT_H = 59
-#: Coverage above which a pixel joins a component's bitmap. This is the
-#: segmentation the binary font templates match (rendered at FONT_COVER_CUTS
-#: 0.4-0.85), not an ink decision; over a plate of luma 100 it is the 190 cut.
+#: Coverage above which a pixel joins a component; over a plate of luma 100
+#: it is the 190 cut. This is a hard cut before every decision, not only the
+#: bitmap the binary font templates match: it sets each component's extent,
+#: truncates the pixels `ink_score` averages to c > 0.55, and decides whether
+#: a component exists at all. A digit whose coverage never reaches 0.55 (a
+#: 1 dimmed to half coverage over a pale plate) leaves no component, so no
+#: rule sees it and 11 reads as 1 silently. That breaks "score softly, cut
+#: once"; it is inherited debt, carried in BACKLOG.md (soft coverage
+#: templates) and pinned by an expected-failure test.
 SCORE_INK_CUT = 0.55
 #: A component is white ink where its ink score, the coverage-weighted mean
 #: coverage sum(c^2) / sum(c) over its pixels (`ink_score`), reaches this.
@@ -113,9 +119,11 @@ SCORE_INK_CUT = 0.55
 #: blocker (`occluded`) or faint neighbour (`faint_digit`); no raw-luma gate
 #: precedes it. Digit components score 0.85-0.95; pale scenery pieces that
 #: read 5 as 15 and 1 as 11 score 0.66-0.67 (a06f04a0059f 1376.0 s,
-#: c40d950031bb 843.5 s). Cuts 0.75, 0.78 and 0.80 all kept every full read
-#: on Riot's score pairs on 19 dev Riot matches (2026-10-05, every 4th
-#: crop), with 0 decreases; 0.78 sits between them.
+#: c40d950031bb 843.5 s). At SCORE_FAINT_GAP 12, cuts 0.75, 0.78 and 0.80
+#: all kept every full read on Riot's score pairs on the 19 dev Riot
+#: matches (every 4th crop, in-sample), with 0 decreases
+#: [metric:scoreline_soft/riot-dev-sweep-gap12#cut_078_full_off_riot=0];
+#: 0.78 sits between them.
 SCORE_INK_MIN = 0.78
 #: The score digits stand 19-21 px tall at 1080p (DIN Next 22 pt); taller
 #: ink is a digit fused with scenery, and blocks: a 7 fused with a door's
@@ -159,7 +167,12 @@ class Glyph:
 
 
 def normalise(patch: np.ndarray) -> np.ndarray:
-    """Scale a binary glyph patch into the fixed grid."""
+    """Scale a binary glyph patch into the fixed grid.
+
+    The INTER_AREA shrink is re-binarised (> 0) before the binary template
+    match: binarising before matching, against the rule to read pixels as
+    samples of a smooth image. Inherited debt; BACKLOG.md carries soft
+    coverage-template matching to replace it."""
     resized = cv2.resize(
         patch.astype(np.uint8), (GLYPH_W, GLYPH_H), interpolation=cv2.INTER_AREA
     )
@@ -253,7 +266,8 @@ def ink_cover(gray: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def ink_score(cover: np.ndarray, labels: np.ndarray, count: int) -> np.ndarray:
     """Each component's soft white-ink score: its coverage-weighted mean
     coverage, sum(c^2) / sum(c) over its pixels of `labels`, so the core
-    counts more than the antialiased rim; label 0 scores 0."""
+    counts more than the antialiased rim; label 0 scores 0. The labels come
+    from the SCORE_INK_CUT mask, so the mean is truncated to c > 0.55."""
     on = labels > 0
     lab = labels[on].astype(np.intp)
     c = cover[on].astype(np.float64)
@@ -272,10 +286,12 @@ def score_field(gray: np.ndarray, lo: float, hi: float
     (SCORE_CONTRAST_MIN); and whether a component too dim to be ink stands
     beside a read digit across its rows (SCORE_FAINT_GAP).
 
-    `ink_cover` is segmented at SCORE_INK_CUT into the bitmaps the binary
-    font templates match. Whiteness is then scored softly per component
-    (`ink_score`) and cut once, at SCORE_INK_MIN, where each component is
-    decided: ink of a digit's shape is a glyph, other ink a blocker, and
+    `ink_cover` is cut hard at SCORE_INK_CUT into components; that cut
+    decides each component's extent and whether a dim digit exists at all
+    (see SCORE_INK_CUT), and `normalise` binarises the glyph bitmap again
+    before matching. Whiteness is then scored per component (`ink_score`,
+    over the pixels above SCORE_INK_CUT only) and cut at SCORE_INK_MIN,
+    where each component is decided: ink of a digit's shape is a glyph, other ink a blocker, and
     sub-ink beside a digit refuses the field. A blocker is white ink no
     digit's shape explains: a mass over the field, or two digits fused.
     Any oversize ink of MIN_AREA blocks,

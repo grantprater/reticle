@@ -299,23 +299,29 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # (prototypes/game_font_digits.py compare --production).
 # 0.22.0 (2026-10-05): the two score fields read white ink against their own
 # plate (`ocr.score_field`): coverage (luma - plate) / (255 - plate) over a
-# grey opening, segmented at SCORE_INK_CUT into template bitmaps; each
-# component's whiteness is scored softly (`ocr.ink_score`, the
-# coverage-weighted mean coverage) and cut once, at SCORE_INK_MIN, where it
-# becomes a glyph, a blocker or a faint neighbour; no raw-luma gate. Bright
-# scenery behind the plate no longer fuses with the digits into masses
-# refused as `occluded`; a plate too near white to show a digit refuses
-# `low_contrast`, and a sub-ink component spanning a read digit's rows
-# beside it refuses `faint_digit`, so a dim or fused leading 1 never reads
-# 11 as 1. The clock keeps the 190 cut. `n_glyphs` counts the glyphs inside
-# the three fields. Oversize score ink of any area blocks. The first cut of
-# this version read 122257 -> 162689 score values on the 21 Riot-recorded
-# matches [metric:scoreline_soft/riot-21#new_reads=162689] with no full read
-# off Riot's score sequence [metric:scoreline_soft/riot-21#new_full_off_riot=0];
-# its gates and the soft score that replaced them were tuned on those
-# matches, so these are in-sample figures. Of the occluded score samples
-# before the small-jump unread round starts, 141 of 163 read both scores
-# [metric:scoreline_soft/unread-reset-windows#both_read=141].
+# grey opening, cut hard at SCORE_INK_CUT into components (a cut that still
+# decides which dim digits exist; BACKLOG.md carries its removal); each
+# component's whiteness is scored (`ocr.ink_score`, the coverage-weighted
+# mean coverage) and cut at SCORE_INK_MIN, where it becomes a glyph, a
+# blocker or a faint neighbour; no raw-luma gate. Bright scenery behind the
+# plate no longer fuses with the digits into masses refused as `occluded`;
+# a plate too near white to show a digit refuses `low_contrast`, and a
+# sub-ink component spanning a read digit's rows beside it refuses
+# `faint_digit`. The clock keeps the 190 cut. `n_glyphs` counts the glyphs
+# inside the three fields. Oversize score ink of any area blocks. All
+# figures are in-sample: the rules were tuned on the 21 Riot-recorded
+# matches. There score reads rise from 2ad32ef's 122257 to 162507
+# [metric:scoreline_soft/riot-21-soft#reads=162507], with 79479 full reads
+# [metric:scoreline_soft/riot-21-soft#full_reads=79479], none off Riot's
+# score sequence [metric:scoreline_soft/riot-21-soft#full_off_riot=0]. On
+# the fixed handful one old read changes, a correction
+# [metric:scoreline_soft/handful-soft#changed=1], and 20 of 16016 become
+# refusals [metric:scoreline_soft/handful-soft#lost=20]. A scoreline read
+# costs 0.93 ms per frame on a06f04a0059f
+# [metric:scoreline_soft/cost-soft#ms_a06f04a0059f=0.927] against 0.57 ms
+# before [metric:scoreline_soft/cost-soft#ms_2ad32ef_a06f04a0059f=0.574]. Of the occluded score samples before the small-jump unread round
+# starts, 141 of 163 read both scores
+# [metric:scoreline_soft/unread-reset-windows-soft#both_read=141].
 HUD_VERSION = "hud-0.22.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and

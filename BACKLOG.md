@@ -38,6 +38,10 @@ Evidence: zero labelled icons lost; Riot misses in stacks fall with phantoms no 
 
 Full texts are in the dated archives.
 
+- **Soft digit templates** (2026-10-05): match score, clock, bottom-HUD and scoreboard digits against coverage templates, dropping `SCORE_INK_CUT` and `normalise`'s re-binarisation. Name the missing widget (c40d950031bb 23.0 s refuses `low_contrast`); split fused from `occluded` (a06f04a0059f 904.5 s, 9acf02f98283 1547.0 s, b7d24102a6f6 1961.5 s).
+Acceptance: `pytest tests	est_ocr_fonts.py`, its expected failure passing, then the Riot scorer.
+Evidence: 0 scores off Riot; reads at least hud-0.22.0's.
+
 - **Ability identification pass** (2026-10-03): name the ability behind a killfeed weapon-slot icon, then ability attribution generally; remove `classify_killfeed_icon`'s `active_agent` narrowing. Riot ability kills now match [metric:riot_truth/deaths#matched_kind_ability=75] of [metric:riot_truth/deaths#riot_kind_ability=77].
 - **Icon descriptors, proven on the killfeed first** (2026-10-01).
 - **Reader resampling** (2026-10-01), killfeed weapon first.

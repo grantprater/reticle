@@ -121,16 +121,19 @@ class MatchManyTests(unittest.TestCase):
         self.assertEqual(ocr._digits([], self.tpl), ("", 1.0, 1.0))
 
 
-def _scoreline(left: str, left_plate: float, right: str, right_plate: float) -> np.ndarray:
+def _scoreline(left: str, left_plate: float, right: str, right_plate: float,
+               left_alpha: tuple[float, ...] = ()) -> np.ndarray:
     """A 59x308 scoreline ROI: white DIN Next 22 pt score digits composited
-    over flat plates as the game draws them, the clock field empty."""
+    over flat plates as the game draws them, the clock field empty.
+    `left_alpha` scales the coverage of each left digit in turn (default 1)."""
     font = str(_store_font("DINNext_Regular.ttf"))
     roi = np.full((59, 308), 60.0, np.float32)
     roi[:, :90] = left_plate
     roi[:, 220:] = right_plate
-    for text, x in ((left, 12), (right, 290 - 14 * len(right))):
-        for ch in text:
+    for text, x, alpha in ((left, 12, left_alpha), (right, 290 - 14 * len(right), ())):
+        for k, ch in enumerate(text):
             cover = ocr._font_cover(ch, font, 22.0 * ocr.SLATE_PX_PER_PT, 0.25, 0.5)
+            cover = cover * (alpha[k] if k < len(alpha) else 1.0)
             h, w = cover.shape
             plate = roi[14:14 + h, x:x + w]
             roi[14:14 + h, x:x + w] = cover * 255.0 + (1.0 - cover) * plate
@@ -214,6 +217,15 @@ class ScorePlateTests(unittest.TestCase):
         r = ocr.read_scoreline(gray, self.tpl)
         self.assertIsNone(r.score_left)
         self.assertEqual(r.score_left_reason, "faint_digit")
+
+    # Debt: the hard SCORE_INK_CUT (0.55) runs before every decision, so a
+    # 1 dimmed to half coverage leaves no component and 11 reads as 1
+    # silently (2ad32ef refused it as occluded). Soft coverage-template
+    # matching (BACKLOG.md) is to make this pass.
+    @unittest.expectedFailure
+    def test_half_coverage_second_one_refuses(self):
+        r = ocr.read_scoreline(_scoreline("11", 200.0, "7", 100.0, left_alpha=(1.0, 0.5)), self.tpl)
+        self.assertIsNone(r.score_left)
 
     def test_ink_score_weights_the_core(self):
         labels = np.array([[0, 1, 1, 2]], np.int32)
