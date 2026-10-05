@@ -105,19 +105,25 @@ Persistence as a third witness (TRAY_VERSION 0.4.0). A cream half is a
 charge partly spent or recharged [domain:hud/ability-tray-gold-charge-meaning],
 and Phoenix spends one beside a teal half with no numeral and the icon lit,
 so the countdown and icon witnesses refused
-[metric:tray/gold-persist@riot-21#eye_refused_real_before=4] real Curveball
-spends. A misread is a sample long; a held charge is not. A gold-only drop now
-also fires where the spent half read gold on GOLD_PERSIST_MIN readable samples
+[metric:tray/gold-persist-eval@riot-21#eye_refused_real_before=4] real Curveball
+spends. On the 21 Riot-paired sessions a gold misread lasted at most
+[metric:tray/gold-persist-eval@riot-21#false_reading_run_max=1] sample, and
+a held charge that persistence witnesses reads gold on two or more; a real
+spend can read gold for one sample too (e37fdeca944f E 426.6 s, which the
+countdown witnessed), so persistence adds a witness and takes none away. A
+gold-only drop now also fires where the spent half read gold on GOLD_PERSIST_MIN readable samples
 in a row before it (`persisted`). On the 21 Riot-paired sessions it admitted
-[metric:tray/gold-persist@riot-21#newly_admitted=16] of the
-[metric:tray/gold-persist@riot-21#refused_before=20] refused drops; the gate
+[metric:tray/gold-persist-eval@riot-21#newly_admitted=16] of the
+[metric:tray/gold-persist-eval@riot-21#refused_before=20] refused drops; the gate
 passed the four Curveball spends and refused the rest, of which
-[metric:tray/gold-persist@riot-21#admitted_kit_or_round_switch=8] are by eye
+[metric:tray/gold-persist-eval@riot-21#admitted_kit_or_round_switch=8] are by eye
 the tray switching kits or rounds over a real gold half, a transition the
 gate owns. Own casts covered
-[metric:tray/gold-persist@riot-21#covered_after=525] of 610 with
-[metric:tray/gold-persist@riot-21#excess_after=8] beyond Riot's counts; k was
-chosen on the same drops, so the figures are in-sample.
+[metric:tray/gold-persist-eval@riot-21#covered_after=525] of 610 with
+[metric:tray/gold-persist-eval@riot-21#excess_after=8] beyond Riot's counts, and at 3 or 4 samples
+[metric:tray/gold-persist-eval@riot-21#covered_k3=524]; k was chosen on the
+same drops, so the figures are in-sample. `prototypes/tray_gold_eval.py`
+reruns every rule from the crop cache and the stored gate inputs.
 
 What a drop is not. A drop is a transition, not a cast: after the player dies
 the tray shows a spectated teammate's kit, and its switch reads as several
@@ -171,13 +177,13 @@ ICON_DIM_MAX = 160.0
 #: The persistence witness (`gold_witness`, `_gold_runs`): the fewest
 #: consecutive readable samples on which the spent half read gold, ending at
 #: its gold sample. Chosen in-sample on the
-#: [metric:tray/gold-persist@riot-21#gold_only_candidates=83] gold-only drops of
+#: [metric:tray/gold-persist-eval@riot-21#gold_only_candidates=83] gold-only drops of
 #: the 21 Riot-paired sessions as one more than the longest run of a gold
 #: reading false by eye: the four such misreads (a warm flash or a bright
 #: object behind an empty bar) each read gold on
-#: [metric:tray/gold-persist@riot-21#false_reading_run_max=1] sample, and the
+#: [metric:tray/gold-persist-eval@riot-21#false_reading_run_max=1] sample, and the
 #: shortest real cream spend the other witnesses refused read gold on
-#: [metric:tray/gold-persist@riot-21#real_refused_run_min=2]
+#: [metric:tray/gold-persist-eval@riot-21#real_refused_run_min=2]
 #: (ff636d173b07 1052.5 s).
 GOLD_PERSIST_MIN = 2
 

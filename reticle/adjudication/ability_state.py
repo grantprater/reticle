@@ -108,8 +108,9 @@ readable slot-samples. A live return needs a restock fact for the slot's
 ability (`restock_facts`): gold was also seen on kits with none, and a gold
 rise there is a `recharge` with its own surprise. The tray reader stores a
 drop where a teal or gold half goes empty (`tray.drops`), a gold-only one
-only where the countdown or the slot icon witnessed it (`tray.gold_witness`),
-so spending a returned charge is a drop the gate judges; a fall that takes a
+only where the countdown or the slot icon witnessed it or the spent half
+read gold on `tray.GOLD_PERSIST_MIN` readable samples in a row before it
+(`tray.gold_witness`), so spending a returned charge is a drop the gate judges; a fall that takes a
 gold half with no drop stored (an unwitnessed gold drop, a half unreadable on
 the later sample, or a fall across a gap) stays `fall_without_a_drop` with
 its own surprise reason.
