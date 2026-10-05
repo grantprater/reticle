@@ -231,7 +231,8 @@ search for a smooth curved wall upon a slot C charge drop; points along one
 smooth curve are one wall, and no straight-line fit describes it
 """
 see = ["abilities/phoenix-tray-charges", "abilities/phoenix-blaze-duration",
-       "abilities/wall-icon-path-curve"]
+       "abilities/wall-icon-path-curve", "abilities/phoenix-blaze-icon-leads-wall",
+       "abilities/phoenix-blaze-minimap-size"]
 
 [phoenix-blaze-duration]
 claim = """
@@ -763,7 +764,9 @@ see = ["abilities/phoenix-blaze", "abilities/phoenix-slots"]
 
 [phoenix-blaze-no-minimap-icon]
 claim = """
-Phoenix's Blaze draws no icon on the minimap; its minimap drawing is the wall.
+No High Tide-style icon is Blaze's: `TX_UI_Minimap_Mage_HighTideActive` is not
+drawn for Phoenix's Blaze. Blaze's own icon is the FireWall icon that leads
+the wall [domain:abilities/phoenix-blaze-icon-leads-wall].
 """
 kind = "appearance"
 known = "player"
@@ -772,24 +775,71 @@ subject = "phoenix:blaze"
 source = """
 the player, 2026-10-04 (chat), shown that ability-states-gamedata-0.2.0 names
 `TX_UI_Minimap_Mage_HighTideActive` the enemy-view minimap icon of Blaze's
-projectile: "I don't see the icon, but blaze does not show any icon at all"
+projectile: the player did not recognise that icon and said Blaze shows no
+icon. CORRECTED 2026-10-05: the player said, as several times before, that
+Blaze shows its icon with the wall trailing behind it while the wall is drawn;
+the 2026-10-04 remark denied only the High Tide texture shown with it
 """
 use = """
-search for Blaze's wall, never an icon, on a slot C drop by Phoenix; keep
-`TX_UI_Minimap_Mage_HighTideActive` out of Blaze's references
+keep `TX_UI_Minimap_Mage_HighTideActive` out of Blaze's references; read
+Blaze's icon from `TX_UI_Minimap_Phoenix_FireWall`
+[domain:abilities/phoenix-blaze-icon-leads-wall]
 """
 exceptions = """
-CONFLICTS with earlier player answers, unresolved: wall-icon-path-curve
-(2026-09-26) says Blaze travels as an icon that traces the wall; the texture
-answer at answers.jsonl line 48 names `TX_UI_Minimap_Phoenix_FireWall` Blaze's;
-the visibility answers at lines 307 and 308 say a teammate's and an enemy's Blaze
-draw icon_and_shape; phoenix-blaze-duration's census saw a cast icon run ahead
-of the wall. Ask the player whether "any icon" covers the FireWall icon that
-leads the wall, or only a High Tide-style icon
+Until 2026-10-05 the claim read "Phoenix's Blaze draws no icon on the
+minimap; its minimap drawing is the wall" and conflicted with the player's
+earlier answers: wall-icon-path-curve (2026-09-26), the texture answer at
+answers.jsonl line 48 (`TX_UI_Minimap_Phoenix_FireWall` is Blaze's) and the
+visibility answers at lines 307 and 308 (a teammate's and an enemy's Blaze
+draw icon_and_shape); phoenix-blaze-duration's census also saw a cast icon
+run ahead of the wall, pipeline evidence that never entered the claim. The
+exceptions then asked the player whether "any icon" covered the FireWall icon
+that leads the wall, or only a High Tide-style icon. The player's 2026-10-05
+statement answers that question and resolves the conflict; the shape-only
+answers at lines 462, 463 and 465 were given with the uncorrected claim shown,
+and revision rows replace them
 """
-see = ["abilities/phoenix-blaze", "abilities/phoenix-minimap-objects",
+see = ["abilities/phoenix-blaze", "abilities/phoenix-blaze-icon-leads-wall",
+       "abilities/phoenix-blaze-minimap-size", "abilities/phoenix-minimap-objects",
        "abilities/wall-icon-path-curve", "abilities/minimap-textures-harbor",
        "abilities/minimap-textures-phoenix"]
+
+[phoenix-blaze-icon-leads-wall]
+claim = """
+Phoenix's Blaze draws its icon, `TX_UI_Minimap_Phoenix_FireWall`, on the
+minimap while the wall is being drawn: the icon leads, and the flame wall
+trails behind it. The icon is gone once the wall is drawn; the drawn wall
+stays alone.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-05"
+subject = "phoenix:blaze"
+source = """
+the player, 2026-10-05 (chat), saying they had said it several times before;
+the earlier statements are wall-icon-path-curve (2026-09-26), the texture
+answer at <store>/labels/minimap_glyph_questions/answers.jsonl line 48 and
+the visibility answers at lines 307 and 308 (icon_and_shape for a
+teammate's and an enemy's Blaze)
+"""
+use = """
+on a slot C drop by Phoenix, track the FireWall icon from the cast and
+integrate its path as the wall [domain:abilities/wall-icon-path-curve]; once
+the icon is gone, read the wall alone. An icon with no wall behind it, or a
+wall still growing with no icon, contradicts this fact
+"""
+exceptions = """
+the player's statement names no view, so it covers the caster's, a
+teammate's and an enemy's minimap alike
+[domain:abilities/views-separate-per-ability]; the teammate and enemy views
+rest also on lines 307 and 308. The caster's view rests on this statement
+alone: its only earlier answer, shape at line 465, was given with the
+uncorrected phoenix-blaze-no-minimap-icon claim shown, and a revision row
+replaces it
+"""
+see = ["abilities/phoenix-blaze", "abilities/phoenix-blaze-minimap-size",
+       "abilities/wall-icon-path-curve", "abilities/phoenix-blaze-no-minimap-icon",
+       "abilities/minimap-textures-phoenix", "abilities/phoenix-blaze-duration"]
 
 [phoenix-curveball-blind-screen]
 claim = """
@@ -2185,10 +2235,22 @@ a lit wedge from no teammate's icon may be a drone's cone; which abilities
 are piloted is recorded per ability (each "piloted" fact), never by analogy
 """
 exceptions = """
-unanswered: which drones, and whether a drone's cone lights the floor as a
-player's does; both are asked on docs/ABILITY_MECHANICS_SHEET.md
+Which drones was listed as unanswered until 2026-10-05. The player's
+2026-10-05 answer on where abilities first appear names drones "like" three,
+as examples, not a closed list: Sova's Owl Drone
+[domain:abilities/sova-owl-drone-piloted], Tejo's Stealth Drone
+[domain:abilities/tejo-stealth-drone-piloted], and Skye's Trailblazer
+[domain:abilities/skye-trailblazer-piloted]; each is confirmed piloted. The
+player said the same day that Skye's drone means the dog, Trailblazer, not
+the hawk. Whether a steered ability the player does not call a drone has a
+cone is unasked: Fade's Prowler [domain:abilities/fade-prowler-steered] and
+Skye's Guiding Light, the hawk [domain:abilities/skye-guiding-light-steered]. Unanswered: whether a drone's cone lights the floor as
+a player's does, asked on docs/ABILITY_MECHANICS_SHEET.md
 """
-see = ["minimap/no-teammate-floor-circle", "abilities/ability-rules-are-unique"]
+see = ["minimap/no-teammate-floor-circle", "abilities/ability-rules-are-unique",
+       "abilities/sova-owl-drone-piloted", "abilities/tejo-stealth-drone-piloted",
+       "abilities/skye-trailblazer-piloted", "abilities/skye-guiding-light-steered",
+       "abilities/fade-prowler-steered"]
 
 [wall-icon-path-curve]
 claim = """
@@ -2210,7 +2272,8 @@ fitting a segment; the curve is arbitrary, so no template or straight-line
 fit describes it
 """
 see = ["abilities/phoenix-blaze", "abilities/viper-toxic-screen-minimap-growth",
-       "abilities/minimap-thrown-ability-icon"]
+       "abilities/minimap-thrown-ability-icon", "abilities/phoenix-blaze-icon-leads-wall",
+       "abilities/phoenix-blaze-minimap-size"]
 
 [viper-fuel-toggle]
 claim = """
@@ -4020,8 +4083,12 @@ none: do not read a large circle as Seekers from this fact. It is kept as
 the history of the Sunset circle's attribution
 """
 exceptions = """
-whether Seekers draw any minimap circle is unknown and unasked since the
-withdrawal. Nothing here extends to another ability
+Until 2026-10-05 this read: whether Seekers draw any minimap circle is unknown
+and unasked since the withdrawal. SETTLED 2026-10-05 by the player's own
+visibility answers of 2026-10-04 (answers.jsonl lines 246, 247 and 383):
+Seekers draw an icon and no shape on a teammate's, an enemy's and the
+caster's minimap, so they draw no circle. Nothing here extends to another
+ability
 """
 see = ["abilities/skye-seekers-one-per-living-enemy", "abilities/minimap-icon-pale-region",
        "abilities/ability-rules-are-unique"]
@@ -4519,8 +4586,9 @@ a licensed dash of Jett's track (`track.motion_for`)
 """
 exceptions = """
 its distance and speed are not recorded; the game-data extraction is
-reading movement values into its own facts. How the minimap draws it is
-unasked
+reading movement values into its own facts. How the minimap draws it was listed as unasked until 2026-10-05; the player's
+visibility answers of 2026-10-04 (answers.jsonl lines 184, 185 and 435) say
+it draws nothing on a teammate's, an enemy's or the caster's minimap
 """
 see = ["abilities/jett-updraft-is-vertical", "abilities/movement-abilities-are-dashes-and-teleports"]
 
@@ -5470,8 +5538,11 @@ answers stand as per-ability facts, which `track.MOVEMENT_FACTS` names, each
 citing the fact it rests on
 """
 exceptions = """
-the candidate list is derived, not answered. Whether speed boosts count is
-unasked. Abilities that move other agents (Gravity Well, Rolling Thunder,
+the candidate list is derived, not answered. Whether speed
+boosts count was listed as unasked until 2026-10-05; the player answered it
+for one ability on 2026-10-04: Neon's High Gear runs faster but is no dash
+[domain:abilities/neon-high-gear-is-speed-not-dash]. Whether any other speed
+boost counts is unasked. Abilities that move other agents (Gravity Well, Rolling Thunder,
 Annihilation, Bassquake) are outside this rule
 """
 see = ["abilities/minimap-dash-or-teleport-trace", "abilities/ability-rules-are-unique"]
@@ -5596,7 +5667,8 @@ colour is not measured.
 """
 use = "the Blaze descriptor of `ability_candidates`: width, length range and the ally colour model"
 values = { base_width = 5.9, base_length = [42.2, 84.8], ally_hue = [16, 18, 20], ally_sat_p10 = [153, 194] }
-see = ["abilities/phoenix-blaze"]
+see = ["abilities/phoenix-blaze", "abilities/phoenix-blaze-icon-leads-wall",
+       "abilities/wall-icon-path-curve"]
 
 [passive-abilities-draw-no-ui]
 claim = """
@@ -6229,8 +6301,8 @@ DISPUTED by game data: ability-states-gamedata-0.2.0 names
 BaseMinimapComponent_Parent EnemyIcon), not High Tide's; no labelled capture shows
 Harbor, and the 22 Blaze labels are shape-class, unscored. Shown the dispute
 (2026-10-04), the player keeps High Tide: Mage is Harbor's codename and HighTide
-names High Tide ("Harbor's ability name is high tide"), and Blaze draws no icon
-[domain:abilities/phoenix-blaze-no-minimap-icon]. The kept answer's key, Q,
+names High Tide ("Harbor's ability name is high tide"), and no High Tide-style icon is Blaze's
+[domain:abilities/phoenix-blaze-no-minimap-icon] (corrected 2026-10-05). The kept answer's key, Q,
 matches the game data's High Tide key (DefaultInput.ini Activate_Ability1 Key=Q;
 Mage_UIData Abilities Ability1), so line 44 stands and no revision row was
 appended. Open: why the Blaze projectile names a Mage texture as its EnemyIcon

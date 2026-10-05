@@ -1123,8 +1123,11 @@ unknown height (`raised_boxes`) and each diagonal leaf in a wall's gap as a
 box of unknown height (`doorways`); neither is a guess at a height
 """
 exceptions = """
-whether and how a door leaf blocks light is unasked; the table blocks by
-default and the drawn light decides
+a door leaf blocks light: listed as unasked until 2026-10-05, it is settled
+by the player's later answer of 2026-09-30 (chat, on doors and ledges): the
+Garage door leaves block light, and only a movement ability reaches their
+top, a very rare angle, so a leaf blocks as a tall box would
+[domain:minimap/boxes-block-unless-raised]
 """
 see = ["minimap/boxes-block-unless-raised", "minimap/floor-shade-is-elevation",
        "minimap/fit-not-repair"]
