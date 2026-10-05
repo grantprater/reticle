@@ -238,6 +238,39 @@ def _ability_timeline(store, manifest: dict, windows: str, pad_ms: float):
     return n, want, {}
 
 
+def _clove_circle_reader(ctx):
+    from .clove_circle import circle_reader, stored_windows
+    # `scan`'s inputs: the opportunity windows from the stored deaths.
+    wins, inputs = stored_windows(ctx.store, ctx.session_id)
+    return circle_reader(ctx, wins or [], inputs)
+
+
+def _clove_circle_rows(reader, sid: str) -> dict[str, list[dict]]:
+    return {"clove_circle": reader.events(sid, reader.geometry_key)}
+
+
+def _clove_circle_timeline(store, manifest: dict, windows: str, pad_ms: float):
+    """The circle reader's 4 Hz grid over the minimap cache
+    (`roi_cache.grid_times`): occupied keeps the opportunity windows, each an
+    ally Clove's death to her round's end (`clove_circle.stored_windows`),
+    never the circles found; all keeps every cached round."""
+    from .clove_circle import stored_windows
+    from .profiles import get_profile
+    from .roi_cache import RoiCache, grid_times
+    sid = manifest["session_id"]
+    cache, why = RoiCache.load(store.root, manifest, get_profile(manifest["source_profile"]),
+                               "minimap")
+    if cache is None:
+        raise SystemExit(f"{sid}: no usable minimap ROI cache ({why})")
+    if windows not in ("occupied", "all"):
+        raise ValueError(f"unknown windows {windows!r}")
+    wins, _ = stored_windows(store, sid)
+    spans = ([(w["t0_ms"], w["t1_ms"]) for w in wins or []] if windows == "occupied"
+             else (cache.record.get("spans") or []))
+    want = sorted({x for a, b in spans for x in grid_times(cache.t_ms, float(a), float(b), 0.25)})
+    return len(want), want, {}
+
+
 TRIAL_READERS = {
     # reader -> (the ROI cache set its reads stay inside, build, rows, streams, timeline)
     "killfeed": ("killfeed", _killfeed_reader, _killfeed_rows,
@@ -251,10 +284,14 @@ TRIAL_READERS = {
     # The icon proposer and the glyph reader together, as the ability pass feeds them.
     "ability_glyph": ("minimap", _ability_glyph_reader, _ability_glyph_rows, ("ability_glyph",),
                       _ability_timeline),
+    # The dead Clove's range circle, inside her death windows only.
+    "clove_circle": ("minimap", _clove_circle_reader, _clove_circle_rows, ("clove_circle",),
+                     _clove_circle_timeline),
 }
 
 #: Profile ROIs a trial decodes from its cache set, where fewer than the set's.
-TRIAL_ROIS = {"ally_icon": ("minimap",), "ability_glyph": ("minimap",)}
+TRIAL_ROIS = {"ally_icon": ("minimap",), "ability_glyph": ("minimap",),
+              "clove_circle": ("minimap",)}
 
 
 def targets(hud: dict, windows: str = "occupied", pad_ms: float = 2000.0) -> list[float]:

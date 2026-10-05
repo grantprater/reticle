@@ -79,7 +79,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle verify --tier fast
 .\.venv\Scripts\python.exe -m reticle status
 .\.venv\Scripts\python.exe -m reticle plan [SESSION]
-.\.venv\Scripts\python.exe -m reticle trial [SESSION] --reader killfeed|hud|scoreboard|ally_icon|ability_glyph [--sample] [--windows-file CSV]
+.\.venv\Scripts\python.exe -m reticle trial [SESSION] --reader killfeed|hud|scoreboard|ally_icon|ability_glyph|clove_circle [--sample] [--windows-file CSV]
 .\.venv\Scripts\python.exe -m reticle dev-sample [--residuals CSV|--stream S --where F=V] --out CSV
 .\.venv\Scripts\python.exe prototypes\killfeed_trial_deaths.py --sample [--windows-file CSV] --out DIR
 .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --sample [--windows-file CSV] --deaths-from DIR --offline
@@ -97,6 +97,8 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # audio decode only
 .\.venv\Scripts\python.exe -m reticle ult-cast SESSION      # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-state SESSION # stored data only
+.\.venv\Scripts\python.exe -m reticle scan SESSION --only clove_circle --from cache   # dead Clove's range circle
+.\.venv\Scripts\python.exe -m reticle smokes SESSION     # smoke owners, casts while dead; stored data only
 .\.venv\Scripts\python.exe -m reticle ability-audio-fit --gate-in G.json --eval ROOT  # stored log-mel only
 .\.venv\Scripts\python.exe prototypes\audio_open_set.py score --scan DIR | match-score --match DIR  # stored detections only
 .\.venv\Scripts\python.exe -m reticle killstreak SESSION    # numerals vs death stream; stored data only
