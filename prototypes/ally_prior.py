@@ -116,7 +116,11 @@ from ally_rate import DISC_R, Windows  # noqa: E402  (the teal-change cue)
 
 #: 0.1.0 (2026-10-04): the design fixed in the store's `notes/predictions.jsonl`
 #: (task crowd-blobsplit-20261004, prior-first) before any truth was read.
-ALLY_PRIOR_VERSION = "ally-prior-0.1.0"
+#: 0.2.0 (development on the dev Riot handful, after its scores): a fit
+#: the full roster blocks continues the track its stored verdict names, else
+#: a weak prior, else the stalest held track; 0.1.0 tried only weak priors,
+#: and 63 of 151 lost allies there had a stored ring fit the prior left.
+ALLY_PRIOR_VERSION = "ally-prior-0.2.0"
 STORE = v1.STORE
 ANALYSIS = STORE / "analysis" / "ally-prior-20261004"
 
@@ -152,6 +156,9 @@ SPLIT_REFIRE = 5
 #: than MARGIN more abstains.
 HEADING_W = 1.0
 MARGIN = 0.5
+#: A held teammate unfitted this long may give its place to a fit with no
+#: prior when the roster is full (0.2.0).
+STALE_MS = 3000.0
 #: Surprise explanations: a spawn this close to the round's start, a
 #: reacquired track lost this recently, an ally cast this recently.
 SPAWN_MS = 3000.0
@@ -744,7 +751,7 @@ def _emerge(c, mem, fx, fy, fe, fk, used, t, fidx, S, win, crop, crowd_d, r_out,
         tr = mem[i_]
         en = tr.entry
         ent = S.ent_ids[int(fe[jj])]
-        ambiguous = margin < MARGIN
+        ambiguous = bool(margin < MARGIN)
         ar = Arbiter()
         ar.add(identity_claim(ent, S.agent[int(fe[jj])], channel="round_entity_verdict",
                               observed_at_ms=t,
@@ -862,11 +869,16 @@ def _full_read(S, px, key, tracks, crowds, lost, fx, fy, fe, fk, used, t, fidx, 
 def _reassign(S, tracks, crowds, fx, fy, fe, fk, used, jj, t, fidx, win, crop, r_out,
               emergences) -> bool:
     from reticle.adjudication.identity import AgentIdentityArbiter, identity_claim
-    cand = [tr for tr in tracks if tr.crowd is not None or tr.status in ("predicted", "cover")]
-    if not cand:
-        return False
     x, y = float(fx[jj]), float(fy[jj])
     ag = S.agent[int(fe[jj])]
+    # 0.2.0: the track the stored verdict names, wherever it is held; else a
+    # weak prior; else the stalest track, unfitted for STALE_MS
+    cand = [tr for tr in tracks if ag is not None and tr.name == ag]
+    cand = cand or [tr for tr in tracks
+                    if tr.crowd is not None or tr.status in ("predicted", "cover")]
+    cand = cand or [tr for tr in tracks if t - tr.t_fit >= STALE_MS]
+    if not cand:
+        return False
 
     def where(tr):
         if tr.crowd is not None and tr.crowd in crowds:
@@ -1117,9 +1129,12 @@ def score_riot(sid: str) -> dict:
             c["lost"] += 1
             out_rows.append({"fidx": fidx, "agent": truth_agent, "x": x, "y": y,
                              "ring": i in ring_hit, "stack": i in both_hit})
-        # phantoms: carried tracks with no Riot ally within one radius / the gate
+        # phantoms: carried tracks with no teammate Riot draws at this instant
+        # (the player and this instant's victims included) within r / the gate
+        Tall = [mf.to_px(locs[s_]["location"]["x"], locs[s_]["location"]["y"]) for s_ in locs
+                if ctx["who"][s_]["teamId"] == ctx["team"]]
         for j, rw in enumerate(free):
-            d = min((math.hypot(rw[4] - p[0], rw[5] - p[1]) for p in Tp), default=math.inf)
+            d = min((math.hypot(rw[4] - p[0], rw[5] - p[1]) for p in Tall), default=math.inf)
             c["tracks_at_kills"] += 1
             c["phantom_r"] += int(d > r_icon)
             c["phantom_gate"] += int(d > gate)
@@ -1179,6 +1194,7 @@ def score_replay(sid: str) -> dict:
     X, Y = v1.truth_px(ctx, t)
     me = ctx["allies"].index(ctx["me"]) if ctx["me"] in ctx["allies"] else None
     me_dead = ~np.isfinite(X[:, me]) if me is not None else np.zeros(t.size, bool)
+    Xa, Ya = X.copy(), Y.copy()                  # every drawn teammate, the player too
     if me is not None:
         X[:, me] = np.nan
         Y[:, me] = np.nan
@@ -1222,8 +1238,10 @@ def score_replay(sid: str) -> dict:
             c["crowd_strict"] += int(strict)
             c["crowd_within_r"] += int(near)
             c["lost"] += int(not near)
+        la = np.flatnonzero(np.isfinite(Xa[q]))
         for rw in free:
-            d = min((math.hypot(rw[4] - p[0], rw[5] - p[1]) for p in Tp), default=math.inf)
+            d = min((math.hypot(rw[4] - Xa[q, j], rw[5] - Ya[q, j]) for j in la),
+                    default=math.inf)
             c["track_frames"] += 1
             c["phantom_r"] += int(d > r_icon)
             c["phantom_gate"] += int(d > gate)

@@ -1562,6 +1562,8 @@ def price(sid: str, blob_us: float) -> dict:
 
 
 def _default(o):
+    if isinstance(o, np.bool_):
+        return bool(o)
     if isinstance(o, (np.integer,)):
         return int(o)
     if isinstance(o, (np.floating,)):
