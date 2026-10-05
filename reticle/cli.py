@@ -1633,6 +1633,7 @@ def cmd_scan(args) -> int:
             if not R.pr.rows:
                 raise SystemExit("decoded zero frames -- is the file readable?")
             _write_l1(out, R.pr.rows, _FP(src, sid), profile.name, date)
+        if hp is not None:
             if not hp.rows:
                 raise SystemExit("decoded zero frames -- is the file readable?")
             path = out.write_hud(hp.rows, _FP(src, sid), profile.name, date)
