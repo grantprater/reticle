@@ -4115,8 +4115,8 @@ def cmd_smokes(args) -> int:
     if dead is not None:
         h = dead[0]
         print(f"{sid}: {h['casts']} Ruse casts while dead ({h['clouds']} clouds) over "
-              f"{h['windows']} dead windows, {h['refused']} beyond the charge bound "
-              f"-> {dead[1]}")
+              f"{h['windows']} dead windows, {h['refused']} beyond the charge bound, "
+              f"by basis {h['bases']} -> {dead[1]}")
     return 0
 
 
@@ -4143,6 +4143,7 @@ def _dead_ruse(store, sid: str, owner_rows: list[dict], player: str | None):
             "casts": sum(r["player_cast"] for r in got["rows"]),
             "clouds": sum(r["clouds"] for r in got["rows"] if r["player_cast"]),
             "refused": sum(not r["player_cast"] for r in got["rows"]),
+            "bases": dict(sorted(Counter(r["basis"] for r in got["rows"]).items())),
             "dead_windows": got["windows"], "parameters": params,
             "inputs": {**stamps, "smoke_owner": owner_rows[0].get("smoke_owner_version"),
                        "ability_state": (state[0].get("ability_state_version")
@@ -4203,6 +4204,61 @@ def _smoke_owners(store, sid: str, smoke_rows: list[dict], hz: float) -> dict:
     out = store.write_events("smoke_owner", sid, res["rows"])
     store.write_events("smoke_owner_identity", sid, res["events"])
     return {**res, "out": out}
+
+
+def cmd_ability_glyphs(args) -> int:
+    """The minimap ability-disc tracks (`adjudication.ability.disc_tracks`),
+    the glyph verdict on each and the claim on its caster
+    (`adjudication.ability_glyph`), from the stored `ability_glyph` and
+    `ability_icon` rows, the stored tray kit and the lineup. Writes
+    `ability_disc_track`, `ability_glyph_name` and `ability_glyph_identity`.
+    Decodes no video."""
+    import time
+
+    from .adjudication.ability_glyph import (VerdictTables, adjudicate, load_glyph_rows,
+                                             load_icon_verify, stale_reason)
+    from .adjudication.tray_kit import stored_kit_witness
+    from .adjudication.ult_cast import player_agent
+    from .lineup import load_lineup
+
+    t0 = time.perf_counter()
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    path = store.events_path("ability_glyph", sid)
+    if not path.is_file():
+        raise SystemExit(f"{sid}: no ability_glyph rows -- run `reticle scan {sid} --only ability --from cache`")
+    with open(path, "rb") as fh:
+        head = json.loads(fh.readline() or b"{}")
+    why = stale_reason(head)
+    if why:
+        raise SystemExit(f"{sid}: {why} -- run `reticle scan {sid} --only ability --from cache` "
+                         f"before trusting a verdict")
+    tables = VerdictTables.load(store.root)
+    glyph = load_glyph_rows(path, tables.keys)
+    verify = load_icon_verify(store.events_path("ability_icon", sid))
+    lineup = load_lineup(sid, store.root)
+    player = player_agent(lineup, sid)
+    kit = stored_kit_witness(store.read_events("tray_kit", sid), agent=player)
+    res = adjudicate(sid, glyph, verify, tables, lineup,
+                     kit["spans"] if kit["reason"] is None else None, player,
+                     kit_reason=kit["reason"],
+                     stamps={"tray_kit": kit["version"]} if kit.get("version") else None)
+    cov, tcov = res["rows"][0], res["tracks"][0]
+    cov["wall_s_command"] = round(time.perf_counter() - t0, 3)
+    print(f"{sid}: {tcov['tracks']} tracks (ends {tcov['ends']}, {tcov['jumps']} with a jump); "
+          f"{cov['with_clean_sample']} with a clean sample: {cov['named']} named, {cov['pending']} "
+          f"pending, {cov['agents_named']} casters named; refused {cov['refused']}; audit "
+          f"{cov['audit']['named']} of {cov['audit']['tracks']} named, {cov['audit']['agree_with_context']} "
+          f"agree; {cov['wall_s_command']} s")
+    if args.dry:
+        return 0
+    _record_inputs(store, sid, "ability_disc_track", tcov)
+    _record_inputs(store, sid, "ability_glyph_name", cov)
+    p1 = store.write_events("ability_disc_track", sid, res["tracks"])
+    p2 = store.write_events("ability_glyph_name", sid, res["rows"])
+    p3 = store.write_events("ability_glyph_identity", sid, res["events"])
+    print(f"-> {p1}\n-> {p2}\n-> {p3}")
+    return 0
 
 
 def _cache_grid(t_ms, t0: float, t1: float, step_s: float) -> list[float]:
@@ -6385,6 +6441,13 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("smokes", help="smoke tracks and who cast them, from stored minimap_dark rows (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_smokes)
+
+    s = sub.add_parser("ability-glyphs", help="minimap ability-disc tracks, the glyph verdict on each and "
+                                              "the claim on its caster, from stored ability_glyph rows "
+                                              "(no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--dry", action="store_true", help="print the verdict; write no stream")
+    s.set_defaults(func=cmd_ability_glyphs)
 
     s = sub.add_parser("menu", help="whether the game's menu covers the HUD, from stored crops (no video)")
     s.add_argument("session", nargs="?")

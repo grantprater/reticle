@@ -1316,7 +1316,8 @@ produces = ["build_timeline", "write_timeline", "player_tray_casts", "stored_gat
             "kit_windows", "round_window_of", "audio_session", "audio_cast_witness",
             "AUDIO_GATE_DIR", "KIT_REFUSALS", "tray_object_labels", "TRAY_OBJECT_DIR",
             "TRAY_OBJECT_CORRECTIONS_DIR", "CORRECTED_FIELDS", "dead_ruse_casts",
-            "held_at_deaths", "ruse_parameters", "DEAD_RUSE", "DEAD_RUSE_VERSION", "RESTOCK_FACT"]
+            "held_at_deaths", "ruse_parameters", "DEAD_RUSE", "DEAD_RUSE_VERSION", "RESTOCK_FACT",
+            "DEAD_CAP_FACT", "DEAD_RUSE_BASES"]
 not_for = """
 A pixel detector result. A cast claim is temporal evidence from the tray and
 audio; it does not locate the ability's entity in the world, and the audio and
@@ -1745,9 +1746,10 @@ not_for = """
 Inference from the tray alone. Cast order, roster, audio, killfeed ability icons
 and owner-death linkage are candidate witnesses; the killfeed icon is biased
 toward damaging abilities and represents no smoke, wall or recon use. A
-minimap smoke's caster is `smoke-owner`'s question.
+minimap smoke's caster is `smoke-owner`'s question. A minimap glyph track's
+claim (`ability-glyph-name`) is its first witness, not its answer.
 """
-blocked_by = "agent-identity, plus an ability entity to attribute."
+blocked_by = "agent-identity, plus the ability_icon lane that carries the glyph tracks as entities (docs/MINIMAP_GLYPH_CHANNEL.md stage 4)."
 
 [[entry]]
 id = "ability-detection"
@@ -1859,6 +1861,48 @@ set beyond the lineup's verdicts, which it takes as a candidate set only
 """
 consumers = ["cli", "trial"]
 evidence = "tests/test_minimap_glyph.py; reticle trial --reader ability_glyph; docs/MINIMAP_GLYPH_CHANNEL.md stage 2"
+
+[[entry]]
+id = "ability-disc-track"
+question = "Which stored minimap ability-disc observations are one object, from birth to loss?"
+owner = "adjudication.ability"
+role = ["group"]
+status = "partial"
+produces = ["disc_tracks", "JUMP_REACH_BASE", "FIRST_SECOND_MS", "TRACK_ENDS"]
+not_for = """
+Reading pixels: the follow's fixes and the verify that links them are the
+proposer's and the reader's (`ability-icon`, `ability-glyph`); a track adds no
+reach of its own, so a step past the jump reach is a stored surprise, never a
+split or a join. Naming the ability or its caster (`ability-glyph-name`,
+`agent-identity`). Lifecycle phases (`ability-phase`): a track's end says why
+the verify stopped holding it, not that the ability ended.
+"""
+consumers = ["adjudication.ability_glyph"]
+evidence = "tests/test_ability_glyph_name.py; reticle ability-glyphs; docs/MINIMAP_GLYPH_CHANNEL.md stage 3"
+
+[[entry]]
+id = "ability-glyph-name"
+question = "Which ability does a tracked minimap disc draw, in which texture state, and whose kit holds it?"
+owner = "adjudication.ability_glyph"
+role = ["adjudicate", "attribute"]
+status = "partial"
+names_agents = true
+produces = ["adjudicate", "VerdictTables", "load_glyph_rows", "load_icon_verify", "frame_views",
+            "stale_reason", "CHANNEL", "AUDIT_CHANNEL", "AUDIT_NULL_HOLDS", "ASTRA_STAR",
+            "OMEN_RULE_REFUSAL", "REFUSALS", "STATES_TABLE", "player_drawing", "icon_ruled_out",
+            "load_drawing_answers", "DRAWING_ANSWERS", "NO_ICON", "OTHER_NO_ICON", "NOT_DRAWN"]
+defers_to = ["agent-identity", "tray-kit", "ability-disc-track", "ability-glyph"]
+not_for = """
+Deciding the caster's name, which the aggregator decides from the claim
+(`agent-identity`); binding the ability to a player track (`ability-owner`);
+a lifecycle phase without the ability's lifecycle fact; the slot an Astra star
+turns into; a threshold the null table does not give. Scoring textures
+(`ability-glyph`) or joining discs (`ability-disc-track`). The view is the
+stored tray kit's (`tray-kit`), and the portrait and map gates are the
+reader's stored answers; it reruns none of them.
+"""
+consumers = ["cli"]
+evidence = "tests/test_ability_glyph_name.py; reticle ability-glyphs; docs/MINIMAP_GLYPH_CHANNEL.md stage 3"
 
 
 [[entry]]
