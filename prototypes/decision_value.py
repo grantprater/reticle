@@ -142,21 +142,29 @@ def held_out_ids() -> set:
 
 
 class Dev:
-    """The development set as padded per-round kill arrays (round, kill, slot)."""
+    """The development set as padded per-round kill arrays (round, kill, slot).
 
-    def __init__(self):
+    `records` (Riot-shaped, keyed by a match key) and `me` (key -> the
+    player's subject) replace the 22 captured records and their player
+    identification; `prototypes/engagement_reach.py` passes the player's
+    HenrikDev history this way."""
+
+    def __init__(self, records: dict | None = None, me: dict | None = None):
         self.ref = rgt.Reference(STORE / "external" / "valorant-api", fetch=False)
-        records = rgt.riot_records(STORE)
+        records = rgt.riot_records(STORE) if records is None else records
         held = held_out_ids()
         self.held_excluded = sorted(s for s, d in records.items() if d["match"]["matchInfo"]["matchId"] in held)
         self.records = {s: d for s, d in records.items() if s not in self.held_excluded}
-        ident = rgt.identify_player(self.records, STORE)
+        ident = rgt.identify_player(self.records, STORE) if me is None else {}
         sites = wr.site_centres(self.ref)
         self.why = Counter()
         rounds = []
         self.me, self.basis = {}, {}
         for sid, d in sorted(self.records.items()):
-            idn = rgt.resolve_lineup_player(d, ident.get(sid, {}), self.ref)
+            if me is None:
+                idn = rgt.resolve_lineup_player(d, ident.get(sid, {}), self.ref)
+            else:
+                idn = {"subject": me.get(sid), "basis": "owner_flag"}
             self.me[sid], self.basis[sid] = idn.get("subject"), idn.get("basis")
             rs, w = wr.match_rounds(sid, d, self.ref, sites)
             rounds += [r for r in rs if r.get("admitted")]
@@ -739,16 +747,21 @@ class Fights:
         return np.column_stack(cols), pen
 
 
-def reach_features(F: Fights, P=None) -> dict:
+def reach_features(F: Fights, P=None, loader=None, graphs=GRAPHS) -> dict:
     """Per side, the other players' reach measures: walk metres to the nearest
     cell seeing the opposing duelist, region adjacency, and distance to the
-    own duelist. Returns arrays (F, 10) with inf / False where no player."""
+    own duelist. Returns arrays (F, 10) with inf / False where no player.
+    `loader(map)` gives the map's table (default `sightlines.load`); a map
+    it returns None for keeps inf / False."""
     P = F.P if P is None else P
+    loader = sl.load if loader is None else loader
     out = {side: {"reach": np.full((F.n, SLOTS), np.inf), "eu": np.full((F.n, SLOTS), np.inf),
                   "node_callout": np.zeros((F.n, SLOTS), bool), "node_sight": np.zeros((F.n, SLOTS), bool)}
            for side in ("att", "def")}
     for mname in np.unique(F.map):
-        S = sl.load(mname)
+        S = loader(mname)
+        if S is None:
+            continue
         fm = np.flatnonzero(F.map == mname)
         for side, other in (("att", "def"), ("def", "att")):
             ds = F.duel[side][fm]
@@ -769,7 +782,7 @@ def reach_features(F: Fights, P=None) -> dict:
             o = out[side]
             o["reach"][fm[fi], sj] = rch
             o["eu"][fm[fi], sj] = np.linalg.norm(pts - pS[fi], axis=1) / sl.UNITS_PER_M
-            for g in GRAPHS:
+            for g in graphs:
                 o[f"node_{g}"][fm[fi], sj] = S.near_region(g, cp, cS[fi]) | S.near_region(g, cp, cO[fi])
     return out
 
@@ -886,9 +899,13 @@ def reach(args) -> dict:
     return res
 
 
-def plant_model(dev: Dev, args) -> dict:
-    """Round winner at the plant: alive counts and plant time, plus reach to
-    the spike's sightlines and the defenders' mean path distance."""
+def plant_features(dev: Dev, loader=None) -> dict:
+    """Per planted round with `plantPlayerLocations`: alive counts and plant
+    time at the plant, the winner, and each listed player's walk metres to a
+    cell that sees the spike (`reach_m`) and path metres to the spike's cell
+    (`path_m`), with `is_att` and `present` masks (n, 10). Maps the loader
+    returns None for keep inf."""
+    loader = sl.load if loader is None else loader
     rows = []
     for ri, rd in enumerate(dev.rounds):
         if rd["planted_at"] is None:
@@ -911,25 +928,48 @@ def plant_model(dev: Dev, args) -> dict:
     path_m = np.full((n, SLOTS), np.inf)
     is_att = np.zeros((n, SLOTS), bool)
     present = np.zeros((n, SLOTS), bool)
+    # flat (planted row, slot, x, y, attacker) of every listed player
+    fj, fs, fxy, fatt = [], [], [], []
+    for j, (r_i, locs, _pl) in enumerate(rows):  # parse: one record's listed players
+        r0 = dev.rounds[r_i]
+        idx = {s_: k for k, s_ in enumerate(dev.subjects[r_i])}
+        for p in locs:
+            if p["subject"] in idx:
+                fj.append(j)
+                fs.append(idx[p["subject"]])
+                fxy.append((p["location"]["x"], p["location"]["y"]))
+                fatt.append(r0["team_of"][p["subject"]] == r0["att_team"])
+    fj, fs = np.array(fj, np.int64), np.array(fs, np.int64)
+    fxy, fatt = np.array(fxy, float).reshape(-1, 2), np.array(fatt, bool)
+    is_att[fj, fs] = fatt
+    present[fj, fs] = True
+    spike_all = np.array([r[2] for r in rows], float).reshape(-1, 2)
     for mname in np.unique(dev.map[ri]):
-        S = sl.load(mname)
+        S = loader(mname)
+        if S is None:
+            continue
         fm = np.flatnonzero(dev.map[ri] == mname)
-        spike = np.array([rows[j][2] for j in fm], float)
-        cs = S.cells(spike)[0]
-        vis = S.vis_near(spike)
-        for jj, j in enumerate(fm):  # per planted round: its listed players
-            r0 = dev.rounds[ri[j]]
-            subs = dev.subjects[ri[j]]
-            pts = [(subs.index(p["subject"]), p["location"]["x"], p["location"]["y"])
-                   for p in rows[j][1] if p["subject"] in subs]
-            if not pts:
-                continue
-            sj = np.array([p[0] for p in pts])
-            cp = S.cells(np.array([p[1:] for p in pts], float))[0]
-            reach_m[j, sj] = S.reach_m(cp, np.repeat(vis[jj][None, :], len(cp), 0))
-            path_m[j, sj] = S.dist_m(cp, np.full(len(cp), cs[jj]))
-            is_att[j, sj] = [r0["team_of"][subs[k]] == r0["att_team"] for k in sj]
-            present[j, sj] = True
+        cs = S.cells(spike_all[fm])[0]
+        vis = S.vis_near(spike_all[fm])
+        local = np.full(n, -1, np.int64)
+        local[fm] = np.arange(len(fm))
+        k = np.flatnonzero(local[fj] >= 0)
+        cp = S.cells(fxy[k])[0]
+        li = local[fj[k]]
+        for b0 in range(0, len(k), 1024):
+            b = slice(b0, b0 + 1024)
+            reach_m[fj[k[b]], fs[k[b]]] = S.reach_m(cp[b], vis[li[b]])
+        path_m[fj[k], fs[k]] = S.dist_m(cp, cs[li])
+    return {"ri": ri, "n": n, "a": a, "d": d, "tp": tp, "y": y, "sid": sid, "map": dev.map[ri],
+            "reach_m": reach_m, "path_m": path_m, "is_att": is_att, "present": present}
+
+
+def plant_model(dev: Dev, args) -> dict:
+    """Round winner at the plant: alive counts and plant time, plus reach to
+    the spike's sightlines and the defenders' mean path distance."""
+    pf = plant_features(dev)
+    n, a, d, tp, y, sid = pf["n"], pf["a"], pf["d"], pf["tp"], pf["y"], pf["sid"]
+    reach_m, path_m, is_att, present = pf["reach_m"], pf["path_m"], pf["is_att"], pf["present"]
     deff = present & ~is_att
     md = np.where(deff, np.minimum(path_m, 150.0), 0.0).sum(1) / np.maximum(deff.sum(1), 1)
     base = [np.ones(n), (a - d) / 5.0, (a - d) / np.maximum(a + d, 1.0), tp / 100.0]

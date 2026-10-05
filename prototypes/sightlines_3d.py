@@ -486,6 +486,42 @@ def floors(caster: Caster, xy: np.ndarray, top: float = TOP_CM) -> tuple[np.ndar
 
 # ------------------------------------------------------------------ grid and table
 
+def walk_edges(cxy: np.ndarray, cz: np.ndarray, ix: np.ndarray, iy: np.ndarray, lay: np.ndarray,
+               shape: tuple[int, int], pawn: Caster) -> tuple[np.ndarray, np.ndarray]:
+    """Walk-graph edges (r, c), r < c in neighbour order, between standable cells.
+
+    Cell k stands at grid column (ix[k], iy[k]) of a `shape` grid, on layer
+    lay[k] at height cz[k]. It links to a cell in each of the 8 neighbouring
+    columns whose floor differs by at most JUMP_CM, unless a pawn blocker
+    crosses the line 60 cm above the two floors (an invisible wall, a railing).
+    """
+    n = len(cz)
+    key = (ix.astype(np.int64) * shape[1] + iy) * MAX_LAYERS + lay
+    order = np.argsort(key)
+    skey = key[order]
+    rows, cols = [], []
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            if (dx, dy) <= (0, 0):
+                continue
+            jx, jy = ix + dx, iy + dy
+            okc = (jx >= 0) & (jx < shape[0]) & (jy >= 0) & (jy < shape[1])
+            for L in range(MAX_LAYERS):
+                k2 = (jx.astype(np.int64) * shape[1] + jy) * MAX_LAYERS + L
+                pos = np.clip(np.searchsorted(skey, k2), 0, n - 1)
+                found = okc & (skey[pos] == k2)
+                j = order[pos]
+                good = found & (np.abs(cz[j] - cz) <= JUMP_CM)
+                rows.append(np.flatnonzero(good))
+                cols.append(j[good])
+    r = np.concatenate(rows)
+    c = np.concatenate(cols)
+    a3 = np.column_stack([cxy[r], cz[r] + 60.0])
+    b3 = np.column_stack([cxy[c], cz[c] + 60.0])
+    walk = ~pawn.occluded(a3, b3)
+    return r[walk], c[walk]
+
+
 def grid_cells(pawn: Caster, lo: np.ndarray, hi: np.ndarray, step: float = GRID_CM) -> dict:
     """Standable cells on a `step` grid inside [lo, hi] and the caster's region.
 
@@ -504,31 +540,7 @@ def grid_cells(pawn: Caster, lo: np.ndarray, hi: np.ndarray, step: float = GRID_
     cz = z[col, lay]
     ix, iy = np.unravel_index(col, gx.shape)
     n = len(cz)
-    key = (ix.astype(np.int64) * gx.shape[1] + iy) * MAX_LAYERS + lay
-    order = np.argsort(key)
-    skey = key[order]
-    rows, cols = [], []
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            if (dx, dy) <= (0, 0):
-                continue
-            jx, jy = ix + dx, iy + dy
-            okc = (jx >= 0) & (jx < gx.shape[0]) & (jy >= 0) & (jy < gx.shape[1])
-            for L in range(MAX_LAYERS):
-                k2 = (jx.astype(np.int64) * gx.shape[1] + jy) * MAX_LAYERS + L
-                pos = np.clip(np.searchsorted(skey, k2), 0, n - 1)
-                found = okc & (skey[pos] == k2)
-                j = order[pos]
-                good = found & (np.abs(cz[j] - cz) <= JUMP_CM)
-                rows.append(np.flatnonzero(good))
-                cols.append(j[good])
-    r = np.concatenate(rows)
-    c = np.concatenate(cols)
-    # a pawn blocker between two cells (an invisible wall, a railing) cuts the edge
-    a3 = np.column_stack([xy[col[r]], cz[r] + 60.0])
-    b3 = np.column_stack([xy[col[c]], cz[c] + 60.0])
-    walk = ~pawn.occluded(a3, b3)
-    r, c = r[walk], c[walk]
+    r, c = walk_edges(xy[col], cz, ix, iy, lay, gx.shape, pawn)
     g = coo_matrix((np.ones(len(r), np.int8), (r, c)), shape=(n, n))
     ncomp, lab = connected_components(g, directed=False)
     sizes = np.bincount(lab)
