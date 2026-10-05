@@ -492,8 +492,8 @@ path = "docs/LADDER_SAMPLE.md"
 kind = "design"
 status = "proposed"
 since = "2026-10-04"
-remains = "The API key, HenrikDev's answer on sampling strangers' matches, the dry run on the player's accounts, and the crawl."
-waits_for = "The player's key and approval of the sample size."
+remains = "HenrikDev's answer on sampling strangers' matches, the third account, and the crawl."
+waits_for = "The player's decision on strangers' match histories and on the sample size."
 
 [[document]]
 path = "docs/REPLAY_KEEPING.md"

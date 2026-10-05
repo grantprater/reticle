@@ -203,7 +203,10 @@ class Backoff(unittest.TestCase):
                                             body([])), body([])])
         cl.get("/x")
         cl.get("/y")
-        self.assertEqual(c.slept[-1], 50)
+        # the reset says 50 s; the ledger charged the call the whole fresh
+        # window (30 units) and waits it out over 60 s, the safer of the two
+        self.assertGreaterEqual(c.slept[-1], 50)
+        self.assertEqual(st.units_total, 30 + 2)
 
 
 class Crawl(unittest.TestCase):
@@ -375,6 +378,186 @@ class Parse(unittest.TestCase):
         self.assertEqual(t["economy"]["spent"].to_pylist(), [800] * 10)
         self.assertEqual(t["positions"].num_rows, 10)
         self.assertEqual(t["rounds"]["plant_site"][0].as_py(), "B")
+
+
+def rl(limit, remaining, reset):
+    return {"X-RateLimit-Limit": str(limit),
+            "X-RateLimit-Remaining": str(remaining),
+            "X-RateLimit-Reset": str(reset)}
+
+
+class Quota(unittest.TestCase):
+    """Units, not calls: the remaining quota never planned below half."""
+
+    def test_reserve_is_half_the_limit(self):
+        p = lf.Politeness()
+        self.assertEqual((p.limit, p.per_min, p.reserve), (30, 15, 15))
+
+    def test_waits_for_the_window_when_reserve_would_break(self):
+        ten = body([match(i, list(range(1, 11))) for i in range(10)])
+        cl, op, c, st = client([lf.Response(200, rl(30, 18, 40), ten),
+                                lf.Response(200, rl(30, 18, 60), ten)])
+        cl.get("/x", n_matches=10)          # predicted 2 + 10 = 12
+        self.assertEqual(cl.last["units"], 12)
+        self.assertEqual(cl.last["units_basis"], "fresh_window")
+        self.assertEqual(st.units_per_match_max, 1.0)
+        cl.get("/y", n_matches=10)
+        # 18 - 12 < 15 holds the call to the reset (41 s); 12 + 12 > 15
+        # units in one minute holds it to 60 s after the first: the later wins
+        self.assertAlmostEqual(c.slept[-1], 60.01)
+        self.assertEqual(st.units_total, 24)
+
+    def test_cost_is_the_drop_in_remaining(self):
+        cl, op, c, st = client([lf.Response(200, rl(30, 29, 50), body([])),
+                                lf.Response(200, rl(30, 27, 46), body([]))])
+        cl.get("/x")
+        cl.get("/y")
+        self.assertEqual(cl.last["units"], 2)
+        self.assertEqual(cl.last["units_basis"], "remaining_drop")
+        self.assertEqual(st.units_total, 3)
+        self.assertEqual(st.units_unmeasured, 0)
+
+    def test_ledger_keeps_a_minute_within_budget(self):
+        c = Clock()
+        lim = lf.Limiter(4.0, c.sleep, c, limit=30, reserve=15)
+        for _ in range(3):                 # no headers: the ledger paces
+            lim.wait(6)
+            lim.observe({}, c.t, 6)
+        # 6 + 6 fit in 15; the third 6 waits until the first leaves the minute
+        self.assertAlmostEqual(c.t, 60.01, places=2)
+
+    def test_a_call_over_the_budget_stops(self):
+        c = Clock()
+        lim = lf.Limiter(4.0, c.sleep, c, limit=30, reserve=15)
+        with self.assertRaises(lf.Stop):
+            lim.wait(16)
+
+    def test_unit_caps_stop_before_sending(self):
+        st = lf.State(units_total=99)
+        cl, op, c, _ = client([body([])], state=st, total_unit_cap=100)
+        with self.assertRaises(lf.Stop):
+            cl.get("/x")                   # predicted 2 > 1 left
+        self.assertEqual(op.calls, [])
+        st = lf.State(units_by_day={lf.today(): 50})
+        cl, op, c, _ = client([body([])], state=st, daily_unit_cap=51)
+        with self.assertRaises(lf.Stop):
+            cl.get("/x")
+        self.assertEqual(op.calls, [])
+
+    def test_recent_previous_run_waits_its_minute(self):
+        st = lf.State(last_call_epoch=1000.0)
+        c = Clock()
+        op = Opener([body([])], c)
+        cl = lf.Client(KEY, st, lf.Politeness(), op, c.sleep, c,
+                       epoch=lambda: 1030.0)
+        cl.get("/x")
+        self.assertAlmostEqual(c.slept[0], 31.0)
+
+    def test_fit_size(self):
+        cl, *_ = client([])
+        self.assertEqual(lf.fit_size(cl, 20), 13)     # 2 + 13 <= 15
+        cl.state.units_per_match_max = 2.0
+        self.assertEqual(lf.fit_size(cl, 10), 6)      # 2 + 12 <= 15
+
+
+class Key(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.saved = {k: lf.os.environ.pop(k, None)
+                      for k in (lf.KEY_ENV, lf.KEY_ENV_ALT)}
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            if v is not None:
+                lf.os.environ[k] = v
+        self.tmp.cleanup()
+
+    def test_parse_env(self):
+        env = lf.parse_env('# c\nexport A="x y"\nB = \'z\'\nnoise\nC=\n')
+        self.assertEqual(env, {"A": "x y", "B": "z", "C": ""})
+
+    def test_key_from_dotenv_and_main_checkout(self):
+        store = self.root / "store"
+        main = self.root / "main"
+        (main / ".git" / "worktrees" / "w").mkdir(parents=True)
+        (main / ".git" / "worktrees" / "w" / "commondir").write_text("../..")
+        (main / ".env").write_text("HENRIK_API_KEY=HDEV-from-env-file\n")
+        wt = self.root / "wt"
+        wt.mkdir()
+        (wt / ".git").write_text(
+            f"gitdir: {main / '.git' / 'worktrees' / 'w'}\n")
+        self.assertEqual(lf.read_key(store, wt), "HDEV-from-env-file")
+        (wt / ".env").write_text("HENRIK_API_KEY=HDEV-local\n")
+        self.assertEqual(lf.read_key(store, wt), "HDEV-local")
+        lf.os.environ[lf.KEY_ENV] = "HDEV-environ"
+        self.assertEqual(lf.read_key(store, wt), "HDEV-environ")
+
+    def test_no_key(self):
+        self.assertIsNone(lf.read_key(self.root / "s", self.root))
+
+
+class Probe(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.out = Path(self.tmp.name) / "v4"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_brackets_the_depth(self):
+        depth = 30           # matches 0..29 exist
+
+        def reply(url, headers):
+            q = dict(lf.urllib.parse.parse_qsl(url.split("?", 1)[1]))
+            start, size = int(q.get("start", 0)), int(q["size"])
+            ms = [match(100 + i, list(range(1, 11)))
+                  for i in range(start, min(start + size, depth))]
+            return lf.Response(200, {}, body(ms))
+        c = Clock()
+        st = lf.State(since="2026-01-01")
+        cl = lf.Client(KEY, st, lf.Politeness(), reply, c.sleep, c)
+        f = {"puuid": puuid(1), "kind": "owner", "label": "A"}
+        res = lf.probe_history(cl, st, self.out, f, 6, 6, budget=10,
+                               known=set())
+        self.assertEqual(res["deeper_than"], depth)
+        self.assertEqual(res["at_most"], depth)
+        self.assertTrue(res["exact"])
+        # each non-empty probe built one match; all stayed within the budget
+        built = sum(p["n"] for p in res["probes"])
+        self.assertLessEqual(built, 10)
+        kinds = {r["kind"] for r in lf.read_manifest(self.out)}
+        self.assertEqual(kinds, {"probe"})
+
+    def test_short_first_list_is_exact(self):
+        cl, *_ = client([])
+        res = lf.probe_history(cl, cl.state, self.out, {"puuid": "p"}, 6, 4,
+                               10, set())
+        self.assertEqual((res["deeper_than"], res["at_most"]), (4, 4))
+
+
+class Report(unittest.TestCase):
+    def test_measure_v4_and_projection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "v4"
+            st = lf.State(since="2026-01-01")
+            ms = [match(i, list(range(1, 11))) for i in range(3)]
+            cl, op, c, _ = client([lf.Response(200, rl(30, 25, 50),
+                                               body(ms))], state=st)
+            lf.fetch_list(cl, st, out, puuid(1), 3)
+            res = lf.measure_v4(out, Path(tmp) / "t", b"0" * 16, set(), set())
+            self.assertEqual(res["matches"], 3)
+            self.assertEqual(res["units"], 5)
+            # no empty call measured: a base of one unit
+            self.assertAlmostEqual(res["units_per_record"], 4 / 3)
+            self.assertEqual(res["kill_positions_per_kill"], 3.0)
+            pj = lf.projection(res, lf.Politeness(), units_per_record=1.0,
+                               base_units=2.0, size=10, ns=(900,))[0]
+            # low: 9 new a list, (2 + 9) / 9 a match; high: 5 new,
+            # (2 + 10) / 5 a match
+            self.assertEqual(pj["units"], [1100, 2160])
+            self.assertEqual(pj["calls"], [100, 180])
+            self.assertEqual(pj["hours_at_polite_rate"], [1.2, 2.4])
 
 
 if __name__ == "__main__":
