@@ -104,8 +104,8 @@ channel; and without audio_others) of that cell up to 60 s and 10 s before,
 the share either explains, and the CHANCE FLOOR: the kills a random
 placement of the cell's audio detections would explain
 (1 - exp(-n x lookback / live seconds) per kill). The assist panel's ability
-icons of other players: the share with a cast witness before them, with the
-same floor.
+icons [domain:killfeed/assist-panel] of other players: the share with a cast
+witness before them, with the same floor.
 
 Outputs: `<store>/analysis/ability-xchannel-20261005/report.json` and ledger
 rows `ability_xchannel/*`. Decodes nothing; writes no stream. Nothing in

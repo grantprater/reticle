@@ -921,7 +921,7 @@ assists; `smoke_owner` rows exist on 4 matches, `ability_fit` and
 `ability_wall` on 5, `ability_icon` (unnamed discs, no witness) on 5,
 `enemy_track` on 3. The replay match holds none of the minimap streams, so
 it scores four channels: audio_others, `ult_cast`, the killfeed and the
-assist panel.
+assist panel [domain:killfeed/assist-panel].
 
 **Per channel on the replay.** Audio_others pairs
 [metric:ability_xchannel/replay@9acf02f98283#audio_others.paired=138] of
