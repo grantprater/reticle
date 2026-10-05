@@ -575,7 +575,12 @@ ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
 # halves), with both samples' half classes as evidence; the tray is drawn
 # where every C, Q and E half reads as a bar class under read slot icons
 # (`tray.drawn_mask`), so a drop onto an all-spent tray is not `forced`.
-TRAY_VERSION = "tray-0.2.0"
+# 0.3.0 (2026-10-05): a gold-only drop fires only on a second channel's
+# witness (`tray.gold_witness`): the restock countdown restarting or
+# appearing over the slot, or its icon lit on the gold sample and dimming
+# after; the refused ones are stored as `unwitnessed_drop` rows. Teal drops
+# are unchanged.
+TRAY_VERSION = "tray-0.3.0"
 # The tray's teal fill per slot (`tray.slot_counts`, `fills`) and the
 # fill-only drawn test, which `tray-kit` and `ability-state` record as
 # `tray_fill`. It was stamped TRAY_VERSION until tray-0.2.0 changed the drops

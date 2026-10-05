@@ -92,13 +92,13 @@ Which of their abilities count is a fact per agent
 The tray draws a charge that comes back during the round gold, not teal, on
 Recon Bolt and Guiding Light [domain:hud/ability-tray-restocked-charge-gold],
 and gold was also seen on Jett's Tailwind, Phoenix's Curveball, Clove's
-Meddle and Ruse and Skye's Regrowth [domain:hud/ability-tray-gold-on-other-kits].
-What does gold mean, against teal: a charge that came back by itself, one
-bought, one returned on kills, or something else, and does it differ per
-ability? Why did Skye's Regrowth bar turn gold (bfad2778a372 teal at 1963.0 s
-and gold at 2012.5 s), and what does a gold Regrowth bar going empty spend
-(b7d24102a6f6 375.1 s, e37fdeca944f 1714.0 s)? When does a gold segment turn
-teal again? A white numeral above a slot counts down to Recon Bolt's and
+Ruse and Skye's Regrowth [domain:hud/ability-tray-gold-on-other-kits]. The
+player reads gold as a charge present on a slot partly spent or recharged
+[domain:hud/ability-tray-gold-charge-meaning], and a Phoenix blind can turn a
+bar gold [domain:hud/ability-tray-gold-under-a-blind]. What recharges each of
+these abilities: time, kills, or something else? What does a gold Regrowth
+bar going empty spend (b7d24102a6f6 375.1 s, e37fdeca944f 1714.0 s)? When
+does a gold segment turn teal again? A white numeral above a slot counts down to Recon Bolt's and
 Guiding Light's return [domain:hud/ability-tray-restock-countdown]; numerals
 also showed over Skye's Q ('100', '30'), over a slot C counting down from
 '60' (223d636bf8d2 248.5 s) and over a slot Q from '14' (5822b6646448 419.6 s)

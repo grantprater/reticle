@@ -4106,6 +4106,40 @@ def _tray_icon_witness(cache, store_root, ts, counts, clean, segs) -> tuple:
     return icons, ask, stamp
 
 
+def _gold_witness(cache, ts, counts, clean, real, segs, icons, reads) -> tuple:
+    """(witness, unwitnessed): each gold-only drop (`tray.gold_candidates`)
+    judged by `tray.gold_witness` against the countdown reads of this pass and
+    the slot icons' brightness (`tray_icons.slot_brightness`), read only on
+    the candidate's gold sample and the samples up to `tray.WITNESS_AFTER_S`
+    after it. `witness` is keyed by `(t_ms, slot)` for `tray.drops`; each
+    witness stores the brightness it read (`icon_samples`, [t_ms, value] of
+    the drop's slot), so the verdict reruns from the stored row.
+    `unwitnessed` holds the refused candidates with their witness."""
+    from . import tray, tray_icons
+    cands = tray.gold_candidates(ts, np.asarray(counts, float), np.asarray(clean, bool),
+                                 np.asarray(segs), icons)
+    if not cands:
+        return {}, []
+    grid = np.asarray(ts, float)[np.asarray(real, bool)]
+    span = 1000.0 * tray.WITNESS_AFTER_S
+    times = [sorted({c["t_gold_ms"], *grid[(grid >= c["t_ms"]) & (grid <= c["t_ms"] + span)].tolist()})
+             for c in cands]
+    bright = {}
+    for smp in cache.samples(sorted(set().union(*map(set, times))), rois=["hud_abilities"]):
+        bright[float(smp.t_ms)] = [round(float(v), 1)
+                                   for v in tray_icons.slot_brightness(smp.frame)]
+    witness, unwitnessed = {}, []
+    for c, tt in zip(cands, times):
+        k = tray.SLOT_KEYS.index(c["slot"])
+        icon = {t: bright[t] for t in tt if t in bright}
+        w = {**tray.gold_witness(c, reads, icon),
+             "icon_samples": [[t, v[k]] for t, v in sorted(icon.items())]}
+        witness[(c["t_ms"], c["slot"])] = w
+        if not w["witnessed"]:
+            unwitnessed.append({**c, "witness": w})
+    return witness, unwitnessed
+
+
 def cmd_menu(args) -> int:
     """Whether the game's menu covers the HUD, per sample of the stored crops
     (`menu`): the tab strip in the `hud` cache, the CLOSE SETTINGS button in
@@ -4192,9 +4226,11 @@ def cmd_tray(args) -> int:
             ts, counts, clean, real, segs, reads = _tray_samples(
                 cache, args.step, segments=True, countdown=True, countdown_font=font)
         icons, asked, icon_stamp = _tray_icon_witness(cache, store.root, ts, counts, clean, segs)
+        with usage_step("gold_witness"):
+            witness, unwitnessed = _gold_witness(cache, ts, counts, clean, real, segs, icons, reads)
         with usage_step("drops"):
             drops = tray.drops(ts, np.asarray(counts, float), np.asarray(clean, bool),
-                               np.asarray(segs), icons)
+                               np.asarray(segs), icons, witness)
         date = _date_of(man)
         table = store.read_rounds(sid, date)
         if table is None:
@@ -4241,10 +4277,17 @@ def cmd_tray(args) -> int:
                             "icon_witness": {"asked": int(asked.sum()),
                                              "read": int(icons.sum())},
                             "drops_by": dict(sorted(Counter(
-                                "+".join(r["by"]) for r in drops).items()))})
+                                "+".join(r["by"]) for r in drops).items())),
+                            "gold_only": {"candidates": len(witness),
+                                          "unwitnessed": len(unwitnessed),
+                                          "by": dict(sorted(Counter(
+                                              "+".join(w["by"]) for w in witness.values()
+                                              if w["witnessed"]).items()))}})
         with usage_step("write"):
             _record_inputs(store, sid, "tray_drop", out_rows[0])
             out_rows += [{**common, "kind": "drop", **r} for r in rows]
+            # Gold-only drops no second channel saw: kept, never a drop.
+            out_rows += [{**common, "kind": "unwitnessed_drop", **r} for r in unwitnessed]
             out_rows += [{**common, "tray_segment_version": TRAY_SEGMENT_VERSION, **r}
                          for r in seg_rows]
             out = store.write_events("tray_drop", sid, out_rows)
@@ -4825,8 +4868,13 @@ def cmd_ability_state(args) -> int:
         # The reread must give the stored drops, or the fills are not theirs.
         key = lambda r: tuple(r[k] for k in ("t_ms", "slot", "from", "to", "forced",
                                               "cooccur", "across_gap"))
+        # The gold-only drops' witnesses are read from frames by `reticle
+        # tray`; the reread takes them as stored.
+        witness = {(r["t_ms"], r["slot"]): r["witness"] for r in stored
+                   if r.get("kind") in ("drop", "unwitnessed_drop") and r.get("witness")}
         with usage_step("reread_check"):
-            reread_mismatch = len(set(map(key, tray.drops(ts, counts, clean, segs, icons)))
+            reread_mismatch = len(set(map(key, tray.drops(ts, counts, clean, segs, icons,
+                                                          witness)))
                                   ^ set(map(key, drops)))
         with usage_step("fills"):
             fills = tray.fills(counts, clean)

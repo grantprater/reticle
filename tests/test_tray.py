@@ -202,7 +202,7 @@ class StripCropTest(unittest.TestCase):
 #: Pixel colours read off stored crops (BGR): the teal bar, a returned charge's
 #: gold, the empty bar's grey and a cyan screen streak over a bar.
 SEG_BGR = {"teal": (178, 255, 106), "gold": (181, 225, 245), "empty": (146, 151, 151),
-           "streak": (170, 165, 100)}
+           "streak": (170, 165, 100), "flash": (60, 60, 230)}
 
 
 def _halves(cols) -> np.ndarray:
@@ -271,19 +271,44 @@ def _read(frames):
 class HalfDropTest(unittest.TestCase):
     EMPTY3 = ["empty"] * 6
 
-    def test_spending_a_gold_charge_is_a_drop(self):
+    SEEN = {"witnessed": True, "by": ["icon"]}
+
+    def test_spending_a_gold_charge_is_a_drop_once_witnessed(self):
         # E holds a returned (gold) charge and spends it: the teal fill never
-        # moves, the halves do.
+        # moves, the halves do, and the drop waits on a witness.
         frames = [_drop_frame(["empty"] * 4 + ["gold", "gold"] + ["teal", "teal"])] * 3 \
             + [_drop_frame(self.EMPTY3 + ["teal", "teal"])] * 3
         counts, clean, scores = _read(frames)
         ts = [500.0 * (i + 1) for i in range(len(frames))]
+        icons = np.ones(len(frames), bool)
         self.assertEqual(tray.drops(ts, counts, clean), [])
-        got = tray.drops(ts, counts, clean, scores, np.ones(len(frames), bool))
+        cands = tray.gold_candidates(ts, counts, clean, scores, icons)
+        self.assertEqual([(c["t_ms"], c["slot"], c["t_before_ms"], c["t_gold_ms"]) for c in cands],
+                         [(2000.0, "E", 1500.0, 1500.0)])
+        self.assertEqual(tray.drops(ts, counts, clean, scores, icons), [])
+        self.assertEqual(tray.drops(ts, counts, clean, scores, icons,
+                                    {(2000.0, "E"): {"witnessed": False}}), [])
+        got = tray.drops(ts, counts, clean, scores, icons, {(2000.0, "E"): self.SEEN})
         self.assertEqual([(d["t_ms"], d["slot"], d["by"], d["spent_halves"]) for d in got],
                          [(2000.0, "E", ["halves"], ["gold", "gold"])])
         self.assertEqual(got[0]["halves_from"], ["gold", "gold"])
+        self.assertEqual(got[0]["witness"], self.SEEN)
         self.assertFalse(got[0]["forced"])
+
+    def test_an_unwitnessed_gold_drop_marks_no_other_drop(self):
+        # C's teal fill falls one sample after E's gold goes empty.
+        a = ["teal", "teal", "empty", "empty", "gold", "gold"]
+        b = ["teal", "teal", "empty", "empty", "empty", "empty"]
+        c = ["empty", "empty", "empty", "empty", "empty", "empty"]
+        frames = [_drop_frame(a + ["teal", "teal"])] * 2 + [_drop_frame(b + ["teal", "teal"])] \
+            + [_drop_frame(c + ["teal", "teal"])] * 2
+        counts, clean, scores = _read(frames)
+        ts = [500.0 * (i + 1) for i in range(len(frames))]
+        icons = np.ones(len(frames), bool)
+        alone = tray.drops(ts, counts, clean, scores, icons)
+        self.assertEqual([(d["slot"], d["cooccur"]) for d in alone], [("C", False)])
+        both = tray.drops(ts, counts, clean, scores, icons, {(1500.0, "E"): self.SEEN})
+        self.assertEqual([(d["slot"], d["cooccur"]) for d in both], [("E", True), ("C", True)])
 
     def test_an_all_spent_tray_is_drawn_where_its_icons_read(self):
         # C, Q and E empty and the ult dark: no teal anywhere.
@@ -299,15 +324,20 @@ class HalfDropTest(unittest.TestCase):
         self.assertTrue(tray.drawn(f[0], h[0], True))
 
     def test_a_gold_half_is_held_across_a_streak(self):
-        # The bow glow hides E on the sample before the spend; the gold half
+        # A flash hides E on the sample before the spend; the gold half
         # compares as it last read.
         gold = ["empty"] * 4 + ["gold", "gold"] + ["teal", "teal"]
-        streak = ["empty"] * 4 + ["streak", "streak"] + ["teal", "teal"]
+        streak = ["empty"] * 4 + ["flash", "flash"] + ["teal", "teal"]
         frames = [_drop_frame(gold)] * 2 + [_drop_frame(streak)] \
             + [_drop_frame(self.EMPTY3 + ["teal", "teal"])] * 2
         counts, clean, scores = _read(frames)
         ts = [500.0 * (i + 1) for i in range(len(frames))]
-        got = tray.drops(ts, counts, clean, scores, np.ones(len(frames), bool))
+        icons = np.ones(len(frames), bool)
+        cands = tray.gold_candidates(ts, counts, clean, scores, icons)
+        # The gold last read before the streak: its sample is the witness's.
+        self.assertEqual([(c["t_ms"], c["t_before_ms"], c["t_gold_ms"]) for c in cands],
+                         [(2000.0, 1500.0, 1000.0)])
+        got = tray.drops(ts, counts, clean, scores, icons, {(2000.0, "E"): self.SEEN})
         self.assertEqual([(d["t_ms"], d["slot"], d["halves_from"]) for d in got],
                          [(2000.0, "E", ["gold", "gold"])])
 
@@ -321,6 +351,60 @@ class HalfDropTest(unittest.TestCase):
         self.assertEqual([(d["t_ms"], d["slot"]) for d in plain], [(4000.0, "C")])
         self.assertEqual([{k: d[k] for k in plain[0]} for d in with_halves], plain)
         self.assertEqual(with_halves[0]["by"], ["fill"])
+
+
+
+class GoldWitnessTest(unittest.TestCase):
+    """`tray.gold_witness` on the three judged drops' shapes."""
+    CAND = {"t_ms": 10000.0, "slot": "E", "t_before_ms": 9500.0, "t_gold_ms": 9500.0}
+
+    @staticmethod
+    def _reads(*pairs):
+        return [{"t_ms": t, "slot": "E", "numeral": n, "value_s": None if not n else float(n)}
+                for t, n in pairs]
+
+    @staticmethod
+    def _icon(gold, *after):
+        out = {9500.0: [None, None, gold, None]}
+        out.update({10000.0 + 500.0 * i: [None, None, v, None] for i, v in enumerate(after)})
+        return out
+
+    def test_a_countdown_that_keeps_counting_and_a_dim_icon_refuse(self):
+        # c62c2b06bcfb 216.5 s: an orange weapon over the spent bar.
+        w = tray.gold_witness(self.CAND, self._reads((9000.0, "27"), (9500.0, "26"),
+                                                     (10000.0, "25")), self._icon(109.0, 120.0))
+        self.assertFalse(w["witnessed"])
+        self.assertEqual((w["countdown"], w["icon"]), ("continued", "dim_on_gold"))
+
+    def test_no_numeral_and_a_dim_icon_refuse(self):
+        # a1a995e6b19b 1298.0 s: a yellow wall behind Clove's spent Meddle.
+        w = tray.gold_witness(self.CAND, self._reads((10500.0, "")), self._icon(136.0, 136.0))
+        self.assertFalse(w["witnessed"])
+        self.assertEqual((w["countdown"], w["icon"]), ("no_numeral_after", "dim_on_gold"))
+
+    def test_a_countdown_restarting_witnesses(self):
+        # e37fdeca944f 426.6 s: 0.2, then 49, with a teal charge left.
+        w = tray.gold_witness(self.CAND, self._reads((9000.0, "0.2"), (9500.0, ""),
+                                                     (10500.0, "49")), self._icon(254.0, 254.0))
+        self.assertTrue(w["witnessed"])
+        self.assertEqual((w["by"], w["numeral_before"], w["numeral_after"]),
+                         (["countdown"], "0.2", "49"))
+        self.assertEqual(w["icon"], "stayed_lit")
+
+    def test_a_countdown_appearing_witnesses_unless_a_read_refused(self):
+        reads = self._reads((10000.0, "50"))
+        self.assertEqual(tray.gold_witness(self.CAND, reads, {})["countdown"], "appeared")
+        refused = [{"t_ms": 9500.0, "slot": "E", "numeral": None, "value_s": None}] + reads
+        w = tray.gold_witness(self.CAND, refused, {})
+        self.assertEqual((w["countdown"], w["icon"], w["witnessed"]),
+                         ("unread_before", "unread", False))
+
+    def test_an_icon_lit_on_gold_that_dims_witnesses(self):
+        w = tray.gold_witness(self.CAND, [], self._icon(251.0, 240.0, 191.0, 107.0))
+        self.assertEqual((w["by"], w["icon_on_gold"], w["icon_least_after"]),
+                         (["icon"], 251.0, 107.0))
+        late = tray.gold_witness(self.CAND, [], self._icon(251.0, 240.0, 240.0, 240.0, 240.0, 107.0))
+        self.assertEqual((late["icon"], late["witnessed"]), ("stayed_lit", False))
 
 
 if __name__ == "__main__":

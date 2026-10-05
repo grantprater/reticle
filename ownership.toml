@@ -1292,7 +1292,8 @@ question = "When did a slot of the ability tray lose a charge, and is the readin
 owner = "tray"
 role = ["detect"]
 status = "partial"
-produces = ["slot_counts", "fills", "drawn", "casts", "flag_suspect", "drops"]
+produces = ["slot_counts", "fills", "drawn", "casts", "flag_suspect", "drops", "gold_candidates",
+            "gold_witness"]
 not_for = """
 Whose cast it was. After the player dies the tray shows a spectated teammate's
 kit, so a drop is a transition, not the player's cast; `ability-cast`
@@ -1408,7 +1409,7 @@ owner = "tray_icons"
 role = ["detect"]
 status = "partial"
 produces = ["catalogue", "reference_key", "icon_template", "load_slot_icons", "slot_patches", "match_icon",
-            "slot_scores", "ICON_PX", "ICON_CY", "SHIFT_PX", "SLOT_KEYS"]
+            "slot_scores", "slot_brightness", "ICON_PX", "ICON_CY", "SHIFT_PX", "SLOT_KEYS"]
 not_for = """
 Deciding whose kit the tray shows, or naming anyone: it returns a score per
 agent and slot against any set it is handed, and `tray-kit` chooses the set and

@@ -130,6 +130,20 @@ def slot_patches(frame: np.ndarray, px: int = ICON_PX) -> list[np.ndarray]:
     return out
 
 
+#: The percentile of a slot patch's grey that `slot_brightness` reports.
+BRIGHT_PCT = 95
+
+
+def slot_brightness(frame: np.ndarray) -> np.ndarray:
+    """Each slot icon's brightness (C, Q, E, X): the `BRIGHT_PCT` percentile
+    of its patch's grey (`slot_patches`), 0-255, soft. A lit icon's white
+    core holds more than the top 5% of the patch, so the reading follows the
+    icon's gain, white while the ability is available and dimmed while it is
+    not [domain:hud/tray-slot-icons], and the background only where it
+    outshines a dimmed icon. `tray.gold_witness` cuts it."""
+    return np.array([float(np.percentile(p, BRIGHT_PCT)) for p in slot_patches(frame)])
+
+
 def match_icon(patch: np.ndarray, tpl: np.ndarray) -> tuple[float, tuple[int, int]]:
     """(the best normalised cross-correlation of `tpl` inside `patch`, and the
     template's centre offset from the patch's centre in pixels). A flat patch

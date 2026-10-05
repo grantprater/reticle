@@ -347,10 +347,12 @@ before the bar read empty again. Slot E read one teal and one gold half on
 a06f04a0059f from 120.0 to 122.0 s, and both halves gold on 3694746e4e54
 from 1563.0 s, a spectated kit. On the player's own kits a gold half rose in
 a live phase on Phoenix's Curveball (slot E, 7010b3d62460 1335.0 s) and on
-Clove's Meddle (slot Q, a1a995e6b19b 1297.1 s) and Ruse (slot E, a1a995e6b19b
-1341.5 s and 1893.0 s), and a gold Regrowth bar (Skye, slot C) went empty on
-b7d24102a6f6 at 375.1 s and e37fdeca944f at 1714.0 s. These are observations
-only; what gold means on each of these abilities is not known.
+Clove's Ruse (slot E, a1a995e6b19b 1341.5 s and 1893.0 s), each confirmed by
+eye on the crops, and a gold Regrowth bar (Skye, slot C) went empty on
+b7d24102a6f6 at 375.1 s and e37fdeca944f at 1714.0 s. The player reads gold
+as a charge present on a slot partly spent or recharged
+[domain:hud/ability-tray-gold-charge-meaning]; what makes each of these
+abilities recharge is not known.
 """
 kind = "appearance"
 known = "observed"
@@ -370,7 +372,55 @@ surprise `gold_rise_without_a_restock_fact`. The player's questions are in
 docs/ABILITY_MECHANICS_SHEET.md
 """
 see = ["hud/ability-tray-restocked-charge-gold", "abilities/ability-rules-are-unique",
-       "abilities/skye-regrowth-resource-bar"]
+       "abilities/skye-regrowth-resource-bar", "hud/ability-tray-gold-charge-meaning"]
+
+[ability-tray-gold-charge-meaning]
+claim = """
+A cream (gold) charge segment and a teal one both mean a charge is present.
+Cream marks a slot that has been partly spent, or that has recharged, since
+it was filled; teal marks a charge untouched since then.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-05"
+subject = "hud:ability tray"
+source = """
+the player, reading the tray crops of the tray-gold task (2026-10-05): a
+cream segment looks like a sign of an ability partly spent or recharged
+(paraphrased)
+"""
+use = """
+the tray reader counts a gold half as a charge, and a gold half going empty
+as a candidate drop (`tray.gold_candidates`), which fires only on a second
+channel's witness (`tray.gold_witness`); on the 21 Riot-paired sessions a
+single spend of two teal charges left the other half teal, and every teal
+pair read turning to one gold and one empty half in one sample was a switch
+to another player's kit
+"""
+see = ["hud/ability-tray-restocked-charge-gold", "hud/ability-tray-gold-on-other-kits",
+       "hud/ability-tray-gold-under-a-blind"]
+
+[ability-tray-gold-under-a-blind]
+claim = """
+A Phoenix flash that blinds the player whitens the screen behind the
+translucent tray bar, and a bar seen through it can read gold. Skye's Regrowth
+bar read gold on bfad2778a372 from 1963.0 to 2012.5 s while the player was
+blinded by a Phoenix. That gold is a capture artefact, not a charge colour.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-05"
+subject = "hud:ability tray"
+source = """
+the player (2026-10-05), asked why the Regrowth bar turned gold on
+bfad2778a372 at 1963.0 to 2012.5 s: a Phoenix had blinded them
+"""
+use = """
+a gold reading under a blind is no charge; the tray reader's gold-only drop
+waits on a second channel's witness (`tray.gold_witness`), and the state
+model keeps an unexplained gold change a surprise
+"""
+see = ["hud/ability-tray-gold-charge-meaning", "hud/ability-tray-gold-on-other-kits"]
 
 [ability-tray-restock-countdown-font]
 claim = """
