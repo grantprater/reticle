@@ -82,6 +82,23 @@ GRID2 = np.asarray([(dx, dy, dt) for dx in (-0.25, 0, 0.25) for dy in (-0.25, 0,
                     for dt in (-3.75, 0, 3.75)], np.float32)
 
 
+#: The lattice every pose the search scores lies on: the proposals sit on
+#: whole pixels and multiples of 360 / N_TH degrees, and GRID1 and GRID2
+#: step by quarter pixels and 3.75 degrees, so a refined member stays on it.
+#: `Shape.sprites` reads such a pose from a bank rendered once per shape.
+LAT_PX = 4
+LAT_DEG = 3.75
+#: The bank's facings, in LAT_DEG steps: a member's facing is wrapped into
+#: [0, 360), and the two grids move it at most 18.75 degrees either way.
+#: Each facing keeps its unwrapped value, so the radians are the search's own.
+_A_REACH = int(round((float(np.abs(GRID1[:, 2]).max()) + float(np.abs(GRID2[:, 2]).max()))
+                     / LAT_DEG))
+A_LO, A_HI = -_A_REACH, int(round(360.0 / LAT_DEG)) - 1 + _A_REACH
+assert not (np.mod(np.concatenate([GRID1, GRID2])[:, :2] * LAT_PX, 1.0).any()
+            or np.mod(np.concatenate([GRID1, GRID2])[:, 2] / LAT_DEG, 1.0).any()
+            or (360.0 / N_TH) % LAT_DEG)
+
+
 class Shape:
     """The ally teardrop at one session's map scale."""
 
@@ -95,6 +112,11 @@ class Shape:
         self.r_int = int(round((self.r_in + self.r_out) / 2))
         ca = self.r_out / self.L
         self._ca, self._sa = ca, math.sqrt(max(0.0, 1.0 - ca * ca))
+        #: A sprite's box half-width round its pose's whole pixel: the disc
+        #: ends within `reach` of the pose, and the box keeps one more pixel.
+        self.box = self.reach + 1
+        self._bank = None
+        self._kernels = None
 
     def layers(self, dx, dy, th):
         """Teal coverage `t` (ring and lobe) and disc coverage `o` (the whole
@@ -109,6 +131,89 @@ class Shape:
         o = np.clip(0.5 - d_tear / self.edge, 0.0, 1.0)
         t = np.clip(0.5 - np.maximum(d_tear, self.r_in - rho) / self.edge, 0.0, 1.0)
         return t.astype(np.float32, copy=False), o.astype(np.float32, copy=False)
+
+    def kernels(self) -> list[np.ndarray]:
+        """`proposals`' N_TH teal kernels on the integer offsets within `reach`."""
+        if self._kernels is None:
+            k = self.reach
+            g = np.arange(-k, k + 1, dtype=np.float32)
+            ky, kx = np.meshgrid(g, g, indexing="ij")
+            self._kernels = [self.layers(kx, ky, i * (2 * math.pi / N_TH))[0]
+                             for i in range(N_TH)]
+        return self._kernels
+
+    def _sprite_bank(self):
+        """Every lattice pose's sprite, rendered once: for each facing in
+        [A_LO, A_HI] LAT_DEG steps and each quarter-pixel phase, the box
+        offsets `(dy, dx)` where its disc covers and `t`, `o` there.
+
+        The offsets from a pose's whole pixel are whole numbers less the
+        phase, so each value is the one `layers` gives at that pixel for
+        the pose itself: the same float32 offsets and float32 radians."""
+        if self._bank is not None:
+            return self._bank
+        R = self.box
+        S = 2 * R + 1
+        j = np.arange(-R, R + 1, dtype=np.float32)
+        q = np.arange(LAT_PX, dtype=np.float32) / LAT_PX
+        off = j[None, :] - q[:, None]                  # (phase, S): whole offsets less the phase
+        dx = off[None, None, :, None, :]               # (1, 1, qx, 1, S)
+        dy = off[None, :, None, :, None]               # (1, qy, 1, S, 1)
+        degs = (np.arange(A_LO, A_HI + 1) * LAT_DEG).astype(np.float32)
+        ths = np.deg2rad(degs)
+        ts, os_ = [], []
+        for i in range(0, len(ths), 8):
+            t, o = self.layers(dx, dy, ths[i:i + 8, None, None, None, None])
+            ts.append(t.reshape(-1, S * S))
+            os_.append(o.reshape(-1, S * S))
+        t, o = np.concatenate(ts), np.concatenate(os_)
+        on = o > 0
+        edge = np.zeros((S, S), bool)
+        edge[[0, -1], :] = edge[:, [0, -1]] = True
+        if on[:, edge.ravel()].any():
+            raise AssertionError("stack_fit sprite reaches its box edge")
+        n = on.sum(1)
+        K = int(n.max())
+        # each sprite's covered pixels first, in raster order
+        order = np.argsort(~on, axis=1, kind="stable")[:, :K]
+        valid = np.arange(K)[None] < n[:, None]
+        rows = np.take_along_axis(t, order, 1)
+        self._bank = {
+            "dy": (order // S - R).astype(np.int32), "dx": (order % S - R).astype(np.int32),
+            "t": np.where(valid, rows, 0).astype(np.float32),
+            "o": np.where(valid, np.take_along_axis(o, order, 1), 0).astype(np.float32),
+            "valid": valid}
+        return self._bank
+
+    def sprites(self, P: np.ndarray):
+        """Poses `P` (n, 3: x, y, degrees) as sprites: `(iy, ix, dy, dx, t, o,
+        valid)`, each pose's whole pixel and, per covered pixel, its offset
+        from it and the layers there. A pose on the lattice is read from the
+        bank; any other is rendered on its box, as `layers` renders it."""
+        P = np.asarray(P, np.float32)
+        ix = np.floor(P[:, 0]).astype(np.int64)
+        iy = np.floor(P[:, 1]).astype(np.int64)
+        qx = (P[:, 0] - ix) * LAT_PX
+        qy = (P[:, 1] - iy) * LAT_PX
+        qa = P[:, 2] / np.float32(LAT_DEG)
+        on = ((qx == np.round(qx)) & (qy == np.round(qy)) & (qa == np.round(qa))
+              & (qa >= A_LO) & (qa <= A_HI))
+        if on.all():
+            b = self._sprite_bank()
+            k = ((np.round(qa).astype(np.int64) - A_LO) * LAT_PX
+                 + np.round(qy).astype(np.int64)) * LAT_PX + np.round(qx).astype(np.int64)
+            return iy, ix, b["dy"][k], b["dx"][k], b["t"][k], b["o"][k], b["valid"][k]
+        R = self.box
+        g = np.arange(-R, R + 1)
+        gy, gx = np.meshgrid(g, g, indexing="ij")
+        X = (ix[:, None, None] + gx[None]).astype(np.float32)
+        Y = (iy[:, None, None] + gy[None]).astype(np.float32)
+        t, o = self.layers(X - P[:, 0, None, None], Y - P[:, 1, None, None],
+                           np.deg2rad(P[:, 2])[:, None, None])
+        n = len(P)
+        return (iy, ix, np.broadcast_to(gy.ravel(), (n, gy.size)),
+                np.broadcast_to(gx.ravel(), (n, gx.size)), t.reshape(n, -1), o.reshape(n, -1),
+                np.ones((n, gy.size), bool))
 
 
 def _rho(R):
@@ -130,8 +235,27 @@ class Window:
         self.x0, self.y0 = x0, y0
         self._memo: dict = {}
 
-    def _layers(self, shape: Shape, m: dict, sl=(slice(None), slice(None))):
-        return shape.layers(self.X[sl] - m["x"], self.Y[sl] - m["y"], math.radians(m["deg"]))
+    def _layers(self, shape: Shape, m: dict):
+        """A member's layers over the window: `shape.layers` on the box round
+        its pose (the disc lies inside it) and zero elsewhere, which is what
+        the whole window's render holds, pixel for pixel. Memoised by pose."""
+        key = (m["x"], m["y"], m["deg"])
+        got = self._memo.get(key)
+        if got is not None:
+            return got
+        h, w = self.T.shape
+        R = shape.box
+        cx, cy = int(math.floor(m["x"])) - self.x0, int(math.floor(m["y"])) - self.y0
+        r0, r1 = max(0, cy - R), min(h, cy + R + 1)
+        c0, c1 = max(0, cx - R), min(w, cx + R + 1)
+        t = np.zeros((h, w), np.float32)
+        o = np.zeros((h, w), np.float32)
+        if r0 < r1 and c0 < c1:
+            sl = (slice(r0, r1), slice(c0, c1))
+            t[sl], o[sl] = shape.layers(self.X[sl] - m["x"], self.Y[sl] - m["y"],
+                                        math.radians(m["deg"]))
+        self._memo[key] = got = (t, o)
+        return got
 
     def composite(self, shape: Shape, S: list[dict]):
         """`(a, c)` with the set's render over a layer `Z` equal to `a + c * Z`."""
@@ -164,7 +288,11 @@ class Window:
         """The poses' layers on the pixels any of them covers: `(idx, t, o)`
         with `idx` flat window indices and `t`, `o` shaped (len(P), len(idx)).
         Memoised per pose set: the greedy search scores one seed's grid again
-        after every member it adds."""
+        after every member it adds.
+
+        The poses' sprites (`Shape.sprites`) are laid on the box round the
+        set's mean, each value the one a render on that box gives, so the
+        support, its order and every value are the render's."""
         key = P.tobytes()
         got = self._memo.get(key)
         if got is not None:
@@ -178,14 +306,34 @@ class Window:
             got = (np.zeros(0, np.intp), np.zeros((len(P), 0), np.float32),
                    np.zeros((len(P), 0), np.float32))
         else:
-            sl = (slice(r0, r1), slice(c0, c1))
-            dx = self.X[sl][None] - P[:, 0, None, None]
-            dy = self.Y[sl][None] - P[:, 1, None, None]
-            t, o = shape.layers(dx, dy, np.deg2rad(P[:, 2])[:, None, None])
-            # `t` never exceeds `o`: the teal lies inside the disc
-            sup = (o > 0).any(0)
-            rr, cc = np.nonzero(sup)
-            got = ((rr + r0) * w + (cc + c0), t[:, sup], o[:, sup])
+            bh, bw = r1 - r0, c1 - c0
+            n, off = len(P), bh * bw
+            iy, ix, dy, dx, tv, ov, valid = shape.sprites(P)
+            rr = (iy - self.y0 - r0).astype(np.int32)[:, None] + dy
+            cc = (ix - self.x0 - c0).astype(np.int32)[:, None] + dx
+            # a sprite's padding, and a pixel off the window, land on `off`
+            flat = np.where(valid & (rr >= 0) & (rr < bh) & (cc >= 0) & (cc < bw),
+                            rr * bw + cc, off)
+            # A sprite holds exactly its disc's pixels (`o` > 0; `t` never
+            # exceeds `o`), so the support is their union, in raster order.
+            sup = np.zeros(off + 1, bool)
+            sup[flat] = True
+            sup[off] = False
+            cols = np.flatnonzero(sup)
+            m = len(cols)
+            at = np.full(off + 1, m, np.intp)
+            at[cols] = np.arange(m)
+            # Column-major (column `m` takes what lies off the support), as a
+            # boolean mask's columns come out of the render, so the sums
+            # below add in the render's order.
+            lin = (at[flat] * n + np.arange(n)[:, None]).ravel()
+            t = np.zeros((m + 1) * n, np.float32)
+            o = np.zeros((m + 1) * n, np.float32)
+            t[lin] = tv.ravel()
+            o[lin] = ov.ravel()
+            t, o = t.reshape(m + 1, n).T[:, :m], o.reshape(m + 1, n).T[:, :m]
+            rr_, cc_ = np.divmod(cols, bw)
+            got = ((rr_ + r0) * w + (cc_ + c0), t, o)
         self._memo[key] = got
         return got
 
@@ -207,16 +355,22 @@ class Window:
         Tf, Bf, Wf = self.T.ravel(), self.B.ravel(), self.W.ravel()
         af, cf, bf = a.ravel(), c.ravel(), base.ravel()
         for k in range(n):
-            idx, t, o = self._support(shape, seeds[k][None] + grid)
-            T, B, W = Tf[idx][None], Bf[idx][None], Wf[idx][None]
+            P = seeds[k][None] + grid
+            idx, t, o = self._support(shape, P)
+            # What the set `S` does not change, kept with the support.
+            fixed = self._memo.get((b"fixed", P.tobytes()))
+            if fixed is None:
+                T, B, W = Tf[idx][None], Bf[idx][None], Wf[idx][None]
+                k_ = 1.0 - ICON_ALPHA * o
+                Wt = W * t
+                fixed = self._memo[(b"fixed", P.tobytes())] = (
+                    T, B, W, k_, Wt, np.maximum((Wt * t).sum(-1), 1e-6))
+            T, B, W, k_, Wt, den_top = fixed
             ap, cp, bp = af[idx][None], cf[idx][None], bf[idx][None]
             rest = L0 - float(R0[idx].sum())
-            k_ = 1.0 - ICON_ALPHA * o
             # on top: M = g t + (1 - alpha o)(a + c B)
             U = k_ * bp
-            Wt = W * t
-            g_top = np.clip((Wt * (T - U)).sum(-1) /
-                            np.maximum((Wt * t).sum(-1), 1e-6), G_MIN, G_MAX)
+            g_top = np.clip((Wt * (T - U)).sum(-1) / den_top, G_MIN, G_MAX)
             L_top = (W * _rho(T - (g_top[:, None] * t + U))).sum(-1) + rest
             # underneath: M = a + c (g t + (1 - alpha o) B)
             ct = cp * t
@@ -233,12 +387,8 @@ class Window:
         """Matched-filter peaks: the quadratic loss drop of one icon at each
         integer centre and facing, over the background alone."""
         R = ((self.T - self.B) * self.W).astype(np.float32)
-        k = shape.reach
-        g = np.arange(-k, k + 1, dtype=np.float32)
-        ky, kx = np.meshgrid(g, g, indexing="ij")
         best = arg = None
-        for i in range(N_TH):
-            t, _ = shape.layers(kx, ky, i * (2 * math.pi / N_TH))
+        for i, t in enumerate(shape.kernels()):
             # correlation with a zero border, as the prototype's padded conv2d
             s = cv2.filter2D(R, cv2.CV_32F, t, borderType=cv2.BORDER_CONSTANT)
             nn = float((t * t).sum())
@@ -377,10 +527,12 @@ def stack_windows(T: np.ndarray, Wt: np.ndarray, slab: np.ndarray, shape: Shape)
     out = []
     min_px = max(4, int(0.25 * 2 * math.pi * shape.r_out))
     m = shape.reach
+    # each component's seed pixels, and those on the slab, counted at once
+    mass_of = np.bincount(lbl[seed], minlength=n)
+    on_slab = np.bincount(lbl[seed & slab.astype(bool, copy=False)], minlength=n) > 0
     for i in range(1, n):
-        mine = (lbl == i) & seed
-        mass = int(mine.sum())
-        if mass < min_px or not (mine & slab).any():
+        mass = int(mass_of[i])
+        if mass < min_px or not on_slab[i]:
             continue
         x, y, w, h = (int(v) for v in st[i, :4])
         out.append([max(0, y - m), min(H, y + h + m), max(0, x - m), min(W, x + w + m), mass])
