@@ -453,7 +453,7 @@ question = "What does the icon in this killfeed entry's weapon slot look like?"
 owner = "killfeed"
 role = ["detect"]
 status = "partial"
-produces = ["KILLFEED_WEAPON_VERSION", "ICON_WHITE_V_MIN", "ICON_WHITE_S_MAX", "ICON_GRID", "icon_white_mask", "icon_grid", "weapon_icon_observations", "unpack_icon_grid", "icon_extent", "ELEMENT_GAP", "PLATE_WHITE_CUT", "PLATE_MIN_PX", "PLATE_FILL", "PLATE_BEHIND_MIN", "plate_colour", "plate_whiteness", "slot_white_mask", "RING_R", "RING_ANGLES", "RING_TOL", "RING_COVER_MIN", "RING_INNER_MAX", "RING_ABSENT_MAX", "RING_STRIP", "ring_fit", "ring_verdict", "SOFT_MARGIN", "soft_patch"]
+produces = ["KILLFEED_WEAPON_VERSION", "ICON_WHITE_V_MIN", "ICON_WHITE_S_MAX", "ICON_GRID", "icon_white_mask", "icon_grid", "weapon_icon_observations", "unpack_icon_grid", "icon_extent", "ELEMENT_GAP", "PLATE_WHITE_CUT", "PLATE_MIN_PX", "PLATE_FILL", "PLATE_BEHIND_MIN", "plate_colour", "plate_whiteness", "slot_white_mask", "RING_R", "RING_ANGLES", "RING_TOL", "RING_COVER_MIN", "RING_INNER_MAX", "RING_ABSENT_MAX", "RING_STRIP", "ring_fit", "ring_verdict", "SOFT_MARGIN", "soft_patch", "WALLBANG_TEXTURE", "WALLBANG_BOX", "WALLBANG_DY", "WALLBANG_CUT", "wallbang_template", "wallbang_mark"]
 not_for = """
 Naming the weapon or ability. The reader stores the white mask's normalised grid,
 the slot's soft whiteness patch at native size,
@@ -1709,6 +1709,22 @@ not_for = """
 band bounds (y0, y1); classifying whether those pixels are an Aftershock, a
 Vandal, or an environmental fall belongs to adjudication.
 """
+evidence = "tests/test_weapon_attribution.py"
+
+[[entry]]
+id = "killfeed-wallbang"
+question = "Did the kill in this killfeed entry pass through a wall?"
+owner = "adjudication.weapon"
+role = ["adjudicate"]
+status = "partial"
+produces = ["entry_wallbang"]
+not_for = """
+Reading the mark: `killfeed.wallbang_mark` stores each weapon row's soft score
+and decision [domain:killfeed/wallbang-mark]. Whether a wall stood between two
+positions, which the 3D sightline tables and the wallbang probe answer from
+geometry, never from the killfeed.
+"""
+consumers = ["adjudication.death"]
 evidence = "tests/test_weapon_attribution.py"
 
 [[entry]]
