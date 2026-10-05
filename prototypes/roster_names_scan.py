@@ -53,7 +53,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from reticle.ocr import Templates                                  # noqa: E402
+from reticle.ocr import game_font_templates                                 # noqa: E402
 from reticle.scoreboard import load_agent_icons, read_scoreboard, strip_rect  # noqa: E402
 import minimap_portrait as mp                                      # noqa: E402
 
@@ -170,7 +170,7 @@ def main() -> int:
             print(f"{sid}: source missing")
             continue
         try:
-            templates = Templates.load(man["source_profile"])
+            templates = game_font_templates()
         except SystemExit as ex:
             print(f"{sid}: {ex}")
             continue

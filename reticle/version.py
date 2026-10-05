@@ -143,7 +143,32 @@ ECONOMY_VERSION = "economy-0.2.0"
 # changes a verdict, an edge, a row or a named agent
 # ([metric:scoreboard/speed-batch@fixture#bar_changed_boards=0]), and the [metric:scoreboard/speed-batch@fixture#rounded_scores_differ=19] rounded scores
 # 0.12.0 moved move back.
-SCOREBOARD_VERSION = "scoreboard-0.13.0"
+# 0.14.0 (2026-10-05): kills, deaths, assists and credits read soft
+# (`scoreboard.read_numbers`): white-ink coverage against each row's plate,
+# compared with DIN Next Medium 11 cells, the player card's font, at
+# measured places per digit count and per card (`BOARD_PENS`), each row's
+# baseline fitted, a dead player's grey row decided at its tint. The mined
+# digit set and its 190 cut are gone. Every unread K, D and A names its
+# reason; a band over two rows' numbers refuses `two_rows`. On 120 boards of
+# each of the 8 dev sessions, kills read
+# [metric:soft_digits/board-dev#kills_stored_read=5192] -> [metric:soft_digits/board-dev#kills_soft_read=9434]
+# of [metric:soft_digits/board-dev#rows=9600] rows, deaths
+# [metric:soft_digits/board-dev#deaths_stored_read=4860] -> [metric:soft_digits/board-dev#deaths_soft_read=9427],
+# credits [metric:soft_digits/board-dev#credits_stored_read=1323] -> [metric:soft_digits/board-dev#credits_soft_read=9278];
+# held (12 sessions, measured once), kills
+# [metric:soft_digits/board-held#kills_stored_read=8150] -> [metric:soft_digits/board-held#kills_soft_read=15289]
+# of [metric:soft_digits/board-held#rows=15600], deaths
+# [metric:soft_digits/board-held#deaths_stored_read=7321] -> [metric:soft_digits/board-held#deaths_soft_read=15277].
+# Against Riot's running counts nearly every read off is one or two under
+# Riot, as the 0.13.0 reads are where they read
+# ([metric:soft_digits/board-held#kills_stored_wrong=266] -> [metric:soft_digits/board-held#kills_soft_wrong=576]
+# held kills); assists read none off. On held, six values changed from
+# 0.13.0 are misreads: five two-digit numbers on one board read as their
+# 1 (5822b6646448 1586.0 s, the table 3-4 px right of its fitted edge) and a
+# credit 2850 read 850 (c40d950031bb 549.5 s). A board's numbers cost
+# [metric:soft_digits/board-cost@a06f04a0059f#ms_board_new=23.32] ms against
+# [metric:soft_digits/board-cost@a06f04a0059f#ms_board_old=3.23].
+SCOREBOARD_VERSION = "scoreboard-0.14.0"
 # Stored versions whose accepted openings the current reader does not
 # contradict. A consumer of VERDICTS (the lineup constraining its top bar by
 # the board) accepts these; `reticle plan` still names the rescan. 0.7.0 adds

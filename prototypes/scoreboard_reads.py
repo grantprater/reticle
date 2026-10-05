@@ -115,14 +115,24 @@ def board_y() -> tuple[int, int]:
             st.ROW_Y[1] + sb.STRIP_ENEMY_GAP + sb.MAX_BLOCK_H)
 
 
+def credit_span() -> tuple[float, float]:
+    """The credits digits' columns as a fraction of the table width: every
+    credit layout's pens on both cards (`scoreboard.BOARD_PENS`), the last
+    one cell (two digit advances) wide."""
+    from reticle import scoreboard as sb
+    pens = [p for card in sb.BOARD_PENS.values() for lay in card["credits"] for p in lay]
+    return min(pens) / sb.TABLE_W, (max(pens) + 16.0) / sb.TABLE_W
+
+
 def credit_bins() -> list[int]:
     """The column bins (`NBINS` over `table_columns`) that can hold the
-    credits cell: `scoreboard.CREDITS_X` +- `CREDITS_HALF` of the table
-    width, widened by `FRAME_SEARCH`, the reader's frame fit either side of
-    `table_columns`. A dimmed (dead) row dims this cell too."""
+    credits cell: `credit_span` of the table width, widened by
+    `FRAME_SEARCH`, the reader's frame fit either side of `table_columns`.
+    A dimmed (dead) row dims this cell too."""
     from reticle import scoreboard as sb
     slack = sb.FRAME_SEARCH / sb.TABLE_W
-    lo, hi = sb.CREDITS_X - sb.CREDITS_HALF - slack, sb.CREDITS_X + sb.CREDITS_HALF + slack
+    lo, hi = credit_span()
+    lo, hi = lo - slack, hi + slack
     return [k for k in range(NBINS) if (k + 1) / NBINS > lo and k / NBINS < hi]
 
 

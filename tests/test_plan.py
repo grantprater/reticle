@@ -369,14 +369,14 @@ class PlanTests(unittest.TestCase):
             self.assertIn("round_outcome_claim_version", got["inputs_moved"])
             self.assertIn("scoreboard_strip", got["inputs_moved"])
 
-    def test_the_waiver_accepts_scoreboard_0_12_0_and_names_it(self):
-        """The player's 2026-09-29 waiver: a 0.12.0 board stream, and the
-        deaths and openings read from it, are not stale under 0.13.0, and
-        `plan` names them as accepted by waiver. 0.11.0 and 0.10.0 stay stale."""
+    def test_the_0_13_0_waiver_lapses_under_0_14_0(self):
+        """The player's 2026-09-29 waiver accepted a 0.12.0 board stream as
+        0.13.0. Under 0.14.0, whose numbers read differently, it names
+        nothing: 0.13.0, 0.12.0 and older boards are all stale."""
         from reticle.adjudication.scoreboard import SCOREBOARD_AGENT_VERSION
         from reticle.version import (SCOREBOARD_STRIP_VERSION, SCOREBOARD_VERSION,
                                      STAMP_WAIVERS)
-        self.assertEqual(SCOREBOARD_VERSION, "scoreboard-0.13.0")
+        self.assertEqual(SCOREBOARD_VERSION, "scoreboard-0.14.0")
         self.assertEqual([k for k in STAMP_WAIVERS if k[0].startswith("scoreboard-")],
                          [("scoreboard-0.13.0", "scoreboard-0.12.0")])
         from reticle.roi_cache import ROI_CACHE_VERSION
@@ -387,8 +387,8 @@ class PlanTests(unittest.TestCase):
             store.events["scoreboard_presence:rows"] = [
                 {"scoreboard_presence_version": SCOREBOARD_AGENT_VERSION,
                  "scoreboard_strip_version": SCOREBOARD_STRIP_VERSION}]
-            for old, is_stale in (("scoreboard-0.12.0", False), ("scoreboard-0.11.0", True),
-                                  ("scoreboard-0.10.0", True)):
+            for old, is_stale in (("scoreboard-0.13.0", True), ("scoreboard-0.12.0", True),
+                                  ("scoreboard-0.11.0", True)):
                 store.events["scoreboard"] = [{"v": old}]
                 store.events["death:rows"][0]["inputs"]["scoreboard"] = old
                 store.events["scoreboard_presence:rows"][0]["scoreboard_version"] = old

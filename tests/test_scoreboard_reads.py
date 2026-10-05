@@ -89,8 +89,9 @@ class TestScoreboardReads(unittest.TestCase):
         from reticle import scoreboard as sb
         bins = sr.credit_bins()
         self.assertTrue(bins and bins == list(range(bins[0], bins[-1] + 1)))
-        self.assertLessEqual(bins[0] / sr.NBINS, sb.CREDITS_X - sb.CREDITS_HALF)
-        self.assertGreaterEqual((bins[-1] + 1) / sr.NBINS, sb.CREDITS_X + sb.CREDITS_HALF)
+        lo, hi = sr.credit_span()
+        self.assertLessEqual(bins[0] / sr.NBINS, lo)
+        self.assertGreaterEqual((bins[-1] + 1) / sr.NBINS, hi)
 
     def test_credit_match_by_overlap(self):
         c = {"t_start_ms": 100.0, "t_end_ms": 500.0}

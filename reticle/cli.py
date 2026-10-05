@@ -1946,7 +1946,7 @@ def cmd_board(args) -> int:
     if not media.is_file():
         raise SystemExit(f"source media has moved: {media}")
 
-    templates = Templates.load(profile.name)
+    templates = game_font_templates(store.root)
     hud = store.read_hud(sid, _date_of(manifest))
     tracked = None
     if hud is not None:

@@ -41,11 +41,15 @@ The local player's row is the one the game outlines in yellow, and its name
 renders as the literal string "Me" -- the same convention the killfeed uses.
 The outline is what this keys on: it needs no template and no name reading.
 
-Digit size
-----------
-These digits are h~11 at 1080p, *smaller* than either the scoreline (h~20-26)
-or the bottom HUD (h~33), so they fall outside the geometry band in `ocr.py`
-and are read against a band of their own. That is what `_raw_components` is for.
+Numbers
+-------
+Kills, deaths, assists and credits read soft, as the scoreline does
+(`ocr.read_layouts`): white-ink coverage against the row's local plate,
+compared with DIN Next Medium 11 cells, the font and size the player card's
+TextBlocks name, at the places those centred TextBlocks put one, two, three
+or four digits (BOARD_PENS). A dead player's row draws its numbers grey;
+each number is decided again at the tint its brightest cell shows. Every
+unread number names its reason (`Row.kills_reason` and the rest).
 Nothing here reads names: a name would need an alphabet this project has no
 templates for. Each portrait is scored against the official agent art, raw and
 unnamed; `adjudication.scoreboard` decides which agent a row holds and whether
@@ -66,7 +70,7 @@ import numpy as np
 import cv2
 
 from . import appearance
-from .ocr import Templates, _raw_components, normalise
+from . import ocr
 from .version import SCOREBOARD_VERSION
 
 # Slab colours. The table is semi-transparent, so these are far weaker than the
@@ -135,23 +139,69 @@ FRAME_W_TOL = 2
 FRAME_SEARCH = 32
 FRAME_STEP_MIN = 36.0
 
-# Digit envelope for this table specifically. The area floor has to stay low:
-# a "1" here is a 3x10 stroke of only 13 lit pixels, and an 18-pixel floor
-# silently dropped it, turning every 15 into a 5 and every 16 into a 6 -- a
-# leading digit lost without any drop in confidence. Height carries the
-# rejection of specks instead.
-D_MIN_H, D_MAX_H = 8, 16
-D_MAX_W, D_MIN_AREA = 14, 10
-
-# K, D and A cell centres as a fraction of table width, with a half-width.
-KDA_X = (0.490, 0.542, 0.594)
-KDA_HALF = 0.024
-# Credits render as ``<currency mark> N,NNN``. The mark and comma fall outside
-# the digit envelope below, so the existing digit templates read the value.
-# These fractions were measured after inspecting fully expanded 1080p boards
-# at 542s and 1568s of session 7010b3d62460.
-CREDITS_X = 0.880
-CREDITS_HALF = 0.035
+#: The numbers a row reads, and the largest value each may hold.
+BOARD_FIELDS = {"kills": 99, "deaths": 99, "assists": 99, "credits": 9000}
+#: Where each number's digits stand: pen x in px right of the table's left
+#: edge at 1080p, one layout per digit count, per team. The player card's
+#: TextBlocks (`scoreboardPlayerCardAllyExtended3` and its enemy twin:
+#: killsText, deathsText, assistsText, currentMoneyText) are DIN Next
+#: Medium 11 and stand centred, so each digit count has its own places;
+#: credits draw a comma before the hundreds. The enemy card stands 0.5-1.5
+#: px left of the ally card. Measured on the dev half's rows
+#: scoreboard-0.13.0 read (every other row of 120 boards a session): each
+#: pen's median, the 5th to 95th percentile within a quarter pixel. No
+#: enemy credit of one to three digits was read; those places are the ally's
+#: less the 0.75 px the four-digit layouts differ by.
+BOARD_PENS = {
+    "ally": {
+        "kills": ((377.5,), (373.0, 381.25)),
+        "deaths": ((417.25,), (413.5, 421.75)),
+        "assists": ((457.75,), (453.5, 461.5)),
+        "credits": ((678.25,), (674.75, 682.75), (670.0, 678.25, 686.5),
+                    (664.0, 676.0, 684.25, 692.5)),
+    },
+    "enemy": {
+        "kills": ((376.75,), (372.5, 380.5)),
+        "deaths": ((416.5,), (412.0, 420.25)),
+        "assists": ((456.25,), (452.5, 460.75)),
+        "credits": ((677.5,), (674.0, 682.0), (669.25, 677.5, 685.75),
+                    (663.25, 675.25, 683.5, 691.75)),
+    },
+}
+#: The digits' baseline, px below the row's top at 1080p, on a settled
+#: board (19.75-23.75 from the 5th to the 95th percentile). While the board
+#: slides in, a row's band can stand 8 px off its digits (b7d24102a6f6
+#: 1338.0 s, bfad2778a372 1255.5 s), so each row's baseline is fitted
+#: (`_row_baseline`) and this stands only where its K/D/A columns hold no ink.
+BOARD_BASELINE = 21.75
+#: A second digit-tall window in a row's band holding this share of the
+#: best window's ink is another row's numbers (`_row_baseline`).
+ROW_RIVAL = 0.5
+#: The board's font size in px at 1080p (Medium 11 pt).
+#: Half the columns, px at 1080p, a number's ink centroid is taken over
+#: (`_row_shift`): two digits and a pixel either side; and the most a row's
+#: numbers may stand off their pens.
+BOARD_SHIFT_SPAN = 10.0
+BOARD_SHIFT_MAX = 4.0
+#: Whole px at 1080p each cell is searched beyond its pen, across and down
+#: from the fitted baseline: the table's edge is fitted per frame to a pixel.
+BOARD_REACH = (1, 1)
+#: Which digit (`ocr.slot_verdict`): at 11 pt a 0 and an 8 differ by the
+#: 8's waist alone, so the label margin is the board's own: on the dev
+#: half, cells agreeing with scoreboard-0.13.0's read stand at margin 0.108
+#: and above at the 0.1 % quantile, and those it disagreed with on a
+#: settled board below 0.08.
+BOARD_LABEL_MARGIN = 0.10
+#: A digit's residual (`ocr.Slot.fit`) cut: on the dev half 99 % of read
+#: cells leave at most 0.114 of their energy; a 9 and a 6 placed 3 px off
+#: their baseline (587c15b07779 638.5 s, bfad2778a372 1873.5 s, before each
+#: row's baseline was fitted) left 0.37 and 0.46.
+BOARD_FIT = 0.25
+#: Rows of the frame read above and below a row's band.
+BOARD_PAD = 4
+#: The local plate's opening square at 1080p (`ocr.ink_cover`): wider than
+#: a stroke, narrower than nothing the board draws behind its digits.
+BOARD_PLATE_KERNEL = 7
 # The local player's row is outlined in a 2 px pale yellow-green line, measured
 # at BGR (188, 243, 214). Blue is *high* in absolute terms, so the test that
 # separates it from the slab is blue sitting well below green, not blue being
@@ -215,6 +265,10 @@ class Row:
     credits_confidence: float | None = None
     credits_margin: float | None = None
     credits_candidate: int | None = None
+    # WHY each of K, D and A is None (`read_numbers`), or None when read.
+    kills_reason: str | None = None
+    deaths_reason: str | None = None
+    assists_reason: str | None = None
 
     @property
     def complete(self) -> bool:
@@ -467,48 +521,151 @@ def _split(block: tuple[int, int]) -> list[tuple[int, int]]:
             for k in range(TEAM_ROWS)]
 
 
-def _read_cell_detail(gray: np.ndarray, templates: Templates,
-                      min_conf: float, min_margin: float,
-                      maximum: int) -> tuple[int | None, str | None,
-                                              float | None, float | None,
-                                              int | None]:
-    """One numeric cell plus the reason an answer was refused."""
-    binary, raw = _raw_components(gray)
-    keep = []
-    for x, y, w, h, area in raw:
-        if D_MIN_H <= h <= D_MAX_H and w <= D_MAX_W and area >= D_MIN_AREA:
-            keep.append((x, y, w, h))
-    if not keep:
-        return None, "no_digits", None, None, None
-    keep.sort(key=lambda c: c[0])
-    text, worst, margin = "", 1.0, 1.0
-    for x, y, w, h in keep:
-        label, conf, mar = templates.match(
-            type("G", (), {"bitmap": normalise(binary[y:y + h, x:x + w])})()
-        )
-        text += label
-        worst = min(worst, conf)
-        margin = min(margin, mar)
-    if not text.isdigit() or worst < min_conf or margin < min_margin:
-        reason = ("not_a_number" if not text.isdigit() else
-                  "low_confidence" if worst < min_conf else "low_margin")
-        candidate = int(text) if text.isdigit() else None
-        return None, reason, worst, margin, candidate
-    value = int(text)
-    if not 0 <= value <= maximum:
-        return None, "out_of_range", worst, margin, value
-    return value, None, worst, margin, value
+@dataclass(frozen=True)
+class Number:
+    """One number of one row: its value, or None and the reason
+    (`ocr.read_layouts`' refusals, `low_contrast`, `leading_zero`,
+    `out_of_range`, `not_credit_increment`, `empty_cell`). `candidate` is
+    the text the cells read where a rule after them refused it;
+    `confidence` the worst cell's 1 - fit, `margin` its worst label margin."""
+
+    value: int | None
+    reason: str | None
+    candidate: int | None = None
+    confidence: float | None = None
+    margin: float | None = None
 
 
-def _read_cell(gray: np.ndarray, templates: Templates,
-               min_conf: float, min_margin: float) -> int | None:
-    """One K/D/A cell, read against this table's own digit envelope."""
-    return _read_cell_detail(gray, templates, min_conf, min_margin, 99)[0]
+def _row_baseline(cover: np.ndarray, cells: "ocr.GlyphCells", a: int, z: int,
+                  shift: float, scale: float, pens: dict) -> tuple[float, str | None]:
+    """The row's digit baseline in `cover` rows: the bottom of the digit-tall
+    window of rows holding the most ink across the K/D/A columns, net of
+    each row's median (the row hairlines), the window inside the band a..z;
+    BOARD_BASELINE below `a` where they hold none. The reason is
+    `two_rows` where a second window clear of the first holds at least
+    ROW_RIVAL of its ink: the band spans two rows' numbers (a board still
+    sliding in), and nothing says which is this row's."""
+    tall = cells.base - ocr.CELL_MARGIN
+    pens = [p + shift for f in ("kills", "deaths", "assists") for lay in pens[f] for p in lay]
+    c0, c1 = max(0, int(min(pens) * scale)), int(np.ceil(max(pens) * scale)) + cells.w
+    band = cover[:, c0:c1].astype(np.float64)
+    # A row hairline crosses every column; the digits leave most columns of
+    # the span empty, so each row's median coverage is line, not digit.
+    prof = band.sum(axis=1) - band.shape[1] * np.median(band, axis=1)
+    if len(prof) < tall:
+        return a + BOARD_BASELINE * scale, None
+    win = np.convolve(prof, np.ones(tall), "valid")       # rows i .. i+tall-1
+    lo, hi = max(0, a - 1), max(0, min(len(win), z + 2 - tall))
+    if hi <= lo or win[lo:hi].max() <= ocr.NO_INK * cells.digit_energy.mean():
+        return a + BOARD_BASELINE * scale, None
+    j = lo + int(np.argmax(win[lo:hi]))
+    rest = win[lo:hi].copy()
+    rest[max(0, j - lo - tall):j - lo + tall + 1] = -np.inf
+    why = "two_rows" if rest.size and rest.max() >= ROW_RIVAL * win[j] else None
+    return float(j + tall), why
+
+
+def _centre(pens: dict, name: str, cells: "ocr.GlyphCells", scale: float) -> float:
+    """Where a centred number's ink centres, px right of the table's edge
+    at 1080p: its one-digit layout's middle."""
+    return pens[name][0][0] + cells.advance["0"] / 2.0 / scale
+
+
+def _row_shift(cover: np.ndarray, cells: "ocr.GlyphCells", base: float, shift: float,
+               scale: float, pens: dict) -> float:
+    """How far right of BOARD_PENS this row's numbers stand, px at 1080p:
+    each K/D/A number is centred, so its ink's centroid stands at its
+    column's centre whatever its digit count; the median over the columns
+    holding ink, quarter-pixel, within BOARD_SHIFT_MAX. The table's edge is
+    fitted per frame to a few px (4f207c0c4e39 1682.5 s stood 3.5 px off),
+    more than a cell's search reaches."""
+    r1 = int(round(base))
+    r0 = max(0, r1 - (cells.base - ocr.CELL_MARGIN))
+    got = []
+    half = BOARD_SHIFT_SPAN * scale
+    for name in ("kills", "deaths", "assists"):
+        c = (_centre(pens, name, cells, scale) + shift) * scale
+        c0, c1 = max(0, int(np.floor(c - half))), int(np.ceil(c + half))
+        win = cover[r0:r1, c0:c1].astype(np.float64)
+        col = win.sum(axis=0)
+        if col.sum() < ocr.NO_INK * cells.digit_energy.mean():
+            continue
+        got.append((float((col * np.arange(c0, c0 + len(col))).sum() / col.sum()) + 0.5 - c) / scale)
+    if not got:
+        return 0.0
+    dx = float(np.median(got))
+    return float(np.clip(np.round(dx * 4.0) / 4.0, -BOARD_SHIFT_MAX, BOARD_SHIFT_MAX))
+
+
+def read_numbers(gray: np.ndarray, x0: int, a: int, z: int,
+                 cells: "ocr.GlyphCells", scale: float = 1.0,
+                 team: str = "ally") -> dict[str, Number]:
+    """Every BOARD_FIELDS number of the row whose band is frame rows a..z of
+    `gray`, the table's left edge at frame column `x0`, on `team`'s card
+    (`BOARD_PENS`): white-ink coverage
+    against the row's plate (`ocr.ink_cover`), read at BOARD_PENS by
+    `ocr.read_layouts`, tinted (a dead player's grey row) and searched
+    BOARD_REACH about each pen and the row's fitted baseline
+    (`_row_baseline`). A number whose cells stand over a plate too near
+    white refuses `low_contrast`."""
+    H, W = gray.shape[:2]
+    pad = int(round(BOARD_PAD * scale))
+    top, bot = max(0, a - pad), min(H, z + pad)
+    left = max(0, x0)
+    card = BOARD_PENS[team]
+    reach_x = max(p for lays in card.values() for lay in lays for p in lay)
+    right = min(W, x0 + int(np.ceil(reach_x * scale)) + 2 * cells.w)
+    strip = gray[top:bot, left:right]
+    out: dict[str, Number] = {}
+    if strip.size == 0 or bot - top < cells.h:
+        return {name: Number(None, "empty_cell") for name in BOARD_FIELDS}
+    kernel = max(3, int(round(BOARD_PLATE_KERNEL * scale)) | 1)
+    cover, room = ocr.ink_cover(strip, kernel)
+    pc, _px, _py = ocr.pad_cover(cover.astype(np.float32), cells)
+    shift = (x0 - left) / scale
+    base, two = _row_baseline(cover, cells, a - top, z - top, shift, scale, card)
+    if two is not None:
+        return {name: Number(None, two) for name in BOARD_FIELDS}
+    shift += _row_shift(cover, cells, base, shift, scale, card)
+    base /= scale
+    for name, most in BOARD_FIELDS.items():
+        layouts = tuple(tuple(p + shift for p in lay) for lay in card[name])
+        pens = [p for lay in layouts for p in lay]
+        r0 = max(0, int(base * scale) - cells.base)
+        c0 = max(0, int(min(pens) * scale))
+        band = room[r0:r0 + cells.h, c0:int(np.ceil(max(pens) * scale)) + cells.w]
+        if band.size == 0:
+            out[name] = Number(None, "empty_cell")
+            continue
+        if float(band.min()) < ocr.SCORE_CONTRAST_MIN:
+            out[name] = Number(None, "low_contrast")
+            continue
+        text, slots, why = ocr.read_layouts(pc, cells, layouts, base, scale, tinted=True,
+                                            reach=BOARD_REACH, label_margin=BOARD_LABEL_MARGIN,
+                                            # The credit sign stands left of
+                                            # every credit layout.
+                                            beside=name != "credits", fit_cut=BOARD_FIT)
+        if why is not None:
+            out[name] = Number(None, why)
+            continue
+        conf = min(1.0 - v.fit for v in slots)
+        margin = min(v.margin for v in slots)
+        if len(text) > 1 and text[0] == "0":
+            out[name] = Number(None, "leading_zero", None, conf, margin)
+            continue
+        value = int(text)
+        if value > most:
+            out[name] = Number(None, "out_of_range", value, conf, margin)
+        elif name == "credits" and value % 50:
+            out[name] = Number(None, "not_credit_increment", value, conf, margin)
+        else:
+            out[name] = Number(value, None, value, conf, margin)
+    return out
 
 
 def read_scoreboard(
     frame: np.ndarray,
-    templates: Templates,
+    templates: "ocr.FieldTemplates",
     min_confidence: float = 0.80,
     min_margin: float = 0.04,
     strip_rect: tuple[int, int, int, int] | None = None,
@@ -527,7 +684,10 @@ def read_scoreboard(
     their portraits scores at least PORTRAIT_CONFIRM_MIN against `icons`
     (`load_agent_icons`); without `icons` such a board closes. A closed board
     says which test closed it (`ScoreboardRead.reason`). `cache`
-    (`PortraitCache`) reuses the scores of a portrait already scored."""
+    (`PortraitCache`) reuses the scores of a portrait already scored.
+    `templates` carries the board's font (`ocr.game_font_templates`);
+    `min_confidence` and `min_margin` belonged to the mined digit set and
+    bind no soft read."""
     H, W = frame.shape[:2]
     # The strip's rectangle places the table's columns, and the row test
     # counts only those: world beside the board is not the board.
@@ -621,36 +781,23 @@ def read_scoreboard(
         return bool(hi > lo and hl_line[lo:hi].max() > HL_LINE_FRAC)
 
     rows: list[Row] = []
+    scale = H / 1080.0
+    cells = templates.cells("board", scale)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     for a, z, team in bands:
-        vals = []
-        for fx in KDA_X:
-            cx = x0 + int(fx * tw)
-            hw = max(6, int(KDA_HALF * tw))
-            cell = frame[a + 2:z - 2, cx - hw:cx + hw]
-            if cell.size == 0:
-                vals.append(None)
-                continue
-            vals.append(_read_cell(cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY),
-                                   templates, min_confidence, min_margin))
-        cx = x0 + int(CREDITS_X * tw)
-        hw = max(10, int(CREDITS_HALF * tw))
-        credit_cell = frame[a + 2:z - 2, cx - hw:cx + hw]
-        if credit_cell.size:
-            credit, credit_reason, credit_conf, credit_margin, credit_candidate = _read_cell_detail(
-                cv2.cvtColor(credit_cell, cv2.COLOR_BGR2GRAY), templates,
-                min_confidence, min_margin, 9000)
-            if credit_candidate is not None and credit_candidate % 50:
-                credit, credit_reason = None, "not_credit_increment"
-        else:
-            credit, credit_reason, credit_conf, credit_margin, credit_candidate = (
-                None, "empty_cell", None, None, None)
+        n = read_numbers(gray, x0, a, z, cells, scale, team)
+        cr = n["credits"]
         rows.append(Row(team=team, y0=int(a), y1=int(z),
-                        kills=vals[0], deaths=vals[1], assists=vals[2],
-                        is_player=outlined(a) and outlined(z), credits=credit,
-                        credits_reason=credit_reason,
-                        credits_confidence=credit_conf,
-                        credits_margin=credit_margin,
-                        credits_candidate=credit_candidate))
+                        kills=n["kills"].value, deaths=n["deaths"].value,
+                        assists=n["assists"].value,
+                        is_player=outlined(a) and outlined(z), credits=cr.value,
+                        credits_reason=cr.reason,
+                        credits_confidence=cr.confidence,
+                        credits_margin=cr.margin,
+                        credits_candidate=cr.candidate,
+                        kills_reason=n["kills"].reason,
+                        deaths_reason=n["deaths"].reason,
+                        assists_reason=n["assists"].reason))
     return ScoreboardRead(True, tuple(rows), x0, x1, edges=edges, confirm=confirm, **closed)
 
 
@@ -1089,10 +1236,12 @@ class ScoreboardReader:
 
     def __init__(self, profile_name: str, hz: float = 2.0, spans=None,
                  min_confidence: float = 0.80, min_margin: float = 0.04,
-                 icons_root=None):
+                 icons_root=None, fonts_root=None):
         self.name, self.hz, self.spans = "scoreboard", hz, spans
         self.profile_name = profile_name
-        self.templates = Templates.load(profile_name)
+        # The board's font from the game files in `fonts_root`, the default
+        # store where None, as the mined set before it was.
+        self.templates = ocr.game_font_templates(fonts_root)
         self.icons = load_agent_icons(icons_root) if icons_root is not None else {}
         # Scores of portraits already seen this session, reused on an exact
         # pixel match; `hits` and `misses` count them.
@@ -1134,6 +1283,8 @@ class ScoreboardReader:
                 "row_y0": row.y0, "row_y1": row.y1,
                 "table_x0": board.x0, "table_x1": board.x1,
                 "kills": row.kills, "deaths": row.deaths, "assists": row.assists,
+                "kills_reason": row.kills_reason, "deaths_reason": row.deaths_reason,
+                "assists_reason": row.assists_reason,
                 "is_player": row.is_player, "credits": row.credits,
                 "credits_candidate": row.credits_candidate,
                 "credits_reason": row.credits_reason,

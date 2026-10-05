@@ -31,9 +31,10 @@ refusal names its reason (`BottomRead.*_reason`). On the same matches health
 reads [metric:soft_digits/bottom-all#hp_new_reads=75288] frames, shield
 [metric:soft_digits/bottom-all#shield_new_reads=56292], magazine
 [metric:soft_digits/bottom-all#ammo_mag_new_reads=39823] and reserve
-[metric:soft_digits/bottom-all#ammo_reserve_new_reads=39474]. The mined
-binary set (`Templates.load`, `reticle glyphs`) remains for the scoreboard
-and the combat report.
+[metric:soft_digits/bottom-all#ammo_reserve_new_reads=39474]. The
+scoreboard's numbers read the same way (`scoreboard.read_numbers`). The
+mined binary set (`Templates.load`, `reticle glyphs`) remains for the
+combat report alone.
 
 What this reads: the top-centre scoreline (the round clock and both team
 scores) and the bottom HUD (health, shield, magazine, reserve).
@@ -218,15 +219,16 @@ def segment_glyphs(gray: np.ndarray, threshold: int = THRESHOLD) -> list[Glyph]:
     return _components(gray, threshold)[0]
 
 
-def ink_cover(gray: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def ink_cover(gray: np.ndarray, kernel: int | None = None) -> tuple[np.ndarray, np.ndarray]:
     """White-ink coverage of every pixel against its local plate, and the
     plate's room below white (255 - plate luma), both float32.
 
-    The plate is the grey opening of `gray` by a square of SCORE_BG_KERNEL px
-    at a SCORE_BG_AT_H px tall ROI, scaled with the ROI's height; the
-    coverage divides by at least SCORE_CONTRAST_MIN, so a near-white plate
-    does not turn noise into ink."""
-    k = max(3, int(round(SCORE_BG_KERNEL * gray.shape[0] / SCORE_BG_AT_H)) | 1)
+    The plate is the grey opening of `gray` by a square of `kernel` px, by
+    default SCORE_BG_KERNEL px at a SCORE_BG_AT_H px tall ROI, scaled with
+    the ROI's height; the coverage divides by at least SCORE_CONTRAST_MIN,
+    so a near-white plate does not turn noise into ink."""
+    k = kernel if kernel is not None else max(
+        3, int(round(SCORE_BG_KERNEL * gray.shape[0] / SCORE_BG_AT_H)) | 1)
     square = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
     plate = cv2.morphologyEx(gray, cv2.MORPH_OPEN, square).astype(np.float32)
     room = 255.0 - plate
@@ -368,6 +370,8 @@ FIELD_FONTS = {
     "shield": ("DINNext_Medium.ttf", 14.0),
     "ammo_mag": ("DINNext_Medium.ttf", 36.0),
     "ammo_reserve": ("DINNext_Regular.ttf", 16.0),
+    # The scoreboard's player card: kills, deaths, assists and credits.
+    "board": ("DINNext_Medium.ttf", 11.0),
 }
 #: Each field's tracking, px at 1080p, from its TextBlock's `Font.Tracking`
 #: in the widget data (TimerLine1 -2, HealthText -2, LoadedAmmo -2,
@@ -507,16 +511,16 @@ class Slot:
 
 
 def slot_at(cover: np.ndarray, cells: GlyphCells, x0: int, y0: int,
-            reach: int = 0, tint: float = 1.0) -> Slot | None:
+            reach: int = 0, tint: float = 1.0, reach_y: int = 0) -> Slot | None:
     """The slot whose integer cell top-left is near (x0, y0): every digit at
-    every phase over the cells at x0-1-reach..x0+reach and y0-1..y0, the
-    best placement per digit. `tint` is the coverage the text is drawn at
+    every phase over the cells at x0-1-reach..x0+reach and
+    y0-1-reach_y..y0+reach_y, the best placement per digit. `tint` is the coverage the text is drawn at
     (1 for white): the cells are scaled by it, so every Slot measure is
     relative to text of that tint. None where every cell leaves the cover."""
     h, w = cells.h, cells.w
     H, W = cover.shape
     wins, where = [], []
-    for dy in (-1, 0):
+    for dy in range(-1 - reach_y, 1 + reach_y):
         for dx in range(-1 - reach, 1 + reach):
             y, x = y0 + dy, x0 + dx
             if y < 0 or x < 0 or y + h > H or x + w > W:
@@ -574,15 +578,18 @@ NO_INK = 0.25
 SLOT_VERDICTS = ("digit", "empty", "low_margin", "fused", "faint_digit", "occluded")
 
 
-def slot_verdict(s: "Slot | None") -> str:
+def slot_verdict(s: "Slot | None", label_margin: float = LABEL_MARGIN,
+                 fit_cut: float = SOFT_FIT) -> str:
     """The decision on one slot: digit or empty at gain 0.5 +- SOFT_MARGIN,
-    the digit's label at LABEL_MARGIN, either's residual at SOFT_FIT."""
+    the digit's label at `label_margin` (LABEL_MARGIN unless a field
+    measured its own), a digit's residual at `fit_cut` (SOFT_FIT unless a
+    field measured its own), an empty cell's at SOFT_FIT."""
     if s is None:
         return "empty"
     if s.gain >= 0.5 + SOFT_MARGIN:
-        if s.margin < LABEL_MARGIN:
+        if s.margin < label_margin:
             return "low_margin"
-        return "fused" if s.fit > SOFT_FIT else "digit"
+        return "fused" if s.fit > fit_cut else "digit"
     if s.gain <= 0.5 - SOFT_MARGIN:
         return "empty" if s.ink <= SOFT_FIT else "occluded"
     return "faint_digit"
@@ -629,15 +636,20 @@ PEN_REACH = 0
 
 
 def _slot(cover: np.ndarray, cells: GlyphCells, pad: tuple[int, int], pen: float,
-          baseline: float, scale: float, tint: float = 1.0) -> Slot | None:
+          baseline: float, scale: float, tint: float = 1.0,
+          reach: tuple[int, int] | None = None) -> Slot | None:
     px, py = pad
+    rx, ry = (PEN_REACH, 0) if reach is None else reach
     return slot_at(cover, cells, _top_left(pen * scale + px, 0),
                    _top_left(baseline * scale + py, cells.base),
-                   max(0, int(round(PEN_REACH * scale))), tint)
+                   max(0, int(round(rx * scale))), tint, max(0, int(round(ry * scale))))
 
 
 def read_layouts(cover: np.ndarray, cells: GlyphCells, layouts, baseline: float,
-                 scale: float, tinted: bool = False, guards=()) -> tuple[str, list[Slot], str | None]:
+                 scale: float, tinted: bool = False, guards=(),
+                 reach: tuple[int, int] | None = None,
+                 label_margin: float = LABEL_MARGIN,
+                 beside: bool = True, fit_cut: float = SOFT_FIT) -> tuple[str, list[Slot], str | None]:
     """One field over the padded cover: every layout's cells at their
     measured pens (px at 1080p, a layout per digit count), the layout that
     explains the most ink taken and its cells decided (`slot_verdict`).
@@ -660,10 +672,19 @@ def read_layouts(cover: np.ndarray, cells: GlyphCells, layouts, baseline: float,
     `guards` are pens no layout uses; ink drawn as fully as a digit at one
     (gain at least 0.5 + SOFT_MARGIN, whatever its label) means the
     widget draws the number elsewhere, and the field refuses
-    `beyond_layout`."""
+    `beyond_layout`.
+
+    `reach` (x, y), whole px at 1080p, widens each cell's search beyond
+    the two origins about its pen, for a widget whose place is fitted per
+    frame (the scoreboard); None keeps PEN_REACH across and none down.
+    `label_margin` replaces LABEL_MARGIN for a field whose size measured
+    its own (`slot_verdict`), as `fit_cut` replaces SOFT_FIT for a digit's
+    residual; the layouts' rival test keeps LABEL_MARGIN.
+    `beside` False skips the faint-cell test beside the layout, for a field
+    that draws a mark of its own there (the scoreboard's credit sign)."""
     pad = (cells.w, cells.h)
     pens = sorted({p for lay in layouts for p in lay})
-    at = {p: _slot(cover, cells, pad, p, baseline, scale) for p in pens}
+    at = {p: _slot(cover, cells, pad, p, baseline, scale, 1.0, reach) for p in pens}
     if any(v is None for v in at.values()):
         return "", [], "no_digits"
     ex = [sum(at[p].explained for p in lay) for lay in layouts]
@@ -673,7 +694,7 @@ def read_layouts(cover: np.ndarray, cells: GlyphCells, layouts, baseline: float,
         got = min(1.0, max(at[p].gain for p in layouts[k]))
         if TINT_MIN <= got < 1.0 - SOFT_MARGIN:
             tint = got
-            at = {p: _slot(cover, cells, pad, p, baseline, scale, tint) for p in pens}
+            at = {p: _slot(cover, cells, pad, p, baseline, scale, tint, reach) for p in pens}
             ex = [sum(at[p].explained for p in lay) for lay in layouts]
             k = int(np.argmax(ex))
     lay = [at[p] for p in layouts[k]]
@@ -681,16 +702,17 @@ def read_layouts(cover: np.ndarray, cells: GlyphCells, layouts, baseline: float,
         return "", lay, "no_digits"
     pitch = cells.pitch[cells.digits[0]] / scale
     for g in guards:
-        gs = _slot(cover, cells, pad, g, baseline, scale, tint)
+        gs = _slot(cover, cells, pad, g, baseline, scale, tint, reach)
         if gs is not None and gs.gain >= 0.5 + SOFT_MARGIN:
             return "", lay, "beyond_layout"
-    beside = [at[p] for p in pens if all(abs(p - q) >= 0.8 * pitch for q in layouts[k])]
-    if any(slot_verdict(v) == "faint_digit" for v in beside):
+    aside = [at[p] for p in pens if all(abs(p - q) >= 0.8 * pitch for q in layouts[k])]
+    if beside and any(slot_verdict(v, label_margin, fit_cut) == "faint_digit" for v in aside):
         return "", lay, "faint_digit"
     rival = max((e for i, e in enumerate(ex) if i != k), default=-np.inf)
-    if ex[k] - rival < LABEL_MARGIN * float(cells.digit_energy.mean()):
+    # In the energy of the cells as drawn: a tinted digit's is tint^2 a white one's.
+    if ex[k] - rival < LABEL_MARGIN * float(cells.digit_energy.mean()) * tint * tint:
         return "", lay, "low_margin"
-    verdicts = [slot_verdict(v) for v in lay]
+    verdicts = [slot_verdict(v, label_margin, fit_cut) for v in lay]
     bad = next((v for v in verdicts if v not in ("digit", "empty")), None)
     if bad is not None:
         return "", lay, bad

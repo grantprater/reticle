@@ -5,8 +5,83 @@ from unittest.mock import patch
 import numpy as np
 
 from reticle.reconciliation import adjudicate_scoreboard_credits
-from reticle.scoreboard import Row, ScoreboardRead, ScoreboardReader, read_scoreboard
+from reticle import ocr
+from reticle import scoreboard as sb
+from reticle.scoreboard import Number, Row, ScoreboardRead, ScoreboardReader, read_scoreboard
 from reticle.version import SCOREBOARD_VERSION
+
+#: Stands in for the game fonts where `read_numbers` is patched out.
+_FONTS = types.SimpleNamespace(cells=lambda *a, **k: None)
+
+
+def _numbers():
+    return {name: Number(0, None, 0, 1.0, 1.0) for name in sb.BOARD_FIELDS}
+
+
+def _row(values: dict, team: str = "ally", tint: float = 1.0, dx: float = 0.0,
+         plate: int = 60) -> np.ndarray:
+    """One board row, 34 px, drawn in the board's font at its card's pens
+    (`BOARD_PENS`) over a flat plate, 8x supersampled and shrunk with
+    INTER_AREA, as the game lays text on screen."""
+    import cv2
+    from PIL import Image, ImageDraw, ImageFont
+
+    ft = ocr.game_font_templates()
+    path, pt = ft.fonts["board"]
+    ss = 8
+    font = ImageFont.truetype(path, pt * ocr.SLATE_PX_PER_PT * ss)
+    im = Image.new("L", (720 * ss, 34 * ss), 0)
+    draw = ImageDraw.Draw(im)
+    for name, text in values.items():
+        pens = sb.BOARD_PENS[team][name][len(text.replace(",", "")) - 1]
+        for ch, pen in zip(text.replace(",", ""), pens):
+            draw.text(((pen + dx) * ss, sb.BOARD_BASELINE * ss), ch, fill=255, font=font, anchor="ls")
+    cover = cv2.resize(np.asarray(im, np.float32) / 255.0, (720, 34), interpolation=cv2.INTER_AREA)
+    gray = plate + cover * tint * (255 - plate)
+    return np.pad(gray, ((10, 10), (0, 0)), constant_values=plate).astype(np.uint8)
+
+
+class BoardNumberTests(unittest.TestCase):
+    """`read_numbers` on rows drawn from the game font."""
+
+    def setUp(self):
+        try:
+            self.cells = ocr.game_font_templates().cells("board", 1.0)
+        except SystemExit:
+            self.skipTest("no game fonts in the store")
+
+    def _read(self, gray, team="ally"):
+        return sb.read_numbers(gray, 0, 10, 44, self.cells, 1.0, team)
+
+    def test_reads_every_number_of_both_cards(self):
+        for team in ("ally", "enemy"):
+            got = self._read(_row({"kills": "17", "deaths": "8", "assists": "0",
+                                   "credits": "2250"}, team), team)
+            self.assertEqual([got[f].value for f in ("kills", "deaths", "assists", "credits")],
+                             [17, 8, 0, 2250], team)
+
+    def test_a_dead_players_grey_row_reads_at_its_tint(self):
+        got = self._read(_row({"kills": "3", "deaths": "11", "assists": "5",
+                               "credits": "800"}, tint=0.6))
+        self.assertEqual([got[f].value for f in ("kills", "deaths", "assists", "credits")],
+                         [3, 11, 5, 800])
+
+    def test_a_table_edge_two_pixels_off_still_reads(self):
+        got = self._read(_row({"kills": "10", "deaths": "12", "assists": "4",
+                               "credits": "3400"}, dx=2.0))
+        self.assertEqual([got[f].value for f in ("kills", "deaths", "assists")], [10, 12, 4])
+
+    def test_an_empty_row_refuses_with_a_reason(self):
+        got = self._read(_row({}))
+        self.assertTrue(all(got[f].value is None and got[f].reason for f in sb.BOARD_FIELDS))
+
+    def test_a_band_over_two_rows_refuses_two_rows(self):
+        a = _row({"kills": "5", "deaths": "6", "assists": "7", "credits": "800"})
+        b = _row({"kills": "9", "deaths": "1", "assists": "2", "credits": "900"})
+        two = np.vstack([a[10:44], b[10:44]])
+        got = sb.read_numbers(np.pad(two, ((4, 4), (0, 0)), constant_values=60), 0, 4, 72,
+                              self.cells, 1.0, "ally")
+        self.assertEqual({got[f].reason for f in sb.BOARD_FIELDS}, {"two_rows"})
 
 
 class ScoreboardTests(unittest.TestCase):
@@ -19,7 +94,7 @@ class ScoreboardTests(unittest.TestCase):
                     "portrait_x1": 98, "portrait_y1": 20,
                     "portrait_detail": 50.0,
                     "portrait_composition": [0.0] * 90}
-        with patch("reticle.scoreboard.Templates.load", return_value=object()), \
+        with patch("reticle.scoreboard.ocr.game_font_templates", return_value=object()), \
                 patch("reticle.scoreboard.read_scoreboard", return_value=board), \
                 patch("reticle.scoreboard.portrait_observations",
                       return_value=[portrait]):
@@ -57,10 +132,10 @@ class ScoreboardTests(unittest.TestCase):
         # Connected history makes the red region taller than five player rows.
         red[120:260, 50:650] = True
         frame = np.zeros((300, 700, 3), np.uint8)
-        detail = (0, None, 1.0, 1.0, 0)
+        detail = _numbers()
         with patch("reticle.scoreboard._slabs", return_value=(green, red)), \
-                patch("reticle.scoreboard._read_cell_detail", return_value=detail):
-            board = read_scoreboard(frame, object(), 0, 0)
+                patch("reticle.scoreboard.read_numbers", return_value=detail):
+            board = read_scoreboard(frame, _FONTS, 0, 0)
         self.assertTrue(board.open_)
         self.assertEqual((board.rows[5].y0, board.rows[-1].y1), (160, 260))
         self.assertEqual({r.y1 - r.y0 for r in board.rows[:5]}, {20})
@@ -75,9 +150,9 @@ class ScoreboardTests(unittest.TestCase):
         red[30:108, 50:650] = True
         red[160:190, 50:650] = True
         frame = np.zeros((300, 700, 3), np.uint8)
-        detail = (0, None, 1.0, 1.0, 0)
-        with patch("reticle.scoreboard._slabs", return_value=(green, red)),                 patch("reticle.scoreboard._read_cell_detail", return_value=detail):
-            board = read_scoreboard(frame, object(), 0, 0)
+        detail = _numbers()
+        with patch("reticle.scoreboard._slabs", return_value=(green, red)),                 patch("reticle.scoreboard.read_numbers", return_value=detail):
+            board = read_scoreboard(frame, _FONTS, 0, 0)
         self.assertFalse(board.open_)
 
     def test_an_enemy_block_anchored_into_the_ally_rows_closes_the_board(self):
@@ -86,9 +161,9 @@ class ScoreboardTests(unittest.TestCase):
         green[10:110, 50:650] = True
         red[110:200, 50:650] = True       # a short run at the ally bottom
         frame = np.zeros((300, 700, 3), np.uint8)
-        detail = (0, None, 1.0, 1.0, 0)
-        with patch("reticle.scoreboard._slabs", return_value=(green, red)),                 patch("reticle.scoreboard._read_cell_detail", return_value=detail):
-            board = read_scoreboard(frame, object(), 0, 0)
+        detail = _numbers()
+        with patch("reticle.scoreboard._slabs", return_value=(green, red)),                 patch("reticle.scoreboard.read_numbers", return_value=detail):
+            board = read_scoreboard(frame, _FONTS, 0, 0)
         self.assertFalse(board.open_)
 
     def test_adjudicator_preserves_cross_channel_disagreement(self):
@@ -157,10 +232,10 @@ class CloseReasonTests(unittest.TestCase):
 
     def read(self, green, red):
         frame = np.zeros(green.shape + (3,), np.uint8)
-        detail = (0, None, 1.0, 1.0, 0)
+        detail = _numbers()
         with patch("reticle.scoreboard._slabs", return_value=(green, red)), \
-                patch("reticle.scoreboard._read_cell_detail", return_value=detail):
-            return read_scoreboard(frame, object(), 0, 0)
+                patch("reticle.scoreboard.read_numbers", return_value=detail):
+            return read_scoreboard(frame, _FONTS, 0, 0)
 
     def masks(self):
         return np.zeros((400, 700), bool), np.zeros((400, 700), bool)
@@ -238,7 +313,7 @@ class CloseReasonTests(unittest.TestCase):
 
     def test_the_reader_stores_a_sample_row_per_frame_offered(self):
         closed = ScoreboardRead(False, reason="red_short")
-        with patch("reticle.scoreboard.Templates.load", return_value=object()), \
+        with patch("reticle.scoreboard.ocr.game_font_templates", return_value=object()), \
                 patch("reticle.scoreboard.read_scoreboard", return_value=closed):
             reader = ScoreboardReader("test")
             for i in range(3):
@@ -282,9 +357,9 @@ class StripAnchorTests(unittest.TestCase):
         return f
 
     def read(self, frame, rect=RECT, icons=None):
-        detail = (0, None, 1.0, 1.0, 0)
-        with patch("reticle.scoreboard._read_cell_detail", return_value=detail):
-            return read_scoreboard(frame, object(), 0, 0, rect, icons)
+        detail = _numbers()
+        with patch("reticle.scoreboard.read_numbers", return_value=detail):
+            return read_scoreboard(frame, _FONTS, 0, 0, rect, icons)
 
     def test_world_below_the_enemy_block_is_cut_off_at_the_board(self):
         board = self.read(self.frame())
