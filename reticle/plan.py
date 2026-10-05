@@ -571,8 +571,9 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
         "minimap_object": geo,
         "minimap_dark": {"lighting": _code("lighting_version", LIGHTING_VERSION),
                          "spans": _spans(), **geo},
-        # Pings are formal entity events with no coverage row: the first
-        # event's metadata carries the stamp.
+        # Pings are formal entity events: the first event's metadata carries
+        # the spans. A read that confirmed none writes one coverage row in
+        # their place (`PingReader.events`), and its `metadata` carries them.
         "ping": {"spans": _in("metadata.spans", "spans", before="seg-0.2.0")},
         # The ally icons are read through the teardrop; heads before
         # `ally-icon-0.6.0` do not record it.
