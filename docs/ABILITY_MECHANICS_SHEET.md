@@ -151,7 +151,7 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Aftershock | Placement | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 | Q | Flashpoint | Placement | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 2) | ? | game data: flash max duration 2.25 s, initial life span 3 s [domain:game_data/breach-flashpoint-game-data] | ? |
-| E | Fault Line | Grounded AoE | 1 | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | charged (HOLD FIRE) | ? | nothing (census 1) | ? | ? | ? |
+| E | Fault Line | Grounded AoE | 1 | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed]; game data: 50.0 s, or 60.0 s under the server toggle DesignerToggleC; a disagreement a timed restock decides [domain:game_data/ability-restock-times] | charged (HOLD FIRE) | ? | nothing (census 1) | ? | ? | ? |
 | X | Rolling Thunder | Grounded AoE | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | wall segments (census 1) | ? | game data: end delay 4 s [domain:game_data/breach-rolling-thunder-game-data] | ? |
 
 ## Brimstone
@@ -196,7 +196,7 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Barrier Mesh | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 1) | ? | game data: life duration 30 s [domain:game_data/deadlock-barrier-mesh-game-data] | ? |
 | Q | Sonic Sensor | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | triggers on enemies | ? | white-tinted area, mostly circular [domain:abilities/deadlock-sonic-sensor-minimap-white-area]; split {'compact_icon': 1, 'nothing': 1} (census 2) | ? | persists after Deadlock dies [domain:abilities/deadlock-sonic-sensor-persists-after-death] | the area's radius? Does a dim sensor keep it? |
-| E | GravNet | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | yellow disc under 0.3 s at detonation [domain:abilities/deadlock-gravnet-detonation-flash] | ? | game data: fire active duration 3 s [domain:game_data/deadlock-gravnet-game-data] | ? |
+| E | GravNet | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed]; game data: 50.0 s; a disagreement a timed restock decides [domain:game_data/ability-restock-times] | cast on FIRE | ? | yellow disc under 0.3 s at detonation [domain:abilities/deadlock-gravnet-detonation-flash] | ? | game data: fire active duration 3 s [domain:game_data/deadlock-gravnet-game-data] | ? |
 | X | Annihilation | Beam | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | only on a hit, or a very brief flash? [domain:abilities/deadlock-annihilation-minimap] | ? | game data: spline duration 7 s [domain:game_data/deadlock-annihilation-game-data] | X pips empty at equip [domain:abilities/deadlock-ult-tray-drop-at-equip] |
 
 ## Fade
@@ -205,17 +205,17 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Prowler | Grounded Object | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE) | steered by the player: held, or piloted? [domain:abilities/fade-prowler-steered] | travelling icon [domain:abilities/fade-prowler-minimap-icon] | ? | game data: duration 2.5 s [domain:game_data/fade-prowler-game-data] | ? |
 | Q | Seize | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE) | ? | nothing (census 1) | ? | game data: initial life span 5.2 s [domain:game_data/fade-seize-game-data] | ? |
-| E | Haunt | Class 2 Projectile | 1 | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (RE-USE) | ? | a brief ring at the pulse [domain:abilities/pulse-scan-abilities] | ? | game data: duration 1.5 s [domain:game_data/fade-haunt-game-data] | a pulse scan, as Recon Bolt and the Stealth Drone [domain:abilities/pulse-scan-abilities] |
+| E | Haunt | Class 2 Projectile | 1 | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed]; game data: 50.0 s (its 60.0 s DPT value cannot apply under its tuning tag); a disagreement a timed restock decides [domain:game_data/ability-restock-times] | second press (RE-USE) | ? | a brief ring at the pulse [domain:abilities/pulse-scan-abilities] | ? | game data: duration 1.5 s [domain:game_data/fade-haunt-game-data] | a pulse scan, as Recon Bolt and the Stealth Drone [domain:abilities/pulse-scan-abilities] |
 | X | Nightfall | ? | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | triggers on enemies | ? | wall segments (census 1) | ? | game data: end delay 12 s [domain:game_data/fade-nightfall-game-data] | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/fade-nightfall-reveal] |
 
 ## Gekko
 
 | Slot | Ability | Deployment | Charges | Restock | Description says | Activation | Minimap | Overlay | Duration | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| C | Mosh Pit | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | 20 s (granted by Globules) [domain:abilities/catalogue-restock-and-ult-points-confirmed]; also a pickup Gekko collects to restock within the round (a later change; it used to drop nothing) [domain:abilities/gekko-mosh-pit-drops-pickup] | cast on FIRE | ? | compact icon (census 1) | ? | game data: fire active duration 4 s [domain:game_data/gekko-mosh-pit-game-data] | ? |
+| C | Mosh Pit | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | 20 s (granted by Globules) [domain:abilities/catalogue-restock-and-ult-points-confirmed]; also a pickup Gekko collects to restock within the round (a later change; it used to drop nothing) [domain:abilities/gekko-mosh-pit-drops-pickup]; game data: 15.0 s, or 20.0 s under the server toggle DesignPlaytest [domain:game_data/ability-restock-times] | cast on FIRE | ? | compact icon (census 1) | ? | game data: fire active duration 4 s [domain:game_data/gekko-mosh-pit-game-data] | ? |
 | Q | Wingman | ? | 1 | Gekko recharges it by picking the used Wingman up (the harvest's "none" is withdrawn; all four Gekko abilities drop a pickup [domain:abilities/gekko-abilities-drop-pickups]) [domain:abilities/gekko-wingman-reclaim-or-expire] | cast on FIRE | ? | compact icon (census 1); planting, it carries the spike symbol, then a yellow pick-up disc [domain:abilities/gekko-wingman-plant-minimap] | ? | the used Wingman expires on a timer unless picked up (length unknown) [domain:abilities/gekko-wingman-reclaim-or-expire] | can plant the spike [domain:abilities/gekko-wingman-plants-spike] |
 | E | Dizzy | ? | 1 | Gekko restocks it by picking up the thing it drops (the harvest's "none" is withdrawn) [domain:abilities/gekko-dizzy-drops-pickup] | triggers on enemies | ? | compact icon (census 1) | ? | game data: initial life span 10 s [domain:game_data/gekko-dizzy-game-data] | ? |
-| X | Thrash | Possession | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips]; Gekko also restocks it by picking up the thing it drops [domain:abilities/gekko-thrash-drops-pickup] | second press (ACTIVATE) | ? | compact icon (census 1) | ? | game data: lifetime duration 6 s [domain:game_data/gekko-thrash-game-data] | ? |
+| X | Thrash | Possession | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips]; Gekko also restocks it by picking up the thing it drops [domain:abilities/gekko-thrash-drops-pickup]; game data: 15.0 s on its cooldown component, against the catalogue's 20 s; a timed restock decides [domain:game_data/ability-restock-times] | second press (ACTIVATE) | ? | compact icon (census 1) | ? | game data: lifetime duration 6 s [domain:game_data/gekko-thrash-game-data] | ? |
 
 ## Harbor
 
@@ -223,7 +223,7 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Storm Surge | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | brief flash (census 1) | ? | ? | ? |
 | Q | High Tide | Missile | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE); ends early on a press | ? | wall segments (census 1) | ? | game data: wall duration 15 s [domain:game_data/harbor-high-tide-game-data] | ? |
-| E | Cove | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | second press (ACTIVATE, REACTIVATE) | ? | dark disc (census 1) | ? | game data: smoke duration 19.25 s [domain:game_data/harbor-cove-game-data] | ? |
+| E | Cove | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed]; the game files give a 30.0 s cooldown whose use is unread [domain:game_data/ability-restock-times] | second press (ACTIVATE, REACTIVATE) | ? | dark disc (census 1) | ? | game data: smoke duration 19.25 s [domain:game_data/harbor-cove-game-data] | ? |
 | X | Reckoning | ? | 7 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | triggers on enemies | ? | wall segments (census 1) | ? | game data: wall linger state countdown time 7 s [domain:game_data/harbor-reckoning-game-data] | ? |
 
 ## Iso
@@ -250,7 +250,7 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | FRAG/ment | Class 2 Projectile Class 0.7 Projectile (Underhand) | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | ? | ? |
 | Q | FLASH/drive | ? | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | travelling icon [domain:abilities/kayo-flashdrive-minimap-icon] | ? | game data: flash max duration 2.25 s [domain:game_data/kayo-flash-drive-game-data] | ? |
-| E | ZERO/point | Class 4 Projectile | 1 | 60 s (Restock removed in Replication) [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | teal ring (census 1) | ? | game data: initial life span 15 s [domain:game_data/kayo-zero-point-game-data] | ? |
+| E | ZERO/point | Class 4 Projectile | 1 | 60 s (Restock removed in Replication) [domain:abilities/catalogue-restock-and-ult-points-confirmed]; game data: 50.0 s, or 60.0 s under the server toggle DesignerToggleC; a disagreement a timed restock decides [domain:game_data/ability-restock-times] | cast on FIRE | ? | teal ring (census 1) | ? | game data: initial life span 15 s [domain:game_data/kayo-zero-point-game-data] | ? |
 | X | NULL/cmd | Self-targeted (Buffs) Emission (Pulses) | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | instant | ? | nothing (census 1) | ? | game data: wait for downed timer length 12 s [domain:game_data/kayo-null-cmd-game-data] | does a downed KAY/O dim on the scoreboard? [domain:rounds/scoreboard-dim-is-dead] |
 
 ## Killjoy
@@ -268,7 +268,7 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | M-pulse | Class 3 Projectile | 2 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | compact icon (census 2) | ? | game data: thump duration 2 s [domain:game_data/miks-m-pulse-game-data] | ? |
 | Q | Harmonize | ? | 1 | none [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | nothing (census 1) | ? | game data: buff duration 8 s [domain:game_data/miks-harmonize-game-data] | ? |
-| E | Waveform | Placement | 2 | 40 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | dark disc [domain:abilities/miks-smoke-minimap-disc] | ? | see [domain:abilities/miks-smoke-duration] | ? |
+| E | Waveform | Placement | 2 | 40 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | cast on FIRE | ? | dark disc [domain:abilities/miks-smoke-minimap-disc] | ? | game data: smoke duration 16.25 s after a 1.0 s delay, then a 1.0 s contraction, 18.25 s in all [domain:game_data/miks-waveform-game-data]; the player's 16.75 s is superseded [domain:abilities/miks-smoke-duration] | ? |
 | X | Bassquake | Grounded AoE | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | ? | a wedge of fixed radius [domain:abilities/miks-bassquake-minimap-wedge]; census 1 saw nothing | ? | ? | ? |
 
 ## Neon
@@ -331,7 +331,7 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Regrowth | ? | a resource bar [domain:abilities/skye-regrowth-resource-bar] | the pool does not refill [domain:abilities/skye-regrowth-resource-bar] | channelled (HOLD FIRE) | channelled [domain:abilities/skye-regrowth-channelled] | teal ring round Skye [domain:abilities/skye-regrowth-minimap-ring] | ? | ? | no tray drop [domain:abilities/skye-regrowth-no-tray-drop] |
 | Q | Trailblazer | Possession | 1 [domain:abilities/skye-trailblazer-charges] | none within a round [domain:abilities/skye-trailblazer-charges] | piloted | controlled by the player, as the Owl Drone [domain:abilities/skye-trailblazer-piloted] | compact icon (census 2) | green view, shows through the minimap void [domain:hud/controlled-entity-view-tint] | game data: possess duration timer length 6 s [domain:game_data/skye-trailblazer-game-data] | ? |
-| E | Guiding Light | Missile | 2 [domain:abilities/skye-guiding-light-charges] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | guided path (HOLD FIRE); second press (RE-USE) | steered by the player: held, or piloted? [domain:abilities/skye-guiding-light-steered] | travelling bird icon [domain:abilities/skye-guiding-light-minimap-icon] | ? | game data: duration 2 s [domain:game_data/skye-guiding-light-game-data] | activation sound distinct from the cast [domain:abilities/ability-sound-phases] |
+| E | Guiding Light | Missile | 2 [domain:abilities/skye-guiding-light-charges] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed]; game data: 50.0 s; a disagreement a timed restock decides [domain:game_data/ability-restock-times] | guided path (HOLD FIRE); second press (RE-USE) | steered by the player: held, or piloted? [domain:abilities/skye-guiding-light-steered] | travelling bird icon [domain:abilities/skye-guiding-light-minimap-icon] | ? | game data: duration 2 s [domain:game_data/skye-guiding-light-game-data] | activation sound distinct from the cast [domain:abilities/ability-sound-phases] |
 | X | Seekers | Grounded Object | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | cast on FIRE | tracks its enemy by itself [domain:abilities/skye-seekers-track-and-blind] | unsure (census 1) | ? | until destroyed or it reaches its enemy, who is blinded [domain:abilities/skye-seekers-track-and-blind]; despawns when its enemy dies? | one Seeker per living enemy [domain:abilities/skye-seekers-one-per-living-enemy]. The large circle at Sunset e37fdeca944f 1795.08 s, once believed the ult's [domain:abilities/skye-seekers-minimap-large-circle-belief], the player now gives to a dead Clove's smoke range [domain:abilities/clove-dead-smoke-range-circle] |
 
 ## Sova
@@ -340,7 +340,7 @@ draw an assist icon? And can a damaging ability draw one?
 |---|---|---|---|---|---|---|---|---|---|---|
 | C | Owl Drone | ? | 1 [domain:abilities/sova-owl-drone-charges] | none within a round [domain:abilities/sova-owl-drone-charges] | piloted | piloted [domain:abilities/sova-owl-drone-piloted] | compact icon (census 2) | player: some; crop measured no hue shift [domain:hud/controlled-entity-view-tint] | game data: drone duration timer length 7 s [domain:game_data/sova-owl-drone-game-data] | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/sova-owl-drone-dart-reveal] |
 | Q | Shock Bolt | ? | 2 [domain:abilities/sova-shock-bolt-charges] | none within a round [domain:abilities/sova-shock-bolt-charges] | charged (HOLD FIRE) | ? | nothing [domain:abilities/sova-shock-bolt-minimap-none] | ? | ? | charged, bounce toggled [domain:abilities/sova-bolt-charge-and-bounce] |
-| E | Recon Bolt | Class 2/3/4/5 Projectile (based on charge) | 1 [domain:abilities/sova-recon-bolt-charges] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed] | charged (HOLD FIRE); triggers on enemies | ? | icon with a teal ring of the reveal range, kept the whole time [domain:abilities/sova-recon-bolt-minimap-ring] | ? | ? | charged, bounce toggled [domain:abilities/sova-bolt-charge-and-bounce]; a pulse scan, 2 pulses over a few seconds [domain:abilities/pulse-scan-abilities]; the revealed enemy shows as its icon, no light [domain:minimap/reveal-draws-no-light] |
+| E | Recon Bolt | Class 2/3/4/5 Projectile (based on charge) | 1 [domain:abilities/sova-recon-bolt-charges] | 60 s [domain:abilities/catalogue-restock-and-ult-points-confirmed]; game data: 50.0 s (its 60.0 s DPT value cannot apply under its tuning tag); a disagreement a timed restock decides [domain:game_data/ability-restock-times] | charged (HOLD FIRE); triggers on enemies | ? | icon with a teal ring of the reveal range, kept the whole time [domain:abilities/sova-recon-bolt-minimap-ring] | ? | ? | charged, bounce toggled [domain:abilities/sova-bolt-charge-and-bounce]; a pulse scan, 2 pulses over a few seconds [domain:abilities/pulse-scan-abilities]; the revealed enemy shows as its icon, no light [domain:minimap/reveal-draws-no-light] |
 | X | Hunter's Fury | Beam | 8 ult points [domain:abilities/catalogue-restock-and-ult-points-confirmed] | ult pips [domain:abilities/ult-charge-pips] | second press (RE-USED); triggers on enemies | ? | teal line from Sova [domain:abilities/sova-hunters-fury-minimap-beam] | ? | game data: laser active timed state timer length 6 s [domain:game_data/sova-hunters-fury-game-data] | the enemy it reveals or marks shows anywhere, for a time [domain:abilities/sova-hunters-fury-reveal] |
 
 ## Tejo
@@ -409,7 +409,7 @@ row below names what its fact holds; an empty cell is a value the files
 did not give, listed in the fact's `exceptions`. *Size* counts only
 lengths of the ability's own shape; *Angle* holds cone and vision angles,
 and *Unconfirmed length* a path cap the files leave open between the
-wall's length and the throw's range (Toxic Screen, High Tide). Character
+wall's length and the throw's range (Toxic Screen, High Tide, Fast Lane). Character
 speeds and heights live beside them:
 [domain:game_data/character-movement-speeds],
 [domain:game_data/weapon-run-speed-multipliers],
@@ -481,7 +481,7 @@ and writes nothing here.
 | Miks | E | Waveform | yes | yes |  | yes |  |  |  |  | [domain:game_data/miks-waveform-game-data] |
 | Miks | Q | Harmonize | yes |  |  |  |  |  |  |  | [domain:game_data/miks-harmonize-game-data] |
 | Miks | X | Bassquake |  | yes | yes |  |  |  |  |  | [domain:game_data/miks-bassquake-game-data] |
-| Neon | C | Fast Lane | yes | yes |  |  |  | yes |  |  | [domain:game_data/neon-fast-lane-game-data] |
+| Neon | C | Fast Lane | yes | yes |  |  | yes | yes |  |  | [domain:game_data/neon-fast-lane-game-data] |
 | Neon | Q | Relay Bolt |  | yes |  | yes |  | yes |  |  | [domain:game_data/neon-relay-bolt-game-data] |
 | Neon | E | High Gear |  |  |  |  |  |  | yes |  | [domain:game_data/neon-high-gear-game-data] |
 | Neon | X | Overdrive |  |  |  |  |  |  |  |  | [domain:game_data/neon-overdrive-game-data] |

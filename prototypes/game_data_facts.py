@@ -8,7 +8,9 @@ What it reads
 -------------
 The game-extract exports of build release-13.06-shipping-18-5590001 under the
 store's `reference/game-files/<build>/` (sets ability-states, ability-data,
-game-data, weapon-data, ability-pickup), one JSON file per package. `SPEC`
+game-data, weapon-data, ability-pickup), one JSON file per package, and the
+engine config `config/ShooterGame/Config/DefaultEngine.ini` (world gravity),
+exported raw by `game-extract export` with its manifest. `SPEC`
 names each ability's values by package, export and field; the value itself
 is always read from the export, never typed here. A value a class inherits
 names its `owner`, and `read` checks that the package sits in the owner's
@@ -16,7 +18,7 @@ class chain and that no class between them overrides the field.
 
 What it writes
 --------------
-`domain/game_data.toml`: one fact per ability plus four movement and unit
+`domain/game_data.toml`: one fact per ability plus five movement and unit
 facts. Lengths are converted from centimetres to metres, speeds from cm/s to
 m/s. Each value sits in a `values` group by what the field is: `life`,
 `timing`, `size`, `angle`, `range`, `unconfirmed` (a length whose meaning the
@@ -224,12 +226,13 @@ def D(pkg, field, role='duration', key=None, unit='s', owner=None, note=None):
 SPEC = []
 
 
-def ab(agent, slot, ability, values, missing=(), note='', refs=(), see=(), extra=None):
+def ab(agent, slot, ability, values, missing=(), note='', refs=(), see=(), extra=None, supersedes=''):
     """One ability. `refs` cites object-reference fields (package, export, field,
     owner) in the source; `see` adds fact keys; `extra(rows)` returns an
-    exceptions sentence computed from the read values."""
+    exceptions sentence computed from the read values; `supersedes` names the
+    fact, or the part of one, whose number this fact's value replaces."""
     SPEC.append(dict(agent=agent, slot=slot, ability=ability, values=values, missing=list(missing), note=note,
-                     refs=list(refs), see=list(see), extra=extra))
+                     refs=list(refs), see=list(see), extra=extra, supersedes=supersedes))
 
 # ---------------------------------------------------------------- Astra
 RIFT = C + 'Rift/S0/'
@@ -628,12 +631,25 @@ def _miks_disagreement(rows):
     v = {r['tkey']: r['value'] for r in rows}
     d, x, e, c = (v['smoke_delay_time_s'], v['smoke_duration_s'], v['smoke_expand_duration_s'],
                   v['smoke_contract_duration_s'])
-    return (f"The files and the player disagree. The player's value is 16.75 s "
-            f"[domain:abilities/miks-smoke-duration]; SmokeDuration here is {fmt(x)} s, with a {fmt(d)} s delay, "
-            f"a {fmt(e)} s expansion and a {fmt(c)} s contraction. Delay, duration and contraction sum to "
-            f"{fmt(d)} + {fmt(x)} + {fmt(c)} = {fmt(d + x + c)} s, close to the 18.2 s minimap disc "
-            f"[domain:abilities/miks-smoke-minimap-disc]. Both values stand stored; the player has been asked "
-            f"which one holds.")
+    return (f"The player and the wiki gave 16.75 s [domain:abilities/miks-smoke-duration]; SmokeDuration here "
+            f"is {fmt(x)} s, with a {fmt(d)} s delay, a {fmt(e)} s expansion and a {fmt(c)} s contraction. Delay, "
+            f"duration and contraction sum to {fmt(d)} + {fmt(x)} + {fmt(c)} = {fmt(d + x + c)} s, close to the "
+            f"18.2 s minimap disc [domain:abilities/miks-smoke-minimap-disc]. The files' values stand "
+            f"[domain:abilities/game-files-outrank-player-quantities]; the 16.75 s stays on the player's fact "
+            f"as its record.")
+
+
+def _omen_disc(rows):
+    """The measured minimap disc against the files' timings: a stored surprise."""
+    v = {r['tkey']: r['value'] for r in rows}
+    d, x, c, life = (v['smoke_delay_time_s'], v['smoke_duration_s'], v['smoke_contract_duration_s'],
+                     v['initial_life_span_s'])
+    return (f"Surprise, stored: the measured minimap disc lasts 15.0 s [domain:abilities/omen-dark-cover], "
+            f"which equals delay plus duration, {fmt(d)} + {fmt(x)} = {fmt(d + x)} s, not InitialLifeSpan "
+            f"({fmt(life)} s) nor delay, duration and contraction ({fmt(d + x + c)} s). Miks's disc instead "
+            f"spans its delay, duration and contraction; each ability draws by its own rule "
+            f"[domain:abilities/ability-rules-are-unique]. The files' values stand "
+            f"[domain:abilities/game-files-outrank-player-quantities].")
 
 
 IR = C + 'Iris/S0/'
@@ -653,7 +669,11 @@ ab('Miks', 'E', 'Waveform', [
     SPH('size', 'VisionBlockingSphere radius (inherited)', NSZ, 'VisionBlockingSphere_GEN_VARIABLE', owner=IR + 'Ability_E/GameObject_Iris_E_Smoke'),
     V('range', 'MapRange', 'cm', IR + 'Ability_E/Ability_Iris_E_MT_Smoke_Production', 'MapTargetingState_GEN_VARIABLE', 'MapRange'),
 ], note='GameObject_Iris_E_Smoke sits in the ability folder; the entity walk of ability-states-gamedata-0.2.0 does not reach it',
-   see=['abilities/miks-smoke-duration', 'abilities/miks-smoke-minimap-disc'], extra=_miks_disagreement)
+   see=['abilities/miks-smoke-duration', 'abilities/miks-smoke-minimap-disc',
+        'abilities/game-files-outrank-player-quantities'], extra=_miks_disagreement,
+   supersedes='[domain:abilities/miks-smoke-duration]: its 16.75 s smoke duration, by the player\'s ruling '
+              'that game-file quantities outrank the player\'s and the wiki\'s numbers '
+              '[domain:abilities/game-files-outrank-player-quantities]')
 ab('Miks', 'Q', 'Harmonize', [
     V('duration', 'Buff Duration', 's', IR + 'Ability_Q/Ability_Iris_Harmonize', 'Default__Ability_Iris_Harmonize_C', 'Buff Duration'),
 ], missing=['geometry: a buff on one ally'])
@@ -668,10 +688,11 @@ ab('Miks', 'X', 'Bassquake', [
 SP = C + 'Sprinter/S0/'
 ab('Neon', 'C', 'Fast Lane', [
     D(SP + 'Ability_4/GameObject_Sprinter_4_Tunnel', 'WallDuration'),
-    D(SP + 'Ability_4/Projectile_Neon_C_Tunnel', 'MaxDistance', role='size', unit='cm'),
+    D(SP + 'Ability_4/Projectile_Neon_C_Tunnel', 'MaxDistance', role='unconfirmed', unit='cm'),
     D(SP + 'Ability_4/GameObject_Sprinter_4_Tunnel', 'TunnelWidth', role='size', unit='cm'),
     V('speed', 'ProjectileSpeed', 'cm_s', SP + 'Ability_4/Projectile_Neon_C_Tunnel', FSM, 'ProjectileSpeed'),
-])
+], note="MaxDistance caps the travel of the projectile that lays the two walls; whether that cap is the walls' "
+        "length or the throw's range is unconfirmed, so it is filed as unconfirmed, not as a size")
 ab('Neon', 'Q', 'Relay Bolt', [
     D(SP + 'Ability_Q/GameObject_Sprinter_Q_ElectricSphere', 'Final Radius', role='size', unit='cm'),
     D(SP + 'Ability_Q/GameObject_Sprinter_Q_ElectricSphere', 'Concuss Duration', role='other'),
@@ -706,7 +727,7 @@ ab('Omen', 'E', 'Dark Cover', [
         radius_pkg=NSZ, owner=WR + 'Ability_4/Zone_Wraith_4_Smoke'),
     V('range', 'MaxDistance', 'cm', WR + 'Ability_4/Projectile_Wraith_4_Smoke', 'Comp_Projectile_Charged_StraightLineDistance_GEN_VARIABLE', 'MaxDistance'),
     V('speed', 'ProjectileSpeed', 'cm_s', WR + 'Ability_4/Projectile_Wraith_4_Smoke', 'Comp_Projectile_FloatCurveMovement_GEN_VARIABLE', 'ProjectileSpeed'),
-])
+], see=['abilities/omen-dark-cover', 'abilities/game-files-outrank-player-quantities'], extra=_omen_disc)
 ab('Omen', 'X', 'From the Shadows', [
     V('duration', 'DisappearAndEQS TimerLength', 's', WR + 'Ability_X/Ability_Wraith_X_GlobalTeleport', 'DisappearAndEQS_GEN_VARIABLE', 'TimerLength'),
     V('duration', 'Appear TimerLength', 's', WR + 'Ability_X/Ability_Wraith_X_GlobalTeleport', 'Appear_GEN_VARIABLE', 'TimerLength'),
@@ -1209,9 +1230,95 @@ def ability_fact(a):
              f'exceptions = {tq(" ".join(exc))}']
     if a['rows']:
         lines.append(f'values = {vt}')
+    if a.get('supersedes'):
+        lines.append(f"supersedes = {tq(a['supersedes'])}")
     see = ['abilities/ability-rules-are-unique', 'game_data/game-units-centimetres'] + list(a.get('see') or ())
     lines.append('see = [' + ', '.join(f'"{s}"' for s in see) + ']')
     return fid, '\n'.join(lines) + '\n', groups
+
+
+def native_parent(pkg):
+    """The native class a blueprint class derives from directly, or None."""
+    _, d = load(pkg)
+    for e in d:
+        if e.get('Type') == 'BlueprintGeneratedClass':
+            sp = (e.get('SuperStruct') or e.get('Super') or {}).get('ObjectPath', '')
+            if sp.startswith('/Script/'):
+                return sp + '.' + (e.get('SuperStruct') or e.get('Super'))['ObjectName'].split("'")[1]
+    return None
+
+
+#: Engine floor fields a character's movement component may serialize; the
+#: player's class chain serializes none of them (checked on regeneration).
+FLOOR_FIELDS = ('WalkableFloorAngle', 'WalkableFloorZ', 'MaxStepHeight', 'PerchRadiusThreshold')
+
+
+INI_REL = 'config/ShooterGame/Config/DefaultEngine.ini'
+
+
+def ini_value(rel, section, key):
+    """One `key=value` of an exported engine config's `[section]`, as a float."""
+    head = None
+    with open(f'{BUILD}/{rel}', encoding='utf-8', errors='replace') as fh:
+        for line in fh:
+            t = line.strip()
+            if t.startswith('[') and t.endswith(']'):
+                head = t[1:-1]
+            elif head == section and t.split('=', 1)[0] == key:
+                return float(t.split('=', 1)[1])
+    raise KeyError(f'{rel} [{section}] {key}')
+
+
+def jump_fact(BP, BPC):
+    """The player character's jump tuning, read from BasePawn's movement
+    component and inherited unchanged by BasePlayerCharacter, beside the
+    world gravity of the engine config."""
+    f = {k: read(BP, 'CharMoveComp', k, owner=BPC) for k in
+         ('DefaultJumpTuning.MaxJumpHeight', 'DefaultJumpTuning.JumpTotalTime', 'JumpZVelocity', 'GravityScale',
+          'AirControl')}
+    for k in FLOOR_FIELDS:
+        assert not has_field(BP, 'CharMoveComp', k) and not has_field(BPC, 'CharMoveComp', k), k
+    native = native_parent(BP)
+    assert native, BP
+    h, t, vz, gs = (f['DefaultJumpTuning.MaxJumpHeight'], f['DefaultJumpTuning.JumpTotalTime'],
+                    f['JumpZVelocity'], f['GravityScale'])
+    gz = ini_value(INI_REL, '/Script/Engine.PhysicsSettings', 'DefaultGravityZ')
+    g = -gz * gs                    # the character's gravity, cm/s^2
+    rise, flight = vz * vz / (2 * g), 2 * vz / g
+    claim = (f"A player character's jump tuning sets a maximum jump height of {fmt(h / 100)} m "
+             f"(DefaultJumpTuning.MaxJumpHeight) and a total jump time of {fmt(t)} s; the engine fields beside it "
+             f"give a jump launch speed of {fmt(vz / 100)} m/s (JumpZVelocity), a gravity scale of {fmt(gs)} and an "
+             f"air control of {fmt(f['AirControl'])}. World gravity is {fmt(gz / 100)} m/s^2 "
+             f"(DefaultGravityZ). The class chain serializes no walkable floor angle, walkable "
+             f"floor Z or movement step height (MaxStepHeight): those are the native class's defaults, unread; "
+             f"the navigation agent's step is a separate field [domain:game_data/character-eye-height].")
+    src = (f"{BUILD_ID}, set ability-states: {asset_path(BP)} CharMoveComp.DefaultJumpTuning.MaxJumpHeight = "
+           f"{fmt(h)} cm, .DefaultJumpTuning.JumpTotalTime = {fmt(t)} s, .JumpZVelocity = {fmt(vz)} cm/s, "
+           f".GravityScale = {fmt(gs)}, .AirControl = {fmt(f['AirControl'])}; inherited unchanged by "
+           f"{asset_path(BPC)}, the parent of every agent's <Codename>_PC (its CharMoveComp overrides only "
+           f"JumpOffJumpZFactor, MovementTuning, JumpLandSlowTuningV2 and NavAgentProps). Neither CharMoveComp "
+           f"serializes {', '.join(FLOOR_FIELDS)}; BasePawn_C derives from the native class {native}, whose "
+           f"defaults no export carries. World gravity: {STORE_REL}/{INI_REL} "
+           f"[/Script/Engine.PhysicsSettings] DefaultGravityZ = {fmt(gz)} cm/s^2, exported raw by "
+           f"game-extract export (config/manifest.jsonl).")
+    exc = (f"Which jump the native movement code runs is unread. The following arithmetic is ours, not a "
+           f"field: a ballistic launch at JumpZVelocity under GravityScale times world gravity "
+           f"({fmt(round(g, 3) / 100)} m/s^2) rises {fmt(round(rise) / 100)} m and lasts "
+           f"{fmt(round(flight, 3))} s, which agrees with JumpTotalTime ({fmt(t)} s); MaxJumpHeight "
+           f"({fmt(h / 100)} m) sits {fmt(round(rise - h) / 100)} m under that rise, and which of the two "
+           f"limits a jump is native code. Crouching in the air is native code; what it adds to a reachable "
+           f"ledge is not included. The walkable floor angle for sightline floors stays the engine default, a "
+           f"placeholder.")
+    return '\n'.join([
+        '[character-jump]', f'claim = {tq(claim)}', 'kind = "measurement"', 'known = "measured"',
+        f'since = "{SINCE}"', 'subject = "movement:jump"', f'source = {tq(src)}',
+        'use = """\nsightline walk graph: neighbouring floors join when their heights differ by at most the '
+        'maximum jump height\n"""',
+        f'exceptions = {tq(exc)}',
+        f"values = {{ jump = {{ max_jump_height_m = {fmt(h / 100)}, jump_total_time_s = {fmt(t)}, "
+        f"jump_z_velocity_m_s = {fmt(vz / 100)} }}, scale = {{ gravity_scale = {fmt(gs)}, "
+        f"air_control = {fmt(f['AirControl'])} }}, world = {{ default_gravity_z_m_s2 = {fmt(gz / 100)} }} }}",
+        'see = ["game_data/game-units-centimetres", "game_data/character-eye-height"]']) + '\n'
 
 
 def movement_facts():
@@ -1338,7 +1445,8 @@ def movement_facts():
     out.append(('character-eye-height', '\n'.join([
         '[character-eye-height]', f'claim = {tq(claim)}', 'kind = "measurement"', 'known = "measured"',
         f'since = "{SINCE}"', 'subject = "movement:body"', f'source = {tq(src)}',
-        'use = """\nsightline eye height: the standing value under the stated convention; no crouched value\n"""',
+        'use = """\nsightline eye height: the standing value under the stated convention; no crouched value. '
+        'Crouch room above a floor: the crouched capsule, twice CrouchedHalfHeight\n"""',
         f'exceptions = {tq(exc)}',
         f"values = {{ eye = {{ base_eye_height_m = {fmt(v['base_eye'] / 100)}, crouched_eye_height_m = {fmt(v['crouched_eye'] / 100)}, "
         f"standing_eye_offset_m = {fmt(v['standing_eye_offset'] / 100)}, crouching_eye_offset_m = {fmt(v['crouching_eye_offset'] / 100)} }}, "
@@ -1346,6 +1454,7 @@ def movement_facts():
         f"crouched_half_height_m = {fmt(v['crouched_half'] / 100)}, crouch_compression_m = {fmt(v['crouch_compression'] / 100)} }}, "
         f"nav_agent = {{ height_m = {fmt(v['nav_h'] / 100)}, radius_m = {fmt(v['nav_r'] / 100)}, step_height_m = {fmt(v['step'] / 100)} }} }}",
         'see = ["game_data/game-units-centimetres"]']) + '\n'))
+    out.append(('character-jump', jump_fact(BP, BPC)))
     unit = '\n'.join([
         '[game-units-centimetres]',
         f'claim = {tq("The game files measure lengths in Unreal units, one centimetre each, and speeds in centimetres per second. A player capsule 1.96 m tall and a 6.75 m/s run fit that unit [domain:game_data/character-eye-height] [domain:game_data/character-movement-speeds].")}',
@@ -1368,6 +1477,211 @@ HEADER = ('# Values read from the extracted game files of build 13.06\n'
           '# Regenerate with prototypes/game_data_facts.py; never edit by hand.\n')
 
 
+# ---------------------------------------------------------------- restock times
+# Each ability's cooldown component, as (agent, catalogue name, package, component
+# export, tuning row or None, field). A component may name an AbilityTuning row
+# (CooldownDurationTuningTag); the row's value then is the files' value. A
+# component may also carry DPT_Cooldown, the cooldown while its DPT_FeatureToggle
+# is on; the toggle's state is a server setting the files do not carry.
+CCD = C + 'Components/Comp_Ability_CooldownComponent'
+CDC = 'Comp_Ability_CooldownComponent_GEN_VARIABLE'
+RESTOCK = [
+    ('Astra', 'Gravity Well', C + 'Rift/S0/Ability_4/BlackHole/Ability_Rift_4_BlackHole', CDC, None, 'CooldownSeconds'),
+    ('Astra', 'Nova Pulse', C + 'Rift/S0/Ability_Q/Ability_Rift_Q_FlashBurst', CDC, None, 'CooldownSeconds'),
+    ('Astra', 'Nebula / Dissipate', C + 'Rift/S0/Ability_E/Ability_Rift_E_TransformRift_Smoke', CDC, None, 'CooldownSeconds'),
+    ('Breach', 'Fault Line', C + 'Breach/S0/Ability_E/Ability_Breach_E_Fissure', CDC, None, 'CooldownSeconds'),
+    ('Chamber', 'Rendezvous', C + 'Deadeye/S0/Ability_E/Ability_Deadeye_E_Teleporter_Tethers', CDC,
+     (C + 'Deadeye/S0/Ability_E/AbilityTuning_Deadeye_E_Teleport_Tether', 'AbilityTuning_Deadeye_E_Teleport_Tether',
+      'Rows.TeleportCooldown'), 'CooldownSeconds'),
+    ('Clove', 'Ruse', C + 'Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_MapTargetSmokeV2', CDC, None, 'CooldownSeconds'),
+    ('Cypher', 'Spycam', C + 'Gumshoe/S0/Ability_E/Ability_Gumshoe_E_Camera', CDC, None, 'CooldownSeconds'),
+    ('Deadlock', 'GravNet', C + 'Cable/S0/Ability_4/Ability_Cable_4_NetToss', CDC,
+     (C + 'Cable/S0/Ability_4/AbilityTuning_Cable_4_NetToss', 'AbilityTuning_Cable_4_NetToss', 'Rows.Cooldown'), None),
+    ('Fade', 'Haunt', C + 'BountyHunter/S0/Ability_E/Ability_E_BountyHunter_ReconDivebomb', CDC,
+     (C + 'BountyHunter/S0/Ability_E/AbilityTuning_BountyHunter_E_ReconDiveBomb', 'AbilityTuning_BountyHunter_E_ReconDiveBomb',
+      'Rows.Cooldown'), 'CooldownSeconds'),
+    ('Gekko', 'Mosh Pit', C + 'AggroBot/S0/Ability_4/Ability_Aggrobot_C_ExplodeyPatch', CDC, None, 'CooldownSeconds'),
+    ('Gekko', 'Wingman', C + 'AggroBot/S0/Ability_Q/Ability_Q_Aggrobot_SeekerNade', CDC, None, 'CooldownSeconds'),
+    ('Gekko', 'Dizzy', C + 'AggroBot/S0/Ability_E/Ability_E_Aggrobot_DiscTurret', CDC,
+     (C + 'AggroBot/S0/Ability_E/AbilityTuning_Aggrobot_E', 'AbilityTuning_Aggrobot_E', 'Rows.DizzyCooldown'), None),
+    ('Gekko', 'Thrash', C + 'AggroBot/S0/Ability_X/Ability_Aggrobot_X_RollyExplosion', 'Comp_Aggrobot_X_Cooldown_GEN_VARIABLE',
+     None, 'CooldownInSeconds'),
+    ('Harbor', 'Cove', C + 'Mage/S0/Ability_E/Ability_Mage_E_WorldSmoke', CDC, None, 'CooldownSeconds'),
+    ('KAY/O', 'ZERO/point', C + 'Grenadier/S0/Ability_E/Ability_E_Grenadier_EMPKnife', CDC, None, 'CooldownSeconds'),
+    ('Miks', 'Waveform', C + 'Iris/S0/Ability_E/Ability_Iris_E_MT_Smoke_Production', CDC, None, 'CooldownSeconds'),
+    ('Omen', 'Dark Cover', C + 'Wraith/S0/Ability_4/Ability_Wraith_4_Smoke', CDC, None, 'CooldownSeconds'),
+    ('Sage', 'Healing Orb', C + 'Thorne/S0/Ability_Q/Ability_Thorne_Q_Heal_Production_New', CDC, None, 'CooldownSeconds'),
+    ('Skye', 'Guiding Light', C + 'Guide/S0/Ability_E/Ability_Guide_E_HawkFlash', CDC, None, 'CooldownSeconds'),
+    ('Sova', 'Recon Bolt', C + 'Hunter/S0/Ability_Q/Ability_Hunter_Q_RevealBolt_Signature', 'Comp_Ability_CooldownComponent1_GEN_VARIABLE',
+     (C + 'Hunter/S0/Ability_Q/AbilityTuning_Hunter_Q_RevealBolt', 'AbilityTuning_Hunter_Q_RevealBolt', 'Rows.RevealBoltCooldown'),
+     'CooldownSeconds'),
+    ('Vyse', 'Arc Rose', C + 'Nox/S0/Ability_E/Ability_Nox_FlashTrap', CDC, None, 'CooldownSeconds'),
+    ('Vyse', 'Shear', C + 'Nox/S0/Ability_Q/Ability_Nox_Wall', 'AbilityCooldownComp_GEN_VARIABLE', None, 'CooldownSeconds'),
+]
+
+
+def read_text(pkg, export, field):
+    """A string field (an enum or a tag name) of `export` in `pkg`, or None."""
+    for e in load(pkg)[1]:
+        if e.get('Name') == export:
+            try:
+                v = _walk(e.get('Properties') or {}, field)
+            except (KeyError, IndexError, TypeError):
+                return None
+            return v if isinstance(v, str) else None
+    return None
+
+
+def wiki_restock():
+    """`{(agent, ability name): restock text}` from the wiki harvest; '' for none."""
+    path = STORE / 'reference' / 'abilities.json'
+    with open(path, encoding='utf-8') as f:
+        agents = json.load(f)['agents']
+    return {(ag, ' '.join(x['name'].split())): (x.get('infobox') or {}).get('Restock', '')
+            for ag, v in agents.items() for x in v['abilities']}
+
+
+def _catalogue_seconds(text):
+    return [float(n) for n in re.findall(r'(\d+(?:\.\d+)?) seconds', text or '')]
+
+
+def restock_rows():
+    """One row per RESTOCK entry: files value, toggled value and toggle, the
+    catalogue's text and how the two compare."""
+    cat = wiki_restock()
+    default_toggle = read_text(CCD, 'Default__Comp_Ability_CooldownComponent_C', 'DPT_FeatureToggle')
+    rows = []
+    for agent, name, pkg, comp, tuning, field in RESTOCK:
+        r = dict(agent=agent, ability=name, pkg=pkg, comp=comp, cites=[])
+        base = read(pkg, comp, field) if field and has_field(pkg, comp, field) else None
+        if base is not None:
+            r['cites'].append(f'{asset_path(pkg)} {comp}.{field} = {fmt(base)} s')
+        files = base
+        tag = read_text(pkg, comp, 'CooldownDurationTuningTag.TagName')
+        r['tagged'] = bool(tag) and tag != 'None'
+        if tuning:
+            files = read(*tuning)
+            r['cites'].append(f'{comp}.CooldownDurationTuningTag = {tag}; {asset_path(tuning[0])} '
+                              f'{tuning[1]}.{tuning[2]} = {fmt(files)} s')
+        r['files'] = files
+        r['toggled'] = read(pkg, comp, 'DPT_Cooldown') if has_field(pkg, comp, 'DPT_Cooldown') else None
+        r['blocked'] = None
+        if r['toggled'] is not None and r['tagged']:
+            # Comp_Ability_CooldownComponent's bytecode: AuthUpdateCooldownTimeForDPT applies DPT_Cooldown
+            # through AuthSetCooldownDuration, which refuses while IsUsingTuningTag is true, and
+            # AuthSetupCooldownDurationTuning sets that flag from the tag at BeginPlay. A tagged
+            # component's DPT value therefore never applies.
+            r['blocked'], r['toggled'] = r['toggled'], None
+            r['cites'].append(f'{comp}.DPT_Cooldown = {fmt(r["blocked"])} s, which never applies: the '
+                              f'component uses a tuning tag, and AuthSetCooldownDuration refuses a manual '
+                              f'duration while IsUsingTuningTag is set (Comp_Ability_CooldownComponent bytecode)')
+        if r['toggled'] is not None:
+            tog = read_text(pkg, comp, 'DPT_FeatureToggle') or default_toggle
+            r['toggle'] = tog.split('::')[-1]
+            r['cites'].append(f'{comp}.DPT_Cooldown = {fmt(r["toggled"])} s under DPT_FeatureToggle {tog}'
+                              + ('' if read_text(pkg, comp, 'DPT_FeatureToggle') else
+                                 ' (the component class default)'))
+        key = (agent, name)
+        if key not in cat:
+            raise KeyError(f'no catalogue entry {key}')
+        r['catalogue'] = cat[key]
+        secs = _catalogue_seconds(cat[key])
+        if not secs:
+            r['verdict'] = 'catalogue none'
+        elif files in secs:
+            r['verdict'] = 'agrees'
+        elif r['toggled'] in secs:
+            r['verdict'] = 'agrees with toggled'
+        else:
+            r['verdict'] = 'disagrees'
+        r['key'] = agent_slug(agent) + '_' + ability_slug(name).replace('-', '_')
+        rows.append(r)
+    return rows
+
+
+def restock_fact():
+    rows = restock_rows()
+
+    def label(r):
+        return f"{r['agent']} {r['ability']}"
+
+    def files_words(r):
+        s = f"{label(r)} {fmt(r['files'])} s"
+        if r['toggled'] is not None and r['toggled'] != r['files']:
+            s += f" ({fmt(r['toggled'])} s under {r['toggle']})"
+        return s
+    by = {}
+    for r in rows:
+        by.setdefault(r['verdict'], []).append(r)
+    claim = ("The cooldown components of build 13.06 give these restock times, the seconds after use before a "
+             "spent charge returns: " + '; '.join(files_words(r) for r in rows) + ". A value in brackets is the "
+             "component's DPT_Cooldown, which applies while the named DPT_FeatureToggle is on; the toggle is a "
+             "server setting, so the files give both values and not which one plays.")
+    src = (f"game-extract exports of {BUILD_ID}, set ability-states, under the store's {STORE_REL}/; the catalogue "
+           f"is the wiki harvest reference/abilities.json (2026-09-04), infobox Restock. Each value, as stored: "
+           + '; '.join(f"{label(r)}: " + '; '.join(r['cites']) for r in rows))
+
+    def cat_words(rs):
+        out = []
+        for r in rs:
+            tog = (f", {fmt(r['toggled'])} s under {r['toggle']}" if r['toggled'] is not None
+                   and r['toggled'] != r['files'] else '')
+            out.append(f"{label(r)} (files {fmt(r['files'])} s{tog}; catalogue \"{r['catalogue']}\")")
+        return ', '.join(out)
+    exc = []
+    differ = sorted(by.get('agrees with toggled', []) + by.get('disagrees', []), key=label)
+    if differ:
+        exc.append('The catalogue differs from the files\' base value on ' + cat_words(differ) + '. Each stands '
+                   'as a disagreement, not a supersession: an AbilityTuning row may be retuned and a feature '
+                   'toggle set on the server, neither readable from the client files, so a timed restock in a '
+                   'capture decides.')
+    blocked = [r for r in rows if r['blocked'] is not None]
+    if blocked:
+        exc.append('A DPT_Cooldown never applies on '
+                   + ', '.join(f"{label(r)} ({fmt(r['blocked'])} s)" for r in blocked)
+                   + ': each component uses a tuning tag, and the component\'s bytecode refuses a manual '
+                   'duration while IsUsingTuningTag is set.')
+    toggled_base = [r for r in by.get('agrees', []) if r['toggled'] is not None and r['toggled'] != r['files']]
+    if toggled_base:
+        exc.append('It matches the base value, not the toggled one, on '
+                   + ', '.join(f"{label(r)} ({r['toggle']} would give {fmt(r['toggled'])} s)" for r in toggled_base)
+                   + '.')
+    states = {}
+    for r in by.get('agrees with toggled', []):
+        states.setdefault(r['toggle'], [set(), set()])[0].add(label(r))
+    for r in toggled_base:
+        states.setdefault(r['toggle'], [set(), set()])[1].add(label(r))
+    words_ = []
+    for tog, (on, off) in sorted(states.items()):
+        if on and off:
+            words_.append(f'{tog} splits ({len(on)} toggled, {len(off)} base)')
+        else:
+            words_.append(f"{tog} matches its {'toggled' if on else 'base'} value on all {len(on) + len(off)}")
+    if words_:
+        exc.append('By toggle, the catalogue: ' + '; '.join(words_) + '. A split means the '
+                   'catalogue mixes dates or the toggle is not the whole story; the files do not say which '
+                   'value plays, so a timed restock in a capture decides.')
+    if by.get('catalogue none'):
+        exc.append('The catalogue lists no restock for ' + ', '.join(label(r) for r in by['catalogue none'])
+                   + ', whose components carry one; a recall or pickup restock is the likely use, unread here.')
+    exc.append("Gekko's restocks run through reclaimed globules [domain:abilities/gekko-abilities-drop-pickups]; "
+               "the component's time is the wait after a reclaim, as far as its field name says. An AbilityTuning "
+               "row may be retuned on the server. These are class defaults; a field name is the designers' word, "
+               "not a measured meaning.")
+    files_t = ', '.join(f"{r['key']} = {fmt(float(r['files']))}" for r in rows)
+    tog_t = ', '.join(f"{r['key']} = {fmt(float(r['toggled']))}" for r in rows if r['toggled'] is not None)
+    text = '\n'.join([
+        '[ability-restock-times]', f'claim = {tq(claim)}', 'kind = "measurement"', 'known = "measured"',
+        f'since = "{SINCE}"', 'subject = "abilities:restock"', f'source = {tq(src)}',
+        'use = """\nan ability\'s restock time: `files`; where `toggled` holds a value, the live time depends on a\n'
+        'server toggle the files do not carry, and is one of the two\n"""',
+        f'exceptions = {tq(" ".join(exc))}',
+        f'values = {{ files_s = {{ {files_t} }}, toggled_s = {{ {tog_t} }} }}',
+        'see = ["abilities/catalogue-restock-and-ult-points-confirmed", '
+        '"abilities/game-files-outrank-player-quantities", "abilities/gekko-abilities-drop-pickups"]']) + '\n'
+    return 'ability-restock-times', text, rows
+
+
 def render():
     """The facts file's text and, per ability, the coverage row it implies."""
     evald, errors = evaluate()
@@ -1376,6 +1690,7 @@ def render():
     parts = [HEADER]
     for _, text in movement_facts():
         parts.append(text)
+    parts.append(restock_fact()[1])
     cov = []
     for a in evald:
         fid, text, groups = ability_fact(a)

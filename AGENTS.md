@@ -129,10 +129,11 @@ what "I rebuilt the geometry while my experiment read it" states.
 - **Ability mechanics are unique per ability** (player, 2026-09-26)
   [domain:abilities/ability-rules-are-unique]: the lifecycle, inputs, minimap
   drawing and screen overlay of one ability predict nothing about another.
-  Record each from the player or an observation in `domain/abilities.toml`,
-  never by analogy; the questions live in
-  [`docs/ABILITY_MECHANICS_SHEET.md`](docs/ABILITY_MECHANICS_SHEET.md), and a
-  census verifies an answer with a targeted demo, never discovers it.
+  Record each in `domain/abilities.toml`, never by analogy: quantities from
+  game files first, qualitative mechanics from the player or observation
+  (player, 2026-10-04) [domain:abilities/game-files-outrank-player-quantities];
+  [`docs/ABILITY_MECHANICS_SHEET.md`](docs/ABILITY_MECHANICS_SHEET.md) holds the
+  questions; a targeted-demo census verifies answers, never discovers them.
 - Before a perceptual experiment, log falsifiable predictions in the store's
   `notes/predictions.jsonl`; inspect source images before measuring. On the
   first failed perceptual approach, build the tool that asks the player.

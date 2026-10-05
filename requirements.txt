@@ -9,3 +9,7 @@ pillow>=11.0             # killfeed_numeral: renders numeral templates from the 
 # Optional: GPU portrait scores for the scoreboard reader (scoreboard.py falls
 # back to OpenCV without it). Needs an NVIDIA GPU; about 1.5 GB with the toolkit.
 # cupy-cuda13x[ctk]>=14.0
+
+# Optional: the 3D sightline probe (prototypes/sightlines_3d.py); its tests skip without them.
+# embreex>=4.4
+# trimesh>=5.1
