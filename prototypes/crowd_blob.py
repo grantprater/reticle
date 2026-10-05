@@ -1,10 +1,13 @@
 r"""Crowds as team-colour blobs: track the blob, not its members; fire the
 expensive work only when it splits.
 
-    .\.venv\Scripts\python.exe prototypes\crowd_blob.py calibrate bdfdcf009dba
+    .\.venv\Scripts\python.exe prototypes\crowd_blob.py calibrate bdfdcf009dba [--record]
     .\.venv\Scripts\python.exe prototypes\crowd_blob.py replay 9acf02f98283 [--record]
     .\.venv\Scripts\python.exe prototypes\crowd_blob.py riot 3694746e4e54 a06f04a0059f bdfdcf009dba [--record]
-    .\.venv\Scripts\python.exe prototypes\crowd_blob.py cost 9acf02f98283
+    .\.venv\Scripts\python.exe prototypes\crowd_blob.py price bdfdcf009dba --blob-us <us> [--record]
+
+Add `--events-from <copy of store/events>` before the command to read a
+frozen copy of the stored streams.
 
 Successor to `prototypes/crowd_region.py` (crowd-region-0.2.0), whose region
 was the anchors' hull plus two icon radii, opened only when a track vanished.
@@ -15,70 +18,173 @@ detecting when the separation actually happens."
 
 Blobs (`FrameBlobs`)
 --------------------
-The team colour is the stacked-icon owner's soft key (`stack_fit.frame_maps`:
-`ally_key` of the crop, the baked static's key, and the floor weight with the
-player's yellow removed), as the ally-icon reader computes it; this module
-restates none of it. The coverage `C = max(T - B, 0) * W` (the crop's teal
-above the static's own) is blurred with a Gaussian of `SIGMA_R` icon outer
-radii, and cut once, at `LEVEL` times one model icon's blurred ring density
-(`model_density`, rendered from `stack_fit.Shape` at the session's map
-scale). Connected components (`cv2.connectedComponentsWithStats`) are the
-blobs; each blob's soft mass is the sum of `C` over its pixels
-(`np.bincount`). One isolated teammate's mass is measured per session
+The team colour is the ally-icon reader's per-frame teal key
+(`minimap.ally_mask` on the floor), which the reader computes on every drawn
+frame; this module restates none of it. The key is blurred with a Gaussian
+of `SIGMA_R` icon outer radii (`stack_fit.Shape.r_out` at the session's map
+scale) and cut once, at `LEVEL` times one model icon's blurred ring density
+(`model_density`). The blur joins the pale ring's fragments; a blob that
+never touches the opaque slab is the world behind the widget and is dropped,
+as `minimap.icons`'s `support` rule drops it. Connected components
+(`cv2.connectedComponentsWithStats`) are the blobs; a blob's mass is its keyed
+pixels (`np.bincount`). One isolated teammate's mass is measured per session
 (`isolated_mass`) from blobs holding exactly one stored ring fit with no other
-icon within four radii; a blob holds `mass / isolated` icons, the self icon
-added where the stored self fit touches it (`self_touch`).
+icon within four radii. A blob holds `max(ring fits in it, round(mass /
+isolated))` teammates, the mass counting from `max(MULTI_K, isolated p95 /
+median)`, plus the self icon where the stored self fit touches it. The
+stacked-icon owner's continuous key (`stack_fit.frame_maps`, `source="soft"`)
+is the alternative; it costs more than the whole blob step, where the
+reader's key is already paid for; in `calibrate` it joined an isolated
+icon's fragments more often but parted icons 2.2-3 radii apart far less
+often.
 
 Crowds (`track_crowds`)
 -----------------------
-A crowd is a tracked blob holding two or more icons, by mass, by ring fits
-inside it, or by a track that vanished inside it while the roster still
-licenses it. Each frame its blob is associated with last frame's by pixel
-overlap of the label images (one `np.bincount` over the joint labels), so it
-survives edge distortion and joint motion. Its state is cheap: bounding box,
-pixel area, soft mass, centroid and second moments of the hole-filled blob.
+A crowd is a tracked blob holding two or more icons, with at least one ring
+fit or the self fit in it (the top icon of a stack is drawn whole; teal mass
+alone is a barrier, an ability or the widget's transition), or a blob that
+carries a track that vanished while the roster licenses it. Each frame its
+blob is associated with last frame's by pixel overlap of the label images
+(one `np.bincount` over the joint labels; a centroid within one outer radius
+otherwise), so it survives edge distortion and joint motion. Its state is
+cheap: bounding box, area, mass, centroid and second moments of the
+hole-filled blob. It resolves after `CLOSE_HOLD` frames holding one icon and
+nothing hidden.
 
 * **Members.** Ring-fit tracks (the stored `round_entity` entities) seen
-  inside the blob are visible members. A track whose last observation lay
-  inside the blob and that then vanished for `VANISH_MS` is a hidden member;
-  its position is the region (the blob outline), set-valued, `rests_on` its
-  entry observation. The hidden count is `max(icons - visible, entered)`, and
-  all crowds' hidden counts together never exceed the roster's shortfall
-  (`round_lifetimes.ally_capacity` over `roster_window`, less the frame's
-  ring fits): `capped` counts the frames where mass alone would exceed it
-  (an ally ability drawn in team colour inflates a blob). Hidden members
-  with no entry track stay unnamed, reason `no_entry_track`, unless the
-  lineup less the dead and the named living leaves exactly as many names as
-  unnamed hidden members: then elimination names them, a claim that
-  `depends_on` every entity whose verdict it excluded.
+  inside the blob are visible members. A track that vanishes for `VANISH_MS`
+  hides in the blob that carries it (its last blob followed through each
+  frame's heaviest successor); its position is the region (the blob outline),
+  set-valued, `rests_on` its last observation. The hidden count is
+  `max(icons - visible, entered)`, and all crowds' hidden counts together
+  never exceed the roster's shortfall (`round_lifetimes.ally_capacity` over
+  `roster_window`, less the frame's ring fits); the guard counts the crowd
+  frames where mass alone would exceed it (an ally ability drawn in team
+  colour inflates a blob). Hidden members with no entry track stay unnamed,
+  reason `no_entry_track`, unless the lineup (the four most-observed names
+  of the stored entity verdicts) less the dead, the visible and the entered
+  leaves exactly as many names as unnamed members in one crowd: then
+  elimination names them, a claim that `depends_on` every entity whose
+  verdict it excluded.
 * **No search inside a crowd.** No pose, facing or stacked-icon fit is made
   inside it; an ability drawn over it is present in the crowd, at the
   crowd's resolution (the player, 2026-10-04: "Knowing a skye dog is in a
-  group of people and missed or didn't result in a kill is enough").
-* **Split detectors**, each on the crowd's own blob only:
-  `cc` the blob's successor is two or more components;
-  `erode` the hole-filled blob eroded by `ERODE_R` outer radii holds two or
-  more pieces (it fires as the neck thins, before the icons part);
-  `elong` the hole-filled blob's second-moment elongation crosses
-  `elongation_level`, two model discs at `ELONG_D_R` outer radii apart.
-  The self icon parting from the blob (`self_touch` lost) is a split under
-  every detector. A split fires the expensive work: the parted pieces' ring
-  fits and the identity assignment at emergence (`assign_emergers` and the
-  arbiter, as crowd-region-0.2.0 did). An audit every `AUDIT_EVERY` crowd
-  frames is stored apart and never counted as a trigger.
-* **Merges and ends.** A blob with two predecessors merges their crowds; a
-  crowd's blob that absorbs a single icon takes its track as a member. A
-  crowd whose blob has no successor ends (`vanished`: death, leaving the
-  widget, round end), its hidden members with it; a stored death verdict
-  naming a hidden member ends that member.
+  group of people and missed or didn't result in a kill is enough"). The
+  spike and enemy readers are untouched.
+* **Split detectors**, each on the crowd's own blob: `cc` its successors are
+  two or more pieces each of at least `SPLIT_PIECE` isolated icons; `erode`
+  the hole-filled blob eroded by `ERODE_R` outer radii holds two or more
+  pieces (it fires as the neck thins); `elong` the hole-filled blob's
+  second-moment elongation exceeds two outer-radius discs `ELONG_D_R` radii
+  apart. Each fires when its condition holds `HOLD` frames, timed at the
+  run's first frame, and is also reported at one frame (`@1`). The self fit
+  leaving the blob, held `SELF_HOLD` frames, is a split under every
+  detector. A held `cc` split ends the crowd: each piece holding two icons
+  becomes a crowd, the heaviest inherits the hidden members, and the pieces'
+  ring fits within `EMERGE_WINDOW_MS` are assigned jointly to the hidden
+  members (crowd-region-0.2.0's `assign_emergers`) and named by the
+  `adjudication.identity` arbiter over the stored verdict and the crowd's
+  claim, which `depends_on` the member's entry track. An audit every
+  `AUDIT_EVERY` crowd frames is stored apart and is never a trigger.
+* **Merges and ends.** Two crowds whose blobs meet merge; a single icon or
+  blob joining a crowd's blob is a `join`. A crowd whose blob has no
+  successor ends (`vanished`: death, leaving the widget, round end), its
+  hidden members with it; a stored death verdict naming a hidden member ends
+  that member.
 
 Scoring (truth is evaluation only; the tracker reads pixels and stored rows)
 ---------------------------------------------------------------------------
 `replay`: true separations on replay truth (`prototypes/replay_truth.py`
 through MapFrame) against each detector's split events; containment of
-hidden members' true positions in the blob outline; cost. `riot`: at Riot
-kill instants on the fixed handful, the stacked living allies the ring fits
-miss, against tracked crowds, their member sets and the stored stack fit.
+hidden members' true positions in the outline; identity at emergence; cost.
+`riot`: at Riot kill instants on the fixed handful, the stacked living
+allies the ring fits miss (crowd-region-0.2.0's count), against tracked
+crowds built with the stored stack-fit members removed, their member names,
+and the stored stack fit. `price`: stack_fit's stored time against the blob
+step's cost, on the session's stored ally-icon usage.
+
+Outcome (2026-10-04)
+--------------------
+Inputs: the stored streams copied by crowd-region-0.2.0 (`--events-from`).
+On 9acf02f98283 `round_entity` rests on ally-icon-0.9.3 while `ally_icon` is
+0.12.0: positions, entities and names come from `round_entity`; the
+`ally_icon` frame rows serve only as the clock. The handful's streams are
+consistent (ally-icon-0.11.0).
+
+*Split detection* (9acf02f98283, the only capture with a replay; 167 true
+separations). As fixed in advance (0.1.0), held two frames, `cc` detected
+[metric:crowd_blob/replay_prereg@9acf02f98283#cc_detected_share=0.4012],
+`erode` [metric:crowd_blob/replay_prereg@9acf02f98283#erode_detected_share=0.4371]
+and `elong` [metric:crowd_blob/replay_prereg@9acf02f98283#elong_detected_share=0.4551]
+within 0.5 s, at median latencies near zero, with
+[metric:crowd_blob/replay_prereg@9acf02f98283#cc_false_per_crowd_minute=26.671]
+to [metric:crowd_blob/replay_prereg@9acf02f98283#elong_false_per_crowd_minute=29.635]
+unmatched splits per crowd-minute. Most unmatched `cc` splits
+were the self fit flickering at a blob's edge; 0.2.0 holds that parting two
+frames (a development change on the scored session): `cc`
+[metric:crowd_blob/replay@9acf02f98283#cc_detected_share=0.3653] at
+[metric:crowd_blob/replay@9acf02f98283#cc_false_per_crowd_minute=21.436] per
+crowd-minute, `erode`
+[metric:crowd_blob/replay@9acf02f98283#erode_detected_share=0.4311] at
+[metric:crowd_blob/replay@9acf02f98283#erode_false_per_crowd_minute=24.399],
+`elong` [metric:crowd_blob/replay@9acf02f98283#elong_detected_share=0.4431]
+at [metric:crowd_blob/replay@9acf02f98283#elong_false_per_crowd_minute=24.399].
+At one frame `elong` detects
+[metric:crowd_blob/replay@9acf02f98283#elong_at1_detected_share=0.6946]
+(median latency [metric:crowd_blob/replay@9acf02f98283#elong_at1_latency_median_s=0.0] s;
+[metric:crowd_blob/replay@9acf02f98283#elong_at1_detected_share_in_crowd=0.7527]
+of the [metric:crowd_blob/replay@9acf02f98283#in_crowd_separations=93]
+separations whose pair stood in a tracked crowd) at
+[metric:crowd_blob/replay@9acf02f98283#elong_at1_false_per_crowd_minute=45.538]
+false per crowd-minute, and `cc`
+[metric:crowd_blob/replay@9acf02f98283#cc_at1_detected_share=0.5329]. The
+remaining unmatched splits are icons adjacent but never within one diameter
+(the blur joins them), separations shorter than the truth's five-frame hold,
+and fragments of one icon.
+
+*Containment.* A hidden member's true position lies inside the blob outline
+on [metric:crowd_blob/replay@9acf02f98283#containment_entered=0.3382] of
+member-frames and within one icon radius of it on
+[metric:crowd_blob/replay@9acf02f98283#containment_entered_within_r=0.8591];
+a truly hidden stacked teammate (no ring fit within the gate) lies inside a
+crowd's outline on
+[metric:crowd_blob/replay@9acf02f98283#containment_stacked_hidden=0.1667]
+and within one radius on
+[metric:crowd_blob/replay@9acf02f98283#containment_stacked_hidden_within_r=0.571].
+Inspected crops show why the strict outline misses: most such teammates are
+visible icons the ring fit missed, drawn beside the crowd in their own blob.
+
+*Riot kill instants* (the fixed handful, held out). Of
+[metric:crowd_blob/riot_pool@fixed3#ring_missed=87] stacked living allies the
+ring fits miss, a crowd's outline holds
+[metric:crowd_blob/riot_pool@fixed3#crowd_contains=10] (predicted 40) and
+lies within one radius of
+[metric:crowd_blob/riot_pool@fixed3#crowd_r_contains=51]; those crowds list
+the ally's name for [metric:crowd_blob/riot_pool@fixed3#crowd_r_name_listed=26].
+Stored stack-fit members match
+[metric:crowd_blob/riot_pool@fixed3#stack_matched=16], of which only
+[metric:crowd_blob/riot_pool@fixed3#crowd_r_stack_only=2] lie outside every
+crowd; [metric:crowd_blob/riot_pool@fixed3#crowd_r_neither=34] lie in
+neither (crowd-region-0.2.0:
+[metric:crowd_region/riot_pool@fixed3#neither=47]). Mass alone would exceed
+the roster's shortfall on
+[metric:crowd_blob/replay@9acf02f98283#area_exceeds_shortfall_share=0.0837]
+of 9acf02f98283's crowd frames. Identity at emergence:
+[metric:crowd_blob/replay@9acf02f98283#emergence_right=43] right,
+[metric:crowd_blob/replay@9acf02f98283#emergence_wrong=16] wrong, and the
+crowd's claim changed no stored name, as in crowd-region-0.2.0.
+
+*Cost.* The blob step, association, membership and split tests cost
+[metric:crowd_blob/replay@9acf02f98283#cost_us_per_frame=1988.3] us a frame
+single-threaded on 9acf02f98283's cached frames (the reader's teal key, a small
+part of it, is already paid). On bdfdcf009dba's stored usage stack_fit is
+[metric:crowd_blob/price@bdfdcf009dba#stack_fit_share=0.5813] of the
+ally-icon reader's feed; replacing it with crowds saves
+[metric:crowd_blob/price@bdfdcf009dba#saved_share=0.554] of the reader
+([metric:crowd_blob/price@bdfdcf009dba#saved_ms_per_frame=42.48] ms a frame),
+and [metric:crowd_blob/price@bdfdcf009dba#saved_share_vectorised=0.4359]
+once stack_fit is about 36% cheaper (branch ally-vectorise-20261004, not
+measured here).
 """
 from __future__ import annotations
 
@@ -104,7 +210,10 @@ import crowd_region as v1  # noqa: E402  (stored-row Session, truth contexts, as
 
 #: 0.1.0 (2026-10-04): the design fixed in the store's `notes/predictions.jsonl`
 #: (task crowd-blobsplit-20261004) before any truth was read.
-CROWD_BLOB_VERSION = "crowd-blob-0.1.0"
+#: 0.2.0: the self fit's parting is held `SELF_HOLD` frames like every other
+#: split condition; found on 9acf02f98283, so its split scores there are
+#: development scores (the Riot handful scores no split).
+CROWD_BLOB_VERSION = "crowd-blob-0.2.0"
 STORE = v1.STORE
 ANALYSIS = STORE / "analysis" / "crowd-blobsplit-20261004"
 
@@ -128,6 +237,10 @@ MULTI_K = 1.5
 SPLIT_PIECE = 0.4
 #: A detector's condition holds this many consecutive frames to fire.
 HOLD = 2
+#: The self fit's parting from a blob is held as long (0.2.0: 0.1.0 fired it
+#: on one frame, and on 9acf02f98283 those were most of the unmatched cc
+#: splits, a development finding on the scored session).
+SELF_HOLD = HOLD
 #: A crowd whose blob holds fewer than two icons and no hidden member this
 #: many consecutive frames is resolved.
 CLOSE_HOLD = 3
@@ -766,13 +879,22 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
                     c["erode"] = (0 if not (parted or tst["erode_pieces"] >= 2) else HOLD + 1, t)
                     c["elong"] = (0 if not (parted or tst["elong"] > px.elong_level)
                                   else HOLD + 1, t)
+                # the self fit leaving the blob: a split under every detector,
+                # held as they are (0.2.0; 0.1.0 fired on one frame)
                 st_ = bool(self_comp and self_comp in c["comps"])
-                if c["self_prev"] and not st_ and sf.any():
+                if st_:
+                    c["self_prev"], c["self_off"] = True, (0, None)
+                elif c["self_prev"] and sf.any():
+                    n_, t0s = c.get("self_off", (0, None))
+                    n_, t0s = n_ + 1, (t if n_ == 0 else t0s)
+                    c["self_off"] = (n_, t0s)
                     for det in DETECTORS:
-                        for nm in (det, f"{det}@1"):
-                            events.append({**ev, "kind": "split", "detector": nm, "t": t,
+                        nm = f"{det}@1" if n_ == 1 else det if n_ == SELF_HOLD else None
+                        if nm is not None:
+                            events.append({**ev, "kind": "split", "detector": nm, "t": t0s,
                                            "fired_t": t, "self_parted": True})
-                c["self_prev"] = st_
+                    if n_ >= SELF_HOLD:
+                        c["self_prev"] = False
                 c["frames"] += 1
                 tests[cid] = tst
             tc4 = time.perf_counter()
@@ -785,7 +907,7 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
             # emergence: ring fits in a split's pieces within the window
             for pnd in list(pending):
                 if t - pnd["t"] > EMERGE_WINDOW_MS:
-                    _resolve(S, pnd, emergences, AgentIdentityArbiter, identity_claim)
+                    _resolve_emergers(S, pnd, emergences, AgentIdentityArbiter, identity_claim)
                     pending.remove(pnd)
                     continue
                 got = {m["e"] for m in pnd["emergers"]}
@@ -840,7 +962,7 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
             for e in list(crowds[cid]["hidden"]):
                 end_member(crowds[cid], e, t1r, "round_end")
         for pnd in pending:
-            _resolve(S, pnd, emergences, AgentIdentityArbiter, identity_claim)
+            _resolve_emergers(S, pnd, emergences, AgentIdentityArbiter, identity_claim)
     return {"regions": regions, "events": events, "episodes": episodes,
             "emergences": emergences, "audits": audits, "guard": dict(guard),
             "crowd_frames": crowd_frames, "frames": int(idx.size), "cost_s": dict(cost),
@@ -848,7 +970,7 @@ def track_crowds(S: v1.Session, px: Pixels, iso: float, *, timing: bool = False,
             "level": px.level[px.source], "sigma": px.sigma, "source": px.source}
 
 
-def _resolve(S, pnd, emergences, Arbiter, identity_claim):
+def _resolve_emergers(S, pnd, emergences, Arbiter, identity_claim):
     """A split's emergers assigned jointly to the crowd's hidden members
     (crowd-region-0.2.0's `assign_emergers`) and named by the arbiter over
     the stored verdict and the crowd's claim, which depends on the member's
@@ -1198,6 +1320,12 @@ def score_riot(sid: str) -> dict:
                                                                 r_icon)), None)
             if reg_r is not None and reg is None:
                 c["crowd_within_r_only"] += 1
+            if reg_r is not None:
+                c["crowd_r_contains"] += 1
+                right_r = any(rg.canon(n) == rg.canon(truth_agent) for n in reg_r["names"])
+                c["crowd_r_name_listed"] += int(right_r)
+            else:
+                c["crowd_r_neither" if not in_stack else "crowd_r_stack_only"] += 1
             if reg is None:
                 c["crowd_missed"] += 1
                 c["neither" if not in_stack else "stack_only"] += 1
@@ -1222,6 +1350,43 @@ def score_riot(sid: str) -> dict:
     return out
 
 
+#: stack_fit's time on branch ally-vectorise-20261004 relative to master's
+#: (about 36% cheaper, as the brief states; not measured here).
+VECTORISED_STACK_FIT = 0.64
+
+
+def price(sid: str, blob_us: float) -> dict:
+    """What replacing stack_fit with crowds saves, on the session's stored
+    ally-icon usage (`reticle usage`), not a profile mean: stack_fit's whole
+    stored time against the blob step's measured cost on every fed frame."""
+    from reticle import usage
+    rows = [r for r in usage.load(STORE, sid) if r.get("kind") != "command"
+            and (r.get("readers") or {}).get("ally_icon")]
+    if not rows:
+        return {"session": sid, "reason": "no_stored_usage"}
+    r = rows[-1]
+    a = r["readers"]["ally_icon"]
+    feed_s = a["feed"]["total_ns"] / 1e9
+    n = a["feed"]["count"]
+    st = (a.get("steps") or {}).get("stack_fit")
+    pose = (a.get("steps") or {}).get("pose")
+    if st is None:
+        return {"session": sid, "reason": "no_stack_fit_step"}
+    stack_s = st["total_ns"] / 1e9
+    blob_s = blob_us * 1e-6 * n
+    vec_stack = stack_s * VECTORISED_STACK_FIT
+    vec_feed = feed_s - stack_s + vec_stack
+    return {"session": sid, "usage_run": r.get("run_id"), "recorded_at": r.get("recorded_at"),
+            "frames_fed": n, "feed_s": round(feed_s, 1), "stack_fit_s": round(stack_s, 1),
+            "stack_fit_share": round(stack_s / feed_s, 4),
+            "pose_s": round(pose["total_ns"] / 1e9, 1) if pose else None,
+            "blob_us_per_frame": blob_us, "blob_s": round(blob_s, 1),
+            "saved_share": round((stack_s - blob_s) / feed_s, 4),
+            "saved_ms_per_frame": round((stack_s - blob_s) / n * 1e3, 2),
+            "vectorised_stack_fit_s": round(vec_stack, 1),
+            "saved_share_vectorised": round((vec_stack - blob_s) / vec_feed, 4)}
+
+
 def _default(o):
     if isinstance(o, (np.integer,)):
         return int(o)
@@ -1243,14 +1408,34 @@ def main(argv=None) -> int:
     p = sub.add_parser("calibrate")
     p.add_argument("session")
     p.add_argument("--n", type=int, default=300)
+    p.add_argument("--record", action="store_true")
     p = sub.add_parser("replay")
     p.add_argument("session")
     p.add_argument("--record", action="store_true")
     p = sub.add_parser("riot")
     p.add_argument("sessions", nargs="+")
     p.add_argument("--record", action="store_true")
+    p = sub.add_parser("price")
+    p.add_argument("session")
+    p.add_argument("--blob-us", type=float, required=True,
+                   help="the blob step's measured cost per frame (the replay run's total)")
+    p.add_argument("--record", action="store_true")
     args = ap.parse_args(argv)
     _below_normal()
+    if args.cmd == "price":
+        s = price(args.session, args.blob_us)
+        print(json.dumps(s, indent=1))
+        if args.record and "reason" not in s:
+            from reticle import metrics
+            v = {k: s[k] for k in ("stack_fit_share", "saved_share", "saved_ms_per_frame",
+                                   "saved_share_vectorised")}
+            metrics.record("crowd_blob", part="price", session=args.session, values=v,
+                           deps={"crowd_blob": CROWD_BLOB_VERSION},
+                           context={"usage_run": s["usage_run"], "blob_us": args.blob_us,
+                                    "vectorised_factor": VECTORISED_STACK_FIT})
+            print(" ".join(f"[metric:crowd_blob/price@{args.session}#{k}={x}]"
+                           for k, x in v.items()))
+        return 0
     cv2.setNumThreads(1)
     if args.events_from:
         v1.EVENTS = args.events_from
@@ -1262,6 +1447,15 @@ def main(argv=None) -> int:
         (ANALYSIS / f"calibrate_{args.session}.json").write_text(json.dumps(out, indent=1),
                                                                 encoding="utf-8")
         print(json.dumps(out, indent=1))
+        if args.record:
+            from reticle import metrics
+            ch = out[f"{SOURCE}/sigma{SIGMA_R}/level{LEVEL}"]
+            v = {k: ch[k] for k in ("iso", "iso_one_share", "overlap_joined_share",
+                                    "apart_parted_share")}
+            metrics.record("crowd_blob", part="calibrate", session=args.session, values=v,
+                           deps=deps, context={"chosen": f"{SOURCE}/sigma{SIGMA_R}/level{LEVEL}"})
+            print(" ".join(f"[metric:crowd_blob/calibrate@{args.session}#{k}={x}]"
+                           for k, x in v.items()))
         return 0
     if args.cmd == "replay":
         s = score_replay(args.session)
@@ -1274,17 +1468,33 @@ def main(argv=None) -> int:
                  "containment_stacked_hidden": s["containment_stacked_hidden"]["share"],
                  "cost_us_per_frame": s["cost_us_per_frame"]["total"],
                  "true_separations": s["splits"].get("cc", {}).get("true_separations")}
-            for nm in ("cc", "erode", "elong"):
+            for nm in ("cc", "erode", "elong", "cc@1", "erode@1", "elong@1"):
                 sp = s["splits"].get(nm) or {}
-                v[f"{nm}_detected_share"] = sp.get("detected_share")
-                v[f"{nm}_latency_median_s"] = (sp.get("latency_s") or {}).get("median")
-                v[f"{nm}_false_per_crowd_minute"] = sp.get("false_per_crowd_minute")
+                key = nm.replace("@1", "_at1")
+                v[f"{key}_detected_share"] = sp.get("detected_share")
+                v[f"{key}_detected_share_in_crowd"] = sp.get("detected_share_in_crowd")
+                v[f"{key}_latency_median_s"] = (sp.get("latency_s") or {}).get("median")
+                v[f"{key}_false_per_crowd_minute"] = sp.get("false_per_crowd_minute")
+            v["in_crowd_separations"] = (s["splits"].get("cc") or {}).get("in_crowd_separations")
+            v["containment_entered_within_r"] = s.get("containment_entered", {}).get(
+                "share_within_r")
+            v["containment_stacked_hidden_within_r"] = s["containment_stacked_hidden"][
+                "share_within_r"]
+            g = s["guard"]
+            v["area_exceeds_shortfall_share"] = round(
+                g.get("area_exceeds_shortfall", 0) / max(1, g.get("crowd_frames", 0)), 4)
+            v["crowd_minutes"] = s["crowd_minutes"]
+            em = s.get("emergence") or {}
+            v["emergence_right"] = (em.get("arbiter") or {}).get("right")
+            v["emergence_wrong"] = (em.get("arbiter") or {}).get("wrong")
+            v["emergence_same_as_stored"] = int(em.get("arbiter") == em.get("stored_verdict_only"))
             metrics.record("crowd_blob", part="replay", session=args.session, values=v,
                            deps={**deps, "ally_icon": s["ally_icon_version"]})
             print(" ".join(f"[metric:crowd_blob/replay@{args.session}#{k}={x}]"
                            for k, x in v.items()))
         return 0
     if args.cmd == "riot":
+        pool = Counter()
         for sid in args.sessions:
             s = score_riot(sid)
             (ANALYSIS / f"riot_{sid}.json").write_text(json.dumps(s, indent=1, default=_default),
@@ -1296,11 +1506,23 @@ def main(argv=None) -> int:
                 ki = s["kill_instants"]
                 v = {kk: ki.get(kk, 0) for kk in ("ring_missed", "crowd_contains",
                                                   "crowd_name_listed", "stack_matched",
-                                                  "neither")}
+                                                  "neither", "crowd_r_contains",
+                                                  "crowd_r_name_listed", "crowd_r_neither",
+                                                  "crowd_r_stack_only")}
+                g = s["guard"]
+                v["area_exceeds_shortfall"] = g.get("area_exceeds_shortfall", 0)
+                v["crowd_frames"] = g.get("crowd_frames", 0)
                 metrics.record("crowd_blob", part="riot", session=sid, values=v,
                                deps={**deps, "ally_icon": s["ally_icon_version"],
                                      "stack_fit": s["stack_fit_version"]})
                 print(" ".join(f"[metric:crowd_blob/riot@{sid}#{k}={x}]" for k, x in v.items()))
+                pool.update(v)
+        if args.record and len(args.sessions) > 1:
+            from reticle import metrics
+            metrics.record("crowd_blob", part="riot_pool", session=f"fixed{len(args.sessions)}",
+                           values=dict(pool), deps=deps, context={"sessions": args.sessions})
+            print(" ".join(f"[metric:crowd_blob/riot_pool@fixed{len(args.sessions)}#{k}={x}]"
+                           for k, x in pool.items()))
         return 0
     return 1
 
