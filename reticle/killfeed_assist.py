@@ -69,7 +69,8 @@ import numpy as np
 import cv2
 
 from . import appearance
-from .killfeed import (KILLER_ART_FROM_PLATE, PLATE_EDGE_MIN,
+from .killfeed import (ART_PRIOR_X, ART_PRIOR_Y, ART_SURPRISE_Z, ART_TILE_H, ART_WIDE_Y,
+                       KILLER_ART_FROM_PLATE, PLATE_EDGE_MIN, PORTRAIT_ASPECT,
                        KillfeedScale, plate_score)
 from .killfeed_numeral import fit_scores, slot_whiteness
 
@@ -82,7 +83,16 @@ from .killfeed_numeral import fit_scores, slot_whiteness
 # share is stored, not gated (`PLATE_SHARE_MIN`).
 # 0.4.0 (2026-10-04): a window the ROI's left edge cuts is scored on its
 # visible columns, at least `ART_MIN_VISIBLE`; fewer stop the walk as cut.
-KILLFEED_ASSIST_VERSION = "killfeed-assist-0.4.0"
+# 0.5.0 (2026-10-04): the portrait art is the build's own (each agent
+# UIData's `KillfeedPortrait`, `game_portrait_paths`), equal to valorant-api's
+# within 2/255; icons come from every ability UIData's `DisplayIcon`, which
+# adds Miks' M-pulse and Phoenix's Run it Back. The killer art's left edge is
+# checked against the killer's own art before the walk (`check_anchor`): a
+# prior the art does not confirm widens to the entry's band, and a
+# disagreement with the killfeed reader's anchor is stored. A step no side
+# portrait fills is scored again with the player's yellow frame unweighted
+# (`FRAME_MARGIN`) on the player's side. The stream opens with a summary row.
+KILLFEED_ASSIST_VERSION = "killfeed-assist-0.5.0"
 
 #: The game build whose widgets and textures this reader draws on.
 ICON_BUILD = "release-13.06-shipping-18-5590001"
@@ -102,6 +112,14 @@ MAX_ASSISTERS = 4
 #: in yellow [domain:killfeed/self-yellow-frame]; the killer art's 4 px of 34,
 #: scaled to the 18 px brush.
 ART_MARGIN = 2
+#: The unweighted border (base px) of the player's own assister. The game
+#: draws `MeBorder` (`M_UI_KillfeedBorder`, tint E7EC77, and the
+#: `TX_Killfeed_MeBorder` chevron) over the panel when the local player
+#: assisted (`KillFeed_AssisterPortraits`, `bLocalPlayerIsAssister`)
+#: [domain:killfeed/self-yellow-frame]; the frame covers about three pixels
+#: of the portrait's edge. On the dev half's five self-framed misses the
+#: player's agent scored 0.60-0.64 at `ART_MARGIN` and 0.77-0.80 with 3.
+FRAME_MARGIN = 3
 
 # Where an assister's right edge sits, relative to the right end it abuts
 # (the killer art's left edge, or the previous assister's left edge). On 81
@@ -171,52 +189,109 @@ def icon_build_dir(store_root) -> Path:
     return Path(store_root) / "reference" / "game-files" / ICON_BUILD
 
 
-def _display_name(path: Path) -> str | None:
+def _props(path: Path) -> list[dict]:
+    """Every export's `Properties` in one exported package JSON."""
     if not path.is_file():
-        return None
-    for obj in json.loads(path.read_text(encoding="utf-8")):
-        name = ((obj.get("Properties") or {}).get("DisplayName") or {}).get("LocalizedString")
+        return []
+    return [obj.get("Properties") or {} for obj in json.loads(path.read_text(encoding="utf-8"))]
+
+
+def _display_name(path: Path) -> str | None:
+    for p in _props(path):
+        name = (p.get("DisplayName") or {}).get("LocalizedString")
         if name:
             return name
     return None
 
 
+def _game_png(d: Path, object_path: str) -> Path:
+    """The export's PNG of a `/Game/...` texture object path."""
+    rel = object_path.replace("/Game/", "ShooterGame/Content/", 1).rsplit(".", 1)[0]
+    return d / "killfeed-icons" / f"{rel}.png"
+
+
+def _characters(store_root) -> Path:
+    return icon_build_dir(store_root) / "ability-data" / "ShooterGame" / "Content" / "Characters"
+
+
+#: Character folders whose UIData is no playable agent's own.
+UIDATA_SKIP = ("AbilityDraftAgent",)
+
+
+def _agent_names(store_root) -> dict[str, str]:
+    """{character folder: agent name}: each agent UIData's `DisplayName`,
+    KAY/O spelt KAY_O as the lineup spells it."""
+    out = {}
+    chars = _characters(store_root)
+    if not chars.is_dir():
+        return out
+    for c in sorted(chars.iterdir()):
+        if c.name in UIDATA_SKIP:
+            continue
+        name = _display_name(c / f"{c.name}_UIData.json")
+        if name:
+            out[c.name] = name.replace("/", "_")
+    return out
+
+
+@lru_cache(maxsize=4)
+def game_portrait_paths(store_root: str) -> tuple[dict, dict]:
+    """({agent: png}, provenance): each agent UIData's `KillfeedPortrait`
+    texture as the build's `killfeed-icons` export holds it. The assist
+    portrait and the killer's art are this texture
+    [domain:killfeed/assist-panel-widget]; valorant-api's killfeed portraits
+    equal it within 2/255 per channel (Astra, Sage, Jett, KAY/O, Omen
+    compared). Empty when the store holds no export."""
+    d = icon_build_dir(store_root)
+    out, missing = {}, []
+    for code, agent in _agent_names(store_root).items():
+        for p in _props(_characters(store_root) / code / f"{code}_UIData.json"):
+            ref = (p.get("KillfeedPortrait") or {}).get("ObjectPath")
+            if not ref:
+                continue
+            png = _game_png(d, ref)
+            if png.is_file():
+                out.setdefault(agent, png)
+            else:
+                missing.append(ref)
+    return out, {"build": ICON_BUILD, "source": "UIData KillfeedPortrait",
+                 "agents": len(out), "missing": missing}
+
+
 @lru_cache(maxsize=4)
 def icon_art(store_root: str) -> tuple[dict, dict]:
-    """({name: path}, provenance) of every icon the panel can draw: each
-    ability UIData's `DisplayIcon` the build's `killfeed-icons` export holds,
-    named `<Agent>/<ability>` (the agent's own UIData `DisplayName`, KAY/O
-    spelt KAY_O as the lineup spells it; the ability's UIData `DisplayName`),
-    and `GENERIC_ICONS`. Empty when the store holds no export."""
+    """({name: path}, provenance) of every icon the panel can draw: the
+    `DisplayIcon` of each ability UIData (`UIData_*`, `AbilityUIData_*`) of
+    every agent that the build's `killfeed-icons` export holds, named
+    `<Agent>/<ability>` (the agent's own UIData `DisplayName`, KAY/O spelt
+    KAY_O as the lineup spells it; the ability's UIData `DisplayName`), and
+    `GENERIC_ICONS`. Empty when the store holds no export."""
     d = icon_build_dir(store_root)
-    man = d / "killfeed-icons" / "manifest.jsonl"
-    if not man.is_file():
+    chars = _characters(store_root)
+    if not (d / "killfeed-icons").is_dir() or not chars.is_dir():
         return {}, {"build": ICON_BUILD, "reason": "no_game_icons"}
-    chars = d / "ability-data" / "ShooterGame" / "Content" / "Characters"
     out, missing = {}, []
-    for line in man.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        sel = row.get("selected_by") or ""
-        if "/UIData_" not in sel or row.get("status") != "ok":
-            continue
-        game = sel.split(":", 1)[1]                    # ShooterGame/Content/...uasset
-        code = game.split("/Characters/", 1)[1].split("/", 1)[0]
-        agent = _display_name(chars / code / f"{code}_UIData.json")
-        ability = _display_name(d / "ability-data" / game.replace(".uasset", ".json"))
-        png = d / row["output"]
-        if not agent or not ability or not png.is_file():
-            missing.append(game)
-            continue
-        out[f"{agent.replace('/', '_')}/{ability}"] = png
+    for code, agent in _agent_names(store_root).items():
+        for f in sorted((chars / code).rglob("*UIData_*.json")):
+            if f.name == f"{code}_UIData.json":
+                continue
+            for p in _props(f):
+                ref = (p.get("DisplayIcon") or {}).get("ObjectPath")
+                ability = (p.get("DisplayName") or {}).get("LocalizedString")
+                if not ref or not ability:
+                    continue
+                png = _game_png(d, ref)
+                if png.is_file():
+                    out.setdefault(f"{agent}/{ability}", png)
+                else:
+                    missing.append(ref)
     for name, rel in GENERIC_ICONS.items():
         png = d / _KILLCALLOUT / rel
         if png.is_file():
             out[name] = png
         else:
             missing.append(rel)
-    return out, {"build": ICON_BUILD, "icons": len(out), "missing": missing}
+    return out, {"build": ICON_BUILD, "icons": len(out), "missing": sorted(set(missing))}
 
 
 def _icon_stack(png: Path, px: float) -> np.ndarray | None:
@@ -250,9 +325,32 @@ def icon_templates(store_root: str, scale: float = 1.0) -> dict[str, np.ndarray]
     return out
 
 
-def portrait_art(art_dir, s: KillfeedScale) -> "appearance.ArtTiles | None":
-    """The killfeed portrait art at the assist brush's size, in Lab."""
-    return appearance.killfeed_art(art_dir, s.n(PORTRAIT_H), s.n(PORTRAIT_W), s.n(ART_MARGIN))
+_GAME_ART: dict = {}
+
+
+def _game_art(store_root, h: int, w: int, margin: int) -> "appearance.ArtTiles | None":
+    key = (str(store_root), int(h), int(w), int(margin))
+    if key not in _GAME_ART:
+        paths, _prov = game_portrait_paths(str(store_root))
+        _GAME_ART[key] = appearance.art_tiles(paths, h, w, margin) if paths else None
+    return _GAME_ART[key]
+
+
+def portrait_art(store_root, s: KillfeedScale,
+                 margin: int = ART_MARGIN) -> "appearance.ArtTiles | None":
+    """The build's killfeed portraits (`game_portrait_paths`) at the assist
+    brush's size, in Lab, with a `margin`-px unweighted border (base px):
+    `ART_MARGIN`, or `FRAME_MARGIN` for the player's framed portrait."""
+    return _game_art(store_root, s.n(PORTRAIT_H), s.n(PORTRAIT_W), s.n(margin))
+
+
+def killer_art(store_root, s: KillfeedScale) -> "appearance.ArtTiles | None":
+    """The same portraits at the killer's tile (`killfeed.ART_TILE_H`, two
+    wide, `appearance.ART_INNER_MARGIN` unweighted), to check where the
+    killer's art starts (`check_anchor`)."""
+    th = s.n(ART_TILE_H)
+    return _game_art(store_root, th, int(round(PORTRAIT_ASPECT * th)),
+                     s.n(appearance.ART_INNER_MARGIN))
 
 
 def _portrait_step(crop_lab: np.ndarray, right: float, top: float, s: KillfeedScale,
@@ -367,26 +465,38 @@ def _pick(z, xs, ya, names, art, plate):
 
 def read_panel(crop: np.ndarray, right: float, top: float, s: KillfeedScale, art,
                candidates: list[str], icon_temps: dict | None = None,
-               icons_admitted: list[str] | None = None) -> dict:
+               icons_admitted: list[str] | None = None, framed_art=None,
+               lab: np.ndarray | None = None) -> dict:
     """Read the panel left of a killer art whose left edge is `right` and
     top `top` (ROI px). `candidates` are the agents the caller admits (the
     killer's side); the full art set is the surprise path. A portrait is
-    present where its art correlation reaches `PRESENT_Z` and the art's
-    transparent pixels show the plate (`killfeed.plate_score`, share at
-    least `PLATE_SHARE_MIN`): the assist portrait is drawn on the killer's
-    plate colour, the world behind the feed is not. Returns `count` (None
-    with `count_min` where the ROI cuts the search), `assisters` (beside the
-    killer first) and `stop` (why the walk ended)."""
-    lab = appearance.to_lab(crop)
+    present where its art correlation reaches `PRESENT_Z`; the plate share
+    behind its transparent pixels is stored (`PLATE_SHARE_MIN`). A step the
+    side's art leaves empty is scored again with `framed_art` (the same art
+    with `FRAME_MARGIN` unweighted) when the caller passes it, the player's
+    side, before the all-agent widening: the player's own portrait carries
+    the yellow frame [domain:killfeed/self-yellow-frame]. Returns `count`
+    (None with `count_min` where the ROI cuts the search), `assisters`
+    (beside the killer first) and `stop` (why the walk ended). `lab` is the
+    crop in Lab when the caller holds it."""
+    lab = appearance.to_lab(crop) if lab is None else lab
     plate = plate_score(crop)
     names = [c for c in candidates if c in art.index] or list(art.agents)
     out, edge = [], float(right)
     stop = {"reason": STOP_FULL}
     for k in range(MAX_ASSISTERS):
         got, cut = _portrait_step(lab, edge, top, s, art, names)
-        widened, cand, hit, best = None, names, None, -1.0
+        widened, frame, cand, hit, best, used = None, None, names, None, -1.0, art
         if got is not None:
             hit, best = _pick(got[0], got[1], got[2], names, art, plate)
+        if hit is None and got is not None and framed_art is not None:
+            fn = [c for c in names if c in framed_art.index]
+            fgot, _ = _portrait_step(lab, edge, top, s, framed_art, fn)
+            if fgot is not None and fn:
+                fhit, _fb = _pick(fgot[0], fgot[1], fgot[2], fn, framed_art, plate)
+                if fhit is not None:
+                    frame = "self"
+                    got, hit, cand, used = fgot, fhit, fn, framed_art
         if hit is None and got is not None and len(names) < len(art.agents):
             wide, _ = _portrait_step(lab, edge, top, s, art, list(art.agents))
             if wide is not None:
@@ -402,17 +512,18 @@ def read_panel(crop: np.ndarray, right: float, top: float, s: KillfeedScale, art
         ai, by, bx, zbest, share = hit
         per = z.reshape(-1, z.shape[2]).max(0)
         x = int(xs[bx])
-        gap = edge - (x + art.w)
+        gap = edge - (x + used.w)
         row = {"k": k, "x": x, "y": int(ya + by), "gap": round(float(gap), 2),
                "agent_at_best": cand[ai],
                "plate_share": None if share is None else round(share, 3),
                "art_zncc": {a: round(float(v), 4) for a, v in zip(cand, per)},
                "art_candidates": "all" if widened else "side", "widened": widened,
-               "visible": round(min(1.0, (x + art.w) / art.w), 3),
+               "frame": frame, "art_margin": used.margin,
+               "visible": round(min(1.0, (x + used.w) / used.w), 3),
                "icon": gap >= s.px(ICON_GAP_MIN)}
         if row["icon"] and icon_temps:
-            iy = row["y"] + (art.h - s.px(ICON_PX)) / 2.0
-            row.update(read_icon(crop, x + art.w, iy, s, icon_temps, icons_admitted or []))
+            iy = row["y"] + (used.h - s.px(ICON_PX)) / 2.0
+            row.update(read_icon(crop, x + used.w, iy, s, icon_temps, icons_admitted or []))
         out.append(row)
         edge = float(x)
     count = None if stop["reason"] == STOP_CUT else len(out)
@@ -420,9 +531,9 @@ def read_panel(crop: np.ndarray, right: float, top: float, s: KillfeedScale, art
 
 
 def view_anchors(row: dict) -> list[tuple[float, str]]:
-    """The killer art's left edge for one `killfeed_portrait` killer row, by
-    prior, strongest first: the entry anchor, the plate's left end
-    (`killfeed.KILLER_ART_FROM_PLATE`, scored at least
+    """The killfeed reader's priors for the killer art's left edge in one
+    `killfeed_portrait` killer row, strongest first: the entry anchor, the
+    plate's left end (`killfeed.KILLER_ART_FROM_PLATE`, scored at least
     `killfeed.PLATE_EDGE_MIN`), the art window. A prior within `EDGE_SEARCH`
     px of an earlier one is dropped."""
     out = []
@@ -445,28 +556,143 @@ def view_anchor(row: dict) -> tuple[float, str] | None:
     return got[0] if got else None
 
 
+#: Anchor checks (`check_anchor`).
+ANCHOR_VERIFIED = "verified"
+ANCHOR_LOCAL = "local"
+ANCHOR_UNVERIFIED = "unverified"
+ANCHOR_NO_KILLER = "no_killer"
+
+
+def _killer_z(lab: np.ndarray, kart, killers: list[str], x_lo: int, x_hi: int, y_lo: int,
+              y_hi: int):
+    """The best correlation of any of `killers`' art with its left edge in
+    [x_lo, x_hi] and top in [y_lo, y_hi] (ROI px): (z, x, y, agent), or None
+    when no window lies wholly inside the crop."""
+    h, w = lab.shape[:2]
+    x_lo, y_lo = max(0, x_lo), max(0, y_lo)
+    x_hi, y_hi = min(w - kart.w, x_hi), min(h - kart.h, y_hi)
+    if x_hi < x_lo or y_hi < y_lo:
+        return None
+    best = None
+    for y in range(y_lo, y_hi + 1):     # one row of windows at a time: bounded memory
+        z = appearance.art_zncc(lab[y:y + kart.h, x_lo:x_hi + kart.w], kart, killers)[0]
+        bx, ai = np.unravel_index(int(np.argmax(z)), z.shape)
+        if best is None or z[bx, ai] > best[0]:
+            best = (float(z[bx, ai]), x_lo + int(bx), y, killers[int(ai)])
+    return best
+
+
+def check_anchor(crop: np.ndarray, row: dict, s: KillfeedScale, kart,
+                 killer: str | None, side: list[str] | None = None,
+                 lab: np.ndarray | None = None) -> dict:
+    """Where the killer's art starts in one view, checked against the
+    killer's own art (`killer_art`). `killer` is the death verdict's killer
+    agent (a prior from the death owner; the result `rests_on` it); where
+    the verdict names none, `side` (the killer's side from the lineup) is the
+    candidate set and `killer_at_best` names the agent whose art placed the
+    edge. Each of the killfeed reader's priors (`view_anchors`) is scored
+    within `killfeed.ART_PRIOR_X` columns and `ART_PRIOR_Y` rows; the best
+    that reaches `killfeed.ART_SURPRISE_Z` is `verified`. Where none does,
+    the search widens to the entry's band (every column, the prior's rows;
+    then `killfeed.ART_WIDE_Y` rows either side about the column found, as
+    the killfeed reader's own surprise search reaches) and
+    a best at `ART_SURPRISE_Z` is `local`; else the first prior stands
+    `unverified`. With neither a killer nor a side the priors stand
+    unchecked (`no_killer`). `upstream_disagrees` says the chosen edge lies
+    more than `EDGE_SEARCH` px from the reader's first prior, stored for the
+    killfeed owner; the walk reads from `x`, `y`."""
+    priors = view_anchors(row)
+    top = row.get("art_y0")
+    out = {"killer": killer, "killer_candidates": None, "killer_at_best": None,
+           "priors": [{"prior": src, "x": round(x, 2)} for x, src in priors],
+           "local": None, "status": None, "x": None, "y": top, "prior": None,
+           "upstream_disagrees": None}
+    if not priors or top is None:
+        out["status"] = REFUSE_NO_ANCHOR
+        return out
+    first_x, first_src = priors[0]
+    killers = [k for k in ([killer] if killer else list(side or []))
+               if kart is not None and k in kart.index]
+    if not killers:
+        out.update(status=ANCHOR_NO_KILLER, x=first_x, prior=first_src)
+        return out
+    out["killer_candidates"] = "verdict" if killer else "side"
+    lab = appearance.to_lab(crop) if lab is None else lab
+    px, py = s.n(ART_PRIOR_X), s.n(ART_PRIOR_Y)
+    best = None
+    for p, (x, src) in zip(out["priors"], priors):
+        got = _killer_z(lab, kart, killers, int(round(x)) - px, int(round(x)) + px,
+                        int(top) - py, int(top) + py)
+        p["z"] = None if got is None else round(got[0], 4)
+        if got is not None and got[0] >= ART_SURPRISE_Z and (best is None or got[0] > best[0]):
+            best = (got[0], float(got[1]), int(got[2]), src, got[3])
+    if best is not None and killer:
+        out.update(status=ANCHOR_VERIFIED, x=best[1], y=best[2], prior=best[3],
+                   killer_at_best=best[4])
+    else:
+        # A named killer's art the priors miss is a surprise. With only the
+        # side known, a side agent's art can score at a prior inside another
+        # agent's art (223d636bf8d2 1386.5 s: Skye 0.52 inside Reyna's), so the
+        # band is always searched and its best stands.
+        got = _killer_z(lab, kart, killers, 0, crop.shape[1], int(top) - py, int(top) + py)
+        if got is not None and got[0] >= ART_SURPRISE_Z:
+            # rows refined about the column found, as far as the killfeed
+            # reader's own surprise search reaches (an entry still sliding in)
+            wy = s.n(ART_WIDE_Y)
+            fine = _killer_z(lab, kart, killers, got[1] - px, got[1] + px,
+                             int(top) - wy, int(top) + wy)
+            got = fine if fine is not None and fine[0] > got[0] else got
+        if got is not None:
+            out["local"] = {"x": got[1], "y": got[2], "z": round(got[0], 4), "agent": got[3]}
+        near = got is not None and best is not None and abs(got[1] - best[1]) <= EDGE_SEARCH
+        if got is not None and got[0] >= ART_SURPRISE_Z and near:
+            out.update(status=ANCHOR_VERIFIED, x=float(got[1]), y=int(got[2]), prior=best[3],
+                       killer_at_best=got[3])
+        elif got is not None and got[0] >= ART_SURPRISE_Z:
+            out.update(status=ANCHOR_LOCAL, x=float(got[1]), y=int(got[2]), prior="killer_art",
+                       killer_at_best=got[3])
+        else:
+            out.update(status=ANCHOR_UNVERIFIED, x=first_x, prior=first_src)
+    out["upstream_disagrees"] = bool(abs(out["x"] - first_x) > EDGE_SEARCH)
+    out["x"] = round(float(out["x"]), 2)
+    return out
+
+
 def assist_observation(crop: np.ndarray, killer_row: dict, s: KillfeedScale, art,
                        candidates: list[str], icon_temps: dict | None,
-                       icons_admitted: list[str], death_id: str | None = None) -> dict:
+                       icons_admitted: list[str], death_id: str | None = None,
+                       killer: str | None = None, kart=None, framed_art=None,
+                       side: list[str] | None = None) -> dict:
     """One `assist_observation` row for one view of an entry's killer: the
-    panel read left of that killer's art, or a refusal."""
+    panel read left of that killer's art (`check_anchor`, with `killer` or
+    else `side`), or a refusal. `framed_art` is passed on the player's side
+    (`read_panel`)."""
     base = {"kind": "assist_observation", "killfeed_assist_version": KILLFEED_ASSIST_VERSION,
             "t_ms": float(killer_row["t_ms"]), "frame_idx": killer_row.get("frame_idx"),
             "slot": killer_row.get("slot"), "entry": killer_row.get("entry"),
             "death_id": death_id, "killer_key": killer_row.get("observation_key"),
             "candidates": list(candidates)}
-    anchors = view_anchors(killer_row)
-    if not anchors or killer_row.get("art_y0") is None or art is None:
+    lab = appearance.to_lab(crop)
+    chk = check_anchor(crop, killer_row, s, kart, killer, side, lab)
+    if chk["status"] == REFUSE_NO_ANCHOR or art is None:
         return {**base, "count": None, "count_min": 0, "assisters": [],
-                "reason": REFUSE_NO_ANCHOR}
+                "reason": REFUSE_NO_ANCHOR, "anchor_check": chk}
+    # A checked edge is read alone; an unchecked one falls back through the
+    # reader's priors while each reads no panel, as before the check.
+    tries = ([(chk["x"], chk["prior"], chk["y"])]
+             if chk["status"] in (ANCHOR_VERIFIED, ANCHOR_LOCAL)
+             else [(x, src, killer_row["art_y0"]) for x, src in view_anchors(killer_row)])
     tried = []
-    for x, src in anchors:
-        got = read_panel(crop, x, float(killer_row["art_y0"]), s, art, candidates,
-                         icon_temps, icons_admitted)
+    for x, src, y in tries:
+        got = read_panel(crop, x, float(y), s, art, candidates, icon_temps, icons_admitted,
+                         framed_art, lab)
         tried.append({"prior": src, "x": round(x, 2), "count": got["count"]})
         if got["count"] != 0:
             break
+    rests = [{"prior": src, "x": round(x, 2), "art_y0": y,
+              "observation_key": killer_row.get("observation_key")}]
+    if chk["status"] in (ANCHOR_VERIFIED, ANCHOR_LOCAL):
+        rests.append({"death_killer": killer, "death_id": death_id} if killer
+                     else {"lineup_side": list(side or [])})
     return {**base, **got, "reason": got["stop"]["reason"] if got["count"] is None else None,
-            "rests_on": [{"prior": src, "x": round(x, 2), "art_y0": killer_row["art_y0"],
-                          "observation_key": killer_row.get("observation_key")}],
-            "priors_tried": tried}
+            "rests_on": rests, "priors_tried": tried, "anchor_check": chk}

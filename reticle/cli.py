@@ -3789,9 +3789,12 @@ def assist_session(store: Store, sid: str, per_entry: int = ASSIST_VIEWS_PER_ENT
                if r.get("kind") == "portrait_observation" and r.get("role") == "killer"}
     lineup = load_lineup(sid, store.root)
     s = KillfeedScale.for_capture(int(man["source"]["width"]), int(man["source"]["height"]))
-    art = ka.portrait_art(Path(store.root) / "reference" / "assets" / "agents", s)
+    art = ka.portrait_art(store.root, s)
+    framed = ka.portrait_art(store.root, s, ka.FRAME_MARGIN)
+    kart = ka.killer_art(store.root, s)
     temps = ka.icon_templates(str(store.root), s.scale)
     by_t: dict[float, list] = {}
+    sides: dict[int, list[str]] = {}
     for v in verdicts:
         keys = [o["observation_key"] for c in ((v.get("metadata") or {}).get("killer_identity")
                                                or {}).get("claims", [])
@@ -3800,6 +3803,7 @@ def assist_session(store: Store, sid: str, per_entry: int = ASSIST_VIEWS_PER_ENT
         rows = sorted((killers[k] for k in set(keys) if k in killers
                        and ka.view_anchor(killers[k]) is not None), key=lambda r: r["t_ms"])
         admitted = adj.side_admitted(lineup, adj.killer_side(v))
+        sides[id(v)] = list(admitted["named"])
         cands = list(admitted["named"]) + [r for r in admitted["rivals"] if r]
         icons = [n for n in temps if n.split("/", 1)[0] in cands or n.startswith("assist:")]
         if not rows:
@@ -3822,11 +3826,15 @@ def assist_session(store: Store, sid: str, per_entry: int = ASSIST_VIEWS_PER_ENT
         crop = smp.frame[y0:y1, x0:x1]
         for v, row, cands, icons in by_t[smp.t_ms]:
             tr = time.perf_counter()
-            o = ka.assist_observation(crop, row, s, art, cands, temps, icons, v["death_id"])
+            # The player's yellow frame can only be drawn on the player's side.
+            o = ka.assist_observation(crop, row, s, art, cands, temps, icons, v["death_id"],
+                                      killer=v.get("killer"), kart=kart, side=sides[id(v)],
+                                      framed_art=framed if adj.killer_side(v) == "ally" else None)
             t_read += time.perf_counter() - tr
             obs.append({"session_id": sid, **o})
         tc = time.perf_counter()
-    rows = adj.adjudicate_session(verdicts, obs, lineup, killfeed_kits.load())
+    kits = killfeed_kits.load()
+    rows = adj.adjudicate_session(verdicts, obs, lineup, kits)
     for r in rows:
         r["session_id"] = sid
     views = sum(1 for o in obs if o.get("killer_key"))
@@ -3834,6 +3842,30 @@ def assist_session(store: Store, sid: str, per_entry: int = ASSIST_VIEWS_PER_ENT
             "cache_s": round(t_cache, 3), "total_s": round(time.perf_counter() - t_start, 3),
             "read_ms_per_view": round(1000 * t_read / max(1, views), 2),
             "read_ms_per_entry": round(1000 * t_read / max(1, len(verdicts)), 2)}
+    from .roi_cache import ROI_CACHE_VERSION
+    _paths, art_prov = ka.game_portrait_paths(str(store.root))
+    _icons, icon_prov = ka.icon_art(str(store.root))
+    inputs = {"death": next((v.get("death_adjudication_version") for v in verdicts), None),
+              "killfeed_portrait": store.events_version("killfeed_portrait", sid),
+              "roi_cache": ROI_CACHE_VERSION, "lineup": (lineup or {}).get("version"),
+              "game_build": ka.ICON_BUILD}
+    anchors = Counter((o.get("anchor_check") or {}).get("status") for o in obs
+                      if o.get("killer_key"))
+    disagree = sum(bool((o.get("anchor_check") or {}).get("upstream_disagrees")) for o in obs)
+    obs.insert(0, {"session_id": sid, "kind": "summary",
+                   "killfeed_assist_version": ka.KILLFEED_ASSIST_VERSION, "inputs": inputs,
+                   "art": {k: v for k, v in art_prov.items() if k != "missing"},
+                   "icons": {k: v for k, v in icon_prov.items() if k != "missing"},
+                   "anchor_checks": dict(anchors), "upstream_anchor_disagrees": disagree,
+                   "cost": cost})
+    rows.insert(0, {"session_id": sid, "kind": "summary",
+                    "assist_adjudication_version": adj.ASSIST_ADJUDICATION_VERSION,
+                    "inputs": {"killfeed_assist": ka.KILLFEED_ASSIST_VERSION,
+                               "death": inputs["death"],
+                               "agent_identity": adj.AGENT_IDENTITY_VERSION,
+                               "killfeed_kits": kits.get("version"),
+                               "lineup": inputs["lineup"]},
+                    "summary": adj.summary(rows)})
     return obs, rows, cost
 
 
@@ -3848,7 +3880,7 @@ def cmd_assists(args) -> int:
     sid = _resolve_session(store, args.session)["session_id"]
     obs, rows, cost = assist_session(store, sid, args.views)
     summ = adj.summary(rows)
-    print(f"{sid}: {len(rows)} deaths, {cost['views']} views; {summ}")
+    print(f"{sid}: {cost['deaths']} deaths, {cost['views']} views; {summ}")
     print(f"  cost: {cost}")
     p1 = store.write_events("killfeed_assist", sid, obs)
     p2 = store.write_events("assist", sid, rows)

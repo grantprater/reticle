@@ -81,6 +81,7 @@ def score_riot(store: Store, sids: list[str]) -> tuple[dict, list[dict]]:
             continue
         d = recs[sid]
         ident = rgt.resolve_lineup_player(d, idents[sid], ref)
+        me = ident.get("subject")
         who = {p["subject"]: p for p in d["match"]["players"]}
         agent_of = {s: ref.agent(p["characterId"]) for s, p in who.items()}
         kills = {k["gameTime"]: k for k in d["match"]["kills"]}
@@ -93,6 +94,21 @@ def score_riot(store: Store, sids: list[str]) -> tuple[dict, list[dict]]:
                 continue
             truth = sorted(canon(agent_of.get(s)) for s in (k.get("assistants") or []))
             c["paired"] += 1
+            # Per Riot assistant: did the panel name that agent? Read counts
+            # and lower bounds both count; refusals without a bound do not.
+            if v["count"] is not None or v.get("present"):
+                found = {canon(a["agent"]) for a in v["assisters"] if a["agent"]}
+                for s_ in (k.get("assistants") or []):
+                    ag = canon(agent_of.get(s_))
+                    grp = "own" if me and s_ == me else "others"
+                    c[f"assistant_{grp}"] += 1
+                    c[f"assistant_{grp}_found"] += int(ag in found)
+                    if ag == "astra":
+                        c["assistant_astra"] += 1
+                        c["assistant_astra_found"] += int(ag in found)
+            elif truth and v.get("count_reason") == "cut_by_roi":
+                c["riot_assisted_cut_unread"] += 1
+                c[f"cut_unread@{sid}"] += 1
             c[f"riot_n{len(truth)}"] += 1
             row = {"session": sid, "death_id": v["death_id"], "t_ms": v["t_ms"],
                    "riot": truth, "count": v["count"], "count_status": v["count_status"],
@@ -155,6 +171,10 @@ def score_riot(store: Store, sids: list[str]) -> tuple[dict, list[dict]]:
     out["assister_refusal_rate"] = round(c["assister_unnamed"] / max(1, c["assisters"]), 4)
     out["lower_bound_presence_precision"] = round(c["lower_bound_riot_has"] / max(1, c["lower_bound"]), 4)
     out["lower_bound_assister_precision"] = round(c["lb_in_riot"] / max(1, c["lb_named"]), 4)
+    for grp in ("own", "others", "astra"):
+        out[f"assistant_{grp}_recall"] = round(c[f"assistant_{grp}_found"]
+                                               / max(1, c[f"assistant_{grp}"]), 4)
+    out["coverage"] = round((c["count_read"] + c["lower_bound"]) / max(1, c["paired"]), 4)
     out["reasons"] = dict(reasons.most_common())
     return out, rows
 
@@ -330,42 +350,72 @@ def sheet(store: Store, rows: list[dict], kinds: tuple, n: int, name: str) -> Pa
     return p
 
 
+#: The fixed split of the Riot matches, registered 2026-10-04 before any
+#: version after killfeed-assist-0.4.0 was measured: sessions sorted by
+#: sha256(SPLIT_SALT + session id); the first DEV_N are the dev half, the
+#: rest are held out. Versions are chosen on the dev half and the player's
+#: labels; the held-out half is scored once per registered version.
+SPLIT_SALT = "assist-panel-split:"
+DEV_N = 10
+
+
+def split(sids: list[str]) -> dict[str, list[str]]:
+    """{"dev": [...], "held": [...]}: the fixed hash split of `sids`."""
+    import hashlib
+    order = sorted(sids, key=lambda s: hashlib.sha256((SPLIT_SALT + s).encode()).hexdigest())
+    return {"dev": sorted(order[:DEV_N]), "held": sorted(order[DEV_N:])}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--sheet", type=int, default=0, help="crops per disagreement kind")
-    ap.add_argument("--json", default=str(OUT / "eval.json"))
+    ap.add_argument("--half", choices=("dev", "held", "both"), default="dev",
+                    help="which half of the Riot matches to score (held: once per version)")
+    ap.add_argument("--json", default=None)
     ap.add_argument("--record", action="store_true", help="append metrics to notes/metrics.jsonl")
     args = ap.parse_args(argv)
     _below_normal()
     store = Store()
-    sids = sorted(rgt.riot_records(store.root))
-    riot, riot_rows = score_riot(store, sids)
+    sids = sorted(s for s in rgt.riot_records(store.root) if store.has_events("assist", s))
+    halves = split(sids)
+    want = ("dev", "held") if args.half == "both" else (args.half,)
+    out = {"split": halves}
+    for half in want:
+        riot, riot_rows = score_riot(store, halves[half])
+        tray, tray_rows = cross_check_tray(store, halves[half])
+        print(f"riot {half}:", json.dumps(riot, indent=1))
+        print(f"tray cross-check {half}:", tray)
+        out[half] = {"riot": riot, "tray": tray, "riot_rows": riot_rows,
+                     "tray_disagreements": tray_rows}
     labels, label_rows = score_labels(store)
-    tray, tray_rows = cross_check_tray(store, sids)
-    print("riot:", json.dumps(riot, indent=1))
     print("labels:", json.dumps(labels, indent=1))
-    print("tray cross-check:", tray)
-    Path(args.json).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.json).write_text(json.dumps({"riot": riot, "labels": labels, "tray": tray,
-                                           "riot_rows": riot_rows, "label_rows": label_rows,
-                                           "tray_disagreements": tray_rows}, indent=1),
-                               encoding="utf-8")
-    print("->", args.json)
+    out["labels"], out["label_rows"] = labels, label_rows
+    path = Path(args.json or OUT / f"eval_{args.half}.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print("->", path)
     if args.record:
         from reticle import metrics
         from reticle.adjudication.assist import ASSIST_ADJUDICATION_VERSION
         from reticle.killfeed_assist import KILLFEED_ASSIST_VERSION
-        deps = {"reader": KILLFEED_ASSIST_VERSION, "adjudication": ASSIST_ADJUDICATION_VERSION,
-                "sessions": len(sids)}
         flat = lambda d: {k: v for k, v in d.items() if isinstance(v, (int, float))}
-        metrics.record("assist_panel", part="riot", values=flat(riot), deps=deps)
-        metrics.record("assist_panel", part="labels", values=flat(labels), deps=deps)
-        metrics.record("assist_panel", part="tray", values=flat(tray), deps=deps)
-        print("recorded assist_panel/riot, /labels, /tray")
+        for half in want:
+            deps = {"reader": KILLFEED_ASSIST_VERSION,
+                    "adjudication": ASSIST_ADJUDICATION_VERSION,
+                    "half": half, "sessions": halves[half], "split_salt": SPLIT_SALT}
+            metrics.record("assist_panel", part=f"riot_{half}", values=flat(out[half]["riot"]),
+                           deps=deps)
+            metrics.record("assist_panel", part=f"tray_{half}", values=flat(out[half]["tray"]),
+                           deps=deps)
+        metrics.record("assist_panel", part="labels", values=flat(labels),
+                       deps={"reader": KILLFEED_ASSIST_VERSION,
+                             "adjudication": ASSIST_ADJUDICATION_VERSION})
+        print("recorded assist_panel/riot_<half>, /tray_<half>, /labels")
     if args.sheet:
+        rows = [r for h in want for r in out[h]["riot_rows"]]
         for kinds, name in ((("fn_panel_none",), "fn"), (("fp_riot_none",), "fp"),
                             (("panel_fewer", "panel_more"), "count")):
-            print(sheet(store, riot_rows, kinds, args.sheet, name))
+            print(sheet(store, rows, kinds, args.sheet, name))
         print(sheet(store, label_rows, ("count", "icon"), args.sheet * 2, "labels"))
     return 0
 

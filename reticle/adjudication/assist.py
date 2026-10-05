@@ -43,14 +43,17 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 
 from . import killfeed_kits
-from .identity import (PORTRAIT_MARGIN_MIN, AgentIdentityArbiter, identity_claim,
-                       side_candidates)
+from .identity import (AGENT_IDENTITY_VERSION, PORTRAIT_MARGIN_MIN, AgentIdentityArbiter,
+                       identity_claim, side_candidates)
 from ..killfeed_assist import KILLFEED_ASSIST_VERSION, PRESENT_Z
 
 # 0.1.0 (2026-10-04): first adjudication.
 # 0.2.0 (2026-10-04): a cut panel keeps its lower bound (`count_min`,
 # `present`) and the assisters found before the cut.
-ASSIST_ADJUDICATION_VERSION = "assist-adjudication-0.2.0"
+# 0.3.0 (2026-10-04): a view's claim evidence carries the portrait's frame
+# (`self` for the player's yellow frame) and the art margin it was scored at;
+# the stream opens with a summary row of its inputs.
+ASSIST_ADJUDICATION_VERSION = "assist-adjudication-0.3.0"
 
 CHANNEL = "killfeed_assist"
 #: An icon is named when its pooled score reaches this and leads the next
@@ -83,6 +86,7 @@ def view_claim(row: dict, entity_id: str, admitted: dict, observed_at_ms: float)
     zs = row.get("art_zncc") or {}
     ev = {"k": row["k"], "x": row.get("x"), "y": row.get("y"), "art_zncc": zs,
           "art_candidates": row.get("art_candidates"), "widened": row.get("widened"),
+          "frame": row.get("frame"), "art_margin": row.get("art_margin"),
           "named_candidates": admitted["named"], "rivals": admitted["rivals"],
           "blind": admitted["blind"]}
     kw = dict(channel=CHANNEL, observed_at_ms=observed_at_ms,
@@ -258,6 +262,8 @@ def summary(rows: list[dict]) -> dict:
     """Counts over one session's assist rows."""
     c = Counter()
     for r in rows:
+        if r.get("kind") != "assist_verdict":
+            continue
         c[f"count_{r['count'] if r['count'] is not None else 'refused'}"] += 1
         for a in r["assisters"]:
             c["assisters"] += 1
