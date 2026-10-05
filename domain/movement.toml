@@ -1,0 +1,59 @@
+# Movement: how fast and in what units the game moves a player, not how any
+# reader tracks one. Schema and the citation form: reticle/domain.py.
+
+[character-max-speed]
+claim = """
+The player character's ground movement tuning gives a base top speed
+(MaxSpeed) of 675 game units per second, acceleration 3675 units/s^2 and
+braking friction 3000. Three movement states multiply the top speed by 0.6,
+1.1 and 0.35; the export names the states only by index (the first, the
+third and the fourth), so which state is 1.1 is not read. The largest top
+speed the tuning allows is therefore 675 x 1.1 = 742.5 units/s.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-04"
+subject = "movement:character"
+values = { max_speed_units = 675.0, accel_units = 3675.0, state_max_speed_multipliers = [0.6, 1.1, 0.35] }
+source = """
+game files, build release-13.06-shipping-18-5590001: the CharMoveComp
+(ShooterCharacterMovement) export of ShooterGame/Content/Characters/_Core/BasePlayerCharacter,
+MovementTuning.BaseValues and DefaultStateMultipliers, exported with the
+store's tools/game-extract (store
+reference/game-files/release-13.06-shipping-18-5590001/movement/manifest.jsonl,
+sha256 5f307551527a730062e9313812bce901a4c0bd5594668a7e9229584d046e2a63).
+No agent blueprint was read for an override.
+"""
+use = """
+a reach region grows at most 742.5 units/s (7.425 m/s) while the slot's kit
+moves it no faster than running; valorant-api's weapon records carry
+runSpeedMultiplier 0.72-0.9 where present, so a held weapon only slows. A
+movement ability is outside this bound
+[domain:abilities/movement-abilities-are-dashes-and-teleports]
+"""
+exceptions = """
+falling and launches (jump pads, ropes, abilities) are not ground movement
+and are not bounded here
+"""
+see = ["movement/game-units-are-centimetres"]
+
+[game-units-are-centimetres]
+claim = """
+One game unit is one centimetre: Riot's match records, the replays and the
+game files give positions and speeds in Unreal Engine units, and the engine
+documents one unit as one centimetre. The player character's navigation
+agent is 42 units in radius and 196 units tall.
+"""
+kind = "geometry"
+known = "cited"
+since = "2026-10-04"
+values = { units_per_m = 100.0, agent_radius_units = 42.0, agent_height_units = 196.0 }
+source = """
+Unreal Engine's documented unit convention (1 unit = 1 cm); the agent
+dimensions from the NavAgentProps of the same BasePlayerCharacter export as
+[domain:movement/character-max-speed]
+"""
+use = """
+world metres are game units over 100, for Riot records, replays, the
+valorant-api map transform and the movement tuning alike
+"""

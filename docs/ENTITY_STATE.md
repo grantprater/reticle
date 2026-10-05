@@ -82,8 +82,10 @@ assigned to a slot or explained as something else.
   arbiter refused) binds through the owners that bind deaths today:
   `round_lifetimes.death_refusal`, `death_rank` and `seen_after_death`,
   over the living slots of the victim's team whose belief region holds the
-  death's X. One admitted slot closes, its close `depends_on` the other
-  slots' verdicts. Several admitted slots stay `alive` with `maybe_dead`
+  death's X. When the region test admits no slot, the candidates fall back
+  to every living slot of the victim's team the arbiter does not exclude,
+  and the empty test is stored as a calibration surprise. One admitted slot
+  closes, its close `depends_on` the other slots' verdicts. Several admitted slots stay `alive` with `maybe_dead`
   set, the candidate set stored, until a sighting past
   `round_lifetimes.DEAD_ICON_LAG_MS` or a later verdict resolves it. The
   team's alive count stays the roster's, never the slot table's.
@@ -119,36 +121,66 @@ region. Its kind says what the region is.
 
 | Kind | Region | Point | Rests on |
 |---|---|---|---|
-| `fit` | a disc of radius `k * sigma` round the fit | the fit's world position | that frame's fit (`observation_key`) |
+| `fit` | a disc of radius `r_fit` round the fit | the fit's world position | that frame's fit (`observation_key`) |
 | `held` | the last fit's disc | the last fit | the last fit, while the cheap check finds the icon's pixels unchanged (`ally_prior` design) |
-| `crowd` | the crowd blob's cells, dilated by one icon radius | the blob centroid | the members' entry fits and the blob (`crowd_blob.FrameBlobs` design) |
-| `reach` | the walkable cells within path distance `R(t)` of the anchor cell, less the cells negative evidence excluded | the anchor | the anchor fit, and the frames whose absence cut the region |
-| `reach_disc` | `reach` on a map without a path table: a Euclidean disc on the walkable mask, refusal reason `no_path_table` | the anchor | as `reach` |
+| `crowd` | the host's disc of radius `2 r_icon + r_fit`, together with the slot's `reach` region grown since the merge | the host's fit | the slot's last fix, and the host slot's fits (`depends_on` the host's assignment) |
+| `reach` | the Euclidean disc of radius `R(t)` round the anchor, over every standable cell (box tops included), less the forward-carried exclusions of the frame (below) | the anchor | the anchor fit, and the frames whose exclusions it carries |
 | `spawn` | the team's spawn callout region (round start, before the first fit) | the callout's location | valorant-api's map callouts |
 | `last_known` | enemies only: the "?" mark's place, then `reach` from it | the mark | `minimap_objects.last_known` |
+| `unanchored` | the whole map | none | nothing: a slot with no fix since the round opened |
+
+The `crowd` kind (amended 2026-10-04, critique) covers the stacked
+teammate: a slot that loses its fit while its last fix lies within one icon
+diameter (`2 r_icon`) of a fit assigned to another slot, the self slot
+included, **rides** that host [domain:minimap/coincident-icons]. Its point is
+the host's fit; its region is the host disc together with its own reach
+region, so a member who leaves the stack unseen is never cut out. It ends at
+the slot's next fit, or when the host loses its fit (then `reach`). A tracked
+blob (`crowd_blob.FrameBlobs`) may replace the host disc only after its
+capacity check: when the blob explains fewer members (mass over one isolated
+icon's mass) than it holds, every member's region becomes the blob together
+with the reach grown from the last frame where the capacity agreed. The
+host disc alone is the crowd's **core**; it is scored apart and never stands
+as the reported region.
 
 ### Exact form
 
 - **Point:** world `(x, y)` in metres (section 3) and `level`, the floor
   index, or null with a reason.
-- **Fit sigma:** `sigma = FIT_ERR_PX * scale * m_per_px`, where
-  `FIT_ERR_PX` is the minimap owner's per-fit error at the reference widget,
-  `scale` the geometry key's `geometry.map_scale` (one scale transform, no
-  per-size table) and `m_per_px` the world frame's metres per baked pixel. Stored ally fits lie a median
+- **Fit radius:** `r_fit = r_icon + v_max * dt_frame`: one icon outer
+  radius in metres (the reader's measured radius times the world frame's
+  metres per baked pixel; one scale transform, no per-size table) plus the
+  distance a player covers in one frame period, since a truth instant falls
+  within a frame of the one drawn. It comes from geometry and a game fact,
+  never from truth. Stored ally fits lie a median
   [metric:replay_truth/score@9acf02f98283#ally_err_cm_median=76.0] cm from
   the replay, 90th percentile
-  [metric:replay_truth/score@9acf02f98283#ally_err_cm_p90=159.0] cm;
-  stage 1 fits `k` on the development set so the disc holds the truth at
-  the nominal 0.95, and the held-out set checks it.
-- **Reach:** `R(t) = v_max * (t_game - t_anchor) + k * sigma_anchor`, with
+  [metric:replay_truth/score@9acf02f98283#ally_err_cm_p90=159.0] cm; the
+  scorers measure the disc's calibration and never set it (amended: the
+  first draft fitted `k` on development truth, a threshold taken from
+  truth).
+- **Reach:** `R(t) = v_max * (t_game - t_anchor) + r_fit`, with
   `t_game` from the game-time owner (`gametime.SessionGameTime`), so a
-  capture stall does not freeze the growth. The region is
-  `dist_dm[anchor_cell] <= R(t)` on the map's all-pairs path table (1 m
-  cells, `prototypes/sightlines.py`), less the exclusion mask. `v_max` is
-  the top speed a fact gives (section 12). Until one exists the region uses
-  the track owner's walker ceiling (`minimap.RUN_PX` through
-  `track.association_tolerance`) converted to metres: a measured bound of
-  the pipeline, generous by design, never a borrowed game value.
+  capture stall does not freeze the growth. `v_max` is the character's top
+  ground speed from the game files [domain:movement/character-max-speed]:
+  675 units/s with the largest state multiplier, 1.1, so 7.425 m/s
+  [domain:movement/game-units-are-centimetres]; every weapon multiplier
+  valorant-api lists is below one. The bound is the **Euclidean** disc over
+  every standable cell (floor, plant and box tops). The path table
+  (`prototypes/sightlines.py`) models no drops, ropes, teleporters, doors,
+  box tops or vaults (its own docstring), so path distance ranks and
+  predicts but never bounds, until directed edges for drops, ropes and
+  teleporters come from game files or recorded facts and the replay shows
+  the path bound never excludes a truth position. The probe measured what
+  the Euclidean disc gives up: about 9% of the walkable cells at 5 m.
+  `minimap.RUN_PX` stays the tracker's association gate and never sizes a
+  region: it is a bound measured on the pipeline's own tracks, in widget
+  pixels.
+- **Kits that move faster than running.** When the slot's kit holds a
+  movement ability [domain:abilities/movement-abilities-are-dashes-and-teleports]
+  whose charge state is not known spent, or a movement child of the slot is
+  open, the reach region carries `kit_unbounded`: the disc bounds running
+  only. The flag is scored apart.
 - **No velocity in the region.** A reach region is a bound, not a
   prediction; the reader's prior-first search may predict a place to look
   (the `ally_prior` design), and that prediction never narrows a region.
@@ -160,10 +192,12 @@ region. Its kind says what the region is.
    and the teleport-licence verdict (section 1). Observations always win.
 2. **A cheap check that holds** (unchanged pixels at the predicted icon)
    sets `held`.
-3. **Crowd entry.** A slot whose prediction joins a tracked crowd blob sets
-   `crowd`: no per-member pose, members set-valued (the player's rule:
-   nobody cares whether one teammate stands 10 cm right of another). The
-   crowd's split detector, not a timer, ends it.
+3. **Crowd entry.** A slot whose last fix lies within one icon diameter of
+   another slot's fit sets `crowd`: no per-member pose, members set-valued
+   (the player's rule: nobody cares whether one teammate stands 10 cm right
+   of another). A fit of the slot, the host's lost fit, or the blob's
+   capacity check ends it; the region always holds the member's own reach,
+   so the split detector firing late costs sharpness, never containment.
 4. **No observation** grows `reach` from the last `fit` or `held` frame.
 5. **Death, revive, round end** follow section 1.
 6. **Widget absent, menu open, capture stall:** time passes, the region
@@ -186,17 +220,59 @@ show** the slot's icon at frame `t` when all hold:
   no crowd blob, no pixel the hide owner marks (`minimap_dark.occluded`:
   smokes and grey cover), no ping, spike glyph or ability drawing the
   stored readers place there;
-- the reader's detection probability `p_det(c)` for an unoccluded isolated
-  icon, measured per reader version as a capability (`capabilities`), is
-  known.
+- the reader **searched** `c` at frame `t`: it described the frame and
+  `c` lies inside its search (the whole widget for a full read; the
+  prior-first windows for a prior-first read). The reader stores what it
+  searched; where it does not, `p_det(c, t) = 0`;
+- the pixels at `c` **positively match the baked floor**: the soft residual
+  of the frame against the geometry's base map and lighting reference
+  (`(map, profile)` geometry [domain:capture/session-pixels-are-not-the-map])
+  scores the cell as bare floor. A cell no reader marked as occluded is not
+  thereby empty; an unread ping, an undrawn ability or an unfitted enemy
+  icon fails this test and gives no absence;
+- the reader's detection probability `p_det(b)` for an unoccluded isolated
+  icon on background class `b` (floor shade and lighting class, not a
+  per-cell rate) is measured on the replay's every-frame truth, stored with
+  its provenance and version stamp, and taken at its lower Wilson bound.
 
-Each frame adds `log(1 - p_det(c))` to the slot's absence score at every
-cell that would show and holds no fit within one icon radius. The region
-excludes a cell once its score falls under `log(EPS)`: the score is soft and
-the cut happens once, at the decision. A new `fit` resets the scores. A
-region the cut empties is a surprise: the slot keeps the uncut region, sets
-`region_exhausted`, and stores the frames that emptied it. The causes to
-check are a missed death, a teleport, a reader miss and a wrong lineup.
+**The region is a forward-reachable set, not an absence score** (amended
+2026-10-04; the draft's per-cell score never moved with the player). Per
+frame:
+
+    region_t = dilate(region_{t-1}, v_max * dt) \ excluded_t
+    excluded_t = cells where independent looks since the last fix give
+                 absence evidence above the cut, counted in this frame only
+
+An exclusion holds for the frame that observed it and is carried forward
+only through the dilation, so a cell cleared while the teammate stood
+elsewhere re-enters the region as soon as the teammate could have walked
+there. The dilation is Euclidean over standable cells
+(`scipy.ndimage.binary_dilation` with a disc element, or a distance
+transform), never along the path graph, for the reason under **Reach**.
+
+**Looks, not frames.** Frames 67 ms apart are not independent: a reader
+that misses an icon on a bright patch misses it again next frame. One
+**look** is counted per change of background, occluder or icon
+configuration at the cell, or per decorrelation interval measured on the
+replay (the lag at which the reader's miss autocorrelation falls under
+0.1), whichever comes later. The absence evidence a cell can gain inside one
+interval is capped at one look's.
+
+**Negative evidence is off until measured.** Stage 1 runs with `p_det = 0`
+everywhere, so a reach region is the plain Euclidean disc; the stored
+reader records neither its search nor a floor residual today. Negative
+evidence turns on per background class only when `p_det(b)`, the
+decorrelation interval and the searched-cell record exist, and the replay
+check passes: the every-frame truth never falls outside a reach region,
+and the region at any instant is recomputable from stored rows. A
+`region_exhausted` surprise (the cut empties the region) still stores the
+frames that emptied it; the replay check is the guard for the truth cut out
+of a region that is not empty. The causes to check are a missed death, a
+teleport, a reader miss and a wrong lineup.
+
+**Search cost.** Under prior-first reading, a reach slot is the surprise
+path: its region widens the reader's search, and only searched cells give
+absence. Section 6 budgets that search.
 
 ### Identity enters through the arbiter
 
@@ -238,16 +314,41 @@ wrong, against the stored verdict's
 and
 [metric:ally_prior/replay_emergence@9acf02f98283#emergence_stored_verdict_only_wrong=39].
 
-Online, the assignment runs frame by frame. After the round a smoothing pass
-(a Viterbi over each slot's assignment sequence, the successor of
-`assign_ally_pieces`) may revise it; the revision is stored beside the
-online answer and cites it.
+**Causal online, smoothed after the round** (amended 2026-10-04). The
+figures above compare continuity with a stored entity verdict pooled over
+the whole entity, future frames included, which a real-time update cannot
+have. Online, the portrait term uses only causally pooled evidence (the
+entity's frames up to `t`), and the emergence comparison is measured again
+with causal pooling before continuity is told to abstain. The lane publishes
+the online assignment; the post-round smoothing adds revision rows that
+cite it. The smoothing runs jointly per frame over assignments (a Viterbi
+whose states are the frame's permutations of fits to slots, vectorised in
+numpy), so one fit never serves two slots; a per-slot Viterbi cannot
+enforce that. `maybe_dead` resolves online only on evidence already seen;
+its resolution by a later sighting is a revision row.
+
+**Self fits.** While the player lives, the self marker binds to the self
+slot directly (`belief.Fix`, the self channel). After the player's death a
+self fit binds to the slot the spectating witness names (`adjudication.tray_kit`,
+`kit:spectating:<agent>`), `rests_on` that witness; the assignment decides
+only where no witness exists.
+
+**One unit.** Every cost is a log-likelihood per square metre: the
+Gaussian density for `fit`, `held` and the crowd core, `-log(area)` for a
+uniform region. The non-player and unobserved prices are fitted on
+development truth as rates (how often a fit is a non-player; how often a
+living slot draws no fit), stamped with a version, and never set from
+refusal reasons, which are not probabilities.
+
+The stage 1 prototype (`prototypes/entity_state.py`) is the post-round
+path only: it binds fits to slots through the stored entity verdicts and
+continuity, `rests_on` those verdicts, and says so in every output.
 
 ## 3. The coordinate frame
 
-**Canonical coordinates are world metres** in Riot's game frame: Riot units
-over 100, the frame Riot's records and the replays use. Minimap pixels are a
-view.
+**Canonical coordinates are world metres** in Riot's game frame: game
+units over 100 [domain:movement/game-units-are-centimetres], the frame
+Riot's records and the replays use. Minimap pixels are a view.
 
 - **The chain.** A stored fit is a widget pixel of the session's
   `(map, profile)` geometry (`widget_frame` places each session there).
@@ -261,8 +362,12 @@ view.
   metres. The map constants are game data, like the callouts the sightline
   build reads; neither a Riot record nor a replay feeds the transform.
 - **Facing** is a world angle in the replay's yaw convention
-  [domain:replay/vrf-yaw-is-view-radians], turned from image degrees
-  through the same affine.
+  [domain:replay/vrf-yaw-is-view-radians]. The affine swaps axes, a
+  reflection, and the image's y runs down, so an angle offset would turn
+  facing the wrong way: facing passes as a direction vector through the
+  inverse affine's linear part and is renormalised. A test against the
+  replay's yaw on 9acf02f98283 checks the sense of rotation, not only the
+  offset.
 - **Turns and variants.** A side-based widget turns between rounds
   [domain:minimap/side-based-widget-turns-between-rounds] and a variant
   widget scales; `widget_frame` undoes both before the affine, so world
@@ -270,9 +375,10 @@ view.
 - **Floors.** The minimap is a plan; two players on different floors can
   share a point [domain:minimap/coincident-icons], and floor shade only
   hints at height [domain:minimap/floor-shade-is-elevation]. No reader
-  reads a level. `level` is null with `no_level_reader` on 2D maps; on maps
-  with a 3D table (`prototypes/sightlines_3d.py`: Ascent and Split) it holds
-  the set of standable layers of the point's 1 m column, never one guessed.
+  reads a level. `level` is a bitmask (u2): zero with `no_level_reader` on
+  2D maps; on maps with a 3D table (`prototypes/sightlines_3d.py`: Ascent
+  and Split) the set of standable layers of the point's 1 m column, never
+  one guessed.
 - **Per-map validity.** The world frame exists where the geometry has a
   `shade_fit`, the map has a valorant-api record with nonzero constants, and
   the art fit clears `geometry.MIN_ART_FIT` (`summit__valorant-16x9-crop75`
@@ -295,8 +401,9 @@ player slots, allies first.
 | `status` | u1 | 1 | `pending`, `alive`, `dead`, `second_life`, `closed` |
 | `kind` | u1 | 1 | belief kind (section 2), or none |
 | `flags` | u1 | 1 | `relocation`, `region_exhausted`, `maybe_dead`, `unaccounted`, `via_spectated`, `no_world_frame`, `surprise` |
-| `level` | i1 | 1 | floor index, -1 unread |
-| `x`, `y` | f4 x 2 | 8 | metres |
+| `level` | u2 | 2 | standable layers, a bitmask; 0 unread |
+| `x`, `y` | f4 x 2 | 8 | metres; NaN under `no_world_frame` |
+| `px`, `py` | f4 x 2 | 8 | baked widget pixels, always |
 | `sigma` | f2 | 2 | metres (fit, held) |
 | `facing` | f2 | 2 | radians, NaN unread |
 | `cell` | i2 | 2 | spatial key: the point's walkable cell, -1 none |
@@ -309,15 +416,20 @@ player slots, allies first.
 | `obs` | i4 | 4 | row of the bound observation, -1 none |
 | `margin` | f2 | 2 | assignment cost margin to the runner-up |
 
-A slot-frame takes 36 bytes and a frame 360, plus a 14-byte header
-(`t_ms` f8, `frame_idx` i4, `drawn` u1, `menu` u1): 374 bytes. A 25-minute
-match at 15 Hz holds 22,500 frames, about 8.4 MB before compression.
+A slot-frame takes 45 bytes and a frame 450, plus a 14-byte header
+(`t_ms` f8, `frame_idx` i4, `drawn` u1, `menu` u1): 464 bytes. A 25-minute
+match at 15 Hz holds 22,500 frames, about 10.4 MB before compression. The
+stage 1 prototype stores less and measures its own bytes per frame.
 
-Region cell lists (`reach` and `crowd` kinds) are stored apart as a ragged
-array (`frame_idx`, `slot`, offset into one int16 cell array) at 2 Hz and at
-every kind change; no reach query needs a 15 Hz region (variable fidelity).
-A region of 150 cells costs 300 bytes, so three unseen slots at 2 Hz over
-1,500 s cost under 3 MB.
+**Every region is recomputable at any instant** from stored rows: the
+filter is deterministic over the anchor, `R(t)`, the host and (once on) the
+stored exclusions, so a scorer asks for the region at a Riot kill instant
+instead of reading a stale 2 Hz copy. Region cell lists (`reach` and
+`crowd` kinds) are also stored as a ragged array (`frame_idx`, `slot`,
+offset into one int16 cell array) at 2 Hz and at every kind change, for
+queries that want cells, not for scoring. Once negative evidence is on, the
+per-frame exclusions it carried are stored with the frames, since the
+region cannot be rebuilt without them.
 
 ### Events consumers read
 
@@ -352,10 +464,26 @@ never the npz. The lane holds:
 
 ### What `round_entity` becomes, and the migration
 
-`round_entity` becomes a view over slots: one entity per slot and maximal
-observed run, in today's row schema plus `slot_id`, so its consumers keep
-working. The migration runs in order; each step is reversible and scored
-before the next.
+`round_entity` becomes a view over slots: **one entity per slot life**
+(open to close), in today's row schema plus `slot_id`, with the observed
+runs as sub-intervals (amended 2026-10-04: one entity per observed run
+split today's entities at every gap and changed their ids and counts).
+Before step 3 a mapping from every old entity id to its slot id ships, and
+every stored `identity_claim` and death binding is re-pointed through it and
+checked. `live_assumed` and `over_bound` join
+`entity_contract.STATE_VOCABULARY` with the code that emits them. The
+migration runs in order; each step is reversible and scored before the
+next.
+
+**Layering.** Stage 1 is a prototype only (`prototypes/entity_state.py`,
+not wired). Before stage 2 puts `slot_state` in `reticle/`, the sightline
+builder moves into `reticle` as a baked part of the geometry, owned by
+`map-geometry`, versioned and keyed by `(map, profile)`; `reticle/` never
+imports a prototype. Each hiding-set input is listed with its stored
+stream: ally fits (`ally_icon`), crowds (none stored; `crowd_blob` rows
+exist only as analysis output), pings (`ping`), the hide owner
+(`minimap_dark`), ability drawings (`ability_shape`, `smoke`). Where an
+input is not stored for a frame, negative evidence is off for that frame.
 
 | Step | Change | Consumers |
 |---|---|---|
@@ -416,6 +544,19 @@ The readers set the cost, not the state.
   cost`).
 - A path table costs 52-72 MB in memory per map (uint16, cells squared);
   one map loads per match.
+
+**That probe timed a simpler algorithm than this plan specifies**
+(amended 2026-10-04): one stateless row compare against a random
+visibility mask on one map, with an unaugmented 5x5 assignment. It built no
+hiding set, counted no looks, carried no exclusions, dilated nothing and
+widened no search. "The readers set the cost, not the state" is therefore a
+hypothesis. Two measurements decide it: the stage 1 prototype times the
+belief law it implements (Euclidean reach, crowd riding, entity binding,
+negative evidence off) per frame, single-threaded; and before negative
+evidence turns on, the probe is rerun with the full per-frame pipeline
+(hiding-set raster, per-look evidence, forward dilation, augmented
+assignment) on the three development maps, with the reader's search
+widened for reach slots, and its result is cited here.
 
 The 20% frame-rate budget is not yet measured (`docs/FRAMETIME_PROTOCOL.md`).
 The split follows the cost:
@@ -497,14 +638,27 @@ slot `s_i`:
 - **Comparison with today:** the share of truth-alive instants that are
   contained with area at most 20 m^2, against today's located share; and
   the stacked misses (`missed_stacked`) contained in their slot's region.
+- **Strata.** Riot truth exists only at kill instants, which cluster in
+  fights, so unseen stretches (lurkers), where reach regions are widest, are
+  under-sampled there. Calibration and sharpness are reported by time since
+  the slot's last fix (0, under 1 s, 1-5 s, 5-15 s, over 15 s), and the
+  replay's every-frame truth weighs the long stretches properly.
+- **Ability effects** are scored on all 21 Riot matches (Riot records each
+  kill's ability) as well as on the replay's actors.
 
 Sets: development is the fixed handful (`3694746e4e54`, `a06f04a0059f`,
-`bdfdcf009dba`) and the replay; the held-out six of the `ally_prior` run
-(`a1a995e6b19b`, `b7d24102a6f6`, `e37fdeca944f`, `bfad2778a372`,
-`5822b6646448`, `ff636d173b07`) are scored once, with the parameters fixed.
+`bdfdcf009dba`) and the replay. The held-out set is six Riot matches chosen
+by the lowest `sha256('entity-state-heldout:' + session)` among those not in
+development, not in the `ally_prior` held-out six and not named in any
+crowd-prior-v4 prediction row: `75a55a296d3b`, `c62c2b06bcfb`,
+`043bafca271a`, `59c70f1ef720`, `c40d950031bb`, `4f207c0c4e39`, scored
+once with the parameters fixed (amended 2026-10-04: the first draft reused
+the `ally_prior` held-out six, which that run had already scored; a
+correction row in the store supersedes the set and keeps the original).
 The predictions sit in the store's `notes/predictions.jsonl` (task
-entity-state-20261004, design predictions E1-E8), logged before any slot
-state exists. On the held-out six, at Riot kill instants, allies only:
+entity-state-20261004, design predictions E1-E8, and the prototype's
+predictions P1-P8), logged before any slot state existed. At Riot kill
+instants, allies only:
 
 - E1: `lost` at most 0.01 (the prior-first prototype lost 0.13).
 - E2: containment over all truth-alive ally instants at least 0.90.
@@ -558,17 +712,29 @@ region, a motion class, and the effects bound to it.
   [domain:abilities/catalogue-charge-counts-confirmed]) at round start, plus
   the restocks its recharge fact allows [domain:abilities/recharge-kinds].
   Children opened in a round never exceed that bound, as living slots never
-  exceed the roster. Evidence past the bound joins an existing child first;
-  failing that, it is a stored surprise (an unseen restock, a misattributed
-  caster), never a silent extra charge. Astra's stars are one shared pool
-  [domain:abilities/astra-stars-shared].
+  exceed the roster. Evidence past the bound **always opens a child**,
+  flagged `over_bound`: the parent's charge interval widens, the surprise
+  is stored (an unseen restock, a pickup, a misattributed caster), and no
+  evidence is dropped and no merge is made on capacity alone. Restocks the
+  recharge fact lists are by timer and by kills [domain:abilities/recharge-kinds];
+  pickups, recalls and reclaims (a Killjoy recall, a Cypher trapwire pickup,
+  Gekko's reclaim) are not recorded and go to section 12. Astra's stars are
+  one shared pool [domain:abilities/astra-stars-shared].
+- **Joining.** Later evidence joins an existing child only inside that
+  child's duration fact, or where the child's effect region holds the
+  evidence; otherwise it opens a new child and spends a charge.
 - **Ending.** Evidence ends a child: a drawing gone where it would show, a
-  destruction cue, the duration fact. Without evidence the child persists:
-  the player's rule is that a deployed ability is still there, and a
-  few seconds late is acceptable. Such a child is `live_assumed`, `rests_on`
-  its placement, and ends at round end. A dead owner ends a child only
-  where a fact says so (Regrowth is channelled); thirteen
-  persist-after-death facts cover placed abilities.
+  destruction cue, the duration fact. Without evidence, persistence follows
+  the ability's **lifecycle class**, a per-ability fact (`deployed`,
+  `instant`, `self_buff`, `equipped`, `movement`)
+  [domain:abilities/ability-rules-are-unique]. Only a `deployed` child
+  persists without evidence: the player's rule is that a deployed ability is
+  still there, and a few seconds late is acceptable. Such a child is
+  `live_assumed`, `rests_on` its placement, and ends at round end. A child
+  whose ability has no lifecycle-class fact stores its end as refused with
+  an interval (`no-fact:<agent>:<slot>:lifecycle_class`), never round end.
+  A dead owner ends a child only where a fact says so (Regrowth is
+  channelled); thirteen persist-after-death facts cover placed abilities.
 
 ### Shape geometry is per-ability data
 
@@ -581,17 +747,29 @@ fact in `domain/abilities.toml` carries:
 - world sizes: `radius_m`, `length_m`, `width_m`;
 - `duration_s`, `persists_after_owner_death`, `ends_on`;
 - for a moving child, `speed_m_s` and whether it is piloted;
-- `effect`: what the region does (blocks sight, damages, reveals in line of
-  sight within a radius, blinds, concusses, slows).
+- `lifecycle_class`: `deployed`, `instant`, `self_buff`, `equipped` or
+  `movement`;
+- `effect`: what the region does (blocks sight, damages, reveals, blinds,
+  concusses, slows), as a label only;
+- `effect_query`: how the effect region is computed, per ability (for
+  example `los_within_radius_from_anchor`, `cells_of_shape`,
+  `sight_cut_by_circle`). Abilities that share an effect label do not share
+  a query by that fact: alarm bots, sensors, cameras, Haunt and Recon Bolt
+  each need their own;
+- `drawing_to_scale`: whether the ability's minimap drawing is drawn to
+  world scale.
 
 Sources, in order: a fact the player gave or a measurement recorded; the
 extracted game files (`AbilityTuning_*` rows, `TimedStateComponent`
 durations; extraction is allowed while the game is closed, and
 [ABILITY_STATES_GAMEDATA.md](ABILITY_STATES_GAMEDATA.md) says where the
 states live); a minimap drawing size measured per map
-(`ability_candidates.TABLE`), turned into metres through the world frame. A
-field with no source refuses with `no-fact:<agent>:<slot>:<field>`, as
-`ability_state` refuses a missing charge count. The owner of this table is
+(`ability_candidates.TABLE`), turned into metres through the world frame,
+**only for an ability whose `drawing_to_scale` fact says so** or whose
+world size a replay measured; a drawing is to scale for some abilities and
+stylised for others. A field with no source refuses with
+`no-fact:<agent>:<slot>:<field>`, as `ability_state` refuses a missing
+charge count; a missing `effect_query` refuses the effect region. The owner of this table is
 `ability_candidates`, which already reads the drawing facts' values; it
 gains the world fields.
 
@@ -641,14 +819,15 @@ Waveform, a duration.
 - **Anchor.** A drawn child takes a `fit` anchor from its drawing's fit
   (`ability_shapes`: ring centre, segment, curve). An undrawn child's anchor
   is the parent's belief at the open, dilated by the ability's placement
-  range where a fact gives one; with no range fact the anchor stays the
-  parent's region and says `anchor_unread: no_range_fact`.
+  range where a fact gives one. With no range fact the child stores **no
+  anchor region** (`anchor_unread: no_range_fact`) and drops out of every
+  region test; the parent's region never stands in for it.
 - **Orientation** for segments and walls comes from the fitted drawing, else
   from the parent's facing at the cast, else stays unread.
-- **Effect region** is the shape placed at the anchor, read through the
-  sightline tables in world metres: a smoke's circle cuts sight lines that
-  cross it; a reveal is the `los_bits` row of the anchor cell within the
-  radius; an area is its cells. The effect region inherits the anchor's
+- **Effect region** is the shape placed at the anchor and evaluated by the
+  ability's own `effect_query`, read through the sightline tables in world
+  metres; with no `effect_query` fact there is no effect region. The effect
+  region inherits the anchor's
   uncertainty: it is the union over the anchor region's cells, and stores
   its certain core (the intersection) beside it.
 
@@ -657,8 +836,11 @@ Waveform, a duration.
 Drones, dogs, Seekers and Boom Bot carry a player-like belief: `fit` where
 drawn (a piloted drone draws a cone [domain:abilities/piloted-drones-have-cones];
 Skye's bird draws like an ally [domain:minimap/skye-bird-like-ally]), and
-`reach` with the child's own `speed_m_s` when unseen. Without a speed fact the
-child keeps its last fit and widens nothing (`no_speed_fact`). They occupy a
+`reach` with the child's own `speed_m_s` when unseen. Without a speed fact an
+unseen child stores no region (`position_unbounded: no_speed_fact`) and
+drops out of every region test; a frozen last fit never stands in for a
+bound. Effects then bind by time window and the killfeed's ability alone.
+They occupy a
 small child axis in the per-frame arrays (capacity: the most children moving
 at once in the round), with the player-slot fields.
 
@@ -672,9 +854,10 @@ An effect binds to the parent's live child of the named ability:
   whose icon `adjudication.assist` names as the ability;
 - **no effect observed:** a child that ends with neither. This is not
   "missed": the store cannot see whom an ability failed to touch. A child
-  whose effect region held a believed enemy slot (section 7) while live and
-  that bound no effect records `exposed_no_effect`, with the enemy slots it
-  rests on.
+  that bound no effect records `exposed_no_effect` as a probability: for
+  each believed enemy slot (section 7), the share of its region inside the
+  child's effect region while live, with the enemy slots it rests on. Any-cell
+  overlap with a wide enemy region would mark nearly every child.
 
 Where several children of one ability are live, the effect binds to the one
 whose effect region holds the victim's death place, then to the latest
@@ -725,8 +908,10 @@ close [domain:replay/vrf-ability-actors] and each cast's slot and time
   every parent but the player and a spectated teammate.
 - Name a disconnect, or place a revived player, without the facts in
   section 12.
-- Give a world frame on a map without `shade_fit` or map constants, or a
-  reach region on a map without a path table.
+- Give a world frame, or so a reach region, on a map without `shade_fit`
+  or map constants.
+- Bound a player who uses a movement ability; such a region carries
+  `kit_unbounded`.
 - Show anything during play.
 - Score on much truth: Riot positions exist only at kill instants on 21
   matches, and one replay has a capture.
@@ -747,8 +932,11 @@ code that answers them, not before.
 
 ## 12. Facts to ask the player for, or to read from the game files
 
-1. The top running speed in metres per second (a game-file read of the
-   character's walk speed would do), and whether weapons change it.
+1. Answered from the game files (2026-10-04): the character's top ground
+   speed is 675 units/s with state multipliers 0.6, 1.1 and 0.35
+   [domain:movement/character-max-speed]. Still open: which movement state
+   the 1.1 multiplier names, and whether any agent's blueprint overrides
+   the base tuning (no agent blueprint was read).
 2. Whether a disconnected teammate stays drawn on the minimap, and whether
    the roster counts him.
 3. Where a resurrected player stands: at the corpse, or elsewhere.
@@ -757,15 +945,37 @@ code that answers them, not before.
 5. Which abilities move their caster farther than running
    [domain:abilities/movement-abilities-are-dashes-and-teleports]; the
    mechanics sheet holds the candidates.
+6. Each ability's lifecycle class (`deployed`, `instant`, `self_buff`,
+   `equipped`, `movement`), its `effect_query`, and whether its minimap
+   drawing is to scale.
+7. Which abilities can be picked up, recalled or reclaimed for a charge
+   (a Killjoy recall, a Cypher trapwire pickup, Gekko's reclaim), from the
+   game files or the player.
+8. The map's directed movement edges: drops, ropes, teleporters and the
+   box tops players stand on, before path distance may bound a region.
 
 ## 13. Stages and acceptance
 
-1. **Slot state from stored rows.** The world frame baked into `geometry`;
-   `slot_state` and the belief law over stored `ally_icon`, `death`, lineup,
-   roster and rounds; the Riot and replay scorers' slot mode.
-   Acceptance: `prototypes/riot_ground_truth.py --all --slots --record` and
-   `prototypes/replay_truth.py score 9acf02f98283 --slots --record`.
-   Evidence: predictions E1-E8 judged on the held-out six, scored once.
+1. **Slot state from stored rows, as a prototype.** `prototypes/entity_state.py`
+   builds ally slots and per-frame beliefs (fit, crowd, Euclidean reach;
+   negative evidence off) from stored `round_entity`, `ally_icon`, `death`,
+   lineup and rounds rows, in world metres, and scores them at Riot kill
+   instants and on the replay. Acceptance:
+   `prototypes/entity_state.py score SESSION ...` and
+   `prototypes/entity_state.py replay 9acf02f98283`. Evidence: predictions
+   P1-P8 judged on the held-out six, scored once. Then the world frame is
+   baked into `geometry` and the Riot and replay scorers gain their slot
+   mode.
+   Outcome (2026-10-04, entity-state-0.2.0): held out, the region holds a
+   living teammate on
+   [metric:entity_state/riot_pool@heldout6es#calibration=0.9355] of kill
+   instants, short of 0.98; reach regions hold
+   [metric:entity_state/riot_pool@heldout6es#reach_calibration=0.9146], and
+   [metric:entity_state/riot_pool@heldout6es#has_slot_missing=8] instants
+   found a living teammate's slot closed by a post-round death stamped
+   with the next round. The misses trace to bindings and round starts, not
+   to the speed bound: the next step is a causal, witnessed binding and a
+   death owner that keeps post-round deaths in their round.
 2. **The assignment in the arbiter; deaths close slots; the ally lane.**
    Acceptance: `reticle project SESSION` (the lane validated by
    `entity_contract`) and the full suite.
@@ -795,3 +1005,35 @@ and the 10 m region
 [metric:entity_state_probe/reach_ratio#lotus.disc_share_10m=0.5252]. Most of
 the sharpening an unseen teammate's region gains must therefore come from
 negative evidence, not from walls.
+
+## 14. How the critique was resolved (2026-10-04)
+
+A critique of the first draft found four blocking and eleven major
+problems. Each is answered in the section named.
+
+| # | Problem | Severity | Resolution | Where |
+|---|---|---|---|---|
+| B1 | Negative evidence piled up per cell and never moved with the player | blocking | The region is a forward-reachable set: last frame's region dilated by `v_max * dt`, less this frame's exclusions only; no permanent per-cell score. The replay's every-frame truth checks that no reach region ever excludes it | 2, Negative evidence |
+| B2 | Frames 67 ms apart counted as independent looks; `p_det` had no truth source | blocking | Evidence counts per independent look (a change of background, occluder or icons, or a decorrelation interval measured on the replay), capped per interval; `p_det` per background class from the replay at its lower Wilson bound, stored with provenance | 2, Negative evidence |
+| B3 | A cell no reader marked counted as empty, and unsearched cells gave absence | blocking | `p_det = 0` where the reader did not search; absence only where the pixels positively match the baked floor; reach slots widen the search, budgeted in section 6. Negative evidence stays off until all three exist | 2, 6 |
+| B4 | The walk graph is not a superset of movement | blocking | The bound is the Euclidean disc over all standable cells; path distance only ranks until directed edges exist and the replay shows it never excludes truth; `kit_unbounded` for movement kits | 2, Reach; 12 |
+| M1 | Children persisted to round end for every ability; late casts merged into stale children | major | Persistence only for the `deployed` lifecycle class, a per-ability fact; otherwise a refused end with an interval; joining only inside a duration or effect region | 9, Lifecycle |
+| M2 | Missing range or speed facts produced false bounds | major | No region (`anchor_unread`, `position_unbounded`); the child drops out of every region test | 9, Anchor; Moving children |
+| M3 | Drawn size and effect query by analogy | major | `drawing_to_scale` and `effect_query` facts per ability, refusing when absent | 9, Shape geometry |
+| M4 | Recharge omitted pickups; over-bound evidence ambiguous | major | Over-bound evidence always opens an `over_bound` child; pickups and recalls go to the player or the game files | 9; 12 item 7 |
+| M5 | Online path used a portrait verdict pooled over future frames | major | Causal pooling online, emergence remeasured; the lane publishes the online answer, smoothing adds revision rows; joint per-frame Viterbi | 2, Identity |
+| M6 | A teammate exactly under another icon was not modelled | major | The `crowd` kind rides the host's fit, with the member's own reach kept in the region; its core is scored apart against `missed_stacked` | 2, table |
+| M7 | A crowd ended only when the split detector fired | major | The capacity check, and the member's reach always in its region | 2, table; Updates 3 |
+| M8 | The speed bound was `RUN_PX`, a stored-data bound in widget pixels | major | `v_max` from the game files, 7.425 m/s; `RUN_PX` stays the tracker's gate only | 2, Reach; 12 item 1 |
+| M9 | `slot_state` in `reticle/` would import prototype tables; hiding inputs unlisted | major | Stage 1 is a prototype; the sightline builder moves into `geometry` before stage 2; inputs listed with their streams | 4, Layering |
+| M10 | The `round_entity` view changed entity counts and ids | major | One entity per slot life, observed runs as sub-intervals, an old-to-new id mapping validated before stage 3 | 4, migration |
+| M11 | The cost probe timed a simpler algorithm | major | The claim is now a hypothesis; the prototype times its own law, and the full probe reruns before negative evidence turns on | 6 |
+
+The minor items: facing passes as a vector (3); units are a domain fact
+(3); `level` is a bitmask and pixel columns are separate (3, 4); every
+region is recomputable at any instant (4); an empty death-binding test
+falls back to every unexcluded living slot (1); self fits bind to the self
+slot and to the spectating witness (2); costs are log-likelihoods per
+square metre (2); calibration is stratified by time since the last fix,
+ability effects are scored on all 21 Riot matches, and `exposed_no_effect`
+is a probability (8, 9).
