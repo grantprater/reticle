@@ -8,6 +8,7 @@ opener tests run a plain-HTTP server on 127.0.0.1 only.
 import http.server
 import json
 import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -306,7 +307,10 @@ class OpenerTest(unittest.TestCase):
     def test_follows_no_redirect(self):
         srv = http.server.HTTPServer(("127.0.0.1", 0), _Redirector)
         srv.seen = []
-        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        # A short poll, so shutdown() returns at once instead of after the
+        # default half second.
+        t = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.01},
+                             daemon=True)
         t.start()
         try:
             r = mf.urllib_opener(f"http://127.0.0.1:{srv.server_port}/go",
@@ -318,11 +322,25 @@ class OpenerTest(unittest.TestCase):
         self.assertEqual([p for p, _ in srv.seen], ["/go"])
 
     def test_refused_connection_stops(self):
-        with socket.socket() as sk:            # a port nothing listens on
+        # A listener that accepts and resets (linger 0), so the client meets a
+        # real socket error at once. Connecting to a port nothing listens on
+        # took 2 s on Windows, which retries the SYN after a refusal.
+        with socket.socket() as sk:
             sk.bind(("127.0.0.1", 0))
+            sk.listen(1)
             port = sk.getsockname()[1]
-        with self.assertRaises(mf.FetchStop):
-            mf.urllib_opener(f"https://127.0.0.1:{port}/x", {})
+
+            def reset():
+                conn, _ = sk.accept()
+                conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                                struct.pack("ii", 1, 0))
+                conn.close()
+
+            t = threading.Thread(target=reset, daemon=True)
+            t.start()
+            with self.assertRaises(mf.FetchStop):
+                mf.urllib_opener(f"https://127.0.0.1:{port}/x", {})
+            t.join(5)
 
 
 if __name__ == "__main__":

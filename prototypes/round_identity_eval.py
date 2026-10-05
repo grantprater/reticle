@@ -90,9 +90,9 @@ def extract_round_killfeed_entries(
             roi = killfeed_roi(profile)
         fixture_crops = fixture_killfeed_views(store, session_id, round_no)
 
+    # Opened only for an entry the fixture lacks: with the fixture, every
+    # entry reads from it and the source capture is never touched.
     cap = None
-    if vpath:
-        cap = cv2.VideoCapture(vpath)
 
     entries = []
     living_candidates: dict[str, set[str]] = {}
@@ -128,8 +128,10 @@ def extract_round_killfeed_entries(
 
         if fixture_crops is not None and t0 in fixture_crops:
             v_comps, k_comps = fixture_crops[t0]
-        elif cap is not None and roi is not None:
+        elif vpath and roi is not None:
             # Extract across active track frames if video is available
+            if cap is None:
+                cap = cv2.VideoCapture(vpath)
             cap.set(cv2.CAP_PROP_POS_MSEC, float(t0))
             ok, frame = cap.read()
             if ok:

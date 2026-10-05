@@ -61,15 +61,29 @@ def _brute(region_lab, lab, weight):
 
 
 class ArtZnccTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = _art_dir(["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"],
-                            Path(self.tmp.name))
+    @classmethod
+    def setUpClass(cls):
+        # The tests only read the art and its directory, so one build serves
+        # them all.
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.dir = _art_dir(["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"],
+                           Path(cls.tmp.name))
         appearance._ART_CACHE.clear()
-        self.art = appearance.killfeed_art(self.dir, TH, TW)
+        cls.art = appearance.killfeed_art(cls.dir, TH, TW)
+        cls.art_key = (str(cls.dir), TH, TW, appearance.ART_INNER_MARGIN)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+        appearance._ART_CACHE.clear()
+
+    def setUp(self):
+        # Each test starts from a cache holding only the class art, under the
+        # key `art_view` asks for at unit scale.
+        appearance._ART_CACHE.clear()
+        appearance._ART_CACHE[self.art_key] = self.art
 
     def tearDown(self):
-        self.tmp.cleanup()
         appearance._ART_CACHE.clear()
 
     def test_the_vectorised_correlation_is_the_weighted_zncc(self):
