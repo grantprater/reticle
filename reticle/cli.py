@@ -3703,9 +3703,11 @@ def cmd_project(args) -> int:
 
 def cmd_trial(args) -> int:
     """One reader over part of one session, diffed against the stored streams.
-    Writes nothing. `--from cache` decodes nothing. `--windows-file` and
-    `--sample` bound it to windows (`dev_sample`), over every session they
-    name unless one is given, and total the sessions."""
+    Writes nothing to the store; `--rows-out DIR` writes the trial's event rows
+    as `DIR/events/<stream>/<sid>.jsonl`, the layout a scorer's `--*-from DIR`
+    reads. `--from cache` decodes nothing. `--windows-file` and `--sample`
+    bound it to windows (`dev_sample`), over every session they name unless
+    one is given, and total the sessions."""
     from . import dev_sample
     store = Store(args.store)
     files, sample = getattr(args, "windows_file", None) or [], getattr(args, "sample", False)
@@ -3749,15 +3751,21 @@ def cmd_dev_sample(args) -> int:
             print(f"  {ln}")
         return 1 if moved else 0
     if args.residuals or args.stream:
-        wins = []
-        for f in args.residuals or []:
-            wins += ds.targets_from_residuals(ds.read_residuals(f), args.pad)
+        res = [x for f in args.residuals or [] for x in ds.read_residuals(f)]
+        if args.extend:
+            # only the windows the existing targets do not already cover
+            old = [w for f in args.extend for w in ds.read_windows(f)]
+            wins = ds.new_targets(old, res, args.pad)
+            label = f"new targets beyond {len(old)} windows"
+        else:
+            wins = ds.targets_from_residuals(res, args.pad)
+            label = "targeted"
         if args.stream:
             sids = ([_resolve_session(store, x)["session_id"] for x in args.session]
                     if args.session else list(ds.MATCHES))
             wins += ds.targets_from_stream(store, sids, args.stream, ds.parse_where(args.where),
                                            args.pad)
-        label = "targeted"
+        wins = ds.join_windows(wins)
     else:
         wins, label = list(ds.SAMPLE), ds.DEV_SAMPLE_VERSION
     secs = sum(w.t1 - w.t0 for w in wins)
@@ -3778,6 +3786,14 @@ def _trial_one(store, manifest: dict, args, spans, windows: str) -> dict:
               windows=windows, pad_ms=args.pad_ms,
               between=None if between is None else (between[0] * 1000.0, between[1] * 1000.0),
               spans=spans)
+    if getattr(args, "rows_out", None):
+        for stream, rows in res["rows"].items():
+            if stream == "hud":
+                continue        # a table, not an event stream
+            p = Path(args.rows_out) / "events" / stream / f"{res['session_id']}.jsonl"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("".join(json.dumps(x, separators=(",", ":")) + "\n" for x in rows),
+                         encoding="utf-8")
     print(f"{res['session_id']}: {args.reader} from {args.source}, {windows} windows"
           f"{'' if spans is None else f' in {len(spans)} spans'}: "
           f"{res['frames']} of {res['timeline']} timeline frames in {res['seconds']} s")
@@ -6245,6 +6261,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--pad-ms", type=float, default=2000.0)
     s.add_argument("--between", type=float, nargs=2, default=None, metavar=("T0", "T1"),
                    help="only frames between T0 and T1 seconds, such as one round")
+    s.add_argument("--rows-out", default=None, metavar="DIR",
+                   help="write the trial's event rows to DIR/events/<stream>/<sid>.jsonl "
+                        "(outside the store), for a scorer to read")
     s.set_defaults(func=cmd_trial)
 
     s = sub.add_parser("dev-sample", help="the dev loop's declared sample, or targeted windows "
@@ -6262,6 +6281,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--session", action="append", default=None,
                    help="sessions for --stream (default: the Riot-paired matches)")
     s.add_argument("--pad", type=float, default=15.0, help="seconds either side of a target")
+    s.add_argument("--extend", action="append", default=None, metavar="CSV",
+                   help="windows already run: write only windows around --residuals they "
+                        "do not cover with --pad to spare")
     s.set_defaults(func=cmd_dev_sample)
 
     s = sub.add_parser("killstreak", help="killstreak numerals against the death stream's "

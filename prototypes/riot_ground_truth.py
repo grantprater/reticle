@@ -6,6 +6,8 @@ r"""Score stored outputs against Riot's own match records.
     .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py SESSION --derive-rounds cache --no-minimap
     .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --all --offline --ult-only [--record] [--no-sweep]
     .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --sample [--windows-file CSV] --deaths-from DIR --offline
+    .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --sample --deaths-from BASE --compare-deaths BRANCH --offline
+    .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --sample --minimap-windows [--ally-from DIR] --offline
     .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --all --offline --residuals-out CSV
 
 Why this exists
@@ -263,6 +265,31 @@ run skips K/D and the minimap and prints the deaths alone.
 `--residuals-out` writes every miss, false death and wrong or refused name
 as a residual list (`session,t,reason`) that `reticle dev-sample
 --residuals` turns into targeted windows.
+
+The intervals resolve little: over the sample's 309 kills
+[metric:riot_truth_window/deaths~devs-master-sample-r2#riot_kills=309] a
+Wilson interval or a rule-of-three bound spans about one percent absolute,
+wider than the full run's error rates, so ten new errors across the corpus
+pass them unseen. `--compare-deaths DIR` scores a second code's deaths
+(code B; `--deaths-from` or the store is code A) in the same windows and
+pairs the two kill by kill (`paired_flips`): every Riot kill keyed by its
+`gameTime` and every unpaired stored death by its `t_ms`. A unit flips when
+it is right under one code and wrong under the other; the run prints the
+flips each way (fixed, broken), the exact McNemar p-value
+(`metrics.mcnemar_exact`), each field's flips, and every changed unit row
+by row. A broken unit is a regression to read, whatever the p-value. Units
+outside the windows stay unseen. With both codes, `--residuals-out` writes
+the union of their residuals, each tagged by the codes that left it.
+
+`--minimap-windows` scores the ally reader's own fits (not the tracker)
+against Riot's allies at the kill instants inside the windows, with Wilson
+intervals (`minimap_window_rates`); `--ally-from DIR` reads a trial's rows
+(`reticle trial --reader ally_icon --rows-out DIR`) in place of the store's.
+Allies cluster by frame and round, so these per-ally intervals run narrow:
+the sample's precision on stored rows,
+[metric:riot_truth_window/minimap~devsf-ally-store-sample#reader_precision=0.9521],
+fell outside its interval around the whole-match value,
+[metric:riot_truth_window/minimap~devsf-ally-store-whole#reader_precision=0.9658].
 
 `--legacy` restores any 0.1.0 rule (victim, second-life, pairing, self-kill)
 or the 0.2.0 time-only pairing (`order`) so each fix's effect can be
@@ -808,12 +835,14 @@ def near_any(sorted_ts, t, tol) -> bool:
     return k < len(sorted_ts) and sorted_ts[k] <= t + tol
 
 
-def minimap_rows(store_root: Path, sid: str, want_ms: list[float], tol_ms: float):
-    """Frames, pieces and facings near the asked instants, streamed."""
+def minimap_rows(store_root: Path, sid: str, want_ms: list[float], tol_ms: float,
+                 ally_root: Path | None = None):
+    """Frames, pieces and facings near the asked instants, streamed; the ally
+    reader's rows from `ally_root` when given (a trial's rows)."""
     ts = sorted(want_ms)
     frames, self_by_frame, facing = {}, {}, {}
     icons = defaultdict(list)
-    for r in _stream_rows(Path(store_root) / "events" / "ally_icon" / f"{sid}.jsonl"):
+    for r in _stream_rows(Path(ally_root or store_root) / "events" / "ally_icon" / f"{sid}.jsonl"):
         k = r.get("kind")
         if k not in ("frame", "icon") or not near_any(ts, r["t_ms"], tol_ms):
             continue
@@ -980,7 +1009,14 @@ def score_session(sid: str, d: dict, ident: dict, ref: Reference, store_root: Pa
             out["minimap"] = {"refused": why}
         else:
             out["widget"] = mf.widget_shape[1]
-            out["minimap"] = score_minimap(sid, store_root, kills, a, mf, who, agent_of,
+            win = (getattr(opts, "windows_ms", None) or {}).get(sid)
+            mk = kills
+            if win is not None:
+                # the kill instants inside the windows only
+                from reticle.dev_sample import in_spans
+                mk = [k for k, ok in zip(kills, in_spans([a + k["gameTime"] for k in kills], win))
+                      if ok]
+            out["minimap"] = score_minimap(sid, store_root, mk, a, mf, who, agent_of,
                                            me, my_team, opts)
     return out
 
@@ -1666,18 +1702,23 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
         self_kill = "self-kill" not in legacy and is_self_kill(k)
         v_side = None if my_team is None else ("ally" if who[k["victim"]]["teamId"] == my_team else "enemy")
         meta = s.get("metadata") or {}
+        # each field's outcome, as the counts below take it (`paired_flips` reads it)
+        oc = {}
         for role, truth, got, idm in (("victim", v_true, s.get("victim"), meta.get("identity")),
                                       ("killer", kl_true, s.get("killer"), meta.get("killer_identity"))):
             if role == "killer" and self_kill and got is None:
                 # no other player killed them; the entry draws no killer
                 c["killer_not_applicable"] += 1
+                oc[role] = "not_applicable"
             elif got is None:
+                oc[role] = "refused"
                 c[f"{role}_refused"] += 1
                 if not amb:
                     c[f"{role}_refused_unamb"] += 1
                 reasons[role][_refusal_of_identity(idm) or s.get("reason") or "none"] += 1
                 resid.append((s["t_ms"], f"{role}_refused"))
             elif canon(got) == canon(truth):
+                oc[role] = "right"
                 # a pair the stored names chose cannot witness those names
                 if by_name:
                     c[f"{role}_paired_by_name"] += 1
@@ -1686,6 +1727,7 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
                     if not amb:
                         c[f"{role}_right_unamb"] += 1
             else:
+                oc[role] = "wrong"
                 c[f"{role}_wrong"] += 1
                 if not amb:
                     c[f"{role}_wrong_unamb"] += 1
@@ -1693,7 +1735,9 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
         if by_name and v_side is not None and s.get("side") == v_side:
             # the victim name that chose the pair all but fixes its side
             c["side_paired_by_name"] += 1
+            oc["side"] = "right"
         elif v_side is not None and s.get("side") in ("ally", "enemy"):
+            oc["side"] = "right" if s["side"] == v_side else "wrong"
             c["side_right" if s["side"] == v_side else "side_wrong"] += 1
             if s["side"] != v_side:
                 resid.append((s["t_ms"], "side_wrong"))
@@ -1704,10 +1748,13 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
                                    expiry and is_self_kill(k))
         we = s.get("weapon_evidence") or {}
         got = s.get("weapon")
+        oc.setdefault("side", "unscored")
         if wkind == "unmapped":
+            oc["weapon"] = "unscored"
             wcross[(wtrue, got)] += 1
             c["weapon_unmapped_riot"] += 1
         elif got is None:
+            oc["weapon"] = "refused"
             c["weapon_refused"] += 1
             reasons["weapon"][we.get("reason") or we.get("status") or "none"] += 1
             resid.append((s["t_ms"], "weapon_refused"))
@@ -1715,8 +1762,10 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
                                              and canon(got) == "environmental"):
             # The gallery's one name for the spike and fall icons
             # [domain:killfeed/environmental-self-entry].
+            oc["weapon"] = "right"
             c["weapon_right"] += 1
         else:
+            oc["weapon"] = "wrong"
             c["weapon_wrong"] += 1
             wcross[(wtrue, got)] += 1
             resid.append((s["t_ms"], "weapon_wrong"))
@@ -1724,7 +1773,7 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
                      "victim": [v_true, s.get("victim")], "killer": [kl_true, s.get("killer")],
                      "weapon": [wtrue, got], "side": [v_side, s.get("side")], "ambiguous": amb,
                      "paired_by": how, "self_kill": self_kill, "death_id": s.get("death_id"),
-                     "riot_game_ms": k["gameTime"], "slot": s.get("slot"),
+                     "riot_game_ms": k["gameTime"], "slot": s.get("slot"), "outcome": oc,
                      "ambiguous_why": (clustered.get(i) if isinstance(clustered, dict)
                                        else "kill_within_ambiguous_ms" if amb else None)})
     matched_i = {p[0] for p in pairs}
@@ -1736,6 +1785,7 @@ def score_deaths(kills, deaths, pairs, who, agent_of, my_team, ref, a, legacy=()
             continue
         (out["unobservable_kills"] if i in unobs_i else misses).append(
                       {"t_ms": round(a + k["gameTime"]), "round": k["round"] + 1,
+                       "riot_game_ms": k["gameTime"],
                        "stall": ([sp["t_start_ms"], sp["t_end_ms"]] if i in unobs_i
                                  and (sp := in_stall(a + k["gameTime"], stalls)) else None),
                        "victim": agent_of.get(k["victim"]),
@@ -1865,8 +1915,9 @@ def score_minimap(sid, store_root, kills, a, mf: MapFrame, who, agent_of, me, my
     lag = opts.minimap_lag
     lags = [lag] if not opts.scan_lag else [x * 66.67 for x in range(-12, 13)]
     want = [a + k["gameTime"] + L for k in kills for L in lags]
+    ally_root = getattr(opts, "ally_from", None)
     frames, self_by_frame, facing, obs, ents, enemies, icons = minimap_rows(
-        store_root, sid, want, FRAME_TOL_MS)
+        store_root, sid, want, FRAME_TOL_MS, ally_root=ally_root)
     fts = sorted((t, f) for f, (t, _d) in frames.items())
     ft = [t for t, _ in fts]
     gate = GATE_M * 100.0 * mf.px_per_unit
@@ -1905,7 +1956,9 @@ def score_minimap(sid, store_root, kills, a, mf: MapFrame, who, agent_of, me, my
     miss_rows = []
     victim_rows = []
     reader_err, reader_fac = [], defaultdict(list)
-    has_tracker = (Path(store_root) / "events" / "round_entity" / f"{sid}.jsonl").is_file()
+    # trial ally rows (`--ally-from`) never meet the stored tracker's pieces
+    has_tracker = ally_root is None and \
+        (Path(store_root) / "events" / "round_entity" / f"{sid}.jsonl").is_file()
     out["tracker"] = "round_entity" if has_tracker else "no_round_entity_stream"
     pos_err, self_err, fac_err = [], [], defaultdict(list)
     enemy_err = []
@@ -2310,21 +2363,59 @@ def _sample_label() -> str:
     return DEV_SAMPLE_VERSION
 
 
-def write_residuals(path, results: list[dict]) -> int:
+def write_residuals(path, results: list[dict], results_b: list[dict] | None = None) -> int:
     """Every session's `residuals` as a residual list, CSV `session,t,reason`
-    with `t` in seconds of capture time."""
+    with `t` in seconds of capture time. Given a second code's results, the
+    union of both, each reason tagged `[a]`, `[b]` or `[ab]` by the codes
+    that left it."""
     import csv
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    n = 0
+    if results_b is None:
+        n = 0
+        with p.open("w", encoding="utf-8", newline="") as f:
+            w = csv.writer(f, lineterminator="\n")
+            w.writerow(("session", "t", "reason"))
+            for r in results:
+                for x in (r.get("deaths") or {}).get("residuals", []):
+                    w.writerow((r["session"], f"{x['t_ms'] / 1000.0:.3f}", x["reason"]))
+                    n += 1
+        return n
+    tags: dict[tuple, str] = {}
+    for tag, rs in (("a", results), ("b", results_b or [])):
+        for r in rs:
+            for x in (r.get("deaths") or {}).get("residuals", []):
+                k = (r["session"], f"{x['t_ms'] / 1000.0:.3f}", x["reason"])
+                tags[k] = tags.get(k, "") + tag
     with p.open("w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, lineterminator="\n")
         w.writerow(("session", "t", "reason"))
-        for r in results:
-            for x in (r.get("deaths") or {}).get("residuals", []):
-                w.writerow((r["session"], f"{x['t_ms'] / 1000.0:.3f}", x["reason"]))
-                n += 1
-    return n
+        for (sid, t, why), tag in sorted(tags.items(), key=lambda kv: (kv[0][0], float(kv[0][1]))):
+            w.writerow((sid, t, f"{why} [{tag}]"))
+    return len(tags)
+
+
+def record_paired(F: dict, args, label: str) -> None:
+    """A paired windowed run as `riot_truth_window/paired`: units, flips each
+    way, the exact McNemar p-value, and each field's flips."""
+    import hashlib
+    from reticle import metrics
+    from reticle.dev_sample import format_windows, load
+    wins = load(args.windows_file, args.sample)
+    vals = {"units": F["units"], "fixed": F["fixed"], "broken": F["broken"],
+            "changed": F["changed"], "edge": len(F["edge"]), "p_mcnemar": round(F["p"], 6)}
+    for f, c in F["fields"].items():
+        vals[f"{f}_fixed"], vals[f"{f}_broken"] = c["fixed"], c["broken"]
+    metrics.record("riot_truth_window", part="paired", values=vals,
+                   deps={"riot_truth": RIOT_TRUTH_VERSION, "match_tol_ms": args.match_tol,
+                         "windows": label,
+                         "windows_sha256": hashlib.sha256(format_windows(wins).encode())
+                         .hexdigest()[:16],
+                         "deaths_a": args.deaths_from or "store",
+                         "deaths_b": args.compare_deaths},
+                   context={"windows": len(wins),
+                            "broken_rows": [x for x in F["rows"] if x["how"] == "broken"]},
+                   run_id=args.run_id)
 
 
 def record_window(P: dict, results: list[dict], args, label: str) -> None:
@@ -2352,10 +2443,12 @@ def record_window(P: dict, results: list[dict], args, label: str) -> None:
                    run_id=args.run_id)
 
 
-def stream_versions(store_root: Path, sid: str, death_versions: list | None = None) -> dict:
+def stream_versions(store_root: Path, sid: str, death_versions: list | None = None,
+                    ally_root: Path | None = None) -> dict:
     """The stored streams' version stamps. `death_versions`, the stamps of the
     death rows actually scored (`--deaths-from` reads another directory), win
-    over the store's death stream (0.3.1)."""
+    over the store's death stream (0.3.1); `ally_root` (`--ally-from`) names
+    where the ally rows were read."""
     out = {}
     if death_versions:
         out["death"] = ",".join(death_versions)
@@ -2364,7 +2457,8 @@ def stream_versions(store_root: Path, sid: str, death_versions: list | None = No
                       ("ally_icon", "ally_icon_version")):
         if kind in out:
             continue
-        for r in _stream_rows(Path(store_root) / "events" / kind / f"{sid}.jsonl"):
+        base = ally_root if kind == "ally_icon" and ally_root else store_root
+        for r in _stream_rows(Path(base) / "events" / kind / f"{sid}.jsonl"):
             if r.get(key):
                 out[kind] = r[key]
             break
@@ -3256,6 +3350,203 @@ def print_window_rates(P: dict, label: str) -> None:
               f"[{r['lo']:.4f}, {r['hi']:.4f}]{r3}")
 
 
+# ------------------------------------------------------------- paired: two codes
+
+#: The field outcomes that count as right in a paired comparison: a name or
+#: weapon that matched, a killer a self-kill never draws, and a field Riot's
+#: record cannot score (an unmapped weapon, a side without the player's team).
+PAIRED_RIGHT = frozenset({"right", "not_applicable", "unscored"})
+PAIRED_FIELDS = ("detected", "victim", "killer", "weapon", "side")
+
+
+def death_units(r: dict) -> dict:
+    """One scored session's units for a paired comparison, keyed so the same
+    unit has the same key under either code: each Riot kill by its
+    `gameTime` (paired, missed or unobservable) and each unpaired stored
+    death by its `t_ms`. A unit's value holds its field outcomes and the
+    stored row it was scored on."""
+    sid, d = r["session"], r.get("deaths") or {}
+    out = {}
+    for row in r.get("death_rows") or []:
+        oc = dict(row.get("outcome") or {})
+        out[("kill", sid, row["riot_game_ms"])] = {
+            "t_ms": float(row["t_ms"]), "outcome": {"detected": "paired", **oc},
+            "row": (row["t_ms"], row["victim"][1], row["killer"][1], row["weapon"][1],
+                    row["side"][1], row["paired_by"])}
+    for kind, xs in (("missed", d.get("misses") or []),
+                     ("unobservable", d.get("unobservable_kills") or [])):
+        for m in xs:
+            out[("kill", sid, m["riot_game_ms"])] = {
+                "t_ms": float(m["t_ms"]), "outcome": {f: kind for f in PAIRED_FIELDS},
+                "row": (kind,)}
+    for f in d.get("false") or []:
+        out[("false", sid, float(f["t_ms"]))] = {
+            "t_ms": float(f["t_ms"]), "outcome": {"false_death": "present"},
+            "row": ("false", f.get("victim"), f.get("killer"), f.get("side"))}
+    return out
+
+
+def _right(unit: dict | None, field: str) -> bool | None:
+    """Whether one unit's field is right; None where the unit holds no
+    verdict on it (an unobservable kill, a field the unit lacks)."""
+    if unit is None:
+        return True if field == "false_death" else None
+    v = unit["outcome"].get(field)
+    if v is None or v == "unobservable":
+        return None
+    if field not in ("detected", "false_death") and unit["outcome"].get("detected") != "paired":
+        return None       # a name or weapon is scored on a paired kill only
+    if field == "false_death":
+        return False
+    if field == "detected":
+        return v == "paired"
+    return v in PAIRED_RIGHT
+
+
+def paired_flips(results_a: list[dict], results_b: list[dict]) -> dict:
+    """Every Riot-scored unit whose outcome differs between code A's scored
+    sessions and code B's, both scored over the same windows.
+
+    A unit is right when every field is (`PAIRED_RIGHT`); a missed kill is
+    wrong in every field and an unpaired stored death is wrong by being
+    there. `fixed` counts units wrong under A and right under B, `broken` the
+    reverse, `changed` those whose stored row moved with their verdict kept
+    (a time, a refusal becoming another refusal). Each field also counts its
+    own flips over the units both codes scored. A kill inside one code's
+    windows only (its alignment moved it across an edge) goes to `edge`,
+    unscored. `p` is the exact McNemar p-value (`metrics.mcnemar_exact`)."""
+    from reticle.metrics import mcnemar_exact
+    A, B = {}, {}
+    for r in results_a:
+        A.update(death_units(r))
+    for r in results_b:
+        B.update(death_units(r))
+    fields = PAIRED_FIELDS + ("false_death",)
+    per = {f: {"fixed": 0, "broken": 0} for f in fields}
+    rows, edge, n_units = [], [], 0
+    for key in sorted(set(A) | set(B), key=lambda k: (k[1], k[2], k[0])):
+        ua, ub = A.get(key), B.get(key)
+        if key[0] == "kill" and (ua is None or ub is None):
+            edge.append({"key": list(key), "t_ms": (ua or ub)["t_ms"]})
+            continue
+        if key[0] == "kill" and ua["outcome"]["detected"] == "unobservable" \
+                and ub["outcome"]["detected"] == "unobservable":
+            continue
+        n_units += 1
+        verdicts = {}
+        for f in fields:
+            ra, rb = _right(ua, f), _right(ub, f)
+            if ra is None or rb is None or ra == rb:
+                continue
+            per[f]["fixed" if rb else "broken"] += 1
+            verdicts[f] = "fixed" if rb else "broken"
+        oka = all(_right(ua, f) is not False for f in fields)
+        okb = all(_right(ub, f) is not False for f in fields)
+        if oka == okb and (ua or {}).get("row") == (ub or {}).get("row") \
+                and (ua or {}).get("outcome") == (ub or {}).get("outcome"):
+            continue
+        how = "changed" if oka == okb else ("fixed" if okb else "broken")
+        rows.append({"how": how, "key": list(key), "t_ms": (ua or ub)["t_ms"],
+                     "a": None if ua is None else ua["outcome"],
+                     "b": None if ub is None else ub["outcome"],
+                     "a_row": None if ua is None else list(ua["row"]),
+                     "b_row": None if ub is None else list(ub["row"]), "fields": verdicts})
+    count = {h: sum(1 for x in rows if x["how"] == h) for h in ("fixed", "broken", "changed")}
+    for f in fields:
+        per[f]["p"] = mcnemar_exact(per[f]["broken"], per[f]["fixed"])
+    return {"units": n_units, **count, "p": mcnemar_exact(count["broken"], count["fixed"]),
+            "fields": per, "edge": edge, "rows": rows}
+
+
+#: (name, numerator, denominator): the ally reader's own fits against Riot's
+#: allies at the kill instants (`score_minimap`'s reader counts), k of n.
+MINIMAP_WINDOW_RATES = (
+    ("reader_recall", "reader_matched", "riot_allies"),
+    ("reader_recall_any", "reader_matched_any", "riot_allies"),
+    ("reader_precision", "reader_matched", "reader_icons"),
+    ("kill_frame_drawn", "kill_frames", ("kill_frames", "kill_widget_not_drawn")),
+)
+
+
+def minimap_window_rates(results: list[dict]) -> dict:
+    """The ally reader's rates pooled over sessions, each with its Wilson 95%
+    interval, and the median distance of its matched fits in pixels."""
+    from reticle.metrics import wilson
+    c, err, vers = Counter(), [], set()
+    for r in results:
+        m = r.get("minimap") or {}
+        if "refused" in m or not m:
+            continue
+        for k in ("riot_allies", "reader_matched", "reader_matched_any", "reader_icons",
+                  "kill_frames", "kill_no_frame", "kill_widget_not_drawn"):
+            c[k] += int(m.get(k) or 0)
+        err += list(m.get("reader_err_samples") or [])
+        if (r.get("versions") or {}).get("ally_icon"):
+            vers.add(r["versions"]["ally_icon"])
+    rates = []
+    for name, num, den in MINIMAP_WINDOW_RATES:
+        k = c[num]
+        n = sum(c[x] for x in ((den,) if isinstance(den, str) else den))
+        lo, hi = wilson(k, n)
+        rates.append({"name": name, "k": k, "n": n, "rate": k / n if n else None,
+                      "lo": lo, "hi": hi})
+    return {"counts": dict(c), "rates": rates, "ally_icon_versions": sorted(vers),
+            "reader_pos_err_px_median": round(statistics.median(err), 2) if err else None}
+
+
+def print_minimap_window_rates(M: dict) -> None:
+    print(f"\n==== MINIMAP ally reader at the kill instants inside the windows: {M['counts']}")
+    for r in M["rates"]:
+        rate = "-" if r["rate"] is None else f"{r['rate']:.4f}"
+        print(f"  {r['name']:22s} {r['k']:>6}/{r['n']:<6} {rate}  Wilson 95% "
+              f"[{r['lo']:.4f}, {r['hi']:.4f}]")
+    print(f"  reader_pos_err_px median {M['reader_pos_err_px_median']}")
+
+
+def record_minimap_window(M: dict, results: list[dict], args, label: str) -> None:
+    """A windowed ally-reader run as `riot_truth_window/minimap`."""
+    import hashlib
+    from reticle import metrics
+    from reticle.dev_sample import format_windows, load
+    wins = load(args.windows_file, args.sample)
+    vals = dict(M["counts"])
+    vals.update({f"{r['name']}": (round(r["rate"], 4) if r["rate"] is not None else None)
+                 for r in M["rates"]})
+    vals["reader_pos_err_px_median"] = M["reader_pos_err_px_median"]
+    metrics.record("riot_truth_window", part="minimap", values=vals,
+                   deps={"riot_truth": RIOT_TRUTH_VERSION, "gate_m": GATE_M,
+                         "minimap_lag_ms": args.minimap_lag, "windows": label,
+                         "windows_sha256": hashlib.sha256(format_windows(wins).encode())
+                         .hexdigest()[:16],
+                         "ally_from": "trial rows" if args.ally_from else "store"},
+                   context={"sessions": sorted(r["session"] for r in results
+                                               if (r.get("minimap") or {}).get("riot_allies")),
+                            "windows": len(wins),
+                            "ally_icon_versions": M["ally_icon_versions"]},
+                   ci={r["name"]: (round(r["lo"], 4), round(r["hi"], 4)) for r in M["rates"]},
+                   run_id=args.run_id)
+
+
+def print_paired(F: dict, label_a: str, label_b: str) -> None:
+    print(f"\n==== PAIRED A {label_a} -> B {label_b}: {F['units']} units in the windows")
+    print(f"  units   fixed {F['fixed']}  broken {F['broken']}  changed without a flip "
+          f"{F['changed']}  exact McNemar p={F['p']:.4g}")
+    for f, c in F["fields"].items():
+        print(f"  {f:12s} fixed {c['fixed']:>3}  broken {c['broken']:>3}  p={c['p']:.4g}")
+    if F["edge"]:
+        print(f"  {len(F['edge'])} kills inside one code's windows only (alignment), unscored")
+    if F["broken"]:
+        print(f"  BROKEN, row by row:")
+    for how in ("broken", "fixed", "changed"):
+        for x in F["rows"]:
+            if x["how"] != how:
+                continue
+            kind, sid, k = x["key"]
+            print(f"  {how.upper():8s} {sid} {x['t_ms'] / 1000.0:8.1f} s {kind} {k}: "
+                  f"{x['a_row']} -> {x['b_row']}"
+                  + (f" {x['fields']}" if x["fields"] else ""))
+
+
 def print_pool(P: dict, conv):
     d = P["deaths"]
     print("\n==== POOLED over", P["sessions"], "sessions")
@@ -3373,14 +3664,25 @@ def main(argv=None) -> int:
                     help="write every miss, false death and wrong or refused name as "
                          "session,t,reason (a residual list for `reticle dev-sample --residuals`)")
     ap.add_argument("--run-id", default=None, help="run id for --record of a windowed run")
+    ap.add_argument("--compare-deaths", default=None, metavar="DIR",
+                    help="with windows: score DIR's deaths too (code B; --deaths-from or the "
+                         "store is code A) and list every Riot-scored outcome that flips")
+    ap.add_argument("--minimap-windows", action="store_true",
+                    help="with windows: score the ally reader's own fits against Riot's allies "
+                         "at the kill instants inside the windows")
+    ap.add_argument("--ally-from", default=None, metavar="DIR",
+                    help="read <dir>/events/ally_icon/<sid>.jsonl (`reticle trial "
+                         "--rows-out`) in place of the store's ally_icon rows")
     args = ap.parse_args(argv)
     args.windows_ms = None
     if args.windows_file or args.sample:
         from reticle import dev_sample
         args.windows_ms = dev_sample.spans_ms(dev_sample.load(args.windows_file, args.sample))
-        args.no_minimap, args.no_status = True, True
+        args.no_minimap, args.no_status = not args.minimap_windows, True
         if args.ult:
             ap.error("--ult scores whole matches; drop it with windows")
+    elif args.compare_deaths or args.minimap_windows:
+        ap.error("--compare-deaths and --minimap-windows need --windows-file or --sample")
     if args.ult_only:
         args.ult, args.no_minimap, args.no_status = True, True, True
     args.podcast = _podcast_sessions() if args.ult else set()
@@ -3404,23 +3706,34 @@ def main(argv=None) -> int:
         from reticle.store import Store
         status_by = {s["sid"]: s for s in status.collect(Store(root))["sessions"]
                      if s.get("sid") in sids}
-    results = []
-    for sid in sids:
-        if sid not in recs:
-            print(f"{sid}: no Riot record in {root / 'external' / 'riot'}")
-            continue
-        ident = resolve_lineup_player(recs[sid], idents[sid], ref)
-        try:
-            r = score_session(sid, recs[sid], ident, ref, root, status_by.get(sid), args)
-        except FileNotFoundError as e:
-            r = {"session": sid, "refused": f"missing:{e}", "capture": "", "profile": "",
-                 "cohort": "", "player_basis": ident.get("basis"), "map": ""}
-        r["versions"] = stream_versions(root, sid, r.get("death_versions"))
-        results.append(r)
-        if args.ult_only:
-            print(f"{sid}: ult block scored", flush=True)
-            continue
-        print_session(r, args.list_misses)
+    def score_all(opts, show: bool) -> list[dict]:
+        out = []
+        for sid in sids:
+            if sid not in recs:
+                print(f"{sid}: no Riot record in {root / 'external' / 'riot'}")
+                continue
+            ident = resolve_lineup_player(recs[sid], idents[sid], ref)
+            try:
+                r = score_session(sid, recs[sid], ident, ref, root, status_by.get(sid), opts)
+            except FileNotFoundError as e:
+                r = {"session": sid, "refused": f"missing:{e}", "capture": "", "profile": "",
+                     "cohort": "", "player_basis": ident.get("basis"), "map": ""}
+            r["versions"] = stream_versions(root, sid, r.get("death_versions"),
+                                            getattr(opts, "ally_from", None))
+            out.append(r)
+            if opts.ult_only:
+                print(f"{sid}: ult block scored", flush=True)
+                continue
+            if show:
+                print_session(r, opts.list_misses)
+        return out
+
+    results = score_all(args, True)
+    results_b = None
+    if args.compare_deaths:
+        results_b = score_all(argparse.Namespace(**{**vars(args), "deaths_from":
+                                                    args.compare_deaths,
+                                                    "no_minimap": True}), False)
     if args.ult:
         PU = pool_ults(results)
         print_ults(results, PU)
@@ -3440,19 +3753,35 @@ def main(argv=None) -> int:
         if args.ult_only:
             return 0
     if args.residuals_out:
-        n = write_residuals(args.residuals_out, results)
+        n = write_residuals(args.residuals_out, results, results_b)
         print(f"{n} residuals -> {args.residuals_out}")
     if args.windows_ms is not None:
         P = pool(results, None)
         label = " + ".join(([f"sample {_sample_label()}"] if args.sample else [])
                            + list(args.windows_file or []))
-        print_window_rates(P, label)
+        la = args.deaths_from or "store"
+        print_window_rates(P, label + ("" if results_b is None else f"; A {la}"))
+        doc = {"pool": P, "rates": window_rates(P["deaths"]), "sessions": results}
+        if args.minimap_windows:
+            M = minimap_window_rates(results)
+            print_minimap_window_rates(M)
+            doc["minimap"] = M
+        F = None
+        if results_b is not None:
+            PB = pool(results_b, None)
+            print_window_rates(PB, label + f"; B {args.compare_deaths}")
+            F = paired_flips(results, results_b)
+            print_paired(F, la, args.compare_deaths)
+            doc.update({"pool_b": PB, "rates_b": window_rates(PB["deaths"]), "paired": F,
+                        "sessions_b": results_b})
         if args.json:
-            Path(args.json).write_text(json.dumps({"pool": P, "rates": window_rates(P["deaths"]),
-                                                   "sessions": results}, indent=1, default=str),
-                                       encoding="utf-8")
+            Path(args.json).write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
         if args.record:
             record_window(P, results, args, label)
+            if F is not None:
+                record_paired(F, args, label)
+            if args.minimap_windows:
+                record_minimap_window(doc["minimap"], results, args, label)
         return 0
     conv = args.facing
     P = pool(results, None)
