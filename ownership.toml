@@ -1071,7 +1071,7 @@ owner = "rounds"
 stored_consumers = ["entity_events"]
 role = ["lifecycle", "adjudicate"]
 status = "partial"
-produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events", "in_round_window", "round_containing", "plant_state"]
+produces = ["round_bounds", "build_rounds", "infer_player_side", "round_events", "in_round_window", "round_containing", "place_unread_starts", "plant_state"]
 defers_to = ["planted-spike-graphic"]
 not_for = """
 Player identity. A side is a round state. About 20% of coaching events still sit
