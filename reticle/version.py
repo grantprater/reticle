@@ -36,7 +36,13 @@ SCHEMA_VERSION = 1
 # stream the old run rule still marks a plant (`plant_source = clock_run`) and
 # every other round is null, never False. Over the 21 Riot-scored matches:
 # plants found by both 212 -> 251, Riot only 68 -> 27, store only 8 -> 0.
-ROUND_VERSION = "round-0.8.0"
+# 0.9.0 (2026-10-04): a round whose buy-phase reset went unread starts one
+# median post-round gap after the previous end (`start_source = post_round_gap`,
+# `rounds.place_unread_starts`), not at the score increment, so the previous
+# round closes there and keeps its post-round events. Over the 21 Riot-scored
+# matches the 7 post-round deaths stamped with the next round all move to their
+# own round; no other death moves; 89 of 439 starts move 7-8 s later.
+ROUND_VERSION = "round-0.9.0"
 # The planted-spike graphic in the scoreline's clock field, read from the hud
 # crop cache (`plant_graphic`). 0.1.0 (2026-10-02): red coverage of the clock
 # field less twice its white ink, cut at 0.2.

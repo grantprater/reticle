@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import unittest
 
-from reticle.rounds import final_round, in_round_window, match_over, round_closes
+from reticle.rounds import (final_round, in_round_window, match_over, place_unread_starts,
+                            round_closes, round_containing)
 
 
 def _ev(t):
@@ -37,6 +38,80 @@ class RoundBoundary(unittest.TestCase):
                   {"t_start_ms": 107.0, "t_end_ms": 200.0},
                   {"t_start_ms": 209.0, "t_end_ms": 300.0}]
         self.assertEqual(round_closes(rounds), [107.0, 209.0, 308.0])
+
+
+class UnreadStart(unittest.TestCase):
+    """A round whose buy-phase reset went unread starts one median post-round
+    gap after the previous end, so the previous round keeps its post-round
+    events (`place_unread_starts`, round-0.9.0)."""
+
+    def _rounds(self):
+        return [{"t_start_ms": 0.0, "t_end_ms": 100.0, "start_source": "capture_start"},
+                {"t_start_ms": 107.0, "t_end_ms": 200.0, "start_source": "clock_reset"},
+                {"t_start_ms": 200.0, "t_end_ms": 300.0, "start_source": "score_increment"},
+                {"t_start_ms": 309.0, "t_end_ms": 400.0, "start_source": "clock_reset"}]
+
+    def test_the_unread_start_moves_one_median_gap_and_says_so(self):
+        rounds = place_unread_starts(self._rounds())
+        self.assertEqual([r["t_start_ms"] for r in rounds], [0.0, 107.0, 208.0, 309.0])
+        self.assertEqual(rounds[2]["start_source"], "post_round_gap")
+        self.assertEqual(rounds[0]["start_source"], "capture_start")
+
+    def test_a_post_round_event_stays_in_the_round_just_decided(self):
+        rounds = place_unread_starts(self._rounds())
+        for r, c in zip(rounds, round_closes(rounds)):
+            r["t_close_ms"] = c
+        self.assertEqual(round_containing(203.0, rounds)["t_end_ms"], 200.0)
+        self.assertEqual(round_containing(200.0, rounds)["t_end_ms"], 200.0)   # the decisive event
+        self.assertEqual(round_containing(208.0, rounds)["t_end_ms"], 300.0)
+        self.assertEqual(round_containing(150.0, rounds)["t_end_ms"], 200.0)   # unchanged
+
+    def test_without_a_read_reset_the_score_increment_start_stays(self):
+        rounds = [{"t_start_ms": 0.0, "t_end_ms": 100.0, "start_source": "capture_start"},
+                  {"t_start_ms": 100.0, "t_end_ms": 200.0, "start_source": "score_increment"}]
+        place_unread_starts(rounds)
+        self.assertEqual((rounds[1]["t_start_ms"], rounds[1]["start_source"]),
+                         (100.0, "score_increment"))
+
+    def test_the_start_never_passes_the_rounds_own_end(self):
+        rounds = [{"t_start_ms": 0.0, "t_end_ms": 100.0, "start_source": "capture_start"},
+                  {"t_start_ms": 130.0, "t_end_ms": 200.0, "start_source": "clock_reset"},
+                  {"t_start_ms": 200.0, "t_end_ms": 210.0, "start_source": "score_increment"}]
+        place_unread_starts(rounds)
+        self.assertEqual(rounds[2]["t_start_ms"], 210.0)
+
+
+_HELD = {  # stored death first-seen times after a round's end -> the round Riot puts them in
+    "c62c2b06bcfb": {109000.0: 1, 326000.0: 3, 328500.0: 3},
+    "59c70f1ef720": {984500.0: 10},
+}
+
+
+def _stored_hud(sid):
+    from reticle.store import DEFAULT_STORE, Store
+    store = Store(DEFAULT_STORE)
+    try:
+        man = store.read_manifest(sid)
+    except Exception:
+        return None
+    path = store.hud_path(sid, man["ingested_at"][:10])
+    if not path.exists():
+        return None
+    import pyarrow.parquet as pq
+    return pq.read_table(path)
+
+
+@unittest.skipUnless(all(_stored_hud(s) is not None for s in _HELD), "no stored HUD for the held sessions")
+class StoredPostRoundDeaths(unittest.TestCase):
+    """Regression on stored rows: the post-round deaths that carried the NEXT
+    round's number on the two held-out sessions fall in their own round."""
+
+    def test_post_round_deaths_carry_their_own_round(self):
+        from reticle.rounds import build_rounds
+        for sid, want in _HELD.items():
+            rounds = build_rounds(_stored_hud(sid))
+            got = {t: round_containing(t, rounds)["round_no"] for t in want}
+            self.assertEqual(got, want, sid)
 
 
 

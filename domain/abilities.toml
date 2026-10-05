@@ -592,6 +592,7 @@ the player, citing the wiki. On a06f04a0059f, where Miks is an ally, every fully
 observed minimap smoke reads 18.0 s with the raw_dark tracker, 1.25 s longer.
 """
 use = "expected lifetime of a Miks smoke; the tracker's excess over it is its measured bias"
+superseded_by = "game_data/miks-waveform-game-data"
 
 [enemy-smokes-not-on-minimap]
 claim = """
@@ -6607,3 +6608,36 @@ an agent with few lines here (Astra 1, Harbor 0, Viper 0) is untested, not
 answered
 """
 see = ["abilities/ult-castable-at-barrier-drop", "abilities/ability-rules-are-unique"]
+
+[game-files-outrank-player-quantities]
+claim = """
+For a quantity of the game (a duration, distance, radius, speed, cooldown,
+restock, cost or charge count), the value read from the extracted game files
+is the claim. A player's or the wiki's number that disagrees with it stays on
+record as an exception, its fact marked superseded_by the game-data fact. The
+player owns the qualitative mechanics: what an ability does, how it is drawn,
+and the player's beliefs.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-10-04"
+subject = "game files:precedence"
+source = """
+the player, 2026-10-04 (chat), shown the game files' Miks smoke timings
+against the wiki's 16.75 s: the player trusts the game-file values over the
+player's own numbers for such quantities, and has measured no game duration
+or distance outside this project
+"""
+use = """
+route a quantity to its game_data fact; mark a player or wiki number that
+disagrees with superseded_by, keeping its claim and source
+"""
+exceptions = """
+a game-file value is a class default; a blueprint, an AbilityTuning row or a
+server toggle may change it at run time. Where server-side tuning could
+explain a disagreement, as for the restock times
+[domain:game_data/ability-restock-times], both numbers stand as a
+disagreement until a timed capture decides
+"""
+see = ["game_data/miks-waveform-game-data", "game_data/ability-restock-times",
+       "abilities/ability-rules-are-unique"]

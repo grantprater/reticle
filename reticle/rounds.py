@@ -533,6 +533,37 @@ def round_containing(t_ms: float, rounds: list[dict]) -> dict | None:
         e, r["t_start_ms"], r["t_end_ms"], r["t_close_ms"], ends)), None)
 
 
+def place_unread_starts(rounds: list[dict]) -> list[dict]:
+    """Start each round whose buy-phase reset went unread one median post-round
+    gap after the previous round's end, and label it `post_round_gap`.
+
+    Without a reset, `round_bounds` starts the next round AT the score
+    increment, so its close (`round_closes`) is the end itself and every event
+    of the post-round period [domain:rounds/post-round-period] fell into the
+    NEXT round. Against Riot's records over the 21 scored matches, all 7
+    post-round deaths stamped with the wrong round followed such a start, and
+    none followed a read reset; with this rule those 7 deaths move to their own
+    round [metric:round_no_post_round/riot-21#changed=7], no post-round death
+    is wrong [metric:round_no_post_round/riot-21#post_wrong=0] and no other
+    death moves [metric:round_no_post_round/riot-21#changed_not_post_fix=0].
+
+    The gap is the session's median over rounds whose reset was read (the
+    estimate `round_closes` already uses for the last round's tail); a session
+    with no read reset keeps the score-increment start. The start never passes
+    the round's own end. Edits `rounds` in place and returns it.
+    """
+    gaps = [n["t_start_ms"] - p["t_end_ms"] for p, n in zip(rounds, rounds[1:])
+            if n.get("start_source") == "clock_reset" and n["t_start_ms"] > p["t_end_ms"]]
+    if not gaps:
+        return rounds
+    gap = float(np.median(gaps))
+    for p, n in zip(rounds, rounds[1:]):
+        if n.get("start_source") == "score_increment":
+            n["t_start_ms"] = min(p["t_end_ms"] + gap, n["t_end_ms"])
+            n["start_source"] = "post_round_gap"
+    return rounds
+
+
 def round_closes(rounds: list[dict]) -> list[float]:
     """Each round's close: the next round's start, and for the last round one
     median post-round gap after its end (its own end where no gap is seen)."""
@@ -568,6 +599,7 @@ def build_rounds(table, second_life: list[dict] | None = None,
     last = final_round(t, sl, sr, clock, rounds)
     if last is not None:
         rounds.append(last)
+    place_unread_starts(rounds)
     kills = merge_split_tracks(_tracks(t, table.column("kf_kill_mask").to_pylist(), div("kf_kill_wx")))
     deaths = merge_split_tracks(_tracks(t, table.column("kf_death_mask").to_pylist(), div("kf_death_wx")))
     from .adjudication.death import split_second_lives

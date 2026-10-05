@@ -29,7 +29,9 @@ Result: 6 tracks, all smokes. Observed ends read 18.0 s three times and
 censored ends 16.75-17.75 s. Enemy smokes are not drawn
 [domain:abilities/enemy-smokes-not-on-minimap], so these are the ally Miks's,
 whose smoke lasts 16.75 s [domain:abilities/miks-smoke-duration]: the tracker
-reads about 1.25 s long. An enemy smoke shows only as missing light in an
+reads about 1.25 s long. (2026-10-04: the game files' timings sum to 18.25 s
+[domain:game_data/miks-waveform-game-data], which supersede the 16.75 s; the
+18.0 s reads are then within the tracker's quantization, not 1.25 s long.) An enemy smoke shows only as missing light in an
 ally's cone [domain:minimap/enemy-smokes-block-cones], which this does not read.
 """
 import sys, json, pathlib
