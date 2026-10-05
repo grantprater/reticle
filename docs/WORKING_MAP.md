@@ -101,6 +101,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe prototypes\audio_open_set.py score --scan DIR  # ungated ability events on the demos; stored detections only
 .\.venv\Scripts\python.exe prototypes\audio_open_set.py match-score --match DIR  # the frozen dev choice on the player's matches; stored detections only
 .\.venv\Scripts\python.exe -m reticle killstreak SESSION    # numerals vs death stream; stored data only
+.\.venv\Scripts\python.exe -m reticle assists SESSION      # assisters per death from the crop cache; no video
 .\.venv\Scripts\python.exe -m reticle acquisition-plan REQUESTS.json
 .\.venv\Scripts\python.exe -m reticle capabilities
 .\.venv\Scripts\python.exe -m reticle refine SESSION --review-id ID
