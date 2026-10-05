@@ -248,6 +248,7 @@ def derived_streams() -> list[dict]:
                           SMOKE_VERSION, SPIKE_CARRIER_VERSION, SPIKE_VERSION, TEAM_VISION_VERSION,
                           TEARDROP_VERSION, TRAY_COUNTDOWN_VERSION, TRAY_FILL_VERSION,
                           TRAY_KIT_VERSION, TRAY_SEGMENT_VERSION)
+    from .version import ABILITY_DISC_TRACK_VERSION, ABILITY_GLYPH_NAME_VERSION
     from .version import (ROUND_OUTCOME_CLAIM_VERSION, ROUND_OUTCOME_VERSION,
                           SCOREBOARD_STRIP_VERSION)
     roi = {"roi_cache_version": ROI_CACHE_VERSION}
@@ -296,6 +297,16 @@ def derived_streams() -> list[dict]:
          "command": "reticle smokes {sid}", "how": "storage",
          "fields": {"smoke_version": SMOKE_VERSION},
          "upstream": ("smoke", "tray_drop", "rounds")},
+        # The minimap glyph channel's stage 3 (docs/MINIMAP_GLYPH_CHANNEL.md,
+        # section 4): the disc tracks joined from the stored glyph and icon
+        # rows, and the verdict over them with its null and states tables.
+        {"stream": "ability_disc_track", "key": "ability_disc_track_version",
+         "current": ABILITY_DISC_TRACK_VERSION, "command": "reticle ability-glyphs {sid}",
+         "how": "storage", "fields": {}, "upstream": ("ability_icon", "ability_glyph")},
+        {"stream": "ability_glyph_name", "key": "ability_glyph_name_version",
+         "current": ABILITY_GLYPH_NAME_VERSION, "command": "reticle ability-glyphs {sid}",
+         "how": "storage", "fields": {},
+         "upstream": ("ability_disc_track", "ability_glyph", "tray_kit")},
         # The player's Ruse casts while dead (`ability_timeline.dead_ruse_casts`),
         # written beside the owners on a Clove player's session.
         {"stream": "dead_ruse_cast", "key": "dead_ruse_version", "current": DEAD_RUSE_VERSION,
@@ -369,6 +380,8 @@ def derived_streams() -> list[dict]:
             ("combat_report_identity", "combat_report_round", "reticle combat-report {sid}",
              "storage"),
             ("smoke_owner_identity", "smoke_owner", "reticle smokes {sid}", "storage"),
+            ("ability_glyph_identity", "ability_glyph_name", "reticle ability-glyphs {sid}",
+             "storage"),
             ("tray_kit_identity", "tray_kit", "reticle tray-kit {sid}", "cache"),
             ("ult_cast_identity", "ult_cast", "reticle ult-cast {sid}", "storage"),
             ("enemy_track_identity", "enemy_track", "reticle enemy-tracks {sid}", "storage")):
@@ -518,6 +531,9 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     from .killfeed_assist import ICON_BUILD
     from .lighting import LIGHTING_VERSION
     from .version import TRAY_SEGMENT_VERSION
+    from .adjudication.ability_glyph import STATES_TABLE as GLYPH_STATES_TABLE
+    from .minimap_glyph import GLYPH_DATA
+    from .version import ABILITY_DISC_TRACK_VERSION
     from .roi_cache import ROI_CACHE_VERSION
     from .ability_candidates import values_digest
     from .version import (ABILITY_AUDIO_PARAMS_VERSION, ABILITY_AUDIO_VERSION,
@@ -649,6 +665,29 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                          "lineup": _in("inputs.lineup_view", "lineup")},
         "smoke": {"minimap_dark": _in("minimap_dark_version", "minimap_dark"),
                   "menu_open": _in("menu_open", "menu_open#menu_version"), **geo},
+        # Stage 3 of the glyph channel: the tracks read the stored glyph rows
+        # (and the bank they were scored on) and the proposer's verify; the
+        # verdict reads the tracks, the tray kit, the lineup's slots, and the
+        # null and states tables at the code's versions, and the player's drawing
+        # answers, compared by a digest of what the rule reads from them
+        # (`ability_glyph.drawing_answers_stamp`), so an unrelated answer does
+        # not restale it.
+        "ability_disc_track": {"ability_glyph": _in("inputs.ability_glyph",
+                                                    "ability_glyph#ability_glyph_version"),
+                               "glyph_bank": _in("inputs.glyph_bank", "ability_glyph#glyph_bank"),
+                               "ability_icon": _in("inputs.ability_icon",
+                                                   "ability_icon#ability_icon_version")},
+        "ability_glyph_name": {"ability_glyph": _in("inputs.ability_glyph",
+                                                    "ability_glyph#ability_glyph_version"),
+                               "glyph_bank": _in("inputs.glyph_bank", "ability_glyph#glyph_bank"),
+                               "ability_disc_track": _code("inputs.ability_disc_track",
+                                                           ABILITY_DISC_TRACK_VERSION),
+                               "null_table": _code("inputs.null_table", GLYPH_DATA["null"][1]),
+                               "states_table": _code("inputs.states_table", GLYPH_STATES_TABLE[1]),
+                               "tray_kit": _in("inputs.tray_kit", "tray_kit#tray_kit_version"),
+                               "drawing_answers": _in("inputs.drawing_answers",
+                                                      "glyph_drawing_answers"),
+                               **_lineup_inputs()},
         "dead_ruse_cast": {"smoke_owner": _in("inputs.smoke_owner",
                                               "smoke_owner#smoke_owner_version"),
                            "ability_state": _in("inputs.ability_state",
@@ -736,7 +775,8 @@ def _probe_stream(probe: str) -> str | None:
     if "#" in probe:
         return probe.split("#", 1)[0]
     if probe in ("geometry", "lineup_file", "reliability", "catalogue", "catalogue_icons",
-                 "portrait_refs", "portrait_refs_fit", "audio_features", "audio_labels"):
+                 "portrait_refs", "portrait_refs_fit", "audio_features", "audio_labels",
+                 "glyph_drawing_answers"):
         return None
     return probe
 
@@ -937,6 +977,9 @@ def input_head(store, manifest: dict, probe: str, head: dict | None = None,
             now = f"reference/abilities.json#{reference_key(root)}"
         else:
             now = ist.NO_ROWS
+    elif probe == "glyph_drawing_answers":
+        from .adjudication.ability_glyph import drawing_answers_stamp
+        now = drawing_answers_stamp(root) if root is not None else ist.NO_ROWS
     elif probe in ("audio_features", "audio_labels"):
         from .ability_timeline import audio_input_stamps
         now = audio_input_stamps(root, sid)[probe] if root is not None else ist.NO_ROWS
