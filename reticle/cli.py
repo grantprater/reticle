@@ -1190,11 +1190,10 @@ def cmd_scan(args) -> int:
     cost two passes, and fused they cost about 1.3. Measured over 200 s of
     c40d950031bb: 46.77 s as two passes, 25.93 s as one, a **45% saving**.
 
-    Needs `segment` to have run, because the minimap half is bounded by active
-    spans -- which is also why this cannot be the path for a session's FIRST
-    read: spans are computed from the HUD table this would be writing. It is
-    the path for every re-read after that, which is the expensive case (a
-    HUD_VERSION bump re-reads every session in the store) and the common one.
+    The minimap half needs `segment`'s spans, which come from the whole L1
+    primitives table, so a session's first read is two passes
+    (`ingest-match`): the primitives ride the HUD pass, and the minimap
+    readers read a second.
     """
     until = getattr(args, "until", None)
     if until is not None:
