@@ -297,7 +297,8 @@ def derived_streams() -> list[dict]:
                     "round_lifetime_version": ROUND_LIFETIME_VERSION,
                     "agent_identity_version": AGENT_IDENTITY_VERSION},
          "upstream": ("minimap_object", "death", "rounds")},
-        # The killstreak numeral against the death stream's kill index: a
+        # The killstreak numeral [domain:killfeed/killstreak-indicator]
+        # against the death stream's kill index: a
         # check over two stored streams, rerun from storage. Its summary row
         # records both inputs' stamps.
         {"stream": "killstreak_witness", "key": "killstreak_witness_version",
@@ -305,7 +306,7 @@ def derived_streams() -> list[dict]:
          "how": "storage",
          "fields": {"inputs.killfeed_numeral": KILLFEED_NUMERAL_VERSION,
                     "inputs.death": DEATH_ADJUDICATION_VERSION},
-         "upstream": ("death",)},
+         "upstream": ("death", "killfeed_numeral")},
     ]
     # The ability pass's streams reread the minimap crop cache, each under its
     # own stamp; a stream that reads the gate's samples records the gate's
