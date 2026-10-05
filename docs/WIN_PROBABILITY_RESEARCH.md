@@ -631,6 +631,7 @@ profile for live spectating; an enemy regional belief; more Riot records.
   instants come from `gametime`'s barrier drops instead.
 - **Transfer.** CS:GO coefficients and pro VALORANT data may misstate ranked
   play at tiers 9-13; use them at most as weak priors declared `rests_on`.
+  [CS_TRANSFER_SAMPLE.md](CS_TRANSFER_SAMPLE.md) proposes the CS sample that tests this.
 - **Feedback loops.** A WP or belief posterior that later shapes reader
   priors must declare `rests_on`, and only audit samples may refit it.
 - **Contamination.** Up to a third of self-HP rows read a spectated teammate
