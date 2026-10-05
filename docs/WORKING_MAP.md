@@ -52,7 +52,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | The player's profile against lobby peers (private output) | `prototypes/player_profile.py`, [PLAYER_PROFILE.md](PLAYER_PROFILE.md) |
 | Experiments | [EXPERIMENT_PROGRAM.md](EXPERIMENT_PROGRAM.md), [E1_AGREEMENT.md](E1_AGREEMENT.md), `prototypes/e1_agreement.py` |
 | The scene model (render-and-compare) | [SCENE_MODEL.md](SCENE_MODEL.md) |
-| Events consumers read | [ENTITY_EVENTS.md](ENTITY_EVENTS.md) |
+| Events consumers read; slot state | [ENTITY_EVENTS.md](ENTITY_EVENTS.md), [ENTITY_STATE.md](ENTITY_STATE.md) |
 | Ability entity inference and capture plan | `docs/ABILITY_ENTITY_INFERENCE_DESIGN.md` |
 | Every caster's minimap abilities | [ABILITY_DETECTION.md](ABILITY_DETECTION.md) |
 | What each demo cast draws on the minimap | [DEMO_CAST_CENSUS.md](DEMO_CAST_CENSUS.md) |
