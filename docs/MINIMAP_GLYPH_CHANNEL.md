@@ -414,7 +414,10 @@ margin}`. An unread frame keeps its reason: `not_live`,
 (`not_for`: "tracks and lifecycles"), so the track joins there as
 `disc_tracks`, pure over stored rows: a 2 Hz birth, its follow fixes, and
 the later 2 Hz candidates its verify keeps. A track ends when the verify
-loses it (`score` None, stored) or the round ends. Track ids are
+loses it (`score` None, stored), holds it without binding a candidate, the
+next frame goes unread, or the stream ends; each end is stored with its
+reason (`TRACK_ENDS`). The join reads no rounds: the unread frames between
+rounds end every track. Track ids are
 `<sid>:adisc:<birth_t_ms>:<i>`. Each track stores its path length, its
 speed over its first second and its lifetime, the inputs the per-ability
 rules below read. A track switching objects, which the prototype saw twice,
@@ -551,10 +554,12 @@ In `reticle/plan.py`, beside the ability pass's streams:
   rotation policy table's version inside it), `ability_icon_version`;
   upstream `ability_icon`; inputs the geometry and `_lineup_inputs()`.
 - `ability_disc_track`: command `reticle ability-glyphs {sid}`, how
-  `storage`; upstream `ability_icon`, `ability_glyph`, `rounds`.
+  `storage`; upstream `ability_icon`, `ability_glyph`.
 - `ability_glyph_name`: same command, storage; fields the null table's
   version and the states table's version; upstream `ability_disc_track`,
-  `team_vision`, `tray_kit`; inputs `_lineup_inputs()`.
+  `ability_glyph`, `tray_kit`; inputs `_lineup_inputs()`. The portrait
+  cover comes from the reader's own gate, so `team_vision` is no input
+  (stage 3, below).
 - `ability_glyph_identity`: an identity stream, `producer_version` the
   aggregator's, parent `ability_glyph_name`.
 
@@ -1117,6 +1122,110 @@ optimum; a gate that fails reopens its threshold only with a logged reason.
      [metric:glyph_reader/trial_040@4f207c0c4e39#ratio=0.0701] and
      [metric:glyph_reader/gate7_repeat_040@4f207c0c4e39#ratio=0.08]
      (0.3.0 [metric:glyph_reader/trial_040@4f207c0c4e39#ratio_before=0.0619]).
+
+   **Stage 3 results (2026-10-05, branch `glyph-stage3-20261005`).** Built:
+   `adjudication.ability.disc_tracks` (`ability-disc-track-0.1.0`),
+   `adjudication.ability_glyph` (`ability-glyph-name-0.1.0`) and
+   `reticle ability-glyphs <sid>`, which writes `ability_disc_track`,
+   `ability_glyph_name` and `ability_glyph_identity`. The handful:
+   4f207c0c4e39 (the void corner), 223d636bf8d2 (an Astra ally) and
+   7010b3d62460 (a Cypher ally), rescanned from the crop cache with
+   `--only ability` (streams backed up under the store's
+   `backups/glyph-stage3-20261005/`). Predictions and outcome rows
+   `glyph-stage3-20261005` in `notes/predictions.jsonl`; the run is the
+   store's `analysis/glyph-stage3-20261005/matches_tray/`, whose tray
+   numbers read `tray-0.1.0` drops, the only drops these matches hold.
+   - **P4 failed.** Of tracks with a clean sample,
+     [metric:glyph_stage3/matches@handful#P4_below_null=660] of
+     [metric:glyph_stage3/matches@handful#P4_n=1460] refuse `below_null`
+     ([metric:glyph_stage3/matches@handful#P4_share=0.4521], 95% interval
+     [metric:glyph_stage3/matches@handful#P4_wilson95_lo=0.4267] to
+     [metric:glyph_stage3/matches@handful#P4_wilson95_hi=0.4777]; per match
+     [metric:glyph_stage3/matches@4f207c0c4e39#below_null_share=0.6031],
+     [metric:glyph_stage3/matches@223d636bf8d2#below_null_share=0.2719],
+     [metric:glyph_stage3/matches@7010b3d62460#below_null_share=0.5802]).
+     The Omen clause stays unmeasured: the rule refuses `scale_unrecorded`
+     on every Omen track. Named tracks:
+     [metric:glyph_stage3/matches@4f207c0c4e39#named=48],
+     [metric:glyph_stage3/matches@223d636bf8d2#named=96] (and
+     [metric:glyph_stage3/matches@223d636bf8d2#pending=147] Astra stars) and
+     [metric:glyph_stage3/matches@7010b3d62460#named=102]. Montages of 24
+     pending tiles on 223d636bf8d2 show a star on every tile.
+   - **P5 holds on seven pairs.** Where both paths name a key they agree on
+     [metric:glyph_stage3/matches@handful#P5_agree=7] of
+     [metric:glyph_stage3/matches@handful#P5_both_named=7] (lower bound
+     [metric:glyph_stage3/matches@handful#P5_wilson95_lo=0.6457]); of
+     [metric:glyph_stage3/matches@handful#P5_audit_tracks=167] audit
+     tracks, the context path alone names
+     [metric:glyph_stage3/matches@handful#P5_context_only=18]. The audit
+     claims stay out of the aggregator: gate 3's unlabelled discs are
+     unmet, so the audit null does not yet hold (`AUDIT_NULL_HOLDS`).
+   - **A1 and P6 hold, on marks already viewed.** Stage 2's held-out marks,
+     not gate 4's fresh set: on the dev items the slot is right on
+     [metric:glyph_stage3/marks_dev_items@marks#slot_right=53] of
+     [metric:glyph_stage3/marks_dev_items@marks#named=53]; on the held-out
+     marks of other sessions on
+     [metric:glyph_stage3/marks_heldout@marks#slot_right=82] of
+     [metric:glyph_stage3/marks_heldout@marks#named=83] (lower bound
+     [metric:glyph_stage3/marks_heldout@marks#slot_lo95=0.9349]), the agent
+     on [metric:glyph_stage3/marks_heldout@marks#agent_right=108] of
+     [metric:glyph_stage3/marks_heldout@marks#kit_clear=108] kit-clear
+     tracks. Of the marks a track covers,
+     [metric:glyph_stage3/marks_heldout@marks#named_share_of_covered=0.6194]
+     get a named track; refusals
+     [metric:glyph_stage3/marks_heldout@marks#refused_below_null=21]
+     `below_null`, [metric:glyph_stage3/marks_heldout@marks#refused_pairwise_tie=4]
+     ties, [metric:glyph_stage3/marks_heldout@marks#pending=21] Astra
+     stars pending.
+   - **Gate 6 fails on the ally fragment.** Of named or kit-clear tracks
+     born within 34 px x scale and 250 ms of a resolved ally fix, the claim
+     names that ally
+     on [metric:glyph_stage3/matches@handful#G6_ally_agree=41] and another
+     agent on [metric:glyph_stage3/matches@handful#G6_ally_disagree=52]
+     (95% interval [metric:glyph_stage3/matches@handful#G6_ally_wilson95_lo=0.3443]
+     to [metric:glyph_stage3/matches@handful#G6_ally_wilson95_hi=0.5421]).
+     The disagreements, stored in `g6_disagreements.jsonl`, are mostly
+     placed devices (Chamber anchors, Astra stars, Cypher devices) that a
+     teammate walks past: nearness at birth is no caster witness for a
+     device. Against the player's tray drop, agree
+     [metric:glyph_stage3/matches@handful#G6_tray_agree=2], disagree
+     [metric:glyph_stage3/matches@handful#G6_tray_disagree=1], unnamed
+     [metric:glyph_stage3/matches@handful#G6_tray_unnamed=15]: too few to
+     judge.
+   - **Gate 7 holds.** The verdict runs in at most
+     [metric:glyph_stage3/matches@handful#G7_max_wall_s=3.072] s per match.
+   - **The thrown icon's track.** Of the player's glyph births after a tray
+     drop, [metric:glyph_stage3/matches@handful#T1_single_fix=12] of
+     [metric:glyph_stage3/matches@handful#T1_births=18] tracks hold one
+     fix (lower bound [metric:glyph_stage3/matches@handful#T1_wilson95_lo=0.4375]),
+     under the 70% predicted, and
+     [metric:glyph_stage3/matches@handful#T1_gated_at_birth=8] were gated
+     at birth. At 2 Hz the verify loses a moving icon by its next sample, so
+     a thrown icon's track is one fix long and the follow at the cache's
+     cadence must carry it; that follow is not built.
+   - **The void corner.** On 4f207c0c4e39,
+     [metric:glyph_stage3/matches@4f207c0c4e39#c1_tracks=295] tracks touch
+     it and [metric:glyph_stage3/matches@4f207c0c4e39#c1_named=0] are named;
+     every one is `no_clean_frame` under `map_shown` or `static_like`.
+   - **`map_shown` beside the verdict.** No named track holds a
+     `map_shown` sample
+     ([metric:glyph_stage3/matches@handful#V1_inner=0] between clean
+     samples), so no dimmed device lost its track to the gate here; the
+     dim state still needs its fact before a test can seek one.
+   - **No other identity verdict moved**
+     ([metric:glyph_stage3/matches@handful#I1_changes=0] changes): nothing
+     reads `ability_glyph_identity` yet.
+   - **Gate 4's fresh set cannot be met from the store.** The queue
+     (`label_minimap_glyph_heldout.py --pass gate4`,
+     `minimap-glyph-gate4-queue-0.1.0`, unlabelled) excludes every session
+     a stage used and keeps five: two census demos (Clove, Viper) and three
+     matches where the player plays Phoenix or Clove. The player's answers
+     put every one of their abilities but Phoenix's X out of scope (nothing
+     or a shape), so the queue holds 20 items, 8 of them after a glyph
+     cast. Gate 4 needs captures of glyph-drawing agents that no stage has
+     used, or a match pass that asks every ally's icon with the lineup's
+     kits.
+
 4. **The lane and `reticle view`**; gate 5.
 5. **The scene model.** The glyph textures become an ability sprite in
    `docs/SCENE_MODEL.md`'s renderer, composited over the baked static at
@@ -1202,6 +1311,11 @@ From the repository root, single-threaded, Below Normal, no decode:
 .\.venv\Scripts\python.exe prototypes\glyph_tables.py record --out <that dir>         # glyph_tables/* metric series, once
 .\.venv\Scripts\python.exe prototypes\glyph_tables.py bank --out <new dir> --tables <that dir>  # stage 2's reference bank
 .\.venv\Scripts\python.exe -m reticle trial <sid> --reader ability_glyph --from cache   # stage 2: proposer and reader, no decode
+.\.venv\Scripts\python.exe -m reticle ability-glyphs <sid>                              # stage 3: tracks, verdict, claims (storage only)
+.\.venv\Scripts\python.exe prototypes\glyph_stage3_eval.py matches --out <new dir> --before <identity snapshot> --stale-tray <sids>
+.\.venv\Scripts\python.exe prototypes\glyph_stage3_eval.py marks --out <that dir>     # marks.json: dev and stage 2 held-out marks (crop cache)
+.\.venv\Scripts\python.exe prototypes\glyph_stage3_eval.py record --out <that dir>    # glyph_stage3/* metric series, once
+.\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py --pass gate4 queue   # gate 4's queue, once
 ```
 
 Each writing command refuses an existing output file, and `--out` has no

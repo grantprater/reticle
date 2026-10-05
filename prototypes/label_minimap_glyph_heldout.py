@@ -5,6 +5,7 @@ r"""A held-out labelling pass for minimap ability icons in the solo demos.
     .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py label     [--by player]
     .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py label --headless SCRIPT.json [--labels DIR]
     .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py --pass sonic queue|list|label [--queue FILE]
+    .\.venv\Scripts\python.exe prototypes\label_minimap_glyph_heldout.py --pass gate4 queue|list|label
 
 `--pass sonic` (since 2026-10-04) runs a second, separate held-out pass for
 `prototypes/sonic_square.py` over MATCH sessions, with its own queue, labels
@@ -137,6 +138,22 @@ Answers append to `<store>/labels/sonic_square_heldout/<session>.jsonl`;
 the queue and crops live in `<store>/analysis/sonic-square-label-pass-20261004/`.
 Nobody tunes `sonic_square.py` on them; each version is scored once.
 
+The gate 4 pass (`--pass gate4`, since 2026-10-05). Gate 4 of
+`docs/MINIMAP_GLYPH_CHANNEL.md` scores the glyph channel's named tracks once,
+on sessions no glyph stage used. The builder excludes, by name and with the
+reason stored in the queue, the null table's dev sessions, the first
+held-out pass's sessions (its provenance and any session with a label in
+`labels/minimap_glyph_heldout`), the eval's held-out split, S5's match
+sessions and stage 3's handful (GATE4_STAGE3). Of the rest, a census demo
+takes its census casts and a match (GATE4_MIN_MATCH_MIN or longer) takes the
+player's tray casts, read as stage 3 reads them, an older tray stamp where no
+current one exists (stated per session). Both follow the glyph pass's rule
+above: scope, offsets, one control and the audit frames; a match's kit row
+is the player's agent, and another agent's icon takes 6. The queue asks
+glyph marks only; shapes are a separate question. The queue and crops live
+in `<store>/analysis/minimap-label-gate4-20261005/`, the answers in
+`<store>/labels/minimap_glyph_gate4/<session>.jsonl`.
+
 Wire: no. A labelling tool; `minimap_glyph_eval.py` and `sonic_square.py`
 score against its labels, and nothing in reticle/ runs it.
 """
@@ -201,6 +218,15 @@ SONIC_TEXT = (
     "enemy/spectator; right-click undo; SPACE/D save; N = no Sonic Sensor icon; A back; Q/ESC quit.")
 VIEWS = {"z": "self", "x": "teammate", "c": "enemy", "v": "spectator"}
 NAMES = {"5": "smoke", "6": "other_agent", "7": "other"}
+
+# --- gate 4 of docs/MINIMAP_GLYPH_CHANNEL.md, fixed before any item is labelled
+GATE4_QDIR = STORE / "analysis" / "minimap-label-gate4-20261005"
+GATE4_LABEL_DIR = STORE / "labels" / "minimap_glyph_gate4"
+GATE4_QUEUE_VERSION = "minimap-glyph-gate4-queue-0.1.0"
+#: Stage 3's measurement handful (glyph-stage3-20261005); no stage may reuse it for gate 4.
+GATE4_STAGE3 = ("4f207c0c4e39", "223d636bf8d2", "7010b3d62460")
+#: A match is a capture this long or longer (the corpus's own rule: matches run over 15 min).
+GATE4_MIN_MATCH_MIN = 15.0
 
 
 # ------------------------------------------------------------------ inputs (pure where testable)
@@ -504,6 +530,140 @@ def cmd_queue_sonic(args) -> None:
     with open(out, "x", encoding="utf-8", newline="\n") as f:          # "x": never overwrite
         f.write(json.dumps(q, indent=1))
     print(f"{len(items)} items over {len(by)} sessions, ~{est:.0f} min; {len(dropped)} asked frames dropped, "
+          f"{len(skipped)} sessions skipped -> {out}")
+
+
+# ------------------------------------------------------------------ gate 4 (pure where testable)
+
+def gate4_excluded(provenance: dict, labelled: set, stage3=GATE4_STAGE3) -> dict:
+    """{session: why} for every session an earlier glyph stage used: the null table's dev sessions, the held-out
+    pass's sessions, the eval's held-out split and S5's match sessions (its `provenance`), the sessions the first
+    held-out pass labelled (`labelled`), and stage 3's handful. A later reason overwrites an earlier one."""
+    h = provenance.get("heldout_sessions") or {}
+    out = {}
+    for why, sids in (("stage3_handful", stage3), ("s5_match_session", h.get("s5_match_sessions", ())),
+                      ("eval_heldout_split", h.get("eval_heldout_split", ())),
+                      ("heldout_pass", h.get("heldout_pass", ())), ("heldout_pass_labels", sorted(labelled)),
+                      ("dev_session", provenance.get("dev_sessions", ()))):
+        for sid in sids:
+            out[sid] = why
+    return out
+
+
+def tray_cast_rows(sid: str, agent: str, casts: list[dict]) -> list[dict]:
+    """The player's tray casts in the census casts' shape, so `plan_items` treats a match like a demo."""
+    return [{"key": f"{sid}:tray:{int(round(float(c['t_ms'])))}:{c['slot']}", "session_id": sid,
+             "t_cast_ms": float(c["t_ms"]), "slot": c["slot"], "agent": agent, "ability": c["slot"],
+             "source": "tray_drop", "suspect": bool(c.get("suspect"))} for c in casts]
+
+
+def catalogue_agent(name: str | None, cat: dict) -> str | None:
+    """The catalogue's spelling of an agent the arbiter names (KAY_O is KAY/O)."""
+    if name is None:
+        return None
+    by = {k.replace("/", "_"): k for k in cat}
+    return by.get(str(name).replace("/", "_"))
+
+
+def cmd_queue_gate4(args) -> None:
+    """Gate 4's queue: the glyph pass's sample rule on sessions no glyph stage used. See the module docstring."""
+    from reticle.adjudication.ult_cast import player_agent
+    from reticle.lineup import load_lineup
+    from reticle.minimap_glyph import GLYPH_DATA
+    from reticle.profiles import get_profile
+    from reticle.roi_cache import RoiCache
+    from reticle.store import Store
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import glyph_stage3_eval as g3            # the player's tray casts, as stage 3 read them
+    out = GATE4_QDIR / "queue.json"
+    if out.exists():
+        raise SystemExit(f"{out} exists; the queue is fixed once built")
+    try:
+        import psutil
+        psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if os.name == "nt" else 10)
+    except Exception:  # noqa: BLE001
+        pass
+    ndir, nver = GLYPH_DATA["null"]
+    prov = json.loads((STORE / ndir / f"{nver}.json").read_text(encoding="utf-8"))["provenance"]
+    excluded = gate4_excluded(prov, {Path(f).stem for f in glob.glob(str(LABEL_DIR / "*.jsonl"))})
+    cat = json.load(open(CAT, encoding="utf-8"))["agents"]
+    st = Store(str(STORE))
+    census = {}
+    for c in demo_casts():
+        census.setdefault(c["session_id"], []).append(c)
+    drawing = player_drawing(read_jsonl(ANSWERS))
+    casts, holds, views, caches, sessions, skipped = [], {}, {}, {}, {}, {}
+    for m in sorted(glob.glob(str(STORE / "manifests" / "*.json"))):
+        sid = Path(m).stem
+        if sid in excluded:
+            continue
+        man = st.read_manifest(sid)
+        minutes = float(man["source"].get("duration_ms") or 0) / 60000
+        tray = None
+        if sid in census:
+            rows, kind = census[sid], "demo"
+        elif minutes >= GATE4_MIN_MATCH_MIN:
+            agent = catalogue_agent(player_agent(load_lineup(sid, STORE), sid), cat)
+            got, tray = g3.player_casts(st, sid, agent, stale_ok=True)
+            if not got:
+                skipped[sid] = tray or "no_player_casts"
+                continue
+            rows, kind = tray_cast_rows(sid, agent, got), "match"
+        else:
+            skipped[sid] = "neither a census demo nor a match"
+            continue
+        c, why = RoiCache.load(STORE, man, get_profile(man["source_profile"]), "minimap")
+        if c is None:
+            skipped[sid] = f"no minimap cache ({why})"
+            continue
+        caches[sid], holds[sid] = c, np.asarray(c.holds(), dtype=float)
+        views[sid] = session_view(man)
+        sessions[sid] = {"kind": kind, "agent": rows[0]["agent"], "casts": len(rows), "minutes": round(minutes, 1),
+                         "tray": tray}
+        casts += rows
+    casts.sort(key=lambda c: (c["session_id"], c["t_cast_ms"], c["slot"]))
+    items, out_scope = plan_items(casts, drawing, holds, views, set(), tuned_label_times())
+    for it in items:
+        it.update({"pass": "gate4", "match": sessions[it["session_id"]]["kind"] == "match"})
+    by = defaultdict(list)
+    for it in items:
+        by[it["session_id"]].append(it)
+    est = len(items) * SECONDS_PER_ITEM / 60
+    if est > BUDGET_MIN:
+        raise SystemExit(f"{len(items)} items, ~{est:.0f} min: over the {BUDGET_MIN:.0f} min budget; cap first")
+    GATE4_QDIR.joinpath("crops").mkdir(parents=True, exist_ok=True)
+    for sid, its in by.items():
+        c = caches[sid]
+        x0, y0, x1, y1 = c.rect_of("minimap")
+        want = {it["t_ms"] for it in its} | {nearest(holds[sid], max(0.0, it["t_before_ms"])) for it in its}
+        got = {s.t_ms: s.frame[y0:y1, x0:x1] for s in c.samples(sorted(want), rois=["minimap"])}
+        for it in its:
+            tb = nearest(holds[sid], max(0.0, it["t_before_ms"]))
+            it.update({"roi": [x0, y0, x1, y1], "crop": f"crops/{sid}_{int(round(it['t_ms']))}.png",
+                       "t_before_held_ms": tb,
+                       "before": f"crops/{sid}_{int(round(tb))}.png" if tb != it["t_ms"] else None})
+            for t, rel in ((it["t_ms"], it["crop"]), (tb, it["before"])):
+                if rel and not (GATE4_QDIR / rel).exists():
+                    cv2.imwrite(str(GATE4_QDIR / rel), got[t])
+    q = {"version": GATE4_QUEUE_VERSION, "tool": VERSION, "pass": "gate4",
+         "built": datetime.datetime.now().isoformat(timespec="seconds"),
+         "split": {"all": "heldout for gate 4 of docs/MINIMAP_GLYPH_CHANNEL.md; never tuned on",
+                   "excluded_sessions": excluded, "null_table": nver,
+                   "report_apart": ["near_tuned_label", "audit_excluded", "match"]},
+         "sample": {"opportunities": "demos: labels/demo_cast_class (player-confirmed census casts); matches: the "
+                                     "player's tray casts (ability_timeline.player_tray_casts over stored tray_drop, "
+                                     "an older tray stamp read where no current one exists, stated per session)",
+                    "scope": "abilities the player did not answer as drawing nothing or only a shape",
+                    "asks": "glyph marks only; shapes are a separate question, not in this queue",
+                    "offsets_s": list(OFFSETS_S), "control_s": CONTROL_S, "before_s": BEFORE_S,
+                    "audit_s": AUDIT_S, "min_match_min": GATE4_MIN_MATCH_MIN},
+         "inputs": {"crops": "roi_cache minimap (no decode)", "answers": str(ANSWERS.relative_to(STORE))},
+         "sessions": sessions, "skipped_sessions": skipped,
+         "estimate_min": round(est, 1), "seconds_per_item": SECONDS_PER_ITEM,
+         "items": items, "excluded_casts": out_scope}
+    with open(out, "x", encoding="utf-8", newline="\n") as f:          # "x": never overwrite
+        f.write(json.dumps(q, indent=1))
+    print(f"{len(items)} items over {len(by)} sessions, ~{est:.0f} min; {len(out_scope)} casts out of scope; "
           f"{len(skipped)} sessions skipped -> {out}")
 
 
@@ -852,7 +1012,7 @@ def run_ui(p: Pass, qdir: Path) -> None:
             set_status()
             return
         txt.configure(text=(
-            f"{it['session_id']} ({it['agent']} demo) at {it['t_ms'] / 1000:.2f} s. Default view: {it['view_default']}.\n"
+            f"{it['session_id']} ({it['agent']} {'match, your agent' if it.get('match') else 'demo'}) at {it['t_ms'] / 1000:.2f} s. Default view: {it['view_default']}.\n"
             "Click the centre of EVERY ability icon on the minimap (whoever cast it; not shapes, portraits, pings "
             "or the spike), then name it: 1-4 kit as below (this agent's smoke too); 5 smoke of an unknown caster; "
             "6 another agent's ability; 7 other (type).\n"
@@ -953,8 +1113,9 @@ def cmd_label(args) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--pass", dest="pass_", choices=("glyph", "sonic"), default="glyph",
-                    help="glyph: the minimap glyph pass (default); sonic: the Sonic Sensor match pass")
+    ap.add_argument("--pass", dest="pass_", choices=("glyph", "sonic", "gate4"), default="glyph",
+                    help="glyph: the minimap glyph pass (default); sonic: the Sonic Sensor match pass; "
+                         "gate4: the glyph channel's gate 4 pass on sessions no glyph stage used")
     sub = ap.add_subparsers(dest="cmd")
     qp = sub.add_parser("queue")
     qp.add_argument("--rebuild", action="store_true")
@@ -970,13 +1131,14 @@ def main() -> None:
     args = ap.parse_args()
     if not args.cmd:
         args = ap.parse_args(sys.argv[1:] + ["label"])
-    sonic = args.pass_ == "sonic"
-    args.qdir = str(SONIC_QDIR if sonic else QDIR)
+    sonic, gate4 = args.pass_ == "sonic", args.pass_ == "gate4"
+    args.qdir = str(SONIC_QDIR if sonic else GATE4_QDIR if gate4 else QDIR)
     if getattr(args, "queue", None) is None:
         args.queue = SONIC_QUEUE_FILE if sonic else "queue.json"
     if args.cmd in ("list", "label") and args.labels is None:
-        args.labels = str(SONIC_LABEL_DIR if sonic else LABEL_DIR)
-    {"queue": cmd_queue_sonic if sonic else cmd_queue, "list": cmd_list, "label": cmd_label}[args.cmd](args)
+        args.labels = str(SONIC_LABEL_DIR if sonic else GATE4_LABEL_DIR if gate4 else LABEL_DIR)
+    queue = cmd_queue_sonic if sonic else cmd_queue_gate4 if gate4 else cmd_queue
+    {"queue": queue, "list": cmd_list, "label": cmd_label}[args.cmd](args)
 
 
 if __name__ == "__main__":

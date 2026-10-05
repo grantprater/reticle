@@ -718,6 +718,19 @@ ABILITY_ICON_VERSION = "icon-proposer-0.3.0"
 # glyph); the cut stays 0.73. The per-disc gate decision moves to
 # `minimap_glyph.disc_gates`; the head counts footprint size mismatches.
 ABILITY_GLYPH_VERSION = "ability-glyph-0.5.0"
+# The minimap ability-disc tracks (`adjudication.ability.disc_tracks`,
+# `ability_disc_track` rows): the stored `ability_glyph` disc rows joined by
+# the proposer's verify (each row's `rests_on`), with each track's path length,
+# first-second speed, lifetime, end reason and stored jumps. Bump when the
+# join, an end reason, the jump reach or a stored field changes.
+ABILITY_DISC_TRACK_VERSION = "ability-disc-track-0.1.0"
+# The glyph verdict (`adjudication.ability_glyph`, `ability_glyph_name` rows and
+# `ability_glyph_identity` events): per track, the pooled glyph scores over the
+# clean frames, the cut from the null table, the per-ability rules and the
+# claim on the caster. Bump when a gate, the pooling, the cut rule, a
+# per-ability rule, a refusal reason or a stored field changes; the null and
+# states tables carry their own stamps.
+ABILITY_GLYPH_NAME_VERSION = "ability-glyph-name-0.1.0"
 # The ability tray's charge drops, written as `tray_drop` rows by `reticle
 # tray` from the stored crops. Bump when a tray constant or the drop rule
 # changes; the gate that decides which drops are the player's has its own

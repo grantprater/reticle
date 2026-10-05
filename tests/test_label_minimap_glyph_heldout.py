@@ -213,5 +213,29 @@ class SonicPlanTests(unittest.TestCase):
         self.assertEqual((row["pass"], row["split"], row["marks"][0]["ability"]), ("sonic", "heldout:sonic", "Deadlock:Q"))
 
 
+class Gate4Tests(unittest.TestCase):
+    def test_excluded_names_every_earlier_stage_with_its_reason(self):
+        prov = {"dev_sessions": ["d1"], "heldout_sessions": {
+            "heldout_pass": ["h1"], "eval_heldout_split": ["e1", "m1"], "s5_match_sessions": ["m1", "m2"]}}
+        ex = L.gate4_excluded(prov, {"h2"}, stage3=("m2", "t1"))
+        self.assertEqual(ex, {"d1": "dev_session", "h1": "heldout_pass", "h2": "heldout_pass_labels",
+                              "e1": "eval_heldout_split", "m1": "eval_heldout_split", "m2": "s5_match_session",
+                              "t1": "stage3_handful"})
+
+    def test_tray_casts_plan_like_census_casts(self):
+        rows = L.tray_cast_rows("m3", "KAY/O", [{"t_ms": 5000.0, "slot": "E", "suspect": True},
+                                                {"t_ms": 9000.0, "slot": "X"}])
+        self.assertEqual(rows[0]["key"], "m3:tray:5000:E")
+        holds = {"m3": np.arange(0, 60000, 500.0)}
+        items, excl = L.plan_items(rows, {("KAY/O", "X"): ("nothing", None, "k")}, holds, {}, set(), {})
+        self.assertEqual([e["key"] for e in excl], ["m3:tray:9000:X"])
+        self.assertEqual(sorted(it["kind"] for it in items),
+                         ["after_cast", "after_cast", "audit_excluded", "control"])
+
+    def test_catalogue_agent_restores_the_slash(self):
+        self.assertEqual(L.catalogue_agent("KAY_O", {"KAY/O": {}, "Omen": {}}), "KAY/O")
+        self.assertIsNone(L.catalogue_agent(None, {"Omen": {}}))
+
+
 if __name__ == "__main__":
     unittest.main()
