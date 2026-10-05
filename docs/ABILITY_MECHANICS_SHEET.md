@@ -400,133 +400,140 @@ draw an assist icon? And can a damaging ability draw one?
 ## Game data
 
 The extracted game files of build 13.06 hold class-default values for each
-ability: lifetimes, sizes, ranges, speeds and caster movement, each cited to
-its asset and field in `domain/game_data.toml`. A value there is the
-designers' default, not a measurement of play; where a player's answer
+ability: lifetimes, sizes, angles, ranges, speeds and caster movement, each
+cited to its asset and field in `domain/game_data.toml`. A value there is
+the designers' default, not a measurement of play; where a player's answer
 above differs, the answer stands. The Duration cells marked *game data*
 were open (`?`) and now cite those facts; no answered cell changed. Each
 row below names what its fact holds; an empty cell is a value the files
-did not give, listed in the fact's `exceptions`. Character speeds and
-heights live beside them: [domain:game_data/character-movement-speeds],
+did not give, listed in the fact's `exceptions`. *Size* counts only
+lengths of the ability's own shape; *Angle* holds cone and vision angles,
+and *Unconfirmed length* a path cap the files leave open between the
+wall's length and the throw's range (Toxic Screen, High Tide). Character
+speeds and heights live beside them:
+[domain:game_data/character-movement-speeds],
 [domain:game_data/weapon-run-speed-multipliers],
 [domain:game_data/character-eye-height], in the unit
 [domain:game_data/game-units-centimetres].
+`prototypes/game_data_facts.py` regenerates the facts file; its
+`--sheet` option prints this table and any Duration cell it would fill,
+and writes nothing here.
 
-| Agent | Slot | Ability | Life | Size | Range | Speed | Moves caster | Minimap size | Fact |
-|---|---|---|---|---|---|---|---|---|---|
-| Astra | C | Gravity Well | yes | yes |  |  |  |  | [domain:game_data/astra-gravity-well-game-data] |
-| Astra | Q | Nova Pulse |  | yes |  |  |  |  | [domain:game_data/astra-nova-pulse-game-data] |
-| Astra | E | Nebula / Dissipate | yes | yes |  |  |  | yes | [domain:game_data/astra-nebula-dissipate-game-data] |
-| Astra | X | Astral Form / Cosmic Divide | yes |  | yes |  |  | yes | [domain:game_data/astra-astral-form-cosmic-divide-game-data] |
-| Breach | C | Aftershock |  | yes | yes | yes |  |  | [domain:game_data/breach-aftershock-game-data] |
-| Breach | Q | Flashpoint | yes |  | yes | yes |  |  | [domain:game_data/breach-flashpoint-game-data] |
-| Breach | E | Fault Line |  |  |  | yes |  | yes | [domain:game_data/breach-fault-line-game-data] |
-| Breach | X | Rolling Thunder | yes | yes | yes |  |  |  | [domain:game_data/breach-rolling-thunder-game-data] |
-| Brimstone | C | Stim Beacon | yes | yes |  | yes |  |  | [domain:game_data/brimstone-stim-beacon-game-data] |
-| Brimstone | Q | Incendiary | yes | yes |  | yes |  |  | [domain:game_data/brimstone-incendiary-game-data] |
-| Brimstone | E | Sky Smoke | yes | yes | yes |  |  |  | [domain:game_data/brimstone-sky-smoke-game-data] |
-| Brimstone | X | Orbital Strike |  | yes | yes |  |  |  | [domain:game_data/brimstone-orbital-strike-game-data] |
-| Chamber | C | Trademark | yes | yes | yes |  |  | yes | [domain:game_data/chamber-trademark-game-data] |
-| Chamber | E | Rendezvous |  |  | yes |  | yes | yes | [domain:game_data/chamber-rendezvous-game-data] |
-| Chamber | Q | Headhunter |  |  |  |  |  |  | [domain:game_data/chamber-headhunter-game-data] |
-| Chamber | X | Tour De Force |  |  |  |  |  |  | [domain:game_data/chamber-tour-de-force-game-data] |
-| Clove | C | Pick-me-up | yes |  |  |  |  |  | [domain:game_data/clove-pick-me-up-game-data] |
-| Clove | Q | Meddle | yes | yes |  | yes |  |  | [domain:game_data/clove-meddle-game-data] |
-| Clove | E | Ruse | yes | yes | yes |  |  |  | [domain:game_data/clove-ruse-game-data] |
-| Clove | X | Not Dead Yet |  |  |  |  |  |  | [domain:game_data/clove-not-dead-yet-game-data] |
-| Cypher | C | Trapwire |  | yes | yes |  |  |  | [domain:game_data/cypher-trapwire-game-data] |
-| Cypher | E | Spycam |  |  | yes | yes |  |  | [domain:game_data/cypher-spycam-game-data] |
-| Cypher | Q | Cyber Cage | yes | yes |  | yes |  |  | [domain:game_data/cypher-cyber-cage-game-data] |
-| Cypher | X | Neural Theft |  |  | yes |  |  |  | [domain:game_data/cypher-neural-theft-game-data] |
-| Deadlock | C | Barrier Mesh | yes | yes |  | yes |  |  | [domain:game_data/deadlock-barrier-mesh-game-data] |
-| Deadlock | E | GravNet | yes | yes |  | yes |  |  | [domain:game_data/deadlock-gravnet-game-data] |
-| Deadlock | Q | Sonic Sensor |  | yes | yes |  |  |  | [domain:game_data/deadlock-sonic-sensor-game-data] |
-| Deadlock | X | Annihilation | yes | yes | yes | yes |  |  | [domain:game_data/deadlock-annihilation-game-data] |
-| Fade | C | Prowler | yes | yes | yes | yes |  |  | [domain:game_data/fade-prowler-game-data] |
-| Fade | E | Haunt | yes | yes |  | yes |  | yes | [domain:game_data/fade-haunt-game-data] |
-| Fade | Q | Seize | yes | yes |  | yes |  |  | [domain:game_data/fade-seize-game-data] |
-| Fade | X | Nightfall | yes |  | yes |  |  |  | [domain:game_data/fade-nightfall-game-data] |
-| Gekko | C | Mosh Pit | yes | yes |  | yes |  |  | [domain:game_data/gekko-mosh-pit-game-data] |
-| Gekko | E | Dizzy | yes | yes | yes | yes |  |  | [domain:game_data/gekko-dizzy-game-data] |
-| Gekko | Q | Wingman | yes | yes | yes | yes |  |  | [domain:game_data/gekko-wingman-game-data] |
-| Gekko | X | Thrash | yes | yes |  | yes |  |  | [domain:game_data/gekko-thrash-game-data] |
-| Harbor | C | Storm Surge |  | yes |  | yes |  | yes | [domain:game_data/harbor-storm-surge-game-data] |
-| Harbor | E | Cove | yes | yes | yes | yes |  |  | [domain:game_data/harbor-cove-game-data] |
-| Harbor | Q | High Tide | yes | yes |  | yes |  |  | [domain:game_data/harbor-high-tide-game-data] |
-| Harbor | X | Reckoning | yes | yes |  | yes |  |  | [domain:game_data/harbor-reckoning-game-data] |
-| Iso | C | Contingency |  | yes |  |  |  | yes | [domain:game_data/iso-contingency-game-data] |
-| Iso | Q | Undercut |  | yes | yes | yes |  |  | [domain:game_data/iso-undercut-game-data] |
-| Iso | E | Double Tap | yes | yes |  |  |  |  | [domain:game_data/iso-double-tap-game-data] |
-| Iso | X | Kill Contract | yes | yes |  |  |  | yes | [domain:game_data/iso-kill-contract-game-data] |
-| Jett | C | Cloudburst | yes | yes |  | yes |  | yes | [domain:game_data/jett-cloudburst-game-data] |
-| Jett | Q | Updraft |  |  |  |  | yes |  | [domain:game_data/jett-updraft-game-data] |
-| Jett | E | Tailwind |  |  |  |  | yes |  | [domain:game_data/jett-tailwind-game-data] |
-| Jett | X | Blade Storm |  |  |  |  |  |  | [domain:game_data/jett-blade-storm-game-data] |
-| KAY/O | C | FRAG/ment |  | yes |  | yes |  |  | [domain:game_data/kayo-frag-ment-game-data] |
-| KAY/O | Q | FLASH/drive | yes |  |  | yes |  |  | [domain:game_data/kayo-flash-drive-game-data] |
-| KAY/O | E | ZERO/point | yes | yes |  | yes |  |  | [domain:game_data/kayo-zero-point-game-data] |
-| KAY/O | X | NULL/cmd | yes | yes |  |  |  |  | [domain:game_data/kayo-null-cmd-game-data] |
-| Killjoy | C | Nanoswarm | yes | yes |  | yes |  |  | [domain:game_data/killjoy-nanoswarm-game-data] |
-| Killjoy | Q | ALARMBOT |  | yes | yes | yes |  | yes | [domain:game_data/killjoy-alarmbot-game-data] |
-| Killjoy | E | TURRET |  | yes | yes |  |  |  | [domain:game_data/killjoy-turret-game-data] |
-| Killjoy | X | Lockdown | yes | yes |  |  |  | yes | [domain:game_data/killjoy-lockdown-game-data] |
-| Miks | C | M-pulse | yes | yes |  | yes |  | yes | [domain:game_data/miks-m-pulse-game-data] |
-| Miks | E | Waveform | yes | yes | yes |  |  |  | [domain:game_data/miks-waveform-game-data] |
-| Miks | Q | Harmonize | yes |  |  |  |  |  | [domain:game_data/miks-harmonize-game-data] |
-| Miks | X | Bassquake |  | yes |  |  |  |  | [domain:game_data/miks-bassquake-game-data] |
-| Neon | C | Fast Lane | yes | yes |  | yes |  |  | [domain:game_data/neon-fast-lane-game-data] |
-| Neon | Q | Relay Bolt |  | yes | yes | yes |  |  | [domain:game_data/neon-relay-bolt-game-data] |
-| Neon | E | High Gear |  |  |  |  | yes |  | [domain:game_data/neon-high-gear-game-data] |
-| Neon | X | Overdrive |  |  |  |  |  |  | [domain:game_data/neon-overdrive-game-data] |
-| Omen | C | Shrouded Step |  |  | yes |  | yes |  | [domain:game_data/omen-shrouded-step-game-data] |
-| Omen | Q | Paranoia |  | yes | yes | yes |  |  | [domain:game_data/omen-paranoia-game-data] |
-| Omen | E | Dark Cover | yes | yes | yes | yes |  |  | [domain:game_data/omen-dark-cover-game-data] |
-| Omen | X | From the Shadows |  |  |  |  |  |  | [domain:game_data/omen-from-the-shadows-game-data] |
-| Phoenix | C | Blaze | yes |  |  | yes |  |  | [domain:game_data/phoenix-blaze-game-data] |
-| Phoenix | Q | Hot Hands | yes | yes |  | yes |  |  | [domain:game_data/phoenix-hot-hands-game-data] |
-| Phoenix | E | Curveball |  |  |  | yes |  |  | [domain:game_data/phoenix-curveball-game-data] |
-| Phoenix | X | Run it Back | yes |  |  |  |  |  | [domain:game_data/phoenix-run-it-back-game-data] |
-| Raze | C | Boom Bot | yes | yes | yes | yes |  |  | [domain:game_data/raze-boom-bot-game-data] |
-| Raze | Q | Blast Pack | yes | yes |  | yes | yes |  | [domain:game_data/raze-blast-pack-game-data] |
-| Raze | E | Paint Shells | yes | yes |  | yes |  |  | [domain:game_data/raze-paint-shells-game-data] |
-| Raze | X | Showstopper |  | yes |  | yes |  |  | [domain:game_data/raze-showstopper-game-data] |
-| Reyna | C | Leer | yes | yes | yes | yes |  |  | [domain:game_data/reyna-leer-game-data] |
-| Reyna | Q | Devour | yes |  | yes |  |  |  | [domain:game_data/reyna-devour-game-data] |
-| Reyna | E | Dismiss | yes |  |  |  |  |  | [domain:game_data/reyna-dismiss-game-data] |
-| Reyna | X | Empress |  |  |  |  |  |  | [domain:game_data/reyna-empress-game-data] |
-| Sage | C | Barrier Orb | yes | yes | yes |  |  |  | [domain:game_data/sage-barrier-orb-game-data] |
-| Sage | Q | Slow Orb | yes | yes |  | yes |  |  | [domain:game_data/sage-slow-orb-game-data] |
-| Sage | E | Healing Orb |  |  | yes |  |  |  | [domain:game_data/sage-healing-orb-game-data] |
-| Sage | X | Resurrection |  |  | yes |  |  |  | [domain:game_data/sage-resurrection-game-data] |
-| Skye | C | Regrowth |  | yes |  |  |  | yes | [domain:game_data/skye-regrowth-game-data] |
-| Skye | Q | Trailblazer | yes | yes | yes | yes |  |  | [domain:game_data/skye-trailblazer-game-data] |
-| Skye | E | Guiding Light | yes | yes |  | yes |  |  | [domain:game_data/skye-guiding-light-game-data] |
-| Skye | X | Seekers | yes |  |  | yes |  |  | [domain:game_data/skye-seekers-game-data] |
-| Sova | C | Owl Drone | yes |  |  | yes |  |  | [domain:game_data/sova-owl-drone-game-data] |
-| Sova | Q | Shock Bolt |  | yes |  | yes |  |  | [domain:game_data/sova-shock-bolt-game-data] |
-| Sova | E | Recon Bolt |  | yes |  | yes |  | yes | [domain:game_data/sova-recon-bolt-game-data] |
-| Sova | X | Hunter's Fury | yes | yes |  |  |  |  | [domain:game_data/sova-hunters-fury-game-data] |
-| Tejo | C | Stealth Drone | yes | yes | yes | yes |  |  | [domain:game_data/tejo-stealth-drone-game-data] |
-| Tejo | Q | Special Delivery |  | yes |  | yes |  |  | [domain:game_data/tejo-special-delivery-game-data] |
-| Tejo | E | Guided Salvo |  | yes | yes |  |  | yes | [domain:game_data/tejo-guided-salvo-game-data] |
-| Tejo | X | Armageddon | yes | yes | yes |  |  | yes | [domain:game_data/tejo-armageddon-game-data] |
-| Veto | C | Crosscut |  |  | yes |  | yes | yes | [domain:game_data/veto-crosscut-game-data] |
-| Veto | E | Interceptor | yes |  | yes | yes |  | yes | [domain:game_data/veto-interceptor-game-data] |
-| Veto | Q | Chokehold | yes | yes |  |  |  | yes | [domain:game_data/veto-chokehold-game-data] |
-| Veto | X | Evolution |  |  |  |  |  |  | [domain:game_data/veto-evolution-game-data] |
-| Viper | C | Snake Bite | yes | yes | yes | yes |  |  | [domain:game_data/viper-snake-bite-game-data] |
-| Viper | Q | Poison Cloud |  | yes |  |  |  | yes | [domain:game_data/viper-poison-cloud-game-data] |
-| Viper | E | Toxic Screen |  | yes |  | yes |  |  | [domain:game_data/viper-toxic-screen-game-data] |
-| Viper | X | Viper's Pit |  |  | yes |  |  |  | [domain:game_data/viper-vipers-pit-game-data] |
-| Vyse | C | Razorvine | yes | yes | yes | yes |  |  | [domain:game_data/vyse-razorvine-game-data] |
-| Vyse | E | Arc Rose |  |  | yes |  |  |  | [domain:game_data/vyse-arc-rose-game-data] |
-| Vyse | Q | Shear | yes | yes | yes |  |  |  | [domain:game_data/vyse-shear-game-data] |
-| Vyse | X | Steel Garden | yes | yes |  |  |  |  | [domain:game_data/vyse-steel-garden-game-data] |
-| Waylay | C | Saturate | yes | yes |  | yes |  |  | [domain:game_data/waylay-saturate-game-data] |
-| Waylay | E | Refract | yes |  |  |  |  |  | [domain:game_data/waylay-refract-game-data] |
-| Waylay | Q | Lightspeed |  |  |  |  | yes |  | [domain:game_data/waylay-lightspeed-game-data] |
-| Waylay | X | Convergent Paths | yes | yes |  |  |  | yes | [domain:game_data/waylay-convergent-paths-game-data] |
-| Yoru | C | FAKEOUT | yes | yes |  | yes |  |  | [domain:game_data/yoru-fakeout-game-data] |
-| Yoru | Q | BLINDSIDE |  |  |  | yes |  |  | [domain:game_data/yoru-blindside-game-data] |
-| Yoru | E | GATECRASH | yes | yes | yes | yes |  |  | [domain:game_data/yoru-gatecrash-game-data] |
-| Yoru | X | DIMENSIONAL DRIFT | yes |  |  |  |  |  | [domain:game_data/yoru-dimensional-drift-game-data] |
+| Agent | Slot | Ability | Life | Size | Angle | Range | Unconfirmed length | Speed | Moves caster | Minimap size | Fact |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Astra | C | Gravity Well | yes | yes |  |  |  |  |  |  | [domain:game_data/astra-gravity-well-game-data] |
+| Astra | Q | Nova Pulse |  | yes |  |  |  |  |  |  | [domain:game_data/astra-nova-pulse-game-data] |
+| Astra | E | Nebula / Dissipate | yes | yes |  |  |  |  |  | yes | [domain:game_data/astra-nebula-dissipate-game-data] |
+| Astra | X | Astral Form / Cosmic Divide | yes |  |  | yes |  |  |  | yes | [domain:game_data/astra-astral-form-cosmic-divide-game-data] |
+| Breach | C | Aftershock |  | yes |  | yes |  | yes |  |  | [domain:game_data/breach-aftershock-game-data] |
+| Breach | Q | Flashpoint | yes |  |  | yes |  | yes |  |  | [domain:game_data/breach-flashpoint-game-data] |
+| Breach | E | Fault Line |  |  |  |  |  | yes |  | yes | [domain:game_data/breach-fault-line-game-data] |
+| Breach | X | Rolling Thunder | yes | yes |  | yes |  |  |  |  | [domain:game_data/breach-rolling-thunder-game-data] |
+| Brimstone | C | Stim Beacon | yes | yes |  |  |  | yes |  |  | [domain:game_data/brimstone-stim-beacon-game-data] |
+| Brimstone | Q | Incendiary | yes | yes |  |  |  | yes |  |  | [domain:game_data/brimstone-incendiary-game-data] |
+| Brimstone | E | Sky Smoke | yes | yes |  | yes |  |  |  |  | [domain:game_data/brimstone-sky-smoke-game-data] |
+| Brimstone | X | Orbital Strike |  | yes |  | yes |  |  |  |  | [domain:game_data/brimstone-orbital-strike-game-data] |
+| Chamber | C | Trademark | yes | yes |  | yes |  |  |  | yes | [domain:game_data/chamber-trademark-game-data] |
+| Chamber | E | Rendezvous |  |  |  | yes |  |  | yes | yes | [domain:game_data/chamber-rendezvous-game-data] |
+| Chamber | Q | Headhunter |  |  |  |  |  |  |  |  | [domain:game_data/chamber-headhunter-game-data] |
+| Chamber | X | Tour De Force |  |  |  |  |  |  |  |  | [domain:game_data/chamber-tour-de-force-game-data] |
+| Clove | C | Pick-me-up | yes |  |  |  |  |  |  |  | [domain:game_data/clove-pick-me-up-game-data] |
+| Clove | Q | Meddle | yes | yes |  |  |  | yes |  |  | [domain:game_data/clove-meddle-game-data] |
+| Clove | E | Ruse | yes | yes |  | yes |  |  |  |  | [domain:game_data/clove-ruse-game-data] |
+| Clove | X | Not Dead Yet |  |  |  |  |  |  |  |  | [domain:game_data/clove-not-dead-yet-game-data] |
+| Cypher | C | Trapwire |  | yes |  | yes |  |  |  |  | [domain:game_data/cypher-trapwire-game-data] |
+| Cypher | E | Spycam |  |  |  | yes |  | yes |  |  | [domain:game_data/cypher-spycam-game-data] |
+| Cypher | Q | Cyber Cage | yes | yes |  |  |  | yes |  |  | [domain:game_data/cypher-cyber-cage-game-data] |
+| Cypher | X | Neural Theft |  |  |  | yes |  |  |  |  | [domain:game_data/cypher-neural-theft-game-data] |
+| Deadlock | C | Barrier Mesh | yes | yes |  |  |  | yes |  |  | [domain:game_data/deadlock-barrier-mesh-game-data] |
+| Deadlock | E | GravNet | yes | yes |  |  |  | yes |  |  | [domain:game_data/deadlock-gravnet-game-data] |
+| Deadlock | Q | Sonic Sensor |  | yes |  | yes |  |  |  |  | [domain:game_data/deadlock-sonic-sensor-game-data] |
+| Deadlock | X | Annihilation | yes | yes |  | yes |  | yes |  |  | [domain:game_data/deadlock-annihilation-game-data] |
+| Fade | C | Prowler | yes | yes |  | yes |  | yes |  |  | [domain:game_data/fade-prowler-game-data] |
+| Fade | E | Haunt | yes | yes |  |  |  | yes |  | yes | [domain:game_data/fade-haunt-game-data] |
+| Fade | Q | Seize | yes | yes |  |  |  | yes |  |  | [domain:game_data/fade-seize-game-data] |
+| Fade | X | Nightfall | yes |  |  | yes |  |  |  |  | [domain:game_data/fade-nightfall-game-data] |
+| Gekko | C | Mosh Pit | yes | yes |  |  |  | yes |  |  | [domain:game_data/gekko-mosh-pit-game-data] |
+| Gekko | E | Dizzy | yes | yes |  | yes |  | yes |  |  | [domain:game_data/gekko-dizzy-game-data] |
+| Gekko | Q | Wingman | yes | yes |  | yes |  | yes |  |  | [domain:game_data/gekko-wingman-game-data] |
+| Gekko | X | Thrash | yes | yes |  |  |  | yes |  |  | [domain:game_data/gekko-thrash-game-data] |
+| Harbor | C | Storm Surge |  | yes |  |  |  | yes |  | yes | [domain:game_data/harbor-storm-surge-game-data] |
+| Harbor | E | Cove | yes | yes |  | yes |  | yes |  |  | [domain:game_data/harbor-cove-game-data] |
+| Harbor | Q | High Tide | yes |  |  |  | yes | yes |  |  | [domain:game_data/harbor-high-tide-game-data] |
+| Harbor | X | Reckoning | yes | yes |  |  |  | yes |  |  | [domain:game_data/harbor-reckoning-game-data] |
+| Iso | C | Contingency |  | yes |  |  |  |  |  | yes | [domain:game_data/iso-contingency-game-data] |
+| Iso | Q | Undercut |  | yes |  | yes |  | yes |  |  | [domain:game_data/iso-undercut-game-data] |
+| Iso | E | Double Tap | yes | yes |  |  |  |  |  |  | [domain:game_data/iso-double-tap-game-data] |
+| Iso | X | Kill Contract | yes | yes |  |  |  |  |  | yes | [domain:game_data/iso-kill-contract-game-data] |
+| Jett | C | Cloudburst | yes | yes |  |  |  | yes |  | yes | [domain:game_data/jett-cloudburst-game-data] |
+| Jett | Q | Updraft |  |  |  |  |  |  | yes |  | [domain:game_data/jett-updraft-game-data] |
+| Jett | E | Tailwind |  |  |  |  |  |  | yes |  | [domain:game_data/jett-tailwind-game-data] |
+| Jett | X | Blade Storm |  |  |  |  |  |  |  |  | [domain:game_data/jett-blade-storm-game-data] |
+| KAY/O | C | FRAG/ment |  | yes |  |  |  | yes |  |  | [domain:game_data/kayo-frag-ment-game-data] |
+| KAY/O | Q | FLASH/drive | yes |  |  |  |  | yes |  |  | [domain:game_data/kayo-flash-drive-game-data] |
+| KAY/O | E | ZERO/point | yes | yes |  |  |  | yes |  |  | [domain:game_data/kayo-zero-point-game-data] |
+| KAY/O | X | NULL/cmd | yes | yes |  |  |  |  |  |  | [domain:game_data/kayo-null-cmd-game-data] |
+| Killjoy | C | Nanoswarm | yes | yes |  |  |  | yes |  |  | [domain:game_data/killjoy-nanoswarm-game-data] |
+| Killjoy | Q | ALARMBOT |  | yes |  | yes |  | yes |  | yes | [domain:game_data/killjoy-alarmbot-game-data] |
+| Killjoy | E | TURRET |  |  | yes | yes |  |  |  |  | [domain:game_data/killjoy-turret-game-data] |
+| Killjoy | X | Lockdown | yes | yes |  |  |  |  |  | yes | [domain:game_data/killjoy-lockdown-game-data] |
+| Miks | C | M-pulse | yes | yes |  |  |  | yes |  | yes | [domain:game_data/miks-m-pulse-game-data] |
+| Miks | E | Waveform | yes | yes |  | yes |  |  |  |  | [domain:game_data/miks-waveform-game-data] |
+| Miks | Q | Harmonize | yes |  |  |  |  |  |  |  | [domain:game_data/miks-harmonize-game-data] |
+| Miks | X | Bassquake |  | yes | yes |  |  |  |  |  | [domain:game_data/miks-bassquake-game-data] |
+| Neon | C | Fast Lane | yes | yes |  |  |  | yes |  |  | [domain:game_data/neon-fast-lane-game-data] |
+| Neon | Q | Relay Bolt |  | yes |  | yes |  | yes |  |  | [domain:game_data/neon-relay-bolt-game-data] |
+| Neon | E | High Gear |  |  |  |  |  |  | yes |  | [domain:game_data/neon-high-gear-game-data] |
+| Neon | X | Overdrive |  |  |  |  |  |  |  |  | [domain:game_data/neon-overdrive-game-data] |
+| Omen | C | Shrouded Step |  |  |  | yes |  |  | yes |  | [domain:game_data/omen-shrouded-step-game-data] |
+| Omen | Q | Paranoia |  | yes |  | yes |  | yes |  |  | [domain:game_data/omen-paranoia-game-data] |
+| Omen | E | Dark Cover | yes | yes |  | yes |  | yes |  |  | [domain:game_data/omen-dark-cover-game-data] |
+| Omen | X | From the Shadows |  |  |  |  |  |  |  |  | [domain:game_data/omen-from-the-shadows-game-data] |
+| Phoenix | C | Blaze | yes |  |  |  |  | yes |  |  | [domain:game_data/phoenix-blaze-game-data] |
+| Phoenix | Q | Hot Hands | yes | yes |  |  |  | yes |  |  | [domain:game_data/phoenix-hot-hands-game-data] |
+| Phoenix | E | Curveball |  |  |  |  |  | yes |  |  | [domain:game_data/phoenix-curveball-game-data] |
+| Phoenix | X | Run it Back | yes |  |  |  |  |  |  |  | [domain:game_data/phoenix-run-it-back-game-data] |
+| Raze | C | Boom Bot | yes | yes | yes | yes |  | yes |  |  | [domain:game_data/raze-boom-bot-game-data] |
+| Raze | Q | Blast Pack | yes | yes |  |  |  | yes | yes |  | [domain:game_data/raze-blast-pack-game-data] |
+| Raze | E | Paint Shells | yes | yes |  |  |  | yes |  |  | [domain:game_data/raze-paint-shells-game-data] |
+| Raze | X | Showstopper |  | yes |  |  |  | yes |  |  | [domain:game_data/raze-showstopper-game-data] |
+| Reyna | C | Leer | yes | yes |  | yes |  | yes |  |  | [domain:game_data/reyna-leer-game-data] |
+| Reyna | Q | Devour | yes |  |  | yes |  |  |  |  | [domain:game_data/reyna-devour-game-data] |
+| Reyna | E | Dismiss | yes |  |  |  |  |  |  |  | [domain:game_data/reyna-dismiss-game-data] |
+| Reyna | X | Empress |  |  |  |  |  |  |  |  | [domain:game_data/reyna-empress-game-data] |
+| Sage | C | Barrier Orb | yes | yes |  | yes |  |  |  |  | [domain:game_data/sage-barrier-orb-game-data] |
+| Sage | Q | Slow Orb | yes | yes |  |  |  | yes |  |  | [domain:game_data/sage-slow-orb-game-data] |
+| Sage | E | Healing Orb |  |  |  | yes |  |  |  |  | [domain:game_data/sage-healing-orb-game-data] |
+| Sage | X | Resurrection |  |  |  | yes |  |  |  |  | [domain:game_data/sage-resurrection-game-data] |
+| Skye | C | Regrowth |  | yes |  |  |  |  |  | yes | [domain:game_data/skye-regrowth-game-data] |
+| Skye | Q | Trailblazer | yes | yes |  | yes |  | yes |  |  | [domain:game_data/skye-trailblazer-game-data] |
+| Skye | E | Guiding Light | yes | yes |  |  |  | yes |  |  | [domain:game_data/skye-guiding-light-game-data] |
+| Skye | X | Seekers | yes |  |  |  |  | yes |  |  | [domain:game_data/skye-seekers-game-data] |
+| Sova | C | Owl Drone | yes |  |  |  |  | yes |  |  | [domain:game_data/sova-owl-drone-game-data] |
+| Sova | Q | Shock Bolt |  | yes |  |  |  | yes |  |  | [domain:game_data/sova-shock-bolt-game-data] |
+| Sova | E | Recon Bolt |  | yes |  |  |  | yes |  | yes | [domain:game_data/sova-recon-bolt-game-data] |
+| Sova | X | Hunter's Fury | yes | yes |  |  |  |  |  |  | [domain:game_data/sova-hunters-fury-game-data] |
+| Tejo | C | Stealth Drone | yes | yes |  | yes |  | yes |  |  | [domain:game_data/tejo-stealth-drone-game-data] |
+| Tejo | Q | Special Delivery |  | yes |  |  |  | yes |  |  | [domain:game_data/tejo-special-delivery-game-data] |
+| Tejo | E | Guided Salvo |  | yes |  | yes |  |  |  | yes | [domain:game_data/tejo-guided-salvo-game-data] |
+| Tejo | X | Armageddon | yes | yes |  | yes |  |  |  | yes | [domain:game_data/tejo-armageddon-game-data] |
+| Veto | C | Crosscut |  |  |  | yes |  |  | yes | yes | [domain:game_data/veto-crosscut-game-data] |
+| Veto | E | Interceptor | yes |  |  | yes |  | yes |  | yes | [domain:game_data/veto-interceptor-game-data] |
+| Veto | Q | Chokehold | yes | yes |  |  |  |  |  | yes | [domain:game_data/veto-chokehold-game-data] |
+| Veto | X | Evolution |  |  |  |  |  |  |  |  | [domain:game_data/veto-evolution-game-data] |
+| Viper | C | Snake Bite | yes | yes |  | yes |  | yes |  |  | [domain:game_data/viper-snake-bite-game-data] |
+| Viper | Q | Poison Cloud |  | yes |  |  |  |  |  | yes | [domain:game_data/viper-poison-cloud-game-data] |
+| Viper | E | Toxic Screen |  |  |  |  | yes | yes |  |  | [domain:game_data/viper-toxic-screen-game-data] |
+| Viper | X | Viper's Pit |  |  |  | yes |  |  |  |  | [domain:game_data/viper-vipers-pit-game-data] |
+| Vyse | C | Razorvine | yes | yes |  | yes |  | yes |  |  | [domain:game_data/vyse-razorvine-game-data] |
+| Vyse | E | Arc Rose |  |  |  | yes |  |  |  |  | [domain:game_data/vyse-arc-rose-game-data] |
+| Vyse | Q | Shear | yes | yes |  | yes |  |  |  |  | [domain:game_data/vyse-shear-game-data] |
+| Vyse | X | Steel Garden | yes | yes |  |  |  |  |  |  | [domain:game_data/vyse-steel-garden-game-data] |
+| Waylay | C | Saturate | yes | yes |  |  |  | yes |  |  | [domain:game_data/waylay-saturate-game-data] |
+| Waylay | E | Refract | yes |  |  |  |  |  |  |  | [domain:game_data/waylay-refract-game-data] |
+| Waylay | Q | Lightspeed |  |  |  |  |  |  | yes |  | [domain:game_data/waylay-lightspeed-game-data] |
+| Waylay | X | Convergent Paths | yes | yes |  |  |  |  |  | yes | [domain:game_data/waylay-convergent-paths-game-data] |
+| Yoru | C | FAKEOUT | yes |  | yes |  |  | yes |  |  | [domain:game_data/yoru-fakeout-game-data] |
+| Yoru | Q | BLINDSIDE |  |  |  |  |  | yes |  |  | [domain:game_data/yoru-blindside-game-data] |
+| Yoru | E | GATECRASH | yes |  |  | yes |  | yes |  |  | [domain:game_data/yoru-gatecrash-game-data] |
+| Yoru | X | DIMENSIONAL DRIFT | yes |  |  |  |  |  |  |  | [domain:game_data/yoru-dimensional-drift-game-data] |

@@ -2,6 +2,7 @@
 # (release-13.06-shipping-18-5590001), one table per ability or movement fact.
 # Each value cites its asset, export and field; lengths are converted from
 # centimetres. Schema and the citation form: reticle/domain.py.
+# Regenerate with prototypes/game_data_facts.py; never edit by hand.
 
 [game-units-centimetres]
 claim = """
@@ -227,14 +228,14 @@ ShooterGame/Content/Characters/Rift/S0/Ability_4/BlackHole/GameObject_Rift_4_Bla
 Default__GameObject_Rift_4_BlackHole_C.FragileDuration = 2.5 s;
 gravity_sphere_radius_m:
 ShooterGame/Content/Characters/Rift/S0/Ability_4/BlackHole/GameObject_Rift_4_BlackHole.uasset
-GravitySphere_GEN_VARIABLE.SphereRadius = 1.0 x
+GravitySphere_GEN_VARIABLE.SphereRadius = 1.0 cm x
 ShooterGame/Content/Characters/Rift/S0/Ability_4/BlackHole/GameObject_Rift_4_BlackHole.uasset
-GravitySphere_GEN_VARIABLE.RelativeScale3D.X = 450.0 cm;
+GravitySphere_GEN_VARIABLE.RelativeScale3D.X = 450.0 (unitless scale);
 explosion_sphere_radius_m:
 ShooterGame/Content/Characters/Rift/S0/Ability_4/BlackHole/GameObject_Rift_4_BlackHole.uasset
-ExplosionSphere_GEN_VARIABLE.SphereRadius = 1.0 x
+ExplosionSphere_GEN_VARIABLE.SphereRadius = 1.0 cm x
 ShooterGame/Content/Characters/Rift/S0/Ability_4/BlackHole/GameObject_Rift_4_BlackHole.uasset
-ExplosionSphere_GEN_VARIABLE.RelativeScale3D.X = 450.0 cm
+ExplosionSphere_GEN_VARIABLE.RelativeScale3D.X = 450.0 (unitless scale)
 """
 use = """
 the world shape, life and motion of this ability's child in the entity-state design: read
@@ -322,10 +323,11 @@ ShooterGame/Content/Characters/Rift/S0/Ability_E/GameObject_Rift_E_SmokeZone_Fak
 Default__GameObject_Rift_E_SmokeZone_Fake_C.SmokeDuration = 1.75 s;
 vision_blocking_sphere_radius_m:
 ShooterGame/Content/Characters/Global/Smoke/GameObject_NewSmokeZone_Parent.uasset
-VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 x
+VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 cm x
 ShooterGame/Content/Characters/Rift/S0/Ability_E/GameObject_Rift_E_SmokeZone.uasset
-VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 475.0 cm (inherited by
-GameObject_Rift_E_SmokeZone, no class between overrides it); minimap_size_m:
+VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 475.0 (unitless scale)
+(inherited by GameObject_Rift_E_SmokeZone, no class between overrides it);
+minimap_size_m:
 ShooterGame/Content/Characters/Rift/S0/Ability_E/GameObject_Rift_E_SmokeZone.uasset
 BaseMinimapComponent_Parent_GEN_VARIABLE.Size.X = 864.0 cm
 """
@@ -690,11 +692,11 @@ ShooterGame/Content/Characters/Sarge/S0/Ability_MapTargetSmoke/GameObject_Sarge_
 Default__GameObject_Sarge_4_Smoke_ProductionNEW_C.SmokeExpandDuration = 0.75
 s; vision_blocking_sphere_radius_m:
 ShooterGame/Content/Characters/Global/Smoke/GameObject_NewSmokeZone_Parent.uasset
-VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 x
+VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 cm x
 ShooterGame/Content/Characters/Global/Smoke/GameObject_NewSmokeZone_Parent.uasset
-VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 410.0 cm (inherited by
-GameObject_Sarge_4_Smoke_ProductionNEW, no class between overrides it);
-map_range_m:
+VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 410.0 (unitless scale)
+(inherited by GameObject_Sarge_4_Smoke_ProductionNEW, no class between
+overrides it); map_range_m:
 ShooterGame/Content/Characters/Sarge/S0/Ability_MapTargetSmoke/Ability_Sarge_4_MapTargetSmoke_Production.uasset
 MapTargetingState_GEN_VARIABLE.MapRange = 5500.0 cm
 """
@@ -1013,10 +1015,11 @@ ShooterGame/Content/Characters/Smonk/S0/Ability_E/MapTargetSmoke/GameObject_Smon
 Default__GameObject_Smonk_NewSmoke_PDS_C.SmokeDuration = 5.5 s;
 vision_blocking_sphere_radius_m:
 ShooterGame/Content/Characters/Global/Smoke/GameObject_NewSmokeZone_Parent.uasset
-VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 x
+VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 cm x
 ShooterGame/Content/Characters/Global/Smoke/GameObject_NewSmokeZone_Parent.uasset
-VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 410.0 cm (inherited by
-GameObject_Smonk_NewSmoke, no class between overrides it); map_range_m:
+VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 410.0 (unitless scale)
+(inherited by GameObject_Smonk_NewSmoke, no class between overrides it);
+map_range_m:
 ShooterGame/Content/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_MapTargetSmokeV2.uasset
 MapTargetingState_GEN_VARIABLE.MapRange = 5500.0 cm; map_targeting_range_m:
 ShooterGame/Content/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_MapTargetSmokeV2.uasset
@@ -1822,10 +1825,11 @@ ShooterGame/Content/Characters/Mage/S0/Ability_E/GameObject_Mage_E_WorldSmoke.ua
 Default__GameObject_Mage_E_WorldSmoke_C.ShieldFormDelay = 0.8 s;
 vision_blocking_sphere_radius_m:
 ShooterGame/Content/Characters/Global/Smoke/GameObject_NewSmokeZone_Parent.uasset
-VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 x
+VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 cm x
 ShooterGame/Content/Characters/Mage/S0/Ability_E/GameObject_Mage_E_WorldSmoke.uasset
-VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 460.0 cm (inherited by
-GameObject_Mage_E_WorldSmoke, no class between overrides it); max_distance_m:
+VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 460.0 (unitless scale)
+(inherited by GameObject_Mage_E_WorldSmoke, no class between overrides it);
+max_distance_m:
 ShooterGame/Content/Characters/Mage/S0/Ability_E/Projectile_Mage_E_WorldSmoke.uasset
 Comp_Projectile_Charged_StraightLineDistance_GEN_VARIABLE.MaxDistance = 8000.0
 cm; projectile_speed_m_s:
@@ -1848,8 +1852,9 @@ claim = """
 The game files of build 13.06 give Harbor's High Tide (slot Q) these
 class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: lifetime or active duration: wall
-duration 15.0 s; sizes: max2d distance 60.0 m; speeds: projectile speed 25.0
-m/s.
+duration 15.0 s; a length the files do not settle as size or range: max2d
+distance 60.0 m; speeds: projectile speed 25.0 m/s; other values: 2d distance
+between wall anchors 2.0 m.
 """
 kind = "measurement"
 known = "measured"
@@ -1866,6 +1871,9 @@ Default__GameObject_Mage_Q_WallManager_C.WallDuration = 15.0 s;
 max2d_distance_m:
 ShooterGame/Content/Characters/Mage/S0/Ability_Q/Projectile_Mage_Q_Wall.uasset
 Default__Projectile_Mage_Q_Wall_C.Max2D_Distance = 6000.0 cm;
+2d_distance_between_wall_anchors_m:
+ShooterGame/Content/Characters/Mage/S0/Ability_Q/Projectile_Mage_Q_Wall.uasset
+Default__Projectile_Mage_Q_Wall_C.2D_DistanceBetweenWallAnchors = 200.0 cm;
 projectile_speed_m_s:
 ShooterGame/Content/Characters/Mage/S0/Ability_Q/Projectile_Mage_Q_Wall.uasset
 FiniteSpeedMovement_GEN_VARIABLE.ProjectileSpeed = 2500.0 cm/s
@@ -1876,11 +1884,13 @@ each value through its own key, never by analogy with another ability
 """
 exceptions = """
 Not found in the equippable, its entities, their parent classes or the ability
-folder: wall height and thickness. These are class defaults; a blueprint may
-change a value at run time, and a field name is the designers' word, not a
-measured meaning.
+folder: wall height and thickness. Max2D_Distance caps the 2D path of the
+projectile that lays the wall; whether that cap is the wall's length or the
+throw's range is unconfirmed, so it is filed as unconfirmed, not as a size.
+These are class defaults; a blueprint may change a value at run time, and a
+field name is the designers' word, not a measured meaning.
 """
-values = { life = { wall_duration_s = 15.0 }, size = { max2d_distance_m = 60.0 }, speed = { projectile_speed_m_s = 25.0 } }
+values = { life = { wall_duration_s = 15.0 }, unconfirmed = { max2d_distance_m = 60.0 }, speed = { projectile_speed_m_s = 25.0 }, other = { 2d_distance_between_wall_anchors_m = 2.0 } }
 see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 
 [harbor-reckoning-game-data]
@@ -2115,10 +2125,10 @@ ShooterGame/Content/Characters/Wushu/S0/Ability_4/GameObject_Wushu_4_SmokeZone.u
 Default__GameObject_Wushu_4_SmokeZone_C.SmokeExpandDuration = 0.6 s;
 vision_blocking_sphere_radius_m:
 ShooterGame/Content/Characters/Global/Smoke/GameObject_NewSmokeZone_Parent.uasset
-VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 x
+VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 cm x
 ShooterGame/Content/Characters/Wushu/S0/Ability_4/GameObject_Wushu_4_SmokeZone.uasset
-VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 335.0 cm (inherited by
-GameObject_Wushu_4_SmokeZone, no class between overrides it);
+VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 335.0 (unitless scale)
+(inherited by GameObject_Wushu_4_SmokeZone, no class between overrides it);
 projectile_speed_m_s:
 ShooterGame/Content/Characters/Wushu/S0/Ability_4/Projectile_Wushu_4_Smoke.uasset
 FiniteSpeedMovement_GEN_VARIABLE.ProjectileSpeed = 2900.0 cm/s;
@@ -2489,7 +2499,7 @@ claim = """
 The game files of build 13.06 give Killjoy's TURRET (slot E) these
 class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: other timings: deploy state timer
-length 2.0 s; sizes: peripheral vision angle degrees 50.0 degrees; placement,
+length 2.0 s; angles: peripheral vision angle degrees 50.0 degrees; placement,
 throw or targeting range: targeting range 4.5 m, max distance before disable
 40.0 m.
 """
@@ -2525,7 +2535,7 @@ folder: duration (persists; no lifetime field). These are class defaults; a
 blueprint may change a value at run time, and a field name is the designers'
 word, not a measured meaning.
 """
-values = { timing = { deploy_state_timer_length_s = 2.0 }, size = { peripheral_vision_angle_degrees_deg = 50.0 }, range = { targeting_range_m = 4.5, max_distance_before_disable_m = 40.0 } }
+values = { timing = { deploy_state_timer_length_s = 2.0 }, angle = { peripheral_vision_angle_degrees_deg = 50.0 }, range = { targeting_range_m = 4.5, max_distance_before_disable_m = 40.0 } }
 see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 
 [killjoy-lockdown-game-data]
@@ -2647,10 +2657,11 @@ ShooterGame/Content/Characters/Iris/S0/Ability_E/GameObject_Iris_E_Smoke.uasset
 Default__GameObject_Iris_E_Smoke_C.SmokeContractDuration = 1.0 s;
 vision_blocking_sphere_radius_m:
 ShooterGame/Content/Characters/Global/Smoke/GameObject_NewSmokeZone_Parent.uasset
-VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 x
+VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 cm x
 ShooterGame/Content/Characters/Global/Smoke/GameObject_NewSmokeZone_Parent.uasset
-VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 410.0 cm (inherited by
-GameObject_Iris_E_Smoke, no class between overrides it); map_range_m:
+VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 410.0 (unitless scale)
+(inherited by GameObject_Iris_E_Smoke, no class between overrides it);
+map_range_m:
 ShooterGame/Content/Characters/Iris/S0/Ability_E/Ability_Iris_E_MT_Smoke_Production.uasset
 MapTargetingState_GEN_VARIABLE.MapRange = 5550.0 cm
 """
@@ -2660,12 +2671,18 @@ each value through its own key, never by analogy with another ability
 """
 exceptions = """
 GameObject_Iris_E_Smoke sits in the ability folder; the entity walk of
-ability-states-gamedata-0.2.0 does not reach it. These are class defaults; a
-blueprint may change a value at run time, and a field name is the designers'
-word, not a measured meaning.
+ability-states-gamedata-0.2.0 does not reach it. The files and the player
+disagree. The player's value is 16.75 s
+[domain:abilities/miks-smoke-duration]; SmokeDuration here is 16.25 s, with a
+1.0 s delay, a 0.75 s expansion and a 1.0 s contraction. Delay, duration and
+contraction sum to 1.0 + 16.25 + 1.0 = 18.25 s, close to the 18.2 s minimap
+disc [domain:abilities/miks-smoke-minimap-disc]. Both values stand stored; the
+player has been asked which one holds. These are class defaults; a blueprint
+may change a value at run time, and a field name is the designers' word, not a
+measured meaning.
 """
 values = { life = { smoke_duration_s = 16.25 }, timing = { smoke_delay_time_s = 1.0, smoke_expand_duration_s = 0.75, smoke_contract_duration_s = 1.0 }, size = { vision_blocking_sphere_radius_m = 4.1 }, range = { map_range_m = 55.5 } }
-see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
+see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres", "abilities/miks-smoke-duration", "abilities/miks-smoke-minimap-disc"]
 
 [miks-harmonize-game-data]
 claim = """
@@ -2705,8 +2722,8 @@ claim = """
 The game files of build 13.06 give Miks's Bassquake (slot X) these
 class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: other timings: windup duration 1.6
-s; sizes: wave radius 40.0 m, wave angle 60.0 degrees; other values: slow buff
-duration 8.0 s.
+s; sizes: wave radius 40.0 m; angles: wave angle 60.0 degrees; other values:
+slow buff duration 8.0 s.
 """
 kind = "measurement"
 known = "measured"
@@ -2736,7 +2753,7 @@ exceptions = """
 These are class defaults; a blueprint may change a value at run time, and a
 field name is the designers' word, not a measured meaning.
 """
-values = { timing = { windup_duration_s = 1.6 }, size = { wave_radius_m = 40.0, wave_angle_deg = 60.0 }, other = { slow_buff_duration_s = 8.0 } }
+values = { timing = { windup_duration_s = 1.6 }, size = { wave_radius_m = 40.0 }, angle = { wave_angle_deg = 60.0 }, other = { slow_buff_duration_s = 8.0 } }
 see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 
 [neon-fast-lane-game-data]
@@ -2994,10 +3011,11 @@ ShooterGame/Content/Characters/Wraith/S0/Ability_4/Zone_Wraith_4_Smoke.uasset
 Default__Zone_Wraith_4_Smoke_C.InitialLifeSpan = 16.0 s;
 vision_blocking_sphere_radius_m:
 ShooterGame/Content/Characters/Global/Smoke/GameObject_NewSmokeZone_Parent.uasset
-VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 x
+VisionBlockingSphere_GEN_VARIABLE.SphereRadius = 1.0 cm x
 ShooterGame/Content/Characters/Wraith/S0/Ability_4/Zone_Wraith_4_Smoke.uasset
-VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 410.0 cm (inherited by
-Zone_Wraith_4_Smoke, no class between overrides it); max_distance_m:
+VisionBlockingSphere_GEN_VARIABLE.RelativeScale3D.X = 410.0 (unitless scale)
+(inherited by Zone_Wraith_4_Smoke, no class between overrides it);
+max_distance_m:
 ShooterGame/Content/Characters/Wraith/S0/Ability_4/Projectile_Wraith_4_Smoke.uasset
 Comp_Projectile_Charged_StraightLineDistance_GEN_VARIABLE.MaxDistance = 8000.0
 cm; projectile_speed_m_s:
@@ -3213,9 +3231,9 @@ claim = """
 The game files of build 13.06 give Raze's Boom Bot (slot C) these
 class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: lifetime or active duration:
-duration 5.0 s; sizes: explosion outer radius 6.0 m, peripheral vision angle
-degrees 50.0 degrees; placement, throw or targeting range: sight radius 15.0
-m; speeds: movement tuning base values max speed 6.3 m/s.
+duration 5.0 s; sizes: explosion outer radius 6.0 m; angles: peripheral vision
+angle degrees 50.0 degrees; placement, throw or targeting range: sight radius
+15.0 m; speeds: movement tuning base values max speed 6.3 m/s.
 """
 kind = "measurement"
 known = "measured"
@@ -3249,7 +3267,7 @@ exceptions = """
 These are class defaults; a blueprint may change a value at run time, and a
 field name is the designers' word, not a measured meaning.
 """
-values = { life = { duration_s = 5.0 }, size = { explosion_outer_radius_m = 6.0, peripheral_vision_angle_degrees_deg = 50.0 }, range = { sight_radius_m = 15.0 }, speed = { movement_tuning_base_values_max_speed_m_s = 6.3 } }
+values = { life = { duration_s = 5.0 }, size = { explosion_outer_radius_m = 6.0 }, angle = { peripheral_vision_angle_degrees_deg = 50.0 }, range = { sight_radius_m = 15.0 }, speed = { movement_tuning_base_values_max_speed_m_s = 6.3 } }
 see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 
 [raze-blast-pack-game-data]
@@ -3859,10 +3877,10 @@ ShooterGame/Content/Characters/Hunter/S0/Ability_E/Drone/Ability_Hunter_E_Drone_
 DroneDuration_GEN_VARIABLE.TimerLength = 7.0 s;
 base_values_max_speed_x_default_state_multipliers_5_max_speed_m_s:
 ShooterGame/Content/Characters/Hunter/S0/Ability_E/Drone/Pawn_Hunter_E_Drone.uasset
-CharMoveComp.MovementTuning.BaseValues.MaxSpeed = 1.5 x
+CharMoveComp.MovementTuning.BaseValues.MaxSpeed = 1.5 cm/s x
 ShooterGame/Content/Characters/Hunter/S0/Ability_E/Drone/Pawn_Hunter_E_Drone.uasset
-CharMoveComp.MovementTuning.DefaultStateMultipliers[5].MaxSpeed = 325.0 cm/s;
-dart_initial_life_span_s:
+CharMoveComp.MovementTuning.DefaultStateMultipliers[5].MaxSpeed = 325.0
+(unitless multiplier); dart_initial_life_span_s:
 ShooterGame/Content/Characters/Hunter/S0/Ability_E/Drone/GameObject_Hunter_E_Drone_RevealDart.uasset
 Default__GameObject_Hunter_E_Drone_RevealDart_C.InitialLifeSpan = 7.0 s
 """
@@ -4159,10 +4177,10 @@ ShooterGame/Content/Characters/Cashew/S0/Ability_X/GameObject_Cashew_X_SegmentMa
 Default__GameObject_Cashew_X_SegmentManager_C.InitialVisualsDelay = 2.0 s;
 volume_entire_affected_zone_half_length_m:
 ShooterGame/Content/Characters/Cashew/S0/Ability_X/GameObject_Cashew_X_SegmentManager.uasset
-Volume_EntireAffectedZone_GEN_VARIABLE.BoxExtent.X = 50.0 x
+Volume_EntireAffectedZone_GEN_VARIABLE.BoxExtent.X = 50.0 cm x
 ShooterGame/Content/Characters/Cashew/S0/Ability_X/GameObject_Cashew_X_SegmentManager.uasset
-Volume_EntireAffectedZone_GEN_VARIABLE.RelativeScale3D.X = 32.0 cm;
-minimap_size_x_m:
+Volume_EntireAffectedZone_GEN_VARIABLE.RelativeScale3D.X = 32.0 (unitless
+scale); minimap_size_x_m:
 ShooterGame/Content/Characters/Cashew/S0/Ability_X/GameObject_Cashew_X_SegmentManager.uasset
 AresFastMinimapIcon_GEN_VARIABLE.Size.X = 3200.0 cm; minimap_size_y_m:
 ShooterGame/Content/Characters/Cashew/S0/Ability_X/GameObject_Cashew_X_SegmentManager.uasset
@@ -4400,10 +4418,10 @@ ability-data and game-data, each with its manifest and provenance); the
 ability's equippable and entities from ability-states-gamedata-0.2.0 and its
 ability folder. Each value, as stored: smoke_sphere_radius_m:
 ShooterGame/Content/Characters/Global/Smoke/GameObject_Zone_Smoke_Parent.uasset
-SmokeSphere_GEN_VARIABLE.SphereRadius = 1.0 x
+SmokeSphere_GEN_VARIABLE.SphereRadius = 1.0 cm x
 ShooterGame/Content/Characters/Pandemic/S0/Ability_4/GameObject_Pandemic_4_SmokeZone.uasset
-SmokeSphere_GEN_VARIABLE.RelativeScale3D.X = 470.0 cm (inherited by
-GameObject_Pandemic_4_SmokeZone, no class between overrides it);
+SmokeSphere_GEN_VARIABLE.RelativeScale3D.X = 470.0 (unitless scale) (inherited
+by GameObject_Pandemic_4_SmokeZone, no class between overrides it);
 smoke_expand_time_s:
 ShooterGame/Content/Characters/Pandemic/S0/Ability_4/GameObject_Pandemic_4_SmokeZone.uasset
 Default__GameObject_Pandemic_4_SmokeZone_C.SmokeExpandTime = 1.3 s;
@@ -4430,8 +4448,10 @@ see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 claim = """
 The game files of build 13.06 give Viper's Toxic Screen (slot E) these
 class-default values, converted from centimetres
-[domain:game_data/game-units-centimetres]: other timings: wall delay 1.0 s;
-sizes: max2d distance 60.0 m; speeds: projectile speed 50.0 m/s.
+[domain:game_data/game-units-centimetres]: other timings: wall delay 1.0 s; a
+length the files do not settle as size or range: max2d distance 60.0 m;
+speeds: projectile speed 50.0 m/s; other values: 2d distance between screen
+points 2.0 m.
 """
 kind = "measurement"
 known = "measured"
@@ -4445,7 +4465,10 @@ ability's equippable and entities from ability-states-gamedata-0.2.0 and its
 ability folder. Each value, as stored: max2d_distance_m:
 ShooterGame/Content/Characters/Pandemic/S0/Ability_E/Projectile_Pandemic_E_SmokeScreen_NoCollision.uasset
 Default__Projectile_Pandemic_E_SmokeScreen_NoCollision_C.Max2D_Distance =
-6000.0 cm; projectile_speed_m_s:
+6000.0 cm; 2d_distance_between_screen_points_m:
+ShooterGame/Content/Characters/Pandemic/S0/Ability_E/Projectile_Pandemic_E_SmokeScreen_NoCollision.uasset
+Default__Projectile_Pandemic_E_SmokeScreen_NoCollision_C.2D_DistanceBetweenScreenPoints
+= 200.0 cm; projectile_speed_m_s:
 ShooterGame/Content/Characters/Pandemic/S0/Ability_E/Projectile_Pandemic_E_SmokeScreen_NoCollision.uasset
 FiniteSpeedMovement_GEN_VARIABLE.ProjectileSpeed = 5000.0 cm/s; wall_delay_s:
 ShooterGame/Content/Characters/Pandemic/S0/Ability_E/GameObject_Pandemic_E_SmokeScreenManager.uasset
@@ -4457,11 +4480,14 @@ each value through its own key, never by analogy with another ability
 """
 exceptions = """
 Not found in the equippable, its entities, their parent classes or the ability
-folder: duration: fuel-based toggle; wall height and thickness. These are
-class defaults; a blueprint may change a value at run time, and a field name
-is the designers' word, not a measured meaning.
+folder: duration: fuel-based toggle; wall height and thickness. Max2D_Distance
+caps the 2D path of the projectile that lays the wall; whether that cap is the
+wall's length or the throw's range is unconfirmed, so it is filed as
+unconfirmed, not as a size. These are class defaults; a blueprint may change a
+value at run time, and a field name is the designers' word, not a measured
+meaning.
 """
-values = { timing = { wall_delay_s = 1.0 }, size = { max2d_distance_m = 60.0 }, speed = { projectile_speed_m_s = 50.0 } }
+values = { timing = { wall_delay_s = 1.0 }, unconfirmed = { max2d_distance_m = 60.0 }, speed = { projectile_speed_m_s = 50.0 }, other = { 2d_distance_between_screen_points_m = 2.0 } }
 see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 
 [viper-vipers-pit-game-data]
@@ -4747,7 +4773,7 @@ claim = """
 The game files of build 13.06 give Waylay's Lightspeed (slot Q) these
 class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: caster movement: target speed 45.0
-m/s, duration 0.25 s; other values: dash count 2.
+m/s, base speed 45.0 m/s, duration 0.25 s; other values: dash count 2.
 """
 kind = "measurement"
 known = "measured"
@@ -4762,25 +4788,36 @@ ability folder. Each value, as stored: target_speed_m_s:
 ShooterGame/Content/Characters/_Core/ForceModule_Dash.uasset
 Default__ForceModule_Dash_C.SettingsWhileDashing.TargetSpeed_2_27A3F5A944DD74D5A96D52960AB94C13
 = 4500.0 cm/s (inherited by ForceModule_Terra_Q_DoubleDash_Single, no class
-between overrides it); duration_s:
+between overrides it); base_speed_m_s:
+ShooterGame/Content/Characters/_Core/ForceModule_Dash_WallSlideMitigation.uasset
+Default__ForceModule_Dash_WallSlideMitigation_C.BaseSpeed = 4500.0 cm/s
+(inherited by ForceModule_Terra_Q_DoubleDash_Single, no class between
+overrides it); duration_s:
 ShooterGame/Content/Characters/_Core/ForceModule_Dash_WallSlideMitigation.uasset
 Default__ForceModule_Dash_WallSlideMitigation_C.Duration = 0.25 s (inherited
 by ForceModule_Terra_Q_DoubleDash_Single, no class between overrides it);
 dash_count_n:
 ShooterGame/Content/Characters/Terra/S0/Ability_Q/AbilityTuning_Terra_Q_DoubleDash.uasset
-AbilityTuning_Terra_Q_DoubleDash.Rows.DashCount = 2
+AbilityTuning_Terra_Q_DoubleDash.Rows.DashCount = 2. Object references:
+ShooterGame/Content/Characters/_Core/ForceModule_Dash_WallSlideMitigation.uasset
+Default__ForceModule_Dash_WallSlideMitigation_C.VelocityCurve names
+FloatCurve_Terra_Q_DoubleDash_DashVelocity (inherited by
+ForceModule_Terra_Q_DoubleDash_Single, no class between overrides it)
 """
 use = """
 the world shape, life and motion of this ability's child in the entity-state design: read
 each value through its own key, never by analogy with another ability
 """
 exceptions = """
-The dash force modules override GetAppliedForce in script, so the
-class-default speed may not be the speed applied. These are class defaults; a
-blueprint may change a value at run time, and a field name is the designers'
-word, not a measured meaning.
+ForceModule_Dash_WallSlideMitigation, between the dash base and Waylay's
+module, sets BaseSpeed and a VelocityCurve made for Terra (cited in the
+source) beside the TargetSpeed it inherits; which of the three sets the
+applied speed is unread, and the dash force modules override GetAppliedForce
+in script, so the class-default speed may not be the speed applied. These are
+class defaults; a blueprint may change a value at run time, and a field name
+is the designers' word, not a measured meaning.
 """
-values = { move = { target_speed_m_s = 45.0, duration_s = 0.25 }, other = { dash_count_n = 2 } }
+values = { move = { target_speed_m_s = 45.0, base_speed_m_s = 45.0, duration_s = 0.25 }, other = { dash_count_n = 2 } }
 see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 
 [waylay-convergent-paths-game-data]
@@ -4831,7 +4868,7 @@ see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 claim = """
 The game files of build 13.06 give Yoru's FAKEOUT (slot C) these class-default
 values, converted from centimetres [domain:game_data/game-units-centimetres]:
-lifetime or active duration: duration 10.0 s; sizes: flash max angle 30.0
+lifetime or active duration: duration 10.0 s; angles: flash max angle 30.0
 degrees; speeds: movement tuning base values max speed 6.3 m/s; other values:
 flash max duration 2.0 s.
 """
@@ -4865,7 +4902,7 @@ exceptions = """
 These are class defaults; a blueprint may change a value at run time, and a
 field name is the designers' word, not a measured meaning.
 """
-values = { life = { duration_s = 10.0 }, size = { flash_max_angle_deg = 30.0 }, speed = { movement_tuning_base_values_max_speed_m_s = 6.3 }, other = { flash_max_duration_s = 2.0 } }
+values = { life = { duration_s = 10.0 }, angle = { flash_max_angle_deg = 30.0 }, speed = { movement_tuning_base_values_max_speed_m_s = 6.3 }, other = { flash_max_duration_s = 2.0 } }
 see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 
 [yoru-blindside-game-data]
@@ -4910,9 +4947,9 @@ claim = """
 The game files of build 13.06 give Yoru's GATECRASH (slot E) these
 class-default values, converted from centimetres
 [domain:game_data/game-units-centimetres]: lifetime or active duration:
-duration 20.0 s; sizes: max travel distance 700.0 m; placement, throw or
-targeting range: stationary targeting range 3.0 m; speeds: tether max speed
-6.75 m/s, fake tether max speed 8.1 m/s.
+duration 20.0 s; placement, throw or targeting range: max travel distance
+700.0 m, stationary targeting range 3.0 m; speeds: tether max speed 6.75 m/s,
+fake tether max speed 8.1 m/s.
 """
 kind = "measurement"
 known = "measured"
@@ -4951,7 +4988,7 @@ movement-state multiplier. These are class defaults; a blueprint may change a
 value at run time, and a field name is the designers' word, not a measured
 meaning.
 """
-values = { life = { duration_s = 20.0 }, size = { max_travel_distance_m = 700.0 }, range = { stationary_targeting_range_m = 3.0 }, speed = { tether_max_speed_m_s = 6.75, fake_tether_max_speed_m_s = 8.1 } }
+values = { life = { duration_s = 20.0 }, range = { max_travel_distance_m = 700.0, stationary_targeting_range_m = 3.0 }, speed = { tether_max_speed_m_s = 6.75, fake_tether_max_speed_m_s = 8.1 } }
 see = ["abilities/ability-rules-are-unique", "game_data/game-units-centimetres"]
 
 [yoru-dimensional-drift-game-data]
