@@ -96,8 +96,15 @@ def death_panel_tops(frames: list[dict]) -> tuple[np.ndarray, np.ndarray]:
     the KILLED BY box and the killer's card, whose top lies
     `combat_report.KILLED_BY_TOP` rows above the header: a summary for a round
     the player survived (b3b9defb6fd7 430 s, 1770 s) flags no KILLED YOU and
-    draws neither. `checks.panel_slots` places the panel over the killfeed."""
+    draws neither. `checks.panel_slots` places the panel over the killfeed.
+
+    ValueError on a stream reread from the crop cache's one-frame-per-round
+    set (`thinned`): its frames give the round's counts, not the panel's
+    timing."""
     from ..combat_report import KILLED_BY_TOP
+    why = thinned(frames)
+    if why is not None:
+        raise ValueError(why)
     fr = [r for r in frames if r.get("kind") == "frame"]
     n = len(fr)
     if not n:
@@ -233,8 +240,10 @@ def assign_rounds(ps: list[dict], rounds: list[dict]) -> None:
             # round the player died in reads that death panel's damage. A panel
             # that reads otherwise is this round's own: a death the killfeed
             # never counted (`c62c2b06bcfb` 1144 s, KILLED BY KILLJOY at 1:27).
-            died = [q for q in ps if q is not p and q.get("round_no") == (prev[-1]["round_no"] if prev else None)
-                    and q["kind"] == "death"]
+            # A panel no round holds yet has no kind; with no previous round
+            # nothing died in it.
+            died = [q for q in ps if prev and q is not p and q.get("round_no") == prev[-1]["round_no"]
+                    and q.get("kind") == "death"]
             dmg = lambda q: [(r["out"], r["in"]) for r in q["rows"]]
             if prev and died and dmg(died[-1]) != dmg(p)[:len(dmg(died[-1]))]                     and any(r["killed_you"] for r in p["rows"]):
                 p["kind"] = "death"
@@ -378,14 +387,20 @@ def _verdicts(frames: list[dict], rounds: list[dict], death_times: list[float]
 
 
 def round_frames(frames: list[dict], rounds: list[dict], death_times: list[float]) -> list[dict]:
-    """Per round, the one stored frame that holds its report, or none and why.
+    """Per round, the stored frames that hold its report, or none and why:
+    one frame for each damage read its panels show.
 
     The combat report does not change within a round (the player,
-    2026-10-05; [domain:combat_report/frozen-after-death]), so one frame of
-    its most complete panel carries the round's report. Candidates are the
-    frames of the episodes this module assigns to the round (`panels`,
-    `assign_rounds`) that read their episode's modal damage and hit texts
-    (`frame_read`) and its voted flags. They rank by stability
+    2026-10-05; [domain:combat_report/frozen-after-death]), so a round whose
+    panels all read the same damage keeps one frame. Where the stored rows
+    say it changed, each read keeps its own frame: on `b7d24102a6f6` round 18
+    a one-row death panel at 1859 s preceded a three-row panel at 1912 s, and
+    one frame of the second lost the first's row. Panels with the same
+    damage read (`panels`' reopen test) are one read; hit counts may differ.
+
+    Candidates are the frames of the episodes this module assigns to the
+    round (`panels`, `assign_rounds`) that read their episode's modal damage
+    and hit texts (`frame_read`) and its voted flags. They rank by stability
     (`STABILITY`: both neighbouring samples read the same, then one, then
     neither), then by row count, then the round summary first
     [domain:combat_report/round-summary] (a frame at or after the round's
@@ -394,23 +409,31 @@ def round_frames(frames: list[dict], rounds: list[dict], death_times: list[float
 
     The choice is checked against this module: the kept frames alone must
     give every round the verdict all the frames give (`VERDICT_FIELDS`), and
-    each kept frame must land in its own round. A round that fails moves to
-    its next candidate until none fails or it has none left; it then keeps
-    its best and says `reproduces: false`. A round with no candidate keeps
-    nothing, with the reason."""
+    each kept frame must land in its own round. Each read of a round that
+    fails moves to its next candidate until none fails or it has none left;
+    it then keeps its best and says `reproduces: false`. A round whose reads
+    together never reproduce keeps the one read that does, if any, and names
+    the panels it dropped (`reads_dropped`). A round with no candidate keeps
+    nothing, with the reason.
+
+    The kept frames carry the round's counts, not the panel's timing: a
+    stream reread from them answers `round_verdicts` and refuses
+    `death_panel_tops` and row naming (`thinned`)."""
     frames = sorted((r for r in frames if r.get("kind") == "frame"), key=lambda r: r["t_ms"])
     rounds = sorted(rounds, key=lambda r: r["t_start_ms"])
     by_no = {r["round_no"]: r for r in rounds}
     t_all = np.asarray([r["t_ms"] for r in frames], float)
     step = float(np.median(np.diff(t_all))) if len(t_all) > 1 else 1000.0
     ps, owner = _owned_rounds(frames, rounds, death_times)
-    cands: dict[int, list[tuple[tuple, dict, dict]]] = {}
+    # One slot per round and damage read, in the order the reads first show.
+    cands: dict[tuple[int, tuple], list[tuple[tuple, dict, dict]]] = {}
     for e in episodes(frames):
         p = owner.get(e[0]["t_ms"])
         read, shown = _vote(e)
         if p is None or p["round_no"] is None or not read:
             continue
         rnd = by_no[p["round_no"]]
+        slot = (p["round_no"], tuple((o, i) for o, i, _, _ in read))
         flags = [_flags(shown, k) for k in range(len(read))]
         ok = np.array([frame_read(f) == read
                        and [_flags([f], k) for k in range(len(read))] == flags for f in e])
@@ -422,47 +445,93 @@ def round_frames(frames: list[dict], rounds: list[dict], death_times: list[float
         for i in np.flatnonzero(ok):
             summary = bool(t[i] >= rnd["t_end_ms"])
             key = (int(tier[i]), -len(read), 0 if summary else 1, float(t[i]))
-            cands.setdefault(p["round_no"], []).append((key, e[i], {
+            cands.setdefault(slot, []).append((key, e[i], {
                 "stability": STABILITY[int(tier[i])], "rows": len(read),
                 "shown": "summary" if summary else "in_round",
-                "episode_ms": [float(t[0]), float(t[-1])], "panel_ms": p["start_ms"]}))
+                "episode_ms": [float(t[0]), float(t[-1])], "panel_ms": p["start_ms"],
+                "panel_kind": p["kind"]}))
     for v in cands.values():
         v.sort(key=lambda c: c[0])
     want, _ = _verdicts(frames, rounds, death_times)
-    pick = {no: 0 for no in cands}
-    while True:
-        kept = sorted((cands[no][k][1] for no, k in pick.items()), key=lambda r: r["t_ms"])
+
+    def check(pick):
+        kept = sorted((cands[s][k][1] for s, k in pick.items()), key=lambda r: r["t_ms"])
         got, where = _verdicts(kept, rounds, death_times)
-        bad = {no for no, k in pick.items()
-               if got.get(no) != want.get(no) or where.get(cands[no][k][1]["t_ms"]) != no}
-        move = [no for no in bad if pick[no] + 1 < len(cands[no])]
-        if not move:
-            break
-        for no in move:
-            pick[no] += 1
-    if bad:
-        # A round that never reproduced keeps its best candidate; the check
-        # reruns on the frames kept.
-        for no in bad:
-            pick[no] = 0
-        kept = sorted((cands[no][k][1] for no, k in pick.items()), key=lambda r: r["t_ms"])
-        got, where = _verdicts(kept, rounds, death_times)
-        bad = {no for no, k in pick.items()
-               if got.get(no) != want.get(no) or where.get(cands[no][k][1]["t_ms"]) != no}
+        return {s for s, k in pick.items()
+                if got.get(s[0]) != want.get(s[0]) or where.get(cands[s][k][1]["t_ms"]) != s[0]}
+
+    def search(slots):
+        pick = {s: 0 for s in slots}
+        while True:
+            bad = check(pick)
+            move = [s for s in bad if pick[s] + 1 < len(cands[s])]
+            if not move:
+                break
+            for s in move:
+                pick[s] += 1
+        if bad:
+            # A read that never reproduced keeps its best candidate; the
+            # check reruns on the frames kept.
+            for s in bad:
+                pick[s] = 0
+            bad = check(pick)
+        return pick, {s[0] for s in bad}
+
+    pick, bad = search(list(cands))
+    # A round whose reads cannot all reproduce its verdict keeps the one read
+    # that does, best ranked first, and names the reads it dropped: the
+    # panels' rounds hang on each other (a summary early in a round reports
+    # the previous one unless that round's death panel reads otherwise), so
+    # an extra frame can move a verdict the full stream gave.
+    dropped: dict[int, list[float]] = {}
+    for no in sorted(bad):
+        mine = sorted((s for s in pick if s[0] == no), key=lambda s: cands[s][0][0])
+        for s in mine if len(mine) > 1 else ():
+            p2, b2 = search([x for x in pick if x[0] != no] + [s])
+            if no not in b2 and len(b2) < len(bad):
+                dropped[no] = sorted(cands[x][0][2]["panel_ms"] for x in mine if x != s)
+                pick, bad = p2, b2
+                break
     reason = {r["round_no"]: r["reason"] for r in round_counts(ps, rounds)}
     out = []
     for r in rounds:
         no = r["round_no"]
-        if no not in cands:
+        mine = [s for s in pick if s[0] == no]
+        if not mine:
             out.append({"round_no": no, "t_ms": None, "frame_idx": None,
                         "reason": reason.get(no) or "no frame reads its panel's modal read"})
             continue
-        k = pick[no]
-        _key, f, info = cands[no][k]
-        out.append({"round_no": no, "t_ms": float(f["t_ms"]), "frame_idx": int(f["frame_idx"]),
-                    "reason": None, **info, "candidates": len(cands[no]), "rank": k,
-                    "reproduces": no not in bad})
+        got = []
+        for s in mine:
+            k = pick[s]
+            _key, f, info = cands[s][k]
+            got.append({"round_no": no, "t_ms": float(f["t_ms"]), "frame_idx": int(f["frame_idx"]),
+                        "reason": None, **info, "reads": len(mine),
+                        "reads_dropped": dropped.get(no, []), "candidates": len(cands[s]),
+                        "rank": k, "reproduces": no not in bad})
+        out.extend(sorted(got, key=lambda c: c["t_ms"]))
     return out
+
+
+def thinned(rows: list[dict] | None) -> str | None:
+    """Why a stored `combat_report` stream cannot stand for every sampled
+    frame, or None where it can.
+
+    A stream reread from the crop cache's `combat_report` set holds the
+    frames `round_frames` kept and a `thinned_out` refusal at every other
+    frame. It gives each round its counts, but not when or how long the
+    death panel showed, nor each panel's opening, kind and rows.
+    `death_panel_tops`, `panel_aside` and row naming refuse it with this
+    reason."""
+    head = next((r for r in rows or () if r.get("kind") == "coverage"), None)
+    gate = (head or {}).get("cache_gate") or {}
+    gone = (head or {}).get("frames_refused")
+    if gate or any(r.get("reason") == "thinned_out" for r in rows or ()
+                   if r.get("kind") == "frame"):
+        return (f"thinned: reread from the {(head or {}).get('cache_set') or 'combat_report'} "
+                f"crop set ({gate.get('rule') or 'gated'}), {gone if gone is not None else 'some'} "
+                f"frames refused; the death panel's timing needs every frame")
+    return None
 
 
 #: Thumbnail correlation joining two rows to one player.

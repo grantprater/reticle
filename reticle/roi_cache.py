@@ -131,7 +131,11 @@ reader's own frames (whole capture, `--report-hz`), keeps the named frames
 (`combat_report_gate`) and stores the timeline it was offered
 (`TIMELINE_SETS`), so `scan --only combat_report --from cache` rereads each
 kept panel with no video and stores every other frame as a refusal,
-`thinned_out` (`unheld_frames`), never as a frame with no panel.
+`thinned_out` (`unheld_frames`), never as a frame with no panel. A round
+whose panels read different damage keeps one frame per read. The reread
+stream gives each round its counts but not the death panel's timing, so
+the consumers of that timing refuse it
+(`adjudication.combat_report.thinned`).
 """
 from __future__ import annotations
 

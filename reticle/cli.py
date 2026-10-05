@@ -874,10 +874,15 @@ def _combat_report_cache_gate(store, sid, date, args) -> tuple[dict, object]:
         """The same choice from the reader's rows in this pass: the frames
         kept rest on stored rows, so a reader that now reads them otherwise
         is recorded, never hidden."""
-        again = round_frames(reader.events(sid), rounds, deaths)
-        same = [a["t_ms"] == b["t_ms"] for a, b in zip(choice, again)]
-        return {"rows": "this_pass", "rounds": len(choice), "same_frame": int(sum(same)),
-                "differ": [a["round_no"] for a, s in zip(choice, same) if not s]}
+        def per_round(ch):
+            out = {}
+            for c in ch:
+                out.setdefault(c["round_no"], set()).add(c["t_ms"])
+            return out
+        a, b = per_round(choice), per_round(round_frames(reader.events(sid), rounds, deaths))
+        differ = sorted(no for no in set(a) | set(b) if a.get(no) != b.get(no))
+        return {"rows": "this_pass", "rounds": len(a), "same_frame": len(a) - len(differ),
+                "differ": differ}
     return gate, recheck
 
 
@@ -3417,6 +3422,13 @@ def _combat_report_identity(store, sid, date, rows, rounds, death_times) -> None
     from .checks import track_entries
     from .lineup import load_lineup
 
+    why = adj.thinned(rows)
+    if why is not None:
+        # Naming binds a row to the death its panel opened at; the kept
+        # frames carry no panel's opening. The stored names stand.
+        print(f"  identity: the combat_report stream is {why}; rows stay unnamed and "
+              f"nothing is written")
+        return
     lineup = load_lineup(sid, store.root)
     if not lineup or not lineup.get("sides", {}).get("enemy"):
         print(f"  identity: no stored lineup for {sid}; rows stay unnamed")
@@ -3595,10 +3607,17 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
         report_version = store.events_version("combat_report", sid)
         roi = killfeed_roi(get_profile(manifest["source_profile"]))
         panel = None
-        if report_version == COMBAT_REPORT_VERSION and roi is not None:
+        report = (store.read_events("combat_report", sid)
+                  if report_version == COMBAT_REPORT_VERSION and roi is not None else None)
+        from .adjudication.combat_report import thinned
+        if report is not None and thinned(report) is not None:
+            # The one-frame-per-round crop set gives each round its counts,
+            # not the death panel's timing.
+            print(f"{sid}: no killfeed read is set aside under the death panel; the "
+                  f"combat_report stream is {thinned(report)}")
+        elif report is not None:
             wh = (int(manifest["source"]["width"]), int(manifest["source"]["height"]))
-            panel = panel_aside(hud.column("t_ms").to_pylist(), store.read_events("combat_report", sid),
-                                roi.pixels(*wh)[1])
+            panel = panel_aside(hud.column("t_ms").to_pylist(), report, roi.pixels(*wh)[1])
         else:
             print(f"{sid}: no combat_report stream at {COMBAT_REPORT_VERSION}; no killfeed read is "
                   f"set aside under the death panel -- run `reticle scan {sid} --only combat_report`")

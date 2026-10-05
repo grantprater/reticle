@@ -1092,7 +1092,9 @@ COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.11.0"
 # `combat_report` set keeps (`adjudication.combat_report.round_frames`). Bump
 # when the candidate order, the stability tiers or the reproduction check
 # change; a bump rewrites the set from video, never restamps the reader.
-COMBAT_REPORT_FRAMES_VERSION = "combat-report-frames-0.1.0"
+#   0.2.0: one frame per damage read of a round's panels, not per round: a
+#          round whose report changed (two death panels) keeps both.
+COMBAT_REPORT_FRAMES_VERSION = "combat-report-frames-0.2.0"
 # Stage 02 roster reads, off the two HUD roster bars. **What this stamps is the
 # per-slot DETAIL VECTORS, not the alive count.** Bump when `ART_FRAC` or the
 # ROI geometry changes -- those need pixels, so they re-decode.

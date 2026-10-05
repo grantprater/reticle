@@ -168,6 +168,95 @@ class RoundFramesTest(unittest.TestCase):
         self.assertTrue(all(g["reason"] for g in got))
 
 
+    def test_a_round_whose_report_changed_keeps_a_frame_per_read(self):
+        """Two deaths in round 1 (a revive): a one-row death panel at 20 s,
+        then a two-row one at 40 s through the round's end. One frame of the
+        second would lose the first panel's row."""
+        first = [_row("150", "140", killed_you=True)]
+        second = [_row("150", "140", killed_you=True), _row("90", "120", killed_you=True)]
+        rows = []
+        for t in range(0, 240000, 1000):
+            if 20000 <= t <= 26000:
+                rows.append(_frame_row(t, first))
+            elif 40000 <= t <= 80000:
+                rows.append(_frame_row(t, second, hy=400 if t < 56000 else 300))
+            else:
+                rows.append(_frame_row(t))
+        got = [g for g in adj.round_frames(rows, ROUNDS, [20000.0, 40000.0]) if g["round_no"] == 1]
+        self.assertEqual([(g["t_ms"], g["rows"], g["reads"]) for g in got],
+                         [(21000.0, 1, 2), (56000.0, 2, 2)])
+        self.assertTrue(all(g["reproduces"] for g in got))
+
+    def test_a_round_whose_panels_read_alike_keeps_one(self):
+        got = [g for g in adj.round_frames(_session_rows(), ROUNDS, DEATHS) if g["round_no"] == 1]
+        self.assertEqual([(g["t_ms"], g["reads"]) for g in got], [(56000.0, 1)])
+
+
+def _reread(rows, keep):
+    """The stream `scan --only combat_report --from cache` stores from a set
+    holding `keep`: those frames as read, a `thinned_out` refusal at every
+    other, and the set named in the head (`CombatReportReader.events`)."""
+    head = {"kind": "coverage", "hz": 1.0, "cache_set": "combat_report",
+            "cache_gate": {"rule": "one_per_round"}, "frames_refused": len(rows) - len(keep)}
+    return [head] + [r if r["t_ms"] in keep else
+                     {**{k: r[k] for k in ("kind", "frame_idx", "t_ms")},
+                      "header": None, "reason": "thinned_out"} for r in rows]
+
+
+class ThinnedStreamTest(unittest.TestCase):
+    """The kept frames give each round its counts, not the death panel's
+    timing: its consumers refuse a reread stream rather than read it."""
+
+    def setUp(self):
+        self.rows = _session_rows()
+        keep = {g["t_ms"] for g in adj.round_frames(self.rows, ROUNDS, DEATHS)}
+        self.thin = _reread(self.rows, keep)
+
+    def test_the_full_stream_is_not_thinned(self):
+        self.assertIsNone(adj.thinned(self.rows))
+        self.assertGreater(len(adj.death_panel_tops(self.rows)[0]), 30)
+
+    def test_death_panel_tops_and_panel_aside_refuse(self):
+        from reticle.adjudication.death import panel_aside
+        why = adj.thinned(self.thin)
+        self.assertIn("thinned", why)
+        # Without the head, the refusals alone mark it.
+        self.assertIsNotNone(adj.thinned(self.thin[1:]))
+        with self.assertRaises(ValueError):
+            adj.death_panel_tops(self.thin)
+        times = [float(t) for t in range(0, 240000, 500)]
+        self.assertIsNone(panel_aside(times, self.thin, 200.0))
+        self.assertIsNotNone(panel_aside(times, [{"kind": "coverage", "hz": 1.0}] + self.rows,
+                                         200.0))
+
+    def test_row_naming_reads_and_writes_nothing(self):
+        from reticle import cli
+
+        class NoStore:
+            def __getattr__(self, name):
+                raise AssertionError(f"identity touched the store: {name}")
+        cli._combat_report_identity(NoStore(), "s1", "2026-10-05", self.thin, ROUNDS, DEATHS)
+
+    def test_the_round_counts_still_reproduce(self):
+        verdict = lambda frames: adj.round_verdicts(adj.events("s1", [
+            {**r, "combat_report_version": adj.COMBAT_REPORT_VERSION} for r in frames],
+            ROUNDS, DEATHS), ROUNDS)
+        self.assertEqual(verdict(self.thin[1:]), verdict(self.rows))
+
+
+class AssignRoundsTest(unittest.TestCase):
+
+    def test_a_summary_in_the_first_round_beside_an_unassigned_panel(self):
+        """A summary that opens early in the first round has no previous
+        round; a later panel not yet assigned has no kind. This raised
+        KeyError before combat-report-frames-0.2.0."""
+        row = {"out": "10", "in": "0", "killed_you": False}
+        ps = [{"start_ms": 5000.0, "at_death": False, "rows": [row]},
+              {"start_ms": 30000.0, "at_death": True, "rows": [row]}]
+        adj.assign_rounds(ps, ROUNDS)
+        self.assertEqual([(p["round_no"], p["kind"]) for p in ps], [(None, "summary"), (1, "death")])
+
+
 class GateTest(unittest.TestCase):
 
     def test_the_gate_holds_the_named_frames_and_the_choice(self):

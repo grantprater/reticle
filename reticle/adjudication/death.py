@@ -1443,12 +1443,14 @@ def death_key(session_id: str, t_ms: float, slot: int) -> str:
 def panel_aside(times, report: list[dict] | None, roi_y0: float):
     """Per HUD sample, the killfeed slots (bit mask) the player's death panel
     covers, from the stored `combat_report` rows (`report`) and the killfeed
-    ROI's top row `roi_y0`; None when no report is given. A sample takes the
-    panel frames within half the report's sample step (`checks.panel_slots`)."""
-    if report is None:
+    ROI's top row `roi_y0`; None when no report is given or the report was
+    reread from the one-frame-per-round crop set, which holds no panel
+    timing (`adjudication.combat_report.thinned`). A sample takes the panel
+    frames within half the report's sample step (`checks.panel_slots`)."""
+    from .combat_report import death_panel_tops, thinned
+    if report is None or thinned(report) is not None:
         return None
     from ..checks import panel_slots
-    from .combat_report import death_panel_tops
     hz = next((r.get("hz") for r in report if r.get("kind") == "coverage"), None) or 1.0
     pt, top = death_panel_tops(report)
     return panel_slots(times, pt, top, roi_y0, 500.0 / float(hz))
