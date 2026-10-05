@@ -263,6 +263,37 @@ its count and refuses the segment reading until a session shows the drawing
 """
 see = ["abilities/omen-tray-charges", "abilities/killjoy-tray-charges", "abilities/jett-tray-charges", "abilities/clove-tray-charges", "abilities/cypher-tray-charges", "abilities/brimstone-sky-smoke-charges", "abilities/chamber-headhunter-charges", "abilities/catalogue-charge-counts-confirmed"]
 
+[ability-tray-cooling-charge-timer]
+claim = """
+The ability tray draws a numeral timer on a charge that is cooling down, such
+as the returned charge of a picked-up or recalled Killjoy, Cypher or Chamber
+ability.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-04"
+subject = "hud:ability tray"
+source = """
+player, 2026-10-04 (chat), answering the six pickup questions of
+docs/ABILITY_MECHANICS_SHEET.md: "1. the data is correct 2. No he doesn't 3.
+The data is right, I was mis-remembering. It's not terribly far but it's
+farther than I thought 4. I don't know, I think it's closer than cypher 5. No
+there's not a wait, and it goes away, he has to re-buy 6. There's a numeral
+timer". Answer 6 answers "how does the ability tray draw a charge that is
+cooling down?"
+"""
+exceptions = """
+no session has measured the numeral's position, size or font, or whether the
+slot's bar or icon also changes while it counts down
+"""
+use = """
+a reader of the numeral dates a cooling charge's return and names the
+cooldown the state model needs (abilities/deployed-pickup-returns-charge);
+it joins the tray's fixed ROI in the shared decode pass
+"""
+see = ["hud/ability-tray-charge-segments", "hud/tray-slot-icons",
+       "abilities/deployed-pickup-returns-charge", "abilities/recharge-kinds"]
+
 [scoreboard-strip-updates-next-round]
 claim = """
 The history strip, its round-in-play triangles included, redraws a decided

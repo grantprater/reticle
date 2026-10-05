@@ -2224,10 +2224,11 @@ the ability state model: a Chamber slot's charge may return within a round by
 pickup, usable after that ability's cooldown
 """
 exceptions = """
-the game files give Chamber's two deployed abilities a RECALL usable that is
-not distance-limited (abilities/chamber-trademark-recall-distance,
-abilities/chamber-rendezvous-recall-distance); how close he must be is a
-question for the player in the mechanics sheet
+Chamber need not be close: the player confirmed on 2026-10-04 that his
+recall of Trademark or Rendezvous is not distance-limited, as the game files
+say (abilities/chamber-trademark-recall-any-distance,
+abilities/chamber-rendezvous-recall-any-distance); "fairly close" holds for
+Killjoy and Cypher only
 """
 see = ["abilities/deployed-pickup-returns-charge", "abilities/chamber-pickup-abilities-gamefile",
        "abilities/recharge-kinds"]
@@ -2248,8 +2249,9 @@ source = """
 player, 2026-10-04 (chat), as quoted in abilities/killjoy-deployed-util-pickup;
 the game files of build release-13.06-shipping-18-5590001 show the
 cooldown: a pickup of ALARMBOT, TURRET, Spycam, Trademark or Rendezvous after
-the RoundStarting phase starts the ability's cooldown, and one within it
-regains the charge at once (the per-ability facts)
+the RoundStarting phase starts the ability's cooldown, and one of ALARMBOT,
+TURRET, Spycam or Trademark within it regains the charge at once; what a
+Rendezvous recall in RoundStarting does is not read (the per-ability facts)
 """
 use = """
 adjudication.ability_state: a rise of a slot's level within a round may be a
@@ -2257,23 +2259,28 @@ pickup; the model needs a returned-but-cooling state and the cooldown per
 ability before it dates the charge as castable
 """
 exceptions = """
-whether the tray draws the returned charge during its cooldown is not
-recorded. The game files show behaviour the player's statement does not
-mention. During RoundStarting (EAresGamePhase 3) a pickup returns the charge
-at once, with no cooldown (abilities/killjoy-alarmbot-recall-cooldown,
+the tray draws a numeral timer on a charge that is cooling down
+(hud/ability-tray-cooling-charge-timer). The game files show behaviour the
+player's statement does not mention. During RoundStarting (EAresGamePhase 3)
+a pickup of ALARMBOT, TURRET, Spycam or Trademark returns the charge at once,
+with no cooldown (abilities/killjoy-alarmbot-recall-cooldown,
 abilities/killjoy-turret-recall-cooldown, abilities/cypher-spycam-pickup-cooldown,
-abilities/chamber-trademark-recall-cooldown,
-abilities/chamber-rendezvous-recall-cooldown). Nanoswarm and Cyber Cage are
-picked up only in RoundStarting (abilities/killjoy-nanoswarm-pickup-distance,
-abilities/cypher-cyber-cage-pickup-distance), and Trapwire picked up after
-RoundStarting adds a temporary charge with no cooldown in its blueprint
-(abilities/cypher-trapwire-pickup-distance). Destruction also returns a
-charge: Killjoy's recallable base class falls back to CooldownOnDestroy when
-the deployable was not reclaimed (Turret 60 s), and the Spycam pawn sets
-RefundOnDestroyed with a 60 s DestroyedCooldown; the catalogue's restock
-cell reads "60 s (Destroyed)" for both
-(abilities/killjoy-turret-recall-cooldown, abilities/cypher-spycam-pickup-cooldown,
-abilities/catalogue-restock-and-ult-points-confirmed)
+abilities/chamber-trademark-recall-cooldown); what a Rendezvous recall in
+RoundStarting does is not read (abilities/chamber-rendezvous-recall-cooldown).
+Nanoswarm and Cyber Cage are picked up only in RoundStarting, which the
+player confirmed (abilities/killjoy-nanoswarm-pickup-buy-phase-only,
+abilities/cypher-cyber-cage-pickup-buy-phase-only), and a Trapwire picked up
+after RoundStarting adds a temporary charge that is placeable at once and
+lost at the round's end (abilities/cypher-trapwire-temporary-charge).
+Destruction also returns the Turret's and the Spycam's charge: Killjoy's
+recallable base class falls back to CooldownOnDestroy when the Turret was not
+reclaimed (60 s), and the Spycam pawn sets RefundOnDestroyed with a 60 s
+DestroyedCooldown; the catalogue's restock cell reads "60 s (Destroyed)" for
+both (abilities/killjoy-turret-recall-cooldown,
+abilities/cypher-spycam-pickup-cooldown,
+abilities/catalogue-restock-and-ult-points-confirmed). The Alarmbot's
+CooldownOnDestroy is 0.0, and no exported bytecode reads Trademark's
+DestroyedCooldown (999.0)
 """
 see = ["abilities/ability-rules-are-unique", "abilities/recharge-kinds",
        "abilities/killjoy-deployed-util-pickup", "abilities/cypher-deployed-util-pickup",
@@ -2339,8 +2346,10 @@ only that the user is the owner and alive, the pawn's UsableComponent is
 created outside the exported blueprints, and neither the pawn, BasePawn nor
 BaseAIPawn sets a UseDistance. MaxDistanceBeforeDisable = 4000.0 on the pawn's
 Comp_GameObject_DisableOwnerDistance is the range at which the bot disables,
-not a pickup range. Ability_Killjoy_Q_Alarmbot also sets CooldownOnDestroy =
-0.0 and a variable "Pickup Cooldown" = 7.0 that no exported bytecode reads
+not a pickup range; the player does not know the distance
+(abilities/killjoy-alarmbot-pickup-distance-player).
+Ability_Killjoy_Q_Alarmbot also sets CooldownOnDestroy = 0.0 and a variable
+"Pickup Cooldown" = 7.0 that no exported bytecode reads
 """
 use = "the cooldown a returned Alarmbot charge waits before it is castable"
 values = { recall_cooldown_s = 20.0 }
@@ -2371,8 +2380,9 @@ sets only CooldownOnDestroy = 60.0. Exported to
 exceptions = """
 the pickup distance is not in the blueprint data, as for the Alarmbot
 (Pawn_Killjoy_E_Turret.CanPickup tests owner and alive only;
-MaxDistanceBeforeDisable = 4000.0 is the disable range). The 20 s recall and
-60 s destroyed values match the catalogue's restock cell
+MaxDistanceBeforeDisable = 4000.0 is the disable range); the player does not
+know the distance (abilities/killjoy-turret-pickup-distance-player). The 20 s
+recall and 60 s destroyed values match the catalogue's restock cell
 """
 use = "the cooldown a returned Turret charge waits before it is castable"
 values = { recall_cooldown_s = 20.0 }
@@ -2407,12 +2417,13 @@ bIgnoreDistanceCheck = true, UseMessage2Text "DETONATE". Exported to
 exceptions = """
 the engine unit's length in VALORANT is not recorded here; Unreal's default
 is a centimetre. The player said any deployed utility can be picked up in a
-round; the game files limit the Nanoswarm's pickup to RoundStarting (a
-question in the mechanics sheet)
+round; the game files limit the Nanoswarm's pickup to RoundStarting, and the
+player confirmed it (abilities/killjoy-nanoswarm-pickup-buy-phase-only)
 """
 use = "whether a Nanoswarm charge can return within a round"
 values = { pickup_distance_uu = 400.0 }
-see = ["abilities/killjoy-deployed-util-pickup", "abilities/killjoy-pickup-abilities-gamefile"]
+see = ["abilities/killjoy-deployed-util-pickup", "abilities/killjoy-pickup-abilities-gamefile",
+       "abilities/killjoy-nanoswarm-pickup-buy-phase-only"]
 
 [cypher-pickup-abilities-gamefile]
 claim = """
@@ -2471,13 +2482,15 @@ EquipmentCharge.AddTemporaryCharges(1). Exported to
 """
 exceptions = """
 the use test that applies UseDistance is native code, not in the export, and
-bDistanceLimitedUsable keeps its native default; 2700 units is far for the
-player's "fairly close" if a unit is a centimetre (a question in the
-mechanics sheet). What a temporary charge does at the round's end is not read
+bDistanceLimitedUsable keeps its native default; the player confirmed the
+2700 units (abilities/cypher-trapwire-pickup-distance-confirmed). The player
+says the temporary charge is placeable at once and goes away at the round's
+end (abilities/cypher-trapwire-temporary-charge)
 """
 use = "the range within which Cypher's position can explain a Trapwire charge's return"
 values = { pickup_use_distance_uu = 2700.0 }
-see = ["abilities/cypher-deployed-util-pickup", "abilities/cypher-pickup-abilities-gamefile"]
+see = ["abilities/cypher-deployed-util-pickup", "abilities/cypher-pickup-abilities-gamefile",
+       "abilities/cypher-trapwire-pickup-distance-confirmed", "abilities/cypher-trapwire-temporary-charge"]
 
 [cypher-spycam-pickup-distance]
 claim = """
@@ -2499,12 +2512,13 @@ UseMessage2Text "PICK UP". Exported to
 """
 exceptions = """
 the use test that applies UseDistance is native code, not in the export;
-2500 units is far for the player's "fairly close" if a unit is a centimetre
-(a question in the mechanics sheet)
+the player confirmed the 2500 units
+(abilities/cypher-spycam-pickup-distance-confirmed)
 """
 use = "the range within which Cypher's position can explain a Spycam charge's return"
 values = { pickup_use_distance_uu = 2500.0 }
-see = ["abilities/cypher-deployed-util-pickup", "abilities/cypher-spycam-pickup-cooldown"]
+see = ["abilities/cypher-deployed-util-pickup", "abilities/cypher-spycam-pickup-cooldown",
+       "abilities/cypher-spycam-pickup-distance-confirmed"]
 
 [cypher-spycam-pickup-cooldown]
 claim = """
@@ -2559,12 +2573,13 @@ UseMessage2Text "DETONATE". Exported to
 """
 exceptions = """
 the player said any deployed utility can be picked up in a round; the game
-files limit the Cyber Cage's pickup to RoundStarting (a question in the
-mechanics sheet)
+files limit the Cyber Cage's pickup to RoundStarting, and the player
+confirmed it (abilities/cypher-cyber-cage-pickup-buy-phase-only)
 """
 use = "whether a Cyber Cage charge can return within a round"
 values = { pickup_distance_uu = 400.0 }
-see = ["abilities/cypher-deployed-util-pickup", "abilities/cypher-pickup-abilities-gamefile"]
+see = ["abilities/cypher-deployed-util-pickup", "abilities/cypher-pickup-abilities-gamefile",
+       "abilities/cypher-cyber-cage-pickup-buy-phase-only"]
 
 [chamber-pickup-abilities-gamefile]
 claim = """
@@ -2612,13 +2627,14 @@ to <store>/reference/game-files/release-13.06-shipping-18-5590001/ability-pickup
 (manifest.jsonl)
 """
 exceptions = """
-the player said Chamber must be fairly close; how the native use test applies
-UseDistance with bDistanceLimitedUsable false is not in the export (a question
-in the mechanics sheet)
+how the native use test applies UseDistance with bDistanceLimitedUsable
+false is not in the export; the player confirmed that Chamber need not be
+close (abilities/chamber-trademark-recall-any-distance)
 """
 use = "the range within which Chamber's position can explain a Trademark recall"
 values = { recall_use_distance_uu = 5000.0 }
-see = ["abilities/chamber-deployed-util-pickup", "abilities/chamber-trademark-recall-cooldown"]
+see = ["abilities/chamber-deployed-util-pickup", "abilities/chamber-trademark-recall-cooldown",
+       "abilities/chamber-trademark-recall-any-distance"]
 
 [chamber-trademark-recall-cooldown]
 claim = """
@@ -2665,13 +2681,14 @@ bRequireLineOfSight = false, UseMessage2Text "RECALL". Exported to
 (manifest.jsonl)
 """
 exceptions = """
-the player said Chamber must be fairly close; how the native use test applies
-UseDistance with bDistanceLimitedUsable false is not in the export (a question
-in the mechanics sheet)
+how the native use test applies UseDistance with bDistanceLimitedUsable
+false is not in the export; the player confirmed that Chamber need not be
+close (abilities/chamber-rendezvous-recall-any-distance)
 """
 use = "the range within which Chamber's position can explain a Rendezvous recall"
 values = { recall_use_distance_uu = 6000.0 }
-see = ["abilities/chamber-deployed-util-pickup", "abilities/chamber-rendezvous-recall-cooldown"]
+see = ["abilities/chamber-deployed-util-pickup", "abilities/chamber-rendezvous-recall-cooldown",
+       "abilities/chamber-rendezvous-recall-any-distance"]
 
 [chamber-rendezvous-recall-cooldown]
 claim = """
@@ -2700,6 +2717,224 @@ teleport's own cooldowns
 use = "the cooldown a returned Rendezvous charge waits before it is castable"
 values = { recall_cooldown_s = 30.0 }
 see = ["abilities/chamber-deployed-util-pickup", "abilities/chamber-rendezvous-recall-distance"]
+
+[killjoy-nanoswarm-pickup-buy-phase-only]
+claim = """
+Killjoy can pick up a placed Nanoswarm (C) only in the buy phase; during the
+round its usable detonates it and returns no charge. The player confirmed
+the game data (abilities/killjoy-nanoswarm-pickup-distance).
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "killjoy:nanoswarm"
+source = """
+player, 2026-10-04 (chat), answering the six pickup questions of
+docs/ABILITY_MECHANICS_SHEET.md: "1. the data is correct 2. No he doesn't 3.
+The data is right, I was mis-remembering. It's not terribly far but it's
+farther than I thought 4. I don't know, I think it's closer than cypher 5. No
+there's not a wait, and it goes away, he has to re-buy 6. There's a numeral
+timer". Answer 1 answers "can Killjoy pick up Nanoswarm during the round
+(game data: buy phase only)?"
+"""
+exceptions = "how close she must be in the buy phase is not asked; the game data says 400 units"
+use = "a Nanoswarm slot's level rise during the round is a misread or a buy, never a pickup"
+see = ["abilities/killjoy-nanoswarm-pickup-distance", "abilities/killjoy-deployed-util-pickup",
+       "abilities/deployed-pickup-returns-charge"]
+
+[cypher-cyber-cage-pickup-buy-phase-only]
+claim = """
+Cypher can pick up a placed Cyber Cage (Q) only in the buy phase; during the
+round its usable activates it and returns no charge. The player confirmed
+the game data (abilities/cypher-cyber-cage-pickup-distance).
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "cypher:cyber cage"
+source = """
+player, 2026-10-04 (chat), answering the six pickup questions of
+docs/ABILITY_MECHANICS_SHEET.md: "1. the data is correct 2. No he doesn't 3.
+The data is right, I was mis-remembering. It's not terribly far but it's
+farther than I thought 4. I don't know, I think it's closer than cypher 5. No
+there's not a wait, and it goes away, he has to re-buy 6. There's a numeral
+timer". Answer 1 answers "can Cypher pick up Cyber Cage during the round
+(game data: buy phase only)?"
+"""
+exceptions = "how close he must be in the buy phase is not asked; the game data says 400 units"
+use = "a Cyber Cage slot's level rise during the round is a misread or a buy, never a pickup"
+see = ["abilities/cypher-cyber-cage-pickup-distance", "abilities/cypher-deployed-util-pickup",
+       "abilities/deployed-pickup-returns-charge"]
+
+[chamber-trademark-recall-any-distance]
+claim = """
+Chamber need not be close to recall Trademark (C); the recall is not
+distance-limited. The player confirmed the game data
+(abilities/chamber-trademark-recall-distance).
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "chamber:trademark"
+source = """
+player, 2026-10-04 (chat), answering the six pickup questions of
+docs/ABILITY_MECHANICS_SHEET.md: "1. the data is correct 2. No he doesn't 3.
+The data is right, I was mis-remembering. It's not terribly far but it's
+farther than I thought 4. I don't know, I think it's closer than cypher 5. No
+there's not a wait, and it goes away, he has to re-buy 6. There's a numeral
+timer". Answer 2 answers "must Chamber be close to recall Trademark or
+Rendezvous (data: not distance-limited)?"
+"""
+use = "Chamber's position does not gate a Trademark recall; a witness for the recall must come from elsewhere"
+see = ["abilities/chamber-trademark-recall-distance", "abilities/chamber-deployed-util-pickup",
+       "abilities/chamber-trademark-recall-cooldown"]
+
+[chamber-rendezvous-recall-any-distance]
+claim = """
+Chamber need not be close to recall Rendezvous (E); the recall is not
+distance-limited. The player confirmed the game data
+(abilities/chamber-rendezvous-recall-distance).
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "chamber:rendezvous"
+source = """
+player, 2026-10-04 (chat), answering the six pickup questions of
+docs/ABILITY_MECHANICS_SHEET.md: "1. the data is correct 2. No he doesn't 3.
+The data is right, I was mis-remembering. It's not terribly far but it's
+farther than I thought 4. I don't know, I think it's closer than cypher 5. No
+there's not a wait, and it goes away, he has to re-buy 6. There's a numeral
+timer". Answer 2 answers "must Chamber be close to recall Trademark or
+Rendezvous (data: not distance-limited)?"
+"""
+use = "Chamber's position does not gate a Rendezvous recall; a witness for the recall must come from elsewhere"
+see = ["abilities/chamber-rendezvous-recall-distance", "abilities/chamber-deployed-util-pickup",
+       "abilities/chamber-rendezvous-recall-cooldown"]
+
+[cypher-trapwire-pickup-distance-confirmed]
+claim = """
+Cypher picks up a placed Trapwire (C) within the game data's 2700 units
+(abilities/cypher-trapwire-pickup-distance): not terribly far, but farther
+than the player first thought.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "cypher:trapwire"
+source = """
+player, 2026-10-04 (chat), answering the six pickup questions of
+docs/ABILITY_MECHANICS_SHEET.md: "1. the data is correct 2. No he doesn't 3.
+The data is right, I was mis-remembering. It's not terribly far but it's
+farther than I thought 4. I don't know, I think it's closer than cypher 5. No
+there's not a wait, and it goes away, he has to re-buy 6. There's a numeral
+timer". Answer 3 answers "how close must Cypher be for Trapwire or Spycam
+(data: 2700 and 2500 units)?"; the player withdrew "fairly close" for these
+"""
+use = "the range within which Cypher's position can explain a Trapwire charge's return, now confirmed"
+see = ["abilities/cypher-trapwire-pickup-distance", "abilities/cypher-deployed-util-pickup"]
+
+[cypher-spycam-pickup-distance-confirmed]
+claim = """
+Cypher picks up a placed Spycam (E) within the game data's 2500 units
+(abilities/cypher-spycam-pickup-distance): not terribly far, but farther
+than the player first thought.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "cypher:spycam"
+source = """
+player, 2026-10-04 (chat), answering the six pickup questions of
+docs/ABILITY_MECHANICS_SHEET.md: "1. the data is correct 2. No he doesn't 3.
+The data is right, I was mis-remembering. It's not terribly far but it's
+farther than I thought 4. I don't know, I think it's closer than cypher 5. No
+there's not a wait, and it goes away, he has to re-buy 6. There's a numeral
+timer". Answer 3 answers "how close must Cypher be for Trapwire or Spycam
+(data: 2700 and 2500 units)?"; the player withdrew "fairly close" for these
+"""
+use = "the range within which Cypher's position can explain a Spycam charge's return, now confirmed"
+see = ["abilities/cypher-spycam-pickup-distance", "abilities/cypher-deployed-util-pickup"]
+
+[killjoy-alarmbot-pickup-distance-player]
+claim = """
+The player does not know how close Killjoy must be to pick up an ALARMBOT
+(Q), and believes it closer than Cypher's pickup distances (2500 and 2700
+units). The game data holds no distance
+(abilities/killjoy-alarmbot-recall-cooldown). The distance is unknown.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "killjoy:alarmbot"
+source = """
+player, 2026-10-04 (chat), answering the six pickup questions of
+docs/ABILITY_MECHANICS_SHEET.md: "1. the data is correct 2. No he doesn't 3.
+The data is right, I was mis-remembering. It's not terribly far but it's
+farther than I thought 4. I don't know, I think it's closer than cypher 5. No
+there's not a wait, and it goes away, he has to re-buy 6. There's a numeral
+timer". Answer 4 answers "how close must Killjoy be for Alarmbot or Turret
+(no distance in the data)?"
+"""
+use = "an Alarmbot pickup witness may not gate on Killjoy's distance until a measurement gives one; the belief is a prior, not a bound"
+see = ["abilities/killjoy-alarmbot-recall-cooldown", "abilities/killjoy-deployed-util-pickup",
+       "abilities/cypher-spycam-pickup-distance-confirmed",
+       "abilities/cypher-trapwire-pickup-distance-confirmed"]
+
+[killjoy-turret-pickup-distance-player]
+claim = """
+The player does not know how close Killjoy must be to pick up a TURRET (E),
+and believes it closer than Cypher's pickup distances (2500 and 2700 units).
+The game data holds no distance (abilities/killjoy-turret-recall-cooldown).
+The distance is unknown.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-04"
+subject = "killjoy:turret"
+source = """
+player, 2026-10-04 (chat), answering the six pickup questions of
+docs/ABILITY_MECHANICS_SHEET.md: "1. the data is correct 2. No he doesn't 3.
+The data is right, I was mis-remembering. It's not terribly far but it's
+farther than I thought 4. I don't know, I think it's closer than cypher 5. No
+there's not a wait, and it goes away, he has to re-buy 6. There's a numeral
+timer". Answer 4 answers "how close must Killjoy be for Alarmbot or Turret
+(no distance in the data)?"
+"""
+use = "a Turret pickup witness may not gate on Killjoy's distance until a measurement gives one; the belief is a prior, not a bound"
+see = ["abilities/killjoy-turret-recall-cooldown", "abilities/killjoy-deployed-util-pickup",
+       "abilities/cypher-spycam-pickup-distance-confirmed",
+       "abilities/cypher-trapwire-pickup-distance-confirmed"]
+
+[cypher-trapwire-temporary-charge]
+claim = """
+A Trapwire (C) that Cypher picks up during the round returns a temporary
+charge he can place again at once, with no wait. The temporary charge goes
+away at the round's end: to carry the wire into the next round he must buy it
+again.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-04"
+subject = "cypher:trapwire"
+source = """
+player, 2026-10-04 (chat), answering the six pickup questions of
+docs/ABILITY_MECHANICS_SHEET.md: "1. the data is correct 2. No he doesn't 3.
+The data is right, I was mis-remembering. It's not terribly far but it's
+farther than I thought 4. I don't know, I think it's closer than cypher 5. No
+there's not a wait, and it goes away, he has to re-buy 6. There's a numeral
+timer". Answer 5 answers "is there a wait before a mid-round picked-up
+Trapwire can be placed again, and what happens to that temporary charge at
+round end?"; the game files add the charge with AddTemporaryCharges(1) and
+start no cooldown (abilities/cypher-trapwire-pickup-distance)
+"""
+use = """
+adjudication.ability_state: a Trapwire slot's rise during the round is
+castable at once, and the next round's Trapwire charges come from the buy,
+not from the temporary charge
+"""
+see = ["abilities/cypher-trapwire-pickup-distance", "abilities/cypher-deployed-util-pickup",
+       "abilities/deployed-pickup-returns-charge"]
 
 [sova-owl-drone-charges]
 claim = """
@@ -3062,7 +3297,8 @@ Q and E ability the harvest's restock is how a spent charge returns within the
 round: the listed time (20 to 60 s; three abilities list one time when
 destroyed and another when recalled) or the listed kills (2 kills on four
 abilities), with the harvest's notes on modes and globules as listed; where
-the harvest lists no restock (54 abilities), the ability has none. For each X
+the harvest lists no restock (54 abilities), the ability has none, except a
+picked-up or recalled deployable (see exceptions). For each X
 ability the harvest's `cost` is the ultimate points it needs (7, 8 or 9).
 Astra's X has no harvest cost, and this fact gives it none. The restock
 values and 28 ultimate-point values stand in the mechanics sheet's Restock
@@ -3086,9 +3322,24 @@ harvest entry and cites this fact, as ability_state does for charge counts
 with abilities/catalogue-charge-counts-confirmed; a per-ability domain fact
 still outranks the harvest. A harvest of another date is unconfirmed again
 """
+exceptions = """
+the game files of build release-13.06-shipping-18-5590001 give a recall
+restock to three abilities whose harvest restock is none, as Gekko's pickups
+did: a recalled ALARMBOT restocks after 20 s
+(abilities/killjoy-alarmbot-recall-cooldown), a recalled Trademark after
+30 s (abilities/chamber-trademark-recall-cooldown) and a recalled Rendezvous
+after 30 s (abilities/chamber-rendezvous-recall-cooldown). A Nanoswarm or
+Cyber Cage picked up in the buy phase and a Trapwire picked up in the round
+also return a charge (abilities/killjoy-nanoswarm-pickup-buy-phase-only,
+abilities/cypher-cyber-cage-pickup-buy-phase-only,
+abilities/cypher-trapwire-temporary-charge). The harvest's "none" stands for
+spent charges these facts do not return
+"""
 see = ["abilities/recharge-kinds", "abilities/catalogue-charge-counts-confirmed",
        "abilities/ult-charge-pips", "abilities/ability-rules-are-unique",
-       "abilities/gekko-abilities-drop-pickups"]
+       "abilities/gekko-abilities-drop-pickups", "abilities/deployed-pickup-returns-charge",
+       "abilities/killjoy-alarmbot-recall-cooldown", "abilities/chamber-trademark-recall-cooldown",
+       "abilities/chamber-rendezvous-recall-cooldown"]
 
 [skye-regrowth-channelled]
 claim = """
