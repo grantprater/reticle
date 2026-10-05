@@ -4272,13 +4272,17 @@ def cmd_tray(args) -> int:
             with usage_step("gate_inputs"):
                 gate, stamps = stored_gate_inputs(store, sid, date, rounds,
                                                   player_agent(load_lineup(sid, store.root), sid))
+            # The gate reads this pass's numerals, which this command stores.
+            stamps["tray_countdown"] = TRAY_COUNTDOWN_VERSION
             with usage_step("player_tray_casts"):
                 rows = player_tray_casts(
                     drops, gate["phase_of"], rounds, gate["player_deaths_ms"], agent=gate["agent"],
                     second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                     report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
                     kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
-                    kit_spans=gate["kit_spans"])
+                    kit_spans=gate["kit_spans"], own_lines_ms=gate["own_lines_ms"],
+                    pool_slots=gate["pool_slots"], countdown_reads=reads,
+                    step_ms=1000.0 * args.step)
         common = {"session_id": sid, "tray_version": TRAY_VERSION,
                   "player_cast_version": PLAYER_CAST_VERSION, "step_s": args.step}
         why_not = Counter(r["reason"] for r in rows if not r["player_cast"])
@@ -4922,12 +4926,14 @@ def cmd_ability_state(args) -> int:
             gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent["agent"])
         with usage_step("gate_rows"):
             gate_rows = player_tray_casts(
-                [{k: r[k] for k in DROP_FIELDS} for r in drops], gate["phase_of"], rounds,
+                [{k: r[k] for k in DROP_FIELDS if k in r} for r in drops], gate["phase_of"], rounds,
                 gate["player_deaths_ms"], agent=gate["agent"],
                 second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                 report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
                 kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
-                kit_spans=gate["kit_spans"])
+                kit_spans=gate["kit_spans"], own_lines_ms=gate["own_lines_ms"],
+                pool_slots=gate["pool_slots"], countdown_reads=gate["countdown_reads"],
+                step_ms=gate["step_ms"])
         with usage_step("kit_windows"):
             kits = kit_windows(rounds, gate["player_deaths_ms"], agent=gate["agent"],
                                second_lives_ms=gate["second_lives_ms"],
@@ -5150,7 +5156,9 @@ def cmd_ability_shapes(args) -> int:
                          second_lives_ms=gate["second_lives_ms"], revives_ms=gate["revives_ms"],
                          report_deaths=gate["report_deaths"], kit_changes_ms=gate["kit_changes_ms"],
                          kit_returns_ms=gate["kit_returns_ms"], menu_at=gate["menu_at"],
-                         kit_spans=gate["kit_spans"])
+                         kit_spans=gate["kit_spans"], own_lines_ms=gate["own_lines_ms"],
+                         pool_slots=gate["pool_slots"], countdown_reads=gate["countdown_reads"],
+                         step_ms=gate["step_ms"])
                      if d["player_cast"] and kit.get(d["slot"]) in ability_candidates.TABLE]
         with usage_step("cache_load"):
             cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), "minimap")
@@ -5280,6 +5288,9 @@ def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict], agent: str |
     if drops[0].get("tray_version") != TRAY_VERSION:
         return None, "tray_drops_stale", {"tray_drop": drops[0].get("tray_version")}
     gate, stamps = stored_gate_inputs(store, sid, date, rounds, agent)
+    # `player_x_drops` discards the own lines, so the stream records neither
+    # its own previous stamp nor its reason as an input.
+    stamps = {k: v for k, v in stamps.items() if k not in ("ult_cast", "ult_cast_reason")}
     return player_x_drops(drops, rounds=rounds, **gate), None, {"tray_drop": TRAY_VERSION,
                                                                 **stamps}
 

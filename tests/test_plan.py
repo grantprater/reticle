@@ -719,12 +719,14 @@ class InputCycleTests(unittest.TestCase):
         self.assertEqual(input_cycles(), [])
 
     def test_the_loops_are_the_declared_feedback(self):
-        # the reliability table, and the assist verdicts the deaths join back
+        # the reliability table, the assist verdicts the deaths join back, and
+        # the own ult lines the cast gate reads
         from reticle.plan import input_cycles, input_graph
         self.assertEqual(input_cycles(input_graph(feedback=True)),
                          [["assist", "death", "assist"],
                           ["assist", "killfeed_assist", "death", "assist"],
-                          ["death", "reliability", "death"]])
+                          ["death", "reliability", "death"],
+                          ["tray_drop", "ult_cast", "tray_drop"]])
 
     def test_a_loop_is_found(self):
         from reticle.plan import input_cycles

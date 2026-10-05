@@ -180,9 +180,11 @@ ULT_SLOT = "X"
 #: with 1.5 s for every agent. `prototypes/voice_lines.py` imports both.
 OWN_WINDOW_S = 1.5
 CAST_WINDOW = {"Phoenix": (-20.0, OWN_WINDOW_S)}
-#: The fields `tray.drops` writes. The stored gate's fields stay behind, so the
-#: owner decides afresh on the rounds this adjudicator reads.
-DROP_FIELDS = ("t_ms", "slot", "from", "to", "suspect", "forced", "cooccur", "across_gap")
+#: The fields `tray.drops` writes, its gold `witness` included, so every caller
+#: of the gate hands it the same drop. The stored gate's fields stay behind, so
+#: the owner decides afresh on the rounds this adjudicator reads.
+DROP_FIELDS = ("t_ms", "slot", "from", "to", "suspect", "forced", "cooccur", "across_gap",
+               "witness")
 #: A burst: at least BURST_N selected peaks within BURST_S of one onset.
 BURST_N = 3
 BURST_S = 2.0
@@ -286,12 +288,21 @@ def player_x_drops(drop_rows: list[dict], phase_of, rounds: list[dict],
     `player_cast` and `reason` that `ability_timeline.player_tray_casts` gives
     it. Every slot's drops go in, because the owner's co-occurrence test reads
     them all. `gate` carries the owner's other inputs, as
-    `ability_timeline.stored_gate_inputs` reads them."""
+    `ability_timeline.stored_gate_inputs` reads them, but never the player's
+    own ult lines: those are this adjudicator's output, and an X drop a line
+    passed would come back to witness that same line."""
     from ..ability_timeline import player_tray_casts
     drops = [{k: r[k] for k in DROP_FIELDS if k in r} for r in drop_rows
              if r.get("kind") == "drop"]
+    gate = {**gate, "own_lines_ms": ()}
     return [r for r in player_tray_casts(drops, phase_of, rounds, player_deaths_ms, **gate)
             if r["slot"] == ULT_SLOT]
+
+
+def rests_on_line(drop: dict) -> bool:
+    """Whether the gate passed `drop` on an own ult line (`rests_on` names
+    `ult_cast`), so it may never witness a line."""
+    return any(x.get("stream") == "ult_cast" for x in drop.get("rests_on") or ())
 
 
 def in_window(onset_ms: float, cast_ms: float, window: tuple[float, float]) -> bool:
@@ -427,9 +438,13 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
     if tray_drops is not None and player is None:
         tray_reason = "no_player_agent"
     bind = tray_drops is not None and player is not None
-    tray_casts = [c for c in tray_drops if c["player_cast"]] if bind else []
+    # A cast the gate passed on an own line rests on this adjudicator: it is
+    # kept as a refused drop that names the line it rests on, never a witness.
+    tray_casts = ([c for c in tray_drops if c["player_cast"] and not rests_on_line(c)]
+                  if bind else [])
     casts_ms = [float(c["t_ms"]) for c in tray_casts]
-    refused = {float(c["t_ms"]): c["reason"] for c in tray_drops or [] if not c["player_cast"]}
+    refused = {float(c["t_ms"]): ("rests_on_own_line" if c["player_cast"] else c["reason"])
+               for c in tray_drops or [] if not c["player_cast"] or rests_on_line(c)}
 
     # 1. Selection, class and bursts. A burst counts every peak at or above
     # the burst floor; the selected peaks are among them.

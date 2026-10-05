@@ -754,3 +754,75 @@ gate passes, so no channel looks for a cast the tray missed. Riot-side
 counting (class 5) holds no rule: no domain fact says Riot counts a cast the
 tray cannot show, and ability rules are not inferred by analogy
 [domain:abilities/ability-rules-are-unique].
+
+## The cast gate against Riot's counts (2026-10-05)
+
+Riot's match records count the player's casts per ability, which scores the
+gate's own casts on the 21 Riot-paired matches: covered is the lesser of
+ours and Riot's per session and ability, beyond is ours over Riot's.
+Riot's counts are evaluation truth only. A dev half was fixed before
+measuring (sha1 of `own-cast-gate:` and the session, even = dev), and
+`prototypes/own_cast_gate_eval.py` scores each half apart.
+
+Two rules first released here were chosen on the held half, against that
+plan, and `player-cast-0.13.0` withdrew both. The pool rule (`0.11.0`) was
+aimed at two Regrowth excess casts on the held matches `b7d24102a6f6` and
+`e37fdeca944f`; dev held no such drop. It also reasoned a Regrowth mechanic
+from the gold of other abilities, which the domain leaves to the player
+[domain:hud/ability-tray-restocked-charge-gold]. A clause of the revive rule
+ran a revive's dead span on past the revive for a bridged drop, chosen from
+a held eye check at `b7d24102a6f6` 1866.5 s; the one dev drop it reached the
+gate refuses anyway. The figures this section first printed for the held
+half rested on both, and are not clean held figures.
+
+At `player-cast-0.8.0` the gate covered
+[metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_dev_covered=239] of
+[metric:tray/own-cast-gate@riot-21#dev_riot=300] dev casts with
+[metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_dev_beyond=2] beyond, and
+[metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_held_covered=286] of
+[metric:tray/own-cast-gate@riot-21#held_riot=310] held casts with
+[metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#baseline_held_beyond=6] beyond.
+The rules that stand at `player-cast-0.13.0`, each a transition the state
+model names:
+
+- *revived* (`0.9.0`): a teammate Sage's Resurrection of the player undoes
+  the death before it, as Clove's own Not Dead Yet did
+  [domain:killfeed/revive-entries]; the player stays dead until the revive.
+  KAY/O's NULL/cmd is left out: how his tray draws while downed is a
+  question on the mechanics sheet.
+- *a line witnesses the ult* (`0.10.0`, `0.12.0`): the player's own ult
+  line [domain:abilities/caster-hears-own-ult-line] passes an X drop the
+  tray dates badly, on a dark tray, at the death that ends the kit (Run It
+  Back's pips fall at its end
+  [domain:abilities/phoenix-run-it-back-expiry-flash]) or beside another
+  slot's drop. The passed drop rests on the line, and `ult_cast` never binds
+  it as that line's witness.
+- *a numeral witnesses a spend* (`0.12.0`): a co-occurring drop of Recon
+  Bolt or Guiding Light passes where its restock numeral appeared or
+  restarted [domain:hud/ability-tray-restock-countdown].
+
+With them the gate covers
+[metric:tray/own-cast-gate@riot-21#gate_dev_covered=259] dev casts with
+[metric:tray/own-cast-gate@riot-21#gate_dev_beyond=2] beyond, and
+[metric:tray/own-cast-gate@riot-21#gate_held_covered=300] held casts with
+[metric:tray/own-cast-gate@riot-21#gate_held_beyond=8] beyond. Without the
+own lines, dev falls to
+[metric:tray/own-cast-gate@riot-21#no_lines_dev_covered=246] and held to
+[metric:tray/own-cast-gate@riot-21#no_lines_held_covered=296]. Of the held
+excess, two are the Regrowth drops the pool rule had refused; each now
+carries `pool_gold_drop` until the player says what a gold Regrowth bar
+going empty means. One is the bridged Q drop at `b7d24102a6f6` 1866.5 s,
+and one is a Recon Bolt at `59c70f1ef720` 2544.5 s that is real by eye, so
+that slot's extra cast lies elsewhere. The other four were beyond at
+`player-cast-0.8.0`.
+
+The stored `killfeed_portrait` streams are a version behind, so the gate
+reads no second life anywhere. Re-read at the current version from the crop
+cache (`own_cast_gate_eval.py --reread-second-lives`), they gave
+[metric:tray/own-cast-gate@riot-21~2026-10-05T05:53:07#b_second_lives=13]
+second lives on the five Phoenix matches. Fed to the gate, they raise dev to
+[metric:tray/own-cast-gate@riot-21#reread_dev_covered=263] with
+[metric:tray/own-cast-gate@riot-21#reread_dev_beyond=2] beyond and held to
+[metric:tray/own-cast-gate@riot-21#reread_held_covered=301] with
+[metric:tray/own-cast-gate@riot-21#reread_held_beyond=8] beyond, once a
+corpus refresh stores those streams.

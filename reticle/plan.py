@@ -454,6 +454,11 @@ NOT_INPUTS = {
     "candidate_revision": "the ally_icon candidate batch, carried on the rows built from it",
     "geometry": "round_outcome's column fit, measured from this session's cached scoreboard "
                 "crops by `fit_columns`: the reader's own output, not a baked table",
+    "ult_cast_reason": "why the gate's own ult lines went unused (`ability_timeline."
+                       "stored_own_lines`), not a stamp",
+    "pool_facts": "the keys of the domain facts that make a slot of the player's agent a pool "
+                  "(`ability_timeline.pool_slots`): a rule read from domain/*.toml, which "
+                  "moves with the gate's own stamp (`player_cast`), not a stored stream",
 }
 
 
@@ -473,7 +478,12 @@ def _gate(prefix: str = "inputs.", optional: bool = False) -> dict:
                                        "combat_report_round#combat_report_round_version",
                                        optional=optional),
             "tray_kit": _in(prefix + "tray_kit", "tray_kit#tray_kit_version", optional=optional),
-            "menu_open": _in(prefix + "menu_open", "menu_open#menu_version", optional=optional)}
+            "menu_open": _in(prefix + "menu_open", "menu_open#menu_version", optional=optional),
+            # The own ult lines that witness an X cast (`own_line_times`).
+            "ult_cast": _in(prefix + "ult_cast", "ult_cast#ult_cast_version", optional=True),
+            # The restock numerals that witness a co-occurring spend.
+            "tray_countdown": _in(prefix + "tray_countdown",
+                                  "tray_countdown#tray_countdown_version", optional=True)}
 
 
 def _lineup_inputs(prefix: str = "inputs.", file_path: str | None = None) -> dict:
@@ -547,7 +557,10 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                      "agent_identity": _code("inputs.agent_identity", AGENT_IDENTITY_VERSION),
                      "tray_drop": _in("inputs.tray_drop", "tray_drop#tray_version",
                                       optional=True),
-                     **_gate(optional=True), **_lineup_inputs()},
+                     # Its own rows feed the gate back only as lines that
+                     # rest on no tray cast, so it is not its own input.
+                     **{k: v for k, v in _gate(optional=True).items() if k != "ult_cast"},
+                     **_lineup_inputs()},
         "tray_drop": {"tray_kit": _in("tray_kit", "tray_kit#tray_kit_version"),
                       "menu_open": _in("menu_open", "menu_open#menu_version"),
                       **{k: v for k, v in _gate(optional=True).items()
@@ -741,6 +754,11 @@ FEEDBACK = {
                          "back by death id only when they rest on this death rule "
                          "(`death.assist_stamp`); a head that joined none records why, "
                          "so deaths, then assists, then deaths once more agree",
+    ("tray_drop", "ult_cast"): "the cast gate reads the player's own ult lines that rest on "
+                               "no tray cast (`ability_timeline.own_line_times`), which "
+                               "`ult_cast` selects by score before it binds any tray cast; "
+                               "compared by the ult-cast rule, so tray, then ult-cast, "
+                               "then tray once more agree",
 }
 
 
