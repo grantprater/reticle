@@ -1,4 +1,5 @@
-"""The replay scorer's Riot wrap step, miss classifier and track metrics, on synthetic data."""
+"""The replay scorer's Riot wrap step, miss classifier, track metrics and self
+identification, on synthetic data."""
 import datetime as dt
 import hashlib
 import json
@@ -168,6 +169,72 @@ class NearPointsTest(unittest.TestCase):
         y = np.array([50.0, 50.0, 50.0])
         got = rt._near_points(t, x, y, pts, tol_ms=250.0, reach=6.5).tolist()
         self.assertEqual(got, [True, False, False])
+
+
+class ChooseSelfSubjectTest(unittest.TestCase):
+    """`choose_self_subject` on synthetic self tracks: four subjects, 1000 frames."""
+
+    SUBS = ["me", "mate", "foe", "far"]
+
+    def _dist(self, n=1000, seed=0):
+        g = np.random.default_rng(seed)
+        D = np.column_stack([g.uniform(0.0, 1.0, n),       # follows the icon
+                             g.uniform(3.0, 30.0, n),      # a teammate nearby
+                             g.uniform(10.0, 60.0, n),
+                             np.full(n, 80.0)])
+        return D
+
+    def test_names_the_subject_the_track_follows(self):
+        r = rt.choose_self_subject(self._dist(), self.SUBS, margin=0.25)
+        self.assertEqual(r["subject"], "me")
+        self.assertIsNone(r["reason"])
+        self.assertEqual(r["best"]["share_within"], 1.0)
+        self.assertEqual(r["runner_up"]["subject"], "mate")
+        self.assertAlmostEqual(r["margin"], 1.0 - r["runner_up"]["share_within"], places=4)
+
+    def test_a_dead_subject_counts_as_a_miss(self):
+        D = self._dist()
+        D[:600, 0] = np.nan            # the player dies; the icon follows the mate
+        D[:600, 1] = 0.5
+        r = rt.choose_self_subject(D, self.SUBS, margin=0.25)
+        self.assertIsNone(r["subject"])
+        self.assertEqual(r["best"]["subject"], "mate")
+        self.assertTrue(r["reason"].startswith("margin_too_small"))
+        self.assertEqual(r["candidates"][1]["frames_alive"], 400)
+
+    def test_refuses_a_short_track(self):
+        r = rt.choose_self_subject(self._dist(n=899), self.SUBS, margin=0.25)
+        self.assertIsNone(r["subject"])
+        self.assertTrue(r["reason"].startswith("track_too_short"))
+
+    def test_refuses_a_poor_fit(self):
+        D = self._dist()
+        D[:, 0] = 5.0
+        D[:250, 0] = 0.5               # within 2 m on a quarter of frames only
+        r = rt.choose_self_subject(D, self.SUBS, margin=0.1)
+        self.assertIsNone(r["subject"])
+        self.assertTrue(r["reason"].startswith("no_fit"))
+
+    def test_refuses_a_small_margin(self):
+        D = self._dist()
+        D[:500, 1] = 0.5               # a teammate stacked on half the track
+        r = rt.choose_self_subject(D, self.SUBS, margin=0.6)
+        self.assertIsNone(r["subject"])
+        self.assertTrue(r["reason"].startswith("margin_too_small"))
+        self.assertEqual(rt.choose_self_subject(D, self.SUBS, margin=0.5)["subject"], "me")
+
+    def test_the_module_cut_is_set(self):
+        self.assertEqual(rt.SELF_ID_MARGIN, 0.25)
+        self.assertEqual(rt.choose_self_subject(self._dist(), self.SUBS)["margin_cut"], 0.25)
+
+    def test_same_side_compares_partitions_not_labels(self):
+        subs = ["a", "b", "c", "d"]
+        riot = {"a": "Blue", "b": "Blue", "c": "Red", "d": "Red"}
+        spawn = {"a": "B", "b": "B", "c": "A", "d": "A"}
+        self.assertTrue(rt._same_side(spawn, "a", riot, "a", subs))
+        spawn["b"] = "A"
+        self.assertFalse(rt._same_side(spawn, "a", riot, "a", subs))
+        self.assertIsNone(rt._same_side({}, "a", riot, "a", subs))
 
 
 if __name__ == "__main__":
