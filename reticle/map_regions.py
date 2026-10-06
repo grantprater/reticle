@@ -29,11 +29,13 @@ import numpy as np
 from .line_of_sight import map_key, sightline_table
 from .store import DEFAULT_STORE
 
-MAP_REGIONS_VERSION = "map-regions-0.1.0"
+MAP_REGIONS_VERSION = "map-regions-0.2.0"
 #: Points are tested this far above the given z: a replay's z is the capsule
 #: centre, a callout point's z sits at the floor.
 PROBE_CM = 50.0
 SITES = ("A", "B", "C")
+#: `site_code_of` for a point inside a volume that is not a site proper.
+OFF_SITE = -2
 
 
 class Regions:
@@ -56,6 +58,11 @@ class Regions:
         self.super_labels = sorted({x for x in self.super.tolist() if x is not None})
         code = {x: i for i, x in enumerate(self.super_labels)}
         self.super_code = np.array([code.get(x, -1) for x in self.super.tolist()], np.int16)
+        #: The volumes valorant-api names `<site> Site` (region "Site").
+        self.site_proper = np.array([lab.get("region") == "Site" for lab in self.labels], bool)
+        #: The volumes valorant-api names `<area> Link`: connectors between
+        #: areas, which belong to one super-region and touch another.
+        self.transit = np.array([lab.get("region") == "Link" for lab in self.labels], bool)
 
     @classmethod
     def load(cls, map_name: str, root=DEFAULT_STORE) -> "Regions":
@@ -101,6 +108,24 @@ class Regions:
         k = self.volume_of(pts)
         out = np.full(len(k), -1, np.int16)
         out[k >= 0] = self.super_code[k[k >= 0]]
+        return out
+
+    def site_code_of(self, pts: np.ndarray) -> np.ndarray:
+        """Each point's index into `super_labels` when a `Site` volume holds
+        it, OFF_SITE inside any other volume, -1 outside every volume."""
+        k = self.volume_of(pts)
+        out = np.full(len(k), -1, np.int16)
+        hit = k >= 0
+        out[hit] = np.where(self.site_proper[k[hit]], self.super_code[k[hit]], OFF_SITE)
+        return out
+
+    def hold_code_of(self, pts: np.ndarray) -> np.ndarray:
+        """Each point's index into `super_labels`, OFF_SITE inside a `Link`
+        volume, -1 outside every volume."""
+        k = self.volume_of(pts)
+        out = np.full(len(k), -1, np.int16)
+        hit = k >= 0
+        out[hit] = np.where(self.transit[k[hit]], OFF_SITE, self.super_code[k[hit]])
         return out
 
     def provenance(self) -> dict:

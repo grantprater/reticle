@@ -1,8 +1,8 @@
 # Episodes: round phases, duels, engagements, trades, executes, retakes, rotations, lurks
 
 Status: design, proposed 2026-10-05; implemented by `reticle/episodes.py`
-(`episodes-0.1.0`), `reticle/line_of_sight.py` (`line-of-sight-0.1.0`) and
-`reticle/map_regions.py` (`map-regions-0.1.0`). Rules live in
+(`episodes-0.2.1`), `reticle/line_of_sight.py` (`line-of-sight-0.1.0`) and
+`reticle/map_regions.py` (`map-regions-0.2.0`). Rules live in
 [AGENTS.md](../AGENTS.md); commands in [WORKING_MAP.md](WORKING_MAP.md).
 
 The player agreed on three levels (2026-10-05): (1) a **state timeline**,
@@ -177,11 +177,14 @@ Interval [t1, t2]; participants `traded` B, `killer` A, `trader` C; fields
 
 Per round, the attacking team's commit: the first instant before the plant
 at which `EXECUTE_K` (Q6) living attackers, or all living attackers if
-fewer, stand in one site super-region (A, B or C; Q7), else the plant. The
+fewer, stand on one site proper (the callout volume valorant-api names
+`<X> Site`; Q7), else the plant. A site's super-region also holds its lobby
+and main, where attackers stand at barrier drop; counting it, episodes-0.1.0
+started 262 of 332 executes within 1 s of barrier drop. The
 execute runs from that instant to the plant, else to the last attacker's
 death, else to `round_end`. Outcome `planted`, or `not_planted` with
 `attackers_eliminated` or `time_or_round_end`; participants `committed`
-(in the site at the commit) and `elsewhere`; `trigger` (`presence` or
+(on the site proper at the commit) and `elsewhere`; `trigger` (`presence` or
 `plant`); `site_same_as_plant`.
 
 ### 3.6 Retake (defence)
@@ -197,17 +200,23 @@ a `contested_plant` row (instant, `on_site` defenders), not a retake.
 
 Per player, from buy end to `round_end`: alive throughout, a site
 super-region held at least `ROTATION_MIN_DWELL_MS` (Q9), then a different
-site super-region, through any non-site super-regions. Start: the last
-sample in the origin; end: the first in the destination. Fields
+site super-region held as long; whatever lies between, a site crossed in
+passing included, is the path. A `Link` volume (valorant-api's connector
+callouts) holds no site: it belongs to one site's super-region and touches
+another's. Start: the last sample in the origin; end: the first in the
+destination. Fields
 `from_site`, `to_site`, `path`, `duration_ms`, `cues` (deaths and the plant
 within `TRADE_WINDOW_MS` before the start; co-occurrence, never cause).
 
 ### 3.8 Lurk
 
-Per attacker, during an execute: a run of at least `LURK_MIN_MS` (Q10)
-alive outside the execute's site super-region. Fields: the super-regions
-held, his first kill or death in the run, and whether it fell in an
-engagement with a committed teammate.
+Per attacker alive at an execute's commit (`trigger` `presence`) who stands
+outside both the executed site's super-region and the attackers' side
+(valorant-api's `Attacker Side`): his run outside the two around the commit,
+if it lasts at least `LURK_MIN_MS` (Q10). A player still on the attackers'
+side lags; he does not lurk. Fields: the super-regions held, his first kill
+or death in the run, and whether it fell in an engagement with a committed
+teammate.
 
 ### Regions
 
@@ -224,9 +233,9 @@ one before it, so a step over a boundary is no move.
 
 Label quality varies by map. Ascent, Bind, Haven and Split label every
 volume `inside`; Breeze, Corrode and Pearl leave four to five actors on the
-`nearest` rule. Where two site super-regions touch (Bind's A and B links and
-teleporters, the B site of Haven and Lotus between the A and C links), a
-short move is a rotation by this definition.
+`nearest` rule. Two site super-regions touch where a connector is not
+named `Link` (Lotus's B Main and C Door) and at Bind's teleporters, so a
+rotation can last under a second; Q9 asks whether a teleport counts.
 
 ## 4. Parameters
 
@@ -243,7 +252,8 @@ short move is a rotation by this definition.
 | `ENGAGE_JOIN_MS` | 5000 | **player** (Q4) | -- |
 | `TRADE_WINDOW_MS` | 5000 | **player** (Q5); the repo's convention, never asked | COACHING_DECISION_VALUE §2 |
 | `EXECUTE_K` | 3 | **player** (Q6) | COACHING_ROTATIONS_LURKS §1.2 proposal |
-| site super-region | valorant-api's A, B, C | **player** (Q7) | valorant-api callouts |
+| on site (execute) | the callout volume named `<X> Site` | **player** (Q7) | valorant-api callouts |
+| site area (retake, rotation, lurk) | valorant-api's A, B, C super-regions; `Link` volumes hold no site for a rotation | **player** (Q7, Q9) | valorant-api callouts |
 | retake gate | no defender on site at the plant | **player** (Q8) | -- |
 | `ROTATION_MIN_DWELL_MS`, `REGION_HOLD_MS` | 3000, 1000 | **player** (Q9) | -- |
 | `LURK_MIN_MS` | 5000 | **player** (Q10) | -- |
@@ -267,16 +277,22 @@ their own training set.
    first kill? Default no; the field is stored.
 6. **Execute.** How many attackers on a site make a commit? Default 3, or
    all living if fewer.
-7. **What counts as "on site"** for an execute and a retake: the whole A
-   super-region (A Main, A Link and the site), or the site callout alone?
-   Default the super-region. On Bind, Haven and Lotus this decides most
-   short rotations and most contested plants.
+7. **What counts as "on site"** for an execute: the site callout alone, the
+   whole super-region (lobby and main included), or the plantable zone?
+   Default the site callout: the super-region fires at barrier drop. The
+   site callout misses plantable ground on seven maps (section 9), and the
+   plantable zone needs geometry no table holds yet (the minimap's site
+   paint, or the game's plant volumes). For a retake: default the
+   super-region.
 8. **Retake.** Is a plant with a defender still on site a retake?
    Default no (a contested plant).
-9. **Rotation.** How long must a player hold one site before leaving counts
-   as a rotation, and how long in a new area before he is there? Default
-   3 s and 1 s. Is a Bind teleport a rotation? Default yes.
-10. **Lurk.** How long apart from an execute makes a lurk? Default 5 s.
+9. **Rotation.** How long must a player hold one site, and then the other,
+   for a move to count as a rotation? Default 3 s each; a stay under 1 s is
+   a step over a boundary, no move. Is a Bind teleport a rotation? Default
+   yes. Does a `Link` callout belong to a site? Default no.
+10. **Lurk.** Who lurks: an attacker away from the hit at its commit, or
+    anyone away from the team before it? How long apart? Default the first,
+    for 5 s, never counting the attackers' side.
 11. **Remote damage.** Is utility damage on an unseen opponent part of a
     fight? Default no: it is `remote_damage`, outside engagements.
 
@@ -321,4 +337,153 @@ every match whose replay layer is current and whose episodes are not.
 
 ## 9. Sanity run
 
-Pending.
+`tools/episodes_sanity.py --record` over episodes-0.2.1 of the 17 parsed
+replays, held-out bd7efa02 excluded before any row was read:
+[metric:episodes/sanity/pooled#matches=17] matches,
+[metric:episodes/sanity/pooled#rounds=346] rounds,
+[metric:episodes/sanity/pooled#kills=2592] kills. The development matches
+are b03fecd3, 60c7f1e0 and 16a475cb; the rest are unlinked replays.
+
+**Checks.**
+
+- Kills: 2579 lie in exactly one engagement
+  ([metric:episodes/sanity/pooled#kills_in_exactly_one_engagement=0.995]),
+  none in two; the other 13 are listed as `unassigned_death`, every one
+  `same_team` ([metric:episodes/sanity/pooled#unassigned_share=0.005]).
+- Round phases take their boundaries from the replay's own round start,
+  barrier drop, plant, defuse and round end, so they agree by
+  construction; d6928558's last round has no barrier drop and no live
+  phase. The independent check is Riot's match record: end reason and
+  winner agree on 24 of 24 rounds of b03fecd3 and 28 of 28 of 60c7f1e0,
+  the two replays with a record. The deciding event (last death, defuse)
+  precedes the replay's round end by a median
+  [metric:episodes/sanity/pooled#end_lag_ms.elimination.p50=25.0] ms
+  (p95 [metric:episodes/sanity/pooled#end_lag_ms.elimination.p95=34.55] ms)
+  after an elimination and
+  [metric:episodes/sanity/pooled#end_lag_ms.defuse.p50=19.0] ms after a
+  defuse.
+- Sight: the killer saw his victim within 1 s before
+  [metric:episodes/sanity/pooled#sight_at_kill=0.957] of kill duels;
+  [metric:episodes/sanity/pooled#mutual_kill_duels=0.8736] were mutual.
+  Kills end [metric:episodes/sanity/pooled#duel_kill_share=0.7796] of
+  duels; [metric:episodes/sanity/pooled#traded_share=0.1842] of kills were
+  traded, every trade inside one engagement
+  ([metric:episodes/sanity/pooled#same_engagement_trades=1.0]);
+  [metric:episodes/sanity/pooled#engagements_3plus=0.4067] of engagements
+  hold three or more combatants.
+- Executes: [metric:episodes/sanity/pooled#rounds_with_execute=0.7254] of
+  rounds hold one; [metric:episodes/sanity/pooled#executes_planted=0.8207]
+  end in a plant. Retakes follow
+  [metric:episodes/sanity/pooled#retake_share_of_plants=0.2524] of plants.
+
+Per match (`map` is the replay's codename: Duality Bind, Jam Lotus, Pitt
+Pearl, Juliett Sunset, Bonsai Split, Port Icebox, Foxtrot Breeze, Rook
+Corrode, Triad Haven):
+
+| match | map (codename) | rounds | duels | engagements | trades | executes | retakes | rotations | lurks | killer saw victim |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 05c76cb6 | Duality | 23 | 229 | 119 | 37 | 19 | 3 | 62 | 3 | [metric:episodes/sanity/05c76cb6#sight_at_kill=0.9611] |
+| 1256eed3 | Juliett | 18 | 161 | 99 | 24 | 12 | 4 | 23 | 8 | [metric:episodes/sanity/1256eed3#sight_at_kill=0.9847] |
+| 16a475cb | Jam | 20 | 191 | 96 | 28 | 16 | 2 | 109 | 3 | [metric:episodes/sanity/16a475cb#sight_at_kill=0.953] |
+| 18585a5d | Pitt | 21 | 208 | 95 | 37 | 17 | 2 | 44 | 3 | [metric:episodes/sanity/18585a5d#sight_at_kill=0.9745] |
+| 1a4c4618 | Duality | 24 | 207 | 125 | 20 | 18 | 2 | 78 | 1 | [metric:episodes/sanity/1a4c4618#sight_at_kill=0.9529] |
+| 2c387cb6 | Duality | 25 | 219 | 122 | 34 | 16 | 3 | 64 | 0 | [metric:episodes/sanity/2c387cb6#sight_at_kill=0.9728] |
+| 30e82ae0 | Bonsai | 15 | 136 | 75 | 15 | 8 | 2 | 33 | 2 | [metric:episodes/sanity/30e82ae0#sight_at_kill=0.9252] |
+| 493b1eca | Port | 9 | 100 | 45 | 17 | 7 | 0 | 18 | 0 | [metric:episodes/sanity/493b1eca#sight_at_kill=0.9577] |
+| 590a5d1b | Foxtrot | 23 | 199 | 109 | 33 | 18 | 4 | 38 | 4 | [metric:episodes/sanity/590a5d1b#sight_at_kill=0.9762] |
+| 60c7f1e0 | Ascent | 28 | 273 | 150 | 32 | 18 | 4 | 49 | 3 | [metric:episodes/sanity/60c7f1e0#sight_at_kill=0.9552] |
+| 6da71b0e | Foxtrot | 22 | 224 | 131 | 24 | 15 | 7 | 23 | 4 | [metric:episodes/sanity/6da71b0e#sight_at_kill=0.9822] |
+| 7498df5e | Bonsai | 16 | 161 | 81 | 20 | 12 | 1 | 43 | 2 | [metric:episodes/sanity/7498df5e#sight_at_kill=0.9204] |
+| 75111fd9 | Pitt | 24 | 246 | 125 | 30 | 20 | 2 | 74 | 5 | [metric:episodes/sanity/75111fd9#sight_at_kill=0.9402] |
+| 75a5e757 | Rook | 23 | 229 | 111 | 51 | 17 | 3 | 39 | 1 | [metric:episodes/sanity/75a5e757#sight_at_kill=0.9508] |
+| b03fecd3 | Ascent | 24 | 232 | 121 | 33 | 16 | 5 | 36 | 1 | [metric:episodes/sanity/b03fecd3#sight_at_kill=0.9278] |
+| d6928558 | Triad | 9 | 74 | 36 | 10 | 6 | 2 | 21 | 1 | [metric:episodes/sanity/d6928558#sight_at_kill=0.9508] |
+| dabcf7e5 | Rook | 22 | 219 | 118 | 30 | 16 | 6 | 55 | 1 | [metric:episodes/sanity/dabcf7e5#sight_at_kill=0.9649] |
+
+Pooled per round, and durations:
+
+| kind | per round | duration p10 / p50 / p90 (s) |
+|---|---|---|
+| duel | [metric:episodes/sanity/pooled#per_round.duel=9.561] | 0.3 / [metric:episodes/sanity/pooled#dur_s.duel.p50=0.82] / 2.44 |
+| remote damage | [metric:episodes/sanity/pooled#per_round.remote_damage=0.405] | 0.0 / [metric:episodes/sanity/pooled#dur_s.remote_damage.p50=0.0] / 0.7 |
+| engagement | [metric:episodes/sanity/pooled#per_round.engagement=5.081] | 0.34 / [metric:episodes/sanity/pooled#dur_s.engagement.p50=1.28] / 8.06 |
+| trade | [metric:episodes/sanity/pooled#per_round.trade=1.373] | 0.3 / [metric:episodes/sanity/pooled#dur_s.trade.p50=2.05] / 4.27 |
+| execute | [metric:episodes/sanity/pooled#per_round.execute=0.725] | 0.0 / [metric:episodes/sanity/pooled#dur_s.execute.p50=6.1] / 20.18 |
+| lurk | [metric:episodes/sanity/pooled#per_round.lurk=0.121] | 13.6 / [metric:episodes/sanity/pooled#dur_s.lurk.p50=28.0] / 44.62 |
+| retake | [metric:episodes/sanity/pooled#per_round.retake=0.15] | 8.32 / [metric:episodes/sanity/pooled#dur_s.retake.p50=28.47] / 43.54 |
+| contested plant | [metric:episodes/sanity/pooled#per_round.contested_plant=0.442] | instant |
+| rotation | [metric:episodes/sanity/pooled#per_round.rotation=2.338] | 0.25 / [metric:episodes/sanity/pooled#dur_s.rotation.p50=9.5] / 20.8 |
+| post-plant phase | [metric:episodes/sanity/pooled#per_round.phase_post_plant=0.595] | 8.77 / [metric:episodes/sanity/pooled#dur_s.phase_post_plant.p50=24.98] / 40.58 |
+| buy phase | -- | 29.79 / [metric:episodes/sanity/pooled#dur_s.phase_buy.p50=29.85] / 44.73 |
+| live phase | -- | 22.4 / [metric:episodes/sanity/pooled#dur_s.phase_live.p50=36.9] / 73.93 |
+| round over | -- | 7.1 / [metric:episodes/sanity/pooled#dur_s.phase_round_over.p50=7.14] / 7.21 |
+| contact | [metric:episodes/sanity/pooled#contacts_per_round=19.61] | 0.12 / [metric:episodes/sanity/pooled#dur_s.contact.p50=0.69] / 2.25 |
+
+**Three examples** to check in the in-client replay. Times are the round
+clock (1:40 at barrier drop) or the spike's remaining time.
+
+1. **Trade.** 60c7f1e0 (Ascent, session c817691bcd15), round 1, clock
+   0:59 (40.1 s after barrier drop): Sage (Blue) kills Cypher (Red); Jett
+   (Red) kills Sage 0.27 s later from 30.8 m. Blue wins the round by
+   elimination.
+2. **Retake.** 60c7f1e0, round 6: Red plants B with no Blue defender on B.
+   Sage, KAY/O, Omen and Phoenix (Blue) retake; the first enters B 13.1 s
+   after the plant; the defuse lands with about 1 s on the spike. Blue
+   wins by defuse.
+3. **Post-plant engagement.** 16a475cb (Lotus), round 1: team A plants C
+   22.4 s after barrier drop. From 43 s to 35 s on the spike Jett (A)
+   kills Clove, Sage and Neon (B), with Reyna and Chamber (A) in sight and
+   no shot of theirs landing. A wins by elimination.
+
+**Predictions** (`notes/predictions.jsonl`, task
+`replay-episodes-20261005`). EP1-EP14 were written before the corpus run,
+after development runs on b03fecd3 alone; EP15-EP22 test the definition
+changes made after it, and test only whether those changes do what they
+claim.
+
+| ref | prediction | result | verdict |
+|---|---|---|---|
+| EP1 | killer saw victim 0.88-0.96 pooled, at least 0.80 per match | 0.957; lowest match 0.920 | held |
+| EP2 | at most 2% of deaths outside engagements | 0.5%, all same-team | held |
+| EP3 | 7-12 duels per round | 9.56 | held |
+| EP4 | kills end 0.65-0.85 of duels | 0.78 | held |
+| EP5 | 0.14-0.28 of kills traded | 0.184 | held |
+| EP6 | every trade inside one engagement | 1.0; 0.0 in the first run, from a bug that keyed trades by a tail hit | held after the fix |
+| EP7 | end lag median under 100 ms, p95 under 1000 ms | 25 ms, 35 ms | held |
+| EP8 | spawn side agrees with the halftime rule on 99% of rounds; Riot end reason and winner on 95% | Riot 52 of 52; side 339 of 345 (98.3%) | half failed: the rule is wrong, not the spawn read. 493b1eca's 45 s buy phases at rounds 1, 5 and 9 mark four-round halves; 2c387cb6 disagrees in overtime round 25 |
+| EP9 | 0.75-0.90 of kill duels mutual | 0.874 | held |
+| EP10 | 3-6 engagements per round, 0.25-0.50 with three or more combatants | 5.08, 0.41 | held |
+| EP11 | execute in 85% of rounds, 50% of executes planted | episodes-0.1.0: 0.96, 0.62 | held, hollowly: 262 of 332 executes began within 1 s of barrier drop, attackers counted on site from the lobby |
+| EP12 | retakes follow 0.20-0.60 of plants | 0.25 | held |
+| EP13 | 1.0-2.5 rotations per round | episodes-0.1.0: 2.86 | failed: borders between sites' super-regions |
+| EP14 | contact median 0.4-1.0 s | 0.69 s | held |
+| EP15 | at most 10% of executes start within 1 s of barrier drop | 0 of 251 | held; the execute's 0.0 s p10 duration is the plant fallback |
+| EP16 | rounds with an execute 0.60-0.92; 70% planted | 0.725, 0.821 | held |
+| EP17 | 0.8-2.0 rotations per round, at most 10% under 2 s | episodes-0.2.0: 2.63 | failed |
+| EP18 | 0.8-1.8 lurks per round | episodes-0.2.0: 0.15 | failed: the lurk was bounded by the now-short execute |
+| EP19 | other kinds unchanged | unchanged | held |
+| EP20 | 1.0-2.2 rotations per round, under 10% shorter than 2 s | 2.34; 112 of 809 (13.8%) under 2 s | failed |
+| EP21 | 0.3-1.2 lurks per round | 0.121 | failed |
+| EP22 | other kinds unchanged | unchanged | held |
+
+**What the run shows.**
+
+- Sight, duels, engagements, trades and round phases behave as predicted
+  on every match; they rest on the replay's positions, its kill and damage
+  events and the game's geometry.
+- Executes, retakes, rotations and lurks rest on callout labels, and the
+  labels decide them. The site callout misses plantable ground: 60 of 214
+  plants lie outside the volume named `<X> Site` (Breeze's A Pyramids,
+  Pearl's B Hall, Corrode's A Crane, Sunset's A Alley, Lotus's C Bend and
+  A Hut, Icebox's B Yellow, and one Ascent plant outside every volume), so
+  29 executes fall back to the plant with no attacker counted on site.
+  The plantable zone is the witness these need (Q7).
+- Rotations stay frequent on Bind, Lotus and Corrode: Bind's teleporters
+  (rotations under Q9's default), Lotus's B Main and C Door, and Corrode's
+  labels on the `nearest` rule. A move under 2 s is no rotation a player
+  would name; a walk-graph distance between the two holds would test one.
+- Lurks are rare because the commit comes late, when most attackers stand
+  on or beside the site. Q10 decides whether a lurk should be read earlier.
+- A four-round half (493b1eca) and overtime (2c387cb6, round 25) break a
+  twelve-round halftime rule; the attacking team is read from spawn, so no
+  episode used the rule.

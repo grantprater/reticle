@@ -19,6 +19,7 @@ where the timeline names no side. Nothing here reads pixels or a parse.
 from __future__ import annotations
 
 import json
+from collections import Counter
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,7 +28,7 @@ import numpy as np
 
 from .store import DEFAULT_STORE
 
-EPISODES_VERSION = "episodes-0.1.0"
+EPISODES_VERSION = "episodes-0.2.1"
 
 #: Parameters (docs/EPISODES.md section 4). Every one but the eye height,
 #: which `line_of_sight` takes from the game files, and the two sampling
@@ -56,6 +57,8 @@ PARAM_KIND = {
 #: (`AspectRatio_MaintainXFOV`); the vertical follows at 16:9.
 ASPECT = 16.0 / 9.0
 SITES = ("A", "B", "C")
+#: valorant-api's super-region for the attackers' spawn and approach.
+ATTACKER_SIDE = "Attacker Side"
 EVENT_KINDS = ("round_start", "buy_end", "round_end", "plant", "defuse", "detonate",
                "death", "damage", "revive", "match_end")
 
@@ -729,10 +732,11 @@ def _trades(r, tl, grid, sees, smp, duels, engagements, team_of, idx, P) -> list
 
 # ----------------------------------------------------------------- regions
 
-def _region_series(tl, regions, t0, t1, P):
-    """Grid, super-region codes (n_slots, n) into `regions.super_labels`
-    (-1 none) and life, at `REGION_HZ`. A sample outside every volume keeps
-    the last super-region held."""
+def _region_series(tl, regions, t0, t1, P, mode: str = "super"):
+    """Grid, region codes (n_slots, n) into `regions.super_labels` (-1 none)
+    and life, at `REGION_HZ`. Mode `site` codes only a site's own `Site`
+    volume, `hold` every volume but a `Link`; each gives the rest -1. A
+    sample outside every volume keeps the last code held."""
     dt = 1000.0 / P["REGION_HZ"]
     g = np.arange(t0, t1 + dt / 2, dt)
     if g.size == 0:
@@ -740,10 +744,13 @@ def _region_series(tl, regions, t0, t1, P):
     smp = tl.sample(g)
     S = len(tl.slots)
     pts = np.stack([smp["x"], smp["y"], smp["z"]], -1).reshape(-1, 3)
-    c = regions.super_code_of(pts).reshape(S, g.size)
-    have = np.where(c >= 0, np.arange(g.size)[None, :], -1)
+    code_of = {"super": regions.super_code_of, "site": regions.site_code_of,
+               "hold": regions.hold_code_of}[mode]
+    c = code_of(pts).reshape(S, g.size)
+    have = np.where(c != -1, np.arange(g.size)[None, :], -1)
     last = np.maximum.accumulate(have, axis=1)
     filled = np.where(last >= 0, np.take_along_axis(c, np.maximum(last, 0), axis=1), -1)
+    filled = np.maximum(filled, -1)
     hold = int(round(P["REGION_HOLD_MS"] / dt))
     for s in range(S):
         filled[s] = _debounce(filled[s], hold)
@@ -785,6 +792,7 @@ def _execute_retake_lurk(r, tl, regions, att, team_of, idx, engagements, P) -> l
     g, code, alive = _region_series(tl, regions, r["t_live"], t_end, P)
     if code is None:
         return out
+    _g, on_site, _a = _region_series(tl, regions, r["t_live"], t_end, P, mode="site")
     sites = _site_codes(regions)
     labels = regions.super_labels
     atk = np.array([k for k, s in enumerate(tl.slots) if s.team == att])
@@ -807,7 +815,7 @@ def _execute_retake_lurk(r, tl, regions, att, team_of, idx, engagements, P) -> l
     need = np.minimum(P["EXECUTE_K"], n_alive)
     commit_k, site, trigger = None, None, "presence"
     for c, name in sites.items():
-        cnt = ((code[atk] == c) & a_alive).sum(0)
+        cnt = ((on_site[atk] == c) & a_alive).sum(0)
         hit = np.flatnonzero(pre & (n_alive > 0) & (cnt >= need))
         if hit.size and (commit_k is None or hit[0] < commit_k):
             commit_k, site = int(hit[0]), name
@@ -826,7 +834,7 @@ def _execute_retake_lurk(r, tl, regions, att, team_of, idx, engagements, P) -> l
         else:
             ex_end, result, why = t_end, "not_planted", "time_or_round_end"
         sc = labels.index(site) if site in labels else -2
-        here = a_alive[:, commit_k] & (code[atk, commit_k] == sc)
+        here = a_alive[:, commit_k] & (on_site[atk, commit_k] == sc)
         away = a_alive[:, commit_k] & ~here
         ex = _ep("execute", r, t_commit, ex_end,
                  participants={"committed": ids[atk][here].tolist(),
@@ -868,43 +876,50 @@ def _execute_retake_lurk(r, tl, regions, att, team_of, idx, engagements, P) -> l
 
 
 def _lurks(r, tl, g, code, alive, atk, ex, sc, ids, labels, engagements, P) -> list[dict]:
-    """Attackers outside the execute's site for at least `LURK_MIN_MS` of it."""
+    """Attackers who, at the execute's commit, stand alive outside both the
+    executed site's super-region and the attackers' side: each one's run
+    outside the two, around the commit, lasting at least `LURK_MIN_MS`."""
     out = []
-    k0 = int(np.searchsorted(g, ex["t_start_ms"]))
-    k1 = int(np.searchsorted(g, ex["t_end_ms"], side="right"))
-    if ex["outcome"]["site"] is None or k1 <= k0:
+    if ex["outcome"]["site"] is None or ex["trigger"] != "presence":
         return out
+    k0 = int(np.clip(np.searchsorted(g, ex["t_start_ms"]), 0, g.size - 1))
+    home = labels.index(ATTACKER_SIDE) if ATTACKER_SIDE in labels else -2
     dt = 1000.0 / P["REGION_HZ"]
     committed = set(ex["participants"]["committed"])
     for a in atk.tolist():
         sid = ids[a]
-        away = alive[a, k0:k1] & (code[a, k0:k1] != sc)
-        for s, e in merged_runs(away, 0):
-            t0, t1 = float(g[k0 + s]), float(g[k0 + e])
-            if t1 - t0 + dt < P["LURK_MIN_MS"]:
-                continue
-            held = sorted({labels[c] for c in code[a, k0 + s:k0 + e + 1].tolist() if c >= 0})
-            ev = next((x for x in tl.events if x.kind == "death" and t0 <= x.t_ms <= t1 + dt
-                       and sid in (x.actor, x.target)), None)
-            with_team = None
-            if ev is not None:
-                for eng in engagements:
-                    if ev.event_id in eng.get("kill_events", []):
-                        with_team = bool(committed & set(eng["participants"]["combatants"]))
-            out.append(_ep("lurk", r, t0, t1, participants={"lurker": sid},
-                           outcome={"first_event": None if ev is None else
-                                    ("kill" if ev.actor == sid else "death"),
-                                    "first_event_id": None if ev is None else ev.event_id,
-                                    "with_committed_teammate": with_team},
-                           regions=held, execute_id=ex["episode_id"]))
+        away = alive[a] & (code[a] != sc) & (code[a] != home) & (code[a] >= 0)
+        if not away[k0]:
+            continue
+        s = k0 - int(np.argmin(away[k0::-1])) + 1 if not away[:k0 + 1].all() else 0
+        e = k0 + int(np.argmin(away[k0:])) - 1 if not away[k0:].all() else g.size - 1
+        t0, t1 = float(g[s]), float(g[e])
+        if t1 - t0 + dt < P["LURK_MIN_MS"]:
+            continue
+        held = sorted({labels[c] for c in code[a, s:e + 1].tolist() if c >= 0})
+        ev = next((x for x in tl.events if x.kind == "death" and t0 <= x.t_ms <= t1 + dt
+                   and sid in (x.actor, x.target)), None)
+        with_team = None
+        if ev is not None:
+            for eng in engagements:
+                if ev.event_id in eng.get("kill_events", []):
+                    with_team = bool(committed & set(eng["participants"]["combatants"]))
+        out.append(_ep("lurk", r, t0, t1, participants={"lurker": sid},
+                       outcome={"first_event": None if ev is None else
+                                ("kill" if ev.actor == sid else "death"),
+                                "first_event_id": None if ev is None else ev.event_id,
+                                "with_committed_teammate": with_team},
+                       regions=held, execute_id=ex["episode_id"]))
     return out
 
 
 def _rotations(r, tl, regions, idx, P) -> list[dict]:
-    """Per player: a site held at least `ROTATION_MIN_DWELL_MS`, then another
-    site, alive throughout, through any non-site super-regions."""
+    """Per player: a site's super-region, its `Link` volumes aside, held at
+    least `ROTATION_MIN_DWELL_MS`, then another held as long, alive
+    throughout. Anything crossed between, a site passed through included,
+    is the path."""
     t_end = r["t_end"] if r["t_end"] is not None else r["t_next"]
-    g, code, alive = _region_series(tl, regions, r["t_live"], t_end, P)
+    g, code, alive = _region_series(tl, regions, r["t_live"], t_end, P, mode="hold")
     if code is None:
         return []
     labels = regions.super_labels
@@ -915,12 +930,11 @@ def _rotations(r, tl, regions, idx, P) -> list[dict]:
     out = []
     for s, slot in enumerate(tl.slots):
         rr = _label_runs(np.where(alive[s], code[s], dead))
-        at_site = [(i, x) for i, x in enumerate(rr) if x[0] in sites]
-        for (i1, (c1, a1, b1)), (i2, (c2, a2, _b2)) in zip(at_site, at_site[1:]):
+        held = [(i, x) for i, x in enumerate(rr) if x[0] in sites
+                and (x[2] - x[1] + 1) * dt >= P["ROTATION_MIN_DWELL_MS"]]
+        for (i1, (c1, a1, b1)), (i2, (c2, a2, _b2)) in zip(held, held[1:]):
             between = [x[0] for x in rr[i1 + 1:i2]]
             if c1 == c2 or dead in between:
-                continue
-            if (b1 - a1 + 1) * dt < P["ROTATION_MIN_DWELL_MS"]:
                 continue
             t0, t1 = float(g[b1]), float(g[a2])
             cue = [{"event_id": e.event_id, "kind": e.kind, "lag_ms": round(t0 - e.t_ms, 1)}
@@ -1137,8 +1151,11 @@ def command(keys: list[str], *, all_: bool = False, status_only: bool = False,
             root=DEFAULT_STORE) -> int:
     """`reticle episodes`: derive each named match's episodes (every match
     with a replay layer under `--all`), or with `--status` say which are
-    current, stale or absent. A held-out match is built and never counted."""
+    current, stale or absent (every match when no key is named). A held-out
+    match is built and never counted."""
     from .replay_layer import is_held_out, layer_dir, layer_root, resolve
+
+    all_ = all_ or (status_only and not keys)
 
     matches = ([p.name for p in sorted(layer_root(root).iterdir())
                 if (p / "layer.json").is_file()] if all_ and layer_root(root).is_dir() else [])
@@ -1158,5 +1175,7 @@ def command(keys: list[str], *, all_: bool = False, status_only: bool = False,
         if is_held_out(m):
             print(f"{m}: built (held out: no statistics)")
             continue
-        print(f"{m}: built {h['version']} on {h['map']}")
+        kinds = Counter(r["kind"] for r in read_episodes(m, "truth", root) if r["row"] == "episode")
+        print(f"{m}: built {h['version']} on {h['map']}: "
+              + ", ".join(f"{n} {k}" for k, n in sorted(kinds.items())))
     return rc

@@ -33,15 +33,18 @@ def box(x0, x1, y0, y1):
 
 
 def regions():
-    spec = [("Attacker Side", box(-10000, -5000, -10000, 10000)),
-            ("A", box(5000, 10000, 5000, 10000)),
-            ("B", box(5000, 10000, -10000, -5000)),
-            ("Mid", box(5000, 10000, -5000, 5000)),
-            ("Defender Side", box(10000, 15000, -10000, 10000))]
-    inv = [s[1][0] for s in spec]
-    lo = [s[1][1] for s in spec]
-    hi = [s[1][2] for s in spec]
-    labels = [{"volume": n, "region": n, "super": n, "basis": "inside"} for n, _ in spec]
+    spec = [("Attacker Side", "Spawn", box(-10000, -5000, -10000, 10000)),
+            ("A", "Lobby", box(0, 5000, 5000, 10000)),
+            ("A", "Site", box(5000, 10000, 5000, 10000)),
+            ("B", "Site", box(5000, 10000, -10000, -5000)),
+            ("Mid", "Courtyard", box(5000, 10000, -5000, 5000)),
+            ("B", "Link", box(5000, 10000, -5000, -3500)),
+            ("Defender Side", "Spawn", box(10000, 15000, -10000, 10000))]
+    inv = [s[2][0] for s in spec]
+    lo = [s[2][1] for s in spec]
+    hi = [s[2][2] for s in spec]
+    labels = [{"volume": f"{n} {r}", "region": r, "super": n, "basis": "inside"}
+              for n, r, _ in spec]
     return Regions(inv, lo, hi, labels)
 
 
@@ -66,6 +69,8 @@ DEF_SPAWN = (12000.0, 0.0)
 A_SITE = (7000.0, 7000.0)
 B_SITE = (7000.0, -7000.0)
 MID = (8000.0, 0.0)
+A_LOBBY = (2500.0, 7000.0)
+B_LINK = (7000.0, -4000.0)
 SPAWNS = {"attack": np.array(ATT_SPAWN), "defence": np.array(DEF_SPAWN)}
 
 
@@ -199,6 +204,44 @@ def test_execute_lurk_retake_rotation(derived):
     assert [r["participants"]["rotator"] for r in rot] == ["D3"]
     assert rot[0]["outcome"] == {"from_site": "B", "to_site": "A"}
     assert rot[0]["path"] == ["B", "Mid", "A"]
+
+
+def test_lobby_is_no_execute():
+    """Attackers in the site's lobby, a volume of its super-region, have not
+    committed; the execute starts when three stand on the site proper."""
+    tl = timeline()
+    for a in ("A2", "A3", "A5"):
+        tl.tracks[a] = track([(0, ATT_SPAWN, 0, BLIND), (35_000, A_LOBBY, 0, BLIND),
+                              (50_000, A_SITE, 0, BLIND)])
+    ex = kinds(derive(tl), "execute")
+    assert len(ex) == 1 and ex[0]["t_start_ms"] == pytest.approx(50_000.0, abs=250.0)
+
+
+def test_pass_through_is_no_rotation():
+    """A site crossed for less than the dwell is the path, not a rotation."""
+    tl = timeline()
+    tl.tracks["D4"] = track([(0, DEF_SPAWN, 0, BLIND), (30_000, B_SITE, 0, BLIND),
+                             (45_000, A_SITE, 0, BLIND), (47_000, B_SITE, 0, BLIND)])
+    rot = [r for r in kinds(derive(tl), "rotation") if r["participants"]["rotator"] == "D4"]
+    assert rot == []
+
+
+def test_link_is_no_site_held():
+    """A `Link` volume belongs to one site's super-region and touches
+    another; holding it is no hold on its site."""
+    tl = timeline()
+    tl.tracks["D4"] = track([(0, DEF_SPAWN, 0, BLIND), (30_000, B_LINK, 0, BLIND),
+                             (45_000, A_SITE, 0, BLIND)])
+    rot = [r for r in kinds(derive(tl), "rotation") if r["participants"]["rotator"] == "D4"]
+    assert rot == []
+
+
+def test_spawn_is_no_lurk():
+    """An attacker still on the attackers' side at the commit lags; he does
+    not lurk."""
+    tl = timeline()
+    tl.tracks["A4"] = track([(0, ATT_SPAWN, 0, BLIND)])
+    assert kinds(derive(tl), "lurk") == []
 
 
 def test_contested_plant_is_no_retake():

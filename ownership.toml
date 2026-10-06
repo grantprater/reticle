@@ -1552,7 +1552,7 @@ owner = "adjudication.ult_cast"
 role = ["attribute", "adjudicate"]
 status = "partial"
 names_agents = true
-produces = ["adjudicate", "template_class", "lineup_sides", "player_agent", "round_at",
+produces = ["adjudicate", "template_class", "lineup_sides", "player_agent", "round_of",
             "THRESHOLD", "cast_window", "CAST_WINDOW", "OWN_WINDOW_S", "player_x_drops", "rests_on_line",
             "in_window", "nearest_cast", "drop_phase", "DROP_WINDOW_S"]
 not_for = """
@@ -2008,7 +2008,7 @@ question = "How often does each identity channel name the right agent, per agent
 owner = "adjudication.reliability"
 role = ["corroborate"]
 status = "partial"
-produces = ["RELIABILITY_VERSION", "REFERENCE_CHANNELS", "SOURCES", "outcomes", "label_outcomes", "icon_heldout_outcomes", "beliefs", "name_probability", "load", "sightline_table", "write"]
+produces = ["RELIABILITY_VERSION", "REFERENCE_CHANNELS", "SOURCES", "outcomes", "label_outcomes", "icon_heldout_outcomes", "beliefs", "name_probability", "load", "table_path", "write"]
 consumers = ["cli"]
 not_for = """
 Naming anything. It scores stored claims against independent witnesses and
@@ -2041,12 +2041,12 @@ evidence = "tests/test_episodes.py"
 
 [[entry]]
 id = "callout-region"
-question = "Which callout region and super-region (A, B, C, Mid, Attacker Side, Defender Side) holds a world point?"
+question = "Which callout region and super-region (A, B, C, Mid, Attacker Side, Defender Side) holds a world point, and is it a site proper or a Link?"
 owner = "map_regions"
 role = ["assign"]
 status = "partial"
 produces = ["Regions", "MAP_REGIONS_VERSION", "api_callouts", "label_volumes", "SITES",
-            "spawn_points"]
+            "OFF_SITE", "spawn_points"]
 consumers = ["episodes"]
 not_for = """
 Minimap pixels: it places world points (cm), not widget pixels, and reads
