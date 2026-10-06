@@ -90,7 +90,7 @@ def test_held_weapon_damage_after_death_opens_a_life_and_quiet_damage_does_not()
     late = {"a": np.array([45_000.0])}
     lives = rl.lives_table(rp, ROUND, late)
     assert [(L["t_open"], L["t_close"], L["open_basis"]) for L in lives] == [
-        (0.0, 30_000.0, "round_start"), (45_000.0, 100_000.0, "own_activity")]
+        (0.0, 30_000.0, "round_start"), (45_000.0, 110_000.0, "own_activity")]
 
 
 def test_activity_counts_only_held_equippable_damage():

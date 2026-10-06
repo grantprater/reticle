@@ -49,15 +49,15 @@ from pathlib import Path
 
 import numpy as np
 
-from .replay_actors import (GAME_BUILD, REPLAY_ACTORS_VERSION, Export, _FOLDER, _leaf,
-                            _role, class_census, handoff_pairs, slot_map)
+from .replay_actors import (GAME_BUILD, NON_CHARACTER, REPLAY_ACTORS_VERSION, Export, _leaf,
+                            class_census, handoff_pairs, slot_map)
 from .replay_source import (MAX_GAP_MS, MINIMAP_LAG_MS, REPLAY_SOURCE_VERSION, VRFKIT_VERSION,
                             Reference, Replay, capture_replay_context, facing_px_deg,
                             frames_to_replay, parsed_dir, parsed_root, replay_entry,
                             replay_manifest, sample_stats, to_px)
 from .store import DEFAULT_STORE
 
-REPLAY_LAYER_VERSION = "replay-layer-0.1.0"
+REPLAY_LAYER_VERSION = "replay-layer-0.1.2"
 #: The held-out match (docs/EXTERNAL_GROUND_TRUTH.md, "a match that scores a
 #: fitted reader or model is held out from its fit"): built, never summarised.
 HELD_OUT = ("bd7efa02",)
@@ -379,7 +379,8 @@ def activity_by_subject(EV: dict, e_of: dict) -> dict:
 
 def lives_table(rp: Replay, rounds: list[dict], activity: dict) -> list[dict]:
     """Per player per round: alive from the round's start to his first death
-    in it or the round's end. A later life opens where the replay shows him
+    in it or the next round's start, since play continues through the
+    post-round period [domain:rounds/post-round-period]. A later life opens where the replay shows him
     alive again after a death in the same round: a second death
     (`second_death`), or damage he deals with a held gun or knife more than
     `REVIVE_QUIET_MS` after it (`own_activity`, `activity_by_subject`),
@@ -395,7 +396,9 @@ def lives_table(rp: Replay, rounds: list[dict], activity: dict) -> list[dict]:
     for s in rp.subjects:
         act = activity.get(s, np.zeros(0))
         for R in rounds:
-            end = R["t_end"] if R["t_end"] is not None else R["t_next_start"]
+            # play continues through the post-round period to the next buy
+            # phase [domain:rounds/post-round-period]
+            end = R["t_next_start"]
             t_open, lo, basis, ev = R["t_start"], None, "round_start", None
             ds = sorted((e for e in deaths[s] if R["t_start"] <= e["t"] < R["t_next_start"]),
                         key=lambda e: e["t"])
@@ -419,7 +422,8 @@ def lives_table(rp: Replay, rounds: list[dict], activity: dict) -> list[dict]:
                 if t_open is not None:
                     out.append({"subject": s, "round": R["round"], "t_open": t_open,
                                 "t_open_lo": lo, "open_basis": basis, "t_close": end,
-                                "close_basis": R["end_basis"], "killer": None, "evidence": ev})
+                                "close_basis": "next_round_start", "killer": None,
+                                "evidence": ev})
     return out
 
 
@@ -524,8 +528,13 @@ def build(key: str, root=DEFAULT_STORE, geometry: Path | None = None) -> dict:
     # -- children
     cen = class_census(match, ex)
     by_cp = {r["class_path"]: r for r in cen["classes"]}
+    # an ability folder's world actors, and the named non-character actors
+    # (ult orbs, the spike); never the replay controller or other
+    # character-folder infrastructure
     inst = [i for i in ex.instances() if i["class_path"] in by_cp
-            and by_cp[i["class_path"]]["role"] not in INVENTORY_ROLES]
+            and by_cp[i["class_path"]]["role"] not in INVENTORY_ROLES
+            and (by_cp[i["class_path"]].get("code") is not None
+                 or i["class_path"].rsplit(".", 1)[0] in NON_CHARACTER)]
     child_guids = {i["guid"] for i in inst}
     by_class = defaultdict(list)
     for i in ex.instances():
@@ -1099,13 +1108,17 @@ def layer_summary(match, root, d, E, EV, ex, cen, agent, rs) -> dict:
 def cast_crosscheck(E, EV, cen, agent) -> dict:
     """Per player and ability folder: the cast records (`AbilityCastsThisRound`
     through `slot_map`) against the root children (no parent, no
-    predecessor) of each class in that folder, per round. A class whose count
-    equals the casts in every round agrees; every other (class, round) is
-    listed with both counts. A slot byte `slot_map` cannot map is counted
+    predecessor) of each class in that folder, per round.
+
+    Each (player, folder) gets one verdict: `class_equals` where one class's
+    count equals the casts in every round (that class is one per cast),
+    `classes_sum_equals` where the classes' sum does (a cast opens one of
+    several classes, as a thrown and an underhand flash), `no_cast_records`
+    where the folder has children and no mapped cast, else `disagree`, with
+    the rounds that differ. A slot byte `slot_map` cannot map is counted
     apart, never guessed."""
-    from collections import Counter as C
-    casts = C()
-    unmapped = C()
+    casts = Counter()
+    unmapped = Counter()
     for k, kind in enumerate(EV["kind"]):
         if kind != "cast":
             continue
@@ -1115,32 +1128,43 @@ def cast_crosscheck(E, EV, cen, agent) -> dict:
             continue
         casts[(EV["e"][k], EV["value_str"][k], det["round"])] += 1
     sub_e = {E["subject"][k]: k for k, kind in enumerate(E["kind"]) if kind == "player"}
-    roots = C()
+    roots = Counter()
     for k, kind in enumerate(E["kind"]):
         if kind != "child" or not E["subject"][k] or not E["folder"][k]:
             continue
         if E["parent_guid"][k] is not None or E["predecessor_guid"][k] is not None:
             continue
         roots[(sub_e[E["subject"][k]], E["folder"][k], E["class"][k], E["round"][k])] += 1
-    classes = defaultdict(set)
-    for (e, f, c, r) in roots:
-        classes[(e, f)].add(c)
-    out = {"agree": [], "disagree": [], "casts_slot_unmapped": {
-        f"{E['agent'][e]}|slot{s}": n for (e, s), n in unmapped.items()}}
-    keys = sorted({(e, f) for (e, f, _r) in casts} | set(classes), key=str)
+    out = {"rows": [], "casts_slot_unmapped": {
+        f"{E['agent'][e]}|{(E['subject'][e] or '')[:8]}|slot{s}": n
+        for (e, s), n in sorted(unmapped.items(), key=str)}}
+    keys = sorted({(e, f) for (e, f, _r) in casts} | {(e, f) for (e, f, _c, _r) in roots}, key=str)
     for e, f in keys:
         rounds = sorted({r for (ee, ff, r) in casts if (ee, ff) == (e, f)}
                         | {r for (ee, ff, _c, r) in roots if (ee, ff) == (e, f)}, key=str)
-        for c in sorted(classes.get((e, f), {"<no child>"})):
-            per = [(r, casts[(e, f, r)], roots[(e, f, c, r)]) for r in rounds]
-            tag = {"player": f"{E['agent'][e]}|{(E['subject'][e] or '')[:8]}", "folder": f,
-                   "class": c, "casts": sum(p[1] for p in per), "children": sum(p[2] for p in per)}
-            bad = [p for p in per if p[1] != p[2]]
-            if not bad:
-                out["agree"].append(tag)
-            else:
-                out["disagree"].append({**tag, "rounds": [{"round": r, "casts": a, "children": b}
-                                                          for r, a, b in bad]})
+        cls = sorted({c for (ee, ff, c, _r) in roots if (ee, ff) == (e, f)})
+        per_c = {c: [roots[(e, f, c, r)] for r in rounds] for c in cls}
+        cr = [casts[(e, f, r)] for r in rounds]
+        summed = [sum(per_c[c][i] for c in cls) for i in range(len(rounds))]
+        if not any(cr):
+            verdict = "no_cast_records"
+        elif any(per_c[c] == cr for c in cls):
+            verdict = "class_equals"
+        elif summed == cr:
+            verdict = "classes_sum_equals"
+        else:
+            verdict = "disagree"
+        row = {"player": f"{E['agent'][e]}|{(E['subject'][e] or '')[:8]}", "folder": f,
+               "verdict": verdict, "casts": sum(cr),
+               "children": {c: sum(v) for c, v in per_c.items()}}
+        if verdict == "disagree":
+            best = min(cls, key=lambda c: sum(abs(a - b) for a, b in zip(per_c[c], cr))) if cls else None
+            row["rounds_differing"] = [
+                {"round": r, "casts": cr[i], "children": per_c[best][i] if best else 0}
+                for i, r in enumerate(rounds) if best is None or per_c[best][i] != cr[i]]
+            row["closest_class"] = best
+        out["rows"].append(row)
+    out["verdicts"] = dict(Counter(r["verdict"] for r in out["rows"]))
     return out
 
 
