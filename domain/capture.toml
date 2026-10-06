@@ -259,6 +259,9 @@ than the player's own icon, against the server-authoritative replay: by 47 to
 one game-13.04 match (9acf02f98283), flat across running speed. The delay
 varies between games and jitters within one, so no constant holds for every
 capture. The capture clock also runs about 1e-4 fast against the replay's.
+It does not follow ping: the lobby's highest ping was 59 ms on the 168 ms
+match and 150 ms on a 55 ms one, and neither the highest, the mean nor the
+player's own ping tracks it within a match.
 """
 kind = "measurement"
 known = "measured"
@@ -272,7 +275,9 @@ the clock drift. The player, 2026-10-06, proposed server-versus-client
 rendering as the cause; the player changed no client setting between the
 matches, and added that lag conditions differ between games and jitter
 within one. The replay's own ping field (30 to 37 ms median) does not track
-the gap.
+the gap; task render-delay-ping-20261006 tested every player's replay ping
+(lobby maximum, mean, own) between and within matches and found no relation.
+The player, 2026-10-06, judged ping conditions of little strategic weight.
 """
 use = """
 score replay truth with separate self and remote lags on a fitted clock
