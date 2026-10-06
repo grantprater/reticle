@@ -6094,6 +6094,21 @@ def cmd_ownership(args) -> int:
     return ownership_main(argv)
 
 
+def cmd_replay_layer(args) -> int:
+    """Build a match's replay layer from its kept replay, or say which are stale.
+
+    The layer (`replay_layer`, docs/REPLAY_LAYER.md) is every kept replay's
+    state on one schema: players and ability children per tick, events and
+    sparse state, on the capture's clock and minimap where a capture exists.
+    It reads stored data only (the vrfkit parse, the stored deaths, the baked
+    geometry) and decodes nothing; `plan` names a stale or absent layer.
+    """
+    from .replay_layer import command
+
+    return command(list(args.keys or []), all_=args.all, status_only=args.status,
+                   geometry=args.geometry, root=args.store)
+
+
 def cmd_status(args) -> int:
     """Status, computed from the store rather than written down.
 
@@ -6837,6 +6852,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--check", action="store_true",
                    help="verify the declaration against the code")
     s.set_defaults(func=cmd_ownership)
+
+    s = sub.add_parser("replay-layer", help="build a kept replay's state tables "
+                       "(players, ability children, events) on the capture's clock")
+    s.add_argument("keys", nargs="*", help="match ids, prefixes or capture sessions")
+    s.add_argument("--all", action="store_true", help="every parsed replay")
+    s.add_argument("--status", action="store_true",
+                   help="say which layers are current, stale or absent; build nothing")
+    s.add_argument("--geometry", type=Path, default=None,
+                   help="a baked geometry npz in place of the session's own")
+    s.set_defaults(func=cmd_replay_layer)
 
     s = sub.add_parser("status", help="generated pipeline status "
                        "(the perishable half of CLAUDE.md, computed)")

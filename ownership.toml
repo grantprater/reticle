@@ -2079,3 +2079,65 @@ parameter but the eye height is a default awaiting the player's answer
 (docs/EPISODES.md section 5).
 """
 evidence = "tests/test_episodes.py"
+# Replay truth: a kept replay on the capture's clock and map
+# ---------------------------------------------------------------------------
+
+[[entry]]
+id = "replay-alignment"
+question = "How does a kept replay's clock and world map onto a capture's clock and minimap pixels?"
+owner = "replay_source"
+role = ["assign"]
+status = "partial"
+produces = ["Replay", "Reference", "capture_replay_context", "fit_alignment", "match_times",
+            "MapFrame", "map_frame_for_geometry", "to_px", "facing_px_deg",
+            "frames_to_replay", "identify_player", "riot_records", "replay_entry",
+            "stored_deaths", "split_deaths", "MINIMAP_LAG_MS"]
+consumers = ["replay_actors", "replay_layer"]
+not_for = """
+Reading pixels, and naming agents in the capture. The replay's playerLoadouts
+name each replay player's agent as external truth; that name is never an
+`identity_claim`, never pooled into `agent-identity`, and never shown during
+play (the use policy, docs/EXTERNAL_GROUND_TRUTH.md). The clock offset rests
+on the stored deaths, so a death rerun moves it; it is fitted, never read off
+a reader's output as independent evidence of that reader.
+"""
+evidence = "tests/test_replay_truth.py, tests/test_riot_ground_truth.py"
+
+[[entry]]
+id = "replay-ability-actors"
+question = "Which replay actor is which ability, and which replay player cast it?"
+owner = "replay_actors"
+role = ["attribute"]
+status = "partial"
+produces = ["Export", "class_census", "slot_map", "handoff_pairs", "handoff",
+            "ability_display", "REPLAY_ACTORS_VERSION"]
+not_for = """
+Who cast an ability seen in the capture: that is `ability-owner`, which no
+pipeline module owns. This answers the replay's own actors only, through each
+actor's `Instigator` chain to a player pawn, and maps a class to an ability
+only from its folder, the game files' display name and that chain, never by
+name keyword or analogy.
+"""
+evidence = "tests/test_replay_layer.py"
+
+[[entry]]
+id = "replay-tables"
+question = "What does a kept replay hold of its match, per tick and per event, on the capture's clock and minimap?"
+owner = "replay_layer"
+role = ["track", "attribute"]
+status = "partial"
+produces = ["build", "load", "Layer", "status", "session_status", "current_inputs",
+            "lives_table", "round_table", "spawn_teams", "cast_crosscheck", "rpc_calls",
+            "REPLAY_LAYER_VERSION", "HELD_OUT", "SOURCES"]
+consumers = ["cli", "plan", "doctor"]
+not_for = """
+Anything shown during play, and any reader's or adjudicator's input: the layer
+is external truth under the use policy (docs/EXTERNAL_GROUND_TRUTH.md). Its
+agent names come from the replay's playerLoadouts and never enter
+`agent-identity`; its slot keys rest on the lineup's resolved verdicts and say
+so. It decodes no video and fits nothing: the clock and the map transform are
+`replay-alignment`'s, the actor-to-ability mapping `replay-ability-actors`'s.
+The held-out match is built and never summarised.
+"""
+defers_to = ["replay-alignment", "replay-ability-actors"]
+evidence = "tests/test_replay_layer.py, docs/REPLAY_LAYER.md"

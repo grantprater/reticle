@@ -874,6 +874,7 @@ def order_graph() -> tuple[dict[str, set[str]], dict[str, str]]:
     graph = input_graph()
     for spec in ENTITY_LANES:
         graph.setdefault(lane_streams(spec["lane"])[0], set()).update(spec["inputs"])
+    graph.setdefault("replay_layer", set()).update(REPLAY_LAYER_INPUTS)
     fold = {s["stream"]: s["upstream"][0] for s in derived_streams() if s.get("identity")}
     out: dict[str, set[str]] = {}
     for node, deps in graph.items():
@@ -1547,6 +1548,14 @@ def stale(store, sessions: list[str]) -> dict:
         # A stream checked above before one of its inputs was found stale
         # follows it now: staleness follows every declared input, in any order.
         _follow(store, sid, derived, moving)
+        # The replay layer of a session whose kept replay names it
+        # (`replay_layer.session_status`): absent or stale against its parse,
+        # the stored deaths its clock is fitted on, the geometry, the frame
+        # grid, the lineup and the code; a death rerun planned here moves it.
+        rl = replay_layer_work(store.root, sid, moving)
+        if rl is not None:
+            derived.append(rl)
+            moving.add(rl["stream"])
         # The entity lanes: the projection records each input's stamp.
         from .entity_events import lane_status
         lanes = lane_status(store, sid, moving)
@@ -1566,6 +1575,29 @@ def stale(store, sessions: list[str]) -> dict:
                     "widget": widget, "placement": placed, "caches": caches,
                     "source_retired": retired}
     return out
+
+
+#: The streams the replay layer is built from, for the build order: its clock
+#: is fitted on the stored deaths.
+REPLAY_LAYER_INPUTS = {"death"}
+
+
+def replay_layer_work(root, sid: str, moving: set[str] = frozenset()) -> dict | None:
+    """The replay layer's entry for a session, or None where it is current,
+    the session names no kept replay, or the replay is unparsed (`status`
+    names that apart)."""
+    from .replay_layer import REPLAY_LAYER_VERSION, session_status
+    st = session_status(sid, root)
+    if st is None or st["state"] == "unparsed":
+        return None
+    if st["state"] == "current" and not (REPLAY_LAYER_INPUTS & set(moving)):
+        return None
+    moved = list(st.get("moved") or [])
+    if st["state"] == "absent":
+        moved = ["absent"]
+    moved += sorted(m for m in REPLAY_LAYER_INPUTS & set(moving) if m not in moved)
+    return {"stream": "replay_layer", "stored": st.get("stored"), "current": REPLAY_LAYER_VERSION,
+            "inputs_moved": moved, "how": "storage", "command": st["command"]}
 
 
 def _channel_cache(store, manifest: dict, channel: str) -> tuple[str | None, str]:

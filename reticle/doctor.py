@@ -1436,6 +1436,32 @@ def check_inputs(store: Path) -> list[tuple[str, str]]:
     return out
 
 
+def check_replay_layer(store: Path) -> list[tuple[str, str]]:
+    """A session with a kept replay and no current replay layer.
+
+    In the spirit of PROMOTE: a replay kept for a capture is truth no scorer,
+    slot model or overlay can read until its layer is built
+    (`replay_layer`, docs/REPLAY_LAYER.md), and before the layer every
+    consumer re-derived the joins itself. The kept replays' manifest names
+    each one's capture session; each such session needs its layer current
+    against its parse, stored deaths, geometry, frame grid, lineup and code
+    (`replay_layer.session_status`), and `reticle plan` names the command."""
+    from .replay_layer import session_status
+    from .replay_source import replay_manifest
+    out = []
+    for f in replay_manifest(store).get("files") or []:
+        sid = f.get("capture_session")
+        if not sid:
+            continue
+        st = session_status(sid, store)
+        if st is None or st["state"] == "current":
+            continue
+        why = st["state"] + (f" ({', '.join(st['moved'])})" if st.get("moved") else "")
+        out.append((ERROR, f"{sid} keeps replay {st['match'][:8]} and its replay layer is "
+                           f"{why} -- run `{st['command']}`"))
+    return out
+
+
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("HANDOFF", check_handoff), ("DOCS", check_documents),
               ("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
@@ -1446,6 +1472,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("OWNERSHIP", check_ownership),
               ("QUOTED", lambda: check_quoted(store)),
               ("PROMOTE", lambda: check_promote(store)),
+              ("REPLAY_LAYER", lambda: check_replay_layer(store)),
               ("SESSION_STATIC", lambda: check_session_static(store)),
               ("GEOMETRY", lambda: check_geometry(store)),
               ("SHADE", lambda: check_shade(store)),
