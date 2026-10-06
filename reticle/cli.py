@@ -4212,6 +4212,41 @@ def cmd_reliability(args) -> int:
     return 0
 
 
+def cmd_self_entries(args) -> int:
+    """The player's own killfeed roles and the K/D they give, from the stored
+    death stream and the lineup's player binding (`adjudication.self_entry`):
+    the bound agent on the ally side first, "Me" where the portrait refuses.
+    Writes the `self_entry` stream with `--record`; alters no death or round.
+    Decodes no video."""
+    from .adjudication.self_entry import adjudicate_session
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    try:
+        rows = adjudicate_session(store, sid)
+    except ValueError as e:
+        raise SystemExit(f"{e} -- run `reticle deaths {sid}`")
+    head = rows[0]
+    print(f"{sid}: player {head['player']['agent']} ({head['player']['status']}); "
+          f"\"Me\" printed: {head['me_printed']}; {head['entries']} entries")
+    print(f"  K/D {head['kills']}/{head['deaths']}, unread kills {head['unread_kills']}, "
+          f"unread deaths {head['unread_deaths']}")
+    print(f"  basis {head['basis']}; portrait against \"Me\" {head['portrait_vs_me']}")
+    print(f"  portrait refusals {head['portrait_refusals']}")
+    for r in rows:
+        if r["kind"] != "entry":
+            continue
+        for role in r["roles"].values():
+            if role["disagreements"]:
+                print(f"  disagree {r['t_ms'] / 1000:.1f} s round {r['round_no']} {role['role']} "
+                      f"{role['side']} by {role['basis']}: {role['disagreements']} "
+                      f"(portrait {role['witnesses']['side_portrait']['agent']}, "
+                      f"entry {r['entry_type']})")
+    if args.record:
+        _record_inputs(store, sid, "self_entry", head)
+        print(f"-> {store.write_events('self_entry', sid, rows)}")
+    return 0
+
+
 def cmd_killstreak(args) -> int:
     """The killstreak numeral [domain:killfeed/killstreak-indicator] as a
     per-round kill-count witness: the stored
@@ -6808,6 +6843,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="windows already run: write only windows around --residuals they "
                         "do not cover with --pad to spare")
     s.set_defaults(func=cmd_dev_sample)
+
+    s = sub.add_parser("self-entries", help="the player's own killfeed roles by the bound "
+                                            "agent on the ally side, and their K/D (no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--record", action="store_true", help="write the self_entry stream")
+    s.set_defaults(func=cmd_self_entries)
 
     s = sub.add_parser("killstreak", help="killstreak numerals against the death stream's "
                                           "per-round kill index (no video)")
