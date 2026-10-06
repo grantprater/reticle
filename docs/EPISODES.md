@@ -371,7 +371,9 @@ duels then rest on kills and sight alone (`first_hitter` null with
 episode for episode. Vision episodes would be stored under
 `analysis/episodes/vision/`; the stored output then needs each episode's
 standing (the share of its samples observed, inferred or unknown), which
-this version does not write.
+this version does not write. [QUESTION_ACCEPTANCE.md](QUESTION_ACCEPTANCE.md)
+plans that standing, the slot-state timeline and the comparison of vision
+episodes with truth.
 
 ## 8. Storage and wiring
 

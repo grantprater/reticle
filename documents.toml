@@ -472,6 +472,14 @@ status = "proposed"
 since = "2026-10-05"
 
 [[document]]
+path = "docs/QUESTION_ACCEPTANCE.md"
+kind = "plan"
+status = "proposed"
+since = "2026-10-06"
+remains = "Every step B1-B14: slot state steps 1-3, the timeline's standing, the question harness with its masked truth, and the gated readers."
+waits_for = "The player's answers to the plan's three questions, and the frame-join merge."
+
+[[document]]
 path = "docs/SIGHTLINES_3D_PROBE.md"
 kind = "findings"
 status = "recorded"
