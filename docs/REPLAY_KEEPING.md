@@ -50,8 +50,9 @@ The game must be open for these steps; agents never open it.
    `<store>/external/replays/`, byte for byte, comparing sha256 of source and
    copy, and add them to `external/replays/manifest.json` with the capture
    session they belong to (`capture_session`).
-2. `prototypes/replay_truth.py parse` and `check` (the parse against Riot's
-   record), then `score SESSION`.
+2. `prototypes/replay_truth.py parse`; `wrap MATCH SESSION --write` once the
+   player's fetch kit has saved the match's Riot record; `check` (the parse
+   against Riot's record), then `score SESSION`.
 3. `prototypes/replay_abilities.py census MATCH`, `score SESSION` and
    `survey`, each with `--record`.
 

@@ -21,16 +21,19 @@ class RiotEconomyTest(unittest.TestCase):
         cls.rows = [row for sid, m in cls.records for row in rx.replay(sid, m)]
         cls.summary = rx.summarise(cls.rows)
 
+    # 23 records: the 22 captured in August and September, and c817691bcd15's,
+    # wrapped by `replay_truth.py wrap` on 2026-10-05 (2 starts, 2 halves,
+    # 8 overtime and 44 regular team-rounds, all predicted)
     def test_resets(self):
         s = self.summary
-        self.assertEqual((s["match_start_ok"], s["match_start_n"]), (44, 44))
-        self.assertEqual((s["halftime_ok"], s["halftime_n"]), (40, 40))
-        self.assertEqual((s["overtime_ok"], s["overtime_n"]), (16, 16))
+        self.assertEqual((s["match_start_ok"], s["match_start_n"]), (46, 46))
+        self.assertEqual((s["halftime_ok"], s["halftime_n"]), (42, 42))
+        self.assertEqual((s["overtime_ok"], s["overtime_n"]), (24, 24))
 
     def test_regular_rounds(self):
         s = self.summary
-        self.assertEqual(s["regular_n"], 816)
-        self.assertGreaterEqual(s["regular_ok"], 815)
+        self.assertEqual(s["regular_n"], 860)
+        self.assertGreaterEqual(s["regular_ok"], 859)
 
     def test_every_miss_settles_an_afk_round(self):
         # Riot withholds an AFK player's round reward and pays teammates a

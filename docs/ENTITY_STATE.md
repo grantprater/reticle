@@ -153,9 +153,9 @@ as the reported region.
   distance a player covers in one frame period, since a truth instant falls
   within a frame of the one drawn. It comes from geometry and a game fact,
   never from truth. Stored ally fits lie a median
-  [metric:replay_truth/score@9acf02f98283#ally_err_cm_median=76.0] cm from
+  [metric:replay_truth/score@9acf02f98283~2026-10-04T16:14:32#ally_err_cm_median=76.0] cm from
   the replay, 90th percentile
-  [metric:replay_truth/score@9acf02f98283#ally_err_cm_p90=159.0] cm; the
+  [metric:replay_truth/score@9acf02f98283~2026-10-04T16:14:32#ally_err_cm_p90=159.0] cm; the
   scorers measure the disc's calibration and never set it (amended: the
   first draft fitted `k` on development truth, a threshold taken from
   truth).
@@ -605,7 +605,7 @@ Enemy slots follow the same lifecycle and belief, with weaker evidence.
   its side) shows a living enemy slot and places nobody; a killfeed death
   closes the slot as for allies.
 - The replay holds no stored enemy coverage yet
-  ([metric:replay_truth/score@9acf02f98283#enemy_coverage=0.0]); enemy
+  ([metric:replay_truth/score@9acf02f98283~2026-10-04T16:14:32#enemy_coverage=0.0]); enemy
   calibration is first measured at Riot's kill instants.
 
 ## 8. Evaluation

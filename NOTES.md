@@ -33,7 +33,7 @@ Ascent, `valorant-16x9-bigmap`, 48:28; preflight passed against donor a06f04a005
 - The lineup named an enemy Clove absent from the replay (3 of 5 named, one wrong).
 - The rounds table's K/D says 10/28; the replay and the rounds' own died-in-round count say 10/24.
 - `replay_abilities.py` census crashed with a TypeError.
-- No Riot record: the client was logged out, and only the player runs [the fetch kit](docs/MATCH_FETCH_KIT.md). `riot_ground_truth` reads only wrapped files in `external/riot/`; a wrap step from `external/riot-pd-v1/raw/` is missing.
+- Riot record: fetched by the player's kit and wrapped into `external/riot/` by `prototypes/replay_truth.py wrap` (replay-truth-0.2.0, branch `replay-truth-v2-20261005`); the replay agrees with it on every kill.
 - **Cost** (`reticle usage c817691bcd15`): the video passes ran 6,850 s serially on about one core while 5.5 to 8.5 of 12 logical processors idled. `ally_icon` at 15 Hz took 3,722 s, 54% of the ingest, about 94 ms per frame (stack_fit 1,597 s, pose 1,262 s); the five NVDEC decodes took about 1,550 s. The minimap pass's recorded CPU time matches its wall time, which weakens the CPU-sharing explanation.
 
 ### Unmerged branches
