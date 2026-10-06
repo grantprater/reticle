@@ -2272,7 +2272,14 @@ PORTRAIT_ASPECT = 2.0
 # kill's portraits sit either side of its icon, not of a portrait's edge.
 # 0.24.0 (2026-10-05): a one-colour run topped by scenery above the first
 # slot yields the resting slots inside it (`_bands_from_rows`, hud-0.26.0).
-KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.24.0"
+# 0.25.0 (2026-10-06): a band under the Shooting Error readout's footprint,
+# where the frame draws the box or a bright scene hides it and the session
+# mask holds it (`readout_cover`, hud-0.27.0), is a view refused as
+# `occluded_by_shooting_error`, so no portrait, badge, weapon, name or numeral
+# is read there. On 4f207c0c4e39 the slot-4 entry at 879.0 and 881.0 s
+# writes no rows, and later entries' `entry` ids shift; a capture without the
+# readout writes the same rows as 0.24.0.
+KILLFEED_PORTRAIT_VERSION = "killfeed-portrait-0.25.0"
 
 #: How many columns must stay clear of plate and text before a gap is the
 #: portrait rather than the space inside a letter.
@@ -3474,7 +3481,9 @@ def second_life_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # (`wallbang_x`) and the decision cut once at WALLBANG_CUT (`wallbang`, None
 # with `wallbang_reason` where unread) [domain:killfeed/wallbang-mark].
 # Every 0.17.0 field is unchanged.
-KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.18.0"
+# 0.19.0 (2026-10-06): no row under the Shooting Error readout; see the
+# portrait stamp.
+KILLFEED_WEAPON_VERSION = "killfeed-weapon-0.19.0"
 
 #: White mask cut for the weapon slot's line art against a coloured plate. The
 #: icon is drawn at V >= 240 and S < 20; the translucent green plate over a
@@ -4137,7 +4146,9 @@ def weapon_icon_observations(frame: np.ndarray, roi: Roi, width: int, height: in
 # where the plates meet at one seam; see the portrait stamp.
 # 0.9.0 (2026-10-05): a one-colour run topped by scenery yields the resting
 # slots inside it; see the portrait stamp.
-KILLFEED_NAME_VERSION = "killfeed-name-0.9.0"
+# 0.10.0 (2026-10-06): no row under the Shooting Error readout; see the
+# portrait stamp.
+KILLFEED_NAME_VERSION = "killfeed-name-0.10.0"
 
 #: Names measured at most 14 px tall, the headshot crosshair 16-17 px.
 NAME_MAX_TEXT_H = 15
