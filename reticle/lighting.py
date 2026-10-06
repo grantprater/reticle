@@ -102,7 +102,7 @@ class Lighting:
 def reference(z) -> Lighting | None:
     """Build the reference from an open geometry npz, or None if it predates it.
 
-    `z` is the mapping `np.load` returns for `store/geometry/<map>__<profile>.npz`.
+    `z` is the mapping `np.load` returns for a key's cache (`geometry.path`).
     Returns None rather than raising: a caller without a lighting reference
     falls back to whatever it did before, which is the upgrade-path convention
     the rest of the minimap channel uses.
