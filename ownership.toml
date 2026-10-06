@@ -150,12 +150,11 @@ question = "What does this map's minimap look like, and where does a profile dra
 owner = "map_asset"
 role = ["constrain"]
 status = "shipped"
-produces = ["render", "asset_stamp", "textures", "art_classes", "shade_layers", "classify_art", "ROTATION", "transform"]
+produces = ["render", "asset_stamp", "textures", "art_classes", "shade_layers", "classify_art", "ROTATION", "transform", "world_to_texture", "world_offset", "sites", "letter_cover"]
 not_for = """
 Where a reader finds a key's arrays: `map-geometry` caches and serves them.
-Not the world: where a game-unit position lands on the texture is the
-world-to-texture constants' question, and a per-map offset of one to two
-texture px between them and the drawn map is measured, not fitted here.
+Not the fitting: `prototypes/minimap_geometry.py` fits the transforms and the
+world offsets; this module reads them frozen.
 """
 consumers = ["geometry"]
 evidence = "prototypes/official_geometry_eval.py"

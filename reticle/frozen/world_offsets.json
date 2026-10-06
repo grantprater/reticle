@@ -1,0 +1,146 @@
+{
+ "offsets": {
+  "abyss": [
+   1.1344,
+   -1.9895
+  ],
+  "ascent": [
+   1.4521,
+   -1.0002
+  ],
+  "haven": [
+   -1.2825,
+   -1.4127
+  ],
+  "lotus": [
+   1.8363,
+   -2.1383
+  ],
+  "split": [
+   -0.5384,
+   -0.7582
+  ],
+  "summit": [
+   2.026,
+   -0.9421
+  ],
+  "sunset": [
+   0.9697,
+   -0.0045
+  ]
+ },
+ "fit_on": {
+  "043bafca271a": [
+   "haven",
+   "valorant-16x9",
+   56
+  ],
+  "223d636bf8d2": [
+   "haven",
+   "valorant-16x9",
+   69
+  ],
+  "3694746e4e54": [
+   "ascent",
+   "valorant-16x9",
+   55
+  ],
+  "4f207c0c4e39": [
+   "split",
+   "valorant-16x9",
+   65
+  ],
+  "5822b6646448": [
+   "lotus",
+   "valorant-16x9-bigmap",
+   75
+  ],
+  "587c15b07779": [
+   "lotus",
+   "valorant-16x9-bigmap",
+   60
+  ],
+  "59c70f1ef720": [
+   "ascent",
+   "valorant-16x9",
+   63
+  ],
+  "7010b3d62460": [
+   "lotus",
+   "valorant-16x9-bigmap",
+   43
+  ],
+  "75a55a296d3b": [
+   "abyss",
+   "valorant-16x9",
+   20
+  ],
+  "96aa1ae9b96f": [
+   "haven",
+   "valorant-16x9",
+   44
+  ],
+  "9acf02f98283": [
+   "ascent",
+   "valorant-16x9",
+   62
+  ],
+  "a06f04a0059f": [
+   "ascent",
+   "valorant-16x9-bigmap",
+   74
+  ],
+  "a1a995e6b19b": [
+   "sunset",
+   "valorant-16x9-bigmap",
+   93
+  ],
+  "b3b9defb6fd7": [
+   "summit",
+   "valorant-16x9",
+   64
+  ],
+  "b7d24102a6f6": [
+   "split",
+   "valorant-16x9",
+   43
+  ],
+  "bdfdcf009dba": [
+   "lotus",
+   "valorant-16x9",
+   41
+  ],
+  "bfad2778a372": [
+   "split",
+   "valorant-16x9",
+   56
+  ],
+  "c40d950031bb": [
+   "ascent",
+   "valorant-16x9",
+   16
+  ],
+  "c62c2b06bcfb": [
+   "split",
+   "valorant-16x9-bigmap",
+   62
+  ],
+  "c817691bcd15": [
+   "ascent",
+   "valorant-16x9-bigmap",
+   86
+  ],
+  "e37fdeca944f": [
+   "sunset",
+   "valorant-16x9",
+   74
+  ],
+  "ff636d173b07": [
+   "summit",
+   "valorant-16x9",
+   69
+  ]
+ },
+ "method": "mean texture-px residual of Riot victim rows under 8 px (reader minus truth), per map",
+ "source": "riot_cur0.json"
+}

@@ -53,11 +53,30 @@ texture through `RT_SIDE` at the profile's scale. The occluder and line arrays
 are read in widget pixels from the drawn static and from the player's answers
 on two bigmap keys, so they stay per key (`reticle/occluders.py`).
 
-The widget also draws each bomb site's letter (`Minimap_Assets/ASite_Letter`
-and its siblings), at a place no extracted file states: the callout regions
-projected through the world-to-texture constants miss the drawn letters. The
-drawn static therefore lacks them, and a reader differencing against it sees
-each letter as a fixed foreground blob.
+The world
+---------
+`world_to_texture` carries game units to texture px through the constants the
+map's `<code>_UIData` stores (`XMultiplier`, `XScalarToAdd` and their Y twins;
+valorant-api publishes the same numbers), then adds the map's `world_offset`.
+That offset, one to two texture px, lies between the constants and the drawn
+texture: alike at both profiles and in every match of a map. It is fitted on
+development matches' Riot kill positions (`prototypes/minimap_geometry.py
+--fit-world`) and frozen in `reticle/frozen/world_offsets.json`; a map no
+development match covers keeps zero. Scored leave-one-match-out, it cut the
+mean victim-position error by
+[metric:official_geometry/world_lomo/valorant-16x9#change_vs_official=-0.066]
+px on the 331 px widget and by
+[metric:official_geometry/world_lomo/valorant-16x9-bigmap#change_vs_official=-0.375]
+px on the 465 px one. `shade_fit` places the world, so it carries the offset.
+
+The widget draws each bomb site's letter where the map's gameplay level places
+a `MinimapSite{A,B,C}` actor (its `TheScene` location), exported into
+`<store>/reference/game-files/<BUILD>/minimap-sites/` with the letter widgets
+and the `<X>Site_Letter` textures. Each widget names an upright 24-unit
+glyph, black at half opacity. `render` darkens the static and the noise
+bounds under the letters (`letter_cover`). The letters' side
+(`LETTER_TEX_PX`) is the one fitted number: the files do not state the unit
+the widget's size is in.
 
 `render` draws a `(map, profile)` key's fields; `reticle/geometry.py` caches
 them per key and rebuilds a cache whose `built_by` is not `asset_stamp`.
@@ -82,6 +101,14 @@ BUILD = "release-13.06-shipping-18-5590001"
 TRAIN_KEYS = ("ascent__valorant-16x9", "ascent__valorant-16x9-bigmap",
               "lotus__valorant-16x9", "lotus__valorant-16x9-bigmap")
 PROFILES_FILE = Path(__file__).resolve().parent / "frozen" / "geometry_profiles.json"
+#: Each map's world offset, texture px (`world_offset`).
+WORLD_FILE = Path(__file__).resolve().parent / "frozen" / "world_offsets.json"
+#: The site letters' side in texture px: fitted on the training keys' ten
+#: letters (sd 1.0) and held by the sixteen others. It is twice the letter
+#: widget's `Minimap Size` (24) within 1.3%, which no file states as a rule.
+LETTER_TEX_PX = 47.4
+#: The letter widget's `ColorAndOpacity` alpha (`AresMinimapSite*Widget`).
+LETTER_OPACITY = 0.5
 #: The texture is resampled bilinearly to this side, then bilinearly into the
 #: widget. Of seven filters tried it reproduced the capture's line-work best on
 #: the training keys.
@@ -469,14 +496,115 @@ def void_background(alpha: np.ndarray, P: dict) -> np.ndarray:
     return bg + ring(alpha.shape, P["centre"], P["ring_r"])[..., None] * P["ring_lift"]
 
 
+# ---------------------------------------------------------------- the world
+
+def site_set(store=DEFAULT_STORE) -> Path:
+    return game_dir(store) / "minimap-sites"
+
+
+@lru_cache(maxsize=4)
+def _site_manifest(store: str) -> tuple:
+    p = site_set(store) / "manifest.jsonl"
+    return tuple(json.loads(l) for l in p.read_text(encoding="utf-8").splitlines()
+                 if l.strip()) if p.is_file() else ()
+
+
+def uidata_constants(map_name: str, store=DEFAULT_STORE) -> dict:
+    """The map's world-to-texture constants from its UIData, the numbers
+    valorant-api publishes."""
+    code = textures(map_name, store)["code"]
+    rows = json.loads((game_dir(store) / "minimap" / "ShooterGame" / "Content" / "Maps" / code
+                       / f"{code}_UIData.json").read_text(encoding="utf-8"))
+    props = next(r.get("Properties") or {} for r in rows
+                 if str(r.get("Name", "")).startswith("Default__"))
+    return {"x_mult": float(props["XMultiplier"]), "x_add": float(props["XScalarToAdd"]),
+            "y_mult": float(props["YMultiplier"]), "y_add": float(props["YScalarToAdd"])}
+
+
+@lru_cache(maxsize=1)
+def _world_text() -> str:
+    return WORLD_FILE.read_text(encoding="utf-8") if WORLD_FILE.is_file() else "{}"
+
+
+def world_offset(map_name: str) -> np.ndarray:
+    """The texture px a world position lands from where UIData puts it, per map:
+    fitted on development matches (`prototypes/minimap_geometry.py
+    --fit-world`). Zero for a map no development match covers."""
+    off = (json.loads(_world_text()).get("offsets") or {}).get(map_name)
+    return np.asarray(off if off is not None else (0.0, 0.0), float)
+
+
+def world_to_texture(map_name: str, x, y, store=DEFAULT_STORE):
+    """Game units to texture px (pixel centres at integers), as the game places
+    a widget drawn at a world position: UIData's constants, then the map's
+    world offset."""
+    c = uidata_constants(map_name, store)
+    u = np.asarray(y, float) * c["x_mult"] + c["x_add"]
+    v = np.asarray(x, float) * c["y_mult"] + c["y_add"]
+    d = world_offset(map_name)
+    return u * 1024.0 - 0.5 + d[0], v * 1024.0 - 0.5 + d[1]
+
+
+def sites(map_name: str, store=DEFAULT_STORE) -> dict:
+    """Site letter -> (world x, world y, the level package that places it): each
+    `MinimapSite{A,B,C}` actor's `TheScene.RelativeLocation` in the map's
+    gameplay level."""
+    import re
+    code = textures(map_name, store)["code"]
+    out = {}
+    for row in _site_manifest(str(store)):
+        if row.get("kind") != "json" or f"/Maps/{code}/" not in row["game_path"]:
+            continue
+        rows = json.loads((site_set(store) / row["output"]).read_text(encoding="utf-8"))
+        scene = {str((r.get("Outer") or {}).get("ObjectName", "")).split("PersistentLevel.")[-1]
+                 .rstrip("'"): r for r in rows if r.get("Name") == "TheScene"}
+        for r in rows:
+            m = re.match(r"MinimapSite([ABC])_C$", str(r.get("Type")))
+            if m and r["Name"] in scene:
+                loc = scene[r["Name"]]["Properties"]["RelativeLocation"]
+                out[m.group(1)] = (float(loc["X"]), float(loc["Y"]), row["game_path"])
+    return out
+
+
+def _letter(ch: str, store) -> np.ndarray:
+    row = next(r for r in _site_manifest(str(store))
+               if r["game_path"].endswith(f"/{ch}Site_Letter.uasset"))
+    im = cv2.imread(str(site_set(store) / row["output"]), cv2.IMREAD_UNCHANGED)
+    return im[..., 3].astype(np.float32) / 255.0
+
+
+def letter_cover(map_name: str, M: np.ndarray, shape, store=DEFAULT_STORE) -> np.ndarray:
+    """How much each widget pixel the site letters darken, 0..LETTER_OPACITY.
+    Each letter is a black glyph (`<X>Site_Letter`), upright, centred on its
+    site's world position, `LETTER_TEX_PX` texture px a side, box-filtered
+    then warped bilinearly."""
+    cover = np.zeros(shape, np.float32)
+    s = float(np.sqrt(abs(np.linalg.det(M[:, :2]))))
+    for ch, (x, y, _src) in sorted(sites(map_name, store).items()):
+        a = _letter(ch, store)
+        tx, ty = world_to_texture(map_name, x, y, store)
+        cx, cy = M @ np.array([float(tx), float(ty), 1.0])
+        k = LETTER_TEX_PX * s / a.shape[0]
+        b = max(1, int(round(1.0 / k)))
+        W = np.array([[k, 0, cx - k * (a.shape[1] - 1) / 2], [0, k, cy - k * (a.shape[0] - 1) / 2]])
+        cover = np.maximum(cover, cv2.warpAffine(cv2.blur(a, (b, b)), W, (shape[1], shape[0]),
+                                                 flags=cv2.INTER_LINEAR))
+    return cover * LETTER_OPACITY
+
+
 def asset_stamp(map_name: str, prof: str, store=DEFAULT_STORE) -> str:
-    """This file's code (line endings normalised), the two textures' sha256,
-    the map's rotation and the profile's transform: `built_by`."""
+    """This file's code (line endings normalised), the two textures' and the
+    site levels' sha256, the map's rotation and world offset and the profile's
+    transform: `built_by`."""
     h = hashlib.sha256()
     h.update("\n".join(Path(__file__).read_text(encoding="utf-8").splitlines()).encode())
     tx = textures(map_name, store)
     h.update(f"{BUILD}|{tx['fog']['sha256']}|{tx['rev']['sha256']}|{rotation(map_name)}".encode())
     h.update(json.dumps(transform(prof), sort_keys=True).encode())
+    h.update(json.dumps(world_offset(map_name).tolist()).encode())
+    for row in _site_manifest(str(store)):
+        if f"/Maps/{tx['code']}/" in row["game_path"] or "Site_Letter" in row["game_path"]:
+            h.update(row["sha256"].encode())
     return h.hexdigest()
 
 
@@ -484,9 +612,10 @@ def _old_fit(map_name: str, M: np.ndarray, rot: float, store) -> np.ndarray:
     """`shade_fit` in the wiki art's crop convention (`prototypes/wiki_map.py`
     `_warp`/`_place`), so its three readers -- `geometry.map_scale`,
     `raised_edges.zoom` and the Riot `MapFrame` -- read it unchanged. The wiki
-    art is the fog texture, upscaled to 2048 px for five maps. The IoU and NCC
-    slots hold 1.0: the placement is the profile's, not a fit. Without the art
-    the scale and offset slots are NaN."""
+    art is the fog texture, upscaled to 2048 px for five maps. It places the
+    WORLD, so it carries the map's `world_offset` on top of `M`; `map_affine`
+    places the texture. The IoU and NCC slots hold 1.0: the placement is the
+    profile's, not a fit. Without the art the scale and offset slots are NaN."""
     art = cv2.imread(str(Path(store) / "reference" / "maps" / f"{map_name}.png"),
                      cv2.IMREAD_UNCHANGED)
     if art is None:
@@ -501,7 +630,7 @@ def _old_fit(map_name: str, M: np.ndarray, rot: float, store) -> np.ndarray:
     R[1, 2] += side / 2 - h0 / 2
     t = np.array([511.5, 511.5])
     q = k * t + (k - 1) / 2.0 - np.array([xs.min(), ys.min()])
-    d = (M @ np.array([*t, 1.0])) - (R @ np.array([*q, 1.0]))
+    d = (M @ np.array([*t, 1.0])) - (R @ np.array([*q, 1.0])) + M[:, :2] @ world_offset(map_name)
     return np.array([rot, sc, d[0], d[1], 1.0, 1.0], np.float32)
 
 
@@ -519,6 +648,9 @@ def render(map_name: str, prof: str, store=DEFAULT_STORE, P: dict | None = None)
     cls = pixel_classes(a, cv2.cvtColor(fog[..., :3] * 255.0, cv2.COLOR_BGR2GRAY))
     lo[cls == C_VOID] += P["void_lo"]
     hi[cls == C_VOID] += P["void_hi"]
+    keep = 1.0 - letter_cover(map_name, M, P["shape"], store)
+    static = np.clip(np.rint(np.clip(lo_bgr, 0, 255) * keep[..., None]), 0, 255).astype(np.uint8)
+    lo, hi = lo * keep, hi * keep
     im = read_bgra(tx["fog"], store)
     kind, shade, step, _ladder, _base = art_classes(im, map_name)
     ys, xs = np.where(im[:, :, 3] > ALPHA_MIN)
@@ -531,7 +663,9 @@ def render(map_name: str, prof: str, store=DEFAULT_STORE, P: dict | None = None)
     st = asset_stamp(map_name, prof, store)
     prov = {"build": BUILD, "fog": tx["fog"]["game_path"], "fog_sha256": tx["fog"]["sha256"],
             "revealed": tx["rev"]["game_path"], "revealed_sha256": tx["rev"]["sha256"],
-            "rotation": rot, "transform": prof, "transform_fit_on": list(TRAIN_KEYS)}
+            "rotation": rot, "transform": prof, "transform_fit_on": list(TRAIN_KEYS),
+            "sites": {k: list(v) for k, v in sites(map_name, store).items()},
+            "world_offset_tex_px": world_offset(map_name).round(4).tolist()}
     return dict(labels=classify_art(o_kind), static=static, roi=np.array([x0, y0, x1, y1]),
                 lo_gray=lo.astype(np.float32), hi_gray=hi.astype(np.float32),
                 sd_lo=np.asarray(P["sd_lo"], np.float32)[cls],
