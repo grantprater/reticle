@@ -35,8 +35,10 @@ Store layout (never in this repository: account ids stay in the store)
     `provenance.json`        vrfkit commit, toolchain, input sha256, commands, times
     `check.json`             `check`: the replay against Riot's record
 `<store>/external/riot/<match>.json`                `wrap`'s output, `riot_ground_truth`'s input
-`<store>/analysis/replay-truth-20261006/<session>.json`   `score`'s 0.3.0 report
-(0.2.0's stay in `analysis/replay-truth-20261005/`, 0.1.0's in `analysis/replay-truth-20261004/`)
+`<store>/analysis/replay-truth-20261006-lag/<session>.json`   `score`'s 0.4.0 report, beside
+    `<session>_replay-truth-0.3.0.json`, 0.3.0 rerun on the same stored streams
+(0.3.0's first reports stay in `analysis/replay-truth-20261006/`, 0.2.0's in
+`analysis/replay-truth-20261005/`, 0.1.0's in `analysis/replay-truth-20261004/`)
 
 The commands
 ------------
@@ -61,7 +63,11 @@ stream holds (sample rate per player, height, the park slot).
 `score` aligns replay time to capture time through STORED events only (replay
 kills against the stored deaths' first killfeed sample, as `riot_ground_truth`
 aligns Riot's kills; the stored round starts are the independent
-cross-check) and maps world positions into baked widget pixels through
+cross-check). 0.4.0 keeps the fit's slope (`capture_to_replay`): the capture
+clock gains about 1e-4 on the replay's, which a slope-1 offset turned into a
+lag drifting some 200 ms across a match. It reads the player at `SELF_LAG_MS`
+and every other player at `REMOTE_LAG_MS`, 50 ms later: the capture draws
+remote players later than the player (`prototypes/minimap_lag.py`) and maps world positions into baked widget pixels through
 `riot_ground_truth.MapFrame` (valorant-api's map constants, the geometry's
 `shade_fit`); `--geometry` names another baked npz, so one capture scores
 before and after a geometry rebuild. 0.3.0 first names the player from the
@@ -144,11 +150,22 @@ from reticle.replay_source import (MAX_GAP_MS, PARK_RADIUS, PARK_X, PARK_Z,  # n
 from reticle.replay_source import file_sha256 as sha256  # noqa: E402,F401
 from reticle.replay_source import frames_to_replay as _frames_to_replay  # noqa: E402
 
-REPLAY_TRUTH_VERSION = "replay-truth-0.3.0"
+REPLAY_TRUTH_VERSION = "replay-truth-0.4.0"
 STORE = Path.home() / "reticle-store"
 REPLAYS = src.replays_dir(STORE)
 PARSED = src.parsed_root(STORE)
-ANALYSIS = STORE / "analysis" / "replay-truth-20261006"
+ANALYSIS = STORE / "analysis" / "replay-truth-20261006-lag"
+
+#: 0.4.0 reads truth on the killfeed fit's own clock (`capture = a_ls + slope *
+#: replay`, `capture_to_replay`) and per class: the self icon at `SELF_LAG_MS`,
+#: every other player (teammates, enemies) at `REMOTE_LAG_MS`. Each is the median
+#: over the development matches (9acf02f98283, c817691bcd15, d3dcfb182ab1) of the
+#: best extra lag on moving isolated icons (`prototypes/minimap_lag.py --posthoc`,
+#: task `teammate-lag-20261006`): self +33.3 ms (-50.0, +33.3, +33.3), teammates
+#: +83.3 ms (+133.3, +83.3, +83.3) over `MINIMAP_LAG_MS`. The held-out match never
+#: informed them.
+SELF_LAG_MS = rg.MINIMAP_LAG_MS + 100.0 / 3.0
+REMOTE_LAG_MS = rg.MINIMAP_LAG_MS + 250.0 / 3.0
 
 #: The stored minimap streams sample at 15 Hz; track minutes count frames of this grid.
 GRID_HZ = 15.0
@@ -495,7 +512,7 @@ def replay_self_identity(ctx: dict, AI: dict, margin: float | None = None) -> di
     """Self from the stored self-icon track; teams from the replay's spawn split.
 
     The track is `ally_icon`'s frame rows with the widget drawn and a self
-    fit, put on replay time by the scorer's alignment (`a`, `MINIMAP_LAG_MS`);
+    fit, put on replay time by the scorer's clock (`clock`, `SELF_LAG_MS`);
     each replay subject's living position is mapped to widget px by the baked
     `MapFrame` (`truth_px`). `choose_self_subject` decides. Teams come from
     `replay_layer.spawn_teams` (labels A/B). The verdict `rests_on`
@@ -503,9 +520,9 @@ def replay_self_identity(ctx: dict, AI: dict, margin: float | None = None) -> di
     the choice."""
     from reticle.replay_layer import spawn_teams
 
-    rp, mf, a = ctx["rp"], ctx["mf"], ctx["a"]
+    rp, mf, clock = ctx["rp"], ctx["mf"], ctx["clock"]
     m = AI["drawn"] & np.isfinite(AI["self_x"])
-    t_rep = _frames_to_replay(AI["t_ms"][m], a, rg.MINIMAP_LAG_MS)
+    t_rep = capture_to_replay(AI["t_ms"][m], *clock, SELF_LAG_MS)
     subs = list(rp.subjects)
     X, Y, _yaw, _L = truth_px(rp, mf, subs, t_rep)
     px_per_m = mf.px_per_unit * 100.0
@@ -544,6 +561,11 @@ def session_context(sid: str, geometry: Path | None = None) -> dict:
     out["replay_truth_version"] = REPLAY_TRUTH_VERSION
     if "refused" in out:
         return ctx
+    al = out["align"]
+    ctx["clock"] = (float(al["a_ls_ms"]), float(al["slope"]))
+    out["clock"] = {"rule": "capture = a_ls + slope * replay (the killfeed least-squares fit)",
+                    "a_ls_ms": round(ctx["clock"][0], 1), "slope": ctx["clock"][1],
+                    "self_lag_ms": round(SELF_LAG_MS, 3), "remote_lag_ms": round(REMOTE_LAG_MS, 3)}
     AI = load_ally_icon(sid)
     ctx["AI"] = AI
     rid = replay_self_identity(ctx, AI)
@@ -591,7 +613,8 @@ MISS_CLASSES = ("widget_absent", "stacked", "under_stored_occluder", "edge", "is
 FLIP_DEG = 135.0
 #: A wrong name this soon after its teammate left a stack counts as stack-born.
 STACK_LEAVE_MS = 1000.0
-#: The minimap lags (ms) a lag scan tries in place of `rg.MINIMAP_LAG_MS`.
+#: The minimap lags (ms) a lag scan tries in place of the class's lag, on the
+#: killfeed fit's clock.
 LAG_SCAN_MS = tuple(range(-1000, 501, 50))
 #: How far the nearest row of a slower occluder stream may lie from the frame
 #: it stands for: half its step (`ability_glyph` 2 Hz, `minimap_dark` 4 Hz,
@@ -665,6 +688,13 @@ def track_metrics(life, t, ent, n_obs: int, hz: float = GRID_HZ, flag=None) -> d
             "idf1": round(2.0 * idtp / (t.size + n_obs), 4) if (t.size + n_obs) else None,
             "id_precision": round(idtp / n_obs, 4) if n_obs else None,
             "id_recall": round(idtp / t.size, 4) if t.size else None}
+
+
+def capture_to_replay(t_cap, a_ms: float, slope: float, lag_ms: float):
+    """Capture ms of a stored minimap frame -> the replay ms it shows, by the
+    killfeed fit `capture = a_ms + slope * replay` and a minimap lag
+    `lag_ms`. With slope 1 this is `replay_source.frames_to_replay`."""
+    return (np.asarray(t_cap, float) - float(a_ms)) / float(slope) - float(lag_ms)
 
 
 def truth_px(rp, mf, subs, t_rep):
@@ -928,7 +958,7 @@ def _facing_block(err) -> dict:
             "within_30deg": round(float(np.mean(e <= 30.0)), 4) if e.size else None}
 
 
-def _facing_lag_scan(rp, mf, subj, t_cap, fac, a) -> dict:
+def _facing_lag_scan(rp, mf, subj, t_cap, fac, clock) -> dict:
     """Median facing error per minimap lag in `LAG_SCAN_MS`, the pairs fixed."""
     subj = np.asarray(subj, dtype=object)
     scan = {}
@@ -936,7 +966,7 @@ def _facing_lag_scan(rp, mf, subj, t_cap, fac, a) -> dict:
         err = np.full(t_cap.size, np.nan)
         for s in set(subj.tolist()):
             m = subj == s
-            q = rp.sample(s, _frames_to_replay(t_cap[m], a, L))
+            q = rp.sample(s, capture_to_replay(t_cap[m], *clock, L))
             err[m] = _ang_deg(facing_px_deg(mf, q["x"], q["y"], q["yaw"]), fac[m])
         scan[int(L)] = round(float(np.nanmedian(err)), 3) if np.isfinite(err).any() else None
     ok = {k: v for k, v in scan.items() if v is not None}
@@ -962,12 +992,11 @@ def score(sid: str, geometry: Path | None = None) -> dict:
     out = ctx["out"]
     if "refused" in out:
         return out
-    rp, mf, a, me, team = ctx["rp"], ctx["mf"], ctx["a"], ctx["me"], ctx["team"]
+    rp, mf, clock, me, team = ctx["rp"], ctx["mf"], ctx["clock"], ctx["me"], ctx["team"]
     allies, foes, agent = ctx["allies"], ctx["foes"], ctx["agent"]
     cm_per_px, gate = ctx["cm_per_px"], ctx["gate"]
     H, W = mf.widget_shape
     r_icon = float(mf.icon_px)
-    lag = rg.MINIMAP_LAG_MS
     rs = rp.round_starts()
     out["r_icon_px"] = round(r_icon, 3)
     stamps = {}
@@ -980,7 +1009,8 @@ def score(sid: str, geometry: Path | None = None) -> dict:
     in_sp = roi_cache.spans_mask(AI["t_ms"], spans)
     sc = in_sp & AI["drawn"]
     S_idx, S_t = AI["frame_idx"][sc], AI["t_ms"][sc]
-    S_rep = _frames_to_replay(S_t, a, lag)
+    S_rep = capture_to_replay(S_t, *clock, REMOTE_LAG_MS)        # teammates
+    S_rep_self = capture_to_replay(S_t, *clock, SELF_LAG_MS)     # the player
     n = int(S_idx.size)
     out["frames"] = {
         "rule": "ally_icon frames inside the minimap crop cache's spans with widget_drawn",
@@ -999,6 +1029,9 @@ def score(sid: str, geometry: Path | None = None) -> dict:
     mates = list(allies)
     c_me = mates.index(me)
     TX, TY, TYAW, TL = truth_px(rp, mf, mates, S_rep)
+    # the player's column at the self lag: the capture draws the player earlier
+    sX, sY, sYAW, sL = truth_px(rp, mf, [me], S_rep_self)
+    TX[:, c_me], TY[:, c_me], TYAW[:, c_me], TL[:, c_me] = sX[:, 0], sY[:, 0], sYAW[:, 0], sL[:, 0]
     rnd = np.searchsorted(rs, S_rep, side="right") - 1
     # truth-side context per (frame, teammate)
     dd = np.hypot(TX[:, :, None] - TX[:, None, :], TY[:, :, None] - TY[:, None, :])
@@ -1178,7 +1211,7 @@ def score(sid: str, geometry: Path | None = None) -> dict:
 
     # -- the self fit (ally_icon), within the scored frames
     fx, fy = AI["self_x"][sc], AI["self_y"][sc]
-    q = rp.sample(me, S_rep)
+    q = rp.sample(me, S_rep_self)
     me_live = TL[:, c_me]
     sx, sy = to_px(mf, q["x"], q["y"])
     has = np.isfinite(fx)
@@ -1193,7 +1226,7 @@ def score(sid: str, geometry: Path | None = None) -> dict:
              "beyond_gate": int(np.sum(e_self[m_] > gate))}
     scan = {}
     for L in LAG_SCAN_MS:
-        qq = rp.sample(me, _frames_to_replay(S_t[m_], a, L))
+        qq = rp.sample(me, capture_to_replay(S_t[m_], *clock, L))
         px, py = to_px(mf, qq["x"], qq["y"])
         scan[int(L)] = round(float(np.nanmedian(np.hypot(px - fx[m_], py - fy[m_]))), 3) if m_.any() else None
     selfo["lag_scan_median_px"] = scan
@@ -1212,8 +1245,8 @@ def score(sid: str, geometry: Path | None = None) -> dict:
     out["self"] = selfo
 
     # -- enemies: minimap_object icons, names through enemy_track
-    out["enemies"] = score_enemies(sid, rp, mf, a, foes, agent, gate, cm_per_px, r_icon, MO, rs,
-                                   stamps)
+    out["enemies"] = score_enemies(sid, rp, mf, clock, foes, agent, gate, cm_per_px, r_icon, MO,
+                                   rs, stamps)
 
     # -- facing per class
     fac = {}
@@ -1227,7 +1260,7 @@ def score(sid: str, geometry: Path | None = None) -> dict:
     fac["self_team_vision"] = {**_facing_block(err), "source": "team_vision role self",
                                **_facing_lag_scan(rp, mf, [me] * int(good.sum()),
                                                   TV["icon_t"][sel][good],
-                                                  TV["icon_facing"][sel][good], a)}
+                                                  TV["icon_facing"][sel][good], clock)}
 
     def ally_facing(fr, fx_, fy_, ff, ft, source):
         kk2, ok2 = rows_of(fr)
@@ -1241,7 +1274,7 @@ def score(sid: str, geometry: Path | None = None) -> dict:
         subj = [mates[c] for c in cols[h2]]
         return {**_facing_block(e2), "icons": int(ok2.sum()), "located": int(h2.sum()),
                 "source": source,
-                **_facing_lag_scan(rp, mf, subj, ft[ok2][h2], ff[ok2][h2], a)}
+                **_facing_lag_scan(rp, mf, subj, ft[ok2][h2], ff[ok2][h2], clock)}
 
     fac["ally_ally_icon"] = ally_facing(AI["icon_frame"], AI["icon_x"], AI["icon_y"],
                                         AI["icon_facing"], AI["icon_t"],
@@ -1254,13 +1287,13 @@ def score(sid: str, geometry: Path | None = None) -> dict:
     out["facing"] = fac
 
     # -- spike: the HUD marker and the minimap glyph against the replay's carrier
-    out["spike"] = score_spike(sid, rp, mf, a, allies, foes, team, me)
+    out["spike"] = score_spike(sid, rp, mf, clock, allies, foes, team, me)
     out["stamps"] = stamps
     out["agents"] = None   # never written: subjects stay in the store
     return out
 
 
-def score_enemies(sid, rp, mf, a, foes, agent, gate, cm_per_px, r_icon, MO, rs, stamps) -> dict:
+def score_enemies(sid, rp, mf, clock, foes, agent, gate, cm_per_px, r_icon, MO, rs, stamps) -> dict:
     """`minimap_object` enemy icons against the replay's living foes, and
     `enemy_track`'s names and tracks.
 
@@ -1269,13 +1302,13 @@ def score_enemies(sid, rp, mf, a, foes, agent, gate, cm_per_px, r_icon, MO, rs, 
     whether the minimap must draw a foe is unknown here. `enemy_track`
     observations are located the same way and their entity's agent compared
     with the replay's; track metrics count only located observations."""
-    lag = rg.MINIMAP_LAG_MS
+    lag = REMOTE_LAG_MS
     read = MO["reason"] == None  # noqa: E711 (object array)
     out = {"frames": int(MO["frame_idx"].size), "frames_read": int(read.sum()),
            "frames_refused": dict(Counter(r for r in MO["reason"].tolist() if r is not None)),
            "icons": int(MO["enemy_x"].size)}
     if MO["enemy_x"].size:
-        t_rep = _frames_to_replay(MO["enemy_t"], a, lag)
+        t_rep = capture_to_replay(MO["enemy_t"], *clock, lag)
         X, Y, YAW, _L = truth_px(rp, mf, foes, t_rep)
         D = np.hypot(X - MO["enemy_x"][:, None], Y - MO["enemy_y"][:, None])
         j, dist = _assign(MO["enemy_frame"], D, gate)
@@ -1293,13 +1326,13 @@ def score_enemies(sid, rp, mf, a, foes, agent, gate, cm_per_px, r_icon, MO, rs, 
         e = _ang_deg(YAW[np.arange(j.size), jc], ff)[fh]
         out["_facing"] = {**_facing_block(e), "source": "minimap_object enemy teardrop",
                           **_facing_lag_scan(rp, mf, [foes[c] for c in jc[fh]], MO["enemy_t"][fh],
-                                             ff[fh], a)}
+                                             ff[fh], clock)}
     ET = load_enemy_track(sid)
     if ET is None:
         out["enemy_track"] = {"refused": "no_stored_enemy_track"}
         return out
     stamps["enemy_track"] = ET["stamp"]
-    t_rep = _frames_to_replay(ET["t_ms"], a, lag)
+    t_rep = capture_to_replay(ET["t_ms"], *clock, lag)
     X, Y, _YAW, _L = truth_px(rp, mf, foes, t_rep)
     D = np.hypot(X - ET["x"][:, None], Y - ET["y"][:, None])
     j, dist = _assign(ET["frame_idx"], D, gate)
@@ -1335,7 +1368,7 @@ def score_enemies(sid, rp, mf, a, foes, agent, gate, cm_per_px, r_icon, MO, rs, 
     return out
 
 
-def score_spike(sid, rp, mf, a, allies, foes, team, me) -> dict:
+def score_spike(sid, rp, mf, clock, allies, foes, team, me) -> dict:
     import pyarrow.parquet as pq
 
     p = rp.dir / "spike_carrier.parquet"
@@ -1364,7 +1397,8 @@ def score_spike(sid, rp, mf, a, allies, foes, team, me) -> dict:
     if not s_t:
         return {"refused": "no_spike_frames"}
     s_t = np.array(s_t)
-    t_rep = _frames_to_replay(s_t, a, rg.MINIMAP_LAG_MS)
+    # the carrier is another player's state as the minimap draws it: the remote lag
+    t_rep = capture_to_replay(s_t, *clock, REMOTE_LAG_MS)
     car = carrier_at(t_rep)
     ally_car = np.array([c is not None and team.get(c) == team[me] for c in car])
     foe_car = np.array([c is not None and team.get(c) != team[me] for c in car])
@@ -1425,7 +1459,7 @@ def handcheck(sid: str, n: int = 3, geometry: Path | None = None) -> dict:
     ctx = session_context(sid, geometry)
     if "refused" in ctx["out"]:
         return ctx["out"]
-    rp, mf, a = ctx["rp"], ctx["mf"], ctx["a"]
+    rp, mf, clock = ctx["rp"], ctx["mf"], ctx["clock"]
     mates, agent, me = ctx["allies"], ctx["agent"], ctx["me"]
     AI = ctx["AI"]
     rec = roi_cache.stored_record(STORE, sid, "minimap")
@@ -1437,19 +1471,21 @@ def handcheck(sid: str, n: int = 3, geometry: Path | None = None) -> dict:
     for p_ in pick:
         # move forward to a frame with at least three living teammates
         while p_ < idx.size - 1:
-            t_rep = float(_frames_to_replay([ts[p_]], a, rg.MINIMAP_LAG_MS)[0])
+            t_rep = float(capture_to_replay([ts[p_]], *clock, REMOTE_LAG_MS)[0])
             if sum(bool(rp.alive(s, [t_rep])[0]) for s in mates) >= 3:
                 break
             p_ += 15
-        t_rep = float(_frames_to_replay([ts[p_]], a, rg.MINIMAP_LAG_MS)[0])
+        t_rep = float(capture_to_replay([ts[p_]], *clock, REMOTE_LAG_MS)[0])
+        t_self = float(capture_to_replay([ts[p_]], *clock, SELF_LAG_MS)[0])
         m = RE["frame_idx"] == idx[p_]
         obs = [[round(float(x), 2), round(float(y), 2), str(f)] for x, y, f
                in zip(RE["x"][m], RE["y"][m], RE["family"][m])]
         rows = []
         for s in mates:
-            if not rp.alive(s, [t_rep])[0]:
+            t_s = t_self if s == me else t_rep
+            if not rp.alive(s, [t_s])[0]:
                 continue
-            q = rp.sample(s, [t_rep])
+            q = rp.sample(s, [t_s])
             x, y = float(q["x"][0]), float(q["y"][0])
             u, v = rg.game_to_uv(x, y, mf.m, mf.swap)
             ax = u * mf.art_hw[1] - 0.5 - mf.crop[0]
@@ -1467,7 +1503,7 @@ def handcheck(sid: str, n: int = 3, geometry: Path | None = None) -> dict:
                                           None if not np.isfinite(AI["self_y"][sc][p_]) else
                                           float(AI["self_y"][sc][p_])],
                        "round_entity": obs, "teammates": rows})
-    return {"session": sid, "a_ms": a, "lag_ms": rg.MINIMAP_LAG_MS,
+    return {"session": sid, "clock": ctx["out"]["clock"],
             "map": {k: mf.m[k] for k in ("xMultiplier", "yMultiplier", "xScalarToAdd",
                                          "yScalarToAdd")},
             "swap": mf.swap, "art_hw": list(mf.art_hw), "crop_x0_y0_h_w": list(mf.crop),
