@@ -673,12 +673,13 @@ question = "Did a kill appear in the feed, and did it involve the local player?"
 owner = "killfeed"
 role = ["detect", "attribute"]
 status = "shipped"
-produces = ["analyse_killfeed", "read_killfeed", "EntryView"]
+produces = ["analyse_killfeed", "read_killfeed", "EntryView", "shooting_error_readout", "readout_cover", "readout_prior", "READOUT_REFUSAL"]
 not_for = """
 Naming an arbitrary victim. The feed states a TEAM through the plate colour and
-the local player through the literal string "Me"; an agent name for either side
-needs the roster and lineup channels, and that owner does not exist yet --
-see `death-victim`.
+the local player through the literal string "Me" on most captures; an agent
+name for either side needs the roster and lineup channels -- see
+`death-victim`. Deciding the player's own roles on a capture that prints the
+account name: `self-entry` decides them by the bound agent on the ally side.
 """
 consumers = ["checks", "hud_reader", "rounds", "overlay"]
 evidence = "tests/test_killfeed.py, tests/test_entry_persistence.py"
@@ -1783,6 +1784,25 @@ presence question.
 """
 consumers = ["cli"]
 evidence = "tests/test_scoreboard_presence.py, docs/SCOREBOARD_PRESENCE.md"
+
+[[entry]]
+id = "self-entry"
+question = "Which killfeed entry roles are the local player's own, by the player's bound agent on the player's side, with \"Me\" as a second witness, and what K/D do they give?"
+owner = "adjudication.self_entry"
+role = ["attribute", "adjudicate"]
+status = "partial"
+produces = ["SELF_ENTRY_VERSION", "ROLES", "WITNESSES", "role_side", "portrait_agent", "me_printed", "role_verdict", "entry_counts", "adjudicate", "adjudicate_session"]
+names_agents = true
+defers_to = ["death-victim", "agent-identity", "agent-spelling"]
+not_for = """
+Naming an agent: the role's portrait verdict is the death adjudication's
+`killfeed_portrait` claim and the player's agent is `identity.player_identity`'s.
+Reading "Me" or any text from pixels: the "Me" flags are `killfeed`'s, carried
+on each death verdict. Rewriting the stored rounds' killfeed counts or the
+combat report's verdict: this K/D is a separate product beside them.
+"""
+consumers = ["cli"]
+evidence = "tests/test_self_entry.py"
 
 [[entry]]
 id = "killfeed-kits"

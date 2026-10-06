@@ -19,7 +19,11 @@ side and not the victim's, and the icon is a reliable divider between the names.
 Attributing an entry to the local player
 ---------------------------------------
 Valorant renders the local player's name in the killfeed as the literal string
-"Me", whoever they are. Attribution therefore works on the name text, split at
+"Me", whoever they are, on most captures; some print the account name instead
+[domain:killfeed/own-name-me-or-account], and there nothing here reads "Me".
+This module reads "Me" alone; `adjudication.self_entry` decides the player's
+roles by the bound agent's portrait on the ally side, with "Me" as a second
+witness. Attribution here works on the name text, split at
 the weapon icon: the killer's name ends at the icon and the victim's begins
 after it, so whichever side reads "Me" says which role the player had.
 
@@ -80,6 +84,15 @@ killfeed's own content is *transient*, anything that stays put across many
 frames is by definition not a killfeed entry, so the occluding mask is derived
 from the footage rather than hardcoded. That generalises to whatever the player
 has switched on.
+
+The Shooting Error readout [domain:hud/shooting-error-readout] has a second,
+per-frame witness: its box sits at a fixed place over slots 3 and 4, and
+`shooting_error_readout` tests its four borders in each frame. Where the frame
+draws it, or a bright scene hides it and the session mask holds it
+(`readout_cover`), a band under its footprint is found and admitted as
+before but refuses as `occluded_by_shooting_error` rather than reading a name
+or a side: the persistent mask keeps only the box's white pixels, and its
+yellow and cyan value labels fall inside the plate colours' hues.
 
 This reasoning does not transfer to the HUD ROIs, where the content is static by
 nature: masking persistent pixels there would erase the digits. Those rely on
@@ -622,6 +635,13 @@ class KillfeedRead:
     # The capture's `KillfeedScale`: rows are in this capture's px, the stored
     # slot masks and divider columns in base px (`absolute_slot`, `divider_of_ys`).
     scale: float = 1.0
+    # The Shooting Error readout (`shooting_error_readout`): whether this
+    # frame draws its box (None: a bright scene hides the borders), which
+    # witness covered its footprint (`readout_cover`: "frame", "session_mask"
+    # or None), and the slots refused as `occluded_by_shooting_error`.
+    readout: bool | None = False
+    readout_basis: str | None = None
+    readout_slots: tuple[int, ...] = ()
 
     @property
     def _s(self) -> "KillfeedScale":
@@ -640,6 +660,14 @@ class KillfeedRead:
         and only the full occupancy shows that happening. See `checks._count`.
         """
         return mask_of_ys(self.entry_ys, self._s)
+
+    @property
+    def readout_mask(self) -> int:
+        """Absolute-slot bitmask of the slots refused for the readout."""
+        m = 0
+        for k in self.readout_slots:
+            m |= 1 << int(k)
+        return m
 
     @property
     def kill_mask(self) -> int:
@@ -779,6 +807,124 @@ def overlay_mask(
     k = KillfeedScale.for_capture(width, height).n(OVERLAY_GROW)
     grown = cv2.dilate(persistent.astype(np.uint8), np.ones((k, k), np.uint8)) > 0
     return ~grown
+
+
+#: The Shooting Error readout's box, ROI px at 1080p: top and bottom border
+#: rows, left and right border columns [domain:hud/shooting-error-readout].
+READOUT_BOX = (341, 152, 457, 194)
+#: What the readout covers beyond its box (base px): the title above it, the
+#: two value labels right of it to the ROI's edge, and a margin for soft
+#: edges. Columns past the ROI's right edge clip to it.
+READOUT_ABOVE, READOUT_BELOW, READOUT_LEFT, READOUT_RIGHT = 16, 4, 4, 40
+#: A border sits within this many base px of its prior.
+READOUT_SEARCH = 2
+#: A border pixel is bright when its whiteness (min over BGR) reaches this;
+#: a border is drawn when this share of its pixels is bright and its median
+#: whiteness exceeds the darker of the rows (columns) READOUT_SIDE px either
+#: side by READOUT_CONTRAST. Fixed before any frame was scored (prediction
+#: `killfeed-robust-20261006 SR1-SR4`).
+READOUT_WHITE, READOUT_SHARE, READOUT_CONTRAST, READOUT_SIDE = 180, 0.8, 40, 3
+#: Borders that must be drawn. A graph bar along the right border, or a
+#: bright scene behind one border, fails one line on frames that show the
+#: box (4f207c0c4e39, 223d636bf8d2); no frame without the readout passed two
+#: (prediction SR5).
+READOUT_BORDERS_MIN = 3
+
+
+def _border_score(w: np.ndarray, at: int, lo: int, hi: int, axis: int,
+                  s: "KillfeedScale") -> tuple[float, float]:
+    """(share, contrast) of the best line within READOUT_SEARCH of `at`: a
+    row (`axis` 0) spanning columns lo..hi, or a column (`axis` 1) spanning
+    rows lo..hi. Vectorised over the candidate offsets."""
+    side, r = s.n(READOUT_SIDE), s.n(READOUT_SEARCH)
+    lines = w if axis == 0 else w.T
+    n = lines.shape[0]
+    offs = np.arange(at - r, at + r + 1)
+    offs = offs[(offs - side >= 0) & (offs + side < n)]
+    if offs.size == 0 or hi <= lo:
+        return 0.0, 0.0
+    on = lines[offs, lo:hi]
+    near = np.minimum(lines[offs - side, lo:hi], lines[offs + side, lo:hi])
+    share = (on >= READOUT_WHITE).mean(axis=1)
+    contrast = np.median(on - near, axis=1)
+    k = int(np.argmax(share + contrast / 255.0))
+    return float(share[k]), float(contrast[k])
+
+
+def readout_prior(s: "KillfeedScale" = UNIT_SCALE, shape=None) -> tuple[int, int, int, int]:
+    """The readout's footprint where the game draws it (x0, y0, x1, y1, ROI
+    px, half-open): its box, the title above, the value labels to the right,
+    clipped to the ROI when `shape` is given."""
+    x0, y0, x1, y1 = (s.n(v) for v in READOUT_BOX)
+    h, w = shape[:2] if shape is not None else (10 ** 6, 10 ** 6)
+    return (max(0, x0 - s.n(READOUT_LEFT)), max(0, y0 - s.n(READOUT_ABOVE)),
+            min(w, x1 + s.n(READOUT_RIGHT) + 1), min(h, y1 + s.n(READOUT_BELOW) + 1))
+
+
+def shooting_error_readout(crop: np.ndarray, s: "KillfeedScale" = UNIT_SCALE) -> dict:
+    """Whether this frame's killfeed ROI shows the Shooting Error readout.
+
+    The readout is a white-outlined box with a title above it and two value
+    labels right of it, drawn over the killfeed's slots 3 and 4 at a fixed
+    place [domain:hud/shooting-error-readout]. Its four borders are thin
+    bright lines at their priors (READOUT_BOX); each is scored as a line,
+    against the pixels either side of it, so a bright wall reads no box, and
+    READOUT_BORDERS_MIN of them must be drawn.
+
+    `present` is True when they are, None when that many borders are bright
+    but none stands out from the scene (`bright_scene`: a line there cannot be
+    told from what lies behind it), else False. The session's overlay mask
+    (`overlay_mask`) witnesses the same box from persistence; `readout_cover`
+    weighs the two. `borders` keeps each border's `(share, contrast)`."""
+    x0, y0, x1, y1 = (s.n(v) for v in READOUT_BOX)
+    h, w_ = crop.shape[:2]
+    pad = s.n(READOUT_SIDE + READOUT_SEARCH)
+    if y1 + pad >= h or x1 + pad >= w_:
+        return {"present": False, "borders": {}, "reason": "roi_too_small"}
+    w = crop.min(axis=2).astype(np.float32)
+    borders = {"top": _border_score(w, y0, x0, x1 + 1, 0, s),
+               "bottom": _border_score(w, y1, x0, x1 + 1, 0, s),
+               "left": _border_score(w, x0, y0, y1 + 1, 1, s),
+               "right": _border_score(w, x1, y0, y1 + 1, 1, s)}
+    drawn = sum(sh >= READOUT_SHARE and c >= READOUT_CONTRAST for sh, c in borders.values())
+    bright = sum(sh >= READOUT_SHARE for sh, _c in borders.values())
+    present = (True if drawn >= READOUT_BORDERS_MIN
+               else None if bright >= READOUT_BORDERS_MIN else False)
+    return {"present": present,
+            "borders": {k: [round(a, 3), round(b, 1)] for k, (a, b) in borders.items()},
+            "reason": "bright_scene" if present is None else None}
+
+
+#: The share of the readout's footprint the session's overlay mask must hold
+#: before it witnesses the box. The box's border alone, grown by OVERLAY_GROW,
+#: is about 0.3 of the footprint; the masks of the four development captures
+#: that show the readout hold 0.33 to 0.44, and every other capture's none.
+READOUT_SESSION_MIN = 0.10
+#: The refusal a covered slot stores.
+READOUT_REFUSAL = "occluded_by_shooting_error"
+
+
+def readout_cover(readout: dict, mask: np.ndarray | None,
+                  s: "KillfeedScale" = UNIT_SCALE) -> tuple[tuple | None, str | None]:
+    """The footprint this frame must not read, and which witness put it
+    there: the frame's own box (`frame`), or, where the frame cannot tell
+    (`present` None), the session's overlay mask holding the footprint
+    (`session_mask`). A frame that reads no box covers nothing."""
+    if readout.get("present") is True:
+        return readout_prior(s, None if mask is None else mask.shape), "frame"
+    if readout.get("present") is None and mask is not None:
+        fx0, fy0, fx1, fy1 = readout_prior(s, mask.shape)
+        held = (~mask[fy0:fy1, fx0:fx1]).mean() if fx1 > fx0 and fy1 > fy0 else 0.0
+        if held >= READOUT_SESSION_MIN:
+            return (fx0, fy0, fx1, fy1), "session_mask"
+    return None, None
+
+
+def _under(a: int, z: int, foot) -> bool:
+    """Whether a band's rows lie a third or more under the footprint."""
+    if foot is None:
+        return False
+    return (min(z, foot[3]) - max(a, foot[1])) * 3 >= (z - a)
 
 
 def _row_profile(
@@ -1840,6 +1986,7 @@ def analyse_killfeed(
     mask_prefix: np.ndarray | None = None,
     scale: "KillfeedScale | None" = None,
     dropped: list | None = None,
+    frame_info: dict | None = None,
 ) -> list[EntryView]:
     """Per-entry detail for one frame. `read_killfeed` is a summary of this.
 
@@ -1856,6 +2003,16 @@ def analyse_killfeed(
     `dropped`, when given, gets `(slot, y0, y1, reason)` for each band refused
     before it became a view, so the reason reaches the stored row
     (`KillfeedRead.dropped_band_reason`) and not only the census.
+
+    THE SHOOTING ERROR READOUT. Each frame asks `shooting_error_readout`
+    whether the readout's box is drawn, and `readout_cover` whether to refuse
+    its footprint (the frame's box, or the session's overlay mask where the
+    frame cannot tell). Bands are found and admitted as before; a band a third
+    or more under a covered footprint never reads a name or a side: an entry
+    there is a view `occluded` with reason `occluded_by_shooting_error`, and a
+    band dropped there stores that reason. `frame_info`, when given, gets the
+    frame's `readout`, `readout_basis` and `readout_footprint`. A frame with
+    no readout covers nothing, so it reads exactly as before.
 
     ONE-COLOUR ENTRIES. That census showed what the both-colour rule cost: a
     spike or self kill, a team kill or a Not Dead Yet expiry draws its banner
@@ -1874,6 +2031,11 @@ def analyse_killfeed(
     h, w = crop.shape[:2]
     if mask is None:
         mask = np.ones((h, w), dtype=bool)
+    readout = shooting_error_readout(crop, s)
+    foot, basis = readout_cover(readout, mask, s)
+    if frame_info is not None:
+        frame_info.update(readout=readout["present"], readout_basis=basis,
+                          readout_footprint=foot)
     green, red, white = _plate_masks(crop, mask)
     value = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)   # `_band_text` tests line art on it
 
@@ -1891,8 +2053,9 @@ def analyse_killfeed(
         where = (round(t_ms / 1000.0, 2) if t_ms is not None else None, slot)
         if census is not None:
             census.saw("bands")
+        under = _under(a, z, foot)
         if mask[a:z].sum() < s.area(BAND_VISIBLE_MIN):   # too much of this band is occluded
-            drop("band_masked_out", where, slot, a, z)
+            drop(READOUT_REFUSAL if under else "band_masked_out", where, slot, a, z)
             continue
         # Both plate colours present is what rejects warm scenery; a band of
         # one colour must show an entry's furniture instead (see above).
@@ -1923,6 +2086,24 @@ def analyse_killfeed(
                                one_colour=True)
             if not isinstance(again, str) and again[2] > again[1]:
                 parsed = again
+        if under:
+            # The readout covers the victim's side of every entry here (the
+            # feed is right-aligned), and its yellow and cyan labels fall in
+            # the plates' hues, so no name and no side is read. The band is
+            # found and judged an entry or not exactly as without the box: an
+            # entry stays an entry, refused; a band without an entry's
+            # furniture stays empty; a refused one-colour candidate stays
+            # dropped, now with the box as its reason.
+            if one_colour and (isinstance(parsed, str) or parsed[2] <= parsed[1]
+                               or not _plate_flanks(green[a:z] | red[a:z], parsed[1],
+                                                    parsed[2], s)):
+                drop(READOUT_REFUSAL, where, slot, a, z)
+            elif isinstance(parsed, str) and parsed in EMPTY_BAND_REFUSALS:
+                views.append(EntryView(slot, int(a), int(z), verdict="empty_band", reason=parsed))
+            else:
+                views.append(EntryView(slot, int(a), int(z), verdict="occluded",
+                                       reason=READOUT_REFUSAL))
+            continue
         if one_colour:
             if isinstance(parsed, str) or parsed[2] <= parsed[1]:
                 drop("one_colour:" + (parsed if isinstance(parsed, str) else "seam_divider"),
@@ -4359,8 +4540,9 @@ def read_killfeed(
 ) -> KillfeedRead:
     """Count killfeed entries and attribute any the local player is in."""
     dropped: list = []
+    info: dict = {}
     seen = analyse_killfeed(frame, roi, width, height, mask, profile_name,
-                            census, t_ms, dropped=dropped)
+                            census, t_ms, dropped=dropped, frame_info=info)
     # An empty band is a plate-coloured region carrying none of an entry's
     # furniture. It is not an entry and it does not enter the stack, so nothing
     # that tracks entry movement is handed one. It is still counted, because
@@ -4393,4 +4575,8 @@ def read_killfeed(
         dropped_bands=len(dropped),
         dropped_band_reason=dropped[0][3] if dropped else None,
         scale=KillfeedScale.for_capture(width, height).scale,
+        readout=info.get("readout", False),
+        readout_basis=info.get("readout_basis"),
+        readout_slots=tuple(sorted({v.slot for v in views if v.reason == READOUT_REFUSAL}
+                                   | {d[0] for d in dropped if d[3] == READOUT_REFUSAL})),
     )

@@ -425,7 +425,14 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # it (`killfeed._bands_from_rows`), not a PITCH split from its scenery top
 # [domain:killfeed/entry-list-layout]: Clove's Not Dead Yet expiry over a
 # warm ceiling at ff636d173b07 1247.5-1248.5 s (rows 0-183) now reads.
-HUD_VERSION = "hud-0.26.0"
+# 0.27.0 (2026-10-06): each frame asks whether it draws the Shooting Error
+# readout's box (`killfeed.shooting_error_readout`); where it does, or where
+# a bright scene hides the box and the session's overlay mask holds it
+# (`killfeed.readout_cover`), a band under the box's footprint is found and
+# admitted as at 0.26.0 but refuses as `occluded_by_shooting_error`, reading
+# no name and no side (`kf_readout`, `kf_readout_basis`, `kf_readout_mask`).
+# A frame without the readout reads exactly as at 0.26.0.
+HUD_VERSION = "hud-0.27.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits
