@@ -23,7 +23,8 @@ arbiter) against the replay's teammate at the emerger's place. `--own` also
 runs `ally_prior.score_replay` on the cached result (needs a Riot record).
 
 Evaluation only: nothing in `reticle/` reads this file. Reports go to
-`<store>/analysis/ally-prior-w1-20261006/`.
+`<store>/analysis/ally-prior-w1-20261006/<W1_VERSION>/` (0.1.0's sit one level
+up), so a version never overwrites another's evidence.
 """
 from __future__ import annotations
 
@@ -51,8 +52,12 @@ import ally_prior as ap  # noqa: E402
 import replay_truth as rt  # noqa: E402
 import riot_ground_truth as rg  # noqa: E402
 
-W1_VERSION = "ally-prior-w1-score-0.1.0"
-OUT = rt.STORE / "analysis" / "ally-prior-w1-20261006"
+#: 0.2.0 (2026-10-06): the reader is ally-prior-0.4.0, whose frame clock joins
+#: the crop cache by nearest time (`frame_join`); 0.1.0 read only the frames
+#: whose time the cache held exactly, 13,087 of c817691bcd15's 26,156. The
+#: report stores the clock's join stamp.
+W1_VERSION = "ally-prior-w1-score-0.2.0"
+OUT = rt.STORE / "analysis" / "ally-prior-w1-20261006" / W1_VERSION
 #: Track ids enter replay-truth's entity codes above the stored ones.
 TRACK_BASE = 1_000_000
 
@@ -67,6 +72,7 @@ def reader_output(sid: str) -> tuple[dict, dict]:
         return blob["R"], blob["timing"]
     w0, c0 = time.perf_counter(), time.process_time()
     S, S_all, px, iso = ap._setup(sid)
+    frame_join = getattr(px, "frame_join", None)
     w1, c1 = time.perf_counter(), time.process_time()
     R = ap.run_session(S, px, iso, S_all=S_all)
     w2, c2 = time.perf_counter(), time.process_time()
@@ -75,7 +81,7 @@ def reader_output(sid: str) -> tuple[dict, dict]:
               "frames": R["frames"], "ally_prior_version": ap.ALLY_PRIOR_VERSION,
               "ally_icon_version": S.ally_icon_version,
               "round_entity_ally_icon": S.round_entity_inputs.get("ally_icon"),
-              "ally_icon_stale": S.ally_icon_stale}
+              "ally_icon_stale": S.ally_icon_stale, "frame_join": frame_join}
     with path.open("wb") as f:
         pickle.dump({"R": R, "timing": timing}, f)
     return R, timing
@@ -137,7 +143,8 @@ def score_with(sid: str, RE: dict | None, keep_t=None) -> dict:
 
 def prior_frame_times(sid: str, R: dict) -> np.ndarray:
     """Capture times of the `ally_icon` frames the reader read
-    (`ally_prior`'s frame clock: drawn frames whose time the crop cache holds)."""
+    (`ally_prior`'s frame clock: drawn frames in the crop cache's spans that
+    join a cache frame by nearest time)."""
     AI = rt.load_ally_icon(sid)
     return AI["t_ms"][np.isin(AI["frame_idx"], np.fromiter(R["frame_kind"], np.int64))]
 
