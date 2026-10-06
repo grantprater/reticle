@@ -69,7 +69,7 @@ class GeometryKey(unittest.TestCase):
         self.assertIn("map:", str(no_tag.exception))
         with self.assertRaises(SystemExit) as not_built:
             G.require("long_ascent_big", self.root)
-        self.assertIn("minimap_geometry", str(not_built.exception))
+        self.assertIn("cannot draw", str(not_built.exception))
 
     def test_the_reference_session_is_the_longest_recording(self):
         """A 37s demo clip must never be the source of a shared static map.

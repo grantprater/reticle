@@ -273,12 +273,14 @@ def game_to_uv(x: float, y: float, m: dict, swap: bool = True) -> tuple[float, f
 def art_affine(art_hw: tuple[int, int], fit) -> list[list[float]]:
     """The 2x3 map from art pixel to baked widget pixel for a `shade_fit`.
 
-    `map_shade._warp`'s rotation about the art centre with its scale, shifted
+    The retired `map_shade._warp`'s rotation about the art centre with its scale, shifted
     into a square canvas of side `int(max(h, w) * scale * 1.6)`, then placed at
-    `(dx, dy)` as `wiki_map._place` does.
+    `(dx, dy)` as `wiki_map._place` does. The offsets are whole pixels in a
+    capture fit and fractional in an official one (`reticle/map_asset.py`);
+    truncating them moved Lotus positions by 0.7-1.0 px.
     """
     h0, w0 = art_hw
-    rot, scale, dx, dy = float(fit[0]), float(fit[1]), int(fit[2]), int(fit[3])
+    rot, scale, dx, dy = (float(v) for v in fit[:4])
     t = math.radians(rot)
     al, be = scale * math.cos(t), scale * math.sin(t)
     cx, cy = w0 / 2.0, h0 / 2.0

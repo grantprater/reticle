@@ -1392,7 +1392,7 @@ one yet.
 ### Proposed, not built: elevation in the raycast
 
 The floor's shade is elevation [domain:minimap/floor-shade-is-elevation], and
-the baked geometry already keeps it: `map_shade` quantises the map ART into
+the baked geometry already keeps it: `map_asset` quantises the map ART into
 grey rungs and warps them into widget pixels as `shade_kind` (FLOOR, RAMP,
 SHADOW) and `shade_step` (rungs above the base floor). No capture enters it,
 so the drawn light, the widget's transparency and a session's lighting cannot

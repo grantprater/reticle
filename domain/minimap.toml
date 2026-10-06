@@ -1208,7 +1208,7 @@ since = "2026-09-29"
 source = "the player, 2026-09-29, while reading the cone-walls sheets"
 use = """
 the baked geometry keeps each floor pixel's shade rung from the map art
-(`shade_kind`, `shade_step`, prototypes/map_shade.py), never from session
+(`shade_kind`, `shade_step`, reticle/map_asset.py), never from session
 pixels; the rung is not a lighting state. A shaded region is the primary
 witness of a heaven [domain:minimap/heaven-sees-over-area]; check it against
 the drawn light before trusting it. The raycast does not use the rung yet

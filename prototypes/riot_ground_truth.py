@@ -43,7 +43,7 @@ Riot positions are game units (centimetres). valorant-api's map record gives
 `u = y * xMultiplier + xScalarToAdd`, `v = x * yMultiplier + yScalarToAdd` on
 the map's display icon; the wiki art the geometry was fitted to is the same
 asset (alpha IoU 0.996-1.000 at equal size), so `(u, v)` times the art side is
-an art pixel, and the geometry npz's `shade_fit` (`prototypes/map_shade.py`'s
+an art pixel, and the geometry npz's `shade_fit` (the retired `map_shade`'s
 `_warp` then `wiki_map._place`) carries it into baked widget pixels, the frame
 every stored minimap coordinate uses (`reticle/widget_frame.py`). The swap of
 axes is checked on data, not assumed: `--axes` scores both.

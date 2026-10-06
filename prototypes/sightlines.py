@@ -127,6 +127,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
 
 import riot_ground_truth as rgt  # noqa: E402
+from reticle import geometry as geom  # noqa: E402
 from reticle.cone import passable_from  # noqa: E402
 from reticle.minimap import FLOOR, PLANT  # noqa: E402
 
@@ -175,7 +176,7 @@ def source_hash() -> str:
 
 def geometry_key(mname: str, store: Path = STORE) -> str | None:
     for prof in PROFILE_ORDER:
-        if (store / "geometry" / f"{mname}__{prof}.npz").is_file():
+        if geom.path(f"{mname}__{prof}", store).is_file():
             return f"{mname}__{prof}"
     return None
 
@@ -247,7 +248,7 @@ def build_map(mname: str, ref: rgt.Reference, store: Path = STORE, log=print) ->
     key = geometry_key(mname, store)
     if key is None:
         raise SystemExit(f"no baked geometry for {mname}")
-    gp = store / "geometry" / f"{key}.npz"
+    gp = geom.path(key, store)
     mi = map_info(ref, mname)
     mf, why = rgt.map_frame_for_geometry(gp, mname, mi, store)
     if mf is None:
@@ -829,7 +830,7 @@ def gate(args) -> dict:
         # post hoc diagnostics, at the exact positions rather than cells: the
         # same mask, and the mask with boxes opened (walls only)
         variants = {}
-        with np.load(STORE / "geometry" / f"{S.key}.npz") as z:
+        with np.load(geom.path(S.key, STORE)) as z:
             labels, occ = z["labels"], z["occ"]
         fl = np.isin(labels, (FLOOR, PLANT))
         for vname, bb in (("exact", True), ("exact_walls_only", False)):
@@ -909,7 +910,7 @@ def render_failures(fails, out: Path, n: int) -> None:
     for j, i in enumerate(sorted(pick)):
         mname, r, ck, cv, dk, dv, nb, dm = fails[i]
         S = load_2d(mname)
-        with np.load(STORE / "geometry" / f"{S.key}.npz") as z:
+        with np.load(geom.path(S.key, STORE)) as z:
             img = cv2.cvtColor(z["static"], cv2.COLOR_RGB2BGR) if z["static"].ndim == 3 else z["static"]
             labels, occ = z["labels"], z["occ"]
         img = img.copy()

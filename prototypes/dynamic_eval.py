@@ -53,7 +53,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from reticle.profiles import get_profile                          # noqa: E402
 from reticle import metrics                                       # noqa: E402
 import minimap_dynamic as md                                      # noqa: E402
-import minimap_geometry as mg                                     # noqa: E402
+from reticle import minimap as mg                                 # noqa: E402
 from minimap_icons import floor_mask                              # noqa: E402
 
 STORE = Path.home() / "reticle-store"

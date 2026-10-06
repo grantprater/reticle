@@ -1,7 +1,6 @@
-r"""Check a freshly recorded ability-demo clip BEFORE it is ingested.
+r"""Check a freshly recorded capture BEFORE it is ingested.
 
-    .\.venv\Scripts\python.exe prototypes\clip_preflight.py <video>... [--donor a06f04a0059f]
-    .\.venv\Scripts\python.exe prototypes\clip_preflight.py --write-donor [--donor a06f04a0059f]
+    .\.venv\Scripts\python.exe prototypes\clip_preflight.py <video>... [--map lotus] [--n 15]
 
 Why this exists, 2026-09-03
 -----------------------------
@@ -13,89 +12,56 @@ side-based, so the whole widget was rotated 180 degrees and nothing downstream
 would have said so. A per-clip check costs seconds; finding it later costs the
 sitting.
 
-What it checks, and how each one is decided rather than eyeballed:
+What it compares against, 2026-10-05
+------------------------------------
+Each map's asset drawn through each fitted profile's transform
+(`reticle/map_asset.py`), not one donor capture. The donor was one Ascent
+match; two Lotus captures at the same settings failed it on widget rows, left
+edge and correlation, because Lotus is not Ascent. Each candidate static is
+fitted to the capture's median corner by `reticle.widget_frame.fit_crop`
+(rotation, scale, translation): the transform that places the capture's widget
+over the map's asset. The best fit names the map and profile. `--map` names the map the player recorded;
+a better fit on another map is then reported as a mismatch.
 
-    widget size    the map's white line-work, measured inside the minimap ROI,
-                   must span the same rows as a KNOWN bigmap session. The small
-                   widget stops ~150 px higher. Restricted to the ROI because
-                   anything bright elsewhere on screen is not this test's
-                   business -- see ROI's comment.
-    orientation    normalised cross-correlation of the clip's median map
-                   against the donor's, and against the donor rotated 180.
-                   Whichever wins IS the orientation -- a bounding box cannot
-                   answer this, because a roughly centred map has nearly the
-                   same box either way.
-    top-left ROI   anything drawn over the minimap (the shooting-error readout
-                   landed there on this account) shows as line-work reaching
-                   further left than the donor's.
+What it checks:
 
-WARNING: this is the sole non-builder capture median allowlisted by `doctor`.
-It may be used only for widget dimensions, placement and orientation. It must
-never become a floor mask, lighting reference, detector background, or cached
-base map; those come only from baked ``(map, profile)`` geometry.
+    map            the named map's fit against the best other map's
+    widget size    the fitted scale is 1 and the widget's corner sits on the
+                   profile's ROI corner: the capture draws a fitted profile
+    orientation    the fitted rotation is 0 (180 is a side-based widget)
+    top-left ROI   the capture's white line-work reaches no further left than
+                   the reference's: nothing is drawn over the minimap
 
-The donor snapshot, 2026-10-05
-------------------------------
-The player deletes the video of every capture without a replay file, the
-default donor's among them. `--write-donor` stores the donor's median corner,
-with its provenance, at `<store>/reference/preflight_donor/<donor>.npz`;
-preflight reads that snapshot and decodes the donor's video only when no
-snapshot exists. With neither, or with a snapshot sampled at another `--n`
-and no video, it refuses by name. Only this file may read the snapshot
-(`doctor` SESSION_STATIC enforces this), and only for the three checks above.
-
-The median over sampled frames is what makes all three checks readable at all: the
-widget is SEMI-TRANSPARENT over live scenery, so a single frame carries the
-world moving behind it. Same trick `minimap_geometry` uses.
+The capture median makes the checks readable at all: the widget is
+SEMI-TRANSPARENT over live scenery, so a single frame carries the world moving
+behind it. WARNING: this is the sole non-builder capture median allowlisted
+by `doctor`. It may set only the widget's size, placement and orientation; it
+must never become a floor mask, lighting reference, detector background or
+cached base map.
 
 Reports, never fixes. A failure here is a capture setting, not a code change.
-
-`--key <map>__<profile>` also fits the widget's PLACEMENT per sampled frame
-against that key's baked static (`reticle.widget_frame.fit_crop`): scale,
-rotation and corner, grouped into segments (a side-based capture flips at the
-half). The player, 2026-09-28: a variant widget is read through this
-transform rather than abstained on. The fit uses single frames, never the
-median, and the numbers it prints are what `reticle widget-fit --write` stores
-on the manifest after ingest.
-
-One limit, stated because the output can mislead: the correlation is not
-alignment-invariant. It rotates the donor about the CROP centre rather than the
-widget centre, and it cannot absorb a translation, so a clip whose widget sits
-somewhere else scores low BOTH ways and reports "cannot tell" rather than
-naming the rotation. That is the honest answer -- such a clip has already
-failed the size and ROI checks -- but do not read "cannot tell" as "upright".
+The per-frame placement segments it prints (`--placements`) are what
+`reticle widget-fit --write` stores on the manifest after ingest.
 """
 from __future__ import annotations
 
 import argparse
-import datetime
-import hashlib
-import json
-import os
 import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 STORE = Path.home() / "reticle-store"
-# The minimap ROI of valorant-16x9-bigmap, in pixels at 1080p, plus a small
-# margin. Measuring INSIDE it is not a convenience: the Neon clip drew a bright
-# vertical band down the frame's left edge, outside the widget entirely, and a
-# whole-corner bounding box read that as the map growing 73 rows taller. A
-# check that fires on content it was never asked about costs a re-record.
-ROI = (15, 14, 480, 500)
 W = H = 560
-N = 41
-ROT_MARGIN = 0.02      # ncc difference below this is "cannot tell"
-# 0.1.0 (2026-10-05): the donor's `median_corner`, stored losslessly with its
-# sample, so preflight survives the donor video's retirement.
-PREFLIGHT_DONOR_VERSION = "preflight-donor-0.1.0"
-SNAPSHOT_DIR = STORE / "reference" / "preflight_donor"
-
-
-class Refusal(Exception):
-    """Preflight cannot obtain a donor median; the message names why."""
+N = 15
+#: Fitted scale and corner within these of the profile's own: a fitted profile.
+SCALE_TOL = 0.02
+CORNER_TOL = 6
+#: A named map loses when another map fits better by more than this ncc.
+MAP_MARGIN = 0.03
 
 
 def corner_frames(path: str, n: int = N, meta: dict | None = None):
@@ -127,98 +93,68 @@ def median_corner(path: str, n: int = N, frames=None):
     return np.median(np.stack(buf), 0).astype(np.uint8)
 
 
-def snapshot_path(donor: str) -> Path:
-    return SNAPSHOT_DIR / f"{donor}.npz"
+def drawn_static(key: str) -> np.ndarray:
+    """The key's static, drawn from the map's asset through the profile's
+    transform: its current cache, else drawn in memory, so trying every map
+    caches nothing for keys no session reads."""
+    from reticle import geometry as G
+    from reticle import map_asset as A
+    if G.staleness(key, STORE) is None and G.path(key, STORE).is_file():
+        return G.reference_for_key(key, STORE)
+    return A.render(*G.parse(key), STORE)["static"]
 
 
-def _sha(arr) -> str:
-    return hashlib.sha256(np.ascontiguousarray(arr).tobytes()).hexdigest()
+def roi_of(profile: str) -> tuple[int, int, int, int]:
+    from reticle.profiles import get_profile
+    return next(r for r in get_profile(profile).rois if r.name == "minimap").pixels(1920, 1080)
 
 
-def _manifest(donor: str) -> dict:
-    p = STORE / "manifests" / f"{donor}.json"
-    if not p.is_file():
-        raise Refusal(f"donor {donor}: no manifest at {p}")
-    return json.loads(p.read_text())
+def candidates(map_name: str | None) -> list[str]:
+    """Every key the game's files can draw: each map with textures and a
+    rotation, at each fitted profile."""
+    from reticle import geometry as G
+    from reticle import map_asset as A
+    maps = [map_name] if map_name else sorted(A.maps(STORE))
+    return [k for m in maps for prof in sorted(A.transforms())
+            if G.drawable(k := G.key(m, prof), STORE)]
 
 
-def _decodable(donor: str, man: dict) -> str:
-    """The donor video's path; a Refusal names why it cannot be decoded."""
-    if man.get("video_retired"):
-        raise Refusal(f"donor {donor}: video retired at {man['video_retired'].get('at')}")
-    path = man["source"]["path"]
-    if not Path(path).is_file():
-        raise Refusal(f"donor {donor}: video {path} is not on disk")
-    return path
-
-
-def write_donor(donor: str, n: int = N) -> Path:
-    """Decode the donor's median corner once and store it with provenance.
-
-    Refuses rather than overwrite an existing snapshot."""
-    out = snapshot_path(donor)
-    if out.exists():
-        raise Refusal(f"donor {donor}: snapshot {out} exists; it is never overwritten")
-    man = _manifest(donor)
-    path = _decodable(donor, man)
-    meta: dict = {}
-    med = median_corner(path, n, corner_frames(path, n, meta))
-    prov = {
-        "version": PREFLIGHT_DONOR_VERSION, "donor": donor,
-        "source_profile": man["source_profile"], "source_path": path,
-        "content_key": man["source"].get("content_key"), "n": n,
-        "n_decoded": len(meta["frame_indices"]), "frame_count": meta["frame_count"],
-        "fps": meta["fps"], "frame_indices": meta["frame_indices"], "t_ms": meta["t_ms"],
-        "crop": [0, 0, W, H], "shape": list(med.shape), "dtype": str(med.dtype),
-        "sha256": _sha(med),
-        "written_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
-    }
-    out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.with_name(out.stem + ".tmp.npz")
-    np.savez_compressed(tmp, median=med, provenance=np.array(json.dumps(prov)))
-    os.replace(tmp, out)
-    return out
-
-
-def donor_median(donor: str, n: int = N):
-    """`(median corner, source profile, origin)` for `donor`.
-
-    Reads the stored snapshot; decodes the donor's video only without one."""
-    p = snapshot_path(donor)
-    note = ""
-    if p.is_file():
-        with np.load(p, allow_pickle=False) as z:
-            med, prov = z["median"], json.loads(str(z["provenance"]))
-        if _sha(med) != prov["sha256"]:
-            raise Refusal(f"donor {donor}: snapshot {p} fails its sha256")
-        if prov["n"] == n:
-            return med, prov["source_profile"], f"snapshot {p} [{prov['version']}]"
-        note = f"; its snapshot sampled n={prov['n']}, not {n}"
-    man = _manifest(donor)
-    try:
-        path = _decodable(donor, man)
-    except Refusal as e:
-        raise Refusal(f"{e}, and no usable snapshot at {p}{note}") from None
-    return median_corner(path, n), man["source_profile"], f"decoded {path}{note}"
+def fit_key(med, key: str) -> dict | None:
+    """`fit_crop` of the key's official static on the median corner, in frame px."""
+    from reticle import widget_frame as wf
+    f = wf.fit_crop(drawn_static(key), med, (0, 0))
+    if f is None:
+        return None
+    a = np.asarray(f["affine"])
+    return dict(f, key=key, corner=(float(a[0, 2]), float(a[1, 2])))
 
 
 def placements(frames, key: str):
-    """The widget's placement segments against `key`'s baked static, fitted
+    """The widget's placement segments against `key`'s official static, fitted
     per frame (`reticle.widget_frame`), in full-frame pixels."""
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from reticle import widget_frame as wf
-    from reticle.geometry import reference_for_key
-    static = reference_for_key(key)
+    static = drawn_static(key)
     fits = [(t, wf.fit_crop(static, f, (0, 0))) for t, f in frames]
     return wf.placement_segments(fits), static.shape[:2]
 
 
-def linework_bbox(med):
-    """Bounding box of the map's white line-work, measured INSIDE the ROI.
+def reference_corner(key: str, fill) -> np.ndarray:
+    """The official static pasted where its profile draws it, on `fill`."""
+    from reticle import geometry as G
+    st = drawn_static(key)
+    x0, y0, _x1, _y1 = roi_of(G.parse(key)[1])
+    out = np.empty((H, W, 3), np.uint8)
+    out[:] = fill
+    h, w = min(st.shape[0], H - y0), min(st.shape[1], W - x0)
+    out[y0:y0 + h, x0:x0 + w] = st[:h, :w]
+    return out
 
-    Returned in full-frame coordinates so it stays comparable to the donor's.
-    """
-    x0, y0, x1, y1 = ROI
+
+def linework_bbox(med, roi):
+    """Bounding box of the map's white line-work, measured INSIDE `roi`, in
+    full-frame coordinates. Inside, because the Neon clip drew a bright band
+    down the frame's left edge, outside the widget entirely."""
+    x0, y0, x1, y1 = roi
     g = cv2.cvtColor(med[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
     m = (g > np.percentile(g, 99.0)).astype(np.uint8)
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
@@ -229,76 +165,74 @@ def linework_bbox(med):
             int(xs.max()) + x0, int(ys.max()) + y0)
 
 
-def ncc(a, b):
-    a = cv2.cvtColor(a, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    b = cv2.cvtColor(b, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    a, b = a - a.mean(), b - b.mean()
-    d = float(np.linalg.norm(a) * np.linalg.norm(b))
-    return float((a * b).sum() / d) if d else 0.0
-
-
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("videos", nargs="*")
-    ap.add_argument("--donor", default="a06f04a0059f",
-                    help="ingested session on the SAME map to compare against")
-    ap.add_argument("--n", type=int, default=N)
-    ap.add_argument("--key", default=None,
-                    help="also fit the widget placement against this <map>__<profile> baked static")
-    ap.add_argument("--write-donor", action="store_true",
-                    help="store the donor's median corner under reference/preflight_donor/ and exit")
+    ap.add_argument("videos", nargs="+")
+    ap.add_argument("--map", default=None, help="the map the player recorded")
+    ap.add_argument("--n", type=int, default=N, help="frames to decode per video")
+    ap.add_argument("--placements", action="store_true",
+                    help="also fit the placement per decoded frame against the best key")
     a = ap.parse_args()
+    from reticle import geometry as G
 
-    try:
-        if a.write_donor:
-            print(f"wrote {write_donor(a.donor, a.n)}")
-            return 0
-        if not a.videos:
-            ap.error("name at least one video, or pass --write-donor")
-        donor, profile, origin = donor_median(a.donor, a.n)
-    except Refusal as e:
-        print(f"REFUSED: {e}", file=sys.stderr)
-        return 2
-    print(f"donor median from {origin}", file=sys.stderr)
-    dbb = linework_bbox(donor)
-    print(f"donor {a.donor} [{profile}]  linework bbox {dbb}\n")
-
+    allkeys = candidates(None)
     bad = 0
     for v in a.videos:
         frames = corner_frames(v, a.n)
         med = median_corner(v, a.n, frames)
-        bb = linework_bbox(med)
-        up, down = ncc(med, donor), ncc(med, cv2.rotate(donor, cv2.ROTATE_180))
-        rows_ok = abs(bb[1] - dbb[1]) <= 6 and abs(bb[3] - dbb[3]) <= 6
-        left_ok = bb[0] >= dbb[0] - 6
-        if abs(up - down) < ROT_MARGIN:
-            orient = f"CANNOT TELL  (ncc {up:+.3f} vs rot180 {down:+.3f})"
-            ok_o = False
-        elif up > down:
-            orient, ok_o = f"upright      (ncc {up:+.3f} vs rot180 {down:+.3f})", True
+        fits = sorted((f for f in (fit_key(med, k) for k in allkeys) if f),
+                      key=lambda f: -f["ncc"])
+        print(f"{Path(v).name}   ({len(frames)} frames decoded)")
+        if not fits:
+            print("   FAIL  no official key fits the widget at all\n")
+            bad += 1
+            continue
+        for f in fits[:4]:
+            print(f"   fit  {f['key']:34s} ncc {f['ncc']:+.3f}  rotation {f['rotation']}  "
+                  f"scale {f['scale']:.3f}  corner ({f['corner'][0]:.1f}, {f['corner'][1]:.1f})")
+        best = fits[0]
+        if a.map:
+            pick = next((f for f in fits if G.parse(f["key"])[0] == a.map), None)
+            other = next((f for f in fits if G.parse(f["key"])[0] != a.map), None)
+            map_ok = pick is not None and (other is None or other["ncc"] - pick["ncc"] <= MAP_MARGIN)
+            print(f"   [{'ok' if map_ok else 'FAIL'}] map           named {a.map} "
+                  f"{'no fit' if pick is None else format(pick['ncc'], '+.3f')}; best other "
+                  f"{other['key'] if other else 'none at fit_crop MIN_NCC'} "
+                  f"{format(other['ncc'], '+.3f') if other else ''}")
+            best = pick or best
         else:
-            orient, ok_o = f"ROTATED 180  (ncc {up:+.3f} vs rot180 {down:+.3f})", False
-
-        print(f"{Path(v).name}")
-        print(f"   linework bbox {bb}")
-        print(f"   [{'ok' if rows_ok else 'FAIL'}] widget size   rows {bb[1]}..{bb[3]} "
-              f"vs donor {dbb[1]}..{dbb[3]}"
-              f"{'' if rows_ok else '   <- small widget, or a different minimap size'}")
-        print(f"   [{'ok' if ok_o else 'FAIL'}] orientation   {orient}")
-        print(f"   [{'ok' if left_ok else 'FAIL'}] top-left ROI  left edge {bb[0]} "
-              f"vs donor {dbb[0]}"
+            map_ok = True
+            print(f"   [--] map           unnamed; best fit {G.parse(best['key'])[0]}")
+        prof = G.parse(best["key"])[1]
+        rx0, ry0, rx1, ry1 = roi_of(prof)
+        size_ok = (abs(best["scale"] - 1.0) <= SCALE_TOL
+                   and abs(best["corner"][0] - rx0) <= CORNER_TOL
+                   and abs(best["corner"][1] - ry0) <= CORNER_TOL)
+        ok_o = best["rotation"] == 0
+        roi = (rx0, ry0, min(rx1, W), min(ry1, H))
+        bb = linework_bbox(med, roi)
+        fill = np.median(med[roi[1]:roi[3], roi[0]:roi[2]].reshape(-1, 3), 0)
+        rb = linework_bbox(reference_corner(best["key"], fill), roi)
+        left_ok = bb is not None and rb is not None and bb[0] >= rb[0] - CORNER_TOL
+        print(f"   [{'ok' if size_ok else 'FAIL'}] widget size   {prof}: scale {best['scale']:.3f}, "
+              f"corner ({best['corner'][0]:.1f}, {best['corner'][1]:.1f}) vs ROI ({rx0}, {ry0})"
+              f"{'' if size_ok else '   <- a variant placement: widget-fit stores it'}")
+        print(f"   [{'ok' if ok_o else 'FAIL'}] orientation   rotation {best['rotation']}"
+              f"{'' if ok_o else '   <- side-based minimap'}")
+        print(f"   [{'ok' if left_ok else 'FAIL'}] top-left ROI  line-work left edge "
+              f"{bb[0] if bb else None} vs the reference's {rb[0] if rb else None}"
               f"{'' if left_ok else '   <- something is drawn over the minimap'}")
-        if a.key:
-            segs, shape = placements(frames, a.key)
+        if a.placements:
+            segs, _shape = placements(frames, best["key"])
             for sg in segs:
                 m = np.asarray(sg["affine"])
                 print(f"   placement     from {sg['t0_ms']} ms: rotation {sg['rotation']}, "
                       f"scale {sg['scale']:.3f}, corner ({m[0, 2]:.1f}, {m[1, 2]:.1f}), "
                       f"{sg['n']} frames")
-        if not (rows_ok and ok_o and left_ok):
+        if not (map_ok and size_ok and ok_o and left_ok):
             bad += 1
         print()
-    print(f"{len(a.videos) - bad}/{len(a.videos)} clips pass")
+    print(f"{len(a.videos) - bad}/{len(a.videos)} captures pass")
     return 1 if bad else 0
 
 
