@@ -1,6 +1,8 @@
 # Question acceptance: episodes from gated, variable-rate readers
 
-Status: plan, proposed 2026-10-06; nothing here is built. Rules live in
+Status: plan, proposed 2026-10-06 and revised the same day with the
+player's answers (section 9) and the truth-side fidelity test of
+[COACHING_QUESTIONS.md](COACHING_QUESTIONS.md); nothing here is built. Rules live in
 [AGENTS.md](../AGENTS.md); commands in [WORKING_MAP.md](WORKING_MAP.md). It
 rests on [ENTITY_STATE.md](ENTITY_STATE.md) (the slot model),
 [EPISODES.md](EPISODES.md) (the questions), [REPLAY_LAYER.md](REPLAY_LAYER.md)
@@ -19,6 +21,22 @@ and never on a kill. The timeline may change shape; the questions answered
 may not lose the fidelity they need. The acceptance test answers the
 coaching and summary questions from a vision timeline built on the gated
 readers and compares the answers with the replay timeline's.
+
+**The player's answers (2026-10-06)** revise the plan in four places:
+
+- **Damage-only fights are in scope.** The player's combat report is their
+  vision source; section 1 says what it gives per engagement and what it
+  cannot.
+- **The gate's primary input is an enemy drawn on the minimap.** The other
+  inputs of section 5 are secondary. A death with no enemy drawn is itself
+  an observation, stored on the death, never a gate input.
+- **Enemy-side rotations, lurks and executes are beliefs.** They are
+  reported with their standing and left out of the acceptance test.
+- **The cost bound is of the order the player expects**: about a twentieth
+  of today's 15 Hz slot reads, not 0.60 (QA5r, section 7).
+  [COACHING_QUESTIONS.md](COACHING_QUESTIONS.md) names the questions that
+  matter, measures their decision value on the stored data, and measures on
+  truth alone what each loses under such a schedule.
 
 1. **The vision timeline is the slot-state timeline.** ENTITY_STATE's slots
    own every player's state; the per-sample standing, age and precision this
@@ -70,22 +88,52 @@ what the answer needs from a vision source.
 
 What follows from the table:
 
-- **No vision source reads damage.** Every damage-only duel (the quarter of
-  duels no kill ends) and every kill-free engagement leaves the vision
-  timeline at any reader rate. On the development matches, kill-free
-  engagements are
+- **Damage-only fights are in scope; the combat report is their only
+  vision source, and it covers the player alone** (player, 2026-10-06).
+  On the development matches, kill-free engagements are
   [metric:question_acceptance_probe/truth_base_rates@9acf02f98283#engagements_no_kill_share=0.16]
   and [metric:question_acceptance_probe/truth_base_rates@c817691bcd15#engagements_no_kill_share=0.1474]
   of engagements, and kills end
   [metric:question_acceptance_probe/truth_base_rates@9acf02f98283#duels_kill=180] of
   [metric:question_acceptance_probe/truth_base_rates@9acf02f98283#duels=248] duels on
-  9acf02f98283. This is a field limit, not reader error; T2 carries it.
+  9acf02f98283. The report gives, per enemy the player engaged in the
+  round, damage both ways with head, body and leg hits and a KILLED flag
+  [domain:combat_report/panel-layout], shown at his death and frozen until
+  the round ends [domain:combat_report/appears-on-death]
+  [domain:combat_report/frozen-after-death], and as a round summary at the
+  round's end, also for a round he survived
+  [domain:combat_report/round-summary]. It cannot give a bout's time (a row
+  sums the round), the order of rows within a merged pair beyond newest
+  first [domain:combat_report/rows-newest-first], any teammate's fights, or
+  a row at all when the player hides it with N
+  [domain:combat_report/toggle-into-next-buy-phase]. On the 11 replays
+  holding the player, he fought
+  [metric:coaching_questions/value/extra/combat_report@pooled#player_kill_free_bouts=104]
+  of his team's
+  [metric:coaching_questions/value/extra/combat_report@pooled#team_kill_free_bouts=577]
+  kill-free bouts
+  ([metric:coaching_questions/value/extra/combat_report@pooled#player_share_of_team_kill_free=0.1802]);
+  [metric:coaching_questions/value/extra/combat_report@pooled#rows_merging_share=0.087]
+  of his rows merge two or more bouts with one enemy. The rest of the
+  team's damage-only fights stay outside every vision source: a field
+  limit, not reader error, which T2 carries. The round-level damage
+  balance is the answer the report serves
+  ([COACHING_QUESTIONS.md](COACHING_QUESTIONS.md), section 2).
 - **Enemy-side spatial questions are censored at the source.** An enemy is
   drawn only inside team vision, briefly after it
   [domain:minimap/vision-trailing-persistence], then as a "?"
   [domain:minimap/last-known-mark]. Rotations, lurks and executes of the
-  enemy team, and the enemy's half of reach, are beliefs at best. T1
-  measures how much.
+  enemy team, and the enemy's half of reach, are beliefs with a standing,
+  reported and never accepted (player, 2026-10-06): on truth, the drawn
+  enemy alone recovers
+  [metric:coaching_questions/degrade/T1@pooled17#vs_T0.execute_E=0.3949] of
+  enemy executes, [metric:coaching_questions/degrade/T1@pooled17#vs_T0.rotation_E=0.0164]
+  of enemy rotations and
+  [metric:coaching_questions/degrade/T1@pooled17#vs_T0.lurk_E=0.2383] of
+  enemy lurks (strict agreement). The acceptance test (section 6) scores
+  the capturing team's questions only; the enemy's reachable set and its
+  habits ([COACHING_QUESTIONS.md](COACHING_QUESTIONS.md), section 4) are
+  the belief's form.
 - **First seer is biased by construction.** An enemy who sees an ally
   first is drawn only if another ally sees him. Of single-seer duels in the
   replay the enemy saw first in
@@ -261,6 +309,34 @@ schedule most frames read no slot, and the design changes in seven places:
 
 ## 5. The gate
 
+**The primary input is an enemy drawn on the minimap** (player,
+2026-10-06); the rows below it are secondary and are added only where they
+lift the open-at-onset share. On truth (17 replays), a gate open while any
+enemy is drawn is open at
+[metric:coaching_questions/value/extra/gate_onset@pooled#open_0=0.9211]
+of [metric:coaching_questions/value/extra/gate_onset@pooled#n=3560]
+engagement onsets, with a median lead of
+[metric:coaching_questions/value/extra/gate_onset@pooled#lead_ms_p50=672.5] ms;
+one open only for the slots that see a drawn enemy or stand within 20 m of
+one is open at
+[metric:coaching_questions/value/extra/gate_onset@pooled#local_open=0.859];
+[metric:coaching_questions/value/extra/gate_onset@pooled#miss_enemy_first=0.669]
+of its misses are enemy-first acts no input of this table could see sooner.
+
+**A death with no enemy drawn is an observation**, stored on the death as
+`blind` (no living teammate saw the killer in the 2 s before it) with its
+standing, and never a gate input: it is an outcome. On the replays
+[metric:coaching_questions/value/replays/blind_death@pooled#n_a1=259] of
+[metric:coaching_questions/value/replays/blind_death@pooled#n=2571]
+deaths are blind; they are traded at
+[metric:coaching_questions/value/replays/blind_death@pooled#traded_a1=0.1236]
+against [metric:coaching_questions/value/replays/blind_death@pooled#traded_a0=0.1912],
+and their round-win difference
+([metric:coaching_questions/value/replays/blind_death@pooled#diff=-0.0424],
+interval [metric:coaching_questions/value/replays/blind_death@pooled#ci_lo=-0.0805]
+to [metric:coaching_questions/value/replays/blind_death@pooled#ci_hi=0.0165])
+spans zero.
+
 A slot runs `fine` (read every frame, full fit) while any opportunity input
 holds near it, and `coarse` otherwise. Fidelity also schedules: a slot is
 read whenever its carried radius would pass the tightest `max_radius_cm` a
@@ -347,6 +423,25 @@ over [metric:scan_usage/ally_icon/cache/serial/cv12@9acf02f98283~e5c119ba#frames
 frames on 9acf02f98283. The gate's duty cycle (the share of live-phase
 slot-frames in `fine`) is reported beside it.
 
+**The cost target** (player, 2026-10-06): real time with no noticeable
+cost; the stretch goal is under 1 ms average processing per captured
+frame. The basis is the captured frame: the development captures run at
+[metric:coaching_questions/cost/today@9acf02f98283#capture_fps=60.0] fps,
+so today's 15 Hz reading touches one captured frame in four. Today the two
+15 Hz minimap readers cost
+[metric:coaching_questions/cost/today@9acf02f98283#cv4.per_read_ms=29.744] ms
+per read frame on the least contended stored pass (`ally_icon`
+[metric:coaching_questions/cost/today@9acf02f98283#cv4.ally_icon_ms_per_read=26.421] ms,
+`minimap` [metric:coaching_questions/cost/today@9acf02f98283#minimap_ms_per_read=3.322] ms),
+that is
+[metric:coaching_questions/cost/today@9acf02f98283#cv4.per_captured_ms=7.436] ms
+per captured frame, and
+[metric:coaching_questions/cost/today@9acf02f98283#cv12.per_captured_ms=14.243] ms
+on a contended one. A schedule's implied cost is that figure times its slot
+share; COACHING_QUESTIONS.md section 6 gives it per arm. The 1 ms target
+therefore needs a slot share of at most about 0.13 (1 over 7.4) of today's, before
+the gate's own per-frame cue, which must stay a red-pixel test.
+
 ### The gate's own metric
 
 For every T0 engagement, its **onset** is its earliest act (damage or kill)
@@ -395,6 +490,20 @@ states its falsifier.
 QA5 is the acceptance: a gated reader passes when it meets QA5 on
 development and then once on the held-out match.
 
+**Revisions of 2026-10-06** (the player's answers), appended as `kind:
+"revision"` rows that point at the originals, which stand unedited:
+
+| Ref | Revises | Prediction |
+|---|---|---|
+| QA5r | QA5 | Vgate against V15 on the capturing team's questions only (enemy-side kinds reported as beliefs, never scored): opening first seer, the 5 m spacing boolean, first-sight support, trades, duels, contacts and the execute committed band agree on at least 0.95 of instances (strict for instants, contacts and trades; F1 for executes, rotations and lurks); slot-read share at most 0.06 of V15's 15 Hz reads; minimap reading at most 1 ms average per captured 60 Hz frame on an uncontended pass (`reticle usage`), the gate's cue included |
+| QA6r | QA6 | the drawn-enemy gate alone opens at onset on 0.85-0.92 of engagement onsets (the truth ideal is 0.921, the ceiling) and its median lead is at least 400 ms; every death with no enemy drawn in the 2 s before it carries `blind` with its standing, and no gate input reads a death |
+
+The truth-side test behind QA5r (COACHING_QUESTIONS.md, section 3): the
+live-phase local gate at 0.5 Hz base (`Lp0.5-250w5`) reads
+[metric:coaching_questions/degrade/Lp0.5-250w5@pooled17#share=0.0484] of
+today's slot reads and agrees with T1 on at least 0.95 of the sight
+questions; strict execute and rotation timing fall below it.
+
 ## 8. Build list, in order
 
 Costs are agent sessions (one contained implementation each) and compute,
@@ -421,20 +530,21 @@ decodes video; the crop caches and stored rows suffice until B12.
 B1-B3 come first because every arm reads slots, and their own scores
 measure the slot model against today's numbers before any rate changes.
 
-## 9. Questions for the player
+## 9. Questions for the player, answered
 
-1. **Damage-only fights.** No reader sees damage, so a duel no kill ends
-   and a kill-free engagement leave the vision answers at every rate. Do
-   you want them answered? A damage reader would start from your HUD's HP
-   (2 Hz today) and the combat report's per-round totals, and could see
-   only your own.
-2. **Enemy-side questions.** The enemy team's rotations, lurks and
-   executes are mostly unseen (QA1 will say how much). Report them as
-   beliefs with their standing, or leave them out of the acceptance?
-3. **The margin.** QA5 accepts a gated reader that loses at most 0.02 F1
-   (0.03 for contacts and first seer) for at least 40% less minimap
-   reading. Are those the trade-offs you want, and does any question need
-   none at all?
+The player answered all three on 2026-10-06:
+
+1. **Damage-only fights**: in scope; the combat report carries damage both
+   ways (section 1 says what it gives).
+2. **Enemy-side questions**: beliefs with their standing, outside the
+   acceptance (section 1). The gate's primary input is an enemy drawn, and
+   a death with no enemy drawn is an observation (section 5).
+3. **The margin**: savings of 95% or more over today's 15 Hz reading at
+   barely any loss on the questions that matter, and real time with no
+   noticeable cost, under 1 ms average processing per captured frame as
+   the stretch goal. QA5r and the cost target (section 7) restate QA5 so;
+   [COACHING_QUESTIONS.md](COACHING_QUESTIONS.md) names the questions and
+   tests the claim on truth.
 
 ## 10. What this plan does not do
 
@@ -446,3 +556,8 @@ measure the slot model against today's numbers before any rate changes.
   sight, and smokes are absent from sight as in EPISODES §6.
 - It measures no gate input's cost; the red-pixel cue's cost is B10's.
 - It fixes no player parameter; EPISODES §5's defaults stand.
+- Its truth-side fidelity test (COACHING_QUESTIONS.md) simulates schedules
+  on truth only; it models no reader error, no minimap lag and no field
+  limit (T2), which remain B7's and B10's.
+- It reads the combat report nowhere yet; the report's reader exists
+  (`reticle combat-report`), and its answers join the timeline in B6.
