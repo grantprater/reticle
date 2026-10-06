@@ -278,8 +278,8 @@ fragments.
    the ally labels.
 
 **The corpus.** No stage decodes. Each change runs on the three sessions;
-the corpus gets one storage rerun of the streams `reticle plan` names,
-folded into the player's next unified corpus run.
+acceptance follows AGENTS.md, which defers any corpus rerun until
+training on the replay data is finished.
 
 ## 8. Risks and falsifiers
 

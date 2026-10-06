@@ -480,7 +480,7 @@ rows, ledger rows by standing, residual rows, the resolved share
 regression, so every kind with player labels also records the
 resolved-and-wrong share through `adjudication.reliability`; the resolved
 share counts only while that stays flat. The fast tier (a fixed handful of
-sessions) runs it on every change; the corpus runs it for acceptance.
+sessions) runs it on every change; acceptance follows AGENTS.md.
 
 ### When owners disagree
 

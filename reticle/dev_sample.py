@@ -2,7 +2,8 @@
 
 A change is tested where it is expected to move output (the targeted
 windows) plus on a fixed, declared sample of the rest, reported with error
-bars; the full corpus run is the batched acceptance run.
+bars; replay truth on the replay-backed matches accepts, and no full corpus
+run runs until training on the replay data is finished (AGENTS.md).
 
 The sample (`DEV_SAMPLE_VERSION`) is data, not a rule rerun at each use:
 `SAMPLE` holds whole rounds of the 21 Riot-paired matches, two per match,
