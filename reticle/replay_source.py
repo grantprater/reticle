@@ -1,16 +1,23 @@
 """A replay parse, a Riot record and a capture, put on one clock and one map.
 
-[owns:replay-alignment]
+[owns:replay-alignment] [owns:replay-self]
 
 What a kept VALORANT replay holds is external truth about its match
 (docs/EXTERNAL_GROUND_TRUTH.md, which holds the use policy). vrfkit decodes a
 replay into Parquet tables under `<store>/external/replays/parsed/vrfkit-<ver>/
 <match>/export/`; this module reads them (`Replay`), names the agents through
-valorant-api's cached tables (`Reference`), identifies the capturing player
-and the teams through Riot's match record (`riot_records`, `identify_player`),
-fits the replay-to-capture clock offset on STORED deaths (`fit_alignment`,
-`capture_replay_context`) and maps world units to baked widget pixels (`MapFrame`,
-`to_px`, `facing_px_deg`).
+valorant-api's cached tables (`Reference`), fits the replay-to-capture clock
+offset on STORED deaths (`fit_alignment`, `capture_replay_context`) and maps
+world units to baked widget pixels (`MapFrame`, `to_px`, `facing_px_deg`).
+
+It also decides which replay player is the capturing player
+(`capture_replay_context`, `decide_player`). Riot's match record decides
+where it names him (`riot_records`, `identify_player`). The replay always
+votes too: `replay_self_pick` names the replay player whose living path holds
+the stored `ally_icon` self fit within `SELF_ID_RADIUS_M` on the most frames
+(`choose_self_subject`), and `spawn_teams` splits the ten by spawn. With a
+Riot player the replay's verdict is a stored cross-check; without one it is
+used, `rests_on` `ally_icon.self`, or the context names its refusal.
 
 These functions were the prototypes' (`riot_ground_truth`, `replay_truth`)
 until 2026-10-05, when the replay layer (`replay_layer`) joined the pipeline;
@@ -41,7 +48,7 @@ import numpy as np
 from .agent_names import canonical_agent
 from .store import DEFAULT_STORE
 
-REPLAY_SOURCE_VERSION = "replay-source-0.1.0"
+REPLAY_SOURCE_VERSION = "replay-source-0.2.0"
 VRFKIT_VERSION = "0.2.5"
 API_BASE = "https://valorant-api.com/v1/"
 
@@ -65,6 +72,27 @@ MATCH_TOL_MS = 1500.0
 MINIMAP_LAG_MS = -450.0
 #: Names that mean one thing under two spellings.
 SAME_NAME = {"melee": "tactical knife", "tactical knife": "tactical knife"}
+#: Teams from the replay: each player's position this long after the round's
+#: start (buy phase, players in spawn) splits the ten into two spawn groups.
+SPAWN_PROBE_MS = 2000.0
+#: Replay self identification. A self-track frame counts for a replay player
+#: when its icon lies within this many metres of the player's living
+#: position: 2 m holds the self error's p90 on c817691bcd15 (96 cm) and the
+#: bulk of 9acf02f98283's (median 75 cm), and stays inside a stack's spread.
+SELF_ID_RADIUS_M = 2.0
+#: Fewer self-track frames than this (60 s at 15 Hz) refuse `track_too_short`.
+SELF_ID_MIN_FRAMES = 900
+#: A best share under this refuses `no_fit`: no path follows the icon.
+SELF_ID_MIN_SHARE = 0.30
+#: The best share must lead the runner-up's by this much, else
+#: `margin_too_small`. Chosen on the development matches only, by the rule
+#: logged before they ran (`replay-self-id-20261006`): half the smaller of
+#: c817691bcd15's and 9acf02f98283's margins, rounded down to 0.05, never
+#: below 0.10. Their margins were 0.5701 and 0.5656 (2026-10-06), so the cut
+#: is 0.25. The held-out match never informed it.
+SELF_ID_MARGIN = 0.25
+#: What the replay's choice of the player rests on.
+SELF_ID_RESTS_ON = "ally_icon.self"
 
 
 def replays_dir(root=DEFAULT_STORE) -> Path:
@@ -596,23 +624,222 @@ def sample_stats(x, nd=2) -> dict | None:
             "max": round(float(a.max()), nd)}
 
 
+# ----------------------------------------------------------------- the player
+
+def spawn_teams(rp: Replay, rs: np.ndarray) -> dict:
+    """Two spawn groups per round from each player's position `SPAWN_PROBE_MS`
+    after the round starts, split by 2-means seeded with the two farthest
+    players. Labels `A`/`B` follow round 0's split; `agree` counts the rounds
+    whose split equals it."""
+    subs = list(rp.subjects)
+    parts = []
+    for t0 in rs:
+        xy = np.array([[rp.sample(s, [t0 + SPAWN_PROBE_MS])[k][0] for k in ("x", "y")]
+                       for s in subs])
+        ok = np.all(np.isfinite(xy), axis=1)
+        if ok.sum() < 4:
+            parts.append(None)
+            continue
+        d = np.hypot(xy[:, None, 0] - xy[None, :, 0], xy[:, None, 1] - xy[None, :, 1])
+        d[~ok, :] = 0
+        d[:, ~ok] = 0
+        i, j = np.unravel_index(np.argmax(d), d.shape)
+        c = np.array([xy[i], xy[j]])
+        lab = np.zeros(len(subs), np.int64)
+        for _ in range(10):
+            dd = np.hypot(xy[:, None, 0] - c[None, :, 0], xy[:, None, 1] - c[None, :, 1])
+            lab = np.argmin(dd, axis=1)
+            c = np.array([xy[ok & (lab == q)].mean(axis=0) for q in (0, 1)])
+        parts.append(np.where(ok, lab, -1))
+    ref = next((p for p in parts if p is not None and (p >= 0).all()), None)
+    if ref is None:
+        return {"team": {}, "agree": 0, "rounds": len(parts), "basis": "spawn_cluster_failed"}
+    agree = 0
+    for p in parts:
+        if p is None:
+            continue
+        ok = p >= 0
+        if np.all(p[ok] == ref[ok]) or np.all(p[ok] == 1 - ref[ok]):
+            agree += 1
+    return {"team": {s: "AB"[int(ref[k])] for k, s in enumerate(subs)}, "agree": agree,
+            "rounds": len(parts), "basis": "spawn_cluster"}
+
+
+def living_widget_px(rp: Replay, mf, subs, t_rep):
+    """(n, k) widget px, image-degree facing and a living mask for subjects
+    `subs` at replay times `t_rep`; NaN where dead (`Replay.alive`) or
+    unsampled."""
+    t_rep = np.asarray(t_rep, float)
+    n, k = t_rep.size, len(subs)
+    X, Y, YAW = (np.full((n, k), np.nan) for _ in range(3))
+    L = np.zeros((n, k), bool)
+    for c, s in enumerate(subs):
+        q = rp.sample(s, t_rep)
+        live = rp.alive(s, t_rep) & np.isfinite(q["x"])
+        px, py = to_px(mf, q["x"], q["y"])
+        L[:, c] = live
+        X[:, c] = np.where(live, px, np.nan)
+        Y[:, c] = np.where(live, py, np.nan)
+        YAW[:, c] = np.where(live, facing_px_deg(mf, q["x"], q["y"], q["yaw"]), np.nan)
+    return X, Y, YAW, L
+
+
+def ally_icon_self_track(sid: str, root=DEFAULT_STORE) -> dict:
+    """The stored self-icon track: `ally_icon`'s frame rows with the widget
+    drawn and a self fit, in frame order (`t_ms`, `x`, `y` in widget px)."""
+    t, x, y, fi = [], [], [], []
+    p = Path(root) / "events" / "ally_icon" / f"{sid}.jsonl"
+    if p.is_file():
+        with p.open(encoding="utf-8") as f:
+            for line in f:
+                if '"kind":"frame"' not in line and '"kind": "frame"' not in line:
+                    continue
+                r = json.loads(line)
+                if r.get("kind") != "frame" or not r.get("widget_drawn") or not r.get("self"):
+                    continue
+                fi.append(r["frame_idx"])
+                t.append(r["t_ms"])
+                x.append(r["self"][0])
+                y.append(r["self"][1])
+    o = np.argsort(np.asarray(fi, np.int64), kind="stable")
+    x, y = np.asarray(x, float)[o], np.asarray(y, float)[o]
+    m = np.isfinite(x)
+    return {"t_ms": np.asarray(t, float)[o][m], "x": x[m], "y": y[m]}
+
+
+def choose_self_subject(dist_m, subjects, radius_m: float = SELF_ID_RADIUS_M,
+                        min_frames: int = SELF_ID_MIN_FRAMES,
+                        min_share: float = SELF_ID_MIN_SHARE,
+                        margin: float = SELF_ID_MARGIN) -> dict:
+    """Which replay subject the self-icon track follows, or a refusal.
+
+    `dist_m` is (n_frames, k): metres from each self-track frame's icon to
+    subject `subjects[c]`, NaN where that subject is dead or unsampled. Each
+    subject's share is the fraction of ALL n frames within `radius_m` (a dead
+    subject misses, so a teammate the dead player spectates scores only those
+    frames). The best subject wins when the track has `min_frames`, its share
+    reaches `min_share`, and it leads the runner-up by `margin`; otherwise
+    `subject` is None and `reason` says which test failed. The candidate set
+    is every replay subject: before the player is known no context narrows it.
+    """
+    D = np.asarray(dist_m, float).reshape(-1, len(subjects))
+    n = int(D.shape[0])
+    within = np.isfinite(D) & (D <= radius_m)
+    share = within.sum(axis=0) / max(1, n)
+    alive = np.isfinite(D).sum(axis=0)
+    med = np.array([float(np.median(D[np.isfinite(D[:, c]), c])) if alive[c] else np.nan
+                    for c in range(D.shape[1])])
+    o = np.argsort(-share, kind="stable")
+    cands = [{"subject": subjects[c], "share_within": round(float(share[c]), 4),
+              "frames_alive": int(alive[c]),
+              "median_m_alive": None if not np.isfinite(med[c]) else round(float(med[c]), 3)}
+             for c in o]
+    best = cands[0] if cands else None
+    second = cands[1] if len(cands) > 1 else None
+    lead = None if best is None else round(best["share_within"] - (second["share_within"]
+                                                                  if second else 0.0), 4)
+    out = {"frames": n, "radius_m": radius_m, "min_frames": min_frames, "min_share": min_share,
+           "margin_cut": margin, "margin": lead, "best": best, "runner_up": second,
+           "candidates": cands, "subject": None, "reason": None}
+    if n < min_frames:
+        out["reason"] = f"track_too_short:{n}<{min_frames}"
+    elif best is None or best["share_within"] < min_share:
+        out["reason"] = f"no_fit:best_share<{min_share}"
+    elif lead < margin:
+        out["reason"] = f"margin_too_small:{lead}<{margin}"
+    else:
+        out["subject"] = best["subject"]
+    return out
+
+
+def replay_self_pick(sid: str, rp: Replay, mf, a: float, spawn: dict,
+                     root=DEFAULT_STORE, margin: float = SELF_ID_MARGIN) -> dict:
+    """`choose_self_subject` on the stored self-icon track
+    (`ally_icon_self_track`), put on replay time by the fitted offset `a` and
+    `MINIMAP_LAG_MS`, against each replay subject's living position in widget
+    px (`living_widget_px`). `spawn` is `spawn_teams`'s split, recorded beside
+    the pick. The verdict `rests_on` `ally_icon.self`: a self fit scored later
+    is no longer independent of it."""
+    T = ally_icon_self_track(sid, root)
+    t_rep = frames_to_replay(T["t_ms"], a, MINIMAP_LAG_MS)
+    subs = list(rp.subjects)
+    X, Y, _yaw, _L = living_widget_px(rp, mf, subs, t_rep)
+    px_per_m = mf.px_per_unit * 100.0
+    D = np.hypot(X - T["x"][:, None], Y - T["y"][:, None]) / px_per_m
+    pick = choose_self_subject(D, subs, margin=margin)
+    pick["rests_on"] = SELF_ID_RESTS_ON
+    pick["track"] = "ally_icon frame rows: widget_drawn and self not null"
+    pick["teams"] = {"basis": spawn["basis"], "spawn_cluster_rounds_agreeing": spawn["agree"],
+                     "spawn_cluster_rounds": spawn["rounds"]}
+    return pick
+
+
+def same_side(team_a: dict, me_a, team_b: dict, me_b, subjects) -> bool | None:
+    """Whether two team labellings put the same subjects on each player's side."""
+    if not team_a or not team_b or me_a is None or me_b is None:
+        return None
+    side_a = {s for s in subjects if team_a.get(s) is not None and team_a.get(s) == team_a.get(me_a)}
+    side_b = {s for s in subjects if team_b.get(s) is not None and team_b.get(s) == team_b.get(me_b)}
+    return side_a == side_b
+
+
+def decide_player(pick: dict, spawn_team: dict, riot_me, riot_team: dict, agent: dict,
+                  subjects) -> dict:
+    """The capturing player and the teams, and the record of how.
+
+    Riot's player, where its record names one, decides; the replay's pick is
+    stored beside it with whether it agrees (`riot_cross_check`; a
+    disagreement is flagged, never resolved silently). Without a Riot player
+    the pick and the spawn split are used (`used` `replay_self_track`), or
+    `refused` names the pick's reason. Returns `me`, `team`, `player_basis`
+    and `team_source` (None where Riot's stand), `refused` and
+    `self_identity`."""
+    rme = pick["subject"]
+    si = {"replay": {**pick, "agent": agent.get(rme) if rme else None,
+                     "best_agent": agent.get((pick["best"] or {}).get("subject")),
+                     "runner_up_agent": agent.get((pick["runner_up"] or {}).get("subject"))}}
+    out = {"me": riot_me, "team": riot_team, "player_basis": None, "team_source": None,
+           "refused": None, "self_identity": si}
+    if riot_me is not None:
+        self_ok = None if rme is None else rme == riot_me
+        team_ok = same_side(spawn_team, rme if rme else riot_me, riot_team, riot_me, subjects)
+        best_ok = (pick["best"] or {}).get("subject") == riot_me
+        si["riot_cross_check"] = {"present": True, "self_agrees": self_ok, "best_agrees": best_ok,
+                                  "team_agrees": team_ok, "riot_agent": agent.get(riot_me),
+                                  "disagreement": self_ok is False or team_ok is False}
+        si["used"] = "riot_record"
+        return out
+    si["riot_cross_check"] = {"present": False}
+    if rme is None or not spawn_team:
+        si["used"] = None
+        out.update(me=None, team={},
+                   refused=f"no_player_or_team:replay_self:{pick['reason'] or 'no_spawn_teams'}")
+        return out
+    si["used"] = "replay_self_track"
+    out.update(me=rme, team=spawn_team, player_basis="replay_self_track",
+               team_source="replay_spawn_split")
+    return out
+
+
 def capture_replay_context(sid: str, geometry: Path | None = None, root=DEFAULT_STORE,
                            require_player: bool = True) -> dict:
     """What every user of one capture's replay needs, built once from STORED events.
 
-    The replay, the player and teams (Riot's record), the agents
-    (playerLoadouts), the replay-to-capture offset `a` fitted on replay kills
-    against the stored deaths (capture ms = replay ms + `a`), the stored
-    rounds and the baked `MapFrame`. `geometry` names the baked npz whose
-    `shade_fit` places the map (default: the session's own,
-    `geometry.path_of`), so one capture can be placed before and after a
-    geometry rebuild; the report names the file and its fit. `ctx["out"]` is
-    the report's head; a refusal sets `ctx["out"]["refused"]` and leaves the
-    later keys out. The replay layer and the prototypes' scorers use it.
-    Without a Riot record it refuses `no_player_or_team`, unless
-    `require_player` is false: then `me` is None, `team`, `allies` and `foes`
-    are empty, and the caller names the player (`prototypes/replay_truth.py`
-    fits the stored self-icon track to the replay's paths).
+    The replay, the agents (playerLoadouts), the replay-to-capture offset
+    `a` fitted on replay kills against the stored deaths (capture ms = replay
+    ms + `a`), the stored rounds, the baked `MapFrame`, and the player and
+    teams (`decide_player`: Riot's player where its record names one, else
+    the replay's pick on the stored self track, `out["self_identity"]`
+    either way). `geometry` names the baked npz whose `shade_fit` places the
+    map (default: the session's own, `geometry.path_of`), so one capture can
+    be placed before and after a geometry rebuild; the report names the file
+    and its fit. `ctx["out"]` is the report's head; a refusal sets
+    `ctx["out"]["refused"]` and leaves the later keys out. The replay layer
+    and the prototypes' scorers use it. Where neither Riot nor the replay
+    names the player it refuses `no_player_or_team:replay_self:<reason>`,
+    unless `require_player` is false: then the context is whole, `me` is
+    None, `team`, `allies` and `foes` are empty, and `out["self_refused"]`
+    holds the reason.
     """
     from . import geometry as _geo
     from .store import Store
@@ -631,21 +858,16 @@ def capture_replay_context(sid: str, geometry: Path | None = None, root=DEFAULT_
     out = {"session": sid, "capture": man["source"]["path"], "profile": man["source_profile"],
            "replay_source_version": REPLAY_SOURCE_VERSION, "vrfkit": VRFKIT_VERSION,
            "minimap_lag_ms": MINIMAP_LAG_MS}
-    # who is the player, and the teams: Riot's record (external, like the replay)
+    # Riot's player and teams (external, like the replay); decided below
     ident = identify_player(recs, root).get(sid, {}) if d else {}
-    me = ident.get("subject")
-    team = {p["subject"]: p["teamId"] for p in d["match"]["players"]} if d else {}
+    riot_me = ident.get("subject")
+    riot_team = {p["subject"]: p["teamId"] for p in d["match"]["players"]} if d else {}
+    if riot_me is None or not riot_team:
+        riot_me, riot_team = None, {}
     out["player_basis"] = ident.get("basis")
     out["team_source"] = "riot_record" if d else None
-    if me is None or not team:
-        if require_player:
-            out["refused"] = "no_player_or_team"
-            return {"out": out}
-        me, team = None, {}
-    allies = [s for s in rp.subjects if me and team.get(s) == team[me]]
-    foes = [s for s in rp.subjects if me and s in team and team[s] != team[me]]
+    out["allies"] = []
     agent = {s: ref.agent(c) for s, c in rp.loadouts().items()}
-    out["allies"] = [agent.get(s) for s in allies]
 
     # -- alignment: replay kills against stored deaths (killfeed first sample)
     deaths = stored_deaths(root, sid)
@@ -709,6 +931,23 @@ def capture_replay_context(sid: str, geometry: Path | None = None, root=DEFAULT_
     H, W = mf.widget_shape
     out["px_per_m"] = round(mf.px_per_unit * 100.0, 3)
     out["widget"] = [int(W), int(H)]
+
+    # -- who is the player: Riot decides where it can; the replay always votes
+    spawn = spawn_teams(rp, rs)
+    pick = replay_self_pick(sid, rp, mf, a, spawn, root)
+    who = decide_player(pick, spawn["team"], riot_me, riot_team, agent, rp.subjects)
+    me, team = who["me"], who["team"]
+    if who["player_basis"]:
+        out["player_basis"], out["team_source"] = who["player_basis"], who["team_source"]
+    out["self_identity"] = who["self_identity"]
+    if who["refused"]:
+        if require_player:
+            out["refused"] = who["refused"]
+            return {"out": out}
+        out["self_refused"] = who["refused"]
+    allies = [s for s in rp.subjects if me and team.get(s) == team[me]]
+    foes = [s for s in rp.subjects if me and s in team and team[s] != team[me]]
+    out["allies"] = [agent.get(s) for s in allies]
     return {"out": out, "store": store, "man": man, "rp": rp, "ref": ref, "me": me,
             "team": team, "allies": allies, "foes": foes, "agent": agent, "a": a,
             "rounds": rounds, "rs": rs, "mf": mf, "cm_per_px": cm_per_px, "match": match,

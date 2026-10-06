@@ -26,7 +26,11 @@ Times: `t_rep` is the replay's server clock (ms); `t_cap` the capture's
 fits on the STORED deaths. A match with no capture, or whose alignment
 refuses, has `t_cap` null and the reason in the head. Positions are world
 units (cm); `px`, `py` and `facing_px` are baked-widget pixels through
-`MapFrame` of the named geometry, null without a capture.
+`MapFrame` of the named geometry, null without a capture. The capturing
+player (`is_me`, `side_rel`) is Riot's where its record names him, else the
+replay's pick on the stored self track (`replay_source.decide_player`); the
+head's `capture.self_identity` holds the pick either way, and
+`capture.rests_on` names `ally_icon.self` where the pick decided.
 
 The use policy (docs/EXTERNAL_GROUND_TRUTH.md) holds: nothing here is shown
 during play. The held-out match (`HELD_OUT`) is built so `plan` is complete,
@@ -51,13 +55,13 @@ import numpy as np
 
 from .replay_actors import (GAME_BUILD, NON_CHARACTER, REPLAY_ACTORS_VERSION, Export, _leaf,
                             class_census, handoff_pairs, slot_map)
-from .replay_source import (MAX_GAP_MS, MINIMAP_LAG_MS, REPLAY_SOURCE_VERSION, VRFKIT_VERSION,
-                            Reference, Replay, capture_replay_context, facing_px_deg,
-                            frames_to_replay, parsed_dir, parsed_root, replay_entry,
-                            replay_manifest, sample_stats, to_px)
+from .replay_source import (MAX_GAP_MS, MINIMAP_LAG_MS, REPLAY_SOURCE_VERSION, SELF_ID_RESTS_ON,
+                            VRFKIT_VERSION, Reference, Replay, capture_replay_context,
+                            facing_px_deg, frames_to_replay, parsed_dir, parsed_root,
+                            replay_entry, replay_manifest, sample_stats, spawn_teams, to_px)
 from .store import DEFAULT_STORE
 
-REPLAY_LAYER_VERSION = "replay-layer-0.1.2"
+REPLAY_LAYER_VERSION = "replay-layer-0.2.0"
 #: The held-out match (docs/EXTERNAL_GROUND_TRUTH.md, "a match that scores a
 #: fitted reader or model is held out from its fit"): built, never summarised.
 HELD_OUT = ("bd7efa02",)
@@ -66,10 +70,6 @@ SOURCES = ("truth", "observed", "inferred", "unknown")
 #: A dead player's own damage or effects this long after his death show him
 #: alive again; earlier ones are his death's own effects.
 REVIVE_QUIET_MS = 3000.0
-#: Teams without a Riot record: each player's position this long after the
-#: round's start (buy phase, players in spawn) splits the ten into two
-#: spawn groups.
-SPAWN_PROBE_MS = 2000.0
 #: `MulticastSetPhase.NewPhase` values read here: 3 opens the buy phase (it
 #: coincides with `roundStarted`), 4 ends it (`ClientBuyPhaseEnd`, the
 #: `CastTime` epoch), 5 is read as the round's end. Phase 5 as round end is
@@ -293,47 +293,6 @@ def _write_table(path: Path, cols: dict, meta: dict) -> int:
     return t.num_rows
 
 
-# ----------------------------------------------------------------- teams
-
-def spawn_teams(rp: Replay, rs: np.ndarray) -> dict:
-    """Two spawn groups per round from each player's position `SPAWN_PROBE_MS`
-    after the round starts, split by 2-means seeded with the two farthest
-    players. Labels `A`/`B` follow round 0's split; `agree` counts the rounds
-    whose split equals it."""
-    subs = list(rp.subjects)
-    parts = []
-    for t0 in rs:
-        xy = np.array([[rp.sample(s, [t0 + SPAWN_PROBE_MS])[k][0] for k in ("x", "y")]
-                       for s in subs])
-        ok = np.all(np.isfinite(xy), axis=1)
-        if ok.sum() < 4:
-            parts.append(None)
-            continue
-        d = np.hypot(xy[:, None, 0] - xy[None, :, 0], xy[:, None, 1] - xy[None, :, 1])
-        d[~ok, :] = 0
-        d[:, ~ok] = 0
-        i, j = np.unravel_index(np.argmax(d), d.shape)
-        c = np.array([xy[i], xy[j]])
-        lab = np.zeros(len(subs), np.int64)
-        for _ in range(10):
-            dd = np.hypot(xy[:, None, 0] - c[None, :, 0], xy[:, None, 1] - c[None, :, 1])
-            lab = np.argmin(dd, axis=1)
-            c = np.array([xy[ok & (lab == q)].mean(axis=0) for q in (0, 1)])
-        parts.append(np.where(ok, lab, -1))
-    ref = next((p for p in parts if p is not None and (p >= 0).all()), None)
-    if ref is None:
-        return {"team": {}, "agree": 0, "rounds": len(parts), "basis": "spawn_cluster_failed"}
-    agree = 0
-    for p in parts:
-        if p is None:
-            continue
-        ok = p >= 0
-        if np.all(p[ok] == ref[ok]) or np.all(p[ok] == 1 - ref[ok]):
-            agree += 1
-    return {"team": {s: "AB"[int(ref[k])] for k, s in enumerate(subs)}, "agree": agree,
-            "rounds": len(parts), "basis": "spawn_cluster"}
-
-
 # ----------------------------------------------------------------- rounds, lives
 
 def round_table(rp: Replay, ex: Export) -> list[dict]:
@@ -461,15 +420,20 @@ def build(key: str, root=DEFAULT_STORE, geometry: Path | None = None) -> dict:
                           "input_sha256_matches_manifest": prov.get("input_sha256_matches_manifest"),
                           "map": rp.map_url()}
 
-    # -- the capture: clock, player, teams, map frame
+    # -- the capture: clock, player, teams, map frame. The player is Riot's
+    # where its record names him, else the replay's pick on the stored self
+    # track (`replay_source.decide_player`); a refused pick leaves the clock
+    # and the map frame standing.
     ctx = None
     a, mf, me, riot_team = None, None, None, {}
     if sid:
-        ctx = capture_replay_context(sid, geometry, root)
+        ctx = capture_replay_context(sid, geometry, root, require_player=False)
         out = ctx["out"]
         head["capture"] = {k: out.get(k) for k in ("capture", "profile", "player_basis",
                                                    "team_source", "refused", "geometry",
                                                    "px_per_m", "widget")}
+        head["capture"]["self_identity"] = out.get("self_identity")
+        head["capture"]["self_refused"] = out.get("self_refused")
         if "align" in out:
             head["capture"]["align"] = {k: out["align"].get(k) for k in (
                 "a_ms", "slope", "matched", "n_riot", "n_store", "residual_mad_ms",
@@ -477,7 +441,9 @@ def build(key: str, root=DEFAULT_STORE, geometry: Path | None = None) -> dict:
         a = ctx.get("a")
         mf = ctx.get("mf")
         me = ctx.get("me")
-        riot_team = ctx.get("team") or {}
+        riot_team = (ctx.get("team") or {}) if out.get("team_source") == "riot_record" else {}
+        if out.get("player_basis") == "replay_self_track":
+            head["capture"]["rests_on"] = SELF_ID_RESTS_ON
         head["capture"]["minimap_lag_ms"] = MINIMAP_LAG_MS
     else:
         head["capture"] = {"refused": "no_capture_session"}
