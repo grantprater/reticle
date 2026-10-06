@@ -5,7 +5,7 @@ rest on; decodes nothing. The held-out match (`replay_layer.HELD_OUT`) is
 skipped before any row is read. With `--record` it appends the pooled and
 per-match figures to the metrics ledger under `episodes/sanity`.
 
-    .\\.venv\\Scripts\\python.exe tools\\episodes_sanity.py [--record] [--examples N]
+    .\\.venv\\Scripts\\python.exe tools\\episodes_sanity.py [--record] [--episodes-root DIR]
 """
 from __future__ import annotations
 
@@ -49,22 +49,77 @@ RIOT_REASON = {"Elimination": "elimination", "Defuse": "defuse", "Detonate": "de
                "": "time"}
 
 
+def act_summary(acts, kill_acts, act_counts, sak, ex_all, R) -> dict:
+    """Kill classes, sight per class, what wallbang lines cross, and the
+    graded executes [domain:weapons/kill-line-of-sight],
+    [domain:rounds/execute-is-a-site-attempt]."""
+    nk = len(kill_acts)
+    kc = Counter(a["class"] for a in kill_acts)
+    out = {"kill_class_share": {k: share(v, nk) for k, v in sorted(kc.items())},
+           "kill_class_n": dict(kc), "act_counts": dict(act_counts)}
+    out["sight_at_kill_by_class"] = {k: share(c[True], c[True] + c[False]) for k, c in sorted(sak.items(), key=str)
+                                     if k is not None}
+    out["sight_at_kill_n_by_class"] = {str(k): c[True] + c[False] for k, c in sak.items()}
+    wb = [a for a in acts if a["class"] == "gun_wallbang" and a.get("geometry")]
+    n = len(wb)
+    pl = Counter(min(a["geometry"]["placements"], 4) for a in wb)
+    so = Counter(min(a["geometry"]["solids"], 4) for a in wb)
+    out["wallbang_lines"] = {"n": n, **{f"placements_{k}{'+' if k == 4 else ''}": share(v, n) for k, v in sorted(pl.items())},
+                             **{f"solids_{k}{'+' if k == 4 else ''}": share(v, n) for k, v in sorted(so.items())},
+                             "impenetrable": share(sum(a["geometry"]["impenetrable"] for a in wb), n),
+                             "unread": share(sum(a["geometry"]["unread"] for a in wb), n),
+                             "clear_line": share(sum(1 for a in wb if a["line_clear"]), n)}
+    read = [a for a in wb if not a["geometry"]["unread"]]
+    out["wallbang_lines"]["placements_read_only_1"] = share(sum(1 for a in read if a["geometry"]["placements"] == 1), len(read))
+    out["wallbang_classes"] = dict(Counter(c for a in wb for c in a["geometry"]["classes"]))
+    out["wallbang_impenetrable_list"] = [
+        {k: a[k] for k in ("match", "event_id", "t_ms", "actor", "target", "equippable")}
+        | {"meshes": a["geometry"]["meshes"], "classes": a["geometry"]["classes"]}
+        for a in wb if a["geometry"]["impenetrable"]]
+    gun = sum(act_counts.get(k, 0) for k in ("gun_sight", "gun_wallbang", "gun_blocked"))
+    gb = [a for a in acts if a["class"] == "gun_blocked"]
+    out["gun_blocked"] = {"n": len(gb), "share_of_gun_acts": share(act_counts.get("gun_blocked", 0), gun),
+                          "impenetrable": sum(1 for a in gb if a.get("geometry") and a["geometry"]["impenetrable"]),
+                          "list": [{k: a[k] for k in ("match", "event_id", "t_ms", "actor", "target", "equippable")}
+                                   | {"meshes": (a.get("geometry") or {}).get("meshes")} for a in gb]}
+    ne = len(ex_all)
+    res = Counter(e["outcome"]["result"] for e in ex_all)
+    com = Counter(e["commitment"]["committed"] for e in ex_all)
+    out["execute_attempts"] = {"per_round": round(ne / R, 3) if R else None,
+                               "rounds_with": share(len({(e["match"], e["round"]) for e in ex_all}), R),
+                               **{f"result_{k}": share(v, ne) for k, v in sorted(res.items())},
+                               **{f"committed_{k}": share(v, ne) for k, v in sorted(com.items())},
+                               "trigger_plant": share(sum(1 for e in ex_all if e["trigger"] == "plant"), ne)}
+    sh = [e["commitment"]["share"] for e in ex_all if e["commitment"]["share"] is not None]
+    out["execute_attempts"]["share_p50"] = round(float(np.median(sh)), 3) if sh else None
+    out["execute_by_commitment"] = {str(k): dict(Counter(e["outcome"]["result"] for e in ex_all
+                                                         if e["commitment"]["committed"] == k))
+                                    for k in sorted(com)}
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--store", type=Path, default=DEFAULT_STORE)
     ap.add_argument("--record", action="store_true")
+    ap.add_argument("--episodes-root", type=Path, default=None,
+                    help="read the episodes under this root (a branch's scratch store)")
     a = ap.parse_args(argv)
     root = a.store
-    files = sorted(ep.episodes_dir("truth", root).glob("*.jsonl"))
+    eroot = a.episodes_root or root
+    files = sorted(ep.episodes_dir("truth", eroot).glob("*.jsonl"))
     per, pooled = {}, defaultdict(list)
     tot = Counter()
     lag = defaultdict(list)
     riot_cmp = {}
+    acts_all, kill_acts, ex_all = [], [], []
+    act_counts = Counter()
+    sak = defaultdict(Counter)
     for f in files:
         m = f.stem
         if is_held_out(m):
             continue
-        rows = ep.read_episodes(m, "truth", root)
+        rows = ep.read_episodes(m, "truth", eroot)
         head = rows[0]
         eps = [r for r in rows if r["row"] == "episode"]
         con = [r for r in rows if r["row"] == "contact"]
@@ -85,6 +140,13 @@ def main(argv=None) -> int:
             if o.get("end_lag_ms") is not None:
                 lag[o["end_reason"]].append(o["end_lag_ms"])
         side_notes = Counter(n["kind"] for n in notes)
+        acts = [dict(r, match=m) for r in rows if r["row"] == "act"]
+        acts_all += [a for a in acts if a["act"] == "damage"]
+        kill_acts += [a for a in acts if a["act"] == "death"]
+        act_counts.update(head.get("act_counts") or {})
+        for r in kd:
+            sak[r.get("kill_class")][bool(r["sight_at_kill"])] += 1
+        ex_all += [dict(r, match=m) for r in eps if r["kind"] == "execute"]
         per[m] = {
             "map": head["map"].rsplit("/", 1)[-1], "session": head["stamps"].get("session"),
             "rounds": n_rounds, "kills": n_kills, "counts": {k: c.get(k, 0) for k in KINDS},
@@ -95,6 +157,7 @@ def main(argv=None) -> int:
             "mutual_kill_duels": share(sum(1 for r in kd if r["mutual"]), len(kd)),
             "traded_share": share(c.get("trade", 0), len(kd)),
             "side_notes": dict(side_notes),
+            "kill_classes": dict(Counter(a["class"] for a in acts if a["act"] == "death")),
         }
         tot.update(c)
         tot["rounds"] += n_rounds
@@ -147,6 +210,7 @@ def main(argv=None) -> int:
         "end_lag_ms_p50_p95": {k: pct(v, (50, 95)) for k, v in lag.items()},
         "riot_round_check": riot_cmp,
     }
+    pooled_out.update(act_summary(acts_all, kill_acts, act_counts, sak, ex_all, R))
     print(json.dumps({"pooled": pooled_out, "per_match": per}, indent=1))
     if a.record:
         from reticle.metrics import record
@@ -159,6 +223,10 @@ def main(argv=None) -> int:
         for k, v in pooled_out["duration_s_p10_p50_p90"].items():
             if v:
                 flat[f"dur_s.{k}.p50"] = v[1]
+        for sec in ("kill_class_share", "sight_at_kill_by_class", "wallbang_lines", "execute_attempts"):
+            for k, v in (pooled_out.get(sec) or {}).items():
+                if isinstance(v, (int, float)) and v is not None:
+                    flat[f"{sec}.{k}"] = v
         record("episodes", part="sanity/pooled", values=flat, deps=deps,
                context={"matches": sorted(per)})
         for m, p in per.items():

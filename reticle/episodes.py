@@ -28,7 +28,7 @@ import numpy as np
 
 from .store import DEFAULT_STORE
 
-EPISODES_VERSION = "episodes-0.2.1"
+EPISODES_VERSION = "episodes-0.3.0"
 
 #: Parameters (docs/EPISODES.md section 4). Every one but the eye height,
 #: which `line_of_sight` takes from the game files, and the two sampling
@@ -40,7 +40,8 @@ PARAMS = {
     "DUEL_GAP_MS": 3000.0,        # Q3
     "ENGAGE_JOIN_MS": 5000.0,     # Q4
     "TRADE_WINDOW_MS": 5000.0,    # Q5
-    "EXECUTE_K": 3,               # Q6
+    "COMMIT_DWELL_MS": 2000.0,    # Q6
+    "ATTEMPT_HOLD_MS": 5000.0,    # Q6
     "ROTATION_MIN_DWELL_MS": 3000.0,  # Q9
     "REGION_HOLD_MS": 1000.0,     # Q9
     "LURK_MIN_MS": 5000.0,        # Q10
@@ -50,7 +51,7 @@ PARAMS = {
 PARAM_KIND = {
     "HFOV_DEG": "player:Q1", "SIGHT_HZ": "resolution", "CONTACT_MERGE_MS": "player:Q2",
     "DUEL_GAP_MS": "player:Q3", "ENGAGE_JOIN_MS": "player:Q4", "TRADE_WINDOW_MS": "player:Q5",
-    "EXECUTE_K": "player:Q6", "ROTATION_MIN_DWELL_MS": "player:Q9", "REGION_HOLD_MS": "player:Q9", "LURK_MIN_MS": "player:Q10",
+    "COMMIT_DWELL_MS": "player:Q6", "ATTEMPT_HOLD_MS": "player:Q6", "ROTATION_MIN_DWELL_MS": "player:Q9", "REGION_HOLD_MS": "player:Q9", "LURK_MIN_MS": "player:Q10",
     "REGION_HZ": "resolution", "SIGHT_AT_KILL_MS": "report window",
 }
 #: The engine keeps the horizontal FOV across aspect ratios
@@ -83,6 +84,9 @@ class Event:
     wallbang: bool | None = None
     cause: str | None = None      # damage or death type as the source names it
     position: tuple | None = None  # world xyz, cm
+    equippable: str | None = None  # the equippable class behind a damage record
+    impact: tuple | None = None   # damage: the hit's world xyz, cm, where the source gives it
+    killed: bool | None = None    # damage: this hit killed its target
     side: dict | None = None      # round_start: {team: "attack"|"defence"} when the source knows
 
 
@@ -334,24 +338,30 @@ class Derived:
     contacts: list[dict] = field(default_factory=list)
     unassigned_deaths: list[dict] = field(default_factory=list)
     notes: list[dict] = field(default_factory=list)
+    acts: list[dict] = field(default_factory=list)
 
     def rows(self) -> list[dict]:
         return ([{"row": "header", **self.header}]
                 + [{"row": "episode", **e} for e in self.episodes]
+                + [{"row": "act", **a} for a in self.acts]
                 + [{"row": "contact", **c} for c in self.contacts]
                 + [{"row": "unassigned_death", **d} for d in self.unassigned_deaths]
                 + [{"row": "note", **n} for n in self.notes])
 
 
 def derive_episodes(tl: Timeline, occ=None, regions=None, params: dict | None = None,
-                    spawns: dict | None = None) -> Derived:
+                    spawns: dict | None = None, pen=None) -> Derived:
     """Every episode of the match. `occ` (`line_of_sight.Occluders`),
-    `regions` (`map_regions.Regions`) and `spawns` (`map_regions.spawn_points`)
-    default to the map's stored tables."""
+    `regions` (`map_regions.Regions`), `spawns` (`map_regions.spawn_points`)
+    and `pen` (`wall_penetration.Penetration`) default to the map's stored
+    tables."""
     P = dict(PARAMS, **(params or {}))
     if occ is None:
         from .line_of_sight import Occluders
         occ = Occluders(tl.map)
+    if pen is None and getattr(occ, "table", "synthetic") != "synthetic":
+        from .wall_penetration import Penetration
+        pen = Penetration(occ)
     if regions is None:
         from .map_regions import Regions
         try:
@@ -373,7 +383,12 @@ def derive_episodes(tl: Timeline, occ=None, regions=None, params: dict | None = 
         "regions": regions.provenance() if regions is not None else None,
         "slots": [{"slot_id": s.slot_id, "team": s.team} for s in tl.slots],
         "attack_team": {str(k): v for k, v in attack.items()},
+        "wall_penetration": pen.provenance() if pen is not None and hasattr(pen, "provenance") else None,
     }, notes=list(side_notes))
+    acts = classify_acts(tl, occ, pen, team_of)
+    out.header["act_counts"] = dict(Counter(a["class"] for a in acts.values()))
+    out.acts = [a for a in acts.values()
+                if a["act"] == "death" or a["killing"] or a["class"] in ("gun_wallbang", "gun_blocked")]
 
     deaths = [e for e in tl.events if e.kind == "death"]
     for d in deaths:
@@ -401,7 +416,7 @@ def derive_episodes(tl: Timeline, occ=None, regions=None, params: dict | None = 
         sees = sight(smp, tl.slots, occ, P["HFOV_DEG"])
         contacts = _contacts(r, grid, sees, tl.slots, P)
         out.contacts.extend(contacts)
-        bouts = _duels(r, tl, grid, sees, contacts, team_of, idx, P)
+        bouts = _duels(r, tl, grid, sees, contacts, team_of, idx, P, acts)
         duels = [b for b in bouts if b["kind"] == "duel"]
         engagements = _engagements(r, duels, contacts, tl, team_of, P)
         out.episodes.extend(bouts)
@@ -409,7 +424,7 @@ def derive_episodes(tl: Timeline, occ=None, regions=None, params: dict | None = 
         out.episodes.extend(_trades(r, tl, grid, sees, smp, duels, engagements, team_of, idx, P))
         if regions is not None and r["t_live"] is not None:
             ex = _execute_retake_lurk(r, tl, regions, attack.get(r["round"]), team_of, idx,
-                                      engagements, P)
+                                      engagements, contacts, P)
             out.episodes.extend(ex)
             out.episodes.extend(_rotations(r, tl, regions, idx, P))
     return out
@@ -525,9 +540,84 @@ def _pair_contacts(contacts: list[dict], a: str, b: str) -> list[dict]:
     return [c for c in contacts if {c["a"], c["b"]} == {a, b}]
 
 
+# ----------------------------------------------------------------- acts
+
+#: A killing record is logged this close to its death event.
+KILL_MATCH_MS = 500.0
+ACT_CLASSES = ("gun_sight", "gun_wallbang", "gun_blocked", "ability", "melee", "other", "unread")
+
+
+def classify_acts(tl: Timeline, occ, pen, team_of: dict) -> dict[str, dict]:
+    """Every damage and death act between opponents, classed by what reached
+    the target (docs/EPISODES.md 2.1) [domain:weapons/kill-line-of-sight].
+
+    The equippable's kind (`equippables.equippable_kind`) and the replay's
+    own `wall_penetration` flag decide the class; the map's table only tests
+    it: a gun hit with no flag needs a clear line from the shooter's eye to
+    the hit (`gun_sight`, else `gun_blocked`); a flagged one is a
+    `gun_wallbang`, and `wall_penetration` lists what lies on its line. A
+    death takes the class of its killing hit (the damage record marked
+    `killed` on the same victim within `KILL_MATCH_MS`), else `unread`."""
+    from .equippables import equippable_kind
+    from .line_of_sight import EYE_ABOVE_CENTRE_CM
+
+    idx = {s.slot_id: k for k, s in enumerate(tl.slots)}
+    opp = [e for e in tl.events if e.kind in ("damage", "death") and e.actor in idx
+           and e.target in idx and team_of.get(e.actor) != team_of.get(e.target)]
+    dmg = [e for e in opp if e.kind == "damage"]
+    out: dict[str, dict] = {}
+    if dmg:
+        t = np.array([e.t_ms for e in dmg])
+        smp = tl.sample(t)
+        ia = np.array([idx[e.actor] for e in dmg])
+        iv = np.array([idx[e.target] for e in dmg])
+        n = np.arange(len(dmg))
+        eye = np.stack([smp["x"][ia, n], smp["y"][ia, n], smp["z"][ia, n] + EYE_ABOVE_CENTRE_CM], -1)
+        body = np.stack([smp["x"][iv, n], smp["y"][iv, n], smp["z"][iv, n]], -1)
+        head = body + np.array([0.0, 0.0, EYE_ABOVE_CENTRE_CM])
+        has_imp = np.array([e.impact is not None for e in dmg])
+        tgt = np.where(has_imp[:, None], np.array([e.impact if e.impact is not None else (0, 0, 0)
+                                                   for e in dmg], float), body)
+        ok = np.isfinite(eye).all(1) & np.isfinite(tgt).all(1)
+        clear = ok & ~occ.blocked(eye, tgt)
+        clear |= ok & ~has_imp & ~occ.blocked(eye, head)
+        kinds = [equippable_kind(e.equippable) for e in dmg]
+        cls = []
+        for e, k, c, o in zip(dmg, kinds, clear, ok):
+            if k == "gun":
+                cls.append("gun_wallbang" if e.wallbang else "gun_sight" if c else
+                           "gun_blocked" if o else "unread")
+            else:
+                cls.append({"ability": "ability", "melee": "melee", "unread": "unread"}.get(k, "other"))
+        geo = {}
+        want = [i for i, c in enumerate(cls) if c in ("gun_wallbang", "gun_blocked")]
+        if pen is not None and want:
+            for i, g in zip(want, pen.lines(eye[want], tgt[want])):
+                geo[i] = g
+        for i, e in enumerate(dmg):
+            out[e.event_id] = {
+                "event_id": e.event_id, "t_ms": e.t_ms, "act": "damage", "actor": e.actor,
+                "target": e.target, "class": cls[i], "equippable": e.equippable,
+                "equippable_kind": kinds[i], "wall_penetration": e.wallbang,
+                "line_clear": bool(clear[i]) if ok[i] else None,
+                "line_to": "impact" if has_imp[i] else "body_or_eye",
+                "killing": bool(e.killed), "geometry": geo.get(i)}
+    for d in (e for e in opp if e.kind == "death"):
+        hit = min((a for a in out.values() if a["act"] == "damage" and a["killing"]
+                   and a["target"] == d.target and abs(a["t_ms"] - d.t_ms) <= KILL_MATCH_MS),
+                  key=lambda a: abs(a["t_ms"] - d.t_ms), default=None)
+        out[d.event_id] = {"event_id": d.event_id, "t_ms": d.t_ms, "act": "death",
+                           "actor": d.actor, "target": d.target,
+                           "class": hit["class"] if hit else "unread",
+                           "killing_act": hit["event_id"] if hit else None,
+                           "reason": None if hit else "no_killing_record",
+                           "killing": False}
+    return out
+
+
 # ----------------------------------------------------------------- duels
 
-def _duels(r, tl, grid, sees, contacts, team_of, idx, P) -> list[dict]:
+def _duels(r, tl, grid, sees, contacts, team_of, idx, P, act_class=None) -> list[dict]:
     t_lo, t_hi = r["t_start"], r["t_next"]
     acts = [e for e in tl.events
             if e.kind in ("damage", "death") and t_lo <= e.t_ms < t_hi
@@ -564,7 +654,7 @@ def _duels(r, tl, grid, sees, contacts, team_of, idx, P) -> list[dict]:
         if cur:
             bouts.append(cur)
         for bout in bouts:
-            out.append(_duel(r, a, b, bout, pc, deaths, grid, sees, idx, first_kill, P))
+            out.append(_duel(r, a, b, bout, pc, deaths, grid, sees, idx, first_kill, P, act_class or {}))
     return out
 
 
@@ -573,7 +663,7 @@ def _covering(pc: list[dict], t: float, slack: float) -> dict | None:
     return min(hits, key=lambda c: c["t_start_ms"]) if hits else None
 
 
-def _duel(r, a, b, bout, pc, deaths, grid, sees, idx, first_kill, P) -> dict:
+def _duel(r, a, b, bout, pc, deaths, grid, sees, idx, first_kill, P, act_class) -> dict:
     dt = 1000.0 / P["SIGHT_HZ"]
     a0, aL = bout[0].t_ms, bout[-1].t_ms
     c0 = _covering(pc, a0, P["CONTACT_MERGE_MS"])
@@ -606,9 +696,13 @@ def _duel(r, a, b, bout, pc, deaths, grid, sees, idx, first_kill, P) -> dict:
         k_lo = int(np.searchsorted(grid, kill.t_ms - P["SIGHT_AT_KILL_MS"]))
         k_hi = int(np.searchsorted(grid, kill.t_ms, side="right"))
         sight_at_kill = bool(sees[ik, iv, k_lo:k_hi].any())
-    # A bout with no kill whose pair never saw each other is damage at a
-    # distance (utility, a spray through a wall), not a duel.
-    kind = "duel" if (kill is not None or ab.any() or ba.any()) else "remote_damage"
+    # Wallbangs and ability acts need no sight [domain:weapons/kill-line-of-sight];
+    # a bout with no kill, no sight and only gun hits the geometry calls
+    # blocked is `remote_damage`, a disagreement between the replay and the table.
+    classes = Counter(act_class[e.event_id]["class"] for e in bout if e.event_id in act_class)
+    kill_act = act_class.get(kill.event_id) if kill is not None else None
+    blind_ok = bool(classes.get("gun_wallbang") or classes.get("ability"))
+    kind = "duel" if (kill is not None or ab.any() or ba.any() or blind_ok) else "remote_damage"
     return _ep(kind, r, start, end,
                participants={"a": a, "b": b},
                outcome=outcome,
@@ -625,6 +719,8 @@ def _duel(r, a, b, bout, pc, deaths, grid, sees, idx, first_kill, P) -> dict:
                opening=bool(kill is not None and first_kill is not None
                             and kill.t_ms == first_kill),
                kill_event=kill.event_id if kill is not None else None,
+               kill_class=kill_act["class"] if kill_act else None,
+               act_classes=dict(classes),
                members=[e.event_id for e in bout],
                evidence=[e.event_id for e in bout] + ([c0["contact_id"]] if c0 else []))
 
@@ -782,8 +878,9 @@ def _site_codes(regions) -> dict[int, str]:
     return {i: x for i, x in enumerate(regions.super_labels) if x in SITES}
 
 
-def _execute_retake_lurk(r, tl, regions, att, team_of, idx, engagements, P) -> list[dict]:
-    """The round's execute (and its lurks), and its retake or contested plant."""
+def _execute_retake_lurk(r, tl, regions, att, team_of, idx, engagements, contacts, P) -> list[dict]:
+    """The round's site attempts (`execute`) and their lurks, and its retake
+    or contested plant."""
     out = []
     if att is None:
         return out
@@ -808,50 +905,24 @@ def _execute_retake_lurk(r, tl, regions, att, team_of, idx, engagements, P) -> l
         if pos is not None:
             pc = int(regions.super_code_of(np.array([pos], float))[0])
             plant_site = labels[pc] if pc >= 0 else None
-    # Execute: the first commit before the plant, else the plant itself.
-    pre = g < ((pl.t_ms if pl else t_end) + 1e-6)
-    a_alive = alive[atk]                                       # (A, n)
-    n_alive = a_alive.sum(0)
-    need = np.minimum(P["EXECUTE_K"], n_alive)
-    commit_k, site, trigger = None, None, "presence"
-    for c, name in sites.items():
-        cnt = ((on_site[atk] == c) & a_alive).sum(0)
-        hit = np.flatnonzero(pre & (n_alive > 0) & (cnt >= need))
-        if hit.size and (commit_k is None or hit[0] < commit_k):
-            commit_k, site = int(hit[0]), name
-    if commit_k is None and pl is not None:
-        commit_k = int(np.clip(np.searchsorted(g, pl.t_ms), 0, g.size - 1))
-        site, trigger = plant_site, "plant"
-    if commit_k is not None:
-        t_commit = float(g[commit_k]) if trigger == "presence" else pl.t_ms
-        atk_ids = set(ids[atk].tolist())
-        att_deaths = sorted(e.t_ms for e in tl.events if e.kind == "death"
-                            and e.target in atk_ids and t_commit <= e.t_ms <= t_end)
-        if pl is not None:
-            ex_end, result, why = pl.t_ms, "planted", None
-        elif att_deaths and len(att_deaths) >= int(n_alive[commit_k]):
-            ex_end, result, why = att_deaths[-1], "not_planted", "attackers_eliminated"
-        else:
-            ex_end, result, why = t_end, "not_planted", "time_or_round_end"
-        sc = labels.index(site) if site in labels else -2
-        here = a_alive[:, commit_k] & (on_site[atk, commit_k] == sc)
-        away = a_alive[:, commit_k] & ~here
-        ex = _ep("execute", r, t_commit, ex_end,
-                 participants={"committed": ids[atk][here].tolist(),
-                               "elsewhere": ids[atk][away].tolist()},
-                 outcome={"result": result, "reason": why, "site": site,
-                          "plant_site": plant_site},
-                 trigger=trigger, site_same_as_plant=(None if pl is None else site == plant_site))
-        out.append(ex)
-        out.extend(_lurks(r, tl, g, code, alive, atk, ex, sc, ids, labels, engagements, P))
+    attempts = _attempts(r, tl, g, on_site, code, alive, atk, dfn, ids, sites, labels, pl,
+                         plant_site, contacts, t_end, P)
+    out.extend(attempts)
+    seen: set = set()
+    for ex in attempts:
+        for lk in _lurks(r, tl, g, code, alive, atk, ex, ids, labels, engagements, P):
+            key = (lk["participants"]["lurker"], lk["t_start_ms"])
+            if key not in seen:
+                seen.add(key)
+                out.append(lk)
     # Retake, or a plant with a defender on site.
     if pl is not None and plant_site is not None:
         kp = int(np.clip(np.searchsorted(g, pl.t_ms), 0, g.size - 1))
         sc = labels.index(plant_site)
         d_alive = alive[dfn, kp]
         living = ids[dfn][d_alive].tolist()
-        on_site = ids[dfn][d_alive & (code[dfn, kp] == sc)].tolist()
-        if living and not on_site:
+        on_site_d = ids[dfn][d_alive & (code[dfn, kp] == sc)].tolist()
+        if living and not on_site_d:
             dd = sorted(e.t_ms for e in tl.events if e.kind == "death" and e.target in living
                         and pl.t_ms <= e.t_ms <= t_end)
             if r["defuse"] is not None:
@@ -870,19 +941,141 @@ def _execute_retake_lurk(r, tl, regions, att, team_of, idx, engagements, P) -> l
                            outcome={"result": res, "site": plant_site}, entry_ms=entry))
         elif living:
             out.append(_ep("contested_plant", r, pl.t_ms, pl.t_ms,
-                           participants={"on_site": on_site, "defenders": living},
+                           participants={"on_site": on_site_d, "defenders": living},
                            outcome={"site": plant_site}))
     return out
 
 
-def _lurks(r, tl, g, code, alive, atk, ex, sc, ids, labels, engagements, P) -> list[dict]:
-    """Attackers who, at the execute's commit, stand alive outside both the
-    executed site's super-region and the attackers' side: each one's run
-    outside the two, around the commit, lasting at least `LURK_MIN_MS`."""
+def _attempts(r, tl, g, on_site, code, alive, atk, dfn, ids, sites, labels, pl, plant_site,
+              contacts, t_end, P) -> list[dict]:
+    """Site attempts before the plant (docs/EPISODES.md 3.5).
+
+    An attacker commits to a site when he stands on its site callout and
+    stays `COMMIT_DWELL_MS`, makes contact with a defender, trades an act
+    with one, or plants there; the attempt opens at his entry. Attackers who
+    commit to the same site while it is held, or within `ATTEMPT_HOLD_MS` of
+    its last committed presence, join it. A plant no committed attacker
+    covers opens a `plant` attempt of the attackers in the site's area."""
+    dt = 1000.0 / P["REGION_HZ"]
+    t_cut = pl.t_ms if pl is not None else t_end
+    atk_ids = set(ids[atk].tolist())
+    def_ids = set(ids[dfn].tolist())
+    acts = [e for e in tl.events if e.kind in ("damage", "death") and g[0] <= e.t_ms <= t_cut
+            and ((e.actor in atk_ids and e.target in def_ids)
+                 or (e.actor in def_ids and e.target in atk_ids))]
+    commits, presence = [], {}
+    for a in atk.tolist():
+        sid = ids[a]
+        row = np.where(alive[a] & (g <= t_cut + 1e-6), on_site[a], -1)
+        for c, s, e in _label_runs(row):
+            if c not in sites:
+                continue
+            t0, t1 = float(g[s]), float(g[e]) + dt
+            presence.setdefault((a, c), []).append((t0, t1))
+            cand = []
+            if t1 - t0 >= P["COMMIT_DWELL_MS"]:
+                cand.append((t0 + P["COMMIT_DWELL_MS"], "dwell"))
+            cc = [max(x["t_start_ms"], t0) for x in contacts if sid in (x["a"], x["b"])
+                  and x["t_start_ms"] <= t1 and x["t_end_ms"] >= t0]
+            if cc:
+                cand.append((min(cc), "contact"))
+            aa = [x.t_ms for x in acts if sid in (x.actor, x.target) and t0 <= x.t_ms <= t1]
+            if aa:
+                cand.append((min(aa), "act"))
+            if pl is not None and plant_site == sites[c] and t0 <= pl.t_ms <= t1:
+                cand.append((pl.t_ms, "plant"))
+            if cand:
+                t_conf, how = min(cand)
+                commits.append((t0, a, c, t1, how, t_conf))
+    groups = []
+    for c in sorted({x[2] for x in commits}):
+        cur = None
+        for t_in, a, _c, t_out, how, t_conf in sorted((x for x in commits if x[2] == c),
+                                                      key=lambda x: x[0]):
+            if cur is not None and t_in <= cur["last"] + P["ATTEMPT_HOLD_MS"]:
+                cur["members"].setdefault(a, (t_in, how, t_conf))
+                cur["last"] = max(cur["last"], t_out)
+            else:
+                if cur is not None:
+                    groups.append(cur)
+                cur = {"code": c, "open": t_in, "members": {a: (t_in, how, t_conf)}, "last": t_out}
+        if cur is not None:
+            groups.append(cur)
+    for G in groups:                      # a member's later stays on the site keep it held
+        grew = True
+        while grew:
+            grew = False
+            for a in G["members"]:
+                for t0, t1 in presence.get((a, G["code"]), []):
+                    if t0 <= G["last"] + P["ATTEMPT_HOLD_MS"] and t1 > G["last"]:
+                        G["last"], grew = t1, True
+    if pl is not None and plant_site in sites.values():
+        pc = labels.index(plant_site)
+        covered = any(sites[G["code"]] == plant_site and G["open"] <= pl.t_ms
+                      <= G["last"] + P["ATTEMPT_HOLD_MS"] for G in groups)
+        if not covered:
+            kp = int(np.clip(np.searchsorted(g, pl.t_ms), 0, g.size - 1))
+            there = [a for a in atk.tolist() if alive[a, kp] and code[a, kp] == pc]
+            groups.append({"code": pc, "open": pl.t_ms, "last": pl.t_ms, "plant_only": True,
+                           "members": {a: (pl.t_ms, "plant", pl.t_ms) for a in there}})
+    deaths = [e for e in tl.events if e.kind == "death" and g[0] <= e.t_ms <= t_end]
     out = []
-    if ex["outcome"]["site"] is None or ex["trigger"] != "presence":
+    for G in sorted(groups, key=lambda G: G["open"]):
+        site = labels[G["code"]]
+        t_open = G["open"]
+        close_by = min(G["last"] + P["ATTEMPT_HOLD_MS"], t_end)
+        k_open = int(np.clip(np.searchsorted(g, t_open), 0, g.size - 1))
+        k_close = int(np.clip(np.searchsorted(g, close_by), 0, g.size - 1))
+        members = sorted(G["members"].items(), key=lambda kv: kv[1][0])
+        joins = [t for _a, (t, _h, _c) in members]
+        mids = [ids[a] for a, _v in members]
+        if pl is not None and plant_site == site and t_open <= pl.t_ms <= close_by:
+            end, res = pl.t_ms, "planted"
+        elif not alive[atk, k_close].any():
+            end = max((e.t_ms for e in deaths if e.target in atk_ids and t_open <= e.t_ms), default=close_by)
+            res = "wiped"
+        elif not alive[dfn, k_close].any():
+            end = max((e.t_ms for e in deaths if e.target in def_ids and t_open <= e.t_ms), default=close_by)
+            res = "cleared"
+        elif close_by >= t_end and r["t_end"] is not None:
+            end, res = t_end, "timed_out"
+        else:
+            end, res = G["last"], "abandoned"
+        k_peak = int(np.clip(np.searchsorted(g, joins[-1] if joins else t_open), 0, g.size - 1))
+        spread = None
+        if len(members) > 1:
+            smp = tl.sample(np.array([g[k_peak]]))
+            xy = np.array([[smp["x"][a, 0], smp["y"][a, 0]] for a, _v in members])
+            if np.isfinite(xy).all():
+                spread = round(float(np.max(np.linalg.norm(xy[:, None] - xy[None], axis=-1))) / 100.0, 1)
+        n_open = int(alive[atk, k_open].sum())
+        dead = sorted({e.target for e in deaths if e.target in set(mids) and t_open <= e.t_ms <= end})
+        away = [ids[a] for a in atk.tolist() if alive[a, k_peak] and ids[a] not in set(mids)]
+        out.append(_ep("execute", r, t_open, end,
+                       participants={"committed": mids, "elsewhere": away},
+                       commitment={"committed": len(mids), "alive_at_open": n_open,
+                                   "share": round(len(mids) / n_open, 3) if n_open else None,
+                                   "join_ms": [round(t - t_open, 1) for t in joins],
+                                   "entry_spread_ms": round(joins[-1] - joins[0], 1) if joins else None,
+                                   "spread_m": spread},
+                       outcome={"result": res, "site": site, "plant_site": plant_site,
+                                "committed_dead": len(dead)},
+                       trigger="plant" if G.get("plant_only") else members[0][1][1],
+                       peak_ms=float(g[k_peak])))
+    return out
+
+
+def _lurks(r, tl, g, code, alive, atk, ex, ids, labels, engagements, P) -> list[dict]:
+    """Attackers who, at an attempt's peak (its last join), stand alive
+    outside both the attempted site's super-region and the attackers' side:
+    each one's run outside the two, around the peak, lasting at least
+    `LURK_MIN_MS`."""
+    out = []
+    site = ex["outcome"]["site"]
+    if site is None or ex["trigger"] == "plant" or site not in labels:
         return out
-    k0 = int(np.clip(np.searchsorted(g, ex["t_start_ms"]), 0, g.size - 1))
+    sc = labels.index(site)
+    k0 = int(np.clip(np.searchsorted(g, ex["peak_ms"]), 0, g.size - 1))
     home = labels.index(ATTACKER_SIDE) if ATTACKER_SIDE in labels else -2
     dt = 1000.0 / P["REGION_HZ"]
     committed = set(ex["participants"]["committed"])
@@ -1003,6 +1196,17 @@ def _json_default(o):
 
 # ----------------------------------------------------------------- the replay layer
 
+def _impact(v) -> tuple | None:
+    """'(x,y,z)' -> (x, y, z); the origin and an absent value read None."""
+    if v is None:
+        return None
+    try:
+        xyz = tuple(float(c) for c in str(v).strip("()").split(","))
+    except ValueError:
+        return None
+    return None if len(xyz) != 3 or not any(xyz) else xyz
+
+
 def from_replay_layer(key: str, root=DEFAULT_STORE) -> ArrayTimeline:
     """The `source = truth` timeline of a match from its stored replay layer
     (`replay_layer.load`, docs/REPLAY_LAYER.md): the ten players' ticks, life
@@ -1066,10 +1270,14 @@ def from_replay_layer(key: str, root=DEFAULT_STORE) -> ArrayTimeline:
             if v is None:
                 continue
             det = json.loads(Ev["detail"][i]) if Ev["detail"][i] else {}
+            eq = Ev["value_str"][i]
             events.append(Event("damage", t, eid, actor=a, target=v,
                                 amount=float(Ev["value_num"][i]),
                                 wallbang=det.get("wall_penetration"),
-                                cause=det.get("damage_type")))
+                                cause=det.get("damage_type"),
+                                equippable=None if eq is None or str(eq) == "None" else str(eq),
+                                impact=_impact(det.get("impact")),
+                                killed=det.get("killed")))
         elif kind == "plant":
             pos = min(bombs, key=lambda b: abs(b[0] - t)) if bombs else None
             events.append(Event("plant", t, eid,
@@ -1093,17 +1301,24 @@ def from_replay_layer(key: str, root=DEFAULT_STORE) -> ArrayTimeline:
 
 def current_inputs(match: str, root=DEFAULT_STORE) -> dict:
     """The stamps a truth build of `match` would record now: this code, the
-    sight and region owners, the replay layer's head, the map's sightline
-    table and valorant-api's map list."""
+    sight, region, penetration and equippable owners, the replay layer's
+    head, the map's sightline table, valorant-api's map list and the set of
+    exported penetration meshes (a new export reads surfaces once unread)."""
+    from .equippables import EQUIPPABLES_VERSION
     from .input_stamps import file_sha16
     from .line_of_sight import LINE_OF_SIGHT_VERSION, sightline_table
     from .map_regions import MAP_REGIONS_VERSION
     from .replay_layer import layer_dir
+    from .wall_penetration import WALL_PENETRATION_VERSION, build_root
 
     head = layer_dir(match, root) / "layer.json"
+    mesh_set = build_root(root) / "wallpen-meshes"
+    manifests = sorted(p.name for p in mesh_set.glob("manifest_*.jsonl")) if mesh_set.is_dir() else []
     out = {"episodes": EPISODES_VERSION, "line_of_sight": LINE_OF_SIGHT_VERSION,
-           "map_regions": MAP_REGIONS_VERSION, "replay_layer": file_sha16(head),
+           "map_regions": MAP_REGIONS_VERSION, "wall_penetration": WALL_PENETRATION_VERSION,
+           "equippables": EQUIPPABLES_VERSION, "replay_layer": file_sha16(head),
            "valorant_api_maps": file_sha16(Path(root) / "external" / "valorant-api" / "maps.json"),
+           "wallpen_meshes": ",".join(manifests) or None,
            "sightline_table": None}
     if head.is_file():
         url = ((json.loads(head.read_text(encoding="utf-8")).get("provenance") or {}).get("map"))
@@ -1112,10 +1327,11 @@ def current_inputs(match: str, root=DEFAULT_STORE) -> dict:
     return out
 
 
-def status(match: str, root=DEFAULT_STORE) -> dict:
-    """`{state, moved}` of a match's truth episodes: `absent`, `stale` when a
-    recorded input differs from `current_inputs`, else `current`."""
-    head = read_header(match, "truth", root)
+def status(match: str, root=DEFAULT_STORE, out_root=None) -> dict:
+    """`{state, moved}` of a match's truth episodes (under `out_root`, else
+    the store): `absent`, `stale` when a recorded input differs from
+    `current_inputs`, else `current`."""
+    head = read_header(match, "truth", out_root or root)
     if head is None:
         return {"state": "absent", "moved": [], "stored": None, "current": EPISODES_VERSION}
     rec = head.get("inputs") or {}
@@ -1136,23 +1352,25 @@ def session_status(sid: str, root=DEFAULT_STORE) -> dict | None:
     return {"match": match, **status(match, root), "command": f"reticle episodes {sid}"}
 
 
-def build(key: str, root=DEFAULT_STORE) -> dict:
-    """Derive and write a match's truth episodes from its replay layer; the
-    header records the inputs `status` compares."""
+def build(key: str, root=DEFAULT_STORE, out_root=None) -> dict:
+    """Derive and write a match's truth episodes from the store's replay
+    layer, under `out_root` (a scratch store for an experiment on a branch)
+    else the store; the header records the inputs `status` compares."""
     tl = from_replay_layer(key, root)
     inputs = current_inputs(tl.match, root)
     d = derive_episodes(tl)
     d.header["inputs"] = inputs
-    write_episodes(d, tl.match, root)
+    write_episodes(d, tl.match, out_root or root)
     return d.header
 
 
 def command(keys: list[str], *, all_: bool = False, status_only: bool = False,
-            root=DEFAULT_STORE) -> int:
+            root=DEFAULT_STORE, out_root=None) -> int:
     """`reticle episodes`: derive each named match's episodes (every match
     with a replay layer under `--all`), or with `--status` say which are
-    current, stale or absent (every match when no key is named). A held-out
-    match is built and never counted."""
+    current, stale or absent (every match when no key is named). `out_root`
+    writes and reads the episodes under another root (`--out`), never the
+    shared store's. A held-out match is built and never counted."""
     from .replay_layer import is_held_out, layer_dir, layer_root, resolve
 
     all_ = all_ or (status_only and not keys)
@@ -1168,14 +1386,15 @@ def command(keys: list[str], *, all_: bool = False, status_only: bool = False,
     rc = 0
     for m in dict.fromkeys(matches):
         if status_only:
-            st = status(m, root)
+            st = status(m, root, out_root)
             print(f"{m}  {st['state']}" + (f"  moved: {', '.join(st['moved'])}" if st["moved"] else ""))
             continue
-        h = build(m, root)
+        h = build(m, root, out_root)
         if is_held_out(m):
             print(f"{m}: built (held out: no statistics)")
             continue
-        kinds = Counter(r["kind"] for r in read_episodes(m, "truth", root) if r["row"] == "episode")
+        kinds = Counter(r["kind"] for r in read_episodes(m, "truth", out_root or root)
+                        if r["row"] == "episode")
         print(f"{m}: built {h['version']} on {h['map']}: "
               + ", ".join(f"{n} {k}" for k, n in sorted(kinds.items())))
     return rc

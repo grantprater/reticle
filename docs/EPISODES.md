@@ -1,8 +1,10 @@
 # Episodes: round phases, duels, engagements, trades, executes, retakes, rotations, lurks
 
 Status: design, proposed 2026-10-05; implemented by `reticle/episodes.py`
-(`episodes-0.2.1`), `reticle/line_of_sight.py` (`line-of-sight-0.1.0`) and
-`reticle/map_regions.py` (`map-regions-0.2.0`). Rules live in
+(`episodes-0.3.0`), `reticle/line_of_sight.py` (`line-of-sight-0.1.0`),
+`reticle/map_regions.py` (`map-regions-0.2.0`), `reticle/wall_penetration.py`
+(`wall-penetration-0.1.0`) and `reticle/equippables.py`
+(`equippables-0.1.0`). Rules live in
 [AGENTS.md](../AGENTS.md); commands in [WORKING_MAP.md](WORKING_MAP.md).
 
 The player agreed on three levels (2026-10-05): (1) a **state timeline**,
@@ -88,6 +90,27 @@ Weapon-blocking triangle, and (b) that point lies inside i's view frustum.
 A contact records `first_seer` and whether it was ever `mutual`. Contacts
 are stored as their own rows: the sight-state transitions of level 2.
 
+### 2.1 What reached the target
+
+A gun kill needs a line of sight; a wallbang and an ability kill need none
+[domain:weapons/kill-line-of-sight]. Every damage and kill act between
+opponents takes one class from the replay's own damage record, its
+equippable class and its `wall_penetration` flag; the map's table only
+tests it.
+
+| Class | Rule | The table's test |
+|---|---|---|
+| `gun_sight` | a gun (`equippables.equippable_kind`: the class lies under `Equippables/Guns/`), no penetration flag | the line from the shooter's eye to the hit (`impact`, else the victim's body or eye) is clear |
+| `gun_wallbang` | a gun, `wall_penetration` true | `wall_penetration.Penetration` lists what lies on the line: placements, solid runs, penetration classes, any Impenetrable or unread surface |
+| `gun_blocked` | a gun, no flag, and the table blocks the line | none: the replay and the table disagree (a table error, a crouched eye, a moved position); each one is listed |
+| `ability` | the class lies under an agent's `Characters/` folder | none needed; `line_clear` is stored |
+| `melee`, `other`, `unread` | the knife; another class (the spike); a class the build's index lacks, or an unread position | -- |
+
+A kill takes the class of its killing hit: the damage record marked
+`killed` on the same victim within 500 ms. A kill with none is `unread`.
+`act` rows store every kill, every killing hit and every `gun_wallbang`
+and `gun_blocked` hit; the header counts every class.
+
 ## 3. Episode kinds
 
 Every episode row carries `episode_id`, `kind`, `round`, `t_start_ms`,
@@ -126,7 +149,8 @@ it fills no round.
 
 A **duel** is a bout between two opposing players with at least one combat
 act between them (a damage event either way, or a kill of one by the other)
-and either a kill or sight between them. Proximity alone never makes one.
+and a kill, sight between them, or a `gun_wallbang` or `ability` act, which
+needs none (section 2.1). Proximity alone never makes one.
 
 - The pair's acts split into bouts where two consecutive acts lie more than
   `DUEL_GAP_MS` (Q3) apart and no contact of the pair spans the gap.
@@ -142,10 +166,13 @@ and either a kill or sight between them. Proximity alone never makes one.
 - **Fields**: `first_seer`, `first_hitter`, `mutual`, `sight`,
   `sight_at_kill` (the killer saw the victim within the last
   `SIGHT_AT_KILL_MS` = 1 s, a report window), `wallbang`, damage each way,
-  `hits`, `opening` (the round's first kill).
+  `hits`, `opening` (the round's first kill), `kill_class` and
+  `act_classes` (section 2.1).
 
-A bout with no kill whose pair never saw each other is **remote damage**
-(`remote_damage`: utility, a spray through a wall) and joins no engagement.
+A bout with no kill, no sight and only gun hits the replay does not mark as
+penetrating is **remote damage** (`remote_damage`): the replay and the
+table disagree, or the sight samples missed a glimpse. It joins no
+engagement.
 
 ### 3.3 Engagement
 
@@ -175,17 +202,29 @@ Interval [t1, t2]; participants `traded` B, `killer` A, `trader` C; fields
 
 ### 3.5 Execute (attack)
 
-Per round, the attacking team's commit: the first instant before the plant
-at which `EXECUTE_K` (Q6) living attackers, or all living attackers if
-fewer, stand on one site proper (the callout volume valorant-api names
-`<X> Site`; Q7), else the plant. A site's super-region also holds its lobby
-and main, where attackers stand at barrier drop; counting it, episodes-0.1.0
-started 262 of 332 executes within 1 s of barrier drop. The
-execute runs from that instant to the plant, else to the last attacker's
-death, else to `round_end`. Outcome `planted`, or `not_planted` with
-`attackers_eliminated` or `time_or_round_end`; participants `committed`
-(on the site proper at the commit) and `elsewhere`; `trigger` (`presence` or
-`plant`); `site_same_as_plant`.
+An execute is a **site attempt**, graded rather than gated: a solo entry
+nobody follows is an execute of commitment 1
+[domain:rounds/execute-is-a-site-attempt].
+
+- **Commit.** An attacker commits to a site when, before the plant, he
+  stands on its site callout (the volume valorant-api names `<X> Site`;
+  Q7) and stays `COMMIT_DWELL_MS` (Q6), gains a contact with a defender,
+  trades an act with one, or plants there. His attempt opens at his entry;
+  `trigger` names what confirmed it.
+- **Join.** An attacker who commits to the same site while a committed
+  attacker holds it, or within `ATTEMPT_HOLD_MS` (Q6) of the last committed
+  presence, joins the attempt. Later than that, he opens a new one. A round
+  can hold several attempts, on one site or two.
+- **Close and outcome.** `planted` at a plant on the site; `wiped` when no
+  attacker lives; `cleared` when no defender lives; `timed_out` when the
+  round ends with the attempt open; else `abandoned`, at the last committed
+  presence: the committed are dead or gone and nobody took their place. A
+  plant no attempt covers (the planter never on the site callout) opens a
+  `plant` attempt of the attackers in the site's super-region.
+- **Commitment.** `committed` (how many joined), `alive_at_open`, `share`,
+  `join_ms` (each join after the opening), `entry_spread_ms` and `spread_m`
+  (the widest pair of the committed at the last join); the outcome also
+  counts `committed_dead`. `peak_ms` is the last join.
 
 ### 3.6 Retake (defence)
 
@@ -210,9 +249,10 @@ within `TRADE_WINDOW_MS` before the start; co-occurrence, never cause).
 
 ### 3.8 Lurk
 
-Per attacker alive at an execute's commit (`trigger` `presence`) who stands
-outside both the executed site's super-region and the attackers' side
-(valorant-api's `Attacker Side`): his run outside the two around the commit,
+Per attacker alive at an attempt's peak (its last join; no `plant`
+attempt) who stands outside both the attempted site's super-region and the
+attackers' side (valorant-api's `Attacker Side`): his run outside the two
+around the peak,
 if it lasts at least `LURK_MIN_MS` (Q10). A player still on the attackers'
 side lags; he does not lurk. Fields: the super-regions held, his first kill
 or death in the run, and whether it fell in an engagement with a committed
@@ -251,7 +291,9 @@ rotation can last under a second; Q9 asks whether a teleport counts.
 | `DUEL_GAP_MS` | 3000 | **player** (Q3) | -- |
 | `ENGAGE_JOIN_MS` | 5000 | **player** (Q4) | -- |
 | `TRADE_WINDOW_MS` | 5000 | **player** (Q5); the repo's convention, never asked | COACHING_DECISION_VALUE §2 |
-| `EXECUTE_K` | 3 | **player** (Q6) | COACHING_ROTATIONS_LURKS §1.2 proposal |
+| `COMMIT_DWELL_MS` | 2000 | **player** (Q6) | -- |
+| `ATTEMPT_HOLD_MS` | 5000 | **player** (Q6) | -- |
+| killing-hit match | 500 ms | resolution | the replay logs a kill a few ms from its hit |
 | on site (execute) | the callout volume named `<X> Site` | **player** (Q7) | valorant-api callouts |
 | site area (retake, rotation, lurk) | valorant-api's A, B, C super-regions; `Link` volumes hold no site for a rotation | **player** (Q7, Q9) | valorant-api callouts |
 | retake gate | no defender on site at the plant | **player** (Q8) | -- |
@@ -275,34 +317,42 @@ their own training set.
 5. **Trade window.** A kill avenged within how many seconds is a trade?
    Default 5 s. Must the trader have been able to see the killer at the
    first kill? Default no; the field is stored.
-6. **Execute.** How many attackers on a site make a commit? Default 3, or
-   all living if fewer.
+6. **Execute.** Answered in part (2026-10-05): an execute is a graded site
+   attempt, and one attacker suffices
+   [domain:rounds/execute-is-a-site-attempt]. Open: how long on the site
+   commits an attacker who meets nobody (default 2 s), and how long a site
+   may stand empty before a newcomer opens a new attempt (default 5 s)?
 7. **What counts as "on site"** for an execute: the site callout alone, the
    whole super-region (lobby and main included), or the plantable zone?
    Default the site callout: the super-region fires at barrier drop. The
    site callout misses plantable ground on seven maps (section 9), and the
    plantable zone needs geometry no table holds yet (the minimap's site
-   paint, or the game's plant volumes). For a retake: default the
-   super-region.
+   paint, or the game's plant volumes; the gameplay levels place one
+   outline mesh per site [domain:game_data/bomb-site-outline], not yet
+   exported). For a retake: default the super-region.
 8. **Retake.** Is a plant with a defender still on site a retake?
    Default no (a contested plant).
 9. **Rotation.** How long must a player hold one site, and then the other,
    for a move to count as a rotation? Default 3 s each; a stay under 1 s is
    a step over a boundary, no move. Is a Bind teleport a rotation? Default
    yes. Does a `Link` callout belong to a site? Default no.
-10. **Lurk.** Who lurks: an attacker away from the hit at its commit, or
+10. **Lurk.** Who lurks: an attacker away from an attempt at its peak, or
     anyone away from the team before it? How long apart? Default the first,
     for 5 s, never counting the attackers' side.
-11. **Remote damage.** Is utility damage on an unseen opponent part of a
-    fight? Default no: it is `remote_damage`, outside engagements.
+11. **Remote damage.** Answered for kills (2026-10-05): wallbangs and
+    ability kills need no sight [domain:weapons/kill-line-of-sight]. This
+    version extends it to every ability or wallbang hit, which now makes a
+    duel and joins engagements. Is a chip of utility on an unseen opponent
+    across the map a fight? Default yes, as the kill rule implies.
 
 ## 6. Not modelled, and what each needs
 
 - Smokes, walls and blinds cut sight; the layer's ability children carry
   each smoke's place and life, so a later version subtracts smoked
   segments. Until then contacts over-count; duels need an act and do not.
-- Doors and breakables (left out of the tables); posture beyond the
-  lowered centre; wallbangs show as acts without sight (`wallbang`).
+- Doors, breakables and ability walls (left out of the tables): a
+  wallbang through one crosses nothing the table holds (section 9);
+  posture beyond the lowered centre.
 - Walking reach (`engagement-reach`'s swing and trade) needs the table's
   walk graph in `reticle`; `trader_distance_m` stands in, a straight line.
 - Clutches, entries beyond `opening`, post-plant holds and enemy-side
@@ -327,9 +377,11 @@ this version does not write.
 
 One JSONL file per match and source,
 `<store>/analysis/episodes/<source>/<match>.jsonl`: a `header` row (version,
-source, map, parameters, input stamps), then `episode`, `contact`,
-`unassigned_death` and `note` rows. `reticle episodes MATCH|SESSION`, or
-`--all`, builds them; `--status` says which are current. `reticle plan
+source, map, parameters, input stamps, act counts), then `episode`, `act`,
+`contact`, `unassigned_death` and `note` rows. `reticle episodes
+MATCH|SESSION`, or `--all`, builds them; `--status` says which are current;
+`--out DIR` writes and reads them under another root, so a branch's
+experiment never rewrites the shared store's files. `reticle plan
 SESSION` names `episodes` absent or stale for a session whose kept replay
 names it, downstream of `replay_layer`; doctor's EPISODES check errors on
 every match whose replay layer is current and whose episodes are not.
@@ -337,153 +389,181 @@ every match whose replay layer is current and whose episodes are not.
 
 ## 9. Sanity run
 
-`tools/episodes_sanity.py --record` over episodes-0.2.1 of the 17 parsed
+`tools/episodes_sanity.py --record` over episodes-0.3.0 of the 17 parsed
 replays, held-out bd7efa02 excluded before any row was read:
-[metric:episodes/sanity/pooled#matches=17] matches,
-[metric:episodes/sanity/pooled#rounds=346] rounds,
-[metric:episodes/sanity/pooled#kills=2592] kills. The development matches
+[metric:episodes/sanity/pooled~2026-10-05T22:26:19#matches=17] matches, [metric:episodes/sanity/pooled~2026-10-05T22:26:19#rounds=346] rounds, [metric:episodes/sanity/pooled~2026-10-05T22:26:19#kills=2592]
+kills. The figures cite the run of 2026-10-05 22:26 by its time: a later run
+of an older version records over the same series. The development matches
 are b03fecd3, 60c7f1e0 and 16a475cb; the rest are unlinked replays.
 
 **Checks.**
 
 - Kills: 2579 lie in exactly one engagement
-  ([metric:episodes/sanity/pooled#kills_in_exactly_one_engagement=0.995]),
-  none in two; the other 13 are listed as `unassigned_death`, every one
-  `same_team` ([metric:episodes/sanity/pooled#unassigned_share=0.005]).
+  ([metric:episodes/sanity/pooled~2026-10-05T22:26:19#kills_in_exactly_one_engagement=0.995]), none in two; the other 13
+  are `unassigned_death` rows, every one `same_team`
+  ([metric:episodes/sanity/pooled~2026-10-05T22:26:19#unassigned_share=0.005]).
 - Round phases take their boundaries from the replay's own round start,
-  barrier drop, plant, defuse and round end, so they agree by
-  construction; d6928558's last round has no barrier drop and no live
-  phase. The independent check is Riot's match record: end reason and
-  winner agree on 24 of 24 rounds of b03fecd3 and 28 of 28 of 60c7f1e0,
-  the two replays with a record. The deciding event (last death, defuse)
-  precedes the replay's round end by a median
-  [metric:episodes/sanity/pooled#end_lag_ms.elimination.p50=25.0] ms
-  (p95 [metric:episodes/sanity/pooled#end_lag_ms.elimination.p95=34.55] ms)
-  after an elimination and
-  [metric:episodes/sanity/pooled#end_lag_ms.defuse.p50=19.0] ms after a
-  defuse.
+  barrier drop, plant, defuse and round end; d6928558's last round has no
+  barrier drop and no live phase. Against Riot's match record, end reason
+  and winner agree on 24 of 24 rounds of b03fecd3 and 28 of 28 of
+  60c7f1e0. The deciding event precedes the round end by a median
+  [metric:episodes/sanity/pooled~2026-10-05T22:26:19#end_lag_ms.elimination.p50=25.0] ms after an elimination (p95
+  [metric:episodes/sanity/pooled~2026-10-05T22:26:19#end_lag_ms.elimination.p95=34.55] ms) and
+  [metric:episodes/sanity/pooled~2026-10-05T22:26:19#end_lag_ms.defuse.p50=19.0] ms after a defuse.
 - Sight: the killer saw his victim within 1 s before
-  [metric:episodes/sanity/pooled#sight_at_kill=0.957] of kill duels;
-  [metric:episodes/sanity/pooled#mutual_kill_duels=0.8736] were mutual.
-  Kills end [metric:episodes/sanity/pooled#duel_kill_share=0.7796] of
-  duels; [metric:episodes/sanity/pooled#traded_share=0.1842] of kills were
-  traded, every trade inside one engagement
-  ([metric:episodes/sanity/pooled#same_engagement_trades=1.0]);
-  [metric:episodes/sanity/pooled#engagements_3plus=0.4067] of engagements
-  hold three or more combatants.
-- Executes: [metric:episodes/sanity/pooled#rounds_with_execute=0.7254] of
-  rounds hold one; [metric:episodes/sanity/pooled#executes_planted=0.8207]
-  end in a plant. Retakes follow
-  [metric:episodes/sanity/pooled#retake_share_of_plants=0.2524] of plants.
+  [metric:episodes/sanity/pooled~2026-10-05T22:26:19#sight_at_kill=0.957] of kill duels, [metric:episodes/sanity/pooled~2026-10-05T22:26:19#mutual_kill_duels=0.8736]
+  mutually; kills end [metric:episodes/sanity/pooled~2026-10-05T22:26:19#duel_kill_share=0.753] of duels;
+  [metric:episodes/sanity/pooled~2026-10-05T22:26:19#traded_share=0.1842] of kills were traded, every trade inside one
+  engagement ([metric:episodes/sanity/pooled~2026-10-05T22:26:19#same_engagement_trades=1.0]).
 
-Per match (`map` is the replay's codename: Duality Bind, Jam Lotus, Pitt
-Pearl, Juliett Sunset, Bonsai Split, Port Icebox, Foxtrot Breeze, Rook
-Corrode, Triad Haven):
+**Kill classes** (section 2.1). Gun kills with sight dominate; wallbangs and
+ability kills are each about one kill in twenty-three, and the killer saw his
+victim in the last second before most of them anyway:
 
-| match | map (codename) | rounds | duels | engagements | trades | executes | retakes | rotations | lurks | killer saw victim |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 05c76cb6 | Duality | 23 | 229 | 119 | 37 | 19 | 3 | 62 | 3 | [metric:episodes/sanity/05c76cb6#sight_at_kill=0.9611] |
-| 1256eed3 | Juliett | 18 | 161 | 99 | 24 | 12 | 4 | 23 | 8 | [metric:episodes/sanity/1256eed3#sight_at_kill=0.9847] |
-| 16a475cb | Jam | 20 | 191 | 96 | 28 | 16 | 2 | 109 | 3 | [metric:episodes/sanity/16a475cb#sight_at_kill=0.953] |
-| 18585a5d | Pitt | 21 | 208 | 95 | 37 | 17 | 2 | 44 | 3 | [metric:episodes/sanity/18585a5d#sight_at_kill=0.9745] |
-| 1a4c4618 | Duality | 24 | 207 | 125 | 20 | 18 | 2 | 78 | 1 | [metric:episodes/sanity/1a4c4618#sight_at_kill=0.9529] |
-| 2c387cb6 | Duality | 25 | 219 | 122 | 34 | 16 | 3 | 64 | 0 | [metric:episodes/sanity/2c387cb6#sight_at_kill=0.9728] |
-| 30e82ae0 | Bonsai | 15 | 136 | 75 | 15 | 8 | 2 | 33 | 2 | [metric:episodes/sanity/30e82ae0#sight_at_kill=0.9252] |
-| 493b1eca | Port | 9 | 100 | 45 | 17 | 7 | 0 | 18 | 0 | [metric:episodes/sanity/493b1eca#sight_at_kill=0.9577] |
-| 590a5d1b | Foxtrot | 23 | 199 | 109 | 33 | 18 | 4 | 38 | 4 | [metric:episodes/sanity/590a5d1b#sight_at_kill=0.9762] |
-| 60c7f1e0 | Ascent | 28 | 273 | 150 | 32 | 18 | 4 | 49 | 3 | [metric:episodes/sanity/60c7f1e0#sight_at_kill=0.9552] |
-| 6da71b0e | Foxtrot | 22 | 224 | 131 | 24 | 15 | 7 | 23 | 4 | [metric:episodes/sanity/6da71b0e#sight_at_kill=0.9822] |
-| 7498df5e | Bonsai | 16 | 161 | 81 | 20 | 12 | 1 | 43 | 2 | [metric:episodes/sanity/7498df5e#sight_at_kill=0.9204] |
-| 75111fd9 | Pitt | 24 | 246 | 125 | 30 | 20 | 2 | 74 | 5 | [metric:episodes/sanity/75111fd9#sight_at_kill=0.9402] |
-| 75a5e757 | Rook | 23 | 229 | 111 | 51 | 17 | 3 | 39 | 1 | [metric:episodes/sanity/75a5e757#sight_at_kill=0.9508] |
-| b03fecd3 | Ascent | 24 | 232 | 121 | 33 | 16 | 5 | 36 | 1 | [metric:episodes/sanity/b03fecd3#sight_at_kill=0.9278] |
-| d6928558 | Triad | 9 | 74 | 36 | 10 | 6 | 2 | 21 | 1 | [metric:episodes/sanity/d6928558#sight_at_kill=0.9508] |
-| dabcf7e5 | Rook | 22 | 219 | 118 | 30 | 16 | 6 | 55 | 1 | [metric:episodes/sanity/dabcf7e5#sight_at_kill=0.9649] |
+| match | map (codename) | rounds | duels | engagements | trades | executes | lurks | rotations | killer saw victim |
+|---|---|---|---|---|---|---|---|---|---|
+| 05c76cb6 | Duality | 23 | 237 | 119 | 37 | 25 | 5 | 62 | [metric:episodes/sanity/05c76cb6~2026-10-05T22:26:19#sight_at_kill=0.9611] |
+| 1256eed3 | Juliett | 18 | 170 | 99 | 24 | 18 | 21 | 23 | [metric:episodes/sanity/1256eed3~2026-10-05T22:26:19#sight_at_kill=0.9847] |
+| 16a475cb | Jam | 20 | 197 | 98 | 28 | 24 | 22 | 109 | [metric:episodes/sanity/16a475cb~2026-10-05T22:26:19#sight_at_kill=0.953] |
+| 18585a5d | Pitt | 21 | 216 | 96 | 37 | 22 | 12 | 44 | [metric:episodes/sanity/18585a5d~2026-10-05T22:26:19#sight_at_kill=0.9745] |
+| 1a4c4618 | Duality | 24 | 220 | 131 | 20 | 28 | 6 | 78 | [metric:episodes/sanity/1a4c4618~2026-10-05T22:26:19#sight_at_kill=0.9529] |
+| 2c387cb6 | Duality | 25 | 222 | 121 | 34 | 27 | 10 | 64 | [metric:episodes/sanity/2c387cb6~2026-10-05T22:26:19#sight_at_kill=0.9728] |
+| 30e82ae0 | Bonsai | 15 | 139 | 72 | 15 | 14 | 8 | 33 | [metric:episodes/sanity/30e82ae0~2026-10-05T22:26:19#sight_at_kill=0.9252] |
+| 493b1eca | Port | 9 | 101 | 45 | 17 | 10 | 0 | 18 | [metric:episodes/sanity/493b1eca~2026-10-05T22:26:19#sight_at_kill=0.9577] |
+| 590a5d1b | Foxtrot | 23 | 207 | 113 | 33 | 27 | 27 | 38 | [metric:episodes/sanity/590a5d1b~2026-10-05T22:26:19#sight_at_kill=0.9762] |
+| 60c7f1e0 | Ascent | 28 | 293 | 156 | 32 | 31 | 11 | 49 | [metric:episodes/sanity/60c7f1e0~2026-10-05T22:26:19#sight_at_kill=0.9552] |
+| 6da71b0e | Foxtrot | 22 | 227 | 129 | 24 | 26 | 17 | 23 | [metric:episodes/sanity/6da71b0e~2026-10-05T22:26:19#sight_at_kill=0.9822] |
+| 7498df5e | Bonsai | 16 | 166 | 82 | 20 | 16 | 6 | 43 | [metric:episodes/sanity/7498df5e~2026-10-05T22:26:19#sight_at_kill=0.9204] |
+| 75111fd9 | Pitt | 24 | 251 | 127 | 30 | 26 | 13 | 74 | [metric:episodes/sanity/75111fd9~2026-10-05T22:26:19#sight_at_kill=0.9402] |
+| 75a5e757 | Rook | 23 | 230 | 112 | 51 | 23 | 9 | 39 | [metric:episodes/sanity/75a5e757~2026-10-05T22:26:19#sight_at_kill=0.9508] |
+| b03fecd3 | Ascent | 24 | 248 | 125 | 33 | 26 | 19 | 36 | [metric:episodes/sanity/b03fecd3~2026-10-05T22:26:19#sight_at_kill=0.9278] |
+| d6928558 | Triad | 9 | 77 | 35 | 10 | 10 | 13 | 21 | [metric:episodes/sanity/d6928558~2026-10-05T22:26:19#sight_at_kill=0.9508] |
+| dabcf7e5 | Rook | 22 | 224 | 120 | 30 | 29 | 8 | 55 | [metric:episodes/sanity/dabcf7e5~2026-10-05T22:26:19#sight_at_kill=0.9649] |
 
 Pooled per round, and durations:
 
 | kind | per round | duration p10 / p50 / p90 (s) |
 |---|---|---|
-| duel | [metric:episodes/sanity/pooled#per_round.duel=9.561] | 0.3 / [metric:episodes/sanity/pooled#dur_s.duel.p50=0.82] / 2.44 |
-| remote damage | [metric:episodes/sanity/pooled#per_round.remote_damage=0.405] | 0.0 / [metric:episodes/sanity/pooled#dur_s.remote_damage.p50=0.0] / 0.7 |
-| engagement | [metric:episodes/sanity/pooled#per_round.engagement=5.081] | 0.34 / [metric:episodes/sanity/pooled#dur_s.engagement.p50=1.28] / 8.06 |
-| trade | [metric:episodes/sanity/pooled#per_round.trade=1.373] | 0.3 / [metric:episodes/sanity/pooled#dur_s.trade.p50=2.05] / 4.27 |
-| execute | [metric:episodes/sanity/pooled#per_round.execute=0.725] | 0.0 / [metric:episodes/sanity/pooled#dur_s.execute.p50=6.1] / 20.18 |
-| lurk | [metric:episodes/sanity/pooled#per_round.lurk=0.121] | 13.6 / [metric:episodes/sanity/pooled#dur_s.lurk.p50=28.0] / 44.62 |
-| retake | [metric:episodes/sanity/pooled#per_round.retake=0.15] | 8.32 / [metric:episodes/sanity/pooled#dur_s.retake.p50=28.47] / 43.54 |
-| contested plant | [metric:episodes/sanity/pooled#per_round.contested_plant=0.442] | instant |
-| rotation | [metric:episodes/sanity/pooled#per_round.rotation=2.338] | 0.25 / [metric:episodes/sanity/pooled#dur_s.rotation.p50=9.5] / 20.8 |
-| post-plant phase | [metric:episodes/sanity/pooled#per_round.phase_post_plant=0.595] | 8.77 / [metric:episodes/sanity/pooled#dur_s.phase_post_plant.p50=24.98] / 40.58 |
-| buy phase | -- | 29.79 / [metric:episodes/sanity/pooled#dur_s.phase_buy.p50=29.85] / 44.73 |
-| live phase | -- | 22.4 / [metric:episodes/sanity/pooled#dur_s.phase_live.p50=36.9] / 73.93 |
-| round over | -- | 7.1 / [metric:episodes/sanity/pooled#dur_s.phase_round_over.p50=7.14] / 7.21 |
-| contact | [metric:episodes/sanity/pooled#contacts_per_round=19.61] | 0.12 / [metric:episodes/sanity/pooled#dur_s.contact.p50=0.69] / 2.25 |
+| duel | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#per_round.duel=9.899] | 0.27 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.duel.p50=0.81] / 2.4 |
+| remote damage | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#per_round.remote_damage=0.066] | 0.0 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.remote_damage.p50=0.0] / 0.59 |
+| engagement | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#per_round.engagement=5.145] | 0.32 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.engagement.p50=1.27] / 8.24 |
+| trade | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#per_round.trade=1.373] | 0.3 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.trade.p50=2.05] / 4.27 |
+| execute | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#per_round.execute=1.104] | 1.25 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.execute.p50=8.53] / 18.44 |
+| lurk | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#per_round.lurk=0.598] | 16.35 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.lurk.p50=33.75] / 60.05 |
+| retake | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#per_round.retake=0.15] | 8.32 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.retake.p50=28.47] / 43.54 |
+| contested plant | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#per_round.contested_plant=0.442] | instant |
+| rotation | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#per_round.rotation=2.338] | 0.25 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.rotation.p50=9.5] / 20.8 |
+| post-plant phase | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#per_round.phase_post_plant=0.595] | 8.77 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.phase_post_plant.p50=24.98] / 40.58 |
+| buy phase | -- | 29.79 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.phase_buy.p50=29.85] / 44.73 |
+| live phase | -- | 22.4 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.phase_live.p50=36.9] / 73.93 |
+| round over | -- | 7.1 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.phase_round_over.p50=7.14] / 7.21 |
+| contact | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#contacts_per_round=19.61] | 0.12 / [metric:episodes/sanity/pooled~2026-10-05T22:26:19#dur_s.contact.p50=0.69] / 2.25 |
+
+Kills by class:
+
+| class | kills | share | killer saw victim within 1 s |
+|---|---|---|---|
+| `gun_sight` | 2336 | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#kill_class_share.gun_sight=0.9058] | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#sight_at_kill_by_class.gun_sight=0.9739] |
+| `gun_wallbang` | 111 | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#kill_class_share.gun_wallbang=0.043] | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#sight_at_kill_by_class.gun_wallbang=0.7748] |
+| `ability` | 115 | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#kill_class_share.ability=0.0446] | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#sight_at_kill_by_class.ability=0.887] |
+| `melee` | 2 | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#kill_class_share.melee=0.0008] | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#sight_at_kill_by_class.melee=1.0] |
+| `gun_blocked` | 2 | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#kill_class_share.gun_blocked=0.0008] | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#sight_at_kill_by_class.gun_blocked=0.5] |
+| `other` | 4 | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#kill_class_share.other=0.0016] | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#sight_at_kill_by_class.other=0.5] |
+| `unread` | 9 | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#kill_class_share.unread=0.0035] | [metric:episodes/sanity/pooled~2026-10-05T22:26:19#sight_at_kill_by_class.unread=0.0] |
+
+The 9 `unread` kills have no killing record within 500 ms. Five gun hits
+are `gun_blocked` (of 8,371 classed gun hits; two of them killed); each
+crosses a thin prop the replay does not mark as penetrated (a wooden crate, scaffold planks, a
+news stand, a truck's trim, an antechamber wall): table or position errors,
+listed by the sanity tool.
+
+**What a wallbang crosses.** [metric:episodes/sanity/pooled~2026-10-05T22:26:19#wallbang_lines.n=762] damage records
+the replay flags as penetrating, eye to hit:
+
+- one placement on [metric:episodes/sanity/pooled~2026-10-05T22:26:19#wallbang_lines.placements_1=0.6562], two on
+  [metric:episodes/sanity/pooled~2026-10-05T22:26:19#wallbang_lines.placements_2=0.1417], three on
+  [metric:episodes/sanity/pooled~2026-10-05T22:26:19#wallbang_lines.placements_3=0.0171], four or more on 0.0131;
+- one solid run on [metric:episodes/sanity/pooled~2026-10-05T22:26:19#wallbang_lines.solids_1=0.7795], two on
+  [metric:episodes/sanity/pooled~2026-10-05T22:26:19#wallbang_lines.solids_2=0.0394], three or more on 0.0052. Two
+  placements usually bound one solid: a wall's outer and inner shells are
+  separate meshes (Ascent's Switchhouse exterior and interior);
+- nothing the table holds on [metric:episodes/sanity/pooled~2026-10-05T22:26:19#wallbang_lines.clear_line=0.1719]: the
+  bullet went through something the table leaves out (a door, a
+  breakable, an ability wall) or from a crouched eye;
+- an Impenetrable surface on [metric:episodes/sanity/pooled~2026-10-05T22:26:19#wallbang_lines.impenetrable=0.0]; an
+  unread surface on [metric:episodes/sanity/pooled~2026-10-05T22:26:19#wallbang_lines.unread=0.0039]. Classes met:
+  High 453 crossings, Moderate 160, VeryHigh 43, VeryLow 3, Low 2.
+
+So the player's "maybe multiple" holds rarely: one penetrable object stands
+between shooter and victim on almost every wallbang the table can see, two
+solid objects on about one in twenty-five.
+
+**Executes as site attempts.** [metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.per_round=1.104]
+per round, in [metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.rounds_with=0.8728] of rounds.
+Commitment: one attacker on [metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.committed_1=0.3613] of
+attempts, two on [metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.committed_2=0.1832], three on
+[metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.committed_3=0.2251], four on
+[metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.committed_4=0.1178], five on
+[metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.committed_5=0.1126]; median share of the living
+attackers [metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.share_p50=0.6]. Outcomes: planted
+[metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.result_planted=0.5366], abandoned
+[metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.result_abandoned=0.3377], timed out
+[metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.result_timed_out=0.0576], wiped
+[metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.result_wiped=0.0419], cleared
+[metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.result_cleared=0.0262]; a plant no attempt covered
+opened [metric:episodes/sanity/pooled~2026-10-05T22:26:19#execute_attempts.trigger_plant=0.0759]. Commitment tracks
+the outcome: 85 of 138 solo attempts were abandoned and 34 planted; 70 of
+88 five- and four-attacker attempts planted.
 
 **Three examples** to check in the in-client replay. Times are the round
-clock (1:40 at barrier drop) or the spike's remaining time.
+clock (1:40 at barrier drop) or the spike's remaining time; all three are
+from 60c7f1e0 (Ascent, session c817691bcd15).
 
-1. **Trade.** 60c7f1e0 (Ascent, session c817691bcd15), round 1, clock
-   0:59 (40.1 s after barrier drop): Sage (Blue) kills Cypher (Red); Jett
-   (Red) kills Sage 0.27 s later from 30.8 m. Blue wins the round by
-   elimination.
-2. **Retake.** 60c7f1e0, round 6: Red plants B with no Blue defender on B.
-   Sage, KAY/O, Omen and Phoenix (Blue) retake; the first enters B 13.1 s
-   after the plant; the defuse lands with about 1 s on the spike. Blue
-   wins by defuse.
-3. **Post-plant engagement.** 16a475cb (Lotus), round 1: team A plants C
-   22.4 s after barrier drop. From 43 s to 35 s on the spike Jett (A)
-   kills Clove, Sage and Neon (B), with Reyna and Chamber (A) in sight and
-   no shot of theirs landing. A wins by elimination.
+1. **Wallbang through two shells.** Round 6, 26 s on the spike: KAY/O
+   (Blue) kills Omen (Red) with a Vandal through the Switchhouse wall,
+   whose exterior and interior meshes bound one 25 cm solid (High).
+2. **Ability kill without sight.** Round 8, 33 s on the spike: Raze
+   (Blue)'s Showstopper kills Cypher (Red); no clear line at the hit, and
+   Raze did not see Cypher in the last second.
+3. **Solo attempt, abandoned.** Round 2, clock 1:17 (23.0 s after barrier
+   drop): Cypher (Red) steps onto B alone and meets a defender; he dies by
+   1:09, nobody follows within 5 s, and Red loses the round by elimination.
+   An execute of commitment 1.
 
-**Predictions** (`notes/predictions.jsonl`, task
-`replay-episodes-20261005`). EP1-EP14 were written before the corpus run,
-after development runs on b03fecd3 alone; EP15-EP22 test the definition
-changes made after it, and test only whether those changes do what they
-claim.
+**Predictions** (`notes/predictions.jsonl`). EP1-EP22 (task
+`replay-episodes-20261005`) scored episodes-0.1.0 to 0.2.1; their verdicts
+stand in that file's outcome row. EP23-EP31 (task
+`replay-episodes-2-20261005`) were written after one instrument run on
+b03fecd3:
 
 | ref | prediction | result | verdict |
 |---|---|---|---|
-| EP1 | killer saw victim 0.88-0.96 pooled, at least 0.80 per match | 0.957; lowest match 0.920 | held |
-| EP2 | at most 2% of deaths outside engagements | 0.5%, all same-team | held |
-| EP3 | 7-12 duels per round | 9.56 | held |
-| EP4 | kills end 0.65-0.85 of duels | 0.78 | held |
-| EP5 | 0.14-0.28 of kills traded | 0.184 | held |
-| EP6 | every trade inside one engagement | 1.0; 0.0 in the first run, from a bug that keyed trades by a tail hit | held after the fix |
-| EP7 | end lag median under 100 ms, p95 under 1000 ms | 25 ms, 35 ms | held |
-| EP8 | spawn side agrees with the halftime rule on 99% of rounds; Riot end reason and winner on 95% | Riot 52 of 52; side 339 of 345 (98.3%) | half failed: the rule is wrong, not the spawn read. 493b1eca's 45 s buy phases at rounds 1, 5 and 9 mark four-round halves; 2c387cb6 disagrees in overtime round 25 |
-| EP9 | 0.75-0.90 of kill duels mutual | 0.874 | held |
-| EP10 | 3-6 engagements per round, 0.25-0.50 with three or more combatants | 5.08, 0.41 | held |
-| EP11 | execute in 85% of rounds, 50% of executes planted | episodes-0.1.0: 0.96, 0.62 | held, hollowly: 262 of 332 executes began within 1 s of barrier drop, attackers counted on site from the lobby |
-| EP12 | retakes follow 0.20-0.60 of plants | 0.25 | held |
-| EP13 | 1.0-2.5 rotations per round | episodes-0.1.0: 2.86 | failed: borders between sites' super-regions |
-| EP14 | contact median 0.4-1.0 s | 0.69 s | held |
-| EP15 | at most 10% of executes start within 1 s of barrier drop | 0 of 251 | held; the execute's 0.0 s p10 duration is the plant fallback |
-| EP16 | rounds with an execute 0.60-0.92; 70% planted | 0.725, 0.821 | held |
-| EP17 | 0.8-2.0 rotations per round, at most 10% under 2 s | episodes-0.2.0: 2.63 | failed |
-| EP18 | 0.8-1.8 lurks per round | episodes-0.2.0: 0.15 | failed: the lurk was bounded by the now-short execute |
-| EP19 | other kinds unchanged | unchanged | held |
-| EP20 | 1.0-2.2 rotations per round, under 10% shorter than 2 s | 2.34; 112 of 809 (13.8%) under 2 s | failed |
-| EP21 | 0.3-1.2 lurks per round | 0.121 | failed |
-| EP22 | other kinds unchanged | unchanged | held |
+| EP23 | kill classes: gun_sight 0.80-0.90, ability 0.06-0.12, wallbang 0.03-0.08, melee under 0.01, unread at most 0.03 | 0.906, 0.045, 0.043, 0.001, 0.004 | failed: fewer ability kills than b03fecd3 suggested |
+| EP24 | killer saw victim: gun_sight 0.93+, wallbang 0.50-0.90, ability 0.60-0.90 | 0.974, 0.775, 0.887 | held |
+| EP25 | wallbang lines: one placement 0.55-0.80, two 0.15-0.35, three or more at most 0.10; one solid 0.80+; no crossing at most 0.10 | 0.656, 0.142, 0.030; 0.780; 0.172 | failed: a sixth of flagged lines cross nothing the table holds |
+| EP26 | Impenetrable at most 3%, unread at most 25% of wallbang lines | 0.0, 0.004 | held |
+| EP27 | gun_blocked at most 2% of gun hits | 0.06% | held |
+| EP28 | 1.0-1.6 executes per round; commitment 1 on 0.30-0.55; planted 0.35-0.60; abandoned 0.25-0.50 | 1.104; 0.361; 0.537; 0.338 | held |
+| EP29 | an execute in 90% of rounds | 0.873 | failed |
+| EP30 | 9.6-10.2 duels per round, remote damage at most 0.10 | 9.899, 0.066 | held |
+| EP31 | 0.4-1.2 lurks per round | 0.598 | held |
 
 **What the run shows.**
 
-- Sight, duels, engagements, trades and round phases behave as predicted
-  on every match; they rest on the replay's positions, its kill and damage
-  events and the game's geometry.
-- Executes, retakes, rotations and lurks rest on callout labels, and the
-  labels decide them. The site callout misses plantable ground: 60 of 214
-  plants lie outside the volume named `<X> Site` (Breeze's A Pyramids,
-  Pearl's B Hall, Corrode's A Crane, Sunset's A Alley, Lotus's C Bend and
-  A Hut, Icebox's B Yellow, and one Ascent plant outside every volume), so
-  29 executes fall back to the plant with no attacker counted on site.
-  The plantable zone is the witness these need (Q7).
-- Rotations stay frequent on Bind, Lotus and Corrode: Bind's teleporters
-  (rotations under Q9's default), Lotus's B Main and C Door, and Corrode's
-  labels on the `nearest` rule. A move under 2 s is no rotation a player
-  would name; a walk-graph distance between the two holds would test one.
-- Lurks are rare because the commit comes late, when most attackers stand
-  on or beside the site. Q10 decides whether a lurk should be read earlier.
+- Every kill classes from the replay's own records; 9 of 2592 lack a
+  killing record. The table agrees with the replay's penetration flag on
+  all but 5 gun hits, all at thin props.
+- A wallbang crosses one penetrable object nearly always, never an
+  Impenetrable surface; a sixth of the replay's penetrations cross nothing
+  the table holds, which the doors and ability walls the table leaves out
+  would explain, unmeasured.
+- An execute is now an attempt with a grade: a third are one attacker,
+  most of them abandoned, and the more attackers commit the likelier the
+  plant. In the rounds with no attempt (0.13) no attacker committed to a
+  site callout and no plant fell; why (early eliminations, holds that never
+  hit) is unchecked.
+- Rotations, untouched here, keep episodes-0.2.1's defects (Bind
+  teleporters, Lotus's B Main and C Door, Corrode's labels).
 - A four-round half (493b1eca) and overtime (2c387cb6, round 25) break a
   twelve-round halftime rule; the attacking team is read from spawn, so no
   episode used the rule.

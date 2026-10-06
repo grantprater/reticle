@@ -745,3 +745,20 @@ the AFK-round transfer [domain:rounds/afk-round-reward] may be related; nothing
 shows it is the same mechanism
 """
 see = ["rounds/afk-round-reward", "rounds/credit-ledger-rules"]
+
+[execute-is-a-site-attempt]
+claim = """
+An execute is an attacking team's attempt on a site, graded by how many
+attackers commit to it and ended by what became of it. A bad attempt is still
+an execute: one attacker who takes a site alone, whom nobody follows, who dies,
+and whose team then leaves the site has executed with the least commitment.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-10-05"
+use = """
+`episodes` opens an execute when an attacker commits to a site and grades it by
+the attackers who join (docs/EPISODES.md section 3.5); no minimum head count
+gates it
+"""
+phrases = ["execute is a site attempt"]
