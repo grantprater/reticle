@@ -6146,6 +6146,20 @@ def cmd_replay_layer(args) -> int:
                    geometry=args.geometry, root=args.store)
 
 
+def cmd_episodes(args) -> int:
+    """Derive a match's episodes from its replay layer, or say which are stale.
+
+    Round phases, duels, engagements, trades, executes, retakes, rotations
+    and lurks (`episodes`, docs/EPISODES.md), from the stored replay layer
+    and the map's stored sightline table; nothing is decoded. `plan` names
+    stale or absent episodes downstream of the layer.
+    """
+    from .episodes import command
+
+    return command(list(args.keys or []), all_=args.all, status_only=args.status,
+                   root=args.store)
+
+
 def cmd_status(args) -> int:
     """Status, computed from the store rather than written down.
 
@@ -6906,6 +6920,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--geometry", type=Path, default=None,
                    help="a baked geometry npz in place of the session's own")
     s.set_defaults(func=cmd_replay_layer)
+
+    s = sub.add_parser("episodes", help="derive a match's duels, engagements, trades, "
+                       "phases, executes, retakes, rotations and lurks from its replay layer")
+    s.add_argument("keys", nargs="*", help="match ids, prefixes or capture sessions")
+    s.add_argument("--all", action="store_true", help="every match with a replay layer")
+    s.add_argument("--status", action="store_true",
+                   help="say which are current, stale or absent; build nothing")
+    s.set_defaults(func=cmd_episodes)
 
     s = sub.add_parser("status", help="generated pipeline status "
                        "(the perishable half of CLAUDE.md, computed)")

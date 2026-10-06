@@ -2034,6 +2034,69 @@ population the reference witnesses cover, not the whole feed.
 evidence = "tests/test_reliability.py"
 
 # ---------------------------------------------------------------------------
+# Episodes over a state timeline (docs/EPISODES.md)
+# ---------------------------------------------------------------------------
+
+[[entry]]
+id = "line-of-sight"
+question = "Is the segment between two world points clear of the map's static Weapon-blocking collision?"
+owner = "line_of_sight"
+role = ["constrain"]
+status = "partial"
+produces = ["Occluders", "LINE_OF_SIGHT_VERSION", "EYE_ABOVE_CENTRE_CM", "sightline_table",
+            "map_key", "eye"]
+consumers = ["episodes", "map_regions"]
+not_for = """
+Building the table (`prototypes/sightlines_3d.py` builds it; this reads the
+stored one), and anything that changes inside a round: doors, breakables,
+smokes and ability walls are not in the table, and bullet penetration is
+not modelled, so a wallbang reads as blocked. Whether a player SEES another
+also needs the view frustum, which `episodes` applies.
+"""
+evidence = "tests/test_episodes.py"
+
+[[entry]]
+id = "callout-region"
+question = "Which callout region and super-region (A, B, C, Mid, Attacker Side, Defender Side) holds a world point, and is it a site proper or a Link?"
+owner = "map_regions"
+role = ["assign"]
+status = "partial"
+produces = ["Regions", "MAP_REGIONS_VERSION", "api_callouts", "label_volumes", "SITES",
+            "OFF_SITE", "spawn_points"]
+consumers = ["episodes"]
+not_for = """
+Minimap pixels: it places world points (cm), not widget pixels, and reads
+the game's callout volumes stored with each 3D sightline table. A volume's
+label comes from valorant-api's callout points inside it, never from its
+name; a volume holding none takes the nearest point's label, and the label
+says so (`basis`).
+"""
+evidence = "tests/test_episodes.py"
+
+[[entry]]
+id = "episodes"
+question = "Which round phases, duels, engagements, trades, executes, retakes, rotations and lurks did a match hold, from its state timeline?"
+owner = "episodes"
+role = ["group"]
+status = "partial"
+produces = ["derive_episodes", "Timeline", "ArrayTimeline", "Slot", "Event", "Derived", "PARAMS",
+            "EPISODES_VERSION", "episodes_path", "read_header", "read_episodes", "write_episodes",
+            "timeline_rounds", "attack_teams", "sight", "frustum", "merged_runs",
+            "from_replay_layer"]
+consumers = ["cli", "plan", "doctor"]
+defers_to = ["round-bounds", "line-of-sight", "callout-region"]
+not_for = """
+Reading a parse or pixels: it reads one `Timeline` (the replay layer's for
+`source = truth`, a slot-state timeline for `source = vision`). Naming
+agents: rows carry slot ids, never an agent name. Deciding round bounds for
+a capture (`round-bounds`), or pricing an episode (win probability and
+coaching hang off episodes; they are not computed here). Every boundary
+parameter but the eye height is a default awaiting the player's answer
+(docs/EPISODES.md section 5).
+"""
+evidence = "tests/test_episodes.py"
+
+# ---------------------------------------------------------------------------
 # Replay truth: a kept replay on the capture's clock and map
 # ---------------------------------------------------------------------------
 
