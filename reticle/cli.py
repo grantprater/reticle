@@ -6325,7 +6325,7 @@ def cmd_episodes(args) -> int:
     from .episodes import command
 
     return command(list(args.keys or []), all_=args.all, status_only=args.status,
-                   root=args.store)
+                   root=args.store, out_root=args.out)
 
 
 def cmd_status(args) -> int:
@@ -7118,6 +7118,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--all", action="store_true", help="every match with a replay layer")
     s.add_argument("--status", action="store_true",
                    help="say which are current, stale or absent; build nothing")
+    s.add_argument("--out", type=Path, default=None,
+                   help="write and read the episodes under this root instead of the store's")
     s.set_defaults(func=cmd_episodes)
 
     s = sub.add_parser("status", help="generated pipeline status "

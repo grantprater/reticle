@@ -2073,6 +2073,41 @@ says so (`basis`).
 evidence = "tests/test_episodes.py"
 
 [[entry]]
+id = "wall-penetration"
+question = "What does a straight bullet path between two world points cross: how many placements and solid runs, of which penetration classes, and is any surface Impenetrable or unread?"
+owner = "wall_penetration"
+role = ["constrain"]
+status = "partial"
+produces = ["Penetration", "WALL_PENETRATION_VERSION", "GAME_BUILD", "Surfaces", "segment_hits",
+            "intervals", "surface_table", "penetration_classes", "index_paths",
+            "obj_path", "json_of", "build_root", "HIGH_ERM", "IMPENETRABLE_ERM"]
+consumers = ["episodes", "equippables"]
+not_for = """
+Deciding whether a bullet got through: the replay's damage record says so
+(`wall_penetration`), and this owner only lists what lies on the line. Nor a
+penetration budget: the base stopping distance is native and in no export
+(`prototypes/wallbang_probe.py` keeps its placeholder). Doors, breakables and
+ability walls are not in the table; a mesh or material not exported leaves its
+crossings `unread`.
+"""
+evidence = "tests/test_wall_penetration.py, tests/test_wallbang_probe.py"
+
+[[entry]]
+id = "equippable-kind"
+question = "Is the equippable behind a damage record a gun, the knife or an agent's ability?"
+owner = "equippables"
+role = ["assign"]
+status = "shipped"
+produces = ["equippable_kind", "EQUIPPABLES_VERSION", "KINDS"]
+consumers = ["episodes"]
+not_for = """
+Reading a killfeed's weapon slot (`adjudication.weapon` classes pixels) or
+naming a gun: it places a replay's equippable class by the folder the build's
+asset index keeps it in, and names no weapon.
+"""
+evidence = "tests/test_episodes.py"
+
+[[entry]]
 id = "episodes"
 question = "Which round phases, duels, engagements, trades, executes, retakes, rotations and lurks did a match hold, from its state timeline?"
 owner = "episodes"
@@ -2081,9 +2116,10 @@ status = "partial"
 produces = ["derive_episodes", "Timeline", "ArrayTimeline", "Slot", "Event", "Derived", "PARAMS",
             "EPISODES_VERSION", "episodes_path", "read_header", "read_episodes", "write_episodes",
             "timeline_rounds", "attack_teams", "sight", "frustum", "merged_runs",
-            "from_replay_layer"]
+            "from_replay_layer", "classify_acts", "ACT_CLASSES", "KILL_MATCH_MS"]
 consumers = ["cli", "plan", "doctor"]
-defers_to = ["round-bounds", "line-of-sight", "callout-region"]
+defers_to = ["round-bounds", "line-of-sight", "callout-region", "wall-penetration",
+             "equippable-kind"]
 not_for = """
 Reading a parse or pixels: it reads one `Timeline` (the replay layer's for
 `source = truth`, a slot-state timeline for `source = vision`). Naming

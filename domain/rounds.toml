@@ -745,3 +745,47 @@ the AFK-round transfer [domain:rounds/afk-round-reward] may be related; nothing
 shows it is the same mechanism
 """
 see = ["rounds/afk-round-reward", "rounds/credit-ledger-rules"]
+
+[execute-is-a-site-attempt]
+claim = """
+An execute is an attacking team's attempt on a site, graded by how many
+attackers commit to it and ended by what became of it. A bad attempt is still
+an execute: one attacker who takes a site alone, whom nobody follows, who dies,
+and whose team then leaves the site has executed with the least commitment.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-10-05"
+use = """
+`episodes` opens an execute when an attacker commits to a site and grades it by
+the attackers who join (docs/EPISODES.md section 3.5); no minimum head count
+gates it
+"""
+phrases = ["execute is a site attempt"]
+
+[bomb-site-outline]
+claim = """
+Each plant site's outline is a `Bomb_Site_Outline_C` actor placed in the map's
+gameplay level (`<Map>_Gameplay.umap`), holding a `BombsiteMarker` static mesh
+per site: on Ascent, `BombsiteMarker_0_BombsiteA` at (6100, -7200, 500) and
+`BombsiteMarker_0_BombsiteB` at (-3152, -7776, -98), game units.
+"""
+kind = "geometry"
+known = "observed"
+since = "2026-10-05"
+source = """
+release-13.06-shipping-18-5590001, the store's
+reference/game-files/<build>/minimap-sites/ShooterGame/Content/Maps/Ascent/Ascent_Gameplay.json:
+two Bomb_Site_Outline_C actors (Bomb_Site_Outline8, Bomb_Site_Outline_4), each
+with StaticMesh components referencing
+/Game/Environment/Ascent/Asset/Props/BombsiteMarker/0/BombsiteMarker_0_Bombsite{A,B}
+"""
+exceptions = """
+The marker meshes are not exported, so the plantable zone's shape stays
+unread; whether the outline bounds the zone the game tests at a plant is
+unconfirmed. Other maps' gameplay levels sit beside Ascent's, unread here.
+"""
+use = """
+the witness `episodes` lacks for "on site" (docs/EPISODES.md, Q7): export the
+marker meshes and read each zone's footprint
+"""

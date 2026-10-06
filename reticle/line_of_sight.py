@@ -10,8 +10,9 @@ triangles into an embree scene and answers whether a segment between two
 world points (cm, Unreal axes) crosses one. It reads the stored table only;
 the builder stays `prototypes/sightlines_3d.py`, and nothing here imports it.
 
-Doors, breakables, smokes and ability walls are absent from the table, and
-bullet penetration is not modelled: a wall a gun shoots through blocks here.
+Doors, breakables, smokes and ability walls are absent from the table. A
+wall a gun shoots through blocks here; `wall_penetration` says what lies on
+the line.
 
 Facts: [domain:game_data/character-eye-height] (the eye stands 77 cm above
 the capsule centre, which is the actor location a replay records).
@@ -97,6 +98,12 @@ class Occluders:
         return {"owner": "line-of-sight", "version": LINE_OF_SIGHT_VERSION,
                 "map": self.map, "table": self.table, "table_version": self.table_version,
                 "n_tris": int(len(self.tris))}
+
+    def first_hit(self, o: np.ndarray, d: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """(triangle index, distance) of the first crossing along each ray
+        (origins `o`, unit directions `d`); index -1 where none."""
+        r = self.scene.run(np.ascontiguousarray(o, np.float32), np.ascontiguousarray(d, np.float32), output=1)
+        return r["primID"].astype(np.int64), r["tfar"].astype(np.float64)
 
     def blocked(self, a: np.ndarray, b: np.ndarray, chunk: int = 1_000_000) -> np.ndarray:
         """True where the segment a -> b (rows of xyz, cm) crosses a triangle.

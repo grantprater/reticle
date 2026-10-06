@@ -17,6 +17,7 @@ pytest.importorskip("embreex")
 from reticle import episodes as ep
 from reticle.line_of_sight import Occluders
 from reticle.map_regions import Regions
+from reticle.wall_penetration import Penetration as WallPen
 
 T_END = 90_000.0
 DT = 50.0
@@ -39,6 +40,7 @@ def regions():
             ("B", "Site", box(5000, 10000, -10000, -5000)),
             ("Mid", "Courtyard", box(5000, 10000, -5000, 5000)),
             ("B", "Link", box(5000, 10000, -5000, -3500)),
+            ("B", "Main", box(0, 5000, -10000, -5000)),
             ("Defender Side", "Spawn", box(10000, 15000, -10000, 10000))]
     inv = [s[2][0] for s in spec]
     lo = [s[2][1] for s in spec]
@@ -71,6 +73,7 @@ B_SITE = (7000.0, -7000.0)
 MID = (8000.0, 0.0)
 A_LOBBY = (2500.0, 7000.0)
 B_LINK = (7000.0, -4000.0)
+B_MAIN = (2500.0, -7000.0)
 SPAWNS = {"attack": np.array(ATT_SPAWN), "defence": np.array(DEF_SPAWN)}
 
 
@@ -82,7 +85,7 @@ def timeline():
                      (39_500, a1, yaw_to(a1, d1_out), 0)]),
         "A2": track([(0, ATT_SPAWN, 0, BLIND), (50_000, A_SITE, 0, BLIND)]),
         "A3": track([(0, ATT_SPAWN, 0, BLIND), (50_000, A_SITE, 0, BLIND)]),
-        "A4": track([(0, ATT_SPAWN, 0, BLIND), (40_000, B_SITE, 0, BLIND)]),
+        "A4": track([(0, ATT_SPAWN, 0, BLIND), (40_000, B_MAIN, 0, BLIND)]),
         "A5": track([(0, ATT_SPAWN, 0, BLIND), (50_000, A_SITE, 0, BLIND)]),
         "D1": track([(0, DEF_SPAWN, 0, BLIND), (30_000, d1, 180, BLIND),
                      (39_000, d1_out, yaw_to(d1_out, a1), 0)]),
@@ -98,7 +101,8 @@ def timeline():
     E = ep.Event
     events = [
         E("round_start", 0.0, "rs1"), E("buy_end", 30_000.0, "be1"),
-        E("damage", 40_000.0, "dm1", actor="A1", target="D1", amount=40.0, wallbang=False),
+        E("damage", 40_000.0, "dm1", actor="A1", target="D1", amount=40.0, wallbang=False,
+          equippable="Rifle_C", killed=True),
         E("death", 40_300.0, "k1", actor="A1", target="D1"),
         E("damage", 42_800.0, "dm2", actor="D2", target="A1", amount=140.0, wallbang=False),
         E("death", 43_000.0, "k2", actor="D2", target="A1"),
@@ -112,12 +116,24 @@ def timeline():
     return ep.ArrayTimeline("synthetic", "toy", slots, tracks, events)
 
 
+#: The toy's equippable classes; the real ones come from the build's index.
+KIND = {"Rifle_C": "gun", "Ability_Toy_C": "ability", "Knife_C": "melee"}
+
+
+@pytest.fixture(autouse=True)
+def toy_equippables(monkeypatch):
+    import reticle.equippables as eq
+    monkeypatch.setattr(eq, "equippable_kind", lambda c, root=None: "none" if c is None
+                        else KIND.get(c, "unread"))
+
+
 def derive(tl):
     occ = Occluders("toy", tris=wall(6500.0, -1000.0, 1000.0))
-    return ep.derive_episodes(tl, occ=occ, regions=regions(), spawns=SPAWNS)
+    pen = WallPen(occ, src=np.zeros(2, np.int64), surface_of_tri=np.zeros(2, np.int64))
+    return ep.derive_episodes(tl, occ=occ, regions=regions(), spawns=SPAWNS, pen=pen)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def derived():
     return derive(timeline())
 
@@ -208,7 +224,7 @@ def test_execute_lurk_retake_rotation(derived):
 
 def test_lobby_is_no_execute():
     """Attackers in the site's lobby, a volume of its super-region, have not
-    committed; the execute starts when three stand on the site proper."""
+    committed; the attempt opens when they step onto the site callout."""
     tl = timeline()
     for a in ("A2", "A3", "A5"):
         tl.tracks[a] = track([(0, ATT_SPAWN, 0, BLIND), (35_000, A_LOBBY, 0, BLIND),
@@ -242,6 +258,66 @@ def test_spawn_is_no_lurk():
     tl = timeline()
     tl.tracks["A4"] = track([(0, ATT_SPAWN, 0, BLIND)])
     assert kinds(derive(tl), "lurk") == []
+
+
+def test_solo_entry_the_team_leaves_is_an_abandoned_execute():
+    """One attacker takes B alone and dies; nobody follows, and the team
+    hits A: B is an execute of commitment 1, abandoned
+    [domain:rounds/execute-is-a-site-attempt]."""
+    tl = timeline()
+    tl.tracks["A4"] = track([(0, ATT_SPAWN, 0, BLIND), (40_000, B_SITE, 0, BLIND)])
+    E = ep.Event
+    tl.events += [E("damage", 43_900.0, "dm4", actor="D5", target="A4", amount=150.0,
+                    equippable="Rifle_C", killed=True),
+                  E("death", 44_000.0, "k4", actor="D5", target="A4")]
+    tl.events.sort(key=lambda e: e.t_ms)
+    ex = kinds(derive(tl), "execute")
+    b = next(x for x in ex if x["outcome"]["site"] == "B")
+    assert b["commitment"]["committed"] == 1 and b["participants"]["committed"] == ["A4"]
+    assert b["outcome"]["result"] == "abandoned" and b["outcome"]["committed_dead"] == 1
+    a = next(x for x in ex if x["outcome"]["site"] == "A")
+    assert a["outcome"]["result"] == "planted" and a["commitment"]["committed"] == 3
+
+
+def test_a_late_joiner_joins_the_attempt():
+    tl = timeline()
+    tl.tracks["A3"] = track([(0, ATT_SPAWN, 0, BLIND), (53_000, A_SITE, 0, BLIND)])
+    ex = kinds(derive(tl), "execute")
+    assert len(ex) == 1
+    c = ex[0]["commitment"]
+    assert c["committed"] == 3 and c["join_ms"] == [0.0, 0.0, 3000.0]
+    assert c["entry_spread_ms"] == 3000.0
+
+
+@pytest.mark.parametrize("equip,wallbang,cls,kind", [
+    ("Rifle_C", True, "gun_wallbang", "duel"),
+    ("Ability_Toy_C", None, "ability", "duel"),
+    ("Rifle_C", False, "gun_blocked", "remote_damage"),
+])
+def test_wallbangs_and_abilities_need_no_sight(equip, wallbang, cls, kind):
+    """A hit through the wall at 35 s, both players blind: a wallbang or an
+    ability hit makes a duel, a gun hit the replay does not mark as
+    penetrating is a disagreement with the table [domain:weapons/kill-line-of-sight]."""
+    tl = timeline()
+    tl.events.append(ep.Event("damage", 35_000.0, "x", actor="A1", target="D1", amount=30.0,
+                              wallbang=wallbang, equippable=equip))
+    tl.events.sort(key=lambda e: e.t_ms)
+    d = derive(tl)
+    act = next(a for a in d.acts if a["event_id"] == "x") if cls != "ability" else None
+    bout = next(x for x in d.episodes if "x" in x.get("members", []))
+    assert bout["kind"] == kind and bout["act_classes"] == {cls: 1} and bout["sight"] is False
+    if act is not None:
+        assert act["class"] == cls and act["line_clear"] is False
+        assert act["geometry"]["crossings"] == 1 and act["geometry"]["placements"] == 1
+
+
+def test_a_kill_takes_its_killing_hit_class(derived):
+    k1 = next(a for a in derived.acts if a["event_id"] == "k1")
+    assert k1["class"] == "gun_sight" and k1["killing_act"] == "dm1"
+    duel = next(x for x in kinds(derived, "duel") if x["kill_event"] == "k1")
+    assert duel["kill_class"] == "gun_sight" and duel["sight_at_kill"] is True
+    k2 = next(a for a in derived.acts if a["event_id"] == "k2")
+    assert k2["class"] == "unread" and k2["reason"] == "no_killing_record"
 
 
 def test_contested_plant_is_no_retake():

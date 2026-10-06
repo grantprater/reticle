@@ -242,3 +242,23 @@ pre-blast Bucky projectile sets both to 0.0.
 """
 values = { low = { power = 0.8, stopping = 0.5 }, high = { power = 1.2, stopping = 1.5 } }
 see = ["weapons/wall-penetration-surfaces"]
+
+[kill-line-of-sight]
+claim = """
+A kill needs a line of sight between killer and victim only when a gun's
+bullet reached the victim through open air. A wallbang needs none: everything
+between the two must be penetrable, one object or, in some cases, several. An
+ability kill needs none either, and reaches far more freely than a wallbang.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-05"
+use = """
+`episodes.classify_acts` classes each hit from the replay's own damage record:
+the equippable's kind (`equippables.equippable_kind`) and the record's
+`wall_penetration` flag; `wall_penetration.Penetration` counts what lies on a
+flagged hit's line. How many penetrable objects a wallbang crosses is measured
+there, not assumed (docs/EPISODES.md section 9)
+"""
+see = ["weapons/wall-penetration-surfaces", "weapons/wall-penetration-weapons"]
+phrases = ["wallbangs need no line of sight"]
