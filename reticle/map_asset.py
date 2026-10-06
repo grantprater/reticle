@@ -34,9 +34,9 @@ frozen in `reticle/frozen/geometry_profiles.json`:
 
 * the MAP's: a scale (widget px per texture px) and the widget point the
   texture's centre lands on. A free fit on each of the eleven captured keys put
-  that point within [metric:official_geometry/all#centre_dev_max_px=0.185] px
+  that point within [metric:official_geometry/all#centre_dev_max_px=0.127] px
   of the fitted one and the scale within
-  [metric:official_geometry/all#scale_dev_max_pct=0.194]%;
+  [metric:official_geometry/all#scale_dev_max_pct=0.139]%;
 * the WIDGET's: the drawn ring [domain:minimap/widget-ring], centred on the
   same point, whose radius follows the widget size (162.7 against 229.75 px,
   the widget widths' ratio) rather than the map scaling. At the largest map

@@ -159,7 +159,7 @@ def freeze(key: str) -> dict:
 
     The answers name segments by their skeleton ends, and a segment exists only in the static it
     was cut from. The official static (`reticle/map_asset.py`) draws the same walls from
-    the game's texture, registered to the capture frame within [metric:official_geometry/all#reg_max_px=0.13] px, but its skeleton ends
+    the game's texture, registered to the capture frame within [metric:official_geometry/all#reg_max_px=0.109] px, but its skeleton ends
     differ, so a name no longer finds its segment. The pixels do: `read` applies each answer to
     the official line pixels within one pixel of the answered segment's. Run once per labelled
     key while its capture npz exists.

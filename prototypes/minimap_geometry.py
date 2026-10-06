@@ -54,9 +54,9 @@ Placement is a per-profile constant
 the art's CROPPED centres sat 13 px apart. The uncropped texture's centre lands
 on one widget point per profile: a free similarity fit on each of the eleven
 keys moved it at most
-[metric:official_geometry/all#centre_dev_max_px=0.185] px from the fitted
+[metric:official_geometry/all#centre_dev_max_px=0.127] px from the fitted
 point and the scale at most
-[metric:official_geometry/all#scale_dev_max_pct=0.194]%.
+[metric:official_geometry/all#scale_dev_max_pct=0.139]%.
 That point is the drawn ring's centre [domain:minimap/widget-ring]. Rotation
 is the per-map table `map_asset.ROTATION`, read off by the player; a capture may
 still turn the widget [domain:minimap/side-based-widget-turns-between-rounds],
