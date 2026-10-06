@@ -89,6 +89,8 @@ class HudReader:
             "kf_empty_band_reason": kf.empty_band_reason,
             "kf_dropped_bands": kf.dropped_bands,
             "kf_dropped_band_reason": kf.dropped_band_reason,
+            "kf_readout": kf.readout, "kf_readout_basis": kf.readout_basis,
+            "kf_readout_mask": kf.readout_mask,
             "clock_reason": r.clock_reason,
             "score_left_reason": r.score_left_reason, "score_right_reason": r.score_right_reason,
             "hp_reason": b.hp_reason, "shield_reason": b.shield_reason,

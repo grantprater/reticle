@@ -509,6 +509,17 @@ class Store:
             # banner, which a revive draws [domain:killfeed/revive-entries].
             "kf_same_side_mask": pa.array([r.get("kf_same_side_mask") for r in rows],
                                            type=pa.int16()),
+            # The Shooting Error readout [domain:hud/shooting-error-readout]
+            # (`killfeed.shooting_error_readout`):
+            # whether the frame draws its box (null: a bright scene hides its
+            # borders, or a row written before hud-0.27.0), which witness
+            # covered its footprint ("frame", "session_mask", or null), and
+            # the slots refused as `occluded_by_shooting_error`.
+            "kf_readout": pa.array([r.get("kf_readout") for r in rows], type=pa.bool_()),
+            "kf_readout_basis": pa.array([r.get("kf_readout_basis") for r in rows],
+                                         type=pa.dictionary(pa.int8(), pa.string())),
+            "kf_readout_mask": pa.array([r.get("kf_readout_mask") for r in rows],
+                                        type=pa.int16()),
             "kf_entry_wx": pa.array(col("kf_entry_wx"), type=pa.int64()),
             "kf_kill_wx": pa.array(col("kf_kill_wx"), type=pa.int64()),
             "kf_death_wx": pa.array(col("kf_death_wx"), type=pa.int64()),

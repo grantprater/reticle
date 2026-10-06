@@ -43,7 +43,8 @@ class HudReaderTests(unittest.TestCase):
             empty_bands=2, empty_band_reason="no_glyphs", ally_mask=8,
             dropped_bands=1, dropped_band_reason="one_colour:no_icon",
             enemy_mask=16, same_side_mask=32, entry_dividers=(10,), kill_dividers=(20,),
-            death_dividers=(30,),
+            death_dividers=(30,), readout=None, readout_basis="session_mask",
+            readout_mask=24,
         )
         store = types.SimpleNamespace(read_kf_mask=lambda sid: np.ones((2, 2), dtype=bool))
         profile = types.SimpleNamespace(name="test")
@@ -66,6 +67,7 @@ class HudReaderTests(unittest.TestCase):
             "kf_unparsed": True, "kf_unparsed_reason": "bad glyph",
             "kf_empty_bands": 2, "kf_empty_band_reason": "no_glyphs",
             "kf_dropped_bands": 1, "kf_dropped_band_reason": "one_colour:no_icon",
+            "kf_readout": None, "kf_readout_basis": "session_mask", "kf_readout_mask": 24,
             "clock_reason": "unreadable", "score_left_reason": None,
             "score_right_reason": "unreadable", "hp_reason": "faint_digit",
             "shield_reason": None, "ammo_mag_reason": None,

@@ -226,8 +226,9 @@ def derived_streams() -> list[dict]:
     """
     from .adjudication.assist import ASSIST_ADJUDICATION_VERSION
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
-    from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .adjudication.identity import AGENT_IDENTITY_VERSION, PLAYER_AGENT_VERSION
     from .adjudication.killstreak import KILLSTREAK_WITNESS_VERSION
+    from .adjudication.self_entry import SELF_ENTRY_VERSION
     from .enemy_tracks import ENEMY_TRACK_VERSION
     from .killfeed_assist import KILLFEED_ASSIST_VERSION
     from .killfeed_numeral import KILLFEED_NUMERAL_VERSION
@@ -366,6 +367,14 @@ def derived_streams() -> list[dict]:
          "fields": {"inputs.killfeed_numeral": KILLFEED_NUMERAL_VERSION,
                     "inputs.death": DEATH_ADJUDICATION_VERSION},
          "upstream": ("death", "killfeed_numeral")},
+        # The player's own killfeed roles (`adjudication.self_entry`): the
+        # death stream's portrait claims against the lineup's player binding.
+        {"stream": "self_entry", "key": "self_entry_version",
+         "current": SELF_ENTRY_VERSION, "command": "reticle self-entries {sid} --record",
+         "how": "storage",
+         "fields": {"inputs.death": DEATH_ADJUDICATION_VERSION,
+                    "inputs.player_agent": PLAYER_AGENT_VERSION},
+         "upstream": ("death",)},
     ]
     # The ability pass's streams reread the minimap crop cache, each under its
     # own stamp; a stream that reads the gate's samples records the gate's
@@ -709,6 +718,8 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                                          "killfeed_portrait"),
                                 "scoreboard": _in("inputs.scoreboard", "scoreboard"),
                                 **_lineup_inputs()},
+        "self_entry": {"death": _in("inputs.death", "death#death_adjudication_version"),
+                       **_lineup_inputs()},
         "tray_kit": {"catalogue": _in("inputs.catalogue", "catalogue_icons"), **_lineup_inputs()},
         "ability_light": geo,
         "minimap_object": geo,

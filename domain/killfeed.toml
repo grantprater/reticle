@@ -1393,3 +1393,27 @@ an ability or a melee kill can carry the mark is unread
 """
 phrases = ["wallbang mark", "wall penetration icon in the killfeed"]
 see = ["killfeed/headshot-icon", "killfeed/weapon-cell", "weapons/wall-penetration-surfaces"]
+
+[own-name-me-or-account]
+claim = """
+The local player's own killfeed entries print the literal "Me" on most
+captures; on some they print the player's account name instead, on every own
+entry of the match, with the plate and the yellow portrait frame unchanged
+[domain:killfeed/self-yellow-frame]. Why a capture prints one or the other is
+unknown.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-06"
+source = """
+seen on 4f207c0c4e39 (2026-09-27) at 51.5, 62.5, 121.5 and 225.0 s: the
+player's Iso entries print the account name; no entry of that capture reads
+"Me". The player reported the same of the held-out cea8ecbc94ab
+(2026-10-05) and does not know why the game did it
+"""
+use = """
+`adjudication.self_entry` decides the player's own roles by the bound agent's
+portrait on the ally side, and consults "Me" only on a capture that prints it
+"""
+phrases = ["Me or account name", "own killfeed name"]
+see = ["killfeed/self-yellow-frame", "killfeed/entry-types"]

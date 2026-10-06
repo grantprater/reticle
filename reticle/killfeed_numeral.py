@@ -53,7 +53,10 @@ import numpy as np
 import cv2
 
 # 0.1.0 (2026-10-03): first reader.
-KILLFEED_NUMERAL_VERSION = "killfeed-numeral-0.1.0"
+# 0.2.0 (2026-10-06): no row under the Shooting Error readout, whose slots
+# the entry finder refuses (`killfeed.readout_cover`); rows elsewhere keep
+# their values, though later `entry` ids shift on a capture with the readout.
+KILLFEED_NUMERAL_VERSION = "killfeed-numeral-0.2.0"
 
 #: The numerals scored. The domain fact says the numeral starts at III; II is
 #: scored so a II, if drawn, reads as one and not as III.

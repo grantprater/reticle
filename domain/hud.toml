@@ -744,3 +744,35 @@ slot while all five allies live; where survivors are drawn after a death is
 the roster owner's question, not this fact's
 """
 phrases = ["top bar health pill", "roster health pill", "health pill shield"]
+
+[shooting-error-readout]
+claim = """
+With the Shooting Error stat shown, the game draws at 1920x1080 a box with a
+1 px white outline inside the killfeed's region: in killfeed ROI px (the ROI's
+top-left at screen 1421, 81) its top border is row 152, its bottom row 194,
+its left column 341 and its right column 457. The title "Shooting Error" sits
+above it from about row 138; two white values sit inside it at the left, a
+graph of yellow and cyan bars inside it, and a yellow and a cyan value right
+of it to the ROI's edge. It covers the victim's side of killfeed slots 3 and 4
+and is drawn over the entries.
+"""
+kind = "appearance"
+known = "measured"
+since = "2026-10-06"
+source = """
+measured on 4f207c0c4e39 at 51.5 s and 225.0 s (border rows and columns where
+60 or more white pixels line up), and the same place in the persistent overlay
+masks of 223d636bf8d2, b3b9defb6fd7, bdfdcf009dba and 4f207c0c4e39 (rows
+136-198, columns 337-461, the box's white pixels grown by 9 px), captures of
+2026-08-23 and 2026-09-27
+"""
+use = """
+`killfeed.shooting_error_readout` tests the four borders at these priors per
+frame; `killfeed.readout_cover` refuses the box's footprint
+"""
+exceptions = """
+whether the player can move the readout, and where it sits at other
+resolutions, is unknown; every capture that shows it puts it here
+"""
+phrases = ["shooting error readout"]
+see = ["killfeed/entry-list-layout"]
