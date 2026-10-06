@@ -169,6 +169,7 @@ from collections import Counter
 import numpy as np
 
 from .. import tray
+from ..agent_names import agent_key
 from ..ability_timeline import (CAST_PHASES, DEATH_LEAD_MS, FULL_AFTER_MIN,
                                 FULL_MIN, ULT_SLOT, round_window_of)
 from ..version import ABILITY_STATE_VERSION
@@ -279,10 +280,6 @@ STOOD_FOR = {
 }
 
 
-def _agent_key(name: str | None) -> str:
-    return re.sub(r"[^a-z]", "", str(name or "").lower())
-
-
 def charge_facts(facts: dict) -> dict:
     """{(agent key, slot): {"max_charges", "fact", "clause"}} from every fact
     in `domain/abilities.toml` whose id ends in `-charges`. The agent is the
@@ -294,7 +291,7 @@ def charge_facts(facts: dict) -> dict:
     for key, f in sorted(facts.items()):
         if f.domain != "abilities" or not f.id.endswith("-charges") or ":" not in f.subject:
             continue
-        agent = _agent_key(f.subject.split(":")[0])
+        agent = agent_key(f.subject.split(":")[0])
         for word, words, slot in _CHARGE_CLAUSE.findall(" ".join(f.claim.split())):
             n = int(word) if word.isdigit() else _COUNT_WORDS[word.lower()]
             got = out.get((agent, slot.upper()))
@@ -319,7 +316,7 @@ def pool_facts(facts: dict) -> dict:
             continue
         m = _POOL_SLOT.search(" ".join(f.claim.split()))
         if m:
-            out[(_agent_key(f.subject.split(":")[0]), m.group(1))] = key
+            out[(agent_key(f.subject.split(":")[0]), m.group(1))] = key
     return out
 
 
@@ -332,7 +329,7 @@ def shared_pool_facts(facts: dict) -> dict:
     for key, f in sorted(facts.items()):
         if f.domain != "abilities" or not f.id.endswith("-shared") or ":" not in f.subject:
             continue
-        agent = _agent_key(f.subject.split(":")[0])
+        agent = agent_key(f.subject.split(":")[0])
         for slot in _POOL_SLOT.findall(" ".join(f.claim.split())):
             out[(agent, slot)] = key
     return out
@@ -358,7 +355,7 @@ def _catalogue_slots(catalogue: dict | None, path: str) -> dict:
             slot = CATALOGUE_SLOTS.get(a.get("slot"))
             if slot is None:
                 continue
-            out[(_agent_key(name), slot)] = {
+            out[(agent_key(name), slot)] = {
                 "path": path, "harvested": catalogue.get("harvested"), "agent": name,
                 "ability": a.get("name"), "slot": a.get("slot"), "charges": a.get("charges")}
     return out
@@ -468,7 +465,7 @@ def duration_facts(facts: dict) -> dict:
         m = _SECONDS.search(claim)
         if m:
             who, what = f.subject.split(":", 1)
-            out[(_agent_key(who), _agent_key(what))] = {
+            out[(agent_key(who), agent_key(what))] = {
                 "duration_ms": float(m.group(1)) * 1000.0, "fact": key,
                 "about": "about" in claim[:m.start()].lower()}
     return out
@@ -487,7 +484,7 @@ def restock_facts(facts: dict) -> dict:
                 or not (f.id.endswith("-restock") or f.id.endswith("-restock-observed"))):
             continue
         who, what = f.subject.split(":", 1)
-        out.setdefault((_agent_key(who), _agent_key(what)), key)
+        out.setdefault((agent_key(who), agent_key(what)), key)
     return out
 
 
@@ -502,7 +499,7 @@ def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
     priors = charge_priors(facts, catalogue=catalogue, path=catalogue_path)
     durations = duration_facts(facts)
     restocks = restock_facts(facts)
-    a = _agent_key(agent)
+    a = agent_key(agent)
     out = {}
     for slot in SLOTS:
         ability = kit.get(slot)
@@ -528,7 +525,7 @@ def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
             row["max_charges_prior_reason"] = ("no_fact" if catalogue is None
                                                else "catalogue_missing")
         elif got["source"] == "player":
-            if ability and _agent_key(ability) not in _agent_key(got["clause"]):
+            if ability and agent_key(ability) not in agent_key(got["clause"]):
                 row["max_charges_reason"] = f"fact-names-another-ability:{got['fact']}"
             else:
                 row.update(max_charges=got["max_charges"], max_charges_fact=got["fact"],
@@ -537,7 +534,7 @@ def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
             row["max_charges_reason"] = got["reason"]
         elif got["source"] in ("catalogue", "catalogue-confirmed"):
             named = got["catalogue"]["ability"]
-            if ability and _agent_key(ability) != _agent_key(named):
+            if ability and agent_key(ability) != agent_key(named):
                 row["max_charges_reason"] = f"no-fact:{a}:{slot}:max_charges"
                 row["max_charges_prior_reason"] = f"catalogue-names-another-ability:{named}"
             else:
@@ -548,13 +545,13 @@ def slot_parameters(agent: str | None, kit: dict, facts: dict, *,
             row["max_charges_reason"] = f"no-fact:{a}:{slot}:max_charges"
             row["max_charges_prior_reason"] = (f"{got['reason']}:{got['fact']}" if got["fact"]
                                                else got["reason"])
-        d = durations.get((a, _agent_key(ability)))
+        d = durations.get((a, agent_key(ability)))
         if d:
             row["duration_ms"], row["duration_fact"] = d["duration_ms"], d["fact"]
             row["duration_about"] = d["about"]
         else:
             row["duration_reason"] = f"no-fact:{a}:{slot}:duration"
-        row["restock_fact"] = restocks.get((a, _agent_key(ability))) if ability else None
+        row["restock_fact"] = restocks.get((a, agent_key(ability))) if ability else None
         if row["restock_fact"] is None:
             row["restock_reason"] = f"no-fact:{a}:{slot}:restock"
         out[slot] = row
@@ -1176,7 +1173,7 @@ def _count_provenance(states, params, agent) -> dict:
     above `MAX_SEGMENTS_READ` draws in a way no session has shown, so its half
     readings stay unscored. The reading is never changed by the count; this
     only tallies them."""
-    who = _agent_key(agent.get("agent")) if agent.get("agent") else None
+    who = agent_key(agent.get("agent")) if agent.get("agent") else None
     by_source, halves = Counter(), Counter()
     for r in states:
         if r["slot"] == ULT_SLOT or not r["readable"]:

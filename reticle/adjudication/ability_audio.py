@@ -106,6 +106,7 @@ import numpy as np
 from scipy.ndimage import maximum_filter1d
 from scipy.signal import lfilter
 
+from ..agent_names import canonical_agent, same_agent
 from ..ult_lines import BANDS, FMAX, FMIN, RATE, log_mel, release_gpu, to_host
 
 #: Bands compared: the game files hold nothing above 12 kHz.
@@ -861,7 +862,7 @@ def save_params(store_root, version: str, agents: dict, provenance: dict) -> Pat
     arrays = {}
     meta = {}
     for agent, a in agents.items():
-        key = agent.replace("/", "_")
+        key = canonical_agent(agent)
         arrays[f"{key}__mu"] = a["mu"]
         arrays[f"{key}__P"] = a["P"]
         arrays[f"{key}__ar"] = np.asarray(a["ar"], float)
@@ -946,8 +947,7 @@ def load_params(store_root, version: str, agent: str) -> tuple[dict | None, str 
     if not (d / "provenance.json").is_file():
         return None, f"no_params:{version}"
     prov = json.loads((d / "provenance.json").read_text(encoding="utf-8"))
-    meta = next((m for a, m in prov["agents"].items()
-                 if a.replace("/", "_") == str(agent).replace("/", "_")), None)
+    meta = next((m for a, m in prov["agents"].items() if same_agent(a, agent)), None)
     if meta is None:
         return None, f"no_params_for:{agent}"
     z = np.load(d / "params.npz")

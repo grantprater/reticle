@@ -702,7 +702,7 @@ def _columns(rows: list[dict]) -> dict:
 def _slot_keys(sid, root, subs, agent, team, my_team) -> tuple[dict, dict]:
     """Replay player -> the lineup slot whose resolved agent verdict names the
     same agent on the same side; the key rests on that verdict."""
-    from .replay_source import canon_name
+    from .agent_names import same_agent
     out, why = {}, {}
     if not sid or my_team is None:
         return out, {s: "no_capture" for s in subs}
@@ -715,7 +715,7 @@ def _slot_keys(sid, root, subs, agent, team, my_team) -> tuple[dict, dict]:
         side = "ally" if team.get(s) == my_team else "enemy"
         hits = [v["entity_id"] for v in verdicts
                 if f":{side}:slot:" in v["entity_id"]
-                and canon_name(v.get("agent")) == canon_name(agent.get(s))]
+                and same_agent(v.get("agent"), agent.get(s))]
         if len(hits) == 1:
             out[s], why[s] = hits[0], "lineup_agent_verdict"
         else:

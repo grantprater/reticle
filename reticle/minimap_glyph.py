@@ -156,6 +156,7 @@ import cv2
 import numpy as np
 
 from .ability_icons import verified_continuations
+from .agent_names import agent_key
 from .minimap import widget_scale
 from .usage import step as usage_step
 from .version import ABILITY_GLYPH_VERSION, ABILITY_ICON_VERSION
@@ -207,11 +208,6 @@ MAP_SHOWN = 0.73
 MAP_SHOWN_Q = 10
 MAP_SHOWN_MIN_FP = 0.1
 SETS = ("context", "audit", "surprise")
-
-
-def _agent_key(agent: str | None) -> str:
-    """An agent name compared across stores: `KAY_O` and `KAY/O` are one."""
-    return "".join(ch for ch in (agent or "").lower() if ch.isalnum())
 
 
 def _sha256(p: Path) -> str:
@@ -307,8 +303,8 @@ class GlyphData:
 
     def keys_of(self, agents) -> list[str]:
         """The bank's keys of these agents' kits."""
-        want = {_agent_key(a) for a in agents}
-        return [k for k in self.keys if _agent_key(k.split(":", 1)[0]) in want]
+        want = {agent_key(a) for a in agents}
+        return [k for k in self.keys if agent_key(k.split(":", 1)[0]) in want]
 
 
 # ------------------------------------------------------------------ the matcher

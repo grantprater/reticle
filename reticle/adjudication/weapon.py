@@ -24,6 +24,7 @@ import numpy as np
 
 # The icon's white mask and its normalised grid are measurements, so the reader
 # layer owns them; this module names what they describe.
+from ..agent_names import agent_key
 from ..killfeed import ICON_GRID, WALLBANG_CUT, icon_grid, icon_white_mask
 from ..usage import step
 from .killfeed_kits import kill_kits, open_questions
@@ -1842,9 +1843,9 @@ def classify_killfeed_icon(
         if gallery:
             # The match's agents, both sides: a caster may be either team's.
             if agents:
-                allowed = {a.replace("/", "_").lower() for a in agents}
+                allowed = {agent_key(a) for a in agents}
                 cands = {k: v for k, v in gallery.items()
-                         if k.rsplit("_", 1)[0].lower() in allowed}
+                         if agent_key(k.rsplit("_", 1)[0]) in allowed}
             else:
                 cands = gallery
 

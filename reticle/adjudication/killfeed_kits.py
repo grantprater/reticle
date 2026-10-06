@@ -57,6 +57,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from ..agent_names import canonical_agent
+
 # 0.2.0 (2026-10-01): agents keyed by the lineup's spelling (KAY_O).
 # 0.3.0 (2026-10-01): the player's answers (`PLAYER_ANSWERS`) decide the 21
 # abilities the rule left open; slot-Passive abilities draw no icon.
@@ -203,13 +205,11 @@ def derive(reference: dict, reference_sha: Optional[str] = None) -> dict:
     """The stored derivation from the parsed reference: every ability's two
     decisions, then per agent the kit, the damage questions, the assist icons
     and the assist questions. Agents are keyed by the lineup's and the
-    arbiter's spelling, the asset stem (`lineup.ASSET_TO_AGENT` inverted:
-    KAY_O where the reference says KAY/O)."""
-    from ..lineup import ASSET_TO_AGENT
-    to_stem = {v: k for k, v in ASSET_TO_AGENT.items()}
+    arbiter's spelling, `agent_names.canonical_agent` (KAY_O where the
+    reference says KAY/O)."""
     abilities, kits, opened, assists, assist_open, unconfirmed = [], {}, {}, {}, {}, {}
     for ref_agent in sorted(reference["agents"]):
-        agent = to_stem.get(ref_agent, ref_agent)
+        agent = canonical_agent(ref_agent)
         kits[agent], assists[agent] = [], []
         for ab in reference["agents"][ref_agent]["abilities"]:
             name, desc = ab["name"], ab.get("description") or ""

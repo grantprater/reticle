@@ -64,6 +64,7 @@ import numpy as np
 #: One value for every weapon, though each weapon sets its own run and walk
 #: speed [domain:weapons/weapon-run-and-walk-speeds].
 from .minimap import FIT_ERR_PX, MIN_ICON_SEPARATION_PX, RUN_PX
+from .agent_names import same_agent
 
 #: Ping lifetimes, seconds. `ping.LIFETIME_S`, exact to 0.1 s at a 10 Hz
 #: sample. Imported for the same reason.
@@ -467,16 +468,16 @@ def movement_licences(facts=None) -> tuple[Licence, ...]:
 def motion_for(agent: str | None, facts=None) -> Motion:
     """The walker class an agent's CONFIRMED movement licenses.
 
-    Case-insensitive on the agent's name; an unknown or missing agent walks.
+    The agent's name compares by `agent_names.same_agent`; an unknown or
+    missing agent walks.
     A confirmed teleport selects `may_teleport`, a dash `may_dash`, a speed
     change `may_speed`; `vertical` adds nothing. Two kinds with no class in
     `CLASSES` raise, so a new combination is added to the table, not guessed.
     """
     if not agent:
         return CLASSES["walker"]
-    name = agent.strip().lower()
     kinds = frozenset(lic.kind for lic in movement_licences(facts)
-                      if lic.confirmed and lic.agent.lower() == name
+                      if lic.confirmed and same_agent(lic.agent, agent)
                       and lic.kind != VERTICAL)
     if kinds not in _KIND_CLASS:
         raise ValueError(f"{agent}: no motion class for {sorted(kinds)}")

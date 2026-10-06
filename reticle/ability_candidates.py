@@ -83,6 +83,7 @@ from __future__ import annotations
 from . import ability_shapes as shapes
 from .domain import load as load_facts
 from .geometry import MapScale
+from .agent_names import agent_in, same_agent
 from .version import ABILITY_CANDIDATES_VERSION
 
 #: One entry per ability with a measured drawing: its caster, shape, prior,
@@ -138,7 +139,7 @@ ICONS = {
                       "side_look": None, "side_look_reason": "the enemy icon is unrecorded",
                       "facing": None, "facing_reason": "no fact states a facing",
                       "facts": ("abilities/skye-guiding-light-minimap-icon",)},
-    "FLASH/drive": {"agent": "KAY/O",
+    "FLASH/drive": {"agent": "KAY_O",
                     "glyph": {"ally": "white spiky glyph on a dark icon", "enemy": None},
                     "glyph_reason": {"enemy": "no fact gives the enemy icon"},
                     "side_look": None, "side_look_reason": "the enemy icon is unrecorded",
@@ -286,15 +287,18 @@ class CandidateSupply:
             n_open = len(rivals) + len(blind)
             for ability, t in TABLE.items():
                 agent = t["agent"]
-                if agent not in named and not n_open:
+                if not agent_in(agent, named) and not n_open:
                     excluded.append({"ability": ability, "side": side, "agent": agent,
                                      "reason": "not_in_lineup"})
                     continue
-                why = "named" if agent in named else _open_why(sc, n_open, agent in rivals)
+                why = ("named" if agent_in(agent, named)
+                       else _open_why(sc, n_open, agent_in(agent, rivals)))
                 living = alive[side]
-                caster_alive = None if living is None or agent not in set(named) else agent in living
+                caster_alive = (None if living is None or not agent_in(agent, named)
+                                else agent_in(agent, living))
                 persists, pfact = t["persists_after_death"]
-                if caster_alive is False and persists is False and agent not in CASTS_WHILE_DEAD:
+                if (caster_alive is False and persists is False
+                        and not agent_in(agent, CASTS_WHILE_DEAD)):
                     excluded.append({"ability": ability, "side": side, "agent": agent,
                                      "reason": f"caster_dead: {pfact} ends it with the caster"})
                     continue
@@ -308,7 +312,7 @@ class CandidateSupply:
                                      "reason": d["refused"]})
                     continue
                 d["seed"] = None
-                if (t["prior"] == "caster" and side == "ally" and agent == self.player
+                if (t["prior"] == "caster" and side == "ally" and same_agent(agent, self.player)
                         and self.seed_at is not None):
                     d["seed"] = self.seed_at(t_ms)
                 d["rests_on"] = sorted(self.rests_on)

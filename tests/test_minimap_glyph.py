@@ -139,10 +139,6 @@ class MatcherTest(unittest.TestCase):
         self.assertEqual(audit["best"], "Bravo:C")
         self.assertEqual(set(audit["scores"]), set(data.keys))
 
-    def test_agent_names_match_across_stores(self):
-        self.assertEqual(M._agent_key("KAY_O"), M._agent_key("KAY/O"))
-
-
 class ReaderTest(unittest.TestCase):
     def setUp(self):
         os.environ["RETICLE_GLYPH"] = "cpu"

@@ -80,6 +80,7 @@ from collections import Counter
 import numpy as np
 
 from ..version import TRAY_KIT_VERSION
+from ..agent_names import same_agent
 from .identity import (AGENT_IDENTITY_VERSION, adjudicate_agent_identity, identity_claim,
                        identity_events, player_identity, side_candidates)
 
@@ -224,14 +225,6 @@ def _runs(named: list[tuple[int, str]]) -> list[list]:
         out.append([a, sorted(idx)])
         j += 1
     return out
-
-
-def same_agent(a: str | None, b: str | None) -> bool | None:
-    """Whether two agent names are one agent, across the asset spelling
-    (KAY/O is KAY_O); None where either is unknown."""
-    if a is None or b is None:
-        return None
-    return str(a).replace("/", "_") == str(b).replace("/", "_")
 
 
 def kit_transitions(span_rows: list[dict], player: str | None,

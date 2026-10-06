@@ -189,7 +189,8 @@ class StoredTruncationTest(unittest.TestCase):
 
         from prototypes import entity_state as es
         import crowd_region as v1                       # on the path entity_state sets
-        from reticle.adjudication.tray_kit import same_agent, stored_kit_witness
+        from reticle.adjudication.tray_kit import stored_kit_witness
+        from reticle.agent_names import same_agent
         from reticle.store import Store
 
         sid = DEV

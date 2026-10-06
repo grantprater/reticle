@@ -11,6 +11,7 @@ Owns [owns:round-entity].
 from __future__ import annotations
 
 import math
+from .agent_names import agent_in, same_agent
 from .track import CLASSES, admits, association_tolerance, assign, refit_of
 from .minimap import REF_WIDGET_W
 from .usage import step
@@ -121,7 +122,7 @@ DEAD_ICON_LAG_MS = 1000.0
 #: the HUD counts the revive's entry at all. An unread second-life badge stays a death
 #: (`adjudication.death.second_life_death`), so the name is the only witness
 #: left.
-ICON_OUTLIVES_DEATH = ("KAY/O", "Phoenix")
+ICON_OUTLIVES_DEATH = ("KAY_O", "Phoenix")
 
 
 def seen_after_death(death: dict, *, last_seen_ms: float, deaths=(),
@@ -139,9 +140,9 @@ def seen_after_death(death: dict, *, last_seen_ms: float, deaths=(),
     if t is None or last_seen_ms - t <= lag_ms:
         return None
     victim = death.get("victim")
-    if victim in ICON_OUTLIVES_DEATH:
+    if agent_in(victim, ICON_OUTLIVES_DEATH):
         return None
-    if victim and any(r.get("is_revive") and r.get("victim") == victim
+    if victim and any(r.get("is_revive") and same_agent(r.get("victim"), victim)
                       and r.get("t_ms") is not None and t < r["t_ms"] <= last_seen_ms
                       for r in deaths):
         return None

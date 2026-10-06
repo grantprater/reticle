@@ -368,7 +368,8 @@ def spectated_slots(sid: str, S, slots: list[dict], player_agent) -> dict:
     (`lookahead_ms=0`, never the owner's default `KIT_LOOKAHEAD_MS`). Each
     span's agent, though, is the `tray_kit` arbiter's verdict pooled over the
     whole span, a post-round verdict; `rests_on` discloses it."""
-    from reticle.adjudication.tray_kit import kit_agents_at, same_agent, stored_kit_witness
+    from reticle.adjudication.tray_kit import kit_agents_at, stored_kit_witness
+    from reticle.agent_names import same_agent
     from reticle.store import Store
     F = S.fr_t.size
     out = np.full(F, -1, np.int64)

@@ -213,6 +213,37 @@ class AgentIdentityTests(unittest.TestCase):
         self.assertEqual(result["by_channel"]["player_agent"]["binding_from"], "top_bar")
         self.assertEqual(result["depends_on"], ["s1:player"])
 
+    def test_every_spelling_of_kayo_binds_the_player_slot(self):
+        # c817691bcd15 and d3dcfb182ab1: the tray says KAY/O, the top bar
+        # KAY_O; a letter-for-letter comparison bound no slot.
+        from reticle.adjudication.identity import player_identity
+        for tray_name in ("KAY/O", "KAY_O", "kayo"):
+            for bar_name in ("KAY_O", "KAY/O"):
+                sides = {"ally": [{"slot": 0, "agent": "Omen", "best_guess": "Omen",
+                                   "margin": 0.2, "reason": None},
+                                  {"slot": 2, "agent": bar_name, "best_guess": bar_name,
+                                   "margin": 0.2, "reason": None}],
+                         "enemy": []}
+                witnesses = {"tray": {"votes": {tray_name: 142, "Omen": 12}},
+                             "self_icon": {"frames": 0, "scores": {}}}
+                claims = claims_from_lineup(sides, witnesses, observation_id="s1",
+                                            source_version="lineup-0.5.0")
+                lineup = {"identity_claims": claims,
+                          "agent_identity": adjudicate_agent_identity(claims)}
+                got = player_identity(lineup, "s1")
+                with self.subTest(tray=tray_name, top_bar=bar_name):
+                    self.assertEqual((got["status"], got["slot"], got["reason"]),
+                                     ("resolved", 2, None))
+                    self.assertEqual(got["agent"], "KAY_O")
+
+    def test_a_claim_stores_the_canonical_spelling(self):
+        self.assertEqual(identity_claim("e", "KAY/O", channel="tray")["agent"], "KAY_O")
+        self.assertIsNone(identity_claim("e", None, channel="tray")["agent"])
+        verdict = adjudicate_agent_identity([
+            identity_claim("e", "KAY/O", channel="ability_tray"),
+            identity_claim("e", "KAY_O", channel="top_bar")])[0]
+        self.assertEqual((verdict["status"], verdict["agent"]), ("resolved", "KAY_O"))
+
     def test_repeated_views_of_one_channel_accumulate(self):
         """One entry drawn over many frames is one witness, not many."""
         frames = [identity_claim("entry-7:victim", name,

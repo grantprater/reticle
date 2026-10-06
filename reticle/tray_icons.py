@@ -50,6 +50,7 @@ import cv2
 import numpy as np
 
 from . import tray
+from .agent_names import canonical_agent
 
 #: The slot keys, in `tray`'s order.
 SLOT_KEYS = tray.SLOT_KEYS
@@ -61,14 +62,12 @@ ICON_CY = 1004
 SHIFT_PX = 6
 #: The catalogue's icon size; larger icons are resized to it first.
 ASSET_PX = 128
-#: The catalogue spells one agent otherwise than the asset names the lineup
-#: uses (`lineup.ASSET_TO_AGENT`); the icons are keyed by the lineup's names.
-_CATALOGUE_TO_ASSET = {"KAY/O": "KAY_O"}
 
 
 def catalogue(store_root) -> dict:
     """`{agent: {key: icon path}}` from `reference/abilities.json`, keyed by the
-    lineup's agent names, for the four tray keys."""
+    lineup's agent names (`agent_names.canonical_agent`: the catalogue's KAY/O
+    is KAY_O), for the four tray keys."""
     root = Path(store_root)
     ref = json.loads((root / "reference" / "abilities.json").read_text(encoding="utf-8"))
     out: dict[str, dict[str, Path]] = {}
@@ -79,7 +78,7 @@ def catalogue(store_root) -> dict:
             if key in SLOT_KEYS and icon:
                 per[key] = root / "reference" / icon.replace("\\", "/")
         if per:
-            out[_CATALOGUE_TO_ASSET.get(name, name)] = per
+            out[canonical_agent(name)] = per
     return out
 
 

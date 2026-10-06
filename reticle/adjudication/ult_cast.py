@@ -153,6 +153,7 @@ from collections import Counter, defaultdict
 
 import numpy as np
 
+from ..agent_names import canonical_agent
 from ..version import ULT_CAST_VERSION
 from .identity import (AGENT_IDENTITY_VERSION, adjudicate_agent_identity, identity_claim,
                        identity_events, player_identity)
@@ -212,11 +213,6 @@ DROP_PHASES = ("buy", "at_drop", "live")
 _OTHER = {"ally": "enemy", "enemy": "ally"}
 
 
-def _norm(agent):
-    """The asset spelling of an agent name (KAY/O is KAY_O)."""
-    return None if agent is None else str(agent).replace("/", "_")
-
-
 def lineup_sides(lineup: dict | None, session_id: str) -> dict | None:
     """Per side, the agents the identity arbiter names, the best guess and
     rival of each slot it leaves unresolved, how many it leaves unresolved,
@@ -233,10 +229,10 @@ def lineup_sides(lineup: dict | None, session_id: str) -> dict | None:
             slots.append(eid)
             v = verdicts.get(eid) or {}
             if v.get("status") == "resolved" and v.get("agent"):
-                named.append(_norm(v["agent"]))
+                named.append(canonical_agent(v["agent"]))
             else:
                 refused += 1
-                soft |= {_norm(a) for a in (s.get("best_guess"), s.get("rival")) if a}
+                soft |= {canonical_agent(a) for a in (s.get("best_guess"), s.get("rival")) if a}
         out[side] = {"named": named, "soft": sorted(soft), "refused": refused,
                      "complete": refused == 0 and len(rows) == 5, "slots": slots}
     return out
@@ -245,7 +241,7 @@ def lineup_sides(lineup: dict | None, session_id: str) -> dict | None:
 def player_agent(lineup: dict | None, session_id: str) -> str | None:
     """The player's agent, where the arbiter names it (`identity.player_identity`)."""
     agent = player_identity(lineup, session_id)["agent"]
-    return _norm(agent) if agent else None
+    return canonical_agent(agent) if agent else None
 
 
 def template_class(agent: str, variant: str, sides: dict | None,
@@ -394,7 +390,7 @@ def ult_kill_witnesses(death_rows: list[dict] | None, rounds: list[dict]) -> tup
         if (d.get("weapon_evidence") or {}).get("status", "resolved") != "resolved":
             skipped["icon_unresolved"] += 1
             continue
-        agent, killer = _norm(ability_agent(name)), _norm(d.get("killer"))
+        agent, killer = canonical_agent(ability_agent(name)), canonical_agent(d.get("killer"))
         if killer is not None and killer != agent:
             skipped["actor_named_another_agent"] += 1
             continue
@@ -455,7 +451,7 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
                                                           [p["score"] for p in counted]))}
     bursts = [by_peak[id(p)] for p in selected]
     for p, b in zip(selected, bursts):
-        agent, t_ms = _norm(p["agent"]), round(p["t_s"] * 1000.0)
+        agent, t_ms = canonical_agent(p["agent"]), round(p["t_s"] * 1000.0)
         cls, why = template_class(agent, p["variant"], sides, player)
         eid = f"{session_id}:ult_cast:{t_ms}:{p['template']}"
         meta[eid] = {"t_ms": t_ms, "peak": p, "agent": agent, "class": cls, "reason": why,
@@ -482,7 +478,7 @@ def adjudicate(session_id: str, peak_rows: list[dict], lineup: dict | None,
         return best
 
     def accept(p, eid, witness, rests_on, depends=()):
-        agent, t_ms = _norm(p["agent"]), round(p["t_s"] * 1000.0)
+        agent, t_ms = canonical_agent(p["agent"]), round(p["t_s"] * 1000.0)
         cls, why = template_class(agent, p["variant"], sides, player)
         if cls == "impossible":
             return False

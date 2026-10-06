@@ -66,6 +66,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .agent_names import canonical_agent, reference_agent
 from .appearance import portrait_composition
 from .usage import step
 from .roster import ART_FRAC, N_SLOTS, alive_counts, roster_rois
@@ -119,7 +120,8 @@ def _load_lineup(session: str, store) -> dict | None:
     verdicts returned here; the file's own `player` stays as `stored_player`.
     A file whose verdicts hold no player entity (every one before
     `lineup-0.5.0`, and any keyed by another observation id) has its claims
-    derived again from `sides` and its stored witnesses.
+    derived again from `sides` and its stored witnesses, as has a file whose
+    player claims carry an older `PLAYER_AGENT_VERSION` than the arbiter's.
 
     **The self icon is read from its own stored rows** (`reticle self-icon`,
     `self_icon.stored_witness`) where the file holds no self-icon frame, which
@@ -137,8 +139,9 @@ def _load_lineup(session: str, store) -> dict | None:
         got["stored_player"] = got.pop("player")
     with step("self_icon"):
         attached = _attach_self_icon(got, session, store)
-    if attached or not any(v.get("entity_id") == player_entity(session)
-                           for v in got.get("agent_identity") or []):
+    if (attached or _player_claims_stale(got)
+            or not any(v.get("entity_id") == player_entity(session)
+                       for v in got.get("agent_identity") or [])):
         claims = claims_from_lineup(
             got.get("sides", {}), lineup_player_witnesses(got), observation_id=session,
             source_version=got.get("version", "lineup"))
@@ -169,6 +172,16 @@ def _load_lineup(session: str, store) -> dict | None:
     return got
 
 
+def _player_claims_stale(got: dict) -> bool:
+    """Whether a lineup file's stored player claims carry a stamp other than
+    the arbiter's `PLAYER_AGENT_VERSION`."""
+    from .adjudication.identity import PLAYER_AGENT_VERSION
+    stamps = {(c.get("evidence") or {}).get("player_agent_version")
+              for c in got.get("identity_claims") or []
+              if (c.get("evidence") or {}).get("player_agent_version")}
+    return bool(stamps) and stamps != {PLAYER_AGENT_VERSION}
+
+
 def load_lineup(session: str, store) -> dict | None:
     """`_load_lineup`, as the named step `load_lineup` of `reticle usage`."""
     with step("load_lineup"):
@@ -178,14 +191,15 @@ def load_lineup(session: str, store) -> dict | None:
 def view_stamp(session: str, store) -> str:
     """The stamp of what `load_lineup` returns now, for its consumers to
     record: `<file version>@<digest>`, the digest over the lineup file's
-    bytes, the stored `self_icon` rows' bytes, the stored scoreboard stamp and
-    the arbiter's version, the four things the view folds together. `no_rows`
+    bytes, the stored `self_icon` rows' bytes, the stored scoreboard stamp,
+    the arbiter's version and the player binding's, the five things the view
+    folds together. `no_rows`
     where no lineup file is stored. The scoreboard enters by stamp only: a
     rescan at the same stamp is invisible here, as it is to `plan`."""
     import hashlib
     import json
 
-    from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .adjudication.identity import AGENT_IDENTITY_VERSION, PLAYER_AGENT_VERSION
     from .input_stamps import NO_ROWS, file_sha16
     from .store import Store
     f = Path(store) / "lineups" / f"{session}.json"
@@ -194,7 +208,7 @@ def view_stamp(session: str, store) -> str:
     st = Store(store)
     parts = {"file": file_sha16(f), "self_icon": file_sha16(st.events_path("self_icon", session)),
              "scoreboard": st.events_version("scoreboard", session),
-             "agent_identity": AGENT_IDENTITY_VERSION}
+             "agent_identity": AGENT_IDENTITY_VERSION, "player_agent": PLAYER_AGENT_VERSION}
     try:
         version = json.loads(f.read_text(encoding="utf-8")).get("version")
     except ValueError:
@@ -592,11 +606,6 @@ def main(argv=None):
 
 
 
-#: Asset filenames cannot hold "/", so the art is `KAY_O` where the reference
-#: is `KAY/O`. One agent, two spellings, and nothing else differs.
-ASSET_TO_AGENT = {"KAY_O": "KAY/O"}
-
-
 def abilities_for(agent: str, store) -> dict[str, str]:
     """`{slot key: ability name}` for one agent, from the official reference.
 
@@ -608,7 +617,7 @@ def abilities_for(agent: str, store) -> dict[str, str]:
     import json
     ref = json.loads((Path(store) / "reference" / "abilities.json")
                      .read_text(encoding="utf-8"))["agents"]
-    entry = ref.get(ASSET_TO_AGENT.get(agent, agent))
+    entry = ref.get(reference_agent(agent, ref))
     if not entry:
         return {}
     return {a["key"]: a["name"] for a in entry.get("abilities", [])
@@ -661,10 +670,9 @@ def load_glyph_gallery(store) -> dict[str, dict[str, np.ndarray]]:
     ref = json.loads((root / "reference" / "abilities.json")
                      .read_text(encoding="utf-8"))["agents"]
     art = root / "reference" / "assets" / "abilities"
-    asset = {v: k for k, v in ASSET_TO_AGENT.items()}
     out: dict[str, dict[str, np.ndarray]] = {}
     for agent, entry in ref.items():
-        stem = asset.get(agent, agent)
+        stem = canonical_agent(agent)
         per = {}
         for ab in entry.get("abilities", []):
             key, slot = ab.get("key"), ab.get("slot")

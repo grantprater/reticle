@@ -100,7 +100,10 @@ from .track import CLASSES, admits_many, association_tolerance
 # 0.17.0 (2026-10-04): a spectated piece's row records `identity_gates`, the
 # candidate set and the killfeed bars on dead teammates its elimination rests
 # on; a piece with no `identity_depends_on` rests on these gates alone.
-ROUND_ENTITY_VERSION = "round-entity-0.17.0"
+# 0.18.0 (2026-10-06): `round_lifetimes.seen_after_death` exempts a KAY/O
+# victim by `agent_names.agent_in`; it had compared the arbiter's `KAY_O`
+# with `KAY/O` letter for letter and exempted no downed KAY/O.
+ROUND_ENTITY_VERSION = "round-entity-0.18.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.

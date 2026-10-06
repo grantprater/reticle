@@ -11,10 +11,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from .agent_names import agent_key
 from .store import DEFAULT_STORE
 
 
@@ -50,11 +50,6 @@ def _digest(path: Path) -> str:
     return h.hexdigest()
 
 
-def _agent_token(value: str) -> str:
-    """Canonical comparison form for manifest tags such as `kayo` / `KAY/O`."""
-    return re.sub(r"[^a-z0-9]", "", value.casefold())
-
-
 def _perspective(session_ids: list[str], manifests: dict[str, dict]) -> str:
     """Whose view the sources for this ability are.
 
@@ -70,7 +65,7 @@ def _perspective(session_ids: list[str], manifests: dict[str, dict]) -> str:
 
 
 def _agent_tag(manifest: dict, known: dict[str, str]) -> str | None:
-    tags = {_agent_token(str(tag)) for tag in manifest.get("tags", [])}
+    tags = {agent_key(str(tag)) for tag in manifest.get("tags", [])}
     found = [canonical for folded, canonical in known.items() if folded in tags]
     return found[0] if len(found) == 1 else None
 
@@ -123,10 +118,10 @@ def _session_id(path: Path) -> str:
 
 
 def _cast_rows(root: Path, definitions: list[dict]) -> tuple[list[dict], list[dict]]:
-    by_agent_key = {(r["agent"].casefold(), (r.get("key") or "").upper()): r
+    by_agent_key = {(agent_key(r["agent"]), (r.get("key") or "").upper()): r
                     for r in definitions if r.get("key")}
     manifests = {}
-    known = {_agent_token(r["agent"]): r["agent"] for r in definitions}
+    known = {agent_key(r["agent"]): r["agent"] for r in definitions}
     for path in sorted((root / "manifests").glob("*.json")):
         manifests[path.stem] = _json(path)
 
@@ -146,7 +141,7 @@ def _cast_rows(root: Path, definitions: list[dict]) -> tuple[list[dict], list[di
                                   "record": line_no, "reason": "malformed_cast"})
                 continue
             t_ms, key = float(raw[0]) * 1000.0, str(raw[1]).upper()
-            definition = by_agent_key.get(((agent or "").casefold(), key))
+            definition = by_agent_key.get((agent_key(agent), key))
             rows.append({
                 "window_id": f"cast:{sid}:{path.name}:{line_no}",
                 "session_id": sid,
@@ -214,7 +209,7 @@ def build_inventory(root: str | Path) -> dict:
         raise FileNotFoundError(f"missing ability reference: {ref_path}")
     reference = _json(ref_path)
     definitions = _definition_rows(reference)
-    known_agents = {_agent_token(r["agent"]): r["agent"] for r in definitions}
+    known_agents = {agent_key(r["agent"]): r["agent"] for r in definitions}
 
     sessions = []
     manifests = {}

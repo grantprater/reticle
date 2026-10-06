@@ -63,6 +63,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .agent_names import canonical_agent
+
 #: The capture's and the templates' sample rate; templates are resampled to it.
 RATE = 48000
 #: The audio gate's front end: hop (s), window, mel bands and their range (Hz).
@@ -265,7 +267,7 @@ def harvested_ults(rows: list[dict], have: set[str]) -> dict[str, str]:
     out, ability = {}, {}
     for r in sorted(rows, key=lambda r: r["file"]):
         var = ULT_SECTIONS.get(r.get("section", ""))
-        agent = str(r["agent"]).replace("/", "_")
+        agent = canonical_agent(r["agent"])
         if var is None or agent in have:
             continue
         if ability.setdefault(agent, r["ability"]) != r["ability"]:
@@ -295,7 +297,7 @@ def ult_event_rows(rows: list[dict]) -> dict[str, dict]:
     events: dict[str, dict[str, list[dict]]] = {}
     for r in rows:
         if r.get("slot") == "X" and r.get("language", "en-US") == "en-US":
-            agent = str(r["agent"]).replace("/", "_")
+            agent = canonical_agent(r["agent"])
             r = {**r, "heard_by": HEARD_BY.get(r["media"], r.get("heard_by"))}
             events.setdefault(agent, {}).setdefault(r["event"], []).append(r)
     out = {}

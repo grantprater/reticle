@@ -5288,13 +5288,14 @@ def _tray_kit_values(store, sid: str, man: dict, rows: list[dict], at_s) -> dict
     player's deaths, each death's delay to the first sample of another kit and
     the kit changes while the player lives (`ability_timeline.kit_windows`)."""
     from .ability_timeline import DEATH_LEAD_MS, kit_windows, round_window_of, stored_gate_inputs
+    from .agent_names import canonical_agent
     cov = rows[0]
     samples = [r for r in rows if r.get("kind") == "sample"]
     step = float(cov["parameters"]["step_s"])
     values = {"samples": cov["samples"], "named": cov["named"], "spans": cov["spans"],
               "spans_own": cov["spans_own"], "spans_other": cov["spans_other"],
               "kit_changes": cov["kit_changes"], "kit_returns": cov["kit_returns"],
-              **{f"named_{k.replace('/', '_')}": v for k, v in cov["named_by_agent"].items()},
+              **{f"named_{canonical_agent(k)}": v for k, v in cov["named_by_agent"].items()},
               **{f"set_{k}": v for k, v in cov["named_by_set"].items()},
               **{f"refused_{k}": v for k, v in cov["refused"].items()}}
     t = np.array([s["t_ms"] for s in samples])

@@ -38,6 +38,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .agent_names import canonical_agent
 from .store import DEFAULT_STORE
 
 REPLAY_SOURCE_VERSION = "replay-source-0.1.0"
@@ -102,10 +103,11 @@ def file_sha256(p: Path) -> str:
 # ----------------------------------------------------------------- reference
 
 def canon_name(name: str | None) -> str | None:
-    """One spelling per agent or weapon: `KAY/O` and `KAY_O` agree."""
+    """One spelling per agent, weapon or map: the agent spelling
+    (`agent_names.canonical_agent`) casefolded, then `SAME_NAME`."""
     if name is None:
         return None
-    s = str(name).strip().replace("/", "_").casefold()
+    s = canonical_agent(name).casefold()
     return SAME_NAME.get(s, s)
 
 

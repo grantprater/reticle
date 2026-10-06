@@ -582,7 +582,8 @@ def player_tray_casts(drops: list[dict], phase_of, rounds: list[dict] | None,
                  "kit_agent": None,
                  "reason": "menu_open" if covered(d["t_ms"]) else "no_rounds",
                  "player_cast": False} for d in drops]
-    from .adjudication.tray_kit import kit_agents_at, same_agent
+    from .adjudication.tray_kit import kit_agents_at
+    from .agent_names import same_agent
     ends = {r["t_end_ms"] for r in rounds}
     deaths = [{"t_first": x} for x in player_deaths_ms]
     kits = kit_windows(rounds, player_deaths_ms, agent=agent, second_lives_ms=second_lives_ms,
@@ -822,9 +823,10 @@ def pool_slots(agent: str | None) -> tuple[tuple[str, ...], list[str]]:
     if agent is None:
         return (), []
     from . import domain
-    from .adjudication.ability_state import _agent_key, pool_facts
+    from .adjudication.ability_state import pool_facts
+    from .agent_names import agent_key
     hits = sorted((slot, key) for (a, slot), key in pool_facts(domain.load()).items()
-                  if a == _agent_key(agent))
+                  if a == agent_key(agent))
     return tuple(s for s, _k in hits), [k for _s, k in hits]
 
 

@@ -273,6 +273,16 @@ class TrayWitnessTests(unittest.TestCase):
                                "agent_identity": adjudicate_agent_identity(claims)}, "s")
         self.assertEqual((who["agent"], who["slot"]), ("Phoenix", 3))
 
+    def test_player_claims_of_an_older_stamp_are_derived_again(self):
+        from reticle.adjudication.identity import PLAYER_AGENT_VERSION
+        old = {"identity_claims": [{"channel": "ability_tray",
+                                    "evidence": {"player_agent_version": "player-agent-0.2.0"}}]}
+        now = {"identity_claims": [{"channel": "ability_tray",
+                                    "evidence": {"player_agent_version": PLAYER_AGENT_VERSION}}]}
+        self.assertTrue(lineup._player_claims_stale(old))
+        self.assertFalse(lineup._player_claims_stale(now))
+        self.assertFalse(lineup._player_claims_stale({"identity_claims": []}))
+
     def test_a_glyph_mask_that_fills_its_cell_is_refused(self):
         # The failure that made this witness lie: a flooded mask still has a
         # nearest neighbour, and its margin looks healthy.

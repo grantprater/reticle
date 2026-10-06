@@ -92,6 +92,7 @@ import numpy as np
 import cv2
 
 from . import appearance
+from .agent_names import canonical_agent
 from .killfeed import (ART_PRIOR_X, ART_PRIOR_Y, ART_SURPRISE_Z, ART_TILE_H, ART_WIDE_Y,
                        KILLER_ART_FROM_PLATE, PLATE_EDGE_MIN, PORTRAIT_ASPECT,
                        KillfeedScale, plate_score)
@@ -268,8 +269,8 @@ UIDATA_SKIP = ("AbilityDraftAgent",)
 
 
 def _agent_names(store_root) -> dict[str, str]:
-    """{character folder: agent name}: each agent UIData's `DisplayName`,
-    KAY/O spelt KAY_O as the lineup spells it."""
+    """{character folder: agent name}: each agent UIData's `DisplayName` in
+    its stored spelling (`agent_names.canonical_agent`: KAY/O is KAY_O)."""
     out = {}
     chars = _characters(store_root)
     if not chars.is_dir():
@@ -279,7 +280,7 @@ def _agent_names(store_root) -> dict[str, str]:
             continue
         name = _display_name(c / f"{c.name}_UIData.json")
         if name:
-            out[c.name] = name.replace("/", "_")
+            out[c.name] = canonical_agent(name)
     return out
 
 

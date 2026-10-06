@@ -323,6 +323,7 @@ import numpy as np
 import cv2
 
 from . import appearance
+from .agent_names import agent_in
 from .census import Census
 from .killfeed_numeral import KILLFEED_NUMERAL_VERSION, numeral_observations
 from .profiles import Profile, Roi, template_key
@@ -3126,8 +3127,8 @@ def detect_second_life_badge(
 #: The agents whose killfeed victim can carry an icon beside the name that
 #: marks a second life [domain:killfeed/entry-types]: Phoenix killed inside
 #: Run It Back, KAY/O downed inside NULL/cmd [domain:killfeed/kayo-downed-entry].
-#: Identity and the lineup spell KAY/O by his asset stem, `KAY_O`; both spellings count.
-SECOND_LIFE_AGENTS = frozenset({"Phoenix", "KAY/O", "KAY_O"})
+#: Names compare by `agent_names.agent_in`, so every spelling of KAY/O counts.
+SECOND_LIFE_AGENTS = ("Phoenix", "KAY_O")
 
 
 def second_life_gate(view: "EntryView", candidates: dict | None) -> str | None:
@@ -3150,7 +3151,7 @@ def second_life_gate(view: "EntryView", candidates: dict | None) -> str | None:
         pool, why = {a for side in candidates.values() for a in side}, "match: side unread"
     else:
         pool, why = set(candidates.get("ally" if view.victim_ally else "enemy") or ()), "side"
-    return why if pool & SECOND_LIFE_AGENTS else None
+    return why if any(agent_in(a, SECOND_LIFE_AGENTS) for a in pool) else None
 
 
 def badge_ring(crop: np.ndarray, green: np.ndarray, red: np.ndarray, view: "EntryView",

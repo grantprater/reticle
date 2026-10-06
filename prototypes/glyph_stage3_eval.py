@@ -261,7 +261,7 @@ def session_matches(store, sid: str, stale_tray: bool = False) -> tuple[dict, li
                              "jumps": sum(bool(t["jumps"]) for t in tl)}
     # N1: no named track carries a key the player answered draws nothing or a shape.
     from reticle.adjudication.ability_glyph import load_drawing_answers
-    from reticle.adjudication.tray_kit import same_agent
+    from reticle.agent_names import same_agent
     got = load_drawing_answers(STORE, sorted({r["best"] for r in rows if r["best"]}))
 
     def nd(key):
@@ -371,7 +371,7 @@ def load_marks() -> list[dict]:
 
 
 def bank_agent(name: str, keys: list[str]) -> str | None:
-    from reticle.adjudication.ability_glyph import _agent_key
+    from reticle.agent_names import agent_key as _agent_key
     for k in keys:
         if _agent_key(k.split(":")[0]) == _agent_key(name):
             return k.split(":")[0]

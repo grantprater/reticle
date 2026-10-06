@@ -1315,6 +1315,29 @@ second independent witness, because it cannot disagree.
 evidence = "tests/test_agent_identity.py"
 
 [[entry]]
+id = "agent-spelling"
+question = "How is an agent's name spelt in the stores, and do two spellings (KAY/O, KAY_O, kayo) name one agent?"
+owner = "agent_names"
+role = ["assign"]
+status = "shipped"
+produces = ["canonical_agent", "agent_key", "same_agent", "agent_in", "reference_agent"]
+not_for = """
+Deciding which agent an entity is: that is `agent-identity`, which stores every
+claim's name in `canonical_agent`'s spelling. This module holds no agent list
+and no alias table; a code name such as `Grenadier` is no spelling of KAY/O and
+belongs to whatever reads the game files. Every agent-name comparison in
+`reticle/` asks it; a letter-for-letter `==` across two stores, or a local
+`replace("/", "_")`, restates it.
+"""
+consumers = ["adjudication.identity", "lineup", "adjudication.tray_kit", "adjudication.death",
+             "adjudication.ult_cast", "adjudication.ability_state", "adjudication.ability_glyph",
+             "adjudication.ability_audio", "adjudication.killfeed_kits", "adjudication.weapon",
+             "ability_timeline", "ability_coverage", "ability_candidates", "killfeed",
+             "killfeed_assist", "minimap_glyph", "round_lifetimes", "replay_source",
+             "replay_layer", "tray_icons", "ult_lines", "track", "cli"]
+evidence = "tests/test_agent_names.py, tests/test_agent_identity.py"
+
+[[entry]]
 id = "player-agent"
 question = "Which agent is the local player?"
 owner = "lineup"
@@ -1525,7 +1548,7 @@ role = ["attribute", "adjudicate"]
 status = "partial"
 names_agents = true
 produces = ["adjudicate", "read_sample", "candidate_sets", "stored_kit_witness",
-            "spectated_agent", "kit_transitions", "kit_agents_at", "same_agent", "own_kit_mask",
+            "spectated_agent", "kit_transitions", "kit_agents_at", "own_kit_mask",
             "KIT_LOOKBACK_MS", "KIT_LOOKAHEAD_MS", "CHANNEL", "PLAYER_FIT_MIN", "KIT_FIT_MIN", "MARGIN_MIN",
             "SLOT_READ_MIN", "MIN_READ_SLOTS", "MIN_RUN", "REFUSALS"]
 not_for = """

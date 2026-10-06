@@ -44,8 +44,9 @@ from ..events import (
     entity_state_event,
     session_boundary_event,
 )
-from ..killfeed import (SECOND_LIFE_RUN_MIN, detect_second_life_badge,  # noqa: F401 -- re-exported
-                        fit_arc)
+from ..killfeed import (SECOND_LIFE_AGENTS, SECOND_LIFE_RUN_MIN,  # noqa: F401 -- re-exported
+                        detect_second_life_badge, fit_arc)
+from ..agent_names import agent_in, canonical_agent, same_agent
 from ..roster import N_SLOTS
 from ..usage import step
 from .identity import (NAME_CLUSTER_CHANNEL, adjudicate_agent_identity,
@@ -1174,8 +1175,8 @@ def revive_context(entry: dict, earlier: list[dict], sides: dict, *,
             c["reviver_alive"] = not dead or bool(back)
         if agent == "KAY_O":
             named = [victims.get(float(e["t_ms"])) for e in prior] if victims is not None else []
-            if any(v and v[0] == "KAY_O" for v in named):
-                depends.extend(v[1] for v in named if v and v[0] == "KAY_O")
+            if any(v and same_agent(v[0], "KAY_O") for v in named):
+                depends.extend(v[1] for v in named if v and same_agent(v[0], "KAY_O"))
                 c["kayo_down"] = True
             elif not prior or (victims is not None and named and all(v and v[0] for v in named)):
                 c["kayo_down"] = False
@@ -1667,9 +1668,9 @@ def stored_second_life(portrait_rows: list[dict], version: str) -> list[dict] | 
 #: a downed KAY/O [domain:killfeed/kayo-downed-entry], and he gets his kit
 #: back as it stood before the down
 #: [domain:abilities/kayo-null-cmd-stabilise-restores-kit]; the agent is
-#: compared across the asset spelling (`tray_kit.same_agent`). Until
+#: compared across the asset spelling (`agent_names.same_agent`). Until
 #: 2026-10-05 NULL/cmd was left out, its kit an open question.
-KIT_REVIVE_ICONS = {"Resurrection": None, "Not Dead Yet": ("Clove",), "NULL/cmd": ("KAY/O",)}
+KIT_REVIVE_ICONS = {"Resurrection": None, "Not Dead Yet": ("Clove",), "NULL/cmd": ("KAY_O",)}
 
 
 def player_revive_times(verdict_rows: list[dict], agent: str | None) -> list[float]:
@@ -1682,8 +1683,7 @@ def player_revive_times(verdict_rows: list[dict], agent: str | None) -> list[flo
     for a Clove player a revive on the player's own entry (`kf_player_kill`)
     counts where its victim went unnamed. No `agent` names no victim, and
     only that own-entry case remains. Names compare across the asset
-    spelling (`tray_kit.same_agent`: KAY/O is KAY_O)."""
-    from .tray_kit import same_agent
+    spelling (`agent_names.same_agent`: KAY/O is KAY_O)."""
     out = []
     for r in verdict_rows:
         if r.get("kind") != "death_verdict" or not r.get("is_revive") or r.get("t_ms") is None:
@@ -1930,12 +1930,10 @@ def refuse_unwitnessed(rounds: list[dict]) -> list[dict]:
     return out
 
 
-REVIVE_ABILITY_ICONS = {
-    "Sage": "Sage_Ultimate.png",
-    "Clove": "Clove_Ultimate.png",
-    "Phoenix": "Phoenix_Ultimate.png",
-    "KAY/O": "KAY_O_Ultimate.png",
-}
+#: The agents whose ultimate icon `classify_revive_icon` matches; each art
+#: file is `<asset spelling>_Ultimate.png` (`agent_names.canonical_agent`).
+REVIVE_ABILITY_ICONS = {a: f"{canonical_agent(a)}_Ultimate.png"
+                        for a in ("Sage", "Clove", "Phoenix", "KAY/O")}
 
 _REVIVE_ICONS_CACHE: dict[str, np.ndarray] = {}
 
@@ -2256,7 +2254,7 @@ def extract_killer_location(
 ) -> Optional[tuple[float, float]]:
     """Attribute killer location based on side, player position, ally rings, or enemy sightings."""
     if killer_side == "ally":
-        if (player_agent and killer_agent and killer_agent.lower() == player_agent.lower()) or (player_position and not ally_positions):
+        if same_agent(killer_agent, player_agent) or (player_position and not ally_positions):
             return player_position
         if ally_positions:
             if victim_location:
@@ -2930,7 +2928,7 @@ def adjudicate_round_deaths(
                     kf_agent = (kf_claim or {}).get("agent")
                     corroborating = [
                         tr for tr in candidate_tracks
-                        if tr.get("agent") and kf_agent and tr.get("agent").lower() == kf_agent.lower()
+                        if same_agent(tr.get("agent"), kf_agent)
                     ]
                     if len(corroborating) == 1:
                         matched_track = corroborating[0]
@@ -2983,7 +2981,7 @@ def adjudicate_round_deaths(
                 weapon = f"{matched_ab} Ultimate"
                 if not death_cause:
                     death_cause = "ability"
-                if matched_ab in ("Phoenix", "KAY/O"):
+                if agent_in(matched_ab, SECOND_LIFE_AGENTS):
                     is_second_life = True
 
         if badge_metrics:

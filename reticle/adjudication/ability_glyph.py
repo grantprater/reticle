@@ -111,7 +111,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..minimap_glyph import _agent_key
+from ..agent_names import agent_key
 from ..version import (ABILITY_DISC_TRACK_VERSION, ABILITY_GLYPH_NAME_VERSION,
                        ABILITY_GLYPH_VERSION)
 from .identity import adjudicate_agent_identity, identity_claim, identity_events
@@ -228,7 +228,7 @@ def catalogue_names(store_root) -> dict:
     """(agent key, slot) -> the catalogue's display name (`reference/abilities.json`)."""
     cat_p = Path(store_root) / "reference" / "abilities.json"
     cat = json.loads(cat_p.read_text(encoding="utf-8")).get("agents", {}) if cat_p.is_file() else {}
-    return {(_agent_key(a), ab.get("key")): ab.get("name")
+    return {(agent_key(a), ab.get("key")): ab.get("name")
             for a, v in cat.items() for ab in (v or {}).get("abilities", [])}
 
 
@@ -259,10 +259,10 @@ def load_drawing_answers(store_root, keys: list[str], names: dict | None = None)
         for k in keys:
             agent, slot = k.split(":", 1)
             hit = next((v for (a, s), v in drawing.items()
-                        if s == slot and _agent_key(a) == _agent_key(agent)), None)
+                        if s == slot and agent_key(a) == agent_key(agent)), None)
             if not icon_ruled_out(hit):
                 continue
-            name = names.get((_agent_key(agent), slot))
+            name = names.get((agent_key(agent), slot))
             subject = f"{agent.lower()}:{name.lower()}" if name else None
             cite = sorted(f"domain:{f.key}" for f in by_subject(facts, subject).values()
                           if f.kind == "appearance") if subject else []
@@ -315,7 +315,7 @@ class VerdictTables:
         self.states: dict = {}
         for j, k in enumerate(self.keys):
             for s, tex in enumerate(self.sources[k]):
-                rows = states.get((_agent_key(self.agent[j]), k.split(":", 1)[1], tex), [])
+                rows = states.get((agent_key(self.agent[j]), k.split(":", 1)[1], tex), [])
                 self.states[(k, s)] = sorted({(r["state"], r.get("phase")) for r in rows},
                                              key=lambda x: (str(x[0]), str(x[1])))
                 for v, view in enumerate(VIEWS):
@@ -367,11 +367,11 @@ class VerdictTables:
                     if r.get("version") != sver:
                         raise ValueError(f"{sp}: version {r.get('version')!r}, expected {sver!r}")
                     tex = (r.get("cue") or "").rsplit("/", 1)[-1].split(".")[0]
-                    states.setdefault((_agent_key(r.get("agent")), r.get("key"), tex), []).append(
+                    states.setdefault((agent_key(r.get("agent")), r.get("key"), tex), []).append(
                         {"state": r.get("state"), "phase": r.get("phase"), "views": r.get("views")})
         by = catalogue_names(store_root)
         drawing = load_drawing_answers(store_root, data.keys, names=by)
-        names = {k: by.get((_agent_key(k.split(":", 1)[0]), k.split(":", 1)[1])) for k in data.keys}
+        names = {k: by.get((agent_key(k.split(":", 1)[0]), k.split(":", 1)[1])) for k in data.keys}
         prov = {"glyph": data.provenance,
                 "states": {"version": sver, "file": f"{sdir}/{sver}.jsonl",
                            "read": sp.is_file(), "texture_rows": sum(map(len, states.values()))},
@@ -484,7 +484,8 @@ def frame_views(t_ms, kit_spans, player: str | None) -> tuple[np.ndarray, str | 
     """Per instant, 0 (`self`), 1 (`spectator`) or 2 (unknown), from the
     stored tray kit spans (`tray_kit.kit_agents_at`) and the player's agent,
     with the reason every instant is unknown, or None."""
-    from .tray_kit import kit_agents_at, same_agent
+    from ..agent_names import same_agent
+    from .tray_kit import kit_agents_at
     t = np.asarray(t_ms, float)
     if kit_spans is None:
         return np.full(len(t), 2, np.int64), "no_tray_kit"
@@ -566,7 +567,7 @@ def _is_player(key: str | None, player: str | None) -> bool:
     lineup's self slot): the caster the player's `self` answer describes."""
     if key is None or player is None:
         return False
-    from .tray_kit import same_agent
+    from ..agent_names import same_agent
     return bool(same_agent(key.split(":", 1)[0], player))
 
 
@@ -619,7 +620,7 @@ def adjudicate(session_id: str, glyph: dict, verify: dict | None, tables: Verdic
     n_excl = np.bincount(track_of, weights=(scored[:, None] & excl).any(1), minlength=T)
     b, bv, s, sv = _ranked(pool)
     margin = bv - np.where(np.isfinite(sv), sv, -1.0)
-    agent_ix = np.array([_agent_key(a) for a in tables.agent], object)
+    agent_ix = np.array([agent_key(a) for a in tables.agent], object)
     same_agent = agent_ix[None, :] == agent_ix[b][:, None]
     other = np.where(same_agent | np.isnan(pool), -np.inf, pool).max(1) if T else np.zeros(0)
     agent_margin = bv - np.where(np.isfinite(other), other, -1.0)
@@ -645,7 +646,7 @@ def adjudicate(session_id: str, glyph: dict, verify: dict | None, tables: Verdic
     admit: dict = {}
     for side, v in cands.items():
         for a, how in ((v or {}).get("agents") or {}).items():
-            admit.setdefault(_agent_key(a), []).append((side, a, how))
+            admit.setdefault(agent_key(a), []).append((side, a, how))
     lineup_stamp = head.get("candidates_from")
     # What every row rests on: the lineup that chose the candidates, the
     # stored tray kit that gave the views (where it did), and the policy and
@@ -726,7 +727,7 @@ def adjudicate(session_id: str, glyph: dict, verify: dict | None, tables: Verdic
                 named_key, kit_clear, rule = None, False, NOT_DRAWN
                 surprises.append(f"fact_contradicts:{key}")
         omen = None
-        if key in OMEN_KEYS and _agent_key("Omen") in admit:
+        if key in OMEN_KEYS and agent_key("Omen") in admit:
             omen = {"rule": "omen_motion_lifetime", "applied": False, "reason": OMEN_RULE_REFUSAL,
                     "first_second_disp_base": trk["first_second"]["disp_base"],
                     "lifetime_ms": trk["lifetime_ms"], "end": trk["end"],
@@ -736,13 +737,13 @@ def adjudicate(session_id: str, glyph: dict, verify: dict | None, tables: Verdic
         alt = None
         if reason_c in ("below_null", "no_clean_frame", "view_excluded"):
             for path, got in (("surprise", surprise.get(c)), ("audit", audit.get(c))):
-                if got and got["named"] and _agent_key(got["best"].split(":")[0]) not in admit:
+                if got and got["named"] and agent_key(got["best"].split(":")[0]) not in admit:
                     alt = {"path": path, **got}
                     break
             if alt is not None and reason_c == "below_null":
                 reason_c = "outside_candidate_set"
         ag = key.split(":")[0] if key else None
-        how = admit.get(_agent_key(ag), []) if ag else []
+        how = admit.get(agent_key(ag), []) if ag else []
         depends = sorted({s for side, _, _ in how for s in ((sides or {}).get(side) or {}).get("slots", [])})
         claim_agent, claim_why = None, None
         if kit_clear and ag:

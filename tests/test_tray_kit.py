@@ -271,8 +271,6 @@ class Spans(unittest.TestCase):
                                spans)
         self.assertEqual(got, ["Iso", "Iso", "Omen", "Omen", None, "KAY/O", None])
         self.assertEqual(tk.kit_agents_at([1.0], []), [None])
-        self.assertTrue(tk.same_agent("KAY/O", "KAY_O"))
-        self.assertIsNone(tk.same_agent(None, "Iso"))
 
 
 ROUNDS = [{"round_no": 1, "t_start_ms": 0.0, "t_end_ms": 60000.0, "t_close_ms": 65000.0}]

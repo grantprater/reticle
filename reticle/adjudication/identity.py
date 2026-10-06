@@ -42,6 +42,7 @@ import cv2
 import numpy as np
 
 from .. import appearance
+from ..agent_names import canonical_agent, reference_agent, same_agent
 from ..roster import N_SLOTS
 from ..track import assign
 
@@ -150,6 +151,8 @@ def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
 
     ``agent=None`` is an explicit abstention.  The arbiter never turns a
     missing name into an unknown agent or drops the reason for refusing.
+    A name is stored in its one spelling, `agent_names.canonical_agent`
+    (`KAY/O` is `KAY_O`), so two channels' spellings never disagree.
 
     ``binding_from`` names the channel this claim took its ENTITY from, when
     that is a different channel from the one that read the name.  It is the
@@ -173,7 +176,7 @@ def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
         raise ValueError("an identity name must be non-empty or None")
     return {
         "entity_id": entity_id,
-        "agent": agent,
+        "agent": canonical_agent(agent),
         "channel": channel,
         "observed_at_ms": observed_at_ms,
         "reason": reason,
@@ -194,7 +197,12 @@ def identity_claim(entity_id, agent=None, *, channel, observed_at_ms=None,
 #: 0.2.0 (2026-09-28): the self icon's witness comes from stored `self_icon`
 #: rows (`reticle self-icon`) where the lineup file holds none, and a claim
 #: with no frame carries the reader's refusal in its reason.
-PLAYER_AGENT_VERSION = "player-agent-0.2.0"
+#: 0.3.0 (2026-10-06): the player's slot is the ally row naming the same agent
+#: by `agent_names.same_agent`, and every claim stores the canonical spelling.
+#: The tray's `KAY/O` had met the top bar's `KAY_O` letter for letter and
+#: bound no slot (c817691bcd15, d3dcfb182ab1). `lineup.load_lineup` derives a
+#: stored file's player claims again where their stamp is older.
+PLAYER_AGENT_VERSION = "player-agent-0.3.0"
 
 #: The channel that carries the player entity's verdict to the ally slot the
 #: top bar holds it in.
@@ -272,7 +280,8 @@ def _self_icon_claim(entity_id, self_icon: dict, ally_rows, ally_ids, version: s
                               reason="no_self_icon_frames" + (f": {why}" if why else ""),
                               source_version=version, evidence=evidence)
     cands = [c for c in (r.get("agent") or r.get("best_guess") for r in ally_rows) if c]
-    ranked = sorted(((float(scores.get(c, 0.0)), c) for c in cands), key=lambda t: -t[0])
+    ranked = sorted(((float(scores.get(reference_agent(c, scores), 0.0)), c) for c in cands),
+                    key=lambda t: -t[0])
     if not ranked:
         return identity_claim(entity_id, None, channel="self_icon",
                               reason="no_ally_candidates", source_version=version,
@@ -284,8 +293,8 @@ def _self_icon_claim(entity_id, self_icon: dict, ally_rows, ally_ids, version: s
     evidence.update({"candidates": cands, "margin": round(margin, 4), "margin_min": gate,
                      "reference_source": self_icon.get("reference_source", "official_art"),
                      "global_best": order[0],
-                     "rank_of_pick": (1 + order.index(ranked[0][1])
-                                      if ranked[0][1] in scores else None)})
+                     "rank_of_pick": (1 + order.index(reference_agent(ranked[0][1], scores))
+                                      if reference_agent(ranked[0][1], scores) else None)})
     return identity_claim(
         entity_id, ranked[0][1] if ok else None, channel="self_icon",
         reason=None if ok else
@@ -309,7 +318,9 @@ def claims_from_lineup(sides, witnesses=None, *, observation_id="lineup",
     **The player's SLOT is a binding, not a name.** When the arbiter resolves
     the player, the ally row whose assignment (agent or best guess) holds that
     agent is the player's slot, and a `player_agent` claim carries the name
-    there with `binding_from="top_bar"` and `depends_on` the player entity. It
+    there, in the slot's spelling, with `binding_from="top_bar"` and
+    `depends_on` the player entity; slot and player compare by
+    `agent_names.same_agent`, so `KAY/O`, `KAY_O` and `kayo` bind. It
     agrees with the top bar or finds it silent by construction, so it counts as
     no independent witness. An agent no ally row holds binds no slot; the
     player entity keeps the name and `player_identity` reports the conflict.
@@ -341,10 +352,10 @@ def claims_from_lineup(sides, witnesses=None, *, observation_id="lineup",
     verdict = adjudicate_agent_identity(mine)[0]
     if verdict["status"] == "resolved":
         hit = next((r for r in ally
-                    if (r.get("agent") or r.get("best_guess")) == verdict["agent"]), None)
+                    if same_agent(r.get("agent") or r.get("best_guess"), verdict["agent"])), None)
         if hit is not None:
             out.append(identity_claim(
-                f"{observation_id}:ally:slot:{hit['slot']}", verdict["agent"],
+                f"{observation_id}:ally:slot:{hit['slot']}", hit.get("agent") or hit.get("best_guess"),
                 channel=PLAYER_SLOT_CHANNEL, source_version=version,
                 binding_from="top_bar", depends_on=[pid],
                 evidence={"slot": hit["slot"], "player_entity": pid,
@@ -393,8 +404,8 @@ def player_identity(lineup: dict | None, session_id: str) -> dict:
     out.update({"slot": bind["evidence"].get("slot"), "entity_id": bind["entity_id"],
                 "top_bar": bind["evidence"].get("top_bar_named"),
                 "slot_status": sv.get("status")})
-    if sv.get("status") == "resolved" and sv.get("agent") == pv["agent"]:
-        out.update({"agent": pv["agent"], "reason": None})
+    if sv.get("status") == "resolved" and same_agent(sv.get("agent"), pv["agent"]):
+        out.update({"agent": sv["agent"], "reason": None})
     else:
         out.update({"status": sv.get("status") or "unbound",
                     "reason": sv.get("reason") or "no_slot_verdict",
@@ -717,15 +728,8 @@ def _official_scores(observed, candidates, gallery, stacks=None):
 def _gallery_rows(agent, gallery, shape, size):
     """`agent`'s references of `size`, in order: a count, stacks by dtype
     with their positions, and the references whose shape differs."""
-    references = gallery.get(agent)
-    if references is None:
-        agent_lower = str(agent).lower()
-        for g_name, g_refs in gallery.items():
-            if str(g_name).lower() == agent_lower:
-                references = g_refs
-                break
-        else:
-            references = ()
+    name = reference_agent(agent, gallery)
+    references = gallery[name] if name is not None else ()
     arrays = [a for a in (np.asarray(r) for r in references) if a.size == size]
     groups, loose = {}, []
     for k, a in enumerate(arrays):
@@ -1119,7 +1123,7 @@ def name_cluster_claims(clusters: dict, evidence: dict, lineup: dict, *,
         if split["blind"]:
             continue
         agents = [a for a in split["named"] + split["rivals"]
-                  if not (team == "ally" and a == player)]
+                  if not (team == "ally" and same_agent(a, player))]
         admitted = split["named"] + split["rivals"]
         barred = set(split["rivals"])
         if not agents:
@@ -1464,7 +1468,7 @@ def claims_from_ally_icons(icons, lineup, *, gallery, session_id,
     sides = lineup.get("sides", lineup)
     if side == "ally":
         player = (lineup.get("player") or {}).get("agent")
-        rows = [r for r in sides.get("ally", []) if not player or r.get("agent") != player]
+        rows = [r for r in sides.get("ally", []) if not player or not same_agent(r.get("agent"), player)]
         split = side_candidates(rows)
         # `side_candidates` pads to five slots; four teammates are the whole side here.
         split["blind"] = [b for b in split["blind"] if b is not None] + (
