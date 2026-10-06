@@ -9,7 +9,7 @@ line-classes-1.0.0. The builder half of occluders-2.0.0 (`reticle/occluders.py`,
 what this writes and owns [owns:map-occluders]). The player approved rebuilding the baked
 occluders from the line labels and the sorter on 2026-09-30.
 
-What it writes, additively, as `map_shade` does (every other array is written back unchanged):
+What it writes, additively (every other array is written back unchanged):
 
     line_cls           uint8  per line pixel of `occluders.lines`: wall, box, ramp, other, unread
     line_src           uint8  where the class came from (`occluders.SRC_*`)
@@ -120,7 +120,7 @@ def inputs(key: str) -> dict:
     lab = RE.STORE / "labels" / LRE.KIND
     return {"labels": lab / f"{key}.jsonl", "notes": lab / f"{key}.notes.jsonl",
             "sample": lab / f"{key}.sample.json", "mapped": LRE._mapped_path(key),
-            "heights": HEIGHTS_DIR / f"{key}.toml"}
+            "heights": HEIGHTS_DIR / f"{key}.toml", "answer_pixels": answer_pixels_path(key)}
 
 
 def stamp(key: str) -> str:
@@ -147,6 +147,77 @@ def _answers(key: str) -> tuple[dict, str | None]:
 
 def _seg_masks(r: dict, key: str) -> dict:
     return {LRE.signature(key, s): r["_sid"] == s["id"] for s in r["segments"]}
+
+
+def answer_pixels_path(key: str) -> Path:
+    return RE.OUT / f"answer_pixels_{key}.npz"
+
+
+def freeze(key: str) -> dict:
+    """Store the pixels of every segment the player answered or noted on `key`, read on the
+    CAPTURE static they were given on (`geometry.capture_dir`).
+
+    The answers name segments by their skeleton ends, and a segment exists only in the static it
+    was cut from. The official static (`reticle/map_asset.py`) draws the same walls from
+    the game's texture, registered to the capture frame within [metric:official_geometry/all#reg_max_px=0.13] px, but its skeleton ends
+    differ, so a name no longer finds its segment. The pixels do: `read` applies each answer to
+    the official line pixels within one pixel of the answered segment's. Run once per labelled
+    key while its capture npz exists.
+    """
+    cap = geometry.capture_dir(RE.STORE) / f"{key}.npz"
+    if not cap.is_file():
+        raise SystemExit(f"{key}: no capture geometry at {cap} to read the answered segments on")
+    last, ver = _answers(key)
+    mapped = LRE._mapped(key)
+    notes = inputs(key)["notes"]
+    noted = ([json.loads(x)["key"] for x in notes.read_text(encoding="utf-8").splitlines() if x.strip()]
+             if notes.is_file() else [])
+    want = sorted(set(last) | set(mapped) | set(noted))
+    orig = geometry.path
+    geometry.path = lambda k, store=RE.STORE: geometry.capture_dir(store) / f"{k}.npz"
+    try:
+        seg_ver = ver or LRE.seg_version(key)
+        masks = _seg_masks(LRE._classified(key, seg_ver), key)
+        with np.load(cap, allow_pickle=False) as z:
+            sha = O.static_sha(z["static"])
+    finally:
+        geometry.path = orig
+    missing = [k for k in want if k not in masks]
+    if missing:
+        raise SystemExit(f"{key}: {len(missing)} answered segments not reproduced on the capture "
+                         f"static: {missing[:3]}")
+    ys, xs, idx = [], [], [0]
+    for k in want:
+        y, x = np.nonzero(masks[k])
+        ys.append(y); xs.append(x); idx.append(idx[-1] + len(y))
+    out = answer_pixels_path(key)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(out, sig=np.array(want), y=np.concatenate(ys).astype(np.int16),
+                        x=np.concatenate(xs).astype(np.int16), idx=np.array(idx, np.int64),
+                        shape=np.array(masks[want[0]].shape), seg_version=np.array(seg_ver),
+                        capture_static_sha=np.array(sha), capture_npz=np.array(str(cap)))
+    return {"key": key, "segments": len(want), "px": int(idx[-1]), "seg_version": seg_ver, "out": str(out)}
+
+
+def _frozen_masks(key: str, static_sha: str, line: np.ndarray) -> dict | None:
+    """The answered segments as masks over `line`, from `freeze`, or None when the static is the
+    one they were given on (the segment names then hold) or nothing is frozen."""
+    p = answer_pixels_path(key)
+    if not p.is_file():
+        return None
+    with np.load(p, allow_pickle=False) as z:
+        if str(z["capture_static_sha"]) == static_sha:
+            return None
+        sig, y, x, idx, shape = z["sig"], z["y"], z["x"], z["idx"], tuple(z["shape"])
+    if shape != line.shape:
+        raise SystemExit(f"{key}: frozen answers are {shape}, the static is {line.shape}")
+    out = {}
+    k3 = np.ones((3, 3), np.uint8)
+    for i, k in enumerate(sig.tolist()):
+        m = np.zeros(shape, np.uint8)
+        m[y[idx[i]:idx[i + 1]], x[idx[i]:idx[i + 1]]] = 1
+        out[k] = (cv2.dilate(m, k3) > 0) & line
+    return out
 
 
 def void_mask(r: dict) -> np.ndarray:
@@ -217,10 +288,15 @@ def read(key: str) -> dict:
     label_rows = {"direct": 0, "direct_unsure": 0, "carried": 0}
     disagree = Counter()
     player = np.zeros(line.shape, np.uint8)
+    frozen = _frozen_masks(key, O.static_sha(r["_static"]), line)
+    r_seg = r
     if last or mapped:
         seg_ver = ver or LRE.seg_version(key)
-        r_seg = r if seg_ver == RE.VERSION else LRE._classified(key, seg_ver)
-        masks = _seg_masks(r_seg, key)
+        if frozen is not None:
+            masks = frozen
+        else:
+            r_seg = r if seg_ver == RE.VERSION else LRE._classified(key, seg_ver)
+            masks = _seg_masks(r_seg, key)
         for k, m in mapped.items():
             if k not in masks:
                 raise SystemExit(f"{key}: carried answer {k} is not reproduced by {seg_ver}")
@@ -253,7 +329,7 @@ def read(key: str) -> dict:
                                     for c in np.unique(cls[flip])},
                  "over_player_px": int((flip & np.isin(src, (O.SRC_PLAYER, O.SRC_CARRIED))).sum())}
     cls[flip], src[flip] = O.LINE_WALL, O.SRC_VOID_BORDER
-    hints = height_hints(key, r_seg if (last or mapped) else r)
+    hints = height_hints(key, r_seg, frozen)
     counts = {O.LINE_NAMES[c]: int((cls == c).sum()) for c in O.LINE_NAMES}
     srcs = {O.SRC_NAMES[c]: int((src == c).sum()) for c in O.SRC_NAMES}
     cuts = r["cuts"]
@@ -268,13 +344,14 @@ def read(key: str) -> dict:
             "_static": r["_static"], "_labels": r["_labels"], "_line": line}
 
 
-def height_hints(key: str, r_seg: dict) -> list[dict]:
+def height_hints(key: str, r_seg: dict, frozen: dict | None = None) -> list[dict]:
     """The player's tall-box notes as `segment` hints; the heights file's occluders as `bbox`
-    hints. Every hint names its source."""
+    hints. Every hint names its source. `frozen` holds the noted segments' pixels when the
+    static is not the one they were noted on (`freeze`)."""
     out = []
     np_ = inputs(key)["notes"]
     if np_.is_file():
-        masks = {LRE.signature(key, s): r_seg["_sid"] == s["id"] for s in r_seg["segments"]}
+        masks = frozen if frozen is not None else             {LRE.signature(key, s): r_seg["_sid"] == s["id"] for s in r_seg["segments"]}
         for row in (json.loads(x) for x in np_.read_text(encoding="utf-8").splitlines() if x.strip()):
             if row["subclass"] != "tall_box":
                 continue
@@ -317,7 +394,7 @@ def sanity(key: str, rd: dict, arrays: dict) -> dict:
 def bake_key(key: str, store: Path = RE.STORE, write: bool = True, out: Path | None = None) -> dict:
     """Read one key's classes and write them into its npz (or `lines_refused`). With `out`, read
     the store's npz and write the result to `out` instead, leaving the store untouched."""
-    p = geometry.path(key, store)
+    p = geometry.writable(key, store) if write and out is None else geometry.path(key, store)
     with np.load(p, allow_pickle=False) as z:
         arrays = {k: z[k].copy() for k in z.files}
     rd = read(key)
@@ -360,7 +437,7 @@ def bake_key(key: str, store: Path = RE.STORE, write: bool = True, out: Path | N
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["bake", "stamp"])
+    ap.add_argument("cmd", choices=["bake", "stamp", "freeze"])
     ap.add_argument("key", nargs="?")
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
@@ -370,7 +447,11 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     LRE._lower_priority()
     cv2.setNumThreads(1)
-    keys = sorted(q.stem for q in (RE.STORE / "geometry").glob("*.npz")) if a.all else [a.key]
+    keys = geometry.built_keys(RE.STORE) if a.all else [a.key]
+    if a.cmd == "freeze":
+        for k in (keys if a.key else [k for k in keys if inputs(k)["labels"].is_file()]):
+            print(json.dumps(freeze(k)))
+        return 0
     if a.cmd == "stamp":
         for k in keys:
             print(k, stamp(k))

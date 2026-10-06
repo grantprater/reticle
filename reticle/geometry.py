@@ -27,6 +27,13 @@ so Ascent at `valorant-16x9` and Ascent at `valorant-16x9-bigmap` are different
 geometries about the same level. `reference/shade/` already keyed itself this
 way; this is the same key, and the two files line up by construction.
 
+Since 2026-10-05 the npz is a cache, `<store>/geometry-official/<key>.npz`:
+one map's asset, the game's own minimap textures, drawn through one profile's
+transform by `reticle/map_asset.py`. No capture supplies a static pixel.
+`ensure` draws a missing or stale cache in seconds; `reticle geometry` draws
+every key. Capture-median geometry (`<store>/geometry/`) stays read only, and
+is read only for a key whose profile has no fitted transform.
+
 A session with no `map:` tag resolves to nothing. That is deliberate: the old
 layout let such a session hold a private geometry whose map nobody could name,
 which is how two Ascent clips ended up outside every map-level check.
@@ -43,11 +50,11 @@ from .store import DEFAULT_STORE
 SEP = "__"
 
 #: How well the art must PLACE before its footprint is preferred to the derived
-#: rule. A cut in an empty band, not a fit: over the twelve baked geometries
-#: eleven place at IoU 0.888-0.954 and one, `summit__valorant-16x9-crop75`,
-#: places at 0.663. A badly placed exact boundary is worse than a roughly
-#: placed approximate one, so that key keeps the derived rule and `doctor`
-#: says so.
+#: rule. A cut in an empty band, not a fit: over the twelve capture geometries
+#: eleven placed at IoU 0.888-0.954 and one, `summit__valorant-16x9-crop75`,
+#: at 0.663. A badly placed exact boundary is worse than a roughly placed
+#: approximate one, so that key keeps the derived rule and `doctor` says so.
+#: An official key places by its profile's transform and records 1.0.
 MIN_ART_FIT = 0.80
 
 
@@ -96,8 +103,103 @@ def key_of(session: str, store: str | Path = DEFAULT_STORE) -> str | None:
     return key(map_name, profile)
 
 
+def official_dir(store: str | Path = DEFAULT_STORE) -> Path:
+    """The cache of geometry drawn from the game's files (`map_asset.render`)."""
+    return Path(store) / "geometry-official"
+
+
+def capture_dir(store: str | Path = DEFAULT_STORE) -> Path:
+    """Capture-median geometry, read only, for a key the game's files cannot
+    draw: its profile has no fitted transform."""
+    return Path(store) / "geometry"
+
+
+def drawable(k: str, store: str | Path = DEFAULT_STORE) -> bool:
+    """Whether `map_asset` can draw the key: its map has textures and a
+    rotation, and its profile a fitted transform."""
+    from . import map_asset
+    m, prof = parse(k)
+    try:
+        map_asset.textures(m, store)
+        map_asset.rotation(m)
+        map_asset.transform(prof)
+    except SystemExit:
+        return False
+    return True
+
+
 def path(k: str, store: str | Path = DEFAULT_STORE) -> Path:
-    return Path(store) / "geometry" / f"{k}.npz"
+    """The key's geometry npz: the official cache when the game's files can
+    draw the key, else its capture geometry. Whether it exists or is current
+    is `ensure`'s question; a reader that only loads calls this."""
+    return (official_dir(store) if drawable(k, store) else capture_dir(store)) / f"{k}.npz"
+
+
+#: Arrays a builder adds to a cached key from its static: the occluder table
+#: (`reticle/occluders.py`) and the line classes (`prototypes/line_classes.py`).
+#: `ensure` carries them across a rebuild whose static is unchanged and drops
+#: them otherwise, so `doctor` reports them missing rather than stale-but-trusted.
+STATIC_DERIVED = ("occ", "box_id", "box_height", "occ_boxes", "occ_lines", "occ_validation",
+                  "occ_version", "occ_built_by", "lines_meta", "lines_built_by", "lines_version",
+                  "lines_static_sha", "line_cls", "line_src", "line_hints", "lines_refused")
+
+
+def staleness(k: str, store: str | Path = DEFAULT_STORE) -> str | None:
+    """Why the key's official cache must be drawn again, or None when it is
+    current or the key is not drawable."""
+    import numpy as np
+
+    from . import map_asset
+    if not drawable(k, store):
+        return None
+    p = official_dir(store) / f"{k}.npz"
+    if not p.is_file():
+        return "missing"
+    try:
+        with np.load(p, allow_pickle=False) as z:
+            got = str(z["built_by"])
+    except Exception as e:                        # noqa: BLE001 -- unreadable is stale
+        return f"unreadable ({type(e).__name__})"
+    return None if got == map_asset.asset_stamp(*parse(k), store) else "stale built_by"
+
+
+def ensure(k: str, store: str | Path = DEFAULT_STORE) -> Path:
+    """The key's geometry npz, drawn from the game's files first if its cache is
+    missing or stale. Decodes nothing; takes seconds."""
+    import numpy as np
+
+    from . import map_asset
+    p = path(k, store)
+    if staleness(k, store) is None:
+        return p
+    fields = map_asset.render(*parse(k), store)
+    kept = {}
+    if p.is_file():
+        with np.load(p, allow_pickle=False) as z:
+            if "static" in z.files and np.array_equal(z["static"], fields["static"]):
+                kept = {n: z[n].copy() for n in STATIC_DERIVED if n in z.files}
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(p.stem + ".tmp.npz")
+    np.savez_compressed(tmp, **fields, **kept)
+    tmp.replace(p)
+    return p
+
+
+def writable(k: str, store: str | Path = DEFAULT_STORE) -> Path:
+    """The official npz a builder may add arrays to, drawn first if needed.
+    Capture geometry is read only: it is evidence, and the official build
+    supersedes it rather than amending it."""
+    if not drawable(k, store):
+        raise SystemExit(f"{k}: the game's files cannot draw this key, and its capture "
+                         f"geometry is read only")
+    return ensure(k, store)
+
+
+def built_keys(store: str | Path = DEFAULT_STORE) -> list[str]:
+    """Every key with an official cache."""
+    d = official_dir(store)
+    return sorted(p.stem for p in d.glob("*.npz")
+                  if SEP in p.stem and not p.stem.endswith(".tmp")) if d.is_dir() else []
 
 
 def path_of(session: str, store: str | Path = DEFAULT_STORE) -> Path | None:
@@ -123,10 +225,10 @@ def require(session: str, store: str | Path = DEFAULT_STORE) -> Path:
     if k is None:
         raise SystemExit(f"{session} has no `map:` tag, so it reads no geometry "
                          f"-- tag it `map:<name>` in its manifest")
-    p = path(k, store)
+    p = ensure(k, store)
     if not p.is_file():
-        raise SystemExit(f"no geometry for {k} -- run "
-                         f"prototypes/minimap_geometry.py {k}")
+        raise SystemExit(f"no geometry for {k}: the game's files cannot draw it "
+                         f"(reticle/map_asset.py) and no capture geometry exists")
     return p
 
 
@@ -153,10 +255,10 @@ def reference_for_key(k: str, store: str | Path = DEFAULT_STORE):
     """
     import numpy as np
 
-    p = path(k, store)
+    p = ensure(k, store)
     if not p.is_file():
-        raise SystemExit(f"no geometry for {k} -- run "
-                         f"prototypes/minimap_geometry.py {k}")
+        raise SystemExit(f"no geometry for {k}: the game's files cannot draw it "
+                         f"(reticle/map_asset.py) and no capture geometry exists")
     with np.load(p, allow_pickle=False) as z:
         return z["static"].copy()
 
@@ -189,10 +291,10 @@ def footprint(session: str, store: str | Path = DEFAULT_STORE,
               dilate: float = 1, shape: tuple[int, int] | None = None):
     """The ART footprint for this session's map, or `None` if it has none.
 
-    `None` means *this map's art has not been fetched* -- run
-    `prototypes/wiki_map.py fetch <map>` then `prototypes/map_shade.py build`
-    -- and a caller must then fall back to `minimap.floor_mask` and SAY SO in
-    its provenance. It never means "no floor": a silent fallback is how the
+    `None` means *this key has no placed art*: a capture geometry without a
+    shade, or one placed below MIN_ART_FIT. A caller must then fall back to
+    `minimap.floor_mask` and SAY SO in its provenance. Every official key has
+    one. It never means "no floor": a silent fallback is how the
     derived rule stayed in the pipeline after it was superseded.
     """
     import numpy as np
@@ -299,14 +401,15 @@ def _canvas_scale(k: str, store) -> tuple[float, int] | None:
 
 def map_scale(k: str, store: str | Path = DEFAULT_STORE) -> MapScale | None:
     """The key's transform from base values, or None when its geometry has no
-    art fit (`prototypes/map_shade.py build`); a caller then refuses by name.
+    art fit (`shade_fit`); a caller then refuses by name.
 
     Baked data only [domain:capture/session-pixels-are-not-the-map]: the art
     fit's scale (`shade_fit[1]`, widget px per art px) times the art's side
     over ART_CANVAS is widget px per canvas px, the same quantity
-    `prototypes/raised_edges.zoom` reads, taken against SCALE_REF_KEY's. The
-    331 px keys draw the map at 0.632-0.639 of the reference while their widget
-    is 0.712 of it, so their map scaling is about 0.89 of the largest. The
+    `prototypes/raised_edges.zoom` reads, taken against SCALE_REF_KEY's. An
+    official key's scale is its profile's (`reticle/map_asset.py`): the 331 px
+    profile draws the map at 0.638 of the reference while its widget is 0.712
+    of it, so its map scaling is about 0.89 of the largest. The
     art's own world scale is not modelled: Chamber's Trademark, one world
     distance, measures 13% larger on Split than on Ascent at one scale
     [domain:abilities/chamber-trademark-minimap-white-area]."""

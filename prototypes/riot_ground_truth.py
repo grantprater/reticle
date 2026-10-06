@@ -43,7 +43,7 @@ Riot positions are game units (centimetres). valorant-api's map record gives
 `u = y * xMultiplier + xScalarToAdd`, `v = x * yMultiplier + yScalarToAdd` on
 the map's display icon; the wiki art the geometry was fitted to is the same
 asset (alpha IoU 0.996-1.000 at equal size), so `(u, v)` times the art side is
-an art pixel, and the geometry npz's `shade_fit` (`prototypes/map_shade.py`'s
+an art pixel, and the geometry npz's `shade_fit` (the retired `map_shade`'s
 `_warp` then `wiki_map._place`) carries it into baked widget pixels, the frame
 every stored minimap coordinate uses (`reticle/widget_frame.py`). The swap of
 axes is checked on data, not assumed: `--axes` scores both.
@@ -582,12 +582,14 @@ def game_to_uv(x: float, y: float, m: dict, swap: bool = True) -> tuple[float, f
 def art_affine(art_hw: tuple[int, int], fit) -> list[list[float]]:
     """The 2x3 map from art pixel to baked widget pixel for a `shade_fit`.
 
-    `map_shade._warp`'s rotation about the art centre with its scale, shifted
+    The retired `map_shade._warp`'s rotation about the art centre with its scale, shifted
     into a square canvas of side `int(max(h, w) * scale * 1.6)`, then placed at
-    `(dx, dy)` as `wiki_map._place` does.
+    `(dx, dy)` as `wiki_map._place` does. The offsets are whole pixels in a
+    capture fit and fractional in an official one (`reticle/map_asset.py`);
+    truncating them moved Lotus positions by 0.7-1.0 px.
     """
     h0, w0 = art_hw
-    rot, scale, dx, dy = float(fit[0]), float(fit[1]), int(fit[2]), int(fit[3])
+    rot, scale, dx, dy = (float(v) for v in fit[:4])
     t = math.radians(rot)
     al, be = scale * math.cos(t), scale * math.sin(t)
     cx, cy = w0 / 2.0, h0 / 2.0

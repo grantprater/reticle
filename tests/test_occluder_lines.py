@@ -89,7 +89,7 @@ class BakeLines(unittest.TestCase):
                                           lines_static_sha=np.array(mo.static_sha(static)),
                                           lines_built_by=np.array("L1"), line_hints=np.array("[]"),
                                           lines_meta=np.array(json.dumps({"validation": {"status": "labels"}})))
-            info = mo.bake("testmap__testprofile", d)
+            info = mo.bake("testmap__testprofile", d, path=p)
             self.assertEqual(info["occ_lines"], "L1")
             with np.load(p) as z:
                 self.assertFalse((z["occ"][:, 300] > 0).any())
@@ -104,16 +104,16 @@ class BakeLines(unittest.TestCase):
             static, labels = scene()
             p, _, _ = self._npz(d, line_cls=classes(static, labels),
                                 lines_static_sha=np.array("another static"), lines_built_by=np.array("L1"))
-            info = mo.bake("testmap__testprofile", d)
+            info = mo.bake("testmap__testprofile", d, path=p)
             self.assertTrue(info["occ_lines"].startswith("stale:"))
             with np.load(p) as z:
                 self.assertTrue((z["occ"][15:65, 300] == mo.WALL).all())
         with tempfile.TemporaryDirectory() as d:
             p, _, _ = self._npz(d)
-            self.assertTrue(mo.bake("testmap__testprofile", d)["occ_lines"].startswith("absent:"))
+            self.assertTrue(mo.bake("testmap__testprofile", d, path=p)["occ_lines"].startswith("absent:"))
         with tempfile.TemporaryDirectory() as d:
             p, _, _ = self._npz(d, lines_refused=np.array("most walls opened"))
-            self.assertTrue(mo.bake("testmap__testprofile", d)["occ_lines"].startswith("refused:"))
+            self.assertTrue(mo.bake("testmap__testprofile", d, path=p)["occ_lines"].startswith("refused:"))
 
 
 class Shapes(unittest.TestCase):

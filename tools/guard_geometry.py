@@ -47,8 +47,8 @@ STORE = Path.home() / "reticle-store"
 #: Editing any of these can break the promotion, so the hook re-checks after
 #: one is touched. Everything else is left alone: a guard that fires on every
 #: edit in the repo is a guard that gets turned off.
-GUARDED = ("reticle/minimap.py", "reticle/geometry.py",
-           "prototypes/full_round_entities.py", "prototypes/map_shade.py",
+GUARDED = ("reticle/minimap.py", "reticle/geometry.py", "reticle/map_asset.py",
+           "prototypes/full_round_entities.py",
            "prototypes/wiki_map.py", "prototypes/minimap_geometry.py")
 
 
@@ -75,8 +75,9 @@ def failures() -> list[str]:
                    "rule would be silent. That is the failure mode this "
                    "guards; it is not optional.")
 
-    geo_dir = STORE / "geometry"
-    if geo_dir.is_dir():
+    for geo_dir in (STORE / "geometry-official", STORE / "geometry"):
+        if not geo_dir.is_dir():
+            continue
         session_like = [p.name for p in geo_dir.glob("*.npz")
                         if "__" not in p.stem]
         if session_like:
@@ -91,7 +92,7 @@ def failures() -> list[str]:
                     if fit >= 0.80 and "shade_kind" not in z.files:
                         bad.append(f"{p.stem} places at IoU {fit:.3f} but "
                                    f"carries no `shade_kind` -- run "
-                                   f"prototypes/map_shade.py build --all")
+                                   f"`reticle geometry --all`")
         except ImportError:                                # pragma: no cover
             pass
     return bad

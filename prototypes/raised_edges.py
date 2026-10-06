@@ -162,7 +162,7 @@ ZOOM_REF_KEY = "ascent__valorant-16x9-bigmap"
 #: The canvas side the art is normalised to (`map_shade`: every fitted scale, normalised to a
 #: 2048 px art canvas, is one per-profile constant).
 ART_CANVAS = 2048
-#: `shade_kind` codes, as `prototypes/map_shade.py` writes them (terrain: floor, ramp, shadow).
+#: `shade_kind` codes, as `reticle/map_asset.py` writes them (terrain: floor, ramp, shadow).
 KIND_TERRAIN = (1, 2, 3)
 #: The art classes read as terrain and void for the colour cuts are eroded this far (map-zoom px)
 #: and kept this far from any line, so a cut is not set on antialiased edge pixels.
@@ -521,7 +521,7 @@ def place_classes(r: dict, T: dict | None = None) -> dict:
 REGION_MIN_PX = 150
 #: The ring read outside a region: pixels this far (scale 1.0) beyond it.
 RING_PX = 4
-#: `shade_kind` codes, as `prototypes/map_shade.py` writes them.
+#: `shade_kind` codes, as `reticle/map_asset.py` writes them.
 KIND_FLOOR, KIND_RAMP = 1, 2
 
 

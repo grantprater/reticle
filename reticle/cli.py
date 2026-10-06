@@ -2516,8 +2516,8 @@ def cmd_overlay(args) -> int:
         from .team_vision import load_inputs
         inputs, why = load_inputs(args.store, sid, profile, w, h)
         if inputs is None:
-            print("minimap    no baked geometry -- tag the session map or run "
-                  "minimap_geometry.py for its (map, profile) key")
+            print("minimap    no geometry -- tag the session's map, or fit its "
+                  "profile's transform (reticle/map_asset.py)")
         else:
             for note in inputs.notes:
                 print(f"minimap    {note}")
@@ -3277,13 +3277,13 @@ def cmd_vision(args) -> int:
     return 0
 
 
-def cmd_occluders(args) -> int:
-    """Bake the occluder table (`occluders.bake`) into each geometry npz."""
-    from . import geometry, occluders
+def cmd_geometry(args) -> int:
+    """Draw each key's geometry cache from the game's files (`geometry.ensure`)."""
+    from . import geometry
 
     store = Path(args.store)
     if args.all:
-        keys = geometry.keys_in_store(store)
+        keys = sorted(set(geometry.keys_in_store(store)) | set(geometry.built_keys(store)))
     elif args.key:
         keys = [args.key if geometry.SEP in args.key else geometry.key_of(args.key, store)]
     else:
@@ -3291,8 +3291,45 @@ def cmd_occluders(args) -> int:
         return 2
     rc = 0
     for k in keys:
-        if k is None or not geometry.path(k, store).is_file():
-            print(f"{args.key}: no built geometry -- skipped")
+        if k is None:
+            print(f"{args.key}: no `map:` tag -- no key")
+            rc = 1
+            continue
+        if not geometry.drawable(k, store):
+            p = geometry.path(k, store)
+            print(f"{k}: the game's files cannot draw it -- "
+                  f"{'capture geometry, read only' if p.is_file() else 'NO geometry'}")
+            rc = rc or (0 if p.is_file() else 1)
+            continue
+        why = geometry.staleness(k, store)
+        if why is None:
+            print(f"{k}: current")
+        elif args.check:
+            print(f"{k}: {why}")
+            rc = 1
+        else:
+            print(f"{k}: {why} -> {geometry.ensure(k, store)}")
+    return rc
+
+
+def cmd_occluders(args) -> int:
+    """Bake the occluder table (`occluders.bake`) into each geometry npz."""
+    from . import geometry, occluders
+
+    store = Path(args.store)
+    if args.all:
+        keys = [k for k in sorted(set(geometry.keys_in_store(store)) | set(geometry.built_keys(store)))
+                if geometry.drawable(k, store)]
+    elif args.key:
+        keys = [args.key if geometry.SEP in args.key else geometry.key_of(args.key, store)]
+    else:
+        print("give a geometry key, a session id, or --all")
+        return 2
+    rc = 0
+    for k in keys:
+        if k is None or not geometry.drawable(k, store):
+            print(f"{k or args.key}: the game's files cannot draw it; capture geometry is "
+                  f"read only -- skipped")
             rc = 1
             continue
         info = occluders.bake(k, store, write=not args.dry_run)
@@ -6720,6 +6757,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--all", action="store_true", help="every session with current peaks")
     s.add_argument("--record", action="store_true", help="record the pooled counts in the metrics log")
     s.set_defaults(func=cmd_ult_cast)
+
+    s = sub.add_parser("geometry", help="draw each (map, profile) geometry cache from the "
+                                        "game's minimap textures (decodes nothing)")
+    s.add_argument("key", nargs="?", help="a geometry key `<map>__<profile>`, or a session id")
+    s.add_argument("--all", action="store_true", help="every key a session reads or the cache holds")
+    s.add_argument("--check", action="store_true", help="report missing or stale caches; draw nothing")
+    s.set_defaults(func=cmd_geometry)
 
     s = sub.add_parser("occluders", help="bake the walls and boxes a ray stops at into the "
                                          "geometry npz (baked arrays only; decodes nothing)")
