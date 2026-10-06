@@ -512,7 +512,7 @@ class Sightlines:
         """Line of sight with a one-cell tolerance: some cell of a's 3x3 block
         sees b's cell, or a's cell sees some cell of b's block. The baked
         geometry places Riot positions within about a metre
-        ([metric:replay_truth/score#ally_err_px_median=1.55] px on the widget)."""
+        ([metric:replay_truth/score@9acf02f98283~2026-10-04T16:14:32#ally_err_px_median=1.55] px on the widget)."""
         na, nb = self.neighbourhood(xy_a), self.neighbourhood(xy_b)
         out = np.zeros(len(na), bool)
         for col in range(9):

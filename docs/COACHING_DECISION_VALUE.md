@@ -221,7 +221,7 @@ bits.
 | Deaths and trades | `death` | [metric:riot_truth/deaths#recall=0.9955] |
 | Alive state | round filter | [metric:round_filter/riot_G/clock#cost_nats=0.01536] nats against Riot |
 | Plant | rounds | [metric:riot_truth/rounds#plant_both=251] read by both; **no site stored** |
-| Teammates at t_d | `round_entity` | [metric:riot_truth/minimap/all#matched=8366] of [metric:riot_truth/minimap/all#riot_allies=10445] at kills; on one replay, [metric:replay_truth/score@9acf02f98283#ally_coverage=0.3825] of living ticks |
+| Teammates at t_d | `round_entity` | [metric:riot_truth/minimap/all#matched=8366] of [metric:riot_truth/minimap/all#riot_allies=10445] at kills; on one replay, [metric:replay_truth/score@9acf02f98283~2026-10-04T16:14:32#ally_coverage=0.3825] of living ticks |
 | Ults, all ten players | `ult_cast` | [metric:riot_truth/ult#recall=0.9028] |
 | Loadout | economy ledger | [metric:riot_economy/team_rounds#regular_ok=815] of [metric:riot_economy/team_rounds#regular_n=816]; not wired to events |
 | Regions | none | callout cells failed ([metric:coaching_callouts/ascent@a06f04a0059f#boundary_share_7p6px=0.2185] near a boundary); drawn polygons needed |

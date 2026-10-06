@@ -54,9 +54,9 @@ known = "measured"
 since = "2026-10-04"
 source = """
 prototypes/replay_truth.py check on 9acf02f98283's replay (stream facts):
-[metric:replay_truth/check#step_ms_median=8.0],
-[metric:replay_truth/check#samples_per_living_second_median=128.0],
-[metric:replay_truth/check#living_seconds_ge_100=0.9955]; survey: 15 of 15
+[metric:replay_truth/check@b03fecd3~2026-10-04T16:13:46#step_ms_median=8.0],
+[metric:replay_truth/check@b03fecd3~2026-10-04T16:13:46#samples_per_living_second_median=128.0],
+[metric:replay_truth/check@b03fecd3~2026-10-04T16:13:46#living_seconds_ge_100=0.9955]; survey: 15 of 15
 replays show at least 92% of living seconds with 100 or more samples
 """
 see = ["replay/vrf-tick-pattern"]
@@ -89,10 +89,10 @@ known = "measured"
 since = "2026-10-04"
 source = """
 prototypes/replay_truth.py check on 9acf02f98283's replay against its Riot
-record: [metric:replay_truth/check#offset_min_ms=10016.0],
-[metric:replay_truth/check#offset_max_ms=10220.0],
-[metric:replay_truth/check#kill_pos_median_cm=7.1],
-[metric:replay_truth/check#kill_pos_p95_cm=50.3]
+record: [metric:replay_truth/check@b03fecd3~2026-10-04T16:13:46#offset_min_ms=10016.0],
+[metric:replay_truth/check@b03fecd3~2026-10-04T16:13:46#offset_max_ms=10220.0],
+[metric:replay_truth/check@b03fecd3~2026-10-04T16:13:46#kill_pos_median_cm=7.1],
+[metric:replay_truth/check@b03fecd3~2026-10-04T16:13:46#kill_pos_p95_cm=50.3]
 """
 
 [vrf-yaw-is-view-radians]
@@ -105,7 +105,7 @@ known = "measured"
 since = "2026-10-04"
 source = """
 prototypes/replay_truth.py check: median error
-[metric:replay_truth/check#facing_median_rad=0.002] over 1151 player-instants;
+[metric:replay_truth/check@b03fecd3~2026-10-04T16:13:46#facing_median_rad=0.002] over 1151 player-instants;
 every other candidate convention errs by 1.57 rad or more
 """
 
@@ -120,7 +120,7 @@ known = "measured"
 since = "2026-10-04"
 source = """
 prototypes/replay_truth.py check on 9acf02f98283's replay:
-[metric:replay_truth/check#round_zero_minus_started_median_ms=29796.5] over 23
+[metric:replay_truth/check@b03fecd3~2026-10-04T16:13:46#round_zero_minus_started_median_ms=29796.5] over 23
 rounds after the first; rounds 1 and 13 at 44982 and 44792 ms
 """
 see = ["rounds/buy-phase-barriers"]
@@ -137,7 +137,7 @@ since = "2026-10-04"
 source = """
 prototypes/replay_truth.py score: through the crossed transform and the baked
 geometry, 9acf02f98283's stored ally observations lie a median
-[metric:replay_truth/score#ally_err_px_median=1.55] px from the replay; an
+[metric:replay_truth/score@9acf02f98283~2026-10-04T16:14:32#ally_err_px_median=1.55] px from the replay; an
 affine fitted to the self points improves the median by 0.15 px. vrfkit
 docs/DATA.md "Minimap projection" states the same crossing over 12 maps
 """

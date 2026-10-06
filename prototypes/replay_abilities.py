@@ -46,8 +46,8 @@ fields and mapping, the cast records and the ult transitions.
 `score` aligns replay time to capture time through STORED deaths
 (`replay_truth.session_context`, the same fit `replay_truth score` reports)
 with one constant offset: on 9acf02f98283,
-[metric:replay_truth/score#align_offset_ms=112619.5] ms, 180 of 181 stored
-deaths paired, residual MAD [metric:replay_truth/score#align_mad_ms=145.0] ms.
+[metric:replay_truth/score@9acf02f98283~2026-10-04T16:14:32#align_offset_ms=112619.5] ms, 180 of 181 stored
+deaths paired, residual MAD [metric:replay_truth/score@9acf02f98283~2026-10-04T16:14:32#align_mad_ms=145.0] ms.
 The capture clock drifts against the replay's: the stored alignment's slope is
 1.00013, 282 ms over the match (`align.slope` and `align.drift_ms_over_match`
 in analysis/replay-abilities-20261004/9acf02f98283.json), so the constant offset's

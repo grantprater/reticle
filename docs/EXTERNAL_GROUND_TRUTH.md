@@ -54,7 +54,10 @@ under `external/riot/` (a store path, not the repository): 22 files,
 [metric:riot_economy/team_rounds#unrated_matches=2] unrated (0f08b3dc3777 and b3b9defb6fd7). The remaining counts are in
 [WIN_PROBABILITY_RESEARCH.md](WIN_PROBABILITY_RESEARCH.md), section 5, Data.
 Each file names its session in `probe.session_id`; the store is
-the index, and match IDs stay out of this repository.
+the index, and match IDs stay out of this repository. These counts are the
+22's; c817691bcd15's record, fetched with the player's kit, joined them on
+2026-10-05 through `prototypes/replay_truth.py wrap`, which wraps a record
+from `external/riot-pd-v1/raw/` for its session.
 
 4f207c0c4e39's record, for one, is Split (`/Game/Maps/Bonsai/Bonsai`), 10
 players, 22 rounds, 182 kills. Each kill carries `gameTime`, `roundTime`, `round`,
@@ -83,11 +86,15 @@ the server tick [domain:replay/vrf-position-stream], and
 `prototypes/replay_truth.py` checks each parse against Riot's record before
 scoring the stored streams. On the one replay with a capture, 180 of 180 kills
 agree by killer and victim
-([metric:replay_truth/check#killer_agree=180]), kill-instant positions sit a
-median [metric:replay_truth/check#kill_pos_median_cm=7.1] cm from Riot's, and
+([metric:replay_truth/check@b03fecd3~2026-10-04T16:13:46#killer_agree=180]), kill-instant positions sit a
+median [metric:replay_truth/check@b03fecd3~2026-10-04T16:13:46#kill_pos_median_cm=7.1] cm from Riot's, and
 the stored allied observations a median
-[metric:replay_truth/score#ally_err_px_median=1.55] px from the replay, with
-[metric:replay_truth/score#ally_id_agreement=0.9108] of named ones agreeing.
+[metric:replay_truth/score@9acf02f98283~2026-10-04T16:14:32#ally_err_px_median=1.55] px from the replay, with
+[metric:replay_truth/score@9acf02f98283~2026-10-04T16:14:32#ally_id_agreement=0.9108] of named ones agreeing.
+The second, c817691bcd15's replay, agrees with its Riot record on
+[metric:replay_truth/check@60c7f1e0#killer_agree=201] of 201 kills, its
+kill-instant positions a median
+[metric:replay_truth/check@60c7f1e0#kill_pos_median_cm=9.3] cm from Riot's.
 The same replay holds ability actors, casts and ults with their casters for
 the classes its census maps [domain:replay/vrf-ability-actors]; `prototypes/replay_abilities.py` scores
 the stored ability streams against them, and
