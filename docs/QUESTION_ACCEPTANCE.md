@@ -546,6 +546,17 @@ The player answered all three on 2026-10-06:
    [COACHING_QUESTIONS.md](COACHING_QUESTIONS.md) names the questions and
    tests the claim on truth.
 
+The player answered the catalogue's two on 2026-10-06:
+
+4. **Execute and rotation timing**: coaching needs only that a team execute
+   or rotation happened and how many went, not its start within 1 s; the
+   live-phase local gate at 0.5 Hz base (`Lp0.5-250w5`) is the schedule to
+   build.
+5. **Whose fights**: coaching is about the player, with teammates as
+   context. An engagement the player is not in is coached only through the
+   player's position relative to it, role in the round and opportunity
+   cost; attention ranks the player's own engagement first.
+
 ## 10. What this plan does not do
 
 - It builds nothing: no slot state, no shape change, no harness, no gate.
