@@ -153,7 +153,7 @@ from reticle import minimap as mm                                  # noqa: E402
 from reticle.cone import (CONE_HALF_ANGLE_DEG, coverage, observable,   # noqa: E402,F401
                           raycast, reduce_window)
 import minimap_ring_fit as rf                                       # noqa: E402
-from minimap_geometry import BOXEDGE                                 # noqa: E402
+from reticle.minimap import BOXEDGE                                  # noqa: E402
 
 
 

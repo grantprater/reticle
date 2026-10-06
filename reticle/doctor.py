@@ -64,21 +64,11 @@ ALLOWED_LOCAL = frozenset({
     "segment", "sample_frames", "_text",
 })
 
-# These are the only sources allowed to implement/use capture aggregation.
-# `reticle/minimap.py` retains the exact helper fingerprinted by existing baked
-# artifacts; only the geometry builder may call it. Preflight uses its own
-# median only to measure widget size/placement/orientation. Expanding this list
-# is a design decision, not a way to silence a finding.
-CAPTURE_MEDIAN_ALLOWLIST = frozenset({
-    "reticle/minimap.py",
-    "prototypes/clip_preflight.py",
-    "prototypes/minimap_geometry.py",
-})
-
-#: The stored donor median (`<store>/reference/preflight_donor/`) is a capture
-#: median at rest. Only the preflight that writes it may name it, so it cannot
-#: become a reader's background.
-PREFLIGHT_DONOR_READERS = frozenset({"prototypes/clip_preflight.py"})
+# The only source allowed a capture median: preflight, which measures the
+# widget's size, placement and orientation with it. Geometry is drawn from the
+# game's files (`reticle/map_asset.py`), so no builder needs one. Expanding this
+# list is a design decision, not a way to silence a finding.
+CAPTURE_MEDIAN_ALLOWLIST = frozenset({"prototypes/clip_preflight.py"})
 
 
 def check_session_static(store: Path, root: Path | None = None) -> list[tuple[str, str]]:
@@ -88,7 +78,7 @@ def check_session_static(store: Path, root: Path | None = None) -> list[tuple[st
     placement. Base pixels, floor, lighting references and detector backgrounds
     must come from baked ``(map, profile)`` geometry. This source check exists
     because that boundary repeatedly crept back through convenience prototypes.
-    Only `clip_preflight` may name its stored donor median, `preflight_donor`.
+    No source may name the retired donor median, `preflight_donor`.
     """
     root = root or ROOT
     out = []
@@ -128,7 +118,7 @@ def check_session_static(store: Path, root: Path | None = None) -> list[tuple[st
                         bad.add("capture median")
             if ".static.npy" in source:
                 bad.add("session .static.npy path")
-            if "preflight_donor" in source and rel not in PREFLIGHT_DONOR_READERS:
+            if "preflight_donor" in source:
                 bad.add("preflight donor median")
             if bad:
                 out.append((ERROR, f"{rel} uses {', '.join(sorted(bad))} -- "
@@ -468,48 +458,50 @@ def check_orphan() -> list[tuple[str, str]]:
                    f"{', '.join(dead)}")]
 
 
+def _geometry_files(store: Path) -> list[Path]:
+    """The geometry npz in use: each key a session reads or the official cache
+    holds, at the path `geometry.path` serves."""
+    from . import geometry as G
+    keys = sorted(set(G.keys_in_store(store)) | set(G.built_keys(store)))
+    return [p for k in keys if (p := G.path(k, store)).is_file()]
+
+
 def check_geometry(store: Path) -> list[tuple[str, str]]:
-    """Cached geometry whose `built_by` no longer matches the code.
+    """Official geometry caches that are missing or stale, and the keys the
+    game's files cannot draw.
 
     `status` cannot see this -- the npz are not L1 and carry no row version.
-    The stamp is what caught a third "bomb site" growing out of 10921 px of
-    brown void on Split, and it only works if something asks.
+    `built_by` is `map_asset.asset_stamp`: its code, the two textures' sha256, the
+    map's rotation and the profile's transform. A reader that loads through
+    `geometry.require` redraws a stale cache itself; one that loads
+    `geometry.path` directly reads what is there, so this is an ERROR.
     """
-    d = store / "geometry"
-    if not d.is_dir():
+    from . import geometry as G
+    keys = sorted(set(G.keys_in_store(store)) | set(G.built_keys(store)))
+    if not keys:
         return []
     try:
-        import sys
-        sys.path.insert(0, str(ROOT / "prototypes"))
-        sys.path.insert(0, str(ROOT))
-        import io, contextlib
-        with contextlib.redirect_stdout(io.StringIO()):
-            import minimap_geometry as mg
-        want = mg.source_stamp()
+        why = {k: G.staleness(k, store) for k in keys}
     except Exception as e:                                  # pragma: no cover
-        return [(WARN, f"cannot compute the geometry stamp ({type(e).__name__}) "
+        return [(WARN, f"cannot compute the geometry stamp ({type(e).__name__}: {e}) "
                        f"-- staleness unchecked")]
-    import numpy as np
-    stale = []
-    for p in sorted(d.glob("*.npz")):
-        try:
-            b = np.load(p, allow_pickle=True)["built_by"]
-            got = str(b.item() if b.shape == () else b)
-        except Exception:
-            got = "unreadable"
-        if got != want:
-            stale.append(p.stem)
-    if not stale:
-        return []
-    return [(ERROR, f"{len(stale)} of {len(list(d.glob('*.npz')))} geometry npz "
-                    f"are STALE (built_by != current) -- rebuild with "
-                    f"prototypes/minimap_geometry.py --all before trusting a "
-                    f"minimap number. {', '.join(stale[:6])}"
-                    f"{' ...' if len(stale) > 6 else ''}")]
+    out = []
+    bad = [f"{k} ({w})" for k, w in why.items() if w]
+    if bad:
+        out.append((ERROR, f"{len(bad)} of {len(keys)} geometry caches are missing or STALE "
+                           f"-- draw them with `reticle geometry --all`, then "
+                           f"`prototypes/line_classes.py bake --all` and `reticle occluders --all`. "
+                           f"{', '.join(bad[:6])}{' ...' if len(bad) > 6 else ''}"))
+    capture = [k for k in keys if not G.drawable(k, store)]
+    if capture:
+        out.append((WARN, f"{len(capture)} key(s) the game's files cannot draw (no fitted "
+                          f"profile transform or no map texture) read capture geometry: "
+                          f"{', '.join(capture)}"))
+    return out
 
 
 def check_coverage(store: Path) -> list[tuple[str, str]]:
-    """Sessions that reach no geometry, and keys nothing has built.
+    """Sessions that reach no geometry, and keys nothing can serve.
 
     **This replaced `check_donor` on 2026-09-07, and the replacement is the
     point.** That check hunted for sessions sharing one static map across
@@ -519,9 +511,9 @@ def check_coverage(store: Path) -> list[tuple[str, str]]:
     session reads the npz for its own profile or it reads nothing. A check that
     cannot fail is worse than no check, so it is gone rather than kept passing.
 
-    What the new key CAN get wrong is coverage, in two directions: a session
-    with no `map:` tag resolves to no key at all, and a key several sessions
-    read may simply have never been built.
+    What the key CAN get wrong is coverage: a session with no `map:` tag
+    resolves to no key at all, and a key whose profile has no fitted transform
+    and no capture geometry has nothing to read.
     """
     from . import geometry as G
     if not (store / "manifests").is_dir():
@@ -533,12 +525,12 @@ def check_coverage(store: Path) -> list[tuple[str, str]]:
                           f"reach NO geometry -- tag them: {', '.join(loose[:6])}"
                           f"{' ...' if len(loose) > 6 else ''}"))
     missing = [(k, len(G.sessions_for(k, store))) for k in G.keys_in_store(store)
-               if not G.path(k, store).is_file()]
+               if not G.drawable(k, store) and not G.path(k, store).is_file()]
     if missing:
-        out.append((WARN, f"{len(missing)} geometry key(s) that sessions read are "
-                          f"NOT BUILT -- run prototypes/minimap_geometry.py: "
-                          + ", ".join(f"{k} ({n} session(s))"
-                                      for k, n in missing[:4])
+        out.append((WARN, f"{len(missing)} geometry key(s) that sessions read have NO "
+                          f"geometry: the game's files cannot draw them -- fit the profile's "
+                          f"transform (prototypes/minimap_geometry.py --fit): "
+                          + ", ".join(f"{k} ({n} session(s))" for k, n in missing[:4])
                           + (" ..." if len(missing) > 4 else "")))
     return out
 
@@ -554,8 +546,8 @@ def check_occluders(store: Path) -> list[tuple[str, str]]:
     visible in every product. Building is seconds and decodes nothing:
     `reticle occluders --all`.
     """
-    d = store / "geometry"
-    if not d.is_dir():
+    files = _geometry_files(store)
+    if not files:
         return []
     try:
         from . import occluders
@@ -565,7 +557,7 @@ def check_occluders(store: Path) -> list[tuple[str, str]]:
                        f"-- staleness unchecked")]
     import numpy as np
     stale, absent, other_lines = [], [], []
-    for p in sorted(d.glob("*.npz")):
+    for p in files:
         try:
             with np.load(p, allow_pickle=False) as z:
                 if "occ" not in z.files:
@@ -612,8 +604,8 @@ def check_lines(store: Path) -> list[tuple[str, str]]:
     player has not labelled is also listed, as UNVALIDATED, so a number read
     over it is known to rest on the sorter's generalisation.
     """
-    d = store / "geometry"
-    if not d.is_dir():
+    files = _geometry_files(store)
+    if not files:
         return []
     try:
         import sys
@@ -628,7 +620,7 @@ def check_lines(store: Path) -> list[tuple[str, str]]:
     import json
     import numpy as np
     stale, absent, refused, unvalidated = [], [], [], []
-    for p in sorted(d.glob("*.npz")):
+    for p in files:
         try:
             with np.load(p, allow_pickle=False) as z:
                 if "lines_refused" in z.files:
@@ -664,66 +656,6 @@ def check_lines(store: Path) -> list[tuple[str, str]]:
     return out
 
 
-def check_shade(store: Path) -> list[tuple[str, str]]:
-    """Geometry npz whose art-derived terrain levels are missing or stale.
-
-    The sibling of `check_geometry`, and it exists for the same reason one
-    level down: `shade`/`shade_kind`/`shade_step` are a COPY of
-    `reference/shade/<map>__<profile>.npz`, so a copy can fall behind its
-    source and nothing in the arrays says so. Refilling is seconds --
-    `prototypes/map_shade.py build --all` -- which is why this is a WARN and
-    not an ERROR: it is a cache, not a derivation.
-
-    An npz with no shade at all is reported separately, because the cause is
-    not staleness but a map whose art has never been fetched, and the fix is
-    `wiki_map.py fetch` rather than a rebuild.
-    """
-    d = store / "geometry"
-    if not d.is_dir():
-        return []
-    try:
-        import sys
-        sys.path.insert(0, str(ROOT / "prototypes"))
-        sys.path.insert(0, str(ROOT))
-        import io, contextlib
-        with contextlib.redirect_stdout(io.StringIO()):
-            import map_shade
-        stamp_of = map_shade.stamp
-        stamp_of()                        # fail here rather than in the loop
-    except Exception as e:                                  # pragma: no cover
-        return [(WARN, f"cannot compute the shade stamp ({type(e).__name__}) "
-                       f"-- staleness unchecked")]
-    import numpy as np
-    stale, absent = [], []
-    for p in sorted(d.glob("*.npz")):
-        # The stamp is PER MAP since 2026-09-10: it hashes the art the shade was
-        # warped from, so a re-fetched map invalidates its own keys and nobody
-        # else's. The geometry key is `<map>__<profile>`, which names the map.
-        map_name = p.stem.split("__")[0]
-        try:
-            with np.load(p, allow_pickle=False) as z:
-                if "shade" not in z.files:
-                    absent.append(p.stem)
-                    continue
-                got = str(z["shade_built_by"])
-        except Exception:
-            got = "unreadable"
-        if got != stamp_of(map_name):
-            stale.append(p.stem)
-    out = []
-    if stale:
-        out.append((WARN, f"{len(stale)} geometry npz carry a STALE shade "
-                          f"(shade_built_by != current) -- refill with "
-                          f"prototypes/map_shade.py build --all. "
-                          f"{', '.join(stale[:6])}"
-                          f"{' ...' if len(stale) > 6 else ''}"))
-    if absent:
-        out.append((WARN, f"{len(absent)} geometry npz have NO shade -- the "
-                          f"map's art is not fetched. {', '.join(absent[:6])}"
-                          f"{' ...' if len(absent) > 6 else ''}"))
-    return out
-
-
 def check_furniture(store: Path) -> list[tuple[str, str]]:
     """Baked geometry whose floor mask still swallows widget furniture.
 
@@ -740,14 +672,14 @@ def check_furniture(store: Path) -> list[tuple[str, str]]:
     quietly keeping the defect. It clears only when a geometry has no
     furniture to drop.
     """
-    d = store / "geometry"
-    if not d.is_dir():
+    files = _geometry_files(store)
+    if not files:
         return []
     import numpy as np
 
     from .minimap import floor_mask
     hits = []
-    for p in sorted(d.glob("*.npz")):
+    for p in files:
         try:
             with np.load(p, allow_pickle=False) as z:
                 if "sd_lo" not in z.files or "static" not in z.files:
@@ -1475,7 +1407,6 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("REPLAY_LAYER", lambda: check_replay_layer(store)),
               ("SESSION_STATIC", lambda: check_session_static(store)),
               ("GEOMETRY", lambda: check_geometry(store)),
-              ("SHADE", lambda: check_shade(store)),
               ("OCCLUDERS", lambda: check_occluders(store)),
               ("LINES", lambda: check_lines(store)),
               ("COVERAGE", lambda: check_coverage(store)),

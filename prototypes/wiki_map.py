@@ -165,25 +165,9 @@ API = "https://valorant.fandom.com/api.php"
 #: Alpha above which the art counts as map (`reticle.geometry.ART_ALPHA_MIN`).
 ALPHA_MIN = G.ART_ALPHA_MIN
 
-#: How far the wiki's art is rotated from what the game draws, per map.
-#:
-#: **READ OFF THE MAPS DIRECTLY, 2026-09-05 -- not fitted.** The search
-#: in `fit()` recovers 270 for Ascent and 0 for Lotus unprompted, which is what
-#: makes this table checkable, but it is minutes per map to derive and seconds
-#: for the player to look at. Ask, do not derive.
-#:
-#: The reading of the split, which is the part no measurement would have given:
-#: *all of the maps either kept the rotation the same or did the same rotation
-#: as ascent ... seems like basically based on the geometry of the maps.* So
-#: there are exactly TWO values and the choice follows the map's shape -- a
-#: long map is turned to fit the square widget. That is why a third value has
-#: never appeared and probably will not.
-ROTATION = {
-    "bind": 0.0, "breeze": 0.0, "fracture": 0.0, "pearl": 0.0,
-    "lotus": 0.0, "sunset": 0.0,
-    "haven": 270.0, "split": 270.0, "ascent": 270.0,
-    "icebox": 270.0, "abyss": 270.0, "corrode": 270.0,
-}
+#: How far the art is rotated from what the game draws, per map: one table, in
+#: `reticle/map_asset.py`.
+from reticle.map_asset import ROTATION                            # noqa: E402
 
 
 def fetch(names: list[str]) -> None:

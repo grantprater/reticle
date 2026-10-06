@@ -11,8 +11,8 @@ baked arrays only -- never a session's pixels, never a video.
 Why this exists
 ---------------
 `cone.passable_from` stopped a ray only at `labels == BOXEDGE`, and `labels`
-comes from the wiki art (`minimap_geometry.classify_art`), warped into widget
-pixels by `map_shade.shade_arrays` with one winner per pixel. The art's line
+comes from the map's fog texture (`map_asset.classify_art`), warped into
+widget pixels by `map_asset.shade_layers` with one winner per pixel. The line
 work is a few art pixels wide and the warp shrinks it five to seven times, so
 a line covers under half of most widget pixels and loses them to the floor or
 the site paint beside it. On `ascent__valorant-16x9` 37% of the static's
@@ -21,19 +21,18 @@ the far sides of most boxes. The player, 2026-09-29: the bright white lines
 on the minimap are walls [domain:minimap/white-lines-are-walls], and many
 boxes carry only one or two of their edges.
 
-The in-game widget draws its own walls, pixel-exact, and the baked `static`
-already holds them: it is the geometry key's reference median, the one
-capture-derived array the builder is allowed to keep
-[domain:capture/session-pixels-are-not-the-map]. This reads the walls from it
-and writes them into the geometry npz ADDITIVELY, as `map_shade` does:
+The in-game widget draws its own walls, and the key's `static` holds them:
+the fog texture drawn through the profile's transform at widget resolution
+(`reticle/map_asset.py`). This reads the walls from it and writes them into
+the geometry npz ADDITIVELY:
 
     occ            uint8   OPEN 0, WALL 1, BOX 2
     box_id         int16   0, or the box a BOX pixel belongs to (1..n)
     occ_built_by   str     hash of this file and the functions it calls
 
-`labels`, `static` and the rest are untouched, so `minimap_geometry`'s stamp
-does not move and no geometry needs a rebuild from video: this reads stored
-arrays only and takes seconds. `doctor`'s OCCLUDERS check compares each npz's
+`labels`, `static` and the rest are untouched, so `map_asset`'s stamp does
+not move, and `geometry.ensure` carries the table across a redraw whose
+static is unchanged: this reads stored arrays only and takes seconds. `doctor`'s OCCLUDERS check compares each npz's
 `occ_built_by` with `occluder_stamp`.
 
 The classes
@@ -178,7 +177,7 @@ HINT_AREA_SHARE = 0.5
 #: share alone.
 HINT_COVER_MIN = 0.0
 
-#: The art's `shade_kind` codes, as `prototypes/map_shade.py` writes them.
+#: The art's `shade_kind` codes, as `reticle/map_asset.py` writes them.
 KIND_VOID, KIND_FLOOR, KIND_RAMP, KIND_SHADOW, KIND_LINE, KIND_SITE = 0, 1, 2, 3, 4, 5
 #: A raised box (`raised_boxes`): the ring read round the region (px), and the least share of
 #: that ring's non-void pixels drawn as an edge.
@@ -805,7 +804,7 @@ def bake(gkey: str, store: Path | str = DEFAULT_STORE, write: bool = True,
     classifies and writes nothing; `path` reads and writes that npz instead of the store's (a
     staging copy). Returns `classify`'s info, with `apply_lines`' under `lines` and `occ_lines`.
     """
-    p = Path(path) if path is not None else G.path(gkey, store)
+    p = Path(path) if path is not None else (G.writable(gkey, store) if write else G.path(gkey, store))
     with np.load(p, allow_pickle=False) as z:
         arrays = {k: z[k].copy() for k in z.files}
     occ, box_id, info = classify(arrays["static"], arrays["labels"])

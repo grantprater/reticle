@@ -31,15 +31,15 @@ use = "doctor's STALL check reports the affected span per session"
 claim = """
 A capture may determine only the minimap widget's dimensions, placement, and
 orientation. Base-map pixels, floor masks, lighting references, and detector
-backgrounds come exclusively from baked geometry keyed by (map, profile).
+backgrounds come exclusively from geometry keyed by (map, profile).
 """
 kind = "constraint"
 known = "observed"
 since = "2026-09-10"
 use = """
-reticle/geometry.py resolves every path; doctor enforces the boundary, with
-prototypes/minimap_geometry.py and prototypes/clip_preflight.py the only
-exceptions
+reticle/geometry.py resolves every path and reticle/map_asset.py draws it
+from the game's textures; doctor enforces the boundary, with
+prototypes/clip_preflight.py the only exception
 """
 
 [game-audio-track-only]

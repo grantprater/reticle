@@ -71,10 +71,10 @@ what "I rebuilt the geometry while my experiment read it" states.
   [domain:capture/session-pixels-are-not-the-map]. A capture may determine only
   the minimap widget's dimensions and placement. All static map values
   (base-map pixels, floor masks, lighting references, detector backgrounds)
-  come only from baked geometry keyed by `(map, profile)`. Never add a
-  per-session static-map cache or capture median to a reader or prototype except
-  the geometry builder and `clip_preflight`, whose capture median sets only
-  size, placement and orientation; `doctor` enforces this.
+  come only from `(map, profile)` geometry drawn from the game's textures
+  (`reticle/map_asset.py`). Never add a per-session static-map cache or
+  capture median to a reader or prototype except `clip_preflight`, whose
+  median sets only size, placement and orientation; `doctor` enforces this.
 - **Read pixels as samples of a smooth image** (player, 2026-10-01)
   [domain:capture/capture-resolution]. Name the filter on every resample:
   `INTER_AREA` to shrink, linear or cubic to enlarge or warp, nearest only

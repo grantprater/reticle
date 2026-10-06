@@ -110,10 +110,10 @@ class Bake(unittest.TestCase):
             p = Path(d) / "geometry" / "testmap__testprofile.npz"
             p.parent.mkdir()
             np.savez_compressed(p, static=static, labels=labels, built_by=np.array("x"))
-            mo.bake("testmap__testprofile", d, write=False)
+            mo.bake("testmap__testprofile", d, write=False, path=p)
             with np.load(p) as z:
                 self.assertNotIn("occ", z.files)           # a dry run writes nothing
-            mo.bake("testmap__testprofile", d)
+            mo.bake("testmap__testprofile", d, path=p)
             with np.load(p) as z:
                 self.assertEqual(str(z["occ_built_by"]), mo.occluder_stamp())
                 self.assertTrue(np.array_equal(z["static"], static))

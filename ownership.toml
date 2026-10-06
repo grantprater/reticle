@@ -99,7 +99,7 @@ question = "What is the floor, terrain and reference art for this (map, profile)
 owner = "geometry"
 role = ["constrain"]
 status = "shipped"
-produces = ["reference_for_key", "key_of", "path_of", "MapScale", "map_scale", "map_scale_of", "SCALE_REF_KEY"]
+produces = ["reference_for_key", "key_of", "path_of", "ensure", "staleness", "drawable", "MapScale", "map_scale", "map_scale_of", "SCALE_REF_KEY"]
 not_for = """
 Anything a session's own pixels say. SESSION PIXELS DO NOT DEFINE THE MAP: a
 capture determines the widget's size, placement and orientation and nothing
@@ -143,6 +143,22 @@ still come from `map-geometry`. Not the icons drawn on the widget either.
 """
 consumers = ["roi_cache", "status", "cli", "plan", "minimap"]
 evidence = "tests/test_widget_frame.py"
+
+[[entry]]
+id = "map-asset"
+question = "What does this map's minimap look like, and where does a profile draw it?"
+owner = "map_asset"
+role = ["constrain"]
+status = "shipped"
+produces = ["render", "asset_stamp", "textures", "art_classes", "shade_layers", "classify_art", "ROTATION", "transform"]
+not_for = """
+Where a reader finds a key's arrays: `map-geometry` caches and serves them.
+Not the world: where a game-unit position lands on the texture is the
+world-to-texture constants' question, and a per-map offset of one to two
+texture px between them and the drawn map is measured, not fitted here.
+"""
+consumers = ["geometry"]
+evidence = "prototypes/official_geometry_eval.py"
 
 [[entry]]
 id = "domain-fact"

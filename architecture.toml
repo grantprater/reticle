@@ -38,7 +38,7 @@ modules = ["version", "profiles", "fingerprint", "metrics", "usage", "judgement"
 
 [source]
 claim = "identity, decode, persistence, and the baked (map, profile) geometry"
-modules = ["decode", "store", "geometry", "input_stamps", "audio_source"]
+modules = ["decode", "store", "geometry", "map_asset", "input_stamps", "audio_source"]
 
 [primitives]
 claim = "per-frame primitives and the spans built from them"
@@ -157,6 +157,18 @@ reason = """
 `footprint` warps the art footprint through `minimap.art_floor`. Geometry owns
 the artifact and minimap owns the shape of a floor, so the call is upward by
 one layer for one function. Deliberate.
+"""
+
+[[exception]]
+from = "map_asset"
+to = "minimap"
+kind = "deferred"
+imports = "BORDER, BOXEDGE, FLOOR, HOLE, PLANT, VOID"
+reason = """
+`classify_art` names the geometry classes, which `minimap` owns. The map asset
+draws the artifact `geometry` serves, so it sits beside it in `source`, and
+the class ids are one upward step for one function, as `geometry`'s
+`art_floor` is.
 """
 
 [[exception]]

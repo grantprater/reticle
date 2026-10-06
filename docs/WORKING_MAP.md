@@ -37,7 +37,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Which icon is which: occluders, glyphs, appearance matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
 | Minimap mining critique, minimal-label design, deterministic vs YOLO | [MINIMAP_MINING_REVIEW.md](MINIMAP_MINING_REVIEW.md) |
 | What else lives in a colour key | `prototypes/key_collision.py` (label sheets, no decode) |
-| Static map geometry and its key | `geometry.py`, `prototypes/minimap_geometry.py`, `prototypes/map_shade.py`, `occluders.py` |
+| Static map geometry and its key | `geometry.py`, `map_asset.py`, `prototypes/minimap_geometry.py`, `occluders.py` |
 | What is true of the GAME, cited not restated | `domain/*.toml`, `reticle/domain.py`, `reticle domain` |
 | Proposed domain knowledge, reviewed over stored evidence | `reticle/domain_learning.py`, `tools/domain_hypothesis.py`, [ENTITY_DOMAIN_LEARNING_DESIGN.md](ENTITY_DOMAIN_LEARNING_DESIGN.md) |
 | WHICH MODULE MAY DECIDE A QUESTION | `reticle ownership <question>`, `ownership.toml`, the `reticle/ownership.py` docstring |
@@ -114,13 +114,13 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle view SESSION --round N|--gaps  # stored events and lanes
 .\.venv\Scripts\python.exe -m unittest discover -s tests -q
 .\.venv\Scripts\python.exe tools\wipe_scout.py SESSION   # stored data only
-.\.venv\Scripts\python.exe prototypes\minimap_geometry.py --all
+.\.venv\Scripts\python.exe -m reticle geometry --all
 .\.venv\Scripts\python.exe prototypes\line_classes.py bake --all
 .\.venv\Scripts\python.exe -m reticle occluders --all
 ```
 
-Resolve every geometry path through `reticle/geometry.py` (one npz per
-`<map>__<profile>`, never per session).
+Resolve geometry through `reticle/geometry.py` (one npz per
+`<map>__<profile>`).
 
 For stored-data changes, prefer `segment` or `audit` (stored
 L1), `coach` or `sql`. Under the default

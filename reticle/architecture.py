@@ -178,7 +178,7 @@ def foreign_imports(path: Path, tree_name: str = "prototypes",
     Both spellings, because the second is how the first hides. `from
     prototypes import x` is obvious. A `sys.path.insert` on the prototypes
     directory followed by a BARE `import map_shade` is the same dependency and
-    reads like a stdlib import -- `doctor.check_shade` does exactly this, and a
+    reads like a stdlib import -- `doctor.check_lines` does exactly this, and a
     check blind to it would bless the pattern that evades it. So a bare import
     of any name that is a module in the other tree counts.
     """

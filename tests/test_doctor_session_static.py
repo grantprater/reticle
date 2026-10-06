@@ -24,7 +24,7 @@ class SessionStaticDoctorTest(unittest.TestCase):
             self.assertIn("capture median", messages)
             self.assertTrue(all(severity == doctor.ERROR for severity, _ in found))
 
-    def test_allows_only_builder_and_dimension_preflight_medians(self):
+    def test_allows_only_the_dimension_preflight_median(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             (root / "reticle").mkdir()
@@ -33,9 +33,11 @@ class SessionStaticDoctorTest(unittest.TestCase):
             for name in ("minimap_geometry.py", "clip_preflight.py"):
                 (root / "prototypes" / name).write_text(body, encoding="utf-8")
 
-            self.assertEqual(doctor.check_session_static(root / "store", root), [])
+            found = doctor.check_session_static(root / "store", root)
+            self.assertEqual(len(found), 1)
+            self.assertIn("prototypes/minimap_geometry.py", found[0][1])
 
-    def test_only_preflight_names_its_donor_snapshot(self):
+    def test_no_source_names_the_retired_donor(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             (root / "reticle").mkdir()
@@ -45,9 +47,8 @@ class SessionStaticDoctorTest(unittest.TestCase):
             (root / "reticle" / "reader.py").write_text(body, encoding="utf-8")
 
             found = doctor.check_session_static(root / "store", root)
-            self.assertEqual(len(found), 1)
-            self.assertIn("reticle/reader.py", found[0][1])
-            self.assertIn("preflight donor median", found[0][1])
+            self.assertEqual(len(found), 2)
+            self.assertTrue(all("preflight donor median" in m for _s, m in found))
 
     def test_reports_but_does_not_remove_legacy_cache_files(self):
         with tempfile.TemporaryDirectory() as d:

@@ -72,10 +72,11 @@ the enemy and portrait detectors, the colour-free channel's numbers, and **the
 domain notes on the minimap, which are not recoverable from the pixels or the
 code**.
 
-    minimap_geometry.py   the static map, classified. ONE npz per
-                          (map, profile) -- see `reticle/geometry.py` for the
-                          key; every other minimap module resolves through it.
-                          STAMPED: `--all` rebuilds every key when this changes
+    minimap_geometry.py   why the static map is drawn from the game's textures,
+                          and the fit of each profile's transform. The map is
+                          drawn by `reticle/map_asset.py` and cached ONE npz
+                          per (map, profile) by `reticle/geometry.py`;
+                          STAMPED: `reticle geometry --all` redraws stale keys
     minimap_icons.py      floor_mask (the opaque slab) and the red mask
     minimap_ring_fit.py   the enemy finder, 80.8% / 54.6%; no enemy reader ships. Fits a CIRCLE
     minimap_dynamic.py    the colour-free channel — ability glyphs a red mask
@@ -157,7 +158,7 @@ Prototypes are run directly, not through `-m`. The minimap ones, in the order a
 new session needs them:
 
 ```
-prototypes\minimap_geometry.py --all               # once per (map, profile); writes the npz
+-m reticle geometry --all                           # draws every (map, profile) npz from the game's textures
 prototypes\paint_map.py       <session>            # the player paints the searchable mask
 prototypes\label_dynamic.py   <session> --colour none   # the player answers 250 candidates
 prototypes\dynamic_eval.py    <session> [--mask]   # scores both of the above
@@ -1056,14 +1057,13 @@ spawn barriers) and *0 of 254 hand-marked icons sit on a HOLE* (nearly cut the
 holes wholesale). A perfect measurement over the wrong population gives a wrong
 conclusion with full confidence.
 
-**Stamp every cached artefact with the code that built it.** `minimap_geometry`
-writes `built_by`, a hash of itself, and `load_geometry` warns when it does not
-match. Without it, widening the plant test grew a third "bomb site" on Split --
+**Stamp every cached artefact with the code that built it.** The geometry
+npz carries `built_by`, `map_asset.stamp`, and `geometry.ensure` redraws a
+cache whose stamp does not match. Without it, widening the plant test grew a third "bomb site" on Split --
 10921 px of brown void -- and nothing noticed, because that npz was stale and
-the two maps in use were fine. **Run `minimap_geometry.py --all` whenever that
-file changes.** Keying geometry per (map, profile) is what made that
-affordable: it is one build per (map, profile) rather than one per session, and
-about 5 minutes end to end, so the stamp stops being a thing people defer.
+the two maps in use were fine. Keying geometry per (map, profile) made a
+rebuild affordable, and drawing it from the game's textures made it a second
+per key with no capture.
 
 **A new reader joins the PASS. Recorded 2026-09-05, and it is an architectural
 rule rather than an optimisation:**
@@ -1094,7 +1094,7 @@ One constraint is now an invariant: **a reader never builds a median**. It reads
 the baked `(map, profile)` reference and streams in one phase. Session pixels
 may measure only the widget's dimensions and placement
 [domain:capture/session-pixels-are-not-the-map]; `doctor` rejects cache APIs and
-capture medians outside the two exceptions AGENTS.md names.
+capture medians outside the one exception AGENTS.md names.
 
 **ALIGN THE WINDOW TO THE QUESTION BEFORE READING ANYTHING OUT OF IT. This is
 now the most repeated mistake in this codebase -- FOUR times on 2026-09-06

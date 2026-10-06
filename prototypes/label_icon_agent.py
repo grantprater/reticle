@@ -49,7 +49,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 from reticle.profiles import get_profile                          # noqa: E402
-from minimap_icons import floor_mask, red_mask, static_map        # noqa: E402
+from minimap_icons import floor_mask, red_mask                    # noqa: E402
 import minimap_ring_fit as ringfit                                # noqa: E402
 
 STORE = Path.home() / "reticle-store"

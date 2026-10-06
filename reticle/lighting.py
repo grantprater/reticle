@@ -4,8 +4,9 @@ This is the DRAWN light, and it is the channel the vision rule must be read
 through [domain:minimap/vision-gate] -- never a raycast over the geometry.
 
 The game shades the ground your team can currently see a step lighter. Every
-pixel of solid floor therefore has two resting values, and `minimap_geometry`
-already stores them per (map, profile) as `lo_gray`/`hi_gray` with their own
+pixel of solid floor therefore has two resting values: the game's fog and
+revealed textures, which `map_asset` draws per (map, profile) as
+`lo_gray`/`hi_gray` with their own
 per-state noise scales. Classifying a frame is then a per-pixel question with
 no global threshold in it: is this grey nearer the lit state or the unlit one,
 measured in that state's own sigma?
