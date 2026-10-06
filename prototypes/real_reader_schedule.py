@@ -85,7 +85,14 @@ SIGHT_QS = ("opening_first_seer", "spacing_5m", "spacing_death", "first_sight_su
             "contact_C", "duel_C", "trade_C")
 #: Each arm's reference arm for agreement and paired flips.
 REF = {"Lp": "T1", "T1v": "T1", "Lpv": "T1v", "Lpv-reach": "T1v", "V15h": "T1v",
-       "Vgate": "V15h", "V15t": "T1", "Vgate-t": "V15t"}
+       "Vgate": "V15h", "V15t": "T1", "Vgate-t": "V15t",
+       "Vgate-t-r": "V15t", "Vgate-r": "V15h", "Vgate-t-r1": "V15t"}
+#: Follow-up (RX rows): a read with no fit retries on following frames this long.
+RETRY_MS = 500.0
+SCHED1 = "Lp1-250w5"
+DIAG_WIN_MS, DIAG_FAR_CM, DIAG_SPAN_MS = 2000.0, 300.0, 4000.0
+ORDER = ("Lp", "T1v", "Lpv", "Lpv-reach", "V15h", "Vgate", "Vgate-r", "V15t", "Vgate-t", "Vgate-t-r",
+         "Vgate-t-r1")
 ENEMY_GAP_MS = 125.0      # bridges consecutive real reads only (15 Hz cache steps 66.7-83.3 ms)
 JOIN_HZ = 15.0            # the declared rate of the ally_icon and minimap_object grids
 CUE_PX = 30.0             # RR5c: enemy-key pixels on the slab, x widget_scale^2 (fixed in advance)
@@ -449,6 +456,7 @@ class RealMatch(Match):
         """Allies from the causal fits at every ally_icon frame in the spans."""
         tracks, gaps, lost = {}, {}, Counter()
         n_reads, frames = 0, set()
+        self._v15_reads = {}
         for s in self.ci:
             k = V["slot_of"][int(s)]
             if k is None:
@@ -464,15 +472,23 @@ class RealMatch(Match):
             f, T = f[al], T[al]
             n_reads += int(f.size)
             frames.update(f.tolist())
+            self._v15_reads[int(s)] = T
             tracks[self.sid[s]] = self._track(s, T, V["X"][k, f], V["Y"][k, f])
             gaps[self.sid[s]] = np.inf
         return tracks, gaps, self._cost(n_reads, len(frames), lost)
 
-    def vgate_tracks(self, V: dict, reads: np.ndarray) -> tuple[dict, dict, dict, dict]:
+    def vgate_tracks(self, V: dict, reads: np.ndarray, retry_ms: float = 0.0
+                     ) -> tuple[dict, dict, dict, dict]:
         """V15's fits at a schedule's reads (slot, M.F frame), each snapped to
-        the nearest ally_icon frame inside the spans by `grid_join`."""
+        the nearest ally_icon frame inside the spans by `grid_join`. With
+        `retry_ms`, a read whose frame holds no fit retries on each following
+        ally_icon frame inside the spans up to `retry_ms` after the snapped
+        frame; every attempt counts as a read (`reads` = attempts), the first
+        frame holding a fit is the read. Without it `reads` counts the frames
+        read with a fit (the RR rows' rule) and `attempts` stands beside.
+        `self._vgate_detail` keeps each slot's scheduled reads for diagnosis."""
         in_idx = np.flatnonzero(V["in_sp"])
-        A_t, A_s = [], []
+        A_t, A_s, A_f = [], [], []
         lost = Counter()
         sched = 0
         for s in self.ci:
@@ -486,30 +502,58 @@ class RealMatch(Match):
             lost["outside_cache_spans"] += int((~m).sum())
             A_t.append(tc[m])
             A_s.append(np.full(int(m.sum()), s))
+            A_f.append(f[m])
         A_t = np.concatenate(A_t) if A_t else np.zeros(0)
         A_s = np.concatenate(A_s) if A_s else np.zeros(0, int)
+        A_f = np.concatenate(A_f) if A_f else np.zeros(0, int)
         B = V["fr_t"][in_idx]
         inrun, J, _rate = join_runs(A_t, B)
         lost["outside_ally_icon_runs"] += int((~inrun).sum())
-        A_t, A_s = A_t[inrun], A_s[inrun]
+        A_t, A_s, A_f = A_t[inrun], A_s[inrun], A_f[inrun]
         ok = J.index >= 0
         lost["not_joined"] += int((~ok).sum())
-        fr = np.where(ok, in_idx[np.clip(J.index, 0, None)], -1)
         tracks, gaps = {}, {}
-        n_reads, frames = 0, set()
-        self._vgate_sched = {}
+        n_reads, frames, attempts = 0, set(), 0
+        detail = {}
+        if retry_ms <= 0:
+            self._vgate_sched = {}
         for s in self.ci:
             sid = self.sid[s]
             k = V["slot_of"][int(s)]
             m = (A_s == s) & ok
-            f = fr[m]
+            bpos = J.index[m]
             if k is None:
                 tracks[sid] = self._track(s, np.zeros(0), np.zeros(0), np.zeros(0))
                 gaps[sid] = np.inf
                 continue
-            self._vgate_sched[int(s)] = f
-            h = V["has"][k, f]
+            h = V["has"][k, in_idx[bpos]]
+            got = bpos.copy()
+            att = np.ones(bpos.size, np.int64)
+            if retry_ms > 0:
+                pend = ~h
+                mm = 1
+                while pend.any():
+                    nb = bpos + mm
+                    inb = nb < B.size
+                    nbc = np.clip(nb, 0, B.size - 1)
+                    valid = pend & inb & (B[nbc] - B[bpos] <= retry_ms)
+                    if not valid.any():
+                        break
+                    att += valid
+                    hit = valid & V["has"][k, in_idx[nbc]]
+                    got[hit] = nbc[hit]
+                    h |= hit
+                    pend = valid & ~hit
+                    mm += 1
+                lost["retry_recovered"] += int((h & (got != bpos)).sum())
+            attempts += int(att.sum())
+            f = in_idx[got]
+            if retry_ms <= 0:
+                self._vgate_sched[int(s)] = f
             lost["read_lost:no_fit"] += int((~h).sum())
+            detail[int(s)] = {"t_sched": self.F[A_f[m]], "ok": h.copy(), "x": V["X"][k, f], "y": V["Y"][k, f],
+                              "t_fit": self.to_rep(V["fr_t"][f], self.lag(s)), "k": int(k),
+                              "frame": in_idx[bpos], "b": bpos.copy()}
             f = f[h]
             T = self.to_rep(V["fr_t"][f], self.lag(s))
             al = self.tl0._alive_fn(T)[s] if T.size else np.zeros(0, bool)
@@ -518,10 +562,15 @@ class RealMatch(Match):
             uf = np.unique(f)
             n_reads += int(uf.size)
             frames.update(uf.tolist())
+            detail[int(s)]["t_reads"] = np.unique(T)
             tracks[sid] = self._track(s, T, V["X"][k, f], V["Y"][k, f])
             gaps[sid] = np.inf
-        cost = self._cost(n_reads, len(frames), lost)
+        cost = self._cost(attempts if retry_ms > 0 else n_reads, len(frames), lost)
         cost["scheduled"] = sched
+        cost["attempts"] = attempts
+        cost["frames_with_fit_read"] = n_reads
+        cost["retry_ms"] = retry_ms
+        self._vgate_detail = detail
         return tracks, gaps, cost, J.stamp()
 
 
@@ -599,6 +648,9 @@ def onsets(M: RealMatch, drawn, gates: dict) -> list[dict]:
 def _answers(M, tracks, gaps, events, name):
     tl = CutTimeline(M.tl0, tracks, gaps, events, name)
     d = M.derive(tl)
+    if not hasattr(M, "TL"):
+        M.TL = {}
+    M.TL[name] = tl
     return answers(d, tl, M.C, M.occ)
 
 
@@ -617,6 +669,7 @@ def instrument(M: RealMatch) -> dict:
     """RR0a and RR0b for one match; T0, T1 and Lp answers kept on M."""
     t0 = time.time()
     d0 = M.derive(M.tl0)
+    M.d0 = d0
     M.events = _with_sides(M.tl0, d0.header["attack_team"])
     M.drawn_C = M.drawn(M.C)
     M.A = {"T0": answers(d0, M.tl0, M.C, M.occ)}
@@ -697,6 +750,19 @@ def arms(M: RealMatch) -> tuple[list[dict], dict]:
     rows.append(_arm_row(M, "Vgate-t", costG, {"join": jst, "read_ratio_vs_ref": costG["reads"] / costV["reads"]}))
     _log(f"  {M.cap} V15t share {costV['share']:.4f}; Vgate-t share {costG['share']:.4f} "
          f"ratio {costG['reads'] / costV['reads']:.4f} lost {costG['lost']}")
+    det_t = M._vgate_detail
+    M._lost_rows = lost_reads(M, V, det_t)["rows"]
+    info["diag"] = {"Vgate-t": diagnose(M, "Vgate-t", "V15t", det_t),
+                    "spacing_V15t_vs_T1": spacing_diag(M, "V15t", "T1")}
+    for name, sched in (("Vgate-t-r", SCHED), ("Vgate-t-r1", SCHED1)):
+        rd = M.schedule(M.C, M.drawn_C, ARMS[sched])[0]
+        trR, gpR, costR, jR = M.vgate_tracks(V, rd, retry_ms=RETRY_MS)
+        M.A[name] = _answers(M, {**tr1, **trR}, {**gp1, **gpR}, M.events, name)
+        rows.append(_arm_row(M, name, costR, {"join": jR, "read_ratio_vs_ref": costR["reads"] / costV["reads"],
+                                              "schedule": sched}))
+        info["diag"][name] = diagnose(M, name, "V15t", M._vgate_detail)
+        _log(f"  {M.cap} {name} share {costR['share']:.4f} ratio {costR['reads'] / costV['reads']:.4f} "
+             f"lost {costR['lost']}")
     if E is None:
         info["real_enemy_arms"] = "not run: no stored minimap_object or enemy_track"
         return rows, info
@@ -726,6 +792,14 @@ def arms(M: RealMatch) -> tuple[list[dict], dict]:
     rows.append(_arm_row(M, "Vgate", costG, {"join": jst, "read_ratio_vs_ref": costG["reads"] / costV["reads"]}))
     _log(f"  {M.cap} Vgate share {costG['share']:.4f} ratio {costG['reads'] / costV['reads']:.4f} "
          f"lost {costG['lost']}")
+    info["diag"]["Vgate"] = diagnose(M, "Vgate", "V15h", M._vgate_detail)
+    info["diag"]["spacing_V15h_vs_T1v"] = spacing_diag(M, "V15h", "T1v")
+    trR, gpR, costR, jR = M.vgate_tracks(V, reads_lpv, retry_ms=RETRY_MS)
+    M.A["Vgate-r"] = _answers(M, {**trR, **enemies}, {**gpR, **egaps}, M.events, "Vgate-r")
+    rows.append(_arm_row(M, "Vgate-r", costR, {"join": jR, "read_ratio_vs_ref": costR["reads"] / costV["reads"]}))
+    info["diag"]["Vgate-r"] = diagnose(M, "Vgate-r", "V15h", M._vgate_detail)
+    _log(f"  {M.cap} Vgate-r share {costR['share']:.4f} ratio {costR['reads'] / costV['reads']:.4f} "
+         f"lost {costR['lost']}")
     # RR1a: live-phase grid share with a real icon, against T1's drawn share
     live = np.zeros(M.G.size, bool)
     for r in M.rounds:
@@ -747,6 +821,128 @@ def arms(M: RealMatch) -> tuple[list[dict], dict]:
     _log(f"  {M.cap} arms in {time.time() - t0:.0f} s")
     M.V = V
     return rows, info
+
+
+
+# ----------------------------------------------------------------- diagnosis (RX1)
+
+def _instances(M: RealMatch, q: str, keys, src: str = "T0") -> list[tuple]:
+    """(key, time, involved ally slots) per instance of q: contacts from
+    `src`'s items, first-sight support at T0's first sighting of the round
+    (a round T0 lacks is skipped)."""
+    team_of = {sl.slot_id: sl.team for sl in M.tl0.slots}
+    idx = {sl.slot_id: k for k, sl in enumerate(M.tl0.slots)}
+    out = []
+    if q == "contact_C":
+        items = M.A[src]["contact_C"]
+        for i in keys:
+            it = items[i]
+            mates = [idx[x] for x in it["k"] if team_of.get(x) == M.C]
+            out.append((i, float(it["s"]), mates))
+    elif q == "first_sight_support":
+        first = {}
+        for c in M.d0.contacts:
+            fs = c.get("first_seer")
+            seer = None
+            if fs == "both":
+                seer = c["a"] if team_of.get(c["a"]) == M.C else c["b"]
+            elif fs is not None and team_of.get(fs) == M.C:
+                seer = fs
+            if seer is None:
+                continue
+            r = c["round"]
+            if r not in first or c["t_start_ms"] < first[r][0]:
+                first[r] = (c["t_start_ms"], seer)
+        for r in keys:
+            if r not in first:
+                continue
+            t = float(first[r][0])
+            al = M.tl0._alive_fn(np.array([t]))[:, 0]
+            out.append((r, t, [int(x) for x in M.ci if al[x]]))
+    return out
+
+
+def diagnose(M: RealMatch, arm: str, ref: str, detail: dict) -> dict:
+    """Each instance broken by `arm` against `ref` (judged on T0) in
+    first_sight_support and contact_C, by cause, first that holds: a lost
+    scheduled read of an involved ally within 2 s before (`lost_read`); a
+    scheduled fit there more than 3 m from the ally's `ref` position at the
+    scheduled time (`far_fit`); the arm's reads of an involved ally bracketing
+    the instance more than 4 s apart (`long_span`); `other`. Non-exclusive
+    counts and the arm-against-ref position gap at the instance stand beside."""
+    out = {}
+    T0 = M.A["T0"]
+    for mode, q in [(m_, q_) for m_ in ("vs_T0_flips", "vs_ref_disagree")
+                    for q_ in ("first_sight_support", "contact_C")]:
+        if mode == "vs_T0_flips":
+            broken = _ok_set(T0, M.A[ref], q) - _ok_set(T0, M.A[arm], q)
+            inst = _instances(M, q, sorted(broken, key=str))
+        else:
+            R_ = M.A[ref][q]
+            keys = range(len(R_)) if q in cq.EPISODIC else R_.keys()
+            broken = set(keys) - _ok_set(M.A[ref], M.A[arm], q)
+            inst = _instances(M, q, sorted(broken, key=str), src=ref)
+        cls, flags = Counter(), Counter()
+        for _key, t, mates in inst:
+            f = {"lost_read": False, "far_fit": False, "long_span": False, "pos_gap_3m_at_instance": False}
+            smp_a = M.TL[arm].sample(np.array([t]))
+            smp_r = M.TL[ref].sample(np.array([t]))
+            for sl in mates:
+                d = detail.get(int(sl))
+                if d is None:
+                    continue
+                w = (d["t_sched"] >= t - DIAG_WIN_MS) & (d["t_sched"] <= t)
+                f["lost_read"] |= bool((w & ~d["ok"]).any())
+                wf = w & d["ok"]
+                if wf.any():
+                    rs = M.TL[ref].sample(d["t_sched"][wf])
+                    dd = np.hypot(d["x"][wf] - rs["x"][sl], d["y"][wf] - rs["y"][sl])
+                    f["far_fit"] |= bool(np.any(np.where(np.isfinite(dd), dd > DIAG_FAR_CM, False)))
+                tr = d.get("t_reads", np.zeros(0))
+                lives = [(a, e) for a, e in M.lives[M.sid[sl]] if a <= t < e]
+                a, e = lives[0] if lives else (t, t)
+                pr = tr[(tr <= t) & (tr >= a)]
+                nx = tr[(tr > t) & (tr < e)]
+                lo = pr.max() if pr.size else a
+                hi = nx.min() if nx.size else e
+                f["long_span"] |= bool(hi - lo > DIAG_SPAN_MS)
+                g = np.hypot(smp_a["x"][sl, 0] - smp_r["x"][sl, 0], smp_a["y"][sl, 0] - smp_r["y"][sl, 0])
+                f["pos_gap_3m_at_instance"] |= bool(not np.isfinite(g) or g > DIAG_FAR_CM)
+            for k, v in f.items():
+                flags[k] += int(v)
+            c = next((k for k in ("lost_read", "far_fit", "long_span") if f[k]), "other")
+            cls[c] += 1
+        out.setdefault(mode, {})[q] = {"broken": len(inst), "cause": dict(cls), "any_flag": dict(flags)}
+    return out
+
+
+def spacing_diag(M: RealMatch, arm: str, ref: str) -> dict:
+    """The 15 Hz arm's spacing_5m disagreements with `ref`: whether a fit is
+    missing (an involved ally's last V15 read more than 1 s old at the death,
+    or none in the life) or far (every involved ally read within 1 s, one
+    more than 3 m from T0). Involved: the victim and every living teammate."""
+    bad = set(M.A[ref]["spacing_death"]) - _ok_set(M.A[ref], M.A[arm], "spacing_5m")
+    ev = {e.event_id: e for e in M.tl0.events if e.kind == "death"}
+    idx = {sl.slot_id: k for k, sl in enumerate(M.tl0.slots)}
+    cls = Counter()
+    for k in bad:
+        e = ev[k]
+        t = float(e.t_ms) - 1.0
+        al = M.tl0._alive_fn(np.array([t]))[:, 0]
+        inv = [idx[e.target]] + [int(x) for x in M.ci if al[x] and x != idx[e.target]]
+        miss = far = False
+        sa, s0 = M.TL[arm].sample(np.array([t])), M.tl0.sample(np.array([t]))
+        for sl in inv:
+            T = M._v15_reads.get(int(sl), np.zeros(0))
+            pr = T[T <= t]
+            if not pr.size or t - pr.max() > 1000.0:
+                miss = True
+            g = np.hypot(sa["x"][sl, 0] - s0["x"][sl, 0], sa["y"][sl, 0] - s0["y"][sl, 0])
+            if not np.isfinite(g) or g > DIAG_FAR_CM:
+                far = True
+        cls["missing_fit" if miss else ("far_fit" if far else "other")] += 1
+        cls["far_fit_any"] += int(far)
+    return {"disagree": len(bad), "n": len(M.A[ref]["spacing_death"]), **dict(cls)}
 
 
 def rr6(M: RealMatch, V: dict) -> dict:
@@ -874,10 +1070,14 @@ def run_matches(sessions: list[str]) -> int:
             _log(f"STOP: RR0b out of bounds on {r['session']}: {b}")
             return 3
     rows, infos = [], []
+    (OUT / "lost_reads.jsonl").write_text("", encoding="utf-8")
     for M in Ms:
         rw, info = arms(M)
         rows += rw
         infos.append(info)
+        with (OUT / "lost_reads.jsonl").open("a", encoding="utf-8") as f:
+            for x in getattr(M, "_lost_rows", []):
+                f.write(json.dumps(x, default=cq._jd) + "\n")
         M._onsets = info.get("onsets", [])
         with (OUT / "rows.jsonl").open("w", encoding="utf-8") as f:
             for x in rows:
@@ -945,6 +1145,15 @@ def _onset_pool(ons: list[dict]) -> dict:
     return out
 
 
+def _merge_counts(acc: dict, d: dict) -> None:
+    """Add nested count dicts into `acc`, in place."""
+    for k, v in d.items():
+        if isinstance(v, dict):
+            _merge_counts(acc.setdefault(k, {}), v)
+        elif isinstance(v, (int, float)) and not isinstance(v, bool):
+            acc[k] = acc.get(k, 0) + v
+
+
 def report(record: bool = False) -> int:
     rows = [json.loads(s) for s in (OUT / "rows.jsonl").read_text(encoding="utf-8").splitlines() if s.strip()]
     infos = json.loads((OUT / "info.json").read_text(encoding="utf-8"))
@@ -961,11 +1170,25 @@ def report(record: bool = False) -> int:
         summary["onsets"][s] = _onset_pool(v)
     summary["rr1a"] = {i["session"]: i["rr1a"] for i in infos if "rr1a" in i}
     summary["rr6"] = {i["session"]: i["rr6"] for i in infos if "rr6" in i}
+    summary["diag"] = {}
+    for pname, sess in (("dev2", JUDGED), ("dev3", tuple(i["session"] for i in infos if "diag" in i))):
+        agg = {}
+        for i in infos:
+            if i.get("session") not in sess or "diag" not in i:
+                continue
+            _merge_counts(agg, i["diag"])
+        summary["diag"][pname] = agg
+    print("diag:", json.dumps(summary["diag"], indent=1, default=dict))
+    lp = OUT / "lost_reads.jsonl"
+    if lp.is_file():
+        LR = [json.loads(x) for x in lp.read_text(encoding="utf-8").splitlines() if x.strip()]
+        summary["lost_reads"] = {"dev2": lost_table([r for r in LR if r["m"] in JUDGED]), "dev3": lost_table(LR)}
+        print("lost_reads:", json.dumps(summary["lost_reads"], indent=1))
     summary["instrument"] = inst
     for name, P in summary["pools"].items():
         print(f"\n== pool {name}")
         print("arm".ljust(10) + "ref".ljust(6) + "share   fshare  ratio  " + " ".join(q[:11].rjust(17) for q in SIGHT_QS))
-        for arm in ("Lp", "T1v", "Lpv", "Lpv-reach", "V15h", "Vgate", "V15t", "Vgate-t"):
+        for arm in ORDER:
             if arm not in P:
                 continue
             o = P[arm]
@@ -1030,14 +1253,14 @@ def report(record: bool = False) -> int:
 
 # ----------------------------------------------------------------- cost
 
-def cost(sid: str, n_crops: int, record: bool = False) -> int:
-    """RR5: time the crop fetch, the cue and read_frame on n consecutive
-    live-phase crops, CPU and wall apart, and price per captured frame."""
-    from reticle import metrics, minimap_objects as mo
-    from reticle.minimap import widget_drawn
+
+def _cue_times(sid: str, n_crops: int) -> tuple[dict, list]:
+    """The minimap object context and n consecutive live-phase cache times,
+    from the second round's buy end (the RR5 sample)."""
+    from reticle import minimap_objects as mo
+    from reticle.replay_source import capture_replay_context, replay_entry
     from reticle.store import Store
     refuse(sid)
-    from reticle.replay_source import capture_replay_context, replay_entry
     ctxr = capture_replay_context(sid, None, STORE)
     al = ctxr["out"]["align"]
     a, b = float(al["a_ls_ms"]), float(al["slope"])
@@ -1055,10 +1278,356 @@ def cost(sid: str, n_crops: int, record: bool = False) -> int:
         if np.isfinite(lo) and np.isfinite(hi):
             live |= (holds >= a + b * lo) & (holds <= a + b * hi)
     cand = holds[live]
-    # 600 consecutive live-phase crops, from the second round's buy end
     lo2 = a + b * float(np.sort(tl_[np.isfinite(tl_)])[1])
     i0 = int(np.searchsorted(cand, lo2))
-    times = cand[i0:i0 + n_crops].tolist()
+    return ctx, cand[i0:i0 + n_crops].tolist()
+
+
+def _mo_rows(sid: str, frames=None) -> dict:
+    """Stored minimap_object frame rows by frame_idx (raw: enemies, "?" marks,
+    X marks, refused candidates), optionally only the frames asked."""
+    want = None if frames is None else {int(f) for f in frames}
+    out = {}
+    for r in rt._rows(STORE / "events" / "minimap_object" / f"{sid}.jsonl"):
+        if r.get("kind") != "frame":
+            continue
+        f = int(r["frame_idx"])
+        if want is None or f in want:
+            out[f] = r
+    return out
+
+
+def _ally_frames(sid: str) -> dict:
+    """Stored ally_icon frame rows' fields by frame_idx: widget_drawn, stack_reason."""
+    out = {}
+    for r in rt._rows(STORE / "events" / "ally_icon" / f"{sid}.jsonl", "widget_drawn"):
+        if r.get("kind") == "frame":
+            out[int(r["frame_idx"])] = (bool(r.get("widget_drawn")), r.get("stack_reason"))
+    return out
+
+
+def lost_reads(M: RealMatch, V: dict, detail: dict) -> dict:
+    """RX5: every scheduled read of a truth-gate arm, its stored outcome and
+    context; lost reads (no fit) by the stored reason at that slot and frame.
+
+    The stored reason is read, never inferred: the ally_icon frame row
+    (`widget_drawn`, `stack_reason`) and the ally_icon icon rows within two
+    icon radii of the slot's last fit at that frame (their `reason`; a
+    described icon there is `described_unbound` or `described_bound_to_other`,
+    with causal_bind's non-player bucket beside, which is recomputed from
+    stored rows). Context: another bound slot's fit or the self fit within two
+    radii of the last fit; a stored enemy icon, "?" mark or ally_icon
+    `interior_is_map` icon (the ability-glyph class) within two radii at the
+    frame; the last fit's distance to the widget edge; time since the round's
+    first frame and since the last death (T0, any player); agent; transience
+    (a fit on the next in-span frame, within 250 ms, within 500 ms)."""
+    from reticle import geometry
+    G = V["G"]
+    fits, bind = G["fits"], G["bind"]
+    S = G["S"]
+    r2 = 2.0 * float(S.r)
+    H, W = geometry.reference_static(M.cap, STORE).shape[:2]
+    has, obs = V["has"], bind["obs"]
+    seg = G["life"]["seg_start"]
+    lf_all = es.last_fix(has, seg)
+    start, cx, cy = fits["start"], fits["cx"], fits["cy"]
+    reason = fits["reason"]
+    glyph = fits["flags"]["ability_glyph"]
+    is_self = fits["is_self"]
+    bt = bind["bound_to"]
+    npb = bind["np_bucket"]
+    AF = _ally_frames(M.cap)
+    MO = _mo_rows(M.cap)
+    mo_f = np.array(sorted(MO), np.int64)
+    mo_t = np.array([float(MO[f]["t_ms"]) for f in mo_f])
+    o_ = np.argsort(mo_t)
+    mo_f, mo_t = mo_f[o_], mo_t[o_]
+    in_idx = np.flatnonzero(V["in_sp"])
+    Bt = V["fr_t"][in_idx]
+    deaths = np.sort(np.array([e.t_ms for e in M.tl0.events if e.kind == "death"], float))
+    rows = []
+    for s_, d in detail.items():
+        k = d["k"]
+        ag = M.agent.get(M.sid[s_])
+        for i in range(d["frame"].size):
+            f = int(d["frame"][i])
+            ok = bool(d["ok"][i])
+            fi = int(S.fr_f[f])
+            drawn, stack = AF.get(fi, (None, None))
+            lf = int(lf_all[k, f - 1]) if f > 0 and seg[f] < f else -1
+            rec = {"m": M.cap, "ok": ok, "agent": ag, "stack_reason": stack}
+            px = py = None
+            if lf >= 0 and obs[k, lf] >= 0:
+                px, py = float(cx[obs[k, lf]]), float(cy[obs[k, lf]])
+            # stored reason at this slot and frame
+            if drawn is False:
+                why = "widget_not_drawn"
+            elif px is None:
+                why = "no_fit_yet_in_round"
+            else:
+                a_, b_ = int(start[f]), int(start[f + 1])
+                ii = np.arange(a_, b_)
+                dd = np.hypot(cx[ii] - px, cy[ii] - py) if ii.size else np.zeros(0)
+                near = ii[dd <= r2]
+                if not near.size:
+                    why = "no_icon_row_near_last_fit"
+                else:
+                    j = near[np.argmin(np.hypot(cx[near] - px, cy[near] - py))]
+                    if reason[j] is not None and str(reason[j]) not in ("", "None"):
+                        why = f"icon_refused:{reason[j]}"
+                    elif bt[j] < 0:
+                        why = "described_unbound"
+                        rec["np_bucket"] = str(npb[j]) or "none"
+                    elif bt[j] == k:
+                        why = "bound_to_slot"
+                    else:
+                        why = "described_bound_to_other"
+            rec["reason"] = why
+            if px is not None:
+                crowd = False
+                for j2 in range(5):
+                    if j2 != k and obs[j2, lf] >= 0:
+                        crowd |= bool(np.hypot(cx[obs[j2, lf]] - px, cy[obs[j2, lf]] - py) <= r2)
+                a_, b_ = int(start[lf]), int(start[lf + 1])
+                ii = np.arange(a_, b_)
+                ii = ii[is_self[ii]]
+                crowd |= bool(ii.size and (np.hypot(cx[ii] - px, cy[ii] - py) <= r2).any())
+                rec["crowd"] = crowd
+                # the minimap_object frame nearest in time (the grids' phases differ on c817691bcd15)
+                jj = int(np.clip(np.searchsorted(mo_t, S.fr_t[f]), 1, max(mo_t.size - 1, 1)))
+                jj = jj - 1 if abs(mo_t[jj - 1] - S.fr_t[f]) <= abs(mo_t[jj] - S.fr_t[f]) else jj
+                mo = MO[int(mo_f[jj])] if mo_t.size and abs(mo_t[jj] - S.fr_t[f]) <= 42.0 else {}
+                rec["mo_joined"] = bool(mo)
+                age = float(S.fr_t[f] - S.fr_t[lf]) / 1000.0
+                rec["last_fit_age_s"] = "<0.5" if age < 0.5 else ("0.5-2" if age < 2 else ("2-5" if age < 5 else ">=5"))
+                rec["enemy_near"] = any(np.hypot(e["x"] - px, e["y"] - py) <= r2 for e in mo.get("enemies") or [])
+                rec["q_near"] = any(np.hypot(q["x"] - px, q["y"] - py) <= r2 for q in mo.get("questions") or [])
+                a_, b_ = int(start[f]), int(start[f + 1])
+                ii = np.arange(a_, b_)
+                rec["glyph_near"] = bool(ii.size and (glyph[ii] & (np.hypot(cx[ii] - px, cy[ii] - py) <= r2)).any())
+                e_ = min(px, py, W - px, H - py)
+                rec["edge"] = "<20px" if e_ < 20 else ("20-50px" if e_ < 50 else ">=50px")
+            tr = float(S.fr_t[f] - S.fr_t[seg[f]]) / 1000.0
+            rec["since_round_s"] = "<10" if tr < 10 else ("10-30" if tr < 30 else ("30-60" if tr < 60 else ">=60"))
+            t_rep = float(d["t_sched"][i])
+            dj = np.searchsorted(deaths, t_rep, side="right") - 1
+            age = t_rep - deaths[dj] if dj >= 0 else np.inf
+            rec["since_death_s"] = "<2" if age < 2000 else ("2-5" if age < 5000 else ">=5")
+            if not ok:
+                b = int(d["b"][i])
+                nxt = {}
+                for lim, name in ((None, "next_frame"), (250.0, "within_250ms"), (500.0, "within_500ms")):
+                    got = False
+                    for m_ in range(1, 9):
+                        if b + m_ >= Bt.size:
+                            break
+                        if lim is None and m_ > 1:
+                            break
+                        if lim is not None and Bt[b + m_] - Bt[b] > lim:
+                            break
+                        if has[k, in_idx[b + m_]]:
+                            got = True
+                            break
+                    nxt[name] = got
+                rec.update(nxt)
+            rows.append(rec)
+    return {"rows": rows}
+
+
+def lost_table(rows: list[dict]) -> dict:
+    """RX5's tables: reasons of lost reads; per context value, the lost share
+    of scheduled reads and the share of lost reads; transience."""
+    lost = [r for r in rows if not r["ok"]]
+    out = {"scheduled": len(rows), "lost": len(lost), "reason": dict(Counter(r["reason"] for r in lost)),
+           "np_bucket_of_described_unbound": dict(Counter(r["np_bucket"] for r in lost if "np_bucket" in r)),
+           "stack_reason": dict(Counter(str(r["stack_reason"]) for r in lost))}
+    ctx = {}
+    for key in ("crowd", "enemy_near", "q_near", "glyph_near", "edge", "last_fit_age_s", "since_round_s",
+                "since_death_s", "agent", "m", "mo_joined"):
+        vals = Counter(str(r.get(key)) for r in rows)
+        lv = Counter(str(r.get(key)) for r in lost)
+        ctx[key] = {v: {"scheduled": n, "lost": lv.get(v, 0), "lost_rate": round(lv.get(v, 0) / n, 4),
+                        "share_of_lost": round(lv.get(v, 0) / max(len(lost), 1), 4)} for v, n in vals.items()}
+    out["context"] = ctx
+    out["reason_x_crowd"] = dict(Counter(f"{r['reason']}|crowd={r.get('crowd')}" for r in lost))
+    for k in ("next_frame", "within_250ms", "within_500ms"):
+        out[f"transient_{k}"] = round(sum(r[k] for r in lost) / max(len(lost), 1), 4)
+    return out
+
+
+def cue_study(sid: str, n_crops: int, record: bool = False) -> int:
+    """RX6: where the red on no-enemy crops comes from, and a residual cue
+    against the (map, profile) baked base map (fog and revealed layers drawn
+    by map_asset; never a session median), on the RR5 crops."""
+    import cv2
+    from reticle import geometry, map_asset, metrics, minimap_objects as mo, teardrop
+    ctx, times = _cue_times(sid, n_crops)
+    x0, y0, x1, y1 = ctx["rect"]
+    slab = ctx["slab"]
+    scale = ctx["scale"]
+    thr = CUE_PX * scale ** 2
+    key = geometry.key_of(sid, STORE)
+    map_name, prof = geometry.parse(key)
+    fog_static = geometry.reference_static(sid, STORE)
+    P = map_asset.transform(prof)
+    fog, rev, _M, _rot, _tx = map_asset.drawn_layers(map_name, prof, STORE, P)
+    bg = map_asset.void_background(fog[..., 3], P)
+    lit = np.clip(np.rint(map_asset.composite(rev, bg, P)), 0, 255).astype(np.uint8)
+    if lit.shape[:2] != fog_static.shape[:2]:
+        raise SystemExit(f"baked layers differ in shape: {lit.shape} {fog_static.shape}")
+    k3 = np.ones((3, 3), np.uint8)
+    # baked red: either layer, one pixel of slack for the drawing's alignment
+    base_hsv = cv2.dilate((mo.enemy_red_mask(fog_static) | mo.enemy_red_mask(lit)).astype(np.uint8), k3) > 0
+    base_soft = cv2.dilate(np.maximum(teardrop.redness(fog_static), teardrop.redness(lit)), k3)
+    slabf = slab.astype(np.float32)
+    MOr = None
+    rows, crops_keep = [], []
+    src = Counter()
+    it = ctx["cache"].samples(times, rois=["minimap"])
+    t_res = []
+    for smp in it:
+        crop = smp.frame[y0:y1, x0:x1]
+        if crop.shape[:2] != slab.shape:
+            continue
+        w0 = time.perf_counter()
+        resid = np.clip(teardrop.redness(crop) - base_soft, 0.0, 1.0)
+        score = float((resid * slabf).sum()) / thr
+        t_res.append((time.perf_counter() - w0) * 1e3)
+        red = mo.enemy_red_mask(crop) & slab
+        rows.append({"t": float(smp.t_ms), "f": int(smp.frame_idx), "score": score, "pos": score >= 1.0,
+                     "abs_px": int(red.sum()), "hsv_resid_px": int((red & ~base_hsv).sum())})
+        crops_keep.append((int(smp.frame_idx), crop, red))
+    MOr = _mo_rows(sid, [r["f"] for r in rows])
+    # ally_icon icons and self fits at the nearest ally_icon frame in time (within 42 ms: the
+    # grids' phases differ on c817691bcd15); interior_is_map is the ally reader's glyph class.
+    # The ability_icon proposer's candidates at its nearest 2 Hz frame within 500 ms.
+    tw = np.array([r["t"] for r in rows])
+    by_t = defaultdict(list)
+    for r in rt._rows(STORE / "events" / "ally_icon" / f"{sid}.jsonl"):
+        k_ = r.get("kind")
+        if k_ not in ("icon", "frame"):
+            continue
+        t_ = float(r["t_ms"])
+        j_ = int(np.clip(np.searchsorted(tw, t_), 0, tw.size - 1))
+        jj_ = [x for x in (j_ - 1, j_) if 0 <= x < tw.size and abs(tw[x] - t_) <= 42.0]
+        if not jj_:
+            continue
+        if k_ == "icon":
+            by_t[float(t_)].append((r["cx"], r["cy"], r.get("reason")))
+        elif r.get("self") is not None:
+            by_t[float(t_)].append((r["self"][0], r["self"][1], "self"))
+    ai_t = np.array(sorted(by_t))
+    AB = []
+    for r in rt._rows(STORE / "events" / "ability_icon" / f"{sid}.jsonl"):
+        if r.get("kind") == "frame" and r.get("candidates"):
+            AB.append((float(r["t_ms"]), [(c["cx"], c["cy"]) for c in r["candidates"]]))
+    ab_t = np.array([a for a, _ in AB])
+    AI, ABI = {}, {}
+    for r in rows:
+        if ai_t.size:
+            j_ = int(np.argmin(np.abs(ai_t - r["t"])))
+            AI[r["f"]] = by_t[float(ai_t[j_])] if abs(ai_t[j_] - r["t"]) <= 42.0 else []
+        if ab_t.size:
+            j_ = int(np.argmin(np.abs(ab_t - r["t"])))
+            ABI[r["f"]] = AB[j_][1] if abs(ab_t[j_] - r["t"]) <= 500.0 else []
+    rad = mo.ICON_PX * scale
+    yy, xx = np.mgrid[0:slab.shape[0], 0:slab.shape[1]]
+    for row, (fi, crop, red) in zip(rows, crops_keep):
+        m = MOr.get(fi) or {}
+        row["stored_enemy"] = bool(m.get("enemies"))
+        if row["stored_enemy"]:
+            continue
+        lab = np.full(slab.shape, "", object)
+        left = red.copy()
+
+        def take(mask, name):
+            nonlocal left
+            hit = left & mask
+            src[name] += int(hit.sum())
+            left = left & ~mask
+
+        take(base_hsv, "baked_map_art")
+        for name, pts in (("question_mark", [(q["x"], q["y"]) for q in m.get("questions") or []]),
+                          ("x_mark", [(q["x"], q["y"]) for c in ("red", "blue")
+                                      for q in (m.get("x_marks") or {}).get(c, [])]),
+                          ("refused_red_candidate", [(q["x"], q["y"]) for q in m.get("refused") or []]),
+                          ("ability_glyph_ally_reader", [(a, b) for a, b, rs in AI.get(fi, [])
+                                                         if rs == "interior_is_map"]),
+                          ("ally_or_self_icon", [(a, b) for a, b, rs in AI.get(fi, []) if rs != "interior_is_map"]),
+                          ("ability_icon_proposer", ABI.get(fi, []))):
+            mk = np.zeros(slab.shape, bool)
+            for px_, py_ in pts:
+                mk |= np.hypot(xx - px_, yy - py_) <= rad
+            take(mk, name)
+        src["other"] += int(left.sum())
+        _ = lab
+    se = np.array([r["stored_enemy"] for r in rows])
+    pos = np.array([r["pos"] for r in rows])
+    hpos = np.array([r["hsv_resid_px"] >= thr for r in rows])
+    tot = sum(src.values())
+    out = {"session": sid, "crops": len(rows), "geometry_key": key, "base": "map_asset fog static "
+           "(geometry.reference_static) and revealed layer (map_asset.drawn_layers + composite), 3x3 dilated",
+           "stored_enemy_crops": int(se.sum()),
+           "red_sources_no_enemy_px": {k: int(v) for k, v in src.items()},
+           "red_sources_no_enemy_share": {k: round(v / max(tot, 1), 4) for k, v in src.items()},
+           "residual_soft": {"positive_share": round(float(pos.mean()), 4),
+                             "recall_stored_enemy": round(float(pos[se].mean()), 4) if se.any() else None,
+                             "precision": round(float(se[pos].mean()), 4) if pos.any() else None,
+                             "agreement": round(float((pos == se).mean()), 4),
+                             "score_median_no_enemy": round(float(np.median([r["score"] for r in rows if not r["stored_enemy"]])), 3),
+                             "score_median_enemy": (round(float(np.median([r["score"] for r in rows if r["stored_enemy"]])), 3)
+                                                    if se.any() else None),
+                             "ms_wall": {"median": round(float(np.median(t_res)), 3),
+                                         "p90": round(float(np.percentile(t_res, 90)), 3)}},
+           "residual_hsv": {"positive_share": round(float(hpos.mean()), 4),
+                            "recall_stored_enemy": round(float(hpos[se].mean()), 4) if se.any() else None,
+                            "precision": round(float(se[hpos].mean()), 4) if hpos.any() else None},
+           "threshold": f"residual redness sum on the slab >= {CUE_PX} x scale^2 (one cut)"}
+    # the picture: the no-enemy crop with the most absolute red
+    cand = [i for i, r in enumerate(rows) if not r["stored_enemy"]]
+    i = max(cand, key=lambda i: rows[i]["abs_px"])
+    fi, crop, red = crops_keep[i]
+    resid = np.clip(teardrop.redness(crop) - base_soft, 0.0, 1.0) * slabf
+
+    def gray(m):
+        return cv2.cvtColor((np.clip(m, 0, 1) * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    panels = [crop, gray(red.astype(np.float32)), gray((base_hsv & slab).astype(np.float32)), gray(resid)]
+    names = ["crop", "crop red mask (slab)", "baked map red mask (slab)", "residual redness"]
+    big = []
+    for im, nm in zip(panels, names):
+        im = cv2.resize(im, None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST)  # display only
+        im = cv2.copyMakeBorder(im, 30, 4, 4, 4, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+        cv2.putText(im, nm, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_AA)
+        big.append(im)
+    png = OUT / f"cue_residual_{sid}_{fi}.png"
+    cv2.imwrite(str(png), np.hstack(big))
+    out["png"] = {"path": str(png), "frame_idx": fi, "abs_px": rows[i]["abs_px"], "score": round(rows[i]["score"], 3),
+                  "hsv_resid_px": rows[i]["hsv_resid_px"]}
+    print(json.dumps(out, indent=1))
+    (OUT / "cue.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    if record:
+        vals = {}
+        for k, v in out.items():
+            if isinstance(v, dict):
+                for a_, x in v.items():
+                    if isinstance(x, dict):
+                        vals.update({f"{k}.{a_}.{b_}": y for b_, y in x.items() if isinstance(y, (int, float))})
+                    elif isinstance(x, (int, float)) and x is not None:
+                        vals[f"{k}.{a_}"] = x
+            elif isinstance(v, (int, float)):
+                vals[k] = v
+        metrics.record("real_reader_schedule", part="cue_residual", session=sid, values=vals,
+                       deps={"version": VERSION, "geometry_key": key, "asset": map_asset.asset_stamp(map_name, prof, STORE)},
+                       context={"task": TASK, "crops": len(rows)})
+    return 0
+
+
+def cost(sid: str, n_crops: int, record: bool = False) -> int:
+    """RR5: time the crop fetch, the cue and read_frame on n consecutive
+    live-phase crops, CPU and wall apart, and price per captured frame."""
+    from reticle import metrics, minimap_objects as mo
+    from reticle.minimap import widget_drawn
+    ctx, times = _cue_times(sid, n_crops)
     x0, y0, x1, y1 = ctx["rect"]
     scale = ctx["scale"]
     slab = ctx["slab"]
@@ -1248,6 +1817,63 @@ def outcome() -> int:
     return 0
 
 
+def outcome_rx() -> int:
+    """RX1-RX6 outcome rows, from pooled.json and cue.json."""
+    P = json.loads((OUT / "pooled.json").read_text(encoding="utf-8"))
+    pred = STORE / "notes" / "predictions.jsonl"
+    if any(f'"{TASK}-RX1-outcome"' in x for x in pred.read_text(encoding="utf-8").splitlines()):
+        raise SystemExit("RX outcome rows already appended")
+    d2 = P["pools"]["dev2"]
+    dg = P["diag"]["dev2"]["Vgate-t"]["vs_T0_flips"]
+    br = sum(dg[q]["broken"] for q in ("first_sight_support", "contact_C"))
+    lost = sum(dg[q]["any_flag"]["lost_read"] for q in ("first_sight_support", "contact_C"))
+    far = sum(dg[q]["any_flag"]["far_fit"] for q in ("first_sight_support", "contact_C"))
+    res = {"RX1": {"RX1a": _clause(br and lost / br >= 0.5, share=round(lost / br, 4) if br else None, k=lost, n=br),
+                   "RX1b": _clause(br and far / br < 0.25, share=round(far / br, 4) if br else None, k=far, n=br)}}
+    v = d2["Vgate-t-r"]["vs_ref"]
+    others = ("opening_first_seer", "spacing_5m", "spacing_death", "duel_C", "trade_C")
+    res["RX2"] = {"RX2a": _clause(v["first_sight_support"]["agree"] >= 0.85, **v["first_sight_support"]),
+                  "RX2b": _clause(v["contact_C"]["agree"] >= 0.90, **v["contact_C"]),
+                  "RX2c": _clause(all(v[q]["agree"] >= 0.92 for q in others), **{q: v[q]["agree"] for q in others}),
+                  "RX2d": _clause(d2["Vgate-t-r"]["read_ratio_vs_ref"] <= 0.11,
+                                  ratio=round(d2["Vgate-t-r"]["read_ratio_vs_ref"], 4))}
+    v = d2["Vgate-r"]["vs_ref"]
+    res["RX3"] = {"RX3a": _clause(v["contact_C"]["agree"] >= 0.90, **v["contact_C"]),
+                  "RX3b": _clause(v["first_sight_support"]["agree"] >= 0.80, **v["first_sight_support"]),
+                  "RX3c": _clause(d2["Vgate-r"]["read_ratio_vs_ref"] <= 0.075,
+                                  ratio=round(d2["Vgate-r"]["read_ratio_vs_ref"], 4))}
+    v = d2["Vgate-t-r1"]["vs_ref"]
+    q4 = [q for q in SIGHT_QS if q != "spacing_death"]
+    res["RX4"] = {"RX4a": _clause(all(v[q]["agree"] >= 0.92 for q in q4), **{q: v[q]["agree"] for q in q4}),
+                  "RX4b": _clause(d2["Vgate-t-r1"]["share"] <= 0.08, share=round(d2["Vgate-t-r1"]["share"], 4))}
+    L = P["lost_reads"]["dev2"]
+    crowd = L["context"]["crowd"].get("True", {}).get("share_of_lost", 0.0)
+    res["RX5"] = {"RX5a": _clause(crowd >= 0.5, share_crowd=crowd),
+                  "RX5b": _clause(L["transient_within_500ms"] >= 0.6, share_within_500ms=L["transient_within_500ms"],
+                                  next_frame=L["transient_next_frame"], within_250ms=L["transient_within_250ms"])}
+    cp = OUT / "cue.json"
+    if cp.is_file():
+        C = json.loads(cp.read_text(encoding="utf-8"))["residual_soft"]
+        res["RX6"] = {"RX6a": _clause(C["positive_share"] <= 0.25, share=C["positive_share"]),
+                      "RX6b": _clause((C["recall_stored_enemy"] or 0) >= 0.9, recall=C["recall_stored_enemy"]),
+                      "RX6c": _clause(C["ms_wall"]["median"] <= 1.5, ms=C["ms_wall"])}
+    ts = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
+    with pred.open("a", encoding="utf-8") as f:
+        for cand, cl in res.items():
+            row = {"id": f"{TASK}-{cand}-outcome", "task": TASK, "date": time.strftime("%Y-%m-%d"), "ts": ts,
+                   "domain": "episodes", "kind": "outcome", "branch": TASK, "commit": f"{TASK} (see git log)",
+                   "prototype": "prototypes/real_reader_schedule.py", "version": VERSION, "wire": "no",
+                   "wire_reason": "an evaluation pilot over stored rows and replay truth; reticle/ never imports it",
+                   "outcome_of": [f"{TASK}-{cand}"], "candidate": cand,
+                   "clauses": {k: dict(v, verdict="held" if v["held"] else "failed") for k, v in cl.items()},
+                   "scored": "dev2 = c817691bcd15 + d3dcfb182ab1 judged (RX6 on c817691bcd15's 600 RR5 crops); "
+                             "dev3 with 9acf02f98283 beside in pooled.json; held-out never read",
+                   "outputs": str(OUT)}
+            f.write(json.dumps(row, default=cq._jd) + "\n")
+            print(cand, {k: ("held" if v["held"] else "failed") for k, v in cl.items()})
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1259,7 +1885,12 @@ def main(argv=None) -> int:
     c.add_argument("session")
     c.add_argument("--crops", type=int, default=600)
     c.add_argument("--record", action="store_true")
+    cu = sub.add_parser("cue")
+    cu.add_argument("session")
+    cu.add_argument("--crops", type=int, default=600)
+    cu.add_argument("--record", action="store_true")
     sub.add_parser("outcome")
+    sub.add_parser("outcome-rx")
     a = ap.parse_args(argv)
     for s in getattr(a, "sessions", []) or []:
         refuse(s)
@@ -1272,6 +1903,10 @@ def main(argv=None) -> int:
         return report(a.record)
     if a.cmd == "cost":
         return cost(a.session, a.crops, a.record)
+    if a.cmd == "cue":
+        return cue_study(a.session, a.crops, a.record)
+    if a.cmd == "outcome-rx":
+        return outcome_rx()
     return outcome()
 
 
