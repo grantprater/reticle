@@ -1,6 +1,7 @@
 r"""Check a freshly recorded ability-demo clip BEFORE it is ingested.
 
     .\.venv\Scripts\python.exe prototypes\clip_preflight.py <video>... [--donor a06f04a0059f]
+    .\.venv\Scripts\python.exe prototypes\clip_preflight.py --write-donor [--donor a06f04a0059f]
 
 Why this exists, 2026-09-03
 -----------------------------
@@ -33,6 +34,16 @@ It may be used only for widget dimensions, placement and orientation. It must
 never become a floor mask, lighting reference, detector background, or cached
 base map; those come only from baked ``(map, profile)`` geometry.
 
+The donor snapshot, 2026-10-05
+------------------------------
+The player deletes the video of every capture without a replay file, the
+default donor's among them. `--write-donor` stores the donor's median corner,
+with its provenance, at `<store>/reference/preflight_donor/<donor>.npz`;
+preflight reads that snapshot and decodes the donor's video only when no
+snapshot exists. With neither, or with a snapshot sampled at another `--n`
+and no video, it refuses by name. Only this file may read the snapshot
+(`doctor` SESSION_STATIC enforces this), and only for the three checks above.
+
 The median over sampled frames is what makes all three checks readable at all: the
 widget is SEMI-TRANSPARENT over live scenery, so a single frame carries the
 world moving behind it. Same trick `minimap_geometry` uses.
@@ -57,7 +68,10 @@ failed the size and ROI checks -- but do not read "cannot tell" as "upright".
 from __future__ import annotations
 
 import argparse
+import datetime
+import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -74,22 +88,36 @@ ROI = (15, 14, 480, 500)
 W = H = 560
 N = 41
 ROT_MARGIN = 0.02      # ncc difference below this is "cannot tell"
+# 0.1.0 (2026-10-05): the donor's `median_corner`, stored losslessly with its
+# sample, so preflight survives the donor video's retirement.
+PREFLIGHT_DONOR_VERSION = "preflight-donor-0.1.0"
+SNAPSHOT_DIR = STORE / "reference" / "preflight_donor"
 
 
-def corner_frames(path: str, n: int = N):
-    """`(t_ms, top-left corner)` of `n` frames spread over the capture."""
+class Refusal(Exception):
+    """Preflight cannot obtain a donor median; the message names why."""
+
+
+def corner_frames(path: str, n: int = N, meta: dict | None = None):
+    """`(t_ms, top-left corner)` of `n` frames spread over the capture.
+
+    `meta`, when given, receives the frame count, fps and decoded indices."""
     cap = cv2.VideoCapture(str(path))
     tot = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
-    out = []
+    out, idx = [], []
     for i in np.linspace(tot * 0.05, tot * 0.95, n).astype(int):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
         ok, fr = cap.read()
         if ok:
             out.append((i * 1000.0 / fps, fr[:H, :W].copy()))
+            idx.append(int(i))
     cap.release()
     if not out:
         raise SystemExit(f"{path}: decoded no frames")
+    if meta is not None:
+        meta.update(frame_count=tot, fps=fps, frame_indices=idx,
+                    t_ms=[float(t) for t, _ in out])
     return out
 
 
@@ -97,6 +125,81 @@ def median_corner(path: str, n: int = N, frames=None):
     """Capture median for widget geometry checks only; never map extraction."""
     buf = [f for _, f in (frames or corner_frames(path, n))]
     return np.median(np.stack(buf), 0).astype(np.uint8)
+
+
+def snapshot_path(donor: str) -> Path:
+    return SNAPSHOT_DIR / f"{donor}.npz"
+
+
+def _sha(arr) -> str:
+    return hashlib.sha256(np.ascontiguousarray(arr).tobytes()).hexdigest()
+
+
+def _manifest(donor: str) -> dict:
+    p = STORE / "manifests" / f"{donor}.json"
+    if not p.is_file():
+        raise Refusal(f"donor {donor}: no manifest at {p}")
+    return json.loads(p.read_text())
+
+
+def _decodable(donor: str, man: dict) -> str:
+    """The donor video's path; a Refusal names why it cannot be decoded."""
+    if man.get("video_retired"):
+        raise Refusal(f"donor {donor}: video retired at {man['video_retired'].get('at')}")
+    path = man["source"]["path"]
+    if not Path(path).is_file():
+        raise Refusal(f"donor {donor}: video {path} is not on disk")
+    return path
+
+
+def write_donor(donor: str, n: int = N) -> Path:
+    """Decode the donor's median corner once and store it with provenance.
+
+    Refuses rather than overwrite an existing snapshot."""
+    out = snapshot_path(donor)
+    if out.exists():
+        raise Refusal(f"donor {donor}: snapshot {out} exists; it is never overwritten")
+    man = _manifest(donor)
+    path = _decodable(donor, man)
+    meta: dict = {}
+    med = median_corner(path, n, corner_frames(path, n, meta))
+    prov = {
+        "version": PREFLIGHT_DONOR_VERSION, "donor": donor,
+        "source_profile": man["source_profile"], "source_path": path,
+        "content_key": man["source"].get("content_key"), "n": n,
+        "n_decoded": len(meta["frame_indices"]), "frame_count": meta["frame_count"],
+        "fps": meta["fps"], "frame_indices": meta["frame_indices"], "t_ms": meta["t_ms"],
+        "crop": [0, 0, W, H], "shape": list(med.shape), "dtype": str(med.dtype),
+        "sha256": _sha(med),
+        "written_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(out.stem + ".tmp.npz")
+    np.savez_compressed(tmp, median=med, provenance=np.array(json.dumps(prov)))
+    os.replace(tmp, out)
+    return out
+
+
+def donor_median(donor: str, n: int = N):
+    """`(median corner, source profile, origin)` for `donor`.
+
+    Reads the stored snapshot; decodes the donor's video only without one."""
+    p = snapshot_path(donor)
+    note = ""
+    if p.is_file():
+        with np.load(p, allow_pickle=False) as z:
+            med, prov = z["median"], json.loads(str(z["provenance"]))
+        if _sha(med) != prov["sha256"]:
+            raise Refusal(f"donor {donor}: snapshot {p} fails its sha256")
+        if prov["n"] == n:
+            return med, prov["source_profile"], f"snapshot {p} [{prov['version']}]"
+        note = f"; its snapshot sampled n={prov['n']}, not {n}"
+    man = _manifest(donor)
+    try:
+        path = _decodable(donor, man)
+    except Refusal as e:
+        raise Refusal(f"{e}, and no usable snapshot at {p}{note}") from None
+    return median_corner(path, n), man["source_profile"], f"decoded {path}{note}"
 
 
 def placements(frames, key: str):
@@ -136,18 +239,29 @@ def ncc(a, b):
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("videos", nargs="+")
+    ap.add_argument("videos", nargs="*")
     ap.add_argument("--donor", default="a06f04a0059f",
                     help="ingested session on the SAME map to compare against")
     ap.add_argument("--n", type=int, default=N)
     ap.add_argument("--key", default=None,
                     help="also fit the widget placement against this <map>__<profile> baked static")
+    ap.add_argument("--write-donor", action="store_true",
+                    help="store the donor's median corner under reference/preflight_donor/ and exit")
     a = ap.parse_args()
 
-    man = json.loads((STORE / "manifests" / f"{a.donor}.json").read_text())
-    donor = median_corner(man["source"]["path"], a.n)
+    try:
+        if a.write_donor:
+            print(f"wrote {write_donor(a.donor, a.n)}")
+            return 0
+        if not a.videos:
+            ap.error("name at least one video, or pass --write-donor")
+        donor, profile, origin = donor_median(a.donor, a.n)
+    except Refusal as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
+    print(f"donor median from {origin}", file=sys.stderr)
     dbb = linework_bbox(donor)
-    print(f"donor {a.donor} [{man['source_profile']}]  linework bbox {dbb}\n")
+    print(f"donor {a.donor} [{profile}]  linework bbox {dbb}\n")
 
     bad = 0
     for v in a.videos:
