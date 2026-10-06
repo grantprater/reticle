@@ -235,6 +235,10 @@ def test_killing_hit_logged_after_the_kill_joins_its_duel():
     pair = [x for x in kinds(d, "duel") if set(x["participants"].values()) == {"A1", "D1"}]
     assert len(pair) == 1 and "late" in pair[0]["members"]
     assert pair[0]["t_end_ms"] == 40_300.0 and pair[0]["hits"] == 2
+    assert pair[0]["kill_event"] == "k1"
+    eng = next(e for e in kinds(d, "engagement") if "A1" in e["participants"]["combatants"])
+    assert sorted(eng["kill_events"]) == ["k1", "k2"]
+    assert kinds(d, "trade")[0]["same_engagement"] is True
 
 
 def test_frustum():
@@ -263,3 +267,57 @@ def test_rows_round_trip(tmp_path, derived):
     assert head["version"] == ep.EPISODES_VERSION and head["source"] == "truth"
     rows = ep.read_episodes("synthetic", root=tmp_path)
     assert sum(r["row"] == "episode" for r in rows) == len(derived.episodes)
+
+
+def test_debounce_absorbs_a_step_over_a_boundary():
+    row = np.array([1, 1, 1, 2, 1, 1, 3, 3, 3, 3, 2], np.int16)
+    # A one-sample visit to 2 reverts to 1; the last run stands unjudged.
+    assert ep._debounce(row, 2).tolist() == [1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 2]
+
+
+def test_plant_after_the_round_is_decided_changes_nothing():
+    tl = timeline()
+    tl.events = [e for e in tl.events if e.kind not in ("plant", "defuse")]
+    tl.events.append(ep.Event("plant", 82_000.0, "late_plant", actor="A2",
+                              position=(A_SITE[0], A_SITE[1], 100.0)))
+    tl.events.sort(key=lambda e: e.t_ms)
+    rounds = ep.timeline_rounds(tl)
+    assert rounds[0]["plant"] is None and rounds[0]["post_round_plant"].event_id == "late_plant"
+    d = derive(tl)
+    assert not kinds(d, "phase_post_plant")
+    live = kinds(d, "phase_live")[0]
+    assert live["t_end_ms"] == 80_100.0
+    assert live["outcome"]["end_reason"] == "time" and live["outcome"]["winner"] == "blue"
+
+
+def test_plan_names_episodes_absent_stale_or_nothing(monkeypatch):
+    from reticle import plan
+    st = {"match": "m", "state": "absent", "moved": [], "stored": None,
+          "current": ep.EPISODES_VERSION, "command": "reticle episodes s1"}
+    monkeypatch.setattr(ep, "session_status", lambda sid, root: dict(st))
+    got = plan.episodes_work("root", "s1", set())
+    assert got["stream"] == "episodes" and got["inputs_moved"] == ["absent"]
+    assert got["command"] == "reticle episodes s1"
+    st.update(state="current")
+    assert plan.episodes_work("root", "s1", set()) is None
+    # A replay layer planned in the same pass moves current episodes.
+    assert plan.episodes_work("root", "s1", {"replay_layer"})["inputs_moved"] == ["replay_layer"]
+    st.update(state="stale", moved=["sightline_table"])
+    assert plan.episodes_work("root", "s1", set())["inputs_moved"] == ["sightline_table"]
+    monkeypatch.setattr(ep, "session_status", lambda sid, root: None)
+    assert plan.episodes_work("root", "s1", {"replay_layer"}) is None
+    graph, _fold = plan.order_graph()
+    assert "replay_layer" in graph["episodes"]
+
+
+def test_doctor_errors_on_a_current_layer_without_current_episodes(monkeypatch, tmp_path):
+    from reticle import doctor, replay_layer
+    for m in ("aaaa1111", "bbbb2222", "cccc3333"):
+        (tmp_path / "analysis" / "replay-layer" / m).mkdir(parents=True)
+        (tmp_path / "analysis" / "replay-layer" / m / "layer.json").write_text("{}")
+    layer = {"aaaa1111": "current", "bbbb2222": "current", "cccc3333": "stale"}
+    eps = {"aaaa1111": "current", "bbbb2222": "absent", "cccc3333": "absent"}
+    monkeypatch.setattr(replay_layer, "status", lambda m, root: {"state": layer[m], "moved": []})
+    monkeypatch.setattr(ep, "status", lambda m, root: {"state": eps[m], "moved": []})
+    out = doctor.check_episodes(tmp_path)
+    assert len(out) == 1 and out[0][0] == doctor.ERROR and out[0][1].startswith("bbbb2222")

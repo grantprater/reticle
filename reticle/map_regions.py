@@ -12,10 +12,10 @@ Volume names are no label: five maps name them only by number
 (`BP_CalloutRegion12`). The boxes of one actor form one region and take the
 label of valorant-api's callout points (`regionName`, `superRegionName`: A,
 B, C, Mid, Attacker Side, Defender Side) that lie inside any of them, the
-majority winning; an actor holding no point takes the label of the point
-nearest its centre in plan. Each
-label carries that basis (`inside` or `nearest`), so a consumer can see which
-labels rest on the weaker rule.
+majority winning; an actor holding none takes the points over or under its
+boxes in plan, and failing those the point nearest its centre in plan. Each
+label carries that basis (`inside`, `plan` or `nearest`), so a consumer can
+see which labels rest on the weaker rules.
 """
 from __future__ import annotations
 
@@ -125,6 +125,11 @@ def _api_callouts(key: str, root: str) -> tuple:
     return ()
 
 
+def _centre_xy(reg: Regions, k: int) -> np.ndarray:
+    c = np.append((reg.lo[k] + reg.hi[k]) / 2.0, 1.0) @ np.linalg.inv(reg.inv[k])
+    return c[:2]
+
+
 def label_volumes(reg: Regions, callouts: list[dict], names: list[str]) -> list[dict]:
     """Each volume's (region, super) label from the callout points inside it.
 
@@ -138,18 +143,35 @@ def label_volumes(reg: Regions, callouts: list[dict], names: list[str]) -> list[
     pts = np.array([[c["location"]["x"], c["location"]["y"], c["location"]["z"]] for c in callouts])
     k = reg.volume_of(pts)
     votes: dict[str, Counter] = {}
-    for kk, c in zip(k.tolist(), callouts):
+    near: dict[tuple, float] = {}
+    for kk, c, p in zip(k.tolist(), callouts, pts):
         if kk >= 0:
-            votes.setdefault(names[kk], Counter())[(c.get("regionName"), c.get("superRegionName"))] += 1
+            lab = (c.get("regionName"), c.get("superRegionName"))
+            votes.setdefault(names[kk], Counter())[lab] += 1
+            near[(names[kk], lab)] = min(near.get((names[kk], lab), np.inf),
+                                         float(np.hypot(*(p[:2] - _centre_xy(reg, kk)))))
     fwd = np.linalg.inv(reg.inv)
     centre_local = np.column_stack([(reg.lo + reg.hi) / 2.0, np.ones(len(reg.lo))])
     centre = np.einsum("kj,kji->ki", centre_local, fwd)[:, :3]
+    # In plan: a point over or under an actor's boxes (the box's own x and y).
+    h = np.column_stack([pts, np.ones(len(pts))])
+    loc = np.einsum("nj,kji->kni", h, reg.inv)[..., :2]
+    over = ((loc >= reg.lo[:, None, :2]) & (loc <= reg.hi[:, None, :2])).all(-1)   # (K, N)
     for name in dict.fromkeys(names):
         idx = [i for i, n in enumerate(names) if n == name]
+        plan = Counter((callouts[j].get("regionName"), callouts[j].get("superRegionName"))
+                       for j in np.flatnonzero(over[idx].any(0)))
         if name in votes:
-            (region, sup), _n = votes[name].most_common(1)[0]
+            # The most points win; a tie goes to the label whose point lies
+            # nearest the volume's centre in plan.
+            top = max(votes[name].values())
+            region, sup = min((lab for lab, n in votes[name].items() if n == top),
+                              key=lambda lab: near[(name, lab)])
             lab = {"region": region, "super": sup, "basis": "inside",
                    "points": sum(votes[name].values())}
+        elif plan:
+            (region, sup), _n = plan.most_common(1)[0]
+            lab = {"region": region, "super": sup, "basis": "plan", "points": sum(plan.values())}
         else:
             c = centre[idx].mean(0)
             j = int(np.argmin(np.hypot(pts[:, 0] - c[0], pts[:, 1] - c[1])))

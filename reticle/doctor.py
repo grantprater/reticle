@@ -1462,6 +1462,32 @@ def check_replay_layer(store: Path) -> list[tuple[str, str]]:
     return out
 
 
+def check_episodes(store: Path) -> list[tuple[str, str]]:
+    """A match whose replay layer is current and whose episodes are not.
+
+    Episodes (`episodes`, docs/EPISODES.md) are derived from the layer, so a
+    current layer without current episodes leaves duels, trades and round
+    phases behind the truth they rest on. Every built layer counts, kept for
+    a capture or not; a layer that is itself stale is REPLAY_LAYER's error
+    first."""
+    from .episodes import status
+    from .replay_layer import layer_root, status as layer_status
+    out = []
+    root = layer_root(store)
+    if not root.is_dir():
+        return out
+    for d in sorted(root.iterdir()):
+        if not (d / "layer.json").is_file() or layer_status(d.name, store)["state"] != "current":
+            continue
+        st = status(d.name, store)
+        if st["state"] == "current":
+            continue
+        why = st["state"] + (f" ({', '.join(st['moved'])})" if st.get("moved") else "")
+        out.append((ERROR, f"{d.name[:8]} has a current replay layer and its episodes are "
+                           f"{why} -- run `reticle episodes {d.name[:8]}`"))
+    return out
+
+
 def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
     checks = (("HANDOFF", check_handoff), ("DOCS", check_documents),
               ("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
@@ -1473,6 +1499,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("QUOTED", lambda: check_quoted(store)),
               ("PROMOTE", lambda: check_promote(store)),
               ("REPLAY_LAYER", lambda: check_replay_layer(store)),
+              ("EPISODES", lambda: check_episodes(store)),
               ("SESSION_STATIC", lambda: check_session_static(store)),
               ("GEOMETRY", lambda: check_geometry(store)),
               ("SHADE", lambda: check_shade(store)),

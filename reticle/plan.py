@@ -875,6 +875,7 @@ def order_graph() -> tuple[dict[str, set[str]], dict[str, str]]:
     for spec in ENTITY_LANES:
         graph.setdefault(lane_streams(spec["lane"])[0], set()).update(spec["inputs"])
     graph.setdefault("replay_layer", set()).update(REPLAY_LAYER_INPUTS)
+    graph.setdefault("episodes", set()).update(EPISODES_INPUTS)
     fold = {s["stream"]: s["upstream"][0] for s in derived_streams() if s.get("identity")}
     out: dict[str, set[str]] = {}
     for node, deps in graph.items():
@@ -1556,6 +1557,13 @@ def stale(store, sessions: list[str]) -> dict:
         if rl is not None:
             derived.append(rl)
             moving.add(rl["stream"])
+        # Its episodes (`episodes.session_status`): absent, or stale against
+        # the layer, the sightline table, the region labels and the code; a
+        # layer planned here moves them.
+        ew = episodes_work(store.root, sid, moving)
+        if ew is not None:
+            derived.append(ew)
+            moving.add(ew["stream"])
         # The entity lanes: the projection records each input's stamp.
         from .entity_events import lane_status
         lanes = lane_status(store, sid, moving)
@@ -1597,6 +1605,26 @@ def replay_layer_work(root, sid: str, moving: set[str] = frozenset()) -> dict | 
         moved = ["absent"]
     moved += sorted(m for m in REPLAY_LAYER_INPUTS & set(moving) if m not in moved)
     return {"stream": "replay_layer", "stored": st.get("stored"), "current": REPLAY_LAYER_VERSION,
+            "inputs_moved": moved, "how": "storage", "command": st["command"]}
+
+
+#: The streams episodes are derived from, for the build order.
+EPISODES_INPUTS = {"replay_layer"}
+
+
+def episodes_work(root, sid: str, moving: set[str] = frozenset()) -> dict | None:
+    """The episodes entry for a session whose kept replay names it, or None
+    where they are current and no input moves, or no replay is kept."""
+    from .episodes import EPISODES_VERSION, session_status
+    st = session_status(sid, root)
+    if st is None:
+        return None
+    upstream = sorted(EPISODES_INPUTS & set(moving))
+    if st["state"] == "current" and not upstream:
+        return None
+    moved = ["absent"] if st["state"] == "absent" else list(st.get("moved") or [])
+    moved += [m for m in upstream if m not in moved]
+    return {"stream": "episodes", "stored": st.get("stored"), "current": EPISODES_VERSION,
             "inputs_moved": moved, "how": "storage", "command": st["command"]}
 
 

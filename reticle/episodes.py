@@ -41,6 +41,7 @@ PARAMS = {
     "TRADE_WINDOW_MS": 5000.0,    # Q5
     "EXECUTE_K": 3,               # Q6
     "ROTATION_MIN_DWELL_MS": 3000.0,  # Q9
+    "REGION_HOLD_MS": 1000.0,     # Q9
     "LURK_MIN_MS": 5000.0,        # Q10
     "REGION_HZ": 4.0,             # resolution
     "SIGHT_AT_KILL_MS": 1000.0,   # a report window on a duel, not a bound
@@ -48,7 +49,7 @@ PARAMS = {
 PARAM_KIND = {
     "HFOV_DEG": "player:Q1", "SIGHT_HZ": "resolution", "CONTACT_MERGE_MS": "player:Q2",
     "DUEL_GAP_MS": "player:Q3", "ENGAGE_JOIN_MS": "player:Q4", "TRADE_WINDOW_MS": "player:Q5",
-    "EXECUTE_K": "player:Q6", "ROTATION_MIN_DWELL_MS": "player:Q9", "LURK_MIN_MS": "player:Q10",
+    "EXECUTE_K": "player:Q6", "ROTATION_MIN_DWELL_MS": "player:Q9", "REGION_HOLD_MS": "player:Q9", "LURK_MIN_MS": "player:Q10",
     "REGION_HZ": "resolution", "SIGHT_AT_KILL_MS": "report window",
 }
 #: The engine keeps the horizontal FOV across aspect ratios
@@ -169,7 +170,9 @@ def alive_from_events(tl: Timeline, t: np.ndarray) -> np.ndarray:
 
 def timeline_rounds(tl: Timeline) -> list[dict]:
     """The rounds in time order: start, buy end, end (decided), next start,
-    and the plant, defuse and detonation inside each."""
+    and the plant, defuse and detonation inside each. A plant after the
+    round is decided changes nothing [domain:rounds/post-round-plant-no-graphic]
+    and is kept apart as `post_round_plant`."""
     ev = sorted(tl.events, key=lambda e: e.t_ms)
     starts = [e for e in ev if e.kind == "round_start"]
     match_end = max([e.t_ms for e in ev if e.kind == "match_end"] or [ev[-1].t_ms if ev else 0.0])
@@ -179,10 +182,14 @@ def timeline_rounds(tl: Timeline) -> list[dict]:
         inside = [e for e in ev if s.t_ms <= e.t_ms < nxt] if nxt > s.t_ms else []
         first = lambda kind: next((e for e in inside if e.kind == kind), None)  # noqa: E731
         be, re_, pl = first("buy_end"), first("round_end"), first("plant")
+        late = None
+        if pl is not None and re_ is not None and pl.t_ms >= re_.t_ms:
+            pl, late = None, pl
         out.append({"round": k + 1, "start": s, "t_start": s.t_ms, "t_next": nxt,
                     "buy_end": be, "t_live": be.t_ms if be else None,
                     "end": re_, "t_end": re_.t_ms if re_ else None,
-                    "plant": pl, "defuse": first("defuse"), "detonate": first("detonate"),
+                    "plant": pl, "post_round_plant": late,
+                    "defuse": first("defuse"), "detonate": first("detonate"),
                     "side": s.side})
     return out
 
@@ -357,7 +364,7 @@ def derive_episodes(tl: Timeline, occ=None, regions=None, params: dict | None = 
     idx = {s.slot_id: k for k, s in enumerate(tl.slots)}
     out = Derived(header={
         "version": EPISODES_VERSION, "match": tl.match, "map": tl.map, "source": tl.source,
-        "stamps": tl.stamps, "params": P, "param_kind": PARAM_KIND,
+        "stamps": tl.stamps, "inputs": {}, "params": P, "param_kind": PARAM_KIND,
         "damage_read": tl.damage_read,
         "line_of_sight": occ.provenance() if hasattr(occ, "provenance") else None,
         "regions": regions.provenance() if regions is not None else None,
@@ -441,14 +448,21 @@ def _phases(r: dict, att: str | None, tl: Timeline, team_of: dict) -> list[dict]
     return out
 
 
+#: Deaths are logged up to a few tens of ms after the round-end phase
+#: change; life is read this long after it.
+END_SETTLE_MS = 100.0
+
+
 def _round_result(r: dict, att, tl: Timeline, team_of: dict):
     """(end_reason, winning team, the deciding event's time).
 
-    Before a plant a team with nobody left loses (`elimination`), and with
-    both teams standing at the round's end the defenders win (`time`). After
-    a plant only a defuse wins for the defenders; with every defender dead
-    it is `elimination`, else `detonation`, decided at the round's end (the
-    timeline carries no detonation event where its source has none)."""
+    Before a plant a team with nobody alive just after the round's end loses
+    (`elimination`), and with both teams standing the defenders win (`time`).
+    After a plant only a defuse wins for the defenders; with every defender
+    dead it is `elimination`, else `detonation`, decided at the round's end
+    (the timeline carries no detonation event where its source has none).
+    Life comes from the timeline, which carries revives; the deciding time is
+    the eliminated team's last death."""
     teams = sorted(set(team_of.values()))
     defe = next((tm for tm in teams if tm != att), None) if att else None
     if r["defuse"] is not None:
@@ -458,24 +472,22 @@ def _round_result(r: dict, att, tl: Timeline, team_of: dict):
     t_end = r["t_end"]
     if t_end is None:
         return None, None, None
-    t0 = r["t_live"] if r["t_live"] is not None else r["t_start"]
-    smp = tl.sample(np.array([t0]))
+    t_look = min(t_end + END_SETTLE_MS, r["t_next"] - 1.0)
+    smp = tl.sample(np.array([t_look]))
     alive = {s.slot_id: bool(smp["alive"][k, 0]) for k, s in enumerate(tl.slots)}
-    last_death = {}
-    for e in sorted((e for e in tl.events if e.kind in ("death", "revive")
-                     and t0 <= e.t_ms <= t_end), key=lambda e: e.t_ms):
-        if e.target in alive:
-            alive[e.target] = e.kind == "revive"
-            if e.kind == "death":
-                last_death[team_of[e.target]] = e.t_ms
     out = [tm for tm in teams if not any(alive[s] for s, t2 in team_of.items() if t2 == tm)]
-    if r["plant"] is not None and r["plant"].t_ms <= t_end:
+
+    def last_death(tm):
+        return max((e.t_ms for e in tl.events if e.kind == "death" and team_of.get(e.target) == tm
+                    and r["t_start"] <= e.t_ms <= t_look), default=None)
+
+    if r["plant"] is not None:
         if defe is not None and defe in out:
-            return "elimination", att, last_death.get(defe)
+            return "elimination", att, last_death(defe)
         return "detonation", att, None
     if len(out) == 1:
         loser = out[0]
-        return "elimination", next(tm for tm in teams if tm != loser), last_death.get(loser)
+        return "elimination", next(tm for tm in teams if tm != loser), last_death(loser)
     return "time", defe, None
 
 
@@ -609,6 +621,7 @@ def _duel(r, a, b, bout, pc, deaths, grid, sees, idx, first_kill, P) -> dict:
                hits=len(dmg),
                opening=bool(kill is not None and first_kill is not None
                             and kill.t_ms == first_kill),
+               kill_event=kill.event_id if kill is not None else None,
                members=[e.event_id for e in bout],
                evidence=[e.event_id for e in bout] + ([c0["contact_id"]] if c0 else []))
 
@@ -669,8 +682,7 @@ def _engagements(r, duels, contacts, tl, team_of, P) -> list[dict]:
                   participants={"combatants": sorted(combat), "witnesses": witnesses},
                   outcome={"kills": k_by, "deaths": d_by, "survivors": surv, "winner": winner},
                   members=[d["episode_id"] for d in ds],
-                  kill_events=[m for d in ds if d["outcome"]["result"] == "killed"
-                               for m in d["members"][-1:]])
+                  kill_events=[d["kill_event"] for d in ds if d["kill_event"]])
         for d in ds:
             d["engagement_id"] = eng["episode_id"]
         out.append(eng)
@@ -686,7 +698,7 @@ def _trades(r, tl, grid, sees, smp, duels, engagements, team_of, idx, P) -> list
     eng_of = {}
     for d in duels:
         if d["outcome"]["result"] == "killed":
-            eng_of[d["members"][-1]] = d.get("engagement_id")
+            eng_of[d["kill_event"]] = d.get("engagement_id")
     revives = [e for e in tl.events if e.kind == "revive" and r["t_start"] <= e.t_ms < r["t_next"]]
     out = []
     for k1 in kills:
@@ -732,7 +744,21 @@ def _region_series(tl, regions, t0, t1, P):
     have = np.where(c >= 0, np.arange(g.size)[None, :], -1)
     last = np.maximum.accumulate(have, axis=1)
     filled = np.where(last >= 0, np.take_along_axis(c, np.maximum(last, 0), axis=1), -1)
+    hold = int(round(P["REGION_HOLD_MS"] / dt))
+    for s in range(S):
+        filled[s] = _debounce(filled[s], hold)
     return g, filled.astype(np.int16), smp["alive"]
+
+
+def _debounce(row: np.ndarray, hold: int) -> np.ndarray:
+    """A super-region entered for fewer than `hold` samples (a step over a
+    boundary and back) keeps the one held before it."""
+    out = row.copy()
+    runs = _label_runs(out)
+    for i, (_v, a, b) in enumerate(runs):
+        if i > 0 and b - a + 1 < hold and i + 1 < len(runs):
+            out[a:b + 1] = out[a - 1]
+    return out
 
 
 def _label_runs(row: np.ndarray) -> list[tuple[int, int, int]]:
@@ -909,7 +935,9 @@ def _rotations(r, tl, regions, idx, P) -> list[dict]:
 # ----------------------------------------------------------------- storage
 
 def episodes_dir(source: str, root=DEFAULT_STORE) -> Path:
-    return Path(root) / "episodes" / source
+    """`<store>/analysis/episodes/<source>/`: truth episodes live with the
+    other evaluation truth, one call away from no reader."""
+    return Path(root) / "analysis" / "episodes" / source
 
 
 def episodes_path(key: str, source: str = "truth", root=DEFAULT_STORE) -> Path:
@@ -1045,3 +1073,90 @@ def from_replay_layer(key: str, root=DEFAULT_STORE) -> ArrayTimeline:
     map_url = (L.head.get("provenance") or {}).get("map")
     return ArrayTimeline(L.match, map_url or "", slots, tracks, events, source="truth",
                          stamps=stamps, max_gap_ms=MAX_GAP_MS, alive_fn=alive_fn)
+
+
+# ----------------------------------------------------------------- staleness
+
+def current_inputs(match: str, root=DEFAULT_STORE) -> dict:
+    """The stamps a truth build of `match` would record now: this code, the
+    sight and region owners, the replay layer's head, the map's sightline
+    table and valorant-api's map list."""
+    from .input_stamps import file_sha16
+    from .line_of_sight import LINE_OF_SIGHT_VERSION, sightline_table
+    from .map_regions import MAP_REGIONS_VERSION
+    from .replay_layer import layer_dir
+
+    head = layer_dir(match, root) / "layer.json"
+    out = {"episodes": EPISODES_VERSION, "line_of_sight": LINE_OF_SIGHT_VERSION,
+           "map_regions": MAP_REGIONS_VERSION, "replay_layer": file_sha16(head),
+           "valorant_api_maps": file_sha16(Path(root) / "external" / "valorant-api" / "maps.json"),
+           "sightline_table": None}
+    if head.is_file():
+        url = ((json.loads(head.read_text(encoding="utf-8")).get("provenance") or {}).get("map"))
+        tp = sightline_table(url, root) if url else None
+        out["sightline_table"] = f"{tp.name}:{tp.stat().st_size}" if tp else None
+    return out
+
+
+def status(match: str, root=DEFAULT_STORE) -> dict:
+    """`{state, moved}` of a match's truth episodes: `absent`, `stale` when a
+    recorded input differs from `current_inputs`, else `current`."""
+    head = read_header(match, "truth", root)
+    if head is None:
+        return {"state": "absent", "moved": [], "stored": None, "current": EPISODES_VERSION}
+    rec = head.get("inputs") or {}
+    now = current_inputs(match, root)
+    moved = sorted(k for k in set(now) | set(rec) if now.get(k) != rec.get(k))
+    return {"state": "stale" if moved else "current", "moved": moved,
+            "stored": head.get("version"), "current": EPISODES_VERSION}
+
+
+def session_status(sid: str, root=DEFAULT_STORE) -> dict | None:
+    """The episodes status of the replay a capture session keeps, or None
+    where it keeps none."""
+    from .replay_source import replay_entry
+    e = replay_entry(sid, root)
+    if e is None:
+        return None
+    match = Path(e["file"]).stem
+    return {"match": match, **status(match, root), "command": f"reticle episodes {sid}"}
+
+
+def build(key: str, root=DEFAULT_STORE) -> dict:
+    """Derive and write a match's truth episodes from its replay layer; the
+    header records the inputs `status` compares."""
+    tl = from_replay_layer(key, root)
+    inputs = current_inputs(tl.match, root)
+    d = derive_episodes(tl)
+    d.header["inputs"] = inputs
+    write_episodes(d, tl.match, root)
+    return d.header
+
+
+def command(keys: list[str], *, all_: bool = False, status_only: bool = False,
+            root=DEFAULT_STORE) -> int:
+    """`reticle episodes`: derive each named match's episodes (every match
+    with a replay layer under `--all`), or with `--status` say which are
+    current, stale or absent. A held-out match is built and never counted."""
+    from .replay_layer import is_held_out, layer_dir, layer_root, resolve
+
+    matches = ([p.name for p in sorted(layer_root(root).iterdir())
+                if (p / "layer.json").is_file()] if all_ and layer_root(root).is_dir() else [])
+    for k in keys:
+        m, _s = resolve(k, root)
+        if m is None or not (layer_dir(m, root) / "layer.json").is_file():
+            print(f"{k}: no replay layer -- run `reticle replay-layer {k}` first")
+            continue
+        matches.append(m)
+    rc = 0
+    for m in dict.fromkeys(matches):
+        if status_only:
+            st = status(m, root)
+            print(f"{m}  {st['state']}" + (f"  moved: {', '.join(st['moved'])}" if st["moved"] else ""))
+            continue
+        h = build(m, root)
+        if is_held_out(m):
+            print(f"{m}: built (held out: no statistics)")
+            continue
+        print(f"{m}: built {h['version']} on {h['map']}")
+    return rc
