@@ -686,6 +686,20 @@ class Store:
             "widget_drawn": pa.array([r.get("widget_drawn") for r in rows],
                                      type=pa.bool_()),
         }
+        # minimap-0.8.0: the self icon and the spike glyph tracked together
+        # (`icon_prior.SelfTracker`). `self_rests_on` names the rule that chose
+        # the point (`minimap.SELF_PICK_RULES`, or `refused`); `self_reason`
+        # says why a drawn frame holds none -- `no_candidate` (a miss),
+        # `on_carried_glyph` (a refusal) -- or `widget_not_drawn`, so a refusal
+        # stays apart from a miss. The spike columns are the glyph the same
+        # crop held and what its place rests on (`prior`, `prior_held`,
+        # `full_search`). Rows from an older reader carry none of these, and
+        # their absence is unknown, not false.
+        for k, typ in (("self_rests_on", pa.string()), ("self_reason", pa.string()),
+                       ("self_carries_spike", pa.bool_()), ("self_glyph_masked", pa.bool_()),
+                       ("spike_state", pa.string()), ("spike_x", pa.float32()),
+                       ("spike_y", pa.float32()), ("spike_rests_on", pa.string())):
+            arrays[k] = pa.array([r.get(k) for r in rows], type=typ)
         for i in range(len(rows[0]["ally_x"])):
             arrays[f"ally{i}_x"] = pa.array([r["ally_x"][i] for r in rows], type=pa.float32())
             arrays[f"ally{i}_y"] = pa.array([r["ally_y"][i] for r in rows], type=pa.float32())

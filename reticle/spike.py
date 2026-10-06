@@ -498,6 +498,91 @@ def accepted(fits: list[dict]) -> list[dict]:
     return [f for f in fits if f.get("reason") is None]
 
 
+#: `verify_glyph` searches this far (scale-1.0 px) round a glyph's fixed place:
+#: the fit's own centroid error, the glyph itself not moving.
+VERIFY_PX = 2.0
+
+
+def verify_glyph(crop: np.ndarray, glyph: dict, rotation: int = 0,
+                 search_px: float = VERIFY_PX) -> dict:
+    """The glyph `glyph` (a `glyph_fits` fit) checked at its own place and
+    state on a later crop: one template, one side, a window of
+    `search_px` round its centroid, the same blur and gate as `glyph_fits`.
+
+    Returns `cx`, `cy` (the best place in the window), `ncc`, `amp`,
+    `ncc_flip` (the other orientation's correlation at that place, which a
+    pickup raises) and `reason` (None where the gate passes, else
+    `glyph_gate`'s reason, or `off_crop` where the window leaves the crop).
+    It reads no other place: a glyph that moved fails here, and the caller
+    widens to `glyph_fits`."""
+    from .minimap import widget_scale
+
+    sc = widget_scale(crop.shape[1])
+    box = round(float(glyph["side"]) * sc, 2)
+    down = _base_down(glyph["state"], rotation)
+    t = glyph_template(box, down)
+    tf = glyph_template(box, not down)
+    # A fit reports the triangle's centroid; the template is placed by its
+    # box's centre, `template_centroid` from it (`glyph_fits`).
+    ox, oy = template_centroid(box, down)
+    bx, by = int(round(glyph["cx"] - ox)), int(round(glyph["cy"] - oy))
+    s = int(np.ceil(search_px * sc))
+    h = max(t.shape[0], tf.shape[0]) // 2
+    x0, y0 = bx - h - s, by - h - s
+    x1, y1 = bx + h + s + 1, by + h + s + 1
+    out = {"cx": glyph["cx"], "cy": glyph["cy"], "ncc": None, "amp": None, "ncc_flip": None}
+    if x0 < 0 or y0 < 0 or x1 > crop.shape[1] or y1 > crop.shape[0]:
+        return {**out, "reason": "off_crop"}
+    y = cv2.GaussianBlur(spike_yellowness(crop[y0:y1, x0:x1]), (0, 0), 0.7)
+    k = np.full_like(t, 1.0 / t.size)
+    ncc = cv2.matchTemplate(y, t, cv2.TM_CCOEFF_NORMED)
+    mu = cv2.matchTemplate(y, k, cv2.TM_CCORR)
+    sd = np.sqrt(np.maximum(cv2.matchTemplate(y * y, k, cv2.TM_CCORR) - mu * mu, 0))
+    amp = ncc * sd / float(t.std())
+    py, px = np.unravel_index(int(np.argmax(ncc)), ncc.shape)
+    p = t.shape[0] // 2
+    cx, cy = x0 + px + p, y0 + py + p
+    flip = cv2.matchTemplate(y, tf, cv2.TM_CCOEFF_NORMED)
+    q = tf.shape[0] // 2
+    fy, fx = cy - y0 - q, cx - x0 - q
+    nf = (float(flip[fy, fx]) if 0 <= fy < flip.shape[0] and 0 <= fx < flip.shape[1]
+          else float(flip.max()))
+    n, a = round(float(ncc[py, px]), 3), round(float(amp[py, px]), 1)
+    return {"cx": round(float(cx + ox), 2), "cy": round(float(cy + oy), 2), "ncc": n, "amp": a,
+            "ncc_flip": round(nf, 3), "reason": glyph_gate(n, a)}
+
+
+def glyph_footprint(shape: tuple, glyph: dict, sc: float, rotation: int = 0,
+                    grow_px: float = 2.0) -> np.ndarray:
+    """The pixels a glyph covers, as a boolean mask of `shape`: its rendered
+    triangle (`glyph_template` at its box and state) placed so its
+    centroid (`template_centroid`) sits at the glyph's, grown by `grow_px` (scale-1.0 px) for the chroma the 4:2:0
+    capture spreads past its edge [domain:capture/chroma-420]. The black
+    circle inside the triangle is covered too: it is the glyph's, not an
+    icon's."""
+    box = round(float(glyph["side"]) * sc, 2)
+    down = _base_down(glyph["state"], rotation)
+    t = glyph_template(box, down)
+    ox, oy = template_centroid(box, down)
+    m = (t > 0.05).astype(np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cv2.drawContours(m, cnts, -1, 1, -1)
+    g = int(np.ceil(grow_px * sc))
+    if g > 0:
+        m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * g + 1, 2 * g + 1)))
+        m = np.pad(m, g)
+    out = np.zeros(shape[:2], bool)
+    p = m.shape[0] // 2
+    cx, cy = int(round(glyph["cx"] - ox)), int(round(glyph["cy"] - oy))
+    a, b = cy - p, cy - p + m.shape[0]
+    c, d = cx - p, cx - p + m.shape[1]
+    ya, yb, xa, xb = max(0, a), min(shape[0], b), max(0, c), min(shape[1], d)
+    if ya < yb and xa < xb:
+        out[ya:yb, xa:xb] = m[ya - a:yb - a, xa - c:xb - c] > 0
+    return out
+
+
 def _carrier_point(glyph: dict, sc: float, rotation: int = 0) -> tuple[float, float]:
     """Where the carrier's icon centre sits in the baked frame: up and to the
     right of its glyph on the screen, down and to the left where the widget is
@@ -632,4 +717,4 @@ def read_frame(crop: np.ndarray, ctx: dict) -> dict:
 
 __all__ = ["SPIKE_VERSION", "glyph_fits", "accepted", "on_glyph", "carrier_offset",
            "roster_marker", "spike_yellowness", "glyph_template", "glyph_gate", "read_frame",
-           "STEP_S", "ROSTER_GAP_MS"]
+           "verify_glyph", "glyph_footprint", "STEP_S", "ROSTER_GAP_MS"]

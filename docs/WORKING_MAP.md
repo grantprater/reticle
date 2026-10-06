@@ -32,6 +32,8 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Is the Tab scoreboard open, and its round marks | `scoreboard.py`, `scoreboard_strip.py` (`reticle strip`), `adjudication/scoreboard.py` (`reticle openings`), [SCOREBOARD_PRESENCE.md](SCOREBOARD_PRESENCE.md), [SCOREBOARD_ROUND_MARKS.md](SCOREBOARD_ROUND_MARKS.md) |
 | Each side's five agents from the scoreboard | `adjudication/identity.py` (`board_side_sets`, `lineup_with_board`), [SCOREBOARD_LINEUP.md](SCOREBOARD_LINEUP.md) |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py`, `team_vision.py` |
+| The self icon and the spike glyph tracked together, the dropped-glyph mask, the carrier flag, per-side priors | `icon_prior.py`, `spike.py` |
+| Whether the yellow icon is the player: his death and the spectate switch (guard 6) | `adjudication/spectate.py` |
 | Which stored minimap fits become icons; the candidate record | `candidate_evidence.py`, `adjudication/minimap_candidates.py`, [MINIMAP_CANDIDATE_CONTRACT.md](MINIMAP_CANDIDATE_CONTRACT.md) |
 | Position belief; temporal adjudication design | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
 | Which icon is which: occluders, glyphs, appearance matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |

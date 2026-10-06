@@ -14,6 +14,25 @@ def read(t, x, y):
     return (t, x, y)
 
 
+class DeadTests(unittest.TestCase):
+    """Guard 6: inside the player's dead intervals the yellow icon is not him."""
+
+    def test_reads_inside_are_no_evidence_and_nothing_crosses(self):
+        found = [read(0, 10, 10), read(STEP, 11, 10), read(2 * STEP, 90, 90),
+                 read(3 * STEP, 91, 90), read(4 * STEP, None, None), read(5 * STEP, 12, 10)]
+        got = resolve(found, STEP, absent_t=[], dead=[(1.5 * STEP, 3.5 * STEP)])
+        self.assertEqual([f.source for f in got[:2]], [OBSERVED, OBSERVED])
+        self.assertEqual([(f.source, f.reason) for f in got[2:4]],
+                         [(UNRESOLVED, "player_dead")] * 2)
+        # The read before the death is not held into the gap after it.
+        self.assertEqual(got[4].source, UNRESOLVED)
+        self.assertEqual(got[5].source, OBSERVED)
+
+    def test_no_interval_changes_nothing(self):
+        found = [read(0, 10, 10), read(STEP, 11, 10)]
+        self.assertEqual(resolve(found, STEP), resolve(found, STEP, dead=[]))
+
+
 class SourceTests(unittest.TestCase):
     def test_an_admitted_read_is_observed_at_the_fit_error(self):
         found = [read(0, 10, 10), read(STEP, 12, 10)]

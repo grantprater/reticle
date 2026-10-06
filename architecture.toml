@@ -52,7 +52,7 @@ modules = ["minimap", "ally_portrait", "ocr", "killfeed", "roster", "ping", "con
            "minimap_dark", "combat_report", "ability_shapes", "tray", "ult_lines",
            "tray_icons", "menu", "teardrop", "spike", "occluders", "ability_scan", "ability_icons",
            "plant_graphic", "killfeed_numeral", "killfeed_assist", "stack_fit", "tray_countdown",
-           "minimap_glyph", "clove_circle"]
+           "minimap_glyph", "clove_circle", "icon_prior"]
 
 [orchestration]
 claim = "shared decode passes, which dispatch to readers and own no reading"
@@ -76,6 +76,7 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "adjudication.ability_glyph",
            "adjudication.assist",
            "adjudication.round_outcome", "self_icon",
+           "adjudication.spectate",
            "minimap_objects",
            "ability_coverage", "ability_candidates",
            "ability_timeline", "ability_audio_fit", "gametime", "domain_learning",

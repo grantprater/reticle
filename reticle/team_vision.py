@@ -80,6 +80,16 @@ per cause, so `plan` stales this product when the ally reader changes. Without `
 teammates itself, which only `overlay` and the prototypes do; the stored
 product never does.
 
+**The yellow icon after the player's death (0.8.0).** Guard 6 of
+docs/PRIOR_DRIVEN_READERS.md: while the player is dead the minimap draws the
+spectated teammate as the yellow icon [domain:minimap/self-icon-shows-spectated].
+Given the player's dead intervals (`dead`, `adjudication.spectate`, which
+rests on the death owner), the self track's icon is stored with role
+`spectated` after the switch -- a teammate's observation, with `rests_on` the
+spectate inference and no name, whose cone is the team's vision -- and with
+role `player_dead` before it, casting nothing. It is never stored as the
+player's icon there.
+
 **On demand.** `at` computes the rows at chosen instants only, starting the
 chain at the last cache gap its tracks and lifecycle expire across, so each
 row equals the full run's except for track ids. `reticle vision --check`
@@ -433,6 +443,9 @@ class VisionFrame:
     #: Per `resolved` entry, the ids of the boxes its cone crossed with the
     #: boxes open (`cone.box_crossings`); empty when the geometry has no `occ`.
     crossed: list = field(default_factory=list)
+    #: Where the yellow icon is not the player (guard 6): `state`
+    #: (`spectated` or `player_dead`) and what it rests on; None while he lives.
+    self_state: dict | None = None
     observable_all: np.ndarray | None = None
     observable: np.ndarray | None = None
     #: On an `ally_unread` frame, the self icon's eligible cone alone;
@@ -448,9 +461,13 @@ class TeamVision:
                  track_ally=None, lifecycle=None, distance_diagnostics=True,
                  box_id=None, open_boxes=None,
                  ring_fallback: bool = RING_FALLBACK,
-                 ally_poses: StoredAllyPoses | None = None):
+                 ally_poses: StoredAllyPoses | None = None, dead=None):
         self.floor, self.passable, self.sgray = floor, passable, sgray
         self.box_id, self.open_boxes = box_id, open_boxes
+        #: The player's dead intervals (`adjudication.spectate.DeadIndex`),
+        #: or None: guard 6 is then not applied, and the stored coverage row
+        #: says so.
+        self.dead = dead
         self.slab, self.static, self.light = slab, static, light
         self.stalls, self.origin_events = stalls, tuple(origin_events or ())
         self.scale = widget_scale(width)
@@ -596,6 +613,24 @@ class TeamVision:
             poses.append(pose)
         self_cone = poses[-1] if self_tracks else None
 
+        # Guard 6 (`adjudication.spectate`): after the player's death the
+        # yellow icon is not him. After the switch it is the spectated
+        # teammate, whose cone is the team's vision; before it the death
+        # camera's, which casts nothing.
+        self_state = None
+        iv = self.dead.at(t_ms) if self.dead is not None else None
+        if iv is not None and self_tracks:
+            from .adjudication.spectate import SPECTATE_VERSION
+            spectated = iv.spectated(t_ms)
+            self_state = {"state": "spectated" if spectated else "player_dead",
+                          "rests_on": "spectate_switch" if spectated else iv.rests_on,
+                          "dead_rests_on": iv.rests_on, "switch_ms": iv.switch_ms,
+                          "spectate_version": SPECTATE_VERSION}
+            if not spectated:
+                x, y, _deg, carried = resolved[-1]
+                resolved[-1] = (x, y, None, carried)
+                self_cone = None
+
         # Three-tuples ONLY: `resolved`'s fourth element is `interpolated`,
         # and `observable`'s fourth is a per-icon HALF-ANGLE.
         agg = per_icon = None
@@ -664,7 +699,7 @@ class TeamVision:
                             eligible=eligible, origins=origins, poses=poses,
                             self_cone=self_cone, cones=per_icon or [], crossed=crossed,
                             observable_all=agg,
-                            observable=adjudicated_agg)
+                            observable=adjudicated_agg, self_state=self_state)
         if unread is not None:
             # Only the self icon cast: its eligible cone is the self cone, and
             # the team's vision stays unread.
@@ -730,6 +765,11 @@ def frame_row(frame: VisionFrame, frame_idx: int | None = None) -> dict:
                 "casts": adj is not None, "pose": pose}
         if frame.crossed:
             icon["boxes_crossed"] = frame.crossed[i]
+        if role == "self" and frame.self_state is not None:
+            # Not the player: a spectated teammate's observation, named by
+            # nobody here, or the death camera's view.
+            icon["role"] = frame.self_state["state"]
+            icon["rests_on"] = {k: v for k, v in frame.self_state.items() if k != "state"}
         icons.append(icon)
     if partial:
         # The teammates are unread: the self cone is stored apart, and the

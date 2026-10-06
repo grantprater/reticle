@@ -911,6 +911,9 @@ def ally_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, fl
 # which is what makes the bearing very nearly free.
 ALLY_COV_MIN = 0.25
 ALLY_INNER_MAX = 0.25
+#: A fit whose circle a veto hides past this share is not gated on the rest:
+#: too little of the ring is left to say it is a ring (`icons`, `veto`).
+VETO_SHARE_MAX = 0.6
 
 
 def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
@@ -919,7 +922,8 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
           support: np.ndarray | None = None,
           separation_px: float | None = None,
           seed: str = "centroid", gates: bool = True,
-          grey: np.ndarray | None = None) -> list[dict]:
+          grey: np.ndarray | None = None,
+          veto: np.ndarray | None = None) -> list[dict]:
     """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
 
     **`seed` decides where each blob's circle is searched for.** `"centroid"`
@@ -941,6 +945,13 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     straight to it.
 
     `grey` is the crop's `COLOR_BGR2GRAY`, where the caller holds it.
+
+    **`veto` removes pixels from the key before any fit**: a boolean mask of
+    the crop's shape, True where something known is drawn that is no icon.
+    The dropped spike glyph is yellow and passes the self key, so a self fit
+    rings it; `icon_prior` passes its footprint (`spike.glyph_footprint`)
+    here, and an icon standing on the glyph is fitted from the rest of its
+    ring. None changes nothing.
 
     `require_facing=False` keeps a positionally-good icon whose bearing was
     refused, which is what the interpolation pass needs: a lobe the fit could
@@ -970,6 +981,8 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     if min_area is None:
         min_area = max(4, int(round(MIN_ICON_AREA * sc * sc)))
     keyed = mask & floor
+    if veto is not None:
+        keyed = keyed & ~veto
     if grey is None:
         grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     m = cv2.morphologyEx(keyed.astype(np.uint8), cv2.MORPH_CLOSE,
@@ -1038,6 +1051,20 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     # self ring that is not always the fragment nearest the true centre. A
     # caller asking for PROPOSALS to score is not asking how many icons there
     # are, so it must be able to decline the answer this rule gives.
+    if veto is not None:
+        # Coverage over the VISIBLE ring: the vetoed pixels are known to be
+        # something else drawn over it, so they are neither evidence for the
+        # ring nor against it. `veto_share` is the share of the fitted circle
+        # the veto covers; `cov_visible` is the coverage of the rest, which
+        # the gate reads. A player on the dropped spike keeps a few arcs of
+        # his ring: 0.075-0.2 of the whole circle on the player's on-spike
+        # labels (prototypes/self_spike_tracker_eval.py).
+        for f in found:
+            px = np.clip(np.round(f["cx"] + f["r"] * _FACE_DX).astype(int), 0, W - 1)
+            py = np.clip(np.round(f["cy"] + f["r"] * _FACE_DY).astype(int), 0, H - 1)
+            share = float(veto[py, px].mean())
+            f["veto_share"] = round(share, 4)
+            f["cov_visible"] = (f["cov"] / (1.0 - share)) if share < VETO_SHARE_MAX else 0.0
     if not gates:
         return sorted(found, key=lambda d: -d["cov"])
     return _gated(found, sc, cov_min=cov_min, inner_max=inner_max,
@@ -1053,7 +1080,7 @@ def _gated(found: list[dict], sc: float, *, cov_min: float = ALLY_COV_MIN,
     raw and the gated list fits once. Returns copies, in `icons` order.
     """
     found = [dict(f) for f in found
-             if not (f["cov"] < cov_min or f["inner"] > inner_max)
+             if not (f.get("cov_visible", f["cov"]) < cov_min or f["inner"] > inner_max)
              and not (require_facing and f["facing"] is None)]
     sep = MIN_ICON_SEPARATION_PX * sc if separation_px is None else float(separation_px)
     if sep <= 0:
@@ -1291,15 +1318,30 @@ class AllyIconReader:
         # Each channel is fitted once; its gated list is filtered from the
         # raw one, which is what `icons` with `gates` returns.
         sc = widget_scale(crop.shape[1])
+        # The spike glyph, asked of `icon_prior` (ally-icon-0.14.0). A dropped
+        # glyph's footprint is masked from both keys before any fit, so the
+        # glyph alone yields no fit and a teammate planting or defusing on it
+        # is fitted from the rest of his ring (`glyph_masked`). A carried
+        # glyph flags the fit it sits under (`carries_spike`) and refuses
+        # only a fit ringing the glyph itself (`spike.on_glyph`). This reader
+        # is split into interleaved shards, so it holds no glyph across
+        # frames: its glyphs rest on each frame's full search
+        # (`icon_prior.frame_glyphs`). Each candidate stores the accepted
+        # glyphs near it, so `ally_decisions` makes the same refusals from
+        # storage; the gated lists here skip them, as the decisions do.
+        from . import icon_prior, spike
+        with step("glyph"):
+            glyphs = icon_prior.frame_glyphs(crop, self.slab)
+            veto = icon_prior.veto_for(crop.shape, glyphs, sc)
         with step("masks"):
             amask, smask = ally_mask(crop), self_mask(crop)
             keyed = amask | smask
             grey8 = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         with step("icons"):
             raw_self = icons(smask, crop, self.floor, support=self.slab, gates=False,
-                             grey=grey8)
+                             grey=grey8, veto=veto)
             raw = icons(amask, crop, self.floor, support=self.slab,
-                        seed="surface", gates=False, grey=grey8)
+                        seed="surface", gates=False, grey=grey8, veto=veto)
         # The ring fit finds each icon; its teardrop supplies the centre and
         # facing every later step reads, where it reads (`teardrop.posed`,
         # ally-icon-0.6.0): the glyph check, the separation, the portrait's
@@ -1317,13 +1359,7 @@ class AllyIconReader:
             raw = [self._posed(crop, f, "ally", sc, frame=frame,
                                ref=f"{frame['frame_idx']}:ally:{i}", digest=digest)
                    for i, f in enumerate(raw)]
-        # A fit that lands on the spike glyph is the glyph, not an icon
-        # (`spike.on_glyph`, ally-icon-0.5.0). Each candidate stores the
-        # accepted glyphs near it, so `ally_decisions` refuses the same fits
-        # from storage; the gated lists here skip them, as the decisions do.
-        from . import spike
         with step("glyph"):
-            glyphs = spike.accepted(spike.glyph_fits(crop, self.slab))
             near = {}
             for f in raw_self + raw:
                 near[id(f)] = [{k: g[k] for k in ("cx", "cy", "state", "side", "ncc", "amp",
@@ -1333,9 +1369,11 @@ class AllyIconReader:
         # The icons a carried glyph may belong to: every fit of either channel
         # past the shape gate, which `ally_decisions` rebuilds from the rows.
         shaped = [f for f in raw_self + raw
-                  if f["cov"] >= ALLY_COV_MIN and f["inner"] <= ALLY_INNER_MAX]
-        clear = lambda fs: [f for f in fs if spike.on_glyph(f["cx"], f["cy"], near[id(f)], sc,
-                                                            shaped) is None]
+                  if f.get("cov_visible", f["cov"]) >= ALLY_COV_MIN and f["inner"] <= ALLY_INNER_MAX]
+        icon_prior.annotate(raw_self, icon_prior.SIDES["self"], glyphs, sc, icons=shaped)
+        icon_prior.annotate(raw, icon_prior.SIDES["ally"], glyphs, sc, icons=shaped)
+        refused = {id(f): f.pop("refused") for f in raw_self + raw}
+        clear = lambda fs: [f for f in fs if refused[id(f)] is None]  # noqa: E731
         mine = _gated(clear(raw_self), sc, require_facing=False)
         me = mine[0] if mine else None
         occ = [(me["cx"], me["cy"], me["r"])] if me else []
@@ -1434,6 +1472,8 @@ class AllyIconReader:
         self.frames.append({**frame, "widget_drawn": True, "icons": len(got),
                             "self": [round(v, 2) for v in occ[0]] if occ else None,
                             "stack_reason": stack_reason,
+                            "self_carries_spike": bool(me["carries_spike"]) if me else None,
+                            "glyphs": [[g["cx"], g["cy"], g["state"]] for g in glyphs],
                             # Only a turned frame carries the key, so an
                             # upright session's rows keep their bytes.
                             **({"turned": True} if turn else {})})
@@ -1653,7 +1693,10 @@ class AllyIconReader:
                                      "stack_fit_version": STACK_FIT_VERSION,
                                      "capacity": c["capacity"], "ring_fits": c["ring_fits"],
                                      "rests_on": c["rests_on"]}
-                                    if c["channel"] == "stack" else {})})
+                                    if c["channel"] == "stack" else {}),
+                                 # ally-icon-0.14.0: the glyph's say on the fit.
+                                 "carries_spike": c.get("carries_spike"),
+                                 "glyph_masked": c.get("glyph_masked")})
             # Preserve the previous accepted view's positions and refusal
             # causes; a changed gate must be deliberate and versioned. The
             # reader selects ring fits only; the stacked members are the

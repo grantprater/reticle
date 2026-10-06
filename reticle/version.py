@@ -499,7 +499,19 @@ HUD_VERSION = "hud-0.26.0"
 # cross-referencing the ally channel. No detector changed, so positions are
 # byte-identical to 0.5.0; this bump exists because the TABLE gained a column,
 # and rows without it must read as unknown rather than as false.
-MINIMAP_VERSION = "minimap-0.7.0"
+#
+# 0.8.0 (2026-09-29): the self icon and the spike glyph are tracked together
+# from the same crop (`icon_prior.SelfTracker`). A dropped glyph's place is
+# fixed at its drop and checked there each frame; its footprint is masked
+# from the self key before the fit, so the fit no longer rings the glyph and
+# the player standing on the spike is fitted from the rest of his ring. A
+# carried glyph flags the fit it sits under (`self_carries_spike`) and never
+# refuses it; a fit ringing the carried glyph itself is refused. New columns
+# say what each point rests on and why a drawn frame holds none, and the
+# glyph's state and place; a fixed-cadence full-search audit and every
+# surprise are stored apart as `minimap_prior` events. Reruns from the
+# minimap crop cache (`scan --only minimap`), no decode.
+MINIMAP_VERSION = "minimap-0.8.0"
 # Minimap pings, emitted as EVENTS rather than per-frame rows. Bump when the
 # hue bands, the size gates or the lifetime gate change. Events are rewritten
 # whole per session, so this is a stamp for attribution rather than a cache
@@ -578,7 +590,14 @@ PING_VERSION = "ping-0.1.0"
 # spans it read. The player ruled the buy
 # phase out of scope for allies (2026-09-29, again 2026-10-05). A cache-fed
 # pass writes the rows 0.12.0 wrote.
-ALLY_ICON_VERSION = "ally-icon-0.13.0"
+# 0.14.0 (2026-10-06, self-spike-tracker-20260929's 0.6.0 renumbered above
+# 0.13.0): the glyph is asked of `icon_prior`. Every dropped glyph's footprint
+# is masked from the ally and self keys before any fit (`glyph_masked`), so
+# the glyph alone yields no fit and a teammate on it is fitted from the rest
+# of his ring; a carried glyph flags the fit it sits under (`carries_spike`,
+# also on the frame row for the self) and refuses only a fit ringing it.
+# Frame rows list the frame's accepted glyphs.
+ALLY_ICON_VERSION = "ally-icon-0.14.0"
 # The stacked teammate icon search (`stack_fit`), ported from
 # `prototypes/stack_fit.py` 0.2.0. 0.3.0: numpy in place of torch, the icons
 # drawn at `ICON_ALPHA` instead of opaque, windows scored on each pose's
@@ -628,7 +647,12 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # `ally` role (LIFECYCLE_VERSION 0.3.0); each refused frame names its own
 # cause (`ally_unread_cause`) from the stream's frame rows and `spans_clip`,
 # not the head's clip reason; the coverage row counts the causes.
-TEAM_VISION_VERSION = "team-vision-0.7.1"
+# 0.8.0 (2026-10-06, self-spike-tracker-20260929's guard 6, numbered above
+# 0.7.1): inside the player's dead intervals (`adjudication.spectate`) the
+# self track's icon is stored as `spectated` after the spectate switch (a
+# teammate's cone, `rests_on` the inference) and as `player_dead` before it,
+# casting nothing; the coverage row counts the intervals.
+TEAM_VISION_VERSION = "team-vision-0.8.0"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.
