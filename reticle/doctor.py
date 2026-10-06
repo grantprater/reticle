@@ -75,6 +75,11 @@ CAPTURE_MEDIAN_ALLOWLIST = frozenset({
     "prototypes/minimap_geometry.py",
 })
 
+#: The stored donor median (`<store>/reference/preflight_donor/`) is a capture
+#: median at rest. Only the preflight that writes it may name it, so it cannot
+#: become a reader's background.
+PREFLIGHT_DONOR_READERS = frozenset({"prototypes/clip_preflight.py"})
+
 
 def check_session_static(store: Path, root: Path | None = None) -> list[tuple[str, str]]:
     """Reject per-session base-map construction and retired cache access.
@@ -83,6 +88,7 @@ def check_session_static(store: Path, root: Path | None = None) -> list[tuple[st
     placement. Base pixels, floor, lighting references and detector backgrounds
     must come from baked ``(map, profile)`` geometry. This source check exists
     because that boundary repeatedly crept back through convenience prototypes.
+    Only `clip_preflight` may name its stored donor median, `preflight_donor`.
     """
     root = root or ROOT
     out = []
@@ -97,7 +103,8 @@ def check_session_static(store: Path, root: Path | None = None) -> list[tuple[st
             source = f.read_text(encoding="utf-8", errors="replace")
             # Every checked call names one of these identifiers in source.
             # Avoid parsing files that cannot contain a violation.
-            if not any(token in source for token in ("static_map", "median", ".static.npy")):
+            if not any(token in source for token in ("static_map", "median", ".static.npy",
+                                                     "preflight_donor")):
                 continue
             try:
                 mod = ast.parse(source)
@@ -121,6 +128,8 @@ def check_session_static(store: Path, root: Path | None = None) -> list[tuple[st
                         bad.add("capture median")
             if ".static.npy" in source:
                 bad.add("session .static.npy path")
+            if "preflight_donor" in source and rel not in PREFLIGHT_DONOR_READERS:
+                bad.add("preflight donor median")
             if bad:
                 out.append((ERROR, f"{rel} uses {', '.join(sorted(bad))} -- "
                             "session pixels may only size/place the widget; "

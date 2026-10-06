@@ -35,6 +35,20 @@ class SessionStaticDoctorTest(unittest.TestCase):
 
             self.assertEqual(doctor.check_session_static(root / "store", root), [])
 
+    def test_only_preflight_names_its_donor_snapshot(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "reticle").mkdir()
+            (root / "prototypes").mkdir()
+            body = 'SNAP = "reference/preflight_donor"\n'
+            (root / "prototypes" / "clip_preflight.py").write_text(body, encoding="utf-8")
+            (root / "reticle" / "reader.py").write_text(body, encoding="utf-8")
+
+            found = doctor.check_session_static(root / "store", root)
+            self.assertEqual(len(found), 1)
+            self.assertIn("reticle/reader.py", found[0][1])
+            self.assertIn("preflight donor median", found[0][1])
+
     def test_reports_but_does_not_remove_legacy_cache_files(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
