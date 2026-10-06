@@ -486,9 +486,14 @@ def _features_npz(out: dict, path: Path, version: str) -> Path:
     return path
 
 
-def _witness(store, sid: str, features: Path) -> dict | None:
+def _witness(store, sid: str, features: Path) -> dict | str | None:
+    """The ability-audio witness rows from `features`; a reason string where the
+    session has no rounds table (a demo clip), which the witness needs; None
+    where the identity arbiter names no player agent."""
     from .ability_audio_fit import gate_snapshot
     from .ability_timeline import audio_cast_witness
+    if store.read_rounds(sid, store.read_manifest(sid)["ingested_at"][:10]) is None:
+        return "no stored rounds table, which the ability-audio witness needs"
     g = gate_snapshot(store, [sid], {}).get(sid)
     if g is None:
         return None
@@ -551,7 +556,9 @@ def reader_checks(store, manifest: dict, video: str, audio: str, work: Path) -> 
     fb = _features_npz(b, work / f"{sid}.retained.features.npz", version)
     del a, b
     wa, wb = _witness(store, sid, fa), _witness(store, sid, fb)
-    if wa is None or wb is None:
+    if isinstance(wa, str):
+        res["ability_audio"] = {"skipped": wa}
+    elif wa is None or wb is None:
         res["ability_audio"] = {"skipped": "the identity arbiter names no player agent"}
     else:
         da = json.dumps(wa, sort_keys=True, default=str)
