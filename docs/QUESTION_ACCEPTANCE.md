@@ -504,6 +504,26 @@ live-phase local gate at 0.5 Hz base (`Lp0.5-250w5`) reads
 today's slot reads and agrees with T1 on at least 0.95 of the sight
 questions; strict execute and rotation timing fall below it.
 
+**Revision of 2026-10-07** (the player): agreement between two noisy
+timelines measures consistency, not accuracy, so QA5r2 scores each
+scheduled arm against T1 and compares it with the 15 Hz real-read arm on
+the same instances. The bar was set after the pilot
+`prototypes/real_reader_schedule.py` (task `real-reader-schedule-20261007`)
+had run, so its verdicts on those arms are post hoc. Under it, `Vgate-d`
+(the real gate, each read moved off frames whose widget is not drawn) reads
+[metric:real_reader_schedule/qa5r2/Vgate-d@dev2#share=0.0409] of the 15 Hz
+slot reads. It holds contacts within the bar
+([metric:real_reader_schedule/qa5r2/Vgate-d@dev2#contact_C.loss=-0.0072])
+but loses
+[metric:real_reader_schedule/qa5r2/Vgate-d@dev2#first_sight_support.loss=-0.0833]
+on first-sight support and
+[metric:real_reader_schedule/qa5r2/Vgate-d@dev2#opening_first_seer.loss=-0.0625]
+on the opening first seer. No arm yet passes.
+
+| Ref | Revises | Prediction |
+|---|---|---|
+| QA5r2 | QA5r | per sight question, the arm's accuracy against T1 is at most 0.03 below the 15 Hz real-read arm's on the same instances (the loss from paired flips, point estimate; a 95% paired bootstrap interval over rounds reported beside); read share at most 0.06 of the stored 15 Hz reads |
+
 ## 8. Build list, in order
 
 Costs are agent sessions (one contained implementation each) and compute,

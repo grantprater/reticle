@@ -86,13 +86,20 @@ SIGHT_QS = ("opening_first_seer", "spacing_5m", "spacing_death", "first_sight_su
 #: Each arm's reference arm for agreement and paired flips.
 REF = {"Lp": "T1", "T1v": "T1", "Lpv": "T1v", "Lpv-reach": "T1v", "V15h": "T1v",
        "Vgate": "V15h", "V15t": "T1", "Vgate-t": "V15t",
-       "Vgate-t-r": "V15t", "Vgate-r": "V15h", "Vgate-t-r1": "V15t"}
+       "Vgate-t-r": "V15t", "Vgate-r": "V15h", "Vgate-t-r1": "V15t",
+       "Vgate-d": "V15h", "Vgate-t-d": "V15t"}
+#: QA5r2 (player, 2026-10-07): an arm's accuracy against T1 at most this far below its reference's.
+QA5R2_TOL, QA5R2_CAP, BOOT_N, BOOT_SEED = 0.03, 0.06, 2000, 7
+DRAWN_MS = 1000.0     # Vgate-d: a read moves to the first drawn frame at most this far later
+#: Arms run before QA5r2 was registered: their verdicts are post hoc.
+POST_HOC = ("Lp", "T1v", "Lpv", "Lpv-reach", "V15h", "Vgate", "Vgate-r", "V15t", "Vgate-t", "Vgate-t-r",
+            "Vgate-t-r1")
 #: Follow-up (RX rows): a read with no fit retries on following frames this long.
 RETRY_MS = 500.0
 SCHED1 = "Lp1-250w5"
 DIAG_WIN_MS, DIAG_FAR_CM, DIAG_SPAN_MS = 2000.0, 300.0, 4000.0
-ORDER = ("Lp", "T1v", "Lpv", "Lpv-reach", "V15h", "Vgate", "Vgate-r", "V15t", "Vgate-t", "Vgate-t-r",
-         "Vgate-t-r1")
+ORDER = ("Lp", "T1v", "Lpv", "Lpv-reach", "V15h", "Vgate", "Vgate-r", "Vgate-d", "V15t", "Vgate-t",
+         "Vgate-t-r", "Vgate-t-r1", "Vgate-t-d")
 ENEMY_GAP_MS = 125.0      # bridges consecutive real reads only (15 Hz cache steps 66.7-83.3 ms)
 JOIN_HZ = 15.0            # the declared rate of the ally_icon and minimap_object grids
 CUE_PX = 30.0             # RR5c: enemy-key pixels on the slab, x widget_scale^2 (fixed in advance)
@@ -410,7 +417,7 @@ class RealMatch(Match):
             k = tmap.get(es._canon(self.agent.get(self.sid[s])))
             slot_of[int(s)] = None if k is None else int(k)
         in_sp = self.in_spans(S.fr_t)
-        return {"G": G, "slot_of": slot_of, "notes": notes, "fr_t": S.fr_t, "in_sp": in_sp,
+        return {"G": G, "slot_of": slot_of, "notes": notes, "fr_t": S.fr_t, "in_sp": in_sp, "drawn": S.fr_drawn,
                 "X": G["bind"]["X"] * es.units_per_m(), "Y": G["bind"]["Y"] * es.units_per_m(),
                 "has": G["bind"]["has"], "cost": G["cost"]}
 
@@ -477,7 +484,7 @@ class RealMatch(Match):
             gaps[self.sid[s]] = np.inf
         return tracks, gaps, self._cost(n_reads, len(frames), lost)
 
-    def vgate_tracks(self, V: dict, reads: np.ndarray, retry_ms: float = 0.0
+    def vgate_tracks(self, V: dict, reads: np.ndarray, retry_ms: float = 0.0, drawn_ms: float = 0.0
                      ) -> tuple[dict, dict, dict, dict]:
         """V15's fits at a schedule's reads (slot, M.F frame), each snapped to
         the nearest ally_icon frame inside the spans by `grid_join`. With
@@ -526,9 +533,31 @@ class RealMatch(Match):
                 tracks[sid] = self._track(s, np.zeros(0), np.zeros(0), np.zeros(0))
                 gaps[sid] = np.inf
                 continue
-            h = V["has"][k, in_idx[bpos]]
             got = bpos.copy()
             att = np.ones(bpos.size, np.int64)
+            gone = np.zeros(bpos.size, bool)
+            if drawn_ms > 0:
+                # Vgate-d: a read on a frame whose stored ally_icon row says the widget is not
+                # drawn moves to the first later drawn frame within drawn_ms; each frame tried
+                # counts as a read
+                dr = V["drawn"]
+                pend = ~dr[in_idx[bpos]]
+                lost["moved_off_undrawn"] += int(pend.sum())
+                mm = 1
+                while pend.any():
+                    nb = bpos + mm
+                    nbc = np.clip(nb, 0, B.size - 1)
+                    valid = pend & (nb < B.size) & (B[nbc] - B[bpos] <= drawn_ms)
+                    if not valid.any():
+                        break
+                    att += valid
+                    hit = valid & dr[in_idx[nbc]]
+                    got[hit] = nbc[hit]
+                    pend = valid & ~hit
+                    mm += 1
+                gone = ~dr[in_idx[got]]
+                lost["not_drawn_within_1s"] += int(gone.sum())
+            h = V["has"][k, in_idx[got]] & ~gone
             if retry_ms > 0:
                 pend = ~h
                 mm = 1
@@ -550,7 +579,7 @@ class RealMatch(Match):
             f = in_idx[got]
             if retry_ms <= 0:
                 self._vgate_sched[int(s)] = f
-            lost["read_lost:no_fit"] += int((~h).sum())
+            lost["read_lost:no_fit"] += int((~h & ~gone).sum())
             detail[int(s)] = {"t_sched": self.F[A_f[m]], "ok": h.copy(), "x": V["X"][k, f], "y": V["Y"][k, f],
                               "t_fit": self.to_rep(V["fr_t"][f], self.lag(s)), "k": int(k),
                               "frame": in_idx[bpos], "b": bpos.copy()}
@@ -565,11 +594,12 @@ class RealMatch(Match):
             detail[int(s)]["t_reads"] = np.unique(T)
             tracks[sid] = self._track(s, T, V["X"][k, f], V["Y"][k, f])
             gaps[sid] = np.inf
-        cost = self._cost(attempts if retry_ms > 0 else n_reads, len(frames), lost)
+        cost = self._cost(attempts if (retry_ms > 0 or drawn_ms > 0) else n_reads, len(frames), lost)
         cost["scheduled"] = sched
         cost["attempts"] = attempts
         cost["frames_with_fit_read"] = n_reads
         cost["retry_ms"] = retry_ms
+        cost["drawn_ms"] = drawn_ms
         self._vgate_detail = detail
         return tracks, gaps, cost, J.stamp()
 
@@ -714,11 +744,43 @@ def instrument(M: RealMatch) -> dict:
     return out
 
 
+def _round_of(M, t: float) -> int:
+    for r in M.rounds:
+        if r["t_start"] <= t < r["t_next"]:
+            return int(r["round"])
+    return -1
+
+
+def paired_T1(M, arm: str, ref: str) -> dict:
+    """QA5r2's paired data: per sight question, each T1 instance as
+    [round, ref right, arm right] against T1, and the arm's phantoms."""
+    T1 = M.A["T1"]
+    ev = {e.event_id: float(e.t_ms) for e in M.tl0.events}
+    out = {}
+    for q in SIGHT_QS:
+        a_ok, r_ok = _ok_set(T1, M.A[arm], q), _ok_set(T1, M.A[ref], q)
+        if q in cq.EPISODIC:
+            keys = list(range(len(T1[q])))
+            rnd = [_round_of(M, float(T1[q][i]["s"])) for i in keys]
+        elif q == "first_sight_support":
+            keys = list(T1[q])
+            rnd = [int(k) for k in keys]
+        else:
+            keys = list(T1["spacing_death" if q == "spacing_5m" else q])
+            rnd = [_round_of(M, ev.get(k, np.nan)) for k in keys]
+        rec = {"i": [[r, int(k in r_ok), int(k in a_ok)] for k, r in zip(keys, rnd)]}
+        if q in cq.EPISODIC:
+            rec["phantoms"] = len(M.A[arm][q]) - len(cq._pair_up(T1[q], M.A[arm][q]))
+        out[q] = rec
+    return out
+
+
 def _arm_row(M, arm, cost, extra=None) -> dict:
     ref = REF[arm]
     r = {"version": VERSION, "session": M.cap, "match": M.tl0.match, "team": M.C, "arm": arm, "ref": ref,
          "cost": cost, "vs_T0": score(M.A["T0"], M.A[arm]), "vs_T1": score(M.A["T1"], M.A[arm]),
-         "vs_ref": score(M.A[ref], M.A[arm]), "flips": flips(M.A["T0"], M.A[ref], M.A[arm])}
+         "vs_ref": score(M.A[ref], M.A[arm]), "flips": flips(M.A["T0"], M.A[ref], M.A[arm]),
+         "paired_T1": paired_T1(M, arm, ref)}
     r.update(extra or {})
     return r
 
@@ -754,6 +816,10 @@ def arms(M: RealMatch) -> tuple[list[dict], dict]:
     M._lost_rows = lost_reads(M, V, det_t)["rows"]
     info["diag"] = {"Vgate-t": diagnose(M, "Vgate-t", "V15t", det_t),
                     "spacing_V15t_vs_T1": spacing_diag(M, "V15t", "T1")}
+    trD, gpD, costD, jD = M.vgate_tracks(V, reads_lp, drawn_ms=DRAWN_MS)
+    M.A["Vgate-t-d"] = _answers(M, {**tr1, **trD}, {**gp1, **gpD}, M.events, "Vgate-t-d")
+    rows.append(_arm_row(M, "Vgate-t-d", costD, {"join": jD, "read_ratio_vs_ref": costD["reads"] / costV["reads"]}))
+    _log(f"  {M.cap} Vgate-t-d share {costD['share']:.4f} lost {costD['lost']}")
     for name, sched in (("Vgate-t-r", SCHED), ("Vgate-t-r1", SCHED1)):
         rd = M.schedule(M.C, M.drawn_C, ARMS[sched])[0]
         trR, gpR, costR, jR = M.vgate_tracks(V, rd, retry_ms=RETRY_MS)
@@ -794,6 +860,10 @@ def arms(M: RealMatch) -> tuple[list[dict], dict]:
          f"lost {costG['lost']}")
     info["diag"]["Vgate"] = diagnose(M, "Vgate", "V15h", M._vgate_detail)
     info["diag"]["spacing_V15h_vs_T1v"] = spacing_diag(M, "V15h", "T1v")
+    trD, gpD, costD, jD = M.vgate_tracks(V, reads_lpv, drawn_ms=DRAWN_MS)
+    M.A["Vgate-d"] = _answers(M, {**trD, **enemies}, {**gpD, **egaps}, M.events, "Vgate-d")
+    rows.append(_arm_row(M, "Vgate-d", costD, {"join": jD, "read_ratio_vs_ref": costD["reads"] / costV["reads"]}))
+    _log(f"  {M.cap} Vgate-d share {costD['share']:.4f} lost {costD['lost']}")
     trR, gpR, costR, jR = M.vgate_tracks(V, reads_lpv, retry_ms=RETRY_MS)
     M.A["Vgate-r"] = _answers(M, {**trR, **enemies}, {**gpR, **egaps}, M.events, "Vgate-r")
     rows.append(_arm_row(M, "Vgate-r", costR, {"join": jR, "read_ratio_vs_ref": costR["reads"] / costV["reads"]}))
@@ -1874,6 +1944,147 @@ def outcome_rx() -> int:
     return 0
 
 
+def qa5r2_pool(rows: list[dict]) -> dict:
+    """QA5r2 per arm and sight question: accuracy against T1, the loss
+    against the reference with a paired round-bootstrap interval, the verdict."""
+    rng = np.random.default_rng(BOOT_SEED)
+    by = defaultdict(list)
+    for r in rows:
+        by[r["arm"]].append(r)
+    out = {}
+    for arm, rs in by.items():
+        den = sum(r["cost"].get("denominator", 0) for r in rs)
+        reads = sum(r["cost"].get("reads", 0) for r in rs)
+        share = reads / den if den else None
+        o = {"ref": REF[arm], "share": share, "post_hoc": arm in POST_HOC, "q": {}}
+        for q in SIGHT_QS:
+            I = [(r["session"], x[0], x[1], x[2]) for r in rs for x in r["paired_T1"][q]["i"]]
+            if not I:
+                continue
+            cl = {}
+            for sname, rn, ro, ao in I:
+                c = cl.setdefault((sname, rn), [0, 0, 0])
+                c[0] += ao - ro
+                c[1] += 1
+                c[2] += ao
+            d = np.array([v[0] for v in cl.values()], float)
+            n = np.array([v[1] for v in cl.values()], float)
+            a = np.array([v[2] for v in cl.values()], float)
+            W = rng.multinomial(d.size, np.full(d.size, 1.0 / d.size), size=BOOT_N).astype(float)
+            boot = (W @ d) / np.maximum(W @ n, 1.0)
+            loss = d.sum() / n.sum()
+            lo, hi = np.percentile(boot, [2.5, 97.5])
+            ph = sum(r["paired_T1"][q].get("phantoms", 0) for r in rs)
+            o["q"][q] = {"n": int(n.sum()), "acc": round(float(a.sum() / n.sum()), 4),
+                         "acc_ref": round(float((a.sum() - d.sum()) / n.sum()), 4),
+                         "loss": round(float(loss), 4), "ci": [round(float(lo), 4), round(float(hi), 4)],
+                         "pass": bool(loss >= -QA5R2_TOL), "ci_excludes_tol": bool(lo > -QA5R2_TOL),
+                         "broken": int(sum(1 for x in I if x[2] and not x[3])),
+                         "fixed": int(sum(1 for x in I if x[3] and not x[2])), "clusters": int(d.size),
+                         **({"phantoms": ph} if q in cq.EPISODIC else {})}
+        o["share_ok"] = share is not None and share <= QA5R2_CAP
+        o["all_pass"] = all(v["pass"] for v in o["q"].values())
+        o["pass_except_spacing_death"] = all(v["pass"] for q, v in o["q"].items() if q != "spacing_death")
+        o["verdict"] = "pass" if (o["all_pass"] and o["share_ok"]) else "fail"
+        out[arm] = o
+    return out
+
+
+def report_qa5r2(record: bool = False) -> int:
+    rows = [json.loads(x) for x in (OUT / "rows.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+    res = {"rule": "QA5r2", "tol": QA5R2_TOL, "cap": QA5R2_CAP, "boot": {"n": BOOT_N, "seed": BOOT_SEED,
+                                                                       "unit": "(match, round)"},
+           "pools": {"dev2": qa5r2_pool([r for r in rows if r["session"] in JUDGED]), "dev3": qa5r2_pool(rows)}}
+    for pname, P in res["pools"].items():
+        print(f"\n== QA5r2 pool {pname}: acc vs T1 | loss vs ref [95% CI] | pass")
+        print("arm".ljust(11) + "ref".ljust(6) + "share   " + " ".join(q[:12].rjust(30) for q in SIGHT_QS) + "  verdict")
+        for arm in ORDER:
+            if arm not in P:
+                continue
+            o = P[arm]
+            cells = []
+            for q in SIGHT_QS:
+                v = o["q"].get(q)
+                cells.append((f"{v['acc']:.3f} {v['loss']:+.3f}[{v['ci'][0]:+.3f},{v['ci'][1]:+.3f}]"
+                              f"{'P' if v['pass'] else 'F'}").rjust(30) if v else "-".rjust(30))
+            sh = "   -  " if o["share"] is None else f"{o['share']:.4f}"
+            print(arm.ljust(11) + o["ref"].ljust(6) + sh + "  " + " ".join(cells)
+                  + f"  {o['verdict']}{' (post hoc)' if o['post_hoc'] else ''}")
+    (OUT / "qa5r2.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+    if record:
+        from reticle.metrics import record as rec
+        for pname, P in res["pools"].items():
+            for arm, o in P.items():
+                vals = {"pass": o["verdict"] == "pass"}
+                if o["share"] is not None:
+                    vals["share"] = round(o["share"], 4)
+                for q, v in o["q"].items():
+                    vals.update({f"{q}.acc": v["acc"], f"{q}.acc_ref": v["acc_ref"], f"{q}.loss": v["loss"],
+                                 f"{q}.ci_lo": v["ci"][0], f"{q}.ci_hi": v["ci"][1], f"{q}.n": v["n"]})
+                rec("real_reader_schedule", part=f"qa5r2/{arm}", session=pname, values=vals,
+                    deps={"version": VERSION, "rule": "QA5r2", "tol": QA5R2_TOL, "cap": QA5R2_CAP,
+                          "boot": [BOOT_N, BOOT_SEED]},
+                    context={"task": TASK, "ref": o["ref"], "post_hoc": o["post_hoc"]})
+    return 0
+
+
+def outcome_qa5r2() -> int:
+    """RX7's outcome row and one post-hoc QA5r2 verdict row per earlier arm."""
+    Q = json.loads((OUT / "qa5r2.json").read_text(encoding="utf-8"))["pools"]
+    pred = STORE / "notes" / "predictions.jsonl"
+    have = set()
+    for x in pred.read_text(encoding="utf-8").splitlines():
+        if '"id"' in x:
+            have.add(json.loads(x).get("id"))
+    rows = [json.loads(x) for x in (OUT / "rows.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+    nofit = defaultdict(int)
+    for r in rows:
+        if r["session"] in JUDGED:
+            nofit[r["arm"]] += (r["cost"].get("lost") or {}).get("read_lost:no_fit", 0)
+    d2 = Q["dev2"]
+
+    def qs(arm):
+        return {q: [v["loss"], v["ci"]] for q, v in d2[arm]["q"].items()}
+    cl = {"RX7a": _clause(d2["Vgate-d"]["pass_except_spacing_death"], losses=qs("Vgate-d")),
+          "RX7b": _clause(d2["Vgate-d"]["share"] <= 0.035, share=round(d2["Vgate-d"]["share"], 4)),
+          "RX7c": _clause(nofit["Vgate-d"] <= 0.65 * nofit["Vgate"], no_fit=nofit["Vgate-d"], vgate=nofit["Vgate"],
+                          fall=round(1 - nofit["Vgate-d"] / nofit["Vgate"], 4)),
+          "RX7d": _clause(d2["Vgate-t-d"]["pass_except_spacing_death"], losses=qs("Vgate-t-d")),
+          "RX7e": _clause(d2["Vgate-t-d"]["share"] <= 0.035, share=round(d2["Vgate-t-d"]["share"], 4)),
+          "RX7f": _clause(nofit["Vgate-t-d"] <= 0.65 * nofit["Vgate-t"], no_fit=nofit["Vgate-t-d"],
+                          vgate_t=nofit["Vgate-t"], fall=round(1 - nofit["Vgate-t-d"] / nofit["Vgate-t"], 4))}
+    ts = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
+    base = {"date": time.strftime("%Y-%m-%d"), "ts": ts, "domain": "episodes", "kind": "outcome", "branch": TASK,
+            "commit": f"{TASK} (see git log)", "prototype": "prototypes/real_reader_schedule.py", "version": VERSION,
+            "wire": "no", "wire_reason": "an evaluation pilot over stored rows and replay truth; reticle/ never imports it",
+            "outputs": str(OUT / "qa5r2.json")}
+    with pred.open("a", encoding="utf-8") as f:
+        if f"{TASK}-RX7-outcome" not in have:
+            f.write(json.dumps(dict(base, id=f"{TASK}-RX7-outcome", task=TASK, outcome_of=[f"{TASK}-RX7"],
+                                candidate="RX7", clauses={k: dict(v, verdict="held" if v["held"] else "failed")
+                                                          for k, v in cl.items()},
+                                scored="dev2 under QA5r2 (question-acceptance-20261006 QA5r2); dev3 in qa5r2.json"),
+                               default=cq._jd) + "\n")
+        print("RX7", {k: ("held" if v["held"] else "failed") for k, v in cl.items()})
+        for arm in POST_HOC:
+            if arm not in d2 or arm in ("V15h", "V15t") or f"QA5r2-posthoc-{arm}" in have:
+                continue
+            o = d2[arm]
+            f.write(json.dumps(dict(base, id=f"QA5r2-posthoc-{arm}", task="question-acceptance-20261006",
+                                    outcome_of=["question-acceptance-20261006-QA5r2"], candidate="QA5r2",
+                                    post_hoc=True, arm=arm, ref=o["ref"], verdict=o["verdict"],
+                                    share=None if o["share"] is None else round(o["share"], 4),
+                                    share_ok=o["share_ok"],
+                                    per_question={q: {"loss": v["loss"], "ci": v["ci"], "pass": v["pass"],
+                                                      "acc": v["acc"], "acc_ref": v["acc_ref"]}
+                                                  for q, v in o["q"].items()},
+                                    dev3_verdict=Q["dev3"][arm]["verdict"],
+                                    scored="dev2; post hoc: the bar was set after this arm's numbers were seen"),
+                               default=cq._jd) + "\n")
+            print("post hoc", arm, o["verdict"])
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1881,6 +2092,7 @@ def main(argv=None) -> int:
     r.add_argument("sessions", nargs="+")
     rp = sub.add_parser("report")
     rp.add_argument("--record", action="store_true")
+    rp.add_argument("--qa5r2", action="store_true", help="rescore under QA5r2 (accuracy against T1)")
     c = sub.add_parser("cost")
     c.add_argument("session")
     c.add_argument("--crops", type=int, default=600)
@@ -1891,6 +2103,7 @@ def main(argv=None) -> int:
     cu.add_argument("--record", action="store_true")
     sub.add_parser("outcome")
     sub.add_parser("outcome-rx")
+    sub.add_parser("outcome-qa5r2")
     a = ap.parse_args(argv)
     for s in getattr(a, "sessions", []) or []:
         refuse(s)
@@ -1900,13 +2113,15 @@ def main(argv=None) -> int:
     if a.cmd == "run":
         return run_matches(a.sessions)
     if a.cmd == "report":
-        return report(a.record)
+        return report_qa5r2(a.record) if a.qa5r2 else report(a.record)
     if a.cmd == "cost":
         return cost(a.session, a.crops, a.record)
     if a.cmd == "cue":
         return cue_study(a.session, a.crops, a.record)
     if a.cmd == "outcome-rx":
         return outcome_rx()
+    if a.cmd == "outcome-qa5r2":
+        return outcome_qa5r2()
     return outcome()
 
 
