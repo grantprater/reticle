@@ -221,3 +221,55 @@ threads, so CPU falls less than wall. A decode was not timed.
 
 Smoothly enlarged crops, the other resampling question, are measured in
 [ALLY_ICON_UPSCALE.md](ALLY_ICON_UPSCALE.md).
+
+## 2026-10-05: a decode reads the live rounds; an ingest reads the cache in processes
+
+**The clip (ally-icon-0.13.0).** The player ruled the buy phase out of scope
+again on 2026-10-05, for the video pass too: `roi_cache.clip_live_rounds`
+cuts a decoded `AllyIconReader` (`live_rounds_only`) to the spans a minimap
+round cache is written over, and `spans_clip` records the rest with reason
+`outside_live_rounds`. On two 20 s windows of `c817691bcd15` around round
+leads, one decode fed the clipped reader and the unclipped one; the clipped
+reader wrote the rows the cache path writes, frame for frame
+([metric:ingest_speed/live-clip@c817691bcd15#clipped_equals_cache_frames=362]
+frames, [metric:ingest_speed/live-clip@c817691bcd15#clipped_candidates=3145]
+candidates), and dropped
+[metric:ingest_speed/live-clip@c817691bcd15#dropped_frames=221] buy-phase
+frames. The unclipped reader read other in-round frames, its stride phased at
+the active span rather than at the round's lead; on the
+[metric:ingest_speed/live-clip@c817691bcd15#common_frames=181] frames both
+read, [metric:ingest_speed/live-clip@c817691bcd15#common_candidates_equal=1275]
+of [metric:ingest_speed/live-clip@c817691bcd15#common_candidates=1507]
+candidates agree, and every one that differs carries a pose searched round a
+prior (`teardrop.IconPoseReader`), which continues from whichever image came
+before. The stored 0.12.0 stream of `c817691bcd15`, decoded unclipped, holds
+[metric:ingest_speed/live-clip@c817691bcd15#stored_frames_buy_phase=12442] of
+its [metric:ingest_speed/live-clip@c817691bcd15#stored_frames=39716] frames
+and [metric:ingest_speed/live-clip@c817691bcd15#stored_icons_buy_phase=60569]
+of its [metric:ingest_speed/live-clip@c817691bcd15#stored_icons=128945] icons
+in the buy phase. Of the stream's consumers only `round_entities.
+session_lifetimes` reads a round from its stored start, before the lead;
+it reads what frames there are, as it does on every cache-fed stream.
+
+**Processes (`process_shards`).** `scan --ally-processes K` feeds the reader
+its cached times in K Idle-priority, single-threaded processes, cut only at
+gaps longer than the pose prior's reach, and merges the lists in producer
+order. On `bdfdcf009dba` K = 3 wrote the serial pass's candidates, decisions
+and events byte for byte
+([metric:ingest_speed/ally-processes@bdfdcf009dba#files_equal=3] of 3 files,
+[metric:ingest_speed/ally-processes@bdfdcf009dba#frames=19545] frames) in
+[metric:ingest_speed/ally-processes@bdfdcf009dba#k3_pass_s=293.4] s against
+[metric:ingest_speed/ally-processes@bdfdcf009dba#k1_pass_s=802.4] s, at
+[metric:ingest_speed/ally-processes@bdfdcf009dba#k3_cpu_s=820.7] s of CPU
+against [metric:ingest_speed/ally-processes@bdfdcf009dba#k1_cpu_s=859.2] s.
+
+**`reticle ingest-passes`** runs the minimap pass and the killfeed panel and
+scoreboard crop decodes at once, then ally_icon from the new cache in three
+processes. On scratch copies of `9acf02f98283`'s inputs the three decodes
+overlapped from start to
+[metric:ingest_speed/concurrent-decodes@9acf02f98283#conc_wall_s=665.2] s,
+against [metric:ingest_speed/concurrent-decodes@9acf02f98283#seq_total_s=921.0]
+s one after another, the decode bound; every stream and crop equals the
+sequential runs' (the crop files pixel for pixel, their container headers
+apart). Ally icons then took
+[metric:ingest_speed/concurrent-decodes@9acf02f98283#ally_k3_pass_s=256.0] s.

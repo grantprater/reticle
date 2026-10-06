@@ -630,18 +630,54 @@ def subtract_spans(wanted, taken) -> list[tuple[float, float]]:
     return sorted(out)
 
 
-def clip_record(asked, read, record: dict) -> dict:
+def clip_record(asked, read, record: dict, reason: str = "outside_cache_rounds") -> dict:
     """What a clip to a round cache did to a reader, for its stream's
     provenance: the cache that fed it, the spans it asked for, read and
     skipped. A skipped span is unread, not unobserved: nothing looked
     there. `asked` None is the whole capture, whose skipped part is
-    everything outside `spans_read`."""
+    everything outside `spans_read`. A decode clipped to the live rounds
+    (`clip_live_rounds`) passes `{"version": "video", "roi": None}` and
+    `reason` `outside_live_rounds`."""
     pairs = lambda spans: [[float(a), float(b)] for a, b in spans]
     return {"frames_from": record["version"], "cache_set": record["roi"],
-            "reason": "outside_cache_rounds",
+            "reason": reason,
             "spans_asked": None if asked is None else pairs(asked),
             "spans_read": pairs(read),
             "spans_skipped": None if asked is None else pairs(subtract_spans(asked, read))}
+
+
+def clip_live_rounds(readers, live_rounds) -> list[str]:
+    """Clip each decoded reader that declares `live_rounds_only` to the
+    session's live rounds, the spans a minimap round cache is written over
+    (`scan --cache-live`: each round from `LIVE_LEAD_MS` before its barrier
+    drop); the lines that say what it did.
+
+    A decode reads what `--from cache` reads: the reader's spans cut to the
+    rounds, its stride restarted at each cut span as the cache writer's
+    is, and `spans_clip` records the time left unread with reason
+    `outside_live_rounds`. `live_rounds()` returns the spans, or None and
+    why; without them the reader keeps its spans and the line says so. A
+    reader the cache path already clipped (`spans_clip`) is left alone."""
+    notes: list[str] = []
+    todo = [r for r in readers if getattr(r, "live_rounds_only", False)
+            and getattr(r, "spans_clip", None) is None]
+    if not todo:
+        return notes
+    rounds, why = live_rounds()
+    for r in todo:
+        if rounds is None:
+            notes.append(f"spans      {r.name} kept: no live rounds to clip it to ({why})")
+            continue
+        asked = getattr(r, "spans", None)
+        r.spans = clip_spans(asked, rounds)
+        r.spans_clip = clip_record(asked, r.spans, {"version": "video", "roi": None},
+                                   reason="outside_live_rounds")
+        skipped = r.spans_clip["spans_skipped"]
+        notes.append(f"spans      {r.name} clipped to the {len(rounds)} live rounds"
+                     + ("" if skipped is None else
+                        f"; {sum(b - a for a, b in skipped) / 1000.0:.0f} s of its spans "
+                        f"left unread, recorded as spans_skipped"))
+    return notes
 
 
 def rounds_covered(held, wanted, rounds) -> tuple[bool, str]:

@@ -432,6 +432,12 @@ class SelfConeReader:
         self._last: tuple | None = None
         self._fits: _SelfFits | None = None
 
+    def after_gap(self, t_ms: float) -> None:
+        """`IconPoseReader.after_gap` for the self prior."""
+        if self._fits is None:
+            self._fits = _SelfFits(self.scale)
+        self._fits.after_gap(t_ms)
+
     def read(self, crop: np.ndarray, cx: float, cy: float, *, frame_idx: int | None = None,
              t_ms: float | None = None, ref: str | None = None,
              digest: bytes | None = None) -> dict:
@@ -889,6 +895,13 @@ class IconPoseReader:
                    "ncc": _num(tf.get("ncc")), "reason": tf.get("reason")}
         out.update(entry["search"])
         return out
+
+    def after_gap(self, t_ms: float) -> None:
+        """Continue as a reader that read an image at `t_ms`, more than
+        `PRIOR_GAP_MS` before its next: that image offers no prior (surprise
+        `gap`, not `no_prior`). A process run of a time split starts here
+        (`process_shards`); nothing else of the earlier image is read again."""
+        self._prev = (float(t_ms), [])
 
     def _key_of(self, crop: np.ndarray) -> np.ndarray:
         """The class's key over the image, computed once per image."""
