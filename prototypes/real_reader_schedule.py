@@ -46,6 +46,9 @@ Stored data only; decodes no video. The `cost` subcommand alone reads the
 minimap crop cache (600 crops). The held-out capture (cea8ecbc94ab, replay
 bd7efa02) is refused before any row is read. Outputs:
 `<store>/analysis/real-reader-schedule-20261007/`. Not wired (`"wire": "no"`).
+
+RR1a's gap (real icons on a third of T1's drawn share) is diagnosed by
+`prototypes/enemy_lane_check.py` (task `enemy-lane-check-20261007`).
 """
 
 from __future__ import annotations
