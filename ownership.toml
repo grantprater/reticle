@@ -2079,6 +2079,8 @@ parameter but the eye height is a default awaiting the player's answer
 (docs/EPISODES.md section 5).
 """
 evidence = "tests/test_episodes.py"
+
+# ---------------------------------------------------------------------------
 # Replay truth: a kept replay on the capture's clock and map
 # ---------------------------------------------------------------------------
 
