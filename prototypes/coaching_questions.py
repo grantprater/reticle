@@ -5,7 +5,10 @@ replay's truth timeline and on copies degraded the way a cheap minimap reader
 would see the match: enemies only while drawn (T1), teammates read at a low
 base rate except inside windows an enemy on the minimap opens. Each copy's
 answers are scored against T1 (the rate's effect) and against the truth T0
-(end to end), beside the copy's read share of today's 15 Hz reading.
+(end to end), beside the copy's read share of today's 15 Hz reading. The
+attention arms (`A<b>K<k>`) read only the top K engagement windows at full
+fidelity, the player's own first. Kill duels also carry the peeker-or-holder
+state (CQ17) and the distance to the occluding corner (CQ18) at the onset.
 `value` measures each question's association with the round's result on the
 stored truth episodes and on the ladder parse. `report` pools both.
 
@@ -16,7 +19,9 @@ excluded by name before any row is read. Predictions: task
     python prototypes/coaching_questions.py degrade MATCH [MATCH ...] [--arms A,B]
     python prototypes/coaching_questions.py degrade --all
     python prototypes/coaching_questions.py value
-    python prototypes/coaching_questions.py report [--record]
+    python prototypes/coaching_questions.py report [--record] [--path P] [--session S]
+    python prototypes/coaching_questions.py cost [--record]
+    python prototypes/coaching_questions.py inventory [--record]
 """
 
 from __future__ import annotations
@@ -51,6 +56,10 @@ SPACING_EDGES_M = (5.0, 10.0, 20.0)
 SUPPORT_CM = 1000.0               # first sighting's support radius
 START_TOL_MS = 1000.0             # executes, rotations: start and spread tolerance
 ONSET_TOL_MS = 125.0              # contacts: two sight samples
+PEEK_WIN_MS, PEEK_CMS = 250.0, 200.0  # CQ17: mean speed about the contact onset; peeker at or above
+CORNER_DEG, CORNER_SEP_CM = (2.0, 4.0, 8.0, 16.0), 50.0  # CQ18: ray offsets; far side's margin
+CORNER_LAT_CM = 100.0                 # CQ18 revision-1: the hit lies within 1 m of the sightline
+LONG_CM, WIDE_CM = 2000.0, 200.0      # CQ18: a long angle; a wide swing
 
 
 def _idle() -> None:
@@ -91,6 +100,10 @@ def _arms() -> dict[str, dict]:
     for b in (0.25, 0.5, 1.0):
         a[f"Lp{b:g}-250w5"] = {"kind": "gate", "gate": "L", "b": b, "lead": 250, "wr": 5, "phase": "live",
                                "post_hoc": True}
+    # attention budget (CQ13 revision-1): the top K windows at full fidelity, the player's own first
+    for b in (0.5, 1.0):
+        for k in (1, 2):
+            a[f"A{b:g}K{k}"] = {"kind": "attention", "b": b, "K": k, "lead": 250, "wr": 15, "phase": "live"}
     a["B1r"] = {"kind": "base", "b": 1.0, "coarse": "region"}
     a["G1-250r"] = {"kind": "gate", "gate": "G", "b": 1.0, "lead": 250, "wr": 15, "coarse": "region"}
     a["L1-250r"] = {"kind": "gate", "gate": "L", "b": 1.0, "lead": 250, "wr": 15, "coarse": "region"}
@@ -291,6 +304,63 @@ class Match:
             out[:, sl] = (c[:, np.arange(sl.size) + 1] - c[:, lo]) > 0
         return out
 
+    def player(self, C: str) -> tuple[int, str]:
+        """The capturing player on team C: the account's subject where the
+        replay holds one on C, else C's first slot (a stand-in)."""
+        if not hasattr(self, "_own"):
+            import ladder_fetch as lf
+            self._own = set(lf.owner_accounts(Path(DEFAULT_STORE)).values())
+        ci = np.flatnonzero(self.team == C)
+        mine = [s for s in ci if self.sid[s] in self._own]
+        return (int(mine[0]), "subject") if len(mine) == 1 else (int(ci[0]), "first_slot")
+
+    def windows(self, C: str, drawn: np.ndarray, K: int) -> tuple[np.ndarray, np.ndarray, dict]:
+        """CQ13 revision-1. At each grid sample the drawn enemies form windows
+        (single linkage within LOCAL_CM); a window involves the C slots that
+        see a member or stand within LOCAL_CM of one. Windows involving the
+        player rank first, then by the distance from the player (dead: from
+        the nearest living teammate) to the window's nearest member. Returns
+        the slots and enemies in the top K windows, and the concurrency."""
+        from scipy.sparse.csgraph import connected_components
+        S, Kg = len(self.slots), self.G.size
+        slot_f = np.zeros((S, Kg), bool)
+        enemy_f = np.zeros((S, Kg), bool)
+        ci = np.flatnonzero(self.team == C)
+        ei = np.flatnonzero(self.team != C)
+        me, how = self.player(C)
+        alive = np.isfinite(self.X) & np.isfinite(self.Y)
+        nwin = np.zeros(Kg, int)
+        for k in np.flatnonzero(drawn[ei].any(axis=0)):
+            D = ei[drawn[ei, k] & alive[ei, k]]
+            if not D.size:
+                continue
+            P = np.column_stack([self.X[D, k], self.Y[D, k]])
+            dd = np.hypot(*(P[:, None, :] - P[None, :, :]).transpose(2, 0, 1))
+            n, lab = connected_components(dd <= LOCAL_CM, directed=False)
+            nwin[k] = n
+            L = ci[alive[ci, k]]
+            if not L.size:
+                continue
+            Q = np.column_stack([self.X[L, k], self.Y[L, k]])
+            dl = np.hypot(*(Q[:, None, :] - P[None, :, :]).transpose(2, 0, 1))      # (living C, members)
+            inv = (dl <= LOCAL_CM) | self.sees[:, :, k][np.ix_(L, D)]
+            ref = me if alive[me, k] else L[np.argmin(dl.min(axis=1))]
+            rq = np.hypot(P[:, 0] - self.X[ref, k], P[:, 1] - self.Y[ref, k])
+            keys = []
+            for w in range(n):
+                m = lab == w
+                slots = L[inv[:, m].any(axis=1)]
+                keys.append((0 if me in slots else 1, float(rq[m].min()), w, slots))
+            keys.sort(key=lambda x: (x[0], x[1], x[2]))
+            for _a, _b, w, slots in keys[:K]:
+                slot_f[slots, k] = True
+                enemy_f[D[lab == w], k] = True
+        have = nwin > 0
+        conc = {"player": how, "drawn_samples": int(have.sum()),
+                "ge2": float((nwin[have] >= 2).mean()) if have.any() else None,
+                "ge3": float((nwin[have] >= 3).mean()) if have.any() else None}
+        return slot_f, enemy_f, conc
+
     def t1_tracks(self, C: str, drawn: np.ndarray) -> tuple[dict, dict]:
         from reticle.replay_source import MAX_GAP_MS
         tracks, gaps = {}, {}
@@ -330,6 +400,16 @@ class Match:
         else:
             base = np.isin(self.F_k, base_k)
         win = np.zeros((S, self.F.size), bool)
+        if arm["kind"] == "attention":
+            slot_f = arm["_slot_f"]
+            for s in np.flatnonzero(self.team == C):
+                rr = _true_runs(slot_f[s])
+                if not rr:
+                    continue
+                a = np.array([x for x, _ in rr])
+                z = np.array([y for _, y in rr])
+                St, En = _merge(self.G[a] - float(arm["lead"]), self.G[z] + SIGHT_MS)
+                win[s] = _inside(self.F, St, En)
         if arm["kind"] == "gate":
             lead = float(arm["lead"])
             ci = np.flatnonzero(self.team == C)
@@ -367,9 +447,27 @@ class Match:
         return reads, base, win
 
     def read_tracks(self, C: str, drawn: np.ndarray, arm: dict) -> tuple[dict, dict, dict]:
+        conc = None
+        if arm["kind"] == "attention":
+            slot_f, enemy_f, conc = self.windows(C, drawn, int(arm["K"]))
+            arm = dict(arm, _slot_f=slot_f)
+            n_lead = int(round(float(arm["lead"]) / SIGHT_MS))
+            for _ in range(n_lead):                     # the buffered frames before a window opens
+                enemy_f[:, :-1] |= enemy_f[:, 1:]
         tracks, gaps = self.t1_tracks(C, drawn)
         reads, base, win = self.schedule(C, drawn, arm)
         ci = np.flatnonzero(self.team == C)
+        if conc is not None:
+            # every other drawn enemy only at the base samples, never interpolated
+            bk = np.searchsorted(self.G, self.F[base], side="left")
+            bk = bk[(bk < self.G.size)]
+            bmask = np.zeros(self.G.size, bool)
+            bmask[bk] = True
+            for s in np.flatnonzero(self.team != C):
+                m = drawn[s] & (enemy_f[s] | bmask) & np.isfinite(self.X[s])
+                tracks[self.sid[s]] = {"t": self.G[m], "x": self.X[s, m], "y": self.Y[s, m], "z": self.Z[s, m],
+                                       "yaw": self.YAW[s, m], "pitch": self.PITCH[s, m]}
+                gaps[self.sid[s]] = SIGHT_MS + 5.0
         cols = np.flatnonzero(reads[ci].any(axis=0))
         smp = self.tl0.sample(self.F[cols])
         pos = {k: smp[k] for k in ("x", "y", "z", "yaw", "pitch")}
@@ -410,6 +508,8 @@ class Match:
         cost = {"reads": n_reads, "denominator": alive_ms / FRAME_MS, "share": n_reads / (alive_ms / FRAME_MS),
                 "frames_read": frames_read, "frames_live": frames_live,
                 "frame_share": frames_read / max(frames_live, 1)}
+        if conc is not None:
+            cost["concurrency"] = conc
         return tracks, gaps, cost
 
     def _snap(self, x, y, z, mask):
@@ -449,7 +549,7 @@ def _bucket(d):
     return len(SPACING_EDGES_M)
 
 
-def answers(der: ep.Derived, tl, C: str) -> dict:
+def answers(der: ep.Derived, tl, C: str, occ=None) -> dict:
     """The catalogue's answers for capturing team C, from one arm's
     episodes and timeline."""
     team_of = {s.slot_id: s.team for s in tl.slots}
@@ -476,6 +576,80 @@ def answers(der: ep.Derived, tl, C: str) -> dict:
     out["duel_C"] = [item(e.get("kill_event") or ("pair", frozenset((e["participants"]["a"], e["participants"]["b"]))), e,
                           first_seer=_tm(e.get("first_seer"), C, team_of))
                      for e in duels if C in side_of(e)]
+    # CQ17: peeker against holder at contact, per kill duel with sight
+    pk = [e for e in duels if e["outcome"]["result"] == "killed" and e.get("sight") and C in side_of(e)
+          and len(side_of(e)) == 2]
+    out["peek_C"], out["peek_pair"], out["_peek_won"] = {}, {}, {}
+    if pk:
+        idx = {s.slot_id: k for k, s in enumerate(tl.slots)}
+        off = np.arange(-PEEK_WIN_MS, PEEK_WIN_MS + 1.0, SIGHT_MS)
+        T = np.concatenate([e["t_start_ms"] + off for e in pk])
+        smp = tl.sample(T)
+        m = off.size
+        for n_, e in enumerate(pk):
+            sl = slice(n_ * m, (n_ + 1) * m)
+            st = {}
+            for sid in (e["participants"]["a"], e["participants"]["b"]):
+                x, y = smp["x"][idx[sid], sl], smp["y"][idx[sid], sl]
+                ok = np.isfinite(x) & np.isfinite(y)
+                tt = T[sl][ok]
+                if ok.sum() < 2 or tt[-1] - tt[0] <= 0:
+                    st[sid] = None
+                    continue
+                path = np.hypot(np.diff(x[ok]), np.diff(y[ok])).sum()
+                st[sid] = "peek" if path / ((tt[-1] - tt[0]) / 1000.0) >= PEEK_CMS else "hold"
+            a, b = e["participants"]["a"], e["participants"]["b"]
+            c_, e_ = (a, b) if team_of.get(a) == C else (b, a)
+            out["peek_C"][e["kill_event"]] = st[c_]
+            out["peek_pair"][e["kill_event"]] = (st[c_], st[e_])
+            out["_peek_won"][e["kill_event"]] = team_of.get(e["outcome"]["killer"]) == C
+    # CQ18: each participant's distance to the occluding corner at the onset
+    out["corner_C"], out["_corner"] = {}, {}
+    if pk and occ is not None:
+        from reticle.line_of_sight import eye
+        smp = tl.sample(np.array([e["t_start_ms"] for e in pk]))
+        P = eye(np.stack([smp["x"], smp["y"], smp["z"]], -1))          # (S, n, 3)
+        rows_, O_, D_ = [], [], []
+        for n_, e in enumerate(pk):
+            a, b = e["participants"]["a"], e["participants"]["b"]
+            c_, e_ = (a, b) if team_of.get(a) == C else (b, a)
+            pc, pe = P[idx[c_], n_], P[idx[e_], n_]
+            if not (np.isfinite(pc).all() and np.isfinite(pe).all()):
+                continue
+            for w, (o, t) in enumerate(((pc, pe), (pe, pc))):
+                v = t - o
+                Lh = max(float(np.hypot(v[0], v[1])), 1.0)
+                th = np.arctan2(v[1], v[0])
+                for k, dg in enumerate(CORNER_DEG):
+                    for sg in (1.0, -1.0):
+                        ang = th + sg * np.radians(dg)
+                        d = np.array([np.cos(ang), np.sin(ang), v[2] / Lh])
+                        O_.append(o)
+                        D_.append(d / np.linalg.norm(d))
+                        rows_.append((n_, w, k, float(np.linalg.norm(v))))
+        if rows_:
+            hit, dist = occ.first_hit(np.array(O_), np.array(D_))
+            best = {}
+            for (n_, w, k, Lr), h, dd in zip(rows_, hit, dist):
+                if h >= 0 and dd < Lr and dd * np.sin(np.radians(CORNER_DEG[k])) <= CORNER_LAT_CM:
+                    cur = best.get((n_, w))
+                    if cur is None or k < cur[0] or (k == cur[0] and dd < cur[1]):
+                        best[(n_, w)] = (k, float(dd))
+            for n_, e in enumerate(pk):
+                a, b = e["participants"]["a"], e["participants"]["b"]
+                c_, e_ = (a, b) if team_of.get(a) == C else (b, a)
+                pc, pe = P[idx[c_], n_], P[idx[e_], n_]
+                if not (np.isfinite(pc).all() and np.isfinite(pe).all()):
+                    out["corner_C"][e["kill_event"]] = None
+                    continue
+                dc = best.get((n_, 0), (None, None))[1]
+                de = best.get((n_, 1), (None, None))[1]
+                L = float(np.linalg.norm(pe - pc))
+                lab = None
+                if dc is not None and de is not None and abs(dc - de) >= CORNER_SEP_CM:
+                    lab = "far" if dc > de else "near"
+                out["corner_C"][e["kill_event"]] = lab
+                out["_corner"][e["kill_event"]] = (dc, de, L, c_)
     out["contact_C"] = [{"k": frozenset((c["a"], c["b"])), "s": c["t_start_ms"], "e": c["t_end_ms"],
                          "attrs": {"first_seer": _tm(c.get("first_seer"), C, team_of)}}
                         for c in der.contacts]
@@ -594,7 +768,7 @@ def answers(der: ep.Derived, tl, C: str) -> dict:
 
 
 INSTANT = ("attack_team", "round_result", "opening_first_seer", "spacing_death", "first_sight_support",
-           "execute_commit_band")
+           "execute_commit_band", "peek_C", "peek_pair", "corner_C")
 EPISODIC = ("duel_C", "contact_C", "engagement_C", "trade_C", "execute_C", "rotation_C", "lurk_C",
             "execute_E", "rotation_E", "lurk_E")
 
@@ -707,15 +881,21 @@ def degrade_match(key: str, arms: list[str], out_path: Path) -> list[dict]:
           flush=True)
     for C in M.teams:
         drawn = M.drawn(C)
-        A0 = answers(d0, M.tl0, C)
+        A0 = answers(d0, M.tl0, C, M.occ)
         tracks, gaps = M.t1_tracks(C, drawn)
         tl1 = CutTimeline(M.tl0, tracks, gaps, events, "t1")
         d1 = M.derive(tl1)
-        A1 = answers(d1, tl1, C)
+        A1 = answers(d1, tl1, C, M.occ)
         drawn_share = float(drawn[M.team != C].any(axis=0).mean())
         base = {"version": VERSION, "match": M.tl0.match, "map": M.tl0.map, "team": C,
                 "check": check, "drawn_share_of_live_grid": drawn_share}
-        rows.append(dict(base, arm="T1", cost={"share": 1.0}, vs_T0=score(A0, A1), vs_T1=None))
+        peek = [[A0["peek_pair"][k][0], A0["peek_pair"][k][1], A0["_peek_won"][k]] for k in A0["peek_pair"]]
+        me, _how = M.player(C)
+        corner = [list(A0["_corner"][k][:3]) + [A0["peek_pair"][k][0], A0["peek_pair"][k][1], A0["_peek_won"][k],
+                                               A0["_corner"][k][3] == M.sid[me] and _how == "subject"]
+                  for k in A0["_corner"]]
+        rows.append(dict(base, arm="T1", cost={"share": 1.0}, vs_T0=score(A0, A1), vs_T1=None, peek_value=peek,
+                         corner_value=corner))
         for name in arms:
             arm = ARMS[name]
             if arm["kind"] in ("truth", "full"):
@@ -724,7 +904,7 @@ def degrade_match(key: str, arms: list[str], out_path: Path) -> list[dict]:
             tr, gp, cost = M.read_tracks(C, drawn, arm)
             tla = CutTimeline(M.tl0, tr, gp, events, name)
             da = M.derive(tla)
-            Aa = answers(da, tla, C)
+            Aa = answers(da, tla, C, M.occ)
             rows.append(dict(base, arm=name, cost=cost, vs_T0=score(A0, Aa), vs_T1=score(A1, Aa)))
             print(f"  {key[:8]} {C} {name}: share {cost['share']:.3f} ({time.time() - ta:.0f} s)", flush=True)
     with out_path.open("a", encoding="utf-8") as f:
@@ -1264,7 +1444,7 @@ def inventory(record: bool = False) -> dict:
 QUESTIONS = {
     "attack_team": "instant", "round_result": "instant", "opening_first_seer": "instant",
     "spacing_death": "instant", "spacing_5m": "spacing5", "first_sight_support": "instant",
-    "execute_commit_band": "instant",
+    "execute_commit_band": "instant", "peek_C": "instant", "peek_pair": "instant", "corner_C": "instant",
     "duel_C": "episodic", "contact_C": "episodic", "engagement_C": "episodic", "trade_C": "episodic",
     "execute_C": "episodic", "rotation_C": "episodic", "lurk_C": "episodic", "retake_C": "retake",
     "execute_E": "episodic", "rotation_E": "episodic", "lurk_E": "episodic",
@@ -1313,6 +1493,12 @@ def pooled(rows: list[dict]) -> dict:
         fl = sum(r["cost"].get("frames_live", 0) for r in rs)
         o = {"perspectives": len(rs), "share": (reads / den) if den else 1.0,
              "frame_share": (fr / fl) if fl else 1.0, "vs_T1": {}, "vs_T0": {}}
+        cc = [r["cost"]["concurrency"] for r in rs if r["cost"].get("concurrency")]
+        if cc:
+            w = sum(c["drawn_samples"] for c in cc)
+            o["concurrency"] = {k: round(sum(c[k] * c["drawn_samples"] for c in cc if c[k] is not None) / w, 4)
+                                for k in ("ge2", "ge3")}
+            o["concurrency"]["subject_perspectives"] = sum(c["player"] == "subject" for c in cc)
         for ref in ("vs_T1", "vs_T0"):
             for q in QUESTIONS:
                 a, k, n = _agree(rs, q, ref)
@@ -1367,12 +1553,21 @@ def report(record: bool = False, path: Path | None = None, session: str | None =
         cheap[q] = (arm, sh)
         print(f"  {q}: {arm} share {sh if sh is None else round(sh, 3)}")
     summary = {"version": VERSION, "matches": matches, "pooled": P, "cheapest": cheap}
+    cv = corner_value(rows)
+    if cv:
+        summary["corner_value"] = cv
+        print("Corner distance (T0):", json.dumps(cv))
+    pv = peek_value(rows)
+    if pv:
+        summary["peek_value"] = pv
+        print("Peeker against holder (T0):", json.dumps(pv))
     (path.parent / (path.stem + "_pooled.json")).write_text(json.dumps(summary, indent=1, default=_jd), encoding="utf-8")
     if record:
         from reticle.metrics import record as rec
         sess = session or ("pooled17" if len(matches) >= 17 else f"pooled{len(matches)}")
         for arm, o in P.items():
             vals = {"share": round(o["share"], 4), "frame_share": round(o["frame_share"], 4)}
+            vals.update({f"concurrency.{k}": v for k, v in (o.get("concurrency") or {}).items()})
             for ref in ("vs_T1", "vs_T0"):
                 for q, v in o[ref].items():
                     if v["n"]:
@@ -1382,6 +1577,163 @@ def report(record: bool = False, path: Path | None = None, session: str | None =
             rec("coaching_questions", part=f"degrade/{arm}", session=sess, values=vals,
                 deps={"version": VERSION, "episodes": ep.EPISODES_VERSION, "arm": ARMS.get(arm, {})},
                 context={"task": TASK, "matches": len(matches), "perspectives": o["perspectives"]})
+        if cv:
+            flat = {}
+            for k, v in cv.items():
+                if isinstance(v, dict):
+                    for a, b in v.items():
+                        if isinstance(b, list):
+                            flat[f"{k}.{a}_lo"], flat[f"{k}.{a}_hi"] = b
+                        elif b is not None:
+                            flat[f"{k}.{a}"] = b
+                elif v is not None:
+                    flat[k] = v
+            rec("coaching_questions", part="value/extra/corner", session=sess, values=flat,
+                deps={"version": VERSION, "episodes": ep.EPISODES_VERSION},
+                context={"task": TASK, "matches": len(matches), "deg": list(CORNER_DEG), "sep_cm": CORNER_SEP_CM,
+                         "long_cm": LONG_CM, "wide_cm": WIDE_CM})
+        if pv:
+            rec("coaching_questions", part="value/extra/peek", session=sess,
+                values={k: v for k, v in pv.items() if v is not None and not isinstance(v, list)}
+                | ({"ci_lo": pv["ci"][0], "ci_hi": pv["ci"][1]} if pv.get("ci") else {}),
+                deps={"version": VERSION, "episodes": ep.EPISODES_VERSION},
+                context={"task": TASK, "matches": len(matches), "peek_cms": PEEK_CMS, "window_ms": PEEK_WIN_MS})
+    return 0
+
+
+def corner_value(rows: list[dict]) -> dict | None:
+    """CQ18 on T0, one perspective per match (the first team) so each duel
+    counts once: the far side's win share; far against near stratified by
+    both peek states; wide against tight long-angle peekers; the player's
+    wide share."""
+    first = {}
+    for r in rows:
+        if r["arm"] == "T1" and "corner_value" in r:
+            first.setdefault(r["match"], r["team"])
+    inst, wide, n_all, n_both, mine = [], [], 0, 0, []
+    for r in rows:
+        if r["arm"] != "T1" or "corner_value" not in r or first[r["match"]] != r["team"]:
+            continue
+        for dc, de, L, sc, se, won, is_me in r["corner_value"]:
+            n_all += 1
+            if dc is None or de is None:
+                continue
+            n_both += 1
+            if abs(dc - de) >= CORNER_SEP_CM:
+                inst.append({"m": r["match"], "z": (sc, se), "a": dc > de, "y": bool(won)})
+            if L >= LONG_CM:
+                for d_, st, y in ((dc, sc, bool(won)), (de, se, not won)):
+                    if st == "peek":
+                        wide.append({"m": r["match"], "z": "all", "a": d_ >= WIDE_CM, "y": y})
+    # the player's long-angle peeks, from both perspectives
+    for r in rows:
+        if r["arm"] != "T1" or "corner_value" not in r:
+            continue
+        for dc, de, L, sc, se, won, is_me in r["corner_value"]:
+            if is_me and dc is not None and L >= LONG_CM and sc == "peek":
+                mine.append(dc >= WIDE_CM)
+    if not inst:
+        return None
+    far_won = float(np.mean([x["y"] == x["a"] for x in inst]))
+    return {"duels": n_all, "both_found": round(n_both / max(n_all, 1), 4), "n_far_near": len(inst),
+            "far_won": round(far_won, 4), "far_vs_near": _stratified(inst), "wide_vs_tight": _stratified(wide),
+            "player_long_peeks": len(mine), "player_wide_share": round(float(np.mean(mine)), 4) if mine else None}
+
+
+def peek_value(rows: list[dict]) -> dict | None:
+    """CQ17 on T0: with exactly one peeker, the peeker's kill-duel win share
+    (each duel counted once), with a 1000-draw match bootstrap."""
+    per = defaultdict(lambda: [0, 0])
+    states = Counter()
+    for r in rows:
+        if r["arm"] != "T1" or "peek_value" not in r:
+            continue
+        for sc, se, won in r["peek_value"]:
+            states[(sc, se)] += 1
+            if {sc, se} == {"peek", "hold"}:
+                per[r["match"]][0] += int((sc == "peek") == bool(won))
+                per[r["match"]][1] += 1
+    if not per:
+        return None
+    ms = sorted(per)
+    a = np.array([per[m] for m in ms], float)
+    rng = np.random.default_rng(7)
+    W = rng.multinomial(len(ms), np.full(len(ms), 1.0 / len(ms)), size=1000)
+    boot = (W @ a[:, 0]) / np.maximum(W @ a[:, 1], 1)
+    tot = sum(states.values())
+    return {"peeker_won": round(float(a[:, 0].sum() / a[:, 1].sum()), 4), "n_one_peeker": int(a[:, 1].sum() / 2),
+            "ci": [round(float(np.percentile(boot, 2.5)), 4), round(float(np.percentile(boot, 97.5)), 4)],
+            "duels": tot // 2, "both_peek": round(states[("peek", "peek")] / tot, 4),
+            "both_hold": round(states[("hold", "hold")] / tot, 4),
+            "one_peeker": round((states[("peek", "hold")] + states[("hold", "peek")]) / tot, 4),
+            "unknown": round(sum(v for k, v in states.items() if None in k) / tot, 4), "matches": len(ms)}
+
+
+# ----------------------------------------------------------------- cost target
+
+COST_SESSION = "9acf02f98283"
+COST_RUNS = {"cv4": "04c2c241", "cv12": "e5c119ba"}    # ally_icon cache passes, least and most contended
+MINIMAP_RUN = "791fcd16"                               # minimap+ping video pass
+CAPTURE_HZ = 60.0
+TARGET_MS = 1.0                                        # the player's stretch goal, per captured frame
+
+
+def _usage(run_prefix: str) -> dict:
+    p = Path(DEFAULT_STORE) / "notes" / "usage.jsonl"
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if run_prefix in line:
+            r = json.loads(line)
+            if r.get("run_id", "").startswith(run_prefix):
+                return r
+    raise SystemExit(f"usage run {run_prefix} not found")
+
+
+def _manifest_fps(session: str) -> float:
+    m = json.loads((Path(DEFAULT_STORE) / "manifests" / f"{session}.json").read_text(encoding="utf-8"))
+    return float(m["source"]["fps"])
+
+
+def cost(record: bool, pooled_paths: list[Path]) -> int:
+    """Today's per-frame reading cost from `reticle usage`'s stored runs, and
+    each arm's implied cost per captured frame against TARGET_MS: the 15 Hz
+    readers' ms per read frame x the arm's share x (15 / capture rate)."""
+    fps = _manifest_fps(COST_SESSION)
+    mm = _usage(MINIMAP_RUN)["readers"]["minimap"]["feed"]
+    mm_ms = mm["total_ns"] / mm["count"] / 1e6
+    today = {"capture_fps": fps}
+    for tag, run in COST_RUNS.items():
+        a = _usage(run)["readers"]["ally_icon"]["feed"]
+        ai = a["total_ns"] / a["count"] / 1e6
+        today[f"{tag}.ally_icon_ms_per_read"] = round(ai, 3)
+        today[f"{tag}.ally_icon_fed"] = int(a["count"])
+        today[f"{tag}.per_read_ms"] = round(ai + mm_ms, 3)
+        today[f"{tag}.per_captured_ms"] = round((ai + mm_ms) * ((1000.0 / FRAME_MS) / fps), 3)
+    today["minimap_ms_per_read"] = round(mm_ms, 3)
+    today["minimap_fed"] = int(mm["count"])
+    arms = {}
+    for path in pooled_paths:
+        P = json.loads(path.read_text(encoding="utf-8"))["pooled"]
+        for arm, o in P.items():
+            if arm in ("T0", "T1") or arm in arms:
+                continue
+            row = {"share": round(o["share"], 4), "frame_share": round(o["frame_share"], 4)}
+            for tag in COST_RUNS:
+                per = today[f"{tag}.per_read_ms"] * ((1000.0 / FRAME_MS) / fps)
+                row[f"{tag}.slot_ms"] = round(per * o["share"], 3)
+                row[f"{tag}.frame_ms"] = round(per * o["frame_share"], 3)
+            row["meets_target_cv4_frame"] = row["cv4.frame_ms"] <= TARGET_MS
+            arms[arm] = row
+    out = {"today": today, "arms": arms, "target_ms": TARGET_MS}
+    print(json.dumps(out, indent=1))
+    (OUT / "cost.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    if record:
+        from reticle.metrics import record as rec
+        deps = {"version": VERSION, "runs": {**COST_RUNS, "minimap": MINIMAP_RUN}}
+        rec("coaching_questions", part="cost/today", session=COST_SESSION, values=today, deps=deps,
+            context={"task": TASK, "basis": "feed ms per fed frame from notes/usage.jsonl; per captured frame x 15/fps"})
+        for arm, row in arms.items():
+            rec("coaching_questions", part=f"cost/{arm}", session="pooled17", values=row, deps=deps,
+                context={"task": TASK, "target_ms": TARGET_MS, "basis": "per captured 60 Hz frame"})
     return 0
 
 
@@ -1395,6 +1747,9 @@ def main(argv=None) -> int:
     d.add_argument("--all", action="store_true")
     d.add_argument("--arms", default="")
     d.add_argument("--out", default=str(OUT / "degrade.jsonl"))
+    co = sub.add_parser("cost")
+    co.add_argument("--record", action="store_true")
+    co.add_argument("--pooled", default="degrade_pooled.json,degrade_attention_pooled.json")
     sub.add_parser("value")
     sub.add_parser("record-value")
     iv = sub.add_parser("inventory")
@@ -1424,6 +1779,8 @@ def main(argv=None) -> int:
                 continue
             degrade_match(k, arms, out)
         return 0
+    if a.cmd == "cost":
+        return cost(a.record, [OUT / x for x in a.pooled.split(",") if (OUT / x).is_file()])
     if a.cmd == "value":
         return run_value()
     if a.cmd == "record-value":
