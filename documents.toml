@@ -478,6 +478,12 @@ status = "recorded"
 since = "2026-10-06"
 
 [[document]]
+path = "docs/EXECUTION_QUESTIONS.md"
+kind = "findings"
+status = "recorded"
+since = "2026-10-07"
+
+[[document]]
 path = "docs/QUESTION_ACCEPTANCE.md"
 kind = "plan"
 status = "proposed"

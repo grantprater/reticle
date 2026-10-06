@@ -12,7 +12,8 @@ sweep, the attention arm, cost) and `prototypes/coaching_belief.py`
 Predictions CQ0-CQ16 and their revisions sit in the store's
 `notes/predictions.jsonl` (task `coaching-questions-20261006`), registered
 before each run. Nothing here reads the held-out match bd7efa02, decodes
-video or fits a threshold on an evaluation set; nothing is wired.
+video or fits a threshold on an evaluation set; nothing is wired. The
+execution (mechanics) questions are [EXECUTION_QUESTIONS.md](EXECUTION_QUESTIONS.md)'s.
 
 ## Conclusion
 
