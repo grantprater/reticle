@@ -224,7 +224,10 @@ import crowd_region as v1  # noqa: E402  (stored-row Session, truth contexts, as
 #: (`rests_on` its time) and never evicts; region rows carry members in event
 #: form and are persisted (`write_rows`); the cost counts outlines and
 #: emergence; the crop cache is read on one decoder thread.
-CROWD_BLOB_VERSION = "crowd-blob-0.3.0"
+#: 0.4.0 (2026-10-06): the stream joins the crop cache by nearest time
+#: (`frame_join`), not exact time; c817691bcd15's two grids differ in phase,
+#: and the exact join had dropped 43% of its frames.
+CROWD_BLOB_VERSION = "crowd-blob-0.4.0"
 STORE = v1.STORE
 ANALYSIS = STORE / "analysis" / "crowd-blobsplit-20261004"
 
@@ -376,10 +379,25 @@ class Pixels:
         self.cache_t = np.unique(np.asarray(self.cache.t_ms, float))
 
     def crops(self, times):
-        """(t, crop) for each time the cache holds, in order."""
+        """(t, crop) for each asked time `frame_join.grid_join` joins to a
+        cache frame, in order: `t` is the time asked, the crop the cache's
+        nearest frame. The two grids need not share a phase."""
+        from reticle.frame_join import grid_join
+
         x0, y0, x1, y1 = self.box
-        for smp in self.cache.samples(list(times), rois=["minimap"]):
-            yield float(smp.t_ms), smp.frame[y0:y1, x0:x1]
+        times = np.asarray(list(times), float)
+        if not times.size:
+            return
+        j = grid_join(times, self.cache_t, self.cache.record["hz"], min_rate=0.0)
+        if j.index is None:
+            return
+        asked = defaultdict(list)
+        for t, k in zip(times[j.joined], j.index[j.joined]):
+            asked[float(self.cache_t[k])].append(float(t))
+        for smp in self.cache.samples(list(asked), rois=["minimap"]):
+            crop = smp.frame[y0:y1, x0:x1]
+            for t in asked[float(smp.t_ms)]:
+                yield t, crop
 
 
 class FrameBlobs:
@@ -451,9 +469,21 @@ def split_tests(px: Pixels, F: FrameBlobs, i: int) -> dict:
 # ----------------------------------------------------------------- stored rows
 
 def frame_clock(S: v1.Session, px: Pixels) -> np.ndarray:
-    """Indices into `S.fr_*` of the drawn frames the cache holds."""
-    held = np.isin(np.round(S.fr_t, 3), np.round(px.cache_t, 3))
-    return np.flatnonzero(S.fr_drawn & held)
+    """Indices into `S.fr_*` of the drawn frames inside the cache's spans that
+    join a cache frame by nearest time (`frame_join.grid_join`, the cache a
+    grid stream at its recorded rate). Raises `JoinRefused` below the join floor: the stream and
+    the cache then sample different clocks. The join's stamp lands on
+    `px.frame_join`."""
+    from reticle import roi_cache
+    from reticle.frame_join import grid_join
+
+    spans = px.cache.record.get("spans")
+    inside = S.fr_drawn & (roi_cache.spans_mask(S.fr_t, spans) if spans
+                           else np.ones(S.fr_t.shape, bool))
+    cand = np.flatnonzero(inside)
+    j = grid_join(S.fr_t[cand], px.cache_t, px.cache.record["hz"]).require()
+    px.frame_join = j.stamp()
+    return cand[j.joined]
 
 
 def disc_offsets(r: float):
