@@ -188,17 +188,17 @@ class RunTest(unittest.TestCase):
             px.mkdir(parents=True)
             (px / "actors.parquet").write_bytes(b"")
             rows = rk.run(SID, root, demos)
-            got = {r["step"]: next(k for k in ("done", "already", "refused") if k in r)
+            got = {r["step"]: next(k for k in ("done", "already", "waits", "refused") if k in r)
                    for r in rows}
             self.assertEqual(got, {"find": "done", "keep": "done", "link": "done",
                                    "parse": "already", "wrap": "refused",
-                                   "replay_layer": "refused"})
+                                   "replay_layer": "waits"})
             self.assertEqual(rows[4]["refused"], rk.FETCH_NEEDED)
-            self.assertTrue(rows[5]["refused"].startswith("no_stored_deaths"))
+            self.assertTrue(rows[5]["waits"].startswith("no_stored_deaths"))
             miss = rk.missing_steps(SID, manifest(), root, demos)
             self.assertEqual([(m["step"], m["how"]) for m in miss], [("wrap", "player")])
             again = rk.run(SID, root, demos)
-            self.assertEqual([next(k for k in ("done", "already", "refused") if k in r)
+            self.assertEqual([next(k for k in ("done", "already", "waits", "refused") if k in r)
                               for r in again][:4], ["already"] * 4)
 
 

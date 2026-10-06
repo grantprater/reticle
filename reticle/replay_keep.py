@@ -439,8 +439,9 @@ def deaths_path(sid: str, root=DEFAULT_STORE) -> Path:
 
 def run(sid: str, root=DEFAULT_STORE, demos: Path | None = DEMOS_DIR) -> list[dict]:
     """The six steps for one capture session, in order; each row is
-    `{"step", ...}` with `done`, `already` or `refused`. A refusal stops the
-    steps that need it; a missing Riot record does not stop the layer."""
+    `{"step", ...}` with `done`, `already`, `waits` or `refused`. A refusal
+    stops the steps that need it; a missing Riot record does not stop the
+    layer, which waits for the stored deaths."""
     from .store import Store
 
     man = Store(root).read_manifest(sid)
@@ -495,9 +496,9 @@ def run(sid: str, root=DEFAULT_STORE, demos: Path | None = DEMOS_DIR) -> list[di
         else:
             out.append({"step": "wrap", "done": match})
     if not deaths_path(sid, root).is_file():
-        return out + [{"step": "replay_layer", "refused":
+        return out + [{"step": "replay_layer", "waits":
                        "no_stored_deaths: the layer's clock is fitted on them; run "
-                       f"`reticle plan {sid}`'s deaths first"}]
+                       f"`reticle deaths {sid}` first"}]
     from . import episodes as ep
     from . import replay_layer as rl
     if rl.status(match, root)["state"] == "current":
@@ -552,11 +553,12 @@ def missing_steps(sid: str, manifest: dict, root=DEFAULT_STORE,
 
 def command(sid: str, root=DEFAULT_STORE, demos: Path | None = DEMOS_DIR) -> int:
     """`reticle replay-keep SESSION`: print each step; exit 1 on a refusal
-    other than a missing Riot record."""
+    other than a missing Riot record. A layer waiting for the stored deaths
+    is no refusal."""
     rows = run(sid, root, demos)
     rc = 0
     for r in rows:
-        state = next(k for k in ("done", "already", "refused") if k in r)
+        state = next(k for k in ("done", "already", "waits", "refused") if k in r)
         extra = "  ".join(f"{k} {v}" for k, v in r.items() if k not in ("step", state))
         print(f"{r['step']:<13} {state:<8} {r[state]}" + (f"  {extra}" if extra else ""))
         if state == "refused" and not (r["step"] == "wrap" and r[state] == FETCH_NEEDED):
