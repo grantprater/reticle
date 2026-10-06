@@ -137,8 +137,8 @@ _POSE_FIELDS = ("ncc", "reason", "facing_reason", "search", "surprise", "rests_o
 #: (`spans_read`), or in no span the scan asked it to read (`spans_asked`:
 #: on a06f04a0059f, 3694746e4e54 and bdfdcf009dba every refused frame);
 #: `no_frame` where the stream records no clip to place the frame against.
-UNREAD_CAUSES = ("widget_absent", "outside_cache_rounds", "no_frame_in_read_span",
-                 "outside_spans_asked", "no_frame")
+UNREAD_CAUSES = ("widget_absent", "outside_cache_rounds", "outside_live_rounds",
+                 "no_frame_in_read_span", "outside_spans_asked", "no_frame")
 
 
 def _ally_icon_schema():
@@ -290,14 +290,16 @@ class StoredAllyPoses:
             return None if self._drawn[i] else "widget_absent"
         if self.clip is None or t_ms is None:
             return "no_frame"
+        # A decode clipped to the live rounds says so (`outside_live_rounds`).
+        skipped = self.clip.get("reason") or "outside_cache_rounds"
         if _within(self.spans["spans_skipped"], t_ms):
-            return "outside_cache_rounds"
+            return skipped
         if _within(self.spans["spans_read"], t_ms):
             return "no_frame_in_read_span"
         # `spans_asked` None asked for the whole capture, so everything
         # outside `spans_read` is skipped (`roi_cache.clip_record`).
         if self.clip.get("spans_asked") is None:
-            return "outside_cache_rounds"
+            return skipped
         if not _within(self.spans["spans_asked"], t_ms):
             return "outside_spans_asked"
         return "no_frame"

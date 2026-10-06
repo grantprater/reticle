@@ -1251,6 +1251,10 @@ class AllyIconReader:
     #: such: the player scoped ally tracking to the rounds from the
     #: barrier-drop lead onward (2026-09-29, docs/ALLY_ICON_RESAMPLE.md).
     records_clip = True
+    #: A decode reads the same live rounds (`roi_cache.clip_live_rounds`,
+    #: ally-icon-0.13.0): the buy phase before each round's lead is out of
+    #: scope on every source, so a video pass no longer reads it.
+    live_rounds_only = True
 
     def __init__(self, floor, slab, static, box, hz=ALLY_DESCRIPTOR_HZ,
                  spans=None, name="ally_icon", stack=None, turned=None):
@@ -1435,6 +1439,20 @@ class AllyIconReader:
                             **({"turned": True} if turn else {})})
         for i, d in enumerate(got):
             self.icons.append({**frame, "index": i, **d})
+
+    def after_gap(self, t_ms: float) -> None:
+        """Continue as a reader that last read a frame at `t_ms`, more than
+        `teardrop.PRIOR_GAP_MS` before the next it is fed: each channel's
+        pose prior sees a gap (`IconPoseReader.after_gap`). A time split's
+        later runs start here (`process_shards`); `process_shards.check_seeds`
+        refuses a run where a channel had read nothing before."""
+        from .teardrop import IconPoseReader, SelfConeReader
+        x0, _, x1, _ = self.box
+        sc = widget_scale(x1 - x0)
+        readers = {"self": SelfConeReader(sc), "ally": IconPoseReader("ally", sc)}
+        for r in readers.values():
+            r.after_gap(t_ms)
+        self._pose_readers = (sc, readers)
 
     def _turned(self, t_ms: float) -> bool:
         """Whether the session's stored placement is turned 180 degrees at

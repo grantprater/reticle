@@ -571,7 +571,14 @@ PING_VERSION = "ping-0.1.0"
 # [domain:minimap/upright-icons-on-turned-map]. A turned frame row carries
 # `turned`, and the coverage row `widget_turned_frames`; a session with no
 # turned placement reads the same rows as 0.11.0.
-ALLY_ICON_VERSION = "ally-icon-0.12.0"
+# 0.13.0 (2026-10-05): a decode reads the live rounds only, from each round's
+# lead before its barrier drop (`roi_cache.clip_live_rounds`), as a pass fed
+# from the minimap round cache already does; the coverage row's `spans_clip`
+# records the skipped buy phase with reason `outside_live_rounds` and the
+# spans it read. The player ruled the buy
+# phase out of scope for allies (2026-09-29, again 2026-10-05). A cache-fed
+# pass writes the rows 0.12.0 wrote.
+ALLY_ICON_VERSION = "ally-icon-0.13.0"
 # The stacked teammate icon search (`stack_fit`), ported from
 # `prototypes/stack_fit.py` 0.2.0. 0.3.0: numpy in place of torch, the icons
 # drawn at `ICON_ALPHA` instead of opaque, windows scored on each pose's
