@@ -519,10 +519,18 @@ but loses
 on first-sight support and
 [metric:real_reader_schedule/qa5r2/Vgate-d@dev2#opening_first_seer.loss=-0.0625]
 on the opening first seer. No arm yet passes.
+Under QA5r3, the interval rule the player chose after seeing these numbers,
+the real-gate `Vgate` passes post hoc at a read share of
+[metric:real_reader_schedule/qa5r3/Vgate@dev2#share=0.0283], its
+spacing-at-death loss of
+[metric:real_reader_schedule/qa5r3/Vgate@dev2#spacing_death.loss=-0.0807]
+having an interval that ends at
+[metric:real_reader_schedule/qa5r3/Vgate@dev2#spacing_death.ci_hi=-0.0305].
 
 | Ref | Revises | Prediction |
 |---|---|---|
 | QA5r2 | QA5r | per sight question, the arm's accuracy against T1 is at most 0.03 below the 15 Hz real-read arm's on the same instances (the loss from paired flips, point estimate; a 95% paired bootstrap interval over rounds reported beside); read share at most 0.06 of the stored 15 Hz reads |
+| QA5r3 | QA5r2 | the same accuracy, loss and interval; a sight question fails only when the interval's upper end lies below -0.05; the point estimate is reported beside; read share at most 0.06 of the stored 15 Hz reads |
 
 ## 8. Build list, in order
 

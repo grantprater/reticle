@@ -90,6 +90,8 @@ REF = {"Lp": "T1", "T1v": "T1", "Lpv": "T1v", "Lpv-reach": "T1v", "V15h": "T1v",
        "Vgate-d": "V15h", "Vgate-t-d": "V15t"}
 #: QA5r2 (player, 2026-10-07): an arm's accuracy against T1 at most this far below its reference's.
 QA5R2_TOL, QA5R2_CAP, BOOT_N, BOOT_SEED = 0.03, 0.06, 2000, 7
+#: QA5r3 (player, 2026-10-07): a question fails only when the loss interval's upper end lies below -0.05.
+QA5R3_TOL = 0.05
 DRAWN_MS = 1000.0     # Vgate-d: a read moves to the first drawn frame at most this far later
 #: Arms run before QA5r2 was registered: their verdicts are post hoc.
 POST_HOC = ("Lp", "T1v", "Lpv", "Lpv-reach", "V15h", "Vgate", "Vgate-r", "V15t", "Vgate-t", "Vgate-t-r",
@@ -814,6 +816,9 @@ def arms(M: RealMatch) -> tuple[list[dict], dict]:
          f"ratio {costG['reads'] / costV['reads']:.4f} lost {costG['lost']}")
     det_t = M._vgate_detail
     M._lost_rows = lost_reads(M, V, det_t)["rows"]
+    _r, _b, win_lp = M.schedule(M.C, M.drawn_C, ARMS[SCHED])
+    info["rx8"] = {"Lp": spacing_windows(M, "Lp", "T1", win_lp),
+                   "Vgate-t": spacing_windows(M, "Vgate-t", "V15t", win_lp)}
     info["diag"] = {"Vgate-t": diagnose(M, "Vgate-t", "V15t", det_t),
                     "spacing_V15t_vs_T1": spacing_diag(M, "V15t", "T1")}
     trD, gpD, costD, jD = M.vgate_tracks(V, reads_lp, drawn_ms=DRAWN_MS)
@@ -1013,6 +1018,48 @@ def spacing_diag(M: RealMatch, arm: str, ref: str) -> dict:
         cls["missing_fit" if miss else ("far_fit" if far else "other")] += 1
         cls["far_fit_any"] += int(far)
     return {"disagree": len(bad), "n": len(M.A[ref]["spacing_death"]), **dict(cls)}
+
+
+def spacing_windows(M: RealMatch, arm: str, ref: str, win: np.ndarray) -> dict:
+    """RX8: for each spacing_death instance (T1's keys), whether the nearest
+    living teammate at the death in T1 had a gate-window frame (`win`, the
+    schedule's 5 Hz window frames) within 1 s before it; split by whether
+    `arm` broke the instance against `ref` (both judged against T1)."""
+    T1 = M.A["T1"]
+    sd = T1["spacing_death"]
+    ref_ok, arm_ok = _ok_set(T1, M.A[ref], "spacing_death"), _ok_set(T1, M.A[arm], "spacing_death")
+    ev = {e.event_id: e for e in M.tl0.events if e.kind == "death"}
+    idx = {sl.slot_id: k for k, sl in enumerate(M.tl0.slots)}
+    tl1 = M.TL["t1"]
+    out = {"broken": {"n": 0, "outside": 0}, "unbroken": {"n": 0, "outside": 0},
+           "both_right": {"n": 0, "outside": 0}, "no_teammate": 0}
+    for k in sd:
+        e = ev.get(k)
+        if e is None:
+            continue
+        t = float(e.t_ms) - 1.0
+        smp = tl1.sample(np.array([t]))
+        v = idx[e.target]
+        best, bs = np.inf, None
+        for s_ in M.ci:
+            if s_ == v or not smp["alive"][s_, 0]:
+                continue
+            d = np.hypot(smp["x"][s_, 0] - smp["x"][v, 0], smp["y"][s_, 0] - smp["y"][v, 0])
+            if np.isfinite(d) and d < best:
+                best, bs = d, int(s_)
+        if bs is None:
+            out["no_teammate"] += 1
+            continue
+        fr = (M.F >= t - 1000.0) & (M.F <= t)
+        outside = not bool(win[bs][fr].any())
+        broken = k in ref_ok and k not in arm_ok
+        key = "broken" if broken else "unbroken"
+        out[key]["n"] += 1
+        out[key]["outside"] += int(outside)
+        if k in ref_ok and k in arm_ok:
+            out["both_right"]["n"] += 1
+            out["both_right"]["outside"] += int(outside)
+    return out
 
 
 def rr6(M: RealMatch, V: dict) -> dict:
@@ -1240,6 +1287,14 @@ def report(record: bool = False) -> int:
         summary["onsets"][s] = _onset_pool(v)
     summary["rr1a"] = {i["session"]: i["rr1a"] for i in infos if "rr1a" in i}
     summary["rr6"] = {i["session"]: i["rr6"] for i in infos if "rr6" in i}
+    summary["rx8"] = {}
+    for pname, sess in (("dev2", JUDGED), ("dev3", tuple(i["session"] for i in infos if "rx8" in i))):
+        agg = {}
+        for i in infos:
+            if i.get("session") in sess and "rx8" in i:
+                _merge_counts(agg, i["rx8"])
+        summary["rx8"][pname] = agg
+    print("rx8:", json.dumps(summary["rx8"]))
     summary["diag"] = {}
     for pname, sess in (("dev2", JUDGED), ("dev3", tuple(i["session"] for i in infos if "diag" in i))):
         agg = {}
@@ -1944,7 +1999,7 @@ def outcome_rx() -> int:
     return 0
 
 
-def qa5r2_pool(rows: list[dict]) -> dict:
+def qa5r2_pool(rows: list[dict], rule: str = "QA5r2") -> dict:
     """QA5r2 per arm and sight question: accuracy against T1, the loss
     against the reference with a paired round-bootstrap interval, the verdict."""
     rng = np.random.default_rng(BOOT_SEED)
@@ -1978,7 +2033,9 @@ def qa5r2_pool(rows: list[dict]) -> dict:
             o["q"][q] = {"n": int(n.sum()), "acc": round(float(a.sum() / n.sum()), 4),
                          "acc_ref": round(float((a.sum() - d.sum()) / n.sum()), 4),
                          "loss": round(float(loss), 4), "ci": [round(float(lo), 4), round(float(hi), 4)],
-                         "pass": bool(loss >= -QA5R2_TOL), "ci_excludes_tol": bool(lo > -QA5R2_TOL),
+                         "pass": (bool(loss >= -QA5R2_TOL) if rule == "QA5r2" else bool(hi >= -QA5R3_TOL)),
+                         "ci_excludes_tol": bool(lo > -QA5R2_TOL),
+                         "ci_hi_below_005": bool(hi < -QA5R3_TOL),
                          "broken": int(sum(1 for x in I if x[2] and not x[3])),
                          "fixed": int(sum(1 for x in I if x[3] and not x[2])), "clusters": int(d.size),
                          **({"phantoms": ph} if q in cq.EPISODIC else {})}
@@ -1990,13 +2047,15 @@ def qa5r2_pool(rows: list[dict]) -> dict:
     return out
 
 
-def report_qa5r2(record: bool = False) -> int:
+def report_qa5r2(record: bool = False, rule: str = "QA5r2") -> int:
     rows = [json.loads(x) for x in (OUT / "rows.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
-    res = {"rule": "QA5r2", "tol": QA5R2_TOL, "cap": QA5R2_CAP, "boot": {"n": BOOT_N, "seed": BOOT_SEED,
-                                                                       "unit": "(match, round)"},
-           "pools": {"dev2": qa5r2_pool([r for r in rows if r["session"] in JUDGED]), "dev3": qa5r2_pool(rows)}}
+    tol = QA5R2_TOL if rule == "QA5r2" else QA5R3_TOL
+    res = {"rule": rule, "tol": tol, "cap": QA5R2_CAP, "boot": {"n": BOOT_N, "seed": BOOT_SEED,
+                                                              "unit": "(match, round)"},
+           "pools": {"dev2": qa5r2_pool([r for r in rows if r["session"] in JUDGED], rule),
+                     "dev3": qa5r2_pool(rows, rule)}}
     for pname, P in res["pools"].items():
-        print(f"\n== QA5r2 pool {pname}: acc vs T1 | loss vs ref [95% CI] | pass")
+        print(f"\n== {rule} pool {pname}: acc vs T1 | loss vs ref [95% CI] | pass")
         print("arm".ljust(11) + "ref".ljust(6) + "share   " + " ".join(q[:12].rjust(30) for q in SIGHT_QS) + "  verdict")
         for arm in ORDER:
             if arm not in P:
@@ -2009,8 +2068,8 @@ def report_qa5r2(record: bool = False) -> int:
                               f"{'P' if v['pass'] else 'F'}").rjust(30) if v else "-".rjust(30))
             sh = "   -  " if o["share"] is None else f"{o['share']:.4f}"
             print(arm.ljust(11) + o["ref"].ljust(6) + sh + "  " + " ".join(cells)
-                  + f"  {o['verdict']}{' (post hoc)' if o['post_hoc'] else ''}")
-    (OUT / "qa5r2.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+                  + f"  {o['verdict']}{' (post hoc)' if (o['post_hoc'] or rule == 'QA5r3') else ''}")
+    (OUT / f"{rule.lower()}.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     if record:
         from reticle.metrics import record as rec
         for pname, P in res["pools"].items():
@@ -2021,10 +2080,10 @@ def report_qa5r2(record: bool = False) -> int:
                 for q, v in o["q"].items():
                     vals.update({f"{q}.acc": v["acc"], f"{q}.acc_ref": v["acc_ref"], f"{q}.loss": v["loss"],
                                  f"{q}.ci_lo": v["ci"][0], f"{q}.ci_hi": v["ci"][1], f"{q}.n": v["n"]})
-                rec("real_reader_schedule", part=f"qa5r2/{arm}", session=pname, values=vals,
-                    deps={"version": VERSION, "rule": "QA5r2", "tol": QA5R2_TOL, "cap": QA5R2_CAP,
+                rec("real_reader_schedule", part=f"{rule.lower()}/{arm}", session=pname, values=vals,
+                    deps={"version": VERSION, "rule": rule, "tol": tol, "cap": QA5R2_CAP,
                           "boot": [BOOT_N, BOOT_SEED]},
-                    context={"task": TASK, "ref": o["ref"], "post_hoc": o["post_hoc"]})
+                    context={"task": TASK, "ref": o["ref"], "post_hoc": o["post_hoc"] or rule == "QA5r3"})
     return 0
 
 
@@ -2085,6 +2144,53 @@ def outcome_qa5r2() -> int:
     return 0
 
 
+def outcome_qa5r3() -> int:
+    """One post-hoc QA5r3 verdict row per arm (every arm predates the rule) and RX8's outcome."""
+    Q = json.loads((OUT / "qa5r3.json").read_text(encoding="utf-8"))["pools"]
+    pred = STORE / "notes" / "predictions.jsonl"
+    have = {json.loads(x).get("id") for x in pred.read_text(encoding="utf-8").splitlines() if '"id"' in x}
+    ts = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
+    base = {"date": time.strftime("%Y-%m-%d"), "ts": ts, "domain": "episodes", "kind": "outcome", "branch": TASK,
+            "commit": f"{TASK} (see git log)", "prototype": "prototypes/real_reader_schedule.py", "version": VERSION,
+            "wire": "no", "wire_reason": "an evaluation pilot over stored rows and replay truth; reticle/ never imports it"}
+    d2 = Q["dev2"]
+    with pred.open("a", encoding="utf-8") as f:
+        for arm in ORDER:
+            if arm not in d2 or arm in ("V15h", "V15t") or f"QA5r3-posthoc-{arm}" in have:
+                continue
+            o = d2[arm]
+            f.write(json.dumps(dict(base, id=f"QA5r3-posthoc-{arm}", task="question-acceptance-20261006",
+                                    outcome_of=["question-acceptance-20261006-QA5r3"], candidate="QA5r3",
+                                    post_hoc=True, arm=arm, ref=o["ref"], verdict=o["verdict"],
+                                    share=None if o["share"] is None else round(o["share"], 4),
+                                    share_ok=o["share_ok"],
+                                    per_question={q: {"loss": v["loss"], "ci": v["ci"], "pass": v["pass"]}
+                                                  for q, v in o["q"].items()},
+                                    dev3_verdict=Q["dev3"][arm]["verdict"],
+                                    outputs=str(OUT / "qa5r3.json"),
+                                    scored="dev2; post hoc: the bar was chosen after this arm's QA5r2 numbers were seen"),
+                               default=cq._jd) + "\n")
+            print("post hoc", arm, o["verdict"])
+        P = json.loads((OUT / "pooled.json").read_text(encoding="utf-8"))
+        r8 = P.get("rx8", {}).get("dev2")
+        if r8 and f"{TASK}-RX8-outcome" not in have:
+            cl = {}
+            for arm, v in r8.items():
+                b, u = v["broken"], v["unbroken"]
+                sb = b["outside"] / b["n"] if b["n"] else None
+                su = u["outside"] / u["n"] if u["n"] else None
+                held = sb is not None and su is not None and sb >= 0.6 and su <= 0.4
+                cl[f"RX8:{arm}"] = {"held": held, "verdict": "held" if held else "failed",
+                                    "broken_outside": [b["outside"], b["n"], None if sb is None else round(sb, 4)],
+                                    "unbroken_outside": [u["outside"], u["n"], None if su is None else round(su, 4)]}
+            f.write(json.dumps(dict(base, id=f"{TASK}-RX8-outcome", task=TASK, outcome_of=[f"{TASK}-RX8"],
+                                    candidate="RX8", clauses=cl, outputs=str(OUT / "pooled.json"),
+                                    scored="dev2 (c817691bcd15 + d3dcfb182ab1); dev3 in pooled.json rx8"),
+                               default=cq._jd) + "\n")
+            print("RX8", {k: v["verdict"] for k, v in cl.items()})
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2093,6 +2199,7 @@ def main(argv=None) -> int:
     rp = sub.add_parser("report")
     rp.add_argument("--record", action="store_true")
     rp.add_argument("--qa5r2", action="store_true", help="rescore under QA5r2 (accuracy against T1)")
+    rp.add_argument("--qa5r3", action="store_true", help="rescore under QA5r3 (interval excludes a 0.05 loss)")
     c = sub.add_parser("cost")
     c.add_argument("session")
     c.add_argument("--crops", type=int, default=600)
@@ -2104,6 +2211,7 @@ def main(argv=None) -> int:
     sub.add_parser("outcome")
     sub.add_parser("outcome-rx")
     sub.add_parser("outcome-qa5r2")
+    sub.add_parser("outcome-qa5r3")
     a = ap.parse_args(argv)
     for s in getattr(a, "sessions", []) or []:
         refuse(s)
@@ -2113,6 +2221,8 @@ def main(argv=None) -> int:
     if a.cmd == "run":
         return run_matches(a.sessions)
     if a.cmd == "report":
+        if a.qa5r3:
+            return report_qa5r2(a.record, "QA5r3")
         return report_qa5r2(a.record) if a.qa5r2 else report(a.record)
     if a.cmd == "cost":
         return cost(a.session, a.crops, a.record)
@@ -2122,6 +2232,8 @@ def main(argv=None) -> int:
         return outcome_rx()
     if a.cmd == "outcome-qa5r2":
         return outcome_qa5r2()
+    if a.cmd == "outcome-qa5r3":
+        return outcome_qa5r3()
     return outcome()
 
 
