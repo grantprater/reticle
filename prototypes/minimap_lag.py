@@ -205,7 +205,7 @@ def class_block(ctx, subs, col, t_cap, ox, oy, rnd, to_rep, design=REGISTERED) -
             out["implied_lag_ms"][bin_label(b, bins)] = (round(float(np.median(il[m])), 1)
                                                          if m.sum() >= 30 else None)
         out["drift"] = lag_drift(t_cap[mv], il[mv], rnd[mv])
-    out["_rows"] = {"t": t_cap[mv], "il": il[mv], "rnd": rnd[mv], "E": E[mv]}
+    out["_rows"] = {"t": t_cap[mv], "il": il[mv], "rnd": rnd[mv], "E": E[mv], "col": col[mv]}
     return out
 
 
@@ -221,7 +221,11 @@ def isolated(X, Y, col, r):
     return (col >= 0) & (d.min(axis=1) > r)
 
 
-def measure(sid: str, design=REGISTERED) -> dict:
+def measure(sid: str, design=REGISTERED, keep_rows: bool = False) -> dict:
+    """One session's report. With `keep_rows`, `_rows` holds each class's moving
+    rows (time, implied lag, round, column of `_subjects`; `_me` the player,
+    the first `_n_mates` columns his team) for a caller to regroup; `main`
+    never writes them."""
     from reticle import roi_cache
 
     ctx = rt.session_context(sid)
@@ -306,6 +310,8 @@ def measure(sid: str, design=REGISTERED) -> dict:
     P = {k: np.concatenate([r[k] for r in rows[:2]]) for k in ("t", "il", "rnd")}
     out["pooled_self_ally_drift"] = lag_drift(P["t"], P["il"], P["rnd"])
     out["classes"] = blocks
+    if keep_rows:
+        out["_rows"], out["_subjects"], out["_me"], out["_n_mates"] = R, everyone, me, len(mates)
     # the independent anchor: stored round starts (clock_reset) against roundStarted
     out["round_start_anchor"] = round_start_anchor(ctx["rounds"], rs, a)
     return out
@@ -330,7 +336,7 @@ def paired_gap(rnd_a, il_a, rnd_b, il_b, min_n=30, n_boot=N_BOOT, seed=0) -> dic
     lo, hi = np.percentile(boots, [5, 95])
     return {"rounds": len(both), "gap_ms": round(float(np.median(d)), 1),
             "ci90_ms": [round(float(lo), 1), round(float(hi), 1)],
-            "per_round_ms": [round(float(x), 1) for x in d]}
+            "per_round_ms": [round(float(x), 1) for x in d], "round_idx": both}
 
 
 def round_start_anchor(rounds, rs, a, source="clock_reset", reach_ms=1500.0) -> dict | None:

@@ -10,6 +10,8 @@ here) and reads the fidelity column of
 are `prototypes/render_delay.py`; predictions and outcomes sit in the store's
 `notes/predictions.jsonl` under task `render-delay-estimator-20261006`
 (rows `render-delay-estimator-*`, `peek-advantage-*`, `sight-geometry-*`).
+Section 4a tests the player's ping hypothesis (`prototypes/render_delay_ping.py`,
+task `render-delay-ping-20261006`).
 
 ## Summary
 
@@ -32,9 +34,16 @@ are `prototypes/render_delay.py`; predictions and outcomes sit in the store's
    the capture cannot see (formation, behaviour) or seldom shows (deaths,
    plants). Where the replay supplies that relation, the residual equals the
    delay, so the model holds. The recommendation is a prior with a band wide
-   enough for 9acf02f98283, and a reader for the network readout as the next
-   witness.
-4. **Duel order is geometry first, netcode second.** With bodies of the
+   enough for 9acf02f98283.
+4. **Ping does not set the delay.** The replay carries every player's ping.
+   The lobby's highest ping is
+   [metric:render_delay/ping@9acf02f98283#lobby_max=59.0] ms on the match
+   with the largest delay and
+   [metric:render_delay/ping@d3dcfb182ab1#lobby_max=150.0] ms on one with a
+   small delay; neither the highest, the mean nor the player's own ping
+   orders the delay between matches or tracks it within one (section 4a).
+   The prior stays a constant, and a ping reader is no witness of the delay.
+5. **Duel order is geometry first, netcode second.** With bodies of the
    agent's width, the player closer to the occluding edge sees later in
    [metric:render_delay/sight_geometry@dev3#closer_sees_later=0.921] of
    duels, by a median
@@ -234,7 +243,7 @@ within 30 ms with a 90% interval under 80 ms.
 | E2 death X | the X arrives before the drawn icon reaches it; teammates less self | no X stream | [metric:render_delay/estimate@c817691bcd15#e2_est=73.7] ms ([metric:render_delay/estimate@c817691bcd15#e2_n_ally=6] and [metric:render_delay/estimate@c817691bcd15#e2_n_self=4] moving deaths) | [metric:render_delay/estimate@d3dcfb182ab1#e2_est=-58.4] ms ([metric:render_delay/estimate@d3dcfb182ab1#e2_n_ally=9] and [metric:render_delay/estimate@d3dcfb182ab1#e2_n_self=1]) | few moving deaths, the player's fewest |
 | E3 plant | the planter stops 4 s before the plant graphic | refused | refused | refused | one to four attacking plants a match, under three per class |
 | E4 barrier | the earliest teammate's onset less the player's at the barrier drop | [metric:render_delay/estimate@9acf02f98283#e4_est=165.4] ms from [metric:render_delay/estimate@9acf02f98283#e4_rounds=1] round | [metric:render_delay/estimate@c817691bcd15#e4_est=1170.2] ms, [metric:render_delay/estimate@c817691bcd15#e4_rounds=9] rounds | [metric:render_delay/estimate@d3dcfb182ab1#e4_est=-299.2] ms, [metric:render_delay/estimate@d3dcfb182ab1#e4_rounds=4] rounds | when each player chose to move: behaviour [metric:render_delay/estimate@c817691bcd15#e4_truth_behaviour=542.4] ms on c817691bcd15; capture minus truth [metric:render_delay/estimate@c817691bcd15#e4_capture_minus_truth=62.5] ms. 9acf02f98283's one round matches by chance: its behaviour term alone is [metric:render_delay/estimate@9acf02f98283#e4_truth_behaviour=170.6] ms |
-| E5 ping readout | network RTT on the performance-stats ribbon | no stored reader | | | the replay's own ping (30-37 ms) does not track the delay (teammate-lag outcome N4) |
+| E5 ping | every player's ping (replay; scoreboard PING column) | lobby max [metric:render_delay/ping@9acf02f98283#lobby_max=59.0] ms | [metric:render_delay/ping@c817691bcd15#lobby_max=57.0] ms | [metric:render_delay/ping@d3dcfb182ab1#lobby_max=150.0] ms | no ping orders the matches' delays (section 4a) |
 | E6 clock | HUD round clock against capture time | drift unresolved | drift unresolved | fit broken by misreads | estimates drift, which inference never needs |
 
 No estimator recovers any match with more than one sample, none separates
@@ -243,6 +252,108 @@ within 30 ms of truth from round 18 (30.5 capture minutes) but its interval
 spans 150 ms. The capture-minus-truth rows say the delay model holds where
 truth removes formation or behaviour; the capture alone sees the delay only
 as 1-2 widget pixels mixed with metres of human variation.
+
+## 4a. Ping does not set the delay
+
+The player's hypothesis (2026-10-06): the delay follows the highest ping in
+the lobby. Registered as `render-delay-ping-20261006-prediction`; measured by
+`prototypes/render_delay_ping.py`.
+
+**The field.** vrfkit's `fields.parquet` holds every player's ping:
+group `BombPlayerState.BombPlayerState_C`, field `Ping`, 16 bits in
+`value_i64`, in ms, each player state named by its `Subject` field. All ten
+players carry it on every development match
+([metric:render_delay/ping@9acf02f98283#ping_rows=28586],
+[metric:render_delay/ping@c817691bcd15#ping_rows=34888] and
+[metric:render_delay/ping@d3dcfb182ab1#ping_rows=21511] rows). The player's
+own median reproduces the teammate-lag study's 37, 30 and 35 ms. The replay
+layer does not expose it yet.
+
+**Between matches.**
+
+| Match | Delta (ms) | Lobby max | Lobby mean | Own |
+|---|---|---|---|---|
+| 9acf02f98283 | [metric:render_delay/ping@9acf02f98283#delta=168.2] | [metric:render_delay/ping@9acf02f98283#lobby_max=59.0] | [metric:render_delay/ping@9acf02f98283#lobby_mean=32.5] | [metric:render_delay/ping@9acf02f98283#own_ping=37.0] |
+| c817691bcd15 | [metric:render_delay/ping@c817691bcd15#delta=47.0] | [metric:render_delay/ping@c817691bcd15#lobby_max=57.0] | [metric:render_delay/ping@c817691bcd15#lobby_mean=38.1] | [metric:render_delay/ping@c817691bcd15#own_ping=30.0] |
+| d3dcfb182ab1 | [metric:render_delay/ping@d3dcfb182ab1#delta=55.3] | [metric:render_delay/ping@d3dcfb182ab1#lobby_max=150.0] | [metric:render_delay/ping@d3dcfb182ab1#lobby_mean=40.2] | [metric:render_delay/ping@d3dcfb182ab1#own_ping=35.0] |
+
+d3dcfb182ab1 has an enemy at 150 ms and a delay within 8 ms of
+c817691bcd15's; 9acf02f98283 has c817691bcd15's lobby max and three times
+its delay. Three matches cannot fit a law, but one counterexample on each side
+breaks this one. Fitting Delta = c + k * max over all 61 rounds gives
+k = [metric:render_delay/ping_fit@dev3#k=-0.5]
+([metric:render_delay/ping_fit@dev3#k_lo=-0.6] to
+[metric:render_delay/ping_fit@dev3#k_hi=-0.397]) and
+c = [metric:render_delay/ping_fit@dev3#c=131.1] ms: the wrong sign,
+carried by the two contrasts above.
+
+**Within matches.** The lobby's maximum barely moves within a match: its
+10th to 90th percentile over rounds spans
+[metric:render_delay/ping@9acf02f98283#lobby_max_p10=58.0] to
+[metric:render_delay/ping@9acf02f98283#lobby_max_p90=60.0],
+[metric:render_delay/ping@c817691bcd15#lobby_max_p10=57.0] to
+[metric:render_delay/ping@c817691bcd15#lobby_max_p90=58.0] and
+[metric:render_delay/ping@d3dcfb182ab1#lobby_max_p10=150.0] to
+[metric:render_delay/ping@d3dcfb182ab1#lobby_max_p90=151.0] ms, so the
+within-match test has almost no lever. Spearman rho of per-round Delta on
+per-round lobby max: [metric:render_delay/ping@9acf02f98283#rho_max=-0.33]
+([metric:render_delay/ping@9acf02f98283#rho_max_lo=-0.638] to
+[metric:render_delay/ping@9acf02f98283#rho_max_hi=0.058]),
+[metric:render_delay/ping@c817691bcd15#rho_max=-0.184]
+([metric:render_delay/ping@c817691bcd15#rho_max_lo=-0.549] to
+[metric:render_delay/ping@c817691bcd15#rho_max_hi=0.228]) and
+[metric:render_delay/ping@d3dcfb182ab1#rho_max=0.369]
+([metric:render_delay/ping@d3dcfb182ab1#rho_max_lo=-0.082] to
+[metric:render_delay/ping@d3dcfb182ab1#rho_max_hi=0.731]). Mean and own
+ping fare no better; the one interval clear of zero, own ping on
+c817691bcd15 ([metric:render_delay/ping@c817691bcd15#rho_own=0.409]),
+rests on two late rounds where the player's ping fell from 30 to 29 ms.
+
+**Per player.** A teammate's lag less the player's does not follow that
+teammate's ping, round by round (rho
+[metric:render_delay/ping@9acf02f98283#mate_rho_ping=-0.095],
+[metric:render_delay/ping@c817691bcd15#mate_rho_ping=0.041],
+[metric:render_delay/ping@d3dcfb182ab1#mate_rho_ping=0.014]), nor over the
+match: 9acf02f98283's 59 ms teammate trails by
+[metric:render_delay/ping@9acf02f98283#top_ping_gap=169.4] ms against
+[metric:render_delay/ping@9acf02f98283#same_side_gap_min=165.0] to
+[metric:render_delay/ping@9acf02f98283#same_side_gap_max=187.8] ms for the
+others. Enemies leave one lead open: on both October matches the
+highest-ping enemy is drawn latest, by
+[metric:render_delay/ping@c817691bcd15#top_ping_gap=92.7] ms
+([metric:render_delay/ping@c817691bcd15#top_ping_gap_lo=69.9] to
+[metric:render_delay/ping@c817691bcd15#top_ping_gap_hi=123.3]) against
+[metric:render_delay/ping@c817691bcd15#same_side_gap_min=39.5] to
+[metric:render_delay/ping@c817691bcd15#same_side_gap_max=58.8] ms, and
+[metric:render_delay/ping@d3dcfb182ab1#top_ping_gap=69.9] ms
+([metric:render_delay/ping@d3dcfb182ab1#top_ping_gap_lo=43.4] to
+[metric:render_delay/ping@d3dcfb182ab1#top_ping_gap_hi=90.3]) against
+[metric:render_delay/ping@d3dcfb182ab1#same_side_gap_min=30.6] to
+[metric:render_delay/ping@d3dcfb182ab1#same_side_gap_max=62.7] ms. Each
+rests on 70-160 moving enemy icons, and a 151 ms ping adds about 15 ms, far
+less than the ping: a per-player term, if it holds, is small beside the
+match's delay.
+
+**The scoreboard reads no ping.** `scoreboard.py` reads K, D, A and credits.
+The PING column stands at the table's right edge, inside the stored crop
+cache's rectangle; in a 50-frame sample of c817691bcd15's cache every one of
+the 40 boards inspected shows it legibly as two digits. The player's own row
+reads 24-25 there against the replay's 30 ms, while teammates read within a
+few ms of their replay values (by eye), which suggests the board shows the
+player's own client-side figure rather than the replicated field. The board
+stands open
+[metric:render_delay/ping@9acf02f98283#sb_open_s_per_round=24.2],
+[metric:render_delay/ping@c817691bcd15#sb_open_s_per_round=31.9] and
+[metric:render_delay/ping@d3dcfb182ab1#sb_open_s_per_round=26.2] s per
+round. A reader would be one more `BOARD_FIELDS`
+entry with its pens measured at the right edge, as credits were; it was not
+built, since ping is no witness of the delay.
+
+**What explains 9acf02f98283, then.** Not ping. It differs from the October
+matches in build (13.04 against 13.06), capture date and minimap profile
+(teammate-lag outcome). A client setting, the build's interpolation or the
+small profile's draw path remain the candidates; another 13.04-era
+replay-backed capture separates build from date.
 
 ## 5. Recommendation
 
@@ -254,11 +365,11 @@ as 1-2 widget pixels mixed with metres of human variation.
    width times the slot's speed exceeds (the reach cell for a moving player,
    a contact at the 1.5 m limit) reports `delay_band_limited` with the
    attribute, never a silent answer.
-3. **Next witness: the network readout.** The captures show performance
-   stats as text; a reader for its RTT and packet-loss fields joins the HUD
-   pass at no decode cost of its own. The replay's ping did not track the
-   delay, so the readout is a hypothesis: score it against the replay-measured
-   delay on the development matches before trusting it.
+3. **No ping-based prior.** Neither the lobby's highest, mean nor the
+   player's own ping predicts the delay (section 4a), so the prior does not
+   depend on ping, and neither the scoreboard's PING column nor the
+   performance-stats RTT (the player's own ping) is worth a reader for this
+   purpose. The ribbon's packet-loss field stays untested.
 4. **Calibrate from replays where they exist.** A replay-backed capture
    measures its own delay exactly (`prototypes/minimap_lag.py --posthoc`);
    post-match coaching may use it, labelled `source = replay`. Each such
@@ -301,4 +412,5 @@ as 1-2 widget pixels mixed with metres of human variation.
 - Its body model is six points on a cylinder, not the game's hitbox.
 - It scores three matches; the prior's band rests on them, and the held-out
   match was not read.
-- It builds no network-readout reader and decodes no video.
+- It builds no ping or network-readout reader and decodes no video; the
+  scoreboard sample read 50 stored crops.
