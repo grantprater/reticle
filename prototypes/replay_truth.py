@@ -162,7 +162,8 @@ ANALYSIS = STORE / "analysis" / "replay-truth-20261006-lag"
 #: best extra lag on moving isolated icons (`prototypes/minimap_lag.py --posthoc`,
 #: task `teammate-lag-20261006`): self +33.3 ms (-50.0, +33.3, +33.3), teammates
 #: +83.3 ms (+133.3, +83.3, +83.3) over `MINIMAP_LAG_MS`. The held-out match never
-#: informed them.
+#: informed them. Remote players draw later than self
+#: [domain:capture/minimap-remote-player-lag].
 SELF_LAG_MS = rg.MINIMAP_LAG_MS + 100.0 / 3.0
 REMOTE_LAG_MS = rg.MINIMAP_LAG_MS + 250.0 / 3.0
 

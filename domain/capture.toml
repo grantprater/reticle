@@ -250,3 +250,32 @@ the ult-cast coverage row's `vo_heard` is false here, so a want of casts means
 "not heard", not "not cast"; score this capture's ultimates apart
 """
 see = ["capture/game-audio-track-only"]
+
+[minimap-remote-player-lag]
+claim = """
+The captured minimap draws other players, teammates and enemies alike, later
+than the player's own icon, against the server-authoritative replay: by 47 to
+55 ms on two game-13.06 matches (c817691bcd15, d3dcfb182ab1) and 168 ms on
+one game-13.04 match (9acf02f98283), flat across running speed. The delay
+varies between games and jitters within one, so no constant holds for every
+capture. The capture clock also runs about 1e-4 fast against the replay's.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-06"
+subject = "capture:minimap-render-delay"
+source = """
+prototypes/minimap_lag.py (task teammate-lag-20261006, branch
+teammate-lag-20261006): per-round paired gaps of teammates against the self
+icon on the killfeed least-squares clock, with round-start anchors confirming
+the clock drift. The player, 2026-10-06, proposed server-versus-client
+rendering as the cause; the player changed no client setting between the
+matches, and added that lag conditions differ between games and jitter
+within one. The replay's own ping field (30 to 37 ms median) does not track
+the gap.
+"""
+use = """
+score replay truth with separate self and remote lags on a fitted clock
+(replay-truth-0.4.0); estimate the delay per match, never assume one
+constant, and carry its jitter as position uncertainty
+"""
