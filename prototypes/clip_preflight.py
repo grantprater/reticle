@@ -94,9 +94,14 @@ def median_corner(path: str, n: int = N, frames=None):
 
 
 def drawn_static(key: str) -> np.ndarray:
-    """The key's static, drawn from the map's asset through the profile's transform."""
+    """The key's static, drawn from the map's asset through the profile's
+    transform: its current cache, else drawn in memory, so trying every map
+    caches nothing for keys no session reads."""
     from reticle import geometry as G
-    return G.reference_for_key(key, STORE)
+    from reticle import map_asset as A
+    if G.staleness(key, STORE) is None and G.path(key, STORE).is_file():
+        return G.reference_for_key(key, STORE)
+    return A.render(*G.parse(key), STORE)["static"]
 
 
 def roi_of(profile: str) -> tuple[int, int, int, int]:
