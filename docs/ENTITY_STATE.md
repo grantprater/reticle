@@ -184,6 +184,10 @@ as the reported region.
 - **No velocity in the region.** A reach region is a bound, not a
   prediction; the reader's prior-first search may predict a place to look
   (the `ally_prior` design), and that prediction never narrows a region.
+- **Timing** (proposed 2026-10-06, [RENDER_DELAY.md](RENDER_DELAY.md)
+  section 6): a fit keeps its render time; a remote slot's reach anchor is
+  server time, render time less the match's remote-delay band's upper end
+  [domain:capture/minimap-remote-player-lag].
 
 ### Updates, per observation type
 
