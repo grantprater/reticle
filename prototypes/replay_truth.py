@@ -129,22 +129,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import riot_ground_truth as rg  # noqa: E402
+from reticle import replay_source as src  # noqa: E402
+# The replay reader, the clock and the map transform live in the pipeline
+# (`reticle.replay_source`) since 2026-10-05; these names stay for callers.
+from reticle.replay_source import (MAX_GAP_MS, PARK_RADIUS, PARK_X, PARK_Z,  # noqa: E402,F401
+                                   VRFKIT_VERSION, Replay, facing_px_deg, parsed_dir,
+                                   to_px)
+from reticle.replay_source import file_sha256 as sha256  # noqa: E402,F401
+from reticle.replay_source import frames_to_replay as _frames_to_replay  # noqa: E402
 
 REPLAY_TRUTH_VERSION = "replay-truth-0.2.0"
 STORE = Path.home() / "reticle-store"
-REPLAYS = STORE / "external" / "replays"
+REPLAYS = src.replays_dir(STORE)
 VRFKIT_DIR = STORE / "tools" / "vrfkit"
 VRFKIT_EXE = VRFKIT_DIR / "target" / "release" / "vrfkit.exe"
-VRFKIT_VERSION = "0.2.5"
-PARSED = REPLAYS / "parsed" / f"vrfkit-{VRFKIT_VERSION}"
+PARSED = src.parsed_root(STORE)
 ANALYSIS = STORE / "analysis" / "replay-truth-20261005"
 
-#: Hidden or unspawned pawns park here (vrfkit tools/minimap.py: x -50,879..
-#: -49,091, z -49,920..-49,785); judged on x and z, since a fall crosses that z.
-PARK_X, PARK_Z, PARK_RADIUS = -50000.0, -49900.0, 2000.0
-#: The longest gap between two movement samples a position is interpolated
-#: across; a wider gap reads as no position (NaN), never a guess.
-MAX_GAP_MS = 250.0
 #: The stored minimap streams sample at 15 Hz; track minutes count frames of this grid.
 GRID_HZ = 15.0
 #: `check`'s position tolerance in world units (cm). Riot stores integer
@@ -170,16 +171,7 @@ def _below_normal() -> None:
     rg._below_normal()
 
 
-def _stats(x, nd=2) -> dict | None:
-    """n, median, p90, p95, mean and max of a numeric sample (NaNs dropped)."""
-    a = np.asarray(x, dtype=float)
-    a = a[np.isfinite(a)]
-    if a.size == 0:
-        return None
-    q = np.percentile(a, [50, 90, 95])
-    return {"n": int(a.size), "median": round(float(q[0]), nd), "p90": round(float(q[1]), nd),
-            "p95": round(float(q[2]), nd), "mean": round(float(a.mean()), nd),
-            "max": round(float(a.max()), nd)}
+_stats = src.sample_stats
 
 
 def _ang_deg(a, b):
@@ -191,18 +183,6 @@ def _ang_deg(a, b):
 def _ang_rad(a, b):
     d = np.mod(np.asarray(a, float) - np.asarray(b, float), 2 * math.pi)
     return np.minimum(d, 2 * math.pi - d)
-
-
-def sha256(p: Path) -> str:
-    h = hashlib.sha256()
-    with Path(p).open("rb") as f:
-        for b in iter(lambda: f.read(1 << 20), b""):
-            h.update(b)
-    return h.hexdigest()
-
-
-def parsed_dir(match: str) -> Path:
-    return PARSED / match
 
 
 # ----------------------------------------------------------------- parse
@@ -274,157 +254,6 @@ def parse_replay(vrf: Path, force: bool = False) -> dict:
 
 
 # ----------------------------------------------------------------- load
-
-class Replay:
-    """One vrfkit export as numpy arrays: per-player tracks and the event list.
-
-    `players[subject]` holds `t` (replay ms), `x`, `y`, `z` (cm) and `yaw`
-    (degrees) over every pawn the player owned, sorted by time, park-slot rows
-    removed. `events` holds the server's event list with killer and victim
-    resolved to subjects through `character_net_guids`.
-    """
-
-    def __init__(self, match: str):
-        import pyarrow.parquet as pq
-
-        self.match = match
-        self.dir = parsed_dir(match)
-        ex = self.dir / "export"
-        self.manifest = json.loads((ex / "manifest.json").read_text(encoding="utf-8"))
-        self.guid_subject = {}
-        self.subjects = []
-        for p in self.manifest.get("players") or []:
-            s = p.get("subject")
-            if not s:
-                continue
-            self.subjects.append(s)
-            for g in (p.get("character_net_guids") or [p.get("character_net_guid")]):
-                if g:
-                    self.guid_subject[int(g)] = s
-        mv = pq.read_table(ex / "movement.parquet",
-                           columns=["time_ms", "character_net_guid", "pos_x", "pos_y", "pos_z",
-                                    "yaw", "pitch", "timestamp"])
-        g = mv["character_net_guid"].to_numpy().astype(np.int64)
-        t = mv["time_ms"].to_numpy().astype(np.float64)
-        x = mv["pos_x"].to_numpy().astype(np.float64)
-        y = mv["pos_y"].to_numpy().astype(np.float64)
-        z = mv["pos_z"].to_numpy().astype(np.float64)
-        yaw = mv["yaw"].to_numpy().astype(np.float64)
-        self.movement_rows = int(t.size)
-        park = (np.abs(x - PARK_X) <= PARK_RADIUS) & (np.abs(z - PARK_Z) <= PARK_RADIUS)
-        self.park_rows = int(park.sum())
-        self.raw = {"g": g, "t": t, "x": x, "y": y, "z": z, "park": park}
-        self.players = {}
-        for s in self.subjects:
-            gs = [k for k, v in self.guid_subject.items() if v == s]
-            m = np.isin(g, gs) & ~park
-            o = np.argsort(t[m], kind="stable")
-            self.players[s] = {"t": t[m][o], "x": x[m][o], "y": y[m][o], "z": z[m][o],
-                               "yaw": yaw[m][o]}
-        self.unjoined_rows = int((~np.isin(g, list(self.guid_subject))).sum())
-        ev = pq.read_table(ex / "events.parquet").to_pylist()
-        self.events = []
-        for r in ev:
-            e = {"group": r.get("group"), "t": float(r.get("time1") or 0.0),
-                 "metadata": r.get("metadata"), "word0": r.get("word0"), "word1": r.get("word1")}
-            if e["group"] == "characterDeath":
-                e["killer"] = self.guid_subject.get(r.get("word0"))
-                e["victim"] = self.guid_subject.get(r.get("word1"))
-            self.events.append(e)
-        self.events.sort(key=lambda e: e["t"])
-        self.duration_ms = float(self.manifest.get("duration_ms") or
-                                 max(e["t"] for e in self.events))
-
-    # -- events
-    def group(self, name: str) -> list[dict]:
-        return [e for e in self.events if e["group"] == name]
-
-    def round_starts(self) -> np.ndarray:
-        return np.array([e["t"] for e in self.group("roundStarted")], float)
-
-    def map_url(self) -> str | None:
-        for k in ("level_names_and_times", "levelNamesAndTimes"):
-            v = self.manifest.get(k) or (self.manifest.get("replay_info") or {}).get(k)
-            if v:
-                return v[0]["name"] if isinstance(v[0], dict) else v[0]
-        hdr = self.manifest.get("header") or {}
-        for k in ("level_names_and_times", "levelNamesAndTimes"):
-            if hdr.get(k):
-                v = hdr[k]
-                return v[0]["name"] if isinstance(v[0], dict) else v[0]
-        return None
-
-    def loadouts(self) -> dict:
-        """subject -> characterId, from the header's playerLoadouts JSON."""
-        gsd = self.manifest.get("game_specific_data")
-        if gsd is None:
-            gsd = (self.manifest.get("header") or {}).get("game_specific_data")
-        out = {}
-
-        def walk(o):
-            if isinstance(o, str):
-                try:
-                    walk(json.loads(o))
-                except ValueError:
-                    pass
-            elif isinstance(o, dict):
-                if "subject" in o and "characterId" in o:
-                    out[o["subject"]] = o["characterId"]
-                elif "Subject" in o and "CharacterID" in o:
-                    out[o["Subject"]] = o["CharacterID"]
-                for v in o.values():
-                    walk(v)
-            elif isinstance(o, list):
-                for v in o:
-                    walk(v)
-        walk(gsd)
-        return out
-
-    # -- positions
-    def sample(self, s: str, t) -> dict:
-        """Position and yaw of player `s` at replay times `t` (vectorised).
-
-        Linear between the bracketing samples when both lie within
-        `MAX_GAP_MS` of each other; NaN otherwise. Yaw comes from the nearer
-        sample (an angle is not interpolated across a wrap)."""
-        P = self.players[s]
-        t = np.atleast_1d(np.asarray(t, float))
-        n = P["t"].size
-        out = {k: np.full(t.shape, np.nan) for k in ("x", "y", "z", "yaw")}
-        if n < 2:
-            return out
-        i = np.clip(np.searchsorted(P["t"], t, side="right"), 1, n - 1)
-        t0, t1 = P["t"][i - 1], P["t"][i]
-        ok = (t >= t0) & (t <= t1) & ((t1 - t0) <= MAX_GAP_MS)
-        span = np.where(t1 > t0, t1 - t0, 1.0)
-        w = np.clip((t - t0) / span, 0.0, 1.0)
-        for k in ("x", "y", "z"):
-            v = P[k][i - 1] * (1 - w) + P[k][i] * w
-            out[k] = np.where(ok, v, np.nan)
-        near = np.where(w < 0.5, i - 1, i)
-        out["yaw"] = np.where(ok, P["yaw"][near], np.nan)
-        return out
-
-    def alive(self, s: str, t) -> np.ndarray:
-        """True where `s` is alive by the event list: after a round start and
-        before that round's death of `s` (a revive is not modelled)."""
-        t = np.atleast_1d(np.asarray(t, float))
-        rs = self.round_starts()
-        if rs.size == 0:
-            return np.zeros(t.shape, bool)
-        r_idx = np.searchsorted(rs, t, side="right") - 1
-        alive = r_idx >= 0
-        deaths = np.array([e["t"] for e in self.group("characterDeath") if e.get("victim") == s])
-        if deaths.size:
-            d_round = np.searchsorted(rs, deaths, side="right") - 1
-            # earliest death per round
-            first = {}
-            for r, dt in zip(d_round, deaths):
-                first[int(r)] = min(first.get(int(r), np.inf), float(dt))
-            fd = np.array([first.get(int(r), np.inf) for r in range(rs.size)])
-            alive &= ~(t >= fd[np.clip(r_idx, 0, rs.size - 1)])
-        return alive
-
 
 # ----------------------------------------------------------------- check
 
@@ -696,29 +525,6 @@ def check(match: str) -> dict:
 
 # ----------------------------------------------------------------- score
 
-def _frames_to_replay(t_cap, a_ms: float, lag_ms: float):
-    """Capture ms of a stored minimap frame -> the replay ms it shows."""
-    return np.asarray(t_cap, float) - a_ms - lag_ms
-
-
-def to_px(mf, x, y):
-    """`MapFrame.to_px`, vectorised over arrays: same constants, same affine."""
-    u, v = rg.game_to_uv(np.asarray(x, float), np.asarray(y, float), mf.m, mf.swap)
-    h0, w0 = mf.art_hw
-    ax = u * w0 - 0.5 - mf.crop[0]
-    ay = v * h0 - 0.5 - mf.crop[1]
-    A = mf.aff
-    return A[0][0] * ax + A[0][1] * ay + A[0][2], A[1][0] * ax + A[1][1] * ay + A[1][2]
-
-
-def facing_px_deg(mf, x, y, yaw_deg):
-    """A world yaw as image degrees (y down), `MapFrame.facing_deg` vectorised."""
-    th = np.radians(yaw_deg)
-    x0, y0 = to_px(mf, x, y)
-    x1, y1 = to_px(mf, x + 100.0 * np.cos(th), y + 100.0 * np.sin(th))
-    return np.mod(np.degrees(np.arctan2(y1 - y0, x1 - x0)), 360.0)
-
-
 def _rows(path: Path, needle: str | None = None):
     """Stream JSONL rows, skipping lines without `needle` before parsing."""
     if not path.is_file():
@@ -771,114 +577,17 @@ def _assign(frame_ids, D, gate):
 
 
 def session_context(sid: str, geometry: Path | None = None) -> dict:
-    """What every scorer of one capture needs, built once from STORED events.
-
-    The replay, the player and teams (Riot's record), the agents
-    (playerLoadouts), the replay-to-capture offset `a` fitted on replay kills
-    against the stored deaths, the stored rounds and the baked `MapFrame`.
-    `geometry` names the baked npz whose `shade_fit` places the map (default:
-    the session's own, `reticle.geometry.path_of`), so one capture can be
-    scored before and after a geometry rebuild; the report names the file and
-    its fit. `ctx["out"]` is the report's head; a refusal sets
-    `ctx["out"]["refused"]` and leaves the later keys out. `score` and
-    `replay_abilities` both use it.
-    """
-    from reticle.store import Store
-
-    store = Store(STORE)
-    man = store.read_manifest(sid)
-    recs = rg.riot_records(STORE)
-    d = recs.get(sid)
-    rep = json.loads((REPLAYS / "manifest.json").read_text(encoding="utf-8"))
-    entry = next((f for f in rep["files"] if f.get("capture_session") == sid), None)
-    if entry is None:
-        return {"out": {"session": sid, "refused": "no_replay_for_session"}}
-    match = Path(entry["file"]).stem
-    rp = Replay(match)
-    ref = rg.Reference(STORE / "external" / "valorant-api", fetch=False)
-    out = {"session": sid, "capture": man["source"]["path"], "profile": man["source_profile"],
-           "replay_truth_version": REPLAY_TRUTH_VERSION, "vrfkit": VRFKIT_VERSION,
-           "minimap_lag_ms": rg.MINIMAP_LAG_MS}
-    # who is the player, and the teams: Riot's record (external, like the replay)
-    ident = rg.identify_player(recs, STORE).get(sid, {}) if d else {}
-    me = ident.get("subject")
-    team = {p["subject"]: p["teamId"] for p in d["match"]["players"]} if d else {}
-    out["player_basis"] = ident.get("basis")
-    out["team_source"] = "riot_record" if d else None
-    if me is None or not team:
-        out["refused"] = "no_player_or_team"
-        return {"out": out}
-    allies = [s for s in rp.subjects if team.get(s) == team[me]]
-    foes = [s for s in rp.subjects if s in team and team[s] != team[me]]
-    agent = {s: ref.agent(c) for s, c in rp.loadouts().items()}
-    out["allies"] = [agent.get(s) for s in allies]
-
-    # -- alignment: replay kills against stored deaths (killfeed first sample)
-    deaths = rg.stored_deaths(STORE, sid)
-    kill_like, _second = rg.split_deaths(deaths)
-    st = [float(r["t_ms"]) for r in kill_like]
-    rk = [e["t"] for e in rp.group("characterDeath")]
-    al = rg.fit_alignment(rk, st)
-    a = al["a_ms"]
-    out["align"] = {k: v for k, v in al.items() if k != "pairs"}
-    # the independent cross-check: stored round starts against roundStarted
-    date = man["ingested_at"][:10]
-    rounds = store.read_rounds(sid, date).to_pylist() if store.rounds_path(sid, date).exists() else []
-    rs = rp.round_starts()
-    if rounds and rs.size:
-        t0 = np.array([r["t_start_ms"] for r in rounds], float)
-        cand = rs + a
-        dd = t0[:, None] - cand[None, :]
-        j = np.argmin(np.abs(dd), axis=1)
-        diff = dd[np.arange(t0.size), j]
-        out["align"]["stored_round_start_minus_replay_ms"] = _stats(diff, 1)
-        out["align"]["stored_round_start_rows"] = [
-            {"round_no": r["round_no"], "source": r["start_source"], "diff_ms": round(float(x), 1)}
-            for r, x in zip(rounds, diff)]
-        src = np.array([r["start_source"] for r in rounds])
-        out["align"]["stored_round_start_by_source"] = {
-            k: {**_stats(diff[src == k], 1), "within_1s": int(np.sum(np.abs(diff[src == k]) <= 1000))}
-            for k in sorted(set(src))}
-        pl = np.array([e["t"] for e in rp.group("spikePlanted")]) + a
-        sp = np.array([r["plant_t_ms"] for r in rounds if r.get("plant_t_ms")], float)
-        if pl.size and sp.size:
-            dp = sp[:, None] - pl[None, :]
-            jp = np.argmin(np.abs(dp), axis=1)
-            out["align"]["stored_plant_minus_replay_ms"] = _stats(dp[np.arange(sp.size), jp], 1)
-
-    from reticle import geometry as _geo
-
-    gp = Path(geometry) if geometry else _geo.path_of(sid, STORE)
-    if gp is None or not Path(gp).is_file():
-        mf, why = None, "no_geometry"
-    else:
-        mf, why = rg.map_frame_for_geometry(Path(gp), _geo.map_of(sid, STORE),
-                                            ref.map_of(rp.map_url()), STORE)
-    if mf is not None:
-        with np.load(gp) as z:
-            out["geometry"] = {"path": str(gp).replace("\\", "/"),
-                               "default": geometry is None,
-                               "shade_fit": [round(float(v), 6) for v in z["shade_fit"]],
-                               "built_by": str(z["built_by"]) if "built_by" in z.files else None,
-                               "shade_built_by": (str(z["shade_built_by"])
-                                                  if "shade_built_by" in z.files else None)}
-    if mf is None:
-        out["refused"] = f"map_frame:{why}"
-        return {"out": out}
-    # the vectorised transform must reproduce MapFrame.to_px
-    probe = [(0.0, 0.0), (1234.0, -5678.0), (-4000.0, 3000.0)]
-    vx, vy = to_px(mf, [p[0] for p in probe], [p[1] for p in probe])
-    assert max(math.hypot(vx[i] - mf.to_px(*p)[0], vy[i] - mf.to_px(*p)[1])
-               for i, p in enumerate(probe)) < 1e-6
-    cm_per_px = 1.0 / mf.px_per_unit
-    gate = rg.GATE_M * 100.0 * mf.px_per_unit
-    H, W = mf.widget_shape
-    out["px_per_m"] = round(mf.px_per_unit * 100.0, 3)
-    out["gate_px"] = round(gate, 2)
-    out["widget"] = [int(W), int(H)]
-    return {"out": out, "store": store, "man": man, "rp": rp, "ref": ref, "me": me,
-            "team": team, "allies": allies, "foes": foes, "agent": agent, "a": a,
-            "rounds": rounds, "rs": rs, "mf": mf, "cm_per_px": cm_per_px, "gate": gate}
+    """`reticle.replay_source.session_context` (the replay, player, teams,
+    agents, the clock offset `a` fitted on stored deaths, the stored rounds
+    and the baked `MapFrame`), plus this scorer's version and its 8 m teammate
+    gate in widget px. `score` and `replay_abilities` both use it."""
+    ctx = src.capture_replay_context(sid, geometry, STORE)
+    ctx["out"]["replay_truth_version"] = REPLAY_TRUTH_VERSION
+    if "refused" in ctx["out"]:
+        return ctx
+    ctx["gate"] = rg.GATE_M * 100.0 * ctx["mf"].px_per_unit
+    ctx["out"]["gate_px"] = round(ctx["gate"], 2)
+    return ctx
 
 
 #: Miss classes, assigned in this fixed order: the first that holds names the

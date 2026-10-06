@@ -50,6 +50,12 @@ SEP = "__"
 #: says so.
 MIN_ART_FIT = 0.80
 
+#: Alpha above which the reference map art counts as map. The channel is
+#: near-binary -- 25 distinct values over the whole image, almost all 0 or 255
+#: -- so this is a formality rather than a tuned edge. The art's footprint box
+#: (`prototypes/wiki_map.py`, `replay_source.map_frame_for_geometry`) cuts here.
+ART_ALPHA_MIN = 40
+
 
 def key(map_name: str, profile: str) -> str:
     """The geometry key for a (map, profile) pair."""

@@ -315,23 +315,23 @@ import json
 import math
 import statistics
 import sys
-import urllib.request
 from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# The record reader, the clock fit and the map transform live in the pipeline
+# (`reticle.replay_source`) since 2026-10-05; these names stay for callers.
+from reticle.replay_source import (ALIGN_STEP_MS, ALIGN_TOL_MS, MATCH_TOL_MS,  # noqa: E402,F401
+                                   MINIMAP_LAG_MS, SAME_NAME, MapFrame, Reference, _stream_rows,
+                                   apply, art_affine, fit_alignment, game_to_uv,
+                                   identify_player, map_frame_for, map_frame_for_geometry,
+                                   match_times, riot_records, split_deaths, stored_deaths)
+from reticle.replay_source import canon_name as canon  # noqa: E402
+
 RIOT_TRUTH_VERSION = "riot-truth-0.6.2"
 STORE = Path.home() / "reticle-store"
-API_BASE = "https://valorant-api.com/v1/"
 
-#: Coarse alignment: a kill counts toward an offset when a stored death lies
-#: within this window of it. Wide enough to hold the 2 Hz grid and latency.
-ALIGN_TOL_MS = 1500.0
-ALIGN_STEP_MS = 250.0
-#: A Riot kill and a stored death match within this many ms after alignment.
-#: Two 500 ms killfeed samples plus render jitter either way; see `residuals`.
-MATCH_TOL_MS = 1500.0
 #: Two Riot kills closer than this are ambiguous for a time-only assignment
 #: (0.2.0, `--legacy order`); 0.3.0 calls a pair ambiguous only where the
 #: order is unknown (`order_ambiguity`).
@@ -345,11 +345,6 @@ NAME_PAIR_TOL_MS = 5000.0
 #: scoring that reads no stall span.
 LEGACY_RULES = ("victim", "second-life", "pairing", "self-kill", "order", "stall", "release",
                 "clove-expiry")
-#: The minimap read time relative to the killfeed-fitted offset. The fit's
-#: offset includes about half a killfeed step of sampling lag plus the feed's
-#: render delay. Measured with `--scan-lag` on the self icon (three sessions,
-#: 2026-10-02): the median self error is least between -533 and -400 ms.
-MINIMAP_LAG_MS = -450.0
 #: The furthest a stored minimap frame may be from the asked instant.
 FRAME_TOL_MS = 70.0
 #: Teammate gate in metres (Riot units are centimetres).
@@ -366,46 +361,9 @@ ABILITY_SLOT = {"Ability1": "Ability1", "Ability2": "Ability2",
 #: the gallery calls Clove expiry [domain:rounds/riot-records-clove-expiry]
 #: (0.6.2; `--legacy clove-expiry` restores 0.6.1).
 SELF_KILL_ABILITY = {"Clove_Ultimate": "Clove expiry"}
-#: Names that mean one thing under two spellings.
-SAME_NAME = {"melee": "tactical knife", "tactical knife": "tactical knife"}
 
 
 # ----------------------------------------------------------------- reference
-
-def canon(name: str | None) -> str | None:
-    """One spelling per agent or weapon: `KAY/O` and `KAY_O` agree."""
-    if name is None:
-        return None
-    s = str(name).strip().replace("/", "_").casefold()
-    return SAME_NAME.get(s, s)
-
-
-class Reference:
-    """valorant-api agents, weapons and maps, cached under `api_dir`."""
-
-    def __init__(self, api_dir: Path, fetch: bool = True):
-        self.dir = Path(api_dir)
-        self.agents = {a["uuid"].lower(): a["displayName"]
-                       for a in self._get("agents", fetch)}
-        self.weapons = {w["uuid"].lower(): w["displayName"]
-                        for w in self._get("weapons", fetch)}
-        self.maps = {m["mapUrl"]: m for m in self._get("maps", fetch)}
-
-    def _get(self, what: str, fetch: bool) -> list[dict]:
-        p = self.dir / f"{what}.json"
-        if not p.is_file():
-            if not fetch:
-                raise SystemExit(f"no cached {p}; rerun without --offline")
-            self.dir.mkdir(parents=True, exist_ok=True)
-            urllib.request.urlretrieve(API_BASE + what, p)
-        return json.loads(p.read_text(encoding="utf-8"))["data"]
-
-    def agent(self, uuid: str | None) -> str | None:
-        return None if not uuid else self.agents.get(uuid.lower())
-
-    def map_of(self, map_id: str) -> dict:
-        return self.maps[map_id]
-
 
 def weapon_name(fd: dict, killer_agent: str | None, ref: Reference,
                 self_kill: bool = False) -> tuple[str | None, str]:
@@ -445,39 +403,6 @@ def weapon_name(fd: dict, killer_agent: str | None, ref: Reference,
 
 # ----------------------------------------------------------------- riot data
 
-def riot_records(store_root: Path) -> dict[str, dict]:
-    """Session id -> Riot record, from each record's probe."""
-    out = {}
-    for p in sorted((Path(store_root) / "external" / "riot").glob("*.json")):
-        d = json.loads(p.read_text(encoding="utf-8"))
-        out[d["probe"]["session_id"]] = d
-    return out
-
-
-def identify_player(records: dict[str, dict], store_root: Path) -> dict[str, dict]:
-    """Which Riot subject is the capturing player, per session, and why.
-
-    An account in at least three records is the player's own (two accounts
-    recur: 18 and 3 records). A record holding none falls back to the agent the
-    lineup names as the player, which `rests_on` the lineup.
-    """
-    seen = Counter(p["subject"] for d in records.values() for p in d["match"]["players"])
-    own = {s for s, n in seen.items() if n >= 3}
-    out = {}
-    for sid, d in records.items():
-        mine = [p for p in d["match"]["players"] if p["subject"] in own]
-        if len(mine) == 1:
-            out[sid] = {"subject": mine[0]["subject"], "basis": "recurring_account"}
-            continue
-        lp = Path(store_root) / "lineups" / f"{sid}.json"
-        agent = None
-        if lp.is_file():
-            agent = (json.loads(lp.read_text(encoding="utf-8")).get("player") or {}).get("agent")
-        out[sid] = {"subject": None, "basis": "unidentified", "lineup_agent": agent,
-                    "rests_on": "lineup.player"}
-    return out
-
-
 def resolve_lineup_player(d: dict, ident: dict, ref: Reference) -> dict:
     if ident.get("subject") or not ident.get("lineup_agent"):
         return ident
@@ -492,149 +417,7 @@ def resolve_lineup_player(d: dict, ident: dict, ref: Reference) -> dict:
 
 # ----------------------------------------------------------------- alignment
 
-def match_times(riot_ms, store_ms, offset_ms, slope=1.0, tol_ms=MATCH_TOL_MS):
-    """One-to-one pairs (i, j, dt) of Riot and stored times, nearest first.
-
-    `dt` is stored time minus the aligned Riot time.
-    """
-    s = sorted((t, j) for j, t in enumerate(store_ms))
-    st = [t for t, _ in s]
-    cands = []
-    for i, g in enumerate(riot_ms):
-        x = offset_ms + slope * g
-        lo = bisect.bisect_left(st, x - tol_ms)
-        hi = bisect.bisect_right(st, x + tol_ms)
-        for k in range(lo, hi):
-            cands.append((abs(st[k] - x), i, s[k][1], st[k] - x))
-    cands.sort()
-    used_i, used_j, pairs = set(), set(), []
-    for _ad, i, j, dt in cands:
-        if i in used_i or j in used_j:
-            continue
-        used_i.add(i)
-        used_j.add(j)
-        pairs.append((i, j, dt))
-    return pairs
-
-
-def fit_alignment(riot_ms, store_ms, tol_ms=ALIGN_TOL_MS, step_ms=ALIGN_STEP_MS):
-    """Fit `store = a + b * riot` and return the fit with its residuals.
-
-    A coarse search counts riot times with a stored time within `tol_ms`; the
-    best offset seeds a least-squares refit on the one-to-one pairs, twice.
-    """
-    riot = [float(x) for x in riot_ms]
-    store = sorted(float(x) for x in store_ms)
-    if not riot or not store:
-        return None
-    lo = store[0] - max(riot) - tol_ms
-    hi = store[-1] - min(riot) + tol_ms
-    best = (-1, 0.0)
-    a = lo
-    while a <= hi:
-        n = 0
-        for g in riot:
-            x = a + g
-            k = bisect.bisect_left(store, x - tol_ms)
-            if k < len(store) and store[k] <= x + tol_ms:
-                n += 1
-        if n > best[0]:
-            best = (n, a)
-        a += step_ms
-    a, b = best[1], 1.0
-    pairs = []
-    for _ in range(3):
-        pairs = match_times(riot, store_ms, a, b, tol_ms)
-        if len(pairs) < 3:
-            break
-        xs = [riot[i] for i, _j, _d in pairs]
-        ys = [float(store_ms[j]) for _i, j, _d in pairs]
-        mx, my = statistics.fmean(xs), statistics.fmean(ys)
-        sxx = sum((x - mx) ** 2 for x in xs)
-        b = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx else 1.0
-        a = my - b * mx
-    # The reported offset is the slope-1 fit, the model the brief asks for;
-    # the slope is the drift check.
-    pairs1 = match_times(riot, store_ms, a + (b - 1.0) * statistics.fmean(riot), 1.0, tol_ms)
-    d1 = [float(store_ms[j]) - riot[i] for i, j, _ in pairs1]
-    a1 = statistics.median(d1) if d1 else a
-    pairs1 = match_times(riot, store_ms, a1, 1.0, tol_ms)
-    res = [dt for _i, _j, dt in pairs1]
-    med = statistics.median(res) if res else 0.0
-    mad = statistics.median([abs(r - med) for r in res]) if res else 0.0
-    return {"a_ms": a1, "slope": b, "a_ls_ms": a, "pairs": pairs1, "n_riot": len(riot),
-            "n_store": len(store), "matched": len(pairs1), "coarse_hits": best[0],
-            "residual_median_ms": med, "residual_mad_ms": mad,
-            "drift_ms_over_match": (b - 1.0) * (max(riot) - min(riot))}
-
-
 # ----------------------------------------------------------------- coordinates
-
-def game_to_uv(x: float, y: float, m: dict, swap: bool = True) -> tuple[float, float]:
-    """Riot game units to the map art's normalised (u, v)."""
-    if swap:
-        return (y * m["xMultiplier"] + m["xScalarToAdd"],
-                x * m["yMultiplier"] + m["yScalarToAdd"])
-    return (x * m["xMultiplier"] + m["xScalarToAdd"],
-            y * m["yMultiplier"] + m["yScalarToAdd"])
-
-
-def art_affine(art_hw: tuple[int, int], fit) -> list[list[float]]:
-    """The 2x3 map from art pixel to baked widget pixel for a `shade_fit`.
-
-    `map_shade._warp`'s rotation about the art centre with its scale, shifted
-    into a square canvas of side `int(max(h, w) * scale * 1.6)`, then placed at
-    `(dx, dy)` as `wiki_map._place` does.
-    """
-    h0, w0 = art_hw
-    rot, scale, dx, dy = float(fit[0]), float(fit[1]), int(fit[2]), int(fit[3])
-    t = math.radians(rot)
-    al, be = scale * math.cos(t), scale * math.sin(t)
-    cx, cy = w0 / 2.0, h0 / 2.0
-    # cv2.getRotationMatrix2D(center, angle, scale)
-    m = [[al, be, (1 - al) * cx - be * cy], [-be, al, be * cx + (1 - al) * cy]]
-    side = int(max(h0, w0) * scale * 1.6)
-    m[0][2] += side / 2 - w0 / 2 + dx
-    m[1][2] += side / 2 - h0 / 2 + dy
-    return m
-
-
-def apply(m, x: float, y: float) -> tuple[float, float]:
-    return (m[0][0] * x + m[0][1] * y + m[0][2], m[1][0] * x + m[1][1] * y + m[1][2])
-
-
-class MapFrame:
-    """Riot game units -> baked widget px for one (map, profile) geometry.
-
-    `art_hw` is the full art's size, which `(u, v)` spans; `crop` is the
-    footprint box `wiki_map.art_alpha` cuts before the fit warps it, as
-    (x0, y0, h, w). The fit's rotation centre is the CROPPED art's centre.
-    """
-
-    def __init__(self, mapinfo: dict, art_hw, fit, swap: bool = True, crop=None):
-        self.m = mapinfo
-        self.art_hw = art_hw
-        self.crop = crop or (0, 0, art_hw[0], art_hw[1])
-        self.aff = art_affine((self.crop[2], self.crop[3]), fit)
-        self.swap = swap
-        # px per game unit, from a 1000-unit step at the map centre
-        x0, y0 = self.to_px(0.0, 0.0)
-        x1, y1 = self.to_px(1000.0, 0.0)
-        self.px_per_unit = math.hypot(x1 - x0, y1 - y0) / 1000.0
-
-    def to_px(self, x: float, y: float) -> tuple[float, float]:
-        u, v = game_to_uv(x, y, self.m, self.swap)
-        h0, w0 = self.art_hw
-        # (u, v) spans the art's edges; pixel centres sit half a pixel in
-        return apply(self.aff, u * w0 - 0.5 - self.crop[0], v * h0 - 0.5 - self.crop[1])
-
-    def facing_deg(self, x: float, y: float, theta: float) -> float:
-        """A game-plane direction `theta` (radians from +x toward +y) as image
-        degrees, y down, the teardrop convention."""
-        p0 = self.to_px(x, y)
-        p1 = self.to_px(x + 100.0 * math.cos(theta), y + 100.0 * math.sin(theta))
-        return math.degrees(math.atan2(p1[1] - p0[1], p1[0] - p0[0])) % 360.0
-
 
 #: Candidate readings of Riot's viewRadians as a game-plane angle. The data
 #: chooses; every candidate's error is printed.
@@ -655,66 +438,7 @@ def angle_err(a: float, b: float) -> float:
     return min(d, 360.0 - d)
 
 
-def map_frame_for(sid: str, man: dict, ref: Reference, d: dict, store_root: Path,
-                  swap: bool = True) -> tuple[MapFrame | None, str | None]:
-    from reticle import geometry
-
-    gp = geometry.path_of(sid, store_root)
-    if gp is None or not gp.is_file():
-        return None, "no_geometry"
-    mname = geometry.map_of(sid, store_root)
-    mi = ref.map_of(d["match"]["matchInfo"]["mapId"])
-    return map_frame_for_geometry(gp, mname, mi, store_root, swap)
-
-
-def map_frame_for_geometry(gp: Path, mname: str, mi: dict, store_root: Path,
-                           swap: bool = True) -> tuple[MapFrame | None, str | None]:
-    """The MapFrame of one baked geometry npz `gp` of map `mname`, whose
-    valorant-api entry is `mi`; no session needed (`prototypes/sightlines.py`)."""
-    import numpy as np
-    import cv2
-
-    with np.load(gp) as z:
-        if "shade_fit" not in z.files:
-            return None, "no_shade_fit"
-        fit = [float(v) for v in z["shade_fit"]]
-        shape = z["labels"].shape
-    art = cv2.imread(str(Path(store_root) / "reference" / "maps" / f"{mname}.png"),
-                     cv2.IMREAD_UNCHANGED)
-    if art is None:
-        return None, "no_art"
-    if canon(mi["displayName"]) != canon(mname):
-        return None, f"map_mismatch:{mi['displayName']}!={mname}"
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from wiki_map import ALPHA_MIN
-    ys, xs = np.where(art[:, :, 3] > ALPHA_MIN)
-    crop = (int(xs.min()), int(ys.min()), int(ys.max() - ys.min() + 1), int(xs.max() - xs.min() + 1))
-    mf = MapFrame(mi, art.shape[:2], fit, swap, crop)
-    mf.widget_shape = shape
-    # an icon's radius in px: 6 px on the 331 px widget, scaled with it
-    mf.icon_px = 6.0 * shape[1] / 331.0
-    return mf, None
-
-
 # ----------------------------------------------------------------- stored data
-
-def _stream_rows(path: Path):
-    if not path.is_file():
-        return
-    with path.open(encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                yield json.loads(line)
-
-
-def stored_deaths(store_root: Path, sid: str, deaths_from: Path | None = None) -> list[dict]:
-    """The `death_verdict` rows; `deaths_from` reads `<dir>/events/death/<sid>.jsonl`
-    instead, such as a trial's in-memory adjudication
-    (`prototypes/killfeed_trial_deaths.py`)."""
-    root = Path(deaths_from) if deaths_from else Path(store_root)
-    return [r for r in _stream_rows(root / "events" / "death" / f"{sid}.jsonl")
-            if r.get("kind") == "death_verdict"]
-
 
 def stored_inferred(store_root: Path, sid: str, deaths_from: Path | None = None) -> dict:
     """The death stream's `inferred_death` rows and `inferred_death_refusal`
@@ -803,21 +527,6 @@ def second_life_stale(store_root: Path, sid: str, version: str | None = None) ->
     if not any(r.get("kind") == "second_life_observation" for r in rows):
         return False
     return stored_second_life(rows, version) is None
-
-
-def split_deaths(deaths: list[dict], legacy=()) -> tuple[list[dict], list[dict]]:
-    """(rows Riot may list as kills, second-life rows counted apart).
-
-    Revive entries are not kills; Riot lists kills only. A Run It Back death
-    is no kill in Riot's record either [domain:rounds/resurrection-mechanics]:
-    it is counted apart, never false and never right. `legacy` holding
-    `second-life` keeps it among the kills, as 0.1.0 did.
-    """
-    kill_like = [r for r in deaths if not r.get("is_revive")]
-    if "second-life" in set(legacy or ()):
-        return kill_like, []
-    return ([r for r in kill_like if not r.get("is_second_life")],
-            [r for r in kill_like if r.get("is_second_life")])
 
 
 def truth_locations(k: dict, dying_at: dict, legacy_victim: bool = False) -> dict:

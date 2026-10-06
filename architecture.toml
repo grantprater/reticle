@@ -76,7 +76,8 @@ modules = ["belief", "rounds", "checks", "reconciliation", "refinement",
            "adjudication.round_outcome", "self_icon",
            "minimap_objects",
            "ability_coverage", "ability_candidates",
-           "ability_timeline", "ability_audio_fit", "gametime", "domain_learning"]
+           "ability_timeline", "ability_audio_fit", "gametime", "domain_learning",
+           "replay_source", "replay_actors", "replay_layer"]
 
 [entities]
 claim = "lifecycle events, compound episodes, review and coaching hypotheses"
