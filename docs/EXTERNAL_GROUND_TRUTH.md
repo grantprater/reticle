@@ -96,8 +96,9 @@ the stored ability streams against them, and
 **Use policy.** This is the policy's one home. Riot's match records, replays,
 HenrikDev's records and public datasets may fit win-probability and coaching
 baselines and priors ([COACHING_DECISION_VALUE.md](COACHING_DECISION_VALUE.md));
-they never feed a reader, a reader's threshold or anything shown during play;
-matches that evaluate a fitted model are held out from its fit.
+replays may also fit reader parameters, thresholds and learned models offline
+(player, 2026-10-05). Nothing derived from them is shown during play, and a
+match that scores a fitted reader or model is held out from its fit.
 
 **HenrikDev's unofficial API.** It mirrors Riot's match schema. Whether it
 still serves the corpus's past matches is unconfirmed.

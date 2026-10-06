@@ -132,10 +132,8 @@ lines give the player's shrunk offset, its interval and its data weight.
 ## 3. Data
 
 **Rule.** The use policy lives in
-[EXTERNAL_GROUND_TRUTH.md](EXTERNAL_GROUND_TRUTH.md): these sources may fit
-win-probability and coaching baselines and priors; they never feed a reader,
-a reader's threshold or anything shown during play; matches that evaluate a
-fitted model are held out from its fit. An estimate that rests on them
+[EXTERNAL_GROUND_TRUTH.md](EXTERNAL_GROUND_TRUTH.md), which says what these
+sources may fit. An estimate that rests on them
 declares `rests_on`.
 
 **Sources.** Two docs on unmerged branches own the samples, their terms and

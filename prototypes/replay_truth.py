@@ -15,8 +15,9 @@ decodes it into Parquet tables. The player approved building and running it on
 2026-10-04 after hearing the Terms of Service exposure.
 
 Replay positions, like Riot's match records (`prototypes/riot_ground_truth.py`),
-NEVER FEED A READER, a reader's threshold or anything shown during play; under
-the use policy in `docs/EXTERNAL_GROUND_TRUTH.md` they may fit win-probability
+never feed anything shown during play; under the use policy in
+`docs/EXTERNAL_GROUND_TRUTH.md` they may fit reader parameters, thresholds and
+models offline, with scoring matches held out from the fit, and win-probability
 and coaching baselines and priors. This module uses them for evaluation only.
 Nothing in `reticle/` reads this file or its outputs, and
 a score here rests on the replay; it says how far the stored streams agree

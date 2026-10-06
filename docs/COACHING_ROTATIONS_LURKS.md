@@ -407,8 +407,7 @@ at Riot's kill instants:
   `duplicate_hold` shows as a pair the parse places together and the module
   did not flag.
 
-The parse never feeds a reader, a reader's threshold or anything shown
-during play; the use policy in
+The parse never feeds anything shown during play; the use policy in
 [EXTERNAL_GROUND_TRUTH.md](EXTERNAL_GROUND_TRUTH.md) lets it fit
 win-probability and coaching baselines and priors, and matches that evaluate
 a fitted model are held out from its fit. No reader, owner or coaching event of this plan reads
