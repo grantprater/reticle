@@ -71,14 +71,13 @@ remote players later than the player (`prototypes/minimap_lag.py`) and maps worl
 `riot_ground_truth.MapFrame` (valorant-api's map constants, the geometry's
 `shade_fit`); `--geometry` names another baked npz, so one capture scores
 before and after a geometry rebuild. 0.3.0 first names the player from the
-replay (`replay_self_identity`): the replay player whose path the stored
-self-icon track (`ally_icon`'s `self`) follows, by the share of track frames
-within `SELF_ID_RADIUS_M`, with the runner-up beside it; a short track, a
-poor fit or a margin under `SELF_ID_MARGIN` refuses. The replay's spawn split
-gives the teams. Riot's record, when present, keeps naming the player and
-becomes the cross-check (`self_identity.riot_cross_check`, a disagreement
-flagged); without it the replay's verdict is used, and the self fit below
-then `rests_on` the track that chose it. It scores per frame and per track:
+replay (`replay_source.replay_self_pick`, the pipeline's owner since
+2026-10-06): the replay player whose path the stored self-icon track
+(`ally_icon`'s `self`) follows. Riot's record, when present, keeps naming the
+player and the replay's pick is the cross-check
+(`self_identity.riot_cross_check`); without it the replay's verdict is used,
+and the self fit below then `rests_on` the track that chose it. It scores per
+frame and per track:
 
 - the denominator is `ally_icon`'s frame grid inside the minimap crop cache's
   spans (`roi_cache`) with the widget drawn; frames outside the spans or with
@@ -443,120 +442,27 @@ def _assign(frame_ids, D, gate):
     return res_j, res_d
 
 
-#: Replay self identification (0.3.0). A self-track frame counts for a replay
-#: player when its icon lies within this many metres of the player's living
-#: position: 2 m holds the self error's p90 on c817691bcd15 (96 cm) and the
-#: bulk of 9acf02f98283's (median 75 cm), and stays inside a stack's spread.
-SELF_ID_RADIUS_M = 2.0
-#: Fewer self-track frames than this (60 s at 15 Hz) refuse `track_too_short`.
-SELF_ID_MIN_FRAMES = 900
-#: A best share under this refuses `no_fit`: no path follows the icon.
-SELF_ID_MIN_SHARE = 0.30
-#: The best share must lead the runner-up's by this much, else
-#: `margin_too_small`. Chosen on the development matches only, by the rule
-#: logged before they ran (`replay-self-id-20261006`): half the smaller of
-#: c817691bcd15's and 9acf02f98283's margins, rounded down to 0.05, never
-#: below 0.10. Their margins were 0.5701 and 0.5656 (2026-10-06), so the cut
-#: is 0.25. The held-out match never informed it.
-SELF_ID_MARGIN = 0.25
-
-
-def choose_self_subject(dist_m, subjects, radius_m: float = SELF_ID_RADIUS_M,
-              min_frames: int = SELF_ID_MIN_FRAMES, min_share: float = SELF_ID_MIN_SHARE,
-              margin: float | None = None) -> dict:
-    """Which replay subject the self-icon track follows, or a refusal.
-
-    `dist_m` is (n_frames, k): metres from each self-track frame's icon to
-    subject `subjects[c]`, NaN where that subject is dead or unsampled. Each
-    subject's share is the fraction of ALL n frames within `radius_m` (a dead
-    subject misses, so a teammate the dead player spectates scores only those
-    frames). The best subject wins when the track has `min_frames`, its share
-    reaches `min_share`, and it leads the runner-up by `margin`; otherwise
-    `subject` is None and `reason` says which test failed. The candidate set
-    is every replay subject: before the player is known no context narrows it.
-    """
-    margin = SELF_ID_MARGIN if margin is None else margin
-    D = np.asarray(dist_m, float).reshape(-1, len(subjects))
-    n = int(D.shape[0])
-    within = np.isfinite(D) & (D <= radius_m)
-    share = within.sum(axis=0) / max(1, n)
-    alive = np.isfinite(D).sum(axis=0)
-    med = np.array([float(np.median(D[np.isfinite(D[:, c]), c])) if alive[c] else np.nan
-                    for c in range(D.shape[1])])
-    o = np.argsort(-share, kind="stable")
-    cands = [{"subject": subjects[c], "share_within": round(float(share[c]), 4),
-              "frames_alive": int(alive[c]),
-              "median_m_alive": None if not np.isfinite(med[c]) else round(float(med[c]), 3)}
-             for c in o]
-    best = cands[0] if cands else None
-    second = cands[1] if len(cands) > 1 else None
-    lead = None if best is None else round(best["share_within"] - (second["share_within"]
-                                                                  if second else 0.0), 4)
-    out = {"frames": n, "radius_m": radius_m, "min_frames": min_frames, "min_share": min_share,
-           "margin_cut": margin, "margin": lead, "best": best, "runner_up": second,
-           "candidates": cands, "subject": None, "reason": None}
-    if margin is None:
-        out["reason"] = "margin_cut_unset"
-    elif n < min_frames:
-        out["reason"] = f"track_too_short:{n}<{min_frames}"
-    elif best is None or best["share_within"] < min_share:
-        out["reason"] = f"no_fit:best_share<{min_share}"
-    elif lead < margin:
-        out["reason"] = f"margin_too_small:{lead}<{margin}"
-    else:
-        out["subject"] = best["subject"]
-    return out
-
-
-def replay_self_identity(ctx: dict, AI: dict, margin: float | None = None) -> dict:
-    """Self from the stored self-icon track; teams from the replay's spawn split.
-
-    The track is `ally_icon`'s frame rows with the widget drawn and a self
-    fit, put on replay time by the scorer's clock (`clock`, `SELF_LAG_MS`);
-    each replay subject's living position is mapped to widget px by the baked
-    `MapFrame` (`truth_px`). `choose_self_subject` decides. Teams come from
-    `replay_layer.spawn_teams` (labels A/B). The verdict `rests_on`
-    `ally_icon.self`: the self fit scored later is no longer independent of
-    the choice."""
-    from reticle.replay_layer import spawn_teams
-
-    rp, mf, clock = ctx["rp"], ctx["mf"], ctx["clock"]
-    m = AI["drawn"] & np.isfinite(AI["self_x"])
-    t_rep = capture_to_replay(AI["t_ms"][m], *clock, SELF_LAG_MS)
-    subs = list(rp.subjects)
-    X, Y, _yaw, _L = truth_px(rp, mf, subs, t_rep)
-    px_per_m = mf.px_per_unit * 100.0
-    D = np.hypot(X - AI["self_x"][m][:, None], Y - AI["self_y"][m][:, None]) / px_per_m
-    pick = choose_self_subject(D, subs, margin=margin)
-    sp = spawn_teams(rp, rp.round_starts())
-    pick["rests_on"] = "ally_icon.self"
-    pick["track"] = "ally_icon frame rows: widget_drawn and self not null"
-    pick["teams"] = {"basis": sp["basis"], "spawn_cluster_rounds_agreeing": sp["agree"],
-                     "spawn_cluster_rounds": sp["rounds"]}
-    return {"pick": pick, "team": sp["team"]}
-
-
-def _same_side(team_a: dict, me_a, team_b: dict, me_b, subjects) -> bool | None:
-    """Whether two team labellings put the same subjects on each player's side."""
-    if not team_a or not team_b or me_a is None or me_b is None:
-        return None
-    side_a = {s for s in subjects if team_a.get(s) is not None and team_a.get(s) == team_a.get(me_a)}
-    side_b = {s for s in subjects if team_b.get(s) is not None and team_b.get(s) == team_b.get(me_b)}
-    return side_a == side_b
+# Which replay player is the capturing player belongs to the pipeline
+# (`reticle.replay_source`, `[owns:replay-self]`) since 2026-10-06; these
+# names stay for the report's head.
+from reticle.replay_source import (SELF_ID_MARGIN, SELF_ID_MIN_FRAMES,  # noqa: E402,F401
+                                   SELF_ID_MIN_SHARE, SELF_ID_RADIUS_M)
+# The living players' widget px, the owner's sampler (`replay_source`).
+from reticle.replay_source import living_widget_px as truth_px  # noqa: E402
 
 
 def session_context(sid: str, geometry: Path | None = None) -> dict:
-    """`reticle.replay_source.session_context` (the replay, player, teams,
-    agents, the clock offset `a` fitted on stored deaths, the stored rounds
-    and the baked `MapFrame`), plus this scorer's version and its 8 m teammate
-    gate in widget px. `score` and `replay_abilities` both use it.
+    """`reticle.replay_source.capture_replay_context` (the replay, player,
+    teams, agents, the clock offset `a` fitted on stored deaths, the stored
+    rounds and the baked `MapFrame`), plus this scorer's version, the stored
+    `ally_icon` streams (`AI`) and its 8 m teammate gate in widget px.
+    `score` and `replay_abilities` both use it.
 
-    0.3.0 names the player from the replay (`replay_self_identity`) on every
-    capture. With a Riot record, Riot's player and teams stay in use and the
-    replay's verdict is a cross-check stored in `out["self_identity"]`; a
-    disagreement is flagged there, never resolved silently. Without one, the
-    replay's verdict is used, or the context refuses with its reason."""
-    ctx = src.capture_replay_context(sid, geometry, STORE, require_player=False)
+    The context names the player (`replay_source.decide_player`): Riot's
+    player where its record names one, with the replay's pick on the stored
+    self track a cross-check in `out["self_identity"]`; without one the
+    replay's pick, or a refusal with its reason."""
+    ctx = src.capture_replay_context(sid, geometry, STORE)
     out = ctx["out"]
     out["replay_truth_version"] = REPLAY_TRUTH_VERSION
     if "refused" in out:
@@ -566,41 +472,7 @@ def session_context(sid: str, geometry: Path | None = None) -> dict:
     out["clock"] = {"rule": "capture = a_ls + slope * replay (the killfeed least-squares fit)",
                     "a_ls_ms": round(ctx["clock"][0], 1), "slope": ctx["clock"][1],
                     "self_lag_ms": round(SELF_LAG_MS, 3), "remote_lag_ms": round(REMOTE_LAG_MS, 3)}
-    AI = load_ally_icon(sid)
-    ctx["AI"] = AI
-    rid = replay_self_identity(ctx, AI)
-    pick, rteam = rid["pick"], rid["team"]
-    rme = pick["subject"]
-    riot_me, riot_team = ctx["me"], ctx["team"]
-    subs = list(ctx["rp"].subjects)
-    agent = ctx["agent"]
-    si = {"replay": {**pick, "agent": agent.get(rme) if rme else None,
-                     "best_agent": agent.get((pick["best"] or {}).get("subject")),
-                     "runner_up_agent": agent.get((pick["runner_up"] or {}).get("subject"))}}
-    if riot_me is not None:
-        self_ok = None if rme is None else rme == riot_me
-        team_ok = _same_side(rteam, rme if rme else riot_me, riot_team, riot_me, subs)
-        best_ok = (pick["best"] or {}).get("subject") == riot_me
-        si["riot_cross_check"] = {"present": True, "self_agrees": self_ok, "best_agrees": best_ok,
-                                  "team_agrees": team_ok, "riot_agent": agent.get(riot_me),
-                                  "disagreement": self_ok is False or team_ok is False}
-        si["used"] = "riot_record"
-    else:
-        si["riot_cross_check"] = {"present": False}
-        if rme is None or not rteam:
-            si["used"] = None
-            out["self_identity"] = si
-            out["refused"] = f"no_player_or_team:replay_self:{pick['reason'] or 'no_spawn_teams'}"
-            return ctx
-        si["used"] = "replay_self_track"
-        ctx["me"], ctx["team"] = rme, rteam
-        out["player_basis"] = "replay_self_track"
-        out["team_source"] = "replay_spawn_split"
-        me, team = rme, rteam
-        ctx["allies"] = [s for s in subs if team.get(s) == team[me]]
-        ctx["foes"] = [s for s in subs if s in team and team[s] != team[me]]
-        out["allies"] = [agent.get(s) for s in ctx["allies"]]
-    out["self_identity"] = si
+    ctx["AI"] = load_ally_icon(sid)
     ctx["gate"] = rg.GATE_M * 100.0 * ctx["mf"].px_per_unit
     out["gate_px"] = round(ctx["gate"], 2)
     return ctx
@@ -695,24 +567,6 @@ def capture_to_replay(t_cap, a_ms: float, slope: float, lag_ms: float):
     killfeed fit `capture = a_ms + slope * replay` and a minimap lag
     `lag_ms`. With slope 1 this is `replay_source.frames_to_replay`."""
     return (np.asarray(t_cap, float) - float(a_ms)) / float(slope) - float(lag_ms)
-
-
-def truth_px(rp, mf, subs, t_rep):
-    """(n, k) widget px, image-degree facing and a living mask for subjects
-    `subs` at replay times `t_rep`; NaN where dead or unsampled."""
-    t_rep = np.asarray(t_rep, float)
-    n, k = t_rep.size, len(subs)
-    X, Y, YAW = (np.full((n, k), np.nan) for _ in range(3))
-    L = np.zeros((n, k), bool)
-    for c, s in enumerate(subs):
-        q = rp.sample(s, t_rep)
-        live = rp.alive(s, t_rep) & np.isfinite(q["x"])
-        px, py = to_px(mf, q["x"], q["y"])
-        L[:, c] = live
-        X[:, c] = np.where(live, px, np.nan)
-        Y[:, c] = np.where(live, py, np.nan)
-        YAW[:, c] = np.where(live, facing_px_deg(mf, q["x"], q["y"], q["yaw"]), np.nan)
-    return X, Y, YAW, L
 
 
 def _stamp(row: dict, *keys) -> dict:

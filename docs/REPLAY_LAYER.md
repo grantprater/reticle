@@ -20,7 +20,7 @@ builder read one schema and never open vrfkit's export.
 Parquet file per table. `reticle replay-layer MATCH|SESSION`, `--all`, or
 `--status`. It reads stored data only: the vrfkit parse, and for a captured
 match the Riot record, the stored deaths, the baked geometry, the `ally_icon`
-frame grid and the lineup. `reticle plan SESSION` names it absent or stale
+frame grid and self track, and the lineup. `reticle plan SESSION` names it absent or stale
 for every session whose kept replay names it; `doctor` (REPLAY_LAYER) errors
 while one is. `l2/` holds the pipeline's observation tables, served by
 `Store` to readers and consumers; truth there would sit one call from a
@@ -35,6 +35,13 @@ its head carries no summary, and no command prints its contents.
 - `t_cap` (`tcap_*` in `rounds` and `lives`): the capture's clock, ms,
   `t_rep + a_ms`; `a_ms` is fitted on the stored deaths
   (`replay_source.capture_replay_context`). Null without a capture.
+- The capturing player (`is_me`, `side_rel`): Riot's where its record names
+  him, else the replay player whose path the stored `ally_icon` self track
+  follows (`reticle ownership` `replay-self`, `replay_source.decide_player`).
+  The head's `capture.self_identity` holds that pick and, with Riot, its
+  agreement; `capture.rests_on` is `ally_icon.self` where the pick decided,
+  and `capture.self_refused` names a refused pick, which leaves the clock and
+  the map frame standing.
 - Positions: world units (cm). `px`, `py`, `facing_px`: baked-widget pixels
   through `MapFrame` of the geometry the head names, null without a capture.
   Both baked maps are north-up, so `facing_px` equals world `yaw` to
