@@ -37,6 +37,8 @@ its head carries no summary, and no command prints its contents.
   (`replay_source.capture_replay_context`). Null without a capture.
 - Positions: world units (cm). `px`, `py`, `facing_px`: baked-widget pixels
   through `MapFrame` of the geometry the head names, null without a capture.
+  Both baked maps are north-up, so `facing_px` equals world `yaw` to
+  rounding; it is kept so a rotated geometry stays correct.
   `--geometry NPZ` builds on another baked geometry and records it.
 - `source`: `truth` for every row this layer writes. `observed`, `inferred`
   and `unknown` are reserved for the vision pipeline's estimates of the same
@@ -59,7 +61,8 @@ its head carries no summary, and no command prints its contents.
   the same agent on the same side) and `slot_key_basis`, `guid`/`guids`
   (pawn net guids).
 - children (every ability actor with a world position, the ult orbs, the
-  planted spike): `entity_id` (`child:<guid>`), `guid`, `class`, `class_path`,
+  planted spike; never the replay controller or other character-folder
+  infrastructure): `entity_id` (`child:<guid>`), `guid`, `class`, `class_path`,
   `role`, `code`, `folder`, `ability`, `mapped`/`unmapped_reason`
   (`replay_actors`'s three-part mapping), `tray_key` (the kit slot whose name
   the ability's display name is, `lineup.abilities_for`), `subject`/`agent`/
@@ -110,7 +113,8 @@ defuse), `t_next_start`, `t_plant`, `t_defuse`, and `tcap_*`.
 
 `lives`: `e`, `subject`, `round`, `t_open`, `t_open_lo`, `open_basis`
 (`round_start`, `second_death`, `own_activity`), `t_close`, `close_basis`
-(`death`, `phase_5`, `next_round_start`), `killer`, `evidence`, `tcap_*`. A
+(`death`, or `next_round_start`: play continues through the post-round
+period [domain:rounds/post-round-period]), `killer`, `evidence`, `tcap_*`. A
 revive is read only where the replay shows the player alive again: a second
 death in the round, or damage he deals with a held gun or knife more than
 `REVIVE_QUIET_MS` after his death. His body's movement is not evidence: the
@@ -123,6 +127,7 @@ from reticle.replay_layer import load
 L = load("c817691bcd15")            # a session, a match id or a prefix
 L.head, L.entities, L.ticks, L.frames, L.events, L.state, L.rounds, L.lives
 L.players()                          # entity rows of the ten players
+L.rows("ticks")                      # row count (len(L.ticks) counts columns)
 L.entity(e); L.track(e)              # one entity's row; its ticks in time order
 L.state_at(t, clock="capture")       # every entity alive or open at t
 L.alive_at(e, t, clock="capture")
@@ -131,10 +136,16 @@ L.intervals("lives" | "rounds" | "buy" | "children")
 L.events_of("kill")
 ```
 
-`clock="replay"` takes `t_rep`. `state_at` interpolates a position linearly
-between ticks no more than `MAX_GAP_MS` apart, takes yaw from the nearer
-tick, holds a static child's spawn, and adds each player's latest `state`
-values as `state:<field>`.
+`clock="replay"` takes `t_rep`. Each table is a dict of numpy columns, so
+`len(L.ticks)` counts columns; `L.rows("ticks")` counts rows. `state_at`
+interpolates position, z, pitch, px and py linearly between ticks no more
+than `MAX_GAP_MS` apart (`position_basis` `interpolated`) and takes yaw and
+`facing_px` from the nearer tick. Across a longer gap (a round's
+post-round period, a static child) it holds the last tick at or before `t`
+(`held`, with `held_from_tick_ms`); before the first tick the position is
+null (`before_first_tick`). A player's `alive` comes from `lives`, so a dead
+player carries his last position with `alive` False. Players also carry
+their latest `state` values as `state:<field>`.
 
 ## Decoded, and not
 
@@ -142,7 +153,12 @@ Decoded: positions and view (yaw, pitch) per tick; deaths, plants, defuses,
 round phases, casts, ult state; every ability actor's owner, open, close and
 spawn; damage calls with their life changes; one-shot effects' containers;
 credits, ult points, held equippable, callout region, crouch, ability
-charges, worn armor. Not decoded: `movement_state` (zero throughout on
+charges, worn armor. Health and armor are not replicated as fields; they
+come only from damage calls' life changes. Among the effects, footsteps
+(`FXC_Footstep_C`), jumps and landings, grenade and bounce audio, spike
+beeps, death pings and many ability containers are named. Gunfire is not
+a one-shot effect; it is likely `MulticastPlayContinuousEffectFromClient`
+on gun actors, which the layer does not decode. Not decoded: `movement_state` (zero throughout on
 60c7f1e0), `AssignedTeamState` (null), the effect containers' meaning beyond
 their asset path, and each actor's `undecoded` payloads. The replay holds no
 audio; its damage, equip and effect calls are the causes of most sounds, and

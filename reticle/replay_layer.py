@@ -49,15 +49,15 @@ from pathlib import Path
 
 import numpy as np
 
-from .replay_actors import (GAME_BUILD, REPLAY_ACTORS_VERSION, Export, _FOLDER, _leaf,
-                            _role, class_census, handoff_pairs, slot_map)
+from .replay_actors import (GAME_BUILD, NON_CHARACTER, REPLAY_ACTORS_VERSION, Export, _leaf,
+                            class_census, handoff_pairs, slot_map)
 from .replay_source import (MAX_GAP_MS, MINIMAP_LAG_MS, REPLAY_SOURCE_VERSION, VRFKIT_VERSION,
                             Reference, Replay, capture_replay_context, facing_px_deg,
                             frames_to_replay, parsed_dir, parsed_root, replay_entry,
                             replay_manifest, sample_stats, to_px)
 from .store import DEFAULT_STORE
 
-REPLAY_LAYER_VERSION = "replay-layer-0.1.0"
+REPLAY_LAYER_VERSION = "replay-layer-0.1.2"
 #: The held-out match (docs/EXTERNAL_GROUND_TRUTH.md, "a match that scores a
 #: fitted reader or model is held out from its fit"): built, never summarised.
 HELD_OUT = ("bd7efa02",)
@@ -379,7 +379,8 @@ def activity_by_subject(EV: dict, e_of: dict) -> dict:
 
 def lives_table(rp: Replay, rounds: list[dict], activity: dict) -> list[dict]:
     """Per player per round: alive from the round's start to his first death
-    in it or the round's end. A later life opens where the replay shows him
+    in it or the next round's start, since play continues through the
+    post-round period [domain:rounds/post-round-period]. A later life opens where the replay shows him
     alive again after a death in the same round: a second death
     (`second_death`), or damage he deals with a held gun or knife more than
     `REVIVE_QUIET_MS` after it (`own_activity`, `activity_by_subject`),
@@ -395,7 +396,9 @@ def lives_table(rp: Replay, rounds: list[dict], activity: dict) -> list[dict]:
     for s in rp.subjects:
         act = activity.get(s, np.zeros(0))
         for R in rounds:
-            end = R["t_end"] if R["t_end"] is not None else R["t_next_start"]
+            # play continues through the post-round period to the next buy
+            # phase [domain:rounds/post-round-period]
+            end = R["t_next_start"]
             t_open, lo, basis, ev = R["t_start"], None, "round_start", None
             ds = sorted((e for e in deaths[s] if R["t_start"] <= e["t"] < R["t_next_start"]),
                         key=lambda e: e["t"])
@@ -419,7 +422,8 @@ def lives_table(rp: Replay, rounds: list[dict], activity: dict) -> list[dict]:
                 if t_open is not None:
                     out.append({"subject": s, "round": R["round"], "t_open": t_open,
                                 "t_open_lo": lo, "open_basis": basis, "t_close": end,
-                                "close_basis": R["end_basis"], "killer": None, "evidence": ev})
+                                "close_basis": "next_round_start", "killer": None,
+                                "evidence": ev})
     return out
 
 
@@ -524,8 +528,13 @@ def build(key: str, root=DEFAULT_STORE, geometry: Path | None = None) -> dict:
     # -- children
     cen = class_census(match, ex)
     by_cp = {r["class_path"]: r for r in cen["classes"]}
+    # an ability folder's world actors, and the named non-character actors
+    # (ult orbs, the spike); never the replay controller or other
+    # character-folder infrastructure
     inst = [i for i in ex.instances() if i["class_path"] in by_cp
-            and by_cp[i["class_path"]]["role"] not in INVENTORY_ROLES]
+            and by_cp[i["class_path"]]["role"] not in INVENTORY_ROLES
+            and (by_cp[i["class_path"]].get("code") is not None
+                 or i["class_path"].rsplit(".", 1)[0] in NON_CHARACTER)]
     child_guids = {i["guid"] for i in inst}
     by_class = defaultdict(list)
     for i in ex.instances():
@@ -1099,13 +1108,17 @@ def layer_summary(match, root, d, E, EV, ex, cen, agent, rs) -> dict:
 def cast_crosscheck(E, EV, cen, agent) -> dict:
     """Per player and ability folder: the cast records (`AbilityCastsThisRound`
     through `slot_map`) against the root children (no parent, no
-    predecessor) of each class in that folder, per round. A class whose count
-    equals the casts in every round agrees; every other (class, round) is
-    listed with both counts. A slot byte `slot_map` cannot map is counted
+    predecessor) of each class in that folder, per round.
+
+    Each (player, folder) gets one verdict: `class_equals` where one class's
+    count equals the casts in every round (that class is one per cast),
+    `classes_sum_equals` where the classes' sum does (a cast opens one of
+    several classes, as a thrown and an underhand flash), `no_cast_records`
+    where the folder has children and no mapped cast, else `disagree`, with
+    the rounds that differ. A slot byte `slot_map` cannot map is counted
     apart, never guessed."""
-    from collections import Counter as C
-    casts = C()
-    unmapped = C()
+    casts = Counter()
+    unmapped = Counter()
     for k, kind in enumerate(EV["kind"]):
         if kind != "cast":
             continue
@@ -1115,32 +1128,43 @@ def cast_crosscheck(E, EV, cen, agent) -> dict:
             continue
         casts[(EV["e"][k], EV["value_str"][k], det["round"])] += 1
     sub_e = {E["subject"][k]: k for k, kind in enumerate(E["kind"]) if kind == "player"}
-    roots = C()
+    roots = Counter()
     for k, kind in enumerate(E["kind"]):
         if kind != "child" or not E["subject"][k] or not E["folder"][k]:
             continue
         if E["parent_guid"][k] is not None or E["predecessor_guid"][k] is not None:
             continue
         roots[(sub_e[E["subject"][k]], E["folder"][k], E["class"][k], E["round"][k])] += 1
-    classes = defaultdict(set)
-    for (e, f, c, r) in roots:
-        classes[(e, f)].add(c)
-    out = {"agree": [], "disagree": [], "casts_slot_unmapped": {
-        f"{E['agent'][e]}|slot{s}": n for (e, s), n in unmapped.items()}}
-    keys = sorted({(e, f) for (e, f, _r) in casts} | set(classes), key=str)
+    out = {"rows": [], "casts_slot_unmapped": {
+        f"{E['agent'][e]}|{(E['subject'][e] or '')[:8]}|slot{s}": n
+        for (e, s), n in sorted(unmapped.items(), key=str)}}
+    keys = sorted({(e, f) for (e, f, _r) in casts} | {(e, f) for (e, f, _c, _r) in roots}, key=str)
     for e, f in keys:
         rounds = sorted({r for (ee, ff, r) in casts if (ee, ff) == (e, f)}
                         | {r for (ee, ff, _c, r) in roots if (ee, ff) == (e, f)}, key=str)
-        for c in sorted(classes.get((e, f), {"<no child>"})):
-            per = [(r, casts[(e, f, r)], roots[(e, f, c, r)]) for r in rounds]
-            tag = {"player": f"{E['agent'][e]}|{(E['subject'][e] or '')[:8]}", "folder": f,
-                   "class": c, "casts": sum(p[1] for p in per), "children": sum(p[2] for p in per)}
-            bad = [p for p in per if p[1] != p[2]]
-            if not bad:
-                out["agree"].append(tag)
-            else:
-                out["disagree"].append({**tag, "rounds": [{"round": r, "casts": a, "children": b}
-                                                          for r, a, b in bad]})
+        cls = sorted({c for (ee, ff, c, _r) in roots if (ee, ff) == (e, f)})
+        per_c = {c: [roots[(e, f, c, r)] for r in rounds] for c in cls}
+        cr = [casts[(e, f, r)] for r in rounds]
+        summed = [sum(per_c[c][i] for c in cls) for i in range(len(rounds))]
+        if not any(cr):
+            verdict = "no_cast_records"
+        elif any(per_c[c] == cr for c in cls):
+            verdict = "class_equals"
+        elif summed == cr:
+            verdict = "classes_sum_equals"
+        else:
+            verdict = "disagree"
+        row = {"player": f"{E['agent'][e]}|{(E['subject'][e] or '')[:8]}", "folder": f,
+               "verdict": verdict, "casts": sum(cr),
+               "children": {c: sum(v) for c, v in per_c.items()}}
+        if verdict == "disagree":
+            best = min(cls, key=lambda c: sum(abs(a - b) for a, b in zip(per_c[c], cr))) if cls else None
+            row["rounds_differing"] = [
+                {"round": r, "casts": cr[i], "children": per_c[best][i] if best else 0}
+                for i, r in enumerate(rounds) if best is None or per_c[best][i] != cr[i]]
+            row["closest_class"] = best
+        out["rows"].append(row)
+    out["verdicts"] = dict(Counter(r["verdict"] for r in out["rows"]))
     return out
 
 
@@ -1184,6 +1208,12 @@ class Layer:
             raise ValueError(f"{self.match}: no capture clock (layer head a_ms is null)")
         return t - self.a_ms
 
+    def rows(self, name: str) -> int:
+        """Row count of a table; each table is a dict of numpy columns, so
+        `len(L.ticks)` counts columns."""
+        T = self.tables.get(name)
+        return 0 if not T else int(next(iter(T.values())).size)
+
     def players(self) -> list[int]:
         k = self.tables["entities"]["kind"]
         return [int(i) for i in np.flatnonzero(k == "player")]
@@ -1197,44 +1227,63 @@ class Layer:
         return {k: v[a:b] for k, v in self.tables["ticks"].items()}
 
     def state_at(self, t: float, clock: str = "capture", entities=None) -> list[dict]:
-        """Each entity's state at one time: position and yaw (linear between
-        the bracketing ticks within `MAX_GAP_MS`, else the nearer tick's
-        value only for a child's static spawn), alive, and for players the
-        latest sparse state values (`state` table) at or before `t`."""
+        """Each entity's state at one time. Position, z, pitch, px and py are
+        linear between the bracketing ticks when they lie within
+        `MAX_GAP_MS` (`position_basis` "interpolated"); yaw and facing come
+        from the nearer tick. Across a longer gap, or after an entity's last
+        tick, the last tick at or before `t` holds (`position_basis` "held",
+        with `held_from_tick_ms`); before an entity's first tick the position
+        is null (`position_basis` "before_first_tick"). A player's `alive`
+        comes from `lives` (revives included), so a dead player carries his
+        last position with alive False; a child is listed only while open.
+        Players also carry the latest sparse `state` values at or before `t`
+        as `state:<field>`."""
         tr = float(self._rep([t], clock)[0])
         E = self.tables["entities"]
         out = []
         ids = range(len(E["entity_id"])) if entities is None else entities
         S = self.tables.get("state")
+        cols = ("x", "y", "z", "yaw", "pitch", "px", "py", "facing_px")
+
+        def num(v):
+            return None if v is None or not np.isfinite(v) else float(v)
+
         for e in ids:
-            if E["kind"][e] == "child":
+            player = E["kind"][e] == "player"
+            if not player:
                 t0, t1 = E["t_open_rep"][e], E["t_close_rep"][e]
                 if not (t0 <= tr and (t1 is None or not np.isfinite(t1) or tr < t1)):
                     continue
             k = self.track(e)
             row = {"e": int(e), "entity_id": E["entity_id"][e], "kind": E["kind"][e],
                    "t_rep": tr, "source": "truth"}
+            row.update({c: None for c in cols})
             n = k["t_rep"].size
-            if n:
-                i = int(np.searchsorted(k["t_rep"], tr, side="right"))
-                i0, i1 = max(i - 1, 0), min(i, n - 1)
-                t0, t1 = k["t_rep"][i0], k["t_rep"][i1]
-                if t0 <= tr <= t1 and t1 - t0 <= MAX_GAP_MS:
+            i = int(np.searchsorted(k["t_rep"], tr, side="right"))  # ticks <= tr: [0, i)
+            if n and i == 0:
+                row["position_basis"] = "before_first_tick"
+            elif n:
+                i0 = i - 1
+                t0 = k["t_rep"][i0]
+                if t0 == tr or (i < n and k["t_rep"][i] - t0 <= MAX_GAP_MS):
+                    i1 = i0 if t0 == tr else i
+                    t1 = k["t_rep"][i1]
                     w = 0.0 if t1 == t0 else (tr - t0) / (t1 - t0)
-                    for c in ("x", "y", "z", "px", "py"):
-                        row[c] = float(k[c][i0] * (1 - w) + k[c][i1] * w)
+                    for c in ("x", "y", "z", "pitch", "px", "py"):
+                        a0, a1 = k[c][i0], k[c][i1]
+                        row[c] = None if a0 is None or a1 is None else num(a0 * (1 - w) + a1 * w)
                     near = i0 if w < 0.5 else i1
-                    for c in ("yaw", "pitch", "facing_px"):
-                        row[c] = float(k[c][near])
-                    row["alive"] = bool(k["alive"][near])
-                elif E["kind"][e] == "child" and tr >= t0:
-                    for c in ("x", "y", "z", "yaw", "pitch", "px", "py", "facing_px"):
-                        row[c] = float(k[c][i0])
-                    row["alive"] = True
-                    row["held_from_tick_ms"] = float(t0)
+                    for c in ("yaw", "facing_px"):
+                        row[c] = num(k[c][near])
+                    row["position_basis"] = "interpolated"
                 else:
-                    row["alive"] = (bool(self.alive_at(e, tr, "replay"))
-                                    if E["kind"][e] == "player" else None)
+                    for c in cols:
+                        row[c] = num(k[c][i0])
+                    row["position_basis"] = "held"
+                    row["held_from_tick_ms"] = float(t0)
+            else:
+                row["position_basis"] = "no_ticks"
+            row["alive"] = bool(self.alive_at(e, tr, "replay")) if player else True
             if E["kind"][e] == "player" and S is not None:
                 m = (S["e"] == e) & (S["t_rep"] <= tr)
                 for f in np.unique(S["field"][m]):
