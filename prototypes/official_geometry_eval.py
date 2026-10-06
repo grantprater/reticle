@@ -2,6 +2,7 @@ r"""Official geometry against the capture geometry it replaces, field by field, 
 
     .\.venv\Scripts\python.exe prototypes\official_geometry_eval.py [--record] [--images DIR]
     .\.venv\Scripts\python.exe prototypes\official_geometry_eval.py --riot BASE.json OFFICIAL.json [--record]
+    .\.venv\Scripts\python.exe prototypes\official_geometry_eval.py --world BASE.json OFFICIAL0.json [--record]
 
 What it measures
 ----------------
@@ -32,6 +33,10 @@ agent), and reports the paired change in position error per profile with a
 session bootstrap. Riot positions reach widget px through `shade_fit`, so this
 measures where the geometry puts the WORLD, which the static fields cannot.
 
+`--world` scores each map's world offset (`map_asset.world_offset`) held out:
+OFFICIAL0 is a Riot run on official geometry with no offset; each match takes
+the offset fitted on its map's other matches and is paired with BASE.
+
 Reads stored arrays only; decodes nothing.
 """
 from __future__ import annotations
@@ -54,7 +59,7 @@ from reticle.minimap import (BORDER, BOXEDGE, FLOOR, HOLE, PLANT,  # noqa: E402
 
 STORE = Path.home() / "reticle-store"
 TOOL = "official_geometry"
-EVAL_VERSION = "official-geometry-eval-0.1.0"
+EVAL_VERSION = "official-geometry-eval-0.2.0"
 
 
 def _iou(x, y) -> float:
@@ -173,6 +178,75 @@ def riot(base: Path, official: Path, seed: int = 0) -> dict:
     return out
 
 
+def riot_world_lomo(base: Path, official: Path, seed: int = 0) -> dict:
+    """Each map's world offset scored leave-one-match-out: for every session,
+    the offset is fitted on the OTHER sessions of its map
+    (`minimap_geometry.fit_world`) and applied to its own victim rows. Rows are
+    paired with the capture-geometry run `base`; `official` is a run on
+    official geometry with no world offset. Per profile: medians, the mean
+    paired change against both, with a session bootstrap."""
+    import minimap_geometry as MG
+    res = MG.world_residuals(official)
+
+    def rows(p):
+        out = {}
+        for s_ in json.loads(Path(p).read_text(encoding="utf-8"))["sessions"]:
+            for v in (s_.get("minimap") or {}).get("victim_rows") or []:
+                if v.get("piece_px") and v.get("truth_px"):
+                    out[(s_["session"], v["t_ms"], v["agent"])] = (
+                        s_["profile"], np.subtract(v["piece_px"], v["truth_px"]))
+        return out
+    B, O = rows(base), rows(official)
+    lomo, per_session = {}, {}
+    for sid, r in res.items():
+        m = r["map"]
+        off = np.asarray(MG.fit_world(res, exclude={sid}).get(m, (0.0, 0.0)))
+        P = A.transform(r["profile"])
+        lomo[sid] = A.map_affine(A.rotation(m), P["scale"], P["centre"])[:, :2] @ off
+        per_session[sid] = {"map": m, "profile": r["profile"], "offset_tex_px": off.round(3).tolist(),
+                            "fitted_on_other_matches": bool(np.any(off))}
+    triples = []
+    for k, (prof, ro) in O.items():
+        if k not in B or k[0] not in lomo:
+            continue
+        rb = B[k][1]
+        if np.hypot(*rb) >= 8 or np.hypot(*ro) >= 8:
+            continue
+        triples.append((k[0], prof, float(np.hypot(*rb)), float(np.hypot(*ro)),
+                        float(np.hypot(*(ro - lomo[k[0]])))))
+    sess = np.array([t[0] for t in triples])
+    prof_ = np.array([t[1] for t in triples])
+    R = np.array([t[2:] for t in triples])
+    for sid in per_session:
+        mm = sess == sid
+        if mm.any():
+            per_session[sid].update(n=int(mm.sum()), mean_base=round(float(R[mm, 0].mean()), 3),
+                                    mean_official=round(float(R[mm, 1].mean()), 3),
+                                    mean_offset=round(float(R[mm, 2].mean()), 3))
+    rng = np.random.default_rng(seed)
+    summary = {}
+    for prof in sorted(set(prof_)) + ["all"]:
+        mm = np.ones(len(R), bool) if prof == "all" else prof_ == prof
+        us = np.unique(sess[mm])
+        idx_of = {u: np.where(mm & (sess == u))[0] for u in us}
+        boot = []
+        for _ in range(2000):
+            idx = np.concatenate([idx_of[u] for u in rng.choice(us, len(us))])
+            boot.append(((R[idx, 2] - R[idx, 0]).mean(), (R[idx, 2] - R[idx, 1]).mean()))
+        boot = np.array(boot)
+        summary[prof] = {"n": int(mm.sum()), "sessions": len(us),
+                         "median_base": round(float(np.median(R[mm, 0])), 3),
+                         "median_official": round(float(np.median(R[mm, 1])), 3),
+                         "median_offset": round(float(np.median(R[mm, 2])), 3),
+                         "change_vs_base": round(float((R[mm, 2] - R[mm, 0]).mean()), 3),
+                         "change_vs_base_lo": round(float(np.percentile(boot[:, 0], 2.5)), 3),
+                         "change_vs_base_hi": round(float(np.percentile(boot[:, 0], 97.5)), 3),
+                         "change_vs_official": round(float((R[mm, 2] - R[mm, 1]).mean()), 3),
+                         "change_vs_official_lo": round(float(np.percentile(boot[:, 1], 2.5)), 3),
+                         "change_vs_official_hi": round(float(np.percentile(boot[:, 1], 97.5)), 3)}
+    return {"summary": summary, "sessions": per_session}
+
+
 def _deps() -> dict:
     import hashlib
 
@@ -187,8 +261,20 @@ def main(argv=None) -> int:
     ap.add_argument("--record", action="store_true")
     ap.add_argument("--images", default=None, help="write one comparison PNG per key here")
     ap.add_argument("--riot", nargs=2, metavar=("BASE_JSON", "OFFICIAL_JSON"))
+    ap.add_argument("--world", nargs=2, metavar=("BASE_JSON", "OFFICIAL_NO_OFFSET_JSON"),
+                    help="score each map's world offset leave-one-match-out on Riot victim rows")
     a = ap.parse_args(argv)
     deps = _deps()
+    if a.world:
+        got = riot_world_lomo(Path(a.world[0]), Path(a.world[1]))
+        for sid, v in sorted(got["sessions"].items()):
+            print(f"  {sid} {json.dumps(v)}")
+        for prof, v in got["summary"].items():
+            print(f"  {prof:22s} {json.dumps(v)}")
+            if a.record:
+                metrics.record(TOOL, part=f"world_lomo/{prof}", values=v, deps=deps,
+                               context={"base": a.world[0], "official": a.world[1]})
+        return 0
     if a.riot:
         got = riot(Path(a.riot[0]), Path(a.riot[1]))
         for prof, v in got.items():

@@ -1082,6 +1082,7 @@ def _scan_check(scan_once, sid, args, shards) -> int:
     import tempfile
     from .pipeline import compare_trees
 
+    procs = getattr(args, "ally_processes", 1) or 1
     root = (Path(args.check_dir) if args.check_dir
             else Path(tempfile.mkdtemp(prefix=f"reticle-check-{sid}-")))
     if root.exists() and any(root.iterdir()):
@@ -1090,8 +1091,11 @@ def _scan_check(scan_once, sid, args, shards) -> int:
                if args.pipeline == "staged" else "serial")
     b_label += (f", shards {shards}" if shards else "")
     b_label += (f", OpenCV threads {args.cv_threads}" if args.cv_threads is not None else "")
+    b_label += (f", ally_icon in {procs} processes"
+                if procs > 1 else "")
     print(f"check      b: {b_label} -> {root / 'b'}")
-    ub = scan_once(Store(root / "b"), args.pipeline, args.workers, shards, args.cv_threads)
+    ub = scan_once(Store(root / "b"), args.pipeline, args.workers, shards, args.cv_threads,
+                   **({"ally_processes": procs} if procs > 1 else {}))
     a_threads = args.cv_threads if args.pipeline == "staged" else None
     a_label = "serial" + (f", OpenCV threads {a_threads}" if a_threads is not None else "")
     print(f"check      a: {a_label} -> {root / 'a'}")
@@ -1177,7 +1181,8 @@ def cmd_scan(args) -> int:
         if args.cache_roi:
             raise SystemExit("--check writes nothing into the store, and --cache-roi "
                              "writes crops there")
-        if args.pipeline == "serial" and args.cv_threads in (None, cv2.getNumThreads()):
+        if (args.pipeline == "serial" and args.cv_threads in (None, cv2.getNumThreads())
+                and (getattr(args, "ally_processes", 1) or 1) <= 1):
             raise SystemExit("--check compares the serial pass with the pass the flags ask "
                              "for, and these flags ask for the serial pass again; name "
                              "--pipeline staged or another --cv-threads")
@@ -1192,8 +1197,9 @@ def cmd_scan(args) -> int:
     # IDENTITY RIDES EVERY SCAN. The top bar is drawn on every frame, so naming
     # the ten agents costs no decode of its own -- it joins the pass at 0.1 Hz.
     # A scan narrowed with `--only` is testing one specific thing and is left
-    # alone; anything else reads the lineup unless `--no-lineup` says not to.
-    want_lineup = args.lineup and not args.only
+    # alone unless it names `lineup` (`ingest-passes`' minimap pass does);
+    # anything else reads the lineup unless `--no-lineup` says not to.
+    want_lineup = args.lineup and (not args.only or 'lineup' in args.only)
     spans = (_reader_spans(store, sid, date)
              if channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark', 'ability'} else [])
     if (channels & {'minimap', 'ping', 'ally_icon', 'minimap_dark', 'ability', 'clove_circle'}
@@ -1511,6 +1517,11 @@ def cmd_scan(args) -> int:
                                    args.frames_from, live_rounds)
         for line in notes:
             print(line)
+        if cache is None:
+            # A decode reads the live rounds only, where a reader declares it.
+            from .roi_cache import clip_live_rounds
+            for line in clip_live_rounds(readers, live_rounds):
+                print(line)
         if cache is None and retired:
             raise SystemExit(f"{sid}: source_retired_no_cache -- the video was retired and "
                              f"no stored crop cache feeds this pass: {why}")
@@ -1774,7 +1785,8 @@ def cmd_scan(args) -> int:
             print(f"           closed by {events[0]['closed_reasons']}")
         print(f"one pass   {n_dec} frames retrieved in {dt:.1f}s")
 
-    def scan_once(out, pipeline="serial", workers=None, shards=None, cv_threads=None):
+    def scan_once(out, pipeline="serial", workers=None, shards=None, cv_threads=None,
+                  ally_processes=1):
         """Build, choose the source, run one pass and publish into `out`.
 
         Returns the usage record, or None when a staged pass failed; the failed
@@ -1805,9 +1817,42 @@ def cmd_scan(args) -> int:
         usage.setup_ns = time.perf_counter_ns() - setup_t0
         usage.pipeline, usage.workers, usage.shards = pipeline, workers, dict(shards or {})
         usage.until_s = until
+        # `--ally-processes K`: ally_icon reads the crop cache in K Idle-priority
+        # processes split by time (`process_shards`) while this process feeds
+        # the pass's other readers; the merge restores producer order.
+        k = ally_processes or 1
+        procs = None
+        pass_readers = R.readers
+        if k > 1 and R.ap is not None:
+            if cache is None:
+                print("processes  ally_icon reads in this process: the pass decodes, and "
+                      "process runs read the crop cache")
+            elif pipeline != "serial":
+                raise SystemExit("--ally-processes runs beside the serial pass only")
+            else:
+                R.ap.frames_from = cache.record["version"]
+                pass_readers = [r for r in R.readers if r is not R.ap]
+                procs = k
         with usage.timed_pass():
-            n_dec, staged = _scan_pass(R.ctx, R.readers, cache, progress, usage, pipeline,
-                                       workers, shards, cv_threads)
+            run = None
+            if procs is not None:
+                from .process_shards import ProcessRun
+                run = ProcessRun(store.root, sid, R.ap, cache, procs)
+            n_dec, staged = ((0, None) if not pass_readers else
+                             _scan_pass(R.ctx, pass_readers, cache, progress, usage, pipeline,
+                                        workers, shards, cv_threads))
+            if run is not None:
+                from .process_shards import SeedMismatch
+                try:
+                    usage.process_run(R.ap.name, run.merge())
+                except SeedMismatch as exc:
+                    # The serial reader would read otherwise: read it serially.
+                    print(f"processes  {exc}; ally_icon rereads in this process")
+                    for name in R.ap.shardable:
+                        setattr(R.ap, name, [])
+                    from .passes import run_cached
+                    run_cached(R.ctx, [R.ap], cache, usage=usage)
+                n_dec += run.frames
         publish_t0 = time.perf_counter_ns()
         sys.stdout.write("\r" + " " * 72 + "\r")
         dt = time.perf_counter() - t0
@@ -1836,11 +1881,134 @@ def cmd_scan(args) -> int:
 
     if args.check:
         return _scan_check(scan_once, sid, args, shards)
-    usage = scan_once(store, args.pipeline, args.workers, shards, args.cv_threads)
+    usage = scan_once(store, args.pipeline, args.workers, shards, args.cv_threads,
+                      getattr(args, "ally_processes", 1))
     if usage is None:
         return 1
     print(f"\nnext: reticle verify {sid}")
     return 0
+
+
+#: Each `ingest-passes` scan's log, under the store.
+INGEST_LOG_DIR = Path("notes") / "ingest-passes"
+
+
+def cmd_ingest_passes(args) -> int:
+    """A new capture's video passes after its HUD pass, the decodes at once.
+
+    Before 2026-10-05 a match ran five decodes one after another by hand:
+    `ingest` (L1 primitives), the HUD pass (`scan --only hud roster
+    scoreboard combat_report --cache-roi hud`), the minimap pass (`scan
+    --cache-roi minimap --cache-hz 15 --cache-live`, `ally_icon` riding it),
+    and one decode each for the killfeed panel and scoreboard crop sets. On
+    c817691bcd15 ally_icon took 3722 s of the minimap pass and every pass ran
+    on one core while most of twelve idled (`reticle usage c817691bcd15`).
+
+    Once the HUD pass, `rounds` and `strip` have run, this command starts as
+    separate Idle-priority, single-threaded processes:
+
+    1. the minimap pass without ally_icon (`--only minimap ping minimap_dark
+       lineup roi_cache`), which writes the minimap crop cache over the live
+       rounds and never rereads a HUD stream;
+    2. the killfeed panel crop set's decode, and on a 1920x1080 capture the
+       scoreboard set's, beside it: neither reads anything the minimap pass
+       writes, and each writes what its scan alone wrote;
+    3. when the minimap pass ends, ally_icon from that cache in
+       `--ally-processes` processes (default 3; `process_shards`), split by
+       time and merged in producer order into one candidate revision.
+    4. when every pass has ended, the capture's replay
+       (`reticle replay-keep`, `replay_keep`): found in the client's Demos
+       folder by recording time, kept, linked in the replay manifest,
+       parsed, and its Riot record wrapped. The replay layer and episodes
+       wait for the stored deaths; `plan` names them and any step refused.
+       This command drives the ingest's decodes and is the last step of an
+       ingest that runs unattended, so the replay is kept here, before the
+       client rotates its Demos folder.
+
+    Each scan keeps its own staleness rules, stamps and usage record; this
+    command changes no definition. Each process's output goes to
+    `notes/ingest-passes/<sid>-<step>.log`; the command prints when each
+    started and ended, and exits non-zero naming any step that failed.
+    """
+    import os
+    import subprocess
+    store = Store(args.store)
+    manifest = _resolve_session(store, args.session)
+    sid = manifest["session_id"]
+    _capture_or_exit(manifest)
+    from .scoreboard_strip import MEASURED_WH
+    from .process_shards import SINGLE_THREAD_ENV
+    wh = (int(manifest["source"]["width"]), int(manifest["source"]["height"]))
+    logs = Path(store.root) / INGEST_LOG_DIR
+    logs.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, **SINGLE_THREAD_ENV}
+    flags = getattr(subprocess, "IDLE_PRIORITY_CLASS", 0)
+    base = [sys.executable, "-m", "reticle", "--store", str(store.root), "scan", sid]
+    steps = {"minimap": ["--only", "minimap", "ping", "minimap_dark", "lineup", "roi_cache",
+                         "--cache-roi", "minimap", "--cache-hz", "15", "--cache-live"],
+             "killfeed_panel": ["--only", "roi_cache", "--cache-roi", "killfeed_panel"]}
+    if wh == MEASURED_WH:
+        steps["scoreboard"] = ["--only", "roi_cache", "--cache-roi", "scoreboard"]
+    steps_after = {"ally_icon": ["--only", "ally_icon", "--from", "cache",
+                                 "--ally-processes", str(args.ally_processes)]}
+    t0 = time.time()
+    running: dict[str, tuple] = {}
+    done: dict[str, dict] = {}
+
+    def start(name, extra):
+        log = (logs / f"{sid}-{name}.log").open("w", encoding="utf-8")
+        proc = subprocess.Popen(base + extra, env=env, creationflags=flags,
+                                stdout=log, stderr=subprocess.STDOUT)
+        running[name] = (proc, log, time.time())
+        print(f"start      {name:<15} +{time.time() - t0:7.1f} s  -> {log.name}")
+
+    for name, extra in steps.items():
+        start(name, extra)
+    while running:
+        for name, (proc, log, at) in list(running.items()):
+            code = proc.poll()
+            if code is None:
+                continue
+            log.close()
+            end = time.time()
+            done[name] = {"code": code, "start_s": round(at - t0, 1),
+                          "end_s": round(end - t0, 1)}
+            del running[name]
+            print(f"end        {name:<15} +{end - t0:7.1f} s  exit {code}")
+            if name == "minimap" and code == 0:
+                for after, extra in steps_after.items():
+                    start(after, extra)
+        time.sleep(1.0)
+    failed = [n for n, d in done.items() if d["code"]]
+    if "minimap" in failed:
+        print("ally_icon   not started: the minimap pass failed")
+    for name, d in done.items():
+        print(f"           {name:<15} {d['start_s']:7.1f} - {d['end_s']:7.1f} s")
+    if failed:
+        print(f"failed     {', '.join(failed)}; see {logs}")
+        return 1
+    # The replay hook, alone and at Idle priority once the decodes have ended.
+    log_p = logs / f"{sid}-replay_keep.log"
+    with log_p.open("w", encoding="utf-8") as log:
+        code = subprocess.call(base[:-2] + ["replay-keep", sid], env=env, creationflags=flags,
+                               stdout=log, stderr=subprocess.STDOUT)
+    print(f"replay     exit {code}  -> {log_p.name}")
+    for line in log_p.read_text(encoding="utf-8").splitlines():
+        print(f"           {line}")
+    print(f"\nnext: reticle plan {sid}")
+    return 0
+
+
+def cmd_replay_keep(args) -> int:
+    """Keep a capture's replay: find it by recording time, copy it into the
+    store, link it in the replay manifest, parse it, wrap its Riot record,
+    then build its replay layer and episodes (`replay_keep`). Each step is
+    idempotent and each refusal named; a missing Riot record names the
+    player's fetch and does not stop the layer."""
+    from .replay_keep import DEMOS_DIR, command
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    return command(sid, store.root, Path(args.demos) if args.demos else DEMOS_DIR)
 
 
 def _normalise_decoded(R, manifest, store) -> None:
@@ -6274,6 +6442,24 @@ def build_parser() -> argparse.ArgumentParser:
                         "they land in the manifest and nothing parses them.")
     s.set_defaults(func=cmd_ingest)
 
+    s = sub.add_parser("ingest-passes",
+                       help="a new capture's minimap pass with the killfeed panel and "
+                            "scoreboard crop decodes beside it, then ally_icon from the "
+                            "crop cache in processes")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--ally-processes", type=int, default=3, metavar="K",
+                   help="processes ally_icon reads the minimap cache in (default 3)")
+    s.set_defaults(func=cmd_ingest_passes)
+
+    s = sub.add_parser("replay-keep",
+                       help="find a capture's replay by recording time, keep, link, parse "
+                            "and wrap it, then build its replay layer and episodes")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--demos", default=None,
+                   help="the client's replay folder (default under %%LOCALAPPDATA%%: "
+                        "VALORANT/Saved/Demos)")
+    s.set_defaults(func=cmd_replay_keep)
+
     s = sub.add_parser("segment", help="recompute spans from stored L1 (no video)")
     s.add_argument("session", nargs="?"); s.add_argument("--all", action="store_true")
     d = SegmentConfig()
@@ -6339,11 +6525,16 @@ def build_parser() -> argparse.ArgumentParser:
                         "cache's). A lower rate reads the cached frame nearest each decode "
                         "instant, an opt-in: 2 Hz scored worse on segment identity "
                         "(docs/ALLY_ICON_RESAMPLE.md)")
+    s.add_argument("--ally-processes", type=int, default=1, metavar="K",
+                   help="read ally_icon from the crop cache in K Idle-priority processes "
+                        "split by time, beside the pass (default 1: in the pass; "
+                        "`ingest-passes` defaults to 3)")
     s.add_argument("--only", nargs="+",
                    choices=("hud", "minimap", "ping", "roster", "scoreboard",
                             "ally_icon", "minimap_dark", "ability", "clove_circle",
-                            "combat_report", "roi_cache"),
-                   help="run only these readers through the shared pass; roster-only needs no minimap geometry")
+                            "combat_report", "roi_cache", "lineup"),
+                   help="run only these readers through the shared pass; roster-only needs no "
+                        "minimap geometry; `lineup` rides a narrowed pass too")
     s.add_argument("--report-hz", type=float, default=1.0,
                    help="combat report rate, whole capture (default 1)")
     s.add_argument("--dark-hz", type=float, default=4.0,

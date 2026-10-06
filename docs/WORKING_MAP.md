@@ -87,6 +87,9 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only hud   # from the crop cache
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only scoreboard --cache-roi scoreboard   # decodes
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed_panel   # decodes
+.\.venv\Scripts\python.exe -m reticle ingest-passes SESSION [--ally-processes K]   # after the HUD pass, rounds, strip: minimap pass beside the panel and scoreboard decodes, then ally_icon in K processes
+.\.venv\Scripts\python.exe -m reticle replay-keep SESSION   # keep, parse and build the capture's replay
+.\.venv\Scripts\python.exe -m reticle scan SESSION --only ally_icon --from cache --ally-processes K
 .\.venv\Scripts\python.exe -m reticle domain --check
 .\.venv\Scripts\python.exe -m reticle ownership [QUESTION] [--module M] [--check]
 .\.venv\Scripts\python.exe -m reticle.architecture [--graph]

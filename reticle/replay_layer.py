@@ -178,7 +178,7 @@ def session_status(sid: str, root=DEFAULT_STORE) -> dict | None:
     match = Path(e["file"]).stem
     if not (parsed_dir(match, root) / "export" / "actors.parquet").is_file():
         return {"match": match, "state": "unparsed", "moved": [],
-                "command": f"prototypes/replay_truth.py parse <replay> for {match}"}
+                "command": f"reticle replay-keep {sid}"}
     return {"match": match, **status(match, root), "command": f"reticle replay-layer {sid}"}
 
 

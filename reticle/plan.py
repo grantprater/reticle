@@ -1549,6 +1549,10 @@ def stale(store, sessions: list[str]) -> dict:
         # A stream checked above before one of its inputs was found stale
         # follows it now: staleness follows every declared input, in any order.
         _follow(store, sid, derived, moving)
+        # The capture's replay (`replay_keep.missing_steps`): unkept,
+        # unlinked, unparsed, or its Riot record unwrapped; a record the
+        # player has not fetched is named as the player's step.
+        derived += replay_keep_work(store.root, sid, man)
         # The replay layer of a session whose kept replay names it
         # (`replay_layer.session_status`): absent or stale against its parse,
         # the stored deaths its clock is fitted on, the geometry, the frame
@@ -1586,8 +1590,18 @@ def stale(store, sessions: list[str]) -> dict:
 
 
 #: The streams the replay layer is built from, for the build order: its clock
-#: is fitted on the stored deaths.
-REPLAY_LAYER_INPUTS = {"death"}
+#: is fitted on the stored deaths, and its replay is kept by `replay-keep`.
+REPLAY_LAYER_INPUTS = {"death", "replay_keep"}
+
+
+def replay_keep_work(root, sid: str, manifest: dict) -> list[dict]:
+    """One `replay_keep` entry per step of the capture's replay hook the
+    session lacks (`replay_keep.missing_steps`), or none."""
+    from .replay_keep import missing_steps
+    return [{"stream": "replay_keep", "stored": None, "current": None,
+             "inputs_moved": [f"{m['step']}: {m['why']}"], "how": m["how"],
+             "command": m["command"]}
+            for m in missing_steps(sid, manifest, root)]
 
 
 def replay_layer_work(root, sid: str, moving: set[str] = frozenset()) -> dict | None:

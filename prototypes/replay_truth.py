@@ -114,10 +114,8 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import hashlib
 import json
 import math
-import subprocess
 import sys
 import time
 from collections import Counter, defaultdict
@@ -141,8 +139,6 @@ from reticle.replay_source import frames_to_replay as _frames_to_replay  # noqa:
 REPLAY_TRUTH_VERSION = "replay-truth-0.2.0"
 STORE = Path.home() / "reticle-store"
 REPLAYS = src.replays_dir(STORE)
-VRFKIT_DIR = STORE / "tools" / "vrfkit"
-VRFKIT_EXE = VRFKIT_DIR / "target" / "release" / "vrfkit.exe"
 PARSED = src.parsed_root(STORE)
 ANALYSIS = STORE / "analysis" / "replay-truth-20261005"
 
@@ -162,7 +158,6 @@ YAW_CONVENTIONS = {
     "pi/2-yaw": lambda r: math.pi / 2 - r,
     "yaw+pi": lambda r: r + math.pi,
 }
-BELOW_NORMAL = 0x00004000
 
 
 # ----------------------------------------------------------------- helpers
@@ -185,172 +180,19 @@ def _ang_rad(a, b):
     return np.minimum(d, 2 * math.pi - d)
 
 
-# ----------------------------------------------------------------- parse
+# ----------------------------------------------------------------- parse, wrap
 
-def _run(cmd: list[str], cwd: Path | None = None, out: Path | None = None) -> dict:
-    """Run one command at Below Normal priority, single-threaded, and time it."""
-    env = {**__import__("os").environ, "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
-           "OPENBLAS_NUM_THREADS": "1", "RAYON_NUM_THREADS": "1"}
-    t0 = time.time()
-    flags = BELOW_NORMAL if sys.platform == "win32" else 0
-    p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace", creationflags=flags)
-    if out is not None:
-        out.write_text(p.stdout + ("\n--- stderr ---\n" + p.stderr if p.stderr else ""),
-                       encoding="utf-8")
-    return {"cmd": cmd, "exit": p.returncode, "seconds": round(time.time() - t0, 2),
-            "stdout_tail": p.stdout[-1500:], "stderr_tail": p.stderr[-800:]}
+# Keeping, parsing and wrapping a replay belong to the pipeline
+# (`reticle.replay_keep`, `reticle replay-keep SESSION`) since 2026-10-05;
+# `parse` and `wrap` here call the same definitions.
+from reticle.replay_keep import parse_replay, wrap_record, wrap_riot  # noqa: E402,F401
 
-
-def _git_head(d: Path) -> str:
-    return subprocess.run(["git", "-C", str(d), "rev-parse", "HEAD"], capture_output=True,
-                          text=True).stdout.strip()
-
-
-def _toolchain() -> dict:
-    out = {}
-    for tool in ("rustc", "cargo"):
-        exe = Path.home() / ".cargo" / "bin" / f"{tool}.exe"
-        out[tool] = subprocess.run([str(exe), "-V"], capture_output=True,
-                                   text=True).stdout.strip() if exe.is_file() else None
-    return out
-
-
-def parse_replay(vrf: Path, force: bool = False) -> dict:
-    """vrfkit validate + export + spike carrier for one preserved replay."""
-    vrf = Path(vrf)
-    match = vrf.stem
-    d = parsed_dir(match)
-    prov_p = d / "provenance.json"
-    if prov_p.is_file() and not force:
-        return json.loads(prov_p.read_text(encoding="utf-8"))
-    d.mkdir(parents=True, exist_ok=True)
-    started = _dt.datetime.now(_dt.timezone.utc).isoformat()
-    digest = sha256(vrf)
-    man = json.loads((REPLAYS / "manifest.json").read_text(encoding="utf-8"))
-    want = next((f["sha256"] for f in man["files"] if f["file"] == vrf.name), None)
-    steps = {}
-    steps["validate"] = _run([str(VRFKIT_EXE), "validate", str(vrf)], out=d / "validate.txt")
-    steps["export"] = _run([str(VRFKIT_EXE), "export", str(vrf), "--out", str(d / "export")],
-                           out=d / "export.txt")
-    if steps["export"]["exit"] == 0:
-        steps["spike_carrier"] = _run(
-            [sys.executable, str(VRFKIT_DIR / "tools" / "extract_spike_carrier.py"),
-             "--export", str(d / "export"), "--out", str(d / "spike_carrier.parquet")],
-            cwd=VRFKIT_DIR / "tools", out=d / "spike_carrier.txt")
-    prov = {"kind": "vrfkit-parse", "replay_truth_version": REPLAY_TRUTH_VERSION,
-            "input": str(vrf).replace("\\", "/"), "input_sha256": digest,
-            "input_sha256_matches_manifest": digest == want,
-            "vrfkit": {"version": VRFKIT_VERSION, "commit": _git_head(VRFKIT_DIR),
-                       "exe": str(VRFKIT_EXE).replace("\\", "/"),
-                       "exe_sha256": sha256(VRFKIT_EXE)},
-            "toolchain": _toolchain(), "python": sys.version.split()[0],
-            "priority": "Below Normal (creationflags 0x4000)",
-            "started_utc": started,
-            "finished_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(),
-            "steps": steps}
-    prov_p.write_text(json.dumps(prov, indent=1), encoding="utf-8")
-    return prov
-
-
-# ----------------------------------------------------------------- load
 
 # ----------------------------------------------------------------- check
 
 def riot_record(match: str) -> dict | None:
     p = STORE / "external" / "riot" / f"{match}.json"
     return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
-
-
-# ----------------------------------------------------------------- wrap
-
-#: How far before Riot's game start a capture may begin, and the slack after
-#: the game ends, when the capture file's name gives its local start time.
-WRAP_EARLY_MS = 15 * 60 * 1000.0
-WRAP_LATE_MS = 5 * 60 * 1000.0
-
-
-def _capture_start_local_ms(capture_path: str) -> float | None:
-    """The capture's start from its file name (`YYYY-MM-DD HH-MM-SS.mp4`, the
-    recorder's local time) as epoch ms, or None when the name has no stamp."""
-    stem = Path(str(capture_path).replace("\\", "/")).stem
-    try:
-        return _dt.datetime.strptime(stem[:19], "%Y-%m-%d %H-%M-%S").timestamp() * 1000.0
-    except ValueError:
-        return None
-
-
-def wrap_record(raw: bytes, prov: dict, match: str, session: str, capture_path: str,
-                replay_session: str | None, wrapped_sessions: dict[str, str]) -> dict:
-    """One fetched match-details body as `riot_ground_truth`'s wrapped record.
-
-    `raw` is `riot-pd-v1/raw/<match>.json` byte for byte and `prov` its
-    sidecar; `replay_session` is the capture session the replay manifest names
-    for this match (None when it names none); `wrapped_sessions` maps each
-    session already wrapped in `external/riot/` to its match. Returns
-    `{"record": ...}` or `{"refused": reason}`: a body whose sha256 differs
-    from the sidecar's, a record of another match, a session another record
-    already holds, a replay that names another session, or a capture whose
-    name puts its start outside the game's span."""
-    digest = hashlib.sha256(raw).hexdigest()
-    if prov.get("body_sha256") != digest:
-        return {"refused": "raw_sha256_differs_from_provenance"}
-    rec = json.loads(raw.decode("utf-8"))
-    info = rec.get("matchInfo") or {}
-    if info.get("matchId") != match:
-        return {"refused": f"record_is_match:{info.get('matchId')}"}
-    if wrapped_sessions.get(session) not in (None, match):
-        return {"refused": f"session_already_wrapped:{wrapped_sessions[session]}"}
-    if replay_session not in (None, session):
-        return {"refused": f"replay_names_session:{replay_session}"}
-    start, length = info.get("gameStartMillis"), info.get("gameLengthMillis")
-    cap = _capture_start_local_ms(capture_path)
-    delta = None
-    if cap is not None and start is not None:
-        delta = cap - float(start)
-        if not (-WRAP_EARLY_MS <= delta <= float(length or 0) + WRAP_LATE_MS):
-            return {"refused": f"capture_outside_game:{delta / 1000.0:.0f}s"}
-    probe = {"session_id": session, "capture": capture_path,
-             "fetched_at": prov.get("fetched_at"),
-             "wrapped_by": REPLAY_TRUTH_VERSION,
-             "raw": f"external/riot-pd-v1/raw/{match}.json", "raw_sha256": digest,
-             "capture_minus_game_start_s": None if delta is None else round(delta / 1000.0, 1)}
-    return {"record": {"probe": probe, "match": rec}}
-
-
-def wrap_riot(match: str, session: str, write: bool = False, store: Path = STORE) -> dict:
-    """`wrap MATCH SESSION`: wrap a fetched record into `external/riot/`.
-
-    Reads `external/riot-pd-v1/raw/<match>.json` and its provenance sidecar,
-    checks them (`wrap_record`), and with `write` creates
-    `external/riot/<match>.json`; it never overwrites a wrapped file."""
-    from reticle.store import Store
-
-    pd = Path(store) / "external" / "riot-pd-v1"
-    raw_p, prov_p = pd / "raw" / f"{match}.json", pd / "provenance" / f"{match}.json"
-    out_p = Path(store) / "external" / "riot" / f"{match}.json"
-    if not raw_p.is_file() or not prov_p.is_file():
-        return {"match": match, "refused": "no_fetched_record"}
-    if out_p.is_file():
-        return {"match": match, "refused": "already_wrapped", "path": str(out_p)}
-    man = Store(store).read_manifest(session)
-    rep = json.loads((Path(store) / "external" / "replays" / "manifest.json")
-                     .read_text(encoding="utf-8"))
-    entry = next((f for f in rep["files"] if Path(f["file"]).stem == match), None)
-    wrapped = {sid: d["match"]["matchInfo"]["matchId"]
-               for sid, d in rg.riot_records(Path(store)).items()}
-    res = wrap_record(raw_p.read_bytes(), json.loads(prov_p.read_text(encoding="utf-8")),
-                      match, session, man["source"]["path"],
-                      (entry or {}).get("capture_session"), wrapped)
-    if "refused" in res:
-        return {"match": match, **res}
-    out = {"match": match, "session": session, "path": str(out_p), "written": False,
-           "probe": res["record"]["probe"]}
-    if write:
-        with out_p.open("x", encoding="utf-8") as f:
-            json.dump(res["record"], f)
-        out["written"] = True
-    return out
 
 
 def stream_facts(rp: Replay) -> dict:

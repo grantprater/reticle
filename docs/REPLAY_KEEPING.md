@@ -46,14 +46,25 @@ The game must be open for these steps; agents never open it.
 
 ## What an agent does next
 
-1. Copy the new `.vrf` files from the Demos folder into
-   `<store>/external/replays/`, byte for byte, comparing sha256 of source and
-   copy, and add them to `external/replays/manifest.json` with the capture
-   session they belong to (`capture_session`).
-2. `prototypes/replay_truth.py parse`; `wrap MATCH SESSION --write` once the
-   player's fetch kit has saved the match's Riot record; `check` (the parse
-   against Riot's record), then `score SESSION`.
-3. `prototypes/replay_abilities.py census MATCH`, `score SESSION` and
+`reticle replay-keep SESSION` (`reticle/replay_keep.py`) does steps 1 to 3,
+and `reticle ingest-passes` runs it at the end of every ingest, so a new
+capture keeps its replay unasked. `reticle plan SESSION` names each step a
+session lacks.
+
+1. Find the replay whose recording overlaps the capture: the header's
+   recording time and length against the capture file's name and duration.
+   The file's mtime is the download time, not the match's. Zero or several
+   overlapping replays refuse by name.
+2. Copy it into `<store>/external/replays/`, byte for byte, comparing
+   sha256 of source and copy, and name the capture session
+   (`capture_session`, `capture_path`) in `external/replays/manifest.json`,
+   after a `.bak` of the manifest.
+3. Parse it with vrfkit; wrap the Riot record once the player's fetch kit
+   has saved it (without one, the hook says the player's fetch is needed);
+   build the replay layer and episodes once the stored deaths exist.
+4. By hand: `prototypes/replay_truth.py check MATCH` (the parse against
+   Riot's record), then `score SESSION`, except on the held-out match;
+   `prototypes/replay_abilities.py census MATCH`, `score SESSION` and
    `survey`, each with `--record`.
 
 Commands live in [the working map](WORKING_MAP.md).

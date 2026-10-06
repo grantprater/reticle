@@ -98,10 +98,16 @@ the 331 px widget and by
 [metric:official_geometry/riot_world/valorant-16x9-bigmap#mean_change=0.148]
 px on the 465 px one, whose session-bootstrap interval reaches
 [metric:official_geometry/riot_world/valorant-16x9-bigmap#mean_change_lo=-0.016].
-The error left is a per-map offset of one to two texture px, alike at both
+The error left was a per-map offset of one to two texture px, alike at both
 profiles and in every match of a map, so it lies between the world-to-texture
 constants (valorant-api's equal the game's UIData) and the texture, not in the
-placement. Nothing here fits it.
+placement. `--fit-world` fits it per map as the mean texture-px residual of a
+Riot run's victim rows, into `map_asset.WORLD_FILE`. Each match scored with the
+offset fitted on its map's OTHER matches
+(`prototypes/official_geometry_eval.py --world`), the mean error moved by
+[metric:official_geometry/world_lomo/all#change_vs_base=-0.213] px against the
+capture geometry, interval up to
+[metric:official_geometry/world_lomo/all#change_vs_base_hi=-0.159].
 
 Labels and shade
 ----------------
@@ -247,6 +253,47 @@ def fit(baked: Path) -> dict:
     return out
 
 
+#: Riot's map field is the level's codename; its victim rows farther than this
+#: from their truth are matching failures, not placement error.
+WORLD_ROW_MAX_PX = 8.0
+
+
+def world_residuals(riot_json: Path, prior: dict | None = None) -> dict:
+    """Per session: its map, profile and each victim row's residual (reader minus
+    Riot truth) in TEXTURE px, from a `riot_ground_truth.py --json` run.
+    `prior` names the world offsets the run's geometry already carried, which
+    the residuals add back."""
+    code_of = {code: name for name, (code, _icon) in A.maps(STORE).items()}
+    out = {}
+    for s in json.loads(Path(riot_json).read_text(encoding="utf-8"))["sessions"]:
+        m = code_of.get(s["map"], str(s["map"]).lower())
+        key = G.key(m, s["profile"])
+        if not G.drawable(key, STORE):
+            continue
+        P = A.transform(s["profile"])
+        L = A.map_affine(A.rotation(m), P["scale"], P["centre"])[:, :2]
+        base = np.asarray((prior or {}).get(m, (0.0, 0.0)), float)
+        rows = []
+        for v in (s.get("minimap") or {}).get("victim_rows") or []:
+            if v.get("piece_px") and v.get("truth_px"):
+                r = np.subtract(v["piece_px"], v["truth_px"])
+                if np.hypot(*r) < WORLD_ROW_MAX_PX:
+                    rows.append(np.linalg.solve(L, r) + base)
+        if rows:
+            out[s["session"]] = {"map": m, "profile": s["profile"], "tex": np.array(rows)}
+    return out
+
+
+def fit_world(res: dict, exclude: set = frozenset()) -> dict:
+    """Each map's world offset: the mean texture-px residual over its sessions'
+    victim rows, sessions in `exclude` left out."""
+    by = {}
+    for sid, r in res.items():
+        if sid not in exclude:
+            by.setdefault(r["map"], []).append(r["tex"])
+    return {m: np.concatenate(v).mean(0).round(4).tolist() for m, v in sorted(by.items())}
+
+
 def sheet(gkey: str, out: str) -> int:
     """The key's drawn static beside its labels, for looking at."""
     f = A.render(*G.parse(gkey), STORE)
@@ -265,7 +312,23 @@ def main(argv=None) -> int:
     ap.add_argument("--sheet", help="write the key's static and labels to this PNG")
     ap.add_argument("--fit", default=None, metavar="DIR",
                     help="refit every profile's transform from the training keys' capture npz in DIR")
+    ap.add_argument("--fit-world", default=None, metavar="RIOT_JSON",
+                    help="refit each map's world offset from a riot_ground_truth.py --json run")
+    ap.add_argument("--prior", default=None, metavar="OFFSETS_JSON",
+                    help="the world offsets the --fit-world run's geometry carried (default none)")
     args = ap.parse_args(argv)
+    if args.fit_world:
+        prior = (json.loads(Path(args.prior).read_text(encoding="utf-8")).get("offsets")
+                 if args.prior else None)
+        res = world_residuals(Path(args.fit_world), prior)
+        got = {"offsets": fit_world(res),
+               "fit_on": {sid: [r["map"], r["profile"], len(r["tex"])] for sid, r in sorted(res.items())},
+               "method": "mean texture-px residual of Riot victim rows under "
+                         f"{WORLD_ROW_MAX_PX:g} px (reader minus truth), per map",
+               "source": Path(args.fit_world).name}
+        A.WORLD_FILE.write_text(json.dumps(got, indent=1) + "\n", encoding="utf-8")
+        print(f"wrote {A.WORLD_FILE}: {got['offsets']}")
+        return 0
     if args.fit:
         got = fit(Path(args.fit))
         A.PROFILES_FILE.write_text(json.dumps(got, indent=1, sort_keys=True) + "\n", encoding="utf-8")

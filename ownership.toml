@@ -150,12 +150,11 @@ question = "What does this map's minimap look like, and where does a profile dra
 owner = "map_asset"
 role = ["constrain"]
 status = "shipped"
-produces = ["render", "asset_stamp", "textures", "art_classes", "shade_layers", "classify_art", "ROTATION", "transform"]
+produces = ["render", "asset_stamp", "textures", "art_classes", "shade_layers", "classify_art", "ROTATION", "transform", "world_to_texture", "world_offset", "sites", "letter_cover"]
 not_for = """
 Where a reader finds a key's arrays: `map-geometry` caches and serves them.
-Not the world: where a game-unit position lands on the texture is the
-world-to-texture constants' question, and a per-map offset of one to two
-texture px between them and the drawn map is measured, not fitted here.
+Not the fitting: `prototypes/minimap_geometry.py` fits the transforms and the
+world offsets; this module reads them frozen.
 """
 consumers = ["geometry"]
 evidence = "prototypes/official_geometry_eval.py"
@@ -2015,7 +2014,7 @@ modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
            "doctor", "status", "fidelity", "overlay", "review",
            "ability_capture", "ability_entities", "ability_gallery",
            "ability_phases", "events", "candidate_evidence",
-           "plan", "input_stamps", "trial", "dev_sample", "roi_cache", "pipeline", "documents", "tiers", "clipserve",
+           "plan", "input_stamps", "trial", "dev_sample", "roi_cache", "pipeline", "process_shards", "documents", "tiers", "clipserve",
            "view_events", "round_view", "entity_contract", "ability_audio_fit"]
 
 [[entry]]
@@ -2173,6 +2172,27 @@ only from its folder, the game files' display name and that chain, never by
 name keyword or analogy.
 """
 evidence = "tests/test_replay_layer.py"
+
+[[entry]]
+id = "replay-keeping"
+question = "Which kept replay belongs to a capture, and has it been kept, linked, parsed, wrapped and built?"
+owner = "replay_keep"
+role = ["assign"]
+status = "partial"
+produces = ["find_replay", "read_info", "replay_span", "overlapping", "keep", "link_manifest",
+            "link_entry", "parse_replay", "wrap_record", "wrap_riot", "run", "missing_steps",
+            "capture_start_ms", "REPLAY_KEEP_VERSION"]
+consumers = ["cli", "plan"]
+not_for = """
+Reading the replay's contents: the parse is vrfkit's, the clock and map
+`replay-alignment`'s, the tables `replay-tables`'s. It matches a replay to a
+capture by recording time only (the header's timestamp and length against the
+capture file's name and duration), refuses zero or several candidates, and
+writes only the kept copy, the replay manifest, the parse and the wrapped Riot
+record. Nothing it writes is shown during play or read by a reader.
+"""
+defers_to = ["replay-alignment", "replay-tables"]
+evidence = "tests/test_replay_keep.py"
 
 [[entry]]
 id = "replay-tables"

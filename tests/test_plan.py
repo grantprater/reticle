@@ -11,7 +11,7 @@ from reticle.adjudication.death import DEATH_ADJUDICATION_VERSION
 from reticle.killfeed import KILLFEED_PORTRAIT_VERSION, KILLFEED_WEAPON_VERSION
 from reticle.plan import (derived_streams, reader_streams, record_inputs, render, stale,
                           stream_inputs)
-from reticle.version import (ABILITY_SHAPE_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
+from reticle.version import (ALLY_ICON_VERSION, ABILITY_SHAPE_VERSION, HUD_VERSION, PLAYER_CAST_VERSION,
                             ROUND_VERSION, TRAY_SEGMENT_VERSION, TRAY_VERSION, ULT_CAST_VERSION,
                             ULT_LINE_VERSION)
 
@@ -456,19 +456,38 @@ def _placement(*rotations) -> dict:
 class AllyIconWaiverTests(unittest.TestCase):
     """The player's 2026-10-04 stamp waiver: stored ally-icon-0.11.0 rows count
     as 0.12.0 only where the stored placement is upright throughout
-    (`widget_frame.upright_throughout`)."""
+    (`widget_frame.upright_throughout`). Under 0.13.0 it names nothing; the
+    tests below run the conditional machinery with that waiver moved onto the
+    current stamp (`_moved`)."""
 
-    def test_the_waiver_is_declared_conditional(self):
+    def test_the_waiver_is_declared_conditional_and_lapses(self):
         from reticle.plan import WAIVER_CONDITIONS, waiver
         from reticle.version import ALLY_ICON_VERSION, STAMP_WAIVERS
-        self.assertEqual(ALLY_ICON_VERSION, "ally-icon-0.12.0")
+        self.assertEqual(ALLY_ICON_VERSION, "ally-icon-0.13.0")
         w = STAMP_WAIVERS[("ally-icon-0.12.0", "ally-icon-0.11.0")]
         self.assertIn(w["when"], WAIVER_CONDITIONS)
         self.assertIn("2026-10-04", w["why"])
         # No session to evaluate the condition on: never accepted.
         self.assertIsNone(waiver("ally-icon-0.11.0", "ally-icon-0.12.0"))
+        # Nothing waives a stored stream into 0.13.0.
+        self.assertEqual([k for k in STAMP_WAIVERS if k[0] == ALLY_ICON_VERSION], [])
         # An older stamp is never waived.
         self.assertNotIn(("ally-icon-0.12.0", "ally-icon-0.10.0"), STAMP_WAIVERS)
+
+
+
+class AllyIconWaiverMachineryTests(unittest.TestCase):
+    """The conditional waiver's machinery, with the 2026-10-04 waiver moved
+    onto the current stamp."""
+
+    def setUp(self):
+        from unittest import mock
+        from reticle.version import ALLY_ICON_VERSION, STAMP_WAIVERS
+        moved = {(ALLY_ICON_VERSION, "ally-icon-0.11.0"):
+                 STAMP_WAIVERS[("ally-icon-0.12.0", "ally-icon-0.11.0")]}
+        patch = mock.patch.dict(STAMP_WAIVERS, moved)
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def _check(self, manifest: dict, tables: bool = True):
         with tempfile.TemporaryDirectory() as d:
@@ -481,11 +500,11 @@ class AllyIconWaiverTests(unittest.TestCase):
             p, text = self._check(manifest)
             self.assertEqual([x["stream"] for x in p["decode"]], [], manifest)
             self.assertEqual([(w["stream"], w["stored"], w["current"]) for w in p["waived"]],
-                             [("ally_icon", "ally-icon-0.11.0", "ally-icon-0.12.0")])
+                             [("ally_icon", "ally-icon-0.11.0", ALLY_ICON_VERSION)])
             self.assertIn("upright", p["waived"][0]["why"])
             self.assertEqual(p["declined"], [])
             self.assertTrue(text.startswith("nothing stale over 1 sessions"), text)
-            self.assertIn("waived   ally_icon: ally-icon-0.11.0 accepted as ally-icon-0.12.0 "
+            self.assertIn(f"waived   ally_icon: ally-icon-0.11.0 accepted as {ALLY_ICON_VERSION} "
                           "by waiver (version.STAMP_WAIVERS, where upright_placement holds)",
                           text)
 
@@ -499,7 +518,7 @@ class AllyIconWaiverTests(unittest.TestCase):
                               for w in p["declined"]],
                              [("ally_icon", "turned")])
             self.assertIn("not waived ally_icon: ally-icon-0.11.0 stays stale", text)
-            self.assertNotIn("accepted as ally-icon-0.12.0", text)
+            self.assertNotIn(f"accepted as {ALLY_ICON_VERSION}", text)
 
     def test_an_unknown_placement_is_not(self):
         cases = (({"minimap_mode": {"orientation": "per_side"}}, True, "per_side_unplaced"),
@@ -511,7 +530,7 @@ class AllyIconWaiverTests(unittest.TestCase):
             self.assertEqual(len(p["declined"]), 1)
             self.assertIn("unknown", p["declined"][0]["why"])
             self.assertIn(reason, p["declined"][0]["why"])
-            self.assertNotIn("accepted as ally-icon-0.12.0", text)
+            self.assertNotIn(f"accepted as {ALLY_ICON_VERSION}", text)
 
     def test_the_condition_is_the_owners(self):
         """`plan` asks `widget_frame.upright_throughout`; it holds, fails or is

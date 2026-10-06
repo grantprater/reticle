@@ -471,8 +471,9 @@ def check_geometry(store: Path) -> list[tuple[str, str]]:
     game's files cannot draw.
 
     `status` cannot see this -- the npz are not L1 and carry no row version.
-    `built_by` is `map_asset.asset_stamp`: its code, the two textures' sha256, the
-    map's rotation and the profile's transform. A reader that loads through
+    `built_by` is `map_asset.asset_stamp`: its code, the two textures' and the
+    site files' sha256, the map's rotation and world offset and the profile's
+    transform. A reader that loads through
     `geometry.require` redraws a stale cache itself; one that loads
     `geometry.path` directly reads what is there, so this is an ERROR.
     """

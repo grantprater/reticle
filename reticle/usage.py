@@ -358,6 +358,9 @@ class ScanUsage:
         self.pipeline = "serial"
         self.workers = None
         self.shards: dict[str, int] = {}
+        #: A reader fed in child processes (`process_shards`): what each cost.
+        self.processes: dict[str, dict] = {}
+        self.child_cpu_ns = 0
         self.cv_threads: dict | None = None
         self.wait_ns: int | None = None
         self.until_s: float | None = None
@@ -390,7 +393,7 @@ class ScanUsage:
             yield self
         finally:
             self.pass_ns = perf_counter_ns() - wall
-            self.cpu_ns = process_time_ns() - cpu
+            self.cpu_ns = process_time_ns() - cpu + self.child_cpu_ns
             self.dispatcher_cpu_ns = thread_time_ns() - own
             after = system_cpu_ns() if self.enabled else None
             self.system_cpu_ns = (after - system if None not in (system, after) else None)
@@ -461,6 +464,17 @@ class ScanUsage:
         if run.status != "completed":
             self.status, self.error = "failed", run.error
 
+    def process_run(self, name: str, cost: dict) -> None:
+        """Record a reader fed in child processes (`process_shards.ProcessRun.
+        merge`): its frames, and their CPU, which `timed_pass` adds to this
+        process's own in `cpu_ns`."""
+        self.processes[name] = {k: v for k, v in cost.items() if k != "cpu_ns"}
+        r = self.readers[name]
+        r["offered"] = r["fed"] = sum(cost["frames"])
+        r["thread_cpu_ns"] = cost["cpu_ns"]
+        r["thread_cpu_reason"] = None
+        self.child_cpu_ns += cost["cpu_ns"]
+
     def series_part(self) -> str:
         """The metrics part: readers, source, pipeline, workers, shards, OpenCV
         count, prefix.
@@ -474,6 +488,7 @@ class ScanUsage:
         if self.pipeline == "staged":
             bits.append(f"w{1 if self.workers is None else self.workers}")
         bits += [f"{name}={k}" for name, k in sorted(self.shards.items())]
+        bits += [f"{name}=p{p['processes']}" for name, p in sorted(self.processes.items())]
         count = (self.cv_threads or {}).get("pass")
         if count is not None:
             bits.append(f"cv{count}")
@@ -495,6 +510,7 @@ class ScanUsage:
             "pipeline": self.pipeline,
             "workers": self.workers,
             "shards": dict(self.shards),
+            "processes": dict(self.processes),
             "cv_threads": self.cv_threads,
             "code_revision": self.code_revision,
             "session_id": self.manifest["session_id"],

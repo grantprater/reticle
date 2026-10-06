@@ -96,7 +96,15 @@ class Store:
         staged = Store(self.root / "staging" / run_id)
         if staged.root.exists():
             raise ValueError(f"staging for run {run_id} already exists: {staged.root}")
-        staged.root.mkdir(parents=True)
+        # Scans run at once (`ingest-passes`): another run's commit may remove
+        # the empty `staging/` between this mkdir's two steps, so it retries.
+        for attempt in range(3):
+            try:
+                staged.root.mkdir(parents=True)
+                break
+            except FileNotFoundError:
+                if attempt == 2:
+                    raise
         return staged
 
     def commit_staged(self, staged: "Store", run_id: str, session_id: str) -> dict:
