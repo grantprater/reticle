@@ -466,6 +466,12 @@ status = "recorded"
 since = "2026-10-04"
 
 [[document]]
+path = "docs/EPISODES.md"
+kind = "design"
+status = "proposed"
+since = "2026-10-05"
+
+[[document]]
 path = "docs/SIGHTLINES_3D_PROBE.md"
 kind = "findings"
 status = "recorded"
