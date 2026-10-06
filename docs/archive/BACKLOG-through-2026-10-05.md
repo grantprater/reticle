@@ -66,3 +66,5 @@ Evidence: every moved event listed per prototype, explained by the post-round or
 - **`corpus-rerun-20261003` (2026-10-03):** the 21 matches from the crop cache and storage; `plan` names nothing on a match.
 
 Full entries: [10-04 archive](BACKLOG-through-2026-10-04.md), [10-03 archive](BACKLOG-through-2026-10-03.md).
+
+- **`blaze-and-conflicts-20261005` (2026-10-05):** Blaze's caster view settled; conflict history kept.

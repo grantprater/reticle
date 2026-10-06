@@ -59,10 +59,10 @@ what "I rebuilt the geometry while my experiment read it" states.
 - Events are the interface. Consumers (`reticle view`) read only emitted events
   and stored rounds, never a reader, tracker or adjudicator; a missing field
   goes into the owning event, never a recomputing consumer.
-- Run the least work that tests the change: `reticle trial` on the windows
+- Run the least work testing the change: `reticle trial` on the windows
   where it should move output plus the declared sample
   (`reticle dev-sample`), with error bars; adjudications rerun from storage;
-  `reticle plan` names stale streams. The batched corpus run accepts.
+  `reticle plan` names stale streams. Corpus reruns wait for replay training.
 - The HUD and minimap are semi-transparent over the void
   [domain:minimap/transparency]. Search inside the opaque structure; fit a shape
   rather than repairing it with a closing radius [domain:minimap/fit-not-repair];
