@@ -1370,8 +1370,8 @@ class AllyIconReader:
         # past the shape gate, which `ally_decisions` rebuilds from the rows.
         shaped = [f for f in raw_self + raw
                   if f.get("cov_visible", f["cov"]) >= ALLY_COV_MIN and f["inner"] <= ALLY_INNER_MAX]
-        icon_prior.annotate(raw_self, icon_prior.SIDES["self"], glyphs, sc, icons=shaped)
-        icon_prior.annotate(raw, icon_prior.SIDES["ally"], glyphs, sc, icons=shaped)
+        icon_prior.glyph_say(raw_self, icon_prior.SIDES["self"], glyphs, sc, icons=shaped)
+        icon_prior.glyph_say(raw, icon_prior.SIDES["ally"], glyphs, sc, icons=shaped)
         refused = {id(f): f.pop("refused") for f in raw_self + raw}
         clear = lambda fs: [f for f in fs if refused[id(f)] is None]  # noqa: E731
         mine = _gated(clear(raw_self), sc, require_facing=False)

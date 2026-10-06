@@ -128,7 +128,7 @@ class AnnotateTest(unittest.TestCase):
         glyph = {"cx": 100.0, "cy": 100.0, "state": "carried", "side": 17.5}
         carrier = {"cx": 107.0, "cy": 92.5}
         ring = {"cx": 101.0, "cy": 100.0}
-        fits = icon_prior.annotate([carrier, ring], icon_prior.SIDES["self"], glyph, 1.0,
+        fits = icon_prior.glyph_say([carrier, ring], icon_prior.SIDES["self"], glyph, 1.0,
                                    icons=[carrier, ring])
         self.assertTrue(carrier["carries_spike"])
         self.assertIsNone(carrier["refused"])
@@ -138,13 +138,13 @@ class AnnotateTest(unittest.TestCase):
     def test_an_enemy_never_carries(self):
         glyph = {"cx": 100.0, "cy": 100.0, "state": "carried", "side": 17.5}
         fit = {"cx": 107.0, "cy": 92.5}
-        icon_prior.annotate([fit], icon_prior.SIDES["enemy"], glyph, 1.0, icons=[fit])
+        icon_prior.glyph_say([fit], icon_prior.SIDES["enemy"], glyph, 1.0, icons=[fit])
         self.assertFalse(fit["carries_spike"])
 
     def test_a_fit_near_a_dropped_glyph_is_marked_not_refused(self):
         glyph = {"cx": 100.0, "cy": 100.0, "state": "dropped", "side": 21.0}
         fit = {"cx": 104.0, "cy": 97.0}
-        icon_prior.annotate([fit], icon_prior.SIDES["ally"], glyph, 1.0, icons=[fit])
+        icon_prior.glyph_say([fit], icon_prior.SIDES["ally"], glyph, 1.0, icons=[fit])
         self.assertTrue(fit["glyph_masked"])
         self.assertIsNone(fit["refused"])
 

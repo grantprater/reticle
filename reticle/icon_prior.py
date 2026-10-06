@@ -259,7 +259,7 @@ def occluded_fits(centroid: list[dict], surface: list[dict], sc: float) -> list[
     return out
 
 
-def annotate(fits: list[dict], side: SidePrior, glyphs, sc: float,
+def glyph_say(fits: list[dict], side: SidePrior, glyphs, sc: float,
              icons=(), rotation: int = 0) -> list[dict]:
     """Each fit with the glyphs' say on it, in place, and returned. `glyphs`
     is the frame's glyph or glyphs (`GlyphTrack.step`, `frame_glyphs`):
@@ -353,7 +353,7 @@ def audit_row(crop: np.ndarray, floor: np.ndarray, slab: np.ndarray | None,
 class SelfTracker:
     """The self client: the glyph track and the self icon's track, stepped on
     one crop per frame. `_MinimapPass` feeds it; the ally reader composes the
-    same parts (`GlyphTrack`, `veto_for`, `annotate`)."""
+    same parts (`GlyphTrack`, `veto_for`, `glyph_say`)."""
 
     def __init__(self, floor, slab, scale: float, step_ms: float, rotation: int = 0):
         self.floor, self.slab, self.scale, self.rotation = floor, slab, scale, int(rotation or 0)
@@ -383,7 +383,7 @@ class SelfTracker:
             fits = occluded_fits(fits, self_icons(crop, self.floor, require_facing=False,
                                                   support=self.slab, veto=veto, seed="surface"),
                                  self.scale)
-        annotate(fits, SIDES["self"], g, self.scale, icons=fits, rotation=self.rotation)
+        glyph_say(fits, SIDES["self"], g, self.scale, icons=fits, rotation=self.rotation)
         kept = [f for f in fits if f["refused"] is None]
         p = self.track.step(t_ms, kept)
         surprises = g["surprises"] + p["surprises"]

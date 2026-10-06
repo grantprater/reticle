@@ -306,7 +306,7 @@ question = "Given the last frame, where are the tracked icons and the spike glyp
 owner = "icon_prior"
 role = ["track", "detect"]
 status = "partial"
-produces = ["SelfTracker", "GlyphTrack", "IconTrack", "SidePrior", "SIDES", "veto_for", "annotate", "frame_glyphs", "AuditClock", "audit_row"]
+produces = ["SelfTracker", "GlyphTrack", "IconTrack", "SidePrior", "SIDES", "veto_for", "glyph_say", "frame_glyphs", "AuditClock", "audit_row"]
 defers_to = ["self-position", "spike-observation"]
 not_for = """
 Deciding a fit or the self pick, which stay `minimap`'s (`self_icons`,
