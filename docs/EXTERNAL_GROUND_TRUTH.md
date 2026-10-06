@@ -95,6 +95,14 @@ The second, c817691bcd15's replay, agrees with its Riot record on
 [metric:replay_truth/check@60c7f1e0#killer_agree=201] of 201 kills, its
 kill-instant positions a median
 [metric:replay_truth/check@60c7f1e0#kill_pos_median_cm=9.3] cm from Riot's.
+A capture needs no Riot record to be scored: replay-truth 0.3.0 names the
+player as the replay player whose path the stored self-icon track follows, and
+takes the teams from the replay's spawn split. On c817691bcd15 that player
+holds [metric:replay_truth/score@c817691bcd15#self_id_best_share=0.679] of the
+track's frames within 2 m against the runner-up's
+[metric:replay_truth/score@c817691bcd15#self_id_runner_up_share=0.1089], and
+matches Riot's player and teams there and on 9acf02f98283; Riot's record, where
+present, stays in use and cross-checks the replay's choice.
 The same replay holds ability actors, casts and ults with their casters for
 the classes its census maps [domain:replay/vrf-ability-actors]; `prototypes/replay_abilities.py` scores
 the stored ability streams against them, and

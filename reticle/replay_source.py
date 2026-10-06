@@ -594,7 +594,8 @@ def sample_stats(x, nd=2) -> dict | None:
             "max": round(float(a.max()), nd)}
 
 
-def capture_replay_context(sid: str, geometry: Path | None = None, root=DEFAULT_STORE) -> dict:
+def capture_replay_context(sid: str, geometry: Path | None = None, root=DEFAULT_STORE,
+                           require_player: bool = True) -> dict:
     """What every user of one capture's replay needs, built once from STORED events.
 
     The replay, the player and teams (Riot's record), the agents
@@ -606,6 +607,10 @@ def capture_replay_context(sid: str, geometry: Path | None = None, root=DEFAULT_
     geometry rebuild; the report names the file and its fit. `ctx["out"]` is
     the report's head; a refusal sets `ctx["out"]["refused"]` and leaves the
     later keys out. The replay layer and the prototypes' scorers use it.
+    Without a Riot record it refuses `no_player_or_team`, unless
+    `require_player` is false: then `me` is None, `team`, `allies` and `foes`
+    are empty, and the caller names the player (`prototypes/replay_truth.py`
+    fits the stored self-icon track to the replay's paths).
     """
     from . import geometry as _geo
     from .store import Store
@@ -631,10 +636,12 @@ def capture_replay_context(sid: str, geometry: Path | None = None, root=DEFAULT_
     out["player_basis"] = ident.get("basis")
     out["team_source"] = "riot_record" if d else None
     if me is None or not team:
-        out["refused"] = "no_player_or_team"
-        return {"out": out}
-    allies = [s for s in rp.subjects if team.get(s) == team[me]]
-    foes = [s for s in rp.subjects if s in team and team[s] != team[me]]
+        if require_player:
+            out["refused"] = "no_player_or_team"
+            return {"out": out}
+        me, team = None, {}
+    allies = [s for s in rp.subjects if me and team.get(s) == team[me]]
+    foes = [s for s in rp.subjects if me and s in team and team[s] != team[me]]
     agent = {s: ref.agent(c) for s, c in rp.loadouts().items()}
     out["allies"] = [agent.get(s) for s in allies]
 
