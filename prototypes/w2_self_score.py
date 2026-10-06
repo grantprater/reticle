@@ -31,6 +31,9 @@ and scores these self streams on `replay_truth.score`'s frame grid
 * `minimap`: the stored `l1/minimap` self (minimap-0.7.0 on master);
 * with `--candidate`, `tracker`: the scratch minimap-0.8.0 self.
 
+Each `l1/minimap` table joins the grid by nearest time (`frame_join.grid_join`
+[owns:frame-join]); the output's `frame_join` stores each join's rate.
+
 Each stream is scored raw and under guard 6 (`+g6`: intervals from the
 stored minimap self; the tracker's own self for `tracker+g6`), and, for
 comparison only, under master's own player-death rule
@@ -90,7 +93,14 @@ from reticle import replay_source as src  # noqa: E402
 from reticle.adjudication import spectate  # noqa: E402
 from reticle.store import Store  # noqa: E402
 
-VERSION = "w2-self-score-0.1.0"
+#: 0.2.0 (2026-10-06): a self table joins the scored grid by nearest time
+#: (`frame_join.grid_join` at `GRID_HZ`), not by `frame_idx`; the grids of
+#: c817691bcd15's crop cache and of 9acf02f98283's and d3dcfb182ab1's stored
+#: minimap pass differ in phase from the `ally_icon` grid, and the exact join
+#: had counted the frames it missed as unfitted. Each join's stamp is stored.
+VERSION = "w2-self-score-0.2.0"
+#: The declared rate of the minimap pass and of the minimap crop cache.
+GRID_HZ = 15.0
 STORE = Store()
 OUT = STORE.root / "analysis" / "w2-self-20261006"
 SCRATCH = OUT / "scratch"
@@ -140,21 +150,29 @@ def reread(sid: str) -> None:
           f"-> {path}, {ev}")
 
 
-def _minimap_self(store: Store, sid: str, date: str) -> tuple[dict, list, str]:
+def _minimap_self(store: Store, sid: str, date: str) -> tuple[tuple, list, str]:
     tb = store.read_minimap(sid, date)
     ver = (tb.schema.metadata or {}).get(b"minimap_version", b"").decode()
-    fi = tb.column("frame_idx").to_pylist()
     t = tb.column("t_ms").to_pylist()
     x, y = tb.column("self_x").to_pylist(), tb.column("self_y").to_pylist()
-    by = {int(f): (xx, yy) for f, xx, yy in zip(fi, x, y) if xx is not None}
+    rows = (np.asarray(t, float),
+            np.array([np.nan if v is None else v for v in x], float),
+            np.array([np.nan if v is None else v for v in y], float))
     selves = sorted(zip(t, x, y))
-    return by, selves, ver
+    return rows, selves, ver
 
 
-def _on_grid(by: dict, S_idx) -> tuple[np.ndarray, np.ndarray]:
-    fx = np.array([by.get(int(f), (np.nan, np.nan))[0] for f in S_idx], float)
-    fy = np.array([by.get(int(f), (np.nan, np.nan))[1] for f in S_idx], float)
-    return fx, fy
+def _on_grid(rows: tuple, S_t) -> tuple[np.ndarray, np.ndarray, dict]:
+    """The table's self at each scored frame: the row `frame_join.grid_join`
+    joins by nearest time (NaN where none), and the join's stamp. Raises
+    `JoinRefused` below the join floor."""
+    from reticle.frame_join import grid_join
+    t, x, y = rows
+    j = grid_join(S_t, t, GRID_HZ).require()
+    k = np.where(j.joined, j.index, 0)
+    fx = np.where(j.joined, x[k], np.nan)
+    fy = np.where(j.joined, y[k], np.nan)
+    return fx, fy, j.stamp()
 
 
 def _master_spans(sid: str, date: str) -> list[tuple]:
@@ -300,17 +318,21 @@ def score(sid: str, candidate: bool) -> dict:
         tr = src.frames_to_replay(np.asarray([t_cap], float), a, rt.rg.MINIMAP_LAG_MS)
         return int(np.searchsorted(rs, tr, side="right")[0] - 1)
 
-    mm_by, mm_selves, mm_ver = _minimap_self(STORE, sid, date)
+    mm_rows, mm_selves, mm_ver = _minimap_self(STORE, sid, date)
+    fx, fy, joins = {}, {}, {}
+    fx["minimap"], fy["minimap"], joins["minimap"] = _on_grid(mm_rows, S_t)
     streams = {"ally_icon": (AI["self_x"][sc], AI["self_y"][sc]),
-               "minimap": _on_grid(mm_by, S_idx)}
+               "minimap": (fx["minimap"], fy["minimap"])}
     versions = {"ally_icon": AI["stamp"].get("ally_icon_version"), "minimap": mm_ver}
     selves_for = {"ally_icon": mm_selves, "minimap": mm_selves}
     if candidate:
-        tr_by, tr_selves, tr_ver = _minimap_self(Store(SCRATCH), sid, date)
-        streams["tracker"] = _on_grid(tr_by, S_idx)
+        tr_rows, tr_selves, tr_ver = _minimap_self(Store(SCRATCH), sid, date)
+        fx["tracker"], fy["tracker"], joins["tracker"] = _on_grid(tr_rows, S_t)
+        streams["tracker"] = (fx["tracker"], fy["tracker"])
         versions["tracker"] = tr_ver
         selves_for["tracker"] = tr_selves
     out["stream_versions"] = versions
+    out["frame_join"] = joins
 
     ivs_cache = {}
     master_spans = _master_spans(sid, date)
