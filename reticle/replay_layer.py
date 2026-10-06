@@ -1208,6 +1208,12 @@ class Layer:
             raise ValueError(f"{self.match}: no capture clock (layer head a_ms is null)")
         return t - self.a_ms
 
+    def rows(self, name: str) -> int:
+        """Row count of a table; each table is a dict of numpy columns, so
+        `len(L.ticks)` counts columns."""
+        T = self.tables.get(name)
+        return 0 if not T else int(next(iter(T.values())).size)
+
     def players(self) -> list[int]:
         k = self.tables["entities"]["kind"]
         return [int(i) for i in np.flatnonzero(k == "player")]
@@ -1221,44 +1227,63 @@ class Layer:
         return {k: v[a:b] for k, v in self.tables["ticks"].items()}
 
     def state_at(self, t: float, clock: str = "capture", entities=None) -> list[dict]:
-        """Each entity's state at one time: position and yaw (linear between
-        the bracketing ticks within `MAX_GAP_MS`, else the nearer tick's
-        value only for a child's static spawn), alive, and for players the
-        latest sparse state values (`state` table) at or before `t`."""
+        """Each entity's state at one time. Position, z, pitch, px and py are
+        linear between the bracketing ticks when they lie within
+        `MAX_GAP_MS` (`position_basis` "interpolated"); yaw and facing come
+        from the nearer tick. Across a longer gap, or after an entity's last
+        tick, the last tick at or before `t` holds (`position_basis` "held",
+        with `held_from_tick_ms`); before an entity's first tick the position
+        is null (`position_basis` "before_first_tick"). A player's `alive`
+        comes from `lives` (revives included), so a dead player carries his
+        last position with alive False; a child is listed only while open.
+        Players also carry the latest sparse `state` values at or before `t`
+        as `state:<field>`."""
         tr = float(self._rep([t], clock)[0])
         E = self.tables["entities"]
         out = []
         ids = range(len(E["entity_id"])) if entities is None else entities
         S = self.tables.get("state")
+        cols = ("x", "y", "z", "yaw", "pitch", "px", "py", "facing_px")
+
+        def num(v):
+            return None if v is None or not np.isfinite(v) else float(v)
+
         for e in ids:
-            if E["kind"][e] == "child":
+            player = E["kind"][e] == "player"
+            if not player:
                 t0, t1 = E["t_open_rep"][e], E["t_close_rep"][e]
                 if not (t0 <= tr and (t1 is None or not np.isfinite(t1) or tr < t1)):
                     continue
             k = self.track(e)
             row = {"e": int(e), "entity_id": E["entity_id"][e], "kind": E["kind"][e],
                    "t_rep": tr, "source": "truth"}
+            row.update({c: None for c in cols})
             n = k["t_rep"].size
-            if n:
-                i = int(np.searchsorted(k["t_rep"], tr, side="right"))
-                i0, i1 = max(i - 1, 0), min(i, n - 1)
-                t0, t1 = k["t_rep"][i0], k["t_rep"][i1]
-                if t0 <= tr <= t1 and t1 - t0 <= MAX_GAP_MS:
+            i = int(np.searchsorted(k["t_rep"], tr, side="right"))  # ticks <= tr: [0, i)
+            if n and i == 0:
+                row["position_basis"] = "before_first_tick"
+            elif n:
+                i0 = i - 1
+                t0 = k["t_rep"][i0]
+                if t0 == tr or (i < n and k["t_rep"][i] - t0 <= MAX_GAP_MS):
+                    i1 = i0 if t0 == tr else i
+                    t1 = k["t_rep"][i1]
                     w = 0.0 if t1 == t0 else (tr - t0) / (t1 - t0)
-                    for c in ("x", "y", "z", "px", "py"):
-                        row[c] = float(k[c][i0] * (1 - w) + k[c][i1] * w)
+                    for c in ("x", "y", "z", "pitch", "px", "py"):
+                        a0, a1 = k[c][i0], k[c][i1]
+                        row[c] = None if a0 is None or a1 is None else num(a0 * (1 - w) + a1 * w)
                     near = i0 if w < 0.5 else i1
-                    for c in ("yaw", "pitch", "facing_px"):
-                        row[c] = float(k[c][near])
-                    row["alive"] = bool(k["alive"][near])
-                elif E["kind"][e] == "child" and tr >= t0:
-                    for c in ("x", "y", "z", "yaw", "pitch", "px", "py", "facing_px"):
-                        row[c] = float(k[c][i0])
-                    row["alive"] = True
-                    row["held_from_tick_ms"] = float(t0)
+                    for c in ("yaw", "facing_px"):
+                        row[c] = num(k[c][near])
+                    row["position_basis"] = "interpolated"
                 else:
-                    row["alive"] = (bool(self.alive_at(e, tr, "replay"))
-                                    if E["kind"][e] == "player" else None)
+                    for c in cols:
+                        row[c] = num(k[c][i0])
+                    row["position_basis"] = "held"
+                    row["held_from_tick_ms"] = float(t0)
+            else:
+                row["position_basis"] = "no_ticks"
+            row["alive"] = bool(self.alive_at(e, tr, "replay")) if player else True
             if E["kind"][e] == "player" and S is not None:
                 m = (S["e"] == e) & (S["t_rep"] <= tr)
                 for f in np.unique(S["field"][m]):
