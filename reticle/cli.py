@@ -1916,6 +1916,14 @@ def cmd_ingest_passes(args) -> int:
     3. when the minimap pass ends, ally_icon from that cache in
        `--ally-processes` processes (default 3; `process_shards`), split by
        time and merged in producer order into one candidate revision.
+    4. when every pass has ended, the capture's replay
+       (`reticle replay-keep`, `replay_keep`): found in the client's Demos
+       folder by recording time, kept, linked in the replay manifest,
+       parsed, and its Riot record wrapped. The replay layer and episodes
+       wait for the stored deaths; `plan` names them and any step refused.
+       This command drives the ingest's decodes and is the last step of an
+       ingest that runs unattended, so the replay is kept here, before the
+       client rotates its Demos folder.
 
     Each scan keeps its own staleness rules, stamps and usage record; this
     command changes no definition. Each process's output goes to
@@ -1979,8 +1987,28 @@ def cmd_ingest_passes(args) -> int:
     if failed:
         print(f"failed     {', '.join(failed)}; see {logs}")
         return 1
+    # The replay hook, alone and at Idle priority once the decodes have ended.
+    log_p = logs / f"{sid}-replay_keep.log"
+    with log_p.open("w", encoding="utf-8") as log:
+        code = subprocess.call(base[:-2] + ["replay-keep", sid], env=env, creationflags=flags,
+                               stdout=log, stderr=subprocess.STDOUT)
+    print(f"replay     exit {code}  -> {log_p.name}")
+    for line in log_p.read_text(encoding="utf-8").splitlines():
+        print(f"           {line}")
     print(f"\nnext: reticle plan {sid}")
     return 0
+
+
+def cmd_replay_keep(args) -> int:
+    """Keep a capture's replay: find it by recording time, copy it into the
+    store, link it in the replay manifest, parse it, wrap its Riot record,
+    then build its replay layer and episodes (`replay_keep`). Each step is
+    idempotent and each refusal named; a missing Riot record names the
+    player's fetch and does not stop the layer."""
+    from .replay_keep import DEMOS_DIR, command
+    store = Store(args.store)
+    sid = _resolve_session(store, args.session)["session_id"]
+    return command(sid, store.root, Path(args.demos) if args.demos else DEMOS_DIR)
 
 
 def _normalise_decoded(R, manifest, store) -> None:
@@ -6422,6 +6450,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--ally-processes", type=int, default=3, metavar="K",
                    help="processes ally_icon reads the minimap cache in (default 3)")
     s.set_defaults(func=cmd_ingest_passes)
+
+    s = sub.add_parser("replay-keep",
+                       help="find a capture's replay by recording time, keep, link, parse "
+                            "and wrap it, then build its replay layer and episodes")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--demos", default=None,
+                   help="the client's replay folder (default under %%LOCALAPPDATA%%: "
+                        "VALORANT/Saved/Demos)")
+    s.set_defaults(func=cmd_replay_keep)
 
     s = sub.add_parser("segment", help="recompute spans from stored L1 (no video)")
     s.add_argument("session", nargs="?"); s.add_argument("--all", action="store_true")

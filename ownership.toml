@@ -2138,6 +2138,27 @@ name keyword or analogy.
 evidence = "tests/test_replay_layer.py"
 
 [[entry]]
+id = "replay-keeping"
+question = "Which kept replay belongs to a capture, and has it been kept, linked, parsed, wrapped and built?"
+owner = "replay_keep"
+role = ["assign"]
+status = "partial"
+produces = ["find_replay", "read_info", "replay_span", "overlapping", "keep", "link_manifest",
+            "link_entry", "parse_replay", "wrap_record", "wrap_riot", "run", "missing_steps",
+            "capture_start_ms", "REPLAY_KEEP_VERSION"]
+consumers = ["cli", "plan"]
+not_for = """
+Reading the replay's contents: the parse is vrfkit's, the clock and map
+`replay-alignment`'s, the tables `replay-tables`'s. It matches a replay to a
+capture by recording time only (the header's timestamp and length against the
+capture file's name and duration), refuses zero or several candidates, and
+writes only the kept copy, the replay manifest, the parse and the wrapped Riot
+record. Nothing it writes is shown during play or read by a reader.
+"""
+defers_to = ["replay-alignment", "replay-tables"]
+evidence = "tests/test_replay_keep.py"
+
+[[entry]]
 id = "replay-tables"
 question = "What does a kept replay hold of its match, per tick and per event, on the capture's clock and minimap?"
 owner = "replay_layer"
