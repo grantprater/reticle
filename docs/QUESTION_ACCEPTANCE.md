@@ -1,6 +1,8 @@
 # Question acceptance: episodes from gated, variable-rate readers
 
-Status: plan, proposed 2026-10-06; nothing here is built. Rules live in
+Status: plan, proposed 2026-10-06 and revised the same day with the
+player's answers (section 9) and the truth-side fidelity test of
+[COACHING_QUESTIONS.md](COACHING_QUESTIONS.md); nothing here is built. Rules live in
 [AGENTS.md](../AGENTS.md); commands in [WORKING_MAP.md](WORKING_MAP.md). It
 rests on [ENTITY_STATE.md](ENTITY_STATE.md) (the slot model),
 [EPISODES.md](EPISODES.md) (the questions), [REPLAY_LAYER.md](REPLAY_LAYER.md)
@@ -19,6 +21,22 @@ and never on a kill. The timeline may change shape; the questions answered
 may not lose the fidelity they need. The acceptance test answers the
 coaching and summary questions from a vision timeline built on the gated
 readers and compares the answers with the replay timeline's.
+
+**The player's answers (2026-10-06)** revise the plan in four places:
+
+- **Damage-only fights are in scope.** The player's combat report is their
+  vision source; section 1 says what it gives per engagement and what it
+  cannot.
+- **The gate's primary input is an enemy drawn on the minimap.** The other
+  inputs of section 5 are secondary. A death with no enemy drawn is itself
+  an observation, stored on the death, never a gate input.
+- **Enemy-side rotations, lurks and executes are beliefs.** They are
+  reported with their standing and left out of the acceptance test.
+- **The cost bound is of the order the player expects**: about a twentieth
+  of today's 15 Hz slot reads, not 0.60 (QA5r, section 7).
+  [COACHING_QUESTIONS.md](COACHING_QUESTIONS.md) names the questions that
+  matter, measures their decision value on the stored data, and measures on
+  truth alone what each loses under such a schedule.
 
 1. **The vision timeline is the slot-state timeline.** ENTITY_STATE's slots
    own every player's state; the per-sample standing, age and precision this
