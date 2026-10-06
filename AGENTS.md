@@ -59,6 +59,11 @@ what "I rebuilt the geometry while my experiment read it" states.
 - Events are the interface. Consumers (`reticle view`) read only emitted events
   and stored rounds, never a reader, tracker or adjudicator; a missing field
   goes into the owning event, never a recomputing consumer.
+- **Fidelity follows the question** (player, 2026-10-04, 2026-10-06): process
+  only the detail the use case's questions need, as an engine culls and
+  lowers detail. Hold coarse beliefs by default; read at full
+  fidelity where an opportunity opens, never on the outcome; measure each need
+  by degrading truth ([QUESTION_ACCEPTANCE.md](docs/QUESTION_ACCEPTANCE.md)).
 - Run the least work testing the change: `reticle trial` on the windows
   where it should move output plus the declared sample
   (`reticle dev-sample`), with error bars; adjudications rerun from storage;
@@ -88,17 +93,12 @@ what "I rebuilt the geometry while my experiment read it" states.
 - Never use stored-data bounds or a model's own output as independent evidence.
   Keep unresolved and no-contact opportunities so coverage stays unbiased.
 - **READ THE REFUSAL REASON BEFORE CALLING ANYTHING A BLOCKER.** A count of
-  refusals is a symptom; the cause is usually stored beside it. `lineup`'s
-  refused slots read as *3 of 5 named*, a coverage fact; each slot's `reason`
-  said PAIRWISE TIE, and twelve of 79 refusals were ties a constraint had
-  broken. Provenance can be perfect and attribution wrong; no citation
-  check catches it.
+  refusals is a symptom; the cause is usually stored beside it. Provenance
+  can be perfect and attribution wrong; no citation check catches it.
 - **CROSS-REFERENCE BEFORE TUNING.** When a detection is wrong, first ask which
   other channel observes the event, and gate one on the other. Tuning a
   threshold, mask or morphology on the erring channel is the second resort.
-  Precedent: `ally_icons` scored against the roster turned +0.99 phantom
-  teammates per frame into -0.15 with the detector unchanged. Agreement is
-  consistency, not accuracy; store the disagreements.
+  Agreement is consistency, not accuracy; store the disagreements.
 - Measure a baseline before structural edits, then rerun the real command
   and confirm a known result; a parse check is not verification.
 - Hold beliefs about the system as uncertain, updated on evidence.
