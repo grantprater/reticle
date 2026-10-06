@@ -328,7 +328,7 @@ their own training set.
    site callout misses plantable ground on seven maps (section 9), and the
    plantable zone needs geometry no table holds yet (the minimap's site
    paint, or the game's plant volumes; the gameplay levels place one
-   outline mesh per site [domain:game_data/bomb-site-outline], not yet
+   outline mesh per site [domain:rounds/bomb-site-outline], not yet
    exported). For a retake: default the super-region.
 8. **Retake.** Is a plant with a defender still on site a retake?
    Default no (a contested plant).

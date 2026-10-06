@@ -762,3 +762,30 @@ the attackers who join (docs/EPISODES.md section 3.5); no minimum head count
 gates it
 """
 phrases = ["execute is a site attempt"]
+
+[bomb-site-outline]
+claim = """
+Each plant site's outline is a `Bomb_Site_Outline_C` actor placed in the map's
+gameplay level (`<Map>_Gameplay.umap`), holding a `BombsiteMarker` static mesh
+per site: on Ascent, `BombsiteMarker_0_BombsiteA` at (6100, -7200, 500) and
+`BombsiteMarker_0_BombsiteB` at (-3152, -7776, -98), game units.
+"""
+kind = "geometry"
+known = "observed"
+since = "2026-10-05"
+source = """
+release-13.06-shipping-18-5590001, the store's
+reference/game-files/<build>/minimap-sites/ShooterGame/Content/Maps/Ascent/Ascent_Gameplay.json:
+two Bomb_Site_Outline_C actors (Bomb_Site_Outline8, Bomb_Site_Outline_4), each
+with StaticMesh components referencing
+/Game/Environment/Ascent/Asset/Props/BombsiteMarker/0/BombsiteMarker_0_Bombsite{A,B}
+"""
+exceptions = """
+The marker meshes are not exported, so the plantable zone's shape stays
+unread; whether the outline bounds the zone the game tests at a plant is
+unconfirmed. Other maps' gameplay levels sit beside Ascent's, unread here.
+"""
+use = """
+the witness `episodes` lacks for "on site" (docs/EPISODES.md, Q7): export the
+marker meshes and read each zone's footprint
+"""
