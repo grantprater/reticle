@@ -231,6 +231,24 @@ consumers = ["doctor", "team_vision"]
 evidence = "tests/test_stalls.py"
 
 [[entry]]
+id = "frame-join"
+question = "Which frame of one stored stream stands for each frame of another (a grid stream's nearest frame, a sampled stream's latest read), and how many joined?"
+owner = "frame_join"
+role = ["assign"]
+status = "partial"
+produces = ["FRAME_JOIN_VERSION", "MIN_JOIN_RATE", "STALE", "NO_READ_YET", "FrameJoin", "JoinRefused", "grid_join", "SampledState", "sampled_state"]
+not_for = """
+Deciding which frames belong in the denominator: the caller passes only the
+frames the other stream could hold (inside a cache's spans, drawn), or a
+sampled stream's max age. Nor predicting a skipped read: the reader carries its
+prediction and marks it; this owner only finds it. Nor resampling or
+interpolating a value between frames; a joined frame carries the
+other stream's nearest observation, up to half a sample away.
+"""
+consumers = ["cli"]
+evidence = "tests/test_frame_join.py"
+
+[[entry]]
 id = "blind-screen"
 question = "Did a flash's wash hide the HUD in these frames?"
 owner = "blinds"

@@ -4934,6 +4934,49 @@ def cmd_widget_fit(args) -> int:
     return 0
 
 
+def cmd_frame_join(args) -> int:
+    """How a stored event stream's frames meet a crop cache's frames
+    (`frame_join`): the grid join of the stream's drawn frames inside the
+    cache's spans onto the cache at its recorded rate, with its rate and the
+    offsets it bridged, and the stream read as a sampled stream at each cache
+    frame, with the latest frame's age. Refuses nothing; prints the refusal a
+    scorer would meet. Decodes no video."""
+    from .frame_join import grid_join, sampled_state
+    from .profiles import get_profile
+    from .roi_cache import RoiCache, spans_mask
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        man = store.read_manifest(sid)
+        cache, why = RoiCache.load(store.root, man, get_profile(man["source_profile"]), args.cache)
+        if cache is None:
+            print(f"{sid}: no {args.cache} crop cache ({why})")
+            continue
+        t_c = np.unique(np.asarray(cache.t_ms, float))
+        rows = [r for r in store.read_events(args.stream, sid)
+                if r.get("kind") == "frame" and r.get("widget_drawn", True)]
+        t_s = np.asarray([r["t_ms"] for r in rows], float)
+        spans = cache.record.get("spans")
+        if spans:
+            t_s = t_s[spans_mask(t_s, spans)]
+        hz = float(cache.record["hz"])
+        j = grid_join(t_s, t_c, hz)
+        off = None
+        if j.index is not None:
+            o = np.abs(j.offset_ms[j.joined])
+            off = {"exact": round(float(np.mean(o < 1e-3)), 4),
+                   "p95_ms": round(float(np.percentile(o, 95)), 2) if o.size else None}
+        st = sampled_state(t_c, t_s, 1000.0 / hz, None)
+        age = st.age_ms[st.held]
+        print(json.dumps({"session": sid, "stream": args.stream, "cache": args.cache,
+                          "grid": j.stamp() | {"offsets": off},
+                          "sampled": {"held": round(float(st.held.mean()), 4) if st.held.size else None,
+                                      "stale": int(sum(r == "stale" for r in st.reason)),
+                                      "age_p95_ms": round(float(np.percentile(age, 95)), 2)
+                                      if age.size else None}}))
+    return 0
+
+
 def cmd_self_icon(args) -> int:
     """The minimap self icon's portrait scored against the agents' art, on
     stored minimap crops where the roster reads all five allies alive
@@ -6848,6 +6891,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--all", action="store_true", help="every session")
     s.add_argument("--step", type=float, default=0.5, help="tray sampling interval (default 0.5 s)")
     s.set_defaults(func=cmd_tray)
+
+    s = sub.add_parser("frame-join",
+                       help="how a stored stream's frames join a crop cache's, by time "
+                            "(`frame_join`; no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--stream", default="ally_icon", help="event stream with frame rows")
+    s.add_argument("--cache", default="minimap", help="crop cache set")
+    s.set_defaults(func=cmd_frame_join)
 
     s = sub.add_parser("self-icon",
                        help="the minimap self icon's portrait scored against the agents' art, "

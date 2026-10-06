@@ -181,7 +181,10 @@ from reticle import track  # noqa: E402  (the teleport-licence owner)
 #: facts (`track.movement_licences`), not a candidate list: Veto joins,
 #: Waylay leaves (the list's "Waylay Crosscut" is Veto's ability), and an
 #: explained spawn names its licence instead of `candidate_only`.
-ALLY_PRIOR_VERSION = "ally-prior-0.3.0"
+#: 0.4.0 (2026-10-06): reads every frame `crowd_blob.frame_clock` joins by
+#: nearest time (crowd-blob-0.4.0); output on c817691bcd15 changes, on
+#: grids that coincide it does not.
+ALLY_PRIOR_VERSION = "ally-prior-0.4.0"
 STORE = v1.STORE
 ANALYSIS = STORE / "analysis" / "ally-prior-20261004"
 
