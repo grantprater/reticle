@@ -162,10 +162,8 @@ STORE = Path.home() / "reticle-store"
 ART = STORE / "reference" / "maps"
 API = "https://valorant.fandom.com/api.php"
 
-#: Alpha above which the art counts as map. The channel is near-binary -- 25
-#: distinct values over the whole image, almost all 0 or 255 -- so this is a
-#: formality rather than a tuned edge.
-ALPHA_MIN = 40
+#: Alpha above which the art counts as map (`reticle.geometry.ART_ALPHA_MIN`).
+ALPHA_MIN = G.ART_ALPHA_MIN
 
 #: How far the wiki's art is rotated from what the game draws, per map.
 #:
