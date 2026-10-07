@@ -444,8 +444,8 @@ def sheet(sid: str, tag: str, base: str, per: int) -> int:
 
 def reread(sid: str, tag: str, ptag: str, sets: list[str], off: list[str]) -> int:
     """`teardrop_refusals.reread` with module parameters set (`NAME=VALUE`,
-    e.g. RING_COVER=binary) and fixes turned off: the ablation arms. The head
-    records the parameters and the stamp the fixes."""
+    e.g. RING_COVER=soft) and fixes turned off: the ablation arms. The head
+    records the parameters; the stamp, the switches and the fixes."""
     from reticle import minimap_objects as mo
 
     for kv in sets:

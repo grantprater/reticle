@@ -28,14 +28,16 @@ and the inner gate drops it, while the icon's own ring passes the gates at
 its centre (`prototypes/enemy_proposal_funnel.py`). The search that gates
 first and proposes every peak (`minimap.icons(seed="peaks")`) finds those
 icons, and also rings the lobeless red-rimmed utility discs the off-centre
-circle had refused by luck. 0.6.0 required a lobe (`RING_LOBE`) and proposed
-the peaks only beside the last frame's icons (`RING_SEED` "centroid+prior",
-an unaudited prior); both stay switchable and are off from 0.7.0.
+circle had refused by luck. 0.6.0 required a lobe and proposed the peaks
+only beside the last frame's icons, an unaudited prior; 0.8.0 removed both
+(commit 24907bb holds them).
 
-From 0.7.0 the search proposes every gated peak (`RING_SEED` "peaks") and
-scores each ring's coverage softly (`RING_COVER` "soft": the mean of
-`teardrop.redness` over the circle, cut once at `COV_MIN`), and the
-`portrait_gate` decides which finds are enemy icons. Cross-reference, not a
+From 0.7.0 the search proposes every gated peak (`RING_SEED` "peaks"), and
+the `portrait_gate` decides which finds are enemy icons. 0.7.0 scored each
+ring's coverage softly (`RING_COVER` "soft": the mean of `teardrop.redness`
+over the circle, cut once at `COV_MIN`); from 0.8.0 the binary key's share
+is the default and soft is opt-in, stamped `+soft_cover`, until it is
+retested on a second 331 px match. Cross-reference, not a
 tuned shape: a red-rimmed utility disc, a red triangle and a faint X ring
 as well as an icon, but only an icon holds an agent's portrait. The gate
 asks the identity owner how well the find's `portrait_features` fit the
@@ -98,10 +100,18 @@ score proposes red shapes the gate passes: Cypher's camera glyph, a black
 disc with a white device, fits Cypher's black-and-white portrait when Cypher
 is in the five, and an icon half under a teammate's fits a portrait too. The
 gate's other cost is Omen's violet portrait, whose rendered-art fit is poor:
-on c817691bcd15 a `not_a_portrait` refusal lies beside 120 misses.
-The read costs more: the teardrop fits every gated peak, not one circle
-per blob, and a reread of c817691bcd15 took about 3.7 times 0.5.0's on
-either key.
+on c817691bcd15 `not_a_portrait` refusals lie beside misses. The read costs
+more: the teardrop fits every gated peak, not one circle per blob, and a
+reread of c817691bcd15 took longer than 0.5.0's on either key; the cost
+is unrecorded.
+
+0.8.0 ships the binary key: at 465 px it scores
+[metric:teardrop_refusals/lane/pgb@c817691bcd15#hits=3803] hits and
+[metric:teardrop_refusals/lane/pgb@c817691bcd15#false_accepts=106] true
+false accepts on c817691bcd15 and
+[metric:teardrop_refusals/lane/pgb@d3dcfb182ab1#hits=2560] and
+[metric:teardrop_refusals/lane/pgb@d3dcfb182ab1#false_accepts=31] on
+d3dcfb182ab1, each fewer false accepts than 0.5.0 and soft coverage.
 
 **The "?".** A red blob the X shape test rejects and no enemy icon covers,
 whose red run, walked back frame by frame, begins where an enemy icon ended:
@@ -206,7 +216,11 @@ from .version import ALLY_PORTRAIT_FEATURES_VERSION, ENEMY_TEARDROP_VERSION, TEA
 #: 0.7.0 (2026-10-07): every gated peak is proposed (`RING_SEED` "peaks"),
 #: its coverage scored on soft redness (`RING_COVER`), no lobe required;
 #: the `portrait_gate` fix keeps only finds that fit an enemy portrait.
-MINIMAP_OBJECT_BASE = "minimap-object-0.7.0"
+#: 0.8.0 (2026-10-07): the ring coverage scores the binary HSV key by default
+#: (`RING_COVER` "binary"); soft coverage is opt-in and stamps `+soft_cover`.
+#: The 0.6.0 last-frame prior and lobe switch are gone (recoverable at
+#: 24907bb). Every output-changing switch now enters the stamp.
+MINIMAP_OBJECT_BASE = "minimap-object-0.8.0"
 
 #: The switchable fixes, in stamp order.
 FIXES = ("teardrop_box", "slab_gate", "owner_gate", "portrait_gate")
@@ -215,11 +229,22 @@ ENABLED = {"teardrop_box": True, "slab_gate": True, "owner_gate": True,
            "portrait_gate": True}
 
 
+def switch_suffix() -> str:
+    """The ring search switches off their defaults, as stamp parts: a
+    `RING_SEED` other than "peaks" adds `+<seed>_seed`, a `RING_COVER` other
+    than "binary" adds `+<cover>_cover`. Defaults add nothing."""
+    parts = ([] if RING_SEED == "peaks" else [f"{RING_SEED}_seed"]) + \
+            ([] if RING_COVER == "binary" else [f"{RING_COVER}_cover"])
+    return "".join(f"+{p}" for p in parts)
+
+
 def minimap_object_version(fixes: dict | None = None) -> str:
-    """The stream's stamp: the base version plus each fix that is on."""
+    """The stream's stamp: the base version, each ring search switch off its
+    default (`switch_suffix`), then each fix that is on. Two configurations
+    that differ in output never share a stamp."""
     fixes = ENABLED if fixes is None else fixes
     on = [f for f in FIXES if fixes.get(f)]
-    return f"{MINIMAP_OBJECT_BASE}+{'+'.join(on) if on else 'nofix'}"
+    return f"{MINIMAP_OBJECT_BASE}{switch_suffix()}+{'+'.join(on) if on else 'nofix'}"
 
 
 # The enemy ring fit: the HSV key and gates stage 2 used
@@ -249,23 +274,21 @@ PLACE_PX = 6.0       # a red blob at the "?"'s place, * scale
 GAP_FRAMES = 2       # frames the red run may miss
 
 #: The ring search's seed (`minimap.icons`): "centroid", one circle per red
-#: blob (to 0.5.0); "peaks", every gated peak of the ring score (0.7.0);
-#: "centroid+prior", the centroid's finds plus the peaks within `PRIOR_PX`
-#: of an icon the last read frame, at most `PRIOR_MS` before, accepted
-#: (0.6.0). "peaks" needs the portrait gate: where the gate is on and cannot
-#: read, the search falls back to "centroid".
+#: blob (to 0.5.0); "peaks", every gated peak of the ring score (from 0.7.0).
+#: "peaks" needs the portrait gate: where the gate is on and cannot read,
+#: the search falls back to "centroid". Off "peaks", the stamp says so.
 RING_SEED = "peaks"
-#: Keep only ring finds with a lobe past the ring (`minimap.LOBE_MIN_FRAC`,
-#: `icons(require_facing=True)`); on in 0.6.0 only.
-RING_LOBE = False
-#: What the "peaks" ring coverage scores: "soft", the mean `teardrop.redness`
-#: over the circle (0.7.0); "binary", the HSV key's share (to 0.6.0).
-#: On a seeded sample of 9acf02f98283's T1d icon places the key held a median
+#: What the "peaks" ring coverage scores: "binary", the HSV key's share (the
+#: default, as to 0.6.0); "soft", the mean `teardrop.redness` over the
+#: circle (0.7.0's default, opt-in from 0.8.0, stamped `+soft_cover`). The
+#: player chose the binary key until soft is retested on a second 331 px
+#: match. On a seeded sample of 9acf02f98283's T1d icon places the key held
+#: a median
 #: [metric:enemy_portrait_gate/softcal@9acf02f98283#bin_median_ring_unproposed=0.275]
 #: of the ring at icons the search missed, the soft score
 #: [metric:enemy_portrait_gate/softcal@9acf02f98283#soft_median_ring_unproposed=0.483];
 #: at places with no icon drawn both stay near zero.
-RING_COVER = "soft"
+RING_COVER = "binary"
 #: The portrait gate's cut on `identity.rendered_art_fit` (mean squared
 #: z-score to the closest enemy reference): the 99th percentile over the T1d
 #: hits of 9acf02f98283's 0.5.0 reread
@@ -273,8 +296,6 @@ RING_COVER = "soft"
 #: the rule the owner's teammate fit uses (P99 of bound icons), taken at the
 #: 331 px widget and held unchanged at 465 px.
 FIT_MAX = 1.5
-PRIOR_PX = 10.0      # a peak this near a last-frame icon continues it, * scale
-PRIOR_MS = 250.0     # the last read frame is the prior this long
 
 REFUSALS = ("widget_not_drawn", "widget_shape")
 
@@ -389,6 +410,10 @@ def portrait_gate_inputs(store_root, sid: str) -> dict:
             out["reason"] = "no_lineup"
         elif len(five) < N_SLOTS:
             out["reason"] = f"lineup_short: {len(five)} of {N_SLOTS} enemy agents admitted"
+        elif (gone := [n for n in five if n not in (refs.get("agents") or {})]):
+            # An agent with no reference would fit nothing, and dropping it
+            # would refuse its every icon: refuse to read instead.
+            out["reason"] = f"reference_missing: {', '.join(gone)}"
         else:
             out["names"], out["refs"] = list(five), refs
     return out
@@ -397,30 +422,30 @@ def portrait_gate_inputs(store_root, sid: str) -> dict:
 def portrait_gate(feats: dict, gate: dict | None) -> dict:
     """The `portrait_gate` verdict on one find's stored `portrait_features`:
     `{"fit", "margin", "reason"}`. `fit` is the identity owner's absolute fit
-    to the closest of the candidate set (`identity.rendered_art_fit`, asked
-    once per name), `margin` the second-closest's fit less it. `reason` is
-    None where the find fits within `FIT_MAX`, `not_a_portrait: ...` where
-    it does not, and the inputs' reason where the gate cannot read (then
-    `fit` is None and nothing is refused). No name leaves this function."""
-    from .adjudication.identity import rendered_art_fit
+    to the closest of the candidate set (`identity.rendered_art_fits`, one
+    call over the set), `margin` the second-closest's fit less it. `reason`
+    is None where the find fits within `FIT_MAX`, `not_a_portrait: ...` where
+    it does not, and, where the gate cannot read, the inputs' reason or
+    `no_features` (then `fit` is None and nothing is refused). No name
+    leaves this function."""
+    from .adjudication.identity import rendered_art_fits
 
     if not gate or not gate.get("names"):
         return {"fit": None, "margin": None,
                 "reason": (gate or {}).get("reason") or "no_candidates"}
-    fits = sorted(r[0] for n in gate["names"]
-                  if (r := rendered_art_fit(feats, [n], gate["refs"])) is not None)
-    if not fits:
+    d = rendered_art_fits(feats, gate["names"], gate["refs"])
+    if d is None:
         return {"fit": None, "margin": None, "reason": "no_features"}
-    fit = fits[0]
-    margin = fits[1] - fit if len(fits) > 1 else None
+    fits = np.sort(d)
+    fit = float(fits[0])
+    margin = float(fits[1] - fits[0]) if fits.size > 1 else None
     reason = (None if fit <= FIT_MAX else
               f"not_a_portrait: fit {fit:.2f} > {FIT_MAX} to the enemy five")
     return {"fit": fit, "margin": margin, "reason": reason}
 
 
 def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None = None,
-               turn: bool = False, t_ms: float | None = None,
-               prior: list | None = None) -> dict:
+               turn: bool = False, t_ms: float | None = None) -> dict:
     """One drawn frame: enemies, X marks, red blobs, refusals.
 
     `ctx` holds the baked `floor` and `slab` (`minimap.floor_mask`,
@@ -452,20 +477,9 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
     seed = ring_seed(fixes, gate)
     soft = seed == "peaks" and RING_COVER == "soft"
     finds = minimap.icons(key, crop, floor, cov_min=COV_MIN,
-                          inner_max=INNER_RED_MAX, require_facing=RING_LOBE, support=slab,
+                          inner_max=INNER_RED_MAX, require_facing=False, support=slab,
                           seed=seed, scale=scale, radii="inside",
                           cov_map=red if soft else None)
-    if RING_SEED == "centroid+prior" and prior:
-        # Continue the prior: the gated ring peaks within PRIOR_PX of an
-        # icon the last frame accepted, where no centroid find lies.
-        sep = minimap.MIN_ICON_SEPARATION_PX * scale
-        for d in minimap.icons(key, crop, floor, cov_min=COV_MIN, inner_max=INNER_RED_MAX,
-                               require_facing=RING_LOBE, support=slab, seed="peaks",
-                               scale=scale, radii="inside"):
-            if (any(math.hypot(d["cx"] - px, d["cy"] - py) <= PRIOR_PX * scale for px, py in prior)
-                    and not any(math.hypot(d["cx"] - g["cx"], d["cy"] - g["cy"]) < sep
-                                for g in finds)):
-                finds.append(dict(d, rests_on="prior"))
     for d in finds:
         ring = {"x": _rnd(d["cx"]), "y": _rnd(d["cy"]), "r": _rnd(d.get("r"))}
         f = teardrop.fit_icon(None, "enemy", d["cx"], d["cy"], scale=scale, key=red)
@@ -516,7 +530,10 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
             "portrait_features": feats,
             **({"portrait_fit": _rnd(pg["fit"], 3), "portrait_margin": _rnd(pg["margin"], 3)}
                if pg is not None and pg["fit"] is not None else {}),
-            **({"rests_on": "prior"} if d.get("rests_on") else {})})
+            # A gate that could not read says why, so the find is told
+            # apart from a row read before the gate existed.
+            **({"portrait_gate_reason": pg["reason"]}
+               if pg is not None and pg["fit"] is None else {})})
     xr = []
     for q in marks["red"]:
         share, drop = _gate(fixes, red, slab, q["x"], q["y"], scale)
@@ -542,8 +559,6 @@ def ring_seed(fixes: dict, gate: dict | None) -> str:
     """The seed the ring search uses: `RING_SEED`, except that "peaks" with
     the `portrait_gate` on and unable to read (`gate` holds no names) falls
     back to "centroid", the proposal that needs no verifier."""
-    if RING_SEED == "centroid+prior":
-        return "centroid"
     if RING_SEED == "peaks" and fixes.get("portrait_gate") and not (gate or {}).get("names"):
         return "centroid"
     return RING_SEED
@@ -657,7 +672,6 @@ def read_times(ctx: dict, times, fixes: dict | None = None) -> list[dict]:
     cache = ctx["cache"]
     x0, y0, x1, y1 = ctx["rect"]
     frames = []
-    last_t, last = None, None
     for smp in cache.samples(sorted(float(t) for t in times), rois=["minimap"]):
         crop = smp.frame[y0:y1, x0:x1]
         row = {"kind": "frame", "t_ms": float(smp.t_ms), "frame_idx": int(smp.frame_idx)}
@@ -668,11 +682,8 @@ def read_times(ctx: dict, times, fixes: dict | None = None) -> list[dict]:
         else:
             seg = cache.widget.at(smp.t_ms) if cache.widget is not None else None
             turn = bool(seg) and int(seg.get("rotation", 0)) == 180
-            prior = (last if last_t is not None and float(smp.t_ms) - last_t <= PRIOR_MS
-                     else None)
             row.update(read_frame(crop, ctx, scale=ctx["icon_scale"], fixes=fixes, turn=turn,
-                                  t_ms=float(smp.t_ms), prior=prior))
-            last_t, last = float(smp.t_ms), [(e["x"], e["y"]) for e in row["enemies"]]
+                                  t_ms=float(smp.t_ms)))
         frames.append(row)
     frames.sort(key=lambda r: r["t_ms"])
     last_known(frames, ctx["icon_scale"])
@@ -704,13 +715,15 @@ def read_session(store, sid: str, fixes: dict | None = None) -> dict:
                           if fixes.get("portrait_gate") else {})},
             "portrait_gate": ({"candidates": gate.get("names"), "reason": gate.get("reason"),
                                "candidate_source": "lineup.portrait_candidates, enemy side",
+                               # The candidate set is a prior the lineup placed.
+                               "rests_on": [{"context": "lineup",
+                                             "version": gate.get("lineup_view")}],
                                "ring_seed_used": ring_seed(fixes, gate)}
                               if fixes.get("portrait_gate") else None),
             "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION,
             "geometry_key": ctx["geometry_key"], "scale": ctx["scale"],
             "icon_scale": ctx["icon_scale"], "icon_scale_source": ctx["icon_scale_source"],
-            "parameters": {"RING_SEED": RING_SEED, "RING_LOBE": RING_LOBE,
-                           "RING_COVER": RING_COVER, "FIT_MAX": FIT_MAX,
+            "parameters": {"RING_SEED": RING_SEED, "RING_COVER": RING_COVER, "FIT_MAX": FIT_MAX,
                            "COV_MIN": COV_MIN, "INNER_RED_MAX": INNER_RED_MAX, "RING": RING,
                            "X_OWN_PX": X_OWN_PX,
                            "TIP_PAD": TIP_PAD, "RED_SHARE": RED_SHARE, "ICON_PX": ICON_PX,
