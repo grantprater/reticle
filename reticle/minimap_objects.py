@@ -19,6 +19,39 @@ lobe is translucent [domain:minimap/enemy-lobe-translucent]. A read fit gives
 the centre and facing (image degrees, y down). Facing never reaches the
 entity lane yet: the contract names no orientation convention.
 
+**The proposal.** To 0.5.0 the ring search fitted one circle per red blob,
+seeded at its centroid, and gated it afterwards. An icon whose key touches
+another red shape (its own lobe, a red X, a utility glyph, another icon)
+shares a blob with it, and that one circle slides onto the neighbour or
+straddles the lobe: it lands off the icon, or its interior holds the lobe
+and the inner gate drops it, while the icon's own ring passes the gates at
+its centre (`prototypes/enemy_proposal_funnel.py`). The search that gates
+first and proposes every peak (`minimap.icons(seed="peaks")`) finds those
+icons, and also rings the lobeless red-rimmed utility discs the off-centre
+circle had refused by luck. From 0.6.0 two changes follow:
+
+- `RING_LOBE`: a ring find needs a lobe past its ring
+  (`minimap.LOBE_MIN_FRAC`), which drops the discs.
+- `RING_SEED` "centroid+prior": the centroid's finds, plus the gated peaks
+  within `PRIOR_PX` * scale of an icon the last read frame (at most
+  `PRIOR_MS` before) accepted; such a find declares `rests_on: "prior"`.
+  The peaks everywhere added true false accepts past the lane's bar.
+
+Against T1d on 9acf02f98283 (pings reread, tag `pk1`) the lane went from
+[metric:teardrop_refusals/lane/b1@9acf02f98283#hits=2836] hits and
+[metric:teardrop_refusals/lane/b1@9acf02f98283#false_accepts=145] true false
+accepts to [metric:teardrop_refusals/lane/ep1@9acf02f98283#hits=2905] and
+[metric:teardrop_refusals/lane/ep1@9acf02f98283#false_accepts=118]; the lobe
+alone scored [metric:teardrop_refusals/lane/lb1@9acf02f98283#hits=2811] and
+[metric:teardrop_refusals/lane/lb1@9acf02f98283#false_accepts=108], the peaks
+everywhere with the lobe
+[metric:teardrop_refusals/lane/pk2@9acf02f98283#hits=2960] and
+[metric:teardrop_refusals/lane/pk2@9acf02f98283#false_accepts=175]. At the
+331 px widget the rim key itself stays the limit: on many missed icons the
+key holds under COV_MIN of the ring at its centre
+[domain:minimap/enemy-rim-faint-at-small-widget]. The 465 px matches are
+unmeasured.
+
 **The "?".** A red blob the X shape test rejects and no enemy icon covers,
 whose red run, walked back frame by frame, begins where an enemy icon ended:
 the icon's last frame lies at most `Q_SWAP_MS` before the run's first frame,
@@ -116,7 +149,10 @@ from .version import ALLY_PORTRAIT_FEATURES_VERSION, ENEMY_TEARDROP_VERSION, TEA
 #: the scaled base band (`minimap.icons(radii="inside")`): 6 to 8 px at the
 #: 331 px key's map scale (0.637), where 0.4.0 searched from 5 px. A 465 px
 #: key reads the rows 0.4.0 read.
-MINIMAP_OBJECT_BASE = "minimap-object-0.5.0"
+#: 0.6.0 (2026-10-07): the ring finds keep only those with a lobe past the
+#: ring (`RING_LOBE`), and beside an icon the last frame accepted the search
+#: also proposes the gated ring peaks (`RING_SEED` "centroid+prior").
+MINIMAP_OBJECT_BASE = "minimap-object-0.6.0"
 
 #: The switchable fixes, in stamp order.
 FIXES = ("teardrop_box", "slab_gate", "owner_gate")
@@ -156,6 +192,17 @@ Q_GONE_MS = 3300.0   # the measured gone time's maximum (3.28 s), rounded up
 Q_SWAP_MS = 200.0    # the icon's last frame lies this near the run's first
 PLACE_PX = 6.0       # a red blob at the "?"'s place, * scale
 GAP_FRAMES = 2       # frames the red run may miss
+
+#: The ring search's seed (`minimap.icons`): "centroid", one circle per red
+#: blob (to 0.5.0); "peaks", every gated peak of the ring score;
+#: "centroid+prior", the centroid's finds plus the peaks within `PRIOR_PX`
+#: of an icon the last read frame, at most `PRIOR_MS` before, accepted.
+RING_SEED = "centroid+prior"
+#: Keep only ring finds with a lobe past the ring (`minimap.LOBE_MIN_FRAC`,
+#: `icons(require_facing=True)`); off to 0.5.0.
+RING_LOBE = True
+PRIOR_PX = 10.0      # a peak this near a last-frame icon continues it, * scale
+PRIOR_MS = 250.0     # the last read frame is the prior this long
 
 REFUSALS = ("widget_not_drawn", "widget_shape")
 
@@ -227,7 +274,8 @@ def _owned(fixes, marks, pings, t_ms, x, y, scale,
 
 
 def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None = None,
-               turn: bool = False, t_ms: float | None = None) -> dict:
+               turn: bool = False, t_ms: float | None = None,
+               prior: list | None = None) -> dict:
     """One drawn frame: enemies, X marks, red blobs, refusals.
 
     `ctx` holds the baked `floor` and `slab` (`minimap.floor_mask`,
@@ -254,9 +302,22 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
     # alike: on 9acf02f98283 it adds hits and true false accepts together,
     # the latter past the lane's bar (`prototypes/one_transform_check.py`
     # ablation `rmin6`). The self and ally fits keep the nearest radii.
-    finds = minimap.icons(enemy_red_mask(crop), crop, floor, cov_min=COV_MIN,
-                          inner_max=INNER_RED_MAX, require_facing=False, support=slab,
-                          seed="centroid", scale=scale, radii="inside")
+    key = enemy_red_mask(crop)
+    seed = "centroid" if RING_SEED == "centroid+prior" else RING_SEED
+    finds = minimap.icons(key, crop, floor, cov_min=COV_MIN,
+                          inner_max=INNER_RED_MAX, require_facing=RING_LOBE, support=slab,
+                          seed=seed, scale=scale, radii="inside")
+    if RING_SEED == "centroid+prior" and prior:
+        # Continue the prior: the gated ring peaks within PRIOR_PX of an
+        # icon the last frame accepted, where no centroid find lies.
+        sep = minimap.MIN_ICON_SEPARATION_PX * scale
+        for d in minimap.icons(key, crop, floor, cov_min=COV_MIN, inner_max=INNER_RED_MAX,
+                               require_facing=RING_LOBE, support=slab, seed="peaks",
+                               scale=scale, radii="inside"):
+            if (any(math.hypot(d["cx"] - px, d["cy"] - py) <= PRIOR_PX * scale for px, py in prior)
+                    and not any(math.hypot(d["cx"] - g["cx"], d["cy"] - g["cy"]) < sep
+                                for g in finds)):
+                finds.append(dict(d, rests_on="prior"))
     for d in finds:
         ring = {"x": _rnd(d["cx"]), "y": _rnd(d["cy"]), "r": _rnd(d.get("r"))}
         f = teardrop.fit_icon(None, "enemy", d["cx"], d["cy"], scale=scale, key=red)
@@ -298,7 +359,8 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
             "facing_reason": "ambiguous_facing" if position_only else None,
             "tip": [_rnd(f["tip_x"]), _rnd(f["tip_y"])], "ncc": _rnd(f.get("ncc"), 3),
             "margin": _rnd(f.get("margin"), 3), "ring": ring, "slab_red_share": _rnd(share, 3),
-            "portrait_features": feats})
+            "portrait_features": feats,
+            **({"rests_on": "prior"} if d.get("rests_on") else {})})
     xr = []
     for q in marks["red"]:
         share, drop = _gate(fixes, red, slab, q["x"], q["y"], scale)
@@ -427,6 +489,7 @@ def read_times(ctx: dict, times, fixes: dict | None = None) -> list[dict]:
     cache = ctx["cache"]
     x0, y0, x1, y1 = ctx["rect"]
     frames = []
+    last_t, last = None, None
     for smp in cache.samples(sorted(float(t) for t in times), rois=["minimap"]):
         crop = smp.frame[y0:y1, x0:x1]
         row = {"kind": "frame", "t_ms": float(smp.t_ms), "frame_idx": int(smp.frame_idx)}
@@ -437,8 +500,11 @@ def read_times(ctx: dict, times, fixes: dict | None = None) -> list[dict]:
         else:
             seg = cache.widget.at(smp.t_ms) if cache.widget is not None else None
             turn = bool(seg) and int(seg.get("rotation", 0)) == 180
+            prior = (last if last_t is not None and float(smp.t_ms) - last_t <= PRIOR_MS
+                     else None)
             row.update(read_frame(crop, ctx, scale=ctx["icon_scale"], fixes=fixes, turn=turn,
-                                  t_ms=float(smp.t_ms)))
+                                  t_ms=float(smp.t_ms), prior=prior))
+            last_t, last = float(smp.t_ms), [(e["x"], e["y"]) for e in row["enemies"]]
         frames.append(row)
     frames.sort(key=lambda r: r["t_ms"])
     last_known(frames, ctx["icon_scale"])
@@ -468,7 +534,8 @@ def read_session(store, sid: str, fixes: dict | None = None) -> dict:
             "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION,
             "geometry_key": ctx["geometry_key"], "scale": ctx["scale"],
             "icon_scale": ctx["icon_scale"], "icon_scale_source": ctx["icon_scale_source"],
-            "parameters": {"COV_MIN": COV_MIN, "INNER_RED_MAX": INNER_RED_MAX, "RING": RING,
+            "parameters": {"RING_SEED": RING_SEED, "RING_LOBE": RING_LOBE,
+                           "COV_MIN": COV_MIN, "INNER_RED_MAX": INNER_RED_MAX, "RING": RING,
                            "X_OWN_PX": X_OWN_PX,
                            "TIP_PAD": TIP_PAD, "RED_SHARE": RED_SHARE, "ICON_PX": ICON_PX,
                            "PING_OWN_PX": PING_OWN_PX,

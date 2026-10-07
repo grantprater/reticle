@@ -123,3 +123,40 @@ class XBirthTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PriorSeedTests(unittest.TestCase):
+    """`centroid+prior`: the ring peaks are proposed only beside an icon the
+    last frame accepted, and the find declares that it rests on the prior."""
+
+    def read(self, prior):
+        from unittest.mock import patch
+
+        from reticle import minimap, teardrop
+
+        def icons(*a, seed, **k):
+            ring = lambda x, y: {"cx": x, "cy": y, "r": 9, "cov": 0.5, "inner": 0.0,
+                                 "inner_v": 100.0, "facing": 0.0, "lobe": 0.4, "area": 40}
+            return [] if seed == "centroid" else [ring(30.0, 30.0), ring(80.0, 80.0)]
+
+        def fit(_c, _cls, x, y, **k):
+            return {"read": True, "x": x, "y": y, "deg": 0.0, "tip_x": x + 8, "tip_y": y,
+                    "ncc": 0.7, "margin": 0.3}
+
+        ctx = {"floor": np.ones((100, 100), bool), "slab": np.ones((100, 100), bool),
+               "scale": 1.0}
+        with patch.object(mo, "RING_SEED", "centroid+prior"), \
+                patch.object(minimap, "icons", side_effect=icons), \
+                patch.object(teardrop, "fit_icon", side_effect=fit), \
+                patch.object(death, "minimap_x_marks",
+                             return_value={"red": [], "blue": [], "red_other": []}):
+            return mo.read_frame(np.zeros((100, 100, 3), np.uint8), ctx, scale=1.0,
+                                 prior=prior)["enemies"]
+
+    def test_no_prior_proposes_no_peak(self):
+        self.assertEqual(self.read(None), [])
+
+    def test_a_peak_beside_the_prior_is_kept_and_rests_on_it(self):
+        got = self.read([(32.0, 31.0)])
+        self.assertEqual([(e["x"], e["y"]) for e in got], [(30.0, 30.0)])
+        self.assertEqual(got[0]["rests_on"], "prior")

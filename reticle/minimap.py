@@ -974,6 +974,15 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     [metric:ally_ring_peaks/windows@a06f04a0059f#jump_rate_surface=0.0212], and
     none of the remaining jumps viewed was a lobe fit.
 
+    Both fit ONE circle per blob and gate it afterwards. `"peaks"` gates
+    first: each radius's coverage and interior share at every centre, every
+    peak of the passing coverage within `r_max` of a kept blob (`_peak_icons`),
+    so a blob holding an icon and a neighbouring red shape yields both. On
+    a sample of the enemy lane's `ring_unproposed` misses the centroid seed's
+    ring sat on the neighbour or straddled the lobe
+    (`prototypes/enemy_proposal_funnel.py`); the enemy search proposes these
+    peaks beside the last frame's icons (`minimap_objects.RING_SEED`).
+
     Returns a dict per icon: `cx`, `cy`, `r`, `cov`, `inner`, `facing` (degrees
     or None), `lobe`, `area`. Facing is in the same convention as
     `cone.raycast` -- 0 is +x and +90 is DOWN the image -- so it can be handed
@@ -1021,8 +1030,12 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
                          np.ones((_odd(3 * sc), _odd(3 * sc)), np.uint8))
     n, lbl, st, cen = cv2.connectedComponentsWithStats(m, 8)
     supported = None if support is None else set(np.unique(lbl[(m > 0) & support]))
-    if seed not in ("centroid", "surface"):
+    if seed not in ("centroid", "surface", "peaks"):
         raise ValueError(f"unknown seed {seed!r}")
+    if seed == "peaks":
+        return _peak_icons(keyed, grey, lbl, st, supported, min_area, r_min, r_max, sc,
+                           cov_min=cov_min, inner_max=inner_max, require_facing=require_facing,
+                           separation_px=separation_px, gates=gates)
     if seed == "surface":
         # The surface is read only within r_max of a kept blob, and a ring of
         # radius <= r_max there reads only pixels within 2*r_max of it. So it
@@ -1083,6 +1096,89 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     # self ring that is not always the fragment nearest the true centre. A
     # caller asking for PROPOSALS to score is not asking how many icons there
     # are, so it must be able to decline the answer this rule gives.
+    if not gates:
+        return sorted(found, key=lambda d: -d["cov"])
+    return _gated(found, sc, cov_min=cov_min, inner_max=inner_max,
+                  require_facing=require_facing, separation_px=separation_px)
+
+
+_DISC_KERNELS: dict[int, np.ndarray] = {}
+
+
+def _disc_kernel(r: int) -> np.ndarray:
+    """The interior disc `_ring_at` reads for radius `r`, each point 1 / their
+    count: `inner_red` everywhere at once. Built once per radius."""
+    k = _DISC_KERNELS.get(r)
+    if k is None:
+        _, d = _offsets(r)
+        k = np.zeros((2 * r + 1, 2 * r + 1), np.float32)
+        k[d[:, 1] + r, d[:, 0] + r] = 1.0 / len(d)
+        _DISC_KERNELS[r] = k
+    return k
+
+
+def _peak_icons(keyed, grey, lbl, st, supported, min_area, r_min, r_max, sc, *,
+                cov_min, inner_max, require_facing, separation_px, gates) -> list[dict]:
+    """`icons(seed="peaks")`: every local peak of the gated ring score, not
+    one circle per blob.
+
+    The centroid seed fits ONE circle per closed blob, the best-covered one
+    within `SEARCH` px of the centroid, and gates it afterwards. Where an
+    icon's key touches another red shape (its own filled lobe, a red X, a
+    utility glyph, another icon, a red floor fill) the blob is shared, and
+    that one circle slides onto the neighbour or straddles the lobe: it lands
+    off the icon, or its interior holds the lobe and the inner gate drops it,
+    and the icon's own ring, which the arc coverage at its centre would pass,
+    is never fitted (`prototypes/enemy_proposal_funnel.py`). Here each radius
+    scores circumference coverage and interior keyed share at every centre
+    (`coverage_surface`'s kernel, and `_disc_kernel`), a centre is kept for
+    a radius only where both gates pass, and every 3x3 peak of the best
+    passing coverage, within `r_max` of a kept blob, is a candidate; each is
+    measured exactly by `_ring_at` and `_gated` then keeps the best-covered
+    one within the separation, as for the other seeds. Gating before
+    choosing is the change: a straddling circle no longer hides the icon.
+    """
+    n = st.shape[0]
+    keep = st[:, 4] >= min_area
+    keep[0] = False
+    if supported is not None:
+        keep &= np.isin(np.arange(n), np.fromiter(supported, int, len(supported)))
+    if not keep.any():
+        return []
+    blob = keep[lbl]
+    lab = np.where(blob, lbl, 0).astype(np.float32)
+    grow = np.ones((2 * r_max + 1, 2 * r_max + 1), np.uint8)
+    reach = cv2.dilate(blob.astype(np.uint8), grow) > 0
+    owner = cv2.dilate(lab, grow).astype(np.int64)
+    kf = keyed.astype(np.float32)
+    best = np.full(kf.shape, -1.0, np.float32)
+    rad = np.zeros(kf.shape, np.int32)
+    with step("coverage"):
+        for r in range(r_min, r_max + 1):
+            c = cv2.filter2D(kf, -1, _ring_kernel(r), borderType=cv2.BORDER_CONSTANT)
+            if gates:
+                inner = cv2.filter2D(kf, -1, _disc_kernel(r), borderType=cv2.BORDER_CONSTANT)
+                # float32 sums of 1/count: a hair under the exact share
+                c = np.where((c >= cov_min - 1e-4) & (inner <= inner_max + 1e-4), c, -1.0)
+            up = c > best
+            best[up], rad[up] = c[up], r
+    best = np.where(reach, best, -1.0)
+    peak = (best > 0) & (best >= cv2.dilate(best, np.ones((3, 3), np.uint8)))
+    found: list[dict] = []
+    for y, x in zip(*np.nonzero(peak)):
+        f = _ring_at(keyed, grey, None, int(x), int(y), int(rad[y, x]))
+        if f is None:
+            continue
+        pts, _ = _offsets(int(rad[y, x]))
+        xs, ys = x + pts[:, 0], y + pts[:, 1]
+        ok = (xs >= 0) & (ys >= 0) & (xs < keyed.shape[1]) & (ys < keyed.shape[0])
+        if ok.sum() < len(pts) * 0.75:
+            continue
+        cov = float(keyed[ys[ok], xs[ok]].mean())
+        found.append({"cx": float(x), "cy": float(y), "r": int(rad[y, x]), "cov": cov,
+                      "inner": float(f["inner_red"]), "inner_v": float(f["inner_v"]),
+                      "facing": f["facing"], "lobe": float(f["lobe"]),
+                      "area": int(st[owner[y, x], 4])})
     if not gates:
         return sorted(found, key=lambda d: -d["cov"])
     return _gated(found, sc, cov_min=cov_min, inner_max=inner_max,

@@ -1090,11 +1090,13 @@ class), drawing the X marks (`death-victim`: `minimap_x_marks`, read in the
 same pass), joining icons across frames (`enemy-track-session`) or naming
 them (`agent-identity`). It stores each enemy's portrait features for the
 arbiter and names nobody. Its two fixes, `teardrop_box` and `slab_gate`, are
-each switchable and part of the stamp.
+each switchable and part of the stamp. The last read frame's accepted icons
+seed its ring search (`RING_SEED` "centroid+prior"); a find that prior
+placed declares `rests_on: "prior"`, and no icon is joined to another.
 """
 defers_to = ["icon-pose", "death-victim", "widget-drawn"]
 consumers = ["cli"]
-evidence = "tests/test_minimap_objects.py, prototypes/enemy_lane_bounds.py, prototypes/enemy_lane_score.py"
+evidence = "tests/test_minimap_objects.py, prototypes/enemy_lane_bounds.py, prototypes/enemy_lane_score.py, prototypes/enemy_proposal_funnel.py"
 
 [[entry]]
 id = "last-known-mark"
