@@ -235,13 +235,12 @@ LIFE_TOL_S = 1.0
 #: `sample_multi` keeps phase as a next-timestamp, so consecutive samples
 #: already scatter either side of 1/hz.
 GAP_PERIODS = 2.5
-#: A danger run may skip this long (s): the pulse whitens the triangle for
-#: 0.2-0.33 s every 0.68 s (9acf02f98283, 676.3-685.9 s, cached at 15 Hz), so
-#: the gap stays under the period and far below the 10 s life.
+#: A danger run may skip this long (s): the gap stays under the pulse's
+#: period [domain:minimap/danger-ping-flash] and far below its `LIFETIME_S`.
 DANGER_GAP_S = 0.5
 #: A danger run's frames must cover this share of its span (seen: 0.65-0.7).
 DANGER_COVER_MIN = 0.5
-#: The longest whitening seen (s), 0.2-0.33 s per flash on the same ping.
+#: The longest whitening seen (s) [domain:minimap/danger-ping-flash].
 DANGER_FLASH_S = 0.33
 
 

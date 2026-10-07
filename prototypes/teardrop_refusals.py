@@ -22,6 +22,12 @@ candidate the teardrop refused as `no_ring` or `low_ncc`.
   events written to `OUT/TAG/ping/SESSION.jsonl`, never to the store.
 * `reread ... --pings TAG` and `score ... --pings TAG` -- read the owner gate's
   pings, and class the extras, from that reread instead of the stored stream.
+* `reread ... --ping-own-px R` and `reread ... --no-owner-gate` -- the ping
+  gate's reach set to R base px (the head records it), or the gate off.
+* `gate --off TAG --tags A,B` -- per match, the real enemies (T1d hits) and
+  the true false accepts each gated tag removed against the gate-off tag,
+  and the base-px distance each `owned_by_ping` refusal links to its ping,
+  split by whether a T1d miss names it.
 * `compare --tags A,B` -- the table over the three development matches.
 * `sheet --tags A,B` -- a before/after contact sheet of misses recovered.
 
@@ -75,7 +81,9 @@ sys.path.insert(0, str(HERE))
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
 #: 0.2.0 (task teardrop-confusers-20261007): `pings`, `--pings`.
-VERSION = "teardrop-refusals-0.2.0"
+#: 0.3.0 (task teardrop-review-fixes-20261007): `--ping-own-px`,
+#: `--no-owner-gate`, `gate`.
+VERSION = "teardrop-refusals-0.3.0"
 TASK = "teardrop-refusals-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / TASK
@@ -177,9 +185,11 @@ def pings(sid: str, tag: str) -> int:
     return 0
 
 
-def reread(sid: str, tag: str, ptag: str | None = None) -> int:
+def reread(sid: str, tag: str, ptag: str | None = None, ping_own_px: float | None = None,
+           owner_gate: bool = True) -> int:
     """`minimap_objects.read_session` from the roi_cache into OUT/tag; with
-    `ptag`, the owner gate reads that `pings` reread."""
+    `ptag`, the owner gate reads that `pings` reread; `ping_own_px` sets the
+    ping gate's reach (base px), `owner_gate` False turns the gate off."""
     from reticle import minimap_objects as mo
     from reticle.store import Store
 
@@ -188,7 +198,9 @@ def reread(sid: str, tag: str, ptag: str | None = None) -> int:
         raise SystemExit("`stored` names the store's own stream; pick another tag")
     t0 = time.perf_counter()
     store = Store(STORE) if ptag is None else _PingStore(Store(STORE), ptag)
-    res = mo.read_session(store, sid)
+    if ping_own_px is not None:
+        mo.PING_OWN_PX = float(ping_own_px)
+    res = mo.read_session(store, sid, dict(mo.ENABLED, owner_gate=owner_gate))
     if "skipped" in res:
         raise SystemExit(f"{sid}: {res['skipped']}")
     head = res["rows"][0]
@@ -375,6 +387,91 @@ def score(sid: str, tag: str, write: bool = True, ptag: str | None = None) -> di
           flush=True)
     print("   extras by class", out["extras_by_class"], flush=True)
     return out
+
+
+def gate(off: str, tags: list[str], write: bool = True) -> int:
+    """The ping gate's cost and gain per gated tag against the gate-off tag
+    `off`, each scored first (`score`): the real enemies it refused (T1d hits
+    lost) and the true false accepts it removed, with the base-px distance
+    each `owned_by_ping` refusal links to its ping, split by whether a T1d
+    miss in its frame names a ping refusal (the nearest to the miss's place)."""
+    from reticle.metrics import record as rec
+
+    pooled = {}
+    for sid in DEV:
+        p0 = OUT / off / f"score_{sid}.json"
+        if not p0.is_file():
+            print(f"{sid} {off}: not scored")
+            continue
+        s0 = json.loads(p0.read_text(encoding="utf-8"))
+        for tag in tags:
+            pt = OUT / tag / f"score_{sid}.json"
+            if not pt.is_file():
+                print(f"{sid} {tag}: not scored")
+                continue
+            st = json.loads(pt.read_text(encoding="utf-8"))
+            head, refs = None, {}
+            for line in rows_path(tag, sid).open(encoding="utf-8"):
+                r = json.loads(line)
+                if head is None:
+                    head = r
+                    continue
+                pr = [x for x in r.get("refused", []) if x.get("cls") == "ping"]
+                if pr:
+                    refs[r["frame_idx"]] = pr
+            isc = float(head["icon_scale"])
+            reach = head["parameters"].get("PING_OWN_PX", head["parameters"]["ICON_PX"])
+            real = set()
+            for line in (OUT / tag / f"sets_{sid}.jsonl").open(encoding="utf-8"):
+                r = json.loads(line)
+                if r["set"] != "miss" or not any(t.startswith("ping:owned_by_ping") for t in r["near"]):
+                    continue
+                pr = refs.get(r["frame_idx"], [])
+                if pr:
+                    q = min(range(len(pr)), key=lambda i: math.hypot(pr[i]["x"] - r["px"][0],
+                                                                     pr[i]["y"] - r["px"][1]))
+                    real.add((r["frame_idx"], q))
+            d_real, d_other = [], []
+            for fi, pr in refs.items():
+                for q, x in enumerate(pr):
+                    d = (x.get("evidence") or [{}])[0].get("d_px")
+                    if d is not None:
+                        ((d_real if (fi, q) in real else d_other)).append(d / isc)
+            out = {"session": sid, "tag": tag, "off": off, "reach_base_px": reach,
+                   "refused_real": s0["hits"] - st["hits"],
+                   "removed_false": s0["false_accepts"] - st["false_accepts"],
+                   "hit_rate": st["hit_rate"], "hit_rate_off": s0["hit_rate"],
+                   "ping_refusals": sum(len(v) for v in refs.values()),
+                   "d_real_base_px_p50": round(float(np.median(d_real)), 2) if d_real else None,
+                   "d_other_base_px_p50": round(float(np.median(d_other)), 2) if d_other else None,
+                   "d_other_base_px_p90": round(float(np.percentile(d_other, 90)), 2) if d_other else None,
+                   "n_real_linked": len(d_real), "n_other": len(d_other)}
+            print(json.dumps(out), flush=True)
+            pl = pooled.setdefault(tag, {"refused_real": 0, "removed_false": 0, "reach": reach,
+                                         "sessions": []})
+            pl["refused_real"] += out["refused_real"]
+            pl["removed_false"] += out["removed_false"]
+            pl["sessions"].append(sid)
+            if write:
+                vals = {k: v for k, v in out.items()
+                        if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                rec("teardrop_refusals", part=f"gate/{tag}", session=sid, values=vals,
+                    deps={"version": VERSION, "rule": "T1d", "off": off,
+                          "minimap_object_version": st["minimap_object_version"]},
+                    context={"task": TASK},
+                    note="the ping gate's cost (T1d hits lost) and gain (true false accepts "
+                         "removed) against the gate-off reread; distances from the refusals' links")
+    for tag, pl in pooled.items():
+        print(f"pooled {tag} (reach {pl['reach']} base px): refused_real {pl['refused_real']}, "
+              f"removed_false {pl['removed_false']} over {pl['sessions']}", flush=True)
+        if write and len(pl["sessions"]) == len(DEV):
+            rec("teardrop_refusals", part=f"gate/{tag}", session="dev3",
+                values={"refused_real": pl["refused_real"], "removed_false": pl["removed_false"],
+                        "reach_base_px": pl["reach"]},
+                deps={"version": VERSION, "rule": "T1d", "off": off},
+                context={"task": TASK, "sessions": pl["sessions"]},
+                note="the ping gate summed over the three development matches")
+    return 0
 
 
 def compare(tags: list[str]) -> int:
@@ -566,6 +663,12 @@ def main(argv=None) -> int:
     p.add_argument("sessions", nargs="+")
     p.add_argument("--tag", required=True)
     p.add_argument("--pings", help="the owner gate reads this `pings` reread")
+    p.add_argument("--ping-own-px", type=float, help="the ping gate's reach, base px")
+    p.add_argument("--no-owner-gate", action="store_true", help="turn the owner gate off")
+    p = sub.add_parser("gate")
+    p.add_argument("--off", required=True, help="the gate-off tag")
+    p.add_argument("--tags", required=True)
+    p.add_argument("--no-record", action="store_true")
     p = sub.add_parser("score")
     p.add_argument("sessions", nargs="+")
     p.add_argument("--tag", required=True)
@@ -587,8 +690,10 @@ def main(argv=None) -> int:
         return 0
     if a.cmd == "reread":
         for s in a.sessions:
-            reread(s, a.tag, a.pings)
+            reread(s, a.tag, a.pings, a.ping_own_px, not a.no_owner_gate)
         return 0
+    if a.cmd == "gate":
+        return gate(a.off, a.tags.split(","), not a.no_record)
     if a.cmd == "score":
         for s in a.sessions:
             score(s, a.tag, ptag=a.pings)

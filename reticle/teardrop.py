@@ -161,6 +161,13 @@ def render(dx, dy, th, r_in=R_IN, r_out=R_OUT, L_=L, edge=EDGE):
     return np.clip(0.5 - d / edge, 0.0, 1.0)
 
 
+def render_ring(dx, dy, r_in=R_IN, r_out=R_OUT, edge=EDGE):
+    """`render`'s ring alone: the annulus `[r_in, r_out]` softened by `edge`,
+    with no lobe, at offsets (dx, dy) from the centre (`lobe_gain`'s model)."""
+    rho = np.hypot(dx, dy)
+    return np.clip(0.5 - np.maximum(rho - r_out, r_in - rho) / edge, 0.0, 1.0)
+
+
 def _correlation(obs, model):
     """Normalised correlation of `obs` (P,) with each model row (..., P)."""
     o = obs - obs.mean()
@@ -774,15 +781,16 @@ def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: f
 def lobe_gain(key: np.ndarray, x: float, y: float, deg: float, r_in: float, r_out: float,
               L_: float, scale: float) -> float:
     """The teardrop's NCC at `(x, y, deg)` less a ring-only silhouette's (the
-    same render with the apex at `r_out`, so no lobe), over the window the fit
-    scores. A Cypher cam and an enemy utility disc are rings with no lobe
-    (`minimap._facing_from`); an agent icon's lobe adds what the ring cannot
-    explain. Both silhouettes are rendered in one broadcast."""
+    plain annulus `[r_in, r_out]`, softened by the same edge), over the window
+    the fit scores. A Cypher cam and an enemy utility disc are rings with no
+    lobe (`minimap._facing_from`); an agent icon's lobe adds what the ring
+    cannot explain. Both silhouettes are rendered in one broadcast."""
     px, py, obs = _window(key, x, y, L_ + WINDOW * scale)
     th = np.float64(math.radians(deg))
     dx, dy = px - x, py - y
-    models = np.stack([render(dx, dy, th, r_in, r_out, L_, EDGE * scale),
-                       render(dx, dy, th, r_in, r_out, r_out, EDGE * scale)])
+    edge = EDGE * scale
+    models = np.stack([render(dx, dy, th, r_in, r_out, L_, edge),
+                       render_ring(dx, dy, r_in, r_out, edge)])
     tear, ring = _correlation(obs, models)
     return float(tear - ring)
 

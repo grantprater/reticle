@@ -74,6 +74,26 @@ class RecordedStampTests(unittest.TestCase):
             _stream_row(store, "tray_kit", _declared_head("tray_kit"))
             self.assertIn("tray_kit", _derived(store)["ability_state"]["inputs_moved"])
 
+    def test_minimap_object_over_no_pings_is_stale_once_pings_are_written(self):
+        """The owner gate abstains with no ping stream and records `no_rows`,
+        not None (not read), so `plan` follows the pings once they appear."""
+        from reticle import minimap_objects as mo
+        from reticle.version import PING_VERSION
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events.pop("ping", None)
+            _, _, stamp = mo.stored_pings(store, "s")
+            self.assertEqual(stamp, input_stamps.NO_ROWS)
+            head = _declared_head("minimap_object")
+            head["inputs"] = {"ping": stamp}
+            _stream_row(store, "minimap_object", head)
+            self.assertNotIn("minimap_object", _derived(store))
+            store.events["ping"] = [{"v": PING_VERSION}]
+            store.events["ping:rows"] = [{"event_kind": "entity_state", "entity_id": "p0",
+                                          "t_ms": 0, "position": [1.0, 2.0],
+                                          "producer_version": PING_VERSION}]
+            self.assertIn("ping", _derived(store)["minimap_object"]["inputs_moved"])
+
     def test_the_lifetimes_cache_misses_where_plan_lists_round_entity(self):
         """H3: `reticle lifetimes` kept its cache over a roster, HUD, menu or
         self-icon change its key left out, so the command plan printed did

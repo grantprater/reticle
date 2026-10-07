@@ -69,7 +69,7 @@ class OwnerGateTests(unittest.TestCase):
 
     def test_the_gate_scales_with_the_widget(self):
         none = {"red": [], "blue": [], "red_other": []}
-        d = mo.ICON_PX * 0.71 + 0.5          # past the scaled radius, inside the base one
+        d = mo.PING_OWN_PX * 0.71 + 0.5      # past the scaled radius, inside the base one
         self.assertIsNone(mo._owned(mo.ENABLED, none, self.pings, 2000.0, 100.0 + d, 100.0, 0.71))
         self.assertEqual(mo._owned(mo.ENABLED, none, self.pings, 2000.0, 100.0 + d, 100.0, 1.0)[0], "ping")
 
@@ -86,14 +86,28 @@ class OwnerGateTests(unittest.TestCase):
                          "position": [5.0, 6.0], "producer_version": "ping-0.1.0"},
                         {"event_kind": "entity_deleted", "entity_id": "ping:danger:0", "t_ms": 10100,
                          "producer_version": "ping-0.1.0"}]
-        arr, stamp = mo.stored_pings(_S(), "x")
+        arr, ids, stamp = mo.stored_pings(_S(), "x")
         self.assertEqual(stamp, "ping-0.1.0")
         self.assertEqual(arr.tolist(), [[100.0, 10100.0, 5.0, 6.0]])
+        self.assertEqual(ids, ["ping:danger:0"])
 
         class _E:
             def read_events(self, kind, sid):
                 return []
-        self.assertEqual(mo.stored_pings(_E(), "x"), (None, None))
+        from reticle.input_stamps import NO_ROWS
+        self.assertEqual(mo.stored_pings(_E(), "x"), (None, None, NO_ROWS))
+
+    def test_the_ping_gate_reaches_the_glyph_not_the_icon_and_links_its_ping(self):
+        none = {"red": [], "blue": [], "red_other": []}
+        ids = ["ping:danger:7"]
+        got = mo._owned(mo.ENABLED, none, self.pings, 2000.0, 105.0, 100.0, 1.0, ids)
+        self.assertEqual(got[0], "ping")
+        self.assertEqual(got[2], [{"stream": "ping", "entity_id": "ping:danger:7", "d_px": 5.0}])
+        self.assertLess(mo.PING_OWN_PX, mo.ICON_PX)
+        d = 0.5 * (mo.PING_OWN_PX + mo.ICON_PX)   # inside an icon's radius, off the glyph
+        self.assertIsNone(mo._owned(mo.ENABLED, none, self.pings, 2000.0, 100.0 + d, 100.0, 1.0, ids))
+        x_got = mo._owned(mo.ENABLED, self.marks, None, 2000.0, 52.0, 51.0, 1.0)
+        self.assertIsNone(x_got[2])
 
 
 class LobeTests(unittest.TestCase):
@@ -102,8 +116,25 @@ class LobeTests(unittest.TestCase):
     def _key(self, L_):
         c = teardrop.ICON_CLASSES["enemy"]
         yy, xx = np.mgrid[0:60, 0:60].astype(np.float32)
+        if L_ is None:                       # a lobeless ring
+            return teardrop.render_ring(xx - 30.0, yy - 29.0, c.r_in, c.r_out,
+                                        teardrop.EDGE).astype(np.float32)
         return teardrop.render(xx - 30.0, yy - 29.0, np.float32(math.radians(40.0)),
                                c.r_in, c.r_out, L_, teardrop.EDGE).astype(np.float32)
+
+    def test_the_ring_model_holds_no_mass_outside_the_annulus(self):
+        """`lobe_gain`'s ring-only model: rendering the teardrop with its apex
+        at `r_out` drew a tangent stripe outside the ring."""
+        c = teardrop.ICON_CLASSES["enemy"]
+        yy, xx = np.mgrid[-30:31, -30:31].astype(np.float64)
+        e = teardrop.EDGE
+        ring = teardrop.render_ring(xx, yy, c.r_in, c.r_out, e)
+        rho = np.hypot(xx, yy)
+        outside = (rho > c.r_out + e / 2) | (rho < c.r_in - e / 2)
+        self.assertEqual(float(ring[outside].sum()), 0.0)
+        self.assertGreater(float(ring[~outside].sum()), 0.0)
+        old = teardrop.render(xx, yy, np.float64(0.7), c.r_in, c.r_out, c.r_out, e)
+        self.assertGreater(float(old[outside].sum()), 0.0)   # the stripe the fix removes
 
     def test_a_teardrop_reads_with_a_positive_lobe_gain(self):
         f = teardrop.fit_icon(None, "enemy", 31.0, 30.0, key=self._key(18.0))
@@ -111,8 +142,7 @@ class LobeTests(unittest.TestCase):
         self.assertGreater(f["lobe_gain"], 0.1)
 
     def test_a_ring_with_no_lobe_is_refused_as_no_lobe(self):
-        c = teardrop.ICON_CLASSES["enemy"]
-        f = teardrop.fit_icon(None, "enemy", 31.0, 30.0, key=self._key(c.r_out))
+        f = teardrop.fit_icon(None, "enemy", 31.0, 30.0, key=self._key(None))
         self.assertFalse(f["read"])
         self.assertEqual(f["reason"], "no_lobe")
         self.assertLessEqual(f["lobe_gain"], 0.0)

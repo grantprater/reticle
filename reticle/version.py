@@ -660,7 +660,9 @@ ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
 # `min_ring`; the hard bin cut refused pale enemy rings as `no_ring`. A fit whose
 # teardrop explains the key no better than a ring alone is `no_lobe` (an enemy
 # utility disc). The reader passes the icon scale, base x widget x map zoom.
-ENEMY_TEARDROP_VERSION = "enemy-teardrop-0.2.0"
+# 0.3.0 (2026-10-07): the lobe test's ring-only model is the plain annulus;
+# 0.2.0 rendered a teardrop with its apex at r_out, which drew a tangent stripe.
+ENEMY_TEARDROP_VERSION = "enemy-teardrop-0.3.0"
 # The prior rule over `fit_icon` (`teardrop.IconPoseReader` given a frame index):
 # which earlier fit an icon continues (`PRIOR_PX`, `PRIOR_GAP_MS`), the local grid
 # (`LOCAL_PX`, `LOCAL_DEG`), the surprises that run the full grid, and the audit
