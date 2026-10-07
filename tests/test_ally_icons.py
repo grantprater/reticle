@@ -381,3 +381,32 @@ class SurfaceSeedTests(unittest.TestCase):
         crop = self.crop()
         with self.assertRaises(ValueError):
             icons(ally_mask(crop), crop, np.ones((W, W), bool), seed="guess")
+
+
+class RadiusBandTests(unittest.TestCase):
+    """At the 331 px key's map scale (0.637) the base band [8, 13] spans
+    5.1 to 8.3 px: `nearest` searches from 5 px, `inside` from 6 px."""
+
+    SCALE = 0.637
+
+    def fits(self, radii):
+        from reticle.minimap import icons
+
+        crop = np.full((80, 80, 3), 128, np.uint8)
+        yy, xx = np.ogrid[:80, :80]
+        d2 = (xx - 40) ** 2 + (yy - 40) ** 2
+        mask = (d2 <= 6 ** 2) & (d2 >= 4 ** 2)        # a ring of radius 5
+        return icons(mask, crop, np.ones((80, 80), bool), cov_min=0.0, inner_max=1.0,
+                     require_facing=False, gates=False, scale=self.SCALE, radii=radii)
+
+    def test_nearest_rings_the_five_pixel_icon(self):
+        self.assertIn(5, [round(f["r"]) for f in self.fits("nearest")])
+
+    def test_inside_searches_no_radius_below_the_band(self):
+        got = self.fits("inside")
+        self.assertTrue(got)
+        self.assertTrue(all(f["r"] >= 6 for f in got))
+
+    def test_an_unknown_band_rule_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.fits("outside")

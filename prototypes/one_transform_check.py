@@ -55,8 +55,8 @@ sys.path.insert(0, str(HERE.parent))
 
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-#: 0.2.0: `ablate`.
-VERSION = "one-transform-check-0.2.0"
+#: 0.2.0: `ablate`. 0.3.0: `truth` carries round-bootstrap intervals (`boot`).
+VERSION = "one-transform-check-0.3.0"
 TASK = "one-transform-readers-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / TASK
@@ -207,9 +207,13 @@ def summarise(rows: list[dict]) -> dict:
     return out
 
 
-def record_metrics() -> int:
+def record_metrics(tags: list[str] | None = None) -> int:
+    """The ledger rows; with `tags`, only those tags' `truth` files."""
     from reticle.metrics import record as rec
 
+    if tags:
+        return _record_truth(rec, [OUT / f"truth_{t}_{sid}.json" for t in tags
+                                   for sid in ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")])
     table = json.loads((OUT / "facing.json").read_text(encoding="utf-8"))
     for name, d in table["sets"].items():
         for tag in ("widget", "map"):
@@ -242,22 +246,33 @@ def record_metrics() -> int:
                         "in_rounds_ci_hi": e["in_rounds_ci"][1], "scale": e["scale"]},
                 deps={"version": VERSION, "minimap_dark_version": d["minimap_dark_version"]},
                 context={"task": TASK}, note="adjudication.smokes.tracks over stored minimap_dark")
-    for f in sorted(OUT.glob("truth_*.json")):
-        d = json.loads(f.read_text(encoding="utf-8"))
-        s_, fa = d["self"], d["facing_ally_ally_icon"]
-        rec("one_transform_check", part=f"truth/{d['tag']}", session=d["session"],
-            values={"self_fits": s_["self_fits"], "self_recall": s_["recall"],
-                    "self_err_px_median": s_["err_px"]["median"],
-                    "self_err_px_p90": s_["err_px"]["p90"],
-                    "self_err_cm_median": s_["err_cm"]["median"],
-                    "ally_facing_n": fa["n"], "ally_facing_err_median": fa["err_deg"]["median"],
-                    "ally_facing_flip_share": fa["flip_share"]},
-            deps={"version": VERSION, **(d.get("ally_icon_stamp") or {})},
-            context={"task": TASK}, note="replay_truth.score over a reticle trial ally_icon reread")
+    _record_truth(rec, sorted(OUT.glob("truth_*.json")))
     if "tip_ratio_331_over_465" in table:
         rec("one_transform_check", part="facing/tip_ratio", session="labels",
             values={"ratio": table["tip_ratio_331_over_465"]}, deps={"version": VERSION},
             context={"task": TASK}, note="median clicked tip-to-centre distance, 331 px sets over 465 px sets")
+    return 0
+
+
+def _record_truth(rec, files) -> int:
+    for f in files:
+        if not f.is_file():
+            continue
+        d = json.loads(f.read_text(encoding="utf-8"))
+        s_, fa = d["self"], d["facing_ally_ally_icon"]
+        vals = {"self_fits": s_["self_fits"], "self_recall": s_["recall"],
+                "self_err_px_median": s_["err_px"]["median"],
+                "self_err_px_p90": s_["err_px"]["p90"],
+                "self_err_cm_median": s_["err_cm"]["median"],
+                "ally_facing_n": fa["n"], "ally_facing_err_median": fa["err_deg"]["median"],
+                "ally_facing_flip_share": fa["flip_share"]}
+        for k in ("self_recall_ci", "self_err_px_median_ci", "ally_facing_err_median_ci"):
+            if k in (d.get("boot") or {}):
+                vals[f"{k}_lo"], vals[f"{k}_hi"] = d["boot"][k]
+        rec("one_transform_check", part=f"truth/{d['tag']}", session=d["session"],
+            values=vals,
+            deps={"version": VERSION, **(d.get("ally_icon_stamp") or {})},
+            context={"task": TASK}, note="replay_truth.score over a reticle trial ally_icon reread")
     return 0
 
 
@@ -288,16 +303,100 @@ def truth(sid: str, rows_dir: str, tag: str) -> int:
         raise SystemExit(f"{sid}: the held-out match is never read by this task")
     _Redirect.target = Path(rows_dir) / "events" / "ally_icon"
     rt.STORE = _Redirect(STORE)
-    got = rt.score(sid)
+    seen: dict = {}
+
+    def grab(frame, event, _arg):
+        # The arrays the self and teammate-facing blocks are computed from,
+        # read off `score`'s and `ally_facing`'s frames as they return.
+        if event != "return":
+            return
+        co = frame.f_code
+        if co.co_name == "score" and co.co_filename.endswith("replay_truth.py"):
+            loc = frame.f_locals
+            if "e_self" in loc:
+                seen["self"] = {k: loc[k] for k in ("S_t", "m_", "me_live", "e_self", "gate")}
+        elif co.co_name == "ally_facing" and "ally_icon" in str(frame.f_locals.get("source", "")):
+            loc = frame.f_locals
+            ok2, h2 = loc["ok2"], loc["h2"]
+            seen["ally"] = {"t": np.asarray(loc["ft"])[ok2][h2], "err": np.asarray(loc["e2"])}
+
+    sys.setprofile(grab)
+    try:
+        got = rt.score(sid)
+    finally:
+        sys.setprofile(None)
     keep = {"tag": tag, "session": sid, "rows": rows_dir, "version": VERSION,
             "ally_icon_stamp": (got.get("stamps") or {}).get("ally_icon"),
             "self": got.get("self"), "frames": got.get("frames"),
-            "facing_ally_ally_icon": (got.get("facing") or {}).get("ally_ally_icon")}
+            "facing_ally_ally_icon": (got.get("facing") or {}).get("ally_ally_icon"),
+            "boot": _truth_boot(sid, seen)}
     OUT.mkdir(parents=True, exist_ok=True)
     p = OUT / f"truth_{tag}_{sid}.json"
     p.write_text(json.dumps(keep, indent=1, default=float), encoding="utf-8")
     print(json.dumps(keep, indent=1, default=float)[:4000])
     return 0
+
+
+def _wmedian_boot(vals, rid, idx, chunk: int = 200) -> list[float]:
+    """2.5th and 97.5th percentiles of the pooled median over round
+    resamples: each resample weights a value by its round's draw count."""
+    o = np.argsort(vals)
+    v, r = np.asarray(vals)[o], np.asarray(rid)[o]
+    meds = []
+    nr = idx.shape[1]
+    for a in range(0, idx.shape[0], chunk):
+        w = np.stack([np.bincount(row, minlength=nr) for row in idx[a:a + chunk]])[:, r]
+        c = np.cumsum(w, axis=1)
+        half = c[:, -1:] / 2.0
+        meds.append(v[np.argmax(c >= half, axis=1)])
+    m = np.concatenate(meds)
+    return [round(float(np.percentile(m, 2.5)), 3), round(float(np.percentile(m, 97.5)), 3)]
+
+
+def _truth_boot(sid: str, seen: dict, boot: int = 4000, seed: int = 20261007) -> dict:
+    """Round-level 95% bootstrap intervals for the self recall, the self
+    error median (px) and the teammates' facing error median (degrees). A
+    sample belongs to the stored round its capture time lies in; samples
+    outside every round are dropped from the interval (not the point)."""
+    from reticle.cli import _date_of
+    from reticle.store import Store
+
+    st = Store(STORE)
+    rounds = st.read_rounds(sid, _date_of(st.read_manifest(sid))).to_pylist()
+    edges = np.array([[r["t_start_ms"], r["t_end_ms"]] for r in rounds], float)
+
+    def round_of(t):
+        t = np.asarray(t, float)
+        j = np.searchsorted(edges[:, 0], t, side="right") - 1
+        ok = (j >= 0) & (t <= edges[np.clip(j, 0, None), 1])
+        return np.where(ok, j, -1)
+
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(rounds), (boot, len(rounds)))
+    out = {"rounds": len(rounds), "resamples": boot}
+    s = seen.get("self")
+    if s:
+        rid = round_of(s["S_t"])
+        live, m_ = np.asarray(s["me_live"], bool), np.asarray(s["m_"], bool)
+        e = np.asarray(s["e_self"], float)
+        hit = m_ & (e <= s["gate"])
+        inr = rid >= 0
+        num = np.bincount(rid[inr], weights=hit[inr], minlength=len(rounds))
+        den = np.bincount(rid[inr], weights=live[inr], minlength=len(rounds))
+        r = num[idx].sum(1) / np.maximum(den[idx].sum(1), 1)
+        out["self_recall_ci"] = [round(float(np.percentile(r, 2.5)), 4),
+                                 round(float(np.percentile(r, 97.5)), 4)]
+        sel = m_ & inr
+        out["self_err_px_median_ci"] = _wmedian_boot(e[sel], rid[sel], idx)
+        out["self_samples_outside_rounds"] = int((m_ & ~inr).sum())
+    a = seen.get("ally")
+    if a and len(a["err"]):
+        rid = round_of(a["t"])
+        e = np.asarray(a["err"], float)
+        sel = (rid >= 0) & np.isfinite(e)
+        out["ally_facing_err_median_ci"] = _wmedian_boot(e[sel], rid[sel], idx)
+        out["ally_facing_outside_rounds"] = int((rid < 0).sum())
+    return out
 
 
 PING_DIR = STORE / "analysis" / "teardrop-refusals-20261007"
@@ -448,7 +547,8 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("facing")
     p.add_argument("--json")
-    sub.add_parser("record")
+    p = sub.add_parser("record")
+    p.add_argument("--tags", help="record only these tags' truth files")
     p = sub.add_parser("truth")
     p.add_argument("session")
     p.add_argument("--rows", required=True)
@@ -476,7 +576,7 @@ def main(argv=None) -> int:
         return facing_table(a.json)
     if a.cmd == "truth":
         return truth(a.session, a.rows, a.tag)
-    return record_metrics()
+    return record_metrics(a.tags.split(",") if a.tags else None)
 
 
 if __name__ == "__main__":

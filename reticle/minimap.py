@@ -933,12 +933,20 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
           support: np.ndarray | None = None,
           separation_px: float | None = None,
           seed: str = "centroid", gates: bool = True,
-          grey: np.ndarray | None = None, scale: float | None = None) -> list[dict]:
+          grey: np.ndarray | None = None, scale: float | None = None,
+          radii: str = "nearest") -> list[dict]:
     """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
 
     `scale` is the session's `geometry.MapScale.scale`: the radii, the
     minimum area, the closing kernel and the separation are base values
     times it (`drawn_scale`; None, the widget's scale).
+
+    `radii` names the integer ring radii searched from the scaled base band
+    [R_MIN x scale, R_MAX x scale]: `"nearest"` rounds each end to the nearest
+    pixel, `"inside"` keeps only radii inside the band. They differ only where
+    an end lies past a half pixel: at the 331 px key's map scale (0.637) the
+    band starts at 5.1 px, which `"nearest"` searches from 5 px and
+    `"inside"` from 6 px.
 
     **`seed` decides where each blob's circle is searched for.** `"centroid"`
     searches +/-`SEARCH` px around the blob's centroid, and every self-position
@@ -984,14 +992,13 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     the margin as 90.1% outside the painting on this map.
     """
     sc = drawn_scale(crop.shape[1], scale)
-    # The integer radii searched lie inside the scaled base band
-    # [R_MIN * sc, R_MAX * sc]: rounding 5.1 px down to 5 at the 331 px key's
-    # map scale (0.637) let the enemy search ring blobs smaller than any icon
-    # and took the lane's true false accepts on 9acf02f98283 from 138 to 222
-    # (prototypes/one_transform_check.py ablation). At 465 px and at 0.712
-    # the band's ends round to the same radii either way.
-    r_min = max(3, int(np.ceil(R_MIN * sc - 1e-9)))
-    r_max = max(4, int(np.floor(R_MAX * sc + 1e-9)))
+    if radii == "inside":
+        r_min = max(3, int(np.ceil(R_MIN * sc - 1e-9)))
+        r_max = max(4, int(np.floor(R_MAX * sc + 1e-9)))
+    elif radii == "nearest":
+        r_min, r_max = max(3, int(round(R_MIN * sc))), max(4, int(round(R_MAX * sc)))
+    else:
+        raise ValueError(f"radii {radii!r} is neither 'nearest' nor 'inside'")
     if min_area is None:
         min_area = max(4, int(round(MIN_ICON_AREA * sc * sc)))
     keyed = mask & floor
