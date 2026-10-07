@@ -38,6 +38,10 @@ is the median over the swaps the reader check keeps (`_clean`), and
 `T1d_raw` takes the median over every swap, the registered design, which
 reader misses of still-drawn icons pull down.
 
+T1d draws enemy players only. Enemy-owned children that draw like players
+follow their own facts and are scored as their own class; a find on one is
+never an extra.
+
     python prototypes/t1_draw_rule.py smokes [MATCH ...]
     python prototypes/t1_draw_rule.py persist [SESSION ...]
     python prototypes/t1_draw_rule.py lane [SESSION ...] [--rules T1,T1a,...]

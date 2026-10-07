@@ -69,6 +69,13 @@ what "I rebuilt the geometry while my experiment read it" states.
   emits (enemy tracks, slot beliefs), scored per question against replay
   truth; a reader's own score is a diagnostic, never the bar. A new scorer
   extends the one harness (QUESTION_ACCEPTANCE B7), never adds a prototype.
+- **Replay truth covers every entity** (player, 2026-10-05, 2026-10-07). Score
+  each find against every entity the replay layer holds there and then:
+  players, every ability child of every mapped class, the spike and the ult
+  orbs. A find on another real entity is that entity's, never an `other` or a
+  false accept; a find on nothing is `nothing_there`; a find on an unmapped
+  actor is a coverage gap named by class. A scorer that reads only players
+  names each class it leaves out, and why.
 - **Fidelity follows the question** (player, 2026-10-04, 2026-10-06): process
   only the detail the use case's questions need, as an engine culls and
   lowers detail. Hold coarse beliefs by default; read at full

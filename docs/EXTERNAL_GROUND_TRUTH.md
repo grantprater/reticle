@@ -137,7 +137,10 @@ other:
   minimap tracks and teardrop facings at that frame;
 - credits: every round's `playerEconomies` against `economy.EconomyTracker`,
   replayed by `prototypes/riot_economy.py`; the rules it measured are domain
-  facts [domain:rounds/credit-ledger-rules].
+  facts [domain:rounds/credit-ledger-rules];
+- every minimap find (icons, glyphs, smokes, walls, the spike) against the
+  replay layer's entities of every mapped class at that frame, on replays
+  kept with a capture (AGENTS.md, "Replay truth covers every entity").
 
 Store disagreements beside agreements. The record is evidence about the match,
 never a reader's prior: a result it shaped declares `rests_on`.

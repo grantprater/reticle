@@ -16,7 +16,7 @@ kind = "rules"
 status = "live"
 since = "2026-09-26"
 eager = true
-budget_words = 1950
+budget_words = 2050
 
 [[document]]
 path = "docs/WORKING_MAP.md"

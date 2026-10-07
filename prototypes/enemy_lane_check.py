@@ -9,7 +9,8 @@ sight grid, joined to read `minimap_object` frames as
   capture-team player saw him within the last `P_MS`) with no stored enemy
   icon within `NEAR_CM` of his truth xy;
 * the extra set: stored enemy icons with no T1-drawn living enemy within
-  `NEAR_CM`;
+  `NEAR_CM`, and no live child of any class within the gate (pending
+  harness step 2);
 
 and characterises both from stored rows: the T1 condition (concurrent sight
 or the tail, ms since the last sight, which allies saw, their distance and
