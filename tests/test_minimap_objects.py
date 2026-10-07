@@ -20,7 +20,9 @@ class StampTests(unittest.TestCase):
                   mo.minimap_object_version({})}
         self.assertEqual(len(stamps), 4)
         self.assertTrue(mo.minimap_object_version({}).endswith("+nofix"))
-        self.assertEqual(mo.minimap_object_version(), on)       # both on by default
+        every = mo.minimap_object_version({f: True for f in mo.FIXES})
+        self.assertEqual(every, f"{mo.MINIMAP_OBJECT_BASE}+teardrop_box+slab_gate+owner_gate")
+        self.assertEqual(mo.minimap_object_version(), every)    # every fix on by default
 
 
 class GateTests(unittest.TestCase):

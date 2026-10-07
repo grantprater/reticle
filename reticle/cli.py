@@ -5064,6 +5064,8 @@ def cmd_minimap_objects(args) -> int:
         fixes["teardrop_box"] = False
     if args.no_slab_gate:
         fixes["slab_gate"] = False
+    if args.no_owner_gate:
+        fixes["owner_gate"] = False
     for sid in _sessions_arg(store, args):
         t0 = time.perf_counter()
         res = mo.read_session(store, sid, fixes)
@@ -6959,6 +6961,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="turn the teardrop box off (the stamp records it)")
     s.add_argument("--no-slab-gate", action="store_true",
                    help="turn the baked-slab red-share gate off (the stamp records it)")
+    s.add_argument("--no-owner-gate", action="store_true",
+                   help="turn the X-mark and ping owner gate off (the stamp records it)")
     s.add_argument("--out", help="write the rows to this file instead of the store")
     s.set_defaults(func=cmd_minimap_objects)
 

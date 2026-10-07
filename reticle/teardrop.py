@@ -645,6 +645,12 @@ class IconClass:
     min_ncc: float
     min_margin: float
     min_ring: float
+    #: Score each ring bin softly (`ring_cover(..., soft=True)`), cut once at
+    #: `min_ring`. Off, a bin counts only where its peak reaches the key's 0.5.
+    soft_ring: bool = False
+    #: Refuse as `no_lobe` where the teardrop's NCC at the fitted pose does not
+    #: exceed a ring-only silhouette's (`lobe_gain`); None: no such test.
+    min_lobe_gain: float | None = None
 
 
 #: Fitted by `prototypes/icon_teardrop.py --calibrate` on held-out minutes
@@ -656,8 +662,15 @@ ICON_CLASSES = {
     "ally": IconClass("ally", tealness, 8.5, 10.5, 19.0, 0.5, 0.05, 0.0),
     # 53 read detections: mean NCC 0.741, a ridge along r_in 7-7.5 for r_out
     # 10.5-11 and L 18-19. The ring gate refuses spawn barriers and red map
-    # fills, which the enemy ring fit takes for icons.
-    "enemy": IconClass("enemy", redness, 7.5, 10.5, 18.0, 0.5, 0.05, 0.4),
+    # fills, which the enemy ring fit takes for icons. It scores each bin
+    # softly (ENEMY_TEARDROP_VERSION 0.2.0): the enemy ring is pale where the
+    # capture's chroma blur spreads a 2-3 px ring, and a bin cut at the key's
+    # 0.5 refused plain enemy icons as `no_ring`.
+    # The lobe test (0.2.0) refuses a red ring with no lobe, an enemy
+    # utility disc, which the soft ring and the smaller icon scale admit: a
+    # ring-only silhouette explains its key as well as the teardrop does.
+    "enemy": IconClass("enemy", redness, 7.5, 10.5, 18.0, 0.5, 0.05, 0.4, soft_ring=True,
+                       min_lobe_gain=0.0),
 }
 MARGIN_DEG = 5.0      # facing grid for the ambiguity margin
 
@@ -704,6 +717,9 @@ def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: f
         low_ncc           the silhouette explains too little of the colour
         no_ring           under `min_ring` of the ring away from the lobe is
                           keyed: a spawn barrier or a red map fill
+        no_lobe           the teardrop explains the key no better than a
+                          ring alone (`lobe_gain` <= `min_lobe_gain`): a
+                          lobeless disc, such as an enemy utility icon
         ambiguous_facing  a facing 90 degrees or more away scores within
                           `min_margin`, so the lobe is not seen
         no_key            no keyed pixel near the detector's centre
@@ -738,21 +754,42 @@ def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: f
             f["outside_ncc"] = float(sc[rel > LOCAL_DEG].max())
     with step("ring_cover"):
         f["ring_cover"] = ring_cover(key, f["x"], f["y"], f["deg"], r_in, r_out,
-                                     pad=0.5 * scale)
+                                     pad=0.5 * scale, soft=c.soft_ring)
+    if c.min_lobe_gain is not None:
+        with step("lobe"):
+            f["lobe_gain"] = lobe_gain(key, f["x"], f["y"], f["deg"], r_in, r_out, L_, scale)
     f["read"] = True
     f.pop("reason", None)
     if f["ncc"] < c.min_ncc:
         f.update(read=False, reason="low_ncc")
     elif f["ring_cover"] < c.min_ring:
         f.update(read=False, reason="no_ring")
+    elif c.min_lobe_gain is not None and f["lobe_gain"] <= c.min_lobe_gain:
+        f.update(read=False, reason="no_lobe")
     elif f["margin"] < c.min_margin:
         f.update(read=False, reason="ambiguous_facing")
     return f
 
 
+def lobe_gain(key: np.ndarray, x: float, y: float, deg: float, r_in: float, r_out: float,
+              L_: float, scale: float) -> float:
+    """The teardrop's NCC at `(x, y, deg)` less a ring-only silhouette's (the
+    same render with the apex at `r_out`, so no lobe), over the window the fit
+    scores. A Cypher cam and an enemy utility disc are rings with no lobe
+    (`minimap._facing_from`); an agent icon's lobe adds what the ring cannot
+    explain. Both silhouettes are rendered in one broadcast."""
+    px, py, obs = _window(key, x, y, L_ + WINDOW * scale)
+    th = np.float64(math.radians(deg))
+    dx, dy = px - x, py - y
+    models = np.stack([render(dx, dy, th, r_in, r_out, L_, EDGE * scale),
+                       render(dx, dy, th, r_in, r_out, r_out, EDGE * scale)])
+    tear, ring = _correlation(obs, models)
+    return float(tear - ring)
+
+
 def ring_cover(key: np.ndarray, x: float, y: float, deg: float, r_in: float, r_out: float,
                n_bins: int = 36, away_deg: float = 60.0, min_key: float = 0.5,
-               pad: float = 0.5) -> float:
+               pad: float = 0.5, soft: bool = False) -> float:
     """Share of the ring's angular bins, away from the lobe, whose annulus is keyed.
 
     The ring is what a spawn barrier, a map fill or a stray glyph lacks: a
@@ -762,6 +799,12 @@ def ring_cover(key: np.ndarray, x: float, y: float, deg: float, r_in: float, r_o
     `[r_in - pad, r_out + pad]` within it reaches `min_key`. The brightest,
     not the mean: the teal ring is 1-2 px of a 3 px band whose inner edge is
     the portrait's dark rim.
+
+    `soft` scores each bin as its peak over `min_key`, clipped to 1, so the
+    caller's share gate is the only cut. The hard bin cut refused plain enemy
+    icons whose ring the chroma blur leaves pale: on 9acf02f98283 (331 px
+    widget) the refused rings' bin peaks sit at a median raw R - max(G, B)
+    of 31 against the cut's 40 (`prototypes/teardrop_refusals.py`).
     """
     h, w = key.shape
     R = int(math.ceil(r_out + 2 * pad))
@@ -780,6 +823,8 @@ def ring_cover(key: np.ndarray, x: float, y: float, deg: float, r_in: float, r_o
     peak = np.full(n_bins, -1.0)
     np.maximum.at(peak, b, v)
     used = peak >= 0
+    if soft:
+        return float(np.mean(np.clip(peak[used] / min_key, 0.0, 1.0)))
     return float(np.mean(peak[used] >= min_key))
 
 
