@@ -150,8 +150,10 @@ def _seg_disc(ax, ay, bx, by, cx, cy, r):
 
 # ----------------------------------------------------------------- the sets
 
-def build_sets(sid: str) -> dict:
-    """The miss and extra sets of one development match, with attributes."""
+def build_sets(sid: str, M=None) -> dict:
+    """The miss and extra sets of one development match, with attributes.
+    `M` (default `real_reader_schedule.RealMatch(sid)`) supplies the draw
+    rule through `M.drawn`; `t1_draw_rule` passes its own."""
     from reticle.line_of_sight import EYE_ABOVE_CENTRE_CM
     from reticle.replay_source import to_px
 
@@ -159,7 +161,7 @@ def build_sets(sid: str) -> dict:
     if sid not in DEV:
         raise SystemExit(f"{sid}: not a development match of this check")
     t0 = time.time()
-    M = rrs.RealMatch(sid)
+    M = M if M is not None else rrs.RealMatch(sid)
     E = M.enemy_reads()
     if E is None:
         raise SystemExit(f"{sid}: no minimap_object or enemy_track")
