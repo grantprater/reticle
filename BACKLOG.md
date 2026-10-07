@@ -7,7 +7,8 @@ Each open item carries an `Acceptance:` command and an `Evidence:` standard. Ear
 Standing rules: replays may fit reader parameters offline with scoring matches held out ([policy](docs/EXTERNAL_GROUND_TRUTH.md)); no full corpus rerun runs until training on the replay data is finished; fidelity follows the question (AGENTS.md), judged by QA5r3 against replay truth ([QUESTION_ACCEPTANCE.md](docs/QUESTION_ACCEPTANCE.md) section 7), with T1d as the draw rule. Split: development 9acf02f98283, c817691bcd15, d3dcfb182ab1; held-out cea8ecbc94ab (bd7efa02), scored once per version, never by a candidate that already failed.
 
 **1. Enemy lane, reader and belief.** The real enemy lane rarely places the killer, so join questions collapse on real reads (NOTES).
-- `minimap_objects`: propose candidates inside stacks; stop the teardrop refusing visible icons (`no_ring`, `low_ncc`), worst at widget scale 0.71; reject enemy utility and ping icons; stop the "?" witness taking an unread icon's pointer for a "?".
+- Finish the one transform: rerun `one-transform-rebased-20261007` (`023a4a8`, the search-radius fix) on the development matches, re-stamp, test, review and merge. The enemy lane's true false accepts on 9acf02f98283 must return within the bar (159); self and ally gains must hold with intervals. Then wire the X-mark input, `floor_mask`, `site_mask` and the occluder bake, and say whether `minimap_dark` rereads from the cache.
+- `minimap_objects` residuals after `4a71ffb`: pink X marks at 0.71 (the X classifier's tolerance), enemy utility discs and Reyna's Leer, each by its owner or a named per-ability cue; proposals inside stacks; `low_ncc` misses at scale 1.0; confirm `PING_OWN_PX` on the production ping-0.2.0 stream.
 - Then the reachable-set belief (`prototypes/coaching_belief.py`) as the enemy lane's carried state, so the killer holds a region at each death.
 Acceptance: `.\.venv\Scripts\python.exe prototypes\enemy_lane_check.py sets SESSION` rerun against T1d, plus `.\.venv\Scripts\python.exe prototypes\real_reader_schedule.py reach` on the development matches.
 Evidence: per match, the reader's share of misses and its extras against T1d; `join_death` accuracy on V15h against T1.
@@ -48,10 +49,10 @@ Evidence: each measurement's error against replay truth and the duel value it ke
 
 ## Completed
 
+- **`teardrop-review-fixes-20261007` (2026-10-07):** enemy icons read at the map's zoom, the ring scored softly with one cut, danger pings handed to the ping owner; 9acf02f98283's T1d hit rate 0.442 to 0.6313 (NOTES).
 - **`execution-questions-20261007` (2026-10-07):** [EXECUTION_QUESTIONS.md](docs/EXECUTION_QUESTIONS.md); placement, first-shot hit and counter-strafe carry duel value; shooting first does not.
 - **`t1-draw-rule-20261007` (2026-10-07):** T1d (measured persistence, both teams' smokes, no dead enemies) in `prototypes/t1_draw_rule.py`.
 - **`enemy-lane-check-20261007` (2026-10-07):** most T1-drawn misses are T1 errors; `prototypes/enemy_lane_check.py`.
 - **`real-reader-schedule-20261007` (2026-10-07):** `Vgate` passes QA5r3 post hoc; reach questions; `prototypes/real_reader_schedule.py`.
-- **`fidelity-principle-20261006` (2026-10-06):** the AGENTS.md rule; two precedents archived.
 
 Earlier entries: [10-07 archive](docs/archive/BACKLOG-through-2026-10-07.md).
