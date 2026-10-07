@@ -49,10 +49,9 @@ from the rows and not assumed.
 **The portrait sits at the teardrop's centre.** The ring fit finds the icon
 (`cx`, `cy`) and its centre sits a few pixels toward the icon's lobe. The
 portrait is cut, aligned and tested for overlap at the self teardrop's centre
-(`x`, `y`, `teardrop.SelfConeReader`) where the shape reads on a 465 px
-widget, and at the ring fit's otherwise; `origin` names which and
-`origin_reason` says why (`unlabelled_scale` on a smaller widget, where the
-teardrop's centre fit the portrait no better). Aligned at the teardrop's
+(`x`, `y`, `teardrop.SelfConeReader`) where the shape reads, at every
+widget size since self-icon-0.7.0, and at the ring fit's otherwise; `origin`
+names which and `origin_reason` says why. Aligned at the teardrop's
 centre the stored self frames fit their ally five more tightly
 (docs/STATISTICAL_ADJUDICATOR.md, E6, rule B').
 
@@ -91,7 +90,9 @@ def read_frame(crop: np.ndarray, ctx: dict, gal: dict, references: dict | None =
                turned: bool = False) -> dict:
     """One frame's self-icon reading: the fit and the scores, or a refusal.
 
-    `ctx` holds the baked geometry's `floor`, `slab`, `static` and `sgray`;
+    `ctx` holds the baked geometry's `floor`, `slab`, `static` and `sgray`,
+    and `scale`, the map's (`geometry.drawn_scale`), which every icon length
+    takes (self-icon-0.7.0; absent, the widget's);
     `gal` is `lineup.load_gallery`'s and `references` the rendered-art table
     (`identity.load_ally_portrait_references`), or None. `turned` says the
     session's widget placement at this frame is rotated 180 degrees, so the
@@ -104,17 +105,18 @@ def read_frame(crop: np.ndarray, ctx: dict, gal: dict, references: dict | None =
     from .lineup import _composition, gallery_scores
     from . import spike
     from .minimap import (ally_icons, portrait_key, self_icons, self_portrait_pixels,
-                          widget_drawn, widget_scale)
+                          widget_drawn, drawn_scale)
     from .teardrop import SelfConeReader, posed, self_portrait_pose
 
     if not widget_drawn(crop, ctx["sgray"], ctx["floor"]):
         return {"reason": "widget_not_drawn"}
-    fits = self_icons(crop, ctx["floor"], require_facing=False, support=ctx["slab"])
+    sc = drawn_scale(crop.shape[1], ctx.get("scale"))
+    fits = self_icons(crop, ctx["floor"], require_facing=False, support=ctx["slab"], scale=sc)
     if not fits:
         return {"reason": "no_self_fit"}
-    allies = ally_icons(crop, ctx["floor"], support=ctx["slab"], static=ctx["static"])
-    glyphs = spike.accepted(spike.glyph_fits(crop, ctx["slab"]))
-    sc = widget_scale(crop.shape[1])
+    allies = ally_icons(crop, ctx["floor"], support=ctx["slab"], static=ctx["static"],
+                        scale=sc)
+    glyphs = spike.accepted(spike.glyph_fits(crop, ctx["slab"], scale=sc))
     clear = [d for d in fits
              if spike.on_glyph(d["cx"], d["cy"], glyphs, sc, fits + allies) is None]
     if not clear:
@@ -251,6 +253,7 @@ def read_session(store, sid: str, gal: dict, references: dict | None = None,
     sd = geometry.stability(sid, store.root, med.shape[:2])
     ctx = {"floor": floor_mask(med, sd=sd), "slab": slab_mask(med, sd=sd), "static": med,
            "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)}
+    ctx["scale"], scale_source = geometry.drawn_scale(sid, store.root, med.shape[1])
     x0, y0, x1, y1 = cache.rect_of("minimap")
     t = np.unique(np.asarray(cache.t_ms, float))
     frames = []
@@ -281,6 +284,7 @@ def read_session(store, sid: str, gal: dict, references: dict | None = None,
             "reference_version": (references or {}).get("version"),
             # The baked geometry the floor and slab masks came from.
             "geometry_key": gkey, "geometry_built_by": geometry_stamp(store.root, gkey),
+            "scale": round(float(ctx["scale"]), 5), "scale_source": scale_source,
             "parameters": {"step_s": step_s, "MIN_PIXELS": MIN_PIXELS,
                            "ROSTER_GAP_MS": ROSTER_GAP_MS},
             # The stored placement the portraits were turned by, if any.

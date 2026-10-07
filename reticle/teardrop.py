@@ -34,11 +34,20 @@ self detections are a yellow ability icon in a teammate stack, which the shape
 rightly refuses. `SelfConeReader` then returns the ring fit's centre and no
 facing, says why, and the caller keeps its own bearing.
 
-**Scale.** The constants were fitted on e78e75b2d191 at `widget_scale` 1.0
-(the bigmap profile at 1080p) and scale linearly with the widget. On the
-331 px widget the player's labels set the facing gate at NCC 0.55
-(`SELF_FACING_GATES`); a widget drawn at another scale has not been
-measured and takes `SELF_FACING_MIN_NCC`.
+**Scale.** The constants were fitted on e78e75b2d191 at scale 1.0 (the
+bigmap profile at 1080p, `geometry.SCALE_REF_KEY`) and are base values: a
+caller passes `scale`, the key's `geometry.MapScale.scale` (widget scale x
+map zoom), since icons follow the map zoom
+[domain:minimap/icons-follow-map-zoom]. Fitted at the widget's scale alone
+(0.712 on the 331 px widget, against the map's 0.637) the self teardrop's
+centre lay [metric:one_transform_check/facing/self_facing_331_20260929/widget@labels#centre_px_median=1.635]
+px from the player's clicked centre, farther than the ring fit's; at the
+map's scale it lies
+[metric:one_transform_check/facing/self_facing_331_20260929/map@labels#centre_px_median=0.625] px
+from it (`prototypes/one_transform_check.py`). The per-size tables that
+fit set (a 0.55 facing gate on 331 px, the portrait cut at the ring fit
+there) are retired: one facing gate, `SELF_FACING_MIN_NCC`, and the
+teardrop's centre at every size.
 
 **Teammates and enemies** (owns [owns:icon-pose], `ICON_TEARDROP_VERSION`).
 They wear the same teardrop in other colours, and `fit_icon` reads it with
@@ -48,8 +57,8 @@ unchanged. On the player's blind labels of 5822b6646448 and a06f04a0059f
 its facing errs a median 2.5 degrees on allies and 1.7 on enemies, with no
 flip, where the ring fit flips on about half
 (docs/STATISTICAL_ADJUDICATOR.md, E6, which cites the run). Its constants
-were fitted on 465 px widgets; 0.2.0 scales them by `minimap.widget_scale`
-as the self teardrop's are, so on a 331 px widget the centre lands on the
+were fitted on 465 px widgets; 0.2.0 scales them by the caller's `scale`
+(the map's, `geometry.MapScale.scale`) as the self teardrop's are, so on a 331 px widget the centre lands on the
 portrait instead of about 6 px off it. `IconPoseReader` returns an ally's
 centre and facing per frame, or the ring fit's centre and no facing with
 the reason. The ring fit still FINDS the icon; where the teardrop reads,
@@ -484,7 +493,7 @@ class SelfConeReader:
             out = {"x": float(tf["x"]), "y": float(tf["y"]), "deg": float(tf["deg"]),
                    "origin": "teardrop", "ncc": float(tf["ncc"])}
             gate, why = self_facing_gate(self.scale)
-            if gate is not None and tf["ncc"] < gate:
+            if tf["ncc"] < gate:
                 out.update(deg=None, facing_reason=why)
         else:
             out = {"x": float(cx), "y": float(cy), "deg": None, "origin": "ring_fit",
@@ -514,74 +523,51 @@ def fit_self(crop: np.ndarray, cx0: float, cy0: float, *, scale: float = 1.0,
     return f
 
 
-#: On a widget size the player's facing labels do not cover, a self read
-#: under this NCC gives the icon's centre but no facing (`facing_reason`
-#: `low_ncc_unlabelled_scale`), and a consumer casts no cone from it. Against
-#: the ring fit's facing after the light resolves its lobe, self reads at
-#: 0.5-0.6 point more than 90 degrees away on about a third of frames on
-#: 5822b6646448 (465 px), 223d636bf8d2 and c40d950031bb (331 px)
-#: (`prototypes/team_vision_eval.py --pose-check`); E7 found those facings
-#: cast much of c40d950031bb's false light.
+#: A self read under this NCC gives the icon's centre but no facing
+#: (`facing_reason` `low_ncc_facing_gate`), and a consumer casts no cone from
+#: it. One gate at every size: NCC is a correlation, which no scale moves.
+#: Refitted at the map's scale, the player's 331 px labels flip on
+#: [metric:one_transform_check/facing/self_facing_331_20260929/map@labels#band0.55-0.60.flips=4] of
+#: [metric:one_transform_check/facing/self_facing_331_20260929/map@labels#band0.55-0.60.n=7] reads at
+#: NCC 0.55-0.60 and on none of the
+#: [metric:one_transform_check/facing/self_facing_331_20260929/map@labels#band0.65-1.00.n=21] reads
+#: from 0.65 or the
+#: [metric:one_transform_check/facing/self_facing_331_20260929/map@labels#band0.60-0.65.n=6] at
+#: 0.60-0.65; the 465 px labels (5822b6646448, e78e75b2d191) flip on
+#: [metric:one_transform_check/facing/self_facing_lotus_20260928/map@labels#band0.55-0.60.flips=1] of
+#: [metric:one_transform_check/facing/self_facing_lotus_20260928/map@labels#band0.55-0.60.n=1] under
+#: 0.6. The retired 331 px gate of 0.55 (E13) was set from fits at the widget's
+#: scale alone, where NCCs ran lower. Against the ring fit's facing after the
+#: light resolves its lobe, self reads at 0.5-0.6 point more than 90 degrees
+#: away on about a third of frames (`prototypes/team_vision_eval.py`,
+#: pose check); E7 found those facings cast much of c40d950031bb's false
+#: light.
 SELF_FACING_MIN_NCC = 0.6
-#: The widget scales whose self facing the player labelled, each with the NCC
-#: gate its labels support (None: no gate); a read under it gives the centre
-#: and no facing (`facing_reason` `low_ncc_labelled_gate`).
-#: - 465 px (1.0): 5822b6646448 and the e78e75b2d191 controls (`reticle
-#:   verify` lotus/self-facing). Of the two labelled reads under 0.6 one is
-#:   right (an Ascent control) and one flipped, so no gate.
-#: - 331 px: 37 blind labels on four sessions (`self_facing_331_20260929`,
-#:   docs/STATISTICAL_ADJUDICATOR.md E13). Reads at NCC 0.50-0.55 flip on
-#:   almost half; from 0.55 up they flip on one in 26 and err a median of
-#:   about 4 degrees, and a 0.55 gate keeps 0.7 of the labelled reads where
-#:   0.6 keeps 0.4.
-SELF_FACING_GATES = ((1.0, None), (331 / 465, 0.55))
-#: The widget scales at which the player's portrait is cut at the self
-#: teardrop's centre (`self_portrait_pose`): E10's portrait fit at 465 px
-#: (5822b6646448); at 331 px it fit better on two sessions and worse on two.
-LABELLED_SCALES = (1.0,)
+def self_facing_gate(scale: float | None = None) -> tuple[float, str]:
+    """`(gate, facing_reason)`: the NCC under which a self read gives no
+    facing, and the reason it then carries. One gate at every scale
+    (`SELF_FACING_MIN_NCC`); `scale` is accepted and unused, since NCC is
+    a correlation and the retired per-size table (`SELF_FACING_GATES`) was
+    an artefact of fitting at the widget's scale alone."""
+    return SELF_FACING_MIN_NCC, "low_ncc_facing_gate"
 
 
-def labelled_scale(scale: float) -> bool:
-    """True for a widget scale where the self portrait takes the teardrop's centre (`LABELLED_SCALES`)."""
-    return any(abs(scale - s) < 0.02 for s in LABELLED_SCALES)
-
-
-def self_facing_gate(scale: float) -> tuple[float | None, str]:
-    """`(gate, facing_reason)`: the NCC under which a self read at `scale` gives
-    no facing, and the reason it then carries. A labelled scale takes its
-    labels' gate (`SELF_FACING_GATES`, None for none); any other scale takes
-    `SELF_FACING_MIN_NCC`."""
-    for s, gate in SELF_FACING_GATES:
-        if abs(scale - s) < 0.02:
-            return gate, "low_ncc_labelled_gate"
-    return SELF_FACING_MIN_NCC, "low_ncc_unlabelled_scale"
-
-
-def self_portrait_pose(pose: dict | None, scale: float, cx: float, cy: float) -> dict:
-    """Where to cut the player's portrait: `pose` (`SelfConeReader.read` at the
-    ring fit's `cx`, `cy`) on a labelled widget size, the ring fit's centre
-    elsewhere (`reason` `unlabelled_scale`).
+def self_portrait_pose(pose: dict, scale: float | None, cx: float, cy: float) -> dict:
+    """Where to cut the player's portrait: `pose`, `SelfConeReader.read` at
+    the ring fit's `cx`, `cy`, at every widget size.
 
     At 465 px the portrait aligned at the self teardrop's centre fits its
     art far better than at the ring fit's (E6's rule B'; `prototypes/
-    icon_teardrop.py --centre-check --centre-class self` on 5822b6646448);
-    on four 331 px sessions it fit better on two and worse on two, so the
-    ring fit's centre stays there. A teammate's portrait has no such limit.
-
-    Elsewhere the answer reads nothing of the teardrop but its NCC, so a
-    caller that needs only the portrait's centre may skip the fit there
-    (`labelled_scale` False) and pass `pose` None: the answer is the same
-    centre, no facing, `ncc` None and `reason` `unlabelled_scale`.
-    """
+    icon_teardrop.py --centre-check --centre-class self` on 5822b6646448).
+    On 331 px the ring fit's centre was kept while the teardrop was fitted at
+    the widget's scale alone; at the map's scale the teardrop's centre lies
+    [metric:one_transform_check/facing/self_facing_331_20260929/map@labels#centre_px_median=0.625] px
+    from the player's clicked centre, nearer than the ring fit's
+    (`prototypes/one_transform_check.py`), so the per-size table
+    (`LABELLED_SCALES`) is retired. `scale` is accepted and unused."""
     if pose is None:
-        if labelled_scale(scale):
-            raise ValueError("a labelled scale cuts the portrait at the teardrop: fit it")
-        return {"origin": "ring_fit", "x": float(cx), "y": float(cy), "deg": None,
-                "ncc": None, "reason": "unlabelled_scale"}
-    if pose["origin"] != "teardrop" or labelled_scale(scale):
-        return pose
-    return {"origin": "ring_fit", "x": float(cx), "y": float(cy), "deg": None,
-            "ncc": pose.get("ncc"), "reason": "unlabelled_scale"}
+        raise ValueError("the portrait is cut at the self teardrop: fit it")
+    return pose
 
 
 def _num(v):
@@ -731,7 +717,7 @@ def fit_icon(crop: np.ndarray | None, cls: "str | IconClass", cx0: float, cy0: f
                           `min_margin`, so the lobe is not seen
         no_key            no keyed pixel near the detector's centre
 
-    The radii scale by `scale` (`minimap.widget_scale`) unless given in px;
+    The radii scale by `scale` (`geometry.MapScale.scale`) unless given in px;
     `key` is the class's key over `crop`, computed once per frame by a caller
     fitting several icons. `prior` is `fit_teardrop`'s: a local search round
     an earlier fit, which adds `on_edge` and `outside_ncc` (the best NCC on

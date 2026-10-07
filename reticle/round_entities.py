@@ -103,7 +103,12 @@ from .track import CLASSES, admits_many, association_tolerance
 # 0.18.0 (2026-10-06): `round_lifetimes.seen_after_death` exempts a KAY/O
 # victim by `agent_names.agent_in`; it had compared the arbiter's `KAY_O`
 # with `KAY/O` letter for letter and exempted no downed KAY/O.
-ROUND_ENTITY_VERSION = "round-entity-0.18.0"
+# 0.19.0 (2026-10-07): `reticle lifetimes` passes the map's scale
+# (`geometry.drawn_scale`: widget x map zoom) where it passed the widget's, so
+# `_cut_self`'s association tolerance and walker gate and `RoundLifetimes`'
+# speeds and radii read world lengths at the map's scale. A 465 px key
+# (zoom 1.0) reads the rows 0.18.0 read.
+ROUND_ENTITY_VERSION = "round-entity-0.19.0"
 
 #: Viterbi switch penalty, in units of the claims' margin gate: a segment is
 #: cut only where the best teammate changes and stays changed.

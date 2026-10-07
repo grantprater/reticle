@@ -98,7 +98,14 @@ SEED = 20261007
 def _idle() -> None:
     """Idle priority, one thread (the machine's compute rules; no psutil)."""
     try:
-        ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x40)
+        # The pseudo-handle is a 64-bit HANDLE; without argtypes ctypes passes
+        # it as a 32-bit int, the call fails (ERROR_INVALID_HANDLE) and the
+        # process stays at Normal.
+        k32 = ctypes.windll.kernel32
+        k32.GetCurrentProcess.restype = ctypes.c_void_p
+        k32.SetPriorityClass.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+        if not k32.SetPriorityClass(k32.GetCurrentProcess(), 0x40):
+            raise OSError(ctypes.get_last_error())
     except Exception:
         pass
     try:
@@ -167,7 +174,8 @@ def pings(sid: str, tag: str) -> int:
     k = np.searchsorted(held, grid - 1e-6)
     k = k[k < len(held)]
     fed = [float(t) for t in np.unique(held[k])]
-    r = PingReader(floor=ctx["floor"], box=ctx["rect"], sgray=ctx["sgray"], hz=PING_HZ)
+    r = PingReader(floor=ctx["floor"], box=ctx["rect"], sgray=ctx["sgray"], hz=PING_HZ,
+                   scale=ctx["icon_scale"])
     t0 = time.perf_counter()
     for smp in ctx["cache"].samples(fed, rois=["minimap"]):
         r.feed(smp)

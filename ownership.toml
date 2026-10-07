@@ -879,8 +879,7 @@ owner = "teardrop"
 role = ["detect"]
 status = "partial"
 produces = ["fit_teardrop", "SelfConeReader", "yellowness", "render", "MIN_NCC",
-            "SELF_FACING_MIN_NCC", "SELF_FACING_GATES", "self_facing_gate", "LABELLED_SCALES",
-            "labelled_scale", "self_portrait_pose"]
+            "SELF_FACING_MIN_NCC", "self_facing_gate", "self_portrait_pose"]
 not_for = """
 Finding the player's icon and the L1 self position (`self-position`, the ring
 fit that seeds this one) and which agent the player is (`player-agent`). It

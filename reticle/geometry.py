@@ -438,6 +438,20 @@ def map_scale_of(session: str, store: str | Path = DEFAULT_STORE) -> MapScale | 
     return None if k is None else map_scale(k, store)
 
 
+def drawn_scale(session: str, store: str | Path, width_px: float) -> tuple[float, dict | str]:
+    """`(scale, source)`: the session's `MapScale.scale`, the one transform
+    every map-drawn size takes (icons, glyphs, pings, world lengths), with
+    its provenance; where the geometry has no art fit, the widget's scale
+    and a source saying so. On a 465 px key the two agree exactly (zoom
+    1.0); on a 331 px key the fallback is about 12% too large, so a reader
+    that takes it records the source beside its rows."""
+    from .minimap import widget_scale
+    ms = map_scale_of(session, store)
+    if ms is not None:
+        return ms.scale, ms.provenance()
+    return widget_scale(width_px), "widget_scale: the geometry has no art fit"
+
+
 def fit_path(k: str, store: str | Path = DEFAULT_STORE) -> Path:
     """The cached art-to-widget fit for a key.
 

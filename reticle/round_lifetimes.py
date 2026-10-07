@@ -22,6 +22,12 @@ from .usage import step
 # `seen_after_death` (2026-10-01) changes no output of this module: the ally
 # lane applies it and stamps round-entity-0.12.0, so the enemy lane, which
 # stamps this version too, is not restamped by a rule it does not use.
+# The map's scale (`geometry.drawn_scale`, 2026-10-07) changes no rule here:
+# the module takes its scale from the caller. `reticle lifetimes` now passes
+# the map's scale, so the round-entity stream that call writes is restamped
+# (round-entity-0.19.0); the enemy lane (`enemy_tracks`), which stamps this
+# version too, still passes the `minimap_object` head's widget scale, and is
+# not restamped by a change it does not see.
 ROUND_LIFETIME_VERSION = "round-lifetimes-0.10.0"
 MAX_ASSOCIATION_HISTORIES = 64
 

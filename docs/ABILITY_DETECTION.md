@@ -567,10 +567,14 @@ Icons follow the same factor: the self icon's rim measured the zoom's ratio
 between Split's two keys, not the widget's
 [domain:minimap/icons-follow-map-zoom], so there is one factor, not one for
 icons. World drawings follow it by the player's rule
-[domain:minimap/world-drawings-follow-map-zoom]. Per-size constants outside
-the ability pass (`teardrop.SELF_FACING_GATES`, the fixed pixel radii in
-`minimap`, `minimap_dark`, `occluders`, `enemy_tracks.BIND_PX`) are
-unchanged.
+[domain:minimap/world-drawings-follow-map-zoom]. Since teardrop-0.5.0 the
+readers outside the ability pass take the same factor
+(`geometry.drawn_scale`), and the per-size tables (`SELF_FACING_GATES`,
+`LABELLED_SCALES`) are gone: one self facing gate, NCC 0.6, at every size.
+The widget-scale uses still deferred are listed in
+`doctor.SCALE_WIDGET_USES`: the floor and site masks, the occluder bake, and,
+outside that table's reach, `enemy_tracks.BIND_PX` and the death stream's
+X-mark births.
 
 ## 10. Recall first
 

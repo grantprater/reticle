@@ -109,7 +109,14 @@ from .version import ALLY_PORTRAIT_FEATURES_VERSION, ENEMY_TEARDROP_VERSION, TEA
 #: (ENEMY_TEARDROP_VERSION 0.2.0), and the `owner_gate` fix.
 #: 0.3.0 (2026-10-07): the ping gate reaches `PING_OWN_PX`, not `ICON_PX`,
 #: and links its ping; the lobe test's ring is an annulus (enemy-teardrop-0.3.0).
-MINIMAP_OBJECT_BASE = "minimap-object-0.3.0"
+#: 0.4.0 (2026-10-07): the ring search that finds each red icon
+#: (`minimap.icons`: radii, area, kernel, separation) reads at `icon_scale`
+#: too, where it read the widget scale alone.
+#: 0.5.0 (2026-10-07): that ring search keeps only the integer radii inside
+#: the scaled base band (`minimap.icons(radii="inside")`): 6 to 8 px at the
+#: 331 px key's map scale (0.637), where 0.4.0 searched from 5 px. A 465 px
+#: key reads the rows 0.4.0 read.
+MINIMAP_OBJECT_BASE = "minimap-object-0.5.0"
 
 #: The switchable fixes, in stamp order.
 FIXES = ("teardrop_box", "slab_gate", "owner_gate")
@@ -242,9 +249,14 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
     # The X owner is asked at the scale it has always been given (the
     # widget's), so the death stream's inputs do not move with this reader.
     marks = minimap_x_marks(crop, floor, ctx.get("scale", scale))
+    # The enemy ring search keeps the radii inside the scaled band. At the
+    # 331 px key's map scale a 5 px ring rings the true icons and red blobs
+    # alike: on 9acf02f98283 it adds hits and true false accepts together,
+    # the latter past the lane's bar (`prototypes/one_transform_check.py`
+    # ablation `rmin6`). The self and ally fits keep the nearest radii.
     finds = minimap.icons(enemy_red_mask(crop), crop, floor, cov_min=COV_MIN,
                           inner_max=INNER_RED_MAX, require_facing=False, support=slab,
-                          seed="centroid")
+                          seed="centroid", scale=scale, radii="inside")
     for d in finds:
         ring = {"x": _rnd(d["cx"]), "y": _rnd(d["cy"]), "r": _rnd(d.get("r"))}
         f = teardrop.fit_icon(None, "enemy", d["cx"], d["cy"], scale=scale, key=red)
@@ -377,10 +389,7 @@ def object_context(store, sid: str) -> tuple[dict | None, str | None]:
     pings, ping_ids, ping_version = stored_pings(store, sid)
     # Icons follow the map zoom [domain:minimap/icons-follow-map-zoom]: the
     # one transform is base x widget scale x map zoom (`geometry.MapScale`).
-    ws = widget_scale(floor.shape[1])
-    ms = geometry.map_scale_of(sid, store.root)
-    icon_scale, icon_scale_source = ((ms.scale, ms.provenance()) if ms is not None else
-                                     (ws, "widget_scale: the geometry has no art fit"))
+    icon_scale, icon_scale_source = geometry.drawn_scale(sid, store.root, floor.shape[1])
     return {"cache": cache, "floor": floor, "slab": slab_mask(med, sd=sd),
             "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64),
             "rect": cache.rect_of("minimap"), "scale": widget_scale(floor.shape[1]),

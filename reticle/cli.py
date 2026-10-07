@@ -499,6 +499,8 @@ class _MinimapPass:
         sd = geometry.stability(sid, store.root, med.shape[:2])
         self.floor = floor_mask(med, sd=sd)
         self.slab = slab_mask(med, sd=sd)
+        # The map's scale every icon length and speed takes (minimap-0.9.0).
+        self.scale = geometry.drawn_scale(sid, store.root, self.box[2] - self.box[0])[0]
         # The reference the widget test correlates against. See `widget_drawn`.
         self.sgray = cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64)
         # Declared for `passes.Reader`.
@@ -561,11 +563,12 @@ class _MinimapPass:
         # is deliberately no blob fallback; switching estimators introduces a
         # radius-sized, rate-dependent bias.
         fitted = self_icons(crop, self.floor, require_facing=False,
-                            support=self.slab)
-        pick = pick_self(fitted, self.prev, dt_ms, widget_scale(crop.shape[1]))
+                            support=self.slab, scale=self.scale)
+        pick = pick_self(fitted, self.prev, dt_ms, self.scale)
         if pick is not None:
             self.prev, self.prev_t = pick, smp.t_ms
-        allies = sorted(ally_rings(crop, self.floor), key=lambda c: -c[0])[:MAX_ALLIES]
+        allies = sorted(ally_rings(crop, self.floor, self.scale),
+                        key=lambda c: -c[0])[:MAX_ALLIES]
         ally_x = [c[1] for c in allies] + [None] * (MAX_ALLIES - len(allies))
         ally_y = [c[2] for c in allies] + [None] * (MAX_ALLIES - len(allies))
         self.rows.append({
@@ -755,9 +758,7 @@ def cmd_minimap(args) -> int:
     # hole from a detection miss, and stripping them here is what made the
     # comment in `_MinimapPass.feed` describe behaviour nothing implemented.
     track = filter_track([(r["t_ms"], r["self_x"], r["self_y"]) for r in rows],
-                         step_ms,
-                         widget_scale(minimap_roi_px(profile, w, h)[2]
-                                      - minimap_roi_px(profile, w, h)[0]), mark=True)
+                         step_ms, mp.scale, mark=True)
     print(f"           filtered {len(track)} points "
           f"({len(track) / n * 100:.1f}% coverage after gap interpolation, "
           f"{sum(p[3] for p in track)} interpolated)")
@@ -1381,9 +1382,12 @@ def cmd_scan(args) -> int:
         # else's. That is an argument; the check is in `reticle metrics`.
         pp = None
         if want_ping:
+            ping_box = minimap_roi_px(profile, *ctx.wh)
             pp = PingReader(
                 floor=mp.floor if mp is not None else ctx.floor(),
-                box=minimap_roi_px(profile, *ctx.wh),
+                box=ping_box,
+                scale=geometry.drawn_scale(ctx.session_id, ctx.store.root,
+                                           ping_box[2] - ping_box[0])[0],
                 sgray=mp.sgray if mp is not None else ctx.sgray(),
                 hz=args.ping_hz,
                 spans=spans,
@@ -2701,6 +2705,8 @@ def cmd_overlay(args) -> int:
                          mm_static=med if mm_box is not None else None,
                          mm_light=mm_light)
     ctx.mm_apply_lifecycle = args.minimap_lifecycle
+    # The map's scale every icon and world length takes (`geometry.drawn_scale`).
+    ctx.mm_scale = inputs.scale if mm_box is not None else None
     # Capture stalls are a property of the SOURCE, read once from stored
     # primitives rather than measured per frame here -- see `stalls`. None
     # means the session has no primitives table, which is unknown rather than
@@ -3020,7 +3026,10 @@ def cmd_lifetimes(args) -> int:
     with usage_step("stored_menu"):
         menu, menu_stamp = stored_menu(store, sid)
     with usage_step("session_lifetimes"):
-        rows = session_lifetimes(sid, events, rounds, widget_scale(box[2] - box[0]),
+        # Speeds and distances are world lengths: the map's scale
+        # (`geometry.drawn_scale`, round-entity-0.19.0).
+        rows = session_lifetimes(sid, events, rounds,
+                                 geometry.drawn_scale(sid, store.root, box[2] - box[0])[0],
                                  roster, source_revision, deaths=deaths,
                                  lineup=lineup, gallery=gallery, references=references,
                                  menu=menu.at if menu is not None else None)
@@ -3069,7 +3078,8 @@ def cmd_belief(args) -> int:
     box = minimap_roi_px(get_profile(manifest["source_profile"]),
                          int(manifest["source"]["width"]),
                          int(manifest["source"]["height"]))
-    scale = widget_scale(box[2] - box[0])
+    # The fit error and the motion law are map-drawn lengths (`geometry.drawn_scale`).
+    scale = geometry.drawn_scale(sid, store.root, box[2] - box[0])[0]
     reachable = None
     # Admit the fit error either side: a centre one fit error outside the
     # painted floor is a measurement at the boundary, not a claim that the
@@ -3801,6 +3811,10 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
         births = None
         if mo_version == minimap_object_version():
             mo = store.read_events("minimap_object", sid)
+            # deferred: the head's `scale` is the widget's alone, not the map's
+            # (`geometry.drawn_scale`); the X-mark births' distances read 12% long
+            # on a 331 px key. Listed beside doctor.SCALE_WIDGET_USES, which cannot
+            # see a stored field; wiring it restamps the death stream.
             scale = next((r.get("scale") for r in mo if r.get("kind") == "coverage"), 1.0)
             births = stored_xmark_births(mo, store.read_events("ally_icon", sid) or [], rounds,
                                          scale)
@@ -4435,7 +4449,8 @@ def cmd_smokes(args) -> int:
     from .menu import stored_menu
     menu, menu_stamp = stored_menu(store, sid)
     out_rows = smoke_events(sid, rows, ref.known, menu.at if menu is not None else None,
-                            menu_stamp)
+                            menu_stamp,
+                            geometry.drawn_scale(sid, store.root, ref.known.shape[1])[0])
     _record_inputs(store, sid, "smoke", out_rows[0])
     out = store.write_events("smoke", sid, out_rows)
     head = out_rows[0]
@@ -5163,7 +5178,7 @@ def _spike_session(store, sid: str, step_s: float) -> dict:
     ms = geometry.map_scale_of(sid, store.root)
     ctx = {"floor": floor_mask(med, sd=sd), "slab": slab_mask(med, sd=sd), "static": med,
            "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64),
-           "scale": None if ms is None else ms.scale}
+           "scale": geometry.drawn_scale(sid, store.root, med.shape[1])[0]}
     t = np.unique(np.asarray(mm.t_ms, float))
     spans = mm.record.get("spans") or [[float(t[0]), float(t[-1])]]
     grid: list[float] = []
