@@ -381,8 +381,9 @@ def match_kd(store, sid: str = MATCH) -> tuple[tuple[int, int] | None, str]:
     second_life = stored_second_life(store.read_events("killfeed_portrait", sid),
                                      KILLFEED_PORTRAIT_VERSION)
     rounds = build_rounds(hud, second_life)
+    from .adjudication.combat_report import own_counts
     head = report_events(sid, store.read_events("combat_report", sid), rounds,
-                         player_death_times(hud))[0]
+                         player_death_times(hud), own_counts(store, sid, rounds))[0]
     return (head["kills_verdict"], head["deaths_verdict"]), (
         f"{len(rounds)} rounds rebuilt, {head['verdict_from_killfeed']} from the killfeed")
 

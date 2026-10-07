@@ -125,3 +125,59 @@ class CountTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _NoDeaths:
+    root = None
+
+    def read_events(self, stream, sid):
+        return []
+
+
+class ConsumerKdTests(unittest.TestCase):
+    """`session_kd` and `round_kd`: what `status`, `rounds` and the combat
+    report read as the player's K/D."""
+
+    def test_a_refusal_on_a_me_capture_takes_the_me_count(self):
+        kd = se.session_kd(_NoDeaths(), "x", {"kills": 12, "deaths": 15})
+        self.assertEqual((kd["status"], kd["basis"], kd["kills"], kd["deaths"]),
+                         ("ok", "me", 12, 15))
+        self.assertEqual(kd["reason"], "self_entry:no death verdicts")
+
+    def test_a_refusal_on_an_account_name_capture_is_unread_never_zero(self):
+        kd = se.session_kd(_NoDeaths(), "x", {"kills": 0, "deaths": 0})
+        self.assertEqual((kd["status"], kd["kills"], kd["deaths"]), ("refused", None, None))
+        self.assertEqual(kd["reason"],
+                         "self_entry:no death verdicts; me:capture_prints_no_me")
+        self.assertIn("me:no_hud", se.session_kd(_NoDeaths(), "x")["reason"])
+
+    def test_the_adjudication_answers_first_and_rounds_take_its_entries(self):
+        rows = [verdict("KAY_O", "Jett", side="ally", same=False, t=1000.0),       # death
+                verdict("Jett", "KAY_O", side="enemy", same=False, t=5000.0),      # kill
+                verdict("Jett", None, side="enemy", same=False, t=9000.0),         # unread
+                verdict("Sova", "KAY_O", side="enemy", same=False, t=99000.0)]     # no round
+        out = se.adjudicate(rows, PLAYER, "x")
+        orig = se.adjudicate_session
+        se.adjudicate_session = lambda store, sid: out
+        try:
+            kd = se.session_kd(None, "x", {"kills": 0, "deaths": 0})
+        finally:
+            se.adjudicate_session = orig
+        self.assertEqual((kd["basis"], kd["kills"], kd["deaths"], kd["unread_kills"]),
+                         ("self_entry", 2, 1, 1))
+        rounds = [{"round_no": 1, "t_start_ms": 0.0, "t_end_ms": 4000.0, "t_close_ms": 4500.0,
+                   "player_kills": 0, "player_deaths": 0},
+                  {"round_no": 2, "t_start_ms": 4500.0, "t_end_ms": 20000.0,
+                   "t_close_ms": 21000.0, "player_kills": 7, "player_deaths": 7}]
+        by = se.round_kd(kd, rounds)
+        self.assertEqual([(by[n]["kills"], by[n]["deaths"], by[n]["unread_kills"]) for n in (1, 2)],
+                         [(0, 1, 0), (1, 0, 1)])
+
+    def test_a_me_answer_is_the_rounds_own_count_and_a_refusal_reads_none(self):
+        rounds = [{"round_no": 1, "t_start_ms": 0.0, "t_end_ms": 4000.0, "t_close_ms": 4500.0,
+                   "player_kills": 2, "player_deaths": 1}]
+        me = se.round_kd(se.session_kd(_NoDeaths(), "x", {"kills": 2, "deaths": 1}), rounds)
+        self.assertEqual((me[1]["kills"], me[1]["deaths"], me[1]["basis"]), (2, 1, "me"))
+        no = se.round_kd(se.session_kd(_NoDeaths(), "x", {"kills": 0, "deaths": 0}), rounds)
+        self.assertEqual((no[1]["kills"], no[1]["basis"]), (None, None))
+        self.assertTrue(no[1]["reason"].endswith("capture_prints_no_me"))

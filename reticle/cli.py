@@ -108,9 +108,10 @@ def _record_inputs(store: Store, sid: str, stream: str, head: dict) -> dict:
 def _lifetimes_plan_entry(store, sid: str) -> dict | None:
     """`plan`'s entry for `round_entity` on `sid`, or None when it lists none.
     `reticle lifetimes` keeps its cache only where this is None, so the
-    command `plan` prints for the stream always recomputes."""
+    command `plan` prints for the stream always recomputes. A stream never
+    run moves nothing the lifetimes read yet, so it is left out here."""
     from .plan import stale
-    return next((d for d in stale(store, [sid])[sid]["derived"]
+    return next((d for d in stale(store, [sid], never_run=False)[sid]["derived"]
                  if d["stream"] == "round_entity"), None)
 
 
@@ -2895,9 +2896,15 @@ def cmd_rounds(args) -> int:
         # actively disagreed -- and a `!` is worth opening the capture for.
         chk = rs[0]["side_inferred"]
         mark = "" if chk == rs[0]["player_side"] else ("~" if chk == "abstain" else "!")
+        # The player's K/D is `adjudication.self_entry`'s; the rounds' own
+        # killfeed counts are its "Me" witness, consulted only where it refuses.
+        from .adjudication.self_entry import session_kd
+        kd = session_kd(store, sid, {"kills": sum(r["player_kills"] for r in rs),
+                                     "deaths": sum(r["player_deaths"] for r in rs)})
+        kd_text = (f"{kd['kills']:3d}/{kd['deaths']:<4d} by {kd['basis']}"
+                   if kd["status"] == "ok" else f"unread ({kd['reason']})")
         print(f"{sid:14s} {mp:8s} {len(rs):6d} {rs[0]['player_side'] + mark:>6s} "
-              f"{sum(won):3d}-{len(won) - sum(won):<3d}  "
-              f"{sum(r['player_kills'] for r in rs):3d}/{sum(r['player_deaths'] for r in rs):<4d}")
+              f"{sum(won):3d}-{len(won) - sum(won):<3d}  {kd_text}")
 
     if not every:
         raise SystemExit("no rounds -- has `hud` been run?")
@@ -3609,6 +3616,7 @@ def cmd_combat_report(args) -> int:
     """Panels, rounds and per-round counts from stored `combat_report` rows.
     Decodes no video."""
     from .adjudication.combat_report import events as report_events
+    from .adjudication.combat_report import own_counts
     from .rounds import player_death_times
 
     store = Store(args.store)
@@ -3625,7 +3633,8 @@ def cmd_combat_report(args) -> int:
         raise SystemExit(f"{sid}: no stored rounds -- run `reticle rounds {sid}` first")
     deaths = player_death_times(store.read_hud(sid, date))
     with usage_step("report_events"):
-        out_rows = report_events(sid, rows, rounds.to_pylist(), deaths)
+        rl = rounds.to_pylist()
+        out_rows = report_events(sid, rows, rl, deaths, own_counts(store, sid, rl))
     _record_inputs(store, sid, "combat_report_round", out_rows[0])
     out = store.write_events("combat_report_round", sid, out_rows)
     head = out_rows[0]
@@ -3633,7 +3642,10 @@ def cmd_combat_report(args) -> int:
           f"report kills {head['kills']}, deaths {head['deaths']}, assists {head['assists']}; "
           f"disagree with stored rounds on kills {head['kills_disagree']}, deaths {head['deaths_disagree']} -> {out}")
     print(f"verdict K/D {head['kills_verdict']}/{head['deaths_verdict']} "
-          f"({head['verdict_from_killfeed']} rounds from the killfeed, the rest from the report)")
+          f"({head['verdict_from_self_entry']} rounds from the player's own killfeed entries, "
+          f"{head['verdict_from_killfeed']} from the \"Me\" killfeed count, "
+          f"{head['verdict_unread']} unread, the rest from the report; own basis "
+          f"{head['own_basis']}{', ' + head['own_reason'] if head['own_reason'] else ''})")
     for r in out_rows:
         if r["kind"] == "round" and (r["kills_agree"] is False or r["deaths_agree"] is False
                                      or r["kills"] is None):

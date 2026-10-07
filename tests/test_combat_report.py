@@ -173,6 +173,37 @@ class Verdict(unittest.TestCase):
         self.assertEqual((by[3]["kills_verdict"], by[3]["verdict_source"]), (2, "killfeed"))
         self.assertEqual(ev[0]["verdict_from_killfeed"], 2)
 
+    def test_a_reportless_round_takes_the_self_entry_owners_count(self):
+        # cea8ecbc94ab prints the account name: the stored "Me" counts read
+        # 0/0, and a reportless round takes `adjudication.self_entry`'s answer.
+        frames = _run(60000, 70000, [_row("160", "65", oh="100", ih="010", killed=0.95,
+                                          killed_you=0.99)])
+        own = {"basis": "self_entry", "reason": None}
+        per = {r["round_no"]: {"kills": 3, "deaths": 1, "unread_kills": 0, "unread_deaths": 0,
+                               "basis": "self_entry", "reason": None} for r in ROUNDS}
+        ev = adj.events("s", frames, ROUNDS, death_times=[60000.0], own=(own, per))
+        by = {e["round_no"]: e for e in ev if e["kind"] == "round"}
+        self.assertEqual(by[1]["verdict_source"], "combat_report")
+        self.assertEqual((by[3]["kills_verdict"], by[3]["verdict_source"]), (3, "self_entry"))
+        self.assertEqual((ev[0]["own_basis"], ev[0]["verdict_from_self_entry"]),
+                         ("self_entry", len(ROUNDS) - 1))
+
+    def test_an_unread_owner_leaves_the_round_without_a_verdict(self):
+        frames = _run(60000, 70000, [_row("160", "65", oh="100", ih="010", killed=0.95,
+                                          killed_you=0.99)])
+        why = "self_entry:no death verdicts; me:capture_prints_no_me"
+        per = {r["round_no"]: {"kills": None, "deaths": None, "unread_kills": None,
+                               "unread_deaths": None, "basis": None, "reason": why}
+               for r in ROUNDS}
+        ev = adj.events("s", frames, ROUNDS, death_times=[60000.0],
+                        own=({"basis": None, "reason": why}, per))
+        by = {e["round_no"]: e for e in ev if e["kind"] == "round"}
+        self.assertEqual((by[3]["kills_verdict"], by[3]["verdict_source"],
+                          by[3]["verdict_reason"]), (None, None, why))
+        self.assertEqual(ev[0]["verdict_unread"], len(ROUNDS) - 1)
+        got = adj.round_verdicts(ev, ROUNDS)
+        self.assertEqual((got["rounds"][3]["kills"], got["rounds"][3]["reason"]), (None, why))
+
 
 
 class Naming(unittest.TestCase):
