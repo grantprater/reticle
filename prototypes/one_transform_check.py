@@ -55,7 +55,8 @@ sys.path.insert(0, str(HERE.parent))
 
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "one-transform-check-0.1.0"
+#: 0.2.0: `ablate`.
+VERSION = "one-transform-check-0.2.0"
 TASK = "one-transform-readers-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / TASK
@@ -69,7 +70,14 @@ BANDS = ((0.5, 0.55), (0.55, 0.6), (0.6, 0.65), (0.65, 1.01))
 
 def _idle() -> None:
     try:
-        ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x40)
+        # The pseudo-handle is a 64-bit HANDLE; without argtypes ctypes passes
+        # it as a 32-bit int, the call fails (ERROR_INVALID_HANDLE) and the
+        # process stays at Normal.
+        k32 = ctypes.windll.kernel32
+        k32.GetCurrentProcess.restype = ctypes.c_void_p
+        k32.SetPriorityClass.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+        if not k32.SetPriorityClass(k32.GetCurrentProcess(), 0x40):
+            raise OSError(ctypes.get_last_error())
     except Exception:
         pass
     try:
@@ -384,6 +392,57 @@ def smoke_births(sid: str, boot: int = 4000, seed: int = 20261007) -> dict:
     return out
 
 
+#: The enemy ring-search ablations (`ablate`): how each varies `minimap.icons`
+#: for the enemy reader (the only caller with `seed="centroid"` and a scale).
+ABLATIONS = ("iw", "im", "area_w", "rad_w", "sep_w", "rmin6", "rmax9")
+
+
+def ablate(sid: str, var: str, ptag: str) -> dict:
+    """`teardrop_refusals.reread` and `score` on one development match with
+    the enemy reader's ring search varied one factor at a time, rows under
+    tag `ab_<var>_<ptag>`: `iw` the widget's scale (master's search), `im`
+    the map's, `area_w` the map's with the minimum area at the widget's,
+    `rad_w` the widget's radii with area and separation at the map's,
+    `sep_w` the map's with the separation at the widget's, `rmin6` and
+    `rmax9` the map's with the least or greatest radius forced to the
+    widget's (6 and 9 px on a 331 px key). Run with the code before the
+    radius band rounded inward (minimap.icons), as on 2026-10-07."""
+    sys.path.insert(0, str(HERE))
+    import teardrop_refusals as tr
+    from reticle import minimap
+
+    _idle()
+    if sid == HELD_OUT or var not in ABLATIONS:
+        raise SystemExit(f"{sid} {var}: refused")
+    orig = minimap.icons
+
+    def wrapped(mask, crop, floor, **kw):
+        ms = kw.get("scale")
+        if ms is None or kw.get("seed") != "centroid":
+            return orig(mask, crop, floor, **kw)
+        ws = minimap.widget_scale(crop.shape[1])
+        area = lambda s: max(4, int(round(minimap.MIN_ICON_AREA * s * s)))  # noqa: E731
+        sep = lambda s: minimap.MIN_ICON_SEPARATION_PX * s  # noqa: E731
+        if var == "iw":
+            kw["scale"] = ws
+        elif var == "area_w":
+            kw["min_area"] = area(ws)
+        elif var == "rad_w":
+            kw.update(scale=ws, min_area=area(ms), separation_px=sep(ms))
+        elif var == "sep_w":
+            kw["separation_px"] = sep(ws)
+        elif var == "rmin6":
+            minimap.R_MIN = 6.0 / ms + 1e-6
+        elif var == "rmax9":
+            minimap.R_MAX = 9.0 / ms + 1e-6
+        return orig(mask, crop, floor, **kw)
+
+    minimap.icons = wrapped
+    tag = f"ab_{var}_{ptag}"
+    tr.reread(sid, tag, ptag)
+    return tr.score(sid, tag, ptag=ptag)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -399,7 +458,14 @@ def main(argv=None) -> int:
     p.add_argument("--tags", required=True)
     p = sub.add_parser("smokes")
     p.add_argument("session")
+    p = sub.add_parser("ablate")
+    p.add_argument("session")
+    p.add_argument("variant", choices=ABLATIONS)
+    p.add_argument("--pings", required=True)
     a = ap.parse_args(argv)
+    if a.cmd == "ablate":
+        ablate(a.session, a.variant, a.pings)
+        return 0
     if a.cmd == "smokes":
         smoke_births(a.session)
         return 0

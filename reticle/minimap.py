@@ -984,7 +984,14 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     the margin as 90.1% outside the painting on this map.
     """
     sc = drawn_scale(crop.shape[1], scale)
-    r_min, r_max = max(3, int(round(R_MIN * sc))), max(4, int(round(R_MAX * sc)))
+    # The integer radii searched lie inside the scaled base band
+    # [R_MIN * sc, R_MAX * sc]: rounding 5.1 px down to 5 at the 331 px key's
+    # map scale (0.637) let the enemy search ring blobs smaller than any icon
+    # and took the lane's true false accepts on 9acf02f98283 from 138 to 222
+    # (prototypes/one_transform_check.py ablation). At 465 px and at 0.712
+    # the band's ends round to the same radii either way.
+    r_min = max(3, int(np.ceil(R_MIN * sc - 1e-9)))
+    r_max = max(4, int(np.floor(R_MAX * sc + 1e-9)))
     if min_area is None:
         min_area = max(4, int(round(MIN_ICON_AREA * sc * sc)))
     keyed = mask & floor
