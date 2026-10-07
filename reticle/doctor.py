@@ -942,6 +942,331 @@ def check_scale(base: Path | None = None, allow: dict | None = None) -> list[tup
     return out
 
 
+#: A RESTATE match that no entry lists. WARN while the reader gates on master
+#: move to their owners; switch this one constant to ERROR once they have.
+RESTATE_UNLISTED = WARN
+
+#: Roles that make an entry's `produces` a downstream rule: who continues,
+#: constrains, assigns, adjudicates, keeps the lifecycle or corroborates.
+RESTATE_DOWNSTREAM_ROLES = frozenset({"track", "constrain", "assign", "adjudicate",
+                                      "lifecycle", "corroborate"})
+
+#: Modules whose every call reads a stored verdict another owner wrote: the
+#: lineup is the identity arbiter's side verdicts, stored per session.
+RESTATE_VERDICT_MODULES = {"lineup": "the stored lineup (the arbiter's side verdicts)"}
+
+#: Every reader-layer place that restates or pre-empts a downstream rule, with
+#: why it may. Keyed by (file, enclosing function) for a match RESTATE finds by
+#: its shape, or (file, fix) for a `*_gate` in the module's `FIXES`; a key
+#: "name:<identifier>" marks a rule RESTATE cannot recognise by shape (a
+#: separation constant, a coverage cut), matched while the identifier appears
+#: in the file. A value starting "deferred:" is a gate waiting for its owner
+#: and stays a WARN.
+#:
+#: The enemy gates wait for one owner: enemy candidate disposition moves to
+#: `round_lifetimes` plus `adjudication.minimap_candidates` (the player's
+#: choice, 2026-10-07), the `detection-reality` entry in `ownership.toml`.
+_ENEMY_OWNER = ("until enemy candidate disposition moves to round_lifetimes plus "
+                "adjudication.minimap_candidates (detection-reality)")
+RESTATED_GATES = {
+    ("reticle/minimap_objects.py", "portrait_gate"): (
+        "deferred: the portrait gate drops a find that fits none of the enemy five "
+        + _ENEMY_OWNER),
+    ("reticle/minimap_objects.py", "portrait_gate_inputs"): (
+        "deferred: the portrait gate reads the stored lineup's enemy five " + _ENEMY_OWNER),
+    ("reticle/minimap_objects.py", "owner_gate"): (
+        "deferred: the owner gate refuses a teardrop read at a confirmed X or ping "
+        + _ENEMY_OWNER),
+    ("reticle/minimap_objects.py", "read_frame"): (
+        "deferred: the owner gate's X branch asks the death owner's minimap_x_marks and "
+        "refuses the find " + _ENEMY_OWNER),
+    ("reticle/minimap_objects.py", "stored_pings"): (
+        "deferred: the owner gate's ping branch reads the stored ping stream "
+        + _ENEMY_OWNER),
+    ("reticle/minimap_objects.py", "slab_gate"): (
+        "deferred: the slab gate drops a red find off the map's interior " + _ENEMY_OWNER),
+    ("reticle/minimap_objects.py", "name:cov_min"): (
+        "deferred: the shape gate (cov_min, inner_max) drops a ring find by its cover "
+        + _ENEMY_OWNER),
+    ("reticle/minimap_objects.py", "name:last_known"): (
+        "the backward walk defines the '?' mark: a '?' is a red blob whose run begins "
+        "where an enemy icon ended [domain:minimap/last-known-mark], so the walk over the "
+        "stream's earlier frames is the reading, not continuity kept for an owner"),
+    ("reticle/menu.py", "stored_menu"): "reads back its own stream (menu_open)",
+    ("reticle/plant_graphic.py", "stored_reads"): "reads back its own stream (plant_graphic)",
+    ("reticle/minimap.py", "name:MIN_ICON_SEPARATION_PX"): (
+        "deferred: ring separation keeps one fit of two closer than two radii, a "
+        "uniqueness rule " + _ENEMY_OWNER),
+}
+
+
+def _module_name(rel: str) -> str:
+    """`reticle/adjudication/death.py` -> `adjudication.death`."""
+    parts = rel[:-3].split("/")[1:]
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def restate_layers(data: dict, arch: dict | None = None
+                   ) -> tuple[set[str], dict[str, set[str]], dict[str, str]]:
+    """From the ownership declaration: the reader-layer modules (every entry
+    each owns is `role = ["detect"]`), the downstream rules by owning module
+    (the `produces` of entries with a role in RESTATE_DOWNSTREAM_ROLES), and
+    each downstream name's entry id, for the finding.
+
+    With `arch` (`architecture.load()`), an owner placed below the readers'
+    layer (foundation, source, primitives: the baked geometry, the profile,
+    the domain facts, the spelling of a name) holds an input the reader is
+    given, not a rule downstream of it, and its names are left out."""
+    floor = None
+    if arch and "readers" in arch.get("_order", []):
+        floor = arch["_order"].index("readers")
+    index = data.get("_index", {})
+    held = ownership.owners(data)
+    readers = {m for m, ids in held.items()
+               if all(list(index[i].get("role", [])) == ["detect"] for i in ids)}
+    rules: dict[str, set[str]] = {}
+    entry_of: dict[str, str] = {}
+    for key, entry in index.items():
+        owner = str(entry.get("owner", ""))
+        below = (floor is not None and owner in arch["_index"]
+                 and arch["_index"][owner] < floor)
+        if owner and not below and set(entry.get("role", [])) & RESTATE_DOWNSTREAM_ROLES:
+            for name in entry.get("produces", []):
+                rules.setdefault(owner, set()).add(name)
+                entry_of[f"{owner}.{name}"] = key
+    return readers, rules, entry_of
+
+
+def _restate_imports(tree: ast.Module, module: str, known: set[str]) -> dict:
+    """Local name -> ("mod", module) or ("fn", module, name), for every import
+    in the file at any depth. `known` is the set of module names in reticle/,
+    which tells `from .adjudication import death` (a module) from
+    `from .lineup import load_lineup` (a function)."""
+    package = module.split(".")[:-1]
+    out: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name.startswith("reticle.") and a.asname:
+                    out[a.asname] = ("mod", a.name[len("reticle."):])
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = package[:len(package) - (node.level - 1)] if node.level > 1 else package
+                src = ".".join(base + ([node.module] if node.module else []))
+            elif node.module and (node.module == "reticle" or node.module.startswith("reticle.")):
+                src = node.module[len("reticle."):] if node.module != "reticle" else ""
+            else:
+                continue
+            for a in node.names:
+                local = a.asname or a.name
+                sub = f"{src}.{a.name}" if src else a.name
+                out[local] = ("mod", sub) if sub in known else ("fn", src, a.name)
+    return out
+
+
+def _restate_uses(tree: ast.Module, rel: str, imports: dict, rules: dict[str, set[str]],
+                  entry_of: dict[str, str]) -> list[tuple[str, int, str]]:
+    """`(qualname or fix, line, what)` for each of (a) to (d) in one
+    reader-layer file; see `check_restate`."""
+    out = []
+
+    def name_of(f):
+        return f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+
+    def target(call: ast.Call, local) -> tuple[str, str] | None:
+        """The (module, name) a call resolves to through the file's imports."""
+        f = call.func
+        if isinstance(f, ast.Name) and f.id not in local:
+            got = imports.get(f.id)
+            if got and got[0] == "fn":
+                return got[1], got[2]
+        elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) \
+                and f.value.id not in local:
+            got = imports.get(f.value.id)
+            if got and got[0] == "mod":
+                return got[1], f.attr
+        return None
+
+    def bound(fn) -> set:
+        got = set()
+        for n in ast.walk(fn):
+            if n is not fn and isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                got.add(n.name)
+            elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+                got.add(n.id)
+            elif isinstance(n, ast.arg):
+                got.add(n.arg)
+        return got
+
+    def loop_nodes(loop):
+        """The loop's own nodes, nested function bodies excluded."""
+        stack = list(ast.iter_child_nodes(loop))
+        while stack:
+            n = stack.pop()
+            yield n
+            if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda,
+                                  ast.ClassDef)):
+                stack.extend(ast.iter_child_nodes(n))
+
+    def carried(loop, q):
+        """(b): F(k=n) inside the loop where n was assigned from F's result."""
+        assigned: dict[str, set[str]] = {}
+        for n in loop_nodes(loop):
+            if isinstance(n, ast.Assign):
+                v = n.value
+                while isinstance(v, (ast.Subscript, ast.Attribute)):
+                    v = v.value
+                if isinstance(v, ast.Call) and name_of(v.func):
+                    for t in n.targets:
+                        for e in (t.elts if isinstance(t, ast.Tuple) else [t]):
+                            if isinstance(e, ast.Name):
+                                assigned.setdefault(e.id, set()).add(name_of(v.func))
+        for n in loop_nodes(loop):
+            if isinstance(n, ast.Call) and name_of(n.func):
+                f = name_of(n.func)
+                for k in n.keywords:
+                    if k.arg and isinstance(k.value, ast.Name) \
+                            and f in assigned.get(k.value.id, ()):
+                        out.append((q, n.lineno, f"{f}({k.arg}={k.value.id}) carries its own "
+                                                 f"earlier result across the loop"))
+
+    def walk(node, stack, local=frozenset()):
+        for ch in ast.iter_child_nodes(node):
+            if isinstance(ch, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                walk(ch, stack + [ch.name],
+                     local | bound(ch) if not isinstance(ch, ast.ClassDef) else local)
+                continue
+            q = ".".join(stack) or "<module>"
+            if isinstance(ch, (ast.For, ast.AsyncFor, ast.While)):
+                carried(ch, q)
+            if isinstance(ch, ast.Call):
+                to = target(ch, local)
+                n = name_of(ch.func)
+                if to and to[1] in rules.get(to[0], ()):
+                    out.append((q, ch.lineno, f"{to[0]}.{to[1]}() is a downstream rule "
+                                              f"({entry_of.get(f'{to[0]}.{to[1]}', '?')})"))
+                elif to and to[0] in RESTATE_VERDICT_MODULES:
+                    out.append((q, ch.lineno, f"{to[0]}.{to[1]}() reads "
+                                              f"{RESTATE_VERDICT_MODULES[to[0]]}"))
+                elif n in ("read_events", "read_events_kind") and ch.args \
+                        and isinstance(ch.args[0], ast.Constant) \
+                        and isinstance(ch.args[0].value, str):
+                    out.append((q, ch.lineno, f'read_events("{ch.args[0].value}") reads a '
+                                              f"stored stream"))
+            walk(ch, stack, local)
+
+    walk(tree, [])
+    # (d) a `*_gate` switch in the module's FIXES.
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "FIXES"
+                                                for t in node.targets) \
+                and isinstance(node.value, (ast.Tuple, ast.List)):
+            for e in node.value.elts:
+                if isinstance(e, ast.Constant) and isinstance(e.value, str) \
+                        and e.value.endswith("_gate"):
+                    out.append((e.value, node.lineno, f"FIXES holds {e.value!r}, a reader gate"))
+    return out
+
+
+def _identifier_line(tree: ast.Module, ident: str) -> int | None:
+    """The first line the identifier appears on: a name, an attribute, a
+    keyword argument, a parameter or a definition."""
+    lines = []
+    for n in ast.walk(tree):
+        if (isinstance(n, ast.Name) and n.id == ident) or \
+                (isinstance(n, ast.Attribute) and n.attr == ident) or \
+                (isinstance(n, ast.keyword) and n.arg == ident) or \
+                (isinstance(n, ast.arg) and n.arg == ident) or \
+                (isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                 and n.name == ident):
+            lines.append(getattr(n, "lineno", None) or getattr(n.value, "lineno", 0))
+    return min(lines) if lines else None
+
+
+def check_restate(base: Path | None = None, allow: dict | None = None,
+                  data: dict | None = None, arch: dict | None = None
+                  ) -> list[tuple[str, str]]:
+    """Reader-layer code that restates or pre-empts a rule owned downstream.
+
+    A reader owns pixel evidence: it measures, scores and states its reason,
+    and keeps what it refuses beside what it accepts. Continuity, uniqueness,
+    reach and cross-channel priors belong to adjudication and the lanes,
+    which decide what is real (`detection-reality` in `ownership.toml`).
+    A module is reader-layer when every entry it owns has `role =
+    ["detect"]`; the downstream rules are the `produces` of entries whose
+    roles include track, constrain, assign, adjudicate, lifecycle or
+    corroborate. Roles classify, never names, and `defers_to` exempts
+    nothing: deferring to an owner and then deciding with its answer is the
+    pre-emption this check finds. In a reader-layer module it flags:
+
+    (a) a call that resolves, through the file's imports, to a downstream
+        rule (`adjudication.death.minimap_x_marks`, `admits`, `assign_side`);
+    (b) reader-kept continuity: in a loop, `F(k=n)` where `n` was assigned
+        from F's own result (the `prior=last` pattern);
+    (c) a gate on a stored verdict: `read_events("<stream>")`, or any call
+        into a module in RESTATE_VERDICT_MODULES (the stored lineup). A
+        reader reading back its own stream lists itself with that reason;
+    (d) a `*_gate` switch in the module's `FIXES` tuple.
+
+    Each match must sit in RESTATED_GATES with its reason. A listed reason
+    is silent unless it starts "deferred:", which stays a WARN; an unlisted
+    match is RESTATE_UNLISTED (WARN for now); an entry that matches nothing
+    is a WARN, so the list cannot rot.
+
+    It cannot see: a rule reimplemented inside one frame without calling its
+    owner (a distance cut, a non-maximum suppression, a coverage threshold)
+    unless an entry names its identifier; a rule reached through an alias it
+    cannot resolve (an attribute of an attribute, a function passed in); a
+    stream read under a computed name; a module that owns no entry; and
+    prototypes and tools, which it does not read.
+    """
+    base = ROOT if base is None else base
+    allow = RESTATED_GATES if allow is None else allow
+    if data is None:
+        data = ownership.load(base / "ownership.toml")
+    if arch is None:
+        arch = architecture.load(base / "architecture.toml")
+    readers, rules, entry_of = restate_layers(data, arch)
+    files = {_module_name(f.relative_to(base).as_posix()): f
+             for f in sorted((base / "reticle").rglob("*.py"))}
+    known = set(files)
+    out, seen = [], set()
+    for module in sorted(readers):
+        path = files.get(module)
+        if path is None:
+            continue
+        rel = path.relative_to(base).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        imports = _restate_imports(tree, module, known)
+        for q, line, what in _restate_uses(tree, rel, imports, rules, entry_of):
+            key = (rel, q)
+            seen.add(key)
+            why = allow.get(key)
+            if why is None:
+                out.append((RESTATE_UNLISTED,
+                            f"{rel}:{line} {q}: {what} -- a reader reports evidence and "
+                            f"the owner decides; ask it downstream, or list the place in "
+                            f"doctor.RESTATED_GATES with its reason"))
+            elif why.startswith("deferred:"):
+                out.append((WARN, f"{rel}:{line} {q}: {what} -- {why}"))
+        for (frel, q), why in allow.items():
+            if frel == rel and q.startswith("name:"):
+                line = _identifier_line(tree, q[len("name:"):])
+                if line is not None:
+                    seen.add((frel, q))
+                    if why.startswith("deferred:"):
+                        out.append((WARN, f"{rel}:{line} {q[len('name:'):]}: {why}"))
+    for key in sorted(set(allow) - seen):
+        out.append((WARN, f"RESTATED_GATES {key[0]} {key[1]}: matches nothing in a "
+                          f"reader-layer module"))
+    return out
+
+
 def check_movement() -> list[tuple[str, str]]:
     """The teleport-licence owner's movement table against the domain facts.
 
@@ -1600,6 +1925,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("UNCALLED", check_uncalled),
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),
               ("MOVEMENT", check_movement), ("SCALE", check_scale),
+              ("RESTATE", check_restate),
               ("LAYER", check_layer), ("CONSUMER", check_consumer),
               ("OWNERSHIP", check_ownership),
               ("QUOTED", lambda: check_quoted(store)),
