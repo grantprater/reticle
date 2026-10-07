@@ -57,22 +57,8 @@ DETECTION_REALITY_VERSION = "detection-reality-0.1.0"
 #: more of the track than the player does. A majority, not a fitted cut.
 ALTERNATIVE_SHARE = 0.5
 
-#: Glyph-owner refusals that still place a glyph: the best key beat its own
-#: cut and tied with the runner-up (`adjudication.ability_glyph`, step 3), so
-#: a glyph is drawn there and only which one is open. Every other refusal
-#: (`below_null`, `occluded`, ...) places none.
-GLYPH_PLACED_REFUSALS = ("pairwise_tie",)
-
 #: Reasons `detection_reality` refuses a track with.
 REALITY_REFUSALS = ("alternative_ability_glyph",)
-
-
-def glyph_placed(verdict: dict | None) -> bool:
-    """Whether the glyph owner's stored verdict places an ability glyph on its
-    disc track: it named the ability, or its best key beat the cut and tied
-    (`GLYPH_PLACED_REFUSALS`). Reads the verdict; restates no cut."""
-    return bool(verdict) and (verdict.get("ability") is not None
-                              or verdict.get("reason") in GLYPH_PLACED_REFUSALS)
 
 
 def glyph_reach(scale) -> np.ndarray:
@@ -126,33 +112,47 @@ def detection_reality(observations: int, disc_counts: dict, verdicts: dict | Non
     `observations`: the track's observation count; `disc_counts`: how many
     of them lie on each of the glyph owner's disc tracks
     (`glyph_coincidence`, counted by the caller); `verdicts`: the glyph
-    owner's stored verdict per disc track. `unassessed` names why no glyph verdicts were available, and the
-    track is then `unassessed`, never accepted on missing evidence.
+    owner's stored verdict per disc track. `unassessed` names why no glyph
+    verdicts were available, and the track is then `unassessed`, never
+    accepted on missing evidence.
 
     Two hypotheses, each with its support: `drawn_player`, the observations
     on no placed glyph, and `ability_glyph`, the observations on a disc track
-    the glyph owner places a glyph on (`glyph_placed`). The track is
+    the glyph owner places a glyph on: the owner decides which verdicts place
+    one (`adjudication.ability_glyph.glyph_placement`). The track is
     `refused` as `alternative_ability_glyph` when the glyph's support exceeds
     `ALTERNATIVE_SHARE` of its observations, else `accepted`. On the
     development matches (detection-reality-20261007) every enemy track named
     Cypher that T1d calls a false accept on c817691bcd15 was Tejo's Stealth
     Drone, drawn like an enemy icon
-    [domain:abilities/tejo-stealth-drone-enemy-minimap-icon].
+    [domain:abilities/tejo-stealth-drone-enemy-minimap-icon], and one track
+    the portrait channel named Fade on d3dcfb182ab1 was her Prowler
+    [domain:abilities/fade-prowler-enemy-minimap-icon]: the replay's Prowler
+    pawn lay on the track while Fade moved away from it
+    (`<store>/analysis/detection-reality-20261007/replay_falsify.json`,
+    evaluation only).
+    The player names five more abilities drawn as an enemy player is, each
+    an alternative this rule weighs where the glyph owner places its glyph:
+    [domain:abilities/sova-owl-drone-enemy-minimap-icon],
+    [domain:abilities/skye-trailblazer-enemy-minimap-icon],
+    [domain:abilities/gekko-thrash-enemy-minimap-icon],
+    [domain:abilities/gekko-wingman-enemy-minimap-icon],
+    [domain:abilities/raze-boom-bot-enemy-minimap-icon].
     """
     if unassessed is not None:
         return {"status": "unassessed", "reason": unassessed, "observations": observations,
                 "glyph_support": None, "alternatives": [], "evidence": []}
-    support = {d: int(k) for d, k in disc_counts.items()
-               if d is not None and glyph_placed((verdicts or {}).get(d))}
+    from .adjudication.ability_glyph import glyph_placement
+    placed = {d: glyph_placement((verdicts or {}).get(d)) for d in disc_counts if d is not None}
+    support = {d: int(k) for d, k in disc_counts.items() if d is not None and placed[d]["placed"]}
     n_glyph = sum(support.values())
     refused = n_glyph > ALTERNATIVE_SHARE * observations
     keys: dict[str, int] = {}
     for d, k in support.items():
-        v = verdicts[d]
-        for key in ((v["ability"]["key"],) if v.get("ability") else (v.get("best"), v.get("second"))):
-            if key:
-                keys[key] = keys.get(key, 0) + k
+        for key in placed[d]["keys"]:
+            keys[key] = keys.get(key, 0) + k
     evidence = [{"stream": "ability_glyph_name", "track": d, "observations": k,
+                 "placed": placed[d]["why"],
                  "ability": (verdicts[d].get("ability") or {}).get("key"),
                  "reason": verdicts[d].get("reason"), "best": verdicts[d].get("best"),
                  "second": verdicts[d].get("second"), "pooled": verdicts[d].get("pooled"),

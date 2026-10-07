@@ -57,8 +57,14 @@ its disc tracks (`round_lifetimes.glyph_coincidence`) links that disc
 places an ability glyph on is refused `alternative_ability_glyph`. A refused
 track stays stored, with both hypotheses' support and its evidence; its
 portrait claims are withheld from the arbiter and kept as the disagreement
-(`reality.portrait_claims`), and it ends no death. Without stored glyph
-verdicts every track is `unassessed`, with the reason, and nothing is refused.
+(`reality.portrait_claims`), and it ends no death. Its identity stands
+`refused` with the entity: the arbiter never saw its claims, so no verdict
+abstained on it. Which verdicts place a glyph is the glyph owner's rule
+(`adjudication.ability_glyph.glyph_placement`). Without current stored glyph
+verdicts (none, or stale by `plan`'s recorded-input check) every track is
+`unassessed`, with the reason, and nothing is refused; the head records the
+verdicts' content stamp (`inputs.ability_glyph_name`), so `plan` restales the
+tracks once `reticle ability-glyphs` reruns.
 """
 from __future__ import annotations
 
@@ -68,7 +74,7 @@ import numpy as np
 
 from .round_lifetimes import (DETECTION_REALITY_VERSION, ROUND_LIFETIME_VERSION, RoundLifetimes,
                               death_rank, death_refusal, detection_reality, glyph_coincidence,
-                              glyph_placed, glyph_reach)
+                              glyph_reach)
 
 #: 0.3.0 (2026-10-07): `round_lifetimes.detection_reality` refuses a track
 #: lying mostly on a glyph the glyph owner places; its claims are withheld
@@ -171,11 +177,12 @@ def _marks(sid: str, rno: int, frames: list[dict], obs_entity: dict,
 
 def _glyph_fixes(glyph: dict) -> tuple:
     """The fixes of the disc tracks the glyph owner places a glyph on
-    (`round_lifetimes.glyph_placed`), flat: time, x, y, reach and disc track
+    (`adjudication.ability_glyph.places_glyph`), flat: time, x, y, reach and disc track
     id. A disc it places none on is no alternative, so an observation lies on
     a placed glyph whenever one is within reach, whatever else is nearer."""
+    from .adjudication.ability_glyph import places_glyph
     tracks = [t for t in glyph["tracks"] if (t.get("fix") or {}).get("t_ms")
-              and glyph_placed(glyph["verdicts"].get(t["track"]))]
+              and places_glyph(glyph["verdicts"].get(t["track"]))]
     if not tracks:
         e = np.zeros(0)
         return e, e, e, e, np.zeros(0, dtype=object)
@@ -189,18 +196,17 @@ def _glyph_fixes(glyph: dict) -> tuple:
     return cat("t_ms"), cat("cx"), cat("cy"), glyph_reach(scale), ids
 
 
-def track_reality(obs_rows: list[dict], glyph: dict | None) -> tuple[dict, dict]:
-    """`({track: detection_reality(...)}, summary)` over the observations
-    that joined a track, from the glyph owner's `disc_verdicts` answer.
-    Sets each observation's `glyph_disc`: the disc track it lies on, or None."""
-    for o in obs_rows:
-        o["glyph_disc"] = None
+def track_reality(obs_rows: list[dict], glyph: dict | None) -> tuple[dict, dict, dict]:
+    """`({track: detection_reality(...)}, summary, {observation_id: disc})`
+    over the observations that joined a track, from the glyph owner's
+    `disc_verdicts` answer. The third maps each observation lying on a placed
+    glyph to that disc track; the caller's rows are left as they were."""
     joined = [o for o in obs_rows if o.get("entity_id")]
     n_obs = Counter(o["entity_id"] for o in joined)
     why = "no glyph verdicts" if glyph is None else glyph.get("skipped")
     if why is not None:
         return ({e: detection_reality(n, {}, None, unassessed=why) for e, n in n_obs.items()},
-                {"applied": False, "reason": why})
+                {"applied": False, "reason": why}, {})
     ft, fx, fy, fr, fd = _glyph_fixes(glyph)
     t = np.array([o["t_ms"] for o in joined], float)
     x = np.array([o["x"] for o in joined], float)
@@ -208,18 +214,18 @@ def track_reality(obs_rows: list[dict], glyph: dict | None) -> tuple[dict, dict]
     idx = glyph_coincidence(t, x, y, ft, fx, fy, fr, 500.0 / glyph["hz"])
     on = np.flatnonzero(idx >= 0)
     counts: dict[str, dict] = defaultdict(dict)
+    disc_of: dict[str, str] = {}
     if on.size:
         ent = np.array([joined[i]["entity_id"] for i in on], dtype=object)
         disc = fd[idx[on]]
-        for i, d in zip(on, disc):
-            joined[i]["glyph_disc"] = d
+        disc_of = {joined[i]["observation_id"]: d for i, d in zip(on.tolist(), disc.tolist())}
         pairs, k = np.unique(np.stack([ent.astype(str), disc.astype(str)], 1), axis=0,
                              return_counts=True)
         for (e, d), c in zip(pairs, k):
             counts[e][d] = int(c)
     out = {e: detection_reality(n, counts.get(e, {}), glyph["verdicts"]) for e, n in n_obs.items()}
     return out, {"applied": True, "reason": None, "source": glyph.get("source"),
-                 "hz": glyph["hz"], "observations_on_disc": int(on.size)}
+                 "hz": glyph["hz"], "observations_on_disc": int(on.size)}, disc_of
 
 
 def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[dict],
@@ -290,7 +296,8 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
                         "deaths": [d for d in enemy_deaths if d.get("round_no") == rnd["round_no"]]})
         coverage["rounds"] += 1
 
-    reality, reality_summary = track_reality([o for rec in records for o in rec["obs"]], glyph)
+    reality, reality_summary, disc_of = track_reality([o for rec in records for o in rec["obs"]],
+                                                      glyph)
     refused = {e for e, r in reality.items() if r["status"] == "refused"}
     claims = track_claims(sid, frames, obs_entity, lineup, references, mo_version,
                           head.get("portrait_features_version"))
@@ -355,14 +362,20 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
                          "last_x": None if lp is None else round(lp[0], 2),
                          "last_y": None if lp is None else round(lp[1], 2),
                          "agent": agent,
-                         "identity_status": v["status"] if v else "abstained",
-                         "identity_reason": (f"detection_refused: {real['reason']}"
-                                             if real["status"] == "refused" else
-                                             _identity_reason(v, abstain_why.get(ent["id"]))),
+                         # A refused track never reaches the arbiter, so no
+                         # verdict abstained on it: its identity stands
+                         # refused with the entity (entity_events'
+                         # IDENTITY_STANDING), the reason naming the rule.
+                         **({"identity_status": "refused",
+                             "identity_reason": f"detection_refused: {real['reason']}"}
+                            if real["status"] == "refused" else
+                            {"identity_status": v["status"] if v else "abstained",
+                             "identity_reason": _identity_reason(v, abstain_why.get(ent["id"]))}),
                          "mark_id": mark_of.get(ent["id"]),
                          "reality_status": real["status"], "reality_reason": real["reason"],
                          "reality": real})
-        rows += [{**common, **o} for o in rec["obs"]]
+        rows += [{**common, **o, "glyph_disc": disc_of.get(o["observation_id"])}
+                 for o in rec["obs"]]
         rows += [{**common, **m} for m in marks]
     identity = []
     for v in verdicts.values():
@@ -396,13 +409,19 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
     return {"rows": [summary] + rows, "identity": identity}
 
 
-def _glyph_input(glyph: dict | None) -> str:
-    """The glyph verdicts' stamp as read, for `plan`: the stored stream's, the
-    computed table's, or `NO_ROWS` where none was read."""
+def _glyph_input(glyph: dict | None) -> str | None:
+    """The glyph verdicts' content stamp as read, for `plan`
+    (`input_stamps.content_stamp`): the verdicts weighed; `stale:<stamp>`
+    for stored verdicts refused as stale, so a rerun of `reticle
+    ability-glyphs` moves it; `NO_ROWS` where none are stored; None where
+    the caller handed none (not read)."""
     from .input_stamps import NO_ROWS
-    if not glyph or glyph.get("skipped"):
-        return NO_ROWS
-    return glyph["versions"]["ability_glyph_name"]
+    if glyph is None:
+        return None
+    if glyph.get("skipped"):
+        stamp = glyph.get("stamp") or NO_ROWS
+        return stamp if stamp == NO_ROWS else f"stale:{stamp}"
+    return glyph["stamp"]
 
 
 def enemy_session_tracks(store, sid: str) -> dict:

@@ -121,6 +121,12 @@ SIDES = frozenset({"ally", "enemy"})
 
 ENTITY_KEYS = ("row", "entity_id", "family", "kind", "side", "round", "lifetime",
                "identity", "player", "producer", "lane", "contract")
+#: `reality`: the detection-reality owner's answer on a track a lane assesses
+#: (`round_lifetimes.detection_reality`): `{hypothesis, rule}` where it
+#: accepted the track as a drawn player, else null with its reason, so a
+#: consumer tells an unassessed track from an accepted one. Optional: a lane
+#: that does not apply the rule omits it, and rows written before it validate.
+ENTITY_OPTIONAL = ("reality",)
 LIFETIME_KEYS = ("first_observed_ms", "last_observed_ms", "began", "ended",
                  "censored_at_ms")
 
@@ -560,7 +566,7 @@ def _keys(row: dict, required: Iterable[str], optional: Iterable[str] = ()) -> l
 def check_entity(row: dict, *, lane: str | None = None,
                  verdicts: Mapping[str, str] | None = None,
                  owners: frozenset | None = None) -> list[str]:
-    out = _keys(row, ENTITY_KEYS) + _check_common(row, lane)
+    out = _keys(row, ENTITY_KEYS, ENTITY_OPTIONAL) + _check_common(row, lane)
     family, kind = row.get("family"), row.get("kind")
     if family not in FAMILIES:
         out.append(f"family {family!r} is not one of {sorted(FAMILIES)}")

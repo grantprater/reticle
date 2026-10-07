@@ -96,9 +96,11 @@ false accepts at 331 px, but at 465 px only
 for [metric:enemy_portrait_gate/paired/pg1-vs-pgb@c817691bcd15#d_fa=81] and
 [metric:enemy_portrait_gate/paired/pg1-vs-pgb@d3dcfb182ab1#d_fa=30] false
 accepts, both intervals above zero. There the rim already keys, and the soft
-score proposes red shapes the gate passes: Cypher's camera glyph, a black
-disc with a white device, fits Cypher's black-and-white portrait when Cypher
-is in the five, and an icon half under a teammate's fits a portrait too. The
+score proposes red shapes the gate passes: Tejo's Stealth Drone, drawn as an
+enemy icon is, a red ring round a black disc holding the drone's white glyph
+[domain:abilities/tejo-stealth-drone-enemy-minimap-icon], fits Cypher's
+black-and-white portrait when Cypher is in the five, and an icon half under a
+teammate's fits a portrait too. The
 gate's other cost is Omen's violet portrait, whose rendered-art fit is poor:
 on c817691bcd15 `not_a_portrait` refusals lie beside misses. The read costs
 more: the teardrop fits every gated peak, not one circle per blob, and a

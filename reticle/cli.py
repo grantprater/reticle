@@ -5106,10 +5106,16 @@ def cmd_enemy_tracks(args) -> int:
         out = store.write_events("enemy_track", sid, res["rows"])
         store.write_events("enemy_track_identity", sid, res["identity"])
         head = res["rows"][0]
+        real = head.get("detection_reality") or {}
         print(f"{sid}: {head['tracks']} enemy tracks over {head['rounds']} rounds; names "
               f"{head['identity']}; {head['deaths']} end at a death "
               f"(unbound {head['death_unbound']}); {head['marks']} '?' marks, "
               f"{head['marks_bound']} on a track -> {out}")
+        print(f"{sid}: detection_reality {head.get('detection_reality_version')}: "
+              + (f"tracks {real.get('status')}, refused {real.get('refused')}, "
+                 f"{real.get('observations_on_disc')} observations on a placed glyph "
+                 f"({real.get('source')} verdicts)" if real.get("applied") else
+                 f"unassessed: {real.get('reason')}"))
     return 0
 
 

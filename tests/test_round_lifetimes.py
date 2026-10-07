@@ -419,13 +419,24 @@ class DetectionRealityTests(unittest.TestCase):
         from reticle.round_lifetimes import glyph_reach
         self.assertEqual(glyph_reach([1.0, 0.5]).tolist(), [ICON_PX, ICON_PX * 0.5])
 
-    def test_a_named_or_tied_glyph_is_placed_and_a_null_one_is_not(self):
-        from reticle.round_lifetimes import glyph_placed
-        self.assertTrue(glyph_placed({"ability": {"key": "Tejo:C"}, "reason": None}))
-        self.assertTrue(glyph_placed({"ability": None, "reason": "pairwise_tie"}))
-        for why in ("below_null", "occluded", "no_clean_frame"):
-            self.assertFalse(glyph_placed({"ability": None, "reason": why}))
-        self.assertFalse(glyph_placed(None))
+    def test_the_glyph_owner_decides_which_verdicts_place_a_glyph(self):
+        from reticle.adjudication.ability_glyph import glyph_placement, places_glyph
+        self.assertTrue(places_glyph({"ability": {"key": "Tejo:C"}, "reason": None}))
+        tie = glyph_placement({"ability": None, "reason": "pairwise_tie", "best": "Tejo:C",
+                               "second": "Cypher:E"})
+        self.assertEqual((tie["placed"], tie["keys"]), (True, ("Tejo:C", "Cypher:E")))
+        # Astra's star passed or tied its cut: a star is drawn
+        star = glyph_placement({"ability": None, "reason": "pending", "pending": "Astra:star",
+                                "best": "Astra:X"})
+        self.assertEqual((star["placed"], star["keys"]), (True, ("Astra:X",)))
+        # the full-set path named a kit outside the lineup: a glyph is drawn
+        out = glyph_placement({"ability": None, "reason": "outside_candidate_set",
+                               "best": "Sova:C", "outside": {"path": "audit", "best": "Tejo:C"}})
+        self.assertEqual((out["placed"], out["keys"]), (True, ("Tejo:C",)))
+        for why in ("below_null", "occluded", "no_clean_frame", "view_excluded",
+                    "no_cut_for_key", "not_drawn_per_answer"):
+            self.assertFalse(places_glyph({"ability": None, "reason": why}), why)
+        self.assertFalse(places_glyph(None))
 
     def test_a_track_mostly_on_a_placed_glyph_is_refused_with_both_hypotheses(self):
         from reticle.round_lifetimes import detection_reality
@@ -439,6 +450,15 @@ class DetectionRealityTests(unittest.TestCase):
         self.assertEqual(got["alternatives"][0], {"hypothesis": "drawn_player", "support": 4})
         self.assertEqual(got["alternatives"][1]["keys"], {"Tejo:C": 6})
         self.assertEqual([e["track"] for e in got["evidence"]], ["d1"])
+
+    def test_a_pending_star_counts_as_a_placed_glyph(self):
+        from reticle.round_lifetimes import detection_reality
+        v = {"d1": {"ability": None, "reason": "pending", "pending": "Astra:star",
+                    "best": "Astra:X", "second": "Sova:C", "pooled": 0.8, "cut": 0.6}}
+        got = detection_reality(10, {"d1": 7}, v)
+        self.assertEqual((got["status"], got["alternatives"][1]["keys"]),
+                         ("refused", {"Astra:X": 7}))
+        self.assertTrue(got["evidence"][0]["placed"].startswith("pending"))
 
     def test_half_or_less_on_a_glyph_is_accepted_and_no_verdicts_is_unassessed(self):
         from reticle.round_lifetimes import detection_reality

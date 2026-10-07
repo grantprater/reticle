@@ -1150,8 +1150,10 @@ question = "Is this detection a real entity: a drawn player, or a glyph, a mark,
 owner = "round_lifetimes"
 role = ["adjudicate"]
 status = "partial"
-produces = ["detection_reality", "glyph_coincidence", "glyph_placed", "glyph_reach", "ALTERNATIVE_SHARE", "GLYPH_PLACED_REFUSALS", "REALITY_REFUSALS", "DETECTION_REALITY_VERSION"]
+produces = ["detection_reality", "glyph_coincidence", "glyph_reach", "ALTERNATIVE_SHARE", "REALITY_REFUSALS", "DETECTION_REALITY_VERSION"]
 consumers = ["enemy_tracks"]
+stored_consumers = ["entity_events"]
+defers_to = ["ability-glyph-name"]
 evidence = "tests/test_round_lifetimes.py; prototypes/question_acceptance.py lane --tag pgb --reality paired"
 not_for = """
 The reader gates. A reader measures and stores evidence with a score and a
@@ -1167,6 +1169,9 @@ side's five `agent-identity`'s (its per-frame assignment), roster capacity
 `round-entity`'s (`ally_capacity`), the X at a death `death-victim`'s; this
 question combines them and restates none. Nor is it per-frame candidate
 disposition, which `minimap-icon-disposition` owns for allies.
+
+Nor which verdicts place a glyph: the glyph owner decides that
+(`adjudication.ability_glyph.glyph_placement`), and this question asks it.
 
 Partial: enemies, one alternative: `detection_reality` refuses a track lying mostly on
 an ability glyph the glyph owner places (`alternative_ability_glyph`), and the
@@ -2063,7 +2068,8 @@ owner = "adjudication.ability_glyph"
 role = ["adjudicate", "attribute"]
 status = "partial"
 names_agents = true
-produces = ["adjudicate", "session_adjudication", "disc_verdicts", "VerdictTables", "load_glyph_rows", "load_icon_verify", "frame_views",
+produces = ["adjudicate", "session_adjudication", "disc_verdicts", "stored_verdicts_stale",
+            "glyph_placement", "places_glyph", "PLACING_REFUSALS", "VerdictTables", "load_glyph_rows", "load_icon_verify", "frame_views",
             "stale_reason", "CHANNEL", "AUDIT_CHANNEL", "AUDIT_NULL_HOLDS", "ASTRA_STAR",
             "OMEN_RULE_REFUSAL", "REFUSALS", "STATES_TABLE", "player_drawing", "icon_ruled_out",
             "load_drawing_answers", "DRAWING_ANSWERS", "NO_ICON", "OTHER_NO_ICON", "NOT_DRAWN"]
@@ -2077,7 +2083,7 @@ turns into; a threshold the null table does not give. Scoring textures
 stored tray kit's (`tray-kit`), and the portrait and map gates are the
 reader's stored answers; it reruns none of them.
 """
-consumers = ["cli"]
+consumers = ["cli", "round_lifetimes", "enemy_tracks"]
 evidence = "tests/test_ability_glyph_name.py; reticle ability-glyphs; docs/MINIMAP_GLYPH_CHANNEL.md stage 3"
 
 

@@ -822,7 +822,9 @@ def _lane_enemy(ev, t0, t1):
             r=pos.get("r"), event_id=e["event_id"], version=version,
             entity_id=e.get("entity_id"), colour="question" if q else "enemy",
             detail={"identity_status": status, "ledger_id": (lrow or {}).get("ledger_id"),
-                    "family": (ent or {}).get("family")})
+                    "family": (ent or {}).get("family"),
+                    # the track owner's detection-reality answer, or why none
+                    "reality": (ent or {}).get("reality") or (ent or {}).get("reality_reason")})
 
     out = []
     for e in ev.events(lane="enemy", kinds=("pose", "last_known"), t0_ms=None, t1_ms=t1):

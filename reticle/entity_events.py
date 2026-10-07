@@ -109,7 +109,9 @@ LANE_VERSIONS = {
 }
 # entity-enemy-0.2.0 (2026-10-07): a track the track owner refused as no
 # entity (`reality_status` refused, `round_lifetimes.detection_reality`) fails
-# rule 1 and is withheld whole, with its poses, standing `refused`.
+# rule 1 and is withheld whole, with its poses, standing `refused`; every
+# entity row carries `reality`, the owner's answer or null with why
+# (`entity_contract.ENTITY_OPTIONAL`).
 # entity-death-0.2.0 (2026-09-30): a death the death owner places by a
 # minimap X carries its position in the baked frame.
 PROJECTED = tuple(LANE_VERSIONS)
@@ -874,6 +876,20 @@ def _enemy_lane(store, sid, L: _Lane, manifest) -> dict:
                 "standing": IDENTITY_STANDING.get(status, "abstained"), "alternatives": []}
         _reasoned(row, "identity", identity, id_reason or "")
         _reasoned(row, "player", None, PLAYER_REASON)
+        # The track owner's detection-reality answer, so a consumer tells an
+        # unassessed track from an accepted one (a refused one is withheld).
+        real = e.get("reality_status")
+        if real == "accepted":
+            _reasoned(row, "reality", {"hypothesis": "drawn_player",
+                                       "rule": head.get("detection_reality_version")}, "")
+        elif real == "refused":
+            _reasoned(row, "reality", None, f"withheld: {L.ledger_id(eid)}")
+        elif real == "unassessed":
+            _reasoned(row, "reality", None,
+                      f"not_read: detection_reality unassessed: {e.get('reality_reason')}")
+        else:
+            _reasoned(row, "reality", None,
+                      f"not_read: enemy_track {version} predates detection_reality")
         row.update(producer=producer, lane=L.lane, contract=ENTITY_CONTRACT_VERSION)
         subject = {"row": "entity", "entity_id": eid, "round": e["round_no"]}
         obs = sorted(obs_by.get(eid, []), key=lambda o: (o["t_ms"], o["observation_id"]))

@@ -783,11 +783,15 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                    **_lineup_inputs()},
         "enemy_track": {"minimap_object": _in("minimap_object_version",
                                               "minimap_object#minimap_object_version"),
-                        # the glyph verdicts `detection_reality` weighs; a head
-                        # written before enemy-track-0.3.0 read none
+                        # The glyph verdicts `detection_reality` weighs, by
+                        # their content stamp (`input_stamps.content_stamp`):
+                        # the verdict's code stamp alone would miss a rerun of
+                        # `reticle ability-glyphs` over moved inputs, the
+                        # `ability_fit` failure above. A head written before
+                        # enemy-track-0.3.0 read none.
                         "ability_glyph_name": _in("inputs.ability_glyph_name",
-                                                  "ability_glyph_name#ability_glyph_name_version",
-                                                  before="no_rows"),
+                                                  "ability_glyph_name#ability_glyph_name_version"
+                                                  "+inputs", before="no_rows"),
                         "death": _in("death_adjudication_version", death),
                         "portrait_refs": _in("references_version", "portrait_refs"),
                         **_lineup_inputs(file_path="lineup_version")},
@@ -968,7 +972,10 @@ def input_head(store, manifest: dict, probe: str, head: dict | None = None,
     if "#" in probe:
         stream, field = probe.split("#", 1)
         row = ist.head_row(store, stream, sid)
-        now = ist.NO_ROWS if row is None else (row.get(field) or "unstamped")
+        if field.endswith(ist.CONTENT):
+            now = ist.content_stamp(row, field[:-len(ist.CONTENT)])
+        else:
+            now = ist.NO_ROWS if row is None else (row.get(field) or "unstamped")
     elif probe == "rounds":
         now = ist.table_stamp(store.rounds_path(sid, date), "round_version")
     elif probe == "spans":

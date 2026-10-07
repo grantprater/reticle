@@ -183,7 +183,8 @@ def glyph_on_track(rows, keys=("Tejo:C",), reason=None):
                "ability": None if reason else {"key": keys[0]}, "reason": reason,
                "best": keys[0], "second": None, "pooled": 0.9, "cut": 0.6}
     return {"tracks": [track], "verdicts": {"s1:adisc:1": verdict}, "hz": 2.0,
-            "source": "test", "versions": {"ability_glyph_name": "agn-test",
+            "source": "test", "stamp": "agn-test@0123456789abcdef",
+            "versions": {"ability_glyph_name": "agn-test",
                                            "ability_disc_track": "adt-test"}}
 
 
@@ -197,7 +198,8 @@ class RealityTests(unittest.TestCase):
         e = next(r for r in got["rows"] if r["kind"] == "entity")
         self.assertEqual((e["reality_status"], e["reality_reason"]),
                          ("refused", "alternative_ability_glyph"))
-        self.assertEqual(e["identity_reason"], "detection_refused: alternative_ability_glyph")
+        self.assertEqual((e["identity_status"], e["identity_reason"]),
+                         ("refused", "detection_refused: alternative_ability_glyph"))
         self.assertIsNone(e["agent"])
         self.assertIsNone(e["death_id"])
         self.assertEqual(got["identity"], [])
@@ -210,7 +212,33 @@ class RealityTests(unittest.TestCase):
         self.assertGreater(2 * len(linked), len(obs))
         head = got["rows"][0]
         self.assertEqual(head["detection_reality"]["refused"], {"alternative_ability_glyph": 1})
-        self.assertEqual(head["inputs"]["ability_glyph_name"], "agn-test")
+        self.assertEqual(head["inputs"]["ability_glyph_name"], "agn-test@0123456789abcdef")
+
+    def test_reality_leaves_the_callers_rows_as_they_were(self):
+        rows, _t, _x = object_rows()
+        glyph = glyph_on_track(rows)
+        before = json.dumps(rows, sort_keys=True)
+        obs = [{"entity_id": "e1", "observation_id": f"o{i}", "t_ms": f["t_ms"],
+                "x": f["enemies"][0]["x"], "y": f["enemies"][0]["y"]}
+               for i, f in enumerate(r for r in rows if r.get("kind") == "frame" and r.get("enemies"))]
+        snap = json.dumps(obs, sort_keys=True)
+        real, summary, disc_of = et.track_reality(obs, glyph)
+        self.assertEqual(json.dumps(obs, sort_keys=True), snap)
+        self.assertTrue(disc_of)
+        self.assertEqual(set(disc_of.values()), {"s1:adisc:1"})
+        self.assertEqual(real["e1"]["glyph_support"], len(disc_of))
+        et.build(SID, rows, ROUNDS, [], lineup(), None, glyph=glyph)
+        self.assertEqual(json.dumps(rows, sort_keys=True), before)
+
+    def test_stale_verdicts_record_the_stamp_they_refused(self):
+        rows, _t, _x = object_rows()
+        got = et.build(SID, rows, ROUNDS, [], lineup(), None,
+                       glyph={"skipped": "ability_glyph_name read inputs that moved since",
+                              "stamp": "agn-test@0123456789abcdef"})
+        head = got["rows"][0]
+        self.assertEqual(head["inputs"]["ability_glyph_name"], "stale:agn-test@0123456789abcdef")
+        e = next(r for r in got["rows"] if r["kind"] == "entity")
+        self.assertEqual(e["reality_status"], "unassessed")
 
     def test_a_glyph_below_its_null_refuses_nothing(self):
         rows, last_t, last_x = object_rows()
@@ -223,7 +251,7 @@ class RealityTests(unittest.TestCase):
     def test_without_glyph_verdicts_every_track_is_unassessed_with_the_reason(self):
         rows, _t, _x = object_rows()
         got = et.build(SID, rows, ROUNDS, [], lineup(), None,
-                       glyph={"skipped": "no stored ability_glyph_name"})
+                       glyph={"skipped": "no stored ability_glyph_name", "stamp": "no_rows"})
         e = next(r for r in got["rows"] if r["kind"] == "entity")
         self.assertEqual((e["reality_status"], e["reality_reason"]),
                          ("unassessed", "no stored ability_glyph_name"))
@@ -250,6 +278,11 @@ class LaneTests(unittest.TestCase):
             self.assertEqual(q[0]["position"]["x"], last_x)
             led = {r["ledger_id"]: r for r in ev.ledger(lane="enemy")}
             self.assertEqual(led["enemy:s1:R1:E0001"]["standing"], "abstained")
+            # no glyph verdicts: the consumer row says the track went unassessed
+            ent = ev.entity("s1:R1:E0001")
+            self.assertIsNone(ent["reality"])
+            self.assertEqual(ent["reality_reason"],
+                             "not_read: detection_reality unassessed: no glyph verdicts")
 
 
     def test_a_refused_track_is_withheld_from_the_lane_as_refused(self):
@@ -274,6 +307,10 @@ class LaneTests(unittest.TestCase):
             row = led["enemy:s1:R1:E0001"]
             self.assertEqual(row["standing"], "refused")
             self.assertIn("alternative_ability_glyph", row["reason"])
+            # the accepted track carries the owner's answer, not a bare absence
+            from reticle.round_lifetimes import DETECTION_REALITY_VERSION
+            self.assertEqual(ev.entity("s1:R1:E0002")["reality"],
+                             {"hypothesis": "drawn_player", "rule": DETECTION_REALITY_VERSION})
 
 
 if __name__ == "__main__":

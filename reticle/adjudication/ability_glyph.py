@@ -903,12 +903,12 @@ def session_adjudication(store, sid: str) -> dict:
     from ..lineup import load_lineup
     from .tray_kit import stored_kit_witness
     from .ult_cast import player_agent
+    from ..input_stamps import head_row
     path = store.events_path("ability_glyph", sid)
-    if not path.is_file():
+    head = head_row(store, "ability_glyph", sid)
+    if head is None:
         return {"skipped": f"no ability_glyph rows -- run `reticle scan {sid} --only ability "
                            f"--from cache`"}
-    with open(path, "rb") as fh:
-        head = json.loads(fh.readline() or b"{}")
     why = stale_reason(head)
     if why:
         return {"skipped": why}
@@ -925,37 +925,134 @@ def session_adjudication(store, sid: str) -> dict:
     return {"result": res, "hz": float(head["hz"]) if head.get("hz") else None}
 
 
+#: Verdict refusals that still place a glyph on the disc (`glyph_placement`),
+#: each with why. Every other refusal places none.
+PLACING_REFUSALS = {
+    "pairwise_tie": "the best key beat its own cut and tied the runner-up (step 3): a "
+                    "glyph is drawn and only which one is open",
+    "pending": "Astra's placed star passed or tied its cut (step 4): a star is drawn and "
+               "only the slot it turns into is open",
+    "outside_candidate_set": "the full-set path (audit or surprise) named a key above its "
+                             "own cut outside the lineup's set: a glyph is drawn, and its "
+                             "caster is the surprise",
+}
+
+
+def glyph_placement(verdict: dict | None) -> dict:
+    """Whether this owner's verdict on a disc track places an ability glyph
+    there: `{"placed", "keys", "why"}`, `keys` the glyph keys the verdict
+    holds open. For an owner that asks whether a drawn thing is a glyph
+    (`round_lifetimes.detection_reality`), never which caster it names.
+
+    - named (`ability` set): placed, its key.
+    - `pairwise_tie`, `pending`, `outside_candidate_set` (`PLACING_REFUSALS`):
+      placed; the tie's two keys, the best key (Astra:X for the star), the
+      full-set path's key. Each passed a cut, so a glyph is drawn there.
+    - `not_drawn_per_answer`: not placed. Its best key draws nothing on the
+      minimap by the player's answer, so a disc that key fits best is
+      unknown, not a glyph; the runner-up is not promoted (step 4).
+    - `below_null`, `no_cut_for_key`, `view_excluded`, `no_clean_frame`:
+      not placed; no key passed a cut on a clean sample.
+    - `occluded`: not placed; every sample lay under a stored portrait, so
+      this owner saw no glyph apart from a portrait there.
+    - no verdict: not placed.
+    """
+    if not verdict:
+        return {"placed": False, "keys": (), "why": "no verdict on the disc track"}
+    if verdict.get("ability"):
+        return {"placed": True, "keys": (verdict["ability"]["key"],), "why": "named"}
+    reason = verdict.get("reason")
+    if reason in PLACING_REFUSALS:
+        if reason == "pairwise_tie":
+            keys = (verdict.get("best"), verdict.get("second"))
+        elif reason == "outside_candidate_set":
+            keys = ((verdict.get("outside") or {}).get("best"),)
+        else:
+            keys = (verdict.get("best"),)
+        return {"placed": True, "keys": tuple(k for k in keys if k),
+                "why": f"{reason}: {PLACING_REFUSALS[reason]}"}
+    return {"placed": False, "keys": (), "why": f"{reason}: places no glyph"}
+
+
+def places_glyph(verdict: dict | None) -> bool:
+    """`glyph_placement(verdict)["placed"]`."""
+    return glyph_placement(verdict)["placed"]
+
+
+def stored_verdicts_stale(store, sid: str) -> dict:
+    """`{"why": reason or None, "stamp": content stamp}` of the stored disc
+    tracks and verdicts: why they cannot be trusted now, or None. Asks the
+    checks that already decide it, restating neither: `stale_reason` on the
+    `ability_glyph` head the verdicts were adjudicated over, and `plan`'s
+    recorded-input check (`plan.recorded_stale`) on the `ability_disc_track`
+    and `ability_glyph_name` heads: a stamp behind the code's, a stored input
+    (lineup, tray kit, drawing answers, glyph rows) moved since the verdicts
+    read it, or an input they do not record. `stamp` is the stored verdicts'
+    content stamp (`input_stamps.content_stamp`), what a reader records."""
+    from ..input_stamps import NO_ROWS, content_stamp, head_row
+    from ..plan import derived_streams, recorded_stale
+    stamp = content_stamp(head_row(store, "ability_glyph_name", sid), "ability_glyph_name_version")
+    run = f"run `reticle ability-glyphs {sid}`"
+    glyph_head = head_row(store, "ability_glyph", sid)
+    if glyph_head is None:
+        return {"why": f"no ability_glyph rows -- run `reticle scan {sid} --only ability "
+                       f"--from cache`", "stamp": stamp}
+    why = stale_reason(glyph_head)
+    if why:
+        return {"why": f"{why} -- run `reticle scan {sid} --only ability --from cache`",
+                "stamp": stamp}
+    if stamp == NO_ROWS:
+        return {"why": f"no stored ability_glyph_name -- {run}", "stamp": stamp}
+    specs = {s["stream"]: s for s in derived_streams()}
+    manifest, memo = store.read_manifest(sid), {}
+    for stream in ("ability_disc_track", "ability_glyph_name"):
+        head = head_row(store, stream, sid)
+        if head is None:
+            return {"why": f"no stored {stream} -- {run}", "stamp": stamp}
+        behind, moved, missing = recorded_stale(store, manifest, specs[stream], head, memo)
+        if behind:
+            return {"why": f"{stream} is {head.get(specs[stream]['key'])}, current "
+                           f"{specs[stream]['current']} -- {run}", "stamp": stamp}
+        if moved:
+            return {"why": f"{stream} read inputs that moved since ({', '.join(moved)}) -- {run}",
+                    "stamp": stamp}
+        if missing:
+            return {"why": f"{stream} does not record its inputs {', '.join(missing)} -- {run}",
+                    "stamp": stamp}
+    return {"why": None, "stamp": stamp}
+
+
 def disc_verdicts(store, sid: str, *, compute: bool = False) -> dict:
     """Where this owner places an ability glyph, for an owner that asks: the
     disc tracks (each with its fixes), the verdict on each, and the disc
     reader's sampling rate `hz`. Read from the stored `ability_disc_track` and
-    `ability_glyph_name` streams when both are at today's stamps; `compute`
-    adjudicates the stored `ability_glyph` rows in memory instead (an
-    evaluation that writes nothing). `{"skipped": why}` when neither holds."""
+    `ability_glyph_name` streams when `stored_verdicts_stale` finds them
+    current; `compute` adjudicates the stored `ability_glyph` rows in memory
+    instead (an evaluation that writes nothing). `{"skipped": why, "stamp"}`
+    when neither holds. `stamp` is the content stamp of the verdicts read or
+    refused (`NO_ROWS` where none are stored), so a reader records which
+    verdicts it weighed, or which stale ones it refused."""
+    from ..input_stamps import NO_ROWS, content_stamp, head_row
     if compute:
         got = session_adjudication(store, sid)
         if "skipped" in got:
-            return got
+            return {**got, "stamp": NO_ROWS}
         res = got["result"]
         tracks, rows, hz, source = res["tracks"][1:], res["rows"], got["hz"], "computed"
+        stamp = content_stamp(rows[0], "ability_glyph_name_version")
     else:
-        tracks = store.read_events("ability_disc_track", sid) or []
+        check = stored_verdicts_stale(store, sid)
+        stamp = check["stamp"]
+        if check["why"] is not None:
+            return {"skipped": check["why"], "stamp": stamp}
+        tracks = [t for t in store.read_events("ability_disc_track", sid) or []
+                  if t.get("kind") == "track"]
         rows = store.read_events("ability_glyph_name", sid) or []
-        if not tracks or not rows:
-            return {"skipped": f"no stored ability_glyph_name -- run `reticle ability-glyphs {sid}`"}
-        got = (tracks[0].get("ability_disc_track_version"), rows[0].get("ability_glyph_name_version"))
-        if got != (ABILITY_DISC_TRACK_VERSION, ABILITY_GLYPH_NAME_VERSION):
-            return {"skipped": f"ability_disc_track/ability_glyph_name are {got[0]}/{got[1]}, current "
-                               f"{ABILITY_DISC_TRACK_VERSION}/{ABILITY_GLYPH_NAME_VERSION} -- run "
-                               f"`reticle ability-glyphs {sid}`"}
-        tracks = [t for t in tracks if t.get("kind") == "track"]
-        path = store.events_path("ability_glyph", sid)
-        with open(path, "rb") as fh:
-            head = json.loads(fh.readline() or b"{}")
+        head = head_row(store, "ability_glyph", sid) or {}
         hz, source = (float(head["hz"]) if head.get("hz") else None), "stored"
     if not hz:
-        return {"skipped": "the ability_glyph head records no sampling rate"}
+        return {"skipped": "the ability_glyph head records no sampling rate", "stamp": stamp}
     return {"tracks": tracks, "verdicts": {r["track"]: r for r in rows if r.get("kind") == "verdict"},
-            "hz": hz, "source": source,
+            "hz": hz, "source": source, "stamp": stamp,
             "versions": {"ability_disc_track": ABILITY_DISC_TRACK_VERSION,
                          "ability_glyph_name": ABILITY_GLYPH_NAME_VERSION}}
