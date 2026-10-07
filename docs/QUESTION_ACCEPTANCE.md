@@ -538,6 +538,13 @@ and
 under `Vgate` against
 [metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#spacing_death.loss=-0.0807]
 for spacing at death.
+The enemy lane's misses against T1 are mostly T1 errors, not reader misses
+(`prototypes/enemy_lane_check.py`, classed by eye): on c817691bcd15 the
+stored icons' hit rate rises from
+[metric:t1_draw_rule/lane/T1@c817691bcd15#hit_rate=0.3021] under T1 to
+[metric:t1_draw_rule/lane/T1d@c817691bcd15#hit_rate=0.5626] under T1d
+(`prototypes/t1_draw_rule.py`: measured persistence, both teams' smokes, no
+dead enemies), and T1d supersedes T1's draw rule for later scoring.
 
 | Ref | Revises | Prediction |
 |---|---|---|

@@ -2,32 +2,43 @@
 
 ## Picking up
 
-**2026-10-06, night.** Master stands at `8f95262`, pushed. The [backlog](BACKLOG.md) order: build the slot model to answer the catalogued questions; the ally-icon cost by fidelity; the spelling owner's remainder. The earlier handoffs of the day are archived ([morning](docs/archive/NOTES-2026-10-06-morning.md), [evening](docs/archive/NOTES-2026-10-06-evening.md)).
+**2026-10-07.** Master stands at `26c2d33`, pushed. The [backlog](BACKLOG.md) order: the enemy lane, reader and belief; the slot model, revised by this session's reach findings; the execution readers. The last handoff of 10-06 is [archived](docs/archive/NOTES-2026-10-06-night.md).
 
 ### The frame
 
-Fidelity follows the question (AGENTS.md). [COACHING_QUESTIONS.md](docs/COACHING_QUESTIONS.md) ranks the questions on 17 replays and 170 ladder matches: trades within 5 s, the opening duel, map control at 20 s, full buys, execute commitment and damage-only balance lead; most value comes from events. Coaching is about the player with teammates as context; an execute or rotation needs only that it happened and how many went. On truth, the schedule `Lp0.5-250w5` (0.5 Hz base reads, 5 Hz inside windows opened by a drawn enemy within reach, 250 ms buffered) reads 0.0484 of today's 15 Hz slot reads and keeps every sight question at 0.95 or better; it implies 0.36 to 0.81 ms per captured 60 Hz frame uncontended (0.69 to 1.56 contended), against today's 7.44 (14.2), before the gate's own cue and decode are priced. Last-seen sets pruned by team vision hold the truth 0.97 and collapse to unknown at a median 13 s; open flanks raise the death rate 1.55-fold. Peek/hold and corner distance showed no win edge; cross-round habits predicted little within a match. The acceptance plan [QUESTION_ACCEPTANCE.md](docs/QUESTION_ACCEPTANCE.md) records the player's answers and the cost bound.
+Fidelity follows the question (AGENTS.md); [COACHING_QUESTIONS.md](docs/COACHING_QUESTIONS.md) ranks the decision questions, [EXECUTION_QUESTIONS.md](docs/EXECUTION_QUESTIONS.md) the mechanics questions, and [QUESTION_ACCEPTANCE.md](docs/QUESTION_ACCEPTANCE.md) section 7 holds the bar. The bar is now QA5r3 (player, 2026-10-07): each arm is scored against replay truth (T1) beside the 15 Hz real-read arm on the same instances; a sight question fails only when its 95% interval lies wholly below a 5-point loss; read share at most 0.06.
 
-### Timing
+### Real-reader schedule (`prototypes/real_reader_schedule.py`, merged)
 
-- replay-truth-0.4.0 reads truth on the killfeed least-squares clock (the capture clock runs about 1e-4 fast) with separate self and remote lags; teammate p90 error fell from about 3 px to 1-1.7 px [domain:capture/minimap-remote-player-lag].
-- [RENDER_DELAY.md](docs/RENDER_DELAY.md): two clocks per belief, client render time for what the player could know and server time for order; a constant 50 ms prior in a 30-200 ms band, because no capture-only estimator recovered the delay. Sight order follows corner distance: the closer player sees later in 0.92 of non-tied duels, median 70 ms.
-- `render-delay-ping-20261006` (merged): lobby ping does not set the delay (9acf02f98283: 168 ms delay, 59 ms lobby max; d3dcfb182ab1: 55 ms, 150 ms). The scoreboard's PING column is legible but unread; the self row may show a client-side figure. 9acf02f98283's delay stays unexplained (build 13.04, small minimap). The player set ping aside: it changes strategy little.
+- `Vgate` (the real gate over real ally reads) passes QA5r3 post hoc at a read share of [metric:real_reader_schedule/qa5r3/Vgate@dev2#share=0.0283]. Its losses run from [metric:real_reader_schedule/qa5r3/Vgate@dev2#contact_C.loss=-0.0072] on contacts and [metric:real_reader_schedule/qa5r3/Vgate@dev2#duel_C.loss=-0.0123] on duels to [metric:real_reader_schedule/qa5r3/Vgate@dev2#opening_first_seer.loss=-0.0625] on the opening first seer, [metric:real_reader_schedule/qa5r3/Vgate@dev2#first_sight_support.loss=-0.0833] on first-sight support and [metric:real_reader_schedule/qa5r3/Vgate@dev2#spacing_death.loss=-0.0807] on spacing at death.
+- The cheap fixes recover little. Retrying lost reads (`Vgate-r`) nearly doubles the share to [metric:real_reader_schedule/qa5r3/Vgate-r@dev2#share=0.0515] and leaves spacing at death at [metric:real_reader_schedule/qa5r3/Vgate-r@dev2#spacing_death.loss=-0.0807]; moving reads to frames where the widget is drawn (`Vgate-d`) gives [metric:real_reader_schedule/qa5r3/Vgate-d@dev2#spacing_death.loss=-0.0683]. The residual loss is 0.5 Hz interpolation.
+- Lost ally reads fall on frames with the widget undrawn or beside another icon, and come in runs.
+- Sparse rebinding keeps dense binding's slot on [metric:real_reader_schedule/rr6@c817691bcd15#same_slot_share=0.9633] and [metric:real_reader_schedule/rr6@d3dcfb182ab1#same_slot_share=0.9737] of fits.
+- The red-pixel gate cue fires on [metric:real_reader_schedule/cost@c817691bcd15#cue_positive_share=0.9967] of crops; its red comes from icons and X marks drawn over the map, never from the baked map ([metric:real_reader_schedule/cue_residual@c817691bcd15#red_sources_no_enemy_share.baked_map_art=0.0]).
 
-### Merged today
+### Reach questions
 
-Spelling owner (`reticle/agent_names.py`); replay self identification, now owned by `reticle/replay_source.py` (`[owns:replay-self]`), so d3dcfb182ab1's layer has a clock and self; self-entry (side plus bound portrait; cea8ecbc94ab K/D 8/15) and the Shooting Error refusal (hud-0.27.0); `reticle/frame_join.py`; the stack-edge prototype; the fidelity rule; the plans above.
+- `join_death` (a teammate can reach, within 5 m of walk on `coaching_belief`'s grid, a cell that sees the killer) loses [metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#join_death.loss=-0.0062] under `Vgate`.
+- `spacing_region` (callout relation) loses less than metre spacing: [metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#spacing_region.loss=-0.0497] against [metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#spacing_death.loss=-0.0807], and [metric:real_reader_schedule/reach/Vgate_vs_V15h@dev3#spacing_region.loss=-0.0717] against [metric:real_reader_schedule/reach/Vgate_vs_V15h@dev3#spacing_death.loss=-0.0802].
+- Region-border crossings come rarer than metre-cut crossings ([metric:real_reader_schedule/reach/crossings@dev2#region_per_s=0.1627] against [metric:real_reader_schedule/reach/crossings@dev2#metre_per_s=0.2184] per player-second) and interpolation misdates fewer ([metric:real_reader_schedule/reach/crossings@dev2#region_dated_wrong=0.1881] against [metric:real_reader_schedule/reach/crossings@dev2#metre_dated_wrong=0.2714]).
+- Only [metric:real_reader_schedule/reach/borders@dev-maps#narrower=14] of [metric:real_reader_schedule/reach/borders@dev-maps#borders=71] callout borders are narrower than their regions: callouts are not chokepoints.
+- Trade rate rises with the joinable count: [metric:real_reader_schedule/reach/value@replays17#joinable0.trade_rate=0.1086], [metric:real_reader_schedule/reach/value@replays17#joinable1.trade_rate=0.3247], [metric:real_reader_schedule/reach/value@replays17#joinable2.trade_rate=0.4389] for none, one, two.
+- The gate's 20 m radius over-reaches by walk distance.
+- Join questions collapse on full-rate real reads because the real enemy lane rarely places the killer: `join_death` holds [metric:real_reader_schedule/reach/V15h_vs_T1@dev2#join_death.acc=0.6335] with real enemies, [metric:real_reader_schedule/reach/V15t_vs_T1@dev2#join_death.acc=0.913] with truth enemies.
 
-### Results in `notes/predictions.jsonl`
+### Enemy lane and the T1 draw rule
 
-W1 (ally-prior) and W2 (self tracker, guard 6) failed their falsifiers; revision rows corrected c817691bcd15's frame join without changing a verdict; stack-edge discrimination names exits 0.89 at 40+ exposed px but needs slot beliefs for trigger, candidates and poses. Each task's prediction, revision and outcome rows carry the numbers.
+- `prototypes/enemy_lane_check.py`: most T1-drawn misses are T1 errors, not reader misses; the classes are the agent's by eye, not the player's labels.
+- `prototypes/t1_draw_rule.py` builds T1d: persistence measured at [metric:t1_draw_rule/persistence@dev3#smoke_clean.median_ms=548.4] ms [domain:minimap/vision-trailing-persistence], both teams' smokes block sight [domain:abilities/minimap-vision-cone-blockers], and dead enemies are never drawn. On c817691bcd15 the reader's hit rate rises from [metric:t1_draw_rule/lane/T1@c817691bcd15#hit_rate=0.3021] under T1 to [metric:t1_draw_rule/lane/T1d@c817691bcd15#hit_rate=0.5626] under T1d.
+- Rederived on T1d: the gate opens at onset on [metric:t1_draw_rule/truth/T1d/gate_onset@pooled17#open_0=0.8657] (T1 [metric:t1_draw_rule/truth/T1/gate_onset@pooled17#open_0=0.9211]), the local gate on [metric:t1_draw_rule/truth/T1d/gate_onset@pooled17#local_open=0.8152], median lead [metric:t1_draw_rule/truth/T1d/gate_onset@pooled17#lead_ms_p50=476.5] ms; `Lp0.5-250w5` reads [metric:t1_draw_rule/truth/T1d/Lp0.5-250w5@pooled17#share=0.0386] (T1 [metric:t1_draw_rule/truth/T1/Lp0.5-250w5@pooled17#share=0.0484]); schedule agreement barely moves. The minimap's ceiling against full truth falls.
+- T1d supersedes T1's draw rule for later scoring.
 
-### Side findings
+### Execution questions ([EXECUTION_QUESTIONS.md](docs/EXECUTION_QUESTIONS.md), merged)
 
-- `replay_layer` keeps departed players alive in 7498df5e and 2c387cb6.
-- The 3D sightline walk graph drops cells along barriers and doors and has no jump or drop edges; `prototypes/coaching_belief.py` adds its own.
-- `cast` rows in replay layers come out in a different order per build, which blocks byte-identity checks.
-- Combat-report surprise: b7d24102a6f6 round 18 and 7010b3d62460 round 2 show two distinct reads within a round.
+- The replay carries shots, hit regions and view angles on the 8 ms tick, and blinds on [metric:execution_questions/truth/check@pooled17#replays_with_blinds=14] replays.
+- Duel value: the better-placed crosshair wins [metric:execution_questions/value/placement@pooled17#paired.share=0.6135]; a first shot that hits lifts the win share by [metric:execution_questions/value/first_bullet@pooled17#hit.diff=0.3087]; shooting still lifts it by [metric:execution_questions/value/speed_at_shot@pooled17#still_vs_moving.diff=0.0745]. Shooting first does not win ([metric:execution_questions/value/reaction@pooled17#paired.share=0.4496]).
+- Placement from the minimap cone keeps [metric:execution_questions/value/placement_cone@pooled17#paired.share=0.5831], an upper bound.
+- Priority (player, 2026-10-07): crosshair placement and movement first; aim only if particularly bad; spray discipline open. Capture settings are domain facts [domain:capture/crosshair-white-cross] [domain:hud/hit-yellow-flash] [domain:capture/enemy-highlight-red].
 
 ### Unmerged branches
 

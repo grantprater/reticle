@@ -218,17 +218,30 @@ kind = "rule"
 known = "player"
 since = "2026-09-10"
 use = """
-any gate on concurrent light must allow this lag or it refuses true detections;
-the duration is UNMEASURED, so no reader may assume a value -- and an entity's
-interval must not be ended at the frame it leaves the collective viewcone
+any gate on concurrent light must allow this lag or it refuses true detections,
+and an entity's interval must not be ended at the frame it leaves the
+collective viewcone. For an enemy PLAYER the lag is measured (2026-10-07): the
+icon swaps to its "?" a median
+[metric:t1_draw_rule/persistence@dev3#smoke_clean.median_ms=548.4] ms
+([metric:t1_draw_rule/persistence@dev3#smoke_clean.median_ci_lo=531.7],
+[metric:t1_draw_rule/persistence@dev3#smoke_clean.median_ci_hi=564.9]; n
+[metric:t1_draw_rule/persistence@dev3#smoke_clean.n=323] reader-checked
+one-frame swaps on c817691bcd15, d3dcfb182ab1 and 9acf02f98283) after the last
+smoke-blocked truth sight, on replay-truth-0.4.0's remote-lag clock
+(prototypes/t1_draw_rule.py, task t1-draw-rule-20261007). No game file sets
+the duration. 9acf02f98283 alone reads
+[metric:t1_draw_rule/persistence@9acf02f98283#smoke_clean.median_ms=369.3] ms
+([metric:t1_draw_rule/persistence@9acf02f98283#smoke_clean.median_ci_lo=70.7],
+[metric:t1_draw_rule/persistence@9acf02f98283#smoke_clean.median_ci_hi=506.9])
+amid reader flicker
 """
 exceptions = """
-UNMEASURED, three ways, and each is null with a reason rather than a guess: the
-duration; whether enemy-owned ABILITIES persist like enemy PLAYERS, the player's
-example being a player; and what the terminal state is -- a question mark, a
-different marker, or nothing. Whether the team's drawn LIGHT itself lingers
-after a cone sweeps away was asked on 2026-09-29; the player answered on
-2026-09-30 that it does not: the drawn light follows each ally's position
+Two questions stay open, each null with a reason rather than a guess: whether
+enemy-owned ABILITIES persist like enemy PLAYERS, the player's example being a
+player; and what the terminal state is -- a question mark, a different marker,
+or nothing. The enemy player's duration stood unmeasured until 2026-10-07.
+Whether the team's drawn LIGHT itself lingers after a cone sweeps away was
+asked on 2026-09-29; the player answered on 2026-09-30 that it does not: the drawn light follows each ally's position
 and orientation, the player assuming the two are meant to move together,
 with a minute lag possible. So the ENTITY lingers and the LIGHT does not
 """
@@ -240,7 +253,7 @@ after the team's vision no longer covers its place, and the "?" follows
 2026-09-30 (chat) the player answered whether the drawn light lingers
 """
 see = ["minimap/vision-gate", "minimap/last-known-mark", "minimap/last-known-mark-timing",
-       "minimap/dead-teammate-light-belief", "minimap/spike-casts-no-light-belief",
+       "minimap/last-known-mark-widget-lifetime", "minimap/dead-teammate-light-belief", "minimap/spike-casts-no-light-belief",
        "minimap/vision-light-binary"]
 
 [vision-light-binary]
@@ -714,7 +727,8 @@ use = """
 an enemy smoke can only be inferred as missing light: floor the raycast says an
 ally sees but the drawn light leaves unlit, in a smoke-sized disc
 """
-see = ["abilities/enemy-smokes-not-on-minimap", "minimap/vision-gate"]
+see = ["abilities/enemy-smokes-not-on-minimap", "minimap/vision-gate",
+       "abilities/minimap-vision-cone-blockers"]
 
 [red-portrait-states]
 claim = """
@@ -908,9 +922,48 @@ gone within about 3.3 s
 """
 exceptions = """
 two sessions, one widget size (465 px); the time from leaving vision to the
-swap is not measured, because the team's drawn light was not read
+swap is not measured here, because the team's drawn light was not read (replay
+truth measures it [domain:minimap/vision-trailing-persistence]). CONFLICTING
+(2026-10-07): the game files give the mark 3.0 s visible and a 1.0 s fade
+[domain:minimap/last-known-mark-widget-lifetime]. Started at the swap, that
+fade would begin 3.0 s after it; started at the last sight, earlier by the
+persistence. The measured fade begins at 1.95 s and ends at 3.08 s, fitting
+neither start; the durations here stand unreconciled
 """
-see = ["minimap/last-known-mark"]
+see = ["minimap/last-known-mark", "minimap/last-known-mark-widget-lifetime"]
+
+[last-known-mark-widget-lifetime]
+claim = """
+The game files of build 13.06 set the enemy "?" mark's widget,
+MissingMinimapWidget, to a Visible Lifetime of 3.0 s and a Fadeout Time of
+1.0 s. ShooterCharacterMinimapWidget sets the same (Missing Visible Lifetime
+3.0 s, Fadeout Time 1.0 s). The spike's mark, BombMissingMinimapWidget, sets
+a Visible Lifetime of 2.0 s and a Fadeout Time of 3.0 s. The event that
+starts the timer is not exported.
+"""
+kind = "measurement"
+known = "observed"
+since = "2026-10-07"
+subject = "minimap:last-known-mark"
+source = """
+game build release-13.06-shipping-18-5590001, the class default objects'
+properties in <store>/reference/game-files/release-13.06-shipping-18-5590001/hud-layout/
+ShooterGame/Content/UI/Screens/InGame/HUD/Minimap/Widgets/: MissingMinimapWidget.json
+("Visible Lifetime", "Fadeout Time"), ShooterCharacterMinimapWidget.json
+("Missing Visible Lifetime", "Fadeout Time") and BombMissingMinimapWidget.json;
+found by task t1-draw-rule-20261007
+"""
+use = """
+a "?" witness expects the mark gone within the lifetime plus the fade of
+some start; until the start is known, test both the swap and the last sight
+as starts against [domain:minimap/last-known-mark-timing]
+"""
+exceptions = """
+the timer's start is unexported, and the measured fade fits neither
+candidate start [domain:minimap/last-known-mark-timing]
+"""
+see = ["minimap/last-known-mark", "minimap/last-known-mark-timing",
+       "minimap/vision-trailing-persistence"]
 
 [unseen-utility-death-mark]
 claim = """
