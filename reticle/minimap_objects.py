@@ -27,7 +27,24 @@ and that first frame at most `Q_GONE_MS` before now
 The walk reads this stream's own earlier frames, so the "?" is pure over
 what the pass stored.
 
-**Two fixes, each switchable and stamped.** `FIXES` names them and
+**The icon scale.** Icons follow the map zoom
+[domain:minimap/icons-follow-map-zoom], so every icon length here is a base
+value times `icon_scale`, the one transform (`geometry.MapScale`: widget
+scale x map zoom); the head records it and its source. The X owner is still
+given the widget's scale, so the death stream's inputs do not move. Read at
+the widget's scale alone (0.71 on the 331 px widget, against 0.64 with the
+zoom), the enemy teardrop was 12% too large, and it refused visible enemy
+icons as `no_ring` and `low_ncc`; the enemy class now also scores its ring
+softly and refuses a lobeless ring as `no_lobe` (`teardrop.ICON_CLASSES`,
+ENEMY_TEARDROP_VERSION). Against T1d on 9acf02f98283 the lane's hit rate rose
+from [metric:teardrop_refusals/lane/stored@9acf02f98283#hit_rate=0.442] to
+[metric:teardrop_refusals/lane/final@9acf02f98283#hit_rate=0.6313], and the
+misses beside a `no_ring` refusal fell from
+[metric:teardrop_refusals/lane/stored@9acf02f98283#no_ring=767] to
+[metric:teardrop_refusals/lane/final@9acf02f98283#no_ring=27]
+(`prototypes/teardrop_refusals.py`).
+
+**Three fixes, each switchable and stamped.** `FIXES` names them and
 `ENABLED` turns each on; the stamp is the base version plus the fixes on, so
 turning one off changes the stamp and `reticle plan` names the stream stale.
 
@@ -53,8 +70,30 @@ turning one off changes the stamp and `reticle plan` names the stream stale.
   of [metric:enemy_lane_score/fix-check@587c15b07779+a1a995e6b19b+96aa1ae9b96f+b3b9defb6fd7+75a55a296d3b#CK1_of=16]
   marks the player called an enemy, X or "?".
 
-Both fixes were measured in `prototypes/enemy_lane_bounds.py`
-(enemy-lane-bounds-0.1.0) before they were wired.
+- `owner_gate`: a teardrop read is the X classifier's where a
+  shape-confirmed red X lies within `X_OWN_PX` * scale, and the ping
+  reader's where a confirmed ping of the stored `ping` stream is drawn
+  within `PING_OWN_PX` * scale at that time, on the ping's own glyph
+  (`stored_pings`; no ping stream, the gate abstains and the head records
+  `no_rows`). The refusal links the ping's `entity_id` and its distance.
+  From ping-0.2.0 the ping owner confirms the danger pings whose flash
+  [domain:minimap/danger-ping-flash] split their runs. With pings reread
+  from the crop cache by that code (`teardrop_refusals.py pings`, tag
+  `p020`), not the stored ping-0.1.0 stream, true false accepts on
+  9acf02f98283 fell from
+  [metric:teardrop_refusals/lane/final@9acf02f98283#false_accepts=194] to
+  [metric:teardrop_refusals/lane/c1@9acf02f98283#false_accepts=129] with the
+  hit rate at [metric:teardrop_refusals/lane/c1@9acf02f98283#hit_rate=0.6313];
+  at `PING_OWN_PX` and with the annulus lobe test they stand at
+  [metric:teardrop_refusals/lane/r1@9acf02f98283#false_accepts=138], the hit
+  rate at [metric:teardrop_refusals/lane/r1@9acf02f98283#hit_rate=0.631].
+  The cache reread confirms fewer pings than the stored video-read stream
+  (44 against 57 on 9acf02f98283); the gate over a production ping-0.2.0
+  stream, refreshed from video, is unmeasured.
+
+The first two fixes were measured in `prototypes/enemy_lane_bounds.py`
+(enemy-lane-bounds-0.1.0) before they were wired; the third and the icon
+scale in `prototypes/teardrop_refusals.py`.
 """
 from __future__ import annotations
 
@@ -63,14 +102,19 @@ from collections import Counter
 
 import numpy as np
 
-from .version import ALLY_PORTRAIT_FEATURES_VERSION, TEARDROP_VERSION
+from .version import ALLY_PORTRAIT_FEATURES_VERSION, ENEMY_TEARDROP_VERSION, TEARDROP_VERSION
 
-MINIMAP_OBJECT_BASE = "minimap-object-0.1.0"
+#: 0.2.0 (2026-10-07): icons are read at base x widget scale x map zoom
+#: (`icon_scale`), the enemy teardrop scores its ring softly
+#: (ENEMY_TEARDROP_VERSION 0.2.0), and the `owner_gate` fix.
+#: 0.3.0 (2026-10-07): the ping gate reaches `PING_OWN_PX`, not `ICON_PX`,
+#: and links its ping; the lobe test's ring is an annulus (enemy-teardrop-0.3.0).
+MINIMAP_OBJECT_BASE = "minimap-object-0.3.0"
 
 #: The switchable fixes, in stamp order.
-FIXES = ("teardrop_box", "slab_gate")
+FIXES = ("teardrop_box", "slab_gate", "owner_gate")
 #: Which fixes are on. A caller may pass its own map; the stamp records it.
-ENABLED = {"teardrop_box": True, "slab_gate": True}
+ENABLED = {"teardrop_box": True, "slab_gate": True, "owner_gate": True}
 
 
 def minimap_object_version(fixes: dict | None = None) -> str:
@@ -89,6 +133,17 @@ TIP_PAD = 1.5        # the teardrop box's pad past the fitted tip, * scale
 RED_SHARE = 0.25     # the slab gate's floor
 ICON_PX = 10.0       # an icon's radius for the gate disc and for "under an icon", * scale
 X_OWN_PX = 6.0       # a ring find this near a shape-confirmed red X is the X's, * scale
+#: A teardrop read this near a drawn ping sits on the ping's own glyph and is
+#: the ping reader's, * scale. On the development matches the false reads on
+#: a ping sat at a median of 5.2 base px from it, and most real enemies the
+#: `ICON_PX` gate refused at about 8. Against the ping gate off
+#: (`teardrop_refusals.py gate --off gx`), the gate at 7 refuses
+#: [metric:teardrop_refusals/gate/r1@dev3#refused_real=18] real enemies and
+#: removes [metric:teardrop_refusals/gate/r1@dev3#removed_false=62] true false
+#: accepts; at `ICON_PX`,
+#: [metric:teardrop_refusals/gate/g10@dev3#refused_real=46] and
+#: [metric:teardrop_refusals/gate/g10@dev3#removed_false=76].
+PING_OWN_PX = 7.0
 # The "?" witness (prototypes/minimap_objects_s2.question_at).
 Q_GONE_MS = 3300.0   # the measured gone time's maximum (3.28 s), rounded up
 Q_SWAP_MS = 200.0    # the icon's last frame lies this near the run's first
@@ -139,12 +194,39 @@ def _rnd(v, n=2):
     return None if v is None else round(float(v), n)
 
 
+def _owned(fixes, marks, pings, t_ms, x, y, scale,
+           ping_ids=None) -> tuple[str, str, list | None] | None:
+    """The `owner_gate`: the channel that observes a teardrop read's place, as
+    `(cls, reason, evidence)`, or None. A shape-confirmed red X within
+    `X_OWN_PX` * scale is the X classifier's; a confirmed ping drawn at `t_ms`
+    within `PING_OWN_PX` * scale is the ping reader's, and `evidence` links
+    that ping's `entity_id` (from `ping_ids`) and its distance in widget px.
+    Each owner is asked, not restated: the X is `minimap_x_marks`' answer,
+    the ping a stored `ping` event."""
+    if not fixes.get("owner_gate"):
+        return None
+    if any(math.hypot(q["x"] - x, q["y"] - y) <= X_OWN_PX * scale for q in marks["red"]):
+        return "x_mark", "owned_by_x_classifier: teardrop read", None
+    if pings is not None and pings.size and t_ms is not None:
+        on = np.flatnonzero((pings[:, 0] <= t_ms) & (t_ms <= pings[:, 1]))
+        if on.size:
+            d = np.hypot(pings[on, 2] - x, pings[on, 3] - y)
+            i = int(np.argmin(d))
+            if d[i] <= PING_OWN_PX * scale:
+                eid = None if ping_ids is None else ping_ids[on[i]]
+                return "ping", "owned_by_ping: teardrop read", [
+                    {"stream": "ping", "entity_id": eid, "d_px": _rnd(d[i])}]
+    return None
+
+
 def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None = None,
-               turn: bool = False) -> dict:
+               turn: bool = False, t_ms: float | None = None) -> dict:
     """One drawn frame: enemies, X marks, red blobs, refusals.
 
     `ctx` holds the baked `floor` and `slab` (`minimap.floor_mask`,
-    `slab_mask`). `turn` rotates each enemy's aligned portrait 180 degrees,
+    `slab_mask`). `scale` is the icon scale (`object_context`'s
+    `icon_scale`); `ctx["scale"]`, the widget's, is what the X owner is
+    given. `turn` rotates each enemy's aligned portrait 180 degrees,
     for a widget drawn turned over [domain:minimap/upright-icons-on-turned-map].
     The "?" marks need earlier frames and are added by `last_known`.
     """
@@ -157,7 +239,9 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
     enemies, refused = [], []
     # The X classifier owns every shape-confirmed X: a ring find the
     # teardrop does not read at an X is the X's, not a missed enemy.
-    marks = minimap_x_marks(crop, floor, scale)
+    # The X owner is asked at the scale it has always been given (the
+    # widget's), so the death stream's inputs do not move with this reader.
+    marks = minimap_x_marks(crop, floor, ctx.get("scale", scale))
     finds = minimap.icons(enemy_red_mask(crop), crop, floor, cov_min=COV_MIN,
                           inner_max=INNER_RED_MAX, require_facing=False, support=slab,
                           seed="centroid")
@@ -180,6 +264,12 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
                             "ncc": _rnd(f.get("ncc"), 3)})
             continue
         x, y = float(f["x"]), float(f["y"])
+        own = _owned(fixes, marks, ctx.get("pings"), t_ms, x, y, scale, ctx.get("ping_ids"))
+        if own:
+            refused.append({"cls": own[0], "x": _rnd(x), "y": _rnd(y), "reason": own[1],
+                            "ncc": _rnd(f.get("ncc"), 3),
+                            **({"evidence": own[2]} if own[2] else {})})
+            continue
         tip_d = math.hypot(f["tip_x"] - x, f["tip_y"] - y)
         box = tip_d + TIP_PAD * scale if fixes.get("teardrop_box") else RING * scale
         share, drop = _gate(fixes, red, slab, x, y, scale)
@@ -284,10 +374,41 @@ def object_context(store, sid: str) -> tuple[dict | None, str | None]:
     med = geometry.reference_static(sid, store.root)
     sd = geometry.stability(sid, store.root, med.shape[:2])
     floor = floor_mask(med, sd=sd)
+    pings, ping_ids, ping_version = stored_pings(store, sid)
+    # Icons follow the map zoom [domain:minimap/icons-follow-map-zoom]: the
+    # one transform is base x widget scale x map zoom (`geometry.MapScale`).
+    ws = widget_scale(floor.shape[1])
+    ms = geometry.map_scale_of(sid, store.root)
+    icon_scale, icon_scale_source = ((ms.scale, ms.provenance()) if ms is not None else
+                                     (ws, "widget_scale: the geometry has no art fit"))
     return {"cache": cache, "floor": floor, "slab": slab_mask(med, sd=sd),
             "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64),
             "rect": cache.rect_of("minimap"), "scale": widget_scale(floor.shape[1]),
-            "geometry_key": geometry.key_of(sid, store.root)}, None
+            "geometry_key": geometry.key_of(sid, store.root),
+            "pings": pings, "ping_ids": ping_ids, "ping_version": ping_version,
+            "icon_scale": icon_scale, "icon_scale_source": icon_scale_source}, None
+
+
+def stored_pings(store, sid: str) -> tuple[np.ndarray | None, list | None, str]:
+    """The ping reader's confirmed pings, `(t0_ms, t1_ms, x, y)` rows in widget
+    px, each row's `entity_id`, and the stream's stamp. Where no ping stream
+    is stored: `(None, None, NO_ROWS)`, so the gate abstains rather than
+    calling every place unpinged, and `plan` names the stream stale once
+    pings are written (`input_stamps.moved`)."""
+    from .input_stamps import NO_ROWS
+    rows = store.read_events("ping", sid)
+    if not rows:
+        return None, None, NO_ROWS
+    stamp = next((r.get("producer_version") or r.get("ping_version") for r in rows), None)
+    on, out, ids = {}, [], []
+    for r in rows:
+        if r.get("event_kind") == "entity_state":
+            on[r["entity_id"]] = (float(r["t_ms"]), r["position"])
+        elif r.get("event_kind") == "entity_deleted" and r.get("entity_id") in on:
+            t0, (x, y) = on.pop(r["entity_id"])
+            out.append((t0, float(r["t_ms"]), float(x), float(y)))
+            ids.append(r["entity_id"])
+    return np.asarray(out, float).reshape(-1, 4), ids, stamp
 
 
 def read_times(ctx: dict, times, fixes: dict | None = None) -> list[dict]:
@@ -307,10 +428,11 @@ def read_times(ctx: dict, times, fixes: dict | None = None) -> list[dict]:
         else:
             seg = cache.widget.at(smp.t_ms) if cache.widget is not None else None
             turn = bool(seg) and int(seg.get("rotation", 0)) == 180
-            row.update(read_frame(crop, ctx, scale=ctx["scale"], fixes=fixes, turn=turn))
+            row.update(read_frame(crop, ctx, scale=ctx["icon_scale"], fixes=fixes, turn=turn,
+                                  t_ms=float(smp.t_ms)))
         frames.append(row)
     frames.sort(key=lambda r: r["t_ms"])
-    last_known(frames, ctx["scale"])
+    last_known(frames, ctx["icon_scale"])
     return frames
 
 
@@ -332,11 +454,15 @@ def read_session(store, sid: str, fixes: dict | None = None) -> dict:
     head = {"kind": "coverage", "session": sid, "minimap_object_version": version,
             "fixes": {f: bool(fixes.get(f)) for f in FIXES},
             "roi_cache_version": ROI_CACHE_VERSION, "teardrop_version": TEARDROP_VERSION,
+            "enemy_teardrop_version": ENEMY_TEARDROP_VERSION,
+            "inputs": {"ping": ctx.get("ping_version")},
             "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION,
             "geometry_key": ctx["geometry_key"], "scale": ctx["scale"],
+            "icon_scale": ctx["icon_scale"], "icon_scale_source": ctx["icon_scale_source"],
             "parameters": {"COV_MIN": COV_MIN, "INNER_RED_MAX": INNER_RED_MAX, "RING": RING,
                            "X_OWN_PX": X_OWN_PX,
                            "TIP_PAD": TIP_PAD, "RED_SHARE": RED_SHARE, "ICON_PX": ICON_PX,
+                           "PING_OWN_PX": PING_OWN_PX,
                            "Q_GONE_MS": Q_GONE_MS, "Q_SWAP_MS": Q_SWAP_MS,
                            "PLACE_PX": PLACE_PX, "GAP_FRAMES": GAP_FRAMES},
             "frames": len(frames), "read": len(read),

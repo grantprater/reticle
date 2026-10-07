@@ -512,7 +512,8 @@ MINIMAP_VERSION = "minimap-0.7.0"
 # whole per session, so this is a stamp for attribution rather than a cache
 # key -- nothing skips a ping read on a version match, because pings ride a
 # pass that was going to happen anyway and cost no decode of their own.
-PING_VERSION = "ping-0.1.0"
+#: 0.2.0 (2026-10-07): danger runs skip the pulse gap and their life is the span.
+PING_VERSION = "ping-0.2.0"
 # Ally icon descriptors, emitted as `ally_icon` EVENTS by
 # `minimap.AllyIconReader` at 2 Hz. Its own stamp rather than a
 # MINIMAP_VERSION bump: positions do not change, and a descriptor is an
@@ -652,6 +653,16 @@ TEARDROP_VERSION = "teardrop-0.4.0"
 # model, keys and gates are unchanged; 0.2.0 scales its radii by `minimap.widget_scale`,
 # as the self teardrop's are, so a 331 px widget's centre lands on the portrait.
 ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
+# The enemy class of `teardrop.fit_icon` (`ICON_CLASSES["enemy"]`), whose only
+# consumer is `minimap_objects`; the ally class stays ICON_TEARDROP_VERSION's.
+# 0.1.0: the gates of icon-teardrop-0.2.0. 0.2.0 (2026-10-07): the ring gate
+# scores each bin softly (`ring_cover(..., soft=True)`) and cuts once at
+# `min_ring`; the hard bin cut refused pale enemy rings as `no_ring`. A fit whose
+# teardrop explains the key no better than a ring alone is `no_lobe` (an enemy
+# utility disc). The reader passes the icon scale, base x widget x map zoom.
+# 0.3.0 (2026-10-07): the lobe test's ring-only model is the plain annulus;
+# 0.2.0 rendered a teardrop with its apex at r_out, which drew a tangent stripe.
+ENEMY_TEARDROP_VERSION = "enemy-teardrop-0.3.0"
 # The prior rule over `fit_icon` (`teardrop.IconPoseReader` given a frame index):
 # which earlier fit an icon continues (`PRIOR_PX`, `PRIOR_GAP_MS`), the local grid
 # (`LOCAL_PX`, `LOCAL_DEG`), the surprises that run the full grid, and the audit

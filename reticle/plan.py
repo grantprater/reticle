@@ -234,7 +234,7 @@ def derived_streams() -> list[dict]:
     from .killfeed_numeral import KILLFEED_NUMERAL_VERSION
     from .lighting import LIGHTING_VERSION
     from .minimap_objects import minimap_object_version
-    from .version import ALLY_PORTRAIT_FEATURES_VERSION
+    from .version import ALLY_PORTRAIT_FEATURES_VERSION, ENEMY_TEARDROP_VERSION
     from .minimap_diagnostics import DIAGNOSTICS_VERSION
     from .minimap_lifecycle import LIFECYCLE_VERSION
     from .ability_timeline import DEAD_RUSE_VERSION
@@ -336,6 +336,7 @@ def derived_streams() -> list[dict]:
          "current": minimap_object_version(), "command": "reticle minimap-objects {sid}",
          "how": "cache",
          "fields": {**roi, "teardrop_version": TEARDROP_VERSION,
+                    "enemy_teardrop_version": ENEMY_TEARDROP_VERSION,
                     "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION},
          "upstream": ()},
         # The assist panel [domain:killfeed/assist-panel], reread from the
@@ -722,7 +723,9 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                        **_lineup_inputs()},
         "tray_kit": {"catalogue": _in("inputs.catalogue", "catalogue_icons"), **_lineup_inputs()},
         "ability_light": geo,
-        "minimap_object": geo,
+        # The owner gate reads the stored pings (`minimap_objects.stored_pings`);
+        # heads before minimap-object-0.2.0 read none.
+        "minimap_object": {**geo, "ping": _in("inputs.ping", "ping", optional=True)},
         "minimap_dark": {"lighting": _code("lighting_version", LIGHTING_VERSION),
                          "spans": _spans(), **geo},
         # Pings are formal entity events: the first event's metadata carries
