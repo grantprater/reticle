@@ -16,16 +16,16 @@ with linear interpolation or hard-thresholds a thin rim could. Task
 
 * ``1.0`` (A): the native crop and `minimap.ally_icon_reader` as `scan` builds it.
 * ``1.2`` / ``2.0`` (B, C): the widget crop enlarged with `cv2.INTER_LANCZOS4`.
-  The reader derives every geometry constant from the crop's width
-  (`minimap.widget_scale`), so the enlarged crop reads at `widget_scale x S`
-  with no value table. The baked static map is enlarged the same way, the
-  floor and slab masks bilinearly and cut at one half. Five values the reader
-  does not derive from the width are scaled by a hook (`_scaled`), here and
-  nowhere else: `appearance.MIN_PIXELS` (a pixel count, x S^2),
-  `ally_portrait.RAW` (the raw window side, x S), `minimap.SEARCH` (the self
-  channel's centroid search, x S), and the self teardrop's labelled-scale
-  lookups (`teardrop.labelled_scale`, `self_facing_gate`), which are asked
-  at the scale the game drew (`widget_scale / S`). `_reach`'s ray start and
+  The reader takes every geometry constant from its `scale`, the map's
+  (`geometry.drawn_scale`: widget x map zoom), so the enlarged crop reads at
+  that scale x S with no value table. The baked static map is enlarged the
+  same way, the floor and slab masks bilinearly and cut at one half. Three
+  values the reader does not derive from the scale are scaled by a hook
+  (`_scaled`), here and nowhere else: `appearance.MIN_PIXELS` (a pixel count,
+  x S^2), `ally_portrait.RAW` (the raw window side, x S) and `minimap.SEARCH`
+  (the self channel's centroid search, x S). The self facing gate is one NCC
+  at every scale since teardrop-0.5.0, and the per-size portrait table
+  (`teardrop.labelled_scale`) is gone, so neither is hooked. `_reach`'s ray start and
   step stay in pixels. Every stored position maps back to native pixels by
   pixel centre, `(x + 0.5) / S - 0.5`, as `cv2.resize` aligns them.
 * ``1.2rt`` (D, the resampling null): enlarged 1.2x with Lanczos, then shrunk
@@ -89,7 +89,7 @@ import numpy as np  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from reticle import ally_portrait, appearance, minimap, teardrop  # noqa: E402
+from reticle import ally_portrait, appearance, minimap  # noqa: E402
 from reticle.decode import Sample  # noqa: E402
 from reticle.minimap import AllyIconReader, ally_icon_reader  # noqa: E402
 from reticle.passes import SessionContext  # noqa: E402
@@ -165,27 +165,20 @@ def _resize_mask(m: np.ndarray, s: float) -> np.ndarray:
 def _scaled(s: float, r_min: int | None = None):
     """The values the reader does not derive from the crop's width, scaled by
     the enlargement `s` for the duration: a pixel count by s^2, a window side
-    and the centroid search (`minimap.SEARCH`) by s, and the labelled-scale
-    lookups asked at the drawn scale. `r_min` replaces `minimap.R_MIN` (the
-    native radius-floor control, condition ``1.0r7``)."""
-    saved = (appearance.MIN_PIXELS, ally_portrait.RAW, teardrop.labelled_scale,
-             teardrop.self_facing_gate, minimap.SEARCH, minimap.R_MIN)
+    and the centroid search (`minimap.SEARCH`) by s. `r_min` replaces
+    `minimap.R_MIN` (the native radius-floor control, condition ``1.0r7``)."""
+    saved = (appearance.MIN_PIXELS, ally_portrait.RAW, minimap.SEARCH, minimap.R_MIN)
     if s != 1.0:
-        lab, gate = saved[2], saved[3]
         appearance.MIN_PIXELS = int(round(saved[0] * s * s))
         ally_portrait.RAW = 2 * int(round((saved[1] // 2) * s)) + 1
-        teardrop.labelled_scale = lambda scale: lab(scale / s)
-        teardrop.self_facing_gate = lambda scale: gate(scale / s)
-        minimap.SEARCH = int(round(saved[4] * s))
+        minimap.SEARCH = int(round(saved[2] * s))
     if r_min is not None:
         minimap.R_MIN = r_min
     try:
         yield {"MIN_PIXELS": appearance.MIN_PIXELS, "RAW": ally_portrait.RAW,
-               "labelled_scale_at": f"widget_scale / {s:g}", "SEARCH": minimap.SEARCH,
-               "R_MIN": minimap.R_MIN}
+               "SEARCH": minimap.SEARCH, "R_MIN": minimap.R_MIN}
     finally:
-        (appearance.MIN_PIXELS, ally_portrait.RAW, teardrop.labelled_scale,
-         teardrop.self_facing_gate, minimap.SEARCH, minimap.R_MIN) = saved
+        (appearance.MIN_PIXELS, ally_portrait.RAW, minimap.SEARCH, minimap.R_MIN) = saved
 
 
 def _reader(ctx, cond: str):
@@ -198,9 +191,13 @@ def _reader(ctx, cond: str):
     h, w = y1 - y0, x1 - x0
     static = cv2.resize(base.static, (round(w * s), round(h * s)),
                         interpolation=cv2.INTER_LANCZOS4)
+    # The map's scale, enlarged with the crop; a reader without one reads the
+    # enlarged crop's widget scale, which `drawn_scale` documents.
+    sc = None if base.scale is None else base.scale * s
     r = AllyIconReader(floor=_resize_mask(base.floor, s), slab=_resize_mask(base.slab, s),
                        static=static, box=(0, 0, static.shape[1], static.shape[0]),
-                       hz=base.hz)
+                       hz=base.hz, scale=sc,
+                       scale_source=f"{base.scale_source} x {s:g} (upscale_trial)")
     return r, base.box
 
 

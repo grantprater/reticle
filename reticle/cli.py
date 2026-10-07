@@ -3027,7 +3027,7 @@ def cmd_lifetimes(args) -> int:
         menu, menu_stamp = stored_menu(store, sid)
     with usage_step("session_lifetimes"):
         # Speeds and distances are world lengths: the map's scale
-        # (`geometry.drawn_scale`, round-lifetimes-0.11.0).
+        # (`geometry.drawn_scale`, round-entity-0.19.0).
         rows = session_lifetimes(sid, events, rounds,
                                  geometry.drawn_scale(sid, store.root, box[2] - box[0])[0],
                                  roster, source_revision, deaths=deaths,
@@ -3811,6 +3811,10 @@ def death_streams(store, manifest: dict, *, hud=None, portraits=None, weapons=No
         births = None
         if mo_version == minimap_object_version():
             mo = store.read_events("minimap_object", sid)
+            # deferred: the head's `scale` is the widget's alone, not the map's
+            # (`geometry.drawn_scale`); the X-mark births' distances read 12% long
+            # on a 331 px key. Listed beside doctor.SCALE_WIDGET_USES, which cannot
+            # see a stored field; wiring it restamps the death stream.
             scale = next((r.get("scale") for r in mo if r.get("kind") == "coverage"), 1.0)
             births = stored_xmark_births(mo, store.read_events("ally_icon", sid) or [], rounds,
                                          scale)

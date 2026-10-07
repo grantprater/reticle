@@ -946,7 +946,20 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     pixel, `"inside"` keeps only radii inside the band. They differ only where
     an end lies past a half pixel: at the 331 px key's map scale (0.637) the
     band starts at 5.1 px, which `"nearest"` searches from 5 px and
-    `"inside"` from 6 px.
+    `"inside"` from 6 px. `"inside"` is no rule of geometry; it is the enemy
+    search's trade of hits for false accepts, fitted on one match,
+    9acf02f98283. There a 5 px ring rings true icons and red blobs alike:
+    with it the enemy lane scores
+    [metric:teardrop_refusals/lane/ab_im_p020@9acf02f98283#hits=2987] hits
+    and [metric:teardrop_refusals/lane/ab_im_p020@9acf02f98283#false_accepts=222]
+    true false accepts, and with the least radius at 6 px
+    [metric:teardrop_refusals/lane/ab_rmin6_p020@9acf02f98283#hits=2838] and
+    [metric:teardrop_refusals/lane/ab_rmin6_p020@9acf02f98283#false_accepts=138]
+    (`prototypes/one_transform_check.py ablate`). Only `minimap_objects`
+    asks for it; the self and ally fits keep `"nearest"`. Falsifier: on a
+    second 331 px match with replay truth, a paired round bootstrap of hits
+    and true false accepts, `"nearest"` against `"inside"`, shows the trade
+    reversed or absent.
 
     **`seed` decides where each blob's circle is searched for.** `"centroid"`
     searches +/-`SEARCH` px around the blob's centroid, and every self-position

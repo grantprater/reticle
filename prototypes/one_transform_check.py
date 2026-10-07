@@ -27,6 +27,13 @@ per-size tables in `reticle/teardrop.py` (`SELF_FACING_GATES`,
   `ally_icon` stream read from a `reticle trial --reader ally_icon
   --rows-out DIR` folder: the self fit against the replay and the
   teammates' teardrop facing, written to `OUT/truth_<TAG>_<SESSION>.json`.
+* `gate465 SESSION` -- what the one self facing gate (NCC 0.6, teardrop-0.5.0)
+  removes at 465 px, where teardrop-0.4.0 gated nothing. At 465 px the map's
+  scale is 1.0 and the fit is unchanged, so master's stored `team_vision`
+  rows (teardrop-0.4.0) hold the NCC each self read would take: the count
+  of self teardrop reads under 0.6, and `replay_truth.score`'s self facing
+  block over those reads and over the rest. Written to
+  `OUT/gate465_<SESSION>.json` and recorded as part `gate465`.
 
 Labels are the player's; the roi_cache only; no decode. The held-out capture
 (cea8ecbc94ab) is refused. Not wired (`"wire": "no"`): an evaluation; the
@@ -56,7 +63,8 @@ sys.path.insert(0, str(HERE.parent))
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
 #: 0.2.0: `ablate`. 0.3.0: `truth` carries round-bootstrap intervals (`boot`).
-VERSION = "one-transform-check-0.3.0"
+#: 0.4.0: `gate465`.
+VERSION = "one-transform-check-0.4.0"
 TASK = "one-transform-readers-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / TASK
@@ -271,7 +279,7 @@ def _record_truth(rec, files) -> int:
                 vals[f"{k}_lo"], vals[f"{k}_hi"] = d["boot"][k]
         rec("one_transform_check", part=f"truth/{d['tag']}", session=d["session"],
             values=vals,
-            deps={"version": VERSION, **(d.get("ally_icon_stamp") or {})},
+            deps={"version": d.get("version", VERSION), **(d.get("ally_icon_stamp") or {})},
             context={"task": TASK}, note="replay_truth.score over a reticle trial ally_icon reread")
     return 0
 
@@ -334,6 +342,75 @@ def truth(sid: str, rows_dir: str, tag: str) -> int:
     p = OUT / f"truth_{tag}_{sid}.json"
     p.write_text(json.dumps(keep, indent=1, default=float), encoding="utf-8")
     print(json.dumps(keep, indent=1, default=float)[:4000])
+    return 0
+
+
+def gate465(sid: str, gate: float = 0.6) -> int:
+    """The 465 px self facings the one gate removes, and the replay's verdict
+    on them; see the module docstring. Reads stored rows only."""
+    sys.path.insert(0, str(HERE))
+    import replay_truth as rt
+
+    _idle()
+    if sid == HELD_OUT:
+        raise SystemExit(f"{sid}: the held-out match is never read by this task")
+    path = STORE / "events" / "team_vision" / f"{sid}.jsonl"
+    head, n_td, n_lo, ws = {}, 0, 0, set()
+    for r in rt._rows(path):
+        if r.get("kind") == "coverage":
+            head = {k: r.get(k) for k in ("team_vision_version", "teardrop_version")}
+        elif r.get("kind") == "frame":
+            if r.get("observable_self"):
+                ws.add(tuple(r["observable_self"].get("shape") or ()))
+            for ic in r.get("icons") or []:
+                p = ic.get("pose") or {}
+                if ic.get("role") == "self" and p.get("origin") == "teardrop"                         and ic.get("facing") is not None:
+                    n_td += 1
+                    n_lo += (p.get("ncc") or 0.0) < gate
+    if head.get("teardrop_version") != "teardrop-0.4.0":
+        raise SystemExit(f"{sid}: team_vision at {head.get('teardrop_version')}, not "
+                         f"teardrop-0.4.0 (no gate at 465 px); nothing to compare")
+    orig = rt._rows
+    out = {"session": sid, "version": VERSION, "gate": gate, "stamps": head,
+           "widget_shapes": sorted(ws), "self_faced": n_td, "gated": n_lo,
+           "gated_share": round(n_lo / n_td, 4) if n_td else None}
+    for band in ("lo", "hi"):
+        def rows(p, needle=None, band=band):
+            for r in orig(p, needle):
+                if r.get("kind") == "frame" and Path(p).parts[-2:] == path.parts[-2:]:
+                    icons = []
+                    for ic in r.get("icons") or []:
+                        if ic.get("role") == "self":
+                            lo = ((ic.get("pose") or {}).get("ncc") or 0.0) < gate
+                            if (band == "lo") != lo:
+                                ic = {**ic, "role": "self_other"}
+                        icons.append(ic)
+                    r = {**r, "icons": icons}
+                yield r
+        rt._rows = rows
+        try:
+            fac = (rt.score(sid).get("facing") or {}).get("self_team_vision") or {}
+        finally:
+            rt._rows = orig
+        out[band] = {"n": fac.get("n"), "err_median": (fac.get("err_deg") or {}).get("median"),
+                     "within_30deg": fac.get("within_30deg"),
+                     "flip_share": fac.get("flip_share"), "best_lag_ms": fac.get("best_lag_ms")}
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / f"gate465_{sid}.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    from reticle.metrics import record as rec
+    vals = {"self_faced": n_td, "gated": n_lo, "gated_share": out["gated_share"]}
+    for band in ("lo", "hi"):
+        b = out[band]
+        vals.update({f"{band}.n": b["n"], f"{band}.err_median": b["err_median"],
+                     f"{band}.within_30deg": b["within_30deg"],
+                     f"{band}.flip_share": b["flip_share"]})
+        if b["n"] and b["within_30deg"] is not None:
+            vals[f"{band}.correct_30deg"] = int(round(b["n"] * b["within_30deg"]))
+    rec("one_transform_check", part="gate465", session=sid, values=vals,
+        deps={"version": VERSION, **head}, context={"task": TASK, "gate": gate},
+        note="master team_vision self reads (465 px, no gate) under and over NCC 0.6, "
+             "scored by replay_truth.score's self facing block")
+    print(json.dumps(out, indent=1))
     return 0
 
 
@@ -558,6 +635,8 @@ def main(argv=None) -> int:
     p.add_argument("--tags", required=True)
     p = sub.add_parser("smokes")
     p.add_argument("session")
+    p = sub.add_parser("gate465")
+    p.add_argument("session")
     p = sub.add_parser("ablate")
     p.add_argument("session")
     p.add_argument("variant", choices=ABLATIONS)
@@ -566,6 +645,8 @@ def main(argv=None) -> int:
     if a.cmd == "ablate":
         ablate(a.session, a.variant, a.pings)
         return 0
+    if a.cmd == "gate465":
+        return gate465(a.session)
     if a.cmd == "smokes":
         smoke_births(a.session)
         return 0

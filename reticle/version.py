@@ -599,7 +599,9 @@ PING_VERSION = "ping-0.3.0"
 # in place of the widget scale alone [domain:minimap/icons-follow-map-zoom];
 # the spike glyphs are fitted at that scale, not over the zoom band.
 # Candidates carry `scale` beside `widget_scale`, and the coverage row
-# `scale` and `scale_source`. On a 465 px key only the glyph boxes move.
+# `scale` and `scale_source`. On a 465 px key the glyph boxes move, and the
+# self candidate's pose loses its facing where its NCC is under 0.6
+# (teardrop-0.5.0's one gate; 0.13.0 gated nothing at 465 px).
 ALLY_ICON_VERSION = "ally-icon-0.15.0"
 # The stacked teammate icon search (`stack_fit`), ported from
 # `prototypes/stack_fit.py` 0.2.0. 0.3.0: numpy in place of torch, the icons
@@ -654,7 +656,14 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # the lifecycle's distances and the light-support radii take the map's scale
 # (`geometry.drawn_scale`: widget x map zoom), not the widget scale alone
 # [domain:minimap/icons-follow-map-zoom]
-# [domain:minimap/world-drawings-follow-map-zoom]. A 465 px key reads as 0.7.1.
+# [domain:minimap/world-drawings-follow-map-zoom]. A 465 px key reads as
+# 0.7.1 except the self facing: teardrop-0.5.0 gates a self read under NCC
+# 0.6, which 0.7.1 cast, so that self icon casts no cone. On c817691bcd15
+# the gate removes [metric:one_transform_check/gate465@c817691bcd15#gated=3564]
+# of [metric:one_transform_check/gate465@c817691bcd15#self_faced=17693] self
+# facings, and on d3dcfb182ab1
+# [metric:one_transform_check/gate465@d3dcfb182ab1#gated=895] of
+# [metric:one_transform_check/gate465@d3dcfb182ab1#self_faced=10130].
 TEAM_VISION_VERSION = "team-vision-0.9.0"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
@@ -673,7 +682,16 @@ TEAM_VISION_VERSION = "team-vision-0.9.0"
 # (LABELLED_SCALES gone). Refitted at the map's scale, the player's 331 px
 # labels sit nearer the teardrop's centre than the ring fit's
 # (`prototypes/one_transform_check.py`). At 465 px a self read under 0.6 now
-# gives no facing.
+# gives no facing: on c817691bcd15
+# [metric:one_transform_check/gate465@c817691bcd15#gated_share=0.2014] of self
+# facings, of which the replay scores
+# [metric:one_transform_check/gate465@c817691bcd15#lo.correct_30deg=575] of
+# [metric:one_transform_check/gate465@c817691bcd15#lo.n=880] matched reads
+# within 30 degrees; on d3dcfb182ab1
+# [metric:one_transform_check/gate465@d3dcfb182ab1#gated_share=0.0884], with
+# [metric:one_transform_check/gate465@d3dcfb182ab1#lo.correct_30deg=192] of
+# [metric:one_transform_check/gate465@d3dcfb182ab1#lo.n=542] within 30
+# degrees (`one_transform_check.py gate465`).
 TEARDROP_VERSION = "teardrop-0.5.0"
 # A teammate's or an enemy's icon read as a teardrop (`teardrop.fit_icon`): its centre
 # and facing. Promoted from prototypes/icon_teardrop.py (icon-teardrop-0.1.0), whose

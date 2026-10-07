@@ -161,6 +161,10 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
                                         identity_events)
 
     head = next((r for r in object_rows if r.get("kind") == "coverage"), {})
+    # deferred: the head's `scale` is the widget's alone, not the map's
+    # (`geometry.drawn_scale`), so BIND_PX and the walker speeds read 12% long
+    # on a 331 px key; listed beside doctor.SCALE_WIDGET_USES, which cannot
+    # see a stored field. Wiring it restamps enemy_track.
     scale = float(head.get("scale") or 1.0)
     mo_version = head.get("minimap_object_version")
     frames = sorted((r for r in object_rows if r.get("kind") == "frame"),

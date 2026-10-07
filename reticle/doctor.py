@@ -776,6 +776,14 @@ def check_domain() -> list[tuple[str, str]]:
 #: scale alone is about 12% too large [domain:minimap/icons-follow-map-zoom].
 #: Keyed by (file, enclosing function); a value starting "deferred:" names a
 #: map-drawn use not yet wired, which SCALE reports as a WARN.
+#:
+#: Two deferred uses SCALE cannot see, since each reads the widget's scale
+#: from a stored row's `scale` field rather than calling `widget_scale`:
+#: `enemy_tracks.build` (the `minimap_object` head's `scale`: BIND_PX and
+#: the enemy lane's walker speeds) and `cli.cmd_deaths` (the same head's
+#: `scale` for `death.stored_xmark_births`, the X-mark births). Wiring either
+#: restamps its stream (enemy-track, death); each site carries a
+#: "deferred:" comment.
 SCALE_WIDGET_USES = {
     ("reticle/minimap.py", "widget_scale"): "the definition",
     ("reticle/minimap.py", "drawn_scale"): "the fallback for a caller holding no session "
