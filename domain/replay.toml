@@ -317,13 +317,14 @@ see = ["replay/vrf-values-scrambled-per-patch"]
 
 [vrf-shots-from-magazine]
 claim = """
-A replay records every gun shot as a one-round fall of the gun's magazine:
-`AmmoComponent.AuthResourceAmount` on the gun actor, whose component with the
-most single steps is the magazine (the other is the reserve, which falls by the
-reloaded count). The fall lands on the same replay ms as the damage call of a
-shot that hits. The gun's latest `Owner` reference, walked to a pawn, names the
-shooter. Misses are recorded as well as hits, so shots fired, fire rate and
-accuracy are recoverable at the server tick.
+A gun's magazine in a replay (`AmmoComponent.AuthResourceAmount` on the gun
+actor; of its two components, the one with the most single steps, the other
+being the reserve) falls by one round at a time while the gun fires, and a
+fall lands on the same replay ms as the damage call of a shot that hits; the
+gun's latest `Owner` reference, walked to a pawn, names the shooter. Most gun
+damage calls on players have such a fall, but not all. Falls of more than one
+round at once are left out as shots. Misses are inferred to be recorded,
+because single-round falls far outnumber hits.
 """
 kind = "measurement"
 known = "measured"
@@ -332,30 +333,32 @@ source = """
 prototypes/execution_questions.py check over the 17 replays but the held-out
 one: [metric:execution_questions/truth/check@pooled17#explained=8276] of
 [metric:execution_questions/truth/check@pooled17#gun_hits=8397] gun damage
-calls on players have a same-shooter magazine fall within 16 ms (the lowest
-replay [metric:execution_questions/truth/check@pooled17#explained_share_min=0.9655]),
-over [metric:execution_questions/truth/check@pooled17#shots=45872] shots
+calls on players have a same-shooter single-round fall within 16 ms (the
+lowest replay [metric:execution_questions/truth/check@pooled17#explained_share_min=0.9655]);
+[metric:execution_questions/truth/check@pooled17#shots=45872] single-round
+falls against those hits; [metric:execution_questions/truth/check@pooled17#multi_steps=206]
+multi-round magazine falls skipped
 """
 see = ["replay/vrf-position-stream"]
 
 [vrf-damage-hit-region]
 claim = """
-A replay's `MulticastNotifyDamage_Point` call names the hit's body region in
-`RegionalDamage`: 1 the head (bones Head and Neck), 0 the body (spine, shoulder
-and arm bones), 2 the legs (hip, knee and foot bones), 5 no region (damage
-without a bone, as from an ability's area). Beside it the call carries the bone
-(`DamagedBone`), the range falloff (`FalloffMultiplier`, 4.0 and the like on
-head hits) and whether the gun was zoomed (`bEquippableUsedZoomed`).
+In a replay's `MulticastNotifyDamage_Point` call from a gun on a player,
+`RegionalDamage` 1 marks a hit on the Head or Neck bone (`DamagedBone`), and
+`RegionalDamage` 2 marks a hit mostly on hip, knee and foot bones. Other
+values are not characterised here.
 """
 kind = "measurement"
 known = "measured"
 since = "2026-10-07"
 source = """
-prototypes/execution_questions.py check: region 1 rows name the Head or Neck
-bone on [metric:execution_questions/truth/check@pooled17#head_bone_share_min=1.0]
-of rows on every replay; region 2 rows name a hip, knee or foot bone on 0.86-1.0
-per replay, the rest under bone names the check does not list; first seen on
-60c7f1e0
+prototypes/execution_questions.py check over the 17 replays but the held-out
+one: region 1 rows name the Head or Neck bone on
+[metric:execution_questions/truth/check@pooled17#head_bone_share_min=1.0] of
+rows on every replay; region 2 rows name a hip, knee or foot bone on
+[metric:execution_questions/truth/check@pooled17#leg_bone_share_min=0.8621]
+of rows or more on every replay, the rest under bone names the check does
+not list
 """
 see = ["replay/vrf-shots-from-magazine"]
 
@@ -375,19 +378,3 @@ degrees, tick interval median
 [metric:execution_questions/truth/fields@c817691bcd15#tick_dt_ms.p50=8.0] ms
 """
 see = ["replay/vrf-position-stream"]
-
-[vrf-blinds-on-recent-builds]
-claim = """
-vrfkit 0.2.5 decodes `BlindManagerComponent.ActiveBlinds` (each flash's start
-and `InitialDuration` on the blinded player's pawn) on only two of the 17 kept
-replays (60c7f1e0 and 16a475cb, both captured 2026-10-05); the other fifteen
-carry no BlindManagerComponent rows, so blinding is not truth on them.
-"""
-kind = "measurement"
-known = "measured"
-since = "2026-10-07"
-source = """
-prototypes/execution_questions.py check, per-replay `blinds` counts in the
-store's analysis/execution-questions-20261007/check.json
-"""
-see = ["replay/vrf-values-scrambled-per-patch"]

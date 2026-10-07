@@ -16,13 +16,18 @@ wired.
 ## Conclusion
 
 - **The replay answers almost every execution question exactly.** Beyond
-  the 128 Hz view and position stream, it records every shot fired, hit or
-  miss [domain:replay/vrf-shots-from-magazine], each hit's body region and
-  zoom [domain:replay/vrf-damage-hit-region], at the server tick, with view
+  the 128 Hz view and position stream, its magazine counts give the shots
+  fired, misses included, for
+  [metric:execution_questions/truth/check@pooled17#explained=8276] of
+  [metric:execution_questions/truth/check@pooled17#gun_hits=8397] hits
+  [domain:replay/vrf-shots-from-magazine], and each hit names head or legs
+  [domain:replay/vrf-damage-hit-region], at the server tick, with view
   angles in 0.0055 degree steps [domain:replay/vrf-view-angle-resolution].
-  Adjustment and reaction times are measurable to one 8 ms tick. Blinds are
-  decoded on only two replays [domain:replay/vrf-blinds-on-recent-builds],
-  so utility response has no truth yet.
+  Adjustment and reaction times are measurable to one 8 ms tick. Blinds
+  (onset and duration per player) are decoded on
+  [metric:execution_questions/truth/check@pooled17#replays_with_blinds=14]
+  of the 17 replays; a player blinded when the line of sight opens is rare
+  and loses most of those duels (section 3).
 - **Three execution quantities carry duel value; reaction speed does not.**
   In [metric:execution_questions/value/meta@pooled17#duels=2445] kill duels
   on 17 replays: the participant whose crosshair sits closer to the enemy's
@@ -55,11 +60,14 @@ wired.
   first-shot timing and counter-strafe need the screen: an enemy detector
   near the crosshair and a view-rotation estimate, read densely only inside
   the player's engagement windows, which hold 5-11% of his living time.
-- **Build first:** head share of hits from the combat report (reader exists,
-  value [metric:execution_questions/value/ladder_head_share@ladder#diff=0.123]
-  per player-round on 140 ladder matches); coarse placement and angle
-  clearing from the stored cone facing; then a gated screen reader for
-  first-shot outcome and counter-strafe (section 5).
+- **Build first**, placement and movement being the priority (player,
+  2026-10-07): coarse placement and angle clearing from the stored cone
+  facing, the must-check angles from the sightline tables; then a gated
+  screen reader for counter-strafe and sub-degree placement; head share of
+  hits from the combat report (reader exists, value
+  [metric:execution_questions/value/ladder_head_share@ladder#diff=0.123]
+  per player-round on 140 ladder matches) stands as the alarm for aim that
+  is particularly bad (section 5).
 
 ## 1. The catalogue
 
@@ -75,18 +83,18 @@ so the error is against what the participant was shown.
 | Group (what it coaches) | Question | Definition | On truth here |
 |---|---|---|---|
 | Aim placement | Crosshair placement at exposure | angle between the view vector (yaw, pitch) and the vector to the target at exposure; yaw-only beside it | computed |
-| Aim placement | Angles checked while clearing | for each callout region entered, the share of its sightline-visible approach angles that came within the player's view (yaw within 10 degrees) before he crossed it, and their order | defined, not computed |
+| Aim placement | Angles checked while clearing | for each callout region entered, the share of its must-check angles, taken from the sightline tables (player, 2026-10-07), that came within the player's view (yaw within 10 degrees) before he crossed it, and their order | defined, not computed |
 | Reaction | Reaction time | first shot at or after exposure less exposure; a shot in the 300 ms before exposure marks a prefire | computed |
 | Reaction | Adjustment time | first tick at or after exposure where the placement error is at most atan(15 cm / distance), less exposure | computed |
 | Shot execution | First-bullet outcome | does the first shot after exposure hit the enemy (a damage call by the shooter on him within 16 ms), and in which region | computed |
 | Shot execution | Counter-strafe | horizontal speed at the first shot, central difference over 16 ms; still below 100 cm/s, moving above 250 cm/s | computed |
-| Shot execution | Spray and burst discipline | shots and hits from exposure to the kill; burst length and pause per engagement | hits per shot computed; burst shape not |
+| Shot execution | Spray and burst discipline | shots and hits from exposure to the kill; burst length and pause per engagement; what makes a spray disciplined is an open question (player, 2026-10-07) | hits per shot computed; burst shape not |
 | Shot execution | Head share of hits | head hits over all hits, per player-round | ladder, and per duel on truth |
 | Duel | First hit | who lands the first damage of a kill duel (episode `first_hitter`) | computed |
 | Duel | Peek: who moved into the angle | peeker against holder at contact (COACHING_QUESTIONS CQ17) | measured there: no edge |
 | Duel | Time to kill, damage trade | winner's first shot to the kill; net damage of the duel | not valued here |
-| Utility | Blinded at exposure | an `ActiveBlinds` entry covers exposure | 2 of 17 replays only |
-| Utility | Flash then peek | a teammate's flash blinds the enemy within 0-500 ms before the participant's exposure | defined, not computed |
+| Utility | Blinded at exposure | a blind (an onset of `LongestActiveBlindDuration` on the pawn, lasting that many seconds) covers exposure | computed on the 14 replays with blinds |
+| Utility | Flash then peek | the participant's exposure falls inside the opponent's blind; the time from the blind's onset to exposure | computed; who threw the flash is not read |
 | Utility | Response to enemy utility | time from an enemy cast landing near the player to his leaving its area or turning to it | defined, not computed |
 
 ## 2. Truth: what the replay and the match records hold
@@ -99,10 +107,10 @@ so the error is against what the participant was shown.
 | View yaw, pitch | layer `ticks` | the same tick | [metric:execution_questions/truth/fields@c817691bcd15#yaw_step_deg_min=0.0054931640625] degree steps | placement, adjustment, clearing |
 | Velocity | not stored | derived from position | tick-level; a 16 ms central difference | counter-strafe |
 | Shots fired | vrfkit `fields`: the gun's magazine falls by one per shot | the tick; equal to the hit's damage-call ms | [metric:execution_questions/truth/check@pooled17#explained=8276] of [metric:execution_questions/truth/check@pooled17#gun_hits=8397] gun hits on players matched within 16 ms; [metric:execution_questions/truth/check@pooled17#shots=45872] shots | reaction, first bullet, spray |
-| Hits and damage | layer `events` `damage`; region and zoom from the raw call | the tick | dealt, taken, impact point, wallbang; region head/body/legs | first bullet, head share, first hit |
+| Hits and damage | layer `events` `damage`; region from the raw call | the tick | dealt, taken, impact point, wallbang; region checked for head and legs, everything else counted as body here | first bullet, head share, first hit |
 | Weapon | layer `state` `equipped`; the damage call's equippable | on change | class | stratifying by gun |
 | Ability casts | layer `events` `cast` | the cast record | ms | utility timing |
-| Blinds | vrfkit `BlindManagerComponent` | on change | start and duration | utility response; 2 replays only |
+| Blinds | vrfkit `BlindManagerComponent.LongestActiveBlindDuration` per pawn (vrfkit leaves `ActiveBlinds` as raw bits on most replays) | on change | onset to the replay ms, duration in seconds; [metric:execution_questions/truth/check@pooled17#blinds=508] blinds on [metric:execution_questions/truth/check@pooled17#replays_with_blinds=14] of 17 replays (none on 590a5d1b, b03fecd3, d6928558) | blinded at exposure, flash then peek |
 | Riot and HenrikDev ladder records | per player-round: head, body, leg hit counts and damage per opponent | per round, no times | counts | head share against round win, large n |
 
 Not in the layer today: shots, hit regions and blinds. The prototype reads
@@ -132,20 +140,23 @@ Each is an association within the player's lobbies, not a causal effect.
 | Reaction time (first shot) | median [metric:execution_questions/value/reaction@pooled17#p50=399.0] ms | [metric:execution_questions/value/reaction@pooled17#paired.share=0.4496] [[metric:execution_questions/value/reaction@pooled17#paired.ci_lo=0.4264], [metric:execution_questions/value/reaction@pooled17#paired.ci_hi=0.4697]] | fastest against slowest third [metric:execution_questions/value/reaction@pooled17#tercile.diff=-0.0373] [[metric:execution_questions/value/reaction@pooled17#tercile.ci_lo=-0.0641], [metric:execution_questions/value/reaction@pooled17#tercile.ci_hi=-0.0143]] | shooting first loses slightly: a fast miss costs; prefire (on [metric:execution_questions/value/reaction@pooled17#prefire_share=0.0561]) [metric:execution_questions/value/reaction@pooled17#prefire.diff=-0.1309] |
 | First hit | | [metric:execution_questions/value/first_hitter@pooled17#share=0.8011] [[metric:execution_questions/value/first_hitter@pooled17#ci_lo=0.7897], [metric:execution_questions/value/first_hitter@pooled17#ci_hi=0.8118]] | | the duel's result in miniature: reaction and accuracy combined |
 | Spray | the winner lands [metric:execution_questions/value/spray@pooled17#winner_hits_per_shot_p50=0.6] hits per shot over a median [metric:execution_questions/value/spray@pooled17#winner_shots_p50=3.0] shots | | | not valued; a burst-shape definition needs the player |
-| Blinded at exposure | [metric:execution_questions/value/blinded@pooled17#share=0.0018] of participants | | blinded won [metric:execution_questions/value/blinded@pooled17#won_blinded.share=0.2222] of [metric:execution_questions/value/blinded@pooled17#won_blinded.n=9] | no truth on 15 replays; unvalued |
+| Blinded at exposure | [metric:execution_questions/value/blinded@pooled17#share=0.0078] of participants ([metric:execution_questions/value/blinded@pooled17#won_blinded.n=38]) | the unblinded side of a duel with one blinded participant wins [metric:execution_questions/value/blinded@pooled17#unblinded_wins.share=0.8235] [[metric:execution_questions/value/blinded@pooled17#unblinded_wins.ci_lo=0.6875], [metric:execution_questions/value/blinded@pooled17#unblinded_wins.ci_hi=0.9318]] (n [metric:execution_questions/value/blinded@pooled17#unblinded_wins.n=34]) | the blinded won [metric:execution_questions/value/blinded@pooled17#won_blinded.share=0.2105] [[metric:execution_questions/value/blinded@pooled17#won_blinded.ci_lo=0.12], [metric:execution_questions/value/blinded@pooled17#won_blinded.ci_hi=0.3258]]; stratified [metric:execution_questions/value/blinded@pooled17#diff.diff=-0.2272] [[metric:execution_questions/value/blinded@pooled17#diff.ci_lo=-0.4086], [metric:execution_questions/value/blinded@pooled17#diff.ci_hi=0.0216]] | decisive when it happens, but rare in kill duels: about two per match |
+| Flash then peek | exposure a median [metric:execution_questions/value/flash_peek@pooled17#onset_to_exposure_p50=284.75] ms after the opponent's blind onset (quartiles [metric:execution_questions/value/flash_peek@pooled17#onset_to_exposure_p25=98.0] and [metric:execution_questions/value/flash_peek@pooled17#onset_to_exposure_p75=1221.375]) | | within 500 ms won [metric:execution_questions/value/flash_peek@pooled17#early_won.share=0.7826] (n [metric:execution_questions/value/flash_peek@pooled17#early_won.n=23]), later [metric:execution_questions/value/flash_peek@pooled17#late_won.share=0.8] (n [metric:execution_questions/value/flash_peek@pooled17#late_won.n=15]) | timing shows no edge at this n; the thrower is not read |
 | Head share of hits (ladder) | median [metric:execution_questions/value/ladder_head_share@ladder#hs_p50=0.1667] per player-round with 3 or more hits | | 0.25 or more against none: round win [metric:execution_questions/value/ladder_head_share@ladder#y_a1=0.6384] against [metric:execution_questions/value/ladder_head_share@ladder#y_a0=0.5206], [metric:execution_questions/value/ladder_head_share@ladder#diff=0.123] [[metric:execution_questions/value/ladder_head_share@ladder#ci_lo=0.1011], [metric:execution_questions/value/ladder_head_share@ladder#ci_hi=0.1438]] (n [metric:execution_questions/value/ladder_head_share@ladder#n=9100], [metric:execution_questions/value/ladder_head_share@ladder#matches=140] matches) | confounded with skill and with winning the round's fights |
 
 A kill duel's value reaches the round through the opening duel and trades
-(COACHING_QUESTIONS section 2): an opening kill moves round win by 0.36 on
+(COACHING_QUESTIONS section 2): an opening kill moves round win by
+[metric:coaching_questions/value/ladder/opening_kill@pooled#diff=0.3553] on
 the ladder. Each player fights about 29 kill duels a match (2445 over 17
 matches, two participants of ten). Placement and the first shot are
 execution habits the player carries into every one.
 
 Peeker against holder and wide against tight peeks showed no edge
-(COACHING_QUESTIONS sections 2.2-2.3); this study adds none. Clearing, flash
-timing and utility response stay defined and unvalued: clearing needs a
-per-region angle set from the sightline table, and utility needs blinds,
-which truth holds on two replays.
+(COACHING_QUESTIONS sections 2.2-2.3); this study adds none. Blinds decide
+the few kill duels they touch, and peek timing after a flash shows no edge
+at 38 instances; who threw the flash, and the response to enemy utility,
+stay unvalued. Clearing stays defined and unvalued: it needs a per-region
+angle set from the sightline tables (player, 2026-10-07).
 
 ## 4. Capture: what the pipeline reads, how well, and at what cost
 
@@ -225,8 +236,9 @@ means "where the view points", and placement needs the target too.
    pitch: with the 103 degree field of view episodes assumes (`PARAMS`
    `HFOV_DEG`, the player's answer Q1) a 1920 px frame puts about 0.075
    degrees in a pixel at the centre. `screen.outline_candidates` finds red
-   outlines at 0.91 recall and 0.41-0.49 precision on 149 frames of one
-   session (its prototype's own figures, one outline colour). It answers
+   outlines; its only accuracy figures are its prototype's
+   (`prototypes/enemy_detect_eval.py`), on hand-labelled frames of one
+   session and one outline colour, unrecorded in the ledger. It answers
    placement, adjustment time and first-bullet aim to sub-degree, when the
    outline shows. New reader: a centre crop (for instance 640 x 360, about
    plus or minus 18 degrees) read at capture rate inside engagement windows
@@ -264,52 +276,70 @@ crosshair's spread if the player's settings draw it (a question for him).
 
 ## 5. Ranked recommendation
 
-Ranked by value over measurement cost:
+Ranked by value over measurement cost, under the player's priority
+(placement and movement first, aim only where it is particularly bad;
+player, 2026-10-07):
 
-1. **Head share of hits per round, the player's own**, from the combat
-   report. Value: [metric:execution_questions/value/ladder_head_share@ladder#diff=0.123]
-   per player-round on the ladder; the reader exists and costs nothing new.
-   Next step: run the combat-report reader on the development sessions
-   and score its hit splits against the replay's regions.
-2. **Coarse crosshair placement and angle clearing from the stored cone.**
+1. **Coarse crosshair placement and angle clearing from the stored cone.**
    Value: placement is the strongest controllable mechanic, and the cone
    keeps most of it on truth; cost: a recompute over stored `team_vision`
    rows. Next step: add the enemy icon's position error and the drawn gate
-   to the EQ10 arm, then define the per-region angle sets for clearing and
-   value them on truth.
-3. **First-bullet outcome and counter-strafe, from a gated screen reader.**
-   Value: the largest duel differences measured (first hit +0.31, still
-   +0.07); cost: a window-gated decode of a centre crop plus a view-rotation
-   estimate. Next step, proposed and not run: decode the player's engagement
-   windows on c817691bcd15 (about 6% of his living time), run
-   `screen.outline_candidates` and phase correlation on the centre crop,
-   and score placement, first-shot aim and speed against the replay.
-4. **Adjustment time.** Weak value (paired 0.56); it rides on reader 3.
-5. **Reaction time alone: do not coach.** Shooting first without hitting
-   loses; the first hit, which reader 3 serves, is the useful form.
-6. **Utility response and flash timing: wait for truth.** Blinds are decoded
-   on two replays; the next replays kept from current builds will carry them.
+   to the EQ10 arm, then build the per-region must-check angle sets from
+   the sightline tables and value clearing on truth.
+2. **Counter-strafe (movement at the shot), from a gated screen reader.**
+   Value: still against moving
+   [metric:execution_questions/value/speed_at_shot@pooled17#still_vs_moving.diff=0.0745];
+   cost: a window-gated decode of a centre crop with a view-rotation and
+   translation estimate. Next step, proposed and not run: decode the
+   player's engagement windows on c817691bcd15 (about 6% of his living
+   time), run phase correlation and `screen.outline_candidates` on the
+   centre crop, and score speed at the shot and sub-degree placement
+   against the replay.
+3. **Head share of hits per round, the player's own**, from the combat
+   report, kept as the aim alarm. Value:
+   [metric:execution_questions/value/ladder_head_share@ladder#diff=0.123]
+   per player-round on the ladder; the reader exists and costs nothing new.
+   Next step: run the combat-report reader on the development sessions and
+   score its hit splits against the replay's regions.
+4. **First-bullet outcome**, the largest duel difference measured
+   ([metric:execution_questions/value/first_bullet@pooled17#hit.diff=0.3087]),
+   is aim: it rides on reader 2 and is coached only where it is particularly
+   bad.
+5. **Adjustment time.** Weak value (paired 0.56); it rides on reader 2.
+6. **Reaction time alone: do not coach.** Shooting first without hitting
+   loses; the first hit is the useful form.
+7. **Utility response and flash timing: low priority.** Truth now holds
+   blinds on 14 replays: being blinded at exposure decides the duel, but it
+   touches about two kill duels a match, and peek timing after a flash shows
+   no edge at this n. The capture's own wash detector (`blinds`) already
+   marks the player's blindness; the flash's thrower and the response to
+   enemy utility need the ability channels.
 
 ## 6. Questions for the player
 
-1. Which mechanics do you want coached: placement, first-shot discipline,
-   counter-strafing, spray control, clearing, utility timing? The ranking
-   above assumes all are wanted.
-2. Do you want per-duel feedback (this fight, this angle) or habits over a
+Answered (player, 2026-10-07):
+
+- Placement and movement are the priority; aim is coached only where it is
+  particularly bad. This puts crosshair placement, clearing and
+  counter-strafe ahead of first-bullet aim in section 5's build order.
+- Must-check angles come from the sightline tables.
+- Spray discipline is an open question; its definition stays unsettled.
+
+Open:
+
+1. Do you want per-duel feedback (this fight, this angle) or habits over a
    match (your placement median, your first-shot hit rate)? Habits need far
    fewer reads.
-3. Which crosshair do you play with: does it show movement or firing error,
+2. Which crosshair do you play with: does it show movement or firing error,
    and its colour and outline? A dynamic crosshair would read counter-strafe
    from the screen directly.
-4. Does the game draw a hit marker or play a distinct hit or headshot sound
+3. Does the game draw a hit marker or play a distinct hit or headshot sound
    in your settings? Either would give first-bullet outcome without seeing
    the enemy.
-5. What enemy highlight colour do you use? `screen.outline_candidates`
+4. What enemy highlight colour do you use? `screen.outline_candidates`
    depends on it.
-6. For clearing: which angles on each site do you consider must-check, or
-   should the sightline table define them?
-7. Is a spray "disciplined" by burst length, by pause, or by hits per
-   shot? The data hold all three.
+5. When spray discipline is taken up: is a spray disciplined by burst
+   length, by pause, or by hits per shot? The data hold all three.
 
 ## 7. Predictions and outcomes
 
@@ -318,29 +348,35 @@ Registered in the store's `notes/predictions.jsonl` (task
 
 | Ref | Prediction (short) | Outcome |
 |---|---|---|
-| EQ0a | shots explain at least 0.97 of gun hits on every replay | **failed** narrowly: 16 of 17 at 0.977 or more, 75111fd9 at 0.966 |
-| EQ0b | region 1 names head bones on 0.95; region 2 leg bones on 0.9 | head held (1.0); legs **failed** on my bone list (0.86-1.0), an instrument limit |
-| EQ1a-b | placement median 5-20 degrees; the better placed wins 0.52-0.62 | held: 5.56; 0.614 |
-| EQ1c | tercile difference 0.05-0.20 | **failed** narrowly, above: 0.2005 |
-| EQ2a, c | reaction median 250-600 ms; prefire 0.05-0.20 | held: 399 ms; 0.056 |
-| EQ2b | the first to shoot wins 0.55-0.70 | **failed**, opposite sign: 0.450 |
-| EQ3a-b | first shot hits 0.20-0.45; head share 0.15-0.40 | held: 0.335; 0.315 |
-| EQ3c | a first-shot hit lifts the win share 0.10-0.30 | **failed** narrowly, above: 0.309 |
-| EQ4a-b | still at the shot 0.40-0.75; still wins 0.03-0.15 more | held: 0.644; 0.075 |
-| EQ5a | the first hitter wins 0.65-0.80 | **failed** narrowly, above: 0.801 |
-| EQ6a-c | adjustment median 150-400 ms; reached by more winners; faster wins 0.55-0.70 | held: 392 ms; 0.63 against 0.47; 0.555 |
-| EQ7a | blinded wins at most 0.35 | figures hold (0.22 of 9) but untestable: blinds on 2 replays |
-| EQ8a | ladder head share difference 0.02-0.10 | **failed**, above: 0.123 |
-| EQ9a | cone facing median 1.5-4 degrees per session | held on two (1.69, 1.67); **failed** on 9acf02f98283 (5.45) |
-| EQ9b | p90 5-15 degrees; flips at most 0.10 | p90 **failed** (18-29); flips held (0.05-0.07) |
-| EQ9c | the cone's median at least 3 times the 0.57 degree need | held on 9acf02f98283; **failed** narrowly on the others (2.9 times) |
-| EQ10a | yaw-only placement keeps paired 0.58-0.62 | held: 0.601 |
-| EQ10b | the cone arm: paired 0.54-0.59, tercile 0.08-0.16 | paired held (0.583); tercile **failed**, above (0.168): the cone keeps more than believed |
+| EQ0a | shots explain at least 0.97 of gun hits on every replay | **failed** narrowly: [metric:execution_questions/truth/check@pooled17#explained_share_ge_0977=16] of 17 replays at 0.977 or more, the lowest (75111fd9) at [metric:execution_questions/truth/check@pooled17#explained_share_min=0.9655] |
+| EQ0b | region 1 names head bones on 0.95; region 2 leg bones on 0.9 | head held ([metric:execution_questions/truth/check@pooled17#head_bone_share_min=1.0]); legs **failed** on the check's bone list (lowest [metric:execution_questions/truth/check@pooled17#leg_bone_share_min=0.8621]), an instrument limit |
+| EQ1a-b | placement median 5-20 degrees; the better placed wins 0.52-0.62 | held: [metric:execution_questions/value/placement@pooled17#p50=5.56]; [metric:execution_questions/value/placement@pooled17#paired.share=0.6135] |
+| EQ1c | tercile difference 0.05-0.20 | **failed** narrowly, above: [metric:execution_questions/value/placement@pooled17#tercile.diff=0.2005] |
+| EQ2a, c | reaction median 250-600 ms; prefire 0.05-0.20 | held: [metric:execution_questions/value/reaction@pooled17#p50=399.0] ms; [metric:execution_questions/value/reaction@pooled17#prefire_share=0.0561] |
+| EQ2b | the first to shoot wins 0.55-0.70 | **failed**, opposite sign: [metric:execution_questions/value/reaction@pooled17#paired.share=0.4496] |
+| EQ3a-b | first shot hits 0.20-0.45; head share 0.15-0.40 | held: [metric:execution_questions/value/first_bullet@pooled17#hit_share=0.3354]; [metric:execution_questions/value/first_bullet@pooled17#head_share_of_hits=0.3146] |
+| EQ3c | a first-shot hit lifts the win share 0.10-0.30 | **failed** narrowly, above: [metric:execution_questions/value/first_bullet@pooled17#hit.diff=0.3087] |
+| EQ4a-b | still at the shot 0.40-0.75; still wins 0.03-0.15 more | held: [metric:execution_questions/value/speed_at_shot@pooled17#still_share=0.6438]; [metric:execution_questions/value/speed_at_shot@pooled17#still_vs_moving.diff=0.0745] |
+| EQ5a | the first hitter wins 0.65-0.80 | **failed** narrowly, above: [metric:execution_questions/value/first_hitter@pooled17#share=0.8011] |
+| EQ6a-c | adjustment median 150-400 ms; reached by more winners; faster wins 0.55-0.70 | held: [metric:execution_questions/value/adjustment@pooled17#p50=392.0] ms; [metric:execution_questions/value/adjustment@pooled17#reached_winners=0.6341] against [metric:execution_questions/value/adjustment@pooled17#reached_losers=0.4671]; [metric:execution_questions/value/adjustment@pooled17#paired.share=0.5553] |
+| EQ7a | blinded wins at most 0.35; blinded at most 0.05 of participants | 0.1.0 read blinds on two replays only, an instrument error (revision row); rerun on the decoded `LongestActiveBlindDuration`: held, [metric:execution_questions/value/blinded@pooled17#won_blinded.share=0.2105] and [metric:execution_questions/value/blinded@pooled17#share=0.0078] |
+| EQ7b | (revision) the unblinded side of a one-blinded duel wins 0.65-0.85 | held: [metric:execution_questions/value/blinded@pooled17#unblinded_wins.share=0.8235] |
+| EQ7c | (revision) peeks on a blinded opponent come a median 200-900 ms after his blind onset | held: [metric:execution_questions/value/flash_peek@pooled17#onset_to_exposure_p50=284.75] ms |
+| EQ8a | ladder head share difference 0.02-0.10 | **failed**, above: [metric:execution_questions/value/ladder_head_share@ladder#diff=0.123] |
+| EQ9a | cone facing median 1.5-4 degrees per session | held on two ([metric:execution_questions/capture/selfface@c817691bcd15#abs_p50=1.685], [metric:execution_questions/capture/selfface@d3dcfb182ab1#abs_p50=1.666]); **failed** on 9acf02f98283 ([metric:execution_questions/capture/selfface@9acf02f98283#abs_p50=5.454]) |
+| EQ9b | p90 5-15 degrees; flips at most 0.10 | p90 **failed** ([metric:execution_questions/capture/selfface@c817691bcd15#abs_p90=18.093], [metric:execution_questions/capture/selfface@d3dcfb182ab1#abs_p90=19.946], [metric:execution_questions/capture/selfface@9acf02f98283#abs_p90=28.77]); flips held ([metric:execution_questions/capture/selfface@d3dcfb182ab1#flip_share=0.0541] to [metric:execution_questions/capture/selfface@9acf02f98283#flip_share=0.0737]) |
+| EQ9c | the cone's median at least 3 times the 0.57 degree need (1.71) | held on 9acf02f98283; **failed** narrowly on c817691bcd15 and d3dcfb182ab1 (medians above) |
+| EQ10a | yaw-only placement keeps paired 0.58-0.62 | held: [metric:execution_questions/value/placement_yaw_only@pooled17#paired.share=0.601] |
+| EQ10b | the cone arm: paired 0.54-0.59, tercile 0.08-0.16 | paired held ([metric:execution_questions/value/placement_cone@pooled17#paired.share=0.5831]); tercile **failed**, above ([metric:execution_questions/value/placement_cone@pooled17#tercile.diff=0.1683]): the cone keeps more than believed |
 
-A correction row records my own clock error: the first HUD-fire run placed
-truth shots at the killfeed-fitted offset and found recall near 0.6; the
-screen shows replay time with the existing minimap lag, and on that clock
-recall rose to 0.91-0.95.
+A correction row records that the first HUD-fire run placed truth shots
+on the killfeed-fitted offset and found low recall; the screen shows
+replay time with the existing minimap lag, and on that clock recall rose
+to [metric:execution_questions/capture/hudfire_shift-450@c817691bcd15#recall=0.9104]-[metric:execution_questions/capture/hudfire_shift-450@d3dcfb182ab1#recall=0.9524].
+A revision row records that version 0.1.0 read blinds from a field vrfkit
+decodes on two replays; 0.2.0 reads the decoded blind duration, whose
+onsets match the other field's where both exist (60c7f1e0: 57 of 60 at
+the same ms; 16a475cb: 6 of 6).
 
 ## 8. What was not done
 
@@ -353,8 +389,11 @@ recall rose to 0.91-0.95.
   regions; only 9acf02f98283 has stored rows.
 - Crouching moves the eye; exposure and the target use the standing eye
   height for everyone.
-- Clearing, flash timing, utility response, time to kill and spray shape are
-  defined and not valued.
+- Clearing, utility response, time to kill and spray shape are defined and
+  not valued. Flash then peek does not read who threw the flash, so an
+  enemy's self-flash or a teammate's counts alike.
+- Hit regions other than head (1) and legs (2) are not characterised; the
+  prototype counts every other player hit as body.
 - Duel ids repeat within a match in a few cases (2445 distinct of 2468); the
   paired statistics drop those duels.
 - Value is association: placement and first hits mark better players as

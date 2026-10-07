@@ -21,10 +21,12 @@ What the replay adds beyond the layer, read here from vrfkit's export:
   component with the most single steps) falls by one per shot, on the
   server tick the shot's damage call carries; the gun's latest `Owner`
   reference names the shooter (`replay_actors.Export.owner_subject`).
-- hit region: `MulticastNotifyDamage_Point.RegionalDamage` (1 head, 0 body,
-  2 legs, 5 none), with `bEquippableUsedZoomed`.
-- blinds: `BlindManagerComponent.ActiveBlinds[k]` on a player's pawn, opened
-  at the row's time for `InitialDuration` seconds.
+- hit region: `MulticastNotifyDamage_Point.RegionalDamage`; 1 is checked as
+  head and 2 as legs (domain:replay/vrf-damage-hit-region); this script calls
+  every other value of a player hit "body", unverified.
+- blinds: each onset of `BlindManagerComponent.LongestActiveBlindDuration` on
+  a player's pawn opens a blind of that many seconds (0.2.0; 0.1.0 read
+  `ActiveBlinds[k].InitialDuration`, which vrfkit decodes on two replays only).
 """
 from __future__ import annotations
 
@@ -50,7 +52,7 @@ sys.path.insert(0, str(HERE))
 from reticle import episodes as ep  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "execution-questions-0.1.0"
+VERSION = "execution-questions-0.2.0"
 TASK = "execution-questions-20261007"
 HELD_OUT_PREFIX = "bd7efa02"
 HELD_OUT_SESSION = "cea8ecbc94ab"
@@ -202,19 +204,30 @@ class Extras:
                          "zoomed": bool(get("bEquippableUsedZoomed", i)),
                          "gun": eqp.startswith(GUN_PATH), "equippable": _leaf(eqp)})
         self.hits = hits
-        # blinds
+        # blinds: vrfkit leaves ActiveBlinds as raw bits on most builds but
+        # decodes LongestActiveBlindDuration; its onsets (a positive value
+        # after 0, or a rise) equal ActiveBlinds[k].InitialDuration where both
+        # exist (60c7f1e0 57 of 60, 16a475cb 6 of 6, same ms, same seconds)
         B = F.filter(pc.and_(pc.equal(gp, "/Script/ShooterGame.BlindManagerComponent"),
-                             pc.match_substring_regex(fn, r"^ActiveBlinds\[\d+\]\.InitialDuration$")))
-        blinds = defaultdict(list)
+                             pc.equal(fn, "LongestActiveBlindDuration")))
+        per = defaultdict(list)
         for tt, gg, vf in zip(B["time_ms"].to_numpy(), B["actor_net_guid"].to_numpy(),
                               B["value_f64"].to_numpy(zero_copy_only=False)):
-            s = rp.guid_subject.get(int(gg))
+            vf = 0.0 if vf is None or not np.isfinite(vf) else float(vf)
+            per[int(gg)].append((float(tt), vf))
+        blinds = defaultdict(list)
+        for gg, rows in per.items():
+            s = rp.guid_subject.get(gg)
             if s is None:
-                s = ex.owner_subject(int(gg))[0]
-            if s is None or vf is None or not np.isfinite(vf) or vf <= 0:
+                s = ex.owner_subject(gg)[0]
+            if s is None:
                 continue
-            blinds[s].append((float(tt), float(tt) + 1000.0 * float(vf)))
-        self.blinds = dict(blinds)
+            prev = 0.0
+            for tt, vf in sorted(rows):
+                if vf > 0 and (prev == 0 or vf > prev + 1e-6):
+                    blinds[s].append((tt, tt + 1000.0 * vf))
+                prev = vf
+        self.blinds = {s: sorted(v) for s, v in blinds.items()}
         self.blind_durations = [b - a for L in blinds.values() for a, b in L]
 
     def check(self) -> dict:
@@ -417,6 +430,11 @@ def duel_rows(key: str) -> list[dict]:
                     r["first_shot_ms"] = None
                 bl = X.blinds.get(em, [])
                 r["blinded"] = any(s0 <= tx <= s1 for s0, s1 in bl)
+                # flash then peek: the opponent's latest blind onset at or before exposure,
+                # and whether exposure falls inside that blind
+                ob = [(s0, s1) for s0, s1 in X.blinds.get(eo, []) if s0 <= tx]
+                r["opp_blinded"] = bool(ob) and ob[-1][0] <= tx <= ob[-1][1]
+                r["opp_blind_onset_before_ms"] = float(tx - ob[-1][0]) if r["opp_blinded"] else None
             rows.append(r)
     print(f"{match[:8]}: {len(rows) // 2} kill duels in {time.time() - t0w:.0f} s", flush=True)
     return rows
@@ -565,6 +583,22 @@ def value(paths: list[Path]) -> dict:
     res["blinded"] = {"n": len(bl), "share": round(float(np.mean([r["blinded"] for r in bl])), 4),
                       "won_blinded": _boot_share([(r["match"], int(r["won"])) for r in bl if r["blinded"]]),
                       "diff": _binary(bl, "blinded")}
+    # EQ7b: duels with exactly one participant blinded at exposure; the unblinded side's win share
+    byd = defaultdict(list)
+    for r in bl:
+        byd[(r["match"], r["duel"])].append(r)
+    one = [(m, int(next(x for x in rr if not x["blinded"])["won"]))
+           for (m, _d), rr in byd.items() if len(rr) == 2 and sum(x["blinded"] for x in rr) == 1]
+    res["blinded"]["unblinded_wins"] = _boot_share(one)
+    # EQ7c: flash then peek, peeking a blinded opponent; timing after his blind onset
+    fp = [r for r in bl if r.get("opp_blinded")]
+    ft = np.array([r["opp_blind_onset_before_ms"] for r in fp])
+    res["flash_peek"] = {"n": len(fp), "onset_to_exposure_p25": float(np.percentile(ft, 25)) if ft.size else None,
+                         "onset_to_exposure_p50": float(np.median(ft)) if ft.size else None,
+                         "onset_to_exposure_p75": float(np.percentile(ft, 75)) if ft.size else None,
+                         "won": _boot_share([(r["match"], int(r["won"])) for r in fp]),
+                         "early_won": _boot_share([(r["match"], int(r["won"])) for r in fp if r["opp_blind_onset_before_ms"] <= 500]),
+                         "late_won": _boot_share([(r["match"], int(r["won"])) for r in fp if r["opp_blind_onset_before_ms"] > 500])}
     # spray: hits per shot to the kill for the winner
     w = [r for r in rx if r["won"] and r.get("shots_to_kill")]
     res["spray"] = {"n": len(w), "winner_hits_per_shot_p50": round(float(np.median([r["hits_to_kill"] / r["shots_to_kill"] for r in w])), 4),
@@ -812,8 +846,13 @@ def main(argv=None) -> int:
                 _rec("truth/check", m[:8], v)
             sh = [v["explained_share"] for v in out.values() if v["explained_share"] is not None]
             hb = [v["head_bone_share"] for v in out.values() if v["head_bone_share"] is not None]
+            lb = [v["leg_bone_share"] for v in out.values() if v["leg_bone_share"] is not None]
             _rec("truth/check", "pooled17", {"replays": len(out), "explained_share_min": min(sh),
-                                             "head_bone_share_min": min(hb),
+                                             "explained_share_ge_0977": sum(x >= 0.977 for x in sh),
+                                             "head_bone_share_min": min(hb), "leg_bone_share_min": min(lb),
+                                             "multi_steps": sum(v["multi_steps"] for v in out.values()),
+                                             "replays_with_blinds": sum(v["blinds"] > 0 for v in out.values()),
+                                             "blinds": sum(v["blinds"] for v in out.values()),
                                              "gun_hits": sum(v["gun_hits"] for v in out.values()),
                                              "explained": sum(v["explained"] for v in out.values()),
                                              "shots": sum(v["shots"] for v in out.values())})
