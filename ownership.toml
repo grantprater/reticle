@@ -1145,6 +1145,40 @@ consumers = ["cli", "plan"]
 evidence = "tests/test_enemy_tracks.py"
 
 [[entry]]
+id = "detection-reality"
+question = "Is this detection a real entity: a drawn player, or a glyph, a mark, a duplicate find or a misfit?"
+role = ["adjudicate"]
+status = "unowned"
+not_for = """
+The reader gates. A reader measures and stores evidence with a score and a
+reason, keeps what it refuses beside what it accepts, and decides no find
+real by a rule an owner downstream holds. Each `minimap_objects` gate is
+evidence for this question, not its answer: the teardrop fit's `ncc`,
+`margin` and refusal reason are shape evidence; `slab_gate`'s
+`slab_red_share` is map-interior evidence; the `owner_gate`'s nearest
+shape-confirmed X and confirmed ping, each with its distance, are
+cross-channel evidence; a portrait fit and margin to the side's five are
+appearance evidence. Continuity is `track-continuation`'s, uniqueness among a
+side's five `agent-identity`'s (its per-frame assignment), roster capacity
+`round-entity`'s (`ally_capacity`), the X at a death `death-victim`'s; this
+question combines them and restates none. Nor is it per-frame candidate
+disposition, which `minimap-icon-disposition` owns for allies.
+"""
+blocked_by = """
+No owner decides it for enemies. Allies: `adjudication.minimap_candidates`
+disposes of each fitted candidate and `round_lifetimes` refuses an icon past
+the roster's capacity (`roster_conflict_refused`); the self icon is
+`minimap.pick_self`'s one fit. Enemies: the reader decides alone;
+`RoundLifetimes.step` mints an entity for every enemy find it is given, and
+the arbiter leaves a surplus or misfit find unnamed but `enemy_tracks` still
+emits its track. Proposed owner: one rule in `round_lifetimes` that both
+lanes apply, as they apply `death_refusal`, with enemy candidate disposition
+moved to `adjudication.minimap_candidates`; the slot assignment
+(QUESTION_ACCEPTANCE B2, B4) takes it over. BACKLOG item 1's event-level
+harness measures it first.
+"""
+
+[[entry]]
 id = "entity-event"
 question = "What did each entity do, in the one schema every consumer reads?"
 owner = "entity_events"
