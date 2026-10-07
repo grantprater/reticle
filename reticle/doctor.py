@@ -999,8 +999,9 @@ RESTATED_GATES = {
     ("reticle/menu.py", "stored_menu"): "reads back its own stream (menu_open)",
     ("reticle/clove_circle.py", "stored_windows"): (
         "an input, not a restated rule: the death stream's Clove deaths give the reader its "
-        "windows, and a window taken from another stream is allowed (AGENTS.md: a review "
-        "window points into source media with its provenance); the reader decides no death"),
+        "windows, and a channel may take from another channel \"a candidate set, a window or "
+        "a gate\", never its verdict on the same entity (AGENTS.md, the identity rule); the "
+        "reader decides no death"),
     ("reticle/minimap_dark.py", "dark_reader"): (
         "an input, not a restated rule: lighting.reference reads the baked (map, profile) "
         "lighting reference the reader measures darkness against, a static input from the "
