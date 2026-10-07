@@ -231,15 +231,20 @@ def reread(sid: str, tag: str, ptag: str | None = None, ping_own_px: float | Non
 # ----------------------------------------------------------------- scoring
 
 class _Redirect(type(Path())):
-    """A store root whose `events/minimap_object` is another folder."""
+    """A store root whose `events/minimap_object` is another folder, and whose
+    other `events/<stream>` folders named in `streams` are others too
+    (`question_acceptance` points `enemy_track` at the tracks it built)."""
 
     target: Path | None = None
+    streams: dict = {}
 
     def with_segments(self, *segs):
         p = type(self)(*segs)
-        if _Redirect.target is not None and p.parts[-2:] == ("events", "minimap_object") \
-                and Path(*p.parts[:-2]) == STORE:
-            return Path(_Redirect.target)
+        if len(p.parts) >= 2 and p.parts[-2] == "events" and Path(*p.parts[:-2]) == STORE:
+            if p.parts[-1] == "minimap_object" and _Redirect.target is not None:
+                return Path(_Redirect.target)
+            if p.parts[-1] in _Redirect.streams:
+                return Path(_Redirect.streams[p.parts[-1]])
         return p
 
 
@@ -296,6 +301,52 @@ def miss_cause(r) -> str | None:
     return None
 
 
+#: The extras classes that are true false accepts (no living enemy near).
+TRUE_FA = ("ping", "x_mark", "other")
+
+
+def class_extras(sid: str, tag: str, R: dict, ptag: str | None = None) -> list[dict]:
+    """`R["extras"]` (from `enemy_lane_check.build_sets`), each with its class
+    `cls` (the module docstring's extras classes) from the tag's rows and the
+    confirmed pings (the stored stream, or with `ptag` that reread)."""
+    from reticle import minimap_objects as mo
+
+    scale = float(R["info"]["scale"])
+    pings = _pings(sid, ptag)
+    frames = {}
+    want = {e["frame_idx"] for e in R["extras"]}
+    for line in rows_path(tag, sid).open(encoding="utf-8"):
+        r = json.loads(line)
+        if r.get("kind") == "frame" and r["frame_idx"] in want:
+            frames[r["frame_idx"]] = r
+    near_px = mo.ICON_PX * scale
+    out = []
+    for e in R["extras"]:
+        d = e["nearest_enemy_m"]
+        alive = e["nearest_enemy_alive"]
+        x, y = e["icon_px"]
+        if alive and d is not None and d * 100 <= NEAR_CM:
+            c = "visible_undrawn"
+        elif alive and d is not None and d * 100 <= OFFSET_CM:
+            c = "enemy_3_8m"
+        elif not alive and d is not None and d * 100 <= NEAR_CM:
+            c = "dead_enemy"
+        else:
+            t = e["t_cap"]
+            on = (pings[:, 0] <= t) & (t <= pings[:, 1]) if pings.size else np.zeros(0, bool)
+            fr = frames.get(e["frame_idx"], {})
+            xs = [(q["x"], q["y"]) for col in ("blue", "red")
+                  for q in (fr.get("x_marks") or {}).get(col, [])]
+            if on.any() and np.hypot(pings[on, 2] - x, pings[on, 3] - y).min() <= near_px:
+                c = "ping"
+            elif any(math.hypot(a - x, b - y) <= mo.X_OWN_PX * scale for a, b in xs):
+                c = "x_mark"
+            else:
+                c = "other"
+        out.append(dict(e, cls=c))
+    return out
+
+
 def score(sid: str, tag: str, write: bool = True, ptag: str | None = None) -> dict:
     import enemy_lane_check as elc
     import t1_draw_rule as tdr
@@ -331,44 +382,13 @@ def score(sid: str, tag: str, write: bool = True, ptag: str | None = None) -> di
                 cause[c][i] += 1
             q_miss[i] += "question" in r["near"]
     # extras by class
-    pings = _pings(sid, ptag)
-    frames = {}
-    want = {e["frame_idx"] for e in R["extras"]}
-    for line in rp.open(encoding="utf-8"):
-        r = json.loads(line)
-        if r.get("kind") == "frame" and r["frame_idx"] in want:
-            frames[r["frame_idx"]] = r
-    near_px = mo.ICON_PX * scale
     classes = ("visible_undrawn", "enemy_3_8m", "dead_enemy", "ping", "x_mark", "other")
     ext = {c: np.zeros(nr) for c in classes}
-    ext_rows = []
-    for e in R["extras"]:
-        i = ri[e["round"]]
-        d = e["nearest_enemy_m"]
-        alive = e["nearest_enemy_alive"]
-        x, y = e["icon_px"]
-        if alive and d is not None and d * 100 <= NEAR_CM:
-            c = "visible_undrawn"
-        elif alive and d is not None and d * 100 <= OFFSET_CM:
-            c = "enemy_3_8m"
-        elif not alive and d is not None and d * 100 <= NEAR_CM:
-            c = "dead_enemy"
-        else:
-            t = e["t_cap"]
-            on = (pings[:, 0] <= t) & (t <= pings[:, 1]) if pings.size else np.zeros(0, bool)
-            fr = frames.get(e["frame_idx"], {})
-            xs = [(q["x"], q["y"]) for col in ("blue", "red")
-                  for q in (fr.get("x_marks") or {}).get(col, [])]
-            if on.any() and np.hypot(pings[on, 2] - x, pings[on, 3] - y).min() <= near_px:
-                c = "ping"
-            elif any(math.hypot(a - x, b - y) <= mo.X_OWN_PX * scale for a, b in xs):
-                c = "x_mark"
-            else:
-                c = "other"
-        ext[c][i] += 1
-        ext_rows.append(dict(e, cls=c))
+    ext_rows = class_extras(sid, tag, R, ptag)
+    for e in ext_rows:
+        ext[e["cls"]][ri[e["round"]]] += 1
     nh, nd = int(hit.sum()), int(drawn.sum())
-    false_acc = ext["ping"] + ext["x_mark"] + ext["other"]
+    false_acc = sum(ext[c] for c in TRUE_FA)
     out = {"session": sid, "tag": tag, "version": VERSION, "rule": "T1d", "p_ms": M._p_meas,
            "minimap_object_version": info.get("minimap_object_version"), "scale": scale,
            "rounds": nr, "hits": nh, "misses": nd - nh, "hit_rate": round(nh / nd, 4),

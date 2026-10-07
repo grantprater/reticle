@@ -150,6 +150,23 @@ def join_runs(t_a, t_b) -> tuple[np.ndarray, object, float]:
     return inrun, J, rate
 
 
+def track_outcome(agent: str | None, status: str | None, foe: dict) -> tuple[str, int]:
+    """One emitted enemy track's lane outcome and its enemy replay subject.
+
+    `foe` maps `agent_names.agent_key` of each enemy-team agent to its replay
+    subjects (evaluation only). `identity_abstained`: the arbiter did not
+    resolve the track (any status but `resolved`); `agent_not_on_enemy_team`:
+    it named an agent that is not exactly one enemy subject; `named`: the
+    subject. A dropped track's subject is -1."""
+    from reticle.agent_names import agent_key
+    if status != "resolved":
+        return "identity_abstained", -1
+    js = foe.get(agent_key(agent), [])
+    if len(js) != 1:
+        return "agent_not_on_enemy_team", -1
+    return "named", int(js[0])
+
+
 # ----------------------------------------------------------------- the match
 
 class RealMatch(Match):
@@ -256,11 +273,12 @@ class RealMatch(Match):
         _mf, to_m, _mpp = wf
         upm = es.units_per_m()
         ents, obs = {}, []
-        stamp = {}
+        stamp, track_n = {}, {}
         for r in rt._rows(p_et):
             k = r.get("kind")
             if k == "entity":
                 ents[r["id"]] = (r.get("agent"), r.get("identity_status"), r.get("identity_reason"))
+                track_n[r["id"]] = r.get("observations")
             elif k == "observation":
                 obs.append((int(r["frame_idx"]), float(r["t_ms"]), float(r["x"]), float(r["y"]),
                             r.get("entity_id"), int(str(r["observation_key"]).split(":")[1])))
@@ -271,16 +289,11 @@ class RealMatch(Match):
         for j in self.ei:
             foe.setdefault(agent_key(self.agent.get(self.sid[j])), []).append(int(j))
         drops = Counter()
-        track_subj = {}
+        track_subj, track_out = {}, {}
         for eid, (ag, st, _why) in ents.items():
-            if st != "resolved":
-                drops["track:identity_abstained"] += 1
-                track_subj[eid] = -1
-            elif len(foe.get(agent_key(ag), [])) != 1:
-                drops["track:agent_not_on_enemy_team"] += 1
-                track_subj[eid] = -1
-            else:
-                track_subj[eid] = foe[agent_key(ag)][0]
+            track_out[eid], track_subj[eid] = track_outcome(ag, st, foe)
+            if track_out[eid] != "named":
+                drops[f"track:{track_out[eid]}"] += 1
         # icons of the read frames, frame position p in MO's frame order
         pos_of = {int(f): i for i, f in enumerate(MO["frame_idx"])}
         ip = np.array([pos_of[int(f)] for f in MO["enemy_frame"]], np.int64)
@@ -293,12 +306,16 @@ class RealMatch(Match):
         ix, iy = to_m(MO["enemy_x"], MO["enemy_y"])
         ix, iy = ix * upm, iy * upm
         isub = np.full(ip.size, -1, np.int64)
+        ieid = np.full(ip.size, None, dtype=object)
         o_t, o_x, o_y, o_j = [], [], [], []
         for f, t, x, y, eid, w in obs:
             j = track_subj.get(eid, -1)
             if eid not in ents:
                 drops["obs:no_entity"] += 1
                 continue
+            i = icon_of.get((f, w))
+            if i is not None:
+                ieid[i] = eid
             if j < 0:
                 st = ents[eid][1]
                 drops["obs:identity_abstained" if st != "resolved" else "obs:agent_not_on_enemy_team"] += 1
@@ -318,7 +335,12 @@ class RealMatch(Match):
         return {"MO": MO, "icon_p": ip, "icon_x": ix, "icon_y": iy, "icon_subj": isub,
                 "obs_t_cap": o_t, "obs_t": rep, "obs_x": mx * upm, "obs_y": my * upm,
                 "obs_j": np.asarray(o_j, np.int64), "drops": dict(drops), "stamp": stamp,
-                "tracks": len(ents), "observations": len(obs)}
+                "tracks": len(ents), "observations": len(obs),
+                # per icon, the track its observation joined (None: no track);
+                # per track, its lane outcome and agent (question_acceptance)
+                "icon_eid": ieid, "track_outcome": track_out,
+                "track_agent": {eid: v[0] for eid, v in ents.items()},
+                "track_obs": track_n}
 
     def rr0b(self, E: dict) -> dict:
         """Mapped real icons against their subject's truth xy, on both clocks."""

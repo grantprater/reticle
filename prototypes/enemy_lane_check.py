@@ -352,7 +352,7 @@ def build_sets(sid: str, M=None) -> dict:
                     "nearest_ally_m": None if not np.isfinite(da.min()) else round(float(da.min()) / 100, 2),
                     "ms_since_sight": None if kl < 0 else round(float(M.G[k] - M.G[kl]), 1),
                     "ms_to_sight": None if nxt.size == 0 else round(float(M.G[k + nxt[0]] - M.G[k]), 1),
-                    "subj": int(E["icon_subj"][ic[q]])})
+                    "subj": int(E["icon_subj"][ic[q]]), "icon": int(ic[q])})
     # any-enemy sample level, for the share gap itself
     t1any = (drawn[ei] & valid[None, :]).any(axis=0)
     realany = n_at > 0
@@ -370,7 +370,12 @@ def build_sets(sid: str, M=None) -> dict:
             "icons_valid": int(ic.size), "extras": len(ext),
             "px_per_m": float(mf.px_per_unit * upm),
             "widget_rotations": _widget_placement(sid)}
-    return {"info": info, "pairs": rows, "extras": ext}
+    # the join itself, for scorers over the same samples (question_acceptance):
+    # each accepted icon on a valid sample (ks: sample, ic: icon index into
+    # E's icons), the draw rule and the reads
+    join = {"ks": ks_i, "ic": ic, "valid": valid, "p_of": p_of, "drawn": drawn,
+            "alive": alive, "reads": E}
+    return {"info": info, "pairs": rows, "extras": ext, "join": join}
 
 
 def _widget_placement(sid: str) -> dict:
