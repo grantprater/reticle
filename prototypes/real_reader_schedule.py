@@ -2191,6 +2191,558 @@ def outcome_qa5r3() -> int:
     return 0
 
 
+# ----------------------------------------------------------------- reach questions (RX9, RX10)
+
+#: engagement_reach's walk reach, fixed on the 22 captured records
+#: (docs/COACHING_DECISION_VALUE.md section 9; decision_value SWING_S, TRADE_T).
+SWING_M, TRADE_M = 2.0, 5.0
+JOIN_STEP_MS = 250.0
+#: The pairs RX9 scores: (arm, reference).
+REACH_PAIRS = (("Lp", "T1"), ("Vgate-t", "V15t"), ("Vgate", "V15h"), ("V15h", "T1"), ("V15t", "T1"))
+REACH_QS = ("join_death", "join_choice", "spacing_region", "spacing_death")
+METRE_CUTS = (5.0, 10.0)
+SPARSE_MS, DATE_TOL_MS = 2000.0, 1000.0
+
+
+class ReachMap:
+    """One map's walk model (coaching_belief.Grid: the enemy belief's own) and
+    its callout regions from the owner, with adjacency from Grid walk edges."""
+
+    def __init__(self, map_url: str):
+        import coaching_belief as cb
+        from reticle.map_regions import Regions
+        self.name = cb.display_name(map_url)
+        g = self.g = cb.Grid(self.name)
+        self.GT = g.G.T.tocsr()
+        self.reg = Regions.load(map_url)
+        vol = self.reg.volume_of(np.column_stack([g.xy, g.z]))
+        keys = sorted({(lab.get("super"), lab.get("region")) for lab in self.reg.labels}, key=str)
+        kid = {k: i for i, k in enumerate(keys)}
+        lab_id = np.array([kid[(lab.get("super"), lab.get("region"))] for lab in self.reg.labels] + [-1], np.int64)
+        self.keys = keys
+        self.region = lab_id[np.where(vol >= 0, vol, len(self.reg.labels))]
+        Gc = g.G.tocoo()
+        ra, rb = self.region[Gc.row], self.region[Gc.col]
+        ok = (ra >= 0) & (rb >= 0)
+        R = len(keys)
+        self.adj = np.eye(R, dtype=bool)
+        self.adj[ra[ok], rb[ok]] = True
+        self.adj |= self.adj.T
+        self._edge = (Gc.row, Gc.col)
+
+    def vis_row(self, c: int) -> np.ndarray:
+        return np.unpackbits(self.g.vis[c], count=self.g.N).astype(bool)
+
+    def walk_to_see(self, c: int, lim_m: float = TRADE_M) -> np.ndarray:
+        """Each cell's walk cm to the nearest cell that sees cell c (inf beyond lim)."""
+        from scipy.sparse.csgraph import dijkstra
+        S = np.flatnonzero(self.vis_row(c))
+        return dijkstra(self.GT, directed=True, indices=S, min_only=True, limit=lim_m * 100.0 + 1.0)
+
+    def walk_from(self, c: int, lim_m: float) -> np.ndarray:
+        """Each cell's walk cm to cell c (inf beyond lim)."""
+        from scipy.sparse.csgraph import dijkstra
+        return dijkstra(self.GT, directed=True, indices=c, limit=lim_m * 100.0 + 1.0)
+
+    def relation(self, a: int, b: int) -> str:
+        ra, rb = self.region[a], self.region[b]
+        if ra < 0 or rb < 0:
+            return "outside"
+        return "same" if ra == rb else ("adjacent" if self.adj[ra, rb] else "farther")
+
+    def borders(self) -> dict:
+        """RX10c: each adjacent region pair's line width against its regions' interior widths."""
+        from scipy.spatial import cKDTree
+        import coaching_belief as cb
+        g = self.g
+        tree = cKDTree(g.xy)
+        d, _i = tree.query(g.xy, k=2)
+        pitch = float(np.median(d[:, 1]))
+        nb = tree.query_ball_point(g.xy, 1.5 * pitch)
+        cnt = np.array([int((np.abs(g.z[np.asarray(j)] - g.z[k]) <= cb.JUMP_CM).sum()) - 1 for k, j in enumerate(nb)])
+        edge = cnt < 8
+        dt, _ = cKDTree(g.xy[edge]).query(g.xy)
+        width = 2.0 * dt + pitch
+        R = len(self.keys)
+        inner = np.full(R, np.nan)       # largest inscribed width (RX10 revision-1)
+        med = np.full(R, np.nan)         # the registered median, reported beside
+        for r in range(R):
+            m = self.region == r
+            if m.any():
+                inner[r] = float(2.0 * dt[m].max() + pitch)
+                med[r] = float(np.median(width[m]))
+        rr, cc = self._edge
+        ra, rb = self.region[rr], self.region[cc]
+        ok = (ra >= 0) & (rb >= 0) & (ra != rb)
+        side = defaultdict(set)
+        for a, b, c in zip(ra[ok], rb[ok], rr[ok]):
+            side[(int(a), int(b))].add(int(c))
+        rows = []
+        for (a, b) in sorted({(min(x), max(x)) for x in side}):
+            na, nb_ = len(side.get((a, b), ())), len(side.get((b, a), ()))
+            line = min(na, nb_) * pitch
+            lim = float(np.nanmin([inner[a], inner[b]]))
+            rows.append({"a": "/".join(map(str, self.keys[a])), "b": "/".join(map(str, self.keys[b])),
+                         "line_cm": line, "interior_cm": lim, "narrower": bool(line < lim),
+                         "median_interior_cm": float(np.nanmin([med[a], med[b]])),
+                         "narrower_median": bool(line < np.nanmin([med[a], med[b]]))})
+        return {"map": self.name, "pitch_cm": round(pitch, 1), "borders": len(rows),
+                "narrower": int(sum(r["narrower"] for r in rows)),
+                "narrower_median": int(sum(r["narrower_median"] for r in rows)), "rows": rows,
+                "median_line_cm": float(np.median([r["line_cm"] for r in rows])) if rows else None,
+                "median_interior_cm": float(np.nanmedian(inner)), "median_cell_width_cm": float(np.nanmedian(med))}
+
+
+def reach_answers(M, tl, RM: ReachMap) -> tuple[dict, list]:
+    """join_death, join_choice and spacing_region on one arm's timeline, and
+    each (death, teammate) row's walk class and region relation."""
+    team_of = {s.slot_id: s.team for s in tl.slots}
+    idx = {s.slot_id: k for k, s in enumerate(tl.slots)}
+    C = M.C
+    ci = [k for k, s in enumerate(tl.slots) if s.team == C]
+    deaths = [x for x in tl.events if x.kind == "death" and team_of.get(x.target) == C
+              and x.actor in team_of and team_of[x.actor] != C]
+    acts = [x for x in tl.events if x.kind in ("damage", "death")]
+    win = ep.PARAMS["TRADE_WINDOW_MS"]
+    off = np.arange(0.0, win + 1.0, JOIN_STEP_MS)
+    A = {"join_death": {}, "join_choice": {}, "spacing_region": {}}
+    rows = []
+    for d in deaths:
+        t = float(d.t_ms) - 1.0
+        smp = tl.sample(np.array([t]))
+        v, kl = idx[d.target], idx[d.actor]
+        mates = [k for k in ci if k != v and smp["alive"][k, 0]]
+        if not mates:
+            continue
+        P0 = RM.g.cell(smp["x"][:, 0], smp["y"][:, 0], smp["z"][:, 0])
+        cm = [int(P0[k]) for k in mates]
+        cv, ck = int(P0[v]), int(P0[kl])
+        # spacing_region: the xy-nearest living teammate, as spacing_death picks it
+        dd = [np.hypot(smp["x"][k, 0] - smp["x"][v, 0], smp["y"][k, 0] - smp["y"][v, 0]) for k in mates]
+        dd = np.where(np.isfinite(dd), dd, np.inf)
+        if np.isfinite(dd).any() and cv >= 0:
+            j = int(np.argmin(dd))
+            A["spacing_region"][d.event_id] = RM.relation(cm[j], cv) if cm[j] >= 0 else None
+        else:
+            A["spacing_region"][d.event_id] = None
+        if ck < 0 or min(cm) < 0:
+            A["join_death"][d.event_id] = None
+            continue
+        w = RM.walk_to_see(ck)[cm] / 100.0
+        A["join_death"][d.event_id] = int(min(int((w <= TRADE_M).sum()), 2))
+        T = t + 1.0 + off
+        sm = tl.sample(T)
+        kc = RM.g.cell(sm["x"][kl], sm["y"][kl], sm["z"][kl])
+        for k, c, wm in zip(mates, cm, w):
+            node = RM.relation(c, ck) in ("same", "adjacent") or RM.relation(c, cv) in ("same", "adjacent")
+            rows.append({"death": d.event_id, "mate": tl.slots[k].slot_id, "walk_m": float(wm) if np.isfinite(wm) else None,
+                         "cls": "swing" if wm <= SWING_M else ("trade" if wm <= TRADE_M else "neither"),
+                         "node": bool(node)})
+            if wm > TRADE_M:
+                continue
+            sid = tl.slots[k].slot_id
+            hit = any(x.actor == sid and x.target == d.actor and t < x.t_ms <= t + 1.0 + win for x in acts)
+            if not hit:
+                tc = RM.g.cell(sm["x"][k], sm["y"][k], sm["z"][k])
+                live = sm["alive"][k] & sm["alive"][kl] & (tc >= 0) & (kc >= 0)
+                for a_, b_ in zip(tc[live], kc[live]):
+                    if (RM.g.vis[a_, b_ >> 3] >> (7 - (b_ & 7))) & 1:
+                        hit = True
+                        break
+            A["join_choice"][(d.event_id, sid)] = bool(hit)
+    return A, rows
+
+
+def reach_paired(M, R: dict) -> dict:
+    """Per RX9 pair and question: T1 instances as [round, ref right, arm right], the arm's phantoms."""
+    ev = {e.event_id: float(e.t_ms) for e in M.tl0.events}
+    T1 = R["T1"]
+    out = {}
+    for arm, ref in REACH_PAIRS:
+        if arm not in R or ref not in R:
+            continue
+        o = {}
+        for q in REACH_QS:
+            t = T1[q]
+            ok = {name: {k for k, v in t.items() if k in R[name][q] and R[name][q][k] == v} for name in (arm, ref)}
+            keys = list(t)
+            rnd = [_round_of(M, ev.get(k[0] if isinstance(k, tuple) else k, np.nan)) for k in keys]
+            o[q] = {"i": [[r, int(k in ok[ref]), int(k in ok[arm])] for k, r in zip(keys, rnd)],
+                    "phantoms": len(set(R[arm][q]) - set(t))}
+        out[f"{arm}|{ref}"] = o
+    return out
+
+
+def crossings(M, RM: ReachMap) -> dict:
+    """RX10b: region and metre-cut transitions of the capturing team on truth,
+    live phase, 16 Hz, and how many a 0.5 Hz linear interpolation dates more
+    than 1 s wrong."""
+    G = M.G
+    al = M.tl0._alive_fn(G) & np.isfinite(M.X) & np.isfinite(M.Y) & np.isfinite(M.Z)
+    live = np.zeros(G.size, bool)
+    for r in M.rounds:
+        if r["t_live"] is not None:
+            hi = r["t_end"] if r["t_end"] is not None else r["t_next"]
+            live |= (M.G_round == r["round"]) & (G >= r["t_live"]) & (G <= hi)
+    ci = list(M.ci)
+    # sparse 0.5 Hz copy, linear within each life's live run
+    Xs, Ys, Zs = (np.full_like(M.X, np.nan) for _ in range(3))
+    for s in ci:
+        m = al[s] & live
+        for a, b in _true_runs(m):
+            idx = np.arange(a, b + 1)
+            tt = G[idx]
+            keep = idx[np.searchsorted(tt, np.arange(tt[0], tt[-1] + 1.0, SPARSE_MS))]
+            keep = np.unique(np.clip(keep, a, b))
+            for src, dst in ((M.X, Xs), (M.Y, Ys), (M.Z, Zs)):
+                dst[s, idx] = np.interp(tt, G[keep], src[s, keep])
+
+    def seqs(X, Y, Z):
+        reg = np.full(X.shape, -1, np.int64)
+        bkt = np.full(X.shape, -1, np.int64)
+        for s in ci:
+            m = al[s] & live & np.isfinite(X[s])
+            if m.any():
+                reg[s, m] = RM.region[RM.g.cell(X[s, m], Y[s, m], Z[s, m])]
+            others = [o for o in ci if o != s]
+            dmin = np.full(G.size, np.inf)
+            for o in others:
+                ok = al[o] & np.isfinite(X[o])
+                dd = np.where(ok, np.hypot(X[o] - X[s], Y[o] - Y[s]) / 100.0, np.inf)
+                dmin = np.minimum(dmin, dd)
+            mm = m & np.isfinite(dmin)
+            bkt[s, mm] = np.searchsorted(np.array(METRE_CUTS), dmin[mm], side="right")
+        return reg, bkt
+
+    def trans(seq, mask, carry):
+        """(slot, k, from, to) per change between consecutive mask samples of a run."""
+        out = []
+        for s in ci:
+            for a, b in _true_runs(mask[s]):
+                v = seq[s, a:b + 1].copy()
+                if carry:
+                    good = v >= 0
+                    if not good.any():
+                        continue
+                    i = np.where(good, np.arange(v.size), 0)
+                    np.maximum.accumulate(i, out=i)
+                    v = v[i]
+                    v[: np.argmax(good)] = -1
+                ch = np.flatnonzero((v[1:] != v[:-1]) & (v[1:] >= 0) & (v[:-1] >= 0))
+                out += [(s, a + 1 + c, int(v[c]), int(v[c + 1])) for c in ch]
+        return out
+
+    reg, bkt = seqs(M.X, M.Y, M.Z)
+    regs, bkts = seqs(Xs, Ys, Zs)
+    m_alive = np.stack([al[s] & live for s in ci])
+    mask = np.zeros_like(al)
+    mask[ci] = m_alive
+    mate = np.zeros_like(al)
+    for s in ci:
+        mate[s] = mask[s] & (bkt[s] >= 0)
+    out = {"player_s": float(mask.sum() * cq.SIGHT_MS / 1000.0),
+           "player_s_with_mate": float(mate.sum() * cq.SIGHT_MS / 1000.0)}
+    for name, tr, sp, msk, carry in (("region", trans(reg, mask, True), trans(regs, mask, True), mask, True),
+                                     ("metre", trans(bkt, mate, False), trans(bkts, mate, False), mate, False)):
+        st = defaultdict(list)
+        for s, k, f, t in sp:
+            st[(s, f, t)].append(G[k])
+        wrong = 0
+        for s, k, f, t in tr:
+            c = np.asarray(st.get((s, f, t), []))
+            if not c.size or np.abs(c - G[k]).min() > DATE_TOL_MS:
+                wrong += 1
+        out[name] = {"n": len(tr), "sparse_n": len(sp), "dated_wrong": wrong}
+    out["region"]["per_s"] = out["region"]["n"] / max(out["player_s"], 1e-9)
+    out["metre"]["per_s"] = out["metre"]["n"] / max(out["player_s_with_mate"], 1e-9)
+    return out
+
+
+def gate_vs_walk(M, RM: ReachMap, every: int = 16) -> dict:
+    """Diagnostic: the truth local gate's 20 m xy radius against 20 m walk, ally
+    to drawn enemy, on every 16th sight-grid sample (1 Hz)."""
+    lim = cq.LOCAL_CM / 100.0
+    c = Counter()
+    for k in range(0, M.G.size, every):
+        for e in M.ei:
+            if not M.drawn_C[e, k] or not np.isfinite(M.X[e, k]):
+                continue
+            ce = int(RM.g.cell(M.X[e, k], M.Y[e, k], M.Z[e, k])[0])
+            if ce < 0:
+                continue
+            dist = None
+            for s in M.ci:
+                if not np.isfinite(M.X[s, k]):
+                    continue
+                cs = int(RM.g.cell(M.X[s, k], M.Y[s, k], M.Z[s, k])[0])
+                if cs < 0:
+                    continue
+                if dist is None:
+                    dist = RM.walk_from(ce, lim)
+                xy = np.hypot(M.X[s, k] - M.X[e, k], M.Y[s, k] - M.Y[e, k]) <= cq.LOCAL_CM
+                wk = bool(np.isfinite(dist[cs]))
+                c[f"xy{'in' if xy else 'out'}_walk{'in' if wk else 'out'}"] += 1
+    return dict(c)
+
+
+def run_reach(sessions: list[str]) -> int:
+    """RX9/RX10: rebuild every arm's timeline (as `run`), answer the reach
+    questions on each, and write reach.jsonl; stored rows stay untouched."""
+    for s in sessions:
+        refuse(s)
+    OUT.mkdir(parents=True, exist_ok=True)
+    out_p = OUT / "reach.jsonl"
+    out_p.write_text("", encoding="utf-8")
+    maps = {}
+    for s in sessions:
+        M = RealMatch(s)
+        instrument(M)
+        arms(M)
+        RM = maps.get(M.tl0.map) or ReachMap(M.tl0.map)
+        maps[M.tl0.map] = RM
+        t0 = time.time()
+        R, det = {}, {}
+        R["T0"], det["T0"] = reach_answers(M, M.tl0, RM)
+        for name, tl in M.TL.items():
+            key = {"t1": "T1", SCHED: "Lp"}.get(name, name)
+            R[key], det[key] = reach_answers(M, tl, RM)
+        for key in R:
+            R[key]["spacing_death"] = M.A[key]["spacing_death"]
+        rec = {"version": VERSION, "session": M.cap, "match": M.tl0.match, "map": RM.name, "grid": RM.g.version,
+               "team": M.C, "regions": RM.reg.provenance(), "adjacency": "Grid walk edges between labelled regions",
+               "paired_T1": reach_paired(M, R),
+               "rows_T1": det["T1"], "rows_T0": det["T0"],
+               "answers_T0": {q: {str(k): v for k, v in R["T0"][q].items()} for q in R["T0"]},
+               "damage_events": sum(1 for x in M.tl0.events if x.kind == "damage"),
+               "crossings": crossings(M, RM), "gate_vs_walk": gate_vs_walk(M, RM),
+               "seconds": round(time.time() - t0, 1)}
+        with out_p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, default=cq._jd) + "\n")
+        _log(f"  {M.cap} reach in {rec['seconds']} s ({RM.name})")
+    bd = {}
+    for RM in maps.values():
+        bd[RM.name] = RM.borders()
+    (OUT / "borders.json").write_text(json.dumps(bd, indent=1, default=cq._jd), encoding="utf-8")
+    return 0
+
+
+def _paired_stats(I: list) -> dict:
+    """Loss of arm against ref over (match, round) clusters, paired bootstrap."""
+    rng = np.random.default_rng(BOOT_SEED)
+    cl = {}
+    for sname, rn, ro, ao in I:
+        c = cl.setdefault((sname, rn), [0, 0, 0])
+        c[0] += ao - ro
+        c[1] += 1
+        c[2] += ao
+    d = np.array([v[0] for v in cl.values()], float)
+    n = np.array([v[1] for v in cl.values()], float)
+    a = np.array([v[2] for v in cl.values()], float)
+    W = rng.multinomial(d.size, np.full(d.size, 1.0 / d.size), size=BOOT_N).astype(float)
+    boot = (W @ d) / np.maximum(W @ n, 1.0)
+    lo, hi = np.percentile(boot, [2.5, 97.5])
+    return {"n": int(n.sum()), "acc": round(float(a.sum() / n.sum()), 4),
+            "acc_ref": round(float((a.sum() - d.sum()) / n.sum()), 4), "loss": round(float(d.sum() / n.sum()), 4),
+            "ci": [round(float(lo), 4), round(float(hi), 4)], "pass": bool(hi >= -QA5R3_TOL), "clusters": int(d.size)}
+
+
+def report_reach(record: bool = False) -> int:
+    from reticle.metrics import wilson
+    recs = [json.loads(x) for x in (OUT / "reach.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+    res = {"rule": "QA5r3", "pools": {}, "crossings": {}, "gate_vs_walk": {}, "classes": {}}
+    for pname, rs in (("dev2", [r for r in recs if r["session"] in JUDGED]), ("dev3", recs)):
+        P = {}
+        for pair in [f"{a}|{b}" for a, b in REACH_PAIRS]:
+            P[pair] = {}
+            for q in REACH_QS:
+                I = [(r["session"], x[0], x[1], x[2]) for r in rs if pair in r["paired_T1"]
+                     for x in r["paired_T1"][pair][q]["i"]]
+                if I:
+                    P[pair][q] = dict(_paired_stats(I), phantoms=sum(r["paired_T1"][pair][q]["phantoms"]
+                                                                     for r in rs if pair in r["paired_T1"]))
+        res["pools"][pname] = P
+        cx = {"player_s": 0.0, "player_s_with_mate": 0.0}
+        for kind in ("region", "metre"):
+            cx[kind] = {"n": 0, "sparse_n": 0, "dated_wrong": 0}
+        for r in rs:
+            c = r["crossings"]
+            cx["player_s"] += c["player_s"]
+            cx["player_s_with_mate"] += c["player_s_with_mate"]
+            for kind in ("region", "metre"):
+                for k in ("n", "sparse_n", "dated_wrong"):
+                    cx[kind][k] += c[kind][k]
+        cx["region"]["per_s"] = cx["region"]["n"] / cx["player_s"]
+        cx["metre"]["per_s"] = cx["metre"]["n"] / cx["player_s_with_mate"]
+        for kind in ("region", "metre"):
+            v = cx[kind]
+            v["dated_wrong_share"] = v["dated_wrong"] / v["n"] if v["n"] else None
+            v["dated_wrong_ci"] = list(wilson(v["dated_wrong"], v["n"])) if v["n"] else None
+        res["crossings"][pname] = cx
+        g = Counter()
+        cls = Counter()
+        for r in rs:
+            g.update(r["gate_vs_walk"])
+            for x in r["rows_T1"]:
+                cls[f"{x['cls']}|node={x['node']}"] += 1
+        res["gate_vs_walk"][pname] = dict(g)
+        res["classes"][pname] = dict(cls)
+    res["damage_events"] = {r["session"]: r["damage_events"] for r in recs}
+    bp = OUT / "borders.json"
+    if bp.is_file():
+        B = json.loads(bp.read_text(encoding="utf-8"))
+        res["borders"] = {m: {k: v for k, v in b.items() if k != "rows"} for m, b in B.items()}
+        n = sum(b["borders"] for b in B.values())
+        res["borders_pooled"] = {"borders": n, "narrower": sum(b["narrower"] for b in B.values()),
+                                 "share": sum(b["narrower"] for b in B.values()) / n if n else None}
+    for pname, P in res["pools"].items():
+        print(f"\n== reach questions, QA5r3, pool {pname}: acc vs T1 | loss vs ref [95% CI] P/F (n)")
+        print("pair".ljust(16) + " ".join(q.rjust(36) for q in REACH_QS))
+        for pair, o in P.items():
+            cells = [(f"{v['acc']:.3f} {v['loss']:+.3f}[{v['ci'][0]:+.3f},{v['ci'][1]:+.3f}]"
+                      f"{'P' if v['pass'] else 'F'} ({v['n']})").rjust(36) if (v := o.get(q)) else "-".rjust(36)
+                     for q in REACH_QS]
+            print(pair.ljust(16) + " ".join(cells))
+        print("crossings", json.dumps(res["crossings"][pname]))
+        print("gate_vs_walk", res["gate_vs_walk"][pname], "classes", res["classes"][pname])
+    print("borders", json.dumps(res.get("borders")), json.dumps(res.get("borders_pooled")))
+    print("damage events per match", res["damage_events"])
+    (OUT / "reach.json").write_text(json.dumps(res, indent=1, default=cq._jd), encoding="utf-8")
+    if record:
+        from reticle.metrics import record as rec
+        for pname, P in res["pools"].items():
+            for pair, o in P.items():
+                vals = {}
+                for q, v in o.items():
+                    vals.update({f"{q}.acc": v["acc"], f"{q}.acc_ref": v["acc_ref"], f"{q}.loss": v["loss"],
+                                 f"{q}.ci_lo": v["ci"][0], f"{q}.ci_hi": v["ci"][1], f"{q}.n": v["n"]})
+                rec("real_reader_schedule", part=f"reach/{pair.replace('|', '_vs_')}", session=pname, values=vals,
+                    deps={"version": VERSION, "rule": "QA5r3", "boot": [BOOT_N, BOOT_SEED], "swing_m": SWING_M,
+                          "trade_m": TRADE_M},
+                    context={"task": TASK, "pair": pair})
+            cx = res["crossings"][pname]
+            rec("real_reader_schedule", part="reach/crossings", session=pname,
+                values={"region_per_s": round(cx["region"]["per_s"], 5), "metre_per_s": round(cx["metre"]["per_s"], 5),
+                        "region_n": cx["region"]["n"], "metre_n": cx["metre"]["n"],
+                        "region_dated_wrong": round(cx["region"]["dated_wrong_share"], 4),
+                        "metre_dated_wrong": round(cx["metre"]["dated_wrong_share"], 4)},
+                deps={"version": VERSION, "sparse_ms": SPARSE_MS, "tol_ms": DATE_TOL_MS, "cuts_m": list(METRE_CUTS)},
+                context={"task": TASK})
+        if "borders_pooled" in res:
+            bpz = res["borders_pooled"]
+            rec("real_reader_schedule", part="reach/borders", session="dev-maps",
+                values={"borders": bpz["borders"], "narrower": bpz["narrower"], "share": round(bpz["share"], 4)},
+                deps={"version": VERSION}, context={"task": TASK, "maps": sorted(res["borders"])})
+    return 0
+
+
+def reach_value(record: bool = False) -> int:
+    """Step 4, truth only, the 17 replays (held-out excluded by name): trade
+    rate after a capturing-team death by joinable count, and for deaths with
+    someone joinable, trade rate and round win by whether anyone joined.
+    Trades and round winners come from the stored episodes (their owner)."""
+    from types import SimpleNamespace
+    import coaching_belief as cb
+    from reticle.metrics import wilson
+    t0 = time.time()
+    tab = defaultdict(lambda: [0, 0])
+    tab_j = defaultdict(lambda: [0, 0, 0])
+    maps = {}
+    for key in cq.replay_matches():
+        refuse(key)
+        tl = ep.from_replay_layer(key)
+        if tl.stamps.get("held_out"):
+            continue
+        RM = maps.get(tl.map) or ReachMap(tl.map)
+        maps = {tl.map: RM}
+        eps = ep.read_episodes(tl.match)
+        traded = {e["members"][0] for e in eps if e.get("row") == "episode" and e["kind"] == "trade"}
+        meta = cb._round_meta(SimpleNamespace(tl0=tl))
+        rounds = ep.timeline_rounds(tl)
+        for C in sorted({s.team for s in tl.slots}):
+            M = SimpleNamespace(C=C, tl0=tl, rounds=rounds)
+            A, _rows = reach_answers(M, tl, RM)
+            ev = {e.event_id: e for e in tl.events}
+            for k, v in A["join_death"].items():
+                if v is None:
+                    continue
+                tab[v][0] += int(k in traded)
+                tab[v][1] += 1
+                if v == 0:
+                    continue
+                rn = _round_of(M, float(ev[k].t_ms))
+                joined = any(A["join_choice"].get((k, s.slot_id)) for s in tl.slots)
+                win = meta.get(rn, {}).get("winner")
+                g = tab_j[joined]
+                g[0] += int(k in traded)
+                g[1] += int(win == C)
+                g[2] += 1
+        print(f"{key[:8]} {time.time() - t0:.0f} s", flush=True)
+    out = {"matches": len(cq.replay_matches()), "seconds": round(time.time() - t0, 1), "by_joinable": {},
+           "by_joined": {}}
+    for v in sorted(tab):
+        k, n = tab[v]
+        out["by_joinable"][str(v)] = {"traded": k, "n": n, "rate": round(k / n, 4),
+                                      "ci": [round(x, 4) for x in wilson(k, n)]}
+    for j in (False, True):
+        k, w, n = tab_j[j]
+        out["by_joined"][str(j)] = {"n": n, "traded": k, "trade_rate": round(k / n, 4) if n else None,
+                                    "trade_ci": [round(x, 4) for x in wilson(k, n)] if n else None,
+                                    "round_won": w, "win_rate": round(w / n, 4) if n else None,
+                                    "win_ci": [round(x, 4) for x in wilson(w, n)] if n else None}
+    print(json.dumps(out, indent=1))
+    (OUT / "reach_value.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    if record:
+        from reticle.metrics import record as rec
+        vals = {}
+        for v, o in out["by_joinable"].items():
+            vals.update({f"joinable{v}.trade_rate": o["rate"], f"joinable{v}.n": o["n"]})
+        for j, o in out["by_joined"].items():
+            vals.update({f"joined_{j}.trade_rate": o["trade_rate"], f"joined_{j}.win_rate": o["win_rate"],
+                         f"joined_{j}.n": o["n"]})
+        rec("real_reader_schedule", part="reach/value", session="replays17", values=vals,
+            deps={"version": VERSION, "trade_m": TRADE_M, "window_ms": ep.PARAMS["TRADE_WINDOW_MS"]},
+            context={"task": TASK, "truth_only": True})
+    return 0
+
+
+def outcome_reach() -> int:
+    """RX9 and RX10 outcome rows."""
+    Rz = json.loads((OUT / "reach.json").read_text(encoding="utf-8"))
+    d2 = Rz["pools"]["dev2"]
+    pred = STORE / "notes" / "predictions.jsonl"
+    have = {json.loads(x).get("id") for x in pred.read_text(encoding="utf-8").splitlines() if '"id"' in x}
+
+    def above(q):
+        per = {p: [o[q]["loss"], o["spacing_death"]["loss"]] for p, o in d2.items() if q in o}
+        return _clause(all(a > b for a, b in per.values()), losses_vs_spacing_death=per)
+    vg = d2["Vgate|V15h"]["join_death"]
+    cx = Rz["crossings"]["dev2"]
+    bp = Rz["borders_pooled"]
+    res = {"RX9": {"RX9a": above("join_death"), "RX9b": above("join_choice"),
+                   "RX9c": _clause(vg["loss"] >= -0.03, loss=vg["loss"], ci=vg["ci"])},
+           "RX10": {"RX10a": _clause(cx["region"]["per_s"] < cx["metre"]["per_s"],
+                                     region_per_s=round(cx["region"]["per_s"], 5),
+                                     metre_per_s=round(cx["metre"]["per_s"], 5)),
+                    "RX10b": above("spacing_region"),
+                    "RX10c": _clause(bp["share"] > 0.5, **bp)}}
+    ts = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
+    with pred.open("a", encoding="utf-8") as f:
+        for cand, cl in res.items():
+            if f"{TASK}-{cand}-outcome" in have:
+                continue
+            row = {"id": f"{TASK}-{cand}-outcome", "task": TASK, "date": time.strftime("%Y-%m-%d"), "ts": ts,
+                   "domain": "episodes", "kind": "outcome", "branch": TASK, "commit": f"{TASK} (see git log)",
+                   "prototype": "prototypes/real_reader_schedule.py", "version": VERSION, "wire": "no",
+                   "wire_reason": "an evaluation pilot over stored rows and replay truth; reticle/ never imports it",
+                   "outcome_of": [f"{TASK}-{cand}"], "candidate": cand,
+                   "clauses": {k: dict(v, verdict="held" if v["held"] else "failed") for k, v in cl.items()},
+                   "scored": "dev2 (c817691bcd15 + d3dcfb182ab1) under QA5r3; dev3 beside in reach.json",
+                   "outputs": str(OUT / "reach.json")}
+            f.write(json.dumps(row, default=cq._jd) + "\n")
+            print(cand, {k: ("held" if v["held"] else "failed") for k, v in cl.items()})
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2212,6 +2764,13 @@ def main(argv=None) -> int:
     sub.add_parser("outcome-rx")
     sub.add_parser("outcome-qa5r2")
     sub.add_parser("outcome-qa5r3")
+    rc = sub.add_parser("reach")
+    rc.add_argument("sessions", nargs="+")
+    rr = sub.add_parser("reach-report")
+    rr.add_argument("--record", action="store_true")
+    rv = sub.add_parser("reach-value")
+    rv.add_argument("--record", action="store_true")
+    sub.add_parser("outcome-reach")
     a = ap.parse_args(argv)
     for s in getattr(a, "sessions", []) or []:
         refuse(s)
@@ -2234,6 +2793,14 @@ def main(argv=None) -> int:
         return outcome_qa5r2()
     if a.cmd == "outcome-qa5r3":
         return outcome_qa5r3()
+    if a.cmd == "reach":
+        return run_reach(a.sessions)
+    if a.cmd == "reach-report":
+        return report_reach(a.record)
+    if a.cmd == "reach-value":
+        return reach_value(a.record)
+    if a.cmd == "outcome-reach":
+        return outcome_reach()
     return outcome()
 
 

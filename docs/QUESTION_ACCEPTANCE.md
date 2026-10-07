@@ -526,6 +526,18 @@ spacing-at-death loss of
 [metric:real_reader_schedule/qa5r3/Vgate@dev2#spacing_death.loss=-0.0807]
 having an interval that ends at
 [metric:real_reader_schedule/qa5r3/Vgate@dev2#spacing_death.ci_hi=-0.0305].
+The reach questions that replace radius spacing, on the enemy belief's walk
+model (`join_death`, teammates who can reach a cell seeing the killer within
+5 m; `join_choice`, whether such a teammate joined within 5 s; and
+`spacing_region`, the nearest teammate's callout region against the
+victim's), lose
+[metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#join_death.loss=-0.0062],
+[metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#join_choice.loss=-0.0471]
+and
+[metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#spacing_region.loss=-0.0497]
+under `Vgate` against
+[metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#spacing_death.loss=-0.0807]
+for spacing at death.
 
 | Ref | Revises | Prediction |
 |---|---|---|
