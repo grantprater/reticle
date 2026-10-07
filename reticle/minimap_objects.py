@@ -19,6 +19,100 @@ lobe is translucent [domain:minimap/enemy-lobe-translucent]. A read fit gives
 the centre and facing (image degrees, y down). Facing never reaches the
 entity lane yet: the contract names no orientation convention.
 
+**The proposal.** To 0.5.0 the ring search fitted one circle per red blob,
+seeded at its centroid, and gated it afterwards. An icon whose key touches
+another red shape (its own lobe, a red X, a utility glyph, another icon)
+shares a blob with it, and that one circle slides onto the neighbour or
+straddles the lobe: it lands off the icon, or its interior holds the lobe
+and the inner gate drops it, while the icon's own ring passes the gates at
+its centre (`prototypes/enemy_proposal_funnel.py`). The search that gates
+first and proposes every peak (`minimap.icons(seed="peaks")`) finds those
+icons, and also rings the lobeless red-rimmed utility discs the off-centre
+circle had refused by luck. 0.6.0 required a lobe and proposed the peaks
+only beside the last frame's icons, an unaudited prior; 0.8.0 removed both
+(commit 24907bb holds them).
+
+From 0.7.0 the search proposes every gated peak (`RING_SEED` "peaks"), and
+the `portrait_gate` decides which finds are enemy icons. 0.7.0 scored each
+ring's coverage softly (`RING_COVER` "soft": the mean of `teardrop.redness`
+over the circle, cut once at `COV_MIN`); from 0.8.0 the binary key's share
+is the default and soft is opt-in, stamped `+soft_cover`, until it is
+retested on a second 331 px match. Cross-reference, not a
+tuned shape: a red-rimmed utility disc, a red triangle and a faint X ring
+as well as an icon, but only an icon holds an agent's portrait. The gate
+asks the identity owner how well the find's `portrait_features` fit the
+CLOSEST of the match's enemy five, from the stored lineup
+(`lineup.portrait_candidates`, the side's named slots and refused slots'
+guesses), under the rendered-art references baked from the game's minimap
+portrait textures (`identity.rendered_art_fit`, `ally_portrait.render`
+shrinks the art with `INTER_AREA`). A find whose fit exceeds `FIT_MAX`
+is refused `not_a_portrait`; every kept find stores `portrait_fit` and the
+second-closest agent's lead over it, `portrait_margin`. The gate stores no
+name: naming stays `agent-identity`'s. With no lineup, a short enemy side,
+or no references, the gate cannot refuse anything, so the search falls back
+to the centroid seed and the head records why (`portrait_gate`).
+
+Against T1d on 9acf02f98283 (pings reread) the 0.6.0 prior seed scored
+[metric:teardrop_refusals/lane/ep1@9acf02f98283#hits=2905] hits and
+[metric:teardrop_refusals/lane/ep1@9acf02f98283#false_accepts=118] true false
+accepts against 0.5.0's
+[metric:teardrop_refusals/lane/b1@9acf02f98283#hits=2836] and
+[metric:teardrop_refusals/lane/b1@9acf02f98283#false_accepts=145]; the peaks
+everywhere with the lobe and no gate,
+[metric:teardrop_refusals/lane/pk2@9acf02f98283#hits=2960] and
+[metric:teardrop_refusals/lane/pk2@9acf02f98283#false_accepts=175]. 0.7.0
+scores [metric:teardrop_refusals/lane/pg1@9acf02f98283#hits=3237] and
+[metric:teardrop_refusals/lane/pg1@9acf02f98283#false_accepts=47] there; at
+465 px, [metric:teardrop_refusals/lane/pg1@c817691bcd15#hits=3825] and
+[metric:teardrop_refusals/lane/pg1@c817691bcd15#false_accepts=187] on
+c817691bcd15 (0.5.0:
+[metric:teardrop_refusals/lane/b1@c817691bcd15#hits=3629],
+[metric:teardrop_refusals/lane/b1@c817691bcd15#false_accepts=210]) and
+[metric:teardrop_refusals/lane/pg1@d3dcfb182ab1#hits=2580] and
+[metric:teardrop_refusals/lane/pg1@d3dcfb182ab1#false_accepts=61] on
+d3dcfb182ab1 (0.5.0:
+[metric:teardrop_refusals/lane/b1@d3dcfb182ab1#hits=2453],
+[metric:teardrop_refusals/lane/b1@d3dcfb182ab1#false_accepts=93]). Pooled,
+a paired round bootstrap puts the change at
+[metric:enemy_portrait_gate/paired/pg1-vs-b1@dev3#d_hits=724] hits
+([metric:enemy_portrait_gate/paired/pg1-vs-b1@dev3#d_hits_lo=566] to
+[metric:enemy_portrait_gate/paired/pg1-vs-b1@dev3#d_hits_hi=897]) and
+[metric:enemy_portrait_gate/paired/pg1-vs-b1@dev3#d_fa=-153] true false
+accepts ([metric:enemy_portrait_gate/paired/pg1-vs-b1@dev3#d_fa_lo=-287] to
+[metric:enemy_portrait_gate/paired/pg1-vs-b1@dev3#d_fa_hi=-39]).
+
+Each part's share (`prototypes/enemy_portrait_gate.py paired`): the peaks
+with the gate on the binary key score
+[metric:teardrop_refusals/lane/pgb@9acf02f98283#hits=2943] hits and
+[metric:teardrop_refusals/lane/pgb@9acf02f98283#false_accepts=30] true false
+accepts on 9acf02f98283, where the peaks without the gate scored
+[metric:teardrop_refusals/lane/pk1@9acf02f98283#false_accepts=227]: the gate
+removes the discs. Soft coverage then adds
+[metric:enemy_portrait_gate/paired/pg1-vs-pgb@9acf02f98283#d_hits=294] hits
+for [metric:enemy_portrait_gate/paired/pg1-vs-pgb@9acf02f98283#d_fa=17]
+false accepts at 331 px, but at 465 px only
+[metric:enemy_portrait_gate/paired/pg1-vs-pgb@c817691bcd15#d_hits=22] and
+[metric:enemy_portrait_gate/paired/pg1-vs-pgb@d3dcfb182ab1#d_hits=20] hits
+for [metric:enemy_portrait_gate/paired/pg1-vs-pgb@c817691bcd15#d_fa=81] and
+[metric:enemy_portrait_gate/paired/pg1-vs-pgb@d3dcfb182ab1#d_fa=30] false
+accepts, both intervals above zero. There the rim already keys, and the soft
+score proposes red shapes the gate passes: Cypher's camera glyph, a black
+disc with a white device, fits Cypher's black-and-white portrait when Cypher
+is in the five, and an icon half under a teammate's fits a portrait too. The
+gate's other cost is Omen's violet portrait, whose rendered-art fit is poor:
+on c817691bcd15 `not_a_portrait` refusals lie beside misses. The read costs
+more: the teardrop fits every gated peak, not one circle per blob, and a
+reread of c817691bcd15 took longer than 0.5.0's on either key; the cost
+is unrecorded.
+
+0.8.0 ships the binary key: at 465 px it scores
+[metric:teardrop_refusals/lane/pgb@c817691bcd15#hits=3803] hits and
+[metric:teardrop_refusals/lane/pgb@c817691bcd15#false_accepts=106] true
+false accepts on c817691bcd15 and
+[metric:teardrop_refusals/lane/pgb@d3dcfb182ab1#hits=2560] and
+[metric:teardrop_refusals/lane/pgb@d3dcfb182ab1#false_accepts=31] on
+d3dcfb182ab1, each fewer false accepts than 0.5.0 and soft coverage.
+
 **The "?".** A red blob the X shape test rejects and no enemy icon covers,
 whose red run, walked back frame by frame, begins where an enemy icon ended:
 the icon's last frame lies at most `Q_SWAP_MS` before the run's first frame,
@@ -116,19 +210,41 @@ from .version import ALLY_PORTRAIT_FEATURES_VERSION, ENEMY_TEARDROP_VERSION, TEA
 #: the scaled base band (`minimap.icons(radii="inside")`): 6 to 8 px at the
 #: 331 px key's map scale (0.637), where 0.4.0 searched from 5 px. A 465 px
 #: key reads the rows 0.4.0 read.
-MINIMAP_OBJECT_BASE = "minimap-object-0.5.0"
+#: 0.6.0 (2026-10-07): the ring finds keep only those with a lobe past the
+#: ring (`RING_LOBE`), and beside an icon the last frame accepted the search
+#: also proposes the gated ring peaks (`RING_SEED` "centroid+prior").
+#: 0.7.0 (2026-10-07): every gated peak is proposed (`RING_SEED` "peaks"),
+#: its coverage scored on soft redness (`RING_COVER`), no lobe required;
+#: the `portrait_gate` fix keeps only finds that fit an enemy portrait.
+#: 0.8.0 (2026-10-07): the ring coverage scores the binary HSV key by default
+#: (`RING_COVER` "binary"); soft coverage is opt-in and stamps `+soft_cover`.
+#: The 0.6.0 last-frame prior and lobe switch are gone (recoverable at
+#: 24907bb). Every output-changing switch now enters the stamp.
+MINIMAP_OBJECT_BASE = "minimap-object-0.8.0"
 
 #: The switchable fixes, in stamp order.
-FIXES = ("teardrop_box", "slab_gate", "owner_gate")
+FIXES = ("teardrop_box", "slab_gate", "owner_gate", "portrait_gate")
 #: Which fixes are on. A caller may pass its own map; the stamp records it.
-ENABLED = {"teardrop_box": True, "slab_gate": True, "owner_gate": True}
+ENABLED = {"teardrop_box": True, "slab_gate": True, "owner_gate": True,
+           "portrait_gate": True}
+
+
+def switch_suffix() -> str:
+    """The ring search switches off their defaults, as stamp parts: a
+    `RING_SEED` other than "peaks" adds `+<seed>_seed`, a `RING_COVER` other
+    than "binary" adds `+<cover>_cover`. Defaults add nothing."""
+    parts = ([] if RING_SEED == "peaks" else [f"{RING_SEED}_seed"]) + \
+            ([] if RING_COVER == "binary" else [f"{RING_COVER}_cover"])
+    return "".join(f"+{p}" for p in parts)
 
 
 def minimap_object_version(fixes: dict | None = None) -> str:
-    """The stream's stamp: the base version plus each fix that is on."""
+    """The stream's stamp: the base version, each ring search switch off its
+    default (`switch_suffix`), then each fix that is on. Two configurations
+    that differ in output never share a stamp."""
     fixes = ENABLED if fixes is None else fixes
     on = [f for f in FIXES if fixes.get(f)]
-    return f"{MINIMAP_OBJECT_BASE}+{'+'.join(on) if on else 'nofix'}"
+    return f"{MINIMAP_OBJECT_BASE}{switch_suffix()}+{'+'.join(on) if on else 'nofix'}"
 
 
 # The enemy ring fit: the HSV key and gates stage 2 used
@@ -156,6 +272,30 @@ Q_GONE_MS = 3300.0   # the measured gone time's maximum (3.28 s), rounded up
 Q_SWAP_MS = 200.0    # the icon's last frame lies this near the run's first
 PLACE_PX = 6.0       # a red blob at the "?"'s place, * scale
 GAP_FRAMES = 2       # frames the red run may miss
+
+#: The ring search's seed (`minimap.icons`): "centroid", one circle per red
+#: blob (to 0.5.0); "peaks", every gated peak of the ring score (from 0.7.0).
+#: "peaks" needs the portrait gate: where the gate is on and cannot read,
+#: the search falls back to "centroid". Off "peaks", the stamp says so.
+RING_SEED = "peaks"
+#: What the "peaks" ring coverage scores: "binary", the HSV key's share (the
+#: default, as to 0.6.0); "soft", the mean `teardrop.redness` over the
+#: circle (0.7.0's default, opt-in from 0.8.0, stamped `+soft_cover`). The
+#: player chose the binary key until soft is retested on a second 331 px
+#: match. On a seeded sample of 9acf02f98283's T1d icon places the key held
+#: a median
+#: [metric:enemy_portrait_gate/softcal@9acf02f98283#bin_median_ring_unproposed=0.275]
+#: of the ring at icons the search missed, the soft score
+#: [metric:enemy_portrait_gate/softcal@9acf02f98283#soft_median_ring_unproposed=0.483];
+#: at places with no icon drawn both stay near zero.
+RING_COVER = "binary"
+#: The portrait gate's cut on `identity.rendered_art_fit` (mean squared
+#: z-score to the closest enemy reference): the 99th percentile over the T1d
+#: hits of 9acf02f98283's 0.5.0 reread
+#: [metric:enemy_portrait_gate/separation/b1@9acf02f98283#hit_fit_p99=1.509],
+#: the rule the owner's teammate fit uses (P99 of bound icons), taken at the
+#: 331 px widget and held unchanged at 465 px.
+FIT_MAX = 1.5
 
 REFUSALS = ("widget_not_drawn", "widget_shape")
 
@@ -226,6 +366,84 @@ def _owned(fixes, marks, pings, t_ms, x, y, scale,
     return None
 
 
+def portrait_gate_inputs(store_root, sid: str) -> dict:
+    """What the `portrait_gate` reads for one session: the enemy side's
+    candidate set from the stored lineup and the rendered-art references, or
+    None with the reason it cannot read.
+
+    `{"names": [...] | None, "refs": table | None, "reason": str | None,
+    "lineup_view": stamp, "lineup_file": version, "portrait_refs": version}`.
+    The set is the match's enemy five, from the stored lineup
+    (`lineup.portrait_candidates`): named slots and each refused slot's best
+    guess. A side admitting fewer than `N_SLOTS` agents holds one the set
+    cannot represent, and a portrait of that agent would fit none, so the
+    gate refuses to read (`lineup_short`) rather than drop it. The full
+    29-agent gallery is never the gate's set.
+    """
+    import json
+    from pathlib import Path
+
+    from . import lineup
+    from .adjudication.identity import load_ally_portrait_references
+    from .input_stamps import NO_ROWS
+    from .roster import N_SLOTS
+
+    root = Path(store_root)
+    f = root / "lineups" / f"{sid}.json"
+    out = {"names": None, "refs": None, "reason": None,
+           "lineup_view": lineup.view_stamp(sid, root),
+           "lineup_file": ((json.loads(f.read_text(encoding="utf-8")).get("version") or "unstamped")
+                           if f.is_file() else NO_ROWS),
+           "portrait_refs": NO_ROWS}
+    refs = load_ally_portrait_references(root)
+    if refs is not None:
+        out["portrait_refs"] = refs.get("version") or NO_ROWS
+    if refs is None:
+        out["reason"] = "no_portrait_references"
+    elif refs.get("features_version") != ALLY_PORTRAIT_FEATURES_VERSION:
+        out["reason"] = (f"portrait_references_stale: {refs.get('features_version')} "
+                         f"!= {ALLY_PORTRAIT_FEATURES_VERSION}")
+    else:
+        cands, _stamp = lineup.portrait_candidates(sid, root)
+        five = None if cands is None else (cands.get("enemy") or [])
+        if five is None:
+            out["reason"] = "no_lineup"
+        elif len(five) < N_SLOTS:
+            out["reason"] = f"lineup_short: {len(five)} of {N_SLOTS} enemy agents admitted"
+        elif (gone := [n for n in five if n not in (refs.get("agents") or {})]):
+            # An agent with no reference would fit nothing, and dropping it
+            # would refuse its every icon: refuse to read instead.
+            out["reason"] = f"reference_missing: {', '.join(gone)}"
+        else:
+            out["names"], out["refs"] = list(five), refs
+    return out
+
+
+def portrait_gate(feats: dict, gate: dict | None) -> dict:
+    """The `portrait_gate` verdict on one find's stored `portrait_features`:
+    `{"fit", "margin", "reason"}`. `fit` is the identity owner's absolute fit
+    to the closest of the candidate set (`identity.rendered_art_fits`, one
+    call over the set), `margin` the second-closest's fit less it. `reason`
+    is None where the find fits within `FIT_MAX`, `not_a_portrait: ...` where
+    it does not, and, where the gate cannot read, the inputs' reason or
+    `no_features` (then `fit` is None and nothing is refused). No name
+    leaves this function."""
+    from .adjudication.identity import rendered_art_fits
+
+    if not gate or not gate.get("names"):
+        return {"fit": None, "margin": None,
+                "reason": (gate or {}).get("reason") or "no_candidates"}
+    d = rendered_art_fits(feats, gate["names"], gate["refs"])
+    if d is None:
+        return {"fit": None, "margin": None, "reason": "no_features"}
+    fits = np.sort(d)
+    fit = float(fits[0])
+    margin = float(fits[1] - fits[0]) if fits.size > 1 else None
+    reason = (None if fit <= FIT_MAX else
+              f"not_a_portrait: fit {fit:.2f} > {FIT_MAX} to the enemy five")
+    return {"fit": fit, "margin": margin, "reason": reason}
+
+
 def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None = None,
                turn: bool = False, t_ms: float | None = None) -> dict:
     """One drawn frame: enemies, X marks, red blobs, refusals.
@@ -254,9 +472,14 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
     # alike: on 9acf02f98283 it adds hits and true false accepts together,
     # the latter past the lane's bar (`prototypes/one_transform_check.py`
     # ablation `rmin6`). The self and ally fits keep the nearest radii.
-    finds = minimap.icons(enemy_red_mask(crop), crop, floor, cov_min=COV_MIN,
+    key = enemy_red_mask(crop)
+    gate = ctx.get("portrait_gate")
+    seed = ring_seed(fixes, gate)
+    soft = seed == "peaks" and RING_COVER == "soft"
+    finds = minimap.icons(key, crop, floor, cov_min=COV_MIN,
                           inner_max=INNER_RED_MAX, require_facing=False, support=slab,
-                          seed="centroid", scale=scale, radii="inside")
+                          seed=seed, scale=scale, radii="inside",
+                          cov_map=red if soft else None)
     for d in finds:
         ring = {"x": _rnd(d["cx"]), "y": _rnd(d["cy"]), "r": _rnd(d.get("r"))}
         f = teardrop.fit_icon(None, "enemy", d["cx"], d["cy"], scale=scale, key=red)
@@ -292,13 +515,25 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
         if turn:
             img = np.ascontiguousarray(img[::-1, ::-1])
         feats = ally_portrait.stored(ally_portrait.portrait_features(img, minimap.portrait_key(img)))
+        pg = portrait_gate(feats, gate) if fixes.get("portrait_gate") else None
+        if pg is not None and pg["fit"] is not None and pg["reason"]:
+            refused.append({"cls": "enemy", "x": _rnd(x), "y": _rnd(y), "reason": pg["reason"],
+                            "ncc": _rnd(f.get("ncc"), 3), "portrait_fit": _rnd(pg["fit"], 3),
+                            "portrait_margin": _rnd(pg["margin"], 3)})
+            continue
         enemies.append({
             "x": _rnd(x), "y": _rnd(y), "r": _rnd(box),
             "facing": None if position_only else _rnd(float(f["deg"]) % 360.0, 1),
             "facing_reason": "ambiguous_facing" if position_only else None,
             "tip": [_rnd(f["tip_x"]), _rnd(f["tip_y"])], "ncc": _rnd(f.get("ncc"), 3),
             "margin": _rnd(f.get("margin"), 3), "ring": ring, "slab_red_share": _rnd(share, 3),
-            "portrait_features": feats})
+            "portrait_features": feats,
+            **({"portrait_fit": _rnd(pg["fit"], 3), "portrait_margin": _rnd(pg["margin"], 3)}
+               if pg is not None and pg["fit"] is not None else {}),
+            # A gate that could not read says why, so the find is told
+            # apart from a row read before the gate existed.
+            **({"portrait_gate_reason": pg["reason"]}
+               if pg is not None and pg["fit"] is None else {})})
     xr = []
     for q in marks["red"]:
         share, drop = _gate(fixes, red, slab, q["x"], q["y"], scale)
@@ -318,6 +553,15 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
     return {"reason": None, "enemies": enemies,
             "x_marks": {"blue": marks["blue"], "red": xr}, "red_blobs": blobs,
             "refused": refused}
+
+
+def ring_seed(fixes: dict, gate: dict | None) -> str:
+    """The seed the ring search uses: `RING_SEED`, except that "peaks" with
+    the `portrait_gate` on and unable to read (`gate` holds no names) falls
+    back to "centroid", the proposal that needs no verifier."""
+    if RING_SEED == "peaks" and fixes.get("portrait_gate") and not (gate or {}).get("names"):
+        return "centroid"
+    return RING_SEED
 
 
 def last_known(frames: list[dict], scale: float) -> None:
@@ -391,6 +635,7 @@ def object_context(store, sid: str) -> tuple[dict | None, str | None]:
     # one transform is base x widget scale x map zoom (`geometry.MapScale`).
     icon_scale, icon_scale_source = geometry.drawn_scale(sid, store.root, floor.shape[1])
     return {"cache": cache, "floor": floor, "slab": slab_mask(med, sd=sd),
+            "portrait_gate": portrait_gate_inputs(store.root, sid),
             "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64),
             "rect": cache.rect_of("minimap"), "scale": widget_scale(floor.shape[1]),
             "geometry_key": geometry.key_of(sid, store.root),
@@ -456,6 +701,7 @@ def read_session(store, sid: str, fixes: dict | None = None) -> dict:
     ctx, why = object_context(store, sid)
     if ctx is None:
         return {"skipped": why}
+    gate = ctx.get("portrait_gate") or {}
     times = ctx["cache"].holds()
     frames = read_times(ctx, times, fixes)
     version = minimap_object_version(fixes)
@@ -464,11 +710,21 @@ def read_session(store, sid: str, fixes: dict | None = None) -> dict:
             "fixes": {f: bool(fixes.get(f)) for f in FIXES},
             "roi_cache_version": ROI_CACHE_VERSION, "teardrop_version": TEARDROP_VERSION,
             "enemy_teardrop_version": ENEMY_TEARDROP_VERSION,
-            "inputs": {"ping": ctx.get("ping_version")},
+            "inputs": {"ping": ctx.get("ping_version"),
+                       **({k: gate.get(k) for k in ("lineup_view", "lineup_file", "portrait_refs")}
+                          if fixes.get("portrait_gate") else {})},
+            "portrait_gate": ({"candidates": gate.get("names"), "reason": gate.get("reason"),
+                               "candidate_source": "lineup.portrait_candidates, enemy side",
+                               # The candidate set is a prior the lineup placed.
+                               "rests_on": [{"context": "lineup",
+                                             "version": gate.get("lineup_view")}],
+                               "ring_seed_used": ring_seed(fixes, gate)}
+                              if fixes.get("portrait_gate") else None),
             "portrait_features_version": ALLY_PORTRAIT_FEATURES_VERSION,
             "geometry_key": ctx["geometry_key"], "scale": ctx["scale"],
             "icon_scale": ctx["icon_scale"], "icon_scale_source": ctx["icon_scale_source"],
-            "parameters": {"COV_MIN": COV_MIN, "INNER_RED_MAX": INNER_RED_MAX, "RING": RING,
+            "parameters": {"RING_SEED": RING_SEED, "RING_COVER": RING_COVER, "FIT_MAX": FIT_MAX,
+                           "COV_MIN": COV_MIN, "INNER_RED_MAX": INNER_RED_MAX, "RING": RING,
                            "X_OWN_PX": X_OWN_PX,
                            "TIP_PAD": TIP_PAD, "RED_SHARE": RED_SHARE, "ICON_PX": ICON_PX,
                            "PING_OWN_PX": PING_OWN_PX,

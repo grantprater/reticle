@@ -383,6 +383,89 @@ class SurfaceSeedTests(unittest.TestCase):
             icons(ally_mask(crop), crop, np.ones((W, W), bool), seed="guess")
 
 
+class PeakSeedTests(unittest.TestCase):
+    """An enemy ring whose key touches a filled red glyph: one blob, two
+    shapes. The centroid seed fits one circle for the blob and it lands on
+    the glyph; the peaks seed gates before choosing and finds the ring."""
+
+    def crop(self):
+        crop = np.full((W, W, 3), 128, np.uint8)
+        red = (40, 30, 220)
+        cv2.circle(crop, (200, 200), 10, red, 2)                    # the icon's ring
+        cv2.circle(crop, (200, 200), 7, (150, 170, 180), -1)        # its portrait
+        cv2.circle(crop, (219, 200), 9, red, -1)                    # a glyph touching it
+        return crop
+
+    def fits(self, seed):
+        from reticle.minimap import icons
+        from reticle.minimap_objects import COV_MIN, INNER_RED_MAX, enemy_red_mask
+
+        crop = self.crop()
+        return icons(enemy_red_mask(crop), crop, np.ones((W, W), bool), cov_min=COV_MIN,
+                     inner_max=INNER_RED_MAX, require_facing=False, seed=seed)
+
+    def near(self, got):
+        return [f for f in got if np.hypot(f["cx"] - 200, f["cy"] - 200) <= 1.5]
+
+    def test_the_centroid_seed_loses_the_ring_to_the_glyph(self):
+        self.assertEqual(self.near(self.fits("centroid")), [])
+
+    def test_the_peaks_seed_finds_the_ring(self):
+        got = self.near(self.fits("peaks"))
+        self.assertEqual(len(got), 1)
+        self.assertLessEqual(got[0]["inner"], 0.25)
+
+    def test_the_peaks_seed_keeps_a_lone_ring(self):
+        from reticle.minimap import icons
+        from reticle.minimap_objects import COV_MIN, INNER_RED_MAX, enemy_red_mask
+
+        crop = np.full((W, W, 3), 128, np.uint8)
+        cv2.circle(crop, (120, 140), 10, (40, 30, 220), 2)
+        got = icons(enemy_red_mask(crop), crop, np.ones((W, W), bool), cov_min=COV_MIN,
+                    inner_max=INNER_RED_MAX, require_facing=False, seed="peaks")
+        self.assertEqual(len(got), 1)
+        self.assertLessEqual(np.hypot(got[0]["cx"] - 120, got[0]["cy"] - 140), 1.0)
+
+
+class SoftCoverTests(unittest.TestCase):
+    """A pale enemy ring: half its rim is saturated red the HSV key reads,
+    half is a desaturated red under the key's saturation floor. The binary
+    coverage holds about half the circle; soft redness scores the pale half
+    too, and a cut above the binary share keeps it only softly."""
+
+    def crop(self):
+        crop = np.full((W, W, 3), 110, np.uint8)
+        cv2.ellipse(crop, (120, 140), (10, 10), 0, 0, 180, (40, 30, 220), 2)
+        cv2.ellipse(crop, (120, 140), (10, 10), 0, 180, 360, (120, 120, 175), 2)
+        return crop
+
+    def fits(self, soft, cov_min):
+        from reticle.minimap import icons
+        from reticle.minimap_objects import INNER_RED_MAX, enemy_red_mask
+        from reticle.teardrop import redness
+
+        crop = self.crop()
+        return icons(enemy_red_mask(crop), crop, np.ones((W, W), bool), cov_min=cov_min,
+                     inner_max=INNER_RED_MAX, require_facing=False, seed="peaks",
+                     cov_map=redness(crop) if soft else None)
+
+    def test_the_key_misses_the_pale_half_and_soft_redness_scores_it(self):
+        self.assertEqual(self.fits(False, 0.7), [])
+        got = self.fits(True, 0.7)
+        self.assertEqual(len(got), 1)
+        self.assertLessEqual(np.hypot(got[0]["cx"] - 120, got[0]["cy"] - 140), 1.0)
+
+    def test_cov_map_needs_the_peaks_seed(self):
+        from reticle.minimap import icons
+        from reticle.minimap_objects import enemy_red_mask
+        from reticle.teardrop import redness
+
+        crop = self.crop()
+        with self.assertRaises(ValueError):
+            icons(enemy_red_mask(crop), crop, np.ones((W, W), bool), seed="centroid",
+                  cov_map=redness(crop))
+
+
 class RadiusBandTests(unittest.TestCase):
     """At the 331 px key's map scale (0.637) the base band [8, 13] spans
     5.1 to 8.3 px: `nearest` searches from 5 px, `inside` from 6 px."""

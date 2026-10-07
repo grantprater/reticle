@@ -725,7 +725,13 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
         "ability_light": geo,
         # The owner gate reads the stored pings (`minimap_objects.stored_pings`);
         # heads before minimap-object-0.2.0 read none.
-        "minimap_object": {**geo, "ping": _in("inputs.ping", "ping", optional=True)},
+        # From minimap-object-0.7.0 the portrait gate reads the lineup's enemy
+        # candidate set and the rendered-art references.
+        "minimap_object": {**geo, "ping": _in("inputs.ping", "ping", optional=True),
+                           "lineup_file": _in("inputs.lineup_file", "lineup_file", optional=True),
+                           "lineup": _in("inputs.lineup_view", "lineup", optional=True),
+                           "portrait_refs": _in("inputs.portrait_refs", "portrait_refs",
+                                                optional=True)},
         "minimap_dark": {"lighting": _code("lighting_version", LIGHTING_VERSION),
                          "spans": _spans(), **geo},
         # Pings are formal entity events: the first event's metadata carries

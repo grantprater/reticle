@@ -2,6 +2,7 @@
 death owner's X classifier and X births, on synthetic frames."""
 from __future__ import annotations
 
+import json
 import unittest
 
 import cv2
@@ -21,7 +22,8 @@ class StampTests(unittest.TestCase):
         self.assertEqual(len(stamps), 4)
         self.assertTrue(mo.minimap_object_version({}).endswith("+nofix"))
         every = mo.minimap_object_version({f: True for f in mo.FIXES})
-        self.assertEqual(every, f"{mo.MINIMAP_OBJECT_BASE}+teardrop_box+slab_gate+owner_gate")
+        self.assertEqual(every, f"{mo.MINIMAP_OBJECT_BASE}+teardrop_box+slab_gate+owner_gate"
+                         "+portrait_gate")
         self.assertEqual(mo.minimap_object_version(), every)    # every fix on by default
 
 
@@ -119,6 +121,150 @@ class XBirthTests(unittest.TestCase):
                          (None, "x_without_icon"))
         self.assertEqual(death.match_xmark(births, "ally", 5100.0, set()),
                          (None, "no_x_at_time"))
+
+
+class PortraitGateTests(unittest.TestCase):
+    """The portrait gate: a find whose interior fits no enemy portrait is
+    refused with its fit, a kept find stores its fit and margin and no name,
+    and without a candidate set the peaks search falls back to the centroid."""
+
+    def read(self, gate, fit_by_name):
+        from unittest.mock import patch
+
+        from reticle import minimap, teardrop
+        from reticle.adjudication import identity
+
+        seeds = []
+
+        def icons(*a, seed, **k):
+            seeds.append(seed)
+            return [{"cx": 30.0, "cy": 30.0, "r": 9, "cov": 0.5, "inner": 0.0,
+                     "inner_v": 100.0, "facing": 0.0, "lobe": 0.4, "area": 40}]
+
+        def fit(_c, _cls, x, y, **k):
+            return {"read": True, "x": x, "y": y, "deg": 0.0, "tip_x": x + 8, "tip_y": y,
+                    "ncc": 0.7, "margin": 0.3}
+
+        def art(_feats, names, _refs):
+            if fit_by_name is None:
+                return None
+            return np.array([fit_by_name[n] for n in names])
+
+        ctx = {"floor": np.ones((100, 100), bool), "slab": np.ones((100, 100), bool),
+               "scale": 1.0, "portrait_gate": gate}
+        with patch.object(mo, "RING_SEED", "peaks"), \
+                patch.object(minimap, "icons", side_effect=icons), \
+                patch.object(teardrop, "fit_icon", side_effect=fit), \
+                patch.object(identity, "rendered_art_fits", side_effect=art), \
+                patch.object(death, "minimap_x_marks",
+                             return_value={"red": [], "blue": [], "red_other": []}):
+            out = mo.read_frame(np.zeros((100, 100, 3), np.uint8), ctx, scale=1.0)
+        return out, seeds
+
+    GATE = {"names": ["Jett", "Omen"], "refs": {}, "reason": None}
+
+    def test_a_find_fitting_no_portrait_is_refused_with_its_fit(self):
+        out, seeds = self.read(self.GATE, {"Jett": 2.5, "Omen": 3.0})
+        self.assertEqual(seeds, ["peaks"])
+        self.assertEqual(out["enemies"], [])
+        (r,) = out["refused"]
+        self.assertTrue(r["reason"].startswith("not_a_portrait"))
+        self.assertEqual((r["portrait_fit"], r["portrait_margin"]), (2.5, 0.5))
+
+    def test_a_kept_find_stores_fit_and_margin_and_no_name(self):
+        out, _ = self.read(self.GATE, {"Jett": 0.4, "Omen": 1.9})
+        (e,) = out["enemies"]
+        self.assertEqual((e["portrait_fit"], e["portrait_margin"]), (0.4, 1.5))
+        self.assertNotIn("Jett", json.dumps(e))
+        self.assertNotIn("Omen", json.dumps(e))
+
+    def test_no_lineup_falls_back_to_the_centroid_and_refuses_nothing(self):
+        gate = {"names": None, "refs": None, "reason": "no_lineup"}
+        out, seeds = self.read(gate, {})
+        self.assertEqual(seeds, ["centroid"])
+        self.assertEqual(len(out["enemies"]), 1)
+        self.assertNotIn("portrait_fit", out["enemies"][0])
+        self.assertEqual(mo.portrait_gate({}, gate)["reason"], "no_lineup")
+
+    def test_a_short_enemy_side_cannot_gate(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from reticle import lineup
+        from reticle.adjudication import identity
+
+        refs = {"features_version": mo.ALLY_PORTRAIT_FEATURES_VERSION, "version": "r"}
+        with tempfile.TemporaryDirectory() as d, \
+                patch.object(identity, "load_ally_portrait_references", return_value=refs), \
+                patch.object(lineup, "view_stamp", return_value="v"), \
+                patch.object(lineup, "portrait_candidates",
+                             return_value=({"enemy": ["Jett", "Omen", "Sage", "Sova"]}, "s")):
+            got = mo.portrait_gate_inputs(Path(d), "abc")
+        self.assertIsNone(got["names"])
+        self.assertTrue(got["reason"].startswith("lineup_short"))
+
+    def test_a_find_whose_gate_cannot_read_says_why(self):
+        out, _ = self.read(self.GATE, None)
+        (e,) = out["enemies"]
+        self.assertNotIn("portrait_fit", e)
+        self.assertEqual(e["portrait_gate_reason"], "no_features")
+
+    def test_a_candidate_without_a_reference_refuses_to_read(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from reticle import lineup
+        from reticle.adjudication import identity
+
+        five = ["Jett", "Omen", "Sage", "Sova", "Viper"]
+        refs = {"features_version": mo.ALLY_PORTRAIT_FEATURES_VERSION, "version": "r",
+                "agents": {n: {} for n in five if n != "Viper"}}
+        with tempfile.TemporaryDirectory() as d, \
+                patch.object(identity, "load_ally_portrait_references", return_value=refs), \
+                patch.object(lineup, "view_stamp", return_value="v"), \
+                patch.object(lineup, "portrait_candidates", return_value=({"enemy": five}, "s")):
+            got = mo.portrait_gate_inputs(Path(d), "abc")
+        self.assertIsNone(got["names"])
+        self.assertEqual(got["reason"], "reference_missing: Viper")
+
+
+class SwitchStampTests(unittest.TestCase):
+    """Every ring search switch off its default changes the stamp."""
+
+    def test_soft_cover_and_centroid_seed_are_stamped(self):
+        from unittest.mock import patch
+
+        base = mo.minimap_object_version()
+        self.assertEqual(mo.RING_COVER, "binary")
+        with patch.object(mo, "RING_COVER", "soft"):
+            soft = mo.minimap_object_version()
+        with patch.object(mo, "RING_SEED", "centroid"):
+            centroid = mo.minimap_object_version()
+        self.assertEqual(soft, base.replace(mo.MINIMAP_OBJECT_BASE,
+                                            mo.MINIMAP_OBJECT_BASE + "+soft_cover"))
+        self.assertEqual(len({base, soft, centroid}), 3)
+
+
+class BatchedFitTests(unittest.TestCase):
+    """The batched fit agrees with the closest-reference fit, name by name."""
+
+    def test_rendered_art_fits_matches_rendered_art_fit(self):
+        from reticle.adjudication.identity import rendered_art_fit, rendered_art_fits
+
+        rng = np.random.default_rng(0)
+        names = ["Jett", "Omen", "Sage", "Sova", "Viper"]
+        refs = {"variance": {"a": list(rng.uniform(0.5, 2, 8)), "b": list(rng.uniform(0.5, 2, 4))},
+                "agents": {n: {"a": list(rng.normal(size=8)), "b": list(rng.normal(size=4))}
+                           for n in names}}
+        feats = {"a": list(rng.normal(size=8)), "b": list(rng.normal(size=4))}
+        d = rendered_art_fits(feats, names, refs)
+        for n, v in zip(names, d):
+            self.assertEqual(rendered_art_fit(feats, [n], refs)[0], float(v))
+        self.assertEqual(rendered_art_fit(feats, names, refs),
+                         (float(d.min()), names[int(np.argmin(d))]))
+        self.assertIsNone(rendered_art_fits(feats, names + ["Neon"], refs))
 
 
 if __name__ == "__main__":

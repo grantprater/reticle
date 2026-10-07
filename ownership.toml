@@ -1078,23 +1078,31 @@ evidence = "tests/test_round_entities.py"
 
 [[entry]]
 id = "enemy-icon"
-question = "Where are the enemy icons on one stored minimap frame, and which do the slab and the teardrop refuse?"
+question = "Where are the enemy icons on one stored minimap frame, and which do the slab, the teardrop and the portrait gate refuse?"
 owner = "minimap_objects"
 stored_consumers = ["enemy_tracks", "adjudication.death"]
 role = ["detect"]
 status = "partial"
-produces = ["read_frame", "read_times", "read_session", "object_context", "enemy_red_mask", "slab_red_share", "minimap_object_version", "MINIMAP_OBJECT_BASE", "FIXES", "ENABLED"]
+produces = ["read_frame", "read_times", "read_session", "object_context", "enemy_red_mask", "slab_red_share", "minimap_object_version", "MINIMAP_OBJECT_BASE", "FIXES", "ENABLED", "portrait_gate", "portrait_gate_inputs", "ring_seed", "switch_suffix"]
 not_for = """
 Fitting the icon or its facing (`icon-pose`: `teardrop.fit_icon`'s enemy
 class), drawing the X marks (`death-victim`: `minimap_x_marks`, read in the
 same pass), joining icons across frames (`enemy-track-session`) or naming
 them (`agent-identity`). It stores each enemy's portrait features for the
-arbiter and names nobody. Its two fixes, `teardrop_box` and `slab_gate`, are
-each switchable and part of the stamp.
+arbiter and names nobody. Its fixes, `teardrop_box`, `slab_gate`,
+`owner_gate` and `portrait_gate`, are each switchable and part of the stamp.
+The portrait gate takes the lineup's enemy candidate set
+(`lineup.portrait_candidates`) and asks the identity owner's absolute fit
+(`identity.rendered_art_fits`, one call over the set); it stores the
+closest fit and the margin to the second, never the agent. Without a full
+enemy set, or with a candidate the references lack, it refuses to read, and
+the ring search falls back to the centroid seed. The ring search switches
+(`RING_SEED`, `RING_COVER`) enter the stamp off their defaults, and no icon
+is joined to another.
 """
-defers_to = ["icon-pose", "death-victim", "widget-drawn"]
+defers_to = ["icon-pose", "death-victim", "widget-drawn", "agent-identity"]
 consumers = ["cli"]
-evidence = "tests/test_minimap_objects.py, prototypes/enemy_lane_bounds.py, prototypes/enemy_lane_score.py"
+evidence = "tests/test_minimap_objects.py, prototypes/enemy_lane_bounds.py, prototypes/enemy_lane_score.py, prototypes/enemy_proposal_funnel.py, prototypes/enemy_portrait_gate.py"
 
 [[entry]]
 id = "last-known-mark"
@@ -1312,7 +1320,7 @@ question = "Which NAMED AGENT is this icon, track, row, death or ability, and wh
 owner = "adjudication.identity"
 role = ["assign", "adjudicate"]
 status = "partial"
-produces = ["AGENT_IDENTITY_VERSION", "assign_ally_pieces", "PIECE_MAX_NODES", "rendered_art_scores", "rendered_art_fit", "load_teammate_fit", "teammate_fit_refusal", "TEAMMATE_FIT_FILE", "load_ally_portrait_references", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "MINIMAP_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "claim_from_minimap_icon", "claims_from_minimap_icons", "claims_from_ally_icons", "adjudicate_agent_identity", "AgentIdentityArbiter", "identity_events", "assign_side", "SIDE_MARGIN_MIN", "name_cluster_claims", "name_role_evidence", "channel_llr", "NAME_CLUSTER_MIN", "NAME_POSTERIOR_MIN", "NAME_FLOOR_LLR", "NAME_CLUSTER_CHANNEL"]
+produces = ["AGENT_IDENTITY_VERSION", "assign_ally_pieces", "PIECE_MAX_NODES", "rendered_art_scores", "rendered_art_fit", "rendered_art_fits", "load_teammate_fit", "teammate_fit_refusal", "TEAMMATE_FIT_FILE", "load_ally_portrait_references", "PORTRAIT_MARGIN_MIN", "MEASURED_SURFACES", "MINIMAP_SURFACES", "identity_claim", "claims_from_lineup", "load_identity_gallery", "side_candidates", "claim_from_killfeed_portrait", "claims_from_killfeed_portraits", "claim_from_minimap_icon", "claims_from_minimap_icons", "claims_from_ally_icons", "adjudicate_agent_identity", "AgentIdentityArbiter", "identity_events", "assign_side", "SIDE_MARGIN_MIN", "name_cluster_claims", "name_role_evidence", "channel_llr", "NAME_CLUSTER_MIN", "NAME_POSTERIOR_MIN", "NAME_FLOOR_LLR", "NAME_CLUSTER_CHANNEL"]
 names_agents = true
 not_for = """
 Reading pixels, inventing an entity key, or deciding roster-slot continuity. Readers

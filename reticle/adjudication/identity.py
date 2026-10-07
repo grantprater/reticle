@@ -1405,19 +1405,17 @@ def rendered_art_scores(features, names, references) -> dict | None:
     return {n: float(s) for n, s in zip(names, total)}
 
 
-def rendered_art_fit(features, names, references) -> tuple[float, str] | None:
-    """How well one icon fits its CLOSEST named reference, as an absolute
-    distance: per family the mean squared z-score under the rendered-art
-    model (the Gaussian of `rendered_art_scores` without its constant), the
-    families averaged, the minimum over `names`, with the agent that attains
-    it. `rendered_art_scores` compares the names and always favours someone;
-    this says whether anyone fits at all. None when the features or a
-    reference are missing.
+def rendered_art_fits(features, names, references) -> np.ndarray | None:
+    """How well one icon fits EACH named reference, as absolute distances in
+    the order of `names`: per family the mean squared z-score under the
+    rendered-art model (the Gaussian of `rendered_art_scores` without its
+    constant), the families averaged. One call scores a whole candidate set.
+    None when the features, a family or any name's reference is missing.
     """
-    if not features or not references:
+    if not features or not references or not names:
         return None
     refs = references["agents"]
-    if any(n not in refs for n in names) or not names:
+    if any(n not in refs for n in names):
         return None
     total = np.zeros(len(names))
     for fam, var in references["variance"].items():
@@ -1427,6 +1425,19 @@ def rendered_art_fit(features, names, references) -> tuple[float, str] | None:
         M = np.asarray([refs[n][fam] for n in names], np.float64)
         total += (((x[None] - M) ** 2) / np.asarray(var, np.float64)).mean(1)
     total /= len(references["variance"])
+    return total
+
+
+def rendered_art_fit(features, names, references) -> tuple[float, str] | None:
+    """How well one icon fits its CLOSEST named reference, as an absolute
+    distance: the minimum of `rendered_art_fits` over `names`, with the agent
+    that attains it. `rendered_art_scores` compares the names and always
+    favours someone; this says whether anyone fits at all. None when the
+    features or a reference are missing.
+    """
+    total = rendered_art_fits(features, names, references)
+    if total is None:
+        return None
     i = int(np.argmin(total))
     return float(total[i]), names[i]
 
