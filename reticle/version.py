@@ -506,14 +506,21 @@ HUD_VERSION = "hud-0.27.0"
 # cross-referencing the ally channel. No detector changed, so positions are
 # byte-identical to 0.5.0; this bump exists because the TABLE gained a column,
 # and rows without it must read as unknown rather than as false.
-MINIMAP_VERSION = "minimap-0.7.0"
+# 0.9.0 (2026-10-07; 0.8.0 is the unmerged w2 branch's): the self and ally ring fits and the self pick's speed
+# gate take the map's scale (`geometry.drawn_scale`: widget x map zoom), not
+# the widget scale alone. A 465 px key reads the positions 0.7.0 read.
+MINIMAP_VERSION = "minimap-0.9.0"
 # Minimap pings, emitted as EVENTS rather than per-frame rows. Bump when the
 # hue bands, the size gates or the lifetime gate change. Events are rewritten
 # whole per session, so this is a stamp for attribution rather than a cache
 # key -- nothing skips a ping read on a version match, because pings ride a
 # pass that was going to happen anyway and cost no decode of their own.
 #: 0.2.0 (2026-10-07): danger runs skip the pulse gap and their life is the span.
-PING_VERSION = "ping-0.2.0"
+#: 0.3.0 (2026-10-07): the size gates (AREA, SIDE) and the grouping distance
+#: are base values times the map's scale (`geometry.drawn_scale`: widget x map
+#: zoom), not the widget scale alone [domain:minimap/icons-follow-map-zoom].
+#: A 465 px key reads the pings 0.2.0 read.
+PING_VERSION = "ping-0.3.0"
 # Ally icon descriptors, emitted as `ally_icon` EVENTS by
 # `minimap.AllyIconReader` at 2 Hz. Its own stamp rather than a
 # MINIMAP_VERSION bump: positions do not change, and a descriptor is an
@@ -586,7 +593,14 @@ PING_VERSION = "ping-0.2.0"
 # spans it read. The player ruled the buy
 # phase out of scope for allies (2026-09-29, again 2026-10-05). A cache-fed
 # pass writes the rows 0.12.0 wrote.
-ALLY_ICON_VERSION = "ally-icon-0.13.0"
+# 0.15.0 (2026-10-07; 0.14.0 is the unmerged w2 branch's): every icon length (ring radii, minimum area, closing
+# kernel, separation, the teardrop poses, the glyph distance) is a base value
+# times `geometry.drawn_scale`, the one transform (widget scale x map zoom),
+# in place of the widget scale alone [domain:minimap/icons-follow-map-zoom];
+# the spike glyphs are fitted at that scale, not over the zoom band.
+# Candidates carry `scale` beside `widget_scale`, and the coverage row
+# `scale` and `scale_source`. On a 465 px key only the glyph boxes move.
+ALLY_ICON_VERSION = "ally-icon-0.15.0"
 # The stacked teammate icon search (`stack_fit`), ported from
 # `prototypes/stack_fit.py` 0.2.0. 0.3.0: numpy in place of torch, the icons
 # drawn at `ICON_ALPHA` instead of opaque, windows scored on each pose's
@@ -636,7 +650,12 @@ ABILITY_LIGHT_VERSION = "ability-light-0.2.0"
 # `ally` role (LIFECYCLE_VERSION 0.3.0); each refused frame names its own
 # cause (`ally_unread_cause`) from the stream's frame rows and `spans_clip`,
 # not the head's clip reason; the coverage row counts the causes.
-TEAM_VISION_VERSION = "team-vision-0.7.1"
+# 0.9.0 (2026-10-07; 0.8.0 is the unmerged w2 branch's): the ring fits, the teardrops, the trackers' speeds,
+# the lifecycle's distances and the light-support radii take the map's scale
+# (`geometry.drawn_scale`: widget x map zoom), not the widget scale alone
+# [domain:minimap/icons-follow-map-zoom]
+# [domain:minimap/world-drawings-follow-map-zoom]. A 465 px key reads as 0.7.1.
+TEAM_VISION_VERSION = "team-vision-0.9.0"
 # The self icon read as a teardrop (`teardrop.fit_teardrop`): its centre is the self cone's
 # origin. Promoted from prototypes/teardrop_tip.py (teardrop-tip-0.1.0) unchanged.
 # 0.2.0: `SelfConeReader` returns the teardrop's facing as a product, with its centre.
@@ -647,11 +666,20 @@ TEAM_VISION_VERSION = "team-vision-0.7.1"
 # E13) and its self facing gate is NCC 0.55 (`SELF_FACING_GATES`,
 # `self_facing_gate`; `facing_reason` `low_ncc_labelled_gate`); other unlabelled
 # sizes keep 0.6, and 465 px keeps no gate. The fit is unchanged.
-TEARDROP_VERSION = "teardrop-0.4.0"
+# 0.5.0 (2026-10-07): the per-size tables are retired. Every caller passes the
+# map's scale (widget x map zoom); one facing gate, NCC 0.6, at every size
+# (`facing_reason` `low_ncc_facing_gate`; SELF_FACING_GATES gone), and the
+# self portrait is cut at the teardrop's centre at every size
+# (LABELLED_SCALES gone). Refitted at the map's scale, the player's 331 px
+# labels sit nearer the teardrop's centre than the ring fit's
+# (`prototypes/one_transform_check.py`). At 465 px a self read under 0.6 now
+# gives no facing.
+TEARDROP_VERSION = "teardrop-0.5.0"
 # A teammate's or an enemy's icon read as a teardrop (`teardrop.fit_icon`): its centre
 # and facing. Promoted from prototypes/icon_teardrop.py (icon-teardrop-0.1.0), whose
-# model, keys and gates are unchanged; 0.2.0 scales its radii by `minimap.widget_scale`,
-# as the self teardrop's are, so a 331 px widget's centre lands on the portrait.
+# model, keys and gates are unchanged; 0.2.0 scales its radii by the caller's
+# `scale`, as the self teardrop's are, so a 331 px widget's centre lands on the
+# portrait. Every caller passes the map's scale since ally-icon-0.15.0.
 ICON_TEARDROP_VERSION = "icon-teardrop-0.2.0"
 # The enemy class of `teardrop.fit_icon` (`ICON_CLASSES["enemy"]`), whose only
 # consumer is `minimap_objects`; the ally class stays ICON_TEARDROP_VERSION's.
@@ -909,7 +937,11 @@ TRAY_COUNTDOWN_VERSION = "tray-countdown-0.1.0"
 # taken (`self_icon.turned_widget`): the resampled widget had delivered it
 # upside down, and the turned half of 4f207c0c4e39 named Phoenix for Iso.
 # A frame read so carries `turned`; the coverage row, `widget_frame`.
-SELF_ICON_VERSION = "self-icon-0.6.0"
+# 0.7.0 (2026-10-07): the self and ally ring fits, the spike glyphs, the
+# glyph distance and the self teardrop read at the map's scale
+# (`geometry.drawn_scale`: widget x map zoom), not the widget scale alone;
+# the coverage row carries `scale` and `scale_source`.
+SELF_ICON_VERSION = "self-icon-0.7.0"
 # The kit of the local player as a state per slot (charges, equipped,
 # castable, owner alive), written as `ability_state` rows by `reticle
 # ability-state` (`adjudication.ability_state`) from stored `tray_drop` rows,
@@ -1054,7 +1086,10 @@ ULT_CAST_VERSION = "ult-cast-0.6.0"
 # written as `minimap_dark` rows by `reticle scan`. It stores no decision;
 # `adjudication.smokes` reads it. Bump when `SMOKE_SAT_MAX`, the occluders or
 # the stored fields change -- those need pixels, so they re-decode.
-MINIMAP_DARK_VERSION = "minimap-dark-0.1.0"
+# 0.2.0 (2026-10-07): the icon occluders' ring fits read at the map's scale
+# (`geometry.drawn_scale`: widget x map zoom); the coverage row carries
+# `scale`. A 465 px key reads the masks 0.1.0 read.
+MINIMAP_DARK_VERSION = "minimap-dark-0.2.0"
 # The dead Clove's smoke-range circle (`clove_circle`), read in the ability
 # pass only inside each ally Clove's death windows and written as
 # `clove_circle` rows. It names no agent and decides no cast. Bump when the
@@ -1077,7 +1112,10 @@ CLOVE_CIRCLE_VERSION = "clove-circle-0.4.0"
 # unobserved.
 # 0.4.0: a component whose disc overlaps a live track's is no birth, so a smoke
 # born half covered is not born again once uncovered.
-SMOKE_VERSION = "smoke-0.4.0"
+# 0.5.0 (2026-10-07): the birth area and the dedup radius are base values
+# times the map's scale (`geometry.drawn_scale`), not the widget's alone; the
+# rows carry `scale`. A 465 px key reads the tracks 0.4.0 read.
+SMOKE_VERSION = "smoke-0.5.0"
 # Which ally agent cast each smoke track, from stored `smoke` tracks, the
 # lineup's verdicts and the player's tray casts (`adjudication.smoke_owner`).
 # Bump when a rule, a lifetime, a cast window or the stored fields change.
@@ -1203,7 +1241,11 @@ ROSTER_SPLIT_VERSION = "roster-split-0.4.0"
 # map scale (`geometry.MapScale`); centres refine sub-pixel, and the session
 # head stores `map_scale` and `game_textures`. The roster marker keeps its
 # mined template (`spike.TEMPLATE_FILE` says why).
-SPIKE_VERSION = "spike-0.3.0"
+# 0.4.0 (2026-10-07): the self and ally ring fits a carried glyph is paired
+# with read at the map's scale (`geometry.drawn_scale`), and a key without an
+# art fit fits its glyph boxes at the widget's scale, not over the retired
+# zoom band (ZOOM_RANGE). A 465 px key with an art fit reads as 0.3.0.
+SPIKE_VERSION = "spike-0.4.0"
 # The spike's carrier and state cross-checked from stored `spike` rows, the
 # rounds table and the roster (`adjudication.spike_carrier`): the roster
 # marker against the minimap carried glyph, the carrier against the plant, a
@@ -1212,4 +1254,7 @@ SPIKE_VERSION = "spike-0.3.0"
 #
 # 0.2.0 (2026-09-29): the carrier's icon is sought at the offset the frame
 # row's widget `rotation` turns (`spike.carrier_offset`).
-SPIKE_CARRIER_VERSION = "spike-carrier-0.2.0"
+# 0.3.0 (2026-10-07): the carrier's icon is sought at offsets times the
+# map's scale the spike head stores (`map_scale`, widget x zoom), not the
+# widget scale alone (`spike_carrier.head_scale`).
+SPIKE_CARRIER_VERSION = "spike-carrier-0.3.0"

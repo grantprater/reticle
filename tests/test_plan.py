@@ -463,13 +463,13 @@ class AllyIconWaiverTests(unittest.TestCase):
     def test_the_waiver_is_declared_conditional_and_lapses(self):
         from reticle.plan import WAIVER_CONDITIONS, waiver
         from reticle.version import ALLY_ICON_VERSION, STAMP_WAIVERS
-        self.assertEqual(ALLY_ICON_VERSION, "ally-icon-0.13.0")
+        self.assertEqual(ALLY_ICON_VERSION, "ally-icon-0.15.0")
         w = STAMP_WAIVERS[("ally-icon-0.12.0", "ally-icon-0.11.0")]
         self.assertIn(w["when"], WAIVER_CONDITIONS)
         self.assertIn("2026-10-04", w["why"])
         # No session to evaluate the condition on: never accepted.
         self.assertIsNone(waiver("ally-icon-0.11.0", "ally-icon-0.12.0"))
-        # Nothing waives a stored stream into 0.13.0.
+        # Nothing waives a stored stream into 0.15.0.
         self.assertEqual([k for k in STAMP_WAIVERS if k[0] == ALLY_ICON_VERSION], [])
         # An older stamp is never waived.
         self.assertNotIn(("ally-icon-0.12.0", "ally-icon-0.10.0"), STAMP_WAIVERS)

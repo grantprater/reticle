@@ -107,11 +107,6 @@ GAME_BOX = {"dropped": 24.0, "carried": 18.0}
 #: widget departs from the one transform; it is a measured exception, so the
 #: fit searches this band rather than keeping a per-size table.
 BOX_FRACTIONS = (0.775, 0.85, 0.925)
-#: The map zooms of the baked keys against SCALE_REF_KEY (0.887-1.001). A
-#: caller that cannot name its `MapScale` (`scale=None`: the ally and self
-#: icon readers) fits a band spanning both ends over the widget scale
-#: (`drawn_boxes`).
-ZOOM_RANGE = (0.887, 1.0)
 #: Scale-1.0 boxes fitted per state, stored with the parameters.
 SIDES = {k: tuple(round(v * f, 3) for f in BOX_FRACTIONS) for k, v in GAME_BOX.items()}
 #: The accept gate: correlation and amplitude (yellowness levels), or a strong
@@ -302,17 +297,12 @@ def _base_down(state: str, rotation: int = 0) -> bool:
 
 def drawn_boxes(width_px: float, scale: float | None = None) -> dict[str, list[float]]:
     """Per state, the drawn boxes (crop px) the fit tries: GAME_BOX times
-    each of BOX_FRACTIONS times `scale` (`MapScale.scale`). Where the caller
-    cannot name the scale, as many boxes spread evenly from the smallest
-    fraction at the smallest baked zoom to the largest at the largest
-    (ZOOM_RANGE), times the widget scale: the same cost, a coarser step."""
-    from .minimap import widget_scale
-    if scale is not None:
-        fr = [f * float(scale) for f in BOX_FRACTIONS]
-    else:
-        ws = widget_scale(width_px)
-        fr = list(np.linspace(min(BOX_FRACTIONS) * ZOOM_RANGE[0] * ws,
-                              max(BOX_FRACTIONS) * ZOOM_RANGE[1] * ws, len(BOX_FRACTIONS)))
+    each of BOX_FRACTIONS times `scale` (`MapScale.scale`; None, the
+    widget's scale, `minimap.drawn_scale`). Every reader in `reticle/` names
+    its scale since spike-0.4.0, so the zoom band that served callers
+    without one (ZOOM_RANGE) is retired."""
+    from .minimap import drawn_scale
+    fr = [f * drawn_scale(width_px, scale) for f in BOX_FRACTIONS]
     return {k: [round(v * f, 2) for f in fr] for k, v in GAME_BOX.items()}
 
 
@@ -388,12 +378,11 @@ def glyph_fits(crop: np.ndarray, support: np.ndarray | None = None,
     (the opaque slab) refuses a fit that does not touch it, as `off_slab`.
     `rotation` is the widget's placement (0 or 180): the state names the
     glyph as drawn on the screen, whichever way the baked frame turns it.
-    `scale` is the key's `MapScale.scale`; None fits the boxes of every
-    baked zoom (`drawn_boxes`). Sorted strongest first."""
-    from .minimap import widget_scale
+    `scale` is the key's `MapScale.scale`; None, the widget's scale
+    (`drawn_boxes`). Sorted strongest first."""
+    from .minimap import drawn_scale
 
-    sc = widget_scale(crop.shape[1])
-    unit = float(scale) if scale is not None else sc
+    unit = drawn_scale(crop.shape[1], scale)
     y = spike_yellowness(crop)
     seeds = (y >= SEED_Y).astype(np.uint8)
     if not seeds.any():
@@ -457,7 +446,7 @@ def glyph_fits(crop: np.ndarray, support: np.ndarray | None = None,
     found.sort(key=lambda f: (f["reason"] is not None, -f["ncc"]))
     out: list[dict] = []
     for f in found:
-        if any(np.hypot(f["cx"] - o["cx"], f["cy"] - o["cy"]) < NMS_PX * sc for o in out):
+        if any(np.hypot(f["cx"] - o["cx"], f["cy"] - o["cy"]) < NMS_PX * unit for o in out):
             continue
         out.append(f)
     return out
@@ -606,7 +595,8 @@ def read_frame(crop: np.ndarray, ctx: dict) -> dict:
 
     `ctx` holds the baked geometry's `floor`, `slab`, `static` and `sgray`,
     `rotation`, the widget placement's (0 where absent), and `scale`, the
-    key's `geometry.MapScale.scale` (None fits every baked zoom). Returns
+    key's `geometry.MapScale.scale` (`geometry.drawn_scale`), which the
+    glyph boxes and the self and ally ring fits take. Returns
     `rotation`, `glyphs` (every fit, accepted or candidate) and, where a carried
     glyph was accepted, `icons`: the self fit and ally fits (`minimap`
     owns them) as `channel`, `cx`, `cy`, `r`, which the carrier check pairs
@@ -621,8 +611,11 @@ def read_frame(crop: np.ndarray, ctx: dict) -> dict:
     fits = glyph_fits(crop, ctx["slab"], rotation, ctx.get("scale"))
     row = {"rotation": rotation, "glyphs": fits, "reason": None}
     if any(g["reason"] is None and g["state"] == "carried" for g in fits):
-        me = self_icons(crop, ctx["floor"], require_facing=False, support=ctx["slab"])[:1]
-        al = ally_icons(crop, ctx["floor"], support=ctx["slab"], static=ctx["static"])
+        sc = ctx.get("scale")
+        me = self_icons(crop, ctx["floor"], require_facing=False, support=ctx["slab"],
+                        scale=sc)[:1]
+        al = ally_icons(crop, ctx["floor"], support=ctx["slab"], static=ctx["static"],
+                        scale=sc)
         row["icons"] = ([{"channel": "self", "cx": round(f["cx"], 2), "cy": round(f["cy"], 2),
                           "r": int(f["r"])} for f in me]
                         + [{"channel": "ally", "cx": round(f["cx"], 2), "cy": round(f["cy"], 2),

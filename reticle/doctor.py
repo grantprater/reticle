@@ -769,6 +769,171 @@ def check_domain() -> list[tuple[str, str]]:
     return out
 
 
+#: Every place in `reticle/` that reads the widget's scale alone, with why it
+#: may. The one transform for a map-drawn size (an icon, a glyph, a ping, a
+#: smoke, a speed, a world distance) is `geometry.MapScale.scale`, widget
+#: scale x map zoom (`geometry.drawn_scale`); on a 331 px key the widget's
+#: scale alone is about 12% too large [domain:minimap/icons-follow-map-zoom].
+#: Keyed by (file, enclosing function); a value starting "deferred:" names a
+#: map-drawn use not yet wired, which SCALE reports as a WARN.
+SCALE_WIDGET_USES = {
+    ("reticle/minimap.py", "widget_scale"): "the definition",
+    ("reticle/minimap.py", "drawn_scale"): "the fallback for a caller holding no session "
+                                           "(prototypes, tests); SCALE checks reticle/'s calls",
+    ("reticle/geometry.py", "map_scale"): "the transform's own widget factor",
+    ("reticle/geometry.py", "drawn_scale"): "a key with no art fit, recorded as the source",
+    ("reticle/minimap.py", "AllyIconReader.feed"): "the candidate row records the widget's "
+                                                   "scale beside `scale`, the map's",
+    ("reticle/minimap.py", "AllyIconReader._stack"): "the candidate row records the widget's "
+                                                     "scale beside `scale`, the map's",
+    ("reticle/cli.py", "_spike_session"): "the head records the widget's scale beside "
+                                          "`map_scale`",
+    ("reticle/minimap_objects.py", "object_context"): "the X owner (death.minimap_x_marks) is "
+                                                      "asked at the scale the death stream "
+                                                      "gives it",
+    ("reticle/minimap_glyph.py", "AbilityGlyphReader.feed"): "checks the crop's widget against the "
+                                                      "MapScale's widget factor",
+    ("reticle/adjudication/minimap_candidates.py", "_scale"): "a candidate stored before "
+                                                              "ally-icon-0.15.0 is decided at "
+                                                              "the widget scale it was read at",
+    ("reticle/adjudication/spike_carrier.py", "head_scale"): "a spike head stored without "
+                                                             "`map_scale` was read at the "
+                                                             "widget's scale",
+    ("reticle/round_lifetimes.py", "replay_scale"): "an export replays at the scale it was "
+                                                    "adjudicated at, which it states",
+    ("reticle/cone.py", "snap_origin"): "the fallback where a caller passes no snap_px; "
+                                        "team_vision passes ORIGIN_SNAP_PX x the map's scale",
+    ("reticle/lighting.py", "reference"): "the lit mask's opening and closing remove capture "
+                                          "speckle (chroma subsampling), a pixel effect, not a "
+                                          "map drawing; neither scale is measured for it",
+    ("reticle/minimap.py", "floor_mask"): "deferred: the corridor join and the icon-edge "
+                                          "dilation on the baked static; every reader's floor "
+                                          "moves with it",
+    ("reticle/minimap.py", "site_mask"): "deferred: the tint join on the baked static",
+    ("reticle/occluders.py", "lines"): "deferred: a geometry bake; rewiring rebakes every "
+                                       "331 px key's occluders",
+    ("reticle/occluders.py", "classify"): "deferred: a geometry bake (box areas)",
+    ("reticle/occluders.py", "shape_features"): "deferred: a geometry bake",
+    ("reticle/occluders.py", "raised_boxes"): "deferred: a geometry bake (box areas)",
+    ("reticle/occluders.py", "doorways"): "deferred: a geometry bake (door gaps)",
+}
+#: Functions whose scale defaults to the widget's (`minimap.drawn_scale`):
+#: name -> (positional index of `scale`, its keyword). A call in `reticle/`
+#: that passes neither reads a map-drawn size at the widget's scale alone.
+SCALE_TAKERS = {
+    "icons": (None, "scale"), "self_icons": (None, "scale"), "ally_icons": (None, "scale"),
+    "_rings": (2, "scale"), "self_rings": (2, "scale"), "ally_rings": (2, "scale"),
+    "ally_icon_descriptors": (None, "scale"), "sightings": (2, "scale"),
+    "glyph_fits": (3, "scale"), "drawn_boxes": (1, "scale"), "occluded": (3, "scale"),
+    "drawn_scale": (1, "scale"), "PingReader": (None, "scale"),
+    "AllyIconReader": (None, "scale"), "DarkRegionReader": (None, "scale"),
+    "TeamVision": (None, "scale"),
+}
+
+
+def _scale_uses(path: Path, rel: str) -> list[tuple[str, int, str]]:
+    """`(qualname, line, what)` for each widget-scale-alone read in one file:
+    a `widget_scale(...)` call, a `"widget_scale"` key read, a division by
+    the reference width (465 or REF_WIDGET_W), and a SCALE_TAKERS call that
+    passes no scale."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return []
+    out = []
+
+    def name_of(f):
+        return f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+
+    def bound(fn) -> set:
+        """Names a function binds itself (nested defs, assignments): a call
+        to one of them is to that local, not to a scale taker."""
+        got = set()
+        for n in ast.walk(fn):
+            if n is not fn and isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                got.add(n.name)
+            elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+                got.add(n.id)
+        return got
+
+    def walk(node, stack, local=frozenset()):
+        for ch in ast.iter_child_nodes(node):
+            if isinstance(ch, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                walk(ch, stack + [ch.name],
+                     local | bound(ch) if not isinstance(ch, ast.ClassDef) else local)
+                continue
+            q = ".".join(stack) or "<module>"
+            if isinstance(ch, ast.Call):
+                n = name_of(ch.func)
+                if isinstance(ch.func, ast.Name) and n in local:
+                    n = None
+                if n == "widget_scale":
+                    out.append((q, ch.lineno, "widget_scale()"))
+                elif n == "get" and ch.args and isinstance(ch.args[0], ast.Constant) \
+                        and ch.args[0].value == "widget_scale":
+                    out.append((q, ch.lineno, '.get("widget_scale")'))
+                elif n in SCALE_TAKERS and rel.startswith("reticle/"):
+                    pos, kw = SCALE_TAKERS[n]
+                    if not any(k.arg == kw or k.arg is None for k in ch.keywords) and \
+                            not (pos is not None and len(ch.args) > pos) and \
+                            not any(isinstance(a, ast.Starred) for a in ch.args):
+                        out.append((q, ch.lineno, f"{n}() without scale"))
+            elif isinstance(ch, ast.Subscript) and isinstance(ch.ctx, ast.Load) and \
+                    isinstance(ch.slice, ast.Constant) and ch.slice.value == "widget_scale":
+                out.append((q, ch.lineno, '["widget_scale"]'))
+            elif isinstance(ch, ast.BinOp) and isinstance(ch.op, ast.Div):
+                r = ch.right
+                if (isinstance(r, ast.Constant) and r.value in (465, 465.0)) or \
+                        name_of(r) == "REF_WIDGET_W":
+                    out.append((q, ch.lineno, "/ reference width"))
+            walk(ch, stack, local)
+
+    walk(tree, [])
+    return out
+
+
+def check_scale(base: Path | None = None, allow: dict | None = None) -> list[tuple[str, str]]:
+    """A reader scaling a map-drawn size by the widget's scale alone.
+
+    The player's rule (2026-09-30) is one set of base values carried by one
+    transform, `geometry.MapScale` (widget scale x map zoom); a reader that
+    reads `widget_scale` alone draws every icon, glyph, ping and world length
+    about 12% too large on a 331 px key. Every such read in `reticle/` --
+    a `widget_scale(...)` call, a `"widget_scale"` key read, a division by
+    the 465 px reference width, or a call to a scale-taking function
+    (`SCALE_TAKERS`) that passes no scale -- must sit in an entry of
+    `SCALE_WIDGET_USES` with its reason. An unlisted read is an ERROR; a
+    listed one marked `deferred:` is a WARN; a listed entry that no longer
+    matches anything is a WARN, so the list cannot rot.
+
+    It cannot see: a scale computed elsewhere and passed in under another
+    name (a stored row's field renamed, a `sc` argument whose caller chose
+    the widget's); an unscaled px constant; a size scaled by a hand-written
+    ratio of widths other than 465; prototypes and tools, which it does not
+    read; a listed function that gains a second, unlisted misuse.
+    """
+    base = ROOT if base is None else base
+    allow = SCALE_WIDGET_USES if allow is None else allow
+    out, seen = [], set()
+    for f in sorted((base / "reticle").rglob("*.py")):
+        rel = f.relative_to(base).as_posix()
+        if rel == "reticle/doctor.py":
+            continue
+        for q, line, what in _scale_uses(f, rel):
+            key = (rel, q)
+            seen.add(key)
+            why = allow.get(key)
+            if why is None:
+                out.append((ERROR, f"{rel}:{line} {q}: {what} -- a map-drawn size takes "
+                                   f"geometry.drawn_scale (widget x map zoom); a widget-chrome "
+                                   f"use goes in doctor.SCALE_WIDGET_USES with its reason"))
+            elif why.startswith("deferred:"):
+                out.append((WARN, f"{rel}:{line} {q}: {what} -- {why}"))
+    for key in sorted(set(allow) - seen):
+        out.append((WARN, f"SCALE_WIDGET_USES {key[0]} {key[1]}: matches no widget-scale read"))
+    return out
+
+
 def check_movement() -> list[tuple[str, str]]:
     """The teleport-licence owner's movement table against the domain facts.
 
@@ -1426,7 +1591,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("DUPLICATE", check_duplicate), ("UNWIRED", check_unwired),
               ("UNCALLED", check_uncalled),
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),
-              ("MOVEMENT", check_movement),
+              ("MOVEMENT", check_movement), ("SCALE", check_scale),
               ("LAYER", check_layer), ("CONSUMER", check_consumer),
               ("OWNERSHIP", check_ownership),
               ("QUOTED", lambda: check_quoted(store)),

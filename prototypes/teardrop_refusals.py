@@ -167,7 +167,8 @@ def pings(sid: str, tag: str) -> int:
     k = np.searchsorted(held, grid - 1e-6)
     k = k[k < len(held)]
     fed = [float(t) for t in np.unique(held[k])]
-    r = PingReader(floor=ctx["floor"], box=ctx["rect"], sgray=ctx["sgray"], hz=PING_HZ)
+    r = PingReader(floor=ctx["floor"], box=ctx["rect"], sgray=ctx["sgray"], hz=PING_HZ,
+                   scale=ctx["icon_scale"])
     t0 = time.perf_counter()
     for smp in ctx["cache"].samples(fed, rois=["minimap"]):
         r.feed(smp)

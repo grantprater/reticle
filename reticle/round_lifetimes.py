@@ -22,7 +22,11 @@ from .usage import step
 # `seen_after_death` (2026-10-01) changes no output of this module: the ally
 # lane applies it and stamps round-entity-0.12.0, so the enemy lane, which
 # stamps this version too, is not restamped by a rule it does not use.
-ROUND_LIFETIME_VERSION = "round-lifetimes-0.10.0"
+# 0.11.0 (2026-10-07): `reticle lifetimes` passes the map's scale
+# (`geometry.drawn_scale`: widget x map zoom) where it passed the widget's;
+# every speed, tolerance and radius here is a world length. A 465 px key
+# reads as 0.10.0.
+ROUND_LIFETIME_VERSION = "round-lifetimes-0.11.0"
 MAX_ASSOCIATION_HISTORIES = 64
 
 #: Proximity thresholds for merged / occluded track states (widget px).

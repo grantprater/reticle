@@ -109,7 +109,10 @@ from .version import ALLY_PORTRAIT_FEATURES_VERSION, ENEMY_TEARDROP_VERSION, TEA
 #: (ENEMY_TEARDROP_VERSION 0.2.0), and the `owner_gate` fix.
 #: 0.3.0 (2026-10-07): the ping gate reaches `PING_OWN_PX`, not `ICON_PX`,
 #: and links its ping; the lobe test's ring is an annulus (enemy-teardrop-0.3.0).
-MINIMAP_OBJECT_BASE = "minimap-object-0.3.0"
+#: 0.4.0 (2026-10-07): the ring search that finds each red icon
+#: (`minimap.icons`: radii, area, kernel, separation) reads at `icon_scale`
+#: too, where it read the widget scale alone.
+MINIMAP_OBJECT_BASE = "minimap-object-0.4.0"
 
 #: The switchable fixes, in stamp order.
 FIXES = ("teardrop_box", "slab_gate", "owner_gate")
@@ -244,7 +247,7 @@ def read_frame(crop: np.ndarray, ctx: dict, *, scale: float, fixes: dict | None 
     marks = minimap_x_marks(crop, floor, ctx.get("scale", scale))
     finds = minimap.icons(enemy_red_mask(crop), crop, floor, cov_min=COV_MIN,
                           inner_max=INNER_RED_MAX, require_facing=False, support=slab,
-                          seed="centroid")
+                          seed="centroid", scale=scale)
     for d in finds:
         ring = {"x": _rnd(d["cx"]), "y": _rnd(d["cy"]), "r": _rnd(d.get("r"))}
         f = teardrop.fit_icon(None, "enemy", d["cx"], d["cy"], scale=scale, key=red)
@@ -377,10 +380,7 @@ def object_context(store, sid: str) -> tuple[dict | None, str | None]:
     pings, ping_ids, ping_version = stored_pings(store, sid)
     # Icons follow the map zoom [domain:minimap/icons-follow-map-zoom]: the
     # one transform is base x widget scale x map zoom (`geometry.MapScale`).
-    ws = widget_scale(floor.shape[1])
-    ms = geometry.map_scale_of(sid, store.root)
-    icon_scale, icon_scale_source = ((ms.scale, ms.provenance()) if ms is not None else
-                                     (ws, "widget_scale: the geometry has no art fit"))
+    icon_scale, icon_scale_source = geometry.drawn_scale(sid, store.root, floor.shape[1])
     return {"cache": cache, "floor": floor, "slab": slab_mask(med, sd=sd),
             "sgray": cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64),
             "rect": cache.rect_of("minimap"), "scale": widget_scale(floor.shape[1]),
