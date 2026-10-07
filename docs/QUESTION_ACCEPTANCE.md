@@ -258,9 +258,13 @@ adapter, `from_slot_state(session)`, turns the lane into a `Timeline` with
   `plant_graphic`, phases from `rounds`, the result from `round_outcome`;
   no damage events, so `first_hitter` stays null with `no_damage_events`.
 
-Truth slots are replay subjects; scoring maps a vision slot to the truth
-player of the same agent on the same team (evaluation only, as ENTITY_STATE
-§8 does). A slot the arbiter left unnamed scores under `slot_unnamed`.
+Truth entities are the replay layer's `entities`: the players and their
+ability children (AGENTS.md, "Replay truth covers every entity"). Scoring
+maps a vision slot to the truth player of its agent and team (evaluation
+only, as ENTITY_STATE §8 does); every other find maps to the truth entity
+under it, of any class, through the class-aware outcomes of section 6. T1
+masks each child by its class's drawn-ness fact in `domain/abilities.toml`.
+A slot the arbiter left unnamed scores under `slot_unnamed`.
 Until enemy slots exist (ENTITY_STATE step 5), enemy samples come from the
 enemy lane as observed fits only, with the "?" as `inferred` and no reach
 region.
@@ -402,6 +406,7 @@ interval overlap.
 | rotation | rotator, round, from and to site, overlap | start and end times, duration |
 | lurk | lurker, round, overlap | start and end, `first_event`, `with_committed_teammate` |
 | contact | the pair and overlap | onset, `first_seer`, `mutual` |
+| find | the live truth entity of any class within the gate at the find's frame (`truth_under`, planned) | right entity, other entity (class), nothing there, coverage gap (unmapped actor, by class) |
 
 **Metrics.** Per kind and arm: precision, recall and F1 with Wilson
 intervals (`metrics.wilson`); start and end error, median and p90, on

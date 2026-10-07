@@ -36,10 +36,12 @@ are the agent's, by eye and by rule, never the player's labels):
 `visible_undrawn` -- a living enemy within `NEAR_CM` that T1d calls undrawn
 (a T1d finding, not a reader error); `enemy_3_8m` -- a living enemy within
 `OFFSET_CM`; `dead_enemy` -- the nearest enemy, within `NEAR_CM`, is dead
-(an icon at a death, by the replay's clock); then, with no living enemy that near, `ping` (a confirmed ping of
-the stored `ping` stream drawn there then), `x_mark` (a stored X mark of the
-same row within `X_OWN_PX`), and `other` (bars, utility, the rest). The last
-three are the true false accepts.
+(an icon at a death, by the replay's clock); then, with no living enemy that
+near, class each extra first by the replay entity under it; `ping` (a
+confirmed ping of the stored `ping` stream drawn there then), `x_mark` (a
+stored X mark of the same row within `X_OWN_PX`) and `other` apply only where
+no replay entity of any class lies within the gate (pending harness step 2).
+The last three are the true false accepts.
 
 The scorer reads the reread rows by giving the prototypes' `STORE` a path
 whose `events/minimap_object` resolves to the tag's folder (`_Redirect`);

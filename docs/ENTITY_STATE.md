@@ -605,6 +605,9 @@ Enemy slots follow the same lifecycle and belief, with weaker evidence.
 - **Identity.** Enemy icons carry portrait features for the arbiter
   (`identity.claims_from_minimap_icons`); the same assignment binds them to
   enemy slots, over the enemy lineup from the arbiter and the board.
+- **Enemy-owned children.** Enemy-owned ability children that draw like
+  players (see the `domain/abilities.toml` facts) are alternatives to every
+  enemy find; a find on one is that child's, never an enemy fit.
 - **Other witnesses.** An enemy ultimate line (`adjudication.ult_cast`, with
   its side) shows a living enemy slot and places nobody; a killfeed death
   closes the slot as for allies.
@@ -622,9 +625,10 @@ reader, a threshold, a prior or the transform.
 - **Riot:** every living player at each Riot kill instant, the victims of
   that instant included, aligned through stored deaths as
   `riot_ground_truth.py` aligns them, positions in world units over 100.
-- **Replay:** every living player-tick of 9acf02f98283 on the 15 Hz grid
-  (`replay_truth.py`), interpolated across gaps up to `MAX_GAP_MS`, never
-  wider.
+- **Replay:** every living player-tick and every open ability child of
+  9acf02f98283 on the 15 Hz grid (`replay_truth.py`), interpolated across
+  gaps up to `MAX_GAP_MS`, never wider. A find scores against the entity
+  under it, of any class (AGENTS.md, "Replay truth covers every entity").
 
 The truth slot of a truth player is the slot whose arbiter-named agent is
 that player's agent on that team (Riot's character id, evaluation only). A
@@ -1242,7 +1246,9 @@ code that answers them, not before.
 5. **Enemy slots.** Evidence: enemy containment at Riot kill instants.
 6. **Ability children:** the player's kit, then teammates' drawn and voiced
    abilities, then enemies. Evidence: section 9's replay scores on
-   9acf02f98283 and each later replay kept with a capture.
+   9acf02f98283 and each later replay kept with a capture. Labelling finds
+   by child class starts at stage 1; only the children's slot model waits
+   for this step.
 
 The sizing in sections 2 and 6 comes from `prototypes/entity_state_probe.py`
 (predictions ES1-ES3, task entity-state-20261004). A reach region read along

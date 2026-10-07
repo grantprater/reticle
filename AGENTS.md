@@ -61,17 +61,24 @@ what "I rebuilt the geometry while my experiment read it" states.
   stored data. Adjudication stays pure over stored observations, with explicit
   alternatives and evidence links; a late detector answer never becomes an
   event's inferred origin; a review window points into source media with its
-  provenance, never standing as a clip or a conclusion.
+  provenance, never as a clip or conclusion.
 - Events are the interface, to consumers and to acceptance. Consumers
   (`reticle view`) read only emitted events and stored rounds, never a reader,
-  tracker or adjudicator; a missing field goes into the owning event, never a
-  recomputing consumer. A change is accepted on the events its owning layer
-  emits (enemy tracks, slot beliefs), scored per question against replay
-  truth; a reader's own score is a diagnostic, never the bar. A new scorer
-  extends the one harness (QUESTION_ACCEPTANCE B7), never adds a prototype.
+  tracker or adjudicator; a missing field goes into the owning event. A change
+  is accepted on the events its owning layer emits (enemy tracks, slot
+  beliefs), scored per question against replay truth; a reader's own score is
+  a diagnostic. A new scorer extends the one harness (QUESTION_ACCEPTANCE B7),
+  never adds a prototype.
+- **Replay truth covers every entity** (player, 2026-10-05, 2026-10-07). Score
+  each find against every entity the replay layer holds there and then:
+  players, every ability child of every mapped class, the spike and ult
+  orbs. A find on another real entity is that entity's, never `other` or a
+  false accept; one on nothing is `nothing_there`; one on an unmapped
+  actor is a coverage gap named by class. A scorer that reads only players
+  names each class it omits, and why.
 - **Fidelity follows the question** (player, 2026-10-04, 2026-10-06): process
-  only the detail the use case's questions need, as an engine culls and
-  lowers detail. Hold coarse beliefs by default; read at full
+  only the detail the use case's questions need, as an engine culls
+  detail. Hold coarse beliefs by default; read at full
   fidelity where an opportunity opens, never on the outcome; measure each need
   by degrading truth ([QUESTION_ACCEPTANCE.md](docs/QUESTION_ACCEPTANCE.md)).
 - Run the least work testing the change: `reticle trial` on the windows
@@ -112,30 +119,29 @@ what "I rebuilt the geometry while my experiment read it" states.
   Agreement is consistency, not accuracy; store the disagreements.
 - Measure a baseline before structural edits, then rerun the real command
   and confirm a known result; a parse check is not verification.
-- Hold beliefs about the system as uncertain, updated on evidence.
-  Before acting on an assumption about an owner, a detector or a mechanic, check
+- Hold beliefs about the system as uncertain.
+  Before acting on an assumption about an owner, detector or mechanic, check
   it or state its falsifier. Spend effort where uncertainty is largest and cheap
   to resolve, refining only where it exceeds the question's tolerance. A
   surprise may be a tool error; check the instrument before revising the
   system belief. A failed
-  prediction revises the belief; record it and carry it into the handoff.
+  prediction revises the belief; record it in the handoff.
 - **Continue the prior; widen the search only on surprise.** Context predicts
   most of what comes next: the last frame's stored belief, the match's lineup, the
-  banner's type, the adjudicated belief the last run left. Start every reading
-  and experiment from that prediction and check it cheaply. Follow a killfeed entry where it was; seek a smoke where the match's
-  agents' abilities land; place a portrait tile from its banner type's anchor;
-  revise the belief an experiment tested rather than starting over. Store the
-  surprise, never average it away. A surprise may reopen the verdict it
+  adjudicated belief the last run left. Start every reading and experiment
+  from that prediction; check it cheaply. Follow a killfeed entry where it
+  was; seek a smoke where the match's agents' abilities land; revise the
+  belief an experiment tested, never start over. Store the surprise, never
+  average it away. A surprise may reopen the verdict it
   contradicts, which reruns once with the new evidence; store the original, the
-  revision and the surprise. An unchecked prior is a hidden assumption: the
-  portrait channel assumed an entry keeps its first slot, and lost every view
-  after the stack rose. Audit a prior by a full search on opportunity-gated
-  samples at a cadence fixed in advance, stored apart, until its efficacy is
-  statistically significant; then widen only on surprise (player, 2026-09-30). A
+  revision and the surprise. An unchecked prior is a hidden assumption. Audit a
+  prior by a full search on opportunity-gated samples at a cadence fixed in
+  advance, stored apart, until its efficacy is statistically significant
+  (player, 2026-09-30). A
   surprise-triggered search is no audit sample. Code scoring against a gallery
   or candidate set names the set its context allows (the match's agents, the
   side's five, the slot's predicted agent) and why; the full set is the surprise
-  path and must be justified, as the lineup reader's 29 agents are before any
+  path, justified as the lineup reader's 29 agents are before any
   lineup exists. A prior is evidence, weighed once: a result it shaped declares
   `rests_on`, so the prior never counts again as an independent witness.
 - **Ability mechanics are unique per ability** (player, 2026-09-26)
@@ -153,8 +159,8 @@ what "I rebuilt the geometry while my experiment read it" states.
   working documents, not logs: `NOTES.md` holds only the current handoff;
   `BACKLOG.md`, open work plus the five latest completed tasks. Rewrite them in
   place and move what they retire to a dated file under `docs/archive/`.
-  `doctor` HANDOFF checks the limits and reports any open `BACKLOG.md` item
-  whose paragraph lacks an `Acceptance:` command and an `Evidence:` standard.
+  `doctor` HANDOFF checks the limits and that each open item names an
+  `Acceptance:` command and an `Evidence:` standard.
 - Never put Claude session URLs in repository files or commit messages. Public
   files contain facts; attribution, quotes, and private domain notes stay out.
 

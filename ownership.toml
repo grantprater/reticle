@@ -2348,3 +2348,23 @@ The held-out match is built and never summarised.
 """
 defers_to = ["replay-alignment", "replay-self", "replay-ability-actors"]
 evidence = "tests/test_replay_layer.py, docs/REPLAY_LAYER.md"
+
+[[entry]]
+id = "replay-truth-under"
+question = "Which replay entity lies under a vision find?"
+role = ["assign"]
+status = "unowned"
+not_for = """
+Reader inputs. Replay data is evaluation truth only: it scores a find and
+never feeds a reader, a gate, a threshold, a prior or an adjudicator. Nor is
+it whether the find is real (`detection-reality`) or which agent it names
+(`agent-identity`); it states which truth entity, of any class, a find lies
+on, for scoring alone (AGENTS.md, "Replay truth covers every entity").
+"""
+blocked_by = """
+No scorer joins finds to every replay entity class: each joins finds to
+replay players only, and `episodes.from_replay_layer` (T0) drops the layer's
+`child:` entities. Intended owner: `question_acceptance.truth_under` over
+every replay entity class, with T0 carrying the children (BACKLOG item 1,
+class-aware harness step 2).
+"""

@@ -59,6 +59,12 @@ defuser. Times are the replay's clock; the header keeps the layer's capture
 offset `a_ms`. Rounds are numbered from 1 (the layer's round + 1), as the
 in-client replay counts them.
 
+T0 keeps the ten players only, short of level 1's definition (every player
+slot and its ability children): the layer writes every mapped ability actor
+as a `child:` entity with owner, side, life and position, and
+`from_replay_layer` drops them. Carrying the children is open work (BACKLOG
+item 1, the class-aware harness, step 2).
+
 ## 2. Primitive: sight
 
 **Directed sight** `sees(i, j, t)`, for opposing living players: (a) the

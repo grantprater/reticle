@@ -1214,7 +1214,12 @@ def from_replay_layer(key: str, root=DEFAULT_STORE) -> ArrayTimeline:
     revive events. Times are the replay's clock (`t_rep`); the header keeps
     the layer's capture offset. The plant's place is the planted spike's
     spawn (the `TimedBomb_C` child opened at the plant); the layer names no
-    planter or defuser."""
+    planter or defuser.
+
+    T0 keeps the ten players only, short of level 1's definition in
+    docs/EPISODES.md ("every player slot and its ability children"): the
+    layer's `child:` entities (owner, side, life, position) are dropped.
+    Carrying them is open work (BACKLOG item 1, class-aware harness step 2)."""
     from .replay_layer import load
     from .replay_source import MAX_GAP_MS
 
