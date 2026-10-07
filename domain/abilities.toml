@@ -4054,8 +4054,8 @@ see = ["abilities/sova-owl-drone-charges", "hud/controlled-entity-view-tint"]
 
 [fade-prowler-steered]
 claim = """
-Fade's Prowler in slot C is steered by the player after the cast; it is not
-autonomous.
+Fade's Prowler in slot C is steered by the player after the cast until it
+locks on to an enemy agent; it is semi-autonomous, not free-running.
 """
 kind = "lifecycle"
 known = "player"
@@ -4063,7 +4063,9 @@ since = "2026-09-03"
 subject = "fade:prowler"
 source = """
 the player, 2026-09-03, told that Sova's drone is flown by the player:
-"same with fade dogs" (docs/archive/PROTOTYPES-through-2026-09-23.md, lines 1771-1776). Whether the player steers by holding fire or takes
+"same with fade dogs" (docs/archive/PROTOTYPES-through-2026-09-23.md, lines 1771-1776); refined 2026-10-07: "They're
+semi-autonomous. They're steered until they lock on to an enemy agent where
+they then basically lunge". Whether the player steers by holding fire or takes
 control of the view is not recorded
 """
 use = "the Prowler icon's motion is the player's steering, so its path is representative"
@@ -7608,6 +7610,28 @@ the glyph owner places this glyph on
 see = ["abilities/gekko-wingman-minimap-icon", "abilities/gekko-wingman-straight-bounce",
        "abilities/ability-rules-are-unique"]
 
+[fade-prowler-lock-on]
+claim = """
+Once Fade's Prowler locks on to an enemy agent it lunges at that agent on its
+own, and the lock-on tells Fade and her team that an enemy is there.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-07"
+subject = "fade:prowler"
+source = """
+player, 2026-10-07: "They're semi-autonomous. They're steered until they lock
+on to an enemy agent where they then basically lunge and give feedback to
+fade and her team that someone's there". How the feedback shows on the
+minimap is not recorded
+"""
+use = """
+a Prowler's path after lock-on follows an enemy agent, not the player's
+steering; a lunge places an enemy near the Prowler's end
+"""
+see = ["abilities/fade-prowler-steered", "abilities/fade-prowler-enemy-minimap-icon",
+       "abilities/ability-rules-are-unique"]
+
 [fade-prowler-enemy-minimap-icon]
 claim = """
 On the player's minimap, an enemy Fade's Prowler draws as an enemy player
@@ -7619,7 +7643,7 @@ since = "2026-10-07"
 subject = "fade:prowler"
 source = """
 player, 2026-10-07 (chat, relayed by the detection-reality review, which
-grouped it with the autonomous abilities): the Prowler draws on the enemy minimap as an enemy player does, a
+grouped it with the non-piloted abilities; the player later called it semi-autonomous, steered until it locks on, see abilities/fade-prowler-lock-on): the Prowler draws on the enemy minimap as an enemy player does, a
 red ring with a facing lobe that turns. Seen on d3dcfb182ab1
 (C:/Users/grant/Videos/2026-10-05 18-13-01.mp4, R9 at 688.6-689.5 s): a red ring round a black disc
 with a white glyph, <store>/analysis/detection-reality-20261007/crops/
