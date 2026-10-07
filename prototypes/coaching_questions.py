@@ -288,13 +288,14 @@ class Match:
 
     # ------------------------------------------------------------- drawn
 
-    def drawn(self, C: str) -> np.ndarray:
+    def drawn(self, C: str, p_ms: float = P_MS, sees: np.ndarray | None = None) -> np.ndarray:
         """drawn[j, k]: enemy j of team C is on C's minimap at grid sample k:
-        a living C player saw him within the last P (truth sight)."""
+        a living C player saw him within the last P (truth sight). `p_ms` and
+        `sees` default to T1's P and sight; `t1_draw_rule` passes its own."""
         ci = np.flatnonzero(self.team == C)
-        vis = self.sees[ci].any(axis=0)                  # (S, K): j seen by some C player
+        vis = (self.sees if sees is None else sees)[ci].any(axis=0)   # (S, K): j seen by some C player
         vis[ci] = False
-        n = int(round(P_MS / SIGHT_MS))
+        n = int(round(p_ms / SIGHT_MS))
         out = vis.copy()
         for rn in np.unique(self.G_round):
             sl = np.flatnonzero(self.G_round == rn)
@@ -865,9 +866,11 @@ def score(T: dict, A: dict) -> dict:
 
 # ----------------------------------------------------------------- degrade
 
-def degrade_match(key: str, arms: list[str], out_path: Path) -> list[dict]:
+def degrade_match(key: str, arms: list[str], out_path: Path, match_cls=None) -> list[dict]:
+    """T0, T1 and each arm's answers on one replay. `match_cls` (default
+    `Match`) supplies the draw rule, so a subclass rederives the sweep."""
     t0 = time.time()
-    M = Match(key)
+    M = (match_cls or Match)(key)
     d0 = M.derive(M.tl0)
     stored = ep.read_episodes(M.tl0.match)
     kinds0 = Counter(e["kind"] for e in d0.episodes)
@@ -1055,6 +1058,52 @@ def ladder_instances() -> tuple[dict, dict]:
     return inst, meta
 
 
+def gate_onset_rows(M, key: str, tl, eps: list, team_of: dict, idx: dict) -> list[dict]:
+    """The drawn-enemy gate at each engagement onset, per team: open at
+    the onset (and 250, 500 ms before), the local gate, the lead. `M.drawn`
+    is the draw rule, so a Match subclass with another rule rederives it."""
+    out = []
+    acts = sorted([x for x in tl.events if x.kind in ("damage", "death") and x.actor in team_of
+                   and x.target in team_of and team_of[x.actor] != team_of[x.target]], key=lambda x: x.t_ms)
+    act_t = np.array([x.t_ms for x in acts])
+    for C in M.teams:
+        drawn = M.drawn(C)
+        ei = np.flatnonzero(M.team != C)
+        gopen = drawn[ei].any(axis=0)
+        for e in eps:
+            if e["kind"] != "engagement":
+                continue
+            comb = set(e["participants"]["combatants"])
+            if not any(team_of.get(x) == C for x in comb):
+                continue
+            sel = np.flatnonzero((act_t >= e["t_start_ms"] - 1.0) & (act_t <= e["t_end_ms"] + 1.0))
+            first = next((acts[i] for i in sel if acts[i].actor in comb and acts[i].target in comb), None)
+            if first is None:
+                continue
+            on = first.t_ms
+            rn = e["round"]
+            rec_ = {"m": key}
+            for lag in (0.0, 250.0, 500.0):
+                k = np.searchsorted(M.G, on - lag, side="right") - 1
+                rec_[f"open_{int(lag)}"] = bool(k >= 0 and M.G_round[k] == rn and gopen[k])
+            k = np.searchsorted(M.G, on, side="right") - 1
+            lead = None
+            if rec_["open_0"]:
+                j = k
+                while j > 0 and gopen[j - 1] and M.G_round[j - 1] == rn:
+                    j -= 1
+                lead = on - M.G[j]
+            s_c = idx[first.actor] if team_of[first.actor] == C else idx[first.target]
+            d = np.hypot(M.X[ei, k] - M.X[s_c, k], M.Y[ei, k] - M.Y[s_c, k]) if k >= 0 else np.array([np.inf])
+            near = np.where(np.isfinite(d), d <= LOCAL_CM, False)
+            rec_["local_open"] = bool(k >= 0 and M.G_round[k] == rn
+                                      and (drawn[ei, k] & (M.sees[s_c, ei, k] | near)).any())
+            rec_["lead_ms"] = lead
+            rec_["enemy_first"] = team_of[first.actor] != C
+            out.append(rec_)
+    return out
+
+
 def replay_instances(keys: list[str]) -> tuple[dict, dict]:
     """Instances per question from each replay's truth, both teams."""
     inst = defaultdict(list)
@@ -1117,44 +1166,7 @@ def replay_instances(keys: list[str]) -> tuple[dict, dict]:
                 dm = min(ds)
                 if dm <= NEAR_M or dm > FAR_M:
                     inst["spacing_near"].append({"m": key, "z": z, "a": dm <= NEAR_M, "y": won, "traded": traded})
-        acts = sorted([x for x in tl.events if x.kind in ("damage", "death") and x.actor in team_of
-                       and x.target in team_of and team_of[x.actor] != team_of[x.target]], key=lambda x: x.t_ms)
-        act_t = np.array([x.t_ms for x in acts])
-        for C in M.teams:
-            drawn = M.drawn(C)
-            ei = np.flatnonzero(M.team != C)
-            gopen = drawn[ei].any(axis=0)
-            for e in eps:
-                if e["kind"] != "engagement":
-                    continue
-                comb = set(e["participants"]["combatants"])
-                if not any(team_of.get(x) == C for x in comb):
-                    continue
-                sel = np.flatnonzero((act_t >= e["t_start_ms"] - 1.0) & (act_t <= e["t_end_ms"] + 1.0))
-                first = next((acts[i] for i in sel if acts[i].actor in comb and acts[i].target in comb), None)
-                if first is None:
-                    continue
-                on = first.t_ms
-                rn = e["round"]
-                rec_ = {"m": key}
-                for lag in (0.0, 250.0, 500.0):
-                    k = np.searchsorted(M.G, on - lag, side="right") - 1
-                    rec_[f"open_{int(lag)}"] = bool(k >= 0 and M.G_round[k] == rn and gopen[k])
-                k = np.searchsorted(M.G, on, side="right") - 1
-                lead = None
-                if rec_["open_0"]:
-                    j = k
-                    while j > 0 and gopen[j - 1] and M.G_round[j - 1] == rn:
-                        j -= 1
-                    lead = on - M.G[j]
-                s_c = idx[first.actor] if team_of[first.actor] == C else idx[first.target]
-                d = np.hypot(M.X[ei, k] - M.X[s_c, k], M.Y[ei, k] - M.Y[s_c, k]) if k >= 0 else np.array([np.inf])
-                near = np.where(np.isfinite(d), d <= LOCAL_CM, False)
-                rec_["local_open"] = bool(k >= 0 and M.G_round[k] == rn
-                                          and (drawn[ei, k] & (M.sees[s_c, ei, k] | near)).any())
-                rec_["lead_ms"] = lead
-                rec_["enemy_first"] = team_of[first.actor] != C
-                inst["_gate_onset"].append(rec_)
+        inst["_gate_onset"] += gate_onset_rows(M, key, tl, eps, team_of, idx)
         duels = [e for e in eps if e["kind"] == "duel"]
         for rn, winner in res.items():
             r = rounds[rn]
@@ -1324,6 +1336,21 @@ def record_value() -> int:
     return 0
 
 
+def gate_onset_summary(go: list[dict]) -> dict:
+    """Pooled gate-onset rows: open shares, local share, lead quantiles."""
+    miss = [r for r in go if not r["open_0"]]
+    leads = [r["lead_ms"] for r in go if r["lead_ms"] is not None]
+    return {
+        "n": len(go), "open_0": round(float(np.mean([r["open_0"] for r in go])), 4),
+        "open_250": round(float(np.mean([r["open_250"] for r in go])), 4),
+        "open_500": round(float(np.mean([r["open_500"] for r in go])), 4),
+        "local_open": round(float(np.mean([r["local_open"] for r in go])), 4),
+        "lead_ms_p50": round(float(np.median(leads)), 1) if leads else None,
+        "lead_ms_p10": round(float(np.percentile(leads, 10)), 1) if leads else None,
+        "misses": len(miss),
+        "miss_enemy_first": round(float(np.mean([r["enemy_first"] for r in miss])), 4) if miss else None}
+
+
 def run_value() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     lad, lmeta = ladder_instances()
@@ -1356,17 +1383,7 @@ def run_value() -> int:
                               "with_entry": len(em)}
     go = rep.get("_gate_onset", [])
     if go:
-        miss = [r for r in go if not r["open_0"]]
-        leads = [r["lead_ms"] for r in go if r["lead_ms"] is not None]
-        res["extra"]["gate_onset"] = {
-            "n": len(go), "open_0": round(float(np.mean([r["open_0"] for r in go])), 4),
-            "open_250": round(float(np.mean([r["open_250"] for r in go])), 4),
-            "open_500": round(float(np.mean([r["open_500"] for r in go])), 4),
-            "local_open": round(float(np.mean([r["local_open"] for r in go])), 4),
-            "lead_ms_p50": round(float(np.median(leads)), 1) if leads else None,
-            "lead_ms_p10": round(float(np.percentile(leads, 10)), 1) if leads else None,
-            "misses": len(miss),
-            "miss_enemy_first": round(float(np.mean([r["enemy_first"] for r in miss])), 4) if miss else None}
+        res["extra"]["gate_onset"] = gate_onset_summary(go)
     pl = lad.get("_plant", [])
     res["extra"]["plant"] = {"planted_rounds": len(pl) // 2,
                              "attack_win_after_plant": round(float(np.mean([r["won"] for r in pl if r["attack"]])), 4) if pl else None}
