@@ -504,6 +504,46 @@ live-phase local gate at 0.5 Hz base (`Lp0.5-250w5`) reads
 today's slot reads and agrees with T1 on at least 0.95 of the sight
 questions; strict execute and rotation timing fall below it.
 
+**Revision of 2026-10-07** (the player): agreement between two noisy
+timelines measures consistency, not accuracy, so QA5r2 scores each
+scheduled arm against T1 and compares it with the 15 Hz real-read arm on
+the same instances. The bar was set after the pilot
+`prototypes/real_reader_schedule.py` (task `real-reader-schedule-20261007`)
+had run, so its verdicts on those arms are post hoc. Under it, `Vgate-d`
+(the real gate, each read moved off frames whose widget is not drawn) reads
+[metric:real_reader_schedule/qa5r2/Vgate-d@dev2#share=0.0409] of the 15 Hz
+slot reads. It holds contacts within the bar
+([metric:real_reader_schedule/qa5r2/Vgate-d@dev2#contact_C.loss=-0.0072])
+but loses
+[metric:real_reader_schedule/qa5r2/Vgate-d@dev2#first_sight_support.loss=-0.0833]
+on first-sight support and
+[metric:real_reader_schedule/qa5r2/Vgate-d@dev2#opening_first_seer.loss=-0.0625]
+on the opening first seer. No arm yet passes.
+Under QA5r3, the interval rule the player chose after seeing these numbers,
+the real-gate `Vgate` passes post hoc at a read share of
+[metric:real_reader_schedule/qa5r3/Vgate@dev2#share=0.0283], its
+spacing-at-death loss of
+[metric:real_reader_schedule/qa5r3/Vgate@dev2#spacing_death.loss=-0.0807]
+having an interval that ends at
+[metric:real_reader_schedule/qa5r3/Vgate@dev2#spacing_death.ci_hi=-0.0305].
+The reach questions that replace radius spacing, on the enemy belief's walk
+model (`join_death`, teammates who can reach a cell seeing the killer within
+5 m; `join_choice`, whether such a teammate joined within 5 s; and
+`spacing_region`, the nearest teammate's callout region against the
+victim's), lose
+[metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#join_death.loss=-0.0062],
+[metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#join_choice.loss=-0.0471]
+and
+[metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#spacing_region.loss=-0.0497]
+under `Vgate` against
+[metric:real_reader_schedule/reach/Vgate_vs_V15h@dev2#spacing_death.loss=-0.0807]
+for spacing at death.
+
+| Ref | Revises | Prediction |
+|---|---|---|
+| QA5r2 | QA5r | per sight question, the arm's accuracy against T1 is at most 0.03 below the 15 Hz real-read arm's on the same instances (the loss from paired flips, point estimate; a 95% paired bootstrap interval over rounds reported beside); read share at most 0.06 of the stored 15 Hz reads |
+| QA5r3 | QA5r2 | the same accuracy, loss and interval; a sight question fails only when the interval's upper end lies below -0.05; the point estimate is reported beside; read share at most 0.06 of the stored 15 Hz reads |
+
 ## 8. Build list, in order
 
 Costs are agent sessions (one contained implementation each) and compute,
