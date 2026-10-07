@@ -119,7 +119,7 @@ class ArrayTimeline(Timeline):
 
     def __init__(self, match: str, map_name: str, slots: list[Slot], tracks: dict,
                  events: list[Event], source: str = "truth", stamps: dict | None = None,
-                 max_gap_ms: float = 250.0, alive_fn=None):
+                 max_gap_ms: float = 250.0, alive_fn=None, children: "ChildTable | None" = None):
         self.match, self.map, self.source = match, map_name, source
         self.slots = list(slots)
         self.tracks = tracks
@@ -127,6 +127,9 @@ class ArrayTimeline(Timeline):
         self.stamps = dict(stamps or {})
         self.max_gap_ms = max_gap_ms
         self._alive_fn = alive_fn
+        #: The slots' ability children, a table apart from `slots` and
+        #: `sample` so every player-only consumer reads what it read before.
+        self.children = children
 
     def sample(self, t) -> dict:
         t = np.atleast_1d(np.asarray(t, float))
@@ -151,6 +154,88 @@ class ArrayTimeline(Timeline):
         alive = (self._alive_fn(t) if self._alive_fn is not None else alive_from_events(self, t))
         out["alive"] = alive & np.isfinite(out["x"])
         return out
+
+
+class ChildTable:
+    """The replay layer's `child:` entities: every ability actor, the ult
+    orbs and the spike, with owner, side, life and position (REPLAY_LAYER.md).
+
+    `cols` holds one numpy column per child: `entity_id`, `guid`, `cls`
+    (the actor class), `role`, `agent`, `subject` and `team` of the owner,
+    `side_rel` (to the capturing player), `ability`, `tray_key`, `mapped`,
+    `unmapped_reason`, `round` (the layer's 0-based round), `t_open`,
+    `t_close` (NaN where the layer saw no close), `close_basis`, `spawn_x`,
+    `spawn_y` and `n_ticks`. The ticks are flat arrays sorted by child and
+    time; a child with one tick (its spawn) is static.
+
+    `position` follows `replay_layer.Layer.state_at`: linear between ticks at
+    most `max_gap_ms` apart, else the last tick at or before `t` holds;
+    before the first tick, NaN. Life is the caller's: this table states only
+    where each child is."""
+
+    def __init__(self, cols: dict, tick_c, tick_t, tick_x, tick_y, max_gap_ms: float):
+        self.cols = cols
+        self.n = int(len(cols["entity_id"]))
+        o = np.lexsort((np.asarray(tick_t, float), np.asarray(tick_c, np.int64)))
+        self.tick_c = np.asarray(tick_c, np.int64)[o]
+        self.tick_t = np.asarray(tick_t, float)[o]
+        self.tick_x = np.asarray(tick_x, float)[o]
+        self.tick_y = np.asarray(tick_y, float)[o]
+        self.start = np.searchsorted(self.tick_c, np.arange(self.n), side="left")
+        self.end = np.searchsorted(self.tick_c, np.arange(self.n), side="right")
+        self.max_gap_ms = float(max_gap_ms)
+
+    def position(self, c, t) -> tuple[np.ndarray, np.ndarray]:
+        """World x, y (cm) of child `c[i]` at replay ms `t[i]`, vectorised."""
+        c = np.asarray(c, np.int64)
+        t = np.asarray(t, float)
+        x = np.full(c.size, np.nan)
+        y = np.full(c.size, np.nan)
+        if c.size == 0 or self.tick_t.size == 0:
+            return x, y
+        s, e = self.start[c], self.end[c]
+        # the last tick at or before t within the child's span: one
+        # searchsorted on (child, time) keys, the ticks sorted by both
+        big = float(max(np.nanmax(np.abs(self.tick_t)), np.nanmax(np.abs(t)))) * 4.0 + 1.0
+        key = self.tick_c * big + self.tick_t
+        i = np.searchsorted(key, c * big + t, side="right") - 1
+        ok = (i >= s) & (e > s)
+        i0 = np.where(ok, i, 0)
+        i1 = np.minimum(i0 + 1, self.tick_t.size - 1)
+        has_next = ok & (i0 + 1 < e)
+        t0, t1 = self.tick_t[i0], self.tick_t[i1]
+        lerp = has_next & ((t1 - t0) <= self.max_gap_ms) & (t1 > t0)
+        w = np.where(lerp, (t - t0) / np.where(t1 > t0, t1 - t0, 1.0), 0.0)
+        x[ok] = (self.tick_x[i0] * (1 - w) + self.tick_x[i1] * w)[ok]
+        y[ok] = (self.tick_y[i0] * (1 - w) + self.tick_y[i1] * w)[ok]
+        return x, y
+
+
+def children_from_layer(L, max_gap_ms: float) -> ChildTable:
+    """The layer's `child:` entities as a `ChildTable` (`L` a loaded
+    `replay_layer.Layer`)."""
+    E, T = L.entities, L.ticks
+    idx = np.flatnonzero(E["kind"] == "child")
+    pos = np.full(len(E["kind"]), -1, np.int64)
+    pos[idx] = np.arange(idx.size)
+
+    def col(name, num=False):
+        v = E[name][idx] if name in E else np.full(idx.size, None, object)
+        if num:
+            return np.array([np.nan if a is None else float(a) for a in v], float)
+        return np.asarray(v, dtype=object)
+
+    keep = np.isin(T["e"], idx)
+    tick_c = pos[T["e"][keep]]
+    n_ticks = np.bincount(tick_c, minlength=idx.size)
+    cols = {"entity_id": col("entity_id"), "guid": col("guid"), "cls": col("class"), "role": col("role"),
+            "agent": col("agent"), "subject": col("subject"), "team": col("team"),
+            "side_rel": col("side_rel"), "ability": col("ability"), "tray_key": col("tray_key"),
+            "mapped": col("mapped"), "unmapped_reason": col("unmapped_reason"),
+            "round": col("round", num=True), "t_open": col("t_open_rep", num=True),
+            "t_close": col("t_close_rep", num=True), "close_basis": col("close_basis"),
+            "spawn_x": col("spawn_x", num=True), "spawn_y": col("spawn_y", num=True), "n_ticks": n_ticks}
+    return ChildTable(cols, tick_c, T["t_rep"][keep], T["x"][keep], T["y"][keep], max_gap_ms)
 
 
 def alive_from_events(tl: Timeline, t: np.ndarray) -> np.ndarray:
@@ -1298,8 +1383,10 @@ def from_replay_layer(key: str, root=DEFAULT_STORE) -> ArrayTimeline:
               "held_out": bool(L.head.get("held_out")),
               "round_numbering": "1-based: the layer's round + 1"}
     map_url = (L.head.get("provenance") or {}).get("map")
+    # level 1's ability children, a table apart from the slots (`ChildTable`)
     return ArrayTimeline(L.match, map_url or "", slots, tracks, events, source="truth",
-                         stamps=stamps, max_gap_ms=MAX_GAP_MS, alive_fn=alive_fn)
+                         stamps=stamps, max_gap_ms=MAX_GAP_MS, alive_fn=alive_fn,
+                         children=children_from_layer(L, MAX_GAP_MS))
 
 
 # ----------------------------------------------------------------- staleness
