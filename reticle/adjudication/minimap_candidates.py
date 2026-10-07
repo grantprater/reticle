@@ -21,7 +21,19 @@ from ..spike import on_glyph
 #: 0.3.0: the stacked-icon search's members (channel `stack`, ally-icon-0.11.0)
 #: are decided after the frame's ring fits (`_stack_decisions`); ring-fit
 #: decisions are unchanged.
-MINIMAP_ICON_DECISION_VERSION = "minimap-icon-decision-0.3.0"
+#: 0.4.0: the glyph distance and the separation are base values times the
+#: scale the candidate was read at (`scale`, the map's: widget x zoom, from
+#: ally-icon-0.15.0); a candidate stored before carries only `widget_scale`,
+#: the scale its reader used, and is decided at that.
+MINIMAP_ICON_DECISION_VERSION = "minimap-icon-decision-0.4.0"
+
+
+def _scale(row: dict) -> float:
+    """The scale a stored candidate's icon lengths take: the map's scale it
+    was read at (`scale`), else, on a candidate stored before
+    ally-icon-0.15.0, the widget scale its reader read it at."""
+    s = row.get("scale")
+    return float(s) if s is not None else float(row["widget_scale"])
 
 #: A stacked-icon member within this share of the icon's outer radius of an
 #: accepted ring fit (or the self fit) is that icon found again. Two
@@ -53,7 +65,7 @@ def ally_decisions(rows: list[dict]) -> list[dict]:
             if row["cov"] < ALLY_COV_MIN or row["inner"] > ALLY_INNER_MAX:
                 reason = "shape_gate"
             elif on_glyph(row["cx"], row["cy"], row.get("spike_glyphs") or [],
-                          row["widget_scale"], shaped[row["frame_idx"]]) is not None:
+                          _scale(row), shaped[row["frame_idx"]]) is not None:
                 # The fit is the spike glyph (`spike.on_glyph`). Candidates
                 # stored before ally-icon-0.5.0 carry no glyphs and pass.
                 reason = "on_spike_glyph"
@@ -62,7 +74,7 @@ def ally_decisions(rows: list[dict]) -> list[dict]:
             else:
                 preferred = next((k for k in kept if hypot(
                     row["cx"] - k["cx"], row["cy"] - k["cy"]) <
-                    MIN_ICON_SEPARATION_PX * row["widget_scale"]), None)
+                    MIN_ICON_SEPARATION_PX * _scale(row)), None)
                 if preferred is not None:
                     reason = "nearer_fit_preferred"
             if channel == "self" and reason is None and kept:
@@ -126,7 +138,7 @@ def _stack_decisions(members: list[dict], held: list[tuple[dict, str]],
         same = min(((hypot(row["cx"] - h["cx"], row["cy"] - h["cy"]), h["candidate_key"])
                     for h, _ in held), default=None)
         if on_glyph(row["cx"], row["cy"], row.get("spike_glyphs") or [],
-                    row["widget_scale"], shaped) is not None:
+                    _scale(row), shaped) is not None:
             decide(row, "rejected", "on_spike_glyph")
         elif row["map_diff"] is not None and row["map_diff"] < ALLY_MAP_DIFF_MIN:
             decide(row, "rejected", "interior_is_map")

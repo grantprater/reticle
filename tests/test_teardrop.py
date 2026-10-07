@@ -42,58 +42,45 @@ class TeardropTests(unittest.TestCase):
         with patch("reticle.teardrop.fit_teardrop", return_value=fit):
             return teardrop.SelfConeReader(scale=scale).read(np.zeros((80, 80, 3), np.uint8), 42.0, 40.0)
 
-    def test_the_331_px_self_facing_gate_is_the_labels_0_55(self):
-        # The player's 331 px labels: reads at NCC 0.50-0.55 flip on almost half,
-        # from 0.55 on one in 26 (docs/STATISTICAL_ADJUDICATOR.md, E13).
-        self.assertEqual(teardrop.self_facing_gate(331 / 465), (0.55, "low_ncc_labelled_gate"))
-        kept = self._self_read(0.55, 331 / 465)
-        self.assertEqual((kept["deg"], kept.get("facing_reason")), (120.0, None))
-        o = self._self_read(0.549, 331 / 465)
-        self.assertEqual((o["x"], o["y"], o["deg"], o["origin"], o["facing_reason"]),
-                         (40.5, 39.5, None, "teardrop", "low_ncc_labelled_gate"))
-
-    def test_a_low_ncc_self_read_off_the_labelled_scales_gives_the_centre_and_no_facing(self):
-        o = self._self_read(0.58, 400 / 465)
-        self.assertEqual((o["x"], o["y"], o["deg"], o["origin"], o["facing_reason"]),
-                         (40.5, 39.5, None, "teardrop", "low_ncc_unlabelled_scale"))
-        self.assertEqual(self._self_read(0.6, 400 / 465)["deg"], 120.0)
-        # The labels cover scale 1.0 and do not support a gate there.
-        labelled = self._self_read(0.51, 1.0)
-        self.assertEqual((labelled["deg"], labelled.get("facing_reason")), (120.0, None))
-        det ={"cx": 42.0, "cy": 40.0, "facing": 300.0}
+    def test_one_self_facing_gate_at_every_scale(self):
+        # The per-size table is retired (teardrop-0.5.0): NCC is a correlation,
+        # which no scale moves, so 465 px, 331 px and any other size share 0.6.
+        for scale in (1.0, 331 / 465, 0.637, 400 / 465):
+            self.assertEqual(teardrop.self_facing_gate(scale), (0.6, "low_ncc_facing_gate"))
+            kept = self._self_read(0.6, scale)
+            self.assertEqual((kept["deg"], kept.get("facing_reason")), (120.0, None))
+            o = self._self_read(0.59, scale)
+            self.assertEqual((o["x"], o["y"], o["deg"], o["origin"], o["facing_reason"]),
+                             (40.5, 39.5, None, "teardrop", "low_ncc_facing_gate"))
+        self.assertFalse(hasattr(teardrop, "SELF_FACING_GATES"))
+        det = {"cx": 42.0, "cy": 40.0, "facing": 300.0}
         self.assertEqual({k: teardrop.posed(det, o, ring_facing=False)[k]
                           for k in ("cx", "facing", "facing_source")},
                          {"cx": 40.5, "facing": None, "facing_source": None})
         self.assertEqual({k: teardrop.posed(det, o)[k] for k in ("cx", "facing", "facing_source")},
                          {"cx": 40.5, "facing": 300.0, "facing_source": "ring_fit"})
 
-    def test_the_self_portrait_stays_at_the_ring_fit_off_the_labelled_scale(self):
+    def test_the_self_portrait_takes_the_teardrop_at_every_scale(self):
         read = {"origin": "teardrop", "x": 40.5, "y": 39.5, "deg": 120.0, "ncc": 0.7}
-        self.assertIs(teardrop.self_portrait_pose(read, 1.0, 42.0, 40.0), read)
-        off = teardrop.self_portrait_pose(read, 331 / 465, 42.0, 40.0)
-        self.assertEqual((off["origin"], off["x"], off["y"], off["deg"], off["reason"]),
-                         ("ring_fit", 42.0, 40.0, None, "unlabelled_scale"))
-        # Unfitted (pose None), the answer is the same centre with no NCC.
-        skip = teardrop.self_portrait_pose(None, 331 / 465, 42.0, 40.0)
-        self.assertEqual({k: skip[k] for k in ("origin", "x", "y", "deg", "reason")},
-                         {k: off[k] for k in ("origin", "x", "y", "deg", "reason")})
-        self.assertIsNone(skip["ncc"])
+        for scale in (1.0, 331 / 465, 0.637):
+            self.assertIs(teardrop.self_portrait_pose(read, scale, 42.0, 40.0), read)
+        self.assertFalse(hasattr(teardrop, "LABELLED_SCALES"))
         with self.assertRaises(ValueError):
-            teardrop.self_portrait_pose(None, 1.0, 42.0, 40.0)
+            teardrop.self_portrait_pose(None, 0.637, 42.0, 40.0)
 
-    def test_the_ally_reader_skips_the_self_fit_off_the_labelled_scale(self):
+    def test_the_ally_reader_fits_the_self_teardrop_at_every_scale(self):
         from reticle.minimap import AllyIconReader
         rd = AllyIconReader.__new__(AllyIconReader)
         f = {"cx": 42.0, "cy": 40.0, "r": 7, "cov": 1.0, "inner": 0.0, "facing": 300.0}
         crop = _crop(40.5, 39.5, 120.0)
-        with patch("reticle.teardrop.fit_teardrop", side_effect=AssertionError("fitted")):
-            out = rd._posed(crop, f, "self", 331 / 465)
-        self.assertEqual((out["cx"], out["cy"], out["facing"], out["facing_source"]),
-                         (42.0, 40.0, 300.0, "ring_fit"))
-        self.assertEqual(out["pose"], {"origin": "ring_fit", "ncc": None,
-                                       "reason": "unlabelled_scale", "facing_reason": None})
-        # At 465 px the self teardrop places the portrait, so it is fitted.
-        self.assertEqual(rd._posed(crop, f, "self", 1.0)["pose"]["origin"], "teardrop")
+        fit = {"read": True, "x": 40.5, "y": 39.5, "deg": 120.0, "ncc": 0.7}
+        for scale in (0.637, 1.0):
+            rd._pose_readers = None
+            with patch("reticle.teardrop.fit_teardrop", return_value=fit) as fitted:
+                out = rd._posed(crop, f, "self", scale)
+            fitted.assert_called_once()
+            self.assertEqual((out["pose"]["origin"], out["cx"], out["cy"]),
+                             ("teardrop", 40.5, 39.5))
 
     def test_a_repeated_image_returns_the_fit_a_fresh_one_gives(self):
         crop = _crop(40.0, 40.0, -60.0)

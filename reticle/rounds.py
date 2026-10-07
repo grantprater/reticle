@@ -503,9 +503,10 @@ def starting_side(rounds: list[dict], spike_rows: list[dict] | None,
     if not spike_rows or not carrier_rows:
         out["reason"] = "spike_unread"
         return out
-    from .adjudication.spike_carrier import frame_state
+    from .adjudication.spike_carrier import frame_state, head_scale
     head = spike_rows[0]
-    sc = float(head.get("widget_scale") or 1.0)
+    # Only `slot` and `glyph` are read here, which no scale moves.
+    sc = head_scale(head)
     agreed = np.asarray(sorted(
         st["t_ms"] for st in (frame_state(r, sc) for r in spike_rows[1:]
                               if r.get("kind") == "frame")

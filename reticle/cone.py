@@ -119,6 +119,9 @@ RAY_CHUNK = 48
 #: (`track.FIT_ERR_PX`), and a one-pixel wall under it would otherwise end every
 #: ray at step 0 -- E1b found the cone dying at its origin while the game drew
 #: the light, and a wall read from the static puts a line under 4-9% of icons.
+#: A base length: a caller passes `snap_px` = ORIGIN_SNAP_PX times the map's
+#: scale (`geometry.drawn_scale`); `snap_origin` without one takes the
+#: widget's width over the reference widget's.
 ORIGIN_SNAP_PX = 2.0
 
 
@@ -142,6 +145,7 @@ def snap_origin(passable: np.ndarray, cx: float, cy: float, facing_deg: float,
     if passable[yi, xi]:
         return float(cx), float(cy)
     if max_px is None:
+        # No caller scale: the widget's alone (465 px, the reference widget).
         max_px = ORIGIN_SNAP_PX * w / 465.0
     r = int(np.ceil(max_px))
     ys, xs = np.mgrid[max(0, yi - r):min(h, yi + r + 1), max(0, xi - r):min(w, xi + r + 1)]
@@ -384,7 +388,8 @@ def compare_evidence(mask: np.ndarray, lit: np.ndarray,
 def resolve_lobe(passable: np.ndarray, lit: np.ndarray, dets, *,
                  visible: np.ndarray | None = None,
                  known: np.ndarray | None = None,
-                 half_angle_deg: float = CONE_HALF_ANGLE_DEG):
+                 half_angle_deg: float = CONE_HALF_ANGLE_DEG,
+                 snap_px: float | None = None):
     """Settle each detection's 180-degree ambiguity against the drawn light.
 
     **A cross-reference, not a better fit.** `fit_ring` reads a bearing from a
@@ -429,7 +434,8 @@ def resolve_lobe(passable: np.ndarray, lit: np.ndarray, dets, *,
         best, best_score = deg, -1.0
         for cand in (float(deg), (float(deg) + 180.0) % 360.0):
             # One cone's `observable` is its `raycast`; cast it directly.
-            m = raycast(passable, e["cx"], e["cy"], cand, half_angle_deg, visible)
+            m = raycast(passable, e["cx"], e["cy"], cand, half_angle_deg, visible,
+                        snap_px=snap_px)
             if known is None:
                 area = float(np.count_nonzero(m))
                 score = float(np.count_nonzero(m & lit)) / area if area else 0.0
@@ -452,8 +458,11 @@ def resolve_lobe(passable: np.ndarray, lit: np.ndarray, dets, *,
 def observable(passable: np.ndarray, icons, *,
                half_angle_deg: float = CONE_HALF_ANGLE_DEG,
                visible: np.ndarray | None = None,
-               n_rays: int = N_RAYS, max_r: int | None = None):
+               n_rays: int = N_RAYS, max_r: int | None = None,
+               snap_px: float | None = None):
     """The collective team viewcone: the union of every icon's cone.
+
+    `snap_px` is `ORIGIN_SNAP_PX` times the map's scale (`raycast`).
 
     `icons` is an iterable of `(cx, cy, facing_deg)`, or of
     `(cx, cy, facing_deg, half_angle_deg)` where one emitter's field of view
@@ -488,7 +497,7 @@ def observable(passable: np.ndarray, icons, *,
             per_icon.append(np.zeros(passable.shape, dtype=bool))
             continue
         per_icon.append(raycast(passable, cx, cy, deg, half, visible,
-                                n_rays=n_rays, max_r=max_r))
+                                n_rays=n_rays, max_r=max_r, snap_px=snap_px))
     return union(per_icon, passable.shape), per_icon
 
 

@@ -337,7 +337,7 @@ class Grouper:
         self.groups.append([(t, x, y, hue)])
 
 
-def sightings(crop: np.ndarray, floor: np.ndarray):
+def sightings(crop: np.ndarray, floor: np.ndarray, scale: float | None = None):
     """Saturated blobs of ping size sitting on the opaque floor.
 
     The only place pixels are looked at, so it is the whole definition of a
@@ -349,10 +349,15 @@ def sightings(crop: np.ndarray, floor: np.ndarray):
     these fixed would silently reject every ping on the smaller widget, where
     a diamond measured at 8x8 here arrives at about 6x6. AREA is an area and
     scales as the square; SIDE is a length and scales linearly.
-    """
-    from .minimap import widget_scale
 
-    sc = widget_scale(crop.shape[1])
+    The glyph is drawn at the map's scale, not the widget's alone
+    [domain:minimap/icons-follow-map-zoom]: `scale` is the session's
+    `geometry.MapScale.scale` (ping-0.3.0), and None the widget's scale
+    (`minimap.drawn_scale`), which is about 12% too large on a 331 px key.
+    """
+    from .minimap import drawn_scale
+
+    sc = drawn_scale(crop.shape[1], scale)
     a_lo, a_hi = AREA[0] * sc * sc, AREA[1] * sc * sc
     s_lo, s_hi = SIDE[0] * sc, SIDE[1] * sc
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
@@ -451,14 +456,18 @@ class PingReader:
     every colour test in this repo has eventually tripped over.
     """
 
-    def __init__(self, floor, box, sgray=None, name="ping", hz=10.0, spans=None):
+    def __init__(self, floor, box, sgray=None, name="ping", hz=10.0, spans=None,
+                 scale: float | None = None):
         self.name, self.hz, self.spans = name, hz, spans
         self.box = box
         self.floor = floor
         self.sgray = sgray
-        from .minimap import widget_scale
+        from .minimap import drawn_scale
 
-        self.g = Grouper(hz, scale=widget_scale(box[2] - box[0]))
+        #: The map's scale (`geometry.drawn_scale`), which the size gates and
+        #: the grouping distance take; None, the widget's (`drawn_scale`).
+        self.scale = drawn_scale(box[2] - box[0], scale)
+        self.g = Grouper(hz, scale=self.scale)
         self.ts: list[float] = []
         self.n_absent = 0
         self.hits: list = []
@@ -479,7 +488,7 @@ class PingReader:
             return
         t = smp.t_ms / 1000.0
         self.ts.append(t)
-        for x, y, hue in sightings(crop, self.floor):
+        for x, y, hue in sightings(crop, self.floor, self.scale):
             self.g.add(t, x, y, hue)
 
     def finish(self):

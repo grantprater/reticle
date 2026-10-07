@@ -66,6 +66,16 @@ def _alive_at(rt: np.ndarray, ra: list[int], t: float) -> int | None:
     return ra[j] if abs(rt[j] - t) <= 1000.0 and ra[j] >= 0 else None
 
 
+def head_scale(head: dict) -> float:
+    """The scale a stored `spike` read's icon offsets take: the map's
+    (`map_scale.scale`, widget x zoom, which spike-0.3.0 heads store), else
+    the head's `widget_scale`, the scale an older read was taken at."""
+    ms = head.get("map_scale") or {}
+    if ms.get("scale") is not None:
+        return float(ms["scale"])
+    return float(head.get("widget_scale") or 1.0)
+
+
 def frame_state(row: dict, sc: float) -> dict:
     """One grid frame's spike state from its stored reading: `glyph`
     ("carried", "dropped", "none" or None where the minimap was not read),
@@ -92,7 +102,7 @@ def check(rows: list[dict], rounds: list[dict] | None, roster_t, roster_alive) -
     rows: a coverage row first. `roster_t`/`roster_alive` are the stored
     roster's times and ally alive counts (-1 unread)."""
     head = rows[0]
-    sc = float(head.get("widget_scale") or 1.0)
+    sc = head_scale(head)
     states = [frame_state(r, sc) for r in rows[1:] if r.get("kind") == "frame"]
     rt = np.asarray(roster_t, float)
     ra = [int(a) for a in roster_alive]

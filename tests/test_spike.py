@@ -106,11 +106,11 @@ class GameTextureTest(unittest.TestCase):
         self.assertEqual(len(got["dropped"]), len(spike.BOX_FRACTIONS))
         self.assertAlmostEqual(max(got["dropped"]), 24 * max(spike.BOX_FRACTIONS) * 0.6315, places=1)
         self.assertAlmostEqual(max(got["carried"]), 18 * max(spike.BOX_FRACTIONS) * 0.6315, places=1)
-        # Without a MapScale the same number of boxes spans every baked zoom.
-        wide = spike.drawn_boxes(331)["dropped"]
-        self.assertEqual(len(wide), len(spike.BOX_FRACTIONS))
-        self.assertLess(min(wide), min(got["dropped"]) + 0.01)
-        self.assertGreater(max(wide), max(got["dropped"]))
+        # Without a scale the boxes take the widget's (`minimap.drawn_scale`);
+        # the zoom band (ZOOM_RANGE) is retired (spike-0.4.0).
+        plain = spike.drawn_boxes(331)["dropped"]
+        self.assertEqual(plain, spike.drawn_boxes(331, 331 / 465)["dropped"])
+        self.assertFalse(hasattr(spike, "ZOOM_RANGE"))
 
     def test_reads_a_glyph_at_a_named_scale(self):
         crop = _crop(331, 331)

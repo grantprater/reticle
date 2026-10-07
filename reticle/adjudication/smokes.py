@@ -36,7 +36,7 @@ import cv2
 import numpy as np
 
 from ..lighting import unpack_mask
-from ..minimap import widget_scale
+from ..minimap import drawn_scale
 from ..version import SMOKE_VERSION
 
 #: Smallest birth component on the reference widget, as `lighting.MIN_BLOB_PX`.
@@ -60,8 +60,12 @@ MIN_LIFE_S = 1.0
 MAX_GAP_PERIODS = 3.0
 
 
-def tracks(rows: list[dict], known: np.ndarray, menu=None) -> list[dict]:
+def tracks(rows: list[dict], known: np.ndarray, menu=None,
+           scale: float | None = None) -> list[dict]:
     """Smoke tracks from one session's `minimap_dark` rows, in time order.
+    A smoke is a world drawing [domain:minimap/world-drawings-follow-map-zoom]:
+    the birth area and the dedup radius are base values times `scale`, the
+    map's (`geometry.drawn_scale`; None, the widget's, smoke-0.5.0).
     A frame the stored menu witness `menu(t_ms)` (`menu.MenuWitness.at`)
     finds covered is unobserved, as an undrawn widget is: the menu dims the
     widget, which still passes the widget test [domain:hud/menu-dims-tray]."""
@@ -71,7 +75,7 @@ def tracks(rows: list[dict], known: np.ndarray, menu=None) -> list[dict]:
     gone_n = max(1, math.ceil(GONE_S * hz))
     H, W = known.shape
     YY, XX = np.ogrid[:H, :W]
-    sc = widget_scale(W)
+    sc = drawn_scale(W, scale)
     area_min = AREA_MIN_REF * sc * sc
     open_k = np.ones((3, 3), np.uint8)
     live: list[dict] = []
@@ -171,14 +175,15 @@ def tracks(rows: list[dict], known: np.ndarray, menu=None) -> list[dict]:
 
 
 def events(session_id: str, rows: list[dict], known: np.ndarray, menu=None,
-           menu_stamp: str | None = None) -> list[dict]:
+           menu_stamp: str | None = None, scale: float | None = None) -> list[dict]:
     """`smoke` rows: one coverage row, then one row per track."""
     src = next((r for r in rows if r.get("kind") == "coverage"), {})
-    got = tracks(rows, known, menu)
+    got = tracks(rows, known, menu, scale)
     common = {"session_id": session_id, "smoke_version": SMOKE_VERSION,
               "menu_open": menu_stamp,
               "minimap_dark_version": src.get("minimap_dark_version"),
-              "geometry_key": src.get("geometry_key")}
+              "geometry_key": src.get("geometry_key"),
+              "scale": None if scale is None else round(float(scale), 5)}
     head = {**common, "kind": "coverage", "tracks": len(got),
             "observed_ends": sum(t["end_status"] == "observed" for t in got)}
     return [head] + [{**common, "kind": "track", **t} for t in got]

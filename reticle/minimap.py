@@ -84,6 +84,17 @@ def widget_scale(width_px: float) -> float:
     return float(width_px) / REF_WIDGET_W
 
 
+def drawn_scale(width_px: float, scale: float | None = None) -> float:
+    """The scale a map-drawn size (an icon, a glyph, a world length) takes:
+    `scale`, the caller's `geometry.MapScale.scale` (widget x map zoom), or,
+    for a caller that holds no session (prototypes, tests, synthetic crops),
+    the widget's scale. The two agree on every 465 px key; on a 331 px key
+    the widget's alone is about 12% too large
+    [domain:minimap/icons-follow-map-zoom], so every reader in `reticle/`
+    passes `scale` (doctor SCALE checks the calls)."""
+    return widget_scale(width_px) if scale is None else float(scale)
+
+
 def _odd(n: float, lo: int = 3) -> int:
     """Nearest odd kernel size, floored -- an even structuring element is off-centre."""
     k = max(lo, int(round(n)))
@@ -820,11 +831,12 @@ def _facing_from(reach, r):
     return float(np.degrees(np.arctan2(ys_, xs_)))
 
 
-def _rings(mask: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]]:
+def _rings(mask: np.ndarray, floor: np.ndarray,
+           scale: float | None = None) -> list[tuple[int, float, float]]:
     # AREA scales as the SQUARE of the linear scale; the closing kernel is a
     # length and scales linearly. Getting those two the same way round is the
     # whole content of this change.
-    sc = widget_scale(mask.shape[1])
+    sc = drawn_scale(mask.shape[1], scale)
     m = cv2.morphologyEx((mask & floor).astype(np.uint8), cv2.MORPH_CLOSE,
                          np.ones((_odd(3 * sc), _odd(3 * sc)), np.uint8))
     n, _lab, st, cen = cv2.connectedComponentsWithStats(m, 8)
@@ -851,8 +863,9 @@ def ally_mask(crop: np.ndarray) -> np.ndarray:
             & (ss > ALLY_S_MIN) & (vv > ALLY_V_MIN))
 
 
-def self_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]]:
-    return _rings(self_mask(crop), floor)
+def self_rings(crop: np.ndarray, floor: np.ndarray,
+               scale: float | None = None) -> list[tuple[int, float, float]]:
+    return _rings(self_mask(crop), floor, scale)
 
 
 def portrait_key(img: np.ndarray) -> np.ndarray:
@@ -860,8 +873,9 @@ def portrait_key(img: np.ndarray) -> np.ndarray:
     return ally_mask(img) | self_mask(img)
 
 
-def ally_rings(crop: np.ndarray, floor: np.ndarray) -> list[tuple[int, float, float]]:
-    return _rings(ally_mask(crop), floor)
+def ally_rings(crop: np.ndarray, floor: np.ndarray,
+               scale: float | None = None) -> list[tuple[int, float, float]]:
+    return _rings(ally_mask(crop), floor, scale)
 
 
 # ------------------------------------------------------- icons, not just blobs
@@ -919,8 +933,12 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
           support: np.ndarray | None = None,
           separation_px: float | None = None,
           seed: str = "centroid", gates: bool = True,
-          grey: np.ndarray | None = None) -> list[dict]:
+          grey: np.ndarray | None = None, scale: float | None = None) -> list[dict]:
     """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
+
+    `scale` is the session's `geometry.MapScale.scale`: the radii, the
+    minimum area, the closing kernel and the separation are base values
+    times it (`drawn_scale`; None, the widget's scale).
 
     **`seed` decides where each blob's circle is searched for.** `"centroid"`
     searches +/-`SEARCH` px around the blob's centroid, and every self-position
@@ -965,7 +983,7 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     reading non-minimap content as icons; `floor_mask`'s own docstring names
     the margin as 90.1% outside the painting on this map.
     """
-    sc = widget_scale(crop.shape[1])
+    sc = drawn_scale(crop.shape[1], scale)
     r_min, r_max = max(3, int(round(R_MIN * sc))), max(4, int(round(R_MAX * sc)))
     if min_area is None:
         min_area = max(4, int(round(MIN_ICON_AREA * sc * sc)))
@@ -1154,7 +1172,8 @@ def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
                           support: np.ndarray | None = None,
                           static: np.ndarray | None = None,
                           occluders=(), found: list[dict] | None = None,
-                          keyed: np.ndarray | None = None) -> list[dict]:
+                          keyed: np.ndarray | None = None,
+                          scale: float | None = None) -> list[dict]:
     """Each teammate icon's centre, radius and what its portrait LOOKS like.
 
     The icon is the ally channel's gated fit, supported by the slab.
@@ -1183,7 +1202,7 @@ def ally_icon_descriptors(crop: np.ndarray, floor: np.ndarray,
         keyed = ally_mask(crop) | self_mask(crop)
     if found is None:
         found = ally_icons(crop, floor, support=support, static=static,
-                           keep_barriers=True)
+                           keep_barriers=True, scale=scale)
     out = []
     for f in found:
         win, keep = _interior(f, keyed, found, occluders)
@@ -1257,8 +1276,12 @@ class AllyIconReader:
     live_rounds_only = True
 
     def __init__(self, floor, slab, static, box, hz=ALLY_DESCRIPTOR_HZ,
-                 spans=None, name="ally_icon", stack=None, turned=None):
+                 spans=None, name="ally_icon", stack=None, turned=None,
+                 scale: float | None = None, scale_source=None):
         self.name, self.hz, self.spans = name, hz, spans
+        #: The map's scale (`geometry.drawn_scale`: widget x map zoom) every
+        #: icon length takes; None, the crop's widget scale (`drawn_scale`).
+        self.scale, self.scale_source = scale, scale_source
         self.frames_from = "video"
         self.cv_threads = 1        # small crops: see `passes._feed`
         self.floor, self.slab, self.static, self.box = floor, slab, static, box
@@ -1290,16 +1313,17 @@ class AllyIconReader:
         # Best by coverage, as `self_icons` says a single answer should be.
         # Each channel is fitted once; its gated list is filtered from the
         # raw one, which is what `icons` with `gates` returns.
-        sc = widget_scale(crop.shape[1])
+        # Every icon length is a base value times the map's scale (ally-icon-0.15.0).
+        sc = drawn_scale(crop.shape[1], getattr(self, "scale", None))
         with step("masks"):
             amask, smask = ally_mask(crop), self_mask(crop)
             keyed = amask | smask
             grey8 = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         with step("icons"):
             raw_self = icons(smask, crop, self.floor, support=self.slab, gates=False,
-                             grey=grey8)
+                             grey=grey8, scale=sc)
             raw = icons(amask, crop, self.floor, support=self.slab,
-                        seed="surface", gates=False, grey=grey8)
+                        seed="surface", gates=False, grey=grey8, scale=sc)
         # The ring fit finds each icon; its teardrop supplies the centre and
         # facing every later step reads, where it reads (`teardrop.posed`,
         # ally-icon-0.6.0): the glyph check, the separation, the portrait's
@@ -1323,7 +1347,7 @@ class AllyIconReader:
         # from storage; the gated lists here skip them, as the decisions do.
         from . import spike
         with step("glyph"):
-            glyphs = spike.accepted(spike.glyph_fits(crop, self.slab))
+            glyphs = spike.accepted(spike.glyph_fits(crop, self.slab, scale=sc))
             near = {}
             for f in raw_self + raw:
                 near[id(f)] = [{k: g[k] for k in ("cx", "cy", "state", "side", "ncc", "amp",
@@ -1346,7 +1370,7 @@ class AllyIconReader:
             _mark_barriers(found, keyed, grey, ref)
         with step("descriptors"):
             got = ally_icon_descriptors(crop, self.floor, self.slab, self.static, occ,
-                                        found=found, keyed=keyed)
+                                        found=found, keyed=keyed, scale=sc)
         # The portrait's feature families, on the icon's aligned window of this
         # same crop; upright whatever it faces (`ally_portrait`). On a widget
         # placed turned over, the baked frame holds the portrait upside down
@@ -1362,7 +1386,7 @@ class AllyIconReader:
                          (me["cx"], me["cy"], me["r"])), None)
         for i, f in enumerate(raw_self):
             self.candidates.append({**frame, "channel": "self", "index": i,
-                                    **f, "widget_scale": widget_scale(crop.shape[1]),
+                                    **f, "widget_scale": widget_scale(crop.shape[1]), "scale": sc,
                                     "spike_glyphs": near[id(f)],
                                     "facing_reason": ("lobe_unread" if f["facing"] is None
                                                       else None),
@@ -1398,7 +1422,7 @@ class AllyIconReader:
                 baseline_diff = (float(np.abs(grey[win][keep] - ref[win][keep]).mean())
                                  if keep.any() else None)
             self.candidates.append({**frame, "channel": "ally", "index": i,
-                                    **f, "widget_scale": widget_scale(crop.shape[1]),
+                                    **f, "widget_scale": widget_scale(crop.shape[1]), "scale": sc,
                                     "spike_glyphs": near[id(f)],
                                     "facing_reason": ("lobe_unread" if f["facing"] is None
                                                       else None),
@@ -1448,7 +1472,7 @@ class AllyIconReader:
         refuses a run where a channel had read nothing before."""
         from .teardrop import IconPoseReader, SelfConeReader
         x0, _, x1, _ = self.box
-        sc = widget_scale(x1 - x0)
+        sc = drawn_scale(x1 - x0, getattr(self, "scale", None))
         readers = {"self": SelfConeReader(sc), "ally": IconPoseReader("ally", sc)}
         for r in readers.values():
             r.after_gap(t_ms)
@@ -1508,7 +1532,7 @@ class AllyIconReader:
                 "cov": None, "inner": None, "inner_v": None, "lobe": None, "area": None,
                 "facing": m["deg"] % 360.0, "facing_reason": None,
                 "facing_source": "stack_fit",
-                "widget_scale": sc, "spike_glyphs": near,
+                "widget_scale": widget_scale(crop.shape[1]), "scale": sc, "spike_glyphs": near,
                 "map_diff": diff, "map_diff_reason": None if diff is not None else "interior_unread",
                 "descriptor": [float(v) for v in comp] if comp.size else None,
                 "descriptor_reason": None if comp.size else "interior_too_thin",
@@ -1541,11 +1565,9 @@ class AllyIconReader:
         continues each icon's previous fit and audits it on a fixed cadence
         (the self channel since ally-icon-0.9.1); `ref` is this fit's
         candidate key within the session, which a later fit's `rests_on`
-        names, and `digest` the crop's `teardrop.crop_digest`. On a widget
-        size whose self portrait takes the ring fit's centre (`teardrop.
-        labelled_scale` False) the self channel is not fitted at all: its
-        pose there is `origin` `ring_fit`, `reason` `unlabelled_scale`, `ncc`
-        None.
+        names, and `digest` the crop's `teardrop.crop_digest`. Both
+        channels are fitted at every widget size (ally-icon-0.15.0); `sc` is
+        the map's scale.
 
         The descriptor's disc (`_interior`: the composition, `map_diff` and
         the `interior_too_thin` refusal) stays at the ring fit's centre,
@@ -1556,16 +1578,10 @@ class AllyIconReader:
         identity arbiter's preferred evidence, are aligned at the teardrop's
         centre.
         """
-        from .teardrop import (IconPoseReader, SelfConeReader, labelled_scale, posed,
-                               self_portrait_pose)
+        from .teardrop import IconPoseReader, SelfConeReader, posed, self_portrait_pose
 
         if f["cov"] < ALLY_COV_MIN or f["inner"] > ALLY_INNER_MAX:
             out = posed(f, {"origin": "ring_fit", "reason": "not_shaped"})
-        elif channel == "self" and not labelled_scale(sc):
-            # Here the self portrait takes the ring fit's centre and no facing
-            # whatever the teardrop reads (`self_portrait_pose`), so the fit
-            # is skipped (ally-icon-0.9.0).
-            out = posed(f, self_portrait_pose(None, sc, f["cx"], f["cy"]))
         else:
             readers = getattr(self, "_pose_readers", None)
             if readers is None or readers[0] != sc:
@@ -1668,6 +1684,9 @@ class AllyIconReader:
         refused = Counter(r["reason"] for r in selected if r["reason"])
         rows = [{**common, "kind": "coverage",
                  "frames": len(self.frames),
+                 "scale": (None if getattr(self, "scale", None) is None
+                           else round(float(self.scale), 5)),
+                 "scale_source": getattr(self, "scale_source", None),
                  "widget_absent": sum(1 for f in self.frames if not f["widget_drawn"]),
                  "icons": len(selected),
                  "described": len(selected) - sum(refused.values()),
@@ -1813,7 +1832,9 @@ def ally_icon_reader(ctx, hz: float = ALLY_DESCRIPTOR_HZ, spans=None, floor=None
         slab = slab_mask(med, sd=geometry.stability(ctx.session_id, ctx.store.root,
                                                     med.shape[:2]))
     floor = ctx.floor() if floor is None else floor
-    return AllyIconReader(floor=floor, slab=slab,
+    box = minimap_roi_px(ctx.profile, *ctx.wh)
+    sc, sc_from = geometry.drawn_scale(ctx.session_id, ctx.store.root, box[2] - box[0])
+    return AllyIconReader(floor=floor, slab=slab, scale=sc, scale_source=sc_from,
                           static=med, box=minimap_roi_px(ctx.profile, *ctx.wh), hz=hz,
                           spans=spans,
                           stack=stack_gate(ctx, med, floor, slab) if stack else None,

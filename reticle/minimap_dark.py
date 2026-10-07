@@ -50,12 +50,15 @@ def grey_dark(crop: np.ndarray, ref: lighting.Lighting) -> np.ndarray:
     return lighting.raw_dark(crop, ref) & (sat < SMOKE_SAT_MAX)
 
 
-def occluded(crop: np.ndarray, floor: np.ndarray, static: np.ndarray) -> np.ndarray:
-    """Pixels the player's and teammates' icons cover this frame."""
+def occluded(crop: np.ndarray, floor: np.ndarray, static: np.ndarray,
+             scale: float | None = None) -> np.ndarray:
+    """Pixels the player's and teammates' icons cover this frame. The ring
+    fits read at `scale`, the map's (`geometry.drawn_scale`; None, the
+    widget's)."""
     occ = np.zeros(crop.shape[:2], np.uint8)
-    for s in self_icons(crop, floor, require_facing=False):
+    for s in self_icons(crop, floor, require_facing=False, scale=scale):
         cv2.circle(occ, (int(s["cx"]), int(s["cy"])), int(s["r"]) + SELF_MARGIN_PX, 1, -1)
-    for a in ally_icons(crop, floor, static=static, require_facing=False):
+    for a in ally_icons(crop, floor, static=static, require_facing=False, scale=scale):
         cv2.circle(occ, (int(a["cx"]), int(a["cy"])), int(a["r"]) + ALLY_MARGIN_PX, 1, -1)
     return occ.astype(bool)
 
@@ -71,7 +74,9 @@ def dark_reader(ctx, spans, hz: float = 4.0, floor=None, sgray=None):
         ref = lighting.reference(z)
     if ref is None:
         return None
-    return DarkRegionReader(floor=ctx.floor() if floor is None else floor,
+    box = minimap_roi_px(ctx.profile, *ctx.wh)
+    return DarkRegionReader(scale=geometry.drawn_scale(ctx.session_id, ctx.store.root,
+                                                       box[2] - box[0])[0],floor=ctx.floor() if floor is None else floor,
                             sgray=ctx.sgray() if sgray is None else sgray,
                             static=ctx.map_reference(), ref=ref,
                             box=minimap_roi_px(ctx.profile, *ctx.wh), hz=hz, spans=spans)
@@ -99,8 +104,10 @@ class DarkRegionReader:
     records_clip = True
 
     def __init__(self, floor, sgray, static, ref, box, hz=4.0, spans=None,
-                 name="minimap_dark"):
+                 name="minimap_dark", scale: float | None = None):
         self.name, self.hz, self.spans = name, hz, spans
+        #: The map's scale the icon occluders' ring fits read at.
+        self.scale = scale
         self.frames_from = "video"
         self.cv_threads = 1        # small crops: see `passes._feed`
         self.floor, self.sgray, self.static, self.ref, self.box = floor, sgray, static, ref, box
@@ -118,7 +125,8 @@ class DarkRegionReader:
             return
         self.rows.append({**row, "widget_drawn": True, "reason": None,
                           "grey_dark": lighting.pack_mask(grey_dark(crop, self.ref)),
-                          "occluded": lighting.pack_mask(occluded(crop, self.floor, self.static))})
+                          "occluded": lighting.pack_mask(occluded(crop, self.floor, self.static,
+                                                                   self.scale))})
 
     def events(self, session_id: str, geometry_key: str | None) -> list[dict]:
         common = {"session_id": session_id, "source": "minimap",
@@ -127,7 +135,8 @@ class DarkRegionReader:
                   "geometry_key": geometry_key}
         drawn = sum(r["widget_drawn"] is True for r in self.rows)
         head = {**common, "kind": "coverage", "hz": self.hz, "frames": len(self.rows),
-                "widget_drawn": drawn, "unobserved": len(self.rows) - drawn}
+                "widget_drawn": drawn, "unobserved": len(self.rows) - drawn,
+                "scale": None if self.scale is None else round(float(self.scale), 5)}
         if self.frames_from != "video":
             # Only a cache-fed pass adds the key, so a decode's rows keep their bytes.
             head["frames_from"] = self.frames_from

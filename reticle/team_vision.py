@@ -35,7 +35,7 @@ A stale or absent widget stores no mask and says which.
 **Every cone from the teardrop (0.2.0, 0.3.0, 0.5.0, 0.6.0).** The ring fit finds each
 icon; the teardrop reads its centre and facing (`teardrop.SelfConeReader`
 for the player, `teardrop.IconPoseReader` for teammates, scaled by
-`minimap.widget_scale`), and the tracker, the lifecycle and every cone take
+the map's scale, `geometry.drawn_scale`, since 0.9.0), and the tracker, the lifecycle and every cone take
 those in place of the ring fit's. The ring fit's centre sits 2.8 to 4.4 px
 toward the self apex, and E4 of docs/STATISTICAL_ADJUDICATOR.md found the
 rays start at the teardrop's centre with no offset
@@ -44,10 +44,8 @@ about half of the icons the player labelled, self and ally alike, the
 teardrop's on almost none (E6). A cone observed this frame faces this
 frame's teardrop facing, not the track's windowed mean. Where the teardrop
 is unread (`low_ncc`, `ambiguous_facing`, `no_key`), or reads the self icon
-under its widget size's facing gate (`teardrop.self_facing_gate`: NCC 0.55
-on a 331 px widget, where the player's labels set it, `facing_reason`
-`low_ncc_labelled_gate`; `teardrop.SELF_FACING_MIN_NCC` on a size no labels
-cover, `low_ncc_unlabelled_scale`; none at 465 px), the icon casts no cone:
+under the facing gate (`teardrop.self_facing_gate`: `SELF_FACING_MIN_NCC`
+at every size, `facing_reason` `low_ncc_facing_gate`), the icon casts no cone:
 `RING_FALLBACK` is off, and with it
 on the icon would keep the
 ring fit's facing, the light would resolve its lobe (`cone.resolve_lobe`,
@@ -108,7 +106,7 @@ from . import cone as cone_mod
 from . import geometry, lighting
 from .teardrop import IconPoseReader, SelfConeReader, posed
 from .minimap import (ally_icons, floor_mask, minimap_roi_px, self_icons, slab_mask,
-                      widget_drawn, widget_scale)
+                      widget_drawn, drawn_scale)
 from .minimap_diagnostics import DIAGNOSTICS_VERSION, distance_agreement, light_support
 from .minimap_lifecycle import LIFECYCLE_VERSION, Lifecycle
 from .stalls import STALL_VERSION, stalled_at
@@ -362,6 +360,10 @@ class VisionInputs:
     box_id: np.ndarray | None = None
     open_boxes: np.ndarray | None = None
     notes: list = field(default_factory=list)
+    #: The map's scale (`geometry.drawn_scale`: widget x map zoom) and its
+    #: source; None reads the widget's scale (`minimap.drawn_scale`).
+    scale: float | None = None
+    scale_source: object = None
 
 
 def load_inputs(store_root, session_id: str, profile, width: int, height: int):
@@ -378,6 +380,8 @@ def load_inputs(store_root, session_id: str, profile, width: int, height: int):
                           passable=floor, slab=slab_mask(med, sd=sd),
                           sgray=cv2.cvtColor(med, cv2.COLOR_BGR2GRAY).astype(np.float64),
                           static=med, geometry_key=geometry.key_of(session_id, store_root))
+    inputs.scale, inputs.scale_source = geometry.drawn_scale(session_id, store_root,
+                                                             floor.shape[1])
     with np.load(geo) as z:
         if "labels" in z.files and z["labels"].shape == floor.shape:
             occ = z["occ"] if "occ" in z.files else None
@@ -448,12 +452,15 @@ class TeamVision:
                  track_ally=None, lifecycle=None, distance_diagnostics=True,
                  box_id=None, open_boxes=None,
                  ring_fallback: bool = RING_FALLBACK,
-                 ally_poses: StoredAllyPoses | None = None):
+                 ally_poses: StoredAllyPoses | None = None,
+                 scale: float | None = None):
         self.floor, self.passable, self.sgray = floor, passable, sgray
         self.box_id, self.open_boxes = box_id, open_boxes
         self.slab, self.static, self.light = slab, static, light
         self.stalls, self.origin_events = stalls, tuple(origin_events or ())
-        self.scale = widget_scale(width)
+        # Icons, speeds and world distances are drawn at the map's scale
+        # (team-vision-0.9.0): base x widget scale x map zoom.
+        self.scale = drawn_scale(width, scale)
         # The error term is `track.FIT_ERR_PX`, not restated here.
         self.track_self = track_self if track_self is not None else Tracker("walker", scale=self.scale)
         self.track_ally = track_ally if track_ally is not None else Tracker("walker", scale=self.scale)
@@ -480,7 +487,8 @@ class TeamVision:
         return cls(inputs.floor, inputs.passable, inputs.sgray, width=x1 - x0,
                    slab=inputs.slab, static=inputs.static, light=inputs.light,
                    stalls=inputs.stalls, origin_events=origin_events,
-                   box_id=inputs.box_id, open_boxes=inputs.open_boxes, **kw)
+                   box_id=inputs.box_id, open_boxes=inputs.open_boxes,
+                   scale=kw.pop("scale", inputs.scale), **kw)
 
     def step(self, crop: np.ndarray, t_ms: float, masks: bool = True,
              frame_idx: int | None = None) -> VisionFrame:
@@ -540,13 +548,14 @@ class TeamVision:
                 # detection: the gap is what limits the area, and hiding it
                 # hides the limit.
                 allies = ally_icons(crop, self.floor, require_facing=False,
-                                    support=self.slab, static=self.static)
+                                    support=self.slab, static=self.static, scale=self.scale)
                 raw_allies = [dict(d) for d in allies]
                 allies = [self._posed(crop, d, self.ally_pose_reader) for d in allies]
         with usage_step("self"):
             # Every self candidate goes to the tracker, and the TRACK decides
             # (`track.Tracker.principal`).
-            selves = self_icons(crop, self.floor, require_facing=False, support=self.slab)
+            selves = self_icons(crop, self.floor, require_facing=False, support=self.slab,
+                                scale=self.scale)
             raw_selves = [dict(d) for d in selves]
             selves = [self._posed(crop, d, self.self_cone_reader) for d in selves]
 
@@ -603,13 +612,14 @@ class TeamVision:
             agg, per_icon = cone_mod.observable(
                 self.passable, [(ox, oy, deg) for (ox, oy, _s), (_x, _y, deg, _c)
                                 in zip(origins, resolved)],
-                visible=self.floor)
+                visible=self.floor, snap_px=cone_mod.ORIGIN_SNAP_PX * self.scale)
         # Which boxes each cone would cross if the caster could see over them:
         # the report the drawn light decides a box pass from. Stored, not cast.
         crossed = []
         if masks and self.box_id is not None and self.open_boxes is not None:
             crossed = [None if deg is None else sorted(cone_mod.box_crossings(
-                self.open_boxes, self.box_id, ox, oy, deg, visible=self.floor)[1])
+                self.open_boxes, self.box_id, ox, oy, deg, visible=self.floor,
+                snap_px=cone_mod.ORIGIN_SNAP_PX * self.scale)[1])
                 for (ox, oy, _s), (_x, _y, deg, _c) in zip(origins, resolved)]
 
         by_pos = {(round(bx), round(by)): deg for bx, by, deg, _ in resolved}
@@ -687,8 +697,9 @@ class TeamVision:
         if not idx:
             return dets
         out = list(dets)
-        for i, e in zip(idx, cone_mod.resolve_lobe(self.passable, lit, [dets[i] for i in idx],
-                                                   visible=self.floor)):
+        for i, e in zip(idx, cone_mod.resolve_lobe(
+                self.passable, lit, [dets[i] for i in idx], visible=self.floor,
+                snap_px=cone_mod.ORIGIN_SNAP_PX * self.scale)):
             out[i] = e
         return out
 

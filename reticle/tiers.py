@@ -179,15 +179,17 @@ def omen_smoke_tracks(store) -> tuple[list[dict] | None, str]:
         ref = lighting.reference(z)
     if ref is None:
         return None, "geometry has no lighting reference"
+    box = minimap_roi_px(profile, *ctx.wh)
+    scale = geometry.drawn_scale(OMEN_DEMO, store.root, box[2] - box[0])[0]
     reader = DarkRegionReader(floor=ctx.floor(), sgray=ctx.sgray(), static=ctx.map_reference(),
-                              ref=ref, box=minimap_roi_px(profile, *ctx.wh), hz=4.0)
+                              ref=ref, box=box, hz=4.0, scale=scale)
     t = cache.t_ms
     for smp in cache.samples(_cache_grid(t, float(np.min(t)), float(np.max(t)), 1 / reader.hz),
                              rois=["minimap"]):
         reader.feed(smp)
     rows = [json.loads(json.dumps(r, allow_nan=False))
             for r in reader.events(OMEN_DEMO, geometry.key_of(OMEN_DEMO, store.root))]
-    return smoke_events(OMEN_DEMO, rows, ref.known)[1:], ""
+    return smoke_events(OMEN_DEMO, rows, ref.known, scale=scale)[1:], ""
 
 
 def check_omen_smokes(store) -> dict:
@@ -231,7 +233,8 @@ def self_facing_errors(store) -> tuple[dict[str, dict] | None, str]:
     For each item the player answered `facing` on, with his clicked centre
     within `SELF_FACING_ELSEWHERE_PX` of the item's ring: the stored lossless
     patch pasted at its origin into a blank frame of the widget's size, so
-    `widget_scale` and the baked floor and slab apply as in `team_vision`;
+    the map's scale (`VisionInputs.scale`) and the baked floor and slab apply
+    as in `team_vision`;
     the best-coverage `minimap.self_icons` fit as the seed, standing in for the
     track's principal as `prototypes/self_facing_eval.py` does; then
     `teardrop.SelfConeReader`, whose facing `team_vision` casts. Reads the
@@ -239,7 +242,7 @@ def self_facing_errors(store) -> tuple[dict[str, dict] | None, str]:
     """
     import cv2
 
-    from .minimap import self_icons, widget_scale
+    from .minimap import drawn_scale, self_icons
     from .profiles import get_profile
     from .team_vision import load_inputs
     from .teardrop import SelfConeReader
@@ -273,7 +276,7 @@ def self_facing_errors(store) -> tuple[dict[str, dict] | None, str]:
                                    int(src["width"]), int(src["height"]))
             if inp is None:
                 return None, f"{sid}: {why}"
-            inputs[sid] = (inp, widget_scale(inp.box[2] - inp.box[0]))
+            inputs[sid] = (inp, drawn_scale(inp.box[2] - inp.box[0], inp.scale))
         inp, scale = inputs[sid]
         patch = cv2.imread(str(idir / "patches" / it["patch"]), cv2.IMREAD_COLOR)
         if patch is None:
@@ -284,7 +287,8 @@ def self_facing_errors(store) -> tuple[dict[str, dict] | None, str]:
         crop = np.zeros((h, w, 3), np.uint8)
         ya, yb, xa, xb = max(0, y0), min(h, y0 + ph), max(0, x0), min(w, x0 + pw)
         crop[ya:yb, xa:xb] = patch[ya - y0:yb - y0, xa - x0:xb - x0]
-        dets = self_icons(crop, inp.floor, require_facing=False, support=inp.slab)
+        dets = self_icons(crop, inp.floor, require_facing=False, support=inp.slab,
+                          scale=scale)
         g = out.setdefault(sid, {"errors": [], "unread": []})
         if not dets:
             g["unread"].append(f"{it['t_ms'] / 1000:.1f}s no self detection")

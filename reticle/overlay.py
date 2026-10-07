@@ -275,7 +275,8 @@ def _draw_minimap(img, frame, t_ms: float, ctx) -> str:
             origin_events=getattr(ctx, "mm_origin_events", ()),
             track_self=getattr(ctx, "mm_track_self", None),
             track_ally=getattr(ctx, "mm_track_ally", None),
-            lifecycle=getattr(ctx, "mm_lifecycle", None))
+            lifecycle=getattr(ctx, "mm_lifecycle", None),
+            scale=getattr(ctx, "mm_scale", None))
     vision = ctx.mm_vision
     got = vision.step(crop, t_ms)
     ctx.mm_diagnostic = got.diagnostic
