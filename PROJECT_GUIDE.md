@@ -1480,3 +1480,31 @@ Moved verbatim from the root `CLAUDE.md` on 2026-09-23, when the root guidance w
   and put its guidance in existing files. This register asks four fields per
   document, never registers the archive, and blocks only on a broken entry;
   everything else is a finding.
+- **ACCEPTANCE SCORES THE EMITTED EVENT, AND THE LAYER THAT OWNS A DECISION
+  MAKES IT.** By 2026-10-07 the enemy minimap reader, `minimap_objects`,
+  carried switchable fixes in its stamp -- `teardrop_box`, `slab_gate`,
+  `owner_gate`, and on a branch `portrait_gate` and a last-frame prior seed
+  -- each added to cut its false accepts. The prior restated continuity that
+  `track` and `round_lifetimes.RoundLifetimes` already hold for the enemy
+  lane. The portrait gate applied the identity owner's fit to the enemy five
+  (`identity.rendered_art_fit`), which `claims_from_ally_icons(side="enemy")`
+  already computes while it names each frame's icons together. Four causes
+  stood behind it. The yardstick sat at the reader: the scorers of that work
+  (`teardrop_refusals`, `enemy_lane_check`) counted the reader's raw finds
+  against T1d, not the tracks the lane emits, so each fix landed where the
+  metric could see it. No ownership entry said which layer decides that a
+  find is real, so each task split the decision between reader and lane
+  afresh; for enemies the reader decides alone, since `RoundLifetimes.step`
+  mints an entity for every enemy find it is given. Downstream streams went
+  stale and unscored, and a layer a brief cannot measure is invisible to the
+  agent it sends. Each task built its own scorer, five in one day, while the
+  shared harness (QUESTION_ACCEPTANCE B7) waited. The cross-reference rule,
+  read literally, licensed reader gates; the portrait gate's docstring cites
+  it. The ally lane already shows the intended split: the reader stores
+  shape, appearance and map-interior measurements, and
+  `adjudication.minimap_candidates` decides. The rules now accept a change on
+  the owning layer's events, scored per question against replay truth; name
+  the layer that holds a fix's evidence before the fix; rebuild the
+  development matches' stale streams before a measurement reads through
+  them; and extend the one harness. `ownership.toml` declares
+  `detection-reality` unowned, so `doctor` names the gap on every run.

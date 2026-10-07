@@ -16,7 +16,7 @@ kind = "rules"
 status = "live"
 since = "2026-09-26"
 eager = true
-budget_words = 1800
+budget_words = 1950
 
 [[document]]
 path = "docs/WORKING_MAP.md"
@@ -32,7 +32,7 @@ kind = "reference"
 status = "live"
 since = "2026-09-25"
 eager = true
-budget_words = 14300
+budget_words = 14600
 
 [[document]]
 path = "NOTES.md"

@@ -41,11 +41,17 @@ what "I rebuilt the geometry while my experiment read it" states.
 - Unknown, refusal, missing widget, stale input, and terminal state stay
   distinguishable; an unread value is `null` with a reason, never a guess.
 - Keep raw observations separate from adjudication and later lifecycle events.
+  Readers own pixel evidence and report it with scores and reasons;
+  adjudication and the lanes own continuity, uniqueness, reach and
+  cross-channel priors, and decide whether a find is real. A reader's prior is
+  its owner's stored belief, never a copy the reader keeps.
   Stored timestamps are observation times; source evidence must precede an
   inference's promotion.
 - Every independent detector/table has its own version stamp and provenance.
-  Recomputable rules use stored data and never decode video; rebuild stale
-  cached geometry before trusting derived measurements.
+  Recomputable rules use stored data and never decode video. Before a
+  measurement, rebuild what it reads through: stale cached geometry, and on
+  the development matches every stale stream between the change and the
+  scored event (`reticle plan` names them).
 - Never copy raw media; lossless `roi_cache` crops of fixed reader ROIs and
   retired captures' stream-copied audio are not copies (player, 2026-09-25,
   2026-10-05). New readers join shared decode passes; gate
@@ -56,9 +62,13 @@ what "I rebuilt the geometry while my experiment read it" states.
   alternatives and evidence links; a late detector answer never becomes an
   event's inferred origin; a review window points into source media with its
   provenance, never standing as a clip or a conclusion.
-- Events are the interface. Consumers (`reticle view`) read only emitted events
-  and stored rounds, never a reader, tracker or adjudicator; a missing field
-  goes into the owning event, never a recomputing consumer.
+- Events are the interface, to consumers and to acceptance. Consumers
+  (`reticle view`) read only emitted events and stored rounds, never a reader,
+  tracker or adjudicator; a missing field goes into the owning event, never a
+  recomputing consumer. A change is accepted on the events its owning layer
+  emits (enemy tracks, slot beliefs), scored per question against replay
+  truth; a reader's own score is a diagnostic, never the bar. A new scorer
+  extends the one harness (QUESTION_ACCEPTANCE B7), never adds a prototype.
 - **Fidelity follows the question** (player, 2026-10-04, 2026-10-06): process
   only the detail the use case's questions need, as an engine culls and
   lowers detail. Hold coarse beliefs by default; read at full
@@ -66,8 +76,8 @@ what "I rebuilt the geometry while my experiment read it" states.
   by degrading truth ([QUESTION_ACCEPTANCE.md](docs/QUESTION_ACCEPTANCE.md)).
 - Run the least work testing the change: `reticle trial` on the windows
   where it should move output plus the declared sample
-  (`reticle dev-sample`), with error bars; adjudications rerun from storage;
-  `reticle plan` names stale streams. Corpus reruns wait for replay training.
+  (`reticle dev-sample`), with error bars; adjudications rerun from storage.
+  Corpus reruns wait for replay training.
 - The HUD and minimap are semi-transparent over the void
   [domain:minimap/transparency]. Search inside the opaque structure; fit a shape
   rather than repairing it with a closing radius [domain:minimap/fit-not-repair];
@@ -96,7 +106,8 @@ what "I rebuilt the geometry while my experiment read it" states.
   refusals is a symptom; the cause is usually stored beside it. Provenance
   can be perfect and attribution wrong; no citation check catches it.
 - **CROSS-REFERENCE BEFORE TUNING.** When a detection is wrong, first ask which
-  other channel observes the event, and gate one on the other. Tuning a
+  other channel observes the event, and gate one on the other in the layer
+  that owns the decision. Tuning a
   threshold, mask or morphology on the erring channel is the second resort.
   Agreement is consistency, not accuracy; store the disagreements.
 - Measure a baseline before structural edits, then rerun the real command
@@ -109,7 +120,7 @@ what "I rebuilt the geometry while my experiment read it" states.
   system belief. A failed
   prediction revises the belief; record it and carry it into the handoff.
 - **Continue the prior; widen the search only on surprise.** Context predicts
-  most of what comes next: the last frame's state, the match's lineup, the
+  most of what comes next: the last frame's stored belief, the match's lineup, the
   banner's type, the adjudicated belief the last run left. Start every reading
   and experiment from that prediction and check it cheaply. Follow a killfeed entry where it was; seek a smoke where the match's
   agents' abilities land; place a portrait tile from its banner type's anchor;
@@ -168,9 +179,11 @@ and why they exist", argues for them.
   the owner, what it produces and what it is `not_for`. The owner's docstring
   carries its `[owns:<id>]` token. Route with `reticle ownership <question>`
   (OWNERSHIP).
-- **Ask the owner; never restate its rule.** Before writing code that decides
-  anything, run `reticle ownership`; if an owner exists, call it, even when its rule looks like three lines to copy. A restated rule
-  compiles, passes its tests and drifts silently.
+- **Ask the owner; never restate its rule.** Before a fix or any code that
+  decides, name the layer that holds the evidence it needs (`reticle
+  ownership`, `architecture.toml`); if that owner has the mechanism, call or
+  extend it, even when its rule looks like three lines to copy. A restated
+  rule compiles, passes its tests and drifts silently.
 - **Every agent name is decided by `adjudication.identity`**, the aggregator
   over one arbiter per channel, per entity and side. Each channel pools its
   readings and publishes `identity_claim`s through its arbiter; from another
