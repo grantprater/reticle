@@ -1131,7 +1131,7 @@ stored_consumers = ["entity_events"]
 role = ["lifecycle"]
 status = "partial"
 names_agents = true
-produces = ["build", "enemy_session_tracks", "track_claims", "ENEMY_TRACK_VERSION"]
+produces = ["build", "enemy_session_tracks", "track_claims", "track_reality", "ENEMY_TRACK_VERSION"]
 not_for = """
 Deciding continuity or names locally. `round_lifetimes` decides which enemy
 icons are one entity and `adjudication.identity` names each track from its
@@ -1140,15 +1140,21 @@ slots. The death owner places each death; this only binds a track's end to
 it, refusing a death whose X or victim disagrees with the track's last place
 or the arbiter's name before `RoundLifetimes.finish` picks one.
 """
-defers_to = ["round-entity", "agent-identity"]
+defers_to = ["round-entity", "agent-identity", "detection-reality", "ability-glyph-name"]
 consumers = ["cli", "plan"]
 evidence = "tests/test_enemy_tracks.py"
 
 [[entry]]
 id = "detection-reality"
 question = "Is this detection a real entity: a drawn player, or a glyph, a mark, a duplicate find or a misfit?"
+owner = "round_lifetimes"
 role = ["adjudicate"]
-status = "unowned"
+status = "partial"
+produces = ["detection_reality", "glyph_coincidence", "glyph_reach", "ALTERNATIVE_SHARE", "REALITY_REFUSALS", "DETECTION_REALITY_VERSION"]
+consumers = ["enemy_tracks"]
+stored_consumers = ["entity_events"]
+defers_to = ["ability-glyph-name"]
+evidence = "tests/test_round_lifetimes.py; prototypes/question_acceptance.py lane --tag pgb --reality paired"
 not_for = """
 The reader gates. A reader measures and stores evidence with a score and a
 reason, keeps what it refuses beside what it accepts, and decides no find
@@ -1163,19 +1169,21 @@ side's five `agent-identity`'s (its per-frame assignment), roster capacity
 `round-entity`'s (`ally_capacity`), the X at a death `death-victim`'s; this
 question combines them and restates none. Nor is it per-frame candidate
 disposition, which `minimap-icon-disposition` owns for allies.
-"""
-blocked_by = """
-No owner decides it for enemies. Allies: `adjudication.minimap_candidates`
-disposes of each fitted candidate and `round_lifetimes` refuses an icon past
-the roster's capacity (`roster_conflict_refused`); the self icon is
-`minimap.pick_self`'s one fit. Enemies: the reader decides alone;
-`RoundLifetimes.step` mints an entity for every enemy find it is given, and
-the arbiter leaves a surplus or misfit find unnamed but `enemy_tracks` still
-emits its track. Proposed owner: one rule in `round_lifetimes` that both
-lanes apply, as they apply `death_refusal`, with enemy candidate disposition
-moved to `adjudication.minimap_candidates`; the slot assignment
-(QUESTION_ACCEPTANCE B2, B4) takes it over. BACKLOG item 1's event-level
-harness measures it first.
+
+Nor which verdicts place a glyph: the glyph owner decides that
+(`adjudication.ability_glyph.glyph_placement`), and this question asks it.
+
+Partial: enemies, one alternative: `detection_reality` refuses a track lying mostly on
+an ability glyph the glyph owner places (`alternative_ability_glyph`), and the
+enemy lane (`enemy_tracks`) applies it to every finished track before naming.
+Not yet: the ally lane, whose candidate disposition and roster capacity
+(`adjudication.minimap_candidates`, `roster_conflict_refused`) still answer
+alone and whose glyph discs under an ally portrait the glyph reader does not
+score; the other alternatives the false accepts show (an X mark or ping beside
+an ally or self icon, a stale icon, a track run onto the X after a death);
+enemy candidate disposition, still the reader's gates until it moves to
+`adjudication.minimap_candidates` beside the allies'; the slot assignment
+(QUESTION_ACCEPTANCE B2, B4), which inherits the rule.
 """
 
 [[entry]]
@@ -2060,7 +2068,8 @@ owner = "adjudication.ability_glyph"
 role = ["adjudicate", "attribute"]
 status = "partial"
 names_agents = true
-produces = ["adjudicate", "VerdictTables", "load_glyph_rows", "load_icon_verify", "frame_views",
+produces = ["adjudicate", "session_adjudication", "disc_verdicts", "stored_verdicts_stale",
+            "glyph_placement", "places_glyph", "PLACING_REFUSALS", "VerdictTables", "load_glyph_rows", "load_icon_verify", "frame_views",
             "stale_reason", "CHANNEL", "AUDIT_CHANNEL", "AUDIT_NULL_HOLDS", "ASTRA_STAR",
             "OMEN_RULE_REFUSAL", "REFUSALS", "STATES_TABLE", "player_drawing", "icon_ruled_out",
             "load_drawing_answers", "DRAWING_ANSWERS", "NO_ICON", "OTHER_NO_ICON", "NOT_DRAWN"]
@@ -2074,7 +2083,7 @@ turns into; a threshold the null table does not give. Scoring textures
 stored tray kit's (`tray-kit`), and the portrait and map gates are the
 reader's stored answers; it reruns none of them.
 """
-consumers = ["cli"]
+consumers = ["cli", "round_lifetimes", "enemy_tracks"]
 evidence = "tests/test_ability_glyph_name.py; reticle ability-glyphs; docs/MINIMAP_GLYPH_CHANNEL.md stage 3"
 
 

@@ -245,6 +245,19 @@ candidate set rather than restating it; it writes nothing.
 """
 
 [[exception]]
+from = "adjudication.ability_glyph"
+to = "plan"
+kind = "deferred"
+imports = "derived_streams, recorded_stale"
+reason = """
+`disc_verdicts` hands another owner (`round_lifetimes.detection_reality`)
+the stored glyph verdicts only where they are current. Whether a stored
+stream is current over its recorded inputs is `plan`'s one declaration
+(`stream_inputs`, `recorded_stale`), as `cli._ability_stale` asks it; a copy
+here would drift from it. It reads stored heads and writes nothing.
+"""
+
+[[exception]]
 from = "trial"
 to = "gametime"
 kind = "deferred"

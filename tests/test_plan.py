@@ -1130,3 +1130,42 @@ class GlyphDrawingAnswersInputTests(unittest.TestCase):
             answer("visibility:Chamber:Q:ally", "icon")
             self.assertEqual(inputs_moved(store, man, "ability_glyph_name", head)[0],
                              ["drawing_answers"])
+
+
+class EnemyTrackGlyphVerdictInputTests(unittest.TestCase):
+    """`enemy_track` records the glyph verdicts it weighed by their content
+    stamp, so a rerun of `reticle ability-glyphs` over moved inputs restales
+    it although the verdict's code stamp stands."""
+
+    def test_a_rerun_of_the_verdicts_restales_the_tracks(self):
+        from reticle.input_stamps import content_stamp
+        from reticle.plan import inputs_moved
+        from reticle.version import ABILITY_GLYPH_NAME_VERSION
+        with tempfile.TemporaryDirectory() as d:
+            store = _Store(Path(d))
+            man = store.read_manifest("s")
+            verdict_head = {"ability_glyph_name_version": ABILITY_GLYPH_NAME_VERSION,
+                            "inputs": {"tray_kit": "tk-1"}}
+            store.events["ability_glyph_name:rows"] = [verdict_head]
+            head = {"inputs": {"ability_glyph_name": content_stamp(verdict_head,
+                                                                  "ability_glyph_name_version")}}
+            self.assertNotIn("ability_glyph_name", inputs_moved(store, man, "enemy_track", head)[0])
+            # `reticle ability-glyphs` reruns over a new tray kit: same code stamp
+            store.events["ability_glyph_name:rows"] = [
+                {"ability_glyph_name_version": ABILITY_GLYPH_NAME_VERSION,
+                 "inputs": {"tray_kit": "tk-2"}}]
+            self.assertIn("ability_glyph_name", inputs_moved(store, man, "enemy_track", head)[0])
+
+    def test_tracks_that_refused_stale_verdicts_move_once_they_are_rerun(self):
+        from reticle.input_stamps import content_stamp
+        from reticle.plan import inputs_moved
+        with tempfile.TemporaryDirectory() as d:
+            store = _Store(Path(d))
+            man = store.read_manifest("s")
+            old = {"ability_glyph_name_version": "ability-glyph-name-0.0.1", "inputs": {}}
+            store.events["ability_glyph_name:rows"] = [old]
+            head = {"inputs": {"ability_glyph_name":
+                               "stale:" + content_stamp(old, "ability_glyph_name_version")}}
+            self.assertNotIn("ability_glyph_name", inputs_moved(store, man, "enemy_track", head)[0])
+            store.events["ability_glyph_name:rows"] = [dict(old, ability_glyph_name_version="x")]
+            self.assertIn("ability_glyph_name", inputs_moved(store, man, "enemy_track", head)[0])

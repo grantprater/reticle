@@ -100,6 +100,25 @@ def head_row(store, stream: str, sid: str, needle: bytes | None = None) -> dict 
     return None
 
 
+#: The probe-field suffix that asks for a head's content stamp
+#: (`content_stamp`) rather than one recorded key: `<stream>#<key>+inputs`.
+CONTENT = "+inputs"
+
+
+def content_stamp(head: dict | None, key: str) -> str:
+    """A stored stream's content stamp: its code stamp `key` and a digest of
+    the inputs its head records, `<stamp>@<16 hex>`, or `NO_ROWS`.
+
+    A pure stream rewritten over the same inputs under the same code writes
+    the same rows, so this stamp moves exactly when a rerun can change them:
+    a reader of the stream that records only `key` misses a rerun over moved
+    inputs (`plan.stream_inputs`, the `ability_fit` note)."""
+    if head is None:
+        return NO_ROWS
+    blob = json.dumps(head.get("inputs"), sort_keys=True, separators=(",", ":"), default=str)
+    return f"{head.get(key) or 'unstamped'}@{hashlib.sha256(blob.encode()).hexdigest()[:16]}"
+
+
 def event_stamp(store, stream: str, sid: str, key: str) -> str:
     """The stamp `key` in a stored stream's first row, `unstamped`, or `NO_ROWS`."""
     head = head_row(store, stream, sid)

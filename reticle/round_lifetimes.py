@@ -7,10 +7,22 @@ never associate spatially with each other. Roster capacity permits acquisition,
 not identification. First detection is never substituted for origin time.
 
 Owns [owns:round-entity].
+
+**Detection reality** [owns:detection-reality]: whether a track is a drawn
+player at all, or another drawn thing the reader's fit mistook for one.
+`detection_reality` holds the rule every lane applies to a finished track, as
+`death_refusal` is the rule every lane binds a death by; the enemy lane
+(`enemy_tracks`) applies it first. It reads no pixels: it pools the
+observations' coincidence with another owner's stored verdicts and keeps both
+hypotheses with their support. A refused track stays stored, with its reason
+and evidence links; nothing is deleted.
 """
 from __future__ import annotations
 
 import math
+
+import numpy as np
+
 from .agent_names import agent_in, same_agent
 from .track import CLASSES, admits, association_tolerance, assign, refit_of
 from .minimap import REF_WIDGET_W
@@ -30,6 +42,129 @@ from .usage import step
 # not restamped by a change it does not see.
 ROUND_LIFETIME_VERSION = "round-lifetimes-0.10.0"
 MAX_ASSOCIATION_HISTORIES = 64
+
+# detection-reality-0.1.0 (2026-10-07): `detection_reality` refuses a track
+# whose observations lie mostly on an ability glyph the glyph owner places
+# (`alternative_ability_glyph`). It changes no output of `RoundLifetimes`, so
+# ROUND_LIFETIME_VERSION stands, as it did for `seen_after_death`: the rule
+# has its own stamp, which the lanes that apply it record (the enemy lane
+# from enemy-track-0.3.0); the ally lane does not apply it yet and is not
+# restamped by a rule it does not use.
+DETECTION_REALITY_VERSION = "detection-reality-0.1.0"
+
+#: A track is the alternative's, not a player's, when MORE than this share of
+#: its observations lie on the alternative: the alternative then explains
+#: more of the track than the player does. A majority, not a fitted cut.
+ALTERNATIVE_SHARE = 0.5
+
+#: Reasons `detection_reality` refuses a track with.
+REALITY_REFUSALS = ("alternative_ability_glyph",)
+
+
+def glyph_reach(scale) -> np.ndarray:
+    """How near a disc fix an observation must lie to lie on it: one icon's
+    radius (`minimap_objects.ICON_PX`, the reader's "under an icon") times the
+    map scale the fix was read at (base x widget scale x map zoom)."""
+    from .minimap_objects import ICON_PX
+    return ICON_PX * np.asarray(scale, float)
+
+
+def glyph_coincidence(t, x, y, fix_t, fix_x, fix_y, fix_reach, half_ms: float) -> np.ndarray:
+    """For each observation (`t`, `x`, `y`), the index of the disc fix it lies
+    on, or -1: the nearest fix within `half_ms` of it in time and within that
+    fix's `fix_reach` in space. `half_ms` is half the disc reader's sampling
+    period, so each fix speaks for the observations around it and no further;
+    `fix_reach` is an icon's radius at the scale the fix was read at
+    (`minimap_objects.ICON_PX` times the fix's map scale). Vectorised."""
+    t = np.asarray(t, float)
+    n = t.size
+    out = np.full(n, -1, np.int64)
+    ft = np.asarray(fix_t, float)
+    if n == 0 or ft.size == 0:
+        return out
+    order = np.argsort(ft, kind="stable")
+    ft = ft[order]
+    fx = np.asarray(fix_x, float)[order]
+    fy = np.asarray(fix_y, float)[order]
+    fr = np.asarray(fix_reach, float)[order]
+    lo = np.searchsorted(ft, t - half_ms, side="left")
+    hi = np.searchsorted(ft, t + half_ms, side="right")
+    cnt = hi - lo
+    if not cnt.any():
+        return out
+    obs = np.repeat(np.arange(n), cnt)
+    fix = np.arange(obs.size) - np.repeat(np.cumsum(cnt) - cnt, cnt) + np.repeat(lo, cnt)
+    d = np.hypot(fx[fix] - np.asarray(x, float)[obs], fy[fix] - np.asarray(y, float)[obs])
+    ok = d <= fr[fix]
+    obs, fix, d = obs[ok], fix[ok], d[ok]
+    if obs.size == 0:
+        return out
+    best = np.lexsort((d, obs))
+    first = np.r_[True, obs[best][1:] != obs[best][:-1]]
+    out[obs[best][first]] = order[fix[best][first]]
+    return out
+
+
+def detection_reality(observations: int, disc_counts: dict, verdicts: dict | None,
+                      unassessed: str | None = None) -> dict:
+    """Is a track a drawn player, or an ability glyph the fit mistook for one?
+
+    `observations`: the track's observation count; `disc_counts`: how many
+    of them lie on each of the glyph owner's disc tracks
+    (`glyph_coincidence`, counted by the caller); `verdicts`: the glyph
+    owner's stored verdict per disc track. `unassessed` names why no glyph
+    verdicts were available, and the track is then `unassessed`, never
+    accepted on missing evidence.
+
+    Two hypotheses, each with its support: `drawn_player`, the observations
+    on no placed glyph, and `ability_glyph`, the observations on a disc track
+    the glyph owner places a glyph on: the owner decides which verdicts place
+    one (`adjudication.ability_glyph.glyph_placement`). The track is
+    `refused` as `alternative_ability_glyph` when the glyph's support exceeds
+    `ALTERNATIVE_SHARE` of its observations, else `accepted`. On the
+    development matches (detection-reality-20261007) every enemy track named
+    Cypher that T1d calls a false accept on c817691bcd15 was Tejo's Stealth
+    Drone, drawn like an enemy icon
+    [domain:abilities/tejo-stealth-drone-enemy-minimap-icon], and one track
+    the portrait channel named Fade on d3dcfb182ab1 was her Prowler
+    [domain:abilities/fade-prowler-enemy-minimap-icon]: the replay's Prowler
+    pawn lay on the track while Fade moved away from it
+    (`<store>/analysis/detection-reality-20261007/replay_falsify.json`,
+    evaluation only).
+    The player names five more abilities drawn as an enemy player is, each
+    an alternative this rule weighs where the glyph owner places its glyph:
+    [domain:abilities/sova-owl-drone-enemy-minimap-icon],
+    [domain:abilities/skye-trailblazer-enemy-minimap-icon],
+    [domain:abilities/gekko-thrash-enemy-minimap-icon],
+    [domain:abilities/gekko-wingman-enemy-minimap-icon],
+    [domain:abilities/raze-boom-bot-enemy-minimap-icon].
+    """
+    if unassessed is not None:
+        return {"status": "unassessed", "reason": unassessed, "observations": observations,
+                "glyph_support": None, "alternatives": [], "evidence": []}
+    from .adjudication.ability_glyph import glyph_placement
+    placed = {d: glyph_placement((verdicts or {}).get(d)) for d in disc_counts if d is not None}
+    support = {d: int(k) for d, k in disc_counts.items() if d is not None and placed[d]["placed"]}
+    n_glyph = sum(support.values())
+    refused = n_glyph > ALTERNATIVE_SHARE * observations
+    keys: dict[str, int] = {}
+    for d, k in support.items():
+        for key in placed[d]["keys"]:
+            keys[key] = keys.get(key, 0) + k
+    evidence = [{"stream": "ability_glyph_name", "track": d, "observations": k,
+                 "placed": placed[d]["why"],
+                 "ability": (verdicts[d].get("ability") or {}).get("key"),
+                 "reason": verdicts[d].get("reason"), "best": verdicts[d].get("best"),
+                 "second": verdicts[d].get("second"), "pooled": verdicts[d].get("pooled"),
+                 "cut": verdicts[d].get("cut")}
+                for d, k in sorted(support.items(), key=lambda kv: -kv[1])]
+    return {"status": "refused" if refused else "accepted",
+            "reason": "alternative_ability_glyph" if refused else None,
+            "observations": observations, "glyph_support": n_glyph,
+            "alternatives": [{"hypothesis": "drawn_player", "support": observations - n_glyph},
+                             {"hypothesis": "ability_glyph", "support": n_glyph,
+                              "keys": dict(sorted(keys.items(), key=lambda kv: -kv[1]))}],
+            "evidence": evidence}
 
 #: Proximity thresholds for merged / occluded track states (widget px).
 #: Minimap player yellow circle and ally icon diameter is ~20 px.

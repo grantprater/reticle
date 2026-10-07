@@ -240,7 +240,7 @@ def derived_streams() -> list[dict]:
     from .ability_timeline import DEAD_RUSE_VERSION
     from .roi_cache import ROI_CACHE_VERSION
     from .round_entities import ROUND_ENTITY_VERSION
-    from .round_lifetimes import ROUND_LIFETIME_VERSION
+    from .round_lifetimes import DETECTION_REALITY_VERSION, ROUND_LIFETIME_VERSION
     from .stalls import STALL_VERSION
     from .track import TRACK_VERSION
     from .version import (ABILITY_LIGHT_VERSION, COMBAT_REPORT_ROUND_VERSION,
@@ -356,8 +356,9 @@ def derived_streams() -> list[dict]:
          "command": "reticle enemy-tracks {sid}", "how": "storage",
          "fields": {"minimap_object_version": minimap_object_version(),
                     "round_lifetime_version": ROUND_LIFETIME_VERSION,
+                    "detection_reality_version": DETECTION_REALITY_VERSION,
                     "agent_identity_version": AGENT_IDENTITY_VERSION},
-         "upstream": ("minimap_object", "death", "rounds")},
+         "upstream": ("minimap_object", "death", "rounds", "ability_glyph_name")},
         # The killstreak numeral [domain:killfeed/killstreak-indicator]
         # against the death stream's kill index: a
         # check over two stored streams, rerun from storage. Its summary row
@@ -782,6 +783,15 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                    **_lineup_inputs()},
         "enemy_track": {"minimap_object": _in("minimap_object_version",
                                               "minimap_object#minimap_object_version"),
+                        # The glyph verdicts `detection_reality` weighs, by
+                        # their content stamp (`input_stamps.content_stamp`):
+                        # the verdict's code stamp alone would miss a rerun of
+                        # `reticle ability-glyphs` over moved inputs, the
+                        # `ability_fit` failure above. A head written before
+                        # enemy-track-0.3.0 read none.
+                        "ability_glyph_name": _in("inputs.ability_glyph_name",
+                                                  "ability_glyph_name#ability_glyph_name_version"
+                                                  "+inputs", before="no_rows"),
                         "death": _in("death_adjudication_version", death),
                         "portrait_refs": _in("references_version", "portrait_refs"),
                         **_lineup_inputs(file_path="lineup_version")},
@@ -962,7 +972,10 @@ def input_head(store, manifest: dict, probe: str, head: dict | None = None,
     if "#" in probe:
         stream, field = probe.split("#", 1)
         row = ist.head_row(store, stream, sid)
-        now = ist.NO_ROWS if row is None else (row.get(field) or "unstamped")
+        if field.endswith(ist.CONTENT):
+            now = ist.content_stamp(row, field[:-len(ist.CONTENT)])
+        else:
+            now = ist.NO_ROWS if row is None else (row.get(field) or "unstamped")
     elif probe == "rounds":
         now = ist.table_stamp(store.rounds_path(sid, date), "round_version")
     elif probe == "spans":

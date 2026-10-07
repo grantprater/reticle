@@ -35,6 +35,23 @@ class TrackOutcomeTests(unittest.TestCase):
                          ("agent_not_on_enemy_team", -1))
 
 
+    def test_a_refused_track_is_no_entity_whatever_its_name(self):
+        self.assertEqual(rrs.track_outcome("Sova", "resolved", FOE, "refused"), ("reality_refused", -1))
+        self.assertEqual(rrs.track_outcome("Sova", "resolved", FOE, "accepted"), ("named", 5))
+        self.assertEqual(rrs.track_outcome("Sova", "resolved", FOE, "unassessed"), ("named", 5))
+        self.assertIn("reality_refused", qa.DROPPED)
+
+
+class PairedBootstrapTests(unittest.TestCase):
+    def test_identical_arms_differ_by_zero_and_a_lift_in_every_round_excludes_zero(self):
+        a = np.array([8.0, 9.0, 7.0, 10.0])
+        b = np.array([10.0, 10.0, 10.0, 10.0])
+        self.assertEqual(qa._boot_pooled_diff([(a, b, a, b)]), [0.0, 0.0])
+        lo, hi = qa._boot_pooled_diff([(a + 1, b, a, b)])
+        self.assertGreater(lo, 0.0)
+        self.assertGreaterEqual(hi, lo)
+
+
 class IconOutcomeTests(unittest.TestCase):
     # frame 0: a Sova track, a second Sova track, a Jett track;
     # frame 1: an abstained track, an off-team track, an icon with no track, a Sova track

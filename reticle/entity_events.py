@@ -105,8 +105,13 @@ LANE_VERSIONS = {
     "round_entity": "entity-round-entity-0.1.0",
     "death": "entity-death-0.2.0",
     "spike": "entity-spike-0.1.0",
-    "enemy": "entity-enemy-0.1.0",
+    "enemy": "entity-enemy-0.2.0",
 }
+# entity-enemy-0.2.0 (2026-10-07): a track the track owner refused as no
+# entity (`reality_status` refused, `round_lifetimes.detection_reality`) fails
+# rule 1 and is withheld whole, with its poses, standing `refused`; every
+# entity row carries `reality`, the owner's answer or null with why
+# (`entity_contract.ENTITY_OPTIONAL`).
 # entity-death-0.2.0 (2026-09-30): a death the death owner places by a
 # minimap X carries its position in the baked frame.
 PROJECTED = tuple(LANE_VERSIONS)
@@ -871,6 +876,20 @@ def _enemy_lane(store, sid, L: _Lane, manifest) -> dict:
                 "standing": IDENTITY_STANDING.get(status, "abstained"), "alternatives": []}
         _reasoned(row, "identity", identity, id_reason or "")
         _reasoned(row, "player", None, PLAYER_REASON)
+        # The track owner's detection-reality answer, so a consumer tells an
+        # unassessed track from an accepted one (a refused one is withheld).
+        real = e.get("reality_status")
+        if real == "accepted":
+            _reasoned(row, "reality", {"hypothesis": "drawn_player",
+                                       "rule": head.get("detection_reality_version")}, "")
+        elif real == "refused":
+            _reasoned(row, "reality", None, f"withheld: {L.ledger_id(eid)}")
+        elif real == "unassessed":
+            _reasoned(row, "reality", None,
+                      f"not_read: detection_reality unassessed: {e.get('reality_reason')}")
+        else:
+            _reasoned(row, "reality", None,
+                      f"not_read: enemy_track {version} predates detection_reality")
         row.update(producer=producer, lane=L.lane, contract=ENTITY_CONTRACT_VERSION)
         subject = {"row": "entity", "entity_id": eid, "round": e["round_no"]}
         obs = sorted(obs_by.get(eid, []), key=lambda o: (o["t_ms"], o["observation_id"]))
@@ -891,6 +910,21 @@ def _enemy_lane(store, sid, L: _Lane, manifest) -> dict:
                     {"value": identity["agent"], "owner": OWNER["enemy_track"],
                      "evidence": [f"enemy_track:{eid}"]},
                     {"value": victim, "owner": OWNER["death"], "evidence": [e["death_id"]]}]}}
+        # Rule 1: the track owner refused the track as no entity.
+        if standing is None and e.get("reality_status") == "refused":
+            standing, returns = "refused", [OWNER["enemy_track"]]
+            reason = f"detection_reality: {e.get('reality_reason')}"
+            real = e.get("reality") or {}
+            support = {a["hypothesis"]: a for a in real.get("alternatives", [])}
+            glyph = support.get("ability_glyph", {})
+            extra = {"reality": {"standing": "refused", "alternatives": [
+                {"value": "drawn_player", "owner": OWNER["enemy_track"],
+                 "evidence": [f"enemy_track:{eid}"],
+                 "support": support.get("drawn_player", {}).get("support")},
+                {"value": "ability_glyph:" + ",".join(glyph.get("keys") or {}),
+                 "owner": "ability-glyph-name",
+                 "evidence": [f"ability_glyph_name:{g['track']}" for g in real.get("evidence", [])],
+                 "support": glyph.get("support")}]}}
         # Rule 4.
         if standing is None:
             why = L.stale_reason(rests_on)

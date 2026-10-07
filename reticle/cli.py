@@ -4570,34 +4570,18 @@ def cmd_ability_glyphs(args) -> int:
     Decodes no video."""
     import time
 
-    from .adjudication.ability_glyph import (VerdictTables, adjudicate, load_glyph_rows,
-                                             load_icon_verify, stale_reason)
-    from .adjudication.tray_kit import stored_kit_witness
-    from .adjudication.ult_cast import player_agent
-    from .lineup import load_lineup
+    from .adjudication.ability_glyph import session_adjudication
 
     t0 = time.perf_counter()
     store = Store(args.store)
     sid = _resolve_session(store, args.session)["session_id"]
-    path = store.events_path("ability_glyph", sid)
-    if not path.is_file():
-        raise SystemExit(f"{sid}: no ability_glyph rows -- run `reticle scan {sid} --only ability --from cache`")
-    with open(path, "rb") as fh:
-        head = json.loads(fh.readline() or b"{}")
-    why = stale_reason(head)
-    if why:
-        raise SystemExit(f"{sid}: {why} -- run `reticle scan {sid} --only ability --from cache` "
-                         f"before trusting a verdict")
-    tables = VerdictTables.load(store.root)
-    glyph = load_glyph_rows(path, tables.keys)
-    verify = load_icon_verify(store.events_path("ability_icon", sid))
-    lineup = load_lineup(sid, store.root)
-    player = player_agent(lineup, sid)
-    kit = stored_kit_witness(store.read_events("tray_kit", sid), agent=player)
-    res = adjudicate(sid, glyph, verify, tables, lineup,
-                     kit["spans"] if kit["reason"] is None else None, player,
-                     kit_reason=kit["reason"],
-                     stamps={"tray_kit": kit["version"]} if kit.get("version") else None)
+    got = session_adjudication(store, sid)
+    if "skipped" in got:
+        why = got["skipped"]
+        raise SystemExit(f"{sid}: {why}" + ("" if "reticle scan" in why else
+                         f" -- run `reticle scan {sid} --only ability --from cache` "
+                         f"before trusting a verdict"))
+    res = got["result"]
     cov, tcov = res["rows"][0], res["tracks"][0]
     cov["wall_s_command"] = round(time.perf_counter() - t0, 3)
     print(f"{sid}: {tcov['tracks']} tracks (ends {tcov['ends']}, {tcov['jumps']} with a jump); "
@@ -5122,10 +5106,16 @@ def cmd_enemy_tracks(args) -> int:
         out = store.write_events("enemy_track", sid, res["rows"])
         store.write_events("enemy_track_identity", sid, res["identity"])
         head = res["rows"][0]
+        real = head.get("detection_reality") or {}
         print(f"{sid}: {head['tracks']} enemy tracks over {head['rounds']} rounds; names "
               f"{head['identity']}; {head['deaths']} end at a death "
               f"(unbound {head['death_unbound']}); {head['marks']} '?' marks, "
               f"{head['marks_bound']} on a track -> {out}")
+        print(f"{sid}: detection_reality {head.get('detection_reality_version')}: "
+              + (f"tracks {real.get('status')}, refused {real.get('refused')}, "
+                 f"{real.get('observations_on_disc')} observations on a placed glyph "
+                 f"({real.get('source')} verdicts)" if real.get("applied") else
+                 f"unassessed: {real.get('reason')}"))
     return 0
 
 

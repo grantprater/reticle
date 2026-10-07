@@ -437,3 +437,92 @@ class OwnCasterDrawing(unittest.TestCase):
             with open(p, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(_vis("visibility:Omen:E:ally", "icon")) + "\n")
             self.assertNotEqual(ag.drawing_answers_stamp(d), first)
+
+
+class _MemStore:
+    """Stored heads in memory, as `plan` and `input_stamps.head_row` read them."""
+
+    def __init__(self, root):
+        self.root = Path(root)
+        self.rows: dict[str, list[dict]] = {}
+
+    def read_manifest(self, sid):
+        return {"session_id": sid, "ingested_at": "2026-10-07T00:00:00"}
+
+    def read_events(self, stream, sid):
+        return self.rows.get(stream, [])
+
+    def events_version(self, stream, sid):
+        return None
+
+
+def _verdict_store(root) -> _MemStore:
+    """A store whose stored disc tracks and verdicts are current over their inputs."""
+    from reticle.minimap_glyph import GLYPH_BANK_STAMP
+    from reticle.plan import record_inputs
+    store = _MemStore(root)
+    store.rows["ability_glyph"] = [{"ability_glyph_version": ag.ABILITY_GLYPH_VERSION,
+                                    "glyph_bank": GLYPH_BANK_STAMP, "hz": 2.0}]
+    store.rows["tray_kit"] = [{"tray_kit_version": "tk-1"}]
+    man = store.read_manifest(SID)
+    store.rows["ability_disc_track"] = [
+        record_inputs(store, man, "ability_disc_track",
+                      {"kind": "coverage", "ability_disc_track_version": ag.ABILITY_DISC_TRACK_VERSION}),
+        {"kind": "track", "track": "s1:adisc:1", "scale": 1.0,
+         "fix": {"t_ms": [0.0], "cx": [10.0], "cy": [10.0]}}]
+    store.rows["ability_glyph_name"] = [
+        record_inputs(store, man, "ability_glyph_name",
+                      {"kind": "coverage", "ability_glyph_name_version": ag.ABILITY_GLYPH_NAME_VERSION}),
+        {"kind": "verdict", "track": "s1:adisc:1", "ability": {"key": "Tejo:C"}, "reason": None}]
+    return store
+
+
+class StoredVerdictStaleness(unittest.TestCase):
+    """`disc_verdicts` hands out stored verdicts only where `plan`'s recorded
+    input check and the glyph rows' `stale_reason` find them current."""
+
+    def test_current_verdicts_are_read_with_their_content_stamp(self):
+        from reticle.input_stamps import content_stamp
+        with tempfile.TemporaryDirectory() as d:
+            store = _verdict_store(d)
+            got = ag.disc_verdicts(store, SID)
+            self.assertNotIn("skipped", got)
+            self.assertEqual(list(got["verdicts"]), ["s1:adisc:1"])
+            self.assertEqual(got["stamp"], content_stamp(store.rows["ability_glyph_name"][0],
+                                                         "ability_glyph_name_version"))
+
+    def test_an_input_moved_since_the_verdicts_refuses_them(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _verdict_store(d)
+            stamp = ag.disc_verdicts(store, SID)["stamp"]
+            store.rows["tray_kit"] = [{"tray_kit_version": "tk-2"}]
+            got = ag.disc_verdicts(store, SID)
+            self.assertIn("tray_kit", got["skipped"])
+            self.assertEqual(got["stamp"], stamp)
+
+    def test_an_older_verdict_code_or_lineup_refuses_them(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _verdict_store(d)
+            store.rows["ability_glyph_name"][0]["ability_glyph_name_version"] = "ability-glyph-name-0.0.1"
+            self.assertIn("ability-glyph-name-0.0.1", ag.disc_verdicts(store, SID)["skipped"])
+            store = _verdict_store(d)
+            # a lineup file written after the verdicts read none
+            (Path(d) / "lineups").mkdir()
+            (Path(d) / "lineups" / f"{SID}.json").write_text(json.dumps({"version": "lineup-0.5.0"}),
+                                                            encoding="utf-8")
+            self.assertIn("lineup", ag.disc_verdicts(store, SID)["skipped"])
+
+    def test_missing_or_stale_glyph_rows_refuse_without_raising(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _verdict_store(d)
+            del store.rows["ability_glyph"]
+            got = ag.disc_verdicts(store, SID)
+            self.assertIn("no ability_glyph rows", got["skipped"])
+            store = _verdict_store(d)
+            store.rows["ability_glyph"][0]["glyph_bank"] = "glyph-bank-old"
+            self.assertIn("glyph-bank-old", ag.disc_verdicts(store, SID)["skipped"])
+            store = _verdict_store(d)
+            del store.rows["ability_glyph_name"]
+            got = ag.disc_verdicts(store, SID)
+            self.assertEqual((got["stamp"], "no stored ability_glyph_name" in got["skipped"]),
+                             ("no_rows", True))
