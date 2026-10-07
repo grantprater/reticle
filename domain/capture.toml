@@ -284,3 +284,40 @@ score replay truth with separate self and remote lags on a fitted clock
 (replay-truth-0.4.0); estimate the delay per match, never assume one
 constant, and carry its jitter as position uncertainty
 """
+
+[crosshair-white-cross]
+claim = """
+Most of the player's captures show a white-cross crosshair. It does not show
+movement or firing error; the crosshair is configurable.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-10-07"
+subject = "capture:crosshair"
+source = "the player, 2026-10-07 (chat), answering what a screen reader of the centre crop would see"
+use = """
+a centre-crop reader seeks a white cross; it may read neither movement nor
+firing error from the crosshair's shape, so counter-strafe and first-shot
+accuracy come from other cues
+"""
+exceptions = """
+which captures use another crosshair is unrecorded; a reader checks the
+crosshair per capture before reading it
+"""
+see = ["hud/hit-yellow-flash", "capture/enemy-highlight-red"]
+
+[enemy-highlight-red]
+claim = """
+The player's enemy highlight colour is red.
+"""
+kind = "constraint"
+known = "player"
+since = "2026-10-07"
+subject = "capture:enemy-highlight"
+source = "the player, 2026-10-07 (chat)"
+use = """
+a screen reader seeking enemies near the crosshair seeks the red highlight on
+this player's captures; another player's captures need their own setting
+"""
+exceptions = "the setting is the player's; whether it changed across the stored captures is unrecorded"
+see = ["capture/crosshair-white-cross", "hud/hit-yellow-flash"]

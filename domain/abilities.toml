@@ -620,7 +620,51 @@ Cover's 15 s although the enemy has Omen, and every full smoke reads 18 s,
 which fits the ally Miks.
 """
 use = "a minimap smoke is an ally ability; attribute it among the player's team only"
-see = ["minimap/enemy-smokes-block-cones"]
+see = ["minimap/enemy-smokes-block-cones", "abilities/minimap-vision-cone-blockers"]
+
+[minimap-vision-cone-blockers]
+claim = """
+In build 13.06 a MinimapVisionConesBlocker component (circle or line) sits on
+these abilities, which stop the team's drawn vision on the minimap: the
+NewSmokeZone smoke family (Omen, Brimstone, Astra, Clove, Jett and Miks
+smokes); Cypher's Cage; Viper's Poison Cloud, Toxic Screen and Pit; Phoenix's
+Blaze; Astra's Cosmic Divide; Iso's Contingency; Neon's Fast Lane; Sage's
+wall; Harbor's walls; and Vyse's wall.
+"""
+kind = "rule"
+known = "observed"
+since = "2026-10-07"
+subject = "minimap:vision-cone"
+source = """
+game build release-13.06-shipping-18-5590001, exports under
+<store>/reference/game-files/release-13.06-shipping-18-5590001/ability-states/ and
+ability-data/ ShooterGame/Content/Characters/: Global/Smoke/GameObject_NewSmokeZone_Parent,
+Gumshoe Zone_Gumshoe_Q_Cage, Pandemic GameObject_Pandemic_4_SmokeZone,
+GameObject_Pandemic_E_SmokeScreenManager and Patch_Pandemic_X_Circular, Phoenix
+GameObject_Phoenix_Q_FlameWallManager_Production, Rift GameObject_Rift_X_GlobalWall,
+Sequoia GameObject_Sequoia_4_MovingCover, Sprinter GameObject_Sprinter_4_Tunnel,
+Thorne GameObject_Thorne_E_Wall_Segment_Fortifying, Mage GameObject_Mage_Q_WallManager
+and GameObject_Mage_X_TidalWave_Chunk, Nox GameObject_Nox_Wall, Wraith
+Zone_Wraith_4_Smoke, Wushu GameObject_Wushu_4_SmokeZone; found by task
+t1-draw-rule-20261007
+"""
+use = """
+a model of the drawn vision (replay truth's draw rule, a light reader's
+expectation) cuts sight through each of these while it stands, both teams'
+alike; each ability's shape, radius and lifetime come from its own fact, never
+by analogy [domain:abilities/ability-rules-are-unique]
+"""
+exceptions = """
+the component names the blocker, not its shape in time: sphere centres,
+Viper's toggle and Cypher's capsule are unchecked, and the walls (Blaze, Toxic
+Screen, Cosmic Divide, Sage, Iso, Neon, Harbor, Vyse) are unmodelled in
+prototypes/t1_draw_rule.py. Seven maps' gameplay files (Canyon, Duality,
+Foxtrot, Infinity, Jam, Juliett, Triad) place MinimapVisionConesBlockerLine
+components and the Plummet droppable door carries one; what they are is
+unread
+"""
+see = ["abilities/enemy-smokes-not-on-minimap", "minimap/enemy-smokes-block-cones",
+       "abilities/ability-rules-are-unique"]
 
 [miks-smoke-minimap-disc]
 claim = """

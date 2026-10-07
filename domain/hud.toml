@@ -776,3 +776,39 @@ resolutions, is unknown; every capture that shows it puts it here
 """
 phrases = ["shooting error readout"]
 see = ["killfeed/entry-list-layout"]
+
+[hit-yellow-flash]
+claim = """
+A hit on an enemy shows a yellow flash particle effect.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-07"
+subject = "hud:hit-feedback"
+source = "the player, 2026-10-07 (chat), answering what a hit looks like on screen"
+use = """
+a window-gated centre-crop reader may read first-shot outcome from the yellow
+flash, inside engagement windows only
+"""
+exceptions = """
+its size, duration and colour values are unmeasured; whether a head hit looks
+different is unknown [domain:hud/no-distinct-headshot-sound-belief]
+"""
+see = ["capture/crosshair-white-cross", "capture/enemy-highlight-red",
+       "hud/no-distinct-headshot-sound-belief"]
+
+[no-distinct-headshot-sound-belief]
+claim = """
+The player believes there is no distinct headshot sound.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-07"
+subject = "hud:hit-feedback"
+source = "the player, 2026-10-07 (chat), stated as a belief"
+use = """
+do not seek a headshot from audio until an observation contradicts the belief;
+head share comes from the combat report
+"""
+exceptions = "unverified on any capture"
+see = ["hud/hit-yellow-flash"]
