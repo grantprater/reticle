@@ -57,3 +57,7 @@ Acceptance: each item's own command in the [10-05 archive](docs/archive/BACKLOG-
 - **`agent-spelling-owner-20261006` (2026-10-06):** `reticle/agent_names.py`; KAY/O bound on c817691bcd15 and d3dcfb182ab1.
 
 Full entries: [10-06 archive](docs/archive/BACKLOG-through-2026-10-06.md).
+
+Archived 2026-10-07 (late):
+
+- **`fidelity-principle-20261006` (2026-10-06):** the AGENTS.md rule; two precedents archived.
