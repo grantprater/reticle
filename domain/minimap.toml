@@ -1057,6 +1057,29 @@ rejects them (docs/MINIMAP_OBJECTS_DESIGN.md)
 """
 subject = "minimap:ping"
 
+[danger-ping-flash]
+claim = """
+On a match capture the danger ping's pulse whitens the triangle itself: for
+0.2-0.33 s every 0.68 s its centre falls to HSV saturation 11-17, and the
+first and last frames of its life may fall in a flash.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-07"
+source = """
+9acf02f98283 (C:/Users/grant/Videos/2026-08-24 11-55-34.mp4, 331 px widget)
+676.0-686.5 s, minimap roi_cache at 13-15 Hz: the triangle at widget (159,
+127) is white at 676.32 s, red from 676.58 s, flashes at 677.0, 677.7,
+678.4, 679.1, 679.7, 680.4, 681.1, 683.8 and 684.5 s, and is last red at
+685.12 s; the ping owner's 10 Hz run split at each flash
+"""
+use = """
+the ping owner lets a danger run skip a flash and credits a flash at each
+end (`ping.DANGER_GAP_S`, `ping.DANGER_FLASH_S`, ping-0.2.0)
+"""
+see = ["minimap/danger-ping-pulses"]
+subject = "minimap:ping"
+
 [spotted-callouts-draw-nothing]
 claim = """
 The automatic "enemy spotted" voice line and the broadcast chat message

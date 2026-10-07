@@ -17,6 +17,11 @@ candidate the teardrop refused as `no_ring` or `low_ncc`.
   TAG is `stored`): hits, misses, the hit rate with a 95% interval from a
   bootstrap over rounds, the misses beside a `no_ring` or `low_ncc` refusal,
   the "?" marks beside a drawn enemy, and the extras by class.
+* `pings SESSION --tag TAG` -- the ping owner (`ping.PingReader`, the code as
+  checked out) over the minimap roi_cache at the scan's 10 Hz phase, its
+  events written to `OUT/TAG/ping/SESSION.jsonl`, never to the store.
+* `reread ... --pings TAG` and `score ... --pings TAG` -- read the owner gate's
+  pings, and class the extras, from that reread instead of the stored stream.
 * `compare --tags A,B` -- the table over the three development matches.
 * `sheet --tags A,B` -- a before/after contact sheet of misses recovered.
 
@@ -69,7 +74,8 @@ sys.path.insert(0, str(HERE))
 
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "teardrop-refusals-0.1.0"
+#: 0.2.0 (task teardrop-confusers-20261007): `pings`, `--pings`.
+VERSION = "teardrop-refusals-0.2.0"
 TASK = "teardrop-refusals-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / TASK
@@ -108,8 +114,72 @@ def rows_path(tag: str, sid: str) -> Path:
             else OUT / tag / f"{sid}.jsonl")
 
 
-def reread(sid: str, tag: str) -> int:
-    """`minimap_objects.read_session` from the roi_cache into OUT/tag."""
+PING_HZ = 10.0
+
+
+def ping_path(ptag: str, sid: str) -> Path:
+    return OUT / ptag / "ping" / f"{sid}.jsonl"
+
+
+class _PingStore:
+    """A store whose `ping` events are a reread's (`pings`); everything else
+    is the store's own."""
+
+    def __init__(self, store, ptag: str):
+        self._s, self._ptag = store, ptag
+
+    def read_events(self, stream, sid):
+        if stream != "ping":
+            return self._s.read_events(stream, sid)
+        p = ping_path(self._ptag, sid)
+        if not p.is_file():
+            raise SystemExit(f"{sid}: no reread pings at {p}; run `pings {sid} --tag {self._ptag}`")
+        return [json.loads(ln) for ln in p.open(encoding="utf-8")]
+
+    def __getattr__(self, k):
+        return getattr(self._s, k)
+
+
+def pings(sid: str, tag: str) -> int:
+    """The ping owner over the minimap roi_cache, at the scan's `--ping-hz`
+    phase (a frame is fed when it is at least 1/hz after the last fed)."""
+    from reticle import minimap_objects as mo
+    from reticle.ping import PING_VERSION, PingReader
+    from reticle.store import Store
+
+    refuse(sid)
+    ctx, why = mo.object_context(Store(STORE), sid)
+    if ctx is None:
+        raise SystemExit(why)
+    # The scan's phase is a next-timestamp on a fixed 1/hz grid
+    # (`sample_multi`): each grid time takes the first held frame at or after
+    # it. A gap-from-last-fed rule would read a 13.3 Hz cache at about 7 Hz.
+    held = np.sort(np.asarray(ctx["cache"].holds(), float))
+    grid = np.arange(held[0], held[-1] + 1e-6, 1000.0 / PING_HZ)
+    k = np.searchsorted(held, grid - 1e-6)
+    k = k[k < len(held)]
+    fed = [float(t) for t in np.unique(held[k])]
+    r = PingReader(floor=ctx["floor"], box=ctx["rect"], sgray=ctx["sgray"], hz=PING_HZ)
+    t0 = time.perf_counter()
+    for smp in ctx["cache"].samples(fed, rois=["minimap"]):
+        r.feed(smp)
+    r.finish()
+    ev = r.events(sid)
+    p = ping_path(tag, sid)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        for e in ev:
+            f.write(json.dumps(e, separators=(",", ":")) + "\n")
+    kinds = Counter(h[0] for h in r.hits)
+    print(f"{sid}: {PING_VERSION} {len(r.hits)} confirmed {dict(kinds)}, {len(r.unconfirmed)} unconfirmed, "
+          f"{len(r.rejected)} rejected over {len(r.ts)} frames ({r.n_absent} absent); "
+          f"{time.perf_counter() - t0:.0f} s -> {p}", flush=True)
+    return 0
+
+
+def reread(sid: str, tag: str, ptag: str | None = None) -> int:
+    """`minimap_objects.read_session` from the roi_cache into OUT/tag; with
+    `ptag`, the owner gate reads that `pings` reread."""
     from reticle import minimap_objects as mo
     from reticle.store import Store
 
@@ -117,12 +187,14 @@ def reread(sid: str, tag: str) -> int:
     if tag == "stored":
         raise SystemExit("`stored` names the store's own stream; pick another tag")
     t0 = time.perf_counter()
-    res = mo.read_session(Store(STORE), sid)
+    store = Store(STORE) if ptag is None else _PingStore(Store(STORE), ptag)
+    res = mo.read_session(store, sid)
     if "skipped" in res:
         raise SystemExit(f"{sid}: {res['skipped']}")
     head = res["rows"][0]
     head["checks"] = {"wall_s": round(time.perf_counter() - t0, 1)}
     head["reread_by"] = VERSION
+    head["pings_from"] = "store" if ptag is None else str(ping_path(ptag, sid))
     p = rows_path(tag, sid)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
@@ -178,9 +250,10 @@ def _boot_count(rounds, cnt, n=N_BOOT, seed=SEED):
     return [int(np.percentile(s, 2.5)), int(np.percentile(s, 97.5))]
 
 
-def _pings(sid: str) -> np.ndarray:
-    """Confirmed pings (t0, t1, x, y) in capture ms and widget px."""
-    p = STORE / "events" / "ping" / f"{sid}.jsonl"
+def _pings(sid: str, ptag: str | None = None) -> np.ndarray:
+    """Confirmed pings (t0, t1, x, y) in capture ms and widget px: the stored
+    stream, or with `ptag` that `pings` reread."""
+    p = STORE / "events" / "ping" / f"{sid}.jsonl" if ptag is None else ping_path(ptag, sid)
     on, out = {}, []
     if p.is_file():
         for line in p.open(encoding="utf-8"):
@@ -203,7 +276,7 @@ def miss_cause(r) -> str | None:
     return None
 
 
-def score(sid: str, tag: str, write: bool = True) -> dict:
+def score(sid: str, tag: str, write: bool = True, ptag: str | None = None) -> dict:
     import enemy_lane_check as elc
     import t1_draw_rule as tdr
     from reticle import minimap_objects as mo
@@ -238,7 +311,7 @@ def score(sid: str, tag: str, write: bool = True) -> dict:
                 cause[c][i] += 1
             q_miss[i] += "question" in r["near"]
     # extras by class
-    pings = _pings(sid)
+    pings = _pings(sid, ptag)
     frames = {}
     want = {e["frame_idx"] for e in R["extras"]}
     for line in rp.open(encoding="utf-8"):
@@ -288,7 +361,7 @@ def score(sid: str, tag: str, write: bool = True) -> dict:
            "extras_by_class": {c: int(v.sum()) for c, v in ext.items()},
            "extras_by_class_ci": {c: _boot_count(rounds, v) for c, v in ext.items()},
            "false_accepts": int(false_acc.sum()), "false_accepts_ci": _boot_count(rounds, false_acc),
-           "icons_valid": info["icons_valid"]}
+           "icons_valid": info["icons_valid"], "pings_from": "store" if ptag is None else ptag}
     if write:
         d = OUT / ("stored" if tag == "stored" else tag)
         d.mkdir(parents=True, exist_ok=True)
@@ -486,12 +559,17 @@ def main(argv=None) -> int:
     p = sub.add_parser("refit")
     p.add_argument("session")
     p.add_argument("--n", type=int, default=200)
+    p = sub.add_parser("pings")
+    p.add_argument("sessions", nargs="+")
+    p.add_argument("--tag", required=True)
     p = sub.add_parser("reread")
     p.add_argument("sessions", nargs="+")
     p.add_argument("--tag", required=True)
+    p.add_argument("--pings", help="the owner gate reads this `pings` reread")
     p = sub.add_parser("score")
     p.add_argument("sessions", nargs="+")
     p.add_argument("--tag", required=True)
+    p.add_argument("--pings", help="class extras by this `pings` reread")
     p = sub.add_parser("compare")
     p.add_argument("--tags", required=True)
     p = sub.add_parser("record")
@@ -503,13 +581,17 @@ def main(argv=None) -> int:
     _idle()
     if a.cmd == "refit":
         return refit(a.session, a.n)
+    if a.cmd == "pings":
+        for s in a.sessions:
+            pings(s, a.tag)
+        return 0
     if a.cmd == "reread":
         for s in a.sessions:
-            reread(s, a.tag)
+            reread(s, a.tag, a.pings)
         return 0
     if a.cmd == "score":
         for s in a.sessions:
-            score(s, a.tag)
+            score(s, a.tag, ptag=a.pings)
         return 0
     if a.cmd == "compare":
         return compare(a.tags.split(","))

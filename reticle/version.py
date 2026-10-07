@@ -512,7 +512,8 @@ MINIMAP_VERSION = "minimap-0.7.0"
 # whole per session, so this is a stamp for attribution rather than a cache
 # key -- nothing skips a ping read on a version match, because pings ride a
 # pass that was going to happen anyway and cost no decode of their own.
-PING_VERSION = "ping-0.1.0"
+#: 0.2.0 (2026-10-07): danger runs skip the pulse gap and their life is the span.
+PING_VERSION = "ping-0.2.0"
 # Ally icon descriptors, emitted as `ally_icon` EVENTS by
 # `minimap.AllyIconReader` at 2 Hz. Its own stamp rather than a
 # MINIMAP_VERSION bump: positions do not change, and a descriptor is an

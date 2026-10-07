@@ -172,6 +172,20 @@ each one is a way a clip-shaped detector fails at session length:
   Stale entries are now dropped from the cell as they are passed, so the search
   is bounded by what is live. The clip control is unchanged at 15.
 
+The danger ping flashes, and its run is measured as a span (ping-0.2.0)
+-------------------------------------------------------------------------
+The danger triangle pulses [domain:minimap/danger-ping-pulses], and on match
+captures the pulse whitens the triangle itself, its first and last frames
+included [domain:minimap/danger-ping-flash]. `sightings` loses it under
+`SAT_MIN` on each flash, and the 0.25 s gap at 10 Hz split one ping into
+short runs, each refused on its lifetime; the enemy teardrop then read the
+unclaimed triangle as an enemy (`minimap_objects`' owner gate,
+`prototypes/teardrop_refusals.py`). So a run of danger hue may skip up to
+`DANGER_GAP_S`, under the pulse period; its life is its span, credited up to
+`DANGER_FLASH_S` hidden at each end but never past the class's life, and its
+frames must cover `DANGER_COVER_MIN` of the span. Every other kind keeps the
+contiguous run and the frame-count life.
+
 Owns [owns:ping-event].
 """
 
@@ -221,6 +235,14 @@ LIFE_TOL_S = 1.0
 #: `sample_multi` keeps phase as a next-timestamp, so consecutive samples
 #: already scatter either side of 1/hz.
 GAP_PERIODS = 2.5
+#: A danger run may skip this long (s): the pulse whitens the triangle for
+#: 0.2-0.33 s every 0.68 s (9acf02f98283, 676.3-685.9 s, cached at 15 Hz), so
+#: the gap stays under the period and far below the 10 s life.
+DANGER_GAP_S = 0.5
+#: A danger run's frames must cover this share of its span (seen: 0.65-0.7).
+DANGER_COVER_MIN = 0.5
+#: The longest whitening seen (s), 0.2-0.33 s per flash on the same ping.
+DANGER_FLASH_S = 0.33
 
 
 def classify(hue: int) -> str | None:
@@ -274,6 +296,13 @@ class Grouper:
         self.groups: list[list[tuple[float, int, int, int]]] = []
         self._cells: dict[tuple[int, int], list[int]] = {}
 
+    def _gap(self, g) -> float:
+        """The longest skip a run may make: `max_gap`, or for a run whose
+        first sighting is danger hue the pulse gap `DANGER_GAP_S`."""
+        if classify(g[0][3]) == "danger":
+            return max(self.max_gap, DANGER_GAP_S)
+        return self.max_gap
+
     def add(self, t: float, x: int, y: int, hue: int) -> None:
         cx, cy = x // self.same, y // self.same
         best = None
@@ -292,7 +321,7 @@ class Grouper:
                 live = []
                 for i in cell:
                     g = self.groups[i]
-                    if t - g[-1][0] > self.max_gap:
+                    if t - g[-1][0] > self._gap(g):
                         continue
                     live.append(i)
                     if best is not None and i > best:
@@ -375,6 +404,15 @@ def resolve(grouper: Grouper, ts: list[float], hz: float):
         row = (kind, t0, t1, g[0][1], g[0][2], hue, len(g))
         life = len(g) / hz
         want = LIFETIME_S[kind]
+        if kind == "danger":
+            # The pulse drops frames (module docstring), so the life is the
+            # span; the run's gaps were bounded when it was built.
+            span = (t1 - t0) + 1.0 / hz
+            if life / span < DANGER_COVER_MIN:
+                rejected.append(row)
+                continue
+            # A flash may hide each end; credit it, never past the life.
+            life = span if span >= want else min(want, span + 2 * DANGER_FLASH_S)
         # CONTIGUOUS: a ping is drawn continuously, so the span it was seen
         # over must equal the number of frames it was seen in. Scenery that
         # flickers in and out all clip has a 58 s span and a 4 s count, and it

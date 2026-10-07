@@ -74,8 +74,14 @@ turning one off changes the stamp and `reticle plan` names the stream stale.
   shape-confirmed red X lies within `X_OWN_PX` * scale, and the ping
   reader's where a confirmed ping of the stored `ping` stream is drawn
   within `ICON_PX` * scale at that time (`stored_pings`; no ping stream, the
-  gate abstains). Danger pings the ping reader rejects by lifetime
-  [domain:minimap/danger-ping-pulses] stay unowned and may still read.
+  gate abstains). From ping-0.2.0 the ping owner confirms the danger pings
+  whose flash [domain:minimap/danger-ping-flash] split their runs; read from
+  that stream, true false accepts on 9acf02f98283 fall from
+  [metric:teardrop_refusals/lane/final@9acf02f98283#false_accepts=194] to
+  [metric:teardrop_refusals/lane/c1@9acf02f98283#false_accepts=129] with the
+  hit rate at [metric:teardrop_refusals/lane/c1@9acf02f98283#hit_rate=0.6313].
+  The gate costs the reads of enemies standing within `ICON_PX` of a ping
+  (20 on d3dcfb182ab1, 2 on c817691bcd15).
 
 The first two fixes were measured in `prototypes/enemy_lane_bounds.py`
 (enemy-lane-bounds-0.1.0) before they were wired; the third and the icon
