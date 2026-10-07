@@ -1126,6 +1126,47 @@ and keyed_081 (463ebce3a625 17.567 s) under
 """
 see = ["abilities/minimap-thrown-ability-icon"]
 
+[reyna-devour-not-on-minimap]
+claim = """
+Reyna's Devour (slot Q) draws nothing on the minimap.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-07"
+subject = "reyna:devour"
+source = """
+player, 2026-10-07: "Reyna's devour pool doesn't draw on the map". Asked
+because the class-aware harness (question_acceptance 0.3.0) joined 20 enemy-lane
+finds to an ally Devour child with no drawing fact; Devour children sit at
+kill places, beside the death X
+"""
+use = """
+drawn_by_fact = no for every side: a find on a Devour child is explained by
+the kill's X mark or another entity, never by Devour
+"""
+see = ["abilities/reyna-devour-tether", "game_data/reyna-devour-game-data",
+       "abilities/ability-rules-are-unique"]
+
+[reyna-devour-tether]
+claim = """
+Reyna's Devour is a tether from a dead enemy to Reyna for the channel; it
+breaks early if line of sight between them is lost for a short time (the
+player believes about 0.5 s; unverified against game files).
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-07"
+subject = "reyna:devour"
+source = """
+player, 2026-10-07: "it is basically a tether connecting a dead enemy to her
+for the channeled duration, or until line of sight is broken for I think .5
+seconds". The exported 13.06 game data gives a soul-orb lifetime of 3.0 s and
+a full heal time of 3.0 s [domain:game_data/reyna-devour-game-data] and no
+line-of-sight timeout; game files outrank the 0.5 s once found
+"""
+use = "a Devour child's life is the channel; its end before 3.0 s may mean a broken line of sight"
+see = ["abilities/reyna-devour-not-on-minimap", "game_data/reyna-devour-game-data"]
+
 [reyna-leer-minimap-icon]
 claim = """
 Reyna's Leer shows on her minimap as a dark icon, about 18 px, with a white
