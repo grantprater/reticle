@@ -2,6 +2,7 @@
 death owner's X classifier and X births, on synthetic frames."""
 from __future__ import annotations
 
+import json
 import unittest
 
 import cv2
@@ -21,7 +22,8 @@ class StampTests(unittest.TestCase):
         self.assertEqual(len(stamps), 4)
         self.assertTrue(mo.minimap_object_version({}).endswith("+nofix"))
         every = mo.minimap_object_version({f: True for f in mo.FIXES})
-        self.assertEqual(every, f"{mo.MINIMAP_OBJECT_BASE}+teardrop_box+slab_gate+owner_gate")
+        self.assertEqual(every, f"{mo.MINIMAP_OBJECT_BASE}+teardrop_box+slab_gate+owner_gate"
+                         "+portrait_gate")
         self.assertEqual(mo.minimap_object_version(), every)    # every fix on by default
 
 
@@ -160,3 +162,76 @@ class PriorSeedTests(unittest.TestCase):
         got = self.read([(32.0, 31.0)])
         self.assertEqual([(e["x"], e["y"]) for e in got], [(30.0, 30.0)])
         self.assertEqual(got[0]["rests_on"], "prior")
+
+
+class PortraitGateTests(unittest.TestCase):
+    """The portrait gate: a find whose interior fits no enemy portrait is
+    refused with its fit, a kept find stores its fit and margin and no name,
+    and without a candidate set the peaks search falls back to the centroid."""
+
+    def read(self, gate, fit_by_name):
+        from unittest.mock import patch
+
+        from reticle import minimap, teardrop
+        from reticle.adjudication import identity
+
+        seeds = []
+
+        def icons(*a, seed, **k):
+            seeds.append(seed)
+            return [{"cx": 30.0, "cy": 30.0, "r": 9, "cov": 0.5, "inner": 0.0,
+                     "inner_v": 100.0, "facing": 0.0, "lobe": 0.4, "area": 40}]
+
+        def fit(_c, _cls, x, y, **k):
+            return {"read": True, "x": x, "y": y, "deg": 0.0, "tip_x": x + 8, "tip_y": y,
+                    "ncc": 0.7, "margin": 0.3}
+
+        def art(_feats, names, _refs):
+            return (fit_by_name[names[0]], names[0])
+
+        ctx = {"floor": np.ones((100, 100), bool), "slab": np.ones((100, 100), bool),
+               "scale": 1.0, "portrait_gate": gate}
+        with patch.object(mo, "RING_SEED", "peaks"),                 patch.object(minimap, "icons", side_effect=icons),                 patch.object(teardrop, "fit_icon", side_effect=fit),                 patch.object(identity, "rendered_art_fit", side_effect=art),                 patch.object(death, "minimap_x_marks",
+                             return_value={"red": [], "blue": [], "red_other": []}):
+            out = mo.read_frame(np.zeros((100, 100, 3), np.uint8), ctx, scale=1.0)
+        return out, seeds
+
+    GATE = {"names": ["Jett", "Omen"], "refs": {}, "reason": None}
+
+    def test_a_find_fitting_no_portrait_is_refused_with_its_fit(self):
+        out, seeds = self.read(self.GATE, {"Jett": 2.5, "Omen": 3.0})
+        self.assertEqual(seeds, ["peaks"])
+        self.assertEqual(out["enemies"], [])
+        (r,) = out["refused"]
+        self.assertTrue(r["reason"].startswith("not_a_portrait"))
+        self.assertEqual((r["portrait_fit"], r["portrait_margin"]), (2.5, 0.5))
+
+    def test_a_kept_find_stores_fit_and_margin_and_no_name(self):
+        out, _ = self.read(self.GATE, {"Jett": 0.4, "Omen": 1.9})
+        (e,) = out["enemies"]
+        self.assertEqual((e["portrait_fit"], e["portrait_margin"]), (0.4, 1.5))
+        self.assertNotIn("Jett", json.dumps(e))
+        self.assertNotIn("Omen", json.dumps(e))
+
+    def test_no_lineup_falls_back_to_the_centroid_and_refuses_nothing(self):
+        gate = {"names": None, "refs": None, "reason": "no_lineup"}
+        out, seeds = self.read(gate, {})
+        self.assertEqual(seeds, ["centroid"])
+        self.assertEqual(len(out["enemies"]), 1)
+        self.assertNotIn("portrait_fit", out["enemies"][0])
+        self.assertEqual(mo.portrait_gate({}, gate)["reason"], "no_lineup")
+
+    def test_a_short_enemy_side_cannot_gate(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from reticle import lineup
+        from reticle.adjudication import identity
+
+        refs = {"features_version": mo.ALLY_PORTRAIT_FEATURES_VERSION, "version": "r"}
+        with tempfile.TemporaryDirectory() as d,                 patch.object(identity, "load_ally_portrait_references", return_value=refs),                 patch.object(lineup, "view_stamp", return_value="v"),                 patch.object(lineup, "portrait_candidates",
+                             return_value=({"enemy": ["Jett", "Omen", "Sage", "Sova"]}, "s")):
+            got = mo.portrait_gate_inputs(Path(d), "abc")
+        self.assertIsNone(got["names"])
+        self.assertTrue(got["reason"].startswith("lineup_short"))

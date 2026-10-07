@@ -427,6 +427,45 @@ class PeakSeedTests(unittest.TestCase):
         self.assertLessEqual(np.hypot(got[0]["cx"] - 120, got[0]["cy"] - 140), 1.0)
 
 
+class SoftCoverTests(unittest.TestCase):
+    """A pale enemy ring: half its rim is saturated red the HSV key reads,
+    half is a desaturated red under the key's saturation floor. The binary
+    coverage holds about half the circle; soft redness scores the pale half
+    too, and a cut above the binary share keeps it only softly."""
+
+    def crop(self):
+        crop = np.full((W, W, 3), 110, np.uint8)
+        cv2.ellipse(crop, (120, 140), (10, 10), 0, 0, 180, (40, 30, 220), 2)
+        cv2.ellipse(crop, (120, 140), (10, 10), 0, 180, 360, (120, 120, 175), 2)
+        return crop
+
+    def fits(self, soft, cov_min):
+        from reticle.minimap import icons
+        from reticle.minimap_objects import INNER_RED_MAX, enemy_red_mask
+        from reticle.teardrop import redness
+
+        crop = self.crop()
+        return icons(enemy_red_mask(crop), crop, np.ones((W, W), bool), cov_min=cov_min,
+                     inner_max=INNER_RED_MAX, require_facing=False, seed="peaks",
+                     cov_map=redness(crop) if soft else None)
+
+    def test_the_key_misses_the_pale_half_and_soft_redness_scores_it(self):
+        self.assertEqual(self.fits(False, 0.7), [])
+        got = self.fits(True, 0.7)
+        self.assertEqual(len(got), 1)
+        self.assertLessEqual(np.hypot(got[0]["cx"] - 120, got[0]["cy"] - 140), 1.0)
+
+    def test_cov_map_needs_the_peaks_seed(self):
+        from reticle.minimap import icons
+        from reticle.minimap_objects import enemy_red_mask
+        from reticle.teardrop import redness
+
+        crop = self.crop()
+        with self.assertRaises(ValueError):
+            icons(enemy_red_mask(crop), crop, np.ones((W, W), bool), seed="centroid",
+                  cov_map=redness(crop))
+
+
 class RadiusBandTests(unittest.TestCase):
     """At the 331 px key's map scale (0.637) the base band [8, 13] spans
     5.1 to 8.3 px: `nearest` searches from 5 px, `inside` from 6 px."""

@@ -934,7 +934,7 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
           separation_px: float | None = None,
           seed: str = "centroid", gates: bool = True,
           grey: np.ndarray | None = None, scale: float | None = None,
-          radii: str = "nearest") -> list[dict]:
+          radii: str = "nearest", cov_map: np.ndarray | None = None) -> list[dict]:
     """Ring-fit every blob of `mask` and keep the ones shaped like an icon.
 
     `scale` is the session's `geometry.MapScale.scale`: the radii, the
@@ -981,7 +981,16 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     a sample of the enemy lane's `ring_unproposed` misses the centroid seed's
     ring sat on the neighbour or straddled the lobe
     (`prototypes/enemy_proposal_funnel.py`); the enemy search proposes these
-    peaks beside the last frame's icons (`minimap_objects.RING_SEED`).
+    peaks (`minimap_objects.RING_SEED`).
+
+    **`cov_map` scores the circumference softly** (`"peaks"` only): a float
+    map in [0, 1], such as `teardrop.redness`, whose mean over the circle is
+    the coverage `cov_min` cuts, once, at the decision. The interior share,
+    the lobe and the blobs that bound the search stay on `mask`. A binary
+    key cuts each rim pixel before the ring is scored: at the 331 px widget
+    the chroma blur leaves the enemy rim pale, the key holds about a quarter
+    of the circle at an icon the ring search missed, and the score flickers
+    frame to frame [domain:minimap/enemy-rim-faint-at-small-widget].
 
     Returns a dict per icon: `cx`, `cy`, `r`, `cov`, `inner`, `facing` (degrees
     or None), `lobe`, `area`. Facing is in the same convention as
@@ -1032,10 +1041,13 @@ def icons(mask: np.ndarray, crop: np.ndarray, floor: np.ndarray, *,
     supported = None if support is None else set(np.unique(lbl[(m > 0) & support]))
     if seed not in ("centroid", "surface", "peaks"):
         raise ValueError(f"unknown seed {seed!r}")
+    if cov_map is not None and seed != "peaks":
+        raise ValueError("cov_map scores only the peaks seed")
     if seed == "peaks":
+        soft = None if cov_map is None else np.where(floor, cov_map, 0).astype(np.float32)
         return _peak_icons(keyed, grey, lbl, st, supported, min_area, r_min, r_max, sc,
                            cov_min=cov_min, inner_max=inner_max, require_facing=require_facing,
-                           separation_px=separation_px, gates=gates)
+                           separation_px=separation_px, gates=gates, soft=soft)
     if seed == "surface":
         # The surface is read only within r_max of a kept blob, and a ring of
         # radius <= r_max there reads only pixels within 2*r_max of it. So it
@@ -1118,7 +1130,8 @@ def _disc_kernel(r: int) -> np.ndarray:
 
 
 def _peak_icons(keyed, grey, lbl, st, supported, min_area, r_min, r_max, sc, *,
-                cov_min, inner_max, require_facing, separation_px, gates) -> list[dict]:
+                cov_min, inner_max, require_facing, separation_px, gates,
+                soft=None) -> list[dict]:
     """`icons(seed="peaks")`: every local peak of the gated ring score, not
     one circle per blob.
 
@@ -1137,6 +1150,10 @@ def _peak_icons(keyed, grey, lbl, st, supported, min_area, r_min, r_max, sc, *,
     measured exactly by `_ring_at` and `_gated` then keeps the best-covered
     one within the separation, as for the other seeds. Gating before
     choosing is the change: a straddling circle no longer hides the icon.
+
+    With `soft` (the floor-masked `cov_map` of `icons`), the coverage at
+    every centre and the exact `cov` of each peak are the mean of `soft` over
+    the circle; the interior share is still the key's.
     """
     n = st.shape[0]
     keep = st[:, 4] >= min_area
@@ -1151,11 +1168,12 @@ def _peak_icons(keyed, grey, lbl, st, supported, min_area, r_min, r_max, sc, *,
     reach = cv2.dilate(blob.astype(np.uint8), grow) > 0
     owner = cv2.dilate(lab, grow).astype(np.int64)
     kf = keyed.astype(np.float32)
+    cf = kf if soft is None else soft
     best = np.full(kf.shape, -1.0, np.float32)
     rad = np.zeros(kf.shape, np.int32)
     with step("coverage"):
         for r in range(r_min, r_max + 1):
-            c = cv2.filter2D(kf, -1, _ring_kernel(r), borderType=cv2.BORDER_CONSTANT)
+            c = cv2.filter2D(cf, -1, _ring_kernel(r), borderType=cv2.BORDER_CONSTANT)
             if gates:
                 inner = cv2.filter2D(kf, -1, _disc_kernel(r), borderType=cv2.BORDER_CONSTANT)
                 # float32 sums of 1/count: a hair under the exact share
@@ -1174,7 +1192,7 @@ def _peak_icons(keyed, grey, lbl, st, supported, min_area, r_min, r_max, sc, *,
         ok = (xs >= 0) & (ys >= 0) & (xs < keyed.shape[1]) & (ys < keyed.shape[0])
         if ok.sum() < len(pts) * 0.75:
             continue
-        cov = float(keyed[ys[ok], xs[ok]].mean())
+        cov = float(cf[ys[ok], xs[ok]].mean())
         found.append({"cx": float(x), "cy": float(y), "r": int(rad[y, x]), "cov": cov,
                       "inner": float(f["inner_red"]), "inner_v": float(f["inner_v"]),
                       "facing": f["facing"], "lobe": float(f["lobe"]),

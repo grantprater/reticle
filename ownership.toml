@@ -1078,25 +1078,30 @@ evidence = "tests/test_round_entities.py"
 
 [[entry]]
 id = "enemy-icon"
-question = "Where are the enemy icons on one stored minimap frame, and which do the slab and the teardrop refuse?"
+question = "Where are the enemy icons on one stored minimap frame, and which do the slab, the teardrop and the portrait gate refuse?"
 owner = "minimap_objects"
 stored_consumers = ["enemy_tracks", "adjudication.death"]
 role = ["detect"]
 status = "partial"
-produces = ["read_frame", "read_times", "read_session", "object_context", "enemy_red_mask", "slab_red_share", "minimap_object_version", "MINIMAP_OBJECT_BASE", "FIXES", "ENABLED"]
+produces = ["read_frame", "read_times", "read_session", "object_context", "enemy_red_mask", "slab_red_share", "minimap_object_version", "MINIMAP_OBJECT_BASE", "FIXES", "ENABLED", "portrait_gate", "portrait_gate_inputs", "ring_seed"]
 not_for = """
 Fitting the icon or its facing (`icon-pose`: `teardrop.fit_icon`'s enemy
 class), drawing the X marks (`death-victim`: `minimap_x_marks`, read in the
 same pass), joining icons across frames (`enemy-track-session`) or naming
 them (`agent-identity`). It stores each enemy's portrait features for the
-arbiter and names nobody. Its two fixes, `teardrop_box` and `slab_gate`, are
-each switchable and part of the stamp. The last read frame's accepted icons
-seed its ring search (`RING_SEED` "centroid+prior"); a find that prior
-placed declares `rests_on: "prior"`, and no icon is joined to another.
+arbiter and names nobody. Its fixes, `teardrop_box`, `slab_gate`,
+`owner_gate` and `portrait_gate`, are each switchable and part of the stamp.
+The portrait gate takes the lineup's enemy candidate set
+(`lineup.portrait_candidates`) and asks the identity owner's absolute fit
+(`identity.rendered_art_fit`); it stores the closest fit and the margin to
+the second, never the agent. Without a full enemy set it refuses to read,
+and the ring search falls back to the centroid seed. The 0.6.0 prior seed
+(`RING_SEED` "centroid+prior") stays switchable and off; a find it placed
+declares `rests_on: "prior"`, and no icon is joined to another.
 """
-defers_to = ["icon-pose", "death-victim", "widget-drawn"]
+defers_to = ["icon-pose", "death-victim", "widget-drawn", "agent-identity"]
 consumers = ["cli"]
-evidence = "tests/test_minimap_objects.py, prototypes/enemy_lane_bounds.py, prototypes/enemy_lane_score.py, prototypes/enemy_proposal_funnel.py"
+evidence = "tests/test_minimap_objects.py, prototypes/enemy_lane_bounds.py, prototypes/enemy_lane_score.py, prototypes/enemy_proposal_funnel.py, prototypes/enemy_portrait_gate.py"
 
 [[entry]]
 id = "last-known-mark"
