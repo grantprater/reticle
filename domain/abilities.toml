@@ -7521,6 +7521,139 @@ disc the glyph owner places a glyph on
 see = ["abilities/tejo-stealth-drone-piloted", "abilities/minimap-textures-tejo",
        "game_data/tejo-stealth-drone-game-data", "abilities/ability-rules-are-unique"]
 
+[sova-owl-drone-enemy-minimap-icon]
+claim = """
+On the player's minimap, an enemy Sova's Owl Drone draws as an enemy player
+icon does: a red ring with a facing lobe that turns.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-07"
+subject = "sova:owl drone"
+source = """
+player, 2026-10-07 (chat, relayed by the detection-reality review): the Owl
+Drone, piloted, draws on the enemy minimap as an enemy player does, a red
+ring with a facing lobe that turns
+"""
+use = """
+an alternative to a drawn enemy for a red-ringed find:
+`round_lifetimes.detection_reality` refuses a track lying mostly on a disc
+the glyph owner places this glyph on
+"""
+see = ["abilities/sova-owl-drone-piloted", "abilities/sova-owl-drone-minimap-glyph-upright",
+       "abilities/ability-rules-are-unique"]
+
+[skye-trailblazer-enemy-minimap-icon]
+claim = """
+On the player's minimap, an enemy Skye's Trailblazer draws as an enemy player
+icon does: a red ring with a facing lobe that turns.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-07"
+subject = "skye:trailblazer"
+source = """
+player, 2026-10-07 (chat, relayed by the detection-reality review): the
+Trailblazer, piloted, draws on the enemy minimap as an enemy player does, a
+red ring with a facing lobe that turns
+"""
+use = """
+an alternative to a drawn enemy for a red-ringed find:
+`round_lifetimes.detection_reality` refuses a track lying mostly on a disc
+the glyph owner places this glyph on
+"""
+see = ["abilities/skye-trailblazer-enemy-minimap-glyph", "abilities/skye-trailblazer-piloted",
+       "abilities/ability-rules-are-unique"]
+
+[gekko-thrash-enemy-minimap-icon]
+claim = """
+On the player's minimap, an enemy Gekko's Thrash draws as an enemy player
+icon does: a red ring with a facing lobe that turns.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-07"
+subject = "gekko:thrash"
+source = """
+player, 2026-10-07 (chat, relayed by the detection-reality review): Thrash,
+piloted, draws on the enemy minimap as an enemy player does, a red ring with
+a facing lobe that turns
+"""
+use = """
+an alternative to a drawn enemy for a red-ringed find:
+`round_lifetimes.detection_reality` refuses a track lying mostly on a disc
+the glyph owner places this glyph on
+"""
+see = ["abilities/gekko-thrash-global-minimap", "abilities/ability-rules-are-unique"]
+
+[gekko-wingman-enemy-minimap-icon]
+claim = """
+On the player's minimap, an enemy Gekko's Wingman draws as an enemy player
+icon does: a red ring with a facing lobe that turns.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-07"
+subject = "gekko:wingman"
+source = """
+player, 2026-10-07 (chat, relayed by the detection-reality review): Wingman,
+autonomous, draws on the enemy minimap as an enemy player does, a red ring
+with a facing lobe that turns
+"""
+use = """
+an alternative to a drawn enemy for a red-ringed find:
+`round_lifetimes.detection_reality` refuses a track lying mostly on a disc
+the glyph owner places this glyph on
+"""
+see = ["abilities/gekko-wingman-minimap-icon", "abilities/gekko-wingman-straight-bounce",
+       "abilities/ability-rules-are-unique"]
+
+[fade-prowler-enemy-minimap-icon]
+claim = """
+On the player's minimap, an enemy Fade's Prowler draws as an enemy player
+icon does: a red ring with a facing lobe that turns.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-07"
+subject = "fade:prowler"
+source = """
+player, 2026-10-07 (chat, relayed by the detection-reality review, which
+grouped it with the autonomous abilities): the Prowler draws on the enemy minimap as an enemy player does, a
+red ring with a facing lobe that turns. Seen on d3dcfb182ab1
+(C:/Users/grant/Videos/2026-10-05 18-13-01.mp4, R9 at 688.6-689.5 s): a red ring round a black disc
+with a white glyph, <store>/analysis/detection-reality-20261007/crops/
+d3dcfb182ab1_R9_E0002_replay.png
+"""
+use = """
+an alternative to a drawn enemy for a red-ringed find:
+`round_lifetimes.detection_reality` refuses a track lying mostly on a disc
+the glyph owner places this glyph on
+"""
+see = ["abilities/fade-prowler-minimap-icon", "abilities/fade-prowler-steered",
+       "abilities/ability-rules-are-unique"]
+
+[raze-boom-bot-enemy-minimap-icon]
+claim = """
+On the player's minimap, an enemy Raze's Boom Bot draws as an enemy player
+icon does: a red ring with a facing lobe that turns.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-07"
+subject = "raze:boom bot"
+source = """
+player, 2026-10-07 (chat, relayed by the detection-reality review): the Boom
+Bot, autonomous, draws on the enemy minimap as an enemy player does, a red
+ring with a facing lobe that turns
+"""
+use = """
+an alternative to a drawn enemy for a red-ringed find:
+`round_lifetimes.detection_reality` refuses a track lying mostly on a disc
+the glyph owner places this glyph on
+"""
+see = ["abilities/ability-rules-are-unique"]
+
 [tejo-stealth-drone-origin-at-caster]
 claim = """
 Tejo's Stealth Drone (slot C) starts where Tejo stands: its minimap icon is
