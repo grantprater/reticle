@@ -894,3 +894,68 @@ def stale_reason(head: dict) -> str | None:
     if head.get("glyph_bank") != GLYPH_BANK_STAMP:
         return f"ability_glyph was scored on {head.get('glyph_bank')}, current {GLYPH_BANK_STAMP}"
     return None
+
+
+def session_adjudication(store, sid: str) -> dict:
+    """`adjudicate` over one session's stored rows, as `reticle ability-glyphs`
+    runs it: `{"result": ...}`, or `{"skipped": why}` where the stored
+    `ability_glyph` rows are missing or stale. Writes nothing."""
+    from ..lineup import load_lineup
+    from .tray_kit import stored_kit_witness
+    from .ult_cast import player_agent
+    path = store.events_path("ability_glyph", sid)
+    if not path.is_file():
+        return {"skipped": f"no ability_glyph rows -- run `reticle scan {sid} --only ability "
+                           f"--from cache`"}
+    with open(path, "rb") as fh:
+        head = json.loads(fh.readline() or b"{}")
+    why = stale_reason(head)
+    if why:
+        return {"skipped": why}
+    tables = VerdictTables.load(store.root)
+    glyph = load_glyph_rows(path, tables.keys)
+    verify = load_icon_verify(store.events_path("ability_icon", sid))
+    lineup = load_lineup(sid, store.root)
+    player = player_agent(lineup, sid)
+    kit = stored_kit_witness(store.read_events("tray_kit", sid), agent=player)
+    res = adjudicate(sid, glyph, verify, tables, lineup,
+                     kit["spans"] if kit["reason"] is None else None, player,
+                     kit_reason=kit["reason"],
+                     stamps={"tray_kit": kit["version"]} if kit.get("version") else None)
+    return {"result": res, "hz": float(head["hz"]) if head.get("hz") else None}
+
+
+def disc_verdicts(store, sid: str, *, compute: bool = False) -> dict:
+    """Where this owner places an ability glyph, for an owner that asks: the
+    disc tracks (each with its fixes), the verdict on each, and the disc
+    reader's sampling rate `hz`. Read from the stored `ability_disc_track` and
+    `ability_glyph_name` streams when both are at today's stamps; `compute`
+    adjudicates the stored `ability_glyph` rows in memory instead (an
+    evaluation that writes nothing). `{"skipped": why}` when neither holds."""
+    if compute:
+        got = session_adjudication(store, sid)
+        if "skipped" in got:
+            return got
+        res = got["result"]
+        tracks, rows, hz, source = res["tracks"][1:], res["rows"], got["hz"], "computed"
+    else:
+        tracks = store.read_events("ability_disc_track", sid) or []
+        rows = store.read_events("ability_glyph_name", sid) or []
+        if not tracks or not rows:
+            return {"skipped": f"no stored ability_glyph_name -- run `reticle ability-glyphs {sid}`"}
+        got = (tracks[0].get("ability_disc_track_version"), rows[0].get("ability_glyph_name_version"))
+        if got != (ABILITY_DISC_TRACK_VERSION, ABILITY_GLYPH_NAME_VERSION):
+            return {"skipped": f"ability_disc_track/ability_glyph_name are {got[0]}/{got[1]}, current "
+                               f"{ABILITY_DISC_TRACK_VERSION}/{ABILITY_GLYPH_NAME_VERSION} -- run "
+                               f"`reticle ability-glyphs {sid}`"}
+        tracks = [t for t in tracks if t.get("kind") == "track"]
+        path = store.events_path("ability_glyph", sid)
+        with open(path, "rb") as fh:
+            head = json.loads(fh.readline() or b"{}")
+        hz, source = (float(head["hz"]) if head.get("hz") else None), "stored"
+    if not hz:
+        return {"skipped": "the ability_glyph head records no sampling rate"}
+    return {"tracks": tracks, "verdicts": {r["track"]: r for r in rows if r.get("kind") == "verdict"},
+            "hz": hz, "source": source,
+            "versions": {"ability_disc_track": ABILITY_DISC_TRACK_VERSION,
+                         "ability_glyph_name": ABILITY_GLYPH_NAME_VERSION}}

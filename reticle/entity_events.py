@@ -105,8 +105,11 @@ LANE_VERSIONS = {
     "round_entity": "entity-round-entity-0.1.0",
     "death": "entity-death-0.2.0",
     "spike": "entity-spike-0.1.0",
-    "enemy": "entity-enemy-0.1.0",
+    "enemy": "entity-enemy-0.2.0",
 }
+# entity-enemy-0.2.0 (2026-10-07): a track the track owner refused as no
+# entity (`reality_status` refused, `round_lifetimes.detection_reality`) fails
+# rule 1 and is withheld whole, with its poses, standing `refused`.
 # entity-death-0.2.0 (2026-09-30): a death the death owner places by a
 # minimap X carries its position in the baked frame.
 PROJECTED = tuple(LANE_VERSIONS)
@@ -891,6 +894,21 @@ def _enemy_lane(store, sid, L: _Lane, manifest) -> dict:
                     {"value": identity["agent"], "owner": OWNER["enemy_track"],
                      "evidence": [f"enemy_track:{eid}"]},
                     {"value": victim, "owner": OWNER["death"], "evidence": [e["death_id"]]}]}}
+        # Rule 1: the track owner refused the track as no entity.
+        if standing is None and e.get("reality_status") == "refused":
+            standing, returns = "refused", [OWNER["enemy_track"]]
+            reason = f"detection_reality: {e.get('reality_reason')}"
+            real = e.get("reality") or {}
+            support = {a["hypothesis"]: a for a in real.get("alternatives", [])}
+            glyph = support.get("ability_glyph", {})
+            extra = {"reality": {"standing": "refused", "alternatives": [
+                {"value": "drawn_player", "owner": OWNER["enemy_track"],
+                 "evidence": [f"enemy_track:{eid}"],
+                 "support": support.get("drawn_player", {}).get("support")},
+                {"value": "ability_glyph:" + ",".join(glyph.get("keys") or {}),
+                 "owner": "ability-glyph-name",
+                 "evidence": [f"ability_glyph_name:{g['track']}" for g in real.get("evidence", [])],
+                 "support": glyph.get("support")}]}}
         # Rule 4.
         if standing is None:
             why = L.stale_reason(rests_on)

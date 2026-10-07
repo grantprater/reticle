@@ -48,14 +48,33 @@ claim is re-keyed from the observation to its track and declares
 candidates; `adjudicate_agent_identity` decides each track's name and
 `identity_events` publishes it. No lineup, or one that cannot name the
 enemy five, refuses every claim with the reason.
+
+**Reality.** Before naming, each track asks `round_lifetimes.detection_reality`
+whether it is a drawn player at all. The evidence is the glyph owner's
+(`adjudication.ability_glyph.disc_verdicts`): each observation lying on one of
+its disc tracks (`round_lifetimes.glyph_coincidence`) links that disc
+(`glyph_disc`), and a track whose observations lie mostly on discs the owner
+places an ability glyph on is refused `alternative_ability_glyph`. A refused
+track stays stored, with both hypotheses' support and its evidence; its
+portrait claims are withheld from the arbiter and kept as the disagreement
+(`reality.portrait_claims`), and it ends no death. Without stored glyph
+verdicts every track is `unassessed`, with the reason, and nothing is refused.
 """
 from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from .round_lifetimes import ROUND_LIFETIME_VERSION, RoundLifetimes, death_rank, death_refusal
+import numpy as np
 
-ENEMY_TRACK_VERSION = "enemy-track-0.2.0"
+from .round_lifetimes import (DETECTION_REALITY_VERSION, ROUND_LIFETIME_VERSION, RoundLifetimes,
+                              death_rank, death_refusal, detection_reality, glyph_coincidence,
+                              glyph_placed, glyph_reach)
+
+#: 0.3.0 (2026-10-07): `round_lifetimes.detection_reality` refuses a track
+#: lying mostly on a glyph the glyph owner places; its claims are withheld
+#: from the arbiter and it ends no death. Every observation links the disc
+#: it lies on (`glyph_disc`).
+ENEMY_TRACK_VERSION = "enemy-track-0.3.0"
 
 #: The identity channel the claims come from, and the binding's own name.
 CHANNEL = "minimap_portrait"
@@ -150,12 +169,67 @@ def _marks(sid: str, rno: int, frames: list[dict], obs_entity: dict,
     return out
 
 
+def _glyph_fixes(glyph: dict) -> tuple:
+    """The fixes of the disc tracks the glyph owner places a glyph on
+    (`round_lifetimes.glyph_placed`), flat: time, x, y, reach and disc track
+    id. A disc it places none on is no alternative, so an observation lies on
+    a placed glyph whenever one is within reach, whatever else is nearer."""
+    tracks = [t for t in glyph["tracks"] if (t.get("fix") or {}).get("t_ms")
+              and glyph_placed(glyph["verdicts"].get(t["track"]))]
+    if not tracks:
+        e = np.zeros(0)
+        return e, e, e, e, np.zeros(0, dtype=object)
+    n = np.array([len(t["fix"]["t_ms"]) for t in tracks])
+
+    def cat(k):
+        return np.concatenate([np.asarray(t["fix"][k], float) for t in tracks])
+
+    scale = np.repeat([float(t.get("scale") or 1.0) for t in tracks], n)
+    ids = np.repeat(np.array([t["track"] for t in tracks], dtype=object), n)
+    return cat("t_ms"), cat("cx"), cat("cy"), glyph_reach(scale), ids
+
+
+def track_reality(obs_rows: list[dict], glyph: dict | None) -> tuple[dict, dict]:
+    """`({track: detection_reality(...)}, summary)` over the observations
+    that joined a track, from the glyph owner's `disc_verdicts` answer.
+    Sets each observation's `glyph_disc`: the disc track it lies on, or None."""
+    for o in obs_rows:
+        o["glyph_disc"] = None
+    joined = [o for o in obs_rows if o.get("entity_id")]
+    n_obs = Counter(o["entity_id"] for o in joined)
+    why = "no glyph verdicts" if glyph is None else glyph.get("skipped")
+    if why is not None:
+        return ({e: detection_reality(n, {}, None, unassessed=why) for e, n in n_obs.items()},
+                {"applied": False, "reason": why})
+    ft, fx, fy, fr, fd = _glyph_fixes(glyph)
+    t = np.array([o["t_ms"] for o in joined], float)
+    x = np.array([o["x"] for o in joined], float)
+    y = np.array([o["y"] for o in joined], float)
+    idx = glyph_coincidence(t, x, y, ft, fx, fy, fr, 500.0 / glyph["hz"])
+    on = np.flatnonzero(idx >= 0)
+    counts: dict[str, dict] = defaultdict(dict)
+    if on.size:
+        ent = np.array([joined[i]["entity_id"] for i in on], dtype=object)
+        disc = fd[idx[on]]
+        for i, d in zip(on, disc):
+            joined[i]["glyph_disc"] = d
+        pairs, k = np.unique(np.stack([ent.astype(str), disc.astype(str)], 1), axis=0,
+                             return_counts=True)
+        for (e, d), c in zip(pairs, k):
+            counts[e][d] = int(c)
+    out = {e: detection_reality(n, counts.get(e, {}), glyph["verdicts"]) for e, n in n_obs.items()}
+    return out, {"applied": True, "reason": None, "source": glyph.get("source"),
+                 "hz": glyph["hz"], "observations_on_disc": int(on.size)}
+
+
 def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[dict],
-          lineup: dict | None, references: dict | None) -> dict:
+          lineup: dict | None, references: dict | None, glyph: dict | None = None) -> dict:
     """`{"rows", "identity"}`: the `enemy_track` rows and the identity events.
 
     `object_rows` are the `minimap_object` rows (a coverage row, then frames);
-    `rounds` come from `rounds.build_rounds`; `deaths` are `death` rows.
+    `rounds` come from `rounds.build_rounds`; `deaths` are `death` rows;
+    `glyph` is `adjudication.ability_glyph.disc_verdicts`'s answer, the
+    evidence `detection_reality` weighs (None: every track `unassessed`).
     """
     from .adjudication.identity import (AGENT_IDENTITY_VERSION, adjudicate_agent_identity,
                                         identity_events)
@@ -216,8 +290,19 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
                         "deaths": [d for d in enemy_deaths if d.get("round_no") == rnd["round_no"]]})
         coverage["rounds"] += 1
 
+    reality, reality_summary = track_reality([o for rec in records for o in rec["obs"]], glyph)
+    refused = {e for e, r in reality.items() if r["status"] == "refused"}
     claims = track_claims(sid, frames, obs_entity, lineup, references, mo_version,
                           head.get("portrait_features_version"))
+    # A refused track is not an entity to name: its claims are withheld from
+    # the arbiter and stored as the portrait channel's side of the disagreement.
+    withheld: dict[str, Counter] = defaultdict(Counter)
+    for c in claims:
+        if c["entity_id"] in refused:
+            withheld[c["entity_id"]][c.get("agent") or "abstained"] += 1
+    for e in refused:
+        reality[e]["portrait_claims"] = dict(withheld[e].most_common())
+    claims = [c for c in claims if c["entity_id"] not in refused]
     verdicts = {v["entity_id"]: v for v in adjudicate_agent_identity(claims)}
     # The arbiter reports an all-abstained track as such; the claims' own
     # refusal reasons (no_lineup, lineup_incomplete, ...) are the cause.
@@ -228,8 +313,9 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
     death_by_id = {d["death_id"]: d for d in enemy_deaths if d.get("death_id")}
 
     def admit(ent: dict, d: dict) -> bool:
-        """The X and the arbiter's stored verdict both allow `d` to end `ent`."""
-        return _disagreement(ent["id"], d) is None
+        """The X and the arbiter's stored verdict both allow `d` to end `ent`;
+        a track `detection_reality` refused is no entity and ends no death."""
+        return ent["id"] not in refused and _disagreement(ent["id"], d) is None
 
     def _disagreement(eid: str, d: dict) -> str | None:
         v = verdicts.get(eid)
@@ -259,6 +345,8 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
                            end_reason="last observation does not establish destruction/death",
                            right_censored_at_ms=ent["last_seen_ms"], death_unbound=why)
             lp = last_pos.get(ent["id"])
+            real = reality.get(ent["id"]) or detection_reality(
+                ent.get("observations") or 0, {}, None, unassessed="no joined observation")
             rows.append({**common, "kind": "entity", "round_no": rec["round_no"],
                          **{k: ent.get(k) for k in (
                              "id", "name", "first_seen_ms", "last_seen_ms", "observations",
@@ -268,8 +356,12 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
                          "last_y": None if lp is None else round(lp[1], 2),
                          "agent": agent,
                          "identity_status": v["status"] if v else "abstained",
-                         "identity_reason": _identity_reason(v, abstain_why.get(ent["id"])),
-                         "mark_id": mark_of.get(ent["id"])})
+                         "identity_reason": (f"detection_refused: {real['reason']}"
+                                             if real["status"] == "refused" else
+                                             _identity_reason(v, abstain_why.get(ent["id"]))),
+                         "mark_id": mark_of.get(ent["id"]),
+                         "reality_status": real["status"], "reality_reason": real["reason"],
+                         "reality": real})
         rows += [{**common, **o} for o in rec["obs"]]
         rows += [{**common, **m} for m in marks]
     identity = []
@@ -281,6 +373,7 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
     ents = [r for r in rows if r["kind"] == "entity"]
     summary = {**common, "kind": "summary", "minimap_object_version": mo_version,
                "round_lifetime_version": ROUND_LIFETIME_VERSION,
+               "detection_reality_version": DETECTION_REALITY_VERSION,
                "agent_identity_version": AGENT_IDENTITY_VERSION,
                "lineup_version": (lineup or {}).get("version"),
                "references_version": (references or {}).get("version"),
@@ -292,14 +385,31 @@ def build(sid: str, object_rows: list[dict], rounds: list[dict], deaths: list[di
                "identity_refusals": dict(refusal.most_common(8)),
                "deaths": sum(r["end_reason"] == "death" for r in ents),
                "death_unbound": dict(unbound),
+               "detection_reality": {**reality_summary,
+                                     "status": dict(Counter(r["reality_status"] for r in ents)),
+                                     "refused": dict(Counter(r["reality_reason"] for r in ents
+                                                             if r["reality_status"] == "refused"))},
+               "inputs": {"ability_glyph_name": _glyph_input(glyph)},
                "marks": sum(r["kind"] == "mark" for r in rows),
                "marks_bound": sum(r["kind"] == "mark" and r["entity_id"] is not None
                                   for r in rows)}
     return {"rows": [summary] + rows, "identity": identity}
 
 
+def _glyph_input(glyph: dict | None) -> str:
+    """The glyph verdicts' stamp as read, for `plan`: the stored stream's, the
+    computed table's, or `NO_ROWS` where none was read."""
+    from .input_stamps import NO_ROWS
+    if not glyph or glyph.get("skipped"):
+        return NO_ROWS
+    return glyph["versions"]["ability_glyph_name"]
+
+
 def enemy_session_tracks(store, sid: str) -> dict:
-    """`build` over a session's stored streams, or `{"skipped": why}`."""
+    """`build` over a session's stored streams, or `{"skipped": why}`. The
+    glyph verdicts are the stored `ability_glyph_name` stream's; without them
+    every track is `unassessed` (`reticle ability-glyphs` writes them)."""
+    from .adjudication.ability_glyph import disc_verdicts
     from .adjudication.identity import load_ally_portrait_references
     from .lineup import load_lineup
     from .minimap_objects import minimap_object_version
@@ -314,4 +424,4 @@ def enemy_session_tracks(store, sid: str) -> dict:
         return {"skipped": f"no stored rounds -- run `reticle rounds {sid}`"}
     return build(sid, store.read_events("minimap_object", sid), rounds.to_pylist(),
                  store.read_events("death", sid) or [], load_lineup(sid, store.root),
-                 load_ally_portrait_references(store.root))
+                 load_ally_portrait_references(store.root), glyph=disc_verdicts(store, sid))

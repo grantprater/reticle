@@ -150,15 +150,20 @@ def join_runs(t_a, t_b) -> tuple[np.ndarray, object, float]:
     return inrun, J, rate
 
 
-def track_outcome(agent: str | None, status: str | None, foe: dict) -> tuple[str, int]:
+def track_outcome(agent: str | None, status: str | None, foe: dict,
+                  reality: str | None = None) -> tuple[str, int]:
     """One emitted enemy track's lane outcome and its enemy replay subject.
 
     `foe` maps `agent_names.agent_key` of each enemy-team agent to its replay
-    subjects (evaluation only). `identity_abstained`: the arbiter did not
+    subjects (evaluation only). `reality_refused`: the track's
+    `reality_status` is `refused` (`round_lifetimes.detection_reality`), so it
+    is no entity, whatever its name; `identity_abstained`: the arbiter did not
     resolve the track (any status but `resolved`); `agent_not_on_enemy_team`:
     it named an agent that is not exactly one enemy subject; `named`: the
     subject. A dropped track's subject is -1."""
     from reticle.agent_names import agent_key
+    if reality == "refused":
+        return "reality_refused", -1
     if status != "resolved":
         return "identity_abstained", -1
     js = foe.get(agent_key(agent), [])
@@ -277,7 +282,8 @@ class RealMatch(Match):
         for r in rt._rows(p_et):
             k = r.get("kind")
             if k == "entity":
-                ents[r["id"]] = (r.get("agent"), r.get("identity_status"), r.get("identity_reason"))
+                ents[r["id"]] = (r.get("agent"), r.get("identity_status"), r.get("identity_reason"),
+                                 r.get("reality_status"))
                 track_n[r["id"]] = r.get("observations")
             elif k == "observation":
                 obs.append((int(r["frame_idx"]), float(r["t_ms"]), float(r["x"]), float(r["y"]),
@@ -290,8 +296,8 @@ class RealMatch(Match):
             foe.setdefault(agent_key(self.agent.get(self.sid[j])), []).append(int(j))
         drops = Counter()
         track_subj, track_out = {}, {}
-        for eid, (ag, st, _why) in ents.items():
-            track_out[eid], track_subj[eid] = track_outcome(ag, st, foe)
+        for eid, (ag, st, _why, real) in ents.items():
+            track_out[eid], track_subj[eid] = track_outcome(ag, st, foe, real)
             if track_out[eid] != "named":
                 drops[f"track:{track_out[eid]}"] += 1
         # icons of the read frames, frame position p in MO's frame order
@@ -317,8 +323,7 @@ class RealMatch(Match):
             if i is not None:
                 ieid[i] = eid
             if j < 0:
-                st = ents[eid][1]
-                drops["obs:identity_abstained" if st != "resolved" else "obs:agent_not_on_enemy_team"] += 1
+                drops[f"obs:{track_out[eid]}"] += 1
                 continue
             i = icon_of.get((f, w))
             if i is None:

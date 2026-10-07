@@ -7495,6 +7495,32 @@ see = ["abilities/skye-guiding-light-steered", "abilities/skye-guiding-light-min
        "abilities/skye-guiding-light-minimap-glyph-upright",
        "game_data/skye-guiding-light-game-data", "abilities/ability-rules-are-unique"]
 
+[tejo-stealth-drone-enemy-minimap-icon]
+claim = """
+On the player's minimap, an enemy Tejo's Stealth Drone draws as an enemy
+player icon does: a red ring with a facing lobe that turns, round a black
+disc holding the drone's white glyph (`TX_UI_Minimap_Cashew_C`), and it moves
+as it is piloted.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-10-07"
+subject = "tejo:stealth drone"
+source = """
+c817691bcd15 (C:/Users/grant/Videos/2026-10-05 13-10-55.mp4), nine enemy-lane
+tracks the enemy reader named Cypher, e.g. round 10 at 975.6-978.4 s: crops
+in <store>/analysis/detection-reality-20261007/crops/c817691bcd15_tracks_*.png.
+The replay's Pawn_Cashew_4_Spider_LockOn_C lies 0.2-2.6 m from each track,
+1.0-5.5 s after it opened; the glyph owner names or ties the discs Tejo:C.
+"""
+use = """
+an alternative to a drawn enemy for a red-ringed find whose interior is a
+glyph: `round_lifetimes.detection_reality` refuses a track lying mostly on a
+disc the glyph owner places a glyph on
+"""
+see = ["abilities/tejo-stealth-drone-piloted", "abilities/minimap-textures-tejo",
+       "game_data/tejo-stealth-drone-game-data", "abilities/ability-rules-are-unique"]
+
 [tejo-stealth-drone-origin-at-caster]
 claim = """
 Tejo's Stealth Drone (slot C) starts where Tejo stands: its minimap icon is

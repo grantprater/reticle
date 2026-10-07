@@ -963,11 +963,15 @@ RESTATE_VERDICT_MODULES = {"lineup": "the stored lineup (the arbiter's side verd
 #: in the file. A value starting "deferred:" is a gate waiting for its owner
 #: and stays a WARN.
 #:
-#: The enemy gates wait for one owner: enemy candidate disposition moves to
-#: `round_lifetimes` plus `adjudication.minimap_candidates` (the player's
-#: choice, 2026-10-07), the `detection-reality` entry in `ownership.toml`.
-_ENEMY_OWNER = ("until enemy candidate disposition moves to round_lifetimes plus "
-                "adjudication.minimap_candidates (detection-reality)")
+#: The enemy gates wait for one owner: `round_lifetimes.detection_reality`
+#: (the `detection-reality` entry in `ownership.toml`), which the enemy lane
+#: applies to every track from enemy-track-0.3.0, with enemy candidate
+#: disposition moving to `adjudication.minimap_candidates` beside the allies'
+#: (the player's choice, 2026-10-07). A gate moves once the owner measures
+#: what the gate decides.
+_ENEMY_OWNER = ("until round_lifetimes.detection_reality (detection-reality), which the "
+                "enemy lane applies, and enemy candidate disposition in "
+                "adjudication.minimap_candidates decide it")
 RESTATED_GATES = {
     ("reticle/minimap_objects.py", "portrait_gate"): (
         "deferred: the portrait gate drops a find that fits none of the enemy five "
@@ -993,6 +997,20 @@ RESTATED_GATES = {
         "where an enemy icon ended [domain:minimap/last-known-mark], so the walk over the "
         "stream's earlier frames is the reading, not continuity kept for an owner"),
     ("reticle/menu.py", "stored_menu"): "reads back its own stream (menu_open)",
+    ("reticle/clove_circle.py", "stored_windows"): (
+        "an input, not a restated rule: the death stream's Clove deaths give the reader its "
+        "windows, and a window taken from another stream is allowed (AGENTS.md: a review "
+        "window points into source media with its provenance); the reader decides no death"),
+    ("reticle/minimap_dark.py", "dark_reader"): (
+        "an input, not a restated rule: lighting.reference reads the baked (map, profile) "
+        "lighting reference the reader measures darkness against, a static input from the "
+        "game's textures"),
+    ("reticle/minimap_dark.py", "DarkRegionReader.feed"): (
+        "an input, not a restated rule: lighting.pack_mask packs the reader's own masks for "
+        "storage beside the static lighting inputs; it decides nothing"),
+    ("reticle/minimap.py", "ally_icon_reader"): (
+        "an input, not a restated rule: widget_frame.turned_at gives the widget's rotation "
+        "over time, the frame the reader's pixels are read in"),
     ("reticle/plant_graphic.py", "stored_reads"): "reads back its own stream (plant_graphic)",
     ("reticle/minimap.py", "name:MIN_ICON_SEPARATION_PX"): (
         "deferred: ring separation keeps one fit of two closer than two radii, a "

@@ -54,11 +54,34 @@ named-slot presence recall is
 [metric:question_acceptance/lane/pgb@dev3#lane_presence=0.5677] beside the
 reader's hit rate of [metric:question_acceptance/lane/pgb@dev3#reader_hit=0.6077].
 
+**`--reality off|on|paired`** (0.2.0, task `detection-reality-20261007`)
+is the arm switch for `round_lifetimes.detection_reality`. `off` builds the
+lane without glyph verdicts, so every track is `unassessed` and nothing is
+refused: the 0.1.0 measurement. `on` hands `enemy_tracks.build` the glyph
+owner's verdicts, adjudicated in memory from the stored `ability_glyph` rows
+(`adjudication.ability_glyph.disc_verdicts(compute=True)`; nothing is written
+to the store), and a refused track's finds take the outcome
+`reality_refused`, counted by reason. `paired` runs both and reports, per
+question, the difference on minus off with a paired round bootstrap: the
+same resampled rounds score both arms.
+
+First paired measurement (pgb): the rule refused
+[metric:question_acceptance/lane/pgb/reality@dev3#fa_reality_refused=79] of
+the true false accepts, all Tejo's Stealth Drone on c817691bcd15
+[domain:abilities/tejo-stealth-drone-enemy-minimap-icon]; pooled presence
+precision rose by
+[metric:question_acceptance/lane/pgb/reality-paired@dev3#lane_presence_precision_diff=0.0075]
+and presence recall moved by
+[metric:question_acceptance/lane/pgb/reality-paired@dev3#lane_presence_diff=-0.0003].
+9acf02f98283 stayed unassessed: its stored `ability_glyph` rows predate the
+current glyph bank, and the glyph owner refuses stale rows.
+
 Stored rows and replay truth only; no decode, rescan or trial. The held-out
 capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
 `notes/predictions.jsonl`): an evaluation.
 
-    python prototypes/question_acceptance.py lane --tag pgb [SESSION ...] [--pings b1] [--record]
+    python prototypes/question_acceptance.py lane --tag pgb [SESSION ...] [--pings b1]
+        [--reality off|on|paired] [--record]
 """
 from __future__ import annotations
 
@@ -82,16 +105,19 @@ sys.path.insert(0, str(HERE))
 import teardrop_refusals as tr  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "question-acceptance-0.1.0"
+VERSION = "question-acceptance-0.2.0"
 TASK = "event-harness-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / "question-acceptance"
 DEV = tr.DEV
 NEAR_CM = tr.NEAR_CM
 #: The lane outcomes of a find, in report order.
-OUTCOMES = ("no_track", "identity_abstained", "agent_not_on_enemy_team", "named_duplicate", "named")
-#: Outcomes the lane drops (the track carries no enemy-team name).
-DROPPED = ("identity_abstained", "agent_not_on_enemy_team")
+OUTCOMES = ("no_track", "reality_refused", "identity_abstained", "agent_not_on_enemy_team",
+            "named_duplicate", "named")
+#: Outcomes the lane drops (the track is no entity, or carries no enemy-team name).
+DROPPED = ("reality_refused", "identity_abstained", "agent_not_on_enemy_team")
+#: The `--reality` arms and the folder suffix each writes under.
+ARMS = {"off": "", "on": "_reality"}
 
 
 # ----------------------------------------------------------------- pure parts
@@ -184,12 +210,31 @@ def _boot_pooled(per_match: list[tuple[np.ndarray, np.ndarray | None]]) -> list:
     return [round(float(np.percentile(s, 2.5)), 4), round(float(np.percentile(s, 97.5)), 4)]
 
 
+def _boot_pooled_diff(per_match: list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]) -> list:
+    """95% interval of a paired difference of pooled shares, arm A minus arm
+    B: each replicate resamples a match's rounds once and scores both arms on
+    them (`teardrop_refusals` N_BOOT, SEED). Each item is (num A, den A,
+    num B, den B) per round of one match."""
+    rng = np.random.default_rng(tr.SEED)
+    na, da, nb, db = (np.zeros(tr.N_BOOT) for _ in range(4))
+    for a1, b1, a2, b2 in per_match:
+        idx = rng.integers(0, len(a1), (tr.N_BOOT, len(a1)))
+        na += a1[idx].sum(1)
+        da += b1[idx].sum(1)
+        nb += a2[idx].sum(1)
+        db += b2[idx].sum(1)
+    d = na / np.maximum(da, 1) - nb / np.maximum(db, 1)
+    return [round(float(np.percentile(d, 2.5)), 4), round(float(np.percentile(d, 97.5)), 4)]
+
+
 # ----------------------------------------------------------------- the lane
 
-def build_lane(sid: str, tag: str) -> tuple[Path, dict]:
+def build_lane(sid: str, tag: str, reality: str = "off") -> tuple[Path, dict]:
     """`enemy_tracks.build` over the tag's rows, written under OUT; returns
-    the folder's file and the summary row."""
+    the folder's file and the summary row. `reality` "on" hands the build the
+    glyph owner's verdicts, adjudicated in memory from stored rows."""
     from reticle import enemy_tracks
+    from reticle.adjudication.ability_glyph import disc_verdicts
     from reticle.adjudication.identity import load_ally_portrait_references
     from reticle.lineup import load_lineup
     from reticle.store import Store
@@ -201,9 +246,15 @@ def build_lane(sid: str, tag: str) -> tuple[Path, dict]:
     rounds = store.read_rounds(sid, man["ingested_at"][:10])
     if rounds is None:
         raise SystemExit(f"{sid}: no stored rounds")
+    glyph = disc_verdicts(store, sid, compute=True) if reality == "on" else None
+    if reality == "on" and glyph.get("skipped"):
+        # the glyph owner refuses (stale or missing rows): every track is
+        # `unassessed` with the reason, as production would leave it
+        print(f"{sid}: reality arm unassessed: {glyph['skipped']}", flush=True)
     res = enemy_tracks.build(sid, rows, rounds.to_pylist(), store.read_events("death", sid) or [],
-                             load_lineup(sid, store.root), load_ally_portrait_references(store.root))
-    p = OUT / tag / "enemy_track" / f"{sid}.jsonl"
+                             load_lineup(sid, store.root), load_ally_portrait_references(store.root),
+                             glyph=glyph)
+    p = OUT / tag / f"enemy_track{ARMS[reality]}" / f"{sid}.jsonl"
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
@@ -213,13 +264,16 @@ def build_lane(sid: str, tag: str) -> tuple[Path, dict]:
     return p, res["rows"][0]
 
 
-def lane(sid: str, tag: str, ptag: str | None) -> dict:
+def lane(sid: str, tag: str, ptag: str | None, reality: str = "off") -> dict:
     import enemy_lane_check as elc
     import t1_draw_rule as tdr
 
     tr.refuse(sid)
     t0 = time.perf_counter()
-    p_et, summary = build_lane(sid, tag)
+    p_et, summary = build_lane(sid, tag, reality)
+    with p_et.open(encoding="utf-8") as f:
+        why_refused = {r["id"]: r.get("reality_reason") for r in map(json.loads, f)
+                       if r.get("kind") == "entity" and r.get("reality_status") == "refused"}
     tr._point_store(tag)
     tr._Redirect.streams = {"enemy_track": p_et.parent}
     M = tdr.RealDrawMatch(sid, rule="T1d")
@@ -247,7 +301,8 @@ def lane(sid: str, tag: str, ptag: str | None) -> dict:
         fa_rows.append({**{k: e[k] for k in ("round", "k", "frame_idx", "t_cap", "icon_px", "cls", "icon",
                                              "nearest_enemy_m")},
                         "outcome": o, "track": eid, "agent": E["track_agent"].get(eid),
-                        "track_observations": E["track_obs"].get(eid)})
+                        "track_observations": E["track_obs"].get(eid),
+                        "reality_reason": why_refused.get(eid)})
     fa_n = np.zeros(nr)
     for e in fa:
         fa_n[ri[e["round"]]] += 1
@@ -303,7 +358,11 @@ def lane(sid: str, tag: str, ptag: str | None) -> dict:
     code, cnt = np.unique(fp[nm] * S + sj[nm], return_counts=True)
     fr_dup = np.unique(code[cnt > 1] // S)
     err = Q["icon_err_cm"][Q["icon_named_drawn"]]
+    refused_by = Counter(r["reality_reason"] for r in fa_rows if r["outcome"] == "reality_refused")
     res = {"session": sid, "tag": tag, "version": VERSION, "rule": "T1d", "pings_from": ptag or "store",
+           "reality": reality, "detection_reality": summary.get("detection_reality"),
+           "detection_reality_version": summary.get("detection_reality_version"),
+           "fa_reality_refused_by_reason": dict(refused_by),
            "rounds": nr, "tracks": summary["tracks"], "track_identity": summary["identity"],
            "enemy_track_version": summary["enemy_track_version"],
            "minimap_object_version": summary["minimap_object_version"],
@@ -334,10 +393,10 @@ def lane(sid: str, tag: str, ptag: str | None) -> dict:
         res["reader_score_file"] = {"false_accepts": s["false_accepts"], "hits": s["hits"],
                                     "hit_rate": s["hit_rate"], "pings_from": s.get("pings_from")}
     OUT.mkdir(parents=True, exist_ok=True)
-    with open(OUT / tag / f"fa_{sid}.jsonl", "w", encoding="utf-8") as f:
+    with open(OUT / tag / f"fa{ARMS[reality]}_{sid}.jsonl", "w", encoding="utf-8") as f:
         for r in fa_rows:
             f.write(json.dumps(r) + "\n")
-    res["_per_round"] = {"fa": fa_n, "by": by, "nums": nums, "in_real": in_real}
+    res["_per_round"] = {"fa": fa_n, "by": by, "nums": nums, "in_real": in_real, "rounds": rounds}
     return res
 
 
@@ -348,8 +407,10 @@ def _median(v):
 
 def _print(res: dict) -> None:
     q = res["questions"]
-    print(f"{res['session']} {res['tag']}: true false accepts {res['false_accepts']} {res['false_accepts_ci']}"
-          f" (teardrop_refusals score: {(res.get('reader_score_file') or {}).get('false_accepts')})", flush=True)
+    print(f"{res['session']} {res['tag']} reality {res['reality']}: true false accepts {res['false_accepts']} "
+          f"{res['false_accepts_ci']} (teardrop_refusals score: "
+          f"{(res.get('reader_score_file') or {}).get('false_accepts')}); refused by reason "
+          f"{res['fa_reality_refused_by_reason']}", flush=True)
     for o in OUTCOMES:
         print(f"   {o:24s} {res['fa_by_outcome'][o]:5d} {res['fa_by_outcome_ci'][o]}", flush=True)
     print(f"   dropped share {res['fa_dropped_share']} {res['fa_dropped_share_ci']}; named in a track holding "
@@ -361,10 +422,23 @@ def _print(res: dict) -> None:
           f"named error median {res['named_err_m_median']} m; {res['secs']} s", flush=True)
 
 
-def run_lane(sessions: list[str], tag: str, ptag: str | None, record: bool) -> int:
+def run_lane(sessions: list[str], tag: str, ptag: str | None, record: bool,
+             reality: str = "off") -> int:
+    if reality == "paired":
+        return run_paired(sessions, tag, ptag, record)
     for sid in sessions:
         tr.refuse(sid)
-    per = [lane(sid, tag, ptag) for sid in sessions]
+    per = [lane(sid, tag, ptag, reality) for sid in sessions]
+    _, doc = _pool_lane(per, tag)
+    _write_doc(doc, sessions, tag, reality)
+    if record:
+        _record(doc)
+    return 0
+
+
+def _pool_lane(per: list[dict], tag: str) -> tuple[list[dict], dict]:
+    """Print each session's result and the pooled one; returns the per-round
+    arrays (popped from the results) and the document."""
     for r in per:
         _print(r)
     pooled = None
@@ -401,15 +475,65 @@ def run_lane(sessions: list[str], tag: str, ptag: str | None, record: bool) -> i
             print(f"   {name:26s} {v['value']:.4f} {v['ci']} ({v['num']}/{v['den']})", flush=True)
         print(f"   duplicate frames {pooled['dup_frames']}/{pooled['named_frames']} = {pooled['dup_frame_share']}",
               flush=True)
-    for r in per:
-        r.pop("_per_round")
+    arrays = [r.pop("_per_round") for r in per]
     doc = {"tag": tag, "version": VERSION, "boot": f"{tr.N_BOOT} round resamples, seed {tr.SEED}",
+           "reality": per[0]["reality"] if per else None,
            "sessions": {r["session"]: r for r in per}, "pooled": pooled}
-    # the development set writes lane_TAG.json; any other set names its sessions
-    name = f"lane_{tag}" if sorted(sessions) == sorted(DEV) else f"lane_{tag}_{'_'.join(sessions)}"
+    if pooled:
+        pooled["fa_reality_refused_by_reason"] = dict(sum(
+            (Counter(r["fa_reality_refused_by_reason"]) for r in per), Counter()))
+    return arrays, doc
+
+
+def _write_doc(doc: dict, sessions: list[str], tag: str, reality: str, kind: str = "lane") -> None:
+    # the development set writes lane_TAG[_reality].json; any other set names its sessions
+    name = (f"{kind}_{tag}{ARMS.get(reality, '_' + reality)}" if sorted(sessions) == sorted(DEV) else
+            f"{kind}_{tag}{ARMS.get(reality, '_' + reality)}_{'_'.join(sessions)}")
     (OUT / f"{name}.json").write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
+
+
+def run_paired(sessions: list[str], tag: str, ptag: str | None, record: bool) -> int:
+    """Both arms, and per question the paired difference on minus off with a
+    round bootstrap that resamples the same rounds for both arms."""
+    for sid in sessions:
+        tr.refuse(sid)
+    arms = {}
+    for arm in ("off", "on"):
+        per = [lane(sid, tag, ptag, arm) for sid in sessions]
+        arrays, doc = _pool_lane(per, tag)
+        _write_doc(doc, sessions, tag, arm)
+        arms[arm] = (arrays, doc)
+    (a_off, d_off), (a_on, d_on) = arms["off"], arms["on"]
+    for x, y in zip(a_off, a_on):
+        if x["rounds"] != y["rounds"]:
+            raise SystemExit("the arms resample different rounds; a paired bootstrap needs one set")
+    diff = {"sessions": {}, "pooled": {}}
+    questions = list(d_on["sessions"][sessions[0]]["questions"])
+    for q in questions:
+        for i, sid in enumerate(sessions):
+            a1, b1 = a_on[i]["nums"][q]
+            a2, b2 = a_off[i]["nums"][q]
+            v = d_on["sessions"][sid]["questions"][q]["value"] - d_off["sessions"][sid]["questions"][q]["value"]
+            diff["sessions"].setdefault(sid, {})[q] = {"diff": round(v, 4),
+                                                       "ci": _boot_pooled_diff([(a1, b1, a2, b2)])}
+        if len(sessions) > 1:
+            v = d_on["pooled"]["questions"][q]["value"] - d_off["pooled"]["questions"][q]["value"]
+            diff["pooled"][q] = {"diff": round(v, 4), "ci": _boot_pooled_diff(
+                [(a_on[i]["nums"][q][0], a_on[i]["nums"][q][1], a_off[i]["nums"][q][0], a_off[i]["nums"][q][1])
+                 for i in range(len(sessions))])}
+    print("paired on - off (same resampled rounds):", flush=True)
+    for scope, block in [(sid, diff["sessions"][sid]) for sid in sessions] + [("pooled", diff["pooled"])]:
+        for q, v in block.items():
+            print(f"   {scope:13s} {q:26s} {v['diff']:+.4f} {v['ci']}", flush=True)
+    doc = {"tag": tag, "version": VERSION, "boot": f"{tr.N_BOOT} round resamples, seed {tr.SEED}, paired",
+           "sessions": sessions, "diff": diff,
+           "fa_by_outcome": {"off": (d_off["pooled"] or d_off["sessions"][sessions[0]])["fa_by_outcome"],
+                             "on": (d_on["pooled"] or d_on["sessions"][sessions[0]])["fa_by_outcome"]}}
+    _write_doc(doc, sessions, tag, "paired", kind="paired")
     if record:
-        _record(doc)
+        _record(d_off)
+        _record(d_on, arm="reality")
+        _record_paired(doc)
     return 0
 
 
@@ -429,9 +553,20 @@ def _metric_values(r: dict) -> tuple[dict, dict]:
     return vals, ci
 
 
-def _record(doc: dict) -> None:
+def _record_paired(doc: dict) -> None:
     from reticle.metrics import record as rec
-    tag = doc["tag"]
+    vals = {f"{q}_diff": v["diff"] for q, v in doc["diff"]["pooled"].items()}
+    ci = {f"{q}_diff": v["ci"] for q, v in doc["diff"]["pooled"].items()}
+    rec("question_acceptance", part=f"lane/{doc['tag']}/reality-paired", session="dev3", values=vals, ci=ci,
+        deps={"version": VERSION, "rule": "T1d"},
+        context={"task": "detection-reality-20261007", "boot": doc["boot"], "sessions": doc["sessions"]},
+        note="detection_reality on minus off, per question, pooled over the development matches; "
+             "one set of resampled rounds scores both arms")
+
+
+def _record(doc: dict, arm: str | None = None) -> None:
+    from reticle.metrics import record as rec
+    tag = doc["tag"] + (f"/{arm}" if arm else "")
     for sid, r in doc["sessions"].items():
         vals, ci = _metric_values(r)
         ctl = []
@@ -464,10 +599,12 @@ def main(argv=None) -> int:
     p.add_argument("--tag", required=True)
     p.add_argument("--pings", default="b1",
                    help="the teardrop_refusals ping reread classing the extras (the tag's score used b1)")
+    p.add_argument("--reality", choices=("off", "on", "paired"), default="off",
+                   help="the detection_reality arm: off (no glyph verdicts), on, or both paired")
     p.add_argument("--record", action="store_true")
     a = ap.parse_args(argv)
     tr._idle()
-    return run_lane(a.sessions or list(DEV), a.tag, a.pings, a.record)
+    return run_lane(a.sessions or list(DEV), a.tag, a.pings, a.record, a.reality)
 
 
 if __name__ == "__main__":
