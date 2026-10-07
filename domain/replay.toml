@@ -314,3 +314,67 @@ opens per replay, [metric:replay_abilities/survey#classes=160] classes in all;
 the replay manifest links one replay (b03fecd3) to a capture session
 """
 see = ["replay/vrf-values-scrambled-per-patch"]
+
+[vrf-shots-from-magazine]
+claim = """
+A gun's magazine in a replay (`AmmoComponent.AuthResourceAmount` on the gun
+actor; of its two components, the one with the most single steps, the other
+being the reserve) falls by one round at a time while the gun fires, and a
+fall lands on the same replay ms as the damage call of a shot that hits; the
+gun's latest `Owner` reference, walked to a pawn, names the shooter. Most gun
+damage calls on players have such a fall, but not all. Falls of more than one
+round at once are left out as shots. Misses are inferred to be recorded,
+because single-round falls far outnumber hits.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-07"
+source = """
+prototypes/execution_questions.py check over the 17 replays but the held-out
+one: [metric:execution_questions/truth/check@pooled17#explained=8276] of
+[metric:execution_questions/truth/check@pooled17#gun_hits=8397] gun damage
+calls on players have a same-shooter single-round fall within 16 ms (the
+lowest replay [metric:execution_questions/truth/check@pooled17#explained_share_min=0.9655]);
+[metric:execution_questions/truth/check@pooled17#shots=45872] single-round
+falls against those hits; [metric:execution_questions/truth/check@pooled17#multi_steps=206]
+multi-round magazine falls skipped
+"""
+see = ["replay/vrf-position-stream"]
+
+[vrf-damage-hit-region]
+claim = """
+In a replay's `MulticastNotifyDamage_Point` call from a gun on a player,
+`RegionalDamage` 1 marks a hit on the Head or Neck bone (`DamagedBone`), and
+`RegionalDamage` 2 marks a hit mostly on hip, knee and foot bones. Other
+values are not characterised here.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-07"
+source = """
+prototypes/execution_questions.py check over the 17 replays but the held-out
+one: region 1 rows name the Head or Neck bone on
+[metric:execution_questions/truth/check@pooled17#head_bone_share_min=1.0] of
+rows on every replay; region 2 rows name a hip, knee or foot bone on
+[metric:execution_questions/truth/check@pooled17#leg_bone_share_min=0.8621]
+of rows or more on every replay, the rest under bone names the check does
+not list
+"""
+see = ["replay/vrf-shots-from-magazine"]
+
+[vrf-view-angle-resolution]
+claim = """
+A replay's view yaw and pitch step in units of 360/65536 degrees (0.0055
+degrees), sampled with position at the server tick, so angular precision is
+far finer than any aim question needs.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-07"
+source = """
+prototypes/execution_questions.py fields on c817691bcd15's replay: smallest
+yaw step [metric:execution_questions/truth/fields@c817691bcd15#yaw_step_deg_min=0.0054931640625]
+degrees, tick interval median
+[metric:execution_questions/truth/fields@c817691bcd15#tick_dt_ms.p50=8.0] ms
+"""
+see = ["replay/vrf-position-stream"]
