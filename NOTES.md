@@ -25,9 +25,13 @@ Three 465 px captures with replays kept and Riot records wrapped into `external\
 - d3dcfb182ab1 reads K/D 12/19 against the replay's 13/17: a `self_entry` defect.
 - The enemy reader names many finds wrong and reads X marks as enemies; enemy recall stays low. The player's 268 labels came from the old `b1` reader, before the portrait gate.
 - Harness step 9 (folding `replay_truth score` and `replay_abilities score` onto the layer) and the budget's move into the harness are next. Step 8 found 332 "?" finds on enemies the replay still places, evidence for the "?" timing question.
-- Rebuilds the harness declined: the `ally_icon` reread (about an hour per session), `scan --only ability --from cache` (eight streams per session, cost unmeasured), and `minimap_dark` (a decode). Ask the player before each.
+- Rebuilds the harness declined: the `ally_icon` reread (17 to 28 CPU minutes per session at 15 Hz in `notes/usage.jsonl`, 6 to 11 wall minutes with `--ally-processes 3`; the hour once quoted here was never measured), `scan --only ability --from cache` (eight streams per session, cost unmeasured), and `minimap_dark` (a decode). Ask the player before each.
 - The `PROJECT_GUIDE.md` split is queued. Check the subagent context floor with a probe.
 - Stale streams: every older session's hud (its output is identical) and `minimap_object` and `enemy_track` elsewhere wait for the batched corpus rerun.
+
+### Read cost
+
+Production reads every drawn frame (BACKLOG item 1). The ally reader's cost per frame rose in two feature steps, each partly undone a day later: the teardrop pose (ally-icon-0.6.0, `f15893b`) and the stacked-icon search (ally-icon-0.11.0, `1b6de49`); the one transform added none at 465 px. Load from other jobs, 465 px captures and c817691bcd15's buy-phase frames inflated the rest. Benchmark scripts and results sit in this session's scratchpad, uncommitted; the diagnostic prototype is on `ally-cost-diag-20261005`. Which earlier replay session joins the three 2026-10-07 ones for a reread is unconfirmed.
 
 ### Unmerged branches
 
