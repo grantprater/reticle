@@ -86,3 +86,12 @@ Archived 2026-10-07 (night, second):
 - **`detection-reality-20261007` (2026-10-07):** `round_lifetimes.detection_reality` refuses enemy tracks on a placed ability glyph; drone and creature facts.
 - **`event-harness-20261007` (2026-10-07):** `prototypes/question_acceptance.py lane` scores the enemy lane's emitted tracks against T1d.
 - **`enemy-portrait-gate-20261007` (2026-10-07):** ring peaks kept only where they fit the match's enemy five (NOTES).
+
+Item 3 as it stood before the read reductions took item 1 (2026-10-07, night):
+
+**3. Execution readers**, in the player's order ([EXECUTION_QUESTIONS.md](docs/EXECUTION_QUESTIONS.md)).
+- Coarse placement and angle clearing from the stored cone facing, must-check angles from the sightline tables, with the enemy icon's error modelled.
+- Counter-strafe and first-shot outcome from a window-gated screen reader on the centre crop [domain:capture/crosshair-white-cross] [domain:hud/hit-yellow-flash] [domain:capture/enemy-highlight-red]. It needs a decode of engagement windows: ask the player first.
+- Head share from the combat report as the bad-aim alarm [domain:hud/no-distinct-headshot-sound-belief].
+Acceptance: `.\.venv\Scripts\python.exe prototypes\execution_questions.py` value commands, plus a reader trial on the development matches.
+Evidence: each measurement's error against replay truth and the duel value it keeps.
