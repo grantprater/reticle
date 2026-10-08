@@ -124,5 +124,64 @@ class PooledBootstrapTests(unittest.TestCase):
         self.assertGreaterEqual(hi, 10)
 
 
+class FrameSampleTests(unittest.TestCase):
+    """Steps 5 to 8: a stream's frames join the grid one sample per frame."""
+
+    G = np.arange(0.0, 1000.0, 62.5)
+
+    def test_a_frame_takes_the_nearest_sample_within_half_a_step(self):
+        k = qa.frame_samples(self.G, [70.0, 130.0, 2000.0], [True, True, True], 31.25)
+        self.assertEqual(k.tolist(), [1, 2, -1])
+
+    def test_an_unread_frame_joins_nothing(self):
+        k = qa.frame_samples(self.G, [70.0], [False], 31.25)
+        self.assertEqual(k.tolist(), [-1])
+
+    def test_two_frames_on_one_sample_keep_the_nearer(self):
+        k = qa.frame_samples(self.G, [60.0, 64.0, 70.0], [True, True, True], 31.25)
+        self.assertEqual(k.tolist(), [-1, 1, -1])
+
+
+class ClaimOutcomeTests(unittest.TestCase):
+    """Steps 5 to 8: the outcome of a find that claims a kind and a name."""
+
+    ally = {"kind": "player", "family": "player_ally", "key": "player_ally:Sage:-", "entity_class": "player"}
+    orb = {"kind": "child", "family": "ability_ally", "key": "ability_ally:Sage:Barrier Orb",
+           "entity_class": "Orb_C"}
+    gap = {"kind": "child", "family": "unmapped", "key": "unmapped:X_C", "entity_class": "X_C",
+           "unmapped_reason": "instigator chain ends at [1, 2]"}
+
+    def test_the_claimed_kind_is_right_and_named_by_the_claim(self):
+        self.assertEqual(qa.claim_outcome(self.ally, ambiguous=False, claimed=True, name_claim="sage",
+                                          name_truth="sage"), ("right_entity", "right_entity:name_right"))
+        self.assertEqual(qa.claim_outcome(self.ally, ambiguous=False, claimed=True, name_claim="omen",
+                                          name_truth="sage"), ("right_entity", "right_entity:name_wrong"))
+        self.assertEqual(qa.claim_outcome(self.ally, ambiguous=False, claimed=True),
+                         ("right_entity", "right_entity:unnamed"))
+
+    def test_an_undrawn_claimed_entity_is_undrawn_truth(self):
+        self.assertEqual(qa.claim_outcome(self.ally, ambiguous=False, claimed=True, drawn=False)[0],
+                         "undrawn_truth")
+
+    def test_other_kinds_gaps_nothing_and_ambiguity(self):
+        self.assertEqual(qa.claim_outcome(self.orb, ambiguous=False, claimed=False),
+                         ("other_entity", "other_entity:ability_ally:Sage:Barrier Orb"))
+        self.assertEqual(qa.claim_outcome(self.gap, ambiguous=False, claimed=False),
+                         ("coverage_gap", "coverage_gap:X_C:instigator chain ends"))
+        self.assertEqual(qa.claim_outcome(None, ambiguous=False, claimed=False, derivation="kill_x"),
+                         ("nothing_there", "nothing_there:kill_x"))
+        self.assertEqual(qa.claim_outcome(self.ally, ambiguous=True, claimed=True)[0], "ambiguous")
+
+
+class MarkRecallTests(unittest.TestCase):
+    def test_a_mark_counts_only_where_a_valid_sample_lies_in_its_window(self):
+        marks = {"k_from": np.array([0, 5]), "k_to": np.array([2, 7]), "round": np.array([1, 1]),
+                 "desc": [{"recall_key": "death_x_ally"}, {"recall_key": "death_x_ally"}]}
+        valid = np.array([False, True, False, False, False, False, False, False])
+        rec = qa._recall_marks(marks, valid, {0}, {1: 0}, 1)
+        num, den = rec["death_x_ally"]
+        self.assertEqual((num.tolist(), den.tolist()), ([1.0], [1.0]))
+
+
 if __name__ == "__main__":
     unittest.main()
