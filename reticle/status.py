@@ -183,6 +183,7 @@ def collect(store: Store) -> dict:
         rec["n_rounds"] = rec["won"] = rec["lost"] = rec["planted"] = None
         rec["plant_unread"] = None
         rec["kills"] = rec["deaths"] = None
+        rec["kd_basis"] = rec["kd_reason"] = rec["kd_unread"] = None
         rec["verdict"] = None
         if rec["hud"]:
             try:
@@ -245,7 +246,16 @@ def collect(store: Store) -> dict:
                     [int(x) for x in tbl.column("kf_death_wx").to_pylist()],
                     second_life=second_life,
                 )
-                rec["kills"], rec["deaths"] = ev["kills"], ev["deaths"]
+                # The player's own roles are `adjudication.self_entry`'s: the
+                # bound agent on the ally side, the HUD's "Me" count only
+                # where it refuses on a capture that prints "Me", and unread
+                # (None, with its reason) on one that prints the account name.
+                from .adjudication.self_entry import session_kd
+                kd = session_kd(store, sid, {"kills": ev["kills"], "deaths": ev["deaths"]})
+                rec["kills"], rec["deaths"] = kd["kills"], kd["deaths"]
+                rec["kd_basis"], rec["kd_reason"] = kd["basis"], kd["reason"]
+                if kd["unread_kills"] or kd["unread_deaths"]:
+                    rec["kd_unread"] = (kd["unread_kills"], kd["unread_deaths"])
             except Exception as e:                      # noqa: BLE001
                 rec["error"] = f"{type(e).__name__}: {e}"
         out["sessions"].append(rec)
@@ -296,11 +306,15 @@ def render(data: dict, markdown: bool = False) -> str:
         L.append(f"Plants: {tp}/{tr} rounds ({tp / tr:.0%}); {tu} unread.")
     L.append("")
 
-    cols = ("session", "map", "min", "rnds", "W-L", "plant", "K/D", "known", "d",
+    cols = ("session", "map", "min", "rnds", "W-L", "plant", "K/D", "by", "known", "d",
             "verdict", "geo", "labels")
     rows = []
     for s in ss:
-        kd = f"{s['kills']}/{s['deaths']}" if s["kills"] is not None else "--"
+        kd = (f"{s['kills']}/{s['deaths']}" if s["kills"] is not None
+              else "unread" if s.get("kd_reason") else "--")
+        by = s.get("kd_basis") or "--"
+        if s.get("kd_unread"):
+            by += f" ({s['kd_unread'][0]}/{s['kd_unread'][1]} unread)"
         kn = f"{s['known'][0]}/{s['known'][1]}" if s["known"] else "--"
         if s["known"] and s["kills"] is not None:
             dk, dd = s["kills"] - s["known"][0], s["deaths"] - s["known"][1]
@@ -309,6 +323,7 @@ def render(data: dict, markdown: bool = False) -> str:
             delta = "--"
         wl = f"{s['won']}-{s['lost']}" if s["won"] is not None else "--"
         pl = (f"{s['planted']}/{s['n_rounds']}"
+              + (f" ({s['plant_unread']} unread)" if s.get("plant_unread") else "")
               if s["planted"] is not None and s["n_rounds"] else "--")
         lab = ",".join(f"{k.replace('minimap_', 'mm_')}:{v}"
                        for k, v in sorted(s["labels"].items())) or "--"
@@ -316,7 +331,7 @@ def render(data: dict, markdown: bool = False) -> str:
         vd = ("--" if v is None or str(v).startswith("no_report") else
               f"{v[0]}/{v[1]} r{v[2]}" if isinstance(v, tuple) else str(v).split()[0])
         rows.append((s["sid"], s["map"], f"{s['minutes']:.0f}",
-                     str(s["n_rounds"] or "--"), wl, pl, kd, kn, delta, vd,
+                     str(s["n_rounds"] or "--"), wl, pl, kd, by, kn, delta, vd,
                      ("y" if s["geometry"] else "-")
                      + ("v" if s.get("cohort") == "minimap-variant" else ""), lab))
     if any(s.get("cohort") == "minimap-variant" for s in ss):
@@ -344,11 +359,17 @@ def render(data: dict, markdown: bool = False) -> str:
         got = [s["sid"] for s in ss if s.get("video") == state]
         if got:
             L.append(f"{text}: {', '.join(got)}")
+    for s in ss:
+        if s.get("kd_reason") and s["kills"] is None:
+            L.append(f"K/D unread for {s['sid']}: {s['kd_reason']}")
     errs = [(s["sid"], s["error"]) for s in ss if s.get("error")]
     for sid, e in errs:
         L.append(f"ERROR building rounds for {sid}: {e}")
     if not markdown:
         L.append("")
+        L.append("by = who answered the K/D: self_entry (the bound agent's own killfeed")
+        L.append("roles, `adjudication.self_entry`) or me (the HUD's \"Me\" count, where")
+        L.append("self_entry refuses on a capture that prints \"Me\").")
         L.append("d = our K/D minus the scoreboard's. A positive delta is not")
         L.append("automatically an error -- see 'Scoreboard divergence is a finding'.")
         L.append("verdict = the combat report's K/D where shown, else the killfeed's;")

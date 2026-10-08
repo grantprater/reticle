@@ -40,7 +40,7 @@ def _hand_head(stream: str) -> dict:
 
 
 def _derived(store) -> dict:
-    return {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+    return {x["stream"]: x for x in stale(store, ["s"], never_run=False)["s"]["derived"]}
 
 
 class RecordedStampTests(unittest.TestCase):
@@ -133,7 +133,7 @@ class RecordedStampTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
             store.events["minimap_object:rows"] = [_declared_head("minimap_object")]
-            p = stale(store, ["s"])["s"]
+            p = stale(store, ["s"], never_run=False)["s"]
             self.assertEqual(p["derived"], [])
             self.assertEqual(p["unrecorded"], [{"stream": "minimap_object",
                                                 "inputs": ["geometry"]}])

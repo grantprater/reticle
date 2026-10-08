@@ -432,7 +432,13 @@ SEGMENTER_VERSION = "seg-0.3.0"
 # admitted as at 0.26.0 but refuses as `occluded_by_shooting_error`, reading
 # no name and no side (`kf_readout`, `kf_readout_basis`, `kf_readout_mask`).
 # A frame without the readout reads exactly as at 0.26.0.
-HUD_VERSION = "hud-0.27.0"
+# 0.28.0 (2026-10-07): a "Me" candidate run with an ink run within
+# `killfeed.ME_WORD_GAP` beside it is one word of a name holding a space, never
+# "Me": the enemy "Mga Yawa" read as "Me" on all 68 stored player-entry frames
+# of 066741deafe5. Only player kill and death reads can change, and only from
+# read to unread; on the 2026-10-07 regression over the stored player-entry
+# frames of the "Me" sessions with a hud crop cache, none changed.
+HUD_VERSION = "hud-0.28.0"
 # 0.12.0: `kf_entries` no longer counts a plate-coloured band that holds no
 # name text. Every killfeed entry carries two names, so a band we can see and
 # that has no glyph-sized ink in it is not an entry -- and `_entry_bands` splits
@@ -1179,7 +1185,12 @@ COMBAT_REPORT_VERSION = "combat-report-0.4.0"
 #        the post-round period up to the next buy phase) instead of a fixed
 #        8 s past the round's end; a summary within SUMMARY_WINDOW_MS after
 #        the last stored round's close reports that round.
-COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.11.0"
+# 0.12.0 (2026-10-07): a round with no report takes the player's own K/D
+#        from `adjudication.self_entry` (`own_counts`): its entries, else the
+#        "Me" killfeed count on a capture that prints "Me", else no verdict
+#        with the owner's reason; was the "Me" count alone, 0/0 on a capture
+#        that prints the account name (cea8ecbc94ab).
+COMBAT_REPORT_ROUND_VERSION = "combat-report-round-0.12.0"
 # The one stored `combat_report` frame per round that the crop cache's
 # `combat_report` set keeps (`adjudication.combat_report.round_frames`). Bump
 # when the candidate order, the stability tiers or the reproduction check

@@ -6,8 +6,12 @@ Recomputed from stored `combat_report` rows; decodes no video. The reader
 groups frames into panels, votes each field across a panel's frames, assigns
 the panel to a round, and compares its counts with the round's stored killfeed
 counts. Where a report was shown its counts are the round's VERDICT, and the
-killfeed count and the disagreement are stored beside it; a round with no
-report takes the killfeed's count, marked as such. The report reproduced the
+killfeed count and the disagreement are stored beside it. A round with no
+report takes the player's own K/D for the round from `adjudication.self_entry`
+(`own_counts`): its own entries (source `self_entry`), else the round's "Me"
+killfeed count on a capture that prints "Me" (source `killfeed`), else no
+verdict, `None` with the owner's reason (`verdict_reason`), on a capture that
+prints the account name. The report reproduced the
 known K/D on `a06f04a0059f` and `3694746e4e54` where the killfeed did not, and
 its disagreements with the killfeed are the killfeed reader's error list.
 
@@ -254,8 +258,25 @@ def assign_rounds(ps: list[dict], rounds: list[dict]) -> None:
         p["round_reason"] = None if rnd else "no round contains the panel"
 
 
-def round_counts(ps: list[dict], rounds: list[dict]) -> list[dict]:
-    """Per round: the report's counts beside the stored killfeed counts."""
+def own_counts(store, session_id: str, rounds: list[dict]) -> tuple[dict, dict[int, dict]]:
+    """The player's own K/D, session and per round of `rounds`, from
+    `adjudication.self_entry` (`session_kd`, `round_kd`), the rounds' "Me"
+    killfeed counts handed it as its second witness."""
+    from .self_entry import round_kd, session_kd
+    kd = session_kd(store, session_id, {"kills": sum(r["player_kills"] for r in rounds),
+                                        "deaths": sum(r["player_deaths"] for r in rounds)})
+    return kd, round_kd(kd, rounds)
+
+
+#: `verdict_source` of a reportless round by the self-entry owner's basis.
+OWN_SOURCE = {"self_entry": "self_entry", "me": "killfeed"}
+
+
+def round_counts(ps: list[dict], rounds: list[dict],
+                 own: dict[int, dict] | None = None) -> list[dict]:
+    """Per round: the report's counts beside the stored killfeed counts.
+    `own` is `own_counts`' per-round answer; without it a reportless round
+    takes the stored killfeed count, as before the owner existed."""
     out = []
     for r in sorted(rounds, key=lambda r: r["round_no"]):
         mine = [p for p in ps if p["round_no"] == r["round_no"]]
@@ -285,22 +306,34 @@ def round_counts(ps: list[dict], rounds: list[dict]) -> list[dict]:
         # the killfeed did not; the killfeed count stays beside it.
         if row["kills"] is not None:
             row.update({"kills_verdict": row["kills"], "deaths_verdict": row["deaths"],
-                        "verdict_source": "combat_report"})
+                        "verdict_source": "combat_report", "verdict_reason": None})
+        elif own is not None:
+            o = own.get(r["round_no"]) or {}
+            read = o.get("kills") is not None
+            row.update({"kills_verdict": o.get("kills"), "deaths_verdict": o.get("deaths"),
+                        "verdict_source": OWN_SOURCE.get(o.get("basis")) if read else None,
+                        "verdict_reason": None if read else (o.get("reason") or "no_own_count"),
+                        "unread_kills": o.get("unread_kills"),
+                        "unread_deaths": o.get("unread_deaths")})
         else:
             row.update({"kills_verdict": row["stored_kills"], "deaths_verdict": row["stored_deaths"],
-                        "verdict_source": "killfeed" if row["stored_kills"] is not None else None})
+                        "verdict_source": "killfeed" if row["stored_kills"] is not None else None,
+                        "verdict_reason": None})
         out.append(row)
     return out
 
 
 def events(session_id: str, frames: list[dict], rounds: list[dict],
-           death_times: list[float]) -> list[dict]:
+           death_times: list[float], own: tuple[dict, dict[int, dict]] | None = None
+           ) -> list[dict]:
+    """The `combat_report_round` stream. `own` is `own_counts`' answer, which
+    a reportless round takes; the summary records its basis and stamp."""
     versions = Counter(r.get("combat_report_version") for r in frames if r.get("kind") == "frame")
     if set(versions) != {COMBAT_REPORT_VERSION}:
         raise ValueError(f"combat_report rows are {dict(versions)}, current is {COMBAT_REPORT_VERSION}")
     ps = panels(frames, death_times)
     assign_rounds(ps, rounds)
-    per_round = round_counts(ps, rounds)
+    per_round = round_counts(ps, rounds, own[1] if own is not None else None)
     common = {"session_id": session_id, "source": "combat_report",
               "combat_report_round_version": COMBAT_REPORT_ROUND_VERSION,
               "combat_report_version": COMBAT_REPORT_VERSION}
@@ -314,7 +347,13 @@ def events(session_id: str, frames: list[dict], rounds: list[dict],
             "deaths_disagree": sum(r["deaths_agree"] is False for r in seen),
             "kills_verdict": sum(r["kills_verdict"] or 0 for r in per_round),
             "deaths_verdict": sum(r["deaths_verdict"] or 0 for r in per_round),
-            "verdict_from_killfeed": sum(r["verdict_source"] == "killfeed" for r in per_round)}
+            "verdict_from_killfeed": sum(r["verdict_source"] == "killfeed" for r in per_round),
+            "verdict_from_self_entry": sum(r["verdict_source"] == "self_entry" for r in per_round),
+            "verdict_unread": sum(r["kills_verdict"] is None for r in per_round)}
+    if own is not None:
+        from .self_entry import SELF_ENTRY_VERSION
+        head["own_basis"], head["own_reason"] = own[0]["basis"], own[0]["reason"]
+        head.setdefault("inputs", {})["self_entry"] = SELF_ENTRY_VERSION
     return ([head]
             + [{**common, "kind": "panel", **{k: v for k, v in p.items() if k != "read"}} for p in ps]
             + [{**common, "kind": "round", **r} for r in per_round])
@@ -349,6 +388,7 @@ def round_verdicts(stream: list[dict], rounds: list[dict]) -> dict:
     return {"status": "ok", "reason": None, "rounds": {
         r["round_no"]: {"kills": r["kills_verdict"], "deaths": r["deaths_verdict"],
                         "assists": r["assists"], "source": r["verdict_source"],
+                        "reason": r.get("verdict_reason"),
                         "killfeed_kills": r["stored_kills"], "killfeed_deaths": r["stored_deaths"],
                         "agree": r["kills_agree"] is not False and r["deaths_agree"] is not False}
         for r in got}}

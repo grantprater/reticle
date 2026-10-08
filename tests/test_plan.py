@@ -96,7 +96,7 @@ def _tray_drops(store) -> None:
 class PlanTests(unittest.TestCase):
     def test_current_store_is_not_stale(self):
         with tempfile.TemporaryDirectory() as d:
-            plan = stale(_current_store(Path(d)), ["s"])
+            plan = stale(_current_store(Path(d)), ["s"], never_run=False)
             self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": [], "waived": [],
                                          "declined": [],
                                          "unchecked": [], "held": [], "unrecorded": [],
@@ -112,12 +112,12 @@ class PlanTests(unittest.TestCase):
             base = store.read_manifest
             store.read_manifest = lambda sid: {**base(sid), "source_profile": "valorant-16x9",
                                                "minimap_mode": {"orientation": "per_side"}}
-            p = stale(store, ["s"])["s"]
+            p = stale(store, ["s"], never_run=False)["s"]
             self.assertEqual(p["widget"]["placement"]["reason"], "per_side_unplaced")
             moved = {x["stream"] for x in p["decode"] if "widget_placement" in
                      x.get("inputs_moved", [])}
             self.assertEqual(moved, {"minimap", "ping", "ally_icon", "minimap_dark"})
-            text = render(stale(store, ["s"]))
+            text = render(stale(store, ["s"], never_run=False))
             self.assertIn("placement reticle widget-fit s --write", text)
             self.assertLess(text.index("widget-fit"), text.index("ally_icon"))
 
@@ -136,7 +136,7 @@ class PlanTests(unittest.TestCase):
                 {"round_version": ROUND_VERSION, "hud_version": HUD_VERSION,
                  "killfeed_portrait_version": KILLFEED_PORTRAIT_VERSION,
                  "plant_graphic_version": "none"}), store.rounds_path("s", None))
-            p = stale(store, ["s"])["s"]
+            p = stale(store, ["s"], never_run=False)["s"]
             w = p["widget"]["placement"]
             self.assertEqual(w["reason"], "drawn_collapse_unplaced")
             self.assertEqual(w["collapse"]["round_no"], 13)
@@ -146,19 +146,19 @@ class PlanTests(unittest.TestCase):
             store = _current_store(Path(d))
             store.table("rounds", round_version=ROUND_VERSION, hud_version=HUD_VERSION,
                         plant_graphic_version="none")
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([x["stream"] for x in derived], ["rounds", "death", "ult_cast"])
             self.assertEqual(derived[0]["inputs_moved"], ["killfeed_portrait"])
             self.assertEqual(derived[1]["inputs_moved"], ["round"])
             self.assertEqual(derived[2]["inputs_moved"], ["round"])
-            text = render(stale(store, ["s"]))
+            text = render(stale(store, ["s"], never_run=False))
             self.assertLess(text.index("reticle rounds <sid>"), text.index("reticle deaths <sid>"))
 
     def test_a_hud_rescan_stales_rounds(self):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
             store.table("hud", hud_version="hud-0.0.1")
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual(derived[0]["stream"], "rounds")
             self.assertEqual(derived[0]["inputs_moved"], ["hud"])
             self.assertEqual(derived[1]["inputs_moved"], ["hud", "round"])
@@ -169,7 +169,7 @@ class PlanTests(unittest.TestCase):
             store.events["killfeed_portrait"] = [{"v": "killfeed-portrait-0.0.1"}]
             store.table("rounds", round_version=ROUND_VERSION, hud_version=HUD_VERSION,
                         killfeed_portrait_version="none", plant_graphic_version="none")
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             # The rescan rewrites the portraits, and then the badges move the rounds.
             self.assertEqual(derived[0]["inputs_moved"], ["killfeed_portrait"])
 
@@ -178,7 +178,7 @@ class PlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
             store.events["plant_graphic"] = [{"v": PLANT_GRAPHIC_VERSION}]
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual(derived[0]["stream"], "rounds")
             self.assertEqual(derived[0]["inputs_moved"], ["plant_graphic"])
 
@@ -186,7 +186,7 @@ class PlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
             store.events["death:rows"][0]["inputs"]["round"] = "round-0.0.1"
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("death", ["round"])])
 
@@ -197,7 +197,7 @@ class PlanTests(unittest.TestCase):
             store = _current_store(Path(d))
             store.events["death:rows"][0]["inputs"].update(
                 scoreboard="scoreboard-0.0.1", agent_identity="agent-identity-0.0.1")
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("death", ["agent_identity", "scoreboard"])])
 
@@ -205,12 +205,12 @@ class PlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
             store.events["ult_line"] = [{"v": "ult-line-0.0.1"}]
-            p = stale(store, ["s"])["s"]
+            p = stale(store, ["s"], never_run=False)["s"]
             self.assertEqual([(x["stream"], x["channel"]) for x in p["decode"]],
                              [("ult_line", "audio")])
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in p["derived"]],
                              [("ult_cast", ["ult_line"])])
-            text = render(stale(store, ["s"]))
+            text = render(stale(store, ["s"], never_run=False))
             self.assertIn("accept reticle ult-lines <sid>", text)
             self.assertNotIn("--only audio", text)
             self.assertIn("reticle ult-cast <sid>", text)
@@ -220,7 +220,7 @@ class PlanTests(unittest.TestCase):
             store = _current_store(Path(d))
             store.events["ult_cast:rows"][0]["ult_cast_version"] = "ult-cast-0.0.1"
             store.events["ult_cast:rows"][0]["inputs"]["round"] = "round-0.0.1"
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["stored"], x["inputs_moved"]) for x in derived],
                              [("ult_cast", "ult-cast-0.0.1", ["round"])])
 
@@ -231,12 +231,12 @@ class PlanTests(unittest.TestCase):
             store.events["ult_cast:rows"][0]["inputs"].update(tray_drop="tray-0.0.1",
                                                               hud=HUD_VERSION,
                                                               player_cast=PLAYER_CAST_VERSION)
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("ult_cast", ["tray_drop"])])
             store.events["ult_cast:rows"][0]["inputs"]["tray_drop"] = TRAY_VERSION
             store.table("hud", hud_version="hud-0.0.1")
-            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            derived = {x["stream"]: x for x in stale(store, ["s"], never_run=False)["s"]["derived"]}
             # The drops' gate read the HUD too, so the binding follows them.
             self.assertEqual(derived["ult_cast"]["inputs_moved"], ["hud", "round", "tray_drop"])
 
@@ -247,11 +247,11 @@ class PlanTests(unittest.TestCase):
             _tray_drops(store)
             store.events["ult_cast:rows"][0]["inputs"].update(tray_drop=TRAY_VERSION,
                                                               hud=HUD_VERSION)
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("ult_cast", ["player_cast"])])
             store.events["ult_cast:rows"][0]["inputs"]["player_cast"] = PLAYER_CAST_VERSION
-            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            self.assertEqual(stale(store, ["s"], never_run=False)["s"]["derived"], [])
 
     def test_a_gate_change_stales_the_stored_verdicts_and_the_shapes(self):
         with tempfile.TemporaryDirectory() as d:
@@ -260,16 +260,16 @@ class PlanTests(unittest.TestCase):
                                                "tray_segment_version": TRAY_SEGMENT_VERSION}]
             store.events["ability_shape:rows"] = [{"ability_shape_version": ABILITY_SHAPE_VERSION,
                                                    "tray_version": TRAY_VERSION}]
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"], x["command"]) for x in derived],
                              [("tray_drop", ["player_cast"], "reticle tray s"),
                               ("ability_shape", ["player_cast", "tray_drop"],
                                "reticle ability-shapes s")])
             for stream in ("tray_drop", "ability_shape"):
                 store.events[stream + ":rows"][0]["player_cast_version"] = PLAYER_CAST_VERSION
-            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            self.assertEqual(stale(store, ["s"], never_run=False)["s"]["derived"], [])
             store.events["ability_shape:rows"][0]["tray_version"] = "tray-0.0.1"
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("ability_shape", ["tray_drop"])])
 
@@ -288,18 +288,18 @@ class PlanTests(unittest.TestCase):
                     "player_cast_version": PLAYER_CAST_VERSION}
             # A head written before the table was recorded is not compared on it.
             store.events["ability_shape:rows"] = [dict(head)]
-            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            self.assertEqual(stale(store, ["s"], never_run=False)["s"]["derived"], [])
             head.update(ability_candidates_version=ABILITY_CANDIDATES_VERSION,
                         appearance_values=values_digest())
             store.events["ability_shape:rows"] = [dict(head)]
-            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            self.assertEqual(stale(store, ["s"], never_run=False)["s"]["derived"], [])
             store.events["ability_shape:rows"] = [{**head, "ability_candidates_version":
                                                    "ability-candidates-0.0.1"}]
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("ability_shape", ["candidates"])])
             store.events["ability_shape:rows"] = [{**head, "appearance_values": "000000000000"}]
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("ability_shape", ["appearance_values"])])
 
@@ -316,7 +316,7 @@ class PlanTests(unittest.TestCase):
             store.events["ability_shape:rows"] = [{"ability_shape_version": ABILITY_SHAPE_VERSION,
                                                    "tray_version": TRAY_VERSION,
                                                    "player_cast_version": old}]
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["stored"], x["inputs_moved"]) for x in derived],
                              [("ult_cast", ULT_CAST_VERSION, ["player_cast", "tray_drop"]),
                               ("tray_drop", TRAY_VERSION, ["player_cast"]),
@@ -336,10 +336,10 @@ class PlanTests(unittest.TestCase):
                 {"scoreboard_presence_version": SCOREBOARD_AGENT_VERSION,
                  "scoreboard_strip_version": SCOREBOARD_STRIP_VERSION,
                  "scoreboard_version": SCOREBOARD_VERSION}]
-            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            self.assertEqual(stale(store, ["s"], never_run=False)["s"]["derived"], [])
             store.events["scoreboard_strip:rows"][0]["roi_cache_version"] = "roi-cache-0.0.1"
             store.events["scoreboard_presence:rows"][0]["scoreboard_version"] = "scoreboard-0.0.1"
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"], x["command"]) for x in derived],
                              [("scoreboard_strip", ["roi_cache"], "reticle strip s"),
                               ("scoreboard_presence", ["scoreboard", "scoreboard_strip"],
@@ -358,12 +358,12 @@ class PlanTests(unittest.TestCase):
                  "roi_cache_version": ROI_CACHE_VERSION,
                  "scoreboard_strip_version": SCOREBOARD_STRIP_VERSION,
                  "round_outcome_claim_version": ROUND_OUTCOME_CLAIM_VERSION}]
-            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            self.assertEqual(stale(store, ["s"], never_run=False)["s"]["derived"], [])
             head = store.events["round_outcome:rows"][0]
             head["round_outcome_version"] = "round-outcome-0.0.1"
             head["round_outcome_claim_version"] = "round-outcome-claim-0.0.1"
             store.events["scoreboard_strip:rows"][0]["scoreboard_strip_version"] = "strip-0.0.1"
-            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            derived = {x["stream"]: x for x in stale(store, ["s"], never_run=False)["s"]["derived"]}
             got = derived["round_outcome"]
             self.assertEqual((got["command"], got["how"], got["stored"]),
                              ("reticle round-outcome s", "cache", "round-outcome-0.0.1"))
@@ -393,7 +393,7 @@ class PlanTests(unittest.TestCase):
                 store.events["scoreboard"] = [{"v": old}]
                 store.events["death:rows"][0]["inputs"]["scoreboard"] = old
                 store.events["scoreboard_presence:rows"][0]["scoreboard_version"] = old
-                plan = stale(store, ["s"])
+                plan = stale(store, ["s"], never_run=False)
                 p = plan["s"]
                 self.assertEqual([x["stream"] for x in p["decode"]],
                                  ["scoreboard"] if is_stale else [], old)
@@ -492,7 +492,7 @@ class AllyIconWaiverMachineryTests(unittest.TestCase):
     def _check(self, manifest: dict, tables: bool = True):
         with tempfile.TemporaryDirectory() as d:
             store = _ally_store(Path(d), manifest, tables)
-            plan = stale(store, ["s"])
+            plan = stale(store, ["s"], never_run=False)
             return plan["s"], render(plan)
 
     def test_an_upright_session_is_accepted_by_waiver(self):
@@ -570,15 +570,15 @@ class DeclaredStreamTests(unittest.TestCase):
             store = _current_store(Path(d))
             for stream in ("team_vision", "round_entity"):
                 store.events[stream + ":rows"] = [_declared_head(stream)]
-            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            self.assertEqual(stale(store, ["s"], never_run=False)["s"]["derived"], [])
             store.events["team_vision:rows"][0]["team_vision_version"] = "team-vision-0.0.1"
             store.events["round_entity:rows"][0]["round_entity_version"] = "round-entity-0.0.1"
-            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            derived = {x["stream"]: x for x in stale(store, ["s"], never_run=False)["s"]["derived"]}
             self.assertEqual((derived["team_vision"]["command"], derived["team_vision"]["how"]),
                              ("reticle vision s", "cache"))
             self.assertEqual((derived["round_entity"]["command"], derived["round_entity"]["how"]),
                              ("reticle lifetimes s", "storage"))
-            text = render(stale(store, ["s"]))
+            text = render(stale(store, ["s"], never_run=False))
             self.assertIn("cache    reticle vision <sid>   (team_vision: team-vision-0.0.1 -> ",
                           text)
             self.assertIn("storage  reticle lifetimes <sid>", text)
@@ -588,7 +588,7 @@ class DeclaredStreamTests(unittest.TestCase):
             store = _current_store(Path(d))
             store.events["round_entity:rows"] = [_declared_head("round_entity")]
             store.events["ally_icon"] = [{"v": "ally-icon-0.0.1"}]
-            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            derived = {x["stream"]: x for x in stale(store, ["s"], never_run=False)["s"]["derived"]}
             self.assertEqual(derived["round_entity"]["inputs_moved"], ["ally_icon"])
 
     def test_a_cone_cast_over_another_occluder_table_is_stale(self):
@@ -602,13 +602,13 @@ class DeclaredStreamTests(unittest.TestCase):
             head = {**_declared_head("team_vision"), "geometry_key": "m__p",
                     "occluders": "occluders-2.0.0"}
             store.events["team_vision:rows"] = [head]
-            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            self.assertEqual(stale(store, ["s"], never_run=False)["s"]["derived"], [])
             head["occluders"] = "occluders-1.0.0"
-            derived = stale(store, ["s"])["s"]["derived"]
+            derived = stale(store, ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"]) for x in derived],
                              [("team_vision", ["occluders"])])
             head["occluders"] = None      # cast before the geometry held a table
-            self.assertEqual(stale(store, ["s"])["s"]["derived"][0]["inputs_moved"],
+            self.assertEqual(stale(store, ["s"], never_run=False)["s"]["derived"][0]["inputs_moved"],
                              ["occluders"])
 
 
@@ -630,9 +630,9 @@ class AbilitySupplyStaleTests(unittest.TestCase):
 
     def test_plan_names_a_fit_over_older_deaths_after_the_deaths_rerun(self):
         with tempfile.TemporaryDirectory() as d:
-            self.assertEqual(stale(self._store(d, DEATH_ADJUDICATION_VERSION), ["s"])["s"]["derived"],
+            self.assertEqual(stale(self._store(d, DEATH_ADJUDICATION_VERSION), ["s"], never_run=False)["s"]["derived"],
                              [])
-            derived = stale(self._store(d, "death-adjudication-0.20.0"), ["s"])["s"]["derived"]
+            derived = stale(self._store(d, "death-adjudication-0.20.0"), ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([(x["stream"], x["inputs_moved"], x["command"]) for x in derived],
                              [("ability_fit", ["death"], "reticle scan s --only ability"),
                               ("ability_wall", ["death"], "reticle scan s --only ability")])
@@ -644,14 +644,14 @@ class AbilitySupplyStaleTests(unittest.TestCase):
                                      ("death-adjudication-0.20.0", True)):
                 store = self._store(d, death_read)
                 self.assertEqual(_ability_stale(store, "s", ("ability_fit", "ability_wall")), want)
-                self.assertEqual(bool(stale(store, ["s"])["s"]["derived"]), want)
+                self.assertEqual(bool(stale(store, ["s"], never_run=False)["s"]["derived"]), want)
 
     def test_a_pass_with_no_supply_read_no_deaths(self):
         with tempfile.TemporaryDirectory() as d:
             store = self._store(d, DEATH_ADJUDICATION_VERSION)
             store.events["ability_fit:rows"][0].update(supply=None, supply_reason="no_lineup",
                                                        ability_candidates_version=None)
-            got = stale(store, ["s"])["s"]
+            got = stale(store, ["s"], never_run=False)["s"]
             self.assertEqual((got["derived"], got["unrecorded"]), ([], []))
             from reticle.cli import _ability_stale
             self.assertFalse(_ability_stale(store, "s", ("ability_fit",)))
@@ -674,7 +674,7 @@ class AbsentPassStreamTests(unittest.TestCase):
 
     def test_the_glyph_stream_is_stale_where_the_proposer_ran(self):
         with tempfile.TemporaryDirectory() as d:
-            derived = stale(self._store(d, ["ability_icon"]), ["s"])["s"]["derived"]
+            derived = stale(self._store(d, ["ability_icon"]), ["s"], never_run=False)["s"]["derived"]
             glyph = [x for x in derived if x["stream"] == "ability_glyph"]
             self.assertEqual(len(glyph), 1)
             self.assertEqual(glyph[0]["inputs_moved"], ["absent from a pass that ran"])
@@ -683,10 +683,10 @@ class AbsentPassStreamTests(unittest.TestCase):
 
     def test_no_absent_stream_is_named_where_the_proposer_never_ran(self):
         with tempfile.TemporaryDirectory() as d:
-            derived = stale(self._store(d, ["ability_gate"]), ["s"])["s"]["derived"]
+            derived = stale(self._store(d, ["ability_gate"]), ["s"], never_run=False)["s"]["derived"]
             self.assertEqual([x for x in derived if x["inputs_moved"] == ["absent from a pass that ran"]],
                              [])
-            derived = stale(self._store(d, []), ["s"])["s"]["derived"]
+            derived = stale(self._store(d, []), ["s"], never_run=False)["s"]["derived"]
             self.assertEqual(derived, [])
 
 
@@ -709,12 +709,12 @@ class EnemyLaneStaleTests(unittest.TestCase):
         off = minimap_object_version({"teardrop_box": True, "slab_gate": False})
         with tempfile.TemporaryDirectory() as d:
             store = self._store(d)
-            self.assertEqual(stale(store, ["s"])["s"]["derived"], [])
+            self.assertEqual(stale(store, ["s"], never_run=False)["s"]["derived"], [])
             store.events["minimap_object:rows"][0]["minimap_object_version"] = off
             store.events["enemy_track:rows"][0]["minimap_object_version"] = off
             store.events["minimap_object"] = [{"v": off}]
             store.events["death:rows"][0]["inputs"]["minimap_object"] = off
-            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            derived = {x["stream"]: x for x in stale(store, ["s"], never_run=False)["s"]["derived"]}
             self.assertEqual((derived["minimap_object"]["stored"],
                               derived["minimap_object"]["how"]), (off, "cache"))
             self.assertIn("minimap_object_version", derived["enemy_track"]["inputs_moved"])
@@ -724,10 +724,10 @@ class EnemyLaneStaleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = self._store(d)
             del store.events["death:rows"][0]["inputs"]["minimap_object"]
-            derived = {x["stream"]: x for x in stale(store, ["s"])["s"]["derived"]}
+            derived = {x["stream"]: x for x in stale(store, ["s"], never_run=False)["s"]["derived"]}
             self.assertEqual(derived["death"]["inputs_moved"], ["minimap_object"])
             store.events["minimap_object"] = [{"v": None}]       # none stored: current
-            self.assertNotIn("death", {x["stream"] for x in stale(store, ["s"])["s"]["derived"]})
+            self.assertNotIn("death", {x["stream"] for x in stale(store, ["s"], never_run=False)["s"]["derived"]})
 
 
 class InputCycleTests(unittest.TestCase):
@@ -774,7 +774,7 @@ class InputCycleTests(unittest.TestCase):
             write_table(store.root, {"digest": digest}, {"death": DEATH_ADJUDICATION_VERSION})
 
         def stale_streams(store):
-            return [x["stream"] for x in stale(store, ["s"])["s"]["derived"]]
+            return [x["stream"] for x in stale(store, ["s"], never_run=False)["s"]["derived"]]
 
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
@@ -967,7 +967,7 @@ class PlacementMovedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store, old, _new = self._store(d)
             self._ally(store, wf.placement_identity({"minimap_widget": old}))
-            p = stale(store, ["s"])["s"]
+            p = stale(store, ["s"], never_run=False)["s"]
             ally = [x for x in p["decode"] if x["stream"] == "ally_icon"]
             self.assertEqual(len(ally), 1)
             self.assertIn("widget_placement", ally[0]["inputs_moved"])
@@ -979,11 +979,11 @@ class PlacementMovedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store, _old, new = self._store(d)
             self._ally(store, wf.placement_identity({"minimap_widget": new}))
-            p = stale(store, ["s"])["s"]
+            p = stale(store, ["s"], never_run=False)["s"]
             self.assertNotIn("ally_icon", {x["stream"] for x in p["decode"]})
             # A refit that moves only the stamp moves no pixel.
             self._ally(store, "widget-frame-0.2.0#" + wf.placement_digest(new))
-            self.assertNotIn("ally_icon", stale(store, ["s"])["s"]["placement"])
+            self.assertNotIn("ally_icon", stale(store, ["s"], never_run=False)["s"]["placement"])
 
     def test_an_unrecorded_table_written_before_the_change_is_named(self):
         import datetime as dt
@@ -993,13 +993,13 @@ class PlacementMovedTests(unittest.TestCase):
             path = store.minimap_path("s", None)
             before = dt.datetime(2026, 10, 4, 21, 0, tzinfo=dt.timezone.utc).timestamp()
             os.utime(path, (before, before))
-            p = stale(store, ["s"])["s"]
+            p = stale(store, ["s"], never_run=False)["s"]
             self.assertIn("2026-10-04T22:09:54", p["placement"]["minimap"])
             mm = [x for x in p["decode"] if x["stream"] == "minimap"]
             self.assertEqual(mm[0]["inputs_moved"], ["widget_placement"])
             after = dt.datetime(2026, 10, 4, 23, 0, tzinfo=dt.timezone.utc).timestamp()
             os.utime(path, (after, after))
-            self.assertNotIn("minimap", stale(store, ["s"])["s"]["placement"])
+            self.assertNotIn("minimap", stale(store, ["s"], never_run=False)["s"]["placement"])
 
     def test_a_recorded_table_is_compared_by_its_record(self):
         from reticle import widget_frame as wf
@@ -1028,7 +1028,7 @@ class PlacementMovedTests(unittest.TestCase):
             head["widget_placement"] = wf.placement_identity({"minimap_widget": old})
             store.events["team_vision:rows"] = [head]
             self.assertIsNotNone(placement_moved(store, man, "team_vision"))
-            vision = [x for x in stale(store, ["s"])["s"]["derived"]
+            vision = [x for x in stale(store, ["s"], never_run=False)["s"]["derived"]
                       if x["stream"] == "team_vision"]
             self.assertIn("widget_placement", vision[0]["inputs_moved"])
 
@@ -1037,7 +1037,7 @@ class PlacementMovedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = _current_store(Path(d))
             os.utime(store.minimap_path("s", None), (0, 0))
-            self.assertEqual(stale(store, ["s"])["s"]["placement"], {})
+            self.assertEqual(stale(store, ["s"], never_run=False)["s"]["placement"], {})
 
 
 class _SpanStore(_Store):
@@ -1061,7 +1061,7 @@ class SpanPlanTests(unittest.TestCase):
     def test_old_spans_name_the_segment_rerun_and_every_span_reader(self):
         from reticle.version import SEGMENTER_VERSION
         with tempfile.TemporaryDirectory() as d:
-            plan = stale(self._store(Path(d), "seg-0.2.0", {}), ["s"])["s"]
+            plan = stale(self._store(Path(d), "seg-0.2.0", {}), ["s"], never_run=False)["s"]
             spans = [x for x in plan["derived"] if x["stream"] == "spans"]
             self.assertEqual([(x["stored"], x["current"], x["command"]) for x in spans],
                              [("seg-0.2.0", SEGMENTER_VERSION, "reticle segment s")])
@@ -1073,7 +1073,7 @@ class SpanPlanTests(unittest.TestCase):
         from reticle.version import SEGMENTER_VERSION
         with tempfile.TemporaryDirectory() as d:
             # Its head records no spans: it read seg-0.2.0's active spans.
-            plan = stale(self._store(Path(d), SEGMENTER_VERSION, {}), ["s"])["s"]
+            plan = stale(self._store(Path(d), SEGMENTER_VERSION, {}), ["s"], never_run=False)["s"]
             self.assertNotIn("spans", [x["stream"] for x in plan["derived"]])
             dark = [x for x in plan["decode"] if x["stream"] == "minimap_dark"]
             self.assertEqual([x["inputs_moved"] for x in dark], [["spans"]])
@@ -1085,7 +1085,7 @@ class SpanPlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = self._store(Path(d), SEGMENTER_VERSION,
                                 {"inputs": {"spans": SEGMENTER_VERSION}})
-            plan = stale(store, ["s"])["s"]
+            plan = stale(store, ["s"], never_run=False)["s"]
             self.assertNotIn("minimap_dark", [x["stream"] for x in plan["decode"]])
             # `scan` asks the same question before it rereads.
             man = store.read_manifest("s")
@@ -1169,3 +1169,48 @@ class EnemyTrackGlyphVerdictInputTests(unittest.TestCase):
             self.assertNotIn("ability_glyph_name", inputs_moved(store, man, "enemy_track", head)[0])
             store.events["ability_glyph_name:rows"] = [dict(old, ability_glyph_name_version="x")]
             self.assertIn("ability_glyph_name", inputs_moved(store, man, "enemy_track", head)[0])
+
+
+class NeverRunTests(unittest.TestCase):
+    """A derived stream the session never wrote is work, listed with its
+    command and how it reads; skipping it hid the plant graphic on every new
+    capture of 2026-10-07 while the rounds fell back to the clock-run rule."""
+
+    def test_a_never_run_stream_is_listed_with_its_command_and_how(self):
+        from reticle.plan import NEVER_RUN
+        from reticle.version import PLANT_GRAPHIC_VERSION
+        with tempfile.TemporaryDirectory() as d:
+            derived = stale(_current_store(Path(d)), ["s"])["s"]["derived"]
+            by = {x["stream"]: x for x in derived}
+            self.assertEqual({k: by["plant_graphic"][k] for k in
+                              ("stored", "current", "inputs_moved", "how", "command")},
+                             {"stored": None, "current": PLANT_GRAPHIC_VERSION,
+                              "inputs_moved": [NEVER_RUN], "how": "cache",
+                              "command": "reticle plant-graphic s"})
+            # hand-checked streams too
+            self.assertEqual(by["tray_drop"]["inputs_moved"], [NEVER_RUN])
+            self.assertEqual(by["self_icon"]["how"], "cache")
+
+    def test_the_rounds_follow_a_never_run_plant_graphic(self):
+        with tempfile.TemporaryDirectory() as d:
+            plan = stale(_current_store(Path(d)), ["s"])
+            rounds = [x for x in plan["s"]["derived"] if x["stream"] == "rounds"]
+            self.assertEqual([(x["inputs_moved"], x["command"]) for x in rounds],
+                             [(["plant_graphic"], "reticle rounds s")])
+            lines = render(plan).splitlines()
+            at = lambda cmd: next(i for i, ln in enumerate(lines) if cmd in ln)
+            self.assertLess(at("reticle plant-graphic <sid>"), at("reticle rounds <sid>"))
+            self.assertIn("(plant_graphic: never run, current ", lines[at("reticle plant-graphic")])
+
+    def test_a_missing_death_stream_is_named(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            del store.events["death:rows"]
+            derived = stale(store, ["s"])["s"]["derived"]
+            self.assertEqual([(x["command"], x["how"]) for x in derived if x["stream"] == "death"],
+                             [("reticle deaths s", "storage")])
+
+    def test_turned_off_it_reads_the_stored_streams_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            derived = stale(_current_store(Path(d)), ["s"], never_run=False)["s"]["derived"]
+            self.assertEqual(derived, [])

@@ -9,8 +9,13 @@ cached ROIs: it can be checked first on stored windows, and `scan` feeds it
 from the ROI crop cache instead of decoding when a cache holds its set
 (`roi_cache.cache_for`). A stale adjudication rereads
 nothing: it reruns from storage; `reticle tray` and `reticle ability-shapes`
-reread the stored crops and decode nothing. A stream never written is
-`absent`, which is not stale.
+reread the stored crops and decode nothing. A reader stream never written is
+`absent`, which is not stale. A derived stream never written is listed as
+`never run` (`NEVER_RUN`) with its command and how it reads, ordered with the
+stale work; the rounds follow a never-run plant graphic, and other streams
+built from one are named once it is written: a step that has never run
+is work the session lacks, and skipping it hid the plant graphic on every new
+capture of 2026-10-07 while `rounds` fell back to the clock-run rule.
 
 A stored stamp the code declares acceptable in its place
 (`version.STAMP_WAIVERS`, a testing-phase decision of the player's) is not
@@ -537,6 +542,7 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
     """stream -> {input name: declared input}, for every stream that reads a
     stored input. The name is what `plan` reports as moved."""
     from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .adjudication.self_entry import SELF_ENTRY_VERSION
     from .adjudication.killfeed_kits import KILLFEED_KITS_VERSION
     from .killfeed import KILLFEED_NAME_VERSION, KILLFEED_WEAPON_VERSION
     from .killfeed_assist import ICON_BUILD
@@ -719,6 +725,10 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                 "killfeed_portrait": _in("inputs.killfeed_portrait",
                                                          "killfeed_portrait"),
                                 "scoreboard": _in("inputs.scoreboard", "scoreboard"),
+                                # The self-entry rule a reportless round's
+                                # verdict was read by (`own_counts`).
+                                "self_entry": _code("inputs.self_entry", SELF_ENTRY_VERSION,
+                                                    optional=True),
                                 **_lineup_inputs()},
         "self_entry": {"death": _in("inputs.death", "death#death_adjudication_version"),
                        **_lineup_inputs()},
@@ -1355,9 +1365,16 @@ def _follow(store, sid: str, derived: list[dict], moving: set[str]) -> None:
             changed = True
 
 
-def stale(store, sessions: list[str]) -> dict:
+#: The `inputs_moved` reason of a derived stream the session never wrote.
+NEVER_RUN = "never run"
+
+
+def stale(store, sessions: list[str], never_run: bool = True) -> dict:
     """Per session: stale reader streams (decode), stale adjudications
-    (storage only), and absent streams."""
+    (storage only), and absent streams. With `never_run` (every command's
+    default) a derived stream the session never wrote is listed as work too,
+    and the streams built from it follow it; tests of one staleness rule turn
+    it off to read that rule alone."""
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
     from .input_stamps import NO_ROWS
     from .killfeed import KILLFEED_PORTRAIT_VERSION
@@ -1466,8 +1483,21 @@ def stale(store, sessions: list[str]) -> dict:
                 rounds_stale = True
                 derived.append({"stream": "rounds", "stored": r["round"], "current": ROUND_VERSION,
                                 "inputs_moved": moved, "command": f"reticle rounds {sid}"})
+        hand = _hand_specs()
+
+        def list_never_run(stream: str) -> None:
+            """A hand-checked stream the session never wrote, as work."""
+            if not never_run:
+                return
+            _key, current, command = hand[stream]
+            derived.append({"stream": stream, "stored": None, "current": current,
+                            "inputs_moved": [NEVER_RUN], "command": command.format(sid=sid),
+                            "how": _CACHE_READERS.get(stream, "storage")})
+
         dhead = _head(store, "death", sid)
-        if dhead is not None:
+        if dhead is None:
+            list_never_run("death")
+        else:
             version, inputs = dhead.get("death_adjudication_version"), dhead.get("inputs") or {}
             # The scoreboard stream feeds `scoreboard_dim`, and the identity
             # rules name every role; a deaths table read from older ones is
@@ -1493,7 +1523,9 @@ def stale(store, sessions: list[str]) -> dict:
                                 "command": f"reticle deaths {sid}"})
         deaths_stale = any(x["stream"] == "death" for x in derived)
         uhead = _head(store, "ult_cast", sid)
-        if uhead is not None:
+        if uhead is None:
+            list_never_run("ult_cast")
+        else:
             version, inputs = uhead.get("ult_cast_version"), uhead.get("inputs") or {}
             moved = sorted(k for k, (_, v) in code_fields["ult_cast"].items()
                            if inputs.get(k) not in (v, None, NO_ROWS))
@@ -1531,6 +1563,7 @@ def stale(store, sessions: list[str]) -> dict:
             command, want = command.replace(" {sid}", ""), code_fields[stream]
             head = _head(store, stream, sid)
             if head is None:
+                list_never_run(stream)
                 continue
             version = head.get(stamp)
             moved = sorted(k for k, (field, v) in want.items() if head.get(field) != v
@@ -1547,7 +1580,11 @@ def stale(store, sessions: list[str]) -> dict:
                                 "inputs_moved": moved, "command": f"{command} {sid}",
                                 "how": _CACHE_READERS.get(stream, "storage")})
         # Every other stamped stream, declared with its command.
-        moving = rescanned | {x["stream"] for x in derived}
+        # A stream never run moves nothing downstream until it is written: its
+        # command may write nothing (`ult-cast` without voice-line peaks), and
+        # the streams built from it would stay stale for ever. Plan again
+        # after it runs; the rounds alone follow it below.
+        moving = rescanned | {x["stream"] for x in derived if x["inputs_moved"] != [NEVER_RUN]}
         stored = set(stored_streams(store, sid))
         for spec in derived_streams():
             stream = spec["stream"]
@@ -1556,12 +1593,17 @@ def stale(store, sessions: list[str]) -> dict:
             if head is None:
                 # A stream the ability pass gained after it ran on stored
                 # sessions (`PASS_ADDED`), absent beside the sibling whose
-                # presence shows the pass ran: staleness, not a stream never
-                # asked for. Every other absent stream keeps the old rule.
-                if PASS_ADDED.get(stream) in stored:
-                    derived.append({"stream": stream, "stored": None, "current": spec["current"],
-                                    "inputs_moved": ["absent from a pass that ran"],
-                                    "how": spec["how"], "command": spec["command"].format(sid=sid)})
+                # presence shows the pass ran, is stale; any other absent
+                # stream has never run. Both are listed: a skipped step hides
+                # the work a session lacks.
+                why = ("absent from a pass that ran" if PASS_ADDED.get(stream) in stored
+                       else NEVER_RUN)
+                if why == NEVER_RUN and not never_run:
+                    continue
+                derived.append({"stream": stream, "stored": None, "current": spec["current"],
+                                "inputs_moved": [why], "how": spec["how"],
+                                "command": spec["command"].format(sid=sid)})
+                if why != NEVER_RUN:
                     moving.add(stream)
                 continue
             version = head.get(spec["key"])
@@ -1575,6 +1617,15 @@ def stale(store, sessions: list[str]) -> dict:
                                 "inputs_moved": moved, "how": spec["how"],
                                 "command": spec["command"].format(sid=sid)})
                 moving.add(stream)
+        # The rounds read the plant graphic and the portrait stream's second
+        # lives; one never run, written now, moves them once it lands.
+        if never_run and r is not None and not rounds_stale:
+            listed = moving | {x["stream"] for x in derived}
+            first = sorted(k for k in ("killfeed_portrait", "plant_graphic") if k in listed)
+            if first:
+                derived.append({"stream": "rounds", "stored": r["round"], "current": ROUND_VERSION,
+                                "inputs_moved": first, "command": f"reticle rounds {sid}"})
+                moving.add("rounds")
         if widget is not None:
             _widget_derived(store, sid, derived, moving)
         elif placed:
@@ -2056,9 +2107,10 @@ def render(plan: dict) -> str:
     grouped: dict[tuple[str, str, str], list[str]] = defaultdict(list)
     stream_of: dict[tuple[str, str, str], str] = {}
     for sid, d in derived:
-        why = "; ".join(filter(None, (
+        why = ("; ".join(filter(None, (
             f"{d['stored']} -> {d['current']}" if d["stored"] != d["current"] else None,
             "inputs " + ", ".join(d["inputs_moved"]) if d["inputs_moved"] else None)))
+            if d["inputs_moved"] != [NEVER_RUN] else f"{NEVER_RUN}, current {d['current']}")
         command = re.sub(rf"(?<![\w-]){re.escape(sid)}(?![\w-])", "<sid>", d["command"])
         key = (d.get("how", "storage"), command, f"{d['stream']}: {why}")
         grouped[key].append(sid)

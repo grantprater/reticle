@@ -47,6 +47,14 @@ is no kill or death [domain:killfeed/entry-types]. A role whose verdict is `None
 Pure over stored rows: the `death` stream and the lineup's player binding.
 It never reads pixels, and the rounds' stored killfeed counts stay beside it.
 
+A consumer's K/D (`session_kd`, per round `round_kd`): the adjudication's
+answer where its inputs are current. Where it refuses -- no death stream, or
+one at an older stamp -- the "Me" witness answers alone through the HUD
+reader's own "Me" tracks (`checks.player_events`, the rounds' killfeed
+counts), but only on a capture whose killfeed read "Me" at all; on a capture
+that printed none the K/D is unread, `None` with both reasons, never 0/0.
+`basis` names which answered: `self_entry` or `me`.
+
 Owns [owns:self-entry].
 """
 
@@ -220,3 +228,64 @@ def adjudicate_session(store, session_id: str) -> list[dict]:
                          f"{DEATH_ADJUDICATION_VERSION}")
     player = player_identity(load_lineup(session_id, store.root), session_id)
     return adjudicate(deaths, player, session_id)
+
+
+#: Which witness answered a consumer's K/D (`session_kd`).
+KD_BASES = ("self_entry", "me")
+
+
+def session_kd(store, session_id: str, me: dict | None = None) -> dict:
+    """The player's session K/D for a consumer (module docstring): `status`
+    (`ok` or `refused`), `basis`, `kills`, `deaths`, `unread_kills`,
+    `unread_deaths`, `reason` (the refusal, kept beside a "Me" answer) and
+    `entries` (this adjudication's entry rows, empty unless `basis` is
+    `self_entry`). `me` is the HUD's "Me" count, `{"kills", "deaths"}`, or
+    None where the caller has no HUD."""
+    try:
+        rows = adjudicate_session(store, session_id)
+    except ValueError as e:
+        why = str(e).removeprefix(f"{session_id}: ")
+        unread = {"unread_kills": None, "unread_deaths": None, "entries": []}
+        if me is None:
+            return {"status": "refused", "basis": None, "kills": None, "deaths": None,
+                    "reason": f"self_entry:{why}; me:no_hud", **unread}
+        if not (me["kills"] or me["deaths"]):
+            return {"status": "refused", "basis": None, "kills": None, "deaths": None,
+                    "reason": f"self_entry:{why}; me:capture_prints_no_me", **unread}
+        return {"status": "ok", "basis": "me", "kills": me["kills"], "deaths": me["deaths"],
+                "reason": f"self_entry:{why}", **unread}
+    head = rows[0]
+    return {"status": "ok", "basis": "self_entry", "kills": head["kills"],
+            "deaths": head["deaths"], "unread_kills": head["unread_kills"],
+            "unread_deaths": head["unread_deaths"], "reason": None,
+            "entries": [r for r in rows if r["kind"] == "entry"]}
+
+
+def round_kd(kd: dict, rounds: list[dict]) -> dict[int, dict]:
+    """`session_kd`'s answer per round of `rounds` (`build_rounds` rows):
+    round_no -> `kills`, `deaths`, `unread_kills`, `unread_deaths`, `basis`,
+    `reason`. A `self_entry` entry joins the round the rounds owner places its
+    time in (`rounds.round_containing`); one outside every round counts only
+    in the session total. A `me` answer is the round's own killfeed count."""
+    from ..rounds import round_containing
+    out = {r["round_no"]: {"kills": None, "deaths": None, "unread_kills": None,
+                           "unread_deaths": None, "basis": kd["basis"], "reason": kd["reason"]}
+           for r in rounds}
+    if kd["basis"] == "me":
+        for r in rounds:
+            out[r["round_no"]].update(kills=r["player_kills"], deaths=r["player_deaths"])
+    elif kd["basis"] == "self_entry":
+        for v in out.values():
+            v.update(kills=0, deaths=0, unread_kills=0, unread_deaths=0)
+        for e in kd["entries"]:
+            c = e["counts"]
+            r = round_containing(e["t_ms"], rounds) if c["countable"] else None
+            if r is None:
+                continue
+            v = out[r["round_no"]]
+            for k, field in (("kill", "kills"), ("death", "deaths")):
+                if c[k] is None:
+                    v["unread_" + field] += 1
+                elif c[k]:
+                    v[field] += 1
+    return out

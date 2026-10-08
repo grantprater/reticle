@@ -258,9 +258,10 @@ def lane_status(store, sid: str, moving: set[str]) -> dict:
 
 
 def stale_inputs(store, sid: str) -> dict[str, str]:
-    """Stream -> why `plan.stale` calls it stale, for rule 4."""
+    """Stream -> why `plan.stale` calls it stale, for rule 4. A stream never
+    run holds no rows a lane rests on, so its listing is left out."""
     from . import plan
-    p = plan.stale(store, [sid])[sid]
+    p = plan.stale(store, [sid], never_run=False)[sid]
     out = {}
     for d in p["decode"]:
         out[d["stream"]] = f"reread: {d['stored']} -> {d['current']}"

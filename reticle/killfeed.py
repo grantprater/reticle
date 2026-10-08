@@ -555,6 +555,17 @@ MAX_NAME_RUNS = 3
 # exists and enumerating them would be endless: abilities alone cover mollies,
 # shock darts, turrets and whatever ships next patch.
 MIN_NAME_PARTS = 2
+# "Me" is one word. A Riot ID game name may hold a space, which opens a gap of
+# 6 px or more inside the name [domain:killfeed/killfeed-element-spacing], so
+# `_ink_runs` splits "Mga Yawa" into two runs and "Mga", 25 px wide and two
+# glyph groups, passed ME_W and matched the "Me" bitmap at 0.71-0.72 on
+# 066741deafe5 (168 s, 467 s). A candidate run with an ink run beside it at
+# most ME_WORD_GAP blank columns away is one word of a longer name, never "Me";
+# the neighbour may be one glyph ("Y" of "Yawa" stood alone at 715.5 s). The
+# space measured 6 blank columns there; every element that can stand beside a
+# name sits further off: the portrait 8 px or more, the headshot mark 19-20 px,
+# the weapon icon and the wallbang mark's padded box 10 px or more.
+ME_WORD_GAP = 7
 
 # A pixel white in this share of sampled frames is an overlay, not an entry.
 PERSIST_FRAC = 0.85
@@ -1250,6 +1261,9 @@ def _match_me(region: np.ndarray, tpl_info, side: int,
     Each candidate run is still gated on ME_W and still has to match the
     template, so widening the search does not weaken the test -- it only stops
     an icon from hiding the name behind it.
+
+    A candidate with a text run within ME_WORD_GAP beside it is one word of a
+    name holding a space ("Mga Yawa"), and is never "Me".
     """
     if tpl_info is None:
         return 0, 0.0
@@ -1257,18 +1271,28 @@ def _match_me(region: np.ndarray, tpl_info, side: int,
     runs = _ink_runs(region, s)
     if not runs:
         return 0, 0.0
+    parts_of = lambda run: cv2.connectedComponents(
+        (region[:, run[0]:run[1] + 1] > 0).astype(np.uint8), 8)[0] - 1
+
+    def word_of_longer_name(i: int) -> bool:
+        a, z = runs[i]
+        return any(0 <= j < len(runs)
+                   and max(runs[j][0] - z, a - runs[j][1]) - 1 <= s.px(ME_WORD_GAP)
+                   for j in (i - 1, i + 1))
+
     # Nearest the weapon icon first, then outward past any marks.
-    ordered = list(reversed(runs)) if side < 0 else runs
-    first_w = ordered[0][1] - ordered[0][0] + 1
+    order = list(range(len(runs)))[::-1] if side < 0 else list(range(len(runs)))
+    first_w = runs[order[0]][1] - runs[order[0]][0] + 1
     best_w, best_s = first_w, 0.0
-    for run in ordered[:MAX_NAME_RUNS]:
+    for i in order[:MAX_NAME_RUNS]:
+        run = runs[i]
         width = run[1] - run[0] + 1
         if not (s.px(ME_W[0]) <= width <= s.px(ME_W[1])):
             continue
-        parts = cv2.connectedComponents(
-            (region[:, run[0]:run[1] + 1] > 0).astype(np.uint8), 8)[0] - 1
-        if parts < MIN_NAME_PARTS:
+        if parts_of(run) < MIN_NAME_PARTS:
             continue          # one solid shape: a mark, not a name
+        if word_of_longer_name(i):
+            continue          # a word of a name holding a space
         lo = max(0, run[0] - t0)
         hi = min(region.shape[1], run[1] + 1 + (tpl.shape[1] - 1 - t1))
         sub = region[:, lo:hi]

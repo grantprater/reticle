@@ -811,7 +811,9 @@ or more); icon to the next element 10 px or more; headshot width 24-25 px in
 """
 use = """
 `killfeed.icon_extent` groups the slot's pieces into elements at ELEMENT_GAP
-(6 px) and boxes the element the divider points at
+(6 px) and boxes the element the divider points at; `killfeed._match_me`
+rejects a "Me" candidate run with ink within ME_WORD_GAP (7 px) beside it as
+one word of a name holding a space ("Mga Yawa", 066741deafe5)
 """
 exceptions = """
 a name holding a space can open a 6 px or wider gap inside the name; the box
