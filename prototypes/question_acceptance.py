@@ -215,6 +215,39 @@ and Clove's Ruse at
 the enemy drones the lane confuses with players stay low (Tejo's Stealth
 Drone, Fade's Prowler, below 0.11).
 
+*Step 8, `marks --tag TAG`* (0.7.0): the marks the owners emit over the
+tag's `minimap_object` rows, one find each, against the truth marks
+(`_mark_truth`): each death's X at the victim's last living place until the
+round ends [domain:minimap/death-mark-persistence], an ally's always
+[domain:minimap/ally-death-mark], an enemy's drawn where T1d drew him at
+his last living sample (`DrawRule.dead_mark`,
+[domain:minimap/enemy-death-mark]); and each T1d swap's "?" for its
+widget lifetime [domain:minimap/last-known-mark-widget-lifetime]. The X
+finds are the death owner's births (`stored_xmark_births` over the tag's
+rows; the stored `death` stream places no death by X, its
+`minimap_object` being stale), each claiming a death X of its colour's
+side; the "?" finds are the lane's `mark` rows, each named by the track it
+binds. A "?" shares the enemy players' ambiguity class, since its enemy
+stands at its place when it appears; a truth mark two finds share stays
+with the nearer (`hold_duplicate_marks`). On the pgb arm, of
+[metric:question_acceptance/marks/pgb@dev3#claim_ally_finds=165] blue X
+births [metric:question_acceptance/marks/pgb@dev3#claim_ally_right_entity=120]
+lie on an ally death, and of
+[metric:question_acceptance/marks/pgb@dev3#claim_enemy_finds=136] red ones
+[metric:question_acceptance/marks/pgb@dev3#claim_enemy_right_entity=80]
+on an enemy death; the X births recall
+[metric:question_acceptance/marks/pgb@dev3#recall_death_x_ally_always_drawn=0.4511]
+of the ally deaths. Of
+[metric:question_acceptance/marks/pgb@dev3#claim_question_finds=830] "?"
+marks, only [metric:question_acceptance/marks/pgb@dev3#claim_question_right_entity=146]
+lie on a T1d swap (named right
+[metric:question_acceptance/marks/pgb@dev3#claim_question_right_entity_name_right=125]
+times). Of the rest,
+[metric:question_acceptance/marks/pgb@dev3#claim_question_other_entity=465]
+lie on another entity, most on a living enemy the replay still places there:
+the lane reads a "?" before T1d's swap, evidence for the open "?" timing
+question.
+
 Stored rows and replay truth only; no decode, rescan or trial. The held-out
 capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
 `notes/predictions.jsonl`): an evaluation.
@@ -225,6 +258,7 @@ capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
     python prototypes/question_acceptance.py ally [SESSION ...] [--record]
     python prototypes/question_acceptance.py smoke [SESSION ...] [--record]
     python prototypes/question_acceptance.py glyph [SESSION ...] [--record]
+    python prototypes/question_acceptance.py marks --tag pgb [SESSION ...] [--pings b1] [--record]
 """
 from __future__ import annotations
 
@@ -249,7 +283,7 @@ sys.path.insert(0, str(HERE))
 import teardrop_refusals as tr  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "question-acceptance-0.6.0"
+VERSION = "question-acceptance-0.7.0"
 TASK = "event-harness-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / "question-acceptance"
@@ -1872,11 +1906,14 @@ def _mark_truth(M, J) -> dict:
         for jj, kk, tt in zip(j2.tolist(), k2.tolist(), t_to.tolist()):
             ag = M.agent.get(M.sid[jj])
             k_to = int(np.searchsorted(G, tt, side="right") - 1)
+            # a "?" stands for its enemy, who stands at its place when it
+            # appears: it shares the enemy players' ambiguity class, and the
+            # join's distance decides between the mark and a player
             add(float(G[kk]), float(tt), float(M.X[jj, kk - 1]), float(M.Y[jj, kk - 1]), int(Rn[kk]), kk,
                 max(k_to, kk),
                 {"entity_id": f"question:{M.sid[jj]}:{kk}", "kind": "mark", "entity_class": "last_known",
                  "family": "question_enemy", "agent": ag, "ability": None, "tray_key": None, "owner": M.sid[jj],
-                 "side_rel": "enemy", "key": entity_key("question_enemy", None, None), "amb_key": "question_enemy",
+                 "side_rel": "enemy", "key": entity_key("question_enemy", None, None), "amb_key": "player_enemy",
                  "drawn": True, "recall_key": "question_enemy (T1d swap)"})
     out = {a: np.asarray(v, float if a in ("t_from", "t_to", "x", "y") else np.int64) for a, v in cols.items()
            if a != "desc"}
@@ -2404,15 +2441,17 @@ def step_marks(sid: str, tag: str, ptag: str | None) -> dict:
         Fs = {key: ([F[key][i] for i in sel] if key in ("claim", "meta") else np.asarray(F[key])[sel]) for key in F}
         rs, G_ = _score_finds(ctx, Fs, claimed=claimed_for(sel[0]),
                               name_of=lambda d: _claim_key(d["agent"]) if d["family"] == "question_enemy" else None,
-                              drawn_of=lambda d, k: d["drawn"], marks=marks, near_side="enemy",
-                              frame_key=M.G_round[np.asarray(Fs["k"], np.int64)])
+                              drawn_of=lambda d, k: d["drawn"], marks=marks, near_side="enemy")
+        hold_duplicate_marks(rs, G_["col_kind"], G_["col_idx"])
         G_all[kind_] = (sel, G_, rs)
         for i, r in zip(sel, rs):
             rows[i] = r
     got = set()
     for sel, G_, rs in G_all.values():
         for i, r in enumerate(rs):
-            if G_["col_kind"][i] == "mark" and r["outcome"] != "ambiguous":
+            # a mark is recalled by a find that claims its kind: an X that
+            # lies on a "?" recalls neither
+            if G_["col_kind"][i] == "mark" and r["outcome"] in ("right_entity", "undrawn_truth"):
                 got.add(int(G_["col_idx"][i]))
     valid = np.asarray(J["valid"], bool)
     rounds = sorted({int(r) for r in M.G_round[valid]} | {r["round"] for r in rows})
@@ -2466,6 +2505,31 @@ def step_marks(sid: str, tag: str, ptag: str | None) -> dict:
             "_per": per, "_rper": rper, "secs": round(time.perf_counter() - ctx["t0"], 1)}
 
 
+def hold_duplicate_marks(rows: list, col_kind, col_idx) -> None:
+    """A truth mark is one object: where the per-sample join gave one mark
+    to two or more finds (a mark born twice, a "?" read twice), the nearest
+    keeps it and each other becomes `nothing_there:held_by_nearer_find`,
+    naming the mark it repeats (`duplicate_of`). In place."""
+    by = defaultdict(list)
+    for i, r in enumerate(rows):
+        if col_kind[i] == "mark" and r["outcome"] != "ambiguous":
+            by[int(col_idx[i])].append(i)
+    for idx in by.values():
+        if len(idx) < 2:
+            continue
+        keep = min(idx, key=lambda i: (rows[i]["dist_m"], rows[i]["t_cap"]))
+        for i in idx:
+            if i == keep:
+                continue
+            r = rows[i]
+            r["duplicate_of"] = r["entity_id"]
+            for k in ("entity_id", "entity_class", "family", "agent", "ability", "tray_key", "owner", "side_rel",
+                      "truth_name", "drawn"):
+                r[k] = None
+            r["derivation"] = "held_by_nearer_find"
+            r["outcome"], r["label"] = "nothing_there", "nothing_there:held_by_nearer_find"
+
+
 STEP_FUNCS = {"ally": step_ally, "smoke": step_smoke, "glyph": step_glyph, "marks": step_marks}
 
 
@@ -2507,6 +2571,11 @@ def run_step(step: str, sessions: list[str], tag: str | None, ptag: str | None, 
     pooled = reader = None
     if len(res) > 1:
         pooled = _pool_step(res)
+        if all("by_claim" in r["classes"] for r in res):
+            pooled["by_claim"] = {k: dict(sum((Counter(r["classes"]["by_claim"].get(k, {})) for r in res),
+                                              Counter()).most_common())
+                                  for k in res[0]["classes"]["by_claim"]}
+            print(f"   by claim (pooled {step}): {pooled['by_claim']}", flush=True)
         _print_classes(f"pooled {step}", pooled, fa=False)
         _print_coverage(f"pooled {step}", pooled["coverage"])
         if all(r.get("reader") is not None for r in res):
@@ -2553,6 +2622,12 @@ def _record_step(doc: dict, sessions: list[str]) -> None:
             vals[nm] = v["value"]
             ci[nm] = v["ci"]
             vals[nm + "_den"] = v["den"]
+        for claim, labs in (c.get("by_claim") or {}).items():
+            vals[f"claim_{claim}_finds"] = sum(labs.values())
+            for o in CLASS_OUTCOMES:
+                vals[f"claim_{claim}_{o}"] = sum(v for lb, v in labs.items() if lb.split(":")[0] == o)
+            for lb in ("right_entity:name_right", "right_entity:name_wrong"):
+                vals[f"claim_{claim}_{_metric_name(lb)}"] = labs.get(lb, 0)
         if rd:
             vals["reader_finds"] = rd["finds"]
             for o in CLASS_OUTCOMES:

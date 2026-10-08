@@ -173,6 +173,19 @@ class ClaimOutcomeTests(unittest.TestCase):
         self.assertEqual(qa.claim_outcome(self.ally, ambiguous=True, claimed=True)[0], "ambiguous")
 
 
+class HoldDuplicateMarkTests(unittest.TestCase):
+    def test_the_nearer_find_keeps_a_shared_mark(self):
+        def row(d, t):
+            return {"outcome": "right_entity", "label": "right_entity:unnamed", "dist_m": d, "t_cap": t,
+                    "entity_id": "death_x:a:5", "entity_class": "death_x", "family": "death_x_ally"}
+        rows = [row(1.2, 10.0), row(0.4, 20.0), row(0.9, 30.0)]
+        qa.hold_duplicate_marks(rows, np.array(["mark", "mark", "player"], dtype=object), np.array([3, 3, 3]))
+        self.assertEqual([r["outcome"] for r in rows], ["nothing_there", "right_entity", "right_entity"])
+        self.assertEqual(rows[0]["label"], "nothing_there:held_by_nearer_find")
+        self.assertEqual(rows[0]["duplicate_of"], "death_x:a:5")
+        self.assertIsNone(rows[0]["entity_id"])
+
+
 class MarkRecallTests(unittest.TestCase):
     def test_a_mark_counts_only_where_a_valid_sample_lies_in_its_window(self):
         marks = {"k_from": np.array([0, 5]), "k_to": np.array([2, 7]), "round": np.array([1, 1]),
