@@ -168,6 +168,28 @@ beside the reader's
 [metric:question_acceptance/ally@dev3#reader_recall_player_ally_live=0.7563]:
 the owner keeps nearly every right find the reader makes.
 
+*Step 6, `smoke`* (0.5.0): `adjudication.smoke_owner`'s smokes, one find
+per track at each sample of a read `minimap_dark` frame inside the track's
+observed life, claiming a smoke child (`t1_draw_rule.SMOKES` classes) of
+the ally agent it names. The stored streams are stale (smoke-0.4.0 over
+minimap-dark-0.1.0); `reticle smokes` refuses stale `minimap_dark` rows,
+and their rescan decodes video, so the stale rows are scored. Of
+[metric:question_acceptance/smoke@dev3#finds=6993] finds,
+[metric:question_acceptance/smoke@dev3#right_entity=5245] lie on a smoke,
+[metric:question_acceptance/smoke@dev3#right_entity_name_right=3924]
+named right and none wrong; the rest of the right ones are 9acf02f98283's,
+where the owner names no track. All
+[metric:question_acceptance/smoke@dev3#nothing_there=1081] finds on
+nothing are d3dcfb182ab1's Clove smokes: whole tracks on no entity, or
+tails past the child's scored life. No find lies on an enemy smoke
+[domain:abilities/enemy-smokes-not-on-minimap]. Recall of ally smokes is
+[metric:question_acceptance/smoke@dev3#recall_ability_ally_clove_ruse_smoke=0.7939]
+(Clove's Ruse),
+[metric:question_acceptance/smoke@dev3#recall_ability_ally_omen_dark_cover_smoke=0.6621]
+(Omen's Dark Cover) and
+[metric:question_acceptance/smoke@dev3#recall_ability_ally_jett_cloudburst_smoke=0.1775]
+(Jett's Cloudburst).
+
 Stored rows and replay truth only; no decode, rescan or trial. The held-out
 capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
 `notes/predictions.jsonl`): an evaluation.
@@ -176,6 +198,7 @@ capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
         [--reality off|on|paired] [--record]
     python prototypes/question_acceptance.py label --tag pgb [SESSION ...] [--reality off|on]
     python prototypes/question_acceptance.py ally [SESSION ...] [--record]
+    python prototypes/question_acceptance.py smoke [SESSION ...] [--record]
 """
 from __future__ import annotations
 
@@ -200,7 +223,7 @@ sys.path.insert(0, str(HERE))
 import teardrop_refusals as tr  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "question-acceptance-0.4.0"
+VERSION = "question-acceptance-0.5.0"
 TASK = "event-harness-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / "question-acceptance"
@@ -2006,7 +2029,7 @@ def _step_summary(rows: list, rec: dict, rounds: list, census: dict | None, extr
                                           if r["outcome"] == "ambiguous").most_common(15)),
            "recall": {k: {"value": round(float(a.sum() / max(b.sum(), 1)), 4), "ci": tr._boot_share(rounds, a, b),
                           "num": int(a.sum()), "den": int(b.sum()),
-                          "drawn_by_fact": (cen.get(k.split(" ")[0]) or {}).get("drawn_by_fact")}
+                          "drawn_by_fact": (cen.get(k.rsplit(" (", 1)[0]) or {}).get("drawn_by_fact")}
                       for k, (a, b) in rec.items()},
            "distances": {o: _dist([r["dist_m"] for r in rows if r["outcome"] == o])
                          for o in ("right_entity", "other_entity", "undrawn_truth", "coverage_gap", "ambiguous")},
@@ -2145,7 +2168,9 @@ def step_smoke(sid: str) -> dict:
     ii = np.asarray(ii, np.int64)
     F = _finds(k_f[ii] if ii.size else [], t_f[ii] if ii.size else [], trep_f[ii] if ii.size else [],
                [SO[t]["cx"] for t in tt], [SO[t]["cy"] for t in tt], to_cm,
-               [(_claim_key(SO[t]["agent"]) if SO[t].get("identity_status") == "resolved" else None) for t in tt],
+               # the owner names the ally caster ("Which ally agent cast this minimap smoke?")
+               [("ally:" + _claim_key(SO[t]["agent"]) if SO[t].get("identity_status") == "resolved" else None)
+                for t in tt],
                [{"smoke": SO[t]["entity_id"], "identity_status": SO[t].get("identity_status"),
                  "owner_reason": SO[t].get("reason")} for t in tt])
     smoke_cls = set(tdr.SMOKES)
@@ -2154,7 +2179,7 @@ def step_smoke(sid: str) -> dict:
         return d["kind"] == "child" and str(d["entity_class"]) in smoke_cls
 
     def name_of(d):
-        return _claim_key(d["agent"])
+        return f"{d['side_rel']}:{_claim_key(d['agent'])}"
 
     rows, G_ = _score_finds(ctx, F, claimed=claimed, name_of=name_of, near_side="ally")
     VK = k_f[on]
