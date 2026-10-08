@@ -3710,9 +3710,17 @@ def _combat_report_identity(store, sid, date, rows, rounds, death_times) -> None
                    "death_entity": row.get("death_entity")}
                   for p in ps for k, row in enumerate(p["rows"])]
     # A stream of formal events holds nothing else, so the row-to-entity map
-    # is its own stream beside the arbiter's events.
+    # is its own stream beside the arbiter's events. Its coverage row stamps
+    # both and says why the identity stream holds no event where it holds
+    # none (no panel opened, or no verdict): `plan` reads that as run.
+    from .adjudication.identity import AGENT_IDENTITY_VERSION
+    from .version import COMBAT_REPORT_ROUND_VERSION
+    head = {"session_id": sid, "kind": "coverage", "producer_version": AGENT_IDENTITY_VERSION,
+            "combat_report_round_version": COMBAT_REPORT_ROUND_VERSION,
+            "panels": len(ps), "rows": len(rows_named), "identity_events": len(events),
+            "reason": None if events else ("no_panels" if not ps else "no_verdicts")}
     with usage_step("write"):
-        store.write_events("combat_report_rows", sid, rows_named)
+        store.write_events("combat_report_rows", sid, [head] + rows_named)
         out = store.write_events("combat_report_identity", sid, events)
     by = {v["entity_id"]: v for v in verdicts}
     covered = sum(1 for r in rows_named if by.get(r["entity_id"], {}).get("status") == "resolved")
@@ -4492,9 +4500,9 @@ def _dead_ruse(store, sid: str, owner_rows: list[dict], player: str | None):
     where the player's agent is Clove: the gate's stored deaths and revives,
     the state model's charges at each death, and the owners just named.
     Returns (head, path), or None for any other agent."""
-    from .ability_timeline import (DEAD_RUSE, DEAD_RUSE_VERSION, dead_ruse_casts,
+    from .ability_timeline import (DEAD_RUSE_VERSION, dead_ruse_applies, dead_ruse_casts,
                                    held_at_deaths, ruse_parameters, stored_gate_inputs)
-    if player != DEAD_RUSE[0]:
+    if dead_ruse_applies(player)[0] != "applies":
         return None
     man = store.read_manifest(sid)
     date = _date_of(man)
