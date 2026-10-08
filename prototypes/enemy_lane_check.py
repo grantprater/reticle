@@ -151,6 +151,21 @@ def _seg_disc(ax, ay, bx, by, cx, cy, r):
 
 # ----------------------------------------------------------------- the sets
 
+def live_samples(M) -> tuple[np.ndarray, np.ndarray]:
+    """The grid samples inside a round's live play (from `t_live` to the
+    round's end, or the next round's start), and each one's `t_live`."""
+    K = M.G.size
+    live = np.zeros(K, bool)
+    t_live_of = np.full(K, np.nan)
+    for r in M.rounds:
+        if r["t_live"] is not None:
+            hi = r["t_end"] if r["t_end"] is not None else r["t_next"]
+            m = (M.G_round == r["round"]) & (M.G >= r["t_live"]) & (M.G <= hi)
+            live |= m
+            t_live_of[m] = r["t_live"]
+    return live, t_live_of
+
+
 def build_sets(sid: str, M=None) -> dict:
     """The miss and extra sets of one development match, with attributes.
     `M` (default `real_reader_schedule.RealMatch(sid)`) supplies the draw
@@ -182,14 +197,7 @@ def build_sets(sid: str, M=None) -> dict:
     p_of = np.full(K, -1, np.int64)
     p_of[gi[inrun]] = J.index
     read_frame = np.array([r is None for r in MO["reason"]], bool)
-    live = np.zeros(K, bool)
-    t_live_of = np.full(K, np.nan)
-    for r in M.rounds:
-        if r["t_live"] is not None:
-            hi = r["t_end"] if r["t_end"] is not None else r["t_next"]
-            m = (M.G_round == r["round"]) & (M.G >= r["t_live"]) & (M.G <= hi)
-            live |= m
-            t_live_of[m] = r["t_live"]
+    live, t_live_of = live_samples(M)
     valid = live & (p_of >= 0)
     valid[valid] = read_frame[p_of[valid]]
     alive = M.tl0._alive_fn(M.G)
