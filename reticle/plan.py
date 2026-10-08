@@ -12,7 +12,8 @@ nothing: it reruns from storage; `reticle tray` and `reticle ability-shapes`
 reread the stored crops and decode nothing. A reader stream never written is
 `absent`, which is not stale. A derived stream never written is listed as
 `never run` (`NEVER_RUN`) with its command and how it reads, ordered with the
-stale work, and a stream built from it follows it: a step that has never run
+stale work; the rounds follow a never-run plant graphic, and other streams
+built from one are named once it is written: a step that has never run
 is work the session lacks, and skipping it hid the plant graphic on every new
 capture of 2026-10-07 while `rounds` fell back to the clock-run rule.
 
@@ -1579,7 +1580,11 @@ def stale(store, sessions: list[str], never_run: bool = True) -> dict:
                                 "inputs_moved": moved, "command": f"{command} {sid}",
                                 "how": _CACHE_READERS.get(stream, "storage")})
         # Every other stamped stream, declared with its command.
-        moving = rescanned | {x["stream"] for x in derived}
+        # A stream never run moves nothing downstream until it is written: its
+        # command may write nothing (`ult-cast` without voice-line peaks), and
+        # the streams built from it would stay stale for ever. Plan again
+        # after it runs; the rounds alone follow it below.
+        moving = rescanned | {x["stream"] for x in derived if x["inputs_moved"] != [NEVER_RUN]}
         stored = set(stored_streams(store, sid))
         for spec in derived_streams():
             stream = spec["stream"]
@@ -1598,7 +1603,8 @@ def stale(store, sessions: list[str], never_run: bool = True) -> dict:
                 derived.append({"stream": stream, "stored": None, "current": spec["current"],
                                 "inputs_moved": [why], "how": spec["how"],
                                 "command": spec["command"].format(sid=sid)})
-                moving.add(stream)
+                if why != NEVER_RUN:
+                    moving.add(stream)
                 continue
             version = head.get(spec["key"])
             behind, moved, missing = recorded_stale(store, man, spec, head, memo, accepted)
@@ -1614,7 +1620,8 @@ def stale(store, sessions: list[str], never_run: bool = True) -> dict:
         # The rounds read the plant graphic and the portrait stream's second
         # lives; one never run, written now, moves them once it lands.
         if never_run and r is not None and not rounds_stale:
-            first = sorted(k for k in ("killfeed_portrait", "plant_graphic") if k in moving)
+            listed = moving | {x["stream"] for x in derived}
+            first = sorted(k for k in ("killfeed_portrait", "plant_graphic") if k in listed)
             if first:
                 derived.append({"stream": "rounds", "stored": r["round"], "current": ROUND_VERSION,
                                 "inputs_moved": first, "command": f"reticle rounds {sid}"})
