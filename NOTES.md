@@ -31,7 +31,7 @@ Three 465 px captures with replays kept and Riot records wrapped into `external\
 
 ### Read cost
 
-Production reads every drawn frame (BACKLOG item 1). The ally reader's cost per frame rose in two feature steps, each partly undone a day later: the teardrop pose (ally-icon-0.6.0, `f15893b`) and the stacked-icon search (ally-icon-0.11.0, `1b6de49`); the one transform added none at 465 px. Load from other jobs, 465 px captures and c817691bcd15's buy-phase frames inflated the rest. Benchmark scripts and results sit in this session's scratchpad, uncommitted; the diagnostic prototype is on `ally-cost-diag-20261005`. Which earlier replay session joins the three 2026-10-07 ones for a reread is unconfirmed.
+Production reads on fixed grids, not on opportunity (BACKLOG item 1). The ally reader's cost per frame rose in two feature steps, each partly undone a day later: the teardrop pose (ally-icon-0.6.0, `f15893b`) and the stacked-icon search (ally-icon-0.11.0, `1b6de49`); the one transform added none at 465 px. Load from other jobs, 465 px captures and c817691bcd15's buy-phase frames inflated the rest. Benchmark scripts and results sit in this session's scratchpad, uncommitted; the diagnostic prototype is on `ally-cost-diag-20261005`. Which earlier replay session joins the three 2026-10-07 ones for a reread is unconfirmed.
 
 ### Unmerged branches
 
