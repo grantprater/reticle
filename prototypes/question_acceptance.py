@@ -190,6 +190,31 @@ tails past the child's scored life. No find lies on an enemy smoke
 [metric:question_acceptance/smoke@dev3#recall_ability_ally_jett_cloudburst_smoke=0.1775]
 (Jett's Cloudburst).
 
+*Step 7, `glyph`* (0.6.0): the glyph owner's verdicts on their disc
+tracks' fixes, one find per fix at the sample of its `ability_glyph`
+frame, claiming an ability child of either side by `Agent:Slot` (the
+child's agent and tray key); an abstained verdict claims a child unnamed.
+`reticle ability-glyphs` rebuilt c817691bcd15's and d3dcfb182ab1's verdicts
+from stored rows (identical to the stored ones); their `ability_glyph`
+rows stay stale, and 9acf02f98283's were scored on an older glyph bank, so
+the owner refuses that session: no finds and no recall pairs, the refusal
+in the document. Of
+[metric:question_acceptance/glyph@dev3#finds=6050] finds,
+[metric:question_acceptance/glyph@dev3#right_entity=2898] lie on an
+ability child, [metric:question_acceptance/glyph@dev3#right_entity_name_right=449]
+named right and
+[metric:question_acceptance/glyph@dev3#right_entity_name_wrong=0] wrong;
+the rest abstained. [metric:question_acceptance/glyph@dev3#other_entity=1266]
+lie on another entity, mostly a teammate's or the player's own icon, and
+[metric:question_acceptance/glyph@dev3#nothing_there=1784] on nothing,
+most of them d3dcfb182ab1's. The ally smokes are the classes the tracks
+hold best: Omen's Dark Cover at
+[metric:question_acceptance/glyph@dev3#recall_ability_ally_omen_dark_cover=0.8096]
+and Clove's Ruse at
+[metric:question_acceptance/glyph@dev3#recall_ability_ally_clove_ruse=0.8011];
+the enemy drones the lane confuses with players stay low (Tejo's Stealth
+Drone, Fade's Prowler, below 0.11).
+
 Stored rows and replay truth only; no decode, rescan or trial. The held-out
 capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
 `notes/predictions.jsonl`): an evaluation.
@@ -199,6 +224,7 @@ capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
     python prototypes/question_acceptance.py label --tag pgb [SESSION ...] [--reality off|on]
     python prototypes/question_acceptance.py ally [SESSION ...] [--record]
     python prototypes/question_acceptance.py smoke [SESSION ...] [--record]
+    python prototypes/question_acceptance.py glyph [SESSION ...] [--record]
 """
 from __future__ import annotations
 
@@ -223,7 +249,7 @@ sys.path.insert(0, str(HERE))
 import teardrop_refusals as tr  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
-VERSION = "question-acceptance-0.5.0"
+VERSION = "question-acceptance-0.6.0"
 TASK = "event-harness-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / "question-acceptance"
@@ -2274,8 +2300,10 @@ def step_glyph(sid: str) -> dict:
                                                              M.tl0.children.cols["agent"],
                                                              M.tl0.children.cols["side_rel"])], dtype=object)
     sel = np.array([str(f_).startswith("ability_") for f_ in fam], bool)
-    rec = _recall_children(M, G_, VK, trep_f[on], sel, _assigned(rows, G_, "child"), ri, len(rounds),
-                           key_of=lambda d: d["key"])
+    # an owner that refused the session emitted nothing: its pairs are no
+    # misses, and the refusal stands in the document instead
+    rec = {} if source == "none" else _recall_children(M, G_, VK, trep_f[on], sel, _assigned(rows, G_, "child"),
+                                                       ri, len(rounds), key_of=lambda d: d["key"])
     rrec = _recall_children(M, G_r, VK, trep_f[on], sel, _assigned(rrows, G_r, "child"), ri, len(rounds),
                             key_of=lambda d: d["key"])
     census = _session_census(ctx, G_)
