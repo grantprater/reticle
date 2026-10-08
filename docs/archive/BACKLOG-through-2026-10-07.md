@@ -61,3 +61,22 @@ Full entries: [10-06 archive](docs/archive/BACKLOG-through-2026-10-06.md).
 Archived 2026-10-07 (late):
 
 - **`fidelity-principle-20261006` (2026-10-06):** the AGENTS.md rule; two precedents archived.
+
+Archived 2026-10-07 (night):
+
+- **`teardrop-review-fixes-20261007` (2026-10-07):** enemy icons read at the map's zoom, the ring scored softly with one cut, danger pings handed to the ping owner; 9acf02f98283's T1d hit rate 0.442 to 0.6313 (NOTES).
+- **`execution-questions-20261007` (2026-10-07):** [EXECUTION_QUESTIONS.md](docs/EXECUTION_QUESTIONS.md); placement, first-shot hit and counter-strafe carry duel value; shooting first does not.
+- **`t1-draw-rule-20261007` (2026-10-07):** T1d (measured persistence, both teams' smokes, no dead enemies) in `prototypes/t1_draw_rule.py`.
+- **`enemy-lane-check-20261007` (2026-10-07):** most T1-drawn misses are T1 errors; `prototypes/enemy_lane_check.py`.
+- **`real-reader-schedule-20261007` (2026-10-07):** `Vgate` passes QA5r3 post hoc; reach questions; `prototypes/real_reader_schedule.py`.
+- **`one-transform-rebased-20261007` (2026-10-07):** every map-drawn size at base x widget scale x map zoom; the enemy search alone keeps the inward radius band.
+- **`restate-check-20261007` (2026-10-07):** doctor RESTATE.
+- **`owning-layer-rules-20261007` (2026-10-07):** acceptance on emitted events; the detection-reality question.
+- **`match-arc-20261007` (2026-10-07):** `prototypes/match_arc.py`.
+- **`replay-every-entity-rule-20261007` (2026-10-07):** AGENTS.md, replay truth covers every entity.
+
+Item 1 as it stood before the night handoff:
+
+- Finish the one transform: rerun `one-transform-rebased-20261007` (`023a4a8`, the search-radius fix) on the development matches, re-stamp, test, review and merge. The enemy lane's true false accepts on 9acf02f98283 must return within the bar (159); self and ally gains must hold with intervals. Then wire the X-mark input, `floor_mask`, `site_mask` and the occluder bake, and say whether `minimap_dark` rereads from the cache.
+- `minimap_objects` residuals after `4a71ffb`: pink X marks at 0.71 (the X classifier's tolerance), enemy utility discs and Reyna's Leer, each by its owner or a named per-ability cue; proposals inside stacks; `low_ncc` misses at scale 1.0; confirm `PING_OWN_PX` on the production ping-0.2.0 stream.
+- **Event-level acceptance harness** (2026-10-07): `prototypes/question_acceptance.py`, QUESTION_ACCEPTANCE B7 begun early, scores the enemy lane's emitted tracks, and later the slot beliefs, per question against T1d on the development matches. It reuses the existing truth join (`t1_draw_rule.RealDrawMatch(rule="T1d")`, `enemy_lane_check.build_sets`, `real_reader_schedule.RealMatch.enemy_reads`), not a sixth scorer; runs `enemy_tracks.build` over a tagged arm's rows, never the stored stream; and reports the reader's classes beside it as diagnostics. First measurement: of the `pgb` arm's pooled true false accepts [metric:enemy_portrait_gate/paired/pgb-vs-b1@dev3#false_accepts=167] (`enemy-portrait-gate-20261007`), how many the lane leaves unnamed, names off the enemy team, or keeps under a name. Then the class-aware harness (AGENTS.md, "Replay truth covers every entity"): (1) record the six drone and creature facts (done 2026-10-07, `domain/abilities.toml`); (2) `truth_under` over every replay entity class, with T0 carrying the children; (3) a class-aware lane that reproduces today's numbers under the old definition as a control; then ally finds, smokes, glyphs, X and "?" marks, and folding `replay_truth score` and `replay_abilities score` onto the layer. Acceptance: `.\.venv\Scripts\python.exe prototypes\question_acceptance.py lane --tag pgb` on the three development matches. Evidence: per match and pooled, false accepts by lane outcome with a round-bootstrap interval; per question, track-level accuracy against T1d beside the reader's hit rate.
