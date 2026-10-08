@@ -8,8 +8,8 @@ Standing rules: replays may fit reader parameters offline with scoring matches h
 
 **1. Enemy lane, reader and belief.** The real enemy lane rarely places the killer, so join questions collapse on real reads (NOTES).
 - The one transform's remainder (merged `a015c85`): wire the X-mark input, `floor_mask`, `site_mask` and the occluder bake, and say whether `minimap_dark` rereads from the cache.
-- `minimap_objects` residuals after the portrait gate (`a0824c8`): X marks read as enemies, wrongly named finds, low recall; the error budget (`enemy-error-budget-20261007`) and the labelling tool (`enemy-labels-20261007`) wait unmerged. Each residual goes to its owner or a named per-ability cue; confirm `PING_OWN_PX` on the production ping stream. Soft rim coverage stays opt-in until a second 331 px replay match.
-- **Class-aware harness**, steps 5 to 9 (steps 1 to 4 merged `54f61a3`; the player approves before each): ally finds, smokes, glyphs, X and "?" marks, then folding `replay_truth score` and `replay_abilities score` onto the layer. Acceptance: `.\.venv\Scripts\python.exe prototypes\question_acceptance.py label --tag pgb` on the three development matches. Evidence: per class, outcomes right/other/undrawn/nothing/coverage/ambiguous with a round-bootstrap interval, and a players-only control that reproduces the old numbers.
+- `minimap_objects` residuals after the portrait gate (`a0824c8`): X marks read as enemies, wrongly named finds, low recall; the error budget and the labeller are merged (`78a1f5b`), their labels from the pre-gate `b1` reader. Each residual goes to its owner or a named per-ability cue; confirm `PING_OWN_PX` on the production ping stream. Soft rim coverage stays opt-in until a second 331 px replay match.
+- **Class-aware harness**, step 9 (steps 1 to 8 merged, `85608af`): fold `replay_truth score` and `replay_abilities score` onto the layer; move `prototypes/enemy_error_budget.py` in as subcommands whose extras start from `truth_under`; rebuild the stale inputs steps 5 to 8 scored (`ally_icon`, the ability scan, `minimap_dark`) after asking the player. Acceptance: `.\.venv\Scripts\python.exe prototypes\question_acceptance.py lane --tag pgb` on the three development matches, plus each step's subcommand. Evidence: the 0.3.0 control reproduces; per class, outcomes with round-bootstrap intervals; each stale input named or rebuilt.
 - Then the reachable-set belief (`prototypes/coaching_belief.py`) as the enemy lane's carried state, so the killer holds a region at each death.
 Acceptance: `.\.venv\Scripts\python.exe prototypes\enemy_lane_check.py sets SESSION` rerun against T1d, plus `.\.venv\Scripts\python.exe prototypes\real_reader_schedule.py reach` on the development matches.
 Evidence: per match, the reader's share of misses and its extras against T1d; `join_death` accuracy on V15h against T1.
@@ -40,9 +40,8 @@ Evidence: each measurement's error against replay truth and the duel value it ke
 - **Unmodelled walls** (2026-10-07): Blaze, Toxic Screen, Cosmic Divide, Sage, Iso, Neon, Harbor, Vyse. Acceptance: `.\.venv\Scripts\python.exe prototypes\t1_draw_rule.py lane`. Evidence: misses and extras against T1d before and after.
 - **Ally-icon cost** (2026-10-06, was item 2): the 94 against 61 ms gap, parallel readers, `one-pass-ingest-20261005`. Acceptance and evidence in the [10-07 archive](docs/archive/BACKLOG-through-2026-10-07.md).
 - **Spelling owner's remainder** (2026-10-06, was item 3): prototype spellings, c817691bcd15 rereads, the rounds K/D rule. Acceptance: `.\.venv\Scripts\python.exe -m reticle plan c817691bcd15` naming nothing. Evidence: as in the 10-07 archive.
-- **Ingest wiring** (2026-10-06, revised 2026-10-07): `plan` names `combat_report_identity` (an empty file reads as never run) and `dead_ruse_cast` (written only for a Clove player); thread caps leak; readers and caches need one 15 Hz grid. Acceptance: `.\.venv\Scripts\python.exe -m reticle plan cadaadeb2d8b` and `frame-join c817691bcd15`. Evidence: plan names only real gaps; join rate 1.0 exact; CPU near wall time.
+- **Ingest wiring** (2026-10-06, revised 2026-10-07): older `combat_report_rows` lack the coverage row `plan` reads; the other identity streams may hide empty runs; thread caps leak; readers and caches need one 15 Hz grid. Acceptance: `.\.venv\Scripts\python.exe -m reticle plan cadaadeb2d8b` and `frame-join c817691bcd15`. Evidence: plan names only real gaps; join rate 1.0 exact; CPU near wall time.
 - **Self-entry defect** (2026-10-07): d3dcfb182ab1 reads K/D 12/19, the replay 13/17; account-name captures name the player Deadlock. Acceptance: `.\.venv\Scripts\python.exe -m reticle self-entries d3dcfb182ab1`. Evidence: K/D equal to the replay's on every replay session.
-- **Riot economy tests** (2026-10-07): three `tests/test_riot_economy.py` failures predate `b5011c0`, possibly the 62 new Riot records. Acceptance: `.\.venv\Scripts\python.exe -m pytest tests	est_riot_economy.py`. Evidence: the cause named, then a pass.
 - **Replay-layer defects** (2026-10-06): `lives` keeps departed players alive; the walk graph drops cells along barriers and doors and lacks jump and drop edges; `cast` row order varies by build. Acceptance: `.\.venv\Scripts\python.exe -m reticle replay-layer --all`. Evidence: departed players dead; two builds byte-identical.
 - **Killfeed residuals** (2026-10-05): the cases in the 10-07 archive, and in-round stall gaps by the [roster difference](docs/STALL_ROSTER_DIFFERENCE.md). Acceptance: `.\.venv\Scripts\python.exe -m reticle dev-sample` plus `trial` on those windows. Evidence: each fixed or refused with its stored reason.
 - **Tray grid** (2026-10-05): three prototypes read off the 0.5 s grid. Acceptance: `.\.venv\Scripts\python.exe -m pytest tests\test_tray_grid_cache.py`. Evidence: no `ThinnedOut`.
@@ -51,10 +50,10 @@ Evidence: each measurement's error against replay truth and the duel value it ke
 
 ## Completed
 
+- **`harness-steps-5-8-20261007` (2026-10-07):** teammates, smokes, glyphs and X and "?" marks scored against every replay entity (question_acceptance 0.7.0).
+- **`plan-riot-fixes-20261007` (2026-10-07):** `plan` tells an empty run and an inapplicable stream from a never-run one; Riot economy tests assert rates.
+- **`enemy-labels-20261007-rebased` (2026-10-07):** the enemy error budget and the disagreement labeller.
 - **`self-entry-plan-20261007` (2026-10-07):** K/D from `adjudication.self_entry`; "Mga Yawa" no longer reads as "Me"; `plan` names never-run steps.
 - **`class-aware-harness-20261007` (2026-10-07):** T0 carries every replay ability child; 126 of 167 old true false accepts lie on another real entity.
-- **`detection-reality-20261007` (2026-10-07):** `round_lifetimes.detection_reality` refuses enemy tracks on a placed ability glyph; drone and creature facts.
-- **`event-harness-20261007` (2026-10-07):** `prototypes/question_acceptance.py lane` scores the enemy lane's emitted tracks against T1d.
-- **`enemy-portrait-gate-20261007` (2026-10-07):** ring peaks kept only where they fit the match's enemy five (NOTES).
 
 Earlier entries: [10-07 archive](docs/archive/BACKLOG-through-2026-10-07.md).
