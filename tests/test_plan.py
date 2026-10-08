@@ -100,7 +100,7 @@ class PlanTests(unittest.TestCase):
             self.assertEqual(plan["s"], {"decode": [], "derived": [], "absent": [], "waived": [],
                                          "declined": [],
                                          "unchecked": [], "held": [], "unrecorded": [],
-                                         "widget": None, "placement": {}, "caches": [],
+                                         "not_applicable": [], "widget": None, "placement": {}, "caches": [],
                                          "source_retired": []})
             self.assertEqual(render(plan), "nothing stale over 1 sessions")
 
@@ -1214,3 +1214,110 @@ class NeverRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             derived = stale(_current_store(Path(d)), ["s"], never_run=False)["s"]["derived"]
             self.assertEqual(derived, [])
+
+
+class EmptyRunTests(unittest.TestCase):
+    """An identity stream a run left empty reads as run where the coverage row
+    written beside it counts no event; a stream its owning rule says does not
+    apply is listed apart, never as work. On the 2026-10-07 captures plan named
+    `combat_report_identity` (no panel opened) and `dead_ruse_cast` (no Clove
+    player) as never run."""
+
+    def _streams(self, store) -> dict:
+        p = stale(store, ["s"])["s"]
+        return ({x["stream"]: x for x in p["derived"]},
+                {x["stream"]: x for x in p["not_applicable"]},
+                {x["stream"] for x in p["unchecked"]})
+
+    def _coverage(self, events: int) -> dict:
+        from reticle.adjudication.identity import AGENT_IDENTITY_VERSION
+        return {"session_id": "s", "kind": "coverage", "producer_version": AGENT_IDENTITY_VERSION,
+                "panels": 0, "rows": 0, "identity_events": events,
+                "reason": "no_panels" if events == 0 else None}
+
+    def test_an_identity_stream_never_written_is_never_run(self):
+        from reticle.plan import NEVER_RUN
+        with tempfile.TemporaryDirectory() as d:
+            derived, _, _ = self._streams(_current_store(Path(d)))
+            self.assertEqual(derived["combat_report_identity"]["inputs_moved"], [NEVER_RUN])
+
+    def _rows_on_disk(self, d) -> None:
+        """A `combat_report_rows` file in the layout `stored_streams` lists."""
+        path = Path(d) / "events" / "combat_report_rows" / "s.jsonl"
+        path.parent.mkdir(parents=True)
+        path.write_text("")
+
+    def test_an_empty_identity_stream_with_its_coverage_row_reads_as_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            self._rows_on_disk(d)
+            store.events["combat_report_rows:rows"] = [self._coverage(0)]
+            derived, _, unchecked = self._streams(store)
+            self.assertNotIn("combat_report_identity", derived)
+            # The stamped rows are checked with the identity stream.
+            self.assertNotIn("combat_report_rows", unchecked)
+
+    def test_a_coverage_row_counting_events_the_stream_lacks_is_not_a_run(self):
+        from reticle.plan import NEVER_RUN
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["combat_report_rows:rows"] = [self._coverage(3)]
+            derived, _, _ = self._streams(store)
+            self.assertEqual(derived["combat_report_identity"]["inputs_moved"], [NEVER_RUN])
+
+    def test_an_empty_run_under_an_older_stamp_is_stale(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            store.events["combat_report_rows:rows"] = [{**self._coverage(0),
+                                                        "producer_version": "agent-identity-0.1.0"}]
+            derived, _, _ = self._streams(store)
+            self.assertEqual(derived["combat_report_identity"]["stored"], "agent-identity-0.1.0")
+
+    def test_unstamped_rows_stay_unchecked(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            self._rows_on_disk(d)
+            store.events["combat_report_rows:rows"] = [{"kind": "row_entity"}]
+            derived, _, unchecked = self._streams(store)
+            self.assertIn("combat_report_identity", derived)
+            self.assertIn("combat_report_rows", unchecked)
+
+    def _smoke_owner(self, store, player) -> None:
+        store.events["smoke_owner:rows"] = [{"kind": "coverage", "player_agent": player}]
+
+    def test_dead_ruse_does_not_apply_without_a_clove_player(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            self._smoke_owner(store, "Chamber")
+            derived, nap, _ = self._streams(store)
+            self.assertNotIn("dead_ruse_cast", derived)
+            self.assertEqual(nap["dead_ruse_cast"]["status"], "not_applicable")
+            self.assertIn("Chamber", nap["dead_ruse_cast"]["why"])
+            self.assertIn("not applicable dead_ruse_cast: not_clove",
+                          render(stale(store, ["s"])))
+
+    def test_dead_ruse_with_an_unread_player_is_unknown(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            self._smoke_owner(store, None)
+            derived, nap, _ = self._streams(store)
+            self.assertNotIn("dead_ruse_cast", derived)
+            self.assertEqual(nap["dead_ruse_cast"]["status"], "unknown")
+
+    def test_dead_ruse_is_never_run_for_a_clove_player_or_before_the_owners(self):
+        from reticle.plan import NEVER_RUN
+        for player in ("Clove", "absent"):
+            with self.subTest(player=player), tempfile.TemporaryDirectory() as d:
+                store = _current_store(Path(d))
+                if player != "absent":
+                    self._smoke_owner(store, player)
+                derived, nap, _ = self._streams(store)
+                self.assertEqual(derived["dead_ruse_cast"]["inputs_moved"], [NEVER_RUN])
+                self.assertNotIn("dead_ruse_cast", nap)
+
+    def test_the_writer_and_plan_ask_one_rule(self):
+        from reticle.ability_timeline import dead_ruse_applies, dead_ruse_casts
+        self.assertEqual(dead_ruse_applies("Clove"), ("applies", None))
+        self.assertEqual(dead_ruse_applies("Jett")[0], "not_applicable")
+        self.assertEqual(dead_ruse_applies(None)[0], "unknown")
+        self.assertEqual(dead_ruse_casts("Jett", [1.0], [], [], [])["reason"], "not_clove")

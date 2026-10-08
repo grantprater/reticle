@@ -152,6 +152,8 @@ def reader_streams() -> list[tuple[str, str, str, str | None]]:
 #: Streams a command writes with no stamp, and why; `stale` lists them as
 #: `unstamped` rather than calling them current.
 UNSTAMPED = {
+    # Written since 2026-10-07 under a stamped coverage row, and then checked
+    # with `combat_report_identity` (`written_with`); older files are named.
     "combat_report_rows": "written beside combat_report_identity by `reticle combat-report`, "
                           "with no stamp of its own",
     "ability": "written by prototypes/ability_cast.py with no version key",
@@ -228,6 +230,14 @@ def derived_streams() -> list[dict]:
     stale, so is this, once that one is refreshed. `identity` streams hold
     `adjudication.identity`'s verdicts, stamped `producer_version`, and are
     written by `parent`'s command. `how` is what the command reads.
+
+    `written_with` names a stream the same command writes beside an identity
+    stream, whose coverage row stamps the run and counts its identity events:
+    an identity stream with no event reads as run where that row counts none.
+    `applies(store, sid)` is the owning rule's word on whether the stream
+    applies to a session: ("applies" | "not_applicable" | "unknown", why), or
+    None while its input is unwritten. A stream that does not apply is never
+    work; `stale` lists it under `not_applicable` with its status and why.
     """
     from .adjudication.assist import ASSIST_ADJUDICATION_VERSION
     from .adjudication.death import DEATH_ADJUDICATION_VERSION
@@ -242,7 +252,7 @@ def derived_streams() -> list[dict]:
     from .version import ALLY_PORTRAIT_FEATURES_VERSION, ENEMY_TEARDROP_VERSION
     from .minimap_diagnostics import DIAGNOSTICS_VERSION
     from .minimap_lifecycle import LIFECYCLE_VERSION
-    from .ability_timeline import DEAD_RUSE_VERSION
+    from .ability_timeline import DEAD_RUSE_VERSION, stored_dead_ruse_applies
     from .roi_cache import ROI_CACHE_VERSION
     from .round_entities import ROUND_ENTITY_VERSION
     from .round_lifetimes import DETECTION_REALITY_VERSION, ROUND_LIFETIME_VERSION
@@ -314,10 +324,12 @@ def derived_streams() -> list[dict]:
          "how": "storage", "fields": {},
          "upstream": ("ability_disc_track", "ability_glyph", "tray_kit")},
         # The player's Ruse casts while dead (`ability_timeline.dead_ruse_casts`),
-        # written beside the owners on a Clove player's session.
+        # written beside the owners on a Clove player's session; the rule
+        # says where it applies (`ability_timeline.dead_ruse_applies`).
         {"stream": "dead_ruse_cast", "key": "dead_ruse_version", "current": DEAD_RUSE_VERSION,
          "command": "reticle smokes {sid}", "how": "storage", "fields": {},
-         "upstream": ("smoke_owner", "ability_state", "rounds")},
+         "upstream": ("smoke_owner", "ability_state", "rounds"),
+         "applies": stored_dead_ruse_applies},
         {"stream": "combat_report_round", "key": "combat_report_round_version",
          "current": COMBAT_REPORT_ROUND_VERSION, "command": "reticle combat-report {sid}",
          "how": "storage", "fields": {"combat_report_version": COMBAT_REPORT_VERSION},
@@ -391,19 +403,23 @@ def derived_streams() -> list[dict]:
         rows.append({"stream": stream, "key": key, "current": current,
                      "command": "reticle scan {sid} --only ability", "how": "cache",
                      "fields": fields, "upstream": upstream})
-    for stream, parent, command, how in (
-            ("death_identity", "death", "reticle deaths {sid}", "storage"),
+    for stream, parent, command, how, written_with in (
+            ("death_identity", "death", "reticle deaths {sid}", "storage", None),
             ("combat_report_identity", "combat_report_round", "reticle combat-report {sid}",
-             "storage"),
-            ("smoke_owner_identity", "smoke_owner", "reticle smokes {sid}", "storage"),
+             "storage", "combat_report_rows"),
+            ("smoke_owner_identity", "smoke_owner", "reticle smokes {sid}", "storage", None),
             ("ability_glyph_identity", "ability_glyph_name", "reticle ability-glyphs {sid}",
-             "storage"),
-            ("tray_kit_identity", "tray_kit", "reticle tray-kit {sid}", "cache"),
-            ("ult_cast_identity", "ult_cast", "reticle ult-cast {sid}", "storage"),
-            ("enemy_track_identity", "enemy_track", "reticle enemy-tracks {sid}", "storage")):
-        rows.append({"stream": stream, "key": "producer_version",
-                     "current": AGENT_IDENTITY_VERSION, "command": command, "how": how,
-                     "fields": {}, "upstream": (parent,), "identity": True})
+             "storage", None),
+            ("tray_kit_identity", "tray_kit", "reticle tray-kit {sid}", "cache", None),
+            ("ult_cast_identity", "ult_cast", "reticle ult-cast {sid}", "storage", None),
+            ("enemy_track_identity", "enemy_track", "reticle enemy-tracks {sid}", "storage",
+             None)):
+        row = {"stream": stream, "key": "producer_version",
+               "current": AGENT_IDENTITY_VERSION, "command": command, "how": how,
+               "fields": {}, "upstream": (parent,), "identity": True}
+        if written_with is not None:
+            row["written_with"] = written_with
+        rows.append(row)
     return rows
 
 
@@ -1369,6 +1385,24 @@ def _follow(store, sid: str, derived: list[dict], moving: set[str]) -> None:
 NEVER_RUN = "never run"
 
 
+def _coverage_head(store, sid: str, stream: str) -> dict | None:
+    """The stamped coverage row heading a stored stream, or None."""
+    head = _head(store, stream, sid)
+    if head is None or head.get("kind") != "coverage" or "producer_version" not in head:
+        return None
+    return head
+
+
+def _empty_run_head(store, sid: str, spec: dict) -> dict | None:
+    """The coverage row of `spec["written_with"]` where it counts no identity
+    event, standing for the empty identity stream's head; None where that
+    stream holds none or counts events the identity stream lacks."""
+    head = _coverage_head(store, sid, spec["written_with"])
+    if head is None or head.get("identity_events") != 0:
+        return None
+    return head
+
+
 def stale(store, sessions: list[str], never_run: bool = True) -> dict:
     """Per session: stale reader streams (decode), stale adjudications
     (storage only), and absent streams. With `never_run` (every command's
@@ -1386,6 +1420,7 @@ def stale(store, sessions: list[str], never_run: bool = True) -> dict:
     for sid in sessions:
         man = store.read_manifest(sid)
         decode, derived, absent, waived, unrecorded, declined = [], [], [], [], [], []
+        not_applicable = []
         memo: dict = {}
 
         def accepted(where: str, stored, current: str) -> bool:
@@ -1590,6 +1625,16 @@ def stale(store, sessions: list[str], never_run: bool = True) -> dict:
             stream = spec["stream"]
             head = (_head(store, stream, sid, b'"event_kind":"identity_distribution"') if spec.get("identity")
                     else _head(store, stream, sid))
+            if head is None and spec.get("written_with"):
+                # A run that named nothing writes no identity event; the
+                # coverage row written beside it stamps the run and says why.
+                head = _empty_run_head(store, sid, spec)
+            if head is None and spec.get("applies") is not None:
+                said = spec["applies"](store, sid)
+                if said is not None and said[0] != "applies":
+                    not_applicable.append({"stream": stream, "status": said[0],
+                                           "why": said[1]})
+                    continue
             if head is None:
                 # A stream the ability pass gained after it ran on stored
                 # sessions (`PASS_ADDED`), absent beside the sibling whose
@@ -1658,7 +1703,9 @@ def stale(store, sessions: list[str], never_run: bool = True) -> dict:
         derived += lanes["derived"]
         # A stored stream no check declares is named, never silently current.
         declared = ({s for s, *_ in reader_streams()} | set(_HAND_CHECKED)
-                    | {s["stream"] for s in derived_streams()} | _lane_streams())
+                    | {s["stream"] for s in derived_streams()} | _lane_streams()
+                    | {s["written_with"] for s in derived_streams() if s.get("written_with")
+                       and _coverage_head(store, sid, s["written_with"]) is not None})
         unchecked = [{"stream": s, "why": UNSTAMPED.get(s, "undeclared: no check in plan")}
                      for s in stored_streams(store, sid) if s not in declared]
         caches = cache_work(store, man)
@@ -1668,6 +1715,7 @@ def stale(store, sessions: list[str], never_run: bool = True) -> dict:
         out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived,
                     "declined": declined,
                     "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded,
+                    "not_applicable": not_applicable,
                     "widget": widget, "placement": placed, "caches": caches,
                     "source_retired": retired}
     return out
@@ -2025,6 +2073,15 @@ def render(plan: dict) -> str:
     waived_lines += [f"unrecorded {stream}: inputs {inputs} not recorded, so not compared, on "
                      f"{len(sids)} sessions; its next rerun records them"
                      for (stream, inputs), sids in sorted(unrec.items())]
+    # A stream its owning rule says does not apply, or cannot yet tell, is
+    # not work: neither stale, current nor never run.
+    nap: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+    for sid, p in plan.items():
+        for n in p.get("not_applicable", []):
+            nap[(n["stream"], n["status"], n["why"] or "")].append(sid)
+    waived_lines += [f"{status.replace('_', ' ')} {stream}: {why} on {len(sids)} sessions: "
+                     f"{' '.join(sids)}"
+                     for (stream, status, why), sids in sorted(nap.items())]
     # A lane current as projected over inputs that are themselves stale: its
     # rows wait in the ledger as `stale`, and rebuilding it now changes nothing.
     held: dict[tuple[str, str], list[str]] = defaultdict(list)
