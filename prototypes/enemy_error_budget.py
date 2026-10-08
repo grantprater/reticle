@@ -52,6 +52,14 @@ held-out capture (cea8ecbc94ab) is refused before any row is read. Not wired
 (`"wire": "no"`): an evaluation over replay truth; the levers it names live
 in `reticle/minimap_objects.py`, `reticle/teardrop.py` and the T1d rule.
 
+The budget reads enemy players only (AGENTS.md, "Replay truth covers every
+entity"). It inherits `teardrop_refusals.score`'s players-only sets and joins
+no ability child, ally player or spike, so an extra of `other`, `e38_*`,
+`other_ally_stack` or `dead_enemy` may lie on another real entity, such as
+Tejo's Stealth Drone [domain:abilities/tejo-stealth-drone-enemy-minimap-icon].
+`question_acceptance.py label` holds the class-aware join; read an extra's
+entity there before charging the reader with it.
+
     python prototypes/enemy_error_budget.py feats 9acf02f98283 --tag v0
     python prototypes/enemy_error_budget.py budget 9acf02f98283 --tag v0
     python prototypes/enemy_error_budget.py feats 9acf02f98283 c817691bcd15 d3dcfb182ab1 --tag b1
