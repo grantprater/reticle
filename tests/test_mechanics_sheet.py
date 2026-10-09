@@ -103,7 +103,9 @@ class PrefillTest(unittest.TestCase):
         self.assertIn("GameObject_Zed_Trap.json#HealthDamageSection", c["destructible"]["sources"][0])
         self.assertEqual(c["ends_on"]["value"], ["lifetime", "destroyed", "round_end"])
         self.assertEqual([d["effect"] for d in c["effects"]["value"]], ["slow"])
-        self.assertIn("TX_Zed_Minimap", c["minimap_drawing"]["value"]["textures"])
+        self.assertEqual(c["minimap_drawing"]["value"], "icon")
+        self.assertIn("TX_Zed_Minimap", c["minimap_drawing"]["evidence"]["textures"])
+        self.assertEqual(c["engine_states"]["status"], "hidden")
 
     def test_no_source_means_ask_and_empty(self):
         c = self.s.row("C")["cells"]["owner_death"]
@@ -121,7 +123,7 @@ class PrefillTest(unittest.TestCase):
 
 
 CAM = "/Game/Characters/Gumshoe/S0/Ability_E/"
-SPYCAM = {"agents": {"Cypher": {"abilities": {"E": {
+SPYCAM = {"agents": {"Cypher": {"codename": "Gumshoe", "abilities": {"E": {
     "ability": "Spycam", "equippable": CAM + "Ability_Gumshoe_E_Camera",
     "entities": [
         {"entity": CAM + "Pawn_Gumshoe_E_PossessableCamera", "named_by": CAM + "Ability_Gumshoe_E_Camera", "how": "spawns"},
@@ -133,7 +135,7 @@ SPYCAM = {"agents": {"Cypher": {"abilities": {"E": {
          "named_by": CAM + "GameObject_RemovableObject_GumshoeTrackingDart", "how": "names"}],
     "states": []}}}}}
 DRONE = "/Game/Characters/Hunter/S0/Ability_E/Drone/"
-OWL = {"agents": {"Sova": {"abilities": {"C": {
+OWL = {"agents": {"Sova": {"codename": "Hunter", "abilities": {"C": {
     "ability": "Owl Drone", "equippable": DRONE + "Ability_Hunter_E_DeployDrone",
     "entities": [
         {"entity": DRONE + "Pawn_Hunter_E_Drone", "named_by": DRONE + "Ability_Hunter_E_DeployDrone", "how": "spawns"},
@@ -177,6 +179,18 @@ class SpawnTreeTest(unittest.TestCase):
         self.assertEqual([d["effect"] for d in dart["cells"]["effects"]["value"]], ["reveal"])
         self.assertEqual(cam["cells"]["effects"]["status"], "ask")
         self.assertNotEqual(ms.cell_key(cam, "parent"), ms.cell_key(dart, "parent"))
+
+    def test_prompts_use_plain_words_never_class_names(self):
+        _cam, dart = ms.build_rows(SPYCAM, {}, self.exports, {})
+        text, _ = ms.render(dart, "owner_death", ms.cell_key(dart, "owner_death"), {})
+        self.assertIn("When Cypher dies, Spycam's tracking dart:", text)
+        self.assertIn("2 disappears", text)
+        self.assertNotIn("GameObject", text)
+        self.assertNotIn("Gumshoe", text)
+        for column in ms.COLUMNS:
+            if dart["cells"][column]["status"] not in ms.NOT_ASKED:
+                text, _ = ms.render(dart, column, ms.cell_key(dart, column), {})
+                self.assertNotRegex(text, r"GameObject|Pawn_|_C'|\.json")
 
     def test_a_bytecode_spawn_call_sets_the_parent(self):
         drone, dart = ms.build_rows(OWL, {}, self.exports, {})
@@ -224,11 +238,15 @@ class WalkAndImportTest(unittest.TestCase):
         self.assertEqual(self.target.read_text(encoding="utf-8"), before)
 
     def test_import_writes_a_valid_lifecycle_fact(self):
-        # C: parent y, class y, lifetime y, destructible y, owner death d
-        # (default), ends_on y, states y, effects y, slow targets 3 (enemies),
-        # minimap y.
-        self.s.walk(["y", "y", "y", "y", "d", "y", "y", "y", "3", "y", "q"], agent="Zed")
+        # C: parent y, class y, visible phases typed, lifetime y, destructible
+        # y, owner death d (default), ends_on y, effects y, slow targets 3
+        # (enemies), minimap y. Engine states are never asked.
+        out = self.s.walk(["y", "y", "thrown -> placed -> armed -> gone", "y", "y", "d", "y",
+                           "y", "3", "y", "q"], agent="Zed")
+        self.assertNotIn("engine_states", out)
         self.assertEqual(self.answers()["Zed:C:owner_death"]["how"], "default")
+        self.assertEqual(self.answers()["Zed:C:visible_phases"]["answer"],
+                         ["thrown", "placed", "armed", "gone"])
         texts, _ = ms.import_rows(self.s.store, self.s.rows, write=True,
                                   target=self.target, out=io.StringIO())
         self.assertEqual(len(texts), 1)
@@ -249,6 +267,10 @@ class WalkAndImportTest(unittest.TestCase):
                                         target=self.target, out=io.StringIO())
         self.assertEqual(texts, [])
         self.assertTrue(any("exists" in s for s in skipped))
+
+    def test_an_answer_under_a_renamed_column_stays_valid(self):
+        ms.append_answer(self.s.store, {"key": "Zed:C:states", "answer": ["equip"], "unsure": False})
+        self.assertIn("Zed:C:engine_states", self.answers())
 
     def test_validate_rejects_a_class_outside_the_plan(self):
         (self.s.dom / "abilities.toml").write_text(GD + """
