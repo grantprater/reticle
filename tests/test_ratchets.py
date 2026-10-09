@@ -527,6 +527,19 @@ class AbilityTests(unittest.TestCase):
         self.assertEqual([s for s, m in found if "binder" in m], [WARN])
         self.assertEqual([s for s, m in found if "::gone" in m], [ERROR])
 
+    def test_an_apart_key_outside_its_seed_errors(self):
+        entries = _entries(**{"ability-new": {"owner": "m", "entity_kind": "ability"}})
+        found = ratchets.ability_findings(
+            _inputs(entries=entries), legacy=ALEGACY, seed=ASEED,
+            apart={"ability-new": "a tool"}, apart_seed=frozenset())
+        self.assertEqual([s for s, m in found if "ability-new" in m], [ERROR])
+        self.assertTrue(any("outside the frozen ABILITY_APART_SEED" in m for _s, m in found))
+        found = ratchets.ability_findings(
+            _inputs(entries=entries), legacy=ALEGACY, seed=ASEED,
+            apart={"ability-new": "a tool"}, apart_seed=frozenset({"ability-new"}))
+        self.assertEqual([s for s, m in found if "ability-new" in m], [])
+        self.assertEqual(set(ratchets.ABILITY_APART), ratchets.ABILITY_APART_SEED)
+
     def test_the_tree_has_no_ability_error(self):
         found = doctor.check_ability()
         self.assertEqual([m for s, m in found if s == ERROR], [])

@@ -1478,6 +1478,10 @@ ABILITY_APART: dict[str, str] = {
     "ability-evidence": "a development inventory of stored evidence (section 1.2)",
     "replay-ability-actors": "replay truth, never a reader input (section 1.4)",
 }
+#: ABILITY_APART's keys when seeded, 2026-10-09. Frozen: a key outside it is
+#: an ERROR, so no entry escapes ABILITY by being declared apart.
+ABILITY_APART_SEED: frozenset[str] = frozenset({
+    "capture-queue", "ability-evidence", "replay-ability-actors"})
 
 #: Every ability fragment outside `slot_state.CHANNELS` and the child owner on
 #: 2026-10-09 (docs/ABILITY_ENTITIES.md section 1), found by
@@ -1618,7 +1622,8 @@ def ability_lanes(inputs: AbilityInputs) -> list[str]:
 
 def ability_findings(inputs: AbilityInputs, legacy: dict | None = None,
                      seed: frozenset | None = None, apart: dict | None = None,
-                     base: Path | None = None) -> list[tuple[str, str]]:
+                     base: Path | None = None,
+                     apart_seed: frozenset | None = None) -> list[tuple[str, str]]:
     """ABILITY: every ability stream, lane and ownership entry is a declared
     input of the child owner (docs/ABILITY_ENTITIES.md section 4).
 
@@ -1643,6 +1648,7 @@ def ability_findings(inputs: AbilityInputs, legacy: dict | None = None,
     legacy = ABILITY_LEGACY if legacy is None else legacy
     seed = ABILITY_SEED if seed is None else seed
     apart = ABILITY_APART if apart is None else apart
+    apart_seed = ABILITY_APART_SEED if apart_seed is None else apart_seed
     base = ROOT if base is None else base
     entries = inputs.entries
     out: list[tuple[str, str]] = []
@@ -1735,6 +1741,9 @@ def ability_findings(inputs: AbilityInputs, legacy: dict | None = None,
     for key in sorted(apart):
         if key not in entries:
             out.append((ERROR, f"ABILITY_APART names `{key}`, which is no ownership entry"))
+    for key in sorted(set(apart) - set(apart_seed)):
+        out.append((ERROR, f"ABILITY_APART names `{key}`, outside the frozen ABILITY_APART_SEED "
+                           "-- declare it a CHANNELS input instead"))
 
     # Streams and lanes.
     found: set[str] = {f"entry:{k}" for k, e in entries.items()
