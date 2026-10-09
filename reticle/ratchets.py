@@ -1576,12 +1576,6 @@ ABILITY_LEGACY: dict[str, dict[str, str]] = {
     "stream:tray_countdown": {
         "fate": "a reader of the kit owner; nothing reads it until kits cover every slot",
         "step": "step 5"},
-    "lane:smoke": {
-        "fate": "declared, never projected; folds into the one `ability` lane",
-        "step": "step 3"},
-    "lane:ult_cast": {
-        "fate": "declared, never projected; folds into the one `ability` lane",
-        "step": "step 3"},
     "entry:ability-appearance": {
         "fate": "the gallery's classifier retires; the game-texture glyph reader replaced it",
         "step": "step 3"},
@@ -1615,18 +1609,15 @@ ABILITY_LEGACY: dict[str, dict[str, str]] = {
         "fate": "`detection_reality` asks the child owner in its place, so a child of any "
                 "channel explains a find",
         "step": "step 4"},
-    "code:reticle/adjudication/ult_cast.py::player_x_drops": {
-        "fate": "binding an own ult line to its X drop moved to the child owner in step 2; "
-                "the function stays while `ult_cast` selects a sub-threshold peak an X cast "
-                "witnesses (`tray_x_cast`), a selection rule whose move changes `ult_cast` "
-                "itself",
-        "step": "step 3"},
 }
 
 #: ABILITY_LEGACY's keys when seeded, 2026-10-09. Frozen: doctor errors on a
 #: key outside it, so the list cannot grow by an edit that adds one entry and
 #: drops another. `status` counts a seed key no longer in the list as cleared:
-#: step 2 (2026-10-09) cleared `stream:dead_ruse_cast` and `smoke_owner.cast_links`.
+#: step 2 (2026-10-09) cleared `stream:dead_ruse_cast` and `smoke_owner.cast_links`;
+#: step 3 (2026-10-09) cleared `lane:smoke` and `lane:ult_cast` (never projected,
+#: dropped from `entity_events.ENTITY_LANES`) and `ult_cast.player_x_drops`
+#: (now `ability_timeline.player_x_drops`, the tray's cast verdict on the X slot).
 ABILITY_SEED: frozenset[str] = frozenset({
     "stream:ability_light", "stream:ability_shape_audit", "stream:ability_shape_scan",
     "stream:dead_ruse_cast", "stream:tray_countdown",

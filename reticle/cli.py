@@ -6031,7 +6031,7 @@ def _ult_tray_drops(store, sid: str, date: str, rounds: list[dict], agent: str |
     """(the X drops with the verdict `ability_timeline.player_tray_casts` gives
     each, or None; the reason for None; the input stamps) for `ult-cast`."""
     from .ability_timeline import stored_gate_inputs
-    from .adjudication.ult_cast import player_x_drops
+    from .ability_timeline import player_x_drops
     from .version import TRAY_VERSION
 
     drops = store.read_events("tray_drop", sid)

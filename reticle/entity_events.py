@@ -83,21 +83,19 @@ ENTITY_LANES: tuple[dict, ...] = (
      "inputs": ("rounds", "spike_carrier")},
     {"lane": "players", "order": 2, "channel": "arbiter over every channel", "names": True,
      "inputs": ("rounds",), "waits_for": "the arbiter's stored side verdict (gap 1)"},
-    {"lane": "smoke", "order": 2, "channel": "minimap", "names": True,
-     "inputs": ("smoke", "smoke_owner", "smoke_owner_identity", "rounds")},
     {"lane": "ping", "order": 2, "channel": "minimap", "names": False,
      "inputs": ("ping", "rounds")},
     {"lane": "enemy", "order": 2, "channel": "minimap", "names": True,
      "inputs": ("enemy_track", "enemy_track_identity", "rounds", "death", "death_identity")},
     {"lane": "ability_tray", "order": 3, "channel": "tray", "names": True,
      "inputs": ("ability_state", "tray_kit", "tray_kit_identity")},
-    # The child owner's lane (docs/ABILITY_ENTITIES.md section 2.9): the
-    # player's own children and effects since step 2.
+    # The child owner's lane (docs/ABILITY_ENTITIES.md section 2.9): every
+    # slot's children and effects since step 3. The declared `smoke` and
+    # `ult_cast` lanes were never projected; smokes and ult casts reach
+    # consumers as children here (step 3 dropped them).
     {"lane": "ability", "order": 3, "channel": "tray, audio, minimap and killfeed, through "
                                                "the child owner", "names": True,
      "inputs": ("ability_child", "ability_effect", "rounds", "death", "death_identity")},
-    {"lane": "ult_cast", "order": 4, "channel": "audio", "names": True,
-     "inputs": ("ult_cast", "ult_cast_identity", "rounds")},
     {"lane": "disagreement", "order": None, "channel": "every channel", "names": False,
      "inputs": ("spike_carrier",),
      "waits_for": "reconciliation's stored disagreements as a stream"},

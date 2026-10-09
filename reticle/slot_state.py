@@ -38,22 +38,22 @@ A second kind joins by three extension points, never by a second module:
   `causal_bind` and `bind_entities` do for players.
 
 `stack_entities` joins the blocks; `beliefs` then runs once over all rows.
-No ability kind is built here.
+Ability nodes keep their own rows (`build_abilities`), not the frame axis.
 
-Ability children and effects (declared, not built)
---------------------------------------------------
+Ability children and effects
+----------------------------
 docs/ABILITY_ENTITIES.md makes this module the owner of ability instances
 (`ability` children) and what they do to players (`effect` entities). They
 form a tree: slot, ability instance, spawned objects nested to any depth,
 effects; each node has its own lifecycle and a revisable parent binding to
 any entity key. The owner holds
-[owns:ability-child], [owns:ability-effect] and [owns:ability-owner], each
-`partial` until its migration step builds it (step 2 the player's children
-and effects, step 3 the team's and the caster verdict). Step 1 ships only the
-declaration: `CHANNELS`, every input the child owner may read and what each
-may do (open a child, join one, end one, name its kind, claim its agent),
-stamped `ABILITY_CHANNELS_VERSION`, and `ABILITY_LANES`, the two lanes
-ability entities reach consumers through. The ABILITY ratchet
+[owns:ability-child], [owns:ability-effect] and [owns:ability-owner].
+`build_abilities` walks every slot of both teams in one pass (step 3): a
+side is a property of the slot, a witness's reach a property of its channel.
+`CHANNELS` names every input the child owner may read and what each may do
+(open a child, join one, end one, name its kind, claim its agent), with the
+sides it observes and opens on, stamped `ABILITY_CHANNELS_VERSION`;
+`ABILITY_LANES` names the two lanes ability entities reach consumers through. The ABILITY ratchet
 (`ratchets.ability_findings`, run by `doctor`) errors on any ability stream,
 lane or ownership entry these two tables and this owner do not account for,
 and the event validator (`entity_contract.check_ability_row`) rejects an

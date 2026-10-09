@@ -1,6 +1,7 @@
 """The ultimate-cast adjudicator on hand-built peaks, lineups and rounds."""
 import unittest
 
+from reticle import ability_timeline
 from reticle.adjudication import ult_cast as uc
 from reticle.adjudication.identity import adjudicate_agent_identity, claims_from_lineup
 from reticle.events import validate_event_rows
@@ -266,7 +267,7 @@ class TrayBindingTests(unittest.TestCase):
                   {"kind": "drop", "t_ms": 40000.0, "slot": "E", "from": 1.0, "to": 0.0,
                    "suspect": False, "forced": False, "cooccur": False, "across_gap": False,
                    "player_cast": True, "reason": None}]
-        got = uc.player_x_drops(stored, lambda t: "round_live", ROUNDS, [60000.0])
+        got = ability_timeline.player_x_drops(stored, lambda t: "round_live", ROUNDS, [60000.0])
         # The owner, not the stored flag: 50 s is a cast, 65 s falls after the death,
         # and the E drop is not the ultimate.
         self.assertEqual([(r["t_ms"], r["player_cast"], r["reason"]) for r in got],
@@ -277,7 +278,7 @@ class TrayBindingTests(unittest.TestCase):
         # pass the drop that would then witness them.
         stored = [{"kind": "drop", "t_ms": 50000.0, "slot": "X", "from": 1.0, "to": 0.0,
                    "suspect": True, "forced": True, "cooccur": False, "across_gap": False}]
-        got = uc.player_x_drops(stored, lambda t: "round_live", ROUNDS, [], agent="Sova",
+        got = ability_timeline.player_x_drops(stored, lambda t: "round_live", ROUNDS, [], agent="Sova",
                                 own_lines_ms=[50400.0])
         self.assertEqual([(r["player_cast"], r["reason"]) for r in got], [(False, "forced")])
         # A cast handed in already resting on that line binds as no witness.

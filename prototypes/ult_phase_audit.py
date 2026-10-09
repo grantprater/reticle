@@ -6,7 +6,7 @@ r"""Ultimate voice lines against each round's buy phase and barrier drop.
 A one-off audit (task ult-buyphase-measure-20261004). It reads stored data
 only and decodes nothing: the `ult_cast` rows (ult-cast-0.4.0) and their
 `ult_line` peaks (ult-line-0.2.0), the rounds table, the HUD table, the tray's
-X casts as `adjudication.ult_cast.player_x_drops` judges them, the stored death
+X casts as `ability_timeline.player_x_drops` judges them, the stored death
 verdicts and Riot's match records.
 
 **The drop.** `gametime.build_session_gametime` owns the barrier drop of each
