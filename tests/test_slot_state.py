@@ -166,6 +166,113 @@ class LifecycleTest(unittest.TestCase):
         self.assertEqual(L["counts"]["close"], 1)
 
 
+def _tracks(ents: list[dict], obs: list[tuple]) -> dict:
+    """`stored_enemy_tracks`' arrays from track dicts and (t_ms, x, y, track) rows."""
+    return {"ids": [f"E{i}" for i in range(len(ents))],
+            "ents": [{"identity_status": "resolved", "reality_status": "accepted", "observations": 1, **e}
+                     for e in ents],
+            "t": np.asarray([o[0] for o in obs], float), "x": np.asarray([o[1] for o in obs], float),
+            "y": np.asarray([o[2] for o in obs], float), "e": np.asarray([o[3] for o in obs], np.int64)}
+
+
+def _to_m(px, py):
+    return np.asarray(px, float) * 0.1, np.asarray(py, float) * 0.1
+
+
+ENEMY = [{"key": f"s:enemy:slot:{k}", "agent": a}
+         for k, a in enumerate(("Jett", "KAY_O", "Omen", "Sova", "Sage"))]
+
+
+class EnemySlotTest(unittest.TestCase):
+    """Enemy slots: the lifecycle, the binding and the belief law."""
+
+    def _slots(self, F, deaths, rounds=({"t_start_ms": 0.0, "round_no": 1},)):
+        S = SimpleNamespace(fr_t=_grid(F), rounds=list(rounds), deaths=deaths)
+        return S, ss.player_lifecycle(S, ENEMY, side="enemy")
+
+    def test_rows_are_the_enemy_five(self):
+        rows = ss.enemy_rows(ENEMY)
+        self.assertEqual(rows[1].key, ("player", "s:enemy:slot:1"))
+        self.assertEqual({r.side for r in rows}, {"enemy"})
+
+    def test_unanchored_then_fit_then_reach_then_closed(self):
+        F = 8
+        # Jett's track seen at frames 2 and 3; the death owner kills Jett at frame 6
+        S, life = self._slots(F, [{"side": "enemy", "victim": "Jett", "t_ms": 600.0, "round_no": 1},
+                                  {"side": "ally", "victim": "Omen", "t_ms": 100.0, "round_no": 1}])
+        T = _tracks([{"agent": "Jett"}], [(200.0, 10.0, 0.0, 0), (300.0, 20.0, 0.0, 0)])
+        bind = ss.bind_enemy_tracks(S.fr_t, T, ENEMY, life["open"], _to_m)
+        self.assertEqual(bind["counts"]["bound"], 2)
+        B = ss.beliefs(S.fr_t, bind["X"], bind["Y"], bind["has"], life["open"], life["seg_start"],
+                       r_fit=1.0, r_icon=0.5, v_max=7.0, wit=bind["wit"])
+        names = [ss.KINDS[int(k)] for k in B["kind"][0]]
+        self.assertEqual(names, ["unanchored", "unanchored", "fit", "fit", "reach", "reach",
+                                 "closed", "closed"])
+        # reach grows from the last witnessed fix, at 2.0 m
+        self.assertAlmostEqual(B["ax"][0, 5], 2.0)
+        self.assertAlmostEqual(B["R"][0, 5], 7.0 * 0.2 + 1.0)
+        # an ally's death closes no enemy slot; Omen's enemy slot stays open
+        self.assertTrue(life["open"][2].all())
+        self.assertEqual([ss.KINDS[int(k)] for k in set(B["kind"][2])], ["unanchored"])
+
+    def test_state_resets_at_the_round_barrier(self):
+        F = 8
+        rounds = ({"t_start_ms": 0.0, "round_no": 1}, {"t_start_ms": 400.0, "round_no": 2})
+        S, life = self._slots(F, [{"side": "enemy", "victim": "Jett", "t_ms": 300.0, "round_no": 1}],
+                              rounds)
+        # a death in round 1 closes the slot only to the round's end
+        self.assertEqual(life["open"][0].tolist(), [True] * 3 + [False] + [True] * 4)
+        T = _tracks([{"agent": "Omen"}], [(100.0, 10.0, 0.0, 0)])
+        bind = ss.bind_enemy_tracks(S.fr_t, T, ENEMY, life["open"], _to_m)
+        B = ss.beliefs(S.fr_t, bind["X"], bind["Y"], bind["has"], life["open"], life["seg_start"],
+                       r_fit=1.0, r_icon=0.5, v_max=7.0, wit=bind["wit"])
+        self.assertEqual([ss.KINDS[int(k)] for k in B["kind"][2]],
+                         ["unanchored", "fit", "reach", "reach"] + ["unanchored"] * 4)
+
+    def test_no_name_is_chosen_outside_the_arbiter(self):
+        F = 4
+        S, life = self._slots(F, [])
+        T = _tracks([{"agent": "KAY/O"},                                     # the arbiter's spelling
+                     {"agent": None, "identity_status": "abstained"},
+                     {"agent": "Jett", "identity_status": "contested"},
+                     {"agent": "Reyna"},                                     # not in the enemy five
+                     {"agent": "Sova", "reality_status": "refused"}],
+                    [(0.0, 1.0, 1.0, 0), (0.0, 2.0, 2.0, 1), (100.0, 3.0, 3.0, 2), (100.0, 4.0, 4.0, 3),
+                     (200.0, 5.0, 5.0, 4), (200.0, 6.0, 6.0, -1), (900.0, 7.0, 7.0, 0)])
+        bind = ss.bind_enemy_tracks(S.fr_t, T, ENEMY, life["open"], _to_m)
+        c = bind["counts"]
+        self.assertEqual((c["bound"], c["track_unnamed"], c["agent_not_in_lineup"], c["track_refused"],
+                          c["no_track"], c["off_frame_axis"]), (1, 2, 1, 1, 1, 1))
+        # only KAY/O's track binds, to the slot the lineup's verdict names KAY_O
+        self.assertEqual(np.flatnonzero(bind["has"].any(axis=1)).tolist(), [1])
+        # the module calls no identity rule: names come from stored verdicts only
+        src = Path(ss.__file__).read_text(encoding="utf-8")
+        for rule in ("adjudicate_agent_identity", "claims_from_ally_icons", "identity_claim("):
+            self.assertNotIn(rule, src)
+
+    def test_two_tracks_on_one_slot_frame_keep_the_longer(self):
+        F = 3
+        S, life = self._slots(F, [])
+        T = _tracks([{"agent": "Sova", "observations": 2}, {"agent": "Sova", "observations": 9}],
+                    [(100.0, 1.0, 0.0, 0), (100.0, 50.0, 0.0, 1)])
+        bind = ss.bind_enemy_tracks(S.fr_t, T, ENEMY, life["open"], _to_m)
+        self.assertEqual((bind["counts"]["bound"], bind["counts"]["duplicate"]), (1, 1))
+        self.assertAlmostEqual(bind["X"][3, 1], 5.0)
+
+    def test_the_law_runs_per_side(self):
+        # an ally fit beside an enemy slot's last fix is no crowd host for it
+        t = _grid(3)
+        one = np.ones((1, 3), bool)
+        Xa = np.array([[0.0, 0.2, 0.4]])
+        Xe = np.array([[0.0, np.nan, np.nan]])
+        Ba = ss.beliefs(t, Xa, Xa * 0, np.isfinite(Xa), one, np.zeros(3, int), r_fit=1.0, r_icon=0.5, v_max=7.0)
+        Be = ss.beliefs(t, Xe, Xe * 0, np.isfinite(Xe), one, np.zeros(3, int), r_fit=1.0, r_icon=0.5, v_max=7.0)
+        B = ss.join_beliefs([Ba, Be])
+        self.assertEqual([ss.KINDS[int(k)] for k in B["kind"][1]], ["fit", "reach", "reach"])
+        self.assertEqual(B["kind"].shape, (2, 3))
+        self.assertTrue((B["host"][1] == -1).all())
+
+
 class LaneRenameTest(unittest.TestCase):
     def test_the_tray_lane_cannot_pass_for_the_slot_model(self):
         from reticle.entity_contract import STATE_VOCABULARY
@@ -191,8 +298,13 @@ class StoredRowRegressionTest(unittest.TestCase):
         self.assertEqual((c["fits"], c["fits_bound"]), (55047, 52519))
         self.assertEqual(c["fits_bound"] + sum(G["bind"]["np_by_reason"].values()), c["fits"])
         self.assertEqual(G["life"]["counts"]["close"], 87)
-        rec = ss.frame_record(G["B"], G["bind"]["obs"], G["t_ms"])
-        self.assertEqual(rec.shape, (G["t_ms"].size, 5))
+        rec = ss.frame_record(G["B"], G["obs"], G["t_ms"])
+        self.assertEqual(rec.shape, (G["t_ms"].size, 10))
+        self.assertEqual([r.side for r in G["rows"]], ["ally"] * 5 + ["enemy"] * 5)
+        # every stored enemy observation is bound or counted by its reason
+        e = G["enemy"]["bind"]["counts"]
+        self.assertEqual(sum(e[r] for r in ss.ENEMY_FIT_REASONS), e["observations"])
+        self.assertEqual(int(G["enemy"]["bind"]["has"].sum()), e["bound"])
         fit = rec["kind"] == ss.FIT
         np.testing.assert_array_equal(rec["t_obs"][fit], np.broadcast_to(G["t_ms"][:, None], rec.shape)[fit])
         # the world frame's inverse round-trips widget pixels

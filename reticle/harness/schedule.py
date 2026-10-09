@@ -187,7 +187,12 @@ class RealMatch(Match):
         self.ci = np.flatnonzero(self.team == self.C)
         self.ei = np.flatnonzero(self.team != self.C)
         rec = roi_cache.stored_record(STORE, sid, "minimap")
-        self.spans = (rec or {}).get("spans") or []
+        # An absent crop cache (retired 2026-10-09, `roi_cache.cache_retirement`)
+        # bounds nothing: `in_spans` passes every time, and `spans_absent`
+        # keeps the reason.
+        self.spans = None if rec is None else (rec.get("spans") or [])
+        self.spans_absent = None if rec is not None else (
+            roi_cache.CACHE_RETIRED if roi_cache.cache_retirement(STORE, sid, "minimap") else "no_cache")
         self.cache_hz = (rec or {}).get("hz")
 
     def lag(self, s: int) -> float:
@@ -201,7 +206,11 @@ class RealMatch(Match):
         return a + b * (np.asarray(t_rep, float) + lag)
 
     def in_spans(self, t_cap):
+        """Whether each capture time lies in the minimap crop cache's spans;
+        every time, where the cache is absent (`spans_absent`)."""
         from reticle import roi_cache
+        if self.spans is None:
+            return np.ones(np.shape(t_cap), bool)
         return roi_cache.spans_mask(t_cap, self.spans)
 
     # ------------------------------------------------------------- schedule hook

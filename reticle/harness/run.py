@@ -361,6 +361,7 @@ capture (cea8ecbc94ab) is refused. Not wired (`"wire": "no"` on its rows in
         [--record] [--record-score]
     reticle acceptance replay-abilities [SESSION ...] [--legacy-out] [--record] [--record-score]
     reticle acceptance budget --tag pgb [SESSION ...] [--record] [--rewrite]
+    reticle acceptance slots [SESSION ...] [--record]
     reticle acceptance budget-feats SESSION ... --tag TAG (and budget-eye,
         budget-eye-score, budget-levers, budget-sample, budget-peek)
     reticle acceptance hook SESSION ... | hook-report [--record] | arms-report [--rule QA5r3]
@@ -1665,7 +1666,9 @@ def replay_score(sid: str, geometry: Path | None = None, finds: bool = False) ->
     stamps["ally_icon"] = AI["stamp"]
     rec = roi_cache.stored_record(rt.STORE, sid, "minimap")
     spans = (rec or {}).get("spans") or []
-    in_sp = roi_cache.spans_mask(AI["t_ms"], spans)
+    # An absent crop cache bounds nothing; `cache_absent` keeps the reason.
+    in_sp = (roi_cache.spans_mask(AI["t_ms"], spans) if rec is not None
+             else np.ones(AI["t_ms"].shape, bool))
     sc = in_sp & AI["drawn"]
     S_idx, S_t = AI["frame_idx"][sc], AI["t_ms"][sc]
     S_rep = rt.capture_to_replay(S_t, *clock, rt.REMOTE_LAG_MS)        # teammates
@@ -1677,6 +1680,10 @@ def replay_score(sid: str, geometry: Path | None = None, finds: bool = False) ->
         "in_spans_widget_absent": int((in_sp & ~AI["drawn"]).sum()), "scored": n,
         "cache": None if rec is None else {"version": rec.get("version"), "hz": rec.get("hz"),
                                            "spans": len(spans)}}
+    if rec is None:
+        out["frames"]["cache_absent"] = (roi_cache.CACHE_RETIRED
+                                         if roi_cache.cache_retirement(rt.STORE, sid, "minimap")
+                                         else "no_cache")
 
     def rows_of(fi):
         fi = np.asarray(fi, np.int64)
@@ -3253,6 +3260,219 @@ def run_budget_tool(a) -> int:
         eb.draw_crops(a.tag, pick, a.name)
         return 0
     return 1
+
+
+# ----------------------------------------------------------------- slot regions (QUESTION_ACCEPTANCE B1)
+
+#: The slot-region scorer's own stamp (task enemy-slots-20261009).
+SLOTS_VERSION = "slot-regions-0.1.0"
+TASK_SLOTS = "enemy-slots-20261009"
+
+
+def _truth_slots(slots: list[dict], agents: list) -> tuple[np.ndarray, list]:
+    """Each truth player's slot by the arbiter's names, then one-to-one
+    elimination of what is left (evaluation pairing only); -1 unpaired."""
+    from reticle.agent_names import agent_key
+    by = {agent_key(s["agent"]): k for k, s in enumerate(slots) if s.get("agent")}
+    out = np.array([by.get(agent_key(a), -1) if a else -1 for a in agents], np.int64)
+    left_t = np.flatnonzero(out < 0)
+    left_s = sorted(set(range(len(slots))) - set(out[out >= 0].tolist()))
+    notes = []
+    if left_t.size == 1 and len(left_s) == 1:
+        out[left_t[0]] = left_s[0]
+        notes.append({"truth": agents[left_t[0]], "slot": left_s[0], "how": "elimination",
+                      "slot_agent": slots[left_s[0]].get("agent")})
+    elif left_t.size:
+        notes.append({"unpaired_truth": [agents[i] for i in left_t], "free_slots": left_s})
+    return out, notes
+
+
+def _slot_frames_on_grid(M, t_cap, drawn) -> np.ndarray:
+    """`_frames_on_grid` without the crop cache's spans: the slot model
+    holds a belief on every stored frame, and the `ally_icon` frames are the
+    frames read. Live play only (`harness.sets.live_samples`)."""
+    from . import sets as elc
+    t_rep = np.asarray(M.to_rep(np.asarray(t_cap, float), rt.REMOTE_LAG_MS), float)
+    live, _ = elc.live_samples(M)
+    step = float(np.median(np.diff(M.G)))
+    i = np.clip(np.searchsorted(M.G, t_rep), 0, M.G.size - 1)
+    k = frame_samples(M.G, t_rep, np.asarray(drawn, bool) & live[i], FRAME_HALF_STEP * step)
+    k[(k >= 0) & ~live[np.clip(k, 0, None)]] = -1
+    return k
+
+
+def slot_regions(sid: str) -> dict:
+    """Every living player on every scored frame against its slot's region
+    (`slot_state.build_slots`, causal binding), both sides, scored by
+    `reticle.acceptance.slot_region_scores`.
+
+    The frames are the `ally_icon` frames the widget drew, on T1d's grid in
+    live play (`_slot_frames_on_grid`). A truth player pairs with the slot the
+    arbiter's lineup verdict names (`_truth_slots`). `drawn` is T1d's rule
+    for an enemy; an ally counts drawn while he lives."""
+    from reticle import slot_state as ss
+    t0 = time.perf_counter()
+    ctx = _truth_ctx(sid)
+    M, J = ctx["M"], ctx["J"]
+    G = ss.build_slots(sid, binding="causal", store_root=STORE)
+    if "refused" in G:
+        raise SystemExit(f"{sid}: build_slots refused: {G['refused']}")
+    S, B = G["S"], G["B"]
+    k = _slot_frames_on_grid(M, S.fr_t, S.fr_drawn)
+    f = np.flatnonzero(k >= 0)
+    kk = k[f]
+    rounds = sorted(set(M.G_round[kk].tolist()))
+    rr_f = np.searchsorted(np.asarray(rounds), M.G_round[kk])
+    upm = ss.units_per_m()
+    alive = np.asarray(J["alive"], bool)
+    PX = np.where(alive, M.X, np.nan)[:, kk] / upm            # (players, scored frames), metres
+    PY = np.where(alive, M.Y, np.nan)[:, kk] / upm
+    side_of = np.array([r.side for r in G["rows"]])
+    kinds = dict(ss.KINDS)
+    out = {"session": sid, "version": SLOTS_VERSION, "acceptance_version": acc.ACCEPTANCE_VERSION,
+           "slot_state_version": ss.SLOT_STATE_VERSION, "stamp": G["stamp"],
+           "frames_scored": int(f.size), "rounds": len(rounds), "sides": {}, "_arrays": {}}
+    for side, subj, slots in (("enemy", M.ei, G["L"]["enemy_slots"]), ("ally", M.ci, G["L"]["slots"])):
+        rows = np.flatnonzero(side_of == side)
+        other = M.ci if side == "enemy" else M.ei
+        tslot, notes = _truth_slots(slots, [M.agent.get(M.sid[j]) for j in subj])
+        q = defaultdict(list)
+        for i, j in enumerate(subj):
+            if tslot[i] < 0:
+                continue
+            live = np.flatnonzero(alive[j, kk])
+            if not live.size:
+                continue
+            fr = f[live]
+            row = np.full(live.size, rows[tslot[i]])
+            x, y = PX[j, live], PY[j, live]
+            C = ss.contains(B, row, fr, x, y)
+            kind = C["kind"].astype(np.int64)
+            fit = kind == ss.FIT
+            mates = np.delete(np.arange(len(subj)), i)
+            fo = np.full(live.size, -1, np.int64)
+            if fit.any():
+                fo[fit] = acc.slot_fit_outcomes(
+                    B["x"][row[fit], fr[fit]], B["y"][row[fit], fr[fit]], x[fit], y[fit],
+                    PX[np.asarray(subj)[mates]][:, live[fit]].T, PY[np.asarray(subj)[mates]][:, live[fit]].T,
+                    PX[np.asarray(other)][:, live[fit]].T, PY[np.asarray(other)][:, live[fit]].T)
+            q["round"].append(rr_f[live])
+            q["inside"].append(C["region"] & G["open"][row, fr])
+            q["kind"].append(kind)
+            q["area"].append(ss.region_area(B, row, fr))
+            q["R"].append(np.asarray(C["R"], float))
+            q["drawn"].append(np.asarray(J["drawn"], bool)[j, kk[live]] if side == "enemy"
+                              else np.ones(live.size, bool))
+            q["fit_out"].append(fo)
+        Q = {key: np.concatenate(v) for key, v in q.items()} if q else \
+            {key: np.zeros(0) for key in ("round", "inside", "kind", "area", "R", "drawn", "fit_out")}
+        Q["n_rounds"] = len(rounds)
+        kind_sf = B["kind"][rows][:, f]
+        op = kind_sf != ss.CLOSED
+        SF = {"round": np.broadcast_to(rr_f, kind_sf.shape)[op], "kind": kind_sf[op],
+              "slot": np.broadcast_to(np.arange(rows.size)[:, None], kind_sf.shape)[op]}
+        sc = acc.slot_region_scores(Q, SF, kinds, unbounded=("unanchored",))
+        counts = (G["enemy"]["bind"]["counts"] if side == "enemy" else G["bind"]["counts"])
+        out["sides"][side] = {**sc["doc"], "truth_pairing": notes,
+                              "slot_agents": [s.get("agent") for s in slots],
+                              "binding_counts": {kk_: v for kk_, v in counts.items()
+                                                 if isinstance(v, (int, str))}}
+        out["_arrays"][side] = sc["arrays"]
+    out["secs"] = round(time.perf_counter() - t0, 1)
+    return out
+
+
+def _print_slots(scope: str, d: dict) -> None:
+    def fmt(v):
+        return "-" if not v or v.get("value") is None else f"{v['value']:.4f} {v.get('ci')}"
+    for side in ("enemy", "ally"):
+        s = d.get(side)
+        if not s:
+            continue
+        print(f"   {scope} {side}: calibration {fmt(s.get('calibration'))}; anchored "
+              f"{fmt(s.get('calibration_anchored'))}; T1d-drawn {fmt(s.get('calibration_drawn'))}; "
+              f"unanchored {fmt(s.get('unanchored'))}; lane coverage {fmt(s.get('lane_coverage'))} "
+              f"(drawn {fmt(s.get('lane_coverage_drawn'))}); fit right {fmt(s.get('fit_right_entity'))}",
+              flush=True)
+
+
+def run_slots(sessions: list[str], record: bool) -> int:
+    """Score both sides' slot regions on each session, pool the development
+    and the 2026-10-07 sessions and all of them, print, write the document
+    under OUT/steps/slots and, with `record`, the metrics."""
+    for sid in sessions:
+        _refuse(sid)
+    res = []
+    sub = OUT / "steps" / "slots"
+    sub.mkdir(parents=True, exist_ok=True)
+    for sid in sessions:
+        r = slot_regions(sid)
+        (sub / f"{sid}.json").write_text(json.dumps({k: v for k, v in r.items() if k != "_arrays"},
+                                                    indent=1, default=str), encoding="utf-8")
+        e = r["sides"]["enemy"]
+        print(f"{sid} slots: {r['frames_scored']} frames, {r['rounds']} rounds, {r['secs']} s; enemy binding "
+              f"{e['binding_counts']}; area (bounded) {e['area_m2_bounded']}; by kind "
+              + "; ".join(f"{k}: {v['value']} n={v['den']} r={v['radius_m'].get('median')}"
+                          for k, v in e["by_kind"].items()), flush=True)
+        flat = {side: {**{n: v for n, v in r["sides"][side].items()
+                          if isinstance(v, dict) and "value" in v},
+                       **{f"fit_{o}": r["sides"][side]["fit_outcomes"][o] for o in acc.SLOT_FIT_OUTCOMES}}
+                for side in r["sides"]}
+        _print_slots(sid, flat)
+        res.append(r)
+    pools = {}
+    scopes = [("dev3", [r for r in res if r["session"] in DEV]), ("new3", [r for r in res if r["session"] in NEW]),
+              ("all6", res)]
+    for name, rs in scopes:
+        if len(rs) < 2 or (name == "all6" and len(rs) != len(DEV) + len(NEW)):
+            continue
+        pools[name] = {side: acc.pool_slot_regions([{"arrays": r["_arrays"][side]} for r in rs])
+                       for side in ("enemy", "ally")}
+        _print_slots(name, pools[name])
+    doc = {"step": "slots", "version": SLOTS_VERSION, "acceptance_version": acc.ACCEPTANCE_VERSION,
+           "boot": f"{acc.N_BOOT} round resamples, seed {acc.SEED}",
+           "sessions": {r["session"]: {k: v for k, v in r.items() if k != "_arrays"} for r in res},
+           "pooled": pools}
+    (OUT / "step_slots.json").write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
+    if record:
+        _record_slots(res, pools, sessions)
+    return 0
+
+
+def _record_slots(res: list[dict], pools: dict, sessions: list[str]) -> None:
+    """Each side's shares per session and pooled, with their intervals."""
+    from reticle.metrics import record as rec
+    scopes = [(r["session"], {side: {**{n: v for n, v in r["sides"][side].items()
+                                        if isinstance(v, dict) and "value" in v},
+                                     **{f"fit_{o}": r["sides"][side]["fit_outcomes"][o]
+                                        for o in acc.SLOT_FIT_OUTCOMES},
+                                     **{f"kind_{k}": v for k, v in r["sides"][side]["by_kind"].items()}}
+                              for side in r["sides"]}, r) for r in res]
+    scopes += [(name, p, None) for name, p in pools.items()]
+    for scope, by_side, r in scopes:
+        for side, d in by_side.items():
+            vals = {n: v["value"] for n, v in d.items() if v.get("value") is not None}
+            ci = {n: v["ci"] for n, v in d.items() if v.get("ci") is not None}
+            vals.update({f"{n}_den": v["den"] for n, v in d.items() if v.get("den") is not None})
+            if r is not None:
+                s = r["sides"][side]
+                for k, v in s["by_kind"].items():
+                    if v["radius_m"].get("median") is not None:
+                        vals[f"kind_{k}_radius_m_median"] = v["radius_m"]["median"]
+                    if v["area_m2"].get("median") is not None:
+                        vals[f"kind_{k}_area_m2_median"] = v["area_m2"]["median"]
+                if s["area_m2_bounded"].get("median") is not None:
+                    vals["area_m2_bounded_median"] = s["area_m2_bounded"]["median"]
+            rec("question_acceptance", part=f"slots/{side}", session=scope, values=vals, ci=ci,
+                deps={"version": SLOTS_VERSION, "acceptance_version": acc.ACCEPTANCE_VERSION,
+                      "rule": "T1d", "near_m": acc.SLOT_NEAR_M,
+                      "stamp": r["stamp"] if r is not None else None},
+                context={"task": TASK_SLOTS, "boot": f"{acc.N_BOOT} round resamples, seed {acc.SEED}",
+                         "sessions": sessions},
+                note=f"{side} slot regions (slot_state causal) against replay truth on the drawn "
+                     "ally_icon frames in live play; calibration = truth inside the region; "
+                     "unanchored = share of open slot-frames whose region is the map; lane coverage = "
+                     "share of living-player rows whose slot holds a fit")
 
 
 def main(argv=None) -> int:

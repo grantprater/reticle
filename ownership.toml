@@ -1154,7 +1154,7 @@ evidence = "tests/test_minimap_objects.py, prototypes/minimap_objects_s2.py"
 id = "enemy-track-session"
 question = "Which enemy tracks did a session's rounds hold, how did each end, and which '?' marks its last place?"
 owner = "enemy_tracks"
-stored_consumers = ["entity_events"]
+stored_consumers = ["entity_events", "slot_state"]
 role = ["lifecycle"]
 status = "partial"
 names_agents = true
@@ -1241,7 +1241,7 @@ evidence = "tests/test_entity_events.py"
 
 [[entry]]
 id = "position-belief"
-question = "Where was a player slot, the player's own or a teammate's, at an instant nothing observed?"
+question = "Where was a player slot, the player's own, a teammate's or an enemy's, at an instant nothing observed?"
 owner = "slot_state"
 role = ["adjudicate", "track"]
 status = "partial"
@@ -1252,14 +1252,19 @@ not_for = """
 Becoming a second tracker, or a fifth belief. Two laws answer here, one owner:
 `resolve` projects the self slot's observed, interpolated, held and unresolved
 fixes per sampled instant (belief-0.3.0, folded in from `belief.py` on
-2026-10-09), and `beliefs` holds every ally slot's causal fit, crowd and reach
-region per stored frame. Both keep a refusal distinguishable from an absent
+2026-10-09), and `beliefs` holds every player slot's fit, crowd and reach
+region per stored frame, the five allies' and the five enemies' (run per side,
+joined by `join_beliefs`): an enemy slot never fixed this round is
+`unanchored`, one seen and then unseen holds `reach` from its last fix, and a
+dead one is `closed`. Both keep a refusal distinguishable from an absent
 widget, take their evidence as arguments, never treat a `Fix` or a region as
 evidence, and report observed and believed coverage apart. Reach is a
 Euclidean disc of `v_max` until a walk graph is baked with the geometry; the
 reachable sets of `prototypes/coaching_belief.py` and
-`reticle/harness/schedule.py` are truth-side evaluations, not owners.
-Enemy slots and ability entities join later on the same entity axis.
+`prototypes/real_reader_schedule.py` are truth-side evaluations, not owners;
+the former floods the walk graph of the prototypes' 3D sightline table, so
+porting it as reach waits for the walk-graph bake. Ability entities join
+later on the same entity axis.
 """
 defers_to = ["self-position", "widget-drawn", "domain-fact"]
 evidence = "tests/test_belief.py, tests/test_slot_state.py"
@@ -1289,21 +1294,27 @@ evidence = "tests/test_gate_hook.py; reticle acceptance hook (QA5r3)"
 
 [[entry]]
 id = "slot-state"
-question = "Which ally player slots are open at a frame, and which fit binds to each?"
+question = "Which player slots, ally and enemy, are open at a frame, and which fit binds to each?"
 owner = "slot_state"
 role = ["assign", "lifecycle"]
 status = "partial"
 names_agents = true
 produces = ["build_slots", "write_record", "slot_summary", "player_lifecycle", "round_segments",
             "causal_bind", "bind_entities", "load_fits", "spectated_slots", "stack_entities",
-            "EntityRow", "StoredRows", "world_frame", "SLOT_STATE_VERSION"]
+            "EntityRow", "StoredRows", "world_frame", "SLOT_STATE_VERSION", "enemy_rows",
+            "stored_enemy_tracks", "bind_enemy_tracks", "enemy_block", "join_beliefs",
+            "ENEMY_BINDING_VERSION", "ENEMY_FIT_REASONS"]
 defers_to = ["agent-identity", "agent-from-slot", "tray-kit", "track-continuation",
              "map-geometry", "domain-fact", "replay-alignment", "agent-spelling"]
 not_for = """
 Deciding an agent name: each slot's agent is the arbiter's lineup verdict and
 a fit's portrait score is the arbiter's (`agent-identity`); the slot carries
-both and `rests_on` them. Nor where a slot is between fits
-(`position-belief`, the same module), enemy slots (ENTITY_STATE step 5), the
+both and `rests_on` them. An enemy slot binds the stored `enemy_track` rows:
+`round_lifetimes` joins the finds into tracks and judges each real
+(`detection-reality`), the arbiter names each track, and a track binds the
+slot whose verdict names the same agent; this owner joins no find, judges no
+track and closes a slot only at the death owner's verdict (`death-victim`).
+Nor where a slot is between fits (`position-belief`, the same module), the
 tray's ability state (the `ability_tray` lane of `ability-state`), or replay
 truth: the map frame uses valorant-api's constants and the baked geometry,
 never a replay. B1 of QUESTION_ACCEPTANCE: the assignment moves into
@@ -1888,7 +1899,7 @@ evidence = "tests/test_acquisition.py"
 id = "death-victim"
 question = "Which agent died at this killfeed time, who killed them, and where?"
 owner = "adjudication.death"
-stored_consumers = ["entity_events"]
+stored_consumers = ["entity_events", "slot_state"]
 role = ["attribute", "adjudicate"]
 status = "partial"
 produces = ["DEATH_ADJUDICATION_VERSION", "DeathVerdict", "adjudicate_death", "adjudicate_round_deaths", "death_verdict_to_events", "shrink_events", "expand_events", "TeamRoster", "RoundRosterSnapshot", "LivingRosterTracker", "build_round_roster_timeline", "build_match_roster_timeline", "scoreboard_death_claims", "board_collisions", "COLLISION_IMPLICATED", "portrait_exemplars", "EXEMPLAR_LABEL_CHANNELS", "extract_minimap_death_marks", "extract_killer_location", "second_life_death", "entry_second_life", "stored_second_life", "player_revive_times", "KIT_REVIVE_ICONS", "split_second_lives", "death_key", "panel_aside", "session_entries", "adjudicate_session_deaths", "classify_revive_icon", "REVIVE_ICONS", "revive_entry", "x_shape", "minimap_x_marks", "xmark_births", "match_xmark", "stored_xmark_births", "assist_stamp", "join_assists"]

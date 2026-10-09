@@ -14,7 +14,8 @@ owns each command only when it runs:
   (`run`, `budget`);
 * `hook`, `hook-report`, `arms-report` -- QA5r3 over the gated ally pass and
   the stored read-schedule arms (`schedule`);
-* `draw-persist`, `draw-smokes` -- T1d's persistence and smoke census (`draw`).
+* `draw-persist`, `draw-smokes` -- T1d's persistence and smoke census (`draw`);
+* `slots` -- B1, both sides' slot regions against replay truth (`run`).
 
 `summary` stays in `cli` beside them: it rescores stored rows on
 `reticle.acceptance` alone.
@@ -28,7 +29,8 @@ from .extras import DEV, NEW
 #: Every subcommand `dispatch` runs.
 COMMANDS = ("label", "lane", "ally", "smoke", "glyph", "marks", "replay-score", "replay-abilities",
             "budget", "budget-feats", "budget-eye", "budget-sample", "budget-levers", "budget-eye-score",
-            "budget-peek", "hook", "hook-report", "arms-report", "draw-persist", "draw-smokes")
+            "budget-peek", "hook", "hook-report", "arms-report", "draw-persist", "draw-smokes",
+            "slots")
 
 
 def add_parsers(sub) -> None:
@@ -74,6 +76,9 @@ def add_parsers(sub) -> None:
     p.add_argument("--record", action="store_true")
     p.add_argument("--rewrite", action="store_true",
                    help="rewrite a stored players-only budget that differs")
+    p = sub.add_parser("slots", help="B1: both sides' slot regions (slot_state) against replay truth")
+    p.add_argument("sessions", nargs="*", default=list(DEV) + list(NEW))
+    p.add_argument("--record", action="store_true")
     p = sub.add_parser("budget-feats", help="the budget's features per miss and extra")
     p.add_argument("sessions", nargs="+")
     p.add_argument("--tag", required=True)
@@ -139,6 +144,8 @@ def dispatch(a, cmd: str) -> int:
         return run.run_replay_score(a.sessions or list(DEV), a.geometry, a.legacy_out, a.record, a.record_score)
     if cmd == "replay-abilities":
         return run.run_replay_abilities(a.sessions or list(DEV), a.legacy_out, a.record, a.record_score)
+    if cmd == "slots":
+        return run.run_slots(a.sessions or list(DEV) + list(NEW), a.record)
     if cmd == "budget":
         return run.run_budget(a.tag, a.sessions or list(DEV), a.record, a.rewrite)
     if cmd.startswith("budget-"):

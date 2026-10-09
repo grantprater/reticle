@@ -8,8 +8,8 @@ The harness runs in process from the pipeline since 2026-10-09 (task
 and `label`, `ally`, `smoke`, `glyph`, `marks`, `replay-score`,
 `replay-abilities`, `budget` (with `budget-feats`, `budget-eye`,
 `budget-eye-score`, `budget-levers`, `budget-sample`, `budget-peek`),
-`hook`, `hook-report`, `arms-report`, `draw-persist`, `draw-smokes` and
-`summary`. `reticle/harness/run.py` holds the commands and their record;
+`hook`, `hook-report`, `arms-report`, `draw-persist`, `draw-smokes`,
+`slots` and `summary`. `reticle/harness/run.py` holds the commands and their record;
 `reticle/acceptance.py` holds the core. This file forwards its old
 subcommands there and keeps the names its callers and tests import.
 """
@@ -46,7 +46,7 @@ from reticle.harness.run import (  # noqa: E402,F401
     main, NEW, OUT, record_replay_abilities, record_replay_score, replay_abilities_score,
     replay_ability_classes, REPLAY_CLAIMS, replay_classes, REPLAY_LEFT_OUT, replay_score,
     run_budget, run_budget_tool, run_label, run_lane, run_paired, run_replay_abilities,
-    run_replay_score, run_step, SCORED, step_ally, STEP_FUNCS, step_glyph, step_marks, step_smoke,
+    run_replay_score, run_slots, run_step, SCORED, slot_regions, SLOTS_VERSION, step_ally, STEP_FUNCS, step_glyph, step_marks, step_smoke,
     STEP_STREAMS, STORE, TASK, TASK9, truth_under, VERSION)
 
 _player_desc = acc.player_desc

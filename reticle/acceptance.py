@@ -1401,3 +1401,130 @@ def step_summary(rows: list, rec: dict, rounds: list, census: dict | None, extra
     if extra:
         doc.update(extra)
     return doc, {"out": by_out, "lab": by_lab, "rec": rec}
+
+
+# ----------------------------------------------------------------- slot regions against replay truth
+
+#: A slot's fit lies on its own player, another player or nothing, within
+#: this many metres of a living player's replay place (`NEAR_CM`).
+SLOT_NEAR_M = NEAR_CM / 100.0
+#: The outcomes of a slot's fit, in report order. The scorer joins players
+#: only: an ability child, the spike or an ult orb under a fit is not
+#: joined, so a fit on one reads `nothing_there` (each report says so).
+SLOT_FIT_OUTCOMES = ("right_entity", "same_side", "other_side", "nothing_there")
+SLOT_NOT_JOINED = ("ability children, the spike and the ult orbs: this scorer pairs each slot with "
+                   "its own replay player and checks fits against players only")
+
+
+def _round_counts(rr: np.ndarray, nr: int, mask) -> np.ndarray:
+    return np.bincount(rr[np.asarray(mask, bool)], minlength=nr).astype(float)
+
+
+def _quantiles(v) -> dict:
+    """n, median, p10 and p90 of the finite values."""
+    v = np.asarray(v, float)
+    v = v[np.isfinite(v)]
+    if not v.size:
+        return {"n": 0}
+    p10, med, p90 = np.percentile(v, (10, 50, 90))
+    return {"n": int(v.size), "median": round(float(med), 2), "p10": round(float(p10), 2),
+            "p90": round(float(p90), 2)}
+
+
+def slot_fit_outcomes(fx, fy, own_x, own_y, side_x, side_y, other_x, other_y,
+                      near_m: float = SLOT_NEAR_M) -> np.ndarray:
+    """Each fit's outcome (index into `SLOT_FIT_OUTCOMES`): its own player
+    within `near_m`, else another living player of its side, else a living
+    player of the other side, else nothing. Positions in metres; `side_*`
+    (the slot's side, its own player left out) and `other_*` are (rows,
+    players) with NaN where none lives."""
+    def near(px, py):
+        d = np.hypot(np.asarray(px, float) - np.asarray(fx, float)[:, None],
+                     np.asarray(py, float) - np.asarray(fy, float)[:, None])
+        return (np.where(np.isfinite(d), d, np.inf) <= near_m).any(axis=1)
+    own = np.hypot(np.asarray(own_x, float) - fx, np.asarray(own_y, float) - fy) <= near_m
+    return np.where(own, 0, np.where(near(side_x, side_y), 1, np.where(near(other_x, other_y), 2, 3)))
+
+
+def slot_region_scores(Q: dict, SF: dict, kinds: dict, *, unbounded: tuple) -> dict:
+    """One session's slot beliefs against replay truth, with per-round arrays
+    for pooling (`pool_slot_regions`).
+
+    `Q` holds one row per (frame, living truth player with a slot): `round`
+    (index into the session's `n_rounds` scored rounds), `inside` (the truth
+    lies in the slot's region and the slot is open), `kind` (the belief's
+    code), `area` (m^2, NaN where the region is the map or the slot is
+    closed), `R` (the region's radius, m), `drawn` (the T1d rule draws the
+    player there) and `fit_out` (`slot_fit_outcomes`, -1 without a fit).
+    `SF` holds one row per open slot-frame on the scored frames: `round`,
+    `kind`, `slot`. `kinds` maps codes to names; `unbounded` names the kinds
+    whose region is the whole map.
+
+    Calibration is the share of rows whose truth lies inside; the lane's
+    coverage, the share whose slot holds a fit; unanchored, the share of
+    open slot-frames whose region is the whole map. Intervals resample
+    rounds (`boot_share`)."""
+    nr = int(Q["n_rounds"])
+    rounds = list(range(nr))
+    code = {v: k for k, v in kinds.items()}
+    arr = {}
+
+    def share(name, rr, num, den):
+        a, b = _round_counts(rr, nr, num & den), _round_counts(rr, nr, den)
+        arr[name] = (a, b)
+        return {"value": round(float(a.sum() / b.sum()), 4) if b.sum() else None,
+                "ci": boot_share(rounds, a, b) if b.sum() else None,
+                "num": int(a.sum()), "den": int(b.sum())}
+
+    rr = np.asarray(Q["round"], np.int64)
+    kind = np.asarray(Q["kind"], np.int64)
+    inside = np.asarray(Q["inside"], bool)
+    drawn = np.asarray(Q["drawn"], bool)
+    fit = kind == code["fit"]
+    unb = np.isin(kind, [code[k] for k in unbounded])
+    one = np.ones(rr.size, bool)
+    out = {"rows": int(rr.size), "rounds": nr,
+           "calibration": share("calibration", rr, inside, one),
+           "calibration_anchored": share("calibration_anchored", rr, inside, ~unb),
+           "calibration_drawn": share("calibration_drawn", rr, inside, drawn),
+           "calibration_undrawn": share("calibration_undrawn", rr, inside, ~drawn),
+           "lane_coverage": share("lane_coverage", rr, fit, one),
+           "lane_coverage_drawn": share("lane_coverage_drawn", rr, fit, drawn),
+           "by_kind": {}}
+    area = np.asarray(Q["area"], float)
+    R = np.asarray(Q["R"], float)
+    for c, name in kinds.items():
+        m = kind == c
+        if m.any():
+            out["by_kind"][name] = {**share(f"kind_{name}", rr, inside, m),
+                                    "rows_share": round(float(m.mean()), 4),
+                                    "area_m2": _quantiles(area[m]), "radius_m": _quantiles(R[m])}
+    out["area_m2_bounded"] = _quantiles(area[~unb])
+    fo = np.asarray(Q["fit_out"], np.int64)
+    out["fit_outcomes"] = {o: share(f"fit_{o}", rr, fo == i, fit) for i, o in enumerate(SLOT_FIT_OUTCOMES)}
+    out["fit_not_joined"] = SLOT_NOT_JOINED
+    srr = np.asarray(SF["round"], np.int64)
+    skind = np.asarray(SF["kind"], np.int64)
+    sslot = np.asarray(SF["slot"], np.int64)
+    sun = np.isin(skind, [code[k] for k in unbounded])
+    out["unanchored"] = share("unanchored", srr, sun, np.ones(srr.size, bool))
+    out["unanchored_by_slot"] = {int(s): share(f"unanchored_slot{int(s)}", srr, sun, sslot == s)
+                                 for s in np.unique(sslot)}
+    out["open_kinds"] = {kinds[int(c)]: int((skind == c).sum()) for c in np.unique(skind)}
+    return {"doc": out, "arrays": arr}
+
+
+def pool_slot_regions(per: list[dict]) -> dict:
+    """`slot_region_scores` pooled over sessions: each share summed, its
+    interval resampling rounds within each match and adding the matches
+    (`boot_pooled`)."""
+    if not per:
+        return {}
+    out = {}
+    for name in sorted(set.intersection(*(set(p["arrays"]) for p in per))):
+        pm = [p["arrays"][name] for p in per]
+        a = sum(float(x[0].sum()) for x in pm)
+        b = sum(float(x[1].sum()) for x in pm)
+        out[name] = {"value": round(a / b, 4) if b else None, "ci": boot_pooled(pm) if b else None,
+                     "num": int(a), "den": int(b)}
+    return out

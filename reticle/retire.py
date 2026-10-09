@@ -10,7 +10,10 @@ rely on the events stream. Before a match's video is deleted its audio track
 is kept by stream copy, checked against the capture and the crop caches, and
 the audio readers are pointed at it (`audio_source`). Screen regions outside
 the cached ROIs, the screen centre among them, come from future sessions,
-never from retained video. Crop caches stay.
+never from retained video. Crop caches stay until the player deletes them;
+the player deleted every one on 2026-10-09, a `roi_cache` row in the same
+log (`roi_cache.cache_retirement`), so a retired session with no cache has
+no pixels (`roi_cache.pixel_source`).
 
 What one run does, per session:
 
