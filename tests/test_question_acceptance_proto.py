@@ -1,18 +1,15 @@
-"""Synthetic checks of prototypes/question_acceptance.py: the lane outcome
+"""Synthetic checks of the acceptance harness (`reticle.harness.run`): the lane outcome
 of each find and the named-slot questions.
 
 No store is read; every input is built here.
 """
-import sys
 import unittest
-from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
-import question_acceptance as qa  # noqa: E402
-import real_reader_schedule as rrs  # noqa: E402
-from reticle.agent_names import agent_key  # noqa: E402
+from reticle.agent_names import agent_key
+from reticle.harness import run as qa
+from reticle.harness import schedule as rrs
 
 #: Enemy subjects 5-9; Sova is subject 5, Jett 6.
 FOE = {agent_key("Sova"): [5], agent_key("Jett"): [6], agent_key("KAY/O"): [7]}

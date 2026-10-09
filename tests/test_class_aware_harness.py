@@ -1,21 +1,18 @@
-"""Synthetic checks of the class-aware harness (prototypes/question_acceptance.py):
+"""Synthetic checks of the class-aware harness (`reticle.harness.run`):
 `truth_under`'s parts, the outcome taxonomy, the coverage report, and T0's
 child table (`episodes.ChildTable`).
 
 No store is read; every input is built here.
 """
 import json
-import sys
 import types
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
-import question_acceptance as qa  # noqa: E402
-from reticle import episodes as ep  # noqa: E402
-from reticle.domain import Fact  # noqa: E402
+from reticle import episodes as ep
+from reticle.domain import Fact
+from reticle.harness import run as qa
 
 
 def child_table(cls=("Pawn_A", "Static_B"), ticks=None, **cols):

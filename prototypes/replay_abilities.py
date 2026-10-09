@@ -1,5 +1,9 @@
 r"""Ability actors in VALORANT replays as external truth for evaluation.
 
+Moved into the acceptance harness on 2026-10-09
+(`reticle/harness/abilities.py`, task `harness-t1d-20261009`): the scorer's
+constants and `actor_census`. This file imports them back.
+
     .\.venv\Scripts\python.exe prototypes\replay_abilities.py census MATCH [--record]
     .\.venv\Scripts\python.exe prototypes\replay_abilities.py score SESSION [--record]
     .\.venv\Scripts\python.exe prototypes\replay_abilities.py survey [--record]
@@ -103,12 +107,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import replay_truth as rt  # noqa: E402
 import riot_ground_truth as rg  # noqa: E402
 
-REPLAY_ABILITIES_VERSION = "replay-abilities-0.1.0"
-STORE = rt.STORE
-ANALYSIS = STORE / "analysis" / "replay-abilities-20261004"
-#: A stored cast or ult pairs with a replay one within this many ms.
-CAST_GATE_MS = 2000.0
-ULT_GATE_MS = 3000.0
+# Moved into the acceptance harness (`reticle/harness/abilities.py`, task
+# harness-t1d-20261009); these names stay for this module's callers.
+from reticle.harness.abilities import (  # noqa: E402,F401
+    _stats, actor_census, ANALYSIS, CAST_GATE_MS, REPLAY_ABILITIES_VERSION, STORE, ULT_GATE_MS)
+
 # The actor reader, the class-to-ability mapping and the cast records live in
 # the pipeline (`reticle.replay_actors`) since 2026-10-05; these names stay
 # for callers.
@@ -117,13 +120,6 @@ from reticle.replay_actors import (CAST_ARRAY, CAST_FIELDS,  # noqa: E402,F401
                                    ROLE_PREFIX, SLOT_MIN_PAIRED, SLOT_MIN_SHARE, Export, _FOLDER,
                                    _leaf, _role, ability_display, handoff, slot_map)
 from reticle.replay_actors import class_census  # noqa: E402
-
-_stats = rt._stats
-
-
-def actor_census(match: str, ex: Export | None = None) -> dict:
-    """`reticle.replay_actors.class_census`, stamped with this scorer's version."""
-    return {**class_census(match, ex), "replay_abilities_version": REPLAY_ABILITIES_VERSION}
 
 
 # ----------------------------------------------------------------- score

@@ -1,14 +1,11 @@
-"""Which sessions `prototypes/teardrop_refusals.refuse` admits.
+"""Which sessions the acceptance harness admits (`reticle.harness.extras.refuse`).
 
 No store is read: `refuse` checks only the session id.
 """
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "prototypes"))
-import question_acceptance as qa  # noqa: E402
-import teardrop_refusals as tr  # noqa: E402
+from reticle.harness import extras as tr
+from reticle.harness import run as qa
 
 
 class RefuseScopeTests(unittest.TestCase):
@@ -32,7 +29,7 @@ class RefuseScopeTests(unittest.TestCase):
         self.assertNotIn(tr.HELD_OUT, tr.SCORED)
 
     def test_the_lane_check_refuses_outside_the_scored_set(self):
-        import enemy_lane_check as elc
+        from reticle.harness import sets as elc
         with self.assertRaisesRegex(SystemExit, "held-out"):
             elc.build_sets("cea8ecbc94ab")
         with self.assertRaisesRegex(SystemExit, "neither a development match"):

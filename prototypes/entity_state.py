@@ -203,8 +203,10 @@ def _below_normal() -> None:
         pass
 
 
-def _canon(a):
-    return None if a is None else str(a).strip().lower().replace("/", "")
+# Moved into the acceptance harness (`reticle/harness/schedule.py`, task
+# harness-t1d-20261009); these names stay for this module's callers.
+from reticle.harness.schedule import (  # noqa: E402,F401
+    _canon, truth_slot_map)
 
 
 def lifecycle(sid: str, S, slots: list[dict]) -> dict:
@@ -261,27 +263,6 @@ def _q(a) -> dict | None:
         return None
     return {"median": round(float(np.median(a)), 2), "p10": round(float(np.percentile(a, 10)), 2),
             "p90": round(float(np.percentile(a, 90)), 2), "mean": round(float(a.mean()), 2)}
-
-
-def truth_slot_map(slots: list[dict], truth_agents: list[str]) -> tuple[dict, list]:
-    """Truth agent -> slot index: the arbiter's names, then one-to-one
-    elimination of what is left (evaluation only)."""
-    by = {_canon(s["agent"]): k for k, s in enumerate(slots) if s["agent"]}
-    out, notes = {}, []
-    left_t = []
-    for a in truth_agents:
-        if _canon(a) in by:
-            out[_canon(a)] = by[_canon(a)]
-        else:
-            left_t.append(a)
-    left_s = [k for k in range(5) if k not in out.values()]
-    if len(left_t) == 1 and len(left_s) == 1:
-        out[_canon(left_t[0])] = left_s[0]
-        notes.append({"truth": left_t[0], "slot": left_s[0], "how": "elimination",
-                      "slot_agent": slots[left_s[0]]["agent"]})
-    elif left_t:
-        notes.append({"unmapped_truth": left_t, "free_slots": left_s})
-    return out, notes
 
 
 def riot_context(sid: str) -> dict:
