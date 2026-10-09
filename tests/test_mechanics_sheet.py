@@ -180,6 +180,16 @@ class SpawnTreeTest(unittest.TestCase):
         self.assertEqual(cam["cells"]["effects"]["status"], "ask")
         self.assertNotEqual(ms.cell_key(cam, "parent"), ms.cell_key(dart, "parent"))
 
+    def test_drawing_loss_is_asked_per_object_unless_a_game_file_fact_states_it(self):
+        cam, dart = ms.build_rows(SPYCAM, {}, self.exports, {})
+        for row in (cam, dart):
+            self.assertEqual(row["cells"]["drawing_loss"]["status"], "ask")
+        text, opts = ms.cell_question(dart, "drawing_loss", {})[:2]
+        self.assertIn("minimap drawing disappears, has Spycam's tracking dart ended?", text)
+        self.assertEqual([v for _w, v in opts], list(ms.DRAWING_LOSS))
+        # a row's lifecycle fact never waits on it
+        self.assertNotIn("drawing_loss", ms.IMPORT_COLUMNS)
+
     def test_prompts_use_plain_words_never_class_names(self):
         _cam, dart = ms.build_rows(SPYCAM, {}, self.exports, {})
         text, _ = ms.render(dart, "owner_death", ms.cell_key(dart, "owner_death"), {})

@@ -819,6 +819,9 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                           "death": _in("inputs.death", death),
                           "assist": _in("inputs.assist", "assist#assist_adjudication_version"),
                           "round": _in("inputs.round", "rounds"),
+                          # the spawn tree and each node's sheet answers
+                          # (`slot_state.ability_objects`): an answer edit restales it
+                          "mechanics_sheet": _in("inputs.mechanics_sheet", "mechanics_sheet"),
                           **{f"dead_ruse_{k}": v for k, v in
                              _gate("inputs.dead_ruse_gate.", optional=True).items()},
                           **_lineup_inputs()},
@@ -933,7 +936,7 @@ def _probe_stream(probe: str) -> str | None:
         return probe.split("#", 1)[0]
     if probe in ("geometry", "lineup_file", "reliability", "catalogue", "catalogue_icons",
                  "portrait_refs", "portrait_refs_fit", "audio_features", "audio_labels",
-                 "glyph_drawing_answers"):
+                 "glyph_drawing_answers", "mechanics_sheet"):
         return None
     return probe
 
@@ -1139,6 +1142,9 @@ def input_head(store, manifest: dict, probe: str, head: dict | None = None,
             now = f"reference/abilities.json#{reference_key(root)}"
         else:
             now = ist.NO_ROWS
+    elif probe == "mechanics_sheet":
+        from .mechanics_sheet import sheet_stamp
+        now = sheet_stamp(root) if root is not None else ist.NO_ROWS
     elif probe == "glyph_drawing_answers":
         from .adjudication.ability_glyph import drawing_answers_stamp
         now = drawing_answers_stamp(root) if root is not None else ist.NO_ROWS

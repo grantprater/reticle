@@ -2046,7 +2046,7 @@ role = ["attribute", "adjudicate"]
 status = "shipped"
 entity_kind = "ability"
 names_agents = true
-produces = ["CHANNELS", "ABILITY_CHANNELS_VERSION", "ABILITY_ENTRIES", "CLAIM_CHANNEL",
+produces = ["CHANNELS", "ABILITY_CHANNELS_VERSION", "ABILITY_ENTRIES", "claim_channel", "child_claims",
             "child_identity", "channel", "opens_on"]
 defers_to = ["agent-identity"]
 not_for = """

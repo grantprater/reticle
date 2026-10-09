@@ -246,11 +246,14 @@ class EnemySlotTest(unittest.TestCase):
         # only KAY/O's track binds, to the slot the lineup's verdict names KAY_O
         self.assertEqual(np.flatnonzero(bind["has"].any(axis=1)).tolist(), [1])
         # the module calls no identity rule: names come from stored verdicts only;
-        # `child_identity` alone publishes the ability nodes' claims to the arbiter
-        # [owns:ability-owner], each naming its owner slot's verdict
+        # `child_claims` and `child_identity` alone publish the ability nodes'
+        # claims to the arbiter [owns:ability-owner], each naming its owner
+        # slot's verdict (tests/test_ability_children.py,
+        # test_every_claim_names_the_owner_slots_stored_verdict)
         import inspect
-        src = Path(ss.__file__).read_text(encoding="utf-8").replace(
-            inspect.getsource(ss.child_identity), "")
+        src = Path(ss.__file__).read_text(encoding="utf-8")
+        for fn in (ss.child_claims, ss.child_identity):
+            src = src.replace(inspect.getsource(fn), "")
         for rule in ("adjudicate_agent_identity", "claims_from_ally_icons", "identity_claim("):
             self.assertNotIn(rule, src)
 

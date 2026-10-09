@@ -450,9 +450,14 @@ ABILITY_LANES = {"ability": "children and effects (`ability-child`, `ability-eff
 #: object (the mechanics sheet's spawn tree); glyph tracks re-acquired at the
 #: same place join one child; a team-owned glyph's verify loss ends its child.
 #: A change to a child rule restamps this stamp alone, never the player slots.
-#: 0.2.1 (2026-10-09, post hoc): a drawing's loss ends a node only where its
-#: own facts give no lifetime (`_glyph_end`).
-ABILITY_CHILD_VERSION = "ability-child-0.2.1"
+#: 0.2.1 (2026-10-09, post hoc, withdrawn): a drawing's loss ended a node only
+#: where its own facts gave no lifetime, a rule over every ability drawn from
+#: two.
+#: 0.3.0 (2026-10-09): a drawing's loss ends a node only where its own sheet
+#: row answers `drawing_loss` yes (`_drawing_lost`); an unanswered cell ends
+#: nothing and stores `no-fact`. Claims come from `CHANNELS`, and a
+#: `possible` node publishes none.
+ABILITY_CHILD_VERSION = "ability-child-0.3.0"
 #: ability-effect-0.1.0 (2026-10-09): the player's ability kills and assists,
 #: and any effect an ability's own `effects` fact names.
 #: 0.2.0 (2026-10-09): every slot's; a spawned object's own effects hang
@@ -491,7 +496,7 @@ OTHER_TEAM = {"ally": "enemy", "enemy": "ally"}
 NODE_INSTANCE, NODE_OBJECT = "instance", "object"
 #: The sheet columns an object node's lifecycle reads (`ability_objects`).
 OBJECT_COLUMNS = ("parent", "lifecycle_class", "lifetime_s", "owner_death", "ends_on", "effects",
-                  "destructible")
+                  "destructible", "drawing_loss")
 
 
 def _subject_key(subject: str) -> tuple[str, str]:
@@ -664,11 +669,18 @@ def ability_objects(store_root: Path = DEFAULT_STORE) -> dict:
     try:
         rows = ms.load_prefill_rows(root)
     except SystemExit as e:
-        return {"tree": {}, "stamp": {"version": None, "reason": f"sheet_unread: {e}"}}
+        return {"tree": {}, "drawing_loss": {},
+                "stamp": {"version": None, "reason": f"sheet_unread: {e}"}}
     answers = ms.load_sheet_answers(root)
     tree: dict = defaultdict(list)
+    loss: dict = {}
     for r in rows:
-        if ms.is_agent_row(r) or not r.get("part"):
+        if ms.is_agent_row(r):
+            continue
+        if not r.get("part"):
+            if "drawing_loss" in (r.get("cells") or {}):
+                loss[(agent_key(r["agent"]), r["slot"])] = _sheet_value(
+                    r, "drawing_loss", answers, ms.cell_key)
             continue
         if all((r["cells"].get(c) or {}).get("status") in ms.NOT_ASKED for c in OBJECT_COLUMNS):
             continue
@@ -679,7 +691,7 @@ def ability_objects(store_root: Path = DEFAULT_STORE) -> dict:
             "ability": r["ability"], "cells": cells,
             "textures": sorted(t for t, v in tex.items() if (v or {}).get("owner") == r["part"])})
     p = root / ms.ANSWERS
-    return {"tree": dict(tree), "stamp": {
+    return {"tree": dict(tree), "drawing_loss": loss, "stamp": {
         "version": ms.VERSION, "answers_sha": (ms._file_sha(p) if p.is_file() else "no_rows"),
         "reason": None}}
 
@@ -763,21 +775,23 @@ def _nearest_child(cands: list[dict], t: float) -> dict | None:
     return min(cands, key=lambda c: (abs(t - c["open"]["hi_ms"]), c["open"]["hi_ms"])) if cands else None
 
 
-def _glyph_end(c: dict, g: dict, life: dict, gver) -> None:
-    """A team-owned drawing's verify loss (`GLYPH_LOST`): the node's observed
-    end where its own facts give no lifetime; where a lifetime fact gives an
-    expiry, the game files outrank the drawing
-    [domain:abilities/game-files-outrank-player-quantities], so a loss before
-    that expiry is a stored surprise and ends nothing (ability-child-0.2.1,
-    a post-hoc revision: the drawings of Flash/drive and ZERO/point vanished
-    before their actors closed)."""
+def _drawing_lost(c: dict, g: dict, cell: tuple | None, tag: str, gver) -> None:
+    """A team-owned drawing's verify loss (`GLYPH_LOST`), read through the
+    node's own sheet row: `drawing_loss` yes makes the loss the node's
+    observed end; no stores the loss and ends nothing; ask, or an unanswered
+    cell, stores the loss with its `no-fact` reason and ends nothing. No rule
+    carries one ability's answer to another
+    [domain:abilities/ability-rules-are-unique]."""
     e = g["last_ms"]
-    if life.get("lifetime_ms") is None:
+    v, src, why = cell if cell is not None else (None, None, f"no-fact:{tag}:drawing_loss")
+    if v == "ask":
+        why = f"ask:{tag}:drawing_loss ({src})"
+    c["drawing_loss"] = {"t_ms": e, "answer": v if v in ("yes", "no") else None, "source": src,
+                         "reason": None if v in ("yes", "no") else why,
+                         "evidence": _evidence("ability_glyph_name", g["entity_id"], gver, e)}
+    if v == "yes":
         c["observed_end"] = {"lo_ms": e, "hi_ms": e + GLYPH_STEP_MS, "basis": "observed_end",
                              "evidence": _evidence("ability_glyph_name", g["entity_id"], gver, e)}
-    elif e < c["predicted_end"]["lo_ms"] - 1000.0:
-        c["surprises"].append(f"drawing lost at {e:.0f} ms, before the lifetime fact's expiry "
-                              f"({life.get('lifetime_fact')})")
 
 
 def _okey(owner: dict | None):
@@ -1099,6 +1113,8 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
             refused["spectated_drop_kit_disagrees"] += 1
             continue
         owner = _find_slot(slots, "ally", sp["agent"])
+        # after the player's death the tray draws a spectated teammate's kit
+        # [domain:hud/tray-after-player-death]: a drop binds to a team slot only
         if owner is None or owner["side"] != SIDE_TEAM:
             refused["spectated_drop_agent_not_a_teammate"] += 1
             continue
@@ -1370,6 +1386,9 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
             c = B.open(owner, ab.get("slot"), t - GLYPH_STEP_MS, t, "a glyph track's birth: its "
                        "object appeared within one glyph step before", "glyph_track", ev)
         if c is None:
+            # the self side's children open on the kit's cast transition and a
+            # glyph only joins them; a team or enemy drawing opens its own
+            # [domain:minimap/ability-drawings-both-sides] (`CHANNELS` glyph_track)
             if owner["side"] != SIDE_SELF and not opens:
                 refused["glyph_unnamed_no_live_child"] += 1
             continue
@@ -1380,10 +1399,17 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
             bx, by_ = birth_xy(r["entity_id"])
             c["position"] = {"x": round(float(bx), 1), "y": round(float(by_), 1), "t_ms": t,
                              "source": "ability_disc_track"}
+    # A drawing's loss: only a team-owned one is read, since every entity the
+    # player's team owns always shows, so its loss is no loss of sight; an
+    # enemy's shows only inside the team's vision
+    # [domain:minimap/ability-drawings-both-sides] [domain:minimap/vision-gate].
+    tree_doc = ability_objects(root)
     for c in B.items:
         g = c["glyphs"][-1] if c["glyphs"] else None
         if g and c["observed_end"] is None and g["end"] == GLYPH_LOST and c["side"] in (SIDE_SELF, SIDE_TEAM):
-            _glyph_end(c, g, B.lifecycle(c), gver)
+            key = (agent_key(c["agent"]), c["slot"]) if c["agent"] and c["slot"] else None
+            _drawing_lost(c, g, tree_doc["drawing_loss"].get(key),
+                          f"{key[0]}:{key[1]}:None" if key else "unbound", gver)
 
     # Effects: ability kills and assists (every side).
     deaths = [r for r in _stored(st, "death", sid) if r.get("kind") == "death_verdict"]
@@ -1534,7 +1560,6 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
     # Spawned objects: one node per object of the spawn tree under each
     # instance; a glyph whose texture the game data gives that object
     # witnesses it.
-    tree_doc = ability_objects(root)
     tree = tree_doc["tree"]
     objects: list[dict] = []
     for inst in instances:
@@ -1581,8 +1606,10 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
                  "observed_end": None, "owner_death": None, "position": None, "over_bound": False,
                  "surprises": [], "glyphs": seen, "depends": [], "life": life}
             B.predict(n)
+            # a team-owned object's drawing loss, read as the instance's above
             if seen and seen[-1]["end"] == GLYPH_LOST and inst["side"] in (SIDE_SELF, SIDE_TEAM):
-                _glyph_end(n, seen[-1], life, gver)
+                _drawing_lost(n, seen[-1], o["cells"]["drawing_loss"],
+                              f"{agent_key(o['agent'])}:{o['slot']}:{o['part']}", gver)
             made[o["part"]] = n
             objects.append(n)
             return n
@@ -1691,6 +1718,7 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
                                    else odth["reason"]),
             "lifecycle": life, "ends_on": life["ends_on"], "ends_on_reason": life["ends_on_reason"],
             "over_bound": c["over_bound"], "surprises": c["surprises"],
+            "drawing_loss": c.get("drawing_loss"),
             "dead_ruse": c.get("dead_ruse")})
     candidates = [{**common, "kind": "candidate", **x} for x in B.candidates]
     by_id = {r["child_id"]: r for r in children}
@@ -1766,29 +1794,35 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
             "effect_rows": [ehead] + eff_rows, "identity_rows": child_identity(sid, children)}
 
 
-#: The channel each opening or joining witness publishes its caster claim on,
-#: re-keyed to the child (`CHANNELS` column `agent_claim`); a witness with no
-#: claim (a shape fit, own audio) publishes none.
-CLAIM_CHANNEL = {"player_tray_cast": "tray", "spectated_kit_drop": "tray_kit",
-                 "ult_line": "ult_line", "smoke_track": "smoke_owner",
-                 "dead_clove_smoke": "smoke_owner", "dead_clove_circle": "dead_clove_circle",
-                 "glyph_track": "minimap_glyph", "killfeed_ability_kill": "killfeed_weapon",
-                 "assist_icon": "kill_assists", "spawn_tree": "spawn_tree"}
+def claim_channel(witness: str) -> str | None:
+    """The channel a witness publishes its caster claim on, read from its
+    `CHANNELS` row's `agent_claim`: `channel <name>` publishes on that
+    channel; `depends_on ...` publishes on the witness's own name, the claim
+    resting on the owner slot's verdict; no claim, or no row, publishes none."""
+    row = next((r for r in CHANNELS if r["witness"] == witness), None)
+    claim = (row or {}).get("agent_claim")
+    if not claim:
+        return None
+    if claim.startswith("channel "):
+        return claim.split()[1]
+    if claim.startswith("depends_on"):
+        return witness
+    raise ValueError(f"CHANNELS[{witness}].agent_claim reads neither `channel` nor `depends_on`: {claim}")
 
 
-def child_identity(sid: str, children: list[dict]) -> list[dict]:
-    """`ability_child_identity`: the `agent-identity` arbiter's verdict on each
-    node's own key; this owner [owns:ability-owner] publishes the claims. Each
-    witness of a node publishes one claim on the node key on its channel
-    (`CLAIM_CHANNEL`), naming the agent of the owner slot it bound the node
-    to, with `binding_from` this owner (the key is the child owner's binding)
-    and `depends_on` the owner slot, whose verdict the binding rests on. A
-    node with no owner slot publishes one abstention with its reason. The
-    arbiter (`adjudication.identity.adjudicate_agent_identity`) decides; this
-    module names no agent itself."""
-    from .adjudication.identity import adjudicate_agent_identity, identity_claim, identity_events
+def child_claims(children: list[dict]) -> list[dict]:
+    """The identity claims this owner [owns:ability-owner] publishes on each
+    witnessed node's key. Each witness publishes one claim per channel
+    (`claim_channel`), naming the agent of the owner slot it bound the node
+    to, with `binding_from` this owner and `depends_on` the owner slot, whose
+    verdict the binding rests on. A node with no owner slot, or whose
+    witnesses publish no claim, publishes one abstention with its reason. A
+    `possible` node publishes nothing: no witness observed it."""
+    from .adjudication.identity import identity_claim
     claims = []
     for c in children:
+        if c.get("exists", "witnessed") != "witnessed":
+            continue
         key = c["child_id"]
         if c["owner_slot"] is None or not c["agent"]:
             claims.append(identity_claim(key, None, channel="ability_child",
@@ -1796,9 +1830,8 @@ def child_identity(sid: str, children: list[dict]) -> list[dict]:
                                          source_version=ABILITY_CHILD_VERSION))
             continue
         seen = set()
-        ws = c["witnesses"] or [{"witness": c["opened_by"], "t_ms": c["open"]["hi_ms"]}]
-        for w in ws:
-            ch = CLAIM_CHANNEL.get(w["witness"])
+        for w in c["witnesses"]:
+            ch = claim_channel(w["witness"])
             if ch is None or ch in seen:
                 continue
             seen.add(ch)
@@ -1808,11 +1841,19 @@ def child_identity(sid: str, children: list[dict]) -> list[dict]:
                 depends_on=[c["owner_slot"]],
                 evidence={"stream": w.get("stream"), "id": w.get("id")}))
         if not seen:
-            claims.append(identity_claim(key, c["agent"], channel="spawn_tree",
-                                         observed_at_ms=c["open"]["hi_ms"],
-                                         source_version=ABILITY_CHILD_VERSION,
-                                         binding_from="ability_child", depends_on=[c["owner_slot"]]))
-    return identity_events(adjudicate_agent_identity(claims), sid)
+            claims.append(identity_claim(
+                key, None, channel="ability_child", source_version=ABILITY_CHILD_VERSION,
+                reason="no witness of the node publishes a claim (`CHANNELS` agent_claim)"))
+    return claims
+
+
+def child_identity(sid: str, children: list[dict]) -> list[dict]:
+    """`ability_child_identity`: the `agent-identity` arbiter's verdict on each
+    witnessed node's key, over the claims `child_claims` publishes. The
+    arbiter (`adjudication.identity.adjudicate_agent_identity`) decides; this
+    module names no agent itself."""
+    from .adjudication.identity import adjudicate_agent_identity, identity_events
+    return identity_events(adjudicate_agent_identity(child_claims(children)), sid)
 
 
 def ability_summary(B: dict) -> dict:
