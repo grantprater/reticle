@@ -47,7 +47,8 @@ refit moves no stamp. An identity stream is stale
 with the arbiter or with the stream it is written beside. The entity lanes
 (`entity_events`) are checked by `entity_events.lane_status`. A stream on
 disk that none of these declares is reported `undeclared`, and one written
-with no stamp at all `unstamped` (`UNSTAMPED`), so no stored stream is silent.
+with no stamp at all `unstamped` (`UNSTAMPED`), and one no command writes any
+more by its retirement (`RETIRED_STREAMS`), so no stored stream is silent.
 """
 from __future__ import annotations
 
@@ -170,7 +171,17 @@ UNSTAMPED = {
     # with `combat_report_identity` (`written_with`); older files are named.
     "combat_report_rows": "written beside combat_report_identity by `reticle combat-report`, "
                           "with no stamp of its own",
-    "ability": "written by prototypes/ability_cast.py with no version key",
+}
+
+#: Streams no command writes any more, and why. Their stored rows stay as
+#: evidence, never rewritten; `stale` lists them as `unchecked` with the
+#: retirement, so a stored file is never silent and never proposed as work.
+RETIRED_STREAMS = {
+    # docs/ABILITY_ENTITIES.md step 0: `prototypes/ability_cast.py --emit`
+    # wrote it on demo sessions with no version key, and nothing reads it.
+    "ability": "retired 2026-10-09: prototypes/ability_cast.py --emit wrote it with no "
+               "version key and nothing reads it; tray_drop.player_cast and ability_shape "
+               "answer its questions; stored rows kept, never rewritten",
 }
 
 #: Hand-checked streams whose command rereads the ROI crop cache.
@@ -1740,7 +1751,8 @@ def stale(store, sessions: list[str], never_run: bool = True) -> dict:
                     | {s["stream"] for s in derived_streams()} | _lane_streams()
                     | {s["written_with"] for s in derived_streams() if s.get("written_with")
                        and _coverage_head(store, sid, s["written_with"]) is not None})
-        unchecked = [{"stream": s, "why": UNSTAMPED.get(s, "undeclared: no check in plan")}
+        unchecked = [{"stream": s, "why": RETIRED_STREAMS.get(s) or UNSTAMPED.get(
+                          s, "undeclared: no check in plan")}
                      for s in stored_streams(store, sid) if s not in declared]
         caches = cache_work(store, man)
         decode, derived, widget, caches, retired = source_retired(

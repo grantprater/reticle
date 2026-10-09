@@ -1247,6 +1247,19 @@ class NeverRunTests(unittest.TestCase):
             self.assertNotIn("minimap_dark", [x["stream"] for x in p["decode"]])
             self.assertIn("minimap_dark", p["absent"])
 
+    def test_a_retired_stream_is_named_and_never_work(self):
+        """The `ability` stream's rows stay; `plan` names the retirement."""
+        from reticle.plan import RETIRED_STREAMS, UNSTAMPED
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            (Path(d) / "events" / "ability").mkdir(parents=True)
+            (Path(d) / "events" / "ability" / "s.jsonl").write_text("{}\n", encoding="utf-8")
+            p = stale(store, ["s"])["s"]
+            self.assertEqual(p["unchecked"], [{"stream": "ability",
+                                               "why": RETIRED_STREAMS["ability"]}])
+            self.assertNotIn("ability", UNSTAMPED)
+            self.assertNotIn("ability", [x["stream"] for x in p["decode"] + p["derived"]])
+
     def test_a_cache_fed_minimap_dark_rereads_the_crop_cache(self):
         """Where the minimap crop cache holds its ROI, the reread is
         `scan --from cache`, which decodes nothing (`CACHE_FED_READERS`)."""
