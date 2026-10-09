@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .extras import DEV, NEW
+from .extras import DEV
 
 #: Every subcommand `dispatch` runs.
 COMMANDS = ("label", "lane", "ally", "smoke", "glyph", "marks", "replay-score", "replay-abilities",
@@ -80,11 +80,11 @@ def add_parsers(sub) -> None:
     p.add_argument("--rewrite", action="store_true",
                    help="rewrite a stored players-only budget that differs")
     p = sub.add_parser("slots", help="B1: both sides' slot regions (slot_state) against replay truth")
-    p.add_argument("sessions", nargs="*", default=list(DEV) + list(NEW))
+    p.add_argument("sessions", nargs="*", default=list(DEV))
     p.add_argument("--record", action="store_true")
     p = sub.add_parser("ability-lane", help="the ability lane's children per side and class against "
                                              "the replay's casts (docs/ABILITY_ENTITIES.md step 3)")
-    p.add_argument("sessions", nargs="*", default=list(NEW) + list(DEV))
+    p.add_argument("sessions", nargs="*", default=list(DEV))
     p.add_argument("--tag", required=True)
     p.add_argument("--side", choices=("self", "team", "enemy", "all"), default="all",
                    help="one slot side, or every side and the spawned objects in one run (step 3)")
@@ -114,10 +114,12 @@ def add_parsers(sub) -> None:
     p.add_argument("--name", required=True)
     p = sub.add_parser("hook", help="QA5r3: the production ally gate simulated on stored ally_icon "
                                     "rows; V15h, Vhook and Vhook+a per session")
-    p.add_argument("sessions", nargs="+", help=f"e.g. {' '.join(DEV + NEW)}")
-    p = sub.add_parser("hook-report", help="QA5r3 of the hook arms pooled (dev3, new3, all6), "
-                                           "with read share and CPU per session")
+    p.add_argument("sessions", nargs="+", help=f"e.g. {' '.join(DEV)}")
+    p = sub.add_parser("hook-report", help="QA5r3 of the hook arms pooled over the development set "
+                                           "(new3), with read share and CPU per session")
     p.add_argument("--record", action="store_true")
+    p.add_argument("--with-frozen", action="store_true",
+                   help="also pool the frozen development matches (dev3) and all six, labelled frozen")
     p = sub.add_parser("arms-report", help="QA5r2 or QA5r3 of the stored read-schedule arms "
                                            "(prototypes/real_reader_schedule.py run)")
     p.add_argument("--rule", choices=("QA5r2", "QA5r3"), default="QA5r3")
@@ -141,7 +143,7 @@ def dispatch(a, cmd: str) -> int:
         if cmd == "hook":
             return rrs.run_hook(a.sessions)
         if cmd == "hook-report":
-            return rrs.report_hook(a.record)
+            return rrs.report_hook(a.record, a.with_frozen)
         return rrs.report_qa5r2(a.record, a.rule)
     if cmd in ("draw-persist", "draw-smokes"):
         from . import draw as tdr
@@ -157,7 +159,7 @@ def dispatch(a, cmd: str) -> int:
     if cmd == "replay-abilities":
         return run.run_replay_abilities(a.sessions or list(DEV), a.legacy_out, a.record, a.record_score)
     if cmd == "slots":
-        return run.run_slots(a.sessions or list(DEV) + list(NEW), a.record)
+        return run.run_slots(a.sessions or list(DEV), a.record)
     if cmd == "ability-lane":
         return run.run_ability_lane(a.sessions or list(run.ABILITY_SETS), a.tag, a.side, a.record,
                                     post_hoc=a.post_hoc)

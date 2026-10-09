@@ -50,15 +50,16 @@ sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
 from reticle import episodes as ep  # noqa: E402
+from reticle.dev_set import FROZEN_DEV, FROZEN_HELD_OUT, FROZEN_HELD_OUT_REPLAY  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
 VERSION = "execution-questions-0.2.0"
 TASK = "execution-questions-20261007"
-HELD_OUT_PREFIX = "bd7efa02"
-HELD_OUT_SESSION = "cea8ecbc94ab"
+HELD_OUT_PREFIX = FROZEN_HELD_OUT_REPLAY[0]
+HELD_OUT_SESSION = FROZEN_HELD_OUT[0]
 OUT = Path(DEFAULT_STORE) / "analysis" / TASK
 DEV = ("60c7f1e0", "b03fecd3", "16a475cb")
-DEV_SESSIONS = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
+DEV_SESSIONS = FROZEN_DEV
 
 GRID_MS = 8.0                 # the server tick (domain:replay/vrf-position-stream)
 PRE_MS = 1000.0               # window before the contact onset

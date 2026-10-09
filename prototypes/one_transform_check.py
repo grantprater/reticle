@@ -60,6 +60,7 @@ import numpy as np  # noqa: E402
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
+from reticle.dev_set import FROZEN_DEV, FROZEN_HELD_OUT  # noqa: E402
 from reticle.store import DEFAULT_STORE  # noqa: E402
 
 #: 0.2.0: `ablate`. 0.3.0: `truth` carries round-bootstrap intervals (`boot`).
@@ -68,7 +69,7 @@ VERSION = "one-transform-check-0.4.0"
 TASK = "one-transform-readers-20261007"
 STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / TASK
-HELD_OUT = "cea8ecbc94ab"
+HELD_OUT = FROZEN_HELD_OUT[0]
 SETS = {"self_facing_331_20260929": "self", "ally_facing_331_20260929": "ally",
         "enemy_facing_331_20260929": "enemy", "self_facing_lotus_20260928": "self",
         "icon_facing_20260928": None}
@@ -221,7 +222,7 @@ def record_metrics(tags: list[str] | None = None) -> int:
 
     if tags:
         return _record_truth(rec, [OUT / f"truth_{t}_{sid}.json" for t in tags
-                                   for sid in ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")])
+                                   for sid in FROZEN_DEV])
     table = json.loads((OUT / "facing.json").read_text(encoding="utf-8"))
     for name, d in table["sets"].items():
         for tag in ("widget", "map"):

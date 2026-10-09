@@ -6,8 +6,10 @@ bars; replay truth on the replay-backed matches accepts, and no full corpus
 run runs until training on the replay data is finished (AGENTS.md).
 
 The sample (`DEV_SAMPLE_VERSION`) is data, not a rule rerun at each use:
-`SAMPLE` holds whole rounds of the 21 Riot-paired matches, two per match,
-built by `build` from the stored round tables and frozen here. A rebuilt
+`SAMPLE` holds whole rounds of the development set (`dev_set.DEV`, the
+three 2026-10-07 replay captures), two per match, built by `build` from the
+stored round tables and frozen here. Version 0.1.0 drew the 21 Riot-paired
+matches; their crop caches are gone. A rebuilt
 round table may move a boundary; `reticle dev-sample --check` reports the
 drift, and only a new version changes the windows.
 
@@ -18,13 +20,12 @@ How the rounds were chosen (`build`):
   a reader erred, enters the choice;
 * round 1 is excluded whole, not trimmed to its buy phase. The round table
   opens round 1 at the capture's first sample (`start_source`
-  `capture_start`, `t_start_ms` 0 in all 21 matches), which may hold the
+  `capture_start`, `t_start_ms` 0), which may hold the
   menu or start inside the round (`rounds.round_bounds`), and it stores no
   buy-phase start from which a window could begin. Sampling round 1 needs
   that start in the round table first;
 * stratified by match, which fixes the map, the profile and the widget
-  scale (the 1.15x variant `4f207c0c4e39` and `b3b9defb6fd7` among them),
-  and by half: one round from rounds 2-12 and one from round 13 on
+  scale, and by half: one round from rounds 2-12 and one from round 13 on
   (overtime with the second half), or two from the first half when the
   match ended inside it;
 * seeded: within a stratum the round with the lowest
@@ -32,12 +33,9 @@ How the rounds were chosen (`build`):
 * a whole round, `t_start_ms` to `t_close_ms`, so every round phase (buy,
   live, post-plant, the end screen) is inside each window.
 
-Held-out sets. The Riot-paired matches carry held-out sets for fitted
-models: the entity-state six (`docs/ENTITY_STATE.md`), the `ally_prior`
-six, `ability_shape_eval`'s two, the glyph tables' labelled splits and the
-audio gate's folds. The sample feeds reader regression checks, which fit no
-parameter, so it does not drop those matches; it must never feed a fit
-either, and no model with a held-out set may be tuned on its scores.
+Held-out sets. The sample feeds reader regression checks, which fit no
+parameter; it must never feed a fit either, and no model with a held-out set
+may be tuned on its scores.
 `HELD_OUT_WINDOWS` names the one reader-evaluation window declared held out
 of every total (`prototypes/roster_split_eval.py`); `build` drops any round
 that overlaps it.
@@ -49,7 +47,7 @@ list (`session,t[,reason]`) or around stored rows where a changed code path
 fires. `reticle dev-sample` takes both at once (`--residuals CSV ...
 --stream S --where F=V`) and joins every window they name into one set.
 
-Resolution. The sample holds 309 Riot kills
+Resolution. The 0.1.0 sample held 309 Riot kills
 [metric:riot_truth_window/deaths~devs-master-sample-r2#riot_kills=309]; an
 unpaired Wilson interval or a rule-of-three bound over that many resolves
 about one percent absolute, while the full run's error rates are fractions
@@ -81,15 +79,15 @@ from typing import Iterable, NamedTuple
 
 import numpy as np
 
-DEV_SAMPLE_VERSION = "dev-sample-0.1.0"
+from .dev_set import DEV
+
+#: 0.2.0 (task dev-set-new3-20261009): the development set (`dev_set.DEV`)
+#: in place of the 21 Riot-paired matches of 0.1.0.
+DEV_SAMPLE_VERSION = "dev-sample-0.2.0"
 SEED = DEV_SAMPLE_VERSION
 
-#: The Riot-paired matches (`prototypes/riot_ground_truth.py --all`).
-MATCHES = ("043bafca271a", "223d636bf8d2", "3694746e4e54", "4f207c0c4e39", "5822b6646448",
-           "587c15b07779", "59c70f1ef720", "7010b3d62460", "75a55a296d3b", "96aa1ae9b96f",
-           "9acf02f98283", "a06f04a0059f", "a1a995e6b19b", "b3b9defb6fd7", "b7d24102a6f6",
-           "bdfdcf009dba", "bfad2778a372", "c40d950031bb", "c62c2b06bcfb", "e37fdeca944f",
-           "ff636d173b07")
+#: The development set (`reticle.dev_set`), the sample's matches.
+MATCHES = DEV
 
 #: Reader-evaluation windows held out of every total: (session, t0_s, t1_s, owner).
 HELD_OUT_WINDOWS = (("587c15b07779", 1474.0, 1484.5, "prototypes/roster_split_eval.py HELD_OUT"),)
@@ -165,50 +163,14 @@ def build_from_store(store, sessions: Iterable[str] = MATCHES) -> list[Window]:
     return build(rounds)
 
 
-#: `build` over the round tables of 2026-10-05 (round-0.8.0), frozen.
+#: `build` over the round tables of 2026-10-09 (round-0.10.0), frozen.
 SAMPLE: tuple[Window, ...] = (
-    Window('043bafca271a', 1081.0, 1179.5, 'dev-sample-0.1.0 round 11 first_half haven'),
-    Window('043bafca271a', 1814.0, 1900.0, 'dev-sample-0.1.0 round 20 second_half haven'),
-    Window('223d636bf8d2', 854.0, 952.0, 'dev-sample-0.1.0 round 8 first_half haven'),
-    Window('223d636bf8d2', 1397.5, 1482.5, 'dev-sample-0.1.0 round 14 second_half haven'),
-    Window('3694746e4e54', 535.0, 626.0, 'dev-sample-0.1.0 round 6 first_half ascent'),
-    Window('3694746e4e54', 1755.5, 1825.25, 'dev-sample-0.1.0 round 19 second_half ascent'),
-    Window('4f207c0c4e39', 78.0, 186.0, 'dev-sample-0.1.0 round 2 first_half split'),
-    Window('4f207c0c4e39', 1712.5, 1790.5, 'dev-sample-0.1.0 round 18 second_half split'),
-    Window('5822b6646448', 506.5, 567.0, 'dev-sample-0.1.0 round 7 first_half lotus'),
-    Window('5822b6646448', 1230.5, 1298.0, 'dev-sample-0.1.0 round 14 second_half lotus'),
-    Window('587c15b07779', 455.5, 549.0, 'dev-sample-0.1.0 round 6 first_half lotus'),
-    Window('587c15b07779', 1322.5, 1401.5, 'dev-sample-0.1.0 round 16 second_half lotus'),
-    Window('59c70f1ef720', 1077.5, 1222.0, 'dev-sample-0.1.0 round 12 first_half ascent'),
-    Window('59c70f1ef720', 1675.5, 1770.0, 'dev-sample-0.1.0 round 17 second_half ascent'),
-    Window('7010b3d62460', 736.5, 846.0, 'dev-sample-0.1.0 round 8 first_half lotus'),
-    Window('7010b3d62460', 1632.0, 1726.5, 'dev-sample-0.1.0 round 17 second_half lotus'),
-    Window('75a55a296d3b', 301.5, 379.5, 'dev-sample-0.1.0 round 2 first_half abyss'),
-    Window('75a55a296d3b', 379.5, 447.5, 'dev-sample-0.1.0 round 3 first_half abyss'),
-    Window('96aa1ae9b96f', 621.5, 727.0, 'dev-sample-0.1.0 round 6 first_half haven'),
-    Window('96aa1ae9b96f', 1274.0, 1381.5, 'dev-sample-0.1.0 round 13 second_half haven'),
-    Window('9acf02f98283', 287.5, 353.5, 'dev-sample-0.1.0 round 3 first_half ascent'),
-    Window('9acf02f98283', 2141.0, 2276.5, 'dev-sample-0.1.0 round 23 second_half ascent'),
-    Window('a06f04a0059f', 1122.0, 1261.0, 'dev-sample-0.1.0 round 12 first_half ascent'),
-    Window('a06f04a0059f', 1358.5, 1427.5, 'dev-sample-0.1.0 round 14 second_half ascent'),
-    Window('a1a995e6b19b', 248.0, 347.5, 'dev-sample-0.1.0 round 4 first_half sunset'),
-    Window('a1a995e6b19b', 2091.0, 2169.0, 'dev-sample-0.1.0 round 24 second_half sunset'),
-    Window('b3b9defb6fd7', 527.0, 641.0, 'dev-sample-0.1.0 round 4 first_half summit'),
-    Window('b3b9defb6fd7', 1593.0, 1676.0, 'dev-sample-0.1.0 round 15 second_half summit'),
-    Window('b7d24102a6f6', 965.0, 1032.5, 'dev-sample-0.1.0 round 9 first_half split'),
-    Window('b7d24102a6f6', 1759.0, 1819.5, 'dev-sample-0.1.0 round 17 second_half split'),
-    Window('bdfdcf009dba', 1103.5, 1214.5, 'dev-sample-0.1.0 round 11 first_half lotus'),
-    Window('bdfdcf009dba', 1987.5, 2101.0, 'dev-sample-0.1.0 round 19 second_half lotus'),
-    Window('bfad2778a372', 349.5, 451.0, 'dev-sample-0.1.0 round 3 first_half split'),
-    Window('bfad2778a372', 1381.5, 1482.5, 'dev-sample-0.1.0 round 13 second_half split'),
-    Window('c40d950031bb', 216.5, 320.0, 'dev-sample-0.1.0 round 2 first_half ascent'),
-    Window('c40d950031bb', 741.0, 838.0, 'dev-sample-0.1.0 round 7 first_half ascent'),
-    Window('c62c2b06bcfb', 1044.0, 1106.0, 'dev-sample-0.1.0 round 11 first_half split'),
-    Window('c62c2b06bcfb', 1378.0, 1447.0, 'dev-sample-0.1.0 round 15 second_half split'),
-    Window('e37fdeca944f', 1102.5, 1193.5, 'dev-sample-0.1.0 round 12 first_half sunset'),
-    Window('e37fdeca944f', 2118.5, 2189.0, 'dev-sample-0.1.0 round 23 second_half sunset'),
-    Window('ff636d173b07', 317.0, 397.0, 'dev-sample-0.1.0 round 4 first_half summit'),
-    Window('ff636d173b07', 1447.5, 1535.0, 'dev-sample-0.1.0 round 15 second_half summit'),
+    Window('066741deafe5', 1240.5, 1340.5, 'dev-sample-0.2.0 round 12 first_half sunset'),
+    Window('066741deafe5', 1815.5, 1893.0, 'dev-sample-0.2.0 round 17 second_half sunset'),
+    Window('9912c382130b', 886.0, 975.5, 'dev-sample-0.2.0 round 10 first_half sunset'),
+    Window('9912c382130b', 1351.5, 1421.0, 'dev-sample-0.2.0 round 14 second_half sunset'),
+    Window('cadaadeb2d8b', 963.0, 1061.5, 'dev-sample-0.2.0 round 11 first_half ascent'),
+    Window('cadaadeb2d8b', 1432.5, 1502.0, 'dev-sample-0.2.0 round 17 second_half ascent'),
 )
 
 

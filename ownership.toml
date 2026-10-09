@@ -2327,7 +2327,7 @@ modules = ["__main__", "cli", "store", "decode", "passes", "synth", "refine",
            "doctor", "ratchets", "status", "fidelity", "overlay", "review",
            "ability_capture", "ability_entities", "ability_gallery",
            "ability_phases", "events", "candidate_evidence",
-           "plan", "input_stamps", "trial", "dev_sample", "roi_cache", "pipeline", "process_shards", "documents", "tiers", "clipserve",
+           "plan", "input_stamps", "trial", "dev_sample", "dev_set", "roi_cache", "pipeline", "process_shards", "documents", "tiers", "clipserve",
            "view_events", "round_view", "entity_contract", "ability_audio_fit",
            # the acceptance harness's commands and IO beside its owners
            # (`acceptance`, `harness.draw`, `harness.schedule`)

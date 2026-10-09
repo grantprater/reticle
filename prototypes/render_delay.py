@@ -55,13 +55,16 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from reticle.dev_set import FROZEN_DEV, FROZEN_HELD_OUT, FROZEN_HELD_OUT_REPLAY  # noqa: E402
+
 RENDER_DELAY_VERSION = "render-delay-0.1.0"
 STORE = Path.home() / "reticle-store"
 OUT = STORE / "analysis" / "render-delay-20261006"
 LAG_REPORTS = STORE / "analysis" / "minimap-lag-20261006"
-#: Held out from every development measurement; refused by name.
-HELD_OUT = ("cea8ecbc94ab", "bd7efa02")
-DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
+#: Held out from every development measurement; refused by name. `DEV` is the
+#: frozen development set its stored results read (`reticle.dev_set`).
+HELD_OUT = FROZEN_HELD_OUT + FROZEN_HELD_OUT_REPLAY
+DEV = FROZEN_DEV
 
 FRAME_MS = 1000.0 / 15.0
 #: A track segment breaks where consecutive observations sit further apart.
