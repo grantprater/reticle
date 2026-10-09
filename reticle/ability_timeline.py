@@ -3,8 +3,10 @@
 Milestone B of ``docs/ABILITY_ENTITY_INFERENCE_DESIGN.md``.  Tray drops are
 bounded observations of a state transition, not unconditional casts.  This
 module preserves the possible transition meanings and never requires a minimap
-candidate.  Optional materialization drives the existing prototype reader over
-demo sources, then consumes its version-stamped caches.
+candidate.  It reads only stored rows and the stored, version-stamped tray
+caches; it decodes nothing and imports nothing from `prototypes/`.  The
+`--materialize` option that drove `prototypes/ability_cast.py` over the demo
+sources was dropped on 2026-10-09 (docs/ABILITY_ENTITIES.md, step 0).
 
 Owns [owns:ability-cast].
 """
@@ -1386,66 +1388,20 @@ def write_timeline(bundle: dict, out: str | Path) -> Path:
     return out
 
 
-def materialize_demo_casts(root: str | Path, step_s: float = 0.5) -> dict:
-    """Drive the existing tray reader over every tagged demo source.
-
-    This is the only media-reading part of milestone B.  It writes new,
-    reader-hash-keyed cache files and never replaces labels or old caches.
-    """
-    if step_s <= 0:
-        raise ValueError("step must be positive")
-    root = Path(root).resolve()
-    # The reader still owns prototype-specific calibration.  Bind its existing
-    # path parameters explicitly so a non-default test store cannot leak into
-    # the user's store.
-    from prototypes import ability_cast as cast
-    from prototypes import ability_hud as hud
-
-    cast.STORE = hud.STORE = root
-    cast.LAB = root / "labels" / "ability"
-    cast.CACHE = root / "casts"
-    cast.CAND = root / "labels" / "ability_candidates"
-    cast.EVENTS = root / "events" / "ability"
-    manifests = []
-    for path in sorted((root / "manifests").glob("*.json")):
-        man = json.loads(path.read_text(encoding="utf-8"))
-        if "ability-demo" in man.get("tags", []):
-            manifests.append(man)
-    result = []
-    for man in manifests:
-        sid = man["session_id"]
-        before = set((root / "casts").glob(f"{sid}.step{step_s}.*.json"))
-        rows, agent = cast.tray_casts(sid, step_s=step_s, use_cache=True)
-        after = set((root / "casts").glob(f"{sid}.step{step_s}.*.json"))
-        result.append({
-            "session_id": sid, "agent": agent, "n_candidates": len(rows),
-            "cache_paths": sorted(p.relative_to(root).as_posix() for p in after),
-            "created": sorted(p.relative_to(root).as_posix() for p in after - before),
-        })
-    return {"sessions": result, "candidates": sum(r["n_candidates"] for r in result)}
-
-
-def run(root: str | Path = DEFAULT_STORE, out: str | Path | None = None,
-        *, materialize: bool = False, step_s: float = 0.5) -> tuple[dict, dict | None]:
-    materialized = materialize_demo_casts(root, step_s) if materialize else None
+def run(root: str | Path = DEFAULT_STORE, out: str | Path | None = None) -> dict:
+    """Build the timeline from stored rows and write it under `out`."""
     bundle = build_timeline(root)
     target = Path(out) if out else Path(root) / "analysis" / "ability-timeline"
     write_timeline(bundle, target)
-    return bundle, materialized
+    return bundle
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--store", default=str(DEFAULT_STORE))
     parser.add_argument("--out")
-    parser.add_argument("--materialize", action="store_true")
-    parser.add_argument("--step", type=float, default=0.5)
     args = parser.parse_args(argv)
-    bundle, materialized = run(args.store, args.out, materialize=args.materialize,
-                               step_s=args.step)
-    if materialized:
-        print(f"materialized {materialized['candidates']} candidates across "
-              f"{len(materialized['sessions'])} demos")
+    bundle = run(args.store, args.out)
     summary = bundle["manifest"]["summary"]
     print(f"{summary['use_claims']} use claims across {summary['sessions_with_claims']} sessions; "
           f"{summary['suspect_candidates']} suspect; {summary['conflicts']} conflicts")

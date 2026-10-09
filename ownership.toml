@@ -1492,7 +1492,7 @@ id = "ability-cast"
 question = "When was an ability cast, and from which tray slot?"
 owner = "ability_timeline"
 role = ["detect", "corroborate"]
-status = "transitional"
+status = "partial"
 produces = ["build_timeline", "write_timeline", "player_tray_casts", "stored_gate_inputs",
             "kit_windows", "round_window_of", "audio_session", "audio_cast_witness",
             "AUDIO_GATE_DIR", "KIT_REFUSALS", "tray_object_labels", "TRAY_OBJECT_DIR",
@@ -1506,7 +1506,6 @@ tray agreeing is corroboration rather than detection.
 """
 defers_to = ["tray-kit", "ability-audio"]
 consumers = ["cli", "adjudication.ult_cast", "adjudication.ability_state"]
-exit = "`materialize_demo_casts` drives `ability_cast` and `ability_hud` from prototypes/."
 evidence = "tests/test_ability_timeline.py, tests/test_tray.py, docs/VOICE_LINES.md"
 
 [[entry]]

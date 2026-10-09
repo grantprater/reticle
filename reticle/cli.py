@@ -3282,14 +3282,10 @@ def cmd_ability_coverage(args) -> int:
 
 
 def cmd_ability_timeline(args) -> int:
-    """Build bounded ability-use claims, optionally materializing tray reads."""
+    """Build bounded ability-use claims from stored rows (no decode)."""
     from .ability_timeline import run
 
-    bundle, materialized = run(args.store, args.out, materialize=args.materialize,
-                               step_s=args.step)
-    if materialized:
-        print(f"materialized {materialized['candidates']} candidates across "
-              f"{len(materialized['sessions'])} demos")
+    bundle = run(args.store, args.out)
     summary = bundle["manifest"]["summary"]
     target = Path(args.out) if args.out else Path(args.store) / "analysis" / "ability-timeline"
     print(f"{summary['use_claims']} use claims across {summary['sessions_with_claims']} sessions; "
@@ -6869,12 +6865,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-coverage)")
     s.set_defaults(func=cmd_ability_coverage)
 
-    s = sub.add_parser("ability-timeline", help="build bounded ability-use claims")
+    s = sub.add_parser("ability-timeline",
+                       help="build bounded ability-use claims from stored rows (no decode)")
     s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-timeline)")
-    s.add_argument("--materialize", action="store_true",
-                   help="read every demo tray before building the stored timeline")
-    s.add_argument("--step", type=float, default=0.5,
-                   help="tray sampling interval for --materialize (default 0.5s)")
     s.set_defaults(func=cmd_ability_timeline)
 
     s = sub.add_parser("combat-report", help="combat report panels and per-round counts from stored rows (no video)")
