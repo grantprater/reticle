@@ -91,6 +91,11 @@ ENTITY_LANES: tuple[dict, ...] = (
      "inputs": ("enemy_track", "enemy_track_identity", "rounds", "death", "death_identity")},
     {"lane": "ability_tray", "order": 3, "channel": "tray", "names": True,
      "inputs": ("ability_state", "tray_kit", "tray_kit_identity")},
+    # The child owner's lane (docs/ABILITY_ENTITIES.md section 2.9): the
+    # player's own children and effects since step 2.
+    {"lane": "ability", "order": 3, "channel": "tray, audio, minimap and killfeed, through "
+                                               "the child owner", "names": True,
+     "inputs": ("ability_child", "ability_effect", "rounds", "death", "death_identity")},
     {"lane": "ult_cast", "order": 4, "channel": "audio", "names": True,
      "inputs": ("ult_cast", "ult_cast_identity", "rounds")},
     {"lane": "disagreement", "order": None, "channel": "every channel", "names": False,
@@ -106,7 +111,10 @@ LANE_VERSIONS = {
     "death": "entity-death-0.2.0",
     "spike": "entity-spike-0.1.0",
     "enemy": "entity-enemy-0.2.0",
+    "ability": "entity-ability-0.1.0",
 }
+# entity-ability-0.1.0 (2026-10-09): the player's own ability children and
+# effects (`slot_state`, docs/ABILITY_ENTITIES.md step 2).
 # entity-enemy-0.2.0 (2026-10-07): a track the track owner refused as no
 # entity (`reality_status` refused, `round_lifetimes.detection_reality`) fails
 # rule 1 and is withheld whole, with its poses, standing `refused`; every
@@ -1000,8 +1008,202 @@ def _enemy_lane(store, sid, L: _Lane, manifest) -> dict:
     return {"arbiter": arbiter}
 
 
+def _ability_lane(store, sid, L: _Lane, manifest) -> dict:
+    """The player's own ability children and effects, as the child owner
+    stored them (`slot_state.build_abilities`, docs/ABILITY_ENTITIES.md
+    step 2).
+
+    A child is an `ability_object` entity whose kind is its ability's subject;
+    its parent and `player` are the player's slot, and its name is the
+    lineup arbiter's verdict on that slot, cited through `depends_on`. Its
+    events: `cast` at the opening witness, its `occurred` the open interval
+    the owner inferred; `ability_object` at each later witness, its phase from
+    the ability's own facts (`entity_contract.ability_states`); and
+    `ability_disabled` where its facts say an owner death disables it. Its
+    `lifetime.ended` is the owner's end with its basis. An effect is an
+    `ability_effect` entity, parent its source child, with one `effect` event
+    whose `target` participant is the victim the death owner names. An effect
+    the owner predicted from a fact rather than witnessed stays in the owner's
+    stream (section 2.5)."""
+    from .entity_contract import ability_states
+    from .lineup import load_lineup
+
+    rows = store.read_events("ability_child", sid)
+    head = rows[0] if rows else {}
+    cver = head.get("ability_child_version")
+    erows = store.read_events("ability_effect", sid)
+    ever = (erows[0] if erows else {}).get("ability_effect_version")
+    frame, frame_reason = _frame_of(store, sid, manifest)
+    lu = load_lineup(sid, store.root) or {}
+    slot_verdicts = {v.get("entity_id"): v for v in lu.get("agent_identity") or []}
+    _deaths, dverdicts, darb = _death_verdicts(store, sid)
+    rests_on = ("ability_child", "ability_effect", "rounds")
+    cproducer = _producer("ability-child", cver)
+    eproducer = _producer("ability-effect", ever)
+    common = {"lane": L.lane, "contract": ENTITY_CONTRACT_VERSION}
+
+    def ev_of(w: dict) -> dict:
+        return {"stream": w["stream"], "id": str(w["id"]), "version": str(w.get("version") or "unstamped")}
+
+    def name_of(c: dict):
+        ref = c["agent_ref"]
+        v = slot_verdicts.get(c["parent"]) or {}
+        status = v.get("status")
+        L.verdicts[ref] = status or "abstained"
+        if status == "resolved" and v.get("agent") == c["agent"]:
+            return _name_block(c["agent"], ref, v.get("adjudication_version") or NAME_ARBITER), None
+        return None, status or "not_stored"
+
+    def event(eid, entity_id, kind, rnd, t, state, evidence, producer, identity=None,
+              id_reason=None, occurred=None, occ_reason="not_applicable: observed", pos=None,
+              depends=None, parts=None, player=None):
+        e = {"row": "event", "event_id": eid, "entity_id": entity_id, "kind": kind, "round": rnd,
+             "observed_ms": t}
+        _reasoned(e, "observed_last_ms", None, "not_applicable: one observation")
+        _reasoned(e, "occurred", occurred, occ_reason)
+        _reasoned(e, "position", pos, frame_reason or "not_read: the witness carries no place")
+        _reasoned(e, "orientation", None, "not_applicable: an ability object has no orientation "
+                                          "convention")
+        e["state"] = state
+        e["evidence"] = evidence
+        if identity is not None or id_reason is not None:
+            _reasoned(e, "identity", identity, id_reason or "")
+        if player is not None:
+            e["player"] = player
+        if parts is not None:
+            e["participants"] = parts
+        if depends:
+            e["depends_on"] = sorted(set(depends))
+        e.update(producer=producer, **common)
+        return e
+
+    def place(c: dict, w: dict):
+        p = c.get("position")
+        if frame is None or not p or p.get("t_ms") != w.get("t_ms"):
+            return None
+        return {"frame": frame, "x": p["x"], "y": p["y"]}
+
+    by_child = {}
+    for c in rows:
+        if c.get("kind") != "child":
+            continue
+        cid, rnd = c["child_id"], c["round"]
+        by_child[cid] = c
+        subject = c.get("subject") or "unknown"
+        identity, why = name_of(c)
+        id_reason = None if identity else f"withheld: {L.ledger_id(cid)}"
+        times = [w["t_ms"] for w in c["witnesses"] if w.get("t_ms") is not None]
+        life = {"first_observed_ms": min(times), "last_observed_ms": max(times),
+                "began": dict(c["open"]),
+                "ended": {k: c["end"][k] for k in ("lo_ms", "hi_ms", "basis")}}
+        _reasoned(life, "censored_at_ms", None,
+                  "not_applicable: the owner ends every child by its facts or the round barrier")
+        row = {"row": "entity", "entity_id": cid, "family": "ability_object", "kind": subject,
+               "side": c["side"], "round": rnd, "lifetime": life}
+        _reasoned(row, "identity", identity, id_reason or "")
+        row.update(player=c["parent"], parent=c["parent"], depends_on=[c["agent_ref"]],
+                   producer=cproducer, **common)
+        phases, phase_why = ability_states(*subject.partition(":")[::2], c["slot"])
+        phase = "observed" if "observed" in phases else None
+        state_obj = {"ability": subject, "slot": c["slot"], "phase": phase}
+        if phase_why:
+            state_obj["phase_reason"] = phase_why
+        if phase is None:
+            state_obj["phase_reason"] = phase_why or ("not_read: the facts name states "
+                                                      f"{sorted(phases)} and no witness reads one")
+        # The cast event cites the first witness in time (an own ult line can
+        # precede the X drop that opened the child).
+        timed = [w for w in c["witnesses"] if w.get("t_ms") is not None]
+        open_w = min(timed, key=lambda w: w["t_ms"]) if timed else c["witnesses"][0]
+        events = [event(f"cast:{cid}", cid, "cast", rnd, open_w["t_ms"],
+                        {"ability": subject, "slot": c["slot"]}, [ev_of(open_w)], cproducer,
+                        identity, id_reason, occurred=dict(c["open"]), occ_reason="",
+                        pos=place(c, open_w), depends=[c["agent_ref"]], player=c["parent"])]
+        for i, w in enumerate(c["witnesses"]):
+            if w.get("t_ms") is None or w is open_w:
+                continue
+            events.append(event(f"observed:{cid}:{i}", cid, "ability_object", rnd, w["t_ms"],
+                                dict(state_obj), [ev_of(w)], cproducer, identity, id_reason,
+                                pos=place(c, w), depends=[c["agent_ref"]], player=c["parent"]))
+        d = c.get("disabled")
+        if d:
+            deps = [c["agent_ref"]] + ([f"identity:{d['death_id']}"] if d.get("death_id") else [])
+            owner = {"entity_id": c["parent"], "identity": identity}
+            if identity is None:
+                owner["identity_reason"] = id_reason
+            evidence = [ev_of(d["evidence"])]
+            if d.get("death_id"):
+                evidence.append({"stream": "death", "id": d["death_id"],
+                                 "version": store.events_version("death", sid) or "unstamped"})
+            events.append(event(f"disabled:{cid}", cid, "ability_disabled", rnd, d["t_ms"],
+                                {"ability": subject, "slot": c["slot"]}, evidence,
+                                cproducer, identity, id_reason, depends=deps,
+                                parts={"owner": owner}, player=c["parent"]))
+        subject_row = {"row": "entity", "entity_id": cid, "round": rnd}
+        why_stale = L.stale_reason(rests_on)
+        if why_stale is not None:
+            L.withhold_row(cid, subject_row, "stale", why_stale, row, "ability-child",
+                           [f"ability_child:{cid}"], ["ability-child"])
+            for e in events:
+                L.withhold_row(e["event_id"], {"row": "event", "event_id": e["event_id"],
+                                               "entity_id": cid, "round": rnd,
+                                               "observed_ms": e["observed_ms"]},
+                               "stale", f"entity {cid} withheld: stale", e, "ability-child",
+                               e["evidence"], ["ability-child"])
+            continue
+        if identity is None:
+            L.withhold(cid, subject_row, IDENTITY_STANDING.get(why, "abstained"),
+                       f"identity: the player's slot verdict is {why}",
+                       {"identity": {"standing": IDENTITY_STANDING.get(why, "abstained"),
+                                     "alternatives": []}}, ["agent-identity"])
+        L.rows.append(row)
+        L.rows.extend(events)
+
+    for e in erows:
+        if e.get("kind") != "effect" or e.get("predicted"):
+            continue
+        src = by_child.get(e["source"])
+        eid, rnd, t = e["effect_id"], e["round"], e["t_ms"]
+        life = {"first_observed_ms": t, "last_observed_ms": t,
+                "began": {"lo_ms": t, "hi_ms": t, "basis": e["lifetime"]["basis"]},
+                "ended": {"lo_ms": e["lifetime"]["lo_ms"], "hi_ms": e["lifetime"]["hi_ms"],
+                          "basis": e["lifetime"]["basis"]}}
+        _reasoned(life, "censored_at_ms", None, "not_applicable: an instant effect")
+        row = {"row": "entity", "entity_id": eid, "family": "ability_effect", "kind": e["effect"],
+               "side": (src or {}).get("side", "ally"), "round": rnd, "lifetime": life}
+        _reasoned(row, "identity", None, "not_applicable: an effect's agent is its source's")
+        _reasoned(row, "player", None, "not_applicable: an effect binds to its source")
+        row.update(parent=e["source"], producer=eproducer, **common)
+        tgt = e["target"]
+        victim, vstatus = _named(dverdicts, tgt["ref"], tgt.get("agent")) if tgt.get("ref") \
+            else (None, "not_stored")
+        target = {"entity_id": tgt["entity_id"]}
+        if tgt.get("ref"):
+            L.verdicts[tgt["ref"]] = vstatus
+        if victim is not None:
+            target["identity"] = _name_block(victim, tgt["ref"], darb or NAME_ARBITER)
+        else:
+            _reasoned(target, "identity", None, f"not_read: the death owner's verdict is {vstatus}")
+        deps = list(e.get("depends_on") or []) + ([tgt["ref"]] if victim is not None else [])
+        if deps:
+            row["depends_on"] = sorted(set(deps))
+        ev = event(f"effect:{eid}", eid, "effect", rnd, t,
+                   {"effect": e["effect"], "ability": e.get("subject") or "unknown",
+                    "slot": e["slot"]},
+                   [ev_of(w) for w in e["evidence"]], eproducer, depends=deps,
+                   parts={"target": target})
+        why_stale = L.stale_reason(rests_on)
+        if why_stale is not None:
+            L.withhold_row(eid, {"row": "entity", "entity_id": eid, "round": rnd}, "stale",
+                           why_stale, row, "ability-effect", [f"ability_effect:{eid}"],
+                           ["ability-effect"])
+            continue
+        L.rows += [row, ev]
+    return {"arbiter": NAME_ARBITER}
+
+
 _BUILD = {"round_entity": _round_entity_lane, "death": _death_lane, "spike": _spike_lane,
-          "enemy": _enemy_lane}
+          "enemy": _enemy_lane, "ability": _ability_lane}
 
 
 # ------------------------------------------------------------- projection

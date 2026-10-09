@@ -438,7 +438,8 @@ def check_ability() -> list[tuple[str, str]]:
         child_owner="slot_state", child_entries=slot_state.ABILITY_ENTRIES,
         streams=frozenset(streams), retired=frozenset(plan.RETIRED_STREAMS),
         lanes={s["lane"]: tuple(s["inputs"]) for s in entity_events.ENTITY_LANES},
-        entries=ownership.load().get("_index", {}))
+        entries=ownership.load().get("_index", {}),
+        child_streams=tuple(slot_state.ABILITY_STREAMS))
     return ratchets.ability_findings(inputs)
 
 

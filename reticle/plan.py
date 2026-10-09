@@ -193,6 +193,12 @@ RETIRED_STREAMS = {
     "ability": "retired 2026-10-09: prototypes/ability_cast.py --emit wrote it with no "
                "version key and nothing reads it; tray_drop.player_cast and ability_shape "
                "answer its questions; stored rows kept, never rewritten",
+    # docs/ABILITY_ENTITIES.md step 2: the player's Ruse casts while dead are
+    # the player's Ruse children `slot_state` opens on a dead Clove's smokes
+    # (`ability_timeline.dead_ruse_casts` stays their charge ledger).
+    "dead_ruse_cast": "retired 2026-10-09: the player's Ruse children in `ability_child` "
+                      "(opened_by `dead_clove_smoke`) answer it; `reticle smokes` no longer "
+                      "writes it; stored rows kept, never rewritten",
 }
 
 #: Experiment arms: a reader's rows a pass published under another stream
@@ -311,8 +317,8 @@ def derived_streams() -> list[dict]:
     from .version import ALLY_PORTRAIT_FEATURES_VERSION, ENEMY_TEARDROP_VERSION
     from .minimap_diagnostics import DIAGNOSTICS_VERSION
     from .minimap_lifecycle import LIFECYCLE_VERSION
-    from .ability_timeline import DEAD_RUSE_VERSION, stored_dead_ruse_applies
     from .roi_cache import ROI_CACHE_VERSION
+    from .slot_state import ABILITY_CHILD_VERSION, ABILITY_EFFECT_VERSION
     from .round_entities import ROUND_ENTITY_VERSION
     from .round_lifetimes import DETECTION_REALITY_VERSION, ROUND_LIFETIME_VERSION
     from .stalls import STALL_VERSION
@@ -382,13 +388,17 @@ def derived_streams() -> list[dict]:
          "current": ABILITY_GLYPH_NAME_VERSION, "command": "reticle ability-glyphs {sid}",
          "how": "storage", "fields": {},
          "upstream": ("ability_disc_track", "ability_glyph", "tray_kit")},
-        # The player's Ruse casts while dead (`ability_timeline.dead_ruse_casts`),
-        # written beside the owners on a Clove player's session; the rule
-        # says where it applies (`ability_timeline.dead_ruse_applies`).
-        {"stream": "dead_ruse_cast", "key": "dead_ruse_version", "current": DEAD_RUSE_VERSION,
-         "command": "reticle smokes {sid}", "how": "storage", "fields": {},
-         "upstream": ("smoke_owner", "ability_state", "rounds"),
-         "applies": stored_dead_ruse_applies},
+        # The player's own ability children and effects (`slot_state`,
+        # docs/ABILITY_ENTITIES.md step 2), built from the stored witnesses;
+        # one command writes both, the children first.
+        {"stream": "ability_child", "key": "ability_child_version",
+         "current": ABILITY_CHILD_VERSION, "command": "reticle ability-children {sid} --write",
+         "how": "storage", "fields": {},
+         "upstream": ("ability_state", "ult_cast", "smoke_owner", "ability_shape",
+                      "ability_glyph_name", "death", "assist", "rounds")},
+        {"stream": "ability_effect", "key": "ability_effect_version",
+         "current": ABILITY_EFFECT_VERSION, "command": "reticle ability-children {sid} --write",
+         "how": "storage", "fields": {}, "upstream": ("ability_child", "death", "assist")},
         {"stream": "combat_report_round", "key": "combat_report_round_version",
          "current": COMBAT_REPORT_ROUND_VERSION, "command": "reticle combat-report {sid}",
          "how": "storage", "fields": {"combat_report_version": COMBAT_REPORT_VERSION},
@@ -552,6 +562,7 @@ def _code(path: str, stamp: str, *, optional: bool = False, before: str | None =
 #: Keys a stream's head records that are not stored-input stamps, and why
 #: plan does not compare them (`doctor` INPUTS reads this).
 NOT_INPUTS = {
+    "ability_channels_version": "the channel declaration `slot_state.CHANNELS` the child owner built under; code, not a stored input, and a change to it restamps `ABILITY_CHILD_VERSION`",
     "board_state": "folded into the lineup view, compared as `lineup`",
     "tray_kit_reason": "why the kit witness went unused, not a stamp",
     "tray_kit_own_basis": "which agent the kit witness judged `own` against (`stored` or "
@@ -783,11 +794,29 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                "drawing_answers": _in("inputs.drawing_answers",
                                                       "glyph_drawing_answers"),
                                **_lineup_inputs()},
-        "dead_ruse_cast": {"smoke_owner": _in("inputs.smoke_owner",
-                                              "smoke_owner#smoke_owner_version"),
-                           "ability_state": _in("inputs.ability_state",
-                                                "ability_state#ability_state_version"),
-                           "round": _in("inputs.round", "rounds"), **_gate()},
+        # The child owner reads every witness it may (`slot_state.CHANNELS`);
+        # a dead Clove's smokes also read the player-cast gate's deaths and
+        # revives, recorded only on a Clove player's session.
+        "ability_child": {"ability_state": _in("inputs.ability_state",
+                                               "ability_state#ability_state_version"),
+                          "ult_cast": _in("inputs.ult_cast", "ult_cast#ult_cast_version"),
+                          "smoke_owner": _in("inputs.smoke_owner",
+                                             "smoke_owner#smoke_owner_version"),
+                          "ability_shape": _in("inputs.ability_shape",
+                                               "ability_shape#ability_shape_version"),
+                          "ability_glyph_name": _in("inputs.ability_glyph_name",
+                                                    "ability_glyph_name#ability_glyph_name_version"),
+                          "death": _in("inputs.death", death),
+                          "assist": _in("inputs.assist", "assist#assist_adjudication_version"),
+                          "round": _in("inputs.round", "rounds"),
+                          **{f"dead_ruse_{k}": v for k, v in
+                             _gate("inputs.dead_ruse_gate.", optional=True).items()},
+                          **_lineup_inputs()},
+        "ability_effect": {"ability_child": _in("inputs.ability_child",
+                                                "ability_child#ability_child_version"),
+                           "death": _in("inputs.death", death),
+                           "assist": _in("inputs.assist", "assist#assist_adjudication_version"),
+                           **_lineup_inputs()},
         "smoke_owner": {"smoke": _in("smoke_version", "smoke#smoke_version"),
                         "tray_drop": _in("inputs.tray_drop", "tray_drop#tray_version"),
                         "round": _in("inputs.round", "rounds"),

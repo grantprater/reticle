@@ -9,7 +9,7 @@ and `label`, `ally`, `smoke`, `glyph`, `marks`, `replay-score`,
 `replay-abilities`, `budget` (with `budget-feats`, `budget-eye`,
 `budget-eye-score`, `budget-levers`, `budget-sample`, `budget-peek`),
 `hook`, `hook-report`, `arms-report`, `draw-persist`, `draw-smokes`,
-`slots` and `summary`. `reticle/harness/run.py` holds the commands and their record;
+`slots`, `ability-lane` and `summary`. `reticle/harness/run.py` holds the commands and their record;
 `reticle/acceptance.py` holds the core. This file forwards its old
 subcommands there and keeps the names its callers and tests import.
 """

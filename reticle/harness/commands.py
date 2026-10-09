@@ -15,7 +15,9 @@ owns each command only when it runs:
 * `hook`, `hook-report`, `arms-report` -- QA5r3 over the gated ally pass and
   the stored read-schedule arms (`schedule`);
 * `draw-persist`, `draw-smokes` -- T1d's persistence and smoke census (`draw`);
-* `slots` -- B1, both sides' slot regions against replay truth (`run`).
+* `slots` -- B1, both sides' slot regions against replay truth (`run`);
+* `ability-lane` -- the `ability` lane's children of the player per class
+  against the replay's casts (`run`, docs/ABILITY_ENTITIES.md step 2).
 
 `summary` stays in `cli` beside them: it rescores stored rows on
 `reticle.acceptance` alone.
@@ -30,7 +32,7 @@ from .extras import DEV, NEW
 COMMANDS = ("label", "lane", "ally", "smoke", "glyph", "marks", "replay-score", "replay-abilities",
             "budget", "budget-feats", "budget-eye", "budget-sample", "budget-levers", "budget-eye-score",
             "budget-peek", "hook", "hook-report", "arms-report", "draw-persist", "draw-smokes",
-            "slots")
+            "slots", "ability-lane")
 
 
 def add_parsers(sub) -> None:
@@ -78,6 +80,13 @@ def add_parsers(sub) -> None:
                    help="rewrite a stored players-only budget that differs")
     p = sub.add_parser("slots", help="B1: both sides' slot regions (slot_state) against replay truth")
     p.add_argument("sessions", nargs="*", default=list(DEV) + list(NEW))
+    p.add_argument("--record", action="store_true")
+    p = sub.add_parser("ability-lane", help="the ability lane's children per class against the "
+                                             "replay's casts (docs/ABILITY_ENTITIES.md step 2)")
+    p.add_argument("sessions", nargs="*", default=list(NEW) + list(DEV))
+    p.add_argument("--tag", required=True)
+    p.add_argument("--side", choices=("self",), default="self",
+                   help="the player's own children; the team's come in step 3")
     p.add_argument("--record", action="store_true")
     p = sub.add_parser("budget-feats", help="the budget's features per miss and extra")
     p.add_argument("sessions", nargs="+")
@@ -146,6 +155,8 @@ def dispatch(a, cmd: str) -> int:
         return run.run_replay_abilities(a.sessions or list(DEV), a.legacy_out, a.record, a.record_score)
     if cmd == "slots":
         return run.run_slots(a.sessions or list(DEV) + list(NEW), a.record)
+    if cmd == "ability-lane":
+        return run.run_ability_lane(a.sessions or list(run.ABILITY_SETS), a.tag, a.side, a.record)
     if cmd == "budget":
         return run.run_budget(a.tag, a.sessions or list(DEV), a.record, a.rewrite)
     if cmd.startswith("budget-"):

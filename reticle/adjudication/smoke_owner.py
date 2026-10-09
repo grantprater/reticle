@@ -35,14 +35,12 @@ side's smoke agents (`SMOKE_ABILITY`). The player gave three ways to name one
   [domain:abilities/clove-smokes-after-death]. The row's `rests_on` names
   the run's circle samples.
 
-Each row also links the track to the player's own cast where the tray shows
-one (`cast_links`): the one player cast of the player's smoke slot inside the
-agent's cast window before the birth, claimed by no other track. The row's
-`cast_ms` is that drop and its `rests_on` names it, so the smoke entity starts
-at the cast; a Dark Cover's target icon, drawn from 0.5 s after the drop
-before its disc [domain:abilities/omen-dark-cover-minimap-phases], lies inside
-the entity, not before it. The link is no identity claim: `player_tray`
-already weighs the same drop once. A refused link keeps its reason.
+Binding a track to the player's own cast is the child owner's
+(`slot_state.build_abilities`, docs/ABILITY_ENTITIES.md step 2): it joins a
+track this owner names the player's agent to the player's smoke child inside
+the agent's cast window (`CAST_WINDOW_S`), so the instance starts at the
+cast. Until smoke-owner-0.4.0 each row carried that link itself (`cast`,
+`cast_ms`); no stored row held one.
 
 Smokes born in the same sample with both onsets observed are one cast from one
 agent, and never Omen's or Astra's [domain:abilities/smoke-bulk-confirm]:
@@ -299,54 +297,6 @@ def circle_id(session_id: str, row: dict) -> str:
     return f"{session_id}:clove_circle:{int(round(float(row['t_ms'])))}"
 
 
-def drop_id(session_id: str, cast: dict) -> str:
-    """A tray drop's id as a smoke row's `rests_on` names it."""
-    return f"{session_id}:tray_drop:{cast['slot']}:{int(round(float(cast['t_ms'])))}"
-
-
-def cast_links(session_id: str, tracks: list[dict], player: str | None,
-               casts: list[dict] | None,
-               tray_reason: str | None = None) -> dict[int, tuple[dict | None, str | None]]:
-    """Per track, (the player's cast it was cast from, None) or (None, why).
-
-    A link is the one drop of the player's smoke slot that the owner of the
-    player's casts (`ability_timeline.player_tray_casts`) calls the player's,
-    inside the agent's cast window (`CAST_WINDOW_S`) before the birth. A drop
-    inside two tracks' windows links neither, since one cast draws one smoke
-    for the agents with a window [domain:abilities/smoke-bulk-confirm]; a
-    track with two such drops links neither."""
-    win = CAST_WINDOW_S.get(player) if player else None
-    if casts is None or win is None:
-        why = (tray_reason or "no_tray_drops") if casts is None else (
-            f"no_cast_window_for {player}" if player else "no_player_agent")
-        return {t["track"]: (None, why) for t in tracks}
-    slot = SMOKE_ABILITY[player][0]
-    own = [c for c in casts if c["slot"] == slot and c["player_cast"]]
-    near = {t["track"]: [c for c in own
-                         if win[0] <= (float(t["first_ms"]) - float(c["t_ms"])) / 1000.0 <= win[1]]
-            for t in tracks}
-    claims = defaultdict(list)
-    for k, cs in near.items():
-        for c in cs:
-            claims[float(c["t_ms"])].append(k)
-    out = {}
-    for t in tracks:
-        cs = near[t["track"]]
-        if not cs:
-            out[t["track"]] = (None, "no_player_cast_in_window")
-        elif len(cs) > 1:
-            out[t["track"]] = (None, "casts_in_window " + str(len(cs)))
-        elif len(claims[float(cs[0]["t_ms"])]) > 1:
-            out[t["track"]] = (None, "cast_shared_by_tracks")
-        else:
-            c = cs[0]
-            out[t["track"]] = ({"drop_id": drop_id(session_id, c), "t_ms": float(c["t_ms"]),
-                                "slot": slot, "agent": player,
-                                "lag_s": round((float(t["first_ms"]) - float(c["t_ms"])) / 1000.0, 3),
-                                "window_s": list(win)}, None)
-    return out
-
-
 def smoke_entity_id(session_id: str, track: dict) -> str:
     """A smoke track's entity id, which its `smoke_owner` row and identity
     event carry; a consumer reads it from the row and never builds it."""
@@ -438,11 +388,9 @@ def adjudicate(session_id: str, smoke_rows: list[dict], lineup: dict | None, *,
     verdicts = {v["entity_id"]: v for v in adjudicate_agent_identity(claims)}
     common = {"session_id": session_id, "smoke_owner_version": SMOKE_OWNER_VERSION,
               "smoke_version": head.get("smoke_version")}
-    links = cast_links(session_id, tracks, player, tray_casts, tray_reason)
     rows, events = [], []
     for e, m in meta.items():
         t, v = m["track"], verdicts[e]
-        link, link_why = links[t["track"]]
         by = v["by_channel"]
         reason = None
         if v["status"] == "disagreement":
@@ -467,10 +415,7 @@ def adjudicate(session_id: str, smoke_rows: list[dict], lineup: dict | None, *,
                                     for ch, r in by.items()},
                      "evidence": {c["channel"]: c["evidence"] for c in v["claims"]
                                   if c["evidence"]},
-                     "depends_on": v["depends_on"],
-                     "cast": link, "cast_reason": link_why,
-                     "cast_ms": link["t_ms"] if link else None,
-                     "rests_on": ([link["drop_id"]] if link else []) + circled})
+                     "depends_on": v["depends_on"], "rests_on": circled})
         events += identity_events([v], session_id, t["first_ms"])
     named = [r for r in rows if r["agent"]]
     refused = defaultdict(int)
@@ -484,7 +429,6 @@ def adjudicate(session_id: str, smoke_rows: list[dict], lineup: dict | None, *,
                               "present_samples": None if circles is None else len(circles),
                               "runs": None if runs is None else len(runs), "reach": reach},
              "tracks": len(rows), "named": len(named),
-             "cast_linked": sum(r["cast"] is not None for r in rows),
              "by_agent": {a: sum(r["agent"] == a for r in named)
                           for a in sorted({r["agent"] for r in named})},
              "by_rule": {ch: sum(ch in r["rules"] for r in named) for ch in CHANNELS},

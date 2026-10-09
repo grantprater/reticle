@@ -753,7 +753,8 @@ class KindsTests(unittest.TestCase):
         base = _repo({"reticle/slot_state.py": src})
         legacy = {"ability": "step 2"} if legacy is None else legacy
         return ratchets.kinds_findings(base, kinds or {}, legacy,
-                                       frozenset(legacy) if seed is None else seed)
+                                       frozenset(legacy) if seed is None else seed,
+                                       side_legacy={})
 
     def test_an_unbuilt_listed_kind_warns_once_with_its_step(self):
         out = self._find()
@@ -786,11 +787,25 @@ class KindsTests(unittest.TestCase):
 
     def test_the_tree_builds_players_and_lists_the_rest(self):
         out = doctor.check_kinds()
-        self.assertEqual([lv for lv, _ in out], [WARN] * len(ratchets.KINDS_LEGACY))
+        self.assertEqual([lv for lv, _ in out],
+                         [WARN] * (len(ratchets.KINDS_LEGACY) + len(ratchets.KINDS_SIDE_LEGACY)))
         self.assertTrue(set(ratchets.KINDS_LEGACY) <= ratchets.KINDS_SEED)
         from reticle import slot_state
         tree = ratchets._parse_source(Path(slot_state.__file__))
         self.assertIn("player", ratchets.built_kinds(tree))
+        self.assertEqual(ratchets.built_kinds(tree, extra=ratchets.KINDS_BUILDERS[1:]),
+                         {"player", "ability", "effect"})
+
+    def test_a_side_still_listed_once_built_errors(self):
+        src = SLOTS + '    ABILITY_SIDES_BUILT = ("self", "team")\n'
+        out = ratchets.kinds_findings(_repo({"reticle/slot_state.py": src}), {}, {"ability": "step 2"},
+                                      frozenset({"ability"}),
+                                      side_legacy={"ability:team": "step 3", "ability:enemy": "step 4"},
+                                      side_seed=frozenset({"ability:team", "ability:enemy"}))
+        self.assertIn((ERROR, "KINDS_SIDE_LEGACY names `ability:team`, which "
+                              "`slot_state.ABILITY_SIDES_BUILT` now builds -- remove it from the "
+                              "allowlist"), out)
+        self.assertEqual(sum(1 for lv, m in out if lv == WARN and "`enemy`" in m), 1)
 
 
 if __name__ == "__main__":

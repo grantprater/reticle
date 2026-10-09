@@ -201,8 +201,11 @@ from .store import DEFAULT_STORE, Store
 #: 0.2.0 (2026-10-09): the five enemy slots join the entity axis after the
 #: ally five, fed by the stored `enemy_track` rows; ally rows are unchanged.
 #: The spawn anchor (`spawn_anchor`, 2026-10-09) ships off and changes no
-#: belief, so it keeps 0.2.0; turning it on bumps this.
-SLOT_STATE_VERSION = "slot-state-0.2.0"
+#: belief, so it bumps nothing; turning it on bumps this.
+#: 0.3.0 (2026-10-09): the module builds the player's ability children and
+#: effects (`build_abilities`, stamped `ABILITY_CHILD_VERSION` and
+#: `ABILITY_EFFECT_VERSION`); the slot rows are unchanged.
+SLOT_STATE_VERSION = "slot-state-0.3.0"
 #: The enemy binding's own stamp.
 ENEMY_BINDING_VERSION = "enemy-binding-0.1.0"
 #: The binding law's own stamp (unchanged from the prototype).
@@ -251,9 +254,13 @@ SPECTATE_RESTS_ON = ("tray_kit spectating witness (kit_agents_at lookahead 0 ms;
 
 # --- ability children and effects: the declaration (docs/ABILITY_ENTITIES.md step 1)
 
-#: Entity kinds the child owner will hold beside `player` (section 2.2).
+#: Entity kinds the child owner holds beside `player` (section 2.2).
 KIND_ABILITY = "ability"
 KIND_EFFECT = "effect"
+#: The sides whose ability children and effects `build_abilities` builds:
+#: the player's own since step 2; step 3 adds `team`, step 4 `enemy`
+#: (`ratchets.KINDS_SIDE_LEGACY` holds the rest until then).
+ABILITY_SIDES_BUILT = ("self",)
 #: The ownership entries this module answers for ability entities.
 ABILITY_ENTRIES = ("ability-child", "ability-effect", "ability-owner")
 
@@ -381,8 +388,758 @@ CHANNELS: tuple[dict, ...] = (
 #: The lanes ability entities reach consumers through (section 2.9): the
 #: child owner's, and the kit owner's. Any other ability lane is ABILITY debt.
 ABILITY_LANES = {"ability": "children and effects (`ability-child`, `ability-effect`); "
-                            "built in step 2",
+                            "the player's own since step 2",
                  "ability_tray": "the kit (`ability-state`)"}
+
+
+# --- ability children and effects: the player's own (docs/ABILITY_ENTITIES.md step 2)
+
+#: ability-child-0.1.0 (2026-10-09): the player's own instances. The kit
+#: owner's cast transitions, the player's own ult lines and a dead Clove's
+#: smokes open them; shape fits, smoke tracks, glyph tracks, Clove's circle
+#: and own audio join them; each ends by its own facts, an observed end, or
+#: the round barrier. A change to a child rule restamps this stamp alone,
+#: never the player slots.
+ABILITY_CHILD_VERSION = "ability-child-0.1.0"
+#: ability-effect-0.1.0 (2026-10-09): the player's ability kills and assists,
+#: and any effect an ability's own `effects` fact names.
+ABILITY_EFFECT_VERSION = "ability-effect-0.1.0"
+#: The streams this owner writes (`reticle ability-children SESSION --write`).
+ABILITY_STREAMS = ("ability_child", "ability_effect")
+#: A child's end basis. An observed end outranks a predicted one; among the
+#: predicted, the earliest fires.
+END_BASES = ("observed_end", "owner_death", "lifetime_expiry", "round_barrier")
+#: The kit owner's transitions this owner reads (`adjudication.ability_state`).
+KIT_CAST, KIT_DEATH, KIT_REVIVE = "cast", "owner_death", "revive"
+#: The kit's owner_death transition and the death owner's verdict are two
+#: readings of one death, paired nearest first within this many ms. The bound
+#: is the one `replay_abilities` pairs owner_death verdicts with replay deaths
+#: by; it is not a measured lag.
+DEATH_PAIR_MS = 3000.0
+X_SLOT = "X"
+
+
+def _subject_key(subject: str) -> tuple[str, str]:
+    who, _, what = str(subject).partition(":")
+    return agent_key(who), agent_key(what)
+
+
+def _structured(found: dict, name: str, tag: str):
+    """(value, fact key, reason) of one lifecycle field over the facts of one
+    subject (`found`: fact key -> value). Two facts that disagree refuse."""
+    vals = {k: v for k, v in found.items() if v}
+    if not vals:
+        return None, None, f"no-fact:{tag}:{name}"
+    if len({json.dumps(v, sort_keys=True, default=list) for v in vals.values()}) > 1:
+        return None, None, f"conflicting-facts:{','.join(sorted(vals))}:{name}"
+    k = sorted(vals)[0]
+    return vals[k], k, None
+
+
+def _fact_seconds(facts: dict, ref: str) -> float | None:
+    """The number `<domain>/<id>#<group>.<field>` names, in seconds."""
+    key, _, path = ref.partition("#")
+    f = facts.get(key)
+    v = (f.values or {}) if f is not None else {}
+    for part in path.split("."):
+        v = v.get(part) if isinstance(v, dict) else None
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def ability_lifecycle(agent: str, ability: str | None, slot: str, facts: dict | None = None) -> dict:
+    """One ability's lifecycle from its own facts, never by analogy
+    [domain:abilities/ability-rules-are-unique]; every field it cannot read
+    carries a `no-fact:<agent>:<slot>:<field>` reason and no default.
+
+    - `lifecycle_class`, `owner_death`, `effects`, `ends_on`: the structured
+      fields of the lifecycle facts whose subject is `<agent>:<ability>`
+      (`domain.LIFECYCLE_KEYS`, written by the mechanics sheet). A deployed
+      ability with no owner-death field is disabled at its owner's death
+      [domain:abilities/deployed-ability-ends]. A `*-persists-after-death`
+      fact with no structured field says so in prose only, and stays a
+      reason (`unstructured-fact`), never a parsed value.
+    - lifetime: game files first [domain:abilities/game-files-outrank-player-quantities]:
+      a lifecycle fact's `lifetime` reference, else the one `life` value of
+      the ability's game-data fact (two or more refuse as ambiguous), else the
+      kit owner's `-duration` fact (`ability_state.duration_facts`).
+    - `ends_on`: the facts' set, else `round_end` plus the causes a read
+      lifetime or owner-death fact implies; round end is always a member
+      [domain:rounds/no-ability-crosses-round-barrier].
+    - `states`: `entity_contract.ability_states`, the facts' phases.
+    """
+    from . import domain as dm
+    from .adjudication.ability_state import duration_facts
+    from .entity_contract import ability_states
+    facts = dm.load() if facts is None else facts
+    a, ab = agent_key(agent), agent_key(ability)
+    tag = f"{a}:{slot}"
+    life = {k: f for k, f in facts.items() if f.kind == "lifecycle" and ":" in f.subject
+            and _subject_key(f.subject) == (a, ab)} if ab else {}
+    out: dict = {"subject": f"{str(agent).lower()}:{str(ability).lower()}" if ability else None,
+                 "facts": sorted(life)}
+    for name in ("lifecycle_class", "owner_death"):
+        v, k, why = _structured({key: getattr(f, name) for key, f in life.items()}, name, tag)
+        out.update({name: v, f"{name}_fact": k, f"{name}_reason": why})
+    if out["owner_death"] is None and out["lifecycle_class"] == "deployed":
+        out.update(owner_death="disabled", owner_death_fact="abilities/deployed-ability-ends",
+                   owner_death_reason=None)
+    if out["owner_death"] is None and out["owner_death_reason"].startswith("no-fact"):
+        prose = sorted(k for k in life if k.endswith("-persists-after-death"))
+        if prose:
+            out["owner_death_reason"] = f"unstructured-fact:{prose[0]}:owner_death"
+    eff, eff_k, eff_why = _structured({k: tuple(f.effects) for k, f in life.items()}, "effects", tag)
+    out.update(effects=list(eff or ()), effects_fact=eff_k, effects_reason=eff_why)
+
+    # Lifetime, game files first.
+    lt, lt_fact, lt_why, alts = None, None, None, {}
+    refs = {k: f.lifetime for k, f in life.items() if f.lifetime}
+    if len(set(refs.values())) > 1:
+        lt_why = f"conflicting-facts:{','.join(sorted(refs))}:lifetime"
+    elif refs:
+        k, ref = sorted(refs.items())[0]
+        if ref == "none":
+            lt_why = f"fact-names-no-lifetime:{k}"
+        elif ref == "player":
+            lt_why = f"player-lifetime-unread:{k}"
+        else:
+            s = _fact_seconds(facts, ref)
+            lt, lt_fact = (s * 1000.0, ref) if s is not None else (None, None)
+            lt_why = None if s is not None else f"unresolved-lifetime:{ref}"
+    if lt is None and lt_why is None and ab:
+        gd = sorted(k for k, f in facts.items() if f.domain == "game_data"
+                    and f.id.endswith("-game-data") and ":" in f.subject
+                    and _subject_key(f.subject) == (a, ab))
+        for k in gd:
+            vals = {f"{k}#life.{n}": v for n, v in ((facts[k].values or {}).get("life") or {}).items()
+                    if n.endswith("_s") and isinstance(v, (int, float))}
+            if len(vals) == 1:
+                lt_fact, s = next(iter(vals.items()))
+                lt = float(s) * 1000.0
+                break
+            if len(vals) > 1:
+                alts = {r: float(v) for r, v in vals.items()}
+                lt_why = f"ambiguous-fact:{k}:life"
+                break
+    if lt is None and lt_why is None and ab:
+        d = duration_facts(facts).get((a, ab))
+        if d:
+            lt, lt_fact = d["duration_ms"], d["fact"]
+    if lt is None and lt_why is None:
+        lt_why = f"no-fact:{tag}:duration"
+    out.update(lifetime_ms=lt, lifetime_fact=lt_fact, lifetime_reason=lt_why,
+               lifetime_alternatives_s=alts or None)
+
+    ends, ends_k, ends_why = _structured({k: tuple(f.ends_on) for k, f in life.items()},
+                                         "ends_on", tag)
+    if ends is not None:
+        out.update(ends_on=sorted(set(ends) | {"round_end"}), ends_on_fact=ends_k,
+                   ends_on_reason=None)
+    else:
+        implied = {"round_end"} | ({"lifetime"} if lt is not None else set()) | (
+            {"owner_death"} if out["owner_death"] == "destroyed" else set())
+        out.update(ends_on=sorted(implied), ends_on_fact=None, ends_on_reason=ends_why)
+    phases, phase_why = ability_states(str(agent), str(ability), slot)
+    out.update(states=sorted(phases), phase_reason=phase_why)
+    return out
+
+
+def _evidence(stream: str, eid: str, version, t_ms, **extra) -> dict:
+    return {"stream": stream, "id": eid, "version": version,
+            "t_ms": None if t_ms is None else float(t_ms), **extra}
+
+
+def _child_round(t_ms: float, rounds: list[dict]) -> dict | None:
+    from .rounds import round_containing
+    return round_containing(float(t_ms), rounds)
+
+
+def _barrier(r: dict) -> float:
+    """The round's barrier: its close, the next buy phase
+    [domain:rounds/post-round-period]."""
+    return float(r["t_close_ms"] if r.get("t_close_ms") is not None else r["t_end_ms"])
+
+
+def _live(c: dict, t: float) -> bool:
+    """Whether a child may be live at `t`: inside its open-to-predicted-end span."""
+    return c["open"]["lo_ms"] <= t <= c["predicted_end"]["hi_ms"]
+
+
+def _nearest_child(cands: list[dict], t: float) -> dict | None:
+    return min(cands, key=lambda c: (abs(t - c["open"]["hi_ms"]), c["open"]["hi_ms"])) if cands else None
+
+
+class _Children:
+    """The session's children while they are built: opened per round, joined
+    only among the same round's children whose ability admits the witness
+    (ROUNDSCOPE: nothing crosses a round)."""
+
+    def __init__(self, sid: str, rounds: list[dict], agent: str, kit: dict, facts: dict):
+        self.sid, self.rounds, self.agent, self.kit, self.facts = sid, rounds, agent, kit, facts
+        self.items: list[dict] = []
+        self.candidates: list[dict] = []
+        self._life: dict = {}
+        #: (round, slot) -> that round's children of the slot, in open order:
+        #: every join searches only its own round (ROUNDSCOPE).
+        self._by: dict = defaultdict(list)
+
+    def of(self, rno, slot: str) -> list[dict]:
+        """The children of `slot` opened in round `rno`."""
+        return self._by.get((rno, slot), [])
+
+    def in_round(self, rno) -> list[dict]:
+        """Every child opened in round `rno`."""
+        return [c for (r, _s), cs in self._by.items() if r == rno for c in cs]
+
+    def lifecycle(self, slot: str) -> dict:
+        if slot not in self._life:
+            self._life[slot] = ability_lifecycle(self.agent, self.kit.get(slot), slot, self.facts)
+        return self._life[slot]
+
+    def open(self, slot: str, lo: float, hi: float, basis: str, by: str, ev: dict) -> dict | None:
+        r = _child_round(hi, self.rounds)
+        if r is None:
+            self.candidates.append({"witness": by, "slot": slot, "t_ms": hi,
+                                    "reason": "outside_every_round", "evidence": [ev]})
+            return None
+        rno, bar = int(r["round_no"]), _barrier(r)
+        lo = max(float(lo), float(r["t_start_ms"]))
+        c = {"round": rno, "barrier_ms": bar, "slot": slot, "ability": self.kit.get(slot),
+             "open": {"lo_ms": lo, "hi_ms": float(hi), "basis": basis}, "opened_by": by,
+             "witnesses": [{"witness": by, **ev}], "observed_end": None,
+             "owner_death": None, "position": None, "over_bound": False, "surprises": []}
+        self.predict(c)
+        self.items.append(c)
+        self._by[(rno, slot)].append(c)
+        return c
+
+    def predict(self, c: dict) -> None:
+        """The child's predicted end from its open and its lifetime fact, never
+        past its round's barrier."""
+        life, bar = self.lifecycle(c["slot"]), c["barrier_ms"]
+        lo, hi = c["open"]["lo_ms"], c["open"]["hi_ms"]
+        if life["lifetime_ms"] is not None:
+            c["predicted_end"] = {"lo_ms": min(lo + life["lifetime_ms"], bar),
+                                  "hi_ms": min(hi + life["lifetime_ms"], bar),
+                                  "basis": ("lifetime_expiry" if hi + life["lifetime_ms"] < bar
+                                            else "round_barrier")}
+        else:
+            c["predicted_end"] = {"lo_ms": bar, "hi_ms": bar, "basis": "round_barrier"}
+
+    def join(self, slot: str, t: float, gate, by: str, ev: dict, used: set,
+             candidate_reason: str = "no_live_child") -> dict | None:
+        """Join a witness at `t` to the nearest live child of `slot` in its
+        round that `gate` admits and no witness of this kind joined; else keep
+        it as a candidate, never a new child."""
+        r = _child_round(t, self.rounds)
+        rno = None if r is None else int(r["round_no"])
+        pool = self.of(rno, slot)
+        got = _nearest_child([c for c in pool if id(c) not in used and gate(c, t)], t)
+        if got is None:
+            # A drawing after its child's predicted end is a stored surprise
+            # on that child, never a new child.
+            before = [c for c in pool if c["open"]["hi_ms"] <= t]
+            prior = max(before, key=lambda c: c["open"]["hi_ms"]) if before else None
+            if prior is not None and r is not None and _live(prior, t):
+                candidate_reason = "its_child_already_joined_by_this_witness"
+            elif prior is not None and r is not None:
+                prior["surprises"].append(f"{by} at {t:.0f} ms, after the predicted end "
+                                          f"({prior['predicted_end']['basis']})")
+                candidate_reason = "after_the_predicted_end_of_its_child"
+            self.candidates.append({"witness": by, "slot": slot, "t_ms": float(t), "round": rno,
+                                    "reason": candidate_reason if r is not None else
+                                    "outside_every_round", "evidence": [ev]})
+            return None
+        used.add(id(got))
+        got["witnesses"].append({"witness": by, **ev})
+        return got
+
+
+def _stored(st: Store, stream: str, sid: str) -> list[dict]:
+    return st.read_events(stream, sid) if st.events_path(stream, sid).is_file() else []
+
+
+def _identity_status(st: Store, sid: str) -> dict:
+    """identity ref -> (status, agent) from the stored death verdicts' identity events."""
+    out = {}
+    for r in _stored(st, "death_identity", sid):
+        if r.get("event_kind") != "identity_distribution":
+            continue
+        dist = (r.get("identity_distribution") or {}).get("distribution") or {}
+        top = max(sorted(dist), key=lambda a: dist[a]) if dist else None
+        out[r["entity_id"]] = ((r.get("metadata") or {}).get("status"), top)
+    return out
+
+
+def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | None = None) -> dict:
+    """The player's own ability children and effects, from stored witnesses
+    only (docs/ABILITY_ENTITIES.md step 2). Decodes nothing.
+
+    Openers (`CHANNELS`): the kit owner's `cast` transitions
+    (`player_tray_cast`, which pool `tray_drop.player_cast` and own audio), the
+    player's own ult lines (`ult_line`) where no X child lies within the
+    agent's cast window (`ult_cast.cast_window`), a dead Clove's smokes
+    (`ability_timeline.dead_ruse_casts`: the tray shows a spectated kit
+    [domain:hud/tray-after-player-death], so a smoke is the only witness,
+    and the charge ledger flags a cast beyond the bound), and a player's
+    ability kill or assist where no child of that ability is live.
+    Joiners: `ability_shape` fits by their cast, own audio by the kit's
+    verdict, smoke tracks the arbiter names the player's agent, glyph tracks
+    whose verdict key is a slot of the player's kit, and Clove's circle
+    through the smoke it named. A joiner joins the nearest live child of its
+    ability in its round, inside the ability's cast window where a fact
+    gives one (`smoke_owner.CAST_WINDOW_S`), else inside the child's
+    predicted life; a joiner with no live child stays a `candidate`.
+
+    Ends: each child's lifetime and `ends_on` from its own facts
+    (`ability_lifecycle`); an observed smoke end outranks a predicted end;
+    the round barrier ends every child and effect
+    [domain:rounds/no-ability-crosses-round-barrier]. Owner death: the kit's
+    owner_death transition, paired to the death owner's verdict, disables or
+    ends a live child as its facts say, or stores the `no-fact` reason.
+    The charge bound: opens per round and slot beyond the kit's
+    `max_charges`, where no restock fact explains them, are flagged
+    `over_bound` and stored as a surprise, never dropped.
+
+    The agent is the lineup arbiter's verdict on the player's slot; each
+    child names it through `depends_on` that verdict, never a name of its own.
+    """
+    from .adjudication.smoke_owner import CAST_WINDOW_S, SMOKE_ABILITY
+    from .adjudication.ult_cast import OWN_WINDOW_S, cast_window, in_window
+    from . import domain as dm
+    root = Path(store_root)
+    st = Store(root)
+    facts = dm.load() if facts is None else facts
+    man = st.read_manifest(sid)
+    date = man["ingested_at"][:10]
+    table = st.read_rounds(sid, date)
+    rounds = sorted(table.to_pylist() if table is not None else [],
+                    key=lambda r: float(r["t_start_ms"]))
+    if not rounds:
+        return {"refused": "no_rounds"}
+    L = lineup_slots(sid, root)
+    if "refused" in L:
+        return {"refused": L["refused"]}
+    if L["player_slot"] is None:
+        return {"refused": "no_player_slot"}
+    me = L["slots"][int(L["player_slot"])]
+    if me["status"] != "resolved" or not me["agent"]:
+        return {"refused": f"player_agent_unresolved: {me['reason'] or me['status']}"}
+    agent, self_key = me["agent"], me["key"]
+    self_ref = f"identity:{self_key}"
+    state = _stored(st, "ability_state", sid)
+    kit_head = next((r for r in state if r.get("kind") == "coverage"), None)
+    if kit_head is None:
+        return {"refused": "no_ability_state"}
+    kit = dict(kit_head.get("kit") or {})
+    params = kit_head.get("parameters") or {}
+    kver = kit_head.get("ability_state_version")
+    verdicts = sorted((r for r in state if r.get("kind") == "verdict"),
+                      key=lambda r: (float(r["t_ms"]), str(r.get("slot"))))
+    B = _Children(sid, rounds, agent, kit, facts)
+    stamps = {"ability_state": kver}
+
+    # Openers: the kit owner's cast transitions.
+    by_cast: dict[tuple[str, float], dict] = {}
+    for v in verdicts:
+        if v.get("transition") != KIT_CAST:
+            continue
+        t = float(v["t_ms"])
+        lo = float((v.get("before") or {}).get("t_ms", t))
+        ev = _evidence("ability_state", f"{sid}:{v['slot']}:{int(round(t))}:cast", kver, t,
+                       claims=list(v.get("claims") or []), agreed=list(v.get("agreed") or []))
+        c = B.open(v["slot"], lo, t, "the kit's cast transition: between the tray samples "
+                                     "before and at the drop", "player_tray_cast", ev)
+        if c is None:
+            continue
+        by_cast[(v["slot"], round(t, 1))] = c
+        if "audio" in (v.get("agreed") or []):
+            aud = [x for x in v.get("claims") or [] if str(x).endswith(":audio")]
+            c["witnesses"].append({"witness": "own_ability_audio",
+                                   **_evidence("ability_state", aud[0] if aud else f"{sid}:{v['slot']}:"
+                                               f"{int(round(t))}:audio", kver, t)})
+
+    # The player's own ult lines: join an X child inside the agent's cast
+    # window, else open one.
+    ult = _stored(st, "ult_cast", sid)
+    uver = ult[0].get("ult_cast_version") if ult else None
+    stamps["ult_cast"] = uver
+    win = cast_window(agent)
+    used: set = set()
+    lines = sorted((r for r in ult if r.get("kind") == "cast" and r.get("player_cast")),
+                   key=lambda r: float(r["t_ms"]))
+    for r in lines:
+        t = float(r["t_ms"])
+        ev = _evidence("ult_cast", r["entity_id"], uver, t, template=r.get("template"))
+        r_ = _child_round(t, rounds)
+        rno = None if r_ is None else int(r_["round_no"])
+        pool = B.of(rno, X_SLOT)
+        near = [c for c in pool if id(c) not in used and in_window(t, c["open"]["hi_ms"], win)]
+        got = _nearest_child(near, t)
+        if got is not None:
+            used.add(id(got))
+            got["witnesses"].append({"witness": "ult_line", **ev})
+            if t < got["open"]["hi_ms"]:
+                # The line came first: the cast lies before its onset, within
+                # the window `ult_cast` binds an own line to its drop by.
+                got["open"] = {"lo_ms": max(float(r_["t_start_ms"]), t - OWN_WINDOW_S * 1000.0),
+                               "hi_ms": t, "basis": "an own ult line heard before the X drop: "
+                               "the cast lies within ult_cast.OWN_WINDOW_S before the onset"}
+                B.predict(got)
+        else:
+            c = B.open(X_SLOT, t - win[1] * 1000.0, t - win[0] * 1000.0,
+                       f"an own ult line's onset minus the agent's cast window {list(win)} s "
+                       "(ult_cast.cast_window)", "ult_line", ev)
+            if c is not None:
+                used.add(id(c))
+
+    # A dead Clove's smokes: the charge ledger of `dead_ruse_casts`.
+    owners = _stored(st, "smoke_owner", sid)
+    sover = owners[0].get("smoke_owner_version") if owners else None
+    stamps["smoke_owner"] = sover
+    dead_ruse = None
+    from .ability_timeline import (DEAD_RUSE, dead_ruse_applies, dead_ruse_casts, held_at_deaths,
+                                   ruse_parameters, stored_gate_inputs)
+    if dead_ruse_applies(agent)[0] == "applies" and owners:
+        gate, gstamps = stored_gate_inputs(st, sid, date, rounds, agent)
+        dead_ruse = dead_ruse_casts(agent, gate["player_deaths_ms"], gate["revives_ms"], rounds,
+                                    owners, held_at_deaths(state), ruse_parameters(facts))
+        stamps["dead_ruse_gate"] = {k: v for k, v in gstamps.items()
+                                    if k not in ("ult_cast", "ult_cast_reason")}
+    dead_smokes: set = set()
+    for d in (dead_ruse or {}).get("rows", []):
+        sm = d["rests_on"][0]
+        dead_smokes.add(sm)
+        ev = _evidence("smoke_owner", sm, sover, d["t_ms"], basis=d["basis"],
+                       death_ms=d["death_ms"])
+        c = B.open(DEAD_RUSE[1], max(d["death_ms"], d.get("earliest_ms") or d["death_ms"]), d["t_ms"],
+                   "a dead Clove's smoke birth: the cast lies between the death (or the "
+                   "charge's earliest time) and the birth", "dead_clove_smoke", ev)
+        if c is not None:
+            c["dead_ruse"] = {"basis": d["basis"], "death_ms": d["death_ms"],
+                              "window_end_ms": d["window_end_ms"]}
+            c["observed_end_from"] = sm
+            if not d["player_cast"]:
+                c["over_bound"] = True
+                c["surprises"].append(f"beyond_charge_bound: {d['basis']}")
+
+    # Joiners: shape fits keyed to their cast.
+    shapes = _stored(st, "ability_shape", sid)
+    shver = shapes[0].get("ability_shape_version") if shapes else None
+    stamps["ability_shape"] = shver
+    for r in shapes:
+        if r.get("kind") != "shape" or not r.get("found"):
+            continue
+        c = by_cast.get((r.get("slot"), round(float(r["cast_t_ms"]), 1)))
+        ev = _evidence("ability_shape", f"{sid}:shape:{r['slot']}:{int(round(float(r['t_ms'])))}",
+                       shver, r["t_ms"], shape=r.get("shape"))
+        if c is None:
+            B.candidates.append({"witness": "shape_fit", "slot": r.get("slot"), "t_ms": float(r["t_ms"]),
+                                 "round": None, "reason": "its cast opened no child", "evidence": [ev]})
+            continue
+        c["witnesses"].append({"witness": "shape_fit", **ev})
+        if c["position"] is None:
+            if r.get("cx") is not None:
+                x, y = float(r["cx"]), float(r["cy"])
+            else:
+                x, y = (float(r["x0"]) + float(r["x1"])) / 2.0, (float(r["y0"]) + float(r["y1"])) / 2.0
+            c["position"] = {"x": round(x, 1), "y": round(y, 1), "t_ms": float(r["t_ms"]),
+                             "source": "ability_shape"}
+
+    # Joiners: smoke tracks the arbiter names the player's agent.
+    smoke_slot = SMOKE_ABILITY.get(agent, (None,))[0]
+    swin = CAST_WINDOW_S.get(agent)
+    in_swin = (lambda c, t, w=swin: w[0] <= (t - c["open"]["hi_ms"]) / 1000.0 <= w[1])
+    mine = sorted((r for r in owners if r.get("kind") == "smoke_owner" and r.get("agent") == agent
+                   and r["entity_id"] not in dead_smokes and smoke_slot is not None),
+                  key=lambda r: float(r["first_ms"]))
+    # With a cast window, one cast draws one smoke for that agent
+    # [domain:abilities/smoke-bulk-confirm]: a child two tracks' windows hold,
+    # or a track two children's, binds neither (the rule `cast_links` held).
+    shared: set = set()
+    if swin:
+        holds = {r["entity_id"]: [id(c) for c in B.items if c["slot"] == smoke_slot
+                                  and in_swin(c, float(r["first_ms"]))] for r in mine}
+        per_child = Counter(x for v in holds.values() for x in v)
+        shared = {e for e, v in holds.items() if len(v) > 1 or any(per_child[x] > 1 for x in v)}
+    used = set()
+    for r in mine:
+        t = float(r["first_ms"])
+        ev = _evidence("smoke_owner", r["entity_id"], sover, t, last_ms=r.get("last_ms"),
+                       end_status=r.get("end_status"), rules=r.get("rules"))
+        if r["entity_id"] in shared:
+            r_ = _child_round(t, rounds)
+            B.candidates.append({"witness": "smoke_track", "slot": smoke_slot, "t_ms": t,
+                                 "round": None if r_ is None else int(r_["round_no"]),
+                                 "reason": "cast_shared_by_tracks", "evidence": [ev]})
+            continue
+        gate = in_swin if swin else (lambda c, t: _live(c, t))
+        c = B.join(smoke_slot, t, gate, "smoke_track", ev, used)
+        if c is None:
+            continue
+        c["observed_end_from"] = r["entity_id"]
+        if "dead_clove_circle" in (r.get("rules") or []):
+            c["witnesses"].append({"witness": "dead_clove_circle",
+                                   **_evidence("clove_circle", r["entity_id"], None, t,
+                                               rests_on=list(r.get("rests_on") or []))})
+    for c in B.items:
+        sm = c.get("observed_end_from")
+        row = next((r for r in owners if r.get("entity_id") == sm), None) if sm else None
+        if row is None:
+            continue
+        if c["position"] is None and row.get("cx") is not None:
+            c["position"] = {"x": round(float(row["cx"]), 1), "y": round(float(row["cy"]), 1),
+                             "t_ms": float(row["first_ms"]), "source": "smoke"}
+        if row.get("end_status") == "observed" and row.get("last_ms") is not None:
+            e = float(row["last_ms"])
+            c["observed_end"] = {"lo_ms": e, "hi_ms": e, "basis": "observed_end",
+                                 "evidence": _evidence("smoke_owner", sm, sover, e)}
+
+    # Joiners: glyph tracks whose verdict key is a slot of the player's kit.
+    glyphs = _stored(st, "ability_glyph_name", sid)
+    gver = glyphs[0].get("ability_glyph_name_version") if glyphs else None
+    stamps["ability_glyph_name"] = gver
+    used = set()
+    for r in sorted((r for r in glyphs if r.get("kind") == "verdict" and r.get("reason") is None
+                     and (r.get("ability") or {}).get("agent") == agent),
+                    key=lambda r: float(r["birth_ms"])):
+        t = float(r["birth_ms"])
+        ev = _evidence("ability_glyph_name", r["entity_id"], gver, t, key=r["ability"].get("key"))
+        B.join(r["ability"].get("slot"), t, lambda c, t: _live(c, t), "glyph_track", ev, used)
+
+    # Effects: the player's ability kills and assists.
+    deaths = [r for r in _stored(st, "death", sid) if r.get("kind") == "death_verdict"]
+    dver = deaths[0].get("death_adjudication_version") if deaths else None
+    stamps["death"] = dver
+    ids = _identity_status(st, sid)
+    by_name = {agent_key(v): s for s, v in kit.items() if v}
+    effects: list[dict] = []
+    refused_effects: Counter = Counter()
+
+    def source_for(slot, t, by, ev, opens: str):
+        r_ = _child_round(t, rounds)
+        rno = None if r_ is None else int(r_["round_no"])
+        pool = B.of(rno, slot)
+        live = [c for c in pool if c["open"]["hi_ms"] <= t and _live(c, t)]
+        got = max(live, key=lambda c: c["open"]["hi_ms"]) if live else None
+        if got is not None:
+            got["witnesses"].append({"witness": by, **ev})
+            return got, None
+        if r_ is None:
+            return None, "outside_every_round"
+        c = B.open(slot, float(r_["t_start_ms"]), t, f"no live child of the ability: the {by} "
+                   f"opens one ({opens}); its cast lies between the round's start and the kill",
+                   by, ev)
+        return c, None
+
+    for d in sorted(deaths, key=lambda r: float(r["t_ms"])):
+        w = d.get("weapon_evidence") or {}
+        if w.get("category") != "ability" or d.get("side") != "enemy":
+            continue
+        kref = f"identity:{d['death_id']}:killer"
+        kst, ktop = ids.get(kref, (None, None))
+        if not (kst == "resolved" and ktop == agent and d.get("killer") == agent):
+            if d.get("killer") == agent:
+                refused_effects["kill_killer_not_resolved"] += 1
+            continue
+        slot = by_name.get(agent_key(w.get("name") or d.get("weapon")))
+        if slot is None:
+            refused_effects["kill_weapon_not_in_kit"] += 1
+            continue
+        t = float(d["t_ms"])
+        ev = _evidence("death", d["death_id"], dver, t, weapon=w.get("name"))
+        src, why = source_for(slot, t, "killfeed_ability_kill", ev, "if_none_live")
+        if src is None:
+            refused_effects[f"kill_{why}"] += 1
+            continue
+        effects.append({"effect": "kill", "source": src, "t_ms": t, "slot": slot,
+                        "target": {"entity_id": d["death_id"], "agent": d.get("victim"),
+                                   "ref": f"identity:{d['death_id']}"},
+                        "depends_on": [kref], "evidence": [ev]})
+    assists = _stored(st, "assist", sid)
+    aver = next((r.get("assist_adjudication_version") for r in assists
+                 if r.get("assist_adjudication_version")), None)
+    stamps["assist"] = aver
+    for a in sorted((r for r in assists if r.get("kind") == "assist_verdict"),
+                    key=lambda r: float(r["t_ms"])):
+        if a.get("killer_side") != "ally":
+            continue
+        for s in a.get("assisters") or []:
+            ident = s.get("identity") or {}
+            if s.get("agent") != agent or ident.get("status") != "resolved":
+                continue
+            if s.get("icon_status") != "read" or s.get("icon") in (None, "none") \
+                    or s.get("icon_agent") != agent:
+                refused_effects["assist_no_ability_icon"] += 1
+                continue
+            slot = by_name.get(agent_key(s["icon"]))
+            if slot is None:
+                refused_effects["assist_icon_not_in_kit"] += 1
+                continue
+            t = float(a["t_ms"])
+            ev = _evidence("assist", s["entity_id"], aver, t, icon=s["icon"])
+            src, why = source_for(slot, t, "assist_icon", ev, "team_if_none_live")
+            if src is None:
+                refused_effects[f"assist_{why}"] += 1
+                continue
+            effects.append({"effect": "assist", "source": src, "t_ms": t, "slot": slot,
+                            "target": {"entity_id": a["death_id"], "agent": a.get("victim"),
+                                       "ref": f"identity:{a['death_id']}"},
+                            "depends_on": [f"identity:{s['entity_id']}"], "evidence": [ev]})
+
+    # Owner death: the kit's owner_death transitions, paired to the death
+    # owner's verdict on the player.
+    own_deaths = sorted({float(v["t_ms"]) for v in verdicts if v.get("transition") == KIT_DEATH})
+    mine = sorted((d for d in deaths if d.get("victim") == agent and d.get("side") == "ally"
+                   and not d.get("is_revive")), key=lambda d: float(d["t_ms"]))
+    mine_t = np.asarray([float(d["t_ms"]) for d in mine], float)
+    for td in own_deaths:
+        # One sorted slice of the player's deaths near the transition.
+        lo = int(np.searchsorted(mine_t, td - DEATH_PAIR_MS, side="left"))
+        hi = int(np.searchsorted(mine_t, td + DEATH_PAIR_MS, side="right"))
+        near = mine[lo:hi]
+        dd = min(near, key=lambda d: abs(float(d["t_ms"]) - td)) if near else None
+        death = {"t_ms": td, "death_id": dd["death_id"] if dd else None,
+                 "death_reason": None if dd else f"no death verdict within {DEATH_PAIR_MS:.0f} ms",
+                 "evidence": _evidence("ability_state", f"{sid}:{int(round(td))}:owner_death", kver, td)}
+        r_ = _child_round(td, rounds)
+        for c in ([] if r_ is None else B.in_round(int(r_["round_no"]))):
+            if c["owner_death"] is not None:
+                continue
+            if not (c["open"]["hi_ms"] <= td < c["predicted_end"]["hi_ms"]):
+                continue
+            life = B.lifecycle(c["slot"])
+            rule = life["owner_death"]
+            c["owner_death"] = {**death, "rule": rule, "fact": life["owner_death_fact"],
+                                "reason": life["owner_death_reason"]}
+
+    # Ends: observed first, else the earliest predicted cause, never past the barrier.
+    for c in B.items:
+        bar = c["barrier_ms"]
+        cands = [c["predicted_end"]]
+        od = c["owner_death"]
+        if od and od["rule"] == "destroyed":
+            cands.append({"lo_ms": od["t_ms"], "hi_ms": od["t_ms"], "basis": "owner_death"})
+        end = c["observed_end"] or min(cands, key=lambda e: (e["hi_ms"], END_BASES.index(e["basis"])))
+        end = {**end, "lo_ms": min(end["lo_ms"], bar), "hi_ms": min(end["hi_ms"], bar)}
+        if end["hi_ms"] < c["open"]["hi_ms"]:
+            c["surprises"].append(f"end before open: {end['basis']}")
+            end = {**end, "lo_ms": c["open"]["hi_ms"], "hi_ms": c["open"]["hi_ms"]}
+        c["end"] = end
+        if c["observed_end"] and "lifetime" in B.lifecycle(c["slot"])["ends_on"] \
+                and c["observed_end"]["hi_ms"] < c["predicted_end"]["lo_ms"] - 1000.0:
+            c["surprises"].append("observed end before the lifetime fact's expiry")
+
+    # The charge bound, against the kit owner's supply facts.
+    per = defaultdict(list)
+    for c in B.items:
+        per[(c["round"], c["slot"])].append(c)
+    for (rno, slot), cs in per.items():
+        p = params.get(slot) or {}
+        n = p.get("max_charges")
+        if n is None or p.get("restock_fact") or slot == X_SLOT:
+            continue
+        for c in sorted(cs, key=lambda c: c["open"]["hi_ms"])[int(n):]:
+            c["over_bound"] = True
+            c["surprises"].append(f"over_bound: {len(cs)} opens of {slot} in round {rno}, "
+                                  f"max_charges {n} ({p.get('max_charges_fact') or p.get('max_charges_source')})")
+
+    # Ids: the round's number and each open's ordinal in the round.
+    B.items.sort(key=lambda c: (c["round"], c["open"]["hi_ms"], c["slot"]))
+    seen = Counter()
+    for c in B.items:
+        seen[c["round"]] += 1
+        c["id"] = f"{sid}:child:R{c['round']}:{seen[c['round']]}"
+    common = {"session_id": sid, "ability_child_version": ABILITY_CHILD_VERSION}
+    children = []
+    for c in B.items:
+        life = B.lifecycle(c["slot"])
+        od = c["owner_death"]
+        children.append({
+            **common, "kind": "child", "entity_kind": KIND_ABILITY, "child_id": c["id"],
+            "round": c["round"],
+            "slot": c["slot"], "ability": c["ability"], "subject": life["subject"],
+            "agent": agent, "agent_ref": self_ref, "depends_on": [self_ref],
+            "parent": self_key, "side": "ally", "opened_by": c["opened_by"],
+            "open": c["open"], "end": c["end"], "predicted_end": c["predicted_end"],
+            "barrier_ms": c["barrier_ms"],
+            "witnesses": c["witnesses"], "position": c["position"],
+            "position_reason": None if c["position"] else
+            "not_read: no fit or disc joined; the self slot's belief at the cast is not stored",
+            "disabled": ({"t_ms": od["t_ms"], "death_id": od["death_id"], "evidence": od["evidence"]}
+                         if od and od["rule"] == "disabled" else None),
+            "owner_death": od,
+            "owner_death_reason": ("the owner did not die while it lived" if od is None
+                                   else od["reason"]),
+            "lifecycle": life, "ends_on": life["ends_on"], "ends_on_reason": life["ends_on_reason"],
+            "over_bound": c["over_bound"], "surprises": c["surprises"],
+            "dead_ruse": c.get("dead_ruse")})
+    candidates = [{**common, "kind": "candidate", **x} for x in B.candidates]
+    eff_rows = []
+    seen = Counter()
+    for e in sorted(effects, key=lambda e: (e["source"]["round"], e["t_ms"])):
+        rno = e["source"]["round"]
+        seen[rno] += 1
+        eff_rows.append({"session_id": sid, "ability_effect_version": ABILITY_EFFECT_VERSION,
+                         "kind": "effect", "entity_kind": KIND_EFFECT,
+                         "effect_id": f"{sid}:effect:R{rno}:{seen[rno]}",
+                         "round": rno, "effect": e["effect"], "source": e["source"]["id"],
+                         "slot": e["slot"], "ability": e["source"]["ability"],
+                         "subject": B.lifecycle(e["slot"])["subject"],
+                         "t_ms": e["t_ms"],
+                         "lifetime": {"lo_ms": e["t_ms"], "hi_ms": e["t_ms"],
+                                      "basis": f"instant: a {e['effect']} is an instant"},
+                         "target": e["target"], "depends_on": e["depends_on"],
+                         "evidence": e["evidence"]})
+    # Effects an ability's own `effects` fact names (a buff on its caster or
+    # team): predictions from the fact, stored apart from witnessed effects.
+    for c in children:
+        for spec in c["lifecycle"]["effects"]:
+            name, _, targets = str(spec).partition(":")
+            rno = c["round"]
+            seen[rno] += 1
+            eff_rows.append({"session_id": sid, "ability_effect_version": ABILITY_EFFECT_VERSION,
+                             "kind": "effect", "entity_kind": KIND_EFFECT,
+                             "effect_id": f"{sid}:effect:R{rno}:{seen[rno]}",
+                             "round": rno, "effect": name, "source": c["child_id"], "slot": c["slot"],
+                             "ability": c["ability"], "subject": c["subject"],
+                             "t_ms": c["open"]["hi_ms"],
+                             "lifetime": {"lo_ms": c["open"]["lo_ms"], "hi_ms": c["end"]["hi_ms"],
+                                          "basis": f"the effects fact {c['lifecycle']['effects_fact']}"},
+                             "target": {"entity_id": None, "agent": None, "ref": None,
+                                        "targets": targets.split("+")},
+                             "predicted": True, "depends_on": [self_ref],
+                             "evidence": [{"stream": "domain", "id": c["lifecycle"]["effects_fact"],
+                                           "version": "domain", "t_ms": None}]})
+    head = {**common, "kind": "coverage", "ability_channels_version": ABILITY_CHANNELS_VERSION,
+            "agent": agent, "player_slot": self_key, "agent_ref": self_ref,
+            "sides": list(ABILITY_SIDES_BUILT), "kit": kit, "children": len(children), "candidates": len(candidates),
+            "by_opener": dict(Counter(c["opened_by"] for c in children)),
+            "by_end": dict(Counter(c["end"]["basis"] for c in children)),
+            "over_bound": sum(c["over_bound"] for c in children),
+            "disabled": sum(c["disabled"] is not None for c in children),
+            "candidate_reasons": dict(Counter(f"{x['witness']}:{x['reason']}" for x in candidates)),
+            "dead_ruse_reason": None if dead_ruse is None else dead_ruse["reason"],
+            # The stored inputs `plan` declares are recorded by the writer
+            # (`plan.record_inputs`); a dead Clove's gate only where it was read.
+            "inputs": ({"dead_ruse_gate": stamps["dead_ruse_gate"]}
+                       if "dead_ruse_gate" in stamps else {})}
+    ehead = {"session_id": sid, "ability_effect_version": ABILITY_EFFECT_VERSION,
+             "kind": "coverage", "agent": agent,
+             "effects": len(eff_rows), "by_effect": dict(Counter(e["effect"] for e in eff_rows)),
+             "refused": dict(refused_effects), "inputs": {}}
+    return {"session_id": sid, "agent": agent, "child_rows": [head] + children + candidates,
+            "effect_rows": [ehead] + eff_rows}
+
+
+def ability_summary(B: dict) -> dict:
+    """The coverage rows of a build, for the command's print."""
+    if "refused" in B:
+        return B
+    h, e = B["child_rows"][0], B["effect_rows"][0]
+    return {"session": B["session_id"], "agent": B["agent"],
+            **{k: h[k] for k in ("children", "candidates", "by_opener", "by_end", "over_bound",
+                                 "disabled", "candidate_reasons")},
+            "effects": e["effects"], "by_effect": e["by_effect"], "effects_refused": e["refused"]}
 
 
 @dataclass(frozen=True)

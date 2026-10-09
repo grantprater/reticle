@@ -25,7 +25,8 @@ changed only how tray casts bind, not that selection. Decodes no video.
 
 Runs. `gate` is the gate over those inputs; `no_lines` drops the own lines;
 with `--dead-ruse`, `dead_ruse` adds the stored Ruse casts a dead Clove
-player made (`dead_ruse_cast`, `ability_timeline.dead_ruse_casts`);
+player made (the `ability_child` rows a dead Clove's smoke opened,
+`ability_timeline.dead_ruse_casts` through `slot_state.build_abilities`);
 with `--second-lives FILE`, `reread` replaces the stored second lives with
 the file's (`--reread-second-lives` writes it: `killfeed_portrait` re-read at
 the current version from the crop cache by `reticle.trial`, in memory). The
@@ -104,14 +105,16 @@ def gate_runs(store, sid: str, cache_dir: Path, drops_dir: Path,
         out[name] = player_tray_casts([dict(d) for d in drops], g["phase_of"], rounds,
                                       g["player_deaths_ms"], **kw)
     if dead_ruse:
-        # The gate's casts plus the stored Ruse casts while dead
-        # (`ability_timeline.dead_ruse_casts`, `dead_ruse_cast` rows), at the
-        # code's stamp only; a session with none adds none.
-        from reticle.ability_timeline import DEAD_RUSE_VERSION
-        dead = store.read_events("dead_ruse_cast", sid)
-        ok = bool(dead) and dead[0].get("dead_ruse_version") == DEAD_RUSE_VERSION
-        out["dead_ruse"] = out["gate"] + ([r for r in dead if r.get("kind") == "cast"]
-                                          if ok else [])
+        # The gate's casts plus the Ruse children a dead Clove's smoke opened
+        # (`slot_state.build_abilities` over `dead_ruse_casts`), at the code's
+        # stamp only; a child beyond the charge bound is no player cast.
+        from reticle.slot_state import ABILITY_CHILD_VERSION
+        rows = (store.read_events("ability_child", sid)
+                if store.events_path("ability_child", sid).is_file() else [])
+        ok = bool(rows) and rows[0].get("ability_child_version") == ABILITY_CHILD_VERSION
+        dead = [{"slot": r["slot"], "t_ms": r["open"]["hi_ms"], "player_cast": not r["over_bound"]}
+                for r in rows if r.get("kind") == "child" and r.get("opened_by") == "dead_clove_smoke"]
+        out["dead_ruse"] = out["gate"] + (dead if ok else [])
     return out
 
 
@@ -198,7 +201,7 @@ def main(argv=None) -> int:
     ap.add_argument("--reread-second-lives", type=Path, metavar="OUT")
     ap.add_argument("--json", type=Path, help="write the per-drop rows here")
     ap.add_argument("--dead-ruse", action="store_true",
-                    help="also score the gate plus the stored dead_ruse_cast rows")
+                    help="also score the gate plus the stored dead Clove Ruse children")
     ap.add_argument("--record", action="store_true", help="append the metrics row")
     args = ap.parse_args(argv)
     try:

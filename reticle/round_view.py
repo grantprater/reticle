@@ -387,6 +387,10 @@ def _draw_minimap_item(img, it: ve.Item, ox: float, oy: float, k: float = 1.0,
     elif it.stream == "ping":
         cv2.drawMarker(img, p, c, cv2.MARKER_TILTED_CROSS, 14, 2, cv2.LINE_AA)
         _text(img, it.label, (p[0] + 9, p[1] + 16), c, 0.4)
+    elif it.stream == "entity_ability":
+        # A child of the player's, where a witness placed it.
+        cv2.drawMarker(img, p, c, cv2.MARKER_DIAMOND, int(12 * k), 2, cv2.LINE_AA)
+        _text(img, _short(it.label, 24), (p[0] + 8, p[1] - 6), c, 0.4)
 
 
 def _draw_killfeed(img, geo, items):

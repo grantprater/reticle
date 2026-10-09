@@ -1403,6 +1403,276 @@ def step_summary(rows: list, rec: dict, rounds: list, census: dict | None, extra
     return doc, {"out": by_out, "lab": by_lab, "rec": rec}
 
 
+# ----------------------------------------------------------------- the ability lane
+#
+# docs/ABILITY_ENTITIES.md section 2.10, step 2: the `ability` lane's emitted
+# children of the player scored per class against the replay's casts of the
+# player and the actors those casts spawned. Pure over what the caller hands
+# in: the lane's entity rows, the truth casts in capture time, every other
+# player's casts (so a find on another real cast is that cast's, never a false
+# open), the player's deaths and the round bounds.
+
+#: A child pairs with a truth cast whose time lies within this many ms of its
+#: open interval: `replay_abilities.CAST_GATE_MS`, the gate the harness pairs
+#: stored casts with replay casts by.
+ABILITY_OPEN_GATE_MS = 2000.0
+#: A truth instance ended by its owner's death, or at the round barrier, when
+#: its last actor closes within this many ms of that instant. The truth's end
+#: cause is otherwise `other`: lifetime expiry, destruction or recall, which
+#: the replay's actors do not tell apart.
+ABILITY_END_TOL_MS = 1000.0
+#: The outcome of each find, in report order (section 2.10's vocabulary);
+#: `coverage_gap` carries the unmapped cast's slot.
+ABILITY_OUTCOMES = ("right_entity", "coverage_gap", "right_entity:kind_wrong", "other_entity",
+                    "nothing_there")
+#: The truth end cause a child's end basis predicts.
+ABILITY_END_CAUSE = {"lifetime_expiry": "other", "round_barrier": "round_end",
+                     "owner_death": "owner_death"}
+
+
+def ability_key(name) -> str:
+    """An ability's comparison key: its subject's ability part (`sova:recon
+    bolt`) or a display name, casefolded to letters and digits."""
+    import re
+    s = str(name or "")
+    s = s.split(":", 1)[1] if ":" in s else s
+    return re.sub(r"[^0-9a-z]", "", s.casefold())
+
+
+def ability_lane_finds(entities: list[dict], held: frozenset = frozenset()) -> list[dict]:
+    """The lane's `ability_object` entities as finds: key, round, ability key,
+    open and end intervals, end basis, and whether the row was withheld stale
+    (`held`, entity ids from the ledger)."""
+    out = []
+    for e in entities:
+        if e.get("family") != "ability_object":
+            continue
+        life = e["lifetime"]
+        out.append({"key": e["entity_id"], "round": int(e["round"]), "ability": ability_key(e["kind"]),
+                    "kind": e["kind"], "open_lo": float(life["began"]["lo_ms"]),
+                    "open_hi": float(life["began"]["hi_ms"]),
+                    "end_hi": float(life["ended"]["hi_ms"]), "end_basis": life["ended"]["basis"],
+                    "held": e["entity_id"] in held})
+    return out
+
+
+def ability_truth_instances(casts: list[dict], actors: list[dict], deaths_ms, barriers_ms,
+                            gate_ms: float = ABILITY_OPEN_GATE_MS,
+                            tol_ms: float = ABILITY_END_TOL_MS) -> list[dict]:
+    """Each truth cast of the player (`{t_ms, ability, slot}` in capture ms;
+    ability None where the replay's slot maps to none) with its end: the last
+    close among the player's actors of that ability that open within
+    `gate_ms` after it and before the ability's next cast, or None where no
+    actor opens; and the end's cause, `owner_death`, `round_end` or `other`."""
+    deaths = np.sort(np.asarray(list(deaths_ms), float))
+    bars = np.sort(np.asarray(list(barriers_ms), float))
+    out = []
+    # Per ability, the casts' and the actors' times sorted once; each cast
+    # slices the actors that open in its window (ROUNDSCOPE).
+    cast_t = defaultdict(list)
+    for c in casts:
+        cast_t[ability_key(c["ability"])].append(float(c["t_ms"]))
+    cast_t = {k: np.sort(np.asarray(v, float)) for k, v in cast_t.items()}
+    act = defaultdict(list)
+    for a in actors:
+        act[ability_key(a["ability"])].append(a)
+    act = {k: sorted(v, key=lambda a: float(a["open_ms"])) for k, v in act.items()}
+    act_t = {k: np.asarray([float(a["open_ms"]) for a in v], float) for k, v in act.items()}
+    for c in sorted(casts, key=lambda c: float(c["t_ms"])):
+        t, ab = float(c["t_ms"]), ability_key(c["ability"])
+        ct = cast_t[ab]
+        k = int(np.searchsorted(ct, t, side="right"))
+        stop = float(ct[k]) if k < ct.size else np.inf
+        at = act_t.get(ab, np.zeros(0))
+        lo = int(np.searchsorted(at, t - 200.0, side="left"))
+        hi = int(np.searchsorted(at, min(t + gate_ms, stop), side="right"))
+        mine = act.get(ab, [])[lo:hi]
+        closes = [float(a["close_ms"]) for a in mine if a.get("close_ms") is not None]
+        end = max(closes) if closes else None
+        cause = None
+        if end is not None:
+            near_d = deaths[(deaths >= t) & (np.abs(deaths - end) <= tol_ms)]
+            near_b = bars[np.abs(bars - end) <= tol_ms]
+            cause = "owner_death" if near_d.size else "round_end" if near_b.size else "other"
+        out.append({"t_ms": t, "ability": ab if c["ability"] else None, "raw": c["ability"],
+                    "slot": c.get("slot"), "end_ms": end, "end_cause": cause, "actors": len(mine)})
+    return out
+
+
+def _near_casts(items: list[dict], times: np.ndarray, f: dict, gate_ms: float) -> list[int]:
+    """Indices of `items` (sorted by `times`) within `gate_ms` of a find's open
+    interval: one sorted slice, never a walk of every item."""
+    lo = int(np.searchsorted(times, f["open_lo"] - gate_ms, side="left"))
+    hi = int(np.searchsorted(times, f["open_hi"] + gate_ms, side="right"))
+    return list(range(lo, hi))
+
+
+def _gap(f: dict, t: float) -> float:
+    """Distance (ms) from a truth time to a find's open interval; 0 inside."""
+    return max(f["open_lo"] - t, t - f["open_hi"], 0.0)
+
+
+def pair_ability(finds: list[dict], truth: list[dict], gate_ms: float = ABILITY_OPEN_GATE_MS):
+    """One-to-one pairs of finds and truth casts of the same ability, nearest
+    first, within `gate_ms` of the find's open interval: (find index, truth index)."""
+    order = sorted(range(len(truth)), key=lambda j: float(truth[j]["t_ms"]))
+    times = np.asarray([float(truth[j]["t_ms"]) for j in order], float)
+    cand = []
+    for i, f in enumerate(finds):
+        near = [order[k] for k in _near_casts(truth, times, f, gate_ms)]
+        cand += [(_gap(f, truth[j]["t_ms"]), i, j) for j in near
+                 if truth[j]["ability"] == f["ability"]]
+    cand.sort()
+    used_i, used_j, out = set(), set(), []
+    for _g, i, j in cand:
+        if i in used_i or j in used_j:
+            continue
+        used_i.add(i)
+        used_j.add(j)
+        out.append((i, j))
+    return out
+
+
+def _ms_summary(v) -> dict:
+    v = np.asarray([x for x in v if x is not None], float)
+    if not v.size:
+        return {"n": 0}
+    return {"n": int(v.size), "median_ms": round(float(np.median(v)), 1),
+            "abs_p90_ms": round(float(np.percentile(np.abs(v), 90)), 1)}
+
+
+def score_ability_lane(finds: list[dict], truth: list[dict], others: list[dict], round_starts,
+                       gate_ms: float = ABILITY_OPEN_GATE_MS) -> tuple[dict, dict]:
+    """Per class (the player's ability) and over all classes: open recall of
+    the truth casts, false opens, each find's outcome against every cast the
+    replay holds, open and end time error, and agreement of the find's end
+    basis with the truth end's cause. Intervals resample rounds.
+
+    `others` are the other players' casts (`{t_ms, ability, agent}`); a find
+    no own cast pairs is `right_entity:kind_wrong` where an own cast of
+    another ability lies within the gate, `other_entity` where another
+    player's cast of its ability does, else `nothing_there`. A truth cast
+    whose slot maps to no ability is a coverage gap, never a miss of a class.
+    Returns (document, per-class per-round arrays for `pool_ability_lane`)."""
+    starts = np.sort(np.asarray(list(round_starts), float))
+    rounds_of = lambda t: int(np.searchsorted(starts, t, side="right"))
+    mapped = [dict(tr) for tr in truth if tr["ability"]]
+    finds = [dict(f) for f in finds]
+    gaps = Counter(f"coverage_gap:slot_unmapped:{tr.get('slot')}" for tr in truth if not tr["ability"])
+    for f in finds:
+        f["_r"] = rounds_of(f["open_hi"])
+    for tr in mapped:
+        tr["_r"] = rounds_of(tr["t_ms"])
+    rounds = sorted({f["_r"] for f in finds} | {tr["_r"] for tr in mapped})
+    ri = {r: i for i, r in enumerate(rounds)}
+    nr = len(rounds)
+    pairs = pair_ability(finds, mapped, gate_ms)
+    fi = {i: j for i, j in pairs}
+    tj = {j: i for i, j in pairs}
+    by_t = lambda xs: sorted(xs, key=lambda x: float(x["t_ms"]))
+    unmapped = by_t(tr for tr in truth if not tr["ability"])
+    mapped_t, others_t = by_t(mapped), by_t(others)
+    times = {id(xs): np.asarray([float(x["t_ms"]) for x in xs], float)
+             for xs in (unmapped, mapped_t, others_t)}
+    outcome = []
+    for i, f in enumerate(finds):
+        # Each find slices the sorted casts near its open (ROUNDSCOPE).
+        gap = [unmapped[k] for k in _near_casts(unmapped, times[id(unmapped)], f, gate_ms)]
+        own = _near_casts(mapped_t, times[id(mapped_t)], f, gate_ms)
+        oth = [others_t[k] for k in _near_casts(others_t, times[id(others_t)], f, gate_ms)]
+        if i in fi:
+            outcome.append("right_entity")
+        elif gap:
+            outcome.append(f"coverage_gap:slot_unmapped:{gap[0].get('slot')}")
+        elif own:
+            outcome.append("right_entity:kind_wrong")
+        elif any(ability_key(o["ability"]) == f["ability"] for o in oth):
+            outcome.append("other_entity")
+        else:
+            outcome.append("nothing_there")
+
+    def per_round(idx, items):
+        a = np.zeros(nr)
+        for k in idx:
+            a[ri[items[k]["_r"]]] += 1
+        return a
+
+    def block(cls) -> tuple[dict, dict]:
+        fs = [i for i, f in enumerate(finds) if cls is None or f["ability"] == cls]
+        ts = [j for j, tr in enumerate(mapped) if cls is None or tr["ability"] == cls]
+        hit = [j for j in ts if j in tj]
+        # A find on an own cast whose slot maps to no ability is that cast's
+        # coverage gap, never a false open.
+        false = [i for i in fs if i not in fi and not outcome[i].startswith("coverage_gap")]
+        num, den = per_round(hit, mapped), per_round(ts, mapped)
+        fnum, fden = per_round(false, finds), per_round(fs, finds)
+        open_err = [finds[tj[j]]["open_hi"] - mapped[j]["t_ms"] for j in hit]
+        end_err, agree, conf = [], [], Counter()
+        for j in hit:
+            f, tr = finds[tj[j]], mapped[j]
+            if tr["end_ms"] is None:
+                conf[f"{f['end_basis']}|no_truth_actor"] += 1
+                continue
+            end_err.append(f["end_hi"] - tr["end_ms"])
+            conf[f"{f['end_basis']}|{tr['end_cause']}"] += 1
+            want = ABILITY_END_CAUSE.get(f["end_basis"])
+            agree.append(want == tr["end_cause"] if want else
+                         abs(f["end_hi"] - tr["end_ms"]) <= ABILITY_END_TOL_MS)
+        doc = {"truth": len(ts), "finds": len(fs), "paired": len(hit),
+               "held_stale_finds": sum(finds[i]["held"] for i in fs),
+               "recall": round(len(hit) / len(ts), 4) if ts else None,
+               "recall_ci": boot_share(rounds, num, den) if ts and nr else None,
+               "false_opens": len(false),
+               "false_open_share": round(len(false) / len(fs), 4) if fs else None,
+               "false_open_ci": boot_share(rounds, fnum, fden) if fs and nr else None,
+               "outcomes": dict(Counter(outcome[i] for i in fs)),
+               "open_error": _ms_summary(open_err), "end_error": _ms_summary(end_err),
+               "end_cause": dict(sorted(conf.items())),
+               "end_cause_agreement": round(sum(agree) / len(agree), 4) if agree else None,
+               "end_cause_n": len(agree)}
+        return doc, {"num": num, "den": den, "fnum": fnum, "fden": fden,
+                     "agree": sum(agree), "agree_n": len(agree), "open_err": open_err,
+                     "end_err": end_err}
+
+    classes = sorted({f["ability"] for f in finds} | {tr["ability"] for tr in mapped})
+    per, arrays = {}, {}
+    for cls in classes:
+        per[cls], arrays[cls] = block(cls)
+    allb, arrays["_all"] = block(None)
+    doc = {"acceptance_version": ACCEPTANCE_VERSION, "gate_ms": gate_ms,
+           "end_tol_ms": ABILITY_END_TOL_MS, "boot": f"{N_BOOT} round resamples, seed {SEED}",
+           "rounds": nr, "classes": per, "all": allb, "coverage_gaps": dict(gaps),
+           "outcome_of": {f["key"]: o for f, o in zip(finds, outcome)}}
+    return doc, arrays
+
+
+def pool_ability_lane(arrays: list[dict]) -> dict:
+    """The sessions' per-class blocks pooled: recall and false-open share with
+    intervals that resample rounds within each match and add the matches."""
+    classes = sorted({c for a in arrays for c in a})
+    out = {}
+    for cls in classes:
+        got = [a[cls] for a in arrays if cls in a]
+        num = sum(float(g["num"].sum()) for g in got)
+        den = sum(float(g["den"].sum()) for g in got)
+        fnum = sum(float(g["fnum"].sum()) for g in got)
+        fden = sum(float(g["fden"].sum()) for g in got)
+        ag, agn = sum(g["agree"] for g in got), sum(g["agree_n"] for g in got)
+        oe = [x for g in got for x in g["open_err"]]
+        ee = [x for g in got for x in g["end_err"]]
+        use = [g for g in got if g["num"].size]
+        out[cls] = {"truth": int(den), "finds": int(fden), "paired": int(num),
+                    "recall": round(num / den, 4) if den else None,
+                    "recall_ci": boot_pooled([(g["num"], g["den"]) for g in use]) if den and use else None,
+                    "false_opens": int(fnum),
+                    "false_open_share": round(fnum / fden, 4) if fden else None,
+                    "false_open_ci": (boot_pooled([(g["fnum"], g["fden"]) for g in use])
+                                      if fden and use else None),
+                    "open_error": _ms_summary(oe), "end_error": _ms_summary(ee),
+                    "end_cause_agreement": round(ag / agn, 4) if agn else None, "end_cause_n": agn}
+    return out
+
+
 # ----------------------------------------------------------------- slot regions against replay truth
 
 #: A slot's fit lies on its own player, another player or nothing, within

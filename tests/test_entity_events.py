@@ -61,6 +61,40 @@ def _obs(oid, eid, t_ms, state="tracked", x=10.0, y=20.0) -> dict:
             "t_ms": t_ms, "x": x, "y": y, "observation_key": f"k{oid}", "state": state}
 
 
+#: The player (slot 0, Raze) casts Paint Shells' child at 20 s; it is joined
+#: by a shape fit, disabled by the player's death at 30 s, and kills Jett (d2).
+SLOT0 = f"{SID}:ally:slot:0"
+_W = {"stream": "ability_state", "id": f"{SID}:C:20000:cast", "version": "kit-test-1",
+      "t_ms": 20000.0, "witness": "player_tray_cast"}
+ABILITY_CHILD = [
+    {"kind": "coverage", "session_id": SID, "ability_child_version": "ability-child-test-1",
+     "agent": "Raze", "player_slot": SLOT0, "inputs": {}},
+    {"kind": "child", "session_id": SID, "ability_child_version": "ability-child-test-1",
+     "child_id": f"{SID}:child:R1:1", "round": 1, "slot": "E", "ability": "Paint Shells",
+     "subject": "raze:paint shells", "agent": "Raze", "agent_ref": f"identity:{SLOT0}",
+     "depends_on": [f"identity:{SLOT0}"], "parent": SLOT0, "side": "ally",
+     "opened_by": "player_tray_cast",
+     "open": {"lo_ms": 19900.0, "hi_ms": 20000.0, "basis": "the kit's cast transition"},
+     "end": {"lo_ms": 65000.0, "hi_ms": 65000.0, "basis": "round_barrier"},
+     "witnesses": [_W, {"stream": "ability_shape", "id": f"{SID}:shape:E:20500",
+                        "version": "shape-test-1", "t_ms": 20500.0, "witness": "shape_fit"}],
+     "position": None,
+     "disabled": {"t_ms": 30000.0, "death_id": "d1",
+                  "evidence": {"stream": "ability_state", "id": f"{SID}:30000:owner_death",
+                               "version": "kit-test-1", "t_ms": 30000.0}}}]
+ABILITY_EFFECT = [
+    {"kind": "coverage", "session_id": SID, "ability_effect_version": "ability-effect-test-1",
+     "inputs": {}},
+    {"kind": "effect", "session_id": SID, "ability_effect_version": "ability-effect-test-1",
+     "effect_id": f"{SID}:effect:R1:1", "round": 1, "effect": "kill",
+     "source": f"{SID}:child:R1:1", "slot": "E", "ability": "Paint Shells",
+     "subject": "raze:paint shells", "t_ms": 40000.0,
+     "lifetime": {"lo_ms": 40000.0, "hi_ms": 40000.0, "basis": "instant"},
+     "target": {"entity_id": "d2", "agent": "Jett", "ref": "identity:d2"},
+     "depends_on": ["identity:d2:killer"],
+     "evidence": [{"stream": "death", "id": "d2", "version": "death-test-1", "t_ms": 40000.0}]}]
+
+
 def build_store(root: Path) -> Store:
     store = Store(root)
     man = store.manifest_path(SID)
@@ -104,6 +138,8 @@ def build_store(root: Path) -> Store:
         {"kind": "carrier_lost", "t_ms": 20000.0, "slot": 2, "death": True,
          "dropped_glyph_seen": False, "last_marked_ms": 19500.0,
          "depends_on": "agent-from-slot"}])
+    _jsonl(store, "ability_child", ABILITY_CHILD)
+    _jsonl(store, "ability_effect", ABILITY_EFFECT)
     _jsonl(store, "enemy_track", ENEMY_TRACK)
     _jsonl(store, "enemy_track_identity", [
         _verdict("identity:T1", "Raze", "resolved"),
@@ -249,7 +285,7 @@ class ProjectionTests(unittest.TestCase):
         _jsonl(self.store, "spike_carrier", rows)
         self.assertEqual({lane: ee.rebuild_reason(self.store, SID, lane)
                           for lane in ee.PROJECTED},
-                         {"round_entity": None, "death": None, "enemy": None,
+                         {"round_entity": None, "death": None, "enemy": None, "ability": None,
                           "spike": "inputs moved: spike_carrier"})
         derived = ee.lane_status(self.store, SID, set())["derived"]
         self.assertEqual([(d["stream"], d["command"]) for d in derived],
@@ -257,12 +293,12 @@ class ProjectionTests(unittest.TestCase):
         with self.assertRaises(ee.StaleLanes) as cm:
             ee.EntityEvents(self.store, SID)
         self.assertEqual(set(cm.exception.lanes), {"spike"})
-        ee.EntityEvents(self.store, SID, lanes=("death", "round_entity", "enemy"))
+        ee.EntityEvents(self.store, SID, lanes=("death", "round_entity", "enemy", "ability"))
 
     def test_a_lane_never_projected_is_missing_not_empty(self):
         ee.project_lane(self.store, SID, "death", stale={})
         ev = ee.EntityEvents(self.store, SID)
-        self.assertEqual(set(ev.missing), {"round_entity", "spike", "enemy"})
+        self.assertEqual(set(ev.missing), {"round_entity", "spike", "enemy", "ability"})
         self.assertEqual(len(ev.rounds()), 2)
 
 
@@ -304,13 +340,64 @@ class EnemyLaneTests(unittest.TestCase):
         self.assertEqual(s["held_inputs"], ["enemy_track"])
 
 
+class AbilityLaneTests(unittest.TestCase):
+    """The ability lane: the player's child named by the lineup's slot
+    verdict, its cast, later witness and disablement, and its kill."""
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.store = build_store(Path(self._dir.name))
+
+    def tearDown(self):
+        self._dir.cleanup()
+
+    def _project(self, status: str):
+        from unittest import mock
+        lu = {"agent_identity": [{"entity_id": SLOT0, "agent": "Raze", "status": status}]}
+        with mock.patch("reticle.lineup.load_lineup", return_value=lu):
+            s = ee.project_lane(self.store, SID, "ability", stale={})
+        for stream in ee.lane_streams("ability"):
+            self.assertEqual(validate_lane(stream, self.store.read_events(stream, SID)), [], stream)
+        return s
+
+    def test_a_child_its_witnesses_its_disablement_and_its_kill(self):
+        self._project("resolved")
+        ev = ee.EntityEvents(self.store, SID, lanes=("ability",))
+        cid = f"{SID}:child:R1:1"
+        child = ev.entity(cid)
+        self.assertEqual((child["family"], child["kind"]), ("ability_object", "raze:paint shells"))
+        self.assertEqual((child["parent"], child["identity"]["agent"]), (SLOT0, "Raze"))
+        kinds = [e["kind"] for e in ev.events(entity_id=cid)]
+        self.assertEqual(sorted(kinds), ["ability_disabled", "ability_object", "cast"])
+        cast = next(e for e in ev.events(entity_id=cid) if e["kind"] == "cast")
+        self.assertEqual(cast["occurred"]["hi_ms"], 20000.0)
+        eff = ev.entity(f"{SID}:effect:R1:1")
+        self.assertEqual((eff["family"], eff["parent"]), ("ability_effect", cid))
+        (kill,) = ev.events(entity_id=f"{SID}:effect:R1:1")
+        self.assertEqual(kill["participants"]["target"]["identity"]["agent"], "Jett")
+
+    def test_an_unresolved_slot_withholds_the_name(self):
+        self._project("contested")
+        ev = ee.EntityEvents(self.store, SID, lanes=("ability",))
+        cid = f"{SID}:child:R1:1"
+        self.assertIsNone(ev.entity(cid)["identity"])
+        led = {r["ledger_id"]: r for r in ev.ledger(lane="ability")}
+        self.assertEqual(led[f"ability:{cid}"]["standing"], "ambiguous")
+
+    def test_a_stale_child_stream_holds_the_lane(self):
+        s = ee.project_lane(self.store, SID, "ability", stale={"ability_child": "inputs moved"})
+        self.assertEqual(s["consumer_entities"], 0)
+        self.assertEqual(s["held_inputs"], ["ability_child"])
+
+
 class DeclarationTests(unittest.TestCase):
     def test_the_arbiter_literal_is_the_arbiter(self):
         from reticle.adjudication.identity import AGENT_IDENTITY_VERSION
         self.assertEqual(ee.NAME_ARBITER, AGENT_IDENTITY_VERSION)
 
     def test_every_projected_lane_is_declared(self):
-        self.assertEqual(set(ee.PROJECTED), {"round_entity", "death", "spike", "enemy"})
+        self.assertEqual(set(ee.PROJECTED), {"round_entity", "death", "spike", "enemy",
+                                             "ability"})
         for lane in ee.PROJECTED:
             self.assertIn(lane, ee.LANE)
 

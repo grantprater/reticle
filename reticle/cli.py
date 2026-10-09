@@ -4568,46 +4568,7 @@ def cmd_smokes(args) -> int:
     print(f"{sid}: team smoke agents {cov['team_smoke_agents']}, player {cov['player_agent']}; "
           f"{cov['named']} of {cov['tracks']} named {cov['by_agent']}, by rule {cov['by_rule']}; "
           f"refused {cov['refused']} -> {res['out']}")
-    dead = _dead_ruse(store, sid, res["rows"], cov["player_agent"])
-    if dead is not None:
-        h = dead[0]
-        print(f"{sid}: {h['casts']} Ruse casts while dead ({h['clouds']} clouds) over "
-              f"{h['windows']} dead windows, {h['refused']} beyond the charge bound, "
-              f"by basis {h['bases']} -> {dead[1]}")
     return 0
-
-
-def _dead_ruse(store, sid: str, owner_rows: list[dict], player: str | None):
-    """Write the `dead_ruse_cast` rows (`ability_timeline.dead_ruse_casts`)
-    where the player's agent is Clove: the gate's stored deaths and revives,
-    the state model's charges at each death, and the owners just named.
-    Returns (head, path), or None for any other agent."""
-    from .ability_timeline import (DEAD_RUSE_VERSION, dead_ruse_applies, dead_ruse_casts,
-                                   held_at_deaths, ruse_parameters, stored_gate_inputs)
-    if dead_ruse_applies(player)[0] != "applies":
-        return None
-    man = store.read_manifest(sid)
-    date = _date_of(man)
-    table = store.read_rounds(sid, date)
-    rounds = table.to_pylist() if table is not None else []
-    gate, stamps = stored_gate_inputs(store, sid, date, rounds, player)
-    state = store.read_events("ability_state", sid)
-    params = ruse_parameters()
-    got = dead_ruse_casts(player, gate["player_deaths_ms"], gate["revives_ms"], rounds,
-                          owner_rows, held_at_deaths(state), params)
-    head = {"session_id": sid, "dead_ruse_version": DEAD_RUSE_VERSION, "kind": "coverage",
-            "reason": got["reason"], "windows": len(got["windows"]),
-            "casts": sum(r["player_cast"] for r in got["rows"]),
-            "clouds": sum(r["clouds"] for r in got["rows"] if r["player_cast"]),
-            "refused": sum(not r["player_cast"] for r in got["rows"]),
-            "bases": dict(sorted(Counter(r["basis"] for r in got["rows"]).items())),
-            "dead_windows": got["windows"], "parameters": params,
-            "inputs": {**stamps, "smoke_owner": owner_rows[0].get("smoke_owner_version"),
-                       "ability_state": (state[0].get("ability_state_version")
-                                         if state else None)}}
-    _record_inputs(store, sid, "dead_ruse_cast", head)
-    rows = [head] + [{"session_id": sid, "kind": "cast", **r} for r in got["rows"]]
-    return head, store.write_events("dead_ruse_cast", sid, rows)
 
 
 def _smoke_owners(store, sid: str, smoke_rows: list[dict], hz: float) -> dict:
@@ -5137,6 +5098,29 @@ def cmd_slot_state(args) -> int:
                          "slots": [{"id": k[1], "kind": kd,
                                     **{c: (None if np.isnan(v) else float(v)) for c, v in zip(cols, row)}}
                                    for k, kd, row in zip(q["key"], q["kind"], vals)]}
+        print(json.dumps(out, default=str))
+    return 0
+
+
+def cmd_ability_children(args) -> int:
+    """The player's own ability children and effects (`slot_state.build_abilities`,
+    docs/ABILITY_ENTITIES.md step 2), from stored witnesses only; `--write`
+    stores `ability_child` and then `ability_effect`, each head recording the
+    stored inputs `plan` declares. Decodes no video."""
+    from . import slot_state
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        B = slot_state.build_abilities(sid, store_root=store.root)
+        out = slot_state.ability_summary(B)
+        if "refused" in B:
+            print(json.dumps({"session": sid, "refused": B["refused"]}))
+            continue
+        if args.write:
+            for stream, rows in (("ability_child", B["child_rows"]),
+                                 ("ability_effect", B["effect_rows"])):
+                _record_inputs(store, sid, stream, rows[0])
+                out[f"written_{stream}"] = str(store.write_events(stream, sid, rows))
         print(json.dumps(out, default=str))
     return 0
 
@@ -7007,7 +6991,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("project", help="project entity lanes from storage: a consumer file "
                                        "and a ledger per lane (no video)")
     s.add_argument("session")
-    s.add_argument("--lane", action="append", choices=("round_entity", "death", "spike", "enemy"),
+    s.add_argument("--lane", action="append",
+                   choices=("round_entity", "death", "spike", "enemy", "ability"),
                    help="a lane to project; repeat for more (default: every built lane)")
     s.add_argument("--no-metric", action="store_true",
                    help="do not record entity_events/resolution")
@@ -7121,6 +7106,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--write", action="store_true", help="store the per-frame record under l2/slot_state/")
     s.add_argument("--at", type=float, default=None, help="print every slot's region at this capture ms")
     s.set_defaults(func=cmd_slot_state)
+
+    s = sub.add_parser("ability-children",
+                       help="the player's own ability children and effects (`slot_state`; "
+                            "stored witnesses, no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--write", action="store_true",
+                   help="store the ability_child and ability_effect streams")
+    s.set_defaults(func=cmd_ability_children)
 
     s = sub.add_parser("self-icon",
                        help="the minimap self icon's portrait scored against the agents' art, "

@@ -1148,7 +1148,11 @@ SMOKE_VERSION = "smoke-0.5.0"
 # the drop and a Dark Cover's target-icon phase lies inside it.
 # 0.3.0 (2026-10-05): channel `dead_clove_circle` names a disc Clove where the
 # stored `clove_circle` stream saw her range circle round its birth.
-SMOKE_OWNER_VERSION = "smoke-owner-0.3.0"
+# 0.4.0 (2026-10-09): the rows drop `cast`, `cast_reason`, `cast_ms` and the
+# drop in `rests_on`: binding a track to the player's cast is the child
+# owner's (`slot_state.build_abilities`, docs/ABILITY_ENTITIES.md step 2). No
+# stored 0.3.0 row held a link; the verdicts are unchanged.
+SMOKE_OWNER_VERSION = "smoke-owner-0.4.0"
 # Combat report reads (header score, per-row damage, hit splits, flag-word
 # correlations), written as `combat_report` rows by `reticle scan`. It stores no
 # decision. Bump when an offset, a threshold, the templates or the stored fields
