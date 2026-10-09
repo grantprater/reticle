@@ -1477,11 +1477,16 @@ ABILITY_APART: dict[str, str] = {
     "capture-queue": "a development tool for demo captures (section 1.2)",
     "ability-evidence": "a development inventory of stored evidence (section 1.2)",
     "replay-ability-actors": "replay truth, never a reader input (section 1.4)",
+    "ability-mechanics-sheet": "a domain-fact confirmation tool: pre-fills from game files, "
+                               "asks the player and imports into domain/*.toml; facts, never "
+                               "observation evidence",
 }
 #: ABILITY_APART's keys when seeded, 2026-10-09. Frozen: a key outside it is
-#: an ERROR, so no entry escapes ABILITY by being declared apart.
+#: an ERROR, so no entry escapes ABILITY by being declared apart. Seed changes
+#: are deliberate: `ability-mechanics-sheet` joined 2026-10-09, when the
+#: mechanics-sheet branches merged beside step 1.
 ABILITY_APART_SEED: frozenset[str] = frozenset({
-    "capture-queue", "ability-evidence", "replay-ability-actors"})
+    "capture-queue", "ability-evidence", "replay-ability-actors", "ability-mechanics-sheet"})
 
 #: Every ability fragment outside `slot_state.CHANNELS` and the child owner on
 #: 2026-10-09 (docs/ABILITY_ENTITIES.md section 1), found by

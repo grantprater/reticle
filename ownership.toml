@@ -189,6 +189,7 @@ question = "What lifecycle class, lifetime, end conditions, effects and minimap 
 owner = "mechanics_sheet"
 role = ["assign"]
 status = "shipped"
+entity_kind = "ability"
 produces = ["build", "walk", "import_rows"]
 not_for = """
 Any live ability instance, its phase or its end in a match (`slot_state`), and
