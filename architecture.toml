@@ -281,6 +281,19 @@ asks the gate's owner (`live_phase_at`, which `scan` calls too) rather than
 restating it; it writes nothing.
 """
 
+[[exception]]
+from = "slot_state"
+to = "team_vision"
+kind = "deferred"
+imports = "StoredVision, IN_VIEW, OUT_OF_VIEW"
+reason = """
+A lost ability drawing ends its node only where the team's vision covered its
+place [domain:abilities/drawing-loss-in-view-ends-object]. Whether a widget
+point lay in that vision is the vision owner's question (`team-vision`), so
+the child owner asks `StoredVision.in_view` over the stored product rather
+than restating the mask lookup. A pure read of stored rows, one layer up.
+"""
+
 # ---------------------------------------------------------------------------
 # The tree direction. `reticle/` does not know `prototypes/` exists.
 # ---------------------------------------------------------------------------

@@ -18,7 +18,11 @@ owns each command only when it runs:
 * `slots` -- B1, both sides' slot regions against replay truth (`run`);
 * `ability-lane` -- the `ability` lane's children of every slot side per
   class against the replay's casts, and the spawned-object nodes per class
-  against the replay's actors (`run`, docs/ABILITY_ENTITIES.md step 3).
+  against the replay's actors (`run`, docs/ABILITY_ENTITIES.md step 3);
+* `in-view` -- the child owner's in-view estimate of each lost drawing
+  against replay truth sight of its place, a diagnostic (`run`);
+* `false-loss` -- glyph verify losses whose replay child lives on past the
+  loss, classed by cause with each cause's owner, a diagnostic (`run`).
 
 `summary` stays in `cli` beside them: it rescores stored rows on
 `reticle.acceptance` alone.
@@ -33,7 +37,7 @@ from .extras import DEV
 COMMANDS = ("label", "lane", "ally", "smoke", "glyph", "marks", "replay-score", "replay-abilities",
             "budget", "budget-feats", "budget-eye", "budget-sample", "budget-levers", "budget-eye-score",
             "budget-peek", "hook", "hook-report", "arms-report", "draw-persist", "draw-smokes",
-            "slots", "ability-lane")
+            "slots", "ability-lane", "in-view", "false-loss")
 
 
 def add_parsers(sub) -> None:
@@ -91,6 +95,16 @@ def add_parsers(sub) -> None:
     p.add_argument("--record", action="store_true")
     p.add_argument("--post-hoc", action="store_true",
                    help="a revision after the pre-registered run: every recorded row says so")
+    p = sub.add_parser("in-view", help="the child owner's in-view estimate of each lost drawing "
+                                       "against replay truth sight (a diagnostic)")
+    p.add_argument("sessions", nargs="*", default=list(DEV))
+    p.add_argument("--tag", required=True)
+    p.add_argument("--record", action="store_true")
+    p = sub.add_parser("false-loss", help="glyph verify losses whose replay child lives on, by cause "
+                                          "(a diagnostic of the instrument)")
+    p.add_argument("sessions", nargs="*", default=list(DEV))
+    p.add_argument("--tag", required=True)
+    p.add_argument("--record", action="store_true")
     p = sub.add_parser("budget-feats", help="the budget's features per miss and extra")
     p.add_argument("sessions", nargs="+")
     p.add_argument("--tag", required=True)
@@ -163,6 +177,10 @@ def dispatch(a, cmd: str) -> int:
     if cmd == "ability-lane":
         return run.run_ability_lane(a.sessions or list(run.ABILITY_SETS), a.tag, a.side, a.record,
                                     post_hoc=a.post_hoc)
+    if cmd == "in-view":
+        return run.run_in_view(a.sessions or list(DEV), a.tag, a.record)
+    if cmd == "false-loss":
+        return run.run_false_loss(a.sessions or list(DEV), a.tag, a.record)
     if cmd == "budget":
         return run.run_budget(a.tag, a.sessions or list(DEV), a.record, a.rewrite)
     if cmd.startswith("budget-"):

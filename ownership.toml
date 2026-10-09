@@ -954,7 +954,7 @@ owner = "team_vision"
 role = ["constrain", "corroborate"]
 status = "partial"
 produces = ["TeamVision", "StoredAllyPoses", "load_inputs", "frame_row", "at", "at_plan",
-            "compare_rows"]
+            "compare_rows", "StoredVision", "POINT_IN_VIEW_VERSION", "IN_VIEW_SHARE", "point_at"]
 not_for = """
 Ground truth for vision, and a new rule for any stage. It composes the owners'
 calls -- lobe from the drawn light, track facing, lifecycle eligibility, the
@@ -969,9 +969,9 @@ refitted; the self cone there is stored apart as `observable_self`.
 defers_to = ["viewcone", "drawn-light", "track-continuation", "minimap-origin",
              "capture-stall", "light-support", "self-cone-origin", "ally-candidates",
              "icon-pose"]
-consumers = ["overlay", "cli"]
+consumers = ["overlay", "cli", "slot_state"]
 stored_consumers = ["adjudication.ability"]
-evidence = "tests/test_team_vision.py, tests/test_ability_entities.py"
+evidence = "tests/test_team_vision.py, tests/test_ability_entities.py, tests/test_ability_children.py"
 
 [[entry]]
 id = "screen-outline"

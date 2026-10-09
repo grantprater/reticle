@@ -396,7 +396,7 @@ def derived_streams() -> list[dict]:
          "how": "storage", "fields": {},
          "upstream": ("ability_state", "ult_cast", "smoke_owner", "ability_shape",
                       "ability_glyph_name", "ability_disc_track", "tray_kit", "tray_drop",
-                      "death", "assist", "rounds")},
+                      "death", "assist", "rounds", "team_vision")},
         {"stream": "ability_effect", "key": "ability_effect_version",
          "current": ABILITY_EFFECT_VERSION, "command": "reticle ability-children {sid} --write",
          "how": "storage", "fields": {}, "upstream": ("ability_child", "death", "assist")},
@@ -819,6 +819,10 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                           "death": _in("inputs.death", death),
                           "assist": _in("inputs.assist", "assist#assist_adjudication_version"),
                           "round": _in("inputs.round", "rounds"),
+                          # a lost drawing ends its node only in the team's
+                          # vision (`slot_state._drawing_lost`)
+                          "team_vision": _in("inputs.team_vision",
+                                             "team_vision#team_vision_version"),
                           # the spawn tree and each node's sheet answers
                           # (`slot_state.ability_objects`): an answer edit restales it
                           "mechanics_sheet": _in("inputs.mechanics_sheet", "mechanics_sheet"),

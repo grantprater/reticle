@@ -8057,3 +8057,122 @@ class defaults; a blueprint may change a value at run time. What starts the
 values = { count = { max_stars = 5 }, timing = { recharge_s = 15.0 } }
 see = ["abilities/astra-stars-placed-and-picked-up", "abilities/astra-stars-shared",
        "abilities/game-files-outrank-player-quantities"]
+
+[drawing-loss-in-view-ends-object]
+claim = """
+An ability object whose minimap drawing disappears while the object's place is
+in view has ended. A drawing that disappears while the place is out of view
+says nothing about the object.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "abilities"
+source = """
+the answer of 2026-10-09 to the mechanics sheet's per-object drawing_loss
+question, which asked whether an object has ended when its minimap drawing
+disappears
+"""
+use = """
+the child owner ends a node at a lost drawing only where the team's vision
+covers the drawing's last place through the loss (`team_vision.StoredVision`);
+out of view the node stays open, and an undecided view stores its reason. The
+sheet no longer asks drawing_loss per object
+"""
+exceptions = """
+the rule covers a place in view only. Whether a team-owned object is drawn
+out of view is a separate question, which
+[domain:minimap/ability-drawings-both-sides] answers for the team's entities
+and this fact does not extend; whether an enemy-owned ability's drawing
+lingers after its place leaves vision is open
+[domain:minimap/vision-trailing-persistence]
+"""
+see = ["minimap/vision-gate", "minimap/ability-drawings-both-sides",
+       "minimap/vision-trailing-persistence", "abilities/ability-rules-are-unique"]
+
+[chamber-rendezvous-drawing-lasts-with-object]
+claim = """
+Chamber's Rendezvous anchor keeps its minimap drawing for as long as the
+anchor exists: a Rendezvous drawing that is gone means the anchor is gone.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "Chamber:Rendezvous"
+source = """
+the answer of 2026-10-09 to whether this object's minimap drawing can
+disappear while the object exists, asked after the false-loss diagnostic
+(`reticle acceptance false-loss`)
+"""
+use = """
+a lost Rendezvous drawing is the anchor's end; a replay child that outlives
+it is a replay-side error to check before the reader
+"""
+exceptions = "states only this object's drawing; no other ability's"
+see = ["abilities/drawing-loss-in-view-ends-object", "abilities/ability-rules-are-unique"]
+
+[cypher-trapwire-drawing-lasts-with-object]
+claim = """
+Cypher's Trapwire keeps its minimap drawing for as long as the trapwire
+exists: a Trapwire drawing that is gone means the trapwire is gone.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "Cypher:Trapwire"
+source = """
+the answer of 2026-10-09 to whether this object's minimap drawing can
+disappear while the object exists, asked after the false-loss diagnostic
+(`reticle acceptance false-loss`)
+"""
+use = """
+a lost Trapwire drawing is the trapwire's end; a replay child that outlives
+it is a replay-side error to check before the reader
+"""
+exceptions = "states only this object's drawing; no other ability's"
+see = ["abilities/drawing-loss-in-view-ends-object", "abilities/ability-rules-are-unique"]
+
+[chamber-trademark-drawing-lasts-with-object]
+claim = """
+Chamber's Trademark keeps its minimap drawing for as long as the trap
+exists: a Trademark drawing that is gone means the trap is gone.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "Chamber:Trademark"
+source = """
+the answer of 2026-10-09 to whether this object's minimap drawing can
+disappear while the object exists, asked after the false-loss diagnostic
+(`reticle acceptance false-loss`)
+"""
+use = """
+a lost Trademark drawing is the trap's end; a replay child that outlives it
+is a replay-side error to check before the reader
+"""
+exceptions = "states only this object's drawing; no other ability's"
+see = ["abilities/drawing-loss-in-view-ends-object", "abilities/ability-rules-are-unique"]
+
+[cypher-spycam-camera-drawing-lasts-with-object]
+claim = """
+Cypher's Spycam camera keeps its minimap drawing for as long as the camera
+exists: a camera drawing that is gone means the camera is gone.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "Cypher:Spycam"
+source = """
+the answer of 2026-10-09 to whether this object's minimap drawing can
+disappear while the object exists, asked after the false-loss diagnostic
+(`reticle acceptance false-loss`)
+"""
+use = """
+a lost camera drawing is the camera's end; a replay child that outlives it
+is a replay-side error to check before the reader
+"""
+exceptions = """
+states only the camera's drawing; Spycam's tracking dart and every other
+ability are outside it
+"""
+see = ["abilities/drawing-loss-in-view-ends-object", "abilities/ability-rules-are-unique"]
