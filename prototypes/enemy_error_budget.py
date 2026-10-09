@@ -60,6 +60,13 @@ Tejo's Stealth Drone [domain:abilities/tejo-stealth-drone-enemy-minimap-icon].
 `question_acceptance.py label` holds the class-aware join; read an extra's
 entity there before charging the reader with it.
 
+The commands moved into the one harness on 2026-10-09 (harness step 9):
+`question_acceptance.py budget --tag TAG` starts each extra from
+`truth_under` and keeps this players-only budget as its control; every
+other command `X` here is `budget-X` there, and this module's `main`
+forwards to it. The features, classes and crops below stay here as the
+harness's library.
+
     python prototypes/enemy_error_budget.py feats 9acf02f98283 --tag v0
     python prototypes/enemy_error_budget.py budget 9acf02f98283 --tag v0
     python prototypes/enemy_error_budget.py feats 9acf02f98283 c817691bcd15 d3dcfb182ab1 --tag b1
@@ -71,7 +78,6 @@ entity there before charging the reader with it.
 """
 from __future__ import annotations
 
-import argparse
 import json
 import math
 import os
@@ -658,9 +664,13 @@ def _boot(rounds_by_sid: dict, cnt_by_sid: dict, den_by_sid: dict, n=N_BOOT, see
 
 
 def budget(tag: str, sessions: list[str], record: bool = False) -> dict:
-    """The budget per match and pooled over `sessions`, printed as Pareto
-    tables, written to `OUT/TAG/budget.json` and the classed rows to
-    `OUT/TAG/classed_SESSION.jsonl`."""
+    """The players-only budget per match and pooled over `sessions`, printed
+    as Pareto tables, written to `OUT/TAG/budget.json` and the classed rows
+    to `OUT/TAG/classed_SESSION.jsonl`, the files `eye`, `levers` and
+    `sample` read. The tables are the harness's
+    (`question_acceptance._budget_tables`); the harness's `budget` calls
+    this as its players-only control."""
+    import question_acceptance as qa
     C = {}
     for sid in sessions:
         C[sid] = classify(_load_feats(tag, sid))
@@ -674,42 +684,12 @@ def budget(tag: str, sessions: list[str], record: bool = False) -> dict:
                 fh.write(json.dumps(f) + "\n")
     res = {"version": VERSION, "tag": tag, "sessions": sessions,
            "order": {"miss": list(MISS_ORDER), "extra": list(EXTRA_ORDER)},
-           "cuts": {"RED_ICON": RED_ICON, "RED_NONE": RED_NONE, "FG_ICON": FG_ICON, "BLUE_ICON": BLUE_ICON, "TINT": TINT, "STACK_R": STACK_R,
-                    "PING_R": PING_R,
-                    "OFFSET_K": OFFSET_K, "TAIL_SPLIT_MS": TAIL_SPLIT_MS},
-           "boot": f"{N_BOOT} round resamples within each match, seed {SEED}", "tables": {}}
-    scopes = [(sid, [sid]) for sid in sessions] + ([("pooled", sessions)] if len(sessions) > 1 else [])
-    for scope, sids in scopes:
-        res["tables"][scope] = {}
-        for st, order in (("miss", MISS_ORDER), ("extra", EXTRA_ORDER)):
-            rounds = {s: sorted({f["round"] for f in C[s]}) for s in sids}
-            ri = {s: {r: i for i, r in enumerate(rounds[s])} for s in sids}
-            den = {s: np.zeros(len(rounds[s])) for s in sids}
-            cnt = {c: {s: np.zeros(len(rounds[s])) for s in sids} for c in order}
-            for s in sids:
-                for f in C[s]:
-                    if f["set"] == st:
-                        den[s][ri[s][f["round"]]] += 1
-                        cnt[f["cls"]][s][ri[s][f["round"]]] += 1
-            N = int(sum(d.sum() for d in den.values()))
-            rows = []
-            for c in order:
-                n = int(sum(v.sum() for v in cnt[c].values()))
-                ci_n, ci_s = _boot(rounds, cnt[c], den)
-                rows.append({"cls": c, "n": n, "share": round(n / N, 4) if N else None,
-                             "n_ci": ci_n, "share_ci": ci_s})
-            rows.sort(key=lambda r: -r["n"])
-            cum = 0
-            for r in rows:
-                cum += r["n"]
-                r["cum_share"] = round(cum / N, 4) if N else None
-            res["tables"][scope][st] = {"total": N, "rows": rows}
-            print(f"\n{scope} {st}es: {N}" if st == "miss" else f"\n{scope} extras: {N}")
-            print(f"  {'class':20s} {'n':>5s} {'[95%]':>12s} {'share':>7s} {'[95%]':>16s} {'cum':>6s}")
-            for r in rows:
-                if r["n"]:
-                    print(f"  {r['cls']:20s} {r['n']:5d} [{r['n_ci'][0]:4d},{r['n_ci'][1]:4d}] {r['share']:7.3f} "
-                          f"[{r['share_ci'][0]:.3f},{r['share_ci'][1]:.3f}] {r['cum_share']:6.3f}")
+           "cuts": {"RED_ICON": RED_ICON, "RED_NONE": RED_NONE, "FG_ICON": FG_ICON, "BLUE_ICON": BLUE_ICON,
+                    "TINT": TINT, "STACK_R": STACK_R, "PING_R": PING_R, "OFFSET_K": OFFSET_K,
+                    "TAIL_SPLIT_MS": TAIL_SPLIT_MS},
+           "boot": f"{N_BOOT} round resamples within each match, seed {SEED}",
+           "tables": qa._budget_tables(C, sessions, "cls", {"miss": list(MISS_ORDER),
+                                                            "extra": list(EXTRA_ORDER)})}
     p = OUT / tag / ("budget.json" if len(sessions) > 1 else f"budget_{sessions[0]}.json")
     p.write_text(json.dumps(res, indent=1), encoding="utf-8")
     print(f"\n-> {p}", flush=True)
@@ -1132,67 +1112,14 @@ def label_sample(tag: str) -> Path:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("feats")
-    p.add_argument("sessions", nargs="+")
-    p.add_argument("--tag", required=True)
-    p = sub.add_parser("budget")
-    p.add_argument("sessions", nargs="*", default=list(DEV))
-    p.add_argument("--tag", required=True)
-    p.add_argument("--record", action="store_true")
-    p = sub.add_parser("eye")
-    p.add_argument("--tag", required=True)
-    p.add_argument("--n", type=int, default=EYE_N)
-    p.add_argument("--only", help="SET__CLASS,... to draw (default: every class at or above EYE_SHARE)")
-    p.add_argument("--out", default="eye")
-    p = sub.add_parser("sample")
-    p.add_argument("--tag", required=True)
-    p = sub.add_parser("levers")
-    p.add_argument("--tag", required=True)
-    p.add_argument("--record", action="store_true")
-    p = sub.add_parser("eye-score")
-    p.add_argument("--tag", required=True)
-    p.add_argument("--record", action="store_true")
-    p = sub.add_parser("peek")
-    p.add_argument("--tag", required=True)
-    p.add_argument("--sessions", default=",".join(DEV))
-    p.add_argument("--set", default="miss")
-    p.add_argument("--expr", default="True", help="a Python filter over the feature row f (exploration)")
-    p.add_argument("--n", type=int, default=12)
-    p.add_argument("--name", required=True)
-    a = ap.parse_args(argv)
-    tr._idle()
-    if a.cmd == "peek":
-        rng = np.random.default_rng(SEED)
-        rows = []
-        for sid in a.sessions.split(","):
-            rows += [f for f in _load_feats(a.tag, sid) if f["set"] == a.set and eval(a.expr, {"f": f})]
-        print(f"{len(rows)} rows match", flush=True)
-        pick = [rows[i] for i in sorted(rng.permutation(len(rows))[:a.n])]
-        draw_crops(a.tag, pick, a.name)
-        return 0
-    if a.cmd == "budget":
-        for s in a.sessions:
-            refuse(s)
-        budget(a.tag, a.sessions or list(DEV), a.record)
-        return 0
-    if a.cmd == "eye":
-        return eye_crops(a.tag, a.n, a.only.split(",") if a.only else None, a.out)
-    if a.cmd == "sample":
-        label_sample(a.tag)
-        return 0
-    if a.cmd == "levers":
-        levers(a.tag, a.record)
-        return 0
-    if a.cmd == "eye-score":
-        eye_score(a.tag, a.record)
-        return 0
-    if a.cmd == "feats":
-        for s in a.sessions:
-            feats(s, a.tag)
-        return 0
-    return 1
+    """The commands moved into the one harness (step 9): `budget` is
+    `question_acceptance.py budget` (class-aware, with this players-only
+    budget as its control); every other command `X` is `budget-X` there."""
+    import question_acceptance as qa
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("feats", "eye", "sample", "levers", "eye-score", "peek"):
+        argv[0] = "budget-" + argv[0]
+    return qa.main(argv)
 
 
 if __name__ == "__main__":

@@ -24,8 +24,8 @@ Three 465 px captures with replays kept and Riot records wrapped into `external\
 
 - d3dcfb182ab1 reads K/D 12/19 against the replay's 13/17: a `self_entry` defect.
 - The enemy reader names many finds wrong and reads X marks as enemies; enemy recall stays low. The player's 268 labels came from the old `b1` reader, before the portrait gate.
-- Harness step 9 (folding `replay_truth score` and `replay_abilities score` onto the layer) and the budget's move into the harness are next. Step 8 found 332 "?" finds on enemies the replay still places, evidence for the "?" timing question.
-- Rebuilds the harness declined: the `ally_icon` reread (17 to 28 CPU minutes per session at 15 Hz in `notes/usage.jsonl`, 6 to 11 wall minutes with `--ally-processes 3`; the hour once quoted here was never measured), `scan --only ability --from cache` (eight streams per session, cost unmeasured), and `minimap_dark` (a decode). Ask the player before each.
+- Harness step 9 (question_acceptance 0.8.0, branch `harness-step9-20261009`): `replay-score`, `replay-abilities` and `budget` score through `truth_under`; the module docstring holds the numbers. The 2026-10-07 captures score in the steps without a tagged arm. The `spike` stream reads no glyph while a spike is planted. Step 8 found 332 "?" finds on enemies the replay still places, evidence for the "?" timing question.
+- The player decided (relayed by the orchestrator, 2026-10-09) that no session but the 2026-10-07 three is reread; the development matches keep their stale inputs. Rebuilds the harness declined: the `ally_icon` reread (17 to 28 CPU minutes per session at 15 Hz in `notes/usage.jsonl`, 6 to 11 wall minutes with `--ally-processes 3`; the hour once quoted here was never measured), `scan --only ability --from cache` (eight streams per session, cost unmeasured), and `minimap_dark` (a decode). Ask the player before each.
 - The `PROJECT_GUIDE.md` split is queued. Check the subagent context floor with a probe.
 - Stale streams: every older session's hud (its output is identical) and `minimap_object` and `enemy_track` elsewhere wait for the batched corpus rerun.
 

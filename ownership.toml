@@ -2364,9 +2364,11 @@ it whether the find is real (`detection-reality`) or which agent it names
 on, for scoring alone (AGENTS.md, "Replay truth covers every entity").
 """
 blocked_by = """
-No scorer joins finds to every replay entity class: each joins finds to
-replay players only, and `episodes.from_replay_layer` (T0) drops the layer's
-`child:` entities. Intended owner: `question_acceptance.truth_under` over
-every replay entity class, with T0 carrying the children (BACKLOG item 1,
-class-aware harness step 2).
+An owner must be a module in `reticle/`, and the join is a prototype:
+`prototypes/question_acceptance.py` (`truth_under`, `_join_entities`) joins
+every find to every replay entity class, players and T0's `child:`
+entities alike, and since harness step 9 (2026-10-09) the replay scorers and
+the enemy error budget score through it. It needs promotion into
+`reticle/` (with the T1d grid it joins on, `t1_draw_rule.RealDrawMatch`) before it can
+own this question (BACKLOG item 2).
 """
