@@ -5109,8 +5109,8 @@ def cmd_frame_join(args) -> int:
 
 
 def cmd_slot_state(args) -> int:
-    """The five ally player slots and each one's position belief on every
-    stored frame (`slot_state`), from stored rows; `--write` stores the
+    """The five ally and five enemy player slots and each one's position
+    belief on every stored frame (`slot_state`), from stored rows; `--write` stores the
     per-frame record under `l2/slot_state/`, and `--at MS` prints every
     slot's region at that instant, as a gate would ask. Decodes no video."""
     from . import slot_state
@@ -7107,7 +7107,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_frame_join)
 
     s = sub.add_parser("slot-state",
-                       help="the ally player slots and each one's position belief per frame "
+                       help="the ally and enemy player slots and each one's position belief per frame "
                             "(`slot_state`; stored rows, no video)")
     s.add_argument("session", nargs="?")
     s.add_argument("--all", action="store_true", help="every session")

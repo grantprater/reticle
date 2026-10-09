@@ -110,3 +110,36 @@ def test_the_core_sits_above_every_pipeline_layer():
     assert "acceptance" in data["evaluation"]["modules"]
     assert order.index("evaluation") > order.index("consumers")
     assert order.index("evaluation") == order.index("delivery") - 1
+
+
+def test_slot_region_scores_count_calibration_coverage_and_unanchored():
+    kinds = {0: "closed", 1: "fit", 3: "reach", 4: "unanchored"}
+    # two rounds; round 0: a fit inside, a reach outside; round 1: two unanchored rows
+    Q = {"n_rounds": 2, "round": np.array([0, 0, 1, 1]), "inside": np.array([True, False, True, True]),
+         "kind": np.array([1, 3, 4, 4]), "area": np.array([30.0, 900.0, np.nan, np.nan]),
+         "R": np.array([3.0, 17.0, np.nan, np.nan]), "drawn": np.array([True, False, False, False]),
+         "fit_out": np.array([0, -1, -1, -1])}
+    SF = {"round": np.array([0, 0, 1, 1, 1]), "kind": np.array([1, 3, 4, 4, 1]),
+          "slot": np.array([0, 0, 0, 1, 1])}
+    got = acc.slot_region_scores(Q, SF, kinds, unbounded=("unanchored",))
+    d = got["doc"]
+    assert d["calibration"]["value"] == 0.75
+    assert d["calibration_anchored"]["value"] == 0.5
+    assert d["calibration_drawn"]["value"] == 1.0
+    assert d["lane_coverage"]["value"] == 0.25
+    assert d["unanchored"]["value"] == 0.4
+    assert d["unanchored_by_slot"][1]["value"] == 0.5
+    assert d["fit_outcomes"]["right_entity"]["value"] == 1.0
+    assert d["area_m2_bounded"]["n"] == 2
+    pooled = acc.pool_slot_regions([got, got])
+    assert pooled["calibration"]["value"] == 0.75 and pooled["calibration"]["den"] == 8
+
+
+def test_slot_fit_outcomes_own_then_side_then_other_side():
+    nan = np.nan
+    fx, fy = np.zeros(4), np.zeros(4)
+    own_x = np.array([1.0, 50.0, 50.0, 50.0])
+    side = np.array([[nan], [2.0], [nan], [nan]])
+    other = np.array([[nan], [nan], [1.5], [nan]])
+    out = acc.slot_fit_outcomes(fx, fy, own_x, np.zeros(4), side, np.zeros((4, 1)), other, np.zeros((4, 1)))
+    assert [acc.SLOT_FIT_OUTCOMES[i] for i in out] == ["right_entity", "same_side", "other_side", "nothing_there"]
