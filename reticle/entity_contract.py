@@ -162,8 +162,8 @@ STATE_VOCABULARY: dict[str, dict | None] = {
               "weapon": _STR, "second_life": _BOOL, "revive": _BOOL},
     "spike": {"phase": ("enum", frozenset(SPIKE_STATES))},
     "ping": {"ping": ("enum", PING_KINDS), "lifetime_s": _NUM},
-    "slot_state": {"level": _NUM, "charges": _INT, "equipped": _BOOL,
-                   "castable": _BOOL, "pips": _INT},
+    "ability_tray": {"level": _NUM, "charges": _INT, "equipped": _BOOL,
+                     "castable": _BOOL, "pips": _INT},
     "cast": {"ability": _STR, "slot": ("enum", SLOTS)},
     # `phase` is checked against the ability's own lifecycle facts
     "ability_object": {"ability": _STR, "slot": ("enum", SLOTS), "phase": _STR},

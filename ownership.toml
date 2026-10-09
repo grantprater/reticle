@@ -280,7 +280,7 @@ A refusal. An absent widget and a reader that would not commit are different
 states and must stay distinguishable; both currently arrive downstream as
 `self_x = NULL`, which is the open defect BACKLOG.md names.
 """
-consumers = ["belief"]
+consumers = ["slot_state"]
 
 [[entry]]
 id = "self-position"
@@ -295,7 +295,7 @@ is the trap: semantic self is `player-agent`, owned by `lineup`. The fit can
 also land on the carried spike, so an accepted position is not an accepted
 identity.
 """
-consumers = ["belief", "track", "lighting", "minimap_diagnostics", "team_vision"]
+consumers = ["slot_state", "track", "lighting", "minimap_diagnostics", "team_vision"]
 evidence = "tests/test_pick_self.py, prototypes/xmark_eval.py"
 
 [[entry]]
@@ -1214,18 +1214,53 @@ evidence = "tests/test_entity_events.py"
 
 [[entry]]
 id = "position-belief"
-question = "Where was the player at an instant nothing observed?"
-owner = "belief"
-role = ["adjudicate"]
+question = "Where was a player slot, the player's own or a teammate's, at an instant nothing observed?"
+owner = "slot_state"
+role = ["adjudicate", "track"]
 status = "partial"
-produces = ["resolve", "Fix", "absent_instants"]
+produces = ["resolve", "Fix", "absent_instants", "round_voids", "BELIEF_VERSION", "beliefs",
+            "region_at", "frame_record"]
 not_for = """
-Becoming a second tracker. This projects observed, interpolated, held and
-unresolved fixes for a consumer, and must keep a refusal distinguishable from an
-absent widget rather than smoothing over both.
+Becoming a second tracker, or a fifth belief. Two laws answer here, one owner:
+`resolve` projects the self slot's observed, interpolated, held and unresolved
+fixes per sampled instant (belief-0.3.0, folded in from `belief.py` on
+2026-10-09), and `beliefs` holds every ally slot's causal fit, crowd and reach
+region per stored frame. Both keep a refusal distinguishable from an absent
+widget, take their evidence as arguments, never treat a `Fix` or a region as
+evidence, and report observed and believed coverage apart. Reach is a
+Euclidean disc of `v_max` until a walk graph is baked with the geometry; the
+reachable sets of `prototypes/coaching_belief.py` and
+`prototypes/real_reader_schedule.py` are truth-side evaluations, not owners.
+Enemy slots and ability entities join later on the same entity axis.
 """
-defers_to = ["self-position", "widget-drawn"]
-evidence = "tests/test_belief.py"
+defers_to = ["self-position", "widget-drawn", "domain-fact"]
+evidence = "tests/test_belief.py, tests/test_slot_state.py"
+
+[[entry]]
+id = "slot-state"
+question = "Which ally player slots are open at a frame, and which fit binds to each?"
+owner = "slot_state"
+role = ["assign", "lifecycle"]
+status = "partial"
+names_agents = true
+produces = ["build_slots", "write_record", "slot_summary", "player_lifecycle", "round_segments",
+            "causal_bind", "bind_entities", "load_fits", "spectated_slots", "stack_entities",
+            "EntityRow", "StoredRows", "world_frame", "SLOT_STATE_VERSION"]
+defers_to = ["agent-identity", "agent-from-slot", "tray-kit", "track-continuation",
+             "map-geometry", "domain-fact", "replay-alignment", "agent-spelling"]
+not_for = """
+Deciding an agent name: each slot's agent is the arbiter's lineup verdict and
+a fit's portrait score is the arbiter's (`agent-identity`); the slot carries
+both and `rests_on` them. Nor where a slot is between fits
+(`position-belief`, the same module), enemy slots (ENTITY_STATE step 5), the
+tray's ability state (the `ability_tray` lane of `ability-state`), or replay
+truth: the map frame uses valorant-api's constants and the baked geometry,
+never a replay. B1 of QUESTION_ACCEPTANCE: the assignment moves into
+`adjudication.identity` at B2, and nothing consumes the record until the
+per-frame gate (BACKLOG item 1) and `from_slot_state` (B6) read it.
+"""
+consumers = ["cli"]
+evidence = "tests/test_slot_state.py, tests/test_entity_binding.py"
 
 [[entry]]
 id = "round-bounds"
@@ -1523,7 +1558,7 @@ SETTINGS button. Nor does it decide what a covered reading means; each reader
 refuses its own reading with the reason `menu_open` and keeps it.
 """
 consumers = ["cli", "ability_timeline", "coaching"]
-stored_consumers = ["reconciliation", "belief", "round_entities", "adjudication.smokes"]
+stored_consumers = ["reconciliation", "slot_state", "round_entities", "adjudication.smokes"]
 evidence = "tests/test_menu.py"
 
 [[entry]]

@@ -188,13 +188,13 @@ class StoredTruncationTest(unittest.TestCase):
         from unittest import mock
 
         from prototypes import entity_state as es
-        import crowd_region as v1                       # on the path entity_state sets
+        from reticle import slot_state as ss
         from reticle.adjudication.tray_kit import stored_kit_witness
         from reticle.agent_names import same_agent
         from reticle.store import Store
 
         sid = DEV
-        S = v1.Session(sid)
+        S = ss.StoredRows(sid, STORE)
         L = es.lineup_slots(sid)
         (_, to_m, m_per_px), _ = es.world_frame(sid)
         v_max = es.v_max_m_s()
@@ -232,8 +232,9 @@ class StoredTruncationTest(unittest.TestCase):
             return rows
 
         def run():
-            fits = eb.load_fits(sid, S, L["slots"], L["player_slot"], to_m, float(S.r))
-            spect = eb.spectated_slots(sid, S, L["slots"], L["player_agent"])
+            raw = eb.raw_fits_from_rows(sid, Store(STORE).read_events("ally_icon", sid))
+            fits = eb.load_fits(S, L["slots"], L["player_slot"], to_m, float(S.r), raw=raw)
+            spect = eb.spectated_slots(S, L["slots"], L["player_agent"])
             b = eb.causal_bind(S.fr_t, fits, life["open"], life["seg_start"], L["player_slot"],
                                spect["slot"], r_fit=r_fit, v_max=v_max,
                                log_area=math.log(fits["map_px"] * m_per_px ** 2),

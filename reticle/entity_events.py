@@ -89,7 +89,7 @@ ENTITY_LANES: tuple[dict, ...] = (
      "inputs": ("ping", "rounds")},
     {"lane": "enemy", "order": 2, "channel": "minimap", "names": True,
      "inputs": ("enemy_track", "enemy_track_identity", "rounds", "death", "death_identity")},
-    {"lane": "slot_state", "order": 3, "channel": "tray", "names": True,
+    {"lane": "ability_tray", "order": 3, "channel": "tray", "names": True,
      "inputs": ("ability_state", "tray_kit", "tray_kit_identity")},
     {"lane": "ult_cast", "order": 4, "channel": "audio", "names": True,
      "inputs": ("ult_cast", "ult_cast_identity", "rounds")},
