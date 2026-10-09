@@ -1124,7 +1124,7 @@ code that answers them, not before.
 | Question | Owner | Defers to |
 |---|---|---|
 | Which player slots are open this round, and why did each open or close? | new `slot_state` (entities layer) | `rounds`, `lineup`, `roster`, `death-victim`, `killfeed-entry-type`, `round-entity` (death binding), `teleport-licence` |
-| Where is a slot believed to be at a frame nothing observed? | `belief` ([owns:position-belief]), its question widened from the player to every slot | `track-continuation`, `widget-drawn`, the map's path table |
+| Where is a slot believed to be at a frame nothing observed? | `slot_state` ([owns:position-belief]; `belief.py` folded in 2026-10-09), its question widened from the player to every slot | `track-continuation`, `widget-drawn`, the map's path table |
 | Which slot is this fit? | `adjudication.identity` ([owns:agent-identity]), a new `assign_slot_fits` beside `assign_ally_pieces` | the slot beliefs as a prior, weighed once |
 | Where is this map in world metres? | `geometry` ([owns:map-geometry]), a baked `world_affine` | valorant-api's map constants, `widget_frame` |
 | Which ability instances exist, which charge each spent, and which effects bind to each? | new, beside `slot_state`; the `ability-owner` question it answers has no owner today | `ability-state`, `ult-cast`, `killfeed-weapon`, the assist owner, `ability-candidates`, `agent-identity` |
@@ -1213,7 +1213,7 @@ code that answers them, not before.
    [metric:entity_state/riot_pool@heldout6es_causal#reach_radius_m_median=9.81] m
    (B4). On the replay's every drawn frame the causal binding (0.1.0,
    before the correction) holds
-   [metric:entity_state/replay@9acf02f98283_causal#calibration=0.9722]
+   [metric:entity_state/replay@9acf02f98283_causal~2026-10-04T23:23:06#calibration=0.9722]
    against [metric:entity_state/replay@9acf02f98283_post_round#calibration=0.944].
    The every-frame hunt over Riot's alive intervals finds
    [metric:entity_state/riot_pool@heldout6es_causal#hunt_no_slot=895] of

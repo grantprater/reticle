@@ -141,7 +141,7 @@ class ConsumerTest(unittest.TestCase):
         self.assertEqual(roster.refusals(rows, covered), [None, "menu_open"])
 
     def test_a_covered_instant_is_absent_for_the_belief(self):
-        from reticle.belief import absent_instants
+        from reticle.slot_state import absent_instants
         rows = [{"t_ms": 1000.0, "self_x": 5.0, "widget_drawn": True},
                 {"t_ms": 1500.0, "self_x": 5.0, "widget_drawn": True},
                 {"t_ms": 2000.0, "self_x": None, "widget_drawn": False}]

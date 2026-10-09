@@ -8,11 +8,15 @@ prototype. `--binding post_round` (the default) binds fits as stage 1 did;
 `--binding causal` binds them frame by frame (`entity_binding.py`, stage
 2a). Outputs of both go to `<store>/analysis/entity-binding-20261004/`,
 named by mode.
-Not wired (`"wire": "no"` in the store's `notes/predictions.jsonl`): nothing
-in `reticle/` reads it. It reads STORED rows only (`ally_icon` frames,
-`round_entity` observations and entities, the death verdicts, the lineup,
-the round table) through `crowd_region.Session`, decodes nothing and reads
-no crop.
+Promoted (2026-10-09, QUESTION_ACCEPTANCE B1): the slots, both bindings
+and the belief law live in `reticle/slot_state.py` (slot-state-0.1.0), and
+this file keeps only the scorers, which read truth (Riot records, replays)
+for evaluation and call the module for the slots. Its old names
+(`build_slots`, `beliefs`, `lifecycle`, `world_frame`, ...) stay as aliases.
+The module reads STORED rows only (`ally_icon` frames, `round_entity`
+observations and entities, the death verdicts, the lineup, the round
+table), decodes nothing and reads no crop. The sections below describe the
+law the module ports unchanged.
 
 Slots
 -----
@@ -140,7 +144,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import sys
 import time
@@ -162,24 +165,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 #: continuity and named stack fits are `fit_unnamed`. 0.3.0 (stage 2, 2026-10-04): a
 #: `binding` mode, `post_round` (0.2.0's binding, unchanged) or `causal`
 #: (`entity_binding`); the scorer adds `fit_bound_share` and the every-frame hunt.
-ENTITY_STATE_VERSION = "entity-state-0.3.0"
+#: 0.4.0 (2026-10-09): the slot model lives in `reticle/slot_state.py`
+#: (slot-state-0.1.0); this file keeps the scorers and calls it. Its output
+#: equals 0.3.0's on the three development matches, both bindings.
+ENTITY_STATE_VERSION = "entity-state-0.4.0"
 STORE = Path.home() / "reticle-store"
 ANALYSIS = STORE / "analysis" / "entity-state-20261004"
 #: Stage 2 outputs, both binding modes, file names carrying the mode.
 ANALYSIS_BINDING = STORE / "analysis" / "entity-binding-20261004"
 
-#: Belief kinds, as stored (u1). `fit_unnamed` (0.2.0) is a fit whose
-#: binding no witness names: a continuity binding or a named stack fit.
-CLOSED, FIT, CROWD, REACH, UNANCHORED, FIT_UNNAMED = 0, 1, 2, 3, 4, 5
-KINDS = {CLOSED: "closed", FIT: "fit", CROWD: "crowd", REACH: "reach", UNANCHORED: "unanchored",
-         FIT_UNNAMED: "fit_unnamed"}
-#: How a fit was bound to its slot (u1): the self channel, a named ring fit,
-#: a named stack fit, continuity. Only the first two are witnessed.
-HOW_SELF, HOW_NAMED_RING, HOW_NAMED_STACK, HOW_CONTINUITY = 1, 2, 3, 4
-WITNESSED = (HOW_SELF, HOW_NAMED_RING)
-#: A named entity whose slot another entity holds over more than this share
-#: of its frames binds by continuity instead.
-CONFLICT_SHARE = 0.2
+# The slot model, promoted (QUESTION_ACCEPTANCE B1). These names stay for callers.
+from reticle import slot_state as ss  # noqa: E402
+from reticle.slot_state import (CLOSED, CONFLICT_SHARE, CROWD, FIT, FIT_UNNAMED,  # noqa: E402,F401
+                                HOW_CONTINUITY, HOW_NAMED_RING, HOW_NAMED_STACK, HOW_SELF, KINDS,
+                                REACH, UNANCHORED, WITNESSED, bind_entities, beliefs, build_slots, contains,
+                                last_fix, lineup_slots, nearest_other, region_area,
+                                storage_record, union_area, units_per_m, v_max_m_s,
+                                world_frame)
+
 #: Strata of time since the slot's last fix, in seconds (section 8).
 STRATA_S = (0.0, 1.0, 5.0, 15.0)
 
@@ -200,434 +203,13 @@ def _below_normal() -> None:
         pass
 
 
-def v_max_m_s() -> float:
-    """The top speed the game's movement tuning allows, in m/s
-    [domain:game_data/character-movement-speeds]: the base top speed times
-    the largest state multiplier, 6.75 x 1.1 = 7.425 m/s. The 1.1 is the
-    Jumping state's multiplier, the largest of the states; running's is
-    unserialized and taken as 1. The bound is a reach ceiling, not the run
-    speed (6.75 m/s)."""
-    from reticle import domain
-    sp = domain.load()["game_data/character-movement-speeds"].values
-    return float(sp["speed"]["base_max_speed_m_s"]) * max(1.0, *sp["state_multiplier"].values())
-
-
-def units_per_m() -> float:
-    """Game units per metre [domain:game_data/game-units-centimetres]."""
-    from reticle import domain
-    return float(domain.load()["game_data/game-units-centimetres"].values["units_per_m"])
-
-
-# ----------------------------------------------------------------- the belief law (pure)
-
-def last_fix(has: np.ndarray, seg_start: np.ndarray) -> np.ndarray:
-    """(S, F) index of each slot's last fit at or before each frame within the
-    frame's round segment, -1 where none. `seg_start[f]` is the first frame of
-    f's segment."""
-    S, F = has.shape
-    idx = np.where(has, np.arange(F)[None, :], -1)
-    lf = np.maximum.accumulate(idx, axis=1)
-    return np.where(lf >= seg_start[None, :], lf, -1)
-
-
-def nearest_other(X: np.ndarray, Y: np.ndarray, has: np.ndarray, d_max: float) -> np.ndarray:
-    """(S, F) the nearest OTHER slot with a fit in the same frame within
-    `d_max` metres of each slot's fit, -1 where none (or the slot has no fit)."""
-    S, F = has.shape
-    dx = X[:, None, :] - X[None, :, :]
-    dy = Y[:, None, :] - Y[None, :, :]
-    D = np.hypot(dx, dy)                                 # (S, S, F)
-    ok = has[:, None, :] & has[None, :, :] & ~np.eye(S, dtype=bool)[:, :, None]
-    D = np.where(ok, D, np.inf)
-    j = np.argmin(D, axis=1)                             # (S, F)
-    dmin = np.take_along_axis(D, j[:, None, :], axis=1)[:, 0, :]
-    return np.where(dmin <= d_max, j, -1)
-
-
-def beliefs(t_ms: np.ndarray, X: np.ndarray, Y: np.ndarray, has: np.ndarray,
-            open_: np.ndarray, seg_start: np.ndarray, *, r_fit: float, r_icon: float,
-            v_max: float, wit: np.ndarray | None = None) -> dict:
-    """Every slot's belief at every frame, as arrays over (slot, frame).
-
-    `X, Y` are the bound fits in metres (NaN where none); `has` marks them,
-    and only fits inside an open slot count. `wit` marks the fits whose
-    binding a witness names (default: all); only those anchor a reach region,
-    and an unwitnessed fit is `fit_unnamed`, its region the fit disc together
-    with the reach grown from the last witnessed fix (0.2.0). Returns the
-    kind, the point, the reach anchor and radius, and the crowd core's centre
-    and radius."""
-    S, F = has.shape
-    has = has & open_
-    wit = has if wit is None else (wit & has)
-    lf = last_fix(wit, seg_start)
-    valid = lf >= 0
-    lfc = np.where(valid, lf, 0)
-    rows = np.arange(S)[:, None]
-    ax = np.where(valid, X[rows, lfc], np.nan)
-    ay = np.where(valid, Y[rows, lfc], np.nan)
-    dt_s = np.where(valid, (t_ms[None, :] - t_ms[lfc]) / 1000.0, np.nan)
-    R = v_max * dt_s + r_fit
-    host_now = nearest_other(X, Y, has, 2.0 * r_icon)
-    host = np.where(valid, host_now[rows, lfc], -1)
-    hc = np.where(host >= 0, host, 0)
-    cols = np.arange(F)[None, :]
-    host_has = (host >= 0) & has[hc, cols]
-    kind = np.full((S, F), CLOSED, np.uint8)
-    kind[open_ & ~has & ~valid] = UNANCHORED
-    kind[open_ & ~has & valid] = REACH
-    kind[open_ & ~has & valid & host_has] = CROWD
-    kind[has & ~wit] = FIT_UNNAMED
-    kind[wit] = FIT
-    fitlike = (kind == FIT) | (kind == FIT_UNNAMED)
-    hx = np.where(kind == CROWD, X[hc, cols], np.nan)
-    hy = np.where(kind == CROWD, Y[hc, cols], np.nan)
-    px = np.where(fitlike, X, np.where(kind == CROWD, hx, ax))
-    py = np.where(fitlike, Y, np.where(kind == CROWD, hy, ay))
-    return {"kind": kind, "x": px, "y": py, "ax": ax, "ay": ay,
-            "R": np.where(kind == FIT, r_fit, R), "dt_s": np.where(kind == FIT, 0.0, dt_s),
-            "hx": hx, "hy": hy, "rc": 2.0 * r_icon + r_fit, "host": np.where(kind == CROWD, host, -1),
-            "lf": lf, "lf_any": last_fix(has, seg_start), "r_fit": r_fit}
-
-
-def contains(B: dict, s: np.ndarray, f: np.ndarray, x: np.ndarray, y: np.ndarray,
-             tol: float = 0.0) -> dict:
-    """Whether each query point lies in its slot's region at its frame.
-
-    Returns `region` (the reported region: the fit disc; the fit disc
-    together with the reach for `fit_unnamed`; the crowd core together with
-    the reach disc; the reach disc; True for `unanchored` and for a
-    `fit_unnamed` with no witnessed fix; False for a closed slot) and `core`
-    (the crowd core alone, the fit disc alone for `fit_unnamed`, else
-    `region`). `tol` widens every radius: the scorer's registration
-    tolerance, never the belief's."""
-    k = B["kind"][s, f]
-    d_pt = np.hypot(x - B["x"][s, f], y - B["y"][s, f])
-    d_an = np.hypot(x - B["ax"][s, f], y - B["ay"][s, f])
-    d_h = np.hypot(x - B["hx"][s, f], y - B["hy"][s, f])
-    R = B["R"][s, f]
-    in_fit = np.isin(k, (FIT, FIT_UNNAMED)) & (d_pt <= B["r_fit"] + tol)
-    in_reach = np.isin(k, (REACH, CROWD, FIT_UNNAMED)) & (d_an <= R + tol)
-    in_core = (k == CROWD) & (d_h <= B["rc"] + tol)
-    free = (k == UNANCHORED) | ((k == FIT_UNNAMED) & ~np.isfinite(R))
-    region = in_fit | in_reach | in_core | free
-    core = np.where(k == CROWD, in_core, np.where(k == FIT_UNNAMED, in_fit, region))
-    return {"region": region, "core": core, "kind": k, "point_err": d_pt,
-            "dt_s": B["dt_s"][s, f], "R": R}
-
-
-def union_area(r1, r2, d) -> np.ndarray:
-    """Area of the union of two discs of radii r1, r2 whose centres lie d apart."""
-    r1, r2, d = (np.asarray(v, float) for v in (r1, r2, d))
-    a = np.pi * r1 ** 2 + np.pi * r2 ** 2
-    lo, hi = np.abs(r1 - r2), r1 + r2
-    inner = d <= lo
-    sep = d >= hi
-    with np.errstate(invalid="ignore", divide="ignore"):
-        c1 = np.clip((d ** 2 + r1 ** 2 - r2 ** 2) / (2 * d * r1), -1, 1)
-        c2 = np.clip((d ** 2 + r2 ** 2 - r1 ** 2) / (2 * d * r2), -1, 1)
-        lens = (r1 ** 2 * np.arccos(c1) + r2 ** 2 * np.arccos(c2)
-                - 0.5 * np.sqrt(np.clip((-d + r1 + r2) * (d + r1 - r2) * (d - r1 + r2)
-                                        * (d + r1 + r2), 0, None)))
-    lens = np.where(inner, np.pi * np.minimum(r1, r2) ** 2, np.where(sep, 0.0, lens))
-    return a - lens
-
-
-def region_area(B: dict, s: np.ndarray, f: np.ndarray) -> np.ndarray:
-    """Area in m^2 of each queried region (NaN for `unanchored`, a
-    `fit_unnamed` with no witnessed fix, and closed)."""
-    k = B["kind"][s, f]
-    R = B["R"][s, f]
-    d = np.hypot(B["hx"][s, f] - B["ax"][s, f], B["hy"][s, f] - B["ay"][s, f])
-    crowd = union_area(R, np.full_like(R, B["rc"]), np.nan_to_num(d))
-    du = np.hypot(B["x"][s, f] - B["ax"][s, f], B["y"][s, f] - B["ay"][s, f])
-    unnamed = union_area(np.full_like(R, B["r_fit"]), R, np.nan_to_num(du))
-    return np.where(k == CROWD, crowd, np.where(k == FIT_UNNAMED, unnamed,
-                    np.where(np.isin(k, (FIT, REACH)), np.pi * R ** 2, np.nan)))
-
-
-def storage_record(B: dict, obs: np.ndarray) -> np.ndarray:
-    """The per-frame struct-of-arrays this prototype would store: frames by
-    slots, one record per slot-frame."""
-    S, F = B["kind"].shape
-    rec = np.zeros((F, S), dtype=[("kind", "u1"), ("host", "i1"), ("x", "f4"), ("y", "f4"),
-                                  ("ax", "f4"), ("ay", "f4"), ("R", "f2"), ("obs", "i4")])
-    rec["kind"] = B["kind"].T
-    rec["host"] = B["host"].T
-    rec["x"], rec["y"] = B["x"].T, B["y"].T
-    rec["ax"], rec["ay"] = B["ax"].T, B["ay"].T
-    rec["R"] = np.minimum(np.nan_to_num(B["R"], nan=0.0), 6.0e4).T
-    rec["obs"] = obs.T
-    return rec
-
-
-# ----------------------------------------------------------------- the world frame
-
-def world_frame(sid: str):
-    """The (map, profile) geometry's map frame from valorant-api's constants,
-    found by the map name the geometry stores (no Riot record), and its
-    inverse as metres from baked px: (mf, to_m, m_per_px) or (None, reason)."""
-    import riot_ground_truth as rg
-    from reticle import geometry
-    from reticle.store import Store
-    ref = rg.Reference(STORE / "external" / "valorant-api", fetch=False)
-    mname = geometry.map_of(sid, STORE)
-    mi = [m for m in ref.maps.values() if rg.canon(m.get("displayName")) == rg.canon(mname)]
-    if len(mi) != 1:
-        return None, f"no_map_record:{mname}"
-    man = Store(STORE).read_manifest(sid)
-    mf, why = rg.map_frame_for(sid, man, ref, {"match": {"matchInfo": {"mapId": mi[0]["mapUrl"]}}},
-                               STORE)
-    if mf is None:
-        return None, why
-    p0 = np.asarray(mf.to_px(0.0, 0.0))
-    M = np.column_stack([np.asarray(mf.to_px(1000.0, 0.0)) - p0,
-                         np.asarray(mf.to_px(0.0, 1000.0)) - p0]) / 1000.0
-    Mi = np.linalg.inv(M)
-    upm = units_per_m()
-
-    def to_m(px, py):
-        q = np.stack([np.asarray(px, float) - p0[0], np.asarray(py, float) - p0[1]])
-        u = np.tensordot(Mi, q, axes=1)
-        return u[0] / upm, u[1] / upm
-
-    m_per_px = 1.0 / (mf.px_per_unit * upm)
-    return (mf, to_m, m_per_px), None
-
-
-# ----------------------------------------------------------------- slots from stored rows
-
-def lineup_slots(sid: str) -> dict:
-    """The ally slots: agent per lineup slot from the arbiter, and the player's slot."""
-    from reticle import lineup
-    L = lineup.load_lineup(sid, STORE)
-    if L is None:
-        return {"refused": "no_lineup"}
-    ver = {v.get("entity_id"): v for v in L.get("agent_identity") or []}
-    slots = []
-    for k in range(5):
-        v = ver.get(f"{sid}:ally:slot:{k}") or {}
-        slots.append({"key": f"{sid}:ally:slot:{k}", "agent": v.get("agent"),
-                      "status": v.get("status"), "reason": v.get("reason")})
-    pl = L.get("player") or {}
-    return {"slots": slots, "player_slot": pl.get("slot"), "player_agent": pl.get("agent"),
-            "lineup_version": L.get("version")}
-
-
 def _canon(a):
     return None if a is None else str(a).strip().lower().replace("/", "")
 
 
 def lifecycle(sid: str, S, slots: list[dict]) -> dict:
-    """(5, F) open mask from rounds and the death owner's verdicts, plus the
-    events that set it."""
-    F = S.fr_t.size
-    t = S.fr_t
-    rounds = sorted(S.rounds, key=lambda r: float(r["t_start_ms"]))
-    starts = np.asarray([float(r["t_start_ms"]) for r in rounds], float)
-    round_idx = {r.get("round_no"): i for i, r in enumerate(rounds) if r.get("round_no") is not None}
-    seg = np.searchsorted(starts, t, side="right") - 1            # -1 before the first round
-    seg_start_idx = np.searchsorted(t, starts)
-    seg_start = np.where(seg >= 0, seg_start_idx[np.clip(seg, 0, None)], F)
-    open_ = np.repeat((seg >= 0)[None, :], 5, axis=0)
-    by_agent = {_canon(s["agent"]): k for k, s in enumerate(slots) if s["agent"]}
-    ev = Counter()
-    events = []
-    rows = sorted((d for d in S.deaths if d.get("side") == "ally"), key=lambda d: d["t_ms"])
-    for d in rows:
-        if d.get("is_second_life"):
-            ev["second_life"] += 1
-            continue
-        k = by_agent.get(_canon(d.get("victim")))
-        if d.get("victim") is None:
-            ev["maybe_dead_unnamed"] += 1
-            continue
-        if k is None:
-            ev["victim_no_slot"] += 1
-            events.append({"t_ms": d["t_ms"], "victim": d.get("victim"), "what": "victim_no_slot"})
-            continue
-        f0 = int(np.searchsorted(t, float(d["t_ms"])))
-        if f0 >= F:
-            continue
-        # the death owner's round, not the time segment: a round whose start
-        # fell back to the score increment would put a post-round death into
-        # the next round (0.2.0)
-        r = round_idx.get(d.get("round_no"), seg[f0])
-        f1 = int(seg_start_idx[r + 1]) if r + 1 < starts.size else F
-        if f0 >= f1:
-            ev["death_past_its_round"] += 1
-            continue
-        if d.get("is_revive"):
-            open_[k, f0:f1] = True
-            ev["revive"] += 1
-            events.append({"t_ms": d["t_ms"], "slot": k, "what": "revive", "death_id": d.get("death_id")})
-        else:
-            if not open_[k, f0]:
-                ev["death_of_closed_slot"] += 1
-            open_[k, f0:f1] = False
-            ev["close"] += 1
-            events.append({"t_ms": d["t_ms"], "slot": k, "what": "close", "death_id": d.get("death_id")})
-    return {"open": open_, "seg": seg, "seg_start": seg_start, "events": events, "counts": dict(ev),
-            "starts": starts}
-
-
-def bind_entities(S, slots: list[dict], player_slot, open_: np.ndarray, seg_start: np.ndarray,
-                  to_m, v_max: float, r_fit: float) -> dict:
-    """Bind the stored entities' fits to slots (module docstring). Returns
-    (5, F) X, Y in metres, the observation row per slot-frame and counts."""
-    F = S.fr_t.size
-    t = S.fr_t
-    fpos = np.searchsorted(S.fr_f, S.ob_f)
-    ok = (fpos < F) & (S.fr_f[np.clip(fpos, 0, F - 1)] == S.ob_f)
-    mx, my = to_m(S.ob_x, S.ob_y)
-    X = np.full((5, F), np.nan)
-    Y = np.full((5, F), np.nan)
-    obs = np.full((5, F), -1, np.int64)
-    occ = np.zeros((5, F), bool)
-    by_agent = {_canon(s["agent"]): k for k, s in enumerate(slots) if s["agent"]}
-    c = Counter()
-    order = np.argsort(S.ob_e, kind="stable")
-    e_sorted = S.ob_e[order]
-    bounds = np.searchsorted(e_sorted, np.arange(len(S.ent_ids) + 1))
-    ents = []
-    for code, eid in enumerate(S.ent_ids):
-        idx = order[bounds[code]:bounds[code + 1]]
-        idx = idx[ok[idx]]
-        if not idx.size:
-            continue
-        fr = fpos[idx]
-        fr, first = np.unique(fr, return_index=True)       # one fit per entity-frame
-        idx = idx[first]
-        row = S.ents.get(eid) or {}
-        ents.append({"id": eid, "idx": idx, "fr": fr, "self": bool(S.ob_self[idx].any()),
-                     "agent": row.get("agent")})
-
-    how = np.zeros((5, F), np.uint8)
-    stack = np.asarray(getattr(S, "ob_stack", np.zeros(S.ob_f.size, bool)), bool)
-
-    def put(k, e, keep, route):
-        fr, idx = e["fr"][keep], e["idx"][keep]
-        X[k, fr], Y[k, fr] = mx[idx], my[idx]
-        obs[k, fr] = idx
-        occ[k, fr] = True
-        if route == HOW_NAMED_RING:
-            how[k, fr] = np.where(stack[idx], HOW_NAMED_STACK, HOW_NAMED_RING)
-        else:
-            how[k, fr] = route
-        return int(keep.sum())
-
-    unnamed = [e for e in ents if not (e["self"] or e["agent"])]
-    c["unnamed_entities"] = len(unnamed)
-    # self first, then named entities, longest first
-    named = sorted((e for e in ents if e["self"] or e["agent"]),
-                   key=lambda e: (not e["self"], -e["fr"].size))
-    for e in named:
-        k = player_slot if e["self"] else by_agent.get(_canon(e["agent"]))
-        if k is None:
-            c["named_no_slot"] += 1
-            unnamed.append(e)
-            continue
-        live = open_[k, e["fr"]]
-        if e["self"]:
-            n = put(k, e, live & ~occ[k, e["fr"]], HOW_SELF)
-            c["self_fits"] += n
-            c["self_fits_after_close"] += int((~live).sum())
-            continue
-        clash = occ[k, e["fr"]]
-        if clash.mean() > CONFLICT_SHARE or live.mean() < 0.5:
-            c["named_conflict" if clash.mean() > CONFLICT_SHARE else "named_slot_closed"] += 1
-            unnamed.append(e)
-            continue
-        c["named_bound"] += 1
-        c["named_fits"] += put(k, e, live & ~clash, HOW_NAMED_RING)
-        c["named_fits_dropped"] += int((~(live & ~clash)).sum())
-    unnamed.sort(key=lambda e: e["fr"][0])
-    for e in unnamed:
-        f0 = int(e["fr"][0])
-        best = None
-        for k in range(5):
-            if not open_[k, f0] or occ[k, e["fr"]].mean() > CONFLICT_SHARE:
-                continue
-            prev = np.flatnonzero(occ[k, seg_start[f0]:f0])
-            if prev.size:
-                fl = int(seg_start[f0] + prev[-1])
-                d = math.hypot(X[k, fl] - mx[e["idx"][0]], Y[k, fl] - my[e["idx"][0]])
-                excess = max(0.0, d - (v_max * (t[f0] - t[fl]) / 1000.0 + r_fit))
-            else:
-                d, excess = float("inf"), 0.0
-            key = (excess, d)
-            if best is None or key < best[0]:
-                best = (key, k)
-        if best is None:
-            c["non_player_no_free_slot"] += 1
-            c["non_player_fits"] += int(e["fr"].size)
-            continue
-        k = best[1]
-        c["continuity_bound"] += 1
-        c["continuity_relocation"] += int(best[0][0] > 0)
-        keep = open_[k, e["fr"]] & ~occ[k, e["fr"]]
-        c["continuity_fits"] += put(k, e, keep, HOW_CONTINUITY)
-    return {"X": X, "Y": Y, "obs": obs, "has": occ, "how": how, "counts": dict(c)}
-
-
-def build_slots(sid: str, binding: str = "post_round") -> dict:
-    """Slots and beliefs for one session from stored rows; timed.
-
-    `binding` is `post_round` (stage 1: stored entity verdicts and
-    continuity, `bind_entities`) or `causal` (stage 2: per-frame assignment
-    from what was bound before, `entity_binding.causal_bind`)."""
-    import crowd_region as v1
-    t_load = time.process_time()
-    S = v1.Session(sid)
-    L = lineup_slots(sid)
-    if "refused" in L:
-        return {"session": sid, "refused": L["refused"]}
-    wf, why = world_frame(sid)
-    if wf is None:
-        return {"session": sid, "refused": why}
-    mf, to_m, m_per_px = wf
-    v_max = v_max_m_s()
-    dt_frame = float(np.median(np.diff(S.fr_t))) / 1000.0
-    r_icon = float(S.r) * m_per_px
-    r_fit = r_icon + v_max * dt_frame
-    extra = {}
-    if binding == "causal":
-        import entity_binding as eb
-        fits = eb.load_fits(sid, S, L["slots"], L["player_slot"], to_m, float(S.r))
-        spect = eb.spectated_slots(sid, S, L["slots"], L["player_agent"])
-        extra = {"fits": fits, "spect": spect}
-    load_s = time.process_time() - t_load
-    t0 = time.process_time()
-    life = lifecycle(sid, S, L["slots"])
-    t1 = time.process_time()
-    if binding == "causal":
-        log_area = math.log(fits["map_px"] * m_per_px ** 2)
-        bind = eb.causal_bind(S.fr_t, fits, life["open"], life["seg_start"], L["player_slot"],
-                              spect["slot"], r_fit=r_fit, v_max=v_max, log_area=log_area,
-                              r_dup_m=2.0 * r_icon, margin_min=fits["margin_min"])
-        wit = np.isin(bind["wit"], eb.ANCHORING)
-        bind["counts"]["spectate_witness"] = spect["reason"] or "read"
-    else:
-        bind = bind_entities(S, L["slots"], L["player_slot"], life["open"], life["seg_start"],
-                             to_m, v_max, r_fit)
-        wit = np.isin(bind["how"], WITNESSED)
-    t2 = time.process_time()
-    B = beliefs(S.fr_t, bind["X"], bind["Y"], bind["has"], life["open"], life["seg_start"],
-                r_fit=r_fit, r_icon=r_icon, v_max=v_max, wit=wit)
-    t3 = time.process_time()
-    rec = storage_record(B, bind["obs"])
-    F = S.fr_t.size
-    return {"session": sid, "S": S, "L": L, "mf": mf, "to_m": to_m, "m_per_px": m_per_px,
-            "life": life, "bind": bind, "B": B, "rec": rec, "binding": binding, **extra,
-            "params": {"v_max_m_s": v_max, "dt_frame_s": dt_frame, "r_icon_m": r_icon,
-                       "r_fit_m": r_fit, "crowd_core_m": 2 * r_icon + r_fit,
-                       "conflict_share": CONFLICT_SHARE, "binding": binding,
-                       **({"binding_params": eb.params()} if binding == "causal" else {})},
-            "cost": {"frames": int(F), "load_cpu_s": round(load_s, 2),
-                     "lifecycle_us_per_frame": round((t1 - t0) / F * 1e6, 2),
-                     "bind_us_per_frame": round((t2 - t1) / F * 1e6, 2),
-                     "beliefs_us_per_frame": round((t3 - t2) / F * 1e6, 2),
-                     "total_us_per_frame": round((t3 - t0) / F * 1e6, 2),
-                     "record_bytes_per_frame": int(rec.dtype.itemsize * rec.shape[1])}}
+    """`slot_state.player_lifecycle` (the session id is unused)."""
+    return ss.player_lifecycle(S, slots)
 
 
 # ----------------------------------------------------------------- scoring
@@ -727,7 +309,7 @@ def riot_context(sid: str) -> dict:
 def score_riot(sid: str, G: dict | None = None) -> dict:
     """Every living teammate at each Riot kill instant against its slot."""
     import riot_ground_truth as rg
-    G = G or build_slots(sid)
+    G = G or build_slots(sid, binding="post_round")
     if "refused" in G:
         return {"session": sid, "refused": G["refused"]}
     S, B = G["S"], G["B"]
@@ -774,7 +356,7 @@ def score_riot(sid: str, G: dict | None = None) -> dict:
            "params": G["params"], "cost": G["cost"], "lineup": G["L"], "truth_slot_notes": tnotes,
            "lifecycle": G["life"]["counts"], "binding": G["bind"]["counts"],
            "binding_mode": G.get("binding", "post_round"),
-           "player_basis": ctx["player_basis"], "rests_on": rests_on(G)}
+           "player_basis": ctx["player_basis"], "rests_on": _rests_on(G)}
     if G.get("binding") == "causal":
         out["non_player"] = {"by_reason": G["bind"]["np_by_reason"],
                              "flags": G["bind"]["flag_counts"]}
@@ -831,16 +413,9 @@ def score_riot(sid: str, G: dict | None = None) -> dict:
     return out
 
 
-def rests_on(G: dict) -> list[str]:
+def _rests_on(G: dict) -> list[str]:
     """What the session's beliefs rest on, by binding mode."""
-    common = ["lineup agent_identity", "death_verdict rows", "round table"]
-    if G.get("binding") == "causal":
-        sp = (G.get("spect") or {}).get("reason")
-        return ["ally_icon fits (all, causal, per frame)", "identity.rendered_art_scores per fit",
-                "identity.teammate_fit_refusal", "ping and spike events", "baked geometry labels",
-                (G.get("spect") or {}).get("rests_on", "tray_kit spectating witness")
-                + (f" (unused: {sp})" if sp else "")] + common
-    return ["round_entity entity verdicts (post-round, pooled)"] + common
+    return ss.rests_on(G.get("binding", "post_round"), G.get("spect"))
 
 
 #: The every-frame hunt's exclusions (the orchestrator's brief): frames within
@@ -947,7 +522,7 @@ def score_replay(sid: str, G: dict | None = None) -> dict:
     """Every living teammate on every drawn frame against its slot (replay truth)."""
     import replay_truth as rt
     import crowd_region as v1
-    G = G or build_slots(sid)
+    G = G or build_slots(sid, binding="post_round")
     if "refused" in G:
         return {"session": sid, "refused": G["refused"]}
     S = G["S"]
@@ -981,7 +556,7 @@ def score_replay(sid: str, G: dict | None = None) -> dict:
     out = {"session": sid, "version": ENTITY_STATE_VERSION, "params": G["params"],
            "cost": G["cost"], "truth_slot_notes": tnotes, "lifecycle": G["life"]["counts"],
            "binding": G["bind"]["counts"], "binding_mode": G.get("binding", "post_round"),
-           "rests_on": rests_on(G), "scores": {}}
+           "rests_on": _rests_on(G), "scores": {}}
     if G.get("binding") == "causal":
         out["non_player"] = {"by_reason": G["bind"]["np_by_reason"],
                              "flags": G["bind"]["flag_counts"]}
@@ -1163,8 +738,8 @@ def _deps(mode: str = "post_round") -> dict:
     d = {"version": ENTITY_STATE_VERSION, "v_max_m_s": v_max_m_s(),
          "conflict_share": CONFLICT_SHARE, "binding": mode}
     if mode == "causal":
-        import entity_binding as eb
-        d["binding_params"] = eb.params()
+        d["binding_params"] = ss.binding_params()
+    d["slot_state_version"] = ss.SLOT_STATE_VERSION
     return d
 
 

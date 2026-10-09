@@ -2,7 +2,7 @@
 
 Status (2026-09-27): implemented. All six phases ran, and the branch merged to master at `e518f8e`; its
 worktree is gone. The goal, the predictions' outcomes and the open work live in the
-[design](PUBSUB_DESIGN.md), and the rules below are [AGENTS.md](../AGENTS.md)'s.
+[design](../PUBSUB_DESIGN.md), and the rules below are [AGENTS.md](../../AGENTS.md)'s.
 
 Branch `pubsub-20260927`, worktree `reticle-worktrees/pubsub`, cut from master.
 Nothing here reaches master until the player merges it.
@@ -72,7 +72,7 @@ so the ally-icon records carry contention.
 
 ### Outcomes against the measurements
 
-Read from [`PUBSUB_MEASUREMENTS.md`](PUBSUB_MEASUREMENTS.md), design steps 3 and 4.
+Read from [`PUBSUB_MEASUREMENTS.md`](../PUBSUB_MEASUREMENTS.md), design steps 3 and 4.
 
 1. Held from the crop cache; refuted on NVDEC video, where the read-ahead already hides about half
    of each 2 Hz gap and the staged pass ran slower; and on OpenCV's pool no serial pass is one thread.

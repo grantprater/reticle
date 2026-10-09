@@ -1,8 +1,8 @@
 # Pub/sub design: a staged scan over the store as the log
 
-This document designs the staged scan and holds the queue of its open work. The [plan](PUBSUB_PLAN.md)
+This document designs the staged scan and holds the queue of its open work. The [plan](archive/PUBSUB_PLAN-2026-09-27.md)
 ran its six phases on 2026-09-27; its goal and the outcomes of its predictions live here now. The design rests on the
-[map](PUBSUB_PIPELINE_MAP.md) and the [baseline](PUBSUB_PERFORMANCE_BASELINE.md), two snapshots of the
+[map](archive/PUBSUB_PIPELINE_MAP-2026-09-27.md) and the [baseline](archive/PUBSUB_PERFORMANCE_BASELINE-2026-09-27.md), two snapshots of the
 serial pass, and the [measurements](PUBSUB_MEASUREMENTS.md) time the staged pass against it. Writing
 sections 1 to 6, I read the code at `a065949`, ran no scan, opened no media and changed no code.
 

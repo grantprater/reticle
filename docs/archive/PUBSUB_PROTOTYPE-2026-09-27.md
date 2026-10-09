@@ -1,7 +1,7 @@
 # Pub/sub prototype: the staged pass
 
 Status (2026-09-27): superseded. What is built, the `--check` runbook and findings 2 and 3 live in the
-[design](PUBSUB_DESIGN.md); the runs and their hashes in the
+[design](../PUBSUB_DESIGN.md); the runs and their hashes in the
 [measurements](PUBSUB_MEASUREMENTS.md#equality-checks-steps-0-to-2).
 
 Steps 0 to 2 of `docs/PUBSUB_DESIGN.md`, section 3, on branch

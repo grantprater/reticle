@@ -7,9 +7,9 @@ section 2: on NVDEC the read-ahead hides about half of each 2 Hz gap.
 Where a scan's time goes today, and how much a decoupled, pipelined pass could
 recover, read from the scan usage log (`<store>/notes/usage.jsonl`,
 `scan-usage-1`; [the scan usage notes](../README.md#scan-usage)) on 2026-09-27 for
-[PUBSUB_PLAN.md](PUBSUB_PLAN.md). No scan ran and no media was opened.
+[PUBSUB_PLAN.md](PUBSUB_PLAN-2026-09-27.md). No scan ran and no media was opened.
 
-**The figures live in [`pubsub_baseline.json`](pubsub_baseline.json).** QUOTED
+**The figures live in [`pubsub_baseline.json`](../pubsub_baseline.json).** QUOTED
 resolves a `[metric:...]` citation only against `pass` rows in
 `<store>/notes/metrics.jsonl`. No tool copies a match scan's usage record there;
 `demo_cast_census` does so only for demo crop-cache writes. This baseline could

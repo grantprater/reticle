@@ -55,8 +55,8 @@ from .killfeed import (KILLFEED_NAME_VERSION, KILLFEED_NUMERAL_VERSION,
                        KILLFEED_WEAPON_VERSION, KillfeedPortraitReader,
                        KillfeedRead, analyse_killfeed, killfeed_roi,
                        me_template_path, overlay_mask, read_killfeed)
-from .belief import (BELIEF_VERSION, absent_instants, resolve,
-                     round_voids)
+from .slot_state import (BELIEF_VERSION, absent_instants, resolve,
+                         round_voids)
 from .minimap import (ALLY_DESCRIPTOR_HZ, FIT_ERR_PX, MAX_ALLIES, AllyIconReader, _odd,
                       ally_rings, art_floor,
                       filter_track, floor_mask, minimap_roi_px, slab_mask,
@@ -5097,6 +5097,34 @@ def cmd_frame_join(args) -> int:
     return 0
 
 
+def cmd_slot_state(args) -> int:
+    """The five ally player slots and each one's position belief on every
+    stored frame (`slot_state`), from stored rows; `--write` stores the
+    per-frame record under `l2/slot_state/`, and `--at MS` prints every
+    slot's region at that instant, as a gate would ask. Decodes no video."""
+    from . import slot_state
+
+    store = Store(args.store)
+    for sid in _sessions_arg(store, args):
+        G = slot_state.build_slots(sid, binding=args.binding, store_root=store.root)
+        if "refused" in G:
+            print(json.dumps({"session": sid, "refused": G["refused"]}))
+            continue
+        out = slot_state.slot_summary(G)
+        if args.write:
+            out["written"] = str(slot_state.write_record(G, store.root))
+        if args.at is not None:
+            q = slot_state.region_at(G, args.at)
+            cols = ("px", "py", "r_px", "apx", "apy", "reach_px")
+            vals = np.round(np.stack([np.asarray(q[c], float) for c in cols], axis=1), 1)
+            out["at"] = {"t_ms": args.at, "frame": q["frame"],
+                         "slots": [{"id": k[1], "kind": kd,
+                                    **{c: (None if np.isnan(v) else float(v)) for c, v in zip(cols, row)}}
+                                   for k, kd, row in zip(q["key"], q["kind"], vals)]}
+        print(json.dumps(out, default=str))
+    return 0
+
+
 def cmd_self_icon(args) -> int:
     """The minimap self icon's portrait scored against the agents' art, on
     stored minimap crops where the roster reads all five allies alive
@@ -7040,6 +7068,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--stream", default="ally_icon", help="event stream with frame rows")
     s.add_argument("--cache", default="minimap", help="crop cache set")
     s.set_defaults(func=cmd_frame_join)
+
+    s = sub.add_parser("slot-state",
+                       help="the ally player slots and each one's position belief per frame "
+                            "(`slot_state`; stored rows, no video)")
+    s.add_argument("session", nargs="?")
+    s.add_argument("--all", action="store_true", help="every session")
+    s.add_argument("--binding", choices=("causal", "post_round"), default="causal")
+    s.add_argument("--write", action="store_true", help="store the per-frame record under l2/slot_state/")
+    s.add_argument("--at", type=float, default=None, help="print every slot's region at this capture ms")
+    s.set_defaults(func=cmd_slot_state)
 
     s = sub.add_parser("self-icon",
                        help="the minimap self icon's portrait scored against the agents' art, "

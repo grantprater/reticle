@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from reticle.belief import (HELD, INTERPOLATED, OBSERVED, UNRESOLVED, Fix,
+from reticle.slot_state import (HELD, INTERPOLATED, OBSERVED, UNRESOLVED, Fix,
                             absent_instants, resolve, round_voids)
 from reticle.minimap import FIT_ERR_PX, GAP_MS, RUN_PX, filter_track
 
