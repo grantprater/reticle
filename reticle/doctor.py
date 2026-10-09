@@ -47,7 +47,7 @@ import json
 import re
 from pathlib import Path
 
-from reticle import architecture, documents, domain, metrics, ownership, quoted
+from reticle import architecture, documents, domain, metrics, ownership, quoted, ratchets
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -276,8 +276,9 @@ def check_promote(store: Path) -> list[tuple[str, str]]:
     for f in (ROOT / "reticle").glob("*.py"):
         # This file names prototypes in its own prose and is the one module
         # allowed to read both trees, so counting itself as a consumer would
-        # let the checker retire its own findings by describing them.
-        if f.name == "doctor.py":
+        # let the checker retire its own findings by describing them. The
+        # ratchets' PROMOTE_LEGACY names prototypes for the same reason.
+        if f.name in ("doctor.py", "ratchets.py"):
             continue
         text = f.read_text(encoding="utf-8", errors="replace")
         used |= mentions(text)
@@ -316,11 +317,110 @@ def check_promote(store: Path) -> list[tuple[str, str]]:
         for s in mentions(blob):
             if s not in used and s not in declined:
                 seen.setdefault(s, tag[:40])
-    return [(WARN, f"`prototypes/{s}.py` is in the prediction ledger"
-                   + (f" under `{tag}`" if tag else "") +
-                   " and no module in `reticle/` uses it -- wire it, or record "
-                   "`\"wire\": \"no\"` with a reason on that row")
-            for s, tag in sorted(seen.items())]
+    strict, _unwired = promote_state(rows, stems)
+    # The strict finding speaks for a passed pilot; the loose one would repeat it.
+    loud = {s for s in seen if any(f"prototypes/{s}.py`" in m for _sev, m in strict)}
+    return strict + [(WARN, f"`prototypes/{s}.py` is in the prediction ledger"
+                            + (f" under `{tag}`" if tag else "") +
+                            " and no module in `reticle/` uses it -- wire it, or record "
+                            "`\"wire\": \"no\"` with a reason on that row")
+                     for s, tag in sorted(seen.items()) if s not in loud]
+
+
+def promote_state(rows: list[dict], stems: set[str] | None = None,
+                  root: Path | None = None, legacy: dict | None = None):
+    """PROMOTE strict over `rows` (`ratchets.promote_strict`): `(findings,
+    unwired)`, reading `reticle/` and `BACKLOG.md` under `root`.
+
+    A pilot is wired when a `reticle/` module but this one and `ratchets`
+    imports or calls it (`prototype_uses`), or when a ledger row names the
+    `reticle` module that took it over; it is scheduled when a ledger row
+    names an open BACKLOG item.
+    """
+    root = ROOT if root is None else root
+    if stems is None:
+        stems = {f.stem for f in (root / "prototypes").glob("*.py")}
+    used: set[str] = set()
+    modules: set[str] = set()
+    for f in (root / "reticle").rglob("*.py"):
+        rel = f.relative_to(root / "reticle").with_suffix("").as_posix()
+        modules.add(rel.replace("/", "."))
+        if f.name in ("doctor.py", "ratchets.py"):
+            continue
+        used |= prototype_uses(f.read_text(encoding="utf-8", errors="replace"), stems)
+    backlog = root / "BACKLOG.md"
+    items = backlog_open_items(backlog.read_text(encoding="utf-8")) if backlog.is_file() else None
+    open_items = {int(m.group(1)) for line in (items or ())
+                  if (m := re.match(r"\W*(\d+)\.", line))}
+    return ratchets.promote_strict(rows, stems, used, modules, open_items, legacy)
+
+
+def prototype_uses(text: str, stems: set[str]) -> set[str]:
+    """The stems a module's CODE uses: an import naming one (`import x`,
+    `from .x import y`, `from prototypes import x`), a call through one
+    (`x.run()`), or a call handed its script path (`"prototypes/x.py"` as an
+    argument). A comment or docstring naming a prototype uses nothing."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return set()
+    out: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                out |= stems.intersection(a.name.split("."))
+        elif isinstance(n, ast.ImportFrom):
+            out |= stems.intersection((n.module or "").split("."))
+            out |= stems.intersection(a.name for a in n.names)
+        elif isinstance(n, ast.Call):
+            f = n.func
+            while isinstance(f, ast.Attribute):
+                out |= stems & {f.attr}
+                f = f.value
+            if isinstance(f, ast.Name):
+                out |= stems & {f.id}
+            for a in list(n.args) + [k.value for k in n.keywords]:
+                for c in ast.walk(a):
+                    if isinstance(c, ast.Constant) and isinstance(c.value, str):
+                        out |= {s for s in stems if f"{s}.py" in c.value}
+    return out
+
+
+def ledger_rows(store: Path) -> list[dict]:
+    """The prediction ledger's rows; empty without a ledger."""
+    path = store / "notes" / "predictions.jsonl"
+    if not path.is_file():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.strip():
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return rows
+
+
+def check_convert(base: Path | None = None) -> list[tuple[str, str]]:
+    """CONVERT: a reader samples a fixed grid unless it declares a gate.
+
+    A reader is a class in `reticle/` with a `feed` method that binds `hz`,
+    the rate `decode.sample_multi` samples it at. A DECLARED GATE is the
+    class attribute `opportunity_gate = ratchets.Gate(opportunity=...,
+    source=..., kind=...)`: `kind="spans"` where the reader's spans are
+    opportunity windows built from stored evidence (Clove's death windows),
+    `kind="frame"` where its `wants(t_ms)` decides per sample for the gate
+    hook BACKLOG item 1 adds to `passes.run` and `passes.run_cached`. An
+    ungated reader errors unless `ratchets.CONVERT_LEGACY` lists it with its
+    rate and converting item, which warns; a listed reader that is gated or
+    gone errors until its entry goes (`ratchets.convert_findings`)."""
+    return ratchets.convert_findings(base)
+
+
+def check_roundscope(base: Path | None = None) -> list[tuple[str, str]]:
+    """ROUNDSCOPE: reader, tracker or lane state outlives a round, or a
+    search walks past the could-overlap set (`ratchets.roundscope_findings`)."""
+    return ratchets.roundscope_findings(base)
 
 
 def check_manifest(store: Path) -> list[tuple[str, str]]:
@@ -1945,6 +2045,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("ORPHAN", check_orphan), ("DOMAIN", check_domain),
               ("MOVEMENT", check_movement), ("SCALE", check_scale),
               ("RESTATE", check_restate),
+              ("CONVERT", check_convert), ("ROUNDSCOPE", check_roundscope),
               ("LAYER", check_layer), ("CONSUMER", check_consumer),
               ("OWNERSHIP", check_ownership),
               ("QUOTED", lambda: check_quoted(store)),

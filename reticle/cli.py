@@ -1798,6 +1798,11 @@ def cmd_scan(args) -> int:
         record is written with its reason and nothing is published."""
         setup_t0 = time.perf_counter_ns()
         R = build_readers()
+        # A fixed-grid reader still on the CONVERT list (BACKLOG item 1)
+        # runs, and says so; the warning never stops the pass.
+        from .ratchets import legacy_running
+        for line in legacy_running(R.readers):
+            print(line)
         t0 = time.perf_counter()
         last = [t0]
 
