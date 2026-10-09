@@ -111,10 +111,14 @@ LANE_VERSIONS = {
     "death": "entity-death-0.2.0",
     "spike": "entity-spike-0.1.0",
     "enemy": "entity-enemy-0.2.0",
-    "ability": "entity-ability-0.1.0",
+    "ability": "entity-ability-0.2.0",
 }
 # entity-ability-0.1.0 (2026-10-09): the player's own ability children and
 # effects (`slot_state`, docs/ABILITY_ENTITIES.md step 2).
+# entity-ability-0.2.0 (2026-10-09): every slot's children (step 3, one
+# builder): a node's name is the verdict on its owner slot, its parent the
+# node above it in the tree; witnessed spawned objects join; a possible
+# object stays in the owner's stream.
 # entity-enemy-0.2.0 (2026-10-07): a track the track owner refused as no
 # entity (`reality_status` refused, `round_lifetimes.detection_reality`) fails
 # rule 1 and is withheld whole, with its poses, standing `refused`; every
@@ -1009,13 +1013,17 @@ def _enemy_lane(store, sid, L: _Lane, manifest) -> dict:
 
 
 def _ability_lane(store, sid, L: _Lane, manifest) -> dict:
-    """The player's own ability children and effects, as the child owner
-    stored them (`slot_state.build_abilities`, docs/ABILITY_ENTITIES.md
-    step 2).
+    """Every slot's ability children, their witnessed spawned objects and
+    their effects, as the child owner stored them (`slot_state.build_abilities`,
+    docs/ABILITY_ENTITIES.md step 3).
 
-    A child is an `ability_object` entity whose kind is its ability's subject;
-    its parent and `player` are the player's slot, and its name is the
-    lineup arbiter's verdict on that slot, cited through `depends_on`. Its
+    A node is an `ability_object` entity whose kind is its ability's subject
+    (a spawned object's: `<agent>:<ability>/<object>`); its `player` is its
+    owner slot, its parent the node above it in the tree (the owner slot for
+    an instance), and its name is the lineup arbiter's verdict on the owner
+    slot, cited through `depends_on`. A node with no owner slot is withheld,
+    abstained, with the owner's reason. A `possible` spawned object (no
+    witness read it) stays in the owner's stream, as a predicted effect does. Its
     events: `cast` at the opening witness, its `occurred` the open interval
     the owner inferred; `ability_object` at each later witness, its phase from
     the ability's own facts (`entity_contract.ability_states`); and
@@ -1047,7 +1055,9 @@ def _ability_lane(store, sid, L: _Lane, manifest) -> dict:
 
     def name_of(c: dict):
         ref = c["agent_ref"]
-        v = slot_verdicts.get(c["parent"]) or {}
+        if ref is None:
+            return None, "unbound"
+        v = slot_verdicts.get(c.get("owner_slot", c["parent"])) or {}
         status = v.get("status")
         L.verdicts[ref] = status or "abstained"
         if status == "resolved" and v.get("agent") == c["agent"]:
@@ -1085,7 +1095,7 @@ def _ability_lane(store, sid, L: _Lane, manifest) -> dict:
 
     by_child = {}
     for c in rows:
-        if c.get("kind") != "child":
+        if c.get("kind") != "child" or c.get("exists", "witnessed") != "witnessed":
             continue
         cid, rnd = c["child_id"], c["round"]
         by_child[cid] = c
@@ -1098,14 +1108,24 @@ def _ability_lane(store, sid, L: _Lane, manifest) -> dict:
                 "ended": {k: c["end"][k] for k in ("lo_ms", "hi_ms", "basis")}}
         _reasoned(life, "censored_at_ms", None,
                   "not_applicable: the owner ends every child by its facts or the round barrier")
-        row = {"row": "entity", "entity_id": cid, "family": "ability_object", "kind": subject,
-               "side": c["side"], "round": rnd, "lifetime": life}
+        owner_slot = c.get("owner_slot", c["parent"])
+        deps = list(c.get("depends_on") or ([c["agent_ref"]] if c["agent_ref"] else []))
+        row = {"row": "entity", "entity_id": cid, "family": "ability_object", "kind": subject}
+        _reasoned(row, "side", c["side"], f"not_read: {c.get('owner_slot_reason') or 'unbound'}")
+        row.update(round=rnd, lifetime=life)
         _reasoned(row, "identity", identity, id_reason or "")
-        row.update(player=c["parent"], parent=c["parent"], depends_on=[c["agent_ref"]],
-                   producer=cproducer, **common)
-        phases, phase_why = ability_states(*subject.partition(":")[::2], c["slot"])
+        _reasoned(row, "player", owner_slot, f"not_read: {c.get('owner_slot_reason') or 'unbound'}")
+        _reasoned(row, "parent", c["parent"], f"not_read: {c.get('parent_reason') or 'unbound'}")
+        slot_obj = {"ability": subject, "slot": c["slot"]}
+        if c["slot"] is None:
+            slot_obj["slot_reason"] = f"not_read: {c.get('owner_slot_reason') or 'unbound'}"
+        row.update(producer=cproducer, **common)
+        if deps:
+            row["depends_on"] = deps
+        phases, phase_why = (ability_states(*subject.partition(":")[::2], c["slot"])
+                             if c["slot"] else (set(), "not_read: the node's ability is unknown"))
         phase = "observed" if "observed" in phases else None
-        state_obj = {"ability": subject, "slot": c["slot"], "phase": phase}
+        state_obj = {**slot_obj, "phase": phase}
         if phase_why:
             state_obj["phase_reason"] = phase_why
         if phase is None:
@@ -1116,19 +1136,19 @@ def _ability_lane(store, sid, L: _Lane, manifest) -> dict:
         timed = [w for w in c["witnesses"] if w.get("t_ms") is not None]
         open_w = min(timed, key=lambda w: w["t_ms"]) if timed else c["witnesses"][0]
         events = [event(f"cast:{cid}", cid, "cast", rnd, open_w["t_ms"],
-                        {"ability": subject, "slot": c["slot"]}, [ev_of(open_w)], cproducer,
+                        dict(slot_obj), [ev_of(open_w)], cproducer,
                         identity, id_reason, occurred=dict(c["open"]), occ_reason="",
-                        pos=place(c, open_w), depends=[c["agent_ref"]], player=c["parent"])]
+                        pos=place(c, open_w), depends=deps, player=owner_slot)]
         for i, w in enumerate(c["witnesses"]):
             if w.get("t_ms") is None or w is open_w:
                 continue
             events.append(event(f"observed:{cid}:{i}", cid, "ability_object", rnd, w["t_ms"],
                                 dict(state_obj), [ev_of(w)], cproducer, identity, id_reason,
-                                pos=place(c, w), depends=[c["agent_ref"]], player=c["parent"]))
+                                pos=place(c, w), depends=deps, player=owner_slot))
         d = c.get("disabled")
         if d:
-            deps = [c["agent_ref"]] + ([f"identity:{d['death_id']}"] if d.get("death_id") else [])
-            owner = {"entity_id": c["parent"], "identity": identity}
+            ddeps = deps + ([f"identity:{d['death_id']}"] if d.get("death_id") else [])
+            owner = {"entity_id": owner_slot, "identity": identity}
             if identity is None:
                 owner["identity_reason"] = id_reason
             evidence = [ev_of(d["evidence"])]
@@ -1136,9 +1156,9 @@ def _ability_lane(store, sid, L: _Lane, manifest) -> dict:
                 evidence.append({"stream": "death", "id": d["death_id"],
                                  "version": store.events_version("death", sid) or "unstamped"})
             events.append(event(f"disabled:{cid}", cid, "ability_disabled", rnd, d["t_ms"],
-                                {"ability": subject, "slot": c["slot"]}, evidence,
-                                cproducer, identity, id_reason, depends=deps,
-                                parts={"owner": owner}, player=c["parent"]))
+                                dict(slot_obj), evidence,
+                                cproducer, identity, id_reason, depends=ddeps,
+                                parts={"owner": owner}, player=owner_slot))
         subject_row = {"row": "entity", "entity_id": cid, "round": rnd}
         why_stale = L.stale_reason(rests_on)
         if why_stale is not None:
@@ -1153,7 +1173,8 @@ def _ability_lane(store, sid, L: _Lane, manifest) -> dict:
             continue
         if identity is None:
             L.withhold(cid, subject_row, IDENTITY_STANDING.get(why, "abstained"),
-                       f"identity: the player's slot verdict is {why}",
+                       f"identity: the owner slot's verdict is {why}"
+                       + (f" ({c.get('owner_slot_reason')})" if why == "unbound" else ""),
                        {"identity": {"standing": IDENTITY_STANDING.get(why, "abstained"),
                                      "alternatives": []}}, ["agent-identity"])
         L.rows.append(row)
@@ -1171,6 +1192,8 @@ def _ability_lane(store, sid, L: _Lane, manifest) -> dict:
         _reasoned(life, "censored_at_ms", None, "not_applicable: an instant effect")
         row = {"row": "entity", "entity_id": eid, "family": "ability_effect", "kind": e["effect"],
                "side": (src or {}).get("side", "ally"), "round": rnd, "lifetime": life}
+        if row["side"] is None:
+            row["side_reason"] = "not_read: its source has no owner slot"
         _reasoned(row, "identity", None, "not_applicable: an effect's agent is its source's")
         _reasoned(row, "player", None, "not_applicable: an effect binds to its source")
         row.update(parent=e["source"], producer=eproducer, **common)

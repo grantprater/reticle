@@ -5103,10 +5103,11 @@ def cmd_slot_state(args) -> int:
 
 
 def cmd_ability_children(args) -> int:
-    """The player's own ability children and effects (`slot_state.build_abilities`,
-    docs/ABILITY_ENTITIES.md step 2), from stored witnesses only; `--write`
-    stores `ability_child` and then `ability_effect`, each head recording the
-    stored inputs `plan` declares. Decodes no video."""
+    """Every slot's ability children, spawned objects and effects
+    (`slot_state.build_abilities`, docs/ABILITY_ENTITIES.md step 3), from
+    stored witnesses only; `--write` stores `ability_child`, `ability_effect`
+    and the arbiter's verdicts on the child keys (`ability_child_identity`),
+    each head recording the stored inputs `plan` declares. Decodes no video."""
     from . import slot_state
 
     store = Store(args.store)
@@ -5121,6 +5122,8 @@ def cmd_ability_children(args) -> int:
                                  ("ability_effect", B["effect_rows"])):
                 _record_inputs(store, sid, stream, rows[0])
                 out[f"written_{stream}"] = str(store.write_events(stream, sid, rows))
+            out["written_ability_child_identity"] = str(
+                store.write_events("ability_child_identity", sid, B["identity_rows"]))
         print(json.dumps(out, default=str))
     return 0
 

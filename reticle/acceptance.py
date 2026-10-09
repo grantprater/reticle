@@ -1439,19 +1439,41 @@ def ability_key(name) -> str:
     return re.sub(r"[^0-9a-z]", "", s.casefold())
 
 
-def ability_lane_finds(entities: list[dict], held: frozenset = frozenset()) -> list[dict]:
-    """The lane's `ability_object` entities as finds: key, round, ability key,
-    open and end intervals, end basis, and whether the row was withheld stale
-    (`held`, entity ids from the ledger)."""
+#: The slot sides an ability find is scored on (`slot_state.SIDES`), and the
+#: group of finds no witness bound to a slot.
+ABILITY_SIDES = ("self", "team", "enemy")
+ABILITY_UNBOUND = "unbound"
+
+
+def ability_find_side(e: dict, self_key: str | None) -> str:
+    """A lane entity's slot side: `self` where its owner slot is the player's,
+    `team` another ally slot, `enemy` an enemy slot, else `unbound`."""
+    player = e.get("player")
+    if not player:
+        return ABILITY_UNBOUND
+    if self_key is not None and player == self_key:
+        return "self"
+    return "enemy" if e.get("side") == "enemy" else "team" if e.get("side") == "ally" else ABILITY_UNBOUND
+
+
+def ability_lane_finds(entities: list[dict], held: frozenset = frozenset(),
+                       self_key: str | None = None, objects: frozenset = frozenset()) -> list[dict]:
+    """The lane's ability instances as finds: key, round, ability key, open
+    and end intervals, end basis, slot side (`ability_find_side`; every find
+    is `self` where no `self_key` is given, as in step 2), and whether the row
+    was withheld stale (`held`, entity ids from the ledger). `objects` are
+    the keys of spawned-object nodes, which are no instances; their scorer is
+    `score_ability_objects`."""
     out = []
     for e in entities:
-        if e.get("family") != "ability_object":
+        if e.get("family") != "ability_object" or e["entity_id"] in objects:
             continue
         life = e["lifetime"]
         out.append({"key": e["entity_id"], "round": int(e["round"]), "ability": ability_key(e["kind"]),
                     "kind": e["kind"], "open_lo": float(life["began"]["lo_ms"]),
                     "open_hi": float(life["began"]["hi_ms"]),
                     "end_hi": float(life["ended"]["hi_ms"]), "end_basis": life["ended"]["basis"],
+                    "side": "self" if self_key is None else ability_find_side(e, self_key),
                     "held": e["entity_id"] in held})
     return out
 
@@ -1644,6 +1666,140 @@ def score_ability_lane(finds: list[dict], truth: list[dict], others: list[dict],
            "rounds": nr, "classes": per, "all": allb, "coverage_gaps": dict(gaps),
            "outcome_of": {f["key"]: o for f, o in zip(finds, outcome)}}
     return doc, arrays
+
+
+#: A spawned-object node pairs with a truth actor of its class whose open lies
+#: within this many ms of the node's open interval.
+ABILITY_OBJECT_GATE_MS = ABILITY_OPEN_GATE_MS
+
+
+def object_class_key(name) -> str:
+    """A spawned object's class key: the actor class without the `_C` suffix,
+    casefolded (`Pawn_Gumshoe_E_PossessableCamera_C` -> the sheet's stem)."""
+    s = str(name or "")
+    return (s[:-2] if s.endswith("_C") else s).casefold()
+
+
+def truth_end_cause(end_ms, deaths_ms, barriers_ms, open_ms, tol_ms: float = ABILITY_END_TOL_MS):
+    """A truth actor's end cause: `owner_death` where its close lies within
+    `tol_ms` of an owner death after its open, `round_end` within `tol_ms`
+    of a barrier, else `other`; None where it never closes."""
+    if end_ms is None:
+        return None
+    d = np.asarray(list(deaths_ms), float)
+    b = np.asarray(list(barriers_ms), float)
+    if d.size and np.any((d >= open_ms) & (np.abs(d - end_ms) <= tol_ms)):
+        return "owner_death"
+    if b.size and np.any(np.abs(b - end_ms) <= tol_ms):
+        return "round_end"
+    return "other"
+
+
+def score_ability_objects(nodes: list[dict], actors: list[dict], round_starts,
+                          gate_ms: float = ABILITY_OBJECT_GATE_MS) -> tuple[dict, dict]:
+    """Spawned-object nodes per class against the replay's actors of that
+    class (section 2.10): open recall over the truth actors (any node, and
+    witnessed nodes only), nodes no actor pairs, open and end error, and
+    agreement of the node's end basis with the actor's end cause.
+
+    `nodes`: `{key, cls, side, agent, exists, open_lo, open_hi, end_hi,
+    end_basis}`; `actors`: `{cls, side, agent, open_ms, close_ms, end_cause}`,
+    the classes of the spawn tree only. A node pairs one to one, nearest
+    first, with an actor of its class, side and agent whose open lies within
+    `gate_ms` of the node's open interval. Intervals resample rounds."""
+    starts = np.sort(np.asarray(list(round_starts), float))
+    rounds_of = lambda t: int(np.searchsorted(starts, t, side="right"))
+    nodes = [dict(n) for n in nodes]
+    actors = [dict(a) for a in actors]
+    for n in nodes:
+        n["_r"] = rounds_of(n["open_hi"])
+    for a in actors:
+        a["_r"] = rounds_of(a["open_ms"])
+    rounds = sorted({n["_r"] for n in nodes} | {a["_r"] for a in actors})
+    ri = {r: i for i, r in enumerate(rounds)}
+    nr = len(rounds)
+
+    def same(n, a):
+        return n["cls"] == a["cls"] and n["side"] == a["side"] and \
+            str(n.get("agent") or "").casefold() == str(a.get("agent") or "").casefold()
+
+    def pairs_of(keep):
+        order = sorted(range(len(actors)), key=lambda j: actors[j]["open_ms"])
+        times = np.asarray([actors[j]["open_ms"] for j in order], float)
+        cand = []
+        for i, n in enumerate(nodes):
+            if not keep(n):
+                continue
+            f = {"open_lo": n["open_lo"], "open_hi": n["open_hi"]}
+            for k in _near_casts(actors, times, f, gate_ms):
+                j = order[k]
+                if same(n, actors[j]):
+                    cand.append((_gap(f, actors[j]["open_ms"]), i, j))
+        cand.sort()
+        ui, uj, out = set(), set(), {}
+        for _g, i, j in cand:
+            if i in ui or j in uj:
+                continue
+            ui.add(i)
+            uj.add(j)
+            out[j] = i
+        return out
+
+    pair_any = pairs_of(lambda n: True)
+    pair_seen = pairs_of(lambda n: n["exists"] == "witnessed")
+
+    def per_round(idx, items):
+        a = np.zeros(nr)
+        for k in idx:
+            a[ri[items[k]["_r"]]] += 1
+        return a
+
+    def block(key) -> tuple[dict, dict]:
+        ns = [i for i, n in enumerate(nodes) if key is None or (n["side"], n["cls"]) == key]
+        ts = [j for j, a in enumerate(actors) if key is None or (a["side"], a["cls"]) == key]
+        hit = [j for j in ts if j in pair_any]
+        seen_hit = [j for j in ts if j in pair_seen]
+        paired_nodes = set(pair_any.values())
+        lone = [i for i in ns if i not in paired_nodes]
+        open_err, end_err, agree, conf = [], [], [], Counter()
+        for j in hit:
+            n, a = nodes[pair_any[j]], actors[j]
+            open_err.append(n["open_hi"] - a["open_ms"])
+            if a["close_ms"] is None:
+                conf[f"{n['end_basis']}|no_truth_close"] += 1
+                continue
+            end_err.append(n["end_hi"] - a["close_ms"])
+            conf[f"{n['end_basis']}|{a['end_cause']}"] += 1
+            want = ABILITY_END_CAUSE.get(n["end_basis"])
+            agree.append(want == a["end_cause"] if want else
+                         abs(n["end_hi"] - a["close_ms"]) <= ABILITY_END_TOL_MS)
+        num, den = per_round(hit, actors), per_round(ts, actors)
+        fnum, fden = per_round(lone, nodes), per_round(ns, nodes)
+        doc = {"truth": len(ts), "finds": len(ns), "paired": len(hit),
+               "witnessed_finds": sum(nodes[i]["exists"] == "witnessed" for i in ns),
+               "witnessed_paired": len(seen_hit),
+               "recall": round(len(hit) / len(ts), 4) if ts else None,
+               "recall_ci": boot_share(rounds, num, den) if ts and nr else None,
+               "witnessed_recall": round(len(seen_hit) / len(ts), 4) if ts else None,
+               "false_opens": len(lone),
+               "false_open_share": round(len(lone) / len(ns), 4) if ns else None,
+               "false_open_ci": boot_share(rounds, fnum, fden) if ns and nr else None,
+               "open_error": _ms_summary(open_err), "end_error": _ms_summary(end_err),
+               "end_cause": dict(sorted(conf.items())),
+               "end_cause_agreement": round(sum(agree) / len(agree), 4) if agree else None,
+               "end_cause_n": len(agree)}
+        return doc, {"num": num, "den": den, "fnum": fnum, "fden": fden, "agree": sum(agree),
+                     "agree_n": len(agree), "open_err": open_err, "end_err": end_err}
+
+    keys = sorted({(n["side"], n["cls"]) for n in nodes} | {(a["side"], a["cls"]) for a in actors})
+    per, arrays = {}, {}
+    for k in keys:
+        name = f"{k[0]}|{k[1]}"
+        per[name], arrays[name] = block(k)
+    allb, arrays["_all"] = block(None)
+    return {"acceptance_version": ACCEPTANCE_VERSION, "gate_ms": gate_ms,
+            "boot": f"{N_BOOT} round resamples, seed {SEED}", "rounds": nr,
+            "classes": per, "all": allb}, arrays
 
 
 def pool_ability_lane(arrays: list[dict]) -> dict:

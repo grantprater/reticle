@@ -388,14 +388,15 @@ def derived_streams() -> list[dict]:
          "current": ABILITY_GLYPH_NAME_VERSION, "command": "reticle ability-glyphs {sid}",
          "how": "storage", "fields": {},
          "upstream": ("ability_disc_track", "ability_glyph", "tray_kit")},
-        # The player's own ability children and effects (`slot_state`,
-        # docs/ABILITY_ENTITIES.md step 2), built from the stored witnesses;
+        # Every slot's ability children and effects (`slot_state`,
+        # docs/ABILITY_ENTITIES.md step 3), built from the stored witnesses;
         # one command writes both, the children first.
         {"stream": "ability_child", "key": "ability_child_version",
          "current": ABILITY_CHILD_VERSION, "command": "reticle ability-children {sid} --write",
          "how": "storage", "fields": {},
          "upstream": ("ability_state", "ult_cast", "smoke_owner", "ability_shape",
-                      "ability_glyph_name", "death", "assist", "rounds")},
+                      "ability_glyph_name", "ability_disc_track", "tray_kit", "tray_drop",
+                      "death", "assist", "rounds")},
         {"stream": "ability_effect", "key": "ability_effect_version",
          "current": ABILITY_EFFECT_VERSION, "command": "reticle ability-children {sid} --write",
          "how": "storage", "fields": {}, "upstream": ("ability_child", "death", "assist")},
@@ -485,7 +486,9 @@ def derived_streams() -> list[dict]:
             ("tray_kit_identity", "tray_kit", "reticle tray-kit {sid}", "cache", None),
             ("ult_cast_identity", "ult_cast", "reticle ult-cast {sid}", "storage", None),
             ("enemy_track_identity", "enemy_track", "reticle enemy-tracks {sid}", "storage",
-             None)):
+             None),
+            ("ability_child_identity", "ability_child", "reticle ability-children {sid} --write",
+             "storage", None)):
         row = {"stream": stream, "key": "producer_version",
                "current": AGENT_IDENTITY_VERSION, "command": command, "how": how,
                "fields": {}, "upstream": (parent,), "identity": True}
@@ -806,6 +809,13 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                                "ability_shape#ability_shape_version"),
                           "ability_glyph_name": _in("inputs.ability_glyph_name",
                                                     "ability_glyph_name#ability_glyph_name_version"),
+                          "ability_disc_track": _in("inputs.ability_disc_track",
+                                                    "ability_disc_track#ability_disc_track_version",
+                                                    optional=True),
+                          "tray_kit": _in("inputs.tray_kit", "tray_kit#tray_kit_version",
+                                          optional=True),
+                          "tray_drop": _in("inputs.tray_drop", "tray_drop#tray_version",
+                                           optional=True),
                           "death": _in("inputs.death", death),
                           "assist": _in("inputs.assist", "assist#assist_adjudication_version"),
                           "round": _in("inputs.round", "rounds"),

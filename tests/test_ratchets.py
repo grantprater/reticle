@@ -462,7 +462,8 @@ def _row(witness="w", streams=("ability_x",), owners=("cast-owner",), feeds=("ab
          **kw):
     row = {"witness": witness, "parent": "the self slot", "wired": True, "owners": owners, "readers": (),
            "streams": streams, "feeds": feeds, "opens": "any", "joins": True, "ends": None,
-           "kind": "the slot", "agent_claim": None, "position": None, "effect": None}
+           "kind": "the slot", "agent_claim": None, "position": None, "effect": None,
+           "sides": ("self",), "opens_sides": ("self",), "sides_reason": "a test witness"}
     row.update(kw)
     return row
 
@@ -806,6 +807,16 @@ class KindsTests(unittest.TestCase):
                               "`slot_state.ABILITY_SIDES_BUILT` now builds -- remove it from the "
                               "allowlist"), out)
         self.assertEqual(sum(1 for lv, m in out if lv == WARN and "`enemy`" in m), 1)
+
+
+def test_a_channel_opening_on_a_side_it_does_not_observe_errors():
+    found = _ability(_inputs(channels=(_row(sides=("team",), opens_sides=("enemy",)),)))
+    assert any(lv == ERROR and "opens on ['enemy'], which it does not observe" in m for lv, m in found)
+    found = _ability(_inputs(channels=(_row(sides=None, opens_sides=(), sides_reason=""),)))
+    assert any(lv == ERROR and "sides_reason" in m for lv, m in found)
+    # Unknown reach is allowed when it says why.
+    found = _ability(_inputs(channels=(_row(sides=None, opens_sides=(), sides_reason="unmeasured"),)))
+    assert not any("sides" in m for lv, m in found if lv == ERROR)
 
 
 if __name__ == "__main__":

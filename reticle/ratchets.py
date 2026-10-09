@@ -1530,7 +1530,12 @@ ABILITY_KIND = "ability"
 ABILITY_STEP = re.compile(r"^step [2-7]\b")
 #: What a `CHANNELS` row declares.
 CHANNEL_FIELDS = ("witness", "parent", "wired", "owners", "readers", "streams", "feeds", "opens", "joins",
-                  "ends", "kind", "agent_claim", "position", "effect")
+                  "ends", "kind", "agent_claim", "position", "effect", "sides", "opens_sides",
+                  "sides_reason")
+#: The slot sides a `CHANNELS` row's `sides` and `opens_sides` may name
+#: (`slot_state.SIDES`); a row whose reach is unknown declares `sides` None
+#: with its `sides_reason`.
+CHANNEL_SIDES = ("self", "team", "enemy")
 
 #: Ability entries the plan keeps apart from the child owner by design, and
 #: why: development tools and replay truth, never a witness (section 1.2 and
@@ -1736,6 +1741,18 @@ def ability_findings(inputs: AbilityInputs, legacy: dict | None = None,
             continue
         if not (row["opens"] or row["joins"] or row["ends"]):
             out.append((ERROR, f"{where} may neither open, join nor end a child"))
+        sides, opens_sides = row["sides"], tuple(row["opens_sides"] or ())
+        if not row["sides_reason"]:
+            out.append((ERROR, f"{where} names no `sides_reason`: a witness's reach rests on "
+                               "evidence, never analogy"))
+        if sides is not None and (not sides or set(sides) - set(CHANNEL_SIDES)):
+            out.append((ERROR, f"{where} declares sides {sides}; name some of "
+                               f"{', '.join(CHANNEL_SIDES)}, or None where unknown"))
+        if set(opens_sides) - set(sides or ()):
+            out.append((ERROR, f"{where} opens on {sorted(set(opens_sides) - set(sides or ()))}, "
+                               "which it does not observe"))
+        if opens_sides and not row["opens"]:
+            out.append((ERROR, f"{where} opens on {list(opens_sides)} and `opens` is None"))
         if not row["wired"] and (row["owners"] or row["streams"]):
             out.append((ERROR, f"{where} is unwired and names owners or streams"))
         if row["wired"] and not row["owners"]:
@@ -1901,15 +1918,14 @@ KINDS_SEED: frozenset[str] = frozenset()
 #: `<kind>:<side>` pairs the ability builder does not build yet, each with
 #: the plan step that builds it. A kind counts as built once any side is, so
 #: this list holds the sides `ABILITY_SIDES_BUILT` leaves out; an entry
-#: goes when its side joins that constant.
-KINDS_SIDE_LEGACY: dict[str, str] = {
-    "ability:team": "docs/ABILITY_ENTITIES.md step 3 (the team's ability children)",
-    "ability:enemy": "docs/ABILITY_ENTITIES.md step 4 (the enemy's ability children)",
-    "effect:team": "docs/ABILITY_ENTITIES.md step 3 (the team's effects)",
-    "effect:enemy": "docs/ABILITY_ENTITIES.md step 4 (the enemy's effects)",
-}
-#: KINDS_SIDE_LEGACY's keys when seeded, 2026-10-09. Frozen: only shrinks.
-KINDS_SIDE_SEED: frozenset[str] = frozenset(KINDS_SIDE_LEGACY)
+#: goes when its side joins that constant. Step 3 (one builder over every
+#: slot, 2026-10-09) built `team` and `enemy` for both kinds, so the list is
+#: empty.
+KINDS_SIDE_LEGACY: dict[str, str] = {}
+#: KINDS_SIDE_LEGACY's keys. Frozen: only shrinks (seeded 2026-10-09 with
+#: `ability:team`, `ability:enemy`, `effect:team` and `effect:enemy`, all
+#: cleared by step 3 the same day).
+KINDS_SIDE_SEED: frozenset[str] = frozenset()
 
 
 def _kind_constants(tree: ast.Module) -> dict[str, str]:
