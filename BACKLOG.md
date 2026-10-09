@@ -16,7 +16,7 @@ Evidence: read share and CPU per session beside the 15 Hz arm; per question, slo
 **2. Enemy lane, reader and belief.** The real enemy lane rarely places the killer, so join questions collapse on real reads (NOTES).
 - The one transform's remainder (merged `a015c85`): wire the X-mark input, `floor_mask`, `site_mask` and the occluder bake, and say whether `minimap_dark` rereads from the cache.
 - `minimap_objects` residuals after the portrait gate (`a0824c8`): X marks read as enemies, wrongly named finds, low recall; the error budget and the labeller are merged (`78a1f5b`), their labels from the pre-gate `b1` reader. Each residual goes to its owner or a named per-ability cue; confirm `PING_OWN_PX` on the production ping stream. Soft rim coverage stays opt-in until a second 331 px replay match.
-- **Class-aware harness**, step 9 (steps 1 to 8 merged, `85608af`): fold `replay_truth score` and `replay_abilities score` onto the layer; move `prototypes/enemy_error_budget.py` in as subcommands whose extras start from `truth_under`; rebuild the stale inputs steps 5 to 8 scored (`ally_icon`, the ability scan, `minimap_dark`) after asking the player. Acceptance: `.\.venv\Scripts\python.exe prototypes\question_acceptance.py lane --tag pgb` on the three development matches, plus each step's subcommand. Evidence: the 0.3.0 control reproduces; per class, outcomes with round-bootstrap intervals; each stale input named or rebuilt.
+- **Class-aware harness** (steps 1 to 9 done; step 9, question_acceptance 0.8.0, on `harness-step9-20261009`): the replay scorers and the error budget score through `truth_under`; the 2026-10-07 captures score in the steps without a tagged arm. The development matches keep their stale inputs (player, relayed 2026-10-09: no other session is reread). Next: promote the join into `reticle/` so `replay-truth-under` has an owner. Acceptance: `.\.venv\Scripts\python.exe prototypes\question_acceptance.py lane --tag pgb`, `replay-score`, `replay-abilities` and `budget --tag pgb`. Evidence: the 0.3.0 and players-only controls reproduce; per class, outcomes with round-bootstrap intervals.
 - Then the reachable-set belief (`prototypes/coaching_belief.py`) as the enemy lane's carried state, so the killer holds a region at each death.
 Acceptance: `.\.venv\Scripts\python.exe prototypes\enemy_lane_check.py sets SESSION` rerun against T1d, plus `.\.venv\Scripts\python.exe prototypes\real_reader_schedule.py reach` on the development matches.
 Evidence: per match, the reader's share of misses and its extras against T1d; `join_death` accuracy on V15h against T1.
@@ -51,10 +51,10 @@ Evidence: each logged prediction marked pass or fail; worst cases beside located
 
 ## Completed
 
+- **`harness-step9-20261009` (2026-10-09):** `replay_truth score`, `replay_abilities score` and the enemy error budget folded into the harness (question_acceptance 0.8.0); their old entry points forward to it.
 - **`harness-steps-5-8-20261007` (2026-10-07):** teammates, smokes, glyphs and X and "?" marks scored against every replay entity (question_acceptance 0.7.0).
 - **`plan-riot-fixes-20261007` (2026-10-07):** `plan` tells an empty run and an inapplicable stream from a never-run one; Riot economy tests assert rates.
 - **`enemy-labels-20261007-rebased` (2026-10-07):** the enemy error budget and the disagreement labeller.
 - **`self-entry-plan-20261007` (2026-10-07):** K/D from `adjudication.self_entry`; "Mga Yawa" no longer reads as "Me"; `plan` names never-run steps.
-- **`class-aware-harness-20261007` (2026-10-07):** T0 carries every replay ability child; 126 of 167 old true false accepts lie on another real entity.
 
 Earlier entries: [10-07 archive](docs/archive/BACKLOG-through-2026-10-07.md).
