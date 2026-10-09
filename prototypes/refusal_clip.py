@@ -29,7 +29,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from reticle import geometry  # noqa: E402
-from reticle.belief import absent_instants  # noqa: E402
+from reticle.slot_state import absent_instants  # noqa: E402
 from reticle.decode import sample_windows  # noqa: E402
 from reticle.minimap import (ally_icons, floor_mask, minimap_roi_px,  # noqa: E402
                              self_icons, self_mask, slab_mask, widget_drawn,

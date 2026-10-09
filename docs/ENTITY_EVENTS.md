@@ -248,7 +248,7 @@ with a reason; that is coverage, not doubt.
 | `death` | `cause` gun/ability/environmental/melee/other (the death owner's), `weapon`, `second_life`, `revive` | `adjudication.death`; [domain:rounds/resurrection-mechanics] |
 | `spike` | `phase`: `dropped`, `carried`, `planted`, `detonated`, `last_known`, each citing its fact in `entity_contract.SPIKE_STATES`; `defused` joins when a fact shows it | [domain:minimap/spike-inversion], [domain:minimap/spike-carrier-overlay], [domain:minimap/spike-planted-icon], [domain:killfeed/environmental-self-entry], [domain:minimap/enemy-spike-ground-vision]; `rounds` owns the plant; defuse and detonation have no owner |
 | `ping` | `ping`: `standard`, `danger`, `on_my_way`, `need_help`, `watching_here` (the ping owner's), and `lifetime_s` | `ping` |
-| `slot_state` (the player's own tray slot) | level, charges, equipped, castable, pips | `adjudication.ability_state` |
+| `ability_tray` (the player's own tray slot; named so it cannot pass for `slot_state`, the player-slot model) | level, charges, equipped, castable, pips | `adjudication.ability_state` |
 | `cast` | the ability's catalogue id and slot | `ult_cast`, `ability_timeline` |
 | ability object lifecycle | per ability, from its lifecycle fact | `domain/abilities.toml` |
 
@@ -433,7 +433,7 @@ screen lanes come first, and audio lanes come last.
 | 2 | `smoke` | minimap | `smoke`, `smoke_owner`, `smoke_owner_identity`, `rounds` |
 | 2 | `ping` | minimap | `ping`, `rounds` |
 | 2 | `enemy` | minimap | `enemy_track`, `enemy_track_identity`, `rounds`, `death`, `death_identity` |
-| 3 | `slot_state` | tray | `ability_state`, `tray_kit`, `tray_kit_identity` |
+| 3 | `ability_tray` | tray | `ability_state`, `tray_kit`, `tray_kit_identity` |
 | 4 | `ult_cast` | audio | `ult_cast`, `ult_cast_identity`, `rounds` |
 | 4 | audio casts | audio | the sound bank, once an owner wires it |
 | -- | `disagreement` | every channel | `reconciliation`'s stored disagreements, `spike_carrier` disagreement rows |

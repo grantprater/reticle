@@ -33,7 +33,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Each side's five agents from the scoreboard | `adjudication/identity.py` (`board_side_sets`, `lineup_with_board`), [SCOREBOARD_LINEUP.md](SCOREBOARD_LINEUP.md) |
 | Minimap observations/tracks | `minimap.py`, `track.py`, `ping.py`, `team_vision.py` |
 | Which stored minimap fits become icons; the candidate record | `candidate_evidence.py`, `adjudication/minimap_candidates.py`, [MINIMAP_CANDIDATE_CONTRACT.md](MINIMAP_CANDIDATE_CONTRACT.md) |
-| Position belief; temporal adjudication design | `belief.py`, `docs/ADJUDICATION_DESIGN.md` |
+| Position belief; temporal adjudication design | `slot_state.py`, `docs/ADJUDICATION_DESIGN.md` |
 | Which icon is which: occluders, glyphs, appearance matching | [MINIMAP_APPEARANCE_MATCHING.md](MINIMAP_APPEARANCE_MATCHING.md) |
 | Minimap mining critique, minimal-label design, deterministic vs YOLO | [MINIMAP_MINING_REVIEW.md](MINIMAP_MINING_REVIEW.md) |
 | What else lives in a colour key | `prototypes/key_collision.py` (label sheets, no decode) |
@@ -96,6 +96,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle.quoted [--uncited]
 .\.venv\Scripts\python.exe -m reticle audit
 .\.venv\Scripts\python.exe -m reticle belief SESSION   # stored data only
+.\.venv\Scripts\python.exe -m reticle slot-state SESSION [--write] [--at MS]   # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-coverage|-timeline|-entities|-gallery|-capture|-phases
 .\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # audio decode only
 .\.venv\Scripts\python.exe -m reticle retire SESSION [--commit]  # never deletes
