@@ -751,7 +751,7 @@ def _row(agent, slot, ab, obj, split, objects, gdata, facts, exports, views, tab
     hints = sorted(k for k, f in facts.items()
                    if not k.startswith("game_data/") and f.subject
                    and _subject_norm(f.subject) in {_subject_norm(subject), _subject_norm(ability_subject)})
-    return {"agent": agent, "slot": slot, "ability": ab["ability"],
+    return {"agent": agent, "slot": slot, "ability": " ".join(ab["ability"].split()),
             "object": _stem(obj) if obj else None, "object_class": obj,
             "part": _stem(obj) if split else "", "subject": subject,
             "siblings": [_stem(o) for o in objects if o != obj] if split else [],
@@ -961,7 +961,7 @@ def cell_question(row: dict, column: str, answers: dict, sub: str = "") -> tuple
         sug = dict((v, w) for w, v in opts).get(value, "") if cell["status"] == "confirm" else ""
         return f"What kind of thing is {name}?", opts, sug
     if column == "placement":
-        opts = [(f"anywhere on the map, wherever {agent} stands", "global"),
+        opts = [(f"anywhere on the map, wherever {agent} is standing", "global"),
                 (f"only within reach of where {agent} stands", "body_relative"),
                 ("doesn't apply: it isn't put anywhere", "not_applicable")]
         sug = dict((v, w) for w, v in opts).get(value, "") if cell["status"] == "confirm" else ""

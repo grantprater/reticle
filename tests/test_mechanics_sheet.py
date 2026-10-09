@@ -347,8 +347,12 @@ class PlacementAndModesTest(unittest.TestCase):
         zed = next(r for r in self.rows if r["agent"] == "Zed")
         self.assertEqual(zed["cells"]["placement"]["status"], "ask")
         text, _ = ms.render(nebula, "placement", ms.cell_key(nebula, "placement"), {})
-        self.assertIn("Where can Astra put Nebula  / Dissipate?", text)
-        self.assertIn("Suggested: anywhere on the map, wherever Astra stands.", text)
+        self.assertEqual(nebula["ability"], "Nebula / Dissipate")
+        self.assertIn("  Where can Astra put Nebula / Dissipate?\n"
+                      "    1 anywhere on the map, wherever Astra is standing\n"
+                      "    2 only within reach of where Astra stands\n"
+                      "    3 doesn't apply: it isn't put anywhere\n", text)
+        self.assertIn("Suggested: anywhere on the map, wherever Astra is standing.", text)
 
     def test_modes_prefill_from_facts_and_ask_plainly_elsewhere(self):
         astra, zed = self.agents["Astra"], self.agents["Zed"]
