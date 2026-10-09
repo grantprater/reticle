@@ -717,5 +717,96 @@ class StatusProgressTests(unittest.TestCase):
                       ratchets.progress_line(ratchets.progress(), [])[-1])
 
 
+SLOTS = """
+    from dataclasses import dataclass
+
+    KIND_PLAYER = "player"
+    KIND_ABILITY = "ability"
+
+    CHANNELS = ({"witness": "w", "feeds": ("ability-child",)},)
+
+    @dataclass(frozen=True)
+    class EntityRow:
+        kind: str
+        id: str
+        side: str
+
+    def player_rows(slots):
+        return [EntityRow(KIND_PLAYER, s, "ally") for s in slots]
+
+    def enemy_rows(slots):
+        return [EntityRow(kind=KIND_PLAYER, id=s, side="enemy") for s in slots]
+
+    def ability_rows(xs):
+        return [EntityRow(KIND_ABILITY, x, "ally") for x in xs]
+
+    def build_slots(sid):
+        return player_rows([sid]) + enemy_rows([sid])
+"""
+
+
+class KindsTests(unittest.TestCase):
+    """KINDS: a declared entity kind the builder does not build warns once
+    with its plan step, or errors; the list only shrinks."""
+
+    def _find(self, src=SLOTS, legacy=None, seed=None, kinds=None):
+        base = _repo({"reticle/slot_state.py": src})
+        legacy = {"ability": "step 2"} if legacy is None else legacy
+        return ratchets.kinds_findings(base, kinds or {}, legacy,
+                                       frozenset(legacy) if seed is None else seed,
+                                       side_legacy={})
+
+    def test_an_unbuilt_listed_kind_warns_once_with_its_step(self):
+        out = self._find()
+        self.assertEqual([lv for lv, _ in out], [WARN])
+        self.assertIn("`ability`", out[0][1])
+        self.assertIn("step 2", out[0][1])
+
+    def test_an_unbuilt_unlisted_kind_errors(self):
+        out = self._find(legacy={})
+        self.assertEqual([lv for lv, _ in out], [ERROR])
+
+    def test_a_kind_a_channel_feeds_is_declared(self):
+        src = SLOTS.replace('    KIND_ABILITY = "ability"\n', "")
+        src = src.replace("EntityRow(KIND_ABILITY, x", 'EntityRow("ability", x')
+        out = self._find(src, legacy={}, kinds={"ability-child": "ability"})
+        self.assertEqual([lv for lv, _ in out], [ERROR])
+        self.assertIn("CHANNELS feeds `ability-child`", out[0][1])
+
+    def test_a_listed_kind_now_built_errors(self):
+        src = SLOTS.replace("player_rows([sid]) + enemy_rows([sid])",
+                            "player_rows([sid]) + ability_rows([sid])")
+        out = self._find(src)
+        self.assertEqual([lv for lv, _ in out], [ERROR])
+        self.assertIn("now builds", out[0][1])
+
+    def test_a_listed_kind_outside_the_seed_errors(self):
+        out = self._find(legacy={"ability": "step 2", "effect": "step 2"}, seed=frozenset({"ability"}))
+        self.assertIn((ERROR, "KINDS_LEGACY names `effect`, outside the frozen KINDS_SEED -- "
+                              "the allowlist only shrinks"), out)
+
+    def test_the_tree_builds_players_and_lists_the_rest(self):
+        out = doctor.check_kinds()
+        self.assertEqual([lv for lv, _ in out],
+                         [WARN] * (len(ratchets.KINDS_LEGACY) + len(ratchets.KINDS_SIDE_LEGACY)))
+        self.assertTrue(set(ratchets.KINDS_LEGACY) <= ratchets.KINDS_SEED)
+        from reticle import slot_state
+        tree = ratchets._parse_source(Path(slot_state.__file__))
+        self.assertIn("player", ratchets.built_kinds(tree))
+        self.assertEqual(ratchets.built_kinds(tree, extra=ratchets.KINDS_BUILDERS[1:]),
+                         {"player", "ability", "effect"})
+
+    def test_a_side_still_listed_once_built_errors(self):
+        src = SLOTS + '    ABILITY_SIDES_BUILT = ("self", "team")\n'
+        out = ratchets.kinds_findings(_repo({"reticle/slot_state.py": src}), {}, {"ability": "step 2"},
+                                      frozenset({"ability"}),
+                                      side_legacy={"ability:team": "step 3", "ability:enemy": "step 4"},
+                                      side_seed=frozenset({"ability:team", "ability:enemy"}))
+        self.assertIn((ERROR, "KINDS_SIDE_LEGACY names `ability:team`, which "
+                              "`slot_state.ABILITY_SIDES_BUILT` now builds -- remove it from the "
+                              "allowlist"), out)
+        self.assertEqual(sum(1 for lv, m in out if lv == WARN and "`enemy`" in m), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

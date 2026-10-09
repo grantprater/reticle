@@ -38,6 +38,7 @@ from pathlib import Path
 
 from . import geometry
 from .audio_source import video_state
+from .roi_cache import pixel_source
 from .checks import KNOWN_KD, player_events
 from .store import DEFAULT_STORE, Store
 from .version import (HUD_VERSION, MINIMAP_VERSION, PING_VERSION, ROSTER_VERSION,
@@ -176,6 +177,9 @@ def collect(store: Store) -> dict:
             "labels": dict(label_rows.get(sid, {})),
             # The capture on disk, or retired with its audio kept (`audio_source`).
             "video": video_state(man),
+            # What a reread can read: the capture, a crop cache, or no pixels
+            # where both are retired (`roi_cache.pixel_source`).
+            "pixels": pixel_source(root, man),
         }
         # Rounds are cheap and recomputed rather than trusted: the parquet may
         # predate a change to rounds.py, and a stale table is exactly what this
@@ -380,6 +384,16 @@ def render(data: dict, markdown: bool = False) -> str:
         got = [s["sid"] for s in ss if s.get("video") == state]
         if got:
             L.append(f"{text}: {', '.join(got)}")
+        if state == "retired":
+            # Beside the retired video: the sessions no reread can read.
+            dark: dict[str, list[str]] = collections.defaultdict(list)
+            for s in ss:
+                px = s.get("pixels") or {}
+                if s.get("video") == state and px.get("state") == "no_pixels":
+                    dark[px["why"]].append(s["sid"])
+            for why, sids in sorted(dark.items()):
+                L.append(f"  {why[0].upper()}{why[1:]}; stored rows only, no reread: "
+                         f"{', '.join(sids)}")
     for s in ss:
         if s.get("kd_reason") and s["kills"] is None:
             L.append(f"K/D unread for {s['sid']}: {s['kd_reason']}")

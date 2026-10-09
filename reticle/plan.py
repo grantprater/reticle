@@ -48,7 +48,18 @@ with the arbiter or with the stream it is written beside. The entity lanes
 (`entity_events`) are checked by `entity_events.lane_status`. A stream on
 disk that none of these declares is reported `undeclared`, and one written
 with no stamp at all `unstamped` (`UNSTAMPED`), and one no command writes any
-more by its retirement (`RETIRED_STREAMS`), so no stored stream is silent.
+more by its retirement (`RETIRED_STREAMS`), and an experiment arm a pass
+published under another name (`ARM_STREAMS`), so no stored stream is silent.
+
+Crop caches deleted on purpose
+------------------------------
+The player deleted every crop cache on 2026-10-09 (`roi_cache.cache_retirement`).
+`plan` proposes no `--from cache` step a stored cache cannot feed. On a
+session with its video, a stale step that reads a crop cache the store does
+not hold waits for its rebuild (`cache_rebuild`, `roi_cache.rebuild_command`),
+a decode the player starts, listed first. On a session whose video is retired
+and whose caches are gone (`roi_cache.pixel_source`, `no_pixels`), every step
+that reads pixels is named `no_pixels` and never proposed; stored rows rerun.
 """
 from __future__ import annotations
 
@@ -189,6 +200,24 @@ RETIRED_STREAMS = {
                       "(opened_by `dead_clove_smoke`) answer it; `reticle smokes` no longer "
                       "writes it; stored rows kept, never rewritten",
 }
+
+#: Experiment arms: a reader's rows a pass published under another stream
+#: name, kept apart from the production stream; `stale` lists them as
+#: `unchecked` with why, and proposes no rerun.
+ARM_STREAMS = {
+    # `scan --only ally_icon --ally-gate on --ally-stream ally_icon_gatedN`
+    # on cadaadeb2d8b, one per gate version, each beside its `_audit` rows;
+    # `prototypes/real_reader_schedule.py hook` scores them (`HOOK_REAL`).
+    re.compile(r"ally_icon_gated\d*(_audit)?"):
+        "experiment arm: a gated ally_icon pass published apart (`scan --ally-stream`), "
+        "scored by prototypes/real_reader_schedule.py hook; no consumer, never rerun",
+}
+
+
+def arm_reason(stream: str) -> str | None:
+    """Why `stream` is an experiment arm (`ARM_STREAMS`), or None."""
+    return next((why for pat, why in ARM_STREAMS.items() if pat.fullmatch(stream)), None)
+
 
 #: Hand-checked streams whose command rereads the ROI crop cache.
 _CACHE_READERS = {"scoreboard_strip": "cache", "self_icon": "cache"}
@@ -1791,19 +1820,25 @@ def stale(store, sessions: list[str], never_run: bool = True) -> dict:
                     | {s["stream"] for s in derived_streams()} | _lane_streams()
                     | {s["written_with"] for s in derived_streams() if s.get("written_with")
                        and _coverage_head(store, sid, s["written_with"]) is not None})
-        unchecked = [{"stream": s, "why": RETIRED_STREAMS.get(s) or UNSTAMPED.get(
-                          s, "undeclared: no check in plan")}
+        unchecked = [{"stream": s, "why": RETIRED_STREAMS.get(s) or arm_reason(s)
+                      or UNSTAMPED.get(s, "undeclared: no check in plan")}
                      for s in stored_streams(store, sid) if s not in declared]
         caches = cache_work(store, man)
+        from .roi_cache import pixel_source
+        pixels = pixel_source(store.root, man)
+        rebuild = cache_rebuild(store, man, decode, derived) if pixels["state"] == "video" else []
+        unbuilt = (retired_caches(store, man, {b["set"] for b in rebuild})
+                   if pixels["state"] == "video" else [])
         decode, derived, widget, caches, retired = source_retired(
             sid, man, decode, derived, widget, caches,
-            feeds=lambda ch, m=man: _channel_cache(store, m, ch))
+            feeds=lambda ch, m=man: _channel_cache(store, m, ch), pixels=pixels)
         out[sid] = {"decode": decode, "derived": derived, "absent": absent, "waived": waived,
                     "declined": declined,
                     "unchecked": unchecked, "held": lanes["held"], "unrecorded": unrecorded,
                     "not_applicable": not_applicable,
                     "widget": widget, "placement": placed, "caches": caches,
-                    "source_retired": retired}
+                    "source_retired": retired, "rebuild": rebuild, "pixels": pixels,
+                    "retired_caches": unbuilt}
     return out
 
 
@@ -1867,7 +1902,7 @@ def _channel_cache(store, manifest: dict, channel: str) -> tuple[str | None, str
 
 
 def source_retired(sid: str, manifest: dict, decode: list, derived: list, widget, caches: list,
-                   feeds=None):
+                   feeds=None, pixels: dict | None = None):
     """(decode, derived, widget, caches, retired): on a session whose video
     is retired and gone (`audio_source.video_state`), the crop caches are the
     evidence that stays, and a reread they feed stays proposed.
@@ -1879,10 +1914,31 @@ def source_retired(sid: str, manifest: dict, decode: list, derived: list, widget
     not fit it. The `audio` channel stays too, since `ult-lines` reads the
     retained audio. Every other step that opens the capture -- a reader no
     cache feeds, a derived decode, a crop cache to write -- moves to
-    `retired`, reason `source_retired`, with why, and is never proposed."""
+    `retired`, reason `source_retired`, with why, and is never proposed.
+
+    Where `pixels` (`roi_cache.pixel_source`) says `no_pixels` -- the video
+    retired and no crop cache stored -- every step that reads pixels, a
+    cache-fed reread or derived step included, moves to `retired` with
+    reason `no_pixels` and its why; only the audio and storage steps stay."""
     from .audio_source import video_state
     if video_state(manifest) != "retired":
         return decode, derived, widget, caches, []
+    if pixels is not None and pixels["state"] == "no_pixels":
+        why = pixels["why"]
+        gone = [{"stream": s["stream"], "command": f"reticle scan {sid} --only {s['channel']}",
+                 "reason": "no_pixels", "why": why}
+                for s in decode if s["channel"] not in ACCEPT]
+        gone += [{"stream": d["stream"], "command": d["command"], "reason": "no_pixels",
+                  "why": why} for d in derived if d.get("how") in ("decode", "cache")]
+        if widget and "cache" in widget:
+            gone.append({"stream": "roi_cache:minimap", "command": widget["cache"]["command"],
+                         "reason": "no_pixels", "why": why})
+            widget = {k: v for k, v in widget.items() if k != "cache"} or None
+        gone += [{"stream": f"roi_cache:{c['set']}", "command": c["command"],
+                  "reason": "no_pixels", "why": why} for c in caches]
+        return ([s for s in decode if s["channel"] in ACCEPT],
+                [d for d in derived if d.get("how") not in ("decode", "cache")],
+                widget, [], gone)
     retired = []
     keep_decode = []
     memo: dict[str, tuple[str | None, str]] = {}
@@ -1914,6 +1970,88 @@ def source_retired(sid: str, manifest: dict, decode: list, derived: list, widget
                  "reason": "source_retired", "why": "writes crops from the capture"}
                 for c in caches]
     return keep_decode, keep_derived, widget, [], retired
+
+
+#: The crop cache sets each derived stream whose command reads the cache
+#: (`how` `cache`) loads, by the command's `RoiCache.load` calls; the ability
+#: pass's streams (`ability_streams`) read the minimap set.
+CACHE_STREAM_SETS = {
+    "menu_open": ("hud", "minimap"), "spike": ("minimap", "hud"),
+    "round_outcome": ("scoreboard",), "plant_graphic": ("hud",),
+    "scoreboard_strip": ("hud",), "self_icon": ("minimap",), "team_vision": ("minimap",),
+    "tray_kit": ("minimap",), "tray_kit_identity": ("minimap",),
+    "tray_countdown": ("minimap",), "minimap_object": ("minimap",),
+    "killfeed_assist": ("hud",), "assist": ("hud",),
+}
+
+
+def cache_stream_sets(stream: str) -> tuple[str, ...]:
+    """The crop cache sets a cache-reading derived stream's command loads."""
+    if stream in CACHE_STREAM_SETS:
+        return CACHE_STREAM_SETS[stream]
+    if stream in {s for s, _, _ in ability_streams()}:
+        return ("minimap",)
+    raise KeyError(f"{stream}: no crop cache set declared in plan.CACHE_STREAM_SETS")
+
+
+def cache_rebuild(store, manifest: dict, decode: list, derived: list) -> list[dict]:
+    """The crop cache sets a session with its video must rebuild before its
+    stale cache-fed work: each set a trial-checked reader channel
+    (`roi_cache.SCAN_CHANNEL_SETS`; `trial --from cache` reads only the
+    cache, while `scan` decodes where none is stored) or a cache-reading derived step
+    (`CACHE_STREAM_SETS`) reads and the store does not hold. Each work entry
+    that waits gains `rebuild`; each set comes back with the decode that
+    writes it (`roi_cache.rebuild_command`), the reason it is absent
+    (`no_cache`, or `cache_retired` where a retirement row names the
+    session), and the streams it feeds."""
+    from .roi_cache import (CACHE_RETIRED, CACHE_SETS, SCAN_CHANNEL_SETS, cache_retirement,
+                            holding_sets, rebuild_command, stored_sets)
+    sid = manifest["session_id"]
+    held = set(stored_sets(store.root, sid))
+    need: dict[str, set[str]] = defaultdict(set)
+    for s in decode:
+        sets = SCAN_CHANNEL_SETS.get(s["channel"])
+        if sets is None or not s.get("trial"):
+            continue
+        names = holding_sets(set().union(*(CACHE_SETS[x] for x in sets)))
+        if names and not held & set(names):
+            s["rebuild"] = names[0]
+            need[names[0]].add(s["stream"])
+    for d in derived:
+        if d.get("how") != "cache":
+            continue
+        lack = [n for n in cache_stream_sets(d["stream"]) if n not in held]
+        if lack:
+            d["rebuild"] = lack
+            for n in lack:
+                need[n].add(d["stream"])
+    why = CACHE_RETIRED if cache_retirement(store.root, sid) is not None else "no_cache"
+    return [{"set": n, "command": rebuild_command(sid, n), "reason": why, "feeds": sorted(v)}
+            for n, v in sorted(need.items())]
+
+
+#: The sets the ingest writes (`cli.cmd_ingest_passes`), in the order a
+#: rebuild runs them: the killfeed panel strip pairs with the `hud` set, and
+#: the scoreboard set is written only at `scoreboard_strip.MEASURED_WH`.
+INGEST_SETS = ("hud", "minimap", "killfeed_panel", "scoreboard")
+
+
+def retired_caches(store, manifest: dict, listed=frozenset()) -> list[dict]:
+    """The crop cache sets a retirement row (`roi_cache.cache_retirement`)
+    names for a session with its video that the store does not hold and no
+    stale step reads now (`listed` is `cache_rebuild`'s): named with the
+    decode that rebuilds each, never proposed as work."""
+    from .roi_cache import cache_retirement, rebuild_command, stored_sets
+    from .scoreboard_strip import MEASURED_WH
+    sid = manifest["session_id"]
+    row = cache_retirement(store.root, sid)
+    if row is None:
+        return []
+    held = set(stored_sets(store.root, sid)) | set(listed)
+    wh = (int(manifest["source"]["width"]), int(manifest["source"]["height"]))
+    return [{"set": n, "command": rebuild_command(sid, n), "at": str(row["at"])[:10]}
+            for n in INGEST_SETS if n in (row.get("rois") or ()) and n not in held
+            and (n != "scoreboard" or wh == MEASURED_WH)]
 
 
 #: Crop cache sets a session should hold, each where the stored inputs it is
@@ -2209,6 +2347,19 @@ def render(plan: dict) -> str:
                     f"gated on stored {c['witness']} rows; the player starts this decode)")].append(sid)
     lines += [f"decode   {text} for {' '.join(sids)}"
               for (_s, _r, text), sids in sorted(caches.items())]
+    # Crop cache sets a session with its video must rebuild before the
+    # cache-fed work below (`cache_rebuild`): a decode the player starts.
+    rebuild: dict[tuple[str, str], list[str]] = defaultdict(list)
+    feeds: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for sid, p in plan.items():
+        for b in p.get("rebuild") or ():
+            command = re.sub(rf"(?<![\w-]){re.escape(sid)}(?![\w-])", "<sid>", b["command"])
+            rebuild[(command, b["reason"])].append(sid)
+            feeds[(command, b["reason"])] |= set(b["feeds"])
+    lines += [f"decode   {command}   (rebuild first: the crop cache is absent, {reason}; "
+              f"{', '.join(sorted(feeds[(command, reason)]))} read it; the player starts "
+              f"this decode) for {' '.join(sids)}"
+              for (command, reason), sids in sorted(rebuild.items())]
     # Steps that need a video the player retired (`source_retired`): named,
     # never proposed.
     gone: dict[tuple[str, str, str], list[str]] = defaultdict(list)
@@ -2216,9 +2367,30 @@ def render(plan: dict) -> str:
         for r in p.get("source_retired") or ():
             command = re.sub(rf"(?<![\w-]){re.escape(sid)}(?![\w-])", "<sid>", r["command"])
             gone[(command, r["stream"], r.get("why", ""))].append(sid)
+    dark: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+    for (command, stream, why), sids in gone.items():
+        if why.startswith("no pixels"):
+            dark[(command, why, " ".join(sids))].append(stream)
     waived_lines += [f"retired  {command}   ({stream}: source_retired, the video was retired "
                      f"and its audio kept; {why}; not proposed) for {' '.join(sids)}"
-                     for (command, stream, why), sids in sorted(gone.items())]
+                     for (command, stream, why), sids in sorted(gone.items())
+                     if not why.startswith("no pixels")]
+    # Retired crop caches no stale step reads now (`retired_caches`): named
+    # with their rebuild, a decode, for when cache-fed work returns.
+    absent: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for sid, p in plan.items():
+        for c in p.get("retired_caches") or ():
+            command = re.sub(rf"(?<![\w-]){re.escape(sid)}(?![\w-])", "<sid>", c["command"])
+            absent[(command, c["at"])].append(sid)
+    waived_lines += [f"absent   {command}   (crop cache retired {at}; no stale step reads it "
+                     f"now; rebuild it before cache-fed work, a decode the player starts) "
+                     f"for {' '.join(sids)}"
+                     for (command, at), sids in sorted(absent.items())]
+    # No pixels (`roi_cache.pixel_source`): neither the video nor a crop
+    # cache is stored, so no reread of these streams can ever run.
+    waived_lines += [f"retired  {command}   ({', '.join(sorted(streams))}: {why}; never "
+                     f"proposed) for {sids}"
+                     for (command, why, sids), streams in sorted(dark.items())]
     if not by_channel and not derived:
         return "\n".join(lines + [f"nothing stale over {len(plan)} sessions"] + waived_lines)
     for ch, sids in sorted(by_channel.items()):
@@ -2234,10 +2406,14 @@ def render(plan: dict) -> str:
                else f"stale or {NEVER_RUN} ({NEVER_RUN} on {' '.join(never)})")
         lines.append(f"{'reread' if cached or (fed and len(fed) == len(sids)) else 'decode'}   "
                      f"{ch}: {', '.join(streams)} {how} on {len(sids)} sessions")
+        waits = [sid for sid in sids if any(s.get("rebuild") for s in plan[sid]["decode"]
+                                            if s["channel"] == ch)]
         for (tch, t), tsids in sorted(trials.items()):
             if tch == ch:
                 lines.append(f"  check  reticle trial {tsids[0]} --reader {t} --from cache"
-                             f"   (one session, stored windows, no decode)")
+                             f"   (one session, stored windows, no decode"
+                             + ("; after its crop cache rebuild above)" if tsids[0] in waits
+                                else ")"))
         # A retired session's reread reads the crop cache only (`source_retired`).
         only = [sid for sid in sids if any(s.get("from_cache") for s in plan[sid]["decode"]
                                            if s["channel"] == ch)]
@@ -2252,7 +2428,9 @@ def render(plan: dict) -> str:
         accept = ACCEPT.get(ch, f"reticle scan <sid> --only {ch}")
         if rest:
             lines.append(f"  accept {accept}   for {' '.join(rest)}"
-                         + ("   (from the ROI crop cache where one exists)" if cached else ""))
+                         + (("   (from the rebuilt crop cache)" if all(x in waits for x in rest)
+                             else "   (from the ROI crop cache where one exists)")
+                            if cached else ""))
         if only:
             lines.append(f"  accept reticle scan <sid> --only {ch} --from cache   (video "
                          f"retired: the crop cache feeds it, no decode) for {' '.join(only)}")

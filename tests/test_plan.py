@@ -101,7 +101,10 @@ class PlanTests(unittest.TestCase):
                                          "declined": [],
                                          "unchecked": [], "held": [], "unrecorded": [],
                                          "not_applicable": [], "widget": None, "placement": {}, "caches": [],
-                                         "source_retired": []})
+                                         "source_retired": [], "rebuild": [],
+                                         "retired_caches": [],
+                                         "pixels": {"state": "missing", "why": "the video is "
+                                                    "gone and no retirement is recorded"}})
             self.assertEqual(render(plan), "nothing stale over 1 sessions")
 
     def test_a_per_side_session_without_a_placement_is_named(self):

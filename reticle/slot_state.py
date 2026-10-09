@@ -22,8 +22,9 @@ geometry's labels. It decodes nothing and reads no crop.
 Entities
 --------
 State is held per entity row, keyed `(kind, id)` (`EntityRow`). Today one
-kind exists, `player`: the five ally slots, keyed
-`<session>:ally:slot:<k>` as the lineup keys them. The belief law
+kind exists, `player`, on both sides: the five ally slots, keyed
+`<session>:ally:slot:<k>`, then the five enemy slots, keyed
+`<session>:enemy:slot:<k>`, as the lineup keys them. The belief law
 (`beliefs`, `contains`, `region_area`), the round reset (`seg_start`) and
 the storage record work over any (entity, frame) arrays and assume no kind.
 A second kind joins by three extension points, never by a second module:
@@ -112,6 +113,42 @@ Reach is still a Euclidean disc: the walk reach the gate needs (BACKLOG item
 3) waits for a walk graph baked with the geometry, since `reticle/` may not
 read the prototypes' sightline tables.
 
+Enemy slots
+-----------
+Five per round on the enemy side (`enemy_rows`), each named by the
+`agent-identity` arbiter's lineup verdict on its key, never here. The enemy
+lane keeps its readers and its adjudication: `minimap_objects` stores the
+enemy finds, `round_lifetimes` joins them into tracks and decides which are
+real (`detection_reality`), and `adjudication.identity` names each track.
+`bind_enemy_tracks` reads the stored `enemy_track` rows and binds a track's
+observations to the slot whose verdict names the same agent as the track's
+verdict (`agent_names.agent_key`); an unnamed track, a refused track and a
+name outside the enemy five bind nothing and are counted by reason. Every
+bound fit is witnessed: the arbiter named its track. The track's verdict is
+pooled over the whole track, so it is a post-round witness, as the
+`post_round` binding's named entities are. The lifecycle is
+`player_lifecycle` over the death owner's enemy verdicts; the law is
+`beliefs`, run per side so a crowd's host is an icon of the same side. A slot
+never fixed this round is `unanchored`; one seen, then unseen, holds `reach`
+from its last fix; a dead one is `closed` at the death owner's verdict.
+Reach stays the Euclidean disc, as for allies.
+`prototypes/coaching_belief.py`'s reachable set cannot replace it without a
+bake: it floods the walk graph of the prototypes' 3D sightline table
+(`sightlines_3d`), which `reticle/` may not read, so the port waits for the
+walk-graph bake.
+
+Scored on the six replay sessions (`question_acceptance.py slots`), a living
+enemy lies inside his slot's region on
+[metric:question_acceptance/slots/enemy@all6#calibration=0.9881] of drawn
+frames in live play, and inside a fit's disc on
+[metric:question_acceptance/slots/enemy@all6#kind_fit=0.9434] of the frames
+his slot holds a fit; that is
+[metric:question_acceptance/slots/enemy@all6#lane_coverage=0.0412] of them.
+The slot is `unanchored` on
+[metric:question_acceptance/slots/enemy@all6#unanchored=0.6018] of its open
+frames, so the high calibration is mostly the map: a calibrated belief, not
+a sharp one.
+
 World metres come from valorant-api's map constants and the geometry's
 `shade_fit` (`replay_source.map_frame_for_geometry`; no replay is read).
 
@@ -156,7 +193,14 @@ from .store import DEFAULT_STORE, Store
 
 #: slot-state-0.1.0 (2026-10-09): entity-state-0.3.0 and entity-binding-0.1.1
 #: promoted; agent spellings compare through `agent_names.agent_key`.
-SLOT_STATE_VERSION = "slot-state-0.1.0"
+#: 0.2.0 (2026-10-09): the five enemy slots join the entity axis after the
+#: ally five, fed by the stored `enemy_track` rows; ally rows are unchanged.
+#: 0.3.0 (2026-10-09): the module builds the player's ability children and
+#: effects (`build_abilities`, stamped `ABILITY_CHILD_VERSION` and
+#: `ABILITY_EFFECT_VERSION`); the slot rows are unchanged.
+SLOT_STATE_VERSION = "slot-state-0.3.0"
+#: The enemy binding's own stamp.
+ENEMY_BINDING_VERSION = "enemy-binding-0.1.0"
 #: The binding law's own stamp (unchanged from the prototype).
 ENTITY_BINDING_VERSION = "entity-binding-0.1.1"
 #: The prototype versions this module reproduces.
@@ -203,9 +247,13 @@ SPECTATE_RESTS_ON = ("tray_kit spectating witness (kit_agents_at lookahead 0 ms;
 
 # --- ability children and effects: the declaration (docs/ABILITY_ENTITIES.md step 1)
 
-#: Entity kinds the child owner will hold beside `player` (section 2.2).
+#: Entity kinds the child owner holds beside `player` (section 2.2).
 KIND_ABILITY = "ability"
 KIND_EFFECT = "effect"
+#: The sides whose ability children and effects `build_abilities` builds:
+#: the player's own since step 2; step 3 adds `team`, step 4 `enemy`
+#: (`ratchets.KINDS_SIDE_LEGACY` holds the rest until then).
+ABILITY_SIDES_BUILT = ("self",)
 #: The ownership entries this module answers for ability entities.
 ABILITY_ENTRIES = ("ability-child", "ability-effect", "ability-owner")
 
@@ -1000,7 +1048,8 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
         life = B.lifecycle(c["slot"])
         od = c["owner_death"]
         children.append({
-            **common, "kind": "child", "child_id": c["id"], "round": c["round"],
+            **common, "kind": "child", "entity_kind": KIND_ABILITY, "child_id": c["id"],
+            "round": c["round"],
             "slot": c["slot"], "ability": c["ability"], "subject": life["subject"],
             "agent": agent, "agent_ref": self_ref, "depends_on": [self_ref],
             "parent": self_key, "side": "ally", "opened_by": c["opened_by"],
@@ -1024,7 +1073,8 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
         rno = e["source"]["round"]
         seen[rno] += 1
         eff_rows.append({"session_id": sid, "ability_effect_version": ABILITY_EFFECT_VERSION,
-                         "kind": "effect", "effect_id": f"{sid}:effect:R{rno}:{seen[rno]}",
+                         "kind": "effect", "entity_kind": KIND_EFFECT,
+                         "effect_id": f"{sid}:effect:R{rno}:{seen[rno]}",
                          "round": rno, "effect": e["effect"], "source": e["source"]["id"],
                          "slot": e["slot"], "ability": e["source"]["ability"],
                          "subject": B.lifecycle(e["slot"])["subject"],
@@ -1041,7 +1091,8 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
             rno = c["round"]
             seen[rno] += 1
             eff_rows.append({"session_id": sid, "ability_effect_version": ABILITY_EFFECT_VERSION,
-                             "kind": "effect", "effect_id": f"{sid}:effect:R{rno}:{seen[rno]}",
+                             "kind": "effect", "entity_kind": KIND_EFFECT,
+                             "effect_id": f"{sid}:effect:R{rno}:{seen[rno]}",
                              "round": rno, "effect": name, "source": c["child_id"], "slot": c["slot"],
                              "ability": c["ability"], "subject": c["subject"],
                              "t_ms": c["open"]["hi_ms"],
@@ -1054,7 +1105,7 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
                                            "version": "domain", "t_ms": None}]})
     head = {**common, "kind": "coverage", "ability_channels_version": ABILITY_CHANNELS_VERSION,
             "agent": agent, "player_slot": self_key, "agent_ref": self_ref,
-            "kit": kit, "children": len(children), "candidates": len(candidates),
+            "sides": list(ABILITY_SIDES_BUILT), "kit": kit, "children": len(children), "candidates": len(candidates),
             "by_opener": dict(Counter(c["opened_by"] for c in children)),
             "by_end": dict(Counter(c["end"]["basis"] for c in children)),
             "over_bound": sum(c["over_bound"] for c in children),
@@ -1475,9 +1526,14 @@ def lineup_slots(sid: str, store_root: Path = DEFAULT_STORE) -> dict:
         v = ver.get(f"{sid}:ally:slot:{k}") or {}
         slots.append({"key": f"{sid}:ally:slot:{k}", "agent": v.get("agent"),
                       "status": v.get("status"), "reason": v.get("reason")})
+    enemy = []
+    for k in range(5):
+        v = ver.get(f"{sid}:enemy:slot:{k}") or {}
+        enemy.append({"key": f"{sid}:enemy:slot:{k}", "agent": v.get("agent"),
+                      "status": v.get("status"), "reason": v.get("reason")})
     pl = L.get("player") or {}
     return {"slots": slots, "player_slot": pl.get("slot"), "player_agent": pl.get("agent"),
-            "lineup_version": L.get("version")}
+            "lineup_version": L.get("version"), "enemy_slots": enemy}
 
 
 def player_rows(slots: list[dict]) -> list[EntityRow]:
@@ -1502,9 +1558,9 @@ def round_segments(t: np.ndarray, rounds: list[dict]) -> dict:
             "seg_start_idx": seg_start_idx}
 
 
-def player_lifecycle(S: StoredRows, slots: list[dict]) -> dict:
-    """(5, F) open mask of the player slots from rounds and the death owner's
-    verdicts, plus the events that set it."""
+def player_lifecycle(S: StoredRows, slots: list[dict], side: str = "ally") -> dict:
+    """(5, F) open mask of one side's player slots from rounds and the death
+    owner's verdicts on that side's victims, plus the events that set it."""
     t = S.fr_t
     F = t.size
     R = round_segments(t, S.rounds)
@@ -1515,7 +1571,7 @@ def player_lifecycle(S: StoredRows, slots: list[dict]) -> dict:
     by_agent = _slot_of_agent(slots)
     ev = Counter()
     events = []
-    for d in sorted((d for d in S.deaths if d.get("side") == "ally"), key=lambda d: d["t_ms"]):
+    for d in sorted((d for d in S.deaths if d.get("side") == side), key=lambda d: d["t_ms"]):
         if d.get("is_second_life"):
             ev["second_life"] += 1
             continue
@@ -1967,6 +2023,169 @@ def causal_bind(t_ms: np.ndarray, fits: dict, open_: np.ndarray, seg_start: np.n
             "loop_cpu_s": loop_s}
 
 
+# ----------------------------------------------------------------- enemy slots
+
+#: Why an `enemy_track` observation binds no enemy slot, in report order.
+#: `bound` binds; the rest name the stored fact that stops it.
+ENEMY_FIT_REASONS = ("bound", "no_track", "track_refused", "track_unnamed", "agent_not_in_lineup",
+                     "off_frame_axis", "slot_closed", "duplicate")
+ENEMY_RESTS_ON = ("enemy_track observations (minimap_object enemy finds the round_lifetimes "
+                  "lane joined into tracks)",
+                  "enemy_track entity verdicts: identity status and agent from "
+                  "adjudication.identity, pooled over each track (post-round per track)",
+                  "round_lifetimes.detection_reality on each track (a refused track binds nothing)",
+                  "lineup agent_identity on the enemy slots", "enemy death_verdict rows")
+
+
+def enemy_rows(slots: list[dict]) -> list[EntityRow]:
+    """The entity rows of the enemy player slots."""
+    return [EntityRow(KIND_PLAYER, s["key"], "enemy", None, k) for k, s in enumerate(slots)]
+
+
+def stored_enemy_tracks(sid: str, store_root: Path = DEFAULT_STORE) -> dict | None:
+    """The stored `enemy_track` rows as arrays: each track's arbiter verdict
+    and reality status, and every observation's time, place (widget px)
+    and track; None where the stream is not stored. Reads no pixel."""
+    path = Path(store_root) / "events" / "enemy_track" / f"{sid}.jsonl"
+    if not path.is_file():
+        return None
+    head, ents = {}, {}
+    ob = {"t": [], "x": [], "y": [], "e": []}
+    for r in _jsonl(path):
+        k = r.get("kind")
+        if k == "summary":
+            head = r
+        elif k == "entity":
+            ents[r["id"]] = {"agent": r.get("agent"), "identity_status": r.get("identity_status"),
+                             "reality_status": r.get("reality_status"),
+                             "observations": int(r.get("observations") or 0)}
+        elif k == "observation":
+            ob["t"].append(float(r["t_ms"]))
+            ob["x"].append(float(r["x"]))
+            ob["y"].append(float(r["y"]))
+            ob["e"].append(r.get("entity_id"))
+    ids = sorted(ents)
+    code = {e: i for i, e in enumerate(ids)}
+    return {"ids": ids, "ents": [ents[e] for e in ids],
+            "t": np.asarray(ob["t"], float), "x": np.asarray(ob["x"], float),
+            "y": np.asarray(ob["y"], float),
+            "e": np.asarray([code.get(e, -1) if e else -1 for e in ob["e"]], np.int64),
+            "stamp": {k: head.get(k) for k in ("enemy_track_version", "minimap_object_version",
+                                               "agent_identity_version", "lineup_version",
+                                               "detection_reality_version")}}
+
+
+def bind_enemy_tracks(fr_t: np.ndarray, T: dict, slots: list[dict], open_: np.ndarray,
+                      to_m) -> dict:
+    """Bind the stored enemy observations to the enemy slots.
+
+    A track binds to the slot whose lineup verdict names the agent its own
+    verdict names; both verdicts are the `agent-identity` arbiter's, so no
+    name is chosen here. Only a `resolved` track binds; a track
+    `detection_reality` refused binds nothing. An observation binds to the
+    slot model's nearest frame within half a frame step (the `minimap_object`
+    and `ally_icon` grids may sample other frames of one 15 Hz period) where
+    the slot is open; two observations on one slot-frame keep the longer
+    track's. Returns (5, F)
+    `X`, `Y` (metres), `has`, `wit` (every bound fit: the arbiter named its
+    track), `obs` (the observation's row) and the counts by
+    `ENEMY_FIT_REASONS`."""
+    n, F = len(slots), fr_t.size
+    X = np.full((n, F), np.nan)
+    Y = np.full((n, F), np.nan)
+    has = np.zeros((n, F), bool)
+    obs = np.full((n, F), -1, np.int64)
+    by_agent = _slot_of_agent(slots)
+    ents = T["ents"]
+    # each track's slot, or the reason it has none (codes index ENEMY_FIT_REASONS)
+    R = {r: i for i, r in enumerate(ENEMY_FIT_REASONS)}
+    e_slot = np.full(len(ents), -1, np.int64)
+    e_why = np.full(len(ents), R["bound"], np.int64)
+    for i, e in enumerate(ents):                      # one entry per track, not per frame
+        if e["reality_status"] == "refused":
+            e_why[i] = R["track_refused"]
+        elif e["identity_status"] != "resolved" or not e["agent"]:
+            e_why[i] = R["track_unnamed"]
+        elif agent_key(e["agent"]) not in by_agent:
+            e_why[i] = R["agent_not_in_lineup"]
+        else:
+            e_slot[i] = by_agent[agent_key(e["agent"])]
+    # a last sentinel track stands for observations no track holds
+    e_slot = np.append(e_slot, -1)
+    e_why = np.append(e_why, R["no_track"])
+    e_n = np.asarray([e["observations"] for e in ents] + [0], np.int64)
+    oe = np.where(T["e"] >= 0, T["e"], len(ents))
+    why = e_why[oe]
+    k = e_slot[oe]
+    on = np.zeros(oe.size, bool)
+    pc = np.zeros(oe.size, np.int64)
+    if F:
+        i = np.searchsorted(fr_t, T["t"])
+        lo, hi = np.clip(i - 1, 0, F - 1), np.clip(i, 0, F - 1)
+        pc = np.where(np.abs(fr_t[lo] - T["t"]) <= np.abs(fr_t[hi] - T["t"]), lo, hi)
+        half = 0.5 * float(np.median(np.diff(fr_t))) if F > 1 else math.inf
+        on = np.abs(fr_t[pc] - T["t"]) <= half
+    why = np.where((why == R["bound"]) & ~on, R["off_frame_axis"], why)
+    kc = np.clip(k, 0, None)
+    live = open_[kc, pc] if F else np.zeros(oe.size, bool)
+    why = np.where((why == R["bound"]) & ~live, R["slot_closed"], why)
+    cand = np.flatnonzero(why == R["bound"])
+    # one fit per slot-frame: the longest track's, then the first row
+    o = cand[np.lexsort((cand, -e_n[oe[cand]], pc[cand], k[cand]))]
+    first = np.ones(o.size, bool)
+    first[1:] = (k[o][1:] != k[o][:-1]) | (pc[o][1:] != pc[o][:-1])
+    why[o[~first]] = R["duplicate"]
+    keep = o[first]
+    if keep.size:
+        mx, my = to_m(T["x"][keep], T["y"][keep])
+        X[k[keep], pc[keep]] = mx
+        Y[k[keep], pc[keep]] = my
+        has[k[keep], pc[keep]] = True
+        obs[k[keep], pc[keep]] = keep
+    counts = {r: int((why == i).sum()) for r, i in R.items()}
+    counts["observations"] = int(oe.size)
+    counts["tracks"] = len(ents)
+    counts["tracks_bound"] = int((e_slot[:-1] >= 0).sum())
+    return {"X": X, "Y": Y, "has": has, "wit": has.copy(), "obs": obs, "why": why, "counts": counts}
+
+
+def enemy_block(S: StoredRows, L: dict, to_m) -> dict:
+    """The enemy slots' rows, lifecycle and bound fits, from stored rows.
+
+    Without stored `enemy_track` rows every enemy slot holds no fit, so its
+    belief is `unanchored` while open, and the reason says so."""
+    slots = L["enemy_slots"]
+    life = player_lifecycle(S, slots, side="enemy")
+    T = stored_enemy_tracks(S.sid, S.root)
+    F = S.fr_t.size
+    if T is None:
+        n = len(slots)
+        bind = {"X": np.full((n, F), np.nan), "Y": np.full((n, F), np.nan),
+                "has": np.zeros((n, F), bool), "wit": np.zeros((n, F), bool),
+                "obs": np.full((n, F), -1, np.int64), "counts": {"reason": "no_enemy_track"}}
+        stamp = {"enemy_track": None}
+    else:
+        bind = bind_enemy_tracks(S.fr_t, T, slots, life["open"], to_m)
+        stamp = T["stamp"]
+    return {"rows": enemy_rows(slots), "slots": slots, "life": life, "bind": bind,
+            "stamp": {"enemy_binding_version": ENEMY_BINDING_VERSION, **stamp}}
+
+
+def join_beliefs(Bs: list[dict]) -> dict:
+    """Join per-side `beliefs` outputs on the entity axis; a crowd host's
+    index moves with its block. The blocks share `r_fit` and the crowd core."""
+    out = {"rc": Bs[0]["rc"], "r_fit": Bs[0]["r_fit"]}
+    off = 0
+    hosts = []
+    for B in Bs:
+        hosts.append(np.where(B["host"] >= 0, B["host"] + off, -1))
+        off += B["kind"].shape[0]
+    for k in ("kind", "x", "y", "ax", "ay", "R", "dt_s", "hx", "hy", "lf", "lf_any"):
+        out[k] = np.concatenate([B[k] for B in Bs], axis=0)
+    out["host"] = np.concatenate(hosts, axis=0)
+    return out
+
+
 # ----------------------------------------------------------------- assembly
 
 def stack_entities(blocks: list[dict]) -> dict:
@@ -2035,11 +2254,17 @@ def build_slots(sid: str, binding: str = "causal", store_root: Path = DEFAULT_ST
                              to_m, v_max, r_fit)
         wit = np.isin(bind["how"], WITNESSED)
     t2 = time.process_time()
-    E = stack_entities([{"rows": player_rows(L["slots"]), "open": life["open"],
-                         "X": bind["X"], "Y": bind["Y"], "has": bind["has"], "wit": wit,
-                         "obs": bind["obs"]}])
-    B = beliefs(S.fr_t, E["X"], E["Y"], E["has"], E["open"], life["seg_start"],
-                r_fit=r_fit, r_icon=r_icon, v_max=v_max, wit=E["wit"])
+    ally = {"rows": player_rows(L["slots"]), "open": life["open"], "X": bind["X"], "Y": bind["Y"],
+            "has": bind["has"], "wit": wit, "obs": bind["obs"]}
+    en = enemy_block(S, L, to_m)
+    enemy = {"rows": en["rows"], "open": en["life"]["open"], **{k: en["bind"][k] for k in
+                                                                  ("X", "Y", "has", "wit", "obs")}}
+    t2e = time.process_time()
+    E = stack_entities([ally, enemy])
+    # the law runs once per side, so a crowd's host is an icon of the same side
+    B = join_beliefs([beliefs(S.fr_t, b["X"], b["Y"], b["has"], b["open"], life["seg_start"],
+                              r_fit=r_fit, r_icon=r_icon, v_max=v_max, wit=b["wit"])
+                      for b in (ally, enemy)])
     t3 = time.process_time()
     rec = storage_record(B, E["obs"])
     F = S.fr_t.size
@@ -2051,15 +2276,18 @@ def build_slots(sid: str, binding: str = "causal", store_root: Path = DEFAULT_ST
              "binding": binding, "inputs": S.input_stamps(),
              "rests_on": rests_on(binding, extra.get("spect")), "params": params,
              **({"portrait_references": extra["fits"]["references_version"],
-                 "spectate_witness": extra["spect"].get("version")} if binding == "causal" else {})}
+                 "spectate_witness": extra["spect"].get("version")} if binding == "causal" else {}),
+             "enemy": {**en["stamp"], "rests_on": list(ENEMY_RESTS_ON)}}
     return {"session": sid, "rows": E["rows"], "S": S, "L": L, "mf": mf, "to_m": to_m,
             "m_per_px": m_per_px, "t_ms": S.fr_t, "life": life,
             "windows": round_windows(S.fr_t, life["starts"]), "bind": bind, "B": B, "rec": rec,
+            "open": E["open"], "obs": E["obs"], "enemy": en,
             "binding": binding, **extra, "params": params, "stamp": stamp,
             "cost": {"frames": int(F), "load_cpu_s": round(load_s, 2),
                      "lifecycle_us_per_frame": round((t1 - t0) / F * 1e6, 2),
                      "bind_us_per_frame": round((t2 - t1) / F * 1e6, 2),
-                     "beliefs_us_per_frame": round((t3 - t2) / F * 1e6, 2),
+                     "enemy_us_per_frame": round((t2e - t2) / F * 1e6, 2),
+                     "beliefs_us_per_frame": round((t3 - t2e) / F * 1e6, 2),
                      "total_us_per_frame": round((t3 - t0) / F * 1e6, 2),
                      "record_bytes_per_frame": int(rec.dtype.itemsize * rec.shape[1])}}
 
@@ -2379,11 +2607,12 @@ def write_record(G: dict, store_root: Path = DEFAULT_STORE) -> Path:
     with its stamp, written beside and moved into place whole."""
     p = l2_path(G["session"], store_root)
     p.parent.mkdir(parents=True, exist_ok=True)
-    rec = frame_record(G["B"], G["bind"]["obs"], G["t_ms"])
+    rec = frame_record(G["B"], G["obs"], G["t_ms"])
     tmp = p.with_name(p.stem + ".tmp.npz")
     np.savez_compressed(tmp, rec=rec, t_ms=G["t_ms"].astype("f8"),
-                        frame_idx=G["S"].fr_f.astype("i4"), open=G["life"]["open"],
+                        frame_idx=G["S"].fr_f.astype("i4"), open=G["open"],
                         keys=np.asarray([f"{r.kind}|{r.id}" for r in G["rows"]]),
+                        sides=np.asarray([r.side for r in G["rows"]]),
                         stamp=np.asarray(json.dumps(G["stamp"], default=str)))
     tmp.replace(p)
     return p
@@ -2392,14 +2621,20 @@ def write_record(G: dict, store_root: Path = DEFAULT_STORE) -> Path:
 def slot_summary(G: dict) -> dict:
     """Counts a command prints: belief kinds over open entity-frames, the
     lifecycle and binding counts, and the cost."""
-    k = G["B"]["kind"]
-    op = k != CLOSED
-    return {"session": G["session"], "version": SLOT_STATE_VERSION, "binding": G["binding"],
-            "frames": int(k.shape[1]), "entities": len(G["rows"]),
-            "open_share": round(float(op.mean()), 4),
-            "kinds": {KINDS[int(v)]: int((k[op] == v).sum()) for v in np.unique(k[op])},
-            "lifecycle": G["life"]["counts"], "binding_counts": G["bind"]["counts"],
-            "cost": G["cost"]}
+    out = {"session": G["session"], "version": SLOT_STATE_VERSION, "binding": G["binding"],
+           "frames": int(G["B"]["kind"].shape[1]), "entities": len(G["rows"])}
+    side = np.asarray([r.side for r in G["rows"]])
+    for s in ("ally", "enemy"):
+        k = G["B"]["kind"][side == s]
+        op = k != CLOSED
+        out[s] = {"entities": int(k.shape[0]),
+                  "open_share": round(float(op.mean()), 4) if k.size else None,
+                  "kinds": {KINDS[int(v)]: int((k[op] == v).sum()) for v in np.unique(k[op])}}
+    out["ally"].update(lifecycle=G["life"]["counts"], binding_counts=G["bind"]["counts"])
+    out["enemy"].update(lifecycle=G["enemy"]["life"]["counts"],
+                        binding_counts=G["enemy"]["bind"]["counts"])
+    out["cost"] = G["cost"]
+    return out
 
 
 # ----------------------------------------------------------------- the self slot, per sampled instant

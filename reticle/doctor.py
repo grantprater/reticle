@@ -443,6 +443,15 @@ def check_ability() -> list[tuple[str, str]]:
     return ratchets.ability_findings(inputs)
 
 
+def check_kinds() -> list[tuple[str, str]]:
+    """KINDS: every entity kind `slot_state` declares, `build_slots` builds
+    (`ratchets.kinds_findings`); an unbuilt kind warns once, naming the plan
+    step in `ratchets.KINDS_LEGACY` that builds it."""
+    entries = ownership.load().get("_index", {})
+    return ratchets.kinds_findings(entity_kinds={i: e.get("entity_kind") for i, e in entries.items()
+                                                 if e.get("entity_kind")})
+
+
 def check_manifest(store: Path) -> list[tuple[str, str]]:
     """A manifest whose TAGS contradict the profile it was ingested with.
 
@@ -2066,7 +2075,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("MOVEMENT", check_movement), ("SCALE", check_scale),
               ("RESTATE", check_restate),
               ("CONVERT", check_convert), ("ROUNDSCOPE", check_roundscope),
-              ("ABILITY", check_ability),
+              ("ABILITY", check_ability), ("KINDS", check_kinds),
               ("LAYER", check_layer), ("CONSUMER", check_consumer),
               ("OWNERSHIP", check_ownership),
               ("QUOTED", lambda: check_quoted(store)),

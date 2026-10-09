@@ -26,6 +26,11 @@ ability stream, lane and ownership entry is a declared input of the child
 owner (`slot_state.CHANNELS`) or the child owner's own, else listed in the
 shrink-only `ABILITY_LEGACY` with the plan step that clears it.
 
+KINDS (`kinds_findings`): every entity kind the slot owner declares
+(`slot_state`'s `KIND_*` constants, or an entry its `CHANNELS` rows feed) is
+one `slot_state.build_slots` builds, else listed in the shrink-only
+`KINDS_LEGACY` with the plan step that builds it.
+
 The module reads source text and ledger rows only; it imports nothing from
 `reticle/` above the foundation, so a reader may import `Gate` from it.
 """
@@ -1865,6 +1870,200 @@ def ability_progress_line(p: dict) -> str:
     per = ", ".join(f"{s}: {n}" for s, n in p["steps"].items()) or "none"
     return (f"Ability entities (docs/ABILITY_ENTITIES.md): ABILITY {p['cleared']} cleared / "
             f"{p['legacy']} legacy fragments ({per}).")
+
+
+# ---------------------------------------------------------------------------
+# KINDS: every entity kind the slot owner declares, its builder builds
+# ---------------------------------------------------------------------------
+
+#: The slot owner, the function that builds its entity axis, and the one
+#: that builds its ability children and effects (docs/ABILITY_ENTITIES.md
+#: step 2). A builder's kinds are those of its `EntityRow(...)` calls and of
+#: its row literals' `"entity_kind": KIND_<X>`.
+KINDS_MODULE = "reticle/slot_state.py"
+KINDS_BUILDER = "build_slots"
+KINDS_BUILDERS = (KINDS_BUILDER, "build_abilities")
+#: The slot owner's constant naming the sides its ability builder builds.
+KINDS_SIDES_CONSTANT = "ABILITY_SIDES_BUILT"
+#: A module-level constant that declares an entity kind.
+KIND_CONSTANT = re.compile(r"^KIND_[A-Z0-9_]+$")
+
+#: Entity kinds `slot_state` declares and `build_slots` did not build when
+#: the check landed, 2026-10-09 (task enemy-slots-20261009, after the enemy
+#: player slots joined), each with the plan step that builds it. An entry
+#: goes when the builder builds its kind.
+#: Step 2 built `ability` and `effect` for the player's own side, so the
+#: list is empty; KINDS_SIDE_LEGACY keeps the check honest per side.
+KINDS_LEGACY: dict[str, str] = {}
+#: KINDS_LEGACY's keys. Frozen: the list only shrinks (seeded with `ability`
+#: and `effect`, both cleared by step 2 on 2026-10-09).
+KINDS_SEED: frozenset[str] = frozenset()
+#: `<kind>:<side>` pairs the ability builder does not build yet, each with
+#: the plan step that builds it. A kind counts as built once any side is, so
+#: this list holds the sides `ABILITY_SIDES_BUILT` leaves out; an entry
+#: goes when its side joins that constant.
+KINDS_SIDE_LEGACY: dict[str, str] = {
+    "ability:team": "docs/ABILITY_ENTITIES.md step 3 (the team's ability children)",
+    "ability:enemy": "docs/ABILITY_ENTITIES.md step 4 (the enemy's ability children)",
+    "effect:team": "docs/ABILITY_ENTITIES.md step 3 (the team's effects)",
+    "effect:enemy": "docs/ABILITY_ENTITIES.md step 4 (the enemy's effects)",
+}
+#: KINDS_SIDE_LEGACY's keys when seeded, 2026-10-09. Frozen: only shrinks.
+KINDS_SIDE_SEED: frozenset[str] = frozenset(KINDS_SIDE_LEGACY)
+
+
+def _kind_constants(tree: ast.Module) -> dict[str, str]:
+    """`{constant: kind}` for each module-level `KIND_<X> = "<kind>"`."""
+    out = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) \
+                and isinstance(node.value.value, str):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and KIND_CONSTANT.match(t.id):
+                    out[t.id] = node.value.value
+    return out
+
+
+def _channel_feeds(tree: ast.Module) -> set[str]:
+    """Every ownership entry a `CHANNELS` row `feeds`, read from the literal."""
+    out: set[str] = set()
+    for node in tree.body:
+        targets = [node.target] if isinstance(node, ast.AnnAssign) else \
+            node.targets if isinstance(node, ast.Assign) else []
+        if not any(isinstance(t, ast.Name) and t.id == "CHANNELS" for t in targets):
+            continue
+        for d in ast.walk(node.value):
+            if not isinstance(d, ast.Dict):
+                continue
+            for k, v in zip(d.keys, d.values):
+                if isinstance(k, ast.Constant) and k.value == "feeds":
+                    out |= {e.value for e in ast.walk(v)
+                            if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+    return out
+
+
+def declared_kinds(tree: ast.Module, entity_kinds: dict | None = None) -> dict[str, str]:
+    """`{kind: where it is declared}`: each `KIND_<X>` constant, and the
+    `entity_kind` of each ownership entry a `CHANNELS` row feeds
+    (`entity_kinds`: entry id -> kind)."""
+    out = {kind: name for name, kind in _kind_constants(tree).items()}
+    for entry in sorted(_channel_feeds(tree)):
+        kind = (entity_kinds or {}).get(entry)
+        if kind:
+            out.setdefault(kind, f"CHANNELS feeds `{entry}`")
+    return out
+
+
+def built_kinds(tree: ast.Module, builder: str = KINDS_BUILDER,
+                extra: tuple = ()) -> set[str] | None:
+    """The kinds of every `EntityRow(...)`, and of every row literal's
+    `"entity_kind": KIND_<X>`, built in `builder` (and each of `extra` the
+    module defines) or in a module-level function they reach by calls; None
+    without `builder`."""
+    funcs = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    if builder not in funcs:
+        return None
+    consts = _kind_constants(tree)
+    seen, todo, kinds = set(), [builder] + [b for b in extra if b in funcs], set()
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        for d in ast.walk(funcs[name]):
+            if isinstance(d, ast.Dict):
+                for k, v in zip(d.keys, d.values):
+                    if isinstance(k, ast.Constant) and k.value == "entity_kind" \
+                            and isinstance(v, ast.Name) and v.id in consts:
+                        kinds.add(consts[v.id])
+        for call in ast.walk(funcs[name]):
+            if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
+                continue
+            if call.func.id in funcs:
+                todo.append(call.func.id)
+            if call.func.id != "EntityRow":
+                continue
+            arg = call.args[0] if call.args else next(
+                (k.value for k in call.keywords if k.arg == "kind"), None)
+            if isinstance(arg, ast.Name) and arg.id in consts:
+                kinds.add(consts[arg.id])
+            elif isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                kinds.add(arg.value)
+    return kinds
+
+
+def _sides_built(tree: ast.Module) -> set[str]:
+    """The strings of the module's `ABILITY_SIDES_BUILT` tuple literal."""
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == KINDS_SIDES_CONSTANT
+                                                for t in node.targets):
+            return {e.value for e in ast.walk(node.value)
+                    if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+    return set()
+
+
+def kinds_findings(base: Path | None = None, entity_kinds: dict | None = None,
+                   legacy: dict | None = None,
+                   seed: frozenset | None = None, side_legacy: dict | None = None,
+                   side_seed: frozenset | None = None) -> list[tuple[str, str]]:
+    """KINDS: each entity kind `slot_state` declares (`KIND_*`, or an entry
+    `CHANNELS` feeds) is one `build_slots` builds.
+
+    An unbuilt kind is a WARN, once per kind, naming the plan step in
+    `KINDS_LEGACY` that builds it, else an ERROR. A listed kind the builder
+    now builds, or no longer declared, is an ERROR until its entry goes; a
+    listed kind outside the frozen `KINDS_SEED` is an ERROR. `entity_kinds`
+    maps ownership entry ids to their `entity_kind` (`doctor` reads
+    `ownership.toml`); the module is read as source, never imported.
+
+    Per side: a kind counts as built once any side is, so each
+    `<kind>:<side>` of `KINDS_SIDE_LEGACY` that `ABILITY_SIDES_BUILT` leaves
+    out is a WARN naming its step; one that constant now names, or one
+    outside the frozen `KINDS_SIDE_SEED`, is an ERROR."""
+    base = ROOT if base is None else Path(base)
+    legacy = KINDS_LEGACY if legacy is None else legacy
+    seed = KINDS_SEED if seed is None else seed
+    side_legacy = KINDS_SIDE_LEGACY if side_legacy is None else side_legacy
+    side_seed = KINDS_SIDE_SEED if side_seed is None else side_seed
+    path = base / KINDS_MODULE
+    tree = _parse_source(path) if path.is_file() else None
+    if tree is None:
+        return [(ERROR, f"`{KINDS_MODULE}` is missing or does not parse")]
+    built = built_kinds(tree, KINDS_BUILDER, KINDS_BUILDERS[1:])
+    if built is None:
+        return [(ERROR, f"`{KINDS_MODULE}` defines no `{KINDS_BUILDER}`")]
+    declared = declared_kinds(tree, entity_kinds)
+    out = []
+    for kind in sorted(set(declared) - built):
+        if kind in legacy:
+            out.append((WARN, f"entity kind `{kind}` ({declared[kind]}) is declared and "
+                              f"`slot_state.{KINDS_BUILDER}` does not build it; {legacy[kind]}"))
+        else:
+            out.append((ERROR, f"entity kind `{kind}` ({declared[kind]}) is declared and "
+                               f"`slot_state.{KINDS_BUILDER}` does not build it -- build it, or "
+                               "drop the declaration"))
+    for kind in sorted(set(legacy) & built):
+        out.append((ERROR, f"KINDS_LEGACY names `{kind}`, which `slot_state.{KINDS_BUILDER}` now "
+                           "builds -- remove it from the allowlist"))
+    for kind in sorted(set(legacy) - set(declared) - built):
+        out.append((ERROR, f"KINDS_LEGACY names `{kind}`, which `slot_state` no longer declares "
+                           "-- remove it from the allowlist"))
+    for kind in sorted(set(legacy) - set(seed)):
+        out.append((ERROR, f"KINDS_LEGACY names `{kind}`, outside the frozen KINDS_SEED -- "
+                           "the allowlist only shrinks"))
+    sides = _sides_built(tree)
+    for key in sorted(side_legacy):
+        kind, _, side = key.partition(":")
+        if side in sides:
+            out.append((ERROR, f"KINDS_SIDE_LEGACY names `{key}`, which `slot_state."
+                               f"{KINDS_SIDES_CONSTANT}` now builds -- remove it from the allowlist"))
+        elif key not in side_seed:
+            out.append((ERROR, f"KINDS_SIDE_LEGACY names `{key}`, outside the frozen "
+                               "KINDS_SIDE_SEED -- the allowlist only shrinks"))
+        else:
+            out.append((WARN, f"entity kind `{kind}` is built for {sorted(sides) or 'no side'} "
+                              f"and not for `{side}`; {side_legacy[key]}"))
+    return out
 
 
 # ---------------------------------------------------------------------------

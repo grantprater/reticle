@@ -99,6 +99,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle audit
 .\.venv\Scripts\python.exe -m reticle belief SESSION   # stored data only
 .\.venv\Scripts\python.exe -m reticle slot-state SESSION [--write] [--at MS]   # stored data only
+.\.venv\Scripts\python.exe prototypes\question_acceptance.py slots [SESSION ...] [--record]   # slot regions vs replay truth
 .\.venv\Scripts\python.exe -m reticle ability-coverage|-timeline|-entities|-gallery|-capture|-phases
 .\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # audio decode only
 .\.venv\Scripts\python.exe -m reticle retire SESSION [--commit]  # never deletes
