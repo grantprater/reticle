@@ -2247,8 +2247,7 @@ role = ["group"]
 status = "partial"
 entity_kind = "ability"
 feeds = ["ability-child"]
-produces = ["disc_tracks", "JUMP_REACH_BASE", "FIRST_SECOND_MS", "TRACK_ENDS", "load_cover_marks",
-            "covered_ends", "COVER_BASE_PX", "COVER_KINDS"]
+produces = ["disc_tracks", "JUMP_REACH_BASE", "FIRST_SECOND_MS", "TRACK_ENDS"]
 not_for = """
 Reading pixels: the follow's fixes and the verify that links them are the
 proposer's and the reader's (`ability-icon`, `ability-glyph`); a track adds no

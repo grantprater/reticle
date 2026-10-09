@@ -129,24 +129,6 @@ class DiscTracks(unittest.TestCase):
         tr = disc_tracks(SID, g["context"], g["frames"], verify)["tracks"]
         self.assertEqual([t["end"] for t in tr], ["verify_lost", "verify_held_unbound"])
 
-    def test_a_loss_under_a_stored_icon_or_ping_is_no_loss(self):
-        # Three discs lost at 1000 ms: one under a teammate's icon, one under
-        # a ping, one in the clear.
-        spec = (placed(0, 2, {}, i=0, xy=(50.0, 50.0)) + placed(0, 2, {}, i=1, xy=(150.0, 50.0))
-                + placed(0, 2, {}, i=2, xy=(250.0, 50.0)))
-        frames = [(0, ""), (500, ""), (1000, "")]
-        g = glyph(spec, frames)
-        verify = {"t_ms": np.full(3, 1000.0), "of": np.array([0, 1, 2]), "lost": np.ones(3, bool)}
-        covers = {"t_ms": np.array([700.0, 700.0]), "x": np.array([55.0, 250.0 + 40.0]),
-                  "y": np.array([52.0, 50.0]), "kind": np.array(["ally", "enemy"]),
-                  "p_t0": np.array([600.0]), "p_t1": np.array([np.inf]),
-                  "p_x": np.array([160.0]), "p_y": np.array([50.0])}
-        tr = disc_tracks(SID, g["context"], g["frames"], verify, covers)["tracks"]
-        self.assertEqual([t["end"] for t in tr], ["covered_by_ally", "covered_by_ping", "verify_lost"])
-        # no covers given: every loss stands
-        tr = disc_tracks(SID, g["context"], g["frames"], verify)["tracks"]
-        self.assertEqual([t["end"] for t in tr], ["verify_lost"] * 3)
-
     def test_a_gated_sample_never_splits_a_track(self):
         spec = placed(0, 4, {})
         spec[2] = (1000, 0, 500, "map_shown", {}, (50.0, 50.0))

@@ -468,8 +468,7 @@ ABILITY_LANES = {"ability": "children and effects (`ability-child`, `ability-eff
 #: with `drawing_lost_out_of_view` where it did not, and stores the unknown
 #: view's reason otherwise (`_drawing_lost`).
 #: 0.4.1 (2026-10-09): a moving drawing's place is carried along its last
-#: velocity through the loss (`MOVING_PX`, `team_vision.point_at`); a disc
-#: track ended `covered_by_<kind>` (ability-disc-track-0.2.0) is no loss.
+#: velocity through the loss (`MOVING_PX`, `team_vision.point_at`).
 ABILITY_CHILD_VERSION = "ability-child-0.4.1"
 #: ability-effect-0.1.0 (2026-10-09): the player's ability kills and assists,
 #: and any effect an ability's own `effects` fact names.

@@ -915,113 +915,12 @@ def predict_ability_births(tray_casts: list[dict],
 JUMP_REACH_BASE = 4.0
 #: The span over which a track's first-second speed is read (ms after its birth).
 FIRST_SECOND_MS = 1000.0
-#: Another entity's icon or a ping covers a disc where its centre lies within
-#: two icon radii of the disc's last fix (the proposer's largest radius,
-#: `ability_icons`, 9.5 base px), x scale. Chosen, not fitted; the
-#: false-loss diagnostic (`reticle acceptance false-loss`) used the same.
-COVER_BASE_PX = 19.0
-#: The kinds of cover the stored streams name (`load_cover_marks`).
-COVER_KINDS = ("self", "ally", "enemy", "ping")
-
-
-def load_cover_marks(store, sid: str) -> dict:
-    """Every stored mark that may cover a disc, as columns: point marks
-    `t_ms`, `x`, `y`, `kind` per frame -- the self icon and teammates the
-    team's stored vision posed (`team_vision` frame icons), the enemy icons
-    (`minimap_object`) -- and pings as intervals `p_t0`, `p_t1`, `p_x`,
-    `p_y` (`ping` state to deletion). A missing stream adds nothing and is
-    named in `missing`. Pure over stored rows; widget px."""
-    import numpy as np
-    import pyarrow as pa
-    import pyarrow.compute as pc
-    import pyarrow.json as pj
-
-    out = {"t_ms": [], "x": [], "y": [], "kind": [], "missing": []}
-    pt = pa.struct([("x", pa.float64()), ("y", pa.float64()), ("role", pa.string())])
-    for stream, field, role in (("team_vision", "icons", None), ("minimap_object", "enemies", "enemy")):
-        path = Path(store.events_path(stream, sid))
-        if not path.is_file():
-            out["missing"].append(stream)
-            continue
-        schema = pa.schema([("kind", pa.string()), ("t_ms", pa.float64()), (field, pa.list_(pt))])
-        # frame rows only: a head row may hold a count under the same name
-        import io
-        body = b"\n".join(ln for ln in path.read_bytes().splitlines()
-                          if b'"kind":"frame"' in ln or b'"kind": "frame"' in ln)
-        if not body:
-            out["missing"].append(stream)
-            continue
-        t = pj.read_json(io.BytesIO(body), read_options=pj.ReadOptions(use_threads=False, block_size=1 << 24),
-                         parse_options=pj.ParseOptions(explicit_schema=schema,
-                                                       unexpected_field_behavior="ignore"))
-        t = t.filter(pc.and_(pc.equal(t.column("kind"), "frame"), pc.is_valid(t.column(field))))
-        lst = t.column(field).combine_chunks()
-        offs = np.asarray(lst.offsets.to_numpy(), np.int64)
-        flat = lst.values
-        out["t_ms"].append(np.repeat(t.column("t_ms").to_numpy(zero_copy_only=False), np.diff(offs)))
-        out["x"].append(np.asarray(flat.field("x").to_numpy(zero_copy_only=False), float))
-        out["y"].append(np.asarray(flat.field("y").to_numpy(zero_copy_only=False), float))
-        kinds = (np.asarray(flat.field("role").to_pylist(), object) if role is None
-                 else np.full(len(flat), role, object))
-        out["kind"].append(kinds)
-    marks = {k: (np.concatenate(v) if v else np.zeros(0)) for k, v in out.items() if k != "missing"}
-    ok = np.isfinite(marks["x"].astype(float)) & np.isfinite(marks["y"].astype(float)) if len(marks["x"]) else \
-        np.zeros(0, bool)
-    o = np.argsort(marks["t_ms"][ok], kind="stable") if len(ok) else np.zeros(0, np.int64)
-    res = {k: np.asarray(v[ok][o]) for k, v in marks.items()}
-    res["kind"] = res["kind"].astype(str) if len(res["kind"]) else np.zeros(0, str)
-    # pings: each state opens an interval at its position, closed by its deletion
-    pings = store.read_events("ping", sid) if Path(store.events_path("ping", sid)).is_file() else []
-    if not pings:
-        out["missing"].append("ping")
-    live, iv = {}, []
-    for e in sorted((e for e in pings if e.get("event_kind") in ("entity_state", "entity_deleted")),
-                    key=lambda e: float(e["t_ms"])):
-        prev = live.pop(e["entity_id"], None)
-        if prev is not None:
-            iv.append((prev[0], float(e["t_ms"]), prev[1], prev[2]))
-        if e["event_kind"] == "entity_state" and e.get("position"):
-            live[e["entity_id"]] = (float(e["t_ms"]), float(e["position"][0]), float(e["position"][1]))
-    iv += [(v[0], np.inf, v[1], v[2]) for v in live.values()]
-    a = np.asarray(iv, float).reshape(-1, 4)
-    res.update(p_t0=a[:, 0], p_t1=a[:, 1], p_x=a[:, 2], p_y=a[:, 3], missing=out["missing"])
-    return res
-
-
-def covered_ends(lo, hi, x, y, scale, covers: dict) -> list:
-    """Per window (`lo` < t <= `hi`, at widget point `x`, `y`): the kind of
-    the nearest stored cover within COVER_BASE_PX x `scale`
-    (`load_cover_marks`), or None. Vectorised per window over the sorted
-    marks."""
-    import numpy as np
-    t = np.asarray(covers["t_ms"], float)
-    out = []
-    for a, b, px, py, s in zip(lo, hi, x, y, scale):
-        r = COVER_BASE_PX * float(s)
-        i0, i1 = np.searchsorted(t, [a, b], side="right")
-        best, kind = np.inf, None
-        if i1 > i0:
-            d = np.hypot(covers["x"][i0:i1] - px, covers["y"][i0:i1] - py)
-            k = int(np.argmin(d))
-            if d[k] < r:
-                best, kind = float(d[k]), str(covers["kind"][i0 + k])
-        if len(covers["p_t0"]):
-            on = (covers["p_t0"] <= b) & (covers["p_t1"] > a)
-            if on.any():
-                d = np.hypot(covers["p_x"][on] - px, covers["p_y"][on] - py)
-                if d.min() < min(r, best):
-                    kind = "ping"
-        out.append(kind)
-    return out
-
-
 #: Why a track ended, in the order `disc_tracks` decides it.
 TRACK_ENDS = ("stream_end", "frame_unread:<reason>", "verify_lost", "verify_held_unbound",
-              "no_verify_row", "covered_by_<kind>")
+              "no_verify_row")
 
 
-def disc_tracks(session_id: str, discs: dict, frames: dict, verify: dict | None,
-                covers: dict | None = None) -> dict:
+def disc_tracks(session_id: str, discs: dict, frames: dict, verify: dict | None) -> dict:
     """Join a session's stored minimap ability discs into tracks.
 
     Pure over stored rows, vectorised (`scipy.sparse.csgraph`):
@@ -1048,12 +947,6 @@ def disc_tracks(session_id: str, discs: dict, frames: dict, verify: dict | None,
     (the next sample is unread: not live, widget not drawn, the round over),
     `no_verify_row` or `stream_end`. A step past JUMP_REACH_BASE x scale is a
     stored surprise (`jump_past_reach`), never a split.
-
-    - `covers` (`load_cover_marks`): a verify loss while another entity's
-      stored icon or a ping lies within COVER_BASE_PX x scale of the last
-      fix, after it and by the losing sample, is no loss of the drawing:
-      the track ends `covered_by_<kind>` (`self`, `ally`, `enemy`, `ping`).
-      None reads no cover.
 
     Returns {"track": per disc row, its track's index; "tracks": one dict per
     track, in birth order}."""
@@ -1142,14 +1035,6 @@ def disc_tracks(session_id: str, discs: dict, frames: dict, verify: dict | None,
         kv = np.clip(np.searchsorted(vkey, want), 0, len(vkey) - 1)
         hit = (vkey[kv] == want) & (end == "no_verify_row")
         end[hit] = np.where(vlost[kv[hit]], "verify_lost", "verify_held_unbound")
-    if covers is not None and nf:
-        lost = np.flatnonzero(end == "verify_lost")
-        if lost.size:
-            lb = last[lost]
-            kinds = covered_ends(t[lb], ft[nxt[lost]], cx[lb], cy[lb], scale[lb], covers)
-            for c, k in zip(lost, kinds):
-                if k is not None:
-                    end[c] = f"covered_by_{k}"
 
     cut = starts[1:]
     f_t, f_i, f_x, f_y = (np.split(a[so], cut) for a in (t, ii, cx, cy))

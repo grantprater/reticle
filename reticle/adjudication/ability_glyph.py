@@ -573,19 +573,16 @@ def _is_player(key: str | None, player: str | None) -> bool:
 
 def adjudicate(session_id: str, glyph: dict, verify: dict | None, tables: VerdictTables,
                lineup: dict | None, kit_spans, player: str | None,
-               kit_reason: str | None = None, stamps: dict | None = None,
-               covers: dict | None = None) -> dict:
+               kit_reason: str | None = None, stamps: dict | None = None) -> dict:
     """The session's tracks, verdicts, claims and identity events, from the
     stored rows (`load_glyph_rows`, `load_icon_verify`), the tables, the
-    lineup (its slots), the stored tray kit spans and the player's agent;
-    `covers` (`ability.load_cover_marks`) tells a covered disc's loss from
-    its drawing's (`disc_tracks`)."""
+    lineup (its slots), the stored tray kit spans and the player's agent."""
     from .ability import disc_tracks
     from .ult_cast import lineup_sides
     t_start = time.perf_counter()
     head = glyph["head"]
     ctx = glyph["context"]
-    tr = disc_tracks(session_id, ctx, glyph["frames"], verify, covers)
+    tr = disc_tracks(session_id, ctx, glyph["frames"], verify)
     tracks, track_of = tr["tracks"], tr["track"]
     T = len(tracks)
     keys = tables.keys
@@ -918,16 +915,13 @@ def session_adjudication(store, sid: str) -> dict:
     tables = VerdictTables.load(store.root)
     glyph = load_glyph_rows(path, tables.keys)
     verify = load_icon_verify(store.events_path("ability_icon", sid))
-    from .ability import load_cover_marks
-    covers = load_cover_marks(store, sid)
     lineup = load_lineup(sid, store.root)
     player = player_agent(lineup, sid)
     kit = stored_kit_witness(store.read_events("tray_kit", sid), agent=player)
     res = adjudicate(sid, glyph, verify, tables, lineup,
                      kit["spans"] if kit["reason"] is None else None, player,
                      kit_reason=kit["reason"],
-                     stamps={"tray_kit": kit["version"]} if kit.get("version") else None,
-                     covers=covers)
+                     stamps={"tray_kit": kit["version"]} if kit.get("version") else None)
     return {"result": res, "hz": float(head["hz"]) if head.get("hz") else None}
 
 

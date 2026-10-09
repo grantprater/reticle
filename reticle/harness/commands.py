@@ -97,12 +97,12 @@ def add_parsers(sub) -> None:
                    help="a revision after the pre-registered run: every recorded row says so")
     p = sub.add_parser("in-view", help="the child owner's in-view estimate of each lost drawing "
                                        "against replay truth sight (a diagnostic)")
-    p.add_argument("sessions", nargs="*", default=list(NEW))
+    p.add_argument("sessions", nargs="*", default=list(DEV))
     p.add_argument("--tag", required=True)
     p.add_argument("--record", action="store_true")
     p = sub.add_parser("false-loss", help="glyph verify losses whose replay child lives on, by cause "
                                           "(a diagnostic of the instrument)")
-    p.add_argument("sessions", nargs="*", default=list(NEW))
+    p.add_argument("sessions", nargs="*", default=list(DEV))
     p.add_argument("--tag", required=True)
     p.add_argument("--record", action="store_true")
     p = sub.add_parser("budget-feats", help="the budget's features per miss and extra")
@@ -178,9 +178,9 @@ def dispatch(a, cmd: str) -> int:
         return run.run_ability_lane(a.sessions or list(run.ABILITY_SETS), a.tag, a.side, a.record,
                                     post_hoc=a.post_hoc)
     if cmd == "in-view":
-        return run.run_in_view(a.sessions or list(NEW), a.tag, a.record)
+        return run.run_in_view(a.sessions or list(DEV), a.tag, a.record)
     if cmd == "false-loss":
-        return run.run_false_loss(a.sessions or list(NEW), a.tag, a.record)
+        return run.run_false_loss(a.sessions or list(DEV), a.tag, a.record)
     if cmd == "budget":
         return run.run_budget(a.tag, a.sessions or list(DEV), a.record, a.rewrite)
     if cmd.startswith("budget-"):
