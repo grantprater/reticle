@@ -459,9 +459,9 @@ path = "docs/QUESTION_ACCEPTANCE.md"
 kind = "plan"
 status = "partial"
 since = "2026-10-06"
-implemented_by = ["owns:replay-truth-under", "cmd:acceptance"]
-remains = "B7's core joins and scores in reticle/acceptance.py, but its T1d truth grid and command are still prototypes; the other steps (slot state, the timeline's standing, masked truth, the gated readers) have not run."
-waits_for = "Promotion of the T1d truth grid (t1_draw_rule.RealDrawMatch) into reticle/."
+implemented_by = ["owns:replay-truth-under", "owns:enemy-draw-truth", "owns:read-schedule-loss", "cmd:acceptance"]
+remains = "B7's harness runs in process (reticle/acceptance.py, reticle/harness/), but QA1-QA3 are unmarked; the other steps (the timeline's standing, masked truth, the gated readers) have not run."
+waits_for = "The vision timeline (B5, B6) that QA1-QA3 score."
 
 [[document]]
 path = "docs/SIGHTLINES_3D_PROBE.md"
