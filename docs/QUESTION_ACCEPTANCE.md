@@ -2,7 +2,10 @@
 
 Status: plan, proposed 2026-10-06 and revised the same day with the
 player's answers (section 9) and the truth-side fidelity test of
-[COACHING_QUESTIONS.md](COACHING_QUESTIONS.md); nothing here is built. Rules live in
+[COACHING_QUESTIONS.md](COACHING_QUESTIONS.md). Built: B1
+(`reticle/slot_state.py`) and B7's harness, which runs every subcommand in
+process (`reticle acceptance`, 2026-10-09); QA1-QA3 are unmarked and the
+other steps have not run. Rules live in
 [AGENTS.md](../AGENTS.md); commands in [WORKING_MAP.md](WORKING_MAP.md). It
 rests on [ENTITY_STATE.md](ENTITY_STATE.md) (the slot model),
 [EPISODES.md](EPISODES.md) (the questions), [REPLAY_LAYER.md](REPLAY_LAYER.md)
@@ -548,8 +551,9 @@ The enemy lane's misses against T1 are mostly T1 errors, not reader misses
 stored icons' hit rate rises from
 [metric:t1_draw_rule/lane/T1@c817691bcd15#hit_rate=0.3021] under T1 to
 [metric:t1_draw_rule/lane/T1d@c817691bcd15#hit_rate=0.5626] under T1d
-(`prototypes/t1_draw_rule.py`: measured persistence, both teams' smokes, no
-dead enemies), and T1d supersedes T1's draw rule for later scoring.
+(`reticle/harness/draw.py` since 2026-10-09: measured persistence, both
+teams' smokes, no dead enemies), and T1d supersedes T1's draw rule for later
+scoring.
 
 | Ref | Revises | Prediction |
 |---|---|---|
@@ -570,7 +574,7 @@ decodes video; the crop caches and stored rows suffice until B12.
 | B4 | Enemy samples from the enemy lane into the enemy slots, observed only, the "?" inferred | the replay scorer's enemy phantoms unchanged | half a session |
 | B5 | episodes-0.4.0: section 2's shape change | QA0 on development; the episodes tests | 1 session; truth episodes for three matches under `--out`, minutes each (to time) |
 | B6 | `from_slot_state` and the events adapter, on `frame_join` once merged | a vision episodes file per development session; every unread attribute null with its reason | 1 session; seconds per match |
-| B7 | `reticle/acceptance.py` (the join, scoring and intervals; owner of `replay-truth-under`) under `prototypes/question_acceptance.py`, which builds the T1d grid; `reticle acceptance summary` rescores its stored rows: T1, T2, T2g, matching, metrics, recording; QA1-QA3 | QA1-QA3 marked on development | 1-2 sessions; five derivations per match, under an hour in all |
+| B7 | `reticle/acceptance.py` (the join, scoring and intervals; owner of `replay-truth-under`) with `reticle/harness/` (the T1d grid, QA5r3 and the commands), all run by `reticle acceptance`: T1, T2, T2g, matching, metrics, recording; QA1-QA3 | QA1-QA3 marked on development | 1-2 sessions; five derivations per match, under an hour in all |
 | B8 | `replay_layer` names the player without Riot (replay-truth 0.3.0's pick), so d3dcfb182ab1 has a capture clock and sides | `reticle replay-layer d3dcfb182ab1` writes `a_ms` and `side_rel` | half a session; a layer rebuild |
 | B9 | Arm (b): `ally_rate`'s `nodeath` schedule into slot state as carried samples; QA4 | QA4 marked | 1 session; one crop-cache pass per match for the cue |
 | B10 | The gate (section 5) from stored inputs plus a red-pixel cue on the crop cache; the per-slot schedule stored; arm (c) simulated; QA5-QA7 | QA5-QA7 marked on development | 2 sessions; one crop-cache pass per match |

@@ -20,11 +20,11 @@ Every function here is pure over the arrays it is handed. The caller loads:
 * the join `J` (`alive`, `drawn` per subject and sample, the find samples
   `ks`, icons `ic`) and the lane's emitted rows `E`.
 
-The grid and the T1d draw rule are still built by prototypes
-(`t1_draw_rule.RealDrawMatch(rule="T1d")`, `enemy_lane_check.build_sets`);
-`prototypes/question_acceptance.py` is the thin command that builds them and
-calls this module. Promoting the grid is open work (ownership
-`replay-truth-under`, status `partial`).
+The grid, the T1d draw rule and the commands live beside this module in
+`reticle/harness/` (task `harness-t1d-20261009`): `harness.draw.RealDrawMatch
+(rule="T1d")` builds the grid, `harness.sets.build_sets` the join, and
+`harness.commands` runs every subcommand of `reticle acceptance` in process;
+`prototypes/question_acceptance.py` is a thin wrapper over them.
 
 The join (`join_entities`): players at the find's grid sample (alive only);
 every joinable `child:` entity of T0 within `WINDOW_MS` of the find's frame

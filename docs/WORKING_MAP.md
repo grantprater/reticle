@@ -45,7 +45,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Which documents are live, and what reaches them | `documents.toml`, `reticle/documents.py`, `doctor` DOCS |
 | Scan cost and live frame-rate cost | `reticle usage [SESSION]`, `reticle/usage.py`, [FRAMETIME_PROTOCOL.md](FRAMETIME_PROTOCOL.md); per-reader CPU: `prototypes/runtime_budget.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
-| Acceptance against replay truth (the one harness) | `prototypes/question_acceptance.py`, [QUESTION_ACCEPTANCE.md](QUESTION_ACCEPTANCE.md) |
+| Acceptance against replay truth (the one harness) | `acceptance.py`, `harness/`, [QUESTION_ACCEPTANCE.md](QUESTION_ACCEPTANCE.md) |
 | External truth | `prototypes/riot_ground_truth.py`, `replay_truth.py`, `replay_abilities.py`, [REPLAY_KEEPING.md](REPLAY_KEEPING.md) |
 | Player-run Riot fetch | [MATCH_FETCH_KIT.md](MATCH_FETCH_KIT.md) |
 | Ladder match sample (fit only) | `prototypes/ladder_fetch.py`, [LADDER_SAMPLE.md](LADDER_SAMPLE.md) |
@@ -81,7 +81,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle plan [SESSION]
 .\.venv\Scripts\python.exe -m reticle trial [SESSION] --reader killfeed|hud|scoreboard|ally_icon|ability_glyph|clove_circle [--sample] [--windows-file CSV] [--rows-out DIR]
 .\.venv\Scripts\python.exe -m reticle dev-sample [--residuals CSV] [--stream S --where F=V] [--extend CSV] --out CSV
-.\.venv\Scripts\python.exe -m reticle acceptance summary --tag TAG [SESSION ...]   # lane, label, steps, budget: prototypes\question_acceptance.py
+.\.venv\Scripts\python.exe -m reticle acceptance lane|label|slots|summary [--tag TAG] [SESSION ...]   # every subcommand: --help
 .\.venv\Scripts\python.exe prototypes\killfeed_trial_deaths.py --sample [--windows-file CSV] --out DIR
 .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --sample [--windows-file CSV] --deaths-from BASE [--compare-deaths BRANCH] --offline
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed
@@ -99,7 +99,6 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle audit
 .\.venv\Scripts\python.exe -m reticle belief SESSION   # stored data only
 .\.venv\Scripts\python.exe -m reticle slot-state SESSION [--write] [--at MS]   # stored data only
-.\.venv\Scripts\python.exe prototypes\question_acceptance.py slots [SESSION ...] [--record]   # slot regions vs replay truth
 .\.venv\Scripts\python.exe -m reticle ability-coverage|-timeline|-entities|-gallery|-capture|-phases
 .\.venv\Scripts\python.exe -m reticle ult-lines SESSION     # audio decode only
 .\.venv\Scripts\python.exe -m reticle retire SESSION [--commit]  # never deletes

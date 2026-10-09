@@ -121,9 +121,12 @@ reason = "`read_rows` opens the events file of each stream no lane projects yet 
 claim = """
 scores emitted events against replay truth; above every pipeline layer, so no
 reader, tracker, lane or consumer may import it (replay data is evaluation
-truth only); only the command surface calls it
+truth only); only the command surface calls it; `harness` holds the truth grid (T1d),
+the QA5r3 score and the commands, moved from prototypes on 2026-10-09
 """
-modules = ["acceptance"]
+modules = ["acceptance", "harness.commands", "harness.run", "harness.match",
+           "harness.clock", "harness.abilities", "harness.schedule", "harness.draw",
+           "harness.sets", "harness.extras", "harness.budget"]
 
 [delivery]
 claim = "the command surface, and nothing else may import it"

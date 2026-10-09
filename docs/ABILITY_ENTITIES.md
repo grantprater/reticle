@@ -681,7 +681,7 @@ Step 2 done (2026-10-09, branch `ability-entities-step2-20261009`):
 - Retired: `smoke_owner.cast_links` (smoke-owner-0.4.0; no stored link
   existed on any session) and the `dead_ruse_cast` stream (`plan.RETIRED_STREAMS`).
   ABILITY legacy 19 to 17; the seed stays, so `status` counts the clears.
-- Scored by `prototypes/question_acceptance.py ability-lane --side self` on
+- Scored by `reticle acceptance ability-lane --side self` on
   the six sessions: recall [metric:question_acceptance/ability_lane/step2b@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#all_recall=0.8523], false-open share
   [metric:question_acceptance/ability_lane/step2b@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#all_false_open_share=0.0241], end-cause agreement
   [metric:question_acceptance/ability_lane/step2b@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#all_end_cause_agreement=0.6014]. Prediction
