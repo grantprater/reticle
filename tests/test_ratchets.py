@@ -95,8 +95,12 @@ class ConvertTests(unittest.TestCase):
         for key in ratchets.CONVERT_LEGACY:
             self.assertIn(key, warned)
         self.assertNotIn("CloveCircleReader", warned)
+        self.assertNotIn("AllyIconReader", warned)
         gated = [r.key for r in ratchets.reader_classes() if r.gated]
-        self.assertEqual(gated, ["reticle/clove_circle.py::CloveCircleReader"])
+        self.assertEqual(gated, ["reticle/clove_circle.py::CloveCircleReader",
+                                 "reticle/minimap.py::AllyIconReader"])
+        self.assertEqual(ratchets.progress()["convert"],
+                         {"gated": 2, "legacy": len(ratchets.CONVERT_LEGACY)})
         self.assertIn("reticle/trial.py::_AbilityGlyphPass",
                       {r.key for r in ratchets.reader_classes()})
 
@@ -156,48 +160,86 @@ class ReaderRateTests(unittest.TestCase):
 
 FRAME = {
     "reticle/frame.py": """
-        from .ratchets import Gate
+        from .ratchets import Audit, Gate
         class FrameReader:
-            opportunity_gate = Gate(opportunity="o", source="s", kind="frame")
+            opportunity_gate = Gate(opportunity="o", source="s", kind="frame", version="v1",
+                                    audit=Audit(60000.0, 1000.0))
             hz = 15.0
             def wants(self, t_ms):
                 return True
             def feed(self, smp):
                 pass
         class NoWants:
-            opportunity_gate = Gate("o", "s", "frame")
+            opportunity_gate = Gate("o", "s", "frame", "v1", Audit(60000.0, 1000.0))
             hz = 15.0
+            def feed(self, smp):
+                pass
+        class NoStamp:
+            opportunity_gate = Gate(opportunity="o", source="s", kind="frame")
+            hz = 15.0
+            def wants(self, t_ms):
+                return True
             def feed(self, smp):
                 pass
     """,
 }
+AUDIT = ratchets.Audit(60000.0, 1000.0)
 
 
 class FrameGateTests(unittest.TestCase):
     def setUp(self):
         self.root = _repo(FRAME)
 
-    def test_a_frame_gate_converts_nothing_before_the_hook(self):
-        self.assertFalse(ratchets.FRAME_HOOK)
+    def test_the_hook_applies_a_frame_gate_with_wants(self):
+        self.assertTrue(ratchets.FRAME_HOOK)
         found = ratchets.convert_findings(self.root, legacy={})
-        frame = [s for s, m in found if "FrameReader" in m]
-        self.assertEqual(frame, [ERROR])
+        self.assertEqual([s for s, m in found if "FrameReader" in m], [])
 
-    def test_a_listed_frame_gated_reader_stays_a_warning(self):
+    def test_a_converted_frame_gated_reader_leaves_the_list(self):
         found = ratchets.convert_findings(
             self.root, legacy={"reticle/frame.py::FrameReader": LEGACY},
             seed=frozenset({"reticle/frame.py::FrameReader"}))
-        self.assertEqual([s for s, m in found if "FrameReader" in m], [WARN])
+        self.assertTrue(any(s == ERROR and "FrameReader" in m and "remove it" in m
+                            for s, m in found))
 
     def test_a_frame_gate_needs_wants(self):
         found = ratchets.convert_findings(self.root, legacy={})
         self.assertTrue(any(s == ERROR and "NoWants" in m and "wants" in m for s, m in found))
 
-    def test_scan_still_warns_for_a_frame_gate(self):
+    def test_a_frame_gate_names_its_version_and_audit(self):
+        found = ratchets.convert_findings(self.root, legacy={})
+        stamp = [m for s, m in found if s == ERROR and "NoStamp" in m]
+        self.assertEqual(len(stamp), 2)
+        self.assertTrue(any("`version`" in m for m in stamp))
+        self.assertTrue(any("`audit`" in m for m in stamp))
+        with self.assertRaises(ValueError):
+            Gate("o", "s", "frame")
+
+    def test_scan_is_silent_for_an_applied_frame_gate(self):
         cls = type("PingReader", (), {"feed": lambda self, smp: None})
         cls.__module__ = "reticle.ping"
-        cls.opportunity_gate = Gate("o", "s", "frame")
-        self.assertEqual(len(ratchets.legacy_running([cls()])), 1)
+        cls.opportunity_gate = Gate("o", "s", "frame", "v1", AUDIT)
+        self.assertEqual(ratchets.legacy_running([cls()]), [])
+
+    def test_an_instance_binds_its_own_gate(self):
+        cls = type("R", (), {"feed": lambda self, smp: None})
+        cls.opportunity_gate = Gate("o", "s", "frame", "v1", AUDIT)
+        r = cls()
+        r.opportunity_gate = cls.opportunity_gate.bound(["slot belief v9"])
+        self.assertEqual(ratchets.declared_gate(r).rests_on, ("slot belief v9",))
+        self.assertEqual(ratchets.declared_gate(cls()).rests_on, ())
+
+    def test_the_audit_cadence_is_fixed_by_the_span_start(self):
+        a = ratchets.Audit(every_ms=10_000.0, window_ms=1_000.0, phase_ms=2_000.0)
+        self.assertFalse(a.covers(6_000.0, 5_000.0))
+        self.assertTrue(a.covers(7_000.0, 5_000.0))
+        self.assertTrue(a.covers(7_999.0, 5_000.0))
+        self.assertFalse(a.covers(8_000.0, 5_000.0))
+        self.assertTrue(a.covers(17_500.0, 5_000.0))
+        self.assertFalse(a.covers(17_500.0, None))
+        self.assertTrue(a.covers(2_500.0, 0.0))
+        with self.assertRaises(ValueError):
+            ratchets.Audit(every_ms=1_000.0, window_ms=1_000.0)
 
     def test_clove_declares_a_spans_gate(self):
         from reticle.clove_circle import CloveCircleReader
@@ -238,9 +280,9 @@ class ScanWarningTests(unittest.TestCase):
 
     def test_a_wrapped_reader_is_named_by_its_inner_class(self):
         from reticle.widget_frame import Normalised
-        inner = self._reader("reticle.minimap", "AllyIconReader")
+        inner = self._reader("reticle.ping", "PingReader")
         self.assertEqual(ratchets.convert_key(Normalised(inner, None)),
-                         "reticle/minimap.py::AllyIconReader")
+                         "reticle/ping.py::PingReader")
         self.assertEqual(len(ratchets.legacy_running([Normalised(inner, None)])), 1)
 
 

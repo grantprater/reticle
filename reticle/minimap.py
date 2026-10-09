@@ -46,8 +46,13 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from collections import Counter
+
 from . import ally_portrait
+from .ally_gate import ALLY_GATE_VERSION
+from .ally_gate import AUDIT as ALLY_GATE_AUDIT
 from .profiles import Profile
+from .ratchets import Gate
 from .usage import step
 
 # ---------------------------------------------------------------- widget scale
@@ -1415,6 +1420,20 @@ class AllyIconReader:
     #: ally-icon-0.13.0): the buy phase before each round's lead is out of
     #: scope on every source, so a video pass no longer reads it.
     live_rounds_only = True
+    #: The ally pass's frame gate (BACKLOG item 1, `ally_gate`): once a
+    #: runtime gate is bound (`bind_gate`, `scan --ally-gate on`) the hook in
+    #: `passes` asks `wants` before each frame of the grid is decoded or
+    #: fetched; an unbound reader reads its grid. The gate's stamp, the prior
+    #: it rests on and its refusals go into the stream's coverage row; the
+    #: audit reads go to a stream of their own (`gated_streams`).
+    opportunity_gate = Gate(
+        opportunity="a teammate's believed region wider than the question's tolerance, a "
+                    "death or an enemy icon near a teammate, or the audit cadence",
+        source="slot_state.GateBelief over the round table, the death verdicts and this "
+               "reader's own gated reads; minimap_object enemy icons; death verdicts",
+        kind="frame", version=ALLY_GATE_VERSION, audit=ALLY_GATE_AUDIT)
+    #: The bound runtime gate (`ally_gate.AllyGate`), or None: ungated.
+    frame_gate = None
 
     def __init__(self, floor, slab, static, box, hz=ALLY_DESCRIPTOR_HZ,
                  spans=None, name="ally_icon", stack=None, turned=None,
@@ -1605,6 +1624,80 @@ class AllyIconReader:
         for i, d in enumerate(got):
             self.icons.append({**frame, "index": i, **d})
 
+    def bind_gate(self, gate) -> None:
+        """Gate this reader's grid by `gate` (`ally_gate.AllyGate`): this
+        instance's declaration names the priors the gate rests on."""
+        self.frame_gate = gate
+        self.opportunity_gate = type(self).opportunity_gate.bound(gate.rests_on)
+        self.__dict__.pop("_pose_readers", None)    # rebuilt under the gate's reach
+
+    def _ally_pose(self, sc: float):
+        """The teammate channel's `IconPoseReader`; under a bound gate it
+        continues priors across the gate's gaps by the reach law
+        (`reach_px_per_s`: the gate belief's `v_max / m_per_px`). The self
+        channel keeps the 200 ms rule."""
+        from .teardrop import IconPoseReader
+        r = IconPoseReader("ally", sc)
+        gate = getattr(self, "frame_gate", None)
+        if gate is not None and getattr(gate, "reach_px_per_s", None):
+            r.reach_px_per_s = float(gate.reach_px_per_s)
+        return r
+
+    def wants(self, t_ms: float):
+        """The bound gate's answer at `t_ms` (`passes.gate_decide` asks)."""
+        return self.frame_gate.wants(t_ms)
+
+    def observed(self, t_ms: float) -> None:
+        """Feed the read at `t_ms` back to the gate's belief: the teammate
+        icons this reader found there (`ally_gate.teammate_fits`); a frame
+        whose widget is not drawn found none."""
+        from .ally_gate import teammate_fits
+        fr = self.frames[-1] if self.frames else None
+        if fr is None or float(fr["t_ms"]) != float(t_ms):
+            return
+        # `feed` appends the frame's icons last, `icons` of them.
+        n = int(fr["icons"])
+        self.frame_gate.observed(t_ms, teammate_fits(self.icons[len(self.icons) - n:]
+                                                     if n else []))
+
+    @staticmethod
+    def gated_streams(events: list[dict], log) -> tuple[list[dict], list[dict]]:
+        """A gated pass's published rows split in two: the gated stream (the
+        frames the gate opened, each with `gate_reason` and `gate_rests_on`,
+        its icons, and one `unread` row per refused run) and the audit stream
+        (every frame of the audit windows, opened or not, and its icons),
+        each with its own recounted coverage row carrying the gate's block
+        (`passes.GateLog.summary`) and `read` (`gate` or `audit`). Every
+        offered instant has exactly one answer in the gated stream: a frame
+        the gate read, or an `unread` row with the refusal, even where the
+        audit read that instant. The gate's belief never read an audit-only
+        frame."""
+        head, rest = events[0], events[1:]
+        reads, audit_t = log.reads, set(log.audit_t)
+        read_t = set(reads)
+        gate = log.summary()
+
+        def part(keep: set, read: str, extra: list[dict]) -> list[dict]:
+            frames = [r for r in rest if r.get("kind") == "frame" and float(r["t_ms"]) in keep]
+            if read == "gate":
+                frames = [{**f, "gate_reason": reads[float(f["t_ms"])][0],
+                           "gate_rests_on": list(reads[float(f["t_ms"])][1])} for f in frames]
+            fi = {r["frame_idx"] for r in frames}
+            icons = [r for r in rest if r.get("kind") == "icon" and r["frame_idx"] in fi]
+            refused = Counter(r["reason"] for r in icons if r.get("reason"))
+            cov = {**head, "frames": len(frames),
+                   "widget_absent": sum(1 for f in frames if not f["widget_drawn"]),
+                   "icons": len(icons), "described": len(icons) - sum(refused.values()),
+                   "refused_reasons": dict(sorted(refused.items())),
+                   "stack_reasons": dict(sorted(Counter(
+                       f.get("stack_reason", "unrecorded") or "ran" for f in frames
+                       if f["widget_drawn"]).items())),
+                   "stack_icons": sum(1 for r in icons if r.get("origin") == "stack_fit"),
+                   "read": read, "gate": gate}
+            return [cov] + frames + icons + extra
+
+        return part(read_t, "gate", log.unread_rows()), part(audit_t, "audit", [])
+
     def after_gap(self, t_ms: float) -> None:
         """Continue as a reader that last read a frame at `t_ms`, more than
         `teardrop.PRIOR_GAP_MS` before the next it is fed: each channel's
@@ -1614,7 +1707,7 @@ class AllyIconReader:
         from .teardrop import IconPoseReader, SelfConeReader
         x0, _, x1, _ = self.box
         sc = drawn_scale(x1 - x0, getattr(self, "scale", None))
-        readers = {"self": SelfConeReader(sc), "ally": IconPoseReader("ally", sc)}
+        readers = {"self": SelfConeReader(sc), "ally": self._ally_pose(sc)}
         for r in readers.values():
             r.after_gap(t_ms)
         self._pose_readers = (sc, readers)
@@ -1727,7 +1820,7 @@ class AllyIconReader:
             readers = getattr(self, "_pose_readers", None)
             if readers is None or readers[0] != sc:
                 readers = self._pose_readers = (sc, {"self": SelfConeReader(sc),
-                                                     "ally": IconPoseReader("ally", sc)})
+                                                     "ally": self._ally_pose(sc)})
             if frame is None:
                 pose = readers[1][channel].read(crop, f["cx"], f["cy"])
             else:

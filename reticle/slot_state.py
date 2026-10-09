@@ -1425,6 +1425,202 @@ def region_of_frame(G: dict, f: int, t_ms: float) -> dict:
             "reach_px": r_re / mpp, "age_s": age, "frame": f}
 
 
+# ----------------------------------------------------------------- the gate's own belief
+
+#: gate-belief-0.1.0 (2026-10-09): the belief a per-frame ally gate reads,
+#: fed by the gated reader's own reads.
+GATE_BELIEF_VERSION = "gate-belief-0.1.0"
+
+
+class GateBelief:
+    """The slot belief a per-frame ally gate asks before it reads
+    (`ally_gate.AllyGate`, `passes`' hook), built from the gated reads alone.
+
+    `RegionCursor` answers from a record built over every stored 15 Hz
+    read; a gate that asked it would open where the full-rate reader had
+    already read, which gates on the outcome. This belief holds instead what
+    the gated reader itself saw: `observe` feeds back each read the gate
+    opened, and `at` answers from those reads and from the priors of other
+    channels only -- the round table's barriers and the death owner's
+    verdicts, through `player_lifecycle`, for how many teammate slots are
+    open.
+
+    The law is this module's: a slot fixed at `t_fix` lies within
+    `r_fit + v_max (t - t_fix)` metres (`beliefs`' reach). The binding is a
+    count, not a slot assignment: a read that finds at least as many
+    teammate icons as there are open teammate slots fixes every slot;
+    otherwise the unfixed ones keep their last fix. No fix this round is
+    `unanchored`. State resets at each round barrier (`reset`), so nothing
+    outlives a round.
+
+    Reach is the Euclidean disc. Walk reach waits for a walk graph baked
+    into the geometry (BACKLOG item 3); until then the disc overstates how
+    far a teammate can have gone, so the gate opens early, never late.
+    """
+
+    def __init__(self, t_grid: np.ndarray, n_open: np.ndarray, starts: np.ndarray,
+                 r_fit_m: float, v_max: float, m_per_px: float, stamp: dict):
+        self.t_grid = np.asarray(t_grid, float)
+        self.n_open = np.asarray(n_open, np.int64)
+        self.starts = np.sort(np.asarray(starts, float))
+        self.r_fit_m, self.v_max, self.m_per_px = float(r_fit_m), float(v_max), float(m_per_px)
+        self.stamp = stamp
+        self.seg = None
+        self.reset()
+
+    def reset(self) -> None:
+        """Forget every read: the next instant is unanchored."""
+        self.t_fix = None
+        self.t_read = None
+        self.fix_px = np.zeros((0, 2))
+
+    def radius_m(self, age_s: float) -> float:
+        """The reach after `age_s` seconds unread (`beliefs`' law)."""
+        return self.r_fit_m + self.v_max * max(0.0, float(age_s))
+
+    def age_for(self, radius_m: float) -> float:
+        """Seconds unread until the reach grows to `radius_m`."""
+        return max(0.0, (float(radius_m) - self.r_fit_m) / self.v_max)
+
+    def open_teammates(self, t_ms: float) -> int:
+        """Open teammate slots (the player's own excluded) at `t_ms`."""
+        i = int(np.searchsorted(self.t_grid, float(t_ms), side="right")) - 1
+        return int(self.n_open[i]) if i >= 0 else 0
+
+    def _barrier(self, t_ms: float) -> None:
+        seg = int(np.searchsorted(self.starts, float(t_ms), side="right")) - 1
+        if seg != self.seg:
+            self.seg = seg
+            self.reset()
+
+    def at(self, t_ms: float) -> dict:
+        """`n_open`, `kind` (`unanchored`, `fit` or `reach`), `radius_m`
+        (infinite when unanchored), `t_read` (the last read this round,
+        None before one), `fix_px` (the teammate icons of the last read, in
+        widget pixels)."""
+        self._barrier(t_ms)
+        n = self.open_teammates(t_ms)
+        if self.t_fix is None:
+            kind, r = "unanchored", math.inf
+        else:
+            age = (float(t_ms) - self.t_fix) / 1000.0
+            kind, r = ("fit" if age <= 0 else "reach"), self.radius_m(age)
+        return {"n_open": n, "kind": kind, "radius_m": r, "t_read": self.t_read,
+                "fix_px": self.fix_px}
+
+    def observe(self, t_ms: float, fits_px) -> None:
+        """A read at `t_ms` found the teammate icons at `fits_px` (n, 2)."""
+        self._barrier(t_ms)
+        fits = np.asarray(fits_px, float).reshape(-1, 2)
+        self.t_read = float(t_ms)
+        self.fix_px = fits
+        if len(fits) >= self.open_teammates(t_ms):
+            self.t_fix = float(t_ms)
+
+
+def gate_belief(sid: str, store_root: Path = DEFAULT_STORE, hz: float = 15.0) -> dict:
+    """The session's `GateBelief`, from stored rounds, death verdicts and
+    the lineup alone -- no ally read; or `{"refused": why}`.
+
+    The lifecycle (`player_lifecycle`) runs on a `hz` grid over the
+    capture; a missing lineup leaves every teammate slot open in each round
+    and says so in the stamp. `r_fit` takes the icon radius from the baked
+    geometry (6 px on the 331 px widget, scaled) and one grid step's reach."""
+    from types import SimpleNamespace
+
+    from . import geometry, lineup
+    root = Path(store_root)
+    st = Store(root)
+    manifest = st.read_manifest(sid)
+    date = manifest["ingested_at"][:10]
+    wf, why = world_frame(sid, root)
+    if wf is None:
+        return {"refused": why}
+    _mf, _to_m, m_per_px = wf
+    dur = float(manifest["source"].get("duration_ms") or 0.0)
+    t = np.arange(0.0, dur + 1000.0 / hz, 1000.0 / hz)
+    rows = list(_jsonl(root / "events" / "death" / f"{sid}.jsonl"))
+    deaths = [d for d in rows if d.get("kind") == "death_verdict"]
+    # The death owner places X-mark births through `death.stored_xmark_births`,
+    # which reads the stored 15 Hz `ally_icon`: a prior that rests on it.
+    death_inputs = next((d.get("inputs") or {} for d in rows if d.get("inputs")), {})
+    S = SimpleNamespace(fr_t=t, rounds=st.read_rounds(sid, date).to_pylist(), deaths=deaths)
+    L = lineup_slots(sid, root)
+    if "refused" in L:
+        slots, player = [{"key": f"{sid}:ally:slot:{k}", "agent": None} for k in range(5)], None
+    else:
+        slots, player = L["slots"], L["player_slot"]
+    life = player_lifecycle(S, slots)
+    mates = [k for k in range(len(slots)) if k != player]
+    n_open = life["open"][mates].sum(axis=0)
+    with np.load(geometry.path_of(sid, root)) as z:
+        r_px = 6.0 * z["labels"].shape[1] / 331.0
+    v_max = v_max_m_s()
+    r_fit = r_px * m_per_px + v_max / hz
+    stamp = {"gate_belief_version": GATE_BELIEF_VERSION, "slot_state_version": SLOT_STATE_VERSION,
+             "inputs": {"death": deaths[0].get("death_adjudication_version") if deaths else None,
+                        "death_ally_icon": death_inputs.get("ally_icon"),
+                        "lineup": lineup.view_stamp(sid, root) if "refused" not in L
+                        else f"refused: {L['refused']}",
+                        "rounds": manifest.get("ingested_at")},
+             "law": "reach = r_fit + v_max (t - t_fix); a read finding the open teammates' "
+                    "count fixes every slot",
+             "r_fit_m": round(r_fit, 4), "v_max_m_s": v_max, "m_per_px": round(m_per_px, 6),
+             "lifecycle": life["counts"]}
+    return {"belief": GateBelief(t, n_open, life["starts"], r_fit, v_max, m_per_px, stamp),
+            "deaths_t": sorted(float(d["t_ms"]) for d in deaths if d.get("t_ms") is not None),
+            "stamp": stamp}
+
+
+def stored_enemy_icons(sid: str, store_root: Path = DEFAULT_STORE):
+    """`(t_ms, x, y)` arrays of the stored `minimap_object` enemy icons in
+    widget pixels, sorted by time, and the stream's stamp; `(None, None)`
+    where none is stored. A gate's cue, never a verdict on the teammate."""
+    path = Path(store_root) / "events" / "minimap_object" / f"{sid}.jsonl"
+    if not path.is_file():
+        return None, None
+    t, x, y, ver = [], [], [], None
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if ver is None and '"kind":"coverage"' in line:
+                ver = json.loads(line).get("minimap_object_version")
+                continue
+            if '"enemies":[{' not in line:
+                continue
+            r = json.loads(line)
+            if r.get("kind") != "frame":
+                continue
+            for e in r["enemies"]:
+                t.append(float(r["t_ms"]))
+                x.append(float(e["x"]))
+                y.append(float(e["y"]))
+    o = np.argsort(np.asarray(t, float), kind="stable")
+    return tuple(np.asarray(a, float)[o] for a in (t, x, y)), ver
+
+
+def ally_gate_for(sid: str, store_root: Path = DEFAULT_STORE):
+    """The ally pass's runtime gate for one session (`ally_gate.AllyGate`):
+    this module's `GateBelief`, the death verdicts' times and the stored
+    enemy icons, each named with its stamp in `rests_on`; or
+    `{"refused": why}`. Reads no replay and no ally row."""
+    from .ally_gate import AllyGate
+    got = gate_belief(sid, store_root)
+    if "refused" in got:
+        return got
+    enemy, ver = stored_enemy_icons(sid, store_root)
+    st = got["stamp"]
+    deaths = (f"death verdicts {st['inputs']['death']}, whose X-mark births "
+              f"(`death.stored_xmark_births`) read the stored 15 Hz ally_icon "
+              f"{st['inputs']['death_ally_icon']}")
+    sources = {"belief": f"slot_state.GateBelief {st['gate_belief_version']} "
+                         f"({st['slot_state_version']}) over the lineup {st['inputs']['lineup']}, "
+                         f"rounds {st['inputs']['rounds']} and the {deaths}",
+               "death": f"{deaths} (cue)"}
+    if enemy is not None:
+        sources["enemy"] = f"minimap_object enemy icons {ver} (cue)"
+    return AllyGate(got["belief"], got["deaths_t"], enemy, sources)
+
+
 # ----------------------------------------------------------------- storage
 
 def l2_path(sid: str, store_root: Path = DEFAULT_STORE) -> Path:

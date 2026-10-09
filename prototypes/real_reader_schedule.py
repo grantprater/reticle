@@ -10,6 +10,17 @@ sight questions through the same `derive_episodes` and `answers`.
     python prototypes/real_reader_schedule.py report [--record]
     python prototypes/real_reader_schedule.py cost SESSION --crops 600 [--record]
     python prototypes/real_reader_schedule.py outcome
+    python prototypes/real_reader_schedule.py hook SESSION [SESSION ...]
+    python prototypes/real_reader_schedule.py hook-report [--record]
+
+`hook` (task `gate-hook-20261009`, row G1) runs the production ally gate
+(`reticle/ally_gate.py`, ally-gate-0.1.0) through the passes hook over each
+session's stored 15 Hz ally_icon frames, keeps V15h's fits only where the
+gate reads (`Vhook`) or reads or audits (`Vhook+a`), and scores both against
+V15h under QA5r3; `hook-report` pools dev3, new3 and all six and prints the
+frame share and estimated CPU beside the stored 15 Hz pass's. The binding is
+V15h's, made over every frame, so the arm overstates a gated pass's binding.
+Outputs: `<store>/analysis/gate-hook-20261009/`.
 
 Arms, the capturing team's perspective only (the layer's self subject):
 
@@ -2773,6 +2784,294 @@ def outcome_reach() -> int:
     return 0
 
 
+# ----------------------------------------------------------------- the hook's ally gate (gate-hook-20261009)
+
+HOOK_TASK = "gate-hook-20261009"
+HOOK_OUT = STORE / "analysis" / HOOK_TASK
+HOOK_DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
+HOOK_NEW = ("cadaadeb2d8b", "066741deafe5", "9912c382130b")
+#: Hook arms: V15h's fits kept only on the frames ally-gate-0.1.0 reads
+#: (`Vhook`), and on those plus its audit windows (`Vhook+a`).
+REF.update({"Vhook": "V15h", "Vhook+a": "V15h", "Vgated": "V15h"})
+ORDER = ORDER + ("Vhook", "Vhook+a", "Vgated")
+#: Stored beside every hook result: what the simulated arms leave out.
+HOOK_CAVEAT = ("Vhook and Vhook+a keep V15h's fits and its causal binding, both made on the "
+               "continuous 15 Hz pass, whose pose priors never see a gap; a gated pass refits "
+               "after gaps (full pose searches) and binds from its own frames, so the simulated "
+               "arms overstate it. Vgated scores a real gated stream, rebuilt through "
+               "slot_state.build_slots from its own rows.")
+#: The real gated streams scored as `Vgated`, by session.
+HOOK_REAL = {"cadaadeb2d8b": "ally_icon_gated"}
+#: The 15 Hz pass's ally_icon CPU per frame (ms), from each session's last
+#: completed `vod_scan` usage record that fed ally_icon (`notes/usage.jsonl`).
+ALLY_MS_KEYS = ("thread_cpu_ns", "feed.total_ns")
+
+
+def ally_ms_per_frame(sid: str) -> dict:
+    """The stored 15 Hz arm's ally_icon cost per frame, from the scan record
+    that wrote it, chosen explicitly: a completed `vod_scan` whose ally_icon
+    ran at 15 Hz and fed exactly the stored `ally_icon` stream's frame count,
+    recorded at most 10 minutes after that file was last written (publish
+    moves the file before the record is written; a later gated reread offers
+    the same count and must never stand in). Thread CPU, else feed time,
+    over the frames fed."""
+    import datetime as _dt
+    path = STORE / "events" / "ally_icon" / f"{sid}.jsonl"
+    with path.open(encoding="utf-8") as fh:
+        head = json.loads(fh.readline())
+    frames = int(head["frames"])
+    written = _dt.datetime.fromtimestamp(path.stat().st_mtime, _dt.timezone.utc)
+    pick = None
+    for line in (STORE / "notes" / "usage.jsonl").open(encoding="utf-8"):
+        if "vod_scan" not in line or sid not in line or "ally_icon" not in line:
+            continue
+        r = json.loads(line)
+        if r.get("session_id") != sid or r.get("status") != "completed":
+            continue
+        rd = r.get("readers") or {}
+        a = rd.get("ally_icon") if isinstance(rd, dict) else None
+        if not a or float(a.get("hz") or 0) != 15.0 or a.get("fed") != frames:
+            continue
+        if _dt.datetime.fromisoformat(r["recorded_at"]) > written + _dt.timedelta(minutes=10):
+            continue
+        pick = (r, a)
+    if pick is None:
+        return {"ms": None, "reason": f"no completed 15 Hz scan record feeding {frames} frames "
+                                      f"before {written.isoformat()}"}
+    r, a = pick
+    ns, what = (a["thread_cpu_ns"], "thread_cpu_ns") if a.get("thread_cpu_ns") else \
+        (a["feed"]["total_ns"], "feed.total_ns (wall)")
+    return {"ms": ns / 1e6 / a["fed"], "frames": a["fed"], "what": what, "source": r["source"],
+            "run_id": r["run_id"], "recorded_at": r["recorded_at"],
+            "rule": "15 Hz, fed == stored ally_icon frames, recorded within 10 min after the stream was written"}
+
+
+def stored_ally_frames(sid: str) -> dict:
+    """The stored ally_icon frames (time order) and each frame's teammate
+    icons as the gate counts them (`ally_gate.teammate_fits`)."""
+    from reticle.ally_gate import teammate_fits
+    t, fi, icons = [], [], defaultdict(list)
+    for line in (STORE / "events" / "ally_icon" / f"{sid}.jsonl").open(encoding="utf-8"):
+        if '"kind":"frame"' in line:
+            r = json.loads(line)
+            t.append(float(r["t_ms"]))
+            fi.append(int(r["frame_idx"]))
+        elif '"kind":"icon"' in line:
+            r = json.loads(line)
+            icons[int(r["frame_idx"])].append(r)
+    o = np.argsort(np.asarray(t, float), kind="stable")
+    t = np.asarray(t, float)[o]
+    fi = np.asarray(fi, np.int64)[o]
+    return {"t": t, "fi": fi, "fits": {f: teammate_fits(v) for f, v in icons.items()}}
+
+
+def simulate_gate(sid: str, A: dict | None = None) -> dict:
+    """ally-gate-0.1.0 run over the stored 15 Hz ally_icon frames in order,
+    through the production hook (`passes.gate_decide`, `gate_after`): each
+    offered frame asks the gate; a frame it reads feeds back the teammate
+    icons stored there. The spans are the frames' runs (cut at gaps over
+    1 s), standing for the pass's live-round spans. No replay is read."""
+    from types import SimpleNamespace
+
+    from reticle.minimap import AllyIconReader
+    from reticle.passes import gate_after, gate_decide
+    from reticle.slot_state import ally_gate_for
+    A = stored_ally_frames(sid) if A is None else A
+    gate = ally_gate_for(sid, STORE)
+    if isinstance(gate, dict):
+        raise SystemExit(f"{sid}: ally gate refused: {gate['refused']}")
+    t = A["t"]
+    cut = np.flatnonzero(np.diff(t) > 1000.0) + 1
+    lo, hi = np.r_[0, cut], np.r_[cut, t.size] - 1
+    spans = [(float(t[a]), float(t[b])) for a, b in zip(lo, hi)]
+    fits = A["fits"]
+    fi_of = dict(zip(t.tolist(), A["fi"].tolist()))
+    shim = SimpleNamespace(spans=spans, frame_gate=gate, wants=gate.wants,
+                           opportunity_gate=AllyIconReader.opportunity_gate.bound(gate.rests_on))
+    shim.observed = lambda tm: gate.observed(tm, fits.get(fi_of[float(tm)], []))
+    c0 = time.process_time()
+    for tm in t.tolist():
+        d = gate_decide(shim, tm)
+        if d.read or d.audit:
+            gate_after(shim, tm, d)
+    cpu = time.process_time() - c0
+    log = shim.gate_log
+    return {"log": log, "summary": log.summary(), "offered": int(t.size), "spans": len(spans),
+            "gate_cpu_s": round(cpu, 3), "gate_us_per_offered": round(cpu / max(t.size, 1) * 1e6, 2),
+            "params": gate.params(), "rests_on": list(gate.rests_on)}
+
+
+def hook_arms(sid: str) -> tuple[list[dict], dict]:
+    """V15h against the gated arms on one replay capture: T0, T1, real
+    enemies (T1v), V15h's allies, then V15h's fits kept only at the frames
+    the simulated gate reads. The binding is V15h's own, made over every
+    15 Hz frame: a gated pass would bind from its own frames alone."""
+    t0 = time.time()
+    M = RealMatch(sid)
+    d0 = M.derive(M.tl0)
+    M.d0 = d0
+    M.events = _with_sides(M.tl0, d0.header["attack_team"])
+    M.drawn_C = M.drawn(M.C)
+    M.A = {"T0": answers(d0, M.tl0, M.C, M.occ)}
+    tr1, gp1 = M.t1_tracks(M.C, M.drawn_C)
+    M.A["T1"] = _answers(M, tr1, gp1, M.events, "t1")
+    E = M.enemy_reads()
+    if E is None:
+        raise SystemExit(f"{sid}: no stored minimap_object or enemy_track")
+    V = M.vision_slots()
+    if "refused" in V:
+        raise SystemExit(f"{sid}: build_slots refused: {V['refused']}")
+    trE, gpE, _cntE = M.t1v_tracks(E)
+    M.A["T1v"] = _answers(M, trE, gpE, M.events, "T1v")
+    enemies = {M.sid[j]: trE[M.sid[j]] for j in M.ei}
+    egaps = {M.sid[j]: gpE[M.sid[j]] for j in M.ei}
+    trV, gpV, costV = M.v15_tracks(V)
+    M.A["V15h"] = _answers(M, {**trV, **enemies}, {**gpV, **egaps}, M.events, "V15h")
+    rows = [_arm_row(M, "V15h", costV)]
+    sim = simulate_gate(sid)
+    log = sim["log"]
+    cost_ms = ally_ms_per_frame(sid)
+    read_t = np.asarray(sorted(log.read_t), float)
+    both = np.asarray(sorted(set(log.read_t) | set(log.audit_t)), float)
+    info = {"session": sid, "gate": sim["summary"], "offered": sim["offered"], "spans": sim["spans"],
+            "gate_us_per_offered": sim["gate_us_per_offered"], "params": sim["params"],
+            "rests_on": sim["rests_on"], "ally_cost": cost_ms, "caveat": HOOK_CAVEAT}
+    for arm, keep in (("Vhook", read_t), ("Vhook+a", both)):
+        Vh = dict(V)
+        Vh["has"] = V["has"] & np.isin(V["fr_t"], keep)[None, :]
+        tr, gp, cost = M.v15_tracks(Vh)
+        cost["gate_frames"] = int(keep.size)
+        cost["gate_frame_share"] = keep.size / max(sim["offered"], 1)
+        if cost_ms.get("ms"):
+            cost["ally_cpu_s_15hz"] = round(cost_ms["ms"] * sim["offered"] / 1000.0, 1)
+            # The pass reads the audit frames whichever arm scores them.
+            cost["ally_cpu_s_est"] = round(cost_ms["ms"] * both.size / 1000.0
+                                           + sim["gate_us_per_offered"] * sim["offered"] / 1e6, 1)
+        M.A[arm] = _answers(M, {**tr, **enemies}, {**gp, **egaps}, M.events, arm)
+        rows.append(_arm_row(M, arm, cost, {"read_ratio_vs_ref": cost["reads"] / max(costV["reads"], 1)}))
+    stream = HOOK_REAL.get(sid)
+    if stream is not None:
+        Vg = gated_slots(M, stream)
+        tr, gp, cost = M.v15_tracks(Vg)
+        cost["gate_frames"] = int(Vg["fr_t"].size)
+        cost["gate_frame_share"] = Vg["fr_t"].size / max(sim["offered"], 1)
+        cost["stream"] = stream
+        M.A["Vgated"] = _answers(M, {**tr, **enemies}, {**gp, **egaps}, M.events, "Vgated")
+        rows.append(_arm_row(M, "Vgated", cost,
+                             {"read_ratio_vs_ref": cost["reads"] / max(costV["reads"], 1)}))
+        info["real_stream"] = {"stream": stream, "frames": int(Vg["fr_t"].size),
+                               "slots": {M.sid[s]: k for s, k in Vg["slot_of"].items()}}
+    _log(f"  {sid} hook arms in {time.time() - t0:.0f} s: gate frames {read_t.size}/{sim['offered']} "
+         f"(+audit {both.size}), Vhook share {rows[1]['cost']['share']:.4f}")
+    return rows, info
+
+
+def gated_slots(M, stream: str) -> dict:
+    """`M.vision_slots()` rebuilt from a stored gated stream instead of the
+    15 Hz `ally_icon`: `slot_state` reads its ally rows from `stream` for
+    this call only, so the binding and the beliefs are the gated pass's own."""
+    import reticle.slot_state as ss
+    real = ss._jsonl
+    want = f"{M.cap}.jsonl"
+
+    def redirected(path):
+        path = Path(path)
+        if path.name == want and path.parent.name == "ally_icon":
+            path = path.parent.parent / stream / path.name
+        return real(path)
+    ss._jsonl = redirected
+    try:
+        V = M.vision_slots()
+    finally:
+        ss._jsonl = real
+    if "refused" in V:
+        raise SystemExit(f"{M.cap}: build_slots on {stream} refused: {V['refused']}")
+    return V
+
+
+def run_hook(sessions: list[str]) -> int:
+    for s in sessions:
+        refuse(s)
+    HOOK_OUT.mkdir(parents=True, exist_ok=True)
+    rows, infos = [], []
+    for s in sessions:
+        rw, info = hook_arms(s)
+        rows += rw
+        infos.append(info)
+        with (HOOK_OUT / "rows.jsonl").open("w", encoding="utf-8") as f:
+            for x in rows:
+                f.write(json.dumps(x, default=cq._jd) + "\n")
+        (HOOK_OUT / "info.json").write_text(json.dumps(infos, indent=1, default=cq._jd),
+                                            encoding="utf-8")
+    return 0
+
+
+def report_hook(record: bool = False) -> int:
+    """QA5r3 per pool for the hook arms, and read share and CPU per session."""
+    rows = [json.loads(x) for x in (HOOK_OUT / "rows.jsonl").read_text(encoding="utf-8").splitlines()
+            if x.strip()]
+    infos = {i["session"]: i for i in json.loads((HOOK_OUT / "info.json").read_text(encoding="utf-8"))}
+    pools = {"dev3": [r for r in rows if r["session"] in HOOK_DEV],
+             "new3": [r for r in rows if r["session"] in HOOK_NEW], "all6": rows}
+    pools["cadaadeb2d8b"] = [r for r in rows if r["session"] == "cadaadeb2d8b"]
+    res = {"rule": "QA5r3", "tol": QA5R3_TOL, "cap": QA5R2_CAP, "caveat": HOOK_CAVEAT,
+           "pools": {k: qa5r2_pool(v, "QA5r3") for k, v in pools.items() if v}, "sessions": {}}
+    print("session        offered  gate  +audit  frame_share  +audit  slot_share(V15h)  "
+          "cpu_15hz_s  cpu_gated_s  ms/frame")
+    for r in rows:
+        if r["arm"] != "Vhook":
+            continue
+        s = r["session"]
+        ra = next(x for x in rows if x["session"] == s and x["arm"] == "Vhook+a")
+        rv = next(x for x in rows if x["session"] == s and x["arm"] == "V15h")
+        c, ca = r["cost"], ra["cost"]
+        ms = infos[s]["ally_cost"].get("ms")
+        res["sessions"][s] = {"offered": infos[s]["offered"], "gate_frames": c["gate_frames"],
+                              "audit_frames": ca["gate_frames"], "frame_share": c["gate_frame_share"],
+                              "frame_share_audit": ca["gate_frame_share"], "slot_share": c["share"],
+                              "slot_share_v15h": rv["cost"]["share"],
+                              "cpu_15hz_s": c.get("ally_cpu_s_15hz"), "cpu_gated_s": c.get("ally_cpu_s_est"),
+                              "cpu_gated_audit_s": ca.get("ally_cpu_s_est"), "ms_per_frame": ms,
+                              "opened": infos[s]["gate"]["opened_reasons"],
+                              "refused": infos[s]["gate"]["refused_reasons"]}
+        print(f"{s}  {infos[s]['offered']:>7d} {c['gate_frames']:>5d} {ca['gate_frames']:>7d}"
+              f"  {c['gate_frame_share']:.4f}      {ca['gate_frame_share']:.4f}  "
+              f"{c['share']:.4f} ({rv['cost']['share']:.4f})   {c.get('ally_cpu_s_15hz')!s:>9}"
+              f"  {c.get('ally_cpu_s_est')!s:>10}  {ms if ms is None else round(ms, 1)}")
+    for pname, P in res["pools"].items():
+        print(f"\n== QA5r3 pool {pname}: acc vs T1 | loss vs V15h [95% CI] | pass")
+        for arm in ("Vhook", "Vhook+a", "Vgated"):
+            o = P.get(arm)
+            if o is None:
+                continue
+            print(f"{arm} share {o['share']:.4f} verdict {o['verdict']}")
+            for q in SIGHT_QS:
+                v = o["q"].get(q)
+                if v:
+                    print(f"   {q:22s} n {v['n']:>4d} acc {v['acc']:.3f} ref {v['acc_ref']:.3f} "
+                          f"loss {v['loss']:+.4f} [{v['ci'][0]:+.4f}, {v['ci'][1]:+.4f}] "
+                          f"{'pass' if v['pass'] else 'FAIL'}")
+    (HOOK_OUT / "qa5r3.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+    if record:
+        from reticle.metrics import record as rec
+        for pname, P in res["pools"].items():
+            for arm, o in P.items():
+                vals = {"pass": o["verdict"] == "pass", "share": round(o["share"], 4)}
+                for q, v in o["q"].items():
+                    vals.update({f"{q}.loss": v["loss"], f"{q}.ci_lo": v["ci"][0],
+                                 f"{q}.ci_hi": v["ci"][1], f"{q}.n": v["n"]})
+                rec("real_reader_schedule", part=f"hook/{arm}", session=pname, values=vals,
+                    deps={"version": VERSION, "gate": "ally-gate-0.1.0", "rule": "QA5r3"},
+                    context={"task": HOOK_TASK, "ref": o["ref"], "caveat": HOOK_CAVEAT})
+        for s, v in res["sessions"].items():
+            rec("real_reader_schedule", part="hook/cost", session=s,
+                values={k: (round(x, 4) if isinstance(x, float) else x) for k, x in v.items()
+                        if not isinstance(x, dict)},
+                deps={"version": VERSION, "gate": "ally-gate-0.1.0"},
+                context={"task": HOOK_TASK, "caveat": HOOK_CAVEAT})
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2801,6 +3100,10 @@ def main(argv=None) -> int:
     rv = sub.add_parser("reach-value")
     rv.add_argument("--record", action="store_true")
     sub.add_parser("outcome-reach")
+    hk = sub.add_parser("hook", help="ally-gate-0.1.0 simulated on stored ally_icon rows, QA5r3")
+    hk.add_argument("sessions", nargs="+")
+    hr = sub.add_parser("hook-report")
+    hr.add_argument("--record", action="store_true")
     a = ap.parse_args(argv)
     for s in getattr(a, "sessions", []) or []:
         refuse(s)
@@ -2831,6 +3134,10 @@ def main(argv=None) -> int:
         return reach_value(a.record)
     if a.cmd == "outcome-reach":
         return outcome_reach()
+    if a.cmd == "hook":
+        return run_hook(a.sessions)
+    if a.cmd == "hook-report":
+        return report_hook(a.record)
     return outcome()
 
 

@@ -1023,7 +1023,12 @@ def _scan_pass(ctx, readers, cache, progress, usage, pipeline, workers, shards, 
         finally:
             if cv_threads is not None:
                 cv2.setNumThreads(before)
+    from .passes import frame_gated
     from .pipeline import run_staged
+    if any(frame_gated(r) for r in readers):
+        # The staged FIFOs would ask a closed-loop gate ahead of its reads.
+        raise SystemExit("a frame-gated reader runs in the serial pass or its process runs "
+                         "only (`--pipeline serial`)")
     got = run_staged(ctx, readers, cache, workers=1 if workers is None else workers,
                      shards=shards, usage=usage, progress=progress, cv_threads=cv_threads)
     usage.staged_run(got)
@@ -1416,6 +1421,18 @@ def cmd_scan(args) -> int:
                                   slab=mp.slab if mp is not None else None)
             from .roi_cache import declare_set
             declare_set(ap, "minimap", profile, ctx.wh)
+            if getattr(args, "ally_gate", "off") == "on":
+                # The frame gate (BACKLOG item 1): its belief is the slot
+                # model's gate belief over stored rounds and death verdicts,
+                # fed back by the gated reads; no replay, no ally row.
+                from .slot_state import ally_gate_for
+                gate = ally_gate_for(sid, store.root)
+                if isinstance(gate, dict):
+                    raise SystemExit(f"ally gate refused: {gate['refused']}")
+                ap.bind_gate(gate)
+                print(f"ally gate  {gate.version} {gate.params()}")
+                for r in gate.rests_on:
+                    print(f"           rests on {r}")
         dp = None
         if want_dark:
             from .minimap_dark import dark_reader
@@ -1632,7 +1649,21 @@ def cmd_scan(args) -> int:
                 events[0].setdefault("inputs", {})["roster"] = input_head(
                     store, manifest, "roster", events[0])
             _record_inputs(store, sid, "ally_icon", events[0])
-            path = out.write_events("ally_icon", sid, events)
+            log = getattr(ap, "gate_log", None)
+            if log is None:
+                stream = "ally_icon"
+                path = out.write_events(stream, sid, events)
+            else:
+                # A gated pass: the gated rows and the audit rows, apart.
+                stream = getattr(args, "ally_stream", "ally_icon") or "ally_icon"
+                events, audit = AllyIconReader.gated_streams(events, log)
+                apath = out.write_events(f"{stream}_audit", sid, audit)
+                path = out.write_events(stream, sid, events)
+                g = events[0]["gate"]
+                print(f"ally gate  {g['read']} of {g['offered']} offered frames read, "
+                      f"{g['audit_only']} audit-only; opened {g['opened_reasons']}")
+                print(f"           refused {g['refused_reasons']}")
+                print(f"ally audit {audit[0]['frames']} frames -> {apath}")
             cov = events[0]
             print(f"ally icons {cov['frames']} frames, {cov['icons']} icons, "
                   f"{cov['described']} described -> {path}")
@@ -1803,6 +1834,9 @@ def cmd_scan(args) -> int:
         from .ratchets import legacy_running
         for line in legacy_running(R.readers):
             print(line)
+        if R.ap is not None and getattr(R.ap, "frame_gate", None) is None:
+            print(f"ungated    ally_icon reads its {R.ap.hz:g} Hz grid (`--ally-gate off`); its "
+                  "frame gate waits for the held-out score")
         t0 = time.perf_counter()
         last = [t0]
 
@@ -1860,6 +1894,7 @@ def cmd_scan(args) -> int:
                     print(f"processes  {exc}; ally_icon rereads in this process")
                     for name in R.ap.shardable:
                         setattr(R.ap, name, [])
+                    R.ap.gate_log = None        # the serial reread logs its own gate
                     from .passes import run_cached
                     run_cached(R.ctx, [R.ap], cache, usage=usage)
                 n_dec += run.frames
@@ -6721,6 +6756,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="read ally_icon from the crop cache in K Idle-priority processes "
                         "split by time, beside the pass (default 1: in the pass; "
                         "`ingest-passes` defaults to 3)")
+    s.add_argument("--ally-gate", choices=("off", "on"), default="off",
+                   help="on: ally_icon reads only where its frame gate opens "
+                        "(`ally_gate`, ally-gate-0.1.0) plus the audit cadence, stored apart "
+                        "as STREAM_audit; off (default until the held-out match scores it): "
+                        "the full grid")
+    s.add_argument("--ally-stream", default="ally_icon", metavar="STREAM",
+                   help="event stream a gated ally pass publishes to (default ally_icon); a "
+                        "distinct name keeps the stored 15 Hz arm")
     s.add_argument("--only", nargs="+",
                    choices=("hud", "minimap", "ping", "roster", "scoreboard",
                             "ally_icon", "minimap_dark", "ability", "clove_circle",

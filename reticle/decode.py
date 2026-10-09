@@ -491,11 +491,22 @@ def sample_multi(
     nominal_fps: float,
     requests: dict[str, tuple[float, list[tuple[float, float]] | None]],
     info: dict | None = None,
+    gates: dict | None = None,
 ) -> Iterator[tuple[frozenset[str], Sample]]:
     """One decode, many readers. Yields `(who wants this frame, sample)`.
 
     `info`, when given, gains `capture_backend`'s keys once the capture
     opens, so a caller's usage record can say what decoded the pass.
+
+    `gates` maps a reader's name to a per-frame gate, `gate(t_ms) -> bool`
+    (`passes`' hook). It is asked at each grid instant the reader's rate and
+    spans would take, before the retrieve; a refused instant advances the
+    reader's phase as a read would, so the grid stays the grid, and is not
+    retrieved unless another reader wants it. The grab still runs: every
+    frame is grabbed to advance the file, so a closed gate saves the
+    retrieve, the colour conversion and the reader, not the grab. The gate
+    is asked lazily, after the caller has consumed every earlier sample, so
+    a gate whose belief the caller feeds back from its reads stays causal.
 
     `requests` maps a reader's name to `(target_hz, spans_ms | None)`, where
     `None` means the whole capture. A frame is retrieved only when at least one
@@ -580,6 +591,10 @@ def sample_multi(
                     if not (s0 <= t_ms <= s1):
                         continue
                 if st["next_t"] is None or t_ms >= st["next_t"]:
+                    if gates is not None and name in gates and not gates[name](t_ms):
+                        # refused: the hook recorded why; the grid moves on
+                        st["next_t"] = t_ms + st["step"]
+                        continue
                     want.add(name)
 
             if want:

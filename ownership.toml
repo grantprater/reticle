@@ -1246,7 +1246,8 @@ owner = "slot_state"
 role = ["adjudicate", "track"]
 status = "partial"
 produces = ["resolve", "Fix", "absent_instants", "round_voids", "BELIEF_VERSION", "beliefs",
-            "region_at", "frame_record"]
+            "region_at", "frame_record", "GateBelief", "gate_belief", "ally_gate_for",
+            "stored_enemy_icons"]
 not_for = """
 Becoming a second tracker, or a fifth belief. Two laws answer here, one owner:
 `resolve` projects the self slot's observed, interpolated, held and unresolved
@@ -1262,6 +1263,29 @@ Enemy slots and ability entities join later on the same entity axis.
 """
 defers_to = ["self-position", "widget-drawn", "domain-fact"]
 evidence = "tests/test_belief.py, tests/test_slot_state.py"
+
+[[entry]]
+id = "ally-read-gate"
+question = "When does the ally pass read a frame of its grid, and why did it not?"
+owner = "ally_gate"
+role = ["constrain"]
+status = "partial"
+produces = ["AllyGate", "ALLY_GATE_VERSION", "AUDIT", "TOL_M", "teammate_fits"]
+not_for = """
+Deciding what a read means, or where a teammate is. The gate answers
+`wants(t_ms)` per grid instant through the hook in `passes` (BACKLOG item 1),
+from `slot_state.GateBelief` (the reach law and the open teammate count, fed
+back by the gated reads alone, built by the CLI because this layer may not
+import adjudication) and two causal cues, death verdicts and stored enemy
+icons near a teammate. It never reads the replay, the stored 15 Hz ally rows
+or `RegionCursor`'s full-rate record, any of which would gate on the outcome.
+Reach is the Euclidean disc until a walk graph is baked with the geometry.
+`scan --ally-gate on` binds it; the default stays off until the held-out
+match scores it once. The audit cadence is the declaration's, applied by the
+hook, never by the gate.
+"""
+consumers = ["minimap"]
+evidence = "tests/test_gate_hook.py; prototypes/real_reader_schedule.py hook (QA5r3)"
 
 [[entry]]
 id = "slot-state"
