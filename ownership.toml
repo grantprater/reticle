@@ -2403,12 +2403,12 @@ lies on, for scoring alone (AGENTS.md, "Replay truth covers every entity").
 The limit, and why the join waits: the core is pure over a truth grid its
 caller builds, and the grid with its T1d draw rule
 (`t1_draw_rule.RealDrawMatch`, `enemy_lane_check.build_sets`) is still a
-prototype. `reticle acceptance <subcommand>` runs
-`prototypes/question_acceptance.py` as a child process, which builds the grid
-and calls the join (`join_entities`, `truth_under_rows`, `score_finds`,
-`class_lane`, `score_lane`, `mark_truth`, `census`, `assign_per_frame`); no
-`reticle/` command reaches those in process until the grid is promoted, so
-`produces` names only what `reticle acceptance summary` reaches over the
-stored rows.
+prototype. Only `prototypes/question_acceptance.py` (lane, label, the
+steps, replay-score, replay-abilities, budget) builds the grid and calls the
+join (`join_entities`, `truth_under_rows`, `score_finds`, `class_lane`,
+`score_lane`, `mark_truth`, `census`, `assign_per_frame`); `reticle
+acceptance` runs only `summary`, in process over the stored rows. No
+`reticle/` command reaches the join until the grid is promoted, so
+`produces` names only what `summary` reaches.
 """
 evidence = "tests/test_acceptance_core.py"

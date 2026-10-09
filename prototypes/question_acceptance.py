@@ -338,7 +338,8 @@ outcomes, lane and class scoring, recall, the steps' summaries and the round
 bootstrap, pure over the grid this file builds. This file keeps the IO: the
 lane build, the T1d grid and its sets (`t1_draw_rule`, `enemy_lane_check`,
 `teardrop_refusals`), the stores' streams, the claimers, the instrument
-control, printing and recording. `reticle acceptance <subcommand>` runs it.
+control, printing and recording. Its subcommands run only here until the
+grid is promoted; `reticle acceptance summary` rescores their stored rows.
 On the development matches the lane, `replay-score` and `budget` controls
 reproduce master's output.
 
