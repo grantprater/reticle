@@ -60,6 +60,11 @@ The validator
 `store.write_events` calls it for every `entity_*` stream and refuses to write
 a lane with any. Pass `verdicts` (arbiter `ref` -> status) to check that every
 cited verdict is resolved; without it the check is structural.
+
+Ability and effect entities (`check_ability_row`, docs/ABILITY_ENTITIES.md
+section 2.9) have one lane, `ability`, and one producer per family,
+`ability-child` or `ability-effect`; a name on one cites its own key's
+verdict, or declares the other key's verdict in `depends_on`.
 """
 from __future__ import annotations
 
@@ -108,6 +113,9 @@ FAMILIES: dict[str, frozenset | None] = {
     # own entity [domain:minimap/self-icon-shows-spectated]
     "icon_track": frozenset({"ally", "enemy", "self", "spectated"}),
     "ability_object": None,
+    # what an ability instance or a cast does to players: a buff, a reveal, a
+    # blind, a kill or an assist (docs/ABILITY_ENTITIES.md section 2.5)
+    "ability_effect": None,
     "spike": frozenset({"spike"}),
     "ping": PING_KINDS,
     "mark": frozenset({"death", "last_known"}),
@@ -126,7 +134,13 @@ ENTITY_KEYS = ("row", "entity_id", "family", "kind", "side", "round", "lifetime"
 #: accepted the track as a drawn player, else null with its reason, so a
 #: consumer tells an unassessed track from an accepted one. Optional: a lane
 #: that does not apply the rule omits it, and rows written before it validate.
-ENTITY_OPTIONAL = ("reality",)
+#: `depends_on`: the arbiter verdict refs (`identity:<key>`) on OTHER keys a
+#: row's names rest on; an ability or effect row may cite another key's
+#: verdict only through it (`check_ability_row`). `parent`: an ability or
+#: effect node's parent in the ability tree, any entity key (a player slot,
+#: an ability instance, a spawned object), or null with its reason; required
+#: on those families, absent elsewhere.
+ENTITY_OPTIONAL = ("reality", "depends_on", "parent")
 LIFETIME_KEYS = ("first_observed_ms", "last_observed_ms", "began", "ended",
                  "censored_at_ms")
 
@@ -140,7 +154,7 @@ EVENT_KEYS = ("row", "event_id", "entity_id", "kind", "round", "observed_ms",
 #: `player` binds the event to a player entity where the binding owner stored
 #: the slot key; `participants` maps a role (killer, pinger, planter) to
 #: `{entity_id, identity}`, or to null with its reason.
-EVENT_OPTIONAL = ("identity", "player", "participants", "round_ms")
+EVENT_OPTIONAL = ("identity", "player", "participants", "round_ms", "depends_on")
 #: The only time keys an event holds. `round_ms` is `gametime`'s round clock,
 #: carried when that owner stores it.
 TIME_KEYS = frozenset({"observed_ms", "observed_last_ms", "occurred", "round_ms"})
@@ -528,6 +542,82 @@ def check_producer(producer, owners: frozenset | None) -> list[str]:
     return out
 
 
+#: Ability and effect entities reach consumers through one lane, from one
+#: owner (docs/ABILITY_ENTITIES.md section 2.9): family -> the ownership entry
+#: that alone may produce it. `slot_state` owns both entries.
+ABILITY_LANE = "ability"
+ABILITY_PRODUCERS: dict[str, str] = {"ability_object": "ability-child",
+                                     "ability_effect": "ability-effect"}
+#: Event kinds that only an ability child's owner emits.
+ABILITY_EVENT_KINDS = frozenset({"cast", "ability_object"})
+#: The child and effect key scheme (`<sid>:child:R<round>:<n>`,
+#: `<sid>:effect:R<round>:<n>`); an event on such a key is an ability event.
+ABILITY_KEY = re.compile(r":(child|effect):R\d+:\d+$")
+
+
+def _ability_family(row: dict) -> str | None:
+    """The ability family a consumer row concerns, or None."""
+    if row.get("row") == "entity":
+        family = row.get("family")
+        return family if family in ABILITY_PRODUCERS else None
+    if row.get("row") == "event":
+        m = ABILITY_KEY.search(str(row.get("entity_id", "")))
+        if m:
+            return "ability_effect" if m.group(1) == "effect" else "ability_object"
+        if row.get("kind") in ABILITY_EVENT_KINDS:
+            return "ability_object"
+    return None
+
+
+def check_ability_row(row: dict) -> list[str]:
+    """The rejections of an ability or effect row (section 2.9).
+
+    An ability or effect entity, or an event on one, is rejected when it
+    stands in a lane other than `ability`, when its producer is not the
+    family's owner (`ABILITY_PRODUCERS`), or when a name it carries cites a
+    verdict on another key (its parent's included) without listing that
+    verdict in `depends_on`. A row's own key is its `entity_id`; a
+    participant's is the participant's. An entity row also names its
+    `parent` in the ability tree: another entity's key, or null with its
+    reason.
+    """
+    family = _ability_family(row)
+    if family is None:
+        return []
+    out = []
+    what = f"an {family} {row.get('row')}"
+    if row.get("lane") != ABILITY_LANE:
+        out.append(f"{what} stands in lane {row.get('lane')!r}; ability entities reach "
+                   f"consumers only through lane {ABILITY_LANE!r}")
+    producer = row.get("producer")
+    owner = producer.get("owner") if isinstance(producer, dict) else None
+    if owner != ABILITY_PRODUCERS[family]:
+        out.append(f"{what} comes from {owner!r}; only {ABILITY_PRODUCERS[family]!r} "
+                   f"produces it")
+    if row.get("row") == "entity":
+        # The tree (player, 2026-10-09): every node names its parent, any
+        # entity key, or null with why (a glyph whose caster is unknown).
+        if "parent" not in row:
+            out.append(f"{what} names no parent; a node of the ability tree binds to any "
+                       f"entity key, or null with its reason")
+        elif row["parent"] is not None and (not isinstance(row["parent"], str)
+                                            or row["parent"] == row.get("entity_id")):
+            out.append(f"{what} has parent {row['parent']!r}; a parent is another entity's key")
+    deps = row.get("depends_on")
+    deps = set(deps) if isinstance(deps, list) else set()
+    named = [("identity", row.get("entity_id"), row.get("identity"))]
+    parts = row.get("participants")
+    if isinstance(parts, dict):
+        named += [(f"participants.{role}.identity", p.get("entity_id"), p.get("identity"))
+                  for role, p in parts.items() if isinstance(p, dict)]
+    for where, key, identity in named:
+        ref = identity.get("ref") if isinstance(identity, dict) else None
+        if isinstance(ref, str) and ref != f"identity:{key}" and ref not in deps:
+            out.append(f"{where} cites {ref}, a verdict on another key than {key!r}, "
+                       f"and depends_on does not declare it")
+    return out
+
+
 def check_evidence(evidence) -> list[str]:
     if not isinstance(evidence, list):
         return ["evidence must be a list of {stream, id, version}"]
@@ -747,6 +837,7 @@ def check_consumer_row(row: dict, *, lane: str | None = None,
         out = check_coverage(row, lane=lane)
     else:
         return [f"row {kind!r} is not stamp, entity, event or coverage"]
+    out += check_ability_row(row)
     for where in _find_keys(row, UNCERTAINTY_KEYS):
         out.append(f"{where} is an uncertainty field; a consumer row is certain "
                    f"or absent, and the ledger holds the doubt")

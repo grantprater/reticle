@@ -423,6 +423,25 @@ def check_roundscope(base: Path | None = None) -> list[tuple[str, str]]:
     return ratchets.roundscope_findings(base)
 
 
+def check_ability() -> list[tuple[str, str]]:
+    """ABILITY: every ability stream, lane and ownership entry is a declared
+    input of the child owner or its own (`ratchets.ability_findings`,
+    docs/ABILITY_ENTITIES.md step 1). This gathers what the ratchet reads: the
+    child owner's declaration, the store's stream registry, the entity lanes
+    and `ownership.toml`."""
+    from reticle import entity_events, plan, slot_state
+    streams = {s for s, *_ in plan.reader_streams()} | {s for s, *_ in plan.ability_streams()}
+    streams |= {d["stream"] for d in plan.derived_streams()}
+    streams |= set(plan._HAND_CHECKED) | set(plan.UNSTAMPED) | set(plan.RETIRED_STREAMS)
+    inputs = ratchets.AbilityInputs(
+        channels=slot_state.CHANNELS, lanes_declared=frozenset(slot_state.ABILITY_LANES),
+        child_owner="slot_state", child_entries=slot_state.ABILITY_ENTRIES,
+        streams=frozenset(streams), retired=frozenset(plan.RETIRED_STREAMS),
+        lanes={s["lane"]: tuple(s["inputs"]) for s in entity_events.ENTITY_LANES},
+        entries=ownership.load().get("_index", {}))
+    return ratchets.ability_findings(inputs)
+
+
 def check_manifest(store: Path) -> list[tuple[str, str]]:
     """A manifest whose TAGS contradict the profile it was ingested with.
 
@@ -2046,6 +2065,7 @@ def run(store: Path, verbose: bool = False) -> list[tuple[str, str, str]]:
               ("MOVEMENT", check_movement), ("SCALE", check_scale),
               ("RESTATE", check_restate),
               ("CONVERT", check_convert), ("ROUNDSCOPE", check_roundscope),
+              ("ABILITY", check_ability),
               ("LAYER", check_layer), ("CONSUMER", check_consumer),
               ("OWNERSHIP", check_ownership),
               ("QUOTED", lambda: check_quoted(store)),

@@ -21,6 +21,11 @@ Three ratchets live here:
   meant for production is wired into `reticle/` or names the backlog item
   that wires it.
 
+ABILITY (`ability_findings`, docs/ABILITY_ENTITIES.md step 1) joins them: every
+ability stream, lane and ownership entry is a declared input of the child
+owner (`slot_state.CHANNELS`) or the child owner's own, else listed in the
+shrink-only `ABILITY_LEGACY` with the plan step that clears it.
+
 The module reads source text and ledger rows only; it imports nothing from
 `reticle/` above the foundation, so a reader may import `Gate` from it.
 """
@@ -1443,6 +1448,359 @@ def promote_strict(rows: list[dict], stems: set[str], used: set[str],
         out.append((ERROR, f"PROMOTE_LEGACY names `{s}`, outside the frozen PROMOTE_SEED -- "
                            "the allowlist only shrinks"))
     return out, unwired
+
+
+# ---------------------------------------------------------------------------
+# ABILITY: every ability fragment is a declared input of the child owner
+# ---------------------------------------------------------------------------
+
+#: A stream the store's registry declares is an ability stream when its name
+#: says so; retired streams are evidence no command writes, and are skipped.
+ABILITY_STREAM = re.compile(r"^(ability_\w+|smoke\w*|ult_\w+|tray_\w+|clove_\w+|dead_ruse\w*"
+                            r"|minimap_dark)$")
+#: An ownership entry whose id says ability must carry `entity_kind`, so an
+#: ability entry cannot escape the check by omitting the tag.
+ABILITY_ENTRY = re.compile(r"(^|-)(ability|smoke|ult|tray|glyph|clove|ruse)(-|$)")
+#: The tag that puts an ownership entry under ABILITY.
+ABILITY_KIND = "ability"
+#: Where a legacy entry's `step` points: a migration step that is still to run.
+ABILITY_STEP = re.compile(r"^step [2-7]\b")
+#: What a `CHANNELS` row declares.
+CHANNEL_FIELDS = ("witness", "parent", "wired", "owners", "readers", "streams", "feeds", "opens", "joins",
+                  "ends", "kind", "agent_claim", "position", "effect")
+
+#: Ability entries the plan keeps apart from the child owner by design, and
+#: why: development tools and replay truth, never a witness (section 1.2 and
+#: 1.4). Not a debt and not an input; `doctor` errors if one becomes a
+#: `CHANNELS` entry or stops being an entry.
+ABILITY_APART: dict[str, str] = {
+    "capture-queue": "a development tool for demo captures (section 1.2)",
+    "ability-evidence": "a development inventory of stored evidence (section 1.2)",
+    "replay-ability-actors": "replay truth, never a reader input (section 1.4)",
+}
+#: ABILITY_APART's keys when seeded, 2026-10-09. Frozen: a key outside it is
+#: an ERROR, so no entry escapes ABILITY by being declared apart.
+ABILITY_APART_SEED: frozenset[str] = frozenset({
+    "capture-queue", "ability-evidence", "replay-ability-actors"})
+
+#: Every ability fragment outside `slot_state.CHANNELS` and the child owner on
+#: 2026-10-09 (docs/ABILITY_ENTITIES.md section 1), found by
+#: `ability_findings` over the store's stream registry (`plan`), the entity
+#: lanes (`entity_events.ENTITY_LANES`) and `ownership.toml`, plus the code the
+#: plan retires by name. Keys: `stream:<name>`, `lane:<name>`, `entry:<id>`,
+#: `code:<path>::<name>`. Each names its fate and the step that clears it;
+#: remove an entry in the commit that clears its fragment.
+ABILITY_LEGACY: dict[str, dict[str, str]] = {
+    "stream:ability_light": {
+        "fate": "retires with milestone C, beside `light_refusals` and `reticle ability-light`",
+        "step": "step 3"},
+    "stream:ability_shape_audit": {
+        "fate": "the gate's 2 Hz audit rows, read by prototypes only; merges into the gated fits",
+        "step": "step 6"},
+    "stream:ability_shape_scan": {
+        "fate": "the gate's 2 Hz scan rows, read by prototypes only; merges into the gated fits",
+        "step": "step 6"},
+    "stream:dead_ruse_cast": {
+        "fate": "becomes a query over the player's Ruse children",
+        "step": "step 2"},
+    "stream:tray_countdown": {
+        "fate": "a reader of the kit owner; nothing reads it until kits cover every slot",
+        "step": "step 5"},
+    "lane:smoke": {
+        "fate": "declared, never projected; folds into the one `ability` lane",
+        "step": "step 3"},
+    "lane:ult_cast": {
+        "fate": "declared, never projected; folds into the one `ability` lane",
+        "step": "step 3"},
+    "entry:ability-appearance": {
+        "fate": "the gallery's classifier retires; the game-texture glyph reader replaced it",
+        "step": "step 3"},
+    "entry:ability-detection": {
+        "fate": "`minimap.detect_ability_*` retire; `ability_icons` and `ability_shapes` "
+                "replaced them",
+        "step": "step 3"},
+    "entry:ability-hypothesis": {
+        "fate": "milestone C (`build_entities` and the grouping rules) retires",
+        "step": "step 3"},
+    "entry:ability-phase": {
+        "fate": "`adjudication.phases` retires; its two structural rules become the child "
+                "owner's tests",
+        "step": "step 3"},
+    "entry:drawn-light": {
+        "fate": "kept until its consumer `light_refusals` retires with milestone C",
+        "step": "step 3"},
+    "entry:tray-restock-countdown": {
+        "fate": "a reader of the kit owner; nothing reads it until kits cover every slot",
+        "step": "step 5"},
+    "code:reticle/ability_timeline.py::build_timeline": {
+        "fate": "the `ability-timeline` bundle retires with milestone C",
+        "step": "step 3"},
+    "code:reticle/adjudication/ability.py::light_refusals": {
+        "fate": "retires with milestone C and `ability_light`",
+        "step": "step 3"},
+    "code:reticle/adjudication/ability.py::predict_ability_births": {
+        "fate": "retires with milestone C; its category gate is a rule by analogy",
+        "step": "step 3"},
+    "code:reticle/adjudication/ability_glyph.py::glyph_placement": {
+        "fate": "`detection_reality` asks the child owner in its place, so a child of any "
+                "channel explains a find",
+        "step": "step 4"},
+    "code:reticle/adjudication/smoke_owner.py::cast_links": {
+        "fate": "binding a smoke to its cast moves to the child owner",
+        "step": "step 2"},
+    "code:reticle/adjudication/ult_cast.py::player_x_drops": {
+        "fate": "binding an own ult line to its X drop moves to the child owner",
+        "step": "step 2"},
+}
+
+#: ABILITY_LEGACY's keys when seeded, 2026-10-09. Frozen: doctor errors on a
+#: key outside it, so the list cannot grow by an edit that adds one entry and
+#: drops another.
+ABILITY_SEED: frozenset[str] = frozenset({
+    "stream:ability_light", "stream:ability_shape_audit", "stream:ability_shape_scan",
+    "stream:dead_ruse_cast", "stream:tray_countdown",
+    "lane:smoke", "lane:ult_cast",
+    "entry:ability-appearance", "entry:ability-detection", "entry:ability-hypothesis",
+    "entry:ability-phase", "entry:drawn-light", "entry:tray-restock-countdown",
+    "code:reticle/ability_timeline.py::build_timeline",
+    "code:reticle/adjudication/ability.py::light_refusals",
+    "code:reticle/adjudication/ability.py::predict_ability_births",
+    "code:reticle/adjudication/ability_glyph.py::glyph_placement",
+    "code:reticle/adjudication/smoke_owner.py::cast_links",
+    "code:reticle/adjudication/ult_cast.py::player_x_drops",
+})
+
+
+@dataclass(frozen=True)
+class AbilityInputs:
+    """What ABILITY reads, gathered by `doctor.check_ability` so this module
+    imports nothing above the foundation.
+
+    `channels`, `lanes_declared`, `child_owner` and `child_entries` are the
+    child owner's declaration (`slot_state.CHANNELS`, `ABILITY_LANES`, the
+    module name, `ABILITY_ENTRIES`); `streams` the store's stream registry
+    (`plan`'s declared streams) and `retired` its retired streams; `lanes` the
+    entity lanes as `{lane: inputs}`; `entries` the ownership entries by id.
+    """
+
+    channels: tuple
+    lanes_declared: frozenset
+    child_owner: str
+    child_entries: tuple
+    streams: frozenset
+    retired: frozenset
+    lanes: dict
+    entries: dict
+
+
+def _listed(entry: dict, field: str) -> list[str]:
+    value = entry.get(field, [])
+    return [value] if isinstance(value, str) else list(value)
+
+
+def _code_exists(key: str, base: Path) -> bool:
+    """Does `code:<path>::<name>` still define `<name>` at its module's top level?"""
+    rel, _, name = key[len("code:"):].partition("::")
+    tree = _parse_source(base / rel) if (base / rel).is_file() else None
+    return tree is not None and any(
+        isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.name == name
+        for n in tree.body)
+
+
+def ability_streams(inputs: AbilityInputs) -> list[str]:
+    """The registry's ability streams, by `ABILITY_STREAM`, retired ones aside."""
+    return sorted(s for s in inputs.streams - inputs.retired if ABILITY_STREAM.match(s))
+
+
+def ability_lanes(inputs: AbilityInputs) -> list[str]:
+    """Entity lanes that carry ability evidence: an ability name, or an
+    ability stream among their inputs."""
+    return sorted(lane for lane, ins in inputs.lanes.items()
+                  if ABILITY_STREAM.match(lane) or lane in inputs.lanes_declared
+                  or any(ABILITY_STREAM.match(s) for s in ins))
+
+
+def ability_findings(inputs: AbilityInputs, legacy: dict | None = None,
+                     seed: frozenset | None = None, apart: dict | None = None,
+                     base: Path | None = None,
+                     apart_seed: frozenset | None = None) -> list[tuple[str, str]]:
+    """ABILITY: every ability stream, lane and ownership entry is a declared
+    input of the child owner (docs/ABILITY_ENTITIES.md section 4).
+
+    A fragment is accounted for when `slot_state.CHANNELS` names it (a row's
+    `streams`, `owners` or `readers`), when the child owner holds it (its
+    entries and `ABILITY_LANES`), or, for an entry, when `ABILITY_APART`
+    keeps it apart. Anything else is an ERROR, or a WARN where
+    `ABILITY_LEGACY` lists it with its fate and step. Fragments come from the
+    store's stream registry (`ABILITY_STREAM` over `plan`'s declared streams),
+    the entity lanes, and the ownership entries tagged `entity_kind =
+    "ability"`; an entry whose id says ability and carries no `entity_kind` is
+    an ERROR.
+
+    The declaration is checked too: a `CHANNELS` row naming a stream the
+    registry lacks, or an entry that is none or is untagged, or an owner that
+    does not declare the row's `feeds`, is an ERROR, as is a `feeds` naming
+    no entry or from an entry no row names as an owner. A legacy entry whose
+    fragment is gone or now accounted for is an ERROR until it goes, and a
+    legacy key outside the frozen `ABILITY_SEED` is an ERROR, so the list only
+    shrinks.
+    """
+    legacy = ABILITY_LEGACY if legacy is None else legacy
+    seed = ABILITY_SEED if seed is None else seed
+    apart = ABILITY_APART if apart is None else apart
+    apart_seed = ABILITY_APART_SEED if apart_seed is None else apart_seed
+    base = ROOT if base is None else base
+    entries = inputs.entries
+    out: list[tuple[str, str]] = []
+
+    # The declaration: every row well formed, every name resolvable.
+    ch_streams: set[str] = set()
+    ch_entries: set[str] = set()
+    ch_owners: dict[str, set[str]] = {}
+    for i, row in enumerate(inputs.channels):
+        where = f"CHANNELS row {i} (`{row.get('witness', '?')}`)"
+        missing = [f for f in CHANNEL_FIELDS if f not in row]
+        extra = sorted(set(row) - set(CHANNEL_FIELDS))
+        if missing or extra:
+            out.append((ERROR, f"{where} lacks {missing} or holds {extra}; a row declares "
+                               f"{', '.join(CHANNEL_FIELDS)}"))
+            continue
+        if not (row["opens"] or row["joins"] or row["ends"]):
+            out.append((ERROR, f"{where} may neither open, join nor end a child"))
+        if not row["wired"] and (row["owners"] or row["streams"]):
+            out.append((ERROR, f"{where} is unwired and names owners or streams"))
+        if row["wired"] and not row["owners"]:
+            out.append((ERROR, f"{where} is wired and names no owner"))
+        for s in row["streams"]:
+            ch_streams.add(s)
+            if s not in inputs.streams:
+                out.append((ERROR, f"{where} names stream `{s}`, which the store's stream "
+                                   "registry (`plan`) does not declare"))
+            elif s in inputs.retired:
+                out.append((ERROR, f"{where} names stream `{s}`, which is retired"))
+        for f in row["feeds"]:
+            if f not in inputs.child_entries:
+                out.append((ERROR, f"{where} feeds `{f}`, which is not the child owner's"))
+        for key in tuple(row["owners"]) + tuple(row["readers"]):
+            ch_entries.add(key)
+            e = entries.get(key)
+            if e is None:
+                out.append((ERROR, f"{where} names `{key}`, which is no ownership entry"))
+            elif e.get("entity_kind") != ABILITY_KIND:
+                out.append((ERROR, f"{where} names `{key}`, whose ownership entry does not "
+                                   f"declare entity_kind = \"{ABILITY_KIND}\""))
+        for key in row["owners"]:
+            ch_owners.setdefault(key, set()).update(row["feeds"])
+    for key, feeds in sorted(ch_owners.items()):
+        e = entries.get(key)
+        if e is not None and not feeds <= set(_listed(e, "feeds")):
+            out.append((ERROR, f"ownership.toml [{key}] feeds the child owner through CHANNELS "
+                               f"and declares feeds = {_listed(e, 'feeds')}, not "
+                               f"{sorted(feeds)}"))
+
+    # The child owner's own entries.
+    for key in inputs.child_entries:
+        e = entries.get(key)
+        if e is None:
+            out.append((ERROR, f"the child owner's entry `{key}` is not in ownership.toml"))
+        elif e.get("entity_kind") != ABILITY_KIND:
+            out.append((ERROR, f"ownership.toml [{key}] is the child owner's and does not "
+                               f"declare entity_kind = \"{ABILITY_KIND}\""))
+
+    # Ownership entries.
+    accounted: set[str] = set()
+    for key in sorted(entries):
+        e = entries[key]
+        tagged = e.get("entity_kind") == ABILITY_KIND
+        for f in _listed(e, "feeds"):
+            if f not in entries:
+                out.append((ERROR, f"ownership.toml [{key}] feeds `{f}`, which is no entry"))
+        if _listed(e, "feeds") and key not in ch_owners:
+            out.append((ERROR, f"ownership.toml [{key}] declares feeds and no CHANNELS row "
+                               "names it as an owner"))
+        if not tagged:
+            if ABILITY_ENTRY.search(key):
+                out.append((ERROR, f"ownership.toml [{key}] reads as ability evidence and "
+                                   f"does not declare entity_kind = \"{ABILITY_KIND}\""))
+            continue
+        if str(e.get("owner", "")) == inputs.child_owner and key in inputs.child_entries:
+            accounted.add(f"entry:{key}")
+        elif key in ch_entries:
+            accounted.add(f"entry:{key}")
+            if key in apart:
+                out.append((ERROR, f"`{key}` is both kept apart (ABILITY_APART) and named "
+                                   "by CHANNELS"))
+        elif key in apart:
+            accounted.add(f"entry:{key}")
+        elif f"entry:{key}" in legacy:
+            pass
+        else:
+            out.append((ERROR, f"ownership.toml [{key}] is ability evidence outside CHANNELS "
+                               "and the child owner -- declare it a CHANNELS input, never a "
+                               "new ABILITY_LEGACY entry"))
+    for key in sorted(apart):
+        if key not in entries:
+            out.append((ERROR, f"ABILITY_APART names `{key}`, which is no ownership entry"))
+    for key in sorted(set(apart) - set(apart_seed)):
+        out.append((ERROR, f"ABILITY_APART names `{key}`, outside the frozen ABILITY_APART_SEED "
+                           "-- declare it a CHANNELS input instead"))
+
+    # Streams and lanes.
+    found: set[str] = {f"entry:{k}" for k, e in entries.items()
+                       if e.get("entity_kind") == ABILITY_KIND}
+    for s in ability_streams(inputs):
+        found.add(f"stream:{s}")
+        if s in ch_streams:
+            accounted.add(f"stream:{s}")
+        elif f"stream:{s}" not in legacy:
+            out.append((ERROR, f"stream `{s}` is ability evidence outside CHANNELS -- "
+                               "declare it a CHANNELS input, never a new ABILITY_LEGACY entry"))
+    for lane in ability_lanes(inputs):
+        found.add(f"lane:{lane}")
+        if lane in inputs.lanes_declared:
+            accounted.add(f"lane:{lane}")
+        elif f"lane:{lane}" not in legacy:
+            out.append((ERROR, f"entity lane `{lane}` carries ability evidence outside the "
+                               "child owner's lanes (`ability`, `ability_tray`)"))
+
+    # The legacy list: warn per live entry, error on a stale one.
+    for key in sorted(legacy):
+        e = legacy[key]
+        if not ABILITY_STEP.match(str(e.get("step", ""))) or not e.get("fate"):
+            out.append((ERROR, f"ABILITY_LEGACY `{key}` names no fate or no step 2-7 that "
+                               "clears it"))
+        if key.startswith("code:"):
+            live = _code_exists(key, base)
+        else:
+            live = key in found and key not in accounted
+        if not live:
+            out.append((ERROR, f"ABILITY_LEGACY names `{key}`, which is gone or now a declared "
+                               "input -- remove it from the allowlist"))
+        else:
+            out.append((WARN, f"legacy ability fragment `{key}`: {e.get('fate')}; clears in "
+                              f"{e.get('step')} (docs/ABILITY_ENTITIES.md)"))
+    for key in sorted(set(legacy) - set(seed)):
+        out.append((ERROR, f"ABILITY_LEGACY names `{key}`, outside the frozen ABILITY_SEED -- "
+                           "the allowlist only shrinks"))
+    return out
+
+
+def ability_progress(legacy: dict | None = None, seed: frozenset | None = None) -> dict:
+    """ABILITY's progress against its seed, and the open entries per step."""
+    legacy = ABILITY_LEGACY if legacy is None else legacy
+    seed = ABILITY_SEED if seed is None else seed
+    steps: dict[str, int] = {}
+    for e in legacy.values():
+        steps[e["step"]] = steps.get(e["step"], 0) + 1
+    return {"cleared": len(seed - set(legacy)), "legacy": len(legacy),
+            "steps": dict(sorted(steps.items()))}
+
+
+def ability_progress_line(p: dict) -> str:
+    """`status`'s ability conversion line."""
+    per = ", ".join(f"{s}: {n}" for s, n in p["steps"].items()) or "none"
+    return (f"Ability entities (docs/ABILITY_ENTITIES.md): ABILITY {p['cleared']} cleared / "
+            f"{p['legacy']} legacy fragments ({per}).")
 
 
 # ---------------------------------------------------------------------------

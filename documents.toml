@@ -96,7 +96,7 @@ kind = "design"
 status = "partial"
 since = "2026-09-23"
 implemented_by = ["owns:ability-hypothesis", "owns:ability-phase", "owns:ability-appearance", "owns:capture-queue"]
-remains = "Annotation and new capture have not run."
+remains = "Annotation and new capture have not run. Superseded by docs/ABILITY_ENTITIES.md (section 1.5); its owners retire in that plan's step 3."
 
 [[document]]
 path = "docs/ABILITY_STATES_GAMEDATA.md"
@@ -111,7 +111,7 @@ kind = "design"
 status = "partial"
 since = "2026-09-27"
 implemented_by = ["owns:ability-state", "cmd:ability-state"]
-remains = "Steps 2 to 6 of its build order: own audio and the timer bar, entities, allies, enemies, modal gating."
+remains = "Steps 2 to 6 of its build order: own audio and the timer bar, entities, allies, enemies, modal gating. Step 3 points to docs/ABILITY_ENTITIES.md; its steps 4-5 become that plan's step 5 (section 1.5)."
 
 [[document]]
 path = "docs/ADJUDICATION_DESIGN.md"
@@ -238,7 +238,7 @@ path = "docs/ABILITY_DETECTION.md"
 kind = "plan"
 status = "proposed"
 since = "2026-09-30"
-remains = "Every stage: fast fits, the unified crop-cache pass with smokes identical, the icon proposer, the recall pass, tracks and lifecycles, the naming loop and gallery, identity, the ability lane and the viewer."
+remains = "Every stage: fast fits, the unified crop-cache pass with smokes identical, the icon proposer, the recall pass, tracks and lifecycles, the naming loop and gallery, identity, the ability lane and the viewer. Sections 13-15 are superseded by docs/ABILITY_ENTITIES.md (section 1.5); sections 1-12 stay the readers' record."
 waits_for = "The player's approval of the corpus run's cost and answers to section 17's questions."
 
 [[document]]
@@ -255,7 +255,7 @@ kind = "plan"
 status = "partial"
 since = "2026-09-30"
 implemented_by = ["reticle/entity_contract.py", "owns:entity-event"]
-remains = "Stage 0 is done (the contract, its validator and the CONSUMER check). Stage 1 (lanes round_entity, death and spike on bfad2778a372 with the round viewer, ending the viewer's CONSUMER exemptions), then players and bindings, consumer migration, the owner gaps and the debt target."
+remains = "Stage 0 is done (the contract, its validator and the CONSUMER check). Stage 1 (lanes round_entity, death and spike on bfad2778a372 with the round viewer, ending the viewer's CONSUMER exemptions), then players and bindings, consumer migration, the owner gaps and the debt target. Its lane table and gap 8 point to docs/ABILITY_ENTITIES.md (section 1.5): one ability lane, never the smoke and ult_cast lanes."
 waits_for = "The player's review of the plan as amended by his answers of 2026-09-30, and what an unobserved object of each remaining family shows."
 
 [[document]]
@@ -474,7 +474,7 @@ path = "docs/ARBITER_ARCHITECTURE.md"
 kind = "plan"
 status = "proposed"
 since = "2026-09-30"
-remains = "Every stage: the held-out enemy name labels, the baseline, assignment of enemy fragments to the living five with reopening on surprise and its reopened-share prediction, wiring with the enemy lane, the channel arbiters, ability owners and allies. Its AGENTS.md rule change is applied (2026-09-30)."
+remains = "Every stage: the held-out enemy name labels, the baseline, assignment of enemy fragments to the living five with reopening on surprise and its reopened-share prediction, wiring with the enemy lane, the channel arbiters, ability owners and allies. Its AGENTS.md rule change is applied (2026-09-30). Section 6's ability-owner stage becomes the child owner's claim rules (docs/ABILITY_ENTITIES.md section 1.5)."
 waits_for = "The held-out label pass, and the player's answers to the movement, activation-after-death and persistence questions on docs/ABILITY_MECHANICS_SHEET.md."
 
 [[document]]
@@ -549,7 +549,7 @@ kind = "plan"
 status = "partial"
 since = "2026-10-09"
 implemented_by = ["owns:ability-glyph", "owns:ability-glyph-name"]
-remains = "Stage 1 done (glyph-tables-0.1.1) except gate 3's unlabelled discs; stage 2's reader (ability-glyph-0.2.0) built 2026-10-05 with stage 1's static and portrait gates, gate 7 met; stage 3's prerequisites (ability-glyph-0.5.0, glyph-null-table-0.2.0) met 2026-10-05 except gate 3's unlabelled discs: the null at the full scale transform, an audit null, the map_shown gate on the void-corner disc. Stage 3 built 2026-10-05 (ability-disc-track-0.1.0, ability-glyph-name-0.1.0): disc tracks, the glyph verdict with the Astra-star rule (the Omen rule refuses until its scale is recorded) and its identity claims; P4 and gate 6 failed, gate 4's fresh set cannot be met from the store. Then more exhaustive dev frames for gate 3, captures for gate 4, the cache-cadence follow, the ability_icon lane, the Riot bound and the scene-model sprite. Revised 2026-10-04 with the clean held-out score (H1-H8, K5) the two-flag rotation test (glyph-wiring-design-20261004 G1-G4, corrected) and the cross-channel independence measurement (cross-channel-independence-20261004)."
+remains = "Stage 1 done (glyph-tables-0.1.1) except gate 3's unlabelled discs; stage 2's reader (ability-glyph-0.2.0) built 2026-10-05 with stage 1's static and portrait gates, gate 7 met; stage 3's prerequisites (ability-glyph-0.5.0, glyph-null-table-0.2.0) met 2026-10-05 except gate 3's unlabelled discs: the null at the full scale transform, an audit null, the map_shown gate on the void-corner disc. Stage 3 built 2026-10-05 (ability-disc-track-0.1.0, ability-glyph-name-0.1.0): disc tracks, the glyph verdict with the Astra-star rule (the Omen rule refuses until its scale is recorded) and its identity claims; P4 and gate 6 failed, gate 4's fresh set cannot be met from the store. Then more exhaustive dev frames for gate 3, captures for gate 4, the cache-cadence follow, the ability_icon lane, the Riot bound and the scene-model sprite. Revised 2026-10-04 with the clean held-out score (H1-H8, K5) the two-flag rotation test (glyph-wiring-design-20261004 G1-G4, corrected) and the cross-channel independence measurement (cross-channel-independence-20261004). Its section \"The event and its consumers\" is superseded by docs/ABILITY_ENTITIES.md (section 1.5); the channel stays."
 waits_for = "Nothing for stage 1; the player's answers on Cypher:C and Skye:X rotation refine its table, and the game-data reading of which component draws a placed Deadlock:Q or Omen:E icon checks the two-flag rule. The Omen motion rule waits for the widget scale behind its fact."
 
 [[document]]
@@ -557,16 +557,17 @@ path = "docs/ENTITY_STATE.md"
 kind = "plan"
 status = "proposed"
 since = "2026-10-04"
-remains = "Stage 1 ran as a prototype (prototypes/entity_state.py, held-out calibration 0.9355 against 0.98); stage 2a ran as a prototype (prototypes/entity_binding.py, causal binding, held-out calibration 0.9678 on a second look against the 0.97 gate); every stage after it: the baked world frame, the Riot and replay slot scorers, the causal slot assignment moved into the arbiter with the enemy and ability readers refusing their fits, negative evidence once p_det and searched cells are stored, round_entity as a view over slots, the prior-first reader, enemy slots, and ability children with effect binding."
+remains = "Stage 1 ran as a prototype (prototypes/entity_state.py, held-out calibration 0.9355 against 0.98); stage 2a ran as a prototype (prototypes/entity_binding.py, causal binding, held-out calibration 0.9678 on a second look against the 0.97 gate); every stage after it: the baked world frame, the Riot and replay slot scorers, the causal slot assignment moved into the arbiter with the enemy and ability readers refusing their fits, negative evidence once p_det and searched cells are stored, round_entity as a view over slots, the prior-first reader, enemy slots, and ability children with effect binding. Sections 9 and 11 are amended by docs/ABILITY_ENTITIES.md (section 1.5): the owner is slot_state, the key holds no parent, effects are entities, and ability entities form a tree."
 waits_for = "The death or round owner keeping post-round deaths in their own round; the player's answers on disconnects, revive placement, per-ability lifecycle classes, effect queries, pickups and the map's movement edges (section 12)."
 
 [[document]]
 path = "docs/ABILITY_ENTITIES.md"
 kind = "plan"
-status = "proposed"
+status = "partial"
 since = "2026-10-09"
-remains = "Step 0 ran on ability-entities-step0-20261009 (the LAYER allowance ended, minimap_dark's rebuild declared, the unstamped ability stream retired, ability_light kept until step 3); steps 1 to 7: the ABILITY ratchet, the ability and effect kinds in slot_state for the player, the team and the enemy, kits for every slot, gates, and close."
-waits_for = "The ratchet branch (reticle/ratchets.py) for step 1; the promoted harness core for scoring; the pre-filled mechanics-sheet pass for each ability's lifecycle class and states."
+implemented_by = ["reticle/ratchets.py", "owns:ability-child", "owns:ability-effect", "owns:ability-owner"]
+remains = "Step 0 ran on ability-entities-step0-20261009 (the LAYER allowance ended, minimap_dark's rebuild declared, the unstamped ability stream retired, ability_light kept until step 3); step 1 on ability-entities-step1-20261009 (CHANNELS in slot_state, the ABILITY ratchet with 19 legacy fragments, the ability entries owned as partial, the validator's ability rejections, the ability tree of section 2.2a); steps 2 to 7: the ability and effect kinds in slot_state for the player, the team and the enemy, kits for every slot, gates, and close. Step 1's predictions for steps 2 to 4 are not logged."
+waits_for = "The promoted harness core for scoring; the pre-filled mechanics-sheet pass for each ability's lifecycle class and states."
 
 [[document]]
 path = "docs/REPLAY_LAYER.md"

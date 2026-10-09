@@ -416,6 +416,141 @@ class RoundScopeTests(unittest.TestCase):
         self.assertLessEqual(set(ratchets.PROMOTE_LEGACY), ratchets.PROMOTE_SEED)
 
 
+def _row(witness="w", streams=("ability_x",), owners=("cast-owner",), feeds=("ability-child",),
+         **kw):
+    row = {"witness": witness, "parent": "the self slot", "wired": True, "owners": owners, "readers": (),
+           "streams": streams, "feeds": feeds, "opens": "any", "joins": True, "ends": None,
+           "kind": "the slot", "agent_claim": None, "position": None, "effect": None}
+    row.update(kw)
+    return row
+
+
+def _entries(**extra):
+    out = {"ability-child": {"owner": "slot_state", "entity_kind": "ability"},
+           "cast-owner": {"owner": "m", "entity_kind": "ability", "feeds": ["ability-child"]},
+           "ability-old": {"owner": "m", "entity_kind": "ability"},
+           "death-victim": {"owner": "adjudication.death"}}
+    out.update(extra)
+    return out
+
+
+def _inputs(channels=None, streams=("ability_x", "ability_old", "death"), lanes=None,
+            entries=None):
+    return ratchets.AbilityInputs(
+        channels=tuple(channels if channels is not None else (_row(),)),
+        lanes_declared=frozenset({"ability", "ability_tray"}), child_owner="slot_state",
+        child_entries=("ability-child",), streams=frozenset(streams), retired=frozenset(),
+        lanes=lanes if lanes is not None else {"death": ("death",), "smoke": ("death",),
+                                               "ability_tray": ("ability_x",)},
+        entries=entries if entries is not None else _entries())
+
+
+ALEGACY = {"stream:ability_old": {"fate": "retires", "step": "step 3"},
+           "entry:ability-old": {"fate": "retires", "step": "step 3"},
+           "lane:smoke": {"fate": "folds into the ability lane", "step": "step 3"}}
+ASEED = frozenset(ALEGACY)
+
+
+def _ability(inputs=None, legacy=None, seed=ASEED, base=None):
+    return ratchets.ability_findings(inputs or _inputs(),
+                                     legacy=ALEGACY if legacy is None else legacy,
+                                     seed=seed, apart={}, base=base)
+
+
+class AbilityTests(unittest.TestCase):
+    """ABILITY (docs/ABILITY_ENTITIES.md step 1): every ability stream, lane
+    and entry is a CHANNELS input or the child owner's, else listed."""
+
+    def test_listed_fragments_warn_once_each(self):
+        found = _ability()
+        self.assertEqual([s for s, _m in found], [WARN] * 3)
+        self.assertTrue(all("clears in step 3" in m for _s, m in found))
+
+    def test_an_undeclared_ability_stream_errors(self):
+        found = _ability(_inputs(streams=("ability_x", "ability_old", "ability_new", "death")))
+        self.assertEqual([s for s, m in found if "ability_new" in m], [ERROR])
+
+    def test_an_undeclared_ability_entry_and_lane_error(self):
+        entries = _entries(**{"ability-new": {"owner": "m", "entity_kind": "ability"}})
+        lanes = {"ult_cast": ("ult_cast",), "smoke": ("death",)}
+        found = _ability(_inputs(entries=entries, lanes=lanes))
+        self.assertEqual([s for s, m in found if "ability-new" in m], [ERROR])
+        self.assertEqual([s for s, m in found if "`ult_cast`" in m], [ERROR])
+
+    def test_an_untagged_ability_entry_errors(self):
+        found = _ability(_inputs(entries=_entries(**{"smoke-thing": {"owner": "m"}})))
+        self.assertEqual([s for s, m in found if "smoke-thing" in m], [ERROR])
+
+    def test_a_stale_entry_errors(self):
+        # the fragment is gone: the registry no longer declares the stream
+        found = _ability(_inputs(streams=("ability_x", "death")))
+        self.assertEqual([s for s, m in found if "stream:ability_old" in m], [ERROR])
+        # the fragment became a declared input
+        rows = (_row(), _row("w2", streams=("ability_old",)))
+        found = _ability(_inputs(channels=rows))
+        self.assertEqual([s for s, m in found if "stream:ability_old" in m], [ERROR])
+
+    def test_a_key_outside_the_seed_errors(self):
+        legacy = {**ALEGACY, "stream:ability_new": {"fate": "x", "step": "step 2"}}
+        inputs = _inputs(streams=("ability_x", "ability_old", "ability_new", "death"))
+        found = _ability(inputs, legacy=legacy)
+        self.assertIn((ERROR, "ABILITY_LEGACY names `stream:ability_new`, outside the frozen "
+                              "ABILITY_SEED -- the allowlist only shrinks"), found)
+
+    def test_a_legacy_entry_names_its_step(self):
+        legacy = {**ALEGACY, "lane:smoke": {"fate": "folds", "step": "later"}}
+        found = _ability(legacy=legacy)
+        self.assertEqual([s for s, m in found if "no step 2-7" in m], [ERROR])
+
+    def test_the_declaration_is_checked(self):
+        found = _ability(_inputs(channels=(_row(streams=("ability_x", "ability_gone")),)))
+        self.assertEqual([s for s, m in found if "ability_gone" in m], [ERROR])
+        entries = _entries(**{"cast-owner": {"owner": "m", "entity_kind": "ability"}})
+        found = _ability(_inputs(entries=entries))
+        self.assertEqual([s for s, m in found if "declares feeds" in m], [ERROR])
+        entries = _entries(**{"cast-owner": {"owner": "m", "feeds": ["ability-child"]}})
+        found = _ability(_inputs(entries=entries))
+        self.assertTrue(any(s == ERROR and "does not declare entity_kind" in m
+                            for s, m in found))
+
+    def test_feeds_without_a_channels_row_errors(self):
+        entries = _entries(**{"other": {"owner": "m", "feeds": ["ability-child"]}})
+        found = _ability(_inputs(entries=entries))
+        self.assertEqual([s for s, m in found if "[other]" in m], [ERROR])
+
+    def test_a_code_fragment_is_stale_once_its_definition_goes(self):
+        root = _repo({"reticle/mod.py": "def binder():\n    pass\n"})
+        legacy = {**ALEGACY, "code:reticle/mod.py::binder": {"fate": "moves", "step": "step 2"},
+                  "code:reticle/mod.py::gone": {"fate": "moves", "step": "step 2"}}
+        seed = ASEED | {"code:reticle/mod.py::binder", "code:reticle/mod.py::gone"}
+        found = _ability(legacy=legacy, seed=seed, base=root)
+        self.assertEqual([s for s, m in found if "binder" in m], [WARN])
+        self.assertEqual([s for s, m in found if "::gone" in m], [ERROR])
+
+    def test_an_apart_key_outside_its_seed_errors(self):
+        entries = _entries(**{"ability-new": {"owner": "m", "entity_kind": "ability"}})
+        found = ratchets.ability_findings(
+            _inputs(entries=entries), legacy=ALEGACY, seed=ASEED,
+            apart={"ability-new": "a tool"}, apart_seed=frozenset())
+        self.assertEqual([s for s, m in found if "ability-new" in m], [ERROR])
+        self.assertTrue(any("outside the frozen ABILITY_APART_SEED" in m for _s, m in found))
+        found = ratchets.ability_findings(
+            _inputs(entries=entries), legacy=ALEGACY, seed=ASEED,
+            apart={"ability-new": "a tool"}, apart_seed=frozenset({"ability-new"}))
+        self.assertEqual([s for s, m in found if "ability-new" in m], [])
+        self.assertEqual(set(ratchets.ABILITY_APART), ratchets.ABILITY_APART_SEED)
+
+    def test_the_tree_has_no_ability_error(self):
+        found = doctor.check_ability()
+        self.assertEqual([m for s, m in found if s == ERROR], [])
+        self.assertEqual(sum(s == WARN for s, _m in found), len(ratchets.ABILITY_LEGACY))
+        self.assertLessEqual(set(ratchets.ABILITY_LEGACY), ratchets.ABILITY_SEED)
+
+    def test_the_progress_line_counts_by_step(self):
+        line = ratchets.ability_progress_line(ratchets.ability_progress(ALEGACY, ASEED))
+        self.assertIn("ABILITY 0 cleared / 3 legacy fragments (step 3: 3)", line)
+
+
 STEMS = {"pilot_x", "other"}
 
 

@@ -17,7 +17,7 @@ from reticle.store import Store
 
 C = ec.ENTITY_CONTRACT_VERSION
 OWNERS = {"death-victim", "round-entity-session", "agent-identity", "position-belief",
-          "spike-carrier", "ability-state"}
+          "spike-carrier", "ability-state", "ability-child", "ability-effect"}
 FRAME = "baked:split__valorant-16x9"
 
 
@@ -90,6 +90,29 @@ def estimate(eid="s:R1:E0001/P0", lane="t", t=170000.0):
                  evidence=[], producer={"owner": "position-belief", "version": "belief-0.1.0"})
 
 
+CHILD = "s:child:R1:1"
+CHILD_PRODUCER = {"owner": "ability-child", "version": "ability-child-0.1.0"}
+
+
+def child_entity(**kw):
+    """An ability child as `slot_state` would project it on lane `ability`."""
+    row = entity(eid=CHILD, family="ability_object", kind="omen:dark cover", lane="ability",
+                 identity={"agent": "Omen", "ref": f"identity:{CHILD}",
+                           "arbiter": "agent-identity-0.9.0"},
+                 producer=dict(CHILD_PRODUCER), parent="s:ally:slot:2")
+    row.update(kw)
+    return row
+
+
+def child_event(**kw):
+    row = event("ability_object", eid=CHILD, lane="ability", t=97450.0,
+                state={"ability": "miks:nowhere smoke", "slot": "E", "phase": "observed",
+                       "phase_reason": "no-fact:miks:E:lifecycle"},
+                producer=dict(CHILD_PRODUCER))
+    row.update(kw)
+    return row
+
+
 def lane_rows(stream, *rows):
     return [stamp(stream)] + [clean(r) for r in rows]
 
@@ -124,14 +147,15 @@ class ValidEventTests(unittest.TestCase):
         self.assertEqual(errors("entity_death", rows, verdicts=verdicts), [])
 
     def test_an_ability_with_no_lifecycle_fact_is_only_observed(self):
-        row = event("ability_object", t=97450.0,
-                    state={"ability": "miks:nowhere smoke", "slot": "E", "phase": "observed",
-                           "phase_reason": "no-fact:miks:E:lifecycle"})
-        self.assertEqual(errors("entity_t", lane_rows("entity_t", row)), [])
+        row = child_event(state={"ability": "miks:nowhere smoke", "slot": "E",
+                                 "phase": "observed",
+                                 "phase_reason": "no-fact:miks:E:lifecycle"})
+        rows = lane_rows("entity_ability", row)
+        self.assertEqual(errors("entity_ability", rows), [])
         drawn = copy.deepcopy(row)
         drawn["state"]["phase"] = "drawn"
-        self.assertTrue(any("not a state the facts give" in m
-                            for _i, m in errors("entity_t", lane_rows("entity_t", drawn))))
+        self.assertTrue(any("not a state the facts give" in m for _i, m in
+                            errors("entity_ability", lane_rows("entity_ability", drawn))))
 
 
 class RejectionTests(unittest.TestCase):
@@ -247,6 +271,88 @@ class RejectionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 store.write_events("entity_death", "s", lane_rows("entity_death", row))
             self.assertFalse(store.has_events("entity_death", "s"))
+
+
+class AbilityRowTests(unittest.TestCase):
+    """docs/ABILITY_ENTITIES.md section 2.9: an ability or effect row stands
+    in lane `ability`, comes from its family's owner, and names an agent from
+    its own key's verdict or declares the other key's in `depends_on`."""
+
+    def found(self, *rows, stream="entity_ability"):
+        return [m for _i, m in errors(stream, lane_rows(stream, *rows))]
+
+    def test_a_child_and_its_event_pass(self):
+        self.assertEqual(self.found(child_entity(), child_event()), [])
+
+    def test_an_effect_passes_from_its_owner(self):
+        row = child_entity(entity_id="s:effect:R1:1", family="ability_effect", kind="kill",
+                           identity=None, identity_reason="not_applicable",
+                           producer={"owner": "ability-effect", "version": "ability-effect-0.1.0"})
+        self.assertEqual(self.found(row), [])
+
+    def test_a_child_outside_its_lane(self):
+        row = child_entity(lane="smoke")
+        self.assertTrue(any("only through lane 'ability'" in m
+                            for m in self.found(row, stream="entity_smoke")))
+        ev = child_event(lane="t")
+        self.assertTrue(any("only through lane 'ability'" in m
+                            for m in self.found(ev, stream="entity_t")))
+
+    def test_a_cast_event_outside_its_lane(self):
+        ev = event("cast", lane="t", state={"ability": "omen:dark cover", "slot": "E"},
+                   state_reason=None)
+        self.assertTrue(any("only through lane 'ability'" in m
+                            for m in self.found(clean(ev), stream="entity_t")))
+
+    def test_a_child_from_another_producer(self):
+        row = child_entity(producer={"owner": "ability-state", "version": "ability-state-0.10.0"})
+        self.assertTrue(any("only 'ability-child' produces it" in m for m in self.found(row)))
+        eff = child_entity(entity_id="s:effect:R1:2", family="ability_effect", kind="blind",
+                           identity=None, identity_reason="not_applicable")
+        self.assertTrue(any("only 'ability-effect' produces it" in m for m in self.found(eff)))
+
+    def test_a_name_from_another_keys_verdict_needs_depends_on(self):
+        other = "identity:s:ally:slot:2"
+        row = child_entity(identity={"agent": "Omen", "ref": other,
+                                     "arbiter": "agent-identity-0.9.0"})
+        self.assertTrue(any("depends_on does not declare it" in m for m in self.found(row)))
+        self.assertEqual(self.found(child_entity(identity=row["identity"], depends_on=[other])),
+                         [])
+        ev = child_event(identity={"agent": "Omen", "ref": other,
+                                   "arbiter": "agent-identity-0.9.0"})
+        self.assertTrue(any("depends_on does not declare it" in m for m in self.found(ev)))
+
+    def test_a_participant_names_from_its_own_key(self):
+        target = "s:ally:slot:3"
+        ok = {"entity_id": target, "identity": {"agent": "Sage", "ref": f"identity:{target}",
+                                                "arbiter": "agent-identity-0.9.0"}}
+        self.assertEqual(self.found(child_event(participants={"target": ok})), [])
+        bad = {"entity_id": target, "identity": {**ok["identity"], "ref": "identity:x"}}
+        self.assertTrue(any("participants.target.identity cites identity:x" in m
+                            for m in self.found(child_event(participants={"target": bad}))))
+
+    def test_every_node_names_its_parent(self):
+        row = child_entity()
+        del row["parent"]
+        self.assertTrue(any("names no parent" in m for m in self.found(row)))
+        self.assertTrue(any("a parent is another entity's key" in m
+                            for m in self.found(child_entity(parent=CHILD))))
+        unknown = child_entity(parent=None, parent_reason="not_read: caster unknown")
+        self.assertEqual(self.found(unknown), [])
+
+    def test_a_nested_node_binds_to_a_spawned_object(self):
+        # Cypher's tracking dart is a child of his Spycam (player, 2026-10-09)
+        camera, dart = "s:child:R1:1", "s:child:R1:2"
+        named = {"agent": "Cypher", "ref": f"identity:{camera}",
+                 "arbiter": "agent-identity-0.9.0"}
+        row = child_entity(entity_id=dart, kind="cypher:spycam dart", parent=camera,
+                           identity=named)
+        self.assertTrue(any("depends_on does not declare it" in m for m in self.found(row)))
+        row["depends_on"] = [f"identity:{camera}"]
+        self.assertEqual(self.found(row), [])
+
+    def test_other_families_are_untouched(self):
+        self.assertEqual(self.found(entity(), event(), stream="entity_t"), [])
 
 
 class BetweenObservationTests(unittest.TestCase):

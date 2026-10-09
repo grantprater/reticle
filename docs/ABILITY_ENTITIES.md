@@ -253,6 +253,21 @@ Three kinds share the `(kind, id)` scheme of `EntityRow`:
   [domain:minimap/ability-drawing-colour-by-side], else `null` with its
   reason. An effect's side is its source's.
 
+### 2.2a The tree (player, 2026-10-09)
+
+Ability entities form a tree, not one level: slot, then ability instance,
+then spawned objects nested to any depth, then effects. A spawned object can
+be the child of another, and an effect is the child of whatever produced it:
+Cypher's tracking dart is a child of his Spycam, and the dart ends at
+Cypher's death while the camera persists. Each node is its own entity with
+its own lifecycle and its own `ends_on`. A node's `parent` may be any entity
+key (a slot, an instance, a spawned object), and the binding stays
+revisable, as for a glyph whose caster is unknown at the open. Where the
+table above says "parent slot", read "parent key". The `CHANNELS` table's
+`parent` column names what each witness binds a new node to, and the
+validator requires every ability and effect entity to name its parent or
+null it with a reason (step 1).
+
 ### 2.3 Opening at a cast: the witness table
 
 The child owner declares one table, `CHANNELS`, naming every input stream
@@ -544,24 +559,36 @@ Evidence: no LAYER finding for `ability_timeline`; `plan` names a runnable
 `ability_light` work on a session without candidates; the plan and tray
 tests pass.
 
-**Step 1. Enforce first.** Declarations and the ratchet, no new owner.
+**Step 1. Enforce first.** Declarations and the ratchet, no new code that
+decides. Done on branch `ability-entities-step1-20261009`:
 
-- `ownership.toml`: unowned entries `ability-child` ("Which ability
-  instances exist this round, which slot cast each, where is each and in
-  which phase?") and `ability-effect` ("What did each ability instance or
-  cast do, to whom, and for how long?"), each `blocked_by` step 2;
-  `ability-owner`'s `blocked_by` rewritten to step 3; every entry that
-  reads, joins or names ability evidence gains `entity_kind = "ability"`
-  and, where it feeds the child owner, `feeds = ["ability-child"]`.
-- `reticle/ratchets.py`, once its branch lands: ABILITY and its
-  shrink-only `ABILITY_LEGACY`, one entry per fragment of section 1 with
-  its fate and the step that clears it; ROUNDSCOPE with no exception for
-  ability state (2.7). `reticle status` prints the ability conversion line.
-- `reticle/doctor.py`: the LAYER check needs no change, since step 0
-  emptied `trees.allow`; the ABILITY check registers with the others.
-- `entity_contract`: the rejections of 2.9.
+- `reticle/slot_state.py` declares `CHANNELS` (2.3 as code, stamped
+  `ability-channels-0.1.0`): per witness its `parent`, `owners`,
+  `readers`, `streams`, `feeds` and what it may do (`opens`, `joins`,
+  `ends`, `kind`, `agent_claim`, `position`, `effect`); and
+  `ABILITY_LANES` (`ability`, `ability_tray`).
+- `ownership.toml`: `ability-child` (instances and nested spawned objects,
+  each with its parent) and `ability-effect` (an effect is a child of what
+  produced it), and `ability-owner`, all owned by `slot_state` as `partial`
+  with `names_agents = true` deferring to `agent-identity`; the limit and
+  the building step (2, or 3 for `ability-owner`) are in each entry. Every
+  entry that reads, joins or names ability evidence carries `entity_kind =
+  "ability"`, and each `CHANNELS` owner `feeds = ["ability-child"]` (with
+  `ability-effect` for kills and assists).
+- `reticle/ratchets.py`: ABILITY (`ability_findings`) and its shrink-only
+  `ABILITY_LEGACY` with the frozen `ABILITY_SEED`: 19 entries (5 streams, 2
+  lanes, 6 entries, 6 functions), each with its fate and step. Fragments
+  come from `plan`'s stream registry, `entity_events.ENTITY_LANES` and the
+  tagged entries; three entries stay apart by design (`ABILITY_APART`:
+  `capture-queue`, `ability-evidence`, `replay-ability-actors`). `reticle
+  status` prints the ability line. ROUNDSCOPE needs no ability exception,
+  since no child state exists yet.
+- `reticle/doctor.py` registers ABILITY (`check_ability`).
+- `entity_contract.check_ability_row`: the rejections of 2.9, with
+  `depends_on` for a name from another key's verdict (a parent's included),
+  and a required `parent` on every ability and effect entity.
 - `documents.toml`: section 1.5's plans amended.
-- Predictions for steps 2 to 4 logged in `notes/predictions.jsonl`.
+- Not done: predictions for steps 2 to 4 in `notes/predictions.jsonl`.
 
 Acceptance: `.\.venv\Scripts\python.exe -m reticle doctor`, then `.\.venv\Scripts\python.exe -m pytest tests\test_ratchets.py tests\test_entity_contract.py`.
 Evidence: 0 errors; one ABILITY warning per `ABILITY_LEGACY` entry; a test
