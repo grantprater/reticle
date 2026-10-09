@@ -86,7 +86,7 @@ what each fragment becomes in section 3.
 | `adjudication.ability_glyph` | `ability_glyph_name`, `ability_glyph_identity`, `glyph_placement` | `round_lifetimes.detection_reality`, `enemy_tracks`, harness step 7 | `ability-glyph-name-0.3.0` | `ability-glyph-name` | channel arbiter; `glyph_placement`'s callers move to the child owner |
 | `adjudication.weapon` | an ability named as a kill's weapon | `adjudication.death` | `weapon-adjudication-1.9.0` | `killfeed-weapon` | witness of a kill effect, and an opener |
 | `adjudication.assist` | assister and ability icon per kill | `cli` | `assist-adjudication-0.4.0` | `kill-assists` | witness of an assist effect, and an opener |
-| `adjudication.ability` milestone C: `build_entities`, `onset_groups`, `persistence_groups`, `bearing_groups`, `light_refusals`, `predict_ability_births` | the `ability-entities` analysis bundle from labelled demo components | `adjudication.gallery` | `ability-entities-0.3.0`, `ability-light-refusal-0.3.0` | `ability-hypothesis` | retire (step 3) |
+| `adjudication.ability` milestone C: `build_entities`, `onset_groups`, `persistence_groups`, `bearing_groups`, `light_refusals`, `predict_ability_births` | the `ability-entities` analysis bundle from labelled demo components | `adjudication.gallery` | `ability-entities-0.3.1`, `ability-light-refusal-0.3.0` | `ability-hypothesis` | retire (step 3) |
 | `adjudication.phases` | the `ability-phases` bundle from series contrast | the `ability-phases` adapter only | `ability-phases-0.3.0` | `ability-phase` | retire the code; its two structural rules become the child owner's tests |
 | `adjudication.gallery` | the `ability-gallery` bundle | nothing in the pipeline; its classifier is UNCALLED | `ability-gallery-0.2.0` | `ability-appearance` | retire the classifier; the game-texture glyph reader replaced it |
 | `adjudication.capture`, `ability_coverage` | demo capture queue; evidence inventory | `cli` | `ability-capture-0.1.0`, `ability-coverage-0.1.0` | `capture-queue`, `ability-evidence` | development tools, kept; `not_for` gains children |
@@ -294,18 +294,27 @@ Well and Nova Pulse as global from the star's facts
 [domain:abilities/astra-nova-pulse-global-placement], for the player to
 confirm.
 
+**Placement radius.** A body-relative child opens within its range of the
+caster's region at the cast, the `cast_region` of 2.6, never anywhere on the
+map. Omen's Dark Cover opens within 80 m of Omen's region
+[domain:abilities/omen-dark-cover-body-relative-placement]; the player first
+called it global and corrected that on 2026-10-09.
+
 **The star.** A star is one entity. Placing it opens it and picking it up
 closes it, freely, while it is unspent
 [domain:abilities/astra-stars-placed-and-picked-up]. Turning it into Nova
 Pulse, Nebula or Gravity Well is a one-way change of its kind that keeps its
 key; from then it runs that ability's own lifetime, and its effects are its
 children [domain:abilities/astra-star-spent-is-final]. Cosmic Divide is its
-own child of Astra's slot, not a turned star.
+own child of Astra's slot, not a turned star. A star turned into Nova Pulse
+becomes an instant charge-up and then ends; it leaves no object, and each
+player hit gets a concuss effect child that carries the only lasting
+lifetime [domain:abilities/astra-nova-pulse-charge-then-concuss].
 
 **The kit count.** The limit of stars deployed at once and its recharge are
-a count on Astra's kit, the `ability_tray` lane, not a field of any star.
-The game files' candidate quantities and their unread meaning stand in the
-fact [domain:abilities/astra-stars-placed-and-picked-up].
+a count on Astra's kit, the `ability_tray` lane, not a field of any star:
+5 stars, recharging in 15.0 s
+[domain:abilities/astra-star-limit-and-recharge].
 
 **Open.** Whether Astra's minimap icon changes in Astral Form is unknown
 [domain:abilities/astra-astral-form-screen-map].

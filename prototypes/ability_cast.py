@@ -247,7 +247,8 @@ PARAMS = {
     ("viper", "viper's pit"): _P(extent="radius"),
     ("jett", "cloudburst"): _P(extent="radius"),
     ("brimstone", "sky smoke"): _P(extent="radius"),
-    ("omen", "dark cover"): _P(origin="global", extent="radius"),
+    # Placed within 80 m of Omen, not global (player, 2026-10-09).
+    ("omen", "dark cover"): _P(extent="radius"),
 }
 
 UNKNOWN = {"origin": "unknown", "bearing": "unknown", "extent": "unknown"}
