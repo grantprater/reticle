@@ -35,7 +35,7 @@ def _system_times():
     return f(i), f(k), f(u)
 
 
-def run(sid: str, window: str, k: int, out: Path) -> dict:
+def run_parallel(sid: str, window: str, k: int, out: Path) -> dict:
     files = [out / f"par{k}_{i}.jsonl" for i in range(k)]
     for f in files:
         f.unlink(missing_ok=True)
@@ -92,7 +92,7 @@ def main(argv=None) -> int:
     _idle()
     args.out.mkdir(parents=True, exist_ok=True)
     for k in range(1, args.max + 1):
-        print(json.dumps(run(args.session, args.window, k, args.out)), flush=True)
+        print(json.dumps(run_parallel(args.session, args.window, k, args.out)), flush=True)
     return 0
 
 
