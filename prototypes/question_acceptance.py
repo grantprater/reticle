@@ -386,8 +386,8 @@ OUT = STORE / "analysis" / "question-acceptance"
 DEV = tr.DEV
 #: The 2026-10-07 replay captures, whose inputs are current (`reticle plan`):
 #: the steps that need no tagged enemy-lane arm score them beside `DEV`.
-NEW = ("cadaadeb2d8b", "066741deafe5", "9912c382130b")
-SCORED = DEV + NEW
+NEW = tr.NEW
+SCORED = tr.SCORED
 NEAR_CM = tr.NEAR_CM
 #: The lane outcomes of a find, in report order.
 OUTCOMES = ("no_track", "reality_refused", "identity_abstained", "agent_not_on_enemy_team",
