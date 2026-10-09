@@ -108,7 +108,7 @@ at every video frame. Keep position observations at their native timestamps.
 | Scope | Variables |
 |---|---|
 | Capture | source time, availability time, stall/gap, HUD regime, audio availability, coordinate transform, observed POV |
-| Match | player identity, agent identity, team membership, patch/mode/ruleset, map/profile, side by round |
+| Match | player identity, agent identity, team membership, patch/mode/ruleset, map/profile, side by round [domain:rounds/side-by-round] |
 | Round | uncertain boundaries, buy/live/post-plant/terminal/settlement phase, score, clock, objective state |
 | Player life | persistent player ID, life episode, alive/dead/temporary/unknown state, observed or feasible position, equipment and resource ranges |
 | Team information | currently observed enemy, reveal, last-known marker, unobserved state, visibility bounds |

@@ -251,7 +251,7 @@ class ArtZnccTests(unittest.TestCase):
 
     def test_the_plate_left_end_is_found_to_a_subpixel_past_the_assist_panel(self):
         # a teal plate from x = 50.5 (its first column half covered), over grey
-        # scene, with an assist panel's teal cell over the top 18 rows left of it
+        # scene, with an assist panel's teal cell [domain:killfeed/assist-panel] over the top 18 rows left of it
         h, w = 34, 200
         crop = np.full((h, w, 3), (90, 90, 90), np.float32)
         teal = np.array((160, 190, 60), np.float32)        # BGR, hue inside GREEN_H

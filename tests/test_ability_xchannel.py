@@ -121,7 +121,7 @@ class Independence(unittest.TestCase):
         self.assertEqual(len(ax.opportunity("ult_cast", casts, vocab, set())), 1)
         # the killfeed's opportunities are only the casts that killed
         self.assertEqual(ax.opportunity("killfeed", casts, vocab, {id(casts[2])}), [casts[2]])
-        # the assist panel sees only the player's team
+        # the assist panel [domain:killfeed/assist-panel] sees only the player's team
         casts.append({"agent": "Raze", "slot": "Ultimate", "side": "ally", "hits": {}})
         vocab["assist_icon"] = {("raze", "Ultimate")}
         self.assertEqual(ax.opportunity("assist_icon", casts, vocab, set()), [casts[3]])

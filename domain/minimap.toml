@@ -1206,8 +1206,35 @@ top, a very rare angle, so a leaf blocks as a tall box would
 [domain:minimap/boxes-block-unless-raised]
 """
 see = ["minimap/boxes-block-unless-raised", "minimap/floor-shade-is-elevation",
-       "minimap/fit-not-repair"]
+       "minimap/fit-not-repair", "minimap/door-leaves-and-ledges-are-tall-boxes"]
 phrases = ["diagonal box", "door leaf"]
+
+[door-leaves-and-ledges-are-tall-boxes]
+claim = """
+A door leaf blocks light. On Haven the Garage doors to C are such leaves; a
+player stands on top of one only after a movement ability, an angle rare
+enough to ignore, so a door leaf models as a tall box. A ledge models the
+same way as a box. On Haven (haven__valorant-16x9, map px) the examples are
+the L-shaped raised strip along a wall near 185-206,225-256 and the thin
+raised strip near 152-169,106.
+"""
+kind = "geometry"
+known = "player"
+since = "2026-09-30"
+source = """
+the player, 2026-09-30 (chat), answering the geometry fix's questions;
+salvaged on 2026-10-09 from enemy-fix-check-20260930 (09842fd)
+"""
+use = """
+reticle/occluders.py: a door leaf (`doorways`) takes a tall box's height, and
+a ledge is fitted as a box; batched with the next geometry rebuild, not yet
+applied (occluders-2.1.0 still gives both unknown height)
+"""
+exceptions = """
+a movement ability can put a player on a door leaf, where it no longer
+blocks that player's view; the model ignores that angle
+"""
+see = ["minimap/occluder-shapes", "minimap/boxes-block-unless-raised"]
 
 [boxes-block-unless-raised]
 claim = """
@@ -1872,3 +1899,69 @@ only on Astra's own client [domain:abilities/astra-star-hover-yellow]
 """
 see = ["minimap/self-icon-shows-spectated", "minimap/self-audio-circle",
        "abilities/views-separate-per-ability"]
+
+[death-camera-period]
+claim = """
+From the player's killfeed death to the yellow icon jumping onto a
+teammate's place takes about 2.4 s, most deaths 1.4-2.6 s; a few switch
+within a second, and a few wait up to about 9 s. At the death his icon
+leaves his place, mostly without a yellow icon in its stead, until the
+switch.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-09-29"
+source = """
+prototypes/spectate_switch.py (spectate-switch-0.1.0) over stored
+l1/minimap, ally_icon, death and rounds of a06f04a0059f, 5822b6646448 and
+223d636bf8d2; no decode. Of 53 killfeed deaths of the player, 33 kept the
+widget drawn until the switch, and the switch was found after 29 of them:
+median 2.38 s, IQR 1.38-2.63 s, range 0.08-9.22 s (a06f04a0059f median
+2.44 s, 223d636bf8d2 2.51 s, 5822b6646448 1.38 s). Metrics rows
+spectate_switch/death-camera and death-camera-pooled, run
+self-spike-20260929. By eye at 5822b6646448 1776.4 s the X replaces his icon
+and the yellow icon appears on a teammate about 1 s later. Salvaged on
+2026-10-09 from w2-self-tracker-score-20261006; the measuring code survives
+only at tag archive/w2-self-tracker-score-20261006
+"""
+use = """
+a consumer ends the self track at the killfeed death, not at the switch; the
+switch can witness a death the killfeed missed, but no master module reads it
+(`round_entities.player_dead_spans` owns the player-dead question)
+"""
+exceptions = """
+the player thinks the period may run longer when Clove's ultimate is
+available (2026-09-29), unmeasured; the stored self track is minimap-0.7.0's,
+whose misfits can place an early switch; the deaths where the widget was
+absent (the death screen or the full map) were counted apart; one widget size
+per session, three sessions
+"""
+see = ["minimap/self-icon-shows-spectated"]
+
+[spike-last-known-mark]
+claim = """
+A dropped spike glyph can be replaced at its place by a yellow "?", which
+then fades and is gone.
+"""
+kind = "appearance"
+known = "observed"
+since = "2026-09-29"
+source = """
+the 15 Hz minimap crop cache of a06f04a0059f, viewed at the five longest
+runs where the dropped glyph's check at its fixed place failed (184, 413,
+591, 780 and 1237 s): each time the glyph gives way to a yellow "?" at its
+centroid within one or two cached frames (icon_prior, minimap-0.8.0, on
+self-spike-tracker-20260929); salvaged on 2026-10-09, the code survives only
+at tag archive/self-spike-tracker-20260929
+"""
+use = """
+a dropped glyph that stops verifying may have become this mark rather than
+lie under a portrait; a spike reader holds it unverified rather than calling
+the spike gone
+"""
+exceptions = """
+why the mark appears (the spike leaving the team's vision, as an enemy's
+"?" does [domain:minimap/last-known-mark], is a guess) and how long it
+holds are not known; ask the player
+"""
+see = ["minimap/spike-glyph", "minimap/last-known-mark"]

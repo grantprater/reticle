@@ -135,7 +135,7 @@ icon if he kills them in it". Does it?
 The mined weapon-slot gallery holds one exemplar the player labelled
 Curveball, though the description names a flash and no damage: b3b9defb6fd7
 at 1731.5 s, a Phoenix kill. Its stored box sits in the weapon slot, between
-the killer's name and the victim's, not in the assist panel
+the killer's name and the victim's, not in the assist panel [domain:killfeed/assist-panel]
 (`<store>/analysis/killfeed-openset-20261001/curveball_boxes.png`); the icon
 is a flame. Is that icon Curveball or Hot Hands, and can a non-damaging
 ability draw a kill's weapon-slot icon?
