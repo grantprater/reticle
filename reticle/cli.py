@@ -4101,6 +4101,72 @@ def cmd_trial(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_acceptance(args) -> int:
+    """The acceptance harness (docs/QUESTION_ACCEPTANCE.md, B7): every
+    subcommand of `prototypes/question_acceptance.py` (`lane`, `label`,
+    `ally`, `smoke`, `glyph`, `marks`, `replay-score`, `replay-abilities`,
+    `budget`, `budget-*`), run as a child process at below-normal priority
+    with one thread. The scoring core is `reticle.acceptance`; the command
+    stays a prototype while it builds the T1d truth grid
+    (`t1_draw_rule.RealDrawMatch`), and runs as a process so that `reticle/`
+    imports nothing from `prototypes/`. Stored data and replay truth only.
+
+    `summary --tag TAG [SESSION ...] [--file classes|label] [--reality off|on]`
+    runs here: it recomputes the class-aware outcomes and labels, with round
+    intervals, from the find rows a `lane` or `label` run stored
+    (`acceptance.summarize_rows`), and writes nothing."""
+    import os
+    import subprocess
+    from .process_shards import SINGLE_THREAD_ENV
+    rest = list(args.rest)
+    if rest[:1] == ["--"]:
+        rest = rest[1:]
+    if rest[:1] == ["summary"]:
+        return _acceptance_summary(Path(args.store), rest[1:])
+    if Path(args.store).resolve() != Path(DEFAULT_STORE).resolve():
+        print(f"acceptance reads the default store ({DEFAULT_STORE}) only", file=sys.stderr)
+        return 2
+    script = Path(__file__).resolve().parent.parent / "prototypes" / "question_acceptance.py"
+    flags = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+    return subprocess.call([sys.executable, str(script), *rest], env={**os.environ, **SINGLE_THREAD_ENV},
+                           creationflags=flags)
+
+
+#: The development matches the acceptance harness scores by default.
+ACCEPTANCE_DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
+
+
+def _acceptance_summary(store_root: Path, argv: list[str]) -> int:
+    """`reticle acceptance summary`: see `cmd_acceptance`."""
+    import json
+    from . import acceptance as acc
+    ap = argparse.ArgumentParser(prog="reticle acceptance summary")
+    ap.add_argument("sessions", nargs="*", default=list(ACCEPTANCE_DEV))
+    ap.add_argument("--tag", required=True)
+    ap.add_argument("--file", choices=("classes", "label"), default="classes")
+    ap.add_argument("--reality", choices=("off", "on"), default="off")
+    a = ap.parse_args(argv)
+    base = store_root / "analysis" / "question-acceptance" / a.tag
+    arm = "" if a.reality == "off" else "_reality"
+    rows = {}
+    for sid in a.sessions or list(ACCEPTANCE_DEV):
+        p = (base / f"classes{arm}_{sid}.jsonl" if a.file == "classes" else base / f"label{arm}" / f"{sid}.jsonl")
+        if not p.is_file():
+            print(f"{sid}: no stored {a.file} rows ({p}); run `reticle acceptance lane` or `label` first",
+                  file=sys.stderr)
+            return 1
+        with p.open(encoding="utf-8") as f:
+            rows[sid] = [json.loads(ln) for ln in f if ln.strip()]
+    doc = acc.summarize_rows(rows)
+    print(f"{doc['acceptance_version']}: {a.tag} {a.file} rows; {doc['boot']} over {doc['rounds']}")
+    scopes = list(doc["sessions"].items()) + ([("pooled", doc["pooled"])] if doc["pooled"] else [])
+    for scope, c in scopes:
+        print(f"  {scope}: {c['finds']} finds")
+        for o in acc.CLASS_OUTCOMES:
+            print(f"    {o:16s} {c['outcomes'][o]:6d} {c['outcomes_ci'].get(o)}")
+    return 0
+
+
 def cmd_dev_sample(args) -> int:
     """The dev loop's windows: the declared sample, or targeted windows around
     a residual list or the stored rows where a changed code path fires.
@@ -6856,6 +6922,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("deaths", help="death verdicts per killfeed entry from stored data (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_deaths)
+
+    s = sub.add_parser("acceptance", help="the acceptance harness: emitted events scored against replay "
+                                          "truth (lane, label, ally, smoke, glyph, marks, replay-score, "
+                                          "replay-abilities, budget)", add_help=False)
+    s.add_argument("rest", nargs=argparse.REMAINDER)
+    s.set_defaults(func=cmd_acceptance)
 
     s = sub.add_parser("plan", help="stale stored streams and the least work that refreshes them")
     s.add_argument("session", nargs="?")

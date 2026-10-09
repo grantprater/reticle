@@ -91,10 +91,8 @@ STORE = Path(DEFAULT_STORE)
 OUT = STORE / "analysis" / TASK
 DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
 HELD_OUT = "cea8ecbc94ab"
-NEAR_CM = 300.0
-OFFSET_CM = 800.0
-N_BOOT = 4000
-SEED = 20261007
+# The harness's gates and bootstrap live in its core (one definition).
+from reticle.acceptance import N_BOOT, NEAR_CM, OFFSET_CM, SEED  # noqa: E402,F401
 
 
 def _idle() -> None:
@@ -263,18 +261,8 @@ def _point_store(tag: str):
         m.STORE = root
 
 
-def _boot_share(rounds, num, den, n=N_BOOT, seed=SEED):
-    rng = np.random.default_rng(seed)
-    idx = rng.integers(0, len(rounds), (n, len(rounds)))
-    s = num[idx].sum(1) / np.maximum(den[idx].sum(1), 1)
-    return [round(float(np.percentile(s, 2.5)), 4), round(float(np.percentile(s, 97.5)), 4)]
-
-
-def _boot_count(rounds, cnt, n=N_BOOT, seed=SEED):
-    rng = np.random.default_rng(seed)
-    idx = rng.integers(0, len(rounds), (n, len(rounds)))
-    s = cnt[idx].sum(1)
-    return [int(np.percentile(s, 2.5)), int(np.percentile(s, 97.5))]
+from reticle.acceptance import boot_count as _boot_count  # noqa: E402
+from reticle.acceptance import boot_share as _boot_share  # noqa: E402
 
 
 def _pings(sid: str, ptag: str | None = None) -> np.ndarray:

@@ -410,43 +410,9 @@ def _rows(path: Path, needle: str | None = None):
                 yield json.loads(line)
 
 
-def _assign(frame_ids, D, gate):
-    """One-to-one obs->truth assignment within each frame, nearest first.
-
-    `D` is (n_obs, n_truth) distances (NaN where the truth is absent). Two
-    vectorised rounds: every observation takes its nearest truth; where two in
-    one frame take the same truth the nearer keeps it, and the loser takes its
-    nearest truth still free in that frame. Returns (truth index or -1, dist)."""
-    n, k = D.shape
-    Dm = np.where(np.isfinite(D), D, np.inf)
-    j = np.argmin(Dm, axis=1)
-    d = Dm[np.arange(n), j]
-    ok = d <= gate
-    key = frame_ids.astype(np.int64) * 64 + j
-    o = np.lexsort((d, key))
-    first = np.ones(n, bool)
-    ks = key[o]
-    first[1:] = ks[1:] != ks[:-1]
-    win = np.zeros(n, bool)
-    win[o] = first
-    keep = ok & win
-    lose = ok & ~win
-    res_j = np.where(keep, j, -1)
-    res_d = np.where(keep, d, np.nan)
-    if lose.any():
-        # only frames holding a loser need their taken set
-        taken = defaultdict(set)
-        sel = keep & np.isin(frame_ids, np.unique(frame_ids[lose]))
-        for f, jj in zip(frame_ids[sel], j[sel]):
-            taken[int(f)].add(int(jj))
-        for i in np.flatnonzero(lose):
-            free = [c for c in np.argsort(Dm[i]) if c not in taken[int(frame_ids[i])]
-                    and Dm[i, c] <= gate]
-            if free:
-                c = int(free[0])
-                taken[int(frame_ids[i])].add(c)
-                res_j[i], res_d[i] = c, Dm[i, c]
-    return res_j, res_d
+# One-to-one obs->truth assignment within each frame, nearest first: the
+# acceptance core owns it since 2026-10-09 (task `harness-promote-20261009`).
+from reticle.acceptance import assign_per_frame as _assign  # noqa: E402,F401
 
 
 # Which replay player is the capturing player belongs to the pipeline
