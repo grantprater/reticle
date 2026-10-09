@@ -98,11 +98,13 @@ Storage and the gate's query
 `frame_record` lays the beliefs out frames by entities, with QUESTION_ACCEPTANCE
 section 4's `read`, `t_obs` and `rate` (all `full` and `fine` at the stored
 15 Hz grid); `write_record` stores it at `<store>/l2/slot_state/<session>.npz`
-with a stamp naming this version and every input's. `region_at` answers, for
-one instant, each entity's point disc and reach disc in metres and widget
-pixels: the belief a per-frame gate asks before it reads. The gate lives
-below this layer (`passes`), so it should take `region_at` as a callable
-rather than import this module.
+with a stamp naming this version and every input's. `RegionCursor.at`
+answers, for each instant in turn, each entity's point disc and reach disc in
+metres and widget pixels: the belief a per-frame gate asks before it reads.
+The cursor moves forward only, steps frame to frame within a round and resets
+at the round barrier, so no query searches past its round; `region_at` is
+the one-off form. The gate lives below this layer (`passes`), so it should
+take a cursor's `at` as a callable rather than import this module.
 
 Promotion check (2026-10-09)
 ----------------------------
@@ -1088,7 +1090,8 @@ def build_slots(sid: str, binding: str = "causal", store_root: Path = DEFAULT_ST
 
     Returns a dict: `rows` (the `EntityRow`s), `S` (the stored rows), `L`
     (the lineup's slots), `life`, `bind`, `B` (the beliefs, (N, F) arrays),
-    `rec` and `record` (frames by rows), `t_ms`, the world frame (`mf`,
+    `rec` and `record` (frames by rows), `t_ms`, `windows` (the frame axis
+    cut at the round barriers, `round_windows`), the world frame (`mf`,
     `to_m`, `m_per_px`), `params`, `cost`, `stamp`; or `{"refused": why}`."""
     if binding not in ("causal", "post_round"):
         raise ValueError(f"unknown binding {binding!r}")
@@ -1145,7 +1148,8 @@ def build_slots(sid: str, binding: str = "causal", store_root: Path = DEFAULT_ST
              **({"portrait_references": extra["fits"]["references_version"],
                  "spectate_witness": extra["spect"].get("version")} if binding == "causal" else {})}
     return {"session": sid, "rows": E["rows"], "S": S, "L": L, "mf": mf, "to_m": to_m,
-            "m_per_px": m_per_px, "t_ms": S.fr_t, "life": life, "bind": bind, "B": B, "rec": rec,
+            "m_per_px": m_per_px, "t_ms": S.fr_t, "life": life,
+            "windows": round_windows(S.fr_t, life["starts"]), "bind": bind, "B": B, "rec": rec,
             "binding": binding, **extra, "params": params, "stamp": stamp,
             "cost": {"frames": int(F), "load_cpu_s": round(load_s, 2),
                      "lifecycle_us_per_frame": round((t1 - t0) / F * 1e6, 2),
@@ -1157,9 +1161,69 @@ def build_slots(sid: str, binding: str = "causal", store_root: Path = DEFAULT_ST
 
 # ----------------------------------------------------------------- the gate's query
 
+def round_windows(t: np.ndarray, starts: np.ndarray) -> dict:
+    """The frame axis cut at the round barriers, once per session: window 0
+    holds the frames before the first round start, window `w` the frames of
+    round `w - 1`. `lo[w]` is window `w`'s first frame (`lo[-1]` is `F`),
+    `t[w]` a view of its frame times, `starts` the sorted round starts."""
+    starts = np.sort(np.asarray(starts, float))
+    lo = np.concatenate([[0], np.searchsorted(t, starts), [t.size]]).astype(int)
+    return {"starts": starts, "lo": lo, "t": [t[a:b] for a, b in zip(lo[:-1], lo[1:])]}
+
+
+class RegionCursor:
+    """The gate's per-frame query: a forward-only cursor over one session's
+    frame axis, scoped to the round.
+
+    `at(t_ms)` answers what `region_at` answers, for instants that never
+    decrease. Within a round it steps to the next frame without a search;
+    after a gap it searches only the rest of the current round's frames. At a
+    round barrier it resets to the new round's window, so no query reaches
+    past the round it falls in. The cursor carries a frame index and the last
+    instant, no belief."""
+
+    def __init__(self, G: dict):
+        self.G = G
+        W = G["windows"]
+        self.starts, self.lo, self.views = W["starts"], W["lo"], W["t"]
+        self.t = G["t_ms"]
+        self.w = 0                  # the window holding the last instant
+        self.f = -1                 # the latest frame at or before it
+        self.t_last = -math.inf
+
+    def at(self, t_ms: float) -> dict:
+        t_ms = float(t_ms)
+        if t_ms < self.t_last:
+            raise ValueError(f"RegionCursor moves forward only: {t_ms} after {self.t_last}")
+        self.t_last = t_ms
+        if self.w < self.starts.size and t_ms >= self.starts[self.w]:
+            # the round barrier: reset to the window of the round t_ms falls in
+            while self.w < self.starts.size and t_ms >= self.starts[self.w]:
+                self.w += 1
+            self.f = int(self.lo[self.w]) - 1
+        lo, hi = int(self.lo[self.w]), int(self.lo[self.w + 1])
+        nxt = self.f + 1
+        if nxt < hi and self.t[nxt] <= t_ms:
+            if nxt + 1 < hi and self.t[nxt + 1] <= t_ms:
+                # a gap: search the rest of this round's frames only
+                self.f = nxt + int(np.searchsorted(self.views[self.w][nxt - lo:], t_ms,
+                                                   side="right")) - 1
+            else:
+                self.f = nxt
+        return region_of_frame(self.G, self.f, t_ms)
+
+
 def region_at(G: dict, t_ms: float) -> dict:
-    """Every entity's region at instant `t_ms`, from the latest stored frame
-    at or before it (causal), each radius grown by `v_max` over the gap.
+    """Every entity's region at one instant `t_ms`, for a one-off query such
+    as `reticle slot-state --at`: a fresh `RegionCursor` locates the round,
+    then searches its frames only. A per-frame gate holds one cursor."""
+    return RegionCursor(G).at(t_ms)
+
+
+def region_of_frame(G: dict, f: int, t_ms: float) -> dict:
+    """Every entity's region at instant `t_ms`, from stored frame `f`, the
+    latest at or before it (causal), each radius grown by `v_max` over the
+    gap.
 
     A region is the union of at most two discs: the point disc (`x_m`,
     `y_m`, `r_m`: the fit disc for `fit` and `fit_unnamed`, the crowd core
@@ -1169,11 +1233,11 @@ def region_at(G: dict, t_ms: float) -> dict:
     the whole map (`reach_m` infinite); `closed` has neither. The same in
     baked widget pixels: `px`, `py`, `r_px`, `apx`, `apy`, `reach_px`.
     Returns `key` ((kind, id)) and `kind` per entity, `age_s` and `frame`.
-    An instant before the first frame returns every entity closed."""
+    Frame -1, an instant before the first frame, returns every entity
+    closed."""
     t = G["t_ms"]
     B = G["B"]
     N = B["kind"].shape[0]
-    f = int(np.searchsorted(t, float(t_ms), side="right")) - 1
     keys = [r.key for r in G["rows"]]
     if f < 0:
         nan = np.full(N, np.nan)

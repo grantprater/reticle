@@ -106,7 +106,8 @@ class RegionAtTest(unittest.TestCase):
             return np.asarray(px, float) * 0.5, np.asarray(py, float) * 0.5
         to_m.to_px = lambda x, y: (np.asarray(x, float) * 2.0, np.asarray(y, float) * 2.0)
         return {"t_ms": t, "B": B, "rows": [ss.EntityRow("player", "p0", "ally", slot=0)],
-                "params": {"v_max_m_s": 10.0}, "to_m": to_m, "m_per_px": 0.5}
+                "params": {"v_max_m_s": 10.0}, "to_m": to_m, "m_per_px": 0.5,
+                "windows": ss.round_windows(t, np.array([0.0, 150.0]))}
 
     def test_closed_before_the_first_frame(self):
         q = ss.region_at(self._G(), -5.0)
@@ -127,6 +128,30 @@ class RegionAtTest(unittest.TestCase):
         self.assertEqual(q["kind"], ["fit"])
         self.assertAlmostEqual(q["r_m"][0], 1.0 + 10.0 * 0.02)
         self.assertTrue(np.isnan(q["reach_m"][0]))
+
+    def test_the_cursor_answers_what_the_one_off_query_answers(self):
+        # instants before the first frame, on frames, between them and at
+        # the round barrier at 150 ms, where frame 1 still answers
+        G = self._G()
+        cur = ss.RegionCursor(G)
+        for t in (-5.0, 0.0, 20.0, 100.0, 149.0, 150.0, 199.0, 200.0, 260.0, 900.0):
+            a, b = cur.at(t), ss.region_at(G, t)
+            self.assertEqual((a["frame"], a["kind"]), (b["frame"], b["kind"]), t)
+            np.testing.assert_array_equal(a["reach_m"], b["reach_m"])
+        self.assertEqual(ss.region_at(G, 150.0)["frame"], 1)
+        self.assertEqual(ss.region_at(G, 900.0)["frame"], 2)
+
+    def test_the_cursor_refuses_to_move_back(self):
+        cur = ss.RegionCursor(self._G())
+        cur.at(120.0)
+        with self.assertRaises(ValueError):
+            cur.at(110.0)
+
+    def test_a_round_barrier_bounds_the_search(self):
+        # the frame axis cut at 150 ms: frames 0-1 before it, frame 2 after
+        W = ss.round_windows(_grid(3), np.array([150.0]))
+        self.assertEqual(W["lo"].tolist(), [0, 2, 3])
+        self.assertEqual([v.size for v in W["t"]], [2, 1])
 
 
 class LifecycleTest(unittest.TestCase):
