@@ -116,7 +116,7 @@ Sonic Sensors pass the Alarmbot rule itself. Tuning stopped there.
 ## Minimum new solo takes
 
 Per the capture policy in
-[ABILITY_ENTITY_INFERENCE_DESIGN.md](ABILITY_ENTITY_INFERENCE_DESIGN.md), only
+[ABILITY_ENTITY_INFERENCE_DESIGN.md](../ABILITY_ENTITY_INFERENCE_DESIGN.md), only
 gaps existing footage cannot close:
 
 1. **Deadlock** (no solo clip exists): Sonic Sensor twice, Barrier Mesh once,

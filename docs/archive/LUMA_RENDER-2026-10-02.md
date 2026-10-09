@@ -5,7 +5,7 @@ Archived 2026-10-09 from `luma-render-20261002` (19c2a0a, tag
 ran, and `prototypes/scene_stack.py` is the render path now. The prototypes it
 names survive only at the tag.
 
-2026-10-02. [CAPTURE_PSF.md](CAPTURE_PSF.md) measured the capture's blur:
+2026-10-02. [CAPTURE_PSF.md](../CAPTURE_PSF.md) measured the capture's blur:
 luma nearly pixel-sharp, chroma in 2x2 blocks [domain:capture/chroma-420].
 The ally reader keys the teal rim on HSV (`minimap.ally_mask`), that is on
 the blocky chroma, so a one-pixel rim loses saturation to the floor beside

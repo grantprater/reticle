@@ -1,8 +1,7 @@
 # Reticle working map
 
 This map routes by subsystem; the linked source is authoritative.
-`reticle ownership` routes by question (*which agent died?*) and names what each
-owner is not for.
+`reticle ownership` routes by question.
 
 ## Start here
 
@@ -44,8 +43,9 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Layers and blessed upward edges | `architecture.toml`, `reticle/architecture.py` |
 | A quoted figure and its run | `reticle/quoted.py`, `reticle/metrics.py` |
 | Which documents are live, and what reaches them | `documents.toml`, `reticle/documents.py`, `doctor` DOCS |
-| Scan cost and live frame-rate cost | `reticle usage [SESSION]`, `reticle/usage.py`, [FRAMETIME_PROTOCOL.md](FRAMETIME_PROTOCOL.md); per-reader CPU per second of play from stored usage: `prototypes/runtime_budget.py` |
+| Scan cost and live frame-rate cost | `reticle usage [SESSION]`, `reticle/usage.py`, [FRAMETIME_PROTOCOL.md](FRAMETIME_PROTOCOL.md); per-reader CPU: `prototypes/runtime_budget.py` |
 | Cross-channel checks | `reconciliation.py`, `checks.py`, `doctor.py` |
+| Acceptance against replay truth (the one harness) | `prototypes/question_acceptance.py`, [QUESTION_ACCEPTANCE.md](QUESTION_ACCEPTANCE.md) |
 | External truth | `prototypes/riot_ground_truth.py`, `replay_truth.py`, `replay_abilities.py`, [REPLAY_KEEPING.md](REPLAY_KEEPING.md) |
 | Player-run Riot fetch | [MATCH_FETCH_KIT.md](MATCH_FETCH_KIT.md) |
 | Ladder match sample (fit only) | `prototypes/ladder_fetch.py`, [LADDER_SAMPLE.md](LADDER_SAMPLE.md) |
@@ -68,7 +68,7 @@ Delivery gates: [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md).
 | Visual debugging | `overlay.py`, `glance.py` |
 | Round review from events | `round_view.py`, `view_events.py`, `docs/EVENT_GAPS.md` |
 | Contiguous minimap correction and review | `tools/minimap_sequence_summary.py`, `tools/minimap_sequence_review.py` |
-| Camera wipes: per-frame vs adjudicated killfeed counts disagree | `tools/wipe_scout.py` |
+| Camera wipes: killfeed count disagreements | `tools/wipe_scout.py` |
 
 Module names are relative to `reticle/` unless a directory is shown.
 
@@ -87,7 +87,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only hud   # from the crop cache
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only scoreboard --cache-roi scoreboard   # decodes
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed_panel   # decodes
-.\.venv\Scripts\python.exe -m reticle ingest-passes SESSION [--ally-processes K]   # after the HUD pass, rounds, strip: minimap pass beside the panel and scoreboard decodes, then ally_icon in K processes
+.\.venv\Scripts\python.exe -m reticle ingest-passes SESSION [--ally-processes K]   # minimap, panel and scoreboard decodes, then ally_icon
 .\.venv\Scripts\python.exe -m reticle replay-keep SESSION   # keep, parse and build the capture's replay
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only ally_icon --from cache --ally-processes K
 .\.venv\Scripts\python.exe -m reticle domain --check
@@ -122,17 +122,10 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle occluders --all
 ```
 
-Resolve geometry through `reticle/geometry.py` (one npz per
-`<map>__<profile>`).
-
-For stored-data changes, prefer `segment` or `audit` (stored
-L1), `coach` or `sql`. Under the default
-`--from auto`, a span reader reads a complete round cache, else decodes.
-`hud`, `board` and `overlay` open the
-source video. Run a targeted test file, `verify --tier fast`, then the
-full suite.
-`refine` previews stored windows; `--execute` reads them into separate dense
-evidence, given a cached killfeed mask.
+For stored-data changes, prefer `segment`, `audit`, `coach` or `sql`. Under
+`--from auto`, a span reader reads a complete round cache, else decodes;
+`hud`, `board` and `overlay` open the source video. Run a targeted test
+file, `verify --tier fast`, then the full suite.
 
 ## Rules
 

@@ -470,7 +470,7 @@ recorded floor height; and (d) holds the four rope kills.
 **Not done.** The base stopping distance and High's multiplier stay
 placeholders; component-level material overrides were not read; the
 confirmation set's (f) kills were not rendered. The killfeed draws a
-wallbang mark on the killer's plate (`reticle/killfeed.py` sees past it but
+wallbang mark on the killer's plate [domain:killfeed/wallbang-mark] (`reticle/killfeed.py` sees past it but
 stores nothing): that independent witness on the captured matches would
 replace the D0 placeholder with a count, and is the next step if wallbangs
 matter.

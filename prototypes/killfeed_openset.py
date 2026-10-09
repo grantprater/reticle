@@ -1119,7 +1119,7 @@ CROP_FAULTS_DIR = OUT / "crop_faults"
 #: killfeed frames half a second before, at and after (`faults` draws them):
 #: `not_on_entry`, no killfeed entry under the box (scenery, a band of HUD);
 #: `left_of_entry`, an entry in the slot but the box left of its killer
-#: portrait (scenery, the assist panel); `spans_killer_name`, the box holds the
+#: portrait (scenery, the assist panel [domain:killfeed/assist-panel]); `spans_killer_name`, the box holds the
 #: killer's name and the gun as one blob; `truncated`, a cut piece of the
 #: icon; `band_shifted`, the band placed above the entry, cutting the icon's
 #: lower half; `faint`, the right box on an icon fading in.

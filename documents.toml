@@ -215,7 +215,7 @@ kind = "design"
 status = "proposed"
 since = "2026-10-04"
 remains = "The roster-difference rule for capture stalls a round outlives, unbuilt."
-waits_for = "BACKLOG item 1's stall thread; the ally icons or a scoreboard opening to name the dead."
+waits_for = "BACKLOG's waiting \"Killfeed residuals\" entry (in-round stall gaps); the ally icons or a scoreboard opening to name the dead."
 
 [[document]]
 path = "docs/MINIMAP_OBJECTS_DESIGN.md"
@@ -257,13 +257,6 @@ since = "2026-09-30"
 implemented_by = ["reticle/entity_contract.py", "owns:entity-event"]
 remains = "Stage 0 is done (the contract, its validator and the CONSUMER check). Stage 1 (lanes round_entity, death and spike on bfad2778a372 with the round viewer, ending the viewer's CONSUMER exemptions), then players and bindings, consumer migration, the owner gaps and the debt target."
 waits_for = "The player's review of the plan as amended by his answers of 2026-09-30, and what an unobserved object of each remaining family shows."
-
-[[document]]
-path = "docs/PUBSUB_PLAN.md"
-kind = "plan"
-status = "implemented"
-since = "2026-09-27"
-implemented_by = ["reticle/pipeline.py", "tools/pubsub_baseline.py", "tools/pubsub_notes_append.py"]
 
 [[document]]
 path = "docs/PUBSUB_DESIGN.md"
@@ -413,28 +406,6 @@ kind = "findings"
 status = "recorded"
 since = "2026-09-27"
 
-# Superseded, and live only while NOTES.md links them; archive them after.
-[[document]]
-path = "docs/PUBSUB_PERFORMANCE_BASELINE.md"
-kind = "findings"
-status = "superseded"
-since = "2026-09-27"
-superseded_by = "docs/PUBSUB_MEASUREMENTS.md"
-
-[[document]]
-path = "docs/PUBSUB_PIPELINE_MAP.md"
-kind = "findings"
-status = "superseded"
-since = "2026-09-27"
-superseded_by = "docs/PUBSUB_DESIGN.md"
-
-[[document]]
-path = "docs/PUBSUB_PROTOTYPE.md"
-kind = "findings"
-status = "superseded"
-since = "2026-09-27"
-superseded_by = "docs/PUBSUB_DESIGN.md"
-
 [[document]]
 path = "docs/ROSTER_FINDINGS.md"
 kind = "findings"
@@ -574,8 +545,9 @@ waits_for = "The player's session with the game running; the kit (prototypes/liv
 [[document]]
 path = "docs/MINIMAP_GLYPH_CHANNEL.md"
 kind = "plan"
-status = "proposed"
-since = "2026-10-04"
+status = "partial"
+since = "2026-10-09"
+implemented_by = ["owns:ability-glyph", "owns:ability-glyph-name"]
 remains = "Stage 1 done (glyph-tables-0.1.1) except gate 3's unlabelled discs; stage 2's reader (ability-glyph-0.2.0) built 2026-10-05 with stage 1's static and portrait gates, gate 7 met; stage 3's prerequisites (ability-glyph-0.5.0, glyph-null-table-0.2.0) met 2026-10-05 except gate 3's unlabelled discs: the null at the full scale transform, an audit null, the map_shown gate on the void-corner disc. Stage 3 built 2026-10-05 (ability-disc-track-0.1.0, ability-glyph-name-0.1.0): disc tracks, the glyph verdict with the Astra-star rule (the Omen rule refuses until its scale is recorded) and its identity claims; P4 and gate 6 failed, gate 4's fresh set cannot be met from the store. Then more exhaustive dev frames for gate 3, captures for gate 4, the cache-cadence follow, the ability_icon lane, the Riot bound and the scene-model sprite. Revised 2026-10-04 with the clean held-out score (H1-H8, K5) the two-flag rotation test (glyph-wiring-design-20261004 G1-G4, corrected) and the cross-channel independence measurement (cross-channel-independence-20261004)."
 waits_for = "Nothing for stage 1; the player's answers on Cypher:C and Skye:X rotation refine its table, and the game-data reading of which component draws a placed Deadlock:Q or Omen:E icon checks the two-flag rule. The Omen motion rule waits for the widget scale behind its fact."
 

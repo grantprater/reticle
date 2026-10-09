@@ -1,7 +1,7 @@
 # The pipeline as it runs today: a map for a pub/sub design
 
 Status (2026-09-27): superseded. A snapshot of the serial pipeline at `a065949`; its seams and open
-questions became the [design](PUBSUB_DESIGN.md)'s model and findings. Its line references into `cli.py`,
+questions became the [design](../PUBSUB_DESIGN.md)'s model and findings. Its line references into `cli.py`,
 `usage.py` and `doctor.py` moved after `a065949`, and "No reader threads ... exist" (section 2) no longer
 holds: `reticle/pipeline.py` feeds readers on their own threads.
 
