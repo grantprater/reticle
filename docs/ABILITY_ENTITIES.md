@@ -727,17 +727,27 @@ spawned-object nodes per class: recall, open and end error, `ends_on` cause
 agreement; the self side reproduces step 2's; every unmapped class named.
 
 Step 3 done in part (2026-10-09, branch `ability-tree-step3-20261009`).
-Prediction `ability-tree-step3-20261009-A1` failed on its pre-registered run:
-self recall held ([metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#self_all_recall=0.8523]) but a team glyph's loss
-ended self children early (end-cause agreement
-[metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#self_all_end_cause_agreement=0.413]); team false opens
-[metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#team_all_false_open_share=0.3966] passed the 0.35 bound; object
-nodes recalled [metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#objects_all_recall=0.095] of the actors. Post
-hoc (ability-child-0.2.1), a drawing's loss ends a node only where its own
-facts give no lifetime: self reproduces step 2b
-([metric:question_acceptance/ability_lane/step3-posthoc@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#self_all_end_cause_agreement=0.6014]); team recall
-[metric:question_acceptance/ability_lane/step3-posthoc@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#team_all_recall=0.348], enemy recall
-[metric:question_acceptance/ability_lane/step3-posthoc@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#enemy_all_recall=0.1026].
+Prediction `ability-tree-step3-20261009-A1` failed four of its
+pre-registered bounds: a team-owned drawing's loss ended self children
+early (self end-cause agreement
+[metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#self_all_end_cause_agreement=0.413], bound: within 0.10 of step
+2b), team false opens [metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#team_all_false_open_share=0.3966] exceeded
+0.35, object nodes recalled [metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#objects_all_recall=0.095] of the
+actors (bound 0.50), and object end-cause agreement
+[metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#objects_all_end_cause_agreement=0.2519] fell below 0.40. Self
+recall held ([metric:question_acceptance/ability_lane/step3@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#self_all_recall=0.8523]). A post-hoc revision
+(ability-child-0.2.1, rows marked `post_hoc`) is withdrawn: it carried two
+abilities' drawings to every ability. In its place (0.3.0) the mechanics
+sheet 0.4.2 asks per object whether it has ended when its drawing
+disappears (`drawing_loss`); no cell is answered yet, so a loss ends nothing
+and stores `no-fact`. Prediction `ability-tree-step3-20261009-A2` failed one
+bound on its run: witnessed object nodes, now scored apart from possible
+ones, open falsely at [metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#objects_all_false_open_share=0.8247]
+(bound 0.70). Self reproduces step 2b
+([metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#self_all_end_cause_agreement=0.6014]); team recall
+[metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#team_all_recall=0.348], enemy recall
+[metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#enemy_all_recall=0.1026], possible-node recall
+[metric:question_acceptance/ability_lane/step3-r2@066741deafe5+9912c382130b+9acf02f98283+c817691bcd15+cadaadeb2d8b+d3dcfb182ab1#objects_possible_all_recall=0.0838].
 
 **Step 5. Kits for every slot.** `adjudication.ability_state` reads stored
 children as cast witnesses for allies and enemies and holds their charges
