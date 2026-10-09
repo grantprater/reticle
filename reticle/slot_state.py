@@ -39,6 +39,28 @@ A second kind joins by three extension points, never by a second module:
 `stack_entities` joins the blocks; `beliefs` then runs once over all rows.
 No ability kind is built here.
 
+Ability children and effects (declared, not built)
+--------------------------------------------------
+docs/ABILITY_ENTITIES.md makes this module the owner of ability instances
+(`ability` children) and what they do to players (`effect` entities). They
+form a tree: slot, ability instance, spawned objects nested to any depth,
+effects; each node has its own lifecycle and a revisable parent binding to
+any entity key. The owner holds
+[owns:ability-child], [owns:ability-effect] and [owns:ability-owner], each
+`partial` until its migration step builds it (step 2 the player's children
+and effects, step 3 the team's and the caster verdict). Step 1 ships only the
+declaration: `CHANNELS`, every input the child owner may read and what each
+may do (open a child, join one, end one, name its kind, claim its agent),
+stamped `ABILITY_CHANNELS_VERSION`, and `ABILITY_LANES`, the two lanes
+ability entities reach consumers through. The ABILITY ratchet
+(`ratchets.ability_findings`, run by `doctor`) errors on any ability stream,
+lane or ownership entry these two tables and this owner do not account for,
+and the event validator (`entity_contract.check_ability_row`) rejects an
+ability or effect row outside lane `ability`, from another producer, or
+named by another key's verdict without `depends_on`. No agent name is
+decided here: a child's agent will be the `agent-identity` arbiter's verdict
+on the child key.
+
 Names
 -----
 This module decides no agent name. Each player slot's agent is the
@@ -98,11 +120,13 @@ Storage and the gate's query
 `frame_record` lays the beliefs out frames by entities, with QUESTION_ACCEPTANCE
 section 4's `read`, `t_obs` and `rate` (all `full` and `fine` at the stored
 15 Hz grid); `write_record` stores it at `<store>/l2/slot_state/<session>.npz`
-with a stamp naming this version and every input's. `region_at` answers, for
-one instant, each entity's point disc and reach disc in metres and widget
-pixels: the belief a per-frame gate asks before it reads. The gate lives
-below this layer (`passes`), so it should take `region_at` as a callable
-rather than import this module.
+with a stamp naming this version and every input's. `RegionCursor.at`
+answers, for each instant in turn, each entity's point disc and reach disc in
+metres and widget pixels: the belief a per-frame gate asks before it reads.
+The cursor moves forward only, steps frame to frame within a round and resets
+at the round barrier, so no query searches past its round; `region_at` is
+the one-off form. The gate lives below this layer (`passes`), so it should
+take a cursor's `at` as a callable rather than import this module.
 
 Promotion check (2026-10-09)
 ----------------------------
@@ -175,6 +199,142 @@ RATES = ("coarse", "fine")
 
 SPECTATE_RESTS_ON = ("tray_kit spectating witness (kit_agents_at lookahead 0 ms; each span's agent "
                      "pooled over the whole span: a post-round tray_kit verdict)")
+
+
+# --- ability children and effects: the declaration (docs/ABILITY_ENTITIES.md step 1)
+
+#: Entity kinds the child owner will hold beside `player` (section 2.2).
+KIND_ABILITY = "ability"
+KIND_EFFECT = "effect"
+#: The ownership entries this module answers for ability entities.
+ABILITY_ENTRIES = ("ability-child", "ability-effect", "ability-owner")
+
+#: ability-channels-0.1.0 (2026-10-09): section 2.3's witness table, as code.
+#: A change to any row restamps this table, never the player slots.
+ABILITY_CHANNELS_VERSION = "ability-channels-0.1.0"
+
+#: What an input may open: any child, a child of the player's team only, or
+#: either only where no child of that ability is live.
+OPENS = ("any", "team", "if_none_live", "team_if_none_live")
+
+#: Every input the child owner may read, one row per witness (section 2.3),
+#: and what it may do:
+#:
+#: - `opens`: one of `OPENS`, or None where it never opens a child;
+#: - `joins`: may join a live child of the same instance;
+#: - `ends`: the end it may witness, or None;
+#: - `kind`: what names the child's kind, or None;
+#: - `agent_claim`: how the row bears on the child's agent (a channel's claim
+#:   re-keyed to the child, or `depends_on` another key's verdict), or None;
+#: - `position`: what places the child, or None;
+#: - `effect`: the effect it witnesses (section 2.5), or None.
+#: - `parent`: the entity key the row binds the new node to, a revisable
+#:   binding: a player slot, an ability instance or a spawned object.
+#:
+#: `owners` are the ownership entries whose verdicts the row reads; each
+#: declares `feeds` with the row's `feeds`. `readers` are the entries beneath
+#: them. `streams` are the stored streams the row rests on. A row with
+#: `wired` False names a witness no code reads yet: no owner, no stream.
+#: Ability entities form a tree (player, 2026-10-09): slot -> ability
+#: instance -> spawned objects, nested to any depth -> effects. Each node is
+#: its own entity with its own lifecycle (Cypher's tracking dart is a child
+#: of his Spycam and ends at his death while the camera persists), and its
+#: parent may be any entity key, rebound when the evidence moves.
+#: Each ability's own facts decide what a witness means for it; no row
+#: extends one ability's mechanics to another
+#: [domain:abilities/ability-rules-are-unique].
+CHANNELS: tuple[dict, ...] = (
+    {"witness": "player_tray_cast", "parent": "the self slot",
+     "wired": True,
+     "owners": ("ability-cast", "ability-state"), "readers": ("tray-drop",),
+     "streams": ("tray_drop", "ability_state"), "feeds": ("ability-child",),
+     "opens": "any", "joins": False, "ends": None,
+     "kind": "the tray slot of the player's kit",
+     "agent_claim": "depends_on the self slot's verdict",
+     "position": "the self slot's belief at the cast", "effect": None},
+    {"witness": "spectated_kit_drop", "parent": "the spectated teammate's slot",
+     "wired": True,
+     "owners": ("tray-kit",), "readers": ("tray-icon", "tray-drop"),
+     "streams": ("tray_kit", "tray_kit_identity", "tray_drop"), "feeds": ("ability-child",),
+     "opens": "any", "joins": False, "ends": None,
+     "kind": "the spectated kit's slot", "agent_claim": "channel tray_kit",
+     "position": "the spectated slot's belief", "effect": None},
+    {"witness": "ult_line", "parent": "the caster's slot, by the template's class and side",
+     "wired": True,
+     "owners": ("ult-cast",), "readers": ("ult-line",),
+     "streams": ("ult_cast", "ult_cast_identity", "ult_line"), "feeds": ("ability-child",),
+     "opens": "any", "joins": True, "ends": None,
+     "kind": "the template's class", "agent_claim": "channel ult_line",
+     "position": None, "effect": None},
+    {"witness": "smoke_track", "parent": "the caster's slot, by the smoke rule",
+     "wired": True,
+     "owners": ("minimap-smoke", "smoke-owner"), "readers": ("minimap-dark",),
+     "streams": ("smoke", "smoke_owner", "smoke_owner_identity", "minimap_dark"),
+     "feeds": ("ability-child",),
+     "opens": "team", "joins": True, "ends": "an observed end",
+     "kind": "the smoke rule's agent and slot", "agent_claim": "channel smoke_owner",
+     "position": "the disc", "effect": None},
+    {"witness": "glyph_track", "parent": "unknown at the open; the caster's slot or a spawned object, bound later",
+     "wired": True,
+     "owners": ("ability-glyph-name", "ability-disc-track"),
+     "readers": ("ability-icon", "ability-glyph"),
+     "streams": ("ability_glyph_name", "ability_glyph_identity", "ability_disc_track",
+                 "ability_icon", "ability_glyph"),
+     "feeds": ("ability-child",),
+     "opens": "any", "joins": True, "ends": "the verify's loss where the disc would show",
+     "kind": "the verdict key", "agent_claim": "channel minimap_glyph",
+     "position": "the track", "effect": None},
+    {"witness": "shape_fit", "parent": "unknown at the open; bound later",
+     "wired": True,
+     "owners": ("ability-shape", "ability-gate"), "readers": ("ability-candidates",),
+     "streams": ("ability_fit", "ability_wall", "ability_shape", "ability_gate"),
+     "feeds": ("ability-child",),
+     "opens": "any", "joins": True, "ends": "the fit's absence where it would show",
+     "kind": "the descriptor", "agent_claim": None,
+     "position": "the fit", "effect": None},
+    {"witness": "dead_clove_circle", "parent": "the dead Clove's slot",
+     "wired": True,
+     "owners": ("clove-circle",), "readers": (),
+     "streams": ("clove_circle",), "feeds": ("ability-child",),
+     "opens": None, "joins": True, "ends": None,
+     "kind": None, "agent_claim": "channel dead_clove_circle (through smoke-owner)",
+     "position": "the circle's centre bounds the disc", "effect": None},
+    {"witness": "killfeed_ability_kill", "parent": "the killer's live node of that ability, else the killer's slot",
+     "wired": True,
+     "owners": ("killfeed-weapon",), "readers": ("killfeed-weapon-descriptor",),
+     "streams": ("killfeed_weapon", "death"), "feeds": ("ability-child", "ability-effect"),
+     "opens": "if_none_live", "joins": True, "ends": None,
+     "kind": "the weapon verdict", "agent_claim": "depends_on the killer verdict",
+     "position": None, "effect": "a kill, on the victim"},
+    {"witness": "assist_icon", "parent": "the assister's live node of that ability, else the assister's slot",
+     "wired": True,
+     "owners": ("kill-assists",), "readers": ("killfeed-assist-panel",),
+     "streams": ("assist", "killfeed_assist"), "feeds": ("ability-child", "ability-effect"),
+     "opens": "team_if_none_live", "joins": True, "ends": None,
+     "kind": "the icon's ability", "agent_claim": "depends_on the assister verdict",
+     "position": None, "effect": "an assist, on the victim"},
+    {"witness": "own_ability_audio", "parent": "the self slot",
+     "wired": True,
+     "owners": ("ability-audio",), "readers": (), "streams": (), "feeds": ("ability-child",),
+     "opens": None, "joins": True, "ends": None,
+     "kind": "the scored slot", "agent_claim": None, "position": None, "effect": None},
+    {"witness": "device_destroyed", "parent": "the destroyed node's own parent, unchanged",
+     "wired": False,
+     "owners": (), "readers": (), "streams": (), "feeds": ("ability-child",),
+     "opens": None, "joins": True, "ends": "destroyed by the enemy",
+     "kind": None, "agent_claim": None, "position": None, "effect": None},
+    {"witness": "others_ability_audio", "parent": "unknown; bound later",
+     "wired": False,
+     "owners": (), "readers": (), "streams": (), "feeds": ("ability-child",),
+     "opens": None, "joins": True, "ends": None,
+     "kind": "the class", "agent_claim": None, "position": None, "effect": None},
+)
+
+#: The lanes ability entities reach consumers through (section 2.9): the
+#: child owner's, and the kit owner's. Any other ability lane is ABILITY debt.
+ABILITY_LANES = {"ability": "children and effects (`ability-child`, `ability-effect`); "
+                            "built in step 2",
+                 "ability_tray": "the kit (`ability-state`)"}
 
 
 @dataclass(frozen=True)
@@ -1088,7 +1248,8 @@ def build_slots(sid: str, binding: str = "causal", store_root: Path = DEFAULT_ST
 
     Returns a dict: `rows` (the `EntityRow`s), `S` (the stored rows), `L`
     (the lineup's slots), `life`, `bind`, `B` (the beliefs, (N, F) arrays),
-    `rec` and `record` (frames by rows), `t_ms`, the world frame (`mf`,
+    `rec` and `record` (frames by rows), `t_ms`, `windows` (the frame axis
+    cut at the round barriers, `round_windows`), the world frame (`mf`,
     `to_m`, `m_per_px`), `params`, `cost`, `stamp`; or `{"refused": why}`."""
     if binding not in ("causal", "post_round"):
         raise ValueError(f"unknown binding {binding!r}")
@@ -1145,7 +1306,8 @@ def build_slots(sid: str, binding: str = "causal", store_root: Path = DEFAULT_ST
              **({"portrait_references": extra["fits"]["references_version"],
                  "spectate_witness": extra["spect"].get("version")} if binding == "causal" else {})}
     return {"session": sid, "rows": E["rows"], "S": S, "L": L, "mf": mf, "to_m": to_m,
-            "m_per_px": m_per_px, "t_ms": S.fr_t, "life": life, "bind": bind, "B": B, "rec": rec,
+            "m_per_px": m_per_px, "t_ms": S.fr_t, "life": life,
+            "windows": round_windows(S.fr_t, life["starts"]), "bind": bind, "B": B, "rec": rec,
             "binding": binding, **extra, "params": params, "stamp": stamp,
             "cost": {"frames": int(F), "load_cpu_s": round(load_s, 2),
                      "lifecycle_us_per_frame": round((t1 - t0) / F * 1e6, 2),
@@ -1157,9 +1319,69 @@ def build_slots(sid: str, binding: str = "causal", store_root: Path = DEFAULT_ST
 
 # ----------------------------------------------------------------- the gate's query
 
+def round_windows(t: np.ndarray, starts: np.ndarray) -> dict:
+    """The frame axis cut at the round barriers, once per session: window 0
+    holds the frames before the first round start, window `w` the frames of
+    round `w - 1`. `lo[w]` is window `w`'s first frame (`lo[-1]` is `F`),
+    `t[w]` a view of its frame times, `starts` the sorted round starts."""
+    starts = np.sort(np.asarray(starts, float))
+    lo = np.concatenate([[0], np.searchsorted(t, starts), [t.size]]).astype(int)
+    return {"starts": starts, "lo": lo, "t": [t[a:b] for a, b in zip(lo[:-1], lo[1:])]}
+
+
+class RegionCursor:
+    """The gate's per-frame query: a forward-only cursor over one session's
+    frame axis, scoped to the round.
+
+    `at(t_ms)` answers what `region_at` answers, for instants that never
+    decrease. Within a round it steps to the next frame without a search;
+    after a gap it searches only the rest of the current round's frames. At a
+    round barrier it resets to the new round's window, so no query reaches
+    past the round it falls in. The cursor carries a frame index and the last
+    instant, no belief."""
+
+    def __init__(self, G: dict):
+        self.G = G
+        W = G["windows"]
+        self.starts, self.lo, self.views = W["starts"], W["lo"], W["t"]
+        self.t = G["t_ms"]
+        self.w = 0                  # the window holding the last instant
+        self.f = -1                 # the latest frame at or before it
+        self.t_last = -math.inf
+
+    def at(self, t_ms: float) -> dict:
+        t_ms = float(t_ms)
+        if t_ms < self.t_last:
+            raise ValueError(f"RegionCursor moves forward only: {t_ms} after {self.t_last}")
+        self.t_last = t_ms
+        if self.w < self.starts.size and t_ms >= self.starts[self.w]:
+            # the round barrier: reset to the window of the round t_ms falls in
+            while self.w < self.starts.size and t_ms >= self.starts[self.w]:
+                self.w += 1
+            self.f = int(self.lo[self.w]) - 1
+        lo, hi = int(self.lo[self.w]), int(self.lo[self.w + 1])
+        nxt = self.f + 1
+        if nxt < hi and self.t[nxt] <= t_ms:
+            if nxt + 1 < hi and self.t[nxt + 1] <= t_ms:
+                # a gap: search the rest of this round's frames only
+                self.f = nxt + int(np.searchsorted(self.views[self.w][nxt - lo:], t_ms,
+                                                   side="right")) - 1
+            else:
+                self.f = nxt
+        return region_of_frame(self.G, self.f, t_ms)
+
+
 def region_at(G: dict, t_ms: float) -> dict:
-    """Every entity's region at instant `t_ms`, from the latest stored frame
-    at or before it (causal), each radius grown by `v_max` over the gap.
+    """Every entity's region at one instant `t_ms`, for a one-off query such
+    as `reticle slot-state --at`: a fresh `RegionCursor` locates the round,
+    then searches its frames only. A per-frame gate holds one cursor."""
+    return RegionCursor(G).at(t_ms)
+
+
+def region_of_frame(G: dict, f: int, t_ms: float) -> dict:
+    """Every entity's region at instant `t_ms`, from stored frame `f`, the
+    latest at or before it (causal), each radius grown by `v_max` over the
+    gap.
 
     A region is the union of at most two discs: the point disc (`x_m`,
     `y_m`, `r_m`: the fit disc for `fit` and `fit_unnamed`, the crowd core
@@ -1169,11 +1391,11 @@ def region_at(G: dict, t_ms: float) -> dict:
     the whole map (`reach_m` infinite); `closed` has neither. The same in
     baked widget pixels: `px`, `py`, `r_px`, `apx`, `apy`, `reach_px`.
     Returns `key` ((kind, id)) and `kind` per entity, `age_s` and `frame`.
-    An instant before the first frame returns every entity closed."""
+    Frame -1, an instant before the first frame, returns every entity
+    closed."""
     t = G["t_ms"]
     B = G["B"]
     N = B["kind"].shape[0]
-    f = int(np.searchsorted(t, float(t_ms), side="right")) - 1
     keys = [r.key for r in G["rows"]]
     if f < 0:
         nan = np.full(N, np.nan)

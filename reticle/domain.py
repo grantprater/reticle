@@ -84,7 +84,22 @@ KNOWN = frozenset({"player", "measured", "observed", "inferred", "cited"})
 
 REQUIRED = ("claim", "kind", "known", "since")
 OPTIONAL = ("use", "exceptions", "source", "see", "phrases", "supersedes",
-            "superseded_by", "depends_on", "subject", "given", "states", "values")
+            "superseded_by", "depends_on", "subject", "given", "states", "values",
+            "lifecycle_class", "ends_on", "destructible", "owner_death", "effects",
+            "lifetime")
+
+#: A lifecycle fact's class, end conditions, destruction and owner-death rule.
+#: The classes are the ability-entity plan's (docs/ABILITY_ENTITIES.md, section
+#: 2.4); `reticle mechanics-sheet` drafts the fields from the game files and
+#: writes them once the player confirms them, ability by ability.
+LIFECYCLE_CLASSES = frozenset({"deployed", "instant", "self_buff", "equipped", "movement"})
+ENDS_ON = frozenset({"lifetime", "destroyed", "owner_death", "recall_or_reactivation",
+                     "round_end"})
+DESTRUCTIBLE = frozenset({"yes", "no"})
+OWNER_DEATH = frozenset({"disabled", "destroyed", "persists", "not_applicable"})
+#: Keys only a lifecycle fact with a subject may carry.
+LIFECYCLE_KEYS = ("lifecycle_class", "ends_on", "destructible", "owner_death",
+                  "effects", "lifetime")
 
 #: The kinds a fact may carry `values` on: numbers a reader consumes, such as
 #: an ability drawing's base radius. A rule's numbers stay in its claim.
@@ -151,6 +166,16 @@ class Fact:
     #: lists of numbers, or tables of those, keyed by name. The claim states
     #: them in words; a fact without `values` has none to read.
     values: dict = field(default_factory=dict, compare=False, hash=False)
+    #: A lifecycle fact's class (`LIFECYCLE_CLASSES`), end conditions
+    #: (`ENDS_ON`), destruction (`DESTRUCTIBLE`), owner-death rule
+    #: (`OWNER_DEATH`), effects as `<effect>:<target>+<target>`, and the
+    #: lifetime's source: `none`, `player` or `<domain>/<id>#<group>.<field>`.
+    lifecycle_class: str = ""
+    ends_on: tuple[str, ...] = ()
+    destructible: str = ""
+    owner_death: str = ""
+    effects: tuple[str, ...] = ()
+    lifetime: str = ""
     unknown_keys: tuple[str, ...] = field(default=(), compare=False)
     missing_keys: tuple[str, ...] = field(default=(), compare=False)
 
@@ -231,6 +256,12 @@ def load(domain_dir: Path | None = None) -> dict[str, Fact]:
                 given=str(body.get("given", "")).strip(),
                 states=_str_tuple(body.get("states")),
                 values=dict(body.get("values") or {}),
+                lifecycle_class=str(body.get("lifecycle_class", "")).strip(),
+                ends_on=_str_tuple(body.get("ends_on")),
+                destructible=str(body.get("destructible", "")).strip(),
+                owner_death=str(body.get("owner_death", "")).strip(),
+                effects=_str_tuple(body.get("effects")),
+                lifetime=str(body.get("lifetime", "")).strip(),
                 unknown_keys=unknown,
                 missing_keys=missing,
             )
@@ -395,6 +426,22 @@ def validate(facts: dict[str, Fact],
             out.append(("ERROR", f"{key} lists states and is not a lifecycle "
                                  f"fact with a subject -- a state vocabulary "
                                  f"belongs to one ability's lifecycle"))
+        carried = [k for k in LIFECYCLE_KEYS if getattr(fact, k)]
+        if carried and (fact.kind != "lifecycle" or not fact.subject):
+            out.append(("ERROR", f"{key} carries {', '.join(carried)} and is not a "
+                                 f"lifecycle fact with a subject"))
+        for name, allowed in (("lifecycle_class", LIFECYCLE_CLASSES), ("ends_on", ENDS_ON),
+                              ("destructible", DESTRUCTIBLE), ("owner_death", OWNER_DEATH)):
+            got = _str_tuple(getattr(fact, name)) if getattr(fact, name) else ()
+            bad = sorted(set(got) - allowed)
+            if bad:
+                out.append(("ERROR", f"{key} has {name} {', '.join(bad)}; expected "
+                                     f"one of {', '.join(sorted(allowed))}"))
+        if fact.lifetime and fact.lifetime not in ("none", "player"):
+            ref = fact.lifetime.split("#", 1)[0]
+            if ref not in facts:
+                out.append(("ERROR", f"{key} takes its lifetime from '{ref}', which "
+                                     f"is not a registered fact"))
         if fact.values and fact.kind not in VALUE_KINDS:
             out.append(("ERROR", f"{key} carries values and is a {fact.kind} -- "
                                  f"values belong to {', '.join(sorted(VALUE_KINDS))} facts"))

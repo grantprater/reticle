@@ -61,6 +61,7 @@ import cv2
 import numpy as np
 
 from .geometry import MapScale
+from .ratchets import Gate
 from .usage import step as usage_step
 from .version import CLOVE_CIRCLE_VERSION
 
@@ -343,6 +344,10 @@ class CloveCircleReader:
 
     cache_resample = True
     records_clip = True
+    #: Reads only inside each ally Clove's death windows, passed as `spans`:
+    #: the opportunity opens the read, never a grid over the round (doctor CONVERT).
+    opportunity_gate = Gate(opportunity="an ally Clove's death window",
+                            source="clove_circle.stored_windows", kind="spans")
 
     def __init__(self, sgray, floor, box, windows: list[dict], ms: MapScale | None,
                  r_base: float | None, r_from: str | None, hz: float = 4.0,

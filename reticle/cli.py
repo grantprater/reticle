@@ -1798,6 +1798,11 @@ def cmd_scan(args) -> int:
         record is written with its reason and nothing is published."""
         setup_t0 = time.perf_counter_ns()
         R = build_readers()
+        # A fixed-grid reader still on the CONVERT list (BACKLOG item 1)
+        # runs, and says so; the warning never stops the pass.
+        from .ratchets import legacy_running
+        for line in legacy_running(R.readers):
+            print(line)
         t0 = time.perf_counter()
         last = [t0]
 
@@ -3282,14 +3287,10 @@ def cmd_ability_coverage(args) -> int:
 
 
 def cmd_ability_timeline(args) -> int:
-    """Build bounded ability-use claims, optionally materializing tray reads."""
+    """Build bounded ability-use claims from stored rows (no decode)."""
     from .ability_timeline import run
 
-    bundle, materialized = run(args.store, args.out, materialize=args.materialize,
-                               step_s=args.step)
-    if materialized:
-        print(f"materialized {materialized['candidates']} candidates across "
-              f"{len(materialized['sessions'])} demos")
+    bundle = run(args.store, args.out)
     summary = bundle["manifest"]["summary"]
     target = Path(args.out) if args.out else Path(args.store) / "analysis" / "ability-timeline"
     print(f"{summary['use_claims']} use claims across {summary['sessions_with_claims']} sessions; "
@@ -4099,6 +4100,47 @@ def cmd_trial(args) -> int:
           f"frames in {tot['seconds']:.1f} s; rows {tot['same']} same, {tot['only_trial']} only "
           f"in trial, {tot['only_stored']} only stored")
     return 0 if ok else 1
+
+
+def cmd_acceptance(args) -> int:
+    """The acceptance harness (docs/QUESTION_ACCEPTANCE.md, B7), in process
+    on `reticle.acceptance` only: `summary --tag TAG [SESSION ...] [--file
+    classes|label] [--reality off|on]` recomputes the class-aware outcomes
+    and labels, with round intervals, from the find rows a `lane` or `label`
+    run stored (`acceptance.summarize_rows`), and writes nothing. Every
+    other subcommand (`lane`, `label`, `ally`, `smoke`, `glyph`, `marks`,
+    `replay-score`, `replay-abilities`, `budget`) stays on
+    `prototypes/question_acceptance.py` until the T1d truth grid is promoted."""
+    return _acceptance_summary(Path(args.store), args)
+
+
+#: The development matches the acceptance harness scores by default.
+ACCEPTANCE_DEV = ("9acf02f98283", "c817691bcd15", "d3dcfb182ab1")
+
+
+def _acceptance_summary(store_root: Path, a) -> int:
+    """`reticle acceptance summary`: see `cmd_acceptance`."""
+    import json
+    from . import acceptance as acc
+    base = store_root / "analysis" / "question-acceptance" / a.tag
+    arm = "" if a.reality == "off" else "_reality"
+    rows = {}
+    for sid in a.sessions or list(ACCEPTANCE_DEV):
+        p = (base / f"classes{arm}_{sid}.jsonl" if a.file == "classes" else base / f"label{arm}" / f"{sid}.jsonl")
+        if not p.is_file():
+            print(f"{sid}: no stored {a.file} rows ({p}); run `reticle acceptance lane` or `label` first",
+                  file=sys.stderr)
+            return 1
+        with p.open(encoding="utf-8") as f:
+            rows[sid] = [json.loads(ln) for ln in f if ln.strip()]
+    doc = acc.summarize_rows(rows)
+    print(f"{doc['acceptance_version']}: {a.tag} {a.file} rows; {doc['boot']} over {doc['rounds']}")
+    scopes = list(doc["sessions"].items()) + ([("pooled", doc["pooled"])] if doc["pooled"] else [])
+    for scope, c in scopes:
+        print(f"  {scope}: {c['finds']} finds")
+        for o in acc.CLASS_OUTCOMES:
+            print(f"    {o:16s} {c['outcomes'][o]:6d} {c['outcomes_ci'].get(o)}")
+    return 0
 
 
 def cmd_dev_sample(args) -> int:
@@ -6403,6 +6445,22 @@ def cmd_domain(args) -> int:
     return domain_main(argv)
 
 
+def cmd_mechanics_sheet(args) -> int:
+    """The ability mechanics sheet: game-file pre-fill, the player's walk, the import."""
+    from .mechanics_sheet import main as sheet_main
+
+    argv = [args.action, "--store", str(args.store), "--by", args.by]
+    if args.agent:
+        argv += ["--agent", args.agent]
+    if args.column:
+        argv += ["--column", args.column]
+    if args.reask_unsure:
+        argv.append("--reask-unsure")
+    if args.write:
+        argv.append("--write")
+    return sheet_main(argv)
+
+
 def cmd_domain_hypothesis(args) -> int:
     """Review a pinned stored-data proposal without changing accepted facts."""
     from .domain_learning import publish
@@ -6869,12 +6927,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-coverage)")
     s.set_defaults(func=cmd_ability_coverage)
 
-    s = sub.add_parser("ability-timeline", help="build bounded ability-use claims")
+    s = sub.add_parser("ability-timeline",
+                       help="build bounded ability-use claims from stored rows (no decode)")
     s.add_argument("--out", help="output bundle directory (default: store/analysis/ability-timeline)")
-    s.add_argument("--materialize", action="store_true",
-                   help="read every demo tray before building the stored timeline")
-    s.add_argument("--step", type=float, default=0.5,
-                   help="tray sampling interval for --materialize (default 0.5s)")
     s.set_defaults(func=cmd_ability_timeline)
 
     s = sub.add_parser("combat-report", help="combat report panels and per-round counts from stored rows (no video)")
@@ -6884,6 +6939,17 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("deaths", help="death verdicts per killfeed entry from stored data (no video)")
     s.add_argument("session", nargs="?")
     s.set_defaults(func=cmd_deaths)
+
+    s = sub.add_parser("acceptance", help="the acceptance harness in process: `summary` recomputes "
+                                          "class-aware outcomes from stored find rows (the other "
+                                          "subcommands stay on prototypes/question_acceptance.py)")
+    acc_sub = s.add_subparsers(dest="acceptance_cmd", required=True)
+    a_ = acc_sub.add_parser("summary", help="outcomes and labels with round intervals from stored rows")
+    a_.add_argument("sessions", nargs="*", default=list(ACCEPTANCE_DEV))
+    a_.add_argument("--tag", required=True)
+    a_.add_argument("--file", choices=("classes", "label"), default="classes")
+    a_.add_argument("--reality", choices=("off", "on"), default="off")
+    s.set_defaults(func=cmd_acceptance)
 
     s = sub.add_parser("plan", help="stale stored streams and the least work that refreshes them")
     s.add_argument("session", nargs="?")
@@ -7249,6 +7315,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--check", action="store_true",
                    help="validate the registry and its citations")
     s.set_defaults(func=cmd_domain)
+
+    s = sub.add_parser("mechanics-sheet", help="the ability mechanics sheet, pre-filled "
+                       "from the game files, for the player to confirm")
+    s.add_argument("action", choices=("build", "ask", "status", "import"))
+    s.add_argument("--agent")
+    s.add_argument("--column")
+    s.add_argument("--by", default="player")
+    s.add_argument("--reask-unsure", action="store_true")
+    s.add_argument("--write", action="store_true",
+                   help="import: append the confirmed rows to domain/abilities.toml")
+    s.set_defaults(func=cmd_mechanics_sheet)
 
     s = sub.add_parser("domain-hypothesis", help="review a pinned stored-data domain proposal")
     s.add_argument("proposal", type=Path)

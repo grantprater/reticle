@@ -169,6 +169,11 @@ CAND = STORE / "labels" / "ability_candidates"
 #: Prototype output. NOT `l2/` -- stage 03 has no schema yet and this
 #: must not look like it is claiming one.
 EVENTS = STORE / "events" / "ability"
+#: Why `--emit` refuses. Its `events/ability` rows carried no version key
+#: (`plan.RETIRED_STREAMS`); the rows already stored stay as evidence.
+RETIRED_EMIT = ("--emit is retired (2026-10-09, docs/ABILITY_ENTITIES.md step 0): its "
+                "events/ability stream carried no version key and nothing read it; "
+                "tray_drop.player_cast answers when the player cast, ability_shape where")
 
 #: The POSITION window, which is not the join window and must not be set
 #: from it. The join is asked "does a cast predict an instance of this
@@ -242,7 +247,8 @@ PARAMS = {
     ("viper", "viper's pit"): _P(extent="radius"),
     ("jett", "cloudburst"): _P(extent="radius"),
     ("brimstone", "sky smoke"): _P(extent="radius"),
-    ("omen", "dark cover"): _P(origin="global", extent="radius"),
+    # Placed within 80 m of Omen, not global (player, 2026-10-09).
+    ("omen", "dark cover"): _P(extent="radius"),
 }
 
 UNKNOWN = {"origin": "unknown", "bearing": "unknown", "extent": "unknown"}
@@ -832,12 +838,14 @@ def main() -> int:
     ap.add_argument("--step", type=float, default=0.5)
     ap.add_argument("--no-cache", action="store_true")
     ap.add_argument("--emit", action="store_true",
-                    help="write one event per cast to <store>/events/ability/")
+                    help="retired 2026-10-09: refuses (see RETIRED_EMIT)")
     ap.add_argument("--pos-pre", type=float, default=POS_PRE,
                     help="seconds before a cast to look for its object. NOT the"
                          " join window -- see POS_PRE")
     ap.add_argument("--pos-post", type=float, default=POS_POST)
     a = ap.parse_args()
+    if a.emit:
+        ap.error(RETIRED_EMIT)
 
     sids = ([p.stem for p in sorted(LAB.glob("*.jsonl")) if ".bak" not in p.name]
             if a.all else [a.session])
@@ -882,90 +890,6 @@ def main() -> int:
             print("Read the SIGN column first. A class that is consistently"
                   " 'all before'\nis a held placeable and the window must open"
                   " before the cast, not after.")
-        return 0
-
-    if a.emit:
-        EVENTS.mkdir(parents=True, exist_ok=True)
-        tot = dict(ev=0, pos=0, ent=0, amb=0, nocand=0)
-        dists, chosen_right = [], 0
-        print(f"Emitting to {EVENTS}  (position window -{a.pos_pre:.1f}s .. +{a.pos_post:.1f}s)")
-        print("")
-        print(f"{'session':<14}{'agent':<10}{'events':>7}{'with pos':>9}"
-              f"{'multi':>7}{'ambig':>7}{'no cand':>8}")
-        for sid in sids:
-            try:
-                evs, agent = emit(sid, a.pos_pre, a.pos_post, a.step)
-            except Exception as e:                                  # noqa: BLE001
-                print(f"{sid:<14}SKIPPED ({e})")
-                continue
-            if agent is None:
-                continue
-            f = EVENTS / f"{sid}.jsonl"
-            f.write_text("".join(json.dumps(e) + chr(10) for e in evs),
-                         encoding="utf-8")
-            npos = sum(1 for e in evs if e["x"] is not None)
-            nent = sum(1 for e in evs if e["x"] is None and e["n_entities"] > 1)
-            namb = sum(1 for e in evs if e["x"] is None and e["n_entities"] <= 1
-                       and e["n_candidates"] > 0)
-            nnone = sum(1 for e in evs if e["n_candidates"] == 0)
-            tot["ev"] += len(evs)
-            tot["pos"] += npos
-            tot["ent"] += nent
-            tot["amb"] += namb
-            tot["nocand"] += nnone
-            print(f"{sid[:12]:<14}{agent:<10}{len(evs):>7}{npos:>9}{nent:>7}"
-                  f"{namb:>7}{nnone:>8}")
-
-            # Did the selection rule pick the RIGHT candidate? Only answerable
-            # where a label of that ability exists in the same window.
-            labs = labelled(sid)
-            for e in evs:
-                if e["x"] is None or not e["ability"]:
-                    continue
-                t = e["t_ms"] / 1000.0
-                same = [L for L in labs if L[5] == "named"
-                        and L[4] == e["ability"].lower()
-                        and -a.pos_pre <= (L[0] - t) <= a.pos_post]
-                if not same:
-                    continue
-                d = min(((e["x"] - L[1]) ** 2 + (e["y"] - L[2]) ** 2) ** 0.5
-                        for L in same)
-                dists.append(d)
-                chosen_right += (d < 1.0)
-        print(f"{'TOTAL':<14}{'':<10}{tot['ev']:>7}{tot['pos']:>9}"
-              f"{tot['ent']:>7}{tot['amb']:>7}{tot['nocand']:>8}")
-        print("")
-        print(f"{tot['ev']} events written, and they partition cleanly:")
-        print(f"  {tot['pos']:>3} carry ONE position -- a single candidate,"
-              " fragments of one object,")
-        print("      or an extending object resolved to its origin")
-        print(f"  {tot['ent']:>3} carry SEVERAL entities -- one cast, N objects."
-              " Sova's ult is three bolts")
-        print("      from one origin, so an event with no single x/y is the"
-              " honest answer, not a refusal")
-        print(f"  {tot['amb']:>3} REFUSED a position -- more than one candidate"
-              " and nothing to choose on;")
-        print("      the candidates ride along for a later scorer")
-        print(f"  {tot['nocand']:>3} had NO candidate at all, and many of those"
-              " are CORRECT: a grenade,")
-        print("      flash, molotov or dash draws nothing on the widget and is"
-              " still a real cast.")
-        print("      That is the half no minimap detector can ever reach.")
-        if dists:
-            import statistics
-            print("")
-            print("Selection check, where a label of that ability exists in the"
-                  f" window (n={len(dists)}):")
-            print(f"  landed on the labelled object exactly: {chosen_right}"
-                  f" / {len(dists)}    median miss"
-                  f" {statistics.median(dists):.1f} px")
-            print("  Only events whose window held exactly ONE candidate are"
-                  " scored here -- the rest")
-            print("  emit a null position on purpose. On these sessions the"
-                  " candidate file and the label")
-            print("  file are largely the same positions, so this answers"
-                  " 'was the lone candidate the")
-            print("  right object', never 'is there an object there'.")
         return 0
 
     print(f"Cast-anchored join. Window: cast -{a.pre:.0f}s .. +{a.post:.0f}s\n")

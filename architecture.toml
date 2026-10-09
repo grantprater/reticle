@@ -27,7 +27,7 @@
 
 [layers]
 order = ["foundation", "source", "primitives", "readers", "orchestration",
-         "adjudication", "entities", "consumers", "delivery"]
+         "adjudication", "entities", "consumers", "evaluation", "delivery"]
 
 [foundation]
 claim = "no siblings above the language and the store's own vocabulary"
@@ -35,7 +35,7 @@ modules = ["version", "profiles", "fingerprint", "metrics", "usage", "judgement"
            "domain", "architecture", "ownership", "quoted", "screen",
            "appearance", "artifacts", "revisions", "census", "events",
            "candidate_evidence", "documents", "entity_contract", "agent_names",
-           "frame_join"]
+           "frame_join", "ratchets"]
 
 [source]
 claim = "identity, decode, persistence, and the baked (map, profile) geometry"
@@ -80,6 +80,7 @@ modules = ["rounds", "checks", "reconciliation", "refinement",
            "minimap_objects",
            "ability_coverage", "ability_candidates",
            "ability_timeline", "ability_audio_fit", "gametime", "domain_learning",
+           "mechanics_sheet",
            "replay_source", "replay_actors", "replay_layer", "slot_state"]
 
 [entities]
@@ -115,6 +116,14 @@ uses = "call:events_path"
 since = "2026-09-30"
 until = "each remaining layer reads a projected lane (docs/ENTITY_EVENTS.md, stages 2-4)"
 reason = "`read_rows` opens the events file of each stream no lane projects yet (team_vision, ability, smoke, ult_cast, ping, killfeed), and the `--gaps` census measures the owners' own streams."
+
+[evaluation]
+claim = """
+scores emitted events against replay truth; above every pipeline layer, so no
+reader, tracker, lane or consumer may import it (replay data is evaluation
+truth only); only the command surface calls it
+"""
+modules = ["acceptance"]
 
 [delivery]
 claim = "the command surface, and nothing else may import it"
@@ -280,7 +289,7 @@ reverse makes a shipped module depend on something with no version stamp, no
 tests, and no promise to keep working.
 """
 auditor = ["doctor"]
-allow = ["ability_timeline"]
+allow = []
 allow_reason = """
 `doctor` is the auditor and may reach both trees by any spelling -- a checker
 that can only see one side of a fork cannot see a fork. It mostly reads them as
@@ -291,10 +300,10 @@ counts a bare import of a prototype module and not only a
 
 `allow` is NOT a blessing: it excuses plain imports only, `verify` reports each
 on every run, and a `sys.path` change or `importlib` load naming the tree is an
-ERROR for every module but an auditor. `ability_timeline` reaches into
-prototypes because the calibration still lives there, an unfinished promotion
-rather than a design: `materialize_demo_casts` drives `ability_cast` and
-`ability_hud` as readers, triaged in BACKLOG.md under the ability line.
+ERROR for every module but an auditor. The list is empty: its last entry,
+`ability_timeline`, left on 2026-10-09 when `reticle ability-timeline
+--materialize`, which drove `prototypes/ability_cast.py` and `ability_hud.py`
+over the demo sources, was dropped (docs/ABILITY_ENTITIES.md, step 0).
 `lineup` sat here too, inserting the prototypes directory on `sys.path` for
 `minimap_portrait.composition`, and the allowance silenced the check; the
 histogram moved to `appearance.portrait_composition` (2026-10-04).

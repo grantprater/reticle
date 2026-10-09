@@ -81,6 +81,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle plan [SESSION]
 .\.venv\Scripts\python.exe -m reticle trial [SESSION] --reader killfeed|hud|scoreboard|ally_icon|ability_glyph|clove_circle [--sample] [--windows-file CSV] [--rows-out DIR]
 .\.venv\Scripts\python.exe -m reticle dev-sample [--residuals CSV] [--stream S --where F=V] [--extend CSV] --out CSV
+.\.venv\Scripts\python.exe -m reticle acceptance summary --tag TAG [SESSION ...]   # lane, label, steps, budget: prototypes\question_acceptance.py
 .\.venv\Scripts\python.exe prototypes\killfeed_trial_deaths.py --sample [--windows-file CSV] --out DIR
 .\.venv\Scripts\python.exe prototypes\riot_ground_truth.py --sample [--windows-file CSV] --deaths-from BASE [--compare-deaths BRANCH] --offline
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only roi_cache --cache-roi killfeed
@@ -91,6 +92,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle replay-keep SESSION   # keep, parse and build the capture's replay
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only ally_icon --from cache --ally-processes K
 .\.venv\Scripts\python.exe -m reticle domain --check
+.\.venv\Scripts\python.exe -m reticle mechanics-sheet build|ask|status|import [--write]
 .\.venv\Scripts\python.exe -m reticle ownership [QUESTION] [--module M] [--check]
 .\.venv\Scripts\python.exe -m reticle.architecture [--graph]
 .\.venv\Scripts\python.exe -m reticle.quoted [--uncited]
@@ -103,7 +105,7 @@ Module names are relative to `reticle/` unless a directory is shown.
 .\.venv\Scripts\python.exe -m reticle ult-cast SESSION      # stored data only
 .\.venv\Scripts\python.exe -m reticle ability-state SESSION # stored data only
 .\.venv\Scripts\python.exe -m reticle scan SESSION --only clove_circle --from cache   # dead Clove's range circle
-.\.venv\Scripts\python.exe -m reticle smokes SESSION     # stored data only
+.\.venv\Scripts\python.exe -m reticle smokes SESSION     # stored data only; masks: scan --only minimap_dark --from cache
 .\.venv\Scripts\python.exe -m reticle ability-audio-fit --gate-in G.json --eval ROOT  # stored log-mel only
 .\.venv\Scripts\python.exe prototypes\audio_open_set.py score --scan DIR | match-score --match DIR  # stored detections only
 .\.venv\Scripts\python.exe -m reticle killstreak SESSION    # stored data only

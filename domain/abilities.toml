@@ -4355,6 +4355,7 @@ since = "2026-09-29"
 subject = "omen:dark-cover"
 source = "the player, 2026-09-29 (chat), asked which smoke menus could draw a range circle"
 see = ["abilities/clove-dead-smoke-range-circle"]
+superseded_by = "abilities/omen-dark-cover-body-relative-placement"
 
 [astra-nebula-global-placement]
 claim = """
@@ -5411,7 +5412,7 @@ Cypher's Spycam persists after Cypher dies.
 kind = "lifecycle"
 known = "player"
 since = "2026-09-30"
-subject = "cypher:spycam"
+subject = "cypher:spycam/pawn_gumshoe_e_possessablecamera"
 source = "the player, 2026-09-30 (chat)"
 use = """
 A Spycam seen after Cypher's death is the same entity, never a new cast
@@ -5421,9 +5422,38 @@ exceptions = """
 the player confirmed eight such abilities together; the persisting set may
 still be incomplete. Whether it persists deactivated, drawn dim
 [domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
-its minimap drawing after the death.
+its minimap drawing after the death. The fact concerns the camera pawn
+(Pawn_Gumshoe_E_PossessableCamera) alone, its subject narrowed on 2026-10-09:
+the tracking dart the camera fires ends at Cypher's death
+[domain:abilities/cypher-tracking-dart-ends-on-owner-death].
 """
-see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/cypher-spycam-dart-reveal", "abilities/ability-rules-are-unique"]
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/cypher-spycam-dart-reveal", "abilities/ability-rules-are-unique", "abilities/cypher-tracking-dart-ends-on-owner-death"]
+
+[cypher-tracking-dart-ends-on-owner-death]
+claim = """
+The tracking dart that Cypher's Spycam fires, which tracks the enemy it
+strikes, is destroyed when Cypher dies. The dart is a child of the camera, as
+an ability's effects are children of their ability. The game files agree:
+GameObject_RemovableObject_GumshoeTrackingDart sets DestroyOnOwnerDeath =
+true, and the camera's dart ability spawns the dart's projectile, which spawns
+the dart.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "cypher:spycam/gameobject_removableobject_gumshoetrackingdart"
+source = """
+the player in chat, 2026-10-09, resolving the mechanics sheet's conflict
+between the game file and [domain:abilities/cypher-spycam-persists-after-death];
+agreeing game file: reference/game-files/release-13.06-shipping-18-5590001/
+ability-states/ShooterGame/Content/Characters/Gumshoe/S0/Ability_E/
+GameObject_RemovableObject_GumshoeTrackingDart.json,
+Default__GameObject_RemovableObject_GumshoeTrackingDart_C.DestroyOnOwnerDeath
+= true
+"""
+use = "the tracking dart's row of `reticle mechanics-sheet`: owner_death destroyed, parent the camera pawn"
+owner_death = "destroyed"
+see = ["abilities/cypher-spycam-persists-after-death", "abilities/cypher-spycam-dart-reveal", "abilities/ability-rules-are-unique"]
 
 [deadlock-sonic-sensor-persists-after-death]
 claim = """
@@ -7739,3 +7769,291 @@ transform it spawns from is not serialized
 use = "bind a Stealth Drone birth to the ally whose icon it leaves"
 see = ["abilities/tejo-stealth-drone-piloted", "abilities/minimap-textures-tejo",
        "game_data/tejo-stealth-drone-game-data", "abilities/ability-rules-are-unique"]
+
+[deployed-ability-ends]
+claim = """
+A deployed ability ends by a set of causes, never by one. With no explicit
+lifetime it lasts until the enemy destroys it or the round ends. With an
+explicit lifetime it ends at expiry, and some such abilities can also be
+destroyed by the enemy before then; Miks's heal and concuss throwables are
+two. When its owner dies, a deployed ability is disabled: the same object
+stays, in a disabled state. Round end ends every one. All of this holds for
+enemy devices as for the team's. Which causes apply to one ability is that
+ability's own fact.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "abilities:deployed"
+use = """
+the ability child owner (docs/ABILITY_ENTITIES.md) stores each child's
+`ends_on` as a set drawn from lifetime expiry, destroyed by the enemy, owner
+death (disabled), round end and recall or reactivation, with round end
+always present; the per-ability facts and the mechanics sheet decide the
+other members. Between sightings a deployed child stays `live_assumed` at
+its placement, never ended for want of a drawing.
+"""
+see = ["rounds/no-ability-crosses-round-barrier", "abilities/device-destroyed-sounds",
+       "abilities/deployed-pickup-returns-charge", "minimap/device-dim-on-deactivation",
+       "abilities/killjoy-turret-recall-cooldown", "abilities/cypher-spycam-pickup-cooldown",
+       "abilities/deadlock-sonic-sensor-persists-after-death",
+       "abilities/ability-rules-are-unique"]
+
+[astra-astral-form-any-time]
+claim = """
+Astra can enter Astral Form at any time. From it she places stars and
+activates any of her abilities.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "astra:astral form"
+source = "the player, 2026-10-09 (chat)"
+use = """
+Astral Form is a mode of Astra's slot, entered and left at will, never a
+child (docs/ABILITY_ENTITIES.md, section 2.2b); a star or a turned star may
+open while Astra is in it
+"""
+see = ["abilities/astra-astral-form-body-stays", "abilities/astra-stars-shared",
+       "abilities/astra-stars-origin-global", "abilities/ability-rules-are-unique"]
+
+[astra-astral-form-body-stays]
+claim = """
+In Astral Form, Astra's body stays where she entered the form. Enemies can
+see it and shoot it.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "astra:astral form"
+source = "the player, 2026-10-09 (chat)"
+use = """
+Astra's slot keeps its position belief at the entry point for the whole
+mode: a fixed, visible and vulnerable body, never a missing player
+"""
+see = ["abilities/astra-astral-form-any-time", "abilities/astra-astral-form-screen-map"]
+
+[astra-astral-form-screen-map]
+claim = """
+In Astral Form, Astra's own screen shows the purple astral-form map.
+"""
+kind = "appearance"
+known = "player"
+since = "2026-10-09"
+subject = "astra:astral form"
+source = "the player, 2026-10-09 (chat)"
+use = """
+the purple map on Astra's screen witnesses her mode's enter and exit on her
+own capture
+"""
+exceptions = """
+whether Astra's minimap icon changes while she is in Astral Form is unknown:
+the player is unsure
+"""
+see = ["abilities/astra-astral-form-body-stays", "abilities/astra-astral-form-any-time"]
+
+[omen-dark-cover-aim-still]
+claim = """
+While Omen aims Dark Cover in the shadow view of the map, he cannot move.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "omen:dark cover"
+source = "the player, 2026-10-09 (chat)"
+use = """
+the aim is a phase of Omen's slot while he holds the ability: his position
+belief stays fixed through it (docs/ABILITY_ENTITIES.md, section 2.2b)
+"""
+see = ["abilities/omen-dark-cover-body-relative-placement", "abilities/omen-dark-cover",
+       "abilities/ability-rules-are-unique"]
+
+[astra-stars-placed-and-picked-up]
+claim = """
+Astra places and picks up stars freely, up to her limit of stars deployed at
+once. The limit recharges.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "astra:stars"
+source = """
+the player, 2026-10-09 (chat). The game files of
+release-13.06-shipping-18-5590001, under the store's
+reference/game-files/release-13.06-shipping-18-5590001/ability-states/, hold
+candidate quantities: ShooterGame/Content/Characters/Rift/S0/Ability_Passive/
+Ability_Rift_Passive_RiftCharges.json EquipmentCharge_GEN_VARIABLE has
+MaxCharges = 5, ChargesGainedEachRefresh = 2, MinGuaranteedCharges = 1 and
+Cost = 150; ShooterGame/Content/Characters/Rift/Global/
+Comp_Rift_X_RiftTracker.json Default__Comp_Rift_X_RiftTracker_C has
+CooldownTime = 15.0 s
+"""
+use = """
+a placed star opens and closes at will while unspent: a pickup ends it and
+returns its count to the kit, never a new cast. The limit and its recharge
+are a count on Astra's kit (`ability_tray`), not on a star
+"""
+exceptions = """
+as first recorded: the concurrent limit and the recharge time are unknown.
+The game files' MaxCharges and CooldownTime are class defaults whose meaning
+is the designers' word: whether MaxCharges is the concurrent limit or the
+most stars she may own, and whether CooldownTime is a picked-up star's
+recharge, is unread [domain:abilities/game-files-outrank-player-quantities].
+Revised 2026-10-09: the player confirmed MaxCharges as the concurrent limit
+and CooldownTime as its recharge; the numbers stand in
+[domain:abilities/astra-star-limit-and-recharge]
+"""
+see = ["abilities/astra-stars-shared", "abilities/astra-star-placed-then-turned",
+       "abilities/astra-star-spent-is-final", "abilities/deployed-pickup-returns-charge",
+       "abilities/game-files-outrank-player-quantities"]
+
+[astra-star-spent-is-final]
+claim = """
+Once Astra turns a star into an ability, she cannot take it back. The turned
+star then lasts a lifetime set per ability.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "astra:stars"
+source = """
+the player, 2026-10-09 (chat). The per-ability lifetimes are the game
+files': Gravity Well's total ability time 10.0 s
+[domain:game_data/astra-gravity-well-game-data]; Nebula's smoke duration
+15.0 s and Dissipate's 1.75 s [domain:game_data/astra-nebula-dissipate-game-data].
+Nova Pulse's game data gives a concuss delay and a concuss duration but no
+lifetime [domain:game_data/astra-nova-pulse-game-data]
+"""
+use = """
+turning a star is a one-way change of the star's kind that keeps its key;
+the pickup no longer ends it, and its lifetime is the turned ability's own
+"""
+exceptions = """
+as first recorded: Nova Pulse's lifetime is unknown, since its game data
+names none. Revised 2026-10-09: a turned Nova Pulse lasts only its
+charge-up, and the lasting lifetime is its concuss effect's
+[domain:abilities/astra-nova-pulse-charge-then-concuss]
+"""
+see = ["abilities/astra-star-placed-then-turned", "abilities/astra-stars-placed-and-picked-up",
+       "abilities/astra-star-minimap-states", "game_data/astra-gravity-well-game-data",
+       "game_data/astra-nebula-dissipate-game-data", "game_data/astra-nova-pulse-game-data"]
+
+[astra-gravity-well-global-placement]
+claim = """
+Astra's Gravity Well placement is global: it acts where the star it turns
+lies, and a star may lie anywhere on the map.
+"""
+kind = "rule"
+known = "inferred"
+since = "2026-10-09"
+subject = "astra:gravity well"
+depends_on = ["abilities/astra-star-minimap-states", "abilities/astra-stars-origin-global",
+              "abilities/astra-astral-form-any-time"]
+use = "the mechanics sheet's placement draft for Gravity Well, for the player to confirm"
+exceptions = "inferred from the star's facts; the player has not confirmed it for this ability"
+see = ["abilities/astra-star-placed-then-turned", "abilities/ability-rules-are-unique"]
+
+[astra-nova-pulse-global-placement]
+claim = """
+Astra's Nova Pulse placement is global: it acts where the star it turns
+lies, and a star may lie anywhere on the map.
+"""
+kind = "rule"
+known = "inferred"
+since = "2026-10-09"
+subject = "astra:nova pulse"
+depends_on = ["abilities/astra-star-minimap-states", "abilities/astra-stars-origin-global",
+              "abilities/astra-astral-form-any-time"]
+use = "the mechanics sheet's placement draft for Nova Pulse, for the player to confirm"
+exceptions = "inferred from the star's facts; the player has not confirmed it for this ability"
+see = ["abilities/astra-star-placed-then-turned", "abilities/ability-rules-are-unique"]
+
+[omen-dark-cover-body-relative-placement]
+claim = """
+Omen places Dark Cover within 80 m of himself, the game files' maximum
+distance [domain:game_data/omen-dark-cover-game-data]; its placement is
+body-relative, not global.
+"""
+kind = "rule"
+known = "player"
+since = "2026-10-09"
+subject = "omen:dark cover"
+source = """
+the player, 2026-10-09 (chat), correcting his 2026-09-29 answer. The range is
+the game files': ShooterGame/Content/Characters/Wraith/S0/Ability_4/
+Projectile_Wraith_4_Smoke.uasset
+Comp_Projectile_Charged_StraightLineDistance_GEN_VARIABLE.MaxDistance =
+8000.0 cm (80.0 m), release-13.06-shipping-18-5590001
+"""
+use = """
+a Dark Cover child opens within 80 m of Omen's region at the cast
+(`cast_region`, docs/ABILITY_ENTITIES.md section 2.6), never anywhere on
+the map
+"""
+supersedes = """
+[domain:abilities/omen-dark-cover-global-placement], whose claim that the
+placement is global the player withdrew
+"""
+see = ["game_data/omen-dark-cover-game-data", "abilities/omen-dark-cover-aim-still",
+       "abilities/ability-rules-are-unique"]
+
+[astra-nova-pulse-charge-then-concuss]
+claim = """
+Astra's Nova Pulse is a charge-up and then a concuss on everyone it hits. It
+leaves no lasting object: the turned star ends when the charge-up ends, and
+only the concuss on each player hit lasts.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "astra:nova pulse"
+source = """
+the player, 2026-10-09 (chat). The game files give the charge-up as
+ConcussDelay = 1.0 s and the concuss as ConcussDuration = 2.5 s on
+GameObject_Rift_Q_FlashBurst [domain:game_data/astra-nova-pulse-game-data]
+"""
+use = """
+model a turned Nova Pulse as an instant child that ends after its charge-up,
+with one concuss effect child per player hit carrying the concuss duration
+"""
+exceptions = """
+the field names are the designers' words: that ConcussDelay is the charge-up
+is read from its name and the player's description, not measured. Whether
+the concuss reaches Astra herself is unasked
+"""
+lifecycle_class = "instant"
+lifetime = "game_data/astra-nova-pulse-game-data#timing.concuss_delay_s"
+see = ["abilities/astra-star-spent-is-final", "abilities/astra-star-placed-then-turned",
+       "game_data/astra-nova-pulse-game-data", "abilities/ability-rules-are-unique"]
+
+[astra-star-limit-and-recharge]
+claim = """
+Astra may have at most 5 stars deployed at once, and the limit recharges in
+15.0 s. The game files of build 13.06 give both numbers; the player
+confirmed what each field means.
+"""
+kind = "measurement"
+known = "measured"
+since = "2026-10-09"
+subject = "astra:stars"
+source = """
+game-extract exports of release-13.06-shipping-18-5590001 under the store's
+reference/game-files/release-13.06-shipping-18-5590001/ability-states/:
+ShooterGame/Content/Characters/Rift/S0/Ability_Passive/Ability_Rift_Passive_RiftCharges.json
+EquipmentCharge_GEN_VARIABLE.MaxCharges = 5; ShooterGame/Content/Characters/
+Rift/Global/Comp_Rift_X_RiftTracker.json
+Default__Comp_Rift_X_RiftTracker_C.CooldownTime = 15.0 s. The player,
+2026-10-09 (chat), confirmed MaxCharges as the concurrent-star limit and
+CooldownTime as its recharge
+"""
+use = """
+a count on Astra's kit (`ability_tray`), not on a star: at most 5 unspent
+stars placed at once, the limit recharging in 15.0 s
+"""
+exceptions = """
+class defaults; a blueprint may change a value at run time. What starts the
+15.0 s recharge the player did not say
+"""
+values = { count = { max_stars = 5 }, timing = { recharge_s = 15.0 } }
+see = ["abilities/astra-stars-placed-and-picked-up", "abilities/astra-stars-shared",
+       "abilities/game-files-outrank-player-quantities"]

@@ -25,7 +25,8 @@ from pathlib import Path
 from ..ability_timeline import build_timeline
 
 
-ABILITY_ENTITY_VERSION = "ability-entities-0.3.0"
+#: 0.3.1 (2026-10-09): Dark Cover's origin driver is fixed, not global.
+ABILITY_ENTITY_VERSION = "ability-entities-0.3.1"
 #: Refuses a candidate that is the team's drawn light. Decided here from stored
 #: `ability_light` evidence and the stored `team_vision`; the reader stores the
 #: raw lit decision and decides nothing.
@@ -46,6 +47,19 @@ def _vision_frames(root: Path, sid: str) -> tuple[dict, list, float | None]:
     hz = next((r.get("cache_hz") for r in rows if r.get("kind") == "coverage"), None)
     frames = {float(r["t_ms"]): r for r in rows if r.get("kind") == "frame"}
     return frames, sorted(frames), hz
+
+
+def light_applies(store, session_id: str) -> tuple[str, str | None]:
+    """Whether `reticle ability-light` has any instant to read on a session:
+    ("applies", None) where `_components` holds a detector candidate or a
+    human label of it, else ("not_applicable", why). The command reads the
+    light at those instants only, so a session with none is never its work."""
+    root = Path(store.root)
+    if any(c["session_id"] == session_id for c in _components(root, _labels(root))):
+        return "applies", None
+    return ("not_applicable", "no_ability_candidates: no detector candidate or label in "
+            "labels/ability_candidates or labels/ability, so `reticle ability-light` reads "
+            "nothing")
 
 
 def light_refusals(root: Path, components: list[dict]) -> dict[str, dict]:
@@ -189,7 +203,9 @@ PARAMETER_RULES = {
     "viper:viper's pit": {"origin_driver": "fixed", "bearing_driver": "absent", "extent": "radius"},
     "jett:cloudburst": {"origin_driver": "fixed", "bearing_driver": "absent", "extent": "radius"},
     "brimstone:sky smoke": {"origin_driver": "fixed", "bearing_driver": "absent", "extent": "radius"},
-    "omen:dark cover": {"origin_driver": "global", "bearing_driver": "absent", "extent": "radius"},
+    # Placed within 80 m of Omen, not global (player, 2026-10-09)
+    # [domain:abilities/omen-dark-cover-body-relative-placement].
+    "omen:dark cover": {"origin_driver": "fixed", "bearing_driver": "absent", "extent": "radius"},
 }
 
 
