@@ -873,7 +873,10 @@ def compare_rows(computed: list[dict], stored: list[dict]) -> dict:
 
 #: point-in-view-0.1.0 (2026-10-09): whether a widget point lay inside the
 #: stored `observable` through a window, three-valued (`StoredVision.in_view`).
-POINT_IN_VIEW_VERSION = "point-in-view-0.1.0"
+#: 0.2.0 (2026-10-09): a moving drawing's place is carried along its last
+#: velocity through the window, frame by frame, rather than held at its last
+#: fix: the false-loss diagnostic found the drones' losses misread at the fix.
+POINT_IN_VIEW_VERSION = "point-in-view-0.2.0"
 #: A frame holds the point in view when the observable covers at least this
 #: share of the disc round it: the one cut, at the decision. Half, because the
 #: disc's centre is the fit and a point on the light's edge is a coin toss.
@@ -882,6 +885,14 @@ IN_VIEW_SHARE = 0.5
 #: The three answers.
 IN_VIEW, OUT_OF_VIEW, VIEW_UNKNOWN = "in_view", "out_of_view", "unknown"
 _T_MS = re.compile(rb'"t_ms":\s*(-?[0-9.eE+-]+)')
+
+
+def point_at(x: float, y: float, v: tuple | None, t0: float, t: float) -> tuple[float, float]:
+    """A drawing's place at `t`: its fix (`x`, `y`) at `t0`, carried along
+    `v` (px per ms); held where `v` is None."""
+    if v is None:
+        return float(x), float(y)
+    return float(x) + float(v[0]) * (t - t0), float(y) + float(v[1]) * (t - t0)
 
 
 class StoredVision:
@@ -981,15 +992,17 @@ class StoredVision:
         return "out", share, None
 
     def in_view(self, x: float | None, y: float | None, lo_ms: float, hi_ms: float,
-                r_px: float) -> dict:
+                r_px: float, v: tuple | None = None) -> dict:
         """Whether the widget point (`x`, `y`) lay in the team's vision through
         every stored frame with lo_ms < t <= hi_ms: {"status": `IN_VIEW`,
         `OUT_OF_VIEW` or `VIEW_UNKNOWN`, "reason", "frames", "share_min",
-        "share_max", the window and the stamps}."""
+        "share_max", the window and the stamps}. `v` (px per ms, x and y)
+        carries a moving point from (`x`, `y`) at `lo_ms` to each frame's time
+        (`point_at`), continuing its last motion; None holds it still."""
         out = {"status": VIEW_UNKNOWN, "reason": None, "frames": 0, "share_min": None,
                "share_max": None, "window_ms": [float(lo_ms), float(hi_ms)],
                "x": None if x is None else float(x), "y": None if y is None else float(y),
-               "r_px": float(r_px),
+               "r_px": float(r_px), "v_px_per_ms": None if v is None else [float(v[0]), float(v[1])],
                "team_vision_version": self.version, "rule_version": POINT_IN_VIEW_VERSION}
         if self.reason is not None:
             return {**out, "reason": self.reason}
@@ -999,7 +1012,7 @@ class StoredVision:
         ts = self._t[i0:i1]
         if ts.size == 0:
             return {**out, "reason": "no_vision_frame: no stored frame inside the window"}
-        got = [self.frame_state(float(t), float(x), float(y), r_px) for t in ts]
+        got = [self.frame_state(float(t), *point_at(x, y, v, lo_ms, float(t)), r_px) for t in ts]
         shares = [s for _st, s, _r in got if s is not None]
         out.update(frames=int(ts.size), share_min=round(min(shares), 3) if shares else None,
                    share_max=round(max(shares), 3) if shares else None)

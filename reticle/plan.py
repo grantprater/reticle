@@ -383,7 +383,8 @@ def derived_streams() -> list[dict]:
         # rows, and the verdict over them with its null and states tables.
         {"stream": "ability_disc_track", "key": "ability_disc_track_version",
          "current": ABILITY_DISC_TRACK_VERSION, "command": "reticle ability-glyphs {sid}",
-         "how": "storage", "fields": {}, "upstream": ("ability_icon", "ability_glyph")},
+         "how": "storage", "fields": {}, "upstream": ("ability_icon", "ability_glyph", "team_vision",
+                                                      "minimap_object", "ping")},
         {"stream": "ability_glyph_name", "key": "ability_glyph_name_version",
          "current": ABILITY_GLYPH_NAME_VERSION, "command": "reticle ability-glyphs {sid}",
          "how": "storage", "fields": {},
@@ -785,7 +786,14 @@ def stream_inputs() -> dict[str, dict[str, dict]]:
                                                     "ability_glyph#ability_glyph_version"),
                                "glyph_bank": _in("inputs.glyph_bank", "ability_glyph#glyph_bank"),
                                "ability_icon": _in("inputs.ability_icon",
-                                                   "ability_icon#ability_icon_version")},
+                                                   "ability_icon#ability_icon_version"),
+                               # the covers a loss is read against
+                               # (`adjudication.ability.load_cover_marks`)
+                               "team_vision": _in("inputs.team_vision",
+                                                  "team_vision#team_vision_version"),
+                               "minimap_object": _in("inputs.minimap_object",
+                                                     "minimap_object#minimap_object_version"),
+                               "ping": _in("inputs.ping", "ping")},
         "ability_glyph_name": {"ability_glyph": _in("inputs.ability_glyph",
                                                     "ability_glyph#ability_glyph_version"),
                                "glyph_bank": _in("inputs.glyph_bank", "ability_glyph#glyph_bank"),

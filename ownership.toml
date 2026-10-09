@@ -954,7 +954,7 @@ owner = "team_vision"
 role = ["constrain", "corroborate"]
 status = "partial"
 produces = ["TeamVision", "StoredAllyPoses", "load_inputs", "frame_row", "at", "at_plan",
-            "compare_rows", "StoredVision", "POINT_IN_VIEW_VERSION", "IN_VIEW_SHARE"]
+            "compare_rows", "StoredVision", "POINT_IN_VIEW_VERSION", "IN_VIEW_SHARE", "point_at"]
 not_for = """
 Ground truth for vision, and a new rule for any stage. It composes the owners'
 calls -- lobe from the drawn light, track facing, lifecycle eligibility, the
@@ -2247,7 +2247,8 @@ role = ["group"]
 status = "partial"
 entity_kind = "ability"
 feeds = ["ability-child"]
-produces = ["disc_tracks", "JUMP_REACH_BASE", "FIRST_SECOND_MS", "TRACK_ENDS"]
+produces = ["disc_tracks", "JUMP_REACH_BASE", "FIRST_SECOND_MS", "TRACK_ENDS", "load_cover_marks",
+            "covered_ends", "COVER_BASE_PX", "COVER_KINDS"]
 not_for = """
 Reading pixels: the follow's fixes and the verify that links them are the
 proposer's and the reader's (`ability-icon`, `ability-glyph`); a track adds no

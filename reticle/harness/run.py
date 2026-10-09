@@ -3794,6 +3794,23 @@ def point_seen(M, t_rep: np.ndarray, wx: float, wy: float) -> np.ndarray:
     return ok.any(axis=0)
 
 
+def view_truth(M, to_cm, view: dict) -> str:
+    """Replay truth sight of the place a stored view (`drawing_loss.view`)
+    read, at `IN_VIEW_SAMPLES` instants of its window, the place carried as
+    the estimate carried it (`team_vision.point_at`): `in_view` where every
+    instant saw it, `out_of_view` where none did, else `changed`."""
+    from reticle.team_vision import point_at
+    from . import clock as rt
+    lo, hi = view["window_ms"]
+    t_cap = lo + (hi - lo) * np.arange(1, IN_VIEW_SAMPLES + 1) / IN_VIEW_SAMPLES
+    pts = [point_at(view["x"], view["y"], view.get("v_px_per_ms"), lo, float(t)) for t in t_cap]
+    wx, wy = to_cm([p[0] for p in pts], [p[1] for p in pts])
+    t_rep = np.asarray(M.to_rep(t_cap, rt.REMOTE_LAG_MS), float)
+    seen = np.array([bool(point_seen(M, t_rep[k:k + 1], float(wx[k]), float(wy[k]))[0])
+                     for k in range(t_cap.size)])
+    return "in_view" if seen.all() else "out_of_view" if not seen.any() else "changed"
+
+
 def run_in_view(sessions: list[str], tag: str, record: bool) -> int:
     """`in-view`: the child owner's in-view estimate for every lost drawing
     (`ability_child` rows' `drawing_loss.view`, `team_vision.StoredVision`)
@@ -3823,15 +3840,11 @@ def run_in_view(sessions: list[str], tag: str, record: bool) -> int:
         items = []
         for r in rows:
             v = r["drawing_loss"]["view"]
-            lo, hi = v["window_ms"]
             truth, why = None, None
             if v.get("x") is None:
                 why = "no_position"
             else:
-                wx, wy = to_cm([v["x"]], [v["y"]])
-                t_cap = lo + (hi - lo) * np.arange(1, IN_VIEW_SAMPLES + 1) / IN_VIEW_SAMPLES
-                seen = point_seen(M, M.to_rep(t_cap, rt.REMOTE_LAG_MS), float(wx[0]), float(wy[0]))
-                truth = "in_view" if seen.all() else "out_of_view" if not seen.any() else "changed"
+                truth = view_truth(M, to_cm, v)
             items.append({"child_id": r["child_id"], "node": r["node"], "side": r.get("slot_side"),
                           "round": r["round"], "estimate": v["status"], "reason": v.get("reason"),
                           "truth": truth, "truth_reason": why})
@@ -3877,7 +3890,16 @@ COVER_PX = 19.0
 REFIND_SAMPLES = 6
 #: The causes of a false loss, in the order the first that holds is taken.
 FALSE_LOSS_CAUSES = ("estimator_wrong", "covered", "state_change", "verify_dip",
-                     "moved_out_of_window", "refound_later", "other")
+                     "moved_out_of_window", "refound_later", "replay_overrun", "other")
+#: A replay actor whose channel closes this soon before the next round's
+#: start closed at the round's cleanup, not at its object's end. Four
+#: objects keep their drawing while they exist, so their losses are real and
+#: such a close is the replay's error
+#: [domain:abilities/chamber-rendezvous-drawing-lasts-with-object]
+#: [domain:abilities/cypher-trapwire-drawing-lasts-with-object]
+#: [domain:abilities/chamber-trademark-drawing-lasts-with-object]
+#: [domain:abilities/cypher-spycam-camera-drawing-lasts-with-object].
+REPLAY_CLEANUP_MS = 250.0
 #: The owner each cause's fix belongs to.
 FALSE_LOSS_OWNER = {
     "estimator_wrong": "team_vision (StoredVision.in_view)",
@@ -3886,6 +3908,8 @@ FALSE_LOSS_OWNER = {
     "verify_dip": "adjudication.ability.disc_tracks (continuity: the full search still finds the disc)",
     "moved_out_of_window": "ability_icons (the verify's search window) or disc_tracks' reach",
     "refound_later": "adjudication.ability.disc_tracks (continuity: a loss must persist)",
+    "replay_overrun": "replay_layer (an actor's close is its channel's, at the round's cleanup or "
+                      "never, not its object's end)",
     "other": "unassigned",
 }
 
@@ -3954,7 +3978,8 @@ def run_false_loss(sessions: list[str], tag: str, record: bool) -> int:
                            "ability": r.get("ability"), "side": r.get("slot_side"), "round": r["round"],
                            "view": dl["view"]["status"], "t_last": float(dl["t_ms"]),
                            "t_loss": float(dl["view"]["window_ms"][1]),
-                           "x": float(dl["view"]["x"]), "y": float(dl["view"]["y"])})
+                           "x": float(dl["view"]["x"]), "y": float(dl["view"]["y"]),
+                           "view_row": dl["view"]})
         if not losses:
             continue
         M = tdr.RealDrawMatch(sid, rule="T1d")
@@ -3985,15 +4010,32 @@ def run_false_loss(sessions: list[str], tag: str, record: bool) -> int:
             j = int(G_["col_idx"][i])
             L["truth_class"] = str(C["cls"][j])
             L["truth_agent"] = G_["descs_c"][j]["agent"] if j in G_["descs_c"] else None
-            # the child under the place is the node's own only where its agent is the node's
-            L["own_child"] = bool(L["agent"]) and str(L["truth_agent"] or "").lower() == str(L["agent"]).lower()
+            L["truth_ability"] = C["ability"][j]
+            # the child under the place is the node's own only where its agent
+            # and its ability are the node's: a sibling ability of the same
+            # agent (Cypher's Cage under a Trapwire drawing) is another entity;
+            # a child the census maps to no ability is judged by its agent alone
+            L["own_child"] = (bool(L["agent"]) and str(L["truth_agent"] or "").lower() == str(L["agent"]).lower()
+                              and (L["truth_ability"] is None
+                                   or str(L["truth_ability"]).casefold() == str(L["ability"] or "").casefold()))
             hi = float(G_["hi"][j])
+            L["truth_guid"] = C["guid"][j]
+            L["truth_close_basis"] = C["close_basis"][j]
+            L["truth_close_rep"] = None if not np.isfinite(C["t_close"][j]) else float(C["t_close"][j])
+            L["truth_life_hi_rep"] = hi
+            L["t_rep_loss"] = float(t_rep_loss[i])
             L["false"] = bool(hi > t_rep_loss[i] + FALSE_LOSS_AFTER_MS)
             L["truth_close_after_loss_ms"] = round(hi - t_rep_loss[i], 1)
             # truth view through the window, as the in-view diagnostic asks it
-            tc = L["t_last"] + (L["t_loss"] - L["t_last"]) * np.arange(1, IN_VIEW_SAMPLES + 1) / IN_VIEW_SAMPLES
-            sv = point_seen(M, M.to_rep(tc, rt.REMOTE_LAG_MS), float(wx[i]), float(wy[i]))
-            L["truth_view"] = "in_view" if sv.all() else "out_of_view" if not sv.any() else "changed"
+            L["truth_view"] = view_truth(M, to_cm, L.pop("view_row"))
+            # where the replay's own close lies: at the round's cleanup, never,
+            # or just after the loss (`REPLAY_CLEANUP_MS`)
+            nxt = next((float(r["t_next"]) for r in M.rounds
+                        if r["t_start"] <= t_rep_loss[i] < r["t_next"]), None)
+            c_rep = L["truth_close_rep"]
+            L["replay_close"] = ("never_closed" if c_rep is None else
+                                 "at_round_cleanup" if nxt is not None and 0 <= nxt - c_rep <= REPLAY_CLEANUP_MS
+                                 else "within_2s_of_loss" if c_rep - t_rep_loss[i] <= 2000.0 else "mid_round")
             # the refind: the full search's candidates at and after the loss sample
             gaps, d0 = None, None
             for k, fr in enumerate(_rows_between(icon_T, icon_L, L["t_loss"] - 1.0,
@@ -4051,6 +4093,8 @@ def run_false_loss(sessions: list[str], tag: str, record: bool) -> int:
                     cause = "moved_out_of_window"
                 elif gaps is not None:
                     cause = "refound_later"
+                elif L["replay_close"] != "mid_round":
+                    cause = "replay_overrun"
                 else:
                     cause = "other"
                 L["cause"] = cause

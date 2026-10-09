@@ -388,6 +388,24 @@ def test_a_drawing_lost_in_view_ends_its_node(monkeypatch):
         assert dl["view"]["frames"] == 7 and dl["view"]["share_min"] == 1.0
 
 
+def test_a_moving_drawing_is_read_along_its_motion(monkeypatch):
+    # The drawing moved from (30, 30) to (40, 40) over its last half second;
+    # the light covers x, y < 45. Held at its last fix it reads in view; carried
+    # on at the same speed it leaves the light inside the window, so unknown.
+    track = {"kind": "track", "entity_id": "g1", "end": "verify_lost", "birth_xy": [30.0, 30.0],
+             "fix": {"t_ms": [39_500.0, 40_000.0], "cx": [30.0, 40.0], "cy": [30.0, 40.0]}}
+    B = _cypher_build(monkeypatch, {
+        "ability_glyph_name": [_glyph("g1", 39_500, 40_000)],
+        "ability_glyph_identity": [_resolved("identity:g1", "Cypher")],
+        "ability_disc_track": [track], "death": []}, vision=_vision(lit=(0, 45, 0, 45)))
+    (c,) = [c for c in _children(B) if c["slot_side"] == "team"]
+    view = c["drawing_loss"]["view"]
+    assert view["v_px_per_ms"] == [0.02, 0.02]
+    assert view["status"] == "unknown" and view["reason"].startswith("vision_changed_in_window")
+    still = _vision(lit=(0, 45, 0, 45)).in_view(40.0, 40.0, 40_000.0, 40_500.0, ss.VIEW_DISC_PX)
+    assert still["status"] == "in_view"
+
+
 def test_a_drawing_lost_out_of_view_leaves_its_node_open(monkeypatch):
     B = _found_again(monkeypatch, _vision(lit=(0, 50, 0, 50)))
     team, objs = _two_cameras(B)

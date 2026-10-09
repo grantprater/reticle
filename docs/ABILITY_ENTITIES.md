@@ -778,6 +778,23 @@ diagnostic) at
 The view holds; the loss itself is the suspect: check by eye whether the
 glyph verify lost drawings still drawn in view.
 
+`reticle acceptance false-loss` asks whether the replay child of the node's
+own agent and ability under a lost drawing lives 1 s past the loss. Most
+false losses on Rendezvous, Trapwire, Trademark and the Spycam camera are the
+replay's: their actors close at the round's cleanup or never, though each
+drawing lasts as long as its object
+[domain:abilities/cypher-trapwire-drawing-lasts-with-object]. Two owner
+fixes followed (ability-disc-track-0.2.0, point-in-view-0.2.0): a loss under
+a stored icon or ping ends a track `covered_by_<kind>`, and a moving
+drawing's place follows its last velocity. Prediction
+`drawing-loss-in-view-20261009-B2` held: false losses fell to
+[metric:question_acceptance/false_loss/dl-v2b-20261009@new3#all_false_share=0.4]
+of those judged, and every end cause returned to 0.3.0's (witnessed objects
+[metric:question_acceptance/ability_lane/dl-v2b-20261009@new3#objects_all_end_cause_agreement=0.8667]).
+But a cover lies beside true losses as often as false ones, so the cover rule
+removes real ends too; it needs a witness that tells the two apart before it
+merges.
+
 **Step 5. Kits for every slot.** `adjudication.ability_state` reads stored
 children as cast witnesses for allies and enemies and holds their charges
 as intervals (ABILITY_STATE_MODEL steps 4 and 5); the `ability_tray` lane

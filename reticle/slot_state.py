@@ -467,7 +467,10 @@ ABILITY_LANES = {"ability": "children and effects (`ability-child`, `ability-eff
 #: its place through the loss (`team_vision.StoredVision`), leaves it open
 #: with `drawing_lost_out_of_view` where it did not, and stores the unknown
 #: view's reason otherwise (`_drawing_lost`).
-ABILITY_CHILD_VERSION = "ability-child-0.4.0"
+#: 0.4.1 (2026-10-09): a moving drawing's place is carried along its last
+#: velocity through the loss (`MOVING_PX`, `team_vision.point_at`); a disc
+#: track ended `covered_by_<kind>` (ability-disc-track-0.2.0) is no loss.
+ABILITY_CHILD_VERSION = "ability-child-0.4.1"
 #: ability-effect-0.1.0 (2026-10-09): the player's ability kills and assists,
 #: and any effect an ability's own `effects` fact names.
 #: 0.2.0 (2026-10-09): every slot's; a spawned object's own effects hang
@@ -514,6 +517,9 @@ DRAWING_LOST_OUT_OF_VIEW = "drawing_lost_out_of_view"
 #: The disc round a drawing's last fix the vision is read over: the fit
 #: error (`minimap.FIT_ERR_PX`).
 VIEW_DISC_PX = FIT_ERR_PX
+#: A drawing moves where its last two fixes, at most one second apart, lie
+#: farther apart than twice the fit error; a still one's fixes jitter less.
+MOVING_PX = 2.0 * FIT_ERR_PX
 
 
 def _subject_key(subject: str) -> tuple[str, str]:
@@ -792,12 +798,13 @@ def _stored_vision(root: Path, sid: str):
     return StoredVision.from_store(root, sid)
 
 
-def _drawing_lost(c: dict, g: dict, xy: tuple | None, vision, gver) -> None:
+def _drawing_lost(c: dict, g: dict, xy: tuple | None, vision, gver, v: tuple | None = None) -> None:
     """A drawing's verify loss (`GLYPH_LOST`) under the player's rule
     [domain:abilities/drawing-loss-in-view-ends-object]: the loss falls after
     the track's last fix and by the next glyph step, so the team's vision
     owner (`team_vision.StoredVision.in_view`) is asked whether the last
-    fix's place lay in view through that window. In view, the loss is the
+    fix's place, carried along `v` where the drawing moves, lay in view
+    through that window. In view, the loss is the
     node's observed end; out of view, the node stays open with
     `DRAWING_LOST_OUT_OF_VIEW`; unknown stores the view's reason and ends
     nothing. Replay truth never reaches this rule."""
@@ -805,7 +812,7 @@ def _drawing_lost(c: dict, g: dict, xy: tuple | None, vision, gver) -> None:
     e = g["last_ms"]
     ev = _evidence("ability_glyph_name", g["entity_id"], gver, e)
     x, y = xy if xy is not None else (None, None)
-    view = vision.in_view(x, y, e, e + GLYPH_STEP_MS, VIEW_DISC_PX)
+    view = vision.in_view(x, y, e, e + GLYPH_STEP_MS, VIEW_DISC_PX, v)
     st = view["status"]
     c["drawing_loss"] = {
         "t_ms": e, "rule": DRAWING_LOSS_RULE, "view": view,
@@ -1354,6 +1361,19 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
         ok = [(x, y) for x, y in zip(xs, ys) if x is not None and y is not None]
         return ok[-1] if ok else None
 
+    def last_motion(eid):
+        """The track's velocity (px per ms) over its last two fixes, or None
+        where it holds still (`MOVING_PX`) or has fewer than two fixes."""
+        f = (discs.get(eid) or {}).get("fix") or {}
+        pts = [(t, x, y) for t, x, y in zip(f.get("t_ms") or [], f.get("cx") or [], f.get("cy") or [])
+               if x is not None and y is not None]
+        if len(pts) < 2:
+            return None
+        (t0, x0, y0), (t1, x1, y1) = pts[-2], pts[-1]
+        if not 0 < t1 - t0 <= 1000.0 or math.hypot(x1 - x0, y1 - y0) <= MOVING_PX:
+            return None
+        return (x1 - x0) / (t1 - t0), (y1 - y0) / (t1 - t0)
+
     def birth_xy(eid):
         b = (discs.get(eid) or {}).get("birth_xy")
         return tuple(b) if b else None
@@ -1434,7 +1454,7 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
     for c in B.items:
         g = c["glyphs"][-1] if c["glyphs"] else None
         if g and c["observed_end"] is None and g["end"] == GLYPH_LOST:
-            _drawing_lost(c, g, last_fix(g["entity_id"]), vision, gver)
+            _drawing_lost(c, g, last_fix(g["entity_id"]), vision, gver, last_motion(g["entity_id"]))
 
     # Effects: ability kills and assists (every side).
     deaths = [r for r in _stored(st, "death", sid) if r.get("kind") == "death_verdict"]
@@ -1633,7 +1653,8 @@ def build_abilities(sid: str, store_root: Path = DEFAULT_STORE, facts: dict | No
             B.predict(n)
             # an object's drawing loss, read as the instance's above
             if seen and seen[-1]["end"] == GLYPH_LOST:
-                _drawing_lost(n, seen[-1], last_fix(seen[-1]["entity_id"]), vision, gver)
+                _drawing_lost(n, seen[-1], last_fix(seen[-1]["entity_id"]), vision, gver,
+                              last_motion(seen[-1]["entity_id"]))
             made[o["part"]] = n
             objects.append(n)
             return n
