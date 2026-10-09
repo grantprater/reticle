@@ -5,14 +5,26 @@
     .\\.venv\\Scripts\\python.exe -m reticle mechanics-sheet status            # counts per column
     .\\.venv\\Scripts\\python.exe -m reticle mechanics-sheet import [--write]  # confirmed rows only
 
-One row per ability (C, Q, E and X) of every agent the game data names, with
-eight columns the ability-entity plan needs per ability
-(docs/ABILITY_ENTITIES.md, sections 2.4 and 6, question 4):
+One row per ability (C, Q, E and X) of every agent the game data names, and
+one row per spawned object where an ability spawns more than one world
+object or pawn: each such object is its own child entity
+(docs/ABILITY_ENTITIES.md), with its own lifecycle. A row is keyed by
+(ability, object) and reads only the object's class, its parent classes and
+the classes only it references; what no object owns (the held equippable, a
+tuning table) is shown beside the row, never pre-filled into it. Spycam's
+camera and its tracking dart differ at the owner's death
+[domain:abilities/cypher-spycam-persists-after-death]
+[domain:abilities/cypher-tracking-dart-ends-on-owner-death]. The columns the
+ability-entity plan needs (sections 2.4 and 6, question 4):
 
+* `parent`: the object's parent in the spawn tree, another object or the
+  ability, from a spawn in the exports (the states table's `spawns`, or a
+  spawn call in the referrer's bytecode); a reference without a spawn is `ask`.
 * `lifecycle_class`: the plan's classes, `domain.LIFECYCLE_CLASSES`.
-* `lifetime_s`: a `life` value of the ability's `*-game-data` fact.
+* `lifetime_s`: a `life` value of the ability's `*-game-data` fact, read from
+  the row's own classes.
 * `destructible`: whether the enemy can destroy it, yes or no.
-* `owner_death`: disabled, persists, or not applicable (nothing deployed).
+* `owner_death`: disabled, destroyed, persists, or not applicable.
 * `ends_on`: a set of `domain.ENDS_ON`; `round_end` is always a member.
 * `states`: the game data's lexical phases per owner, the held equippable
   and each spawned entity.
@@ -64,7 +76,7 @@ from pathlib import Path
 
 from . import domain
 
-VERSION = "mechanics-sheet-0.1.0"
+VERSION = "mechanics-sheet-0.2.0"
 BUILD = "release-13.06-shipping-18-5590001"
 #: The game-data states table (`prototypes/ability_states_gamedata.py`).
 STATES_TABLE = ("reference/ability-states", "ability-states-gamedata-0.2.0")
@@ -74,7 +86,7 @@ ANSWERS = "labels/mechanics_sheet/answers.jsonl"
 #: The player's earlier per-view minimap answers (`prototypes/ask_minimap_glyphs.py`).
 VIEW_ANSWERS = "labels/minimap_glyph_questions/answers.jsonl"
 SLOTS = ("C", "Q", "E", "X")
-COLUMNS = ("lifecycle_class", "lifetime_s", "destructible", "owner_death", "ends_on",
+COLUMNS = ("parent", "lifecycle_class", "lifetime_s", "destructible", "owner_death", "ends_on",
            "states", "effects", "minimap_drawing")
 CLASSES = ("deployed", "instant", "self_buff", "equipped", "movement")
 ENDS = ("lifetime", "destroyed", "owner_death", "recall_or_reactivation", "round_end")
@@ -124,6 +136,11 @@ NOT_DEPLOYED = re.compile(r"parent|_base$|trajectorywarning", re.I)
 RECALL_STATE = re.compile(r"recall|reactivat|pickup|reclaim", re.I)
 DESTROY_KEYS = ("CooldownOnDestroy", "DestroyedCooldown", "RefundOnDestroyed")
 OWNER_DEATH_KEYS = ("DestroyOnOwnerDeath", "DestroyIfInstigatorDies")
+#: A spawn call in exported bytecode; the spawned class follows its name.
+SPAWN_CALL = re.compile(r'"(CallFunc_(?:FinishSpawningActor|BeginDeferredActorSpawnFromClass'
+                        r'|BeginSpawningActorFromClass|SpawnActor\w*)_ReturnValue\w*)"')
+#: A game-data fact's source names each value, then the asset it reads.
+VALUE_ASSET = re.compile(r"(\w+):\s+(ShooterGame/\S+?)\.uasset")
 
 
 def subject_of(agent: str, ability: str) -> str:
@@ -198,6 +215,32 @@ class GameExports:
                                       f"exported; its default is unread)")
         return out
 
+    def supers(self, game_path: str, limit: int = 8) -> list[str]:
+        """The class's parent classes under /Game/, nearest first (`SuperStruct`)."""
+        out, node = [], game_path
+        for _ in range(limit):
+            nxt = None
+            for ex in self.exports(node) or []:
+                if ex.get("Type") == "BlueprintGeneratedClass" and ex.get("SuperStruct"):
+                    nxt = str(ex["SuperStruct"].get("ObjectPath", "")).rsplit(".", 1)[0]
+                    break
+            if not nxt or not nxt.startswith("/Game/") or self.exports(nxt) is None:
+                break
+            out.append(nxt)
+            node = nxt
+        return out
+
+    def spawn_calls(self, game_path: str, stem: str) -> list[str]:
+        """Spawn calls in a class's bytecode whose return value is `stem`'s class."""
+        p = self.root / self.rel(game_path)
+        if not p.is_file():
+            return []
+        text = p.read_text(encoding="utf-8")
+        want = f"BlueprintGeneratedClass'{stem}_C'"
+        hits = sorted({m.group(1) for m in SPAWN_CALL.finditer(text)
+                       if want in text[m.end():m.end() + 800]})
+        return [f"{self.rel(game_path)}#{h} returns {stem}" for h in hits]
+
 
 def _game_data_facts(facts: dict) -> dict[tuple[str, str], list]:
     """(agent prefix, slot) -> the `*-game-data` facts of that ability."""
@@ -231,159 +274,301 @@ def _view_answers(store_root: Path) -> dict:
 # The pre-fill
 # ---------------------------------------------------------------------------
 
-def _lifecycle_class(gd: list, entities: list) -> dict:
+def _stem(path: str) -> str:
+    return path.rsplit("/", 1)[-1]
+
+
+def _objects(ab: dict) -> list[str]:
+    """The world objects and pawns an ability spawns or names, in export order."""
+    out: list[str] = []
+    for e in ab.get("entities", []):
+        short = _stem(e["entity"])
+        if DEPLOYED_PREFIX.match(short) and not NOT_DEPLOYED.search(short) \
+                and e["entity"] not in out:
+            out.append(e["entity"])
+    return out
+
+
+def _referrers(ab: dict) -> dict[str, dict]:
+    """entity path -> the states table's first `named_by`/`how` for it."""
+    out: dict[str, dict] = {}
+    for e in ab.get("entities", []):
+        out.setdefault(e["entity"], e)
+    return out
+
+
+def _owner_object(path: str, ab: dict, objects: list[str]) -> str | None:
+    """The nearest object above `path` on the reference chain, itself included."""
+    refs = _referrers(ab)
+    node, seen = path, set()
+    while node and node not in seen:
+        if node in objects:
+            return node
+        seen.add(node)
+        node = refs.get(node, {}).get("named_by")
+    return None
+
+
+def _value_assets(f) -> dict[str, str]:
+    """A game-data fact's value name -> the class stem its source reads it from."""
+    src = " ".join(f.source.split())
+    return {n: _stem(p) for n, p in VALUE_ASSET.findall(src)}
+
+
+class Scope:
+    """What one row reads: its classes, and whether it is the whole ability.
+
+    A whole row reads every class of the ability. An object row reads the
+    object's class, its parent classes and the classes only it references;
+    `ability_level` holds the classes no object owns (the held equippable, a
+    tuning table, a projectile in flight), shown to the player beside each
+    object row and never pre-filled into it.
+    """
+
+    def __init__(self, ab: dict, exports: "GameExports", obj: str | None, split: bool):
+        self.obj, self.split = obj, split
+        objects = _objects(ab)
+        entities = [e["entity"] for e in ab.get("entities", [])]
+        equip = ab.get("equippable")
+        if not split:
+            self.paths = [p for p in [equip] + entities if p]
+            self.ability_level: list[str] = []
+        else:
+            mine = [p for p in entities if _owner_object(p, ab, objects) == obj]
+            self.paths = list(dict.fromkeys([obj] + mine + exports.supers(obj)))
+            self.ability_level = [p for p in [equip] + entities
+                                  if p and _owner_object(p, ab, objects) is None]
+        self.stems = {_stem(p) for p in self.paths}
+        self.level_stems = {_stem(p) for p in self.ability_level}
+
+    def owns_state(self, s: dict) -> bool:
+        if s.get("owner_kind") == "equippable":
+            return not self.split
+        return _stem(s["owner"]) in self.stems
+
+    def owns_value(self, asset: str | None) -> str:
+        """'own', 'ability' (ability-level) or 'other' (another object's)."""
+        if not self.split:
+            return "own"
+        if asset in self.stems:
+            return "own"
+        if asset is None or asset in self.level_stems or asset.startswith("AbilityTuning_"):
+            return "ability"
+        return "other"
+
+
+def _parent(obj: str | None, ab: dict, objects: list[str], exports: "GameExports",
+            table_ref: str) -> dict:
+    """The object's parent in the spawn tree, from the game files' spawn relations."""
+    if obj is None:
+        return _sheet_cell("n/a", basis="the row is the whole ability; nothing spawned")
+    refs = _referrers(ab)
+    first = refs.get(obj, {})
+    referrer = first.get("named_by")
+    path = [_stem(obj)]
+    node = referrer
+    while node and node not in objects and node in refs:
+        path.append(_stem(node))
+        node = refs[node].get("named_by")
+    if node:
+        path.append(_stem(node))
+    parent = _stem(node) if node in objects else "ability"
+    spawn = []
+    if first.get("how") == "spawns" and referrer:
+        spawn.append(f"{table_ref}: {_stem(referrer)} spawns {_stem(obj)}")
+    elif referrer:
+        spawn += exports.spawn_calls(referrer, _stem(obj))
+    chain = " <- ".join(path)
+    if not spawn:
+        return _sheet_cell("ask", basis=f"the exports reference it ({chain}) but show no spawn")
+    return _sheet_cell("confirm", parent, spawn, basis=f"spawn chain {chain}")
+
+
+def _lifecycle_class(gd: list, ab: dict, scope: Scope) -> dict:
     found: dict[str, list[str]] = {}
-    for f in gd:
-        if f.values.get("move"):
-            found.setdefault("movement", []).append(
-                f"[domain:{f.key}] caster movement: {_show(f.values['move'])}")
-    for e in entities:
-        short = e["entity"].rsplit("/", 1)[-1]
-        if DEPLOYED_PREFIX.match(short) and not NOT_DEPLOYED.search(short):
-            found.setdefault("deployed", []).append(f"{e.get('how')} {e['entity']}")
+    if scope.split:
+        found["deployed"] = [f"object class {scope.obj}"]
+    else:
+        for f in gd:
+            if f.values.get("move"):
+                found.setdefault("movement", []).append(
+                    f"[domain:{f.key}] caster movement: {_show(f.values['move'])}")
+        for e in ab.get("entities", []):
+            short = _stem(e["entity"])
+            if DEPLOYED_PREFIX.match(short) and not NOT_DEPLOYED.search(short):
+                found.setdefault("deployed", []).append(f"{e.get('how')} {e['entity']}")
     if not found:
         return _sheet_cell("ask", basis="no game-file evidence")
     if len(found) > 1:
         return _sheet_cell("conflict", candidates=sorted(found),
-                     sources=[s for k in sorted(found) for s in found[k]],
-                     basis="the game files support more than one class")
+                           sources=[s for k in sorted(found) for s in found[k]],
+                           basis="the game files support more than one class")
     (cls, src), = found.items()
     return _sheet_cell("confirm", cls, src, basis=(
-        "the ability spawns a world object or pawn" if cls == "deployed"
-        else "the game data gives caster movement"))
+        "a world object or pawn" if cls == "deployed" else "the game data gives caster movement"))
 
 
-def _lifetime(gd: list) -> dict:
-    cands = []
+def _scoped_values(gd: list, group: str, scope: Scope):
+    """(fact, name, value, 'own'|'ability') for one value group in the row's scope."""
     for f in gd:
-        for name, v in sorted((f.values.get("life") or {}).items()):
-            if isinstance(v, (int, float)):
-                cands.append({"ref": f"{f.key}#life.{name}", "s": float(v),
-                              "label": f"{name} = {v} s"})
+        assets = _value_assets(f)
+        for name, v in sorted((f.values.get(group) or {}).items()):
+            where = scope.owns_value(assets.get(name))
+            if where != "other":
+                yield f, name, v, where, assets.get(name)
+
+
+def _lifetime(gd: list, scope: Scope) -> dict:
+    cands = []
+    for f, name, v, where, asset in _scoped_values(gd, "life", scope):
+        if isinstance(v, (int, float)):
+            label = f"{name} = {v} s" + (f" (ability-level, {asset})" if where == "ability" else "")
+            cands.append({"ref": f"{f.key}#life.{name}", "s": float(v), "label": label})
     if not cands:
-        return _sheet_cell("ask", basis="no life value in the game data")
+        return _sheet_cell("ask", basis="no life value in the game data for this row")
     src = sorted({f"[domain:{c['ref'].split('#')[0]}]" for c in cands})
-    if len(cands) == 1:
+    if len(cands) == 1 and "ability-level" not in cands[0]["label"]:
         return _sheet_cell("confirm", cands[0], src, basis="the one life value",
-                     candidates=cands, display=cands[0]["label"])
+                           candidates=cands, display=cands[0]["label"])
     return _sheet_cell("confirm", None, src, candidates=cands,
-                 basis="several life values: pick the ability's own, or none",
-                 display=" | ".join(c["label"] for c in cands))
+                       basis="pick this row's own life value, or none",
+                       display=" | ".join(c["label"] for c in cands))
+
+
+def _fact_cells(subject: str, column: str, facts: dict) -> dict[str, list[str]]:
+    """Values a domain fact gives one cell of the row whose subject is `subject`."""
+    out: dict[str, list[str]] = {}
+    for key, f in facts.items():
+        if not key.startswith("abilities/") or _subject_norm(f.subject) != _subject_norm(subject):
+            continue
+        got = getattr(f, column, "")
+        if got:
+            out.setdefault(got, []).append(f"[domain:{key}]")
+        if column == "owner_death" and key.endswith("-persists-after-death"):
+            v = "disabled" if "deactivated" in f.claim else "persists"
+            out.setdefault(v, []).append(f"[domain:{key}]")
+    pf = PLAYER_FACT_CELLS.get((subject, column))
+    if pf and pf[1] in facts:
+        out.setdefault(pf[0], []).append(f"[domain:{pf[1]}]")
+    return out
+
+
+def _decide(srcs: dict[str, list[str]], none_basis: str) -> dict:
+    srcs = {k: v for k, v in srcs.items() if v}
+    if not srcs:
+        return _sheet_cell("ask", basis=none_basis)
+    if len(srcs) > 1:
+        return _sheet_cell("conflict", candidates=sorted(srcs),
+                           sources=[s for k in sorted(srcs) for s in srcs[k]],
+                           basis="the sources disagree")
+    (v, src), = srcs.items()
+    return _sheet_cell("confirm", v, src)
 
 
 def _destructible(subject: str, evidence: dict, facts: dict) -> dict:
     srcs = {"yes": list(evidence["yes"]), "no": list(evidence["no"])}
-    pf = PLAYER_FACT_CELLS.get((subject, "destructible"))
-    if pf and f"{pf[1]}" in facts:
-        srcs[pf[0]].append(f"[domain:{pf[1]}]")
-    have = [k for k in ("yes", "no") if srcs[k]]
-    if not have:
-        return _sheet_cell("ask", basis="no game-file evidence")
-    if len(have) == 2:
-        return _sheet_cell("conflict", candidates=["yes", "no"], sources=srcs["yes"] + srcs["no"],
-                     basis="one entity can be destroyed, another cannot")
-    return _sheet_cell("confirm", have[0], srcs[have[0]])
+    for v, s in _fact_cells(subject, "destructible", facts).items():
+        srcs.setdefault(v, []).extend(s)
+    return _decide(srcs, "no game-file evidence")
 
 
 def _owner_death(subject: str, evidence: dict, facts: dict) -> dict:
     srcs: dict[str, list] = {}
     if evidence["owner_death"]:
-        srcs["disabled"] = [s + " (destroyed at the owner's death)"
-                            for s in evidence["owner_death"]]
-    for key, f in facts.items():
-        if key.startswith("abilities/") and key.endswith("-persists-after-death") \
-                and _subject_norm(f.subject) == _subject_norm(subject):
-            v = "disabled" if "deactivated" in f.claim else "persists"
-            srcs.setdefault(v, []).append(f"[domain:{key}]")
-    pf = PLAYER_FACT_CELLS.get((subject, "owner_death"))
-    if pf and pf[1] in facts:
-        srcs.setdefault(pf[0], []).append(f"[domain:{pf[1]}]")
-    if not srcs:
-        return _sheet_cell("ask", basis="no game-file evidence or fact")
-    if len(srcs) > 1:
-        return _sheet_cell("conflict", candidates=sorted(srcs),
-                     sources=[s for k in sorted(srcs) for s in srcs[k]],
-                     basis="the sources disagree")
-    (v, src), = srcs.items()
-    return _sheet_cell("confirm", v, src)
+        srcs["destroyed"] = list(evidence["owner_death"])
+    for v, s in _fact_cells(subject, "owner_death", facts).items():
+        srcs.setdefault(v, []).extend(s)
+    return _decide(srcs, "no game-file evidence or fact")
 
 
-def _states(ab: dict, table_ref: str) -> dict:
+def _states(ab: dict, scope: Scope, table_ref: str) -> dict:
     groups: dict[str, list[str]] = {}
     for s in ab.get("states", []):
-        if not s.get("phase"):
+        if not s.get("phase") or not scope.owns_state(s):
             continue
-        owner = "held" if s.get("owner_kind") == "equippable" else s["owner"].rsplit("/", 1)[-1]
+        owner = "held" if s.get("owner_kind") == "equippable" else _stem(s["owner"])
         seq = groups.setdefault(owner, [])
         if s["phase"] not in seq:
             seq.append(s["phase"])
     if not groups:
-        return _sheet_cell("ask", basis="the game data names no phase")
+        return _sheet_cell("ask", basis="the game data names no phase for this row")
     return _sheet_cell("confirm", groups, [table_ref],
-                 basis="lexical phases of the game's state names, in export order")
+                       basis="lexical phases of the game's state names, in export order")
 
 
-def _recall(subject: str, ab: dict, facts: dict, table_ref: str) -> list[str]:
+def _recall(subject: str, ab: dict, scope: Scope, facts: dict, table_ref: str) -> list[str]:
     src = [f"[domain:{k}]" for k, f in sorted(facts.items())
            if k.startswith("abilities/") and f.known == "measured"
            and _subject_norm(f.subject) == _subject_norm(subject) and re.search(r"recall|pickup", k)]
-    names = sorted({s["state"] for s in ab.get("states", []) if RECALL_STATE.search(s["state"])})
+    names = sorted({s["state"] for s in ab.get("states", [])
+                    if RECALL_STATE.search(s["state"]) and scope.owns_state(s)})
     if names:
         src.append(f"{table_ref} states {', '.join(names[:4])}")
     return src
 
 
-def _effects(gd: list, entities: list) -> dict:
+def _effect_kinds(short: str) -> list[str]:
+    return [kind for kind, pat in EFFECT_WORDS
+            if re.search(pat, short, re.I) or (kind == "blind" and short.lower().startswith("blindconfig"))]
+
+
+def _effects(gd: list, scope: Scope) -> tuple[dict, list[str]]:
+    """The row's effect cell, and the ability-level effects shown beside it."""
     found: dict[str, dict] = {}
-    for e in entities:
-        short = e["entity"].rsplit("/", 1)[-1]
-        if not EFFECT_PREFIX.match(short):
-            continue
-        for kind, pat in EFFECT_WORDS:
-            if re.search(pat, short, re.I) or (kind == "blind" and short.lower().startswith("blindconfig")):
-                found.setdefault(kind, {"effect": kind, "via": []})["via"].append(e["entity"])
-    for f in gd:
-        for group in ("life", "other"):
-            for name, v in (f.values.get(group) or {}).items():
-                kind = EFFECT_FIELDS.get(name)
-                if kind:
-                    d = found.setdefault(kind, {"effect": kind, "via": []})
-                    d["via"].append(f"[domain:{f.key}] {name} = {v}")
-                    d["duration_s"] = v
+    level: list[str] = []
+    for p in scope.paths:
+        if EFFECT_PREFIX.match(_stem(p)):
+            for kind in _effect_kinds(_stem(p)):
+                found.setdefault(kind, {"effect": kind, "via": []})["via"].append(p)
+    for p in scope.ability_level:
+        if EFFECT_PREFIX.match(_stem(p)):
+            level += [f"{k} ({_stem(p)})" for k in _effect_kinds(_stem(p))]
+    for group in ("life", "other"):
+        for f, name, v, where, asset in _scoped_values(gd, group, scope):
+            kind = EFFECT_FIELDS.get(name)
+            if not kind:
+                continue
+            if where == "ability":
+                level.append(f"{kind} ({name} = {v}, {asset})")
+                continue
+            d = found.setdefault(kind, {"effect": kind, "via": []})
+            d["via"].append(f"[domain:{f.key}] {name} = {v}")
+            d["duration_s"] = v
     if not found:
-        return _sheet_cell("ask", basis="no effect class or field in the game data")
+        return _sheet_cell("ask", basis="no effect class or field in the game data for this row"), level
     value = [found[k] for k in sorted(found)]
     return _sheet_cell("confirm", value, [v for d in value for v in d["via"]],
-                 basis="effect kinds read from the game's class and field names",
-                 display=", ".join(d["effect"] for d in value))
+                       basis="effect kinds read from the game's class and field names",
+                       display=", ".join(d["effect"] for d in value)), level
 
 
-def _minimap(ab: dict, gd: list, views: dict, agent: str, slot: str, table_ref: str) -> dict:
+def _minimap(ab: dict, gd: list, scope: Scope, views: dict, agent: str, slot: str,
+             table_ref: str) -> dict:
     drawn: dict[str, dict] = {}
     for s in ab.get("states", []):
+        if not scope.owns_state(s):
+            continue
         for i in s.get("icons", []):
             if not str(i.get("role", "")).startswith("minimap"):
                 continue
-            owner = "held" if s.get("owner_kind") == "equippable" else s["owner"].rsplit("/", 1)[-1]
+            owner = "held" if s.get("owner_kind") == "equippable" else _stem(s["owner"])
             d = drawn.setdefault(i["texture"], {"owner": owner, "views": {}})
             for v, on in (i.get("views") or {}).items():
                 if on is not None:
                     d["views"][v] = d["views"].get(v) or on
-    sizes = {}
-    srcs = []
-    for f in gd:
-        if f.values.get("minimap"):
-            sizes.update(f.values["minimap"])
+    sizes, srcs = {}, []
+    for f, name, v, where, _asset in _scoped_values(gd, "minimap", scope):
+        if where == "own":
+            sizes[name] = v
             srcs.append(f"[domain:{f.key}]")
     if not drawn and not sizes:
-        return _sheet_cell("ask", basis="the game data names no minimap texture or size")
+        return _sheet_cell("ask", basis="the game data names no minimap texture or size for this row")
     value = {"textures": drawn, "sizes_m": sizes}
-    srcs = ([table_ref] if drawn else []) + srcs
+    srcs = ([table_ref] if drawn else []) + sorted(set(srcs))
     disagree = []
     for view, key in (("self", "self"), ("teammate", "ally"), ("enemy", "enemy")):
         ans = views.get(f"visibility:{agent}:{slot}:{key}")
-        data_on = any(d["views"].get(view) for d in drawn.values())
-        if ans == "nothing" and data_on:
+        if ans == "nothing" and any(d["views"].get(view) for d in drawn.values()):
             disagree.append(f"{view}: the game data draws a texture; the player answered nothing")
     disp = "; ".join(f"{t} ({d['owner']}; {','.join(v for v, on in d['views'].items() if on) or 'views unread'})"
                      for t, d in drawn.items())
@@ -391,12 +576,12 @@ def _minimap(ab: dict, gd: list, views: dict, agent: str, slot: str, table_ref: 
         disp += ("; " if disp else "") + "sizes " + _show(sizes)
     if disagree:
         return _sheet_cell("conflict", value, srcs + [VIEW_ANSWERS], basis="; ".join(disagree),
-                     display=disp)
+                           display=disp)
     return _sheet_cell("confirm", value, srcs, display=disp)
 
 
-def build_rows(states_doc: dict, facts: dict, exports: GameExports, views: dict) -> list[dict]:
-    """One row per C, Q, E and X ability of every agent in the states table."""
+def build_rows(states_doc: dict, facts: dict, exports: "GameExports", views: dict) -> list[dict]:
+    """One row per ability, or one per spawned object where it spawns several."""
     table_ref = f"{STATES_TABLE[0]}/{STATES_TABLE[1]}.json"
     gdata = _game_data_facts(facts)
     rows = []
@@ -406,41 +591,58 @@ def build_rows(states_doc: dict, facts: dict, exports: GameExports, views: dict)
             ab = abilities.get(slot)
             if not ab:
                 continue
-            subject = subject_of(agent, ab["ability"])
-            gd = gdata.get((agent.lower(), slot), [])
-            entities = ab.get("entities", [])
-            evidence = {"yes": [], "no": [], "owner_death": []}
-            for path in [ab.get("equippable")] + [e["entity"] for e in entities]:
-                if path:
-                    for k, v in exports.destruction(path).items():
-                        evidence[k] += v
-            ref = f"{table_ref}#{agent}/{slot}"
-            cells = {
-                "lifecycle_class": _lifecycle_class(gd, entities),
-                "lifetime_s": _lifetime(gd),
-                "destructible": _destructible(subject, evidence, facts),
-                "owner_death": _owner_death(subject, evidence, facts),
-                "states": _states(ab, ref),
-                "effects": _effects(gd, entities),
-                "minimap_drawing": _minimap(ab, gd, views, agent, slot, ref),
-            }
-            cells["ends_on"] = _ends_on(cells, _recall(subject, ab, facts, ref))
-            hints = sorted(k for k, f in facts.items()
-                           if not k.startswith("game_data/") and f.subject
-                           and _subject_norm(f.subject) == _subject_norm(subject))
-            rows.append({"agent": agent, "slot": slot, "ability": ab["ability"],
-                         "subject": subject, "game_data": sorted(f.key for f in gd),
-                         "cells": {c: cells[c] for c in COLUMNS}, "hints": hints})
+            objects = _objects(ab)
+            split = len(objects) > 1
+            for obj in (objects if split else [objects[0] if objects else None]):
+                rows.append(_row(agent, slot, ab, obj, split, objects, gdata, facts,
+                                 exports, views, table_ref))
     return rows
+
+
+def _row(agent, slot, ab, obj, split, objects, gdata, facts, exports, views, table_ref) -> dict:
+    ability_subject = subject_of(agent, ab["ability"])
+    subject = f"{ability_subject}/{_stem(obj).lower()}" if split else ability_subject
+    gd = gdata.get((agent.lower(), slot), [])
+    scope = Scope(ab, exports, obj, split)
+    evidence = {"yes": [], "no": [], "owner_death": []}
+    for path in scope.paths:
+        for k, v in exports.destruction(path).items():
+            evidence[k] += v
+    ref = f"{table_ref}#{agent}/{slot}"
+    effects, level_effects = _effects(gd, scope)
+    cells = {
+        "parent": _parent(obj, ab, objects, exports, table_ref),
+        "lifecycle_class": _lifecycle_class(gd, ab, scope),
+        "lifetime_s": _lifetime(gd, scope),
+        "destructible": _destructible(subject, evidence, facts),
+        "owner_death": _owner_death(subject, evidence, facts),
+        "states": _states(ab, scope, ref),
+        "effects": effects,
+        "minimap_drawing": _minimap(ab, gd, scope, views, agent, slot, ref),
+    }
+    cells["ends_on"] = _ends_on(cells, _recall(subject, ab, scope, facts, ref))
+    hints = sorted(k for k, f in facts.items()
+                   if not k.startswith("game_data/") and f.subject
+                   and _subject_norm(f.subject) in {_subject_norm(subject), _subject_norm(ability_subject)})
+    return {"agent": agent, "slot": slot, "ability": ab["ability"],
+            "object": _stem(obj) if obj else None, "object_class": obj,
+            "part": _stem(obj) if split else "", "subject": subject,
+            "siblings": [_stem(o) for o in objects if o != obj] if split else [],
+            "game_data": sorted(f.key for f in gd),
+            "cells": {c: cells[c] for c in COLUMNS}, "hints": hints,
+            "ability_level": {"classes": [_stem(p) for p in scope.ability_level],
+                              "effects": level_effects}}
 
 
 def _ends_on(cells: dict, recall_src: list[str]) -> dict:
     members: dict[str, list[str]] = {}
-    if cells["lifetime_s"]["status"] != "ask":
-        members["lifetime"] = list(cells["lifetime_s"]["sources"])
+    life = cells["lifetime_s"]
+    if life["status"] != "ask" and any("ability-level" not in c["label"]
+                                       for c in life.get("candidates") or []):
+        members["lifetime"] = list(life["sources"])
     if cells["destructible"]["value"] == "yes":
         members["destroyed"] = list(cells["destructible"]["sources"])
-    if cells["owner_death"]["value"] == "disabled":
+    if cells["owner_death"]["value"] in ("disabled", "destroyed"):
         members["owner_death"] = list(cells["owner_death"]["sources"])
     if recall_src:
         members["recall_or_reactivation"] = recall_src
@@ -450,11 +652,11 @@ def _ends_on(cells: dict, recall_src: list[str]) -> dict:
     status = "conflict" if any(cells[c]["status"] == "conflict"
                                for c in ("destructible", "owner_death")) else "confirm"
     return _sheet_cell(status, value, [s for m in members for s in members[m]],
-                 basis="members with a source; round_end by the player's rule")
+                       basis="members with a source; round_end by the player's rule")
 
 
 def status_counts(rows: list[dict]) -> dict:
-    out = {c: {"confirm": 0, "ask": 0, "conflict": 0} for c in COLUMNS}
+    out = {c: {"confirm": 0, "ask": 0, "conflict": 0, "n/a": 0} for c in COLUMNS}
     for r in rows:
         for c in COLUMNS:
             out[c][r["cells"][c]["status"]] += 1
@@ -479,9 +681,10 @@ def build(store_root: Path) -> tuple[Path, list[dict]]:
                   encoding="utf-8", newline="\n")
     with (out_dir / f"{VERSION}.csv").open("w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["agent", "slot", "ability"] + [x for c in COLUMNS for x in (c, f"{c}_status", f"{c}_sources")])
+        w.writerow(["agent", "slot", "ability", "object", "object_class"]
+                   + [x for c in COLUMNS for x in (c, f"{c}_status", f"{c}_sources")])
         for r in rows:
-            w.writerow([r["agent"], r["slot"], r["ability"]] + [
+            w.writerow([r["agent"], r["slot"], r["ability"], r["object"] or "", r["object_class"] or ""] + [
                 x for c in COLUMNS for x in (r["cells"][c]["display"], r["cells"][c]["status"],
                                              " | ".join(r["cells"][c]["sources"]))])
     prov = {"version": VERSION, "build": BUILD, "built_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(),
@@ -505,7 +708,8 @@ def load_prefill_rows(store_root: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def cell_key(row: dict, column: str, sub: str = "") -> str:
-    return f"{row['agent']}:{row['slot']}:{column}" + (f":{sub}" if sub else "")
+    part = f":{row['part']}" if row.get("part") else ""
+    return f"{row['agent']}:{row['slot']}{part}:{column}" + (f":{sub}" if sub else "")
 
 
 def load_sheet_answers(store_root: Path) -> dict:
@@ -530,6 +734,8 @@ def append_answer(store_root: Path, row: dict) -> None:
 
 def _options(row: dict, column: str, cell: dict, answers: dict) -> list[tuple[str, object]]:
     """(label, value) per digit key 1..6 for a column."""
+    if column == "parent":
+        return [("the ability itself", "ability")] + [(s, s) for s in row.get("siblings", [])][:5]
     if column == "lifecycle_class":
         return [(c, c) for c in CLASSES]
     if column == "lifetime_s":
@@ -538,7 +744,7 @@ def _options(row: dict, column: str, cell: dict, answers: dict) -> list[tuple[st
     if column == "destructible":
         return [("yes", "yes"), ("no", "no")]
     if column == "owner_death":
-        return [("disabled", "disabled"), ("persists", "persists"),
+        return [("disabled", "disabled"), ("destroyed", "destroyed"), ("persists", "persists"),
                 ("not applicable: nothing deployed", "not_applicable")]
     if column == "ends_on":
         return [(m, m) for m in ENDS[:4]]
@@ -580,6 +786,8 @@ def questions(rows: list[dict], answers: dict, columns=COLUMNS, agent: str | Non
         if agent and r["agent"].lower() != agent.lower():
             continue
         for c in columns:
+            if r["cells"][c]["status"] == "n/a":
+                continue
             k = cell_key(r, c)
             a = answers.get(k)
             if a is None or (reask_unsure and a.get("unsure")):
@@ -659,7 +867,8 @@ def walk(store_root: Path, rows: list[dict], *, by: str = "player", columns=COLU
         r, column, key = todo[0]
         base = column.split(":")[0]
         cell = r["cells"][base]
-        out.write(f"\n[{len(todo)} open] {r['agent']} {r['slot']} {r['ability']} -- {column}\n")
+        part = f" / {r['part']}" if r.get("part") else ""
+        out.write(f"\n[{len(todo)} open] {r['agent']} {r['slot']} {r['ability']}{part} -- {column}\n")
         if column == "effects:targets":
             kind = key.split(":")[-2]
             out.write(f"  Who does the {kind} effect reach?\n")
@@ -702,7 +911,7 @@ def walk(store_root: Path, rows: list[dict], *, by: str = "player", columns=COLU
             ans, how = parsed
         append_answer(store_root, {
             "key": key, "column": column, "agent": r["agent"], "slot": r["slot"],
-            "ability": r["ability"], "answer": ans, "how": how, "unsure": how == "unsure",
+            "ability": r["ability"], "object": r.get("object"), "answer": ans, "how": how, "unsure": how == "unsure",
             "by": by, "ts": _now(), "tool": VERSION, "prefill_version": VERSION,
             "shown": {"status": status, "display": disp, "sources": srcs},
             "compared_against_derived": column != "effects:targets"})
@@ -724,13 +933,16 @@ def _id_slug(text: str) -> str:
 
 
 def fact_id(row: dict) -> str:
-    return f"{_id_slug(row['agent'])}-{_id_slug(row['ability'])}-lifecycle"
+    part = f"-{_id_slug(row['part'])}" if row.get("part") else ""
+    return f"{_id_slug(row['agent'])}-{_id_slug(row['ability'])}{part}-lifecycle"
 
 
 def resolve(row: dict, answers: dict) -> tuple[dict | None, list[str]]:
     """The confirmed values of one row, or None and what is still open."""
     got, missing = {}, []
     for c in COLUMNS:
+        if row["cells"][c]["status"] == "n/a":
+            continue
         a = answers.get(cell_key(row, c))
         if a is None or a.get("unsure") or a.get("answer") is None:
             missing.append(c)
@@ -793,7 +1005,12 @@ def fact_text(row: dict, got: dict, since: str) -> str:
                   else _show(drawing["answer"]))
     states = _flat_states(got["states"]["answer"])
     see = sorted({"abilities/ability-rules-are-unique"} | set(row.get("game_data", [])))
-    claim = (f"{row['agent']}'s {row['ability']} (slot {row['slot']}) is a {cls} ability. "
+    what = f"{row['agent']}'s {row['ability']} (slot {row['slot']})"
+    if row.get("part"):
+        parent = got["parent"]["answer"]
+        what = (f"The {row['part']} object of {what}, a child of "
+                f"{'the ability' if parent == 'ability' else parent},")
+    claim = (f"{what} is a {cls} ability. "
              f"{life_words} It ends on {', '.join(ends)}. Destructible by the enemy: "
              f"{got['destructible']['answer']}. At its owner's death: "
              f"{got['owner_death']['answer']}. Effects: {', '.join(effects) or 'none'}. "
@@ -908,6 +1125,7 @@ def main(argv: list[str] | None = None, store_root: Path | None = None) -> int:
 
 def _print_counts(rows: list[dict]) -> None:
     c = status_counts(rows)
-    print(f"{'column':<16} {'pre-filled':>10} {'ask':>5} {'conflict':>8}")
+    print(f"{'column':<16} {'pre-filled':>10} {'ask':>5} {'conflict':>8} {'n/a':>5}")
     for col in COLUMNS:
-        print(f"{col:<16} {c[col]['confirm']:>10} {c[col]['ask']:>5} {c[col]['conflict']:>8}")
+        print(f"{col:<16} {c[col]['confirm']:>10} {c[col]['ask']:>5} {c[col]['conflict']:>8}"
+              f" {c[col]['n/a']:>5}")

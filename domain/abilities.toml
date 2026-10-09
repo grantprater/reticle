@@ -5411,7 +5411,7 @@ Cypher's Spycam persists after Cypher dies.
 kind = "lifecycle"
 known = "player"
 since = "2026-09-30"
-subject = "cypher:spycam"
+subject = "cypher:spycam/pawn_gumshoe_e_possessablecamera"
 source = "the player, 2026-09-30 (chat)"
 use = """
 A Spycam seen after Cypher's death is the same entity, never a new cast
@@ -5421,9 +5421,38 @@ exceptions = """
 the player confirmed eight such abilities together; the persisting set may
 still be incomplete. Whether it persists deactivated, drawn dim
 [domain:minimap/device-dim-on-deactivation], or stays live is unasked, as is
-its minimap drawing after the death.
+its minimap drawing after the death. The fact concerns the camera pawn
+(Pawn_Gumshoe_E_PossessableCamera) alone, its subject narrowed on 2026-10-09:
+the tracking dart the camera fires ends at Cypher's death
+[domain:abilities/cypher-tracking-dart-ends-on-owner-death].
 """
-see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/cypher-spycam-dart-reveal", "abilities/ability-rules-are-unique"]
+see = ["minimap/device-dim-on-deactivation", "abilities/no-cast-while-dead", "abilities/cypher-spycam-dart-reveal", "abilities/ability-rules-are-unique", "abilities/cypher-tracking-dart-ends-on-owner-death"]
+
+[cypher-tracking-dart-ends-on-owner-death]
+claim = """
+The tracking dart that Cypher's Spycam fires, which tracks the enemy it
+strikes, is destroyed when Cypher dies. The dart is a child of the camera, as
+an ability's effects are children of their ability. The game files agree:
+GameObject_RemovableObject_GumshoeTrackingDart sets DestroyOnOwnerDeath =
+true, and the camera's dart ability spawns the dart's projectile, which spawns
+the dart.
+"""
+kind = "lifecycle"
+known = "player"
+since = "2026-10-09"
+subject = "cypher:spycam/gameobject_removableobject_gumshoetrackingdart"
+source = """
+the player in chat, 2026-10-09, resolving the mechanics sheet's conflict
+between the game file and [domain:abilities/cypher-spycam-persists-after-death];
+agreeing game file: reference/game-files/release-13.06-shipping-18-5590001/
+ability-states/ShooterGame/Content/Characters/Gumshoe/S0/Ability_E/
+GameObject_RemovableObject_GumshoeTrackingDart.json,
+Default__GameObject_RemovableObject_GumshoeTrackingDart_C.DestroyOnOwnerDeath
+= true
+"""
+use = "the tracking dart's row of `reticle mechanics-sheet`: owner_death destroyed, parent the camera pawn"
+owner_death = "destroyed"
+see = ["abilities/cypher-spycam-persists-after-death", "abilities/cypher-spycam-dart-reveal", "abilities/ability-rules-are-unique"]
 
 [deadlock-sonic-sensor-persists-after-death]
 claim = """
