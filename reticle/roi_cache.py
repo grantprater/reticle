@@ -26,7 +26,8 @@ at a third of PNG's size; lossless x264 was larger, since the minimap changes
 too much between frames for prediction to pay.
 
 **An FFV1 frame is not a seek point.** Its pixels are coded alone, but the
-writer keeps ffmpeg's default group of 12 frames: only every twelfth frame
+caches written before `FFV1_WRITER_VERSION` 0.2.0 keep ffmpeg's default
+group of 12 frames: only every twelfth frame
 (800 ms at 15 Hz) is a key frame, and each frame between carries the range
 coder's adapted state from the one before, so reading frame n decodes every
 frame from the key frame at or before n. cadaadeb2d8b's minimap video lists
@@ -46,6 +47,23 @@ grid, and PyAV's read
 [metric:roi_cache_seek/profile@cadaadeb2d8b#pyav1_gated_cpu_ms=21.9]. Its crops
 equal OpenCV's on 500 of 500 gated times, 500 grid times and 500 tray times
 ([metric:roi_cache_seek/identity@cadaadeb2d8b#gated_equal=500]).
+
+**A cache written now makes every frame a key frame** (the player,
+2026-10-09): `ffv1_command` passes `-g 1` (`FFV1_GOP`), and the record
+states each rect's group under `encoding`, stamped `FFV1_WRITER_VERSION`.
+The encoding changes no pixel, so `ROI_CACHE_VERSION` stays and the caches
+written before stay current; their records state no group, and they read
+as above. Where the record states a group of one, `_Ffv1Rect` seeks
+straight to any frame but the next. Re-encoded from the stored crops, one
+round of cadaadeb2d8b's minimap grows by
+[metric:roi_cache_gop/g1@cadaadeb2d8b#size_ratio=1.0225] times and its
+1424 frames read back byte-identical to the stored cache
+([metric:roi_cache_gop/g1@cadaadeb2d8b#equal_stored_g1=1424]); the gated
+ally times cost [metric:roi_cache_gop/g1@cadaadeb2d8b#g1_gated_cpu_ms=8.34]
+ms of CPU a frame against
+[metric:roi_cache_gop/g1@cadaadeb2d8b#g12_gated_cpu_ms=18.88] at a group of
+12, and the full grid [metric:roi_cache_gop/g1@cadaadeb2d8b#g1_grid_cpu_ms=8.2]
+against [metric:roi_cache_gop/g1@cadaadeb2d8b#g12_grid_cpu_ms=7.83].
 
 **The scoreboard set is gated on an opportunity.** Its one rectangle is not
 a profile ROI but the region the Tab scoreboard reader reads
@@ -233,6 +251,10 @@ SCOREBOARD_GATE_VERDICTS = ("present", "unreadable")
 #: Measured 2026-09-28 on c40d950031bb's minimap cache: an OpenCV seek cost
 #: 38 ms a sample and a sequential read 5.7 ms a frame.
 GRAB_MAX = 8
+#: `GRAB_MAX` for a video whose every frame is a key frame (`FFV1_GOP` 1):
+#: only the next frame stays on the decoder that stands there, since a
+#: seek decodes the target alone.
+KEYED_GRAB_MAX = 0
 #: How `_Ffv1Video` threads its decoder: (`thread_type`, `thread_count`).
 #: One thread costs the least CPU. Over one round of cadaadeb2d8b (1424
 #: grid frames; 163 gated ally times), CPU per frame, grid then gated:
@@ -266,6 +288,18 @@ DENSE_HANDOVER = 48
 #: ([metric:killfeed_panel/cache-window@043bafca271a#seek_bit_equal_ffv1=52] of 52).
 CODECS = {"minimap": "ffv1", "scoreboard": "ffv1", "killfeed_panel": "ffv1",
           "combat_report": "ffv1"}
+
+#: The FFV1 writer's stamp: how a cache video is encoded, not what it holds.
+#: 0.2.0 (the player, 2026-10-09) makes every frame a key frame
+#: (`FFV1_GOP`); 0.1.0, which no record names, kept ffmpeg's default group
+#: of 12. Both store the same lossless pixels, so `ROI_CACHE_VERSION`, the
+#: stamp `RoiCache.load`, `plan` and every stream compare, stays: a cache
+#: written under either holds the same bytes, and its encoding never makes
+#: it stale. Each FFV1 record carries `encoding`, one entry per rect.
+FFV1_WRITER_VERSION = "ffv1-writer-0.2.0"
+#: Frames per group of pictures in a written FFV1 video: 1, every frame a
+#: key frame, so a sparse read decodes one frame (`_Ffv1Rect`).
+FFV1_GOP = 1
 
 #: Gated sets that store the timeline their writer was offered
 #: (`{sid}.offered.npy`), so a reader fed from them refuses each frame the
@@ -309,15 +343,32 @@ def ffmpeg_path() -> str:
 
 
 def ffv1_command(ff: str, w: int, h: int, hz: float, out: Path,
-                 threads: int | None = None) -> list[str]:
+                 threads: int | None = None, gop: int | None = None) -> list[str]:
     """The ffmpeg command that writes one rect's FFV1 cache video from
     `bgr24` frames piped on stdin: the writer's, and `thin_cache`'s with
-    `threads` 1."""
+    `threads` 1. A group holds `gop` frames, `FFV1_GOP` unless given."""
     cmd = [ff, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24",
            "-s", f"{int(w)}x{int(h)}", "-r", str(hz), "-i", "-"]
     if threads is not None:
         cmd += ["-threads", str(int(threads))]
-    return cmd + ["-c:v", "ffv1", "-level", "3", "-pix_fmt", "bgr0", str(out)]
+    return cmd + ["-c:v", "ffv1", "-level", "3",
+                  "-g", str(int(FFV1_GOP if gop is None else gop)),
+                  "-pix_fmt", "bgr0", str(out)]
+
+
+def ffv1_encoding() -> dict:
+    """One rect's `encoding` entry in a cache record: the writer's stamp and
+    group size (`FFV1_WRITER_VERSION`, `FFV1_GOP`)."""
+    return {"version": FFV1_WRITER_VERSION, "gop": int(FFV1_GOP)}
+
+
+def record_gop(record: dict, rect: int) -> int | None:
+    """Rect `rect`'s group size as its record states it (`encoding`); None
+    where the record states none, as no record written before
+    `FFV1_WRITER_VERSION` 0.2.0 does."""
+    enc = record.get("encoding") or []
+    got = enc[rect] if rect < len(enc) else None
+    return None if got is None or got.get("gop") is None else int(got["gop"])
 
 
 def roi_rects(name: str, profile, wh: tuple[int, int],
@@ -864,6 +915,8 @@ def _cache_record(manifest: dict, profile, name: str, rects, hz: float, spans=No
            "codec": CODECS.get(name, "png"), "session_id": manifest["session_id"], "profile": profile.name,
            "content_key": manifest["source"].get("content_key"),
            "wh": [int(manifest["source"]["width"]), int(manifest["source"]["height"])]}
+    if rec["codec"] == "ffv1":
+        rec["encoding"] = [ffv1_encoding() for _ in rects]
     if gate is not None:
         rec["gate"] = json.loads(json.dumps(gate))
     return rec
@@ -1423,7 +1476,8 @@ class RoiCache:
                     if k not in vids:
                         vids[k] = _Ffv1Rect((self.video_paths or {}).get(k) or
                                             self.blob.with_name(self.blob.name.replace(
-                                                ".bin", f".r{k}.mkv")))
+                                                ".bin", f".r{k}.mkv")),
+                                            gop=record_gop(self.record, k))
                     x0, y0, x1, y1 = self.record["rects"][k]
                     frame[y0:y1, x0:x1] = vids[k].read(n)
                 yield Sample(frame_idx=int(self.frame_idx[got[0]]), t_ms=float(t), frame=frame)
@@ -1461,10 +1515,21 @@ class _Ffv1Rect:
     gap goes to PyAV (`_Ffv1Video`), which seeks to the cued key frame. A
     run PyAV began hands over to OpenCV after `DENSE_HANDOVER` dense reads
     in a row, paying one OpenCV seek. Both decoders yield the same bytes
-    (`tests/test_ffv1_random_access.py`)."""
+    (`tests/test_ffv1_random_access.py`).
 
-    def __init__(self, path):
+    A video whose every frame is a key frame (`keyed`) reads only the next
+    frame on the decoder that stands there, at most `KEYED_GRAB_MAX` frames
+    ahead; any other read seeks straight to its frame and decodes it alone.
+    `gop` is the group size the cache record states (`record_gop`); where
+    it states none, the video is keyed once PyAV opens it and its cues
+    list every frame. A video with a longer group reads as above."""
+
+    def __init__(self, path, gop: int | None = None):
         self.path = str(path)
+        #: Whether every frame is a key frame: the record's word, else the
+        #: cues' once PyAV opens the video.
+        self.keyed = gop == 1
+        self._gop = gop
         self._cv = None
         self._cv_pos = 0
         self._av = None
@@ -1495,7 +1560,7 @@ class _Ffv1Rect:
 
     def read(self, n: int) -> np.ndarray:
         n = int(n)
-        dense = self.pos <= n <= self.pos + GRAB_MAX
+        dense = self.pos <= n <= self.pos + (KEYED_GRAB_MAX if self.keyed else GRAB_MAX)
         self._dense = self._dense + 1 if dense else 0
         if dense and (self.active == "cv" or self._dense >= DENSE_HANDOVER):
             use = "cv"
@@ -1503,6 +1568,8 @@ class _Ffv1Rect:
             use = "av"
             if self._av is None:
                 self._av = _Ffv1Video(self.path)
+                if self._gop is None and self._av.keys is not None:
+                    self.keyed = bool(np.all(np.diff(self._av.keys) == 1))
         crop = self._cv_read(n) if use == "cv" else self._av.read(n)
         self.served[use] += 1
         self.active, self.pos = use, n + 1
@@ -1815,7 +1882,7 @@ def thin_cache(src: Path, sid: str, gate: dict, dst: Path, tool: str) -> dict:
     np.save(dst / f"{sid}.idx.npy", new_idx)
     size = out.stat().st_size if out.is_file() else 0
     record = {**rec, "gate": json.loads(json.dumps(gate)), "frames": int(keep.sum()),
-              "bytes": int(size),
+              "bytes": int(size), "encoding": [ffv1_encoding()],
               "thinned": {"rule": gate.get("rule"), "tool": tool,
                           "gate_before": before, "frames_before": int(len(idx)),
                           "bytes_before": int(video.stat().st_size) if video.is_file() else 0,
@@ -1949,6 +2016,9 @@ def grid_thin_rect(src: Path, sid: str, roi: str, dst: Path, tool: str) -> dict:
         "frames_kept": int(keep.sum()), "frames_set": int(len(np.unique(idx[:, 0]))),
         "by": tool, "frames_before": int(len(rows)), "bytes_before": before,
         "bytes_after": size}}}
+    enc = list(rec.get("encoding") or [None] * len(rec["rects"]))
+    enc[k] = ffv1_encoding()
+    record["encoding"] = enc
     if rec.get("bytes") is not None:
         record["bytes"] = int(rec["bytes"]) - before + size
     (dst / f"{sid}.json").write_text(json.dumps(record, indent=1), encoding="utf-8")
