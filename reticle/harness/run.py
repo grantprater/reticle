@@ -3865,6 +3865,258 @@ def run_in_view(sessions: list[str], tag: str, record: bool) -> int:
     return 0
 
 
+#: A drawing's loss is false where the replay child under its last fix
+#: still lives this long after the loss sample.
+FALSE_LOSS_AFTER_MS = 1000.0
+#: Two discs overlap where their centres lie closer than two icon radii
+#: (`ability_icons` radius 9.5 px at scale 1): another icon or a ping this
+#: near the glyph covers it. Chosen, not fitted.
+COVER_PX = 19.0
+#: How far after a loss the glyph reader's full search is followed for the
+#: disc found again at its place, in 2 Hz samples.
+REFIND_SAMPLES = 6
+#: The causes of a false loss, in the order the first that holds is taken.
+FALSE_LOSS_CAUSES = ("estimator_wrong", "covered", "state_change", "verify_dip",
+                     "moved_out_of_window", "refound_later", "other")
+#: The owner each cause's fix belongs to.
+FALSE_LOSS_OWNER = {
+    "estimator_wrong": "team_vision (StoredVision.in_view)",
+    "covered": "adjudication.ability.disc_tracks (continuity across a cover the stored icons name)",
+    "state_change": "a per-ability fact (the drawing's states) read by adjudication.ability_glyph",
+    "verify_dip": "adjudication.ability.disc_tracks (continuity: the full search still finds the disc)",
+    "moved_out_of_window": "ability_icons (the verify's search window) or disc_tracks' reach",
+    "refound_later": "adjudication.ability.disc_tracks (continuity: a loss must persist)",
+    "other": "unassigned",
+}
+
+
+def _lines_by_t(path: Path) -> tuple[np.ndarray, list[bytes]]:
+    """A stream's rows with a `t_ms`, as raw lines sorted by time (parsed on demand)."""
+    pat = re.compile(rb'"t_ms":\s*(-?[0-9.eE+-]+)')
+    ts, ls = [], []
+    if path.is_file():
+        for ln in path.read_bytes().splitlines():
+            m = pat.search(ln)
+            if m is not None and b'"kind":"coverage"' not in ln:
+                ts.append(float(m.group(1)))
+                ls.append(ln)
+    o = np.argsort(ts, kind="stable")
+    return np.asarray(ts, float)[o], [ls[i] for i in o]
+
+
+def _rows_between(T, L, lo: float, hi: float) -> list[dict]:
+    i0, i1 = np.searchsorted(T, [lo, hi], side="left")
+    return [json.loads(L[i]) for i in range(i0, i1)]
+
+
+def run_false_loss(sessions: list[str], tag: str, record: bool) -> int:
+    """`false-loss`: is a glyph track's verify loss the drawing's
+    disappearance? For every lost drawing the child owner stored
+    (`ability_child` rows' `drawing_loss`, one per glyph track), the replay
+    child under the track's last fix (`acceptance.join_entities`, the
+    class-aware join `truth_under` uses) is asked whether it still lives
+    `FALSE_LOSS_AFTER_MS` after the loss sample; a loss whose child lives on
+    is false. Only a child of the node's own agent judges a loss; a
+    neighbour's child or an unbound node is counted apart. Each false loss takes the first cause of `FALSE_LOSS_CAUSES`
+    that the stored streams near it show: the in-view diagnostic's truth
+    (`point_seen`) disagrees with the estimate; a teammate, the self icon,
+    an enemy icon (`team_vision`, `minimap_object`) or a ping lies within
+    `COVER_PX`; a glyph verdict of the same agent with another key or
+    texture is born at the place within the refind span; the glyph reader's
+    full search (`ability_icon` candidates) still finds a disc within the
+    verify's half-width at the loss sample, or only beyond it within
+    `GLYPH_SAME_PLACE_PX`; or finds it again at the place within
+    `REFIND_SAMPLES` samples. Replay truth is evaluation only; nothing here
+    feeds an owner. Reports the false-loss share with a round-bootstrap
+    interval, for the losses classed in view and for every loss, the
+    ranked causes with their owners, and the refind gap's distribution."""
+    from reticle import ability_icons as ai
+    from reticle import slot_state as ss
+    from reticle.store import Store
+    from . import clock as rt
+    from . import draw as tdr
+    st = Store(STORE)
+    out_dir = OUT / "false_loss" / tag
+    out_dir.mkdir(parents=True, exist_ok=True)
+    half = float(ai.VERIFY_HALF_BASE)
+    items = []
+    for sid in sessions:
+        _refuse(sid)
+        rows = [r for r in _ability_child_rows(sid) if (r.get("drawing_loss") or {}).get("view")]
+        seen, losses = set(), []
+        for r in rows:
+            dl = r["drawing_loss"]
+            gid = dl["evidence"][0]["id"]
+            if (gid, dl["t_ms"]) in seen or dl["view"].get("x") is None:
+                continue
+            seen.add((gid, dl["t_ms"]))
+            losses.append({"sid": sid, "glyph": gid, "child_id": r["child_id"], "agent": r.get("agent"),
+                           "ability": r.get("ability"), "side": r.get("slot_side"), "round": r["round"],
+                           "view": dl["view"]["status"], "t_last": float(dl["t_ms"]),
+                           "t_loss": float(dl["view"]["window_ms"][1]),
+                           "x": float(dl["view"]["x"]), "y": float(dl["view"]["y"])})
+        if not losses:
+            continue
+        M = tdr.RealDrawMatch(sid, rule="T1d")
+        to_cm = _to_cm(sid)
+        alive = M.alive_grid()
+        t_last = np.array([L["t_last"] for L in losses])
+        t_rep = np.asarray(M.to_rep(t_last, rt.REMOTE_LAG_MS), float)
+        t_rep_loss = np.asarray(M.to_rep(np.array([L["t_loss"] for L in losses]), rt.REMOTE_LAG_MS), float)
+        ks = np.clip(np.searchsorted(M.G, t_rep), 0, M.G.size - 1)
+        wx, wy = to_cm([L["x"] for L in losses], [L["y"] for L in losses])
+        G_ = acc.join_entities(M, alive, ks, t_rep, wx, wy, frame_key=np.arange(len(losses)))
+        C = M.tl0.children.cols
+        icon_T, icon_L = _lines_by_t(STORE / "events" / "ability_icon" / f"{sid}.jsonl")
+        mo_T, mo_L = _lines_by_t(STORE / "events" / "minimap_object" / f"{sid}.jsonl")
+        from reticle.team_vision import StoredVision
+        vis = StoredVision.from_store(STORE, sid)
+        pings = [e for e in st.read_events("ping", sid) if e.get("event_kind") in ("entity_state",
+                                                                                 "entity_deleted")]
+        verdicts = [g for g in st.read_events("ability_glyph_name", sid)
+                    if g.get("kind") == "verdict" and g.get("reason") is None]
+        discs = {d["entity_id"]: d for d in st.read_events("ability_disc_track", sid) if d.get("kind") == "track"}
+        for i, L in enumerate(losses):
+            ck = G_["col_kind"][i]
+            if ck != "child":
+                L.update(truth="no_child_under", false=None)
+                items.append(L)
+                continue
+            j = int(G_["col_idx"][i])
+            L["truth_class"] = str(C["cls"][j])
+            L["truth_agent"] = G_["descs_c"][j]["agent"] if j in G_["descs_c"] else None
+            # the child under the place is the node's own only where its agent is the node's
+            L["own_child"] = bool(L["agent"]) and str(L["truth_agent"] or "").lower() == str(L["agent"]).lower()
+            hi = float(G_["hi"][j])
+            L["false"] = bool(hi > t_rep_loss[i] + FALSE_LOSS_AFTER_MS)
+            L["truth_close_after_loss_ms"] = round(hi - t_rep_loss[i], 1)
+            # truth view through the window, as the in-view diagnostic asks it
+            tc = L["t_last"] + (L["t_loss"] - L["t_last"]) * np.arange(1, IN_VIEW_SAMPLES + 1) / IN_VIEW_SAMPLES
+            sv = point_seen(M, M.to_rep(tc, rt.REMOTE_LAG_MS), float(wx[i]), float(wy[i]))
+            L["truth_view"] = "in_view" if sv.all() else "out_of_view" if not sv.any() else "changed"
+            # the refind: the full search's candidates at and after the loss sample
+            gaps, d0 = None, None
+            for k, fr in enumerate(_rows_between(icon_T, icon_L, L["t_loss"] - 1.0,
+                                                 L["t_loss"] + REFIND_SAMPLES * ss.GLYPH_STEP_MS)):
+                d = [math.hypot(c["cx"] - L["x"], c["cy"] - L["y"]) for c in fr.get("candidates") or []]
+                dm = min(d) if d else math.inf
+                if k == 0:
+                    d0 = dm
+                if dm <= half and gaps is None:
+                    gaps = k
+            L["refind_samples"], L["loss_sample_dist_px"] = gaps, (None if d0 in (None, math.inf) else round(d0, 1))
+            # covers in [t_last, t_loss]
+            cov = []
+            for t in np.asarray(vis._t)[(vis._t > L["t_last"] - 1.0) & (vis._t <= L["t_loss"])]:
+                for ic in vis._row(float(t)).get("icons") or []:
+                    if ic.get("x") is not None and math.hypot(ic["x"] - L["x"], ic["y"] - L["y"]) < COVER_PX:
+                        cov.append(ic["role"])
+            for fr in _rows_between(mo_T, mo_L, L["t_last"], L["t_loss"] + 1.0):
+                for e in fr.get("enemies") or []:
+                    if math.hypot(e["x"] - L["x"], e["y"] - L["y"]) < COVER_PX:
+                        cov.append("enemy")
+            live_ping = {}
+            for e in sorted(pings, key=lambda e: e["t_ms"]):
+                if e["t_ms"] > L["t_loss"]:
+                    break
+                if e["event_kind"] == "entity_deleted":
+                    live_ping.pop(e["entity_id"], None)
+                elif e.get("position"):
+                    live_ping[e["entity_id"]] = e["position"]
+            cov += ["ping" for p in live_ping.values() if math.hypot(p[0] - L["x"], p[1] - L["y"]) < COVER_PX]
+            L["covers"] = sorted(set(cov))
+            # a state change: another verdict of the agent born at the place
+            key = next((g["ability"]["key"] for g in verdicts if g["entity_id"] == L["glyph"]), None)
+            tex = next(((g.get("state") or {}).get("texture") for g in verdicts if g["entity_id"] == L["glyph"]), None)
+            L["state_change"] = []
+            for g in verdicts:
+                b = (discs.get(g["entity_id"]) or {}).get("birth_xy")
+                if not b or not (L["t_last"] < float(g["birth_ms"]) <= L["t_loss"] + REFIND_SAMPLES * ss.GLYPH_STEP_MS):
+                    continue
+                if math.hypot(b[0] - L["x"], b[1] - L["y"]) > ss.GLYPH_SAME_PLACE_PX:
+                    continue
+                if g["ability"].get("agent") == (L["agent"] or g["ability"].get("agent")) and \
+                        (g["ability"]["key"] != key or (g.get("state") or {}).get("texture") != tex):
+                    L["state_change"].append(f"{g['ability']['key']}:{(g.get('state') or {}).get('texture')}")
+            if L["false"]:
+                if L["view"] in ("in_view", "out_of_view") and L["truth_view"] != L["view"]:
+                    cause = "estimator_wrong"
+                elif L["covers"]:
+                    cause = "covered"
+                elif L["state_change"]:
+                    cause = "state_change"
+                elif d0 is not None and d0 <= half:
+                    cause = "verify_dip"
+                elif d0 is not None and d0 <= ss.GLYPH_SAME_PLACE_PX:
+                    cause = "moved_out_of_window"
+                elif gaps is not None:
+                    cause = "refound_later"
+                else:
+                    cause = "other"
+                L["cause"] = cause
+            items.append(L)
+        print(f"{sid}: {len(losses)} losses, {sum(1 for L in losses if L.get('false'))} false", flush=True)
+    doc = false_loss_summary(items)
+    (out_dir / "pooled.json").write_text(json.dumps({"sessions": sessions, "version": VERSION, **doc,
+                                                     "items": items}, indent=1, default=str),
+                                         encoding="utf-8")
+    print(json.dumps(doc, indent=1, default=str), flush=True)
+    if record:
+        from reticle.metrics import record as rec
+        vals, ci = {}, {}
+        for scope in ("in_view", "all"):
+            b = doc[scope]
+            vals[f"{scope}_n"] = b["n"]
+            vals[f"{scope}_false"] = b["false"]
+            vals[f"{scope}_false_share"] = b["false_share"]
+            if b["false_share_ci"]:
+                ci[f"{scope}_false_share"] = b["false_share_ci"]
+            for c, v in b["causes"].items():
+                vals[f"{scope}_cause_{c}"] = v
+        rec("question_acceptance", part=f"false_loss/{tag}", session=_pool_name(sessions), values=vals,
+            ci=ci, deps={"version": VERSION, "after_ms": FALSE_LOSS_AFTER_MS, "cover_px": COVER_PX,
+                         "refind_samples": REFIND_SAMPLES},
+            context={"sessions": sorted(sessions)},
+            note="glyph verify losses whose replay child lives on past the loss, by cause "
+                 "(a diagnostic of the instrument, never an input)")
+    return 0
+
+
+def false_loss_summary(items: list[dict]) -> dict:
+    """The false-loss share with a round bootstrap, the causes ranked, and
+    the refind gap of false and true losses, for in-view losses and all."""
+    def block(xs):
+        # judged: the child under the place is the node's own (its agent);
+        # a neighbour's child or an unbound node says nothing about this loss
+        judged = [x for x in xs if x.get("false") is not None and x.get("own_child")]
+        nf = sum(x["false"] for x in judged)
+        ci = None
+        if judged:
+            rng = np.random.default_rng(0)
+            g = defaultdict(lambda: [0, 0])
+            for x in judged:
+                g[(x["sid"], x["round"])][0] += x["false"]
+                g[(x["sid"], x["round"])][1] += 1
+            h = np.array([v[0] for v in g.values()], float)
+            t = np.array([v[1] for v in g.values()], float)
+            idx = rng.integers(0, len(h), (2000, len(h)))
+            bs = h[idx].sum(1) / np.maximum(t[idx].sum(1), 1)
+            ci = [round(float(np.quantile(bs, 0.025)), 4), round(float(np.quantile(bs, 0.975)), 4)]
+        causes = Counter(x["cause"] for x in judged if x["false"])
+        gap = lambda f: dict(Counter(str(x.get("refind_samples")) for x in judged if x["false"] == f))
+        return {"n": len(xs), "judged": len(judged),
+                "no_child_under": sum(1 for x in xs if x.get("false") is None),
+                "another_entitys_child": sum(1 for x in xs if x.get("false") is not None
+                                             and not x.get("own_child")),
+                "false": nf, "false_share": round(nf / len(judged), 4) if judged else None,
+                "false_share_ci": ci,
+                "causes": dict(causes.most_common()),
+                "owners": {c: FALSE_LOSS_OWNER[c] for c, _ in causes.most_common()},
+                "refind_samples_false": gap(True), "refind_samples_true": gap(False),
+                "by_side": dict(Counter(f"{x['side']}:{x['false']}" for x in judged))}
+    return {"in_view": block([x for x in items if x["view"] == "in_view"]), "all": block(items)}
+
+
 def in_view_summary(items: list[dict]) -> dict:
     """Counts, the estimate's unknown share and its accuracy where both the
     estimate and truth decided, with a bootstrap over (session, round)."""

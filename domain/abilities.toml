@@ -8069,10 +8069,9 @@ known = "player"
 since = "2026-10-09"
 subject = "abilities"
 source = """
-the player, 2026-10-09 (chat), answering the mechanics sheet's per-object
-drawing_loss question ("when its minimap drawing disappears, has the object
-ended?"): "I don't know how to interpret that. If it's in view and the object
-disappears, yes the object has ended."
+the answer of 2026-10-09 to the mechanics sheet's per-object drawing_loss
+question, which asked whether an object has ended when its minimap drawing
+disappears
 """
 use = """
 the child owner ends a node at a lost drawing only where the team's vision
@@ -8081,7 +8080,7 @@ out of view the node stays open, and an undecided view stores its reason. The
 sheet no longer asks drawing_loss per object
 """
 exceptions = """
-the player stated the rule in view only. Whether a team-owned object is drawn
+the rule covers a place in view only. Whether a team-owned object is drawn
 out of view is a separate question, which
 [domain:minimap/ability-drawings-both-sides] answers for the team's entities
 and this fact does not extend; whether an enemy-owned ability's drawing
