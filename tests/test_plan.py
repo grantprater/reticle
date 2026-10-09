@@ -1247,6 +1247,24 @@ class NeverRunTests(unittest.TestCase):
             self.assertNotIn("minimap_dark", [x["stream"] for x in p["decode"]])
             self.assertIn("minimap_dark", p["absent"])
 
+    def test_ability_light_is_work_only_where_a_candidate_exists(self):
+        """`reticle ability-light` reads the light at ability candidates'
+        instants alone (`adjudication.ability.light_applies`)."""
+        from reticle.plan import NEVER_RUN
+        with tempfile.TemporaryDirectory() as d:
+            store = _current_store(Path(d))
+            p = stale(store, ["s"])["s"]
+            self.assertNotIn("ability_light", [x["stream"] for x in p["derived"]])
+            nap = [x for x in p["not_applicable"] if x["stream"] == "ability_light"]
+            self.assertEqual([x["status"] for x in nap], ["not_applicable"])
+            self.assertTrue(nap[0]["why"].startswith("no_ability_candidates"))
+            folder = Path(d) / "labels" / "ability_candidates"
+            folder.mkdir(parents=True)
+            (folder / "s.jsonl").write_text('{"t_ms": 1000, "x": 1, "y": 2}\n', encoding="utf-8")
+            light = [x for x in stale(store, ["s"])["s"]["derived"]
+                     if x["stream"] == "ability_light"]
+            self.assertEqual([x["inputs_moved"] for x in light], [[NEVER_RUN]])
+
     def test_a_retired_stream_is_named_and_never_work(self):
         """The `ability` stream's rows stay; `plan` names the retirement."""
         from reticle.plan import RETIRED_STREAMS, UNSTAMPED

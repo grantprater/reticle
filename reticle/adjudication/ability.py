@@ -48,6 +48,19 @@ def _vision_frames(root: Path, sid: str) -> tuple[dict, list, float | None]:
     return frames, sorted(frames), hz
 
 
+def light_applies(store, session_id: str) -> tuple[str, str | None]:
+    """Whether `reticle ability-light` has any instant to read on a session:
+    ("applies", None) where `_components` holds a detector candidate or a
+    human label of it, else ("not_applicable", why). The command reads the
+    light at those instants only, so a session with none is never its work."""
+    root = Path(store.root)
+    if any(c["session_id"] == session_id for c in _components(root, _labels(root))):
+        return "applies", None
+    return ("not_applicable", "no_ability_candidates: no detector candidate or label in "
+            "labels/ability_candidates or labels/ability, so `reticle ability-light` reads "
+            "nothing")
+
+
 def light_refusals(root: Path, components: list[dict]) -> dict[str, dict]:
     """Decide, per component, whether its box is the team's drawn light.
 

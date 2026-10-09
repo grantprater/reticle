@@ -242,6 +242,11 @@ def _ability_inputs(stream: str) -> tuple[dict, tuple]:
             "clove_circle": ({}, ("death",))}[stream]
 
 
+def _ability_light_applies(store, sid: str) -> tuple[str, str | None]:
+    from .adjudication.ability import light_applies
+    return light_applies(store, sid)
+
+
 def derived_streams() -> list[dict]:
     """Every stored adjudication and derived stream `stale` does not check by
     hand. The list's order is not the build order: `build_order` derives
@@ -371,7 +376,10 @@ def derived_streams() -> list[dict]:
          "upstream": ()},
         {"stream": "ability_light", "key": "ability_light_version",
          "current": ABILITY_LIGHT_VERSION, "command": "reticle ability-light {sid}",
-         "how": "decode", "fields": {"lighting_version": LIGHTING_VERSION}, "upstream": ()},
+         "how": "decode", "fields": {"lighting_version": LIGHTING_VERSION}, "upstream": (),
+         # It reads the light only at ability candidates' instants
+         # (`adjudication.ability.light_applies`).
+         "applies": _ability_light_applies},
         # The enemy lane: the minimap objects reread the crop cache, and each
         # fix that is on is part of the stamp; the tracks rerun from storage.
         {"stream": "minimap_object", "key": "minimap_object_version",
@@ -1674,7 +1682,10 @@ def stale(store, sessions: list[str], never_run: bool = True) -> dict:
                 # A run that named nothing writes no identity event; the
                 # coverage row written beside it stamps the run and says why.
                 head = _empty_run_head(store, sid, spec)
-            if head is None and spec.get("applies") is not None:
+            # The owning rule's word is asked only where the absence would
+            # be listed: turned off, a never-run stream is no work to excuse.
+            if (head is None and spec.get("applies") is not None
+                    and (never_run or PASS_ADDED.get(stream) in stored)):
                 said = spec["applies"](store, sid)
                 if said is not None and said[0] != "applies":
                     not_applicable.append({"stream": stream, "status": said[0],
