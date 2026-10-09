@@ -96,7 +96,7 @@ LIFECYCLE_CLASSES = frozenset({"deployed", "instant", "self_buff", "equipped", "
 ENDS_ON = frozenset({"lifetime", "destroyed", "owner_death", "recall_or_reactivation",
                      "round_end"})
 DESTRUCTIBLE = frozenset({"yes", "no"})
-OWNER_DEATH = frozenset({"disabled", "persists", "not_applicable"})
+OWNER_DEATH = frozenset({"disabled", "destroyed", "persists", "not_applicable"})
 #: Keys only a lifecycle fact with a subject may carry.
 LIFECYCLE_KEYS = ("lifecycle_class", "ends_on", "destructible", "owner_death",
                   "effects", "lifetime")

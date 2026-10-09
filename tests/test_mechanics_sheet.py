@@ -38,7 +38,8 @@ values = { life = { a_s = 1.0, b_s = 2.0 }, move = { duration_s = 0.5 } }
 
 STATES = {"agents": {"Zed": {"abilities": {
     "C": {"ability": "Trap", "equippable": "/Game/Characters/Zed/Ability_C",
-          "entities": [{"entity": "/Game/Characters/Zed/GameObject_Zed_Trap", "how": "spawns"},
+          "entities": [{"entity": "/Game/Characters/Zed/GameObject_Zed_Trap", "how": "spawns",
+                        "named_by": "/Game/Characters/Zed/Ability_C"},
                        {"entity": "/Game/Characters/Zed/Debuff_Zed_Slow", "how": "names"}],
           "states": [{"owner": "/Game/Characters/Zed/Ability_C", "owner_kind": "equippable",
                       "state": "EquipState", "phase": "equip", "icons": []},
@@ -119,6 +120,75 @@ class PrefillTest(unittest.TestCase):
         self.assertEqual(len(c["candidates"]), 2)
 
 
+CAM = "/Game/Characters/Gumshoe/S0/Ability_E/"
+SPYCAM = {"agents": {"Cypher": {"abilities": {"E": {
+    "ability": "Spycam", "equippable": CAM + "Ability_Gumshoe_E_Camera",
+    "entities": [
+        {"entity": CAM + "Pawn_Gumshoe_E_PossessableCamera", "named_by": CAM + "Ability_Gumshoe_E_Camera", "how": "spawns"},
+        {"entity": CAM + "Ability_Gumshoe_E_Camera_Dart", "named_by": CAM + "Pawn_Gumshoe_E_PossessableCamera", "how": "names"},
+        {"entity": CAM + "Projectile_Gumshoe_E_CameraTrackingDart", "named_by": CAM + "Ability_Gumshoe_E_Camera_Dart", "how": "spawns"},
+        {"entity": CAM + "GameObject_RemovableObject_GumshoeTrackingDart",
+         "named_by": CAM + "Projectile_Gumshoe_E_CameraTrackingDart", "how": "spawns"},
+        {"entity": CAM + "Buff_Gumshoe_RecentlyRevealed",
+         "named_by": CAM + "GameObject_RemovableObject_GumshoeTrackingDart", "how": "names"}],
+    "states": []}}}}}
+DRONE = "/Game/Characters/Hunter/S0/Ability_E/Drone/"
+OWL = {"agents": {"Sova": {"abilities": {"C": {
+    "ability": "Owl Drone", "equippable": DRONE + "Ability_Hunter_E_DeployDrone",
+    "entities": [
+        {"entity": DRONE + "Pawn_Hunter_E_Drone", "named_by": DRONE + "Ability_Hunter_E_DeployDrone", "how": "spawns"},
+        {"entity": DRONE + "Ability_Hunter_E_Drone_Abilities", "named_by": DRONE + "Pawn_Hunter_E_Drone", "how": "names"},
+        {"entity": DRONE + "GameObject_Hunter_E_Drone_RevealDart",
+         "named_by": DRONE + "Ability_Hunter_E_Drone_Abilities", "how": "names"}],
+    "states": []}}}}}
+
+
+class SpawnTreeTest(unittest.TestCase):
+    """An ability spawning two objects yields two rows, each with its parent."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = Path(self.tmp.name)
+        dart = self.store / ms.GAME_EXPORTS / "Characters/Gumshoe/S0/Ability_E/GameObject_RemovableObject_GumshoeTrackingDart.json"
+        dart.parent.mkdir(parents=True)
+        dart.write_text(json.dumps([{"Type": "GameObject", "Name": "Default__Dart_C",
+                                     "Properties": {"DestroyOnOwnerDeath": True}}]), encoding="utf-8")
+        abilities = self.store / ms.GAME_EXPORTS / "Characters/Hunter/S0/Ability_E/Drone/Ability_Hunter_E_Drone_Abilities.json"
+        abilities.parent.mkdir(parents=True)
+        abilities.write_text(json.dumps([{"Name": "CallFunc_FinishSpawningActor_ReturnValue",
+                                          "PropertyClass": {"ObjectName":
+                                          "BlueprintGeneratedClass'GameObject_Hunter_E_Drone_RevealDart_C'"}}],
+                                        indent=1), encoding="utf-8")
+        self.exports = ms.GameExports(self.store)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_spycam_yields_a_camera_row_and_a_dart_row_under_it(self):
+        rows = ms.build_rows(SPYCAM, {}, self.exports, {})
+        self.assertEqual([r["object"] for r in rows],
+                         ["Pawn_Gumshoe_E_PossessableCamera", "GameObject_RemovableObject_GumshoeTrackingDart"])
+        cam, dart = rows
+        self.assertEqual(cam["cells"]["parent"]["value"], "ability")
+        self.assertEqual(dart["cells"]["parent"]["value"], "Pawn_Gumshoe_E_PossessableCamera")
+        self.assertEqual(dart["cells"]["parent"]["status"], "confirm")
+        self.assertEqual(dart["cells"]["owner_death"]["value"], "destroyed")
+        self.assertEqual(cam["cells"]["owner_death"]["status"], "ask")
+        self.assertEqual([d["effect"] for d in dart["cells"]["effects"]["value"]], ["reveal"])
+        self.assertEqual(cam["cells"]["effects"]["status"], "ask")
+        self.assertNotEqual(ms.cell_key(cam, "parent"), ms.cell_key(dart, "parent"))
+
+    def test_a_bytecode_spawn_call_sets_the_parent(self):
+        drone, dart = ms.build_rows(OWL, {}, self.exports, {})
+        self.assertEqual(dart["cells"]["parent"]["value"], "Pawn_Hunter_E_Drone")
+        self.assertIn("FinishSpawningActor", dart["cells"]["parent"]["sources"][0])
+
+    def test_a_reference_without_a_spawn_is_asked(self):
+        (self.store / ms.GAME_EXPORTS / "Characters/Hunter/S0/Ability_E/Drone/Ability_Hunter_E_Drone_Abilities.json").unlink()
+        _drone, dart = ms.build_rows(OWL, {}, ms.GameExports(self.store), {})
+        self.assertEqual((dart["cells"]["parent"]["status"], dart["cells"]["parent"]["value"]), ("ask", None))
+
+
 class WalkAndImportTest(unittest.TestCase):
     def setUp(self):
         from contextlib import ExitStack
@@ -154,9 +224,10 @@ class WalkAndImportTest(unittest.TestCase):
         self.assertEqual(self.target.read_text(encoding="utf-8"), before)
 
     def test_import_writes_a_valid_lifecycle_fact(self):
-        # C: class y, lifetime y, destructible y, owner death d (default),
-        # ends_on y, states y, effects y, slow targets 3 (enemies), minimap y.
-        self.s.walk(["y", "y", "y", "d", "y", "y", "y", "3", "y", "q"], agent="Zed")
+        # C: parent y, class y, lifetime y, destructible y, owner death d
+        # (default), ends_on y, states y, effects y, slow targets 3 (enemies),
+        # minimap y.
+        self.s.walk(["y", "y", "y", "y", "d", "y", "y", "y", "3", "y", "q"], agent="Zed")
         self.assertEqual(self.answers()["Zed:C:owner_death"]["how"], "default")
         texts, _ = ms.import_rows(self.s.store, self.s.rows, write=True,
                                   target=self.target, out=io.StringIO())
